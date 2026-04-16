@@ -5,12 +5,13 @@
 package foremanimportv1connect
 
 import (
-	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
-	v1 "github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1"
 	http "net/http"
 	strings "strings"
+
+	connect "connectrpc.com/connect"
+	v1 "github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1"
 )
 
 // This is a compile-time assertion to ensure that this generated file and the connect package are
@@ -18,7 +19,7 @@ import (
 // generated with a version of connect newer than the one compiled into your binary. You can fix the
 // problem by either regenerating this code with an older version of connect or updating the connect
 // version compiled into your binary.
-const _ = connect.IsAtLeastVersion1_13_0
+const _ = connect.IsAtLeastVersion0_1_0
 
 const (
 	// ForemanImportServiceName is the fully-qualified name of the ForemanImportService service.
@@ -60,19 +61,16 @@ type ForemanImportServiceClient interface {
 // http://api.acme.com or https://acme.com/grpc).
 func NewForemanImportServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) ForemanImportServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
-	foremanImportServiceMethods := v1.File_foremanimport_v1_foremanimport_proto.Services().ByName("ForemanImportService").Methods()
 	return &foremanImportServiceClient{
 		importFromForeman: connect.NewClient[v1.ImportFromForemanRequest, v1.ImportFromForemanResponse](
 			httpClient,
 			baseURL+ForemanImportServiceImportFromForemanProcedure,
-			connect.WithSchema(foremanImportServiceMethods.ByName("ImportFromForeman")),
-			connect.WithClientOptions(opts...),
+			opts...,
 		),
 		completeImport: connect.NewClient[v1.CompleteImportRequest, v1.CompleteImportResponse](
 			httpClient,
 			baseURL+ForemanImportServiceCompleteImportProcedure,
-			connect.WithSchema(foremanImportServiceMethods.ByName("CompleteImport")),
-			connect.WithClientOptions(opts...),
+			opts...,
 		),
 	}
 }
@@ -110,18 +108,15 @@ type ForemanImportServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewForemanImportServiceHandler(svc ForemanImportServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
-	foremanImportServiceMethods := v1.File_foremanimport_v1_foremanimport_proto.Services().ByName("ForemanImportService").Methods()
 	foremanImportServiceImportFromForemanHandler := connect.NewUnaryHandler(
 		ForemanImportServiceImportFromForemanProcedure,
 		svc.ImportFromForeman,
-		connect.WithSchema(foremanImportServiceMethods.ByName("ImportFromForeman")),
-		connect.WithHandlerOptions(opts...),
+		opts...,
 	)
 	foremanImportServiceCompleteImportHandler := connect.NewUnaryHandler(
 		ForemanImportServiceCompleteImportProcedure,
 		svc.CompleteImport,
-		connect.WithSchema(foremanImportServiceMethods.ByName("CompleteImport")),
-		connect.WithHandlerOptions(opts...),
+		opts...,
 	)
 	return "/foremanimport.v1.ForemanImportService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

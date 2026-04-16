@@ -10,8 +10,12 @@ import type { Message } from "@bufbuild/protobuf";
 /**
  * Describes the file common/v1/sort.proto.
  */
-export const file_common_v1_sort: GenFile = /*@__PURE__*/
-  fileDesc("ChRjb21tb24vdjEvc29ydC5wcm90bxIJY29tbW9uLnYxInIKClNvcnRDb25maWcSLQoFZmllbGQYASABKA4yFC5jb21tb24udjEuU29ydEZpZWxkQgi6SAWCAQIQARI1CglkaXJlY3Rpb24YAiABKA4yGC5jb21tb24udjEuU29ydERpcmVjdGlvbkIIukgFggECEAEqjAMKCVNvcnRGaWVsZBIaChZTT1JUX0ZJRUxEX1VOU1BFQ0lGSUVEEAASEwoPU09SVF9GSUVMRF9OQU1FEAESGQoVU09SVF9GSUVMRF9JUF9BRERSRVNTEAISGgoWU09SVF9GSUVMRF9NQUNfQUREUkVTUxADEhQKEFNPUlRfRklFTERfTU9ERUwQBRIXChNTT1JUX0ZJRUxEX0hBU0hSQVRFEAYSGgoWU09SVF9GSUVMRF9URU1QRVJBVFVSRRAHEhQKEFNPUlRfRklFTERfUE9XRVIQCBIZChVTT1JUX0ZJRUxEX0VGRklDSUVOQ1kQCRIXChNTT1JUX0ZJRUxEX0ZJUk1XQVJFEAsSGwoXU09SVF9GSUVMRF9ERVZJQ0VfQ09VTlQQDBIXChNTT1JUX0ZJRUxEX0xPQ0FUSU9OEA0SGgoWU09SVF9GSUVMRF9XT1JLRVJfTkFNRRAOIgQIBBAEIgQIChAKKhFTT1JUX0ZJRUxEX1NUQVRVUyoRU09SVF9GSUVMRF9JU1NVRVMqYAoNU29ydERpcmVjdGlvbhIeChpTT1JUX0RJUkVDVElPTl9VTlNQRUNJRklFRBAAEhYKElNPUlRfRElSRUNUSU9OX0FTQxABEhcKE1NPUlRfRElSRUNUSU9OX0RFU0MQAkKmAQoNY29tLmNvbW1vbi52MUIJU29ydFByb3RvUAFaRWdpdGh1Yi5jb20vYmxvY2svcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL2NvbW1vbi92MTtjb21tb252MaICA0NYWKoCCUNvbW1vbi5WMcoCCUNvbW1vblxWMeICFUNvbW1vblxWMVxHUEJNZXRhZGF0YeoCCkNvbW1vbjo6VjFiBnByb3RvMw", [file_buf_validate_validate]);
+export const file_common_v1_sort: GenFile =
+  /*@__PURE__*/
+  fileDesc(
+    "ChRjb21tb24vdjEvc29ydC5wcm90bxIJY29tbW9uLnYxInIKClNvcnRDb25maWcSLQoFZmllbGQYASABKA4yFC5jb21tb24udjEuU29ydEZpZWxkQgi6SAWCAQIQARI1CglkaXJlY3Rpb24YAiABKA4yGC5jb21tb24udjEuU29ydERpcmVjdGlvbkIIukgFggECEAEqjAMKCVNvcnRGaWVsZBIaChZTT1JUX0ZJRUxEX1VOU1BFQ0lGSUVEEAASEwoPU09SVF9GSUVMRF9OQU1FEAESGQoVU09SVF9GSUVMRF9JUF9BRERSRVNTEAISGgoWU09SVF9GSUVMRF9NQUNfQUREUkVTUxADEhQKEFNPUlRfRklFTERfTU9ERUwQBRIXChNTT1JUX0ZJRUxEX0hBU0hSQVRFEAYSGgoWU09SVF9GSUVMRF9URU1QRVJBVFVSRRAHEhQKEFNPUlRfRklFTERfUE9XRVIQCBIZChVTT1JUX0ZJRUxEX0VGRklDSUVOQ1kQCRIXChNTT1JUX0ZJRUxEX0ZJUk1XQVJFEAsSGwoXU09SVF9GSUVMRF9ERVZJQ0VfQ09VTlQQDBIXChNTT1JUX0ZJRUxEX0xPQ0FUSU9OEA0SGgoWU09SVF9GSUVMRF9XT1JLRVJfTkFNRRAOIgQIBBAEIgQIChAKKhFTT1JUX0ZJRUxEX1NUQVRVUyoRU09SVF9GSUVMRF9JU1NVRVMqYAoNU29ydERpcmVjdGlvbhIeChpTT1JUX0RJUkVDVElPTl9VTlNQRUNJRklFRBAAEhYKElNPUlRfRElSRUNUSU9OX0FTQxABEhcKE1NPUlRfRElSRUNUSU9OX0RFU0MQAkKmAQoNY29tLmNvbW1vbi52MUIJU29ydFByb3RvUAFaRWdpdGh1Yi5jb20vYmxvY2svcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL2NvbW1vbi92MTtjb21tb252MaICA0NYWKoCCUNvbW1vbi5WMcoCCUNvbW1vblxWMeICFUNvbW1vblxWMVxHUEJNZXRhZGF0YeoCCkNvbW1vbjo6VjFiBnByb3RvMw",
+    [file_buf_validate_validate],
+  );
 
 /**
  * Configuration for sorting list results
@@ -38,8 +42,7 @@ export type SortConfig = Message<"common.v1.SortConfig"> & {
  * Describes the message common.v1.SortConfig.
  * Use `create(SortConfigSchema)` to create a new message.
  */
-export const SortConfigSchema: GenMessage<SortConfig> = /*@__PURE__*/
-  messageDesc(file_common_v1_sort, 0);
+export const SortConfigSchema: GenMessage<SortConfig> = /*@__PURE__*/ messageDesc(file_common_v1_sort, 0);
 
 /**
  * Field to sort by in list operations.
@@ -143,8 +146,7 @@ export enum SortField {
 /**
  * Describes the enum common.v1.SortField.
  */
-export const SortFieldSchema: GenEnum<SortField> = /*@__PURE__*/
-  enumDesc(file_common_v1_sort, 0);
+export const SortFieldSchema: GenEnum<SortField> = /*@__PURE__*/ enumDesc(file_common_v1_sort, 0);
 
 /**
  * Direction to sort results
@@ -177,6 +179,4 @@ export enum SortDirection {
 /**
  * Describes the enum common.v1.SortDirection.
  */
-export const SortDirectionSchema: GenEnum<SortDirection> = /*@__PURE__*/
-  enumDesc(file_common_v1_sort, 1);
-
+export const SortDirectionSchema: GenEnum<SortDirection> = /*@__PURE__*/ enumDesc(file_common_v1_sort, 1);

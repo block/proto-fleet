@@ -5,12 +5,13 @@
 package device_setv1connect
 
 import (
-	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
-	v1 "github.com/block/proto-fleet/server/generated/grpc/device_set/v1"
 	http "net/http"
 	strings "strings"
+
+	connect "connectrpc.com/connect"
+	v1 "github.com/block/proto-fleet/server/generated/grpc/device_set/v1"
 )
 
 // This is a compile-time assertion to ensure that this generated file and the connect package are
@@ -18,7 +19,7 @@ import (
 // generated with a version of connect newer than the one compiled into your binary. You can fix the
 // problem by either regenerating this code with an older version of connect or updating the connect
 // version compiled into your binary.
-const _ = connect.IsAtLeastVersion1_13_0
+const _ = connect.IsAtLeastVersion0_1_0
 
 const (
 	// DeviceSetServiceName is the fully-qualified name of the DeviceSetService service.
@@ -129,103 +130,86 @@ type DeviceSetServiceClient interface {
 // http://api.acme.com or https://acme.com/grpc).
 func NewDeviceSetServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) DeviceSetServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
-	deviceSetServiceMethods := v1.File_device_set_v1_device_set_proto.Services().ByName("DeviceSetService").Methods()
 	return &deviceSetServiceClient{
 		createDeviceSet: connect.NewClient[v1.CreateDeviceSetRequest, v1.CreateDeviceSetResponse](
 			httpClient,
 			baseURL+DeviceSetServiceCreateDeviceSetProcedure,
-			connect.WithSchema(deviceSetServiceMethods.ByName("CreateDeviceSet")),
-			connect.WithClientOptions(opts...),
+			opts...,
 		),
 		getDeviceSet: connect.NewClient[v1.GetDeviceSetRequest, v1.GetDeviceSetResponse](
 			httpClient,
 			baseURL+DeviceSetServiceGetDeviceSetProcedure,
-			connect.WithSchema(deviceSetServiceMethods.ByName("GetDeviceSet")),
-			connect.WithClientOptions(opts...),
+			opts...,
 		),
 		updateDeviceSet: connect.NewClient[v1.UpdateDeviceSetRequest, v1.UpdateDeviceSetResponse](
 			httpClient,
 			baseURL+DeviceSetServiceUpdateDeviceSetProcedure,
-			connect.WithSchema(deviceSetServiceMethods.ByName("UpdateDeviceSet")),
-			connect.WithClientOptions(opts...),
+			opts...,
 		),
 		deleteDeviceSet: connect.NewClient[v1.DeleteDeviceSetRequest, v1.DeleteDeviceSetResponse](
 			httpClient,
 			baseURL+DeviceSetServiceDeleteDeviceSetProcedure,
-			connect.WithSchema(deviceSetServiceMethods.ByName("DeleteDeviceSet")),
-			connect.WithClientOptions(opts...),
+			opts...,
 		),
 		listDeviceSets: connect.NewClient[v1.ListDeviceSetsRequest, v1.ListDeviceSetsResponse](
 			httpClient,
 			baseURL+DeviceSetServiceListDeviceSetsProcedure,
-			connect.WithSchema(deviceSetServiceMethods.ByName("ListDeviceSets")),
-			connect.WithClientOptions(opts...),
+			opts...,
 		),
 		addDevicesToDeviceSet: connect.NewClient[v1.AddDevicesToDeviceSetRequest, v1.AddDevicesToDeviceSetResponse](
 			httpClient,
 			baseURL+DeviceSetServiceAddDevicesToDeviceSetProcedure,
-			connect.WithSchema(deviceSetServiceMethods.ByName("AddDevicesToDeviceSet")),
-			connect.WithClientOptions(opts...),
+			opts...,
 		),
 		removeDevicesFromDeviceSet: connect.NewClient[v1.RemoveDevicesFromDeviceSetRequest, v1.RemoveDevicesFromDeviceSetResponse](
 			httpClient,
 			baseURL+DeviceSetServiceRemoveDevicesFromDeviceSetProcedure,
-			connect.WithSchema(deviceSetServiceMethods.ByName("RemoveDevicesFromDeviceSet")),
-			connect.WithClientOptions(opts...),
+			opts...,
 		),
 		listDeviceSetMembers: connect.NewClient[v1.ListDeviceSetMembersRequest, v1.ListDeviceSetMembersResponse](
 			httpClient,
 			baseURL+DeviceSetServiceListDeviceSetMembersProcedure,
-			connect.WithSchema(deviceSetServiceMethods.ByName("ListDeviceSetMembers")),
-			connect.WithClientOptions(opts...),
+			opts...,
 		),
 		getDeviceDeviceSets: connect.NewClient[v1.GetDeviceDeviceSetsRequest, v1.GetDeviceDeviceSetsResponse](
 			httpClient,
 			baseURL+DeviceSetServiceGetDeviceDeviceSetsProcedure,
-			connect.WithSchema(deviceSetServiceMethods.ByName("GetDeviceDeviceSets")),
-			connect.WithClientOptions(opts...),
+			opts...,
 		),
 		setRackSlotPosition: connect.NewClient[v1.SetRackSlotPositionRequest, v1.SetRackSlotPositionResponse](
 			httpClient,
 			baseURL+DeviceSetServiceSetRackSlotPositionProcedure,
-			connect.WithSchema(deviceSetServiceMethods.ByName("SetRackSlotPosition")),
-			connect.WithClientOptions(opts...),
+			opts...,
 		),
 		clearRackSlotPosition: connect.NewClient[v1.ClearRackSlotPositionRequest, v1.ClearRackSlotPositionResponse](
 			httpClient,
 			baseURL+DeviceSetServiceClearRackSlotPositionProcedure,
-			connect.WithSchema(deviceSetServiceMethods.ByName("ClearRackSlotPosition")),
-			connect.WithClientOptions(opts...),
+			opts...,
 		),
 		getRackSlots: connect.NewClient[v1.GetRackSlotsRequest, v1.GetRackSlotsResponse](
 			httpClient,
 			baseURL+DeviceSetServiceGetRackSlotsProcedure,
-			connect.WithSchema(deviceSetServiceMethods.ByName("GetRackSlots")),
-			connect.WithClientOptions(opts...),
+			opts...,
 		),
 		getDeviceSetStats: connect.NewClient[v1.GetDeviceSetStatsRequest, v1.GetDeviceSetStatsResponse](
 			httpClient,
 			baseURL+DeviceSetServiceGetDeviceSetStatsProcedure,
-			connect.WithSchema(deviceSetServiceMethods.ByName("GetDeviceSetStats")),
-			connect.WithClientOptions(opts...),
+			opts...,
 		),
 		listRackZones: connect.NewClient[v1.ListRackZonesRequest, v1.ListRackZonesResponse](
 			httpClient,
 			baseURL+DeviceSetServiceListRackZonesProcedure,
-			connect.WithSchema(deviceSetServiceMethods.ByName("ListRackZones")),
-			connect.WithClientOptions(opts...),
+			opts...,
 		),
 		listRackTypes: connect.NewClient[v1.ListRackTypesRequest, v1.ListRackTypesResponse](
 			httpClient,
 			baseURL+DeviceSetServiceListRackTypesProcedure,
-			connect.WithSchema(deviceSetServiceMethods.ByName("ListRackTypes")),
-			connect.WithClientOptions(opts...),
+			opts...,
 		),
 		saveRack: connect.NewClient[v1.SaveRackRequest, v1.SaveRackResponse](
 			httpClient,
 			baseURL+DeviceSetServiceSaveRackProcedure,
-			connect.WithSchema(deviceSetServiceMethods.ByName("SaveRack")),
-			connect.WithClientOptions(opts...),
+			opts...,
 		),
 	}
 }
@@ -373,102 +357,85 @@ type DeviceSetServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewDeviceSetServiceHandler(svc DeviceSetServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
-	deviceSetServiceMethods := v1.File_device_set_v1_device_set_proto.Services().ByName("DeviceSetService").Methods()
 	deviceSetServiceCreateDeviceSetHandler := connect.NewUnaryHandler(
 		DeviceSetServiceCreateDeviceSetProcedure,
 		svc.CreateDeviceSet,
-		connect.WithSchema(deviceSetServiceMethods.ByName("CreateDeviceSet")),
-		connect.WithHandlerOptions(opts...),
+		opts...,
 	)
 	deviceSetServiceGetDeviceSetHandler := connect.NewUnaryHandler(
 		DeviceSetServiceGetDeviceSetProcedure,
 		svc.GetDeviceSet,
-		connect.WithSchema(deviceSetServiceMethods.ByName("GetDeviceSet")),
-		connect.WithHandlerOptions(opts...),
+		opts...,
 	)
 	deviceSetServiceUpdateDeviceSetHandler := connect.NewUnaryHandler(
 		DeviceSetServiceUpdateDeviceSetProcedure,
 		svc.UpdateDeviceSet,
-		connect.WithSchema(deviceSetServiceMethods.ByName("UpdateDeviceSet")),
-		connect.WithHandlerOptions(opts...),
+		opts...,
 	)
 	deviceSetServiceDeleteDeviceSetHandler := connect.NewUnaryHandler(
 		DeviceSetServiceDeleteDeviceSetProcedure,
 		svc.DeleteDeviceSet,
-		connect.WithSchema(deviceSetServiceMethods.ByName("DeleteDeviceSet")),
-		connect.WithHandlerOptions(opts...),
+		opts...,
 	)
 	deviceSetServiceListDeviceSetsHandler := connect.NewUnaryHandler(
 		DeviceSetServiceListDeviceSetsProcedure,
 		svc.ListDeviceSets,
-		connect.WithSchema(deviceSetServiceMethods.ByName("ListDeviceSets")),
-		connect.WithHandlerOptions(opts...),
+		opts...,
 	)
 	deviceSetServiceAddDevicesToDeviceSetHandler := connect.NewUnaryHandler(
 		DeviceSetServiceAddDevicesToDeviceSetProcedure,
 		svc.AddDevicesToDeviceSet,
-		connect.WithSchema(deviceSetServiceMethods.ByName("AddDevicesToDeviceSet")),
-		connect.WithHandlerOptions(opts...),
+		opts...,
 	)
 	deviceSetServiceRemoveDevicesFromDeviceSetHandler := connect.NewUnaryHandler(
 		DeviceSetServiceRemoveDevicesFromDeviceSetProcedure,
 		svc.RemoveDevicesFromDeviceSet,
-		connect.WithSchema(deviceSetServiceMethods.ByName("RemoveDevicesFromDeviceSet")),
-		connect.WithHandlerOptions(opts...),
+		opts...,
 	)
 	deviceSetServiceListDeviceSetMembersHandler := connect.NewUnaryHandler(
 		DeviceSetServiceListDeviceSetMembersProcedure,
 		svc.ListDeviceSetMembers,
-		connect.WithSchema(deviceSetServiceMethods.ByName("ListDeviceSetMembers")),
-		connect.WithHandlerOptions(opts...),
+		opts...,
 	)
 	deviceSetServiceGetDeviceDeviceSetsHandler := connect.NewUnaryHandler(
 		DeviceSetServiceGetDeviceDeviceSetsProcedure,
 		svc.GetDeviceDeviceSets,
-		connect.WithSchema(deviceSetServiceMethods.ByName("GetDeviceDeviceSets")),
-		connect.WithHandlerOptions(opts...),
+		opts...,
 	)
 	deviceSetServiceSetRackSlotPositionHandler := connect.NewUnaryHandler(
 		DeviceSetServiceSetRackSlotPositionProcedure,
 		svc.SetRackSlotPosition,
-		connect.WithSchema(deviceSetServiceMethods.ByName("SetRackSlotPosition")),
-		connect.WithHandlerOptions(opts...),
+		opts...,
 	)
 	deviceSetServiceClearRackSlotPositionHandler := connect.NewUnaryHandler(
 		DeviceSetServiceClearRackSlotPositionProcedure,
 		svc.ClearRackSlotPosition,
-		connect.WithSchema(deviceSetServiceMethods.ByName("ClearRackSlotPosition")),
-		connect.WithHandlerOptions(opts...),
+		opts...,
 	)
 	deviceSetServiceGetRackSlotsHandler := connect.NewUnaryHandler(
 		DeviceSetServiceGetRackSlotsProcedure,
 		svc.GetRackSlots,
-		connect.WithSchema(deviceSetServiceMethods.ByName("GetRackSlots")),
-		connect.WithHandlerOptions(opts...),
+		opts...,
 	)
 	deviceSetServiceGetDeviceSetStatsHandler := connect.NewUnaryHandler(
 		DeviceSetServiceGetDeviceSetStatsProcedure,
 		svc.GetDeviceSetStats,
-		connect.WithSchema(deviceSetServiceMethods.ByName("GetDeviceSetStats")),
-		connect.WithHandlerOptions(opts...),
+		opts...,
 	)
 	deviceSetServiceListRackZonesHandler := connect.NewUnaryHandler(
 		DeviceSetServiceListRackZonesProcedure,
 		svc.ListRackZones,
-		connect.WithSchema(deviceSetServiceMethods.ByName("ListRackZones")),
-		connect.WithHandlerOptions(opts...),
+		opts...,
 	)
 	deviceSetServiceListRackTypesHandler := connect.NewUnaryHandler(
 		DeviceSetServiceListRackTypesProcedure,
 		svc.ListRackTypes,
-		connect.WithSchema(deviceSetServiceMethods.ByName("ListRackTypes")),
-		connect.WithHandlerOptions(opts...),
+		opts...,
 	)
 	deviceSetServiceSaveRackHandler := connect.NewUnaryHandler(
 		DeviceSetServiceSaveRackProcedure,
 		svc.SaveRack,
-		connect.WithSchema(deviceSetServiceMethods.ByName("SaveRack")),
-		connect.WithHandlerOptions(opts...),
+		opts...,
 	)
 	return "/device_set.v1.DeviceSetService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

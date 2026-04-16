@@ -39,7 +39,12 @@ const Dashboard = () => {
   const { refs } = useStickyState();
 
   // Fleet counts — polled for fresh minerStateCounts and per-metric capability counts
-  const { totalMiners, stateCounts, capabilityCounts, hasLoaded: countsLoaded } = useFleetCounts({
+  const {
+    totalMiners,
+    stateCounts,
+    capabilityCounts,
+    hasLoaded: countsLoaded,
+  } = useFleetCounts({
     pollIntervalMs: POLL_INTERVAL_MS,
   });
 
@@ -128,8 +133,18 @@ const Dashboard = () => {
               <TemperaturePanel duration={duration} temperatureStatusCounts={temperatureStatusCounts} />
 
               <div className="grid grid-cols-2 gap-1 phone:grid-cols-1 tablet:grid-cols-1">
-                <PowerPanel duration={duration} metrics={powerMetrics} totalMiners={totalMiners} fleetDeviceCount={capabilityCounts[MeasurementType.POWER]} />
-                <EfficiencyPanel duration={duration} metrics={efficiencyMetrics} totalMiners={totalMiners} fleetDeviceCount={capabilityCounts[MeasurementType.EFFICIENCY]} />
+                <PowerPanel
+                  duration={duration}
+                  metrics={powerMetrics}
+                  totalMiners={totalMiners}
+                  fleetDeviceCount={capabilityCounts[MeasurementType.POWER]}
+                />
+                <EfficiencyPanel
+                  duration={duration}
+                  metrics={efficiencyMetrics}
+                  totalMiners={totalMiners}
+                  fleetDeviceCount={capabilityCounts[MeasurementType.EFFICIENCY]}
+                />
               </div>
             </div>
 

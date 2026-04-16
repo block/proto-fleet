@@ -5,12 +5,13 @@
 package networkinfov1connect
 
 import (
-	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
-	v1 "github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1"
 	http "net/http"
 	strings "strings"
+
+	connect "connectrpc.com/connect"
+	v1 "github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1"
 )
 
 // This is a compile-time assertion to ensure that this generated file and the connect package are
@@ -18,7 +19,7 @@ import (
 // generated with a version of connect newer than the one compiled into your binary. You can fix the
 // problem by either regenerating this code with an older version of connect or updating the connect
 // version compiled into your binary.
-const _ = connect.IsAtLeastVersion1_13_0
+const _ = connect.IsAtLeastVersion0_1_0
 
 const (
 	// NetworkInfoServiceName is the fully-qualified name of the NetworkInfoService service.
@@ -58,19 +59,16 @@ type NetworkInfoServiceClient interface {
 // http://api.acme.com or https://acme.com/grpc).
 func NewNetworkInfoServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) NetworkInfoServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
-	networkInfoServiceMethods := v1.File_networkinfo_v1_networkinfo_proto.Services().ByName("NetworkInfoService").Methods()
 	return &networkInfoServiceClient{
 		getNetworkInfo: connect.NewClient[v1.GetNetworkInfoRequest, v1.GetNetworkInfoResponse](
 			httpClient,
 			baseURL+NetworkInfoServiceGetNetworkInfoProcedure,
-			connect.WithSchema(networkInfoServiceMethods.ByName("GetNetworkInfo")),
-			connect.WithClientOptions(opts...),
+			opts...,
 		),
 		updateNetworkNickname: connect.NewClient[v1.UpdateNetworkNicknameRequest, v1.UpdateNetworkNicknameResponse](
 			httpClient,
 			baseURL+NetworkInfoServiceUpdateNetworkNicknameProcedure,
-			connect.WithSchema(networkInfoServiceMethods.ByName("UpdateNetworkNickname")),
-			connect.WithClientOptions(opts...),
+			opts...,
 		),
 	}
 }
@@ -105,18 +103,15 @@ type NetworkInfoServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewNetworkInfoServiceHandler(svc NetworkInfoServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
-	networkInfoServiceMethods := v1.File_networkinfo_v1_networkinfo_proto.Services().ByName("NetworkInfoService").Methods()
 	networkInfoServiceGetNetworkInfoHandler := connect.NewUnaryHandler(
 		NetworkInfoServiceGetNetworkInfoProcedure,
 		svc.GetNetworkInfo,
-		connect.WithSchema(networkInfoServiceMethods.ByName("GetNetworkInfo")),
-		connect.WithHandlerOptions(opts...),
+		opts...,
 	)
 	networkInfoServiceUpdateNetworkNicknameHandler := connect.NewUnaryHandler(
 		NetworkInfoServiceUpdateNetworkNicknameProcedure,
 		svc.UpdateNetworkNickname,
-		connect.WithSchema(networkInfoServiceMethods.ByName("UpdateNetworkNickname")),
-		connect.WithHandlerOptions(opts...),
+		opts...,
 	)
 	return "/networkinfo.v1.NetworkInfoService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

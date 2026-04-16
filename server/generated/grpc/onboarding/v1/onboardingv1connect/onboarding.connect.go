@@ -5,12 +5,13 @@
 package onboardingv1connect
 
 import (
-	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
-	v1 "github.com/block/proto-fleet/server/generated/grpc/onboarding/v1"
 	http "net/http"
 	strings "strings"
+
+	connect "connectrpc.com/connect"
+	v1 "github.com/block/proto-fleet/server/generated/grpc/onboarding/v1"
 )
 
 // This is a compile-time assertion to ensure that this generated file and the connect package are
@@ -18,7 +19,7 @@ import (
 // generated with a version of connect newer than the one compiled into your binary. You can fix the
 // problem by either regenerating this code with an older version of connect or updating the connect
 // version compiled into your binary.
-const _ = connect.IsAtLeastVersion1_13_0
+const _ = connect.IsAtLeastVersion0_1_0
 
 const (
 	// OnboardingServiceName is the fully-qualified name of the OnboardingService service.
@@ -60,25 +61,21 @@ type OnboardingServiceClient interface {
 // http://api.acme.com or https://acme.com/grpc).
 func NewOnboardingServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) OnboardingServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
-	onboardingServiceMethods := v1.File_onboarding_v1_onboarding_proto.Services().ByName("OnboardingService").Methods()
 	return &onboardingServiceClient{
 		createAdminLogin: connect.NewClient[v1.CreateAdminLoginRequest, v1.CreateAdminLoginResponse](
 			httpClient,
 			baseURL+OnboardingServiceCreateAdminLoginProcedure,
-			connect.WithSchema(onboardingServiceMethods.ByName("CreateAdminLogin")),
-			connect.WithClientOptions(opts...),
+			opts...,
 		),
 		getFleetInitStatus: connect.NewClient[v1.GetFleetInitStatusRequest, v1.GetFleetInitStatusResponse](
 			httpClient,
 			baseURL+OnboardingServiceGetFleetInitStatusProcedure,
-			connect.WithSchema(onboardingServiceMethods.ByName("GetFleetInitStatus")),
-			connect.WithClientOptions(opts...),
+			opts...,
 		),
 		getFleetOnboardingStatus: connect.NewClient[v1.GetFleetOnboardingStatusRequest, v1.GetFleetOnboardingStatusResponse](
 			httpClient,
 			baseURL+OnboardingServiceGetFleetOnboardingStatusProcedure,
-			connect.WithSchema(onboardingServiceMethods.ByName("GetFleetOnboardingStatus")),
-			connect.WithClientOptions(opts...),
+			opts...,
 		),
 	}
 }
@@ -118,24 +115,20 @@ type OnboardingServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewOnboardingServiceHandler(svc OnboardingServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
-	onboardingServiceMethods := v1.File_onboarding_v1_onboarding_proto.Services().ByName("OnboardingService").Methods()
 	onboardingServiceCreateAdminLoginHandler := connect.NewUnaryHandler(
 		OnboardingServiceCreateAdminLoginProcedure,
 		svc.CreateAdminLogin,
-		connect.WithSchema(onboardingServiceMethods.ByName("CreateAdminLogin")),
-		connect.WithHandlerOptions(opts...),
+		opts...,
 	)
 	onboardingServiceGetFleetInitStatusHandler := connect.NewUnaryHandler(
 		OnboardingServiceGetFleetInitStatusProcedure,
 		svc.GetFleetInitStatus,
-		connect.WithSchema(onboardingServiceMethods.ByName("GetFleetInitStatus")),
-		connect.WithHandlerOptions(opts...),
+		opts...,
 	)
 	onboardingServiceGetFleetOnboardingStatusHandler := connect.NewUnaryHandler(
 		OnboardingServiceGetFleetOnboardingStatusProcedure,
 		svc.GetFleetOnboardingStatus,
-		connect.WithSchema(onboardingServiceMethods.ByName("GetFleetOnboardingStatus")),
-		connect.WithHandlerOptions(opts...),
+		opts...,
 	)
 	return "/onboarding.v1.OnboardingService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

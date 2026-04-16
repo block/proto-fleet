@@ -5,12 +5,13 @@
 package schedulev1connect
 
 import (
-	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
-	v1 "github.com/block/proto-fleet/server/generated/grpc/schedule/v1"
 	http "net/http"
 	strings "strings"
+
+	connect "connectrpc.com/connect"
+	v1 "github.com/block/proto-fleet/server/generated/grpc/schedule/v1"
 )
 
 // This is a compile-time assertion to ensure that this generated file and the connect package are
@@ -18,7 +19,7 @@ import (
 // generated with a version of connect newer than the one compiled into your binary. You can fix the
 // problem by either regenerating this code with an older version of connect or updating the connect
 // version compiled into your binary.
-const _ = connect.IsAtLeastVersion1_13_0
+const _ = connect.IsAtLeastVersion0_1_0
 
 const (
 	// ScheduleServiceName is the fully-qualified name of the ScheduleService service.
@@ -83,49 +84,41 @@ type ScheduleServiceClient interface {
 // http://api.acme.com or https://acme.com/grpc).
 func NewScheduleServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) ScheduleServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
-	scheduleServiceMethods := v1.File_schedule_v1_schedule_proto.Services().ByName("ScheduleService").Methods()
 	return &scheduleServiceClient{
 		listSchedules: connect.NewClient[v1.ListSchedulesRequest, v1.ListSchedulesResponse](
 			httpClient,
 			baseURL+ScheduleServiceListSchedulesProcedure,
-			connect.WithSchema(scheduleServiceMethods.ByName("ListSchedules")),
-			connect.WithClientOptions(opts...),
+			opts...,
 		),
 		createSchedule: connect.NewClient[v1.CreateScheduleRequest, v1.CreateScheduleResponse](
 			httpClient,
 			baseURL+ScheduleServiceCreateScheduleProcedure,
-			connect.WithSchema(scheduleServiceMethods.ByName("CreateSchedule")),
-			connect.WithClientOptions(opts...),
+			opts...,
 		),
 		updateSchedule: connect.NewClient[v1.UpdateScheduleRequest, v1.UpdateScheduleResponse](
 			httpClient,
 			baseURL+ScheduleServiceUpdateScheduleProcedure,
-			connect.WithSchema(scheduleServiceMethods.ByName("UpdateSchedule")),
-			connect.WithClientOptions(opts...),
+			opts...,
 		),
 		deleteSchedule: connect.NewClient[v1.DeleteScheduleRequest, v1.DeleteScheduleResponse](
 			httpClient,
 			baseURL+ScheduleServiceDeleteScheduleProcedure,
-			connect.WithSchema(scheduleServiceMethods.ByName("DeleteSchedule")),
-			connect.WithClientOptions(opts...),
+			opts...,
 		),
 		pauseSchedule: connect.NewClient[v1.PauseScheduleRequest, v1.PauseScheduleResponse](
 			httpClient,
 			baseURL+ScheduleServicePauseScheduleProcedure,
-			connect.WithSchema(scheduleServiceMethods.ByName("PauseSchedule")),
-			connect.WithClientOptions(opts...),
+			opts...,
 		),
 		resumeSchedule: connect.NewClient[v1.ResumeScheduleRequest, v1.ResumeScheduleResponse](
 			httpClient,
 			baseURL+ScheduleServiceResumeScheduleProcedure,
-			connect.WithSchema(scheduleServiceMethods.ByName("ResumeSchedule")),
-			connect.WithClientOptions(opts...),
+			opts...,
 		),
 		reorderSchedules: connect.NewClient[v1.ReorderSchedulesRequest, v1.ReorderSchedulesResponse](
 			httpClient,
 			baseURL+ScheduleServiceReorderSchedulesProcedure,
-			connect.WithSchema(scheduleServiceMethods.ByName("ReorderSchedules")),
-			connect.WithClientOptions(opts...),
+			opts...,
 		),
 	}
 }
@@ -200,48 +193,40 @@ type ScheduleServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewScheduleServiceHandler(svc ScheduleServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
-	scheduleServiceMethods := v1.File_schedule_v1_schedule_proto.Services().ByName("ScheduleService").Methods()
 	scheduleServiceListSchedulesHandler := connect.NewUnaryHandler(
 		ScheduleServiceListSchedulesProcedure,
 		svc.ListSchedules,
-		connect.WithSchema(scheduleServiceMethods.ByName("ListSchedules")),
-		connect.WithHandlerOptions(opts...),
+		opts...,
 	)
 	scheduleServiceCreateScheduleHandler := connect.NewUnaryHandler(
 		ScheduleServiceCreateScheduleProcedure,
 		svc.CreateSchedule,
-		connect.WithSchema(scheduleServiceMethods.ByName("CreateSchedule")),
-		connect.WithHandlerOptions(opts...),
+		opts...,
 	)
 	scheduleServiceUpdateScheduleHandler := connect.NewUnaryHandler(
 		ScheduleServiceUpdateScheduleProcedure,
 		svc.UpdateSchedule,
-		connect.WithSchema(scheduleServiceMethods.ByName("UpdateSchedule")),
-		connect.WithHandlerOptions(opts...),
+		opts...,
 	)
 	scheduleServiceDeleteScheduleHandler := connect.NewUnaryHandler(
 		ScheduleServiceDeleteScheduleProcedure,
 		svc.DeleteSchedule,
-		connect.WithSchema(scheduleServiceMethods.ByName("DeleteSchedule")),
-		connect.WithHandlerOptions(opts...),
+		opts...,
 	)
 	scheduleServicePauseScheduleHandler := connect.NewUnaryHandler(
 		ScheduleServicePauseScheduleProcedure,
 		svc.PauseSchedule,
-		connect.WithSchema(scheduleServiceMethods.ByName("PauseSchedule")),
-		connect.WithHandlerOptions(opts...),
+		opts...,
 	)
 	scheduleServiceResumeScheduleHandler := connect.NewUnaryHandler(
 		ScheduleServiceResumeScheduleProcedure,
 		svc.ResumeSchedule,
-		connect.WithSchema(scheduleServiceMethods.ByName("ResumeSchedule")),
-		connect.WithHandlerOptions(opts...),
+		opts...,
 	)
 	scheduleServiceReorderSchedulesHandler := connect.NewUnaryHandler(
 		ScheduleServiceReorderSchedulesProcedure,
 		svc.ReorderSchedules,
-		connect.WithSchema(scheduleServiceMethods.ByName("ReorderSchedules")),
-		connect.WithHandlerOptions(opts...),
+		opts...,
 	)
 	return "/schedule.v1.ScheduleService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

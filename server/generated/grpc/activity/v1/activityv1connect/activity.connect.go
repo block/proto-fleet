@@ -5,12 +5,13 @@
 package activityv1connect
 
 import (
-	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
-	v1 "github.com/block/proto-fleet/server/generated/grpc/activity/v1"
 	http "net/http"
 	strings "strings"
+
+	connect "connectrpc.com/connect"
+	v1 "github.com/block/proto-fleet/server/generated/grpc/activity/v1"
 )
 
 // This is a compile-time assertion to ensure that this generated file and the connect package are
@@ -18,7 +19,7 @@ import (
 // generated with a version of connect newer than the one compiled into your binary. You can fix the
 // problem by either regenerating this code with an older version of connect or updating the connect
 // version compiled into your binary.
-const _ = connect.IsAtLeastVersion1_13_0
+const _ = connect.IsAtLeastVersion0_1_0
 
 const (
 	// ActivityServiceName is the fully-qualified name of the ActivityService service.
@@ -63,25 +64,21 @@ type ActivityServiceClient interface {
 // http://api.acme.com or https://acme.com/grpc).
 func NewActivityServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) ActivityServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
-	activityServiceMethods := v1.File_activity_v1_activity_proto.Services().ByName("ActivityService").Methods()
 	return &activityServiceClient{
 		listActivities: connect.NewClient[v1.ListActivitiesRequest, v1.ListActivitiesResponse](
 			httpClient,
 			baseURL+ActivityServiceListActivitiesProcedure,
-			connect.WithSchema(activityServiceMethods.ByName("ListActivities")),
-			connect.WithClientOptions(opts...),
+			opts...,
 		),
 		exportActivities: connect.NewClient[v1.ExportActivitiesRequest, v1.ExportActivitiesResponse](
 			httpClient,
 			baseURL+ActivityServiceExportActivitiesProcedure,
-			connect.WithSchema(activityServiceMethods.ByName("ExportActivities")),
-			connect.WithClientOptions(opts...),
+			opts...,
 		),
 		listActivityFilterOptions: connect.NewClient[v1.ListActivityFilterOptionsRequest, v1.ListActivityFilterOptionsResponse](
 			httpClient,
 			baseURL+ActivityServiceListActivityFilterOptionsProcedure,
-			connect.WithSchema(activityServiceMethods.ByName("ListActivityFilterOptions")),
-			connect.WithClientOptions(opts...),
+			opts...,
 		),
 	}
 }
@@ -124,24 +121,20 @@ type ActivityServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewActivityServiceHandler(svc ActivityServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
-	activityServiceMethods := v1.File_activity_v1_activity_proto.Services().ByName("ActivityService").Methods()
 	activityServiceListActivitiesHandler := connect.NewUnaryHandler(
 		ActivityServiceListActivitiesProcedure,
 		svc.ListActivities,
-		connect.WithSchema(activityServiceMethods.ByName("ListActivities")),
-		connect.WithHandlerOptions(opts...),
+		opts...,
 	)
 	activityServiceExportActivitiesHandler := connect.NewServerStreamHandler(
 		ActivityServiceExportActivitiesProcedure,
 		svc.ExportActivities,
-		connect.WithSchema(activityServiceMethods.ByName("ExportActivities")),
-		connect.WithHandlerOptions(opts...),
+		opts...,
 	)
 	activityServiceListActivityFilterOptionsHandler := connect.NewUnaryHandler(
 		ActivityServiceListActivityFilterOptionsProcedure,
 		svc.ListActivityFilterOptions,
-		connect.WithSchema(activityServiceMethods.ByName("ListActivityFilterOptions")),
-		connect.WithHandlerOptions(opts...),
+		opts...,
 	)
 	return "/activity.v1.ActivityService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

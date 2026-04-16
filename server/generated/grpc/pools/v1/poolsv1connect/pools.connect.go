@@ -5,12 +5,13 @@
 package poolsv1connect
 
 import (
-	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
-	v1 "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
 	http "net/http"
 	strings "strings"
+
+	connect "connectrpc.com/connect"
+	v1 "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
 )
 
 // This is a compile-time assertion to ensure that this generated file and the connect package are
@@ -18,7 +19,7 @@ import (
 // generated with a version of connect newer than the one compiled into your binary. You can fix the
 // problem by either regenerating this code with an older version of connect or updating the connect
 // version compiled into your binary.
-const _ = connect.IsAtLeastVersion1_13_0
+const _ = connect.IsAtLeastVersion0_1_0
 
 const (
 	// PoolsServiceName is the fully-qualified name of the PoolsService service.
@@ -69,37 +70,31 @@ type PoolsServiceClient interface {
 // http://api.acme.com or https://acme.com/grpc).
 func NewPoolsServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) PoolsServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
-	poolsServiceMethods := v1.File_pools_v1_pools_proto.Services().ByName("PoolsService").Methods()
 	return &poolsServiceClient{
 		listPools: connect.NewClient[v1.ListPoolsRequest, v1.ListPoolsResponse](
 			httpClient,
 			baseURL+PoolsServiceListPoolsProcedure,
-			connect.WithSchema(poolsServiceMethods.ByName("ListPools")),
-			connect.WithClientOptions(opts...),
+			opts...,
 		),
 		createPool: connect.NewClient[v1.CreatePoolRequest, v1.CreatePoolResponse](
 			httpClient,
 			baseURL+PoolsServiceCreatePoolProcedure,
-			connect.WithSchema(poolsServiceMethods.ByName("CreatePool")),
-			connect.WithClientOptions(opts...),
+			opts...,
 		),
 		updatePool: connect.NewClient[v1.UpdatePoolRequest, v1.UpdatePoolResponse](
 			httpClient,
 			baseURL+PoolsServiceUpdatePoolProcedure,
-			connect.WithSchema(poolsServiceMethods.ByName("UpdatePool")),
-			connect.WithClientOptions(opts...),
+			opts...,
 		),
 		deletePool: connect.NewClient[v1.DeletePoolRequest, v1.DeletePoolResponse](
 			httpClient,
 			baseURL+PoolsServiceDeletePoolProcedure,
-			connect.WithSchema(poolsServiceMethods.ByName("DeletePool")),
-			connect.WithClientOptions(opts...),
+			opts...,
 		),
 		validatePool: connect.NewClient[v1.ValidatePoolRequest, v1.ValidatePoolResponse](
 			httpClient,
 			baseURL+PoolsServiceValidatePoolProcedure,
-			connect.WithSchema(poolsServiceMethods.ByName("ValidatePool")),
-			connect.WithClientOptions(opts...),
+			opts...,
 		),
 	}
 }
@@ -158,36 +153,30 @@ type PoolsServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewPoolsServiceHandler(svc PoolsServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
-	poolsServiceMethods := v1.File_pools_v1_pools_proto.Services().ByName("PoolsService").Methods()
 	poolsServiceListPoolsHandler := connect.NewUnaryHandler(
 		PoolsServiceListPoolsProcedure,
 		svc.ListPools,
-		connect.WithSchema(poolsServiceMethods.ByName("ListPools")),
-		connect.WithHandlerOptions(opts...),
+		opts...,
 	)
 	poolsServiceCreatePoolHandler := connect.NewUnaryHandler(
 		PoolsServiceCreatePoolProcedure,
 		svc.CreatePool,
-		connect.WithSchema(poolsServiceMethods.ByName("CreatePool")),
-		connect.WithHandlerOptions(opts...),
+		opts...,
 	)
 	poolsServiceUpdatePoolHandler := connect.NewUnaryHandler(
 		PoolsServiceUpdatePoolProcedure,
 		svc.UpdatePool,
-		connect.WithSchema(poolsServiceMethods.ByName("UpdatePool")),
-		connect.WithHandlerOptions(opts...),
+		opts...,
 	)
 	poolsServiceDeletePoolHandler := connect.NewUnaryHandler(
 		PoolsServiceDeletePoolProcedure,
 		svc.DeletePool,
-		connect.WithSchema(poolsServiceMethods.ByName("DeletePool")),
-		connect.WithHandlerOptions(opts...),
+		opts...,
 	)
 	poolsServiceValidatePoolHandler := connect.NewUnaryHandler(
 		PoolsServiceValidatePoolProcedure,
 		svc.ValidatePool,
-		connect.WithSchema(poolsServiceMethods.ByName("ValidatePool")),
-		connect.WithHandlerOptions(opts...),
+		opts...,
 	)
 	return "/pools.v1.PoolsService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
