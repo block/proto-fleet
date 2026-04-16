@@ -401,28 +401,14 @@ func TestTelemetryService_DataStoreInteraction(t *testing.T) {
 					mockMiner.EXPECT().
 						GetDeviceMetrics(gomock.Any()).
 						Return(*scenario.deviceMetrics, nil)
-					if scenario.hasDeviceMetricsStoreError {
-						mockDataStore.EXPECT().
-							StoreDeviceMetrics(gomock.Any(), *scenario.deviceMetrics).
-							Return(errors.New("device metrics store error"))
-						// Even when StoreDeviceMetrics fails, service still calls AddDevices
-						mockScheduler.EXPECT().
-							AddDevices(gomock.Any(), gomock.Any()).
-							Do(func(ctx context.Context, devices ...models.Device) {
-								require.Len(t, devices, 1)
-								assert.Equal(t, scenario.device.ID, devices[0].ID)
-							}).Return(nil).Times(1)
-					} else {
-						mockDataStore.EXPECT().
-							StoreDeviceMetrics(gomock.Any(), *scenario.deviceMetrics).
-							Return(nil)
-						mockScheduler.EXPECT().
-							AddDevices(gomock.Any(), gomock.Any()).
-							Do(func(ctx context.Context, devices ...models.Device) {
-								require.Len(t, devices, 1)
-								assert.Equal(t, scenario.device.ID, devices[0].ID)
-							}).Return(nil).Times(1)
-					}
+					// StoreDeviceMetrics is now called asynchronously by metricsWriterRoutine,
+					// not inline by GetTelemetryFromDevice.
+					mockScheduler.EXPECT().
+						AddDevices(gomock.Any(), gomock.Any()).
+						Do(func(ctx context.Context, devices ...models.Device) {
+							require.Len(t, devices, 1)
+							assert.Equal(t, scenario.device.ID, devices[0].ID)
+						}).Return(nil).Times(1)
 				} else if scenario.hasDeviceMetricsError {
 					mockMiner.EXPECT().
 						GetDeviceMetrics(gomock.Any()).
@@ -1404,6 +1390,200 @@ func TestStatusWriterRoutine_FlushesOnContextCancel(t *testing.T) {
 	}
 }
 
+// Tests for metricsWriterRoutine batch operations
+
+func TestMetricsWriterRoutine_FlushesOnInterval(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Arrange
+	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+
+	metric := modelsV2.DeviceMetrics{DeviceIdentifier: "test-device-1"}
+
+	mockDataStore.EXPECT().
+		StoreDeviceMetrics(gomock.Any(), metric).
+		Return(nil).
+		Times(1)
+
+	config := Config{
+		StalenessThreshold:  1 * time.Minute,
+		FetchInterval:       10 * time.Second,
+		ConcurrencyLimit:    5,
+		StatusFlushInterval: 50 * time.Millisecond,
+	}
+
+	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	// Act
+	go service.metricsWriterRoutine(ctx)
+	service.metricsResults <- metricsResult{metrics: metric}
+
+	// Assert - wait for flush interval to trigger (mock expectations verify the batch write)
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+	time.Sleep(50 * time.Millisecond)
+}
+
+func TestMetricsWriterRoutine_FlushesOnContextCancel(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Arrange
+	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+
+	metric := modelsV2.DeviceMetrics{DeviceIdentifier: "test-device-1"}
+
+	mockDataStore.EXPECT().
+		StoreDeviceMetrics(gomock.Any(), metric).
+		Return(nil).
+		Times(1)
+
+	config := Config{
+		StalenessThreshold:  1 * time.Minute,
+		FetchInterval:       10 * time.Second,
+		ConcurrencyLimit:    5,
+		StatusFlushInterval: 10 * time.Second, // Long interval so flush happens on cancel
+	}
+
+	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+
+	ctx, cancel := context.WithCancel(t.Context())
+
+	done := make(chan struct{})
+	go func() {
+		service.metricsWriterRoutine(ctx)
+		close(done)
+	}()
+
+	// Act
+	service.metricsResults <- metricsResult{metrics: metric}
+	time.Sleep(20 * time.Millisecond) // Ensure result is received
+	cancel()                          // Trigger final flush
+
+	// Assert
+	select {
+	case <-done:
+		// Success - routine finished and flushed
+	case <-time.After(1 * time.Second):
+		t.Fatal("metricsWriterRoutine did not finish after context cancel")
+	}
+}
+
+func TestMetricsWriterRoutine_DrainsChannelOnContextCancel(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Arrange
+	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+
+	metric1 := modelsV2.DeviceMetrics{DeviceIdentifier: "test-device-1"}
+	metric2 := modelsV2.DeviceMetrics{DeviceIdentifier: "test-device-2"}
+
+	// Expect a single batch write containing both metrics
+	mockDataStore.EXPECT().
+		StoreDeviceMetrics(gomock.Any(), metric1, metric2).
+		Return(nil).
+		Times(1)
+
+	config := Config{
+		StalenessThreshold:  1 * time.Minute,
+		FetchInterval:       10 * time.Second,
+		ConcurrencyLimit:    5,
+		StatusFlushInterval: 10 * time.Second, // Long interval so neither metric is flushed early
+	}
+
+	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+
+	ctx, cancel := context.WithCancel(t.Context())
+
+	done := make(chan struct{})
+	go func() {
+		service.metricsWriterRoutine(ctx)
+		close(done)
+	}()
+
+	// Act - send first metric via channel so the routine consumes it, then queue the
+	// second directly in the buffered channel so it can only be written via the drain.
+	service.metricsResults <- metricsResult{metrics: metric1}
+	time.Sleep(20 * time.Millisecond) // Let routine pick up metric1 into pending
+	service.metricsResults <- metricsResult{metrics: metric2}
+	cancel() // Trigger drain + flush
+
+	// Assert
+	select {
+	case <-done:
+		// Success - routine drained channel and flushed both metrics
+	case <-time.After(1 * time.Second):
+		t.Fatal("metricsWriterRoutine did not finish after context cancel")
+	}
+}
+
+func TestMetricsWriterRoutine_RetriesIndividuallyOnBatchError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Arrange
+	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+
+	metric1 := modelsV2.DeviceMetrics{DeviceIdentifier: "test-device-1"}
+	metric2 := modelsV2.DeviceMetrics{DeviceIdentifier: "test-device-2"}
+	batchErr := errors.New("batch write failed")
+
+	// Batch call fails
+	mockDataStore.EXPECT().
+		StoreDeviceMetrics(gomock.Any(), metric1, metric2).
+		Return(batchErr).
+		Times(1)
+
+	// Individual retries succeed
+	mockDataStore.EXPECT().
+		StoreDeviceMetrics(gomock.Any(), metric1).
+		Return(nil).
+		Times(1)
+	mockDataStore.EXPECT().
+		StoreDeviceMetrics(gomock.Any(), metric2).
+		Return(nil).
+		Times(1)
+
+	config := Config{
+		StalenessThreshold:  1 * time.Minute,
+		FetchInterval:       10 * time.Second,
+		ConcurrencyLimit:    5,
+		StatusFlushInterval: 50 * time.Millisecond,
+	}
+
+	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	// Act
+	go service.metricsWriterRoutine(ctx)
+	service.metricsResults <- metricsResult{metrics: metric1}
+	service.metricsResults <- metricsResult{metrics: metric2}
+
+	// Assert - wait for flush interval to trigger batch + individual retries
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+	time.Sleep(50 * time.Millisecond)
+}
+
 // Tests for processStatusOnly failed device recovery
 
 func TestProcessStatusOnly_RecoversFailedDevice(t *testing.T) {
@@ -1601,10 +1781,6 @@ func TestProcessDevice_NonBlockingSend_DropsUpdateWhenChannelFull(t *testing.T) 
 			Health:           modelsV2.HealthHealthyActive,
 		}, nil)
 
-	mockDataStore.EXPECT().
-		StoreDeviceMetrics(gomock.Any(), gomock.Any()).
-		Return(nil)
-
 	mockScheduler.EXPECT().
 		AddDevices(gomock.Any(), gomock.Any()).
 		Return(nil)
@@ -1630,6 +1806,7 @@ func TestProcessDevice_NonBlockingSend_DropsUpdateWhenChannelFull(t *testing.T) 
 		tasks:              make(chan models.Device, 1),
 		statusTasks:        make(chan models.Device, 1),
 		statusResults:      make(chan statusResult, 1), // Small buffer to test non-blocking
+		metricsResults:     make(chan metricsResult, 1),
 		lookBackDuration:   -1 * (config.StalenessThreshold - config.FetchInterval),
 	}
 
@@ -1688,10 +1865,6 @@ func TestProcessDevice_HealthHealthyInactive_CallsGetDeviceStatus(t *testing.T) 
 			Health:           modelsV2.HealthHealthyInactive,
 		}, nil)
 
-	mockDataStore.EXPECT().
-		StoreDeviceMetrics(gomock.Any(), gomock.Any()).
-		Return(nil)
-
 	mockScheduler.EXPECT().
 		AddDevices(gomock.Any(), gomock.Any()).
 		Return(nil)
@@ -1722,6 +1895,7 @@ func TestProcessDevice_HealthHealthyInactive_CallsGetDeviceStatus(t *testing.T) 
 		tasks:              make(chan models.Device, 1),
 		statusTasks:        make(chan models.Device, 1),
 		statusResults:      make(chan statusResult, 1),
+		metricsResults:     make(chan metricsResult, 1),
 		lookBackDuration:   -1 * (config.StalenessThreshold - config.FetchInterval),
 	}
 
@@ -1772,10 +1946,6 @@ func TestProcessDevice_HealthHealthyActive_SkipsGetDeviceStatus(t *testing.T) {
 			Health:           modelsV2.HealthHealthyActive,
 		}, nil)
 
-	mockDataStore.EXPECT().
-		StoreDeviceMetrics(gomock.Any(), gomock.Any()).
-		Return(nil)
-
 	mockScheduler.EXPECT().
 		AddDevices(gomock.Any(), gomock.Any()).
 		Return(nil)
@@ -1803,6 +1973,7 @@ func TestProcessDevice_HealthHealthyActive_SkipsGetDeviceStatus(t *testing.T) {
 		tasks:              make(chan models.Device, 1),
 		statusTasks:        make(chan models.Device, 1),
 		statusResults:      make(chan statusResult, 1),
+		metricsResults:     make(chan metricsResult, 1),
 		lookBackDuration:   -1 * (config.StalenessThreshold - config.FetchInterval),
 	}
 

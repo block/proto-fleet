@@ -117,10 +117,14 @@ const (
 	resultsChannelBuffer = 5000
 
 	// Batch limits
-	maxStatusBatchSize = 500
+	maxStatusBatchSize  = 500
+	maxMetricsBatchSize = 500
 
 	// Default status flush interval if not configured.
 	defaultStatusFlushInterval = 1 * time.Second
+
+	// Default metrics flush interval if not configured.
+	defaultMetricsFlushInterval = 1 * time.Second
 
 	// Context timeouts
 	shutdownFlushTimeout = 5 * time.Second
@@ -180,6 +184,11 @@ type statusResult struct {
 	status           mm.MinerStatus
 }
 
+// metricsResult holds device metrics queued by a worker for batch DB writes.
+type metricsResult struct {
+	metrics modelsV2.DeviceMetrics
+}
+
 type TelemetryService struct {
 	config             Config
 	updateScheduler    UpdateScheduler
@@ -195,7 +204,11 @@ type TelemetryService struct {
 	// Used by statusPollingRoutine to check failed devices for recovery.
 	statusTasks chan models.Device
 	// statusResults receives status updates from workers for batch DB writes.
-	statusResults    chan statusResult
+	statusResults chan statusResult
+	// metricsResults receives device metrics from workers for batch DB writes.
+	// Uses a blocking send so metrics are never dropped; backpressure slows workers
+	// if the DB falls behind rather than losing data.
+	metricsResults   chan metricsResult
 	cancelFunc       context.CancelFunc
 	lookBackDuration time.Duration
 	// devicesForStatusPolling tracks all paired devices that need periodic status checks.
@@ -225,6 +238,7 @@ func NewTelemetryService(config Config, telemetryDataStore TelemetryDataStore, m
 		tasks:              make(chan models.Device, config.ConcurrencyLimit),
 		statusTasks:        make(chan models.Device, config.ConcurrencyLimit),
 		statusResults:      make(chan statusResult, resultsChannelBuffer),
+		metricsResults:     make(chan metricsResult, resultsChannelBuffer),
 		lookBackDuration:   -1 * (config.StalenessThreshold - config.FetchInterval),
 	}
 }
@@ -323,8 +337,9 @@ func (s *TelemetryService) gatherMetricsRoutine(ctx context.Context) {
 		go s.worker(ctx)
 	}
 
-	// Start routine that collects status results and periodically writes to DB
+	// Start routines that collect results from workers and periodically write to DB
 	go s.statusWriterRoutine(ctx)
+	go s.metricsWriterRoutine(ctx)
 
 	fetchInterval := s.config.FetchInterval
 	if fetchInterval <= 0 {
@@ -824,19 +839,22 @@ func (s *TelemetryService) fetchStatusFromMiner(ctx context.Context, deviceID mo
 // Returns the derived MinerStatus and whether it is unambiguous.
 // The bool is false when the health status is ambiguous; see healthStatusToMinerStatus.
 func (s *TelemetryService) GetTelemetryFromDevice(ctx context.Context, device models.Device) (mm.MinerStatus, bool, error) {
-	ctx, cancel := context.WithTimeout(ctx, s.config.MetricTimeout)
+	fetchCtx, cancel := context.WithTimeout(ctx, s.config.MetricTimeout)
 	defer cancel()
 
-	result, err := s.fetchTelemetryFromMiner(ctx, device)
+	result, err := s.fetchTelemetryFromMiner(fetchCtx, device)
 	if err != nil {
 		return mm.MinerStatusUnknown, false, fmt.Errorf("failed to get miner from device ID %s: %w", device.ID, err)
 	}
 
 	if result.metricsErr == nil {
-		if err := s.telemetryDataStore.StoreDeviceMetrics(ctx, result.metrics); err != nil {
-			slog.Error("Failed to store device metrics",
-				"device_id", device.ID,
-				"error", err)
+		// Use the caller's ctx (not fetchCtx) so that MetricTimeout expiry does not
+		// prevent enqueueing metrics we already fetched. Only give up if the service
+		// itself is shutting down (ctx cancelled by the root context).
+		select {
+		case s.metricsResults <- metricsResult{metrics: result.metrics}:
+		case <-ctx.Done():
+			return mm.MinerStatusUnknown, false, fmt.Errorf("context cancelled enqueueing metrics for device %s: %w", device.ID, ctx.Err())
 		}
 
 		s.persistFirmwareVersionIfChanged(ctx, device.ID, result.metrics.FirmwareVersion)
@@ -850,6 +868,61 @@ func (s *TelemetryService) GetTelemetryFromDevice(ctx context.Context, device mo
 	}
 	return result.status, result.hasStatus, nil
 }
+func (s *TelemetryService) metricsWriterRoutine(ctx context.Context) {
+	flushInterval := s.config.StatusFlushInterval
+	if flushInterval <= 0 {
+		flushInterval = defaultMetricsFlushInterval
+	}
+
+	pending := make([]modelsV2.DeviceMetrics, 0, maxMetricsBatchSize)
+	ticker := time.NewTicker(flushInterval)
+	defer ticker.Stop()
+
+	flush := func(flushCtx context.Context) {
+		if len(pending) == 0 {
+			return
+		}
+		if err := s.telemetryDataStore.StoreDeviceMetrics(flushCtx, pending...); err != nil {
+			// The store wraps the batch in a single transaction, so one bad row fails
+			// the whole batch. Retry individually so only the offending sample is dropped.
+			slog.Warn("batch metrics write failed, retrying individually", "count", len(pending), "error", err)
+			for _, m := range pending {
+				if err := s.telemetryDataStore.StoreDeviceMetrics(flushCtx, m); err != nil {
+					slog.Error("failed to store device metrics", "device_id", m.DeviceIdentifier, "error", err)
+				}
+			}
+		}
+		pending = pending[:0]
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			// Drain already-queued metrics into pending before the final flush.
+			for {
+				select {
+				case result := <-s.metricsResults:
+					pending = append(pending, result.metrics)
+				default:
+					goto done
+				}
+			}
+		done:
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownFlushTimeout)
+			flush(shutdownCtx)
+			cancel()
+			return
+		case result := <-s.metricsResults:
+			pending = append(pending, result.metrics)
+			if len(pending) >= maxMetricsBatchSize {
+				flush(ctx)
+			}
+		case <-ticker.C:
+			flush(ctx)
+		}
+	}
+}
+
 func (s *TelemetryService) StreamTelemetryUpdates(ctx context.Context, query models.StreamQuery) (<-chan models.TelemetryUpdate, error) {
 	return s.telemetryDataStore.StreamTelemetryUpdates(ctx, query)
 }
