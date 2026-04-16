@@ -1,5 +1,4 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import PoolSelectionPageWrapper from "../ActionBar/SettingsWidget/PoolSelectionPage";
 import BulkActionConfirmDialog from "../BulkActions/BulkActionConfirmDialog";
 import { BulkAction, UnsupportedMinersInfo } from "../BulkActions/types";
@@ -42,6 +41,7 @@ type SingleMinerAction = SupportedAction | "viewMiner";
 
 interface SingleMinerActionsMenuProps {
   deviceIdentifier: string;
+  minerUrl?: string;
   deviceStatus?: DeviceStatus;
   minerName?: string;
   workerName?: string;
@@ -55,6 +55,7 @@ interface SingleMinerActionsMenuProps {
 
 const SingleMinerActionsMenu = ({
   deviceIdentifier,
+  minerUrl,
   deviceStatus,
   minerName,
   workerName,
@@ -128,11 +129,11 @@ const SingleMinerActionsMenu = ({
     onActionComplete,
   });
 
-  const navigate = useNavigate();
-
   const handleViewMiner = useCallback(() => {
-    navigate(`/miners/${encodeURIComponent(deviceIdentifier)}`);
-  }, [navigate, deviceIdentifier]);
+    if (minerUrl) {
+      window.open(minerUrl, "_blank", "noopener,noreferrer");
+    }
+  }, [minerUrl]);
 
   const resetWorkerNameFlow = useCallback(() => {
     setShowWorkerNameAuthenticateModal(false);
@@ -303,14 +304,16 @@ const SingleMinerActionsMenu = ({
   );
 
   const actionsWithSingleNameFlows = useMemo(() => {
-    const viewMinerAction: BulkAction<SingleMinerAction> = {
-      action: "viewMiner",
-      title: "View miner",
-      icon: <ArrowRight className="text-text-primary" />,
-      actionHandler: handleViewMiner,
-      requiresConfirmation: false,
-      showGroupDivider: true,
-    };
+    const viewMinerAction: BulkAction<SingleMinerAction> | null = minerUrl
+      ? {
+          action: "viewMiner",
+          title: "View miner",
+          icon: <ArrowRight className="text-text-primary" />,
+          actionHandler: handleViewMiner,
+          requiresConfirmation: false,
+          showGroupDivider: true,
+        }
+      : null;
 
     const renameAction: BulkAction<SupportedAction> = {
       action: settingsActions.rename,
@@ -332,7 +335,7 @@ const SingleMinerActionsMenu = ({
     const actionsWithRenameBeforeGroup = insertActionBefore(actions, groupActions.addToGroup, renameAction);
 
     if (actionsWithRenameBeforeGroup !== actions) {
-      return [viewMinerAction, ...actionsWithRenameBeforeGroup];
+      return viewMinerAction ? [viewMinerAction, ...actionsWithRenameBeforeGroup] : actionsWithRenameBeforeGroup;
     }
 
     const actionsWithRenameBeforeSecurity = insertActionBefore(actions, settingsActions.security, {
@@ -341,11 +344,11 @@ const SingleMinerActionsMenu = ({
     });
 
     if (actionsWithRenameBeforeSecurity !== actions) {
-      return [viewMinerAction, ...actionsWithRenameBeforeSecurity];
+      return viewMinerAction ? [viewMinerAction, ...actionsWithRenameBeforeSecurity] : actionsWithRenameBeforeSecurity;
     }
 
-    return [viewMinerAction, ...actions, renameAction];
-  }, [handleRenameOpen, handleUpdateWorkerNameAction, handleViewMiner, popoverActions]);
+    return viewMinerAction ? [viewMinerAction, ...actions, renameAction] : [...actions, renameAction];
+  }, [handleRenameOpen, handleUpdateWorkerNameAction, handleViewMiner, minerUrl, popoverActions]);
 
   const [isOpen, setIsOpen] = useState(false);
   const [showWarnDialog, setShowWarnDialog] = useState(false);

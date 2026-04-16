@@ -4,7 +4,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { settingsActions } from "./constants";
 import SingleMinerActionsMenu from "./SingleMinerActionsMenu";
 
-const mockNavigate = vi.fn();
+const mockWindowOpen = vi.fn();
+vi.stubGlobal("open", mockWindowOpen);
 
 const {
   mockAuthenticateFleetModal,
@@ -90,10 +91,6 @@ const {
     })),
   };
 });
-
-vi.mock("react-router-dom", () => ({
-  useNavigate: () => mockNavigate,
-}));
 
 vi.mock("./useMinerActions", () => ({
   useMinerActions: mockUseMinerActions,
@@ -256,28 +253,31 @@ describe("SingleMinerActionsMenu", () => {
     expect(screen.getByTestId("update-worker-names-popover-button")).toBeInTheDocument();
   });
 
-  it("renders 'View miner' menu item when popover is open", () => {
+  it("does not render 'View miner' menu item when minerUrl is not provided", () => {
     render(<SingleMinerActionsMenu deviceIdentifier="test-device-123" />);
 
-    // Open the popover by clicking the trigger button
     fireEvent.click(screen.getByTestId("single-miner-actions-menu-button"));
 
-    // The "View miner" action should be rendered in the popover
+    expect(screen.queryByText("View miner")).not.toBeInTheDocument();
+  });
+
+  it("renders 'View miner' menu item when minerUrl is provided", () => {
+    render(<SingleMinerActionsMenu deviceIdentifier="test-device-123" minerUrl="http://192.168.1.1" />);
+
+    fireEvent.click(screen.getByTestId("single-miner-actions-menu-button"));
+
     expect(screen.getByText("View miner")).toBeInTheDocument();
     expect(screen.getByTestId("viewMiner-popover-button")).toBeInTheDocument();
   });
 
-  it("navigates to /miners/{deviceIdentifier} when 'View miner' is clicked", () => {
-    const deviceIdentifier = "my-device-abc";
-    render(<SingleMinerActionsMenu deviceIdentifier={deviceIdentifier} />);
+  it("opens miner URL in new tab when 'View miner' is clicked", () => {
+    const minerUrl = "http://192.168.1.42";
+    render(<SingleMinerActionsMenu deviceIdentifier="my-device-abc" minerUrl={minerUrl} />);
 
-    // Open the popover
     fireEvent.click(screen.getByTestId("single-miner-actions-menu-button"));
-
-    // Click the "View miner" action
     fireEvent.click(screen.getByTestId("viewMiner-popover-button"));
 
-    expect(mockNavigate).toHaveBeenCalledWith(`/miners/${encodeURIComponent(deviceIdentifier)}`);
+    expect(mockWindowOpen).toHaveBeenCalledWith(minerUrl, "_blank", "noopener,noreferrer");
   });
 
   it("authenticates before updating a single worker name", async () => {
