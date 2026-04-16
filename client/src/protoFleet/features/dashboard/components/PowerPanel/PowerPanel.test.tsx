@@ -36,7 +36,7 @@ describe("PowerPanel", () => {
   it("shows subtitle when not all miners are reporting", () => {
     const metrics = [createMockMetric(1500, 3)];
 
-    render(<PowerPanel duration={"1h"} metrics={metrics} totalMiners={5} />);
+    render(<PowerPanel duration={"1h"} metrics={metrics} totalMiners={5} fleetDeviceCount={3} />);
 
     expect(screen.getByText("3 of 5 miners reporting")).toBeInTheDocument();
   });
@@ -44,13 +44,12 @@ describe("PowerPanel", () => {
   it("hides subtitle when all miners are reporting", () => {
     const metrics = [createMockMetric(1500, 5)];
 
-    render(<PowerPanel duration={"1h"} metrics={metrics} totalMiners={5} />);
+    render(<PowerPanel duration={"1h"} metrics={metrics} totalMiners={5} fleetDeviceCount={5} />);
 
     expect(screen.queryByText(/miners reporting/)).not.toBeInTheDocument();
   });
 
-  it("hides subtitle when device count is null", () => {
-    // No metrics, so device count will be null
+  it("hides subtitle when fleetDeviceCount is not provided", () => {
     render(<PowerPanel duration={"1h"} metrics={[]} totalMiners={5} />);
 
     expect(screen.queryByText(/miners reporting/)).not.toBeInTheDocument();
@@ -59,13 +58,12 @@ describe("PowerPanel", () => {
   it("shows subtitle with zero miners reporting", () => {
     const metrics = [createMockMetric(0, 0)];
 
-    render(<PowerPanel duration={"1h"} metrics={metrics} totalMiners={5} />);
+    render(<PowerPanel duration={"1h"} metrics={metrics} totalMiners={5} fleetDeviceCount={0} />);
 
     expect(screen.getByText("0 of 5 miners reporting")).toBeInTheDocument();
   });
 
   it("renders loading state without subtitle", () => {
-    // undefined = not loaded yet (loading state)
     render(<PowerPanel duration={"1h"} metrics={undefined} totalMiners={5} />);
 
     expect(screen.queryByText(/miners reporting/)).not.toBeInTheDocument();
