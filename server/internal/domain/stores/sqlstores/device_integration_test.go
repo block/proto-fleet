@@ -376,7 +376,9 @@ func TestCountMinersByState_ActiveWithMinorError(t *testing.T) {
 }
 
 // TestCountMinersByState_ActiveWithInfoError verifies INFO severity errors
-// are excluded - ACTIVE device with INFO error should still be Healthy
+// are included - ACTIVE device with INFO error should be Needs Attention (broken_count).
+// INFO errors are advisory but still represent a known issue that should surface.
+// Only UNSPECIFIED (0) severity is excluded.
 func TestCountMinersByState_ActiveWithInfoError(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
@@ -390,7 +392,7 @@ func TestCountMinersByState_ActiveWithInfoError(t *testing.T) {
 			{id: 1, identifier: "device-001", status: "ACTIVE", pairingStatus: "PAIRED"},
 		},
 		errors: []testError{
-			{deviceID: 1, orgID: 1, severity: 4, closed: false}, // INFO (excluded)
+			{deviceID: 1, orgID: 1, severity: 4, closed: false}, // INFO (included)
 		},
 	})
 
@@ -398,9 +400,9 @@ func TestCountMinersByState_ActiveWithInfoError(t *testing.T) {
 	counts, err := store.GetMinerStateCounts(ctx, 1, nil)
 	require.NoError(t, err)
 
-	// ACTIVE + INFO error → Healthy (INFO severity excluded)
-	require.Equal(t, int32(0), counts.BrokenCount, "broken_count should be 0")
-	require.Equal(t, int32(1), counts.HashingCount, "hashing_count should be 1")
+	// ACTIVE + INFO error → Needs Attention (INFO severity included, only UNSPECIFIED excluded)
+	require.Equal(t, int32(1), counts.BrokenCount, "broken_count should be 1")
+	require.Equal(t, int32(0), counts.HashingCount, "hashing_count should be 0")
 	require.Equal(t, int32(0), counts.OfflineCount, "offline_count should be 0")
 	require.Equal(t, int32(0), counts.SleepingCount, "sleeping_count should be 0")
 }

@@ -73,8 +73,8 @@ func minerBaseQueryWithSortValue(sortValueExpr string) string {
 }
 
 // actionableErrorSeverities defines which error severities trigger "needs attention" state.
-// Values: 1=CRITICAL, 2=ERROR, 3=WARNING. Excludes INFO=4 and UNSPECIFIED=0.
-const actionableErrorSeverities = "errors.severity IN (1, 2, 3)"
+// Values: 1=CRITICAL, 2=MAJOR, 3=MINOR, 4=INFO. Excludes UNSPECIFIED=0.
+const actionableErrorSeverities = "errors.severity IN (1, 2, 3, 4)"
 
 // nonActionableStatuses defines device statuses where errors should not trigger
 // the "needs attention" state. These statuses take precedence.

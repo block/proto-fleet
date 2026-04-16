@@ -80,7 +80,7 @@ LEFT JOIN (
     FROM errors
     WHERE errors.org_id = $1
       AND errors.closed_at IS NULL
-      AND errors.severity IN (1, 2, 3)  -- Exclude INFO (4) and UNSPECIFIED (0)
+      AND errors.severity IN (1, 2, 3, 4)  -- Exclude UNSPECIFIED (0)
 ) open_errors ON d.id = open_errors.device_id
 WHERE d.deleted_at IS NULL
   AND d.org_id = $1
@@ -1274,7 +1274,7 @@ WHERE dd.org_id = $1
                     WHERE errors.device_id = d.id
                       AND errors.org_id = $1
                       AND errors.closed_at IS NULL
-                      AND errors.severity IN (1, 2, 3)
+                      AND errors.severity IN (1, 2, 3, 4)
                 ))
                 OR ($8::boolean = TRUE)
             )
@@ -1289,7 +1289,7 @@ WHERE dd.org_id = $1
                 WHERE errors.device_id = d.id
                   AND errors.org_id = $1
                   AND errors.closed_at IS NULL
-                  AND errors.severity IN (1, 2, 3)
+                  AND errors.severity IN (1, 2, 3, 4)
             )
             AND ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')
             AND ds.status IS NOT NULL)

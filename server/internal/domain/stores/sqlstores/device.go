@@ -1055,7 +1055,7 @@ LEFT JOIN (
     FROM errors
     WHERE errors.org_id = $1
       AND errors.closed_at IS NULL
-      AND errors.severity IN (1, 2, 3)
+      AND errors.severity IN (1, 2, 3, 4)
 ) open_errors ON d.id = open_errors.device_id
 WHERE dcm.device_set_id = ANY($2::bigint[])
   AND dcm.org_id = $1
@@ -1102,7 +1102,7 @@ JOIN device_pairing dp ON d.id = dp.device_id
 JOIN errors e ON d.id = e.device_id
     AND e.org_id = dcm.org_id
     AND e.closed_at IS NULL
-    AND e.severity IN (1, 2, 3)
+    AND e.severity IN (1, 2, 3, 4)
     AND e.component_type IN (1, 2, 3, 4)
 WHERE dcm.device_set_id = ANY($2::bigint[]) AND dcm.org_id = $1
 GROUP BY dcm.device_set_id, e.component_type`

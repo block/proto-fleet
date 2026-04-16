@@ -84,7 +84,7 @@ func buildCollectionCountQuery(orgID int64, collectionType pb.CollectionType, er
 			JOIN errors e ON d_err.id = e.device_id
 				AND e.org_id = dcm_err.org_id
 				AND e.closed_at IS NULL
-				AND e.severity IN (1, 2, 3)
+				AND e.severity IN (1, 2, 3, 4)
 				AND e.component_type = ANY($%d::int[])
 			WHERE dcm_err.device_set_id = dc.id AND dcm_err.org_id = $1
 		)`, argNum))
@@ -138,7 +138,7 @@ WHERE dc.org_id = $1 AND dc.deleted_at IS NULL`)
 			JOIN errors e ON d_err.id = e.device_id
 				AND e.org_id = dcm_err.org_id
 				AND e.closed_at IS NULL
-				AND e.severity IN (1, 2, 3)
+				AND e.severity IN (1, 2, 3, 4)
 				AND e.component_type = ANY($%d::int[])
 			WHERE dcm_err.device_set_id = dc.id AND dcm_err.org_id = $1
 		)`, argNum))

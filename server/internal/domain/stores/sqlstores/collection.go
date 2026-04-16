@@ -608,7 +608,7 @@ slot_devices AS (
         FROM errors
         WHERE errors.org_id = $1
           AND errors.closed_at IS NULL
-          AND errors.severity IN (1, 2, 3)
+          AND errors.severity IN (1, 2, 3, 4)
           AND errors.device_id IN (SELECT device_id FROM rack_slot WHERE device_set_id = ANY($2::bigint[]))
     ) open_errors ON d.id = open_errors.device_id
     WHERE rs.device_set_id = ANY($2::bigint[])
