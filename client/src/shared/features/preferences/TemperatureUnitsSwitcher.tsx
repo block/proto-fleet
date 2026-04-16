@@ -30,7 +30,7 @@ const TemperatureUnitsSwitcher = ({
 
   return (
     <Modal
-      contentHeader="Temperature"
+      title="Temperature"
       onDismiss={onClickDone}
       buttons={[
         {

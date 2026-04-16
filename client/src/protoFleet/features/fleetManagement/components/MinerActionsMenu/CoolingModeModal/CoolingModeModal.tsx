@@ -117,7 +117,7 @@ const CoolingModeModal = ({ open, minerCount, initialCoolingMode, onConfirm, onD
   return (
     <Modal
       open={open}
-      contentHeader="Set cooling mode"
+      title="Set cooling mode"
       onDismiss={handleDismiss}
       buttons={[
         {

@@ -57,8 +57,7 @@ const RenameOptionsModal = ({
 }: RenameOptionsModalProps) => (
   <Modal
     open={true}
-    contentHeader="Options"
-    contentHeaderClassName="text-heading-300 phone:text-heading-200"
+    title="Options"
     onDismiss={onDismiss}
     hideHeaderOnPhone
     divider={false}

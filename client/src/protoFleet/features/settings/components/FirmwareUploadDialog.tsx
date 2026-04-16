@@ -49,7 +49,7 @@ const FirmwareUploadDialog = ({ open, onSuccess, onDismiss }: FirmwareUploadDial
       : undefined;
 
   return (
-    <Modal open={open} contentHeader="Upload firmware" onDismiss={handleDismiss} buttons={buttons} divider={false}>
+    <Modal open={open} title="Upload firmware" onDismiss={handleDismiss} buttons={buttons} divider={false}>
       <div className="text-text-secondary mt-2 text-300">
         Add a firmware file to make it available for miner updates.
       </div>

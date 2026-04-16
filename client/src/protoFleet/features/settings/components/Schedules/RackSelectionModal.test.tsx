@@ -23,14 +23,14 @@ vi.mock("@/shared/components/Modal", () => ({
   default: ({
     children,
     buttons,
-    contentHeader,
+    title,
   }: {
     children: ReactNode;
     buttons?: Array<{ text: string; onClick?: () => void }>;
-    contentHeader?: string;
+    title?: string;
   }) => (
     <div>
-      <div>{contentHeader}</div>
+      <div>{title}</div>
       {children}
       {buttons?.map((button) => (
         <button key={button.text} type="button" onClick={button.onClick}>

@@ -317,7 +317,7 @@ const RackSettingsModal = ({
   return (
     <Modal
       open={show}
-      contentHeader="Rack settings"
+      title="Rack settings"
       phoneSheet
       onDismiss={onDismiss}
       divider={false}

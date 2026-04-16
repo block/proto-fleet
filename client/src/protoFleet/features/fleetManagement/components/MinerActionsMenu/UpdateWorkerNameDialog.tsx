@@ -73,8 +73,7 @@ const UpdateWorkerNameDialog = ({ open, currentWorkerName, onConfirm, onDismiss 
   return (
     <Modal
       open={open}
-      contentHeader="Update worker name"
-      contentHeaderClassName="text-heading-300"
+      title="Update worker name"
       onDismiss={onDismiss}
       divider={false}
       size="large"

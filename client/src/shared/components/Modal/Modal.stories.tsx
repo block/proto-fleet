@@ -30,7 +30,7 @@ export const Modal = ({ hasButtons, hasTitle, numberOfSecondaryButtons }: ModalP
       {showModal && (
         <ModalComponent
           title={hasTitle ? "Title" : undefined}
-          contentHeader="Content"
+          description="This is a description that stays in the content area."
           buttons={
             hasButtons
               ? [
@@ -87,7 +87,7 @@ export const Standard = () => {
       {showModal && (
         <ModalComponent
           title="Standard Modal"
-          contentHeader="Form Content"
+          description="Form Content"
           size="standard" // explicit for demo purposes
           buttons={[
             {
@@ -127,7 +127,7 @@ export const Large = () => {
       {showModal && (
         <ModalComponent
           title="Large Modal"
-          contentHeader="Data-Heavy Content"
+          description="Data-Heavy Content"
           size="large"
           buttons={[
             {
@@ -170,7 +170,7 @@ export const Fullscreen = () => {
       {showModal && (
         <ModalComponent
           title="Fullscreen Modal"
-          contentHeader="This modal takes up the full screen"
+          description="This modal takes up the full screen"
           size="fullscreen"
           buttons={[
             {
@@ -184,6 +184,51 @@ export const Fullscreen = () => {
           <div className="p-4">
             <p>This is a fullscreen modal that takes up the entire viewport.</p>
             <p className="mt-2">It's useful for immersive experiences or when you need maximum space for content.</p>
+          </div>
+        </ModalComponent>
+      )}
+    </>
+  );
+};
+
+// Long content — demonstrates scroll-aware title collapse
+export const LongContent = () => {
+  const [showModal, setShowModal] = useState(true);
+
+  return (
+    <>
+      <div className="mt-16 flex w-full justify-center">
+        <div className="flex flex-col">
+          <div className="mb-2 text-400">Content behind the overlay</div>
+          <Button
+            onClick={() => setShowModal(true)}
+            text="Show Long Content Modal"
+            variant={variants.primary}
+            size={sizes.base}
+          />
+        </div>
+      </div>
+      {showModal && (
+        <ModalComponent
+          title="Scroll-Aware Title"
+          description="Scroll down — the title collapses into the sticky header when it leaves the viewport."
+          buttons={[
+            {
+              text: "Done",
+              onClick: action("Done button clicked"),
+              variant: variants.primary,
+            },
+          ]}
+          onDismiss={() => setShowModal(false)}
+        >
+          <div className="mt-4 flex flex-col gap-4">
+            {Array.from({ length: 20 }, (_, i) => (
+              <p key={i}>
+                Paragraph {i + 1} — Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor
+                incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco
+                laboris nisi ut aliquip ex ea commodo consequat.
+              </p>
+            ))}
           </div>
         </ModalComponent>
       )}

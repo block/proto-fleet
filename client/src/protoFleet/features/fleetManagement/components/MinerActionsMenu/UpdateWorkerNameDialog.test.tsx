@@ -11,18 +11,18 @@ vi.mock("@/shared/components/Modal/Modal", () => ({
       children,
       buttons,
       onDismiss,
-      contentHeader,
+      title,
     }: {
       open: boolean;
       children: React.ReactNode;
       buttons?: { text: string; onClick: () => void; variant?: string; dismissModalOnClick?: boolean }[];
       onDismiss: () => void;
-      contentHeader: string;
+      title: string;
     }) => {
       if (!open) return null;
       return (
         <div data-testid="update-worker-name-modal">
-          <h2>{contentHeader}</h2>
+          <h2>{title}</h2>
           {children}
           <button onClick={onDismiss} data-testid="modal-dismiss">
             Dismiss

@@ -70,8 +70,7 @@ const RenameMinerDialog = ({
   return (
     <Modal
       open={open}
-      contentHeader="Rename miner"
-      contentHeaderClassName="text-heading-300"
+      title="Rename miner"
       onDismiss={onDismiss}
       divider={false}
       buttons={[

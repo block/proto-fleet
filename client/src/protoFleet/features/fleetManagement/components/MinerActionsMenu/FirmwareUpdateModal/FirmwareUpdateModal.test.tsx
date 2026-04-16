@@ -21,17 +21,15 @@ vi.mock("@/protoFleet/components/FirmwareUpload", () => ({
 }));
 
 vi.mock("@/shared/components/Modal/Modal", () => ({
-  default: vi.fn(
-    ({ children, open, contentHeader }: { children: ReactNode; open?: boolean; contentHeader?: string }) => {
-      if (open === false) return null;
-      return (
-        <div data-testid="modal">
-          <div>{contentHeader}</div>
-          {children}
-        </div>
-      );
-    },
-  ),
+  default: vi.fn(({ children, open, title }: { children: ReactNode; open?: boolean; title?: string }) => {
+    if (open === false) return null;
+    return (
+      <div data-testid="modal">
+        <div>{title}</div>
+        {children}
+      </div>
+    );
+  }),
 }));
 
 vi.mock("@/shared/components/ProgressCircular/ProgressCircular", () => ({

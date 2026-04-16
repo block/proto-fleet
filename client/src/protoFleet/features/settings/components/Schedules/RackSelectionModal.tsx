@@ -74,8 +74,7 @@ const RackSelectionModal = ({ open, selectedRackIds, onDismiss, onSave }: RackSe
     <Modal
       open={open}
       onDismiss={onDismiss}
-      contentHeader={showEmptyState ? "No racks configured" : "Select racks"}
-      contentHeaderClassName={showEmptyState ? "mb-1" : "mb-3"}
+      title={showEmptyState ? "No racks configured" : "Select racks"}
       size="large"
       divider={false}
       buttons={[

@@ -57,7 +57,7 @@ const ManagePowerModal = ({ open, onConfirm, onDismiss }: ManagePowerModalProps)
   return (
     <Modal
       open={open}
-      contentHeader="Manage power"
+      title="Manage power"
       onDismiss={handleDismiss}
       buttons={[
         {

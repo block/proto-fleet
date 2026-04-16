@@ -94,7 +94,7 @@ const AddTeamMemberModal = ({ open, onDismiss, onSuccess }: AddTeamMemberModalPr
       <Modal
         open={isVisible}
         onDismiss={onDismiss}
-        contentHeader="Add team member"
+        title="Add team member"
         buttons={[
           {
             text: "Save",

@@ -110,7 +110,7 @@ const UpdateMinerPasswordModal = ({
   return (
     <Modal
       open={open}
-      contentHeader="Update the admin login for your miners"
+      title="Update the admin login for your miners"
       onDismiss={handleDismiss}
       buttons={[
         {
@@ -122,7 +122,7 @@ const UpdateMinerPasswordModal = ({
         },
       ]}
       divider={false}
-      contentHeaderClassName="text-heading-300"
+      className="w-full"
     >
       <div className="mb-6 text-300 text-text-primary-70">
         This password will be required to make any changes to pools or miner performance.

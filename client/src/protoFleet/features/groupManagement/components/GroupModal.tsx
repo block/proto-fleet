@@ -8,7 +8,6 @@ import { Alert } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
 import Dialog from "@/shared/components/Dialog";
-import Header from "@/shared/components/Header";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
@@ -171,14 +170,11 @@ const GroupModal = ({ show, onDismiss, onSuccess, group }: GroupModalProps) => {
           },
         ]}
         divider={false}
+        title={isEditMode ? "Edit group" : "Add group"}
+        description={
+          isEditMode ? "Rename your group or update its miners." : "Name your group and assign miners to it."
+        }
       >
-        <Header
-          title={isEditMode ? "Edit group" : "Add group"}
-          titleSize="text-heading-300"
-          description={
-            isEditMode ? "Rename your group or update its miners." : "Name your group and assign miners to it."
-          }
-        />
         <div className="mt-4 flex h-full min-h-0 flex-col">
           {errorMsg ? (
             <Callout

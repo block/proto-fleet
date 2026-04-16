@@ -281,7 +281,7 @@ const PoolModal = ({
     <Modal
       open={open}
       buttons={modalButtons}
-      contentHeader={mode === "add" ? "Add pool" : "Edit pool"}
+      title={mode === "add" ? "Add pool" : "Edit pool"}
       onDismiss={onDismiss}
       divider={false}
       size={modalSize}

@@ -3,8 +3,6 @@ import type { MinerWithSelected, MinerWithSelectedAndAction } from "./types";
 import { Device } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
 import { createModelFilter, filterByModel } from "@/protoFleet/utils/minerFilters";
 import { sizes, variants } from "@/shared/components/Button";
-import Header from "@/shared/components/Header";
-
 import List from "@/shared/components/List";
 import { ActiveFilters } from "@/shared/components/List/Filters/types";
 import Modal, { ModalSelectAllFooter } from "@/shared/components/Modal";
@@ -71,6 +69,8 @@ const FoundMinersModal = ({ open, miners, models, setDeselectedMiners, onDismiss
       onDismiss={onDismiss}
       size="large"
       divider={false}
+      title={`${miners.length} miners found on your network`}
+      description="Selected miners will be added to your fleet."
       buttons={[
         {
           text: "Done",
@@ -79,11 +79,6 @@ const FoundMinersModal = ({ open, miners, models, setDeselectedMiners, onDismiss
       ]}
     >
       <div className="flex flex-col gap-4">
-        <Header
-          titleSize="text-heading-300"
-          title={`${miners.length} miners found on your network`}
-          subtitle="Selected miners will be added to your fleet."
-        />
         <List<MinerWithSelectedAndAction, MinerWithSelectedAndAction["deviceIdentifier"]>
           filters={[modelFilter]}
           filterItem={filterByModel}

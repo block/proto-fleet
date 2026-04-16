@@ -1,5 +1,5 @@
 import { motion } from "motion/react";
-import { ReactNode, useCallback, useRef } from "react";
+import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 
 import { sizes } from "./constants";
@@ -30,8 +30,6 @@ interface ModalProps {
   bodyClassName?: string;
   hideHeaderOnPhone?: boolean;
   headerSpacingClassName?: string;
-  contentHeader?: string;
-  contentHeaderClassName?: string;
   onDismiss?: (buttonClicked?: boolean) => void;
   buttonSize?: keyof typeof buttonSizes;
   buttons?: ModalButtonProps[];
@@ -54,9 +52,7 @@ const Modal = ({
   className,
   bodyClassName,
   hideHeaderOnPhone = false,
-  headerSpacingClassName = "mt-6",
-  contentHeader,
-  contentHeaderClassName,
+  headerSpacingClassName = "mt-4",
   icon = <Dismiss />,
   onIconClick,
   onDismiss,
@@ -73,9 +69,38 @@ const Modal = ({
   zIndex,
   iconAriaLabel = "Close dialog",
 }: ModalProps) => {
-  const ModalRef = useRef<HTMLDivElement>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const [isTitleCollapsed, setIsTitleCollapsed] = useState(false);
+  const isFullscreen = size === sizes.fullscreen;
+  const showTitleInHeader = isFullscreen || isTitleCollapsed;
   const slideUpAnimation = useSlideUpAnimation();
   const hasPhoneFooterButtons = (phoneFooterButtons?.length ?? 0) > 0;
+
+  useEffect(() => {
+    if (!title || !sentinelRef.current || !modalRef.current) {
+      setIsTitleCollapsed(false);
+      return;
+    }
+
+    const headerHeight = headerRef.current?.offsetHeight ?? 0;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        setIsTitleCollapsed(!entry.isIntersecting);
+      },
+      {
+        root: modalRef.current,
+        rootMargin: `-${headerHeight}px 0px 0px 0px`,
+        threshold: 0,
+      },
+    );
+
+    observer.observe(sentinelRef.current);
+
+    return () => observer.disconnect();
+  }, [title, showHeader]);
 
   const dismissModal = useCallback(() => {
     onDismiss?.();
@@ -100,7 +125,7 @@ const Modal = ({
 
   const shouldIgnoreClickOutside = useCallback(() => open === false, [open]);
   useClickOutside({
-    ref: ModalRef,
+    ref: modalRef,
     onClickOutside: dismissModal,
     ignoreSelectors: [".popover-content"],
     shouldIgnore: shouldIgnoreClickOutside,
@@ -116,70 +141,82 @@ const Modal = ({
 
   return (
     <PageOverlay open={open} position="top" {...(zIndex && { zIndex })}>
-      <motion.div
-        {...slideUpAnimation}
-        className={clsx(
-          "relative h-fit rounded-3xl bg-surface-elevated-base p-6 shadow-300",
-          sizeClasses[size],
-          {
-            "mt-16 max-h-[calc(100vh-(--spacing(32)))] overflow-auto": size !== sizes.fullscreen,
-            "pt-0": showHeader,
-            "phone:pt-6": hideHeaderOnPhone,
-            "phone:mt-auto phone:mb-3 phone:w-[calc(100vw-theme(spacing.6))] phone:max-w-none phone:min-w-[calc(100vw-theme(spacing.6))] phone:rounded-[16px]":
-              phoneSheet && size !== sizes.fullscreen,
-          },
-          className,
-        )}
-        ref={ModalRef}
-        data-testid="modal"
+      <div
+        className={clsx("h-fit overflow-hidden rounded-3xl bg-surface-elevated-base shadow-300", sizeClasses[size], {
+          "mt-16 max-h-[calc(100vh-(--spacing(32)))]": size !== sizes.fullscreen,
+          "phone:mt-auto phone:mb-3 phone:w-[calc(100vw-theme(spacing.6))] phone:max-w-none phone:min-w-[calc(100vw-theme(spacing.6))] phone:rounded-[16px]":
+            phoneSheet && size !== sizes.fullscreen,
+        })}
       >
-        {showHeader && (
-          <div
-            className={clsx("sticky top-0 z-10 bg-surface-elevated-base pt-6", { "phone:hidden": hideHeaderOnPhone })}
-          >
-            <Header
-              title={title}
-              description={description}
-              titleSize="text-heading-300"
-              {...headerIconProps}
-              buttonSize={buttonSize}
-              buttonsWrapperClassName={hasPhoneFooterButtons ? "phone:hidden" : undefined}
-              buttons={buttons?.map((button) => ({
-                ...button,
-                onClick: onButtonClick(button),
-              }))}
-              inline
-              centerButton
-            />
-            {divider ? <Divider className={headerSpacingClassName} /> : <div className={headerSpacingClassName} />}
-          </div>
-        )}
-        {contentHeader && (
-          <div
-            className={clsx(
-              "mb-1 text-heading-300 text-text-primary",
-              { "phone:mb-0": hideHeaderOnPhone },
-              contentHeaderClassName,
-            )}
-          >
-            {contentHeader}
-          </div>
-        )}
-        <div className={clsx("text-300 text-text-primary-70", bodyClassName)}>{children}</div>
-        {hasPhoneFooterButtons ? (
-          <div className="mt-6 hidden w-full gap-3 phone:flex">
-            {phoneFooterButtons?.map((button, index) => (
-              <Button
-                key={button.testId ?? index}
-                {...button}
-                size={buttonSize}
-                className={clsx("grow", button.className)}
-                onClick={onButtonClick(button)}
+        <motion.div
+          {...slideUpAnimation}
+          className={clsx(
+            "relative p-6",
+            {
+              "max-h-[calc(100vh-(--spacing(32)))] overflow-auto": size !== sizes.fullscreen,
+              "h-full": isFullscreen,
+              "pt-0": showHeader,
+              "phone:pt-6": hideHeaderOnPhone,
+            },
+            className,
+          )}
+          ref={modalRef}
+          data-testid="modal"
+        >
+          {showHeader && (
+            <div
+              ref={headerRef}
+              className={clsx("sticky top-0 z-10 bg-surface-elevated-base pt-6", { "phone:hidden": hideHeaderOnPhone })}
+            >
+              <Header
+                title={showTitleInHeader ? title : undefined}
+                titleSize="text-heading-300"
+                {...headerIconProps}
+                buttonSize={buttonSize}
+                buttonsWrapperClassName={hasPhoneFooterButtons ? "phone:hidden" : undefined}
+                buttons={buttons?.map((button) => ({
+                  ...button,
+                  onClick: onButtonClick(button),
+                }))}
+                inline
+                centerButton
               />
-            ))}
-          </div>
-        ) : null}
-      </motion.div>
+              {divider && showTitleInHeader ? (
+                <Divider className={headerSpacingClassName} />
+              ) : (
+                <div className={headerSpacingClassName} />
+              )}
+            </div>
+          )}
+          {title && !isFullscreen && (
+            <>
+              <div ref={sentinelRef} className="h-0 w-0" />
+              <div
+                className={clsx("text-heading-300 text-text-primary", description ? "mb-1" : "mb-4", {
+                  "phone:mb-0": hideHeaderOnPhone,
+                })}
+              >
+                {title}
+              </div>
+            </>
+          )}
+          {description && <div className="mb-4 max-w-[600px] text-300 text-text-primary-70">{description}</div>}
+          <div className={clsx("text-300 text-text-primary-70", bodyClassName)}>{children}</div>
+          {hasPhoneFooterButtons ? (
+            <div className="mt-6 hidden w-full gap-3 phone:flex">
+              {phoneFooterButtons?.map((button, index) => (
+                <Button
+                  key={button.testId ?? index}
+                  {...button}
+                  size={buttonSize}
+                  className={clsx("grow", button.className)}
+                  onClick={onButtonClick(button)}
+                />
+              ))}
+            </div>
+          ) : null}
+        </motion.div>
+      </div>
     </PageOverlay>
   );
 };

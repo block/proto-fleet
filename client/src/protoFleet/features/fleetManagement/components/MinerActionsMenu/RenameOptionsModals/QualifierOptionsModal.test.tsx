@@ -10,18 +10,18 @@ vi.mock("@/shared/components/Modal/Modal", () => ({
       open,
       children,
       buttons,
-      contentHeader,
+      title,
     }: {
       open: boolean;
       children: React.ReactNode;
       buttons?: { text: string; onClick: () => void; disabled?: boolean; testId?: string }[];
-      contentHeader: string;
+      title: string;
     }) => {
       if (!open) return null;
 
       return (
         <div data-testid="qualifier-options-modal">
-          <h2>{contentHeader}</h2>
+          <h2>{title}</h2>
           {children}
           {buttons?.map((button, index) => (
             <button

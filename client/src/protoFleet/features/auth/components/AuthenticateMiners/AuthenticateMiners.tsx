@@ -14,7 +14,6 @@ import { createModelFilter, filterByModel } from "@/protoFleet/utils/minerFilter
 import { Alert } from "@/shared/assets/icons";
 import { sizes, variants } from "@/shared/components/Button/constants";
 import Callout, { intents } from "@/shared/components/Callout";
-import Header from "@/shared/components/Header";
 import Input from "@/shared/components/Input";
 import List from "@/shared/components/List";
 import { ActiveFilters } from "@/shared/components/List/Filters/types";
@@ -467,17 +466,13 @@ const AuthenticateMiners = ({
         },
       ]}
       size={showMiners ? "large" : undefined}
-      title={showMiners ? "Authenticate miners" : undefined}
+      title="Authenticate miners"
+      description={
+        !showMiners
+          ? "If miners use different credentials, we'll try each attempt until all miners are configured."
+          : undefined
+      }
     >
-      {!showMiners && (
-        <Header
-          title="Authenticate miners"
-          titleSize="text-heading-300"
-          subtitle="If miners use different credentials, we'll try each attempt until all miners are configured."
-          subtitleSize="text-300"
-          className="bg-surface-elevated-base"
-        />
-      )}
       {errorMessage !== null && (
         <Callout
           className="mt-6"

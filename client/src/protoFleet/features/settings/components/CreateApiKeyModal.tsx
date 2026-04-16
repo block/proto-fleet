@@ -147,7 +147,7 @@ const CreateApiKeyModal = ({ open, onDismiss, onSuccess }: CreateApiKeyModalProp
       <Modal
         open={isVisible}
         onDismiss={handleDismiss}
-        contentHeader="Create API key"
+        title="Create API key"
         buttons={[
           {
             text: "Create",
