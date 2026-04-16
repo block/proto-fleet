@@ -5,13 +5,12 @@
 package errorsv1connect
 
 import (
+	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
+	v1 "github.com/block/proto-fleet/server/generated/grpc/errors/v1"
 	http "net/http"
 	strings "strings"
-
-	connect "connectrpc.com/connect"
-	v1 "github.com/block/proto-fleet/server/generated/grpc/errors/v1"
 )
 
 // This is a compile-time assertion to ensure that this generated file and the connect package are
@@ -19,7 +18,7 @@ import (
 // generated with a version of connect newer than the one compiled into your binary. You can fix the
 // problem by either regenerating this code with an older version of connect or updating the connect
 // version compiled into your binary.
-const _ = connect.IsAtLeastVersion0_1_0
+const _ = connect.IsAtLeastVersion1_13_0
 
 const (
 	// ErrorQueryServiceName is the fully-qualified name of the ErrorQueryService service.
@@ -67,26 +66,31 @@ type ErrorQueryServiceClient interface {
 // http://api.acme.com or https://acme.com/grpc).
 func NewErrorQueryServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) ErrorQueryServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
+	errorQueryServiceMethods := v1.File_errors_v1_errors_proto.Services().ByName("ErrorQueryService").Methods()
 	return &errorQueryServiceClient{
 		query: connect.NewClient[v1.QueryRequest, v1.QueryResponse](
 			httpClient,
 			baseURL+ErrorQueryServiceQueryProcedure,
-			opts...,
+			connect.WithSchema(errorQueryServiceMethods.ByName("Query")),
+			connect.WithClientOptions(opts...),
 		),
 		getError: connect.NewClient[v1.GetErrorRequest, v1.GetErrorResponse](
 			httpClient,
 			baseURL+ErrorQueryServiceGetErrorProcedure,
-			opts...,
+			connect.WithSchema(errorQueryServiceMethods.ByName("GetError")),
+			connect.WithClientOptions(opts...),
 		),
 		listMinerErrors: connect.NewClient[v1.ListMinerErrorsRequest, v1.ListMinerErrorsResponse](
 			httpClient,
 			baseURL+ErrorQueryServiceListMinerErrorsProcedure,
-			opts...,
+			connect.WithSchema(errorQueryServiceMethods.ByName("ListMinerErrors")),
+			connect.WithClientOptions(opts...),
 		),
 		watch: connect.NewClient[v1.WatchRequest, v1.WatchResponse](
 			httpClient,
 			baseURL+ErrorQueryServiceWatchProcedure,
-			opts...,
+			connect.WithSchema(errorQueryServiceMethods.ByName("Watch")),
+			connect.WithClientOptions(opts...),
 		),
 	}
 }
@@ -137,25 +141,30 @@ type ErrorQueryServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewErrorQueryServiceHandler(svc ErrorQueryServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	errorQueryServiceMethods := v1.File_errors_v1_errors_proto.Services().ByName("ErrorQueryService").Methods()
 	errorQueryServiceQueryHandler := connect.NewUnaryHandler(
 		ErrorQueryServiceQueryProcedure,
 		svc.Query,
-		opts...,
+		connect.WithSchema(errorQueryServiceMethods.ByName("Query")),
+		connect.WithHandlerOptions(opts...),
 	)
 	errorQueryServiceGetErrorHandler := connect.NewUnaryHandler(
 		ErrorQueryServiceGetErrorProcedure,
 		svc.GetError,
-		opts...,
+		connect.WithSchema(errorQueryServiceMethods.ByName("GetError")),
+		connect.WithHandlerOptions(opts...),
 	)
 	errorQueryServiceListMinerErrorsHandler := connect.NewUnaryHandler(
 		ErrorQueryServiceListMinerErrorsProcedure,
 		svc.ListMinerErrors,
-		opts...,
+		connect.WithSchema(errorQueryServiceMethods.ByName("ListMinerErrors")),
+		connect.WithHandlerOptions(opts...),
 	)
 	errorQueryServiceWatchHandler := connect.NewServerStreamHandler(
 		ErrorQueryServiceWatchProcedure,
 		svc.Watch,
-		opts...,
+		connect.WithSchema(errorQueryServiceMethods.ByName("Watch")),
+		connect.WithHandlerOptions(opts...),
 	)
 	return "/errors.v1.ErrorQueryService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

@@ -93,6 +93,21 @@ func (mr *MockDeviceStoreMockRecorder) GetAvailableModels(ctx, orgID any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAvailableModels", reflect.TypeOf((*MockDeviceStore)(nil).GetAvailableModels), ctx, orgID)
 }
 
+// GetCapabilityGroups mocks base method.
+func (m *MockDeviceStore) GetCapabilityGroups(ctx context.Context, orgID int64) ([]interfaces.CapabilityGroupResult, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetCapabilityGroups", ctx, orgID)
+	ret0, _ := ret[0].([]interfaces.CapabilityGroupResult)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetCapabilityGroups indicates an expected call of GetCapabilityGroups.
+func (mr *MockDeviceStoreMockRecorder) GetCapabilityGroups(ctx, orgID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCapabilityGroups", reflect.TypeOf((*MockDeviceStore)(nil).GetCapabilityGroups), ctx, orgID)
+}
+
 // GetDeviceByDeviceIdentifier mocks base method.
 func (m *MockDeviceStore) GetDeviceByDeviceIdentifier(ctx context.Context, identifier string, orgID int64) (*pairingv1.Device, error) {
 	m.ctrl.T.Helper()

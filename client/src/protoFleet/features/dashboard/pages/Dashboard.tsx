@@ -38,8 +38,10 @@ const Dashboard = () => {
   const currentYear = new Date().getFullYear();
   const { refs } = useStickyState();
 
-  // Fleet counts — polled for fresh minerStateCounts
-  const { totalMiners, stateCounts, hasLoaded: countsLoaded } = useFleetCounts({ pollIntervalMs: POLL_INTERVAL_MS });
+  // Fleet counts — polled for fresh minerStateCounts and per-metric capability counts
+  const { totalMiners, stateCounts, capabilityCounts, hasLoaded: countsLoaded } = useFleetCounts({
+    pollIntervalMs: POLL_INTERVAL_MS,
+  });
 
   // Component errors — polled, local state (no store)
   const { controlBoardErrors, fanErrors, hashboardErrors, psuErrors } = useComponentErrors({
@@ -126,8 +128,8 @@ const Dashboard = () => {
               <TemperaturePanel duration={duration} temperatureStatusCounts={temperatureStatusCounts} />
 
               <div className="grid grid-cols-2 gap-1 phone:grid-cols-1 tablet:grid-cols-1">
-                <PowerPanel duration={duration} metrics={powerMetrics} totalMiners={totalMiners} />
-                <EfficiencyPanel duration={duration} metrics={efficiencyMetrics} totalMiners={totalMiners} />
+                <PowerPanel duration={duration} metrics={powerMetrics} totalMiners={totalMiners} fleetDeviceCount={capabilityCounts[MeasurementType.POWER]} />
+                <EfficiencyPanel duration={duration} metrics={efficiencyMetrics} totalMiners={totalMiners} fleetDeviceCount={capabilityCounts[MeasurementType.EFFICIENCY]} />
               </div>
             </div>
 

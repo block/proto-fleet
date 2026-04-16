@@ -5,13 +5,12 @@
 package pairingv1connect
 
 import (
+	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
+	v1 "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	http "net/http"
 	strings "strings"
-
-	connect "connectrpc.com/connect"
-	v1 "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 )
 
 // This is a compile-time assertion to ensure that this generated file and the connect package are
@@ -19,7 +18,7 @@ import (
 // generated with a version of connect newer than the one compiled into your binary. You can fix the
 // problem by either regenerating this code with an older version of connect or updating the connect
 // version compiled into your binary.
-const _ = connect.IsAtLeastVersion0_1_0
+const _ = connect.IsAtLeastVersion1_13_0
 
 const (
 	// PairingServiceName is the fully-qualified name of the PairingService service.
@@ -58,16 +57,19 @@ type PairingServiceClient interface {
 // http://api.acme.com or https://acme.com/grpc).
 func NewPairingServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) PairingServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
+	pairingServiceMethods := v1.File_pairing_v1_pairing_proto.Services().ByName("PairingService").Methods()
 	return &pairingServiceClient{
 		discover: connect.NewClient[v1.DiscoverRequest, v1.DiscoverResponse](
 			httpClient,
 			baseURL+PairingServiceDiscoverProcedure,
-			opts...,
+			connect.WithSchema(pairingServiceMethods.ByName("Discover")),
+			connect.WithClientOptions(opts...),
 		),
 		pair: connect.NewClient[v1.PairRequest, v1.PairResponse](
 			httpClient,
 			baseURL+PairingServicePairProcedure,
-			opts...,
+			connect.WithSchema(pairingServiceMethods.ByName("Pair")),
+			connect.WithClientOptions(opts...),
 		),
 	}
 }
@@ -103,15 +105,18 @@ type PairingServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewPairingServiceHandler(svc PairingServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	pairingServiceMethods := v1.File_pairing_v1_pairing_proto.Services().ByName("PairingService").Methods()
 	pairingServiceDiscoverHandler := connect.NewServerStreamHandler(
 		PairingServiceDiscoverProcedure,
 		svc.Discover,
-		opts...,
+		connect.WithSchema(pairingServiceMethods.ByName("Discover")),
+		connect.WithHandlerOptions(opts...),
 	)
 	pairingServicePairHandler := connect.NewUnaryHandler(
 		PairingServicePairProcedure,
 		svc.Pair,
-		opts...,
+		connect.WithSchema(pairingServiceMethods.ByName("Pair")),
+		connect.WithHandlerOptions(opts...),
 	)
 	return "/pairing.v1.PairingService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

@@ -325,6 +325,23 @@ WHERE dp.pairing_status = 'PAIRED'
 GROUP BY dd.model, dd.manufacturer
 ORDER BY dd.manufacturer, dd.model;
 
+-- name: GetCapabilityGroups :many
+-- Returns distinct (manufacturer, model, driver_name) groups with device counts
+-- for paired miners. Used to compute per-metric capability counts by looking up
+-- capabilities per group instead of per device.
+SELECT
+    dd.manufacturer,
+    dd.model,
+    dd.driver_name,
+    COUNT(*)::int AS count
+FROM device d
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
+JOIN device_pairing dp ON d.id = dp.device_id
+WHERE dp.pairing_status = 'PAIRED'
+  AND d.deleted_at IS NULL
+  AND d.org_id = @org_id
+GROUP BY dd.manufacturer, dd.model, dd.driver_name;
+
 -- name: GetAvailableModels :many
 SELECT DISTINCT dd.model
 FROM device d

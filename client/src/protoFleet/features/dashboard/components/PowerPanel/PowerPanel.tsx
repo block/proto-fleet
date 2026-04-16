@@ -14,9 +14,11 @@ interface PowerPanelProps {
   metrics: Metric[] | undefined;
   /** Total miner count for "X of Y miners reporting" subtitle */
   totalMiners: number;
+  /** Number of miners capable of reporting power, from miner capabilities */
+  fleetDeviceCount?: number;
 }
 
-export function PowerPanel({ duration, metrics, totalMiners }: PowerPanelProps) {
+export function PowerPanel({ duration, metrics, totalMiners, fleetDeviceCount }: PowerPanelProps) {
   // Transform metrics data to chart format (merging already done by store selectors)
   const chartData = useMemo(() => {
     if (metrics === undefined) return undefined; // Not loaded yet
@@ -35,13 +37,7 @@ export function PowerPanel({ duration, metrics, totalMiners }: PowerPanelProps) 
     return chartData[chartData.length - 1]?.power ?? null;
   }, [chartData]);
 
-  // Get device count from latest metric
-  const deviceCount = useMemo(() => {
-    if (metrics === undefined) return undefined; // Not loaded yet
-    if (metrics.length === 0) return null; // Loaded but no data
-    const latestMetric = metrics[metrics.length - 1];
-    return latestMetric.deviceCount ?? null;
-  }, [metrics]);
+  const deviceCount = fleetDeviceCount ?? null;
 
   // Show loading skeleton while data hasn't loaded yet
   if (metrics === undefined) {

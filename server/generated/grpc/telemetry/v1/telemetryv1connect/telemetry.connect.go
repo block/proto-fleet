@@ -5,13 +5,12 @@
 package telemetryv1connect
 
 import (
+	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
+	v1 "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
 	http "net/http"
 	strings "strings"
-
-	connect "connectrpc.com/connect"
-	v1 "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
 )
 
 // This is a compile-time assertion to ensure that this generated file and the connect package are
@@ -19,7 +18,7 @@ import (
 // generated with a version of connect newer than the one compiled into your binary. You can fix the
 // problem by either regenerating this code with an older version of connect or updating the connect
 // version compiled into your binary.
-const _ = connect.IsAtLeastVersion0_1_0
+const _ = connect.IsAtLeastVersion1_13_0
 
 const (
 	// TelemetryServiceName is the fully-qualified name of the TelemetryService service.
@@ -59,16 +58,19 @@ type TelemetryServiceClient interface {
 // http://api.acme.com or https://acme.com/grpc).
 func NewTelemetryServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) TelemetryServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
+	telemetryServiceMethods := v1.File_telemetry_v1_telemetry_proto.Services().ByName("TelemetryService").Methods()
 	return &telemetryServiceClient{
 		getCombinedMetrics: connect.NewClient[v1.GetCombinedMetricsRequest, v1.GetCombinedMetricsResponse](
 			httpClient,
 			baseURL+TelemetryServiceGetCombinedMetricsProcedure,
-			opts...,
+			connect.WithSchema(telemetryServiceMethods.ByName("GetCombinedMetrics")),
+			connect.WithClientOptions(opts...),
 		),
 		streamCombinedMetricUpdates: connect.NewClient[v1.StreamCombinedMetricUpdatesRequest, v1.StreamCombinedMetricUpdatesResponse](
 			httpClient,
 			baseURL+TelemetryServiceStreamCombinedMetricUpdatesProcedure,
-			opts...,
+			connect.WithSchema(telemetryServiceMethods.ByName("StreamCombinedMetricUpdates")),
+			connect.WithClientOptions(opts...),
 		),
 	}
 }
@@ -103,15 +105,18 @@ type TelemetryServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewTelemetryServiceHandler(svc TelemetryServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	telemetryServiceMethods := v1.File_telemetry_v1_telemetry_proto.Services().ByName("TelemetryService").Methods()
 	telemetryServiceGetCombinedMetricsHandler := connect.NewUnaryHandler(
 		TelemetryServiceGetCombinedMetricsProcedure,
 		svc.GetCombinedMetrics,
-		opts...,
+		connect.WithSchema(telemetryServiceMethods.ByName("GetCombinedMetrics")),
+		connect.WithHandlerOptions(opts...),
 	)
 	telemetryServiceStreamCombinedMetricUpdatesHandler := connect.NewServerStreamHandler(
 		TelemetryServiceStreamCombinedMetricUpdatesProcedure,
 		svc.StreamCombinedMetricUpdates,
-		opts...,
+		connect.WithSchema(telemetryServiceMethods.ByName("StreamCombinedMetricUpdates")),
+		connect.WithHandlerOptions(opts...),
 	)
 	return "/telemetry.v1.TelemetryService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

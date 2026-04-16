@@ -5,13 +5,12 @@
 package fleetperformancev1connect
 
 import (
+	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
+	v1 "github.com/block/proto-fleet/server/generated/grpc/fleetperformance/v1"
 	http "net/http"
 	strings "strings"
-
-	connect "connectrpc.com/connect"
-	v1 "github.com/block/proto-fleet/server/generated/grpc/fleetperformance/v1"
 )
 
 // This is a compile-time assertion to ensure that this generated file and the connect package are
@@ -19,7 +18,7 @@ import (
 // generated with a version of connect newer than the one compiled into your binary. You can fix the
 // problem by either regenerating this code with an older version of connect or updating the connect
 // version compiled into your binary.
-const _ = connect.IsAtLeastVersion0_1_0
+const _ = connect.IsAtLeastVersion1_13_0
 
 const (
 	// FleetPerformanceServiceName is the fully-qualified name of the FleetPerformanceService service.
@@ -69,21 +68,25 @@ type FleetPerformanceServiceClient interface {
 // http://api.acme.com or https://acme.com/grpc).
 func NewFleetPerformanceServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) FleetPerformanceServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
+	fleetPerformanceServiceMethods := v1.File_fleetperformance_v1_fleetperformance_proto.Services().ByName("FleetPerformanceService").Methods()
 	return &fleetPerformanceServiceClient{
 		getFleetPerformance: connect.NewClient[v1.GetFleetPerformanceRequest, v1.GetFleetPerformanceResponse](
 			httpClient,
 			baseURL+FleetPerformanceServiceGetFleetPerformanceProcedure,
-			opts...,
+			connect.WithSchema(fleetPerformanceServiceMethods.ByName("GetFleetPerformance")),
+			connect.WithClientOptions(opts...),
 		),
 		streamFleetOverview: connect.NewClient[v1.StreamFleetOverviewRequest, v1.StreamFleetOverviewResponse](
 			httpClient,
 			baseURL+FleetPerformanceServiceStreamFleetOverviewProcedure,
-			opts...,
+			connect.WithSchema(fleetPerformanceServiceMethods.ByName("StreamFleetOverview")),
+			connect.WithClientOptions(opts...),
 		),
 		streamPerformanceMetrics: connect.NewClient[v1.StreamPerformanceMetricsRequest, v1.StreamPerformanceMetricsResponse](
 			httpClient,
 			baseURL+FleetPerformanceServiceStreamPerformanceMetricsProcedure,
-			opts...,
+			connect.WithSchema(fleetPerformanceServiceMethods.ByName("StreamPerformanceMetrics")),
+			connect.WithClientOptions(opts...),
 		),
 	}
 }
@@ -131,20 +134,24 @@ type FleetPerformanceServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewFleetPerformanceServiceHandler(svc FleetPerformanceServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	fleetPerformanceServiceMethods := v1.File_fleetperformance_v1_fleetperformance_proto.Services().ByName("FleetPerformanceService").Methods()
 	fleetPerformanceServiceGetFleetPerformanceHandler := connect.NewUnaryHandler(
 		FleetPerformanceServiceGetFleetPerformanceProcedure,
 		svc.GetFleetPerformance,
-		opts...,
+		connect.WithSchema(fleetPerformanceServiceMethods.ByName("GetFleetPerformance")),
+		connect.WithHandlerOptions(opts...),
 	)
 	fleetPerformanceServiceStreamFleetOverviewHandler := connect.NewServerStreamHandler(
 		FleetPerformanceServiceStreamFleetOverviewProcedure,
 		svc.StreamFleetOverview,
-		opts...,
+		connect.WithSchema(fleetPerformanceServiceMethods.ByName("StreamFleetOverview")),
+		connect.WithHandlerOptions(opts...),
 	)
 	fleetPerformanceServiceStreamPerformanceMetricsHandler := connect.NewServerStreamHandler(
 		FleetPerformanceServiceStreamPerformanceMetricsProcedure,
 		svc.StreamPerformanceMetrics,
-		opts...,
+		connect.WithSchema(fleetPerformanceServiceMethods.ByName("StreamPerformanceMetrics")),
+		connect.WithHandlerOptions(opts...),
 	)
 	return "/fleetperformance.v1.FleetPerformanceService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

@@ -5,13 +5,12 @@
 package authv1connect
 
 import (
+	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
+	v1 "github.com/block/proto-fleet/server/generated/grpc/auth/v1"
 	http "net/http"
 	strings "strings"
-
-	connect "connectrpc.com/connect"
-	v1 "github.com/block/proto-fleet/server/generated/grpc/auth/v1"
 )
 
 // This is a compile-time assertion to ensure that this generated file and the connect package are
@@ -19,7 +18,7 @@ import (
 // generated with a version of connect newer than the one compiled into your binary. You can fix the
 // problem by either regenerating this code with an older version of connect or updating the connect
 // version compiled into your binary.
-const _ = connect.IsAtLeastVersion0_1_0
+const _ = connect.IsAtLeastVersion1_13_0
 
 const (
 	// AuthServiceName is the fully-qualified name of the AuthService service.
@@ -103,56 +102,67 @@ type AuthServiceClient interface {
 // http://api.acme.com or https://acme.com/grpc).
 func NewAuthServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) AuthServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
+	authServiceMethods := v1.File_auth_v1_auth_proto.Services().ByName("AuthService").Methods()
 	return &authServiceClient{
 		authenticate: connect.NewClient[v1.AuthenticateRequest, v1.AuthenticateResponse](
 			httpClient,
 			baseURL+AuthServiceAuthenticateProcedure,
-			opts...,
+			connect.WithSchema(authServiceMethods.ByName("Authenticate")),
+			connect.WithClientOptions(opts...),
 		),
 		logout: connect.NewClient[v1.LogoutRequest, v1.LogoutResponse](
 			httpClient,
 			baseURL+AuthServiceLogoutProcedure,
-			opts...,
+			connect.WithSchema(authServiceMethods.ByName("Logout")),
+			connect.WithClientOptions(opts...),
 		),
 		updatePassword: connect.NewClient[v1.UpdatePasswordRequest, v1.UpdatePasswordResponse](
 			httpClient,
 			baseURL+AuthServiceUpdatePasswordProcedure,
-			opts...,
+			connect.WithSchema(authServiceMethods.ByName("UpdatePassword")),
+			connect.WithClientOptions(opts...),
 		),
 		updateUsername: connect.NewClient[v1.UpdateUsernameRequest, v1.UpdateUsernameResponse](
 			httpClient,
 			baseURL+AuthServiceUpdateUsernameProcedure,
-			opts...,
+			connect.WithSchema(authServiceMethods.ByName("UpdateUsername")),
+			connect.WithClientOptions(opts...),
 		),
 		getUserAuditInfo: connect.NewClient[v1.GetUserAuditInfoRequest, v1.GetUserAuditInfoResponse](
 			httpClient,
 			baseURL+AuthServiceGetUserAuditInfoProcedure,
-			opts...,
+			connect.WithSchema(authServiceMethods.ByName("GetUserAuditInfo")),
+			connect.WithClientOptions(opts...),
 		),
 		createUser: connect.NewClient[v1.CreateUserRequest, v1.CreateUserResponse](
 			httpClient,
 			baseURL+AuthServiceCreateUserProcedure,
-			opts...,
+			connect.WithSchema(authServiceMethods.ByName("CreateUser")),
+			connect.WithClientOptions(opts...),
 		),
 		listUsers: connect.NewClient[v1.ListUsersRequest, v1.ListUsersResponse](
 			httpClient,
 			baseURL+AuthServiceListUsersProcedure,
-			opts...,
+			connect.WithSchema(authServiceMethods.ByName("ListUsers")),
+			connect.WithClientOptions(opts...),
 		),
 		resetUserPassword: connect.NewClient[v1.ResetUserPasswordRequest, v1.ResetUserPasswordResponse](
 			httpClient,
 			baseURL+AuthServiceResetUserPasswordProcedure,
-			opts...,
+			connect.WithSchema(authServiceMethods.ByName("ResetUserPassword")),
+			connect.WithClientOptions(opts...),
 		),
 		deactivateUser: connect.NewClient[v1.DeactivateUserRequest, v1.DeactivateUserResponse](
 			httpClient,
 			baseURL+AuthServiceDeactivateUserProcedure,
-			opts...,
+			connect.WithSchema(authServiceMethods.ByName("DeactivateUser")),
+			connect.WithClientOptions(opts...),
 		),
 		verifyCredentials: connect.NewClient[v1.VerifyCredentialsRequest, v1.VerifyCredentialsResponse](
 			httpClient,
 			baseURL+AuthServiceVerifyCredentialsProcedure,
-			opts...,
+			connect.WithSchema(authServiceMethods.ByName("VerifyCredentials")),
+			connect.WithClientOptions(opts...),
 		),
 	}
 }
@@ -258,55 +268,66 @@ type AuthServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	authServiceMethods := v1.File_auth_v1_auth_proto.Services().ByName("AuthService").Methods()
 	authServiceAuthenticateHandler := connect.NewUnaryHandler(
 		AuthServiceAuthenticateProcedure,
 		svc.Authenticate,
-		opts...,
+		connect.WithSchema(authServiceMethods.ByName("Authenticate")),
+		connect.WithHandlerOptions(opts...),
 	)
 	authServiceLogoutHandler := connect.NewUnaryHandler(
 		AuthServiceLogoutProcedure,
 		svc.Logout,
-		opts...,
+		connect.WithSchema(authServiceMethods.ByName("Logout")),
+		connect.WithHandlerOptions(opts...),
 	)
 	authServiceUpdatePasswordHandler := connect.NewUnaryHandler(
 		AuthServiceUpdatePasswordProcedure,
 		svc.UpdatePassword,
-		opts...,
+		connect.WithSchema(authServiceMethods.ByName("UpdatePassword")),
+		connect.WithHandlerOptions(opts...),
 	)
 	authServiceUpdateUsernameHandler := connect.NewUnaryHandler(
 		AuthServiceUpdateUsernameProcedure,
 		svc.UpdateUsername,
-		opts...,
+		connect.WithSchema(authServiceMethods.ByName("UpdateUsername")),
+		connect.WithHandlerOptions(opts...),
 	)
 	authServiceGetUserAuditInfoHandler := connect.NewUnaryHandler(
 		AuthServiceGetUserAuditInfoProcedure,
 		svc.GetUserAuditInfo,
-		opts...,
+		connect.WithSchema(authServiceMethods.ByName("GetUserAuditInfo")),
+		connect.WithHandlerOptions(opts...),
 	)
 	authServiceCreateUserHandler := connect.NewUnaryHandler(
 		AuthServiceCreateUserProcedure,
 		svc.CreateUser,
-		opts...,
+		connect.WithSchema(authServiceMethods.ByName("CreateUser")),
+		connect.WithHandlerOptions(opts...),
 	)
 	authServiceListUsersHandler := connect.NewUnaryHandler(
 		AuthServiceListUsersProcedure,
 		svc.ListUsers,
-		opts...,
+		connect.WithSchema(authServiceMethods.ByName("ListUsers")),
+		connect.WithHandlerOptions(opts...),
 	)
 	authServiceResetUserPasswordHandler := connect.NewUnaryHandler(
 		AuthServiceResetUserPasswordProcedure,
 		svc.ResetUserPassword,
-		opts...,
+		connect.WithSchema(authServiceMethods.ByName("ResetUserPassword")),
+		connect.WithHandlerOptions(opts...),
 	)
 	authServiceDeactivateUserHandler := connect.NewUnaryHandler(
 		AuthServiceDeactivateUserProcedure,
 		svc.DeactivateUser,
-		opts...,
+		connect.WithSchema(authServiceMethods.ByName("DeactivateUser")),
+		connect.WithHandlerOptions(opts...),
 	)
 	authServiceVerifyCredentialsHandler := connect.NewUnaryHandler(
 		AuthServiceVerifyCredentialsProcedure,
 		svc.VerifyCredentials,
-		opts...,
+		connect.WithSchema(authServiceMethods.ByName("VerifyCredentials")),
+		connect.WithHandlerOptions(opts...),
 	)
 	return "/auth.v1.AuthService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

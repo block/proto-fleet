@@ -230,10 +230,46 @@ func (s *Service) GetMinerStateCounts(ctx context.Context, _ *pb.GetMinerStateCo
 		return nil, fleeterror.NewInternalErrorf("failed to get state counts: %v", err)
 	}
 
+	capCounts := s.getCapabilityCounts(ctx, info.OrganizationID)
+
 	return &pb.GetMinerStateCountsResponse{
-		TotalMiners: int32(total), //nolint:gosec
-		StateCounts: stateCounts,
+		TotalMiners:      int32(total), //nolint:gosec
+		StateCounts:      stateCounts,
+		CapabilityCounts: capCounts,
 	}, nil
+}
+
+// getCapabilityCounts aggregates per-metric capability counts from model groups.
+// Queries distinct (manufacturer, model, driver) groups — typically ~5 rows even
+// for large fleets — then looks up cached capabilities per group.
+func (s *Service) getCapabilityCounts(ctx context.Context, orgID int64) map[int32]int32 {
+	groups, err := s.deviceStore.GetCapabilityGroups(ctx, orgID)
+	if err != nil {
+		slog.Warn("failed to get capability groups for counts", "error", err)
+		return nil
+	}
+
+	counts := make(map[int32]int32)
+	for _, group := range groups {
+		caps := s.getCachedCapabilities(ctx, group.Manufacturer, group.Model, group.DriverName)
+		if caps == nil || caps.Telemetry == nil {
+			continue
+		}
+		t := caps.Telemetry
+		if t.HashrateReported {
+			counts[int32(telemetrypb.MeasurementType_MEASUREMENT_TYPE_HASHRATE)] += group.Count
+		}
+		if t.PowerUsageReported {
+			counts[int32(telemetrypb.MeasurementType_MEASUREMENT_TYPE_POWER)] += group.Count
+		}
+		if t.EfficiencyReported {
+			counts[int32(telemetrypb.MeasurementType_MEASUREMENT_TYPE_EFFICIENCY)] += group.Count
+		}
+		if t.TemperatureReported {
+			counts[int32(telemetrypb.MeasurementType_MEASUREMENT_TYPE_TEMPERATURE)] += group.Count
+		}
+	}
+	return counts
 }
 
 // GetMinerModelGroups returns model groups with counts, optionally filtered by the provided fleet filter.

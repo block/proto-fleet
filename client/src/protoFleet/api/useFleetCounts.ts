@@ -14,6 +14,8 @@ type UseFleetCountsReturn = {
   totalMiners: number;
   /** Counts of miners in different states */
   stateCounts: MinerStateCounts | undefined;
+  /** Number of paired miners capable of reporting each metric type (key is MeasurementType enum value) */
+  capabilityCounts: { [key: number]: number };
   /** Whether the hook is currently loading data */
   isLoading: boolean;
   /** Whether at least one successful fetch has completed */
@@ -42,6 +44,7 @@ const useFleetCounts = (options?: UseFleetCountsOptions): UseFleetCountsReturn =
 
   const [totalMiners, setTotalMiners] = useState(0);
   const [stateCounts, setStateCounts] = useState<MinerStateCounts | undefined>(undefined);
+  const [capabilityCounts, setCapabilityCounts] = useState<{ [key: number]: number }>({});
   const [isLoading, setIsLoading] = useState(false);
   const [hasLoaded, setHasLoaded] = useState(false);
 
@@ -67,6 +70,7 @@ const useFleetCounts = (options?: UseFleetCountsOptions): UseFleetCountsReturn =
 
       setTotalMiners(response.totalMiners);
       setStateCounts(response.stateCounts);
+      setCapabilityCounts(response.capabilityCounts);
     } catch (error) {
       if (thisRequestId !== requestIdRef.current) return;
 
@@ -111,6 +115,7 @@ const useFleetCounts = (options?: UseFleetCountsOptions): UseFleetCountsReturn =
   return {
     totalMiners,
     stateCounts,
+    capabilityCounts,
     isLoading,
     hasLoaded,
     refetch,

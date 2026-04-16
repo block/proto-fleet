@@ -50,6 +50,14 @@ type MinerModelGroupResult struct {
 	Count        int32
 }
 
+// CapabilityGroupResult holds a distinct (manufacturer, model, driver) group with device count.
+type CapabilityGroupResult struct {
+	Manufacturer string
+	Model        string
+	DriverName   string
+	Count        int32
+}
+
 // DeviceStatusUpdate represents a status update for batch operations.
 type DeviceStatusUpdate struct {
 	DeviceIdentifier models.DeviceIdentifier
@@ -108,6 +116,7 @@ type DeviceStore interface {
 	GetMinerStateCounts(ctx context.Context, orgID int64, filter *MinerFilter) (*tm.MinerStateCounts, error)
 	GetAvailableModels(ctx context.Context, orgID int64) ([]string, error)
 	GetMinerModelGroups(ctx context.Context, orgID int64, filter *MinerFilter) ([]MinerModelGroupResult, error)
+	GetCapabilityGroups(ctx context.Context, orgID int64) ([]CapabilityGroupResult, error)
 	UpsertDeviceStatus(ctx context.Context, deviceIdentifier models.DeviceIdentifier, status mm.MinerStatus, details string) error
 	UpsertDeviceStatuses(ctx context.Context, updates []DeviceStatusUpdate) error
 	GetDeviceStatusForDeviceIdentifiers(ctx context.Context, deviceIdentifiers []models.DeviceIdentifier) (map[models.DeviceIdentifier]mm.MinerStatus, error)

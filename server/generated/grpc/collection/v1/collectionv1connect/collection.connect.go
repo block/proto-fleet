@@ -5,13 +5,12 @@
 package collectionv1connect
 
 import (
+	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
+	v1 "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
 	http "net/http"
 	strings "strings"
-
-	connect "connectrpc.com/connect"
-	v1 "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
 )
 
 // This is a compile-time assertion to ensure that this generated file and the connect package are
@@ -19,7 +18,7 @@ import (
 // generated with a version of connect newer than the one compiled into your binary. You can fix the
 // problem by either regenerating this code with an older version of connect or updating the connect
 // version compiled into your binary.
-const _ = connect.IsAtLeastVersion0_1_0
+const _ = connect.IsAtLeastVersion1_13_0
 
 const (
 	// DeviceCollectionServiceName is the fully-qualified name of the DeviceCollectionService service.
@@ -130,86 +129,103 @@ type DeviceCollectionServiceClient interface {
 // http://api.acme.com or https://acme.com/grpc).
 func NewDeviceCollectionServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) DeviceCollectionServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
+	deviceCollectionServiceMethods := v1.File_collection_v1_collection_proto.Services().ByName("DeviceCollectionService").Methods()
 	return &deviceCollectionServiceClient{
 		createCollection: connect.NewClient[v1.CreateCollectionRequest, v1.CreateCollectionResponse](
 			httpClient,
 			baseURL+DeviceCollectionServiceCreateCollectionProcedure,
-			opts...,
+			connect.WithSchema(deviceCollectionServiceMethods.ByName("CreateCollection")),
+			connect.WithClientOptions(opts...),
 		),
 		getCollection: connect.NewClient[v1.GetCollectionRequest, v1.GetCollectionResponse](
 			httpClient,
 			baseURL+DeviceCollectionServiceGetCollectionProcedure,
-			opts...,
+			connect.WithSchema(deviceCollectionServiceMethods.ByName("GetCollection")),
+			connect.WithClientOptions(opts...),
 		),
 		updateCollection: connect.NewClient[v1.UpdateCollectionRequest, v1.UpdateCollectionResponse](
 			httpClient,
 			baseURL+DeviceCollectionServiceUpdateCollectionProcedure,
-			opts...,
+			connect.WithSchema(deviceCollectionServiceMethods.ByName("UpdateCollection")),
+			connect.WithClientOptions(opts...),
 		),
 		deleteCollection: connect.NewClient[v1.DeleteCollectionRequest, v1.DeleteCollectionResponse](
 			httpClient,
 			baseURL+DeviceCollectionServiceDeleteCollectionProcedure,
-			opts...,
+			connect.WithSchema(deviceCollectionServiceMethods.ByName("DeleteCollection")),
+			connect.WithClientOptions(opts...),
 		),
 		listCollections: connect.NewClient[v1.ListCollectionsRequest, v1.ListCollectionsResponse](
 			httpClient,
 			baseURL+DeviceCollectionServiceListCollectionsProcedure,
-			opts...,
+			connect.WithSchema(deviceCollectionServiceMethods.ByName("ListCollections")),
+			connect.WithClientOptions(opts...),
 		),
 		addDevicesToCollection: connect.NewClient[v1.AddDevicesToCollectionRequest, v1.AddDevicesToCollectionResponse](
 			httpClient,
 			baseURL+DeviceCollectionServiceAddDevicesToCollectionProcedure,
-			opts...,
+			connect.WithSchema(deviceCollectionServiceMethods.ByName("AddDevicesToCollection")),
+			connect.WithClientOptions(opts...),
 		),
 		removeDevicesFromCollection: connect.NewClient[v1.RemoveDevicesFromCollectionRequest, v1.RemoveDevicesFromCollectionResponse](
 			httpClient,
 			baseURL+DeviceCollectionServiceRemoveDevicesFromCollectionProcedure,
-			opts...,
+			connect.WithSchema(deviceCollectionServiceMethods.ByName("RemoveDevicesFromCollection")),
+			connect.WithClientOptions(opts...),
 		),
 		listCollectionMembers: connect.NewClient[v1.ListCollectionMembersRequest, v1.ListCollectionMembersResponse](
 			httpClient,
 			baseURL+DeviceCollectionServiceListCollectionMembersProcedure,
-			opts...,
+			connect.WithSchema(deviceCollectionServiceMethods.ByName("ListCollectionMembers")),
+			connect.WithClientOptions(opts...),
 		),
 		getDeviceCollections: connect.NewClient[v1.GetDeviceCollectionsRequest, v1.GetDeviceCollectionsResponse](
 			httpClient,
 			baseURL+DeviceCollectionServiceGetDeviceCollectionsProcedure,
-			opts...,
+			connect.WithSchema(deviceCollectionServiceMethods.ByName("GetDeviceCollections")),
+			connect.WithClientOptions(opts...),
 		),
 		setRackSlotPosition: connect.NewClient[v1.SetRackSlotPositionRequest, v1.SetRackSlotPositionResponse](
 			httpClient,
 			baseURL+DeviceCollectionServiceSetRackSlotPositionProcedure,
-			opts...,
+			connect.WithSchema(deviceCollectionServiceMethods.ByName("SetRackSlotPosition")),
+			connect.WithClientOptions(opts...),
 		),
 		clearRackSlotPosition: connect.NewClient[v1.ClearRackSlotPositionRequest, v1.ClearRackSlotPositionResponse](
 			httpClient,
 			baseURL+DeviceCollectionServiceClearRackSlotPositionProcedure,
-			opts...,
+			connect.WithSchema(deviceCollectionServiceMethods.ByName("ClearRackSlotPosition")),
+			connect.WithClientOptions(opts...),
 		),
 		getRackSlots: connect.NewClient[v1.GetRackSlotsRequest, v1.GetRackSlotsResponse](
 			httpClient,
 			baseURL+DeviceCollectionServiceGetRackSlotsProcedure,
-			opts...,
+			connect.WithSchema(deviceCollectionServiceMethods.ByName("GetRackSlots")),
+			connect.WithClientOptions(opts...),
 		),
 		getCollectionStats: connect.NewClient[v1.GetCollectionStatsRequest, v1.GetCollectionStatsResponse](
 			httpClient,
 			baseURL+DeviceCollectionServiceGetCollectionStatsProcedure,
-			opts...,
+			connect.WithSchema(deviceCollectionServiceMethods.ByName("GetCollectionStats")),
+			connect.WithClientOptions(opts...),
 		),
 		listRackZones: connect.NewClient[v1.ListRackZonesRequest, v1.ListRackZonesResponse](
 			httpClient,
 			baseURL+DeviceCollectionServiceListRackZonesProcedure,
-			opts...,
+			connect.WithSchema(deviceCollectionServiceMethods.ByName("ListRackZones")),
+			connect.WithClientOptions(opts...),
 		),
 		listRackTypes: connect.NewClient[v1.ListRackTypesRequest, v1.ListRackTypesResponse](
 			httpClient,
 			baseURL+DeviceCollectionServiceListRackTypesProcedure,
-			opts...,
+			connect.WithSchema(deviceCollectionServiceMethods.ByName("ListRackTypes")),
+			connect.WithClientOptions(opts...),
 		),
 		saveRack: connect.NewClient[v1.SaveRackRequest, v1.SaveRackResponse](
 			httpClient,
 			baseURL+DeviceCollectionServiceSaveRackProcedure,
-			opts...,
+			connect.WithSchema(deviceCollectionServiceMethods.ByName("SaveRack")),
+			connect.WithClientOptions(opts...),
 		),
 	}
 }
@@ -359,85 +375,102 @@ type DeviceCollectionServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewDeviceCollectionServiceHandler(svc DeviceCollectionServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	deviceCollectionServiceMethods := v1.File_collection_v1_collection_proto.Services().ByName("DeviceCollectionService").Methods()
 	deviceCollectionServiceCreateCollectionHandler := connect.NewUnaryHandler(
 		DeviceCollectionServiceCreateCollectionProcedure,
 		svc.CreateCollection,
-		opts...,
+		connect.WithSchema(deviceCollectionServiceMethods.ByName("CreateCollection")),
+		connect.WithHandlerOptions(opts...),
 	)
 	deviceCollectionServiceGetCollectionHandler := connect.NewUnaryHandler(
 		DeviceCollectionServiceGetCollectionProcedure,
 		svc.GetCollection,
-		opts...,
+		connect.WithSchema(deviceCollectionServiceMethods.ByName("GetCollection")),
+		connect.WithHandlerOptions(opts...),
 	)
 	deviceCollectionServiceUpdateCollectionHandler := connect.NewUnaryHandler(
 		DeviceCollectionServiceUpdateCollectionProcedure,
 		svc.UpdateCollection,
-		opts...,
+		connect.WithSchema(deviceCollectionServiceMethods.ByName("UpdateCollection")),
+		connect.WithHandlerOptions(opts...),
 	)
 	deviceCollectionServiceDeleteCollectionHandler := connect.NewUnaryHandler(
 		DeviceCollectionServiceDeleteCollectionProcedure,
 		svc.DeleteCollection,
-		opts...,
+		connect.WithSchema(deviceCollectionServiceMethods.ByName("DeleteCollection")),
+		connect.WithHandlerOptions(opts...),
 	)
 	deviceCollectionServiceListCollectionsHandler := connect.NewUnaryHandler(
 		DeviceCollectionServiceListCollectionsProcedure,
 		svc.ListCollections,
-		opts...,
+		connect.WithSchema(deviceCollectionServiceMethods.ByName("ListCollections")),
+		connect.WithHandlerOptions(opts...),
 	)
 	deviceCollectionServiceAddDevicesToCollectionHandler := connect.NewUnaryHandler(
 		DeviceCollectionServiceAddDevicesToCollectionProcedure,
 		svc.AddDevicesToCollection,
-		opts...,
+		connect.WithSchema(deviceCollectionServiceMethods.ByName("AddDevicesToCollection")),
+		connect.WithHandlerOptions(opts...),
 	)
 	deviceCollectionServiceRemoveDevicesFromCollectionHandler := connect.NewUnaryHandler(
 		DeviceCollectionServiceRemoveDevicesFromCollectionProcedure,
 		svc.RemoveDevicesFromCollection,
-		opts...,
+		connect.WithSchema(deviceCollectionServiceMethods.ByName("RemoveDevicesFromCollection")),
+		connect.WithHandlerOptions(opts...),
 	)
 	deviceCollectionServiceListCollectionMembersHandler := connect.NewUnaryHandler(
 		DeviceCollectionServiceListCollectionMembersProcedure,
 		svc.ListCollectionMembers,
-		opts...,
+		connect.WithSchema(deviceCollectionServiceMethods.ByName("ListCollectionMembers")),
+		connect.WithHandlerOptions(opts...),
 	)
 	deviceCollectionServiceGetDeviceCollectionsHandler := connect.NewUnaryHandler(
 		DeviceCollectionServiceGetDeviceCollectionsProcedure,
 		svc.GetDeviceCollections,
-		opts...,
+		connect.WithSchema(deviceCollectionServiceMethods.ByName("GetDeviceCollections")),
+		connect.WithHandlerOptions(opts...),
 	)
 	deviceCollectionServiceSetRackSlotPositionHandler := connect.NewUnaryHandler(
 		DeviceCollectionServiceSetRackSlotPositionProcedure,
 		svc.SetRackSlotPosition,
-		opts...,
+		connect.WithSchema(deviceCollectionServiceMethods.ByName("SetRackSlotPosition")),
+		connect.WithHandlerOptions(opts...),
 	)
 	deviceCollectionServiceClearRackSlotPositionHandler := connect.NewUnaryHandler(
 		DeviceCollectionServiceClearRackSlotPositionProcedure,
 		svc.ClearRackSlotPosition,
-		opts...,
+		connect.WithSchema(deviceCollectionServiceMethods.ByName("ClearRackSlotPosition")),
+		connect.WithHandlerOptions(opts...),
 	)
 	deviceCollectionServiceGetRackSlotsHandler := connect.NewUnaryHandler(
 		DeviceCollectionServiceGetRackSlotsProcedure,
 		svc.GetRackSlots,
-		opts...,
+		connect.WithSchema(deviceCollectionServiceMethods.ByName("GetRackSlots")),
+		connect.WithHandlerOptions(opts...),
 	)
 	deviceCollectionServiceGetCollectionStatsHandler := connect.NewUnaryHandler(
 		DeviceCollectionServiceGetCollectionStatsProcedure,
 		svc.GetCollectionStats,
-		opts...,
+		connect.WithSchema(deviceCollectionServiceMethods.ByName("GetCollectionStats")),
+		connect.WithHandlerOptions(opts...),
 	)
 	deviceCollectionServiceListRackZonesHandler := connect.NewUnaryHandler(
 		DeviceCollectionServiceListRackZonesProcedure,
 		svc.ListRackZones,
-		opts...,
+		connect.WithSchema(deviceCollectionServiceMethods.ByName("ListRackZones")),
+		connect.WithHandlerOptions(opts...),
 	)
 	deviceCollectionServiceListRackTypesHandler := connect.NewUnaryHandler(
 		DeviceCollectionServiceListRackTypesProcedure,
 		svc.ListRackTypes,
-		opts...,
+		connect.WithSchema(deviceCollectionServiceMethods.ByName("ListRackTypes")),
+		connect.WithHandlerOptions(opts...),
 	)
 	deviceCollectionServiceSaveRackHandler := connect.NewUnaryHandler(
 		DeviceCollectionServiceSaveRackProcedure,
 		svc.SaveRack,
-		opts...,
+		connect.WithSchema(deviceCollectionServiceMethods.ByName("SaveRack")),
+		connect.WithHandlerOptions(opts...),
 	)
 	return "/collection.v1.DeviceCollectionService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

@@ -325,6 +325,11 @@ message GetMinerStateCountsResponse {
 
   // Counts of miners in different states
   telemetry.v1.MinerStateCounts state_counts = 2;
+
+  // Number of paired miners capable of reporting each metric type.
+  // Key is telemetry.v1.MeasurementType enum value, value is device count.
+  // Derived from miner capabilities, not telemetry data — stable across time.
+  map<int32, int32> capability_counts = 3;
 }
 
 // Request to get the current pool assignments for a specific miner

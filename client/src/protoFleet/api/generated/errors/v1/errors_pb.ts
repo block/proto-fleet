@@ -12,12 +12,8 @@ import type { Message } from "@bufbuild/protobuf";
 /**
  * Describes the file errors/v1/errors.proto.
  */
-export const file_errors_v1_errors: GenFile =
-  /*@__PURE__*/
-  fileDesc(
-    "ChZlcnJvcnMvdjEvZXJyb3JzLnByb3RvEgllcnJvcnMudjEi2wQKDEVycm9yTWVzc2FnZRIQCghlcnJvcl9pZBgBIAEoCRIuCg9jYW5vbmljYWxfZXJyb3IYAiABKA4yFS5lcnJvcnMudjEuTWluZXJFcnJvchIPCgdzdW1tYXJ5GAMgASgJEhUKDWNhdXNlX3N1bW1hcnkYBCABKAkSGgoScmVjb21tZW5kZWRfYWN0aW9uGAUgASgJEiUKCHNldmVyaXR5GAYgASgOMhMuZXJyb3JzLnYxLlNldmVyaXR5EjEKDWZpcnN0X3NlZW5fYXQYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjAKDGxhc3Rfc2Vlbl9hdBgIIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLQoJY2xvc2VkX2F0GAkgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBJIChF2ZW5kb3JfYXR0cmlidXRlcxgKIAMoCzItLmVycm9ycy52MS5FcnJvck1lc3NhZ2UuVmVuZG9yQXR0cmlidXRlc0VudHJ5EhkKEWRldmljZV9pZGVudGlmaWVyGAsgASgJEhkKDGNvbXBvbmVudF9pZBgMIAEoCUgAiAEBEg4KBmltcGFjdBgNIAEoCRIwCg5jb21wb25lbnRfdHlwZRgOIAEoDjIYLmVycm9ycy52MS5Db21wb25lbnRUeXBlGjcKFVZlbmRvckF0dHJpYnV0ZXNFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBQg8KDV9jb21wb25lbnRfaWQiPAoHU3VtbWFyeRINCgV0aXRsZRgBIAEoCRIPCgdkZXRhaWxzGAIgASgJEhEKCWNvbmRlbnNlZBgDIAEoCSKxAgoLRGV2aWNlRXJyb3ISGQoRZGV2aWNlX2lkZW50aWZpZXIYASABKAkSEwoLZGV2aWNlX3R5cGUYAiABKAkSIQoGc3RhdHVzGAMgASgOMhEuZXJyb3JzLnYxLlN0YXR1cxIjCgdzdW1tYXJ5GAQgASgLMhIuZXJyb3JzLnYxLlN1bW1hcnkSJwoGZXJyb3JzGAUgAygLMhcuZXJyb3JzLnYxLkVycm9yTWVzc2FnZRJIChJjb3VudHNfYnlfc2V2ZXJpdHkYBiADKAsyLC5lcnJvcnMudjEuRGV2aWNlRXJyb3IuQ291bnRzQnlTZXZlcml0eUVudHJ5GjcKFUNvdW50c0J5U2V2ZXJpdHlFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAU6AjgBIuoCCg5Db21wb25lbnRFcnJvchIUCgxjb21wb25lbnRfaWQYASABKAkSMAoOY29tcG9uZW50X3R5cGUYAiABKA4yGC5lcnJvcnMudjEuQ29tcG9uZW50VHlwZRIZChFkZXZpY2VfaWRlbnRpZmllchgDIAEoCRIhCgZzdGF0dXMYBCABKA4yES5lcnJvcnMudjEuU3RhdHVzEiMKB3N1bW1hcnkYBSABKAsyEi5lcnJvcnMudjEuU3VtbWFyeRInCgZlcnJvcnMYBiADKAsyFy5lcnJvcnMudjEuRXJyb3JNZXNzYWdlEksKEmNvdW50c19ieV9zZXZlcml0eRgHIAMoCzIvLmVycm9ycy52MS5Db21wb25lbnRFcnJvci5Db3VudHNCeVNldmVyaXR5RW50cnkaNwoVQ291bnRzQnlTZXZlcml0eUVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoBToCOAEi5AEKDFNpbXBsZUZpbHRlchIaChJkZXZpY2VfaWRlbnRpZmllcnMYASADKAkSFAoMZGV2aWNlX3R5cGVzGAIgAygJEhUKDWNvbXBvbmVudF9pZHMYAyADKAkSMQoPY29tcG9uZW50X3R5cGVzGAQgAygOMhguZXJyb3JzLnYxLkNvbXBvbmVudFR5cGUSLwoQY2Fub25pY2FsX2Vycm9ycxgFIAMoDjIVLmVycm9ycy52MS5NaW5lckVycm9yEicKCnNldmVyaXRpZXMYBiADKA4yEy5lcnJvcnMudjEuU2V2ZXJpdHki0wEKBkZpbHRlchInCgZzaW1wbGUYASABKAsyFy5lcnJvcnMudjEuU2ltcGxlRmlsdGVyEiwKDHNpbXBsZV9sb2dpYxgCIAEoDjIWLmVycm9ycy52MS5HbG9iYWxMb2dpYxItCgl0aW1lX2Zyb20YAyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEisKB3RpbWVfdG8YBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhYKDmluY2x1ZGVfY2xvc2VkGAUgASgIIqIBCgxRdWVyeVJlcXVlc3QSKgoLcmVzdWx0X3ZpZXcYASABKA4yFS5lcnJvcnMudjEuUmVzdWx0VmlldxIhCgZmaWx0ZXIYAiABKAsyES5lcnJvcnMudjEuRmlsdGVyEh0KCXBhZ2Vfc2l6ZRgDIAEoBUIKukgHGgUY6AcoARISCgpwYWdlX3Rva2VuGAQgASgJEhAKCG9yZGVyX2J5GAUgASgJIsoBCg1RdWVyeVJlc3BvbnNlEiMKBmVycm9ycxgBIAEoCzIRLmVycm9ycy52MS5FcnJvcnNIABIwCgpjb21wb25lbnRzGAIgASgLMhouZXJyb3JzLnYxLkNvbXBvbmVudEVycm9yc0gAEioKB2RldmljZXMYAyABKAsyFy5lcnJvcnMudjEuRGV2aWNlRXJyb3JzSAASFwoPbmV4dF9wYWdlX3Rva2VuGAogASgJEhMKC3RvdGFsX2NvdW50GAsgASgDQggKBnJlc3VsdCIwCgZFcnJvcnMSJgoFaXRlbXMYASADKAsyFy5lcnJvcnMudjEuRXJyb3JNZXNzYWdlIjsKD0NvbXBvbmVudEVycm9ycxIoCgVpdGVtcxgBIAMoCzIZLmVycm9ycy52MS5Db21wb25lbnRFcnJvciI1CgxEZXZpY2VFcnJvcnMSJQoFaXRlbXMYASADKAsyFi5lcnJvcnMudjEuRGV2aWNlRXJyb3IiLAoPR2V0RXJyb3JSZXF1ZXN0EhkKCGVycm9yX2lkGAEgASgJQge6SARyAhABIjoKEEdldEVycm9yUmVzcG9uc2USJgoFZXJyb3IYASABKAsyFy5lcnJvcnMudjEuRXJyb3JNZXNzYWdlIhgKFkxpc3RNaW5lckVycm9yc1JlcXVlc3QiQwoXTGlzdE1pbmVyRXJyb3JzUmVzcG9uc2USKAoFaXRlbXMYASADKAsyGS5lcnJvcnMudjEuTWluZXJFcnJvckluZm8iuwEKDk1pbmVyRXJyb3JJbmZvEiMKBGNvZGUYASABKA4yFS5lcnJvcnMudjEuTWluZXJFcnJvchIMCgRuYW1lGAIgASgJEhcKD2RlZmF1bHRfc3VtbWFyeRgDIAEoCRItChBkZWZhdWx0X3NldmVyaXR5GAQgASgOMhMuZXJyb3JzLnYxLlNldmVyaXR5EhYKDmRlZmF1bHRfYWN0aW9uGAUgASgJEhYKDmRlZmF1bHRfaW1wYWN0GAYgASgJIjEKDFdhdGNoUmVxdWVzdBIhCgZmaWx0ZXIYASABKAsyES5lcnJvcnMudjEuRmlsdGVyIpsCCg1XYXRjaFJlc3BvbnNlEiMKBmVycm9ycxgBIAEoCzIRLmVycm9ycy52MS5FcnJvcnNIABIwCgpjb21wb25lbnRzGAIgASgLMhouZXJyb3JzLnYxLkNvbXBvbmVudEVycm9yc0gAEioKB2RldmljZXMYAyABKAsyFy5lcnJvcnMudjEuRGV2aWNlRXJyb3JzSAASKwoEa2luZBgEIAEoDjIdLmVycm9ycy52MS5XYXRjaFJlc3BvbnNlLktpbmQiUAoES2luZBIUChBLSU5EX1VOU1BFQ0lGSUVEEAASDwoLS0lORF9PUEVORUQQARIQCgxLSU5EX1VQREFURUQQAhIPCgtLSU5EX0NMT1NFRBADQggKBnJlc3VsdCrjDwoKTWluZXJFcnJvchIbChdNSU5FUl9FUlJPUl9VTlNQRUNJRklFRBAAEiAKG01JTkVSX0VSUk9SX1BTVV9OT1RfUFJFU0VOVBDoBxIjCh5NSU5FUl9FUlJPUl9QU1VfTU9ERUxfTUlTTUFUQ0gQ6QcSJwoiTUlORVJfRVJST1JfUFNVX0NPTU1VTklDQVRJT05fTE9TVBDqBxIiCh1NSU5FUl9FUlJPUl9QU1VfRkFVTFRfR0VORVJJQxDrBxImCiFNSU5FUl9FUlJPUl9QU1VfSU5QVVRfVk9MVEFHRV9MT1cQ7AcSJwoiTUlORVJfRVJST1JfUFNVX0lOUFVUX1ZPTFRBR0VfSElHSBDtBxIpCiRNSU5FUl9FUlJPUl9QU1VfT1VUUFVUX1ZPTFRBR0VfRkFVTFQQ7gcSJwoiTUlORVJfRVJST1JfUFNVX09VVFBVVF9PVkVSQ1VSUkVOVBDvBxIfChpNSU5FUl9FUlJPUl9QU1VfRkFOX0ZBSUxFRBDwBxIlCiBNSU5FUl9FUlJPUl9QU1VfT1ZFUl9URU1QRVJBVFVSRRDxBxIqCiVNSU5FUl9FUlJPUl9QU1VfSU5QVVRfUEhBU0VfSU1CQUxBTkNFEPIHEiYKIU1JTkVSX0VSUk9SX1BTVV9VTkRFUl9URU1QRVJBVFVSRRDzBxIbChZNSU5FUl9FUlJPUl9GQU5fRkFJTEVEENAPEiUKIE1JTkVSX0VSUk9SX0ZBTl9UQUNIX1NJR05BTF9MT1NUENEPEiQKH01JTkVSX0VSUk9SX0ZBTl9TUEVFRF9ERVZJQVRJT04Q0g8SJwoiTUlORVJfRVJST1JfSU5MRVRfT1ZFUl9URU1QRVJBVFVSRRDaDxIoCiNNSU5FUl9FUlJPUl9ERVZJQ0VfT1ZFUl9URU1QRVJBVFVSRRDbDxIpCiRNSU5FUl9FUlJPUl9ERVZJQ0VfVU5ERVJfVEVNUEVSQVRVUkUQ3A8SJgohTUlORVJfRVJST1JfSEFTSEJPQVJEX05PVF9QUkVTRU5UELgXEisKJk1JTkVSX0VSUk9SX0hBU0hCT0FSRF9PVkVSX1RFTVBFUkFUVVJFELkXEigKI01JTkVSX0VSUk9SX0hBU0hCT0FSRF9NSVNTSU5HX0NISVBTELoXEi4KKU1JTkVSX0VSUk9SX0FTSUNfQ0hBSU5fQ09NTVVOSUNBVElPTl9MT1NUELsXEigKI01JTkVSX0VSUk9SX0FTSUNfQ0xPQ0tfUExMX1VOTE9DS0VEELwXEikKJE1JTkVSX0VSUk9SX0FTSUNfQ1JDX0VSUk9SX0VYQ0VTU0lWRRC9FxIwCitNSU5FUl9FUlJPUl9IQVNIQk9BUkRfQVNJQ19PVkVSX1RFTVBFUkFUVVJFEL4XEjEKLE1JTkVSX0VSUk9SX0hBU0hCT0FSRF9BU0lDX1VOREVSX1RFTVBFUkFUVVJFEL8XEioKJU1JTkVSX0VSUk9SX0JPQVJEX1BPV0VSX1BHT09EX01JU1NJTkcQrBsSLQooTUlORVJfRVJST1JfQk9BUkRfUE9XRVJfT1ZFUkNVUlJFTlRfVFJJUBCtGxIrCiZNSU5FUl9FUlJPUl9CT0FSRF9QT1dFUl9SQUlMX1VOREVSVk9MVBCuGxIqCiVNSU5FUl9FUlJPUl9CT0FSRF9QT1dFUl9SQUlMX09WRVJWT0xUEK8bEisKJk1JTkVSX0VSUk9SX0JPQVJEX1BPV0VSX1NIT1JUX0RFVEVDVEVEELAbEioKJU1JTkVSX0VSUk9SX1RFTVBfU0VOU09SX09QRU5fT1JfU0hPUlQQoB8SIgodTUlORVJfRVJST1JfVEVNUF9TRU5TT1JfRkFVTFQQoR8SJQogTUlORVJfRVJST1JfVk9MVEFHRV9TRU5TT1JfRkFVTFQQoh8SJQogTUlORVJfRVJST1JfQ1VSUkVOVF9TRU5TT1JfRkFVTFQQox8SJAofTUlORVJfRVJST1JfRUVQUk9NX0NSQ19NSVNNQVRDSBCIJxIkCh9NSU5FUl9FUlJPUl9FRVBST01fUkVBRF9GQUlMVVJFEIknEicKIk1JTkVSX0VSUk9SX0ZJUk1XQVJFX0lNQUdFX0lOVkFMSUQQiicSKAojTUlORVJfRVJST1JfRklSTVdBUkVfQ09ORklHX0lOVkFMSUQQiycSMQosTUlORVJfRVJST1JfQ09OVFJPTF9CT0FSRF9DT01NVU5JQ0FUSU9OX0xPU1QQ8C4SJgohTUlORVJfRVJST1JfQ09OVFJPTF9CT0FSRF9GQUlMVVJFEPEuEioKJU1JTkVSX0VSUk9SX0RFVklDRV9JTlRFUk5BTF9CVVNfRkFVTFQQ8i4SKgolTUlORVJfRVJST1JfREVWSUNFX0NPTU1VTklDQVRJT05fTE9TVBDzLhIiCh1NSU5FUl9FUlJPUl9JT19NT0RVTEVfRkFJTFVSRRD6LhImCiFNSU5FUl9FUlJPUl9IQVNIUkFURV9CRUxPV19UQVJHRVQQwD4SKAojTUlORVJfRVJST1JfSEFTSEJPQVJEX1dBUk5fQ1JDX0hJR0gQwT4SIwoeTUlORVJfRVJST1JfVEhFUk1BTF9NQVJHSU5fTE9XEMI+EiYKIU1JTkVSX0VSUk9SX1ZFTkRPUl9FUlJPUl9VTk1BUFBFRBCoRip2CghTZXZlcml0eRIYChRTRVZFUklUWV9VTlNQRUNJRklFRBAAEhUKEVNFVkVSSVRZX0NSSVRJQ0FMEAESEgoOU0VWRVJJVFlfTUFKT1IQAhISCg5TRVZFUklUWV9NSU5PUhADEhEKDVNFVkVSSVRZX0lORk8QBCpVCgZTdGF0dXMSFgoSU1RBVFVTX1VOU1BFQ0lGSUVEEAASDQoJU1RBVFVTX09LEAESEgoOU1RBVFVTX1dBUk5JTkcQAhIQCgxTVEFUVVNfRVJST1IQAyrZAQoNQ29tcG9uZW50VHlwZRIeChpDT01QT05FTlRfVFlQRV9VTlNQRUNJRklFRBAAEhYKEkNPTVBPTkVOVF9UWVBFX1BTVRABEh0KGUNPTVBPTkVOVF9UWVBFX0hBU0hfQk9BUkQQAhIWChJDT01QT05FTlRfVFlQRV9GQU4QAxIgChxDT01QT05FTlRfVFlQRV9DT05UUk9MX0JPQVJEEAQSGQoVQ09NUE9ORU5UX1RZUEVfRUVQUk9NEAUSHAoYQ09NUE9ORU5UX1RZUEVfSU9fTU9EVUxFEAYqcwoKUmVzdWx0VmlldxIbChdSRVNVTFRfVklFV19VTlNQRUNJRklFRBAAEhUKEVJFU1VMVF9WSUVXX0VSUk9SEAESGQoVUkVTVUxUX1ZJRVdfQ09NUE9ORU5UEAISFgoSUkVTVUxUX1ZJRVdfREVWSUNFEAMqVgoLR2xvYmFsTG9naWMSHAoYR0xPQkFMX0xPR0lDX1VOU1BFQ0lGSUVEEAASFAoQR0xPQkFMX0xPR0lDX0FORBABEhMKD0dMT0JBTF9MT0dJQ19PUhACMqwCChFFcnJvclF1ZXJ5U2VydmljZRI6CgVRdWVyeRIXLmVycm9ycy52MS5RdWVyeVJlcXVlc3QaGC5lcnJvcnMudjEuUXVlcnlSZXNwb25zZRJDCghHZXRFcnJvchIaLmVycm9ycy52MS5HZXRFcnJvclJlcXVlc3QaGy5lcnJvcnMudjEuR2V0RXJyb3JSZXNwb25zZRJYCg9MaXN0TWluZXJFcnJvcnMSIS5lcnJvcnMudjEuTGlzdE1pbmVyRXJyb3JzUmVxdWVzdBoiLmVycm9ycy52MS5MaXN0TWluZXJFcnJvcnNSZXNwb25zZRI8CgVXYXRjaBIXLmVycm9ycy52MS5XYXRjaFJlcXVlc3QaGC5lcnJvcnMudjEuV2F0Y2hSZXNwb25zZTABQqgBCg1jb20uZXJyb3JzLnYxQgtFcnJvcnNQcm90b1ABWkVnaXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9lcnJvcnMvdjE7ZXJyb3JzdjGiAgNFWFiqAglFcnJvcnMuVjHKAglFcnJvcnNcVjHiAhVFcnJvcnNcVjFcR1BCTWV0YWRhdGHqAgpFcnJvcnM6OlYxYgZwcm90bzM",
-    [file_google_protobuf_timestamp, file_buf_validate_validate],
-  );
+export const file_errors_v1_errors: GenFile = /*@__PURE__*/
+  fileDesc("ChZlcnJvcnMvdjEvZXJyb3JzLnByb3RvEgllcnJvcnMudjEi2wQKDEVycm9yTWVzc2FnZRIQCghlcnJvcl9pZBgBIAEoCRIuCg9jYW5vbmljYWxfZXJyb3IYAiABKA4yFS5lcnJvcnMudjEuTWluZXJFcnJvchIPCgdzdW1tYXJ5GAMgASgJEhUKDWNhdXNlX3N1bW1hcnkYBCABKAkSGgoScmVjb21tZW5kZWRfYWN0aW9uGAUgASgJEiUKCHNldmVyaXR5GAYgASgOMhMuZXJyb3JzLnYxLlNldmVyaXR5EjEKDWZpcnN0X3NlZW5fYXQYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjAKDGxhc3Rfc2Vlbl9hdBgIIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLQoJY2xvc2VkX2F0GAkgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBJIChF2ZW5kb3JfYXR0cmlidXRlcxgKIAMoCzItLmVycm9ycy52MS5FcnJvck1lc3NhZ2UuVmVuZG9yQXR0cmlidXRlc0VudHJ5EhkKEWRldmljZV9pZGVudGlmaWVyGAsgASgJEhkKDGNvbXBvbmVudF9pZBgMIAEoCUgAiAEBEg4KBmltcGFjdBgNIAEoCRIwCg5jb21wb25lbnRfdHlwZRgOIAEoDjIYLmVycm9ycy52MS5Db21wb25lbnRUeXBlGjcKFVZlbmRvckF0dHJpYnV0ZXNFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBQg8KDV9jb21wb25lbnRfaWQiPAoHU3VtbWFyeRINCgV0aXRsZRgBIAEoCRIPCgdkZXRhaWxzGAIgASgJEhEKCWNvbmRlbnNlZBgDIAEoCSKxAgoLRGV2aWNlRXJyb3ISGQoRZGV2aWNlX2lkZW50aWZpZXIYASABKAkSEwoLZGV2aWNlX3R5cGUYAiABKAkSIQoGc3RhdHVzGAMgASgOMhEuZXJyb3JzLnYxLlN0YXR1cxIjCgdzdW1tYXJ5GAQgASgLMhIuZXJyb3JzLnYxLlN1bW1hcnkSJwoGZXJyb3JzGAUgAygLMhcuZXJyb3JzLnYxLkVycm9yTWVzc2FnZRJIChJjb3VudHNfYnlfc2V2ZXJpdHkYBiADKAsyLC5lcnJvcnMudjEuRGV2aWNlRXJyb3IuQ291bnRzQnlTZXZlcml0eUVudHJ5GjcKFUNvdW50c0J5U2V2ZXJpdHlFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAU6AjgBIuoCCg5Db21wb25lbnRFcnJvchIUCgxjb21wb25lbnRfaWQYASABKAkSMAoOY29tcG9uZW50X3R5cGUYAiABKA4yGC5lcnJvcnMudjEuQ29tcG9uZW50VHlwZRIZChFkZXZpY2VfaWRlbnRpZmllchgDIAEoCRIhCgZzdGF0dXMYBCABKA4yES5lcnJvcnMudjEuU3RhdHVzEiMKB3N1bW1hcnkYBSABKAsyEi5lcnJvcnMudjEuU3VtbWFyeRInCgZlcnJvcnMYBiADKAsyFy5lcnJvcnMudjEuRXJyb3JNZXNzYWdlEksKEmNvdW50c19ieV9zZXZlcml0eRgHIAMoCzIvLmVycm9ycy52MS5Db21wb25lbnRFcnJvci5Db3VudHNCeVNldmVyaXR5RW50cnkaNwoVQ291bnRzQnlTZXZlcml0eUVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoBToCOAEi5AEKDFNpbXBsZUZpbHRlchIaChJkZXZpY2VfaWRlbnRpZmllcnMYASADKAkSFAoMZGV2aWNlX3R5cGVzGAIgAygJEhUKDWNvbXBvbmVudF9pZHMYAyADKAkSMQoPY29tcG9uZW50X3R5cGVzGAQgAygOMhguZXJyb3JzLnYxLkNvbXBvbmVudFR5cGUSLwoQY2Fub25pY2FsX2Vycm9ycxgFIAMoDjIVLmVycm9ycy52MS5NaW5lckVycm9yEicKCnNldmVyaXRpZXMYBiADKA4yEy5lcnJvcnMudjEuU2V2ZXJpdHki0wEKBkZpbHRlchInCgZzaW1wbGUYASABKAsyFy5lcnJvcnMudjEuU2ltcGxlRmlsdGVyEiwKDHNpbXBsZV9sb2dpYxgCIAEoDjIWLmVycm9ycy52MS5HbG9iYWxMb2dpYxItCgl0aW1lX2Zyb20YAyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEisKB3RpbWVfdG8YBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhYKDmluY2x1ZGVfY2xvc2VkGAUgASgIIqIBCgxRdWVyeVJlcXVlc3QSKgoLcmVzdWx0X3ZpZXcYASABKA4yFS5lcnJvcnMudjEuUmVzdWx0VmlldxIhCgZmaWx0ZXIYAiABKAsyES5lcnJvcnMudjEuRmlsdGVyEh0KCXBhZ2Vfc2l6ZRgDIAEoBUIKukgHGgUY6AcoARISCgpwYWdlX3Rva2VuGAQgASgJEhAKCG9yZGVyX2J5GAUgASgJIsoBCg1RdWVyeVJlc3BvbnNlEiMKBmVycm9ycxgBIAEoCzIRLmVycm9ycy52MS5FcnJvcnNIABIwCgpjb21wb25lbnRzGAIgASgLMhouZXJyb3JzLnYxLkNvbXBvbmVudEVycm9yc0gAEioKB2RldmljZXMYAyABKAsyFy5lcnJvcnMudjEuRGV2aWNlRXJyb3JzSAASFwoPbmV4dF9wYWdlX3Rva2VuGAogASgJEhMKC3RvdGFsX2NvdW50GAsgASgDQggKBnJlc3VsdCIwCgZFcnJvcnMSJgoFaXRlbXMYASADKAsyFy5lcnJvcnMudjEuRXJyb3JNZXNzYWdlIjsKD0NvbXBvbmVudEVycm9ycxIoCgVpdGVtcxgBIAMoCzIZLmVycm9ycy52MS5Db21wb25lbnRFcnJvciI1CgxEZXZpY2VFcnJvcnMSJQoFaXRlbXMYASADKAsyFi5lcnJvcnMudjEuRGV2aWNlRXJyb3IiLAoPR2V0RXJyb3JSZXF1ZXN0EhkKCGVycm9yX2lkGAEgASgJQge6SARyAhABIjoKEEdldEVycm9yUmVzcG9uc2USJgoFZXJyb3IYASABKAsyFy5lcnJvcnMudjEuRXJyb3JNZXNzYWdlIhgKFkxpc3RNaW5lckVycm9yc1JlcXVlc3QiQwoXTGlzdE1pbmVyRXJyb3JzUmVzcG9uc2USKAoFaXRlbXMYASADKAsyGS5lcnJvcnMudjEuTWluZXJFcnJvckluZm8iuwEKDk1pbmVyRXJyb3JJbmZvEiMKBGNvZGUYASABKA4yFS5lcnJvcnMudjEuTWluZXJFcnJvchIMCgRuYW1lGAIgASgJEhcKD2RlZmF1bHRfc3VtbWFyeRgDIAEoCRItChBkZWZhdWx0X3NldmVyaXR5GAQgASgOMhMuZXJyb3JzLnYxLlNldmVyaXR5EhYKDmRlZmF1bHRfYWN0aW9uGAUgASgJEhYKDmRlZmF1bHRfaW1wYWN0GAYgASgJIjEKDFdhdGNoUmVxdWVzdBIhCgZmaWx0ZXIYASABKAsyES5lcnJvcnMudjEuRmlsdGVyIpsCCg1XYXRjaFJlc3BvbnNlEiMKBmVycm9ycxgBIAEoCzIRLmVycm9ycy52MS5FcnJvcnNIABIwCgpjb21wb25lbnRzGAIgASgLMhouZXJyb3JzLnYxLkNvbXBvbmVudEVycm9yc0gAEioKB2RldmljZXMYAyABKAsyFy5lcnJvcnMudjEuRGV2aWNlRXJyb3JzSAASKwoEa2luZBgEIAEoDjIdLmVycm9ycy52MS5XYXRjaFJlc3BvbnNlLktpbmQiUAoES2luZBIUChBLSU5EX1VOU1BFQ0lGSUVEEAASDwoLS0lORF9PUEVORUQQARIQCgxLSU5EX1VQREFURUQQAhIPCgtLSU5EX0NMT1NFRBADQggKBnJlc3VsdCrjDwoKTWluZXJFcnJvchIbChdNSU5FUl9FUlJPUl9VTlNQRUNJRklFRBAAEiAKG01JTkVSX0VSUk9SX1BTVV9OT1RfUFJFU0VOVBDoBxIjCh5NSU5FUl9FUlJPUl9QU1VfTU9ERUxfTUlTTUFUQ0gQ6QcSJwoiTUlORVJfRVJST1JfUFNVX0NPTU1VTklDQVRJT05fTE9TVBDqBxIiCh1NSU5FUl9FUlJPUl9QU1VfRkFVTFRfR0VORVJJQxDrBxImCiFNSU5FUl9FUlJPUl9QU1VfSU5QVVRfVk9MVEFHRV9MT1cQ7AcSJwoiTUlORVJfRVJST1JfUFNVX0lOUFVUX1ZPTFRBR0VfSElHSBDtBxIpCiRNSU5FUl9FUlJPUl9QU1VfT1VUUFVUX1ZPTFRBR0VfRkFVTFQQ7gcSJwoiTUlORVJfRVJST1JfUFNVX09VVFBVVF9PVkVSQ1VSUkVOVBDvBxIfChpNSU5FUl9FUlJPUl9QU1VfRkFOX0ZBSUxFRBDwBxIlCiBNSU5FUl9FUlJPUl9QU1VfT1ZFUl9URU1QRVJBVFVSRRDxBxIqCiVNSU5FUl9FUlJPUl9QU1VfSU5QVVRfUEhBU0VfSU1CQUxBTkNFEPIHEiYKIU1JTkVSX0VSUk9SX1BTVV9VTkRFUl9URU1QRVJBVFVSRRDzBxIbChZNSU5FUl9FUlJPUl9GQU5fRkFJTEVEENAPEiUKIE1JTkVSX0VSUk9SX0ZBTl9UQUNIX1NJR05BTF9MT1NUENEPEiQKH01JTkVSX0VSUk9SX0ZBTl9TUEVFRF9ERVZJQVRJT04Q0g8SJwoiTUlORVJfRVJST1JfSU5MRVRfT1ZFUl9URU1QRVJBVFVSRRDaDxIoCiNNSU5FUl9FUlJPUl9ERVZJQ0VfT1ZFUl9URU1QRVJBVFVSRRDbDxIpCiRNSU5FUl9FUlJPUl9ERVZJQ0VfVU5ERVJfVEVNUEVSQVRVUkUQ3A8SJgohTUlORVJfRVJST1JfSEFTSEJPQVJEX05PVF9QUkVTRU5UELgXEisKJk1JTkVSX0VSUk9SX0hBU0hCT0FSRF9PVkVSX1RFTVBFUkFUVVJFELkXEigKI01JTkVSX0VSUk9SX0hBU0hCT0FSRF9NSVNTSU5HX0NISVBTELoXEi4KKU1JTkVSX0VSUk9SX0FTSUNfQ0hBSU5fQ09NTVVOSUNBVElPTl9MT1NUELsXEigKI01JTkVSX0VSUk9SX0FTSUNfQ0xPQ0tfUExMX1VOTE9DS0VEELwXEikKJE1JTkVSX0VSUk9SX0FTSUNfQ1JDX0VSUk9SX0VYQ0VTU0lWRRC9FxIwCitNSU5FUl9FUlJPUl9IQVNIQk9BUkRfQVNJQ19PVkVSX1RFTVBFUkFUVVJFEL4XEjEKLE1JTkVSX0VSUk9SX0hBU0hCT0FSRF9BU0lDX1VOREVSX1RFTVBFUkFUVVJFEL8XEioKJU1JTkVSX0VSUk9SX0JPQVJEX1BPV0VSX1BHT09EX01JU1NJTkcQrBsSLQooTUlORVJfRVJST1JfQk9BUkRfUE9XRVJfT1ZFUkNVUlJFTlRfVFJJUBCtGxIrCiZNSU5FUl9FUlJPUl9CT0FSRF9QT1dFUl9SQUlMX1VOREVSVk9MVBCuGxIqCiVNSU5FUl9FUlJPUl9CT0FSRF9QT1dFUl9SQUlMX09WRVJWT0xUEK8bEisKJk1JTkVSX0VSUk9SX0JPQVJEX1BPV0VSX1NIT1JUX0RFVEVDVEVEELAbEioKJU1JTkVSX0VSUk9SX1RFTVBfU0VOU09SX09QRU5fT1JfU0hPUlQQoB8SIgodTUlORVJfRVJST1JfVEVNUF9TRU5TT1JfRkFVTFQQoR8SJQogTUlORVJfRVJST1JfVk9MVEFHRV9TRU5TT1JfRkFVTFQQoh8SJQogTUlORVJfRVJST1JfQ1VSUkVOVF9TRU5TT1JfRkFVTFQQox8SJAofTUlORVJfRVJST1JfRUVQUk9NX0NSQ19NSVNNQVRDSBCIJxIkCh9NSU5FUl9FUlJPUl9FRVBST01fUkVBRF9GQUlMVVJFEIknEicKIk1JTkVSX0VSUk9SX0ZJUk1XQVJFX0lNQUdFX0lOVkFMSUQQiicSKAojTUlORVJfRVJST1JfRklSTVdBUkVfQ09ORklHX0lOVkFMSUQQiycSMQosTUlORVJfRVJST1JfQ09OVFJPTF9CT0FSRF9DT01NVU5JQ0FUSU9OX0xPU1QQ8C4SJgohTUlORVJfRVJST1JfQ09OVFJPTF9CT0FSRF9GQUlMVVJFEPEuEioKJU1JTkVSX0VSUk9SX0RFVklDRV9JTlRFUk5BTF9CVVNfRkFVTFQQ8i4SKgolTUlORVJfRVJST1JfREVWSUNFX0NPTU1VTklDQVRJT05fTE9TVBDzLhIiCh1NSU5FUl9FUlJPUl9JT19NT0RVTEVfRkFJTFVSRRD6LhImCiFNSU5FUl9FUlJPUl9IQVNIUkFURV9CRUxPV19UQVJHRVQQwD4SKAojTUlORVJfRVJST1JfSEFTSEJPQVJEX1dBUk5fQ1JDX0hJR0gQwT4SIwoeTUlORVJfRVJST1JfVEhFUk1BTF9NQVJHSU5fTE9XEMI+EiYKIU1JTkVSX0VSUk9SX1ZFTkRPUl9FUlJPUl9VTk1BUFBFRBCoRip2CghTZXZlcml0eRIYChRTRVZFUklUWV9VTlNQRUNJRklFRBAAEhUKEVNFVkVSSVRZX0NSSVRJQ0FMEAESEgoOU0VWRVJJVFlfTUFKT1IQAhISCg5TRVZFUklUWV9NSU5PUhADEhEKDVNFVkVSSVRZX0lORk8QBCpVCgZTdGF0dXMSFgoSU1RBVFVTX1VOU1BFQ0lGSUVEEAASDQoJU1RBVFVTX09LEAESEgoOU1RBVFVTX1dBUk5JTkcQAhIQCgxTVEFUVVNfRVJST1IQAyrZAQoNQ29tcG9uZW50VHlwZRIeChpDT01QT05FTlRfVFlQRV9VTlNQRUNJRklFRBAAEhYKEkNPTVBPTkVOVF9UWVBFX1BTVRABEh0KGUNPTVBPTkVOVF9UWVBFX0hBU0hfQk9BUkQQAhIWChJDT01QT05FTlRfVFlQRV9GQU4QAxIgChxDT01QT05FTlRfVFlQRV9DT05UUk9MX0JPQVJEEAQSGQoVQ09NUE9ORU5UX1RZUEVfRUVQUk9NEAUSHAoYQ09NUE9ORU5UX1RZUEVfSU9fTU9EVUxFEAYqcwoKUmVzdWx0VmlldxIbChdSRVNVTFRfVklFV19VTlNQRUNJRklFRBAAEhUKEVJFU1VMVF9WSUVXX0VSUk9SEAESGQoVUkVTVUxUX1ZJRVdfQ09NUE9ORU5UEAISFgoSUkVTVUxUX1ZJRVdfREVWSUNFEAMqVgoLR2xvYmFsTG9naWMSHAoYR0xPQkFMX0xPR0lDX1VOU1BFQ0lGSUVEEAASFAoQR0xPQkFMX0xPR0lDX0FORBABEhMKD0dMT0JBTF9MT0dJQ19PUhACMqwCChFFcnJvclF1ZXJ5U2VydmljZRI6CgVRdWVyeRIXLmVycm9ycy52MS5RdWVyeVJlcXVlc3QaGC5lcnJvcnMudjEuUXVlcnlSZXNwb25zZRJDCghHZXRFcnJvchIaLmVycm9ycy52MS5HZXRFcnJvclJlcXVlc3QaGy5lcnJvcnMudjEuR2V0RXJyb3JSZXNwb25zZRJYCg9MaXN0TWluZXJFcnJvcnMSIS5lcnJvcnMudjEuTGlzdE1pbmVyRXJyb3JzUmVxdWVzdBoiLmVycm9ycy52MS5MaXN0TWluZXJFcnJvcnNSZXNwb25zZRI8CgVXYXRjaBIXLmVycm9ycy52MS5XYXRjaFJlcXVlc3QaGC5lcnJvcnMudjEuV2F0Y2hSZXNwb25zZTABQqgBCg1jb20uZXJyb3JzLnYxQgtFcnJvcnNQcm90b1ABWkVnaXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9lcnJvcnMvdjE7ZXJyb3JzdjGiAgNFWFiqAglFcnJvcnMuVjHKAglFcnJvcnNcVjHiAhVFcnJvcnNcVjFcR1BCTWV0YWRhdGHqAgpFcnJvcnM6OlYxYgZwcm90bzM", [file_google_protobuf_timestamp, file_buf_validate_validate]);
 
 /**
  * A single error instance
@@ -124,7 +120,8 @@ export type ErrorMessage = Message<"errors.v1.ErrorMessage"> & {
  * Describes the message errors.v1.ErrorMessage.
  * Use `create(ErrorMessageSchema)` to create a new message.
  */
-export const ErrorMessageSchema: GenMessage<ErrorMessage> = /*@__PURE__*/ messageDesc(file_errors_v1_errors, 0);
+export const ErrorMessageSchema: GenMessage<ErrorMessage> = /*@__PURE__*/
+  messageDesc(file_errors_v1_errors, 0);
 
 /**
  * Rich summary structure for aggregated views
@@ -158,7 +155,8 @@ export type Summary = Message<"errors.v1.Summary"> & {
  * Describes the message errors.v1.Summary.
  * Use `create(SummarySchema)` to create a new message.
  */
-export const SummarySchema: GenMessage<Summary> = /*@__PURE__*/ messageDesc(file_errors_v1_errors, 1);
+export const SummarySchema: GenMessage<Summary> = /*@__PURE__*/
+  messageDesc(file_errors_v1_errors, 1);
 
 /**
  * Errors grouped by device
@@ -205,7 +203,8 @@ export type DeviceError = Message<"errors.v1.DeviceError"> & {
  * Describes the message errors.v1.DeviceError.
  * Use `create(DeviceErrorSchema)` to create a new message.
  */
-export const DeviceErrorSchema: GenMessage<DeviceError> = /*@__PURE__*/ messageDesc(file_errors_v1_errors, 2);
+export const DeviceErrorSchema: GenMessage<DeviceError> = /*@__PURE__*/
+  messageDesc(file_errors_v1_errors, 2);
 
 /**
  * Errors grouped by component
@@ -255,7 +254,8 @@ export type ComponentError = Message<"errors.v1.ComponentError"> & {
  * Describes the message errors.v1.ComponentError.
  * Use `create(ComponentErrorSchema)` to create a new message.
  */
-export const ComponentErrorSchema: GenMessage<ComponentError> = /*@__PURE__*/ messageDesc(file_errors_v1_errors, 3);
+export const ComponentErrorSchema: GenMessage<ComponentError> = /*@__PURE__*/
+  messageDesc(file_errors_v1_errors, 3);
 
 /**
  * Simple filter with field lists
@@ -304,7 +304,8 @@ export type SimpleFilter = Message<"errors.v1.SimpleFilter"> & {
  * Describes the message errors.v1.SimpleFilter.
  * Use `create(SimpleFilterSchema)` to create a new message.
  */
-export const SimpleFilterSchema: GenMessage<SimpleFilter> = /*@__PURE__*/ messageDesc(file_errors_v1_errors, 4);
+export const SimpleFilterSchema: GenMessage<SimpleFilter> = /*@__PURE__*/
+  messageDesc(file_errors_v1_errors, 4);
 
 /**
  * Complete filter with time range and logic options
@@ -348,7 +349,8 @@ export type Filter = Message<"errors.v1.Filter"> & {
  * Describes the message errors.v1.Filter.
  * Use `create(FilterSchema)` to create a new message.
  */
-export const FilterSchema: GenMessage<Filter> = /*@__PURE__*/ messageDesc(file_errors_v1_errors, 5);
+export const FilterSchema: GenMessage<Filter> = /*@__PURE__*/
+  messageDesc(file_errors_v1_errors, 5);
 
 /**
  * Query request with pagination
@@ -389,7 +391,8 @@ export type QueryRequest = Message<"errors.v1.QueryRequest"> & {
  * Describes the message errors.v1.QueryRequest.
  * Use `create(QueryRequestSchema)` to create a new message.
  */
-export const QueryRequestSchema: GenMessage<QueryRequest> = /*@__PURE__*/ messageDesc(file_errors_v1_errors, 6);
+export const QueryRequestSchema: GenMessage<QueryRequest> = /*@__PURE__*/
+  messageDesc(file_errors_v1_errors, 6);
 
 /**
  * Query response with polymorphic result
@@ -400,29 +403,25 @@ export type QueryResponse = Message<"errors.v1.QueryResponse"> & {
   /**
    * @generated from oneof errors.v1.QueryResponse.result
    */
-  result:
-    | {
-        /**
-         * @generated from field: errors.v1.Errors errors = 1;
-         */
-        value: Errors;
-        case: "errors";
-      }
-    | {
-        /**
-         * @generated from field: errors.v1.ComponentErrors components = 2;
-         */
-        value: ComponentErrors;
-        case: "components";
-      }
-    | {
-        /**
-         * @generated from field: errors.v1.DeviceErrors devices = 3;
-         */
-        value: DeviceErrors;
-        case: "devices";
-      }
-    | { case: undefined; value?: undefined };
+  result: {
+    /**
+     * @generated from field: errors.v1.Errors errors = 1;
+     */
+    value: Errors;
+    case: "errors";
+  } | {
+    /**
+     * @generated from field: errors.v1.ComponentErrors components = 2;
+     */
+    value: ComponentErrors;
+    case: "components";
+  } | {
+    /**
+     * @generated from field: errors.v1.DeviceErrors devices = 3;
+     */
+    value: DeviceErrors;
+    case: "devices";
+  } | { case: undefined; value?: undefined };
 
   /**
    * @generated from field: string next_page_token = 10;
@@ -441,7 +440,8 @@ export type QueryResponse = Message<"errors.v1.QueryResponse"> & {
  * Describes the message errors.v1.QueryResponse.
  * Use `create(QueryResponseSchema)` to create a new message.
  */
-export const QueryResponseSchema: GenMessage<QueryResponse> = /*@__PURE__*/ messageDesc(file_errors_v1_errors, 7);
+export const QueryResponseSchema: GenMessage<QueryResponse> = /*@__PURE__*/
+  messageDesc(file_errors_v1_errors, 7);
 
 /**
  * Page of error messages
@@ -459,7 +459,8 @@ export type Errors = Message<"errors.v1.Errors"> & {
  * Describes the message errors.v1.Errors.
  * Use `create(ErrorsSchema)` to create a new message.
  */
-export const ErrorsSchema: GenMessage<Errors> = /*@__PURE__*/ messageDesc(file_errors_v1_errors, 8);
+export const ErrorsSchema: GenMessage<Errors> = /*@__PURE__*/
+  messageDesc(file_errors_v1_errors, 8);
 
 /**
  * Page of component errors
@@ -477,7 +478,8 @@ export type ComponentErrors = Message<"errors.v1.ComponentErrors"> & {
  * Describes the message errors.v1.ComponentErrors.
  * Use `create(ComponentErrorsSchema)` to create a new message.
  */
-export const ComponentErrorsSchema: GenMessage<ComponentErrors> = /*@__PURE__*/ messageDesc(file_errors_v1_errors, 9);
+export const ComponentErrorsSchema: GenMessage<ComponentErrors> = /*@__PURE__*/
+  messageDesc(file_errors_v1_errors, 9);
 
 /**
  * Page of device errors
@@ -495,7 +497,8 @@ export type DeviceErrors = Message<"errors.v1.DeviceErrors"> & {
  * Describes the message errors.v1.DeviceErrors.
  * Use `create(DeviceErrorsSchema)` to create a new message.
  */
-export const DeviceErrorsSchema: GenMessage<DeviceErrors> = /*@__PURE__*/ messageDesc(file_errors_v1_errors, 10);
+export const DeviceErrorsSchema: GenMessage<DeviceErrors> = /*@__PURE__*/
+  messageDesc(file_errors_v1_errors, 10);
 
 /**
  * Get single error request
@@ -513,7 +516,8 @@ export type GetErrorRequest = Message<"errors.v1.GetErrorRequest"> & {
  * Describes the message errors.v1.GetErrorRequest.
  * Use `create(GetErrorRequestSchema)` to create a new message.
  */
-export const GetErrorRequestSchema: GenMessage<GetErrorRequest> = /*@__PURE__*/ messageDesc(file_errors_v1_errors, 11);
+export const GetErrorRequestSchema: GenMessage<GetErrorRequest> = /*@__PURE__*/
+  messageDesc(file_errors_v1_errors, 11);
 
 /**
  * Get single error response
@@ -531,8 +535,7 @@ export type GetErrorResponse = Message<"errors.v1.GetErrorResponse"> & {
  * Describes the message errors.v1.GetErrorResponse.
  * Use `create(GetErrorResponseSchema)` to create a new message.
  */
-export const GetErrorResponseSchema: GenMessage<GetErrorResponse> =
-  /*@__PURE__*/
+export const GetErrorResponseSchema: GenMessage<GetErrorResponse> = /*@__PURE__*/
   messageDesc(file_errors_v1_errors, 12);
 
 /**
@@ -540,14 +543,14 @@ export const GetErrorResponseSchema: GenMessage<GetErrorResponse> =
  *
  * @generated from message errors.v1.ListMinerErrorsRequest
  */
-export type ListMinerErrorsRequest = Message<"errors.v1.ListMinerErrorsRequest"> & {};
+export type ListMinerErrorsRequest = Message<"errors.v1.ListMinerErrorsRequest"> & {
+};
 
 /**
  * Describes the message errors.v1.ListMinerErrorsRequest.
  * Use `create(ListMinerErrorsRequestSchema)` to create a new message.
  */
-export const ListMinerErrorsRequestSchema: GenMessage<ListMinerErrorsRequest> =
-  /*@__PURE__*/
+export const ListMinerErrorsRequestSchema: GenMessage<ListMinerErrorsRequest> = /*@__PURE__*/
   messageDesc(file_errors_v1_errors, 13);
 
 /**
@@ -566,8 +569,7 @@ export type ListMinerErrorsResponse = Message<"errors.v1.ListMinerErrorsResponse
  * Describes the message errors.v1.ListMinerErrorsResponse.
  * Use `create(ListMinerErrorsResponseSchema)` to create a new message.
  */
-export const ListMinerErrorsResponseSchema: GenMessage<ListMinerErrorsResponse> =
-  /*@__PURE__*/
+export const ListMinerErrorsResponseSchema: GenMessage<ListMinerErrorsResponse> = /*@__PURE__*/
   messageDesc(file_errors_v1_errors, 14);
 
 /**
@@ -613,7 +615,8 @@ export type MinerErrorInfo = Message<"errors.v1.MinerErrorInfo"> & {
  * Describes the message errors.v1.MinerErrorInfo.
  * Use `create(MinerErrorInfoSchema)` to create a new message.
  */
-export const MinerErrorInfoSchema: GenMessage<MinerErrorInfo> = /*@__PURE__*/ messageDesc(file_errors_v1_errors, 15);
+export const MinerErrorInfoSchema: GenMessage<MinerErrorInfo> = /*@__PURE__*/
+  messageDesc(file_errors_v1_errors, 15);
 
 /**
  * Watch request for streaming updates
@@ -631,7 +634,8 @@ export type WatchRequest = Message<"errors.v1.WatchRequest"> & {
  * Describes the message errors.v1.WatchRequest.
  * Use `create(WatchRequestSchema)` to create a new message.
  */
-export const WatchRequestSchema: GenMessage<WatchRequest> = /*@__PURE__*/ messageDesc(file_errors_v1_errors, 16);
+export const WatchRequestSchema: GenMessage<WatchRequest> = /*@__PURE__*/
+  messageDesc(file_errors_v1_errors, 16);
 
 /**
  * Watch response for streaming updates
@@ -642,29 +646,25 @@ export type WatchResponse = Message<"errors.v1.WatchResponse"> & {
   /**
    * @generated from oneof errors.v1.WatchResponse.result
    */
-  result:
-    | {
-        /**
-         * @generated from field: errors.v1.Errors errors = 1;
-         */
-        value: Errors;
-        case: "errors";
-      }
-    | {
-        /**
-         * @generated from field: errors.v1.ComponentErrors components = 2;
-         */
-        value: ComponentErrors;
-        case: "components";
-      }
-    | {
-        /**
-         * @generated from field: errors.v1.DeviceErrors devices = 3;
-         */
-        value: DeviceErrors;
-        case: "devices";
-      }
-    | { case: undefined; value?: undefined };
+  result: {
+    /**
+     * @generated from field: errors.v1.Errors errors = 1;
+     */
+    value: Errors;
+    case: "errors";
+  } | {
+    /**
+     * @generated from field: errors.v1.ComponentErrors components = 2;
+     */
+    value: ComponentErrors;
+    case: "components";
+  } | {
+    /**
+     * @generated from field: errors.v1.DeviceErrors devices = 3;
+     */
+    value: DeviceErrors;
+    case: "devices";
+  } | { case: undefined; value?: undefined };
 
   /**
    * @generated from field: errors.v1.WatchResponse.Kind kind = 4;
@@ -676,7 +676,8 @@ export type WatchResponse = Message<"errors.v1.WatchResponse"> & {
  * Describes the message errors.v1.WatchResponse.
  * Use `create(WatchResponseSchema)` to create a new message.
  */
-export const WatchResponseSchema: GenMessage<WatchResponse> = /*@__PURE__*/ messageDesc(file_errors_v1_errors, 17);
+export const WatchResponseSchema: GenMessage<WatchResponse> = /*@__PURE__*/
+  messageDesc(file_errors_v1_errors, 17);
 
 /**
  * @generated from enum errors.v1.WatchResponse.Kind
@@ -706,8 +707,7 @@ export enum WatchResponse_Kind {
 /**
  * Describes the enum errors.v1.WatchResponse.Kind.
  */
-export const WatchResponse_KindSchema: GenEnum<WatchResponse_Kind> =
-  /*@__PURE__*/
+export const WatchResponse_KindSchema: GenEnum<WatchResponse_Kind> = /*@__PURE__*/
   enumDesc(file_errors_v1_errors, 17, 0);
 
 /**
@@ -992,7 +992,8 @@ export enum MinerError {
 /**
  * Describes the enum errors.v1.MinerError.
  */
-export const MinerErrorSchema: GenEnum<MinerError> = /*@__PURE__*/ enumDesc(file_errors_v1_errors, 0);
+export const MinerErrorSchema: GenEnum<MinerError> = /*@__PURE__*/
+  enumDesc(file_errors_v1_errors, 0);
 
 /**
  * Severity classification for errors
@@ -1037,7 +1038,8 @@ export enum Severity {
 /**
  * Describes the enum errors.v1.Severity.
  */
-export const SeveritySchema: GenEnum<Severity> = /*@__PURE__*/ enumDesc(file_errors_v1_errors, 1);
+export const SeveritySchema: GenEnum<Severity> = /*@__PURE__*/
+  enumDesc(file_errors_v1_errors, 1);
 
 /**
  * Aggregated status based on error severity waterfall
@@ -1076,7 +1078,8 @@ export enum Status {
 /**
  * Describes the enum errors.v1.Status.
  */
-export const StatusSchema: GenEnum<Status> = /*@__PURE__*/ enumDesc(file_errors_v1_errors, 2);
+export const StatusSchema: GenEnum<Status> = /*@__PURE__*/
+  enumDesc(file_errors_v1_errors, 2);
 
 /**
  * Type of component that can have errors
@@ -1123,7 +1126,8 @@ export enum ComponentType {
 /**
  * Describes the enum errors.v1.ComponentType.
  */
-export const ComponentTypeSchema: GenEnum<ComponentType> = /*@__PURE__*/ enumDesc(file_errors_v1_errors, 3);
+export const ComponentTypeSchema: GenEnum<ComponentType> = /*@__PURE__*/
+  enumDesc(file_errors_v1_errors, 3);
 
 /**
  * Result view determines how errors are aggregated in the response
@@ -1161,7 +1165,8 @@ export enum ResultView {
 /**
  * Describes the enum errors.v1.ResultView.
  */
-export const ResultViewSchema: GenEnum<ResultView> = /*@__PURE__*/ enumDesc(file_errors_v1_errors, 4);
+export const ResultViewSchema: GenEnum<ResultView> = /*@__PURE__*/
+  enumDesc(file_errors_v1_errors, 4);
 
 /**
  * Global logic for combining filter criteria.
@@ -1193,7 +1198,8 @@ export enum GlobalLogic {
 /**
  * Describes the enum errors.v1.GlobalLogic.
  */
-export const GlobalLogicSchema: GenEnum<GlobalLogic> = /*@__PURE__*/ enumDesc(file_errors_v1_errors, 5);
+export const GlobalLogicSchema: GenEnum<GlobalLogic> = /*@__PURE__*/
+  enumDesc(file_errors_v1_errors, 5);
 
 /**
  * ErrorQueryService provides querying capabilities for miner errors
@@ -1210,7 +1216,7 @@ export const ErrorQueryService: GenService<{
     methodKind: "unary";
     input: typeof QueryRequestSchema;
     output: typeof QueryResponseSchema;
-  };
+  },
   /**
    * Get a single error by ID
    *
@@ -1220,7 +1226,7 @@ export const ErrorQueryService: GenService<{
     methodKind: "unary";
     input: typeof GetErrorRequestSchema;
     output: typeof GetErrorResponseSchema;
-  };
+  },
   /**
    * List all canonical error definitions with metadata
    *
@@ -1230,7 +1236,7 @@ export const ErrorQueryService: GenService<{
     methodKind: "unary";
     input: typeof ListMinerErrorsRequestSchema;
     output: typeof ListMinerErrorsResponseSchema;
-  };
+  },
   /**
    * Watch for real-time error updates (streaming)
    *
@@ -1240,5 +1246,7 @@ export const ErrorQueryService: GenService<{
     methodKind: "server_streaming";
     input: typeof WatchRequestSchema;
     output: typeof WatchResponseSchema;
-  };
-}> = /*@__PURE__*/ serviceDesc(file_errors_v1_errors, 0);
+  },
+}> = /*@__PURE__*/
+  serviceDesc(file_errors_v1_errors, 0);
+

@@ -5,13 +5,12 @@
 package fleetmanagementv1connect
 
 import (
+	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
+	v1 "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	http "net/http"
 	strings "strings"
-
-	connect "connectrpc.com/connect"
-	v1 "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 )
 
 // This is a compile-time assertion to ensure that this generated file and the connect package are
@@ -19,7 +18,7 @@ import (
 // generated with a version of connect newer than the one compiled into your binary. You can fix the
 // problem by either regenerating this code with an older version of connect or updating the connect
 // version compiled into your binary.
-const _ = connect.IsAtLeastVersion0_1_0
+const _ = connect.IsAtLeastVersion1_13_0
 
 const (
 	// FleetManagementServiceName is the fully-qualified name of the FleetManagementService service.
@@ -111,51 +110,61 @@ type FleetManagementServiceClient interface {
 // http://api.acme.com or https://acme.com/grpc).
 func NewFleetManagementServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) FleetManagementServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
+	fleetManagementServiceMethods := v1.File_fleetmanagement_v1_fleetmanagement_proto.Services().ByName("FleetManagementService").Methods()
 	return &fleetManagementServiceClient{
 		listMinerStateSnapshots: connect.NewClient[v1.ListMinerStateSnapshotsRequest, v1.ListMinerStateSnapshotsResponse](
 			httpClient,
 			baseURL+FleetManagementServiceListMinerStateSnapshotsProcedure,
-			opts...,
+			connect.WithSchema(fleetManagementServiceMethods.ByName("ListMinerStateSnapshots")),
+			connect.WithClientOptions(opts...),
 		),
 		exportMinerListCsv: connect.NewClient[v1.ExportMinerListCsvRequest, v1.ExportMinerListCsvResponse](
 			httpClient,
 			baseURL+FleetManagementServiceExportMinerListCsvProcedure,
-			opts...,
+			connect.WithSchema(fleetManagementServiceMethods.ByName("ExportMinerListCsv")),
+			connect.WithClientOptions(opts...),
 		),
 		getMinerStateCounts: connect.NewClient[v1.GetMinerStateCountsRequest, v1.GetMinerStateCountsResponse](
 			httpClient,
 			baseURL+FleetManagementServiceGetMinerStateCountsProcedure,
-			opts...,
+			connect.WithSchema(fleetManagementServiceMethods.ByName("GetMinerStateCounts")),
+			connect.WithClientOptions(opts...),
 		),
 		getMinerPoolAssignments: connect.NewClient[v1.GetMinerPoolAssignmentsRequest, v1.GetMinerPoolAssignmentsResponse](
 			httpClient,
 			baseURL+FleetManagementServiceGetMinerPoolAssignmentsProcedure,
-			opts...,
+			connect.WithSchema(fleetManagementServiceMethods.ByName("GetMinerPoolAssignments")),
+			connect.WithClientOptions(opts...),
 		),
 		getMinerCoolingMode: connect.NewClient[v1.GetMinerCoolingModeRequest, v1.GetMinerCoolingModeResponse](
 			httpClient,
 			baseURL+FleetManagementServiceGetMinerCoolingModeProcedure,
-			opts...,
+			connect.WithSchema(fleetManagementServiceMethods.ByName("GetMinerCoolingMode")),
+			connect.WithClientOptions(opts...),
 		),
 		deleteMiners: connect.NewClient[v1.DeleteMinersRequest, v1.DeleteMinersResponse](
 			httpClient,
 			baseURL+FleetManagementServiceDeleteMinersProcedure,
-			opts...,
+			connect.WithSchema(fleetManagementServiceMethods.ByName("DeleteMiners")),
+			connect.WithClientOptions(opts...),
 		),
 		getMinerModelGroups: connect.NewClient[v1.GetMinerModelGroupsRequest, v1.GetMinerModelGroupsResponse](
 			httpClient,
 			baseURL+FleetManagementServiceGetMinerModelGroupsProcedure,
-			opts...,
+			connect.WithSchema(fleetManagementServiceMethods.ByName("GetMinerModelGroups")),
+			connect.WithClientOptions(opts...),
 		),
 		renameMiners: connect.NewClient[v1.RenameMinersRequest, v1.RenameMinersResponse](
 			httpClient,
 			baseURL+FleetManagementServiceRenameMinersProcedure,
-			opts...,
+			connect.WithSchema(fleetManagementServiceMethods.ByName("RenameMiners")),
+			connect.WithClientOptions(opts...),
 		),
 		updateWorkerNames: connect.NewClient[v1.UpdateWorkerNamesRequest, v1.UpdateWorkerNamesResponse](
 			httpClient,
 			baseURL+FleetManagementServiceUpdateWorkerNamesProcedure,
-			opts...,
+			connect.WithSchema(fleetManagementServiceMethods.ByName("UpdateWorkerNames")),
+			connect.WithClientOptions(opts...),
 		),
 	}
 }
@@ -263,50 +272,60 @@ type FleetManagementServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewFleetManagementServiceHandler(svc FleetManagementServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	fleetManagementServiceMethods := v1.File_fleetmanagement_v1_fleetmanagement_proto.Services().ByName("FleetManagementService").Methods()
 	fleetManagementServiceListMinerStateSnapshotsHandler := connect.NewUnaryHandler(
 		FleetManagementServiceListMinerStateSnapshotsProcedure,
 		svc.ListMinerStateSnapshots,
-		opts...,
+		connect.WithSchema(fleetManagementServiceMethods.ByName("ListMinerStateSnapshots")),
+		connect.WithHandlerOptions(opts...),
 	)
 	fleetManagementServiceExportMinerListCsvHandler := connect.NewServerStreamHandler(
 		FleetManagementServiceExportMinerListCsvProcedure,
 		svc.ExportMinerListCsv,
-		opts...,
+		connect.WithSchema(fleetManagementServiceMethods.ByName("ExportMinerListCsv")),
+		connect.WithHandlerOptions(opts...),
 	)
 	fleetManagementServiceGetMinerStateCountsHandler := connect.NewUnaryHandler(
 		FleetManagementServiceGetMinerStateCountsProcedure,
 		svc.GetMinerStateCounts,
-		opts...,
+		connect.WithSchema(fleetManagementServiceMethods.ByName("GetMinerStateCounts")),
+		connect.WithHandlerOptions(opts...),
 	)
 	fleetManagementServiceGetMinerPoolAssignmentsHandler := connect.NewUnaryHandler(
 		FleetManagementServiceGetMinerPoolAssignmentsProcedure,
 		svc.GetMinerPoolAssignments,
-		opts...,
+		connect.WithSchema(fleetManagementServiceMethods.ByName("GetMinerPoolAssignments")),
+		connect.WithHandlerOptions(opts...),
 	)
 	fleetManagementServiceGetMinerCoolingModeHandler := connect.NewUnaryHandler(
 		FleetManagementServiceGetMinerCoolingModeProcedure,
 		svc.GetMinerCoolingMode,
-		opts...,
+		connect.WithSchema(fleetManagementServiceMethods.ByName("GetMinerCoolingMode")),
+		connect.WithHandlerOptions(opts...),
 	)
 	fleetManagementServiceDeleteMinersHandler := connect.NewUnaryHandler(
 		FleetManagementServiceDeleteMinersProcedure,
 		svc.DeleteMiners,
-		opts...,
+		connect.WithSchema(fleetManagementServiceMethods.ByName("DeleteMiners")),
+		connect.WithHandlerOptions(opts...),
 	)
 	fleetManagementServiceGetMinerModelGroupsHandler := connect.NewUnaryHandler(
 		FleetManagementServiceGetMinerModelGroupsProcedure,
 		svc.GetMinerModelGroups,
-		opts...,
+		connect.WithSchema(fleetManagementServiceMethods.ByName("GetMinerModelGroups")),
+		connect.WithHandlerOptions(opts...),
 	)
 	fleetManagementServiceRenameMinersHandler := connect.NewUnaryHandler(
 		FleetManagementServiceRenameMinersProcedure,
 		svc.RenameMiners,
-		opts...,
+		connect.WithSchema(fleetManagementServiceMethods.ByName("RenameMiners")),
+		connect.WithHandlerOptions(opts...),
 	)
 	fleetManagementServiceUpdateWorkerNamesHandler := connect.NewUnaryHandler(
 		FleetManagementServiceUpdateWorkerNamesProcedure,
 		svc.UpdateWorkerNames,
-		opts...,
+		connect.WithSchema(fleetManagementServiceMethods.ByName("UpdateWorkerNames")),
+		connect.WithHandlerOptions(opts...),
 	)
 	return "/fleetmanagement.v1.FleetManagementService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

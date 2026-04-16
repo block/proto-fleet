@@ -13,12 +13,8 @@ import type { Message } from "@bufbuild/protobuf";
 /**
  * Describes the file pairing/v1/pairing.proto.
  */
-export const file_pairing_v1_pairing: GenFile =
-  /*@__PURE__*/
-  fileDesc(
-    "ChhwYWlyaW5nL3YxL3BhaXJpbmcucHJvdG8SCnBhaXJpbmcudjEinwIKBkRldmljZRIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRISCgppcF9hZGRyZXNzGAIgASgJEgwKBHBvcnQYAyABKAkSEwoLbWFjX2FkZHJlc3MYBCABKAkSFQoNc2VyaWFsX251bWJlchgFIAEoCRINCgVtb2RlbBgGIAEoCRIUCgxtYW51ZmFjdHVyZXIYByABKAkSEgoKdXJsX3NjaGVtZRgIIAEoCRI4CgxjYXBhYmlsaXRpZXMYCiABKAsyIi5jYXBhYmlsaXRpZXMudjEuTWluZXJDYXBhYmlsaXRpZXMSGAoQZmlybXdhcmVfdmVyc2lvbhgLIAEoCRITCgtkcml2ZXJfbmFtZRgMIAEoCUoECAkQClIEdHlwZSJDCgtDcmVkZW50aWFscxIQCgh1c2VybmFtZRgBIAEoCRIVCghwYXNzd29yZBgCIAEoCUgAiAEBQgsKCV9wYXNzd29yZCJQCg9NRE5TTW9kZVJlcXVlc3QSFAoMc2VydmljZV90eXBlGAEgASgJEg4KBmRvbWFpbhgCIAEoCRIXCg90aW1lb3V0X3NlY29uZHMYAyABKAUiMAoPTm1hcE1vZGVSZXF1ZXN0Eg4KBnRhcmdldBgBIAEoCRINCgVwb3J0cxgCIAMoCSJFChJJUFJhbmdlTW9kZVJlcXVlc3QSEAoIc3RhcnRfaXAYASABKAkSDgoGZW5kX2lwGAIgASgJEg0KBXBvcnRzGAMgAygJIjgKEUlQTGlzdE1vZGVSZXF1ZXN0EhQKDGlwX2FkZHJlc3NlcxgBIAMoCRINCgVwb3J0cxgCIAMoCSLZAQoPRGlzY292ZXJSZXF1ZXN0EjAKB2lwX2xpc3QYASABKAsyHS5wYWlyaW5nLnYxLklQTGlzdE1vZGVSZXF1ZXN0SAASMgoIaXBfcmFuZ2UYAiABKAsyHi5wYWlyaW5nLnYxLklQUmFuZ2VNb2RlUmVxdWVzdEgAEisKBG1kbnMYAyABKAsyGy5wYWlyaW5nLnYxLk1ETlNNb2RlUmVxdWVzdEgAEisKBG5tYXAYBCABKAsyGy5wYWlyaW5nLnYxLk5tYXBNb2RlUmVxdWVzdEgAQgYKBG1vZGUiRgoQRGlzY292ZXJSZXNwb25zZRIjCgdkZXZpY2VzGAEgAygLMhIucGFpcmluZy52MS5EZXZpY2USDQoFZXJyb3IYAiABKAkidQoLUGFpclJlcXVlc3QSLAoLY3JlZGVudGlhbHMYASABKAsyFy5wYWlyaW5nLnYxLkNyZWRlbnRpYWxzEjgKD2RldmljZV9zZWxlY3RvchgCIAEoCzIfLm1pbmVyY29tbWFuZC52MS5EZXZpY2VTZWxlY3RvciIpCgxQYWlyUmVzcG9uc2USGQoRZmFpbGVkX2RldmljZV9pZHMYASADKAkylAEKDlBhaXJpbmdTZXJ2aWNlEkcKCERpc2NvdmVyEhsucGFpcmluZy52MS5EaXNjb3ZlclJlcXVlc3QaHC5wYWlyaW5nLnYxLkRpc2NvdmVyUmVzcG9uc2UwARI5CgRQYWlyEhcucGFpcmluZy52MS5QYWlyUmVxdWVzdBoYLnBhaXJpbmcudjEuUGFpclJlc3BvbnNlQrABCg5jb20ucGFpcmluZy52MUIMUGFpcmluZ1Byb3RvUAFaR2dpdGh1Yi5jb20vYmxvY2svcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL3BhaXJpbmcvdjE7cGFpcmluZ3YxogIDUFhYqgIKUGFpcmluZy5WMcoCClBhaXJpbmdcVjHiAhZQYWlyaW5nXFYxXEdQQk1ldGFkYXRh6gILUGFpcmluZzo6VjFiBnByb3RvMw",
-    [file_capabilities_v1_capabilities, file_minercommand_v1_command],
-  );
+export const file_pairing_v1_pairing: GenFile = /*@__PURE__*/
+  fileDesc("ChhwYWlyaW5nL3YxL3BhaXJpbmcucHJvdG8SCnBhaXJpbmcudjEinwIKBkRldmljZRIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRISCgppcF9hZGRyZXNzGAIgASgJEgwKBHBvcnQYAyABKAkSEwoLbWFjX2FkZHJlc3MYBCABKAkSFQoNc2VyaWFsX251bWJlchgFIAEoCRINCgVtb2RlbBgGIAEoCRIUCgxtYW51ZmFjdHVyZXIYByABKAkSEgoKdXJsX3NjaGVtZRgIIAEoCRI4CgxjYXBhYmlsaXRpZXMYCiABKAsyIi5jYXBhYmlsaXRpZXMudjEuTWluZXJDYXBhYmlsaXRpZXMSGAoQZmlybXdhcmVfdmVyc2lvbhgLIAEoCRITCgtkcml2ZXJfbmFtZRgMIAEoCUoECAkQClIEdHlwZSJDCgtDcmVkZW50aWFscxIQCgh1c2VybmFtZRgBIAEoCRIVCghwYXNzd29yZBgCIAEoCUgAiAEBQgsKCV9wYXNzd29yZCJQCg9NRE5TTW9kZVJlcXVlc3QSFAoMc2VydmljZV90eXBlGAEgASgJEg4KBmRvbWFpbhgCIAEoCRIXCg90aW1lb3V0X3NlY29uZHMYAyABKAUiMAoPTm1hcE1vZGVSZXF1ZXN0Eg4KBnRhcmdldBgBIAEoCRINCgVwb3J0cxgCIAMoCSJFChJJUFJhbmdlTW9kZVJlcXVlc3QSEAoIc3RhcnRfaXAYASABKAkSDgoGZW5kX2lwGAIgASgJEg0KBXBvcnRzGAMgAygJIjgKEUlQTGlzdE1vZGVSZXF1ZXN0EhQKDGlwX2FkZHJlc3NlcxgBIAMoCRINCgVwb3J0cxgCIAMoCSLZAQoPRGlzY292ZXJSZXF1ZXN0EjAKB2lwX2xpc3QYASABKAsyHS5wYWlyaW5nLnYxLklQTGlzdE1vZGVSZXF1ZXN0SAASMgoIaXBfcmFuZ2UYAiABKAsyHi5wYWlyaW5nLnYxLklQUmFuZ2VNb2RlUmVxdWVzdEgAEisKBG1kbnMYAyABKAsyGy5wYWlyaW5nLnYxLk1ETlNNb2RlUmVxdWVzdEgAEisKBG5tYXAYBCABKAsyGy5wYWlyaW5nLnYxLk5tYXBNb2RlUmVxdWVzdEgAQgYKBG1vZGUiRgoQRGlzY292ZXJSZXNwb25zZRIjCgdkZXZpY2VzGAEgAygLMhIucGFpcmluZy52MS5EZXZpY2USDQoFZXJyb3IYAiABKAkidQoLUGFpclJlcXVlc3QSLAoLY3JlZGVudGlhbHMYASABKAsyFy5wYWlyaW5nLnYxLkNyZWRlbnRpYWxzEjgKD2RldmljZV9zZWxlY3RvchgCIAEoCzIfLm1pbmVyY29tbWFuZC52MS5EZXZpY2VTZWxlY3RvciIpCgxQYWlyUmVzcG9uc2USGQoRZmFpbGVkX2RldmljZV9pZHMYASADKAkylAEKDlBhaXJpbmdTZXJ2aWNlEkcKCERpc2NvdmVyEhsucGFpcmluZy52MS5EaXNjb3ZlclJlcXVlc3QaHC5wYWlyaW5nLnYxLkRpc2NvdmVyUmVzcG9uc2UwARI5CgRQYWlyEhcucGFpcmluZy52MS5QYWlyUmVxdWVzdBoYLnBhaXJpbmcudjEuUGFpclJlc3BvbnNlQrABCg5jb20ucGFpcmluZy52MUIMUGFpcmluZ1Byb3RvUAFaR2dpdGh1Yi5jb20vYmxvY2svcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL3BhaXJpbmcvdjE7cGFpcmluZ3YxogIDUFhYqgIKUGFpcmluZy5WMcoCClBhaXJpbmdcVjHiAhZQYWlyaW5nXFYxXEdQQk1ldGFkYXRh6gILUGFpcmluZzo6VjFiBnByb3RvMw", [file_capabilities_v1_capabilities, file_minercommand_v1_command]);
 
 /**
  * Device represents a discovered network device that can be paired with the system
@@ -109,7 +105,8 @@ export type Device = Message<"pairing.v1.Device"> & {
  * Describes the message pairing.v1.Device.
  * Use `create(DeviceSchema)` to create a new message.
  */
-export const DeviceSchema: GenMessage<Device> = /*@__PURE__*/ messageDesc(file_pairing_v1_pairing, 0);
+export const DeviceSchema: GenMessage<Device> = /*@__PURE__*/
+  messageDesc(file_pairing_v1_pairing, 0);
 
 /**
  * Represents login credentials used for device pairing
@@ -132,7 +129,8 @@ export type Credentials = Message<"pairing.v1.Credentials"> & {
  * Describes the message pairing.v1.Credentials.
  * Use `create(CredentialsSchema)` to create a new message.
  */
-export const CredentialsSchema: GenMessage<Credentials> = /*@__PURE__*/ messageDesc(file_pairing_v1_pairing, 1);
+export const CredentialsSchema: GenMessage<Credentials> = /*@__PURE__*/
+  messageDesc(file_pairing_v1_pairing, 1);
 
 /**
  * Configuration for mDNS-based device discovery
@@ -167,7 +165,8 @@ export type MDNSModeRequest = Message<"pairing.v1.MDNSModeRequest"> & {
  * Describes the message pairing.v1.MDNSModeRequest.
  * Use `create(MDNSModeRequestSchema)` to create a new message.
  */
-export const MDNSModeRequestSchema: GenMessage<MDNSModeRequest> = /*@__PURE__*/ messageDesc(file_pairing_v1_pairing, 2);
+export const MDNSModeRequestSchema: GenMessage<MDNSModeRequest> = /*@__PURE__*/
+  messageDesc(file_pairing_v1_pairing, 2);
 
 /**
  * Configuration for Nmap-based network scanning discovery
@@ -199,7 +198,8 @@ export type NmapModeRequest = Message<"pairing.v1.NmapModeRequest"> & {
  * Describes the message pairing.v1.NmapModeRequest.
  * Use `create(NmapModeRequestSchema)` to create a new message.
  */
-export const NmapModeRequestSchema: GenMessage<NmapModeRequest> = /*@__PURE__*/ messageDesc(file_pairing_v1_pairing, 3);
+export const NmapModeRequestSchema: GenMessage<NmapModeRequest> = /*@__PURE__*/
+  messageDesc(file_pairing_v1_pairing, 3);
 
 /**
  * Configuration for IP range-based device discovery
@@ -235,8 +235,7 @@ export type IPRangeModeRequest = Message<"pairing.v1.IPRangeModeRequest"> & {
  * Describes the message pairing.v1.IPRangeModeRequest.
  * Use `create(IPRangeModeRequestSchema)` to create a new message.
  */
-export const IPRangeModeRequestSchema: GenMessage<IPRangeModeRequest> =
-  /*@__PURE__*/
+export const IPRangeModeRequestSchema: GenMessage<IPRangeModeRequest> = /*@__PURE__*/
   messageDesc(file_pairing_v1_pairing, 4);
 
 /**
@@ -266,8 +265,7 @@ export type IPListModeRequest = Message<"pairing.v1.IPListModeRequest"> & {
  * Describes the message pairing.v1.IPListModeRequest.
  * Use `create(IPListModeRequestSchema)` to create a new message.
  */
-export const IPListModeRequestSchema: GenMessage<IPListModeRequest> =
-  /*@__PURE__*/
+export const IPListModeRequestSchema: GenMessage<IPListModeRequest> = /*@__PURE__*/
   messageDesc(file_pairing_v1_pairing, 5);
 
 /**
@@ -281,51 +279,47 @@ export type DiscoverRequest = Message<"pairing.v1.DiscoverRequest"> & {
    *
    * @generated from oneof pairing.v1.DiscoverRequest.mode
    */
-  mode:
-    | {
-        /**
-         * Discover from list of IPs
-         *
-         * @generated from field: pairing.v1.IPListModeRequest ip_list = 1;
-         */
-        value: IPListModeRequest;
-        case: "ipList";
-      }
-    | {
-        /**
-         * Discover in IP range
-         *
-         * @generated from field: pairing.v1.IPRangeModeRequest ip_range = 2;
-         */
-        value: IPRangeModeRequest;
-        case: "ipRange";
-      }
-    | {
-        /**
-         * Discover using mDNS
-         *
-         * @generated from field: pairing.v1.MDNSModeRequest mdns = 3;
-         */
-        value: MDNSModeRequest;
-        case: "mdns";
-      }
-    | {
-        /**
-         * Discover using Nmap
-         *
-         * @generated from field: pairing.v1.NmapModeRequest nmap = 4;
-         */
-        value: NmapModeRequest;
-        case: "nmap";
-      }
-    | { case: undefined; value?: undefined };
+  mode: {
+    /**
+     * Discover from list of IPs
+     *
+     * @generated from field: pairing.v1.IPListModeRequest ip_list = 1;
+     */
+    value: IPListModeRequest;
+    case: "ipList";
+  } | {
+    /**
+     * Discover in IP range
+     *
+     * @generated from field: pairing.v1.IPRangeModeRequest ip_range = 2;
+     */
+    value: IPRangeModeRequest;
+    case: "ipRange";
+  } | {
+    /**
+     * Discover using mDNS
+     *
+     * @generated from field: pairing.v1.MDNSModeRequest mdns = 3;
+     */
+    value: MDNSModeRequest;
+    case: "mdns";
+  } | {
+    /**
+     * Discover using Nmap
+     *
+     * @generated from field: pairing.v1.NmapModeRequest nmap = 4;
+     */
+    value: NmapModeRequest;
+    case: "nmap";
+  } | { case: undefined; value?: undefined };
 };
 
 /**
  * Describes the message pairing.v1.DiscoverRequest.
  * Use `create(DiscoverRequestSchema)` to create a new message.
  */
-export const DiscoverRequestSchema: GenMessage<DiscoverRequest> = /*@__PURE__*/ messageDesc(file_pairing_v1_pairing, 6);
+export const DiscoverRequestSchema: GenMessage<DiscoverRequest> = /*@__PURE__*/
+  messageDesc(file_pairing_v1_pairing, 6);
 
 /**
  * Response message containing discovered devices or errors
@@ -353,8 +347,7 @@ export type DiscoverResponse = Message<"pairing.v1.DiscoverResponse"> & {
  * Describes the message pairing.v1.DiscoverResponse.
  * Use `create(DiscoverResponseSchema)` to create a new message.
  */
-export const DiscoverResponseSchema: GenMessage<DiscoverResponse> =
-  /*@__PURE__*/
+export const DiscoverResponseSchema: GenMessage<DiscoverResponse> = /*@__PURE__*/
   messageDesc(file_pairing_v1_pairing, 7);
 
 /**
@@ -382,7 +375,8 @@ export type PairRequest = Message<"pairing.v1.PairRequest"> & {
  * Describes the message pairing.v1.PairRequest.
  * Use `create(PairRequestSchema)` to create a new message.
  */
-export const PairRequestSchema: GenMessage<PairRequest> = /*@__PURE__*/ messageDesc(file_pairing_v1_pairing, 8);
+export const PairRequestSchema: GenMessage<PairRequest> = /*@__PURE__*/
+  messageDesc(file_pairing_v1_pairing, 8);
 
 /**
  * Response to pairing request
@@ -401,7 +395,8 @@ export type PairResponse = Message<"pairing.v1.PairResponse"> & {
  * Describes the message pairing.v1.PairResponse.
  * Use `create(PairResponseSchema)` to create a new message.
  */
-export const PairResponseSchema: GenMessage<PairResponse> = /*@__PURE__*/ messageDesc(file_pairing_v1_pairing, 9);
+export const PairResponseSchema: GenMessage<PairResponse> = /*@__PURE__*/
+  messageDesc(file_pairing_v1_pairing, 9);
 
 /**
  * Service for discovering and pairing with network devices
@@ -419,7 +414,7 @@ export const PairingService: GenService<{
     methodKind: "server_streaming";
     input: typeof DiscoverRequestSchema;
     output: typeof DiscoverResponseSchema;
-  };
+  },
   /**
    * Initiates pairing with one or more discovered devices
    *
@@ -429,5 +424,7 @@ export const PairingService: GenService<{
     methodKind: "unary";
     input: typeof PairRequestSchema;
     output: typeof PairResponseSchema;
-  };
-}> = /*@__PURE__*/ serviceDesc(file_pairing_v1_pairing, 0);
+  },
+}> = /*@__PURE__*/
+  serviceDesc(file_pairing_v1_pairing, 0);
+

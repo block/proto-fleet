@@ -9,11 +9,8 @@ import type { Message } from "@bufbuild/protobuf";
 /**
  * Describes the file networkinfo/v1/networkinfo.proto.
  */
-export const file_networkinfo_v1_networkinfo: GenFile =
-  /*@__PURE__*/
-  fileDesc(
-    "CiBuZXR3b3JraW5mby92MS9uZXR3b3JraW5mby5wcm90bxIObmV0d29ya2luZm8udjEigwEKC05ldHdvcmtJbmZvEhgKEG5ldHdvcmtfbmlja25hbWUYASABKAkSEAoIbG9jYWxfaXAYAiABKAkSDwoHZ2F0ZXdheRgDIAEoCRIOCgZzdWJuZXQYBCABKAkSEgoKbG9jYWxfaXB2NhgFIAEoCRITCgtpcHY2X3N1Ym5ldBgGIAEoCSIXChVHZXROZXR3b3JrSW5mb1JlcXVlc3QiSwoWR2V0TmV0d29ya0luZm9SZXNwb25zZRIxCgxuZXR3b3JrX2luZm8YASABKAsyGy5uZXR3b3JraW5mby52MS5OZXR3b3JrSW5mbyI4ChxVcGRhdGVOZXR3b3JrTmlja25hbWVSZXF1ZXN0EhgKEG5ldHdvcmtfbmlja25hbWUYASABKAkiHwodVXBkYXRlTmV0d29ya05pY2tuYW1lUmVzcG9uc2Uy6wEKEk5ldHdvcmtJbmZvU2VydmljZRJfCg5HZXROZXR3b3JrSW5mbxIlLm5ldHdvcmtpbmZvLnYxLkdldE5ldHdvcmtJbmZvUmVxdWVzdBomLm5ldHdvcmtpbmZvLnYxLkdldE5ldHdvcmtJbmZvUmVzcG9uc2USdAoVVXBkYXRlTmV0d29ya05pY2tuYW1lEiwubmV0d29ya2luZm8udjEuVXBkYXRlTmV0d29ya05pY2tuYW1lUmVxdWVzdBotLm5ldHdvcmtpbmZvLnYxLlVwZGF0ZU5ldHdvcmtOaWNrbmFtZVJlc3BvbnNlQtABChJjb20ubmV0d29ya2luZm8udjFCEE5ldHdvcmtpbmZvUHJvdG9QAVpPZ2l0aHViLmNvbS9ibG9jay9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvbmV0d29ya2luZm8vdjE7bmV0d29ya2luZm92MaICA05YWKoCDk5ldHdvcmtpbmZvLlYxygIOTmV0d29ya2luZm9cVjHiAhpOZXR3b3JraW5mb1xWMVxHUEJNZXRhZGF0YeoCD05ldHdvcmtpbmZvOjpWMWIGcHJvdG8z",
-  );
+export const file_networkinfo_v1_networkinfo: GenFile = /*@__PURE__*/
+  fileDesc("CiBuZXR3b3JraW5mby92MS9uZXR3b3JraW5mby5wcm90bxIObmV0d29ya2luZm8udjEigwEKC05ldHdvcmtJbmZvEhgKEG5ldHdvcmtfbmlja25hbWUYASABKAkSEAoIbG9jYWxfaXAYAiABKAkSDwoHZ2F0ZXdheRgDIAEoCRIOCgZzdWJuZXQYBCABKAkSEgoKbG9jYWxfaXB2NhgFIAEoCRITCgtpcHY2X3N1Ym5ldBgGIAEoCSIXChVHZXROZXR3b3JrSW5mb1JlcXVlc3QiSwoWR2V0TmV0d29ya0luZm9SZXNwb25zZRIxCgxuZXR3b3JrX2luZm8YASABKAsyGy5uZXR3b3JraW5mby52MS5OZXR3b3JrSW5mbyI4ChxVcGRhdGVOZXR3b3JrTmlja25hbWVSZXF1ZXN0EhgKEG5ldHdvcmtfbmlja25hbWUYASABKAkiHwodVXBkYXRlTmV0d29ya05pY2tuYW1lUmVzcG9uc2Uy6wEKEk5ldHdvcmtJbmZvU2VydmljZRJfCg5HZXROZXR3b3JrSW5mbxIlLm5ldHdvcmtpbmZvLnYxLkdldE5ldHdvcmtJbmZvUmVxdWVzdBomLm5ldHdvcmtpbmZvLnYxLkdldE5ldHdvcmtJbmZvUmVzcG9uc2USdAoVVXBkYXRlTmV0d29ya05pY2tuYW1lEiwubmV0d29ya2luZm8udjEuVXBkYXRlTmV0d29ya05pY2tuYW1lUmVxdWVzdBotLm5ldHdvcmtpbmZvLnYxLlVwZGF0ZU5ldHdvcmtOaWNrbmFtZVJlc3BvbnNlQtABChJjb20ubmV0d29ya2luZm8udjFCEE5ldHdvcmtpbmZvUHJvdG9QAVpPZ2l0aHViLmNvbS9ibG9jay9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvbmV0d29ya2luZm8vdjE7bmV0d29ya2luZm92MaICA05YWKoCDk5ldHdvcmtpbmZvLlYxygIOTmV0d29ya2luZm9cVjHiAhpOZXR3b3JraW5mb1xWMVxHUEJNZXRhZGF0YeoCD05ldHdvcmtpbmZvOjpWMWIGcHJvdG8z");
 
 /**
  * NetworkInfo represents the complete network configuration and identification details
@@ -68,7 +65,8 @@ export type NetworkInfo = Message<"networkinfo.v1.NetworkInfo"> & {
  * Describes the message networkinfo.v1.NetworkInfo.
  * Use `create(NetworkInfoSchema)` to create a new message.
  */
-export const NetworkInfoSchema: GenMessage<NetworkInfo> = /*@__PURE__*/ messageDesc(file_networkinfo_v1_networkinfo, 0);
+export const NetworkInfoSchema: GenMessage<NetworkInfo> = /*@__PURE__*/
+  messageDesc(file_networkinfo_v1_networkinfo, 0);
 
 /**
  * Request to retrieve current network information
@@ -76,14 +74,14 @@ export const NetworkInfoSchema: GenMessage<NetworkInfo> = /*@__PURE__*/ messageD
  *
  * @generated from message networkinfo.v1.GetNetworkInfoRequest
  */
-export type GetNetworkInfoRequest = Message<"networkinfo.v1.GetNetworkInfoRequest"> & {};
+export type GetNetworkInfoRequest = Message<"networkinfo.v1.GetNetworkInfoRequest"> & {
+};
 
 /**
  * Describes the message networkinfo.v1.GetNetworkInfoRequest.
  * Use `create(GetNetworkInfoRequestSchema)` to create a new message.
  */
-export const GetNetworkInfoRequestSchema: GenMessage<GetNetworkInfoRequest> =
-  /*@__PURE__*/
+export const GetNetworkInfoRequestSchema: GenMessage<GetNetworkInfoRequest> = /*@__PURE__*/
   messageDesc(file_networkinfo_v1_networkinfo, 1);
 
 /**
@@ -104,8 +102,7 @@ export type GetNetworkInfoResponse = Message<"networkinfo.v1.GetNetworkInfoRespo
  * Describes the message networkinfo.v1.GetNetworkInfoResponse.
  * Use `create(GetNetworkInfoResponseSchema)` to create a new message.
  */
-export const GetNetworkInfoResponseSchema: GenMessage<GetNetworkInfoResponse> =
-  /*@__PURE__*/
+export const GetNetworkInfoResponseSchema: GenMessage<GetNetworkInfoResponse> = /*@__PURE__*/
   messageDesc(file_networkinfo_v1_networkinfo, 2);
 
 /**
@@ -126,8 +123,7 @@ export type UpdateNetworkNicknameRequest = Message<"networkinfo.v1.UpdateNetwork
  * Describes the message networkinfo.v1.UpdateNetworkNicknameRequest.
  * Use `create(UpdateNetworkNicknameRequestSchema)` to create a new message.
  */
-export const UpdateNetworkNicknameRequestSchema: GenMessage<UpdateNetworkNicknameRequest> =
-  /*@__PURE__*/
+export const UpdateNetworkNicknameRequestSchema: GenMessage<UpdateNetworkNicknameRequest> = /*@__PURE__*/
   messageDesc(file_networkinfo_v1_networkinfo, 3);
 
 /**
@@ -136,14 +132,14 @@ export const UpdateNetworkNicknameRequestSchema: GenMessage<UpdateNetworkNicknam
  *
  * @generated from message networkinfo.v1.UpdateNetworkNicknameResponse
  */
-export type UpdateNetworkNicknameResponse = Message<"networkinfo.v1.UpdateNetworkNicknameResponse"> & {};
+export type UpdateNetworkNicknameResponse = Message<"networkinfo.v1.UpdateNetworkNicknameResponse"> & {
+};
 
 /**
  * Describes the message networkinfo.v1.UpdateNetworkNicknameResponse.
  * Use `create(UpdateNetworkNicknameResponseSchema)` to create a new message.
  */
-export const UpdateNetworkNicknameResponseSchema: GenMessage<UpdateNetworkNicknameResponse> =
-  /*@__PURE__*/
+export const UpdateNetworkNicknameResponseSchema: GenMessage<UpdateNetworkNicknameResponse> = /*@__PURE__*/
   messageDesc(file_networkinfo_v1_networkinfo, 4);
 
 /**
@@ -161,7 +157,7 @@ export const NetworkInfoService: GenService<{
     methodKind: "unary";
     input: typeof GetNetworkInfoRequestSchema;
     output: typeof GetNetworkInfoResponseSchema;
-  };
+  },
   /**
    * Updates the user-defined nickname for the current network
    *
@@ -171,5 +167,7 @@ export const NetworkInfoService: GenService<{
     methodKind: "unary";
     input: typeof UpdateNetworkNicknameRequestSchema;
     output: typeof UpdateNetworkNicknameResponseSchema;
-  };
-}> = /*@__PURE__*/ serviceDesc(file_networkinfo_v1_networkinfo, 0);
+  },
+}> = /*@__PURE__*/
+  serviceDesc(file_networkinfo_v1_networkinfo, 0);
+

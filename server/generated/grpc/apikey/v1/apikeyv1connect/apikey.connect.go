@@ -5,13 +5,12 @@
 package apikeyv1connect
 
 import (
+	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
+	v1 "github.com/block/proto-fleet/server/generated/grpc/apikey/v1"
 	http "net/http"
 	strings "strings"
-
-	connect "connectrpc.com/connect"
-	v1 "github.com/block/proto-fleet/server/generated/grpc/apikey/v1"
 )
 
 // This is a compile-time assertion to ensure that this generated file and the connect package are
@@ -19,7 +18,7 @@ import (
 // generated with a version of connect newer than the one compiled into your binary. You can fix the
 // problem by either regenerating this code with an older version of connect or updating the connect
 // version compiled into your binary.
-const _ = connect.IsAtLeastVersion0_1_0
+const _ = connect.IsAtLeastVersion1_13_0
 
 const (
 	// ApiKeyServiceName is the fully-qualified name of the ApiKeyService service.
@@ -65,21 +64,25 @@ type ApiKeyServiceClient interface {
 // http://api.acme.com or https://acme.com/grpc).
 func NewApiKeyServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) ApiKeyServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
+	apiKeyServiceMethods := v1.File_apikey_v1_apikey_proto.Services().ByName("ApiKeyService").Methods()
 	return &apiKeyServiceClient{
 		createApiKey: connect.NewClient[v1.CreateApiKeyRequest, v1.CreateApiKeyResponse](
 			httpClient,
 			baseURL+ApiKeyServiceCreateApiKeyProcedure,
-			opts...,
+			connect.WithSchema(apiKeyServiceMethods.ByName("CreateApiKey")),
+			connect.WithClientOptions(opts...),
 		),
 		listApiKeys: connect.NewClient[v1.ListApiKeysRequest, v1.ListApiKeysResponse](
 			httpClient,
 			baseURL+ApiKeyServiceListApiKeysProcedure,
-			opts...,
+			connect.WithSchema(apiKeyServiceMethods.ByName("ListApiKeys")),
+			connect.WithClientOptions(opts...),
 		),
 		revokeApiKey: connect.NewClient[v1.RevokeApiKeyRequest, v1.RevokeApiKeyResponse](
 			httpClient,
 			baseURL+ApiKeyServiceRevokeApiKeyProcedure,
-			opts...,
+			connect.WithSchema(apiKeyServiceMethods.ByName("RevokeApiKey")),
+			connect.WithClientOptions(opts...),
 		),
 	}
 }
@@ -123,20 +126,24 @@ type ApiKeyServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewApiKeyServiceHandler(svc ApiKeyServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	apiKeyServiceMethods := v1.File_apikey_v1_apikey_proto.Services().ByName("ApiKeyService").Methods()
 	apiKeyServiceCreateApiKeyHandler := connect.NewUnaryHandler(
 		ApiKeyServiceCreateApiKeyProcedure,
 		svc.CreateApiKey,
-		opts...,
+		connect.WithSchema(apiKeyServiceMethods.ByName("CreateApiKey")),
+		connect.WithHandlerOptions(opts...),
 	)
 	apiKeyServiceListApiKeysHandler := connect.NewUnaryHandler(
 		ApiKeyServiceListApiKeysProcedure,
 		svc.ListApiKeys,
-		opts...,
+		connect.WithSchema(apiKeyServiceMethods.ByName("ListApiKeys")),
+		connect.WithHandlerOptions(opts...),
 	)
 	apiKeyServiceRevokeApiKeyHandler := connect.NewUnaryHandler(
 		ApiKeyServiceRevokeApiKeyProcedure,
 		svc.RevokeApiKey,
-		opts...,
+		connect.WithSchema(apiKeyServiceMethods.ByName("RevokeApiKey")),
+		connect.WithHandlerOptions(opts...),
 	)
 	return "/apikey.v1.ApiKeyService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {

@@ -407,6 +407,24 @@ func (s *SQLDeviceStore) GetMinerModelGroups(ctx context.Context, orgID int64, f
 	return results, nil
 }
 
+func (s *SQLDeviceStore) GetCapabilityGroups(ctx context.Context, orgID int64) ([]stores.CapabilityGroupResult, error) {
+	rows, err := s.getQueries(ctx).GetCapabilityGroups(ctx, orgID)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to get capability groups: %v", err)
+	}
+
+	results := make([]stores.CapabilityGroupResult, 0, len(rows))
+	for _, row := range rows {
+		results = append(results, stores.CapabilityGroupResult{
+			Manufacturer: row.Manufacturer.String,
+			Model:        row.Model.String,
+			DriverName:   row.DriverName,
+			Count:        row.Count,
+		})
+	}
+	return results, nil
+}
+
 func buildFilterParams(filter *stores.MinerFilter) (statusFilter, modelFilter, deviceIdentifiersFilter sql.NullString) {
 	if filter != nil && len(filter.DeviceStatusFilter) > 0 {
 		deviceFilter := make([]string, 0, len(filter.DeviceStatusFilter))
