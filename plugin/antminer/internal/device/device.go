@@ -359,6 +359,8 @@ func (d *Device) convertStatus(minerStatus *antminer.Status, telemetry *antminer
 		metrics.HashrateHS = setMetricIfNotNil(telemetry.HashrateHS)
 		metrics.TempC = setMetricIfNotNil(telemetry.TemperatureCelsius)
 		metrics.FanRPM = setMetricIfNotNil(telemetry.FanRPM)
+		metrics.PowerW = setMetricIfNotNil(telemetry.PowerWatts)
+		metrics.EfficiencyJH = setMetricIfNotNil(telemetry.EfficiencyJPerHash)
 
 		// Map per-hashboard telemetry to SDK metrics
 		for _, hb := range telemetry.HashBoards {

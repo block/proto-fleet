@@ -9,9 +9,12 @@ package antminer
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -99,13 +102,14 @@ type Telemetry struct {
 	FanRPM             *float64
 	UptimeSeconds      *int64
 
+	// Power and efficiency (from RPC stats command, not all firmware versions report these)
+	PowerWatts         *float64
+	EfficiencyJPerHash *float64
+
 	// Component-level metrics
 	HashBoards        []HashBoardTelemetry
 	Fans              []FanTelemetry
 	HardwareErrorRate *float64
-
-	// Note: PowerWatts and EfficiencyJPerHash are not available via Antminer stats.cgi
-	// These would require additional power monitoring hardware or firmware support
 }
 
 // HashBoardTelemetry represents per-hashboard (chain) telemetry
@@ -502,7 +506,66 @@ func (c *Client) GetTelemetry(ctx context.Context) (*Telemetry, error) {
 	hashrateHS := summary.GHS5s * GHSToHS
 	telemetry.HashrateHS = &hashrateHS
 
+	// Try to get power from RPC stats (best-effort; not all firmware versions report it)
+	rpcStatsResp, err := c.GetStats(ctx)
+	if err != nil {
+		slog.Debug("failed to get RPC stats for power data", "error", err)
+	} else {
+		telemetry.PowerWatts = parseWattageFromRPCStats(rpcStatsResp)
+	}
+
+	// Compute efficiency (J/H) if we have both power and hashrate
+	if telemetry.PowerWatts != nil && hashrateHS > 0 {
+		efficiency := *telemetry.PowerWatts / hashrateHS
+		telemetry.EfficiencyJPerHash = &efficiency
+	}
+
 	return telemetry, nil
+}
+
+// parseWattageFromRPCStats extracts power (watts) from the RPC stats response.
+// The STATS array's second element (index 1) contains the mining stats, which
+// may include power data as "chain_power" (string like "3250 W") or "power"/"Power" (numeric).
+// Returns nil if power data is not available (older firmware).
+func parseWattageFromRPCStats(resp *rpc.StatsResponse) *float64 {
+	if resp == nil || len(resp.Stats) < 2 {
+		return nil
+	}
+
+	var statsData map[string]json.RawMessage
+	if err := json.Unmarshal(resp.Stats[1], &statsData); err != nil {
+		return nil
+	}
+
+	// Try chain_power first (string "3250 W" or "3250.00" format)
+	if raw, ok := statsData["chain_power"]; ok {
+		var s string
+		if json.Unmarshal(raw, &s) == nil {
+			parts := strings.Fields(s)
+			if len(parts) > 0 {
+				if watts, err := strconv.ParseFloat(parts[0], 64); err == nil && watts > 0 {
+					return &watts
+				}
+			}
+		}
+		// Also try as a bare number
+		var watts float64
+		if json.Unmarshal(raw, &watts) == nil && watts > 0 {
+			return &watts
+		}
+	}
+
+	// Fallback to numeric "power" or "Power" field
+	for _, key := range []string{"power", "Power"} {
+		if raw, ok := statsData[key]; ok {
+			var watts float64
+			if json.Unmarshal(raw, &watts) == nil && watts > 0 {
+				return &watts
+			}
+		}
+	}
+
+	return nil
 }
 
 // Pair performs device pairing (authentication setup)
@@ -747,6 +810,15 @@ func (c *Client) GetPools(ctx context.Context) (*rpc.PoolsResponse, error) {
 		return nil, err
 	}
 	return c.rpcClient.GetPools(ctx, connInfo)
+}
+
+// GetStats gets mining stats via RPC (includes power data on supported firmware)
+func (c *Client) GetStats(ctx context.Context) (*rpc.StatsResponse, error) {
+	connInfo, err := c.getRPCConnectionInfo()
+	if err != nil {
+		return nil, err
+	}
+	return c.rpcClient.GetStats(ctx, connInfo)
 }
 
 // GetStatsInfo gets comprehensive stats via Web API

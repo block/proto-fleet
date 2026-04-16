@@ -261,6 +261,25 @@ func (s *MockRPCServer) setupMockResponses() {
 	}
 	`
 
+	s.responses["stats"] = `
+	{
+		"STATUS": [
+			{
+			"STATUS": "S",
+			"When": 1750277150,
+			"Code": 70,
+			"Msg": "CGMiner stats",
+			"Description": "cgminer 1.0.0"
+			}
+		],
+		"STATS": [
+			{"BMMiner": "1.0.0", "Miner": "49.0.1.3", "CompileTime": "Thu Jul 11 16:38:25 CST 2024", "Type": "Antminer S21"},
+			{"STATS": 0, "ID": "BTM_SOC0", "Elapsed": 59129, "GHS 5s": 203007.01, "GHS av": 203675.66, "chain_power": "3250 W", "fan_num": 4, "fan1": 6000, "fan2": 5880, "fan3": 5040, "fan4": 5040}
+		],
+		"id": 1
+	}
+	`
+
 	s.responses["config"] = `
 	{
 		"STATUS": [
@@ -444,6 +463,27 @@ func TestRPCCommands(t *testing.T) {
 		assert.Equal(t, int64(11188), dev.Accepted, "Accepted shares should match")
 		assert.Equal(t, int64(9), dev.Rejected, "Rejected shares should match")
 		assert.Equal(t, int64(0), dev.HardwareErrors, "Hardware errors should be 0")
+	})
+
+	t.Run("GetStats", func(t *testing.T) {
+		response, err := rpcClient.GetStats(t.Context(), connInfo)
+		require.NoError(t, err, "GetStats should not return error")
+		assert.NotZero(t, response, "Response should not be nil")
+
+		// Check status
+		assert.Len(t, response.Status, 1, "Should have one status entry")
+		assert.Equal(t, "S", response.Status[0].Status, "Status should be Success")
+
+		// STATS array should have 2 entries (firmware info + mining stats)
+		assert.Len(t, response.Stats, 2, "Should have two STATS entries")
+
+		// Parse the second entry to verify chain_power is present
+		var statsData map[string]json.RawMessage
+		err = json.Unmarshal(response.Stats[1], &statsData)
+		require.NoError(t, err, "Should be able to parse STATS[1]")
+
+		_, hasChainPower := statsData["chain_power"]
+		assert.True(t, hasChainPower, "STATS[1] should contain chain_power")
 	})
 
 	t.Run("GetConfig", func(t *testing.T) {

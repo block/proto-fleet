@@ -1,6 +1,7 @@
 package antminer
 
 import (
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -568,6 +569,18 @@ func TestClient_GetTelemetry(t *testing.T) {
 		GetStatsInfo(gomock.Any(), gomock.Any()).
 		Return(mockStatsInfo, nil)
 
+	// Mock the RPC stats call for power data
+	mockStatsResponse := &rpc.StatsResponse{
+		Status: []rpc.StatusInfo{{Status: "S"}},
+		Stats: []json.RawMessage{
+			json.RawMessage(`{"BMMiner":"1.0.0","Type":"Antminer S21"}`),
+			json.RawMessage(`{"STATS":0,"ID":"BTM_SOC0","chain_power":"3250 W"}`),
+		},
+	}
+	mockRPCClient.EXPECT().
+		GetStats(gomock.Any(), gomock.Any()).
+		Return(mockStatsResponse, nil)
+
 	telemetry, err := client.GetTelemetry(t.Context())
 	require.NoError(t, err)
 
@@ -603,6 +616,14 @@ func TestClient_GetTelemetry(t *testing.T) {
 	assert.Equal(t, 7000, telemetry.Fans[0].RPM)
 	assert.Equal(t, 3, telemetry.Fans[3].Index)
 	assert.Equal(t, 7300, telemetry.Fans[3].RPM)
+
+	// Verify power and efficiency
+	require.NotNil(t, telemetry.PowerWatts, "PowerWatts should be set from RPC stats")
+	assert.InDelta(t, 3250.0, *telemetry.PowerWatts, 0.01)
+
+	require.NotNil(t, telemetry.EfficiencyJPerHash, "EfficiencyJPerHash should be computed")
+	expectedEfficiency := 3250.0 / expectedHashrate // J/H = W / (H/s)
+	assert.InEpsilon(t, expectedEfficiency, *telemetry.EfficiencyJPerHash, 0.01)
 }
 
 func TestClient_Pair(t *testing.T) {

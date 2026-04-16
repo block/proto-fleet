@@ -1,5 +1,7 @@
 package rpc
 
+import "encoding/json"
+
 type RPCRequest struct {
 	Command   string `json:"command"`
 	Parameter string `json:"parameter,omitempty"`
@@ -165,4 +167,13 @@ type ConfigInfo struct {
 	LogInterval int    `json:"Log Interval"`
 	DeviceCode  string `json:"Device Code"`
 	OS          string `json:"OS"`
+}
+
+// StatsResponse represents the response from the "stats" RPC command.
+// The STATS array contains mixed types: the first element is firmware metadata,
+// and the second element contains the actual mining stats (including power).
+type StatsResponse struct {
+	Status []StatusInfo      `json:"STATUS"`
+	Stats  []json.RawMessage `json:"STATS"`
+	ID     int               `json:"id"`
 }

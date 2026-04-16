@@ -26,6 +26,7 @@ type RPCClient interface {
 	GetVersion(ctx context.Context, connInfo *networking.ConnectionInfo) (*VersionResponse, error)
 	GetDevs(ctx context.Context, connInfo *networking.ConnectionInfo) (*DevsResponse, error)
 	GetConfig(ctx context.Context, connInfo *networking.ConnectionInfo) (*ConfigResponse, error)
+	GetStats(ctx context.Context, connInfo *networking.ConnectionInfo) (*StatsResponse, error)
 }
 
 var _ RPCClient = &Service{}
@@ -132,6 +133,14 @@ func (s *Service) GetDevs(ctx context.Context, connInfo *networking.ConnectionIn
 func (s *Service) GetConfig(ctx context.Context, connInfo *networking.ConnectionInfo) (*ConfigResponse, error) {
 	var resp ConfigResponse
 	if err := s.request(ctx, connInfo, "config", &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+func (s *Service) GetStats(ctx context.Context, connInfo *networking.ConnectionInfo) (*StatsResponse, error) {
+	var resp StatsResponse
+	if err := s.request(ctx, connInfo, "stats", &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil
