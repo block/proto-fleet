@@ -555,6 +555,12 @@ func wrapPluginError(err error, format string, a ...any) error {
 	if errors.As(err, &sdkErr) && sdkErr.Code == sdk.ErrCodeDefaultPasswordActive {
 		return fleeterror.NewForbiddenErrorf("%s: %s", msg, sdkErr.Message)
 	}
+	if isDefaultPasswordActiveError(err) {
+		if st, ok := grpcstatus.FromError(err); ok {
+			return fleeterror.NewForbiddenErrorf("%s: %s", msg, st.Message())
+		}
+		return fleeterror.NewForbiddenErrorf("%s: %v", msg, err)
+	}
 	return fleeterror.NewInternalErrorf("%s: %v", msg, err)
 }
 

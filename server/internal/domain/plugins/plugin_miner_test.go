@@ -731,6 +731,20 @@ func TestPluginMiner_ErrorPropagation(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to reboot device")
 }
 
+func TestPluginMiner_StartMining_DefaultPasswordActiveUnknown_ReturnsForbidden(t *testing.T) {
+	pm, mockDevice := createTestPluginMiner()
+
+	mockDevice.startMiningFunc = func(ctx context.Context) error {
+		return grpcstatus.Error(codes.Unknown, "failed to start mining: forbidden: default password must be changed")
+	}
+
+	err := pm.StartMining(t.Context())
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsForbiddenError(err), "expected forbidden error, got: %v", err)
+	assert.Contains(t, err.Error(), "failed to start mining")
+}
+
 func TestPluginMiner_GetWebViewURL_InvalidURL(t *testing.T) {
 	pm, mockDevice := createTestPluginMiner()
 
@@ -1169,6 +1183,14 @@ func TestWrapPluginError(t *testing.T) {
 			args:            []any{"device-789"},
 			expectForbidden: true,
 			expectContains:  "reboot failed for device device-789",
+		},
+		{
+			name:            "gRPC Unknown with default-password marker maps to fleeterror Forbidden",
+			err:             grpcstatus.Error(codes.Unknown, "failed to start mining: forbidden: default password must be changed"),
+			format:          "start mining failed for device %s",
+			args:            []any{"device-999"},
+			expectForbidden: true,
+			expectContains:  "start mining failed for device device-999",
 		},
 		{
 			name:                "gRPC Internal maps to fleeterror Internal (not Unimplemented)",
