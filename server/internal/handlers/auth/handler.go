@@ -73,14 +73,20 @@ func extractIPAddress(header http.Header) string {
 	return ""
 }
 
-// UpdatePassword updates the password of the currently logged-in user
+// UpdatePassword updates the password of the currently logged-in user.
+// All existing sessions are revoked and a fresh session cookie is returned.
 func (s *Handler) UpdatePassword(ctx context.Context, r *connect.Request[pb.UpdatePasswordRequest]) (*connect.Response[pb.UpdatePasswordResponse], error) {
-	err := s.authSvc.UpdatePassword(ctx, r.Msg)
+	userAgent := r.Header().Get("User-Agent")
+	ipAddress := extractIPAddress(r.Header())
+
+	cookie, err := s.authSvc.UpdatePassword(ctx, r.Msg, userAgent, ipAddress)
 	if err != nil {
 		return nil, err
 	}
 
-	return connect.NewResponse(&pb.UpdatePasswordResponse{}), nil
+	response := connect.NewResponse(&pb.UpdatePasswordResponse{})
+	response.Header().Set("Set-Cookie", cookie.String())
+	return response, nil
 }
 
 func (s *Handler) UpdateUsername(ctx context.Context, r *connect.Request[pb.UpdateUsernameRequest]) (*connect.Response[pb.UpdateUsernameResponse], error) {

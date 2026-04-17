@@ -116,6 +116,21 @@ func (mr *MockUserStoreMockRecorder) GetUserByID(ctx, userID any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUserByID", reflect.TypeOf((*MockUserStore)(nil).GetUserByID), ctx, userID)
 }
 
+// GetUserByIDForUpdate mocks base method.
+func (m *MockUserStore) GetUserByIDForUpdate(ctx context.Context, userID int64) (interfaces.User, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetUserByIDForUpdate", ctx, userID)
+	ret0, _ := ret[0].(interfaces.User)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetUserByIDForUpdate indicates an expected call of GetUserByIDForUpdate.
+func (mr *MockUserStoreMockRecorder) GetUserByIDForUpdate(ctx, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUserByIDForUpdate", reflect.TypeOf((*MockUserStore)(nil).GetUserByIDForUpdate), ctx, userID)
+}
+
 // GetUserByUsername mocks base method.
 func (m *MockUserStore) GetUserByUsername(ctx context.Context, username string) (interfaces.User, error) {
 	m.ctrl.T.Helper()

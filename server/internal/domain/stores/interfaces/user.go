@@ -7,9 +7,10 @@ import (
 	"time"
 )
 
-type UserStore interface {
+type UserStore interface { //nolint:interfacebloat // GetUserByIDForUpdate is a locking counterpart of GetUserByID
 	GetUserByUsername(ctx context.Context, username string) (User, error)
 	GetUserByID(ctx context.Context, userID int64) (User, error)
+	GetUserByIDForUpdate(ctx context.Context, userID int64) (User, error)
 	GetUserByExternalID(ctx context.Context, userID string) (User, error)
 	UpdateUserPassword(ctx context.Context, userID int64, passwordHash string) error
 	UpdateUserUsername(ctx context.Context, userID int64, username string) error

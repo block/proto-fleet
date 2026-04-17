@@ -39,6 +39,10 @@ const (
 	AdminRoleName = "ADMIN"
 )
 
+// errBadPassword is returned by AuthenticateUser's transaction callback
+// when a concurrent password change is detected via the version check.
+var errBadPassword = errors.New("bad password")
+
 type Service struct {
 	userStore           stores.UserStore
 	userManagementStore stores.UserManagementStore
@@ -77,11 +81,35 @@ func (s *Service) logActivity(ctx context.Context, event activitymodels.Event) {
 	}
 }
 
+func (s *Service) logLoginFailed(ctx context.Context, username string, userID *string, organizationID *int64) {
+	s.logActivity(ctx, activitymodels.Event{
+		Category:       activitymodels.CategoryAuth,
+		Type:           "login_failed",
+		Description:    "Login failed",
+		Result:         activitymodels.ResultFailure,
+		ErrorMessage:   strPtr("invalid credentials"),
+		UserID:         userID,
+		Username:       &username,
+		OrganizationID: organizationID,
+	})
+}
+
 // AuthenticateUser validates credentials, creates a session, and returns user info with a session cookie.
+//
+// To avoid holding a row lock during expensive bcrypt comparison, the flow is:
+//  1. Optimistic read — fetch the user row and password hash without locking.
+//  2. bcrypt comparison — CPU-intensive, runs outside any transaction.
+//  3. Short locked transaction — FOR UPDATE the user row, verify password_updated_at
+//     hasn't changed (i.e. no concurrent password rotation), then create the session.
+//
+// This ensures wrong-password attempts never acquire a lock, and correct-password
+// attempts only hold the lock for the brief session INSERT.
 func (s *Service) AuthenticateUser(ctx context.Context, req *authv1.AuthenticateRequest, userAgent, ipAddress string) (*authv1.AuthenticateResponse, *http.Cookie, error) {
 	if req.Username == "" || utf8.RuneCountInString(req.Username) > 255 {
 		return nil, nil, newAuthenticationFailedError()
 	}
+
+	// --- Step 1: Optimistic read (no lock) ---
 
 	user, err := s.userStore.GetUserByUsername(ctx, req.Username)
 	if err != nil {
@@ -89,14 +117,7 @@ func (s *Service) AuthenticateUser(ctx context.Context, req *authv1.Authenticate
 			slog.Error("error looking up user", "username", req.Username, "error", err)
 			return nil, nil, fleeterror.NewInternalErrorf("authentication service unavailable")
 		}
-		s.logActivity(ctx, activitymodels.Event{
-			Category:     activitymodels.CategoryAuth,
-			Type:         "login_failed",
-			Description:  "Login failed",
-			Result:       activitymodels.ResultFailure,
-			ErrorMessage: strPtr("invalid credentials"),
-			Username:     &req.Username,
-		})
+		s.logLoginFailed(ctx, req.Username, nil, nil)
 		return nil, nil, newAuthenticationFailedError()
 	}
 
@@ -104,54 +125,66 @@ func (s *Service) AuthenticateUser(ctx context.Context, req *authv1.Authenticate
 	if err != nil {
 		return nil, nil, fleeterror.NewInternalErrorf("error listing user orgs: %v", err)
 	}
-
 	if len(orgs) != 1 {
 		return nil, nil, fleeterror.NewInternalErrorf("user should belong to exactly 1 org: was: %d", len(orgs))
 	}
 
-	// Compare hashed passwords
+	// --- Step 2: bcrypt comparison (no lock held) ---
+
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
-		// User exists but password wrong — include user_id and org_id
-		s.logActivity(ctx, activitymodels.Event{
-			Category:       activitymodels.CategoryAuth,
-			Type:           "login_failed",
-			Description:    "Login failed",
-			Result:         activitymodels.ResultFailure,
-			ErrorMessage:   strPtr("invalid credentials"),
-			UserID:         &user.UserID,
-			Username:       &user.Username,
-			OrganizationID: &orgs[0].ID,
-		})
+		s.logLoginFailed(ctx, user.Username, &user.UserID, &orgs[0].ID)
 		return nil, nil, newAuthenticationFailedError()
 	}
 
-	// Update last login timestamp (non-critical, don't fail auth if this fails).
-	// Only reflect the new time in the response if the DB write succeeds;
-	// otherwise fall back to the previously persisted value to stay consistent
-	// with what ListUsers will return.
-	loginTime := user.LastLoginAt
-	if err := s.userManagementStore.UpdateLastLogin(ctx, user.ID); err != nil {
-		slog.Warn("failed to update last login timestamp", "user_id", user.ID, "error", err)
-	} else {
-		loginTime = time.Now()
+	// Snapshot the password version so we can detect concurrent rotation.
+	snapshotPasswordUpdatedAt := user.PasswordUpdatedAt
+
+	// --- Step 3: Short locked transaction — verify version, create session ---
+
+	var (
+		sess              *session.Session
+		loginTime         time.Time
+		passwordUpdatedAt time.Time
+	)
+
+	txErr := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
+		// Re-read with lock to detect a concurrent password change.
+		freshUser, err := s.userStore.GetUserByIDForUpdate(ctx, user.ID)
+		if err != nil {
+			return err
+		}
+
+		// If the password was rotated between the optimistic read and now,
+		// the hash we validated is stale — reject the login.
+		if freshUser.PasswordUpdatedAt != snapshotPasswordUpdatedAt {
+			return errBadPassword
+		}
+
+		passwordUpdatedAt = freshUser.PasswordUpdatedAt
+
+		// Update last login timestamp (non-critical, don't fail auth if this fails).
+		loginTime = user.LastLoginAt
+		if err := s.userManagementStore.UpdateLastLogin(ctx, user.ID); err != nil {
+			slog.Warn("failed to update last login timestamp", "user_id", user.ID, "error", err)
+		} else {
+			loginTime = time.Now()
+		}
+
+		sess, err = s.sessionSvc.Create(ctx, user.ID, orgs[0].ID, userAgent, ipAddress)
+		return err
+	})
+
+	if txErr != nil {
+		if errors.Is(txErr, errBadPassword) {
+			s.logLoginFailed(ctx, user.Username, &user.UserID, &orgs[0].ID)
+			return nil, nil, newAuthenticationFailedError()
+		}
+		return nil, nil, txErr
 	}
 
-	// Create session
-	sess, err := s.sessionSvc.Create(ctx, user.ID, orgs[0].ID, userAgent, ipAddress)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// Get user's role
 	roleName, err := s.userManagementStore.GetUserRoleName(ctx, user.ID, orgs[0].ID)
 	if err != nil {
 		return nil, nil, fleeterror.NewInternalErrorf("error getting user role: %v", err)
-	}
-
-	// Get password updated timestamp
-	passwordUpdatedAt, err := s.userStore.PasswordUpdatedAt(ctx, user.ID)
-	if err != nil {
-		return nil, nil, fleeterror.NewInternalErrorf("error getting password updated timestamp: %v", err)
 	}
 
 	cookie := s.sessionSvc.CreateCookie(sess.SessionID)
@@ -219,6 +252,14 @@ func newAuthenticationFailedError() fleeterror.FleetError {
 		"authentication failed, either the user does not exist, or the password is invalid",
 		connect.CodeUnauthenticated,
 		int32(authv1.AuthenticateErrorCode_AUTHENTICATE_ERROR_CODE_INVALID_USER_OR_PASSWORD),
+	)
+}
+
+func newInvalidCurrentPasswordError() fleeterror.FleetError {
+	return fleeterror.NewErrorWithEndpointCode(
+		"Invalid current password.",
+		connect.CodeInvalidArgument,
+		int32(authv1.UpdatePasswordErrorCode_UPDATE_PASSWORD_ERROR_CODE_INVALID_OLD_PASSWORD),
 	)
 }
 
@@ -400,49 +441,77 @@ func (s *Service) VerifySessionCredentials(ctx context.Context, username, passwo
 	return nil
 }
 
-func (s *Service) UpdatePassword(ctx context.Context, r *authv1.UpdatePasswordRequest) error {
+// UpdatePassword changes the user's password, revokes all existing sessions,
+// and creates a replacement session — all in one transaction. Returns a fresh
+// session cookie so the caller stays logged in while every other session is
+// invalidated.
+func (s *Service) UpdatePassword(ctx context.Context, r *authv1.UpdatePasswordRequest, userAgent, ipAddress string) (*http.Cookie, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
+	if r.CurrentPassword == r.NewPassword {
+		return nil, fleeterror.NewErrorWithEndpointCode(
+			"New password cannot be the same as current password.",
+			connect.CodeInvalidArgument,
+			int32(authv1.UpdatePasswordErrorCode_UPDATE_PASSWORD_ERROR_CODE_NEW_PASSWORD_SAME_AS_OLD_PASSWORD),
+		)
+	}
+
+	user, err := s.userStore.GetUserByID(ctx, info.UserID)
+	if err != nil {
+		return nil, fleeterror.NewForbiddenErrorf("error getting user by id, user_id: %d, error: %v", info.UserID, err)
+	}
+
+	if err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(r.CurrentPassword)); err != nil {
+		return nil, newInvalidCurrentPasswordError()
+	}
+
+	// Snapshot the password version before starting the transaction so we can
+	// detect a concurrent password rotation after the optimistic check.
+	snapshotPasswordUpdatedAt := user.PasswordUpdatedAt
+
+	// Hash the new password before we take the row lock, so the transaction only
+	// holds the lock for the update/revoke/create sequence.
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(r.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error generating hash of new password for user_id: %d, because: %v", info.UserID, err)
+	}
+
+	var sess *session.Session
+
 	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
-		user, err := s.userStore.GetUserByID(ctx, info.UserID)
+		freshUser, err := s.userStore.GetUserByIDForUpdate(ctx, info.UserID)
 		if err != nil {
 			return fleeterror.NewForbiddenErrorf("error getting user by id, user_id: %d, error: %v", info.UserID, err)
 		}
 
-		if err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(r.CurrentPassword)); err != nil {
-			return fleeterror.NewErrorWithEndpointCode(
-				"Invalid current password.",
-				connect.CodeInvalidArgument,
-				int32(authv1.UpdatePasswordErrorCode_UPDATE_PASSWORD_ERROR_CODE_INVALID_OLD_PASSWORD),
-			)
+		if freshUser.PasswordUpdatedAt != snapshotPasswordUpdatedAt {
+			return newInvalidCurrentPasswordError()
 		}
 
-		if r.CurrentPassword == r.NewPassword {
-			return fleeterror.NewErrorWithEndpointCode(
-				"New password cannot be the same as current password.",
-				connect.CodeInvalidArgument,
-				int32(authv1.UpdatePasswordErrorCode_UPDATE_PASSWORD_ERROR_CODE_NEW_PASSWORD_SAME_AS_OLD_PASSWORD),
-			)
-		}
-
-		// generate salted password hash
-		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(r.NewPassword), bcrypt.DefaultCost)
-		if err != nil {
-			return fleeterror.NewInternalErrorf("error generating hash of new password for user_id: %d, because: %v", info.UserID, err)
-		}
-
-		// Always clear password change requirement when user updates their own password
-		if err = s.userManagementStore.UpdateUserPasswordAndClearPasswordChangeFlag(ctx, user.ID, string(hashedPassword)); err != nil {
+		if err = s.userManagementStore.UpdateUserPasswordAndClearPasswordChangeFlag(ctx, freshUser.ID, string(hashedPassword)); err != nil {
 			return fleeterror.NewInternalErrorf("error updating password for user_id: %d, because: %v", info.UserID, err)
+		}
+
+		if err := s.sessionSvc.RevokeAllSessions(ctx, info.UserID); err != nil {
+			return fleeterror.NewInternalErrorf("failed to revoke sessions: %v", err)
+		}
+
+		// Mint replacement session inside the same transaction so the
+		// entire operation is atomic — no partial-commit failure mode.
+		sess, err = s.sessionSvc.Create(ctx, info.UserID, info.OrganizationID, userAgent, ipAddress)
+		if err != nil {
+			return fleeterror.NewInternalErrorf("failed to create replacement session: %v", err)
 		}
 
 		return nil
 	}); err != nil {
-		return err
+		return nil, err
 	}
+
+	cookie := s.sessionSvc.CreateCookie(sess.SessionID)
 
 	s.logActivity(ctx, activitymodels.Event{
 		Category:       activitymodels.CategoryAuth,
@@ -453,7 +522,7 @@ func (s *Service) UpdatePassword(ctx context.Context, r *authv1.UpdatePasswordRe
 		OrganizationID: &info.OrganizationID,
 	})
 
-	return nil
+	return cookie, nil
 }
 
 func (s *Service) GetUserAuditInfo(ctx context.Context) (*authv1.GetUserAuditInfoResponse, error) {
@@ -677,9 +746,17 @@ func (s *Service) ResetUserPassword(ctx context.Context, req *authv1.ResetUserPa
 		return nil, fleeterror.NewInternalErrorf("error generating password hash: %v", err)
 	}
 
-	// Update password with temporary flag
-	if err := s.userManagementStore.AdminResetUserPassword(ctx, user.ID, string(hashedPassword)); err != nil {
-		return nil, fleeterror.NewInternalErrorf("error resetting password: %v", err)
+	// Update password and revoke all sessions atomically.
+	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
+		if err := s.userManagementStore.AdminResetUserPassword(ctx, user.ID, string(hashedPassword)); err != nil {
+			return fleeterror.NewInternalErrorf("error resetting password: %v", err)
+		}
+		if err := s.sessionSvc.RevokeAllSessions(ctx, user.ID); err != nil {
+			return fleeterror.NewInternalErrorf("failed to revoke sessions: %v", err)
+		}
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 
 	s.logActivity(ctx, activitymodels.Event{

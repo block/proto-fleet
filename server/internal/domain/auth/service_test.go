@@ -21,6 +21,17 @@ import (
 	authv1 "github.com/block/proto-fleet/server/generated/grpc/auth/v1"
 )
 
+// noopTransactor runs the callback directly without a real DB transaction.
+type noopTransactor struct{}
+
+func (noopTransactor) RunInTx(ctx context.Context, fn func(ctx context.Context) error) error {
+	return fn(ctx)
+}
+
+func (noopTransactor) RunInTxWithResult(ctx context.Context, fn func(ctx context.Context) (any, error)) (any, error) {
+	return fn(ctx)
+}
+
 type mockUserStoreForVerify struct {
 	users         map[string]interfaces.User
 	orgs          []interfaces.Organization
@@ -46,6 +57,10 @@ func (m *mockUserStoreForVerify) GetUserByID(ctx context.Context, userID int64) 
 		}
 	}
 	return interfaces.User{}, fleeterror.NewNotFoundErrorf("user not found")
+}
+
+func (m *mockUserStoreForVerify) GetUserByIDForUpdate(ctx context.Context, userID int64) (interfaces.User, error) {
+	return m.GetUserByID(ctx, userID)
 }
 func (m *mockUserStoreForVerify) GetUserByExternalID(ctx context.Context, userID string) (interfaces.User, error) {
 	return interfaces.User{}, nil
@@ -256,7 +271,8 @@ func TestService_VerifyCredentials_SecurityProperties(t *testing.T) {
 func TestActivityLogging_NilActivitySvc(t *testing.T) {
 	t.Run("login failure with nil activitySvc does not panic", func(t *testing.T) {
 		service := &Service{
-			userStore: &mockUserStoreForVerify{users: map[string]interfaces.User{}},
+			userStore:  &mockUserStoreForVerify{users: map[string]interfaces.User{}},
+			transactor: noopTransactor{},
 		}
 
 		assert.NotPanics(t, func() {
@@ -299,6 +315,7 @@ func TestActivityLogging_LoginFailureUserNotFound(t *testing.T) {
 
 	service := &Service{
 		userStore:   &mockUserStoreForVerify{users: map[string]interfaces.User{}},
+		transactor:  noopTransactor{},
 		activitySvc: activitySvc,
 	}
 
@@ -342,12 +359,74 @@ func TestActivityLogging_LoginFailureWrongPassword(t *testing.T) {
 			},
 			orgs: []interfaces.Organization{{ID: 100}},
 		},
+		transactor:  noopTransactor{},
 		activitySvc: activitySvc,
 	}
 
 	_, _, err = service.AuthenticateUser(context.Background(), &authv1.AuthenticateRequest{
 		Username: "testuser",
 		Password: "wrongpassword",
+	}, "test-agent", "127.0.0.1")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "authentication failed")
+}
+
+func TestActivityLogging_LoginFailureConcurrentPasswordRotation(t *testing.T) {
+	ctrl := gomock.NewController(t)
+
+	testPassword := "correctpass"
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(testPassword), bcrypt.DefaultCost)
+	require.NoError(t, err)
+
+	activitySvc, mockActivityStore := newActivitySvc(ctrl)
+	mockUserStore := mocks.NewMockUserStore(ctrl)
+	mockTransactor := mocks.NewMockTransactor(ctrl)
+
+	initialPasswordUpdatedAt := time.Date(2026, 4, 15, 18, 0, 0, 0, time.UTC)
+	user := interfaces.User{
+		ID:                1,
+		UserID:            "ext-user-1",
+		Username:          "testuser",
+		PasswordHash:      string(hashedPassword),
+		PasswordUpdatedAt: initialPasswordUpdatedAt,
+	}
+
+	mockUserStore.EXPECT().GetUserByUsername(gomock.Any(), "testuser").Return(user, nil)
+	mockUserStore.EXPECT().GetOrganizationsForUser(gomock.Any(), int64(1)).Return([]interfaces.Organization{{ID: 100}}, nil)
+	mockTransactor.EXPECT().RunInTx(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(ctx context.Context, fn func(context.Context) error) error {
+			return fn(ctx)
+		})
+	mockUserStore.EXPECT().GetUserByIDForUpdate(gomock.Any(), int64(1)).Return(interfaces.User{
+		ID:                1,
+		UserID:            "ext-user-1",
+		Username:          "testuser",
+		PasswordHash:      string(hashedPassword),
+		PasswordUpdatedAt: initialPasswordUpdatedAt.Add(time.Minute),
+	}, nil)
+	mockActivityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, event *activitymodels.Event) error {
+			assert.Equal(t, "login_failed", event.Type)
+			assert.Equal(t, activitymodels.ResultFailure, event.Result)
+			require.NotNil(t, event.ErrorMessage)
+			assert.Equal(t, "invalid credentials", *event.ErrorMessage)
+			require.NotNil(t, event.UserID)
+			assert.Equal(t, "ext-user-1", *event.UserID)
+			require.NotNil(t, event.OrganizationID)
+			assert.Equal(t, int64(100), *event.OrganizationID)
+			return nil
+		})
+
+	service := &Service{
+		userStore:   mockUserStore,
+		transactor:  mockTransactor,
+		activitySvc: activitySvc,
+	}
+
+	_, _, err = service.AuthenticateUser(context.Background(), &authv1.AuthenticateRequest{
+		Username: "testuser",
+		Password: testPassword,
 	}, "test-agent", "127.0.0.1")
 
 	require.Error(t, err)
@@ -366,6 +445,7 @@ func TestActivityLogging_DBErrorReturnsInternalNotLoginFailed(t *testing.T) {
 			users:     map[string]interfaces.User{},
 			lookupErr: fmt.Errorf("connection refused"),
 		},
+		transactor:  noopTransactor{},
 		activitySvc: activitySvc,
 	}
 
@@ -377,6 +457,82 @@ func TestActivityLogging_DBErrorReturnsInternalNotLoginFailed(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "authentication service unavailable")
 	assert.NotContains(t, err.Error(), "connection refused")
+}
+
+func TestService_UpdatePassword_WrongCurrentPasswordSkipsTransaction(t *testing.T) {
+	ctrl := gomock.NewController(t)
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte("correctpass"), bcrypt.DefaultCost)
+	require.NoError(t, err)
+
+	mockUserStore := mocks.NewMockUserStore(ctrl)
+	mockTransactor := mocks.NewMockTransactor(ctrl)
+
+	mockUserStore.EXPECT().GetUserByID(gomock.Any(), int64(1)).Return(interfaces.User{
+		ID:                1,
+		PasswordHash:      string(hashedPassword),
+		PasswordUpdatedAt: time.Now(),
+	}, nil)
+	mockUserStore.EXPECT().GetUserByIDForUpdate(gomock.Any(), gomock.Any()).Times(0)
+	mockTransactor.EXPECT().RunInTx(gomock.Any(), gomock.Any()).Times(0)
+
+	service := &Service{
+		userStore:  mockUserStore,
+		transactor: mockTransactor,
+	}
+
+	_, err = service.UpdatePassword(ctxWithSession("ext-1", "admin", 100), &authv1.UpdatePasswordRequest{
+		CurrentPassword: "wrongpass",
+		NewPassword:     "newpass123",
+	}, "test-agent", "127.0.0.1")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Invalid current password")
+}
+
+func TestService_UpdatePassword_RejectsConcurrentPasswordRotation(t *testing.T) {
+	ctrl := gomock.NewController(t)
+
+	currentPassword := "correctpass"
+	hashedCurrentPassword, err := bcrypt.GenerateFromPassword([]byte(currentPassword), bcrypt.DefaultCost)
+	require.NoError(t, err)
+
+	mockUserStore := mocks.NewMockUserStore(ctrl)
+	mockUserManagementStore := mocks.NewMockUserManagementStore(ctrl)
+	mockTransactor := mocks.NewMockTransactor(ctrl)
+
+	initialPasswordUpdatedAt := time.Date(2026, 4, 15, 18, 0, 0, 0, time.UTC)
+	mockUserStore.EXPECT().GetUserByID(gomock.Any(), int64(1)).Return(interfaces.User{
+		ID:                1,
+		PasswordHash:      string(hashedCurrentPassword),
+		PasswordUpdatedAt: initialPasswordUpdatedAt,
+	}, nil)
+	mockTransactor.EXPECT().RunInTx(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(ctx context.Context, fn func(context.Context) error) error {
+			return fn(ctx)
+		})
+	mockUserStore.EXPECT().GetUserByIDForUpdate(gomock.Any(), int64(1)).Return(interfaces.User{
+		ID:                1,
+		PasswordHash:      string(hashedCurrentPassword),
+		PasswordUpdatedAt: initialPasswordUpdatedAt.Add(time.Minute),
+	}, nil)
+	mockUserManagementStore.EXPECT().
+		UpdateUserPasswordAndClearPasswordChangeFlag(gomock.Any(), gomock.Any(), gomock.Any()).
+		Times(0)
+
+	service := &Service{
+		userStore:           mockUserStore,
+		userManagementStore: mockUserManagementStore,
+		transactor:          mockTransactor,
+	}
+
+	_, err = service.UpdatePassword(ctxWithSession("ext-1", "admin", 100), &authv1.UpdatePasswordRequest{
+		CurrentPassword: currentPassword,
+		NewPassword:     "newpass123",
+	}, "test-agent", "127.0.0.1")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "Invalid current password")
 }
 
 func TestToTimestampProto(t *testing.T) {

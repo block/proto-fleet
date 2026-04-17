@@ -86,6 +86,20 @@ func (mr *MockStoreMockRecorder) GetSessionByID(ctx, sessionID any) *gomock.Call
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSessionByID", reflect.TypeOf((*MockStore)(nil).GetSessionByID), ctx, sessionID)
 }
 
+// RevokeAllSessionsByUserID mocks base method.
+func (m *MockStore) RevokeAllSessionsByUserID(ctx context.Context, userID int64, revokedAt time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RevokeAllSessionsByUserID", ctx, userID, revokedAt)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RevokeAllSessionsByUserID indicates an expected call of RevokeAllSessionsByUserID.
+func (mr *MockStoreMockRecorder) RevokeAllSessionsByUserID(ctx, userID, revokedAt any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RevokeAllSessionsByUserID", reflect.TypeOf((*MockStore)(nil).RevokeAllSessionsByUserID), ctx, userID, revokedAt)
+}
+
 // RevokeSession mocks base method.
 func (m *MockStore) RevokeSession(ctx context.Context, sessionID string, revokedAt time.Time) error {
 	m.ctrl.T.Helper()

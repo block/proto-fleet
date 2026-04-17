@@ -72,6 +72,22 @@ func (q *Queries) GetSessionByID(ctx context.Context, sessionID string) (Session
 	return i, err
 }
 
+const revokeAllSessionsByUserID = `-- name: RevokeAllSessionsByUserID :exec
+UPDATE session
+SET revoked_at = $1
+WHERE user_id = $2 AND revoked_at IS NULL
+`
+
+type RevokeAllSessionsByUserIDParams struct {
+	RevokedAt sql.NullTime
+	UserID    int64
+}
+
+func (q *Queries) RevokeAllSessionsByUserID(ctx context.Context, arg RevokeAllSessionsByUserIDParams) error {
+	_, err := q.exec(ctx, q.revokeAllSessionsByUserIDStmt, revokeAllSessionsByUserID, arg.RevokedAt, arg.UserID)
+	return err
+}
+
 const revokeSession = `-- name: RevokeSession :exec
 UPDATE session
 SET revoked_at = $1

@@ -372,6 +372,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getUserByIdStmt, err = db.PrepareContext(ctx, getUserById); err != nil {
 		return nil, fmt.Errorf("error preparing query GetUserById: %w", err)
 	}
+	if q.getUserByIdForUpdateStmt, err = db.PrepareContext(ctx, getUserByIdForUpdate); err != nil {
+		return nil, fmt.Errorf("error preparing query GetUserByIdForUpdate: %w", err)
+	}
 	if q.getUserByUsernameStmt, err = db.PrepareContext(ctx, getUserByUsername); err != nil {
 		return nil, fmt.Errorf("error preparing query GetUserByUsername: %w", err)
 	}
@@ -491,6 +494,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.revertScheduleToActiveStmt, err = db.PrepareContext(ctx, revertScheduleToActive); err != nil {
 		return nil, fmt.Errorf("error preparing query RevertScheduleToActive: %w", err)
+	}
+	if q.revokeAllSessionsByUserIDStmt, err = db.PrepareContext(ctx, revokeAllSessionsByUserID); err != nil {
+		return nil, fmt.Errorf("error preparing query RevokeAllSessionsByUserID: %w", err)
 	}
 	if q.revokeApiKeyStmt, err = db.PrepareContext(ctx, revokeApiKey); err != nil {
 		return nil, fmt.Errorf("error preparing query RevokeApiKey: %w", err)
@@ -1227,6 +1233,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getUserByIdStmt: %w", cerr)
 		}
 	}
+	if q.getUserByIdForUpdateStmt != nil {
+		if cerr := q.getUserByIdForUpdateStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getUserByIdForUpdateStmt: %w", cerr)
+		}
+	}
 	if q.getUserByUsernameStmt != nil {
 		if cerr := q.getUserByUsernameStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getUserByUsernameStmt: %w", cerr)
@@ -1425,6 +1436,11 @@ func (q *Queries) Close() error {
 	if q.revertScheduleToActiveStmt != nil {
 		if cerr := q.revertScheduleToActiveStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing revertScheduleToActiveStmt: %w", cerr)
+		}
+	}
+	if q.revokeAllSessionsByUserIDStmt != nil {
+		if cerr := q.revokeAllSessionsByUserIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing revokeAllSessionsByUserIDStmt: %w", cerr)
 		}
 	}
 	if q.revokeApiKeyStmt != nil {
@@ -1832,6 +1848,7 @@ type Queries struct {
 	getTotalPoolsStmt                                   *sql.Stmt
 	getUserByExternalIdStmt                             *sql.Stmt
 	getUserByIdStmt                                     *sql.Stmt
+	getUserByIdForUpdateStmt                            *sql.Stmt
 	getUserByUsernameStmt                               *sql.Stmt
 	getUserRoleInOrganizationStmt                       *sql.Stmt
 	getUserRoleNameStmt                                 *sql.Stmt
@@ -1872,6 +1889,7 @@ type Queries struct {
 	removeDevicesFromDeviceSetStmt                      *sql.Stmt
 	resumePausedScheduleStmt                            *sql.Stmt
 	revertScheduleToActiveStmt                          *sql.Stmt
+	revokeAllSessionsByUserIDStmt                       *sql.Stmt
 	revokeApiKeyStmt                                    *sql.Stmt
 	revokeSessionStmt                                   *sql.Stmt
 	setRackSlotPositionStmt                             *sql.Stmt
@@ -2044,6 +2062,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getTotalPoolsStmt:                                   q.getTotalPoolsStmt,
 		getUserByExternalIdStmt:                             q.getUserByExternalIdStmt,
 		getUserByIdStmt:                                     q.getUserByIdStmt,
+		getUserByIdForUpdateStmt:                            q.getUserByIdForUpdateStmt,
 		getUserByUsernameStmt:                               q.getUserByUsernameStmt,
 		getUserRoleInOrganizationStmt:                       q.getUserRoleInOrganizationStmt,
 		getUserRoleNameStmt:                                 q.getUserRoleNameStmt,
@@ -2084,6 +2103,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		removeDevicesFromDeviceSetStmt:                      q.removeDevicesFromDeviceSetStmt,
 		resumePausedScheduleStmt:                            q.resumePausedScheduleStmt,
 		revertScheduleToActiveStmt:                          q.revertScheduleToActiveStmt,
+		revokeAllSessionsByUserIDStmt:                       q.revokeAllSessionsByUserIDStmt,
 		revokeApiKeyStmt:                                    q.revokeApiKeyStmt,
 		revokeSessionStmt:                                   q.revokeSessionStmt,
 		setRackSlotPositionStmt:                             q.setRackSlotPositionStmt,

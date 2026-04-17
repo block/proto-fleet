@@ -4,6 +4,9 @@ SELECT * FROM "user" WHERE username = $1 AND deleted_at IS NULL;
 -- name: GetUserById :one
 SELECT * FROM "user" WHERE id = $1 AND deleted_at IS NULL;
 
+-- name: GetUserByIdForUpdate :one
+SELECT * FROM "user" WHERE id = $1 AND deleted_at IS NULL FOR UPDATE;
+
 -- name: GetUserByExternalId :one
 SELECT * FROM "user" WHERE user_id = $1 AND deleted_at IS NULL;
 

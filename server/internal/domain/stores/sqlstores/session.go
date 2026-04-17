@@ -80,6 +80,14 @@ func (s *SQLSessionStore) RevokeSession(ctx context.Context, sessionID string, r
 	})
 }
 
+// RevokeAllSessionsByUserID revokes all sessions for a user.
+func (s *SQLSessionStore) RevokeAllSessionsByUserID(ctx context.Context, userID int64, revokedAt time.Time) error {
+	return s.getQueries(ctx).RevokeAllSessionsByUserID(ctx, sqlc.RevokeAllSessionsByUserIDParams{
+		RevokedAt: sql.NullTime{Time: revokedAt, Valid: true},
+		UserID:    userID,
+	})
+}
+
 // DeleteExpiredSessions removes expired and revoked sessions from the database.
 func (s *SQLSessionStore) DeleteExpiredSessions(ctx context.Context, cutoff time.Time) (int64, error) {
 	result, err := s.getQueries(ctx).DeleteExpiredSessions(ctx, cutoff)

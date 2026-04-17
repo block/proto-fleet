@@ -111,6 +111,28 @@ func (q *Queries) GetUserById(ctx context.Context, id int64) (User, error) {
 	return i, err
 }
 
+const getUserByIdForUpdate = `-- name: GetUserByIdForUpdate :one
+SELECT id, user_id, username, password_hash, password_updated_at, last_login_at, requires_password_change, created_at, updated_at, deleted_at FROM "user" WHERE id = $1 AND deleted_at IS NULL FOR UPDATE
+`
+
+func (q *Queries) GetUserByIdForUpdate(ctx context.Context, id int64) (User, error) {
+	row := q.queryRow(ctx, q.getUserByIdForUpdateStmt, getUserByIdForUpdate, id)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Username,
+		&i.PasswordHash,
+		&i.PasswordUpdatedAt,
+		&i.LastLoginAt,
+		&i.RequiresPasswordChange,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
 const getUserByUsername = `-- name: GetUserByUsername :one
 SELECT id, user_id, username, password_hash, password_updated_at, last_login_at, requires_password_change, created_at, updated_at, deleted_at FROM "user" WHERE username = $1 AND deleted_at IS NULL
 `

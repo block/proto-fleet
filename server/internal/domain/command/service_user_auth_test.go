@@ -44,6 +44,10 @@ func (m *mockUserStoreForAuth) GetUserByUsername(ctx context.Context, username s
 func (m *mockUserStoreForAuth) GetUserByID(ctx context.Context, userID int64) (interfaces.User, error) {
 	return interfaces.User{}, nil
 }
+
+func (m *mockUserStoreForAuth) GetUserByIDForUpdate(ctx context.Context, userID int64) (interfaces.User, error) {
+	return m.GetUserByID(ctx, userID)
+}
 func (m *mockUserStoreForAuth) GetUserByExternalID(ctx context.Context, userID string) (interfaces.User, error) {
 	return interfaces.User{}, nil
 }

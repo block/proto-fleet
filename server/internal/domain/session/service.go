@@ -20,6 +20,7 @@ type Store interface {
 	GetSessionByID(ctx context.Context, sessionID string) (*Session, error)
 	UpdateSessionActivity(ctx context.Context, sessionID string, lastActivity, expiresAt time.Time) error
 	RevokeSession(ctx context.Context, sessionID string, revokedAt time.Time) error
+	RevokeAllSessionsByUserID(ctx context.Context, userID int64, revokedAt time.Time) error
 	DeleteExpiredSessions(ctx context.Context, cutoff time.Time) (int64, error)
 }
 
@@ -101,6 +102,11 @@ func (s *Service) Validate(ctx context.Context, sessionID string) (*Session, err
 // Revoke invalidates a specific session (logout).
 func (s *Service) Revoke(ctx context.Context, sessionID string) error {
 	return s.store.RevokeSession(ctx, sessionID, time.Now())
+}
+
+// RevokeAllSessions revokes all active sessions for a user.
+func (s *Service) RevokeAllSessions(ctx context.Context, userID int64) error {
+	return s.store.RevokeAllSessionsByUserID(ctx, userID, time.Now())
 }
 
 // CleanupExpired removes expired and revoked sessions from the database.

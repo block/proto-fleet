@@ -40,18 +40,7 @@ func (s *SQLUserStore) GetUserByUsername(ctx context.Context, username string) (
 	if err != nil {
 		return interfaces.User{}, err
 	}
-
-	return interfaces.User{
-		ID:                     user.ID,
-		UserID:                 user.UserID,
-		Username:               user.Username,
-		PasswordHash:           user.PasswordHash,
-		CreatedAt:              user.CreatedAt,
-		UpdatedAt:              user.UpdatedAt,
-		PasswordUpdatedAt:      sqlTimeToTime(user.PasswordUpdatedAt),
-		LastLoginAt:            sqlTimeToTime(user.LastLoginAt),
-		RequiresPasswordChange: user.RequiresPasswordChange,
-	}, nil
+	return toUser(user), nil
 }
 
 func (s *SQLUserStore) GetUserByID(ctx context.Context, userID int64) (interfaces.User, error) {
@@ -59,7 +48,18 @@ func (s *SQLUserStore) GetUserByID(ctx context.Context, userID int64) (interface
 	if err != nil {
 		return interfaces.User{}, err
 	}
+	return toUser(user), nil
+}
 
+func (s *SQLUserStore) GetUserByIDForUpdate(ctx context.Context, userID int64) (interfaces.User, error) {
+	user, err := s.getQueries(ctx).GetUserByIdForUpdate(ctx, userID)
+	if err != nil {
+		return interfaces.User{}, err
+	}
+	return toUser(user), nil
+}
+
+func toUser(user sqlc.User) interfaces.User {
 	return interfaces.User{
 		ID:                     user.ID,
 		UserID:                 user.UserID,
@@ -70,7 +70,7 @@ func (s *SQLUserStore) GetUserByID(ctx context.Context, userID int64) (interface
 		PasswordUpdatedAt:      sqlTimeToTime(user.PasswordUpdatedAt),
 		LastLoginAt:            sqlTimeToTime(user.LastLoginAt),
 		RequiresPasswordChange: user.RequiresPasswordChange,
-	}, nil
+	}
 }
 
 func (s *SQLUserStore) UpdateUserPassword(ctx context.Context, userID int64, passwordHash string) error {
@@ -166,18 +166,7 @@ func (s *SQLUserStore) GetUserByExternalID(ctx context.Context, userID string) (
 	if err != nil {
 		return interfaces.User{}, err
 	}
-
-	return interfaces.User{
-		ID:                     user.ID,
-		UserID:                 user.UserID,
-		Username:               user.Username,
-		PasswordHash:           user.PasswordHash,
-		CreatedAt:              user.CreatedAt,
-		UpdatedAt:              user.UpdatedAt,
-		PasswordUpdatedAt:      sqlTimeToTime(user.PasswordUpdatedAt),
-		LastLoginAt:            sqlTimeToTime(user.LastLoginAt),
-		RequiresPasswordChange: user.RequiresPasswordChange,
-	}, nil
+	return toUser(user), nil
 }
 
 func (s *SQLUserStore) CreateUser(ctx context.Context, externalUserID string, username string, passwordHash string, requiresPasswordChange bool) (int64, error) {
