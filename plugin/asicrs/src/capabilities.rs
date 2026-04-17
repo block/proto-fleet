@@ -13,6 +13,7 @@ pub const FAMILY_AVALONMINER: &str = "avalonminer";
 pub const FAMILY_BITAXE: &str = "bitaxe";
 pub const FAMILY_NERDAXE: &str = "nerdaxe";
 pub const FAMILY_EPIC: &str = "epic";
+pub const FAMILY_AURADINE: &str = "auradine";
 
 // Firmware variants
 pub const VARIANT_STOCK: &str = "stock";
@@ -160,6 +161,7 @@ pub fn make_to_family(make: &str) -> Option<&'static str> {
         (&[FAMILY_BITAXE], FAMILY_BITAXE),
         (&[FAMILY_NERDAXE], FAMILY_NERDAXE),
         (&[FAMILY_EPIC], FAMILY_EPIC),
+        (&[FAMILY_AURADINE], FAMILY_AURADINE),
     ];
     for (names, family) in families {
         for name in *names {
@@ -404,5 +406,43 @@ mod tests {
 
         // Assert
         assert_eq!(variant, VARIANT_MARATHON);
+    }
+
+    #[test]
+    fn test_make_to_family_auradine() {
+        assert_eq!(make_to_family("Auradine"), Some(FAMILY_AURADINE));
+    }
+
+    #[test]
+    fn test_make_to_family_auradine_case_insensitive() {
+        assert_eq!(make_to_family("auradine"), Some(FAMILY_AURADINE));
+        assert_eq!(make_to_family("AURADINE"), Some(FAMILY_AURADINE));
+    }
+
+    #[test]
+    fn test_make_to_family_all_known_families() {
+        // Verify every supported family resolves correctly
+        assert_eq!(make_to_family("WhatsMiner"), Some(FAMILY_WHATSMINER));
+        assert_eq!(make_to_family("Antminer"), Some(FAMILY_ANTMINER));
+        assert_eq!(make_to_family("AvalonMiner"), Some(FAMILY_AVALONMINER));
+        assert_eq!(make_to_family("BitAxe"), Some(FAMILY_BITAXE));
+        assert_eq!(make_to_family("NerdAxe"), Some(FAMILY_NERDAXE));
+        assert_eq!(make_to_family("ePIC"), Some(FAMILY_EPIC));
+        assert_eq!(make_to_family("Auradine"), Some(FAMILY_AURADINE));
+    }
+
+    #[test]
+    fn test_make_to_family_unknown_returns_none() {
+        assert_eq!(make_to_family("UnknownMiner"), None);
+        assert_eq!(make_to_family(""), None);
+    }
+
+    #[test]
+    fn test_make_to_family_aftermarket_maps_to_antminer() {
+        // VNish, Braiins, LuxOS, Marathon all map to antminer family
+        assert_eq!(make_to_family("VNish"), Some(FAMILY_ANTMINER));
+        assert_eq!(make_to_family("Braiins"), Some(FAMILY_ANTMINER));
+        assert_eq!(make_to_family("LuxOS"), Some(FAMILY_ANTMINER));
+        assert_eq!(make_to_family("Marathon"), Some(FAMILY_ANTMINER));
     }
 }

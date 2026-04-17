@@ -35,3 +35,7 @@ miners:
   epic:
     stock:
       enabled: true
+
+  auradine:
+    stock:
+      enabled: true

@@ -79,6 +79,7 @@ just gen
 | BitAxe | Stock (AxeOS) | 80 |
 | NerdAxe | Stock | 80 |
 | ePIC | Stock | 80 |
+| Auradine | Stock | 80 |
 | Proto | Stock | 443 |
 
 ## Production Install

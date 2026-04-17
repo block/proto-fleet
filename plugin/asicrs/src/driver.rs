@@ -75,7 +75,7 @@ fn canonical_port(family: &str) -> u16 {
     match family {
         crate::capabilities::FAMILY_WHATSMINER => 4028,
         crate::capabilities::FAMILY_AVALONMINER => 4028,
-        // Web-based miners: Antminer (stock/VNish/Braiins/LuxOS/Marathon), BitAxe, NerdAxe, ePIC
+        // Web-based miners: Antminer, BitAxe, NerdAxe, ePIC, Auradine
         _ => 80,
     }
 }
@@ -1062,5 +1062,32 @@ miners:
         assert_eq!(creds.len(), 1);
         assert_eq!(creds[0].username, "root");
         assert_eq!(creds[0].password, "root");
+    }
+
+    #[test]
+    fn test_canonical_port_whatsminer() {
+        assert_eq!(canonical_port(crate::capabilities::FAMILY_WHATSMINER), 4028);
+    }
+
+    #[test]
+    fn test_canonical_port_avalonminer() {
+        assert_eq!(
+            canonical_port(crate::capabilities::FAMILY_AVALONMINER),
+            4028
+        );
+    }
+
+    #[test]
+    fn test_canonical_port_auradine_is_80() {
+        // Auradine is web-based (discovered on port 80), not CGMiner RPC
+        assert_eq!(canonical_port(crate::capabilities::FAMILY_AURADINE), 80);
+    }
+
+    #[test]
+    fn test_canonical_port_web_families_default_to_80() {
+        assert_eq!(canonical_port(crate::capabilities::FAMILY_ANTMINER), 80);
+        assert_eq!(canonical_port(crate::capabilities::FAMILY_BITAXE), 80);
+        assert_eq!(canonical_port(crate::capabilities::FAMILY_NERDAXE), 80);
+        assert_eq!(canonical_port(crate::capabilities::FAMILY_EPIC), 80);
     }
 }
