@@ -8,8 +8,8 @@ const mockLogin = vi.fn();
 const mockChangePassword = vi.fn();
 const mockUseAccessToken = vi.fn();
 const mockSetDefaultPasswordActive = vi.fn();
-const mockPushToast = vi.fn(() => "toast-id");
-const mockUpdateToast = vi.fn();
+const mockPushToast = vi.fn<(toast: unknown) => string>(() => "toast-id");
+const mockUpdateToast = vi.fn<(toastId: unknown, toast: unknown) => void>();
 
 vi.mock("@/shared/hooks/useNavigate", () => ({
   useNavigate: () => mockNavigate,
