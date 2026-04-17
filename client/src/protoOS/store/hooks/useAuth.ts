@@ -54,8 +54,15 @@ interface HandleAuthErrorsProps {
 }
 
 const isDefaultPasswordActiveError = (error: ErrorProps): boolean => {
-  const message = error?.error?.message?.toLowerCase() ?? "";
-  return error?.status === 403 && (message.includes("default password") || message.includes("default_password_active"));
+  const code = (error?.error?.error?.code ?? error?.error?.code ?? "").toLowerCase();
+  const message = (error?.error?.error?.message ?? error?.error?.message ?? "").toLowerCase();
+
+  return (
+    error?.status === 403 &&
+    (code === "default_password_active" ||
+      message.includes("default password") ||
+      message.includes("default_password_active"))
+  );
 };
 
 export const useAuthErrors = () => {

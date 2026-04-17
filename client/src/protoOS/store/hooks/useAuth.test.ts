@@ -121,18 +121,27 @@ describe("useAuthErrors", () => {
       expect(onError).toHaveBeenCalledWith({ status: 500, error: { message: "Server error" } });
     });
 
-    test("sets defaultPasswordActive on matching default-password 403 errors", () => {
+    test("sets defaultPasswordActive on nested default-password 403 errors", () => {
       const onError = vi.fn();
+      const error = {
+        status: 403,
+        error: {
+          error: {
+            code: "DEFAULT_PASSWORD_ACTIVE",
+            message: "Default password must be changed before accessing this resource",
+          },
+        },
+      };
 
       const { result } = renderHook(() => useAuthErrors());
 
       result.current.handleAuthErrors({
-        error: { status: 403, error: { message: "DEFAULT_PASSWORD_ACTIVE" } },
+        error,
         onError,
       });
 
       expect(mockSetDefaultPasswordActive).toHaveBeenCalledWith(true);
-      expect(onError).toHaveBeenCalledWith({ status: 403, error: { message: "DEFAULT_PASSWORD_ACTIVE" } });
+      expect(onError).toHaveBeenCalledWith(error);
       expect(mockRefresh).not.toHaveBeenCalled();
     });
 
