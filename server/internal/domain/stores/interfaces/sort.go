@@ -6,7 +6,7 @@ import "fmt"
 type SortField int32
 
 // Sort field constants matching proto SortField enum values.
-// Note: Status (4) and Issues (10) are reserved/removed - sorting by these fields is not supported.
+// Note: Status (4) is reserved/removed - sorting by this field is not supported.
 const (
 	SortFieldUnspecified SortField = 0
 	SortFieldName        SortField = 1
@@ -17,6 +17,7 @@ const (
 	SortFieldTemperature SortField = 7
 	SortFieldPower       SortField = 8
 	SortFieldEfficiency  SortField = 9
+	SortFieldIssueCount  SortField = 15
 	SortFieldFirmware    SortField = 11
 	SortFieldDeviceCount SortField = 12
 	SortFieldLocation    SortField = 13
@@ -45,21 +46,28 @@ func (c *SortConfig) IsValid() bool {
 		return false
 	}
 
-	validField := c.Field == SortFieldName ||
-		c.Field == SortFieldIPAddress ||
-		c.Field == SortFieldMACAddress ||
-		c.Field == SortFieldModel ||
-		c.Field == SortFieldHashrate ||
-		c.Field == SortFieldTemperature ||
-		c.Field == SortFieldPower ||
-		c.Field == SortFieldEfficiency ||
-		c.Field == SortFieldFirmware ||
-		c.Field == SortFieldDeviceCount ||
-		c.Field == SortFieldWorkerName
+	switch c.Field { //nolint:exhaustive // collection-only and unspecified fields are invalid here
+	case SortFieldName,
+		SortFieldIPAddress,
+		SortFieldMACAddress,
+		SortFieldModel,
+		SortFieldHashrate,
+		SortFieldTemperature,
+		SortFieldPower,
+		SortFieldEfficiency,
+		SortFieldFirmware,
+		SortFieldDeviceCount,
+		SortFieldWorkerName:
+	default:
+		return false
+	}
 
-	validDirection := c.Direction == SortDirectionAsc || c.Direction == SortDirectionDesc
-
-	return validField && validDirection
+	switch c.Direction { //nolint:exhaustive // unspecified direction is invalid here
+	case SortDirectionAsc, SortDirectionDesc:
+		return true
+	default:
+		return false
+	}
 }
 
 // IsTelemetrySort returns true if sorting by a telemetry-derived field.
@@ -68,10 +76,13 @@ func (c *SortConfig) IsTelemetrySort() bool {
 	if c == nil {
 		return false
 	}
-	return c.Field == SortFieldHashrate ||
-		c.Field == SortFieldTemperature ||
-		c.Field == SortFieldPower ||
-		c.Field == SortFieldEfficiency
+
+	switch c.Field { //nolint:exhaustive // only telemetry-derived fields return true
+	case SortFieldHashrate, SortFieldTemperature, SortFieldPower, SortFieldEfficiency:
+		return true
+	default:
+		return false
+	}
 }
 
 // IsUnspecified returns true if no sort is specified (use default).

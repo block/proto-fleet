@@ -15,7 +15,7 @@ enum SortField {
   SORT_FIELD_IP_ADDRESS = 2;
   // Sort by MAC address
   SORT_FIELD_MAC_ADDRESS = 3;
-  // Reserved: STATUS (4) and ISSUES (10) sorting removed
+  // Reserved: STATUS (4) and legacy ISSUES (10) sorting removed
   reserved 4, 10;
   reserved "SORT_FIELD_STATUS", "SORT_FIELD_ISSUES";
   // Sort by device model (e.g., "S21 XP", "M60")
@@ -28,6 +28,8 @@ enum SortField {
   SORT_FIELD_POWER = 8;
   // Sort by efficiency (J/TH)
   SORT_FIELD_EFFICIENCY = 9;
+  // Sort by issue count (for collection listing)
+  SORT_FIELD_ISSUE_COUNT = 15;
   // Sort by firmware version
   SORT_FIELD_FIRMWARE = 11;
   // Sort by device count (for collection listing)

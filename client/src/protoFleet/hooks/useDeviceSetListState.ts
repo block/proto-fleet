@@ -17,6 +17,14 @@ const SORT_FIELD_MAP: Partial<Record<DeviceSetColumn, SortField>> = {
   name: SortField.NAME,
   zone: SortField.LOCATION,
   miners: SortField.DEVICE_COUNT,
+  issues: SortField.ISSUE_COUNT,
+};
+
+const SORT_COLUMN_MAP: Partial<Record<SortField, DeviceSetColumn>> = {
+  [SortField.NAME]: "name",
+  [SortField.LOCATION]: "zone",
+  [SortField.DEVICE_COUNT]: "miners",
+  [SortField.ISSUE_COUNT]: "issues",
 };
 
 function toProtoSort(field: DeviceSetColumn, direction: SortDirection): SortConfig {
@@ -175,8 +183,7 @@ export function useDeviceSetListState(
   }, [fetchPage]);
 
   const currentSort = useMemo(() => {
-    const fieldEntry = Object.entries(SORT_FIELD_MAP).find(([, v]) => v === sortConfig.field);
-    const field = (fieldEntry?.[0] ?? "name") as DeviceSetColumn;
+    const field = SORT_COLUMN_MAP[sortConfig.field] ?? "name";
     const direction: SortDirection = sortConfig.direction === ProtoSortDirection.DESC ? "desc" : "asc";
     return { field, direction };
   }, [sortConfig]);

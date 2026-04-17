@@ -1,6 +1,8 @@
 package sqlstores
 
 import (
+	"fmt"
+
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
@@ -74,7 +76,24 @@ func minerBaseQueryWithSortValue(sortValueExpr string) string {
 
 // actionableErrorSeverities defines which error severities trigger "needs attention" state.
 // Values: 1=CRITICAL, 2=MAJOR, 3=MINOR, 4=INFO. Excludes UNSPECIFIED=0.
-const actionableErrorSeverities = "errors.severity IN (1, 2, 3, 4)"
+const (
+	actionableErrorSeverityList      = "(1, 2, 3, 4)"
+	actionableErrorComponentTypeList = "(1, 2, 3, 4)"
+	actionablePairingStatusList      = "('PAIRED', 'AUTHENTICATION_NEEDED')"
+	actionableErrorSeverities        = "errors.severity IN " + actionableErrorSeverityList
+)
+
+func actionableErrorSeveritiesExpr(alias string) string {
+	return fmt.Sprintf("%s.severity IN %s", alias, actionableErrorSeverityList)
+}
+
+func actionableErrorComponentTypesExpr(alias string) string {
+	return fmt.Sprintf("%s.component_type IN %s", alias, actionableErrorComponentTypeList)
+}
+
+func actionablePairingStatusesExpr(alias string) string {
+	return fmt.Sprintf("%s.pairing_status IN %s", alias, actionablePairingStatusList)
+}
 
 // nonActionableStatuses defines device statuses where errors should not trigger
 // the "needs attention" state. These statuses take precedence.

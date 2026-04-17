@@ -567,7 +567,7 @@ export type ListDeviceSetsRequest = Message<"device_set.v1.ListDeviceSetsRequest
 
   /**
    * Sort configuration (defaults to name ascending).
-   * Supported fields: SORT_FIELD_NAME, SORT_FIELD_DEVICE_COUNT.
+   * Supported fields: SORT_FIELD_NAME, SORT_FIELD_DEVICE_COUNT, SORT_FIELD_ISSUE_COUNT.
    *
    * @generated from field: common.v1.SortConfig sort = 4;
    */

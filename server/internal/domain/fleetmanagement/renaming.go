@@ -310,13 +310,7 @@ func lessDevicePropsForRename(
 	right interfaces.DeviceRenameProperties,
 	sortConfig *interfaces.SortConfig,
 ) bool {
-	switch sortConfig.Field {
-	case interfaces.SortFieldUnspecified,
-		interfaces.SortFieldName,
-		interfaces.SortFieldIPAddress,
-		interfaces.SortFieldMACAddress,
-		interfaces.SortFieldDeviceCount,
-		interfaces.SortFieldLocation:
+	switch sortConfig.Field { //nolint:exhaustive // remaining fields use the shared stable-name fallback below
 	case interfaces.SortFieldHashrate:
 		return lessNullableFloat64(left.Hashrate, right.Hashrate, sortConfig.Direction, left.DiscoveredDeviceID, right.DiscoveredDeviceID)
 	case interfaces.SortFieldTemperature:
@@ -349,6 +343,8 @@ func lessDevicePropsForRename(
 			left.DiscoveredDeviceID,
 			right.DiscoveredDeviceID,
 		)
+	default:
+		// Collection-only sort fields fall back to the stable name-based ordering below.
 	}
 
 	comparison := compareDevicePropsForRename(left, right, sortConfig.Field)
@@ -364,19 +360,7 @@ func compareDevicePropsForRename(
 	right interfaces.DeviceRenameProperties,
 	field interfaces.SortField,
 ) int {
-	switch field {
-	case interfaces.SortFieldUnspecified,
-		interfaces.SortFieldName,
-		interfaces.SortFieldHashrate,
-		interfaces.SortFieldTemperature,
-		interfaces.SortFieldPower,
-		interfaces.SortFieldEfficiency,
-		interfaces.SortFieldFirmware,
-		interfaces.SortFieldLocation:
-		// Telemetry sorts are handled earlier by lessDevicePropsForRename; this
-		// fallback preserves deterministic behavior if compareDevicePropsForRename
-		// is ever called directly with those fields.
-		return strings.Compare(getRenameSortName(left), getRenameSortName(right))
+	switch field { //nolint:exhaustive // remaining fields use the stable-name fallback below
 	case interfaces.SortFieldIPAddress:
 		return compareIPAddresses(left.IPAddress, right.IPAddress)
 	case interfaces.SortFieldMACAddress:
@@ -385,11 +369,11 @@ func compareDevicePropsForRename(
 		return compareNullableString(left.ModelSortValue, right.ModelSortValue)
 	case interfaces.SortFieldWorkerName:
 		return compareNullableString(nullableTrimmedString(left.WorkerName), nullableTrimmedString(right.WorkerName))
-	case interfaces.SortFieldDeviceCount:
+	default:
+		// Telemetry and collection-only sorts are handled before this helper or
+		// share the same stable name-based fallback.
 		return strings.Compare(getRenameSortName(left), getRenameSortName(right))
 	}
-
-	return strings.Compare(getRenameSortName(left), getRenameSortName(right))
 }
 
 func getRenameSortName(props interfaces.DeviceRenameProperties) string {

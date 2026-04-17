@@ -1092,20 +1092,24 @@ func (s *SQLDeviceStore) GetComponentErrorCountsByCollections(ctx context.Contex
 		return nil, nil
 	}
 
-	query := `SELECT dcm.device_set_id, e.component_type, COUNT(DISTINCT e.device_id)::int AS device_count
+	query := fmt.Sprintf(`SELECT dcm.device_set_id, e.component_type, COUNT(DISTINCT e.device_id)::int AS device_count
 FROM device_set_membership dcm
 JOIN device_set dc ON dcm.device_set_id = dc.id AND dc.deleted_at IS NULL
 JOIN device d ON dcm.device_id = d.id AND d.deleted_at IS NULL
 JOIN discovered_device dd ON d.discovered_device_id = dd.id AND dd.is_active = TRUE
 JOIN device_pairing dp ON d.id = dp.device_id
-    AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED')
+    AND %s
 JOIN errors e ON d.id = e.device_id
     AND e.org_id = dcm.org_id
     AND e.closed_at IS NULL
-    AND e.severity IN (1, 2, 3, 4)
-    AND e.component_type IN (1, 2, 3, 4)
+    AND %s
+    AND %s
 WHERE dcm.device_set_id = ANY($2::bigint[]) AND dcm.org_id = $1
-GROUP BY dcm.device_set_id, e.component_type`
+GROUP BY dcm.device_set_id, e.component_type`,
+		actionablePairingStatusesExpr("dp"),
+		actionableErrorSeveritiesExpr("e"),
+		actionableErrorComponentTypesExpr("e"),
+	)
 
 	rows, err := s.conn.QueryContext(ctx, query, orgID, pq.Array(collectionIDs))
 	if err != nil {

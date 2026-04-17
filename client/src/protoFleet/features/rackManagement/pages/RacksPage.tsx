@@ -4,6 +4,7 @@ import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import type { DeviceSetListItem } from "@/protoFleet/components/DeviceSetList";
 import type { DeviceSetColumn } from "@/protoFleet/components/DeviceSetList";
 import { DEFAULT_PAGE_SIZE, DeviceSetList, issueOptions, useIssueFilter } from "@/protoFleet/components/DeviceSetList";
+import { getNextSortFromSelection, RACK_SORT_OPTIONS } from "@/protoFleet/components/DeviceSetList/sortConfig";
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import {
@@ -26,12 +27,6 @@ import SegmentedControl from "@/shared/components/SegmentedControl";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 import useMeasure from "@/shared/hooks/useMeasure";
 import { useNavigate } from "@/shared/hooks/useNavigate";
-
-const SORT_OPTIONS: { id: string; label: string }[] = [
-  { id: "name", label: "Name" },
-  { id: "zone", label: "Zone" },
-  { id: "miners", label: "Miners" },
-];
 
 const RACK_COLUMNS: DeviceSetColumn[] = [
   "name",
@@ -242,17 +237,8 @@ const RacksPage = () => {
   // Sort dropdown handler for grid view
   const handleSortSelect = useCallback(
     (selected: string[]) => {
-      if (selected.length === 0) {
-        // User deselected the current field — toggle direction
-        const direction = currentSort.direction === "asc" ? "desc" : "asc";
-        handleSort(currentSort.field, direction);
-        return;
-      }
-      // DropdownFilter is multi-select — find the newly toggled field
-      const newField = selected.find((s) => s !== currentSort.field) ?? selected[0];
-      const field = newField as DeviceSetColumn;
-      const direction = field === currentSort.field && currentSort.direction === "asc" ? "desc" : "asc";
-      handleSort(field, direction);
+      const nextSort = getNextSortFromSelection(selected, currentSort);
+      handleSort(nextSort.field, nextSort.direction);
     },
     [currentSort, handleSort],
   );
@@ -380,9 +366,10 @@ const RacksPage = () => {
               {racksViewMode === "grid" && (
                 <DropdownFilter
                   title="Sort"
-                  options={SORT_OPTIONS}
+                  options={RACK_SORT_OPTIONS}
                   selectedOptions={[currentSort.field]}
                   onSelect={handleSortSelect}
+                  showSelectAll={false}
                 />
               )}
             </div>
@@ -409,9 +396,10 @@ const RacksPage = () => {
             {racksViewMode === "grid" && (
               <DropdownFilter
                 title="Sort"
-                options={SORT_OPTIONS}
+                options={RACK_SORT_OPTIONS}
                 selectedOptions={[currentSort.field]}
                 onSelect={handleSortSelect}
+                showSelectAll={false}
               />
             )}
           </div>

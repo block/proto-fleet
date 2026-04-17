@@ -35,6 +35,14 @@ func TestResolveCollectionSort(t *testing.T) {
 			Field:     stores.SortFieldDeviceCount,
 			Direction: stores.SortDirectionDesc,
 		}, "device_count", "DESC"},
+		{"issue_count ASC", &stores.SortConfig{
+			Field:     stores.SortFieldIssueCount,
+			Direction: stores.SortDirectionAsc,
+		}, "issue_count", "ASC"},
+		{"issue_count DESC", &stores.SortConfig{
+			Field:     stores.SortFieldIssueCount,
+			Direction: stores.SortDirectionDesc,
+		}, "issue_count", "DESC"},
 		{"zone ASC", &stores.SortConfig{
 			Field:     stores.SortFieldLocation,
 			Direction: stores.SortDirectionAsc,
@@ -56,7 +64,9 @@ func TestResolveCollectionSort(t *testing.T) {
 
 func TestBuildCollectionListQuery_DefaultSort(t *testing.T) {
 	query, args := buildCollectionListQuery(1, pb.CollectionType_COLLECTION_TYPE_GROUP, nil, "name", "ASC", 51, nil, nil)
+	assert.Contains(t, query, "0::int AS issue_count")
 	assert.Contains(t, query, "ORDER BY dc.label ASC, dc.id ASC")
+	assert.NotContains(t, query, "SUM(component_issue_counts.device_count)::int AS issue_count")
 	assert.Contains(t, query, "LIMIT $3")
 	assert.Len(t, args, 3)
 	assert.Equal(t, int64(1), args[0])
@@ -66,6 +76,15 @@ func TestBuildCollectionListQuery_DefaultSort(t *testing.T) {
 func TestBuildCollectionListQuery_DeviceCountDesc(t *testing.T) {
 	query, args := buildCollectionListQuery(1, pb.CollectionType_COLLECTION_TYPE_GROUP, nil, "device_count", "DESC", 51, nil, nil)
 	assert.Contains(t, query, "ORDER BY device_count DESC, dc.id DESC")
+	assert.Contains(t, query, "dc.type = $2")
+	assert.Len(t, args, 3)
+}
+
+func TestBuildCollectionListQuery_IssueCountDesc(t *testing.T) {
+	query, args := buildCollectionListQuery(1, pb.CollectionType_COLLECTION_TYPE_GROUP, nil, "issue_count", "DESC", 51, nil, nil)
+	assert.Contains(t, query, "MAX(COALESCE(issue_counts.issue_count, 0))::int AS issue_count")
+	assert.Contains(t, query, "ORDER BY issue_count DESC, dc.id DESC")
+	assert.Contains(t, query, "SUM(component_issue_counts.device_count)::int AS issue_count")
 	assert.Contains(t, query, "dc.type = $2")
 	assert.Len(t, args, 3)
 }
@@ -85,6 +104,15 @@ func TestBuildCollectionListQuery_DeviceCountCursorDESC(t *testing.T) {
 	assert.Contains(t, query, "HAVING (COUNT(dcm.id)::int < $2 OR (COUNT(dcm.id)::int = $2 AND dc.id < $3))")
 	assert.Contains(t, query, "ORDER BY device_count DESC, dc.id DESC")
 	assert.Equal(t, []any{int64(1), int32(10), int64(3), int32(51)}, args)
+}
+
+func TestBuildCollectionListQuery_IssueCountCursorDESC(t *testing.T) {
+	ic := int32(7)
+	cursor := &collectionCursor{Label: "Test", ID: 3, SortField: "issue_count", IssueCount: &ic}
+	query, args := buildCollectionListQuery(1, pb.CollectionType_COLLECTION_TYPE_UNSPECIFIED, cursor, "issue_count", "DESC", 51, nil, nil)
+	assert.Contains(t, query, "HAVING (MAX(COALESCE(issue_counts.issue_count, 0))::int < $2 OR (MAX(COALESCE(issue_counts.issue_count, 0))::int = $2 AND dc.id < $3))")
+	assert.Contains(t, query, "ORDER BY issue_count DESC, dc.id DESC")
+	assert.Equal(t, []any{int64(1), int32(7), int64(3), int32(51)}, args)
 }
 
 func TestBuildCollectionListQuery_ErrorComponentTypes(t *testing.T) {

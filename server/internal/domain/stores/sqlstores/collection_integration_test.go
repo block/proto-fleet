@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
+	"github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
+	sqlstoresinterfaces "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/testutil"
 	"github.com/stretchr/testify/assert"
@@ -25,6 +27,13 @@ func setupCollectionTestData(t *testing.T, deviceCount int) (db *sql.DB, orgID i
 
 func newCollectionStore(db *sql.DB) *sqlstores.SQLCollectionStore {
 	return sqlstores.NewSQLCollectionStore(db)
+}
+
+func createCollectionIssue(deviceID string, minerError models.MinerError, componentType models.ComponentType) *models.ErrorMessage {
+	errMsg := createTestErrorMessage(deviceID)
+	errMsg.MinerError = minerError
+	errMsg.ComponentType = componentType
+	return errMsg
 }
 
 func TestCollectionStore_CreateAndGet(t *testing.T) {
@@ -659,6 +668,59 @@ func TestCollectionStore_ListCollections_PaginationWithTypeFilter(t *testing.T) 
 	require.Len(t, page3, 1)
 	assert.Equal(t, "Group C", page3[0].Label)
 	assert.Empty(t, token3)
+}
+
+func TestCollectionStore_ListCollections_SortsByIssueCount(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	adminUser := testContext.DatabaseService.CreateSuperAdminUser()
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(adminUser.OrganizationID, 3, "https://127.0.0.1:8080")
+	db := testContext.DatabaseService.DB
+	store := newCollectionStore(db)
+	errorStore := newErrorStore(db)
+	ctx := t.Context()
+
+	noIssues, err := store.CreateCollection(ctx, adminUser.OrganizationID, pb.CollectionType_COLLECTION_TYPE_GROUP, "No Issues", "")
+	require.NoError(t, err)
+	oneIssue, err := store.CreateCollection(ctx, adminUser.OrganizationID, pb.CollectionType_COLLECTION_TYPE_GROUP, "One Issue", "")
+	require.NoError(t, err)
+	threeIssues, err := store.CreateCollection(ctx, adminUser.OrganizationID, pb.CollectionType_COLLECTION_TYPE_GROUP, "Three Issues", "")
+	require.NoError(t, err)
+
+	_, err = store.AddDevicesToCollection(ctx, adminUser.OrganizationID, noIssues.Id, []string{deviceIDs[2]})
+	require.NoError(t, err)
+	_, err = store.AddDevicesToCollection(ctx, adminUser.OrganizationID, oneIssue.Id, []string{deviceIDs[0]})
+	require.NoError(t, err)
+	_, err = store.AddDevicesToCollection(ctx, adminUser.OrganizationID, threeIssues.Id, []string{deviceIDs[0], deviceIDs[1]})
+	require.NoError(t, err)
+
+	_, err = errorStore.UpsertError(ctx, adminUser.OrganizationID, deviceIDs[0], createCollectionIssue(deviceIDs[0], models.FanFailed, models.ComponentTypeFans))
+	require.NoError(t, err)
+	_, err = errorStore.UpsertError(ctx, adminUser.OrganizationID, deviceIDs[1], createCollectionIssue(deviceIDs[1], models.PSUNotPresent, models.ComponentTypePSU))
+	require.NoError(t, err)
+	_, err = errorStore.UpsertError(ctx, adminUser.OrganizationID, deviceIDs[1], createCollectionIssue(deviceIDs[1], models.HashboardOverTemperature, models.ComponentTypeHashBoards))
+	require.NoError(t, err)
+
+	sort := &sqlstoresinterfaces.SortConfig{
+		Field:     sqlstoresinterfaces.SortFieldIssueCount,
+		Direction: sqlstoresinterfaces.SortDirectionDesc,
+	}
+
+	page1, token, _, err := store.ListCollections(ctx, adminUser.OrganizationID, pb.CollectionType_COLLECTION_TYPE_GROUP, 2, "", sort, nil, nil)
+	require.NoError(t, err)
+	require.Len(t, page1, 2)
+	assert.Equal(t, "Three Issues", page1[0].Label)
+	assert.Equal(t, "One Issue", page1[1].Label)
+	assert.NotEmpty(t, token)
+
+	page2, token, _, err := store.ListCollections(ctx, adminUser.OrganizationID, pb.CollectionType_COLLECTION_TYPE_GROUP, 2, token, sort, nil, nil)
+	require.NoError(t, err)
+	require.Len(t, page2, 1)
+	assert.Equal(t, "No Issues", page2[0].Label)
+	assert.Empty(t, token)
 }
 
 func TestCollectionStore_ListCollectionMembers_Pagination(t *testing.T) {

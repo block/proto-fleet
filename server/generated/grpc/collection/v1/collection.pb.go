@@ -1230,7 +1230,7 @@ type ListCollectionsRequest struct {
 	// Pagination cursor from a previous response
 	PageToken string `protobuf:"bytes,3,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
 	// Sort configuration (defaults to name ascending).
-	// Supported fields: SORT_FIELD_NAME, SORT_FIELD_DEVICE_COUNT.
+	// Supported fields: SORT_FIELD_NAME, SORT_FIELD_DEVICE_COUNT, SORT_FIELD_ISSUE_COUNT.
 	Sort *v1.SortConfig `protobuf:"bytes,4,opt,name=sort,proto3" json:"sort,omitempty"`
 	// Filter by collections containing devices with open errors of these component types.
 	// When non-empty, only collections with at least one device having an open error

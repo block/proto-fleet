@@ -38,8 +38,13 @@ func TestSortConfig_IsValid(t *testing.T) {
 			expected: true,
 		},
 		{
-			name:     "location field - collection-only, not in global allowlist",
+			name:     "invalid config - location",
 			config:   &SortConfig{Field: SortFieldLocation, Direction: SortDirectionAsc},
+			expected: false,
+		},
+		{
+			name:     "invalid config - issue count",
+			config:   &SortConfig{Field: SortFieldIssueCount, Direction: SortDirectionDesc},
 			expected: false,
 		},
 		{

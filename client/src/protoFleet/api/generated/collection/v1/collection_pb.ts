@@ -569,7 +569,7 @@ export type ListCollectionsRequest = Message<"collection.v1.ListCollectionsReque
 
   /**
    * Sort configuration (defaults to name ascending).
-   * Supported fields: SORT_FIELD_NAME, SORT_FIELD_DEVICE_COUNT.
+   * Supported fields: SORT_FIELD_NAME, SORT_FIELD_DEVICE_COUNT, SORT_FIELD_ISSUE_COUNT.
    *
    * @generated from field: common.v1.SortConfig sort = 4;
    */

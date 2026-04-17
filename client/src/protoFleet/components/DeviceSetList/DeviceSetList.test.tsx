@@ -57,6 +57,19 @@ const defaultProps = {
 };
 
 describe("DeviceSetList", () => {
+  it("uses descending sort when the issues header is selected", () => {
+    const deviceSet = createMockDeviceSet(1n, "Group A");
+    const stats = createMockStats(1n);
+    const onSort = vi.fn();
+
+    render(
+      <DeviceSetList {...defaultProps} deviceSets={[deviceSet]} statsMap={new Map([[1n, stats]])} onSort={onSort} />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Issues" }));
+    expect(onSort).toHaveBeenCalledWith("issues", "desc");
+  });
+
   describe("emptyStateRow prop", () => {
     it("renders empty state row when items are empty and emptyStateRow is provided", () => {
       render(

@@ -78,6 +78,26 @@ func TestParseSortConfig(t *testing.T) {
 			expected: nil,
 		},
 		{
+			name: "collection-only issue count sort returns nil",
+			input: []*commonpb.SortConfig{
+				{
+					Field:     commonpb.SortField_SORT_FIELD_ISSUE_COUNT,
+					Direction: commonpb.SortDirection_SORT_DIRECTION_DESC,
+				},
+			},
+			expected: nil,
+		},
+		{
+			name: "collection-only location sort returns nil",
+			input: []*commonpb.SortConfig{
+				{
+					Field:     commonpb.SortField_SORT_FIELD_LOCATION,
+					Direction: commonpb.SortDirection_SORT_DIRECTION_ASC,
+				},
+			},
+			expected: nil,
+		},
+		{
 			name: "valid config - firmware",
 			input: []*commonpb.SortConfig{
 				{

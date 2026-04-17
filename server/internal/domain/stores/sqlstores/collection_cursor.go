@@ -18,6 +18,7 @@ type collectionCursor struct {
 	SortField   string  `json:"sf,omitempty"`
 	SortDir     string  `json:"sd,omitempty"`
 	DeviceCount *int32  `json:"dc,omitempty"`
+	IssueCount  *int32  `json:"ic,omitempty"`
 	Zone        *string `json:"z,omitempty"`
 }
 

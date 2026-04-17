@@ -237,6 +237,7 @@ func (s *SQLCollectionStore) ListCollections(ctx context.Context, orgID int64, c
 		Label       string
 		Description sql.NullString
 		DeviceCount int32
+		IssueCount  int32
 		CreatedAt   time.Time
 		UpdatedAt   time.Time
 		Zone        sql.NullString
@@ -245,7 +246,7 @@ func (s *SQLCollectionStore) ListCollections(ctx context.Context, orgID int64, c
 	var rows []collectionRow
 	for sqlRows.Next() {
 		var r collectionRow
-		if err := sqlRows.Scan(&r.ID, &r.Type, &r.Label, &r.Description, &r.CreatedAt, &r.UpdatedAt, &r.DeviceCount, &r.Zone); err != nil {
+		if err := sqlRows.Scan(&r.ID, &r.Type, &r.Label, &r.Description, &r.CreatedAt, &r.UpdatedAt, &r.DeviceCount, &r.IssueCount, &r.Zone); err != nil {
 			return nil, "", 0, fleeterror.NewInternalErrorf("failed to scan collection row: %v", err)
 		}
 		rows = append(rows, r)
@@ -261,6 +262,9 @@ func (s *SQLCollectionStore) ListCollections(ctx context.Context, orgID int64, c
 		cur := &collectionCursor{Label: last.Label, ID: last.ID, SortField: sortField, SortDir: sortDir}
 		if sortField == collectionSortFieldDeviceCount {
 			cur.DeviceCount = &last.DeviceCount
+		}
+		if sortField == collectionSortFieldIssueCount {
+			cur.IssueCount = &last.IssueCount
 		}
 		if sortField == collectionSortFieldZone && last.Zone.Valid {
 			z := last.Zone.String

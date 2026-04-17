@@ -269,7 +269,7 @@ message ListDeviceSetsRequest {
     string page_token = 3;
 
     // Sort configuration (defaults to name ascending).
-    // Supported fields: SORT_FIELD_NAME, SORT_FIELD_DEVICE_COUNT.
+    // Supported fields: SORT_FIELD_NAME, SORT_FIELD_DEVICE_COUNT, SORT_FIELD_ISSUE_COUNT.
     common.v1.SortConfig sort = 4;
 
     // Filter by device sets containing devices with open errors of these component types.

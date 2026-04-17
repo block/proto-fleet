@@ -13,10 +13,34 @@ import (
 const (
 	collectionSortFieldName        = "name"
 	collectionSortFieldDeviceCount = "device_count"
+	collectionSortFieldIssueCount  = "issue_count"
 	collectionSortFieldZone        = "zone"
 	collectionSortDirASC           = "ASC"
 	collectionSortDirDESC          = "DESC"
+	collectionIssueCountExpr       = "MAX(COALESCE(issue_counts.issue_count, 0))::int"
 )
+
+var collectionIssueCountJoin = fmt.Sprintf(`LEFT JOIN (
+	SELECT component_issue_counts.device_set_id, SUM(component_issue_counts.device_count)::int AS issue_count
+	FROM (
+		SELECT dcm_issue.device_set_id, e.component_type, COUNT(DISTINCT e.device_id)::int AS device_count
+		FROM device_set_membership dcm_issue
+		JOIN device_set dc_issue ON dcm_issue.device_set_id = dc_issue.id AND dc_issue.deleted_at IS NULL
+		JOIN device d_issue ON dcm_issue.device_id = d_issue.id AND d_issue.deleted_at IS NULL
+		JOIN discovered_device dd_issue ON d_issue.discovered_device_id = dd_issue.id AND dd_issue.is_active = TRUE
+		JOIN device_pairing dp_issue ON d_issue.id = dp_issue.device_id
+			AND %s
+		JOIN errors e ON d_issue.id = e.device_id
+			AND e.org_id = dcm_issue.org_id
+			AND e.closed_at IS NULL
+			AND %s
+			AND %s
+		WHERE dcm_issue.org_id = $1
+		GROUP BY dcm_issue.device_set_id, e.component_type
+	) component_issue_counts
+	GROUP BY component_issue_counts.device_set_id
+) issue_counts ON issue_counts.device_set_id = dc.id
+`, actionablePairingStatusesExpr("dp_issue"), actionableErrorSeveritiesExpr("e"), actionableErrorComponentTypesExpr("e"))
 
 // resolveCollectionSort converts a SortConfig into a canonical field name and SQL direction.
 // Defaults to name ASC when unspecified.
@@ -28,9 +52,11 @@ func resolveCollectionSort(sort *stores.SortConfig) (field, dir string) {
 		return field, dir
 	}
 
-	switch sort.Field { //nolint:exhaustive // only name, device_count, and zone are valid for collections
+	switch sort.Field { //nolint:exhaustive // only name, device_count, issue_count, and zone are valid for collections
 	case stores.SortFieldDeviceCount:
 		field = collectionSortFieldDeviceCount
+	case stores.SortFieldIssueCount:
+		field = collectionSortFieldIssueCount
 	case stores.SortFieldLocation:
 		field = collectionSortFieldZone
 	default:
@@ -80,14 +106,14 @@ func buildCollectionCountQuery(orgID int64, collectionType pb.CollectionType, er
 			JOIN device d_err ON dcm_err.device_id = d_err.id AND d_err.deleted_at IS NULL
 			JOIN discovered_device dd_err ON d_err.discovered_device_id = dd_err.id AND dd_err.is_active = TRUE
 			JOIN device_pairing dp_err ON d_err.id = dp_err.device_id
-				AND dp_err.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED')
+				AND %s
 			JOIN errors e ON d_err.id = e.device_id
 				AND e.org_id = dcm_err.org_id
 				AND e.closed_at IS NULL
-				AND e.severity IN (1, 2, 3, 4)
+				AND %s
 				AND e.component_type = ANY($%d::int[])
 			WHERE dcm_err.device_set_id = dc.id AND dcm_err.org_id = $1
-		)`, argNum))
+		)`, actionablePairingStatusesExpr("dp_err"), actionableErrorSeveritiesExpr("e"), argNum))
 		args = append(args, pq.Array(errorComponentTypes))
 	}
 
@@ -100,15 +126,24 @@ func buildCollectionListQuery(orgID int64, collectionType pb.CollectionType, cur
 	var sb strings.Builder
 	args := []any{orgID}
 	argNum := 2
+	issueCountSelect := "0::int"
 
 	// Base query — always LEFT JOIN rack table so we can always scan dcr.zone
 	// without conditional branching. LEFT JOIN ensures racks without a
 	// device_set_rack row are not silently excluded.
-	sb.WriteString(`SELECT dc.id, dc.type, dc.label, dc.description, dc.created_at, dc.updated_at,
-       COUNT(dcm.id)::int AS device_count, dcr.zone
+	if sortField == collectionSortFieldIssueCount {
+		issueCountSelect = collectionIssueCountExpr
+	}
+	sb.WriteString(fmt.Sprintf(`SELECT dc.id, dc.type, dc.label, dc.description, dc.created_at, dc.updated_at,
+       COUNT(dcm.id)::int AS device_count, %s AS issue_count, dcr.zone
 FROM device_set dc
 LEFT JOIN device_set_membership dcm ON dc.id = dcm.device_set_id
 LEFT JOIN device_set_rack dcr ON dcr.device_set_id = dc.id
+`, issueCountSelect))
+	if sortField == collectionSortFieldIssueCount {
+		sb.WriteString(collectionIssueCountJoin)
+	}
+	sb.WriteString(`
 WHERE dc.org_id = $1 AND dc.deleted_at IS NULL`)
 
 	// Type filter
@@ -134,14 +169,14 @@ WHERE dc.org_id = $1 AND dc.deleted_at IS NULL`)
 			JOIN device d_err ON dcm_err.device_id = d_err.id AND d_err.deleted_at IS NULL
 			JOIN discovered_device dd_err ON d_err.discovered_device_id = dd_err.id AND dd_err.is_active = TRUE
 			JOIN device_pairing dp_err ON d_err.id = dp_err.device_id
-				AND dp_err.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED')
+				AND %s
 			JOIN errors e ON d_err.id = e.device_id
 				AND e.org_id = dcm_err.org_id
 				AND e.closed_at IS NULL
-				AND e.severity IN (1, 2, 3, 4)
+				AND %s
 				AND e.component_type = ANY($%d::int[])
 			WHERE dcm_err.device_set_id = dc.id AND dcm_err.org_id = $1
-		)`, argNum))
+		)`, actionablePairingStatusesExpr("dp_err"), actionableErrorSeveritiesExpr("e"), argNum))
 		args = append(args, pq.Array(errorComponentTypes))
 		argNum++
 	}
@@ -208,10 +243,29 @@ WHERE dc.org_id = $1 AND dc.deleted_at IS NULL`)
 		argNum += 2
 	}
 
+	if cursor != nil && sortField == collectionSortFieldIssueCount {
+		cmp := ">"
+		if sortDir == collectionSortDirDESC {
+			cmp = "<"
+		}
+		cursorCount := int32(0)
+		if cursor.IssueCount != nil {
+			cursorCount = *cursor.IssueCount
+		}
+		sb.WriteString(fmt.Sprintf(
+			" HAVING (%s %s $%d OR (%s = $%d AND dc.id %s $%d))",
+			collectionIssueCountExpr, cmp, argNum, collectionIssueCountExpr, argNum, cmp, argNum+1,
+		))
+		args = append(args, cursorCount, cursor.ID)
+		argNum += 2
+	}
+
 	// ORDER BY
 	switch sortField {
 	case collectionSortFieldDeviceCount:
 		sb.WriteString(fmt.Sprintf(" ORDER BY device_count %s, dc.id %s", sortDir, sortDir))
+	case collectionSortFieldIssueCount:
+		sb.WriteString(fmt.Sprintf(" ORDER BY issue_count %s, dc.id %s", sortDir, sortDir))
 	case collectionSortFieldZone:
 		sb.WriteString(fmt.Sprintf(" ORDER BY dcr.zone %s NULLS LAST, dc.id %s", sortDir, sortDir))
 	default:
