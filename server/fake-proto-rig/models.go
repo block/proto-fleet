@@ -133,10 +133,11 @@ type MinerState struct {
 	Hostname     string
 
 	// Authentication
-	AuthPublicKey string
-	Password      string
-	AccessToken   string
-	RefreshToken  string
+	AuthPublicKey   string
+	Password        string
+	DefaultPassword string // When non-empty and Password == DefaultPassword, default_password_active is true
+	AccessToken     string
+	RefreshToken    string
 
 	// Onboarding status - set to true when pools are configured
 	Onboarded bool
@@ -391,6 +392,14 @@ func (s *MinerState) GetPassword() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.Password
+}
+
+// IsDefaultPasswordActive returns true when a default password is configured
+// and the current password still matches it (i.e., user hasn't changed it yet).
+func (s *MinerState) IsDefaultPasswordActive() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.DefaultPassword != "" && s.Password == s.DefaultPassword
 }
 
 // SetAccessToken safely stores the current bearer token issued by the simulator.

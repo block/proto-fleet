@@ -39,12 +39,14 @@ export interface MinerStatusSlice {
   // System status
   onboarded: boolean | undefined;
   passwordSet: boolean | undefined;
+  defaultPasswordActive: boolean | undefined;
 
   // Actions
   setErrors: (errors: MinerError[]) => void;
   setMiningStatus: (miningStatus: MiningStatusMiningstatus | undefined) => void;
   setOnboarded: (onboarded: boolean | undefined) => void;
   setPasswordSet: (passwordSet: boolean | undefined) => void;
+  setDefaultPasswordActive: (defaultPasswordActive: boolean | undefined) => void;
 }
 
 // =============================================================================
@@ -68,6 +70,7 @@ export const createMinerStatusSlice: StateCreator<
   },
   onboarded: undefined,
   passwordSet: undefined,
+  defaultPasswordActive: undefined,
 
   // Actions
   setErrors: (errors) =>
@@ -125,5 +128,14 @@ export const createMinerStatusSlice: StateCreator<
       },
       false,
       "minerStatus/setPasswordSet",
+    ),
+
+  setDefaultPasswordActive: (defaultPasswordActive) =>
+    set(
+      (state) => {
+        state.minerStatus.defaultPasswordActive = defaultPasswordActive;
+      },
+      false,
+      "minerStatus/setDefaultPasswordActive",
     ),
 });

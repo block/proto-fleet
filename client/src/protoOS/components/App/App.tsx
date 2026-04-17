@@ -21,7 +21,12 @@ import { navigationMenuTypes } from "@/protoOS/components/NavigationMenu";
 import NoPoolsCallout from "@/protoOS/components/NoPoolsCallout";
 import { WarnWakeDialog } from "@/protoOS/components/Power";
 import LoginModal from "@/protoOS/features/auth/components/LoginModal";
-import { useOnboarded, usePasswordSet, usePoolsInfo as usePoolsInfoStore } from "@/protoOS/store";
+import {
+  useDefaultPasswordActive,
+  useOnboarded,
+  usePasswordSet,
+  usePoolsInfo as usePoolsInfoStore,
+} from "@/protoOS/store";
 import {
   useAccessToken,
   useDeviceTheme,
@@ -81,6 +86,7 @@ const App = ({
 
   // Infer if this is an onboarding route from the pathname
   const isOnboardingRoute = pathname.startsWith("/onboarding");
+  const isPasswordChangeRoute = pathname === "/onboarding/authentication" || pathname === "/settings/authentication";
 
   // ============================================================================
   // STORE BOOTSTRAPPING - Fetch and populate stores
@@ -119,6 +125,7 @@ const App = ({
   // undefined = pending/not fetched yet
   const isOnboarded = useOnboarded();
   const isPasswordSet = usePasswordSet();
+  const isDefaultPasswordActive = useDefaultPasswordActive();
 
   // Get hashboard serials from store to fetch ASIC layout data
   const hashboardSerials = useHashboardSerials();
@@ -167,9 +174,16 @@ const App = ({
       // Miner needs onboarding. redirect to onboarding flow
       if (!isOnboarded && !isPasswordSet && !isOnboardingRoute) {
         navigate("/onboarding/welcome");
+        return;
+      }
+
+      // Device still has factory default password — redirect to authentication
+      // page so the user is forced to change it before accessing anything else.
+      if (isDefaultPasswordActive && !isPasswordChangeRoute) {
+        navigate("/onboarding/authentication");
       }
     }
-  }, [navigate, isOnboarded, isPasswordSet, isOnboardingRoute]);
+  }, [navigate, isOnboarded, isPasswordSet, isDefaultPasswordActive, isOnboardingRoute, isPasswordChangeRoute]);
 
   // ============================================================================
   // MINING STATUS CHECKING & WAKE LOGIC

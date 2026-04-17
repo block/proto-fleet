@@ -57,10 +57,19 @@ export const useAuthErrors = () => {
   const authTokens = useAuthTokens();
   const logout = useLogout();
   const setShowLoginModal = useMinerStore((state) => state.ui.setShowLoginModal);
+  const setDefaultPasswordActive = useMinerStore((state) => state.minerStatus.setDefaultPasswordActive);
   const refresh = useRefresh();
 
   const handleAuthErrors = useCallback(
     ({ error, onError, onSuccess }: HandleAuthErrorsProps) => {
+      // 403 with DEFAULT_PASSWORD_ACTIVE means the device still has its factory
+      // password. Surface this in the store so the UI can prompt a password change.
+      if (error?.status === 403) {
+        setDefaultPasswordActive(true);
+        onError?.(error);
+        return;
+      }
+
       if (error?.status === 401) {
         return refresh({
           refreshToken: authTokens.refreshToken?.value || "",
@@ -76,7 +85,7 @@ export const useAuthErrors = () => {
       }
       onError?.(error);
     },
-    [authTokens.refreshToken?.value, refresh, logout, setShowLoginModal],
+    [authTokens.refreshToken?.value, refresh, logout, setShowLoginModal, setDefaultPasswordActive],
   );
 
   return useMemo(

@@ -6,6 +6,7 @@ const mockRefresh = vi.fn();
 const mockLogout = vi.fn();
 const mockSetShowLoginModal = vi.fn();
 const mockUseLocation = vi.hoisted(() => vi.fn());
+const mockSetDefaultPasswordActive = vi.fn();
 
 vi.mock("@/protoOS/api/hooks/useRefresh", () => ({
   useRefresh: () => mockRefresh,
@@ -26,6 +27,9 @@ vi.mock("../useMinerStore", () => ({
       ui: {
         setShowLoginModal: mockSetShowLoginModal,
         pausedAuthAction: null,
+      },
+      minerStatus: {
+        setDefaultPasswordActive: mockSetDefaultPasswordActive,
       },
     }),
   ),
@@ -79,6 +83,21 @@ describe("useAuthErrors", () => {
       expect(returnValue).toBeUndefined();
       expect(mockRefresh).not.toHaveBeenCalled();
       expect(onError).toHaveBeenCalledWith({ status: 500, error: { message: "Server error" } });
+    });
+
+    test("sets defaultPasswordActive on 403 errors", () => {
+      const onError = vi.fn();
+
+      const { result } = renderHook(() => useAuthErrors());
+
+      result.current.handleAuthErrors({
+        error: { status: 403, error: { message: "Default password active" } },
+        onError,
+      });
+
+      expect(mockSetDefaultPasswordActive).toHaveBeenCalledWith(true);
+      expect(onError).toHaveBeenCalledWith({ status: 403, error: { message: "Default password active" } });
+      expect(mockRefresh).not.toHaveBeenCalled();
     });
 
     test("calls logout and shows login modal when refresh fails with 401", () => {

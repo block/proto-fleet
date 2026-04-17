@@ -15,6 +15,8 @@ const (
 	ErrCodeDriverShutdown ErrorCode = "DRIVER_SHUTDOWN"
 	// ErrCodeAuthenticationFailed represents an authentication failure error
 	ErrCodeAuthenticationFailed ErrorCode = "AUTHENTICATION_FAILED"
+	// ErrCodeDefaultPasswordActive indicates the device requires a password change before normal operations
+	ErrCodeDefaultPasswordActive ErrorCode = "DEFAULT_PASSWORD_ACTIVE"
 )
 
 type SDKError struct {
@@ -105,6 +107,21 @@ func NewErrorAuthenticationFailed(deviceID string, err ...error) SDKError {
 	return SDKError{
 		Code:    ErrCodeAuthenticationFailed,
 		Message: "authentication failed for device: " + deviceID,
+		Err:     underlying,
+	}
+}
+
+// NewErrorDefaultPasswordActive returns an error indicating the device still has
+// its factory default password. Most API operations are blocked (HTTP 403) until
+// the password is changed.
+func NewErrorDefaultPasswordActive(deviceID string, err ...error) SDKError {
+	var underlying error
+	if len(err) > 0 {
+		underlying = err[0]
+	}
+	return SDKError{
+		Code:    ErrCodeDefaultPasswordActive,
+		Message: "default password must be changed for device: " + deviceID,
 		Err:     underlying,
 	}
 }

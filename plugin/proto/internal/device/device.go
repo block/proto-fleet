@@ -108,6 +108,10 @@ func New(deviceID string, deviceInfo sdk.DeviceInfo, bearerToken sdk.BearerToken
 	if _, err := device.Status(ctx); err != nil {
 		client.Close()
 
+		if isDefaultPasswordError(err) {
+			return nil, sdk.NewErrorDefaultPasswordActive(deviceID, err)
+		}
+
 		if isAuthenticationError(err) {
 			return nil, sdk.NewErrorAuthenticationFailed(deviceID, err)
 		}
@@ -133,6 +137,18 @@ func isAuthenticationError(err error) bool {
 		strings.Contains(msg, "authentication failed") ||
 		strings.Contains(msg, "invalid credentials") ||
 		strings.Contains(msg, fmt.Sprintf("status %d", http.StatusUnauthorized))
+}
+
+// isDefaultPasswordError checks if the error indicates the device's factory
+// default password is still active (HTTP 403 from the default-password gate).
+func isDefaultPasswordError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "default password must be changed") ||
+		strings.Contains(msg, "default_password_active")
 }
 
 // ID implements the SDK Device interface.

@@ -138,8 +138,9 @@ type UpdateStatus struct {
 
 // SystemStatuses contains system onboarding status
 type SystemStatuses struct {
-	Onboarded   bool `json:"onboarded"`
-	PasswordSet bool `json:"password_set"`
+	Onboarded             bool `json:"onboarded"`
+	PasswordSet           bool `json:"password_set"`
+	DefaultPasswordActive bool `json:"default_password_active"`
 }
 
 // LogsResponse contains the logs response wrapper
@@ -474,77 +475,86 @@ func NewRESTApiHandler(state *MinerState) *RESTApiHandler {
 	return &RESTApiHandler{state: state}
 }
 
-// RegisterRoutes registers all REST API routes
+// RegisterRoutes registers all REST API routes.
+//
+// After the miner-firmware auth hardening (PRs #3266/#3269), most endpoints
+// require bearer auth by default. The exceptions are:
+//   - Auth endpoints (login, refresh, set-password)
+//   - System status (used to detect default_password_active before login)
+//   - Pairing info (used during device discovery)
+//
+// When default_password_active is true, authenticated requests return 403
+// except for password change and pool configuration.
 func (h *RESTApiHandler) RegisterRoutes(mux *http.ServeMux) {
-	// Pools
-	mux.HandleFunc("/api/v1/pools", h.requireBearerAuthMethods(h.handlePools, http.MethodPost))
-	mux.HandleFunc("/api/v1/pools/", h.requireBearerAuthMethods(h.handlePoolByID, http.MethodPut, http.MethodDelete))
-	mux.HandleFunc("/api/v1/pools/test-connection", h.handleTestPoolConnection)
+	// Pools — pool config is exempt from the default-password gate
+	mux.HandleFunc("/api/v1/pools", h.requireBearerAuth(h.handlePools))
+	mux.HandleFunc("/api/v1/pools/", h.requireBearerAuth(h.handlePoolByID))
+	mux.HandleFunc("/api/v1/pools/test-connection", h.requireBearerAuth(h.handleTestPoolConnection))
 
-	// Auth
+	// Auth — login/refresh/set-password are unauthenticated; change-password is exempt from default-password gate
 	mux.HandleFunc("/api/v1/auth/login", h.handleLogin)
-	mux.HandleFunc("/api/v1/auth/logout", h.requireBearerAuthMethods(h.handleLogout, http.MethodPost))
+	mux.HandleFunc("/api/v1/auth/logout", h.requireBearerAuth(h.handleLogout))
 	mux.HandleFunc("/api/v1/auth/refresh", h.handleRefresh)
 	mux.HandleFunc("/api/v1/auth/password", h.handleSetPassword)
-	mux.HandleFunc("/api/v1/auth/change-password", h.requireBearerAuthMethods(h.handleChangePassword, http.MethodPut))
+	mux.HandleFunc("/api/v1/auth/change-password", h.requireBearerAuth(h.handleChangePassword))
 
 	// System
-	mux.HandleFunc("/api/v1/system", h.handleSystem)
-	mux.HandleFunc("/api/v1/system/status", h.handleSystemStatus)
-	mux.HandleFunc("/api/v1/system/reboot", h.requireBearerAuthMethods(h.handleReboot, http.MethodPost))
-	mux.HandleFunc("/api/v1/system/locate", h.requireBearerAuthMethods(h.handleLocate, http.MethodPost))
-	mux.HandleFunc("/api/v1/system/logs", h.handleLogs)
-	mux.HandleFunc("/api/v1/system/update", h.requireBearerAuthMethods(h.handleUpdate, http.MethodPost, http.MethodPut))
-	mux.HandleFunc("/api/v1/system/update/check", h.handleUpdateCheck)
-	mux.HandleFunc("/api/v1/system/ssh", h.requireBearerAuthMethods(h.handleSSH, http.MethodPut))
-	mux.HandleFunc("/api/v1/system/secure", h.handleSecureStatus)
-	mux.HandleFunc("/api/v1/system/unlock", h.requireBearerAuthMethods(h.handleUnlock, http.MethodPut))
-	mux.HandleFunc("/api/v1/system/tag", h.requireBearerAuthMethods(h.handleTag, http.MethodPut, http.MethodDelete))
-	mux.HandleFunc("/api/v1/system/telemetry", h.handleTelemetryConfig)
+	mux.HandleFunc("/api/v1/system", h.requireBearerAuth(h.requirePasswordChanged(h.handleSystem)))
+	mux.HandleFunc("/api/v1/system/status", h.handleSystemStatus) // unauthenticated — needed to detect default_password_active
+	mux.HandleFunc("/api/v1/system/reboot", h.requireBearerAuth(h.requirePasswordChanged(h.handleReboot)))
+	mux.HandleFunc("/api/v1/system/locate", h.requireBearerAuth(h.requirePasswordChanged(h.handleLocate)))
+	mux.HandleFunc("/api/v1/system/logs", h.requireBearerAuth(h.requirePasswordChanged(h.handleLogs)))
+	mux.HandleFunc("/api/v1/system/update", h.requireBearerAuth(h.requirePasswordChanged(h.handleUpdate)))
+	mux.HandleFunc("/api/v1/system/update/check", h.requireBearerAuth(h.requirePasswordChanged(h.handleUpdateCheck)))
+	mux.HandleFunc("/api/v1/system/ssh", h.requireBearerAuth(h.requirePasswordChanged(h.handleSSH)))
+	mux.HandleFunc("/api/v1/system/secure", h.requireBearerAuth(h.requirePasswordChanged(h.handleSecureStatus)))
+	mux.HandleFunc("/api/v1/system/unlock", h.requireBearerAuth(h.requirePasswordChanged(h.handleUnlock)))
+	mux.HandleFunc("/api/v1/system/tag", h.requireBearerAuth(h.requirePasswordChanged(h.handleTag)))
+	mux.HandleFunc("/api/v1/system/telemetry", h.requireBearerAuth(h.requirePasswordChanged(h.handleTelemetryConfig)))
 
 	// Mining
-	mux.HandleFunc("/api/v1/mining", h.handleMining)
-	mux.HandleFunc("/api/v1/mining/target", h.requireBearerAuthMethods(h.handleMiningTarget, http.MethodPut))
-	mux.HandleFunc("/api/v1/mining/tuning", h.requireBearerAuthMethods(h.handleMiningTuning, http.MethodPut))
-	mux.HandleFunc("/api/v1/mining/start", h.requireBearerAuthMethods(h.handleMiningStart, http.MethodPost))
-	mux.HandleFunc("/api/v1/mining/stop", h.requireBearerAuthMethods(h.handleMiningStop, http.MethodPost))
+	mux.HandleFunc("/api/v1/mining", h.requireBearerAuth(h.requirePasswordChanged(h.handleMining)))
+	mux.HandleFunc("/api/v1/mining/target", h.requireBearerAuth(h.requirePasswordChanged(h.handleMiningTarget)))
+	mux.HandleFunc("/api/v1/mining/tuning", h.requireBearerAuth(h.requirePasswordChanged(h.handleMiningTuning)))
+	mux.HandleFunc("/api/v1/mining/start", h.requireBearerAuth(h.requirePasswordChanged(h.handleMiningStart)))
+	mux.HandleFunc("/api/v1/mining/stop", h.requireBearerAuth(h.requirePasswordChanged(h.handleMiningStop)))
 
 	// Hardware
-	mux.HandleFunc("/api/v1/hardware", h.handleHardware)
-	mux.HandleFunc("/api/v1/hardware/psus", h.handleHardwarePSUs)
-	mux.HandleFunc("/api/v1/hashboards", h.handleHashboards)
-	mux.HandleFunc("/api/v1/hashboards/", h.handleHashboardByID)
+	mux.HandleFunc("/api/v1/hardware", h.requireBearerAuth(h.requirePasswordChanged(h.handleHardware)))
+	mux.HandleFunc("/api/v1/hardware/psus", h.requireBearerAuth(h.requirePasswordChanged(h.handleHardwarePSUs)))
+	mux.HandleFunc("/api/v1/hashboards", h.requireBearerAuth(h.requirePasswordChanged(h.handleHashboards)))
+	mux.HandleFunc("/api/v1/hashboards/", h.requireBearerAuth(h.requirePasswordChanged(h.handleHashboardByID)))
 
 	// Telemetry data
-	mux.HandleFunc("/api/v1/hashrate", h.handleHashrate)
-	mux.HandleFunc("/api/v1/hashrate/", h.handleHashrateByID)
-	mux.HandleFunc("/api/v1/temperature", h.handleTemperature)
-	mux.HandleFunc("/api/v1/temperature/", h.handleTemperatureByID)
-	mux.HandleFunc("/api/v1/power", h.handlePower)
-	mux.HandleFunc("/api/v1/power/", h.handlePowerByID)
-	mux.HandleFunc("/api/v1/efficiency", h.handleEfficiency)
-	mux.HandleFunc("/api/v1/efficiency/", h.handleEfficiencyByID)
+	mux.HandleFunc("/api/v1/hashrate", h.requireBearerAuth(h.requirePasswordChanged(h.handleHashrate)))
+	mux.HandleFunc("/api/v1/hashrate/", h.requireBearerAuth(h.requirePasswordChanged(h.handleHashrateByID)))
+	mux.HandleFunc("/api/v1/temperature", h.requireBearerAuth(h.requirePasswordChanged(h.handleTemperature)))
+	mux.HandleFunc("/api/v1/temperature/", h.requireBearerAuth(h.requirePasswordChanged(h.handleTemperatureByID)))
+	mux.HandleFunc("/api/v1/power", h.requireBearerAuth(h.requirePasswordChanged(h.handlePower)))
+	mux.HandleFunc("/api/v1/power/", h.requireBearerAuth(h.requirePasswordChanged(h.handlePowerByID)))
+	mux.HandleFunc("/api/v1/efficiency", h.requireBearerAuth(h.requirePasswordChanged(h.handleEfficiency)))
+	mux.HandleFunc("/api/v1/efficiency/", h.requireBearerAuth(h.requirePasswordChanged(h.handleEfficiencyByID)))
 
 	// PSUs
-	mux.HandleFunc("/api/v1/power-supplies", h.handlePowerSupplies)
-	mux.HandleFunc("/api/v1/power-supplies/update", h.requireBearerAuthMethods(h.handlePowerSuppliesUpdate, http.MethodPost))
+	mux.HandleFunc("/api/v1/power-supplies", h.requireBearerAuth(h.requirePasswordChanged(h.handlePowerSupplies)))
+	mux.HandleFunc("/api/v1/power-supplies/update", h.requireBearerAuth(h.requirePasswordChanged(h.handlePowerSuppliesUpdate)))
 
 	// Cooling
-	mux.HandleFunc("/api/v1/cooling", h.requireBearerAuthMethods(h.handleCooling, http.MethodPut))
+	mux.HandleFunc("/api/v1/cooling", h.requireBearerAuth(h.requirePasswordChanged(h.handleCooling)))
 
 	// Network
-	mux.HandleFunc("/api/v1/network", h.requireBearerAuthMethods(h.handleNetwork, http.MethodPut))
+	mux.HandleFunc("/api/v1/network", h.requireBearerAuth(h.requirePasswordChanged(h.handleNetwork)))
 
 	// Errors
-	mux.HandleFunc("/api/v1/errors", h.handleErrors)
+	mux.HandleFunc("/api/v1/errors", h.requireBearerAuth(h.requirePasswordChanged(h.handleErrors)))
 
 	// Telemetry
-	mux.HandleFunc("/api/v1/telemetry", h.handleTelemetry)
-	mux.HandleFunc("/api/v1/timeseries", h.handleTimeseries)
+	mux.HandleFunc("/api/v1/telemetry", h.requireBearerAuth(h.requirePasswordChanged(h.handleTelemetry)))
+	mux.HandleFunc("/api/v1/timeseries", h.requireBearerAuth(h.requirePasswordChanged(h.handleTimeseries)))
 
 	// Pairing
-	mux.HandleFunc("/api/v1/pairing/info", h.handlePairingInfo)
-	mux.HandleFunc("/api/v1/pairing/auth-key", h.requireBearerAuthMethods(h.handlePairingAuthKey, http.MethodDelete))
+	mux.HandleFunc("/api/v1/pairing/info", h.handlePairingInfo) // unauthenticated — used during device discovery
+	mux.HandleFunc("/api/v1/pairing/auth-key", h.requireBearerAuth(h.requirePasswordChanged(h.handlePairingAuthKey)))
 }
 
 // Helper functions
@@ -564,12 +574,8 @@ func (h *RESTApiHandler) writeError(w http.ResponseWriter, status int, code, mes
 	h.writeJSON(w, status, resp)
 }
 
-func (h *RESTApiHandler) requireBearerAuthMethods(next http.HandlerFunc, methods ...string) http.HandlerFunc {
-	protectedMethods := make(map[string]struct{}, len(methods))
-	for _, method := range methods {
-		protectedMethods[method] = struct{}{}
-	}
-
+// requireBearerAuth wraps a handler to require a valid bearer token on every request.
+func (h *RESTApiHandler) requireBearerAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		h.state.mu.RLock()
 		rebooting := h.state.Rebooting
@@ -587,15 +593,21 @@ func (h *RESTApiHandler) requireBearerAuthMethods(next http.HandlerFunc, methods
 			return
 		}
 
-		if len(protectedMethods) > 0 {
-			if _, ok := protectedMethods[r.Method]; !ok {
-				next(w, r)
-				return
-			}
-		}
-
 		if !h.isAuthorized(r) {
 			h.writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Missing or invalid bearer token")
+			return
+		}
+
+		next(w, r)
+	}
+}
+
+// requirePasswordChanged returns 403 when the device still has the default password.
+// This matches miner-firmware PR #3269 behavior.
+func (h *RESTApiHandler) requirePasswordChanged(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if h.state.IsDefaultPasswordActive() {
+			h.writeError(w, http.StatusForbidden, "DEFAULT_PASSWORD_ACTIVE", "Default password must be changed before accessing this resource")
 			return
 		}
 
@@ -1130,6 +1142,11 @@ func (h *RESTApiHandler) handleChangePassword(w http.ResponseWriter, r *http.Req
 
 	h.state.SetPassword(req.NewPassword)
 
+	// Revoke existing tokens after password change (matches miner-firmware PR #3269).
+	// Clients must re-authenticate with the new password.
+	h.state.SetAccessToken("")
+	h.state.SetRefreshToken("")
+
 	h.writeJSON(w, http.StatusOK, MessageResponse{Message: "Password changed successfully"})
 }
 
@@ -1225,8 +1242,9 @@ func (h *RESTApiHandler) handleSystemStatus(w http.ResponseWriter, r *http.Reque
 	passwordSet := h.state.GetPassword() != ""
 
 	h.writeJSON(w, http.StatusOK, SystemStatuses{
-		Onboarded:   h.state.IsOnboarded(),
-		PasswordSet: passwordSet,
+		Onboarded:             h.state.IsOnboarded(),
+		PasswordSet:           passwordSet,
+		DefaultPasswordActive: h.state.IsDefaultPasswordActive(),
 	})
 }
 

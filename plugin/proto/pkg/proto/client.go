@@ -484,6 +484,10 @@ func (c *Client) doGetWithStatus(ctx context.Context, path string, result any) (
 		return resp.StatusCode, fmt.Errorf("unauthenticated: missing or invalid credentials")
 	}
 
+	if resp.StatusCode == http.StatusForbidden {
+		return resp.StatusCode, fmt.Errorf("forbidden: default password must be changed")
+	}
+
 	if resp.StatusCode == http.StatusNoContent {
 		return resp.StatusCode, nil
 	}
@@ -513,6 +517,10 @@ func (c *Client) doPost(ctx context.Context, path string) error {
 
 	if resp.StatusCode == http.StatusUnauthorized {
 		return fmt.Errorf("unauthenticated: missing or invalid credentials")
+	}
+
+	if resp.StatusCode == http.StatusForbidden {
+		return fmt.Errorf("forbidden: default password must be changed")
 	}
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {

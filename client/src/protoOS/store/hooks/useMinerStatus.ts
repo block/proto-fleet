@@ -71,15 +71,20 @@ export const usePasswordSet = () => {
   return useMinerStore((state) => state.minerStatus.passwordSet);
 };
 
+export const useDefaultPasswordActive = () => {
+  return useMinerStore((state) => state.minerStatus.defaultPasswordActive);
+};
+
 /**
  * Hook to get system status data from minerStatus slice
- * Returns onboarded and passwordSet status
+ * Returns onboarded, passwordSet, and defaultPasswordActive status
  */
 export const useSystemStatus = () =>
   useMinerStore(
     useShallow((state) => ({
       onboarded: state.minerStatus.onboarded,
       passwordSet: state.minerStatus.passwordSet,
+      defaultPasswordActive: state.minerStatus.defaultPasswordActive,
     })),
   );
 
@@ -107,6 +112,10 @@ export const useSetPasswordSet = () => {
   return useMinerStore((state) => state.minerStatus.setPasswordSet);
 };
 
+export const useSetDefaultPasswordActive = () => {
+  return useMinerStore((state) => state.minerStatus.setDefaultPasswordActive);
+};
+
 /**
  * Hook to get system status setter actions
  */
@@ -115,6 +124,7 @@ export const useSetSystemStatus = () =>
     useShallow((state) => ({
       setOnboarded: state.minerStatus.setOnboarded,
       setPasswordSet: state.minerStatus.setPasswordSet,
+      setDefaultPasswordActive: state.minerStatus.setDefaultPasswordActive,
     })),
   );
 

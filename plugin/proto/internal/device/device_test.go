@@ -107,3 +107,54 @@ func TestIsAuthenticationError(t *testing.T) {
 		})
 	}
 }
+
+func TestIsDefaultPasswordError(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{
+			name:     "nil_error",
+			err:      nil,
+			expected: false,
+		},
+		{
+			name:     "default_password_must_be_changed",
+			err:      fmt.Errorf("forbidden: default password must be changed"),
+			expected: true,
+		},
+		{
+			name:     "wrapped_default_password",
+			err:      fmt.Errorf("API call failed: %w", fmt.Errorf("forbidden: default password must be changed")),
+			expected: true,
+		},
+		{
+			name:     "default_password_active_code",
+			err:      errors.New("request failed: DEFAULT_PASSWORD_ACTIVE"),
+			expected: true,
+		},
+		{
+			name:     "http_403_without_default_password",
+			err:      fmt.Errorf("request failed with status %d", http.StatusForbidden),
+			expected: false,
+		},
+		{
+			name:     "auth_error_not_default_password",
+			err:      errors.New("unauthenticated: missing or invalid credentials"),
+			expected: false,
+		},
+		{
+			name:     "generic_error",
+			err:      errors.New("connection refused"),
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isDefaultPasswordError(tt.err)
+			assert.Equal(t, tt.expected, result, "isDefaultPasswordError(%v)", tt.err)
+		})
+	}
+}

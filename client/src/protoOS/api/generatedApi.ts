@@ -1635,6 +1635,11 @@ export interface SystemInfoSysteminfo {
 
 /** System status information including onboarding and password setup */
 export interface SystemStatuses {
+  /**
+   * True when the device is still using the factory default password. Most API endpoints return 403 until the password is changed.
+   * @example false
+   */
+  default_password_active?: boolean;
   /** @example true */
   onboarded?: boolean;
   /** @example true */

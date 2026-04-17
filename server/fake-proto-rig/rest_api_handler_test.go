@@ -44,6 +44,8 @@ func TestHandleChangePassword_WrongCurrentPassword_Returns401(t *testing.T) {
 func TestHandleChangePassword_CorrectCurrentPassword_Returns200(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
 	state.SetPassword("correctPassword")
+	state.SetAccessToken("old-access-token")
+	state.SetRefreshToken("old-refresh-token")
 	h := NewRESTApiHandler(state)
 
 	rr := httptest.NewRecorder()
@@ -57,6 +59,13 @@ func TestHandleChangePassword_CorrectCurrentPassword_Returns200(t *testing.T) {
 
 	if state.GetPassword() != "newPassword123" {
 		t.Fatalf("expected password to be updated to %q, got %q", "newPassword123", state.GetPassword())
+	}
+
+	if state.GetAccessToken() != "" {
+		t.Fatalf("expected access token to be revoked after password change, got %q", state.GetAccessToken())
+	}
+	if state.GetRefreshToken() != "" {
+		t.Fatalf("expected refresh token to be revoked after password change, got %q", state.GetRefreshToken())
 	}
 }
 
@@ -468,20 +477,33 @@ func TestHandleTestPoolConnection_ValidURL_Returns200(t *testing.T) {
 	}
 }
 
-func TestTestPoolConnectionRoute_DoesNotRequireBearerAuth(t *testing.T) {
+func TestTestPoolConnectionRoute_RequiresBearerAuth(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.SetAccessToken("test-token")
 	h := NewRESTApiHandler(state)
 
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux)
 
+	// Without auth: should get 401
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/pools/test-connection",
 		strings.NewReader(`{"url":"stratum+tcp://mine.ocean.xyz:3334","username":"worker"}`))
 	mux.ServeHTTP(rr, req)
 
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected %d without auth, got %d; body=%s", http.StatusUnauthorized, rr.Code, rr.Body.String())
+	}
+
+	// With auth: should succeed
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/pools/test-connection",
+		strings.NewReader(`{"url":"stratum+tcp://mine.ocean.xyz:3334","username":"worker"}`))
+	req.Header.Set("Authorization", "Bearer test-token")
+	mux.ServeHTTP(rr, req)
+
 	if rr.Code != http.StatusOK {
-		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+		t.Fatalf("expected %d with auth, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
 	}
 }
 
