@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -251,30 +250,22 @@ func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 
 type trackingReadCloser struct {
 	reader      *bytes.Reader
+	body        io.ReadCloser
 	readToEOF   bool
 	closeCalled bool
 }
 
-func (t *trackingReadCloser) Read(p []byte) (int, error) {
-	n, err := t.reader.Read(p)
-	if err == io.EOF {
-		t.readToEOF = true
-	}
-	if err != nil && err != io.EOF {
-		return n, fmt.Errorf("tracking read closer read: %w", err)
-	}
-	return n, err
-}
-
 func (t *trackingReadCloser) Close() error {
 	t.closeCalled = true
-	return nil
+	t.readToEOF = t.reader.Len() == 0
+	return t.body.Close()
 }
 
 func TestDoGetWithStatus_DrainsBodyOnForbidden(t *testing.T) {
 	body := &trackingReadCloser{
 		reader: bytes.NewReader([]byte(`{"error":{"message":"DEFAULT_PASSWORD_ACTIVE"}}`)),
 	}
+	body.body = io.NopCloser(body.reader)
 	client := &Client{
 		baseURL: "http://miner.local",
 		httpClient: &http.Client{
