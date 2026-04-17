@@ -1,54 +1,95 @@
 import { useEffect, useState } from "react";
 import { useLogin, usePassword } from "@/protoOS/api";
-import { usePasswordSet } from "@/protoOS/store";
+import { useDefaultPasswordActive, usePasswordSet } from "@/protoOS/store";
 import { Authentication, OnboardingLayout } from "@/shared/components/Setup";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
 const AuthenticationPage = () => {
   const navigate = useNavigate();
-  const { setPassword } = usePassword();
+  const { changePassword, setPassword } = usePassword();
   const login = useLogin();
   const isPasswordSet = usePasswordSet();
+  const isDefaultPasswordActive = useDefaultPasswordActive();
   const [submitError, setSubmitError] = useState<string | undefined>();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const isChangingDefaultPassword = isPasswordSet === true && isDefaultPasswordActive === true;
 
   useEffect(() => {
-    if (isPasswordSet !== undefined && isPasswordSet) {
+    if (isPasswordSet === true && isDefaultPasswordActive === false) {
       navigate("/onboarding/mining-pool");
     }
-  }, [navigate, isPasswordSet]);
+  }, [navigate, isPasswordSet, isDefaultPasswordActive]);
 
-  function submit(password: string) {
+  function handleError(message?: string) {
+    setSubmitError(message);
+    setIsSubmitting(false);
+  }
+
+  function submit(firstValue: string, secondValue: string) {
     setIsSubmitting(true);
     setSubmitError(undefined);
+
+    if (isChangingDefaultPassword) {
+      const currentPassword = firstValue;
+      const newPassword = secondValue;
+
+      login({
+        password: currentPassword,
+        onSuccess: () => {
+          changePassword({
+            changePasswordRequest: {
+              current_password: currentPassword,
+              new_password: newPassword,
+            },
+            onSuccess: () => {
+              login({
+                password: newPassword,
+                onSuccess: () => {
+                  setIsSubmitting(false);
+                  navigate("/onboarding/mining-pool");
+                },
+                onError: handleError,
+              });
+            },
+            onError: handleError,
+          });
+        },
+        onError: handleError,
+      });
+      return;
+    }
+
+    const password = firstValue;
     setPassword({
-      password: password,
+      password,
       onSuccess: () => {
         login({
-          password: password,
-          onFinally: () => {
+          password,
+          onSuccess: () => {
+            setIsSubmitting(false);
             navigate("/onboarding/mining-pool");
           },
+          onError: handleError,
         });
       },
-      onError: (message) => {
-        setSubmitError(message);
-      },
-      onFinally: () => {
-        setIsSubmitting(false);
-      },
+      onError: handleError,
     });
   }
 
   return (
     <OnboardingLayout>
       <Authentication
+        isUpdateMode={isChangingDefaultPassword}
         submit={submit}
         submitError={submitError}
         isSubmitting={isSubmitting}
         setIsSubmitting={setIsSubmitting}
-        headline="Create an admin login for your miner"
-        description="This password is required to modify performance settings or mining pool configurations for this miner."
+        headline={isChangingDefaultPassword ? "Update your admin login" : "Create an admin login for your miner"}
+        description={
+          isChangingDefaultPassword
+            ? "Your miner is still using the factory default password. Change it now to continue setup."
+            : "This password is required to modify performance settings or mining pool configurations for this miner."
+        }
         initUsername="admin"
       />
     </OnboardingLayout>

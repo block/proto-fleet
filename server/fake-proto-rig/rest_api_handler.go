@@ -478,10 +478,13 @@ func NewRESTApiHandler(state *MinerState) *RESTApiHandler {
 // RegisterRoutes registers all REST API routes.
 //
 // After the miner-firmware auth hardening (PRs #3266/#3269), most endpoints
-// require bearer auth by default. The exceptions are:
+// require bearer auth by default. The fake rig keeps a small compatibility set
+// public until ProtoOS onboarding stops depending on them:
 //   - Auth endpoints (login, refresh, set-password)
 //   - System status (used to detect default_password_active before login)
-//   - Pairing info (used during device discovery)
+//   - System + hardware bootstrap reads
+//   - GET /network
+//   - Pairing info and the initial POST to /pairing/auth-key
 //
 // When default_password_active is true, authenticated requests return 403
 // except for password change and pool configuration.
@@ -499,7 +502,7 @@ func (h *RESTApiHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/auth/change-password", h.requireBearerAuth(h.handleChangePassword))
 
 	// System
-	mux.HandleFunc("/api/v1/system", h.requireBearerAuth(h.requirePasswordChanged(h.handleSystem)))
+	mux.HandleFunc("/api/v1/system", h.handleSystem)              // onboarding bootstrap remains public
 	mux.HandleFunc("/api/v1/system/status", h.handleSystemStatus) // unauthenticated — needed to detect default_password_active
 	mux.HandleFunc("/api/v1/system/reboot", h.requireBearerAuth(h.requirePasswordChanged(h.handleReboot)))
 	mux.HandleFunc("/api/v1/system/locate", h.requireBearerAuth(h.requirePasswordChanged(h.handleLocate)))
@@ -520,7 +523,7 @@ func (h *RESTApiHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/mining/stop", h.requireBearerAuth(h.requirePasswordChanged(h.handleMiningStop)))
 
 	// Hardware
-	mux.HandleFunc("/api/v1/hardware", h.requireBearerAuth(h.requirePasswordChanged(h.handleHardware)))
+	mux.HandleFunc("/api/v1/hardware", h.handleHardware) // onboarding bootstrap remains public
 	mux.HandleFunc("/api/v1/hardware/psus", h.requireBearerAuth(h.requirePasswordChanged(h.handleHardwarePSUs)))
 	mux.HandleFunc("/api/v1/hashboards", h.requireBearerAuth(h.requirePasswordChanged(h.handleHashboards)))
 	mux.HandleFunc("/api/v1/hashboards/", h.requireBearerAuth(h.requirePasswordChanged(h.handleHashboardByID)))
@@ -543,7 +546,10 @@ func (h *RESTApiHandler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/cooling", h.requireBearerAuth(h.requirePasswordChanged(h.handleCooling)))
 
 	// Network
-	mux.HandleFunc("/api/v1/network", h.requireBearerAuth(h.requirePasswordChanged(h.handleNetwork)))
+	mux.HandleFunc(
+		"/api/v1/network",
+		h.requireBearerAuthMethods(h.requirePasswordChangedMethods(h.handleNetwork, http.MethodPut), http.MethodPut),
+	)
 
 	// Errors
 	mux.HandleFunc("/api/v1/errors", h.requireBearerAuth(h.requirePasswordChanged(h.handleErrors)))
@@ -554,7 +560,10 @@ func (h *RESTApiHandler) RegisterRoutes(mux *http.ServeMux) {
 
 	// Pairing
 	mux.HandleFunc("/api/v1/pairing/info", h.handlePairingInfo) // unauthenticated — used during device discovery
-	mux.HandleFunc("/api/v1/pairing/auth-key", h.requireBearerAuth(h.requirePasswordChanged(h.handlePairingAuthKey)))
+	mux.HandleFunc(
+		"/api/v1/pairing/auth-key",
+		h.requireBearerAuthMethods(h.requirePasswordChangedMethods(h.handlePairingAuthKey, http.MethodDelete), http.MethodDelete),
+	)
 }
 
 // Helper functions
@@ -572,6 +581,59 @@ func (h *RESTApiHandler) writeError(w http.ResponseWriter, status int, code, mes
 	resp.Error.Code = code
 	resp.Error.Message = message
 	h.writeJSON(w, status, resp)
+}
+
+func protectedMethodsSet(methods ...string) map[string]struct{} {
+	protectedMethods := make(map[string]struct{}, len(methods))
+	for _, method := range methods {
+		protectedMethods[method] = struct{}{}
+	}
+	return protectedMethods
+}
+
+func methodIsProtected(method string, protectedMethods map[string]struct{}) bool {
+	if len(protectedMethods) == 0 {
+		return true
+	}
+
+	_, ok := protectedMethods[method]
+	return ok
+}
+
+// requireBearerAuthMethods wraps a handler to require a valid bearer token on
+// the specified HTTP methods only.
+func (h *RESTApiHandler) requireBearerAuthMethods(next http.HandlerFunc, methods ...string) http.HandlerFunc {
+	protectedMethods := protectedMethodsSet(methods...)
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !methodIsProtected(r.Method, protectedMethods) {
+			next(w, r)
+			return
+		}
+
+		h.state.mu.RLock()
+		rebooting := h.state.Rebooting
+		h.state.mu.RUnlock()
+		if rebooting {
+			hj, ok := w.(http.Hijacker)
+			if ok {
+				conn, _, err := hj.Hijack()
+				if err == nil {
+					conn.Close()
+					return
+				}
+			}
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+
+		if !h.isAuthorized(r) {
+			h.writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Missing or invalid bearer token")
+			return
+		}
+
+		next(w, r)
+	}
 }
 
 // requireBearerAuth wraps a handler to require a valid bearer token on every request.
@@ -595,6 +657,26 @@ func (h *RESTApiHandler) requireBearerAuth(next http.HandlerFunc) http.HandlerFu
 
 		if !h.isAuthorized(r) {
 			h.writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Missing or invalid bearer token")
+			return
+		}
+
+		next(w, r)
+	}
+}
+
+// requirePasswordChangedMethods returns 403 on the specified HTTP methods when
+// the device still has the default password.
+func (h *RESTApiHandler) requirePasswordChangedMethods(next http.HandlerFunc, methods ...string) http.HandlerFunc {
+	protectedMethods := protectedMethodsSet(methods...)
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !methodIsProtected(r.Method, protectedMethods) {
+			next(w, r)
+			return
+		}
+
+		if h.state.IsDefaultPasswordActive() {
+			h.writeError(w, http.StatusForbidden, "DEFAULT_PASSWORD_ACTIVE", "Default password must be changed before accessing this resource")
 			return
 		}
 
@@ -2322,6 +2404,10 @@ func (h *RESTApiHandler) handlePairingAuthKey(w http.ResponseWriter, r *http.Req
 		if existing := h.state.GetAuthKey(); existing != "" {
 			if !h.isAuthorized(r) {
 				h.writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Authentication required for key rotation")
+				return
+			}
+			if h.state.IsDefaultPasswordActive() {
+				h.writeError(w, http.StatusForbidden, "DEFAULT_PASSWORD_ACTIVE", "Default password must be changed before accessing this resource")
 				return
 			}
 		}
