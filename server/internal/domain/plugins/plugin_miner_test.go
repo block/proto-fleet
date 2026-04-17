@@ -424,6 +424,19 @@ func TestPluginMiner_GetDeviceMetrics_Error(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to get SDK device metrics")
 }
 
+func TestPluginMiner_GetDeviceMetrics_DefaultPasswordActive_ReturnsForbidden(t *testing.T) {
+	pm, mockDevice := createTestPluginMiner()
+
+	mockDevice.statusFunc = func(ctx context.Context) (sdk.DeviceMetrics, error) {
+		return sdk.DeviceMetrics{}, grpcstatus.Error(codes.PermissionDenied, "default password must be changed")
+	}
+
+	_, err := pm.GetDeviceMetrics(t.Context())
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsForbiddenError(err), "expected forbidden error, got: %v", err)
+}
+
 func TestPluginMiner_GetDeviceStatus_HealthMapping(t *testing.T) {
 	tests := []struct {
 		name           string

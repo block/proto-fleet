@@ -127,6 +127,13 @@ func (p *PluginMiner) GetWebViewURL() *url.URL {
 func (p *PluginMiner) GetDeviceMetrics(ctx context.Context) (modelsV2.DeviceMetrics, error) {
 	sdkMetrics, err := p.sdkDevice.Status(ctx)
 	if err != nil {
+		if isDefaultPasswordActiveError(err) {
+			return modelsV2.DeviceMetrics{}, fleeterror.NewForbiddenErrorf(
+				"device %s default password must be changed during metrics fetch: %v",
+				p.deviceID,
+				err,
+			)
+		}
 		return modelsV2.DeviceMetrics{}, fleeterror.NewInternalErrorf("failed to get SDK device metrics: %v", err)
 	}
 

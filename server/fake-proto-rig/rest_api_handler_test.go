@@ -249,6 +249,82 @@ func TestProtectedRouteAcceptsIssuedBearerToken(t *testing.T) {
 	}
 }
 
+func TestPoolMutationsRequirePasswordChangeWhenDefaultPasswordActive(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.SeedDefaultPassword("defaultPass123")
+	state.AddPool(&Pool{Idx: 0, Url: "stratum+tcp://pool.example.com:3333", Username: "worker"})
+	h := NewRESTApiHandler(state)
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"password":"defaultPass123"}`))
+	loginRR := httptest.NewRecorder()
+	mux.ServeHTTP(loginRR, loginReq)
+
+	if loginRR.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, loginRR.Code, loginRR.Body.String())
+	}
+
+	var tokens AuthTokens
+	if err := json.Unmarshal(loginRR.Body.Bytes(), &tokens); err != nil {
+		t.Fatalf("failed to unmarshal auth tokens: %v; body=%s", err, loginRR.Body.String())
+	}
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+	}{
+		{
+			name:   "create pool blocked",
+			method: http.MethodPost,
+			path:   "/api/v1/pools",
+			body:   `[{"url":"stratum+tcp://mine.ocean.xyz:3334","username":"worker"}]`,
+		},
+		{
+			name:   "update pool blocked",
+			method: http.MethodPut,
+			path:   "/api/v1/pools/0",
+			body:   `{"username":"updated-worker"}`,
+		},
+		{
+			name:   "delete pool blocked",
+			method: http.MethodDelete,
+			path:   "/api/v1/pools/0",
+		},
+		{
+			name:   "pool test connection blocked",
+			method: http.MethodPost,
+			path:   "/api/v1/pools/test-connection",
+			body:   `{"url":"stratum+tcp://mine.ocean.xyz:3334"}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rr := httptest.NewRecorder()
+			req := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))
+			req.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+			mux.ServeHTTP(rr, req)
+
+			if rr.Code != http.StatusForbidden {
+				t.Fatalf("expected %d, got %d; body=%s", http.StatusForbidden, rr.Code, rr.Body.String())
+			}
+		})
+	}
+
+	getRR := httptest.NewRecorder()
+	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/pools", nil)
+	getReq.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+	mux.ServeHTTP(getRR, getReq)
+
+	if getRR.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, getRR.Code, getRR.Body.String())
+	}
+}
+
 func TestLogoutInvalidatesIssuedBearerToken(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
 	state.SetMiningState(MiningStateStopped)
@@ -368,6 +444,25 @@ func TestHandleSetPassword_ValidPassword_StoresPassword(t *testing.T) {
 
 	if state.GetAuthKey() != "existing-auth-key" {
 		t.Fatalf("expected auth key to remain unchanged, got %q", state.GetAuthKey())
+	}
+}
+
+func TestHandleSetPassword_PasswordAlreadySet_Returns403(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.SeedDefaultPassword("defaultPass123")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/auth/password",
+		strings.NewReader(`{"password":"validPass123"}`))
+	h.handleSetPassword(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusForbidden, rr.Code, rr.Body.String())
+	}
+
+	if state.GetPassword() != "defaultPass123" {
+		t.Fatalf("expected password to remain %q, got %q", "defaultPass123", state.GetPassword())
 	}
 }
 

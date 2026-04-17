@@ -480,21 +480,21 @@ func NewRESTApiHandler(state *MinerState) *RESTApiHandler {
 // After the miner-firmware auth hardening (PRs #3266/#3269), most endpoints
 // require bearer auth by default. The fake rig keeps a small compatibility set
 // public until ProtoOS onboarding stops depending on them:
-//   - Auth endpoints (login, refresh, set-password)
+//   - Auth endpoints (login, refresh, initial set-password)
 //   - System status (used to detect default_password_active before login)
 //   - System + hardware bootstrap reads
 //   - GET /network
 //   - Pairing info and the initial POST to /pairing/auth-key
 //
 // When default_password_active is true, authenticated requests return 403
-// except for password change and pool configuration.
+// except for password change.
 func (h *RESTApiHandler) RegisterRoutes(mux *http.ServeMux) {
-	// Pools — pool config is exempt from the default-password gate
-	mux.HandleFunc("/api/v1/pools", h.requireBearerAuth(h.handlePools))
-	mux.HandleFunc("/api/v1/pools/", h.requireBearerAuth(h.handlePoolByID))
-	mux.HandleFunc("/api/v1/pools/test-connection", h.requireBearerAuth(h.handleTestPoolConnection))
+	mux.HandleFunc("/api/v1/pools", h.requireBearerAuth(h.requirePasswordChangedMethods(h.handlePools, http.MethodPost)))
+	mux.HandleFunc("/api/v1/pools/", h.requireBearerAuth(h.requirePasswordChangedMethods(h.handlePoolByID, http.MethodPut, http.MethodDelete)))
+	mux.HandleFunc("/api/v1/pools/test-connection", h.requireBearerAuth(h.requirePasswordChangedMethods(h.handleTestPoolConnection, http.MethodPost)))
 
-	// Auth — login/refresh/set-password are unauthenticated; change-password is exempt from default-password gate
+	// Auth — login/refresh/set-password are unauthenticated; set-password only works
+	// before any password exists, and change-password is exempt from the default-password gate.
 	mux.HandleFunc("/api/v1/auth/login", h.handleLogin)
 	mux.HandleFunc("/api/v1/auth/logout", h.requireBearerAuth(h.handleLogout))
 	mux.HandleFunc("/api/v1/auth/refresh", h.handleRefresh)
@@ -1181,6 +1181,11 @@ func (h *RESTApiHandler) handleRefresh(w http.ResponseWriter, r *http.Request) {
 func (h *RESTApiHandler) handleSetPassword(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPut {
 		h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
+		return
+	}
+
+	if h.state.GetPassword() != "" {
+		h.writeError(w, http.StatusForbidden, "PASSWORD_ALREADY_SET", "Password already set; use authenticated change-password instead")
 		return
 	}
 
