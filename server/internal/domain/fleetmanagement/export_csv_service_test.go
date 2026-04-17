@@ -25,6 +25,8 @@ func TestService_ExportMinerListCsv_ShouldExportOnlyPairedMinersAndRespectFilter
 
 	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 2, "https://172.17.0.1:80")
 	deviceStore := sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB)
+	expectedWorkerName := "worker-01"
+	require.NoError(t, deviceStore.UpdateWorkerName(t.Context(), minermodels.DeviceIdentifier(deviceIDs[0]), expectedWorkerName))
 	require.NoError(t, deviceStore.UpsertDeviceStatus(t.Context(), minermodels.DeviceIdentifier(deviceIDs[0]), minermodels.MinerStatusActive, ""))
 	require.NoError(t, deviceStore.UpsertDeviceStatus(t.Context(), minermodels.DeviceIdentifier(deviceIDs[1]), minermodels.MinerStatusNeedsMiningPool, ""))
 
@@ -77,6 +79,7 @@ func TestService_ExportMinerListCsv_ShouldExportOnlyPairedMinersAndRespectFilter
 	require.Len(t, records, 2)
 	assert.Equal(t, []string{
 		"Name",
+		"Worker Name",
 		"Groups",
 		"Rack",
 		"Model",
@@ -90,6 +93,7 @@ func TestService_ExportMinerListCsv_ShouldExportOnlyPairedMinersAndRespectFilter
 		"Temp (°C)",
 		"Firmware",
 	}, records[0])
-	assert.Equal(t, "172.17.0.1", records[1][5])
-	assert.Equal(t, "Hashing", records[1][6])
+	assert.Equal(t, expectedWorkerName, records[1][1])
+	assert.Equal(t, "172.17.0.1", records[1][6])
+	assert.Equal(t, "Hashing", records[1][7])
 }

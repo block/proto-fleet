@@ -8,6 +8,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"unicode"
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
@@ -25,6 +26,7 @@ const (
 
 var exportHeaders = []string{
 	"Name",
+	"Worker Name",
 	"Groups",
 	"Rack",
 	"Model",
@@ -175,6 +177,7 @@ func buildMinerCSVRow(
 ) []string {
 	return []string{
 		sanitizeOrFallback(snapshot.Name, sanitizeCSVField(snapshot.DeviceIdentifier)),
+		sanitizeOrFallback(snapshot.WorkerName, ""),
 		sanitizeCSVField(strings.Join(snapshot.GroupLabels, ", ")),
 		sanitizeOrFallback(snapshot.RackLabel, ""),
 		sanitizeOrFallback(snapshot.Model, "-"),
@@ -396,9 +399,21 @@ func sanitizeCSVField(value string) string {
 		return value
 	}
 	switch value[0] {
-	case '=', '+', '-', '@', '\t', '\r':
+	case '=', '+', '-', '@', '\t', '\r', '\n':
 		return "'" + value
 	}
+
+	for _, r := range value {
+		if unicode.IsSpace(r) || unicode.IsControl(r) {
+			continue
+		}
+		switch r {
+		case '=', '+', '-', '@':
+			return "'" + value
+		}
+		break
+	}
+
 	return value
 }
 
