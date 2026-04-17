@@ -39,6 +39,8 @@ import { useClickOutside } from "@/shared/hooks/useClickOutside";
 
 type SingleMinerAction = SupportedAction | "viewMiner";
 
+const unauthenticatedActions = new Set<SingleMinerAction>([deviceActions.unpair, "viewMiner"]);
+
 interface SingleMinerActionsMenuProps {
   deviceIdentifier: string;
   minerUrl?: string;
@@ -47,7 +49,7 @@ interface SingleMinerActionsMenuProps {
   workerName?: string;
   onActionStart?: () => void;
   onActionComplete?: () => void;
-  disabled?: boolean;
+  needsAuthentication?: boolean;
   miners?: Record<string, MinerStateSnapshot>;
   onRefetchMiners?: () => void;
   onWorkerNameUpdated?: (deviceIdentifier: string, workerName: string) => void;
@@ -61,7 +63,7 @@ const SingleMinerActionsMenu = ({
   workerName,
   onActionStart,
   onActionComplete,
-  disabled = false,
+  needsAuthentication = false,
   miners,
   onRefetchMiners,
   onWorkerNameUpdated,
@@ -350,6 +352,14 @@ const SingleMinerActionsMenu = ({
     return viewMinerAction ? [viewMinerAction, ...actions, renameAction] : [...actions, renameAction];
   }, [handleRenameOpen, handleUpdateWorkerNameAction, handleViewMiner, minerUrl, popoverActions]);
 
+  const visibleActions = useMemo(
+    () =>
+      needsAuthentication
+        ? actionsWithSingleNameFlows.filter((a) => unauthenticatedActions.has(a.action))
+        : actionsWithSingleNameFlows,
+    [actionsWithSingleNameFlows, needsAuthentication],
+  );
+
   const [isOpen, setIsOpen] = useState(false);
   const [showWarnDialog, setShowWarnDialog] = useState(false);
 
@@ -388,7 +398,8 @@ const SingleMinerActionsMenu = ({
         setIsOpen={setIsOpen}
         showWarnDialog={showWarnDialog}
         currentAction={currentAction}
-        popoverActions={actionsWithSingleNameFlows}
+        popoverActions={visibleActions}
+        confirmationActions={actionsWithSingleNameFlows}
         onClickOutside={onClickOutside}
         handleAction={handleAction}
         handleConfirmationClick={handleConfirmationClick}
@@ -418,7 +429,6 @@ const SingleMinerActionsMenu = ({
         handlePasswordConfirm={handlePasswordConfirm}
         handlePasswordDismiss={handlePasswordDismiss}
         handleAuthDismiss={handleAuthDismiss}
-        disabled={disabled}
         unsupportedMinersInfo={unsupportedMinersInfo}
         handleUnsupportedMinersContinue={handleUnsupportedMinersContinueWithReset}
         handleUnsupportedMinersDismiss={handleUnsupportedMinersDismiss}
@@ -450,6 +460,7 @@ type SingleMinerActionsMenuInnerProps = {
   showWarnDialog: boolean;
   currentAction: SupportedAction | null;
   popoverActions: BulkAction<SingleMinerAction>[];
+  confirmationActions: BulkAction<SingleMinerAction>[];
   onClickOutside: () => void;
   handleAction: (action: BulkAction<SingleMinerAction>) => void;
   handleConfirmationClick: () => void;
@@ -471,7 +482,6 @@ type SingleMinerActionsMenuInnerProps = {
   currentCoolingMode: CoolingMode | undefined;
   handleCoolingModeConfirm: (coolingMode: CoolingMode) => void;
   handleCoolingModeDismiss: () => void;
-  disabled?: boolean;
   unsupportedMinersInfo: UnsupportedMinersInfo;
   handleUnsupportedMinersContinue: () => void;
   handleUnsupportedMinersDismiss: () => void;
@@ -496,6 +506,7 @@ const SingleMinerActionsMenuInner = ({
   showWarnDialog,
   currentAction,
   popoverActions,
+  confirmationActions,
   onClickOutside,
   handleAction,
   handleConfirmationClick,
@@ -525,7 +536,6 @@ const SingleMinerActionsMenuInner = ({
   handlePasswordConfirm,
   handlePasswordDismiss,
   handleAuthDismiss,
-  disabled = false,
   unsupportedMinersInfo,
   handleUnsupportedMinersContinue,
   handleUnsupportedMinersDismiss,
@@ -564,11 +574,8 @@ const SingleMinerActionsMenuInner = ({
         className="-my-[10px] !p-[14px]"
         size={sizes.compact}
         variant={variants.textOnly}
-        prefixIcon={
-          <Ellipsis width={iconSizes.small} className={disabled ? "text-text-primary-30" : "text-text-primary-70"} />
-        }
+        prefixIcon={<Ellipsis width={iconSizes.small} className="text-text-primary-70" />}
         testId="single-miner-actions-menu-button"
-        disabled={disabled}
         onClick={() => setIsOpen((prev) => !prev)}
       />
       {isOpen && (
@@ -606,7 +613,7 @@ const SingleMinerActionsMenuInner = ({
         onContinue={handleUnsupportedMinersContinue}
         onDismiss={handleUnsupportedMinersDismiss}
       />
-      {popoverActions
+      {confirmationActions
         .filter((action) => action.requiresConfirmation)
         .map((action) => {
           if (action.confirmation === undefined) return null;

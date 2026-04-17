@@ -1,3 +1,4 @@
+import clsx from "clsx";
 import type { ErrorMessage } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
@@ -37,7 +38,7 @@ const MinerName = ({
 
   return (
     <div className="grid w-full grid-cols-[1fr_auto] items-center gap-3">
-      <div className="min-w-0 truncate text-left" title={name}>
+      <div className={clsx("min-w-0 truncate text-left", { "opacity-50": needsAuthentication })} title={name}>
         {name}
       </div>
       <div className="flex items-center gap-2">
@@ -61,7 +62,7 @@ const MinerName = ({
           deviceStatus={deviceStatus}
           minerName={name}
           workerName={miner.workerName}
-          disabled={needsAuthentication}
+          needsAuthentication={needsAuthentication}
           miners={miners}
           onRefetchMiners={onRefetchMiners}
           onWorkerNameUpdated={onWorkerNameUpdated}

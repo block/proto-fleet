@@ -65,6 +65,22 @@ describe("MinerName", () => {
     expect(screen.getByTitle(deviceIdentifier)).toBeInTheDocument();
   });
 
+  it("dims the miner name text when authentication is needed", () => {
+    const miner = createMockMiner({ pairingStatus: PairingStatus.AUTHENTICATION_NEEDED });
+
+    render(<MinerName miner={miner} errors={[]} isActionLoading={false} onOpenStatusFlow={vi.fn()} />);
+
+    expect(screen.getByTitle("Test Miner")).toHaveClass("opacity-50");
+  });
+
+  it("does not dim the miner name text when paired", () => {
+    const miner = createMockMiner({ pairingStatus: PairingStatus.PAIRED });
+
+    render(<MinerName miner={miner} errors={[]} isActionLoading={false} onOpenStatusFlow={vi.fn()} />);
+
+    expect(screen.getByTitle("Test Miner")).not.toHaveClass("opacity-50");
+  });
+
   it("hides alert icon when authentication is required", () => {
     vi.mocked(useNeedsAttentionModule.useNeedsAttention).mockReturnValue(true);
     const miner = createMockMiner({ pairingStatus: PairingStatus.AUTHENTICATION_NEEDED });
