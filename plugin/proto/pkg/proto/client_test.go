@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -258,7 +259,10 @@ type trackingReadCloser struct {
 func (t *trackingReadCloser) Close() error {
 	t.closeCalled = true
 	t.readToEOF = t.reader.Len() == 0
-	return t.ReadCloser.Close()
+	if err := t.ReadCloser.Close(); err != nil {
+		return fmt.Errorf("tracking read closer close: %w", err)
+	}
+	return nil
 }
 
 func TestDoGetWithStatus_DrainsBodyOnForbidden(t *testing.T) {
