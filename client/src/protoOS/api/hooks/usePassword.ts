@@ -55,15 +55,12 @@ const usePassword = () => {
 
       await authRetry({
         request: (header) => api.changePassword(changePasswordRequest, header),
-        onSuccess: () => {
-          setDefaultPasswordActive(false);
-          onSuccess?.();
-        },
+        onSuccess,
         onError: (err) => onError?.(getErrorMessage(err)),
         shouldRetry: (err) => !isPasswordVerificationError(err),
       }).finally(() => onFinally?.());
     },
-    [api, authRetry, setDefaultPasswordActive],
+    [api, authRetry],
   );
 
   return useMemo(() => ({ setPassword, changePassword }), [setPassword, changePassword]);

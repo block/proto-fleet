@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useLogin, usePassword } from "@/protoOS/api";
-import { useDefaultPasswordActive, usePasswordSet } from "@/protoOS/store";
+import { useDefaultPasswordActive, usePasswordSet, useSetDefaultPasswordActive } from "@/protoOS/store";
 import { Authentication, OnboardingLayout } from "@/shared/components/Setup";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 
@@ -10,6 +10,7 @@ const AuthenticationPage = () => {
   const login = useLogin();
   const isPasswordSet = usePasswordSet();
   const isDefaultPasswordActive = useDefaultPasswordActive();
+  const setDefaultPasswordActive = useSetDefaultPasswordActive();
   const [submitError, setSubmitError] = useState<string | undefined>();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const isChangingDefaultPassword = isPasswordSet === true && isDefaultPasswordActive === true;
@@ -45,6 +46,7 @@ const AuthenticationPage = () => {
               login({
                 password: newPassword,
                 onSuccess: () => {
+                  setDefaultPasswordActive(false);
                   setIsSubmitting(false);
                   navigate("/onboarding/mining-pool");
                 },

@@ -7,6 +7,7 @@ const mockGetState = vi.fn();
 let currentAccessToken = "test-token";
 
 const authHeaderFor = (token: string) => ({
+  secure: false,
   headers: { Authorization: `Bearer ${token}` },
 });
 
@@ -83,9 +84,7 @@ describe("useAuthRetry", () => {
 
     expect(request).toHaveBeenCalledTimes(2);
     expect(request).toHaveBeenNthCalledWith(1, authHeaderFor("test-token"));
-    expect(request).toHaveBeenNthCalledWith(2, {
-      headers: { Authorization: "Bearer fresh-token" },
-    });
+    expect(request).toHaveBeenNthCalledWith(2, authHeaderFor("fresh-token"));
     expect(onSuccess).toHaveBeenCalledWith("retry-result");
   });
 

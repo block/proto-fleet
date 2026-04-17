@@ -9,6 +9,7 @@ const mockSetPassword = vi.fn();
 const mockChangePassword = vi.fn();
 const mockUsePasswordSet = vi.fn();
 const mockUseDefaultPasswordActive = vi.fn();
+const mockSetDefaultPasswordActive = vi.fn();
 
 vi.mock("@/shared/hooks/useNavigate", () => ({
   useNavigate: () => mockNavigate,
@@ -25,6 +26,7 @@ vi.mock("@/protoOS/api", () => ({
 vi.mock("@/protoOS/store", () => ({
   usePasswordSet: () => mockUsePasswordSet(),
   useDefaultPasswordActive: () => mockUseDefaultPasswordActive(),
+  useSetDefaultPasswordActive: () => mockSetDefaultPasswordActive,
 }));
 
 vi.mock("@/shared/components/Setup", () => ({
@@ -118,7 +120,33 @@ describe("AuthenticationPage", () => {
           onSuccess: expect.any(Function),
         }),
       );
+      expect(mockSetDefaultPasswordActive).toHaveBeenCalledWith(false);
       expect(mockNavigate).toHaveBeenCalledWith("/onboarding/mining-pool");
     });
+  });
+
+  it("does not clear defaultPasswordActive before the follow-up login succeeds", async () => {
+    mockUsePasswordSet.mockReturnValue(true);
+    mockUseDefaultPasswordActive.mockReturnValue(true);
+    mockLogin
+      .mockImplementationOnce(({ onSuccess }) => {
+        onSuccess?.("access-token", "refresh-token");
+      })
+      .mockImplementationOnce(() => {});
+    mockChangePassword.mockImplementation(({ onSuccess }) => {
+      onSuccess?.();
+    });
+
+    render(<AuthenticationPage />);
+
+    fireEvent.click(screen.getByText("Submit"));
+
+    await waitFor(() => {
+      expect(mockChangePassword).toHaveBeenCalled();
+      expect(mockLogin).toHaveBeenCalledTimes(2);
+    });
+
+    expect(mockSetDefaultPasswordActive).not.toHaveBeenCalled();
+    expect(mockNavigate).not.toHaveBeenCalled();
   });
 });

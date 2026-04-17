@@ -2,11 +2,12 @@ import { useCallback } from "react";
 import useMinerStore from "../useMinerStore";
 import { useAuthErrors } from "./useAuth";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
+import { RequestParams } from "@/protoOS/api/generatedApi";
 
-type AuthHeader = { headers: { Authorization: string } };
+type AuthRequestParams = RequestParams & { headers: { Authorization: string } };
 
 interface AuthRetryOptions<T> {
-  request: (header: AuthHeader) => Promise<T>;
+  request: (params: AuthRequestParams) => Promise<T>;
   onSuccess?: (result: T) => void | Promise<void>;
   onError?: (err: ErrorProps) => void;
   shouldRetry?: (error: ErrorProps) => boolean;
@@ -24,14 +25,15 @@ export const useAuthRetry = () => {
 
   return useCallback(
     <T>({ request, onSuccess, onError, shouldRetry }: AuthRetryOptions<T>): Promise<void> => {
-      const authHeader = {
+      const authRequestParams: AuthRequestParams = {
+        secure: false,
         headers: {
           Authorization: `Bearer ${useMinerStore.getState().auth.authTokens.accessToken?.value || ""}`,
         },
       };
 
-      const execute = (header: AuthHeader, isRetry = false): Promise<void> =>
-        request(header)
+      const execute = (params: AuthRequestParams, isRetry = false): Promise<void> =>
+        request(params)
           .then((result) => onSuccess?.(result))
           .catch((error) => {
             if (isRetry || (shouldRetry && !shouldRetry(error))) {
@@ -41,11 +43,18 @@ export const useAuthRetry = () => {
             return handleAuthErrors({
               error,
               onError,
-              onSuccess: (accessToken) => execute({ headers: { Authorization: `Bearer ${accessToken}` } }, true),
+              onSuccess: (accessToken) =>
+                execute(
+                  {
+                    secure: false,
+                    headers: { Authorization: `Bearer ${accessToken}` },
+                  },
+                  true,
+                ),
             });
           });
 
-      return execute(authHeader);
+      return execute(authRequestParams);
     },
     [handleAuthErrors],
   );

@@ -67,7 +67,7 @@ describe("usePassword", () => {
       await result.current.changePassword({ changePasswordRequest, onSuccess, onFinally });
 
       expect(mockChangePassword).toHaveBeenCalledWith(changePasswordRequest, mockAuthHeader);
-      expect(mockSetDefaultPasswordActive).toHaveBeenCalledWith(false);
+      expect(mockSetDefaultPasswordActive).not.toHaveBeenCalled();
       expect(onSuccess).toHaveBeenCalledTimes(1);
       expect(onFinally).toHaveBeenCalledTimes(1);
     });
