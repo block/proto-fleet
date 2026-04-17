@@ -79,7 +79,7 @@ const DropdownFilterPopover = ({
               onClick={handleSelectAll}
             >
               <div className="grow text-emphasis-300">Select all</div>
-              <Checkbox checked={allSelected} partiallyChecked={partiallySelected} />
+              <Checkbox className="shrink-0" checked={allSelected} partiallyChecked={partiallySelected} />
             </div>
             <Divider className="px-0" />
           </>
@@ -99,7 +99,7 @@ const DropdownFilterPopover = ({
               <div className="min-w-0 grow truncate text-emphasis-300" title={item.label}>
                 {item.label}
               </div>
-              <Checkbox checked={displaySelectedItems.includes(item.id)} />
+              <Checkbox className="shrink-0" checked={displaySelectedItems.includes(item.id)} />
             </div>
             {index < options.length - 1 && <Divider className="px-0" />}
           </div>

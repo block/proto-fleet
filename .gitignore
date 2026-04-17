@@ -30,8 +30,8 @@ server/plugins/*
 deployment-files/client/nginx.conf
 
 # proto-python-gen package artifacts
-packages/proto-python-gen/.venv/
+packages/proto-python-gen/.venv
 packages/proto-python-gen/tests/output*/
-server/sdk/v1/python/.venv/
+server/sdk/v1/python/.venv
 server/plugins-active/
 server/docker-compose.plugins.yaml
