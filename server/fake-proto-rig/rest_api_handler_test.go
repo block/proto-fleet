@@ -23,9 +23,17 @@ func TestNewMinerState_DefaultModelIsRig(t *testing.T) {
 }
 
 func TestConfigureStartupAuthState_SeedsDefaultPasswordBaseline(t *testing.T) {
-	t.Setenv("FAKE_RIG_DEFAULT_PASSWORD", "root19")
-
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	configureStartupAuthState(state)
+
+	if got := state.GetPassword(); got != "" {
+		t.Fatalf("expected startup password to remain unset when env is absent, got %q", got)
+	}
+	if state.IsDefaultPasswordActive() {
+		t.Fatal("expected default password to remain inactive when env is absent")
+	}
+
+	t.Setenv("FAKE_RIG_DEFAULT_PASSWORD", "root19")
 	configureStartupAuthState(state)
 
 	if got := state.GetPassword(); got != "root19" {
