@@ -4,7 +4,7 @@ import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
 import { RefreshRequest } from "@/protoOS/api/generatedApi";
 
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import useMinerStore from "@/protoOS/store/useMinerStore";
+import { useMinerStore, useSetAuthTokens } from "@/protoOS/store";
 
 import { accessTokenExpiryTime } from "@/shared/utils/utility";
 
@@ -16,8 +16,7 @@ interface RefreshProps {
 
 const useRefresh = () => {
   const { api } = useMinerHosting();
-  const authTokens = useMinerStore((state) => state.auth.authTokens);
-  const setAuthTokens = useMinerStore((state) => state.auth.setAuthTokens);
+  const setAuthTokens = useSetAuthTokens();
 
   const refresh = useCallback(
     async ({ refreshToken, onSuccess, onError }: RefreshProps) => {
@@ -26,6 +25,7 @@ const useRefresh = () => {
         .refreshToken({ refresh_token: refreshToken })
         .then((res: any) => {
           const accessTokenValue = res?.data["access_token"];
+          const authTokens = useMinerStore.getState().auth.authTokens;
           setAuthTokens({
             ...authTokens,
             accessToken: {
@@ -42,7 +42,7 @@ const useRefresh = () => {
           onError?.(err);
         });
     },
-    [authTokens, setAuthTokens, api],
+    [setAuthTokens, api],
   );
 
   return refresh;

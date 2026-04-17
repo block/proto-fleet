@@ -54,7 +54,6 @@ interface HandleAuthErrorsProps {
 }
 
 export const useAuthErrors = () => {
-  const authTokens = useAuthTokens();
   const logout = useLogout();
   const setShowLoginModal = useMinerStore((state) => state.ui.setShowLoginModal);
   const setDefaultPasswordActive = useMinerStore((state) => state.minerStatus.setDefaultPasswordActive);
@@ -72,7 +71,7 @@ export const useAuthErrors = () => {
 
       if (error?.status === 401) {
         return refresh({
-          refreshToken: authTokens.refreshToken?.value || "",
+          refreshToken: useMinerStore.getState().auth.authTokens.refreshToken?.value || "",
           onSuccess,
           onError: (refreshError) => {
             if (refreshError?.status === 401) {
@@ -85,7 +84,7 @@ export const useAuthErrors = () => {
       }
       onError?.(error);
     },
-    [authTokens.refreshToken?.value, refresh, logout, setShowLoginModal, setDefaultPasswordActive],
+    [refresh, logout, setShowLoginModal, setDefaultPasswordActive],
   );
 
   return useMemo(

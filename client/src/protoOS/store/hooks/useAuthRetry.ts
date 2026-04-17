@@ -1,5 +1,6 @@
 import { useCallback } from "react";
-import { useAuthErrors, useAuthHeader } from "./useAuth";
+import useMinerStore from "../useMinerStore";
+import { useAuthErrors } from "./useAuth";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
 
 type AuthHeader = { headers: { Authorization: string } };
@@ -19,11 +20,16 @@ interface AuthRetryOptions<T> {
  * headers, or remember to `return` promises — the chain is always connected.
  */
 export const useAuthRetry = () => {
-  const authHeader = useAuthHeader();
   const { handleAuthErrors } = useAuthErrors();
 
   return useCallback(
     <T>({ request, onSuccess, onError, shouldRetry }: AuthRetryOptions<T>): Promise<void> => {
+      const authHeader = {
+        headers: {
+          Authorization: `Bearer ${useMinerStore.getState().auth.authTokens.accessToken?.value || ""}`,
+        },
+      };
+
       const execute = (header: AuthHeader, isRetry = false): Promise<void> =>
         request(header)
           .then((result) => onSuccess?.(result))
@@ -41,6 +47,6 @@ export const useAuthRetry = () => {
 
       return execute(authHeader);
     },
-    [authHeader, handleAuthErrors],
+    [handleAuthErrors],
   );
 };

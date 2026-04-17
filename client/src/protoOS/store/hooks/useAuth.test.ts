@@ -7,31 +7,37 @@ const mockLogout = vi.fn();
 const mockSetShowLoginModal = vi.fn();
 const mockUseLocation = vi.hoisted(() => vi.fn());
 const mockSetDefaultPasswordActive = vi.fn();
+const mockGetState = vi.fn();
 
 vi.mock("@/protoOS/api/hooks/useRefresh", () => ({
   useRefresh: () => mockRefresh,
 }));
 
 vi.mock("../useMinerStore", () => ({
-  default: vi.fn((selector: any) =>
-    selector({
-      auth: {
-        authTokens: {
-          refreshToken: { value: "test-refresh-token", expiry: "" },
-          accessToken: { value: "test-access-token", expiry: "" },
+  default: Object.assign(
+    vi.fn((selector: any) =>
+      selector({
+        auth: {
+          authTokens: {
+            refreshToken: { value: "test-refresh-token", expiry: "" },
+            accessToken: { value: "test-access-token", expiry: "" },
+          },
+          logout: mockLogout,
+          setAuthTokens: vi.fn(),
+          setLoading: vi.fn(),
         },
-        logout: mockLogout,
-        setAuthTokens: vi.fn(),
-        setLoading: vi.fn(),
-      },
-      ui: {
-        setShowLoginModal: mockSetShowLoginModal,
-        pausedAuthAction: null,
-      },
-      minerStatus: {
-        setDefaultPasswordActive: mockSetDefaultPasswordActive,
-      },
-    }),
+        ui: {
+          setShowLoginModal: mockSetShowLoginModal,
+          pausedAuthAction: null,
+        },
+        minerStatus: {
+          setDefaultPasswordActive: mockSetDefaultPasswordActive,
+        },
+      }),
+    ),
+    {
+      getState: () => mockGetState(),
+    },
   ),
 }));
 
@@ -48,6 +54,13 @@ describe("useAuthErrors", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockUseLocation.mockReturnValue({ pathname: "/" });
+    mockGetState.mockReturnValue({
+      auth: {
+        authTokens: {
+          refreshToken: { value: "test-refresh-token", expiry: "" },
+        },
+      },
+    });
   });
 
   describe("handleAuthErrors", () => {
@@ -68,6 +81,29 @@ describe("useAuthErrors", () => {
         onSuccess: expect.any(Function),
         onError: expect.any(Function),
       });
+    });
+
+    test("uses the latest refresh token from store when handling 401s", () => {
+      mockGetState.mockReturnValue({
+        auth: {
+          authTokens: {
+            refreshToken: { value: "fresh-refresh-token", expiry: "" },
+          },
+        },
+      });
+
+      const { result } = renderHook(() => useAuthErrors());
+
+      result.current.handleAuthErrors({
+        error: { status: 401, error: { message: "Unauthorized" } },
+      });
+
+      expect(mockRefresh).toHaveBeenCalledWith(
+        expect.objectContaining({
+          refreshToken: "fresh-refresh-token",
+          onError: expect.any(Function),
+        }),
+      );
     });
 
     test("returns undefined for non-401 errors", () => {
