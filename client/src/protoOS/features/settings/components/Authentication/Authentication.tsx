@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import { useLogin, usePassword } from "@/protoOS/api";
-import { useAccessToken } from "@/protoOS/store";
+import { useAccessToken, useSetDefaultPasswordActive } from "@/protoOS/store";
 import { Authentication } from "@/shared/components/Setup";
 import { pushToast, STATUSES as TOAST_STATUSES, updateToast } from "@/shared/features/toaster";
 import { useNavigate } from "@/shared/hooks/useNavigate";
@@ -9,6 +9,7 @@ const AuthenticationSettings = () => {
   const { changePassword } = usePassword();
   const login = useLogin();
   const navigate = useNavigate();
+  const setDefaultPasswordActive = useSetDefaultPasswordActive();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const { hasAccess } = useAccessToken(true);
@@ -42,6 +43,7 @@ const AuthenticationSettings = () => {
             login({
               password: newPassword,
               onSuccess: () => {
+                setDefaultPasswordActive(false);
                 setIsSubmitting(false);
                 updateToast(toast, {
                   message: "Password updated",
@@ -69,7 +71,7 @@ const AuthenticationSettings = () => {
         doChangePassword();
       }
     },
-    [hasAccess, changePassword, login, navigate],
+    [hasAccess, changePassword, login, navigate, setDefaultPasswordActive],
   );
 
   return (

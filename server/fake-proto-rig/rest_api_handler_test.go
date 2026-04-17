@@ -525,6 +525,23 @@ func TestNetworkRoute_GET_DoesNotRequireBearerAuth(t *testing.T) {
 	}
 }
 
+func TestNetworkRoute_GET_DuringReboot_Returns503(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.Rebooting = true
+	h := NewRESTApiHandler(state)
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/network", nil)
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusServiceUnavailable, rr.Code, rr.Body.String())
+	}
+}
+
 func TestTestPoolConnectionRoute_RequiresBearerAuth(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
 	state.SetAccessToken("test-token")
@@ -993,6 +1010,24 @@ func TestPairingAuthKeyRoute_POST_AllowsInitialPairWithoutAuth(t *testing.T) {
 
 	if state.GetAuthKey() != "test-key-123" {
 		t.Fatalf("expected auth key %q, got %q", "test-key-123", state.GetAuthKey())
+	}
+}
+
+func TestPairingAuthKeyRoute_POST_DuringReboot_Returns503(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.Rebooting = true
+	h := NewRESTApiHandler(state)
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/pairing/auth-key",
+		strings.NewReader(`{"public_key":"test-key-123"}`))
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusServiceUnavailable, rr.Code, rr.Body.String())
 	}
 }
 

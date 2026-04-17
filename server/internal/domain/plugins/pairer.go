@@ -78,11 +78,17 @@ func (p *Pairer) GetDeviceInfo(ctx context.Context, device *discoverymodels.Disc
 
 	result, err := plugin.Driver.NewDevice(ctx, device.DeviceIdentifier, deviceInfo, secretBundle)
 	if err != nil {
+		if isDefaultPasswordActiveFailure(err) {
+			return nil, fleeterror.NewForbiddenErrorf("failed to create device: %v", err)
+		}
 		return nil, fleeterror.NewInternalErrorf("failed to create device: %v", err)
 	}
 
 	newDeviceInfo, _, err := result.Device.DescribeDevice(ctx)
 	if err != nil {
+		if isDefaultPasswordActiveFailure(err) {
+			return nil, fleeterror.NewForbiddenErrorf("failed to describe device: %v", err)
+		}
 		return nil, fleeterror.NewInternalErrorf("failed to describe device: %v", err)
 	}
 
@@ -670,4 +676,17 @@ func isAuthenticationFailure(err error) bool {
 	// Check for SDK authentication error (in-process plugins, no RPC boundary)
 	var sdkErr sdk.SDKError
 	return errors.As(err, &sdkErr) && sdkErr.Code == sdk.ErrCodeAuthenticationFailed
+}
+
+func isDefaultPasswordActiveFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	if status.Code(err) == codes.PermissionDenied {
+		return true
+	}
+
+	var sdkErr sdk.SDKError
+	return errors.As(err, &sdkErr) && sdkErr.Code == sdk.ErrCodeDefaultPasswordActive
 }

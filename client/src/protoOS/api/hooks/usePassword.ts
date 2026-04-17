@@ -37,7 +37,7 @@ const usePassword = () => {
       if (!api) return;
 
       await authRetry({
-        request: () => api.setPassword({ password }),
+        request: () => api.setPassword({ password }, { secure: false }),
         onSuccess: () => {
           setPasswordSet(true);
           setDefaultPasswordActive(false);

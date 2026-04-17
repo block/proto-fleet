@@ -481,10 +481,12 @@ func (c *Client) doGetWithStatus(ctx context.Context, path string, result any) (
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusUnauthorized {
+		_, _ = io.Copy(io.Discard, resp.Body)
 		return resp.StatusCode, fmt.Errorf("unauthenticated: missing or invalid credentials")
 	}
 
 	if resp.StatusCode == http.StatusForbidden {
+		_, _ = io.Copy(io.Discard, resp.Body)
 		return resp.StatusCode, fmt.Errorf("forbidden: default password must be changed")
 	}
 

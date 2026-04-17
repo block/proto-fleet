@@ -1137,6 +1137,7 @@ func TestWrapPluginError(t *testing.T) {
 		expectNil             bool
 		expectUnimplemented   bool
 		expectUnauthenticated bool
+		expectForbidden       bool
 		expectContains        string
 	}{
 		{
@@ -1160,6 +1161,14 @@ func TestWrapPluginError(t *testing.T) {
 			args:                  []any{"device-456"},
 			expectUnauthenticated: true,
 			expectContains:        "reboot failed for device device-456",
+		},
+		{
+			name:            "gRPC PermissionDenied maps to fleeterror Forbidden",
+			err:             grpcstatus.Error(codes.PermissionDenied, "default password must be changed"),
+			format:          "reboot failed for device %s",
+			args:            []any{"device-789"},
+			expectForbidden: true,
+			expectContains:  "reboot failed for device device-789",
 		},
 		{
 			name:                "gRPC Internal maps to fleeterror Internal (not Unimplemented)",
@@ -1197,6 +1206,7 @@ func TestWrapPluginError(t *testing.T) {
 			require.NotNil(t, result)
 			assert.Equal(t, tt.expectUnimplemented, fleeterror.IsUnimplementedError(result))
 			assert.Equal(t, tt.expectUnauthenticated, fleeterror.IsAuthenticationError(result))
+			assert.Equal(t, tt.expectForbidden, fleeterror.IsForbiddenError(result))
 			assert.Contains(t, result.Error(), tt.expectContains)
 		})
 	}
@@ -1295,4 +1305,31 @@ func TestPluginMiner_GetDeviceStatus_AuthError_ReturnsUnauthenticated(t *testing
 			assert.False(t, fleeterror.IsConnectionError(err), "auth error must not be misclassified as connection error")
 		})
 	}
+}
+
+func TestPluginMiner_GetDeviceStatus_DefaultPasswordActive_ReturnsForbidden(t *testing.T) {
+	connInfo, _ := networking.NewConnectionInfo("192.168.1.100", "4028", networking.ProtocolHTTP)
+
+	pluginMiner := NewPluginMiner(
+		testOrgID,
+		models.DeviceIdentifier("device-default-password"),
+		"proto",
+		nil,
+		"serial-default-password",
+		*connInfo,
+		&mockSDKDevice{
+			id: "device-default-password",
+			statusFunc: func(ctx context.Context) (sdk.DeviceMetrics, error) {
+				return sdk.DeviceMetrics{}, grpcstatus.Error(codes.PermissionDenied, "default password must be changed")
+			},
+		},
+		sdk.DeviceInfo{Host: "192.168.1.100", Port: 4028},
+		nil,
+	)
+
+	status, err := pluginMiner.GetDeviceStatus(context.Background())
+
+	assert.Equal(t, models.MinerStatusUnknown, status)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsForbiddenError(err), "expected forbidden error, got: %v", err)
 }

@@ -142,6 +142,13 @@ func (p *PluginMiner) GetDeviceStatus(ctx context.Context) (models.MinerStatus, 
 		if isNetworkError(err) {
 			return models.MinerStatusOffline, fleeterror.NewConnectionError(string(p.deviceID), err)
 		}
+		if isDefaultPasswordActiveError(err) {
+			return models.MinerStatusUnknown, fleeterror.NewForbiddenErrorf(
+				"device %s default password must be changed during status check: %v",
+				p.deviceID,
+				err,
+			)
+		}
 		if isAuthError(err) {
 			return models.MinerStatusUnknown, fleeterror.NewUnauthenticatedErrorf("device %s authentication failed during status check: %v", p.deviceID, err)
 		}
@@ -517,9 +524,10 @@ func isAuthError(err error) bool {
 }
 
 // wrapPluginError converts an SDK/plugin error into the appropriate fleet error type.
-// It preserves gRPC Unimplemented, Unauthenticated, and FailedPrecondition statuses
-// so the command system can skip retries for permanent failures, cache eviction can
-// fire on auth errors, and device-rejected operations (e.g. 413) fail immediately.
+// It preserves gRPC Unimplemented, Unauthenticated, FailedPrecondition, and
+// PermissionDenied statuses so the command system can skip retries for permanent
+// failures, cache eviction can fire on auth errors, device-rejected operations
+// (e.g. 413) fail immediately, and default-password lockouts surface as forbidden.
 func wrapPluginError(err error, format string, a ...any) error {
 	if err == nil {
 		return nil
@@ -533,15 +541,32 @@ func wrapPluginError(err error, format string, a ...any) error {
 			return fleeterror.NewUnauthenticatedErrorf("%s: %s", msg, st.Message())
 		case codes.FailedPrecondition:
 			return fleeterror.NewFailedPreconditionErrorf("%s: %s", msg, st.Message())
+		case codes.PermissionDenied:
+			return fleeterror.NewForbiddenErrorf("%s: %s", msg, st.Message())
 		case codes.OK, codes.Canceled, codes.Unknown, codes.InvalidArgument,
 			codes.DeadlineExceeded, codes.NotFound, codes.AlreadyExists,
-			codes.PermissionDenied, codes.ResourceExhausted,
+			codes.ResourceExhausted, codes.FailedPrecondition,
 			codes.Aborted, codes.OutOfRange, codes.Internal, codes.Unavailable,
 			codes.DataLoss:
 			// All other gRPC status codes are treated as internal errors below.
 		}
 	}
+	var sdkErr sdk.SDKError
+	if errors.As(err, &sdkErr) && sdkErr.Code == sdk.ErrCodeDefaultPasswordActive {
+		return fleeterror.NewForbiddenErrorf("%s: %s", msg, sdkErr.Message)
+	}
 	return fleeterror.NewInternalErrorf("%s: %v", msg, err)
+}
+
+func isDefaultPasswordActiveError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if st, ok := grpcstatus.FromError(err); ok && st.Code() == codes.PermissionDenied {
+		return true
+	}
+	var sdkErr sdk.SDKError
+	return errors.As(err, &sdkErr) && sdkErr.Code == sdk.ErrCodeDefaultPasswordActive
 }
 
 // isNetworkError determines if an error represents a network connectivity failure.

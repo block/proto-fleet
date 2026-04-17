@@ -606,11 +606,6 @@ func (h *RESTApiHandler) requireBearerAuthMethods(next http.HandlerFunc, methods
 	protectedMethods := protectedMethodsSet(methods...)
 
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !methodIsProtected(r.Method, protectedMethods) {
-			next(w, r)
-			return
-		}
-
 		h.state.mu.RLock()
 		rebooting := h.state.Rebooting
 		h.state.mu.RUnlock()
@@ -624,6 +619,11 @@ func (h *RESTApiHandler) requireBearerAuthMethods(next http.HandlerFunc, methods
 				}
 			}
 			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+
+		if !methodIsProtected(r.Method, protectedMethods) {
+			next(w, r)
 			return
 		}
 

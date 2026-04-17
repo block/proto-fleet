@@ -13,6 +13,8 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
+	"google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status"
 )
 
 // PluginDriverGetter defines the interface for getting SDK drivers
@@ -144,6 +146,12 @@ func NewPluginMinerWithCredentials(
 		var sdkErr sdk.SDKError
 		if errors.As(err, &sdkErr) && sdkErr.Code == sdk.ErrCodeAuthenticationFailed {
 			return nil, fleeterror.NewUnauthenticatedErrorf("device %s authentication failed: %v", config.DeviceIdentifier, err)
+		}
+		if errors.As(err, &sdkErr) && sdkErr.Code == sdk.ErrCodeDefaultPasswordActive {
+			return nil, fleeterror.NewForbiddenErrorf("device %s default password must be changed: %v", config.DeviceIdentifier, err)
+		}
+		if st, ok := grpcstatus.FromError(err); ok && st.Code() == codes.PermissionDenied {
+			return nil, fleeterror.NewForbiddenErrorf("device %s default password must be changed: %v", config.DeviceIdentifier, err)
 		}
 
 		return nil, fleeterror.NewInternalErrorf("failed to create SDK device: %v", err)

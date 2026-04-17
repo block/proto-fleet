@@ -242,6 +242,57 @@ func TestClientRuntimeEnvChange(t *testing.T) {
 		"Proto HTTPS should keep skipping certificate verification after environment changes")
 }
 
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+type trackingReadCloser struct {
+	reader      *bytes.Reader
+	readToEOF   bool
+	closeCalled bool
+}
+
+func (t *trackingReadCloser) Read(p []byte) (int, error) {
+	n, err := t.reader.Read(p)
+	if err == io.EOF {
+		t.readToEOF = true
+	}
+	return n, err
+}
+
+func (t *trackingReadCloser) Close() error {
+	t.closeCalled = true
+	return nil
+}
+
+func TestDoGetWithStatus_DrainsBodyOnForbidden(t *testing.T) {
+	body := &trackingReadCloser{
+		reader: bytes.NewReader([]byte(`{"error":{"message":"DEFAULT_PASSWORD_ACTIVE"}}`)),
+	}
+	client := &Client{
+		baseURL: "http://miner.local",
+		httpClient: &http.Client{
+			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: http.StatusForbidden,
+					Header:     make(http.Header),
+					Body:       body,
+					Request:    req,
+				}, nil
+			}),
+		},
+	}
+
+	statusCode, err := client.doGetWithStatus(context.Background(), "/api/v1/system", nil)
+
+	require.Error(t, err)
+	assert.Equal(t, http.StatusForbidden, statusCode)
+	assert.True(t, body.readToEOF, "403 response body should be drained before returning")
+	assert.True(t, body.closeCalled, "response body should still be closed")
+}
+
 // TestUnsupportedScheme tests handling of unsupported protocol schemes
 // This aligns with the server's protocol validation approach
 func TestUnsupportedScheme(t *testing.T) {

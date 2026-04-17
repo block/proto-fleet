@@ -159,7 +159,7 @@ describe("usePassword", () => {
 
       await result.current.setPassword({ password, onSuccess, onFinally });
 
-      expect(mockSetPassword).toHaveBeenCalledWith({ password });
+      expect(mockSetPassword).toHaveBeenCalledWith({ password }, { secure: false });
       expect(mockSetPasswordSet).toHaveBeenCalledWith(true);
       expect(mockSetDefaultPasswordActive).toHaveBeenCalledWith(false);
       expect(onSuccess).toHaveBeenCalledTimes(1);

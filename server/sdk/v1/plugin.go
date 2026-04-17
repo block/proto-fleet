@@ -267,7 +267,7 @@ func (s *DriverGRPCServer) NewDevice(ctx context.Context, req *pb.NewDeviceReque
 	// Use the provided device ID from the request
 	result, err := s.Impl.NewDevice(ctx, req.DeviceId, deviceInfo, secret)
 	if err != nil {
-		return nil, err
+		return nil, sdkErrorToGRPCStatus(err)
 	}
 
 	// Verify the device uses the provided ID
@@ -296,7 +296,7 @@ func (s *DriverGRPCServer) DescribeDevice(ctx context.Context, req *pb.DescribeD
 
 	deviceInfo, caps, err := device.DescribeDevice(ctx)
 	if err != nil {
-		return nil, err
+		return nil, sdkErrorToGRPCStatus(err)
 	}
 
 	return &pb.DescribeDeviceResponse{
@@ -316,7 +316,7 @@ func (s *DriverGRPCServer) DeviceStatus(ctx context.Context, req *pb.DeviceRef) 
 
 	metrics, err := device.Status(ctx)
 	if err != nil {
-		return nil, err
+		return nil, sdkErrorToGRPCStatus(err)
 	}
 
 	return deviceMetricsToProto(metrics), nil

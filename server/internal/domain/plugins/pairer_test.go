@@ -468,6 +468,99 @@ func TestPairer_GetDeviceInfo_Success(t *testing.T) {
 	assert.Equal(t, "00:11:22:33:44:55", result.MacAddress)
 }
 
+func TestPairer_GetDeviceInfo_DefaultPasswordActiveFromNewDevice_ReturnsForbidden(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	manager := NewManager(&Config{})
+
+	mockDriver := sdkMocks.NewMockDriver(ctrl)
+	mockDriver.EXPECT().
+		NewDevice(gomock.Any(), "test-device", gomock.Any(), gomock.Any()).
+		Return(sdk.NewDeviceResult{}, status.Error(codes.PermissionDenied, "default password must be changed"))
+
+	mockPlugin := &LoadedPlugin{
+		Name:       "test-plugin",
+		Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
+		Driver:     mockDriver,
+		Caps: sdk.Capabilities{
+			sdk.CapabilityPairing: true,
+		},
+	}
+	manager.pluginsByDriverName["antminer"] = mockPlugin
+
+	pairer := createTestPairer(ctrl, manager)
+	device := &discoverymodels.DiscoveredDevice{
+		Device: pb.Device{
+			DeviceIdentifier: "test-device",
+			IpAddress:        "192.168.1.100",
+			Port:             "80",
+			UrlScheme:        "http",
+			DriverName:       "antminer",
+		},
+		OrgID: 1,
+	}
+	credentials := &pb.Credentials{
+		Username: "admin",
+		Password: stringPtr("password123"),
+	}
+
+	result, err := pairer.GetDeviceInfo(t.Context(), device, credentials)
+
+	require.Error(t, err)
+	assert.Nil(t, result)
+	assert.True(t, fleeterror.IsForbiddenError(err), "expected forbidden error, got: %v", err)
+}
+
+func TestPairer_GetDeviceInfo_DefaultPasswordActiveFromDescribeDevice_ReturnsForbidden(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	manager := NewManager(&Config{})
+
+	mockDevice := sdkMocks.NewMockDevice(ctrl)
+	mockDevice.EXPECT().
+		DescribeDevice(gomock.Any()).
+		Return(sdk.DeviceInfo{}, sdk.Capabilities{}, status.Error(codes.PermissionDenied, "default password must be changed"))
+
+	mockDriver := sdkMocks.NewMockDriver(ctrl)
+	mockDriver.EXPECT().
+		NewDevice(gomock.Any(), "test-device", gomock.Any(), gomock.Any()).
+		Return(sdk.NewDeviceResult{Device: mockDevice}, nil)
+
+	mockPlugin := &LoadedPlugin{
+		Name:       "test-plugin",
+		Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
+		Driver:     mockDriver,
+		Caps: sdk.Capabilities{
+			sdk.CapabilityPairing: true,
+		},
+	}
+	manager.pluginsByDriverName["antminer"] = mockPlugin
+
+	pairer := createTestPairer(ctrl, manager)
+	device := &discoverymodels.DiscoveredDevice{
+		Device: pb.Device{
+			DeviceIdentifier: "test-device",
+			IpAddress:        "192.168.1.100",
+			Port:             "80",
+			UrlScheme:        "http",
+			DriverName:       "antminer",
+		},
+		OrgID: 1,
+	}
+	credentials := &pb.Credentials{
+		Username: "admin",
+		Password: stringPtr("password123"),
+	}
+
+	result, err := pairer.GetDeviceInfo(t.Context(), device, credentials)
+
+	require.Error(t, err)
+	assert.Nil(t, result)
+	assert.True(t, fleeterror.IsForbiddenError(err), "expected forbidden error, got: %v", err)
+}
+
 func TestPairer_GetDeviceInfo_ProtoUsesBearerToken(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

@@ -121,18 +121,33 @@ describe("useAuthErrors", () => {
       expect(onError).toHaveBeenCalledWith({ status: 500, error: { message: "Server error" } });
     });
 
-    test("sets defaultPasswordActive on 403 errors", () => {
+    test("sets defaultPasswordActive on matching default-password 403 errors", () => {
       const onError = vi.fn();
 
       const { result } = renderHook(() => useAuthErrors());
 
       result.current.handleAuthErrors({
-        error: { status: 403, error: { message: "Default password active" } },
+        error: { status: 403, error: { message: "DEFAULT_PASSWORD_ACTIVE" } },
         onError,
       });
 
       expect(mockSetDefaultPasswordActive).toHaveBeenCalledWith(true);
-      expect(onError).toHaveBeenCalledWith({ status: 403, error: { message: "Default password active" } });
+      expect(onError).toHaveBeenCalledWith({ status: 403, error: { message: "DEFAULT_PASSWORD_ACTIVE" } });
+      expect(mockRefresh).not.toHaveBeenCalled();
+    });
+
+    test("does not set defaultPasswordActive for unrelated 403 errors", () => {
+      const onError = vi.fn();
+
+      const { result } = renderHook(() => useAuthErrors());
+
+      result.current.handleAuthErrors({
+        error: { status: 403, error: { message: "Forbidden" } },
+        onError,
+      });
+
+      expect(mockSetDefaultPasswordActive).not.toHaveBeenCalled();
+      expect(onError).toHaveBeenCalledWith({ status: 403, error: { message: "Forbidden" } });
       expect(mockRefresh).not.toHaveBeenCalled();
     });
 

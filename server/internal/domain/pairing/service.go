@@ -1577,8 +1577,8 @@ func (s *Service) pairDevice(ctx context.Context, deviceID string, orgID int64, 
 			return models.DeviceIdentifier(discoveredDevice.DeviceIdentifier), nil
 		}
 
-		// Preserve authentication errors - don't wrap them
-		if fleeterror.IsAuthenticationError(err) {
+		// Preserve authentication/default-password errors - don't wrap them
+		if fleeterror.IsAuthenticationError(err) || fleeterror.IsForbiddenError(err) {
 			return "", err
 		}
 		return "", fleeterror.NewInternalErrorf("pairing device %s: %v", discoveredDevice.DeviceIdentifier, err)

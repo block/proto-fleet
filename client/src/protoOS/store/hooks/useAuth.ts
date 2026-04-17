@@ -53,6 +53,11 @@ interface HandleAuthErrorsProps {
   onSuccess?: (accessToken: string) => void | Promise<void>;
 }
 
+const isDefaultPasswordActiveError = (error: ErrorProps): boolean => {
+  const message = error?.error?.message?.toLowerCase() ?? "";
+  return error?.status === 403 && (message.includes("default password") || message.includes("default_password_active"));
+};
+
 export const useAuthErrors = () => {
   const logout = useLogout();
   const setShowLoginModal = useMinerStore((state) => state.ui.setShowLoginModal);
@@ -63,7 +68,7 @@ export const useAuthErrors = () => {
     ({ error, onError, onSuccess }: HandleAuthErrorsProps) => {
       // 403 with DEFAULT_PASSWORD_ACTIVE means the device still has its factory
       // password. Surface this in the store so the UI can prompt a password change.
-      if (error?.status === 403) {
+      if (isDefaultPasswordActiveError(error)) {
         setDefaultPasswordActive(true);
         onError?.(error);
         return;

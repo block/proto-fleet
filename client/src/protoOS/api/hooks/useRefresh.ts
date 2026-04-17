@@ -22,7 +22,7 @@ const useRefresh = () => {
     async ({ refreshToken, onSuccess, onError }: RefreshProps) => {
       if (!api) return;
       await api
-        .refreshToken({ refresh_token: refreshToken })
+        .refreshToken({ refresh_token: refreshToken }, { secure: false })
         .then((res: any) => {
           const accessTokenValue = res?.data["access_token"];
           const authTokens = useMinerStore.getState().auth.authTokens;
