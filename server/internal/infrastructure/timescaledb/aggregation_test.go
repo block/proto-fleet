@@ -58,9 +58,10 @@ func TestCalculateCumulativeAggregations_FleetTotals(t *testing.T) {
 	}
 
 	aggTypes := []models.AggregationType{models.AggregationTypeAverage, models.AggregationTypeSum}
-	result := calculateCumulativeAggregations(data, models.MeasurementTypeHashrate, aggTypes)
+	result, devCount := calculateCumulativeAggregations(data, models.MeasurementTypeHashrate, aggTypes)
 
 	assert.Len(t, result, 2)
+	assert.Equal(t, 3, devCount, "Should count 3 unique devices")
 
 	// For cumulative metrics, "Average" should be the SUM of per-device averages (fleet total)
 	var avgValue, sumValue float64
@@ -92,9 +93,10 @@ func TestCalculateCumulativeAggregations_MultipleDataPointsPerDevice(t *testing.
 	}
 
 	aggTypes := []models.AggregationType{models.AggregationTypeAverage}
-	result := calculateCumulativeAggregations(data, models.MeasurementTypeHashrate, aggTypes)
+	result, devCount := calculateCumulativeAggregations(data, models.MeasurementTypeHashrate, aggTypes)
 
 	assert.Len(t, result, 1)
+	assert.Equal(t, 2, devCount, "Should count 2 unique devices")
 	// Device1 avg = 150, Device2 avg = 350, Total = 500
 	assert.Equal(t, 500.0, result[0].Value, "Should sum per-device averages")
 }
@@ -198,9 +200,10 @@ func TestAggregateHourlyBucket_WeightedAverage(t *testing.T) {
 	}
 
 	aggTypes := []models.AggregationType{models.AggregationTypeAverage}
-	result := store.aggregateHourlyBucket(rows, models.MeasurementTypeTemperature, aggTypes)
+	result, devCount := store.aggregateHourlyBucket(rows, models.MeasurementTypeTemperature, aggTypes)
 
 	assert.Len(t, result, 1)
+	assert.Equal(t, 2, devCount, "Should count 2 devices with temperature data")
 	expected := (70.0*360 + 90.0*10) / (360 + 10) // ≈ 70.54
 	assert.InDelta(t, expected, result[0].Value, 0.01,
 		"Non-cumulative average should be weighted by data points")
@@ -231,9 +234,10 @@ func TestAggregateHourlyBucket_CumulativeUnweighted(t *testing.T) {
 	}
 
 	aggTypes := []models.AggregationType{models.AggregationTypeAverage}
-	result := store.aggregateHourlyBucket(rows, models.MeasurementTypePower, aggTypes)
+	result, devCount := store.aggregateHourlyBucket(rows, models.MeasurementTypePower, aggTypes)
 
 	assert.Len(t, result, 1)
+	assert.Equal(t, 2, devCount, "Should count 2 devices with power data")
 	assert.Equal(t, 2000.0, result[0].Value,
 		"Cumulative average should be fleet total (sum of per-device averages)")
 }
@@ -262,9 +266,10 @@ func TestAggregateDailyBucket_WeightedAverage(t *testing.T) {
 	}
 
 	aggTypes := []models.AggregationType{models.AggregationTypeAverage}
-	result := store.aggregateDailyBucket(rows, models.MeasurementTypeEfficiency, aggTypes)
+	result, devCount := store.aggregateDailyBucket(rows, models.MeasurementTypeEfficiency, aggTypes)
 
 	assert.Len(t, result, 1)
+	assert.Equal(t, 2, devCount, "Should count 2 devices with efficiency data")
 	expected := (30.0*8640 + 40.0*4320) / (8640 + 4320) // ≈ 33.33
 	assert.InDelta(t, expected, result[0].Value, 0.01,
 		"Non-cumulative daily average should be weighted by data points")
@@ -287,9 +292,10 @@ func TestAggregateHourlyBucket_SingleDevice(t *testing.T) {
 	}
 
 	aggTypes := []models.AggregationType{models.AggregationTypeAverage}
-	result := store.aggregateHourlyBucket(rows, models.MeasurementTypeTemperature, aggTypes)
+	result, devCount := store.aggregateHourlyBucket(rows, models.MeasurementTypeTemperature, aggTypes)
 
 	assert.Len(t, result, 1)
+	assert.Equal(t, 1, devCount, "Should count 1 device with temperature data")
 	assert.Equal(t, 72.5, result[0].Value,
 		"Single device average should equal device average regardless of weighting")
 }

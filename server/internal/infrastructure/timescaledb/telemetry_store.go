@@ -815,7 +815,7 @@ func (s *TimescaleTelemetryStore) aggregateHourlyRows(
 		bucketData := buckets[bucketTime]
 
 		for _, measurementType := range measurementTypes {
-			aggregatedValues := s.aggregateHourlyBucket(bucketData, measurementType, aggregationTypes)
+			aggregatedValues, metricDeviceCount := s.aggregateHourlyBucket(bucketData, measurementType, aggregationTypes)
 			if len(aggregatedValues) == 0 {
 				continue
 			}
@@ -824,7 +824,7 @@ func (s *TimescaleTelemetryStore) aggregateHourlyRows(
 				MeasurementType:  measurementType,
 				AggregatedValues: aggregatedValues,
 				OpenTime:         bucketTime,
-				DeviceCount:      safeIntToInt32(len(bucketData)),
+				DeviceCount:      safeIntToInt32(metricDeviceCount),
 			})
 		}
 	}
@@ -841,7 +841,7 @@ func (s *TimescaleTelemetryStore) aggregateHourlyBucket(
 	rows []sqlc.DeviceMetricsHourly,
 	measurementType models.MeasurementType,
 	aggregationTypes []models.AggregationType,
-) []models.AggregatedValue {
+) ([]models.AggregatedValue, int) {
 	isCumulative := isCumulativeMetric(measurementType)
 
 	var avgSum float64
@@ -861,7 +861,7 @@ func (s *TimescaleTelemetryStore) aggregateHourlyBucket(
 	}
 
 	if deviceCount == 0 {
-		return nil
+		return nil, 0
 	}
 
 	var result []models.AggregatedValue
@@ -893,7 +893,7 @@ func (s *TimescaleTelemetryStore) aggregateHourlyBucket(
 		})
 	}
 
-	return result
+	return result, deviceCount
 }
 
 // extractHourlyValues extracts avg, min, max values from an hourly row for a measurement type.
@@ -958,7 +958,7 @@ func (s *TimescaleTelemetryStore) aggregateDailyRows(
 		bucketData := buckets[bucketTime]
 
 		for _, measurementType := range measurementTypes {
-			aggregatedValues := s.aggregateDailyBucket(bucketData, measurementType, aggregationTypes)
+			aggregatedValues, metricDeviceCount := s.aggregateDailyBucket(bucketData, measurementType, aggregationTypes)
 			if len(aggregatedValues) == 0 {
 				continue
 			}
@@ -967,7 +967,7 @@ func (s *TimescaleTelemetryStore) aggregateDailyRows(
 				MeasurementType:  measurementType,
 				AggregatedValues: aggregatedValues,
 				OpenTime:         bucketTime,
-				DeviceCount:      safeIntToInt32(len(bucketData)),
+				DeviceCount:      safeIntToInt32(metricDeviceCount),
 			})
 		}
 	}
@@ -984,7 +984,7 @@ func (s *TimescaleTelemetryStore) aggregateDailyBucket(
 	rows []sqlc.DeviceMetricsDaily,
 	measurementType models.MeasurementType,
 	aggregationTypes []models.AggregationType,
-) []models.AggregatedValue {
+) ([]models.AggregatedValue, int) {
 	isCumulative := isCumulativeMetric(measurementType)
 
 	var avgSum float64
@@ -1004,7 +1004,7 @@ func (s *TimescaleTelemetryStore) aggregateDailyBucket(
 	}
 
 	if deviceCount == 0 {
-		return nil
+		return nil, 0
 	}
 
 	var result []models.AggregatedValue
@@ -1037,7 +1037,7 @@ func (s *TimescaleTelemetryStore) aggregateDailyBucket(
 		})
 	}
 
-	return result
+	return result, deviceCount
 }
 
 // extractDailyValues extracts avg, min, max values from a daily row for a measurement type.
@@ -1120,14 +1120,16 @@ func (s *TimescaleTelemetryStore) aggregateMetrics(
 
 		for _, measurementType := range measurementTypes {
 			var aggregatedValues []models.AggregatedValue
+			var metricDeviceCount int
 
 			if isCumulativeMetric(measurementType) {
-				aggregatedValues = calculateCumulativeAggregations(bucketData, measurementType, aggregationTypes)
+				aggregatedValues, metricDeviceCount = calculateCumulativeAggregations(bucketData, measurementType, aggregationTypes)
 			} else {
 				values := extractValues(bucketData, measurementType)
 				if len(values) == 0 {
 					continue
 				}
+				metricDeviceCount = countUniqueDevicesWithMeasurement(bucketData, measurementType)
 				aggregatedValues = make([]models.AggregatedValue, 0, len(aggregationTypes))
 				for _, aggType := range aggregationTypes {
 					aggValue := calculateAggregation(values, aggType)
@@ -1146,7 +1148,7 @@ func (s *TimescaleTelemetryStore) aggregateMetrics(
 				MeasurementType:  measurementType,
 				AggregatedValues: aggregatedValues,
 				OpenTime:         bucketTime,
-				DeviceCount:      safeIntToInt32(len(bucketData)),
+				DeviceCount:      safeIntToInt32(metricDeviceCount),
 			})
 		}
 	}
@@ -1290,6 +1292,19 @@ func extractValues(data []modelsV2.DeviceMetrics, measurementType models.Measure
 	return values
 }
 
+// countUniqueDevicesWithMeasurement returns the number of distinct devices that
+// have data for the given measurement type. Raw data may contain multiple
+// readings per device per bucket, so a simple len(extractValues) overcounts.
+func countUniqueDevicesWithMeasurement(data []modelsV2.DeviceMetrics, mt models.MeasurementType) int {
+	seen := make(map[string]struct{})
+	for _, m := range data {
+		if _, _, ok := m.ExtractRawMeasurement(mt); ok {
+			seen[m.DeviceIdentifier] = struct{}{}
+		}
+	}
+	return len(seen)
+}
+
 // calculateCumulativeAggregations handles cumulative metrics (hashrate, power) by:
 // 1. Grouping values by device
 // 2. Calculating per-device aggregates (avg, min, max, latest)
@@ -1298,7 +1313,7 @@ func calculateCumulativeAggregations(
 	data []modelsV2.DeviceMetrics,
 	measurementType models.MeasurementType,
 	aggregationTypes []models.AggregationType,
-) []models.AggregatedValue {
+) ([]models.AggregatedValue, int) {
 	deviceValues := make(map[string][]float64)
 	for _, m := range data {
 		if value, _, ok := m.ExtractRawMeasurement(measurementType); ok {
@@ -1307,7 +1322,7 @@ func calculateCumulativeAggregations(
 	}
 
 	if len(deviceValues) == 0 {
-		return nil
+		return nil, 0
 	}
 
 	type perDeviceAggs struct {
@@ -1373,7 +1388,7 @@ func calculateCumulativeAggregations(
 		})
 	}
 
-	return result
+	return result, len(deviceAggs)
 }
 
 func calculateAggregation(values []float64, aggType models.AggregationType) float64 {

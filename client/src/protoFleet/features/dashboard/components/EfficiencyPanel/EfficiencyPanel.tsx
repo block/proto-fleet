@@ -35,12 +35,12 @@ export function EfficiencyPanel({ duration, metrics, totalMiners }: EfficiencyPa
     return chartData[chartData.length - 1]?.efficiency ?? null;
   }, [chartData]);
 
-  // Get device count from latest metric
+  // Use max device count across all buckets — the last bucket may be incomplete
+  // and fluctuate as new data arrives.
   const deviceCount = useMemo(() => {
-    if (metrics === undefined) return undefined; // Not loaded yet
-    if (metrics.length === 0) return null; // Loaded but no data
-    const latestMetric = metrics[metrics.length - 1];
-    return latestMetric.deviceCount ?? null;
+    if (metrics === undefined) return undefined;
+    if (metrics.length === 0) return null;
+    return Math.max(...metrics.map((m) => m.deviceCount));
   }, [metrics]);
 
   // Show loading skeleton while data hasn't loaded yet

@@ -64,6 +64,17 @@ describe("EfficiencyPanel", () => {
     expect(screen.getByText("0 of 5 miners reporting")).toBeInTheDocument();
   });
 
+  it("uses max device count across buckets, not the last bucket", () => {
+    // Arrange — first bucket has 5 devices, second (incomplete) bucket has only 3
+    const metrics = [createMockMetric(25.5, 5), createMockMetric(24.0, 3)];
+
+    // Act
+    render(<EfficiencyPanel duration={"1h"} metrics={metrics} totalMiners={7} />);
+
+    // Assert — subtitle should reflect the max (5), not the last bucket (3)
+    expect(screen.getByText("5 of 7 miners reporting")).toBeInTheDocument();
+  });
+
   it("renders loading state without subtitle", () => {
     // undefined = not loaded yet (loading state)
     render(<EfficiencyPanel duration={"1h"} metrics={undefined} totalMiners={5} />);
