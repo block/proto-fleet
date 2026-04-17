@@ -22,6 +22,20 @@ func TestNewMinerState_DefaultModelIsRig(t *testing.T) {
 	}
 }
 
+func TestConfigureStartupAuthState_SeedsDefaultPasswordBaseline(t *testing.T) {
+	t.Setenv("FAKE_RIG_DEFAULT_PASSWORD", "root19")
+
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	configureStartupAuthState(state)
+
+	if got := state.GetPassword(); got != "root19" {
+		t.Fatalf("expected startup password %q, got %q", "root19", got)
+	}
+	if !state.IsDefaultPasswordActive() {
+		t.Fatal("expected startup state to report default password active")
+	}
+}
+
 func TestHandleChangePassword_WrongCurrentPassword_Returns401(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
 	state.SetPassword("correctPassword")

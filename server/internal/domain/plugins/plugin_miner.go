@@ -566,7 +566,13 @@ func isDefaultPasswordActiveError(err error) bool {
 		return true
 	}
 	var sdkErr sdk.SDKError
-	return errors.As(err, &sdkErr) && sdkErr.Code == sdk.ErrCodeDefaultPasswordActive
+	if errors.As(err, &sdkErr) && sdkErr.Code == sdk.ErrCodeDefaultPasswordActive {
+		return true
+	}
+
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "default password must be changed") ||
+		strings.Contains(msg, "default_password_active")
 }
 
 // isNetworkError determines if an error represents a network connectivity failure.

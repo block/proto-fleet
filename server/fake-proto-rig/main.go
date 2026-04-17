@@ -29,6 +29,7 @@ import (
 const (
 	defaultHTTPPort       = 8080
 	serverShutdownTimeout = 10 * time.Second
+	defaultRigPassword    = "root"
 )
 
 func main() {
@@ -41,6 +42,7 @@ func main() {
 
 	// Create miner state
 	state := NewMinerState(serialNumber, macAddress)
+	configureStartupAuthState(state)
 
 	// Apply error configuration from environment
 	applyErrorConfig(state)
@@ -114,6 +116,10 @@ func startHTTPServer(ctx context.Context, state *MinerState, port int) error {
 	}
 
 	return nil
+}
+
+func configureStartupAuthState(state *MinerState) {
+	state.SeedDefaultPassword(getEnv("FAKE_RIG_DEFAULT_PASSWORD", defaultRigPassword))
 }
 
 // applyErrorConfig reads error configuration from environment variables.

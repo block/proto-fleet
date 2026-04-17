@@ -380,6 +380,14 @@ func (s *MinerState) ClearAuthKey() {
 	s.RefreshToken = ""
 }
 
+// SeedDefaultPassword initializes the simulator with a factory-default password baseline.
+func (s *MinerState) SeedDefaultPassword(password string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.DefaultPassword = password
+	s.Password = password
+}
+
 // SetPassword safely sets the password.
 func (s *MinerState) SetPassword(password string) {
 	s.mu.Lock()

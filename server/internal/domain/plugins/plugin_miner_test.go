@@ -1310,26 +1310,44 @@ func TestPluginMiner_GetDeviceStatus_AuthError_ReturnsUnauthenticated(t *testing
 func TestPluginMiner_GetDeviceStatus_DefaultPasswordActive_ReturnsForbidden(t *testing.T) {
 	connInfo, _ := networking.NewConnectionInfo("192.168.1.100", "4028", networking.ProtocolHTTP)
 
-	pluginMiner := NewPluginMiner(
-		testOrgID,
-		models.DeviceIdentifier("device-default-password"),
-		"proto",
-		nil,
-		"serial-default-password",
-		*connInfo,
-		&mockSDKDevice{
-			id: "device-default-password",
-			statusFunc: func(ctx context.Context) (sdk.DeviceMetrics, error) {
-				return sdk.DeviceMetrics{}, grpcstatus.Error(codes.PermissionDenied, "default password must be changed")
-			},
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{
+			name: "permission denied status",
+			err:  grpcstatus.Error(codes.PermissionDenied, "default password must be changed"),
 		},
-		sdk.DeviceInfo{Host: "192.168.1.100", Port: 4028},
-		nil,
-	)
+		{
+			name: "wrapped unknown status with default-password marker",
+			err:  grpcstatus.Error(codes.Unknown, "failed to get miner status: forbidden: default password must be changed"),
+		},
+	}
 
-	status, err := pluginMiner.GetDeviceStatus(context.Background())
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pluginMiner := NewPluginMiner(
+				testOrgID,
+				models.DeviceIdentifier("device-default-password"),
+				"proto",
+				nil,
+				"serial-default-password",
+				*connInfo,
+				&mockSDKDevice{
+					id: "device-default-password",
+					statusFunc: func(ctx context.Context) (sdk.DeviceMetrics, error) {
+						return sdk.DeviceMetrics{}, tt.err
+					},
+				},
+				sdk.DeviceInfo{Host: "192.168.1.100", Port: 4028},
+				nil,
+			)
 
-	assert.Equal(t, models.MinerStatusUnknown, status)
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsForbiddenError(err), "expected forbidden error, got: %v", err)
+			status, err := pluginMiner.GetDeviceStatus(context.Background())
+
+			assert.Equal(t, models.MinerStatusUnknown, status)
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsForbiddenError(err), "expected forbidden error, got: %v", err)
+		})
+	}
 }
