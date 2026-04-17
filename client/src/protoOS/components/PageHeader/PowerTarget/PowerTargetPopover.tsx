@@ -1,7 +1,7 @@
 import { RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
-import { useMiningTarget } from "@/protoOS/api";
 import { PerformanceMode } from "@/protoOS/api/generatedApi";
+import { useMiningTarget } from "@/protoOS/api/hooks/useMiningTarget";
 import { PowerTargetMode, powerTargetModes } from "@/protoOS/components/PageHeader/PowerTarget/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Input from "@/shared/components/Input";

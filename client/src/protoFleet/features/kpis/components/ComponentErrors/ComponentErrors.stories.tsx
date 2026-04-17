@@ -10,6 +10,7 @@ const meta: Meta<typeof ComponentErrors> = {
   title: "Proto Fleet/Dashboard/ComponentErrors",
   component: ComponentErrors,
   parameters: {
+    withRouter: false,
     layout: "centered",
     docs: {
       description: {

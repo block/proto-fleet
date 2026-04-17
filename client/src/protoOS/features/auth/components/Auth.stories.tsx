@@ -9,6 +9,9 @@ export const SignUp = () => {
 
 export default {
   title: "ProtoOS/Sign Up",
+  parameters: {
+    withRouter: false,
+  },
   decorators: [
     (Story: ElementType) => (
       <MemoryRouter>

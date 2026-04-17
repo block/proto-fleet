@@ -34,6 +34,9 @@ export const CustomTabMenu = () => {
 
 export default {
   title: "Shared/TabMenu",
+  parameters: {
+    withRouter: false,
+  },
   decorators: [
     (Story: any) => (
       <MemoryRouter initialEntries={["/hashrate"]}>

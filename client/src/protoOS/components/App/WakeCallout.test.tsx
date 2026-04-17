@@ -6,7 +6,7 @@ import WakeCallout from "./WakeCallout";
 // Mock the cooling status API hook
 const mockSetCooling = vi.fn();
 const mockUseCoolingStatus = vi.fn();
-vi.mock("@/protoOS/api", () => ({
+vi.mock("@/protoOS/api/hooks/useCoolingStatus", () => ({
   useCoolingStatus: () => mockUseCoolingStatus(),
 }));
 

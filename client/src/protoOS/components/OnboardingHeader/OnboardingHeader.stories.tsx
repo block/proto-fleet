@@ -9,6 +9,9 @@ export const Header = () => {
 
 export default {
   title: "Shared/Onboarding/Header",
+  parameters: {
+    withRouter: false,
+  },
   decorators: [
     (Story: ElementType) => (
       <MemoryRouter>

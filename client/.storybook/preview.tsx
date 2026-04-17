@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import React, { ComponentType, useEffect } from "react";
+import React, { ComponentType, useEffect, useMemo } from "react";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import type { Preview } from "@storybook/react-vite";
 import "../src/shared/styles/index.css";
@@ -18,13 +18,27 @@ const ThemeWrapper = ({ theme, children }: { theme: string; children: React.Reac
   return <>{children}</>;
 };
 
+const StoryRouter = ({ Story }: { Story: ComponentType }) => {
+  const router = useMemo(() => createMemoryRouter([{ path: "*", element: <Story /> }]), [Story]);
+
+  return <RouterProvider router={router} />;
+};
+
 export const decorators = [
-  (Story: ComponentType, context: { globals: { theme?: string } }) => {
+  (Story: ComponentType, context: { globals: { theme?: string }; parameters: { withRouter?: boolean } }) => {
     const theme = context.globals.theme || "light";
-    const router = createMemoryRouter([{ path: "*", element: <Story /> }]);
+
+    if (context.parameters.withRouter === false) {
+      return (
+        <ThemeWrapper theme={theme}>
+          <Story />
+        </ThemeWrapper>
+      );
+    }
+
     return (
       <ThemeWrapper theme={theme}>
-        <RouterProvider router={router} />
+        <StoryRouter Story={Story} />
       </ThemeWrapper>
     );
   },

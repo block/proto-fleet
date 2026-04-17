@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { useCreatePools, usePoolsInfo, useSystemStatus } from "@/protoOS/api";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
+import { useCreatePools } from "@/protoOS/api/hooks/useCreatePools";
+import { usePoolsInfo } from "@/protoOS/api/hooks/usePoolsInfo";
+import { useSystemStatus } from "@/protoOS/api/hooks/useSystemStatus";
 
 import { isValidPool, PoolInfo } from "@/protoOS/components/MiningPools";
 import OnboardingSettingUp from "@/shared/components/OnboardingSettingUp/OnboardingSettingUp";

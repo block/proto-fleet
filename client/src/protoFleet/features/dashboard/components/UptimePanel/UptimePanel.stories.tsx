@@ -69,6 +69,7 @@ const meta = {
   component: MockUptimePanel,
   tags: ["autodocs"],
   parameters: {
+    withRouter: false,
     layout: "padded",
     docs: {
       description: {

@@ -29,6 +29,9 @@ export const PowerWidget = () => {
 
 export default {
   title: "protoOS/Page Header/Power Widget",
+  parameters: {
+    withRouter: false,
+  },
   decorators: [
     (Story: ElementType) => (
       <MemoryRouter>

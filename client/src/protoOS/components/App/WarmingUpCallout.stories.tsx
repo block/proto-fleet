@@ -20,6 +20,9 @@ export const WarmingUpMiner = () => {
 
 export default {
   title: "ProtoOS/Warming Up Miner",
+  parameters: {
+    withRouter: false,
+  },
   decorators: [
     (Story: ElementType) => (
       <MemoryRouter>

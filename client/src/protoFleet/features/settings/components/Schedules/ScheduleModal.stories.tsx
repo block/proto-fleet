@@ -1,8 +1,19 @@
-import { useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import type { Meta, StoryObj } from "@storybook/react";
 import { action } from "storybook/actions";
 
+import { deviceSetClient, fleetManagementClient } from "@/protoFleet/api/clients";
+import {
+  DeviceSetSchema,
+  DeviceSetType,
+  ListDeviceSetsResponseSchema,
+  RackInfoSchema,
+} from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
+import {
+  ListMinerStateSnapshotsResponseSchema,
+  MinerStateSnapshotSchema,
+} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import {
   DayOfWeek,
   PowerTargetConfigSchema,
@@ -18,6 +29,111 @@ import {
 import type { ScheduleListItem } from "@/protoFleet/api/useScheduleApi";
 import ScheduleModal from "@/protoFleet/features/settings/components/Schedules/ScheduleModal";
 import { Toaster as ToasterComponent } from "@/shared/features/toaster";
+import { createRefCountedStoryMock } from "@/shared/stories/createRefCountedStoryMock";
+
+type MutableClient<T> = { -readonly [K in keyof T]: T[K] };
+
+const mutableDeviceSetClient = deviceSetClient as MutableClient<typeof deviceSetClient>;
+const mutableFleetManagementClient = fleetManagementClient as MutableClient<typeof fleetManagementClient>;
+
+const mockRacks = [
+  create(DeviceSetSchema, {
+    id: 101n,
+    type: DeviceSetType.RACK,
+    label: "Rack A1",
+    deviceCount: 8,
+    typeDetails: {
+      case: "rackInfo",
+      value: create(RackInfoSchema, {
+        rows: 4,
+        columns: 2,
+        zone: "North Hall",
+      }),
+    },
+  }),
+  create(DeviceSetSchema, {
+    id: 102n,
+    type: DeviceSetType.RACK,
+    label: "Rack B4",
+    deviceCount: 12,
+    typeDetails: {
+      case: "rackInfo",
+      value: create(RackInfoSchema, {
+        rows: 6,
+        columns: 2,
+        zone: "South Hall",
+      }),
+    },
+  }),
+];
+
+const mockMiners = [
+  create(MinerStateSnapshotSchema, {
+    deviceIdentifier: "miner-9",
+    name: "Miner 9",
+    model: "S21 Pro",
+    ipAddress: "10.0.0.9",
+    rackLabel: "Rack A1",
+    groupLabels: [],
+  }),
+  create(MinerStateSnapshotSchema, {
+    deviceIdentifier: "miner-14",
+    name: "Miner 14",
+    model: "S19 XP",
+    ipAddress: "10.0.0.14",
+    rackLabel: "Rack B4",
+    groupLabels: [],
+  }),
+  create(MinerStateSnapshotSchema, {
+    deviceIdentifier: "miner-22",
+    name: "Miner 22",
+    model: "S21 Pro",
+    ipAddress: "10.0.0.22",
+    rackLabel: "Rack B4",
+    groupLabels: [],
+  }),
+];
+
+const mockMinerModels = Array.from(new Set(mockMiners.map((miner) => miner.model)));
+
+const MockedScheduleApis = ({ children }: { children: ReactNode }) => {
+  useEffect(() => {
+    return installMockedScheduleApis();
+  }, []);
+
+  return <>{children}</>;
+};
+
+const installMockedScheduleApis = createRefCountedStoryMock(() => {
+  const originalListDeviceSets = mutableDeviceSetClient.listDeviceSets;
+  const originalListMinerStateSnapshots = mutableFleetManagementClient.listMinerStateSnapshots;
+
+  mutableDeviceSetClient.listDeviceSets = async (request) =>
+    create(ListDeviceSetsResponseSchema, {
+      deviceSets: request.type === DeviceSetType.RACK ? mockRacks : [],
+      nextPageToken: "",
+      totalCount: request.type === DeviceSetType.RACK ? mockRacks.length : 0,
+    });
+
+  mutableFleetManagementClient.listMinerStateSnapshots = async () =>
+    create(ListMinerStateSnapshotsResponseSchema, {
+      miners: mockMiners,
+      cursor: "",
+      totalMiners: mockMiners.length,
+      models: mockMinerModels,
+    });
+
+  return () => {
+    mutableDeviceSetClient.listDeviceSets = originalListDeviceSets;
+    mutableFleetManagementClient.listMinerStateSnapshots = originalListMinerStateSnapshots;
+  };
+});
+
+const withMockedScheduleApis = (Story: () => ReactNode) => (
+  <MockedScheduleApis>
+    <Story />
+  </MockedScheduleApis>
+);
 
 const createAsyncAction =
   (name: string) =>
@@ -112,6 +228,7 @@ const meta = {
   parameters: {
     layout: "fullscreen",
   },
+  decorators: [withMockedScheduleApis],
   tags: ["autodocs"],
 } satisfies Meta<typeof ScheduleModalStory>;
 

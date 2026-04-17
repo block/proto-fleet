@@ -68,7 +68,7 @@ const meta: Meta<typeof InteractiveRackDetailGrid> = {
   title: "Proto Fleet/Rack Management/RackDetailGrid",
   component: InteractiveRackDetailGrid,
   parameters: {
-    layout: "centered",
+    layout: "padded",
   },
   tags: ["autodocs"],
   argTypes: {

@@ -10,6 +10,9 @@ export const SecondaryNavigation = () => {
 
 export default {
   title: "Proto Fleet/SecondaryNavigation",
+  parameters: {
+    withRouter: false,
+  },
   args: {},
   argTypes: {},
   decorators: [

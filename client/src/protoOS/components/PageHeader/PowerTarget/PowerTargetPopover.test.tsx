@@ -17,7 +17,7 @@ let mockReturnValue = {
   updateMiningTarget: mockedUpdateMiningTarget,
 };
 
-vi.mock("@/protoOS/api", () => ({
+vi.mock("@/protoOS/api/hooks/useMiningTarget", () => ({
   useMiningTarget: vi.fn(() => mockReturnValue),
 }));
 

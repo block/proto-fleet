@@ -46,6 +46,9 @@ export const MiningPools = ({
 
 export default {
   title: "Shared/Mining Pools",
+  parameters: {
+    withRouter: false,
+  },
   args: {
     defaultPoolUrl: "stratum+tcp://stratum.slushpool.com:2222",
     defaultPoolUsername: "proto_mining_sw_test_1",

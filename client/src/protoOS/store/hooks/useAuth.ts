@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { matchRoutes, useLocation } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import useMinerStore from "../useMinerStore";
-import { useRefresh } from "@/protoOS/api";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
-import { CustomRouteObject, routerConfig } from "@/protoOS/router";
+import { useRefresh } from "@/protoOS/api/hooks/useRefresh";
+import { isAuthRequiredPath } from "@/protoOS/routeAuth";
 
 // =============================================================================
 // Auth State Selectors
@@ -91,20 +91,6 @@ export const useAuthErrors = () => {
 // Access Token Management
 // =============================================================================
 
-const getRouteAuthRequirement = (path: string, defaultValue = true) => {
-  const matchedRoutes = matchRoutes(routerConfig, path);
-  if (!matchedRoutes) return defaultValue;
-  for (let i = matchedRoutes.length - 1; i >= 0; i--) {
-    const match = matchedRoutes[i];
-    const route = match.route as CustomRouteObject;
-    const requiresAuth = route.requiresAuth;
-    if (typeof requiresAuth === "boolean") {
-      return requiresAuth;
-    }
-  }
-  return defaultValue;
-};
-
 export const useAccessToken = (shouldCheckAccess: boolean = true) => {
   const refresh = useRefresh();
   const authTokens = useAuthTokens();
@@ -123,9 +109,7 @@ export const useAccessToken = (shouldCheckAccess: boolean = true) => {
   const isValidAccessToken = dateAccessToken > dateNow;
   const isValidRefreshToken = dateRefreshToken > dateNow;
   const location = useLocation();
-  const routeRequiresAuth = useMemo(() => {
-    return getRouteAuthRequirement(location.pathname, false);
-  }, [location.pathname]);
+  const routeRequiresAuth = useMemo(() => isAuthRequiredPath(location.pathname), [location.pathname]);
 
   const checkAccess = useCallback(() => {
     if (!shouldCheckAccess) {

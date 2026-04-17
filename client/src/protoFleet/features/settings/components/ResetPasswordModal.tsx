@@ -46,6 +46,7 @@ const ResetPasswordModal = ({
     return (
       <Dialog
         open={open}
+        testId="modal"
         title="Reset member password?"
         onDismiss={onDismiss}
         icon={
@@ -78,6 +79,7 @@ const ResetPasswordModal = ({
   return (
     <Dialog
       open={open}
+      testId="modal"
       title="Password reset"
       subtitle={`${username}'s password has been reset. Save this password and share it with the user securely. It won't be shown again.`}
       subtitleSize="text-300"

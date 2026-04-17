@@ -127,6 +127,7 @@ const meta: Meta<typeof HashboardStatusCard> = {
     StoreDecorator,
   ],
   parameters: {
+    withRouter: false,
     layout: "padded",
   },
   tags: ["autodocs"],

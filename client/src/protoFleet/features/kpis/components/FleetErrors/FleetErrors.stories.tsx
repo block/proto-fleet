@@ -6,6 +6,7 @@ const meta: Meta<typeof FleetErrors> = {
   title: "Proto Fleet/Dashboard/FleetErrors",
   component: FleetErrors,
   parameters: {
+    withRouter: false,
     layout: "padded",
     docs: {
       description: {

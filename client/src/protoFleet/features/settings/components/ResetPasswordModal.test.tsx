@@ -22,7 +22,7 @@ beforeEach(() => {
 describe("ResetPasswordModal", () => {
   describe("Step 1: Confirmation", () => {
     it("renders confirmation step when temporaryPassword is null", () => {
-      const { getByText } = render(
+      const { getByTestId, getByText } = render(
         <ResetPasswordModal
           username="john_doe"
           temporaryPassword={null}
@@ -32,6 +32,7 @@ describe("ResetPasswordModal", () => {
         />,
       );
 
+      expect(getByTestId("modal")).toBeInTheDocument();
       expect(getByText("Reset member password?")).toBeInTheDocument();
       expect(getByText("Cancel")).toBeInTheDocument();
       expect(getByText("Reset member password")).toBeInTheDocument();
@@ -85,7 +86,7 @@ describe("ResetPasswordModal", () => {
 
   describe("Step 2: Success with password", () => {
     it("renders success step when temporaryPassword is provided", () => {
-      const { getByText } = render(
+      const { getByTestId, getByText } = render(
         <ResetPasswordModal
           username="john_doe"
           temporaryPassword="TempPass123!@#"
@@ -95,6 +96,7 @@ describe("ResetPasswordModal", () => {
         />,
       );
 
+      expect(getByTestId("modal")).toBeInTheDocument();
       expect(getByText("Password reset")).toBeInTheDocument();
       expect(getByText("TempPass123!@#")).toBeInTheDocument();
       expect(getByText("Done")).toBeInTheDocument();

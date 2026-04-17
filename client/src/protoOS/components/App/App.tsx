@@ -4,18 +4,16 @@ import { useLocation } from "react-router-dom";
 import ErrorCallout from "./ErrorCallout";
 import WakeCallout from "./WakeCallout";
 import WarmingUpCallout from "./WarmingUpCallout";
-import {
-  useErrors,
-  useFirmwareUpdate,
-  useHardware,
-  useHashboardStatus,
-  useMiningStart,
-  useMiningStatus,
-  useNetworkInfo,
-  usePoolsInfo,
-  useSystemInfo,
-  useSystemStatus,
-} from "@/protoOS/api";
+import { useErrors } from "@/protoOS/api/hooks/useErrors";
+import { useFirmwareUpdate } from "@/protoOS/api/hooks/useFirmwareUpdate";
+import { useHardware } from "@/protoOS/api/hooks/useHardware";
+import { useHashboardStatus } from "@/protoOS/api/hooks/useHashboardStatus";
+import { useMiningStart } from "@/protoOS/api/hooks/useMiningStart";
+import { useMiningStatus } from "@/protoOS/api/hooks/useMiningStatus";
+import { useNetworkInfo } from "@/protoOS/api/hooks/useNetworkInfo";
+import { usePoolsInfo } from "@/protoOS/api/hooks/usePoolsInfo";
+import { useSystemInfo } from "@/protoOS/api/hooks/useSystemInfo";
+import { useSystemStatus } from "@/protoOS/api/hooks/useSystemStatus";
 import AppLayout from "@/protoOS/components/AppLayout";
 import DefaultContentLayout from "@/protoOS/components/ContentLayout/DefaultContentLayout";
 import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";

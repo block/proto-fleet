@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import KpiLineChart from "@/protoOS/features/kpis/components/KpiLineChart";
+import KpiLineChart from "@/protoOS/features/kpis/components/KpiLineChart/KpiLineChart";
 import {
   convertAndFormatMeasurement,
   useChartDataForMetric,

@@ -11,6 +11,9 @@ export const NavigationMenu = () => {
 
 export default {
   title: "Proto Fleet/NavigationMenu",
+  parameters: {
+    withRouter: false,
+  },
   args: {},
   argTypes: {},
   decorators: [

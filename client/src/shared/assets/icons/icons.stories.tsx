@@ -11,7 +11,7 @@ export const Icons = () => {
             <span className="overflow-hidden text-ellipsis whitespace-nowrap">{name}</span>
           </div>
           <div className="flex min-w-[64px] items-center justify-center p-4">
-            <Icon />
+            <Icon className="h-5 text-text-primary" width="w-5" />
           </div>
         </div>
       ))}

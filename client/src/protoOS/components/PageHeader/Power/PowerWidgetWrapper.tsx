@@ -1,8 +1,10 @@
 import { useCallback, useState } from "react";
 
 import PowerWidget from "./PowerWidget";
-import { useMiningStatus, useMiningStop, useSystemReboot } from "@/protoOS/api";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
+import { useMiningStatus } from "@/protoOS/api/hooks/useMiningStatus";
+import { useMiningStop } from "@/protoOS/api/hooks/useMiningStop";
+import { useSystemReboot } from "@/protoOS/api/hooks/useSystemReboot";
 import { WakingDialog } from "@/protoOS/components/Power";
 import { useWakeMiner } from "@/protoOS/hooks/useWakeMiner";
 import { useSetMiningStatus } from "@/protoOS/store";

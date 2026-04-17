@@ -6,6 +6,7 @@ const meta: Meta<typeof FleetHealth> = {
   title: "Proto Fleet/Dashboard/FleetHealth",
   component: FleetHealth,
   parameters: {
+    withRouter: false,
     layout: "centered",
     docs: {
       description: {

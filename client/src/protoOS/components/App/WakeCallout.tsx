@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import FansDetectedDialog from "./FansDetectedDialog";
-import { useCoolingStatus } from "@/protoOS/api";
+import { useCoolingStatus } from "@/protoOS/api/hooks/useCoolingStatus";
 
 import { WakingDialog } from "@/protoOS/components/Power";
 import { useWakeMiner } from "@/protoOS/hooks/useWakeMiner";

@@ -40,6 +40,9 @@ export const NavigationSidebar = ({
 
 export default {
   title: "protoOS/Navigation Sidebar",
+  parameters: {
+    withRouter: false,
+  },
   args: {
     hasMacAddress: true,
     hasVersion: true,

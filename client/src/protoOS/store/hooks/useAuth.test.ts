@@ -1,12 +1,13 @@
 import { renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { useAuthErrors } from "./useAuth";
+import { useAccessToken, useAuthErrors } from "./useAuth";
 
 const mockRefresh = vi.fn();
 const mockLogout = vi.fn();
 const mockSetShowLoginModal = vi.fn();
+const mockUseLocation = vi.hoisted(() => vi.fn());
 
-vi.mock("@/protoOS/api", () => ({
+vi.mock("@/protoOS/api/hooks/useRefresh", () => ({
   useRefresh: () => mockRefresh,
 }));
 
@@ -30,18 +31,19 @@ vi.mock("../useMinerStore", () => ({
   ),
 }));
 
-vi.mock("react-router-dom", () => ({
-  matchRoutes: vi.fn(),
-  useLocation: vi.fn(() => ({ pathname: "/" })),
-}));
+vi.mock("react-router-dom", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react-router-dom")>();
 
-vi.mock("@/protoOS/router", () => ({
-  routerConfig: [],
-}));
+  return {
+    ...actual,
+    useLocation: mockUseLocation,
+  };
+});
 
 describe("useAuthErrors", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUseLocation.mockReturnValue({ pathname: "/" });
   });
 
   describe("handleAuthErrors", () => {
@@ -133,5 +135,39 @@ describe("useAuthErrors", () => {
 
       expect(onSuccess).toHaveBeenCalledWith("new-token");
     });
+  });
+});
+
+describe("useAccessToken", () => {
+  test("marks the mining pools settings route as auth required", () => {
+    mockUseLocation.mockReturnValue({ pathname: "/settings/mining-pools" });
+
+    const { result } = renderHook(() => useAccessToken(false));
+
+    expect(result.current.routeRequiresAuth).toBe(true);
+  });
+
+  test("treats trailing slashes on auth-required routes as protected", () => {
+    mockUseLocation.mockReturnValue({ pathname: "/settings/cooling/" });
+
+    const { result } = renderHook(() => useAccessToken(false));
+
+    expect(result.current.routeRequiresAuth).toBe(true);
+  });
+
+  test("treats case-variant auth-required routes as protected", () => {
+    mockUseLocation.mockReturnValue({ pathname: "/settings/Mining-Pools" });
+
+    const { result } = renderHook(() => useAccessToken(false));
+
+    expect(result.current.routeRequiresAuth).toBe(true);
+  });
+
+  test("leaves non-protected routes accessible without auth gating", () => {
+    mockUseLocation.mockReturnValue({ pathname: "/hashrate" });
+
+    const { result } = renderHook(() => useAccessToken(false));
+
+    expect(result.current.routeRequiresAuth).toBe(false);
   });
 });

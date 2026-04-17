@@ -9,6 +9,9 @@ export const PageHeader = () => {
 
 export default {
   title: "protoOS/Page Header",
+  parameters: {
+    withRouter: false,
+  },
   decorators: [
     (Story: ElementType) => (
       <MemoryRouter>

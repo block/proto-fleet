@@ -1,4 +1,4 @@
-import { useTestConnection } from "@/protoOS/api";
+import { useTestConnection } from "@/protoOS/api/hooks/useTestConnection";
 import PoolModal from "@/shared/components/MiningPools/PoolModal";
 import { PoolIndex, PoolInfo } from "@/shared/components/MiningPools/types";
 

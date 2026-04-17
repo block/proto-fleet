@@ -1,4 +1,4 @@
-import KpiLineChart from "@/protoOS/features/kpis/components/KpiLineChart";
+import KpiLineChart from "@/protoOS/features/kpis/components/KpiLineChart/KpiLineChart";
 import { convertAndFormatMeasurement, useChartDataForMetric, useMiner } from "@/protoOS/store";
 import { MetricTimeSeries } from "@/protoOS/store";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";

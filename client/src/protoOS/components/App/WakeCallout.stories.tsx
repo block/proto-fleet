@@ -16,6 +16,9 @@ export const WakeUpMiner = () => {
 
 export default {
   title: "ProtoOS/Wake Up Miner",
+  parameters: {
+    withRouter: false,
+  },
   decorators: [
     (Story: ElementType) => (
       <MemoryRouter>

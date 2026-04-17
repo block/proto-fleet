@@ -23,6 +23,7 @@ import {
   MiningPools,
 } from "@/protoOS/features/settings";
 import Logs from "@/protoOS/pages/MinerLogs";
+import { settingsRouteMetadata } from "@/protoOS/routeAuth";
 
 // Helper to create route objects with App wrapper
 interface CreateRouteOptions {
@@ -132,26 +133,26 @@ export const routerConfig: CustomRouteObject[] = [
         loader: () => redirect("general"),
       },
       {
-        path: "authentication",
+        path: settingsRouteMetadata.authentication.path,
         element: <AuthenticationSettings />,
       },
       {
-        path: "general",
+        path: settingsRouteMetadata.general.path,
         element: <General />,
       },
       {
-        path: "mining-pools",
+        path: settingsRouteMetadata.miningPools.path,
         element: <MiningPools />,
-        requiresAuth: true,
+        requiresAuth: settingsRouteMetadata.miningPools.requiresAuth,
       },
       {
-        path: "hardware",
+        path: settingsRouteMetadata.hardware.path,
         element: <Hardware />,
       },
       {
-        path: "cooling",
+        path: settingsRouteMetadata.cooling.path,
         element: <Cooling />,
-        requiresAuth: true,
+        requiresAuth: settingsRouteMetadata.cooling.requiresAuth,
       },
     ],
   },
