@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -258,6 +259,9 @@ func (t *trackingReadCloser) Read(p []byte) (int, error) {
 	n, err := t.reader.Read(p)
 	if err == io.EOF {
 		t.readToEOF = true
+	}
+	if err != nil && err != io.EOF {
+		return n, fmt.Errorf("tracking read closer read: %w", err)
 	}
 	return n, err
 }
