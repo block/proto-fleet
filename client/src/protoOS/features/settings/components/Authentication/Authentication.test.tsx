@@ -33,8 +33,8 @@ vi.mock("@/shared/features/toaster", () => ({
     success: "success",
     error: "error",
   },
-  pushToast: (...args: unknown[]) => mockPushToast(...args),
-  updateToast: (...args: unknown[]) => mockUpdateToast(...args),
+  pushToast: (toast: unknown) => mockPushToast(toast),
+  updateToast: (toastId: unknown, toast: unknown) => mockUpdateToast(toastId, toast),
 }));
 
 vi.mock("@/shared/components/Setup", () => ({
