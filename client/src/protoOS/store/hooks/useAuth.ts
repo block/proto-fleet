@@ -106,6 +106,7 @@ export const useAccessToken = (shouldCheckAccess: boolean = true) => {
   const setShowLoginModal = useMinerStore((state) => state.ui.setShowLoginModal);
   const logout = useLogout();
   const pausedAuthAction = useMinerStore((state) => state.ui.pausedAuthAction);
+  const passwordSet = useMinerStore((state) => state.minerStatus.passwordSet);
 
   // returns undefined if access is not needed
   // returns true if access token is valid
@@ -119,6 +120,12 @@ export const useAccessToken = (shouldCheckAccess: boolean = true) => {
   const isValidRefreshToken = dateRefreshToken > dateNow;
   const location = useLocation();
   const routeRequiresAuth = useMemo(() => isAuthRequiredPath(location.pathname), [location.pathname]);
+  // Only surface the login modal when the device actually has credentials to
+  // log into. Before onboarding completes (passwordSet === false) the user
+  // needs the onboarding flow, and while status is still loading
+  // (passwordSet === undefined) the App-level redirect may not have run yet —
+  // in both cases showing a modal traps the user with no way out.
+  const canShowLoginModal = passwordSet === true;
 
   const checkAccess = useCallback(() => {
     if (!shouldCheckAccess) {
@@ -127,14 +134,17 @@ export const useAccessToken = (shouldCheckAccess: boolean = true) => {
 
     if (isValidAccessToken && isValidRefreshToken) {
       setHasAccess(true);
+      setShowLoginModal(false);
       return;
     }
+
+    const shouldShowModal = canShowLoginModal && (routeRequiresAuth || pausedAuthAction !== null);
 
     // refresh token is expired, show login modal
     if (!isValidRefreshToken) {
       logout();
       setHasAccess(false);
-      setShowLoginModal(routeRequiresAuth || pausedAuthAction !== null);
+      setShowLoginModal(shouldShowModal);
       return;
     }
 
@@ -144,11 +154,12 @@ export const useAccessToken = (shouldCheckAccess: boolean = true) => {
         refreshToken: authTokens.refreshToken.value,
         onSuccess: () => {
           setHasAccess(true);
+          setShowLoginModal(false);
         },
         onError: () => {
           logout();
           setHasAccess(false);
-          setShowLoginModal(routeRequiresAuth || pausedAuthAction !== null);
+          setShowLoginModal(shouldShowModal);
         },
       });
     }
@@ -161,6 +172,7 @@ export const useAccessToken = (shouldCheckAccess: boolean = true) => {
     shouldCheckAccess,
     routeRequiresAuth,
     pausedAuthAction,
+    canShowLoginModal,
     logout,
   ]);
 
