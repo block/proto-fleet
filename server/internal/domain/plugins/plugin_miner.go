@@ -555,7 +555,7 @@ func wrapPluginError(err error, format string, a ...any) error {
 			return fleeterror.NewForbiddenErrorf("%s: permission denied: %s", msg, st.Message())
 		case codes.OK, codes.Canceled, codes.Unknown, codes.InvalidArgument,
 			codes.DeadlineExceeded, codes.NotFound, codes.AlreadyExists,
-			codes.ResourceExhausted, codes.FailedPrecondition,
+			codes.ResourceExhausted,
 			codes.Aborted, codes.OutOfRange, codes.Internal, codes.Unavailable,
 			codes.DataLoss:
 			// All other gRPC status codes are treated as internal errors below.
