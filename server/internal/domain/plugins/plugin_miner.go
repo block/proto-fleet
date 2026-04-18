@@ -517,8 +517,9 @@ func isAuthError(err error) bool {
 }
 
 // wrapPluginError converts an SDK/plugin error into the appropriate fleet error type.
-// It preserves gRPC Unimplemented and Unauthenticated statuses so the command system
-// can skip retries for permanent failures and cache eviction can fire on auth errors.
+// It preserves gRPC Unimplemented, Unauthenticated, and FailedPrecondition statuses
+// so the command system can skip retries for permanent failures, cache eviction can
+// fire on auth errors, and device-rejected operations (e.g. 413) fail immediately.
 func wrapPluginError(err error, format string, a ...any) error {
 	if err == nil {
 		return nil
@@ -530,9 +531,11 @@ func wrapPluginError(err error, format string, a ...any) error {
 			return fleeterror.NewUnimplementedErrorf("%s: %s", msg, st.Message())
 		case codes.Unauthenticated:
 			return fleeterror.NewUnauthenticatedErrorf("%s: %s", msg, st.Message())
+		case codes.FailedPrecondition:
+			return fleeterror.NewFailedPreconditionErrorf("%s: %s", msg, st.Message())
 		case codes.OK, codes.Canceled, codes.Unknown, codes.InvalidArgument,
 			codes.DeadlineExceeded, codes.NotFound, codes.AlreadyExists,
-			codes.PermissionDenied, codes.ResourceExhausted, codes.FailedPrecondition,
+			codes.PermissionDenied, codes.ResourceExhausted,
 			codes.Aborted, codes.OutOfRange, codes.Internal, codes.Unavailable,
 			codes.DataLoss:
 			// All other gRPC status codes are treated as internal errors below.

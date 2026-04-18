@@ -242,6 +242,13 @@ func NewUnimplementedErrorf(format string, a ...any) FleetError {
 	).WithCallerStackTrace()
 }
 
+func NewFailedPreconditionErrorf(format string, a ...any) FleetError {
+	return NewPlainError(
+		fmt.Sprintf(format, a...),
+		connect.CodeFailedPrecondition,
+	).WithCallerStackTrace()
+}
+
 func NewCanceledError() FleetError {
 	return NewPlainError("operation was canceled", connect.CodeCanceled).WithCallerStackTrace()
 }
@@ -355,6 +362,24 @@ func IsUnimplementedError(err error) bool {
 	var connectErr *connect.Error
 	if errors.As(err, &connectErr) {
 		return connectErr.Code() == connect.CodeUnimplemented
+	}
+
+	return false
+}
+
+func IsFailedPreconditionError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var fleetErr FleetError
+	if errors.As(err, &fleetErr) {
+		return fleetErr.GRPCCode == connect.CodeFailedPrecondition
+	}
+
+	var connectErr *connect.Error
+	if errors.As(err, &connectErr) {
+		return connectErr.Code() == connect.CodeFailedPrecondition
 	}
 
 	return false

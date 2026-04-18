@@ -21,6 +21,8 @@ import (
 	"time"
 
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
+	"google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status"
 )
 
 const (
@@ -1176,6 +1178,10 @@ func (c *Client) UploadFirmware(ctx context.Context, firmware sdk.FirmwareFile) 
 		return fmt.Errorf("firmware update already in progress: %s", withDetail("try again later", detail))
 	case http.StatusBadRequest:
 		return fmt.Errorf("firmware upload rejected by device: %s", withDetail("bad request", detail))
+	case http.StatusRequestEntityTooLarge:
+		return grpcstatus.Errorf(codes.FailedPrecondition,
+			"firmware upload rejected: payload too large (%d bytes, HTTP 413). %s",
+			firmware.Size, withDetail("rig reverse-proxy body limit is smaller than this firmware file", detail))
 	default:
 		return fmt.Errorf("firmware upload failed with status %d: %s", resp.StatusCode, withDetail("unknown error", detail))
 	}

@@ -187,6 +187,67 @@ func TestIsUnimplementedError(t *testing.T) {
 	}
 }
 
+func TestIsFailedPreconditionError(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{
+			name:     "nil error",
+			err:      nil,
+			expected: false,
+		},
+		{
+			name:     "FleetError with CodeFailedPrecondition",
+			err:      NewFailedPreconditionErrorf("payload too large"),
+			expected: true,
+		},
+		{
+			name:     "wrapped FleetError with CodeFailedPrecondition",
+			err:      fmt.Errorf("plugin error: %w", NewFailedPreconditionErrorf("payload too large")),
+			expected: true,
+		},
+		{
+			name:     "connect.Error with CodeFailedPrecondition",
+			err:      connect.NewError(connect.CodeFailedPrecondition, errors.New("precondition failed")),
+			expected: true,
+		},
+		{
+			name:     "wrapped connect.Error with CodeFailedPrecondition",
+			err:      fmt.Errorf("rpc failed: %w", connect.NewError(connect.CodeFailedPrecondition, errors.New("precondition failed"))),
+			expected: true,
+		},
+		{
+			name:     "FleetError with CodeInternal is not failed precondition",
+			err:      NewInternalError("internal error"),
+			expected: false,
+		},
+		{
+			name:     "FleetError with CodeUnimplemented is not failed precondition",
+			err:      NewUnimplementedError("unimplemented"),
+			expected: false,
+		},
+		{
+			name:     "connect.Error with CodeUnknown is not failed precondition",
+			err:      connect.NewError(connect.CodeUnknown, errors.New("unknown")),
+			expected: false,
+		},
+		{
+			name:     "generic error is not failed precondition",
+			err:      errors.New("something went wrong"),
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := IsFailedPreconditionError(tt.err)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
 func TestIsCanceledError(t *testing.T) {
 	tests := []struct {
 		name     string

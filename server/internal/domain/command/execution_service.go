@@ -350,7 +350,8 @@ func (es *ExecutionService) markQueueMessageStatus(ctx context.Context, q *sqlc.
 			ID:     messageID,
 			Status: sqlc.QueueStatusEnumSUCCESS,
 		})
-	case fleeterror.IsUnimplementedError(workerError):
+	case fleeterror.IsUnimplementedError(workerError),
+		fleeterror.IsFailedPreconditionError(workerError):
 		result, err = q.UpdateMessagePermanentlyFailed(ctx, sqlc.UpdateMessagePermanentlyFailedParams{
 			ID:        messageID,
 			ErrorInfo: sql.NullString{String: workerError.Error(), Valid: true},

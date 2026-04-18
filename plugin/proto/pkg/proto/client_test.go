@@ -18,6 +18,8 @@ import (
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status"
 )
 
 const (
@@ -895,6 +897,38 @@ func TestUploadFirmware(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestUploadFirmware_413_ReturnsFailedPrecondition verifies that an HTTP 413 from the rig
+// produces a gRPC FailedPrecondition status error (which the server classifies as permanent).
+func TestUploadFirmware_413_ReturnsFailedPrecondition(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusRequestEntityTooLarge)
+		_, _ = w.Write([]byte(`<html><head><title>413 Request Entity Too Large</title></head></html>`))
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server)
+	defer func() { _ = client.Close() }()
+
+	err := client.SetCredentials(sdk.BearerToken{Token: "test-token"})
+	require.NoError(t, err)
+
+	firmware := sdk.FirmwareFile{
+		Reader:   bytes.NewReader([]byte("firmware-data")),
+		Filename: "firmware.swu",
+		Size:     97_000_000,
+	}
+
+	err = client.UploadFirmware(context.Background(), firmware)
+
+	require.Error(t, err)
+	st, ok := grpcstatus.FromError(err)
+	require.True(t, ok, "error should be a gRPC status error")
+	assert.Equal(t, codes.FailedPrecondition, st.Code())
+	assert.Contains(t, st.Message(), "payload too large")
+	assert.Contains(t, st.Message(), "97000000")
+	assert.Contains(t, st.Message(), "413 Request Entity Too Large")
 }
 
 // TestUploadFirmware_ContextCancellation tests that firmware upload respects context cancellation.
