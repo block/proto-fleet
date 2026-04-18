@@ -6,6 +6,7 @@ import { AsicHardwareData, getAsicId } from "@/protoOS/store";
 import { useMinerStore } from "@/protoOS/store";
 import { usePoll } from "@/shared/hooks/usePoll";
 interface UseHashboardStatusProps {
+  enabled?: boolean;
   hashboardSerialNumbers: string[];
   poll?: boolean;
 }
@@ -13,13 +14,13 @@ interface UseHashboardStatusProps {
 // TODO: [STORE_REFACTOR] We only use this hook to fill in gaps that our useHardware doesnt currently provide
 // - hashboard.asicIds
 // - asic rows and columns
-const useHashboardStatus = ({ hashboardSerialNumbers, poll }: UseHashboardStatusProps) => {
+const useHashboardStatus = ({ enabled = true, hashboardSerialNumbers, poll }: UseHashboardStatusProps) => {
   const { api } = useMinerHosting();
   const [data, setData] = useState<Record<string, HashboardStatsHashboardstats>>({});
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState<boolean>(false);
   const fetchData = useCallback(async () => {
-    if (!api || hashboardSerialNumbers.length === 0) return;
+    if (!enabled || !api || hashboardSerialNumbers.length === 0) return;
 
     setPending(true);
     setError(undefined);
@@ -46,9 +47,10 @@ const useHashboardStatus = ({ hashboardSerialNumbers, poll }: UseHashboardStatus
     } finally {
       setPending(false);
     }
-  }, [hashboardSerialNumbers, api]);
+  }, [enabled, hashboardSerialNumbers, api]);
 
   usePoll({
+    enabled,
     fetchData,
     params: hashboardSerialNumbers,
     poll,

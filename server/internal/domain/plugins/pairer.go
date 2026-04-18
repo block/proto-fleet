@@ -683,10 +683,7 @@ func isDefaultPasswordActiveFailure(err error) bool {
 		return false
 	}
 
-	if status.Code(err) == codes.PermissionDenied {
-		return true
-	}
-
 	var sdkErr sdk.SDKError
-	return errors.As(err, &sdkErr) && sdkErr.Code == sdk.ErrCodeDefaultPasswordActive
+	return (errors.As(err, &sdkErr) && sdkErr.Code == sdk.ErrCodeDefaultPasswordActive) ||
+		isDefaultPasswordActiveError(err)
 }

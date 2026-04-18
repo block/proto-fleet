@@ -292,6 +292,28 @@ func TestDoGetWithStatus_DrainsBodyOnForbidden(t *testing.T) {
 	assert.True(t, body.closeCalled, "response body should still be closed")
 }
 
+func TestDoGetWithStatus_ForbiddenWithoutDefaultPasswordCodeStaysGeneric(t *testing.T) {
+	client := &Client{
+		baseURL: "http://miner.local",
+		httpClient: &http.Client{
+			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: http.StatusForbidden,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader(`{"error":{"code":"ACCESS_DENIED","message":"Access denied"}}`)),
+					Request:    req,
+				}, nil
+			}),
+		},
+	}
+
+	statusCode, err := client.doGetWithStatus(context.Background(), "/api/v1/system", nil)
+
+	require.Error(t, err)
+	assert.Equal(t, http.StatusForbidden, statusCode)
+	assert.EqualError(t, err, "forbidden: Access denied")
+}
+
 // TestUnsupportedScheme tests handling of unsupported protocol schemes
 // This aligns with the server's protocol validation approach
 func TestUnsupportedScheme(t *testing.T) {

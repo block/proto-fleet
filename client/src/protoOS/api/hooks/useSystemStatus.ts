@@ -48,7 +48,7 @@ const useSystemStatus = () => {
       .then((res) => {
         setOnboarded(res?.data.onboarded);
         setPasswordSet(res?.data.password_set);
-        const nextDefaultPasswordActive = res?.data.default_password_active;
+        const nextDefaultPasswordActive = res?.data.default_password_active ?? false;
 
         // While the user is on a password-change route, do not let status
         // polling clear the flag before the follow-up login succeeds.

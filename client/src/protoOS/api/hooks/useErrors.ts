@@ -8,11 +8,12 @@ import { transformErrors } from "@/protoOS/store/utils/errorTransformer";
 import { usePoll } from "@/shared/hooks/usePoll";
 
 type UseErrorsProps = {
+  enabled?: boolean;
   poll?: boolean;
   pollIntervalMs?: number;
 };
 
-const useErrors = ({ poll = false, pollIntervalMs }: UseErrorsProps = {}) => {
+const useErrors = ({ enabled = true, poll = false, pollIntervalMs }: UseErrorsProps = {}) => {
   const { api } = useMinerHosting();
 
   const [data, setData] = useState<ErrorListResponse>();
@@ -21,7 +22,7 @@ const useErrors = ({ poll = false, pollIntervalMs }: UseErrorsProps = {}) => {
   const setErrors = useSetErrors();
 
   const fetchData = useCallback(() => {
-    if (!api) return;
+    if (!enabled || !api) return;
 
     setPending(true);
     api
@@ -35,10 +36,11 @@ const useErrors = ({ poll = false, pollIntervalMs }: UseErrorsProps = {}) => {
       .finally(() => {
         setPending(false);
       });
-  }, [api]);
+  }, [api, enabled]);
 
   usePoll({
     fetchData,
+    enabled,
     poll,
     pollIntervalMs,
   });

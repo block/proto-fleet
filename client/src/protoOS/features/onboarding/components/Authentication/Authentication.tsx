@@ -9,7 +9,7 @@ const AuthenticationPage = () => {
   const { changePassword, setPassword } = usePassword();
   const login = useLogin();
   const isPasswordSet = usePasswordSet();
-  const isDefaultPasswordActive = useDefaultPasswordActive();
+  const isDefaultPasswordActive = useDefaultPasswordActive() ?? false;
   const setDefaultPasswordActive = useSetDefaultPasswordActive();
   const [submitError, setSubmitError] = useState<string | undefined>();
   const [isSubmitting, setIsSubmitting] = useState(false);

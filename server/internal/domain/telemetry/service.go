@@ -732,7 +732,17 @@ func (s *TelemetryService) handleAuthenticationFailure(ctx context.Context, devi
 }
 
 func requiresCredentialRemediation(err error) bool {
-	return fleeterror.IsAuthenticationError(err) || fleeterror.IsForbiddenError(err)
+	return fleeterror.IsAuthenticationError(err) || isDefaultPasswordRemediationError(err)
+}
+
+func isDefaultPasswordRemediationError(err error) bool {
+	if !fleeterror.IsForbiddenError(err) {
+		return false
+	}
+
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "default password must be changed") ||
+		strings.Contains(msg, "default_password_active")
 }
 
 // pollErrorsForDevice polls errors from a device alongside telemetry collection.

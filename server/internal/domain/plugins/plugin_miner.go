@@ -549,7 +549,10 @@ func wrapPluginError(err error, format string, a ...any) error {
 		case codes.FailedPrecondition:
 			return fleeterror.NewFailedPreconditionErrorf("%s: %s", msg, st.Message())
 		case codes.PermissionDenied:
-			return fleeterror.NewForbiddenErrorf("%s: %s", msg, st.Message())
+			if isDefaultPasswordActiveError(err) {
+				return fleeterror.NewForbiddenErrorf("%s: %s", msg, st.Message())
+			}
+			return fleeterror.NewForbiddenErrorf("%s: permission denied: %s", msg, st.Message())
 		case codes.OK, codes.Canceled, codes.Unknown, codes.InvalidArgument,
 			codes.DeadlineExceeded, codes.NotFound, codes.AlreadyExists,
 			codes.ResourceExhausted, codes.FailedPrecondition,
@@ -575,12 +578,14 @@ func isDefaultPasswordActiveError(err error) bool {
 	if err == nil {
 		return false
 	}
-	if st, ok := grpcstatus.FromError(err); ok && st.Code() == codes.PermissionDenied {
-		return true
-	}
 	var sdkErr sdk.SDKError
 	if errors.As(err, &sdkErr) && sdkErr.Code == sdk.ErrCodeDefaultPasswordActive {
 		return true
+	}
+	if st, ok := grpcstatus.FromError(err); ok && st.Code() == codes.PermissionDenied {
+		msg := strings.ToLower(st.Message())
+		return strings.Contains(msg, "default password must be changed") ||
+			strings.Contains(msg, "default_password_active")
 	}
 
 	msg := strings.ToLower(err.Error())

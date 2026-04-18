@@ -1296,6 +1296,36 @@ func TestIsAuthError(t *testing.T) {
 	}
 }
 
+func TestIsDefaultPasswordActiveError(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{
+			name:     "permission denied with default-password marker",
+			err:      grpcstatus.Error(codes.PermissionDenied, "default password must be changed"),
+			expected: true,
+		},
+		{
+			name:     "permission denied without default-password marker",
+			err:      grpcstatus.Error(codes.PermissionDenied, "access denied"),
+			expected: false,
+		},
+		{
+			name:     "sdk default-password error",
+			err:      sdk.SDKError{Code: sdk.ErrCodeDefaultPasswordActive, Message: "default password must be changed"},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, isDefaultPasswordActiveError(tt.err))
+		})
+	}
+}
+
 func TestPluginMiner_GetDeviceStatus_AuthError_ReturnsUnauthenticated(t *testing.T) {
 	connInfo, _ := networking.NewConnectionInfo("192.168.1.100", "4028", networking.ProtocolHTTP)
 

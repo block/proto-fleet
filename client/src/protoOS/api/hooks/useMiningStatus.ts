@@ -10,11 +10,12 @@ interface getMiningStatusProps {
 }
 
 type UseMiningStatusProps = {
+  enabled?: boolean;
   poll?: boolean;
   pollIntervalMs?: number;
 };
 
-const useMiningStatus = ({ poll = false, pollIntervalMs }: UseMiningStatusProps = {}) => {
+const useMiningStatus = ({ enabled = true, poll = false, pollIntervalMs }: UseMiningStatusProps = {}) => {
   const { api } = useMinerHosting();
   const [data, setData] = useState<MiningStatusMiningstatus>();
   const [error, setError] = useState<string>();
@@ -23,7 +24,7 @@ const useMiningStatus = ({ poll = false, pollIntervalMs }: UseMiningStatusProps 
 
   const fetchData = useCallback(
     ({ onSuccess }: getMiningStatusProps = {}) => {
-      if (!api) return;
+      if (!enabled || !api) return;
 
       setPending(true);
       api
@@ -39,11 +40,12 @@ const useMiningStatus = ({ poll = false, pollIntervalMs }: UseMiningStatusProps 
           setPending(false);
         });
     },
-    [api],
+    [api, enabled],
   );
 
   usePoll({
     fetchData,
+    enabled,
     poll,
     pollIntervalMs,
   });

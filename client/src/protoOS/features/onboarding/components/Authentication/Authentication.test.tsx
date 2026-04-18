@@ -79,6 +79,17 @@ describe("AuthenticationPage", () => {
     expect(screen.getByTestId("update-mode")).toHaveTextContent("true");
   });
 
+  it("treats a missing default-password flag like false for older firmware", async () => {
+    mockUsePasswordSet.mockReturnValue(true);
+    mockUseDefaultPasswordActive.mockReturnValue(undefined);
+
+    render(<AuthenticationPage />);
+
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith("/onboarding/mining-pool");
+    });
+  });
+
   it("logs in with the current password, changes it, then logs in with the new password", async () => {
     mockUsePasswordSet.mockReturnValue(true);
     mockUseDefaultPasswordActive.mockReturnValue(true);

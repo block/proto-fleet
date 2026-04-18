@@ -12,11 +12,12 @@ export interface FetchPoolsInfoProps {
 }
 
 type UsePoolsInfoProps = {
+  enabled?: boolean;
   poll?: boolean;
   pollIntervalMs?: number;
 };
 
-const usePoolsInfo = ({ poll = false, pollIntervalMs }: UsePoolsInfoProps = {}) => {
+const usePoolsInfo = ({ enabled = true, poll = false, pollIntervalMs }: UsePoolsInfoProps = {}) => {
   const { api } = useMinerHosting();
   const [data, setData] = useState<Pool[]>();
   const [error, setError] = useState<string>();
@@ -25,7 +26,7 @@ const usePoolsInfo = ({ poll = false, pollIntervalMs }: UsePoolsInfoProps = {}) 
 
   const fetchData = useCallback(
     ({ onSuccess, onError, retryOnMinerDown }: FetchPoolsInfoProps = {}) => {
-      if (!api) return;
+      if (!enabled || !api) return;
 
       const performFetch = () => {
         setPending(true);
@@ -62,11 +63,12 @@ const usePoolsInfo = ({ poll = false, pollIntervalMs }: UsePoolsInfoProps = {}) 
 
       performFetch();
     },
-    [api],
+    [api, enabled],
   );
 
   usePoll({
     fetchData,
+    enabled,
     poll,
     pollIntervalMs,
   });

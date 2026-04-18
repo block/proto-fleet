@@ -106,18 +106,6 @@ const App = ({
     poll: false,
   });
 
-  // Poll for errors
-  useErrors({ poll: true, pollIntervalMs: 15 * 1000 });
-
-  // Poll for mining status
-  const { data: miningStatus, fetchData: fetchMiningStatus } = useMiningStatus({
-    poll: true,
-    pollIntervalMs: 15 * 1000,
-  });
-
-  // Poll for pools info
-  usePoolsInfo({ poll: true, pollIntervalMs: 15 * 1000 });
-
   // Fetch system status (populates store)
   useSystemStatus();
 
@@ -127,12 +115,30 @@ const App = ({
   const isPasswordSet = usePasswordSet();
   const isDefaultPasswordActive = useDefaultPasswordActive();
 
+  // Initialize access token and derive whether protected endpoints are currently safe to call.
+  const { hasAccess } = useAccessToken();
+  const canAccessProtectedApi = hasAccess === true && isDefaultPasswordActive !== true;
+
+  // Poll for errors
+  useErrors({ enabled: canAccessProtectedApi, poll: true, pollIntervalMs: 15 * 1000 });
+
+  // Poll for mining status
+  const { data: miningStatus, fetchData: fetchMiningStatus } = useMiningStatus({
+    enabled: canAccessProtectedApi,
+    poll: true,
+    pollIntervalMs: 15 * 1000,
+  });
+
+  // Poll for pools info
+  usePoolsInfo({ enabled: canAccessProtectedApi, poll: true, pollIntervalMs: 15 * 1000 });
+
   // Get hashboard serials from store to fetch ASIC layout data
   const hashboardSerials = useHashboardSerials();
 
   // Fetch ASIC layout data for all hashboards
   // No polling needed - ASIC positions don't change
   useHashboardStatus({
+    enabled: canAccessProtectedApi,
     hashboardSerialNumbers: hashboardSerials,
     poll: false,
   });
@@ -142,6 +148,10 @@ const App = ({
   // ============================================================================
   const { checkFirmwareUpdate } = useFirmwareUpdate();
   useEffect(() => {
+    if (!canAccessProtectedApi) {
+      return;
+    }
+
     const checkForFirmwareUpdates = () => {
       checkFirmwareUpdate()
         .then(() => {
@@ -162,7 +172,7 @@ const App = ({
 
     // Immediately check on component mount
     checkForFirmwareUpdates();
-  }, [checkFirmwareUpdate, reloadSystemInfo]);
+  }, [canAccessProtectedApi, checkFirmwareUpdate, reloadSystemInfo]);
 
   // ============================================================================
   // ONBOARDING NAVIGATION
@@ -279,9 +289,6 @@ const App = ({
   );
 
   const hasVisibleCallout = isWarmingUp || isSleeping || noPoolsLive;
-
-  // Initialize access token
-  useAccessToken();
 
   // ============================================================================
   // DERIVED FLAGS

@@ -183,6 +183,15 @@ type messageResponse struct {
 	Message string `json:"message"`
 }
 
+type errorResponse struct {
+	Error *errorDetail `json:"error"`
+}
+
+type errorDetail struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
 type systemInfoResponse struct {
 	SystemInfo systemInfoInner `json:"system-info"`
 }
@@ -486,8 +495,11 @@ func (c *Client) doGetWithStatus(ctx context.Context, path string, result any) (
 	}
 
 	if resp.StatusCode == http.StatusForbidden {
-		_, _ = io.Copy(io.Discard, resp.Body)
-		return resp.StatusCode, fmt.Errorf("forbidden: default password must be changed")
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return resp.StatusCode, fmt.Errorf("failed to read forbidden response: %w", readErr)
+		}
+		return resp.StatusCode, classifyForbiddenResponse(body)
 	}
 
 	if resp.StatusCode == http.StatusNoContent {
@@ -515,21 +527,51 @@ func (c *Client) doPost(ctx context.Context, path string) error {
 		return err
 	}
 	defer resp.Body.Close()
-	_, _ = io.ReadAll(resp.Body)
 
 	if resp.StatusCode == http.StatusUnauthorized {
+		_, _ = io.Copy(io.Discard, resp.Body)
 		return fmt.Errorf("unauthenticated: missing or invalid credentials")
 	}
 
 	if resp.StatusCode == http.StatusForbidden {
-		return fmt.Errorf("forbidden: default password must be changed")
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return fmt.Errorf("failed to read forbidden response: %w", readErr)
+		}
+		return classifyForbiddenResponse(body)
 	}
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
+		_, _ = io.Copy(io.Discard, resp.Body)
 		return fmt.Errorf("request failed with status %d", resp.StatusCode)
 	}
 
+	_, _ = io.Copy(io.Discard, resp.Body)
+
 	return nil
+}
+
+func classifyForbiddenResponse(body []byte) error {
+	var payload errorResponse
+	if err := json.Unmarshal(body, &payload); err == nil && payload.Error != nil {
+		if isDefaultPasswordErrorDetail(payload.Error.Code, payload.Error.Message) {
+			return fmt.Errorf("forbidden: default password must be changed")
+		}
+		if payload.Error.Message != "" {
+			return fmt.Errorf("forbidden: %s", payload.Error.Message)
+		}
+	}
+	return fmt.Errorf("forbidden: access denied")
+}
+
+func isDefaultPasswordErrorDetail(code, message string) bool {
+	if strings.EqualFold(code, string(sdk.ErrCodeDefaultPasswordActive)) {
+		return true
+	}
+
+	msg := strings.ToLower(message)
+	return strings.Contains(msg, "default password must be changed") ||
+		strings.Contains(msg, "default_password_active")
 }
 
 // GetSoftwareInfo retrieves the firmware (OS) version string from the miner.

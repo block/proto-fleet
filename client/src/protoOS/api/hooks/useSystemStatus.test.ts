@@ -104,4 +104,20 @@ describe("useSystemStatus", () => {
       expect(mockSetDefaultPasswordActive).toHaveBeenCalledWith(false);
     });
   });
+
+  test("treats a missing default_password_active field as false", async () => {
+    (useLocation as Mock).mockReturnValue({ pathname: "/settings/mining-pools" });
+    mockGetSystemStatus.mockResolvedValue({
+      data: {
+        onboarded: true,
+        password_set: true,
+      },
+    });
+
+    renderHook(() => useSystemStatus());
+
+    await waitFor(() => {
+      expect(mockSetDefaultPasswordActive).toHaveBeenCalledWith(false);
+    });
+  });
 });

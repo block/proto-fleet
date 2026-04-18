@@ -150,8 +150,11 @@ func NewPluginMinerWithCredentials(
 		if errors.As(err, &sdkErr) && sdkErr.Code == sdk.ErrCodeDefaultPasswordActive {
 			return nil, fleeterror.NewForbiddenErrorf("device %s default password must be changed: %v", config.DeviceIdentifier, err)
 		}
-		if st, ok := grpcstatus.FromError(err); ok && st.Code() == codes.PermissionDenied {
+		if isDefaultPasswordActiveError(err) {
 			return nil, fleeterror.NewForbiddenErrorf("device %s default password must be changed: %v", config.DeviceIdentifier, err)
+		}
+		if st, ok := grpcstatus.FromError(err); ok && st.Code() == codes.PermissionDenied {
+			return nil, fleeterror.NewForbiddenErrorf("device %s access denied: %v", config.DeviceIdentifier, err)
 		}
 
 		return nil, fleeterror.NewInternalErrorf("failed to create SDK device: %v", err)
