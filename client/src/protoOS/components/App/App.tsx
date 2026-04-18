@@ -92,20 +92,6 @@ const App = ({
   // STORE BOOTSTRAPPING - Fetch and populate stores
   // ============================================================================
 
-  // Fetch and populate hardware store
-  useHardware();
-
-  // Fetch and poll system info (updates store)
-  const { reload: reloadSystemInfo } = useSystemInfo({
-    poll: true,
-    pollIntervalMs: 35000,
-  });
-
-  // Fetch network info once (updates store)
-  useNetworkInfo({
-    poll: false,
-  });
-
   // Fetch system status (populates store)
   useSystemStatus();
 
@@ -118,6 +104,21 @@ const App = ({
   // Initialize access token and derive whether protected endpoints are currently safe to call.
   const { hasAccess } = useAccessToken();
   const canAccessProtectedApi = hasAccess === true && isDefaultPasswordActive !== true;
+
+  // Fetch and populate hardware store
+  useHardware({ enabled: canAccessProtectedApi });
+
+  // Fetch and poll system info (updates store)
+  const { reload: reloadSystemInfo } = useSystemInfo({
+    poll: true,
+    pollIntervalMs: 35000,
+  });
+
+  // Fetch network info once (updates store)
+  useNetworkInfo({
+    enabled: canAccessProtectedApi,
+    poll: false,
+  });
 
   // Poll for errors
   useErrors({ enabled: canAccessProtectedApi, poll: true, pollIntervalMs: 15 * 1000 });

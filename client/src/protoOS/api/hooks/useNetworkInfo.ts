@@ -12,6 +12,7 @@ import {
 import { usePoll } from "@/shared/hooks/usePoll";
 
 interface UseNetworkInfoProps {
+  enabled?: boolean;
   poll?: boolean;
   pollIntervalMs?: number;
 }
@@ -25,7 +26,7 @@ interface UseNetworkInfoProps {
  *   import { useNetworkInfo, useIpAddress, useMacAddress, etc. } from "@/protoOS/store";
  */
 
-const useNetworkInfo = ({ poll, pollIntervalMs }: UseNetworkInfoProps) => {
+const useNetworkInfo = ({ enabled = true, poll, pollIntervalMs }: UseNetworkInfoProps) => {
   const { api } = useMinerHosting();
   const setNetworkInfo = useSetNetworkInfo();
   const setNetworkInfoError = useSetNetworkInfoError();
@@ -36,7 +37,7 @@ const useNetworkInfo = ({ poll, pollIntervalMs }: UseNetworkInfoProps) => {
   const isFetchingRef = useRef<boolean>(false);
 
   const fetchData = useCallback(() => {
-    if (!api || isFetchingRef.current) return;
+    if (!enabled || !api || isFetchingRef.current) return;
 
     isFetchingRef.current = true;
     setNetworkInfoPending(true);
@@ -54,7 +55,7 @@ const useNetworkInfo = ({ poll, pollIntervalMs }: UseNetworkInfoProps) => {
       .finally(() => {
         isFetchingRef.current = false;
       });
-  }, [api, setNetworkInfo, setNetworkInfoError, setNetworkInfoPending]);
+  }, [api, enabled, setNetworkInfo, setNetworkInfoError, setNetworkInfoPending]);
 
   const reload = useCallback(() => {
     if (isFetchingRef.current) return;
@@ -63,6 +64,7 @@ const useNetworkInfo = ({ poll, pollIntervalMs }: UseNetworkInfoProps) => {
 
   usePoll({
     fetchData: reload,
+    enabled,
     poll,
     pollIntervalMs,
   });

@@ -11,7 +11,11 @@ import {
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useMinerStore } from "@/protoOS/store";
 
-const useHardware = () => {
+interface UseHardwareProps {
+  enabled?: boolean;
+}
+
+const useHardware = ({ enabled = true }: UseHardwareProps = {}) => {
   const { api } = useMinerHosting();
   const [data, setData] = useState<HardwareInfoHardwareinfo>();
   const [error, setError] = useState<string>();
@@ -22,7 +26,7 @@ const useHardware = () => {
   const [fansInfo, setFansInfo] = useState<(FanInfo | null)[] | undefined>();
 
   const fetchHardware = useCallback(() => {
-    if (!api) return;
+    if (!enabled || !api) return;
 
     setPending(true);
     api
@@ -80,12 +84,14 @@ const useHardware = () => {
       .finally(() => {
         setPending(false);
       });
-  }, [api]);
+  }, [api, enabled]);
 
   useEffect(() => {
+    if (!enabled) return;
+
     // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchHardware();
-  }, [fetchHardware]);
+  }, [enabled, fetchHardware]);
 
   // Update hardware store with hashboard data
   useEffect(() => {

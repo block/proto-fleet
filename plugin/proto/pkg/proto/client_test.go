@@ -314,6 +314,74 @@ func TestDoGetWithStatus_ForbiddenWithoutDefaultPasswordCodeStaysGeneric(t *test
 	assert.EqualError(t, err, "forbidden: Access denied")
 }
 
+func TestDirectWriteEndpoints_ClassifyDefaultPasswordForbidden(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		call func(*Client) error
+	}{
+		{
+			name: "pair",
+			path: "/api/v1/pairing/auth-key",
+			call: func(client *Client) error {
+				return client.Pair(context.Background(), sdk.APIKey{Key: "test-public-key"})
+			},
+		},
+		{
+			name: "clear auth key",
+			path: "/api/v1/pairing/auth-key",
+			call: func(client *Client) error {
+				return client.ClearAuthKey(context.Background())
+			},
+		},
+		{
+			name: "set cooling mode",
+			path: "/api/v1/cooling",
+			call: func(client *Client) error {
+				return client.SetCoolingMode(context.Background(), sdk.CoolingModeManual)
+			},
+		},
+		{
+			name: "set power target",
+			path: "/api/v1/mining/target",
+			call: func(client *Client) error {
+				return client.SetPowerTarget(context.Background(), 3200, sdk.PerformanceModeEfficiency)
+			},
+		},
+		{
+			name: "update pools",
+			path: "/api/v1/pools",
+			call: func(client *Client) error {
+				return client.UpdatePools(context.Background(), []Pool{{
+					Priority:   0,
+					URL:        "stratum+tcp://pool.example.com:3333",
+					WorkerName: "worker.1",
+				}})
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, tt.path, r.URL.Path)
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				_, _ = w.Write([]byte(`{"error":{"code":"DEFAULT_PASSWORD_ACTIVE","message":"default password must be changed"}}`))
+			}))
+			defer server.Close()
+
+			client := newTestClient(t, server)
+			defer func() { _ = client.Close() }()
+
+			err := tt.call(client)
+
+			require.Error(t, err)
+			assert.EqualError(t, err, "forbidden: default password must be changed")
+		})
+	}
+}
+
 // TestUnsupportedScheme tests handling of unsupported protocol schemes
 // This aligns with the server's protocol validation approach
 func TestUnsupportedScheme(t *testing.T) {
