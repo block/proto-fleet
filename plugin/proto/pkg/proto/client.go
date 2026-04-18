@@ -535,8 +535,8 @@ func (c *Client) doPost(ctx context.Context, path string) error {
 func classifyForbiddenResponse(body []byte) error {
 	var payload errorResponse
 	if err := json.Unmarshal(body, &payload); err == nil && payload.Error != nil {
-		if isDefaultPasswordErrorDetail(payload.Error.Code, payload.Error.Message) {
-			return fmt.Errorf("forbidden: default password must be changed")
+		if sdk.IsDefaultPasswordCode(payload.Error.Code) || sdk.IsDefaultPasswordMessage(payload.Error.Message) {
+			return fmt.Errorf("forbidden: %s", sdk.DefaultPasswordMessageMarker)
 		}
 		if payload.Error.Message != "" {
 			return fmt.Errorf("forbidden: %s", payload.Error.Message)
@@ -544,8 +544,8 @@ func classifyForbiddenResponse(body []byte) error {
 	}
 
 	rawMessage := strings.TrimSpace(string(body))
-	if isDefaultPasswordErrorDetail("", rawMessage) {
-		return fmt.Errorf("forbidden: default password must be changed")
+	if sdk.IsDefaultPasswordMessage(rawMessage) {
+		return fmt.Errorf("forbidden: %s", sdk.DefaultPasswordMessageMarker)
 	}
 	if rawMessage != "" {
 		return fmt.Errorf("forbidden: %s", rawMessage)
@@ -576,16 +576,6 @@ func checkResponse(resp *http.Response, failurePrefix, unauthorizedMessage strin
 
 	_, _ = io.Copy(io.Discard, resp.Body)
 	return fmt.Errorf("%s with status %d", failurePrefix, resp.StatusCode)
-}
-
-func isDefaultPasswordErrorDetail(code, message string) bool {
-	if strings.EqualFold(code, string(sdk.ErrCodeDefaultPasswordActive)) {
-		return true
-	}
-
-	msg := strings.ToLower(message)
-	return strings.Contains(msg, "default password must be changed") ||
-		strings.Contains(msg, "default_password_active")
 }
 
 // GetSoftwareInfo retrieves the firmware (OS) version string from the miner.

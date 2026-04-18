@@ -86,6 +86,7 @@ import (
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
 const (
@@ -739,10 +740,7 @@ func isDefaultPasswordRemediationError(err error) bool {
 	if !fleeterror.IsForbiddenError(err) {
 		return false
 	}
-
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "default password must be changed") ||
-		strings.Contains(msg, "default_password_active")
+	return sdk.IsDefaultPasswordMessage(err.Error())
 }
 
 // pollErrorsForDevice polls errors from a device alongside telemetry collection.

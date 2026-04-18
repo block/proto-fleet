@@ -582,15 +582,7 @@ func isDefaultPasswordActiveError(err error) bool {
 	if errors.As(err, &sdkErr) && sdkErr.Code == sdk.ErrCodeDefaultPasswordActive {
 		return true
 	}
-	if st, ok := grpcstatus.FromError(err); ok && st.Code() == codes.PermissionDenied {
-		msg := strings.ToLower(st.Message())
-		return strings.Contains(msg, "default password must be changed") ||
-			strings.Contains(msg, "default_password_active")
-	}
-
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "default password must be changed") ||
-		strings.Contains(msg, "default_password_active")
+	return sdk.IsDefaultPasswordMessage(err.Error())
 }
 
 // isNetworkError determines if an error represents a network connectivity failure.

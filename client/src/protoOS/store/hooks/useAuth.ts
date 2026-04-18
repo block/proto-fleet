@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 import useMinerStore from "../useMinerStore";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
+import { isDefaultPasswordActiveError } from "@/protoOS/api/defaultPasswordContract";
 import { useRefresh } from "@/protoOS/api/hooks/useRefresh";
 import { isAuthRequiredPath } from "@/protoOS/routeAuth";
 
@@ -52,18 +53,6 @@ interface HandleAuthErrorsProps {
   onError?: (err: ErrorProps) => void;
   onSuccess?: (accessToken: string) => void | Promise<void>;
 }
-
-const isDefaultPasswordActiveError = (error: ErrorProps): boolean => {
-  const code = (error?.error?.error?.code ?? error?.error?.code ?? "").toLowerCase();
-  const message = (error?.error?.error?.message ?? error?.error?.message ?? "").toLowerCase();
-
-  return (
-    error?.status === 403 &&
-    (code === "default_password_active" ||
-      message.includes("default password") ||
-      message.includes("default_password_active"))
-  );
-};
 
 export const useAuthErrors = () => {
   const logout = useLogout();

@@ -145,10 +145,7 @@ func isDefaultPasswordError(err error) bool {
 	if err == nil {
 		return false
 	}
-
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "default password must be changed") ||
-		strings.Contains(msg, "default_password_active")
+	return sdk.IsDefaultPasswordMessage(err.Error())
 }
 
 // ID implements the SDK Device interface.
