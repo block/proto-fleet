@@ -102,6 +102,73 @@ func TestSDKDeviceErrorsToFleetDeviceErrors(t *testing.T) {
 	assert.Equal(t, models.ComponentTypePSU, err2.ComponentType, "PSU type should map correctly")
 }
 
+// TestSDKDeviceErrorToFleetErrorMessage_NormalizesUnspecifiedSeverity verifies that
+// SeverityUnspecified (0) is normalized to the error code's DefaultSeverity.
+// Related: #1607.
+func TestSDKDeviceErrorToFleetErrorMessage_NormalizesUnspecifiedSeverity(t *testing.T) {
+	now := time.Now()
+
+	tests := []struct {
+		name             string
+		sdkMinerError    sdkv1errors.MinerError
+		sdkSeverity      sdkv1errors.Severity
+		expectedSeverity models.Severity
+	}{
+		{
+			name:             "unspecified severity with known error code uses DefaultSeverity",
+			sdkMinerError:    2000, // FanFailed — DefaultSeverity = Critical
+			sdkSeverity:      0,    // UNSPECIFIED
+			expectedSeverity: models.SeverityCritical,
+		},
+		{
+			name:             "unspecified severity with hashboard error uses DefaultSeverity",
+			sdkMinerError:    3001, // HashboardOverTemperature — DefaultSeverity = Critical
+			sdkSeverity:      0,    // UNSPECIFIED
+			expectedSeverity: models.SeverityCritical,
+		},
+		{
+			name:             "unspecified severity with unknown error code falls back to Info",
+			sdkMinerError:    0, // MinerErrorUnspecified
+			sdkSeverity:      0, // UNSPECIFIED
+			expectedSeverity: models.SeverityInfo,
+		},
+		{
+			name:             "negative severity (invalid) with known code uses DefaultSeverity",
+			sdkMinerError:    2000, // FanFailed
+			sdkSeverity:      -1,
+			expectedSeverity: models.SeverityCritical,
+		},
+		{
+			name:             "explicit critical severity passes through unchanged",
+			sdkMinerError:    2000, // FanFailed
+			sdkSeverity:      1,    // Critical
+			expectedSeverity: models.SeverityCritical,
+		},
+		{
+			name:             "explicit info severity passes through unchanged",
+			sdkMinerError:    2000, // FanFailed — DefaultSeverity = Critical, but explicit Info wins
+			sdkSeverity:      4,    // Info
+			expectedSeverity: models.SeverityInfo,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sdkError := sdkv1.DeviceError{
+				DeviceID:    "device-123",
+				MinerError:  tt.sdkMinerError,
+				Severity:    tt.sdkSeverity,
+				FirstSeenAt: now,
+				LastSeenAt:  now,
+			}
+
+			result := SDKDeviceErrorToFleetErrorMessage(sdkError)
+
+			assert.Equal(t, tt.expectedSeverity, result.Severity)
+		})
+	}
+}
+
 func TestSDKMinerErrorToFleetMinerError(t *testing.T) {
 	tests := []struct {
 		name     string

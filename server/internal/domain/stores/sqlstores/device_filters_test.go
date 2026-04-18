@@ -28,6 +28,7 @@ func TestBuildMinerFilterParams_StatusFilter(t *testing.T) {
 	assert.Contains(t, params.statusValues, "ACTIVE")
 	assert.Contains(t, params.statusValues, "OFFLINE")
 	assert.False(t, params.needsAttentionFilter)
+	assert.True(t, params.includeNullStatus, "OFFLINE filter should include NULL status miners")
 }
 
 func TestBuildMinerFilterParams_StatusFilterWithError(t *testing.T) {
@@ -42,6 +43,21 @@ func TestBuildMinerFilterParams_StatusFilterWithError(t *testing.T) {
 
 	assert.True(t, params.statusFilter.Valid)
 	assert.True(t, params.needsAttentionFilter)
+	assert.False(t, params.includeNullStatus, "ERROR filter should not include NULL status")
+}
+
+func TestBuildMinerFilterParams_StatusFilterActiveOnly(t *testing.T) {
+	filter := &stores.MinerFilter{
+		DeviceStatusFilter: []minermodels.MinerStatus{
+			minermodels.MinerStatusActive,
+		},
+	}
+
+	params := buildMinerFilterParams(filter)
+
+	assert.True(t, params.statusFilter.Valid)
+	assert.False(t, params.includeNullStatus, "ACTIVE filter should not include NULL status")
+	assert.False(t, params.needsAttentionFilter)
 }
 
 func TestBuildMinerFilterParams_PairingStatusUnspecifiedOnly(t *testing.T) {
@@ -120,10 +136,51 @@ func TestAppendFilterSQL_StatusFilterWithNeedsAttention(t *testing.T) {
 
 	resultArgs, resultArgNum := appendFilterSQL(&sb, args, argNum, orgID, fp)
 
-	assert.Contains(t, sb.String(), "AUTHENTICATION_NEEDED")
-	assert.Contains(t, sb.String(), "errors")
+	sql := sb.String()
+	assert.Contains(t, sql, "AUTHENTICATION_NEEDED")
+	assert.Contains(t, sql, "errors")
+	assert.Contains(t, sql, "device_status.status IS NULL OR device_status.status != 'OFFLINE'")
+	assert.Contains(t, sql, "device_status.status IS NULL OR device_status.status NOT IN")
+	// Errors branch excludes NULL+paired miners (they remain bucketed as offline).
+	assert.Contains(t, sql, "NOT (device_status.status IS NULL AND device_pairing.pairing_status = 'PAIRED')")
 	assert.Len(t, resultArgs, 4) // initial + statusValues + orgID + orgID
 	assert.Equal(t, 5, resultArgNum)
+}
+
+func TestAppendFilterSQL_StatusFilterWithOfflineIncludesNull(t *testing.T) {
+	var sb strings.Builder
+	args := []any{"initial"}
+	argNum := 2
+	fp := minerFilterParams{
+		statusFilter:      validNullString(),
+		statusValues:      []string{"OFFLINE"},
+		includeNullStatus: true,
+	}
+	orgID := int64(1)
+
+	appendFilterSQL(&sb, args, argNum, orgID, fp)
+
+	sql := sb.String()
+	assert.Contains(t, sql, "device_status.status IS NULL")
+	// Narrowed to PAIRED only (matches CountMinersByState scope); excludes PENDING/FAILED/UNPAIRED.
+	assert.Contains(t, sql, "device_pairing.pairing_status = 'PAIRED'")
+	assert.NotContains(t, sql, "pairing_status != 'AUTHENTICATION_NEEDED'")
+}
+
+func TestAppendFilterSQL_StatusFilterActiveDoesNotIncludeNull(t *testing.T) {
+	var sb strings.Builder
+	args := []any{"initial"}
+	argNum := 2
+	fp := minerFilterParams{
+		statusFilter: validNullString(),
+		statusValues: []string{"ACTIVE"},
+	}
+	orgID := int64(1)
+
+	appendFilterSQL(&sb, args, argNum, orgID, fp)
+
+	sql := sb.String()
+	assert.NotContains(t, sql, "device_status.status IS NULL")
 }
 
 func TestAppendFilterSQL_CombinedFilters(t *testing.T) {

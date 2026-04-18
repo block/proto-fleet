@@ -662,6 +662,8 @@ const MinerList = ({
             case deviceStatusFilterStates.needsAttention:
               minerFilter.deviceStatus.push(DeviceStatus.ERROR);
               minerFilter.deviceStatus.push(DeviceStatus.NEEDS_MINING_POOL);
+              minerFilter.deviceStatus.push(DeviceStatus.UPDATING);
+              minerFilter.deviceStatus.push(DeviceStatus.REBOOT_REQUIRED);
               break;
             case deviceStatusFilterStates.offline:
               minerFilter.deviceStatus.push(DeviceStatus.OFFLINE);

@@ -1,6 +1,8 @@
 package mappers
 
 import (
+	"log/slog"
+
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 	sdkv1 "github.com/block/proto-fleet/server/sdk/v1"
 	sdkv1models "github.com/block/proto-fleet/server/sdk/v1/errors"
@@ -10,6 +12,15 @@ const (
 	// minValidEnumValue represents the minimum valid value for enum types
 	minValidEnumValue = 0
 )
+
+// defaultSeverityFor returns the DefaultSeverity for a miner error code from the
+// error metadata registry, falling back to SeverityInfo for unknown codes.
+func defaultSeverityFor(code models.MinerError) models.Severity {
+	if info, ok := models.GetMinerErrorInfo()[code]; ok {
+		return info.DefaultSeverity
+	}
+	return models.SeverityInfo
+}
 
 func SDKMinerErrorToFleetMinerError(errCode sdkv1models.MinerError) models.MinerError {
 	if errCode < minValidEnumValue {
@@ -70,13 +81,25 @@ func SDKDeviceErrorsToFleetDeviceErrors(sdkErrors sdkv1.DeviceErrors) models.Dev
 }
 
 // SDKDeviceErrorToFleetErrorMessage converts a single SDK DeviceError to fleet domain ErrorMessage.
+// Normalizes SeverityUnspecified to the error code's DefaultSeverity so that downstream
+// SQL filters (which exclude severity=0) don't silently drop real errors.
 func SDKDeviceErrorToFleetErrorMessage(sdkError sdkv1.DeviceError) models.ErrorMessage {
+	minerError := SDKMinerErrorToFleetMinerError(sdkError.MinerError)
+	severity := SDKSeverityToFleetSeverity(sdkError.Severity)
+	if severity == models.SeverityUnspecified {
+		severity = defaultSeverityFor(minerError)
+		slog.Warn("plugin emitted error with SeverityUnspecified; normalized to default severity",
+			"device_id", sdkError.DeviceID,
+			"miner_error", minerError,
+			"normalized_severity", severity,
+		)
+	}
 	return models.ErrorMessage{
 		ErrorID:           "", // Assigned by Store on insert (ULID)
-		MinerError:        SDKMinerErrorToFleetMinerError(sdkError.MinerError),
+		MinerError:        minerError,
 		CauseSummary:      sdkError.CauseSummary,
 		RecommendedAction: sdkError.RecommendedAction,
-		Severity:          SDKSeverityToFleetSeverity(sdkError.Severity),
+		Severity:          severity,
 		FirstSeenAt:       sdkError.FirstSeenAt,
 		LastSeenAt:        sdkError.LastSeenAt,
 		ClosedAt:          sdkError.ClosedAt,

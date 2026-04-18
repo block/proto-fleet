@@ -340,8 +340,8 @@ func (s *SQLDeviceStore) GetAllPairedDeviceIdentifiers(ctx context.Context) ([]m
 }
 
 // GetMinerStateCounts returns counts of miners by operational state.
-// The SQL query handles bucket assignment with status-first priority:
-// Offline > Sleeping > Needs Attention > Hashing
+// Bucket rules live in CountMinersByState in server/sqlc/queries/device.sql
+// and mirror MinerStatus.tsx (auth-needed overrides sleeping).
 func (s *SQLDeviceStore) GetMinerStateCounts(ctx context.Context, orgID int64, filter *stores.MinerFilter) (*tm.MinerStateCounts, error) {
 	fp := buildMinerFilterParams(filter)
 
@@ -349,6 +349,8 @@ func (s *SQLDeviceStore) GetMinerStateCounts(ctx context.Context, orgID int64, f
 		OrgID:                   orgID,
 		StatusFilter:            fp.statusFilter,
 		StatusValues:            fp.statusValues,
+		NeedsAttentionFilter:    sql.NullBool{Bool: fp.needsAttentionFilter, Valid: fp.needsAttentionFilter},
+		IncludeNullStatusFilter: sql.NullBool{Bool: fp.includeNullStatus, Valid: fp.includeNullStatus},
 		ModelFilter:             fp.modelFilter,
 		ModelValues:             fp.modelValues,
 		DeviceIdentifiersFilter: fp.deviceIdentifiersFilter,
@@ -793,6 +795,7 @@ func (s *SQLDeviceStore) ListMinerStateSnapshots(ctx context.Context, orgID int6
 		PairingStatusFilter:       fp.pairingStatusFilter,
 		PairingStatusValues:       fp.pairingStatusValues,
 		NeedsAttentionFilter:      sql.NullBool{Bool: fp.needsAttentionFilter, Valid: fp.needsAttentionFilter},
+		IncludeNullStatusFilter:   sql.NullBool{Bool: fp.includeNullStatus, Valid: fp.includeNullStatus},
 		ErrorComponentTypesFilter: fp.errorComponentTypesFilter,
 		ErrorComponentTypeValues:  fp.errorComponentTypeValues,
 		GroupIdsFilter:            fp.groupIDsFilter,
@@ -1020,24 +1023,37 @@ WHERE device.deleted_at IS NULL
 }
 
 // GetMinerStateCountsByCollections returns miner state counts grouped by collection ID.
-// Uses the same bucket logic as CountMinersByState (offline/sleeping/broken/hashing)
-// but groups results by collection membership.
+// Bucket logic (offline/sleeping/broken/hashing) mirrors CountMinersByState in
+// server/sqlc/queries/device.sql — see that query's header comment for priority rules.
 func (s *SQLDeviceStore) GetMinerStateCountsByCollections(ctx context.Context, orgID int64, collectionIDs []int64) (map[int64]stores.MinerStateCounts, error) {
 	if len(collectionIDs) == 0 {
 		return make(map[int64]stores.MinerStateCounts), nil
 	}
 
-	query := `SELECT dcm.device_set_id,
-    COALESCE(SUM(CASE WHEN ds.status = 'OFFLINE' OR ds.status IS NULL THEN 1 ELSE 0 END), 0)::int AS offline_count,
-    COALESCE(SUM(CASE WHEN ds.status IN ('MAINTENANCE', 'INACTIVE') THEN 1 ELSE 0 END), 0)::int AS sleeping_count,
+	query := fmt.Sprintf(`SELECT dcm.device_set_id,
+    -- Offline
     COALESCE(SUM(CASE
-        WHEN ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE')
-             AND ds.status IS NOT NULL
+        WHEN ds.status = 'OFFLINE'
+             OR (ds.status IS NULL AND dp.pairing_status != 'AUTHENTICATION_NEEDED')
+        THEN 1 ELSE 0
+    END), 0)::int AS offline_count,
+    -- Sleeping
+    COALESCE(SUM(CASE
+        WHEN ds.status IN ('MAINTENANCE', 'INACTIVE')
+             AND dp.pairing_status != 'AUTHENTICATION_NEEDED'
+        THEN 1 ELSE 0
+    END), 0)::int AS sleeping_count,
+    -- Broken
+    COALESCE(SUM(CASE
+        WHEN ds.status IS DISTINCT FROM 'OFFLINE'
+             AND NOT (ds.status IS NULL AND dp.pairing_status != 'AUTHENTICATION_NEEDED')
+             AND NOT (ds.status IN ('MAINTENANCE', 'INACTIVE') AND dp.pairing_status != 'AUTHENTICATION_NEEDED')
              AND (ds.status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
                   OR dp.pairing_status = 'AUTHENTICATION_NEEDED'
                   OR open_errors.device_id IS NOT NULL)
         THEN 1 ELSE 0
     END), 0)::int AS broken_count,
+    -- Hashing
     COALESCE(SUM(CASE
         WHEN ds.status = 'ACTIVE'
              AND dp.pairing_status != 'AUTHENTICATION_NEEDED'
@@ -1050,20 +1066,22 @@ JOIN device d ON dcm.device_id = d.id
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ds ON d.id = ds.device_id
+-- Open actionable errors (severity 1-4; excludes UNSPECIFIED=0)
 LEFT JOIN (
     SELECT DISTINCT device_id
     FROM errors
     WHERE errors.org_id = $1
       AND errors.closed_at IS NULL
-      AND errors.severity IN (1, 2, 3, 4)
+      AND %s
 ) open_errors ON d.id = open_errors.device_id
 WHERE dcm.device_set_id = ANY($2::bigint[])
   AND dcm.org_id = $1
   AND dc.deleted_at IS NULL
   AND d.deleted_at IS NULL
+  AND dd.deleted_at IS NULL
   AND dd.is_active = TRUE
   AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED')
-GROUP BY dcm.device_set_id`
+GROUP BY dcm.device_set_id`, actionableErrorSeveritiesExpr("errors"))
 
 	rows, err := s.conn.QueryContext(ctx, query, orgID, pq.Array(collectionIDs))
 	if err != nil {

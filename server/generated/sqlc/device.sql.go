@@ -37,25 +37,27 @@ func (q *Queries) AllDevicesBelongToOrg(ctx context.Context, arg AllDevicesBelon
 
 const countMinersByState = `-- name: CountMinersByState :one
 SELECT
-    -- Offline: OFFLINE or NULL status - highest priority (regardless of errors or auth)
+    -- Offline
     COALESCE(SUM(CASE
-        WHEN ds.status = 'OFFLINE' OR ds.status IS NULL
+        WHEN ds.status = 'OFFLINE'
+             OR (ds.status IS NULL AND dp.pairing_status != 'AUTHENTICATION_NEEDED')
         THEN 1
         ELSE 0
     END), 0)::bigint as offline_count,
 
-    -- Sleeping: MAINTENANCE or INACTIVE - second priority (if not offline, regardless of errors or auth)
+    -- Sleeping
     COALESCE(SUM(CASE
         WHEN ds.status IN ('MAINTENANCE', 'INACTIVE')
+             AND dp.pairing_status != 'AUTHENTICATION_NEEDED'
         THEN 1
         ELSE 0
     END), 0)::bigint as sleeping_count,
 
-    -- Broken/Needs Attention: NEEDS_MINING_POOL OR ERROR OR UPDATING OR REBOOT_REQUIRED status OR auth needed OR actionable errors
-    -- Only if not offline or sleeping
+    -- Broken
     COALESCE(SUM(CASE
-        WHEN ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE')
-             AND ds.status IS NOT NULL
+        WHEN ds.status IS DISTINCT FROM 'OFFLINE'
+             AND NOT (ds.status IS NULL AND dp.pairing_status != 'AUTHENTICATION_NEEDED')
+             AND NOT (ds.status IN ('MAINTENANCE', 'INACTIVE') AND dp.pairing_status != 'AUTHENTICATION_NEEDED')
              AND (ds.status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
                   OR dp.pairing_status = 'AUTHENTICATION_NEEDED'
                   OR open_errors.device_id IS NOT NULL)
@@ -63,7 +65,7 @@ SELECT
         ELSE 0
     END), 0)::bigint as broken_count,
 
-    -- Hashing: ACTIVE + no auth needed + no actionable errors (if none of the above)
+    -- Hashing
     COALESCE(SUM(CASE
         WHEN ds.status = 'ACTIVE'
              AND dp.pairing_status != 'AUTHENTICATION_NEEDED'
@@ -80,33 +82,71 @@ LEFT JOIN (
     FROM errors
     WHERE errors.org_id = $1
       AND errors.closed_at IS NULL
-      AND errors.severity IN (1, 2, 3, 4)  -- Exclude UNSPECIFIED (0)
+      AND errors.severity IN (1, 2, 3, 4)
 ) open_errors ON d.id = open_errors.device_id
 WHERE d.deleted_at IS NULL
   AND d.org_id = $1
   AND dd.is_active = TRUE
+  AND dd.deleted_at IS NULL
   AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED')
-  AND ($2::text IS NULL OR ds.status::text = ANY($3::text[]))
-  AND ($4::text IS NULL OR dd.model = ANY($5::text[]))
-  AND ($6::text IS NULL OR d.device_identifier = ANY($7::text[]))
+  -- Status filter mirrors GetTotalMinerStateSnapshots so
+  -- sum(bucket counts) == filtered list total for every filter value.
+  -- In particular, Hashing (ACTIVE) excludes rows with open actionable errors
+  -- so ACTIVE+error rows are not admitted into scope only to fall into
+  -- broken_count; they stay out of both the list and the counts.
   AND (
-      $8::text IS NULL
-      OR EXISTS (
-          SELECT 1 FROM device_set_membership dsm
-          WHERE dsm.device_id = d.id
-            AND dsm.org_id = $1
-            AND dsm.device_set_type = 'group'
-            AND dsm.device_set_id = ANY($9::bigint[])
+      $2::text IS NULL
+      OR (
+          ds.status::text = ANY($3::text[])
+          AND (
+              ds.status IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')
+              OR (ds.status = 'ACTIVE' AND NOT EXISTS (
+                  SELECT 1 FROM errors
+                  WHERE errors.device_id = d.id
+                    AND errors.org_id = $1
+                    AND errors.closed_at IS NULL
+                    AND errors.severity IN (1, 2, 3, 4)
+              ))
+              OR ($4::boolean = TRUE)
+          )
       )
+      OR ($4::boolean = TRUE
+          AND dp.pairing_status = 'AUTHENTICATION_NEEDED'
+          AND (ds.status IS NULL OR ds.status != 'OFFLINE'))
+      OR ($4::boolean = TRUE
+          AND EXISTS (
+              SELECT 1 FROM errors
+              WHERE errors.device_id = d.id
+                AND errors.org_id = $1
+                AND errors.closed_at IS NULL
+                AND errors.severity IN (1, 2, 3, 4)
+          )
+          AND NOT (ds.status IS NULL AND dp.pairing_status = 'PAIRED')
+          AND (ds.status IS NULL OR ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')))
+      OR ($5::boolean = TRUE
+          AND ds.status IS NULL
+          AND dp.pairing_status = 'PAIRED')
   )
+  AND ($6::text IS NULL OR dd.model = ANY($7::text[]))
+  AND ($8::text IS NULL OR d.device_identifier = ANY($9::text[]))
   AND (
       $10::text IS NULL
       OR EXISTS (
           SELECT 1 FROM device_set_membership dsm
           WHERE dsm.device_id = d.id
             AND dsm.org_id = $1
-            AND dsm.device_set_type = 'rack'
+            AND dsm.device_set_type = 'group'
             AND dsm.device_set_id = ANY($11::bigint[])
+      )
+  )
+  AND (
+      $12::text IS NULL
+      OR EXISTS (
+          SELECT 1 FROM device_set_membership dsm
+          WHERE dsm.device_id = d.id
+            AND dsm.org_id = $1
+            AND dsm.device_set_type = 'rack'
+            AND dsm.device_set_id = ANY($13::bigint[])
       )
   )
 `
@@ -115,6 +155,8 @@ type CountMinersByStateParams struct {
 	OrgID                   int64
 	StatusFilter            sql.NullString
 	StatusValues            []string
+	NeedsAttentionFilter    sql.NullBool
+	IncludeNullStatusFilter sql.NullBool
 	ModelFilter             sql.NullString
 	ModelValues             []string
 	DeviceIdentifiersFilter sql.NullString
@@ -134,34 +176,25 @@ type CountMinersByStateRow struct {
 
 // Counts miners by their operational state for fleet health dashboard.
 //
-// Bucket Assignment Priority (mutual exclusivity):
-// 1. Offline (offline_count):
-//   - OFFLINE/NULL status (highest priority, regardless of errors or auth status)
+// Buckets are mutually exclusive and match MinerStatus.tsx:
+//  1. Offline:  OFFLINE, or NULL status when not auth-needed
+//  2. Sleeping: INACTIVE/MAINTENANCE when not auth-needed
+//  3. Broken:   (not offline, not sleeping) AND (ERROR/NEEDS_MINING_POOL/UPDATING/REBOOT_REQUIRED
+//     status, or auth-needed, or has open error with severity 1-4)
+//  4. Hashing:  ACTIVE + paired + no open errors
 //
-// 2. Sleeping (sleeping_count):
-//   - MAINTENANCE/INACTIVE status (only if not offline, regardless of errors or auth status)
-//
-// 3. Needs Attention (broken_count):
-//   - NEEDS_MINING_POOL device status OR
-//   - ERROR device status OR
-//   - AUTHENTICATION_NEEDED pairing status OR
-//   - Has open errors with severity CRITICAL/MAJOR/MINOR
-//   - (only if not offline or sleeping)
-//
-// 4. Hashing (hashing_count):
-//   - ACTIVE status + no auth needed + no actionable errors (only if none of the above)
-//
-// Error Handling:
-// - Only open errors (closed_at IS NULL) are considered
-// - INFO severity errors (severity=4) are excluded
-// - UNSPECIFIED severity errors (severity=0) are excluded
-// - Offline/sleeping status takes precedence over errors
-// Check for open actionable errors (CRITICAL, MAJOR, MINOR only)
+// Auth-needed miners with NULL/INACTIVE/MAINTENANCE status land in broken, not
+// offline/sleeping, because the UI checks needsAuthentication first.
+// Only open errors (closed_at IS NULL) with severity IN (1,2,3,4) are considered;
+// UNSPECIFIED (0) is excluded (normalized at ingestion by miner_error_mapper).
+// Open actionable errors (severity 1-4; excludes UNSPECIFIED=0)
 func (q *Queries) CountMinersByState(ctx context.Context, arg CountMinersByStateParams) (CountMinersByStateRow, error) {
 	row := q.queryRow(ctx, q.countMinersByStateStmt, countMinersByState,
 		arg.OrgID,
 		arg.StatusFilter,
 		pq.Array(arg.StatusValues),
+		arg.NeedsAttentionFilter,
+		arg.IncludeNullStatusFilter,
 		arg.ModelFilter,
 		pq.Array(arg.ModelValues),
 		arg.DeviceIdentifiersFilter,
@@ -1279,10 +1312,12 @@ WHERE dd.org_id = $1
                 OR ($8::boolean = TRUE)
             )
         )
+        -- Auth-needed (exclude OFFLINE only)
         OR ($8::boolean = TRUE
             AND dp.pairing_status = 'AUTHENTICATION_NEEDED'
-            AND ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')
-            AND ds.status IS NOT NULL)
+            AND (ds.status IS NULL OR ds.status != 'OFFLINE'))
+        -- Devices with actionable errors. Excludes NULL-status paired miners
+        -- so they stay bucketed as offline (matches CountMinersByState).
         OR ($8::boolean = TRUE
             AND EXISTS (
                 SELECT 1 FROM errors
@@ -1291,39 +1326,44 @@ WHERE dd.org_id = $1
                   AND errors.closed_at IS NULL
                   AND errors.severity IN (1, 2, 3, 4)
             )
-            AND ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')
-            AND ds.status IS NOT NULL)
+            AND NOT (ds.status IS NULL AND dp.pairing_status = 'PAIRED')
+            AND (ds.status IS NULL OR ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')))
+        -- NULL-status paired miners (counted as offline in dashboard).
+        -- Scoped to PAIRED only to match CountMinersByState's WHERE clause.
+        OR ($9::boolean = TRUE
+            AND ds.status IS NULL
+            AND dp.pairing_status = 'PAIRED')
     )
     -- Component error filter
     AND (
-        $9::text IS NULL
+        $10::text IS NULL
         OR EXISTS (
             SELECT 1 FROM errors
             WHERE errors.device_id = d.id
               AND errors.closed_at IS NULL
-              AND errors.component_type = ANY($10::int[])
+              AND errors.component_type = ANY($11::int[])
         )
     )
     -- Group filter
     AND (
-        $11::text IS NULL
+        $12::text IS NULL
         OR EXISTS (
             SELECT 1 FROM device_set_membership dsm
             WHERE dsm.device_id = d.id
               AND dsm.org_id = $1
               AND dsm.device_set_type = 'group'
-              AND dsm.device_set_id = ANY($12::bigint[])
+              AND dsm.device_set_id = ANY($13::bigint[])
         )
     )
     -- Rack filter
     AND (
-        $13::text IS NULL
+        $14::text IS NULL
         OR EXISTS (
             SELECT 1 FROM device_set_membership dsm
             WHERE dsm.device_id = d.id
               AND dsm.org_id = $1
               AND dsm.device_set_type = 'rack'
-              AND dsm.device_set_id = ANY($14::bigint[])
+              AND dsm.device_set_id = ANY($15::bigint[])
         )
     )
 `
@@ -1337,6 +1377,7 @@ type GetTotalMinerStateSnapshotsParams struct {
 	StatusFilter              sql.NullString
 	StatusValues              []string
 	NeedsAttentionFilter      sql.NullBool
+	IncludeNullStatusFilter   sql.NullBool
 	ErrorComponentTypesFilter sql.NullString
 	ErrorComponentTypeValues  []int32
 	GroupIdsFilter            sql.NullString
@@ -1357,6 +1398,7 @@ func (q *Queries) GetTotalMinerStateSnapshots(ctx context.Context, arg GetTotalM
 		arg.StatusFilter,
 		pq.Array(arg.StatusValues),
 		arg.NeedsAttentionFilter,
+		arg.IncludeNullStatusFilter,
 		arg.ErrorComponentTypesFilter,
 		pq.Array(arg.ErrorComponentTypeValues),
 		arg.GroupIdsFilter,

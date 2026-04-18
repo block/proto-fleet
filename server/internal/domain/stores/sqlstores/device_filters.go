@@ -21,6 +21,7 @@ type minerFilterParams struct {
 	pairingStatusFilter       sql.NullString
 	pairingStatusValues       []string
 	needsAttentionFilter      bool
+	includeNullStatus         bool
 	errorComponentTypesFilter sql.NullString
 	errorComponentTypeValues  []int32
 	deviceIdentifiersFilter   sql.NullString
@@ -44,9 +45,11 @@ func buildMinerFilterParams(filter *stores.MinerFilter) minerFilterParams {
 		fp.statusFilter = sql.NullString{Valid: true}
 		for _, status := range filter.DeviceStatusFilter {
 			fp.statusValues = append(fp.statusValues, string(toDeviceStatus(status)))
-			// Special case: ERROR status triggers needs attention filter
 			if status == minermodels.MinerStatusError {
 				fp.needsAttentionFilter = true
+			}
+			if status == minermodels.MinerStatusOffline {
+				fp.includeNullStatus = true
 			}
 		}
 	}
@@ -137,19 +140,27 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 		sb.WriteString("))")
 
 		if fp.needsAttentionFilter {
-			// Auth needed devices
-			fmt.Fprintf(sb,
-				" OR (device_pairing.pairing_status = 'AUTHENTICATION_NEEDED'"+
-					" AND device_status.status NOT IN %s AND device_status.status IS NOT NULL)",
-				nonActionableStatuses)
-			// Devices with errors
+			// Auth-needed (exclude OFFLINE only)
+			sb.WriteString(
+				" OR (device_pairing.pairing_status = 'AUTHENTICATION_NEEDED'" +
+					" AND (device_status.status IS NULL OR device_status.status != 'OFFLINE'))")
+			// Devices with actionable errors. Excludes NULL-status paired miners
+			// so they stay bucketed as offline (matches CountMinersByState).
 			fmt.Fprintf(sb,
 				" OR (EXISTS (SELECT 1 FROM errors WHERE errors.device_id = device.id"+
 					" AND errors.org_id = $%d AND errors.closed_at IS NULL AND %s)"+
-					" AND device_status.status NOT IN %s AND device_status.status IS NOT NULL)",
+					" AND NOT (device_status.status IS NULL AND device_pairing.pairing_status = 'PAIRED')"+
+					" AND (device_status.status IS NULL OR device_status.status NOT IN %s))",
 				argNum, actionableErrorSeverities, nonActionableStatuses)
 			args = append(args, orgID)
 			argNum++
+		}
+		if fp.includeNullStatus {
+			// NULL-status paired miners (counted as offline in dashboard).
+			// Scoped to PAIRED only to match CountMinersByState's WHERE clause.
+			sb.WriteString(
+				" OR (device_status.status IS NULL" +
+					" AND device_pairing.pairing_status = 'PAIRED')")
 		}
 		// Close outer AND group
 		sb.WriteString(")")

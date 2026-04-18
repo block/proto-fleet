@@ -623,11 +623,11 @@ func TestCountMinersByState_SleepingWithErrorAndAuth(t *testing.T) {
 	counts, err := store.GetMinerStateCounts(ctx, 1, nil)
 	require.NoError(t, err)
 
-	// INACTIVE + AUTHENTICATION_NEEDED + error → Sleeping (status takes precedence)
-	require.Equal(t, int32(0), counts.BrokenCount, "broken_count should be 0")
+	// INACTIVE + AUTHENTICATION_NEEDED → broken (auth overrides sleeping)
+	require.Equal(t, int32(1), counts.BrokenCount, "broken_count should be 1 (auth overrides sleeping)")
 	require.Equal(t, int32(0), counts.HashingCount, "hashing_count should be 0")
 	require.Equal(t, int32(0), counts.OfflineCount, "offline_count should be 0")
-	require.Equal(t, int32(1), counts.SleepingCount, "sleeping_count should be 1")
+	require.Equal(t, int32(0), counts.SleepingCount, "sleeping_count should be 0")
 }
 
 // TestCountMinersByState_ComplexPriority verifies the complete priority hierarchy
@@ -660,15 +660,13 @@ func TestCountMinersByState_ComplexPriority(t *testing.T) {
 	counts, err := store.GetMinerStateCounts(ctx, 1, nil)
 	require.NoError(t, err)
 
-	// Expected distribution:
-	// - offline: 2 (device-001 with error, device-002 auth needed)
-	// - sleeping: 2 (device-003 with error, device-004 auth needed)
-	// - broken: 3 (device-005 ERROR status, device-006 auth needed, device-007 with error)
-	// - hashing: 0
-	require.Equal(t, int32(3), counts.BrokenCount, "broken_count should be 3")
+	// offline: 2 (device-001 OFFLINE+error, device-002 OFFLINE+auth)
+	// sleeping: 1 (device-003 INACTIVE+paired+error)
+	// broken: 4 (device-004 MAINTENANCE+auth, device-005 ERROR, device-006 ACTIVE+auth, device-007 ACTIVE+error)
+	require.Equal(t, int32(4), counts.BrokenCount, "broken_count should be 4 (includes MAINTENANCE+auth)")
 	require.Equal(t, int32(0), counts.HashingCount, "hashing_count should be 0")
 	require.Equal(t, int32(2), counts.OfflineCount, "offline_count should be 2")
-	require.Equal(t, int32(2), counts.SleepingCount, "sleeping_count should be 2")
+	require.Equal(t, int32(1), counts.SleepingCount, "sleeping_count should be 1 (MAINTENANCE+auth now broken)")
 }
 
 // TestCountMinersByState_FilterConsistency verifies that filtering by needs attention
@@ -724,6 +722,355 @@ func TestCountMinersByState_FilterConsistency(t *testing.T) {
 	require.True(t, identifiers["device-005"], "should include AUTHENTICATION_NEEDED device")
 	require.False(t, identifiers["device-001"], "should NOT include OFFLINE device with error")
 	require.False(t, identifiers["device-002"], "should NOT include INACTIVE device with error")
+}
+
+// TestCountMinersByState_AuthNeededNullStatus verifies auth-needed miners with
+// NULL device_status go to broken_count, not offline_count.
+func TestCountMinersByState_AuthNeededNullStatus(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+
+	setupCountMinersByStateTestData(t, conn, &countMinersByStateTestSetup{devices: nullStatusDashboardFixture()})
+
+	store := sqlstores.NewSQLDeviceStore(conn)
+	counts, err := store.GetMinerStateCounts(ctx, 1, nil)
+	require.NoError(t, err)
+
+	require.Equal(t, int32(1), counts.BrokenCount, "auth-needed with NULL status should be broken")
+	require.Equal(t, int32(1), counts.OfflineCount, "paired with NULL status should be offline")
+	require.Equal(t, int32(1), counts.HashingCount, "active paired should be hashing")
+	require.Equal(t, int32(0), counts.SleepingCount, "no sleeping devices")
+}
+
+// TestCountMinersByState_AuthNeededInactiveStatus verifies auth-needed miners with
+// INACTIVE device_status go to broken_count, not sleeping_count.
+func TestCountMinersByState_AuthNeededInactiveStatus(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+
+	setupCountMinersByStateTestData(t, conn, &countMinersByStateTestSetup{
+		devices: []testDevice{
+			{id: 1, identifier: "device-001", status: "INACTIVE", pairingStatus: "AUTHENTICATION_NEEDED"}, // auth + inactive → broken
+			{id: 2, identifier: "device-002", status: "INACTIVE", pairingStatus: "PAIRED"},                // paired + inactive → sleeping
+		},
+	})
+
+	store := sqlstores.NewSQLDeviceStore(conn)
+	counts, err := store.GetMinerStateCounts(ctx, 1, nil)
+	require.NoError(t, err)
+
+	require.Equal(t, int32(1), counts.BrokenCount, "auth-needed with INACTIVE should be broken")
+	require.Equal(t, int32(1), counts.SleepingCount, "paired with INACTIVE should be sleeping")
+	require.Equal(t, int32(0), counts.OfflineCount, "no offline")
+	require.Equal(t, int32(0), counts.HashingCount, "no hashing")
+}
+
+// TestCountMinersByState_NullStatusFilterConsistency verifies that list filters
+// return the same miners the dashboard counts as offline/needs-attention for
+// NULL-status devices.
+func TestCountMinersByState_NullStatusFilterConsistency(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+
+	setupCountMinersByStateTestData(t, conn, &countMinersByStateTestSetup{devices: nullStatusDashboardFixture()})
+
+	store := sqlstores.NewSQLDeviceStore(conn)
+
+	// Verify counts first
+	counts, err := store.GetMinerStateCounts(ctx, 1, nil)
+	require.NoError(t, err)
+	require.Equal(t, int32(1), counts.BrokenCount)
+	require.Equal(t, int32(1), counts.OfflineCount)
+	require.Equal(t, int32(1), counts.HashingCount)
+
+	// Filter by needs attention — should include auth-needed NULL-status miner
+	needsAttentionFilter := &interfaces.MinerFilter{
+		DeviceStatusFilter: []minermodels.MinerStatus{minermodels.MinerStatusError},
+	}
+	miners, _, total, err := store.ListMinerStateSnapshots(ctx, 1, "", 50, needsAttentionFilter, nil)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), total, "needs attention filter should match 1 miner")
+	require.Len(t, miners, 1)
+	require.Equal(t, "device-001", miners[0].DeviceIdentifier, "should include auth-needed NULL-status miner")
+
+	// Filter by offline — should include paired NULL-status miner
+	offlineFilter := &interfaces.MinerFilter{
+		DeviceStatusFilter: []minermodels.MinerStatus{minermodels.MinerStatusOffline},
+	}
+	miners, _, total, err = store.ListMinerStateSnapshots(ctx, 1, "", 50, offlineFilter, nil)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), total, "offline filter should match 1 miner")
+	require.Len(t, miners, 1)
+	require.Equal(t, "device-002", miners[0].DeviceIdentifier, "should include paired NULL-status miner")
+}
+
+// TestCountMinersByState_FilteredCountsMatchList verifies that GetMinerStateCounts
+// (which populates total_state_counts) agrees with ListMinerStateSnapshots total
+// when a status filter is applied. Regression guard for the bucket/list disagreement
+// flagged by Codex Security review.
+func TestCountMinersByState_FilteredCountsMatchList(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+
+	setupCountMinersByStateTestData(t, conn, &countMinersByStateTestSetup{
+		devices: []testDevice{
+			{id: 1, identifier: "device-001", status: "OFFLINE", pairingStatus: "PAIRED"},               // offline
+			{id: 2, identifier: "device-002", status: "", pairingStatus: "PAIRED"},                      // NULL+paired → offline
+			{id: 3, identifier: "device-003", status: "ACTIVE", pairingStatus: "PAIRED"},                // hashing
+			{id: 4, identifier: "device-004", status: "", pairingStatus: "AUTHENTICATION_NEEDED"},       // auth+NULL → broken
+			{id: 5, identifier: "device-005", status: "ERROR", pairingStatus: "PAIRED"},                 // broken
+			{id: 6, identifier: "device-006", status: "ACTIVE", pairingStatus: "AUTHENTICATION_NEEDED"}, // auth+ACTIVE → broken
+			{id: 7, identifier: "device-007", status: "ACTIVE", pairingStatus: "PAIRED"},                // ACTIVE+paired+error → broken (excluded from Hashing)
+		},
+		errors: []testError{
+			{deviceID: 7, orgID: 1, severity: 1, closed: false}, // CRITICAL on device-007
+		},
+	})
+
+	store := sqlstores.NewSQLDeviceStore(conn)
+
+	// Offline filter: list total and offline_count in state counts must match.
+	offlineFilter := &interfaces.MinerFilter{
+		DeviceStatusFilter: []minermodels.MinerStatus{minermodels.MinerStatusOffline},
+	}
+	_, _, listTotal, err := store.ListMinerStateSnapshots(ctx, 1, "", 50, offlineFilter, nil)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), listTotal, "offline list should match OFFLINE + NULL+paired")
+
+	stateCounts, err := store.GetMinerStateCounts(ctx, 1, offlineFilter)
+	require.NoError(t, err)
+	require.Equal(t, listTotal, int64(stateCounts.OfflineCount),
+		"offline_count must equal list total when filtering by Offline")
+	require.Equal(t, int32(0), stateCounts.BrokenCount, "no broken in offline-filtered view")
+	require.Equal(t, int32(0), stateCounts.HashingCount, "no hashing in offline-filtered view")
+	require.Equal(t, int32(0), stateCounts.SleepingCount, "no sleeping in offline-filtered view")
+
+	// Needs Attention filter: list total and broken_count in state counts must match.
+	needsAttentionFilter := &interfaces.MinerFilter{
+		DeviceStatusFilter: []minermodels.MinerStatus{minermodels.MinerStatusError},
+	}
+	_, _, listTotal, err = store.ListMinerStateSnapshots(ctx, 1, "", 50, needsAttentionFilter, nil)
+	require.NoError(t, err)
+	require.Equal(t, int64(4), listTotal,
+		"needs-attention includes ERROR + auth-needed + paired-ACTIVE-with-error")
+
+	stateCounts, err = store.GetMinerStateCounts(ctx, 1, needsAttentionFilter)
+	require.NoError(t, err)
+	require.Equal(t, listTotal, int64(stateCounts.BrokenCount),
+		"broken_count must equal list total when filtering by Needs Attention")
+
+	// Hashing filter: ACTIVE+error miners must be excluded from BOTH the list and
+	// the state counts. Pre-fix, CountMinersByState admitted ACTIVE+error via the
+	// bare ANY(['ACTIVE']) predicate and bucketed them as broken, causing
+	// sum(buckets) > listTotal. Regression guard for that divergence.
+	hashingFilter := &interfaces.MinerFilter{
+		DeviceStatusFilter: []minermodels.MinerStatus{minermodels.MinerStatusActive},
+	}
+	_, _, listTotal, err = store.ListMinerStateSnapshots(ctx, 1, "", 50, hashingFilter, nil)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), listTotal,
+		"hashing list should exclude ACTIVE+error (device-007); includes device-003 and device-006")
+
+	stateCounts, err = store.GetMinerStateCounts(ctx, 1, hashingFilter)
+	require.NoError(t, err)
+	require.Equal(t, int32(1), stateCounts.HashingCount, "paired+ACTIVE+no-error only (device-003)")
+	require.Equal(t, int32(1), stateCounts.BrokenCount, "auth+ACTIVE+no-error (device-006); auth overrides hashing")
+	require.Equal(t, int32(0), stateCounts.OfflineCount, "no offline in hashing-filtered view")
+	require.Equal(t, int32(0), stateCounts.SleepingCount, "no sleeping in hashing-filtered view")
+	require.Equal(t, listTotal, int64(stateCounts.HashingCount+stateCounts.BrokenCount),
+		"hashing+broken buckets must sum to filtered list total")
+}
+
+// TestCountMinersByState_NullPairedWithErrorStaysOffline verifies that a PAIRED
+// miner with NULL device_status and an open error is bucketed as offline
+// (not Needs Attention) by both the list filter and the state counts.
+func TestCountMinersByState_NullPairedWithErrorStaysOffline(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+
+	setupCountMinersByStateTestData(t, conn, &countMinersByStateTestSetup{
+		devices: []testDevice{
+			{id: 1, identifier: "device-001", status: "", pairingStatus: "PAIRED"}, // NULL+paired with open error
+		},
+		errors: []testError{
+			{deviceID: 1, orgID: 1, severity: 1, closed: false},
+		},
+	})
+
+	store := sqlstores.NewSQLDeviceStore(conn)
+
+	// Offline filter matches the miner; state counts agree.
+	offlineFilter := &interfaces.MinerFilter{
+		DeviceStatusFilter: []minermodels.MinerStatus{minermodels.MinerStatusOffline},
+	}
+	_, _, total, err := store.ListMinerStateSnapshots(ctx, 1, "", 50, offlineFilter, nil)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), total, "NULL+paired (with error) should be in offline filter")
+
+	counts, err := store.GetMinerStateCounts(ctx, 1, offlineFilter)
+	require.NoError(t, err)
+	require.Equal(t, int32(1), counts.OfflineCount, "NULL+paired (with error) should count as offline")
+	require.Equal(t, int32(0), counts.BrokenCount, "NULL+paired should NOT count as broken")
+
+	// Needs Attention filter excludes the miner (offline trumps errors).
+	needsAttentionFilter := &interfaces.MinerFilter{
+		DeviceStatusFilter: []minermodels.MinerStatus{minermodels.MinerStatusError},
+	}
+	_, _, total, err = store.ListMinerStateSnapshots(ctx, 1, "", 50, needsAttentionFilter, nil)
+	require.NoError(t, err)
+	require.Equal(t, int64(0), total, "NULL+paired (with error) should NOT be in needs-attention filter")
+}
+
+// TestGetMinerStateCountsByCollections_AuthNeededNullStatus verifies per-collection
+// counts match dashboard bucket rules for NULL device_status.
+func TestGetMinerStateCountsByCollections_AuthNeededNullStatus(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+
+	devices := nullStatusDashboardFixture()
+	setupCountMinersByStateTestData(t, conn, &countMinersByStateTestSetup{devices: devices})
+
+	const collectionID int64 = 100
+	setupCollectionMembership(t, conn, collectionID, "group", devices)
+
+	store := sqlstores.NewSQLDeviceStore(conn)
+	counts, err := store.GetMinerStateCountsByCollections(ctx, 1, []int64{collectionID})
+	require.NoError(t, err)
+	require.Contains(t, counts, collectionID)
+
+	c := counts[collectionID]
+	require.Equal(t, int32(1), c.BrokenCount, "auth-needed with NULL status should be broken")
+	require.Equal(t, int32(1), c.OfflineCount, "paired with NULL status should be offline")
+	require.Equal(t, int32(1), c.HashingCount, "active paired should be hashing")
+	require.Equal(t, int32(0), c.SleepingCount, "no sleeping devices")
+}
+
+// TestGetMinerStateCountsByCollections_AuthNeededInactiveStatus verifies auth-needed
+// miners with INACTIVE status go to broken_count, not sleeping_count.
+func TestGetMinerStateCountsByCollections_AuthNeededInactiveStatus(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+
+	devices := []testDevice{
+		{id: 1, identifier: "device-001", status: "INACTIVE", pairingStatus: "AUTHENTICATION_NEEDED"}, // auth + inactive → broken
+		{id: 2, identifier: "device-002", status: "INACTIVE", pairingStatus: "PAIRED"},                // paired + inactive → sleeping
+	}
+	setupCountMinersByStateTestData(t, conn, &countMinersByStateTestSetup{devices: devices})
+
+	const collectionID int64 = 101
+	setupCollectionMembership(t, conn, collectionID, "group", devices)
+
+	store := sqlstores.NewSQLDeviceStore(conn)
+	counts, err := store.GetMinerStateCountsByCollections(ctx, 1, []int64{collectionID})
+	require.NoError(t, err)
+	require.Contains(t, counts, collectionID)
+
+	c := counts[collectionID]
+	require.Equal(t, int32(1), c.BrokenCount, "auth-needed with INACTIVE should be broken")
+	require.Equal(t, int32(1), c.SleepingCount, "paired with INACTIVE should be sleeping")
+	require.Equal(t, int32(0), c.OfflineCount, "no offline devices")
+	require.Equal(t, int32(0), c.HashingCount, "no hashing devices")
+}
+
+// TestCountMinersByState_ExcludesSoftDeletedDiscoveredDevice verifies that
+// soft-deleted discovered_device rows are excluded from the dashboard counts,
+// matching the scope used by GetTotalMinerStateSnapshots and
+// GetMinerStateCountsByCollections. Without the `dd.deleted_at IS NULL` guard
+// the dashboard would disagree with the list and the per-collection counts
+// whenever a discovered_device is soft-deleted independently of its device row.
+func TestCountMinersByState_ExcludesSoftDeletedDiscoveredDevice(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+
+	setupCountMinersByStateTestData(t, conn, &countMinersByStateTestSetup{
+		devices: []testDevice{
+			{id: 1, identifier: "device-001", status: "ACTIVE", pairingStatus: "PAIRED"}, // active — should be counted
+			{id: 2, identifier: "device-002", status: "ACTIVE", pairingStatus: "PAIRED"}, // active but discovered_device soft-deleted — should be excluded
+		},
+	})
+
+	// Soft-delete the second device's discovered_device row while leaving the
+	// device row intact. This is the shape produced by reconciliation paths that
+	// soft-delete a stale discovered_device without touching the device row.
+	_, err := conn.Exec(`UPDATE discovered_device SET deleted_at = NOW() WHERE id = $1`, int64(2))
+	require.NoError(t, err)
+
+	store := sqlstores.NewSQLDeviceStore(conn)
+	counts, err := store.GetMinerStateCounts(ctx, 1, nil)
+	require.NoError(t, err)
+
+	require.Equal(t, int32(1), counts.HashingCount, "only the non-deleted active paired device should count")
+	require.Equal(t, int32(0), counts.BrokenCount, "no broken devices")
+	require.Equal(t, int32(0), counts.OfflineCount, "no offline devices")
+	require.Equal(t, int32(0), counts.SleepingCount, "no sleeping devices")
+}
+
+// TestGetMinerStateCountsByCollections_ExcludesSoftDeletedDiscoveredDevice verifies
+// that soft-deleted discovered_device rows are excluded from collection counts.
+func TestGetMinerStateCountsByCollections_ExcludesSoftDeletedDiscoveredDevice(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+
+	devices := []testDevice{
+		{id: 1, identifier: "device-001", status: "ACTIVE", pairingStatus: "PAIRED"}, // active — should be counted
+		{id: 2, identifier: "device-002", status: "ACTIVE", pairingStatus: "PAIRED"}, // active but discovered_device soft-deleted — should be excluded
+	}
+	setupCountMinersByStateTestData(t, conn, &countMinersByStateTestSetup{devices: devices})
+
+	const collectionID int64 = 102
+	setupCollectionMembership(t, conn, collectionID, "group", devices)
+
+	// Soft-delete the second device's discovered_device row after seeding so the
+	// membership row still references it but the row should not contribute to counts.
+	_, err := conn.Exec(`UPDATE discovered_device SET deleted_at = NOW() WHERE id = $1`, int64(2))
+	require.NoError(t, err)
+
+	store := sqlstores.NewSQLDeviceStore(conn)
+	counts, err := store.GetMinerStateCountsByCollections(ctx, 1, []int64{collectionID})
+	require.NoError(t, err)
+	require.Contains(t, counts, collectionID)
+
+	c := counts[collectionID]
+	require.Equal(t, int32(1), c.HashingCount, "only the non-deleted active paired device should count")
+	require.Equal(t, int32(0), c.BrokenCount, "no broken devices")
+	require.Equal(t, int32(0), c.OfflineCount, "no offline devices")
+	require.Equal(t, int32(0), c.SleepingCount, "no sleeping devices")
 }
 
 // =============================================================================
@@ -789,8 +1136,11 @@ func setupCountMinersByStateTestData(t *testing.T, conn *sql.DB, setup *countMin
 		require.NoError(t, err)
 	}
 
-	// Insert device statuses
+	// Insert device statuses (skip if status is empty to simulate NULL device_status)
 	for _, device := range setup.devices {
+		if device.status == "" {
+			continue
+		}
 		_, err := conn.Exec(`
 			INSERT INTO device_status (device_id, status, status_timestamp)
 			VALUES ($1, $2, NOW())
@@ -822,6 +1172,39 @@ func insertTestError(t *testing.T, conn *sql.DB, deviceID, orgID int64, severity
 		VALUES ($1, $2, $3, 1000, $4, 'Test error', $5, $6, $7)
 	`, errorID, orgID, deviceID, severity, now, now, closedAt)
 	require.NoError(t, err)
+}
+
+// nullStatusDashboardFixture returns the canonical three-device fixture used to
+// verify NULL device_status bucketing: auth-needed (→ broken), paired (→ offline),
+// and an active paired control (→ hashing).
+func nullStatusDashboardFixture() []testDevice {
+	return []testDevice{
+		{id: 1, identifier: "device-001", status: "", pairingStatus: "AUTHENTICATION_NEEDED"},
+		{id: 2, identifier: "device-002", status: "", pairingStatus: "PAIRED"},
+		{id: 3, identifier: "device-003", status: "ACTIVE", pairingStatus: "PAIRED"},
+	}
+}
+
+// setupCollectionMembership inserts a device_set row and membership entries linking
+// the given devices to it. Devices must already exist (e.g. via
+// setupCountMinersByStateTestData). Uses org_id=1 to match that fixture.
+// setType is the device_set_type enum value ('group' or 'rack').
+func setupCollectionMembership(t *testing.T, conn *sql.DB, collectionID int64, setType string, devices []testDevice) {
+	t.Helper()
+
+	_, err := conn.Exec(`
+		INSERT INTO device_set (id, org_id, type, label)
+		VALUES ($1, 1, $2::device_set_type, $3)
+	`, collectionID, setType, fmt.Sprintf("collection-%d", collectionID))
+	require.NoError(t, err)
+
+	for _, device := range devices {
+		_, err := conn.Exec(`
+			INSERT INTO device_set_membership (org_id, device_set_id, device_set_type, device_id, device_identifier)
+			VALUES (1, $1, $2::device_set_type, $3, $4)
+		`, collectionID, setType, device.id, device.identifier)
+		require.NoError(t, err)
+	}
 }
 
 // =============================================================================

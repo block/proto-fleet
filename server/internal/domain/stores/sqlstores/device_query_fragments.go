@@ -75,7 +75,8 @@ func minerBaseQueryWithSortValue(sortValueExpr string) string {
 }
 
 // actionableErrorSeverities defines which error severities trigger "needs attention" state.
-// Values: 1=CRITICAL, 2=MAJOR, 3=MINOR, 4=INFO. Excludes UNSPECIFIED=0.
+// 1=CRITICAL, 2=MAJOR, 3=MINOR, 4=INFO. Excludes UNSPECIFIED (0), which is normalized
+// to a real severity at ingestion by miner_error_mapper.
 const (
 	actionableErrorSeverityList      = "(1, 2, 3, 4)"
 	actionableErrorComponentTypeList = "(1, 2, 3, 4)"

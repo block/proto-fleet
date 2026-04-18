@@ -170,45 +170,39 @@ WHERE dp.pairing_status = 'PAIRED'
 -- name: CountMinersByState :one
 -- Counts miners by their operational state for fleet health dashboard.
 --
--- Bucket Assignment Priority (mutual exclusivity):
--- 1. Offline (offline_count):
---    - OFFLINE/NULL status (highest priority, regardless of errors or auth status)
--- 2. Sleeping (sleeping_count):
---    - MAINTENANCE/INACTIVE status (only if not offline, regardless of errors or auth status)
--- 3. Needs Attention (broken_count):
---    - NEEDS_MINING_POOL device status OR
---    - ERROR device status OR
---    - AUTHENTICATION_NEEDED pairing status OR
---    - Has open errors with severity CRITICAL/MAJOR/MINOR
---    - (only if not offline or sleeping)
--- 4. Hashing (hashing_count):
---    - ACTIVE status + no auth needed + no actionable errors (only if none of the above)
+-- Buckets are mutually exclusive and match MinerStatus.tsx:
+-- 1. Offline:  OFFLINE, or NULL status when not auth-needed
+-- 2. Sleeping: INACTIVE/MAINTENANCE when not auth-needed
+-- 3. Broken:   (not offline, not sleeping) AND (ERROR/NEEDS_MINING_POOL/UPDATING/REBOOT_REQUIRED
+--              status, or auth-needed, or has open error with severity 1-4)
+-- 4. Hashing:  ACTIVE + paired + no open errors
 --
--- Error Handling:
--- - Only open errors (closed_at IS NULL) are considered
--- - INFO severity errors (severity=4) are excluded
--- - UNSPECIFIED severity errors (severity=0) are excluded
--- - Offline/sleeping status takes precedence over errors
+-- Auth-needed miners with NULL/INACTIVE/MAINTENANCE status land in broken, not
+-- offline/sleeping, because the UI checks needsAuthentication first.
+-- Only open errors (closed_at IS NULL) with severity IN (1,2,3,4) are considered;
+-- UNSPECIFIED (0) is excluded (normalized at ingestion by miner_error_mapper).
 SELECT
-    -- Offline: OFFLINE or NULL status - highest priority (regardless of errors or auth)
+    -- Offline
     COALESCE(SUM(CASE
-        WHEN ds.status = 'OFFLINE' OR ds.status IS NULL
+        WHEN ds.status = 'OFFLINE'
+             OR (ds.status IS NULL AND dp.pairing_status != 'AUTHENTICATION_NEEDED')
         THEN 1
         ELSE 0
     END), 0)::bigint as offline_count,
 
-    -- Sleeping: MAINTENANCE or INACTIVE - second priority (if not offline, regardless of errors or auth)
+    -- Sleeping
     COALESCE(SUM(CASE
         WHEN ds.status IN ('MAINTENANCE', 'INACTIVE')
+             AND dp.pairing_status != 'AUTHENTICATION_NEEDED'
         THEN 1
         ELSE 0
     END), 0)::bigint as sleeping_count,
 
-    -- Broken/Needs Attention: NEEDS_MINING_POOL OR ERROR OR UPDATING OR REBOOT_REQUIRED status OR auth needed OR actionable errors
-    -- Only if not offline or sleeping
+    -- Broken
     COALESCE(SUM(CASE
-        WHEN ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE')
-             AND ds.status IS NOT NULL
+        WHEN ds.status IS DISTINCT FROM 'OFFLINE'
+             AND NOT (ds.status IS NULL AND dp.pairing_status != 'AUTHENTICATION_NEEDED')
+             AND NOT (ds.status IN ('MAINTENANCE', 'INACTIVE') AND dp.pairing_status != 'AUTHENTICATION_NEEDED')
              AND (ds.status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
                   OR dp.pairing_status = 'AUTHENTICATION_NEEDED'
                   OR open_errors.device_id IS NOT NULL)
@@ -216,7 +210,7 @@ SELECT
         ELSE 0
     END), 0)::bigint as broken_count,
 
-    -- Hashing: ACTIVE + no auth needed + no actionable errors (if none of the above)
+    -- Hashing
     COALESCE(SUM(CASE
         WHEN ds.status = 'ACTIVE'
              AND dp.pairing_status != 'AUTHENTICATION_NEEDED'
@@ -228,19 +222,57 @@ FROM device d
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ds ON d.id = ds.device_id
--- Check for open actionable errors (CRITICAL, MAJOR, MINOR only)
+-- Open actionable errors (severity 1-4; excludes UNSPECIFIED=0)
 LEFT JOIN (
     SELECT DISTINCT device_id
     FROM errors
     WHERE errors.org_id = sqlc.arg('org_id')
       AND errors.closed_at IS NULL
-      AND errors.severity IN (1, 2, 3, 4)  -- Exclude UNSPECIFIED (0)
+      AND errors.severity IN (1, 2, 3, 4)
 ) open_errors ON d.id = open_errors.device_id
 WHERE d.deleted_at IS NULL
   AND d.org_id = sqlc.arg('org_id')
   AND dd.is_active = TRUE
+  AND dd.deleted_at IS NULL
   AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED')
-  AND (sqlc.narg('status_filter')::text IS NULL OR ds.status::text = ANY(sqlc.arg('status_values')::text[]))
+  -- Status filter mirrors GetTotalMinerStateSnapshots so
+  -- sum(bucket counts) == filtered list total for every filter value.
+  -- In particular, Hashing (ACTIVE) excludes rows with open actionable errors
+  -- so ACTIVE+error rows are not admitted into scope only to fall into
+  -- broken_count; they stay out of both the list and the counts.
+  AND (
+      sqlc.narg('status_filter')::text IS NULL
+      OR (
+          ds.status::text = ANY(sqlc.arg('status_values')::text[])
+          AND (
+              ds.status IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')
+              OR (ds.status = 'ACTIVE' AND NOT EXISTS (
+                  SELECT 1 FROM errors
+                  WHERE errors.device_id = d.id
+                    AND errors.org_id = sqlc.arg('org_id')
+                    AND errors.closed_at IS NULL
+                    AND errors.severity IN (1, 2, 3, 4)
+              ))
+              OR (sqlc.narg('needs_attention_filter')::boolean = TRUE)
+          )
+      )
+      OR (sqlc.narg('needs_attention_filter')::boolean = TRUE
+          AND dp.pairing_status = 'AUTHENTICATION_NEEDED'
+          AND (ds.status IS NULL OR ds.status != 'OFFLINE'))
+      OR (sqlc.narg('needs_attention_filter')::boolean = TRUE
+          AND EXISTS (
+              SELECT 1 FROM errors
+              WHERE errors.device_id = d.id
+                AND errors.org_id = sqlc.arg('org_id')
+                AND errors.closed_at IS NULL
+                AND errors.severity IN (1, 2, 3, 4)
+          )
+          AND NOT (ds.status IS NULL AND dp.pairing_status = 'PAIRED')
+          AND (ds.status IS NULL OR ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')))
+      OR (sqlc.narg('include_null_status_filter')::boolean = TRUE
+          AND ds.status IS NULL
+          AND dp.pairing_status = 'PAIRED')
+  )
   AND (sqlc.narg('model_filter')::text IS NULL OR dd.model = ANY(sqlc.arg('model_values')::text[]))
   AND (sqlc.narg('device_identifiers_filter')::text IS NULL OR d.device_identifier = ANY(sqlc.arg('device_identifier_values')::text[]))
   AND (
@@ -505,10 +537,12 @@ WHERE dd.org_id = sqlc.arg('org_id')
                 OR (sqlc.narg('needs_attention_filter')::boolean = TRUE)
             )
         )
+        -- Auth-needed (exclude OFFLINE only)
         OR (sqlc.narg('needs_attention_filter')::boolean = TRUE
             AND dp.pairing_status = 'AUTHENTICATION_NEEDED'
-            AND ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')
-            AND ds.status IS NOT NULL)
+            AND (ds.status IS NULL OR ds.status != 'OFFLINE'))
+        -- Devices with actionable errors. Excludes NULL-status paired miners
+        -- so they stay bucketed as offline (matches CountMinersByState).
         OR (sqlc.narg('needs_attention_filter')::boolean = TRUE
             AND EXISTS (
                 SELECT 1 FROM errors
@@ -517,8 +551,13 @@ WHERE dd.org_id = sqlc.arg('org_id')
                   AND errors.closed_at IS NULL
                   AND errors.severity IN (1, 2, 3, 4)
             )
-            AND ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')
-            AND ds.status IS NOT NULL)
+            AND NOT (ds.status IS NULL AND dp.pairing_status = 'PAIRED')
+            AND (ds.status IS NULL OR ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')))
+        -- NULL-status paired miners (counted as offline in dashboard).
+        -- Scoped to PAIRED only to match CountMinersByState's WHERE clause.
+        OR (sqlc.narg('include_null_status_filter')::boolean = TRUE
+            AND ds.status IS NULL
+            AND dp.pairing_status = 'PAIRED')
     )
     -- Component error filter
     AND (

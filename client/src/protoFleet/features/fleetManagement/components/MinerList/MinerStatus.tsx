@@ -40,7 +40,11 @@ const MinerStatus = ({ miner, errors, activeBatches, errorsLoaded, onClick }: Mi
 
   // Compute status flags
   const needsAuthentication = miner.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED;
-  const isOffline = deviceStatusFromStore === DeviceStatus.OFFLINE;
+  const isPaired = miner.pairingStatus === PairingStatus.PAIRED;
+  // Paired miners with UNSPECIFIED device_status (typically freshly paired, not yet polled)
+  // are treated as offline — this matches the Fleet Health dashboard and Offline filter.
+  const isOffline =
+    deviceStatusFromStore === DeviceStatus.OFFLINE || (deviceStatusFromStore === DeviceStatus.UNSPECIFIED && isPaired);
   // When authentication is needed, we can't trust INACTIVE/MAINTENANCE status
   // (could be sleeping OR showing as inactive because we can't authenticate)
   const isSleeping =
