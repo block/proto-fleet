@@ -2,8 +2,9 @@
 import { test } from "../fixtures/pageFixtures";
 
 test.describe("Temperature unit switching", () => {
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async ({ page, commonSteps }) => {
     await page.goto("/");
+    await commonSteps.authenticateAsAdmin();
   });
 
   test("Switch between Fahrenheit and Celsius", async ({ homePage, diagnosticsPage, generalPage, commonSteps }) => {

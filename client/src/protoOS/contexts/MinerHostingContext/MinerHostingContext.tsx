@@ -1,11 +1,13 @@
-import { createContext, ReactNode, useEffect, useMemo } from "react";
+import { createContext, ReactNode, useMemo } from "react";
 import { Api, RequestParams } from "@/protoOS/api/generatedApi";
-import { useAuthTokens } from "@/protoOS/store/hooks/useAuth";
+import useMinerStore from "@/protoOS/store/useMinerStore";
 
-// The security data is the raw access token string.
-type SecurityData = string;
-
-const securityWorker = (token: SecurityData | null): RequestParams | void => {
+// Read the access token at request time so every call picks up the latest
+// value from the store. Using setSecurityData from a useEffect races against
+// child useEffects (which fire first on initial mount), so the first fetch
+// would otherwise go out before the provider had a chance to inject auth.
+const securityWorker = (): RequestParams | void => {
+  const token = useMinerStore.getState().auth.authTokens.accessToken?.value;
   if (!token) return;
   return {
     headers: {
@@ -16,7 +18,7 @@ const securityWorker = (token: SecurityData | null): RequestParams | void => {
 
 const CreateApi = (baseUrl: string) => {
   const url = (baseUrl.length ? "/" : "") + baseUrl;
-  const instance = new Api<SecurityData>({
+  const instance = new Api({
     baseUrl: url,
     securityWorker,
     // Require auth on all requests by default (matches miner-firmware PR #3266).
@@ -59,13 +61,6 @@ export const MinerHostingProvider = ({
   closeButton = null,
 }: MinerHostingProviderProps) => {
   const instance = useMemo(() => CreateApi(baseUrl), [baseUrl]);
-  const authTokens = useAuthTokens();
-
-  // Keep the API client's security data in sync with the store's access token.
-  useEffect(() => {
-    instance.setSecurityData(authTokens.accessToken?.value || null);
-  }, [instance, authTokens.accessToken?.value]);
-
   const api = instance.api;
 
   return (

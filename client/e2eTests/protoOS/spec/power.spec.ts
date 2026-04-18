@@ -2,8 +2,9 @@
 import { test } from "../fixtures/pageFixtures";
 
 test.describe("Power management", () => {
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async ({ page, commonSteps }) => {
     await page.goto("/");
+    await commonSteps.authenticateAsAdmin();
   });
 
   test("Miner sleep status in different pages", async ({
@@ -16,8 +17,6 @@ test.describe("Power management", () => {
       await headerComponent.clickPowerButton();
       await headerComponent.clickPowerPopoverButton("Sleep");
     });
-
-    await commonSteps.authenticateAsAdmin();
 
     await test.step("Confirm enter SLEEP mode", async () => {
       await homePage.validateWarnSleepDialog();
@@ -76,7 +75,6 @@ test.describe("Power management", () => {
     await test.step("Put miner to sleep from home page", async () => {
       await headerComponent.clickPowerButton();
       await headerComponent.clickPowerPopoverButton("Sleep");
-      await commonSteps.authenticateAsAdmin();
       await sleepWakeDialogsComponent.clickEnterSleepMode();
       await sleepWakeDialogsComponent.validateEnteringSleepDialog();
     });

@@ -4,13 +4,13 @@ import { test } from "../fixtures/pageFixtures";
 import { generateRandomText } from "../helpers/testDataHelper";
 
 test.describe("Mining pools", () => {
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async ({ page, commonSteps }) => {
     await page.goto("/");
+    await commonSteps.authenticateAsAdmin();
   });
 
   test("Check pool errors", async ({ poolsPage: poolsPage, commonSteps }) => {
     await commonSteps.navigateToPoolsSettings();
-    await commonSteps.authenticateAsAdmin();
 
     await test.step("Open add-pool modal", async () => {
       await poolsPage.clickAddAnotherPool();
@@ -57,7 +57,7 @@ test.describe("Mining pools", () => {
     });
   });
 
-  test("Set up backup pools", async ({ poolsPage: poolsPage, commonSteps }) => {
+  test("Set up backup pools", async ({ poolsPage: poolsPage }) => {
     const poolName1 = generateRandomText("PoolName1");
     const poolUsername1 = generateRandomText("PoolUsername1");
     const poolName2 = generateRandomText("PoolName2");
@@ -72,8 +72,6 @@ test.describe("Mining pools", () => {
       await poolsPage.validateTextInPopover(testConfig.pool.url);
       await poolsPage.clickViewMiningPools();
     });
-
-    await commonSteps.authenticateAsAdmin();
 
     await test.step("Add first backup pool", async () => {
       await poolsPage.clickAddAnotherPool();

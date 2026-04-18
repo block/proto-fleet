@@ -2,8 +2,9 @@
 import { test } from "../fixtures/pageFixtures";
 
 test.describe("Home dashboard", () => {
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async ({ page, commonSteps }) => {
     await page.goto("/");
+    await commonSteps.authenticateAsAdmin();
   });
 
   test("Validate KPI tabs and stats", async ({ homePage }) => {

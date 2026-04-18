@@ -242,8 +242,19 @@ describe("useAccessToken", () => {
     expect(result.current.routeRequiresAuth).toBe(true);
   });
 
-  test("leaves non-protected routes accessible without auth gating", () => {
+  test("marks data routes as auth required now that firmware gates reads", () => {
+    // Firmware PR #3266 requires auth on every data endpoint, so data pages
+    // must prompt login when the user lands on them without valid tokens —
+    // otherwise the UI silently 401s on every poll and shows an empty page.
     mockUseLocation.mockReturnValue({ pathname: "/hashrate" });
+
+    const { result } = renderHook(() => useAccessToken(false));
+
+    expect(result.current.routeRequiresAuth).toBe(true);
+  });
+
+  test("leaves onboarding routes accessible without auth gating", () => {
+    mockUseLocation.mockReturnValue({ pathname: "/onboarding/welcome" });
 
     const { result } = renderHook(() => useAccessToken(false));
 
