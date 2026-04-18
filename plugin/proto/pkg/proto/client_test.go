@@ -314,6 +314,28 @@ func TestDoGetWithStatus_ForbiddenWithoutDefaultPasswordCodeStaysGeneric(t *test
 	assert.EqualError(t, err, "forbidden: Access denied")
 }
 
+func TestDoGetWithStatus_ForbiddenPlainTextDefaultPasswordPreservesMarker(t *testing.T) {
+	client := &Client{
+		baseURL: "http://miner.local",
+		httpClient: &http.Client{
+			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: http.StatusForbidden,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader("default password must be changed")),
+					Request:    req,
+				}, nil
+			}),
+		},
+	}
+
+	statusCode, err := client.doGetWithStatus(context.Background(), "/api/v1/system", nil)
+
+	require.Error(t, err)
+	assert.Equal(t, http.StatusForbidden, statusCode)
+	assert.EqualError(t, err, "forbidden: default password must be changed")
+}
+
 func TestDirectWriteEndpoints_ClassifyDefaultPasswordForbidden(t *testing.T) {
 	tests := []struct {
 		name string

@@ -542,6 +542,14 @@ func classifyForbiddenResponse(body []byte) error {
 			return fmt.Errorf("forbidden: %s", payload.Error.Message)
 		}
 	}
+
+	rawMessage := strings.TrimSpace(string(body))
+	if isDefaultPasswordErrorDetail("", rawMessage) {
+		return fmt.Errorf("forbidden: default password must be changed")
+	}
+	if rawMessage != "" {
+		return fmt.Errorf("forbidden: %s", rawMessage)
+	}
 	return fmt.Errorf("forbidden: access denied")
 }
 
