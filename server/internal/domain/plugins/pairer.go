@@ -78,18 +78,12 @@ func (p *Pairer) GetDeviceInfo(ctx context.Context, device *discoverymodels.Disc
 
 	result, err := plugin.Driver.NewDevice(ctx, device.DeviceIdentifier, deviceInfo, secretBundle)
 	if err != nil {
-		if isDefaultPasswordActiveFailure(err) {
-			return nil, fleeterror.NewForbiddenErrorf("failed to create device: %v", err)
-		}
-		return nil, fleeterror.NewInternalErrorf("failed to create device: %v", err)
+		return nil, classifyPairingDriverError(err, "failed to create device")
 	}
 
 	newDeviceInfo, _, err := result.Device.DescribeDevice(ctx)
 	if err != nil {
-		if isDefaultPasswordActiveFailure(err) {
-			return nil, fleeterror.NewForbiddenErrorf("failed to describe device: %v", err)
-		}
-		return nil, fleeterror.NewInternalErrorf("failed to describe device: %v", err)
+		return nil, classifyPairingDriverError(err, "failed to describe device")
 	}
 
 	updatedDevice := convertSDKDeviceInfoToFleetDevice(newDeviceInfo, device.IpAddress, device.Port, plugin.Identifier.DriverName)
@@ -686,4 +680,34 @@ func isDefaultPasswordActiveFailure(err error) bool {
 	var sdkErr sdk.SDKError
 	return (errors.As(err, &sdkErr) && sdkErr.Code == sdk.ErrCodeDefaultPasswordActive) ||
 		isDefaultPasswordActiveError(err)
+}
+
+// classifyPairingDriverError maps an error returned by a plugin driver during
+// pairing into the appropriate fleeterror category. Out-of-process drivers
+// surface SDK errors as gRPC statuses (see sdkErrorToGRPCStatus), so we must
+// recognize codes.Unauthenticated here — otherwise credential drift falls
+// through to InternalError and AUTHENTICATION_NEEDED remediation never fires.
+func classifyPairingDriverError(err error, prefix string) error {
+	if isDefaultPasswordActiveFailure(err) {
+		return fleeterror.NewForbiddenErrorf("%s: %v", prefix, err)
+	}
+	var sdkErr sdk.SDKError
+	if errors.As(err, &sdkErr) && sdkErr.Code == sdk.ErrCodeAuthenticationFailed {
+		return fleeterror.NewUnauthenticatedErrorf("%s: %v", prefix, err)
+	}
+	if st, ok := status.FromError(err); ok {
+		switch st.Code() {
+		case codes.Unauthenticated:
+			return fleeterror.NewUnauthenticatedErrorf("%s: %v", prefix, err)
+		case codes.PermissionDenied:
+			return fleeterror.NewForbiddenErrorf("%s: %v", prefix, err)
+		case codes.OK, codes.Canceled, codes.Unknown, codes.InvalidArgument,
+			codes.DeadlineExceeded, codes.NotFound, codes.AlreadyExists,
+			codes.ResourceExhausted, codes.FailedPrecondition, codes.Aborted,
+			codes.OutOfRange, codes.Unimplemented, codes.Internal,
+			codes.Unavailable, codes.DataLoss:
+			// All other gRPC status codes fall through to InternalError below.
+		}
+	}
+	return fleeterror.NewInternalErrorf("%s: %v", prefix, err)
 }

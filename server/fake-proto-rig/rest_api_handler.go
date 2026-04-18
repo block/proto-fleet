@@ -560,9 +560,12 @@ func (h *RESTApiHandler) RegisterRoutes(mux *http.ServeMux) {
 
 	// Pairing
 	mux.HandleFunc("/api/v1/pairing/info", h.handlePairingInfo) // unauthenticated — used during device discovery
+	// DELETE is the unpair revocation path: it must remain reachable even when the
+	// device still has its factory password, otherwise Fleet cannot remove its
+	// trusted auth key from a never-rotated device, leaving a stale control channel.
 	mux.HandleFunc(
 		"/api/v1/pairing/auth-key",
-		h.requireBearerAuthMethods(h.requirePasswordChangedMethods(h.handlePairingAuthKey, http.MethodDelete), http.MethodDelete),
+		h.requireBearerAuthMethods(h.handlePairingAuthKey, http.MethodDelete),
 	)
 }
 

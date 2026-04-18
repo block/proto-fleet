@@ -12,13 +12,22 @@ const readCode = (error: ErrorProps): string => (error?.error?.error?.code ?? er
 const readMessage = (error: ErrorProps): string =>
   (error?.error?.error?.message ?? error?.error?.message ?? "").toLowerCase();
 
+// When firmware returns a plain-text 403 body (e.g. "default password must be
+// changed"), the generated API client's JSON parse fails and stores the raw
+// SyntaxError in error.error — which embeds the body in its own message
+// (e.g. `Unexpected token 'd', "default pa"... is not valid JSON`). Stringifying
+// that fallback lets the marker still match.
+const readRawErrorText = (error: ErrorProps): string => {
+  const raw = error?.error;
+  if (!raw || typeof raw !== "object") return "";
+  if (raw instanceof Error) return raw.message.toLowerCase();
+  return "";
+};
+
 export const isDefaultPasswordActiveError = (error: ErrorProps): boolean => {
   if (error?.status !== 403) return false;
   const code = readCode(error);
-  const message = readMessage(error);
-  return (
-    code === DEFAULT_PASSWORD_CODE ||
-    message.includes(DEFAULT_PASSWORD_MESSAGE_MARKER) ||
-    message.includes(DEFAULT_PASSWORD_CODE)
-  );
+  if (code === DEFAULT_PASSWORD_CODE) return true;
+  const haystack = `${readMessage(error)} ${readRawErrorText(error)}`;
+  return haystack.includes(DEFAULT_PASSWORD_MESSAGE_MARKER) || haystack.includes(DEFAULT_PASSWORD_CODE);
 };

@@ -1306,6 +1306,32 @@ func TestHandlePairingAuthKey_DELETE_RequiresAuth(t *testing.T) {
 	}
 }
 
+func TestHandlePairingAuthKey_DELETE_AllowedWhenDefaultPasswordActive(t *testing.T) {
+	// Unpair must be able to revoke Fleet's trusted auth key even when the device
+	// still has its factory password — otherwise a never-rotated device deleted
+	// from Fleet keeps accepting JWTs signed by the old org key.
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.SeedDefaultPassword("defaultPass123")
+	state.SetAuthKey("existing-key")
+	state.SetAccessToken("issued-bearer")
+	h := NewRESTApiHandler(state)
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/pairing/auth-key", nil)
+	req.Header.Set("Authorization", "Bearer issued-bearer")
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+	if state.GetAuthKey() != "" {
+		t.Fatalf("expected auth key to be cleared, still got %q", state.GetAuthKey())
+	}
+}
+
 func TestHandlePairingAuthKey_DELETE_RejectsInvalidBearer(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
 	state.SetAuthKey("existing-key")

@@ -142,22 +142,7 @@ func NewPluginMinerWithCredentials(
 			return nil, fleeterror.NewConnectionError(config.DeviceIdentifier, fmt.Errorf("failed to create SDK device: %w", err))
 		}
 
-		// Check if this is an SDK authentication error and wrap it as UnauthenticatedError
-		var sdkErr sdk.SDKError
-		if errors.As(err, &sdkErr) && sdkErr.Code == sdk.ErrCodeAuthenticationFailed {
-			return nil, fleeterror.NewUnauthenticatedErrorf("device %s authentication failed: %v", config.DeviceIdentifier, err)
-		}
-		if errors.As(err, &sdkErr) && sdkErr.Code == sdk.ErrCodeDefaultPasswordActive {
-			return nil, fleeterror.NewForbiddenErrorf("device %s default password must be changed: %v", config.DeviceIdentifier, err)
-		}
-		if isDefaultPasswordActiveError(err) {
-			return nil, fleeterror.NewForbiddenErrorf("device %s default password must be changed: %v", config.DeviceIdentifier, err)
-		}
-		if st, ok := grpcstatus.FromError(err); ok && st.Code() == codes.PermissionDenied {
-			return nil, fleeterror.NewForbiddenErrorf("device %s access denied: %v", config.DeviceIdentifier, err)
-		}
-
-		return nil, fleeterror.NewInternalErrorf("failed to create SDK device: %v", err)
+		return nil, classifyNewDeviceError(err, config.DeviceIdentifier)
 	}
 
 	return NewPluginMiner(
@@ -171,4 +156,44 @@ func NewPluginMinerWithCredentials(
 		sdkDeviceInfo,
 		config.FilesService,
 	), nil
+}
+
+// classifyNewDeviceError maps an error returned by Driver.NewDevice into the
+// appropriate fleeterror category. Out-of-process drivers surface SDK errors
+// as gRPC statuses (see sdkErrorToGRPCStatus), so credentials drift can arrive
+// here as codes.Unauthenticated rather than sdk.ErrCodeAuthenticationFailed —
+// without explicit handling it would fall through to InternalError and
+// AUTHENTICATION_NEEDED remediation would never fire.
+func classifyNewDeviceError(err error, deviceID string) error {
+	var sdkErr sdk.SDKError
+	if errors.As(err, &sdkErr) {
+		switch sdkErr.Code {
+		case sdk.ErrCodeAuthenticationFailed:
+			return fleeterror.NewUnauthenticatedErrorf("device %s authentication failed: %v", deviceID, err)
+		case sdk.ErrCodeDefaultPasswordActive:
+			return fleeterror.NewForbiddenErrorf("device %s default password must be changed: %v", deviceID, err)
+		case sdk.ErrCodeUnsupportedCapability, sdk.ErrCodeDeviceNotFound,
+			sdk.ErrCodeInvalidConfig, sdk.ErrCodeDeviceUnavailable,
+			sdk.ErrCodeDriverShutdown:
+			// All other SDK error codes fall through to InternalError below.
+		}
+	}
+	if isDefaultPasswordActiveError(err) {
+		return fleeterror.NewForbiddenErrorf("device %s default password must be changed: %v", deviceID, err)
+	}
+	if st, ok := grpcstatus.FromError(err); ok {
+		switch st.Code() {
+		case codes.Unauthenticated:
+			return fleeterror.NewUnauthenticatedErrorf("device %s authentication failed: %v", deviceID, err)
+		case codes.PermissionDenied:
+			return fleeterror.NewForbiddenErrorf("device %s access denied: %v", deviceID, err)
+		case codes.OK, codes.Canceled, codes.Unknown, codes.InvalidArgument,
+			codes.DeadlineExceeded, codes.NotFound, codes.AlreadyExists,
+			codes.ResourceExhausted, codes.FailedPrecondition, codes.Aborted,
+			codes.OutOfRange, codes.Unimplemented, codes.Internal,
+			codes.Unavailable, codes.DataLoss:
+			// All other gRPC status codes fall through to InternalError below.
+		}
+	}
+	return fleeterror.NewInternalErrorf("failed to create SDK device: %v", err)
 }
