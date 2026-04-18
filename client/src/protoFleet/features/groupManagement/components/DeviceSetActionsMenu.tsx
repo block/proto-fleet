@@ -1,4 +1,4 @@
-import { type RefObject, useCallback, useEffect, useMemo, useState } from "react";
+import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { fetchAllMinerSnapshots } from "@/protoFleet/api/fetchAllMinerSnapshots";
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
@@ -93,6 +93,15 @@ const DeviceSetActionsMenuInner = ({
   const [fetchedMiners, setFetchedMiners] = useState<Record<string, MinerStateSnapshot>>({});
   const [fetchingMiners, setFetchingMiners] = useState(false);
 
+  const fetchVersionRef = useRef(0);
+  const propMemberDeviceIdsRef = useRef(propMemberDeviceIds);
+  // Keep the ref in sync with the latest prop without re-running the fetch
+  // effect when only this prop changes (parents sometimes pass a new array
+  // reference on every render).
+  useEffect(() => {
+    propMemberDeviceIdsRef.current = propMemberDeviceIds;
+  }, [propMemberDeviceIds]);
+
   const memberDeviceIds = useMemo(
     () => propMemberDeviceIds ?? fetchedMemberIds ?? [],
     [propMemberDeviceIds, fetchedMemberIds],
@@ -112,45 +121,87 @@ const DeviceSetActionsMenuInner = ({
     ignoreSelectors: [".popover-content"],
   });
 
-  // Lazy fetch member IDs and miner snapshots when opening the menu
-  // Always refetch on open so membership changes are picked up
   const handleOpen = useCallback(() => {
-    setIsOpen((prev) => {
-      const opening = !prev;
-      if (opening && deviceSetId) {
-        // Fetch member IDs if not provided as props
-        if (!propMemberDeviceIds && !fetchingMembers) {
+    const opening = !isOpen;
+
+    if (opening) {
+      if (deviceSetId) {
+        setFetchedMiners({});
+        setFetchingMiners(true);
+
+        if (!propMemberDeviceIds) {
           setFetchedMemberIds(null);
           setFetchingMembers(true);
-          listGroupMembers({
-            deviceSetId,
-            onSuccess: (ids) => {
-              setFetchedMemberIds(ids);
-              setFetchingMembers(false);
-            },
-            onError: () => {
-              setFetchingMembers(false);
-            },
-          });
+        } else {
+          setFetchingMembers(false);
         }
-
-        // Fetch miner snapshots with cursor pagination for firmware model checks
-        const filter = deviceSetType === "rack" ? { rackIds: [deviceSetId] } : { groupIds: [deviceSetId] };
-        setFetchingMiners(true);
-        fetchAllMinerSnapshots(filter)
-          .then((map) => {
-            setFetchedMiners(map);
-          })
-          .catch(() => {
-            // Non-critical — firmware update will show a warning instead
-          })
-          .finally(() => {
-            setFetchingMiners(false);
-          });
+      } else {
+        // No deviceSetId: the fetch effect will bail out, so clear any stale
+        // data from a prior open so the menu does not show a previous group's
+        // members/snapshots.
+        setFetchedMemberIds(null);
+        setFetchedMiners({});
       }
-      return opening;
-    });
-  }, [propMemberDeviceIds, deviceSetId, deviceSetType, fetchingMembers, listGroupMembers]);
+    }
+
+    setIsOpen(opening);
+  }, [isOpen, deviceSetId, propMemberDeviceIds]);
+
+  // Fetch member IDs and miner snapshots when the menu opens.
+  // Always refetch on open so membership changes are picked up.
+  // A version counter prevents stale callbacks from updating state after
+  // the effect re-fires (e.g. close/re-open, deviceSetId change).
+  useEffect(() => {
+    if (!isOpen || !deviceSetId) return;
+
+    const version = ++fetchVersionRef.current;
+    const controller = new AbortController();
+    const isCurrent = () => version === fetchVersionRef.current;
+
+    if (!propMemberDeviceIdsRef.current) {
+      setFetchedMemberIds(null);
+      setFetchingMembers(true);
+      listGroupMembers({
+        deviceSetId,
+        signal: controller.signal,
+        onSuccess: (ids) => {
+          if (isCurrent()) setFetchedMemberIds(ids);
+        },
+        onFinally: () => {
+          if (isCurrent()) setFetchingMembers(false);
+        },
+      });
+    } else {
+      setFetchingMembers(false);
+    }
+
+    const filter = deviceSetType === "rack" ? { rackIds: [deviceSetId] } : { groupIds: [deviceSetId] };
+    setFetchedMiners({});
+    setFetchingMiners(true);
+    fetchAllMinerSnapshots(filter, controller.signal)
+      .then((map) => {
+        if (isCurrent()) setFetchedMiners(map);
+      })
+      .catch(() => {
+        // Non-critical — firmware update will show a warning instead
+      })
+      .finally(() => {
+        if (isCurrent()) setFetchingMiners(false);
+      });
+
+    return () => {
+      // Invalidate version so stale callbacks are rejected.
+      // Data state (fetchedMemberIds/fetchedMiners) is deliberately preserved
+      // here so that programmatic closes during confirmation/modal flows do
+      // not empty the selection that downstream handlers rely on. Stale data
+      // is cleared in handleOpen when reopening without a deviceSetId.
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional ref mutation in cleanup
+      ++fetchVersionRef.current;
+      controller.abort();
+      setFetchingMembers(false);
+      setFetchingMiners(false);
+    };
+  }, [isOpen, deviceSetId, deviceSetType, listGroupMembers]);
 
   const selectedMinersWithStatus = useMemo(
     () => memberDeviceIds.map((id) => ({ deviceIdentifier: id })),

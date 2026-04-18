@@ -111,6 +111,7 @@ interface ListRackTypesProps {
 
 interface ListGroupMembersProps {
   deviceSetId: bigint;
+  signal?: AbortSignal;
   onSuccess?: (deviceIdentifiers: string[]) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
@@ -423,17 +424,20 @@ const useDeviceSets = () => {
   );
 
   const listGroupMembers = useCallback(
-    async ({ deviceSetId, onSuccess, onError, onFinally }: ListGroupMembersProps) => {
+    async ({ deviceSetId, signal, onSuccess, onError, onFinally }: ListGroupMembersProps) => {
       try {
         const allIdentifiers: string[] = [];
         let pageToken = "";
 
         do {
-          const response = await deviceSetClient.listDeviceSetMembers({
-            deviceSetId,
-            pageSize: memberPageSize,
-            pageToken,
-          });
+          const response = await deviceSetClient.listDeviceSetMembers(
+            {
+              deviceSetId,
+              pageSize: memberPageSize,
+              pageToken,
+            },
+            { signal },
+          );
           for (const member of response.members) {
             allIdentifiers.push(member.deviceIdentifier);
           }
@@ -442,6 +446,13 @@ const useDeviceSets = () => {
 
         onSuccess?.(allIdentifiers);
       } catch (err) {
+        if (
+          (err instanceof DOMException && err.name === "AbortError") ||
+          (err instanceof ConnectError && err.code === Code.Canceled && signal?.aborted)
+        ) {
+          return;
+        }
+
         handleAuthErrors({
           error: err,
           onError: () => {
