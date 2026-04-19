@@ -106,11 +106,16 @@ func New(deviceID string, deviceInfo sdk.DeviceInfo, bearerToken sdk.BearerToken
 	defer cancel()
 
 	if _, err := device.Status(ctx); err != nil {
-		client.Close()
-
+		// Auth succeeded; only the data gate is blocked. Return the handle so
+		// remediation ops (Unpair, UpdateMinerPassword) remain reachable — they
+		// route through firmware endpoints exempt from the gate.
 		if isDefaultPasswordError(err) {
-			return nil, proto.NewErrorDefaultPasswordActive(deviceID, err)
+			slog.Info("Plugin device created with default password active",
+				"device_id", deviceID, "host", deviceInfo.Host)
+			return device, nil
 		}
+
+		client.Close()
 
 		if isAuthenticationError(err) {
 			return nil, sdk.NewErrorAuthenticationFailed(deviceID, err)
