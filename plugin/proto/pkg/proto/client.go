@@ -532,11 +532,28 @@ func (c *Client) doPost(ctx context.Context, path string) error {
 	return checkResponse(resp, "request failed", "unauthenticated: missing or invalid credentials", http.StatusOK, http.StatusAccepted)
 }
 
+// defaultPasswordMessageMarker is the firmware PR #3269 free-text 403 substring.
+// It's Proto-firmware-specific, not part of the shared SDK contract.
+const defaultPasswordMessageMarker = "default password must be changed"
+
+// defaultPasswordCodeMarker is the lowercased ErrCodeDefaultPasswordActive —
+// firmware sometimes surfaces the code as the body of a plain-text 403.
+var defaultPasswordCodeMarker = strings.ToLower(string(sdk.ErrCodeDefaultPasswordActive))
+
+// isDefaultPasswordMessage reports whether msg contains a Proto firmware
+// default-password marker. Only this package should call it — the shared SDK
+// must not bake in firmware-specific text.
+func isDefaultPasswordMessage(msg string) bool {
+	lower := strings.ToLower(msg)
+	return strings.Contains(lower, defaultPasswordMessageMarker) ||
+		strings.Contains(lower, defaultPasswordCodeMarker)
+}
+
 func classifyForbiddenResponse(body []byte) error {
 	var payload errorResponse
 	if err := json.Unmarshal(body, &payload); err == nil && payload.Error != nil {
-		if sdk.IsDefaultPasswordCode(payload.Error.Code) || sdk.IsDefaultPasswordMessage(payload.Error.Message) {
-			return fmt.Errorf("forbidden: %s", sdk.DefaultPasswordMessageMarker)
+		if sdk.IsDefaultPasswordCode(payload.Error.Code) || isDefaultPasswordMessage(payload.Error.Message) {
+			return fmt.Errorf("forbidden: %s", defaultPasswordMessageMarker)
 		}
 		if payload.Error.Message != "" {
 			return fmt.Errorf("forbidden: %s", payload.Error.Message)
@@ -544,8 +561,8 @@ func classifyForbiddenResponse(body []byte) error {
 	}
 
 	rawMessage := strings.TrimSpace(string(body))
-	if sdk.IsDefaultPasswordMessage(rawMessage) {
-		return fmt.Errorf("forbidden: %s", sdk.DefaultPasswordMessageMarker)
+	if isDefaultPasswordMessage(rawMessage) {
+		return fmt.Errorf("forbidden: %s", defaultPasswordMessageMarker)
 	}
 	if rawMessage != "" {
 		return fmt.Errorf("forbidden: %s", rawMessage)

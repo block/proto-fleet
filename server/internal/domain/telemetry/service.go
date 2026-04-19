@@ -86,7 +86,6 @@ import (
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
-	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
 const (
@@ -740,7 +739,12 @@ func isDefaultPasswordRemediationError(err error) bool {
 	if !fleeterror.IsForbiddenError(err) {
 		return false
 	}
-	return sdk.IsDefaultPasswordMessage(err.Error())
+	// Substrings match what Proto firmware (PR #3269) emits today. Extending
+	// coverage to a second driver belongs here — the shared SDK intentionally
+	// doesn't encode firmware-specific response text.
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "default password must be changed") ||
+		strings.Contains(msg, "default_password_active")
 }
 
 // pollErrorsForDevice polls errors from a device alongside telemetry collection.

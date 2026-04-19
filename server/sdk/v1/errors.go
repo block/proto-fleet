@@ -21,25 +21,9 @@ const (
 	ErrCodeDefaultPasswordActive ErrorCode = "DEFAULT_PASSWORD_ACTIVE"
 )
 
-// DefaultPasswordMessageMarker is the firmware #3269 free-text 403 substring.
-// Match via IsDefaultPasswordMessage only — TestDefaultPasswordContract pins it.
-const DefaultPasswordMessageMarker = "default password must be changed"
-
-// DefaultPasswordCodeMarker is the lowercased form of the error code; firmware
-// sometimes surfaces the code as the message body rather than a structured field.
-var DefaultPasswordCodeMarker = strings.ToLower(string(ErrCodeDefaultPasswordActive))
-
-// IsDefaultPasswordMessage reports whether msg contains a default-password
-// marker from the firmware contract. Use this helper everywhere that inspects
-// an error message for default-password intent.
-func IsDefaultPasswordMessage(msg string) bool {
-	lower := strings.ToLower(msg)
-	return strings.Contains(lower, DefaultPasswordMessageMarker) ||
-		strings.Contains(lower, DefaultPasswordCodeMarker)
-}
-
 // IsDefaultPasswordCode reports whether code matches ErrCodeDefaultPasswordActive
-// (case-insensitive), regardless of how firmware formats the constant.
+// (case-insensitive). The code itself is SDK-owned; firmware-specific message
+// or body parsing belongs in the driver that produces the response.
 func IsDefaultPasswordCode(code string) bool {
 	return strings.EqualFold(code, string(ErrCodeDefaultPasswordActive))
 }
@@ -146,7 +130,7 @@ func NewErrorDefaultPasswordActive(deviceID string, err ...error) SDKError {
 	}
 	return SDKError{
 		Code:    ErrCodeDefaultPasswordActive,
-		Message: DefaultPasswordMessageMarker + " for device: " + deviceID,
+		Message: "device " + deviceID + " requires default password to be changed",
 		Err:     underlying,
 	}
 }

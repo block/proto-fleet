@@ -1171,3 +1171,52 @@ func TestErrorsResponse_UnmarshalJSON(t *testing.T) {
 		assert.Empty(t, got.Errors)
 	})
 }
+
+// TestProtoDefaultPasswordContract pins the Proto firmware PR #3269 response
+// format that this client parses. If firmware changes its 403 prose or code
+// name, this test fails here first — rather than downstream detection silently
+// breaking. The shared SDK intentionally doesn't encode these strings; see
+// plan for the SDK/plugin separation.
+func TestProtoDefaultPasswordContract(t *testing.T) {
+	t.Run("markers match firmware #3269", func(t *testing.T) {
+		assert.Equal(t, "default password must be changed", defaultPasswordMessageMarker)
+		assert.Equal(t, "default_password_active", defaultPasswordCodeMarker)
+	})
+
+	t.Run("isDefaultPasswordMessage matches known firmware shapes", func(t *testing.T) {
+		cases := []struct {
+			name     string
+			msg      string
+			expected bool
+		}{
+			{"firmware prose lowercase", "default password must be changed", true},
+			{"firmware prose mixed case", "Default Password Must Be Changed", true},
+			{"wrapped with prefix", "forbidden: default password must be changed", true},
+			{"code as plain-text body", "DEFAULT_PASSWORD_ACTIVE", true},
+			{"code lowercase", "default_password_active", true},
+			{"gRPC wrapped error", "rpc error: code = PermissionDenied desc = default password must be changed", true},
+			{"generic forbidden", "forbidden: access denied", false},
+			{"auth error", "unauthenticated: missing or invalid credentials", false},
+			{"empty", "", false},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				assert.Equal(t, tc.expected, isDefaultPasswordMessage(tc.msg))
+			})
+		}
+	})
+
+	t.Run("classifyForbiddenResponse normalizes firmware payloads to the marker", func(t *testing.T) {
+		body := []byte(`{"error":{"code":"DEFAULT_PASSWORD_ACTIVE","message":"Default password must be changed"}}`)
+		err := classifyForbiddenResponse(body)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), defaultPasswordMessageMarker,
+			"classifier must emit the marker so downstream detectors can recognize it")
+	})
+
+	t.Run("classifyForbiddenResponse preserves plain-text default-password bodies", func(t *testing.T) {
+		err := classifyForbiddenResponse([]byte("default password must be changed"))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), defaultPasswordMessageMarker)
+	})
+}

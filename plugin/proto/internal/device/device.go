@@ -141,11 +141,15 @@ func isAuthenticationError(err error) bool {
 
 // isDefaultPasswordError checks if the error indicates the device's factory
 // default password is still active (HTTP 403 from the default-password gate).
+// Matches against Proto firmware #3269's message substring — specific to this
+// driver, so the helper stays here rather than in the shared SDK.
 func isDefaultPasswordError(err error) bool {
 	if err == nil {
 		return false
 	}
-	return sdk.IsDefaultPasswordMessage(err.Error())
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "default password must be changed") ||
+		strings.Contains(msg, "default_password_active")
 }
 
 // ID implements the SDK Device interface.

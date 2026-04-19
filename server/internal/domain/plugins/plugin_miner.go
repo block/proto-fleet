@@ -582,7 +582,13 @@ func isDefaultPasswordActiveError(err error) bool {
 	if errors.As(err, &sdkErr) && sdkErr.Code == sdk.ErrCodeDefaultPasswordActive {
 		return true
 	}
-	return sdk.IsDefaultPasswordMessage(err.Error())
+	// Fallback for gRPC-serialized errors that lost their SDKError type. These
+	// substrings match what Proto firmware (PR #3269) emits today; if another
+	// driver grows a similar gate with different prose, extend this check here
+	// — the shared SDK intentionally doesn't encode firmware-specific text.
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "default password must be changed") ||
+		strings.Contains(msg, "default_password_active")
 }
 
 // isNetworkError determines if an error represents a network connectivity failure.
