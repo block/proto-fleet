@@ -38,8 +38,6 @@ func sdkErrorToGRPCStatus(err error) error {
 			return fmt.Errorf("driver shutdown: %w", status.Error(codes.Aborted, sdkErr.Message))
 		case ErrCodeAuthenticationFailed:
 			return fmt.Errorf("authentication failed: %w", status.Error(codes.Unauthenticated, sdkErr.Message))
-		case ErrCodeDefaultPasswordActive:
-			return fmt.Errorf("default password active: %w", status.Error(codes.PermissionDenied, sdkErr.Message))
 		default:
 			return fmt.Errorf("internal error: %w", status.Error(codes.Internal, sdkErr.Message))
 		}

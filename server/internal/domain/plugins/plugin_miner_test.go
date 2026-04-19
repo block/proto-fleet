@@ -1313,8 +1313,8 @@ func TestIsDefaultPasswordActiveError(t *testing.T) {
 			expected: false,
 		},
 		{
-			name:     "sdk default-password error",
-			err:      sdk.SDKError{Code: sdk.ErrCodeDefaultPasswordActive, Message: "default password must be changed"},
+			name:     "plain error with default-password marker",
+			err:      errors.New("forbidden: default password must be changed"),
 			expected: true,
 		},
 	}

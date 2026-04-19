@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	pb "github.com/block/proto-fleet/server/sdk/v1/pb/generated"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -1017,11 +1016,6 @@ func TestSDKErrorToGRPCStatus_AllErrorCodes(t *testing.T) {
 			sdkErr:       NewErrorAuthenticationFailed("device-123"),
 			expectedCode: codes.Unauthenticated,
 		},
-		{
-			name:         "default_password_active",
-			sdkErr:       NewErrorDefaultPasswordActive("device-123"),
-			expectedCode: codes.PermissionDenied,
-		},
 	}
 
 	for _, tt := range tests {
@@ -1048,67 +1042,4 @@ func TestSDKError_ErrorsAs(t *testing.T) {
 	assert.Equal(t, ErrCodeAuthenticationFailed, extractedErr.Code)
 
 	assert.False(t, errors.As(wrappedErr, &extractedErr))
-}
-
-func TestDriverGRPCServer_NewDevice_DefaultPasswordActiveMapsToPermissionDenied(t *testing.T) {
-	server := &DriverGRPCServer{
-		Impl: fakeDriver{
-			newDeviceFunc: func(ctx context.Context, deviceID string, deviceInfo DeviceInfo, secret SecretBundle) (NewDeviceResult, error) {
-				return NewDeviceResult{}, NewErrorDefaultPasswordActive("device-123")
-			},
-		},
-		devices: make(map[string]Device),
-	}
-
-	_, err := server.NewDevice(context.Background(), &pb.NewDeviceRequest{
-		DeviceId: "device-123",
-		Info:     &pb.DeviceInfo{},
-		Secret:   &pb.SecretBundle{},
-	})
-
-	require.Error(t, err)
-	st, ok := status.FromError(errors.Unwrap(err))
-	require.True(t, ok, "should be able to extract gRPC status")
-	assert.Equal(t, codes.PermissionDenied, st.Code())
-}
-
-func TestDriverGRPCServer_DescribeDevice_DefaultPasswordActiveMapsToPermissionDenied(t *testing.T) {
-	server := &DriverGRPCServer{
-		devices: map[string]Device{
-			"device-123": fakeDevice{
-				describeDeviceFunc: func(ctx context.Context) (DeviceInfo, Capabilities, error) {
-					return DeviceInfo{}, Capabilities{}, NewErrorDefaultPasswordActive("device-123")
-				},
-			},
-		},
-	}
-
-	_, err := server.DescribeDevice(context.Background(), &pb.DescribeDeviceRequest{DeviceId: "device-123"})
-
-	require.Error(t, err)
-	st, ok := status.FromError(errors.Unwrap(err))
-	require.True(t, ok, "should be able to extract gRPC status")
-	assert.Equal(t, codes.PermissionDenied, st.Code())
-}
-
-func TestDriverGRPCServer_DeviceStatus_DefaultPasswordActiveMapsToPermissionDenied(t *testing.T) {
-	server := &DriverGRPCServer{
-		devices: map[string]Device{
-			"device-123": fakeDevice{
-				describeDeviceFunc: func(ctx context.Context) (DeviceInfo, Capabilities, error) {
-					return DeviceInfo{}, Capabilities{}, nil
-				},
-				statusFunc: func(ctx context.Context) (DeviceMetrics, error) {
-					return DeviceMetrics{}, NewErrorDefaultPasswordActive("device-123")
-				},
-			},
-		},
-	}
-
-	_, err := server.DeviceStatus(context.Background(), &pb.DeviceRef{DeviceId: "device-123"})
-
-	require.Error(t, err)
-	st, ok := status.FromError(errors.Unwrap(err))
-	require.True(t, ok, "should be able to extract gRPC status")
-	assert.Equal(t, codes.PermissionDenied, st.Code())
 }

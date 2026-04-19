@@ -673,13 +673,7 @@ func isAuthenticationFailure(err error) bool {
 }
 
 func isDefaultPasswordActiveFailure(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	var sdkErr sdk.SDKError
-	return (errors.As(err, &sdkErr) && sdkErr.Code == sdk.ErrCodeDefaultPasswordActive) ||
-		isDefaultPasswordActiveError(err)
+	return isDefaultPasswordActiveError(err)
 }
 
 // classifyPairingDriverError maps an error returned by a plugin driver during

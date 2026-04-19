@@ -170,8 +170,6 @@ func classifyNewDeviceError(err error, deviceID string) error {
 		switch sdkErr.Code {
 		case sdk.ErrCodeAuthenticationFailed:
 			return fleeterror.NewUnauthenticatedErrorf("device %s authentication failed: %v", deviceID, err)
-		case sdk.ErrCodeDefaultPasswordActive:
-			return fleeterror.NewForbiddenErrorf("device %s default password must be changed: %v", deviceID, err)
 		case sdk.ErrCodeUnsupportedCapability, sdk.ErrCodeDeviceNotFound,
 			sdk.ErrCodeInvalidConfig, sdk.ErrCodeDeviceUnavailable,
 			sdk.ErrCodeDriverShutdown:

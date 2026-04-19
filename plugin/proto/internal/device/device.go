@@ -109,7 +109,7 @@ func New(deviceID string, deviceInfo sdk.DeviceInfo, bearerToken sdk.BearerToken
 		client.Close()
 
 		if isDefaultPasswordError(err) {
-			return nil, sdk.NewErrorDefaultPasswordActive(deviceID, err)
+			return nil, proto.NewErrorDefaultPasswordActive(deviceID, err)
 		}
 
 		if isAuthenticationError(err) {

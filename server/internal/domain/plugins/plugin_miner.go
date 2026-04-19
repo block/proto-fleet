@@ -561,10 +561,6 @@ func wrapPluginError(err error, format string, a ...any) error {
 			// All other gRPC status codes are treated as internal errors below.
 		}
 	}
-	var sdkErr sdk.SDKError
-	if errors.As(err, &sdkErr) && sdkErr.Code == sdk.ErrCodeDefaultPasswordActive {
-		return fleeterror.NewForbiddenErrorf("%s: %s", msg, sdkErr.Message)
-	}
 	if isDefaultPasswordActiveError(err) {
 		if st, ok := grpcstatus.FromError(err); ok {
 			return fleeterror.NewForbiddenErrorf("%s: %s", msg, st.Message())
@@ -574,18 +570,14 @@ func wrapPluginError(err error, format string, a ...any) error {
 	return fleeterror.NewInternalErrorf("%s: %v", msg, err)
 }
 
+// isDefaultPasswordActiveError detects the Proto firmware default-password
+// lockout. Substrings match what Proto firmware (PR #3269) emits today; the
+// shared SDK deliberately doesn't encode firmware-specific text so other
+// drivers can add their own gates without carrying Proto's contract.
 func isDefaultPasswordActiveError(err error) bool {
 	if err == nil {
 		return false
 	}
-	var sdkErr sdk.SDKError
-	if errors.As(err, &sdkErr) && sdkErr.Code == sdk.ErrCodeDefaultPasswordActive {
-		return true
-	}
-	// Fallback for gRPC-serialized errors that lost their SDKError type. These
-	// substrings match what Proto firmware (PR #3269) emits today; if another
-	// driver grows a similar gate with different prose, extend this check here
-	// — the shared SDK intentionally doesn't encode firmware-specific text.
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "default password must be changed") ||
 		strings.Contains(msg, "default_password_active")

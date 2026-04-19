@@ -24,11 +24,6 @@ func TestClassifyNewDeviceError(t *testing.T) {
 			want: fleeterror.IsAuthenticationError,
 		},
 		{
-			name: "in-process SDK default-password error → forbidden",
-			err:  sdk.NewErrorDefaultPasswordActive("device-1"),
-			want: fleeterror.IsForbiddenError,
-		},
-		{
 			name: "out-of-process gRPC Unauthenticated → unauthenticated",
 			err:  grpcstatus.Error(codes.Unauthenticated, "authentication failed"),
 			want: fleeterror.IsAuthenticationError,

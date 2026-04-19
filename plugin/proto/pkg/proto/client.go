@@ -538,7 +538,7 @@ const defaultPasswordMessageMarker = "default password must be changed"
 
 // defaultPasswordCodeMarker is the lowercased ErrCodeDefaultPasswordActive —
 // firmware sometimes surfaces the code as the body of a plain-text 403.
-var defaultPasswordCodeMarker = strings.ToLower(string(sdk.ErrCodeDefaultPasswordActive))
+var defaultPasswordCodeMarker = strings.ToLower(ErrCodeDefaultPasswordActive)
 
 // isDefaultPasswordMessage reports whether msg contains a Proto firmware
 // default-password marker. Only this package should call it — the shared SDK
@@ -552,7 +552,7 @@ func isDefaultPasswordMessage(msg string) bool {
 func classifyForbiddenResponse(body []byte) error {
 	var payload errorResponse
 	if err := json.Unmarshal(body, &payload); err == nil && payload.Error != nil {
-		if sdk.IsDefaultPasswordCode(payload.Error.Code) || isDefaultPasswordMessage(payload.Error.Message) {
+		if strings.EqualFold(payload.Error.Code, ErrCodeDefaultPasswordActive) || isDefaultPasswordMessage(payload.Error.Message) {
 			return fmt.Errorf("forbidden: %s", defaultPasswordMessageMarker)
 		}
 		if payload.Error.Message != "" {
