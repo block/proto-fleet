@@ -10,7 +10,7 @@ import {
 } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useMinerStore } from "@/protoOS/store";
-import { useAuthErrors } from "@/protoOS/store/hooks/useAuth";
+import { useAuthRetry } from "@/protoOS/store/hooks/useAuthRetry";
 
 interface UseHardwareProps {
   enabled?: boolean;
@@ -18,7 +18,7 @@ interface UseHardwareProps {
 
 const useHardware = ({ enabled = true }: UseHardwareProps = {}) => {
   const { api } = useMinerHosting();
-  const { handleAuthErrors } = useAuthErrors();
+  const authRetry = useAuthRetry();
   const [data, setData] = useState<HardwareInfoHardwareinfo>();
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState<boolean>(false);
@@ -31,9 +31,9 @@ const useHardware = ({ enabled = true }: UseHardwareProps = {}) => {
     if (!enabled || !api) return;
 
     setPending(true);
-    api
-      .getHardware()
-      .then((res) => {
+    authRetry({
+      request: (params) => api.getHardware(params),
+      onSuccess: (res) => {
         const responseData = res?.data["hardware-info"];
         setData(responseData);
         setControlBoardInfo(responseData?.["cb-info"]);
@@ -79,17 +79,12 @@ const useHardware = ({ enabled = true }: UseHardwareProps = {}) => {
           return fansBySlot.get(slot) || null;
         });
         setFansInfo(allFans);
-      })
-      .catch((err) => {
-        handleAuthErrors({
-          error: err,
-          onError: (e) => setError(e?.error?.message ?? "An error occurred"),
-        });
-      })
-      .finally(() => {
-        setPending(false);
-      });
-  }, [api, enabled, handleAuthErrors]);
+      },
+      onError: (err) => setError(err?.error?.message ?? "An error occurred"),
+    }).finally(() => {
+      setPending(false);
+    });
+  }, [api, enabled, authRetry]);
 
   useEffect(() => {
     if (!enabled) return;

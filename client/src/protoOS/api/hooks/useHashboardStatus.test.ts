@@ -33,8 +33,14 @@ vi.mock("@/protoOS/store", () => ({
   getAsicId: (serial: string, index: number) => `${serial}-${index}`,
 }));
 
-vi.mock("@/protoOS/store/hooks/useAuth", () => ({
-  useAuthErrors: () => ({ handleAuthErrors: vi.fn() }),
+vi.mock("@/protoOS/store/hooks/useAuthRetry", () => ({
+  useAuthRetry: () => {
+    return ({ request, onSuccess, onError }: any) => {
+      return request({ secure: false, headers: { Authorization: "Bearer " } })
+        .then((result: any) => onSuccess?.(result))
+        .catch((err: any) => onError?.(err));
+    };
+  },
 }));
 
 describe("useHashboardStatus", () => {
@@ -81,6 +87,6 @@ describe("useHashboardStatus", () => {
       await pollArgs.fetchData();
     });
 
-    expect(mockGetHashboardStatus).toHaveBeenCalledWith({ hbSn: "HB-1" });
+    expect(mockGetHashboardStatus).toHaveBeenCalledWith({ hbSn: "HB-1" }, expect.any(Object));
   });
 });
