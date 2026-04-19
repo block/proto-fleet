@@ -1300,6 +1300,126 @@ func TestPairer_PairDevice_AntminerExplicitCredentials(t *testing.T) {
 	require.NoError(t, err, "Antminer should be paired with explicit credentials")
 }
 
+func TestPairer_PairDevice_PermissionDeniedFromPlugin_ReturnsForbidden(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	manager := NewManager(&Config{})
+
+	mockDriver := sdkMocks.NewMockDriver(ctrl)
+	mockDriver.EXPECT().
+		PairDevice(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(sdk.DeviceInfo{}, status.Error(codes.PermissionDenied, "default password must be changed"))
+
+	mockPlugin := &LoadedPlugin{
+		Name:       "antminer-plugin",
+		Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
+		Driver:     mockDriver,
+		Caps:       sdk.Capabilities{sdk.CapabilityPairing: true},
+	}
+	manager.pluginsByDriverName["antminer"] = mockPlugin
+
+	pairer := createTestPairer(ctrl, manager)
+	device := &discoverymodels.DiscoveredDevice{
+		Device: pb.Device{
+			DeviceIdentifier: "antminer-device-locked",
+			IpAddress:        "192.168.1.150",
+			Port:             "80",
+			UrlScheme:        "http",
+			DriverName:       "antminer",
+		},
+		OrgID: 1,
+	}
+	credentials := &pb.Credentials{Username: "admin", Password: stringPtr("custompass")}
+
+	err := pairer.PairDevice(t.Context(), device, credentials)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsForbiddenError(err), "expected forbidden error, got: %v", err)
+}
+
+func TestPairer_PairDevice_GRPCUnauthenticatedFromPlugin_ReturnsUnauthenticated(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	manager := NewManager(&Config{})
+
+	mockDriver := sdkMocks.NewMockDriver(ctrl)
+	mockDriver.EXPECT().
+		PairDevice(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(sdk.DeviceInfo{}, status.Error(codes.Unauthenticated, "authentication failed"))
+
+	mockPlugin := &LoadedPlugin{
+		Name:       "antminer-plugin",
+		Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
+		Driver:     mockDriver,
+		Caps:       sdk.Capabilities{sdk.CapabilityPairing: true},
+	}
+	manager.pluginsByDriverName["antminer"] = mockPlugin
+
+	pairer := createTestPairer(ctrl, manager)
+	device := &discoverymodels.DiscoveredDevice{
+		Device: pb.Device{
+			DeviceIdentifier: "antminer-device-bad-creds",
+			IpAddress:        "192.168.1.151",
+			Port:             "80",
+			UrlScheme:        "http",
+			DriverName:       "antminer",
+		},
+		OrgID: 1,
+	}
+	credentials := &pb.Credentials{Username: "admin", Password: stringPtr("wrongpass")}
+
+	err := pairer.PairDevice(t.Context(), device, credentials)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsAuthenticationError(err), "expected unauthenticated error, got: %v", err)
+}
+
+func TestPairer_PairDevice_DefaultPasswordViaAutoCredentials_ReturnsForbidden(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	manager := NewManager(&Config{})
+
+	mockDriver := sdkMocks.NewMockDriver(ctrl)
+	mockDriver.EXPECT().
+		PairDevice(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(sdk.DeviceInfo{}, status.Error(codes.PermissionDenied, "default password must be changed"))
+
+	driverWithCreds := &mockDriverWithDefaultCredentials{
+		Driver: mockDriver,
+		defaultCredentials: []sdk.UsernamePassword{
+			{Username: "root", Password: "root"},
+			{Username: "admin", Password: "admin"},
+		},
+	}
+
+	mockPlugin := &LoadedPlugin{
+		Name:       "antminer-plugin",
+		Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
+		Driver:     driverWithCreds,
+		Caps:       sdk.Capabilities{sdk.CapabilityPairing: true},
+	}
+	manager.pluginsByDriverName["antminer"] = mockPlugin
+
+	pairer := createTestPairer(ctrl, manager)
+	device := &discoverymodels.DiscoveredDevice{
+		Device: pb.Device{
+			DeviceIdentifier: "antminer-device-default-pw",
+			IpAddress:        "192.168.1.152",
+			Port:             "80",
+			DriverName:       "antminer",
+		},
+		OrgID: 1,
+	}
+
+	err := pairer.PairDevice(t.Context(), device, nil)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsForbiddenError(err), "expected forbidden error, got: %v", err)
+}
+
 func TestPairer_HandlePairViaStore_ReconcilesAuthRetryBySerial(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

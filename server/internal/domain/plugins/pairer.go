@@ -133,7 +133,9 @@ func (p *Pairer) pairWithDefaultCredentials(ctx context.Context, plugin *LoadedP
 			if isAuthenticationFailure(err) {
 				continue
 			}
-			return fleeterror.NewInternalErrorf("plugin pairing failed: %v", err)
+			// Don't loop on non-auth failures (e.g. default-password lockout):
+			// the firmware gate applies to every credential in the list.
+			return classifyPairingDriverError(err, "plugin pairing failed")
 		}
 
 		workerName, fallbackWorkerName := p.resolveFleetWorkerName(ctx, plugin, discoveredDevice, credentials)
@@ -190,7 +192,7 @@ func (p *Pairer) callPluginPairDevice(ctx context.Context, plugin *LoadedPlugin,
 // executePairing performs the actual pairing operation with given credentials.
 func (p *Pairer) executePairing(ctx context.Context, plugin *LoadedPlugin, discoveredDevice *discoverymodels.DiscoveredDevice, credentials *pb.Credentials) error {
 	if err := p.callPluginPairDevice(ctx, plugin, discoveredDevice, credentials); err != nil {
-		return fleeterror.NewInternalErrorf("plugin pairing failed: %v", err)
+		return classifyPairingDriverError(err, "plugin pairing failed")
 	}
 
 	workerName, fallbackWorkerName := p.resolveFleetWorkerName(ctx, plugin, discoveredDevice, credentials)
