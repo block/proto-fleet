@@ -231,4 +231,28 @@ describe("App auth gating", () => {
     expect(mocks.useHardware).toHaveBeenCalledWith({ enabled: false });
     expect(mocks.useNetworkInfo).toHaveBeenCalledWith({ enabled: false, poll: false });
   });
+
+  it("keeps protected hooks disabled while defaultPasswordActive is still unresolved", () => {
+    // On a reload with persisted tokens, hasAccess is true immediately but
+    // defaultPasswordActive is undefined until /api/v1/system/status resolves.
+    // Firing protected hooks in that window produces a burst of 403s on a
+    // factory-password device before the redirect to the change-password flow.
+    mocks.useAccessToken.mockReturnValue({ hasAccess: true });
+    mocks.useDefaultPasswordActive.mockReturnValue(undefined);
+
+    render(<App title="App" />);
+
+    expect(mocks.useHardware).toHaveBeenCalledWith({ enabled: false });
+    expect(mocks.useNetworkInfo).toHaveBeenCalledWith({ enabled: false, poll: false });
+  });
+
+  it("keeps protected hooks disabled when defaultPasswordActive is true", () => {
+    mocks.useAccessToken.mockReturnValue({ hasAccess: true });
+    mocks.useDefaultPasswordActive.mockReturnValue(true);
+
+    render(<App title="App" />);
+
+    expect(mocks.useHardware).toHaveBeenCalledWith({ enabled: false });
+    expect(mocks.useNetworkInfo).toHaveBeenCalledWith({ enabled: false, poll: false });
+  });
 });

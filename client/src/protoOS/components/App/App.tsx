@@ -103,7 +103,11 @@ const App = ({
 
   // Initialize access token and derive whether protected endpoints are currently safe to call.
   const { hasAccess } = useAccessToken();
-  const canAccessProtectedApi = hasAccess === true && isDefaultPasswordActive !== true;
+  // Require defaultPasswordActive to be explicitly resolved as false before
+  // firing protected hooks. `!== true` would treat `undefined` (status still
+  // loading) as safe, producing a burst of 403s on a factory-password device
+  // during the window between token validation and status resolution.
+  const canAccessProtectedApi = hasAccess === true && isDefaultPasswordActive === false;
 
   // Fetch and populate hardware store
   useHardware({ enabled: canAccessProtectedApi });

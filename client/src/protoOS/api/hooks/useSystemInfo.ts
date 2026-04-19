@@ -47,7 +47,9 @@ const useSystemInfo = ({ poll, pollIntervalMs }: UseSystemInfoProps) => {
     setSystemInfoPending(true);
 
     api
-      .getSystemInfo()
+      // /api/v1/system is part of the onboarding bootstrap contract — it stays
+      // reachable before credentials exist so the UI can detect the device.
+      .getSystemInfo({ secure: false })
       .then((res) => {
         const responseData = res?.data["system-info"];
         setSystemInfo(responseData);

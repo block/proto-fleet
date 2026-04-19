@@ -6,10 +6,12 @@ type SettingsRouteMetadata = {
 };
 
 export const settingsRouteMetadata = {
+  // Authentication settings stay reachable so a locked-out user can change
+  // or reset their password without first logging in.
   authentication: { path: "authentication", requiresAuth: false },
-  general: { path: "general", requiresAuth: false },
+  general: { path: "general", requiresAuth: true },
   miningPools: { path: "mining-pools", requiresAuth: true },
-  hardware: { path: "hardware", requiresAuth: false },
+  hardware: { path: "hardware", requiresAuth: true },
   cooling: { path: "cooling", requiresAuth: true },
 } satisfies Record<string, SettingsRouteMetadata>;
 
