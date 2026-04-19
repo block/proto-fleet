@@ -9,6 +9,7 @@ import {
   useSetNetworkInfoError,
   useSetNetworkInfoPending,
 } from "@/protoOS/store";
+import { useAuthErrors } from "@/protoOS/store/hooks/useAuth";
 import { usePoll } from "@/shared/hooks/usePoll";
 
 interface UseNetworkInfoProps {
@@ -28,6 +29,7 @@ interface UseNetworkInfoProps {
 
 const useNetworkInfo = ({ enabled = true, poll, pollIntervalMs }: UseNetworkInfoProps) => {
   const { api } = useMinerHosting();
+  const { handleAuthErrors } = useAuthErrors();
   const setNetworkInfo = useSetNetworkInfo();
   const setNetworkInfoError = useSetNetworkInfoError();
   const setNetworkInfoPending = useSetNetworkInfoPending();
@@ -50,12 +52,15 @@ const useNetworkInfo = ({ enabled = true, poll, pollIntervalMs }: UseNetworkInfo
         setNetworkInfoPending(false);
       })
       .catch((err) => {
-        setNetworkInfoError(err?.error?.message ?? "An error occurred");
+        handleAuthErrors({
+          error: err,
+          onError: (e) => setNetworkInfoError(e?.error?.message ?? "An error occurred"),
+        });
       })
       .finally(() => {
         isFetchingRef.current = false;
       });
-  }, [api, enabled, setNetworkInfo, setNetworkInfoError, setNetworkInfoPending]);
+  }, [api, enabled, handleAuthErrors, setNetworkInfo, setNetworkInfoError, setNetworkInfoPending]);
 
   const reload = useCallback(() => {
     if (isFetchingRef.current) return;

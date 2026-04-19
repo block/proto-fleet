@@ -33,6 +33,10 @@ vi.mock("@/protoOS/store", () => ({
   getAsicId: (serial: string, index: number) => `${serial}-${index}`,
 }));
 
+vi.mock("@/protoOS/store/hooks/useAuth", () => ({
+  useAuthErrors: () => ({ handleAuthErrors: vi.fn() }),
+}));
+
 describe("useHashboardStatus", () => {
   beforeEach(() => {
     vi.clearAllMocks();

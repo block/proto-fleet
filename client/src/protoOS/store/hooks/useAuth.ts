@@ -54,6 +54,15 @@ interface HandleAuthErrorsProps {
   onSuccess?: (accessToken: string) => void | Promise<void>;
 }
 
+// Dedupe refresh across parallel 401s: a single-use refresh token would be
+// consumed by the first call and log the user out on every subsequent one.
+// Concurrent callers fall through to onError; their next poll uses the new token.
+let refreshInFlight = false;
+
+export const __resetRefreshInFlightForTest = () => {
+  refreshInFlight = false;
+};
+
 export const useAuthErrors = () => {
   const logout = useLogout();
   const setShowLoginModal = useMinerStore((state) => state.ui.setShowLoginModal);
@@ -71,10 +80,19 @@ export const useAuthErrors = () => {
       }
 
       if (error?.status === 401) {
+        if (refreshInFlight) {
+          onError?.(error);
+          return;
+        }
+        refreshInFlight = true;
         return refresh({
           refreshToken: useMinerStore.getState().auth.authTokens.refreshToken?.value || "",
-          onSuccess,
+          onSuccess: (accessToken) => {
+            refreshInFlight = false;
+            return onSuccess?.(accessToken);
+          },
           onError: (refreshError) => {
+            refreshInFlight = false;
             if (refreshError?.status === 401) {
               logout();
               setShowLoginModal(true);

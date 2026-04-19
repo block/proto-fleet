@@ -4,6 +4,7 @@ import { HashboardStatsHashboardstats } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { AsicHardwareData, getAsicId } from "@/protoOS/store";
 import { useMinerStore } from "@/protoOS/store";
+import { useAuthErrors } from "@/protoOS/store/hooks/useAuth";
 import { usePoll } from "@/shared/hooks/usePoll";
 interface UseHashboardStatusProps {
   enabled?: boolean;
@@ -16,6 +17,7 @@ interface UseHashboardStatusProps {
 // - asic rows and columns
 const useHashboardStatus = ({ enabled = true, hashboardSerialNumbers, poll }: UseHashboardStatusProps) => {
   const { api } = useMinerHosting();
+  const { handleAuthErrors } = useAuthErrors();
   const [data, setData] = useState<Record<string, HashboardStatsHashboardstats>>({});
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState<boolean>(false);
@@ -42,12 +44,14 @@ const useHashboardStatus = ({ enabled = true, hashboardSerialNumbers, poll }: Us
 
       setData(newData);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "Unknown error occurred";
-      setError(errorMessage);
+      handleAuthErrors({
+        error: err as any,
+        onError: (e) => setError(e?.error?.message ?? (err instanceof Error ? err.message : "Unknown error occurred")),
+      });
     } finally {
       setPending(false);
     }
-  }, [enabled, hashboardSerialNumbers, api]);
+  }, [enabled, hashboardSerialNumbers, api, handleAuthErrors]);
 
   usePoll({
     enabled,

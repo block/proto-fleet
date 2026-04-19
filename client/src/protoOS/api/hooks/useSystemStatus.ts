@@ -10,6 +10,7 @@ import {
   useSetOnboarded,
   useSetPasswordSet,
 } from "@/protoOS/store";
+import useMinerStore from "@/protoOS/store/useMinerStore";
 import { usePoll } from "@/shared/hooks/usePoll";
 
 /**
@@ -50,9 +51,23 @@ const useSystemStatus = () => {
         setPasswordSet(res?.data.password_set);
         const nextDefaultPasswordActive = res?.data.default_password_active ?? false;
 
-        // While the user is on a password-change route, do not let status
-        // polling clear the flag before the follow-up login succeeds.
-        if (!(isPasswordChangeRoute && defaultPasswordActive === true && nextDefaultPasswordActive === false)) {
+        // Resolve store state at response time — hook-scoped values are
+        // captured at fire time and can be stale if the password-change
+        // flow completed mid-flight.
+        const currentDefaultPasswordActive = useMinerStore.getState().minerStatus.defaultPasswordActive;
+        const currentAccessToken = useMinerStore.getState().auth.authTokens.accessToken;
+        const hasValidSession = !!currentAccessToken?.value && new Date(currentAccessToken.expiry) > new Date();
+
+        // Don't let polling clear the flag before follow-up login succeeds.
+        const suppressClear =
+          isPasswordChangeRoute && currentDefaultPasswordActive === true && nextDefaultPasswordActive === false;
+
+        // Don't let a stale response re-raise the flag after a valid session
+        // has cleared it — the auth-error path owns re-entering the lockout.
+        const suppressStaleRaise =
+          nextDefaultPasswordActive === true && currentDefaultPasswordActive === false && hasValidSession;
+
+        if (!suppressClear && !suppressStaleRaise) {
           setDefaultPasswordActive(nextDefaultPasswordActive);
         }
       })
@@ -62,7 +77,7 @@ const useSystemStatus = () => {
       .finally(() => {
         isFetchingRef.current = false;
       });
-  }, [api, defaultPasswordActive, isPasswordChangeRoute, setOnboarded, setPasswordSet, setDefaultPasswordActive]);
+  }, [api, isPasswordChangeRoute, setOnboarded, setPasswordSet, setDefaultPasswordActive]);
 
   // Poll until initial status is loaded. Keep polling while defaultPasswordActive
   // is true so the store self-corrects after the user changes their password.

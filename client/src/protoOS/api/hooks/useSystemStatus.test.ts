@@ -42,6 +42,13 @@ vi.mock("react-router-dom", () => ({
   useLocation: vi.fn(),
 }));
 
+const mockGetStoreState = vi.fn();
+vi.mock("@/protoOS/store/useMinerStore", () => ({
+  default: {
+    getState: () => mockGetStoreState(),
+  },
+}));
+
 describe("useSystemStatus", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -65,6 +72,13 @@ describe("useSystemStatus", () => {
         void fetchData();
       }
     });
+
+    // Default: match the hook-scoped values but with no valid access token,
+    // so the stale-raise guard doesn't interfere with existing cases.
+    mockGetStoreState.mockImplementation(() => ({
+      minerStatus: { defaultPasswordActive: currentDefaultPasswordActive },
+      auth: { authTokens: { accessToken: { value: "", expiry: new Date(0).toISOString() } } },
+    }));
   });
 
   test("does not clear defaultPasswordActive from status polling on password-change routes", async () => {
@@ -119,5 +133,35 @@ describe("useSystemStatus", () => {
     await waitFor(() => {
       expect(mockSetDefaultPasswordActive).toHaveBeenCalledWith(false);
     });
+  });
+
+  test("ignores a stale true response once a valid session has cleared the flag", async () => {
+    // Poll fired while the flag was still true; by response time the store
+    // has been cleared and a valid session established.
+    (useLocation as Mock).mockReturnValue({ pathname: "/" });
+    currentDefaultPasswordActive = true;
+    mockGetStoreState.mockReturnValue({
+      minerStatus: { defaultPasswordActive: false },
+      auth: {
+        authTokens: {
+          accessToken: { value: "valid-token", expiry: new Date(Date.now() + 60_000).toISOString() },
+        },
+      },
+    });
+    mockGetSystemStatus.mockResolvedValue({
+      data: {
+        onboarded: true,
+        password_set: true,
+        default_password_active: true,
+      },
+    });
+
+    renderHook(() => useSystemStatus());
+
+    await waitFor(() => {
+      expect(mockGetSystemStatus).toHaveBeenCalled();
+    });
+
+    expect(mockSetDefaultPasswordActive).not.toHaveBeenCalledWith(true);
   });
 });

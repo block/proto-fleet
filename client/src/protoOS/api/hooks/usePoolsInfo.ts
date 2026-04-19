@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pool } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useSetPoolsInfo } from "@/protoOS/store";
+import { useAuthErrors } from "@/protoOS/store/hooks/useAuth";
 import { usePoll } from "@/shared/hooks/usePoll";
 
 export interface FetchPoolsInfoProps {
@@ -19,6 +20,7 @@ type UsePoolsInfoProps = {
 
 const usePoolsInfo = ({ enabled = true, poll = false, pollIntervalMs }: UsePoolsInfoProps = {}) => {
   const { api } = useMinerHosting();
+  const { handleAuthErrors } = useAuthErrors();
   const [data, setData] = useState<Pool[]>();
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState<boolean>(false);
@@ -49,12 +51,17 @@ const usePoolsInfo = ({ enabled = true, poll = false, pollIntervalMs }: UsePools
             }
           })
           .catch((err) => {
-            const newError = err?.error?.message ?? "An error occurred";
-            if (retryOnMinerDown) {
-              setTimeout(() => performFetch(), 5000);
-            }
-            setError(newError);
-            onError?.(newError);
+            handleAuthErrors({
+              error: err,
+              onError: (e) => {
+                const newError = e?.error?.message ?? "An error occurred";
+                if (retryOnMinerDown) {
+                  setTimeout(() => performFetch(), 5000);
+                }
+                setError(newError);
+                onError?.(newError);
+              },
+            });
           })
           .finally(() => {
             setPending(false);
@@ -63,7 +70,7 @@ const usePoolsInfo = ({ enabled = true, poll = false, pollIntervalMs }: UsePools
 
       performFetch();
     },
-    [api, enabled],
+    [api, enabled, handleAuthErrors],
   );
 
   usePoll({

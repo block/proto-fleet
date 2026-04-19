@@ -1,6 +1,6 @@
 import { renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { useAccessToken, useAuthErrors } from "./useAuth";
+import { __resetRefreshInFlightForTest, useAccessToken, useAuthErrors } from "./useAuth";
 
 const mockRefresh = vi.fn();
 const mockLogout = vi.fn();
@@ -53,6 +53,7 @@ vi.mock("react-router-dom", async (importOriginal) => {
 describe("useAuthErrors", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    __resetRefreshInFlightForTest();
     mockUseLocation.mockReturnValue({ pathname: "/" });
     mockGetState.mockReturnValue({
       auth: {

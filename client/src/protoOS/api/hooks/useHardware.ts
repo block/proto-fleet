@@ -10,6 +10,7 @@ import {
 } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useMinerStore } from "@/protoOS/store";
+import { useAuthErrors } from "@/protoOS/store/hooks/useAuth";
 
 interface UseHardwareProps {
   enabled?: boolean;
@@ -17,6 +18,7 @@ interface UseHardwareProps {
 
 const useHardware = ({ enabled = true }: UseHardwareProps = {}) => {
   const { api } = useMinerHosting();
+  const { handleAuthErrors } = useAuthErrors();
   const [data, setData] = useState<HardwareInfoHardwareinfo>();
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState<boolean>(false);
@@ -79,12 +81,15 @@ const useHardware = ({ enabled = true }: UseHardwareProps = {}) => {
         setFansInfo(allFans);
       })
       .catch((err) => {
-        setError(err?.error?.message ?? "An error occurred");
+        handleAuthErrors({
+          error: err,
+          onError: (e) => setError(e?.error?.message ?? "An error occurred"),
+        });
       })
       .finally(() => {
         setPending(false);
       });
-  }, [api, enabled]);
+  }, [api, enabled, handleAuthErrors]);
 
   useEffect(() => {
     if (!enabled) return;
