@@ -489,9 +489,12 @@ func NewRESTApiHandler(state *MinerState) *RESTApiHandler {
 // When default_password_active is true, authenticated requests return 403
 // except for password change.
 func (h *RESTApiHandler) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("/api/v1/pools", h.requireBearerAuth(h.requirePasswordChangedMethods(h.handlePools, http.MethodPost)))
-	mux.HandleFunc("/api/v1/pools/", h.requireBearerAuth(h.requirePasswordChangedMethods(h.handlePoolByID, http.MethodPut, http.MethodDelete)))
-	mux.HandleFunc("/api/v1/pools/test-connection", h.requireBearerAuth(h.requirePasswordChangedMethods(h.handleTestPoolConnection, http.MethodPost)))
+	// All pool reads AND mutations are gated on password change — firmware
+	// locks out every authenticated request (except password change itself)
+	// while default_password_active is true, regardless of HTTP verb.
+	mux.HandleFunc("/api/v1/pools", h.requireBearerAuth(h.requirePasswordChanged(h.handlePools)))
+	mux.HandleFunc("/api/v1/pools/", h.requireBearerAuth(h.requirePasswordChanged(h.handlePoolByID)))
+	mux.HandleFunc("/api/v1/pools/test-connection", h.requireBearerAuth(h.requirePasswordChanged(h.handleTestPoolConnection)))
 
 	// Auth — login/refresh/set-password are unauthenticated; set-password only works
 	// before any password exists, and change-password is exempt from the default-password gate.

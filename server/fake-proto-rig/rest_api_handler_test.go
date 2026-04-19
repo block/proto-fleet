@@ -271,12 +271,27 @@ func TestPoolMutationsRequirePasswordChangeWhenDefaultPasswordActive(t *testing.
 		t.Fatalf("failed to unmarshal auth tokens: %v; body=%s", err, loginRR.Body.String())
 	}
 
+	// Firmware hardening locks out EVERY authenticated pool request (reads
+	// included) while default_password_active is true. The prior version of
+	// this test accepted GET pools returning 200, which let integration tests
+	// pass against the simulator while the same path would 403 on real
+	// firmware.
 	tests := []struct {
 		name   string
 		method string
 		path   string
 		body   string
 	}{
+		{
+			name:   "list pools blocked",
+			method: http.MethodGet,
+			path:   "/api/v1/pools",
+		},
+		{
+			name:   "read pool by id blocked",
+			method: http.MethodGet,
+			path:   "/api/v1/pools/0",
+		},
 		{
 			name:   "create pool blocked",
 			method: http.MethodPost,
@@ -313,15 +328,6 @@ func TestPoolMutationsRequirePasswordChangeWhenDefaultPasswordActive(t *testing.
 				t.Fatalf("expected %d, got %d; body=%s", http.StatusForbidden, rr.Code, rr.Body.String())
 			}
 		})
-	}
-
-	getRR := httptest.NewRecorder()
-	getReq := httptest.NewRequest(http.MethodGet, "/api/v1/pools", nil)
-	getReq.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
-	mux.ServeHTTP(getRR, getReq)
-
-	if getRR.Code != http.StatusOK {
-		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, getRR.Code, getRR.Body.String())
 	}
 }
 
