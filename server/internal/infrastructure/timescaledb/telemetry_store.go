@@ -848,9 +848,13 @@ func (s *TimescaleTelemetryStore) aggregateHourlyBucket(
 	var weightedSum float64
 	var totalDataPoints int64
 	var deviceCount int
+	var realMinMaxCount int
+	minOfMins := math.MaxFloat64
+	maxOfMaxes := -math.MaxFloat64
+	var cumulativeMinSum, cumulativeMaxSum float64
 
 	for _, row := range rows {
-		avg, _, _, ok := extractHourlyValues(row, measurementType)
+		avg, minVal, maxVal, hasRealMinMax, ok := extractHourlyValues(row, measurementType)
 		if !ok {
 			continue
 		}
@@ -858,11 +862,27 @@ func (s *TimescaleTelemetryStore) aggregateHourlyBucket(
 		weightedSum += avg * float64(row.DataPoints)
 		totalDataPoints += row.DataPoints
 		deviceCount++
+		if hasRealMinMax {
+			realMinMaxCount++
+			if minVal < minOfMins {
+				minOfMins = minVal
+			}
+			if maxVal > maxOfMaxes {
+				maxOfMaxes = maxVal
+			}
+			cumulativeMinSum += minVal
+			cumulativeMaxSum += maxVal
+		}
 	}
 
 	if deviceCount == 0 {
 		return nil, 0
 	}
+
+	// Emit MIN/MAX only when every contributing device had real min/max in the view —
+	// otherwise a partial fleet sum (cumulative) or a biased extremum (non-cumulative)
+	// would silently replace real data with a fabricated number.
+	canEmitMinMax := realMinMaxCount == deviceCount && realMinMaxCount > 0
 
 	var result []models.AggregatedValue
 	for _, aggType := range aggregationTypes {
@@ -876,10 +896,24 @@ func (s *TimescaleTelemetryStore) aggregateHourlyBucket(
 			} else {
 				value = avgSum / float64(deviceCount)
 			}
-		case models.AggregationTypeMin, models.AggregationTypeMax:
-			s.logger.Error("min/max aggregation not implemented for continuous aggregates",
-				slog.String("aggregation_type", aggType.String()))
-			continue
+		case models.AggregationTypeMin:
+			if !canEmitMinMax {
+				continue
+			}
+			if isCumulative {
+				value = cumulativeMinSum
+			} else {
+				value = minOfMins
+			}
+		case models.AggregationTypeMax:
+			if !canEmitMinMax {
+				continue
+			}
+			if isCumulative {
+				value = cumulativeMaxSum
+			} else {
+				value = maxOfMaxes
+			}
 		case models.AggregationTypeSum:
 			value = avgSum
 		case models.AggregationTypeCount:
@@ -897,32 +931,34 @@ func (s *TimescaleTelemetryStore) aggregateHourlyBucket(
 }
 
 // extractHourlyValues extracts avg, min, max values from an hourly row for a measurement type.
-func extractHourlyValues(row sqlc.DeviceMetricsHourly, mt models.MeasurementType) (avg, minVal, maxVal float64, ok bool) {
+// hasRealMinMax reports whether the row's backing continuous aggregate stores true min/max for
+// this measurement — when false, only avg is meaningful and min/max must be ignored.
+func extractHourlyValues(row sqlc.DeviceMetricsHourly, mt models.MeasurementType) (avg, minVal, maxVal float64, hasRealMinMax, ok bool) {
 	switch mt {
 	case models.MeasurementTypeHashrate:
 		if row.MaxHashRate.Valid && row.MinHashRate.Valid {
-			return row.AvgHashRate, row.MinHashRate.Float64, row.MaxHashRate.Float64, true
+			return row.AvgHashRate, row.MinHashRate.Float64, row.MaxHashRate.Float64, true, true
 		}
-		return row.AvgHashRate, row.AvgHashRate, row.AvgHashRate, row.AvgHashRate > 0
+		return row.AvgHashRate, 0, 0, false, row.AvgHashRate > 0
 	case models.MeasurementTypeTemperature:
 		if row.MaxTemp.Valid && row.MinTemp.Valid {
-			return row.AvgTemp, row.MinTemp.Float64, row.MaxTemp.Float64, true
+			return row.AvgTemp, row.MinTemp.Float64, row.MaxTemp.Float64, true, true
 		}
-		return row.AvgTemp, row.AvgTemp, row.AvgTemp, row.AvgTemp > 0
+		return row.AvgTemp, 0, 0, false, row.AvgTemp > 0
 	case models.MeasurementTypePower:
-		return row.AvgPower, row.AvgPower, row.AvgPower, row.AvgPower > 0
+		return row.AvgPower, 0, 0, false, row.AvgPower > 0
 	case models.MeasurementTypeEfficiency:
-		return row.AvgEfficiency, row.AvgEfficiency, row.AvgEfficiency, row.AvgEfficiency > 0
+		return row.AvgEfficiency, 0, 0, false, row.AvgEfficiency > 0
 	case models.MeasurementTypeFanSpeed:
-		return row.AvgFanRpm, row.AvgFanRpm, row.AvgFanRpm, row.AvgFanRpm > 0
+		return row.AvgFanRpm, 0, 0, false, row.AvgFanRpm > 0
 	case models.MeasurementTypeUnknown,
 		models.MeasurementTypeVoltage,
 		models.MeasurementTypeCurrent,
 		models.MeasurementTypeUptime,
 		models.MeasurementTypeErrorRate:
-		return 0, 0, 0, false
+		return 0, 0, 0, false, false
 	}
-	return 0, 0, 0, false
+	return 0, 0, 0, false, false
 }
 
 // aggregateDailyRows aggregates daily data rows into metrics.
@@ -991,9 +1027,13 @@ func (s *TimescaleTelemetryStore) aggregateDailyBucket(
 	var weightedSum float64
 	var totalDataPoints int64
 	var deviceCount int
+	var realMinMaxCount int
+	minOfMins := math.MaxFloat64
+	maxOfMaxes := -math.MaxFloat64
+	var cumulativeMinSum, cumulativeMaxSum float64
 
 	for _, row := range rows {
-		avg, _, _, ok := extractDailyValues(row, measurementType)
+		avg, minVal, maxVal, hasRealMinMax, ok := extractDailyValues(row, measurementType)
 		if !ok {
 			continue
 		}
@@ -1001,11 +1041,24 @@ func (s *TimescaleTelemetryStore) aggregateDailyBucket(
 		weightedSum += avg * float64(row.DataPoints)
 		totalDataPoints += row.DataPoints
 		deviceCount++
+		if hasRealMinMax {
+			realMinMaxCount++
+			if minVal < minOfMins {
+				minOfMins = minVal
+			}
+			if maxVal > maxOfMaxes {
+				maxOfMaxes = maxVal
+			}
+			cumulativeMinSum += minVal
+			cumulativeMaxSum += maxVal
+		}
 	}
 
 	if deviceCount == 0 {
 		return nil, 0
 	}
+
+	canEmitMinMax := realMinMaxCount == deviceCount && realMinMaxCount > 0
 
 	var result []models.AggregatedValue
 	for _, aggType := range aggregationTypes {
@@ -1019,11 +1072,24 @@ func (s *TimescaleTelemetryStore) aggregateDailyBucket(
 			} else {
 				value = avgSum / float64(deviceCount)
 			}
-		case models.AggregationTypeMin, models.AggregationTypeMax:
-			// TODO: Min/Max aggregation needs proper implementation (currently averages per-device values)
-			s.logger.Error("min/max aggregation not implemented for continuous aggregates",
-				slog.String("aggregation_type", aggType.String()))
-			continue
+		case models.AggregationTypeMin:
+			if !canEmitMinMax {
+				continue
+			}
+			if isCumulative {
+				value = cumulativeMinSum
+			} else {
+				value = minOfMins
+			}
+		case models.AggregationTypeMax:
+			if !canEmitMinMax {
+				continue
+			}
+			if isCumulative {
+				value = cumulativeMaxSum
+			} else {
+				value = maxOfMaxes
+			}
 		case models.AggregationTypeSum:
 			value = avgSum
 		case models.AggregationTypeCount:
@@ -1041,31 +1107,33 @@ func (s *TimescaleTelemetryStore) aggregateDailyBucket(
 }
 
 // extractDailyValues extracts avg, min, max values from a daily row for a measurement type.
-func extractDailyValues(row sqlc.DeviceMetricsDaily, mt models.MeasurementType) (avg, minVal, maxVal float64, ok bool) {
+// hasRealMinMax reports whether the row's backing continuous aggregate stores true min/max for
+// this measurement — when false, only avg is meaningful and min/max must be ignored.
+func extractDailyValues(row sqlc.DeviceMetricsDaily, mt models.MeasurementType) (avg, minVal, maxVal float64, hasRealMinMax, ok bool) {
 	switch mt {
 	case models.MeasurementTypeHashrate:
 		if row.MaxHashRate.Valid && row.MinHashRate.Valid {
-			return row.AvgHashRate, row.MinHashRate.Float64, row.MaxHashRate.Float64, true
+			return row.AvgHashRate, row.MinHashRate.Float64, row.MaxHashRate.Float64, true, true
 		}
-		return row.AvgHashRate, row.AvgHashRate, row.AvgHashRate, row.AvgHashRate > 0
+		return row.AvgHashRate, 0, 0, false, row.AvgHashRate > 0
 	case models.MeasurementTypeTemperature:
 		if row.MaxTemp.Valid && row.MinTemp.Valid {
-			return row.AvgTemp, row.MinTemp.Float64, row.MaxTemp.Float64, true
+			return row.AvgTemp, row.MinTemp.Float64, row.MaxTemp.Float64, true, true
 		}
-		return row.AvgTemp, row.AvgTemp, row.AvgTemp, row.AvgTemp > 0
+		return row.AvgTemp, 0, 0, false, row.AvgTemp > 0
 	case models.MeasurementTypePower:
-		return row.AvgPower, row.AvgPower, row.AvgPower, row.AvgPower > 0
+		return row.AvgPower, 0, 0, false, row.AvgPower > 0
 	case models.MeasurementTypeEfficiency:
-		return row.AvgEfficiency, row.AvgEfficiency, row.AvgEfficiency, row.AvgEfficiency > 0
+		return row.AvgEfficiency, 0, 0, false, row.AvgEfficiency > 0
 	case models.MeasurementTypeFanSpeed,
 		models.MeasurementTypeUnknown,
 		models.MeasurementTypeVoltage,
 		models.MeasurementTypeCurrent,
 		models.MeasurementTypeUptime,
 		models.MeasurementTypeErrorRate:
-		return 0, 0, 0, false
+		return 0, 0, 0, false, false
 	}
-	return 0, 0, 0, false
+	return 0, 0, 0, false, false
 }
 
 // aggregateMetrics performs aggregations on the metrics data.

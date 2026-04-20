@@ -300,6 +300,248 @@ func TestAggregateHourlyBucket_SingleDevice(t *testing.T) {
 		"Single device average should equal device average regardless of weighting")
 }
 
+func TestAggregateHourlyBucket_TemperatureMinMax_GlobalExtrema(t *testing.T) {
+	// Non-cumulative: fleet MIN is the coldest reading any device produced,
+	// MAX is the hottest — global extrema across devices, not a sum.
+	now := time.Now()
+	store := &TimescaleTelemetryStore{}
+
+	rows := []sqlc.DeviceMetricsHourly{
+		{
+			Bucket:           now,
+			DeviceIdentifier: "device-a",
+			AvgTemp:          70.0,
+			MinTemp:          sql.NullFloat64{Float64: 65.0, Valid: true},
+			MaxTemp:          sql.NullFloat64{Float64: 75.0, Valid: true},
+			DataPoints:       360,
+		},
+		{
+			Bucket:           now,
+			DeviceIdentifier: "device-b",
+			AvgTemp:          80.0,
+			MinTemp:          sql.NullFloat64{Float64: 72.0, Valid: true},
+			MaxTemp:          sql.NullFloat64{Float64: 88.0, Valid: true},
+			DataPoints:       360,
+		},
+	}
+
+	aggTypes := []models.AggregationType{models.AggregationTypeMin, models.AggregationTypeMax}
+	result, devCount := store.aggregateHourlyBucket(rows, models.MeasurementTypeTemperature, aggTypes)
+
+	assert.Equal(t, 2, devCount)
+	values := aggValues(result)
+	assert.Equal(t, 65.0, values[models.AggregationTypeMin], "MIN should be coldest single reading")
+	assert.Equal(t, 88.0, values[models.AggregationTypeMax], "MAX should be hottest single reading")
+}
+
+func TestAggregateHourlyBucket_HashrateMinMax_FleetTotals(t *testing.T) {
+	// Cumulative: fleet MIN/MAX are sums of per-device mins/maxes, matching
+	// the raw-data path in calculateCumulativeAggregations. A per-device
+	// extremum approach would under-report the fleet trough/spike.
+	now := time.Now()
+	store := &TimescaleTelemetryStore{}
+
+	rows := []sqlc.DeviceMetricsHourly{
+		{
+			Bucket:           now,
+			DeviceIdentifier: "device-a",
+			AvgHashRate:      110.0,
+			MinHashRate:      sql.NullFloat64{Float64: 100.0, Valid: true},
+			MaxHashRate:      sql.NullFloat64{Float64: 120.0, Valid: true},
+			DataPoints:       360,
+		},
+		{
+			Bucket:           now,
+			DeviceIdentifier: "device-b",
+			AvgHashRate:      210.0,
+			MinHashRate:      sql.NullFloat64{Float64: 200.0, Valid: true},
+			MaxHashRate:      sql.NullFloat64{Float64: 220.0, Valid: true},
+			DataPoints:       360,
+		},
+	}
+
+	aggTypes := []models.AggregationType{models.AggregationTypeMin, models.AggregationTypeMax}
+	result, devCount := store.aggregateHourlyBucket(rows, models.MeasurementTypeHashrate, aggTypes)
+
+	assert.Equal(t, 2, devCount)
+	values := aggValues(result)
+	assert.Equal(t, 300.0, values[models.AggregationTypeMin],
+		"Cumulative MIN should sum per-device mins (100 + 200)")
+	assert.Equal(t, 340.0, values[models.AggregationTypeMax],
+		"Cumulative MAX should sum per-device maxes (120 + 220)")
+}
+
+func TestAggregateHourlyBucket_PowerMinMax_Omitted(t *testing.T) {
+	// The power continuous aggregate view does not materialize min/max columns.
+	// Emitting MIN/MAX would mean fabricating them from avg, which this function
+	// must refuse to do.
+	now := time.Now()
+	store := &TimescaleTelemetryStore{}
+
+	rows := []sqlc.DeviceMetricsHourly{
+		{Bucket: now, DeviceIdentifier: "device-a", AvgPower: 1500.0, DataPoints: 360},
+		{Bucket: now, DeviceIdentifier: "device-b", AvgPower: 1800.0, DataPoints: 360},
+	}
+
+	aggTypes := []models.AggregationType{
+		models.AggregationTypeAverage,
+		models.AggregationTypeMin,
+		models.AggregationTypeMax,
+	}
+	result, devCount := store.aggregateHourlyBucket(rows, models.MeasurementTypePower, aggTypes)
+
+	assert.Equal(t, 2, devCount)
+	values := aggValues(result)
+	assert.Contains(t, values, models.AggregationTypeAverage, "AVG must still be emitted")
+	assert.NotContains(t, values, models.AggregationTypeMin,
+		"MIN must not be emitted — backing view lacks min column")
+	assert.NotContains(t, values, models.AggregationTypeMax,
+		"MAX must not be emitted — backing view lacks max column")
+}
+
+func TestAggregateHourlyBucket_EfficiencyMinMax_Omitted(t *testing.T) {
+	// Same guarantee as power — efficiency view has no min/max columns either.
+	now := time.Now()
+	store := &TimescaleTelemetryStore{}
+
+	rows := []sqlc.DeviceMetricsHourly{
+		{Bucket: now, DeviceIdentifier: "device-a", AvgEfficiency: 30.0, DataPoints: 360},
+	}
+
+	aggTypes := []models.AggregationType{models.AggregationTypeMin, models.AggregationTypeMax}
+	result, _ := store.aggregateHourlyBucket(rows, models.MeasurementTypeEfficiency, aggTypes)
+	assert.Empty(t, result, "Efficiency MIN/MAX must not be emitted at rollup level")
+}
+
+func TestAggregateHourlyBucket_TemperatureMinMax_PartialRealMinMax_Omitted(t *testing.T) {
+	// If some device rows have NULL min/max columns, emitting an aggregate MIN/MAX
+	// would bias the result. Skip emission rather than report a partial answer.
+	now := time.Now()
+	store := &TimescaleTelemetryStore{}
+
+	rows := []sqlc.DeviceMetricsHourly{
+		{
+			Bucket:           now,
+			DeviceIdentifier: "device-a",
+			AvgTemp:          70.0,
+			MinTemp:          sql.NullFloat64{Float64: 65.0, Valid: true},
+			MaxTemp:          sql.NullFloat64{Float64: 75.0, Valid: true},
+			DataPoints:       360,
+		},
+		{
+			Bucket:           now,
+			DeviceIdentifier: "device-b",
+			AvgTemp:          80.0, // real min/max missing for this row
+			DataPoints:       360,
+		},
+	}
+
+	aggTypes := []models.AggregationType{
+		models.AggregationTypeAverage,
+		models.AggregationTypeMin,
+		models.AggregationTypeMax,
+	}
+	result, devCount := store.aggregateHourlyBucket(rows, models.MeasurementTypeTemperature, aggTypes)
+
+	assert.Equal(t, 2, devCount, "Both devices still contribute to AVG")
+	values := aggValues(result)
+	assert.Contains(t, values, models.AggregationTypeAverage)
+	assert.NotContains(t, values, models.AggregationTypeMin,
+		"MIN must not be emitted when any contributing row lacks real min")
+	assert.NotContains(t, values, models.AggregationTypeMax,
+		"MAX must not be emitted when any contributing row lacks real max")
+}
+
+func TestAggregateDailyBucket_TemperatureMinMax_GlobalExtrema(t *testing.T) {
+	// Daily rollup mirrors the hourly non-cumulative semantics.
+	now := time.Now()
+	store := &TimescaleTelemetryStore{}
+
+	rows := []sqlc.DeviceMetricsDaily{
+		{
+			Bucket:           now,
+			DeviceIdentifier: "device-a",
+			AvgTemp:          70.0,
+			MinTemp:          sql.NullFloat64{Float64: 60.0, Valid: true},
+			MaxTemp:          sql.NullFloat64{Float64: 80.0, Valid: true},
+			DataPoints:       8640,
+		},
+		{
+			Bucket:           now,
+			DeviceIdentifier: "device-b",
+			AvgTemp:          75.0,
+			MinTemp:          sql.NullFloat64{Float64: 68.0, Valid: true},
+			MaxTemp:          sql.NullFloat64{Float64: 90.0, Valid: true},
+			DataPoints:       8640,
+		},
+	}
+
+	aggTypes := []models.AggregationType{models.AggregationTypeMin, models.AggregationTypeMax}
+	result, devCount := store.aggregateDailyBucket(rows, models.MeasurementTypeTemperature, aggTypes)
+
+	assert.Equal(t, 2, devCount)
+	values := aggValues(result)
+	assert.Equal(t, 60.0, values[models.AggregationTypeMin])
+	assert.Equal(t, 90.0, values[models.AggregationTypeMax])
+}
+
+func TestAggregateDailyBucket_HashrateMinMax_FleetTotals(t *testing.T) {
+	// Daily rollup mirrors the hourly cumulative semantics.
+	now := time.Now()
+	store := &TimescaleTelemetryStore{}
+
+	rows := []sqlc.DeviceMetricsDaily{
+		{
+			Bucket:           now,
+			DeviceIdentifier: "device-a",
+			AvgHashRate:      110.0,
+			MinHashRate:      sql.NullFloat64{Float64: 90.0, Valid: true},
+			MaxHashRate:      sql.NullFloat64{Float64: 130.0, Valid: true},
+			DataPoints:       8640,
+		},
+		{
+			Bucket:           now,
+			DeviceIdentifier: "device-b",
+			AvgHashRate:      210.0,
+			MinHashRate:      sql.NullFloat64{Float64: 190.0, Valid: true},
+			MaxHashRate:      sql.NullFloat64{Float64: 230.0, Valid: true},
+			DataPoints:       8640,
+		},
+	}
+
+	aggTypes := []models.AggregationType{models.AggregationTypeMin, models.AggregationTypeMax}
+	result, _ := store.aggregateDailyBucket(rows, models.MeasurementTypeHashrate, aggTypes)
+
+	values := aggValues(result)
+	assert.Equal(t, 280.0, values[models.AggregationTypeMin],
+		"Daily cumulative MIN should sum per-device mins (90 + 190)")
+	assert.Equal(t, 360.0, values[models.AggregationTypeMax],
+		"Daily cumulative MAX should sum per-device maxes (130 + 230)")
+}
+
+func TestAggregateDailyBucket_PowerMinMax_Omitted(t *testing.T) {
+	now := time.Now()
+	store := &TimescaleTelemetryStore{}
+
+	rows := []sqlc.DeviceMetricsDaily{
+		{Bucket: now, DeviceIdentifier: "device-a", AvgPower: 1500.0, DataPoints: 8640},
+	}
+
+	aggTypes := []models.AggregationType{models.AggregationTypeMin, models.AggregationTypeMax}
+	result, _ := store.aggregateDailyBucket(rows, models.MeasurementTypePower, aggTypes)
+	assert.Empty(t, result, "Daily power MIN/MAX must not be emitted")
+}
+
+// aggValues builds a lookup from an AggregatedValue slice keyed by aggregation type.
+// Used in MIN/MAX tests so assertions are independent of result ordering.
+func aggValues(result []models.AggregatedValue) map[models.AggregationType]float64 {
+	out := make(map[models.AggregationType]float64, len(result))
+	for _, v := range result {
+		out[v.Type] = v.Value
+	}
+	return out
+}
+
 func TestEstimateEnergyKWh(t *testing.T) {
 	tests := []struct {
 		name       string

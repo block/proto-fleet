@@ -34,14 +34,15 @@ const TOOLTIP_KEYS = ["avg"];
 function transformMetrics(metrics: Metric[], normalize: (value: number, deviceCount: number) => number): ChartData[] {
   return metrics.map((metric) => {
     const findAgg = (type: AggregationType) =>
-      metric.aggregatedValues.find((agg) => agg.aggregationType === type)?.value ?? 0;
+      metric.aggregatedValues.find((agg) => agg.aggregationType === type)?.value;
 
     const deviceCount = metric.deviceCount;
+    const normalizeOrNull = (v: number | undefined) => (v === undefined ? null : normalize(v, deviceCount));
     return {
       datetime: Number(metric.openTime?.seconds ?? 0) * 1000,
-      avg: normalize(findAgg(AggregationType.AVERAGE), deviceCount),
-      max: normalize(findAgg(AggregationType.MAX), deviceCount),
-      min: normalize(findAgg(AggregationType.MIN), deviceCount),
+      avg: normalizeOrNull(findAgg(AggregationType.AVERAGE)),
+      max: normalizeOrNull(findAgg(AggregationType.MAX)),
+      min: normalizeOrNull(findAgg(AggregationType.MIN)),
     };
   });
 }
@@ -49,13 +50,14 @@ function transformMetrics(metrics: Metric[], normalize: (value: number, deviceCo
 function transformEfficiencyMetrics(metrics: Metric[]): ChartData[] {
   return metrics.map((metric) => {
     const findAgg = (type: AggregationType) =>
-      metric.aggregatedValues.find((agg) => agg.aggregationType === type)?.value ?? 0;
+      metric.aggregatedValues.find((agg) => agg.aggregationType === type)?.value;
 
+    const normalizeOrNull = (v: number | undefined) => (v === undefined ? null : normalizeEfficiencyToJTH(v));
     return {
       datetime: Number(metric.openTime?.seconds ?? 0) * 1000,
-      avg: normalizeEfficiencyToJTH(findAgg(AggregationType.AVERAGE)),
-      max: normalizeEfficiencyToJTH(findAgg(AggregationType.MAX)),
-      min: normalizeEfficiencyToJTH(findAgg(AggregationType.MIN)),
+      avg: normalizeOrNull(findAgg(AggregationType.AVERAGE)),
+      max: normalizeOrNull(findAgg(AggregationType.MAX)),
+      min: normalizeOrNull(findAgg(AggregationType.MIN)),
     };
   });
 }
@@ -63,13 +65,13 @@ function transformEfficiencyMetrics(metrics: Metric[]): ChartData[] {
 function transformTemperatureMetrics(metrics: Metric[]): ChartData[] {
   return metrics.map((metric) => {
     const findAgg = (type: AggregationType) =>
-      metric.aggregatedValues.find((agg) => agg.aggregationType === type)?.value ?? 0;
+      metric.aggregatedValues.find((agg) => agg.aggregationType === type)?.value;
 
     return {
       datetime: Number(metric.openTime?.seconds ?? 0) * 1000,
-      avg: findAgg(AggregationType.AVERAGE),
-      max: findAgg(AggregationType.MAX),
-      min: findAgg(AggregationType.MIN),
+      avg: findAgg(AggregationType.AVERAGE) ?? null,
+      max: findAgg(AggregationType.MAX) ?? null,
+      min: findAgg(AggregationType.MIN) ?? null,
     };
   });
 }
