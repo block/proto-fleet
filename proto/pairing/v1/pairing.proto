@@ -1,0 +1,149 @@
+syntax = "proto3";
+
+package pairing.v1;
+
+import "capabilities/v1/capabilities.proto";
+import "minercommand/v1/command.proto";
+
+// Device represents a discovered network device that can be paired with the system
+message Device {
+  // unique identifier of the device
+  string device_identifier = 1;
+
+  // IP address of the device (IPv4 or IPv6)
+  string ip_address = 2;
+
+  // Port number where the device's service is running
+  string port = 3;
+
+  // MAC address of the device (format: XX:XX:XX:XX:XX:XX)
+  string mac_address = 4;
+
+  // Serial number of the control board of the unit
+  string serial_number = 5;
+
+  // Model name/number of the device
+  string model = 6;
+
+  // Name of the device manufacturer
+  string manufacturer = 7;
+
+  // URL scheme of the device's web interface
+  string url_scheme = 8;
+
+  reserved 9;
+  reserved "type";
+
+  // Capabilities of the device
+  capabilities.v1.MinerCapabilities capabilities = 10;
+
+  // Firmware version (available after discovery/pairing)
+  string firmware_version = 11;
+
+  // Driver name identifies which plugin handles this device (e.g., "proto", "antminer").
+  // Used for plugin routing; distinct from type which describes hardware identity.
+  string driver_name = 12;
+}
+
+// Represents login credentials used for device pairing
+message Credentials {
+  string username = 1;
+  optional string password = 2;
+}
+
+// Configuration for mDNS-based device discovery
+message MDNSModeRequest {
+  // Service type to discover (e.g., "_fleet._tcp")
+  // Format: _servicename._protocol
+  string service_type = 1;
+
+  // Domain to search in (typically "local")
+  string domain = 2;
+
+  // How long to search for devices, in seconds
+  int32 timeout_seconds = 3;
+}
+
+// Configuration for Nmap-based network scanning discovery
+message NmapModeRequest {
+  // Target specification for scan
+  // Can be: single IP (192.168.1.1), hostname (device.local),
+  // IPv4 subnet (192.168.1.0/24), or IP range (192.168.1.1-10).
+  // IPv6 subnet scanning is not supported; use mDNS or IP list for IPv6 devices.
+  string target = 1;
+
+  // Optional ports to scan. When omitted, the server derives canonical scan ports
+  // from loaded plugin metadata. If provided, these ports fully override the
+  // server-derived defaults.
+  repeated string ports = 2;
+}
+
+// Configuration for IP range-based device discovery
+message IPRangeModeRequest {
+  // Starting IP address of the range to scan
+  string start_ip = 1;
+
+  // Ending IP address of the range to scan
+  string end_ip = 2;
+
+  // Optional ports to check on each IP address. When omitted, the server derives
+  // canonical scan ports from loaded plugin metadata. If provided, these ports
+  // fully override the server-derived defaults.
+  repeated string ports = 3;
+}
+
+// Configuration for discovering devices from a specific list of IP addresses
+message IPListModeRequest {
+  // List of IP addresses (IPv4, IPv6, or hostnames) to check
+  repeated string ip_addresses = 1;
+
+  // Optional ports to check on each IP address. When omitted, the server derives
+  // canonical scan ports from loaded plugin metadata. If provided, these ports
+  // fully override the server-derived defaults.
+  repeated string ports = 2;
+}
+
+// Request message for device discovery, supporting multiple discovery modes
+message DiscoverRequest {
+  // Only one discovery mode can be active at a time
+  oneof mode {
+    IPListModeRequest ip_list = 1;    // Discover from list of IPs
+    IPRangeModeRequest ip_range = 2;  // Discover in IP range
+    MDNSModeRequest mdns = 3;         // Discover using mDNS
+    NmapModeRequest nmap = 4;         // Discover using Nmap
+  }
+}
+
+// Response message containing discovered devices or errors
+message DiscoverResponse {
+  // List of devices discovered in this response
+  repeated Device devices = 1;
+
+  // Error message if discovery failed
+  // Empty if discovery was successful
+  string error = 2;
+}
+
+// Request to pair with discovered devices
+message PairRequest {
+  // Credentials for device authentication
+  Credentials credentials = 1;
+  // Device selector specifies which devices to pair
+  minercommand.v1.DeviceSelector device_selector = 2;
+}
+
+// Response to pairing request
+// Empty message as success/failure is indicated by gRPC status
+message PairResponse {
+  repeated string failed_device_ids = 1;
+}
+
+// Service for discovering and pairing with network devices
+service PairingService {
+  // Discovers devices on the network using the specified discovery mode
+  // Streams results as devices are found
+  rpc Discover(DiscoverRequest) returns (stream DiscoverResponse);
+
+  // Initiates pairing with one or more discovered devices
+  rpc Pair(PairRequest) returns (PairResponse);
+}

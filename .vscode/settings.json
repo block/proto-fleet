@@ -1,0 +1,38 @@
+{
+  // Editor
+  "files.exclude": {
+    "**/target/": true,
+    "**/vendor/": true,
+    "**/.hermit/": true,
+    "**/docs/site/": true,
+    "**/sstate-cache/": true,
+    "**/artifacts/": true,
+    "**/build/": true
+  },
+  "git.autoRepositoryDetection": false,
+  "git.detectSubmodules": false,
+  "search.exclude": {
+    "**/.git": true
+  },
+  "editor.formatOnSave": true,
+  "files.insertFinalNewline": true,
+
+  // Hermit
+  "terminal.integrated.env.osx": {
+    "ACTIVE_HERMIT": null,
+    "HERMIT_ENV": null,
+    "HERMIT_ENV_OPS": null,
+    "HERMIT_BIN": null
+  },
+
+  // Protobuf
+  "protoc": {
+    "path": "protoc",
+    "compile_flags": [
+      "--proto_path=proto"
+    ]
+  },
+  "clangd.arguments": [
+    "--proto-path=proto"
+  ]
+}

@@ -1,36 +1,117 @@
-# proto-fleet README
+<p align="center">
+  <a href="https://github.com/btc-mining/proto-fleet" target="_blank" rel="noopener noreferrer">
+    <img width="64" src="docs/logo.svg" alt="Proto logo">
+  </a>
+</p>
+<h1 align="center">
+  Proto Fleet
+</h1>
+<h3 align="center">
+  Mining management software. Evolved.
+</h3>
+<p align="center">
+  No fees. No training. Full control.<br/>
+  Open source fleet management for bitcoin miners.
+</p>
+<p align="center">
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="Proto Fleet is released under the Apache 2.0 license." />
+  </a>
+  <a href="https://github.com/btc-mining/proto-fleet/actions/workflows/protofleet-client-checks.yml">
+    <img src="https://github.com/btc-mining/proto-fleet/actions/workflows/protofleet-client-checks.yml/badge.svg" alt="Client checks status." />
+  </a>
+  <a href="https://github.com/btc-mining/proto-fleet/actions/workflows/protofleet-server-checks.yml">
+    <img src="https://github.com/btc-mining/proto-fleet/actions/workflows/protofleet-server-checks.yml/badge.svg" alt="Server checks status." />
+  </a>
+  <a href="https://github.com/btc-mining/proto-fleet/actions/workflows/protofleet-e2e-tests.yml">
+    <img src="https://github.com/btc-mining/proto-fleet/actions/workflows/protofleet-e2e-tests.yml/badge.svg" alt="E2E tests status." />
+  </a>
+</p>
 
-Congrats, project leads! You got a new project to grow!
+**Proto Fleet** is open-source fleet management software for bitcoin miners. It helps operators pair devices, monitor telemetry, and manage mining infrastructure without giving up control. Built with React and TypeScript clients, Go services, Connect RPC, Protocol Buffers, and TimescaleDB. For architecture details, see [docs/architecture.md](docs/architecture.md).
 
-This stub is meant to help you form a strong community around your work. It's yours to adapt, and may 
-diverge from this initial structure. Just keep the files seeded in this repo, and the rest is yours to evolve! 
+## Getting Started
 
-## Introduction
+### Prerequisites
 
-Orient users to the project here. This is a good place to start with an assumption
-that the user knows very little - so start with the Big Picture and show how this
-project fits into it.
+- Docker and Docker Compose
+- [Hermit](https://cashapp.github.io/hermit/), or a local installation of the required development tools
 
-Then maybe a dive into what this project does.
+### Initial Setup
 
-Diagrams and other visuals are helpful here. Perhaps code snippets showing usage.
+```bash
+source ./bin/activate-hermit
+just setup
+```
 
-Project leads should complete, alongside this `README`:
+To install Git hooks after your toolchain is ready:
 
-* [CODEOWNERS](./CODEOWNERS) - set project lead(s)
-* [CONTRIBUTING.md](./CONTRIBUTING.md) - Fill out how to: install prereqs, build, test, run, access CI, chat, discuss, file issues
-* [Bug-report.md](.github/ISSUE_TEMPLATE/bug-report.md) - Fill out `Assignees` add codeowners @names
-* [config.yml](.github/ISSUE_TEMPLATE/config.yml) - remove "(/add your discord channel..)" and replace the url with your Discord channel if applicable
+```bash
+just install-hooks
+```
 
-The other files in this template repo may be used as-is:
+For non-Hermit setup details, `lefthook` and Ruff hook prerequisites, and `go.work` guidance, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-* [GOVERNANCE.md](./GOVERNANCE.md)
-* [LICENSE](./LICENSE)
+### Start Development
 
-## Project Resources
+```bash
+just dev
+```
 
-| Resource                                   | Description                                                                    |
-| ------------------------------------------ | ------------------------------------------------------------------------------ |
-| [CODEOWNERS](./CODEOWNERS)                 | Outlines the project lead(s)                                                   |
-| [GOVERNANCE.md](./GOVERNANCE.md)           | Project governance                                                             |
-| [LICENSE](./LICENSE)                       | Apache License, Version 2.0                                                    |
+This starts the Go backend with Docker Compose and the Vite dev server for ProtoFleet at http://localhost:5173.
+
+### Protocol Buffer Code Generation
+
+After modifying definitions in `proto/`, regenerate generated clients and server code:
+
+```bash
+just gen
+```
+
+## Supported Hardware
+
+| Hardware | Firmware variants | Discovery port |
+| --- | --- | --- |
+| MicroBT WhatsMiner | Stock | 4028 |
+| Bitmain Antminer | Stock | 4028 |
+| Bitmain Antminer | VNish, Braiins OS, LuxOS, Marathon | 80 |
+| Canaan AvalonMiner | Stock | 4028 |
+| BitAxe | Stock (AxeOS) | 80 |
+| NerdAxe | Stock | 80 |
+| ePIC | Stock | 80 |
+| Auradine | Stock | 80 |
+| Proto | Stock | 443 |
+
+## Production Install
+
+### Latest Version
+
+```bash
+bash <(curl -fsSL https://fleet.proto.xyz/install.sh)
+```
+
+### Specific Version
+
+```bash
+bash <(curl -fsSL https://fleet.proto.xyz/install.sh) v0.1.0
+```
+
+### Uninstall
+
+```bash
+bash <(curl -fsSL https://fleet.proto.xyz/uninstall.sh)
+```
+
+If Proto Fleet was installed in a non-default location, pass it explicitly:
+
+```bash
+bash <(curl -fsSL https://fleet.proto.xyz/uninstall.sh) --deployment-path /path/to/install/root
+```
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development workflows and contribution guidelines. Project standards and community expectations are documented in [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), [GOVERNANCE.md](GOVERNANCE.md), and [SECURITY.md](SECURITY.md).
+
+## License
+
+This project is licensed under the Apache 2.0 License. See the [LICENSE](LICENSE) file for details.

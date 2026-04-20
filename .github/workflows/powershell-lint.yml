@@ -1,0 +1,85 @@
+name: PowerShell Lint (Windows Installer)
+
+on:
+  pull_request:
+    paths:
+      - "**/*.ps1"
+  push:
+    paths:
+      - "**/*.ps1"
+
+permissions:
+  contents: read
+
+jobs:
+  powershell-lint:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install PSScriptAnalyzer
+        shell: powershell
+        run: |
+          Set-PSRepository -Name "PSGallery" -InstallationPolicy Trusted
+          Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
+
+      - name: Parse PowerShell scripts
+        shell: powershell
+        run: |
+          $hadParseErrors = $false
+          Get-ChildItem -Path "." -Recurse -Filter "*.ps1" | ForEach-Object {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors -and $errors.Count -gt 0) {
+              $hadParseErrors = $true
+              Write-Host "Parse errors in $($_.FullName):"
+              $errors | ForEach-Object { Write-Host ("  - " + $_.ToString()) }
+            }
+          }
+          if ($hadParseErrors) {
+            throw "PowerShell parser errors detected."
+          }
+
+      - name: Guard unsafe WSL interpolation patterns
+        shell: powershell
+        run: |
+          $pattern = 'Invoke-WslUserCapture\s*".*\$\('
+          $matches = Select-String -Path "deployment-files/windows/fleet-uninstaller.ps1" -Pattern $pattern
+          if ($matches) {
+            Write-Host "Unsafe interpolation detected:"
+            $matches | ForEach-Object { Write-Host ("  " + $_.Filename + ":" + $_.LineNumber + " " + $_.Line.Trim()) }
+            throw "Unsafe PowerShell interpolation in WSL command literal."
+          }
+
+      - name: Guard automatic variable assignments
+        shell: powershell
+        run: |
+          $pattern = '^\s*\$(home|error|input|matches|pid|pwd|args)\s*='
+          $matches = Get-ChildItem -Path "deployment-files/windows" -Recurse -Filter "*.ps1" |
+            Select-String -Pattern $pattern -AllMatches -CaseSensitive:$false
+          if ($matches) {
+            Write-Host "Automatic variable assignment detected:"
+            $matches | ForEach-Object { Write-Host ("  " + $_.Path + ":" + $_.LineNumber + " " + $_.Line.Trim()) }
+            throw "Assignment to PowerShell automatic variable is not allowed."
+          }
+
+      - name: Lint PowerShell scripts
+        shell: powershell
+        run: |
+          Get-ChildItem -Path "." -Recurse -Filter "*.ps1" | Invoke-ScriptAnalyzer -Severity Error
+
+      - name: Enforce automatic variable analyzer rule
+        shell: powershell
+        run: |
+          $findings = Invoke-ScriptAnalyzer `
+            -Path "deployment-files/windows" `
+            -Settings "deployment-files/windows/PSScriptAnalyzerSettings.psd1" `
+            -Severity Warning,Error
+          if ($findings) {
+            $findings | ForEach-Object {
+              Write-Host ("[{0}] {1}:{2} {3}" -f $_.RuleName, $_.ScriptName, $_.Line, $_.Message)
+            }
+            throw "PSScriptAnalyzer automatic variable rule violations detected."
+          }

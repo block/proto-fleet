@@ -1,0 +1,12 @@
+{
+  "model": "M60SVK40",
+  "manufacturer": "Whatsminer",
+  "firmware": "stock",
+  "firmware_version": "20240624.18.REL",
+  "plugin": "asicrs",
+  "recorded_from": "172.16.2.58",
+  "recorded_at": "2026-03-11T10:00:00Z",
+  "ports": {
+    "rpc": 4028
+  }
+}

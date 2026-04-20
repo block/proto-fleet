@@ -1,0 +1,406 @@
+name: ProtoFleet E2E Tests
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/protofleet-e2e-tests.yml"
+      - ".github/actions/go-cache-setup/action.yml"
+      - ".github/actions/hermit-setup/action.yml"
+      - "bin/hermit.hcl"
+      - "client/.npmrc"
+      - "client/e2eTests/protoFleet/**"
+      - "client/package.json"
+      - "client/package-lock.json"
+      - "client/postcss.config.js"
+      - "client/public/**"
+      - "client/src/protoFleet/**"
+      - "client/src/shared/**"
+      - "client/vite.config.ts"
+      - "client/vitePlugins/**"
+      - "client/tsconfig.json"
+      - "client/tsconfig.node.json"
+      - "go.work"
+      - "go.work.sum"
+      - "hermit-packages/**"
+      - "plugin/antminer/**"
+      - "plugin/proto/**"
+      - "server/**"
+  schedule:
+    # Run daily at 6 AM UTC on main branch
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+jobs:
+  detect-specs:
+    runs-on: ubuntu-latest
+    outputs:
+      setup_specs: ${{ steps.detect.outputs.setup_specs }}
+      specs: ${{ steps.detect.outputs.specs }}
+      projects: ${{ steps.detect.outputs.projects }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Detect spec files and projects
+        id: detect
+        run: |
+          cd client/e2eTests/protoFleet/spec
+
+          SETUP_SPEC_FILES=$( (find . -name "*.spec.ts" | sed 's|^\./||' | sort | grep -E '^[0-9]{2}-.*\.spec\.ts$' || true) | jq -R . | jq -cs .)
+          SPEC_FILES=$( (find . -name "*.spec.ts" | sed 's|^\./||' | sort | grep -Ev '^[0-9]{2}-.*\.spec\.ts$' || true) | jq -R . | jq -cs .)
+          PROJECTS='["desktop", "mobile"]'
+
+          echo "setup_specs=${SETUP_SPEC_FILES}" >> $GITHUB_OUTPUT
+          echo "specs=${SPEC_FILES}" >> $GITHUB_OUTPUT
+          echo "projects=${PROJECTS}" >> $GITHUB_OUTPUT
+
+          echo "Detected setup specs: ${SETUP_SPEC_FILES}"
+          echo "Detected specs: ${SPEC_FILES}"
+          echo "Projects to run: ${PROJECTS}"
+
+  e2e-tests:
+    needs: detect-specs
+    timeout-minutes: 40
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        spec: ${{ fromJson(needs.detect-specs.outputs.specs) }}
+        project: ${{ fromJson(needs.detect-specs.outputs.projects) }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set artifact name
+        id: artifact
+        run: |
+          # Sanitize spec name for use in artifact names
+          SPEC_NAME=$(echo "${{ matrix.spec }}" | sed 's/\.spec\.ts$//' | sed 's/[^a-zA-Z0-9]/-/g')
+          echo "spec_name=${SPEC_NAME}" >> $GITHUB_OUTPUT
+
+      - name: Setup Hermit
+        uses: ./.github/actions/hermit-setup
+        with:
+          preinstall: "false"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+      - name: Cache Docker layers
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-e2e-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-e2e-
+            ${{ runner.os }}-buildx-
+
+      - name: Configure Go cache
+        uses: ./.github/actions/go-cache-setup
+
+      - name: Cache Node modules
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        with:
+          path: |
+            client/node_modules
+            ~/.cache/ms-playwright
+          key: ${{ runner.os }}-node-${{ hashFiles('client/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+      - name: Install client dependencies
+        working-directory: client
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: client/e2eTests/protoFleet
+        run: npx playwright install --with-deps chromium
+
+      - name: Build ProtoFleet
+        working-directory: client
+        run: |
+          # Skip lint in CI to avoid import order issues from merged main branch
+          npm run build:protoFleet
+
+      - name: Build plugins for CI (Linux AMD64)
+        run: |
+          # CI runners use linux/amd64, not arm64
+          # CGO_ENABLED=0 creates static binaries that work in Alpine (musl libc)
+          echo "Syncing Go workspace..."
+          go work sync
+          echo "Building static plugins for Linux AMD64..."
+          mkdir -p server/plugins
+          (cd plugin/proto && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ../../server/plugins/proto-plugin .)
+          (cd plugin/antminer && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ../../server/plugins/antminer-plugin .)
+          chmod +x server/plugins/proto-plugin server/plugins/antminer-plugin
+          echo "Plugins built successfully"
+
+      - name: Start services (TimeScaleDB + Backend + Simulators)
+        working-directory: server
+        run: docker compose up -d
+
+      - name: Start frontend
+        working-directory: client
+        env:
+          VITE_VERSION: ${{ github.sha }}
+          VITE_BUILD_DATE: ${{ github.event.repository.updated_at }}
+          VITE_COMMIT: ${{ github.sha }}
+        run: |
+          # Start frontend in background (already built in earlier step)
+          npx vite preview --mode protoFleet --port 5173 --host &
+          VITE_PID=$!
+          echo "Vite PID: $VITE_PID"
+
+          # Wait for frontend to be ready
+          echo "Waiting for frontend..."
+          timeout 60 bash -c 'until curl -f http://localhost:5173 2>/dev/null; do sleep 2; done'
+          echo "Frontend is ready!"
+
+      - name: Run Playwright tests (${{ matrix.project }} - ${{ matrix.spec }})
+        working-directory: client/e2eTests/protoFleet
+        env:
+          CI: true
+          SETUP_SPECS_JSON: ${{ needs.detect-specs.outputs.setup_specs }}
+        run: |
+          run_spec() {
+            local spec_path="$1"
+            local spec_slug
+            spec_slug=$(echo "${spec_path}" | sed 's/\.spec\.ts$//' | sed 's/[^a-zA-Z0-9]/-/g')
+
+            echo "Running spec: ${spec_path} on project: ${{ matrix.project }}"
+            PLAYWRIGHT_BLOB_OUTPUT_FILE="blob-report/${{ matrix.project }}-${{ steps.artifact.outputs.spec_name }}-${spec_slug}.zip" \
+            PWTEST_BLOB_DO_NOT_REMOVE=1 \
+            npx playwright test --project=${{ matrix.project }} --reporter=blob "spec/${spec_path}"
+          }
+
+          rm -rf blob-report playwright-report test-results
+          mkdir -p blob-report
+
+          mapfile -t setup_specs < <(printf '%s' "${SETUP_SPECS_JSON}" | jq -r '.[]')
+          if [ "${#setup_specs[@]}" -gt 0 ]; then
+            echo "Running setup specs before target spec:"
+            printf ' - %s\n' "${setup_specs[@]}"
+            for spec in "${setup_specs[@]}"; do
+              run_spec "${spec}"
+            done
+          fi
+
+          run_spec "${{ matrix.spec }}"
+
+          echo "Blob reports created:"
+          find blob-report -maxdepth 2 -type f -print | sort || true
+
+      - name: Upload blob report
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        if: ${{ always() && !cancelled() }}
+        with:
+          name: blob-report-${{ matrix.project }}-${{ steps.artifact.outputs.spec_name }}
+          path: client/e2eTests/protoFleet/blob-report/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload test screenshots
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        if: ${{ failure() && !cancelled() }}
+        with:
+          name: screenshots-${{ matrix.project }}-${{ steps.artifact.outputs.spec_name }}
+          path: client/e2eTests/protoFleet/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Dump backend logs on failure
+        if: failure()
+        working-directory: server
+        run: |
+          echo "=== Fleet API Logs ==="
+          docker compose logs fleet-api
+          echo "=== TimescaleDB Logs ==="
+          docker compose logs timescaledb
+
+      - name: Cleanup
+        if: always()
+        working-directory: server
+        run: docker compose down -v
+
+  merge-reports:
+    name: Merge Test Reports
+    runs-on: ubuntu-latest
+    needs: [e2e-tests]
+    if: ${{ always() && !cancelled() }}
+    permissions:
+      contents: read
+    outputs:
+      desktop-report-path: ${{ steps.merge.outputs.desktop-report-path }}
+      mobile-report-path: ${{ steps.merge.outputs.mobile-report-path }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Hermit
+        uses: ./.github/actions/hermit-setup
+        with:
+          preinstall: "false"
+
+      - name: Cache Node modules
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        with:
+          path: |
+            client/node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('client/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+      - name: Install client dependencies
+        working-directory: client
+        run: npm ci
+
+      - name: Download all blob reports
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: blob-report-*
+          path: /tmp/blob-reports
+          merge-multiple: false
+
+      - name: Merge blob reports into HTML reports
+        id: merge
+        working-directory: client/e2eTests/protoFleet
+        run: |
+          echo "Merging blob reports..."
+          mkdir -p merged-reports
+
+          # Organize blob reports by project
+          mkdir -p /tmp/desktop-blobs /tmp/mobile-blobs
+
+          # Copy all desktop blob reports
+          find /tmp/blob-reports -name "blob-report-desktop-*" -type d | while read dir; do
+            if [ "$(find "$dir" -name "*.zip" | wc -l)" -gt 0 ]; then
+              cp -r "$dir"/* /tmp/desktop-blobs/ 2>/dev/null || true
+            fi
+          done
+
+          # Copy all mobile blob reports  
+          find /tmp/blob-reports -name "blob-report-mobile-*" -type d | while read dir; do
+            if [ "$(find "$dir" -name "*.zip" | wc -l)" -gt 0 ]; then
+              cp -r "$dir"/* /tmp/mobile-blobs/ 2>/dev/null || true
+            fi
+          done
+
+          # Merge desktop reports
+          if [ "$(find /tmp/desktop-blobs -name "*.zip" 2>/dev/null | wc -l)" -gt 0 ]; then
+            echo "Merging desktop reports..."
+            mkdir -p merged-reports/desktop/test-results
+            PLAYWRIGHT_HTML_OUTPUT_DIR=merged-reports/desktop/playwright-report \
+            PLAYWRIGHT_JUNIT_OUTPUT_FILE=merged-reports/desktop/test-results/results.xml \
+            npx playwright merge-reports --reporter=html,junit /tmp/desktop-blobs
+            echo "desktop-report-path=client/e2eTests/protoFleet/merged-reports/desktop" >> $GITHUB_OUTPUT
+          else
+            echo "No desktop blob reports found"
+          fi
+
+          # Merge mobile reports  
+          if [ "$(find /tmp/mobile-blobs -name "*.zip" 2>/dev/null | wc -l)" -gt 0 ]; then
+            echo "Merging mobile reports..."
+            mkdir -p merged-reports/mobile/test-results
+            PLAYWRIGHT_HTML_OUTPUT_DIR=merged-reports/mobile/playwright-report \
+            PLAYWRIGHT_JUNIT_OUTPUT_FILE=merged-reports/mobile/test-results/results.xml \
+            npx playwright merge-reports --reporter=html,junit /tmp/mobile-blobs
+            echo "mobile-report-path=client/e2eTests/protoFleet/merged-reports/mobile" >> $GITHUB_OUTPUT
+          else
+            echo "No mobile blob reports found"
+          fi
+
+          echo "Report merging completed"
+          ls -la merged-reports/ || true
+
+      - name: Upload merged Playwright reports
+        id: merged-report-artifact
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report-protofleet-merged
+          path: client/e2eTests/protoFleet/merged-reports/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Install Testmo CLI
+        if: ${{ !cancelled() && github.event_name == 'schedule' }}
+        run: |
+          npm install -g @testmo/testmo-cli@1.0.0
+
+      - name: Submit test results to Testmo (Desktop)
+        if: ${{ !cancelled() && github.event_name == 'schedule' && steps.merge.outputs.desktop-report-path }}
+        working-directory: client/e2eTests/protoFleet/merged-reports/desktop
+        env:
+          TESTMO_TOKEN: ${{ secrets.TESTMO_TOKEN }}
+        run: |
+          # Add XML declaration if missing (Playwright sometimes omits it on CI)
+          if [ -f "test-results/results.xml" ]; then
+            if ! head -n 1 test-results/results.xml | grep -q '<?xml'; then
+              echo "XML declaration missing, adding it..."
+              echo '<?xml version="1.0" encoding="UTF-8"?>' | cat - test-results/results.xml > test-results/results-fixed.xml
+              mv test-results/results-fixed.xml test-results/results.xml
+              echo "First 2 lines after fix:"
+              head -n 2 test-results/results.xml
+            else
+              echo "XML declaration already present"
+            fi
+
+            testmo automation:run:submit \
+              --instance https://proto.testmo.net \
+              --project-id 2 \
+              --name "ProtoFleet E2E Tests Desktop - $(date +'%Y-%m-%d %H:%M')" \
+              --source "protofleet-e2e-tests-desktop" \
+              --results test-results/*.xml
+          else
+            echo "No desktop test results found"
+          fi
+
+      - name: Submit test results to Testmo (Mobile)
+        if: ${{ !cancelled() && github.event_name == 'schedule' && steps.merge.outputs.mobile-report-path }}
+        working-directory: client/e2eTests/protoFleet/merged-reports/mobile
+        env:
+          TESTMO_TOKEN: ${{ secrets.TESTMO_TOKEN }}
+        run: |
+          # Add XML declaration if missing (Playwright sometimes omits it on CI)
+          if [ -f "test-results/results.xml" ]; then
+            if ! head -n 1 test-results/results.xml | grep -q '<?xml'; then
+              echo "XML declaration missing, adding it..."
+              echo '<?xml version="1.0" encoding="UTF-8"?>' | cat - test-results/results.xml > test-results/results-fixed.xml
+              mv test-results/results-fixed.xml test-results/results.xml
+              echo "First 2 lines after fix:"
+              head -n 2 test-results/results.xml
+            else
+              echo "XML declaration already present"
+            fi
+
+            testmo automation:run:submit \
+              --instance https://proto.testmo.net \
+              --project-id 2 \
+              --name "ProtoFleet E2E Tests Mobile - $(date +'%Y-%m-%d %H:%M')" \
+              --source "protofleet-e2e-tests-mobile" \
+              --results test-results/*.xml
+          else
+            echo "No mobile test results found"
+          fi
+
+      - name: Note report availability
+        env:
+          MERGED_REPORT_ARTIFACT_URL: ${{ steps.merged-report-artifact.outputs.artifact-url }}
+        run: |
+          echo "## 🎭 ProtoFleet E2E Test Reports" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [[ -n "${MERGED_REPORT_ARTIFACT_URL}" ]]; then
+            echo "📦 **[Download merged Playwright report artifact](${MERGED_REPORT_ARTIFACT_URL})**" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "📦 **Merged test reports:** Available in the artifacts section as \`playwright-report-protofleet-merged\`" >> "$GITHUB_STEP_SUMMARY"
+          fi

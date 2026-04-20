@@ -1,0 +1,16 @@
+name: Configure Go Cache
+description: Setup Go build and module caching for workspace
+
+runs:
+  using: "composite"
+  steps:
+    - name: Configure Go cache
+      uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-${{ runner.arch }}-go-workspace-${{ hashFiles('**/go.sum', 'go.work') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ runner.arch }}-go-workspace-
+          ${{ runner.os }}-${{ runner.arch }}-go-

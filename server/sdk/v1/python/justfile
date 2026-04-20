@@ -1,0 +1,63 @@
+set dotenv-load := false
+
+sdk_root := justfile_directory()
+repo_root := sdk_root / "../../../.."
+
+# List available recipes
+default:
+  just --list
+
+# Run all tests with coverage
+test:
+  .venv/bin/pytest tests/ -v --cov=proto_fleet_sdk --cov-report=term-missing
+
+# Run type checking
+typecheck:
+  .venv/bin/mypy proto_fleet_sdk/ --strict
+
+# Run linting checks
+lint: typecheck
+  .venv/bin/ruff check proto_fleet_sdk/
+
+# Run code formatter
+format:
+  .venv/bin/ruff format proto_fleet_sdk/
+
+# Run all quality checks (tests + linting)
+check: test lint
+
+# Install SDK with dev dependencies
+install:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  source "{{repo_root}}/scripts/pip-config.sh"
+  .venv/bin/pip install -e ".[dev]"
+
+# Install SDK in editable mode (without dev deps)
+install-prod:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  source "{{repo_root}}/scripts/pip-config.sh"
+  .venv/bin/pip install -e .
+
+# Clean build artifacts and caches
+clean:
+  rm -rf .pytest_cache .mypy_cache .ruff_cache
+  rm -rf proto_fleet_sdk.egg-info
+  rm -rf dist build
+  find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+
+# Set up development environment (create venv and install deps)
+setup:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  if [ ! -d ".venv" ]; then
+    python3 -m venv .venv
+    echo "✅ Created virtual environment at .venv"
+  fi
+  source "{{repo_root}}/scripts/pip-config.sh"
+  .venv/bin/pip install -e ".[dev]"
+  echo "✅ Installed dependencies"
+  echo ""
+  echo "To activate the environment, run:"
+  echo "  source .venv/bin/activate"

@@ -1,0 +1,35 @@
+{
+  "STATUS": [
+    {"STATUS": "S", "When": 1741500000, "Code": 69, "Msg": "Device Details", "Description": "btminer"}
+  ],
+  "DEVDETAILS": [
+    {
+      "DEVDETAILS": 0,
+      "Name": "SM",
+      "ID": 0,
+      "Driver": "btminer",
+      "Kernel": "",
+      "Model": "M60SVK40",
+      "Device Path": ""
+    },
+    {
+      "DEVDETAILS": 1,
+      "Name": "SM",
+      "ID": 1,
+      "Driver": "btminer",
+      "Kernel": "",
+      "Model": "M60SVK40",
+      "Device Path": ""
+    },
+    {
+      "DEVDETAILS": 2,
+      "Name": "SM",
+      "ID": 2,
+      "Driver": "btminer",
+      "Kernel": "",
+      "Model": "M60SVK40",
+      "Device Path": ""
+    }
+  ],
+  "id": 1
+}

@@ -1,0 +1,37 @@
+.hermit/
+.idea
+.DS_Store
+node_modules/
+server/influx_config/.env
+**/.goose/
+.claude/
+.mcp.json
+lefthook-local.yml
+
+**private.env**
+.env*
+
+# Binary files
+server/cmd/fleetd/fleetd
+server/fake-antminer/fake-antminer
+server/fake-proto-rig/fake-proto-rig
+server/miner-debug-cli
+server/devtools/seedtelemetry/seedtelemetry
+
+# Plugin binaries (built artifacts should not be committed)
+plugin/proto/proto-plugin
+plugin/antminer/antminer-plugin
+plugin/virtual/virtual
+plugin/asicrs/target/
+
+server/plugins/*
+
+# Generated nginx config (copied from nginx.http.conf or nginx.https.conf by run-fleet.sh)
+deployment-files/client/nginx.conf
+
+# proto-python-gen package artifacts
+packages/proto-python-gen/.venv
+packages/proto-python-gen/tests/output*/
+server/sdk/v1/python/.venv
+server/plugins-active/
+server/docker-compose.plugins.yaml

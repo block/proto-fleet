@@ -1,0 +1,41 @@
+name: Proto Checks
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/protofleet-proto-checks.yml"
+      - ".github/actions/hermit-setup/action.yml"
+      - "buf.lock"
+      - "buf.yaml"
+      - "bin/hermit.hcl"
+      - "hermit-packages/**"
+      - "proto/**"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/protofleet-proto-checks.yml"
+      - ".github/actions/hermit-setup/action.yml"
+      - "buf.lock"
+      - "buf.yaml"
+      - "bin/hermit.hcl"
+      - "hermit-packages/**"
+      - "proto/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  proto-lint:
+    name: Protobuf Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Hermit
+        uses: ./.github/actions/hermit-setup
+
+      - name: Lint protobuf definitions
+        run: buf lint

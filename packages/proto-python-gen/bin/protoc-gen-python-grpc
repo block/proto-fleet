@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+#
+# protoc-gen-python-grpc — Protoc plugin wrapper for Python gRPC stub generation.
+#
+# This script locates the package's Python venv and delegates to the plugin module.
+# It follows the protoc plugin protocol: reads CodeGeneratorRequest from stdin,
+# writes CodeGeneratorResponse to stdout.
+#
+# Code location (PKG_ROOT): always co-located with this script (hermit cache or repo).
+# Venv location (VENV_DIR): resolved via HERMIT_ENV back to the repo, since the venv
+# cannot live in hermit's package cache (symlink permission issues).
+#
+set -euo pipefail
+
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+  echo "protoc-gen-python-grpc — Protoc plugin for Python gRPC stub generation."
+  echo ""
+  echo "Usage: This plugin is invoked by protoc/buf, not directly."
+  echo "Run 'just setup' in the package directory to install dependencies."
+  exit 0
+fi
+
+# Plugin code lives next to this script (in hermit cache or repo checkout).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PKG_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+# Venv with grpcio-tools lives in the repo, not in hermit's package cache.
+if [[ -n "${PROTO_PYTHON_GEN_VENV:-}" ]]; then
+  VENV_DIR="${PROTO_PYTHON_GEN_VENV}"
+elif [[ -n "${HERMIT_ENV:-}" ]]; then
+  VENV_DIR="${HERMIT_ENV}/packages/proto-python-gen/.venv"
+else
+  VENV_DIR="${PKG_ROOT}/.venv"
+fi
+
+PYTHON="${VENV_DIR}/bin/python"
+
+if [[ ! -x "${PYTHON}" ]]; then
+  echo "Error: Python venv not found at ${VENV_DIR}" >&2
+  if [[ -n "${HERMIT_ENV:-}" ]]; then
+    echo "Run: cd ${HERMIT_ENV}/packages/proto-python-gen && just setup" >&2
+  else
+    echo "Run 'just setup' in the proto-python-gen package directory." >&2
+  fi
+  echo "Or set PROTO_PYTHON_GEN_VENV=/path/to/.venv" >&2
+  exit 1
+fi
+
+exec "${PYTHON}" "${PKG_ROOT}/protoc_gen_python_grpc.py" "$@"

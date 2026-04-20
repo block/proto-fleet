@@ -1,0 +1,10 @@
+{
+  "STATUS": "S",
+  "When": 1741500000,
+  "Code": 70,
+  "Msg": {
+    "CGMiner": "Running",
+    "When": 1741500000
+  },
+  "Description": "btminer"
+}

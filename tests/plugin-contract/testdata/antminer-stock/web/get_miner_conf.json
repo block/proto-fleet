@@ -1,0 +1,33 @@
+{
+  "pools": [
+    {
+      "url": "stratum+tcp://pool.example.com:3333",
+      "user": "worker.001",
+      "pass": ""
+    },
+    {
+      "url": "stratum+tcp://pool2.example.com:3333",
+      "user": "worker.001",
+      "pass": ""
+    },
+    {
+      "url": "stratum+tcp://pool3.example.com:3333",
+      "user": "worker.001",
+      "pass": ""
+    }
+  ],
+  "api-listen": true,
+  "api-network": false,
+  "api-groups": "A:stats:pools:devs:summary:version",
+  "api-allow": "A:0/0,W:*",
+  "bitmain-fan-ctrl": false,
+  "bitmain-fan-pwm": "100",
+  "bitmain-use-vil": true,
+  "bitmain-freq": "675",
+  "bitmain-voltage": "1400",
+  "bitmain-ccdelay": "0",
+  "bitmain-pwth": "0",
+  "bitmain-work-mode": "0",
+  "bitmain-hashrate-percent": "0",
+  "bitmain-freq-level": ""
+}

@@ -1,0 +1,132 @@
+version: "2"
+run:
+  go: "1.25"
+  modules-download-mode: readonly
+  tests: true
+  allow-parallel-runners: true
+  allow-serial-runners: true
+linters:
+  default: all
+  disable:
+    - contextcheck
+    - cyclop
+    - depguard
+    - dogsled
+    - dupl
+    - embeddedstructfieldcheck
+    - err113
+    - errname
+    - errorlint
+    - exhaustruct
+    - forbidigo
+    - funcorder
+    - funlen
+    - gochecknoglobals
+    - gochecknoinits
+    - gocognit
+    - gocyclo
+    - godot
+    - godox
+    - gomoddirectives
+    - ireturn
+    - lll
+    - maintidx
+    - mnd
+    - modernize
+    - musttag
+    - nestif
+    - nilnil
+    - noinlineerr
+    - nlreturn
+    - noctx
+    - nolintlint
+    - nonamedreturns
+    - nosprintfhostport
+    - paralleltest
+    - perfsprint
+    - prealloc
+    - protogetter
+    - revive
+    - staticcheck
+    - tagalign
+    - tagliatelle
+    - testifylint
+    - testpackage
+    - thelper
+    - unused
+    - varnamelen
+    - whitespace
+    - wsl
+    - wsl_v5
+  settings:
+    dupl:
+      threshold: 100
+    forbidigo:
+      forbid:
+        - pattern: fmt\.Errorf
+    goconst:
+      min-len: 8
+      min-occurrences: 3
+    gocritic:
+      disabled-checks:
+        - ifElseChain
+    gocyclo:
+      min-complexity: 20
+    wrapcheck:
+      ignore-package-globs:
+        - github.com/block/proto-fleet/*
+  exclusions:
+    generated: lax
+    rules:
+      - linters:
+          - goconst
+          - scopelint
+        path: _test\.go
+      - path: apps/hamilton/(.*)/fake_(.*)\.go
+        text: parameter '.+' seems to be unused, consider removing or renaming it as _
+      - path: (.+)\.go$
+        text: '^(G104|G204|G307|G306|G404):'
+      - path: (.+)\.go$
+        text: Error return value of .(.*\.Help|.*\.MarkFlagRequired|(os\.)?std(out|err)\..*|.*Close|.*Flush|os\.Remove(All)?|.*Unlock|.*Print(f|ln|)|os\.(Un)?Setenv|.*\.Rollback). is not checked
+      - path: (.+)\.go$
+        text: 'internal error: no range for'
+      - path: (.+)\.go$
+        text: exported method `.*\.(MarshalJSON|UnmarshalJSON|URN|Payload|GoString|Close|Provides|Requires|ExcludeFromHash|MarshalText|UnmarshalText|Description|Check|Poll|Severity)` should have comment or be unexported
+      - path: (.+)\.go$
+        text: composite literal uses unkeyed fields
+      - path: (.+)\.go$
+        text: declaration of "err" shadows declaration
+      - path: (.+)\.go$
+        text: by other packages, and that stutters
+      - path: (.+)\.go$
+        text: Potential file inclusion via variable
+      - path: (.+)\.go$
+        text: at least one file in a package should have a package comment
+      - path: (.+)\.go$
+        text: 'package-comments: should have a package comment'
+      - path: (.+)\.go$
+        text: Use errors.As to check for specific errors
+      - path: (.+)\.go$
+        text: should have comment or be unexported
+      - path: (.+)\.go$
+        text: '`ctx` is unused'
+      - path: (.+)\.go$
+        text: parameter 'ctx' seems to be unused
+    paths:
+      - generated
+      - third_party$
+      - builtin$
+      - examples$
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+formatters:
+  enable:
+    - gofmt
+  exclusions:
+    generated: lax
+    paths:
+      - generated
+      - third_party$
+      - builtin$
+      - examples$

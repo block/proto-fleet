@@ -1,0 +1,63 @@
+name: Server Checks
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/protofleet-server-checks.yml"
+      - ".github/actions/go-cache-setup/action.yml"
+      - ".github/actions/hermit-setup/action.yml"
+      - "bin/hermit.hcl"
+      - "hermit-packages/**"
+      - "go.work"
+      - "go.work.sum"
+      - "proto/**"
+      - "server/**"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/protofleet-server-checks.yml"
+      - ".github/actions/go-cache-setup/action.yml"
+      - ".github/actions/hermit-setup/action.yml"
+      - "bin/hermit.hcl"
+      - "hermit-packages/**"
+      - "go.work"
+      - "go.work.sum"
+      - "proto/**"
+      - "server/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  server:
+    name: Server
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Hermit
+        uses: ./.github/actions/hermit-setup
+
+      - name: Configure Go cache
+        uses: ./.github/actions/go-cache-setup
+
+      - name: Check formatting
+        run: golangci-lint fmt --diff -c .golangci.yaml
+
+      - name: Lint
+        run: just lint
+
+      - name: Build
+        run: just build
+
+      - name: Start database
+        run: just db-up
+
+      - name: Test
+        run: just test

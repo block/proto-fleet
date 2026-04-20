@@ -1,0 +1,22 @@
+[package]
+name = "proto-fleet-plugin"
+version = "0.1.0"
+edition = "2021"
+description = "Proto Fleet Plugin SDK for Rust — go-plugin protocol, gRPC types, and error handling"
+
+[dependencies]
+tonic = "0.13"
+tokio = { version = "1", features = ["net"] }
+tokio-stream = { version = "0.1", features = ["net"] }
+prost = "0.13"
+prost-types = "0.13"
+thiserror = "2"
+http = "1"
+reqwest = { version = "0.12", optional = true }
+
+[features]
+default = []
+http-client = ["dep:reqwest"]
+
+[build-dependencies]
+tonic-build = "0.13"

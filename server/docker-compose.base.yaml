@@ -1,0 +1,90 @@
+services:
+  fleet-api:
+    environment:
+      AUTH_CLIENT_EXPIRATION_PERIOD: "24h"
+      AUTH_MINER_EXPIRATION_PERIOD: "24h"
+      DB_NAME: "fleet"
+      DB_ADDRESS: "timescaledb:5432"
+      DB_USERNAME: "fleet"
+      DB_PASSWORD: "fleet"
+      DB_SSL_MODE: "disable"
+      HTTP_LISTEN_ADDRESS: "0.0.0.0:4000"
+      LOG_LEVEL: "INFO"
+      FLEET_COMMAND_MAX_WORKERS: "500"
+      FLEET_COMMAND_MASTER_POLLING_INTERVAL: "1s"
+      FLEET_COMMAND_WORKER_EXECUTION_TIMEOUT: "30s"
+      FLEET_COMMAND_BATCH_STATUS_UPDATE_POLLING_INTERVAL: "1s"
+      FLEET_QUEUE_DEQUE_LIMIT: "500"
+      FLEET_QUEUE_MAX_FAILURE_RETRIES: "5"
+      # HTTP_PPROF_ADDR: "0.0.0.0:6060"  # Uncomment to enable pprof debug server; port mapping below restricts access to host loopback only
+    # ports:
+    #   - "127.0.0.1:6060:6060"  # pprof debug server (requires HTTP_PPROF_ADDR=0.0.0.0:6060)
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+
+  # TimescaleDB (PostgreSQL with time-series extension)
+  # Custom lightweight image (~123 MB) replacing timescale/timescaledb-ha (~1.67 GB)
+  # Includes PostgreSQL 18, TimescaleDB, and timescaledb_toolkit — without HA bloat
+  timescaledb:
+    restart: always
+    environment:
+      POSTGRES_DB: "fleet"
+      POSTGRES_USER: "fleet"
+      POSTGRES_PASSWORD: "fleet"
+    ports:
+      - "5432:5432"
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=300"
+      - "-c"
+      - "shared_buffers=256MB"
+      - "-c"
+      - "effective_cache_size=768MB"
+      - "-c"
+      - "maintenance_work_mem=64MB"
+      - "-c"
+      - "checkpoint_completion_target=0.9"
+      - "-c"
+      - "wal_buffers=16MB"
+      - "-c"
+      - "default_statistics_target=100"
+      - "-c"
+      - "random_page_cost=1.1"
+      - "-c"
+      - "effective_io_concurrency=200"
+      - "-c"
+      - "work_mem=32MB"
+      - "-c"
+      - "min_wal_size=1GB"
+      - "-c"
+      - "max_wal_size=4GB"
+      - "-c"
+      - "max_worker_processes=8"
+      - "-c"
+      - "max_parallel_workers_per_gather=4"
+      - "-c"
+      - "max_parallel_workers=8"
+      - "-c"
+      - "max_parallel_maintenance_workers=4"
+      - "-c"
+      - "timescaledb.max_background_workers=8"
+    volumes:
+      - timescaledb-data:/home/postgres/pgdata/data
+    healthcheck:
+      test:
+        ["CMD-SHELL", "psql -U fleet -d fleet -c 'SELECT 1' > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    networks:
+      - fleet-network
+
+volumes:
+  timescaledb-data:
+
+networks:
+  fleet-network:
+    driver: bridge

@@ -1,0 +1,158 @@
+syntax = "proto3";
+
+package activity.v1;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+import "buf/validate/validate.proto";
+
+// ActivityService provides APIs for querying and exporting activity events
+// and retrieving available filter options
+service ActivityService {
+    // Returns a paginated list of activity entries matching the supplied filter
+    rpc ListActivities(ListActivitiesRequest) returns (ListActivitiesResponse);
+
+    // Streams activity entries as serialized export data (CSV)
+    rpc ExportActivities(ExportActivitiesRequest) returns (stream ExportActivitiesResponse);
+
+    // Returns available values for activity filters (event types, scope types, users)
+    rpc ListActivityFilterOptions(ListActivityFilterOptionsRequest) returns (ListActivityFilterOptionsResponse);
+}
+
+// A single recorded activity event
+message ActivityEntry {
+    // Unique identifier for this activity event
+    string event_id = 1;
+
+    // High-level category (e.g. "auth", "device_command", "fleet_management")
+    string event_category = 2;
+
+    // Specific action type (e.g. "login", "reboot", "delete_miners")
+    string event_type = 3;
+
+    // Human-readable description of the activity
+    string description = 4;
+
+    // Type of scope affected (e.g. "group", "rack"), if applicable
+    optional string scope_type = 5;
+
+    // Label of the scope (e.g. group/rack name), if applicable
+    optional string scope_label = 6;
+
+    // Number of devices affected by the activity
+    int32 scope_count = 7;
+
+    // Type of actor that performed the activity ("user", "system", or "scheduler")
+    string actor_type = 8;
+
+    // External user ID of the actor, if performed by a user
+    optional string user_id = 9;
+
+    // Username of the actor at the time of the activity, if performed by a user
+    optional string username = 10;
+
+    // Timestamp when the activity was recorded
+    google.protobuf.Timestamp created_at = 11;
+
+    // Additional structured metadata associated with the activity
+    optional google.protobuf.Struct metadata = 12;
+
+    // Outcome of the activity ("success" or "failure")
+    string result = 13;
+
+    // Error message for failed activities, if any
+    optional string error_message = 14;
+}
+
+// Criteria for filtering activity entries
+message ActivityFilter {
+    // Filter by event categories (empty = all categories)
+    repeated string event_categories = 1;
+
+    // Filter by specific event types (empty = all types)
+    repeated string event_types = 2;
+
+    // Filter by user IDs (empty = all users)
+    repeated string user_ids = 3;
+
+    // Include activities at or after this time
+    google.protobuf.Timestamp start_time = 4;
+
+    // Include activities at or before this time
+    google.protobuf.Timestamp end_time = 5;
+
+    // Case-insensitive text search on activity descriptions
+    string search_text = 6;
+
+    // Filter by scope types (empty = all scope types)
+    repeated string scope_types = 7;
+}
+
+// Request for listing activities with pagination
+message ListActivitiesRequest {
+    // Filter criteria for selecting activities
+    ActivityFilter filter = 1;
+
+    // Maximum number of activities to return per page
+    int32 page_size = 2 [(buf.validate.field).int32 = {gte: 1, lte: 100}];
+
+    // Opaque token for fetching the next page of results
+    string page_token = 3;
+}
+
+// Response containing a page of activities
+message ListActivitiesResponse {
+    // Activity entries in the current page
+    repeated ActivityEntry activities = 1;
+
+    // Token for retrieving the next page, empty if no more results
+    string next_page_token = 2;
+
+    // Total number of activities matching the filter (returned on first page only)
+    int32 total_count = 3;
+}
+
+// Request for exporting activities
+message ExportActivitiesRequest {
+    // Filter criteria for selecting activities to export
+    ActivityFilter filter = 1;
+}
+
+// Streamed chunk of exported activity data
+message ExportActivitiesResponse {
+    // Raw bytes for a portion of the exported data
+    bytes chunk = 1;
+}
+
+// Request for fetching available filter options (org is derived from session)
+message ListActivityFilterOptionsRequest {}
+
+// Available options for building activity filters
+message ListActivityFilterOptionsResponse {
+    // Available event type options
+    repeated EventTypeOption event_types = 1;
+
+    // Available scope types
+    repeated string scope_types = 2;
+
+    // Available users
+    repeated UserOption users = 3;
+}
+
+// An event type and its associated category
+message EventTypeOption {
+    // Event type value
+    string event_type = 1;
+
+    // Category this event type belongs to
+    string event_category = 2;
+}
+
+// A user that can be referenced in activity filters
+message UserOption {
+    // External user identifier
+    string user_id = 1;
+
+    // Username
+    string username = 2;
+}

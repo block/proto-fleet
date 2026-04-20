@@ -1,0 +1,55 @@
+name: Example Python Plugin Checks
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/protofleet-example-python-plugin-checks.yml"
+      - ".github/actions/hermit-setup/action.yml"
+      - "bin/hermit.hcl"
+      - "hermit-packages/**"
+      - "plugin/example-python/**"
+      - "server/sdk/v1/python/**"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/protofleet-example-python-plugin-checks.yml"
+      - ".github/actions/hermit-setup/action.yml"
+      - "bin/hermit.hcl"
+      - "hermit-packages/**"
+      - "plugin/example-python/**"
+      - "server/sdk/v1/python/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  example-python-plugin:
+    name: example-python-plugin
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: plugin/example-python
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Hermit
+        uses: ./.github/actions/hermit-setup
+
+      - name: Setup venv and install dependencies
+        run: |
+          python3.13 -m venv .venv
+          .venv/bin/pip install --upgrade pip setuptools
+          .venv/bin/pip install -e "../../server/sdk/v1/python"
+          .venv/bin/pip install -e ".[dev]"
+
+      - name: Run tests
+        run: .venv/bin/pytest tests/ -v --cov=example_driver --cov-report=term-missing
+
+      - name: Lint
+        run: .venv/bin/ruff check example_driver/ tests/
+
+      - name: Typecheck
+        run: .venv/bin/mypy example_driver/

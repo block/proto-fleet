@@ -1,0 +1,1 @@
+-- Pool usernames stay normalized — no lossy revert of the UPDATE.

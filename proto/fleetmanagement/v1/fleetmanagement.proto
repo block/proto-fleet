@@ -1,0 +1,567 @@
+syntax = "proto3";
+
+package fleetmanagement.v1;
+
+import "google/protobuf/timestamp.proto";
+import "common/v1/measurement.proto";
+import "common/v1/cooling.proto";
+import "telemetry/v1/telemetry.proto";
+import "capabilities/v1/capabilities.proto";
+import "errors/v1/errors.proto";
+import "common/v1/device_selector.proto";
+import "common/v1/sort.proto";
+import "buf/validate/validate.proto";
+
+// Service for managing fleet-wide settings and configurations
+service FleetManagementService {
+  // List all devices in the fleet (paired and/or unpaired) optionally with their telemetry data
+  // Returns a paginated list of devices with their operational status and metrics
+  // Use the pairing_status filter to control whether to return paired, unpaired, or both
+  rpc ListMinerStateSnapshots(ListMinerStateSnapshotsRequest) returns (ListMinerStateSnapshotsResponse);
+
+  // Export the paired miner list as a CSV snapshot using the provided filter.
+  // Rows are always emitted in default name-ascending order for cross-page consistency.
+  // The server paginates internally and streams CSV data in chunks.
+  rpc ExportMinerListCsv(ExportMinerListCsvRequest) returns (stream ExportMinerListCsvResponse);
+
+  // Get counts of miners in different states without fetching miner data
+  // More efficient than ListMinerStateSnapshots when only counts are needed
+  rpc GetMinerStateCounts(GetMinerStateCountsRequest) returns (GetMinerStateCountsResponse);
+
+  // Get the current pool assignments for a specific miner
+  // Returns the fleet pool IDs that match the miner's currently configured pools
+  // Used to pre-populate the pool selection UI when editing a miner's pools
+  rpc GetMinerPoolAssignments(GetMinerPoolAssignmentsRequest) returns (GetMinerPoolAssignmentsResponse);
+
+  // Get the current cooling mode for a specific miner
+  // Returns the cooling mode configuration from the miner
+  // Used to pre-populate the cooling mode selection UI when editing a miner's settings
+  rpc GetMinerCoolingMode(GetMinerCoolingModeRequest) returns (GetMinerCoolingModeResponse);
+
+  // Delete miners from the fleet by soft-deleting their database records.
+  // Immediately removes devices from the fleet and telemetry collection.
+  // Attempts best-effort ClearAuthKey on Proto rigs in the background.
+  rpc DeleteMiners(DeleteMinersRequest) returns (DeleteMinersResponse);
+
+  // Get miner model groups with counts, optionally filtered by the current fleet filter
+  // Used for bulk password update to show accurate model groups across the full fleet
+  rpc GetMinerModelGroups(GetMinerModelGroupsRequest) returns (GetMinerModelGroupsResponse);
+
+  // Rename miners by applying a name config to all selected devices.
+  // Supports both single-miner and bulk rename via DeviceSelector.
+  // Persists all names atomically in a single transaction.
+  rpc RenameMiners(RenameMinersRequest) returns (RenameMinersResponse);
+
+  // Update worker names by applying a name config to all selected devices.
+  // Reapplies the miners' current pool settings first, then persists worker names
+  // only for miners whose pool updates succeed so Fleet stays aligned with device state.
+  rpc UpdateWorkerNames(UpdateWorkerNamesRequest) returns (UpdateWorkerNamesResponse);
+}
+
+enum FleetManagementServiceErrorCode {
+  FLEET_MANAGEMENT_SERVICE_ERROR_CODE_UNSPECIFIED = 0;
+  FLEET_MANAGEMENT_SERVICE_ERROR_CODE_INVALID_PAGINATION_CURSOR = 1;
+}
+
+// MinerStateSnapshot represents the operational state of a mining device
+// including performance metrics and component health status
+// Can contain either a single point-in-time snapshot or a time series of measurements
+message MinerStateSnapshot {
+  // Unique identifier for the device within the fleet
+  // Used as the primary reference for the device in API calls
+  string device_identifier = 1;
+
+  // Human-readable name/identifier of the miner
+  string name = 2;
+
+  // Physical MAC address of the device in XX:XX:XX:XX:XX:XX format
+  string mac_address = 3;
+
+  // Manufacturer-assigned serial number
+  string serial_number = 4;
+
+  // Power consumption measurements in kilowatts (kW)
+  // Contains either a single current value or a time series based on request parameters
+  repeated common.v1.Measurement power_usage = 5;
+
+  // Temperature measurements in degrees Celsius
+  // Contains either a single current value or a time series based on request parameters
+  repeated common.v1.Measurement temperature = 6;
+
+  // Hashrate measurements in TH/s (terahash per second)
+  // Contains either a single current value or a time series based on request parameters
+  repeated common.v1.Measurement hashrate = 7;
+
+  // Energy efficiency measurements in joules per terahash (j/TH)
+  // Lower values indicate better efficiency
+  // Contains either a single current value or a time series based on request parameters
+  repeated common.v1.Measurement efficiency = 8;
+
+  // Timestamp when this snapshot was captured
+  // For time series data, this represents when the most recent data was collected
+  google.protobuf.Timestamp  timestamp = 9;
+
+  string ip_address = 10;
+
+  // The full url of the miner including protocol and port (if running on a port other than 80/443)
+  string url = 11;
+
+  // Current operational status of the device
+  DeviceStatus device_status = 12;
+
+  // Pairing status of the device
+  PairingStatus pairing_status = 13;
+
+  // Device model name (populated for unpaired devices)
+  string model = 14;
+
+  // Manufacturer name (populated for unpaired devices)
+  string manufacturer = 15;
+
+  reserved 16;
+  reserved "type";
+
+  // Device capabilities indicating supported features (populated for unpaired devices)
+  capabilities.v1.MinerCapabilities capabilities = 17;
+
+  // Temperature status based on current temperature value
+  telemetry.v1.TemperatureStatus temperature_status = 18;
+
+  // Firmware version installed on the device
+  string firmware_version = 19;
+
+  // Labels of groups this device belongs to
+  // Empty if the device is not a member of any group
+  repeated string group_labels = 20;
+
+  // Label of the rack this device belongs to (single value since device can only be in one rack)
+  // Empty if the device is not assigned to a rack
+  string rack_label = 21;
+
+  // Driver name identifies which plugin handles this device (e.g., "proto", "antminer").
+  string driver_name = 22;
+
+  // Worker name stored on fleet for pool username composition and rename preview.
+  string worker_name = 23;
+
+  // Rack slot position formatted using the rack numbering origin (for example "01").
+  // Empty if the device is not assigned to a numbered rack slot.
+  string rack_position = 24;
+}
+
+// Removed MinerComponentStatus and ComponentStatus - now using error-based filtering
+
+// Status of a miner
+enum DeviceStatus {
+  // Status is unknown or not specified
+  DEVICE_STATUS_UNSPECIFIED = 0;
+
+  // Miner is online and functioning normally
+  DEVICE_STATUS_ONLINE = 1;
+
+  // Miner is offline and not responding
+  DEVICE_STATUS_OFFLINE = 2;
+
+  // Miner is in maintenance mode
+  DEVICE_STATUS_MAINTENANCE = 3;
+
+  // Miner is in error state
+  DEVICE_STATUS_ERROR = 4;
+
+  // Miner is inactive, not mining but still connected
+  DEVICE_STATUS_INACTIVE = 5;
+
+  // Miner is online but needs a mining pool configured to start mining
+  DEVICE_STATUS_NEEDS_MINING_POOL = 6;
+
+  // Miner is receiving a firmware update (install in progress on device)
+  DEVICE_STATUS_UPDATING = 7;
+
+  // Miner firmware has been installed but requires a reboot to activate
+  DEVICE_STATUS_REBOOT_REQUIRED = 8;
+}
+
+// Request to list miners with their metadata
+// Returns paginated list of miners with identification info and status
+// Use GetBatchMinerTelemetry to fetch telemetry for specific miners after initial load
+message ListMinerStateSnapshotsRequest {
+  // Maximum number of miners to return in a single response
+  // Server may return fewer miners than specified
+  // If not specified, a default of 50 will be used
+  // Maximum allowed value is 1000
+  int32 page_size = 1 [(buf.validate.field).int32 = {
+    gte: 0,  // Allow 0 to use default
+    lte: 1000  // Maximum page size
+  }];
+
+  // A pagination cursor returned by a previous call to this endpoint
+  // Provide this cursor to retrieve the next set of results for the original query
+  // Leave empty for first request
+  string cursor = 2;
+
+  // Filter criteria for the miners to return
+  MinerListFilter filter = 3;
+
+  // Sort configuration for results ordering
+  // If not specified or empty, uses default sort by name ASC (alphabetical)
+  // Currently only the first element is used; multi-column sorting reserved for future
+  repeated common.v1.SortConfig sort = 4;
+}
+
+// Pairing status of a device
+enum PairingStatus {
+  // Any pairing status, returns all devices (used in filters only)
+  PAIRING_STATUS_UNSPECIFIED = 0;
+
+  // Only paired devices
+  PAIRING_STATUS_PAIRED = 1;
+
+  // Only unpaired/discovered devices (no device entry exists)
+  PAIRING_STATUS_UNPAIRED = 2;
+
+  // Devices that require authentication credentials to complete pairing
+  PAIRING_STATUS_AUTHENTICATION_NEEDED = 3;
+
+  // Devices that are in the process of being paired
+  PAIRING_STATUS_PENDING = 4;
+
+  // Devices that failed to pair
+  PAIRING_STATUS_FAILED = 5;
+}
+
+// Removed ComponentType enum and ComponentStatusFilter - now using errors.v1.ComponentType directly
+
+// Filter criteria for miners
+// Multiple filters act as AND condition (all must match)
+message MinerListFilter {
+  // Filter by device status (acts as OR condition)
+  // Returns miners that match any of the specified device statuses
+  repeated DeviceStatus device_status = 3;
+
+  // Filter by component types that have errors (acts as OR condition)
+  // Returns miners that have errors for any of the specified component types
+  // Uses ComponentType from errors.v1 package
+  repeated errors.v1.ComponentType error_component_types = 4;
+
+  // Filter by device models (acts as OR condition)
+  // Returns miners that match any of the specified model names (e.g., "S21 XP", "M60")
+  repeated string models = 5;
+
+  // Filter by pairing statuses (acts as OR condition)
+  // Returns miners that match any of the specified pairing statuses
+  // If empty or only contains PAIRING_STATUS_UNSPECIFIED, returns all devices
+  // Examples:
+  //   [PAIRED] - Only paired devices
+  //   [UNPAIRED] - Only unpaired devices
+  //   [PAIRED, AUTHENTICATION_NEEDED] - Paired devices + devices needing auth
+  //   [AUTHENTICATION_NEEDED, FAILED] - Devices needing attention
+  //   [] or [UNSPECIFIED] - All devices
+  repeated PairingStatus pairing_statuses = 6;
+
+  // Filter by group IDs. Returns miners that belong to ANY of the specified groups.
+  // When combined with rack_ids, uses AND logic (device must match both filters).
+  repeated int64 group_ids = 7;
+
+  // Filter by rack IDs. Returns miners that belong to ANY of the specified racks.
+  // When combined with group_ids, uses AND logic (device must match both filters).
+  repeated int64 rack_ids = 8;
+}
+
+
+// Response containing a list of miners with their telemetry
+// Used by both ListMinerStateSnapshots (one-time query) and StreamFilteredMinerList (streaming updates)
+message ListMinerStateSnapshotsResponse {
+  // List of miners with their telemetry data
+  // Contains either snapshot or time series data based on the request
+  repeated MinerStateSnapshot miners = 1;
+
+  // The pagination cursor to be used in a subsequent request
+  // If empty, this is the final page of results
+  string cursor = 2;
+
+  // Total number of miners available across all pages
+  // Useful for UI pagination controls
+  int32 total_miners = 3;
+
+  // Counts of miners in different states
+  // This includes counts for all miners, not just the ones in the current page
+  // Status filters do not affect these counts, because they act as OR condition.
+  telemetry.v1.MinerStateCounts total_state_counts = 4;
+
+  // List of all device models that exist in the user's fleet
+  // Useful for dynamically building model filter options in the UI
+  // This includes all models across all pages, not just the current page (e.g., "S21 XP", "M60")
+  repeated string models = 5;
+}
+
+enum CsvTemperatureUnit {
+  CSV_TEMPERATURE_UNIT_UNSPECIFIED = 0;
+  CSV_TEMPERATURE_UNIT_CELSIUS = 1;
+  CSV_TEMPERATURE_UNIT_FAHRENHEIT = 2;
+}
+
+message ExportMinerListCsvRequest {
+  // Filter criteria for the miners to export.
+  MinerListFilter filter = 1;
+
+  // Preferred temperature unit for the exported temperature column.
+  CsvTemperatureUnit temperature_unit = 2;
+}
+
+message ExportMinerListCsvResponse {
+  // Chunk of CSV data. Concatenate all chunks to form the complete file.
+  bytes csv_data = 1;
+}
+
+// Request for getting miner state counts without fetching miner data
+message GetMinerStateCountsRequest {
+  // Reserved for future use
+}
+
+// Response containing miner state counts
+message GetMinerStateCountsResponse {
+  // Total number of miners matching the filter
+  int32 total_miners = 1;
+
+  // Counts of miners in different states
+  telemetry.v1.MinerStateCounts state_counts = 2;
+}
+
+// Request to get the current pool assignments for a specific miner
+message GetMinerPoolAssignmentsRequest {
+  // Device identifier of the miner to get pool assignments for
+  string device_identifier = 1 [(buf.validate.field).required = true];
+}
+
+// A single pool assignment from a miner's configuration
+// Groups the pool ID (if matched to a fleet pool) with the raw URL and username
+message PoolAssignment {
+  // Fleet pool ID if this pool matches a fleet pool definition
+  // Absent if the pool doesn't match any fleet pool
+  optional int64 pool_id = 1;
+
+  // Raw pool URL as configured on the miner
+  string url = 2;
+
+  // Username as configured on the miner
+  string username = 3;
+}
+
+// Response containing the miner's current pool assignments
+// Pools are returned in priority order: index 0 = default (priority 0), index 1 = backup1 (priority 1), etc.
+// If a pool is configured on the miner but doesn't match any fleet pool, the pool_id will be absent
+message GetMinerPoolAssignmentsResponse {
+  // Pool assignments in priority order (max 3: default, backup1, backup2)
+  // Empty if no pools are configured on the miner
+  repeated PoolAssignment pools = 1;
+}
+
+// A single model group result with count
+message MinerModelGroup {
+  string model = 1;
+  string manufacturer = 2;
+  int32 count = 3;
+}
+
+// Request to get miner model groups with counts
+message GetMinerModelGroupsRequest {
+  MinerListFilter filter = 1;
+}
+
+// Response containing miner model groups with counts
+message GetMinerModelGroupsResponse {
+  repeated MinerModelGroup groups = 1;
+}
+
+// Request to get the current cooling mode for a specific miner
+message GetMinerCoolingModeRequest {
+  // Device identifier of the miner to get cooling mode for
+  string device_identifier = 1 [(buf.validate.field).required = true];
+}
+
+// Response containing the miner's current cooling mode
+message GetMinerCoolingModeResponse {
+  // Current cooling mode of the miner
+  // UNSPECIFIED if the miner doesn't support cooling mode configuration
+  // An RPC error is returned if the miner could not be queried
+  common.v1.CoolingMode cooling_mode = 1;
+}
+
+// Selects devices for fleet management operations.
+// Follows the same oneof pattern as minercommand.v1.DeviceSelector.
+message DeviceSelector {
+  oneof selection_type {
+    // Select all paired devices, optionally filtered.
+    // An empty filter selects all paired devices in the org.
+    MinerListFilter all_devices = 1;
+    // Select specific devices by identifier.
+    common.v1.DeviceIdentifierList include_devices = 2;
+  }
+}
+
+// Request to delete miners from the fleet.
+message DeleteMinersRequest {
+  DeviceSelector device_selector = 1;
+}
+
+// Response from deleting miners
+message DeleteMinersResponse {
+  // Number of devices successfully deleted
+  int32 deleted_count = 1;
+}
+
+// Request to rename miners using a configurable name pattern.
+message RenameMinersRequest {
+  // Selects which miners to rename (specific IDs or all devices).
+  DeviceSelector device_selector = 1 [(buf.validate.field).required = true];
+
+  // Naming pattern applied to all selected miners.
+  MinerNameConfig name_config = 2 [(buf.validate.field).required = true];
+
+  // Current fleet table sort used to assign counter order during rename.
+  // If omitted, the backend falls back to the default name ascending order.
+  repeated common.v1.SortConfig sort = 3;
+}
+
+// Response from renaming miners with per-device outcome counts for the batch.
+message RenameMinersResponse {
+  int32 renamed_count = 1;
+  int32 unchanged_count = 2;
+  int32 failed_count = 3;
+}
+
+// Request to update worker names using a configurable name pattern.
+message UpdateWorkerNamesRequest {
+  // Selects which miners to update (specific IDs or all devices).
+  DeviceSelector device_selector = 1 [(buf.validate.field).required = true];
+
+  // Naming pattern applied to the worker name that will be pushed to each selected miner
+  // and persisted back to Fleet after the device update succeeds.
+  MinerNameConfig name_config = 2 [(buf.validate.field).required = true];
+
+  // Current fleet table sort used to assign counter order during generation.
+  // If omitted, the backend falls back to the default name ascending order.
+  repeated common.v1.SortConfig sort = 3;
+
+  // Fleet user's username for authorization.
+  string user_username = 4 [(buf.validate.field).string.min_len = 1];
+
+  // Fleet user's password for authorization.
+  string user_password = 5 [(buf.validate.field).string.min_len = 1];
+}
+
+// Response from updating worker names.
+message UpdateWorkerNamesResponse {
+  int32 updated_count = 1;
+  int32 unchanged_count = 2;
+  int32 failed_count = 3;
+  string batch_identifier = 4;
+}
+
+// Configures how names are generated for a batch of miners.
+message MinerNameConfig {
+  // Ordered list of properties that form the name. At least one is required.
+  repeated NameProperty properties = 1 [(buf.validate.field).repeated.min_items = 1];
+
+  // Separator placed between properties. Must be "-", "_", ".", or "" (no separator).
+  string separator = 2 [(buf.validate.field).string = {in: ["-", "_", ".", ""]}];
+}
+
+// A single named segment in a MinerNameConfig.
+message NameProperty {
+  oneof kind {
+    StringAndCounterProperty string_and_counter = 1;
+    CounterProperty          counter            = 2;
+    StringProperty           string_value       = 3;
+    FixedValueProperty       fixed_value        = 4;
+    QualifierProperty        qualifier          = 5;
+  }
+}
+
+// Generates a segment combining an optional prefix/suffix with a zero-padded counter.
+message StringAndCounterProperty {
+  // Optional prefix prepended to the counter.
+  string prefix = 1;
+  // Optional suffix appended to the counter.
+  string suffix = 2;
+  // Starting value for the counter. Must be >= 0.
+  int32 counter_start = 3 [(buf.validate.field).int32.gte = 0];
+  // Number of digits in the counter (e.g. 3 → 001, 002, 003). Must be 1–6.
+  int32 counter_scale = 4 [(buf.validate.field).int32 = {gte: 1, lte: 6}];
+}
+
+// Generates a zero-padded counter segment with no surrounding text.
+message CounterProperty {
+  // Starting value for the counter. Must be >= 0.
+  int32 counter_start = 1 [(buf.validate.field).int32.gte = 0];
+  // Number of digits in the counter (e.g. 3 → 001, 002, 003). Must be 1–6.
+  int32 counter_scale = 2 [(buf.validate.field).int32 = {gte: 1, lte: 6}];
+}
+
+// Generates a static string segment.
+message StringProperty {
+  // The string to insert. Must be non-empty.
+  string value = 1 [(buf.validate.field).string.min_len = 1];
+}
+
+// Generates a segment from a device's fixed attribute value.
+message FixedValueProperty {
+  option (buf.validate.message).cel = {
+    id: "section_required_with_character_count"
+    message: "section is required when character_count is set"
+    expression: "!has(this.character_count) || has(this.section)"
+  };
+
+  // The device attribute to use.
+  FixedValueType type = 1 [(buf.validate.field).enum.defined_only = true];
+
+  // Maximum number of characters to take from the attribute value.
+  // When set, section is required. Must be 1–6.
+  optional int32 character_count = 2 [(buf.validate.field).int32 = {gte: 1, lte: 6}];
+
+  // Which end to take characters from. Required when character_count is set.
+  optional CharacterSection section = 3 [(buf.validate.field).enum.defined_only = true];
+}
+
+// Device attribute used as a name segment.
+enum FixedValueType {
+  FIXED_VALUE_TYPE_UNSPECIFIED  = 0;
+  FIXED_VALUE_TYPE_MAC_ADDRESS  = 1;
+  FIXED_VALUE_TYPE_SERIAL_NUMBER = 2;
+  // Resolves to the worker name stored on fleet for the miner.
+  FIXED_VALUE_TYPE_WORKER_NAME  = 3;
+  FIXED_VALUE_TYPE_MODEL        = 4;
+  FIXED_VALUE_TYPE_MANUFACTURER = 5;
+  // Reserved — not yet implemented.
+  FIXED_VALUE_TYPE_LOCATION     = 6;
+  // Resolves to the miner's current fleet name (custom name or manufacturer + model fallback).
+  FIXED_VALUE_TYPE_MINER_NAME   = 7;
+}
+
+// Selects which end of a string to take characters from.
+enum CharacterSection {
+  CHARACTER_SECTION_UNSPECIFIED = 0;
+  CHARACTER_SECTION_FIRST       = 1;
+  CHARACTER_SECTION_LAST        = 2;
+}
+
+// Generates a segment from a device's physical location qualifier.
+message QualifierProperty {
+  // The location qualifier to use.
+  QualifierType type = 1 [(buf.validate.field).enum.defined_only = true];
+  // Optional prefix prepended to the qualifier value.
+  string prefix = 2;
+  // Optional suffix appended to the qualifier value.
+  string suffix = 3;
+}
+
+// Physical location qualifier used as a name segment.
+enum QualifierType {
+  QUALIFIER_TYPE_UNSPECIFIED    = 0;
+  // Reserved — not yet implemented.
+  QUALIFIER_TYPE_BUILDING       = 1;
+  // Resolves to the assigned rack label.
+  QUALIFIER_TYPE_RACK           = 2;
+  // Resolves to the assigned rack slot number.
+  QUALIFIER_TYPE_RACK_POSITION  = 3;
+}

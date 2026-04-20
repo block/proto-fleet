@@ -1,0 +1,162 @@
+// Copyright 2024 Block, Inc. <btcm-sw-team@squareup.com>.
+//
+// File: mfgtool_api.proto
+// Description: Protobuf definitions for the mfgtoolctl and mfgtoold
+// applications.
+//              This file is used to define messages for inter-application
+//              communication. The API provides messages for sharing application
+//              information.
+
+syntax = "proto3";
+
+package mfgtool_api;
+
+option go_package = "pkg/proto;miner_rpc";
+
+import "miner_common_api.proto";
+import "miner_data_api.proto";
+import "miner_debug_api.proto";
+import "miner_psu_api.proto";
+
+// -------------------------------------------------------
+// This section defines the services for the mfgtool API.
+// -------------------------------------------------------
+
+// Service definition for communication between mfgtoolctl and mfgtoold (base
+// messages)
+service BaseApi {
+    rpc GetApplicationInfo(miner_common_api.EmptyRequest) returns (ApplicationInfo);
+    rpc GetControlBoardInfo(miner_common_api.EmptyRequest) returns (miner_data_api.ControlBoardInfo);
+    rpc GetHashboardsInfo(miner_common_api.EmptyRequest) returns (miner_data_api.HashboardsInfoResponse);
+    rpc GetPsuInfo(miner_debug_api.PsuRequest) returns (PsuInfoResponse);
+    rpc SetOtp(OtpRequest) returns (miner_common_api.ApiResultResponse);
+    rpc GetOtp(OtpRequest) returns (OtpResponse);
+    rpc SetSecurity(SecurityRequest) returns (SecurityResponse);
+    rpc GetSecurity(SecurityRequest) returns (SecurityResponse);
+    rpc StartRun(miner_common_api.EmptyRequest) returns (miner_common_api.ApiResultResponse);
+    rpc StopRun(miner_common_api.EmptyRequest) returns (miner_common_api.ApiResultResponse);
+    rpc GetRunErrors(miner_common_api.EmptyRequest) returns (RunErrorsResponse);
+    rpc GetRunStatus(miner_common_api.EmptyRequest) returns (RunStatusResponse);
+    rpc GetRecoveryLimits(miner_common_api.EmptyRequest) returns (miner_debug_api.RecoveryLimits);
+    rpc GetNetworkStatus(miner_common_api.EmptyRequest) returns (NetworkStatus);
+    rpc SetNetworkIpStatic(miner_common_api.EmptyRequest) returns (miner_common_api.ApiResultResponse);
+    rpc SetNetworkIpDhcp(miner_common_api.EmptyRequest) returns (miner_common_api.ApiResultResponse);
+    rpc RestartNetwork(miner_common_api.EmptyRequest) returns (miner_common_api.ApiResultResponse);
+    rpc GetNetworkConfig(miner_common_api.EmptyRequest) returns (NetworkCfgFilenames);
+    rpc GetIpAddress(miner_common_api.EmptyRequest) returns (NetworkIpAddr);
+}
+
+// ---------------------------------------------------------------
+// This section defines the messages exchanged by the mfgtool API.
+// ---------------------------------------------------------------
+
+// Message to hold IP Address
+message NetworkIpAddr {
+    miner_common_api.ApiResult result = 1;
+    string ip = 2;
+}
+
+// Message to hold names of network cfg files on the system
+message NetworkCfgFilenames {
+    miner_common_api.ApiResult result = 1;
+    repeated string network_cfg_filenames = 2;
+}
+
+// Message to hold network status
+message NetworkStatus {
+    miner_common_api.ApiResult result = 1;
+    // map contains key-value pairs (String, String) of network status data (e.g.
+    // "IP Address" : "192.168.4.256")
+    map<string, string> statuses = 2;
+}
+
+// Message to hold application information.
+message ApplicationInfo {
+    string name = 1;     // Name of the application (e.g., "mfgtoolctl" or "mfgtoold").
+    string version = 2;  // Version of the application (e.g., "1.0.0").
+}
+
+enum OtpType {
+    OTP_TYPE_NONE = 0;
+    OTP_TYPE_MAC_ADDRESS = 1;
+    OTP_TYPE_SERIAL_NUMBER = 2;
+    OTP_TYPE_PKHASH = 3;
+}
+
+// Message to hold OTP request information.
+message OtpRequest {
+    OtpType otp_type = 1;
+    bytes value = 2;
+}
+
+// Message to hold OTP response information.
+message OtpResponse {
+    miner_common_api.ApiResult result = 1;
+    // Deprecated = 2;
+    bytes value = 3;
+}
+
+enum SecurityAction {
+    SECURITY_ACTION_ENABLE_SECBOOT = 0;
+    SECURITY_ACTION_PROVISION = 1;
+}
+
+message SecurityRequest {
+    SecurityAction action = 1;
+    string password = 2;
+}
+
+message SecurityResponse {
+    int32 result = 1;  // Exit code from the external tool. 0 indicate success, else is error
+    string logs = 2;
+}
+
+// Message to hold PSU information response.
+message PsuInfoResponse {
+    miner_common_api.ApiResult result = 1;
+    miner_psu_api.PsuInfo psu_info = 2;
+}
+
+// --------------------------
+// Task control messages
+// --------------------------
+
+enum TaskState {
+    IDLE = 0;
+    RUNNING = 1;
+    STOPPING = 2;
+}
+
+// Message to hold run status information.
+message RunStatusResponse {
+    miner_common_api.ApiResult result = 1;
+    TaskState state = 2;             // Status of the task (e.g., "idle", "running").
+    string state_uptime = 3;         // Time since the task entered the current state.
+    string error = 4;                // Error message associated with any task failure.
+    string time_since_error = 5;     // Time since the last error occurred.
+    string time_since_last_run = 6;  // Time since the the task was last run.
+}
+
+message RunErrorsResponse {
+    miner_common_api.ApiResult result = 1;
+    repeated string error_codes = 2;
+    miner_debug_api.HashboardErrorStatsList hashboard_error_stats = 3;
+    miner_debug_api.MinerErrorStats miner_error_stats = 4;
+}
+
+// --------------------------
+// Config file messages
+// --------------------------
+
+// Message containing a config file.
+message ConfigFile {
+    string filename = 1;
+    string extension = 2;
+    string content = 3;
+    string md5checksum = 4;
+}
+
+// Message containing a list of config files.
+message ConfigFiles {
+    repeated ConfigFile files = 1;
+}

@@ -1,0 +1,59 @@
+syntax = "proto3";
+
+package common.v1;
+
+import "buf/validate/validate.proto";
+
+// Field to sort by in list operations.
+// Not all fields are supported by every endpoint — see individual RPCs for valid options.
+enum SortField {
+  // Unspecified sort field - uses default sort (name ASC)
+  SORT_FIELD_UNSPECIFIED = 0;
+  // Sort by name/label
+  SORT_FIELD_NAME = 1;
+  // Sort by IP address (numeric comparison)
+  SORT_FIELD_IP_ADDRESS = 2;
+  // Sort by MAC address
+  SORT_FIELD_MAC_ADDRESS = 3;
+  // Reserved: STATUS (4) and legacy ISSUES (10) sorting removed
+  reserved 4, 10;
+  reserved "SORT_FIELD_STATUS", "SORT_FIELD_ISSUES";
+  // Sort by device model (e.g., "S21 XP", "M60")
+  SORT_FIELD_MODEL = 5;
+  // Sort by hashrate (TH/s)
+  SORT_FIELD_HASHRATE = 6;
+  // Sort by temperature (Celsius)
+  SORT_FIELD_TEMPERATURE = 7;
+  // Sort by power consumption (kW)
+  SORT_FIELD_POWER = 8;
+  // Sort by efficiency (J/TH)
+  SORT_FIELD_EFFICIENCY = 9;
+  // Sort by issue count (for collection listing)
+  SORT_FIELD_ISSUE_COUNT = 15;
+  // Sort by firmware version
+  SORT_FIELD_FIRMWARE = 11;
+  // Sort by device count (for collection listing)
+  SORT_FIELD_DEVICE_COUNT = 12;
+  // Sort by location (for rack listing)
+  SORT_FIELD_LOCATION = 13;
+  // Sort by the worker name stored on fleet
+  SORT_FIELD_WORKER_NAME = 14;
+}
+
+// Direction to sort results
+enum SortDirection {
+  // Unspecified direction - server defaults to ASC.
+  SORT_DIRECTION_UNSPECIFIED = 0;
+  // Ascending order (A-Z, 0-9, lowest first)
+  SORT_DIRECTION_ASC = 1;
+  // Descending order (Z-A, 9-0, highest first)
+  SORT_DIRECTION_DESC = 2;
+}
+
+// Configuration for sorting list results
+message SortConfig {
+  // Field to sort by
+  SortField field = 1 [(buf.validate.field).enum.defined_only = true];
+  // Direction to sort
+  SortDirection direction = 2 [(buf.validate.field).enum.defined_only = true];
+}

@@ -1,0 +1,80 @@
+syntax = "proto3";
+
+package fwpb;
+
+option go_package = "pkg/proto;hashboard";
+
+enum serial_type {
+    SERIAL_UNSPECIFIED = 0;
+    SERIAL_PCBA = 1;  // PCB Assembly Serial Number (After SMT)
+    DEPRECATED = 2;   // Previously SERIAL_ASSEMBLY
+}
+
+message mfgtest_serial_write_cmd {
+    string serial = 1;
+    serial_type type = 2;
+}
+
+message mfgtest_serial_write_rsp {}
+
+message mfgtest_serial_read_cmd {
+    serial_type type = 1;
+}
+
+message mfgtest_serial_read_rsp {
+    string serial = 1;
+}
+
+message mfgtest_binning {
+    uint32 version = 1;
+    uint32 bin = 2;
+}
+
+message mfgtest_store_binning_cmd {}
+message mfgtest_store_binning_rsp {
+    repeated mfgtest_binning bins = 1;
+}
+
+message mfgtest_read_binning_cmd {}
+message mfgtest_read_binning_rsp {
+    repeated mfgtest_binning bins = 1;
+}
+
+message mfgtest_lock_sysinfo_cmd {}
+message mfgtest_lock_sysinfo_rsp {}
+
+message mfgtest_set_led_cmd {
+    uint32 led = 1;
+    bool state = 2;
+}
+message mfgtest_set_led_rsp {}
+
+message mfgtest_stack_set_cmd {
+    uint32 stack = 1;
+    bool state = 2;
+}
+message mfgtest_stack_set_rsp {}
+
+message mfgtest_cycle_stacks_cmd {}
+message mfgtest_cycle_stacks_rsp {
+    repeated bool stack_valid = 1;
+}
+
+message mfgtest_stack_status_cmd {
+    uint32 stack = 1;
+}
+message mfgtest_stack_status_rsp {
+    uint32 status = 1;
+}
+
+message mfgtest_asic_debug_cmd {
+    bool enable = 1;
+}
+message mfgtest_asic_debug_rsp {}
+
+message dfu_write_secure_id_cmd {
+    // Encrypted device ID
+    bytes device_id = 1;
+}
+
+message dfu_write_secure_id_rsp {}

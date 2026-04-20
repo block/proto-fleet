@@ -1,0 +1,56 @@
+syntax = "proto3";
+
+package networkinfo.v1;
+
+// NetworkInfo represents the complete network configuration and identification details
+message NetworkInfo {
+
+  // User-defined nickname for the network
+  string network_nickname = 1;
+
+  // Local IP address assigned to this device on the network
+  string local_ip = 2;
+
+  // Gateway IP address for the network
+  string gateway = 3;
+
+  // Subnet mask or CIDR notation for the network
+  string subnet = 4;
+
+  // Local IPv6 address assigned to this device on the network (empty if unavailable)
+  string local_ipv6 = 5;
+
+  // IPv6 subnet in CIDR notation (empty if unavailable)
+  string ipv6_subnet = 6;
+}
+
+// Request to retrieve current network information
+// Empty message as no parameters are needed
+message GetNetworkInfoRequest {
+}
+
+// Response containing the current network information
+message GetNetworkInfoResponse {
+  // Complete network information details
+  NetworkInfo network_info = 1;
+}
+
+// Request to update the user-defined nickname for the network
+message UpdateNetworkNicknameRequest {
+  // New nickname to assign to the network
+  string network_nickname = 1;
+}
+
+// Response to network nickname update request
+// Empty message as no return data is needed
+message UpdateNetworkNicknameResponse {
+}
+
+// Service for managing and retrieving network information
+service NetworkInfoService {
+  // Retrieves the current network configuration and status
+  rpc GetNetworkInfo(GetNetworkInfoRequest) returns (GetNetworkInfoResponse);
+
+  // Updates the user-defined nickname for the current network
+  rpc UpdateNetworkNickname(UpdateNetworkNicknameRequest) returns (UpdateNetworkNicknameResponse);
+}

@@ -1,0 +1,98 @@
+name: asicrs Plugin Checks
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/asicrs-plugin-checks.yml"
+      - "plugin/asicrs/**"
+      - "sdk/rust/**"
+      - "server/sdk/v1/pb/driver.proto"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/asicrs-plugin-checks.yml"
+      - "plugin/asicrs/**"
+      - "sdk/rust/**"
+      - "server/sdk/v1/pb/driver.proto"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust-lint:
+    name: Lint & Format
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: plugin/asicrs
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt, clippy
+
+      - name: Install protoc
+        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache Cargo registry & build
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            plugin/asicrs/target
+          key: ${{ runner.os }}-asicrs-${{ hashFiles('plugin/asicrs/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-asicrs-
+
+      - name: Check formatting
+        run: cargo fmt -- --check
+
+      - name: Clippy
+        run: cargo clippy -- -D warnings
+
+  rust-build-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    needs: [rust-lint]
+    defaults:
+      run:
+        working-directory: plugin/asicrs
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Install protoc
+        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache Cargo registry & build
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            plugin/asicrs/target
+          key: ${{ runner.os }}-asicrs-${{ hashFiles('plugin/asicrs/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-asicrs-
+
+      - name: Build
+        run: cargo build
+
+      - name: Test
+        run: cargo test

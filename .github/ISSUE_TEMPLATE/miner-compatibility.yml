@@ -1,0 +1,55 @@
+name: Miner Compatibility Issue
+description: Report a compatibility issue with a specific miner model or firmware
+labels: ["miner-compatibility"]
+body:
+  - type: input
+    id: miner-model
+    attributes:
+      label: Miner model
+      description: The make and model of the miner.
+      placeholder: "e.g., Antminer S21, Whatsminer M50S"
+    validations:
+      required: true
+
+  - type: input
+    id: firmware-version
+    attributes:
+      label: Firmware version
+      description: The firmware running on the miner.
+      placeholder: "e.g., stock firmware 2024.01, Braiins OS+ 23.12"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Describe the issue
+      description: A clear description of the compatibility issue you encountered.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What you expected to happen.
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Proto Fleet version
+      description: The version of Proto Fleet you are running (e.g., v1.2.3 or commit SHA).
+      placeholder: v1.0.0
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or telemetry output
+      description: Paste any relevant logs or telemetry output from the miner or Proto Fleet.
+      render: shell
+    validations:
+      required: false

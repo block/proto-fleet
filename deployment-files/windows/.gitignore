@@ -1,0 +1,20 @@
+# Windows installer local/build outputs
+artifacts/
+fleet-exe.log
+
+# .NET build intermediates
+**/bin/
+**/obj/
+
+# Local IDE/user files
+.vs/
+*.user
+*.suo
+
+# Local diagnostics
+*.binlog
+publish.log
+publish-output.txt
+
+# Runtime health-check logs generated during manual troubleshooting
+wsl-health-check-*.log

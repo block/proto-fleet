@@ -1,0 +1,16 @@
+# Ignore artifacts:
+build
+coverage
+dist
+
+# Ignore all HTML files:
+*.html
+
+# Ignore node_modules
+node_modules
+
+# Ignore pnpm lock file
+pnpm-lock.yaml
+
+# Ignore CLAUDE.md documentation
+CLAUDE.md 

@@ -1,0 +1,19 @@
+automation:
+  - changed-files:
+      - any-glob-to-any-file: .github/**
+
+client:
+  - changed-files:
+      - any-glob-to-any-file: client/**
+
+server:
+  - changed-files:
+      - any-glob-to-any-file: server/**
+
+shared:
+  - changed-files:
+      - any-glob-to-any-file: proto/**
+
+tooling:
+  - changed-files:
+      - any-glob-to-any-file: bin/**

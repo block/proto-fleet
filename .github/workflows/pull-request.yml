@@ -1,0 +1,32 @@
+name: Pull Request
+
+on: pull_request_target
+
+permissions:
+  contents: read
+  repository-projects: read
+  pull-requests: write
+
+jobs:
+  triage:
+    name: Triage
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Apply labels
+        uses: actions/labeler@634933edcd8ababfe52f92936142cc22ac488b1b # v6.0.1
+        with:
+          repo-token: "${{ secrets.GITHUB_TOKEN }}"
+
+  auto-assign:
+    name: Auto-Assign
+    runs-on: ubuntu-latest
+    if: github.actor != 'dependabot[bot]'
+
+    steps:
+      - name: Assign PR to Creator
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh pr edit ${{ github.event.pull_request.number }} --add-assignee ${{ github.actor }}

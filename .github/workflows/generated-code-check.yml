@@ -1,0 +1,45 @@
+name: Generated code check
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  generated-code-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create GitHub App token
+        id: create_token
+        uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+        with:
+          app-id: ${{ secrets.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          token: "${{ steps.create_token.outputs.token }}"
+
+      - name: Setup Hermit
+        uses: ./.github/actions/hermit-setup
+
+      - name: Configure Go cache
+        uses: ./.github/actions/go-cache-setup
+
+      - name: Install dependencies
+        run: just setup
+
+      - name: Generate code
+        run: just gen
+
+      - name: Check if committed generated code is up-to-date
+        run: >
+          git diff --quiet || {
+            echo -e "\033[0;31mNewly generated code does not match the committed code. Run 'just gen', then commit and push the changes.\033[0m" 1>&2;
+            echo -e "\n\n";
+            git diff --exit-code
+          }

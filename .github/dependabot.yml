@@ -1,0 +1,26 @@
+version: 2
+enable-beta-ecosystems: true
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+
+  - package-ecosystem: npm
+    directory: client
+    schedule:
+      interval: monthly
+    groups:
+      node-dependencies:
+        applies-to: version-updates
+        patterns:
+          - "*"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "swagger-typescript-api"
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: monthly

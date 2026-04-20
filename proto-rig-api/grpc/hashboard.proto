@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package fwpb;
+
+option go_package = "pkg/proto;hashboard";
+
+enum mining_state {
+    // Initial state of the mining state machine
+    MINING_STATE_INIT = 0;
+
+    // The state machine is starting up
+    MINING_STATE_STARTUP = 1;
+
+    // The state machine is ready to mine
+    MINING_STATE_READY = 2;
+
+    // The state machine is mining
+    MINING_STATE_MINING = 3;
+
+    // The state machine is in an error state
+    MINING_STATE_ERROR = 4;
+
+    // The state machine is in an unknown state
+    MINING_STATE_UNKNOWN = 5;
+}
+
+enum mining_performance_mode {
+    PERFORMANCE_UNSPECIFIED = 0;
+    // Disable performance management auto-turning, use a set PLL frequency.
+    PERFORMANCE_NONE = 1;
+    // Dynamically adjust the PLL frequency to meet a target power consumption.
+    PERFORMANCE_POWER_TARGET = 2;
+    // Dynamically adjust the PLL frequency to minimize J/THs, with an upper bound of power consumption.
+    PERFORMANCE_EFFICIENCY = 3;
+}

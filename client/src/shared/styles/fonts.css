@@ -1,0 +1,26 @@
+@font-face {
+  font-family: "JetBrainsMono";
+  font-display: swap;
+  font-style: normal;
+  src: url("/fonts/JetBrainsMono/JetBrainsMono[wght].ttf") format("truetype");
+}
+@font-face {
+  font-family: "JetBrainsMono";
+  font-display: swap;
+  font-style: italic;
+  src: url("/fonts/JetBrainsMono/JetBrainsMono-Italic[wght].ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "Inter";
+  font-display: swap;
+  font-style: normal;
+  src: url("/fonts/Inter/InterVariable.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Inter";
+  font-display: swap;
+  font-style: italic;
+  src: url("/fonts/Inter/InterVariable-Italic.woff2") format("woff2");
+}

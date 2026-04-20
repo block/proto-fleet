@@ -1,0 +1,206 @@
+syntax = "proto3";
+
+package fleetperformance.v1;
+
+import "google/protobuf/timestamp.proto";
+import "common/v1/measurement.proto";
+
+// FleetPerformanceService provides fleet-wide performance metrics and analytics
+service FleetPerformanceService {
+    // GetFleetPerformance retrieves comprehensive performance metrics for the entire fleet
+    // Returns aggregated statistics and time series data for various performance indicators
+    rpc GetFleetPerformance(GetFleetPerformanceRequest) returns (GetFleetPerformanceResponse);
+
+    // StreamFleetOverview provides real-time updates for fleet overview statistics
+    // Returns a continuous stream of fleet status distribution changes
+    rpc StreamFleetOverview(StreamFleetOverviewRequest) returns (stream StreamFleetOverviewResponse);
+
+    // StreamPerformanceMetrics provides real-time updates for specific performance metrics
+    // Returns a continuous stream of metric updates for subscribed performance types
+    rpc StreamPerformanceMetrics(StreamPerformanceMetricsRequest) returns (stream StreamPerformanceMetricsResponse);
+}
+
+// Request to retrieve fleet performance metrics
+message GetFleetPerformanceRequest {
+    // Reserved for future use - currently returns default time range
+}
+
+// Response containing comprehensive fleet performance metrics
+message GetFleetPerformanceResponse {
+    // Fleet performance data containing all metrics
+    FleetPerformance fleet_performance = 1;
+}
+
+
+// Comprehensive fleet performance metrics
+message FleetPerformance {
+    // Overview statistics showing fleet status distribution
+    FleetOverview overview = 1;
+    
+    // Hashrate performance metrics and trends
+    PerformanceMetrics hashrate = 2;
+    
+    // Energy efficiency metrics and trends
+    PerformanceMetrics efficiency = 3;
+    
+    // Power usage metrics and trends
+    PerformanceMetrics power_usage = 4;
+    
+    // Uptime metrics and trends
+    PerformanceMetrics uptime = 5;
+}
+
+// Fleet overview showing device status distribution
+message FleetOverview {
+    // Number of devices that are offline
+    int32 offline = 1;
+    
+    // Number of devices that are inactive
+    int32 inactive = 2;
+    
+    // Number of devices that are actively mining
+    int32 active = 3;
+    
+    // Total number of devices in the fleet
+    int32 total = 4;
+}
+
+// Performance metrics containing statistics and time series data
+message PerformanceMetrics {
+    // Statistical summary of the performance metric
+    repeated Stat stats = 1;
+    
+    // Time series data points for the performance metric
+    repeated common.v1.Measurement data = 2;
+}
+
+// Statistical information about a performance metric
+message Stat {
+    // Brief descriptive label for the statistic (e.g., "Average", "Peak", "Minimum")
+    string label = 1;
+    
+    // Value of the statistic - either formatted string or structured measurement
+    oneof value {
+        // Formatted value as a string (e.g., "125.5 TH/s", "98.2%")
+        string formatted_value = 2;
+        
+        // Structured measurement with timestamp, value, and unit
+        common.v1.Measurement measurement_value = 3;
+    }
+    
+    // Detailed description of what this statistic represents
+    string description = 4;
+}
+
+// Request to stream fleet overview updates
+message StreamFleetOverviewRequest {
+    // Optional heartbeat interval in seconds (0 means no heartbeats)
+    // Heartbeats help detect connection issues and keep streams alive
+    int32 heartbeat_interval_seconds = 1;
+}
+
+// Response containing fleet overview updates
+message StreamFleetOverviewResponse {
+    // Timestamp when this update was generated
+    google.protobuf.Timestamp timestamp = 1;
+
+    // Type of update
+    oneof update {
+        // Fleet overview status update
+        FleetOverviewUpdate overview = 2;
+
+        // Heartbeat to keep connection alive (no data)
+        Heartbeat heartbeat = 3;
+    }
+}
+
+// Fleet overview update containing the latest status distribution
+message FleetOverviewUpdate {
+    // Updated fleet overview with current device status counts
+    FleetOverview overview = 1;
+}
+
+// Request to stream performance metrics updates
+message StreamPerformanceMetricsRequest {
+    // Types of performance metrics to stream
+    // If empty, streams all performance metric types
+    repeated PerformanceMetricType metric_types = 1;
+
+    // Whether to include statistical summaries in updates
+    // If true, includes updated Stat arrays when statistics change
+    bool include_stats = 2;
+
+    // Whether to include individual measurement data points
+    // If true, includes new Measurement data as it becomes available
+    bool include_measurements = 3;
+
+    // Optional heartbeat interval in seconds (0 means no heartbeats)
+    // Heartbeats help detect connection issues and keep streams alive
+    int32 heartbeat_interval_seconds = 4;
+}
+
+// Response containing performance metrics updates
+message StreamPerformanceMetricsResponse {
+    // Timestamp when this update was generated
+    google.protobuf.Timestamp timestamp = 1;
+
+    // Type of update
+    oneof update {
+        // Performance metric update
+        PerformanceMetricUpdate metric = 2;
+
+        // Heartbeat to keep connection alive (no data)
+        Heartbeat heartbeat = 3;
+    }
+}
+
+// Performance metric update for a specific metric type
+message PerformanceMetricUpdate {
+    // The type of performance metric being updated
+    PerformanceMetricType metric_type = 1;
+
+    // Type of metric update
+    oneof update_type {
+        // Updated statistical summary
+        StatsUpdate stats = 2;
+
+        // New measurement data point
+        MeasurementUpdate measurement = 3;
+    }
+}
+
+// Updated statistical summary for a performance metric
+message StatsUpdate {
+    // Updated statistics for the performance metric
+    repeated Stat stats = 1;
+}
+
+// New measurement data point for a performance metric
+message MeasurementUpdate {
+    // New measurement data point
+    common.v1.Measurement measurement = 1;
+}
+
+// Types of performance metrics available for streaming
+enum PerformanceMetricType {
+    // Metric type not specified
+    PERFORMANCE_METRIC_TYPE_UNSPECIFIED = 0;
+
+    // Hashrate performance metrics
+    PERFORMANCE_METRIC_TYPE_HASHRATE = 1;
+
+    // Energy efficiency metrics
+    PERFORMANCE_METRIC_TYPE_EFFICIENCY = 2;
+
+    // Power usage metrics
+    PERFORMANCE_METRIC_TYPE_POWER_USAGE = 3;
+
+    // Uptime metrics
+    PERFORMANCE_METRIC_TYPE_UPTIME = 4;
+}
+
+// Heartbeat message to keep streaming connections alive
+message Heartbeat {
+    // Empty message for heartbeat
+}
+

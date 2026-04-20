@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package common.v1;
+
+// CoolingMode represents the cooling configuration for a miner device.
+enum CoolingMode {
+  COOLING_MODE_UNSPECIFIED = 0;
+  COOLING_MODE_AIR_COOLED = 1;
+  COOLING_MODE_IMMERSION_COOLED = 2;
+  COOLING_MODE_MANUAL = 3;
+}

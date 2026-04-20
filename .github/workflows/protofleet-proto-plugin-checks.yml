@@ -1,0 +1,92 @@
+name: Proto Plugin Checks
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/protofleet-proto-plugin-checks.yml"
+      - ".github/actions/go-cache-setup/action.yml"
+      - ".github/actions/hermit-setup/action.yml"
+      - "bin/hermit.hcl"
+      - "hermit-packages/**"
+      - "go.work"
+      - "go.work.sum"
+      - "just/go-plugin.just"
+      - "proto/**"
+      - "plugin/proto/**"
+      - "server/fake-proto-rig/**"
+      - "server/go.mod"
+      - "server/go.sum"
+      - "server/sdk/**"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/protofleet-proto-plugin-checks.yml"
+      - ".github/actions/go-cache-setup/action.yml"
+      - ".github/actions/hermit-setup/action.yml"
+      - "bin/hermit.hcl"
+      - "hermit-packages/**"
+      - "go.work"
+      - "go.work.sum"
+      - "just/go-plugin.just"
+      - "proto/**"
+      - "plugin/proto/**"
+      - "server/fake-proto-rig/**"
+      - "server/go.mod"
+      - "server/go.sum"
+      - "server/sdk/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  proto-plugin:
+    name: Proto Plugin
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: plugin/proto
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Hermit
+        uses: ./.github/actions/hermit-setup
+
+      - name: Configure Go cache
+        uses: ./.github/actions/go-cache-setup
+
+      - name: Check formatting
+        run: golangci-lint fmt --diff -c .golangci.yaml
+      - name: Build
+        run: just build
+
+      - name: Prepare Docker for integration tests
+        run: |
+          # Proto integration tests use testcontainers and build the fake-proto-rig
+          # image from server/fake-proto-rig/Dockerfile. Warming the daemon and
+          # required base images makes CI failures deterministic.
+          echo "Waiting for Docker daemon to be ready..."
+          for i in {1..30}; do
+            if docker info >/dev/null 2>&1; then
+              echo "Docker daemon is ready"
+              break
+            fi
+            echo "Attempt $i: Docker daemon not ready, waiting 2 seconds..."
+            sleep 2
+          done
+
+          if ! docker info >/dev/null 2>&1; then
+            echo "ERROR: Docker daemon did not become ready after 30 attempts; aborting integration test setup."
+            exit 1
+          fi
+
+          docker pull hello-world:latest
+          docker run --rm hello-world:latest
+          docker pull ubuntu:22.04
+          docker pull golang:1.25.4-alpine
+          docker pull alpine:3.21
+
+      - name: Check
+        run: just check

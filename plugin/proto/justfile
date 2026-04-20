@@ -1,0 +1,24 @@
+import '../../just/go-plugin.just'
+
+# list available recipes
+default:
+  just --list
+
+# run all tests
+test:
+  go test --count=1 ./...
+
+# run all tests with extended timeout
+test-long:
+  go test --count=1 -timeout=30m ./...
+
+# run unit tests only
+test-unit:
+  go test --count=1 ./tests/unit/...
+
+# run integration tests only
+test-integration:
+  go test --count=1 -timeout=30m ./tests/...
+
+# run linting and tests together with the extended timeout required by CI integration tests
+check: lint test-long

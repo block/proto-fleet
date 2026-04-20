@@ -1,0 +1,83 @@
+x-extends:
+  file: ./server/docker-compose.base.yaml
+
+services:
+  fleet-api:
+    extends:
+      file: ./server/docker-compose.base.yaml
+      service: fleet-api
+    build:
+      context: ./server
+    environment:
+      LOG_LEVEL: "INFO"
+      AUTH_CLIENT_SECRET_KEY: "${AUTH_CLIENT_SECRET_KEY}"
+      DB_USERNAME: "${DB_USERNAME}"
+      DB_PASSWORD: "${DB_PASSWORD}"
+      ENCRYPT_SERVICE_MASTER_KEY: "${ENCRYPT_SERVICE_MASTER_KEY}"
+      SESSION_COOKIE_SECURE: "${SESSION_COOKIE_SECURE:-true}"
+      PLUGINS_DIR: "/app/plugins"
+      PLUGINS_ENABLED: "true"
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    restart: always
+    network_mode: host
+    extra_hosts:
+      - "timescaledb:127.0.0.1"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+        compress: "true"
+
+  fleet-client:
+    build:
+      context: ./client
+    depends_on:
+      - fleet-api
+    restart: always
+    network_mode: host
+    volumes:
+      - ./ssl:/etc/nginx/ssl:ro
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+        compress: "true"
+
+  timescaledb:
+    extends:
+      file: ./server/docker-compose.base.yaml
+      service: timescaledb
+    image: proto-fleet-timescaledb:latest
+    pull_policy: never
+    environment:
+      POSTGRES_DB: "${DB_NAME:-fleet}"
+      POSTGRES_USER: "${DB_USERNAME:-fleet}"
+      POSTGRES_PASSWORD: "${DB_PASSWORD}"
+    restart: always
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "psql -U ${DB_USERNAME:-fleet} -d ${DB_NAME:-fleet} -c 'SELECT 1' > /dev/null 2>&1",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 18
+      start_period: 60s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+        compress: "true"
+
+volumes:
+  timescaledb-data:
+
+networks:
+  fleet-network:
+    driver: bridge

@@ -1,0 +1,286 @@
+name: Codex Security Review
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, synchronize]
+
+jobs:
+  security-review:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: codex-security-review-${{ github.ref }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      CODEX_MODEL: gpt-5.4
+      CODEX_REASONING_EFFORT: xhigh
+      REVIEW_SCOPE_LABEL: ${{ github.event_name == 'pull_request' && 'PR diff only' || 'Push diff only' }}
+      REVIEW_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || (github.event.before && !startsWith(github.event.before, '0000000000000000000000000000000000000000') && github.event.before || github.sha) }}
+      REVIEW_HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      REVIEW_COMMIT_RANGE: ${{ github.event_name == 'pull_request' && format('{0}...{1}', github.event.pull_request.base.sha, github.event.pull_request.head.sha) || (github.event.before && !startsWith(github.event.before, '0000000000000000000000000000000000000000') && format('{0}..{1}', github.event.before, github.sha) || format('{0}..{0}', github.sha)) }}
+      REVIEW_BLOB_BASE_URL: ${{ format('https://github.com/{0}/blob/{1}', github.repository, github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha) }}
+      REVIEW_DIFF_FILE: .git/codex-review.diff
+    steps:
+      - name: Checkout push commit
+        if: github.event_name == 'push'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Checkout PR head commit
+        if: startsWith(github.event_name, 'pull_request')
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Fetch exact PR base and head commits
+        if: startsWith(github.event_name, 'pull_request')
+        env:
+          GIT_TERMINAL_PROMPT: 0
+          REVIEW_BASE_SHA: ${{ env.REVIEW_BASE_SHA }}
+          REVIEW_HEAD_SHA: ${{ env.REVIEW_HEAD_SHA }}
+        run: |
+          git -c protocol.version=2 \
+              fetch --no-tags origin \
+              "$REVIEW_BASE_SHA" \
+              "$REVIEW_HEAD_SHA"
+
+      - name: Write review diff
+        env:
+          REVIEW_COMMIT_RANGE: ${{ env.REVIEW_COMMIT_RANGE }}
+          REVIEW_DIFF_FILE: ${{ env.REVIEW_DIFF_FILE }}
+        run: |
+          git diff --find-renames --submodule=diff --unified=80 "$REVIEW_COMMIT_RANGE" > "$REVIEW_DIFF_FILE"
+
+      - name: Run Codex Security Review
+        id: run_codex
+        if: ${{ env.OPENAI_API_KEY != '' }}
+        uses: openai/codex-action@c25d10f3f498316d4b2496cc4c6dd58057a7b031 # v1.6
+        with:
+          openai-api-key: ${{ env.OPENAI_API_KEY }}
+          model: ${{ env.CODEX_MODEL }}
+          codex-args: '["-c","model_reasoning_effort=${{ env.CODEX_REASONING_EFFORT }}"]'
+
+          safety-strategy: drop-sudo
+          sandbox: read-only
+
+          prompt: |
+            # Proto Fleet Security, Correctness & Reliability Review
+
+            You are reviewing a pull request for **Proto Fleet**, an open-source fleet
+            management platform for Bitcoin miners. The architecture includes:
+            - **Go backend** (`server/`): Connect-RPC/gRPC handlers, JWT authentication,
+              PostgreSQL/TimescaleDB with sqlc-generated queries, database migrations,
+              device pairing, telemetry collection, and command execution queues
+            - **React/TypeScript frontend** (`client/`): Two apps — ProtoOS (single-miner
+              REST dashboard) and ProtoFleet (fleet-wide gRPC streaming UI) — using Vite,
+              Zustand, and Connect-RPC
+            - **Go plugin system** (`plugin/`): HashiCorp go-plugin based device drivers
+              for Antminer, Proto miner, and virtual devices — each runs as a separate
+              process communicating over gRPC
+            - **Rust ASIC plugin** (`plugin/asicrs/`): Rust-based multi-manufacturer ASIC miner
+              control via gRPC
+            - **Example Python plugin** (`plugin/example-python/`): minimal example plugin for reference
+            - **Network discovery**: Nmap scanning and mDNS/Zeroconf for automatic device
+              discovery on the local network
+            - **Infrastructure**: Docker multi-stage builds, Docker Compose orchestration,
+              Nginx reverse proxy, multi-arch (amd64/arm64) deployment
+
+            Perform a review focused strictly on the latest changes.
+            Start by reading `${{ env.REVIEW_DIFF_FILE }}` and treat it as the authoritative review scope.
+            - The checked out repository contents are pinned to commit `${{ env.REVIEW_HEAD_SHA }}`.
+            - For pull request runs, `${{ env.REVIEW_DIFF_FILE }}` was generated from the exact PR diff `${{ env.REVIEW_COMMIT_RANGE }}`.
+            - For push runs, `${{ env.REVIEW_DIFF_FILE }}` was generated from the exact push diff `${{ env.REVIEW_COMMIT_RANGE }}`.
+            Focus on:
+            - **Authentication & authorization**: JWT token handling, session management, missing auth checks on endpoints, privilege escalation
+            - **SQL injection & database security**: Raw SQL in migrations or queries bypassing sqlc, unsafe interpolation, credential exposure, migration ordering issues
+            - **gRPC/Connect-RPC security**: Missing request validation, sensitive data in error responses, unbounded streaming, missing protobuf field validation
+            - **Command injection**: Especially in Nmap invocations, miner API calls, plugin command execution, and any shell-out patterns (exec.Command)
+            - **Network discovery trust boundaries**: Spoofed mDNS responses, SSRF via crafted device addresses, trusting unvalidated data from discovered devices
+            - **Plugin system safety**: HashiCorp go-plugin trust boundaries, malicious plugin responses, unvalidated data crossing the plugin gRPC boundary
+            - **Concurrency hazards**: Goroutine leaks, race conditions on shared state, channel misuse, mutex deadlocks, unsafe map access
+            - **Reliability risks**: Unrecovered panics in handlers, unbounded memory/CPU from device telemetry floods, resource leaks (DB connections, HTTP clients, goroutines)
+            - **Frontend security**: XSS via device-supplied data rendered in React, credential/token exposure in client state or localStorage, insecure API error handling
+            - **Infrastructure risks**: Docker container privilege escalation, exposed ports, secrets in Docker Compose or build args, insecure Nginx config
+            - **Rust ASIC plugin security**: Unsafe blocks, unvalidated miner responses, dependency confusion risks
+            - **Cryptostealing & pool hijacking**: Code that swaps, overrides, or silently modifies mining pool URLs, stratum addresses, wallet/payout addresses, or worker credentials — whether in backend handlers, plugin responses, miner command payloads, database migrations, frontend state, or configuration defaults. Flag any hardcoded wallet addresses, obfuscated address strings, conditional logic that redirects hashrate or payouts, or pool configuration that differs from user-supplied values. This is critical — a compromised pool address means stolen hashrate and revenue.
+            - **Protocol Buffer / code generation**: Breaking wire-format changes, field type mismatches between generated Go/TypeScript/Python code
+
+            ## Output Format
+
+            Provide a structured review with:
+
+            ## Review Summary
+
+            **Overall Risk**: [CRITICAL|HIGH|MEDIUM|LOW|NONE]
+
+            ### Findings
+
+            #### [SEVERITY] Issue Title
+            - **Category**: Auth | SQLi/Database | gRPC | Command Injection | Network Discovery | Plugin | Concurrency | Reliability | Frontend | Infrastructure | Python | Protobuf | Cryptostealing/Pool Hijack | Other
+            - **Location**: [`path/to/file.go:123`](${{ env.REVIEW_BLOB_BASE_URL }}/path/to/file.go#L123)
+            - **Description**: Clear explanation of the security issue
+            - **Impact**: What could go wrong (security, correctness, reliability implications)
+            - **Recommendation**: Specific fix or mitigation
+            (Always render the **Location** line as a Markdown link that points to `${{ env.REVIEW_BLOB_BASE_URL }}/<path>#L<line>` so readers can jump to the exact commit you reviewed, and URL-encode any special characters in `<path>`.)
+
+            [Repeat for each finding]
+
+            ### Notes
+
+            [Any other relevant security, correctness, or reliability considerations]
+            Do not wrap the review in Markdown code fences.
+
+            ## Important Constraints
+
+            - Use `${{ env.REVIEW_DIFF_FILE }}` as the source of truth for changed hunks and locations
+            - For PR runs: review ONLY the exact PR diff `${{ env.REVIEW_COMMIT_RANGE }}`, not the merge commit, not the base branch tip, and not the entire codebase
+            - For push runs: review ONLY the exact push diff `${{ env.REVIEW_COMMIT_RANGE }}`
+            - Be specific: cite file paths and line numbers from the diff
+            - Prioritize high-impact issues; avoid stylistic or low-risk nits
+
+      - name: Post Codex security review
+        if: steps.run_codex.outputs.final-message != ''
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          REVIEW_OUTPUT: ${{ steps.run_codex.outputs.final-message }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const review = process.env.REVIEW_OUTPUT;
+            const scopeLabel = process.env.REVIEW_SCOPE_LABEL || (context.eventName === 'pull_request' ? 'PR diff only' : 'Push diff only');
+            const commitRange = process.env.REVIEW_COMMIT_RANGE || `${context.sha}..${context.sha}`;
+            const modelName = process.env.CODEX_MODEL || 'unknown';
+            const scopeSummaryLine = context.eventName === 'pull_request'
+              ? `Reviewed pull request diff only (\`${commitRange}\`, exact PR three-dot diff)`
+              : `Reviewed push diff only (\`${commitRange}\`)`;
+
+            const marker = '<!-- codex-security-review -->';
+            const buildComment = (login) => `${marker}
+            ## 🔐 Codex Security Review
+
+            > **Note**: This is an automated security-focused code review generated by Codex.
+            > It should be used as a supplementary check alongside human review.
+            > False positives are possible - use your judgment.
+            >
+            > **Scope summary**
+            > - ${scopeSummaryLine}
+            > - Model: ${modelName}
+            >
+            > 💡 *Click "edited" above to see previous reviews for this PR.*
+
+            ---
+
+            ${review}
+
+            ---
+
+            <sub>Generated by [Codex Security Review](https://github.com/openai/codex-action) |
+            Triggered by: @${login} |
+            [Review workflow run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})</sub>`;
+
+            async function postOrUpdateComment(prNumber, login) {
+              const owner = context.repo.owner;
+              const repo = context.repo.repo;
+              const body = buildComment(login);
+
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner,
+                repo,
+                issue_number: prNumber,
+                per_page: 100,
+              });
+
+              const existingComment = comments.find(c =>
+                c.user?.login === 'github-actions[bot]' &&
+                c.user?.type === 'Bot' &&
+                c.body?.includes(marker)
+              );
+
+              if (existingComment) {
+                await github.rest.issues.updateComment({
+                  owner,
+                  repo,
+                  comment_id: existingComment.id,
+                  body: body,
+                });
+                core.info(`Updated existing Codex review comment #${existingComment.id}`);
+              } else {
+                await github.rest.issues.createComment({
+                  owner,
+                  repo,
+                  issue_number: prNumber,
+                  body: body,
+                });
+                core.info(`Created new Codex review comment on PR #${prNumber}`);
+              }
+            }
+
+            try {
+              if (context.eventName === 'pull_request') {
+                await postOrUpdateComment(
+                  context.payload.pull_request.number,
+                  context.payload.pull_request.user.login
+                );
+                return;
+              }
+
+              if (context.eventName === 'push') {
+                const owner = context.repo.owner;
+                const repo = context.repo.repo;
+                const refName = process.env.GITHUB_REF_NAME;
+                const { data: prs } = await github.rest.pulls.list({
+                  owner,
+                  repo,
+                  head: `${owner}:${refName}`,
+                  state: 'open',
+                });
+
+                if (!prs.length) {
+                  core.info(`No open pull requests found for ${refName}; skipping PR comment.`);
+                  return;
+                }
+
+                const pr = prs[0];
+                await postOrUpdateComment(pr.number, pr.user.login);
+                return;
+              }
+
+              core.info(`Event ${context.eventName} is not associated with a pull request; skipping PR comment.`);
+            } catch (error) {
+              core.warning(`Unable to post Codex review comment: ${error.message}`);
+            }
+
+      - name: Write review to job summary (push only)
+        if: github.event_name == 'push' && steps.run_codex.outputs.final-message != ''
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          REVIEW_OUTPUT: ${{ steps.run_codex.outputs.final-message }}
+        with:
+          script: |
+            const review = process.env.REVIEW_OUTPUT || '';
+            const commitRange = process.env.REVIEW_COMMIT_RANGE || `${process.env.GITHUB_SHA}..${process.env.GITHUB_SHA}`;
+            const scopeLabel = process.env.REVIEW_SCOPE_LABEL || 'Push diff only';
+            const modelName = process.env.CODEX_MODEL || 'unknown';
+            await core.summary
+              .addHeading('🔐 Codex Security Review (push)', 2)
+              .addBreak()
+              .addList([
+                `Ref: ${process.env.GITHUB_REF}`,
+                `Commit: ${process.env.GITHUB_SHA}`,
+                `Scope: ${scopeLabel} (${commitRange})`,
+                `Model: ${modelName}`,
+              ])
+              .addBreak()
+              .addSeparator()
+              .addBreak()
+              .addRaw(review)
+              .write();

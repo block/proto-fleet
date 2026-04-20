@@ -1,0 +1,66 @@
+version: "2"
+sql:
+  - engine: "postgresql"
+    queries: "sqlc/queries"
+    schema: "migrations"
+    gen:
+      go:
+        package: "sqlc"
+        out: "generated/sqlc"
+        emit_prepared_queries: true
+        sql_package: "database/sql"
+        overrides:
+          # TimescaleDB continuous aggregate type overrides
+          # The time_bucket() function and aggregates return types that sqlc cannot infer
+          - column: "device_metrics_hourly.bucket"
+            go_type: "time.Time"
+          - column: "device_metrics_hourly.max_hash_rate"
+            go_type:
+              import: "database/sql"
+              type: "NullFloat64"
+          - column: "device_metrics_hourly.min_hash_rate"
+            go_type:
+              import: "database/sql"
+              type: "NullFloat64"
+          - column: "device_metrics_hourly.max_temp"
+            go_type:
+              import: "database/sql"
+              type: "NullFloat64"
+          - column: "device_metrics_hourly.min_temp"
+            go_type:
+              import: "database/sql"
+              type: "NullFloat64"
+          - column: "device_metrics_hourly.total_power"
+            go_type:
+              import: "database/sql"
+              type: "NullFloat64"
+          - column: "device_metrics_daily.bucket"
+            go_type: "time.Time"
+          - column: "device_metrics_daily.max_hash_rate"
+            go_type:
+              import: "database/sql"
+              type: "NullFloat64"
+          - column: "device_metrics_daily.min_hash_rate"
+            go_type:
+              import: "database/sql"
+              type: "NullFloat64"
+          - column: "device_metrics_daily.max_temp"
+            go_type:
+              import: "database/sql"
+              type: "NullFloat64"
+          - column: "device_metrics_daily.min_temp"
+            go_type:
+              import: "database/sql"
+              type: "NullFloat64"
+          # Status aggregate type overrides
+          - column: "device_status_hourly.bucket"
+            go_type: "time.Time"
+          - column: "device_status_daily.bucket"
+            go_type: "time.Time"
+          # Schedule TIME columns are read back as strings by the current DB driver.
+          - column: "schedule.start_time"
+            go_type: "string"
+          - column: "schedule.end_time"
+            go_type:
+              import: "database/sql"
+              type: "NullString"
