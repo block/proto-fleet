@@ -180,6 +180,22 @@ export class BasePage {
     await expect(this.page).toHaveURL(/.*\/settings\/firmware/);
   }
 
+  async navigateToApiKeysSettings() {
+    await this.clickNavigationMenuIfMobile();
+    await this.clickExpandSettingsIfMobile();
+    await this.navigateSettingsIfDesktop();
+    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/api-keys"]').click();
+    await expect(this.page).toHaveURL(/.*\/settings\/api-keys/);
+  }
+
+  async navigateToSchedulesSettings() {
+    await this.clickNavigationMenuIfMobile();
+    await this.clickExpandSettingsIfMobile();
+    await this.navigateSettingsIfDesktop();
+    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/schedules"]').click();
+    await expect(this.page).toHaveURL(/.*\/settings\/schedules/);
+  }
+
   async clickButton(text: string) {
     await this.page.getByRole("button", { name: text, disabled: false, exact: true }).click();
   }
