@@ -277,6 +277,9 @@ const RackOverviewPage = () => {
           <Header
             title={rack?.label ?? ""}
             titleSize="text-heading-300"
+            subtitle={rackInfo?.zone || undefined}
+            subtitleSize="text-300"
+            subtitleClassName="text-text-primary"
             inline
             icon={<ChevronDown className="rotate-90" />}
             iconAriaLabel="Back to racks"
