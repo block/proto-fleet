@@ -183,18 +183,17 @@ interface BucketConfig {
 /**
  * Determine bucket size based on duration to prevent bar overlap.
  * Target bar counts:
- * - 3d: 18 bars (6 bars/day = 4h buckets)
- * - 10d: 20 bars (2 bars/day = 12h buckets)
+ * - 7d: 14 bars (2 bars/day = 12h buckets)
  * - 30d: 30 bars (1 bar/day = 24h buckets)
  * - 90d: ~13 bars (weekly = 168h buckets)
  * - 1y: ~26 bars (bi-weekly = 336h buckets)
  */
 const getBucketConfig = (days: number): BucketConfig => {
   if (days <= 3) {
-    // 3d: 6 bars per day (4h buckets)
+    // Up to 3d: 6 bars per day (4h buckets)
     return { hoursPerBucket: 4 };
   } else if (days <= 10) {
-    // 10d: 2 bars per day (12h buckets)
+    // Up to 10d: 2 bars per day (12h buckets)
     return { hoursPerBucket: 12 };
   } else if (days <= 30) {
     // 30d: 1 bar per day (24h buckets)

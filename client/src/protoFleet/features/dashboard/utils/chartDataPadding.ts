@@ -6,7 +6,7 @@ import type { ChartData } from "@/shared/components/LineChart/types";
  * Pad chart data with null values for missing timestamps in the requested duration
  *
  * @param data - The actual chart data from the API
- * @param duration - The requested time duration (e.g., "24h", "3d")
+ * @param duration - The requested time duration (e.g., "24h", "7d")
  * @returns Chart data padded with null values for the full time range
  *
  * @example

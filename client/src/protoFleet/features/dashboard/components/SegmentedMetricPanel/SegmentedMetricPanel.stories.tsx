@@ -4,6 +4,7 @@ import { SegmentedMetricPanel } from "./SegmentedMetricPanel";
 import type { SegmentConfig } from "./types";
 import type { TemperatureStatusCount } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { Triangle } from "@/shared/assets/icons";
+import { fleetDurations } from "@/shared/components/DurationSelector";
 
 const meta = {
   title: "Proto Fleet/Dashboard/SegmentedMetricPanel",
@@ -37,7 +38,7 @@ const meta = {
     },
     duration: {
       control: "select",
-      options: ["1h", "24h", "3d", "10d", "30d", "90d", "1y"],
+      options: fleetDurations,
       description: "Time duration for the chart display",
     },
   },
@@ -172,25 +173,25 @@ export const TwentyFourHourDuration: Story = {
   },
 };
 
-// 48 Hour Duration - Multiple charts with 12 bars per day
-export const FortyEightHourDuration: Story = {
+// 7 Day Duration - Multiple charts with 2 bars per day
+export const SevenDayDuration: Story = {
   args: {
     title: "Temperature",
     headline: "9.5% outside safe range",
-    chartData: generateGranularData(49), // Generate 49 hours of minute-level data
+    chartData: generateGranularData(169), // Generate just over 7 days of minute-level data
     segmentConfig: temperatureSegmentConfig,
-    duration: "3d",
+    duration: "7d",
   },
 };
 
-// 5 Day Duration - Multiple charts with 6 bars per day
-export const FiveDayDuration: Story = {
+// 30 Day Duration - Daily bars over a month
+export const ThirtyDayDuration: Story = {
   args: {
     title: "Temperature",
     headline: "10.5% outside safe range",
-    chartData: generateGranularData(121), // Generate 121 hours of minute-level data
+    chartData: generateGranularData(24 * 31), // Generate just over 30 days of minute-level data
     segmentConfig: temperatureSegmentConfig,
-    duration: "10d",
+    duration: "30d",
   },
 };
 

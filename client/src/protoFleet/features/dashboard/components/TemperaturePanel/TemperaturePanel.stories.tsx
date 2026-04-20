@@ -7,7 +7,7 @@ import {
   TemperatureStatusCountSchema,
 } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { durationToHours } from "@/protoFleet/features/dashboard/components/SegmentedMetricPanel/utils";
-import type { FleetDuration } from "@/shared/components/DurationSelector";
+import { type FleetDuration, fleetDurations } from "@/shared/components/DurationSelector";
 
 // Helper to create mock temperature status counts
 const createMockTemperatureStatusCount = (
@@ -109,7 +109,7 @@ const meta = {
   argTypes: {
     duration: {
       control: "select",
-      options: ["1h", "24h", "3d", "10d", "30d", "90d", "1y"],
+      options: fleetDurations,
       description: "Time range for the temperature data",
     },
     coldCount: {

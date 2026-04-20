@@ -28,12 +28,14 @@ describe("DurationSelector constants", () => {
   describe("isFleetDuration", () => {
     it("returns true for valid Fleet durations", () => {
       expect(isFleetDuration("1h")).toBe(true);
-      expect(isFleetDuration("3d")).toBe(true);
+      expect(isFleetDuration("7d")).toBe(true);
       expect(isFleetDuration("1y")).toBe(true);
     });
 
     it("returns false for invalid Fleet duration values", () => {
       expect(isFleetDuration("12h")).toBe(false);
+      expect(isFleetDuration("3d")).toBe(false);
+      expect(isFleetDuration("10d")).toBe(false);
       expect(isFleetDuration("invalid")).toBe(false);
       expect(isFleetDuration("__proto__")).toBe(false);
       expect(isFleetDuration("constructor")).toBe(false);

@@ -9,6 +9,7 @@ import {
   bulkRenameModes,
   normalizeBulkRenamePreferences,
 } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/bulkRenameDefinitions";
+import { isFleetDuration } from "@/shared/components/DurationSelector";
 
 // =============================================================================
 // Combined Store Interface
@@ -149,6 +150,7 @@ export const useFleetStore = create<FleetStore>()(
           merge: (persistedState, currentState) => {
             const persisted = persistedState as any;
             const hasPersistedSession = persisted?.auth?.isAuthenticated && persisted?.auth?.sessionExpiry;
+            const persistedDuration = persisted?.ui?.duration;
 
             return {
               ...currentState,
@@ -165,7 +167,7 @@ export const useFleetStore = create<FleetStore>()(
                 ...currentState.ui,
                 theme: persisted?.ui?.theme ?? currentState.ui.theme,
                 temperatureUnit: persisted?.ui?.temperatureUnit ?? currentState.ui.temperatureUnit,
-                duration: persisted?.ui?.duration ?? currentState.ui.duration,
+                duration: isFleetDuration(persistedDuration) ? persistedDuration : currentState.ui.duration,
                 racksViewMode: persisted?.ui?.racksViewMode ?? currentState.ui.racksViewMode,
                 bulkRenamePreferences: normalizeBulkRenamePreferences(
                   persisted?.ui?.bulkRenamePreferences ?? currentState.ui.bulkRenamePreferences,

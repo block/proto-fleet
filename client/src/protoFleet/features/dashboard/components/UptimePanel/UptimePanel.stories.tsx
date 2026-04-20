@@ -5,7 +5,7 @@ import type { Meta, StoryObj } from "@storybook/react";
 import { UptimePanel } from "./UptimePanel";
 import { type UptimeStatusCount, UptimeStatusCountSchema } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { durationToHours } from "@/protoFleet/features/dashboard/components/SegmentedMetricPanel/utils";
-import type { FleetDuration } from "@/shared/components/DurationSelector";
+import { type FleetDuration, fleetDurations } from "@/shared/components/DurationSelector";
 
 // Helper to create mock uptime status counts
 const createMockUptimeStatusCount = (
@@ -92,7 +92,7 @@ const meta = {
   argTypes: {
     duration: {
       control: "select",
-      options: ["1h", "24h", "3d", "10d", "30d", "90d", "1y"],
+      options: fleetDurations,
       description: "Time range for the uptime data",
     },
     hashingCount: {
@@ -233,22 +233,22 @@ export const LargeFleet: Story = {
 };
 
 /**
- * 48-hour view showing uptime trends over two days.
+ * 7-day view showing uptime trends over a full week.
  */
-export const FortyEightHours: Story = {
+export const OneWeek: Story = {
   args: {
-    duration: "3d",
+    duration: "7d",
     hashingCount: 8,
     notHashingCount: 2,
   },
 };
 
 /**
- * 5-day view showing uptime patterns over nearly a week.
+ * 30-day view showing uptime patterns over a month.
  */
-export const FiveDays: Story = {
+export const ThirtyDays: Story = {
   args: {
-    duration: "10d",
+    duration: "30d",
     hashingCount: 8,
     notHashingCount: 2,
   },

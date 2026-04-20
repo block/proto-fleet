@@ -68,10 +68,10 @@ describe("padChartDataWithNulls", () => {
     expect(result1h.length).toBeGreaterThan(30);
     expect(result1h.length).toBeLessThanOrEqual(50);
 
-    // 3 days (48h-5d range) uses 180s (3min) granularity: ~1440 buckets (259200s / 180s)
-    const result3d = padChartDataWithNulls(data, "3d");
-    expect(result3d.length).toBeGreaterThan(1400);
-    expect(result3d.length).toBeLessThanOrEqual(1500);
+    // 7 days use 900s granularity: 672 buckets (604800s / 900s)
+    const result7d = padChartDataWithNulls(data, "7d");
+    expect(result7d.length).toBeGreaterThan(650);
+    expect(result7d.length).toBeLessThanOrEqual(1000);
 
     // 24 hours uses 90s granularity: ~960 buckets
     const result24h = padChartDataWithNulls(data, "24h");

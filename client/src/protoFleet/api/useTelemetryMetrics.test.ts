@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { getGranularityForDuration } from "@/protoFleet/features/dashboard/utils/granularity";
 import { FleetDuration } from "@/shared/components/DurationSelector";
 
 // Import the constants and function we need to test
@@ -24,16 +25,10 @@ describe("useTelemetryMetrics granularity calculations", () => {
       expect(seconds).toBe(86400);
     });
 
-    it("converts 3d to 259200 seconds", () => {
-      const duration: FleetDuration = "3d";
+    it("converts 7d to 604800 seconds", () => {
+      const duration: FleetDuration = "7d";
       const seconds = parseInt(duration.slice(0, -1)) * 24 * 3600;
-      expect(seconds).toBe(259200);
-    });
-
-    it("converts 10d to 864000 seconds", () => {
-      const duration: FleetDuration = "10d";
-      const seconds = parseInt(duration.slice(0, -1)) * 24 * 3600;
-      expect(seconds).toBe(864000);
+      expect(seconds).toBe(604800);
     });
 
     it("converts 30d to 2592000 seconds", () => {
@@ -64,12 +59,12 @@ describe("useTelemetryMetrics granularity calculations", () => {
       expect(buckets).toBeLessThanOrEqual(BACKEND_BUCKET_LIMIT);
     });
 
-    it("uses 600s (10min) granularity for 3d (432 buckets)", () => {
-      const durationSeconds = 259200; // 3d
-      const granularity = 600;
+    it("uses 900s granularity for 7d (672 buckets)", () => {
+      const durationSeconds = 604800; // 7d
+      const granularity = 900;
       const buckets = calculateBucketCount(durationSeconds, granularity);
 
-      expect(buckets).toBe(432);
+      expect(buckets).toBe(672);
       expect(buckets).toBeLessThanOrEqual(BACKEND_BUCKET_LIMIT);
     });
 
@@ -84,12 +79,12 @@ describe("useTelemetryMetrics granularity calculations", () => {
   });
 
   describe("granularity would exceed limit with wrong values", () => {
-    it("3d with 90s granularity would exceed limit (2880 buckets)", () => {
-      const durationSeconds = 259200; // 3d
-      const wrongGranularity = 90;
+    it("7d with 600s granularity would exceed limit (1008 buckets)", () => {
+      const durationSeconds = 604800; // 7d
+      const wrongGranularity = 600;
       const buckets = calculateBucketCount(durationSeconds, wrongGranularity);
 
-      expect(buckets).toBe(2880);
+      expect(buckets).toBe(1008);
       expect(buckets).toBeGreaterThan(1000); // Would fail without optimization
     });
 
@@ -104,6 +99,13 @@ describe("useTelemetryMetrics granularity calculations", () => {
   });
 
   describe("edge cases", () => {
+    it("keeps 7d granularity aligned with hourly aggregates", () => {
+      const granularity = getGranularityForDuration("7d");
+
+      expect(granularity).toBe(900);
+      expect(3600 % granularity).toBe(0);
+    });
+
     it("invalid duration returns default granularity (90s)", () => {
       // This tests that invalid durations fall back to 90s default
       const defaultGranularity = 90;

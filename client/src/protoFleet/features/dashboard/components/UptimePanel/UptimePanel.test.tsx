@@ -140,11 +140,7 @@ describe("UptimePanel", () => {
     expect(screen.getByText("Uptime")).toBeInTheDocument();
     expect(screen.getByText("All miners hashing")).toBeInTheDocument();
 
-    rerender(<UptimePanel duration={"3d"} uptimeStatusCounts={uptimeStatusCounts} />);
-    expect(screen.getByText("Uptime")).toBeInTheDocument();
-    expect(screen.getByText("All miners hashing")).toBeInTheDocument();
-
-    rerender(<UptimePanel duration={"10d"} uptimeStatusCounts={uptimeStatusCounts} />);
+    rerender(<UptimePanel duration={"7d"} uptimeStatusCounts={uptimeStatusCounts} />);
     expect(screen.getByText("Uptime")).toBeInTheDocument();
     expect(screen.getByText("All miners hashing")).toBeInTheDocument();
 
