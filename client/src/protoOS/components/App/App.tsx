@@ -1,17 +1,12 @@
 import { ComponentType, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 
+import AuthenticatedShell from "./AuthenticatedShell";
 import ErrorCallout from "./ErrorCallout";
 import WakeCallout from "./WakeCallout";
 import WarmingUpCallout from "./WarmingUpCallout";
-import { useErrors } from "@/protoOS/api/hooks/useErrors";
-import { useFirmwareUpdate } from "@/protoOS/api/hooks/useFirmwareUpdate";
-import { useHardware } from "@/protoOS/api/hooks/useHardware";
-import { useHashboardStatus } from "@/protoOS/api/hooks/useHashboardStatus";
 import { useMiningStart } from "@/protoOS/api/hooks/useMiningStart";
 import { useMiningStatus } from "@/protoOS/api/hooks/useMiningStatus";
-import { useNetworkInfo } from "@/protoOS/api/hooks/useNetworkInfo";
-import { usePoolsInfo } from "@/protoOS/api/hooks/usePoolsInfo";
 import { useSystemInfo } from "@/protoOS/api/hooks/useSystemInfo";
 import { useSystemStatus } from "@/protoOS/api/hooks/useSystemStatus";
 import AppLayout from "@/protoOS/components/AppLayout";
@@ -21,13 +16,18 @@ import { navigationMenuTypes } from "@/protoOS/components/NavigationMenu";
 import NoPoolsCallout from "@/protoOS/components/NoPoolsCallout";
 import { WarnWakeDialog } from "@/protoOS/components/Power";
 import LoginModal from "@/protoOS/features/auth/components/LoginModal";
-import { useOnboarded, usePasswordSet, usePoolsInfo as usePoolsInfoStore } from "@/protoOS/store";
+import { isAuthRequiredPath } from "@/protoOS/routeAuth";
+import {
+  useDefaultPasswordActive,
+  useOnboarded,
+  usePasswordSet,
+  usePoolsInfo as usePoolsInfoStore,
+} from "@/protoOS/store";
 import {
   useAccessToken,
   useDeviceTheme,
   useFirmwareUpdateInstalling,
   useFwUpdateStatus,
-  useHashboardSerials,
   useIsMining,
   useIsMiningDriverRunning,
   useIsSleeping,
@@ -81,36 +81,11 @@ const App = ({
 
   // Infer if this is an onboarding route from the pathname
   const isOnboardingRoute = pathname.startsWith("/onboarding");
+  const isPasswordChangeRoute = pathname === "/onboarding/authentication" || pathname === "/settings/authentication";
 
   // ============================================================================
   // STORE BOOTSTRAPPING - Fetch and populate stores
   // ============================================================================
-
-  // Fetch and populate hardware store
-  useHardware();
-
-  // Fetch and poll system info (updates store)
-  const { reload: reloadSystemInfo } = useSystemInfo({
-    poll: true,
-    pollIntervalMs: 35000,
-  });
-
-  // Fetch network info once (updates store)
-  useNetworkInfo({
-    poll: false,
-  });
-
-  // Poll for errors
-  useErrors({ poll: true, pollIntervalMs: 15 * 1000 });
-
-  // Poll for mining status
-  const { data: miningStatus, fetchData: fetchMiningStatus } = useMiningStatus({
-    poll: true,
-    pollIntervalMs: 15 * 1000,
-  });
-
-  // Poll for pools info
-  usePoolsInfo({ poll: true, pollIntervalMs: 15 * 1000 });
 
   // Fetch system status (populates store)
   useSystemStatus();
@@ -119,43 +94,27 @@ const App = ({
   // undefined = pending/not fetched yet
   const isOnboarded = useOnboarded();
   const isPasswordSet = usePasswordSet();
+  const isDefaultPasswordActive = useDefaultPasswordActive();
 
-  // Get hashboard serials from store to fetch ASIC layout data
-  const hashboardSerials = useHashboardSerials();
+  const { hasAccess } = useAccessToken();
+  // Require defaultPasswordActive to be explicitly resolved as false before
+  // firing protected hooks. `!== true` would treat `undefined` (status still
+  // loading) as safe, producing a burst of 403s on a factory-password device
+  // during the window between token validation and status resolution.
+  const canAccessProtectedApi = hasAccess === true && isDefaultPasswordActive === false;
 
-  // Fetch ASIC layout data for all hashboards
-  // No polling needed - ASIC positions don't change
-  useHashboardStatus({
-    hashboardSerialNumbers: hashboardSerials,
-    poll: false,
+  // Public endpoint — runs regardless of canAccessProtectedApi so bootup
+  // flags stay fresh before the user has authenticated.
+  const { reload: reloadSystemInfo } = useSystemInfo({
+    poll: true,
+    pollIntervalMs: 35000,
   });
 
-  // ============================================================================
-  // FIRMWARE UPDATE CHECK
-  // ============================================================================
-  const { checkFirmwareUpdate } = useFirmwareUpdate();
-  useEffect(() => {
-    const checkForFirmwareUpdates = () => {
-      checkFirmwareUpdate()
-        .then(() => {
-          reloadSystemInfo();
-        })
-        .catch((error) => {
-          // Check if this is a JSON parsing error we should ignore
-          if (
-            error?.error?.message?.includes("Unexpected end of JSON input") ||
-            error?.message?.includes("Unexpected end of JSON input")
-          ) {
-            // JSON parsing error from empty response - this is normal, ignore it
-            return;
-          }
-          console.error("Error checking for firmware updates:", error);
-        });
-    };
-
-    // Immediately check on component mount
-    checkForFirmwareUpdates();
-  }, [checkFirmwareUpdate, reloadSystemInfo]);
+  const { data: miningStatus, fetchData: fetchMiningStatus } = useMiningStatus({
+    enabled: canAccessProtectedApi,
+    poll: true,
+    pollIntervalMs: 15 * 1000,
+  });
 
   // ============================================================================
   // ONBOARDING NAVIGATION
@@ -167,9 +126,16 @@ const App = ({
       // Miner needs onboarding. redirect to onboarding flow
       if (!isOnboarded && !isPasswordSet && !isOnboardingRoute) {
         navigate("/onboarding/welcome");
+        return;
+      }
+
+      // Device still has factory default password — redirect to authentication
+      // page so the user is forced to change it before accessing anything else.
+      if (isDefaultPasswordActive && !isPasswordChangeRoute) {
+        navigate("/onboarding/authentication");
       }
     }
-  }, [navigate, isOnboarded, isPasswordSet, isOnboardingRoute]);
+  }, [navigate, isOnboarded, isPasswordSet, isDefaultPasswordActive, isOnboardingRoute, isPasswordChangeRoute]);
 
   // ============================================================================
   // MINING STATUS CHECKING & WAKE LOGIC
@@ -235,13 +201,16 @@ const App = ({
   const setDismissedLoginModal = useSetDismissedLoginModal();
 
   const handleDismissLogin = useCallback(() => {
-    if (pathname === "/settings/mining-pools" || pathname === "/settings/cooling") {
-      // if user landed on an auth protected setting page from within the app,
-      //  navigate back else navigate to home
-      navigate(location.state?.from || "/");
+    // Every auth-required route is render-gated when canAccessProtectedApi is
+    // false, so dismissing from "/" or any settings page would leave the user
+    // staring at a blank screen. Route them to /settings/authentication — the
+    // public password-reset entry point — so they have a reachable recovery
+    // path. Non-auth-required pages (onboarding, authentication) stay put.
+    if (isAuthRequiredPath(pathname)) {
+      navigate("/settings/authentication");
     }
     setDismissedLoginModal(true);
-  }, [navigate, pathname, setDismissedLoginModal, location]);
+  }, [navigate, pathname, setDismissedLoginModal]);
 
   const handleSuccessLogin = useCallback(() => {
     setShowLoginModal(false);
@@ -265,9 +234,6 @@ const App = ({
   );
 
   const hasVisibleCallout = isWarmingUp || isSleeping || noPoolsLive;
-
-  // Initialize access token
-  useAccessToken();
 
   // ============================================================================
   // DERIVED FLAGS
@@ -367,11 +333,28 @@ const App = ({
     );
   }
 
+  // Block child render while the factory password is still active and we're
+  // not already on a password-change route. Without this, page-level hooks
+  // that aren't threaded through canAccessProtectedApi (useTelemetry etc.)
+  // would mount and fire a 403 burst before the redirect effect navigates.
+  if (isDefaultPasswordActive && !isPasswordChangeRoute) {
+    return <BootingUp />;
+  }
+
+  // Auth-required routes must not mount their page-level hooks until both
+  // hasAccess and defaultPasswordActive have resolved favorably — otherwise
+  // route hooks (useTelemetry, useTimeSeries, etc.) fire 401/403 bursts before
+  // LoginModal or the default-password redirect takes over. LoginModal itself
+  // still renders below so the user can recover from an expired session.
+  const gateRouteChildren = isAuthRequiredPath(pathname) && !canAccessProtectedApi;
+
   // ============================================================================
   // RENDER
   // ============================================================================
   return (
     <ErrorBoundary>
+      {canAccessProtectedApi && <AuthenticatedShell reloadSystemInfo={reloadSystemInfo} />}
+
       {/* Toaster - Fixed position, renders above everything */}
       <div className="fixed right-4 bottom-4 z-10 phone:right-2 phone:bottom-2">
         <Toaster />
@@ -383,7 +366,7 @@ const App = ({
       {/* Wake Dialog - Layout agnostic */}
       <WarnWakeDialog open={wakeDialog.show} onClose={wakeDialog.onClose} onSubmit={wakeDialog.onConfirm} />
 
-      {fullscreen ? (
+      {gateRouteChildren ? null : fullscreen ? (
         // Fullscreen mode: Just render children without AppLayout chrome
         children
       ) : (

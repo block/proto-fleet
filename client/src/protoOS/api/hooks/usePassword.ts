@@ -2,7 +2,7 @@ import { useCallback, useMemo } from "react";
 
 import { ChangePasswordRequest, PasswordRequest } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import { useAuthRetry, useSetPasswordSet } from "@/protoOS/store";
+import { useAuthRetry, useSetDefaultPasswordActive, useSetPasswordSet } from "@/protoOS/store";
 
 interface SetPasswordProps {
   onError?: (message: string) => void;
@@ -30,21 +30,23 @@ const usePassword = () => {
   const { api } = useMinerHosting();
   const authRetry = useAuthRetry();
   const setPasswordSet = useSetPasswordSet();
+  const setDefaultPasswordActive = useSetDefaultPasswordActive();
 
   const setPassword = useCallback(
     async ({ password, onSuccess, onError, onFinally }: SetPasswordProps) => {
       if (!api) return;
 
       await authRetry({
-        request: () => api.setPassword({ password }),
+        request: () => api.setPassword({ password }, { secure: false }),
         onSuccess: () => {
           setPasswordSet(true);
+          setDefaultPasswordActive(false);
           onSuccess?.();
         },
         onError: (err) => onError?.(getErrorMessage(err)),
       }).finally(() => onFinally?.());
     },
-    [api, authRetry, setPasswordSet],
+    [api, authRetry, setPasswordSet, setDefaultPasswordActive],
   );
 
   const changePassword = useCallback(

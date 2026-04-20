@@ -1,14 +1,36 @@
 import { createContext, ReactNode, useMemo } from "react";
-import { Api } from "@/protoOS/api/generatedApi";
+import { Api, RequestParams } from "@/protoOS/api/generatedApi";
+import useMinerStore from "@/protoOS/store/useMinerStore";
+
+// Read the access token at request time so every call picks up the latest
+// value from the store. Using setSecurityData from a useEffect races against
+// child useEffects (which fire first on initial mount), so the first fetch
+// would otherwise go out before the provider had a chance to inject auth.
+const securityWorker = (): RequestParams | void => {
+  const token = useMinerStore.getState().auth.authTokens.accessToken?.value;
+  if (!token) return;
+  return {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  };
+};
 
 const CreateApi = (baseUrl: string) => {
   const url = (baseUrl.length ? "/" : "") + baseUrl;
-  const { api } = new Api({ baseUrl: url });
+  const instance = new Api({
+    baseUrl: url,
+    securityWorker,
+    // Require auth on all requests by default; firmware now gates nearly every
+    // endpoint. Callers of truly public endpoints (system/status, pairing/info)
+    // must pass { secure: false } to opt out.
+    baseApiParams: { secure: true },
+  });
 
   // TODO: remove this when done with development
-  (window as any).api = api;
+  (window as any).api = instance.api;
 
-  return api;
+  return instance;
 };
 
 type ApiT = InstanceType<typeof Api>["api"];
@@ -38,7 +60,8 @@ export const MinerHostingProvider = ({
   minerRoot = "",
   closeButton = null,
 }: MinerHostingProviderProps) => {
-  const api = useMemo(() => CreateApi(baseUrl), [baseUrl]);
+  const instance = useMemo(() => CreateApi(baseUrl), [baseUrl]);
+  const api = instance.api;
 
   return (
     <MinerHostingContext.Provider value={{ api, minerRoot, closeButton }}>{children}</MinerHostingContext.Provider>

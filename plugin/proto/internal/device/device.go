@@ -106,6 +106,15 @@ func New(deviceID string, deviceInfo sdk.DeviceInfo, bearerToken sdk.BearerToken
 	defer cancel()
 
 	if _, err := device.Status(ctx); err != nil {
+		// Auth succeeded; only the data gate is blocked. Return the handle so
+		// remediation ops (Unpair, UpdateMinerPassword) remain reachable — they
+		// route through firmware endpoints exempt from the gate.
+		if isDefaultPasswordError(err) {
+			slog.Info("Plugin device created with default password active",
+				"device_id", deviceID, "host", deviceInfo.Host)
+			return device, nil
+		}
+
 		client.Close()
 
 		if isAuthenticationError(err) {
@@ -133,6 +142,17 @@ func isAuthenticationError(err error) bool {
 		strings.Contains(msg, "authentication failed") ||
 		strings.Contains(msg, "invalid credentials") ||
 		strings.Contains(msg, fmt.Sprintf("status %d", http.StatusUnauthorized))
+}
+
+// Proto-firmware-specific — deliberately not in the shared SDK so other
+// drivers don't carry this contract.
+func isDefaultPasswordError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "default password must be changed") ||
+		strings.Contains(msg, "default_password_active")
 }
 
 // ID implements the SDK Device interface.

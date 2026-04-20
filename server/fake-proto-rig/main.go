@@ -41,6 +41,7 @@ func main() {
 
 	// Create miner state
 	state := NewMinerState(serialNumber, macAddress)
+	configureStartupAuthState(state)
 
 	// Apply error configuration from environment
 	applyErrorConfig(state)
@@ -114,6 +115,12 @@ func startHTTPServer(ctx context.Context, state *MinerState, port int) error {
 	}
 
 	return nil
+}
+
+func configureStartupAuthState(state *MinerState) {
+	if defaultPassword := os.Getenv("FAKE_RIG_DEFAULT_PASSWORD"); defaultPassword != "" {
+		state.SeedDefaultPassword(defaultPassword)
+	}
 }
 
 // applyErrorConfig reads error configuration from environment variables.

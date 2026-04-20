@@ -4633,6 +4633,11 @@
           "password_set": {
             "type": "boolean",
             "example": true
+          },
+          "default_password_active": {
+            "type": "boolean",
+            "description": "True when the device is still using the factory default password. Most API endpoints return 403 until the password is changed.",
+            "example": false
           }
         }
       },

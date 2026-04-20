@@ -9,6 +9,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -180,6 +181,15 @@ type setAuthKeyRequest struct {
 }
 
 type messageResponse struct {
+	Message string `json:"message"`
+}
+
+type errorResponse struct {
+	Error *errorDetail `json:"error"`
+}
+
+type errorDetail struct {
+	Code    string `json:"code"`
 	Message string `json:"message"`
 }
 
@@ -481,7 +491,16 @@ func (c *Client) doGetWithStatus(ctx context.Context, path string, result any) (
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusUnauthorized {
+		_, _ = io.Copy(io.Discard, resp.Body)
 		return resp.StatusCode, fmt.Errorf("unauthenticated: missing or invalid credentials")
+	}
+
+	if resp.StatusCode == http.StatusForbidden {
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return resp.StatusCode, fmt.Errorf("failed to read forbidden response: %w", readErr)
+		}
+		return resp.StatusCode, classifyForbiddenResponse(body)
 	}
 
 	if resp.StatusCode == http.StatusNoContent {
@@ -509,17 +528,72 @@ func (c *Client) doPost(ctx context.Context, path string) error {
 		return err
 	}
 	defer resp.Body.Close()
-	_, _ = io.ReadAll(resp.Body)
+
+	return checkResponse(resp, "request failed", "unauthenticated: missing or invalid credentials", http.StatusOK, http.StatusAccepted)
+}
+
+// defaultPasswordMessageMarker is the Proto firmware's free-text 403 substring
+// for the default-password lockout. It's Proto-firmware-specific, not part of
+// the shared SDK contract.
+const defaultPasswordMessageMarker = "default password must be changed"
+
+// defaultPasswordCodeMarker is the lowercased ErrCodeDefaultPasswordActive —
+// firmware sometimes surfaces the code as the body of a plain-text 403.
+var defaultPasswordCodeMarker = strings.ToLower(ErrCodeDefaultPasswordActive)
+
+// isDefaultPasswordMessage reports whether msg contains a Proto firmware
+// default-password marker. Only this package should call it — the shared SDK
+// must not bake in firmware-specific text.
+func isDefaultPasswordMessage(msg string) bool {
+	lower := strings.ToLower(msg)
+	return strings.Contains(lower, defaultPasswordMessageMarker) ||
+		strings.Contains(lower, defaultPasswordCodeMarker)
+}
+
+func classifyForbiddenResponse(body []byte) error {
+	var payload errorResponse
+	if err := json.Unmarshal(body, &payload); err == nil && payload.Error != nil {
+		if strings.EqualFold(payload.Error.Code, ErrCodeDefaultPasswordActive) || isDefaultPasswordMessage(payload.Error.Message) {
+			return fmt.Errorf("forbidden: %s", defaultPasswordMessageMarker)
+		}
+		if payload.Error.Message != "" {
+			return fmt.Errorf("forbidden: %s", payload.Error.Message)
+		}
+	}
+
+	rawMessage := strings.TrimSpace(string(body))
+	if isDefaultPasswordMessage(rawMessage) {
+		return fmt.Errorf("forbidden: %s", defaultPasswordMessageMarker)
+	}
+	if rawMessage != "" {
+		return fmt.Errorf("forbidden: %s", rawMessage)
+	}
+	return fmt.Errorf("forbidden: access denied")
+}
+
+func checkResponse(resp *http.Response, failurePrefix, unauthorizedMessage string, okStatuses ...int) error {
+	for _, okStatus := range okStatuses {
+		if resp.StatusCode == okStatus {
+			_, _ = io.Copy(io.Discard, resp.Body)
+			return nil
+		}
+	}
 
 	if resp.StatusCode == http.StatusUnauthorized {
-		return fmt.Errorf("unauthenticated: missing or invalid credentials")
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return errors.New(unauthorizedMessage)
 	}
 
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
-		return fmt.Errorf("request failed with status %d", resp.StatusCode)
+	if resp.StatusCode == http.StatusForbidden {
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return fmt.Errorf("failed to read forbidden response: %w", readErr)
+		}
+		return classifyForbiddenResponse(body)
 	}
 
-	return nil
+	_, _ = io.Copy(io.Discard, resp.Body)
+	return fmt.Errorf("%s with status %d", failurePrefix, resp.StatusCode)
 }
 
 // GetSoftwareInfo retrieves the firmware (OS) version string from the miner.
@@ -784,17 +858,12 @@ func (c *Client) Pair(ctx context.Context, key sdk.APIKey) error {
 		return fmt.Errorf("failed to set auth key: %w", err)
 	}
 	defer resp.Body.Close()
-	_, _ = io.ReadAll(resp.Body)
-
-	if resp.StatusCode == http.StatusUnauthorized {
-		return fmt.Errorf("unauthenticated: device is already paired and requires valid credentials for key rotation")
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("set auth key failed with status %d", resp.StatusCode)
-	}
-
-	return nil
+	return checkResponse(
+		resp,
+		"set auth key failed",
+		"unauthenticated: device is already paired and requires valid credentials for key rotation",
+		http.StatusOK,
+	)
 }
 
 // ClearAuthKey clears the authentication key from the device during unpairing.
@@ -804,17 +873,7 @@ func (c *Client) ClearAuthKey(ctx context.Context) error {
 		return fmt.Errorf("failed to clear auth key: %w", err)
 	}
 	defer resp.Body.Close()
-	_, _ = io.ReadAll(resp.Body)
-
-	if resp.StatusCode == http.StatusUnauthorized {
-		return fmt.Errorf("unauthenticated: missing or invalid credentials")
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("clear auth key failed with status %d", resp.StatusCode)
-	}
-
-	return nil
+	return checkResponse(resp, "clear auth key failed", "unauthenticated: missing or invalid credentials", http.StatusOK)
 }
 
 // loginWithPassword authenticates via the miner's login endpoint and returns an access token.
@@ -921,13 +980,7 @@ func (c *Client) SetCoolingMode(ctx context.Context, mode sdk.CoolingMode) error
 		return fmt.Errorf("failed to set cooling mode: %w", err)
 	}
 	defer resp.Body.Close()
-	_, _ = io.ReadAll(resp.Body)
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("set cooling mode failed with status %d", resp.StatusCode)
-	}
-
-	return nil
+	return checkResponse(resp, "set cooling mode failed", "unauthenticated: missing or invalid credentials", http.StatusOK)
 }
 
 // GetCoolingMode retrieves the current cooling mode configuration from the miner.
@@ -972,13 +1025,7 @@ func (c *Client) SetPowerTarget(ctx context.Context, powerTargetW uint32, perfor
 		return fmt.Errorf("failed to set power target: %w", err)
 	}
 	defer resp.Body.Close()
-	_, _ = io.ReadAll(resp.Body)
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("set power target failed with status %d", resp.StatusCode)
-	}
-
-	return nil
+	return checkResponse(resp, "set power target failed", "unauthenticated: missing or invalid credentials", http.StatusOK)
 }
 
 // GetPowerTarget retrieves the current power target configuration and bounds from the miner.
@@ -1039,13 +1086,7 @@ func (c *Client) UpdatePools(ctx context.Context, pools []Pool) error {
 		return fmt.Errorf("failed to update pools: %w", err)
 	}
 	defer resp.Body.Close()
-	_, _ = io.ReadAll(resp.Body)
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return fmt.Errorf("update pools failed with status %d", resp.StatusCode)
-	}
-
-	return nil
+	return checkResponse(resp, "update pools failed", "unauthenticated: missing or invalid credentials", http.StatusOK, http.StatusCreated)
 }
 
 // BlinkLED triggers LED identification.

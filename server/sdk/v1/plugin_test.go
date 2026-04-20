@@ -1,6 +1,7 @@
 package sdk
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -177,6 +178,90 @@ func createMinimalDeviceMetrics() DeviceMetrics {
 // ptr is a helper to create pointers to literals
 func ptr[T any](v T) *T {
 	return &v
+}
+
+type fakeDriver struct {
+	newDeviceFunc func(ctx context.Context, deviceID string, deviceInfo DeviceInfo, secret SecretBundle) (NewDeviceResult, error)
+}
+
+func (f fakeDriver) Handshake(ctx context.Context) (DriverIdentifier, error) {
+	return DriverIdentifier{}, nil
+}
+
+func (f fakeDriver) DescribeDriver(ctx context.Context) (DriverIdentifier, Capabilities, error) {
+	return DriverIdentifier{}, Capabilities{}, nil
+}
+
+func (f fakeDriver) DiscoverDevice(ctx context.Context, ipAddress, port string) (DeviceInfo, error) {
+	return DeviceInfo{}, nil
+}
+
+func (f fakeDriver) PairDevice(ctx context.Context, device DeviceInfo, access SecretBundle) (DeviceInfo, error) {
+	return DeviceInfo{}, nil
+}
+
+func (f fakeDriver) NewDevice(ctx context.Context, deviceID string, deviceInfo DeviceInfo, secret SecretBundle) (NewDeviceResult, error) {
+	return f.newDeviceFunc(ctx, deviceID, deviceInfo, secret)
+}
+
+type fakeDevice struct {
+	describeDeviceFunc func(ctx context.Context) (DeviceInfo, Capabilities, error)
+	statusFunc         func(ctx context.Context) (DeviceMetrics, error)
+}
+
+func (f fakeDevice) ID() string { return "device-123" }
+
+func (f fakeDevice) DescribeDevice(ctx context.Context) (DeviceInfo, Capabilities, error) {
+	return f.describeDeviceFunc(ctx)
+}
+
+func (f fakeDevice) Status(ctx context.Context) (DeviceMetrics, error) {
+	return f.statusFunc(ctx)
+}
+
+func (f fakeDevice) Close(ctx context.Context) error                            { return nil }
+func (f fakeDevice) StartMining(ctx context.Context) error                      { return nil }
+func (f fakeDevice) StopMining(ctx context.Context) error                       { return nil }
+func (f fakeDevice) BlinkLED(ctx context.Context) error                         { return nil }
+func (f fakeDevice) Reboot(ctx context.Context) error                           { return nil }
+func (f fakeDevice) SetCoolingMode(ctx context.Context, mode CoolingMode) error { return nil }
+func (f fakeDevice) GetCoolingMode(ctx context.Context) (CoolingMode, error) {
+	return CoolingModeUnspecified, nil
+}
+func (f fakeDevice) SetPowerTarget(ctx context.Context, performanceMode PerformanceMode) error {
+	return nil
+}
+func (f fakeDevice) UpdateMiningPools(ctx context.Context, pools []MiningPoolConfig) error {
+	return nil
+}
+func (f fakeDevice) UpdateMinerPassword(ctx context.Context, currentPassword string, newPassword string) error {
+	return nil
+}
+func (f fakeDevice) GetMiningPools(ctx context.Context) ([]ConfiguredPool, error) { return nil, nil }
+func (f fakeDevice) DownloadLogs(ctx context.Context, since *time.Time, batchLogUUID string) (string, bool, error) {
+	return "", false, nil
+}
+func (f fakeDevice) FirmwareUpdate(ctx context.Context, firmware FirmwareFile) error { return nil }
+func (f fakeDevice) Unpair(ctx context.Context) error                                { return nil }
+func (f fakeDevice) GetErrors(ctx context.Context) (DeviceErrors, error)             { return DeviceErrors{}, nil }
+func (f fakeDevice) TryBatchStatus(ctx context.Context, ids []string) (map[string]DeviceMetrics, bool, error) {
+	return nil, false, nil
+}
+func (f fakeDevice) TrySubscribe(ctx context.Context, ids []string) (<-chan DeviceMetrics, bool, error) {
+	return nil, false, nil
+}
+func (f fakeDevice) TryGetWebViewURL(ctx context.Context) (string, bool, error) {
+	return "", false, nil
+}
+func (f fakeDevice) TryGetTimeSeriesData(
+	ctx context.Context,
+	metricNames []string,
+	startTime, endTime time.Time,
+	granularity *time.Duration,
+	maxPoints int32,
+	pageToken string,
+) ([]DeviceMetrics, string, bool, error) {
+	return nil, "", false, nil
 }
 
 // ============================================================================

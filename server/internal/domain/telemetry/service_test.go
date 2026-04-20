@@ -2621,3 +2621,73 @@ func TestFetchStatusFromMiner_AuthErrorFromGetDeviceStatus_InvalidatesMinerCache
 
 	// Assert — mock expectations verify InvalidateMiner was called exactly once
 }
+
+func TestProcessStatusOnly_ForbiddenError_UpdatesPairingStatus(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+	mockMiner := minerMocks.NewMockMiner(ctrl)
+
+	deviceID := models.DeviceIdentifier("device-default-password-active")
+	forbiddenErr := fleeterror.NewForbiddenErrorf("default password must be changed for device %s", deviceID)
+
+	mockMinerGetter.EXPECT().
+		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
+		Return(mockMiner, nil)
+
+	mockMiner.EXPECT().
+		GetDeviceStatus(gomock.Any()).
+		Return(mm.MinerStatusUnknown, forbiddenErr)
+
+	mockDeviceStore.EXPECT().
+		UpdateDevicePairingStatusByIdentifier(gomock.Any(), string(deviceID), gomock.Any()).
+		Return(nil)
+
+	service := NewTelemetryService(Config{
+		StalenessThreshold: 1 * time.Minute,
+		FetchInterval:      10 * time.Second,
+		ConcurrencyLimit:   5,
+	}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+
+	ctx := t.Context()
+	device := models.Device{ID: deviceID}
+
+	service.processStatusOnly(ctx, device)
+}
+
+func TestProcessStatusOnly_GenericForbiddenDoesNotUpdatePairingStatus(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+	mockMiner := minerMocks.NewMockMiner(ctrl)
+
+	deviceID := models.DeviceIdentifier("device-access-denied")
+	forbiddenErr := fleeterror.NewForbiddenErrorf("permission denied while reading telemetry for device %s", deviceID)
+
+	mockMinerGetter.EXPECT().
+		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
+		Return(mockMiner, nil)
+
+	mockMiner.EXPECT().
+		GetDeviceStatus(gomock.Any()).
+		Return(mm.MinerStatusUnknown, forbiddenErr)
+
+	service := NewTelemetryService(Config{
+		StalenessThreshold: 1 * time.Minute,
+		FetchInterval:      10 * time.Second,
+		ConcurrencyLimit:   5,
+	}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+
+	ctx := t.Context()
+	device := models.Device{ID: deviceID}
+
+	service.processStatusOnly(ctx, device)
+}

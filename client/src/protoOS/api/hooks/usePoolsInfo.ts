@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pool } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useSetPoolsInfo } from "@/protoOS/store";
+import { useAuthRetry } from "@/protoOS/store/hooks/useAuthRetry";
 import { usePoll } from "@/shared/hooks/usePoll";
 
 export interface FetchPoolsInfoProps {
@@ -18,6 +19,7 @@ type UsePoolsInfoProps = {
 
 const usePoolsInfo = ({ poll = false, pollIntervalMs }: UsePoolsInfoProps = {}) => {
   const { api } = useMinerHosting();
+  const authRetry = useAuthRetry();
   const [data, setData] = useState<Pool[]>();
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState<boolean>(false);
@@ -30,9 +32,9 @@ const usePoolsInfo = ({ poll = false, pollIntervalMs }: UsePoolsInfoProps = {}) 
       const performFetch = () => {
         setPending(true);
         setError(undefined);
-        api
-          .listPools()
-          .then((res) => {
+        authRetry({
+          request: (params) => api.listPools(params),
+          onSuccess: (res) => {
             // find the highest priority pool
             // highest priority is the lowest number
             const sortedPools = res?.data["pools"]?.sort((a, b) => (a.priority || 0) - (b.priority || 0));
@@ -46,23 +48,23 @@ const usePoolsInfo = ({ poll = false, pollIntervalMs }: UsePoolsInfoProps = {}) 
                 setTimeout(() => performFetch(), 5000);
               }
             }
-          })
-          .catch((err) => {
-            const newError = err?.error?.message ?? "An error occurred";
+          },
+          onError: (e) => {
+            const newError = e?.error?.message ?? "An error occurred";
             if (retryOnMinerDown) {
               setTimeout(() => performFetch(), 5000);
             }
             setError(newError);
             onError?.(newError);
-          })
-          .finally(() => {
-            setPending(false);
-          });
+          },
+        }).finally(() => {
+          setPending(false);
+        });
       };
 
       performFetch();
     },
-    [api],
+    [api, authRetry],
   );
 
   usePoll({

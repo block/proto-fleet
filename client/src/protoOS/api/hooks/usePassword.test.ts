@@ -9,6 +9,7 @@ vi.mock("@/protoOS/contexts/MinerHostingContext/useMinerHosting", () => ({
 
 vi.mock("@/protoOS/store", () => ({
   useAuthRetry: vi.fn(),
+  useSetDefaultPasswordActive: vi.fn(),
   useSetPasswordSet: vi.fn(),
 }));
 
@@ -17,6 +18,7 @@ describe("usePassword", () => {
   const mockSetPassword = vi.fn();
   const mockAuthRetry = vi.fn();
   const mockSetPasswordSet = vi.fn();
+  const mockSetDefaultPasswordActive = vi.fn();
   const mockAuthHeader = { headers: { Authorization: "Bearer test-token" } };
 
   beforeEach(async () => {
@@ -44,6 +46,7 @@ describe("usePassword", () => {
 
     const mockStore = await import("@/protoOS/store");
     (mockStore.useAuthRetry as Mock).mockReturnValue(mockAuthRetry);
+    (mockStore.useSetDefaultPasswordActive as Mock).mockReturnValue(mockSetDefaultPasswordActive);
     (mockStore.useSetPasswordSet as Mock).mockReturnValue(mockSetPasswordSet);
   });
 
@@ -64,6 +67,7 @@ describe("usePassword", () => {
       await result.current.changePassword({ changePasswordRequest, onSuccess, onFinally });
 
       expect(mockChangePassword).toHaveBeenCalledWith(changePasswordRequest, mockAuthHeader);
+      expect(mockSetDefaultPasswordActive).not.toHaveBeenCalled();
       expect(onSuccess).toHaveBeenCalledTimes(1);
       expect(onFinally).toHaveBeenCalledTimes(1);
     });
@@ -155,8 +159,9 @@ describe("usePassword", () => {
 
       await result.current.setPassword({ password, onSuccess, onFinally });
 
-      expect(mockSetPassword).toHaveBeenCalledWith({ password });
+      expect(mockSetPassword).toHaveBeenCalledWith({ password }, { secure: false });
       expect(mockSetPasswordSet).toHaveBeenCalledWith(true);
+      expect(mockSetDefaultPasswordActive).toHaveBeenCalledWith(false);
       expect(onSuccess).toHaveBeenCalledTimes(1);
       expect(onFinally).toHaveBeenCalledTimes(1);
     });

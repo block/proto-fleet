@@ -505,7 +505,7 @@ func (s *TelemetryService) processDevice(ctx context.Context, device models.Devi
 	if telemetryErr != nil {
 		slog.Warn("failed to get telemetry from device", "deviceID", device.ID, "error", telemetryErr)
 
-		if fleeterror.IsAuthenticationError(telemetryErr) {
+		if requiresCredentialRemediation(telemetryErr) {
 			if updateErr := s.handleAuthenticationFailure(ctx, device.ID); updateErr != nil {
 				slog.Error("failed to update pairing status to AUTHENTICATION_NEEDED",
 					"deviceID", device.ID, "error", updateErr)
@@ -529,7 +529,7 @@ func (s *TelemetryService) processDevice(ctx context.Context, device models.Devi
 		if statusErr != nil {
 			slog.Warn("failed to get status for device", "deviceID", device.ID, "error", statusErr)
 
-			if fleeterror.IsAuthenticationError(statusErr) {
+			if requiresCredentialRemediation(statusErr) {
 				if updateErr := s.handleAuthenticationFailure(ctx, device.ID); updateErr != nil {
 					slog.Error("failed to update pairing status to AUTHENTICATION_NEEDED",
 						"deviceID", device.ID, "error", updateErr)
@@ -575,7 +575,7 @@ func (s *TelemetryService) processStatusOnly(ctx context.Context, device models.
 		// Connection errors don't reach here; they return (MinerStatusOffline, nil).
 		slog.Debug("status polling failed for device", "deviceID", device.ID, "error", statusErr)
 
-		if fleeterror.IsAuthenticationError(statusErr) {
+		if requiresCredentialRemediation(statusErr) {
 			if updateErr := s.handleAuthenticationFailure(ctx, device.ID); updateErr != nil {
 				slog.Error("failed to update pairing status to AUTHENTICATION_NEEDED",
 					"deviceID", device.ID, "error", updateErr)
@@ -719,7 +719,8 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context) {
 }
 
 // handleAuthenticationFailure updates the pairing status to AUTHENTICATION_NEEDED
-// when authentication with a device fails
+// when the device requires credential remediation (for example auth failure or
+// default-password rotation before normal operations).
 func (s *TelemetryService) handleAuthenticationFailure(ctx context.Context, deviceID models.DeviceIdentifier) error {
 	// Update pairing status to AUTHENTICATION_NEEDED using device identifier directly
 	err := s.deviceStore.UpdateDevicePairingStatusByIdentifier(ctx, string(deviceID), pairing.StatusAuthenticationNeeded)
@@ -728,6 +729,22 @@ func (s *TelemetryService) handleAuthenticationFailure(ctx context.Context, devi
 	}
 
 	return nil
+}
+
+func requiresCredentialRemediation(err error) bool {
+	return fleeterror.IsAuthenticationError(err) || isDefaultPasswordRemediationError(err)
+}
+
+func isDefaultPasswordRemediationError(err error) bool {
+	if !fleeterror.IsForbiddenError(err) {
+		return false
+	}
+	// Substrings match what Proto firmware emits today. Extending coverage to a
+	// second driver belongs here — the shared SDK intentionally doesn't encode
+	// firmware-specific response text.
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "default password must be changed") ||
+		strings.Contains(msg, "default_password_active")
 }
 
 // pollErrorsForDevice polls errors from a device alongside telemetry collection.

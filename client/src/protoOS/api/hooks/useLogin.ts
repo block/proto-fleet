@@ -21,7 +21,7 @@ const useLogin = () => {
       if (!api) return;
 
       await api
-        .login({ password })
+        .login({ password }, { secure: false })
         .then((res) => {
           const accessTokenValue = res?.data["access_token"];
           const refreshTokenValue = res?.data["refresh_token"];

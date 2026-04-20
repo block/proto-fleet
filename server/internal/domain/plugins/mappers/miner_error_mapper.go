@@ -13,8 +13,6 @@ const (
 	minValidEnumValue = 0
 )
 
-// defaultSeverityFor returns the DefaultSeverity for a miner error code from the
-// error metadata registry, falling back to SeverityInfo for unknown codes.
 func defaultSeverityFor(code models.MinerError) models.Severity {
 	if info, ok := models.GetMinerErrorInfo()[code]; ok {
 		return info.DefaultSeverity

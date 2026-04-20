@@ -3,25 +3,45 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import { useAuthRetry } from "./useAuthRetry";
 
 const mockHandleAuthErrors = vi.fn();
-const mockAuthHeader = { headers: { Authorization: "Bearer test-token" } };
+const mockGetState = vi.fn();
+let currentAccessToken = "test-token";
+
+const authHeaderFor = (token: string) => ({
+  secure: false,
+  headers: { Authorization: `Bearer ${token}` },
+});
+
+vi.mock("../useMinerStore", () => ({
+  default: {
+    getState: () => mockGetState(),
+  },
+}));
 
 vi.mock("./useAuth", () => ({
-  useAuthHeader: vi.fn(() => mockAuthHeader),
   useAuthErrors: vi.fn(() => ({ handleAuthErrors: mockHandleAuthErrors })),
 }));
 
 describe("useAuthRetry", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    currentAccessToken = "test-token";
+    mockGetState.mockImplementation(() => ({
+      auth: {
+        authTokens: {
+          accessToken: { value: currentAccessToken },
+        },
+      },
+    }));
   });
 
-  test("calls request with current auth header", async () => {
+  test("calls request with the latest auth header from the store", async () => {
     const request = vi.fn().mockResolvedValue("result");
     const { result } = renderHook(() => useAuthRetry());
+    currentAccessToken = "fresh-token";
 
     await result.current({ request });
 
-    expect(request).toHaveBeenCalledWith(mockAuthHeader);
+    expect(request).toHaveBeenCalledWith(authHeaderFor("fresh-token"));
   });
 
   test("calls onSuccess with the request result", async () => {
@@ -63,10 +83,8 @@ describe("useAuthRetry", () => {
     await result.current({ request, onSuccess });
 
     expect(request).toHaveBeenCalledTimes(2);
-    expect(request).toHaveBeenNthCalledWith(1, mockAuthHeader);
-    expect(request).toHaveBeenNthCalledWith(2, {
-      headers: { Authorization: "Bearer fresh-token" },
-    });
+    expect(request).toHaveBeenNthCalledWith(1, authHeaderFor("test-token"));
+    expect(request).toHaveBeenNthCalledWith(2, authHeaderFor("fresh-token"));
     expect(onSuccess).toHaveBeenCalledWith("retry-result");
   });
 

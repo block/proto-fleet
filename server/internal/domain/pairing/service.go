@@ -1578,7 +1578,7 @@ func (s *Service) pairDevice(ctx context.Context, deviceID string, orgID int64, 
 		}
 
 		// Preserve authentication errors - don't wrap them
-		if fleeterror.IsAuthenticationError(err) {
+		if fleeterror.IsAuthenticationError(err) || fleeterror.IsForbiddenError(err) {
 			return "", err
 		}
 		return "", fleeterror.NewInternalErrorf("pairing device %s: %v", discoveredDevice.DeviceIdentifier, err)

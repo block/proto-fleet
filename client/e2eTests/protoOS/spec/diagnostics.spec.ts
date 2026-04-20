@@ -17,8 +17,9 @@ const diagnosticsSections: DiagnosticsSection[] = [
 ];
 
 test.describe("Diagnostics", () => {
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async ({ page, commonSteps }) => {
     await page.goto("/");
+    await commonSteps.authenticateAsAdmin();
   });
 
   test("Diagnostics sections and filters", async ({ commonSteps, diagnosticsPage }) => {

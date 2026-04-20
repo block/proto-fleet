@@ -3,6 +3,7 @@ import { useCallback, useMemo, useState } from "react";
 import { type GetCurrentTelemetryParams, type TelemetryData } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { type AsicHardwareData, getAsicId, useMinerStore } from "@/protoOS/store";
+import { useAuthErrors } from "@/protoOS/store/hooks/useAuth";
 import { usePoll } from "@/shared/hooks/usePoll";
 
 interface UseTelemetryProps {
@@ -19,6 +20,7 @@ const useTelemetry = ({
   enabled = true,
 }: UseTelemetryProps = {}) => {
   const { api } = useMinerHosting();
+  const { handleAuthErrors } = useAuthErrors();
   const [data, setData] = useState<TelemetryData>();
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState<boolean>(false);
@@ -44,12 +46,14 @@ const useTelemetry = ({
       // Update the telemetry store with latest values
       useMinerStore.getState().telemetry.updateLatestTelemetry(response.data);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "Unknown error occurred";
-      setError(errorMessage);
+      handleAuthErrors({
+        error: err as any,
+        onError: (e) => setError(e?.error?.message ?? (err instanceof Error ? err.message : "Unknown error occurred")),
+      });
     } finally {
       setPending(false);
     }
-  }, [api, level]);
+  }, [api, level, handleAuthErrors]);
 
   // Helper function to process hashboard data
   const processHashboards = (data: TelemetryData) => {

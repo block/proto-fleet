@@ -4,7 +4,7 @@ import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
 import { RefreshRequest } from "@/protoOS/api/generatedApi";
 
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
-import useMinerStore from "@/protoOS/store/useMinerStore";
+import { useMinerStore, useSetAuthTokens } from "@/protoOS/store";
 
 import { accessTokenExpiryTime } from "@/shared/utils/utility";
 
@@ -16,16 +16,30 @@ interface RefreshProps {
 
 const useRefresh = () => {
   const { api } = useMinerHosting();
-  const authTokens = useMinerStore((state) => state.auth.authTokens);
-  const setAuthTokens = useMinerStore((state) => state.auth.setAuthTokens);
+  const setAuthTokens = useSetAuthTokens();
 
   const refresh = useCallback(
     async ({ refreshToken, onSuccess, onError }: RefreshProps) => {
       if (!api) return;
       await api
-        .refreshToken({ refresh_token: refreshToken })
+        .refreshToken({ refresh_token: refreshToken }, { secure: false })
         .then((res: any) => {
           const accessTokenValue = res?.data["access_token"];
+          const authTokens = useMinerStore.getState().auth.authTokens;
+          // Drop stale responses: if the store's refresh token changed while
+          // this request was in flight (logout, password rotation, login as a
+          // different user), writing A's access token on top of B's refresh
+          // token mixes sessions and breaks subsequent calls. Surface through
+          // onError (non-401 so no logout) so the shared refreshPromise in
+          // useAuthErrors settles — otherwise it would hang forever and every
+          // later 401 handler would block on it.
+          if (authTokens.refreshToken?.value !== refreshToken) {
+            onError?.({
+              status: 0,
+              error: { message: "refresh response dropped: session changed mid-flight" },
+            });
+            return;
+          }
           setAuthTokens({
             ...authTokens,
             accessToken: {
@@ -42,7 +56,7 @@ const useRefresh = () => {
           onError?.(err);
         });
     },
-    [authTokens, setAuthTokens, api],
+    [setAuthTokens, api],
   );
 
   return refresh;

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { MiningStatusMiningstatus } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useSetMiningStatus } from "@/protoOS/store";
+import { useAuthErrors } from "@/protoOS/store/hooks/useAuth";
 import { usePoll } from "@/shared/hooks/usePoll";
 
 interface getMiningStatusProps {
@@ -10,12 +11,14 @@ interface getMiningStatusProps {
 }
 
 type UseMiningStatusProps = {
+  enabled?: boolean;
   poll?: boolean;
   pollIntervalMs?: number;
 };
 
-const useMiningStatus = ({ poll = false, pollIntervalMs }: UseMiningStatusProps = {}) => {
+const useMiningStatus = ({ enabled = true, poll = false, pollIntervalMs }: UseMiningStatusProps = {}) => {
   const { api } = useMinerHosting();
+  const { handleAuthErrors } = useAuthErrors();
   const [data, setData] = useState<MiningStatusMiningstatus>();
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState<boolean>(false);
@@ -23,7 +26,7 @@ const useMiningStatus = ({ poll = false, pollIntervalMs }: UseMiningStatusProps 
 
   const fetchData = useCallback(
     ({ onSuccess }: getMiningStatusProps = {}) => {
-      if (!api) return;
+      if (!enabled || !api) return;
 
       setPending(true);
       api
@@ -33,17 +36,21 @@ const useMiningStatus = ({ poll = false, pollIntervalMs }: UseMiningStatusProps 
           onSuccess?.(res?.data["mining-status"]);
         })
         .catch((err) => {
-          setError(err?.error?.message ?? "An error occurred");
+          handleAuthErrors({
+            error: err,
+            onError: (e) => setError(e?.error?.message ?? "An error occurred"),
+          });
         })
         .finally(() => {
           setPending(false);
         });
     },
-    [api],
+    [api, enabled, handleAuthErrors],
   );
 
   usePoll({
     fetchData,
+    enabled,
     poll,
     pollIntervalMs,
   });

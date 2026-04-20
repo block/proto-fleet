@@ -4,6 +4,7 @@ import { HashboardStatsHashboardstats } from "@/protoOS/api/generatedApi";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { AsicHardwareData, getAsicId } from "@/protoOS/store";
 import { useMinerStore } from "@/protoOS/store";
+import { useAuthRetry } from "@/protoOS/store/hooks/useAuthRetry";
 import { usePoll } from "@/shared/hooks/usePoll";
 interface UseHashboardStatusProps {
   hashboardSerialNumbers: string[];
@@ -15,38 +16,38 @@ interface UseHashboardStatusProps {
 // - asic rows and columns
 const useHashboardStatus = ({ hashboardSerialNumbers, poll }: UseHashboardStatusProps) => {
   const { api } = useMinerHosting();
+  const authRetry = useAuthRetry();
   const [data, setData] = useState<Record<string, HashboardStatsHashboardstats>>({});
   const [error, setError] = useState<string>();
   const [pending, setPending] = useState<boolean>(false);
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(() => {
     if (!api || hashboardSerialNumbers.length === 0) return;
 
     setPending(true);
     setError(undefined);
 
-    try {
-      const results = await Promise.all(
-        hashboardSerialNumbers.map(async (serial) => {
-          const res = await api.getHashboardStatus({ hbSn: serial });
-          return { serial, data: res?.data["hashboard-stats"] };
-        }),
-      );
-
-      const newData: Record<string, HashboardStatsHashboardstats> = {};
-      results.forEach(({ serial, data }) => {
-        if (data) {
-          newData[serial] = data;
-        }
-      });
-
-      setData(newData);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : "Unknown error occurred";
-      setError(errorMessage);
-    } finally {
+    return authRetry({
+      request: (params) =>
+        Promise.all(
+          hashboardSerialNumbers.map(async (serial) => {
+            const res = await api.getHashboardStatus({ hbSn: serial }, params);
+            return { serial, data: res?.data["hashboard-stats"] };
+          }),
+        ),
+      onSuccess: (results) => {
+        const newData: Record<string, HashboardStatsHashboardstats> = {};
+        results.forEach(({ serial, data }) => {
+          if (data) {
+            newData[serial] = data;
+          }
+        });
+        setData(newData);
+      },
+      onError: (err) => setError(err?.error?.message ?? "Unknown error occurred"),
+    }).finally(() => {
       setPending(false);
-    }
-  }, [hashboardSerialNumbers, api]);
+    });
+  }, [hashboardSerialNumbers, api, authRetry]);
 
   usePoll({
     fetchData,

@@ -22,6 +22,28 @@ func TestNewMinerState_DefaultModelIsRig(t *testing.T) {
 	}
 }
 
+func TestConfigureStartupAuthState_SeedsDefaultPasswordBaseline(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	configureStartupAuthState(state)
+
+	if got := state.GetPassword(); got != "" {
+		t.Fatalf("expected startup password to remain unset when env is absent, got %q", got)
+	}
+	if state.IsDefaultPasswordActive() {
+		t.Fatal("expected default password to remain inactive when env is absent")
+	}
+
+	t.Setenv("FAKE_RIG_DEFAULT_PASSWORD", "root19")
+	configureStartupAuthState(state)
+
+	if got := state.GetPassword(); got != "root19" {
+		t.Fatalf("expected startup password %q, got %q", "root19", got)
+	}
+	if !state.IsDefaultPasswordActive() {
+		t.Fatal("expected startup state to report default password active")
+	}
+}
+
 func TestHandleChangePassword_WrongCurrentPassword_Returns401(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
 	state.SetPassword("correctPassword")
@@ -44,6 +66,8 @@ func TestHandleChangePassword_WrongCurrentPassword_Returns401(t *testing.T) {
 func TestHandleChangePassword_CorrectCurrentPassword_Returns200(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
 	state.SetPassword("correctPassword")
+	state.SetAccessToken("old-access-token")
+	state.SetRefreshToken("old-refresh-token")
 	h := NewRESTApiHandler(state)
 
 	rr := httptest.NewRecorder()
@@ -57,6 +81,13 @@ func TestHandleChangePassword_CorrectCurrentPassword_Returns200(t *testing.T) {
 
 	if state.GetPassword() != "newPassword123" {
 		t.Fatalf("expected password to be updated to %q, got %q", "newPassword123", state.GetPassword())
+	}
+
+	if state.GetAccessToken() != "" {
+		t.Fatalf("expected access token to be revoked after password change, got %q", state.GetAccessToken())
+	}
+	if state.GetRefreshToken() != "" {
+		t.Fatalf("expected refresh token to be revoked after password change, got %q", state.GetRefreshToken())
 	}
 }
 
@@ -131,21 +162,12 @@ func TestHandleRefresh_ValidRefreshToken_Returns200(t *testing.T) {
 		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, refreshRR.Code, refreshRR.Body.String())
 	}
 
-	var refreshedTokens AuthTokens
-	if err := json.Unmarshal(refreshRR.Body.Bytes(), &refreshedTokens); err != nil {
-		t.Fatalf("failed to unmarshal auth tokens: %v; body=%s", err, refreshRR.Body.String())
+	var refreshed RefreshResponse
+	if err := json.Unmarshal(refreshRR.Body.Bytes(), &refreshed); err != nil {
+		t.Fatalf("failed to unmarshal refresh response: %v; body=%s", err, refreshRR.Body.String())
 	}
-	if refreshedTokens.AccessToken == "" || refreshedTokens.RefreshToken == "" {
-		t.Fatalf("expected rotated tokens, got %+v", refreshedTokens)
-	}
-	if refreshedTokens.RefreshToken == initialTokens.RefreshToken {
-		t.Fatal("expected refresh token to rotate")
-	}
-	if state.GetAccessToken() != refreshedTokens.AccessToken {
-		t.Fatal("expected access token state to match refreshed token")
-	}
-	if state.GetRefreshToken() != refreshedTokens.RefreshToken {
-		t.Fatal("expected refresh token state to match refreshed token")
+	if refreshed.AccessToken == "" {
+		t.Fatalf("expected non-empty access token, got %+v", refreshed)
 	}
 }
 
@@ -215,6 +237,83 @@ func TestProtectedRouteAcceptsIssuedBearerToken(t *testing.T) {
 	}
 	if state.GetMiningState() != MiningStateMining {
 		t.Fatalf("expected mining state %q, got %q", MiningStateMining, state.GetMiningState())
+	}
+}
+
+func TestPoolsExemptFromDefaultPasswordGate(t *testing.T) {
+	// Firmware's DEFAULT_PASSWORD_EXEMPT_PREFIXES includes /api/v1/pools so
+	// Fleet can provision pool settings before the operator changes the
+	// factory password. Authenticated pool requests must succeed even while
+	// default_password_active is true.
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.SeedDefaultPassword("defaultPass123")
+	state.AddPool(&Pool{Idx: 0, Url: "stratum+tcp://pool.example.com:3333", Username: "worker"})
+	h := NewRESTApiHandler(state)
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"password":"defaultPass123"}`))
+	loginRR := httptest.NewRecorder()
+	mux.ServeHTTP(loginRR, loginReq)
+
+	if loginRR.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, loginRR.Code, loginRR.Body.String())
+	}
+
+	var tokens AuthTokens
+	if err := json.Unmarshal(loginRR.Body.Bytes(), &tokens); err != nil {
+		t.Fatalf("failed to unmarshal auth tokens: %v; body=%s", err, loginRR.Body.String())
+	}
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+	}{
+		{name: "list pools", method: http.MethodGet, path: "/api/v1/pools"},
+		{name: "read pool by id", method: http.MethodGet, path: "/api/v1/pools/0"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rr := httptest.NewRecorder()
+			req := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))
+			req.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+			mux.ServeHTTP(rr, req)
+
+			if rr.Code == http.StatusForbidden {
+				t.Fatalf("expected pools to be exempt from default-password gate, got 403; body=%s", rr.Body.String())
+			}
+		})
+	}
+}
+
+func TestNonExemptRequestsBlockedWhenDefaultPasswordActive(t *testing.T) {
+	// Sanity check: routes outside DEFAULT_PASSWORD_EXEMPT_PREFIXES still
+	// return 403 while default_password_active is true.
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.SeedDefaultPassword("defaultPass123")
+	h := NewRESTApiHandler(state)
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"password":"defaultPass123"}`))
+	loginRR := httptest.NewRecorder()
+	mux.ServeHTTP(loginRR, loginReq)
+
+	var tokens AuthTokens
+	_ = json.Unmarshal(loginRR.Body.Bytes(), &tokens)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/mining", nil)
+	req.Header.Set("Authorization", "Bearer "+tokens.AccessToken)
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 on non-exempt route, got %d; body=%s", rr.Code, rr.Body.String())
 	}
 }
 
@@ -337,6 +436,25 @@ func TestHandleSetPassword_ValidPassword_StoresPassword(t *testing.T) {
 
 	if state.GetAuthKey() != "existing-auth-key" {
 		t.Fatalf("expected auth key to remain unchanged, got %q", state.GetAuthKey())
+	}
+}
+
+func TestHandleSetPassword_PasswordAlreadySet_Returns403(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.SeedDefaultPassword("defaultPass123")
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/auth/password",
+		strings.NewReader(`{"password":"validPass123"}`))
+	h.handleSetPassword(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusForbidden, rr.Code, rr.Body.String())
+	}
+
+	if state.GetPassword() != "defaultPass123" {
+		t.Fatalf("expected password to remain %q, got %q", "defaultPass123", state.GetPassword())
 	}
 }
 
@@ -468,7 +586,7 @@ func TestHandleTestPoolConnection_ValidURL_Returns200(t *testing.T) {
 	}
 }
 
-func TestTestPoolConnectionRoute_DoesNotRequireBearerAuth(t *testing.T) {
+func TestSystemRoute_DoesNotRequireBearerAuth(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
 	h := NewRESTApiHandler(state)
 
@@ -476,12 +594,91 @@ func TestTestPoolConnectionRoute_DoesNotRequireBearerAuth(t *testing.T) {
 	h.RegisterRoutes(mux)
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/pools/test-connection",
-		strings.NewReader(`{"url":"stratum+tcp://mine.ocean.xyz:3334","username":"worker"}`))
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/system", nil)
 	mux.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+}
+
+func TestHardwareRoute_RequiresBearerAuth(t *testing.T) {
+	// /api/v1/hardware is NOT in firmware PUBLIC_ROUTES — it requires auth.
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/hardware", nil)
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusUnauthorized, rr.Code, rr.Body.String())
+	}
+}
+
+func TestNetworkRoute_GET_DoesNotRequireBearerAuth(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/network", nil)
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+}
+
+func TestNetworkRoute_GET_DuringReboot_Returns503(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.Rebooting = true
+	h := NewRESTApiHandler(state)
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/network", nil)
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusServiceUnavailable, rr.Code, rr.Body.String())
+	}
+}
+
+func TestTestPoolConnectionRoute_RequiresBearerAuth(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.SetAccessToken("test-token")
+	h := NewRESTApiHandler(state)
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	// Without auth: should get 401
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/pools/test-connection",
+		strings.NewReader(`{"url":"stratum+tcp://mine.ocean.xyz:3334","username":"worker"}`))
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected %d without auth, got %d; body=%s", http.StatusUnauthorized, rr.Code, rr.Body.String())
+	}
+
+	// With auth: should succeed
+	rr = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/pools/test-connection",
+		strings.NewReader(`{"url":"stratum+tcp://mine.ocean.xyz:3334","username":"worker"}`))
+	req.Header.Set("Authorization", "Bearer test-token")
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d with auth, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
 	}
 }
 
@@ -905,6 +1102,45 @@ func TestHandlePairingAuthKey_POST_SetsKey(t *testing.T) {
 	}
 }
 
+func TestPairingAuthKeyRoute_POST_AllowsInitialPairWithoutAuth(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/pairing/auth-key",
+		strings.NewReader(`{"public_key":"test-key-123"}`))
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+
+	if state.GetAuthKey() != "test-key-123" {
+		t.Fatalf("expected auth key %q, got %q", "test-key-123", state.GetAuthKey())
+	}
+}
+
+func TestPairingAuthKeyRoute_POST_DuringReboot_Returns503(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.Rebooting = true
+	h := NewRESTApiHandler(state)
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/pairing/auth-key",
+		strings.NewReader(`{"public_key":"test-key-123"}`))
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusServiceUnavailable, rr.Code, rr.Body.String())
+	}
+}
+
 func TestHandlePairingAuthKey_POST_MissingPublicKey_Returns400(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
 	h := NewRESTApiHandler(state)
@@ -1060,6 +1296,34 @@ func TestHandlePairingAuthKey_DELETE_RequiresAuth(t *testing.T) {
 
 	if state.GetAuthKey() != "existing-key" {
 		t.Fatal("auth key should not have been cleared without auth")
+	}
+}
+
+func TestHandlePairingAuthKey_DELETE_BlockedWhenDefaultPasswordActive(t *testing.T) {
+	// Firmware does NOT exempt DELETE /pairing/auth-key from the default-password
+	// gate — it's not in DEFAULT_PASSWORD_EXEMPT_PREFIXES. So Fleet unpair against
+	// a never-rotated device returns 403. Callers must tolerate this (and
+	// ideally surface the remediation state) rather than assume revocation
+	// always succeeds.
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.SeedDefaultPassword("defaultPass123")
+	state.SetAuthKey("existing-key")
+	state.SetAccessToken("issued-bearer")
+	h := NewRESTApiHandler(state)
+
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/pairing/auth-key", nil)
+	req.Header.Set("Authorization", "Bearer issued-bearer")
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusForbidden, rr.Code, rr.Body.String())
+	}
+	if state.GetAuthKey() != "existing-key" {
+		t.Fatalf("expected auth key to remain, got %q", state.GetAuthKey())
 	}
 }
 

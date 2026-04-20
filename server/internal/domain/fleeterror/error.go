@@ -285,6 +285,25 @@ func IsAuthenticationError(err error) bool {
 	return false
 }
 
+// IsForbiddenError checks if an error is a permission denied error.
+func IsForbiddenError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var fleetErr FleetError
+	if errors.As(err, &fleetErr) {
+		return fleetErr.GRPCCode == connect.CodePermissionDenied
+	}
+
+	var connectErr *connect.Error
+	if errors.As(err, &connectErr) {
+		return connectErr.Code() == connect.CodePermissionDenied
+	}
+
+	return false
+}
+
 // IsNotFoundError checks if an error is a not found error
 func IsNotFoundError(err error) bool {
 	if err == nil {

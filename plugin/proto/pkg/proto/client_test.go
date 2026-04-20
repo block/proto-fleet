@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -240,6 +241,167 @@ func TestClientRuntimeEnvChange(t *testing.T) {
 	require.NotNil(t, transport.TLSClientConfig, "TLS config should be set")
 	assert.True(t, transport.TLSClientConfig.InsecureSkipVerify,
 		"Proto HTTPS should keep skipping certificate verification after environment changes")
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+type trackingReadCloser struct {
+	reader *bytes.Reader
+	io.ReadCloser
+	readToEOF   bool
+	closeCalled bool
+}
+
+func (t *trackingReadCloser) Close() error {
+	t.closeCalled = true
+	t.readToEOF = t.reader.Len() == 0
+	if err := t.ReadCloser.Close(); err != nil {
+		return fmt.Errorf("tracking read closer close: %w", err)
+	}
+	return nil
+}
+
+func TestDoGetWithStatus_DrainsBodyOnForbidden(t *testing.T) {
+	body := &trackingReadCloser{
+		reader: bytes.NewReader([]byte(`{"error":{"message":"DEFAULT_PASSWORD_ACTIVE"}}`)),
+	}
+	body.ReadCloser = io.NopCloser(body.reader)
+	client := &Client{
+		baseURL: "http://miner.local",
+		httpClient: &http.Client{
+			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: http.StatusForbidden,
+					Header:     make(http.Header),
+					Body:       body,
+					Request:    req,
+				}, nil
+			}),
+		},
+	}
+
+	statusCode, err := client.doGetWithStatus(context.Background(), "/api/v1/system", nil)
+
+	require.Error(t, err)
+	assert.Equal(t, http.StatusForbidden, statusCode)
+	assert.True(t, body.readToEOF, "403 response body should be drained before returning")
+	assert.True(t, body.closeCalled, "response body should still be closed")
+}
+
+func TestDoGetWithStatus_ForbiddenWithoutDefaultPasswordCodeStaysGeneric(t *testing.T) {
+	client := &Client{
+		baseURL: "http://miner.local",
+		httpClient: &http.Client{
+			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: http.StatusForbidden,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader(`{"error":{"code":"ACCESS_DENIED","message":"Access denied"}}`)),
+					Request:    req,
+				}, nil
+			}),
+		},
+	}
+
+	statusCode, err := client.doGetWithStatus(context.Background(), "/api/v1/system", nil)
+
+	require.Error(t, err)
+	assert.Equal(t, http.StatusForbidden, statusCode)
+	assert.EqualError(t, err, "forbidden: Access denied")
+}
+
+func TestDoGetWithStatus_ForbiddenPlainTextDefaultPasswordPreservesMarker(t *testing.T) {
+	client := &Client{
+		baseURL: "http://miner.local",
+		httpClient: &http.Client{
+			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: http.StatusForbidden,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader("default password must be changed")),
+					Request:    req,
+				}, nil
+			}),
+		},
+	}
+
+	statusCode, err := client.doGetWithStatus(context.Background(), "/api/v1/system", nil)
+
+	require.Error(t, err)
+	assert.Equal(t, http.StatusForbidden, statusCode)
+	assert.EqualError(t, err, "forbidden: default password must be changed")
+}
+
+func TestDirectWriteEndpoints_ClassifyDefaultPasswordForbidden(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		call func(*Client) error
+	}{
+		{
+			name: "pair",
+			path: "/api/v1/pairing/auth-key",
+			call: func(client *Client) error {
+				return client.Pair(context.Background(), sdk.APIKey{Key: "test-public-key"})
+			},
+		},
+		{
+			name: "clear auth key",
+			path: "/api/v1/pairing/auth-key",
+			call: func(client *Client) error {
+				return client.ClearAuthKey(context.Background())
+			},
+		},
+		{
+			name: "set cooling mode",
+			path: "/api/v1/cooling",
+			call: func(client *Client) error {
+				return client.SetCoolingMode(context.Background(), sdk.CoolingModeManual)
+			},
+		},
+		{
+			name: "set power target",
+			path: "/api/v1/mining/target",
+			call: func(client *Client) error {
+				return client.SetPowerTarget(context.Background(), 3200, sdk.PerformanceModeEfficiency)
+			},
+		},
+		{
+			name: "update pools",
+			path: "/api/v1/pools",
+			call: func(client *Client) error {
+				return client.UpdatePools(context.Background(), []Pool{{
+					Priority:   0,
+					URL:        "stratum+tcp://pool.example.com:3333",
+					WorkerName: "worker.1",
+				}})
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, tt.path, r.URL.Path)
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				_, _ = w.Write([]byte(`{"error":{"code":"DEFAULT_PASSWORD_ACTIVE","message":"default password must be changed"}}`))
+			}))
+			defer server.Close()
+
+			client := newTestClient(t, server)
+			defer func() { _ = client.Close() }()
+
+			err := tt.call(client)
+
+			require.Error(t, err)
+			assert.EqualError(t, err, "forbidden: default password must be changed")
+		})
+	}
 }
 
 // TestUnsupportedScheme tests handling of unsupported protocol schemes
@@ -1007,5 +1169,53 @@ func TestErrorsResponse_UnmarshalJSON(t *testing.T) {
 		var got ErrorsResponse
 		require.NoError(t, json.Unmarshal([]byte(`[]`), &got))
 		assert.Empty(t, got.Errors)
+	})
+}
+
+// TestProtoDefaultPasswordContract pins the Proto firmware default-password
+// 403 response format that this client parses. If firmware changes its 403
+// prose or code name, this test fails here first — rather than downstream
+// detection silently breaking.
+func TestProtoDefaultPasswordContract(t *testing.T) {
+	t.Run("markers match firmware default-password contract", func(t *testing.T) {
+		assert.Equal(t, "default password must be changed", defaultPasswordMessageMarker)
+		assert.Equal(t, "default_password_active", defaultPasswordCodeMarker)
+	})
+
+	t.Run("isDefaultPasswordMessage matches known firmware shapes", func(t *testing.T) {
+		cases := []struct {
+			name     string
+			msg      string
+			expected bool
+		}{
+			{"firmware prose lowercase", "default password must be changed", true},
+			{"firmware prose mixed case", "Default Password Must Be Changed", true},
+			{"wrapped with prefix", "forbidden: default password must be changed", true},
+			{"code as plain-text body", "DEFAULT_PASSWORD_ACTIVE", true},
+			{"code lowercase", "default_password_active", true},
+			{"gRPC wrapped error", "rpc error: code = PermissionDenied desc = default password must be changed", true},
+			{"generic forbidden", "forbidden: access denied", false},
+			{"auth error", "unauthenticated: missing or invalid credentials", false},
+			{"empty", "", false},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				assert.Equal(t, tc.expected, isDefaultPasswordMessage(tc.msg))
+			})
+		}
+	})
+
+	t.Run("classifyForbiddenResponse normalizes firmware payloads to the marker", func(t *testing.T) {
+		body := []byte(`{"error":{"code":"DEFAULT_PASSWORD_ACTIVE","message":"Default password must be changed"}}`)
+		err := classifyForbiddenResponse(body)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), defaultPasswordMessageMarker,
+			"classifier must emit the marker so downstream detectors can recognize it")
+	})
+
+	t.Run("classifyForbiddenResponse preserves plain-text default-password bodies", func(t *testing.T) {
+		err := classifyForbiddenResponse([]byte("default password must be changed"))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), defaultPasswordMessageMarker)
 	})
 }

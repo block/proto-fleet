@@ -424,6 +424,19 @@ func TestPluginMiner_GetDeviceMetrics_Error(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to get SDK device metrics")
 }
 
+func TestPluginMiner_GetDeviceMetrics_DefaultPasswordActive_ReturnsForbidden(t *testing.T) {
+	pm, mockDevice := createTestPluginMiner()
+
+	mockDevice.statusFunc = func(ctx context.Context) (sdk.DeviceMetrics, error) {
+		return sdk.DeviceMetrics{}, grpcstatus.Error(codes.PermissionDenied, "default password must be changed")
+	}
+
+	_, err := pm.GetDeviceMetrics(t.Context())
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsForbiddenError(err), "expected forbidden error, got: %v", err)
+}
+
 func TestPluginMiner_GetDeviceStatus_HealthMapping(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -729,6 +742,20 @@ func TestPluginMiner_ErrorPropagation(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to reboot device")
+}
+
+func TestPluginMiner_StartMining_DefaultPasswordActiveUnknown_ReturnsForbidden(t *testing.T) {
+	pm, mockDevice := createTestPluginMiner()
+
+	mockDevice.startMiningFunc = func(ctx context.Context) error {
+		return grpcstatus.Error(codes.Unknown, "failed to start mining: forbidden: default password must be changed")
+	}
+
+	err := pm.StartMining(t.Context())
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsForbiddenError(err), "expected forbidden error, got: %v", err)
+	assert.Contains(t, err.Error(), "failed to start mining")
 }
 
 func TestPluginMiner_GetWebViewURL_InvalidURL(t *testing.T) {
@@ -1137,6 +1164,7 @@ func TestWrapPluginError(t *testing.T) {
 		expectNil             bool
 		expectUnimplemented   bool
 		expectUnauthenticated bool
+		expectForbidden       bool
 		expectContains        string
 	}{
 		{
@@ -1160,6 +1188,22 @@ func TestWrapPluginError(t *testing.T) {
 			args:                  []any{"device-456"},
 			expectUnauthenticated: true,
 			expectContains:        "reboot failed for device device-456",
+		},
+		{
+			name:            "gRPC PermissionDenied maps to fleeterror Forbidden",
+			err:             grpcstatus.Error(codes.PermissionDenied, "default password must be changed"),
+			format:          "reboot failed for device %s",
+			args:            []any{"device-789"},
+			expectForbidden: true,
+			expectContains:  "reboot failed for device device-789",
+		},
+		{
+			name:            "gRPC Unknown with default-password marker maps to fleeterror Forbidden",
+			err:             grpcstatus.Error(codes.Unknown, "failed to start mining: forbidden: default password must be changed"),
+			format:          "start mining failed for device %s",
+			args:            []any{"device-999"},
+			expectForbidden: true,
+			expectContains:  "start mining failed for device device-999",
 		},
 		{
 			name:                "gRPC Internal maps to fleeterror Internal (not Unimplemented)",
@@ -1197,6 +1241,7 @@ func TestWrapPluginError(t *testing.T) {
 			require.NotNil(t, result)
 			assert.Equal(t, tt.expectUnimplemented, fleeterror.IsUnimplementedError(result))
 			assert.Equal(t, tt.expectUnauthenticated, fleeterror.IsAuthenticationError(result))
+			assert.Equal(t, tt.expectForbidden, fleeterror.IsForbiddenError(result))
 			assert.Contains(t, result.Error(), tt.expectContains)
 		})
 	}
@@ -1251,6 +1296,36 @@ func TestIsAuthError(t *testing.T) {
 	}
 }
 
+func TestIsDefaultPasswordActiveError(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{
+			name:     "permission denied with default-password marker",
+			err:      grpcstatus.Error(codes.PermissionDenied, "default password must be changed"),
+			expected: true,
+		},
+		{
+			name:     "permission denied without default-password marker",
+			err:      grpcstatus.Error(codes.PermissionDenied, "access denied"),
+			expected: false,
+		},
+		{
+			name:     "plain error with default-password marker",
+			err:      errors.New("forbidden: default password must be changed"),
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, isDefaultPasswordActiveError(tt.err))
+		})
+	}
+}
+
 func TestPluginMiner_GetDeviceStatus_AuthError_ReturnsUnauthenticated(t *testing.T) {
 	connInfo, _ := networking.NewConnectionInfo("192.168.1.100", "4028", networking.ProtocolHTTP)
 
@@ -1293,6 +1368,51 @@ func TestPluginMiner_GetDeviceStatus_AuthError_ReturnsUnauthenticated(t *testing
 			require.Error(t, err)
 			assert.True(t, fleeterror.IsAuthenticationError(err), "expected UnauthenticatedError, got: %v", err)
 			assert.False(t, fleeterror.IsConnectionError(err), "auth error must not be misclassified as connection error")
+		})
+	}
+}
+
+func TestPluginMiner_GetDeviceStatus_DefaultPasswordActive_ReturnsForbidden(t *testing.T) {
+	connInfo, _ := networking.NewConnectionInfo("192.168.1.100", "4028", networking.ProtocolHTTP)
+
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{
+			name: "permission denied status",
+			err:  grpcstatus.Error(codes.PermissionDenied, "default password must be changed"),
+		},
+		{
+			name: "wrapped unknown status with default-password marker",
+			err:  grpcstatus.Error(codes.Unknown, "failed to get miner status: forbidden: default password must be changed"),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pluginMiner := NewPluginMiner(
+				testOrgID,
+				models.DeviceIdentifier("device-default-password"),
+				"proto",
+				nil,
+				"serial-default-password",
+				*connInfo,
+				&mockSDKDevice{
+					id: "device-default-password",
+					statusFunc: func(ctx context.Context) (sdk.DeviceMetrics, error) {
+						return sdk.DeviceMetrics{}, tt.err
+					},
+				},
+				sdk.DeviceInfo{Host: "192.168.1.100", Port: 4028},
+				nil,
+			)
+
+			status, err := pluginMiner.GetDeviceStatus(context.Background())
+
+			assert.Equal(t, models.MinerStatusUnknown, status)
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsForbiddenError(err), "expected forbidden error, got: %v", err)
 		})
 	}
 }

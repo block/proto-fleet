@@ -4,10 +4,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strconv"
 	"testing"
+	"time"
 
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestIsAuthenticationError(t *testing.T) {
@@ -106,4 +113,103 @@ func TestIsAuthenticationError(t *testing.T) {
 			assert.Equal(t, tt.expected, result, "isAuthenticationError(%v)", tt.err)
 		})
 	}
+}
+
+func TestIsDefaultPasswordError(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{
+			name:     "nil_error",
+			err:      nil,
+			expected: false,
+		},
+		{
+			name:     "default_password_must_be_changed",
+			err:      fmt.Errorf("forbidden: default password must be changed"),
+			expected: true,
+		},
+		{
+			name:     "wrapped_default_password",
+			err:      fmt.Errorf("API call failed: %w", fmt.Errorf("forbidden: default password must be changed")),
+			expected: true,
+		},
+		{
+			name:     "default_password_active_code",
+			err:      errors.New("request failed: DEFAULT_PASSWORD_ACTIVE"),
+			expected: true,
+		},
+		{
+			name:     "http_403_without_default_password",
+			err:      fmt.Errorf("request failed with status %d", http.StatusForbidden),
+			expected: false,
+		},
+		{
+			name:     "auth_error_not_default_password",
+			err:      errors.New("unauthenticated: missing or invalid credentials"),
+			expected: false,
+		},
+		{
+			name:     "generic_error",
+			err:      errors.New("connection refused"),
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isDefaultPasswordError(tt.err)
+			assert.Equal(t, tt.expected, result, "isDefaultPasswordError(%v)", tt.err)
+		})
+	}
+}
+
+func TestNew_DefaultPasswordActive_UnpairReportsDefaultPassword(t *testing.T) {
+	// Firmware gates DELETE /api/v1/pairing/auth-key behind the default-password
+	// lockout (see server/fake-proto-rig's matching handler test), so Unpair
+	// cannot actually clear Fleet's installed key on a never-rotated device.
+	// The constructor still returns a live handle so UpdateMinerPassword —
+	// routed through /auth/change-password, which is exempt — remains reachable.
+	var clearAuthKeyCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/mining":
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"error":{"code":"DEFAULT_PASSWORD_ACTIVE","message":"default password must be changed"}}`))
+		case r.Method == http.MethodDelete && r.URL.Path == "/api/v1/pairing/auth-key":
+			clearAuthKeyCalls++
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"error":{"code":"DEFAULT_PASSWORD_ACTIVE","message":"default password must be changed"}}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	parsed, err := url.Parse(server.URL)
+	require.NoError(t, err)
+	host, portStr, err := net.SplitHostPort(parsed.Host)
+	require.NoError(t, err)
+	port, err := strconv.ParseInt(portStr, 10, 32)
+	require.NoError(t, err)
+
+	deviceInfo := sdk.DeviceInfo{
+		Host:      host,
+		Port:      int32(port),
+		URLScheme: "http",
+	}
+
+	dev, err := New("device-locked", deviceInfo, sdk.BearerToken{Token: "test-token"}, SetStatusTTL(0*time.Second))
+	require.NoError(t, err, "constructor must succeed under default-password so remediation ops remain reachable")
+	require.NotNil(t, dev)
+	t.Cleanup(func() { _ = dev.Close(context.Background()) })
+
+	unpairErr := dev.Unpair(context.Background())
+	require.Error(t, unpairErr, "Unpair must surface the firmware default-password gate rather than silently succeed")
+	assert.True(t, isDefaultPasswordError(unpairErr), "Unpair error should be recognizable as default-password active; got: %v", unpairErr)
+	assert.Equal(t, 1, clearAuthKeyCalls, "Unpair should still attempt DELETE /api/v1/pairing/auth-key")
 }
