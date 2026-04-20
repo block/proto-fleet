@@ -32,9 +32,13 @@ services:
       PLUGINS_DIR: "/app/plugins"
       PLUGINS_ENABLED: "true"
       PROTO_MINER_PORT: "8080"
+      TRACING_ENABLED: "true"
+      TRACING_ENDPOINT: "http://otel-collector:4318"
     depends_on:
       timescaledb:
         condition: service_healthy
+      otel-collector:
+        condition: service_started
     volumes:
       - ./plugins:/app/plugins:ro
     restart: unless-stopped
@@ -81,11 +85,38 @@ services:
           size: 256M
     # Faster health checks for development
     healthcheck:
-      test: ["CMD-SHELL", "psql -U fleet -d fleet -c 'SELECT 1' > /dev/null 2>&1"]
+      test: [ "CMD-SHELL", "psql -U fleet -d fleet -c 'SELECT 1' > /dev/null 2>&1" ]
       interval: 1s
       timeout: 3s
       retries: 5
       start_period: 5s
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.150.1
+    command: [ "--config", "/etc/otelcol-contrib/config.yaml" ]
+    ports:
+      - "127.0.0.1:4317:4317" # OTLP gRPC
+      - "127.0.0.1:4318:4318" # OTLP HTTP
+    depends_on:
+      - jaeger
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml
+    restart: unless-stopped
+    networks:
+      - fleet-network
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.76.0
+    ports:
+      - "127.0.0.1:16686:16686" # UI
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    expose:
+      - "4317"
+      - "4318"
+    restart: unless-stopped
+    networks:
+      - fleet-network
 
   # Development-specific services
   fake-proto-rig:
@@ -95,7 +126,7 @@ services:
     environment:
       HTTP_PORT: "8080"
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      test: [ "CMD", "wget", "-qO-", "http://localhost:8080/health" ]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -124,7 +155,7 @@ services:
       USERNAME: "root19"
       PASSWORD: "root19"
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:80/health"]
+      test: [ "CMD", "wget", "-qO-", "http://localhost:80/health" ]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -153,7 +184,7 @@ services:
       FIRMWARE_VERSION: "Antminer S19 XP 140Th 15/01/2023 10:30:25"
       ERROR_BOARD_TEMP: "96.0"
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:80/health"]
+      test: [ "CMD", "wget", "-qO-", "http://localhost:80/health" ]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -175,7 +206,7 @@ services:
       ERROR_HW_PERCENT: "6.5"
       ERROR_HW_COUNT: "1500"
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:80/health"]
+      test: [ "CMD", "wget", "-qO-", "http://localhost:80/health" ]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -198,7 +229,7 @@ services:
       PASSWORD: "root21"
       ERROR_BOARD_NOT_ALIVE: "true"
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:80/health"]
+      test: [ "CMD", "wget", "-qO-", "http://localhost:80/health" ]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -225,7 +256,7 @@ services:
       ERROR_FAN_FAILED: "true"
       ERROR_PSU_FAULT: "true"
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:80/health"]
+      test: [ "CMD", "wget", "-qO-", "http://localhost:80/health" ]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -247,7 +278,7 @@ services:
       ERROR_REJECTED_PERCENT: "12.0"
       ERROR_STALE_COUNT: "150"
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:80/health"]
+      test: [ "CMD", "wget", "-qO-", "http://localhost:80/health" ]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -267,7 +298,7 @@ services:
       HTTP_PORT: "8080"
       SERIAL_NUMBER: "PROTO-SIM-001"
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      test: [ "CMD", "wget", "-qO-", "http://localhost:8080/health" ]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -293,7 +324,7 @@ services:
       MINER_TYPE: "Antminer S19"
       FIRMWARE_VERSION: "Antminer S19 XP 140Th 15/01/2023 10:30:25"
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:80/health"]
+      test: [ "CMD", "wget", "-qO-", "http://localhost:80/health" ]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -314,6 +345,7 @@ services:
       - NET_RAW
 volumes:
   timescaledb-data:
+
 
 networks:
   fleet-network:

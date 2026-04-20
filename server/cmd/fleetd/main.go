@@ -30,6 +30,7 @@ import (
 	"github.com/alecthomas/kong"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/block/proto-fleet/server/internal/infrastructure/logging"
+	"github.com/block/proto-fleet/server/internal/infrastructure/tracing"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 
@@ -110,6 +111,17 @@ var reflectEnabledServices = []string{
 }
 
 func start(config *Config) error {
+	shutdownTracer, err := tracing.Setup(context.Background(), config.Tracing)
+	if err != nil {
+		return fmt.Errorf("setup tracing: %w", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+		if err := shutdownTracer(shutdownCtx); err != nil {
+			slog.Error("Failed to shutdown tracer", "error", err)
+		}
+	}()
 
 	conn, err := db.ConnectAndMigrate(&config.DB)
 	if err != nil {
@@ -412,7 +424,7 @@ func start(config *Config) error {
 		}()
 	}
 
-	var handler http.Handler = mux
+	var handler http.Handler = interceptors.TracingMiddleware(mux)
 	for _, m := range middlewares {
 		handler = m.Wrap(handler)
 	}

@@ -18,6 +18,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/logging"
 	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
 	"github.com/block/proto-fleet/server/internal/infrastructure/timescaledb"
+	"github.com/block/proto-fleet/server/internal/infrastructure/tracing"
 )
 
 type HTTPConfig struct {
@@ -43,4 +44,5 @@ type Config struct {
 	IPScanner   ipscanner.Config   `embed:"" prefix:"ipscanner" envprefix:"IPSCANNER_"`
 	Diagnostics diagnostics.Config `embed:"" prefix:"diagnostics" envprefix:"DIAGNOSTICS_"`
 	Files       files.Config       `embed:"" prefix:"files" envprefix:"FILES_"`
+	Tracing     tracing.Config     `embed:"" prefix:"tracing" envprefix:"TRACING_"`
 }
