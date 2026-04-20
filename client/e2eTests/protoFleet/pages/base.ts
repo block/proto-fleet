@@ -172,6 +172,14 @@ export class BasePage {
     await expect(this.page).toHaveURL(/.*\/settings\/mining-pools/);
   }
 
+  async navigateToFirmwareSettings() {
+    await this.clickNavigationMenuIfMobile();
+    await this.clickExpandSettingsIfMobile();
+    await this.navigateSettingsIfDesktop();
+    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/firmware"]').click();
+    await expect(this.page).toHaveURL(/.*\/settings\/firmware/);
+  }
+
   async clickButton(text: string) {
     await this.page.getByRole("button", { name: text, disabled: false, exact: true }).click();
   }

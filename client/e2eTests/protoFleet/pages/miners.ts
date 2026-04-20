@@ -191,6 +191,22 @@ export class MinersPage extends BasePage {
     await this.page.getByTestId("mining-pool-popover-button").click();
   }
 
+  async clickUpdateFirmwareButton() {
+    await this.page.getByTestId("firmware-update-popover-button").click();
+  }
+
+  async validateFirmwareUpdateModalOpened() {
+    await this.validateTitleInModal("Add firmware payload");
+  }
+
+  async selectExistingFirmwareFile(fileName: string) {
+    await this.page.getByRole("radio").filter({ hasText: fileName }).click();
+  }
+
+  async clickContinueInFirmwareUpdateModal() {
+    await this.clickIn("Continue", "modal");
+  }
+
   async clickCoolingModeButton() {
     await this.page.getByTestId("cooling-mode-popover-button").click();
   }
@@ -673,7 +689,7 @@ export class MinersPage extends BasePage {
     }).toPass({ timeout: PROLONGED_TIMEOUT });
   }
 
-  async validateMinerStatusSettled(ipAddress: string, expectedStatus: string) {
+  async validateMinerStatusSettled(ipAddress: string, expectedStatus: string, timeoutMs: number = PROLONGED_TIMEOUT) {
     await expect(async () => {
       try {
         const minerRow = await this.getMinerRowByIp(ipAddress);
@@ -692,7 +708,7 @@ export class MinersPage extends BasePage {
         await expect(statusCell).toBeVisible();
         throw error;
       }
-    }).toPass({ timeout: PROLONGED_TIMEOUT });
+    }).toPass({ timeout: timeoutMs });
   }
 
   async validateAllMinersIssues(issue: string, expected: boolean = true) {
@@ -811,11 +827,17 @@ export class MinersPage extends BasePage {
 
   async hasAnyMinerWithStatus(status: string): Promise<boolean> {
     await this.waitForColumnValuesToLoad("status");
-    const rows = this.page
-      .getByTestId("list-body")
-      .locator("tr")
-      .filter({ has: this.page.getByTestId("status").getByText(status, { exact: true }) });
-    return (await rows.count()) > 0;
+    const rows = this.page.getByTestId("list-body").locator("tr");
+    const rowCount = await rows.count();
+
+    for (let i = 0; i < rowCount; i++) {
+      const statusText = (await rows.nth(i).getByTestId("status").innerText()).trim();
+      if (statusText === status) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   async getMinerIpAddressByIndex(index: number): Promise<string> {
@@ -826,31 +848,25 @@ export class MinersPage extends BasePage {
 
   async getMinerIpAddressByStatus(status: string): Promise<string> {
     await this.waitForColumnValuesToLoad("status");
-    const rows = this.page
-      .getByTestId("list-body")
-      .locator("tr")
-      .filter({ has: this.page.getByTestId("status").getByText(status, { exact: true }) });
+    const rows = this.page.getByTestId("list-body").locator("tr");
     const rowCount = await rows.count();
-    if (rowCount === 0) {
-      const allRows = this.page.getByTestId("list-body").locator("tr");
-      const allRowCount = await allRows.count();
-      const visibleStatuses: string[] = [];
+    const visibleStatuses: string[] = [];
 
-      for (let i = 0; i < allRowCount; i++) {
-        const statusCell = allRows.nth(i).getByTestId("status");
-        const statusText = (await statusCell.innerText()).trim();
-        if (statusText) {
-          visibleStatuses.push(statusText);
-        }
+    for (let i = 0; i < rowCount; i++) {
+      const row = rows.nth(i);
+      const statusText = (await row.getByTestId("status").innerText()).trim();
+      if (statusText) {
+        visibleStatuses.push(statusText);
       }
 
-      throw new Error(
-        `No visible miner with status "${status}". Visible statuses: ${visibleStatuses.join(", ") || "none"}`,
-      );
+      if (statusText === status) {
+        return await row.getByTestId("ipAddress").innerText();
+      }
     }
 
-    const row = rows.first();
-    return await row.getByTestId("ipAddress").innerText();
+    throw new Error(
+      `No visible miner with status "${status}". Visible statuses: ${visibleStatuses.join(", ") || "none"}`,
+    );
   }
 
   async getAuthenticatedMinerIpAddressByIndex(index: number): Promise<string> {

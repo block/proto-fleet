@@ -86,7 +86,8 @@ export class SettingsTeamPage extends BasePage {
   }
 
   async validatePasswordReset() {
-    await expect(this.page.getByTestId("modal").getByText("Password reset")).toBeVisible();
+    await expect(this.page.getByTestId("temporary-password")).toBeVisible();
+    await expect(this.page.getByRole("button", { name: "Done", exact: true })).toBeVisible();
   }
 
   async clickDeactivate() {

@@ -12,6 +12,7 @@ import { MinersPage } from "../pages/miners";
 import { NewPoolModalPage } from "../pages/newPoolModal";
 import { RacksPage } from "../pages/racks";
 import { SettingsPage } from "../pages/settings";
+import { SettingsFirmwarePage } from "../pages/settingsFirmware";
 import { SettingsPoolsPage } from "../pages/settingsPools";
 import { SettingsSecurityPage } from "../pages/settingsSecurity";
 import { SettingsTeamPage } from "../pages/settingsTeam";
@@ -24,6 +25,7 @@ type PageFixtures = {
   racksPage: RacksPage;
   addMinersPage: AddMinersPage;
   settingsPage: SettingsPage;
+  settingsFirmwarePage: SettingsFirmwarePage;
   settingsSecurityPage: SettingsSecurityPage;
   settingsTeamPage: SettingsTeamPage;
   settingsPoolsPage: SettingsPoolsPage;
@@ -54,6 +56,9 @@ export const test = base.extend<PageFixtures>({
   },
   settingsPage: async ({ page, isMobile }, use) => {
     await use(new SettingsPage(page, isMobile));
+  },
+  settingsFirmwarePage: async ({ page, isMobile }, use) => {
+    await use(new SettingsFirmwarePage(page, isMobile));
   },
   settingsSecurityPage: async ({ page, isMobile }, use) => {
     await use(new SettingsSecurityPage(page, isMobile));
