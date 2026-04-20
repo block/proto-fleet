@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { defaultTtl, STATUSES } from "../../constants";
 import { type ToastType } from "../../types";
 import { Alert, Success } from "@/shared/assets/icons";
+import Button, { sizes, variants } from "@/shared/components/Button";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 
 type GroupedToastProps = Omit<ToastType, "id"> & {
@@ -9,7 +10,7 @@ type GroupedToastProps = Omit<ToastType, "id"> & {
   ttl?: number | false;
 };
 
-const GroupedToast = ({ message, onClose, status, progress, ttl = defaultTtl }: GroupedToastProps) => {
+const GroupedToast = ({ message, onClose, status, progress, actions, ttl = defaultTtl }: GroupedToastProps) => {
   // Only auto-dismiss success toasts, keep error toasts visible for user attention
   useEffect(() => {
     if (status !== STATUSES.success) return;
@@ -34,11 +35,25 @@ const GroupedToast = ({ message, onClose, status, progress, ttl = defaultTtl }: 
     <div className="space-x-4 bg-surface-elevated-base py-2" data-testid="toast">
       <div className="flex grow items-center space-x-4">
         {icon}
-        <div className="flex flex-col">
+        <div className="flex flex-1 flex-col">
           <div className="text-emphasis-300 text-text-primary">{message}</div>
           {progress !== undefined && <div className="text-200 text-text-primary-70">{progress}% complete</div>}
           {status === STATUSES.queued && <div className="text-200 text-text-primary-70">Queued</div>}
         </div>
+        {actions && actions.length > 0 && (
+          <div className="shrink-0">
+            {actions.map((action, i) => (
+              <Button
+                key={i}
+                text={action.label}
+                variant={variants.primary}
+                size={sizes.compact}
+                onClick={action.onClick}
+                testId={`toast-action-${action.label.toLowerCase().replace(/\s+/g, "-")}`}
+              />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

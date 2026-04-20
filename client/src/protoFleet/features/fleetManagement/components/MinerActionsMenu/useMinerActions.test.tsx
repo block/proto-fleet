@@ -1,7 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create as createProto } from "@bufbuild/protobuf";
-import { deviceActions, performanceActions, settingsActions } from "./constants";
+import { deviceActions, performanceActions, settingsActions, type SupportedAction } from "./constants";
 import { useMinerActions } from "./useMinerActions";
 import { CoolingMode } from "@/protoFleet/api/generated/common/v1/cooling_pb";
 import {
@@ -423,6 +423,7 @@ describe("useMinerActions", () => {
         message: "Blinking LEDs",
         status: toaster.STATUSES.loading,
         longRunning: true,
+        onClose: expect.any(Function),
       });
     });
   });
@@ -516,6 +517,253 @@ describe("useMinerActions", () => {
     });
   });
 
+  describe("Retry action on partial failure", () => {
+    type RenderHookResult = ReturnType<typeof renderHook<ReturnType<typeof useMinerActions>, unknown>>["result"];
+
+    type RetryCase = {
+      name: string;
+      batchId: string;
+      deviceStatus: DeviceStatus;
+      mock: ReturnType<typeof vi.fn>;
+      dispatch: (result: RenderHookResult) => Promise<void>;
+      getRetryDeviceIdentifiers: (mockCall: any) => string[];
+    };
+
+    const readSubsetIdsFromRequestArg = (requestKey: string) => (mockCall: any) =>
+      mockCall[0][requestKey].deviceSelector.selectionType.value.deviceIdentifiers;
+    const readSubsetIdsFromDirectSelector = (mockCall: any) =>
+      mockCall[0].deviceSelector.selectionType.value.deviceIdentifiers;
+
+    const runConfirmFlow = (action: SupportedAction) => async (result: RenderHookResult) => {
+      const popoverAction = result.current.popoverActions.find((a) => a.action === action);
+      await act(async () => {
+        await popoverAction?.actionHandler();
+      });
+      await act(async () => {
+        await result.current.handleConfirmation();
+      });
+    };
+
+    const runModalFlow =
+      (action: SupportedAction, confirm: (result: RenderHookResult) => void) => async (result: RenderHookResult) => {
+        const popoverAction = result.current.popoverActions.find((a) => a.action === action);
+        await act(async () => {
+          await popoverAction?.actionHandler();
+        });
+        await act(async () => {
+          confirm(result);
+        });
+      };
+
+    const retryCases: RetryCase[] = [
+      {
+        name: "reboot",
+        batchId: "batch-reboot",
+        deviceStatus: DeviceStatus.ONLINE,
+        mock: mockReboot,
+        dispatch: runConfirmFlow(deviceActions.reboot),
+        getRetryDeviceIdentifiers: readSubsetIdsFromRequestArg("rebootRequest"),
+      },
+      {
+        name: "shutdown",
+        batchId: "batch-shutdown",
+        deviceStatus: DeviceStatus.ONLINE,
+        mock: mockStopMining,
+        dispatch: runConfirmFlow(deviceActions.shutdown),
+        getRetryDeviceIdentifiers: readSubsetIdsFromRequestArg("stopMiningRequest"),
+      },
+      {
+        name: "wakeUp",
+        batchId: "batch-wakeup",
+        deviceStatus: DeviceStatus.INACTIVE,
+        mock: mockStartMining,
+        dispatch: runConfirmFlow(deviceActions.wakeUp),
+        getRetryDeviceIdentifiers: readSubsetIdsFromRequestArg("startMiningRequest"),
+      },
+      {
+        name: "blinkLEDs",
+        batchId: "batch-blink",
+        deviceStatus: DeviceStatus.ONLINE,
+        mock: mockBlinkLED,
+        dispatch: async (result) => {
+          const popoverAction = result.current.popoverActions.find((a) => a.action === deviceActions.blinkLEDs);
+          await act(async () => {
+            popoverAction?.actionHandler();
+          });
+        },
+        getRetryDeviceIdentifiers: readSubsetIdsFromRequestArg("blinkLEDRequest"),
+      },
+      {
+        name: "managePower",
+        batchId: "batch-power",
+        deviceStatus: DeviceStatus.ONLINE,
+        mock: mockSetPowerTarget,
+        dispatch: runModalFlow(performanceActions.managePower, (result) =>
+          result.current.handleManagePowerConfirm(PerformanceMode.MAXIMUM_HASHRATE),
+        ),
+        getRetryDeviceIdentifiers: readSubsetIdsFromDirectSelector,
+      },
+      {
+        name: "coolingMode",
+        batchId: "batch-cooling",
+        deviceStatus: DeviceStatus.ONLINE,
+        mock: mockSetCoolingMode,
+        dispatch: runModalFlow(settingsActions.coolingMode, (result) =>
+          result.current.handleCoolingModeConfirm(CoolingMode.AIR_COOLED),
+        ),
+        getRetryDeviceIdentifiers: readSubsetIdsFromDirectSelector,
+      },
+    ];
+
+    const stubPartialFailureStream = (successIds: string[], failureIds: string[]) => {
+      mockStreamCommandBatchUpdates.mockImplementation(({ onStreamData }: any) => {
+        onStreamData({
+          status: {
+            commandBatchDeviceCount: {
+              total: BigInt(successIds.length + failureIds.length),
+              success: BigInt(successIds.length),
+              failure: BigInt(failureIds.length),
+              successDeviceIdentifiers: successIds,
+              failureDeviceIdentifiers: failureIds,
+            },
+          },
+        });
+        return Promise.resolve();
+      });
+    };
+
+    const stubActionSuccess = (mock: ReturnType<typeof vi.fn>, batchId: string) => {
+      mock.mockImplementation(({ onSuccess }: any) => {
+        onSuccess({ batchIdentifier: batchId });
+      });
+    };
+
+    const renderFor = (deviceStatus: DeviceStatus) =>
+      renderHook(() =>
+        useMinerActions({
+          ...batchOpsParams(),
+          selectedMiners: [
+            { deviceIdentifier: "device-1", deviceStatus },
+            { deviceIdentifier: "device-2", deviceStatus },
+          ],
+          selectionMode: "subset",
+        }),
+      );
+
+    const findRetryCall = () => {
+      const updateCalls = (toaster.updateToast as ReturnType<typeof vi.fn>).mock.calls;
+      return updateCalls.find((call) => call[1]?.actions?.[0]?.label === "Retry");
+    };
+
+    it.each(retryCases)(
+      "attaches Retry to the error toast after $name partial failure",
+      async ({ batchId, deviceStatus, mock, dispatch }) => {
+        stubActionSuccess(mock, batchId);
+        stubPartialFailureStream(["device-1"], ["device-2"]);
+
+        const { result } = renderFor(deviceStatus);
+        await dispatch(result);
+
+        expect(findRetryCall()).toBeDefined();
+      },
+    );
+
+    it.each(retryCases)(
+      "retries $name with only failed device IDs and carries onClose when clicked",
+      async ({ batchId, deviceStatus, mock, dispatch, getRetryDeviceIdentifiers }) => {
+        stubActionSuccess(mock, batchId);
+        stubPartialFailureStream(["device-1"], ["device-2"]);
+
+        const { result } = renderFor(deviceStatus);
+        await dispatch(result);
+
+        const retryCall = findRetryCall();
+        if (!retryCall) throw new Error("Retry action was not attached");
+        const retryOnClick = retryCall[1].actions[0].onClick;
+
+        mock.mockClear();
+        (toaster.pushToast as ReturnType<typeof vi.fn>).mockClear();
+        stubActionSuccess(mock, `${batchId}-retry`);
+        mockStreamCommandBatchUpdates.mockImplementation(() => Promise.resolve());
+
+        // Clicking Retry twice rapidly must only dispatch once (I2 guard).
+        await act(async () => {
+          retryOnClick();
+          retryOnClick();
+        });
+
+        expect(mock).toHaveBeenCalledTimes(1);
+        expect(getRetryDeviceIdentifiers(mock.mock.calls[0])).toEqual(["device-2"]);
+
+        // Retry loading toast must carry onClose so onActionComplete fires on
+        // dismissal (L1 regression guard).
+        const pushCalls = (toaster.pushToast as ReturnType<typeof vi.fn>).mock.calls;
+        const retryPushCall = pushCalls[pushCalls.length - 1];
+        expect(retryPushCall?.[0]).toEqual(expect.objectContaining({ onClose: expect.any(Function) }));
+      },
+    );
+
+    it("does not attach Retry when all devices succeed", async () => {
+      stubActionSuccess(mockReboot, "batch-reboot");
+      stubPartialFailureStream(["device-1", "device-2"], []);
+
+      const { result } = renderFor(DeviceStatus.ONLINE);
+      await runConfirmFlow(deviceActions.reboot)(result);
+
+      expect(findRetryCall()).toBeUndefined();
+    });
+
+    // L3: all-fail path goes through removeToast(originalToastId) (not update)
+    // before attaching Retry. This exercises that branch and confirms Retry is
+    // still offered (streamCompletedNormally is true when 0 + N === N).
+    it("attaches Retry when all devices fail", async () => {
+      stubActionSuccess(mockReboot, "batch-reboot");
+      stubPartialFailureStream([], ["device-1", "device-2"]);
+
+      const { result } = renderFor(DeviceStatus.ONLINE);
+      await runConfirmFlow(deviceActions.reboot)(result);
+
+      expect(findRetryCall()).toBeDefined();
+    });
+
+    // L2: verify the error toast is still pushed on premature termination,
+    // even though Retry is suppressed. A regression that accidentally
+    // suppressed the error toast would be caught here.
+    it("does not attach Retry but still shows error toast when the batch stream ends prematurely", async () => {
+      stubActionSuccess(mockReboot, "batch-reboot");
+      mockStreamCommandBatchUpdates.mockImplementation(({ onStreamData }: any) => {
+        onStreamData({
+          status: {
+            commandBatchDeviceCount: {
+              total: BigInt(3),
+              success: BigInt(0),
+              failure: BigInt(1),
+              successDeviceIdentifiers: [],
+              failureDeviceIdentifiers: ["device-1"],
+            },
+          },
+        });
+        return Promise.resolve();
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          ...batchOpsParams(),
+          selectedMiners: [
+            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
+            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
+            { deviceIdentifier: "device-3", deviceStatus: DeviceStatus.ONLINE },
+          ],
+          selectionMode: "subset",
+        }),
+      );
+      await runConfirmFlow(deviceActions.reboot)(result);
+
+      expect(findRetryCall()).toBeUndefined();
+      expect(toaster.pushToast).toHaveBeenCalledWith(expect.objectContaining({ status: toaster.STATUSES.error }));
+    });
+  });
+
   describe("Modal interactions", () => {
     it("should open manage power modal when action handler is called", async () => {
       const onActionStart = vi.fn();
@@ -568,8 +816,6 @@ describe("useMinerActions", () => {
       expect(result.current.showManagePowerModal).toBe(false);
       expect(result.current.currentAction).toBeNull();
       expect(mockSetPowerTarget).toHaveBeenCalled();
-      // Note: setPowerTarget does not track batch operations since it completes instantly
-      // and doesn't show loading states or require status confirmation polling
     });
 
     it("should handle manage power dismiss", async () => {

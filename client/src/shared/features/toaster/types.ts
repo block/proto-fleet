@@ -3,6 +3,11 @@ import { type ACTIONS, type STATUSES } from "./constants";
 export type ToastStatusType = (typeof STATUSES)[keyof typeof STATUSES];
 export type ToasterActionType = (typeof ACTIONS)[keyof typeof ACTIONS];
 
+export type ToastAction = {
+  label: string;
+  onClick: () => void;
+};
+
 // Toast type that Toaster useState expects
 export type ToastType = {
   message: string;
@@ -12,6 +17,7 @@ export type ToastType = {
   longRunning?: boolean;
   progress?: number;
   onClose?: () => void;
+  actions?: ToastAction[];
 };
 
 // Props interface Toast component accepts

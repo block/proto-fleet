@@ -426,6 +426,7 @@ export const useMinerActions = ({
       originalToastId: number,
       batchIdentifier: string,
       onBatchComplete?: (successDeviceIds: string[], failureDeviceIds: string[]) => void,
+      retryAction?: (failedDeviceIds: string[]) => void,
     ) => {
       const streamAbortController = new AbortController();
 
@@ -434,6 +435,10 @@ export const useMinerActions = ({
       let totalCount = 0;
       let successDeviceIds: string[] = [];
       let failureDeviceIds: string[] = [];
+      // Only true when we've received results for every expected device. Guards
+      // the Retry action below so a premature stream termination (network/auth
+      // failure, unmount) cannot offer a retry against a still-in-flight batch.
+      let streamCompletedNormally = false;
 
       streamCommandBatchUpdates({
         streamRequest: create(StreamCommandBatchUpdatesRequestSchema, {
@@ -473,6 +478,7 @@ export const useMinerActions = ({
           // Close the stream when we've received results for all devices
           // This triggers .finally() to clear loading states immediately
           if (successCount + failureCount === totalCount && totalCount > 0) {
+            streamCompletedNormally = true;
             streamAbortController.abort();
           }
         },
@@ -485,6 +491,29 @@ export const useMinerActions = ({
           });
         } else {
           removeToast(originalToastId);
+        }
+
+        if (streamCompletedNormally && errorToastId && retryAction && failureDeviceIds.length > 0) {
+          const capturedToastId = errorToastId;
+          const capturedFailureIds = [...failureDeviceIds];
+          // Guard against rapid double-clicks on the Retry button: the toast
+          // dismissal and re-render are asynchronous, so a second click can
+          // fire the onClick before the button unmounts. Without this flag,
+          // that would dispatch the action's API call twice.
+          let hasFired = false;
+          updateToast(capturedToastId, {
+            actions: [
+              {
+                label: "Retry",
+                onClick: () => {
+                  if (hasFired) return;
+                  hasFired = true;
+                  removeToast(capturedToastId);
+                  retryAction(capturedFailureIds);
+                },
+              },
+            ],
+          });
         }
 
         onBatchComplete?.(successDeviceIds, failureDeviceIds);
@@ -521,6 +550,52 @@ export const useMinerActions = ({
       status: TOAST_STATUSES.error,
     });
   }, []);
+
+  // Centralizes the retry-on-partial-failure loop so every retry toast carries
+  // `onClose` and every action wires `handleSuccess` identically.
+  const executeBulkActionWithRetry = useCallback(
+    (params: {
+      action: SupportedAction;
+      runAction: (args: {
+        deviceSelector: DeviceSelector;
+        onSuccess: (batchIdentifier: string) => void;
+        onError: (error: string) => void;
+      }) => void;
+      deviceSelector: DeviceSelector;
+      deviceIdentifiers: string[];
+      loadingMessage: string;
+    }) => {
+      const { action, runAction, loadingMessage } = params;
+
+      const pushLoadingToast = () =>
+        pushToast({
+          message: loadingMessage,
+          status: TOAST_STATUSES.loading,
+          longRunning: true,
+          onClose: () => onActionComplete?.(),
+        });
+
+      const execute = (selector: DeviceSelector, deviceIds: string[], toastId: number) => {
+        runAction({
+          deviceSelector: selector,
+          onSuccess: (batchIdentifier) => {
+            startBatchOperation({
+              batchIdentifier,
+              action,
+              deviceIdentifiers: deviceIds,
+            });
+            handleSuccess(action, toastId, batchIdentifier, undefined, (failedIds) => {
+              execute(createDeviceSelector("subset", failedIds), failedIds, pushLoadingToast());
+            });
+          },
+          onError: (error) => handleError(toastId, error),
+        });
+      };
+
+      execute(params.deviceSelector, params.deviceIdentifiers, pushLoadingToast());
+    },
+    [handleSuccess, handleError, onActionComplete, startBatchOperation],
+  );
 
   const handleMiningPoolSuccess = useCallback(
     (batchIdentifier: string) => {
@@ -565,25 +640,18 @@ export const useMinerActions = ({
       setFilteredSelectorForPowerModal(undefined);
       setManagePowerFilteredDeviceIds(undefined);
 
-      const id = pushToast({
-        message: `${loadingMessages[performanceActions.managePower]} ${minersMessage}`,
-        status: TOAST_STATUSES.loading,
-        longRunning: true,
-        onClose: () => onActionComplete?.(),
-      });
-
-      setPowerTarget({
+      executeBulkActionWithRetry({
+        action: performanceActions.managePower,
         deviceSelector: selectorToUse,
-        performanceMode,
-        onSuccess: (value: SetPowerTargetResponse) => {
-          startBatchOperation({
-            batchIdentifier: value.batchIdentifier,
-            action: performanceActions.managePower,
-            deviceIdentifiers: deviceIdsToUse,
-          });
-          handleSuccess(performanceActions.managePower, id, value.batchIdentifier);
-        },
-        onError: handleError.bind(null, id),
+        deviceIdentifiers: deviceIdsToUse,
+        loadingMessage: `${loadingMessages[performanceActions.managePower]} ${minersMessage}`,
+        runAction: ({ deviceSelector: selector, onSuccess, onError }) =>
+          setPowerTarget({
+            deviceSelector: selector,
+            performanceMode,
+            onSuccess: (value: SetPowerTargetResponse) => onSuccess(value.batchIdentifier),
+            onError,
+          }),
       });
 
       setCurrentAction(null);
@@ -593,10 +661,7 @@ export const useMinerActions = ({
       managePowerFilteredDeviceIds,
       deviceSelector,
       setPowerTarget,
-      handleSuccess,
-      handleError,
-      onActionComplete,
-      startBatchOperation,
+      executeBulkActionWithRetry,
       deviceIdentifiers,
     ],
   );
@@ -763,25 +828,18 @@ export const useMinerActions = ({
       setCoolingModeFilteredSelector(undefined);
       setCoolingModeFilteredDeviceIds(undefined);
 
-      const id = pushToast({
-        message: `${loadingMessages[settingsActions.coolingMode]} ${minersMessage}`,
-        status: TOAST_STATUSES.loading,
-        longRunning: true,
-        onClose: () => onActionComplete?.(),
-      });
-
-      setCoolingMode({
+      executeBulkActionWithRetry({
+        action: settingsActions.coolingMode,
         deviceSelector: selectorToUse,
-        coolingMode,
-        onSuccess: (value: SetCoolingModeResponse) => {
-          startBatchOperation({
-            batchIdentifier: value.batchIdentifier,
-            action: settingsActions.coolingMode,
-            deviceIdentifiers: deviceIdsToUse,
-          });
-          handleSuccess(settingsActions.coolingMode, id, value.batchIdentifier);
-        },
-        onError: handleError.bind(null, id),
+        deviceIdentifiers: deviceIdsToUse,
+        loadingMessage: `${loadingMessages[settingsActions.coolingMode]} ${minersMessage}`,
+        runAction: ({ deviceSelector: selector, onSuccess, onError }) =>
+          setCoolingMode({
+            deviceSelector: selector,
+            coolingMode,
+            onSuccess: (value: SetCoolingModeResponse) => onSuccess(value.batchIdentifier),
+            onError,
+          }),
       });
 
       setCurrentAction(null);
@@ -791,10 +849,7 @@ export const useMinerActions = ({
       coolingModeFilteredDeviceIds,
       deviceSelector,
       setCoolingMode,
-      handleSuccess,
-      handleError,
-      onActionComplete,
-      startBatchOperation,
+      executeBulkActionWithRetry,
       deviceIdentifiers,
     ],
   );
@@ -922,52 +977,47 @@ export const useMinerActions = ({
 
       if (action === null || !selectorToUse) return;
 
-      const id = pushToast({
-        message: getLoadingMessage(action, minersMessage),
-        status: TOAST_STATUSES.loading,
-        longRunning: true,
-        onClose: () => onActionComplete?.(),
-      });
-
       // Handle device action API calls
       switch (action) {
         case deviceActions.shutdown: {
-          const stopMiningRequest = create(StopMiningRequestSchema, {
+          executeBulkActionWithRetry({
+            action: deviceActions.shutdown,
             deviceSelector: selectorToUse,
-          });
-          stopMining({
-            stopMiningRequest: stopMiningRequest,
-            onSuccess: (value: StopMiningResponse) => {
-              startBatchOperation({
-                batchIdentifier: value.batchIdentifier,
-                action: deviceActions.shutdown,
-                deviceIdentifiers: deviceIdsToUse,
-              });
-              handleSuccess(deviceActions.shutdown, id, value.batchIdentifier);
-            },
-            onError: handleError.bind(null, id),
+            deviceIdentifiers: deviceIdsToUse,
+            loadingMessage: getLoadingMessage(deviceActions.shutdown, minersMessage),
+            runAction: ({ deviceSelector: selector, onSuccess, onError }) =>
+              stopMining({
+                stopMiningRequest: create(StopMiningRequestSchema, { deviceSelector: selector }),
+                onSuccess: (value: StopMiningResponse) => onSuccess(value.batchIdentifier),
+                onError,
+              }),
           });
           break;
         }
         case deviceActions.wakeUp: {
-          const startMiningRequest = create(StartMiningRequestSchema, {
+          executeBulkActionWithRetry({
+            action: deviceActions.wakeUp,
             deviceSelector: selectorToUse,
-          });
-          startMining({
-            startMiningRequest: startMiningRequest,
-            onSuccess: (value: StartMiningResponse) => {
-              startBatchOperation({
-                batchIdentifier: value.batchIdentifier,
-                action: deviceActions.wakeUp,
-                deviceIdentifiers: deviceIdsToUse,
-              });
-              handleSuccess(deviceActions.wakeUp, id, value.batchIdentifier);
-            },
-            onError: handleError.bind(null, id),
+            deviceIdentifiers: deviceIdsToUse,
+            loadingMessage: getLoadingMessage(deviceActions.wakeUp, minersMessage),
+            runAction: ({ deviceSelector: selector, onSuccess, onError }) =>
+              startMining({
+                startMiningRequest: create(StartMiningRequestSchema, { deviceSelector: selector }),
+                onSuccess: (value: StartMiningResponse) => onSuccess(value.batchIdentifier),
+                onError,
+              }),
           });
           break;
         }
         case deviceActions.unpair: {
+          // Unpair is not retry-eligible (synchronous deletion, not a streamed
+          // batch command), so it manages its own toast lifecycle.
+          const unpairToastId = pushToast({
+            message: getLoadingMessage(action, minersMessage),
+            status: TOAST_STATUSES.loading,
+            longRunning: true,
+            onClose: () => onActionComplete?.(),
+          });
           const unpairBatchId = crypto.randomUUID();
           startBatchOperation({
             batchIdentifier: unpairBatchId,
@@ -990,7 +1040,7 @@ export const useMinerActions = ({
             deleteMinersRequest: deleteRequest,
             onSuccess: (value: DeleteMinersResponse) => {
               completeBatchOperation(unpairBatchId);
-              updateToast(id, {
+              updateToast(unpairToastId, {
                 message: `${successMessages[deviceActions.unpair]} ${value.deletedCount} ${value.deletedCount === 1 ? "miner" : "miners"}`,
                 status: TOAST_STATUSES.success,
               });
@@ -999,33 +1049,29 @@ export const useMinerActions = ({
             },
             onError: (error) => {
               completeBatchOperation(unpairBatchId);
-              handleError(id, error);
+              handleError(unpairToastId, error);
               onActionComplete?.();
             },
           });
           break;
         }
         case deviceActions.reboot: {
-          const rebootRequest = create(RebootRequestSchema, {
+          executeBulkActionWithRetry({
+            action: deviceActions.reboot,
             deviceSelector: selectorToUse,
-          });
-          reboot({
-            rebootRequest: rebootRequest,
-            onSuccess: (value: RebootResponse) => {
-              startBatchOperation({
-                batchIdentifier: value.batchIdentifier,
-                action: deviceActions.reboot,
-                deviceIdentifiers: deviceIdsToUse,
-              });
-              handleSuccess(deviceActions.reboot, id, value.batchIdentifier);
-            },
-            onError: handleError.bind(null, id),
+            deviceIdentifiers: deviceIdsToUse,
+            loadingMessage: getLoadingMessage(deviceActions.reboot, minersMessage),
+            runAction: ({ deviceSelector: selector, onSuccess, onError }) =>
+              reboot({
+                rebootRequest: create(RebootRequestSchema, { deviceSelector: selector }),
+                onSuccess: (value: RebootResponse) => onSuccess(value.batchIdentifier),
+                onError,
+              }),
           });
           break;
         }
         default:
-          // TODO remove this once all actions are implemented
-          updateToast(id, {
+          pushToast({
             message: "Unimplemented action",
             status: TOAST_STATUSES.error,
           });
@@ -1041,13 +1087,13 @@ export const useMinerActions = ({
       stopMining,
       deleteMiners,
       reboot,
-      handleSuccess,
       handleError,
       startBatchOperation,
       completeBatchOperation,
       deviceIdentifiers,
       currentFilter,
       onRefetchMiners,
+      executeBulkActionWithRetry,
     ],
   );
 
@@ -1063,27 +1109,18 @@ export const useMinerActions = ({
     const handleBlinkLEDs = () => {
       if (!deviceSelector) return;
       setCurrentAction(deviceActions.blinkLEDs);
-      const id = pushToast({
-        message: loadingMessages[deviceActions.blinkLEDs],
-        status: TOAST_STATUSES.loading,
-        longRunning: true,
-      });
 
-      const blinkLEDRequest = create(BlinkLEDRequestSchema, {
+      executeBulkActionWithRetry({
+        action: deviceActions.blinkLEDs,
         deviceSelector,
-      });
-
-      blinkLED({
-        blinkLEDRequest,
-        onSuccess: (value: BlinkLEDResponse) => {
-          startBatchOperation({
-            batchIdentifier: value.batchIdentifier,
-            action: deviceActions.blinkLEDs,
-            deviceIdentifiers: deviceIdentifiers,
-          });
-          handleSuccess(deviceActions.blinkLEDs, id, value.batchIdentifier);
-        },
-        onError: handleError.bind(null, id),
+        deviceIdentifiers,
+        loadingMessage: loadingMessages[deviceActions.blinkLEDs],
+        runAction: ({ deviceSelector: selector, onSuccess, onError }) =>
+          blinkLED({
+            blinkLEDRequest: create(BlinkLEDRequestSchema, { deviceSelector: selector }),
+            onSuccess: (value: BlinkLEDResponse) => onSuccess(value.batchIdentifier),
+            onError,
+          }),
       });
     };
 
@@ -1508,7 +1545,6 @@ export const useMinerActions = ({
     downloadLogs,
     getCommandBatchLogBundle,
     streamCommandBatchUpdates,
-    handleSuccess,
     handleError,
     displayCount,
     onActionStart,
@@ -1518,7 +1554,6 @@ export const useMinerActions = ({
     withCapabilityCheck,
     checkAndShowUnsupportedMinersModal,
     handleConfirmation,
-    startBatchOperation,
     deviceIdentifiers,
     selectionMode,
     selectedMiners,
@@ -1527,6 +1562,7 @@ export const useMinerActions = ({
     startManageSecurity,
     startAuthentication,
     miners,
+    executeBulkActionWithRetry,
   ]);
 
   // Extract public UnsupportedMinersInfo (omit internal pendingAction)

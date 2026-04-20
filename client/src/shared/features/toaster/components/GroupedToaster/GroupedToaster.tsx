@@ -145,13 +145,14 @@ const GroupedToaster = ({ toasts }: GroupedToasterProps) => {
         {isExpanded && (
           <>
             <div className="w-full divide-y divide-border-5">
-              {toasts.map(({ message, status, id, progress, ttl, onClose }) => (
+              {toasts.map(({ message, status, id, progress, ttl, onClose, actions }) => (
                 <GroupedToast
                   key={id}
                   message={message}
                   status={status}
                   progress={progress}
                   ttl={ttl}
+                  actions={actions}
                   onClose={() => handleToastClose(id, onClose)}
                 />
               ))}

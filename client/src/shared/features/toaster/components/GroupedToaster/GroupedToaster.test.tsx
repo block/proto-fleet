@@ -109,25 +109,21 @@ describe("Grouped toaster", () => {
         id: 1,
         message: "Success toast",
         status: STATUSES.success,
-        ttl: 500, // Short TTL for quick test
+        ttl: 500,
         onClose: onCloseMock,
       },
     ];
 
     const { getByTestId } = render(<GroupedToaster toasts={toasts} />);
 
-    // Expand the toaster to see individual toasts
     const headerElement = getByTestId(header);
     fireEvent.click(headerElement);
 
-    // Verify onClose is not called initially
     expect(onCloseMock).not.toHaveBeenCalled();
 
-    // Fast-forward time by TTL duration (individual toast auto-closes when expanded)
     vi.advanceTimersByTime(600);
     await vi.runOnlyPendingTimersAsync();
 
-    // The onClose callback should be called when toast is removed
     expect(onCloseMock).toHaveBeenCalledOnce();
 
     vi.useRealTimers();
@@ -141,23 +137,19 @@ describe("Grouped toaster", () => {
         id: 1,
         message: "Success toast",
         status: STATUSES.success,
-        ttl: 1000, // 1 second TTL
+        ttl: 1000,
         onClose: onCloseMock,
       },
     ];
 
     render(<GroupedToaster toasts={toasts} />);
 
-    // Verify onClose is not called initially
     expect(onCloseMock).not.toHaveBeenCalled();
 
-    // Fast-forward time by TTL duration + a bit more
     vi.advanceTimersByTime(1100);
 
-    // Wait for React to process state updates
     await vi.runOnlyPendingTimersAsync();
 
-    // onClose should have been called for the completed toast
     expect(onCloseMock).toHaveBeenCalledOnce();
 
     vi.useRealTimers();
@@ -192,5 +184,47 @@ describe("Grouped toaster", () => {
     expect(onCloseMock).not.toHaveBeenCalled();
 
     vi.useRealTimers();
+  });
+
+  it("renders action buttons on toasts that have actions", () => {
+    const onClickMock = vi.fn();
+    const toasts = [
+      {
+        id: 1,
+        message: "Reboot failed on 3 out of 5 miners",
+        status: STATUSES.error,
+        longRunning: true,
+        actions: [{ label: "Retry", onClick: onClickMock }],
+      },
+    ];
+
+    const { getByTestId, getByText } = render(<GroupedToaster toasts={toasts} />);
+
+    const headerElement = getByTestId(header);
+    fireEvent.click(headerElement);
+
+    const retryButton = getByText("Retry");
+    expect(retryButton).toBeInTheDocument();
+
+    fireEvent.click(retryButton);
+    expect(onClickMock).toHaveBeenCalledOnce();
+  });
+
+  it("does not render action buttons on toasts without actions", () => {
+    const toasts = [
+      {
+        id: 1,
+        message: "Reboot failed on 3 out of 5 miners",
+        status: STATUSES.error,
+        longRunning: true,
+      },
+    ];
+
+    const { getByTestId, queryByTestId } = render(<GroupedToaster toasts={toasts} />);
+
+    const headerElement = getByTestId(header);
+    fireEvent.click(headerElement);
+
+    expect(queryByTestId("toast-action-retry")).not.toBeInTheDocument();
   });
 });
