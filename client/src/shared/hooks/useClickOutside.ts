@@ -1,4 +1,4 @@
-import { RefObject, useEffect } from "react";
+import { RefObject, useEffect, useRef } from "react";
 
 interface ClickOutsideProps {
   ref: RefObject<HTMLElement | null>;
@@ -10,34 +10,38 @@ interface ClickOutsideProps {
 }
 
 const useClickOutside = ({ ref, onClickOutside, ignoreSelectors = [], shouldIgnore }: ClickOutsideProps) => {
+  const onClickOutsideRef = useRef(onClickOutside);
+  const shouldIgnoreRef = useRef(shouldIgnore);
+  const ignoreSelectorsRef = useRef(ignoreSelectors);
+
+  useEffect(() => {
+    onClickOutsideRef.current = onClickOutside;
+    shouldIgnoreRef.current = shouldIgnore;
+    ignoreSelectorsRef.current = ignoreSelectors;
+  }, [onClickOutside, shouldIgnore, ignoreSelectors]);
+
   useEffect(() => {
     function handleClickOutside(event: MouseEvent | TouchEvent) {
-      // Skip if we should ignore this event
-      if (shouldIgnore && shouldIgnore(event)) {
+      if (shouldIgnoreRef.current && shouldIgnoreRef.current(event)) {
         return;
       }
 
-      // Check if the click is inside our element
       const isInside = event.target instanceof Node && ref.current && ref.current.contains(event.target);
 
-      // Check if the click is inside any of the elements matching ignoreSelectors
-      const isInsideIgnored = ignoreSelectors.some((selector) => {
+      const isInsideIgnored = ignoreSelectorsRef.current.some((selector) => {
         if (event.target instanceof Node) {
-          // Check if the target matches the selector
           if (event.target instanceof Element && event.target.matches(selector)) {
             return true;
           }
 
-          // Check if any parent matches the selector
           const closest = event.target instanceof Element ? event.target.closest(selector) : null;
           return closest !== null;
         }
         return false;
       });
 
-      // Only call onClickOutside if the click is outside all monitored elements
       if (!isInside && !isInsideIgnored) {
-        onClickOutside();
+        onClickOutsideRef.current();
       }
     }
 
@@ -47,7 +51,7 @@ const useClickOutside = ({ ref, onClickOutside, ignoreSelectors = [], shouldIgno
       document.removeEventListener("mousedown", handleClickOutside);
       document.removeEventListener("touchstart", handleClickOutside);
     };
-  }, [onClickOutside, ref, ignoreSelectors, shouldIgnore]);
+  }, [ref]);
 };
 
 export { useClickOutside };

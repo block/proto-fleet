@@ -45,6 +45,7 @@ interface ModalProps {
   divider?: boolean;
   size?: keyof typeof sizes;
   zIndex?: string;
+  dismissOnClickOutside?: boolean;
 }
 
 const Modal = ({
@@ -68,6 +69,7 @@ const Modal = ({
   size = sizes.standard,
   zIndex,
   iconAriaLabel = "Close dialog",
+  dismissOnClickOutside = true,
 }: ModalProps) => {
   const modalRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
@@ -92,7 +94,7 @@ const Modal = ({
       },
       {
         root: modalRef.current,
-        rootMargin: `-${headerHeight}px 0px 0px 0px`,
+        rootMargin: `-${Math.max(0, headerHeight - 1)}px 0px 0px 0px`,
         threshold: 0,
       },
     );
@@ -100,7 +102,7 @@ const Modal = ({
     observer.observe(sentinelRef.current);
 
     return () => observer.disconnect();
-  }, [title, showHeader]);
+  }, [title, showHeader, open]);
 
   const dismissModal = useCallback(() => {
     onDismiss?.();
@@ -123,7 +125,10 @@ const Modal = ({
   }, [open, dismissModal]);
   useKeyDown({ key: "Escape", onKeyDown: handleEscape });
 
-  const shouldIgnoreClickOutside = useCallback(() => open === false, [open]);
+  const shouldIgnoreClickOutside = useCallback(
+    () => open === false || !dismissOnClickOutside,
+    [open, dismissOnClickOutside],
+  );
   useClickOutside({
     ref: modalRef,
     onClickOutside: dismissModal,

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 interface CloseOnEscProps {
   key?: string;
@@ -6,14 +6,20 @@ interface CloseOnEscProps {
 }
 
 const useKeyDown = ({ key, onKeyDown }: CloseOnEscProps) => {
+  const onKeyDownRef = useRef(onKeyDown);
+
+  useEffect(() => {
+    onKeyDownRef.current = onKeyDown;
+  }, [onKeyDown]);
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (key) {
         if (event.key === key) {
-          onKeyDown(event);
+          onKeyDownRef.current(event);
         }
       } else {
-        onKeyDown(event);
+        onKeyDownRef.current(event);
       }
     };
 
@@ -22,7 +28,7 @@ const useKeyDown = ({ key, onKeyDown }: CloseOnEscProps) => {
     return () => {
       document.removeEventListener("keydown", handleKeyDown, false);
     };
-  }, [key, onKeyDown]);
+  }, [key]);
 };
 
 export { useKeyDown };
