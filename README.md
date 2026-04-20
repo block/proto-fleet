@@ -87,25 +87,25 @@ just gen
 ### Latest Version
 
 ```bash
-bash <(curl -fsSL https://github.com/btc-mining/proto-fleet/releases/latest/download/install.sh)
+bash <(curl -fsSL https://fleet.proto.xyz/install.sh)
 ```
 
 ### Specific Version
 
 ```bash
-bash <(curl -fsSL https://github.com/btc-mining/proto-fleet/releases/latest/download/install.sh) v0.1.0
+bash <(curl -fsSL https://fleet.proto.xyz/install.sh) v0.1.0
 ```
 
 ### Uninstall
 
 ```bash
-bash <(curl -fsSL https://github.com/btc-mining/proto-fleet/releases/latest/download/uninstall.sh)
+bash <(curl -fsSL https://fleet.proto.xyz/uninstall.sh)
 ```
 
 If Proto Fleet was installed in a non-default location, pass it explicitly:
 
 ```bash
-bash <(curl -fsSL https://github.com/btc-mining/proto-fleet/releases/latest/download/uninstall.sh) --deployment-path /path/to/install/root
+bash <(curl -fsSL https://fleet.proto.xyz/uninstall.sh) --deployment-path /path/to/install/root
 ```
 
 ## Contributing
