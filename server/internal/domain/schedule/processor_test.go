@@ -310,6 +310,40 @@ func TestResolveTargets_MinerAndRack(t *testing.T) {
 	assert.Equal(t, []string{"miner-1", "miner-2", "miner-3"}, ids)
 }
 
+func TestResolveTargets_Group(t *testing.T) {
+	p, _, targetStore, collectionStore, _ := newTestProcessor(t, time.Now())
+
+	sched := &pb.Schedule{Id: 11}
+	orgID := int64(1)
+
+	targetStore.EXPECT().GetScheduleTargets(gomock.Any(), orgID, sched.Id).Return([]*pb.ScheduleTarget{
+		{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER, TargetId: "miner-1"},
+		{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_GROUP, TargetId: "200"},
+	}, nil)
+
+	collectionStore.EXPECT().GetDeviceIdentifiersByDeviceSetID(gomock.Any(), int64(200), orgID).
+		Return([]string{"miner-1", "miner-4"}, nil)
+
+	ids, err := p.resolveTargets(context.Background(), sched, orgID)
+	assert.NoError(t, err)
+	// miner-1 deduplicated
+	assert.Equal(t, []string{"miner-1", "miner-4"}, ids)
+}
+
+func TestResolveTargets_GroupErrorPropagates(t *testing.T) {
+	p, _, targetStore, collectionStore, _ := newTestProcessor(t, time.Now())
+
+	targetStore.EXPECT().GetScheduleTargets(gomock.Any(), gomock.Any(), gomock.Any()).Return([]*pb.ScheduleTarget{
+		{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_GROUP, TargetId: "200"},
+	}, nil)
+	collectionStore.EXPECT().GetDeviceIdentifiersByDeviceSetID(gomock.Any(), int64(200), int64(1)).
+		Return(nil, errors.New("db connection lost"))
+
+	_, err := p.resolveTargets(context.Background(), &pb.Schedule{Id: 1}, int64(1))
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "group 200")
+}
+
 func TestResolveTargets_RackErrorPropagates(t *testing.T) {
 	p, _, targetStore, collectionStore, _ := newTestProcessor(t, time.Now())
 

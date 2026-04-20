@@ -110,17 +110,18 @@ enum ScheduleTargetType {
     SCHEDULE_TARGET_TYPE_UNSPECIFIED = 0;
     SCHEDULE_TARGET_TYPE_RACK = 1;
     SCHEDULE_TARGET_TYPE_MINER = 2;
+    SCHEDULE_TARGET_TYPE_GROUP = 3;
 }
 
-// Target for a schedule (rack or individual miner)
+// Target for a schedule (rack, group, or individual miner)
 message ScheduleTarget {
-    // Type of target: rack or miner
+    // Type of target: rack, group, or miner
     ScheduleTargetType target_type = 1 [(buf.validate.field).enum = {
         defined_only: true
         not_in: [0]
     }];
 
-    // Identifier for the target (rack ID or miner device identifier)
+    // Identifier for the target (rack ID, group ID, or miner device identifier)
     string target_id = 2 [(buf.validate.field).string.min_len = 1];
 }
 

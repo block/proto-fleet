@@ -147,13 +147,23 @@ const summarizeTargets = (schedule: Schedule) => {
   }
 
   const rackCount = schedule.targets.filter((target) => target.targetType === ScheduleTargetType.RACK).length;
+  const groupCount = schedule.targets.filter((target) => target.targetType === ScheduleTargetType.GROUP).length;
   const minerCount = schedule.targets.filter((target) => target.targetType === ScheduleTargetType.MINER).length;
   const parts = [
     rackCount > 0 ? `${rackCount} ${rackCount === 1 ? "rack" : "racks"}` : null,
+    groupCount > 0 ? `${groupCount} ${groupCount === 1 ? "group" : "groups"}` : null,
     minerCount > 0 ? `${minerCount} ${minerCount === 1 ? "miner" : "miners"}` : null,
   ].filter(Boolean);
 
-  return `Applies to ${parts.join(" and ")}`;
+  if (parts.length === 0) {
+    return "Applies to all miners";
+  }
+
+  if (parts.length === 1) {
+    return `Applies to ${parts[0]}`;
+  }
+
+  return `Applies to ${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
 };
 
 const summarizeWeeklyRecurrence = (daysOfWeek: DayOfWeek[]) => {

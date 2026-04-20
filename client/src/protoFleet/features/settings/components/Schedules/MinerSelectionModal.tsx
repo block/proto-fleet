@@ -39,7 +39,6 @@ const MinerSelectionModal = ({ open, selectedMinerIds, onDismiss, onSave }: Mine
         <MinerSelectionList
           key={selectedMinerIds.join(",")}
           initialSelectedItems={selectedMinerIds}
-          filterConfig={{ showGroupFilter: false }}
           onSelectionChange={({ selectedItems }) => setDraftSelection(selectedItems)}
         />
       </div>

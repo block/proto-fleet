@@ -198,22 +198,37 @@ func TestValidateTargets(t *testing.T) {
 		{
 			name: "valid targets",
 			targets: []*pb.ScheduleTarget{
-				{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_RACK, TargetId: "rack-1"},
+				{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_RACK, TargetId: "1"},
+				{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_GROUP, TargetId: "2"},
 				{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER, TargetId: "miner-1"},
 			},
 		},
 		{
 			name: "duplicate targets",
 			targets: []*pb.ScheduleTarget{
-				{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_RACK, TargetId: "rack-1"},
-				{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_RACK, TargetId: "rack-1"},
+				{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_RACK, TargetId: "1"},
+				{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_RACK, TargetId: "1"},
 			},
 			wantErr: true,
 		},
 		{
 			name: "unspecified target type",
 			targets: []*pb.ScheduleTarget{
-				{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_UNSPECIFIED, TargetId: "rack-1"},
+				{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_UNSPECIFIED, TargetId: "1"},
+			},
+			wantErr: true,
+		},
+		{
+			name: "non-numeric rack target_id",
+			targets: []*pb.ScheduleTarget{
+				{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_RACK, TargetId: "rack-1"},
+			},
+			wantErr: true,
+		},
+		{
+			name: "non-numeric group target_id",
+			targets: []*pb.ScheduleTarget{
+				{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_GROUP, TargetId: "group-1"},
 			},
 			wantErr: true,
 		},

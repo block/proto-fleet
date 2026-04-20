@@ -569,6 +569,8 @@ func stringToScheduleTargetType(s string) pb.ScheduleTargetType {
 	switch s {
 	case "rack":
 		return pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_RACK
+	case "group":
+		return pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_GROUP
 	case "miner":
 		return pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER
 	default:

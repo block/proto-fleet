@@ -22,6 +22,7 @@ const RackSelectionModal = ({ open, selectedRackIds, onDismiss, onSave }: RackSe
   const [racks, setRacks] = useState<DeviceSet[]>([]);
   const [draftSelection, setDraftSelection] = useState<Set<string>>(new Set(selectedRackIds));
   const [isLoading, setIsLoading] = useState(true);
+  const [hasLoadError, setHasLoadError] = useState(false);
 
   useEffect(() => {
     listRacks({
@@ -31,11 +32,13 @@ const RackSelectionModal = ({ open, selectedRackIds, onDismiss, onSave }: RackSe
         const validRackIds = new Set(deviceSets.map((rack) => rack.id.toString()));
         setDraftSelection((current) => new Set([...current].filter((rackId) => validRackIds.has(rackId))));
       },
-      onError: (message: string) =>
+      onError: (message: string) => {
+        setHasLoadError(true);
         pushToast({
           message: message || "Failed to load racks",
           status: STATUSES.error,
-        }),
+        });
+      },
       onFinally: () => setIsLoading(false),
     });
   }, [listRacks]);
@@ -74,8 +77,7 @@ const RackSelectionModal = ({ open, selectedRackIds, onDismiss, onSave }: RackSe
     <Modal
       open={open}
       onDismiss={onDismiss}
-      title={showEmptyState ? "No racks configured" : "Select racks"}
-      size="large"
+      title={hasLoadError ? "Couldn't load racks" : showEmptyState ? "No racks configured" : "Select racks"}
       divider={false}
       buttons={[
         {
@@ -83,6 +85,7 @@ const RackSelectionModal = ({ open, selectedRackIds, onDismiss, onSave }: RackSe
           variant: "primary",
           onClick: () => onSave(Array.from(draftSelection)),
           dismissModalOnClick: false,
+          disabled: hasLoadError,
         },
       ]}
     >
@@ -90,6 +93,8 @@ const RackSelectionModal = ({ open, selectedRackIds, onDismiss, onSave }: RackSe
         <div className="flex justify-center py-20">
           <ProgressCircular indeterminate />
         </div>
+      ) : hasLoadError ? (
+        <div className="text-300 text-text-primary-70">Couldn&apos;t load racks. Close this modal and try again.</div>
       ) : showEmptyState ? (
         <div className="text-300 text-text-primary-70">Set up racks to enable more precise targeting.</div>
       ) : (

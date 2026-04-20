@@ -45,6 +45,7 @@ export type ScheduleFormValues = {
   endBehavior: ScheduleFormEndBehavior;
   endDate: string;
   rackTargetIds: string[];
+  groupTargetIds: string[];
   minerTargetIds: string[];
 };
 
@@ -177,6 +178,7 @@ const getDefaultValues = (timeZone: string): ScheduleFormValues => {
     endBehavior: "indefinite",
     endDate: "",
     rackTargetIds: [],
+    groupTargetIds: [],
     minerTargetIds: [],
   };
 };
@@ -274,26 +276,39 @@ export const createScheduleFormValuesFromSchedule = (schedule: Schedule): Schedu
     rackTargetIds: schedule.targets
       .filter((target) => target.targetType === ScheduleTargetType.RACK)
       .map((target) => target.targetId),
+    groupTargetIds: schedule.targets
+      .filter((target) => target.targetType === ScheduleTargetType.GROUP)
+      .map((target) => target.targetId),
     minerTargetIds: schedule.targets
       .filter((target) => target.targetType === ScheduleTargetType.MINER)
       .map((target) => target.targetId),
   };
 };
 
-export const describeSelectedTargets = (values: Pick<ScheduleFormValues, "rackTargetIds" | "minerTargetIds">) => {
+export const describeSelectedTargets = (
+  values: Pick<ScheduleFormValues, "rackTargetIds" | "groupTargetIds" | "minerTargetIds">,
+) => {
   const rackCount = values.rackTargetIds.length;
+  const groupCount = values.groupTargetIds.length;
   const minerCount = values.minerTargetIds.length;
 
-  if (rackCount === 0 && minerCount === 0) {
+  if (rackCount === 0 && groupCount === 0 && minerCount === 0) {
     return "Applies to all miners";
   }
 
   const parts = [
     rackCount > 0 ? `${rackCount} ${rackCount === 1 ? "rack" : "racks"}` : null,
+    groupCount > 0 ? `${groupCount} ${groupCount === 1 ? "group" : "groups"}` : null,
     minerCount > 0 ? `${minerCount} ${minerCount === 1 ? "miner" : "miners"}` : null,
   ].filter(Boolean);
 
-  return `Applies to ${parts.join(" and ")}`;
+  if (parts.length === 1) {
+    return `Applies to ${parts[0]}`;
+  }
+
+  const head = parts.slice(0, -1).join(", ");
+  const tail = parts[parts.length - 1];
+  return `Applies to ${head} and ${tail}`;
 };
 
 export const validateSchedule = (values: ScheduleFormValues, now = new Date()): ScheduleFormErrors => {
@@ -408,6 +423,12 @@ export const buildScheduleRequest = (values: ScheduleFormValues, scheduleId?: st
     ...values.rackTargetIds.map((targetId) =>
       create(ScheduleTargetSchema, {
         targetType: ScheduleTargetType.RACK,
+        targetId,
+      }),
+    ),
+    ...values.groupTargetIds.map((targetId) =>
+      create(ScheduleTargetSchema, {
+        targetType: ScheduleTargetType.GROUP,
         targetId,
       }),
     ),

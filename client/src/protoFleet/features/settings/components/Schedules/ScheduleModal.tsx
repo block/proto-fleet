@@ -15,6 +15,7 @@ import {
   formatClientTimezoneLabel,
   formatTimezoneLabel,
 } from "@/protoFleet/features/settings/components/Schedules/constants";
+import GroupSelectionModal from "@/protoFleet/features/settings/components/Schedules/GroupSelectionModal";
 import MinerSelectionModal from "@/protoFleet/features/settings/components/Schedules/MinerSelectionModal";
 import RackSelectionModal from "@/protoFleet/features/settings/components/Schedules/RackSelectionModal";
 import SchedulePreview from "@/protoFleet/features/settings/components/Schedules/SchedulePreview";
@@ -307,13 +308,15 @@ const ScheduleModal = ({
   onResumeSchedule,
 }: ScheduleModalProps) => {
   const isEditMode = Boolean(schedule);
-  const { listRacks } = useDeviceSets();
+  const { listRacks, listGroups } = useDeviceSets();
   const { totalMiners: totalAvailableMiners, hasInitialLoadCompleted: hasLoadedAvailableMiners } = useFleet({
     pageSize: 1,
     pairingStatuses: [PairingStatus.PAIRED],
   });
   const [values, setValues] = useState<ScheduleFormValues>(() => createDefaultScheduleFormValues());
   const [availableRackIds, setAvailableRackIds] = useState<Set<string>>(new Set());
+  const [availableGroupIds, setAvailableGroupIds] = useState<Set<string>>(new Set());
+  const [hasLoadedAvailableGroups, setHasLoadedAvailableGroups] = useState(false);
   const [errors, setErrors] = useState<ScheduleFormErrors>({});
   const [touchedFields, setTouchedFields] = useState<TouchedFields>({});
   const [showAllErrors, setShowAllErrors] = useState(false);
@@ -321,6 +324,7 @@ const ScheduleModal = ({
   const [isDeleting, setIsDeleting] = useState(false);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [showRackSelectionModal, setShowRackSelectionModal] = useState(false);
+  const [showGroupSelectionModal, setShowGroupSelectionModal] = useState(false);
   const [showMinerSelectionModal, setShowMinerSelectionModal] = useState(false);
   const initializedFormSourceRef = useRef<string | null>(null);
   const valuesRef = useRef(values);
@@ -344,6 +348,7 @@ const ScheduleModal = ({
     setTouchedFields({});
     setShowAllErrors(false);
     setShowRackSelectionModal(false);
+    setShowGroupSelectionModal(false);
     setShowMinerSelectionModal(false);
     setIsSaving(false);
     setIsDeleting(false);
@@ -355,10 +360,31 @@ const ScheduleModal = ({
       return;
     }
 
+    setAvailableGroupIds(new Set());
+    setHasLoadedAvailableGroups(false);
+
     listRacks({
-      onSuccess: (deviceSets) => setAvailableRackIds(new Set(deviceSets.map((rack) => rack.id.toString()))),
+      onSuccess: (deviceSets) => {
+        const validIds = new Set(deviceSets.map((rack) => rack.id.toString()));
+        setAvailableRackIds(validIds);
+        setValues((current) => {
+          const pruned = current.rackTargetIds.filter((id) => validIds.has(id));
+          return pruned.length === current.rackTargetIds.length ? current : { ...current, rackTargetIds: pruned };
+        });
+      },
     });
-  }, [listRacks, open]);
+    listGroups({
+      onSuccess: (deviceSets) => {
+        const validIds = new Set(deviceSets.map((group) => group.id.toString()));
+        setAvailableGroupIds(validIds);
+        setHasLoadedAvailableGroups(true);
+        setValues((current) => {
+          const pruned = current.groupTargetIds.filter((id) => validIds.has(id));
+          return pruned.length === current.groupTargetIds.length ? current : { ...current, groupTargetIds: pruned };
+        });
+      },
+    });
+  }, [listGroups, listRacks, open]);
 
   useEffect(() => {
     valuesRef.current = values;
@@ -580,6 +606,12 @@ const ScheduleModal = ({
     () => values.rackTargetIds.filter((rackId) => availableRackIds.has(rackId)).length,
     [availableRackIds, values.rackTargetIds],
   );
+  const validGroupTargetCount = useMemo(() => {
+    if (!hasLoadedAvailableGroups) {
+      return values.groupTargetIds.length;
+    }
+    return values.groupTargetIds.filter((groupId) => availableGroupIds.has(groupId)).length;
+  }, [availableGroupIds, hasLoadedAvailableGroups, values.groupTargetIds]);
   const validMinerTargetCount = useMemo(() => {
     if (hasLoadedAvailableMiners && totalAvailableMiners === 0) {
       return 0;
@@ -828,11 +860,16 @@ const ScheduleModal = ({
 
             <div className={sectionBodyClassName}>
               <div className={sectionTitleClassName}>Apply to</div>
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-4 md:grid-cols-3">
                 <TargetSelectButton
                   label="Racks"
                   value={getTargetButtonLabel(validRackTargetCount, "rack")}
                   onClick={() => setShowRackSelectionModal(true)}
+                />
+                <TargetSelectButton
+                  label="Groups"
+                  value={getTargetButtonLabel(validGroupTargetCount, "group")}
+                  onClick={() => setShowGroupSelectionModal(true)}
                 />
                 <TargetSelectButton
                   label="Miners"
@@ -854,6 +891,18 @@ const ScheduleModal = ({
           onSave={(rackTargetIds) => {
             setNextValues((current) => ({ ...current, rackTargetIds }));
             setShowRackSelectionModal(false);
+          }}
+        />
+      ) : null}
+
+      {showGroupSelectionModal ? (
+        <GroupSelectionModal
+          open={showGroupSelectionModal}
+          selectedGroupIds={values.groupTargetIds}
+          onDismiss={() => setShowGroupSelectionModal(false)}
+          onSave={(groupTargetIds) => {
+            setNextValues((current) => ({ ...current, groupTargetIds }));
+            setShowGroupSelectionModal(false);
           }}
         />
       ) : null}

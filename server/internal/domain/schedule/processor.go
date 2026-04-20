@@ -447,6 +447,22 @@ func (p *Processor) expandTargets(ctx context.Context, targets []*pb.ScheduleTar
 				}
 			}
 
+		case pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_GROUP:
+			groupID, err := strconv.ParseInt(t.TargetId, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("invalid group target_id %q: %w", t.TargetId, err)
+			}
+			groupDevices, err := p.collectionStore.GetDeviceIdentifiersByDeviceSetID(ctx, groupID, orgID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to resolve group %d devices: %w", groupID, err)
+			}
+			for _, d := range groupDevices {
+				if _, dup := seen[d]; !dup {
+					seen[d] = struct{}{}
+					identifiers = append(identifiers, d)
+				}
+			}
+
 		case pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_UNSPECIFIED:
 			slog.Warn("unspecified target type", "target_id", t.TargetId)
 		}

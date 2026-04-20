@@ -14,14 +14,16 @@ import {
 import type { ScheduleListItem } from "@/protoFleet/api/useScheduleApi";
 import { getNextEndTimeAfterStart } from "@/protoFleet/features/settings/components/Schedules/scheduleValidation";
 
-const { listRacksMock, pushToastMock } = vi.hoisted(() => ({
+const { listRacksMock, listGroupsMock, pushToastMock } = vi.hoisted(() => ({
   listRacksMock: vi.fn(),
+  listGroupsMock: vi.fn(),
   pushToastMock: vi.fn(),
 }));
 
 vi.mock("@/protoFleet/api/useDeviceSets", () => ({
   useDeviceSets: () => ({
     listRacks: listRacksMock,
+    listGroups: listGroupsMock,
   }),
 }));
 
@@ -44,6 +46,11 @@ vi.mock("@/protoFleet/features/settings/components/Schedules/MinerSelectionModal
 }));
 
 vi.mock("@/protoFleet/features/settings/components/Schedules/RackSelectionModal", () => ({
+  __esModule: true,
+  default: () => null,
+}));
+
+vi.mock("@/protoFleet/features/settings/components/Schedules/GroupSelectionModal", () => ({
   __esModule: true,
   default: () => null,
 }));
@@ -129,6 +136,8 @@ describe("ScheduleModal", () => {
   beforeEach(() => {
     listRacksMock.mockReset();
     listRacksMock.mockImplementation(() => undefined);
+    listGroupsMock.mockReset();
+    listGroupsMock.mockImplementation(() => undefined);
     pushToastMock.mockReset();
   });
 

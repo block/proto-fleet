@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -527,11 +528,27 @@ func validateTargets(targets []*pb.ScheduleTarget) error {
 		if !isValidScheduleTargetType(t.TargetType) {
 			return fleeterror.NewInvalidArgumentErrorf("invalid target_type: %v", t.TargetType)
 		}
-		if strings.TrimSpace(t.TargetId) == "" {
+		trimmedID := strings.TrimSpace(t.TargetId)
+		if trimmedID == "" {
 			return fleeterror.NewInvalidArgumentErrorf("target_id is required")
 		}
 
-		key := fmt.Sprintf("%v:%s", t.TargetType, strings.TrimSpace(t.TargetId))
+		switch t.TargetType {
+		case pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_RACK,
+			pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_GROUP:
+			if _, err := strconv.ParseInt(trimmedID, 10, 64); err != nil {
+				return fleeterror.NewInvalidArgumentErrorf(
+					"invalid target_id for %s: %q is not a valid identifier",
+					scheduleTargetTypeToString(t.TargetType), trimmedID,
+				)
+			}
+		case pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_UNSPECIFIED,
+			pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER:
+			// UNSPECIFIED already rejected by isValidScheduleTargetType above.
+			// MINER IDs are opaque strings (MAC / serial); no numeric parse.
+		}
+
+		key := fmt.Sprintf("%v:%s", t.TargetType, trimmedID)
 		if seen[key] {
 			return fleeterror.NewInvalidArgumentErrorf("duplicate target: %s", key)
 		}
@@ -544,7 +561,9 @@ func isValidScheduleTargetType(targetType pb.ScheduleTargetType) bool {
 	switch targetType {
 	case pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_UNSPECIFIED:
 		return false
-	case pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_RACK, pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER:
+	case pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_RACK,
+		pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_GROUP,
+		pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER:
 		return true
 	default:
 		return false
@@ -609,6 +628,8 @@ func scheduleTargetTypeToString(t pb.ScheduleTargetType) string {
 		return "unknown"
 	case pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_RACK:
 		return "rack"
+	case pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_GROUP:
+		return "group"
 	case pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER:
 		return "miner"
 	default:
