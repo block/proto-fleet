@@ -87,8 +87,9 @@ message TemperatureStatusCount {
 // Uptime status distribution at a point in time
 message UptimeStatusCount {
   google.protobuf.Timestamp timestamp = 1;
-  int32 hashing_count = 2;     // Count of miners actively hashing
-  int32 not_hashing_count = 3; // Count of miners not hashing
+  int32 hashing_count = 2;      // Count of miners hashing (healthy)
+  int32 not_hashing_count = 3;  // Count of miners not hashing (offline + sleeping)
+  int32 broken_count = 4;       // Count of miners needing attention (degraded)
 }
 
 // Status of a miner

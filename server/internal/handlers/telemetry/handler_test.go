@@ -33,7 +33,7 @@ func TestHandler_NewHandler(t *testing.T) {
 	mockErrorPoller := mock.NewMockErrorPoller(ctrl)
 
 	config := telemetry.Config{}
-	service := telemetry.NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mockErrorPoller)
+	service := telemetry.NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mockErrorPoller, nil)
 
 	handler := NewHandler(service)
 
@@ -229,7 +229,7 @@ func TestHandler_GetCombinedMetrics(t *testing.T) {
 			mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 			mockErrorPoller := mock.NewMockErrorPoller(ctrl)
 
-			service := telemetry.NewTelemetryService(config, mockStore, mockMinerGetter, mockScheduler, mockDeviceStore, mockErrorPoller)
+			service := telemetry.NewTelemetryService(config, mockStore, mockMinerGetter, mockScheduler, mockDeviceStore, mockErrorPoller, nil)
 			handler := NewHandler(service)
 
 			resp, err := handler.GetCombinedMetrics(t.Context(), connect.NewRequest(tt.request))
@@ -395,7 +395,7 @@ func TestHandler_StreamCombinedMetricUpdates_Integration(t *testing.T) {
 			SleepingCount: 1,
 		}, nil).AnyTimes()
 
-	service := telemetry.NewTelemetryService(config, mockStore, mockMinerGetter, mockScheduler, mockDeviceStore, mockErrorPoller)
+	service := telemetry.NewTelemetryService(config, mockStore, mockMinerGetter, mockScheduler, mockDeviceStore, mockErrorPoller, nil)
 
 	// Test the streaming functionality
 	query := models.StreamCombinedMetricsQuery{

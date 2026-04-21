@@ -1,12 +1,32 @@
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
+import { create } from "@bufbuild/protobuf";
 import { generateUptimeHeadline } from "./utils";
-import { type UptimeStatusCount } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import { MinerListFilterSchema } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { DeviceStatus, type UptimeStatusCount } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import ChartWidget from "@/protoFleet/features/dashboard/components/ChartWidget";
 import { SegmentedMetricPanel } from "@/protoFleet/features/dashboard/components/SegmentedMetricPanel";
 import type { SegmentConfig } from "@/protoFleet/features/dashboard/components/SegmentedMetricPanel/types";
+import { encodeFilterToURL } from "@/protoFleet/features/fleetManagement/utils/filterUrlParams";
 import { FleetDuration } from "@/shared/components/DurationSelector";
 import SkeletonBar from "@/shared/components/SkeletonBar";
+
+const needsAttentionRoute = `/miners?${encodeFilterToURL(
+  create(MinerListFilterSchema, {
+    deviceStatus: [
+      DeviceStatus.ERROR,
+      DeviceStatus.NEEDS_MINING_POOL,
+      DeviceStatus.UPDATING,
+      DeviceStatus.REBOOT_REQUIRED,
+    ],
+  }),
+).toString()}`;
+
+const notHashingRoute = `/miners?${encodeFilterToURL(
+  create(MinerListFilterSchema, {
+    deviceStatus: [DeviceStatus.OFFLINE, DeviceStatus.INACTIVE],
+  }),
+).toString()}`;
 
 interface UptimePanelProps {
   duration: FleetDuration;
@@ -17,7 +37,6 @@ interface UptimePanelProps {
 export function UptimePanel({ duration, uptimeStatusCounts }: UptimePanelProps) {
   const navigate = useNavigate();
 
-  // Uptime segment configuration with navigation handler
   const uptimeSegmentConfig: SegmentConfig = useMemo(
     () => ({
       hashing: {
@@ -25,7 +44,16 @@ export function UptimePanel({ duration, uptimeStatusCounts }: UptimePanelProps) 
         label: "Hashing",
         displayInBreakdown: true,
         showButton: false,
+        index: 2,
+      },
+      broken: {
+        color: "var(--color-intent-warning-fill)",
+        label: "Needs attention",
+        displayInBreakdown: true,
+        showButton: true,
+        buttonVariant: "secondary",
         index: 1,
+        onClick: () => navigate(needsAttentionRoute),
       },
       notHashing: {
         color: "var(--color-core-primary-10)",
@@ -34,10 +62,7 @@ export function UptimePanel({ duration, uptimeStatusCounts }: UptimePanelProps) 
         showButton: true,
         buttonVariant: "secondary",
         index: 0,
-        onClick: () => {
-          // Navigate to miners page with offline, sleeping, and needs-attention status filters
-          navigate("/miners?status=offline,sleeping,needs-attention");
-        },
+        onClick: () => navigate(notHashingRoute),
       },
     }),
     [navigate],

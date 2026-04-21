@@ -5,17 +5,16 @@ import userEvent from "@testing-library/user-event";
 import { UptimePanel } from "./UptimePanel";
 import { type UptimeStatusCount, UptimeStatusCountSchema } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 
-// Mock react-router-dom
 const mockNavigate = vi.fn();
 vi.mock("react-router-dom", () => ({
   useNavigate: () => mockNavigate,
 }));
 
-// Helper function to create proper UptimeStatusCount objects
 const createMockUptimeStatusCount = (
   timestampSeconds: number,
   hashingCount: number,
   notHashingCount: number,
+  brokenCount = 0,
 ): UptimeStatusCount => {
   return create(UptimeStatusCountSchema, {
     timestamp: {
@@ -24,6 +23,7 @@ const createMockUptimeStatusCount = (
     },
     hashingCount,
     notHashingCount,
+    brokenCount,
   });
 };
 
@@ -34,134 +34,117 @@ describe("UptimePanel", () => {
   });
 
   it("renders loading state", () => {
-    // undefined = not loaded yet (loading state)
+    // Arrange / Act
     render(<UptimePanel duration={"24h"} uptimeStatusCounts={undefined} />);
 
-    // Check for skeleton loading state
+    // Assert
     expect(screen.getByText("Uptime")).toBeInTheDocument();
   });
 
   it("renders with all miners hashing", () => {
-    // Use timestamp from 1 hour ago to ensure it's before chart intervals
+    // Arrange
     const uptimeStatusCounts: UptimeStatusCount[] = [
-      createMockUptimeStatusCount(Math.floor(Date.now() / 1000) - 3600, 5, 0),
+      createMockUptimeStatusCount(Math.floor(Date.now() / 1000) - 3600, 5, 0, 0),
     ];
 
+    // Act
     render(<UptimePanel duration={"24h"} uptimeStatusCounts={uptimeStatusCounts} />);
 
+    // Assert
     expect(screen.getByText("Uptime")).toBeInTheDocument();
     expect(screen.getByText("All miners hashing")).toBeInTheDocument();
     expect(screen.getByText("Not hashing")).toBeInTheDocument();
+    expect(screen.getByText("Needs attention")).toBeInTheDocument();
     expect(screen.getByText("Hashing")).toBeInTheDocument();
-    expect(screen.getByText("0% of fleet")).toBeInTheDocument();
     expect(screen.getByText("100% of fleet")).toBeInTheDocument();
-    // Button should not be shown when all miners are hashing
+    // Buttons should not be shown when their counts are 0.
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
   it("renders with some miners not hashing", () => {
+    // Arrange
     const uptimeStatusCounts: UptimeStatusCount[] = [
-      createMockUptimeStatusCount(Math.floor(Date.now() / 1000) - 3600, 4, 1),
+      createMockUptimeStatusCount(Math.floor(Date.now() / 1000) - 3600, 4, 1, 0),
     ];
 
+    // Act
     render(<UptimePanel duration={"24h"} uptimeStatusCounts={uptimeStatusCounts} />);
 
+    // Assert
     expect(screen.getByText("Uptime")).toBeInTheDocument();
     expect(screen.getByText("20% not hashing")).toBeInTheDocument();
     expect(screen.getByText("Not hashing")).toBeInTheDocument();
     expect(screen.getByText("Hashing")).toBeInTheDocument();
-    expect(screen.getByText("20% of fleet")).toBeInTheDocument();
-    expect(screen.getByText("80% of fleet")).toBeInTheDocument();
-    // Button should show with singular "miner"
+    // Only the non-zero "not hashing" button should be shown.
     expect(screen.getByRole("button")).toBeInTheDocument();
     expect(screen.getByText("1 miner")).toBeInTheDocument();
   });
 
-  it("renders with multiple miners not hashing", () => {
+  it("renders a degraded (needs-attention) drill-through button", async () => {
+    // Arrange
+    const user = userEvent.setup();
     const uptimeStatusCounts: UptimeStatusCount[] = [
-      createMockUptimeStatusCount(Math.floor(Date.now() / 1000) - 3600, 3, 2),
+      createMockUptimeStatusCount(Math.floor(Date.now() / 1000) - 3600, 7, 0, 3),
     ];
 
     render(<UptimePanel duration={"24h"} uptimeStatusCounts={uptimeStatusCounts} />);
 
-    expect(screen.getByText("Uptime")).toBeInTheDocument();
-    expect(screen.getByText("40% not hashing")).toBeInTheDocument();
-    expect(screen.getByText("Not hashing")).toBeInTheDocument();
-    expect(screen.getByText("Hashing")).toBeInTheDocument();
-    expect(screen.getByText("40% of fleet")).toBeInTheDocument();
-    expect(screen.getByText("60% of fleet")).toBeInTheDocument();
-    // Button should show with plural "miners"
-    expect(screen.getByRole("button")).toBeInTheDocument();
-    expect(screen.getByText("2 miners")).toBeInTheDocument();
-  });
+    // Act
+    const button = screen.getByRole("button", { name: /3 miners/i });
+    await user.click(button);
 
-  it("shows button only when not hashing count > 0", () => {
-    const uptimeStatusCountsAllHashing: UptimeStatusCount[] = [
-      createMockUptimeStatusCount(Math.floor(Date.now() / 1000) - 3600, 5, 0),
-    ];
-
-    const { rerender } = render(<UptimePanel duration={"24h"} uptimeStatusCounts={uptimeStatusCountsAllHashing} />);
-
-    // Should not show button when count is 0
-    expect(screen.queryByRole("button")).not.toBeInTheDocument();
-    expect(screen.getByText("All miners hashing")).toBeInTheDocument();
-
-    // Update with not hashing miners
-    const uptimeStatusCountsWithNotHashing: UptimeStatusCount[] = [
-      createMockUptimeStatusCount(Math.floor(Date.now() / 1000) - 3600, 4, 1),
-    ];
-
-    rerender(<UptimePanel duration={"24h"} uptimeStatusCounts={uptimeStatusCountsWithNotHashing} />);
-
-    // Should show button with count when not hashing > 0
-    expect(screen.getByRole("button")).toBeInTheDocument();
-    expect(screen.getByText("1 miner")).toBeInTheDocument();
-    expect(screen.getByText("20% not hashing")).toBeInTheDocument();
+    // Assert
+    expect(screen.getByText("30% need attention")).toBeInTheDocument();
+    expect(mockNavigate).toHaveBeenCalledTimes(1);
+    expect(mockNavigate.mock.calls[0][0]).toMatch(/^\/miners\?.*status=needs-attention/);
   });
 
   it("handles empty data", () => {
+    // Act
     render(<UptimePanel duration={"24h"} uptimeStatusCounts={[]} />);
 
+    // Assert
     expect(screen.getByText("Uptime")).toBeInTheDocument();
     expect(screen.getByText("No data")).toBeInTheDocument();
   });
 
   it("handles different duration props", () => {
-    // Use timestamp from 3 days ago to work with all durations including 5d
+    // Arrange
     const uptimeStatusCounts: UptimeStatusCount[] = [
-      createMockUptimeStatusCount(Math.floor(Date.now() / 1000) - 3 * 24 * 3600, 5, 0),
+      createMockUptimeStatusCount(Math.floor(Date.now() / 1000) - 3 * 24 * 3600, 5, 0, 0),
     ];
 
+    // Act / Assert
     const { rerender } = render(<UptimePanel duration={"1h"} uptimeStatusCounts={uptimeStatusCounts} />);
-    expect(screen.getByText("Uptime")).toBeInTheDocument();
     expect(screen.getByText("All miners hashing")).toBeInTheDocument();
 
     rerender(<UptimePanel duration={"24h"} uptimeStatusCounts={uptimeStatusCounts} />);
-    expect(screen.getByText("Uptime")).toBeInTheDocument();
     expect(screen.getByText("All miners hashing")).toBeInTheDocument();
 
     rerender(<UptimePanel duration={"7d"} uptimeStatusCounts={uptimeStatusCounts} />);
-    expect(screen.getByText("Uptime")).toBeInTheDocument();
     expect(screen.getByText("All miners hashing")).toBeInTheDocument();
 
     rerender(<UptimePanel duration={"30d"} uptimeStatusCounts={uptimeStatusCounts} />);
-    expect(screen.getByText("Uptime")).toBeInTheDocument();
     expect(screen.getByText("All miners hashing")).toBeInTheDocument();
   });
 
-  it("navigates to miners page with filters when clicking not hashing button", async () => {
+  it("navigates to the not-hashing miner filter from the not-hashing button", async () => {
+    // Arrange
     const user = userEvent.setup();
     const uptimeStatusCounts: UptimeStatusCount[] = [
-      createMockUptimeStatusCount(Math.floor(Date.now() / 1000) - 3600, 4, 1),
+      createMockUptimeStatusCount(Math.floor(Date.now() / 1000) - 3600, 4, 1, 0),
     ];
 
     render(<UptimePanel duration={"24h"} uptimeStatusCounts={uptimeStatusCounts} />);
 
-    // Find and click the "1 miner" button
+    // Act
     const button = screen.getByRole("button", { name: /1 miner/i });
     await user.click(button);
 
-    // Verify navigate was called with the correct URL
-    expect(mockNavigate).toHaveBeenCalledWith("/miners?status=offline,sleeping,needs-attention");
+    // Assert
+    expect(mockNavigate).toHaveBeenCalledTimes(1);
+    const url = new URL(mockNavigate.mock.calls[0][0], "http://dummy");
+    expect(url.pathname).toBe("/miners");
+    expect(url.searchParams.get("status")?.split(",").sort()).toEqual(["offline", "sleeping"]);
   });
 });

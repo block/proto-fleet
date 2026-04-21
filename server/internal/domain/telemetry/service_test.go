@@ -39,7 +39,7 @@ func TestNewTelemetryService(t *testing.T) {
 		ConcurrencyLimit:   5,
 	}
 
-	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl), nil)
 
 	// Test that the service was created successfully
 	assert.NotNil(t, service)
@@ -98,7 +98,7 @@ func TestTelemetryService_AddDevices(t *testing.T) {
 				StalenessThreshold: 1 * time.Minute,
 				FetchInterval:      10 * time.Second,
 				ConcurrencyLimit:   5,
-			}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+			}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl), nil)
 
 			err := service.AddDevices(t.Context(), tt.deviceIDs...)
 			if tt.wantErr {
@@ -163,7 +163,7 @@ func TestTelemetryService_RemoveDevices(t *testing.T) {
 				StalenessThreshold: 1 * time.Minute,
 				FetchInterval:      10 * time.Second,
 				ConcurrencyLimit:   5,
-			}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+			}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl), nil)
 
 			service.devicesForStatusPolling.Store(models.DeviceIdentifier("1"), struct{}{})
 			err := service.RemoveDevices(t.Context(), tt.deviceIDs...)
@@ -209,7 +209,7 @@ func TestTelemetryService_Start(t *testing.T) {
 		DevicePollInterval: 100 * time.Millisecond, // Short interval for test
 	}
 
-	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl), nil)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -256,7 +256,7 @@ func TestTelemetryService_Stop(t *testing.T) {
 		DevicePollInterval: 100 * time.Millisecond, // Short interval for test
 	}
 
-	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl), nil)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -427,7 +427,7 @@ func TestTelemetryService_DataStoreInteraction(t *testing.T) {
 				StalenessThreshold: 1 * time.Minute,
 				FetchInterval:      10 * time.Second,
 				ConcurrencyLimit:   5,
-			}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+			}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl), nil)
 
 			for _, scenario := range test.devicesScenario {
 				_, _, err := service.GetTelemetryFromDevice(t.Context(), scenario.device)
@@ -467,7 +467,7 @@ func TestTelemetryService_Integration(t *testing.T) {
 			StalenessThreshold: 1 * time.Minute,
 			FetchInterval:      10 * time.Second,
 			ConcurrencyLimit:   5,
-		}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+		}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl), nil)
 
 		// Test that errors are properly propagated
 		err := service.AddDevices(t.Context(), "1", "2", "3")
@@ -501,7 +501,7 @@ func TestTelemetryService_Integration(t *testing.T) {
 			StalenessThreshold: 1 * time.Minute,
 			FetchInterval:      10 * time.Second,
 			ConcurrencyLimit:   5,
-		}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+		}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl), nil)
 
 		// Test adding devices
 		err := service.AddDevices(t.Context(), "1", "2", "3")
@@ -551,7 +551,7 @@ func TestTelemetryService_Integration(t *testing.T) {
 			ConcurrencyLimit:   5,
 			MetricTimeout:      5 * time.Second,
 			DevicePollInterval: 100 * time.Millisecond, // Short interval for test
-		}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+		}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl), nil)
 
 		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
@@ -618,7 +618,7 @@ func TestTelemetryService_ComponentInteraction(t *testing.T) {
 			DevicePollInterval: 100 * time.Millisecond, // Short interval for test
 		}
 
-		service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+		service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl), nil)
 
 		// Validate service is properly initialized
 		assert.NotNil(t, service)
@@ -667,7 +667,7 @@ func TestTelemetryService_ComponentInteraction(t *testing.T) {
 			FetchInterval:      10 * time.Second,
 			ConcurrencyLimit:   5,
 			MetricTimeout:      5 * time.Second,
-		}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+		}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl), nil)
 
 		// Verify errors are properly propagated
 		err := service.AddDevices(t.Context(), deviceID)
@@ -728,7 +728,7 @@ func TestTelemetryService_ComponentInteraction(t *testing.T) {
 			ConcurrencyLimit:   5,
 			MetricTimeout:      5 * time.Second,
 			DevicePollInterval: 100 * time.Millisecond, // Short interval for test
-		}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+		}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl), nil)
 
 		// Test device management operations
 		ctx, cancel := context.WithCancel(t.Context())
@@ -782,7 +782,7 @@ func TestTelemetryService_StreamCombinedMetrics(t *testing.T) {
 			StalenessThreshold: 1 * time.Minute,
 			FetchInterval:      10 * time.Second,
 			ConcurrencyLimit:   5,
-		}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+		}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl), nil)
 
 		deviceIDs := []models.DeviceIdentifier{"device1", "device2"}
 		measurementTypes := []models.MeasurementType{models.MeasurementTypeHashrate}
@@ -860,7 +860,7 @@ func TestTelemetryService_StreamCombinedMetrics(t *testing.T) {
 			StalenessThreshold: 1 * time.Minute,
 			FetchInterval:      10 * time.Second,
 			ConcurrencyLimit:   5,
-		}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+		}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl), nil)
 
 		query := models.StreamCombinedMetricsQuery{
 			DeviceIDs:        []models.DeviceIdentifier{"device1"},
@@ -905,7 +905,7 @@ func TestTelemetryService_StreamCombinedMetrics(t *testing.T) {
 			StalenessThreshold: 1 * time.Minute,
 			FetchInterval:      10 * time.Second,
 			ConcurrencyLimit:   5,
-		}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+		}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl), nil)
 
 		// Use short intervals for testing
 		shortInterval := 200 * time.Millisecond
@@ -981,7 +981,7 @@ func TestTelemetryService_StreamCombinedMetrics(t *testing.T) {
 			StalenessThreshold: 1 * time.Minute,
 			FetchInterval:      10 * time.Second,
 			ConcurrencyLimit:   5,
-		}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+		}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl), nil)
 
 		query := models.StreamCombinedMetricsQuery{
 			DeviceIDs:        []models.DeviceIdentifier{"device1"},
@@ -1031,7 +1031,7 @@ func TestTelemetryService_StreamCombinedMetrics(t *testing.T) {
 			StalenessThreshold: 1 * time.Minute,
 			FetchInterval:      10 * time.Second,
 			ConcurrencyLimit:   5,
-		}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+		}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl), nil)
 
 		query := models.StreamCombinedMetricsQuery{
 			DeviceIDs:        []models.DeviceIdentifier{}, // Empty device list
@@ -1101,7 +1101,7 @@ func TestPollErrorsForDevice_WithValidMiner_ShouldCallPollErrors(t *testing.T) {
 		ConcurrencyLimit:   5,
 	}
 
-	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mockErrorPoller)
+	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mockErrorPoller, nil)
 
 	device := models.Device{ID: deviceID}
 	service.pollErrorsForDevice(t.Context(), device)
@@ -1133,7 +1133,7 @@ func TestPollErrorsForDevice_WhenMinerLookupFails_ShouldNotCallPollErrors(t *tes
 		ConcurrencyLimit:   5,
 	}
 
-	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mockErrorPoller)
+	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mockErrorPoller, nil)
 
 	device := models.Device{ID: deviceID}
 	service.pollErrorsForDevice(t.Context(), device)
@@ -1173,7 +1173,7 @@ func TestPollErrorsForDevice_WithUpsertFailures_ShouldComplete(t *testing.T) {
 		ConcurrencyLimit:   5,
 	}
 
-	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mockErrorPoller)
+	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mockErrorPoller, nil)
 
 	device := models.Device{ID: deviceID}
 	// Should complete without panic even with upsert failures
@@ -1262,7 +1262,7 @@ func TestStatusWriterRoutine_BatchFlushesOnInterval(t *testing.T) {
 		StatusFlushInterval: 50 * time.Millisecond,
 	}
 
-	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl), nil)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -1309,7 +1309,7 @@ func TestStatusWriterRoutine_BroadcastsStatusChanges(t *testing.T) {
 		StatusFlushInterval: 50 * time.Millisecond,
 	}
 
-	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl), nil)
 
 	// Pre-populate in-memory state with OFFLINE so change to ACTIVE triggers broadcast
 	service.lastKnownStatuses.Store(deviceID, mm.MinerStatusOffline)
@@ -1363,7 +1363,7 @@ func TestStatusWriterRoutine_FlushesOnContextCancel(t *testing.T) {
 		StatusFlushInterval: 10 * time.Second, // Long interval so flush happens on cancel
 	}
 
-	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl), nil)
 
 	ctx, cancel := context.WithCancel(t.Context())
 
@@ -1416,7 +1416,7 @@ func TestMetricsWriterRoutine_FlushesOnInterval(t *testing.T) {
 		StatusFlushInterval: 50 * time.Millisecond,
 	}
 
-	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl), nil)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -1455,7 +1455,7 @@ func TestMetricsWriterRoutine_FlushesOnContextCancel(t *testing.T) {
 		StatusFlushInterval: 10 * time.Second, // Long interval so flush happens on cancel
 	}
 
-	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl), nil)
 
 	ctx, cancel := context.WithCancel(t.Context())
 
@@ -1505,7 +1505,7 @@ func TestMetricsWriterRoutine_DrainsChannelOnContextCancel(t *testing.T) {
 		StatusFlushInterval: 10 * time.Second, // Long interval so neither metric is flushed early
 	}
 
-	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl), nil)
 
 	ctx, cancel := context.WithCancel(t.Context())
 
@@ -1568,7 +1568,7 @@ func TestMetricsWriterRoutine_RetriesIndividuallyOnBatchError(t *testing.T) {
 		StatusFlushInterval: 50 * time.Millisecond,
 	}
 
-	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl), nil)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -1628,7 +1628,7 @@ func TestProcessStatusOnly_RecoversFailedDevice(t *testing.T) {
 		ConcurrencyLimit:   5,
 	}
 
-	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl), nil)
 
 	ctx := t.Context()
 	device := models.Device{ID: deviceID}
@@ -1680,7 +1680,7 @@ func TestProcessStatusOnly_DoesNotRecoverNonFailedDevice(t *testing.T) {
 		ConcurrencyLimit:   5,
 	}
 
-	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl), nil)
 
 	ctx := t.Context()
 	device := models.Device{ID: deviceID}
@@ -1729,7 +1729,7 @@ func TestProcessStatusOnly_ConnectionError_SetsStatusOffline(t *testing.T) {
 		ConcurrencyLimit:   5,
 	}
 
-	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+	service := NewTelemetryService(config, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl), nil)
 
 	ctx := t.Context()
 	device := models.Device{ID: deviceID}
@@ -2135,7 +2135,7 @@ func TestService_GetCombinedMetrics_ReturnsRawValues(t *testing.T) {
 					},
 				}, nil)
 
-			service := NewTelemetryService(Config{}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+			service := NewTelemetryService(Config{}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl), nil)
 
 			query := models.CombinedMetricsQuery{
 				DeviceIDs:        []models.DeviceIdentifier{"device1"},
@@ -2163,7 +2163,7 @@ func TestPersistFirmwareVersionIfChanged(t *testing.T) {
 	t.Run("skips ambiguous empty firmware version from telemetry", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
-		service := NewTelemetryService(Config{ConcurrencyLimit: 1}, nil, nil, nil, mockDeviceStore, nil)
+		service := NewTelemetryService(Config{ConcurrencyLimit: 1}, nil, nil, nil, mockDeviceStore, nil, nil)
 
 		service.persistFirmwareVersionIfChanged(t.Context(), deviceID, "")
 	})
@@ -2175,7 +2175,7 @@ func TestPersistFirmwareVersionIfChanged(t *testing.T) {
 			UpdateFirmwareVersion(gomock.Any(), deviceID, firmwareV1).
 			Return(nil)
 
-		service := NewTelemetryService(Config{ConcurrencyLimit: 1}, nil, nil, nil, mockDeviceStore, nil)
+		service := NewTelemetryService(Config{ConcurrencyLimit: 1}, nil, nil, nil, mockDeviceStore, nil, nil)
 
 		service.persistFirmwareVersionIfChanged(t.Context(), deviceID, firmwareV1)
 	})
@@ -2187,7 +2187,7 @@ func TestPersistFirmwareVersionIfChanged(t *testing.T) {
 			UpdateFirmwareVersion(gomock.Any(), deviceID, firmwareV1).
 			Return(nil)
 
-		service := NewTelemetryService(Config{ConcurrencyLimit: 1}, nil, nil, nil, mockDeviceStore, nil)
+		service := NewTelemetryService(Config{ConcurrencyLimit: 1}, nil, nil, nil, mockDeviceStore, nil, nil)
 
 		// First call persists
 		service.persistFirmwareVersionIfChanged(t.Context(), deviceID, firmwareV1)
@@ -2205,7 +2205,7 @@ func TestPersistFirmwareVersionIfChanged(t *testing.T) {
 			UpdateFirmwareVersion(gomock.Any(), deviceID, firmwareV2).
 			Return(nil)
 
-		service := NewTelemetryService(Config{ConcurrencyLimit: 1}, nil, nil, nil, mockDeviceStore, nil)
+		service := NewTelemetryService(Config{ConcurrencyLimit: 1}, nil, nil, nil, mockDeviceStore, nil, nil)
 
 		service.persistFirmwareVersionIfChanged(t.Context(), deviceID, firmwareV1)
 		service.persistFirmwareVersionIfChanged(t.Context(), deviceID, firmwareV2)
@@ -2222,7 +2222,7 @@ func TestPersistFirmwareVersionIfChanged(t *testing.T) {
 			UpdateFirmwareVersion(gomock.Any(), deviceID, firmwareV1).
 			Return(nil)
 
-		service := NewTelemetryService(Config{ConcurrencyLimit: 1}, nil, nil, nil, mockDeviceStore, nil)
+		service := NewTelemetryService(Config{ConcurrencyLimit: 1}, nil, nil, nil, mockDeviceStore, nil, nil)
 
 		service.persistFirmwareVersionIfChanged(t.Context(), deviceID, firmwareV1)
 		service.persistFirmwareVersionIfChanged(t.Context(), deviceID, firmwareV1)
@@ -2241,7 +2241,7 @@ func TestSendCombinedMetricUpdate_DeviceScopedMinerStateCounts(t *testing.T) {
 			StalenessThreshold: 1 * time.Minute,
 			FetchInterval:      10 * time.Second,
 			ConcurrencyLimit:   5,
-		}, mockDataStore, nil, nil, mockDeviceStore, nil)
+		}, mockDataStore, nil, nil, mockDeviceStore, nil, nil)
 
 		deviceIDs := []models.DeviceIdentifier{"device-a", "device-b"}
 
@@ -2289,7 +2289,7 @@ func TestSendCombinedMetricUpdate_DeviceScopedMinerStateCounts(t *testing.T) {
 			StalenessThreshold: 1 * time.Minute,
 			FetchInterval:      10 * time.Second,
 			ConcurrencyLimit:   5,
-		}, mockDataStore, nil, nil, mockDeviceStore, nil)
+		}, mockDataStore, nil, nil, mockDeviceStore, nil, nil)
 
 		query := models.StreamCombinedMetricsQuery{
 			DeviceIDs:      nil,
@@ -2379,7 +2379,7 @@ func newStatusPollingService(t *testing.T, ctrl *gomock.Controller, scheduler *m
 		FetchInterval:      10 * time.Second,
 		ConcurrencyLimit:   10,
 	}
-	svc := NewTelemetryService(config, mockDataStore, mockMinerGetter, scheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+	svc := NewTelemetryService(config, mockDataStore, mockMinerGetter, scheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl), nil)
 	return svc
 }
 
@@ -2563,7 +2563,7 @@ func TestFetchStatusFromMiner_AuthErrorFromGetMinerFromDeviceIdentifier_Invalida
 		StalenessThreshold: 1 * time.Minute,
 		FetchInterval:      10 * time.Second,
 		ConcurrencyLimit:   5,
-	}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+	}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl), nil)
 
 	ctx := t.Context()
 	device := models.Device{ID: deviceID}
@@ -2611,7 +2611,7 @@ func TestFetchStatusFromMiner_AuthErrorFromGetDeviceStatus_InvalidatesMinerCache
 		StalenessThreshold: 1 * time.Minute,
 		FetchInterval:      10 * time.Second,
 		ConcurrencyLimit:   5,
-	}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+	}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl), nil)
 
 	ctx := t.Context()
 	device := models.Device{ID: deviceID}
@@ -2651,7 +2651,7 @@ func TestProcessStatusOnly_ForbiddenError_UpdatesPairingStatus(t *testing.T) {
 		StalenessThreshold: 1 * time.Minute,
 		FetchInterval:      10 * time.Second,
 		ConcurrencyLimit:   5,
-	}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+	}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl), nil)
 
 	ctx := t.Context()
 	device := models.Device{ID: deviceID}
@@ -2684,10 +2684,109 @@ func TestProcessStatusOnly_GenericForbiddenDoesNotUpdatePairingStatus(t *testing
 		StalenessThreshold: 1 * time.Minute,
 		FetchInterval:      10 * time.Second,
 		ConcurrencyLimit:   5,
-	}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+	}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl), nil)
 
 	ctx := t.Context()
 	device := models.Device{ID: deviceID}
 
 	service.processStatusOnly(ctx, device)
+}
+
+func TestWriteFleetStateSnapshot(t *testing.T) {
+	orgIDs := []int64{7, 42}
+	counts := &telemetryv1.MinerStateCounts{
+		HashingCount:  3,
+		BrokenCount:   1,
+		OfflineCount:  2,
+		SleepingCount: 0,
+	}
+	tickTime := time.Now().Truncate(time.Second)
+
+	t.Run("writes one batched snapshot per tick covering every org", func(t *testing.T) {
+		// Arrange
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+		mockOrgLister := mock.NewMockOrgIDLister(ctrl)
+
+		mockOrgLister.EXPECT().
+			ListOrgIDsForSnapshots(gomock.Any()).
+			Return(orgIDs, nil)
+		expectedRows := make([]models.MinerStateCountsRow, 0, len(orgIDs))
+		for _, orgID := range orgIDs {
+			mockDeviceStore.EXPECT().
+				GetMinerStateCounts(gomock.Any(), orgID, (*stores.MinerFilter)(nil)).
+				Return(counts, nil)
+			expectedRows = append(expectedRows, models.MinerStateCountsRow{
+				OrgID:         orgID,
+				HashingCount:  counts.HashingCount,
+				BrokenCount:   counts.BrokenCount,
+				OfflineCount:  counts.OfflineCount,
+				SleepingCount: counts.SleepingCount,
+			})
+		}
+		mockDataStore.EXPECT().
+			InsertMinerStateSnapshots(gomock.Any(), tickTime, expectedRows).
+			Return(nil)
+
+		service := NewTelemetryService(Config{ConcurrencyLimit: 1}, mockDataStore, nil, nil, mockDeviceStore, mock.NewMockErrorPoller(ctrl), mockOrgLister)
+
+		// Act
+		service.writeFleetStateSnapshot(t.Context(), tickTime)
+	})
+
+	t.Run("drops org on count error but still batches the rest", func(t *testing.T) {
+		// Arrange
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+		mockOrgLister := mock.NewMockOrgIDLister(ctrl)
+
+		mockOrgLister.EXPECT().
+			ListOrgIDsForSnapshots(gomock.Any()).
+			Return(orgIDs, nil)
+		mockDeviceStore.EXPECT().
+			GetMinerStateCounts(gomock.Any(), orgIDs[0], (*stores.MinerFilter)(nil)).
+			Return(nil, errors.New("boom"))
+		mockDeviceStore.EXPECT().
+			GetMinerStateCounts(gomock.Any(), orgIDs[1], (*stores.MinerFilter)(nil)).
+			Return(counts, nil)
+		mockDataStore.EXPECT().
+			InsertMinerStateSnapshots(gomock.Any(), tickTime, []models.MinerStateCountsRow{{
+				OrgID:         orgIDs[1],
+				HashingCount:  counts.HashingCount,
+				BrokenCount:   counts.BrokenCount,
+				OfflineCount:  counts.OfflineCount,
+				SleepingCount: counts.SleepingCount,
+			}}).
+			Return(nil)
+
+		service := NewTelemetryService(Config{ConcurrencyLimit: 1}, mockDataStore, nil, nil, mockDeviceStore, mock.NewMockErrorPoller(ctrl), mockOrgLister)
+
+		// Act
+		service.writeFleetStateSnapshot(t.Context(), tickTime)
+	})
+
+	t.Run("list error aborts tick without inserts", func(t *testing.T) {
+		// Arrange
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+		mockOrgLister := mock.NewMockOrgIDLister(ctrl)
+
+		mockOrgLister.EXPECT().
+			ListOrgIDsForSnapshots(gomock.Any()).
+			Return(nil, errors.New("db down"))
+
+		service := NewTelemetryService(Config{ConcurrencyLimit: 1}, mockDataStore, nil, nil, mockDeviceStore, mock.NewMockErrorPoller(ctrl), mockOrgLister)
+
+		// Act
+		service.writeFleetStateSnapshot(t.Context(), tickTime)
+	})
 }

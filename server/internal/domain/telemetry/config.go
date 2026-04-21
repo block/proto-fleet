@@ -13,4 +13,5 @@ type Config struct {
 	NewDeviceLookback        time.Duration `help:"Lookback period for new devices to consider for telemetry." default:"10m" env:"NEW_DEVICE_LOOKBACK"`
 	DeviceStatusPollInterval time.Duration `help:"Interval at which to poll for device status updates." default:"10s" env:"DEVICE_STATUS_POLL_INTERVAL"`
 	StatusFlushInterval      time.Duration `help:"Interval at which to flush accumulated status updates to DB. Longer intervals batch more updates together." default:"1s" env:"STATUS_FLUSH_INTERVAL"`
+	StateSnapshotInterval    time.Duration `help:"Interval at which to write fleet state snapshots (one row per org) that power the uptime chart." default:"60s" env:"STATE_SNAPSHOT_INTERVAL"`
 }

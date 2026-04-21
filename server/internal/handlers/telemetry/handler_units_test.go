@@ -219,7 +219,7 @@ func createTestHandler(ctrl *gomock.Controller, mockStore *mock.MockTelemetryDat
 	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 	mockErrorPoller := mock.NewMockErrorPoller(ctrl)
 
-	service := telemetry.NewTelemetryService(config, mockStore, mockMinerGetter, mockScheduler, mockDeviceStore, mockErrorPoller)
+	service := telemetry.NewTelemetryService(config, mockStore, mockMinerGetter, mockScheduler, mockDeviceStore, mockErrorPoller, nil)
 
 	return NewHandler(service)
 }

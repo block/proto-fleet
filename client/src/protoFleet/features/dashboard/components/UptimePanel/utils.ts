@@ -6,30 +6,33 @@ import type { SegmentedBarChartData } from "@/protoFleet/features/dashboard/comp
  * @returns Formatted headline string
  */
 export const generateUptimeHeadline = (processedData: SegmentedBarChartData[][]): string => {
-  // Flatten all data points across all charts
   const allDataPoints = processedData.flat();
 
   if (allDataPoints.length === 0) {
     return "No data";
   }
 
-  // Get the most recent data point
   const latestPoint = allDataPoints[allDataPoints.length - 1];
 
+  const hashingCount = latestPoint.hashing || 0;
+  const brokenCount = latestPoint.broken || 0;
   const notHashingCount = latestPoint.notHashing || 0;
-  const totalMiners = (latestPoint.hashing || 0) + notHashingCount;
+  const totalMiners = hashingCount + brokenCount + notHashingCount;
 
   if (totalMiners === 0) {
     return "No miners";
   }
 
-  if (notHashingCount === 0) {
-    // All miners are hashing
-    return "All miners hashing";
+  // Surface the most severe non-healthy bucket first.
+  if (notHashingCount > 0) {
+    const percentage = Math.round((notHashingCount / totalMiners) * 100);
+    return `${percentage}% not hashing`;
   }
 
-  // Calculate percentage of miners not hashing
-  const notHashingPercentage = Math.round((notHashingCount / totalMiners) * 100);
+  if (brokenCount > 0) {
+    const percentage = Math.round((brokenCount / totalMiners) * 100);
+    return `${percentage}% need attention`;
+  }
 
-  return `${notHashingPercentage}% not hashing`;
+  return "All miners hashing";
 };

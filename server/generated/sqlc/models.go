@@ -588,6 +588,15 @@ type MinerCredential struct {
 	UpdatedAt   sql.NullTime
 }
 
+type MinerStateSnapshot struct {
+	Time          time.Time
+	OrgID         int64
+	HashingCount  int32
+	BrokenCount   int32
+	OfflineCount  int32
+	SleepingCount int32
+}
+
 type Organization struct {
 	ID                  int64
 	OrgID               string

@@ -34,6 +34,12 @@ func (h *Handler) GetCombinedMetrics(
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
+	// Session scopes snapshot lookups per-org; when absent the store returns
+	// nothing rather than leaking another org's counts.
+	if info, err := session.GetInfo(ctx); err == nil {
+		query.OrganizationID = info.OrganizationID
+	}
+
 	combinedMetrics, err := h.telemetryService.GetCombinedMetrics(ctx, query)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)

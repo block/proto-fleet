@@ -126,6 +126,8 @@ const (
 	// Default metrics flush interval if not configured.
 	defaultMetricsFlushInterval = 1 * time.Second
 
+	defaultStateSnapshotInterval = 60 * time.Second
+
 	// Context timeouts
 	shutdownFlushTimeout = 5 * time.Second
 )
@@ -153,8 +155,10 @@ type TelemetryDataStore interface {
 	GetTimeSeriesTelemetry(ctx context.Context, query models.TimeSeriesTelemetryQuery) ([]modelsV2.DeviceMetrics, error)
 	StreamTelemetryUpdates(ctx context.Context, query models.StreamQuery) (<-chan models.TelemetryUpdate, error)
 	GetCombinedMetrics(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error)
+	InsertMinerStateSnapshots(ctx context.Context, at time.Time, snapshots []models.MinerStateCountsRow) error
 	Ping(ctx context.Context) error
 }
+
 type MinerGetter interface {
 	GetMinerFromDeviceIdentifier(ctx context.Context, deviceIdentifier models.DeviceIdentifier) (interfaces.Miner, error)
 }
@@ -196,6 +200,7 @@ type TelemetryService struct {
 	minerManager       CachedMinerGetter
 	deviceStore        stores.DeviceStore
 	errorPoller        ErrorPoller
+	orgIDLister        OrgIDLister
 	mux                sync.Mutex
 	// tasks queues devices for full telemetry collection (metrics, telemetry, and status).
 	// Buffer sized to ConcurrencyLimit to ensure at least one queued task per worker.
@@ -227,7 +232,7 @@ type TelemetryService struct {
 	inFlight sync.Map // map[DeviceIdentifier]struct{}
 }
 
-func NewTelemetryService(config Config, telemetryDataStore TelemetryDataStore, minerManager CachedMinerGetter, scheduler UpdateScheduler, deviceStore stores.DeviceStore, errorPoller ErrorPoller) *TelemetryService {
+func NewTelemetryService(config Config, telemetryDataStore TelemetryDataStore, minerManager CachedMinerGetter, scheduler UpdateScheduler, deviceStore stores.DeviceStore, errorPoller ErrorPoller, orgIDLister OrgIDLister) *TelemetryService {
 	return &TelemetryService{
 		config:             config,
 		telemetryDataStore: telemetryDataStore,
@@ -235,6 +240,7 @@ func NewTelemetryService(config Config, telemetryDataStore TelemetryDataStore, m
 		updateScheduler:    scheduler,
 		deviceStore:        deviceStore,
 		errorPoller:        errorPoller,
+		orgIDLister:        orgIDLister,
 		tasks:              make(chan models.Device, config.ConcurrencyLimit),
 		statusTasks:        make(chan models.Device, config.ConcurrencyLimit),
 		statusResults:      make(chan statusResult, resultsChannelBuffer),
@@ -273,6 +279,9 @@ func (s *TelemetryService) Start(ctx context.Context) error {
 	go s.gatherMetricsRoutine(ctx)
 	go s.devicePollingRoutine(ctx)
 	go s.statusPollingRoutine(ctx)
+	if s.orgIDLister != nil {
+		go s.fleetStateSnapshotRoutine(ctx)
+	}
 	return nil
 }
 
@@ -459,6 +468,62 @@ func (s *TelemetryService) statusPollingRoutine(ctx context.Context) {
 				return true
 			})
 		}
+	}
+}
+
+// fleetStateSnapshotRoutine writes one miner_state_snapshots row per org per
+// tick so the uptime chart and the live legend share one classifier.
+// Callers must not start this routine with a nil orgIDLister.
+func (s *TelemetryService) fleetStateSnapshotRoutine(ctx context.Context) {
+	interval := s.config.StateSnapshotInterval
+	if interval <= 0 {
+		interval = defaultStateSnapshotInterval
+	}
+
+	// Fire once up front so the live bar is populated within a few seconds of
+	// startup instead of waiting for the first tick.
+	s.writeFleetStateSnapshot(ctx, time.Now())
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case tickTime := <-ticker.C:
+			s.writeFleetStateSnapshot(ctx, tickTime)
+		}
+	}
+}
+
+func (s *TelemetryService) writeFleetStateSnapshot(ctx context.Context, at time.Time) {
+	orgIDs, err := s.orgIDLister.ListOrgIDsForSnapshots(ctx)
+	if err != nil {
+		slog.Warn("snapshot routine: failed to list orgs", "error", err)
+		return
+	}
+
+	rows := make([]models.MinerStateCountsRow, 0, len(orgIDs))
+	for _, orgID := range orgIDs {
+		counts, err := s.deviceStore.GetMinerStateCounts(ctx, orgID, nil)
+		if err != nil {
+			slog.Warn("snapshot routine: failed to count miner states",
+				"org_id", orgID, "error", err)
+			continue
+		}
+		rows = append(rows, models.MinerStateCountsRow{
+			OrgID:         orgID,
+			HashingCount:  counts.HashingCount,
+			BrokenCount:   counts.BrokenCount,
+			OfflineCount:  counts.OfflineCount,
+			SleepingCount: counts.SleepingCount,
+		})
+	}
+
+	if err := s.telemetryDataStore.InsertMinerStateSnapshots(ctx, at, rows); err != nil {
+		slog.Warn("snapshot routine: batch insert failed",
+			"org_count", len(rows), "error", err)
 	}
 }
 
@@ -1060,6 +1125,7 @@ func (s *TelemetryService) sendCombinedMetricUpdate(ctx context.Context, updateC
 		AggregationTypes: query.AggregationTypes,
 		SlideInterval:    &query.Granularity,
 		PageSize:         defaultCombinedMetricsPageSize,
+		OrganizationID:   query.OrganizationID,
 	}
 
 	now := time.Now()
