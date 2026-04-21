@@ -170,7 +170,7 @@ const Modal = ({
             >
               <Header
                 title={showTitleInHeader ? title : undefined}
-                titleSize="text-heading-300"
+                titleSize="text-heading-200"
                 {...headerIconProps}
                 buttonSize={buttonSize}
                 buttonsWrapperClassName={hasPhoneFooterButtons ? "phone:hidden" : undefined}
