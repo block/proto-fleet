@@ -220,18 +220,18 @@ func (mr *MockTelemetryDataStoreMockRecorder) GetTimeSeriesTelemetry(ctx, query 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTimeSeriesTelemetry", reflect.TypeOf((*MockTelemetryDataStore)(nil).GetTimeSeriesTelemetry), ctx, query)
 }
 
-// InsertMinerStateSnapshots mocks base method.
-func (m *MockTelemetryDataStore) InsertMinerStateSnapshots(ctx context.Context, at time.Time, snapshots []models.MinerStateCountsRow) error {
+// InsertMinerStateSnapshot mocks base method.
+func (m *MockTelemetryDataStore) InsertMinerStateSnapshot(ctx context.Context, at time.Time) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "InsertMinerStateSnapshots", ctx, at, snapshots)
+	ret := m.ctrl.Call(m, "InsertMinerStateSnapshot", ctx, at)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// InsertMinerStateSnapshots indicates an expected call of InsertMinerStateSnapshots.
-func (mr *MockTelemetryDataStoreMockRecorder) InsertMinerStateSnapshots(ctx, at, snapshots any) *gomock.Call {
+// InsertMinerStateSnapshot indicates an expected call of InsertMinerStateSnapshot.
+func (mr *MockTelemetryDataStoreMockRecorder) InsertMinerStateSnapshot(ctx, at any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertMinerStateSnapshots", reflect.TypeOf((*MockTelemetryDataStore)(nil).InsertMinerStateSnapshots), ctx, at, snapshots)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertMinerStateSnapshot", reflect.TypeOf((*MockTelemetryDataStore)(nil).InsertMinerStateSnapshot), ctx, at)
 }
 
 // Ping mocks base method.

@@ -664,7 +664,7 @@ func (s *TimescaleTelemetryStore) uptimeCountsForQuery(ctx context.Context, quer
 		return nil
 	}
 	startTime, endTime := s.getTimeRange(query.TimeRange)
-	return s.getUptimeStatusCountsFromSnapshots(ctx, query.OrganizationID, startTime, endTime, bucketDuration)
+	return s.getUptimeStatusCountsFromSnapshots(ctx, query.OrganizationID, query.DeviceIDs, startTime, endTime, bucketDuration)
 }
 
 // getTimeRange extracts start and end times from the query, using defaults if not set.
@@ -1217,37 +1217,12 @@ func (s *TimescaleTelemetryStore) Ping(ctx context.Context) error {
 	return nil
 }
 
-func (s *TimescaleTelemetryStore) InsertMinerStateSnapshots(ctx context.Context, at time.Time, snapshots []models.MinerStateCountsRow) error {
-	if len(snapshots) == 0 {
-		return nil
-	}
-
+func (s *TimescaleTelemetryStore) InsertMinerStateSnapshot(ctx context.Context, at time.Time) error {
 	ctx, cancel := context.WithTimeout(ctx, s.config.WriteTimeout)
 	defer cancel()
 
-	orgIDs := make([]int64, len(snapshots))
-	hashing := make([]int32, len(snapshots))
-	broken := make([]int32, len(snapshots))
-	offline := make([]int32, len(snapshots))
-	sleeping := make([]int32, len(snapshots))
-	for i, row := range snapshots {
-		orgIDs[i] = row.OrgID
-		hashing[i] = row.HashingCount
-		broken[i] = row.BrokenCount
-		offline[i] = row.OfflineCount
-		sleeping[i] = row.SleepingCount
-	}
-
-	err := s.queries.InsertMinerStateSnapshotBatch(ctx, sqlc.InsertMinerStateSnapshotBatchParams{
-		Time:           at,
-		OrgIds:         orgIDs,
-		HashingCounts:  hashing,
-		BrokenCounts:   broken,
-		OfflineCounts:  offline,
-		SleepingCounts: sleeping,
-	})
-	if err != nil {
-		return fmt.Errorf("insert miner state snapshots: %w", err)
+	if err := s.queries.InsertMinerStateSnapshot(ctx, at); err != nil {
+		return fmt.Errorf("insert miner state snapshot: %w", err)
 	}
 	return nil
 }
@@ -1255,6 +1230,7 @@ func (s *TimescaleTelemetryStore) InsertMinerStateSnapshots(ctx context.Context,
 func (s *TimescaleTelemetryStore) getUptimeStatusCountsFromSnapshots(
 	ctx context.Context,
 	orgID int64,
+	deviceIDs []models.DeviceIdentifier,
 	startTime, endTime time.Time,
 	bucketDuration time.Duration,
 ) []models.UptimeStatusCount {
@@ -1269,12 +1245,18 @@ func (s *TimescaleTelemetryStore) getUptimeStatusCountsFromSnapshots(
 	ctx, cancel := context.WithTimeout(ctx, s.config.QueryTimeout)
 	defer cancel()
 
-	rows, err := s.queries.GetMinerStateSnapshots(ctx, sqlc.GetMinerStateSnapshotsParams{
+	params := sqlc.GetMinerStateSnapshotsParams{
 		BucketInterval: fmt.Sprintf("%d seconds", int64(bucketDuration.Seconds())),
 		OrgID:          orgID,
 		StartTime:      startTime,
 		EndTime:        endTime,
-	})
+	}
+	if len(deviceIDs) > 0 {
+		params.DeviceIdentifiersFilter = sql.NullString{String: "1", Valid: true}
+		params.DeviceIdentifierValues = deviceIDsToStrings(deviceIDs)
+	}
+
+	rows, err := s.queries.GetMinerStateSnapshots(ctx, params)
 	if err != nil {
 		s.logger.Error("failed to query miner state snapshots",
 			slog.Int64("org_id", orgID),

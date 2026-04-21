@@ -7,31 +7,44 @@ package sqlc
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
 	"github.com/lib/pq"
 )
 
 const getMinerStateSnapshots = `-- name: GetMinerStateSnapshots :many
+WITH per_device_bucket AS (
+    SELECT DISTINCT ON (time_bucket($1::text::interval, time), device_identifier)
+        time_bucket($1::text::interval, time)::timestamptz AS bucket,
+        device_identifier,
+        state
+    FROM miner_state_snapshots
+    WHERE org_id = $2
+      AND time >= $3
+      AND time <= $4
+      AND ($5::text IS NULL
+           OR device_identifier = ANY($6::text[]))
+    ORDER BY time_bucket($1::text::interval, time), device_identifier, time DESC
+)
 SELECT
-    time_bucket($1::text::interval, time)::timestamptz AS bucket,
-    last(hashing_count, time)::int  AS hashing_count,
-    last(broken_count, time)::int   AS broken_count,
-    last(offline_count, time)::int  AS offline_count,
-    last(sleeping_count, time)::int AS sleeping_count
-FROM miner_state_snapshots
-WHERE org_id = $2
-  AND time >= $3
-  AND time <= $4
+    bucket,
+    SUM(CASE WHEN state = 3 THEN 1 ELSE 0 END)::int AS hashing_count,
+    SUM(CASE WHEN state = 2 THEN 1 ELSE 0 END)::int AS broken_count,
+    SUM(CASE WHEN state = 0 THEN 1 ELSE 0 END)::int AS offline_count,
+    SUM(CASE WHEN state = 1 THEN 1 ELSE 0 END)::int AS sleeping_count
+FROM per_device_bucket
 GROUP BY bucket
 ORDER BY bucket ASC
 `
 
 type GetMinerStateSnapshotsParams struct {
-	BucketInterval string
-	OrgID          int64
-	StartTime      time.Time
-	EndTime        time.Time
+	BucketInterval          string
+	OrgID                   int64
+	StartTime               time.Time
+	EndTime                 time.Time
+	DeviceIdentifiersFilter sql.NullString
+	DeviceIdentifierValues  []string
 }
 
 type GetMinerStateSnapshotsRow struct {
@@ -42,14 +55,17 @@ type GetMinerStateSnapshotsRow struct {
 	SleepingCount int32
 }
 
-// last() keeps the four counts from one real tuple; column-wise averaging
-// would round each independently and inflate the bucket sum past fleet size.
+// DISTINCT ON picks the most recent snapshot per device per bucket so summed
+// counts always equal a real fleet size, regardless of snapshot alignment.
+// Device filter matches device_selector for scope-aware uptime.
 func (q *Queries) GetMinerStateSnapshots(ctx context.Context, arg GetMinerStateSnapshotsParams) ([]GetMinerStateSnapshotsRow, error) {
 	rows, err := q.query(ctx, q.getMinerStateSnapshotsStmt, getMinerStateSnapshots,
 		arg.BucketInterval,
 		arg.OrgID,
 		arg.StartTime,
 		arg.EndTime,
+		arg.DeviceIdentifiersFilter,
+		pq.Array(arg.DeviceIdentifierValues),
 	)
 	if err != nil {
 		return nil, err
@@ -78,73 +94,45 @@ func (q *Queries) GetMinerStateSnapshots(ctx context.Context, arg GetMinerStateS
 	return items, nil
 }
 
-const insertMinerStateSnapshotBatch = `-- name: InsertMinerStateSnapshotBatch :exec
-INSERT INTO miner_state_snapshots (
-    time,
-    org_id,
-    hashing_count,
-    broken_count,
-    offline_count,
-    sleeping_count
-)
+const insertMinerStateSnapshot = `-- name: InsertMinerStateSnapshot :exec
+INSERT INTO miner_state_snapshots (time, org_id, device_identifier, state)
 SELECT
     $1::timestamptz,
-    UNNEST($2::bigint[]),
-    UNNEST($3::int[]),
-    UNNEST($4::int[]),
-    UNNEST($5::int[]),
-    UNNEST($6::int[])
+    d.org_id,
+    d.device_identifier,
+    CASE
+        WHEN ds.status = 'OFFLINE'
+             OR (ds.status IS NULL AND dp.pairing_status != 'AUTHENTICATION_NEEDED')
+            THEN 0
+        WHEN ds.status IN ('MAINTENANCE', 'INACTIVE')
+             AND dp.pairing_status != 'AUTHENTICATION_NEEDED'
+            THEN 1
+        WHEN ds.status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
+             OR dp.pairing_status = 'AUTHENTICATION_NEEDED'
+             OR open_errors.device_id IS NOT NULL
+            THEN 2
+        ELSE 3
+    END
+FROM device d
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
+JOIN device_pairing     dp ON d.id = dp.device_id
+LEFT JOIN device_status ds ON d.id = ds.device_id
+LEFT JOIN (
+    SELECT DISTINCT device_id
+    FROM errors
+    WHERE closed_at IS NULL
+      AND severity IN (1, 2, 3, 4)
+) open_errors ON d.id = open_errors.device_id
+WHERE d.deleted_at IS NULL
+  AND dd.is_active = TRUE
+  AND dd.deleted_at IS NULL
+  AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED')
 `
 
-type InsertMinerStateSnapshotBatchParams struct {
-	Time           time.Time
-	OrgIds         []int64
-	HashingCounts  []int32
-	BrokenCounts   []int32
-	OfflineCounts  []int32
-	SleepingCounts []int32
-}
-
-// Single multi-row INSERT per tick; unnest expands the count arrays so every
-// org in the tick shares one round-trip and one transaction.
-func (q *Queries) InsertMinerStateSnapshotBatch(ctx context.Context, arg InsertMinerStateSnapshotBatchParams) error {
-	_, err := q.exec(ctx, q.insertMinerStateSnapshotBatchStmt, insertMinerStateSnapshotBatch,
-		arg.Time,
-		pq.Array(arg.OrgIds),
-		pq.Array(arg.HashingCounts),
-		pq.Array(arg.BrokenCounts),
-		pq.Array(arg.OfflineCounts),
-		pq.Array(arg.SleepingCounts),
-	)
+// Materializes one row per paired device for a single tick. CASE mirrors
+// CountMinersByState so chart history and live legend share one classifier.
+// State encoding: 0=offline, 1=sleeping, 2=broken, 3=hashing.
+func (q *Queries) InsertMinerStateSnapshot(ctx context.Context, argTime time.Time) error {
+	_, err := q.exec(ctx, q.insertMinerStateSnapshotStmt, insertMinerStateSnapshot, argTime)
 	return err
-}
-
-const listOrgIDsForSnapshots = `-- name: ListOrgIDsForSnapshots :many
-SELECT id
-FROM organization
-WHERE deleted_at IS NULL
-ORDER BY id
-`
-
-func (q *Queries) ListOrgIDsForSnapshots(ctx context.Context) ([]int64, error) {
-	rows, err := q.query(ctx, q.listOrgIDsForSnapshotsStmt, listOrgIDsForSnapshots)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		items = append(items, id)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
 }

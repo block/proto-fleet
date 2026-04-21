@@ -405,8 +405,8 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.insertErrorStmt, err = db.PrepareContext(ctx, insertError); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertError: %w", err)
 	}
-	if q.insertMinerStateSnapshotBatchStmt, err = db.PrepareContext(ctx, insertMinerStateSnapshotBatch); err != nil {
-		return nil, fmt.Errorf("error preparing query InsertMinerStateSnapshotBatch: %w", err)
+	if q.insertMinerStateSnapshotStmt, err = db.PrepareContext(ctx, insertMinerStateSnapshot); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertMinerStateSnapshot: %w", err)
 	}
 	if q.isBatchFinishedStmt, err = db.PrepareContext(ctx, isBatchFinished); err != nil {
 		return nil, fmt.Errorf("error preparing query IsBatchFinished: %w", err)
@@ -428,9 +428,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.listMinerStateSnapshotsStmt, err = db.PrepareContext(ctx, listMinerStateSnapshots); err != nil {
 		return nil, fmt.Errorf("error preparing query ListMinerStateSnapshots: %w", err)
-	}
-	if q.listOrgIDsForSnapshotsStmt, err = db.PrepareContext(ctx, listOrgIDsForSnapshots); err != nil {
-		return nil, fmt.Errorf("error preparing query ListOrgIDsForSnapshots: %w", err)
 	}
 	if q.listOrganizationsStmt, err = db.PrepareContext(ctx, listOrganizations); err != nil {
 		return nil, fmt.Errorf("error preparing query ListOrganizations: %w", err)
@@ -1297,9 +1294,9 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing insertErrorStmt: %w", cerr)
 		}
 	}
-	if q.insertMinerStateSnapshotBatchStmt != nil {
-		if cerr := q.insertMinerStateSnapshotBatchStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing insertMinerStateSnapshotBatchStmt: %w", cerr)
+	if q.insertMinerStateSnapshotStmt != nil {
+		if cerr := q.insertMinerStateSnapshotStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertMinerStateSnapshotStmt: %w", cerr)
 		}
 	}
 	if q.isBatchFinishedStmt != nil {
@@ -1335,11 +1332,6 @@ func (q *Queries) Close() error {
 	if q.listMinerStateSnapshotsStmt != nil {
 		if cerr := q.listMinerStateSnapshotsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listMinerStateSnapshotsStmt: %w", cerr)
-		}
-	}
-	if q.listOrgIDsForSnapshotsStmt != nil {
-		if cerr := q.listOrgIDsForSnapshotsStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing listOrgIDsForSnapshotsStmt: %w", cerr)
 		}
 	}
 	if q.listOrganizationsStmt != nil {
@@ -1883,7 +1875,7 @@ type Queries struct {
 	insertDeviceStmt                                    *sql.Stmt
 	insertDeviceMetricsStmt                             *sql.Stmt
 	insertErrorStmt                                     *sql.Stmt
-	insertMinerStateSnapshotBatchStmt                   *sql.Stmt
+	insertMinerStateSnapshotStmt                        *sql.Stmt
 	isBatchFinishedStmt                                 *sql.Stmt
 	isBatchProcessingStmt                               *sql.Stmt
 	listActivityLogsStmt                                *sql.Stmt
@@ -1891,7 +1883,6 @@ type Queries struct {
 	listDeviceSetMembersPaginatedStmt                   *sql.Stmt
 	listDeviceSetMembersPaginatedAfterStmt              *sql.Stmt
 	listMinerStateSnapshotsStmt                         *sql.Stmt
-	listOrgIDsForSnapshotsStmt                          *sql.Stmt
 	listOrganizationsStmt                               *sql.Stmt
 	listPoolsStmt                                       *sql.Stmt
 	listRackTypesStmt                                   *sql.Stmt
@@ -2100,7 +2091,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		insertDeviceStmt:                                    q.insertDeviceStmt,
 		insertDeviceMetricsStmt:                             q.insertDeviceMetricsStmt,
 		insertErrorStmt:                                     q.insertErrorStmt,
-		insertMinerStateSnapshotBatchStmt:                   q.insertMinerStateSnapshotBatchStmt,
+		insertMinerStateSnapshotStmt:                        q.insertMinerStateSnapshotStmt,
 		isBatchFinishedStmt:                                 q.isBatchFinishedStmt,
 		isBatchProcessingStmt:                               q.isBatchProcessingStmt,
 		listActivityLogsStmt:                                q.listActivityLogsStmt,
@@ -2108,7 +2099,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listDeviceSetMembersPaginatedStmt:                   q.listDeviceSetMembersPaginatedStmt,
 		listDeviceSetMembersPaginatedAfterStmt:              q.listDeviceSetMembersPaginatedAfterStmt,
 		listMinerStateSnapshotsStmt:                         q.listMinerStateSnapshotsStmt,
-		listOrgIDsForSnapshotsStmt:                          q.listOrgIDsForSnapshotsStmt,
 		listOrganizationsStmt:                               q.listOrganizationsStmt,
 		listPoolsStmt:                                       q.listPoolsStmt,
 		listRackTypesStmt:                                   q.listRackTypesStmt,

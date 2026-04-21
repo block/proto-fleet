@@ -155,7 +155,7 @@ type TelemetryDataStore interface {
 	GetTimeSeriesTelemetry(ctx context.Context, query models.TimeSeriesTelemetryQuery) ([]modelsV2.DeviceMetrics, error)
 	StreamTelemetryUpdates(ctx context.Context, query models.StreamQuery) (<-chan models.TelemetryUpdate, error)
 	GetCombinedMetrics(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error)
-	InsertMinerStateSnapshots(ctx context.Context, at time.Time, snapshots []models.MinerStateCountsRow) error
+	InsertMinerStateSnapshot(ctx context.Context, at time.Time) error
 	Ping(ctx context.Context) error
 }
 
@@ -200,7 +200,6 @@ type TelemetryService struct {
 	minerManager       CachedMinerGetter
 	deviceStore        stores.DeviceStore
 	errorPoller        ErrorPoller
-	orgIDLister        OrgIDLister
 	mux                sync.Mutex
 	// tasks queues devices for full telemetry collection (metrics, telemetry, and status).
 	// Buffer sized to ConcurrencyLimit to ensure at least one queued task per worker.
@@ -232,7 +231,7 @@ type TelemetryService struct {
 	inFlight sync.Map // map[DeviceIdentifier]struct{}
 }
 
-func NewTelemetryService(config Config, telemetryDataStore TelemetryDataStore, minerManager CachedMinerGetter, scheduler UpdateScheduler, deviceStore stores.DeviceStore, errorPoller ErrorPoller, orgIDLister OrgIDLister) *TelemetryService {
+func NewTelemetryService(config Config, telemetryDataStore TelemetryDataStore, minerManager CachedMinerGetter, scheduler UpdateScheduler, deviceStore stores.DeviceStore, errorPoller ErrorPoller) *TelemetryService {
 	return &TelemetryService{
 		config:             config,
 		telemetryDataStore: telemetryDataStore,
@@ -240,7 +239,6 @@ func NewTelemetryService(config Config, telemetryDataStore TelemetryDataStore, m
 		updateScheduler:    scheduler,
 		deviceStore:        deviceStore,
 		errorPoller:        errorPoller,
-		orgIDLister:        orgIDLister,
 		tasks:              make(chan models.Device, config.ConcurrencyLimit),
 		statusTasks:        make(chan models.Device, config.ConcurrencyLimit),
 		statusResults:      make(chan statusResult, resultsChannelBuffer),
@@ -279,9 +277,7 @@ func (s *TelemetryService) Start(ctx context.Context) error {
 	go s.gatherMetricsRoutine(ctx)
 	go s.devicePollingRoutine(ctx)
 	go s.statusPollingRoutine(ctx)
-	if s.orgIDLister != nil {
-		go s.fleetStateSnapshotRoutine(ctx)
-	}
+	go s.fleetStateSnapshotRoutine(ctx)
 	return nil
 }
 
@@ -471,9 +467,8 @@ func (s *TelemetryService) statusPollingRoutine(ctx context.Context) {
 	}
 }
 
-// fleetStateSnapshotRoutine writes one miner_state_snapshots row per org per
-// tick so the uptime chart and the live legend share one classifier.
-// Callers must not start this routine with a nil orgIDLister.
+// fleetStateSnapshotRoutine writes one miner_state_snapshots row per paired
+// device per tick so chart history and the live legend share one classifier.
 func (s *TelemetryService) fleetStateSnapshotRoutine(ctx context.Context) {
 	interval := s.config.StateSnapshotInterval
 	if interval <= 0 {
@@ -498,32 +493,8 @@ func (s *TelemetryService) fleetStateSnapshotRoutine(ctx context.Context) {
 }
 
 func (s *TelemetryService) writeFleetStateSnapshot(ctx context.Context, at time.Time) {
-	orgIDs, err := s.orgIDLister.ListOrgIDsForSnapshots(ctx)
-	if err != nil {
-		slog.Warn("snapshot routine: failed to list orgs", "error", err)
-		return
-	}
-
-	rows := make([]models.MinerStateCountsRow, 0, len(orgIDs))
-	for _, orgID := range orgIDs {
-		counts, err := s.deviceStore.GetMinerStateCounts(ctx, orgID, nil)
-		if err != nil {
-			slog.Warn("snapshot routine: failed to count miner states",
-				"org_id", orgID, "error", err)
-			continue
-		}
-		rows = append(rows, models.MinerStateCountsRow{
-			OrgID:         orgID,
-			HashingCount:  counts.HashingCount,
-			BrokenCount:   counts.BrokenCount,
-			OfflineCount:  counts.OfflineCount,
-			SleepingCount: counts.SleepingCount,
-		})
-	}
-
-	if err := s.telemetryDataStore.InsertMinerStateSnapshots(ctx, at, rows); err != nil {
-		slog.Warn("snapshot routine: batch insert failed",
-			"org_count", len(rows), "error", err)
+	if err := s.telemetryDataStore.InsertMinerStateSnapshot(ctx, at); err != nil {
+		slog.Warn("snapshot routine: insert failed", "error", err)
 	}
 }
 

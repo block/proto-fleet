@@ -72,14 +72,6 @@ type TemperatureStatusCount struct {
 	CriticalCount int32     `json:"critical_count"` // Count of miners > 90°C
 }
 
-type MinerStateCountsRow struct {
-	OrgID         int64
-	HashingCount  int32
-	BrokenCount   int32
-	OfflineCount  int32
-	SleepingCount int32
-}
-
 type UptimeStatusCount struct {
 	Timestamp       time.Time `json:"timestamp"`
 	HashingCount    int32     `json:"hashing_count"`

@@ -227,7 +227,6 @@ func start(config *Config) error {
 	errorStore := sqlstores.NewSQLErrorStore(conn, transactor)
 	diagnosticsService := diagnostics.NewService(diagnosticsCtx, config.Diagnostics, errorStore, transactor)
 
-	orgStore := sqlstores.NewSQLOrganizationStore(conn)
 	telemetryService := telemetry.NewTelemetryService(
 		config.Telemetry,
 		timescaledbService,
@@ -235,7 +234,6 @@ func start(config *Config) error {
 		scheduler,
 		deviceStore,
 		diagnosticsService,
-		orgStore,
 	)
 
 	if err := telemetryService.Start(context.Background()); err != nil {

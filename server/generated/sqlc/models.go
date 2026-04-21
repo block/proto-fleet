@@ -589,12 +589,10 @@ type MinerCredential struct {
 }
 
 type MinerStateSnapshot struct {
-	Time          time.Time
-	OrgID         int64
-	HashingCount  int32
-	BrokenCount   int32
-	OfflineCount  int32
-	SleepingCount int32
+	Time             time.Time
+	OrgID            int64
+	DeviceIdentifier string
+	State            int16
 }
 
 type Organization struct {
