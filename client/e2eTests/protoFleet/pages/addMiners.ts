@@ -1,4 +1,5 @@
 import { expect, type Locator } from "@playwright/test";
+import { DEFAULT_INTERVAL, DEFAULT_TIMEOUT } from "../config/test.config";
 import { PROTO_RIG_DISPLAY_NAME } from "../helpers/minerModels";
 import { BasePage } from "./base";
 
@@ -59,6 +60,52 @@ export class AddMinersPage extends BasePage {
   async waitForFoundMinersList() {
     const foundMinersList = this.page.getByTestId("found-miners-list");
     await expect(foundMinersList).toBeVisible();
+  }
+
+  async waitForNetworkScanToFinish() {
+    await this.waitForFoundMinersList();
+
+    await expect(async () => {
+      const scanningButton = this.page.getByRole("button", { name: "Scanning", exact: true });
+      expect(await scanningButton.isVisible().catch(() => false)).toBe(false);
+      await expect(this.page.getByRole("button", { name: "Rescan network", exact: true })).toBeVisible();
+    }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [DEFAULT_INTERVAL] });
+  }
+
+  async getSelectedMinersCount(): Promise<number> {
+    const continueButton = this.page.getByRole("button", { name: /Continue with \d+ miner(s)?/ }).first();
+
+    if (!(await continueButton.isVisible().catch(() => false))) {
+      return 0;
+    }
+
+    const buttonText = (await continueButton.innerText()).trim();
+    const match = buttonText.match(/Continue with (\d+) miner(?:s)?/);
+
+    if (!match) {
+      throw new Error(`Could not parse selected miner count from button text: "${buttonText}"`);
+    }
+
+    return Number.parseInt(match[1], 10);
+  }
+
+  async waitForExpectedNetworkMinerCount(expectedMinerCount: number, maxAttempts: number = 2) {
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      await this.waitForNetworkScanToFinish();
+      const foundMinerCount = await this.getSelectedMinersCount();
+
+      if (foundMinerCount === expectedMinerCount) {
+        return;
+      }
+
+      if (attempt === maxAttempts) {
+        throw new Error(
+          `Expected ${expectedMinerCount} miners after network scan, but found ${foundMinerCount} after ${maxAttempts} attempt(s).`,
+        );
+      }
+
+      await this.page.getByRole("button", { name: "Rescan network", exact: true }).click();
+    }
   }
 
   async getFoundMinersCount(): Promise<number> {
