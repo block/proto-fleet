@@ -70,17 +70,29 @@ just gen
 
 ## Supported Hardware
 
-| Hardware | Firmware variants | Discovery port |
-| --- | --- | --- |
-| MicroBT WhatsMiner | Stock | 4028 |
-| Bitmain Antminer | Stock | 4028 |
-| Bitmain Antminer | VNish, Braiins OS, LuxOS, Marathon | 80 |
-| Canaan AvalonMiner | Stock | 4028 |
-| BitAxe | Stock (AxeOS) | 80 |
-| NerdAxe | Stock | 80 |
-| ePIC | Stock | 80 |
-| Auradine | Stock | 80 |
-| Proto | Stock | 443 |
+Per-device feature support.
+
+- **✅** — supported and tested.
+- **❌** — not supported.
+- **🟡** — supported by [asic-rs](https://github.com/asic-rs/asic-rs), but not yet tested on this combination.
+
+<!-- prettier-ignore-start -->
+<table>
+<tr align="center"><th>Manufacturer</th><th>Proto</th><th>MicroBT</th><th colspan="5">Bitmain</th><th>Canaan</th><th>Bitaxe</th><th>NerdAxe</th><th>ePIC</th><th>Auradine</th></tr>
+<tr align="center"><td>Model line</td><td>Rig</td><td>WhatsMiner</td><td colspan="5">Antminer</td><td>AvalonMiner</td><td>BitAxe</td><td>NerdAxe</td><td>ePIC</td><td>Auradine</td></tr>
+<tr align="center"><td>Firmware</td><td>ProtoOS</td><td>Stock</td><td>Stock</td><td>VNish</td><td>Braiins OS</td><td>LuxOS</td><td>Marathon</td><td>Stock</td><td>AxeOS</td><td>Stock</td><td>Stock</td><td>Stock</td></tr>
+<tr align="center"><td>Telemetry</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>🟡</td><td>✅</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td></tr>
+<tr align="center"><td>Reboot</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td></tr>
+<tr align="center"><td>Pause/Resume</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td></tr>
+<tr align="center"><td>Edit Pools</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td></tr>
+<tr align="center"><td>FW Update</td><td>✅</td><td>❌</td><td>✅</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td></tr>
+<tr align="center"><td>Power Mode</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td></tr>
+<tr align="center"><td>Cooling Mode</td><td>✅</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td></tr>
+<tr align="center"><td>Update Password</td><td>✅</td><td>❌</td><td>✅</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td></tr>
+<tr align="center"><td>Download Logs</td><td>✅</td><td>❌</td><td>✅</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td></tr>
+<tr align="center"><td>Blink LED</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td></tr>
+</table>
+<!-- prettier-ignore-end -->
 
 ## Production Install
 
