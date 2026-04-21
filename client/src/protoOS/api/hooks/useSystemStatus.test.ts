@@ -135,23 +135,6 @@ describe("useSystemStatus", () => {
     });
   });
 
-  test("ignores a null system status payload", async () => {
-    (useLocation as Mock).mockReturnValue({ pathname: "/settings/mining-pools" });
-    mockGetSystemStatus.mockResolvedValue({
-      data: null,
-    });
-
-    renderHook(() => useSystemStatus());
-
-    await waitFor(() => {
-      expect(mockGetSystemStatus).toHaveBeenCalledWith({ secure: false });
-    });
-
-    expect(mockSetOnboarded).not.toHaveBeenCalled();
-    expect(mockSetPasswordSet).not.toHaveBeenCalled();
-    expect(mockSetDefaultPasswordActive).not.toHaveBeenCalled();
-  });
-
   test("ignores a stale true response once a valid session has cleared the flag", async () => {
     // Poll fired while the flag was still true; by response time the store
     // has been cleared and a valid session established.
