@@ -123,7 +123,7 @@ fi
 
 check_page_size
 
-GITHUB_RELEASES_URL="https://github.com/btc-mining/proto-fleet/releases"
+GITHUB_RELEASES_URL="https://github.com/block/proto-fleet/releases"
 
 # determine version and tarball name
 if [[ -n "${1:-}" && "${1:-}" != "latest" ]]; then
