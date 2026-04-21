@@ -8,6 +8,7 @@ import { getDisplayValue } from "@/shared/utils/stringUtils";
 
 type TooltipValue = string | number | null;
 type TooltipDisplayValue = string | number;
+const AGGREGATE_TOOLTIP_STATUS_CIRCLE_TEST_ID = "aggregate-tooltip-status-circle";
 
 type PayloadType = {
   name: string;
@@ -23,8 +24,12 @@ export type TooltipData = {
   y: number;
 };
 
+function isDisplayableValue(value: TooltipValue | undefined): value is TooltipDisplayValue {
+  return typeof value === "number" || typeof value === "string";
+}
+
 function hasDisplayableValue(point: ChartData, keysToShow: string[]): boolean {
-  return keysToShow.some((key) => point[key] !== null && point[key] !== undefined);
+  return keysToShow.some((key) => isDisplayableValue(point[key]));
 }
 
 function findNearestDisplayablePoint(
@@ -80,6 +85,7 @@ interface ChartTooltipProps {
   tooltipXOffset?: number;
   tooltipYOffset?: number;
   toolTipItemIcon?: ComponentType<{ itemKey: string }>;
+  hideAggregateContextWhenSingleSeries?: boolean;
 }
 
 const ChartTooltip = ({
@@ -100,9 +106,10 @@ const ChartTooltip = ({
   tooltipXOffset = 24,
   tooltipYOffset = 24,
   toolTipItemIcon,
+  hideAggregateContextWhenSingleSeries = false,
 }: ChartTooltipProps) => {
   // Use aggregateKey as fallback when no activeKeys provided
-  const keysToShow = activeKeys && activeKeys.length > 0 ? activeKeys : aggregateKey ? [aggregateKey] : [];
+  const keysToShow = activeKeys.length > 0 ? activeKeys : aggregateKey ? [aggregateKey] : [];
   const showAggregate = aggregateKey ? keysToShow.includes(aggregateKey) : false;
 
   const rawPayload = payloads?.[0]?.payload;
@@ -116,12 +123,7 @@ const ChartTooltip = ({
   const currentDatetime = rawPayload?.datetime ?? (typeof label === "number" ? label : undefined);
 
   const hasNoDisplayableValues =
-    connectNulls &&
-    currentDatetime !== undefined &&
-    !keysToShow.some((key) => {
-      const value = rawPayload?.[key];
-      return typeof value === "number" || typeof value === "string";
-    });
+    connectNulls && currentDatetime !== undefined && !keysToShow.some((key) => isDisplayableValue(rawPayload?.[key]));
 
   const fallbackPayload =
     hasNoDisplayableValues && chartData
@@ -132,7 +134,7 @@ const ChartTooltip = ({
   const filteredEntries = payload
     ? Object.entries(payload).filter((entry): entry is [string, TooltipDisplayValue] => {
         const [key, value] = entry;
-        return keysToShow.includes(key) && (typeof value === "number" || typeof value === "string");
+        return keysToShow.includes(key) && isDisplayableValue(value);
       })
     : [];
 
@@ -143,8 +145,10 @@ const ChartTooltip = ({
     aggregateValue !== null && aggregateValue !== undefined ? getDisplayValue(aggregateValue) : undefined;
   const shouldShowAggregate = Boolean(showAggregate && aggregateKey && aggregateDisplayValue !== undefined);
   const segmentEntries = sortedEntries.filter(([key]) => key !== aggregateKey);
+  const hasSegmentEntries = segmentEntries.length > 0;
+  const showAggregateContext = !(hideAggregateContextWhenSingleSeries && shouldShowAggregate && !hasSegmentEntries);
 
-  if (payload?.datetime === undefined || (!shouldShowAggregate && segmentEntries.length === 0)) {
+  if (payload?.datetime === undefined || (!shouldShowAggregate && !hasSegmentEntries)) {
     return null;
   }
 
@@ -168,20 +172,29 @@ const ChartTooltip = ({
         {shouldShowAggregate && aggregateKey && (
           <div
             className={clsx("flex space-x-2", {
-              "pb-4": segmentEntries.length > 0,
+              "pb-4": hasSegmentEntries,
             })}
           >
             <div>
-              <div className="mb-1 text-200 text-text-primary-70">{aggregateLabel || aggregateKey}</div>
+              {showAggregateContext && (
+                <div className="mb-1 text-200 text-text-primary-70">{aggregateLabel || aggregateKey}</div>
+              )}
               <div className="inline-flex items-center gap-2 text-heading-100 text-text-primary">
-                <StatusCircle width="w-2" status={statuses.warning} variant={variants.simple} />
+                {showAggregateContext && (
+                  <StatusCircle
+                    testId={AGGREGATE_TOOLTIP_STATUS_CIRCLE_TEST_ID}
+                    width="w-2"
+                    status={statuses.warning}
+                    variant={variants.simple}
+                  />
+                )}
                 {aggregateDisplayValue} {units && <span>{units}</span>}
               </div>
             </div>
           </div>
         )}
 
-        {segmentEntries.length > 0 && (
+        {hasSegmentEntries && (
           <div>
             <div className="mb-1 text-200 text-text-primary-70">{segmentsLabel}</div>
             {segmentEntries.map(([key, value], idx) => {

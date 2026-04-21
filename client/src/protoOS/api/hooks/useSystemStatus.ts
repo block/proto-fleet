@@ -47,16 +47,25 @@ const useSystemStatus = () => {
     return api
       .getSystemStatus({ secure: false })
       .then((res) => {
-        setOnboarded(res?.data.onboarded);
-        setPasswordSet(res?.data.password_set);
-        const nextDefaultPasswordActive = res?.data.default_password_active ?? false;
+        const status = res?.data;
+
+        if (!status) {
+          console.error("[useSystemStatus API hook] Missing system status payload");
+          return;
+        }
+
+        setOnboarded(status.onboarded);
+        setPasswordSet(status.password_set);
+        const nextDefaultPasswordActive = status.default_password_active ?? false;
 
         // Resolve store state at response time — hook-scoped values are
         // captured at fire time and can be stale if the password-change
         // flow completed mid-flight.
-        const currentDefaultPasswordActive = useMinerStore.getState().minerStatus.defaultPasswordActive;
-        const currentAccessToken = useMinerStore.getState().auth.authTokens.accessToken;
-        const hasValidSession = !!currentAccessToken?.value && new Date(currentAccessToken.expiry) > new Date();
+        const currentStoreState = useMinerStore.getState();
+        const currentDefaultPasswordActive = currentStoreState.minerStatus.defaultPasswordActive;
+        const currentAccessToken = currentStoreState.auth.authTokens.accessToken;
+        const hasValidSession =
+          Boolean(currentAccessToken?.value) && new Date(currentAccessToken.expiry).getTime() > Date.now();
 
         // Don't let polling clear the flag before follow-up login succeeds.
         // Once a valid session is established the clear is trustworthy —
