@@ -6,6 +6,7 @@ import type { DeviceSetColumn } from "@/protoFleet/components/DeviceSetList";
 import { DEFAULT_PAGE_SIZE, DeviceSetList, issueOptions, useIssueFilter } from "@/protoFleet/components/DeviceSetList";
 import { getNextSortFromSelection, RACK_SORT_OPTIONS } from "@/protoFleet/components/DeviceSetList/sortConfig";
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
+import NullState from "@/protoFleet/components/NullState";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import {
   AssignMinersModal,
@@ -20,7 +21,6 @@ import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 import { Alert, ChevronDown, DismissTiny, Racks } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
-import Header from "@/shared/components/Header";
 import DropdownFilter from "@/shared/components/List/Filters/DropdownFilter";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import SegmentedControl from "@/shared/components/SegmentedControl";
@@ -268,26 +268,17 @@ const RacksPage = () => {
 
   if (!hasRacks) {
     return (
-      <div className="flex h-full flex-col justify-center p-6 sm:p-10">
-        <div className="flex h-full w-full flex-col justify-center rounded-xl bg-surface-5 px-6 py-10 sm:px-20 sm:py-10 dark:bg-surface-base">
-          <div className="flex flex-col gap-6">
-            <div className="flex flex-col gap-4">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-core-primary-5">
-                <Racks width="w-5" />
-              </div>
-              <Header
-                title="You haven't set up any racks"
-                titleSize="text-display-200"
-                description="Add a rack and assign miners to rack positions to get started."
-              />
-            </div>
-            <div>
-              <Button variant="primary" onClick={() => setShowRackSettingsModal(true)}>
-                Add rack
-              </Button>
-            </div>
-          </div>
-        </div>
+      <>
+        <NullState
+          icon={<Racks width="w-5" />}
+          title="You haven't set up any racks"
+          description="Add a rack and assign miners to rack positions to get started."
+          action={
+            <Button variant="primary" onClick={() => setShowRackSettingsModal(true)}>
+              Add rack
+            </Button>
+          }
+        />
         {showRackSettingsModal && (
           <RackSettingsModal
             show={showRackSettingsModal}
@@ -307,7 +298,7 @@ const RacksPage = () => {
             onDelete={assignMinersRackId ? handleDeleteRack : undefined}
           />
         )}
-      </div>
+      </>
     );
   }
 
