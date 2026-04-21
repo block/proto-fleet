@@ -14,7 +14,7 @@ Before running the install script:
 ## Installing Proto Fleet
 
 ```bash
-bash <(curl -fsSL https://github.com/btc-mining/proto-fleet/releases/latest/download/install.sh)
+bash <(curl -fsSL https://github.com/block/proto-fleet/releases/latest/download/install.sh)
 ```
 
 The `install.sh` script sets up the Proto Fleet server components.
@@ -33,10 +33,10 @@ Examples:
 
 ```bash
 # Install the latest version
-bash <(curl -fsSL https://github.com/btc-mining/proto-fleet/releases/latest/download/install.sh)
+bash <(curl -fsSL https://github.com/block/proto-fleet/releases/latest/download/install.sh)
 
 # Install a specific version
-bash <(curl -fsSL https://github.com/btc-mining/proto-fleet/releases/latest/download/install.sh) v0.1.0-beta-5
+bash <(curl -fsSL https://github.com/block/proto-fleet/releases/latest/download/install.sh) v0.1.0-beta-5
 ```
 
 The script will:
@@ -49,13 +49,13 @@ The script will:
 ## Uninstalling Proto Fleet
 
 ```bash
-bash <(curl -fsSL https://github.com/btc-mining/proto-fleet/releases/latest/download/uninstall.sh)
+bash <(curl -fsSL https://github.com/block/proto-fleet/releases/latest/download/uninstall.sh)
 ```
 
 If Proto Fleet was installed in a non-default location, pass it explicitly:
 
 ```bash
-bash <(curl -fsSL https://github.com/btc-mining/proto-fleet/releases/latest/download/uninstall.sh) --deployment-path /path/to/install/root
+bash <(curl -fsSL https://github.com/block/proto-fleet/releases/latest/download/uninstall.sh) --deployment-path /path/to/install/root
 ```
 
 ### SSL/TLS Configuration

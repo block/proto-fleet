@@ -67,7 +67,7 @@ EOF
 resolve_latest_version() {
   local latest_release_url effective_url curl_stderr
 
-  latest_release_url="https://github.com/btc-mining/proto-fleet/releases/latest"
+  latest_release_url="https://github.com/block/proto-fleet/releases/latest"
   echo "🛰  Determining latest version from ${latest_release_url}" >&2
 
   curl_stderr=$(mktemp)
