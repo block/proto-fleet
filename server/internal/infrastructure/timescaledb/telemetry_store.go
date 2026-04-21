@@ -100,8 +100,7 @@ func normalizeCompleteBucketRange(startTime, endTime time.Time, bucketDuration t
 	return startTime, completeEndTime, true
 }
 
-// statusData holds a per-device temperature histogram for one bucket. Uptime
-// counts come from miner_state_snapshots and are not carried here.
+// statusData holds a per-device temperature histogram for one bucket.
 type statusData struct {
 	bucket      time.Time
 	tempBelow0  int32
@@ -170,8 +169,7 @@ func extractStatusDataDaily(row sqlc.DeviceStatusDaily) statusData {
 	}
 }
 
-// aggregateStatusRows groups per-device histogram rows into per-bucket
-// temperature counts, counting each device once in its dominant category.
+// aggregateStatusRows counts each device once in its dominant temp category.
 func aggregateStatusRows(rows []statusData) []models.TemperatureStatusCount {
 	if len(rows) == 0 {
 		return nil
@@ -657,8 +655,8 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromDaily(ctx context.Contex
 	}, nil
 }
 
-// uptimeCountsForQuery returns nil when OrganizationID is unset so legacy
-// callers without session context don't leak another org's counts.
+// uptimeCountsForQuery returns nil when OrganizationID is unset so callers
+// without session context can't leak another org's counts.
 func (s *TimescaleTelemetryStore) uptimeCountsForQuery(ctx context.Context, query models.CombinedMetricsQuery, bucketDuration time.Duration) []models.UptimeStatusCount {
 	if query.OrganizationID == 0 {
 		return nil
@@ -690,9 +688,6 @@ func deviceIDsToStrings(ids []models.DeviceIdentifier) []string {
 	return result
 }
 
-// getTemperatureCountsFromHourlyAggregates retrieves temperature status counts
-// from the device_status_hourly continuous aggregate. Uptime counts come from
-// miner_state_snapshots via getUptimeStatusCountsFromSnapshots instead.
 func (s *TimescaleTelemetryStore) getTemperatureCountsFromHourlyAggregates(
 	ctx context.Context,
 	deviceIDs []models.DeviceIdentifier,
@@ -727,8 +722,6 @@ func (s *TimescaleTelemetryStore) getTemperatureCountsFromHourlyAggregates(
 	return aggregateStatusRows(statusRows)
 }
 
-// getTemperatureCountsFromDailyAggregates retrieves temperature status counts
-// from the device_status_daily continuous aggregate.
 func (s *TimescaleTelemetryStore) getTemperatureCountsFromDailyAggregates(
 	ctx context.Context,
 	deviceIDs []models.DeviceIdentifier,

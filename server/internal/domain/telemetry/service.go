@@ -467,16 +467,13 @@ func (s *TelemetryService) statusPollingRoutine(ctx context.Context) {
 	}
 }
 
-// fleetStateSnapshotRoutine writes one miner_state_snapshots row per paired
-// device per tick so chart history and the live legend share one classifier.
 func (s *TelemetryService) fleetStateSnapshotRoutine(ctx context.Context) {
 	interval := s.config.StateSnapshotInterval
 	if interval <= 0 {
 		interval = defaultStateSnapshotInterval
 	}
 
-	// Fire once up front so the live bar is populated within a few seconds of
-	// startup instead of waiting for the first tick.
+	// Populate the live bar within seconds of startup instead of a full tick.
 	s.writeFleetStateSnapshot(ctx, time.Now())
 
 	ticker := time.NewTicker(interval)

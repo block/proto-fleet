@@ -1,7 +1,7 @@
 -- name: InsertMinerStateSnapshot :exec
--- Materializes one row per paired device for a single tick. CASE mirrors
--- CountMinersByState so chart history and live legend share one classifier.
--- State encoding: 0=offline, 1=sleeping, 2=broken, 3=hashing.
+-- CASE bucket order must match CountMinersByState (device.sql) — the chart
+-- and the live legend classify devices with the same rules.
+-- State: 0=offline, 1=sleeping, 2=broken, 3=hashing.
 INSERT INTO miner_state_snapshots (time, org_id, device_identifier, state)
 SELECT
     sqlc.arg('time')::timestamptz,
@@ -36,9 +36,8 @@ WHERE d.deleted_at IS NULL
   AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED');
 
 -- name: GetMinerStateSnapshots :many
--- DISTINCT ON picks the most recent snapshot per device per bucket so summed
--- counts always equal a real fleet size, regardless of snapshot alignment.
--- Device filter matches device_selector for scope-aware uptime.
+-- DISTINCT ON keeps one state per device per bucket so summed counts always
+-- equal a real fleet size regardless of snapshot alignment within the bucket.
 WITH per_device_bucket AS (
     SELECT DISTINCT ON (time_bucket(sqlc.arg('bucket_interval')::text::interval, time), device_identifier)
         time_bucket(sqlc.arg('bucket_interval')::text::interval, time)::timestamptz AS bucket,

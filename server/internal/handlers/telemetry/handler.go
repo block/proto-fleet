@@ -34,8 +34,7 @@ func (h *Handler) GetCombinedMetrics(
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
-	// Session scopes snapshot lookups per-org; when absent the store returns
-	// nothing rather than leaking another org's counts.
+	// Scope to caller's org; store returns nil counts when OrgID is unset.
 	if info, err := session.GetInfo(ctx); err == nil {
 		query.OrganizationID = info.OrganizationID
 	}
