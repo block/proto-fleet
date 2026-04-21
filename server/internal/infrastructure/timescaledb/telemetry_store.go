@@ -554,7 +554,8 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromRaw(ctx context.Context,
 	}
 
 	result := s.aggregateMetrics(data, query.MeasurementTypes, query.AggregationTypes, bucketDuration)
-	result.UptimeStatusCounts = s.uptimeCountsForQuery(ctx, query, bucketDuration)
+	startTime, endTime := s.getTimeRange(query.TimeRange)
+	result.UptimeStatusCounts = s.uptimeCountsForQuery(ctx, query, startTime, endTime, bucketDuration)
 
 	return result, nil
 }
@@ -598,7 +599,7 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromHourly(ctx context.Conte
 	metrics := s.aggregateHourlyRows(rows, query.MeasurementTypes, query.AggregationTypes)
 
 	tempCounts := s.getTemperatureCountsFromHourlyAggregates(ctx, query.DeviceIDs, startTime, endTime)
-	uptimeCounts := s.uptimeCountsForQuery(ctx, query, hourlyBucketDuration)
+	uptimeCounts := s.uptimeCountsForQuery(ctx, query, startTime, endTime, hourlyBucketDuration)
 
 	return models.CombinedMetric{
 		Metrics:                 metrics,
@@ -646,7 +647,7 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromDaily(ctx context.Contex
 	metrics := s.aggregateDailyRows(rows, query.MeasurementTypes, query.AggregationTypes)
 
 	tempCounts := s.getTemperatureCountsFromDailyAggregates(ctx, query.DeviceIDs, startTime, endTime)
-	uptimeCounts := s.uptimeCountsForQuery(ctx, query, dailyBucketDuration)
+	uptimeCounts := s.uptimeCountsForQuery(ctx, query, startTime, endTime, dailyBucketDuration)
 
 	return models.CombinedMetric{
 		Metrics:                 metrics,
@@ -656,12 +657,14 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromDaily(ctx context.Contex
 }
 
 // uptimeCountsForQuery returns nil when OrganizationID is unset so callers
-// without session context can't leak another org's counts.
-func (s *TimescaleTelemetryStore) uptimeCountsForQuery(ctx context.Context, query models.CombinedMetricsQuery, bucketDuration time.Duration) []models.UptimeStatusCount {
+// without session context can't leak another org's counts. Callers pass the
+// same start/end used for the surrounding metric query so uptime bars line up
+// with metric bars (notably: hourly/daily callers pass a range normalized to
+// complete buckets, not the raw request range).
+func (s *TimescaleTelemetryStore) uptimeCountsForQuery(ctx context.Context, query models.CombinedMetricsQuery, startTime, endTime time.Time, bucketDuration time.Duration) []models.UptimeStatusCount {
 	if query.OrganizationID == 0 {
 		return nil
 	}
-	startTime, endTime := s.getTimeRange(query.TimeRange)
 	return s.getUptimeStatusCountsFromSnapshots(ctx, query.OrganizationID, query.DeviceIDs, startTime, endTime, bucketDuration)
 }
 

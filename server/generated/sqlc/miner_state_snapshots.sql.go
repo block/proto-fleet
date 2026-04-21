@@ -110,7 +110,11 @@ SELECT
              OR dp.pairing_status = 'AUTHENTICATION_NEEDED'
              OR open_errors.device_id IS NOT NULL
             THEN 2
-        ELSE 3
+        WHEN ds.status = 'ACTIVE'
+             AND dp.pairing_status != 'AUTHENTICATION_NEEDED'
+             AND open_errors.device_id IS NULL
+            THEN 3
+        ELSE 4
     END
 FROM device d
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
@@ -130,7 +134,11 @@ WHERE d.deleted_at IS NULL
 
 // CASE bucket order must match CountMinersByState (device.sql) — the chart
 // and the live legend classify devices with the same rules.
-// State: 0=offline, 1=sleeping, 2=broken, 3=hashing.
+// State: 0=offline, 1=sleeping, 2=broken, 3=hashing, 4=unknown.
+// 4 is reserved for statuses outside the four named buckets (e.g., future
+// enum values). The read query sums only 0..3, so unknown rows don't
+// contribute to any chart bucket — matching CountMinersByState, which also
+// excludes non-ACTIVE/non-bucketed statuses from every count.
 func (q *Queries) InsertMinerStateSnapshot(ctx context.Context, argTime time.Time) error {
 	_, err := q.exec(ctx, q.insertMinerStateSnapshotStmt, insertMinerStateSnapshot, argTime)
 	return err
