@@ -44,7 +44,6 @@ export function StatusModal<TComponentAddress = any>({
         onIconClick={showBack ? componentData.onNavigateBack : undefined}
         onDismiss={componentData.onDismiss}
         open={open}
-        size="large"
       >
         <ComponentStatusModalContent {...componentData.props} />
       </Modal>
@@ -54,7 +53,7 @@ export function StatusModal<TComponentAddress = any>({
   // Fall back to miner status view
   const minerData = getMinerStatus();
   return (
-    <Modal title={minerData.title} buttons={minerData.buttons} onDismiss={minerData.onDismiss} open={open} size="large">
+    <Modal title={minerData.title} buttons={minerData.buttons} onDismiss={minerData.onDismiss} open={open}>
       <MinerStatusModalContent {...minerData.props} />
     </Modal>
   );
