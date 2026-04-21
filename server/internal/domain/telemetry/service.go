@@ -1020,7 +1020,50 @@ func (s *TelemetryService) StreamDeviceStatusUpdates(ctx context.Context, query 
 
 func (s *TelemetryService) GetCombinedMetrics(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
 	// Returns raw values (H/s, W, J/H) - conversion to display units happens in the handler layer
-	return s.telemetryDataStore.GetCombinedMetrics(ctx, query)
+	result, err := s.telemetryDataStore.GetCombinedMetrics(ctx, query)
+	if err != nil {
+		return result, err
+	}
+	s.appendLiveUptimeBar(ctx, query.OrganizationID, query.DeviceIDs, &result)
+	return result, nil
+}
+
+// appendLiveUptimeBar tacks a synthetic "now" bucket onto UptimeStatusCounts
+// built from a live CountMinersByState call, and populates MinerStateCounts.
+// Without this the right-most chart bar lags by up to one snapshot interval
+// because it's read from the miner_state_snapshots table.
+func (s *TelemetryService) appendLiveUptimeBar(ctx context.Context, orgID int64, deviceIDs []models.DeviceIdentifier, result *models.CombinedMetric) {
+	if orgID == 0 {
+		return
+	}
+	counts, err := s.deviceStore.GetMinerStateCounts(ctx, orgID, minerFilterForDeviceIDs(deviceIDs))
+	if err != nil {
+		slog.Warn("failed to compute live miner state counts", "error", err)
+		return
+	}
+	result.MinerStateCounts = &models.MinerStateCounts{
+		Hashing:  counts.HashingCount,
+		Broken:   counts.BrokenCount,
+		Offline:  counts.OfflineCount,
+		Sleeping: counts.SleepingCount,
+	}
+	result.UptimeStatusCounts = append(result.UptimeStatusCounts, models.UptimeStatusCount{
+		Timestamp:       time.Now(),
+		HashingCount:    counts.HashingCount,
+		BrokenCount:     counts.BrokenCount,
+		NotHashingCount: counts.OfflineCount + counts.SleepingCount,
+	})
+}
+
+func minerFilterForDeviceIDs(deviceIDs []models.DeviceIdentifier) *stores.MinerFilter {
+	if len(deviceIDs) == 0 {
+		return nil
+	}
+	identifiers := make([]string, len(deviceIDs))
+	for i, id := range deviceIDs {
+		identifiers[i] = string(id)
+	}
+	return &stores.MinerFilter{DeviceIdentifiers: identifiers}
 }
 
 func (s *TelemetryService) StreamCombinedMetrics(ctx context.Context, query models.StreamCombinedMetricsQuery) (<-chan models.CombinedMetric, error) {
@@ -1125,7 +1168,7 @@ func (s *TelemetryService) sendCombinedMetricUpdate(ctx context.Context, updateC
 		EndTime:   &alignedEndTime,
 	}
 
-	combinedMetrics, err := s.GetCombinedMetrics(ctx, combinedQuery)
+	combinedMetrics, err := s.telemetryDataStore.GetCombinedMetrics(ctx, combinedQuery)
 	if err != nil {
 		if strings.Contains(err.Error(), "no combined metrics found") {
 			combinedMetrics = models.CombinedMetric{
@@ -1136,27 +1179,7 @@ func (s *TelemetryService) sendCombinedMetricUpdate(ctx context.Context, updateC
 		}
 	}
 
-	// Fetch miner state counts scoped to the requested devices (or all if no filter)
-	var minerFilter *stores.MinerFilter
-	if len(query.DeviceIDs) > 0 {
-		deviceIdentifiers := make([]string, len(query.DeviceIDs))
-		for i, id := range query.DeviceIDs {
-			deviceIdentifiers[i] = string(id)
-		}
-		minerFilter = &stores.MinerFilter{
-			DeviceIdentifiers: deviceIdentifiers,
-		}
-	}
-	counts, err := s.deviceStore.GetMinerStateCounts(ctx, query.OrganizationID, minerFilter)
-	if err != nil {
-		return fmt.Errorf("failed to get miner state counts: %w", err)
-	}
-	combinedMetrics.MinerStateCounts = &models.MinerStateCounts{
-		Hashing:  counts.HashingCount,
-		Broken:   counts.BrokenCount,
-		Offline:  counts.OfflineCount,
-		Sleeping: counts.SleepingCount,
-	}
+	s.appendLiveUptimeBar(ctx, query.OrganizationID, query.DeviceIDs, &combinedMetrics)
 
 	select {
 	case updateChan <- combinedMetrics:
