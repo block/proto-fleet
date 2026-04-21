@@ -25,7 +25,7 @@ export interface CompositionBarProps {
   className?: string;
   /** Height of the bar in pixels (default: 8) */
   height?: number;
-  /** Gap between segments (default: 2) - uses Tailwind gap classes (0-12) */
+  /** Gap between segments (default: 1) - uses Tailwind gap classes (0, 0.25 for 1px, 1-8) */
   gap?: number;
   /** Optional custom color mappings for status values */
   colorMap?: Partial<Record<Status, string>>;
