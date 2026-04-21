@@ -174,6 +174,31 @@ describe("ChartTooltip", () => {
     expect(screen.queryByTestId("tooltip-icon-seriesB")).not.toBeInTheDocument();
   });
 
+  it("keeps aggregate context when multi-series tooltips hover a null segment value", () => {
+    render(
+      <ChartTooltip
+        aggregateKey="total"
+        aggregateLabel="Summary"
+        activeKeys={["total", "seriesA"]}
+        hideAggregateContextWhenSingleSeries={true}
+        payload={[
+          {
+            name: "total",
+            payload: {
+              datetime: 1_700_000_000_000,
+              total: 54,
+              seriesA: null,
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("Summary")).toBeInTheDocument();
+    expect(screen.getByTestId(AGGREGATE_TOOLTIP_STATUS_CIRCLE_TEST_ID)).toBeInTheDocument();
+    expect(screen.getByText("54.0")).toBeInTheDocument();
+  });
+
   it("does not render tooltip content when the payload has no displayable values", () => {
     const { container } = render(
       <ChartTooltip

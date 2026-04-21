@@ -146,7 +146,12 @@ const ChartTooltip = ({
   const shouldShowAggregate = Boolean(showAggregate && aggregateKey && aggregateDisplayValue !== undefined);
   const segmentEntries = sortedEntries.filter(([key]) => key !== aggregateKey);
   const hasSegmentEntries = segmentEntries.length > 0;
-  const showAggregateContext = !(hideAggregateContextWhenSingleSeries && shouldShowAggregate && !hasSegmentEntries);
+  const hasConfiguredSegmentKeys = keysToShow.some((key) => key !== aggregateKey);
+  const showAggregateContext = !(
+    hideAggregateContextWhenSingleSeries &&
+    shouldShowAggregate &&
+    !hasConfiguredSegmentKeys
+  );
 
   if (payload?.datetime === undefined || (!shouldShowAggregate && !hasSegmentEntries)) {
     return null;
