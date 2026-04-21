@@ -1,0 +1,450 @@
+:root {
+  --base_black_100: 0 0 0; /* #000000 */
+  --base_blue_100: 0 150 209; /* #2690C7 */
+  --base_gray_90: 16 16 16; /* #101010 */
+  --base_gray_80: 32 32 32; /* #202020 */
+  --base_gray_70: 48 48 48; /* #303030 */
+  --base_gray_60: 80 80 80; /* #505050 */
+  --base_gray_50: 96 96 96; /* #606060 */
+  --base_gray_20: 192 192 192; /* #C0C0C0 */
+  --base_gray_10: 224 224 224; /* #E0E0E0 */
+  --base_gray_5: 242 242 242; /* #F2F2F2 */
+  --base_gray_2: 250 250 250; /* #FAFAFA */
+  --base_green_100: 56 166 0; /* #38A600 */
+  --base_light_green_100: 157 211 26; /* #9DD31A */
+  --base_indigo_100: 120 62 237; /* #783EED */
+  --base_orange_100: 254 124 0; /* #FE7C00 */
+  --base_red_100: 250 43 55; /* #FA2B37 */
+  --base_white_100: 255 255 255; /* #FFFFFF */
+  --base_yellow_100: 253 138 0; /* #FD8A00 */
+  --base_sky_100: 38 147 255; /* #2693FF */
+  --base_taupe_100: 166 124 83; /* #A67C53 */
+  --base_dark_red_100: 204 0 35; /* #CC0023 */
+  --base_pink_100: 217 54 176; /* #D936B0 */
+  --base_purple_100: 126 87 194; /* #7E57C2 */
+  --base_forest_100: 25 128 42; /* #19842A */
+  --base_teal_100: 18 191 148; /* #12BF94 */
+  --base_navy_100: 0 95 229; /* #005FE5 */
+  --base_text_accent: 51 18 0; /* #331200 */
+  --base_text_accent_contrast: 249 115 42; /* #F9732A ** */
+  --base_text_critical: 116 20 13; /* #74140D */
+  --base_text_info: 1 83 119; /* #015377 */
+  --base_text_success: 6 63 37; /* #063F25 */
+  --base_text_warning: 135 73 0; /* #874900 */
+  --base_text_indigo: 55 28 109; /* #371C6D */
+
+  /* Breakpoints: TODO: would be great to find solution where these
+  dont need to be hardcoded to match tailwind breakpoints
+  because you cannot use custom properties in media queries */
+  --phone-max-width: 631;
+  --tablet-max-width: 959;
+  --laptop-max-width: 1279;
+}
+
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+
+/* TODO, tw4 implements breakpoints mobile first (no min-widths)
+these custom variants are workaround for supporting our tw3 utility. 
+WOuld be best to switch over to mobile first stying  */
+@custom-variant phone {
+  @media (max-width: 631px) {
+    @slot;
+  }
+}
+
+@custom-variant tablet {
+  @media (min-width: 632px) and (max-width: 959px) {
+    @slot;
+  }
+}
+
+@custom-variant laptop {
+  @media (min-width: 960px) and (max-width: 1279px) {
+    @slot;
+  }
+}
+
+@custom-variant desktop {
+  @media (min-width: 1280px) {
+    @slot;
+  }
+}
+
+@theme {
+  --breakpoint-*: initial;
+
+  /**
+   * Colors : light
+   *
+   * Override default tw colors and add ProtoUI colors
+   * Light variants are defined here. Dark are defined below
+   * in the [data-theme="dark"] block
+   */
+  --color-*: initial;
+  --color-transparent: transparent;
+  --color-text-primary: rgb(var(--base_black_100) / 90%);
+  --color-text-primary-70: rgb(var(--base_black_100) / 70%);
+  --color-text-primary-50: rgb(var(--base_black_100) / 50%);
+  --color-text-primary-30: rgb(var(--base_black_100) / 30%);
+  --color-text-contrast: rgb(var(--base_white_100));
+  --color-text-contrast-70: rgb(var(--base_white_100) / 70%);
+  --color-text-emphasis: rgb(var(--base_orange_100));
+  --color-text-accent: rgb(var(--base_orange_100) / 80%);
+  --color-text-success: rgb(var(--base_light_green_100));
+  --color-text-warning: rgb(var(--base_yellow_100));
+  --color-text-critical: rgb(var(--base_red_100));
+  --color-text-base-static: rgb(var(--base_black_100) / 90%);
+  --color-text-base-contrast-static: rgb(var(--base_white_100));
+  --color-surface-2: rgb(var(--base_gray_2));
+  --color-surface-5: rgb(var(--base_gray_5));
+  --color-surface-10: rgb(var(--base_gray_10));
+  --color-surface-20: rgb(var(--base_gray_20));
+  --color-surface-default: rgb(var(--base_white_100) / 2%);
+  --color-surface-base: rgb(var(--base_white_100));
+  --color-surface-elevated-base: rgb(var(--base_white_100));
+  --color-surface-overlay: rgb(var(--base_black_100) / 5%);
+  --color-border-5: rgb(var(--base_black_100) / 5%);
+  --color-border-10: rgb(var(--base_black_100) / 10%);
+  --color-border-20: rgb(var(--base_black_100) / 20%);
+  --color-border-primary: rgb(var(--base_black_100) / 90%);
+  --color-core-primary-fill: rgb(var(--base_black_100) / 90%);
+  --color-core-primary-80: rgb(var(--base_black_100) / 80%);
+  --color-core-primary-50: rgb(var(--base_black_100) / 50%);
+  --color-core-primary-20: rgb(var(--base_black_100) / 20%);
+  --color-core-primary-10: rgb(var(--base_black_100) / 10%);
+  --color-core-primary-5: rgb(var(--base_black_100) / 5%);
+  --color-core-primary-2: rgb(var(--base_black_100) / 2%);
+  --color-core-accent-fill: rgb(var(--base_orange_100));
+  --color-core-accent-text: rgb(var(--base_text_accent));
+  --color-core-accent-80: rgb(var(--base_orange_100) / 80%);
+  --color-core-accent-50: rgb(var(--base_orange_100) / 50%);
+  --color-core-accent-20: rgb(var(--base_orange_100) / 20%);
+  --color-core-accent-10: rgb(var(--base_orange_100) / 10%);
+  --color-core-indigo-fill: rgb(var(--base_indigo_100));
+  --color-core-indigo-text: rgb(var(--base_text_indigo));
+  --color-core-indigo-80: rgb(var(--base_indigo_100) / 80%);
+  --color-core-indigo-60: rgb(var(--base_indigo_100) / 60%);
+  --color-core-indigo-50: rgb(var(--base_indigo_100) / 50%);
+  --color-core-indigo-20: rgb(var(--base_indigo_100) / 20%);
+  --color-core-indigo-10: rgb(var(--base_indigo_100) / 10%);
+  --color-intent-info-fill: rgb(var(--base_blue_100));
+  --color-intent-info-text: rgb(var(--base_text_info));
+  --color-intent-info-80: rgb(var(--base_blue_100) / 80%);
+  --color-intent-info-60: rgb(var(--base_blue_100) / 60%);
+  --color-intent-info-50: rgb(var(--base_blue_100) / 50%);
+  --color-intent-info-20: rgb(var(--base_blue_100) / 20%);
+  --color-intent-info-10: rgb(var(--base_blue_100) / 10%);
+  --color-intent-success-fill: rgb(var(--base_green_100));
+  --color-intent-success-text: rgb(var(--base_text_success));
+  --color-intent-success-80: rgb(var(--base_green_100) / 80%);
+  --color-intent-success-60: rgb(var(--base_green_100) / 60%);
+  --color-intent-success-50: rgb(var(--base_green_100) / 50%);
+  --color-intent-success-20: rgb(var(--base_green_100) / 20%);
+  --color-intent-success-10: rgb(var(--base_green_100) / 10%);
+  --color-intent-warning-fill: rgb(var(--base_yellow_100));
+  --color-intent-warning-text: rgb(var(--base_text_warning));
+  --color-intent-warning-80: rgb(var(--base_yellow_100) / 80%);
+  --color-intent-warning-50: rgb(var(--base_yellow_100) / 50%);
+  --color-intent-warning-20: rgb(var(--base_yellow_100) / 20%);
+  --color-intent-warning-10: rgb(var(--base_yellow_100) / 10%);
+  --color-intent-critical-fill: rgb(var(--base_red_100));
+  --color-intent-critical-text: rgb(var(--base_text_critical));
+  --color-intent-critical-80: rgb(var(--base_red_100) / 80%);
+  --color-intent-critical-50: rgb(var(--base_red_100) / 50%);
+  --color-intent-critical-20: rgb(var(--base_red_100) / 20%);
+  --color-intent-critical-10: rgb(var(--base_red_100) / 10%);
+  --color-elevation-50: 0px 0px 1px 0px rgba(var(--base_black_100) / 0.37);
+  --color-elevation-100:
+    0px 4px 24px 0px rgba(var(--base_black_100) / 0.02), 0px 4px 8px 0px rgba(var(--base_black_100) / 0.02),
+    0px 2px 4px 0px rgba(var(--base_black_100) / 0.02), 0px 0px 1px 0px rgba(var(--base_black_100) / 0.2);
+  --color-elevation-200:
+    0px 12px 32px 0px rgba(var(--base_black_100) / 0.04), 0px 8px 16px 0px rgba(var(--base_black_100) / 0.02),
+    0px 2px 4px 0px rgba(var(--base_black_100) / 0.04), 0px 0px 1px 0px rgba(var(--base_black_100) / 0.2);
+  --color-elevation-300:
+    0px 16px 40px 0px rgba(var(--base_black_100) / 0.04), 0px 24px 32px 0px rgba(var(--base_black_100) / 0.02),
+    0px 4px 8px 0px rgba(var(--base_black_100) / 0.04), 0px 0px 1px 0px rgba(var(--base_black_100) / 0.3);
+  --color-extended-sky-fill: rgb(var(--base_sky_100));
+  --color-extended-taupe-fill: rgb(var(--base_taupe_100));
+  --color-extended-dark-red-fill: rgb(var(--base_dark_red_100));
+  --color-extended-pink-fill: rgb(var(--base_pink_100));
+  --color-extended-purple-fill: rgb(var(--base_purple_100));
+  --color-extended-forest-fill: rgb(var(--base_forest_100));
+  --color-extended-teal-fill: rgb(var(--base_teal_100));
+  --color-extended-navy-fill: rgb(var(--base_navy_100));
+
+  /* Common colors for light and dark mode */
+  --color-grayscale-white-90: rgb(var(--base_white_100) / 90%);
+  --color-grayscale-white-20: rgb(var(--base_white_100) / 20%);
+  --color-grayscale-white-10: rgb(var(--base_white_100) / 10%);
+  --color-grayscale-gray-87: rgb(var(--base_black_100) / 87%);
+  --color-grayscale-gray-50: rgb(var(--base_black_100) / 50%);
+  --color-grayscale-gray-20: rgb(var(--base_black_100) / 20%);
+  --color-grayscale-gray-10: rgb(var(--base_black_100) / 10%);
+  --color-grayscale-gray-15: rgb(var(--base_black_100) / 15%);
+  --color-grayscale-gray-5: rgb(var(--base_black_100) / 5%);
+  --color-landing-page: rgb(var(--base_black_100) / 5%);
+
+  /* Typography */
+  --font-*: initial;
+  --font-body: "Inter", sans-serif;
+  --font-mono: "JetBrainsMono", monospace;
+
+  --text-*: initial;
+  --text-display-300: 4rem;
+  --text-display-300--line-height: 4.5rem;
+  --text-display-300--font-weight: 500;
+  --text-display-300--letter-spacing: -0.125rem;
+  --text-display-200: 3rem;
+  --text-display-200--line-height: 3.5rem;
+  --text-display-200--font-weight: 500;
+  --text-display-200--letter-spacing: -0.125rem;
+  --text-display-100: 2.5rem;
+  --text-display-100--line-height: 3rem;
+  --text-display-100--font-weight: 400;
+  --text-display-100--letter-spacing: -0.125rem;
+  --text-heading-400: 2.5rem;
+  --text-heading-400--line-height: 3rem;
+  --text-heading-400--font-weight: 500;
+  --text-heading-400--letter-spacing: -0.15rem;
+  --text-heading-300: 1.75rem;
+  --text-heading-300--line-height: 2.5rem;
+  --text-heading-300--font-weight: 500;
+  --text-heading-300--letter-spacing: -0.105rem;
+  --text-heading-200: 1.25rem;
+  --text-heading-200--line-height: 1.75rem;
+  --text-heading-200--font-weight: 500;
+  --text-heading-200--letter-spacing: -0.025rem;
+  --text-heading-100: 1rem;
+  --text-heading-100--line-height: 1.5rem;
+  --text-heading-100--font-weight: 500;
+  --text-heading-100--letter-spacing: -0.02rem;
+  --text-heading-50: 0.75rem;
+  --text-heading-50--line-height: 1.25rem;
+  --text-heading-50--font-weight: 500;
+  --text-heading-50--letter-spacing: -0.0075rem;
+  --text-400: 1rem;
+  --text-400--line-height: 1.5rem;
+  --text-400--font-weight: 400;
+  --text-400--letter-spacing: 0;
+  --text-300: 0.875rem;
+  --text-300--line-height: 1.5rem;
+  --text-300--font-weight: 400;
+  --text-300--letter-spacing: -0.0175rem;
+  --text-200: 0.75rem;
+  --text-200--line-height: 1.25rem;
+  --text-200--font-weight: 400;
+  --text-200--letter-spacing: 0;
+  --text-emphasis-400: 1rem;
+  --text-emphasis-400--line-height: 1.5rem;
+  --text-emphasis-400--font-weight: 500;
+  --text-emphasis-400--letter-spacing: 0;
+  --text-emphasis-300: 0.875rem;
+  --text-emphasis-300--line-height: 1.5rem;
+  --text-emphasis-300--font-weight: 500;
+  --text-emphasis-300--letter-spacing: 0;
+  --text-emphasis-200: 0.75rem;
+  --text-emphasis-200--line-height: 1.25rem;
+  --text-emphasis-200--font-weight: 500;
+  --text-emphasis-200--letter-spacing: 0;
+  --text-mono-heading-300: 1.75rem;
+  --text-mono-heading-300--line-height: 2.5rem;
+  --text-mono-heading-300--font-weight: 500;
+  --text-mono-heading-300--letter-spacing: -0.035rem;
+  --text-heading-mono-200: 1.25rem;
+  --text-heading-mono-200--line-height: 1.75rem;
+  --text-heading-mono-200--font-weight: 500;
+  --text-heading-mono-200--letter-spacing: -0.025rem;
+  --text-heading-mono-100: 1rem;
+  --text-heading-mono-100--line-height: 1.5rem;
+  --text-heading-mono-100--font-weight: 400;
+  --text-heading-mono-100--letter-spacing: -0.02rem;
+  --text-mono-text-300: 0.875rem;
+  --text-mono-text-300--line-height: 1.5rem;
+  --text-mono-text-300--font-weight: 400;
+  --text-mono-text-300--letter-spacing: -0.00875rem;
+  --text-mono-text-50: 0.75rem;
+  --text-mono-text-50--line-height: 0.75rem;
+  --text-mono-text-50--font-weight: 500;
+  --text-mono-text-50--letter-spacing: 0.0075rem;
+
+  /* shadows */
+  --shadow-*: initial;
+  --shadow-none: 0 0 #0000;
+  --shadow-50: var(--color-elevation-50);
+  --shadow-100: var(--color-elevation-100);
+  --shadow-200: var(--color-elevation-200);
+  --shadow-300: var(--color-elevation-300);
+
+  /* Animation */
+  --ease-gentle: cubic-bezier(0.47, 0, 0.23, 1.38);
+
+  @keyframes shimmer {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(100%);
+    }
+  }
+
+  @keyframes fade-in {
+    0% {
+      opacity: 0;
+    }
+
+    100% {
+      opacity: 1;
+    }
+  }
+
+  @keyframes fade-out {
+    0% {
+      opacity: 1;
+    }
+
+    100% {
+      opacity: 0;
+    }
+  }
+  @keyframes slide-right-nav {
+    0% {
+      transform: translateX(-240px);
+    }
+
+    100% {
+      transform: translateX(0);
+    }
+  }
+
+  @keyframes slide-left-nav {
+    100% {
+      transform: translateX(-240px);
+    }
+  }
+}
+
+@layer base {
+  /**
+   * Colors : dark
+   * Overrides css variables defined in @theme
+   */
+  [data-theme="dark"] {
+    --color-core-primary-fill: rgb(var(--base_white_100) / 90%);
+    --color-text-primary: rgb(var(--base_white_100) / 90%);
+    --color-text-primary-70: rgb(var(--base_white_100) / 70%);
+    --color-text-primary-50: rgb(var(--base_white_100) / 50%);
+    --color-text-primary-30: rgb(var(--base_white_100) / 30%);
+    --color-text-contrast: rgb(var(--base_black_100));
+    --color-text-contrast-70: rgb(var(--base_black_100) / 80%);
+    --color-surface-2: rgb(var(--base_gray_50));
+    --color-surface-5: rgb(var(--base_gray_60));
+    --color-surface-10: rgb(var(--base_gray_70));
+    --color-surface-20: rgb(var(--base_gray_80));
+    --color-surface-base: rgb(var(--base_gray_90));
+    --color-surface-elevated-base: rgb(var(--base_gray_80));
+    --color-surface-overlay: rgb(var(--base_white_100) / 5%);
+    --color-border-5: rgb(var(--base_white_100) / 5%);
+    --color-border-10: rgb(var(--base_white_100) / 10%);
+    --color-border-20: rgb(var(--base_white_100) / 20%);
+    --color-border-primary: rgb(var(--base_white_100) / 90%);
+    --color-core-accent-text: rgb(var(--base_text_accent_contrast));
+    --color-intent-info-text: rgb(var(--base_blue_100));
+    --color-intent-critical-text: rgb(var(--base_red_100));
+    --color-elevation-50: 0px 0px 1px 0px rgba(var(--base_white_100) / 0.5);
+    --color-elevation-100:
+      0px 4px 24px 0px rgba(var(--base_black_100) / 0.16), 0px 4px 8px 0px rgba(var(--base_black_100) / 0.16),
+      0px 2px 4px 0px rgba(var(--base_black_100) / 0.16), 0px 0px 1px 0px rgba(var(--base_black_100) / 0.16);
+    --color-elevation-200:
+      0px 12px 32px 0px rgba(var(--base_black_100) / 0.24), 0px 8px 16px 0px rgba(var(--base_black_100) / 0.16),
+      0px 2px 4px 0px rgba(var(--base_black_100) / 0.08), 0px 0px 1px 0px rgba(var(--base_black_100) / 0.24);
+    --color-elevation-300:
+      0px 16px 40px 0px rgba(var(--base_black_100) / 0.32), 0px 24px 32px 0px rgba(var(--base_black_100) / 0.16),
+      0px 4px 8px 0px rgba(var(--base_black_100) / 0.04), 0px 0px 1px 0px rgba(var(--base_black_100) / 0.3);
+    --color-core-primary-fill: rgb(var(--base_white_100) / 90%);
+    --color-core-primary-80: rgb(var(--base_white_100) / 80%);
+    --color-core-primary-50: rgb(var(--base_white_100) / 50%);
+    --color-core-primary-20: rgb(var(--base_white_100) / 20%);
+    --color-core-primary-10: rgb(var(--base_white_100) / 10%);
+    --color-core-primary-5: rgb(var(--base_white_100) / 5%);
+    --color-core-primary-2: rgb(var(--base_white_100) / 2%);
+    --color-landing-page: rgb(var(--base_white_100) / 5%);
+  }
+
+  /* breaking changes from tailwind 3 to 4 */
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentColor);
+  }
+
+  button,
+  [role="button"] {
+    cursor: pointer;
+  }
+
+  .no-spinner {
+    -moz-appearance: textfield;
+  }
+
+  .no-spinner::-webkit-outer-spin-button,
+  .no-spinner::-webkit-inner-spin-button {
+    margin: 0;
+    -webkit-appearance: none;
+  }
+}
+
+@layer utilities {
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Custom scrollbar styling for consistent appearance across browsers */
+html {
+  overflow-y: auto;
+  /* Firefox */
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--base_gray_60) / 40%) transparent;
+}
+
+[data-theme="dark"] html,
+html[data-theme="dark"] {
+  scrollbar-color: rgb(var(--base_gray_20) / 30%) transparent;
+}
+
+/* WebKit browsers (Chrome, Safari, Edge) */
+html::-webkit-scrollbar {
+  width: 12px;
+  background: transparent;
+}
+
+html::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+html::-webkit-scrollbar-thumb {
+  background-color: rgb(var(--base_gray_60) / 40%);
+  border-radius: 6px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+html::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(var(--base_gray_60) / 60%);
+}
+
+[data-theme="dark"] html::-webkit-scrollbar-thumb,
+html[data-theme="dark"]::-webkit-scrollbar-thumb {
+  background-color: rgb(var(--base_gray_20) / 30%);
+}
+
+[data-theme="dark"] html::-webkit-scrollbar-thumb:hover,
+html[data-theme="dark"]::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(var(--base_gray_20) / 50%);
+}

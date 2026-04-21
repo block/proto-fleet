@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package miner_fan_api;
+
+option go_package = "pkg/proto;miner_rpc";
+
+// Fan Error code offset start at  0x10000;
+enum FanErrorCode {
+    FAN_ERROR_CODE_UNKNOWN = 0;
+    FAN_ERROR_CODE_SLOW_SPIN = 1;
+    FAN_ERROR_CODE_FAN_CONNECTED_IN_IMMERSION = 3;
+    FAN_ERROR_CODE_INIT = 4;
+    FAN_ERROR_CODE_SET_FAN_SPEED_FAILED = 5;
+    FAN_ERROR_CODE_HARDWARE = 6;
+}
+
+
+message FanError {
+    message FanSpeed {
+        uint32 fan_pwm_target_pct = 1;
+        uint32 fan_rpm_tach = 2;
+    }
+
+    FanErrorCode code = 1;
+    uint32 index = 2;
+    oneof detail {
+        FanSpeed fan_speed = 3;
+    }
+}
+
+message FanStatus {
+    uint32 index = 1;
+    uint32 tachometer_value = 2;
+    optional uint32 percentage_value = 3;
+}

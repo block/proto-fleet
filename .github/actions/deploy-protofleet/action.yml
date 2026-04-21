@@ -1,0 +1,129 @@
+name: Deploy ProtoFleet
+description: Deploy ProtoFleet deployment bundle to a target environment
+
+inputs:
+  artifact_name:
+    description: 'Name of the deployment bundle artifact'
+    required: true
+  install_dir:
+    description: 'Installation directory (defaults to $HOME/proto-fleet)'
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Clean up old deployment bundles
+      shell: bash
+      run: |
+        echo "Cleaning up old deployment bundles from /tmp..."
+        rm -f /tmp/proto-fleet*.tar.gz
+        echo "Cleanup complete"
+
+    - name: Download deployment bundle
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: ${{ inputs.artifact_name }}
+        path: /tmp
+
+    - name: Deploy ProtoFleet
+      shell: bash
+      run: |
+        set -e
+
+        # Determine installation directory
+        INSTALL_DIR="${{ inputs.install_dir }}"
+        if [ -z "$INSTALL_DIR" ]; then
+          INSTALL_DIR="$HOME/proto-fleet"
+        fi
+
+        echo "Installing ProtoFleet to: $INSTALL_DIR"
+
+        # Create installation directory
+        mkdir -p "$INSTALL_DIR"
+
+        # Check if there's an existing .env file to preserve
+        ENV_FILE="$INSTALL_DIR/deployment/server/influx_config/.env"
+        if [ -f "$ENV_FILE" ]; then
+          echo "Backing up existing .env file..."
+          cp "$ENV_FILE" /tmp/.env.backup
+        fi
+
+        # Find the deployment bundle (prioritize versioned releases, then dev builds)
+        # List all potential bundles for debugging
+        echo "Looking for deployment bundle in /tmp..."
+        ls -lh /tmp/proto-fleet*.tar.gz 2>/dev/null || echo "No proto-fleet bundles found yet"
+
+        # Prefer versioned bundles (proto-fleet-v1.2.3.tar.gz) over dev builds (proto-fleet-deployment.tar.gz)
+        BUNDLE_FILE=$(find /tmp -maxdepth 1 -name "proto-fleet-v*.tar.gz" | head -n 1)
+
+        if [ -z "$BUNDLE_FILE" ]; then
+          # Fall back to dev/deployment naming
+          BUNDLE_FILE=$(find /tmp -maxdepth 1 -name "proto-fleet-deployment*.tar.gz" | head -n 1)
+        fi
+
+        if [ -z "$BUNDLE_FILE" ]; then
+          # Last resort: any proto-fleet tarball
+          BUNDLE_FILE=$(find /tmp -maxdepth 1 -name "proto-fleet-*.tar.gz" | head -n 1)
+        fi
+
+        if [ -z "$BUNDLE_FILE" ]; then
+          echo "❌ Error: Could not find deployment bundle in /tmp"
+          echo "Contents of /tmp:"
+          ls -la /tmp
+          exit 1
+        fi
+
+        # Verify the bundle file size is reasonable (should be at least 1MB)
+        BUNDLE_SIZE=$(stat -c%s "$BUNDLE_FILE" 2>/dev/null || stat -f%z "$BUNDLE_FILE" 2>/dev/null || echo "0")
+        if [ "$BUNDLE_SIZE" -lt 1048576 ]; then
+          echo "❌ Error: Bundle file is too small ($BUNDLE_SIZE bytes), download may have failed"
+          echo "Bundle file: $BUNDLE_FILE"
+          ls -lh "$BUNDLE_FILE"
+          exit 1
+        fi
+
+        # Extract deployment bundle
+        echo "✅ Found deployment bundle: $BUNDLE_FILE ($(numfmt --to=iec-i --suffix=B $BUNDLE_SIZE 2>/dev/null || echo ${BUNDLE_SIZE} bytes))"
+        echo "Extracting to: $INSTALL_DIR"
+        tar -xzf "$BUNDLE_FILE" -C "$INSTALL_DIR"
+
+        # Restore .env file if it existed
+        if [ -f "/tmp/.env.backup" ]; then
+          echo "Restoring .env file..."
+          cp /tmp/.env.backup "$ENV_FILE"
+          rm /tmp/.env.backup
+        fi
+
+        # Clean up tarball
+        rm "$BUNDLE_FILE"
+
+        # Navigate to deployment directory
+        cd "$INSTALL_DIR/deployment"
+
+        # Make run-fleet.sh executable
+        chmod +x run-fleet.sh
+
+        # Run the deployment script
+        echo "Running deployment script..."
+        ./run-fleet.sh
+
+        echo "Deployment complete!"
+
+    - name: Show deployment status
+      shell: bash
+      run: |
+        INSTALL_DIR="${{ inputs.install_dir }}"
+        if [ -z "$INSTALL_DIR" ]; then
+          INSTALL_DIR="$HOME/proto-fleet"
+        fi
+
+        cd "$INSTALL_DIR/deployment"
+
+        echo "Deployment complete!"
+        echo ""
+        echo "Deployment version:"
+        cat version.txt
+        echo ""
+        echo "Container status:"
+        docker compose ps

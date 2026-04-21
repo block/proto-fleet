@@ -1,0 +1,174 @@
+syntax = "proto3";
+
+package miner_ui_api;
+
+option go_package = "pkg/proto;miner_rpc";
+
+enum LedId {
+    LED_ID_STATUS = 0;
+    LED_ID_HB = 1;
+    LED_ID_FAN = 2;
+    LED_ID_PSU = 3;
+    LED_ID_CB = 4;
+    LED_ID_SEGDISPLAY = 5;
+}
+
+enum Led7Segments {
+    LED_7SEG_A = 0;
+    LED_7SEG_B = 1;
+    LED_7SEG_C = 2;
+    LED_7SEG_D = 3;
+    LED_7SEG_E = 4;
+    LED_7SEG_F = 5;
+    LED_7SEG_G = 6;
+    LED_7SEG_DP = 7;
+}
+
+enum LedSeqName {
+    LED_SEQ_NAME_START_UP = 0;
+    LED_SEQ_NAME_LOADING = 1;
+    LED_SEQ_NAME_NUMBERS = 2;
+    LED_SEQ_NAME_MULTIPLE_ERROR = 3;
+    LED_SEQ_NAME_REBOOTING = 4;
+    LED_SEQ_NAME_MINING = 5;
+    LED_SEQ_NAME_HASHBOARD_UPDATE = 6;
+    LED_SEQ_NAME_PAIRING = 7;
+    LED_SEQ_NAME_LOCATING = 8;
+    LED_SEQ_NAME_RIG_ERROR = 9;
+    LED_SEQ_NAME_FAN_ERROR = 10;
+    LED_SEQ_NAME_HB_ERROR = 11;
+    LED_SEQ_NAME_PSU_ERROR = 12;
+    LED_SEQ_NAME_GENERIC_ERROR = 13;
+    LED_SEQ_NAME_ALL_ERROR = 14;
+    LED_SEQ_NAME_IDLE = 15;
+    LED_SEQ_NAME_BUTTON_PRESS = 16;
+    LED_SEQ_NAME_BLANK = 17;
+    LED_SEQ_NAME_RUN_IN_INDEFINITE_RUN = 18;
+    LED_SEQ_NAME_RUN_IN_COOL_DOWN = 19;
+    LED_SEQ_NAME_RUN_IN_RESET = 20;
+    LED_SEQ_NAME_RUN_IN_HALTED = 21;
+    LED_SEQ_NAME_RUN_IN_SUCCESS = 22;
+    LED_SEQ_NAME_RUN_IN_PROGRESS_1 = 23;
+    LED_SEQ_NAME_RUN_IN_PROGRESS_2 = 24;
+    LED_SEQ_NAME_RUN_IN_PROGRESS_3 = 25;
+    LED_SEQ_NAME_RUN_IN_PROGRESS_4 = 26;
+    LED_SEQ_NAME_RUN_IN_PROGRESS_FINISHED = 27;
+    LED_SEQ_NAME_RUN_IN_UNKNOWN_ERROR = 28;
+    LED_SEQ_NAME_FACTORY_TEST = 29;
+    LED_SEQ_NAME_IP_ADDR = 30;
+    LED_SEQ_NAME_PSU_UPDATE = 31;
+    LED_SEQ_NAME_SW_UPDATE = 32;
+    LED_SEQ_NAME_STOP_MINING = 33;
+    LED_SEQ_NAME_NONE = 34;
+}
+
+enum LedType {
+    LED_TYPE_MONO_COLOR = 0;
+    LED_TYPE_RGB = 1;
+    LED_TYPE_SEVEN_SEGMENT = 2;
+}
+
+message LedRGB {
+    uint32 red = 1;
+    uint32 green = 2;
+    uint32 blue = 3;
+}
+
+message LedSevenSegment {
+    string value = 1;
+}
+
+enum LedMode {
+    LED_MODE_OFF = 0;
+    LED_MODE_SOLID = 1;
+    LED_MODE_BLINKING = 2;
+    LED_MODE_BREATHING = 3;
+    LED_MODE_HEART_BEAT = 4;
+}
+
+message LedModeBlink {
+    uint32 brightness = 1;
+    uint32 off_ms = 2;  // Duration in milliseconds for the LED to be off
+    uint32 on_ms = 3;   // Duration in milliseconds for the LED to be on
+}
+
+message LedModeBreath {
+    uint32 start_brightness = 1;  // Starting brightness level (0-100)
+    uint32 start_ms = 2;          // Transition time in milliseconds from start to end
+    uint32 end_brightness = 3;    // Ending brightness level (0-100)
+    uint32 end_ms = 4;            // Transition time in milliseconds from end to start
+}
+
+message LedModeHeartBeat {
+    uint32 brightness = 1;
+}
+
+message LedState {
+    LedId led_id = 1;
+    oneof val {
+        LedRGB rgb = 2;                     // For RGB LEDs
+        LedSevenSegment seven_segment = 3;  // For seven segment displays
+    }
+    oneof setting {
+        uint32 brightness = 4;  // Brightness level for the Solid LED (0-100)
+        LedModeBlink blink = 5;
+        LedModeBreath breath = 6;
+        LedModeHeartBeat heart_beat = 7;  // Heartbeat mode
+    }
+}
+
+message LedSeqFrame {
+    uint64 frame_timestamp_ms = 1;  // Specify the relative timestamp to play for current sequence frame
+    repeated LedState led_state = 2;
+}
+
+message LedError {
+    LedSeqName name = 1;
+    string message = 2;  // Error message to be displayed on 7 seg display
+}
+
+message LedErrorPlay {
+    repeated LedError errors = 1;
+    bool persist = 2;
+}
+
+enum ButtonId {
+    BUTTON_ID_POWER = 0;
+    BUTTON_ID_RESET = 1;
+}
+
+message LedChange {
+    oneof msg {
+        LedPlay led_play = 1;
+        LedErrorPlay led_error_play = 2;
+        LedClear led_clear = 3;
+    }
+}
+
+//************************************************
+// ui.led.play
+message LedPlay {
+    LedSeqName led_seq_name = 1;
+    bool persist = 2;
+}
+
+// ui.led.clear
+message LedClear {}
+
+// ui.led.status
+message LedStatus {
+    LedSeqName current_seq = 1;
+    repeated LedState led_states = 2;
+}
+
+// ui.button.event
+enum ButtonEventType {
+    BUTTON_EVENT_SLEEP = 0;
+    BUTTON_EVENT_IP_ADDR = 1;
+    BUTTON_EVENT_PAIRING = 2;
+    BUTTON_EVENT_LONG_PRESS = 3;
+}
+
+message ButtonEvent {
+    ButtonEventType event_type = 1;
+}

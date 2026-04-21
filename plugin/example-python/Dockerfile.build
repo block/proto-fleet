@@ -1,0 +1,35 @@
+# Example: building a Python plugin as a single binary with PyInstaller.
+# Build context must be the repo root so we can access server/sdk/v1/python/.
+#
+# Usage:
+#   docker build --output=out -f plugin/example-python/Dockerfile.build .
+
+FROM python:3.13-alpine AS builder
+
+RUN apk add --no-cache \
+    gcc \
+    musl-dev \
+    libffi-dev \
+    zlib-dev \
+    zlib-static \
+    binutils
+
+WORKDIR /build
+
+# Install SDK first (from monorepo — build context must be repo root)
+COPY server/sdk/v1/python/ ./sdk/
+RUN pip install --no-cache-dir ./sdk
+
+# Install plugin and PyInstaller
+COPY plugin/example-python/pyproject.toml ./
+COPY plugin/example-python/main.py ./
+COPY plugin/example-python/example_driver/ ./example_driver/
+RUN pip install --no-cache-dir . pyinstaller
+
+RUN pyinstaller \
+    --onefile \
+    --name example-python-plugin \
+    main.py
+
+FROM scratch AS export
+COPY --from=builder /build/dist/example-python-plugin /example-python-plugin

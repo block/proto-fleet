@@ -1,0 +1,36 @@
+{
+  "STATUS": [
+    {
+      "STATUS": "S",
+      "When": 1741500000,
+      "Code": 11,
+      "Msg": "Summary",
+      "Description": "bmminer"
+    }
+  ],
+  "INFO": {
+    "miner_version": "49.0.1.3",
+    "CompileTime": "Fri Nov 17 17:37:21 CST 2023",
+    "type": "Antminer S19"
+  },
+  "SUMMARY": [
+    {
+      "elapsed": 501234,
+      "rate_5s": 88422.0,
+      "rate_30m": 88100.0,
+      "rate_avg": 87900.0,
+      "rate_ideal": 95000.0,
+      "rate_unit": "GH/s",
+      "hw_all": 12,
+      "bestshare": 5000000000,
+      "status": [
+        {
+          "type": "rate",
+          "status": "s",
+          "code": 0,
+          "msg": ""
+        }
+      ]
+    }
+  ]
+}

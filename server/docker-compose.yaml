@@ -1,0 +1,318 @@
+x-extends:
+  file: ./docker-compose.base.yaml
+
+services:
+  fleet-api:
+    extends:
+      file: ./docker-compose.base.yaml
+      service: fleet-api
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    develop:
+      watch:
+        - action: rebuild
+          path: .
+          ignore:
+            - testing/
+            - "**/*.http"
+            - "**/*.md"
+    environment:
+      AUTH_CLIENT_SECRET_KEY: "${AUTH_CLIENT_SECRET_KEY:-00000000000000000000000000000000000000000000}"
+      AUTH_CLIENT_EXPIRATION_PERIOD: "168h" # Override to 168h for development
+      AUTH_MINER_EXPIRATION_PERIOD: "168h" # Override to 168h for development
+      DB_USERNAME: "fleet"
+      DB_PASSWORD: "fleet"
+      ENCRYPT_SERVICE_MASTER_KEY: "EV0g7BoFQnqshvzep9knZsUUmvsqSBsjDAJus7ri0B8="
+      PLUGINS_DIR: "/app/plugins"
+      PLUGINS_ENABLED: "true"
+      PROTO_MINER_PORT: "8080"
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    volumes:
+      - ./plugins:/app/plugins:ro
+    restart: unless-stopped
+    networks:
+      - fleet-network
+    ports:
+      - "4000:4000"
+
+  timescaledb:
+    extends:
+      file: ./docker-compose.base.yaml
+      service: timescaledb
+    build:
+      context: ./timescaledb
+    # Development performance optimizations
+    # NOTE: This command completely overrides the base config. Keep work_mem in sync
+    # with docker-compose.base.yaml (Docker Compose replaces arrays, doesn't merge them).
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=300"
+      - "-c"
+      - "shared_buffers=128MB"
+      - "-c"
+      - "fsync=off"
+      - "-c"
+      - "synchronous_commit=off"
+      - "-c"
+      - "full_page_writes=off"
+      - "-c"
+      - "checkpoint_timeout=30min"
+      - "-c"
+      - "log_statement=none"
+      - "-c"
+      - "timescaledb.max_background_workers=4"
+      - "-c"
+      - "work_mem=32MB"
+    volumes:
+      - timescaledb-data:/home/postgres/pgdata/data
+      # Use tmpfs for temporary files to speed up operations
+      - type: tmpfs
+        target: /dev/shm
+        tmpfs:
+          size: 256M
+    # Faster health checks for development
+    healthcheck:
+      test: ["CMD-SHELL", "psql -U fleet -d fleet -c 'SELECT 1' > /dev/null 2>&1"]
+      interval: 1s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  # Development-specific services
+  fake-proto-rig:
+    build:
+      context: ..
+      dockerfile: server/fake-proto-rig/Dockerfile
+    environment:
+      HTTP_PORT: "8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    expose:
+      - 8080
+    deploy:
+      replicas: 5 # Default is 5 instances, can be overridden with --scale
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+        reservations:
+          memory: 64M
+    networks:
+      - fleet-network
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+  fake-antminer:
+    build:
+      context: ./fake-antminer
+      dockerfile: Dockerfile
+    environment:
+      MINER_TYPE: "Antminer S19 XP"
+      FIRMWARE_VERSION: "Antminer S19 XP 140Th 15/01/2023 10:30:25"
+      USERNAME: "root19"
+      PASSWORD: "root19"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:80/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    expose:
+      - 4028
+      - 80
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+        reservations:
+          memory: 64M
+    networks:
+      - fleet-network
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+  fake-antminer-high-temp:
+    build:
+      context: ./fake-antminer
+      dockerfile: Dockerfile
+    environment:
+      MINER_TYPE: "Antminer S17"
+      FIRMWARE_VERSION: "Antminer S19 XP 140Th 15/01/2023 10:30:25"
+      ERROR_BOARD_TEMP: "96.0"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:80/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    expose:
+      - 4028
+      - 80
+    networks:
+      - fleet-network
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+  fake-antminer-hw-errors:
+    build:
+      context: ./fake-antminer
+      dockerfile: Dockerfile
+    environment:
+      MINER_TYPE: "Antminer S21"
+      FIRMWARE_VERSION: "Antminer S19 XP 140Th 15/01/2023 10:30:25"
+      ERROR_HW_PERCENT: "6.5"
+      ERROR_HW_COUNT: "1500"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:80/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    expose:
+      - 4028
+      - 80
+    networks:
+      - fleet-network
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+  fake-antminer-board-dead:
+    build:
+      context: ./fake-antminer
+      dockerfile: Dockerfile
+    environment:
+      MINER_TYPE: "Antminer S21 XP"
+      FIRMWARE_VERSION: "Antminer S19 XP 140Th 15/01/2023 10:30:25"
+      USERNAME: "root21"
+      PASSWORD: "root21"
+      ERROR_BOARD_NOT_ALIVE: "true"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:80/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    expose:
+      - 4028
+      - 80
+    networks:
+      - fleet-network
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+  fake-antminer-pool-issues:
+    build:
+      context: ./fake-antminer
+      dockerfile: Dockerfile
+    environment:
+      MINER_TYPE: "Antminer S17 XP"
+      FIRMWARE_VERSION: "Antminer S19 XP 140Th 15/01/2023 10:30:25"
+      USERNAME: "root17"
+      PASSWORD: "root17"
+      ERROR_POOL_NOT_ALIVE: "true"
+      ERROR_POOL_GET_FAILURES: "15"
+      ERROR_BOARD_NOT_HASHING: "true"
+      ERROR_FAN_FAILED: "true"
+      ERROR_PSU_FAULT: "true"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:80/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    expose:
+      - 4028
+      - 80
+    networks:
+      - fleet-network
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+  fake-antminer-rejected-shares:
+    build:
+      context: ./fake-antminer
+      dockerfile: Dockerfile
+    environment:
+      MINER_TYPE: "Antminer S18"
+      FIRMWARE_VERSION: "Antminer S19 XP 140Th 15/01/2023 10:30:25"
+      ERROR_REJECTED_PERCENT: "12.0"
+      ERROR_STALE_COUNT: "150"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:80/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    expose:
+      - 4028
+      - 80
+    networks:
+      - fleet-network
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+  proto-sim:
+    build:
+      context: ..
+      dockerfile: server/fake-proto-rig/Dockerfile
+    environment:
+      HTTP_PORT: "8080"
+      SERIAL_NUMBER: "PROTO-SIM-001"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    ports:
+      - "8080:8080"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+        reservations:
+          memory: 64M
+    networks:
+      - fleet-network
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+  antminer-sim:
+    build:
+      context: ./fake-antminer
+      dockerfile: Dockerfile
+    environment:
+      MINER_TYPE: "Antminer S19"
+      FIRMWARE_VERSION: "Antminer S19 XP 140Th 15/01/2023 10:30:25"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:80/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    ports:
+      - "4028:4028"
+      - "8008:80"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+        reservations:
+          memory: 64M
+    networks:
+      - fleet-network
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+volumes:
+  timescaledb-data:
+
+networks:
+  fleet-network:
+    ipam:
+      config:
+        - subnet: "192.168.2.0/24"
+          gateway: "192.168.2.1"

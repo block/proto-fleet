@@ -1,0 +1,127 @@
+// Copyright 2024 Block, Inc. <btcm-sw-team@squareup.com>.
+//
+// File: miner_common_api.proto
+// Description: Common API definitions for miner services.
+//              Only the common API message structure/types should be defined
+//              here. Specific API messages should be defined in their
+//              respective service proto files and NOT in this file.
+//
+
+syntax = "proto3";
+
+package miner_common_api;
+
+option go_package = "pkg/proto;miner_rpc";
+
+message EmptyRequest {}
+
+message Timestamp {
+    uint64 seconds = 1;
+    uint32 nanos = 2;
+}
+
+enum ApiResult {
+    RESULT_NONE = 0;
+    RESULT_SUCCESS = 1;
+    RESULT_ERR_UNKNOWN = 2;
+    RESULT_ERR_HB_NOT_FOUND = 3;
+    RESULT_ERR_PSU_NOT_FOUND = 4;
+    RESULT_ERR_ASIC_NOT_FOUND = 5;
+    RESULT_ERR_INVALID_TIME_INTERVAL = 6;
+    RESULT_ERR_INVALID_ID = 7;
+    RESULT_ERR_TOO_MANY_RESULTS = 8;
+    RESULT_ERR_INVALID_PARAMETER = 9;
+    RESULT_ERR_GET_PARAMETER = 10;
+    RESULT_ERR_SET_PARAMETER = 11;
+    RESULT_ERR_NOT_IMPLEMENTED = 12;
+    RESULT_ERR_NOT_SUPPORTED = 13;
+    RESULT_ERR_NOT_FOUND = 14;
+    RESULT_ERR_OUT_OF_RANGE = 15;
+    RESULT_ERR_HB_COMM_FAILURE = 16;
+    RESULT_ERR_ALREADY_MINING = 17;
+    RESULT_ERR_ALREADY_OFF = 18;
+    RESULT_ERR_DATABASE_CONNECTION = 19;
+    RESULT_ERR_INVALID_DATA_TYPE = 20;
+    RESULT_ERR_INVALID_COMPONENT_ID = 21;
+    RESULT_ERR_DATABASE_QUERY = 22;
+    RESULT_ERR_INVALID_GRANULARITY = 23;
+    RESULT_ERR_INVALID_HASHRATE_TYPE = 24;
+    RESULT_ERR_TEMP_CTRL_NOT_FOUND = 25;
+    RESULT_ERR_SET_COOLING_MODE = 26;
+    RESULT_ERR_POOL_MANAGER_NOT_FOUND = 27;
+    RESULT_ERR_POOL_DUPLICATE_PRIORITY = 28;
+    RESULT_ERR_POOL_INVALID_URL = 29;
+    RESULT_ERR_POOL_MAX_COUNT_REACHED = 30;
+    RESULT_ERR_TASK_COMM_FAILURE = 31;
+    RESULT_ERR_MINING_CTRL_NOT_FOUND = 32;
+    RESULT_ERR_NETWORK_PING_FAILURE = 33;
+    RESULT_ERR_PSU_ENABLE_FAILURE = 34;
+    RESULT_ERR_PSU_VOLTAGE_SET_FAILURE = 35;
+    RESULT_ERR_PSU_VALUE_READ_FAILURE = 36;
+    RESULT_ERR_PSU_CLEAR_FAULTS_FAILURE = 37;
+    RESULT_ERR_PSU_COMM_FAILURE = 38;
+    RESULT_ERR_PSU_IN_ERROR_STATE = 39;
+    RESULT_ERR_PSU_FUNCTION_NOT_SUPPORTED = 40;
+    RESULT_ERR_CONFIG_NOT_FOUND = 41;
+    RESULT_ERR_CONFIG_LOAD_FAILED = 42;
+    RESULT_ERR_NETWORK_CFG_FAILED = 43;
+    RESULT_ERR_NETWORK_NOT_FOUND = 44;
+    RESULT_ERR_NETWORK_SYS_CMD_FAILED = 45;
+    RESULT_SUC_NETWORK_CONFIGURED = 46;
+    RESULT_SUC_NETWORK_ALREADY_CONFIGURED = 47;
+    RESULT_SUC_NETWORK_DONE = 48;
+    RESULT_PARTIAL_SUCCESS = 49;
+    RESULT_ERR_SET_FAN_SPEED_FAILED = 50;
+    RESULT_ERR_GET_FAN_SPEED_FAILED = 51;
+    RESULT_ERR_POOL_DUPLICATE_URL = 52;
+    RESULT_ERR_PSU_TASK_COMM_FAILURE = 53;
+    RESULT_ERR_PSU_TASK_INTERNAL_FAILURE = 54;
+    RESULT_ERR_POOL_INVALID_USERNAME = 55;
+    RESULT_ERR_PSU_UPDATE_IN_PROGRESS = 56;
+    RESULT_ERR_PSU_NO_FIRMWARE_FILES = 57;
+}
+
+enum Build {
+    BUILD_NONE = 0;
+    BUILD_DEBUG = 1;
+    BUILD_RELEASE = 2;
+}
+
+enum MetricUnit {
+    METRIC_UNIT_UNKNOWN = 0;
+    METRIC_UNIT_MICRO = 1;
+    METRIC_UNIT_MILLI = 2;
+    METRIC_UNIT_CENTI = 3;
+    METRIC_UNIT_DECI = 4;
+    METRIC_UNIT_BASE = 5;
+    METRIC_UNIT_DECA = 6;
+    METRIC_UNIT_HECTO = 7;
+    METRIC_UNIT_KILO = 8;
+    METRIC_UNIT_MEGA = 9;
+    METRIC_UNIT_GIGA = 10;
+    METRIC_UNIT_TERA = 11;
+    METRIC_UNIT_PETA = 12;
+}
+
+enum DataGranularity {
+    // Default / unknown value is 1 minute
+    DATA_GRANULARITY_1_MINUTE = 0;
+    DATA_GRANULARITY_5_MINUTES = 1;
+    DATA_GRANULARITY_15_MINUTES = 2;
+}
+
+message Interval {
+    Timestamp start_time = 1;
+    Timestamp end_time = 2;
+    DataGranularity granularity = 3;
+}
+
+message Aggregates {
+    double min = 1;
+    double max = 2;
+    double avg = 3;
+}
+
+message ApiResultResponse {
+    ApiResult result = 1;
+}

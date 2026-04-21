@@ -1,0 +1,42 @@
+@keyframes dotStale {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.2;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes dotConnecting {
+  0% {
+    opacity: 0.2;
+    scale: 1;
+  }
+  25% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 1;
+    background-color: var(--color-core-accent-fill);
+    scale: 2;
+  }
+  75% {
+    scale: 1;
+  }
+  100% {
+    opacity: 0.2;
+    scale: 1;
+    background-color: var(--color-text-primary-30);
+  }
+}
+
+.animate-dot-stale {
+  animation: dotStale 2s infinite;
+}
+
+.animate-dot-connecting {
+  animation: dotConnecting 4s infinite;
+}

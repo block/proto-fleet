@@ -1,0 +1,21 @@
+{
+  "STATUS": [
+    {
+      "STATUS": "S",
+      "When": 1741500000,
+      "Code": 22,
+      "Msg": "BMMiner versions",
+      "Description": "bmminer"
+    }
+  ],
+  "VERSION": [
+    {
+      "BMMiner": "1.0.0",
+      "API": "3.1",
+      "Miner": "49.0.1.3",
+      "CompileTime": "Fri Nov 17 17:37:21 CST 2023",
+      "Type": "Antminer S19"
+    }
+  ],
+  "id": 1
+}

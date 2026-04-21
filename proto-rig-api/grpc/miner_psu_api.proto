@@ -1,0 +1,281 @@
+syntax = "proto3";
+
+package miner_psu_api;
+
+option go_package = "pkg/proto;miner_rpc";
+
+import "miner_common_api.proto";
+
+// ============================================================================
+// Enums
+// ============================================================================
+
+enum SubPsuId {
+    SUB_PSU_MODULE_1 = 0;
+    SUB_PSU_MODULE_2 = 1;
+}
+
+enum PsuErrorCode {
+    PSU_ERROR_CODE_UNSPECIFIED = 0;
+    PSU_ERROR_CODE_OUTPUT_OVER_VOLTAGE = 1;     // [PMBUS] (PMBUS_STATUS_VOUT)           Output voltage exceeds safe threshold
+    PSU_ERROR_CODE_OUTPUT_OVER_CURRENT = 2;     // [PMBUS] (PMBUS_STATUS_IOUT)           Output current exceeds safe threshold
+    PSU_ERROR_CODE_OVER_TEMPERATURE = 3;        // [PMBUS] (PMBUS_STATUS_TEMPERATURE)    PSU temperature exceeds safe threshold
+    PSU_ERROR_CODE_OUTPUT_UNDER_VOLTAGE = 4;    // [PMBUS] (PMBUS_STATUS_VOUT)           Output voltage below minimum threshold
+    PSU_ERROR_CODE_FANS = 5;                    // [PMBUS] (PMBUS_STATUS_FANS_1_2)       PSU fan fault detected
+    PSU_ERROR_CODE_INPUT = 6;                   // [PMBUS] (PMBUS_STATUS_INPUT)          Input-side fault (generic)
+    PSU_ERROR_CODE_OUTPUT_OVER_POWER = 10;      // [PMBUS] (PMBUS_STATUS_IOUT:POUT)     Output power exceeds rated capacity
+    PSU_ERROR_CODE_OUTPUT_FAILURE = 11;         // [PMBUS] (PMBUS_STATUS_VOUT)           Output stage failure
+    PSU_ERROR_CODE_COMM_LOST = 13;              // [PMBUS] (PMBUS_STATUS_CML)            Communication with PSU lost (I2C/PMBus)
+    PSU_ERROR_CODE_UNDER_TEMPERATURE = 15;      // [PMBUS] (PMBUS_STATUS_TEMPERATURE)    PSU temperature below minimum threshold
+    PSU_ERROR_CODE_POWER_NO_GOOD = 17;          // [PMBUS] (PMBUS_STATUS_MFR_SPECIFIC)  One of two internal PSU modules is not functioning properly (Chicony-specific)
+    PSU_ERROR_CODE_PFC_FAILURE = 18;            // [PMBUS] (PMBUS_STATUS_MFR_SPECIFIC)  PFC circuit failure (Chicony-specific)
+    PSU_ERROR_CODE_NO_INPUT_VOLTAGE = 19;       // [PMBUS] (PMBUS_STATUS_INPUT)          No input AC/DC voltage detected
+
+    // Software detected errors
+    PSU_ERROR_CODE_SW_ENABLE_FAIL = 20;              // Failed to enable PSU output (includes voltage settle timeout)
+    PSU_ERROR_CODE_SW_SET_OUTPUT_VOLTAGE_FAIL = 21;  // Failed to set output voltage
+    PSU_ERROR_CODE_FIRMWARE_MISMATCH = 22;           // PSU firmware version mismatch detected
+
+    // Input-side faults
+    PSU_ERROR_CODE_INPUT_OVER_VOLTAGE = 23;    // [PMBUS] (PMBUS_STATUS_INPUT)           Input voltage exceeds safe threshold
+    PSU_ERROR_CODE_INPUT_UNDER_VOLTAGE = 24;   // [PMBUS] (PMBUS_STATUS_INPUT)           Input voltage below minimum threshold
+    PSU_ERROR_CODE_INPUT_OVER_CURRENT = 25;    // [PMBUS] (PMBUS_STATUS_INPUT)           Input current exceeds safe threshold
+    PSU_ERROR_CODE_LLC_FAILURE = 26;           // [PMBUS] (PMBUS_STATUS_MFR_SPECIFIC)    LLC circuit hardware failure (detected via Chicony vendor attributes)
+
+    // State errors
+    PSU_ERROR_CODE_RECOVERY_EXHAUSTED = 27;            // Recovery attempts exhausted; reset recovery limits or reboot to clear
+    PSU_ERROR_CODE_UNEXPECTED_BOOTLOADER_MODE = 28;    // PSU is stuck in bootloader mode; firmware update required to recover
+}
+
+message PsuError {
+    PsuErrorCode code = 1;
+    uint32 index = 2;
+    oneof detail {
+      SubPsuId sub_psu_id = 3;
+    }
+}
+
+// ============================================================================
+// Enums - MCDD PSU API
+// ============================================================================
+
+enum PsuFaultLevel {
+  PSU_FAULT_LEVEL_NONE = 0;
+  PSU_FAULT_LEVEL_WARNING = 1;
+  PSU_FAULT_LEVEL_FAULT = 2;
+}
+
+enum PsuState {
+  PSU_STATE_UNKNOWN = 0;
+  PSU_STATE_INITIALIZED = 1;
+  PSU_STATE_ENABLED = 2;
+  PSU_STATE_OUTPUT_VOLTAGE_READY = 3;
+  PSU_STATE_DISABLED = 4;
+  PSU_STATE_ERROR = 5;
+  PSU_STATE_FIRMWARE_UPDATING = 6;
+}
+
+enum PsuMeasurementType {
+    PSU_MEASUREMENT_TYPE_UNKNOWN = 0;
+    PSU_MEASUREMENT_TYPE_OUTPUT_VOLTAGE = 1;
+    PSU_MEASUREMENT_TYPE_INPUT_VOLTAGE = 2;
+    PSU_MEASUREMENT_TYPE_OUTPUT_CURRENT = 3;
+    PSU_MEASUREMENT_TYPE_INPUT_CURRENT = 4;
+    PSU_MEASUREMENT_TYPE_OUTPUT_POWER = 5;
+    PSU_MEASUREMENT_TYPE_INPUT_POWER = 6;
+    PSU_MEASUREMENT_TYPE_HOTSPOT_TEMPERATURE = 7;
+    PSU_MEASUREMENT_TYPE_AMBIENT_TEMPERATURE = 8;
+    PSU_MEASUREMENT_TYPE_AVERAGE_TEMPERATURE = 9;
+}
+
+// ============================================================================
+// Data Messages (measurements, status, info) - MCDD PSU API
+// ============================================================================
+
+// A single PSU measurement value.
+//
+// The value field is int32 to support negative temperature readings.
+// Negative values are only valid for temperature measurement types
+// (HOTSPOT_TEMPERATURE, AMBIENT_TEMPERATURE, AVERAGE_TEMPERATURE).
+// For all other measurement types (voltage, current, power), values
+// must be non-negative.
+message PsuMeasurement {
+  PsuMeasurementType measurement_type = 1;
+  int32 value = 2;
+  miner_common_api.MetricUnit unit = 3;
+}
+
+// PSU operational limits for a measurement type.
+//
+// The value fields are int32 to support negative temperature limits.
+// Negative values are only valid for temperature limit types.
+message PsuLimit {
+  PsuMeasurementType limit_type = 1;
+  int32 max_value = 2;
+  int32 min_value = 3;
+  miner_common_api.MetricUnit unit = 4;
+}
+
+message PsuFirmwareAsset {
+  string app_version = 1;
+  string bl_version = 2;
+}
+
+message PsuInfo {
+  uint32 id = 1;
+  string serial_number = 2;
+  optional PsuFirmwareAsset firmware = 3;
+  string vendor = 4;
+  string model = 5;
+  string hw_revision = 6;
+  repeated PsuLimit limits = 7;
+  uint32 slot = 8;
+}
+
+message PsuStatus {
+    uint32 id = 1;
+    PsuState state = 2;
+    repeated PsuMeasurement measurements = 3;
+    // Field 4 is reserved for backwards compatibility (previously used for temperature measurements)
+    repeated PsuFanStatus fan_speeds = 5;
+    repeated PsuFault faults = 6;
+    optional uint32 last_psu_error = 7;
+    uint32 slot = 8;
+}
+
+message PsuFault {
+    PsuErrorCode fault_type = 1;
+    PsuFaultLevel fault_level = 2;
+    optional string message = 3;
+    optional SubPsuId sub_psu_id = 4;
+}
+
+message PsuFanStatus {
+    uint32 fan_id = 1;
+    uint32 tachometer_rpm = 2;
+    optional uint32 pwm_percentage = 3;
+}
+
+// ============================================================================
+// Psu Service NATS API
+// ============================================================================
+
+// Renamed to PsuControllerState for now to avoid confusion with the PsuState enum
+// TODO: BTCM-4000 - Alongside MCDD Pubsub translation layer, resolve naming conflicts between these MCDD vs PSU Service types
+// PSU Controller states representing the operational state of the PSU.
+//
+// State transitions:
+// - INIT -> OFF: Controller initialized, PSU is off
+// - OFF -> ON_NOT_READY: PSU enabled, voltage ramping
+// - ON_NOT_READY -> ON_READY: Output voltage stable at target
+// - ON_READY -> OFF: PSU disabled
+// - ANY (except FIRMWARE_UPDATING, DISCONNECTED) -> ERROR_RECOVERABLE: PSU fault detected (saves pre-error config)
+// - ERROR_RECOVERABLE -> RECOVERING: Attempting auto-recovery
+// - RECOVERING -> ERROR_RECOVERABLE: Always returns (whether success or failure)
+// - ERROR_RECOVERABLE -> ON_NOT_READY/OFF: Faults cleared (restores pre-error config)
+// - ERROR_RECOVERABLE -> ERROR_FATAL: Recovery limit exceeded
+// - ERROR_FATAL -> ERROR_RECOVERABLE: ResetRecoveryLimits command
+// - ANY -> DISCONNECTED: PSU physically unplugged
+// - ANY (except DISCONNECTED) -> FIRMWARE_UPDATING: PSU in bootloader/update mode
+// - DISCONNECTED -> OFF: PSU reconnected
+// - FIRMWARE_UPDATING -> OFF: Update complete, PSU reconnected
+enum PsuControllerState {
+  PSU_CONTROLLER_STATE_INIT = 0;
+  PSU_CONTROLLER_STATE_OFF = 1;
+  PSU_CONTROLLER_STATE_ON_READY = 2;           // Output voltage ready and on
+  PSU_CONTROLLER_STATE_ON_NOT_READY = 3;       // Output voltage NOT ready/stable yet
+  PSU_CONTROLLER_STATE_ERROR_RECOVERABLE = 4;  // Connected but has faults, recovery possible
+  PSU_CONTROLLER_STATE_RECOVERING = 5;
+  PSU_CONTROLLER_STATE_FIRMWARE_UPDATING = 6;  // In bootloader/update mode
+  PSU_CONTROLLER_STATE_DISCONNECTED = 7;       // Physically unplugged
+  PSU_CONTROLLER_STATE_ERROR_FATAL = 8;        // Recovery limit exceeded, requires reset or disconnect
+}
+
+// Firmware update progress states
+enum PsuFwUpdateState {
+  PSU_FW_UPDATE_STATE_IDLE = 0;
+  PSU_FW_UPDATE_STATE_UPLOADING = 1;
+  PSU_FW_UPDATE_STATE_VERIFYING = 2;
+  PSU_FW_UPDATE_STATE_COMPLETE = 3;
+  PSU_FW_UPDATE_STATE_FAILED = 4;
+}
+
+// Published on "psu.<id>.fw_progress"
+message PsuFwUpdateProgress {
+  PsuFwUpdateState state = 1;
+  float progress_percent = 2;
+  string message = 3;
+}
+
+// Publish on "psu.<id>.info".
+// Periodically publish static info about the PSU.
+// Each PSU instance will publish its own static info (PsuInfo), which should not change at runtime.
+// TODO: Rename this eventually to PsuInfo when we deprecate the old PsuInfo message
+message PsuInfoMsg {
+  string serial_number = 1;
+  optional PsuFirmwareAsset firmware = 2;
+  string vendor = 3;
+  string model = 4;
+  string hw_revision = 5;
+  repeated PsuLimit limits = 6;
+  optional string available_firmware_version = 7;
+}
+
+// publish on "psu.<id>.status"
+// Publish the PSU status on change, or at fixed period if unchanged
+message PsuStatusMsg {
+  PsuControllerState state = 1;
+  uint32 target_output_voltage_mv = 2;
+  bool enable = 3;
+  bool voltage_locked = 4; // When true, voltage changes are prevented while enabled
+}
+
+// publish on "psu.<id>.error"
+// Publish the PSU errors on change, or at fixed period if unchanged
+message PsuErrors {
+  repeated PsuError errors = 1;
+}
+
+// publish on "psu.<id>.data"
+// Published at fixed period if unchanged
+message PsuMeasurements {
+  repeated PsuMeasurement measurements = 1;
+}
+
+// Listen on "psu.<id>.control"
+message PsuControl {
+  message OutputEnable {
+    bool enable = 1;
+  }
+
+  // Set the output voltage
+  message SetOutputVoltage {
+    uint32 output_voltage_mv = 1;
+  }
+
+  // Lock or unlock voltage changes. When locked and enabled, voltage cannot be changed.
+  message LockVoltage {
+    bool lock = 1;
+  }
+
+  // Request clearing all PSU hardware faults via PMBus CLEAR_FAULTS command
+  message ClearError {}
+
+  // Reset recovery attempt limits, allowing the service to retry recovery sequences.
+  // Use when a user wants the PSU service to attempt revival after hitting limits.
+  message ResetRecoveryLimits {}
+
+  // Firmware update command - triggers update from /etc/psu-firmware
+  message FwUpdate {
+    bool force = 1;
+  }
+
+  oneof cmd {
+    OutputEnable enable = 1;
+    SetOutputVoltage set_output_voltage = 2;
+    ClearError clear_error = 3;
+    FwUpdate fw_update = 4;
+    LockVoltage lock_voltage = 5;
+    ResetRecoveryLimits reset_recovery_limits = 6;
+  }
+}

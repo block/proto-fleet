@@ -1,0 +1,276 @@
+syntax = "proto3";
+
+package miner_hb_api;
+
+import "hashboard.proto";
+import "hashboard_async.proto";
+import "hashboard_cmd.proto";
+
+option go_package = "pkg/proto;miner_rpc";
+
+// HB Error code offset start at  0x40000;
+enum HbErrorCode {
+    HB_ERROR_CODE_COMMUNICATION = 0;
+    HB_ERROR_CODE_INVALID_PARAM = 1;
+    HB_ERROR_CODE_MINING = 2;
+    HB_ERROR_CODE_NOT_READY = 3;
+    HB_ERROR_CODE_HASHBOARD_IN_ERROR_STATE = 4;
+    HB_ERROR_CODE_PARAM_NOT_IMPLEMENTED = 5;
+    HB_ERROR_CODE_SEND_STATS = 6;
+    HB_ERROR_CODE_SEND_WORK = 7;
+    HB_ERROR_CODE_SET_PARAM_FAILURE = 8;
+    HB_ERROR_CODE_STATE_TIMEOUT = 9;
+    HB_ERROR_CODE_INVALID_HASHBOARD_TYPE = 10;
+    HB_ERROR_CODE_COMMS_ALIVE = 11;
+    HB_ERROR_CODE_HARDWARE_LIMIT_TRIP = 12;
+    HB_ERROR_CODE_OVER_HEAT = 13;
+    HB_ERROR_CODE_TASK_COMMUNICATION_ERROR = 14;
+    HB_ERROR_CODE_UNKNOWN = 15;
+    HB_ERROR_CODE_COMMAND_TIMEOUT = 16;
+    HB_ERROR_CODE_USB_DEVICE_CREATION_ERROR = 17;
+    HB_ERROR_CODE_MISSING_COMM_CHANNEL = 18;
+    HB_ERROR_CODE_INVALID_METADATA_RESPONSE = 19;
+    HB_ERROR_CODE_INVALID_ADD_WORK_RESPONSE = 20;
+    HB_ERROR_CODE_COMM_TASKS_NOT_INITIALIZED = 21;
+    HB_ERROR_CODE_POWER_ON_TIMEOUT = 22;
+    HB_ERROR_CODE_OVER_CURRENT = 23;
+    HB_ERROR_CODE_POWER_LOST = 24;
+    HB_ERROR_CODE_USB_CONNECTION_LOST = 25;
+    HB_ERROR_CODE_ASIC_OVER_HEAT = 26;
+    HB_ERROR_CODE_ASIC_UNDER_VOLTAGE = 27;
+    HB_ERROR_CODE_ASIC_OVER_VOLTAGE = 28;
+    HB_ERROR_CODE_ASIC_ECC = 29;
+    HB_ERROR_CODE_ASIC_ENUMERATION = 30;
+    HB_ERROR_CODE_ASIC_NOT_HASHING = 31;
+    HB_ERROR_CODE_ASIC_UNDER_HEAT = 32;
+    HB_ERROR_CODE_OVER_VOLTAGE = 33;
+    HB_ERROR_CODE_UNDER_VOLTAGE = 34;
+    HB_ERROR_CODE_RECOVERY_IN_PROGRESS = 35;
+    HB_ERROR_CODE_CONNECT_FAILED = 36;
+}
+
+message HbError {
+    message HbAsics {
+      repeated uint32 asic_indices = 1;
+    }
+
+    HbErrorCode code = 1;
+    uint32 index = 2;
+    optional uint32 asic_index = 3;  // ASIC index, if applicable
+    oneof detail {
+        float temperature = 4;
+        float voltage = 5;
+        float current = 6;
+        HbAsics hb_asics = 7;
+    }
+}
+
+// =============================================================================
+// Enums
+// =============================================================================
+
+enum HashboardServiceState {
+    HASHBOARD_SERVICE_STATE_INIT = 0;
+    HASHBOARD_SERVICE_STATE_DISCOVERY = 1;
+    HASHBOARD_SERVICE_STATE_DISCONNECTED = 2;
+    HASHBOARD_SERVICE_STATE_READY = 3;
+    HASHBOARD_SERVICE_STATE_MINING = 4;
+    HASHBOARD_SERVICE_STATE_DISABLED = 5;
+}
+
+enum HashboardPerformanceMode {
+    HASHBOARD_PERFORMANCE_MODE_MAXIMUM = 0;
+    HASHBOARD_PERFORMANCE_MODE_EFFICIENCY = 1;
+}
+
+enum HashboardPllAlgorithm {
+    HASHBOARD_PLL_ALGORITHM_NONE = 0;
+    HASHBOARD_PLL_ALGORITHM_VOLTAGE_IMBALANCE_COMPENSATION = 1;
+    HASHBOARD_PLL_ALGORITHM_FUZZING = 2;
+}
+
+// =============================================================================
+// Published Messages
+// =============================================================================
+
+// Power target limits for a hashboard — determined from hardware revision during discovery.
+message PowerRange {
+    uint32 min_watts = 1;
+    uint32 max_watts = 2;
+}
+
+// hashboard.<slot>.status — published every 1s
+message HashboardPerformanceState {
+    uint32 power_target_watts = 1;
+    int32 power_throttle_watts = 2;
+    HashboardPerformanceMode mode = 3;
+    HashboardPllAlgorithm pll_algorithm = 4;
+    // Default to true when allocating — wait for a SetPowerTarget command before pushing to hardware.
+    bool sent = 5;
+}
+
+// Recovery counter snapshot for a single error code.
+message RecoveryState {
+    HbErrorCode error_code = 1;
+    uint32 current_try_count = 2; // attempts so far in the current window
+    uint32 max_try_count     = 3; // limit before the board is disabled
+}
+
+message HashboardStatus {
+    HashboardServiceState state = 1;
+    uint32 up_time_ms = 2;
+    // Snapshot of all active recovery counters (non-zero within the rolling window).
+    repeated RecoveryState recovery_states = 3;
+    uint32 work_id = 4;
+    uint64 difficulty = 5;
+    HashboardPerformanceState performance_state = 6;
+    // Firmware mining FSM state; updated from AsyncSystemHealth.
+    fwpb.mining_state board_mining_state = 7;
+    // Last error code recorded before the most recent Init transition; absent if no error has occurred.
+    optional int32 last_error_code = 8;
+}
+
+// hashboard.<slot>.share — published on nonce received
+message Share {
+    uint32 hashboard_id = 1;
+    uint32 work_id = 2;
+    uint32 nonce = 3;
+    uint32 version_rolled_bits = 4;
+    uint32 time_offset = 5;
+    uint32 work_ntime_threshold_supported = 6;
+}
+
+// Board temperature breakdown — mirrors mcdd's BoardTemps struct.
+// inlet_front/outlet_rear are absent on board types without those sensors.
+message BoardTemps {
+    float average = 1;
+    float min = 2;
+    float max = 3;
+    optional float inlet_front = 4;
+    optional float outlet_rear = 5;
+}
+
+// hashboard.<slot>.data.board — published on board stats update
+message HashboardOperatingStats {
+    float board_hashrate = 1;
+    float board_hashrate_ideal = 2;
+    float board_voltage = 3;
+    float board_current = 4;
+    float board_power = 5;
+    float board_efficiency = 6;
+    uint32 nonce_count = 7;
+    BoardTemps board_temps = 8;
+}
+
+// hashboard.<slot>.data.asic — published on ASIC stats update
+message AsicOperatingStats {
+    repeated fwpb.asic_status asic_stats = 1;
+}
+
+// fan.<fan_id>.data — published periodically with current fan state
+message FanData {
+    uint32 fan_rpm = 1;
+    bool connected = 2;
+}
+
+// =============================================================================
+// Control Messages  (hashboard.<slot>.control)
+// =============================================================================
+
+message StartMining {}
+
+message StopMining {}
+
+message SetPowerTarget {
+    uint32 power_target_watts = 1;
+    HashboardPerformanceMode performance_mode = 2;
+}
+
+message SetPowerThrottle {
+    int32 power_throttle_watts = 1;
+}
+
+message SetPllAlgorithm {
+    HashboardPllAlgorithm pll_algorithm = 1;
+}
+
+// MinerWork fields mirroring the mcdd-internal MinerWork struct
+message MinerWork {
+    uint32 work_id = 1;
+    bytes version = 2;
+    bytes prev_block_hash = 3;
+    bytes merkle_root = 4;
+    bytes time = 5;
+    bytes difficulty_bits = 6;
+    double pool_difficulty = 7;
+    uint32 work_ntime_threshold_minutes = 8;
+}
+
+message SetWork {
+    MinerWork work = 1;
+}
+
+message HashboardControl {
+    oneof req {
+        StartMining start_mining = 1;
+        StopMining stop_mining = 2;
+        SetPowerTarget set_power_target = 3;
+        SetPowerThrottle set_power_throttle = 4;
+        SetPllAlgorithm set_pll_algorithm = 5;
+        SetWork set_work = 6;
+    }
+}
+
+// =============================================================================
+// Fan Control  (fan.<fan_id>.control)
+// =============================================================================
+
+message SetFanSpeed {
+    uint32 speed_pct = 1;
+}
+
+message FanControl {
+    oneof cmd {
+        SetFanSpeed set_fan_speed = 1;
+    }
+}
+
+// =============================================================================
+// Test / Simulation Control  (hashboard.<slot>.test)
+// =============================================================================
+
+message InjectHashboardError {
+    repeated uint32 error_codes = 1;
+}
+
+message HashboardSimControl {
+    oneof cmd {
+        InjectHashboardError inject_error = 1;
+    }
+}
+
+// =============================================================================
+// Hashboard Info  (hb.<slot>.info — published to JetStream on Ready)
+// =============================================================================
+
+enum HashboardType {
+    HASHBOARD_TYPE_UNSPECIFIED = 0;
+    HASHBOARD_TYPE_B2 = 1;
+    HASHBOARD_TYPE_B3A = 2;
+    HASHBOARD_TYPE_B3B = 3;
+    HASHBOARD_TYPE_B4_128 = 4;
+    HASHBOARD_TYPE_B4_192 = 5;
+}
+
+message BoardInfo {
+    string serial_number = 1;
+    HashboardType hb_type = 2;
+    fwpb.capabilities_rsp capabilities = 3;
+    fwpb.firmware_metadata firmware = 4;
+    PowerRange power_range = 5;
+}
+
+/// ASIC binning metadata published once to JetStream when the hashboard enters the Mining state.
+message HashboardAsicBinInfo {
+    repeated fwpb.asic_metadata asic_meta_data = 1;
+}

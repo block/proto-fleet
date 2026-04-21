@@ -1,0 +1,157 @@
+name: ProtoOS E2E Tests
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/protoos-e2e-tests.yml"
+      - "client/.npmrc"
+      - "client/e2eTests/protoOS/**"
+      - "client/package.json"
+      - "client/package-lock.json"
+      - "client/postcss.config.js"
+      - "client/public/**"
+      - "client/src/protoOS/**"
+      - "client/src/shared/**"
+      - "client/tsconfig.json"
+      - "client/tsconfig.node.json"
+      - "client/vite.config.ts"
+      - "client/vitePlugins/**"
+      - "server/go.mod"
+      - "server/go.sum"
+      - "server/fake-proto-rig/**"
+  schedule:
+    # Run daily at 6 AM UTC on main branch
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+jobs:
+  e2e-tests:
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [desktop, mobile]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Build fake-proto-rig simulator
+        run: |
+          echo "Building fake-proto-rig simulator..."
+          docker build \
+            -t fake-proto-rig \
+            -f server/fake-proto-rig/Dockerfile \
+            .
+
+      - name: Start fake-proto-rig simulator
+        run: |
+          docker run -d \
+            --name fake-proto-rig \
+            -p 8080:8080 \
+            fake-proto-rig
+
+      - name: Cache Node modules
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        with:
+          path: |
+            client/node_modules
+            ~/.cache/ms-playwright
+          key: ${{ runner.os }}-node-${{ hashFiles('client/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+      - name: Install client dependencies
+        working-directory: client
+        run: npm ci
+
+      - name: Build ProtoOS frontend
+        working-directory: client
+        run: npm run build:protoOS
+
+      - name: Start ProtoOS frontend
+        working-directory: client
+        run: |
+          npm run preview:protoOS -- --port 3000 --host 0.0.0.0 --strictPort > /tmp/vite-preview.log 2>&1 &
+        env:
+          PROXY_URL: http://localhost:8080
+
+      - name: Install Playwright browsers
+        working-directory: client/e2eTests/protoOS
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Playwright tests (${{ matrix.project }})
+        working-directory: client/e2eTests/protoOS
+        run: npx playwright test --project=${{ matrix.project }}
+        env:
+          CI: true
+
+      - name: Upload Playwright report
+        id: playwright-report-artifact
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report-protoos-${{ matrix.project }}
+          path: client/e2eTests/protoOS/playwright-report/
+          retention-days: 30
+
+      - name: Note report availability
+        if: ${{ !cancelled() }}
+        env:
+          PLAYWRIGHT_REPORT_ARTIFACT_URL: ${{ steps.playwright-report-artifact.outputs.artifact-url }}
+        run: |
+          echo "## ProtoOS E2E Report (${{ matrix.project }})" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [[ -n "${PLAYWRIGHT_REPORT_ARTIFACT_URL}" ]]; then
+            echo "📦 **[Download Playwright report artifact](${PLAYWRIGHT_REPORT_ARTIFACT_URL})**" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "📦 **Playwright report:** Available in the artifacts section as \`playwright-report-protoos-${{ matrix.project }}\`" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Install Testmo CLI
+        if: ${{ !cancelled() && github.event_name == 'schedule' }}
+        run: |
+          npm install -g @testmo/testmo-cli@1.0.0
+
+      - name: Submit test results to Testmo
+        if: ${{ !cancelled() && github.event_name == 'schedule' }}
+        working-directory: client/e2eTests/protoOS
+        env:
+          TESTMO_TOKEN: ${{ secrets.TESTMO_TOKEN }}
+        run: |
+          # Add XML declaration if missing (Playwright sometimes omits it on CI)
+          if ! head -n 1 test-results/results.xml | grep -q '<?xml'; then
+            echo "XML declaration missing, adding it..."
+            echo '<?xml version="1.0" encoding="UTF-8"?>' | cat - test-results/results.xml > test-results/results-fixed.xml
+            mv test-results/results-fixed.xml test-results/results.xml
+            echo "First 2 lines after fix:"
+            head -n 2 test-results/results.xml
+          else
+            echo "XML declaration already present"
+          fi
+
+          testmo automation:run:submit \
+            --instance https://proto.testmo.net \
+            --project-id 2 \
+            --name "Proto OS E2E Tests - ${{ matrix.project }} - $(date +'%Y-%m-%d %H:%M')" \
+            --source "protoos-e2e-tests-${{ matrix.project }}" \
+            --results test-results/*.xml
+
+      - name: Upload test screenshots
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        if: failure()
+        with:
+          name: playwright-screenshots-protoos-${{ matrix.project }}
+          path: client/e2eTests/protoOS/test-results/
+          retention-days: 7
+
+      - name: Dump simulator logs on failure
+        if: failure()
+        run: |
+          echo "=== fake-proto-rig Logs ==="
+          docker logs fake-proto-rig 2>&1 || echo "No fake-proto-rig logs available"

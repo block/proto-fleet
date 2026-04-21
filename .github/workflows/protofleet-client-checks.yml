@@ -1,0 +1,113 @@
+name: ProtoFleet Client Checks
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/protofleet-client-checks.yml"
+      - ".github/actions/hermit-setup/action.yml"
+      - "bin/hermit.hcl"
+      - "hermit-packages/**"
+      - "client/**"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/protofleet-client-checks.yml"
+      - ".github/actions/hermit-setup/action.yml"
+      - "bin/hermit.hcl"
+      - "hermit-packages/**"
+      - "client/**"
+  workflow_dispatch:
+
+jobs:
+  # Fast checks (lint, format, typecheck) run in a single job to reduce overhead
+  quality:
+    name: Lint, Format & Type Check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Hermit
+        uses: ./.github/actions/hermit-setup
+
+      - name: Cache npm dependencies
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-${{ hashFiles('client/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Check formatting
+        run: npm run format:check
+
+      - name: Run TypeScript type check
+        run: npx tsc --noEmit
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Hermit
+        uses: ./.github/actions/hermit-setup
+
+      - name: Cache npm dependencies
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-${{ hashFiles('client/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test -- --run --reporter=verbose
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: [quality, test]
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Hermit
+        uses: ./.github/actions/hermit-setup
+
+      - name: Cache npm dependencies
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-${{ hashFiles('client/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build ProtoOS
+        run: npm run build:protoOS
+
+      - name: Build ProtoFleet
+        run: npm run build:protoFleet

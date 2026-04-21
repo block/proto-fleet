@@ -1,0 +1,175 @@
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
+package_name := "proto-python-gen"
+version := "0.2.0"
+package_root := justfile_directory()
+repo_root := package_root / "../.."
+
+default:
+  just --list
+
+# Bootstrap Python venv with pinned deps
+setup:
+  @bash "{{package_root}}/setup.sh"
+
+# Install dev tools (ruff) for linting
+setup-dev: setup
+  #!/usr/bin/env bash
+  set -euo pipefail
+  source "{{repo_root}}/scripts/pip-config.sh"
+  "{{package_root}}/.venv/bin/pip" install --quiet -r "{{package_root}}/dev-requirements.txt"
+
+# Lint Python source with ruff
+lint: setup-dev
+  "{{package_root}}/.venv/bin/ruff" check "{{package_root}}/protoc_gen_python_grpc.py"
+
+# Format Python source with ruff
+format: setup-dev
+  "{{package_root}}/.venv/bin/ruff" format "{{package_root}}/protoc_gen_python_grpc.py"
+
+# Run integration tests using buf generate
+test: setup
+  #!/usr/bin/env bash
+  set -euo pipefail
+
+  TEST_OUTPUT="{{package_root}}/tests/output"
+  rm -rf "${TEST_OUTPUT}"
+
+  export PATH="{{package_root}}/bin:${PATH}"
+
+  echo "=== Test: buf generate with protoc-gen-python-grpc ==="
+  buf generate --template "{{package_root}}/tests/test_protos/buf.gen.yaml" \
+    -o "${TEST_OUTPUT}" \
+    "{{package_root}}/tests/test_protos"
+
+  echo ""
+  echo "=== Verify: expected files exist ==="
+  FAIL=0
+
+  for f in test/v1/test_pb2.py test/v1/test_pb2.pyi test/v1/test_pb2_grpc.py; do
+    if [[ -f "${TEST_OUTPUT}/${f}" ]]; then
+      echo "  OK  ${f}"
+    else
+      echo "  FAIL  ${f} not found"
+      FAIL=1
+    fi
+  done
+
+  echo ""
+  echo "=== Verify: __init__.py files exist ==="
+  for d in test test/v1; do
+    init="${TEST_OUTPUT}/${d}/__init__.py"
+    if [[ -f "${init}" ]]; then
+      echo "  OK  ${d}/__init__.py"
+    else
+      echo "  FAIL  ${d}/__init__.py not found"
+      FAIL=1
+    fi
+  done
+
+  echo ""
+  echo "=== Verify: Python imports work ==="
+  PYTHONPATH="${TEST_OUTPUT}" "{{package_root}}/.venv/bin/python" -c "
+  from test.v1 import test_pb2, test_pb2_grpc
+  req = test_pb2.EchoRequest(message='hello', count=1)
+  assert req.message == 'hello', 'EchoRequest.message mismatch'
+  assert req.count == 1, 'EchoRequest.count mismatch'
+  assert hasattr(test_pb2_grpc, 'TestServiceStub'), 'TestServiceStub not found'
+  assert hasattr(test_pb2_grpc, 'TestServiceServicer'), 'TestServiceServicer not found'
+  print('  OK  imports and classes verified')
+  "
+
+  echo ""
+  echo "=== Verify: generated code contains expected names ==="
+  if grep -q "EchoRequest" "${TEST_OUTPUT}/test/v1/test_pb2.py"; then
+    echo "  OK  EchoRequest found in test_pb2.py"
+  else
+    echo "  FAIL  EchoRequest not found in test_pb2.py"
+    FAIL=1
+  fi
+  if grep -q "TestServiceStub" "${TEST_OUTPUT}/test/v1/test_pb2_grpc.py"; then
+    echo "  OK  TestServiceStub found in test_pb2_grpc.py"
+  else
+    echo "  FAIL  TestServiceStub not found in test_pb2_grpc.py"
+    FAIL=1
+  fi
+
+  echo ""
+  echo "=== Verify: idempotency (run twice, diff output) ==="
+  SECOND_OUTPUT="{{package_root}}/tests/output_second"
+  rm -rf "${SECOND_OUTPUT}"
+  mv "${TEST_OUTPUT}" "${SECOND_OUTPUT}"
+  buf generate --template "{{package_root}}/tests/test_protos/buf.gen.yaml" \
+    -o "${TEST_OUTPUT}" \
+    "{{package_root}}/tests/test_protos" 2>/dev/null
+
+  if diff -rq --exclude='__pycache__' "${TEST_OUTPUT}" "${SECOND_OUTPUT}" >/dev/null 2>&1; then
+    echo "  OK  idempotent output"
+  else
+    echo "  FAIL  output differs between runs"
+    FAIL=1
+  fi
+  rm -rf "${SECOND_OUTPUT}"
+
+  echo ""
+  echo "=== Verify: --import-prefix rewrites grpc imports ==="
+  PREFIX_OUTPUT="{{package_root}}/tests/output_prefix"
+  rm -rf "${PREFIX_OUTPUT}"
+  buf generate --template "{{package_root}}/tests/test_protos/buf.gen.prefix.yaml" \
+    -o "${PREFIX_OUTPUT}" \
+    "{{package_root}}/tests/test_protos"
+
+  if grep -q "from my_pkg.generated.test.v1 import test_pb2 as" "${PREFIX_OUTPUT}/test/v1/test_pb2_grpc.py"; then
+    echo "  OK  import_prefix rewrote imports correctly"
+  else
+    echo "  FAIL  import_prefix did not rewrite imports"
+    FAIL=1
+  fi
+  if [[ -f "${PREFIX_OUTPUT}/test/v1/test_pb2.pyi" ]]; then
+    echo "  OK  .pyi type stub generated"
+  else
+    echo "  FAIL  .pyi type stub not found"
+    FAIL=1
+  fi
+  rm -rf "${PREFIX_OUTPUT}"
+
+  echo ""
+  if [[ ${FAIL} -eq 0 ]]; then
+    echo "All tests passed."
+  else
+    echo "Some tests FAILED."
+    exit 1
+  fi
+
+# Build distributable tarball for Hermit
+package: setup test
+  #!/usr/bin/env bash
+  set -euo pipefail
+
+  TARBALL="{{package_root}}/{{package_name}}-{{version}}.tar.gz"
+  STAGING="$(mktemp -d)"
+  trap 'rm -rf "${STAGING}"' EXIT
+
+  echo "Building package: {{package_name}}-{{version}} ..."
+
+  mkdir -p "${STAGING}/bin"
+  cp "{{package_root}}/bin/protoc-gen-python-grpc" "${STAGING}/bin/"
+  cp "{{package_root}}/protoc_gen_python_grpc.py" "${STAGING}/"
+  cp "{{package_root}}/setup.sh" "${STAGING}/"
+  cp "{{repo_root}}/scripts/pip-config.sh" "${STAGING}/"
+  cp "{{package_root}}/requirements.txt" "${STAGING}/"
+  chmod +x "${STAGING}/bin/protoc-gen-python-grpc" "${STAGING}/setup.sh"
+
+  COPYFILE_DISABLE=1 COPY_EXTENDED_ATTRIBUTES_DISABLE=1 tar --format ustar -czf "${TARBALL}" -C "${STAGING}" .
+
+  echo "Package built: ${TARBALL}"
+  echo "Size: $(du -h "${TARBALL}" | cut -f1)"
+
+# Clean generated output, test artifacts, and venv
+clean:
+  rm -rf "{{package_root}}/.venv"
+  rm -rf "{{package_root}}/tests/output"
+  rm -rf "{{package_root}}/tests/output_second"
+  rm -rf "{{package_root}}/tests/output_prefix"
+  rm -rf "{{package_root}}/{{package_name}}-{{version}}.tar.gz"
+  @echo "Cleaned."

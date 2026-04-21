@@ -1,0 +1,75 @@
+// Copyright 2024 Block, Inc. <btcm-sw-team@squareup.com>.
+//
+// File: miner_command_api.proto
+// Description: Protobuf definitions for the miner command API.
+//              This file is used to define messages in the miner command API.
+//
+//              The command API is used to control the miner.
+//              The API provides messages for:
+//              - starting/stopping mining
+//              - setting power targets
+//              - controlling cooling modes
+//              - clearing notifications
+//              - managing pools
+//              - managing authentication/passwords
+//
+
+syntax = "proto3";
+
+package miner_command_api;
+
+option go_package = "pkg/proto;miner_rpc";
+
+import "miner_common_api.proto";
+import "miner_data_api.proto";
+
+service MinerCommandApi {
+    rpc StartMining(miner_common_api.EmptyRequest) returns (CommandResponse);
+    rpc StopMining(miner_common_api.EmptyRequest) returns (CommandResponse);
+    rpc SetPowerTarget(PowerTargetRequest) returns (miner_data_api.PowerTargetResponse);
+    rpc GetPerformanceTuningAlgorithm(miner_common_api.EmptyRequest) returns (PerformanceTuningAlgorithmResponse);
+    rpc SetCoolingMode(CoolingModeRequest) returns (miner_data_api.CoolingModeResponse);
+    rpc AddPools(PoolsRequest) returns (CommandResponse);
+    rpc RemovePools(PoolsRequest) returns (CommandResponse);
+    rpc EditPool(miner_data_api.Pool) returns (CommandResponse);
+    rpc PlayLocateSequence(miner_common_api.EmptyRequest) returns (miner_common_api.ApiResultResponse);
+    rpc StopLocateSequence(miner_common_api.EmptyRequest) returns (miner_common_api.ApiResultResponse);
+    rpc SetPerformanceTuningAlgorithm(PerformanceTuningAlgorithmRequest) returns (miner_common_api.ApiResultResponse);
+}
+
+message CommandResponse {
+    miner_common_api.ApiResult result = 1;
+    string message = 2;
+}
+
+message PowerTargetRequest {
+    uint32 power_target_w = 1;
+    miner_data_api.PerformanceMode performance_mode = 2;
+    bool phase_balancing_enabled = 3;
+    optional bool hash_on_disconnect = 4;
+}
+
+message CoolingModeRequest {
+    miner_data_api.CoolingMode mode = 1;
+    optional uint32 speed_percentage = 2; // only used for Manual mode
+    optional float target_temperature_c = 3; // only used for Auto mode, override the default temperature target
+}
+
+message PoolsRequest {
+    repeated miner_data_api.Pool pools = 1;
+}
+
+enum TuningAlgorithm {
+    None = 0;
+    VoltageImbalanceCompensation = 1;
+    Fuzzing = 100;
+}
+
+message PerformanceTuningAlgorithmRequest {
+    TuningAlgorithm tuning_algorithm = 1;
+}
+
+message PerformanceTuningAlgorithmResponse {
+    miner_common_api.ApiResult result = 1;
+    TuningAlgorithm tuning_algorithm = 2;
+}

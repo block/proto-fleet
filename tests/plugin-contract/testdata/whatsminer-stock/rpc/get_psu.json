@@ -1,0 +1,20 @@
+{
+  "STATUS": "S",
+  "When": 1741500000,
+  "Code": 132,
+  "Msg": {
+    "Name": "PSU",
+    "Model": "P21",
+    "Series No": "PSU01234567890",
+    "Vin": 220.5,
+    "Vout": 12.5,
+    "Iin": 15.2,
+    "Iout": 256.0,
+    "Pin": 3350,
+    "Pout": 3200,
+    "Fan Speed": 6000,
+    "Temp 0": 45.0,
+    "Temp 1": 50.0
+  },
+  "Description": "btminer"
+}

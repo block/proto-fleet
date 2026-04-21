@@ -1,0 +1,651 @@
+syntax = "proto3";
+package sdk.v1;
+option go_package = "github.com/block/proto-fleet/server/sdk/v1/pb;pb";
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/empty.proto";
+
+// Capabilities represents the features supported by a driver
+message Capabilities { 
+  map<string, bool> flags = 1; 
+}
+
+// Handshake response containing driver identification and capabilities
+message HandshakeResponse { 
+  string driver_name = 1;    // e.g., "antminer", "proto", "whatsminer"
+  string api_version = 2;    // e.g., "v1"
+}
+
+message DescribeDriverResponse {
+  string driver_name = 1;    // e.g., "antminer", "proto", "whatsminer"
+  string api_version = 2;    // e.g., "v1"
+  Capabilities caps = 3;     // Runtime capabilities
+}
+
+// Request to create a new device instance
+message NewDeviceRequest { 
+  string device_id = 1;     // Unique device instance ID
+  DeviceInfo info = 2;     // Device connection info
+  SecretBundle secret = 3;   // Secret for device access
+}
+
+// Response containing the created device identifier
+message NewDeviceResponse { 
+  string device_id = 1;      // Unique device instance ID
+}
+
+// Reference to a specific device instance
+message DeviceRef { 
+  string device_id = 1; 
+}
+
+// ============================================================================
+// V2 Telemetry Model - Enums
+// ============================================================================
+
+// HealthStatus represents the overall health state of a mining device.
+// Status progression typically follows: HEALTH_UNKNOWN → HEALTH_HEALTHY_* → HEALTH_WARNING → HEALTH_CRITICAL
+enum HealthStatus {
+  HEALTH_STATUS_UNSPECIFIED = 0;
+  HEALTH_UNKNOWN = 1;             // Unknown health state (e.g., device unreachable)
+  HEALTH_HEALTHY_ACTIVE = 2;      // Mining and all systems healthy
+  HEALTH_HEALTHY_INACTIVE = 3;    // All systems healthy but not actively mining
+  HEALTH_WARNING = 4;             // Degraded performance but still operational
+  HEALTH_CRITICAL = 5;            // Failed, non-functional, or requires immediate attention
+}
+
+// ComponentStatus represents the health and operational state of an individual component.
+// Typical status progression: COMPONENT_STATUS_UNKNOWN → COMPONENT_STATUS_HEALTHY → COMPONENT_STATUS_WARNING → COMPONENT_STATUS_CRITICAL/COMPONENT_STATUS_OFFLINE
+enum ComponentStatus {
+  COMPONENT_STATUS_UNSPECIFIED = 0;
+  COMPONENT_STATUS_UNKNOWN = 1;   // Unknown status (e.g., no telemetry data)
+  COMPONENT_STATUS_HEALTHY = 2;   // Operating normally within acceptable parameters
+  COMPONENT_STATUS_WARNING = 3;   // Degraded performance but still functional
+  COMPONENT_STATUS_CRITICAL = 4;  // Failed, malfunctioning, or out of safe operating range
+  COMPONENT_STATUS_OFFLINE = 5;   // Not responding or unreachable
+  COMPONENT_STATUS_DISABLED = 6;  // Intentionally disabled by operator or firmware
+}
+
+// MetricKind represents the type of metric value and how it should be interpreted.
+// This classification affects how metrics are aggregated, displayed, and stored.
+enum MetricKind {
+  METRIC_KIND_UNSPECIFIED = 0;
+  METRIC_KIND_GAUGE = 1;    // Point-in-time measurement (e.g., temperature, RPM)
+  METRIC_KIND_RATE = 2;     // Rate of change per second (e.g., hashrate as H/s)
+  METRIC_KIND_COUNTER = 3;  // Monotonically increasing counter (e.g., shares accepted, uptime seconds)
+}
+
+// ============================================================================
+// V2 Telemetry Model - Metric Values
+// ============================================================================
+
+// MetricValue represents a single telemetry measurement with optional statistical metadata.
+// The value field is always present, while metadata is optional and provides additional context.
+message MetricValue {
+  double value = 1;                            // The measured value
+  MetricKind kind = 2;                         // Type of metric (defaults to gauge if not set)
+  optional MetricValueMetaData metadata = 3;   // Optional statistical context
+}
+
+// MetricValueMetaData provides statistical context for a metric value.
+// It supports aggregated values (min/max/avg/stddev over a time window).
+message MetricValueMetaData {
+  optional google.protobuf.Duration window = 1;      // Time window for aggregated values
+  optional double min = 2;                           // Minimum value in the window
+  optional double max = 3;                           // Maximum value in the window
+  optional double avg = 4;                           // Average value over the window
+  optional double std_dev = 5;                       // Standard deviation
+  optional google.protobuf.Timestamp timestamp = 6;  // Optional timestamp, only if differs from parent
+}
+
+// ============================================================================
+// V2 Telemetry Model - Components
+// ============================================================================
+
+// ComponentInfo contains common metadata for all hardware components.
+// It provides identification (index, name) and health status information.
+message ComponentInfo {
+  int32 index = 1;                                   // Component position/number (0-based)
+  string name = 2;                                   // Component identifier (e.g., "HashBoard 1", "PSU 0")
+  ComponentStatus status = 3;                        // Component health status
+  optional string status_reason = 4;                 // Human-readable reason for status
+  optional google.protobuf.Timestamp timestamp = 5;  // Optional timestamp, only if differs from device timestamp
+}
+
+// HashBoardMetrics represents telemetry from an ASIC hashboard.
+// Hash boards are the primary computing components containing ASIC chips.
+message HashBoardMetrics {
+  ComponentInfo component_info = 1;
+  optional string serial_number = 2;
+
+  // Performance metrics
+  optional MetricValue hash_rate_hs = 3;        // Hashrate in H/s
+  optional MetricValue temp_c = 4;              // Temperature in °C
+
+  // Electrical metrics
+  optional MetricValue voltage_v = 5;           // Voltage in V
+  optional MetricValue current_a = 6;           // Current in A
+
+  // Temperature sensors
+  optional MetricValue inlet_temp_c = 7;        // Inlet temperature in °C
+  optional MetricValue outlet_temp_c = 8;       // Outlet temperature in °C
+  optional MetricValue ambient_temp_c = 9;      // Ambient temperature in °C
+
+  // Chip information
+  optional int32 chip_count = 10;               // Total chips on this board
+  optional MetricValue chip_frequency_mhz = 11; // Board-level chip frequency in MHz
+
+  // Sub-components
+  repeated ASICMetrics asics = 12;              // Individual ASIC chip telemetry
+  repeated FanMetrics fan_metrics = 13;         // Fans associated with this hashboard
+}
+
+// ASICMetrics represents telemetry from an individual ASIC chip.
+// ASICs are sub-components of hash boards and can have independent health status.
+message ASICMetrics {
+  ComponentInfo component_info = 1;
+
+  optional MetricValue temp_c = 2;          // Temperature in °C
+  optional MetricValue frequency_mhz = 3;   // Chip frequency in MHz
+  optional MetricValue voltage_v = 4;       // Voltage in V
+  optional MetricValue hashrate_hs = 5;     // Hashrate in H/s
+}
+
+// PSUMetrics represents telemetry from a power supply unit.
+// PSUs can report both input (from wall) and output (to device) measurements.
+message PSUMetrics {
+  ComponentInfo component_info = 1;
+
+  // Output measurements (to device)
+  optional MetricValue output_power_w = 2;      // Output power in W
+  optional MetricValue output_voltage_v = 3;    // Output voltage in V
+  optional MetricValue output_current_a = 4;    // Output current in A
+
+  // Input measurements (from wall)
+  optional MetricValue input_power_w = 5;       // Input power in W
+  optional MetricValue input_voltage_v = 6;     // Input voltage in V
+  optional MetricValue input_current_a = 7;     // Input current in A
+
+  // Additional metrics
+  optional MetricValue hotspot_temp_c = 8;      // Hot spot temperature in °C
+  optional MetricValue efficiency_percent = 9;  // Efficiency as percentage
+
+  // Sub-components
+  repeated FanMetrics fan_metrics = 10;         // Fans associated with this PSU
+}
+
+// FanMetrics represents telemetry from a cooling fan.
+// Fans can report speed in both RPM (absolute) and percent (relative to max).
+message FanMetrics {
+  ComponentInfo component_info = 1;
+
+  optional MetricValue rpm = 2;       // Fan speed in RPM
+  optional MetricValue temp_c = 3;    // Temperature in °C
+  optional MetricValue percent = 4;   // Fan speed as percentage of max
+}
+
+// ControlBoardMetrics represents telemetry from the device control board.
+// Currently a placeholder for future control board specific metrics.
+message ControlBoardMetrics {
+  ComponentInfo component_info = 1;
+}
+
+// SensorMetrics represents miscellaneous sensors on the device
+// that don't fit into other specific component categories.
+// Examples: ambient temperature, humidity, vibration sensors, etc.
+message SensorMetrics {
+  ComponentInfo component_info = 1;
+
+  optional string type = 2;         // Sensor type (e.g., "humidity", "vibration")
+  optional string unit = 3;         // Measurement unit (e.g., "C", "rpm", "%")
+  optional MetricValue value = 4;   // Sensor reading
+}
+
+// ============================================================================
+// V2 Telemetry Model - Device Metrics (Top Level)
+// ============================================================================
+
+// DeviceMetrics represents the complete telemetry snapshot for a mining device.
+// It includes device-level health and aggregated metrics, as well as detailed
+// component-level metrics for hashboards, PSUs, fans, control boards, and sensors.
+message DeviceMetrics {
+  // Identity
+  string device_id = 1;
+  google.protobuf.Timestamp timestamp = 2;
+
+  // Device-level health
+  HealthStatus health = 3;
+  optional string health_reason = 4;  // Human-readable reason for health status
+
+  // Device-level aggregated metrics (optional)
+  optional MetricValue hashrate_hs = 5;      // H/s - sum of all hashrates
+  optional MetricValue temp_c = 6;           // °C - max of all temps
+  optional MetricValue fan_rpm = 7;          // RPM - max of all fan speeds
+  optional MetricValue power_w = 8;          // W - sum of all power draws
+  optional MetricValue efficiency_jh = 9;    // J/H - power efficiency
+
+  // Component-level metrics
+  repeated HashBoardMetrics hash_boards = 10;
+  repeated PSUMetrics psu_metrics = 11;
+  repeated ControlBoardMetrics control_board_metrics = 12;
+  repeated FanMetrics fan_metrics = 13;
+  repeated SensorMetrics sensor_metrics = 14;
+
+  // Firmware version reported by device during telemetry polling
+  string firmware_version = 15;
+}
+
+
+// Request to describe device capabilities
+message DescribeDeviceRequest { 
+  string device_id = 1; 
+}
+
+// Response with device-specific capabilities
+message DescribeDeviceResponse { 
+  DeviceInfo device = 1; 
+  Capabilities caps = 2;
+}
+
+// Batch of status responses
+message StatusBatchResponse {
+  repeated DeviceMetrics items = 1;
+}
+
+// Request for batch status of multiple devices
+message BatchStatusRequest { 
+  repeated DeviceRef refs = 1; 
+}
+
+// Request to subscribe to streaming status updates
+message SubscribeRequest { 
+  repeated string device_ids = 1;       // Device IDs to monitor
+  optional int32 batch_size = 2;        // Max items per batch (default: 10)
+  optional int32 interval_seconds = 3;  // Collection interval (default: 30)
+}
+
+// -- Secret "kinds" (typed) --
+message APIKey { 
+  string key = 1;
+}
+message UsernamePassword { string username = 1; string password = 2; }
+message BearerToken { string token = 1; }
+message TlsClientCert { bytes client_cert_pem = 1; bytes key_pem = 2; bytes ca_cert_pem = 3; }
+message SecretBundle {
+  string version = 1;
+  oneof kind {
+    APIKey api_key = 2;
+    UsernamePassword user_pass = 3;
+    BearerToken bearer_token = 4;
+    TlsClientCert tls_client_cert = 5;
+  }
+  google.protobuf.Duration ttl = 6; // optional
+}
+
+enum CoolingMode {
+  COOLING_MODE_UNSPECIFIED = 0;
+  COOLING_MODE_AIR_COOLED = 1;
+  COOLING_MODE_IMMERSION_COOLED = 2;
+  COOLING_MODE_MANUAL = 3; // e.g., user sets fan speed manually
+} 
+message SetCoolingModeRequest {
+  DeviceRef ref = 1;
+  CoolingMode mode = 2;
+}
+
+message GetCoolingModeResponse {
+  CoolingMode mode = 1;
+}
+
+enum PerformanceMode {
+  PERFORMANCE_MODE_UNSPECIFIED = 0;
+  PERFORMANCE_MODE_MAXIMUM_HASHRATE = 1;
+  PERFORMANCE_MODE_EFFICIENCY = 2;
+}
+
+message SetPowerTargetRequest {
+  DeviceRef ref = 1;
+  PerformanceMode performance_mode = 2;
+}
+
+message MiningPool {
+  int32 priority = 1;        // 0 = default, 1 = backup1, 2 = backup2
+  string url = 2;            // e.g., stratum+tcp://pool.example:3333
+  string worker_name = 3;    // Worker name or address
+}
+
+message UpdateMiningPoolsRequest {
+  DeviceRef ref = 1;
+  repeated MiningPool pools = 2;
+}
+
+// ConfiguredPool represents a pool currently configured on a device
+message ConfiguredPool {
+  int32 priority = 1;        // Pool priority (0 = default, 1 = backup1, 2 = backup2)
+  string url = 2;            // Pool URL (e.g., stratum+tcp://pool.example:3333)
+  string username = 3;       // Worker name or username configured on the miner
+}
+
+message GetMiningPoolsRequest {
+  DeviceRef ref = 1;
+}
+
+message GetMiningPoolsResponse {
+  repeated ConfiguredPool pools = 1;
+}
+
+message DownloadLogsRequest {
+  DeviceRef ref = 1;
+  google.protobuf.Timestamp since = 2; // optional: only logs since this time
+  string batch_log_uuid = 3;      // optional: for batching large log downloads
+}
+
+message DownloadLogsResponse {
+  string log_data = 1; // log content as text
+  bool more_data = 2;  // true if more data is available (use same batch_log_uuid)
+}
+
+message DeviceInfo {
+  string host = 1; // e.g., "192.168.1.100"
+  int32 port = 2;      // e.g., "22"
+  string url_scheme = 3; // e.g., "ssh", "http", "https"
+  string serial_number = 4; // e.g., "SN123456789"
+  string model = 5;         // e.g., "Antminer S19"
+  string manufacturer = 6;  // e.g., "Bitmain"
+  reserved 7;
+  reserved "type";
+  string mac_address = 8; // e.g., "00:1A:2B:3C:4D:5E"
+  string firmware_version = 9; // e.g., "1.0.0", "mcdd-v1.2.3"
+}
+
+message DiscoverDeviceRequest {
+  string ip_address = 1; // e.g., "192.168.1.100"
+  string port = 2;      // e.g., "22"
+}
+
+message DiscoverDeviceResponse {
+  DeviceInfo device = 1; // Discovered device
+}
+
+message PairDeviceRequest {
+  DeviceInfo device = 1; // Device to pair
+  SecretBundle access = 2; // Access credentials
+}
+
+message PairDeviceResponse {
+  DeviceInfo device = 1; // Updated device info after pairing (includes serial number, MAC address, etc.)
+}
+
+// GetDefaultCredentialsRequest specifies the device context for credential lookup
+message GetDefaultCredentialsRequest {
+  string manufacturer = 1;      // device make from discovery (e.g. "whatsminer", "antminer")
+  string firmware_version = 2;  // firmware version string (e.g. "2.0.4", "VNish_1.2.0")
+}
+
+// GetDefaultCredentialsResponse contains default credentials for auto-authentication
+message GetDefaultCredentialsResponse {
+  repeated UsernamePassword credentials = 1; // List of credentials to try in order
+}
+
+// GetCapabilitiesForModelRequest requests model-specific capabilities
+message GetCapabilitiesForModelRequest {
+  string model = 1; // Device model (e.g., "Antminer S19", "Antminer S21")
+}
+
+// GetCapabilitiesForModelResponse returns model-specific capability overrides
+message GetCapabilitiesForModelResponse {
+  Capabilities caps = 1; // Model-specific capability flags
+}
+
+// GetDiscoveryPortsResponse returns canonical discovery scan ports.
+message GetDiscoveryPortsResponse {
+  repeated string ports = 1;
+}
+
+message GetDeviceWebViewURLResponse {
+  string url = 1; // URL to access device web interface
+}
+
+message GetDeviceWebViewURLRequest {
+  DeviceRef ref = 1;
+}
+
+message GetTimeSeriesDataRequest {
+  DeviceRef ref = 1;
+  repeated string metric_names = 2; // e.g., "hashrate_hps", "temp_celsius"
+  google.protobuf.Timestamp start_time = 3; // Start of time range
+  google.protobuf.Timestamp end_time = 4;   // End of time range
+
+  // This is optional, we prefer to get unaggregated/raw data if possible.
+  google.protobuf.Duration granularity = 5; // e.g., 1m, 5m
+
+  // Max number of data points to return (default: 1000)
+  int32 max_points = 6;
+
+  string page_token = 7; // For pagination
+}
+
+message GetTimeSeriesDataResponse {
+  repeated DeviceMetrics series = 1;
+  string next_page_token = 2; // For pagination
+}
+
+// Updates miner web UI password
+message UpdateMinerPasswordRequest {
+  DeviceRef ref = 1;
+  string current_password = 2;  // Current password for verification
+  string new_password = 3;  // New password for web UI access
+}
+
+// Firmware file metadata passed from server to plugin via the shared filesystem.
+// Plugins run as child processes on the same host (exec.Command), so they can
+// open the file directly by path without streaming over gRPC.
+message FirmwareFileInfo {
+  string file_path = 1;
+  string original_filename = 2;
+  int64 file_size = 3;
+}
+
+// Uploads firmware to a device. The server resolves the firmware file on disk
+// and passes its location to the plugin process.
+message UpdateFirmwareRequest {
+  DeviceRef ref = 1;
+  FirmwareFileInfo firmware = 2;
+}
+
+// Response containing the current firmware installation status on a device.
+message GetFirmwareUpdateStatusResponse {
+  string state = 1;            // "current", "downloaded", "installing", "installed"
+  optional int32 progress = 2; // Install progress percentage (0-100)
+  optional string error = 3;   // Error message if installation failed
+}
+
+// ============================================================================
+// Error System - Miner Error Taxonomy
+// ============================================================================
+
+// - 1xxx PSU & facility power at PSU terminals
+// - 2xxx Thermal & fans
+// - 3xxx Board/ASIC chain & hash performance
+// - 35xx Board-level power rails & protection (distinct from PSU)
+// - 4xxx Sensors (electrical faults, not just out-of-range)
+// - 5xxx Non-volatile storage / firmware
+// - 6xxx Control-plane & on-board comms (hardware-side)
+// - 8xxx Performance advisories (non-fatal)
+// - 9xxx Catch-alls / vendor-unknown
+enum MinerError {
+  MINER_ERROR_UNSPECIFIED              = 0;
+
+  // 1000–1499: PSU (unit-level faults)
+  PSU_NOT_PRESENT                          = 1000;
+  PSU_MODEL_MISMATCH                       = 1001;
+  PSU_COMMUNICATION_LOST                   = 1002;
+  PSU_FAULT_GENERIC                        = 1003;
+  PSU_INPUT_VOLTAGE_LOW                    = 1004;
+  PSU_INPUT_VOLTAGE_HIGH                   = 1005;
+  PSU_OUTPUT_VOLTAGE_FAULT                 = 1006;
+  PSU_OUTPUT_OVERCURRENT                   = 1007;
+  PSU_FAN_FAULT                            = 1008;
+  PSU_OVER_TEMPERATURE                     = 1009;
+  PSU_INPUT_PHASE_IMBALANCE                = 1010;
+  PSU_UNDER_TEMPERATURE                    = 1011;
+
+  // 2000–2499: Thermal & fans (device-level)
+  FAN_FAILED                               = 2000;
+  FAN_TACH_SIGNAL_LOST                     = 2001;
+  FAN_SPEED_DEVIATION                      = 2002;
+  INLET_OVER_TEMPERATURE                   = 2010;
+  DEVICE_OVER_TEMPERATURE                  = 2011;
+  DEVICE_UNDER_TEMPERATURE                 = 2012;
+
+  // 3000–3499: Hashboard / ASIC chain & core digital
+  HASHBOARD_NOT_PRESENT                    = 3000;
+  HASHBOARD_OVER_TEMPERATURE               = 3001;
+  HASHBOARD_MISSING_CHIPS                  = 3002;
+  ASIC_CHAIN_COMMUNICATION_LOST            = 3003;
+  ASIC_CLOCK_PLL_UNLOCKED                  = 3004;
+  ASIC_CRC_ERROR_EXCESSIVE                 = 3005;
+  HASHBOARD_ASIC_OVER_TEMPERATURE          = 3006;
+  HASHBOARD_ASIC_UNDER_TEMPERATURE         = 3007;
+
+  // 3500–3699: Board-level power rails & protection (distinct from PSU)
+  BOARD_POWER_PGOOD_MISSING                = 3500;
+  BOARD_POWER_OVERCURRENT                  = 3501;
+  BOARD_POWER_RAIL_UNDERVOLT               = 3502;
+  BOARD_POWER_RAIL_OVERVOLT                = 3503;
+  BOARD_POWER_SHORT_DETECTED               = 3504;
+
+  // 4000–4499: Sensors (electrical faults)
+  TEMP_SENSOR_OPEN_OR_SHORT                = 4000;
+  TEMP_SENSOR_FAULT                        = 4001;
+  VOLTAGE_SENSOR_FAULT                     = 4002;
+  CURRENT_SENSOR_FAULT                     = 4003;
+
+  // 5000–5499: Non-volatile storage / firmware (hardware-adjacent)
+  EEPROM_CRC_MISMATCH                      = 5000;
+  EEPROM_READ_FAILURE                      = 5001;
+  FIRMWARE_IMAGE_INVALID                   = 5002;
+  FIRMWARE_CONFIG_INVALID                  = 5003;
+
+  // 6000–6499: Control-plane & on-board comms (hardware-side)
+  CONTROL_BOARD_COMMUNICATION_LOST         = 6000;
+  CONTROL_BOARD_FAILURE                    = 6001;
+  DEVICE_INTERNAL_BUS_FAULT                = 6002;
+  DEVICE_COMMUNICATION_LOST                = 6003;
+  IO_MODULE_FAILURE                        = 6010;
+
+  // 8000–8499: Performance advisories (non-fatal canonical warnings)
+  HASHRATE_BELOW_TARGET                    = 8000;
+  HASHBOARD_WARN_CRC_HIGH                  = 8001;
+  THERMAL_MARGIN_LOW                       = 8002;
+
+  // 9000–9999: Catch-alls
+  VENDOR_ERROR_UNMAPPED                    = 9000;
+}
+
+// Severity represents the criticality level of an error
+enum Severity {
+  SEVERITY_UNSPECIFIED = 0;
+  SEVERITY_CRITICAL    = 1;  // Miner stops hashing or unsafe
+  SEVERITY_MAJOR       = 2;  // Degraded hashing / imminent trip
+  SEVERITY_MINOR       = 3;  // Recoverable, limited effect
+  SEVERITY_INFO        = 4;  // Informational / advisory
+}
+
+// ComponentType represents the type of hardware component
+enum ComponentType {
+  COMPONENT_TYPE_UNSPECIFIED = 0;
+  COMPONENT_TYPE_PSU = 1;
+  COMPONENT_TYPE_HASH_BOARD = 2;
+  COMPONENT_TYPE_FAN = 3;
+  COMPONENT_TYPE_CONTROL_BOARD = 4;
+  COMPONENT_TYPE_EEPROM = 5;
+  COMPONENT_TYPE_IO_MODULE = 6;
+}
+
+// DeviceError represents a miner error reported by a device.
+// This is the plugin-facing error type without fleet-managed ErrorID.
+message DeviceError {
+  MinerError miner_error = 1;                       // REQUIRED
+  string cause_summary = 2;                         // Human-readable short cause
+  string recommended_action = 3;                    // Next best action
+  Severity severity = 4;                            // Technical severity classification
+
+  google.protobuf.Timestamp first_seen_at = 5;
+  google.protobuf.Timestamp last_seen_at = 6;
+  google.protobuf.Timestamp closed_at = 7;          // Optional closed/expired error
+
+  map<string, string> vendor_attributes = 8;        // e.g., firmware, code, serials
+
+  string device_id = 9;                             // Device this error belongs to
+  optional string component_id = 10;                // Optional component identifier (numeric index as string, e.g., "0", "1", "2")
+  string impact = 11;                               // Human-readable business impact (e.g., "Stops mining", "Reduces hashrate by 30%")
+  string summary = 12;                              // High level summary - typically raw message from miner
+  ComponentType component_type = 13;                // Type of component (PSU, fan, hashboard, etc.)
+}
+
+// DeviceErrors contains all errors for a specific device
+message DeviceErrors {
+  string device_id = 1;
+  repeated DeviceError errors = 2;
+}
+
+// Driver service interface - all drivers must implement CoreV1
+service Driver {
+  // CoreV1 - Driver Info - Required methods
+  rpc Handshake(google.protobuf.Empty) returns (HandshakeResponse);
+  rpc DescribeDriver(google.protobuf.Empty) returns (DescribeDriverResponse);
+
+  /// CoreV1 - Device Pairing - Required methods
+  rpc DiscoverDevice(DiscoverDeviceRequest) returns (DiscoverDeviceResponse);
+  rpc PairDevice(PairDeviceRequest) returns (PairDeviceResponse);
+
+  // Optional - Returns default credentials for auto-authentication during pairing
+  rpc GetDefaultCredentials(GetDefaultCredentialsRequest) returns (GetDefaultCredentialsResponse);
+
+  // Optional - Returns model-specific capabilities for devices
+  rpc GetCapabilitiesForModel(GetCapabilitiesForModelRequest) returns (GetCapabilitiesForModelResponse);
+
+  // Optional - Returns canonical discovery scan ports for server-side port derivation
+  rpc GetDiscoveryPorts(google.protobuf.Empty) returns (GetDiscoveryPortsResponse);
+  
+  // CoreV1 - Device Management - Required methods
+  rpc NewDevice(NewDeviceRequest) returns (NewDeviceResponse);
+  rpc DescribeDevice(DescribeDeviceRequest) returns (DescribeDeviceResponse);
+  rpc CloseDevice(DeviceRef) returns (google.protobuf.Empty);
+
+  // CoreV1 - Control methods - Required methods
+  rpc StartMining(DeviceRef) returns (google.protobuf.Empty);
+  rpc StopMining(DeviceRef) returns (google.protobuf.Empty);
+  rpc BlinkLED(DeviceRef) returns (google.protobuf.Empty);
+  rpc Reboot(DeviceRef) returns (google.protobuf.Empty);
+
+  // CoreV1 - Configuration methods - Required methods
+  rpc SetCoolingMode(SetCoolingModeRequest) returns (google.protobuf.Empty);
+  rpc GetCoolingMode(DeviceRef) returns (GetCoolingModeResponse);
+  rpc SetPowerTarget(SetPowerTargetRequest) returns (google.protobuf.Empty);
+  rpc UpdateMiningPools(UpdateMiningPoolsRequest) returns (google.protobuf.Empty);
+  rpc GetMiningPools(GetMiningPoolsRequest) returns (GetMiningPoolsResponse);
+  rpc DownloadLogs(DownloadLogsRequest) returns (DownloadLogsResponse);
+  rpc UpdateFirmware(UpdateFirmwareRequest) returns (google.protobuf.Empty);
+  rpc GetFirmwareUpdateStatus(DeviceRef) returns (GetFirmwareUpdateStatusResponse);
+  rpc Unpair(DeviceRef) returns (google.protobuf.Empty);
+  rpc UpdateMinerPassword(UpdateMinerPasswordRequest) returns (google.protobuf.Empty);
+
+  // CoreV1 - Base Telemetry - Required methods
+  rpc DeviceStatus(DeviceRef) returns (DeviceMetrics);
+
+  // CoreV1 - Advanced Telemetry - Optional methods
+  rpc GetTimeSeriesData(GetTimeSeriesDataRequest) returns (GetTimeSeriesDataResponse);
+
+  // CoreV1 - Device Info - Optional methods
+  rpc GetDeviceWebViewURL(GetDeviceWebViewURLRequest) returns (GetDeviceWebViewURLResponse);
+
+  // Optional capabilities - return Unimplemented if not supported
+  rpc BatchStatus(BatchStatusRequest) returns (StatusBatchResponse);
+  rpc Subscribe(SubscribeRequest) returns (stream DeviceMetrics);
+
+  // CoreV1 - Error System - Required method
+  rpc GetErrors(DeviceRef) returns (DeviceErrors);
+}

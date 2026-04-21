@@ -1,0 +1,334 @@
+// Copyright 2024 Block, Inc. <btcm-sw-team@squareup.com>.
+//
+// File: miner_debug_api.proto
+// Description: Protobuf definitions for the miner debug API.
+//              The Debug API is used to interact with the miner for debugging
+//              purposes. It enables unique debugging and manufacturing cases
+//              such as:
+//              - allowing to set/get temperature targets
+//              - enable/disable PSUs, set/get PSU voltage
+//              - set/get hashboard operating parameters
+//              - returning information about hashboards pertinent to
+//              reliability testing This file is used to define the messages
+//              that implement miner debug API service.
+//
+
+syntax = "proto3";
+
+package miner_debug_api;
+
+option go_package = "pkg/proto;miner_rpc";
+
+import "miner_common_api.proto";
+import "miner_data_api.proto";
+import "miner_error_code.proto";
+import "miner_psu_api.proto";
+
+// ----------------------------------
+// Miner Debug API service definition
+// ----------------------------------
+
+service MinerDebugApi {
+    rpc GetMiningInitStats(miner_common_api.EmptyRequest) returns (MiningInitStats);
+
+    // PSU debug functionality
+    rpc EnablePsu(PsuRequest) returns (miner_common_api.ApiResultResponse);
+    rpc DisablePsu(PsuRequest) returns (miner_common_api.ApiResultResponse);
+    rpc SetPsuOutputVoltage(PsuOutputVoltageRequest) returns (miner_common_api.ApiResultResponse);
+    rpc GetPsuOutputVoltage(PsuRequest) returns (PsuOutputVoltageResponse);
+    rpc DisablePsuVoltageConfiguration(PsuRequest) returns (miner_common_api.ApiResultResponse);
+    rpc EnablePsuVoltageConfiguration(PsuRequest) returns (miner_common_api.ApiResultResponse);
+    rpc GetPsuMeasurements(PsuRequest) returns (PsuMeasurementsResponse);
+    rpc GetPsuTemperatures(PsuRequest) returns (PsuTemperaturesResponse);
+    rpc GetPsuFanSpeeds(PsuRequest) returns (PsuFanSpeedsResponse);
+    rpc GetPsuFaults(PsuRequest) returns (PsuFaultsResponse);
+    rpc ClearPsuFaults(PsuRequest) returns (miner_common_api.ApiResultResponse);
+    rpc SetVoltageTuningMode(VoltageTuningModeRequest) returns (miner_common_api.ApiResultResponse);
+
+    // Notifications
+    rpc CreateMinerNotificationEvent(miner_error_code.Error) returns (miner_common_api.ApiResultResponse);
+    rpc ClearMinerNotificationEvent(miner_error_code.Error) returns (miner_common_api.ApiResultResponse);
+
+    // Recovery limits
+    rpc GetRecoveryLimits(miner_common_api.EmptyRequest) returns (RecoveryLimits);
+    rpc SetRecoveryLimits(SetRecoveryLimitsMessage) returns (miner_common_api.ApiResultResponse);
+
+    // Fan control
+    rpc SetFanSpeed(SetFanSpeedRequest) returns (miner_common_api.ApiResultResponse);
+    rpc GetFanSpeed(miner_common_api.EmptyRequest) returns (GetFanSpeedResponse);
+
+    // Temperature control
+    rpc SetTemperaturePowerThrottleConfig(TemperaturePowerThrottleRequest) returns (miner_common_api.ApiResultResponse);
+    rpc SetTemperatureFanControlConfig(TemperatureFanControlRequest) returns (miner_common_api.ApiResultResponse);
+
+    // Operating stats
+    rpc GetMinerErrorStats(miner_common_api.EmptyRequest) returns (MinerErrorStats);
+    rpc ResetMinerErrorStats(miner_common_api.EmptyRequest) returns (miner_common_api.ApiResultResponse);
+    rpc GetHashboardErrorStats(miner_common_api.EmptyRequest) returns (HashboardErrorStatsList);
+    rpc ResetHashboardErrorStats(miner_common_api.EmptyRequest) returns (miner_common_api.ApiResultResponse);
+    rpc GetPsuErrorStats(miner_common_api.EmptyRequest) returns (PsuErrorStatsList);
+    rpc ResetPsuErrorStats(miner_common_api.EmptyRequest) returns (miner_common_api.ApiResultResponse);
+
+    rpc SetHardwareError(SetHardwareErrorRequest) returns (miner_common_api.ApiResultResponse);
+}
+
+enum HashboardTripError {
+    HB_OVER_TEMP = 0;
+    HB_OVER_VOLTAGE = 1;
+    HB_OVER_CURRENT = 2;
+    HB_UNDER_VOLTAGE = 3;
+    HB_COMMUNICATION_ERROR = 4;
+    HB_ASIC_OVER_TEMP = 5;
+    HB_ASIC_OVER_VOLTAGE = 6;
+    HB_ASIC_UNDER_VOLTAGE = 7;
+    HB_ASIC_ECC = 8;
+    HB_ASIC_ENUMERATION = 9;
+    HB_ASIC_NOT_HASHING = 10;
+}
+
+message SetHardwareErrorRequest {
+    uint32 id = 1;
+    oneof component {
+        miner_psu_api.PsuFault psu = 2;
+        HashboardTripError hashboard = 3;
+    }
+}
+
+// --------------------------------
+// Operating stats/message
+// --------------------------------
+message MinerErrorStats {
+    uint32 controlboard_max_temp_count = 1;  // Count of control board exceeding max temp.
+    uint32 fan_fatal_error_count = 2;        // [TC] Count of fatal fan failures.
+    uint32 fan_slow_count = 3;               // [TC] Count of slow fan errors.
+    uint32 fan_speed_set_failed_count = 4;   // [TC] Count of fan speed set failures.
+    uint32 hb_fatal_error_count = 5;         // [HB] Count of fatal hashboard errors.
+    uint32 low_hashrate_count = 6;           // Instances of hashrate dropping below threshold.
+    uint32 no_pool_configured_count = 7;     // [POOL] Count of no pool configured errors.
+    uint32 pool_connection_lost_count = 8;   // [POOL] Count of pool connection lost errors.
+}
+
+message HashboardErrorStatsList {
+    repeated HashboardErrorStats hashboard_error_stats = 1;
+}
+
+message HashboardErrorStats {
+    uint32 hb_slot = 1;                        // [HB] Hashboard slot.
+    uint32 hb_index = 2;                       // [HB] Hashboard index.
+    uint32 asic_failure_count = 3;             // [HB] Count of ASIC failures.
+    uint32 asic_max_temp_count = 4;            // [HB] Count of ASIC max temperature being exceeded.
+    uint32 asic_over_voltage_count = 5;        // [HB] Count of ASIC over voltage errors.
+    uint32 hb_max_temp_count = 6;              // [HB] Count of hashboard exceeding max temp.
+    uint32 hb_over_current_count = 7;          // [HB] Count of hashboard over current errors.
+    uint32 hb_over_voltage_count = 8;          // [HB] Count of hashboard over voltage errors.
+    uint32 hb_power_lost_count = 9;            // [HB] Count of hashboard power lost errors.
+    uint32 hb_under_voltage_count = 10;        // [HB] Count of hashboard under voltage errors.
+    uint32 hb_usb_connection_lost_count = 11;  // [HB] Count of hashboard USB connection lost errors.
+    bool is_connected = 12;                    // [HB] Has the hashboard reconnected since the last disconnect.
+    string hb_sn = 13;                         // [HB] Hashboard serial number.
+}
+
+message PsuErrorStatsList {
+    repeated PsuErrorStats psu_error_stats = 1;
+}
+
+message PsuErrorStats {
+    uint32 index = 1;
+    uint32 bay_index = 2;
+    uint32 over_temp_count = 3;
+    uint32 over_current_count = 4;
+    uint32 over_voltage_count = 5;
+    uint32 under_voltage_count = 6;
+    uint32 communication_error_count = 7;
+    uint32 fans_fault_count = 8;
+    uint32 input_fault_count = 9;
+    uint32 output_fault_count = 10;
+    uint32 llc_fault_count = 11;
+    uint32 pfc_fault_count = 12;
+    uint32 no_input_voltage_fault_count = 13;
+    bool enabled = 14;
+    uint32 input_over_voltage_count = 15;
+    uint32 input_under_voltage_count = 16;
+    uint32 input_over_current_count = 17;
+    uint32 over_power_count = 18;
+    uint32 power_no_good_count = 19;
+}
+
+// --------------------
+// Bay status messages
+// --------------------
+
+message BayInitStats {
+    uint32 index = 1;                          // Bay index
+    miner_data_api.MiningState bay_state = 2;  // Current bay state
+    uint32 bay_start_duration_ms = 3;       // Time taken for bay to initialize (Includes psu, hb, and temp_ctrl init)
+    uint32 psu_init_duration_ms = 4;        // Time taken for PSUs to be initialized
+    uint32 hb_init_duration_ms = 5;         // Time taken for hashboards to be initialized
+    uint32 temp_ctrl_init_duration_ms = 6;  // Time taken for temperature control task to be initialized
+}
+
+message MiningInitStats {
+    uint32 mining_init_duration_ms = 1;           // Time taken for mining_control module to initialize
+    miner_data_api.MiningState mining_state = 2;  // Current mining state
+    repeated BayInitStats bay_init_stats = 3;     // Bay specific initialization stats
+}
+
+// --------------------
+// Fan control messages
+// --------------------
+
+message GetFanSpeedResponse {
+    miner_common_api.ApiResult result = 1;
+    repeated FanSpeed fan_speeds = 2;
+}
+
+message SetFanSpeedRequest {
+    FanSpeed fan_speed = 1;
+}
+
+message FanSpeed {
+    uint32 id = 1;
+    uint32 speed_pct = 2;
+    uint32 rpm = 3;
+}
+
+// ----------------------------
+// Temperature control messages
+// ----------------------------
+
+message TemperaturePowerThrottleRequest {
+    optional float threshold_c = 1;
+    optional float pid_p = 2;
+    optional float pid_i = 3;
+}
+
+message TemperatureFanControlRequest {
+    optional float target_c = 1;
+    optional float pid_p = 2;
+    optional float pid_i = 3;
+}
+
+// ----------------------------
+// PSU control service messages
+// ----------------------------
+
+message PsuRequest {
+    uint32 psu_id = 1;
+}
+
+message PsuOutputVoltageRequest {
+    uint32 psu_id = 1;
+    uint32 voltage_mv = 2;
+}
+
+message PsuOutputVoltageResponse {
+    miner_common_api.ApiResult result = 1;
+    uint32 psu_id = 2;
+    uint32 voltage_mv = 3;
+}
+
+message PsuMeasurementsResponse {
+    miner_common_api.ApiResult result = 1;
+    uint32 psu_id = 2;
+    repeated miner_psu_api.PsuMeasurement measurements = 3;
+}
+
+message PsuTemperaturesResponse {
+    miner_common_api.ApiResult result = 1;
+    uint32 psu_id = 2;
+    repeated miner_psu_api.PsuMeasurement temperatures = 3;
+}
+
+message PsuFanSpeedsResponse {
+    miner_common_api.ApiResult result = 1;
+    uint32 psu_id = 2;
+    repeated miner_psu_api.PsuFanStatus fan_speeds = 3;
+}
+
+message PsuFaultsResponse {
+    miner_common_api.ApiResult result = 1;
+    uint32 psu_id = 2;
+    repeated miner_psu_api.PsuFault faults = 3;
+}
+
+message VoltageTuningModeRequest {
+    enum VoltageTuningMode {
+        VOLTAGE_TUNING_MODE_OFF = 0;
+        VOLTAGE_TUNING_MODE_ON = 1;
+    }
+
+    VoltageTuningMode mode = 1;
+}
+
+// -----------------------------
+// Temp Control service messages
+// -----------------------------
+
+message TemperatureTargetRequest {
+    uint32 temperature = 1;
+}
+
+message TemperatureTargetResponse {
+    miner_common_api.ApiResult result = 1;
+}
+
+// ----------------
+// Recovery limits
+// ----------------
+
+// This config structure defines the number of system recovery attempts
+// (restarts) allowed for a given limit type, the minimum interval between
+// restarts, and whether the limit is enabled.
+message RecoveryLimitSetting {
+    uint32 max_restarts = 1;
+    uint32 restart_interval_min = 2;
+    bool enabled = 3;
+}
+
+// This config structure is used in mcdd mining_control task to store/track the
+// recovery limits
+message RecoveryLimits {
+    RecoveryLimitSetting asic_temp_and_voltage = 1;
+    RecoveryLimitSetting hashboard_over_temp = 2;
+    RecoveryLimitSetting hashboard_over_current = 3;
+    RecoveryLimitSetting hashboard_over_voltage = 4;
+    RecoveryLimitSetting hashboard_under_voltage = 5;
+    RecoveryLimitSetting hashboard_communication_error = 6;
+    RecoveryLimitSetting hashboard_other = 7;
+    RecoveryLimitSetting psu_over_temp = 8;
+    RecoveryLimitSetting psu_over_current = 9;
+    RecoveryLimitSetting psu_over_voltage = 10;
+    RecoveryLimitSetting psu_under_voltage = 11;
+    RecoveryLimitSetting psu_communication_error = 12;
+    RecoveryLimitSetting psu_fans_fault = 13;
+    RecoveryLimitSetting psu_input_fault = 14;
+    RecoveryLimitSetting psu_output_fault = 15;
+    RecoveryLimitSetting asic_communication_error = 16;
+    RecoveryLimitSetting asic_over_temp = 17;
+    RecoveryLimitSetting psu_other = 18;  // Bucket for other PSU errors (e.g., transient MFR register issues)
+    RecoveryLimitSetting psu_hardware_failure = 19;  // Hardware failures requiring shutdown (e.g., PFC/LLC circuit failures)
+}
+
+// This enum defines the types of recovery limits that can be set
+enum RecoveryLimitType {
+    ASIC_TEMP_AND_VOLTAGE = 0;
+    OVER_TEMP = 1;
+    OVER_CURRENT = 2;
+    OVER_VOLTAGE = 3;
+    UNDER_VOLTAGE = 4;
+    COMMUNICATION_ERROR = 5;
+    OTHER = 6;
+}
+
+// This message is used to encapsulate the recovery limit configuration
+message RecoveryLimitConfigMessage {
+    RecoveryLimitType type = 1;
+    RecoveryLimitSetting setting = 2;
+}
+
+// This message can be used to set the desired recovery limit settings
+// (SetRecoveryLimits) or to retrieve the current recovery limit settings
+// (GetRecoveryLimits)
+message SetRecoveryLimitsMessage {
+    RecoveryLimits recovery_limits = 1;
+}

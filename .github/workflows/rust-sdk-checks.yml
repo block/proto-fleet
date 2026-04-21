@@ -1,0 +1,105 @@
+name: Rust SDK Checks
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/rust-sdk-checks.yml"
+      - "sdk/rust/**"
+      - "server/sdk/v1/pb/driver.proto"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/rust-sdk-checks.yml"
+      - "sdk/rust/**"
+      - "server/sdk/v1/pb/driver.proto"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust-lint:
+    name: Rust Lint & Format
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk/rust/proto-fleet-plugin
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Install protoc
+        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache Cargo registry & build
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            sdk/rust/proto-fleet-plugin/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('sdk/rust/proto-fleet-plugin/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Check formatting
+        run: cargo fmt -- --check
+
+      - name: Clippy (default features)
+        run: cargo clippy -- -D warnings
+
+      - name: Clippy (http-client feature)
+        run: cargo clippy --features http-client -- -D warnings
+
+  rust-build-test:
+    name: Rust Build & Test
+    runs-on: ubuntu-latest
+    needs: [rust-lint]
+    defaults:
+      run:
+        working-directory: sdk/rust/proto-fleet-plugin
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+
+      - name: Install protoc
+        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache Cargo registry & build
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            sdk/rust/proto-fleet-plugin/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('sdk/rust/proto-fleet-plugin/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build (default features)
+        run: cargo build
+
+      - name: Build (http-client feature)
+        run: cargo build --features http-client
+
+      - name: Test (default features)
+        run: cargo test
+
+      - name: Test (http-client feature)
+        run: cargo test --features http-client

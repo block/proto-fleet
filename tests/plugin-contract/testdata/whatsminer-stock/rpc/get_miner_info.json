@@ -1,0 +1,14 @@
+{
+  "STATUS": "S",
+  "When": 1741500000,
+  "Code": 45,
+  "Msg": {
+    "ip": "127.0.0.1",
+    "proto": "2.0.0",
+    "model": "M60S",
+    "hostname": "WhatsMiner",
+    "mac": "C4:11:04:01:02:03",
+    "firmware_type": "stock"
+  },
+  "Description": "btminer"
+}

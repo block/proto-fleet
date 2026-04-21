@@ -1,0 +1,682 @@
+// Copyright 2024 Block, Inc. <btcm-sw-team@squareup.com>.
+//
+// File: miner_data_api.proto
+// Description: Protobuf definitions for the miner data API.
+//              This file is used to define the RPCs and messages that are used
+//              to interact with the miner data API. Any message specific to the
+//              miner data API should be defined here
+//
+//              The miner data API is used to get data from the miner and
+//              hashboards. The API provides messages for:
+//              - Getting hashrate data
+//              - Getting temperature data
+//              - Getting hardware info
+//              - Getting cooling mode
+//              - Getting mining status
+//              - Getting ASIC status
+//
+
+syntax = "proto3";
+
+package miner_data_api;
+
+option go_package = "pkg/proto;miner_rpc";
+
+import "miner_common_api.proto";
+import "miner_error_code.proto";
+import "miner_psu_api.proto";
+import "miner_fan_api.proto";
+import "hashboard_cmd.proto";
+
+// ---------------------------------
+// Miner Data API service definition
+// ---------------------------------
+
+service MinerDataApi {
+    rpc GetSoftwareInfo(miner_common_api.EmptyRequest) returns (SoftwareInfoResponse);
+    rpc GetCoolingMode(miner_common_api.EmptyRequest) returns (CoolingModeResponse);
+    rpc GetMiningStatus(miner_common_api.EmptyRequest) returns (MiningStatusResponse);
+    rpc GetPowerTarget(miner_common_api.EmptyRequest) returns (PowerTargetResponse);
+    rpc GetHardwareInfo(miner_common_api.EmptyRequest) returns (HardwareInfoResponse);
+    rpc GetHashboardStatus(HashboardStatusRequest) returns (HashboardStatusResponse);
+    rpc GetAsicStatus(AsicStatusRequest) returns (AsicStatusResponse);
+    rpc GetTimeSeriesData(TimeSeriesDataRequest) returns (TimeSeriesDataResponse);
+    rpc GetUnifiedTimeSeriesData(UnifiedTimeSeriesDataRequest) returns (UnifiedTimeSeriesDataResponse);
+    rpc GetPools(miner_common_api.EmptyRequest) returns (PoolsResponse);
+    rpc GetErrors(miner_common_api.EmptyRequest) returns (ErrorsResponse);
+    rpc GetPsuStatusList(miner_common_api.EmptyRequest) returns (PsuStatusListResponse);
+    rpc GetPsuInfoList(miner_common_api.EmptyRequest) returns (PsuInfoListResponse);
+    rpc GetTelemetryValues(GetTelemetryValuesRequest) returns (GetTelemetryValuesResponse);
+    rpc GetAsicMetadata(miner_common_api.EmptyRequest) returns (GetAsicMetadataResponse);
+}
+
+// ---------------------------------------------------
+// Enum/base types used by the miner data API messages
+// ---------------------------------------------------
+
+enum DataType {
+    DATA_TYPE_NONE = 0;
+
+    DATA_TYPE_MINER_HASHRATE_MH_S = 1;
+    DATA_TYPE_MINER_TEMPERATURE_C = 2;
+    DATA_TYPE_MINER_POWER_W = 3;
+    DATA_TYPE_MINER_EFFICIENCY_J_TH = 4;
+
+    DATA_TYPE_PSU_TEMPERATURE_C = 5;
+    DATA_TYPE_PSU_VOLTAGE_MV = 6;
+    DATA_TYPE_PSU_CURRENT_MA = 7;
+    DATA_TYPE_PSU_POWER_W = 8;
+
+    // Requires hashboard serial number in request
+    DATA_TYPE_HB_HASHRATE_MH_S = 9;
+    DATA_TYPE_HB_TEMPERATURE_C = 10;
+    DATA_TYPE_HB_VOLTAGE_MV = 11;
+    DATA_TYPE_HB_CURRENT_MA = 12;
+    DATA_TYPE_HB_POWER_W = 13;
+    DATA_TYPE_HB_EFFICIENCY_J_TH = 14;
+
+    // Requires ASIC ID in request
+    DATA_TYPE_ASIC_HASHRATE_MH_S = 15;
+    DATA_TYPE_ASIC_TEMPERATURE_C = 17;
+    DATA_TYPE_ASIC_VOLTAGE_MV = 18;
+
+    DATA_TYPE_FAN_RPM = 19;
+}
+
+enum HashrateType {
+    HASHRATE_TYPE_NONE = 0;
+    HASHRATE_TYPE_NORMAL = 1;
+    HASHRATE_TYPE_AVERAGE = 2;
+    HASHRATE_TYPE_IDEAL = 3;
+}
+
+enum CoolingMode {
+    COOLING_MODE_UNKNOWN = 0;
+    COOLING_MODE_OFF = 1;
+    COOLING_MODE_AUTO = 2;
+    COOLING_MODE_MANUAL = 3;
+}
+
+enum HashboardState {
+    HASHBOARD_STATE_UNKNOWN = 0;
+    HASHBOARD_STATE_OFF = 1;
+    HASHBOARD_STATE_READY_FOR_POWER_ON = 2;
+    HASHBOARD_STATE_POWERING_ON = 3;
+    HASHBOARD_STATE_ON = 4;
+    HASHBOARD_STATE_CALIBRATING = 5;
+    HASHBOARD_STATE_MINING = 6;
+    HASHBOARD_STATE_POWERING_OFF = 7;
+    HASHBOARD_STATE_ERROR = 8;
+    HASHBOARD_STATE_ERROR_WITH_CONNECTED = 9;
+}
+
+enum UnifiedMinerFieldType {
+    UNIFIED_MINER_FIELD_TYPE_UNKNOWN = 0;
+    UNIFIED_MINER_FIELD_TYPE_HASHRATE = 1;
+    UNIFIED_MINER_FIELD_TYPE_IDEAL_HASHRATE = 2;
+    UNIFIED_MINER_FIELD_TYPE_TEMPERATURE = 3;
+    UNIFIED_MINER_FIELD_TYPE_POWER = 4;
+    UNIFIED_MINER_FIELD_TYPE_EFFICIENCY = 5;
+}
+
+enum UnifiedHashboardFieldType {
+    UNIFIED_HASHBOARD_FIELD_TYPE_UNKNOWN = 0;
+    UNIFIED_HASHBOARD_FIELD_TYPE_HASHRATE = 1;
+    UNIFIED_HASHBOARD_FIELD_TYPE_IDEAL_HASHRATE = 2;
+    UNIFIED_HASHBOARD_FIELD_TYPE_INLET_TEMPERATURE = 3;
+    UNIFIED_HASHBOARD_FIELD_TYPE_OUTLET_TEMPERATURE = 4;
+    UNIFIED_HASHBOARD_FIELD_TYPE_AVERAGE_TEMPERATURE = 5;
+    UNIFIED_HASHBOARD_FIELD_TYPE_POWER = 6;
+    UNIFIED_HASHBOARD_FIELD_TYPE_EFFICIENCY = 7;
+    UNIFIED_HASHBOARD_FIELD_TYPE_VOLTAGE = 8;
+    UNIFIED_HASHBOARD_FIELD_TYPE_CURRENT = 9;
+}
+
+enum UnifiedAsicFieldType {
+    UNIFIED_ASIC_FIELD_TYPE_UNKNOWN = 0;
+    UNIFIED_ASIC_FIELD_TYPE_HASHRATE = 1;
+    UNIFIED_ASIC_FIELD_TYPE_PASSRATE = 2;
+    UNIFIED_ASIC_FIELD_TYPE_VOLTAGE = 3;
+    UNIFIED_ASIC_FIELD_TYPE_TEMPERATURE = 4;
+    UNIFIED_ASIC_FIELD_TYPE_FREQUENCY = 5;
+}
+
+enum UnifiedPsuFieldType {
+    UNIFIED_PSU_FIELD_TYPE_UNKNOWN = 0;
+    UNIFIED_PSU_FIELD_TYPE_OUTPUT_VOLTAGE = 1;
+    UNIFIED_PSU_FIELD_TYPE_OUTPUT_CURRENT = 2;
+    UNIFIED_PSU_FIELD_TYPE_OUTPUT_POWER = 3;
+    UNIFIED_PSU_FIELD_TYPE_INPUT_VOLTAGE = 4;
+    UNIFIED_PSU_FIELD_TYPE_INPUT_CURRENT = 5;
+    UNIFIED_PSU_FIELD_TYPE_INPUT_POWER = 6;
+    UNIFIED_PSU_FIELD_TYPE_HOTSPOT_TEMPERATURE = 7;
+    UNIFIED_PSU_FIELD_TYPE_AMBIENT_TEMPERATURE = 8;
+    UNIFIED_PSU_FIELD_TYPE_AVERAGE_TEMPERATURE = 9;
+}
+
+enum UnifiedTimeseriesAggregationType {
+    AGGREGATION_TYPE_MEAN = 0;
+    AGGREGATION_TYPE_MIN = 1;
+    AGGREGATION_TYPE_MAX = 2;
+    AGGREGATION_TYPE_LAST = 3;
+    AGGREGATION_TYPE_SUM = 4;
+    AGGREGATION_TYPE_COUNT = 5;
+}
+
+// ----------------------------------------------
+// Message structures used by the miner data API
+// ----------------------------------------------
+
+message HashboardAsicId {
+    string hashboard_sn = 1;
+    uint32 asic_index = 2;
+}
+
+message ComponentId {
+    oneof id {
+        HashboardAsicId hashboard_asic_id = 1;
+        uint32 component_id = 2;
+    }
+}
+
+message TimeSeriesDataRequest {
+    miner_common_api.Interval time_interval = 1;
+    DataType data_type = 2;
+    ComponentId component_id = 3;
+    // Only required for hashrate data
+    HashrateType hashrate_type = 5;
+}
+
+message TimeSeriesDataResponse {
+    message TimeSeriesDataPoint {
+        miner_common_api.Timestamp timestamp = 1;
+        double value = 2;
+    }
+
+    miner_common_api.ApiResult result = 1;
+    miner_common_api.Interval time_interval = 2;
+    DataType data_type = 3;
+    ComponentId component_id = 4;
+    // Only required for hashrate data
+    HashrateType hashrate_type = 5;
+
+    miner_common_api.Aggregates data_aggregates = 7;
+    repeated TimeSeriesDataPoint data_points = 8;
+}
+
+message UnifiedTimeSeriesDataRequest {
+    message MinerLevelRequest {
+        repeated UnifiedMinerFieldType fields = 1;
+    }
+    message HashboardLevelRequest {
+        repeated UnifiedHashboardFieldType fields = 1;
+        repeated uint32 indexes = 2;
+    }
+    message AsicLevelRequest {
+        repeated UnifiedAsicFieldType fields = 1;
+        repeated uint32 indexes = 2;
+    }
+    message PsuLevelRequest {
+        repeated UnifiedPsuFieldType fields = 1;
+        repeated uint32 indexes = 2;
+    }
+
+    miner_common_api.Interval time_range = 1;
+    uint32 aggregation_interval_seconds = 2;
+
+    MinerLevelRequest miner = 3;
+    HashboardLevelRequest hashboards = 4;
+    AsicLevelRequest asics = 5;
+    PsuLevelRequest psus = 6;
+    UnifiedTimeseriesAggregationType aggregation = 7;
+}
+
+message UnifiedTimeSeriesDataResponse {
+    message Field {
+        message FieldData {
+            // `value` is explicitly optional, as the returned data may have missing datapoints.
+            optional double value = 1;
+        }
+        repeated FieldData values = 1;
+        miner_common_api.Aggregates data_aggregates = 2;
+    }
+    message PsuField {
+        Field field = 1;
+        UnifiedPsuFieldType field_type = 2;
+    }
+    message AsicField {
+        Field field = 1;
+        UnifiedAsicFieldType field_type = 2;
+    }
+    message HashboardField {
+        Field field = 1;
+        UnifiedHashboardFieldType field_type = 2;
+    }
+    message MinerField {
+        Field field = 1;
+        UnifiedMinerFieldType field_type = 2;
+    }
+
+    message Psu {
+        uint32 index = 1;
+        repeated PsuField fields = 2;
+        string serial_number = 3;
+    }
+    message Asic {
+        uint32 asic_index = 1;
+        uint32 hashboard_index = 2;
+        repeated AsicField fields = 3;
+    }
+    message Hashboard {
+        uint32 index = 1;
+        repeated HashboardField fields = 2;
+        string serial_number = 3;
+    }
+    message Miner {
+        repeated MinerField fields = 1;
+    }
+
+    miner_common_api.ApiResult result = 1;
+    miner_common_api.Interval time_range = 2;
+    uint32 aggregation_interval_seconds = 3;
+
+    optional Miner miner = 4;
+    repeated Hashboard hashboards = 5;
+    repeated Asic asics = 6;
+    repeated Psu psus = 7;
+}
+
+message CoolingModeResponse {
+    miner_common_api.ApiResult result = 1;
+    CoolingMode mode = 2;
+    uint32 speed_percentage = 4;
+    float target_temperature_c = 5;
+    repeated miner_fan_api.FanStatus fan_status = 3;
+}
+
+message ControlBoardInfo {
+    message MPUInfo {
+        uint32 processor = 1;
+        string model_name = 2;
+        string cpu_implementer = 5;
+        uint32 cpu_architecture = 6;
+        string cpu_variant = 7;
+        string cpu_part = 8;
+        uint32 cpu_revision = 9;
+        string hardware = 10;
+        string revision = 11;
+        string serial = 12;
+    }
+    message ControlBoardLinuxAsset {
+        string name = 1;
+        string version = 2;
+        string git_hash = 3;
+        string image_hash = 4;
+        string variant = 5;
+    }
+    MPUInfo mpu = 1;
+    ControlBoardLinuxAsset firmware = 2;
+    string machine_name = 3;
+    string board_id = 4;
+    string serial_number = 5;
+}
+
+message HashboardInfo {
+    message HashboardFirmwareAsset {
+        string version = 1;
+        string git_hash = 2;
+        string image_hash = 3;
+        miner_common_api.Build build = 4;
+    }
+    message AsicBinInfo {
+        uint32 id = 1;
+        uint32 version = 2;
+    }
+    uint32 id = 1;
+    string serial_number = 2;
+    HashboardFirmwareAsset firmware = 3;
+    HashboardFirmwareAsset bootloader = 4;
+    string api_version = 5;
+    string board = 6;
+    string chip_id = 7;
+    string mining_asic = 8;
+    uint32 mining_asic_count = 9;
+    uint32 temp_sensor_count = 10;
+    uint32 usb_port = 11;
+    string ec_logs_path = 12;
+    uint32 slot = 13;
+    // De-duplicated set of unique (id, version) ASIC bin combinations present on
+    // this hashboard. Each element is not a per-ASIC entry, and clients should
+    // treat the ordering of this repeated field as unspecified.
+    repeated AsicBinInfo mining_asic_bin = 14;
+}
+
+message HashboardsInfoResponse {
+    miner_common_api.ApiResult result = 1;
+    repeated HashboardInfo hashboards = 2;
+}
+
+message PsuStatusListResponse {
+    miner_common_api.ApiResult result = 1;
+    repeated miner_psu_api.PsuStatus status_list = 2;
+    // contains PSU IDs that failed to return status
+    repeated uint32 failed_psu_id_list = 3;
+}
+
+message PsuInfoListResponse {
+    miner_common_api.ApiResult result = 1;
+    repeated miner_psu_api.PsuInfo info_list = 2;
+    // contains PSU IDs that failed to return status
+    repeated uint32 failed_psu_id_list = 3;
+    // PSU firmware update info (optional, backwards compatible)
+    optional PsuUpdateInfo psu_update_info = 4;
+}
+
+message AvailablePsuFirmware {
+    string filename = 1;
+    string firmware_version = 2;
+    uint64 size_bytes = 3;
+    string sha256 = 4;
+    string model = 5;
+}
+
+message PsuFwUpdateStatus {
+    uint32 psu_id = 1;
+    miner_psu_api.PsuFwUpdateProgress progress = 2;
+}
+
+message PsuUpdateInfo {
+    repeated AvailablePsuFirmware available_firmware = 1;
+    repeated PsuFwUpdateStatus psu_fw_status = 6;
+}
+
+message FanInfo {
+    uint32 id = 1;
+    string name = 2;
+    optional uint32 min_rpm = 3;
+    optional uint32 max_rpm = 4;
+}
+
+message HardwareInfoResponse {
+    miner_common_api.ApiResult result = 1;
+    repeated HashboardInfo hashboards = 2;
+    repeated miner_psu_api.PsuInfo psus = 3;
+    repeated FanInfo fans = 4;
+    ControlBoardInfo cb_info = 5;
+}
+
+// Applicable to both miner and hashboards level
+message MiningStatistics {
+    double hashrate_mh_s = 1;
+    double ideal_hashrate_mh_s = 2;
+    double voltage_mv = 3;
+    double current_ma = 4;
+    double power_usage_w = 5;
+    uint32 power_target_w = 6;
+    double efficiency_jth = 7;
+    double asic_avg_temp_c = 8;
+    double asic_min_temp_c = 9;
+    double asic_max_temp_c = 10;
+    double hb_avg_temp_c = 11;
+    double hb_min_temp_c = 12;
+    double hb_max_temp_c = 13;
+    double hb_inlet_temp_c = 14;
+    double hb_outlet_temp_c = 15;
+}
+
+enum MiningState {
+    MINING_STATE_UNKNOWN = 0;
+    MINING_STATE_UNINITIALIZED = 1;
+    MINING_STATE_POWERING_ON = 2;
+    MINING_STATE_MINING = 3;
+    MINING_STATE_DEGRADED_MINING = 4;
+    MINING_STATE_POWERING_OFF = 5;
+    MINING_STATE_STOPPED = 6;
+    MINING_STATE_NO_POOLS = 7;
+    MINING_STATE_ERROR = 8;
+}
+
+message MiningStatusResponse {
+    miner_common_api.ApiResult result = 1;
+
+    MiningState state = 2;
+    repeated HashboardStatusResponse hashboards = 3;
+
+    MiningStatistics mining_statistics = 4;
+}
+
+message MiningStatus {
+    MiningState state = 1;
+}
+
+message BayStatus {
+    MiningState state = 1;
+    uint32 power_target_watts = 2;
+    PerformanceMode mode = 3;
+    bool phase_balancing_enabled = 4;
+}
+
+enum PerformanceMode {
+    PERFORMANCE_MODE_MAXIMUM_HASHRATE = 0;
+    PERFORMANCE_MODE_EFFICIENCY = 1;
+}
+
+message PowerTargetResponse {
+    miner_common_api.ApiResult result = 1;
+
+    uint32 power_target_w = 2;
+    PerformanceMode performance_mode = 3;
+
+    uint32 power_target_min_w = 4;
+    uint32 power_target_max_w = 5;
+    uint32 default_power_target_w = 6;
+
+    bool phase_balancing_enabled = 7;
+
+    bool hash_on_disconnect = 8;
+}
+
+message HashboardStatusRequest {
+    string hashboard_sn = 1;
+}
+
+message HashboardStatusResponse {
+    miner_common_api.ApiResult result = 1;
+
+    uint32 hashboard_id = 2;
+    string serial_number = 3;
+    HashboardState state = 4;
+    uint32 uptime_s = 5;
+    uint32 power_on_count = 6;
+    uint32 hardware_errors = 7;
+
+    MiningStatistics mining_statistics = 10;
+    repeated AsicStatusResponse asics = 11;
+
+}
+
+message AsicMiningStatistics {
+    double hashrate_mh_s = 1;
+    double ideal_hashrate_mh_s = 2;
+    double error_rate_percent = 3;
+    double temperature_c = 4;
+    double voltage_mv = 5;
+    double frequency_mhz = 6;
+}
+
+message AsicStatusRequest {
+    HashboardAsicId hashboard_asic_id = 1;
+}
+
+message AsicStatusResponse {
+    miner_common_api.ApiResult result = 1;
+
+    HashboardAsicId hashboard_asic_id = 2;
+    uint32 row = 3;
+    uint32 column = 4;
+
+    AsicMiningStatistics mining_statistics = 5;
+
+    // Human-readable ASIC identifier (e.g. "A0", "B3").
+    string asic_id = 6;
+}
+
+message SoftwareInfo {
+    string name = 1;
+    string version = 2;
+}
+
+message SoftwareInfoResponse {
+    miner_common_api.ApiResult result = 1;
+    SoftwareInfo sw_info = 2;
+}
+
+enum PoolConnectionStatus {
+    POOL_CONNECTION_STATUS_UNKNOWN = 0;
+    POOL_CONNECTION_STATUS_IDLE = 1;
+    POOL_CONNECTION_STATUS_ACTIVE = 2;
+    POOL_CONNECTION_STATUS_DEAD = 3;
+}
+
+enum PoolProtocol {
+    POOL_PROTOCOL_UNKNOWN = 0;
+    POOL_PROTOCOL_STRATUM_V1 = 1;
+    POOL_PROTOCOL_STRATUM_V2 = 2;
+}
+
+message Pool {
+    uint32 idx = 1;
+    uint32 component_id = 2;
+    uint32 priority = 3;
+    string url = 4;
+    uint32 port = 5;
+    string username = 6;
+    string password = 7;
+    PoolConnectionStatus connection_status = 9;
+    PoolProtocol protocol = 10;
+    PoolStatistics statistics = 11;
+    // User-defined display name for this pool
+    string name = 12;
+}
+
+message HashrateWindow {
+    uint32 duration_minutes = 1;
+    double hashrate_ths = 2;
+}
+
+message PoolStatistics {
+    uint64 accepted_shares = 1;
+    uint64 rejected_shares = 2;
+    uint64 invalid_shares = 3;
+    uint64 duplicate_shares = 4;
+    uint64 notifys_received = 5;
+    uint64 works_generated = 6;
+    uint64 blocks_seen = 7;
+    uint64 current_works = 8;
+    double current_difficulty = 9;
+    uint64 best_difficulty_share = 10;
+    double last_share_difficulty = 11;
+    uint64 last_share_time = 12;
+    double difficulty_accepted_shares = 13;
+    double difficulty_rejected_shares = 14;
+    // Hashrate calculated over different time windows
+    repeated HashrateWindow hashrate = 15;
+}
+
+message PoolsResponse {
+    miner_common_api.ApiResult result = 1;
+    repeated Pool pools = 2;
+}
+
+message ErrorFromDb {
+    miner_error_code.Error error = 1;
+    uint64 timestamp = 2;
+}
+
+message ErrorsResponse {
+    miner_common_api.ApiResult result = 1;
+    repeated ErrorFromDb errors = 2;
+}
+
+// ---------------------------------------------------
+// ASIC Metadata API messages
+// ---------------------------------------------------
+
+message HashboardAsicMetadata {
+    string serial_number = 1;
+    uint32 hashboard_id = 2;
+    uint32 slot = 3;
+    repeated fwpb.asic_metadata asic_metadata = 4;
+}
+
+message GetAsicMetadataResponse {
+    miner_common_api.ApiResult result = 1;
+    repeated HashboardAsicMetadata hashboards = 2;
+}
+
+// ---------------------------------------------------
+// Telemetry Values API messages
+// ---------------------------------------------------
+
+// Telemetry detail levels (additive, like REST API ?level=miner,psu,hashboard)
+enum TelemetryLevel {
+    TELEMETRY_LEVEL_MINER = 0;      // Miner-level aggregated data
+    TELEMETRY_LEVEL_HASHBOARD = 1;  // Per-hashboard metrics
+    TELEMETRY_LEVEL_PSU = 2;        // Per-PSU metrics
+    TELEMETRY_LEVEL_ASIC = 3;       // Per-ASIC detail within hashboards (implicitly includes hashboard)
+}
+
+message GetTelemetryValuesRequest {
+    repeated TelemetryLevel levels = 1;  // Which data types to include (defaults to [MINER] if empty)
+}
+
+message GetTelemetryValuesResponse {
+    miner_common_api.ApiResult result = 1;
+    MinerTelemetryValues miner = 2;
+    repeated HashboardTelemetryValues hashboards = 3;
+    repeated PsuTelemetryValues psus = 4;
+}
+
+// Miner-level telemetry values
+message MinerTelemetryValues {
+    double hashrate_th_s = 1;    // Total hashrate in TH/s
+    double temperature_c = 2;    // Average temperature in Celsius
+    double power_w = 3;          // Total power consumption in Watts
+    double efficiency_j_th = 4;  // Efficiency in J/TH
+}
+
+// Hashboard-level telemetry values
+message HashboardTelemetryValues {
+    uint32 index = 1;
+    string serial_number = 2;
+    double hashrate_th_s = 3;
+    double inlet_temperature_c = 4;
+    double outlet_temperature_c = 5;
+    double average_temperature_c = 6;
+    double power_w = 7;
+    double efficiency_j_th = 8;
+    optional double voltage_v = 9;
+    optional double current_a = 10;
+    optional AsicTelemetryValues asics = 11;
+}
+
+// ASIC-level telemetry values (arrays where index = ASIC index)
+message AsicTelemetryValues {
+    repeated double hashrate_th_s = 1;
+    repeated double temperature_c = 2;
+}
+
+// PSU-level telemetry values
+message PsuTelemetryValues {
+    uint32 index = 1;
+    string serial_number = 2;
+    double input_voltage_v = 3;
+    double output_voltage_v = 4;
+    double input_current_a = 5;
+    double output_current_a = 6;
+    double input_power_w = 7;
+    double output_power_w = 8;
+    double hotspot_temperature_c = 9;
+    double ambient_temperature_c = 10;
+    double average_temperature_c = 11;
+}

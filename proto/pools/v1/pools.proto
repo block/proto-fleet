@@ -1,0 +1,159 @@
+syntax = "proto3";
+
+package pools.v1;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/wrappers.proto";
+import "buf/validate/validate.proto";
+
+service PoolsService {
+    // Lists all configured mining pools
+    rpc ListPools(ListPoolsRequest) returns (ListPoolsResponse);
+
+    // Creates a new mining pool configuration
+    rpc CreatePool(CreatePoolRequest) returns (CreatePoolResponse);
+
+    // Updates an existing pool's configuration
+    rpc UpdatePool(UpdatePoolRequest) returns (UpdatePoolResponse);
+
+    // Deletes a pool configuration
+    rpc DeletePool(DeletePoolRequest) returns (DeletePoolResponse);
+
+    // Validates a pool's connection details
+    rpc ValidatePool(ValidatePoolRequest) returns (ValidatePoolResponse);
+}
+
+// PoolConfig defines the connection details for a mining pool
+message PoolConfig {
+  // Pool's stratum URL (e.g., "stratum+tcp://pool.example.com:3333")
+  // Required field that specifies the endpoint for connecting to the pool
+  string url = 1;
+
+  // Username or wallet address for pool authentication
+  // Required field that identifies the user/wallet receiving mining rewards
+  string username = 2;
+
+  // Password for pool authentication
+  // May be optional depending on pool requirements, often used for worker identification
+  google.protobuf.StringValue password = 3;
+
+  // Pool name to identify this pool
+  // Human-readable identifier for the pool within the fleet management system
+  string pool_name = 4;
+}
+
+enum PoolConnectionStatus {
+  POOL_CONNECTION_STATUS_UNSPECIFIED = 0;
+  POOL_CONNECTION_STATUS_IDLE = 1;
+  POOL_CONNECTION_STATUS_ACTIVE = 2;
+  POOL_CONNECTION_STATUS_DEAD = 3;
+}
+
+// Pool defines a configured mining pool with its connection details and status
+message Pool {
+  // Unique identifier for the pool within the system
+  int64 pool_id = 1;
+
+  // Pool's stratum URL (e.g., "stratum+tcp://pool.example.com:3333")
+  // Endpoint for connecting to the pool
+  string url = 2;
+
+  // Username or wallet address for pool authentication
+  // Identifies the user/wallet receiving mining rewards
+  string username = 3;
+
+  // Pool name to identify this pool
+  // Human-readable identifier for the pool within the fleet management system
+  string pool_name = 4;
+}
+
+// Request to retrieve all configured mining pools
+message ListPoolsRequest {
+  // Empty request as all pools are returned
+}
+
+// Response containing all configured mining pools
+message ListPoolsResponse {
+  // List of all configured pools, ordered by priority
+  repeated Pool pools = 1;
+}
+
+// Request to create a new mining pool configuration
+message CreatePoolRequest {
+  // Pool configuration details for the new pool
+  // Must contain all required connection information
+  PoolConfig pool_config = 1;
+}
+
+// Response after creating a new mining pool
+message CreatePoolResponse {
+  // The newly created pool with system-assigned ID and default values
+  Pool pool = 1;
+}
+
+// Request to update an existing pool's configuration
+message UpdatePoolRequest {
+  // Unique identifier of the pool to update
+  int64 pool_id = 1;
+
+  // New pool name (optional, leave empty to keep current value)
+  string pool_name = 2;
+
+  // New pool URL (optional, leave empty to keep current value)
+  string url = 3;
+
+  // New username (optional, leave empty to keep current value)
+  string username = 4;
+
+  // New password (optional, leave empty to keep current value)
+  google.protobuf.StringValue password = 5;
+}
+
+// Response after updating a pool's configuration
+message UpdatePoolResponse {
+  // The updated pool with all current values
+  Pool pool = 1;
+}
+
+// Request to delete a mining pool configuration
+message DeletePoolRequest {
+  // Unique identifier of the pool to delete
+  int64 pool_id = 1;
+}
+
+// Response after deleting a pool configuration
+message DeletePoolResponse {
+  // Empty response as success/failure is indicated by gRPC status
+}
+
+// Request to validate a pool's connection details
+message ValidatePoolRequest {
+    // Pool's stratum URL (e.g., "stratum+tcp://pool.example.com:3333")
+    // Required field that specifies the endpoint for connecting to the pool
+     string url = 1 [(buf.validate.field) = {
+        string: {
+            pattern: "^stratum\\+(tcp|ssl|ws):\\/\\/(([a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]\\.[a-zA-Z]{2,})|(\\d{1,3}\\.){3}\\d{1,3}|\\[([0-9a-fA-F:]+)\\])(:\\d{1,5})?$"
+            min_len: 12
+        }
+        required: true
+    }];
+    // Username or wallet address for pool authentication
+    // Required field that identifies the user/wallet receiving mining rewards
+    string username = 2[(buf.validate.field).required = true];
+
+    // Password for pool authentication
+    // May be optional depending on pool requirements, often used for worker identification
+    google.protobuf.StringValue password = 3;
+
+    // Set the timeout duration for validation
+    // This is an optional field for integration points that have issues setting context timeouts.
+    google.protobuf.Duration timeout = 4 [(buf.validate.field).duration = {
+        lte: { seconds: 360 } // Maximum timeout of 6 minutes
+        gte: { seconds: 1 } // Minimum timeout of 1 second
+    }];
+}
+
+// Response after validating a pool's connection details
+message ValidatePoolResponse {
+  // Empty response as success/failure is indicated by gRPC status
+}

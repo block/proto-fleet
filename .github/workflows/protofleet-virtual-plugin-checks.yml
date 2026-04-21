@@ -1,0 +1,57 @@
+name: Virtual Plugin Checks
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/protofleet-virtual-plugin-checks.yml"
+      - ".github/actions/go-cache-setup/action.yml"
+      - ".github/actions/hermit-setup/action.yml"
+      - "bin/hermit.hcl"
+      - "hermit-packages/**"
+      - "go.work"
+      - "go.work.sum"
+      - "server/go.mod"
+      - "server/go.sum"
+      - "server/sdk/**"
+      - "plugin/virtual/**"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/protofleet-virtual-plugin-checks.yml"
+      - ".github/actions/go-cache-setup/action.yml"
+      - ".github/actions/hermit-setup/action.yml"
+      - "bin/hermit.hcl"
+      - "hermit-packages/**"
+      - "go.work"
+      - "go.work.sum"
+      - "server/go.mod"
+      - "server/go.sum"
+      - "server/sdk/**"
+      - "plugin/virtual/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  virtual-plugin:
+    name: Virtual Plugin
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: plugin/virtual
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Hermit
+        uses: ./.github/actions/hermit-setup
+
+      - name: Configure Go cache
+        uses: ./.github/actions/go-cache-setup
+
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)"
+      - name: Build
+        run: go build ./...

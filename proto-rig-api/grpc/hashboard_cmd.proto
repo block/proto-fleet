@@ -1,0 +1,434 @@
+syntax = "proto3";
+
+package fwpb;
+
+option go_package = "pkg/proto;hashboard";
+
+import "hashboard.proto";
+import "hashboard_cmd_debug.proto";
+import "hashboard_cmd_mfgtest.proto";
+
+message reset_cmd {}
+
+message reset_rsp {}
+
+message meta_cmd {}
+
+message semver {
+    uint32 major = 1;
+    uint32 minor = 2;
+    uint32 patch = 3;
+}
+
+message firmware_metadata {
+    // All string sizes must match lib/metadata.c structs, and have +1
+    // to account for null terminator.
+    bool valid = 1;  // True if there was an error trying to get this metadata.
+    string git_id = 2;
+    string git_branch = 3;
+    semver version = 4;
+    string build = 5;
+    uint64 timestamp = 6;
+    string hash = 7;
+    string hw_revision = 8;
+}
+
+message meta_rsp {
+    dfu_slot active_slot = 1;
+    firmware_metadata meta_slot_active = 2;
+    firmware_metadata meta_slot_inactive = 3;
+}
+
+enum hardware_revision {
+    HARDWARE_REV_UNSPECIFIED = 0;
+
+    // B2
+    HARDWARE_REV_B2_PROTO_1 = 20;
+    HARDWARE_REV_B2_EVT = 21;
+
+    // B3
+    HARDWARE_REV_B3A_DEV = 30;
+    HARDWARE_REV_B3A_PROTO_1 = 31;
+    HARDWARE_REV_B3B_PROTO_1 = 32;
+    HARDWARE_REV_B3A_MP = 33;
+    HARDWARE_REV_B3B_MP = 34;
+
+    // B4
+    HARDWARE_REV_B4_192_PROTO_1 = 41;
+    HARDWARE_REV_B4_128_PROTO_1 = 42;
+}
+
+// A command used by the mobile client to ask the hw device for its metadata.
+message device_id_cmd {}
+
+// The response for `device_id_cmd `
+message device_id_rsp {
+    // all strings are +1 for null terminator
+    string serial = 1;
+    bool serial_valid = 2;
+    hardware_revision hw_revision = 3;
+}
+
+message asic_metadata {
+    string lot_id = 1;
+    string wafer_id = 2;
+    uint32 die_x = 3;
+    uint32 die_y = 4;
+    uint32 binning_version = 5;
+    uint32 binning = 6;
+    bool valid = 7;  // True if there was an error trying to decode this metadata
+}
+
+message mining_asic_metadata_get_cmd {}
+
+message mining_asic_metadata_get_rsp {
+    repeated asic_metadata metadata = 1;
+}
+
+message fan_speed_set_cmd {
+    uint32 speed = 1;
+}
+
+message fan_speed_set_rsp {}
+
+// Capabilities API - request message.
+message capabilities_cmd {
+    bool include_layout = 1;  // Request ASIC layout map (adds ~4KB to response).
+}
+
+// ASIC layout entry - maps a single ASIC to coordinate representations.
+message asic_layout_entry {
+    uint32 linear_index = 1;  // Global ASIC index (0 to total_asics-1).
+    uint32 stack_id = 2;      // Stack identifier (0=A, 1=B, etc.).
+    uint32 stack_index = 3;   // Index within the stack.
+    uint32 coord_x = 4;       // Physical X coordinate on PCB.
+    uint32 coord_y = 5;       // Physical Y coordinate on PCB.
+}
+
+// ASIC capabilities - describes the ASIC configuration of the hashboard.
+message asic_capabilities {
+    asic_type asic_type = 1;                // ASIC generation (MC2/MC3).
+    uint32 stack_count = 2;                 // Number of ASIC stacks.
+    uint32 asics_per_stack = 3;             // Number of ASICs per stack.
+    uint32 total_asics = 4;                 // Total ASIC count.
+    repeated asic_layout_entry layout = 5;  // Physical layout map (optional).
+}
+
+// Fan capabilities - describes fan control features.
+message fan_capabilities {
+    fan_capability capability = 1;  // Fan feature level.
+    uint32 min_speed_percent = 2;   // Minimum controllable speed.
+    uint32 max_speed_percent = 3;   // Maximum speed.
+}
+
+// Temperature sensor configuration.
+message temperature_sensor_config {
+    uint32 sensor_index = 1;                   // Sensor identifier (0 to sensor_count-1).
+    temperature_sensor_location location = 2;  // Sensor location on the board.
+}
+
+// Diagnostics capabilities - describes available diagnostic features.
+message diagnostics_capabilities {
+    bool iv_monitor_present = 1;                                 // True if IV monitoring available.
+    uint32 temperature_sensor_count = 2;                         // Number of board temp sensors.
+    repeated temperature_sensor_config temperature_sensors = 3;  // Sensor configuration details.
+}
+
+// Operational limits - defines safe operating thresholds.
+message operational_limits {
+    float voltage_min = 1;     // Minimum input voltage (V).
+    float voltage_max = 2;     // Maximum input voltage (V).
+    float current_max = 3;     // Maximum input current (A).
+    float board_temp_max = 4;  // Maximum board temperature (C).
+    float asic_temp_max = 5;   // Maximum ASIC temperature (C).
+    float asic_temp_min = 6;   // Minimum ASIC temperature (C).
+}
+
+// Capabilities API - response containing all hashboard capabilities.
+message capabilities_rsp {
+    asic_capabilities asic = 1;                // ASIC configuration.
+    fan_capabilities fan = 2;                  // Fan control features.
+    diagnostics_capabilities diagnostics = 3;  // Diagnostic features.
+    operational_limits limits = 4;             // Safe operating thresholds.
+}
+
+message mining_add_work_cmd {
+    // See https://developer.bitcoin.org/reference/block_chain.html for more
+    // information.
+
+    // A unique ID for the work.
+    // This is used to identify the work when nonces are returned.
+    uint32 work_id = 1;
+
+    // The block version number indicates which set of block validation rules to
+    // follow. Used for version rolling.
+    uint32 version = 2;
+
+    // A SHA256(SHA256()) hash in internal byte order of the previous block’s
+    // header. This ensures no previous block can be changed without also changing
+    // this block’s header.
+    bytes prev_block_hash = 3;
+
+    // A SHA256(SHA256()) hash in internal byte order.
+    // The merkle root is derived from the hashes of all transactions included in
+    // this block, ensuring that none of those transactions can be modified
+    // without modifying the header.
+    bytes merkle_root = 4;
+
+    // The block time is a Unix epoch time when the miner started hashing the
+    // header (according to the miner). Must be strictly greater than the median
+    // time of the previous 11 blocks. Full nodes will not accept blocks with
+    // headers more than two hours in the future according to their clock.
+    uint32 nTime = 5;
+
+    // An encoded version of the target threshold this block’s header hash must be
+    // less than or equal to.
+    uint32 nBits = 6;
+
+    // Threshold of the work ntime.
+    // A new set of version rolling work will be generated when the work ntime
+    // exceeds the work_ntime_th.
+    uint32 work_ntime_threshold_minutes = 7;
+}
+
+message mining_add_work_rsp {}
+
+message mining_state_set_cmd {
+    mining_state state = 1;
+}
+
+message mining_state_set_rsp {}
+
+message mining_difficulty_set_cmd {
+    uint64 difficulty = 1;
+}
+
+message mining_difficulty_set_rsp {}
+
+message mining_performance_mode_set_cmd {
+    mining_performance_mode mode = 1;
+    float power_target_watts = 2;
+}
+
+message mining_performance_mode_set_rsp {}
+
+enum dfu_slot {
+    SLOT_UNSPECIFIED = 0;
+    SLOT_A = 1;
+    SLOT_B = 2;
+}
+
+message dfu_status_cmd {}
+
+message dfu_status_rsp {
+    // Currently active slot
+    dfu_slot active_slot = 1;
+
+    // True when warranty unlock flag is present
+    bool warranty_unlocked = 2;
+
+    // True when a DFU rollback has occurred
+    bool rollback_occurred = 3;
+}
+
+message dfu_prepare_cmd {}
+
+message dfu_prepare_rsp {}
+
+message dfu_write_cmd {
+    // Offset of the data in the firmware slot
+    uint32 offset = 1;
+
+    // Array of data bytes
+    bytes data = 2;
+}
+
+message dfu_write_rsp {
+    // Requested offset to be sent next
+    uint32 offset = 1;
+}
+
+message dfu_activate_cmd {}
+
+message dfu_activate_rsp {}
+
+message dfu_unlock_cmd {
+    // To prevent accidental unlocking
+    string serial_number = 1;
+}
+
+message dfu_unlock_rsp {}
+
+// ASIC type enumeration.
+enum asic_type {
+    ASIC_TYPE_UNSPECIFIED = 0;
+    ASIC_TYPE_MC2 = 1;  // MC2 ASIC (SPI-based SLINK protocol).
+    ASIC_TYPE_MC3 = 2;  // MC3 ASIC (UART-based ULINK protocol).
+}
+
+// Fan capability level enumeration.
+enum fan_capability {
+    FAN_CAPABILITY_NONE = 0;                            // No fan support.
+    FAN_CAPABILITY_SPEED_CONTROL = 1;                   // PWM speed control and tachometer.
+    FAN_CAPABILITY_SPEED_CONTROL_WITH_DIAGNOSTICS = 2;  // Speed control plus fault detection.
+}
+
+// Temperature sensor location enumeration.
+enum temperature_sensor_location {
+    TEMP_SENSOR_LOCATION_UNSPECIFIED = 0;
+    TEMP_SENSOR_LOCATION_POWER = 1;       // Power supply area.
+    TEMP_SENSOR_LOCATION_INLET = 2;       // Air inlet.
+    TEMP_SENSOR_LOCATION_EXHAUST = 3;     // Air exhaust.
+    TEMP_SENSOR_LOCATION_MCU = 4;         // MCU area.
+    TEMP_SENSOR_LOCATION_ASIC_FRONT = 5;  // ASIC front area.
+    TEMP_SENSOR_LOCATION_ASIC_REAR = 6;   // ASIC rear area.
+    TEMP_SENSOR_LOCATION_PCBA = 7;        // PCB area.
+}
+
+enum status {
+    // Protocol status codes
+    UNSPECIFIED = 0;
+    SUCCESS = 1;
+    ERROR = 2;
+    UNKNOWN_MESSAGE = 3;
+    INVALID_ARGUMENT = 4;
+    NOT_IMPLEMENTED = 5;
+    TIMEOUT = 6;
+
+    // DFU status codes
+    DFU_NOT_READY = 7;
+    DFU_PREPARE_FAILED = 8;
+    DFU_WRITE_FAILED = 9;
+    DFU_VERIFY_FAILED = 10;
+    DFU_ACTIVATE_FAILED = 11;
+    DFU_UNLOCK_FAILED = 12;
+    DFU_WRITE_SECURE_ID_FAILED = 13;
+
+    // Mining status codes
+    MINING_NO_WORK = 20;
+}
+
+message hashboard_cmd {
+    oneof msg {
+        // IMPORTANT: Each variable name must exactly match the message type.
+        //
+        // Rationale:
+        // The IPC code generator relies on this fact, since it allows us to more
+        // easily generate code. Nanopb generates the tags for these fields based on
+        // the variable name, but the IPC code generator only ever looks at protobuf
+        // type names. We could loosen this restriction, but that would require the
+        // IPC code generator to inspect hashboard.pb.h for the tag names.
+
+        // System
+        meta_cmd meta_cmd = 1;
+        device_id_cmd device_id_cmd = 2;
+        uptime_cmd uptime_cmd = 3;
+        reset_cmd reset_cmd = 4;
+        fan_speed_set_cmd fan_speed_set_cmd = 5;
+        capabilities_cmd capabilities_cmd = 6;
+
+        // Mining
+        mining_asic_metadata_get_cmd mining_asic_metadata_get_cmd = 10;
+        mining_add_work_cmd mining_add_work_cmd = 11;
+        mining_state_set_cmd mining_state_set_cmd = 12;
+        mining_difficulty_set_cmd mining_difficulty_set_cmd = 13;
+        mining_performance_mode_set_cmd mining_performance_mode_set_cmd = 14;
+
+        // Mfgtest
+        mfgtest_serial_write_cmd mfgtest_serial_write_cmd = 30;
+        mfgtest_serial_read_cmd mfgtest_serial_read_cmd = 31;
+        mfgtest_store_binning_cmd mfgtest_store_binning_cmd = 32;
+        mfgtest_read_binning_cmd mfgtest_read_binning_cmd = 33;
+        mfgtest_lock_sysinfo_cmd mfgtest_lock_sysinfo_cmd = 34;
+        mfgtest_set_led_cmd mfgtest_set_led_cmd = 35;
+        mfgtest_cycle_stacks_cmd mfgtest_cycle_stacks_cmd = 36;
+        mfgtest_stack_set_cmd mfgtest_stack_set_cmd = 37;
+        mfgtest_stack_status_cmd mfgtest_stack_status_cmd = 38;
+        dfu_write_secure_id_cmd dfu_write_secure_id_cmd = 39;
+        mfgtest_asic_debug_cmd mfgtest_asic_debug_cmd = 40;
+
+        // Debug
+        echo_cmd echo_cmd = 41;
+        hashrail_state_get_cmd hashrail_state_get_cmd = 42;
+        hashrail_state_set_cmd hashrail_state_set_cmd = 43;
+        refclock_state_get_cmd refclock_state_get_cmd = 44;
+        refclock_state_set_cmd refclock_state_set_cmd = 45;
+        iv_monitor_get_cmd iv_monitor_get_cmd = 46;
+        board_temperature_get_cmd board_temperature_get_cmd = 47;
+        asic_freq_set_cmd asic_freq_set_cmd = 48;
+        async_message_interval_cmd async_message_interval_cmd = 49;
+        asic_freq_gain_set_cmd asic_freq_gain_set_cmd = 50;
+
+        // DFU
+        dfu_status_cmd dfu_status_cmd = 100;
+        dfu_prepare_cmd dfu_prepare_cmd = 101;
+        dfu_write_cmd dfu_write_cmd = 102;
+        dfu_activate_cmd dfu_activate_cmd = 103;
+        dfu_unlock_cmd dfu_unlock_cmd = 104;
+    }
+
+    uint32 timestamp = 9999;
+}
+
+message hashboard_rsp {
+    oneof msg {
+        // IMPORTANT: Each variable name must exactly match the message type.
+        //
+        // Rationale:
+        // The IPC code generator relies on this fact, since it allows us to more
+        // easily generate code. Nanopb generates the tags for these fields based on
+        // the variable name, but the IPC code generator only ever looks at protobuf
+        // type names. We could loosen this restriction, but that would require the
+        // IPC code generator to inspect hashboard.pb.h for the tag names.
+
+        // Device info
+        meta_rsp meta_rsp = 1;
+        device_id_rsp device_id_rsp = 2;
+        uptime_rsp uptime_rsp = 3;
+        reset_rsp reset_rsp = 4;  // This is only sent if the reset fails
+        fan_speed_set_rsp fan_speed_set_rsp = 5;
+        capabilities_rsp capabilities_rsp = 6;
+
+        // Mining
+        mining_asic_metadata_get_rsp mining_asic_metadata_get_rsp = 10;
+        mining_add_work_rsp mining_add_work_rsp = 11;
+        mining_state_set_rsp mining_state_set_rsp = 12;
+        mining_difficulty_set_rsp mining_difficulty_set_rsp = 13;
+        mining_performance_mode_set_rsp mining_performance_mode_set_rsp = 14;
+
+        // Mfgtest
+        mfgtest_serial_write_rsp mfgtest_serial_write_rsp = 30;
+        mfgtest_serial_read_rsp mfgtest_serial_read_rsp = 31;
+        mfgtest_store_binning_rsp mfgtest_store_binning_rsp = 32;
+        mfgtest_read_binning_rsp mfgtest_read_binning_rsp = 33;
+        mfgtest_lock_sysinfo_rsp mfgtest_lock_sysinfo_rsp = 34;
+        mfgtest_set_led_rsp mfgtest_set_led_rsp = 35;
+        mfgtest_cycle_stacks_rsp mfgtest_cycle_stacks_rsp = 36;
+        mfgtest_stack_set_rsp mfgtest_stack_set_rsp = 37;
+        mfgtest_stack_status_rsp mfgtest_stack_status_rsp = 38;
+        dfu_write_secure_id_rsp dfu_write_secure_id_rsp = 39;
+        mfgtest_asic_debug_rsp mfgtest_asic_debug_rsp = 40;
+
+        // Debug
+        echo_rsp echo_rsp = 41;
+        hashrail_state_get_rsp hashrail_state_get_rsp = 42;
+        hashrail_state_set_rsp hashrail_state_set_rsp = 43;
+        refclock_state_get_rsp refclock_state_get_rsp = 44;
+        refclock_state_set_rsp refclock_state_set_rsp = 45;
+        iv_monitor_get_rsp iv_monitor_get_rsp = 46;
+        board_temperature_get_rsp board_temperature_get_rsp = 47;
+        asic_freq_set_rsp asic_freq_set_rsp = 48;
+        async_message_interval_rsp async_message_interval_rsp = 49;
+        asic_freq_gain_set_rsp asic_freq_gain_set_rsp = 50;
+
+        // DFU
+        dfu_status_rsp dfu_status_rsp = 100;
+        dfu_prepare_rsp dfu_prepare_rsp = 101;
+        dfu_write_rsp dfu_write_rsp = 102;
+        dfu_activate_rsp dfu_activate_rsp = 103;
+        dfu_unlock_rsp dfu_unlock_rsp = 104;
+    }
+
+    // Global status code.
+    status status = 9999;
+}

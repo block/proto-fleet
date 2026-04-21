@@ -1,0 +1,350 @@
+<Window x:Class="ProtoFleet.Installer.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Proto Fleet Installer"
+        Width="980"
+        Height="760"
+        MinWidth="880"
+        MinHeight="680"
+        WindowStartupLocation="CenterScreen"
+        Background="{StaticResource BackgroundGradient}">
+    <Window.Resources>
+        <Style x:Key="ActionButtonStyle" TargetType="{x:Type Button}">
+            <Setter Property="Width" Value="180" />
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0" Background="White" CornerRadius="12" Padding="20" BorderBrush="#D6E0EA" BorderThickness="1">
+            <Grid>
+                <Border
+                        Background="#E8F1F8"
+                        BorderBrush="#B8D0E2"
+                        BorderThickness="1"
+                        CornerRadius="10"
+                        Padding="14,8"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Top"
+                        Panel.ZIndex="10">
+                    <TextBlock x:Name="StepIndicatorText" Text="Step 1 of 4" FontWeight="SemiBold" Foreground="#1E4D69" />
+                </Border>
+
+                <Grid x:Name="WelcomeStepPanel">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <StackPanel>
+                        <TextBlock Text="Before You Start"
+                                   FontSize="24"
+                                   FontWeight="SemiBold"
+                                   Foreground="#17384C" />
+                        <TextBlock Margin="0,10,0,0" Foreground="#35596E" TextWrapping="Wrap">
+                            This installer will prepare your Windows machine and deploy Proto Fleet services.
+                        </TextBlock>
+                        <Border Margin="0,18,0,0" Background="#F6FAFD" BorderBrush="#D2E0EC" BorderThickness="1" CornerRadius="10" Padding="14">
+                            <StackPanel>
+                                <TextBlock FontWeight="SemiBold" Foreground="#214E67" Text="What this installer does:" />
+                                <TextBlock Margin="0,10,0,0" Foreground="#365F76" TextWrapping="Wrap" Text="1. Checks Windows prerequisites (build, memory, disk)." />
+                                <TextBlock Margin="0,6,0,0" Foreground="#365F76" TextWrapping="Wrap" Text="2. Installs or repairs WSL2 and a Linux distro if required." />
+                                <TextBlock Margin="0,6,0,0" Foreground="#365F76" TextWrapping="Wrap" Text="3. Installs and configures Docker inside WSL." />
+                                <TextBlock Margin="0,6,0,0" Foreground="#365F76" TextWrapping="Wrap" Text="4. Configures deployment settings and starts Proto Fleet containers." />
+                            </StackPanel>
+                        </Border>
+                        <TextBlock Margin="0,16,0,0"
+                                   Foreground="#8A5B00"
+                                   TextWrapping="Wrap"
+                                   Text="Administrator permissions are required. Some system changes can require a reboot." />
+                    </StackPanel>
+
+                    <StackPanel Grid.Row="1" Margin="0,18,0,0" Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Content="Cancel" Style="{StaticResource ActionButtonStyle}" Click="CancelButton_OnClick" IsCancel="True" />
+                        <Button Content="Continue" Style="{StaticResource ActionButtonStyle}" Click="WelcomeContinueButton_OnClick" Margin="10,0,0,0" IsDefault="True" />
+                    </StackPanel>
+                </Grid>
+
+                <Grid x:Name="ConfigurationStepPanel" Visibility="Collapsed">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel>
+                            <TextBlock Text="Installer Configuration" />
+                            <TextBlock Margin="0,10,0,0" TextWrapping="Wrap">
+                                Choose setup mode first. Simple mode hides technical options for a cleaner install experience.
+                            </TextBlock>
+
+                            <TextBlock Margin="0,16,0,0" Text="Setup Mode" />
+                            <ComboBox x:Name="SetupModeCombo" SelectionChanged="SetupModeCombo_OnSelectionChanged">
+                                <ComboBoxItem Tag="Simple" IsSelected="True">Simple (recommended defaults)</ComboBoxItem>
+                                <ComboBoxItem Tag="Advanced">Advanced (custom options)</ComboBoxItem>
+                            </ComboBox>
+
+                            <TextBlock x:Name="ModeDescriptionTextBlock"
+                                       Margin="0,14,0,0"
+                                       TextWrapping="Wrap"
+                                       Text="Simple mode uses automatic deployment discovery, interactive Ubuntu first-run user setup, and HTTP defaults." />
+
+                            <CheckBox x:Name="EnableTaskCheckBox"
+                                      Margin="0,14,0,0"
+                                      Content="Enable WSL auto-start scheduled task at logon" />
+
+                            <StackPanel x:Name="GuidedOptionsPanel" Margin="0,8,0,0" Visibility="Collapsed">
+                                <TextBlock Margin="0,14,0,0" TextWrapping="Wrap"
+                                           Text="Linux user setup: interactive Ubuntu first-run setup." />
+
+                                <TextBlock Margin="0,14,0,0" Text="Protocol Mode" />
+                                <ComboBox x:Name="ProtocolModeCombo">
+                                    <ComboBoxItem Tag="Auto" IsSelected="True">Auto</ComboBoxItem>
+                                    <ComboBoxItem Tag="Http">HTTP</ComboBoxItem>
+                                    <ComboBoxItem Tag="HttpsSelfSigned">HTTPS (self-signed)</ComboBoxItem>
+                                    <ComboBoxItem Tag="HttpsExisting">HTTPS (existing cert/key)</ComboBoxItem>
+                                </ComboBox>
+
+                                <TextBlock Margin="0,14,0,0" Text="Deployment Path (optional)" />
+                                <TextBox x:Name="DeploymentPathTextBox" />
+
+                                <TextBlock Margin="0,14,0,0" Text="Tarball Path (optional)" />
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox x:Name="TarballPathTextBox" IsReadOnly="True" />
+                                    <Button Grid.Column="1"
+                                            Margin="8,0,0,0"
+                                            Width="100"
+                                            Content="Browse..."
+                                            Click="TarballBrowseButton_OnClick" />
+                                </Grid>
+
+                                <TextBlock Margin="0,14,0,0" Text="Config File (.env, optional)" />
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox x:Name="ConfigFileTextBox" IsReadOnly="True" />
+                                    <Button Grid.Column="1"
+                                            Margin="8,0,0,0"
+                                            Width="100"
+                                            Content="Browse..."
+                                            Click="ConfigFileBrowseButton_OnClick" />
+                                </Grid>
+
+                                <TextBlock Margin="0,14,0,0" Text="Install Directory in WSL" />
+                                <TextBox x:Name="InstallDirTextBox" Text="~/proto-fleet" />
+
+                                <TextBlock Margin="0,14,0,0" Text="Existing Cert Path (for HTTPS existing mode)" />
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox x:Name="CertPathTextBox" IsReadOnly="True" />
+                                    <Button Grid.Column="1"
+                                            Margin="8,0,0,0"
+                                            Width="100"
+                                            Content="Browse..."
+                                            Click="CertPathBrowseButton_OnClick" />
+                                </Grid>
+
+                                <TextBlock Margin="0,14,0,0" Text="Existing Key Path (for HTTPS existing mode)" />
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox x:Name="KeyPathTextBox" IsReadOnly="True" />
+                                    <Button Grid.Column="1"
+                                            Margin="8,0,0,0"
+                                            Width="100"
+                                            Content="Browse..."
+                                            Click="KeyPathBrowseButton_OnClick" />
+                                </Grid>
+                            </StackPanel>
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <StackPanel Grid.Row="1" Margin="0,18,0,0" Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Content="Back" Style="{StaticResource ActionButtonStyle}" Click="ConfigurationBackButton_OnClick" IsCancel="True" />
+                        <Button Content="Continue" Style="{StaticResource ActionButtonStyle}" Click="ConfigurationContinueButton_OnClick" Margin="10,0,0,0" IsDefault="True" />
+                    </StackPanel>
+                </Grid>
+
+                <Grid x:Name="RunStepPanel" Visibility="Collapsed">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <TextBlock x:Name="RunStepTitleTextBlock"
+                               Text="Ready to Install"
+                               FontSize="24"
+                               FontWeight="SemiBold"
+                               Foreground="#17384C" />
+
+                    <Border Grid.Row="1" Margin="0,12,0,0" Background="#F7FBFF" BorderBrush="#D2E0EC" BorderThickness="1" CornerRadius="8" Padding="12">
+                        <TextBlock x:Name="InstallSummaryTextBlock" TextWrapping="Wrap" Foreground="#2F556D" />
+                    </Border>
+
+                    <Grid Grid.Row="2" Margin="0,14,0,0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        <TextBlock Text="Execution Log" FontSize="18" FontWeight="SemiBold" Foreground="#1D4259" />
+                        <ProgressBar x:Name="InstallProgressBar" Grid.Row="1" Height="8" Margin="0,10,0,12" IsIndeterminate="False" />
+                        <TextBox x:Name="LogTextBox"
+                                 Grid.Row="2"
+                                 VerticalScrollBarVisibility="Auto"
+                                 HorizontalScrollBarVisibility="Auto"
+                                 TextWrapping="NoWrap"
+                                 FontFamily="Consolas"
+                                 IsReadOnly="True"
+                                 Background="#0F1B26"
+                                 Foreground="#DCE7F2"
+                                 BorderBrush="#253D51"
+                                 BorderThickness="1"
+                                 Padding="10" />
+                    </Grid>
+
+                    <StackPanel Grid.Row="3" Margin="0,18,0,0" Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button x:Name="RunBackButton" Content="Back" Style="{StaticResource ActionButtonStyle}" Click="RunBackButton_OnClick" IsCancel="True" />
+                        <Button x:Name="StartInstallButton" Content="Start Installation" Style="{StaticResource ActionButtonStyle}" Click="StartInstallButton_OnClick" Margin="10,0,0,0" IsDefault="True" />
+                    </StackPanel>
+                </Grid>
+
+                <Grid x:Name="WaitForLinuxUserStepPanel" Visibility="Collapsed">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Text="Waiting for Linux User Setup"
+                               FontSize="24"
+                               FontWeight="SemiBold"
+                               Foreground="#17384C" />
+
+                    <Border Grid.Row="1" Margin="0,12,0,0" Background="#F7FBFF" BorderBrush="#D2E0EC" BorderThickness="1" CornerRadius="8" Padding="12">
+                        <StackPanel>
+                            <TextBlock TextWrapping="Wrap" Foreground="#2F556D"
+                                       Text="Complete Ubuntu first-run setup in the opened distro window by creating the Linux username and password." />
+                            <TextBlock Margin="0,10,0,0" FontWeight="SemiBold" Foreground="#214E67"
+                                       Text="Distro:" />
+                            <TextBlock x:Name="WaitDistroNameTextBlock" Foreground="#2F556D" />
+                            <TextBlock Margin="0,10,0,0" FontWeight="SemiBold" Foreground="#214E67"
+                                       Text="Status:" />
+                            <TextBlock x:Name="WaitStatusTextBlock" Foreground="#2F556D" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+
+                    <StackPanel Grid.Row="2" Margin="0,16,0,0">
+                        <TextBlock Foreground="#35596E"
+                                   TextWrapping="Wrap"
+                                   Text="The installer will continue automatically once setup is detected and will resume from Linux-user setup." />
+                        <Expander Header="Need help?"
+                                  Margin="0,12,0,0"
+                                  HorizontalAlignment="Left"
+                                  IsExpanded="False">
+                            <StackPanel Margin="0,8,0,0">
+                                <TextBlock TextWrapping="Wrap"
+                                           Text="If no Ubuntu setup window is open, use Open Ubuntu Window. Then finish setup and click Check Setup." />
+                                <StackPanel Margin="0,8,0,0" Orientation="Horizontal">
+                                    <Button Content="Open Ubuntu Window" Style="{StaticResource ActionButtonStyle}" Click="WaitOpenUbuntuButton_OnClick" />
+                                    <Button Content="Copy command" Style="{StaticResource ActionButtonStyle}" Click="WaitCopyCommandButton_OnClick" Margin="10,0,0,0" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Expander>
+                    </StackPanel>
+
+                    <StackPanel Grid.Row="3" Margin="0,18,0,0" Orientation="Horizontal" HorizontalAlignment="Right">
+                            <Button Content="Cancel" Style="{StaticResource ActionButtonStyle}" Click="WaitCancelButton_OnClick" IsCancel="True" />
+                            <Button Content="Check Setup" Style="{StaticResource ActionButtonStyle}" Click="WaitCompletedButton_OnClick" Margin="10,0,0,0" IsDefault="True" />
+                    </StackPanel>
+                </Grid>
+
+                <Grid x:Name="CompletionStepPanel" Visibility="Collapsed">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <TextBox x:Name="CompletionHeaderTextBox"
+                             Text="Installation Complete"
+                             FontSize="24"
+                             FontWeight="SemiBold"
+                             IsReadOnly="True"
+                             BorderThickness="0"
+                             Background="Transparent" />
+
+                    <Border Grid.Row="1" Margin="0,12,0,0" Background="#F7FBFF" BorderBrush="#D2E0EC" BorderThickness="1" CornerRadius="8" Padding="12">
+                        <StackPanel>
+                            <TextBox x:Name="CompletionSummaryTextBox"
+                                     IsReadOnly="True"
+                                     BorderThickness="0"
+                                     Background="Transparent"
+                                     TextWrapping="Wrap"
+                                     AcceptsReturn="True" />
+                            <TextBlock Margin="0,10,0,0" FontWeight="SemiBold" Foreground="#214E67" Text="Fleet URL" />
+                            <TextBlock Margin="0,4,0,0">
+                                <Hyperlink x:Name="CompletionUrlHyperlink" Click="CompletionUrlHyperlink_OnClick">
+                                    <Run x:Name="CompletionUrlHyperlinkRun" />
+                                </Hyperlink>
+                            </TextBlock>
+                            <TextBlock Margin="0,10,0,0" FontWeight="SemiBold" Foreground="#214E67" Text="Troubleshooting" />
+                            <TextBlock Margin="0,4,0,0" TextWrapping="Wrap"
+                                       Text="Copy and run these commands directly in PowerShell when you need to inspect or recover Fleet services." />
+                            <TextBox x:Name="CompletionCommandsTextBox"
+                                     IsReadOnly="True"
+                                     BorderThickness="0"
+                                     Background="Transparent"
+                                     FontFamily="Consolas"
+                                     TextWrapping="NoWrap"
+                                     AcceptsReturn="True"
+                                     HorizontalScrollBarVisibility="Auto"
+                                     VerticalScrollBarVisibility="Auto"
+                                     MinHeight="140" />
+                        </StackPanel>
+                    </Border>
+
+                    <Grid Grid.Row="3" Margin="0,18,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Grid.Column="0" VerticalAlignment="Center" TextWrapping="Wrap">
+                            <Run Text="If Fleet does not load immediately, " />
+                            <Hyperlink Click="CompletionRunWslHyperlink_OnClick">
+                                <Run Text="run wsl now" />
+                            </Hyperlink>
+                            <Run Text=" in PowerShell, then refresh your browser." />
+                        </TextBlock>
+
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                            <Button Content="Exit"
+                                    Style="{StaticResource ActionButtonStyle}"
+                                    Click="FinishButton_OnClick"
+                                    IsDefault="True"
+                                    IsCancel="True" />
+                        </StackPanel>
+                    </Grid>
+                </Grid>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

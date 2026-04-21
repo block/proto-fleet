@@ -1,0 +1,284 @@
+syntax = "proto3";
+
+package telemetry.v1;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/duration.proto";
+import "buf/validate/validate.proto";
+import "common/v1/measurement.proto";
+
+// Service for retrieving telemetry data from mining devices
+service TelemetryService {
+  // Historical, aggregated candles (pull).
+  rpc GetCombinedMetrics(GetCombinedMetricsRequest) returns (GetCombinedMetricsResponse) {}
+
+  // Live updates pushed by the server (used by dashboard).
+  rpc StreamCombinedMetricUpdates(StreamCombinedMetricUpdatesRequest) returns (stream StreamCombinedMetricUpdatesResponse) {}
+}
+
+// Enums matching domain models
+enum MeasurementType {
+  MEASUREMENT_TYPE_UNSPECIFIED = 0;
+  MEASUREMENT_TYPE_TEMPERATURE = 1;
+  MEASUREMENT_TYPE_HASHRATE = 2;
+  MEASUREMENT_TYPE_POWER = 3;
+  MEASUREMENT_TYPE_EFFICIENCY = 4;
+  MEASUREMENT_TYPE_FAN_SPEED = 5;
+  MEASUREMENT_TYPE_VOLTAGE = 6;
+  MEASUREMENT_TYPE_CURRENT = 7;
+  MEASUREMENT_TYPE_UPTIME = 8;
+  MEASUREMENT_TYPE_ERROR_RATE = 9;
+}
+
+enum AggregationType {
+  AGGREGATION_TYPE_UNSPECIFIED = 0;
+  AGGREGATION_TYPE_AVERAGE = 1;
+  AGGREGATION_TYPE_MIN = 2;
+  AGGREGATION_TYPE_MAX = 3;
+  AGGREGATION_TYPE_SUM = 4;
+  AGGREGATION_TYPE_FIRST_QUARTILE = 5;
+  AGGREGATION_TYPE_MEDIAN = 6;
+  AGGREGATION_TYPE_THIRD_QUARTILE = 7;
+  AGGREGATION_TYPE_FIRST = 8;
+  AGGREGATION_TYPE_LAST = 9;
+}
+
+message DeviceSelector  {
+    oneof selector_value {
+        bool all_devices = 1; // Select all devices in the org
+        DeviceList device_list = 2; // Select specific devices by ID
+    }
+}
+
+message DeviceList {
+    // List of device identifiers (e.g., "proto-miner-001").
+    // Note: Despite the field name, these are unique device identifier strings,
+    // not database primary key IDs.
+    repeated string device_ids = 1;
+}
+
+
+enum ComponentStatus {
+  COMPONENT_STATUS_UNSPECIFIED = 0;
+  COMPONENT_STATUS_HEALTHY = 1;
+  COMPONENT_STATUS_WARNING = 2;
+  COMPONENT_STATUS_CRITICAL = 3;
+  COMPONENT_STATUS_OFFLINE = 4;
+}
+
+// Temperature status based on threshold ranges
+enum TemperatureStatus {
+  TEMPERATURE_STATUS_UNSPECIFIED = 0;
+  TEMPERATURE_STATUS_COLD = 1;      // Below 0°C
+  TEMPERATURE_STATUS_OK = 2;        // 0°C to 70°C
+  TEMPERATURE_STATUS_HOT = 3;       // 70°C to 90°C
+  TEMPERATURE_STATUS_CRITICAL = 4;  // Above 90°C
+}
+
+// Temperature status distribution at a point in time
+message TemperatureStatusCount {
+  google.protobuf.Timestamp timestamp = 1;
+  int32 cold_count = 2;     // Count of miners < 0°C
+  int32 ok_count = 3;       // Count of miners 0-70°C
+  int32 hot_count = 4;      // Count of miners 70-90°C
+  int32 critical_count = 5; // Count of miners > 90°C
+}
+
+// Uptime status distribution at a point in time
+message UptimeStatusCount {
+  google.protobuf.Timestamp timestamp = 1;
+  int32 hashing_count = 2;     // Count of miners actively hashing
+  int32 not_hashing_count = 3; // Count of miners not hashing
+}
+
+// Status of a miner
+enum DeviceStatus {
+  // Status is unknown or not specified
+  DEVICE_STATUS_UNSPECIFIED = 0;
+
+  // Miner is online and functioning normally
+  DEVICE_STATUS_ONLINE = 1;
+
+  // Miner is offline and not responding
+  DEVICE_STATUS_OFFLINE = 2;
+
+  // Miner is in maintenance mode
+  DEVICE_STATUS_MAINTENANCE = 3;
+
+  // Miner is in error state
+  DEVICE_STATUS_ERROR = 4;
+
+  // Miner is inactive, not mining but still connected
+  DEVICE_STATUS_INACTIVE = 5;
+
+  // Miner is online but needs a mining pool configured to start mining
+  DEVICE_STATUS_NEEDS_MINING_POOL = 6;
+
+  // Miner is receiving a firmware update (install in progress on device)
+  DEVICE_STATUS_UPDATING = 7;
+
+  // Miner firmware has been installed but requires a reboot to activate
+  DEVICE_STATUS_REBOOT_REQUIRED = 8;
+}
+
+enum UpdateType {
+  UPDATE_TYPE_UNSPECIFIED = 0;
+  UPDATE_TYPE_TELEMETRY = 1;
+  UPDATE_TYPE_HEARTBEAT = 2;
+  UPDATE_TYPE_ERROR = 3;
+  UPDATE_TYPE_DEVICE_STATUS = 4;
+  UPDATE_TYPE_MINER_STATE_COUNTS = 5; // Represents counts of miners in different states
+}
+
+// Time range using optional fields (best practice)
+message TimeRange {
+  optional google.protobuf.Timestamp start_time = 1;
+  optional google.protobuf.Timestamp end_time = 2;
+}
+
+// Telemetry data structure
+message TelemetryData {
+  // The device identifier string (e.g., "proto-miner-001").
+  // Note: Despite the field name, this is the unique device identifier,
+  // not the database primary key.
+  string device_id = 1;
+  MeasurementType measurement_type = 2;
+  double value = 3;
+  common.v1.MeasurementUnit unit = 4;
+  google.protobuf.Timestamp timestamp = 5;
+  map<string, string> tags = 6;
+}
+
+// Device metadata
+message DeviceMetadata {
+  // The device identifier string (e.g., "proto-miner-001").
+  // Note: Despite the field name, this is the unique device identifier,
+  // not the database primary key.
+  string device_id = 1;
+  optional string device_type = 2;
+  google.protobuf.Timestamp last_seen = 3;
+  ComponentStatus status = 4;
+  optional string location = 5;
+  map<string, string> tags = 6;
+  repeated string capabilities = 7;
+}
+
+// Aggregated telemetry result
+message AggregatedTelemetry {
+  // The device identifier string (e.g., "proto-miner-001").
+  // Note: Despite the field name, this is the unique device identifier,
+  // not the database primary key.
+  string device_id = 1;
+  MeasurementType measurement_type = 2;
+  double value = 3;
+  AggregationType aggregation_type = 4;
+  int32 data_points = 5;
+  TimeRange time_window = 6;
+  map<string, string> tags = 7;
+}
+
+// Represents counts of miners in different states with status-first priority:
+// 1. Offline (OFFLINE/NULL status) - highest priority
+// 2. Sleeping (MAINTENANCE/INACTIVE status) - second priority
+// 3. Needs Attention (NEEDS_MINING_POOL/ERROR/AUTHENTICATION_NEEDED/errors) - only if not offline or sleeping
+// 4. Hashing (ACTIVE, no auth needed, no errors) - only if none of the above
+// TODO: align the name of the messages, to match the filters MinerStatus -> DeviceStatus
+message MinerStateCounts {
+  // Number of miners that are hashing (ACTIVE status, no AUTHENTICATION_NEEDED, no open errors)
+  // Only counted if not offline, sleeping, or needs attention
+  int32 hashing_count = 1;
+
+  // Number of miners that need attention (NEEDS_MINING_POOL OR ERROR status OR AUTHENTICATION_NEEDED OR open CRITICAL/MAJOR/MINOR errors)
+  // Only counted if not offline or sleeping - status takes priority over errors
+  int32 broken_count = 2;
+
+  // Number of miners that are offline (OFFLINE or NULL status)
+  // Highest priority - includes devices with AUTHENTICATION_NEEDED and/or open errors
+  int32 offline_count = 3;
+
+  // Number of miners that are sleeping (MAINTENANCE or INACTIVE status)
+  // Second priority - includes devices with AUTHENTICATION_NEEDED and/or open errors
+  int32 sleeping_count = 4;
+}
+
+// Streaming update
+message TelemetryUpdate {
+  UpdateType type = 1;
+  // The device identifier string (e.g., "proto-miner-001").
+  // Note: Despite the field name, this is the unique device identifier,
+  // not the database primary key.
+  optional string device_id = 2;
+  google.protobuf.Timestamp timestamp = 3;
+  optional TelemetryData data = 4;
+  optional string error_message = 5;
+  optional ComponentStatus status = 6;
+  optional DeviceStatus device_status = 7; // e.g., ACTIVE, INACTIVE, ERROR
+  optional MinerStateCounts miner_state_counts = 8;
+}
+
+message GetCombinedMetricsRequest {
+    DeviceSelector device_selector = 1 [(buf.validate.field).required = true]; // Select devices by ID or all devices in org
+    repeated MeasurementType measurement_types = 3; // e.g., TEMPERATURE, HASHRATE Defaults to all types
+    repeated AggregationType aggregations = 4; // e.g., AVERAGE, MIN, MAX Defaults to all aggregations
+    google.protobuf.Duration granularity = 5; // e.g., 1m, 5m, 1h defaults to 10s
+    google.protobuf.Timestamp start_time = 6 [(buf.validate.field).required = true]; // inclusive
+    google.protobuf.Timestamp end_time = 7;
+    option (buf.validate.message).cel = {
+      id: "end_time_after_start_time"
+      message: "end_time must be after start_time"
+      expression: "this.end_time > this.start_time"
+    };
+
+    string page_token = 8; // for pagination
+    int32 page_size = 9; // max 1000, default 100
+}
+
+message AggregatedValue {
+    AggregationType aggregation_type = 1;
+    double value = 2; // e.g., 75.5 for AVERAGE, 1000 for MAX
+}
+message Metric {
+    MeasurementType measurement_type = 1;
+    google.protobuf.Timestamp open_time = 2;
+    repeated AggregatedValue aggregated_values = 3; // e.g., AVERAGE, MIN, MAX
+    int32 device_count = 4; // Number of devices reporting this metric
+}
+
+message GetCombinedMetricsResponse {
+    repeated Metric metrics = 1;
+    string next_page_token = 2; // for pagination
+
+    // Temperature status distribution across the fleet
+    repeated TemperatureStatusCount temperature_status_counts = 3;
+
+    // Uptime status distribution across the fleet
+    repeated UptimeStatusCount uptime_status_counts = 4;
+}
+
+message StreamCombinedMetricUpdatesRequest {
+    DeviceSelector device_selector = 1 [(buf.validate.field).required = true]; // Select devices by ID or all devices in org
+    repeated MeasurementType metrics  = 2;
+    repeated AggregationType aggregations = 3; // e.g., AVERAGE, MIN, MAX
+    // default granularity is 1 minute
+    google.protobuf.Duration granularity = 4 [(buf.validate.field).duration = {
+      gte: { seconds: 10 }
+      lte: { seconds: 86400 } // 24 hours
+    }];
+    // default update interval is granularity
+    google.protobuf.Duration update_interval = 5;
+
+}
+
+message StreamCombinedMetricUpdatesResponse {
+    repeated Metric metrics = 1; // e.g., TEMPERATURE, HASHRATE
+    google.protobuf.Timestamp next_update_time = 2; // when the next update will be sent
+
+    // Real-time temperature status distribution
+    repeated TemperatureStatusCount temperature_status_counts = 3;
+
+    // Real-time uptime status distribution
+    repeated UptimeStatusCount uptime_status_counts = 4;
+
+    // Real-time miner state counts (hashing, broken, offline, sleeping)
+    MinerStateCounts miner_state_counts = 5;
+}

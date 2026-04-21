@@ -1,0 +1,5 @@
+DROP TABLE IF EXISTS session;
+DROP TABLE IF EXISTS user_organization;
+DROP TABLE IF EXISTS organization;
+DROP TABLE IF EXISTS role;
+DROP TABLE IF EXISTS "user";

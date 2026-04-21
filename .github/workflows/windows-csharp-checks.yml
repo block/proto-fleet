@@ -1,0 +1,70 @@
+name: Windows C# Checks
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/windows-csharp-checks.yml"
+      - "deployment-files/windows/**"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/windows-csharp-checks.yml"
+      - "deployment-files/windows/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Format, Build, and Package
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup .NET SDK from global.json
+        uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 # v5.2.0
+        with:
+          global-json-file: deployment-files/windows/global.json
+
+      - name: Show .NET SDK info
+        shell: powershell
+        run: dotnet --info
+
+      - name: Install ps2exe
+        shell: powershell
+        run: |
+          Set-PSRepository -Name "PSGallery" -InstallationPolicy Trusted
+          Install-Module -Name ps2exe -Force -Scope CurrentUser
+
+      - name: Restore installer solution
+        shell: powershell
+        run: dotnet restore deployment-files/windows/ProtoFleet.Installer.sln --configfile deployment-files/windows/NuGet.Config
+
+      - name: Check formatting
+        shell: powershell
+        run: dotnet format deployment-files/windows/ProtoFleet.Installer.sln --verify-no-changes --no-restore
+
+      - name: Build installer solution
+        shell: powershell
+        run: dotnet build deployment-files/windows/ProtoFleet.Installer.sln -c Release --no-restore
+
+      - name: Validate installer and uninstaller packaging
+        shell: powershell
+        working-directory: ./deployment-files/windows
+        run: |
+          $outputDir = Join-Path $env:RUNNER_TEMP "proto-fleet-installer"
+          ./build-fleet-installer.ps1 -Configuration Release -OutputDir $outputDir
+          $installerPath = Join-Path $outputDir "installer.exe"
+          if (-not (Test-Path $installerPath)) {
+            throw "No installer executable produced at $installerPath."
+          }
+          $uninstallerPath = Join-Path $outputDir "uninstall.exe"
+          ./build-fleet-uninstaller-exe.ps1 -OutputExe $uninstallerPath
+          if (-not (Test-Path $uninstallerPath)) {
+            throw "No uninstaller executable produced at $uninstallerPath."
+          }
+          Write-Host "Validated installer package: $installerPath"
+          Write-Host "Validated uninstaller package: $uninstallerPath"

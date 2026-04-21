@@ -1,0 +1,299 @@
+syntax = "proto3";
+
+package errors.v1;
+
+import "google/protobuf/timestamp.proto";
+import "buf/validate/validate.proto";
+
+// ErrorQueryService provides querying capabilities for miner errors
+service ErrorQueryService {
+  // Query errors with filtering, pagination, and result view options
+  rpc Query(QueryRequest) returns (QueryResponse);
+
+  // Get a single error by ID
+  rpc GetError(GetErrorRequest) returns (GetErrorResponse);
+
+  // List all canonical error definitions with metadata
+  rpc ListMinerErrors(ListMinerErrorsRequest) returns (ListMinerErrorsResponse);
+
+  // Watch for real-time error updates (streaming)
+  rpc Watch(WatchRequest) returns (stream WatchResponse);
+}
+
+// Canonical, miner-agnostic error codes
+// - 1xx PSU & facility power at PSU terminals
+// - 2xx Thermal & fans
+// - 3xx Board/ASIC chain & hash performance
+// - 35x Board-level power rails & protection (distinct from PSU)
+// - 4xx Sensors (electrical faults, not just out-of-range)
+// - 5xx Non-volatile storage / firmware
+// - 6xx Control-plane & on-board comms (hardware-side)
+// - 8xx Performance advisories (non-fatal)
+// - 9xx Catch-alls / vendor-unknown
+enum MinerError {
+  MINER_ERROR_UNSPECIFIED = 0;
+
+  // 1000–1049: PSU (unit-level faults)
+  MINER_ERROR_PSU_NOT_PRESENT = 1000;
+  MINER_ERROR_PSU_MODEL_MISMATCH = 1001;
+  MINER_ERROR_PSU_COMMUNICATION_LOST = 1002;
+  MINER_ERROR_PSU_FAULT_GENERIC = 1003;
+  MINER_ERROR_PSU_INPUT_VOLTAGE_LOW = 1004;
+  MINER_ERROR_PSU_INPUT_VOLTAGE_HIGH = 1005;
+  MINER_ERROR_PSU_OUTPUT_VOLTAGE_FAULT = 1006;
+  MINER_ERROR_PSU_OUTPUT_OVERCURRENT = 1007;
+  MINER_ERROR_PSU_FAN_FAILED = 1008;
+  MINER_ERROR_PSU_OVER_TEMPERATURE = 1009;
+  MINER_ERROR_PSU_INPUT_PHASE_IMBALANCE = 1010;
+  MINER_ERROR_PSU_UNDER_TEMPERATURE = 1011;
+
+  // 2000–2029: Thermal & fans (device-level)
+  MINER_ERROR_FAN_FAILED = 2000;
+  MINER_ERROR_FAN_TACH_SIGNAL_LOST = 2001;
+  MINER_ERROR_FAN_SPEED_DEVIATION = 2002;
+  MINER_ERROR_INLET_OVER_TEMPERATURE = 2010;
+  MINER_ERROR_DEVICE_OVER_TEMPERATURE = 2011;
+  MINER_ERROR_DEVICE_UNDER_TEMPERATURE = 2012;
+
+  // 3000–3049: Hashboard / ASIC chain & core digital
+  MINER_ERROR_HASHBOARD_NOT_PRESENT = 3000;
+  MINER_ERROR_HASHBOARD_OVER_TEMPERATURE = 3001;
+  MINER_ERROR_HASHBOARD_MISSING_CHIPS = 3002;
+  MINER_ERROR_ASIC_CHAIN_COMMUNICATION_LOST = 3003;
+  MINER_ERROR_ASIC_CLOCK_PLL_UNLOCKED = 3004;
+  MINER_ERROR_ASIC_CRC_ERROR_EXCESSIVE = 3005;
+  MINER_ERROR_HASHBOARD_ASIC_OVER_TEMPERATURE = 3006;
+  MINER_ERROR_HASHBOARD_ASIC_UNDER_TEMPERATURE = 3007;
+
+  // 3500–3699: Board-level power rails & protection (distinct from PSU)
+  MINER_ERROR_BOARD_POWER_PGOOD_MISSING = 3500;
+  MINER_ERROR_BOARD_POWER_OVERCURRENT_TRIP = 3501;
+  MINER_ERROR_BOARD_POWER_RAIL_UNDERVOLT = 3502;
+  MINER_ERROR_BOARD_POWER_RAIL_OVERVOLT = 3503;
+  MINER_ERROR_BOARD_POWER_SHORT_DETECTED = 3504;
+
+  // 4000–4029: Sensors (electrical faults)
+  MINER_ERROR_TEMP_SENSOR_OPEN_OR_SHORT = 4000;
+  MINER_ERROR_TEMP_SENSOR_FAULT = 4001;
+  MINER_ERROR_VOLTAGE_SENSOR_FAULT = 4002;
+  MINER_ERROR_CURRENT_SENSOR_FAULT = 4003;
+
+  // 5000–5499: Non-volatile storage / firmware (hardware-adjacent)
+  MINER_ERROR_EEPROM_CRC_MISMATCH = 5000;
+  MINER_ERROR_EEPROM_READ_FAILURE = 5001;
+  MINER_ERROR_FIRMWARE_IMAGE_INVALID = 5002;
+  MINER_ERROR_FIRMWARE_CONFIG_INVALID = 5003;
+  // 6000–6499: Control-plane & on-board comms (hardware-side)
+  MINER_ERROR_CONTROL_BOARD_COMMUNICATION_LOST = 6000;
+  MINER_ERROR_CONTROL_BOARD_FAILURE = 6001;
+  MINER_ERROR_DEVICE_INTERNAL_BUS_FAULT = 6002;
+  MINER_ERROR_DEVICE_COMMUNICATION_LOST = 6003;
+  MINER_ERROR_IO_MODULE_FAILURE = 6010;
+
+  // 8000–8029: Performance advisories (non-fatal canonical warnings)
+  MINER_ERROR_HASHRATE_BELOW_TARGET = 8000;
+  MINER_ERROR_HASHBOARD_WARN_CRC_HIGH = 8001;
+  MINER_ERROR_THERMAL_MARGIN_LOW = 8002;
+
+  // 9000–9029: Catch-alls
+  MINER_ERROR_VENDOR_ERROR_UNMAPPED = 9000;
+}
+
+// Severity classification for errors
+enum Severity {
+  SEVERITY_UNSPECIFIED = 0;
+  SEVERITY_CRITICAL = 1;    // Miner stops hashing or unsafe
+  SEVERITY_MAJOR = 2;       // Degraded hashing / imminent trip
+  SEVERITY_MINOR = 3;       // Recoverable, limited effect
+  SEVERITY_INFO = 4;        // Informational / advisory
+}
+
+// Aggregated status based on error severity waterfall
+// ERROR if any CRITICAL, WARNING if any MAJOR/MINOR/INFO, else OK
+enum Status {
+  STATUS_UNSPECIFIED = 0;
+  STATUS_OK = 1;       // No open errors
+  STATUS_WARNING = 2;  // Major, minor, or info severity errors present
+  STATUS_ERROR = 3;    // Critical severity errors present
+}
+
+// Type of component that can have errors
+enum ComponentType {
+  COMPONENT_TYPE_UNSPECIFIED = 0;
+  COMPONENT_TYPE_PSU = 1;
+  COMPONENT_TYPE_HASH_BOARD = 2;
+  COMPONENT_TYPE_FAN = 3;
+  COMPONENT_TYPE_CONTROL_BOARD = 4;
+  COMPONENT_TYPE_EEPROM = 5;
+  COMPONENT_TYPE_IO_MODULE = 6;
+}
+
+// Result view determines how errors are aggregated in the response
+enum ResultView {
+  RESULT_VIEW_UNSPECIFIED = 0;
+  RESULT_VIEW_ERROR = 1;      // Flat list of individual errors
+  RESULT_VIEW_COMPONENT = 2;  // Grouped by component
+  RESULT_VIEW_DEVICE = 3;     // Grouped by device
+}
+
+// Global logic for combining filter criteria.
+// TODO: Currently only AND logic is implemented. OR support planned.
+enum GlobalLogic {
+  GLOBAL_LOGIC_UNSPECIFIED = 0;
+  GLOBAL_LOGIC_AND = 1;  // All criteria must match (default, currently only mode)
+  GLOBAL_LOGIC_OR = 2;   // Any criterion can match (not yet implemented)
+}
+
+// A single error instance
+message ErrorMessage {
+  string error_id = 1;                              // ULID (globally unique, time-sortable)
+  MinerError canonical_error = 2;               // REQUIRED
+  string summary = 3;                          // Human-readable short description (typically vendor-provided)
+  string cause_summary = 4;                         // Human-readable short reason
+  string recommended_action = 5;                    // Next best action
+  Severity severity = 6;                            // Technical severity classification
+
+  google.protobuf.Timestamp first_seen_at = 7;
+  google.protobuf.Timestamp last_seen_at = 8;
+  google.protobuf.Timestamp closed_at = 9;          // Optional: when error was resolved
+
+  map<string, string> vendor_attributes = 10;        // e.g., firmware, code, serials
+  string device_identifier = 11;                    // device_identifier of the Device this error belongs to
+  optional string component_id = 12;                // Optional component identifier
+  string impact = 13;                               // Human-readable business impact
+  ComponentType component_type = 14;                // Type of hardware component (hashboard, fan, PSU, etc.)
+}
+
+// Rich summary structure for aggregated views
+message Summary {
+  string title = 1;      // One-liner: "3 critical PSU errors"
+  string details = 2;    // Full multi-line description with context
+  string condensed = 3;  // Ultra-short for UI chips: "3 PSU"
+}
+
+// Errors grouped by device
+message DeviceError {
+  string device_identifier = 1;
+  string device_type = 2;                           // Model name
+  Status status = 3;
+  Summary summary = 4;
+  repeated ErrorMessage errors = 5;
+  map<string, int32> counts_by_severity = 6;        // Error counts per severity level
+}
+
+// Errors grouped by component
+message ComponentError {
+  string component_id = 1;
+  ComponentType component_type = 2;
+  string device_identifier = 3;
+  Status status = 4;
+  Summary summary = 5;
+  repeated ErrorMessage errors = 6;
+  map<string, int32> counts_by_severity = 7;        // Error counts per severity level
+}
+
+// Simple filter with field lists
+message SimpleFilter {
+  repeated string device_identifiers = 1;           // Device identifiers (e.g., "proto-12345")
+  repeated string device_types = 2;                 // Model names (e.g., "R2", "S19")
+  repeated string component_ids = 3;
+  repeated ComponentType component_types = 4;
+  repeated MinerError canonical_errors = 5;
+  repeated Severity severities = 6;                 // Filter by technical severity
+}
+
+// Complete filter with time range and logic options
+message Filter {
+  SimpleFilter simple = 1;
+  GlobalLogic simple_logic = 2;
+  google.protobuf.Timestamp time_from = 3;          // Optional
+  google.protobuf.Timestamp time_to = 4;            // Optional
+  bool include_closed = 5;                          // Include closed/expired errors
+}
+
+// Query request with pagination
+message QueryRequest {
+  ResultView result_view = 1;
+  Filter filter = 2;
+  int32 page_size = 3 [(buf.validate.field).int32 = {gte: 1, lte: 1000}];
+  string page_token = 4;
+  // Reserved for future use. Currently sorting is fixed: severity DESC, last_seen_at DESC, error_id DESC.
+  // This field is ignored by the server.
+  string order_by = 5;
+}
+
+// Query response with polymorphic result
+message QueryResponse {
+  oneof result {
+    Errors errors = 1;
+    ComponentErrors components = 2;
+    DeviceErrors devices = 3;
+  }
+  string next_page_token = 10;
+  int64 total_count = 11;                           // Total matching items
+}
+
+// Page of error messages
+message Errors {
+  repeated ErrorMessage items = 1;
+}
+
+// Page of component errors
+message ComponentErrors {
+  repeated ComponentError items = 1;
+}
+
+// Page of device errors
+message DeviceErrors {
+  repeated DeviceError items = 1;
+}
+
+// Get single error request
+message GetErrorRequest {
+  string error_id = 1 [(buf.validate.field).string.min_len = 1];
+}
+
+// Get single error response
+message GetErrorResponse {
+  ErrorMessage error = 1;
+}
+
+// List canonical errors request (no parameters)
+message ListMinerErrorsRequest {}
+
+// List canonical errors response
+message ListMinerErrorsResponse {
+  repeated MinerErrorInfo items = 1;
+}
+
+// Metadata about a canonical error code
+message MinerErrorInfo {
+  MinerError code = 1;
+  string name = 2;
+  string default_summary = 3;
+  Severity default_severity = 4;
+  string default_action = 5;
+  string default_impact = 6;                        // Human-readable business impact description
+}
+
+// Watch request for streaming updates
+message WatchRequest {
+  Filter filter = 1;
+}
+
+// Watch response for streaming updates
+message WatchResponse {
+  oneof result {
+    Errors errors = 1;
+    ComponentErrors components = 2;
+    DeviceErrors devices = 3;
+  }
+  Kind kind = 4;
+
+  enum Kind {
+    KIND_UNSPECIFIED = 0;
+    KIND_OPENED = 1;
+    KIND_UPDATED = 2;
+    KIND_CLOSED = 3;
+  }
+}

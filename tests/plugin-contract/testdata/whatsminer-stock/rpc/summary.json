@@ -1,0 +1,51 @@
+{
+  "STATUS": [
+    {"STATUS": "S", "When": 1741500000, "Code": 134, "Msg": "Summary", "Description": "btminer"}
+  ],
+  "SUMMARY": [
+    {
+      "HS RT": 110.52,
+      "HS av": 109.87,
+      "Elapsed": 345600,
+      "MHS av": 109870000.0,
+      "MHS 1m": 110520000.0,
+      "MHS 5m": 110100000.0,
+      "MHS 15m": 109950000.0,
+      "Found Blocks": 0,
+      "Getworks": 12045,
+      "Accepted": 54321,
+      "Rejected": 12,
+      "Hardware Errors": 3,
+      "Utility": 9.42,
+      "Discarded": 0,
+      "Stale": 2,
+      "Get Failures": 0,
+      "Local Work": 573920,
+      "Remote Failures": 0,
+      "Network Blocks": 834,
+      "Total MH": 38010048000000.0,
+      "Work Utility": 75.3,
+      "Difficulty Accepted": 1234567890.0,
+      "Difficulty Rejected": 2345.0,
+      "Difficulty Stale": 567.0,
+      "Best Share": 98765432,
+      "Temperature": 65.0,
+      "freq_avg": 600,
+      "Fan Speed In": 4200,
+      "Fan Speed Out": 4100,
+      "Power": 3200,
+      "Power_RT": 3215,
+      "Voltage": 12.5,
+      "Power Mode": "Normal",
+      "Factory GHS": 110000,
+      "Power Limit": 3500,
+      "Chip Temp Min": 55.0,
+      "Chip Temp Max": 78.0,
+      "Chip Temp Avg": 65.0,
+      "Uptime": 345600,
+      "MAC": "C4:11:04:01:02:03",
+      "Firmware Version": "20240624.18.REL"
+    }
+  ],
+  "id": 1
+}

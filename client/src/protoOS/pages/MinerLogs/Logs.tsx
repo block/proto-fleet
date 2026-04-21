@@ -1,0 +1,309 @@
+import { MouseEvent, SyntheticEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import clsx from "clsx";
+
+import { logTypes } from "./constants";
+import LogBadges from "./LogBadges";
+import { LogInfo, logType } from "./types";
+import { downloadLogs, formatLogs, formatLogsToCSV, getErrorWarningCount } from "./utility";
+import { LogsResponseLogs } from "@/protoOS/api/generatedApi";
+import { DismissTiny } from "@/shared/assets/icons";
+
+import Button, { sizes, variants } from "@/shared/components/Button";
+import ProgressCircular from "@/shared/components/ProgressCircular";
+import Search from "@/shared/components/Search";
+import { useClickOutside } from "@/shared/hooks/useClickOutside";
+import { padLeft } from "@/shared/utils/stringUtils";
+import { getFileName } from "@/shared/utils/utility";
+
+interface LogsProps {
+  logsData?: LogsResponseLogs;
+  fetchMaxLogs: () => Promise<LogsResponseLogs | undefined>;
+}
+
+const Logs = ({ logsData, fetchMaxLogs }: LogsProps) => {
+  const [isExporting, setIsExporting] = useState(false);
+  const [initPage, setInitPage] = useState(false);
+  const [storedLogs, setStoredLogs] = useState<string[]>([]);
+  const [logs, setLogs] = useState<LogInfo[]>([]);
+  const [filteredLogs, setFilteredLogs] = useState<LogInfo[]>([]);
+  const [filterByLogType, setFilterByLogType] = useState<logType[]>([]);
+  const [focusSearch, setFocusSearch] = useState(false);
+  const [errorCount, setErrorCount] = useState(0);
+  const [warningCount, setWarningCount] = useState(0);
+
+  const [searchValue, setSearchValue] = useState<string>("");
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const searchBarRef = useRef<HTMLDivElement>(null);
+  const [isPinnedToBottom, setIsPinnedToBottom] = useState(true);
+
+  useClickOutside({
+    ref: searchBarRef,
+    onClickOutside: () => setFocusSearch(false),
+  });
+
+  useEffect(() => {
+    if (filteredLogs.length) {
+      // on first load of the logs, scroll to bottom
+      if (!initPage && messagesEndRef.current) {
+        setInitPage(true);
+        messagesEndRef.current?.scrollIntoView({ behavior: "instant" });
+        setIsPinnedToBottom(true);
+      } else if (messagesEndRef.current && isPinnedToBottom) {
+        // auto-scroll to bottom when new logs come in, but only if user is already at the bottom
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      }
+    }
+  }, [filteredLogs, initPage, isPinnedToBottom]);
+
+  const updateFilteredLogs = useCallback(() => {
+    let newLogs = logs;
+    if (searchValue || filterByLogType.length) {
+      const newFilteredLogs = logs.filter(
+        (log) =>
+          `${log.timestamp} ${log.message}`.toLowerCase().includes(searchValue.toLowerCase()) &&
+          (!filterByLogType.length || filterByLogType.includes(log.logType as logType)),
+      );
+      newLogs = newFilteredLogs;
+    }
+
+    setFilteredLogs(newLogs);
+  }, [searchValue, logs, filterByLogType]);
+
+  // when switching between filters reset the Init Page state so that the page
+  // doesnt animate a long scroll to the bottom with filter change
+  useEffect(() => {
+    setInitPage(false);
+  }, [filterByLogType, searchValue]);
+
+  useEffect(() => {
+    updateFilteredLogs();
+  }, [updateFilteredLogs]);
+
+  const formatAndSetLogsData = useCallback(
+    (logsDataToSet: string[]) => {
+      if (logsDataToSet.length === storedLogs.length) return;
+      setStoredLogs(logsDataToSet);
+
+      const { error, warning } = getErrorWarningCount(logsDataToSet);
+      setErrorCount(error);
+      setWarningCount(warning);
+
+      const formattedLogs = formatLogs(logsDataToSet);
+      setLogs(formattedLogs);
+      updateFilteredLogs();
+    },
+    [storedLogs, updateFilteredLogs],
+  );
+
+  useEffect(() => {
+    if (logsData?.content?.length) {
+      // after initial logs are fetched, remove duplicated logs and add them
+      const uniqueLogs = storedLogs.length
+        ? logsData.content.filter((log) => !storedLogs.find((storedLog) => storedLog === log))
+        : logsData.content;
+
+      const combinedLogs = [...storedLogs, ...uniqueLogs];
+      formatAndSetLogsData(combinedLogs);
+    }
+  }, [logsData, storedLogs, formatAndSetLogsData]);
+
+  const blurSearch = (e: SyntheticEvent) => {
+    e.stopPropagation();
+    setFocusSearch(false);
+  };
+
+  const createToggleFilter = (logType: logType) => {
+    return (e: MouseEvent<HTMLDivElement>) => {
+      blurSearch(e);
+      if (filterByLogType?.includes(logType)) {
+        setFilterByLogType((prev) => prev.filter((type) => type !== logType));
+      } else {
+        setFilterByLogType((prev) => [...prev, logType]);
+      }
+    };
+  };
+
+  const clearSearch = useCallback((e: MouseEvent<HTMLButtonElement>) => {
+    setSearchValue("");
+    blurSearch(e);
+  }, []);
+
+  const handleExportLogs = useCallback(
+    async (e: SyntheticEvent) => {
+      try {
+        e.stopPropagation();
+        e.preventDefault();
+        blurSearch(e);
+        setIsExporting(true);
+        const exportLogs = await fetchMaxLogs();
+        if (exportLogs?.content) {
+          const csvData = formatLogsToCSV(exportLogs.content);
+          downloadLogs(csvData, getFileName("miner-logs", "csv"));
+        }
+      } catch (error) {
+        console.error("Error exporting logs:", error);
+      } finally {
+        setIsExporting(false);
+      }
+    },
+    [fetchMaxLogs],
+  );
+
+  const handleClickSearchBar = useCallback(() => {
+    setFocusSearch(true);
+  }, []);
+
+  const noResultsMessage = useMemo(() => {
+    if (searchValue) {
+      if (filterByLogType.length === 0) return `No results match “${searchValue}”`;
+      if (filterByLogType.includes(logTypes.error) && filterByLogType.includes(logTypes.warn)) {
+        return `No errors or warnings match “${searchValue}”`;
+      }
+      if (filterByLogType.includes(logTypes.error)) return `No errors match “${searchValue}”`;
+      return `No warnings match “${searchValue}”`;
+    }
+    if (filterByLogType.includes(logTypes.error) && filterByLogType.includes(logTypes.warn)) {
+      return "No errors or warnings found";
+    }
+    if (filterByLogType.includes(logTypes.error)) return "No errors found";
+    return "No warnings found";
+  }, [searchValue, filterByLogType]);
+
+  const handleScroll = useCallback(() => {
+    const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+    const scrollHeight = document.documentElement.scrollHeight;
+    const clientHeight = document.documentElement.clientHeight;
+    const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+    // consider within 5px as "at bottom"
+    setIsPinnedToBottom(distanceFromBottom < 5);
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener("scroll", handleScroll);
+    handleScroll();
+
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+    };
+  }, [handleScroll]);
+
+  return (
+    <>
+      {logs.length ? (
+        <>
+          <div
+            className="sticky top-[60px] z-10 h-[58px] bg-surface-base phone:top-[100px] tablet:top-[100px]"
+            onClick={handleClickSearchBar}
+            ref={searchBarRef}
+          >
+            <div
+              className={clsx(
+                "flex items-center border-b-[1px] border-border-5 bg-surface-base p-[15px]",
+                "focus-within:border-b-2 focus-within:border-border-primary",
+              )}
+            >
+              <div className="flex grow items-center space-x-4">
+                <Search
+                  className="bg-surface-base!"
+                  onChange={setSearchValue}
+                  initValue={searchValue}
+                  compact
+                  shouldFocus={focusSearch}
+                />
+              </div>
+              <div className="flex items-center space-x-4">
+                <LogBadges
+                  label={errorCount === 1 ? "error" : "errors"}
+                  count={errorCount}
+                  className={clsx(
+                    "text-text-critical",
+                    {
+                      "border-transparent bg-intent-critical-10": filterByLogType?.includes(logTypes.error),
+                    },
+                    {
+                      "border-intent-critical-10": !filterByLogType?.includes(logTypes.error),
+                    },
+                  )}
+                  selected={filterByLogType?.includes(logTypes.error) || false}
+                  onClick={createToggleFilter(logTypes.error)}
+                />
+                <LogBadges
+                  label={warningCount === 1 ? "warning" : "warnings"}
+                  count={warningCount}
+                  className={clsx(
+                    "text-text-warning",
+                    {
+                      "border-transparent bg-intent-warning-10": filterByLogType?.includes(logTypes.warn),
+                    },
+                    {
+                      "border-intent-warning-10": !filterByLogType?.includes(logTypes.warn),
+                    },
+                  )}
+                  selected={filterByLogType?.includes(logTypes.warn) || false}
+                  onClick={createToggleFilter(logTypes.warn)}
+                />
+                <Button
+                  size={sizes.compact}
+                  variant={variants.secondary}
+                  text="Export"
+                  disabled={isExporting}
+                  prefixIcon={isExporting ? <ProgressCircular indeterminate /> : undefined}
+                  onClick={handleExportLogs}
+                />
+                {searchValue && (
+                  <Button
+                    variant={variants.secondary}
+                    size={sizes.compact}
+                    prefixIcon={<DismissTiny />}
+                    onClick={clearSearch}
+                    className="rounded-full!"
+                  />
+                )}
+              </div>
+            </div>
+          </div>
+          <div className="h-[calc(100%-60px-58px)] overflow-y-hidden">
+            <div className="p-4 font-mono text-mono-text-50 font-light text-text-primary">
+              {filteredLogs.length ? (
+                filteredLogs.map((log, index) => {
+                  const line = padLeft(index + 1, 4);
+                  const isDebug = log.logType === logTypes.debug;
+                  const isError = log.logType === logTypes.error;
+                  const isWarning = log.logType === logTypes.warn;
+                  return (
+                    <div
+                      key={line}
+                      className={clsx("mb-1 flex leading-6", {
+                        "ml-[2px] text-text-primary-70": !isError && !isWarning && !isDebug,
+                        "-ml-[16px] border-l-[2px] pl-4": isError || isWarning || isDebug,
+                        "border-border-text-warning text-text-warning": isWarning,
+                        "border-border-text-critical text-text-critical": isError,
+                        "border-border-intent-info-fill text-intent-info-fill": isDebug,
+                      })}
+                    >
+                      <div className="mr-10">{line}</div>
+                      <div ref={index === filteredLogs.length - 1 ? messagesEndRef : undefined}>
+                        {log.timestamp && <>[{log.timestamp}] </>}
+                        {log.message}
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="flex h-[189px] w-full items-center justify-center rounded-2xl bg-core-primary-5">
+                  <div className="font-body text-heading-100 text-text-primary-50">{noResultsMessage}</div>
+                </div>
+              )}
+            </div>
+          </div>
+        </>
+      ) : (
+        <div className="flex h-[calc(100vh-65px)] w-full items-center justify-center">
+          <ProgressCircular indeterminate />
+        </div>
+      )}
+    </>
+  );
+};
+
+export default Logs;

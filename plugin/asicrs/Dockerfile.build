@@ -1,0 +1,41 @@
+# Multi-stage build for the asicrs plugin.
+# Build context must be the repo root so we can access server/sdk/v1/pb/.
+#
+# Usage:
+#   docker build --output=server/plugins -f plugin/asicrs/Dockerfile.build .
+
+FROM rustlang/rust:nightly-alpine AS builder
+
+RUN apk add --no-cache musl-dev protobuf-dev git
+
+WORKDIR /build
+
+# Copy the proto definition and Rust SDK (needed by proto-fleet-plugin crate)
+COPY server/sdk/v1/pb/ ./server/sdk/v1/pb/
+COPY sdk/rust/proto-fleet-plugin/ ./sdk/rust/proto-fleet-plugin/
+
+# Copy manifests first and build with a dummy main.rs to cache dependencies
+COPY plugin/asicrs/Cargo.toml plugin/asicrs/Cargo.lock ./plugin/asicrs/
+RUN mkdir -p plugin/asicrs/src && echo "fn main() {}" > plugin/asicrs/src/main.rs
+
+WORKDIR /build/plugin/asicrs
+RUN cargo build --release
+# Remove the dummy build artifacts so the real source triggers a fresh compile
+RUN rm -rf target/release/.fingerprint/asicrs-plugin-* target/release/deps/asicrs_plugin-*
+
+# Copy the real plugin source and config
+WORKDIR /build
+COPY plugin/asicrs/src/ ./plugin/asicrs/src/
+COPY plugin/asicrs/config.yaml ./plugin/asicrs/config.yaml
+
+WORKDIR /build/plugin/asicrs
+
+# Build release binary (only recompiles plugin code, deps are cached)
+RUN cargo build --release
+
+# Copy config alongside the binary
+RUN cp config.yaml /build/plugin/asicrs/target/release/
+
+FROM scratch AS export
+COPY --from=builder /build/plugin/asicrs/target/release/asicrs-plugin /asicrs-plugin
+COPY --from=builder /build/plugin/asicrs/target/release/config.yaml /asicrs-config.yaml

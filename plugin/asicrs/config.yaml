@@ -1,0 +1,41 @@
+plugin:
+  log_level: info
+  discovery_timeout_seconds: 10
+  telemetry_cache_ttl_seconds: 5
+
+miners:
+  whatsminer:
+    stock:
+      enabled: true
+
+  antminer:
+    stock:
+      enabled: false  # Go plugin handles stock Antminers
+    braiins:
+      enabled: true
+    vnish:
+      enabled: true
+    luxos:
+      enabled: true
+    marathon:
+      enabled: true
+
+  avalonminer:
+    stock:
+      enabled: true
+
+  bitaxe:
+    stock:
+      enabled: true
+
+  nerdaxe:
+    stock:
+      enabled: true
+
+  epic:
+    stock:
+      enabled: true
+
+  auradine:
+    stock:
+      enabled: true

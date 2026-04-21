@@ -1,0 +1,289 @@
+syntax = "proto3";
+
+package minercommand.v1;
+
+import "google/protobuf/timestamp.proto";
+import "fleetmanagement/v1/fleetmanagement.proto";
+import "common/v1/device_selector.proto";
+import "common/v1/cooling.proto";
+
+message DeviceFilter {
+  repeated fleetmanagement.v1.DeviceStatus device_status = 1;
+  repeated fleetmanagement.v1.PairingStatus pairing_status = 2;
+  repeated string models = 3;
+  repeated string manufacturers = 4;
+}
+
+message DeviceSelector {
+  oneof selection_type {
+    DeviceFilter all_devices = 1;
+    common.v1.DeviceIdentifierList include_devices = 2;
+  }
+}
+
+message RebootRequest {
+  DeviceSelector device_selector = 1;
+}
+
+message RebootResponse {
+  string batch_identifier = 1;
+}
+
+// Request to stop mining on specific miners
+message StopMiningRequest {
+  DeviceSelector device_selector = 1;
+}
+
+// Response from stop mining request
+message StopMiningResponse {
+  string batch_identifier = 1;
+}
+
+// Request to start mining on specific miners
+message StartMiningRequest {
+  DeviceSelector device_selector = 1;
+}
+
+// Response from start mining request
+message StartMiningResponse {
+  string batch_identifier = 1;
+}
+
+message SetCoolingModeRequest {
+  DeviceSelector device_selector = 1;
+  common.v1.CoolingMode mode = 2;
+}
+
+message SetCoolingModeResponse {
+  string batch_identifier = 1;
+}
+
+enum PerformanceMode {
+  PERFORMANCE_MODE_UNSPECIFIED = 0;
+  PERFORMANCE_MODE_MAXIMUM_HASHRATE = 1;
+  PERFORMANCE_MODE_EFFICIENCY = 2;
+}
+
+message SetPowerTargetRequest {
+  DeviceSelector device_selector = 1;
+  PerformanceMode performance_mode = 2;
+}
+
+message SetPowerTargetResponse {
+  string batch_identifier = 1;
+}
+
+// Configuration for a single pool slot
+// Can specify either a Fleet pool ID (for known pools) or raw pool info (for unknown pools)
+message PoolSlotConfig {
+  oneof pool_source {
+    // Fleet pool ID - used when the pool exists in Fleet's database
+    int64 pool_id = 1;
+    // Raw pool info - used when the pool is configured on the miner but not in Fleet
+    RawPoolInfo raw_pool = 2;
+  }
+}
+
+// Raw pool configuration for pools not stored in Fleet
+message RawPoolInfo {
+  string url = 1;
+  string username = 2;
+  // Password is optional since miners don't expose it
+  optional string password = 3;
+}
+
+message UpdateMiningPoolsRequest {
+  DeviceSelector device_selector = 1;
+  // Default pool (priority 0) - required
+  PoolSlotConfig default_pool = 2;
+  // Backup pool 1 (priority 1) - optional
+  optional PoolSlotConfig backup_1_pool = 3;
+  // Backup pool 2 (priority 2) - optional
+  optional PoolSlotConfig backup_2_pool = 4;
+  // Fleet user's username for authorization
+  string user_username = 5;
+  // Fleet user's password for authorization
+  string user_password = 6;
+}
+
+message UpdateMiningPoolsResponse {
+  string batch_identifier = 1;
+}
+
+message DownloadLogsRequest {
+  DeviceSelector device_selector = 1;
+}
+
+message DownloadLogsResponse {
+  string batch_identifier = 1;
+}
+
+message BlinkLEDRequest {
+  DeviceSelector device_selector = 1;
+}
+
+message BlinkLEDResponse {
+  string batch_identifier = 1;
+}
+
+message FirmwareUpdateRequest {
+  DeviceSelector device_selector = 1;
+  // Reference to a firmware file previously uploaded via the firmware upload HTTP endpoint
+  string firmware_file_id = 2;
+}
+
+message FirmwareUpdateResponse {
+  string batch_identifier = 1;
+}
+
+message UnpairRequest {
+  DeviceSelector device_selector = 1;
+}
+
+message UnpairResponse {
+  string batch_identifier = 1;
+}
+
+// Updates miner web UI password
+message UpdateMinerPasswordRequest {
+  DeviceSelector device_selector = 1;
+  // New password for miner web UI access
+  string new_password = 2;
+  // Current password for verification (required by miner APIs)
+  string current_password = 3;
+  // Fleet user's username for authorization
+  string user_username = 4;
+  // Fleet user's password for authorization
+  string user_password = 5;
+}
+
+message UpdateMinerPasswordResponse {
+  string batch_identifier = 1;
+}
+
+message StreamCommandBatchUpdatesRequest {
+  // The identifier of the command batch to stream
+  string batch_identifier = 1;
+}
+
+message StreamCommandBatchUpdatesResponse {
+  // Timestamp when this update was generated
+  google.protobuf.Timestamp timestamp = 1;
+
+  // Identifier of the command batch this update is for
+  string command_batch_identifier = 2;
+
+  CommandBatchUpdateStatus status = 3;
+}
+
+message CommandBatchUpdateDeviceCount {
+  int64 total = 1;
+  int64 success = 2;
+  int64 failure = 3;
+  repeated string success_device_identifiers = 4;
+  repeated string failure_device_identifiers = 5;
+}
+
+message CommandBatchUpdateStatus {
+  enum CommandBatchUpdateStatusType {
+    COMMAND_BATCH_UPDATE_STATUS_TYPE_UNSPECIFIED = 0;
+    COMMAND_BATCH_UPDATE_STATUS_TYPE_PENDING = 1;
+    COMMAND_BATCH_UPDATE_STATUS_TYPE_PROCESSING = 2;
+    COMMAND_BATCH_UPDATE_STATUS_TYPE_FINISHED = 3;
+  }
+
+  CommandBatchUpdateStatusType command_batch_update_status = 1;
+
+  CommandBatchUpdateDeviceCount command_batch_device_count = 2;
+}
+
+message GetCommandBatchLogBundleRequest {
+  string batch_identifier = 1;
+}
+
+message GetCommandBatchLogBundleResponse {
+  bytes chunk_data = 1;
+  string filename = 2;
+}
+
+// Command type enum for capability checking
+enum CommandType {
+  COMMAND_TYPE_UNSPECIFIED = 0;
+  COMMAND_TYPE_REBOOT = 1;
+  COMMAND_TYPE_START_MINING = 2;
+  COMMAND_TYPE_STOP_MINING = 3;
+  COMMAND_TYPE_BLINK_LED = 4;
+  COMMAND_TYPE_SET_COOLING_MODE = 5;
+  COMMAND_TYPE_UPDATE_MINING_POOLS = 6;
+  COMMAND_TYPE_DOWNLOAD_LOGS = 7;
+  COMMAND_TYPE_FIRMWARE_UPDATE = 8;
+  COMMAND_TYPE_SET_POWER_TARGET = 9;
+  COMMAND_TYPE_UPDATE_MINER_PASSWORD = 10;
+}
+
+// Request to check command capabilities for selected devices
+message CheckCommandCapabilitiesRequest {
+  CommandType command_type = 1;
+  DeviceSelector device_selector = 2;
+}
+
+// Group of unsupported miners with same firmware and model
+message UnsupportedMinerGroup {
+  string firmware_version = 1;
+  string model = 2;
+  int32 count = 3;
+}
+
+// Response with capability check results
+message CheckCommandCapabilitiesResponse {
+  int32 supported_count = 1;
+  int32 unsupported_count = 2;
+  int32 total_count = 3;
+  bool all_supported = 4;
+  bool none_supported = 5;
+  repeated UnsupportedMinerGroup unsupported_groups = 6;
+  // Device identifiers that support the command (for filtered execution)
+  repeated string supported_device_identifiers = 7;
+}
+
+// Service for executing Miner commands
+service MinerCommandService {
+  rpc Reboot(RebootRequest) returns (RebootResponse);
+
+  // Stops mining on specified miners
+  // The operation is attempted on all miners even if some fail
+  rpc StopMining(StopMiningRequest) returns (StopMiningResponse);
+
+  // Starts mining on specified miners
+  // The operation is attempted on all miners even if some fail
+  rpc StartMining(StartMiningRequest) returns (StartMiningResponse);
+
+  rpc SetCoolingMode(SetCoolingModeRequest) returns (SetCoolingModeResponse);
+
+  rpc SetPowerTarget(SetPowerTargetRequest) returns (SetPowerTargetResponse);
+
+  rpc UpdateMiningPools(UpdateMiningPoolsRequest) returns (UpdateMiningPoolsResponse);
+
+  rpc DownloadLogs(DownloadLogsRequest) returns (DownloadLogsResponse);
+
+  rpc BlinkLED(BlinkLEDRequest) returns (BlinkLEDResponse);
+
+  // Streams command batch updates
+  rpc StreamCommandBatchUpdates(StreamCommandBatchUpdatesRequest) returns (stream StreamCommandBatchUpdatesResponse);
+
+  rpc GetCommandBatchLogBundle(GetCommandBatchLogBundleRequest) returns (GetCommandBatchLogBundleResponse);
+
+  rpc FirmwareUpdate(FirmwareUpdateRequest) returns (FirmwareUpdateResponse);
+
+  // Unpairs devices from the fleet
+  // Updates pairing status to UNPAIRED and clears credentials on the device
+  rpc Unpair(UnpairRequest) returns (UnpairResponse);
+
+  // Updates miner web UI password on specified miners
+  // The operation is attempted on all miners even if some fail
+  rpc UpdateMinerPassword(UpdateMinerPasswordRequest) returns (UpdateMinerPasswordResponse);
+
+  // Checks if selected devices support a command before execution
+  // Returns capability check results with unsupported miners grouped by model/firmware
+  rpc CheckCommandCapabilities(CheckCommandCapabilitiesRequest) returns (CheckCommandCapabilitiesResponse);
+}

@@ -1,0 +1,13 @@
+{
+  "model": "S21Pro",
+  "manufacturer": "VNish",
+  "firmware": "vnish",
+  "firmware_version": "1.2.7",
+  "plugin": "asicrs",
+  "recorded_from": "172.16.2.103",
+  "recorded_at": "2026-03-17T21:27:19Z",
+  "ports": {
+    "rpc": 4028,
+    "web": 80
+  }
+}

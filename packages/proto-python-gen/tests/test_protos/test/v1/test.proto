@@ -1,0 +1,38 @@
+syntax = "proto3";
+package test.v1;
+
+import "google/protobuf/timestamp.proto";
+
+message EchoRequest {
+  string message = 1;
+  int32 count = 2;
+  google.protobuf.Timestamp sent_at = 3;
+}
+
+message EchoResponse {
+  string message = 1;
+  google.protobuf.Timestamp received_at = 2;
+}
+
+message Item {
+  string id = 1;
+  string name = 2;
+  double value = 3;
+  map<string, string> metadata = 4;
+}
+
+message ListItemsRequest {
+  int32 page_size = 1;
+  string page_token = 2;
+}
+
+message ListItemsResponse {
+  repeated Item items = 1;
+  string next_page_token = 2;
+}
+
+service TestService {
+  rpc Echo(EchoRequest) returns (EchoResponse);
+  rpc ListItems(ListItemsRequest) returns (ListItemsResponse);
+  rpc StreamItems(ListItemsRequest) returns (stream Item);
+}

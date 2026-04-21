@@ -1,0 +1,135 @@
+name: ProtoFleet E2E (Real Miners - Manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      miner_ips:
+        description: "Comma-separated list of miner IPs to add in the fleet (e.g., 172.16.2.99,172.16.2.88). Reminder: unpair these miners from any previous fleet before running."
+        required: true
+        type: string
+
+concurrency:
+  group: protofleet-e2e-real-miners
+  cancel-in-progress: false
+
+jobs:
+  e2e-real-miners:
+    timeout-minutes: 60
+    runs-on: [self-hosted, fleet-testing]
+    env:
+      # Use a dedicated compose project name so this workflow doesn't interfere
+      # with other compose stacks that might be running on the machine.
+      COMPOSE_PROJECT_NAME: protofleet-e2e-real
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Activate hermit
+        uses: cashapp/activate-hermit@12a728b03ad41eace0f9abaf98a035e7e8ea2318 # v1.1.4
+
+      - name: Cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "$(uname -s)" != "Linux" ]]; then
+            echo "ERROR: this workflow expects a Linux self-hosted runner." >&2
+            exit 1
+          fi
+
+          # Clean up our workflow stack and prune unused resources
+          docker compose -f deployment-files/docker-compose.protofleet-real-miners-runner.yaml down -v --remove-orphans || true
+          docker system prune -f
+      - name: Install client dependencies
+        working-directory: client
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: client/e2eTests/protoFleet
+        run: npx playwright install chromium
+
+      - name: Build ProtoFleet
+        working-directory: client
+        run: npm run build:protoFleet
+
+      - name: Build plugins for runner (Linux)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          arch="$(uname -m)"
+          case "$arch" in
+            x86_64) goarch="amd64" ;;
+            aarch64|arm64) goarch="arm64" ;;
+            *) echo "Unsupported runner arch: $arch"; exit 1 ;;
+          esac
+
+          go work sync
+          mkdir -p server/plugins
+          (cd plugin/proto && CGO_ENABLED=0 GOOS=linux GOARCH="$goarch" go build -o ../../server/plugins/proto-plugin .)
+          (cd plugin/antminer && CGO_ENABLED=0 GOOS=linux GOARCH="$goarch" go build -o ../../server/plugins/antminer-plugin .)
+          chmod +x server/plugins/proto-plugin server/plugins/antminer-plugin
+
+      - name: Start all services (DB + API + Frontend)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # --wait respects healthchecks and depends_on, ensuring proper startup order
+          docker compose -f deployment-files/docker-compose.protofleet-real-miners-runner.yaml up -d --wait --wait-timeout 120
+
+      - name: Run Playwright tests (desktop)
+        working-directory: client/e2eTests/protoFleet
+        env:
+          CI: true
+          E2E_TARGET: real
+          E2E_MINER_IPS: ${{ inputs.miner_ips }}
+        run: npx playwright test --grep @real --project=desktop
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report-protofleet-real
+          path: client/e2eTests/protoFleet/playwright-report/
+          retention-days: 30
+
+      - name: Upload Playwright test results
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-results-protofleet-real
+          path: client/e2eTests/protoFleet/test-results/
+          retention-days: 30
+
+      - name: Dump logs on failure
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=== Container Status ==="
+          docker compose -f deployment-files/docker-compose.protofleet-real-miners-runner.yaml ps -a
+          echo ""
+
+          echo "=== All Service Logs ==="
+          docker compose -f deployment-files/docker-compose.protofleet-real-miners-runner.yaml logs --tail=100
+          echo ""
+
+          echo "=== Network Information ==="
+          docker network ls
+          echo ""
+
+          echo "=== Port Bindings ==="
+          ss -tlnp 2>/dev/null | grep -E ':(4000|5432|8080)' || echo "No services listening on expected ports"
+
+      - name: Environment status
+        if: always()
+        shell: bash
+        run: |
+          echo "Environment left running for debugging"
+          echo "Frontend: http://127.0.0.1:8080/"
+          echo "Fleet API: http://localhost:4000/"
+          echo ""
+          echo "To cleanup:"
+          echo "  docker compose -f deployment-files/docker-compose.protofleet-real-miners-runner.yaml down -v"

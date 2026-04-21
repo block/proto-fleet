@@ -1,0 +1,45 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ProtoFleet.Installer.App", "src\ProtoFleet.Installer.App\ProtoFleet.Installer.App.csproj", "{7F7D98F4-9F4C-4F04-B40A-35E8CFCBCEFA}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ProtoFleet.Installer.Core", "src\ProtoFleet.Installer.Core\ProtoFleet.Installer.Core.csproj", "{5D4E2AA5-8987-40BE-9F01-571D75DCB442}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ProtoFleet.Installer.Platform.Windows", "src\ProtoFleet.Installer.Platform.Windows\ProtoFleet.Installer.Platform.Windows.csproj", "{8900674D-E0AD-4553-9715-92B97A6B684E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ProtoFleet.Installer.Platform.Wsl", "src\ProtoFleet.Installer.Platform.Wsl\ProtoFleet.Installer.Platform.Wsl.csproj", "{7A5E9130-461F-42DA-BD08-079D810B764A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ProtoFleet.Installer.Tests", "tests\ProtoFleet.Installer.Tests\ProtoFleet.Installer.Tests.csproj", "{0D0A9E07-18E4-4569-BC28-ECD8DBA8AB97}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{7F7D98F4-9F4C-4F04-B40A-35E8CFCBCEFA}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7F7D98F4-9F4C-4F04-B40A-35E8CFCBCEFA}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7F7D98F4-9F4C-4F04-B40A-35E8CFCBCEFA}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7F7D98F4-9F4C-4F04-B40A-35E8CFCBCEFA}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5D4E2AA5-8987-40BE-9F01-571D75DCB442}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5D4E2AA5-8987-40BE-9F01-571D75DCB442}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5D4E2AA5-8987-40BE-9F01-571D75DCB442}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5D4E2AA5-8987-40BE-9F01-571D75DCB442}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8900674D-E0AD-4553-9715-92B97A6B684E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8900674D-E0AD-4553-9715-92B97A6B684E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8900674D-E0AD-4553-9715-92B97A6B684E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8900674D-E0AD-4553-9715-92B97A6B684E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7A5E9130-461F-42DA-BD08-079D810B764A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7A5E9130-461F-42DA-BD08-079D810B764A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7A5E9130-461F-42DA-BD08-079D810B764A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7A5E9130-461F-42DA-BD08-079D810B764A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0D0A9E07-18E4-4569-BC28-ECD8DBA8AB97}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0D0A9E07-18E4-4569-BC28-ECD8DBA8AB97}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0D0A9E07-18E4-4569-BC28-ECD8DBA8AB97}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0D0A9E07-18E4-4569-BC28-ECD8DBA8AB97}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal

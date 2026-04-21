@@ -1,0 +1,76 @@
+{
+  "generate": {
+    "count": 1000,
+    "serial_prefix": "VM",
+    "ip_start": "10.255.0.2",
+    "baseline_variance_percent": 10,
+    "profiles": [
+      {
+        "name": "s19-pro",
+        "weight": 3,
+        "model": "S19 Pro",
+        "manufacturer": "Virtual",
+        "hashboards": 3,
+        "asics_per_board": 76,
+        "fan_count": 4,
+        "baseline_hashrate_ths": 110.0,
+        "baseline_power_w": 3250.0,
+        "baseline_temp_c": 65.0,
+        "fan_rpm_min": 3000,
+        "fan_rpm_max": 5000
+      },
+      {
+        "name": "t21",
+        "weight": 2,
+        "model": "T21",
+        "manufacturer": "Virtual",
+        "hashboards": 4,
+        "asics_per_board": 84,
+        "fan_count": 4,
+        "baseline_hashrate_ths": 190.0,
+        "baseline_power_w": 3610.0,
+        "baseline_temp_c": 62.0,
+        "fan_rpm_min": 3500,
+        "fan_rpm_max": 5500
+      },
+      {
+        "name": "s21",
+        "weight": 2,
+        "model": "S21",
+        "manufacturer": "Virtual",
+        "hashboards": 3,
+        "asics_per_board": 114,
+        "fan_count": 4,
+        "baseline_hashrate_ths": 200.0,
+        "baseline_power_w": 3500.0,
+        "baseline_temp_c": 60.0,
+        "fan_rpm_min": 3200,
+        "fan_rpm_max": 5200
+      },
+      {
+        "name": "s19-degraded",
+        "weight": 1,
+        "model": "S19 (Degraded)",
+        "manufacturer": "Virtual",
+        "hashboards": 3,
+        "asics_per_board": 76,
+        "fan_count": 4,
+        "baseline_hashrate_ths": 85.0,
+        "baseline_power_w": 3100.0,
+        "baseline_temp_c": 72.0,
+        "fan_rpm_min": 3500,
+        "fan_rpm_max": 5500,
+        "behavior": {
+          "hashrate_variance_percent": 8,
+          "temp_variance_c": 5,
+          "error_injection": {
+            "enabled": true,
+            "offline_probability": 0.02,
+            "degraded_board_probability": 0.15
+          }
+        }
+      }
+    ]
+  },
+  "miners": []
+}

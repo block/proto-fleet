@@ -1,0 +1,23 @@
+version: v2
+plugins:
+  - local: protoc-gen-go
+    out: server/generated/grpc
+    opt: paths=source_relative
+    include_imports: true
+  - local: protoc-gen-connect-go
+    out: server/generated/grpc
+    opt: paths=source_relative
+  - local: protoc-gen-es
+    out: client/src/protoFleet/api/generated
+    include_imports: true
+    opt: target=ts
+managed:
+  enabled: true
+  disable:
+    # Don't modify any files in buf.build/googleapis/googleapis
+    - module: buf.build/googleapis/googleapis
+    # Don't modify any files in buf.build/bufbuild/protovalidate
+    - module: buf.build/bufbuild/protovalidate
+  override:
+    - file_option: go_package_prefix
+      value: github.com/block/proto-fleet/server/generated/grpc

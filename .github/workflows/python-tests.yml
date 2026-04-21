@@ -1,0 +1,140 @@
+name: Python SDK and Generator Checks
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/python-tests.yml"
+      - ".github/actions/hermit-setup/action.yml"
+      - "bin/hermit.hcl"
+      - "hermit-packages/**"
+      - "packages/proto-python-gen/**"
+      - "server/buf.gen.yaml"
+      - "server/buf.yaml"
+      - "server/sdk/v1/pb/**"
+      - "server/sdk/v1/python/**"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/python-tests.yml"
+      - ".github/actions/hermit-setup/action.yml"
+      - "bin/hermit.hcl"
+      - "hermit-packages/**"
+      - "packages/proto-python-gen/**"
+      - "server/buf.gen.yaml"
+      - "server/buf.yaml"
+      - "server/sdk/v1/pb/**"
+      - "server/sdk/v1/python/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  proto-python-gen:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/proto-python-gen
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Hermit
+        uses: ./.github/actions/hermit-setup
+
+      - name: Setup venv
+        run: just setup
+
+      - name: Run tests
+        run: just test
+
+      - name: Lint
+        run: just lint
+
+  sdk-python:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server/sdk/v1/python
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Hermit
+        uses: ./.github/actions/hermit-setup
+
+      - name: Setup venv
+        run: just setup
+
+      - name: Run checks (tests + typecheck + lint)
+        run: just check
+
+  python-gen-staleness:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Hermit
+        uses: ./.github/actions/hermit-setup
+
+      - name: Setup protoc-gen-python-grpc venv
+        run: just setup
+        working-directory: packages/proto-python-gen
+
+      - name: Regenerate Python SDK stubs
+        run: just gen-sdk-protos
+        working-directory: server
+
+      - name: Check for staleness
+        run: |
+          if ! git diff --exit-code server/sdk/v1/python/proto_fleet_sdk/generated/; then
+            echo "ERROR: Generated Python SDK stubs are out of date."
+            echo "Run 'cd server && just gen-sdk-protos' and commit the changes."
+            exit 1
+          fi
+          echo "Generated stubs are up to date."
+  proto-python-gen-tarball:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/proto-python-gen
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Hermit
+        uses: ./.github/actions/hermit-setup
+
+      - name: Validate tarball contents match source
+        run: |
+          TARBALL="proto-python-gen-0.2.0.tar.gz"
+          if [[ ! -f "${TARBALL}" ]]; then
+            echo "ERROR: Committed tarball ${TARBALL} not found."
+            echo "Run 'cd packages/proto-python-gen && just package' and commit the tarball."
+            exit 1
+          fi
+
+          COMMITTED="$(mktemp -d)"
+          EXPECTED="$(mktemp -d)"
+          trap 'rm -rf "${COMMITTED}" "${EXPECTED}"' EXIT
+
+          tar -xzf "${TARBALL}" -C "${COMMITTED}"
+
+          mkdir -p "${EXPECTED}/bin"
+          cp bin/protoc-gen-python-grpc "${EXPECTED}/bin/"
+          cp protoc_gen_python_grpc.py "${EXPECTED}/"
+          cp setup.sh "${EXPECTED}/"
+          cp ../../scripts/pip-config.sh "${EXPECTED}/"
+          cp requirements.txt "${EXPECTED}/"
+
+          if diff -r "${COMMITTED}" "${EXPECTED}" > /dev/null 2>&1; then
+            echo "Tarball contents match source files."
+          else
+            echo "ERROR: Committed tarball does not match source files."
+            diff -r "${COMMITTED}" "${EXPECTED}" || true
+            echo ""
+            echo "Run 'cd packages/proto-python-gen && just package' and commit the updated tarball."
+            exit 1
+          fi

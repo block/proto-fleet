@@ -1,0 +1,111 @@
+set dotenv-load
+set export
+
+# list available recipes
+default:
+  just --list
+
+# lint project files
+lint:
+  golangci-lint run -c .golangci.yaml
+
+# build fleet project
+build:
+    go build -v ./...
+
+# install fleet
+install:
+    go install -v ./cmd/fleetd
+
+# run local server in docker compose with watch enabled
+dev: _build-plugins-docker start
+  docker compose up --watch fleet-api --remove-orphans
+
+# start services in docker compose
+start:
+  docker compose up --wait
+
+# stop services in docker
+stop:
+  docker compose down
+
+# run all tests (DB_PASSWORD defaults to 'fleet' for local/CI testing)
+test:
+    DB_PASSWORD="${DB_PASSWORD:-fleet}" go test ./... -skip ./generated/...
+
+# run e2e plugin integration test
+test-plugin-integration:
+    go test -v -tags=e2e ./e2e -run TestPluginIntegration
+
+# format project files
+format:
+  goimports -w .
+
+# run linting and tests together (non-mutating)
+check: lint test
+
+# run all code gen tasks
+gen: gen-db-queries gen-sdk-protos gen-go
+
+# generate query via sqlc
+gen-db-queries:
+  sqlc generate
+  goimports -w generated/sqlc
+
+# generate SDK protobuf code
+gen-sdk-protos:
+  buf generate
+  goimports -w sdk/v1/pb/generated
+
+# go generate, this will run all go:generate directives in the project
+gen-go:
+  go generate ./...
+
+# start db (PostgreSQL via TimescaleDB)
+db-up:
+  docker compose up --wait timescaledb
+
+# run a db migration
+db-migrate:
+  migrate -database "postgres://fleet:fleet@localhost:5432/fleet?sslmode=disable" -path migrations up
+
+# stop the db
+db-down:
+  docker compose down timescaledb
+
+# tear down the db by running down migrations
+db-reset:
+  migrate -database "postgres://fleet:fleet@localhost:5432/fleet?sslmode=disable" -path migrations down
+
+# launch psql shell for interacting with the db started via db-up
+db-shell:
+  psql -h 127.0.0.1 -U fleet -d fleet
+
+# create a new migration
+db-migration-new name:
+  migrate create -ext sql -dir migrations -seq {{name}}
+
+# run the local server (requires env: use --dotenv-filename .env.local, create .env file, or set vars manually)
+_run: db-up install
+     ../.hermit/go/bin/fleetd
+
+# seed telemetry data for dashboard testing (always clears old synthetic rows first)
+# examples:
+#   just seed-telemetry --days 10 --devices 3
+#   just seed-telemetry --clean-up
+#   just seed-telemetry --days 30 --outliers
+seed-telemetry *args:
+    go run ./devtools/seedtelemetry {{args}}
+
+# wipe and rebuild all docker compose services from scratch
+rebuild-all: _build-plugins-docker
+    docker compose down --rmi all --volumes && docker compose up --build -d
+
+_build-plugins-docker:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  cd .. && just build-plugins-docker
+
+# restart and rebuild fleet-api only
+rebuild-fleet-api:
+  docker compose up fleet-api -d --build --force-recreate

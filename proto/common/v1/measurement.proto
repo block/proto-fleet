@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package common.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// A single measurement with timestamp, value, and unit
+message Measurement {
+  // Timestamp of when the measurement was taken
+  google.protobuf.Timestamp timestamp = 1;
+
+  // Numeric value of the measurement
+  double value = 2;
+
+  // Unit of measurement
+  MeasurementUnit unit = 3;
+}
+
+// Standard units used throughout the API
+enum MeasurementUnit {
+  // Unit not specified
+  MEASUREMENT_UNIT_UNSPECIFIED = 0;
+
+  // Terahash per second - for hashrate measurements
+  MEASUREMENT_UNIT_TERAHASH_PER_SECOND = 1;
+
+  // Joules per terahash - for efficiency measurements
+  MEASUREMENT_UNIT_JOULES_PER_TERAHASH = 2;
+
+  // Kilowatt - for power consumption measurements
+  MEASUREMENT_UNIT_KILOWATT = 3;
+
+  // Degrees Celsius - for temperature measurements
+  MEASUREMENT_UNIT_CELSIUS = 4;
+
+  // Degrees Fahrenheit - for temperature measurements
+  MEASUREMENT_UNIT_FAHRENHEIT = 5;
+
+  // Percentage - for uptime and efficiency percentages
+  MEASUREMENT_UNIT_PERCENTAGE = 6;
+
+  // Hours - for uptime measurements
+  MEASUREMENT_UNIT_HOURS = 7;
+}

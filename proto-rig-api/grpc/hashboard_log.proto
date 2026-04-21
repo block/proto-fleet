@@ -1,0 +1,46 @@
+syntax = "proto3";
+
+package fwpb;
+
+option go_package = "pkg/proto;hashboard";
+
+// Log levels must match the log levels in lib/log/log.h
+enum log_level {
+    // Debug log level
+    LOG_DEBUG = 0;
+
+    // Info log level
+    LOG_INFO = 1;
+
+    // Warning log level
+    LOG_WARNING = 2;
+
+    // Error log level
+    LOG_ERROR = 3;
+}
+
+message log_message {
+    // The log level of the event
+    log_level level = 1;
+
+    // The file where the event occurred
+    string file = 2;
+
+    // The line number of the event
+    uint32 line = 3;
+
+    // The message of the event
+    string message = 4;
+}
+
+message hashboard_log {
+    oneof msg {
+        // IMPORTANT: Each variable name must exactly match the message type.
+
+        // Logging message
+        log_message log_message = 1;
+    }
+
+    // The timestamp of the message in milliseconds
+    uint32 timestamp = 9999;
+}

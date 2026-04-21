@@ -1,0 +1,28 @@
+
+# Playwright
+node_modules/
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/
+
+# Environment variables
+.env
+.env.local
+.env*.local
+
+# Local test config (not committed)
+config/test.config.local.ts
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+
+# Lock files (optional - remove if you want to commit them)
+package-lock.json
+pnpm-lock.yaml
+yarn.lock

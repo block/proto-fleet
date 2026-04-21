@@ -1,0 +1,3 @@
+-- Forward-only migration.
+-- This backfill intentionally rewrites legacy Proto gRPC discovery endpoints
+-- to canonical HTTPS endpoints and does not preserve the original transport intent.

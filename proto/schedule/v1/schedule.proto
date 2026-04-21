@@ -1,0 +1,373 @@
+syntax = "proto3";
+
+package schedule.v1;
+
+import "google/protobuf/timestamp.proto";
+import "buf/validate/validate.proto";
+
+// Service for managing scheduled miner operations (power target changes, reboots, and sleep)
+// with priority-based conflict resolution.
+service ScheduleService {
+    // Lists all schedules for the organization, ordered by priority
+    rpc ListSchedules(ListSchedulesRequest) returns (ListSchedulesResponse);
+
+    // Creates a new schedule
+    rpc CreateSchedule(CreateScheduleRequest) returns (CreateScheduleResponse);
+
+    // Updates an existing schedule
+    rpc UpdateSchedule(UpdateScheduleRequest) returns (UpdateScheduleResponse);
+
+    // Soft-deletes a schedule
+    rpc DeleteSchedule(DeleteScheduleRequest) returns (DeleteScheduleResponse);
+
+    // Pauses an active schedule
+    rpc PauseSchedule(PauseScheduleRequest) returns (PauseScheduleResponse);
+
+    // Resumes a paused schedule
+    rpc ResumeSchedule(ResumeScheduleRequest) returns (ResumeScheduleResponse);
+
+    // Batch-updates schedule priorities based on ordered list of IDs
+    rpc ReorderSchedules(ReorderSchedulesRequest) returns (ReorderSchedulesResponse);
+
+}
+
+// --- Enums ---
+
+enum ScheduleStatus {
+    SCHEDULE_STATUS_UNSPECIFIED = 0;
+    SCHEDULE_STATUS_ACTIVE = 1;
+    SCHEDULE_STATUS_PAUSED = 2;
+    SCHEDULE_STATUS_RUNNING = 3;
+    SCHEDULE_STATUS_COMPLETED = 4;
+}
+
+enum ScheduleAction {
+    SCHEDULE_ACTION_UNSPECIFIED = 0;
+    SCHEDULE_ACTION_SET_POWER_TARGET = 1;
+    SCHEDULE_ACTION_REBOOT = 2;
+    SCHEDULE_ACTION_SLEEP = 3;
+}
+
+enum ScheduleType {
+    SCHEDULE_TYPE_UNSPECIFIED = 0;
+    SCHEDULE_TYPE_ONE_TIME = 1;
+    SCHEDULE_TYPE_RECURRING = 2;
+}
+
+enum RecurrenceFrequency {
+    RECURRENCE_FREQUENCY_UNSPECIFIED = 0;
+    RECURRENCE_FREQUENCY_DAILY = 1;
+    RECURRENCE_FREQUENCY_WEEKLY = 2;
+    RECURRENCE_FREQUENCY_MONTHLY = 3;
+}
+
+// Power target mode for set_power_target action. Custom kW deferred to v1.1.
+enum PowerTargetMode {
+    POWER_TARGET_MODE_UNSPECIFIED = 0;
+    POWER_TARGET_MODE_DEFAULT = 1;
+    POWER_TARGET_MODE_MAX = 2;
+}
+
+// Day of week for weekly recurrence
+enum DayOfWeek {
+    DAY_OF_WEEK_UNSPECIFIED = 0;
+    DAY_OF_WEEK_SUNDAY = 1;
+    DAY_OF_WEEK_MONDAY = 2;
+    DAY_OF_WEEK_TUESDAY = 3;
+    DAY_OF_WEEK_WEDNESDAY = 4;
+    DAY_OF_WEEK_THURSDAY = 5;
+    DAY_OF_WEEK_FRIDAY = 6;
+    DAY_OF_WEEK_SATURDAY = 7;
+}
+
+// --- Messages ---
+
+// Configuration for the power target action
+message PowerTargetConfig {
+    PowerTargetMode mode = 1;
+}
+
+// Recurrence configuration for recurring schedules
+message ScheduleRecurrence {
+    // How often the schedule repeats
+    RecurrenceFrequency frequency = 1;
+
+    // Repeat interval. Must be 1.
+    int32 interval = 2 [(buf.validate.field).int32.const = 1];
+
+    // Days of the week for weekly recurrence (at least one required when frequency is WEEKLY)
+    repeated DayOfWeek days_of_week = 3;
+
+    // Day of month for monthly recurrence (1-31). Months without this day are
+    // skipped (e.g., day 31 skips Feb, Apr, Jun, Sep, Nov).
+    optional int32 day_of_month = 4 [(buf.validate.field).int32 = {
+        gte: 1, lte: 31
+    }];
+}
+
+// Target type for a schedule
+enum ScheduleTargetType {
+    SCHEDULE_TARGET_TYPE_UNSPECIFIED = 0;
+    SCHEDULE_TARGET_TYPE_RACK = 1;
+    SCHEDULE_TARGET_TYPE_MINER = 2;
+    SCHEDULE_TARGET_TYPE_GROUP = 3;
+}
+
+// Target for a schedule (rack, group, or individual miner)
+message ScheduleTarget {
+    // Type of target: rack, group, or miner
+    ScheduleTargetType target_type = 1 [(buf.validate.field).enum = {
+        defined_only: true
+        not_in: [0]
+    }];
+
+    // Identifier for the target (rack ID, group ID, or miner device identifier)
+    string target_id = 2 [(buf.validate.field).string.min_len = 1];
+}
+
+// Full schedule entity
+message Schedule {
+    int64 id = 1;
+    string name = 2;
+    ScheduleAction action = 3;
+    PowerTargetConfig action_config = 4;
+    ScheduleType schedule_type = 5;
+    ScheduleRecurrence recurrence = 6;
+    string start_date = 7;
+    string start_time = 8;
+    string end_time = 9;
+    string end_date = 11;
+    string timezone = 13;
+    ScheduleStatus status = 14;
+    int32 priority = 15;
+    int64 created_by = 17;
+    google.protobuf.Timestamp created_at = 18;
+    google.protobuf.Timestamp updated_at = 19;
+    google.protobuf.Timestamp last_run_at = 20;
+    google.protobuf.Timestamp next_run_at = 21;
+    repeated ScheduleTarget targets = 23;
+    string created_by_username = 24;
+    reserved 10, 12, 16, 22;
+}
+
+// --- Requests / Responses ---
+
+// ListSchedules
+
+message ListSchedulesRequest {
+    // Filter by status (optional, returns all statuses if unspecified)
+    ScheduleStatus status = 1 [(buf.validate.field).enum.defined_only = true];
+
+    // Filter by action type (optional, returns all actions if unspecified)
+    ScheduleAction action = 2 [(buf.validate.field).enum.defined_only = true];
+}
+
+message ListSchedulesResponse {
+    repeated Schedule schedules = 1;
+}
+
+// CreateSchedule
+
+message CreateScheduleRequest {
+    // Schedule name (required, 1-100 characters)
+    string name = 1 [(buf.validate.field) = {
+        string: { min_len: 1, max_len: 100 }
+        required: true
+    }];
+
+    // Action to perform (required)
+    ScheduleAction action = 2 [(buf.validate.field).enum = {
+        defined_only: true
+        not_in: [0]
+    }];
+
+    // Power target configuration (required when action is SET_POWER_TARGET)
+    PowerTargetConfig action_config = 3;
+
+    // Schedule type (required)
+    ScheduleType schedule_type = 4 [(buf.validate.field).enum = {
+        defined_only: true
+        not_in: [0]
+    }];
+
+    // Recurrence configuration (required when schedule_type is RECURRING)
+    ScheduleRecurrence recurrence = 5;
+
+    // Start date in YYYY-MM-DD format (required)
+    string start_date = 6 [(buf.validate.field) = {
+        string: {
+            len: 10
+            pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        }
+        required: true
+    }];
+
+    // Start time in HH:MM format (required)
+    string start_time = 7 [(buf.validate.field) = {
+        string: {
+            len: 5
+            pattern: "^[0-9]{2}:[0-9]{2}$"
+        }
+        required: true
+    }];
+
+    // End time in HH:MM format (for power target time windows)
+    string end_time = 8 [(buf.validate.field) = {
+        ignore: IGNORE_IF_UNPOPULATED
+        string: {
+            len: 5
+            pattern: "^[0-9]{2}:[0-9]{2}$"
+        }
+    }];
+
+    // End date in YYYY-MM-DD format (if set, schedule ends on this date; if absent, runs indefinitely)
+    string end_date = 10 [(buf.validate.field) = {
+        ignore: IGNORE_IF_UNPOPULATED
+        string: {
+            len: 10
+            pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        }
+    }];
+
+    // IANA timezone string (required, e.g. "America/Chicago")
+    string timezone = 12 [(buf.validate.field) = {
+        string: { min_len: 1 }
+        required: true
+    }];
+
+    // Targets for this schedule (racks and/or miners)
+    repeated ScheduleTarget targets = 14;
+
+    reserved 9, 11, 13;
+}
+
+message CreateScheduleResponse {
+    Schedule schedule = 1;
+}
+
+// UpdateSchedule
+
+message UpdateScheduleRequest {
+    // ID of the schedule to update (required)
+    int64 schedule_id = 1 [(buf.validate.field).int64.gt = 0];
+
+    // Schedule name (required, 1-100 characters)
+    string name = 2 [(buf.validate.field) = {
+        string: { min_len: 1, max_len: 100 }
+        required: true
+    }];
+
+    // Action to perform (required)
+    ScheduleAction action = 3 [(buf.validate.field).enum = {
+        defined_only: true
+        not_in: [0]
+    }];
+
+    // Power target configuration (required when action is SET_POWER_TARGET)
+    PowerTargetConfig action_config = 4;
+
+    // Schedule type (required)
+    ScheduleType schedule_type = 5 [(buf.validate.field).enum = {
+        defined_only: true
+        not_in: [0]
+    }];
+
+    // Recurrence configuration (required when schedule_type is RECURRING)
+    ScheduleRecurrence recurrence = 6;
+
+    // Start date in YYYY-MM-DD format (required)
+    string start_date = 7 [(buf.validate.field) = {
+        string: {
+            len: 10
+            pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        }
+        required: true
+    }];
+
+    // Start time in HH:MM format (required)
+    string start_time = 8 [(buf.validate.field) = {
+        string: {
+            len: 5
+            pattern: "^[0-9]{2}:[0-9]{2}$"
+        }
+        required: true
+    }];
+
+    // End time in HH:MM format (for power target time windows)
+    string end_time = 9 [(buf.validate.field) = {
+        ignore: IGNORE_IF_UNPOPULATED
+        string: {
+            len: 5
+            pattern: "^[0-9]{2}:[0-9]{2}$"
+        }
+    }];
+
+    // End date in YYYY-MM-DD format (if set, schedule ends on this date; if absent, runs indefinitely)
+    string end_date = 11 [(buf.validate.field) = {
+        ignore: IGNORE_IF_UNPOPULATED
+        string: {
+            len: 10
+            pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        }
+    }];
+
+    // IANA timezone string (required, e.g. "America/Chicago")
+    string timezone = 13 [(buf.validate.field) = {
+        string: { min_len: 1 }
+        required: true
+    }];
+
+    // Updated targets (replaces all existing targets)
+    repeated ScheduleTarget targets = 15;
+
+    reserved 10, 12, 14;
+}
+
+message UpdateScheduleResponse {
+    Schedule schedule = 1;
+}
+
+// DeleteSchedule
+
+message DeleteScheduleRequest {
+    int64 schedule_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message DeleteScheduleResponse {}
+
+// PauseSchedule
+
+message PauseScheduleRequest {
+    int64 schedule_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message PauseScheduleResponse {
+    Schedule schedule = 1;
+}
+
+// ResumeSchedule
+
+message ResumeScheduleRequest {
+    int64 schedule_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message ResumeScheduleResponse {
+    Schedule schedule = 1;
+}
+
+// ReorderSchedules
+
+message ReorderSchedulesRequest {
+    // Ordered list of schedule IDs. Position in list determines new priority (index 0 = highest).
+    repeated int64 schedule_ids = 1 [(buf.validate.field) = {
+        repeated: {
+            min_items: 1
+            unique: true
+            items: {
+                int64: { gt: 0 }
+            }
+        }
+    }];
+}
+
+message ReorderSchedulesResponse {}

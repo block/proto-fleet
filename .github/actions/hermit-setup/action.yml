@@ -1,0 +1,25 @@
+name: Hermit Setup
+description: Setup Hermit with caching
+inputs:  
+  preinstall:
+    description: 'If "true", pre-install all hermit packages.'
+    required: false
+    default: 'true'
+
+runs:
+  using: "composite"
+  steps:
+    - name: Activate hermit
+      uses: cashapp/activate-hermit@12a728b03ad41eace0f9abaf98a035e7e8ea2318 # v1.1.4
+      with:
+        cache: "false" # Disable hermit cache to avoid it evicting yocto cache for now
+
+    - name: Install all hermit packages
+      if: ${{ inputs.preinstall == 'true'}}
+      shell: bash
+      run: |
+        if [[ ${RUNNER_OS} = 'Linux' && ${RUNNER_ARCH} == 'ARM64' ]]; then
+          echo "Skipping hermit install all for ${RUNNER_NAME} (${RUNNER_OS}:${RUNNER_ARCH})"
+        else
+          hermit install
+        fi

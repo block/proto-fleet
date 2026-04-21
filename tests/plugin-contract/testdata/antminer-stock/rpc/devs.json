@@ -1,0 +1,40 @@
+{
+  "STATUS": [
+    {
+      "STATUS": "S",
+      "When": 1741500000,
+      "Code": 9,
+      "Msg": "1 ASC(s)",
+      "Description": "bmminer"
+    }
+  ],
+  "DEVS": [
+    {
+      "ASC": 0,
+      "Name": "SM",
+      "ID": 0,
+      "Enabled": "Y",
+      "Status": "Alive",
+      "Temperature": 0.0,
+      "Tenperature": 0.0,
+      "MHS av": 0.0,
+      "MHS 5s": 0.0,
+      "Accepted": 120000,
+      "Rejected": 50,
+      "Hardware Errors": 12,
+      "Utility": 14.35,
+      "Last Share Pool": 0,
+      "Last Share Time": 1741500000,
+      "Total MH": 4.4e16,
+      "Diff1 Work": 150000000,
+      "Difficulty Accepted": 1.5e10,
+      "Difficulty Rejected": 6000000.0,
+      "Last Share Difficulty": 131072.0,
+      "Last Valid Work": 1741500000,
+      "Device Hardware%": 0.0001,
+      "Device Rejected%": 0.04,
+      "Device Elapsed": 501234
+    }
+  ],
+  "id": 1
+}

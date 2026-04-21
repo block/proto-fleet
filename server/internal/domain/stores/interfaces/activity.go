@@ -1,0 +1,18 @@
+package interfaces
+
+//go:generate go run go.uber.org/mock/mockgen -source=activity.go -destination=mocks/mock_activity_store.go -package=mocks ActivityStore
+
+import (
+	"context"
+
+	"github.com/block/proto-fleet/server/internal/domain/activity/models"
+)
+
+type ActivityStore interface {
+	Insert(ctx context.Context, event *models.Event) error
+	List(ctx context.Context, filter models.Filter) ([]models.Entry, error)
+	Count(ctx context.Context, filter models.Filter) (int64, error)
+	GetDistinctUsers(ctx context.Context, orgID int64) ([]models.UserInfo, error)
+	GetDistinctEventTypes(ctx context.Context, orgID int64) ([]models.EventTypeInfo, error)
+	GetDistinctScopeTypes(ctx context.Context, orgID int64) ([]string, error)
+}

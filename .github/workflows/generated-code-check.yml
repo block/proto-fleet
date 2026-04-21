@@ -1,0 +1,35 @@
+name: Generated code check
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  generated-code-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Hermit
+        uses: ./.github/actions/hermit-setup
+
+      - name: Configure Go cache
+        uses: ./.github/actions/go-cache-setup
+
+      - name: Install dependencies
+        run: just setup
+
+      - name: Generate code
+        run: just gen
+
+      - name: Check if committed generated code is up-to-date
+        run: >
+          git diff --quiet || {
+            echo -e "\033[0;31mNewly generated code does not match the committed code. Run 'just gen', then commit and push the changes.\033[0m" 1>&2;
+            echo -e "\n\n";
+            git diff --exit-code
+          }

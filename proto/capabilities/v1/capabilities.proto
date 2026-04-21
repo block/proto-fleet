@@ -1,0 +1,110 @@
+syntax = "proto3";
+
+package capabilities.v1;
+
+import "buf/validate/validate.proto";
+
+// MinerCapabilities defines what operations and features a specific miner model supports
+message MinerCapabilities {
+  // Manufacturer name
+  string manufacturer = 1 [(buf.validate.field).string = {
+    min_len: 1,
+    max_len: 100,
+  }];
+  
+  // Authentication capabilities
+  AuthenticationCapabilities authentication = 2 [(buf.validate.field).required = true];
+  
+  // Command capabilities
+  CommandCapabilities commands = 3 [(buf.validate.field).required = true];
+  
+  // Telemetry capabilities
+  TelemetryCapabilities telemetry = 4 [(buf.validate.field).required = true];
+  
+  // Firmware capabilities
+  FirmwareCapabilities firmware = 5 [(buf.validate.field).required = true];
+}
+
+// Authentication method types
+enum AuthenticationMethod {
+  AUTHENTICATION_METHOD_UNSPECIFIED = 0;
+  AUTHENTICATION_METHOD_BASIC = 1;
+  AUTHENTICATION_METHOD_ASYMMETRIC_KEY = 2;
+}
+
+// Authentication methods supported by the miner
+message AuthenticationCapabilities {
+  // Authentication methods supported by the miner
+  repeated AuthenticationMethod supported_methods = 1 [(buf.validate.field).repeated = {
+    min_items: 1,
+    items: {
+      enum: {
+        not_in: [0] // Disallow AUTHENTICATION_METHOD_UNSPECIFIED
+      }
+    }
+  }];
+}
+
+// Command operations supported by the miner
+message CommandCapabilities {
+  // Basic operations
+  bool reboot_supported = 1;
+  bool mining_start_supported = 2;
+  bool mining_stop_supported = 3;
+
+  // LED operations
+  bool led_blink_supported = 4;
+
+  // Advanced operations
+  bool factory_reset_supported = 5;
+
+  // Cooling control
+  bool air_cooling_supported = 6;
+  bool immersion_cooling_supported = 7;
+
+  // Pool management
+  bool pool_switching_supported = 8;
+  int32 pool_max_count = 9;
+  bool pool_priority_supported = 10;
+
+  // Log management
+  bool logs_download_supported = 11;
+
+  // Power mode control
+  bool power_mode_efficiency_supported = 12;
+
+  // Security management
+  bool update_miner_password_supported = 13;
+}
+
+// Telemetry data capabilities
+message TelemetryCapabilities {
+  // Real-time telemetry
+  bool realtime_telemetry_supported = 1;
+  
+  // Historical data
+  bool historical_data_supported = 2;
+  
+  // Supported metrics
+  bool hashrate_reported = 3;
+  bool power_usage_reported = 4;
+  bool temperature_reported = 5;
+  bool fan_speed_reported = 6;
+  bool efficiency_reported = 7;
+  bool uptime_reported = 8;
+  bool error_count_reported = 9;
+  bool miner_status_reported = 10;
+  bool pool_stats_reported = 11;
+  
+  // Component-level telemetry
+  bool per_chip_stats_reported = 12;
+  bool per_board_stats_reported = 13;
+  bool psu_stats_reported = 14;
+}
+
+// Firmware update capabilities
+message FirmwareCapabilities {
+  // Update methods
+  bool ota_update_supported = 1;
+  bool manual_upload_supported = 2;
+}

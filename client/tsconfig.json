@@ -1,0 +1,39 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable", "ES2021.String"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+
+    /* Bundler mode */
+    "allowJs": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+
+    /* Linting */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "strictNullChecks": true,
+
+    "paths": {
+      "@/*": ["./src/*"],
+      "api": ["./src/protoOS/api/index.ts"],
+      "apiTypes": ["./src/protoOS/api/types.ts"],
+      "apiResponseTypes": ["./src/protoOS/api/apiResponseTypes.ts"],
+      "icons": ["./src/shared/assets/icons"],
+      "icons/*": ["./src/shared/assets/icons/*"]
+    },
+
+    "types": ["jest-dom"],
+    "typeRoots": ["node_modules/@types", "node_modules/@testing-library"]
+  },
+  "include": ["src", "tailwind.d.ts", "e2eTests"],
+  "references": [{ "path": "./tsconfig.node.json" }]
+}

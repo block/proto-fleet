@@ -1,0 +1,48 @@
+@keyframes tabSlideRight1 {
+  100% {
+    transform: translateX(calc(140% + 8px));
+  }
+}
+@keyframes tabSlideRight2 {
+  100% {
+    transform: translateX(calc(280% + 16px));
+  }
+}
+@keyframes tabSlideRight3 {
+  100% {
+    transform: translateX(calc(420% + 32px));
+  }
+}
+@keyframes tabSlideLeft1 {
+  100% {
+    transform: translateX(calc(-140% - 5px));
+  }
+}
+@keyframes tabSlideLeft2 {
+  100% {
+    transform: translateX(calc(-280% - 16px));
+  }
+}
+@keyframes tabSlideLeft3 {
+  100% {
+    transform: translateX(calc(-420% - 32px));
+  }
+}
+.animate-tab-slide-right1 {
+  animation: tabSlideRight1 0.15s forwards;
+}
+.animate-tab-slide-right2 {
+  animation: tabSlideRight2 0.2s forwards;
+}
+.animate-tab-slide-right3 {
+  animation: tabSlideRight3 0.25s forwards;
+}
+.animate-tab-slide-left1 {
+  animation: tabSlideLeft1 0.15s forwards;
+}
+.animate-tab-slide-left2 {
+  animation: tabSlideLeft2 0.2s forwards;
+}
+.animate-tab-slide-left3 {
+  animation: tabSlideLeft3 0.25s forwards;
+}
