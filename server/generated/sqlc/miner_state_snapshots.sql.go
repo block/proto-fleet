@@ -55,9 +55,8 @@ type GetMinerStateSnapshotsRow struct {
 	SleepingCount int32
 }
 
-// DISTINCT ON picks the most recent snapshot per device per bucket so summed
-// counts always equal a real fleet size, regardless of snapshot alignment.
-// Device filter matches device_selector for scope-aware uptime.
+// DISTINCT ON keeps one state per device per bucket so summed counts always
+// equal a real fleet size regardless of snapshot alignment within the bucket.
 func (q *Queries) GetMinerStateSnapshots(ctx context.Context, arg GetMinerStateSnapshotsParams) ([]GetMinerStateSnapshotsRow, error) {
 	rows, err := q.query(ctx, q.getMinerStateSnapshotsStmt, getMinerStateSnapshots,
 		arg.BucketInterval,
@@ -129,9 +128,9 @@ WHERE d.deleted_at IS NULL
   AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED')
 `
 
-// Materializes one row per paired device for a single tick. CASE mirrors
-// CountMinersByState so chart history and live legend share one classifier.
-// State encoding: 0=offline, 1=sleeping, 2=broken, 3=hashing.
+// CASE bucket order must match CountMinersByState (device.sql) — the chart
+// and the live legend classify devices with the same rules.
+// State: 0=offline, 1=sleeping, 2=broken, 3=hashing.
 func (q *Queries) InsertMinerStateSnapshot(ctx context.Context, argTime time.Time) error {
 	_, err := q.exec(ctx, q.insertMinerStateSnapshotStmt, insertMinerStateSnapshot, argTime)
 	return err
