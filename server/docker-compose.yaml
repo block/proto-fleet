@@ -17,6 +17,11 @@ services:
             - testing/
             - "**/*.http"
             - "**/*.md"
+            - "**/*.yaml"
+            - "**/*.yml"
+            - "**/*.json"
+            - "**/*.sh"
+            - "**/Dockerfile"
     environment:
       AUTH_CLIENT_SECRET_KEY: "${AUTH_CLIENT_SECRET_KEY:-00000000000000000000000000000000000000000000}"
       AUTH_CLIENT_EXPIRATION_PERIOD: "168h" # Override to 168h for development

@@ -19,7 +19,7 @@ install:
 
 # run local server in docker compose with watch enabled
 dev: _build-plugins-docker start
-  docker compose up --watch fleet-api --remove-orphans
+  docker compose up --watch fleet-api --remove-orphans --no-deps
 
 # start services in docker compose
 start:
