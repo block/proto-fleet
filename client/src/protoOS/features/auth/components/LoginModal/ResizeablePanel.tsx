@@ -26,7 +26,7 @@ const ResizeablePanel = ({ children, resizeOn, className }: Props) => {
           exit={{ opacity: 0, transition: { duration: 0.2, ease: easeGentle } }}
           transition={{ duration: 0.5, delay: 0.1 }}
         >
-          <div ref={ref} className={clsx("absolute", className)}>
+          <div ref={ref} className={clsx("absolute inset-x-0", className)}>
             {children}
           </div>
         </motion.div>
