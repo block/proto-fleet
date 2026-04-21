@@ -54,8 +54,8 @@ describe("UptimePanel", () => {
     expect(screen.getByText("Uptime")).toBeInTheDocument();
     expect(screen.getByText("All miners hashing")).toBeInTheDocument();
     expect(screen.getByText("Not hashing")).toBeInTheDocument();
-    expect(screen.getByText("Needs attention")).toBeInTheDocument();
-    expect(screen.getByText("Hashing")).toBeInTheDocument();
+    expect(screen.getByText("Degraded")).toBeInTheDocument();
+    expect(screen.getByText("Healthy")).toBeInTheDocument();
     expect(screen.getByText("100% of fleet")).toBeInTheDocument();
     // Buttons should not be shown when their counts are 0.
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
@@ -74,7 +74,7 @@ describe("UptimePanel", () => {
     expect(screen.getByText("Uptime")).toBeInTheDocument();
     expect(screen.getByText("20% not hashing")).toBeInTheDocument();
     expect(screen.getByText("Not hashing")).toBeInTheDocument();
-    expect(screen.getByText("Hashing")).toBeInTheDocument();
+    expect(screen.getByText("Healthy")).toBeInTheDocument();
     // Only the non-zero "not hashing" button should be shown.
     expect(screen.getByRole("button")).toBeInTheDocument();
     expect(screen.getByText("1 miner")).toBeInTheDocument();

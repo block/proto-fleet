@@ -41,14 +41,14 @@ export function UptimePanel({ duration, uptimeStatusCounts }: UptimePanelProps) 
     () => ({
       hashing: {
         color: "var(--color-text-primary)",
-        label: "Hashing",
+        label: "Healthy",
         displayInBreakdown: true,
         showButton: false,
         index: 2,
       },
       broken: {
         color: "var(--color-intent-warning-fill)",
-        label: "Needs attention",
+        label: "Degraded",
         displayInBreakdown: true,
         showButton: true,
         buttonVariant: "secondary",
