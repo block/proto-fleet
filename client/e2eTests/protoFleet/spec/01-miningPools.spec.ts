@@ -87,7 +87,6 @@ test.describe("Mining Pools", () => {
     }
   });
 
-  const invalidPoolUrl = "stratum+tcp://eu1.examplepool.com:3333";
   const validPoolUrl = "stratum+tcp://mine.ocean.xyz:3334";
   // When DASH-1407 is fixed, use a real wallet, so that real miners always have it configured
   // Also, removed the actual username for security reasons. Need to get from GH secrets
@@ -112,14 +111,10 @@ test.describe("Mining Pools", () => {
       await newPoolModal.validateEmptyPoolUrlError();
     });
 
-    await test.step("Configure mining pool with invalid URL", async () => {
+    await test.step("Configure mining pool", async () => {
       await newPoolModal.inputPoolName(settingsPoolName);
-      await newPoolModal.inputPoolUrl(invalidPoolUrl);
-      await newPoolModal.inputPoolUsername(poolUsername);
-    });
-
-    await test.step("Change URL to a valid one", async () => {
       await newPoolModal.inputPoolUrl(validPoolUrl);
+      await newPoolModal.inputPoolUsername(poolUsername);
     });
 
     await test.step("Save and validate pool URL", async () => {

@@ -67,8 +67,17 @@ export class AddMinersPage extends BasePage {
 
     await expect(async () => {
       const scanningButton = this.page.getByRole("button", { name: "Scanning", exact: true });
+      const rescanNetworkButton = this.page.getByRole("button", { name: "Rescan network", exact: true });
+
       expect(await scanningButton.isVisible().catch(() => false)).toBe(false);
-      await expect(this.page.getByRole("button", { name: "Rescan network", exact: true })).toBeVisible();
+      expect(await rescanNetworkButton.isVisible().catch(() => false)).toBe(true);
+    }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [DEFAULT_INTERVAL] });
+  }
+
+  async waitForNetworkScanToStart() {
+    await expect(async () => {
+      const scanningButton = this.page.getByRole("button", { name: "Scanning", exact: true });
+      expect(await scanningButton.isVisible().catch(() => false)).toBe(true);
     }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [DEFAULT_INTERVAL] });
   }
 
@@ -91,16 +100,20 @@ export class AddMinersPage extends BasePage {
 
   async waitForExpectedNetworkMinerCount(expectedMinerCount: number, maxAttempts: number = 2) {
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-      await this.waitForNetworkScanToFinish();
-      const foundMinerCount = await this.getSelectedMinersCount();
+      if (attempt > 1) {
+        await this.waitForNetworkScanToStart();
+      }
 
-      if (foundMinerCount === expectedMinerCount) {
+      await this.waitForNetworkScanToFinish();
+      const selectedMinerCount = await this.getSelectedMinersCount();
+
+      if (selectedMinerCount === expectedMinerCount) {
         return;
       }
 
       if (attempt === maxAttempts) {
         throw new Error(
-          `Expected ${expectedMinerCount} miners after network scan, but found ${foundMinerCount} after ${maxAttempts} attempt(s).`,
+          `Expected ${expectedMinerCount} selected miners after network scan, but got ${selectedMinerCount} after ${maxAttempts} attempt(s).`,
         );
       }
 
