@@ -320,3 +320,107 @@ func (q *Queries) ListActivityLogs(ctx context.Context, arg ListActivityLogsPara
 	}
 	return items, nil
 }
+
+const listFinishedBatchesWithoutCompletion = `-- name: ListFinishedBatchesWithoutCompletion :many
+WITH first_initiated AS (
+    SELECT DISTINCT ON (batch_id)
+        batch_id,
+        id,
+        event_type,
+        description,
+        user_id,
+        username,
+        organization_id,
+        actor_type
+    FROM activity_log
+    WHERE batch_id IS NOT NULL
+      AND event_type NOT LIKE '%.completed'
+    ORDER BY batch_id, id
+)
+SELECT
+    cbl.uuid            AS batch_id,
+    cbl.type            AS command_type,
+    cbl.devices_count   AS devices_count,
+    cbl.finished_at     AS finished_at,
+    init.event_type     AS initiated_event_type,
+    init.description    AS description,
+    init.user_id        AS user_id,
+    init.username       AS username,
+    init.organization_id AS organization_id,
+    init.actor_type     AS actor_type
+FROM command_batch_log cbl
+JOIN first_initiated init ON init.batch_id = cbl.uuid
+WHERE cbl.status = 'FINISHED'
+  AND cbl.finished_at IS NOT NULL
+  AND cbl.finished_at < $1
+  AND NOT EXISTS (
+    SELECT 1 FROM activity_log done
+    WHERE done.batch_id = cbl.uuid
+      AND done.event_type LIKE '%.completed'
+  )
+ORDER BY cbl.finished_at
+LIMIT $2
+`
+
+type ListFinishedBatchesWithoutCompletionParams struct {
+	Cutoff     sql.NullTime
+	MaxBatches int32
+}
+
+type ListFinishedBatchesWithoutCompletionRow struct {
+	BatchID            string
+	CommandType        string
+	DevicesCount       int32
+	FinishedAt         sql.NullTime
+	InitiatedEventType string
+	Description        string
+	UserID             sql.NullString
+	Username           sql.NullString
+	OrganizationID     sql.NullInt64
+	ActorType          string
+}
+
+// Returns command batches that FINISHED but have no '<type>.completed' activity
+// row. Used by the reconciler to backfill completion events lost to a server
+// crash or exhausted finalizer retries.
+//
+// Only batches whose creator already wrote an 'initiated' activity row are
+// returned; internally-triggered batches (e.g. worker-name reapply) therefore
+// stay out of the activity timeline.
+//
+// The attribution (user_id, username, organization_id, actor_type) is sourced
+// from the initiated row so the completion event matches the original action
+// even when the session that kicked it off is long gone.
+func (q *Queries) ListFinishedBatchesWithoutCompletion(ctx context.Context, arg ListFinishedBatchesWithoutCompletionParams) ([]ListFinishedBatchesWithoutCompletionRow, error) {
+	rows, err := q.query(ctx, q.listFinishedBatchesWithoutCompletionStmt, listFinishedBatchesWithoutCompletion, arg.Cutoff, arg.MaxBatches)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListFinishedBatchesWithoutCompletionRow
+	for rows.Next() {
+		var i ListFinishedBatchesWithoutCompletionRow
+		if err := rows.Scan(
+			&i.BatchID,
+			&i.CommandType,
+			&i.DevicesCount,
+			&i.FinishedAt,
+			&i.InitiatedEventType,
+			&i.Description,
+			&i.UserID,
+			&i.Username,
+			&i.OrganizationID,
+			&i.ActorType,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

@@ -426,6 +426,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listDeviceSetMembersPaginatedAfterStmt, err = db.PrepareContext(ctx, listDeviceSetMembersPaginatedAfter); err != nil {
 		return nil, fmt.Errorf("error preparing query ListDeviceSetMembersPaginatedAfter: %w", err)
 	}
+	if q.listFinishedBatchesWithoutCompletionStmt, err = db.PrepareContext(ctx, listFinishedBatchesWithoutCompletion); err != nil {
+		return nil, fmt.Errorf("error preparing query ListFinishedBatchesWithoutCompletion: %w", err)
+	}
 	if q.listMinerStateSnapshotsStmt, err = db.PrepareContext(ctx, listMinerStateSnapshots); err != nil {
 		return nil, fmt.Errorf("error preparing query ListMinerStateSnapshots: %w", err)
 	}
@@ -1329,6 +1332,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listDeviceSetMembersPaginatedAfterStmt: %w", cerr)
 		}
 	}
+	if q.listFinishedBatchesWithoutCompletionStmt != nil {
+		if cerr := q.listFinishedBatchesWithoutCompletionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listFinishedBatchesWithoutCompletionStmt: %w", cerr)
+		}
+	}
 	if q.listMinerStateSnapshotsStmt != nil {
 		if cerr := q.listMinerStateSnapshotsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listMinerStateSnapshotsStmt: %w", cerr)
@@ -1882,6 +1890,7 @@ type Queries struct {
 	listBatchDeviceResultsStmt                          *sql.Stmt
 	listDeviceSetMembersPaginatedStmt                   *sql.Stmt
 	listDeviceSetMembersPaginatedAfterStmt              *sql.Stmt
+	listFinishedBatchesWithoutCompletionStmt            *sql.Stmt
 	listMinerStateSnapshotsStmt                         *sql.Stmt
 	listOrganizationsStmt                               *sql.Stmt
 	listPoolsStmt                                       *sql.Stmt
@@ -2098,6 +2107,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listBatchDeviceResultsStmt:                          q.listBatchDeviceResultsStmt,
 		listDeviceSetMembersPaginatedStmt:                   q.listDeviceSetMembersPaginatedStmt,
 		listDeviceSetMembersPaginatedAfterStmt:              q.listDeviceSetMembersPaginatedAfterStmt,
+		listFinishedBatchesWithoutCompletionStmt:            q.listFinishedBatchesWithoutCompletionStmt,
 		listMinerStateSnapshotsStmt:                         q.listMinerStateSnapshotsStmt,
 		listOrganizationsStmt:                               q.listOrganizationsStmt,
 		listPoolsStmt:                                       q.listPoolsStmt,
