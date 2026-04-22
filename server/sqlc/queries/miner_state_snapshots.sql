@@ -43,9 +43,35 @@ WHERE d.deleted_at IS NULL
   AND dd.deleted_at IS NULL
   AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED');
 
+-- name: GetMinerStateSnapshotsDaily :many
+-- Same aggregation shape as GetMinerStateSnapshots but reads from the daily
+-- continuous aggregate; used for chart windows longer than 10 days.
+WITH per_device_bucket AS (
+    SELECT DISTINCT ON (time_bucket(sqlc.arg('bucket_interval')::text::interval, bucket), device_identifier)
+        time_bucket(sqlc.arg('bucket_interval')::text::interval, bucket)::timestamptz AS bucket,
+        device_identifier,
+        state
+    FROM miner_state_snapshots_daily
+    WHERE org_id = sqlc.arg('org_id')
+      AND bucket >= sqlc.arg('start_time')
+      AND bucket <= sqlc.arg('end_time')
+      AND (sqlc.narg('device_identifiers_filter')::text IS NULL
+           OR device_identifier = ANY(sqlc.arg('device_identifier_values')::text[]))
+    ORDER BY time_bucket(sqlc.arg('bucket_interval')::text::interval, bucket), device_identifier, bucket DESC
+)
+SELECT
+    bucket,
+    SUM(CASE WHEN state = 3 THEN 1 ELSE 0 END)::int AS hashing_count,
+    SUM(CASE WHEN state = 2 THEN 1 ELSE 0 END)::int AS broken_count,
+    SUM(CASE WHEN state = 0 THEN 1 ELSE 0 END)::int AS offline_count,
+    SUM(CASE WHEN state = 1 THEN 1 ELSE 0 END)::int AS sleeping_count
+FROM per_device_bucket
+GROUP BY bucket
+ORDER BY bucket ASC;
+
 -- name: GetMinerStateSnapshotsHourly :many
 -- Same aggregation shape as GetMinerStateSnapshots but reads from the hourly
--- continuous aggregate; used for chart windows older than the raw retention.
+-- continuous aggregate; used for chart windows 1–10 days.
 WITH per_device_bucket AS (
     SELECT DISTINCT ON (time_bucket(sqlc.arg('bucket_interval')::text::interval, bucket), device_identifier)
         time_bucket(sqlc.arg('bucket_interval')::text::interval, bucket)::timestamptz AS bucket,

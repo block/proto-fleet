@@ -285,6 +285,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getMinerStateSnapshotsStmt, err = db.PrepareContext(ctx, getMinerStateSnapshots); err != nil {
 		return nil, fmt.Errorf("error preparing query GetMinerStateSnapshots: %w", err)
 	}
+	if q.getMinerStateSnapshotsDailyStmt, err = db.PrepareContext(ctx, getMinerStateSnapshotsDaily); err != nil {
+		return nil, fmt.Errorf("error preparing query GetMinerStateSnapshotsDaily: %w", err)
+	}
 	if q.getMinerStateSnapshotsHourlyStmt, err = db.PrepareContext(ctx, getMinerStateSnapshotsHourly); err != nil {
 		return nil, fmt.Errorf("error preparing query GetMinerStateSnapshotsHourly: %w", err)
 	}
@@ -1097,6 +1100,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getMinerStateSnapshotsStmt: %w", cerr)
 		}
 	}
+	if q.getMinerStateSnapshotsDailyStmt != nil {
+		if cerr := q.getMinerStateSnapshotsDailyStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getMinerStateSnapshotsDailyStmt: %w", cerr)
+		}
+	}
 	if q.getMinerStateSnapshotsHourlyStmt != nil {
 		if cerr := q.getMinerStateSnapshotsHourlyStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getMinerStateSnapshotsHourlyStmt: %w", cerr)
@@ -1843,6 +1851,7 @@ type Queries struct {
 	getMinerCredentialsByDeviceIDStmt                   *sql.Stmt
 	getMinerModelGroupsStmt                             *sql.Stmt
 	getMinerStateSnapshotsStmt                          *sql.Stmt
+	getMinerStateSnapshotsDailyStmt                     *sql.Stmt
 	getMinerStateSnapshotsHourlyStmt                    *sql.Stmt
 	getOfflineDevicesStmt                               *sql.Stmt
 	getOpenErrorByDedupKeyStmt                          *sql.Stmt
@@ -2060,6 +2069,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getMinerCredentialsByDeviceIDStmt:                   q.getMinerCredentialsByDeviceIDStmt,
 		getMinerModelGroupsStmt:                             q.getMinerModelGroupsStmt,
 		getMinerStateSnapshotsStmt:                          q.getMinerStateSnapshotsStmt,
+		getMinerStateSnapshotsDailyStmt:                     q.getMinerStateSnapshotsDailyStmt,
 		getMinerStateSnapshotsHourlyStmt:                    q.getMinerStateSnapshotsHourlyStmt,
 		getOfflineDevicesStmt:                               q.getOfflineDevicesStmt,
 		getOpenErrorByDedupKeyStmt:                          q.getOpenErrorByDedupKeyStmt,

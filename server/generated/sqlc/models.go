@@ -595,6 +595,13 @@ type MinerStateSnapshot struct {
 	State            int16
 }
 
+type MinerStateSnapshotsDaily struct {
+	Bucket           time.Time
+	OrgID            int64
+	DeviceIdentifier string
+	State            int16
+}
+
 type MinerStateSnapshotsHourly struct {
 	Bucket           time.Time
 	OrgID            int64

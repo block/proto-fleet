@@ -61,6 +61,10 @@ sql:
             go_type: "time.Time"
           - column: "miner_state_snapshots_hourly.state"
             go_type: "int16"
+          - column: "miner_state_snapshots_daily.bucket"
+            go_type: "time.Time"
+          - column: "miner_state_snapshots_daily.state"
+            go_type: "int16"
           # Schedule TIME columns are read back as strings by the current DB driver.
           - column: "schedule.start_time"
             go_type: "string"

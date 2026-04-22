@@ -36,14 +36,6 @@ const (
 	pollingIntervalSeconds = 10.0
 	secondsPerHour         = 3600.0
 	wattsPerKilowatt       = 1000.0
-
-	// Must match add_retention_policy('miner_state_snapshots', ...) in
-	// migrations/000034_miner_state_snapshots_hourly.up.sql. Update both.
-	uptimeSnapshotRawRetentionPolicy = 30 * 24 * time.Hour
-
-	// Slack kicks the reader over to the hourly rollup an hour before the
-	// retention job would drop rows, so boundary queries don't race the job.
-	uptimeSnapshotRawRetention = uptimeSnapshotRawRetentionPolicy - time.Hour
 )
 
 // nargActive flips a sqlc `narg(...) IS NULL` filter to its non-null branch.
@@ -1245,34 +1237,42 @@ func (s *TimescaleTelemetryStore) getUptimeStatusCountsFromSnapshots(
 	if orgID == 0 {
 		return nil
 	}
-	// Snapshot cadence is ~60s, so finer buckets would yield empty slots.
-	if bucketDuration < time.Minute {
-		bucketDuration = time.Minute
-	}
 
 	ctx, cancel := context.WithTimeout(ctx, s.config.QueryTimeout)
 	defer cancel()
 
-	switch selectUptimeDataSource(startTime) {
+	switch selectUptimeDataSource(&startTime, &endTime) {
+	case uptimeDataSourceDaily:
+		// Daily rollup has 1d granularity.
+		if bucketDuration < dailyBucketDuration {
+			bucketDuration = dailyBucketDuration
+		}
+		return s.queryUptimeDaily(ctx, orgID, deviceIDs, startTime, endTime, bucketDuration)
 	case uptimeDataSourceHourly:
-		// Hourly rollup has 1h granularity; finer buckets can't add resolution.
-		if bucketDuration < time.Hour {
-			bucketDuration = time.Hour
+		// Hourly rollup has 1h granularity.
+		if bucketDuration < hourlyBucketDuration {
+			bucketDuration = hourlyBucketDuration
 		}
 		return s.queryUptimeHourly(ctx, orgID, deviceIDs, startTime, endTime, bucketDuration)
 	case uptimeDataSourceRaw:
+		fallthrough
+	default:
+		// Snapshot cadence is ~60s, so finer buckets would yield empty slots.
+		if bucketDuration < time.Minute {
+			bucketDuration = time.Minute
+		}
 		return s.queryUptimeRaw(ctx, orgID, deviceIDs, startTime, endTime, bucketDuration)
 	}
-	return s.queryUptimeRaw(ctx, orgID, deviceIDs, startTime, endTime, bucketDuration)
 }
 
 // uptimeDataSource mirrors dataSource for miner_state_snapshots — choosing
-// between the raw hypertable and its hourly continuous aggregate.
+// between the raw hypertable and its hourly or daily continuous aggregates.
 type uptimeDataSource int
 
 const (
 	uptimeDataSourceRaw uptimeDataSource = iota
 	uptimeDataSourceHourly
+	uptimeDataSourceDaily
 )
 
 func (ds uptimeDataSource) String() string {
@@ -1281,19 +1281,29 @@ func (ds uptimeDataSource) String() string {
 		return "raw"
 	case uptimeDataSourceHourly:
 		return "hourly"
+	case uptimeDataSourceDaily:
+		return "daily"
 	default:
 		return "unknown"
 	}
 }
 
-// selectUptimeDataSource routes chart queries whose window predates the raw
-// snapshot retention to miner_state_snapshots_hourly. Per-minute rows past
-// that point have been dropped; the hourly rollup is the only source of truth.
-func selectUptimeDataSource(startTime time.Time) uptimeDataSource {
-	if time.Since(startTime) > uptimeSnapshotRawRetention {
+// selectUptimeDataSource mirrors selectDataSource: route by window duration,
+// shorter → higher resolution. Raw retention (30d) always covers rawDataMaxDuration
+// and hourly retention (3 months) covers hourlyMaxDuration, so the duration
+// thresholds never outrun the source data.
+func selectUptimeDataSource(startTime, endTime *time.Time) uptimeDataSource {
+	if startTime == nil || endTime == nil {
+		return uptimeDataSourceRaw
+	}
+	duration := endTime.Sub(*startTime)
+	if duration <= rawDataMaxDuration {
+		return uptimeDataSourceRaw
+	}
+	if duration <= hourlyMaxDuration {
 		return uptimeDataSourceHourly
 	}
-	return uptimeDataSourceRaw
+	return uptimeDataSourceDaily
 }
 
 func (s *TimescaleTelemetryStore) queryUptimeRaw(
@@ -1359,6 +1369,48 @@ func (s *TimescaleTelemetryStore) queryUptimeHourly(
 	rows, err := s.queries.GetMinerStateSnapshotsHourly(ctx, params)
 	if err != nil {
 		s.logger.Error("failed to query hourly miner state snapshots",
+			slog.Int64("org_id", orgID),
+			slog.String("error", err.Error()))
+		return nil
+	}
+
+	if len(rows) == 0 {
+		return nil
+	}
+
+	result := make([]models.UptimeStatusCount, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, models.UptimeStatusCount{
+			Timestamp:       row.Bucket,
+			HashingCount:    row.HashingCount,
+			BrokenCount:     row.BrokenCount,
+			NotHashingCount: row.OfflineCount + row.SleepingCount,
+		})
+	}
+	return result
+}
+
+func (s *TimescaleTelemetryStore) queryUptimeDaily(
+	ctx context.Context,
+	orgID int64,
+	deviceIDs []models.DeviceIdentifier,
+	startTime, endTime time.Time,
+	bucketDuration time.Duration,
+) []models.UptimeStatusCount {
+	params := sqlc.GetMinerStateSnapshotsDailyParams{
+		BucketInterval: fmt.Sprintf("%d seconds", int64(bucketDuration.Seconds())),
+		OrgID:          orgID,
+		StartTime:      startTime,
+		EndTime:        endTime,
+	}
+	if len(deviceIDs) > 0 {
+		params.DeviceIdentifiersFilter = nargActive
+		params.DeviceIdentifierValues = deviceIDsToStrings(deviceIDs)
+	}
+
+	rows, err := s.queries.GetMinerStateSnapshotsDaily(ctx, params)
+	if err != nil {
+		s.logger.Error("failed to query daily miner state snapshots",
 			slog.Int64("org_id", orgID),
 			slog.String("error", err.Error()))
 		return nil
