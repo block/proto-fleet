@@ -126,6 +126,8 @@ const (
 	// Default metrics flush interval if not configured.
 	defaultMetricsFlushInterval = 1 * time.Second
 
+	defaultStateSnapshotInterval = 60 * time.Second
+
 	// Context timeouts
 	shutdownFlushTimeout = 5 * time.Second
 )
@@ -153,8 +155,10 @@ type TelemetryDataStore interface {
 	GetTimeSeriesTelemetry(ctx context.Context, query models.TimeSeriesTelemetryQuery) ([]modelsV2.DeviceMetrics, error)
 	StreamTelemetryUpdates(ctx context.Context, query models.StreamQuery) (<-chan models.TelemetryUpdate, error)
 	GetCombinedMetrics(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error)
+	InsertMinerStateSnapshot(ctx context.Context, at time.Time) error
 	Ping(ctx context.Context) error
 }
+
 type MinerGetter interface {
 	GetMinerFromDeviceIdentifier(ctx context.Context, deviceIdentifier models.DeviceIdentifier) (interfaces.Miner, error)
 }
@@ -273,6 +277,7 @@ func (s *TelemetryService) Start(ctx context.Context) error {
 	go s.gatherMetricsRoutine(ctx)
 	go s.devicePollingRoutine(ctx)
 	go s.statusPollingRoutine(ctx)
+	go s.fleetStateSnapshotRoutine(ctx)
 	return nil
 }
 
@@ -459,6 +464,34 @@ func (s *TelemetryService) statusPollingRoutine(ctx context.Context) {
 				return true
 			})
 		}
+	}
+}
+
+func (s *TelemetryService) fleetStateSnapshotRoutine(ctx context.Context) {
+	interval := s.config.StateSnapshotInterval
+	if interval <= 0 {
+		interval = defaultStateSnapshotInterval
+	}
+
+	// Populate the live bar within seconds of startup instead of a full tick.
+	s.writeFleetStateSnapshot(ctx, time.Now())
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case tickTime := <-ticker.C:
+			s.writeFleetStateSnapshot(ctx, tickTime)
+		}
+	}
+}
+
+func (s *TelemetryService) writeFleetStateSnapshot(ctx context.Context, at time.Time) {
+	if err := s.telemetryDataStore.InsertMinerStateSnapshot(ctx, at); err != nil {
+		slog.Warn("snapshot routine: insert failed", "error", err)
 	}
 }
 
@@ -987,7 +1020,50 @@ func (s *TelemetryService) StreamDeviceStatusUpdates(ctx context.Context, query 
 
 func (s *TelemetryService) GetCombinedMetrics(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
 	// Returns raw values (H/s, W, J/H) - conversion to display units happens in the handler layer
-	return s.telemetryDataStore.GetCombinedMetrics(ctx, query)
+	result, err := s.telemetryDataStore.GetCombinedMetrics(ctx, query)
+	if err != nil {
+		return result, err
+	}
+	s.appendLiveUptimeBar(ctx, query.OrganizationID, query.DeviceIDs, &result)
+	return result, nil
+}
+
+// appendLiveUptimeBar tacks a synthetic "now" bucket onto UptimeStatusCounts
+// built from a live CountMinersByState call, and populates MinerStateCounts.
+// Without this the right-most chart bar lags by up to one snapshot interval
+// because it's read from the miner_state_snapshots table.
+func (s *TelemetryService) appendLiveUptimeBar(ctx context.Context, orgID int64, deviceIDs []models.DeviceIdentifier, result *models.CombinedMetric) {
+	if orgID == 0 {
+		return
+	}
+	counts, err := s.deviceStore.GetMinerStateCounts(ctx, orgID, minerFilterForDeviceIDs(deviceIDs))
+	if err != nil {
+		slog.Warn("failed to compute live miner state counts", "error", err)
+		return
+	}
+	result.MinerStateCounts = &models.MinerStateCounts{
+		Hashing:  counts.HashingCount,
+		Broken:   counts.BrokenCount,
+		Offline:  counts.OfflineCount,
+		Sleeping: counts.SleepingCount,
+	}
+	result.UptimeStatusCounts = append(result.UptimeStatusCounts, models.UptimeStatusCount{
+		Timestamp:       time.Now(),
+		HashingCount:    counts.HashingCount,
+		BrokenCount:     counts.BrokenCount,
+		NotHashingCount: counts.OfflineCount + counts.SleepingCount,
+	})
+}
+
+func minerFilterForDeviceIDs(deviceIDs []models.DeviceIdentifier) *stores.MinerFilter {
+	if len(deviceIDs) == 0 {
+		return nil
+	}
+	identifiers := make([]string, len(deviceIDs))
+	for i, id := range deviceIDs {
+		identifiers[i] = string(id)
+	}
+	return &stores.MinerFilter{DeviceIdentifiers: identifiers}
 }
 
 func (s *TelemetryService) StreamCombinedMetrics(ctx context.Context, query models.StreamCombinedMetricsQuery) (<-chan models.CombinedMetric, error) {
@@ -1060,6 +1136,7 @@ func (s *TelemetryService) sendCombinedMetricUpdate(ctx context.Context, updateC
 		AggregationTypes: query.AggregationTypes,
 		SlideInterval:    &query.Granularity,
 		PageSize:         defaultCombinedMetricsPageSize,
+		OrganizationID:   query.OrganizationID,
 	}
 
 	now := time.Now()
@@ -1091,7 +1168,7 @@ func (s *TelemetryService) sendCombinedMetricUpdate(ctx context.Context, updateC
 		EndTime:   &alignedEndTime,
 	}
 
-	combinedMetrics, err := s.GetCombinedMetrics(ctx, combinedQuery)
+	combinedMetrics, err := s.telemetryDataStore.GetCombinedMetrics(ctx, combinedQuery)
 	if err != nil {
 		if strings.Contains(err.Error(), "no combined metrics found") {
 			combinedMetrics = models.CombinedMetric{
@@ -1102,27 +1179,7 @@ func (s *TelemetryService) sendCombinedMetricUpdate(ctx context.Context, updateC
 		}
 	}
 
-	// Fetch miner state counts scoped to the requested devices (or all if no filter)
-	var minerFilter *stores.MinerFilter
-	if len(query.DeviceIDs) > 0 {
-		deviceIdentifiers := make([]string, len(query.DeviceIDs))
-		for i, id := range query.DeviceIDs {
-			deviceIdentifiers[i] = string(id)
-		}
-		minerFilter = &stores.MinerFilter{
-			DeviceIdentifiers: deviceIdentifiers,
-		}
-	}
-	counts, err := s.deviceStore.GetMinerStateCounts(ctx, query.OrganizationID, minerFilter)
-	if err != nil {
-		return fmt.Errorf("failed to get miner state counts: %w", err)
-	}
-	combinedMetrics.MinerStateCounts = &models.MinerStateCounts{
-		Hashing:  counts.HashingCount,
-		Broken:   counts.BrokenCount,
-		Offline:  counts.OfflineCount,
-		Sleeping: counts.SleepingCount,
-	}
+	s.appendLiveUptimeBar(ctx, query.OrganizationID, query.DeviceIDs, &combinedMetrics)
 
 	select {
 	case updateChan <- combinedMetrics:

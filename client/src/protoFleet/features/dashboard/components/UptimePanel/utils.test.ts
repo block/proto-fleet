@@ -217,4 +217,53 @@ describe("generateUptimeHeadline", () => {
     const result = generateUptimeHeadline(data);
     expect(result).toBe("5% not hashing");
   });
+
+  it("reports need-attention percentage when only the broken bucket is non-empty", () => {
+    const data: SegmentedBarChartData[][] = [
+      [
+        {
+          datetime: Date.now(),
+          hashing: 8,
+          broken: 2,
+          notHashing: 0,
+        },
+      ],
+    ];
+
+    const result = generateUptimeHeadline(data);
+    expect(result).toBe("20% need attention");
+  });
+
+  it("prioritizes not-hashing over broken when both are non-empty", () => {
+    const data: SegmentedBarChartData[][] = [
+      [
+        {
+          datetime: Date.now(),
+          hashing: 5,
+          broken: 2,
+          notHashing: 3,
+        },
+      ],
+    ];
+
+    const result = generateUptimeHeadline(data);
+    expect(result).toBe("30% not hashing");
+  });
+
+  it("counts broken miners toward the fleet total when computing percentages", () => {
+    const data: SegmentedBarChartData[][] = [
+      [
+        {
+          datetime: Date.now(),
+          hashing: 6,
+          broken: 2,
+          notHashing: 2,
+        },
+      ],
+    ];
+
+    const result = generateUptimeHeadline(data);
+    // 2/(6+2+2) = 20%
+    expect(result).toBe("20% not hashing");
+  });
 });

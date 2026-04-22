@@ -175,6 +175,8 @@ type CountMinersByStateRow struct {
 }
 
 // Counts miners by their operational state for fleet health dashboard.
+// Bucket rules must match InsertMinerStateSnapshot (miner_state_snapshots.sql);
+// the uptime chart stores history against the same classifier.
 //
 // Buckets are mutually exclusive and match MinerStatus.tsx:
 //  1. Offline:  OFFLINE, or NULL status when not auth-needed

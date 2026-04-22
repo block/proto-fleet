@@ -34,6 +34,11 @@ func (h *Handler) GetCombinedMetrics(
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
+	// Scope to caller's org; store returns nil counts when OrgID is unset.
+	if info, err := session.GetInfo(ctx); err == nil {
+		query.OrganizationID = info.OrganizationID
+	}
+
 	combinedMetrics, err := h.telemetryService.GetCombinedMetrics(ctx, query)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
