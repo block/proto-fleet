@@ -311,7 +311,11 @@ func (s *Service) saveCommandBatchLogToDB(ctx context.Context, userID, organizat
 			Status:         sqlc.BatchStatusEnumPENDING,
 			DevicesCount:   devicesCount,
 			Payload:        pqtype.NullRawMessage{RawMessage: payloadBytes, Valid: len(payloadBytes) > 0},
-			OrganizationID: sql.NullInt64{Int64: organizationID, Valid: organizationID != 0},
+			// Callers (processCommand and ReapplyCurrentPoolsWithWorkerNames) must
+			// have already rejected non-positive organizationID, so we can always
+			// mark the column Valid here. This is the precondition for a future
+			// NOT NULL migration.
+			OrganizationID: sql.NullInt64{Int64: organizationID, Valid: true},
 		})
 		if err != nil {
 			return "", fleeterror.NewInternalErrorf("error creating command batch log: %v", err)
@@ -502,6 +506,12 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (string,
 	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return "", 0, fleeterror.NewInternalErrorf("error getting session info from ctx: %v", err)
+	}
+	// A session that reached this point must carry a real organization. Writing
+	// a batch with organization_id=NULL would hide it from GetCommandBatchDeviceResults
+	// and block the planned NOT NULL migration on command_batch_log.organization_id.
+	if info.OrganizationID <= 0 {
+		return "", 0, fleeterror.NewInternalErrorf("cannot create command batch: session missing organization_id")
 	}
 
 	payloadBytes, err := json.Marshal(command.payload)
@@ -771,6 +781,11 @@ func (s *Service) ReapplyCurrentPoolsWithWorkerNames(
 	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return "", fleeterror.NewInternalErrorf("error getting session info from ctx: %v", err)
+	}
+	// Same invariant as processCommand: a session must carry a real organization
+	// before we write a command_batch_log row.
+	if info.OrganizationID <= 0 {
+		return "", fleeterror.NewInternalErrorf("cannot create command batch: session missing organization_id")
 	}
 
 	deviceIdentifiers := make([]string, 0, len(desiredWorkerNamesByDeviceIdentifier))
