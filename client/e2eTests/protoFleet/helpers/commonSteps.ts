@@ -14,6 +14,7 @@ export class CommonSteps {
       // The setup project captures the admin session into storageState, so most
       // tests start already authenticated. Skip the login flow when the auth
       // form isn't on screen.
+      // eslint-disable-next-line playwright/no-conditional-in-test
       if (!(await this.authPage.isLoginFormVisible())) {
         return;
       }

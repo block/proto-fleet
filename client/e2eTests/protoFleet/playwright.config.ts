@@ -1,9 +1,11 @@
-import path from "path";
 import { defineConfig } from "@playwright/test";
+import path from "path";
+import { fileURLToPath } from "url";
 import { testConfig } from "./config/test.config";
 
-const adminStorageState = path.join(__dirname, "playwright", ".auth", "admin.json");
-const SETUP_FILE_PATTERN = /^[0-9]{2}-.*\.spec\.ts$/;
+const configDir = path.dirname(fileURLToPath(import.meta.url));
+const adminStorageState = path.join(configDir, "playwright", ".auth", "admin.json");
+const SETUP_FILE_GLOB = "**/[0-9][0-9]-*.spec.ts";
 
 /**
  * See https://playwright.dev/docs/test-configuration.
@@ -58,7 +60,7 @@ export default defineConfig({
     // admin auth storageState. Always runs before target specs via `dependencies`.
     {
       name: "setup",
-      testMatch: SETUP_FILE_PATTERN,
+      testMatch: SETUP_FILE_GLOB,
       use: {
         viewport: { width: 1600, height: 900 },
         isMobile: false,
@@ -67,7 +69,7 @@ export default defineConfig({
     {
       name: "desktop",
       testMatch: /.*\.spec\.ts$/,
-      testIgnore: SETUP_FILE_PATTERN,
+      testIgnore: SETUP_FILE_GLOB,
       dependencies: ["setup"],
       use: {
         viewport: { width: 1600, height: 900 },
@@ -79,7 +81,7 @@ export default defineConfig({
     {
       name: "mobile",
       testMatch: /.*\.spec\.ts$/,
-      testIgnore: SETUP_FILE_PATTERN,
+      testIgnore: SETUP_FILE_GLOB,
       dependencies: ["setup"],
       use: {
         viewport: { width: 393, height: 852 },
