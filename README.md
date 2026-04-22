@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://github.com/btc-mining/proto-fleet" target="_blank" rel="noopener noreferrer">
+  <a href="https://github.com/block/proto-fleet" target="_blank" rel="noopener noreferrer">
     <img width="64" src="docs/logo.svg" alt="Proto logo">
   </a>
 </p>
@@ -17,14 +17,14 @@
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="Proto Fleet is released under the Apache 2.0 license." />
   </a>
-  <a href="https://github.com/btc-mining/proto-fleet/actions/workflows/protofleet-client-checks.yml">
-    <img src="https://github.com/btc-mining/proto-fleet/actions/workflows/protofleet-client-checks.yml/badge.svg" alt="Client checks status." />
+  <a href="https://github.com/block/proto-fleet/actions/workflows/protofleet-client-checks.yml">
+    <img src="https://github.com/block/proto-fleet/actions/workflows/protofleet-client-checks.yml/badge.svg" alt="Client checks status." />
   </a>
-  <a href="https://github.com/btc-mining/proto-fleet/actions/workflows/protofleet-server-checks.yml">
-    <img src="https://github.com/btc-mining/proto-fleet/actions/workflows/protofleet-server-checks.yml/badge.svg" alt="Server checks status." />
+  <a href="https://github.com/block/proto-fleet/actions/workflows/protofleet-server-checks.yml">
+    <img src="https://github.com/block/proto-fleet/actions/workflows/protofleet-server-checks.yml/badge.svg" alt="Server checks status." />
   </a>
-  <a href="https://github.com/btc-mining/proto-fleet/actions/workflows/protofleet-e2e-tests.yml">
-    <img src="https://github.com/btc-mining/proto-fleet/actions/workflows/protofleet-e2e-tests.yml/badge.svg" alt="E2E tests status." />
+  <a href="https://github.com/block/proto-fleet/actions/workflows/protofleet-e2e-tests.yml">
+    <img src="https://github.com/block/proto-fleet/actions/workflows/protofleet-e2e-tests.yml/badge.svg" alt="E2E tests status." />
   </a>
 </p>
 

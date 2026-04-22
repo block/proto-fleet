@@ -1,28 +1,11 @@
 name: ProtoOS E2E Tests
 
 on:
-  pull_request:
-    paths:
-      - ".github/workflows/protoos-e2e-tests.yml"
-      - "client/.npmrc"
-      - "client/e2eTests/protoOS/**"
-      - "client/package.json"
-      - "client/package-lock.json"
-      - "client/postcss.config.js"
-      - "client/public/**"
-      - "client/src/protoOS/**"
-      - "client/src/shared/**"
-      - "client/tsconfig.json"
-      - "client/tsconfig.node.json"
-      - "client/vite.config.ts"
-      - "client/vitePlugins/**"
-      - "server/go.mod"
-      - "server/go.sum"
-      - "server/fake-proto-rig/**"
   schedule:
     # Run daily at 6 AM UTC on main branch
     - cron: "0 6 * * *"
   workflow_dispatch:
+  workflow_call:
 
 jobs:
   e2e-tests:
@@ -57,7 +40,7 @@ jobs:
             fake-proto-rig
 
       - name: Cache Node modules
-        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: |
             client/node_modules
@@ -93,7 +76,7 @@ jobs:
 
       - name: Upload Playwright report
         id: playwright-report-artifact
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: ${{ !cancelled() }}
         with:
           name: playwright-report-protoos-${{ matrix.project }}
@@ -143,7 +126,7 @@ jobs:
             --results test-results/*.xml
 
       - name: Upload test screenshots
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: failure()
         with:
           name: playwright-screenshots-protoos-${{ matrix.project }}

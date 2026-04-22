@@ -1,5 +1,4 @@
 import { type RefObject, useCallback, useMemo, useState } from "react";
-import clsx from "clsx";
 import { create } from "@bufbuild/protobuf";
 
 import {
@@ -431,47 +430,6 @@ const MiningPools = () => {
     );
   }
 
-  // Empty state - no pools configured
-  if (pools.length === 0) {
-    return (
-      <>
-        <div
-          className={clsx("flex items-center rounded-xl bg-landing-page p-6 sm:p-20", {
-            "h-full": !isPhone && !isTablet,
-            "flex-1": isPhone || isTablet,
-          })}
-        >
-          <div className="flex flex-col gap-6">
-            <Header
-              title="Pools"
-              subtitle="Add a pool to start assigning your miners."
-              titleSize="text-heading-400"
-              subtitleSize="text-400"
-              subtitleClassName="mt-1"
-              className="items-center"
-            />
-            <Button variant={variants.primary} className="w-fit" onClick={() => setShowAddPoolModal(true)}>
-              Add pool
-            </Button>
-          </div>
-        </div>
-        <PoolModal
-          open={showAddPoolModal}
-          onChangePools={setPoolsInfo}
-          onDismiss={() => setShowAddPoolModal(false)}
-          poolIndex={0}
-          pools={poolsInfo}
-          isTestingConnection={validatePoolPending}
-          testConnection={validatePool}
-          onSave={handleSavePool}
-          usernameHelperText={fleetUsernameHelperText}
-          disallowUsernameSeparator
-        />
-      </>
-    );
-  }
-
-  // Show pools list when pools exist
   return (
     <>
       <div className="flex flex-col gap-6">
@@ -513,16 +471,22 @@ const MiningPools = () => {
 
           {/* Table body */}
           <div>
-            {pools.map((pool) => (
-              <PoolRowInner
-                key={pool.poolId.toString()}
-                pool={pool}
-                onEdit={handleEditPool}
-                onTestConnection={handleTestConnection}
-                onDelete={handleDeletePool}
-                connectionStatus={connectionStatuses[pool.poolId.toString()] || "idle"}
-              />
-            ))}
+            {pools.length === 0 ? (
+              <div className="py-10 text-center text-text-primary-50">
+                No pools yet. Add a pool to start assigning your miners.
+              </div>
+            ) : (
+              pools.map((pool) => (
+                <PoolRowInner
+                  key={pool.poolId.toString()}
+                  pool={pool}
+                  onEdit={handleEditPool}
+                  onTestConnection={handleTestConnection}
+                  onDelete={handleDeletePool}
+                  connectionStatus={connectionStatuses[pool.poolId.toString()] || "idle"}
+                />
+              ))
+            )}
           </div>
         </div>
       </div>

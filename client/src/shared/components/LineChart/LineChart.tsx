@@ -127,6 +127,7 @@ export interface LineChartProps {
   xAxisDomainOverride?: [number, number];
   connectNulls?: boolean;
   referenceLines?: { value: number; color: string; strokeDasharray?: string }[];
+  hideAggregateContextWhenSingleSeries?: boolean;
 }
 
 const LineChart = ({
@@ -149,6 +150,7 @@ const LineChart = ({
   xAxisDomainOverride,
   connectNulls = false,
   referenceLines,
+  hideAggregateContextWhenSingleSeries = false,
 }: LineChartProps) => {
   const [chartRef, _, chartBoundingRect] = useMeasure<HTMLDivElement>();
   const [tooltipDatetime, setTooltipDatetime] = useState<number | undefined>(undefined);
@@ -529,6 +531,7 @@ const LineChart = ({
         tooltipXOffset={tooltipXOffset}
         tooltipYOffset={TOOLTIP_OFFSET}
         toolTipItemIcon={toolTipItemIcon}
+        hideAggregateContextWhenSingleSeries={hideAggregateContextWhenSingleSeries}
       />
     ),
     [
@@ -543,6 +546,7 @@ const LineChart = ({
       toolTipWidth,
       tooltipXOffset,
       toolTipItemIcon,
+      hideAggregateContextWhenSingleSeries,
     ],
   );
 

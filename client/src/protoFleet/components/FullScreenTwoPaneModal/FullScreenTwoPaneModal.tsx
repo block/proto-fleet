@@ -177,7 +177,7 @@ const FullScreenTwoPaneModal = ({
           <div className="sticky top-0 z-10 mb-6 bg-surface-base px-6 pt-4 pb-4 phone:mb-0 tablet:mb-0 laptop:static desktop:static">
             <Header
               title={title}
-              titleSize="text-heading-300"
+              titleSize="text-heading-200"
               stackButtonsOnPhone={false}
               iconAriaLabel={closeAriaLabel}
               icon={<Dismiss className={isBusy ? "cursor-default text-text-primary-30" : "cursor-pointer"} />}

@@ -1,0 +1,152 @@
+# Filter definitions consumed by dorny/paths-filter in the PR gate workflow.
+# Each filter's file globs determine whether its reusable workflow runs for a PR.
+# The `global` filter lists shared tooling / infra paths; including its anchor
+# in another filter means those paths also retrigger that filter's workflow.
+
+global: &global
+  - .github/actions/**
+  - .github/workflows/**
+  - .github/*.{yml,yaml}
+  - .github/copilot-instructions.md
+  - bin/**
+  - hermit-packages/**
+  - just/**
+  - justfile
+  - scripts/**
+  - deployment-files/docker-compose*.{yml,yaml}
+  - deployment-files/*.sh
+  - deployment-files/scripts/**
+
+proto:
+  - *global
+  - buf.lock
+  - buf.yaml
+  - proto/**
+
+client:
+  - *global
+  - client/**
+  - deployment-files/client/**
+
+server:
+  - *global
+  - go.work
+  - go.work.sum
+  - proto/**
+  - server/**
+  - deployment-files/server/**
+
+antminer_plugin:
+  - *global
+  - go.work
+  - go.work.sum
+  - just/go-plugin.just
+  - proto/**
+  - plugin/antminer/**
+  - server/go.mod
+  - server/go.sum
+  - server/sdk/**
+
+proto_plugin:
+  - *global
+  - go.work
+  - go.work.sum
+  - just/go-plugin.just
+  - proto/**
+  - plugin/proto/**
+  - server/fake-proto-rig/**
+  - server/go.mod
+  - server/go.sum
+  - server/sdk/**
+
+virtual_plugin:
+  - *global
+  - go.work
+  - go.work.sum
+  - plugin/virtual/**
+  - server/go.mod
+  - server/go.sum
+  - server/sdk/**
+
+asicrs_plugin:
+  - *global
+  - plugin/asicrs/**
+  - sdk/rust/**
+  - server/sdk/v1/pb/driver.proto
+
+python:
+  - *global
+  - packages/proto-python-gen/**
+  - server/buf.gen.yaml
+  - server/buf.yaml
+  - server/sdk/v1/pb/**
+  - server/sdk/v1/python/**
+
+example_python_plugin:
+  - *global
+  - plugin/example-python/**
+  - server/sdk/v1/python/**
+
+contract_tests:
+  - *global
+  - go.work
+  - go.work.sum
+  - plugin/antminer/**
+  - plugin/asicrs/**
+  - plugin/proto/**
+  - sdk/rust/**
+  - server/go.mod
+  - server/go.sum
+  - server/sdk/**
+  - tests/plugin-contract/**
+
+rust_sdk:
+  - *global
+  - sdk/rust/**
+  - server/sdk/v1/pb/driver.proto
+
+windows:
+  - *global
+  - deployment-files/windows/**
+
+powershell:
+  - *global
+  - "**/*.ps1"
+
+protofleet_e2e:
+  - *global
+  - client/.npmrc
+  - client/e2eTests/protoFleet/**
+  - client/package.json
+  - client/package-lock.json
+  - client/postcss.config.js
+  - client/public/**
+  - client/src/protoFleet/**
+  - client/src/shared/**
+  - client/tsconfig.json
+  - client/tsconfig.node.json
+  - client/vite.config.ts
+  - client/vitePlugins/**
+  - go.work
+  - go.work.sum
+  - plugin/antminer/**
+  - plugin/proto/**
+  - server/**
+
+protoos_e2e:
+  - *global
+  - client/.npmrc
+  - client/e2eTests/protoOS/**
+  - client/package.json
+  - client/package-lock.json
+  - client/postcss.config.js
+  - client/public/**
+  - client/src/protoOS/**
+  - client/src/shared/**
+  - client/tsconfig.json
+  - client/tsconfig.node.json
+  - client/vite.config.ts
+  - client/vitePlugins/**
+  - server/fake-proto-rig/**
+  - server/go.mod
+  - server/go.sum

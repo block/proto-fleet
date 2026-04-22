@@ -104,7 +104,7 @@ const createDeviceSetColConfig = ({
 
       return (
         <div className="w-34">
-          <CompositionBar segments={segments} height={6} colorMap={HEALTH_COLOR_MAP} />
+          <CompositionBar segments={segments} height={6} gap={0.25} colorMap={HEALTH_COLOR_MAP} />
         </div>
       );
     },

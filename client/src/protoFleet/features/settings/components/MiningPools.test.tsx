@@ -60,7 +60,7 @@ describe("MiningPools", () => {
       expect(spinner).toBeInTheDocument();
 
       // Should not show empty state or table content
-      expect(screen.queryByText("Add a pool to start assigning your miners.")).not.toBeInTheDocument();
+      expect(screen.queryByText(/No pools yet/)).not.toBeInTheDocument();
     });
   });
 
@@ -69,7 +69,7 @@ describe("MiningPools", () => {
       render(<MiningPools />);
 
       expect(screen.getAllByText("Pools").length).toBeGreaterThan(0);
-      expect(screen.getByText("Add a pool to start assigning your miners.")).toBeInTheDocument();
+      expect(screen.getByText(/No pools yet/)).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /add pool/i })).toBeInTheDocument();
     });
 
