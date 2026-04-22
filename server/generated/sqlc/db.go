@@ -300,6 +300,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getMinerModelGroupsStmt, err = db.PrepareContext(ctx, getMinerModelGroups); err != nil {
 		return nil, fmt.Errorf("error preparing query GetMinerModelGroups: %w", err)
 	}
+	if q.getMinerStateSnapshotsStmt, err = db.PrepareContext(ctx, getMinerStateSnapshots); err != nil {
+		return nil, fmt.Errorf("error preparing query GetMinerStateSnapshots: %w", err)
+	}
 	if q.getOfflineDevicesStmt, err = db.PrepareContext(ctx, getOfflineDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOfflineDevices: %w", err)
 	}
@@ -419,6 +422,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.insertErrorStmt, err = db.PrepareContext(ctx, insertError); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertError: %w", err)
+	}
+	if q.insertMinerStateSnapshotStmt, err = db.PrepareContext(ctx, insertMinerStateSnapshot); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertMinerStateSnapshot: %w", err)
 	}
 	if q.isBatchFinishedStmt, err = db.PrepareContext(ctx, isBatchFinished); err != nil {
 		return nil, fmt.Errorf("error preparing query IsBatchFinished: %w", err)
@@ -1137,6 +1143,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getMinerModelGroupsStmt: %w", cerr)
 		}
 	}
+	if q.getMinerStateSnapshotsStmt != nil {
+		if cerr := q.getMinerStateSnapshotsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getMinerStateSnapshotsStmt: %w", cerr)
+		}
+	}
 	if q.getOfflineDevicesStmt != nil {
 		if cerr := q.getOfflineDevicesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getOfflineDevicesStmt: %w", cerr)
@@ -1335,6 +1346,11 @@ func (q *Queries) Close() error {
 	if q.insertErrorStmt != nil {
 		if cerr := q.insertErrorStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing insertErrorStmt: %w", cerr)
+		}
+	}
+	if q.insertMinerStateSnapshotStmt != nil {
+		if cerr := q.insertMinerStateSnapshotStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertMinerStateSnapshotStmt: %w", cerr)
 		}
 	}
 	if q.isBatchFinishedStmt != nil {
@@ -1888,6 +1904,7 @@ type Queries struct {
 	getMessagesToProcessStmt                            *sql.Stmt
 	getMinerCredentialsByDeviceIDStmt                   *sql.Stmt
 	getMinerModelGroupsStmt                             *sql.Stmt
+	getMinerStateSnapshotsStmt                          *sql.Stmt
 	getOfflineDevicesStmt                               *sql.Stmt
 	getOpenErrorByDedupKeyStmt                          *sql.Stmt
 	getOrganizationByIDStmt                             *sql.Stmt
@@ -1928,6 +1945,7 @@ type Queries struct {
 	insertDeviceStmt                                    *sql.Stmt
 	insertDeviceMetricsStmt                             *sql.Stmt
 	insertErrorStmt                                     *sql.Stmt
+	insertMinerStateSnapshotStmt                        *sql.Stmt
 	isBatchFinishedStmt                                 *sql.Stmt
 	isBatchProcessingStmt                               *sql.Stmt
 	listActivityLogsStmt                                *sql.Stmt
@@ -2110,6 +2128,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getMessagesToProcessStmt:                            q.getMessagesToProcessStmt,
 		getMinerCredentialsByDeviceIDStmt:                   q.getMinerCredentialsByDeviceIDStmt,
 		getMinerModelGroupsStmt:                             q.getMinerModelGroupsStmt,
+		getMinerStateSnapshotsStmt:                          q.getMinerStateSnapshotsStmt,
 		getOfflineDevicesStmt:                               q.getOfflineDevicesStmt,
 		getOpenErrorByDedupKeyStmt:                          q.getOpenErrorByDedupKeyStmt,
 		getOrganizationByIDStmt:                             q.getOrganizationByIDStmt,
@@ -2150,6 +2169,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		insertDeviceStmt:                                    q.insertDeviceStmt,
 		insertDeviceMetricsStmt:                             q.insertDeviceMetricsStmt,
 		insertErrorStmt:                                     q.insertErrorStmt,
+		insertMinerStateSnapshotStmt:                        q.insertMinerStateSnapshotStmt,
 		isBatchFinishedStmt:                                 q.isBatchFinishedStmt,
 		isBatchProcessingStmt:                               q.isBatchProcessingStmt,
 		listActivityLogsStmt:                                q.listActivityLogsStmt,

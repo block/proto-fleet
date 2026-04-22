@@ -35,7 +35,7 @@ This is a monorepo for a miner management system with the following structure:
 
 - Go
 - Connect RPC (gRPC-compatible) for fleet API endpoints
-- MySQL database with golang-migrate for migrations
+- PostgreSQL/TimescaleDB with golang-migrate for migrations
 - sqlc for type-safe SQL query generation
 - Protobuf for fleet API definitions
 - Docker for containerization
@@ -47,6 +47,8 @@ This is a monorepo for a miner management system with the following structure:
 - `generated/`: Auto-generated code (sqlc, fleet gRPC)
 - `migrations/`: Database migration files
 - `sqlc/`: SQL query definitions for code generation
+- `sdk/`: Language SDKs and shared generated client surfaces
+- `plugin/`: Device driver plugins and plugin SDK consumers
 
 ### Server Development Guidelines
 

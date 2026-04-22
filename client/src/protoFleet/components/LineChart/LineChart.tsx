@@ -21,6 +21,7 @@ const LineChart = ({ heightClass = "h-100", duration, ...props }: LineChartProps
     ...props,
     xAxisDomainOverride,
     connectNulls: true,
+    hideAggregateContextWhenSingleSeries: true,
     yAxisTickYOffset: -8, // Move labels up to position above grid lines
     visibleTickIndices: [0, 2, 4], // Show labels on lines 1, 3, and 5
     chartMarginTop: 20, // Add top margin to prevent label cutoff

@@ -820,34 +820,39 @@ func (q *Queries) GetLatestAllDeviceMetrics(ctx context.Context, argTime time.Ti
 }
 
 const getLatestDeviceMetrics = `-- name: GetLatestDeviceMetrics :many
-SELECT DISTINCT ON (device_identifier)
-    time,
-    device_identifier,
-    hash_rate_hs,
-    hash_rate_hs_kind,
-    temp_c,
-    temp_c_kind,
-    fan_rpm,
-    fan_rpm_kind,
-    power_w,
-    power_w_kind,
-    efficiency_jh,
-    efficiency_jh_kind,
-    voltage_v,
-    voltage_v_kind,
-    current_a,
-    current_a_kind,
-    inlet_temp_c,
-    outlet_temp_c,
-    ambient_temp_c,
-    chip_count,
-    chip_count_kind,
-    chip_frequency_mhz,
-    health
-FROM device_metrics
-WHERE device_identifier = ANY($2::text[])
-  AND time >= $1
-ORDER BY device_identifier, time DESC
+SELECT
+    dm.time,
+    dm.device_identifier,
+    dm.hash_rate_hs,
+    dm.hash_rate_hs_kind,
+    dm.temp_c,
+    dm.temp_c_kind,
+    dm.fan_rpm,
+    dm.fan_rpm_kind,
+    dm.power_w,
+    dm.power_w_kind,
+    dm.efficiency_jh,
+    dm.efficiency_jh_kind,
+    dm.voltage_v,
+    dm.voltage_v_kind,
+    dm.current_a,
+    dm.current_a_kind,
+    dm.inlet_temp_c,
+    dm.outlet_temp_c,
+    dm.ambient_temp_c,
+    dm.chip_count,
+    dm.chip_count_kind,
+    dm.chip_frequency_mhz,
+    dm.health
+FROM unnest($2::text[]) AS ids(device_identifier)
+CROSS JOIN LATERAL (
+    SELECT time, device_identifier, hash_rate_hs, hash_rate_hs_kind, temp_c, temp_c_kind, fan_rpm, fan_rpm_kind, power_w, power_w_kind, efficiency_jh, efficiency_jh_kind, voltage_v, voltage_v_kind, current_a, current_a_kind, inlet_temp_c, outlet_temp_c, ambient_temp_c, chip_count, chip_count_kind, chip_frequency_mhz, health
+    FROM device_metrics
+    WHERE device_metrics.device_identifier = ids.device_identifier
+      AND device_metrics.time >= $1
+    ORDER BY device_metrics.time DESC
+    LIMIT 1
+) dm
 `
 
 type GetLatestDeviceMetricsParams struct {

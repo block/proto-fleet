@@ -10,6 +10,7 @@ import {
   useIssueFilter,
 } from "@/protoFleet/components/DeviceSetList";
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
+import NullState from "@/protoFleet/components/NullState";
 import GroupModal from "@/protoFleet/features/groupManagement/components/GroupModal";
 import GroupNameCell from "@/protoFleet/features/groupManagement/components/GroupsTable/GroupNameCell";
 import { useDeviceSetListState } from "@/protoFleet/hooks/useDeviceSetListState";
@@ -17,7 +18,6 @@ import { useDeviceSetListState } from "@/protoFleet/hooks/useDeviceSetListState"
 import { Alert, DismissTiny, Groups } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
-import Header from "@/shared/components/Header";
 import DropdownFilter from "@/shared/components/List/Filters/DropdownFilter";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 
@@ -138,23 +138,16 @@ const GroupsPage = () => {
   return (
     <>
       {!hasGroups ? (
-        <div className="flex h-full flex-col justify-center p-6 sm:p-10">
-          <div className="flex h-full w-full flex-col justify-center rounded-xl bg-surface-5 px-6 py-10 sm:px-20 sm:py-10 dark:bg-surface-base">
-            <div className="flex flex-col gap-6">
-              <div className="flex flex-col gap-4">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-core-primary-5">
-                  <Groups width="w-5" />
-                </div>
-                <Header title="Groups" titleSize="text-display-200" description="Organize your miners into groups." />
-              </div>
-              <div>
-                <Button variant="primary" onClick={() => setShowGroupModal(true)}>
-                  Add group
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <NullState
+          icon={<Groups width="w-5" />}
+          title="Groups"
+          description="Organize your miners into groups."
+          action={
+            <Button variant="primary" onClick={() => setShowGroupModal(true)}>
+              Add group
+            </Button>
+          }
+        />
       ) : (
         <>
           <div className="sticky left-0 z-3 px-10 pt-10 phone:px-6 phone:pt-6 tablet:px-6 tablet:pt-6">

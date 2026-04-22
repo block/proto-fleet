@@ -591,6 +591,13 @@ type MinerCredential struct {
 	UpdatedAt   sql.NullTime
 }
 
+type MinerStateSnapshot struct {
+	Time             time.Time
+	OrgID            int64
+	DeviceIdentifier string
+	State            int16
+}
+
 type Organization struct {
 	ID                  int64
 	OrgID               string

@@ -100,7 +100,7 @@ func normalizeCompleteBucketRange(startTime, endTime time.Time, bucketDuration t
 	return startTime, completeEndTime, true
 }
 
-// statusData holds temperature histogram and uptime data extracted from aggregate rows.
+// statusData holds a per-device temperature histogram for one bucket.
 type statusData struct {
 	bucket      time.Time
 	tempBelow0  int32
@@ -115,8 +115,6 @@ type statusData struct {
 	temp8090    int32
 	temp90100   int32
 	temp100Plus int32
-	hashing     int32
-	notHashing  int32
 }
 
 // toStatusCounts converts temperature histogram data to status counts.
@@ -135,7 +133,6 @@ func (d statusData) toStatusCounts() (cold, ok, hot, critical int32) {
 	return
 }
 
-// extractStatusDataHourly extracts status data from an hourly aggregate row.
 func extractStatusDataHourly(row sqlc.DeviceStatusHourly) statusData {
 	return statusData{
 		bucket:      row.Bucket,
@@ -151,12 +148,9 @@ func extractStatusDataHourly(row sqlc.DeviceStatusHourly) statusData {
 		temp8090:    row.Temp8090,
 		temp90100:   row.Temp90100,
 		temp100Plus: row.Temp100Plus,
-		hashing:     row.HashingCount,
-		notHashing:  row.NotHashingCount,
 	}
 }
 
-// extractStatusDataDaily extracts status data from a daily aggregate row.
 func extractStatusDataDaily(row sqlc.DeviceStatusDaily) statusData {
 	return statusData{
 		bucket:      row.Bucket,
@@ -172,22 +166,17 @@ func extractStatusDataDaily(row sqlc.DeviceStatusDaily) statusData {
 		temp8090:    row.Temp8090,
 		temp90100:   row.Temp90100,
 		temp100Plus: row.Temp100Plus,
-		hashing:     row.HashingCount,
-		notHashing:  row.NotHashingCount,
 	}
 }
 
-// aggregateStatusRows aggregates status data into temperature and uptime counts.
-// Each row represents one device's data in a bucket. The histogram counts are
-// data point counts, so we count each device as 1 based on its majority status.
-func aggregateStatusRows(rows []statusData) ([]models.TemperatureStatusCount, []models.UptimeStatusCount) {
+// aggregateStatusRows counts each device once in its dominant temp category.
+func aggregateStatusRows(rows []statusData) []models.TemperatureStatusCount {
 	if len(rows) == 0 {
-		return nil, nil
+		return nil
 	}
 
 	type statusCounts struct {
 		cold, ok, hot, critical int32
-		hashing, notHashing     int32
 	}
 	buckets := make(map[time.Time]*statusCounts)
 
@@ -198,8 +187,6 @@ func aggregateStatusRows(rows []statusData) ([]models.TemperatureStatusCount, []
 			buckets[row.bucket] = counts
 		}
 
-		// Temperature: count each device as 1 based on its majority temp status.
-		// Find the dominant temperature category by data point count.
 		cold, ok, hot, critical := row.toStatusCounts()
 		maxTempCount := cold
 		tempCategory := "cold"
@@ -215,7 +202,6 @@ func aggregateStatusRows(rows []statusData) ([]models.TemperatureStatusCount, []
 			tempCategory = "critical"
 		}
 
-		// Count device as 1 in its dominant temperature category
 		switch tempCategory {
 		case "cold":
 			counts.cold++
@@ -225,14 +211,6 @@ func aggregateStatusRows(rows []statusData) ([]models.TemperatureStatusCount, []
 			counts.hot++
 		case "critical":
 			counts.critical++
-		}
-
-		// Uptime: count each device as 1 based on its majority status in the bucket.
-		// If a device has more hashing data points than not hashing, it's counted as 1 hashing device.
-		if row.hashing >= row.notHashing {
-			counts.hashing++
-		} else {
-			counts.notHashing++
 		}
 	}
 
@@ -245,8 +223,6 @@ func aggregateStatusRows(rows []statusData) ([]models.TemperatureStatusCount, []
 	})
 
 	tempCounts := make([]models.TemperatureStatusCount, 0, len(buckets))
-	uptimeCounts := make([]models.UptimeStatusCount, 0, len(buckets))
-
 	for _, bucketTime := range bucketTimes {
 		counts := buckets[bucketTime]
 		tempCounts = append(tempCounts, models.TemperatureStatusCount{
@@ -256,14 +232,9 @@ func aggregateStatusRows(rows []statusData) ([]models.TemperatureStatusCount, []
 			HotCount:      counts.hot,
 			CriticalCount: counts.critical,
 		})
-		uptimeCounts = append(uptimeCounts, models.UptimeStatusCount{
-			Timestamp:       bucketTime,
-			HashingCount:    counts.hashing,
-			NotHashingCount: counts.notHashing,
-		})
 	}
 
-	return tempCounts, uptimeCounts
+	return tempCounts
 }
 
 var _ telemetry.TelemetryDataStore = &TimescaleTelemetryStore{}
@@ -583,6 +554,8 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromRaw(ctx context.Context,
 	}
 
 	result := s.aggregateMetrics(data, query.MeasurementTypes, query.AggregationTypes, bucketDuration)
+	startTime, endTime := s.getTimeRange(query.TimeRange)
+	result.UptimeStatusCounts = s.uptimeCountsForQuery(ctx, query, startTime, endTime, bucketDuration)
 
 	return result, nil
 }
@@ -625,8 +598,8 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromHourly(ctx context.Conte
 
 	metrics := s.aggregateHourlyRows(rows, query.MeasurementTypes, query.AggregationTypes)
 
-	// Get status counts from hourly status aggregates
-	tempCounts, uptimeCounts := s.getStatusCountsFromHourlyAggregates(ctx, query.DeviceIDs, startTime, endTime)
+	tempCounts := s.getTemperatureCountsFromHourlyAggregates(ctx, query.DeviceIDs, startTime, endTime)
+	uptimeCounts := s.uptimeCountsForQuery(ctx, query, startTime, endTime, hourlyBucketDuration)
 
 	return models.CombinedMetric{
 		Metrics:                 metrics,
@@ -673,14 +646,26 @@ func (s *TimescaleTelemetryStore) getCombinedMetricsFromDaily(ctx context.Contex
 
 	metrics := s.aggregateDailyRows(rows, query.MeasurementTypes, query.AggregationTypes)
 
-	// Get status counts from daily status aggregates
-	tempCounts, uptimeCounts := s.getStatusCountsFromDailyAggregates(ctx, query.DeviceIDs, startTime, endTime)
+	tempCounts := s.getTemperatureCountsFromDailyAggregates(ctx, query.DeviceIDs, startTime, endTime)
+	uptimeCounts := s.uptimeCountsForQuery(ctx, query, startTime, endTime, dailyBucketDuration)
 
 	return models.CombinedMetric{
 		Metrics:                 metrics,
 		TemperatureStatusCounts: tempCounts,
 		UptimeStatusCounts:      uptimeCounts,
 	}, nil
+}
+
+// uptimeCountsForQuery returns nil when OrganizationID is unset so callers
+// without session context can't leak another org's counts. Callers pass the
+// same start/end used for the surrounding metric query so uptime bars line up
+// with metric bars (notably: hourly/daily callers pass a range normalized to
+// complete buckets, not the raw request range).
+func (s *TimescaleTelemetryStore) uptimeCountsForQuery(ctx context.Context, query models.CombinedMetricsQuery, startTime, endTime time.Time, bucketDuration time.Duration) []models.UptimeStatusCount {
+	if query.OrganizationID == 0 {
+		return nil
+	}
+	return s.getUptimeStatusCountsFromSnapshots(ctx, query.OrganizationID, query.DeviceIDs, startTime, endTime, bucketDuration)
 }
 
 // getTimeRange extracts start and end times from the query, using defaults if not set.
@@ -706,13 +691,11 @@ func deviceIDsToStrings(ids []models.DeviceIdentifier) []string {
 	return result
 }
 
-// getStatusCountsFromHourlyAggregates retrieves temperature and uptime status counts
-// from the device_status_hourly continuous aggregate.
-func (s *TimescaleTelemetryStore) getStatusCountsFromHourlyAggregates(
+func (s *TimescaleTelemetryStore) getTemperatureCountsFromHourlyAggregates(
 	ctx context.Context,
 	deviceIDs []models.DeviceIdentifier,
 	startTime, endTime time.Time,
-) ([]models.TemperatureStatusCount, []models.UptimeStatusCount) {
+) []models.TemperatureStatusCount {
 	var rows []sqlc.DeviceStatusHourly
 	var err error
 
@@ -731,12 +714,10 @@ func (s *TimescaleTelemetryStore) getStatusCountsFromHourlyAggregates(
 	}
 
 	if err != nil {
-		// Log at error level but don't fail the entire request - status counts are supplementary data
 		s.logger.Error("failed to query hourly status aggregates", slog.String("error", err.Error()))
-		return nil, nil
+		return nil
 	}
 
-	// Extract status data for unified aggregation
 	statusRows := make([]statusData, len(rows))
 	for i, row := range rows {
 		statusRows[i] = extractStatusDataHourly(row)
@@ -744,13 +725,11 @@ func (s *TimescaleTelemetryStore) getStatusCountsFromHourlyAggregates(
 	return aggregateStatusRows(statusRows)
 }
 
-// getStatusCountsFromDailyAggregates retrieves temperature and uptime status counts
-// from the device_status_daily continuous aggregate.
-func (s *TimescaleTelemetryStore) getStatusCountsFromDailyAggregates(
+func (s *TimescaleTelemetryStore) getTemperatureCountsFromDailyAggregates(
 	ctx context.Context,
 	deviceIDs []models.DeviceIdentifier,
 	startTime, endTime time.Time,
-) ([]models.TemperatureStatusCount, []models.UptimeStatusCount) {
+) []models.TemperatureStatusCount {
 	var rows []sqlc.DeviceStatusDaily
 	var err error
 
@@ -769,12 +748,10 @@ func (s *TimescaleTelemetryStore) getStatusCountsFromDailyAggregates(
 	}
 
 	if err != nil {
-		// Log at error level but don't fail the entire request - status counts are supplementary data
 		s.logger.Error("failed to query daily status aggregates", slog.String("error", err.Error()))
-		return nil, nil
+		return nil
 	}
 
-	// Extract status data for unified aggregation
 	statusRows := make([]statusData, len(rows))
 	for i, row := range rows {
 		statusRows[i] = extractStatusDataDaily(row)
@@ -1234,6 +1211,69 @@ func (s *TimescaleTelemetryStore) Ping(ctx context.Context) error {
 		return fmt.Errorf("ping database: %w", err)
 	}
 	return nil
+}
+
+func (s *TimescaleTelemetryStore) InsertMinerStateSnapshot(ctx context.Context, at time.Time) error {
+	ctx, cancel := context.WithTimeout(ctx, s.config.WriteTimeout)
+	defer cancel()
+
+	if err := s.queries.InsertMinerStateSnapshot(ctx, at); err != nil {
+		return fmt.Errorf("insert miner state snapshot: %w", err)
+	}
+	return nil
+}
+
+func (s *TimescaleTelemetryStore) getUptimeStatusCountsFromSnapshots(
+	ctx context.Context,
+	orgID int64,
+	deviceIDs []models.DeviceIdentifier,
+	startTime, endTime time.Time,
+	bucketDuration time.Duration,
+) []models.UptimeStatusCount {
+	if orgID == 0 {
+		return nil
+	}
+	// Snapshot cadence is ~60s, so finer buckets would yield empty slots.
+	if bucketDuration < time.Minute {
+		bucketDuration = time.Minute
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, s.config.QueryTimeout)
+	defer cancel()
+
+	params := sqlc.GetMinerStateSnapshotsParams{
+		BucketInterval: fmt.Sprintf("%d seconds", int64(bucketDuration.Seconds())),
+		OrgID:          orgID,
+		StartTime:      startTime,
+		EndTime:        endTime,
+	}
+	if len(deviceIDs) > 0 {
+		params.DeviceIdentifiersFilter = sql.NullString{String: "1", Valid: true}
+		params.DeviceIdentifierValues = deviceIDsToStrings(deviceIDs)
+	}
+
+	rows, err := s.queries.GetMinerStateSnapshots(ctx, params)
+	if err != nil {
+		s.logger.Error("failed to query miner state snapshots",
+			slog.Int64("org_id", orgID),
+			slog.String("error", err.Error()))
+		return nil
+	}
+
+	if len(rows) == 0 {
+		return nil
+	}
+
+	result := make([]models.UptimeStatusCount, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, models.UptimeStatusCount{
+			Timestamp:       row.Bucket,
+			HashingCount:    row.HashingCount,
+			BrokenCount:     row.BrokenCount,
+			NotHashingCount: row.OfflineCount + row.SleepingCount,
+		})
+	}
+	return result
 }
 
 func toNullString(s string) sql.NullString {

@@ -32,6 +32,7 @@ type CombinedMetricsQuery struct {
 	PaginationToken  string             `json:"pagination_token,omitempty"`
 	PageSize         int                `json:"page_size,omitempty"`
 	SlideInterval    *time.Duration     `json:"slide_interval,omitempty"`
+	OrganizationID   int64              `json:"organization_id,omitempty"`
 }
 
 type StreamCombinedMetricsQuery struct {
@@ -71,9 +72,9 @@ type TemperatureStatusCount struct {
 	CriticalCount int32     `json:"critical_count"` // Count of miners > 90°C
 }
 
-// UptimeStatusCount represents uptime/hashing status distribution at a point in time
 type UptimeStatusCount struct {
 	Timestamp       time.Time `json:"timestamp"`
-	HashingCount    int32     `json:"hashing_count"`     // Count of miners actively hashing
-	NotHashingCount int32     `json:"not_hashing_count"` // Count of miners not hashing
+	HashingCount    int32     `json:"hashing_count"`
+	NotHashingCount int32     `json:"not_hashing_count"`
+	BrokenCount     int32     `json:"broken_count"`
 }

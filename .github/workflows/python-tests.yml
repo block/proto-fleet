@@ -1,17 +1,6 @@
 name: Python SDK and Generator Checks
 
 on:
-  pull_request:
-    paths:
-      - ".github/workflows/python-tests.yml"
-      - ".github/actions/hermit-setup/action.yml"
-      - "bin/hermit.hcl"
-      - "hermit-packages/**"
-      - "packages/proto-python-gen/**"
-      - "server/buf.gen.yaml"
-      - "server/buf.yaml"
-      - "server/sdk/v1/pb/**"
-      - "server/sdk/v1/python/**"
   push:
     branches:
       - main
@@ -26,6 +15,7 @@ on:
       - "server/sdk/v1/pb/**"
       - "server/sdk/v1/python/**"
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
