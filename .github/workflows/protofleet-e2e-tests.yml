@@ -55,8 +55,12 @@ jobs:
       - name: Configure Go cache
         uses: ./.github/actions/go-cache-setup
 
-      - name: Cache Node modules
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      # Restore-only: the E2E shard job saves this key with an additional
+      # `~/.cache/ms-playwright` path. Cache keys are immutable, so if this job
+      # saved first it would permanently lock the shards out of caching their
+      # Playwright browsers. Restore here, save there.
+      - name: Restore Node modules cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: |
             client/node_modules
@@ -275,8 +279,10 @@ jobs:
         with:
           preinstall: "false"
 
-      - name: Cache Node modules
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      # Restore-only: see the build job for rationale — the E2E shard owns the
+      # shared node cache key so it can include the Playwright browser cache.
+      - name: Restore Node modules cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: |
             client/node_modules
