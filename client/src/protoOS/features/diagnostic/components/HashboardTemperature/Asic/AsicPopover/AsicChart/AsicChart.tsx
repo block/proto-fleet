@@ -29,6 +29,7 @@ const AsicChart = ({ hashrateData, temperatureData }: AsicChartProps) => {
 
   // initialize animation flags
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- safe usage since we only render this once
     setShouldAnimate(true);
     const timeoutId = setTimeout(() => {
       setShouldAnimate(false);

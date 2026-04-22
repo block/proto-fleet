@@ -43,7 +43,7 @@ const OnboardingSettingUpWrapper = ({
   useEffect(() => {
     if (poolStatus !== statuses.pending && intervalId) {
       clearInterval(intervalId);
-
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setIntervalId(undefined);
     }
   }, [intervalId, poolStatus]);
@@ -51,7 +51,7 @@ const OnboardingSettingUpWrapper = ({
   useEffect(() => {
     if (poolStatus === statuses.fetch) {
       setCreatePoolsError(undefined);
-
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setPoolStatus(statuses.pending);
       const validPools = pools.filter(isValidPool);
       createPools({

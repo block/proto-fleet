@@ -83,6 +83,7 @@ const useHardware = () => {
   }, [api, authRetry]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchHardware();
   }, [fetchHardware]);
 

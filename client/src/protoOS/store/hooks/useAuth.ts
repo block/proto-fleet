@@ -203,6 +203,7 @@ export const useAccessToken = (shouldCheckAccess: boolean = true) => {
   ]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     checkAccess();
   }, [checkAccess]);
 

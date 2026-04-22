@@ -116,6 +116,7 @@ function useMeasure<E extends Element = Element>(options: UseMeasureOptions = {}
 
   useLayoutEffect(() => {
     if (!element) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setContentRect(defaultState);
       setBoundingRect(defaultState);
       return;

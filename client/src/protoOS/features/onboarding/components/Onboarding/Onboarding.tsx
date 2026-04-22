@@ -33,6 +33,7 @@ const Onboarding = () => {
 
   useEffect(() => {
     if (hasAccess && pausedAction && waitingForAuth) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setPausedAction(false);
       // have to reset the error here, otherwise it would cause an infinite cycle
       setCreatePoolsError(undefined);
@@ -46,7 +47,7 @@ const Onboarding = () => {
       if (status === 401) {
         setHasAccess(false);
       }
-
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSettingUpMiner(false);
       setPausedAction(true);
     }
@@ -55,6 +56,7 @@ const Onboarding = () => {
 
   useEffect(() => {
     if (dismissedLoginModal) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setPausedAction(false);
       setDismissedLoginModal(false);
     }

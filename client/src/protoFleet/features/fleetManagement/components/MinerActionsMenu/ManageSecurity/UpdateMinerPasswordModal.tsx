@@ -30,6 +30,7 @@ const UpdateMinerPasswordModal = ({
   // Reset form when modal is dismissed
   useEffect(() => {
     if (!open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Form reset on modal close is intentional
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");

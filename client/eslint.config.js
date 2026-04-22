@@ -38,6 +38,13 @@ export default [
         tsconfigRootDir: __dirname,
       },
     },
+    linterOptions: {
+      // Pre-existing `eslint-disable ... react-hooks/set-state-in-effect`
+      // comments are left in place while the rule itself is off (see below).
+      // They become unused-directives in that state, so silence the check
+      // until the rule is turned back on via the follow-up adoption issue.
+      reportUnusedDisableDirectives: "off",
+    },
     plugins: {
       "import-x": importX,
       "jsx-a11y": jsxA11y,

@@ -32,6 +32,7 @@ const WakeCallout = ({ afterWake, onWake }: WakeCalloutProps) => {
     // Detect when miner wakes up (isSleeping goes from true to false)
     if (previousIsSleepingRef.current && !isSleeping) {
       if (areFansDetectedInImmersionMode(fans, coolingMode)) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- Show dialog on wake completion (isSleeping: true → false transition)
         setShowFansDetectedDialog(true);
       }
     }

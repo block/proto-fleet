@@ -15,6 +15,7 @@ const useHashboards = () => {
       return;
     }
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPending(true);
 
     api

@@ -12,7 +12,7 @@
     "build:protoOS": "tsc && vite build --mode protoOS",
     "build:protoFleet": "tsc && vite build --mode protoFleet",
     "generate-api-types": "node ./scripts/generate_api_ts.mjs",
-    "lint": "eslint . --report-unused-disable-directives --max-warnings 0",
+    "lint": "eslint . --max-warnings 0",
     "preview:protoOS": "vite preview --mode protoOS",
     "preview:protoFleet": "vite preview --mode protoFleet",
     "storybook": "storybook dev -p 6006",
