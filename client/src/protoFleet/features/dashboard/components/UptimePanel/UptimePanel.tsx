@@ -24,7 +24,7 @@ const needsAttentionRoute = `/miners?${encodeFilterToURL(
 
 const notHashingRoute = `/miners?${encodeFilterToURL(
   create(MinerListFilterSchema, {
-    deviceStatus: [DeviceStatus.OFFLINE, DeviceStatus.INACTIVE],
+    deviceStatus: [DeviceStatus.OFFLINE, DeviceStatus.INACTIVE, DeviceStatus.MAINTENANCE],
   }),
 ).toString()}`;
 

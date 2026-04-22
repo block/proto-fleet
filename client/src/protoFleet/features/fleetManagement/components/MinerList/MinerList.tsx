@@ -670,6 +670,7 @@ const MinerList = ({
               break;
             case deviceStatusFilterStates.sleeping:
               minerFilter.deviceStatus.push(DeviceStatus.INACTIVE);
+              minerFilter.deviceStatus.push(DeviceStatus.MAINTENANCE);
               break;
           }
         });
