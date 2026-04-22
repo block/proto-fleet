@@ -30,18 +30,19 @@ func setupRetentionTest(t *testing.T) (*sql.DB, *testutil.DatabaseService, *test
 	return dbService.DB, dbService, user
 }
 
-func seedFinishedBatch(t *testing.T, conn *sql.DB, batchUUID string, userID int64, deviceCount int32, finishedAt time.Time) {
+func seedFinishedBatch(t *testing.T, conn *sql.DB, batchUUID string, userID, orgID int64, deviceCount int32, finishedAt time.Time) {
 	t.Helper()
 	ctx := context.Background()
 	err := db2.WithTransactionNoResult(ctx, conn, func(q *sqlc.Queries) error {
 		if _, err := q.CreateCommandBatchLog(ctx, sqlc.CreateCommandBatchLogParams{
-			Uuid:         batchUUID,
-			Type:         "REBOOT",
-			CreatedBy:    userID,
-			CreatedAt:    finishedAt,
-			Status:       sqlc.BatchStatusEnumFINISHED,
-			DevicesCount: deviceCount,
-			Payload:      pqtype.NullRawMessage{Valid: false},
+			Uuid:           batchUUID,
+			Type:           "REBOOT",
+			CreatedBy:      userID,
+			CreatedAt:      finishedAt,
+			Status:         sqlc.BatchStatusEnumFINISHED,
+			DevicesCount:   deviceCount,
+			Payload:        pqtype.NullRawMessage{Valid: false},
+			OrganizationID: sql.NullInt64{Int64: orgID, Valid: orgID != 0},
 		}); err != nil {
 			return err
 		}
@@ -137,8 +138,8 @@ func TestRetentionCleaner_PrunesOldRows(t *testing.T) {
 	oldTime := time.Now().Add(-400 * 24 * time.Hour)
 	recentTime := time.Now()
 
-	seedFinishedBatch(t, conn, oldUUID, user.DatabaseID, 1, oldTime)
-	seedFinishedBatch(t, conn, recentUUID, user.DatabaseID, 1, recentTime)
+	seedFinishedBatch(t, conn, oldUUID, user.DatabaseID, user.OrganizationID, 1, oldTime)
+	seedFinishedBatch(t, conn, recentUUID, user.DatabaseID, user.OrganizationID, 1, recentTime)
 
 	seedTerminalQueueMessage(t, conn, oldUUID, dev.DatabaseID, sqlc.QueueStatusEnumSUCCESS, oldTime)
 	seedTerminalQueueMessage(t, conn, recentUUID, dev.DatabaseID, sqlc.QueueStatusEnumSUCCESS, recentTime)

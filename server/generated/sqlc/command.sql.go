@@ -21,7 +21,8 @@ INSERT INTO command_batch_log (
     created_at,
     status,
     devices_count,
-    payload
+    payload,
+    organization_id
 ) VALUES (
   $1,
   $2,
@@ -29,20 +30,25 @@ INSERT INTO command_batch_log (
   $4,
   $5,
   $6,
-  $7
+  $7,
+  $8
 )
 `
 
 type CreateCommandBatchLogParams struct {
-	Uuid         string
-	Type         string
-	CreatedBy    int64
-	CreatedAt    time.Time
-	Status       BatchStatusEnum
-	DevicesCount int32
-	Payload      pqtype.NullRawMessage
+	Uuid           string
+	Type           string
+	CreatedBy      int64
+	CreatedAt      time.Time
+	Status         BatchStatusEnum
+	DevicesCount   int32
+	Payload        pqtype.NullRawMessage
+	OrganizationID sql.NullInt64
 }
 
+// organization_id is captured from the caller's session so downstream
+// org-scoped queries (e.g. GetBatchHeaderForOrg) can filter directly on the
+// batch's owning organization rather than joining through user_organization.
 func (q *Queries) CreateCommandBatchLog(ctx context.Context, arg CreateCommandBatchLogParams) (sql.Result, error) {
 	return q.exec(ctx, q.createCommandBatchLogStmt, createCommandBatchLog,
 		arg.Uuid,
@@ -52,6 +58,7 @@ func (q *Queries) CreateCommandBatchLog(ctx context.Context, arg CreateCommandBa
 		arg.Status,
 		arg.DevicesCount,
 		arg.Payload,
+		arg.OrganizationID,
 	)
 }
 
@@ -120,15 +127,13 @@ SELECT
     cbl.status,
     cbl.devices_count
 FROM command_batch_log cbl
-JOIN user_organization uo ON uo.user_id = cbl.created_by
 WHERE cbl.uuid = $1
-  AND uo.organization_id = $2
-  AND uo.deleted_at IS NULL
+  AND cbl.organization_id = $2
 `
 
 type GetBatchHeaderForOrgParams struct {
 	Uuid           string
-	OrganizationID int64
+	OrganizationID sql.NullInt64
 }
 
 type GetBatchHeaderForOrgRow struct {
@@ -138,11 +143,12 @@ type GetBatchHeaderForOrgRow struct {
 	DevicesCount int32
 }
 
-// Returns the batch header only if the creating user belongs to the caller's
-// organization, giving the detail RPC tenant isolation without a dedicated
-// org_id column on command_batch_log (tracked as an issue #22 follow-up).
-// Returns no rows when the batch does not exist or the caller is not
-// authorized, which the handler translates into "not found".
+// Returns the batch header only if its recorded organization_id matches the
+// caller's session org. Rows whose organization_id is NULL (legacy backfill
+// miss: creator had no live user_organization membership at migration time)
+// are invisible to this query, which is the correct closed-by-default
+// posture for a cross-org RPC. The handler returns "not found" when the
+// query yields no row.
 func (q *Queries) GetBatchHeaderForOrg(ctx context.Context, arg GetBatchHeaderForOrgParams) (GetBatchHeaderForOrgRow, error) {
 	row := q.queryRow(ctx, q.getBatchHeaderForOrgStmt, getBatchHeaderForOrg, arg.Uuid, arg.OrganizationID)
 	var i GetBatchHeaderForOrgRow

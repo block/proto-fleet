@@ -241,7 +241,7 @@ func (s *Service) getDevicesCount(ctx context.Context, selector *pb.DeviceSelect
 	}
 }
 
-func (s *Service) saveCommandBatchLogToDB(ctx context.Context, userID int64, command *Command, payloadBytes []byte) (string, error) {
+func (s *Service) saveCommandBatchLogToDB(ctx context.Context, userID, organizationID int64, command *Command, payloadBytes []byte) (string, error) {
 	devicesCount, err := s.getDevicesCount(ctx, command.deviceSelector)
 	if err != nil {
 		return "", err
@@ -252,13 +252,14 @@ func (s *Service) saveCommandBatchLogToDB(ctx context.Context, userID int64, com
 		newUUID := id.GenerateID()
 
 		_, err := q.CreateCommandBatchLog(ctx, sqlc.CreateCommandBatchLogParams{
-			Uuid:         newUUID,
-			Type:         command.commandType.String(),
-			CreatedBy:    userID,
-			CreatedAt:    timeNow,
-			Status:       sqlc.BatchStatusEnumPENDING,
-			DevicesCount: devicesCount,
-			Payload:      pqtype.NullRawMessage{RawMessage: payloadBytes, Valid: len(payloadBytes) > 0},
+			Uuid:           newUUID,
+			Type:           command.commandType.String(),
+			CreatedBy:      userID,
+			CreatedAt:      timeNow,
+			Status:         sqlc.BatchStatusEnumPENDING,
+			DevicesCount:   devicesCount,
+			Payload:        pqtype.NullRawMessage{RawMessage: payloadBytes, Valid: len(payloadBytes) > 0},
+			OrganizationID: sql.NullInt64{Int64: organizationID, Valid: organizationID != 0},
 		})
 		if err != nil {
 			return "", fleeterror.NewInternalErrorf("error creating command batch log: %v", err)
@@ -456,7 +457,7 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (string,
 		return "", 0, fleeterror.NewInternalErrorf("error marshalling payload: %v", err)
 	}
 
-	batchLogIdentifier, err := s.saveCommandBatchLogToDB(ctx, info.UserID, command, payloadBytes)
+	batchLogIdentifier, err := s.saveCommandBatchLogToDB(ctx, info.UserID, info.OrganizationID, command, payloadBytes)
 	if err != nil {
 		return "", 0, fleeterror.NewInternalErrorf("error saving command batch log to db: %v", err)
 	}
@@ -745,7 +746,7 @@ func (s *Service) ReapplyCurrentPoolsWithWorkerNames(
 		return "", fleeterror.NewInternalErrorf("error marshalling payload: %v", err)
 	}
 
-	commandBatchLogUUID, err := s.saveCommandBatchLogToDB(ctx, info.UserID, command, payloadBytes)
+	commandBatchLogUUID, err := s.saveCommandBatchLogToDB(ctx, info.UserID, info.OrganizationID, command, payloadBytes)
 	if err != nil {
 		return "", fleeterror.NewInternalErrorf("error saving command batch log to db: %v", err)
 	}
@@ -1054,8 +1055,10 @@ func (s *Service) GetCommandBatchDeviceResults(ctx context.Context, req *pb.GetC
 
 	header, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (sqlc.GetBatchHeaderForOrgRow, error) {
 		return q.GetBatchHeaderForOrg(ctx, sqlc.GetBatchHeaderForOrgParams{
-			Uuid:           req.BatchIdentifier,
-			OrganizationID: info.OrganizationID,
+			Uuid: req.BatchIdentifier,
+			// NullInt64 lets sqlc round-trip the optional column; Valid is always
+			// true here because session info always carries a concrete org.
+			OrganizationID: sql.NullInt64{Int64: info.OrganizationID, Valid: true},
 		})
 	})
 	if err != nil {

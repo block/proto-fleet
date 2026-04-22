@@ -33,7 +33,7 @@ func TestCompletionReconciler_BackfillsMissingCompletion(t *testing.T) {
 	batchUUID := "reconciler-e2e-1"
 	// Finish "long enough ago" that we clear the reconciler's grace period.
 	finishedAt := time.Now().Add(-10 * time.Minute)
-	seedFinishedBatch(t, conn, batchUUID, user.DatabaseID, 2, finishedAt)
+	seedFinishedBatch(t, conn, batchUUID, user.DatabaseID, user.OrganizationID, 2, finishedAt)
 
 	seedDeviceLog(t, conn, batchUUID, dev1.DatabaseID, sqlc.DeviceCommandStatusEnumSUCCESS, finishedAt)
 	seedDeviceLog(t, conn, batchUUID, dev2.DatabaseID, sqlc.DeviceCommandStatusEnumFAILED, finishedAt)
@@ -121,7 +121,7 @@ func TestCompletionReconciler_SkipsInternallyTriggeredBatches(t *testing.T) {
 	dev := dbService.CreateDevice(user.OrganizationID, "proto")
 
 	batchUUID := "reconciler-no-initiated-1"
-	seedFinishedBatch(t, conn, batchUUID, user.DatabaseID, 1, time.Now().Add(-10*time.Minute))
+	seedFinishedBatch(t, conn, batchUUID, user.DatabaseID, user.OrganizationID, 1, time.Now().Add(-10*time.Minute))
 	seedDeviceLog(t, conn, batchUUID, dev.DatabaseID, sqlc.DeviceCommandStatusEnumSUCCESS, time.Now().Add(-10*time.Minute))
 
 	activityStore := sqlstores.NewSQLActivityStore(conn)
