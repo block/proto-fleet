@@ -7,15 +7,14 @@
 package minercommandv1
 
 import (
-	reflect "reflect"
-	sync "sync"
-	unsafe "unsafe"
-
 	v11 "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	v1 "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
+	reflect "reflect"
+	sync "sync"
+	unsafe "unsafe"
 )
 
 const (
@@ -2046,9 +2045,9 @@ type GetCommandBatchDeviceResultsResponse struct {
 	DetailsPruned bool `protobuf:"varint,8,opt,name=details_pruned,json=detailsPruned,proto3" json:"details_pruned,omitempty"`
 	// True when device_results was truncated because the batch has more
 	// per-device rows than the server's response cap. success_count,
-	// failure_count, and total_count continue to reflect the full batch; the
-	// UI should show an affordance (e.g. "showing first N of total_count") to
-	// direct operators at the CSV/ZIP export for the complete list.
+	// failure_count, and total_count continue to reflect the full batch.
+	// The UI should surface an affordance (e.g. "showing first N of total")
+	// so operators know device_results is partial.
 	Truncated     bool `protobuf:"varint,9,opt,name=truncated,proto3" json:"truncated,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

@@ -26,6 +26,22 @@ type Session struct {
 	RevokedAt      *time.Time
 }
 
+// Actor identifies the kind of principal acting on behalf of a request.
+// The typed alias + exported constants prevent magic-string drift between
+// the internal orchestrators that set it (e.g. the schedule processor) and
+// the consumers that switch on it (e.g. the command service's activity
+// logger). Keeping it a bare string alias avoids pulling domain types into
+// the session package.
+type Actor string
+
+const (
+	// ActorScheduler marks sessions synthesized by the schedule processor.
+	ActorScheduler Actor = "scheduler"
+	// ActorSystem marks sessions synthesized by internal maintenance or
+	// reconciler code paths that have no human principal.
+	ActorSystem Actor = "system"
+)
+
 // Info contains authenticated request context passed to handlers.
 // Populated by the auth interceptor for both session and API key authentication.
 type Info struct {
@@ -47,11 +63,9 @@ type Info struct {
 
 	// Actor identifies the kind of principal acting on behalf of the request.
 	// Empty for user / API-key traffic (callers default to the user actor
-	// type). Set to a non-empty marker (e.g. "scheduler") by internal
-	// orchestrators that synthesize a session.Info; downstream code translates
-	// it into the correct activity actor type. Kept as a plain string so the
-	// session package does not need to import domain types.
-	Actor string
+	// type). Set by internal orchestrators that synthesize a session.Info;
+	// downstream code translates it into the correct activity actor type.
+	Actor Actor
 }
 
 // CredentialID returns a stable identifier for the authenticated credential.

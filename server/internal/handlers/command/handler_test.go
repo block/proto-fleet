@@ -121,3 +121,58 @@ func TestHandler_GetCommandBatchDeviceResults_PropagatesInvalidArgument(t *testi
 	require.True(t, errors.As(err, &fleetErr), "expected FleetError to propagate through the handler")
 	assert.Equal(t, connect.CodeInvalidArgument, fleetErr.GRPCCode)
 }
+
+// TestHandler_GetCommandBatchDeviceResults_PropagatesNotFound asserts that a
+// cross-org lookup surfaces as connect.CodeNotFound through the handler.
+// The service-level tests prove the scoping behavior end-to-end; this
+// narrower test pins the handler's FleetError passthrough for NotFound so a
+// future refactor that accidentally swallows or rewraps the error fails
+// loudly.
+//
+// (A matching Internal-mapping test would require fault-injection on the DB
+// connection, which isn't set up today. Deferred to a follow-up.)
+func TestHandler_GetCommandBatchDeviceResults_PropagatesNotFound(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	cfg, err := testutil.GetTestConfig()
+	require.NoError(t, err)
+	dbService := testutil.NewDatabaseService(t, cfg)
+	orgAUser := dbService.CreateSuperAdminUser()
+	orgBUser := dbService.CreateSuperAdminUser2()
+
+	batchUUID := "handler-cross-org-1"
+	ctx := context.Background()
+	require.NoError(t, db2.WithTransactionNoResult(ctx, dbService.DB, func(q *sqlc.Queries) error {
+		_, e := q.CreateCommandBatchLog(ctx, sqlc.CreateCommandBatchLogParams{
+			Uuid:           batchUUID,
+			Type:           "REBOOT",
+			CreatedBy:      orgAUser.DatabaseID,
+			CreatedAt:      time.Now(),
+			Status:         sqlc.BatchStatusEnumFINISHED,
+			DevicesCount:   1,
+			Payload:        pqtype.NullRawMessage{Valid: false},
+			OrganizationID: sql.NullInt64{Int64: orgAUser.OrganizationID, Valid: true},
+		})
+		return e
+	}))
+
+	svc := command.NewService(
+		&command.Config{}, dbService.DB,
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+	)
+	h := handler.NewHandler(svc)
+
+	req := connect.NewRequest(&pb.GetCommandBatchDeviceResultsRequest{
+		BatchIdentifier: batchUUID,
+	})
+	// Caller is Org B; the batch belongs to Org A.
+	authCtx := testutil.MockAuthContextForTesting(ctx, orgBUser.DatabaseID, orgBUser.OrganizationID)
+
+	_, err = h.GetCommandBatchDeviceResults(authCtx, req)
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.True(t, errors.As(err, &fleetErr), "expected FleetError to propagate through the handler")
+	assert.Equal(t, connect.CodeNotFound, fleetErr.GRPCCode)
+}

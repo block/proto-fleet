@@ -79,22 +79,34 @@ func NewCompletionReconciler(conn *sql.DB, config *Config, activityLogger Activi
 
 // Start launches the reconciler goroutine. Calling Start more than once
 // replaces the previous goroutine. Safe to call with a nil receiver.
+// Locking order: fields are mutated under r.mu, but the drain of a previous
+// generation's goroutine happens outside the lock so a worker that ever
+// needs r.mu (none do today, defence in depth) cannot deadlock against
+// Start/Stop waiting on the drain.
 func (r *CompletionReconciler) Start(ctx context.Context) {
 	if r == nil {
 		return
 	}
+
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.cancel != nil {
-		r.cancel()
-		<-r.done
+	prevCancel, prevDone := r.cancel, r.done
+	r.cancel, r.done = nil, nil
+	r.mu.Unlock()
+	if prevCancel != nil {
+		prevCancel()
+		<-prevDone
 	}
+
 	reconcilerCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+
+	r.mu.Lock()
 	r.cancel = cancel
-	r.done = make(chan struct{})
+	r.done = done
+	r.mu.Unlock()
 
 	go func() {
-		defer close(r.done)
+		defer close(done)
 		ticker := time.NewTicker(r.config.ReconcilerInterval)
 		defer ticker.Stop()
 
@@ -112,19 +124,21 @@ func (r *CompletionReconciler) Start(ctx context.Context) {
 }
 
 // Stop signals the reconciler goroutine to exit and waits for it to drain.
-// Safe to call with a nil receiver or before Start.
+// Safe to call with a nil receiver or before Start. See Start for the
+// locking-order rationale.
 func (r *CompletionReconciler) Stop() {
 	if r == nil {
 		return
 	}
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.cancel == nil {
+	cancel, done := r.cancel, r.done
+	r.cancel, r.done = nil, nil
+	r.mu.Unlock()
+	if cancel == nil {
 		return
 	}
-	r.cancel()
-	<-r.done
-	r.cancel = nil
+	cancel()
+	<-done
 }
 
 // RunOnceForTest invokes a single reconcile pass without starting the

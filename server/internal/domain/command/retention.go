@@ -117,22 +117,37 @@ func NewRetentionCleaner(conn *sql.DB, cfg *RetentionConfig) *RetentionCleaner {
 }
 
 // Start launches the cleaner goroutine. Safe to call with a nil receiver.
+// Locking order: fields are mutated under c.mu, but the drain of a previous
+// generation's goroutine happens outside the lock so a worker that ever
+// needs c.mu (none do today, defence in depth) cannot deadlock against
+// Start/Stop waiting on the drain.
 func (c *RetentionCleaner) Start(ctx context.Context) {
 	if c == nil {
 		return
 	}
+
+	// Snapshot and clear any previous generation under the lock, drain it
+	// outside. Subsequent Start/Stop callers observe a nil cancel and either
+	// install their own generation or no-op.
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.cancel != nil {
-		c.cancel()
-		<-c.done
+	prevCancel, prevDone := c.cancel, c.done
+	c.cancel, c.done = nil, nil
+	c.mu.Unlock()
+	if prevCancel != nil {
+		prevCancel()
+		<-prevDone
 	}
+
 	cleanCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+
+	c.mu.Lock()
 	c.cancel = cancel
-	c.done = make(chan struct{})
+	c.done = done
+	c.mu.Unlock()
 
 	go func() {
-		defer close(c.done)
+		defer close(done)
 		ticker := time.NewTicker(c.config.CleanupInterval)
 		defer ticker.Stop()
 
@@ -150,18 +165,20 @@ func (c *RetentionCleaner) Start(ctx context.Context) {
 }
 
 // Stop signals the cleaner goroutine to exit and waits for it to drain.
+// See Start for the locking-order rationale.
 func (c *RetentionCleaner) Stop() {
 	if c == nil {
 		return
 	}
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.cancel == nil {
+	cancel, done := c.cancel, c.done
+	c.cancel, c.done = nil, nil
+	c.mu.Unlock()
+	if cancel == nil {
 		return
 	}
-	c.cancel()
-	<-c.done
-	c.cancel = nil
+	cancel()
+	<-done
 }
 
 // RunOnceForTest invokes a single retention pass without starting the

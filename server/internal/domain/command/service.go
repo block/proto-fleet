@@ -121,15 +121,17 @@ func (s *Service) logCommandActivity(ctx context.Context, eventType, description
 // actorTypeFromSession maps session.Info.Actor into the corresponding
 // activity.ActorType. An empty Actor yields an empty return so the activity
 // service's defaulting (ActorUser) kicks in; scheduler-synthesized sessions
-// (Actor == "scheduler") are attributed to ActorScheduler.
+// are attributed to ActorScheduler, internal maintenance sessions to
+// ActorSystem. The switch is on typed session.Actor constants so adding a
+// new kind of synthetic session fails to compile here until mapped.
 func actorTypeFromSession(info *session.Info) activitymodels.ActorType {
 	if info == nil {
 		return ""
 	}
 	switch info.Actor {
-	case "scheduler":
+	case session.ActorScheduler:
 		return activitymodels.ActorScheduler
-	case "system":
+	case session.ActorSystem:
 		return activitymodels.ActorSystem
 	default:
 		return ""
@@ -149,6 +151,13 @@ func actorTypeFromSession(info *session.Info) activitymodels.ActorType {
 // re-running unnecessarily when a later callback (for example the activity
 // finalizer hitting a transient DB blip) returns an error and the status
 // routine retries the whole chain.
+//
+// NOT SAFE FOR CONCURRENT USE: the returned closure mutates per-callback
+// completion state without synchronization. initializeStatusUpdateRoutine is
+// the only call site today and invokes the closure serially from a single
+// polling goroutine. Any future caller that wants to share a composed
+// finalizer across goroutines must add its own synchronization or build a
+// fresh composition per goroutine.
 func composeFinalizers(callbacks ...onFinishedCallbackFunc) onFinishedCallbackFunc {
 	type trackedCallback struct {
 		fn   onFinishedCallbackFunc

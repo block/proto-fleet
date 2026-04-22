@@ -242,9 +242,9 @@ message GetCommandBatchDeviceResultsResponse {
   bool details_pruned = 8;
   // True when device_results was truncated because the batch has more
   // per-device rows than the server's response cap. success_count,
-  // failure_count, and total_count continue to reflect the full batch; the
-  // UI should show an affordance (e.g. "showing first N of total_count") to
-  // direct operators at the CSV/ZIP export for the complete list.
+  // failure_count, and total_count continue to reflect the full batch.
+  // The UI should surface an affordance (e.g. "showing first N of total")
+  // so operators know device_results is partial.
   bool truncated = 9;
 }
 
