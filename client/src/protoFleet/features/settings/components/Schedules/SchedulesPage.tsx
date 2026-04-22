@@ -223,11 +223,7 @@ const SchedulesPage = () => {
   return (
     <div className="flex flex-col">
       <div className="flex items-start justify-between gap-4 phone:flex-col phone:items-stretch">
-        <Header
-          title="Schedules"
-          titleSize="text-heading-300"
-          description={SCHEDULE_PAGE_DESCRIPTION}
-        />
+        <Header title="Schedules" titleSize="text-heading-300" description={SCHEDULE_PAGE_DESCRIPTION} />
         <Button
           variant={variants.primary}
           size={sizes.base}
