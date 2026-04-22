@@ -3,14 +3,16 @@ import { FanData } from "@/protoOS/store";
 
 /**
  * Checks if all fans are disconnected based on RPM values from cooling API
- * @param fans - Array of fan status from cooling API, or null/undefined if no data
- * @returns true if no fans are connected (fans array is null, empty, or all fans have RPM = 0)
+ * @param fans - Array of fan status from cooling API
+ * @returns true if fan data is present and every fan slot reports no RPM
  *
  * Note: We can't distinguish between a disconnected fan and a dead fan - both report RPM = 0.
  * This is because the GPIO tachometer circuit is simple and only reads RPM values.
  */
 export const areAllFansDisconnected = (fans: (FanStatus | null)[] | null | undefined): boolean => {
-  return !fans || fans.every((fan) => !fan || (fan.rpm ?? 0) === 0);
+  if (!fans) return false;
+
+  return fans.length === 0 || fans.every((fan) => !fan || (fan.rpm ?? 0) === 0);
 };
 
 /**

@@ -35,13 +35,10 @@ const AsicButton = ({ asic, hashboardSerial, showPopover, setShowPopover, totalA
   const shouldShowPopover = currentAsicId !== undefined && showPopover === currentAsicId;
 
   const backgroundColor = useAsicColor(asic);
-
-  // Generate ASIC name using utility function - now using passed-in totalAsicCount
   const asicName = useMemo(() => {
     return asic.index !== undefined ? getAsicName(totalAsicCount, asic.index) : "";
   }, [totalAsicCount, asic.index]);
 
-  // Get the metric measurement based on selected metric
   const metricMeasurement = useMemo((): Measurement | undefined => {
     switch (selectedMetric) {
       case "temperature":
@@ -75,13 +72,6 @@ const AsicButton = ({ asic, hashboardSerial, showPopover, setShowPopover, totalA
       <button
         style={{ backgroundColor }}
         className="asic-button w-full cursor-default truncate rounded-lg border border-border-5 text-center font-mono text-mono-text-50 text-text-primary"
-
-        // TODO: removed temporarily until asics have more data to show in the popover
-        // onClick={() =>
-        //   setShowPopover((prev) =>
-        //     prev === currentAsicId ? undefined : currentAsicId,
-        //   )
-        // }
       >
         <div className="bg-transparent hover:bg-surface-overlay">
           <div className="flex flex-col items-center gap-1 px-1 py-3">
@@ -102,25 +92,21 @@ const AsicButton = ({ asic, hashboardSerial, showPopover, setShowPopover, totalA
       return formatMetricDisplay("--");
     }
 
-    // For temperature, convert to user's preferred unit (no units displayed)
     if (selectedMetric === "temperature") {
       const formatted = convertAndFormatMeasurement(metricMeasurement, temperatureUnit, false);
       return formatMetricDisplay(formatted || "--");
     }
 
-    // For hashrate, convert to GH/s for display (no units displayed)
     if (selectedMetric === "hashrate") {
       const formatted = convertAndFormatMeasurement(metricMeasurement, "GH/s", false);
       return formatMetricDisplay(formatted || "--");
     }
 
-    // For voltage, display in mV (no units displayed, already in mV from API)
     if (selectedMetric === "voltage") {
       const formatted = convertAndFormatMeasurement(metricMeasurement, "mV", false);
       return formatMetricDisplay(formatted || "--");
     }
 
-    // For frequency, display in MHz (no units displayed, already in MHz from API)
     if (selectedMetric === "frequency") {
       const formatted = convertAndFormatMeasurement(metricMeasurement, "MHz", false);
       return formatMetricDisplay(formatted || "--");

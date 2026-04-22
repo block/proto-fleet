@@ -13,12 +13,7 @@ import type {
 } from "../types";
 import type { MinerStore } from "../useMinerStore";
 
-// =============================================================================
-// Hardware Slice Interface
-// =============================================================================
-
 export interface HardwareSlice {
-  // State
   miner: MinerHardwareData | null;
   controlBoard: ControlBoardHardwareData | null;
   hashboards: HashboardMap;
@@ -26,15 +21,12 @@ export interface HardwareSlice {
   psus: PsuMap;
   fans: FanMap;
 
-  // Miner Actions
   setMiner: (miner: MinerHardwareData) => void;
   getMiner: () => MinerHardwareData | null;
 
-  // Control Board Actions
   setControlBoard: (controlBoard: ControlBoardHardwareData) => void;
   getControlBoard: () => ControlBoardHardwareData | null;
 
-  // Hashboard Actions
   setHashboards: (hashboards: HashboardHardwareData[]) => void;
   addHashboard: (hashboard: HashboardHardwareData) => void;
   getHashboard: (serial: string) => HashboardHardwareData | undefined;
@@ -44,7 +36,6 @@ export interface HardwareSlice {
   getSlotByHbSn: (serial: string) => number | undefined;
   getBayByHbSn: (serial: string) => number | undefined;
 
-  // ASIC Actions
   setAsics: (asics: AsicHardwareData[]) => void;
   addAsic: (asic: AsicHardwareData) => void;
   batchAddAsics: (asics: AsicHardwareData[]) => void;
@@ -53,22 +44,18 @@ export interface HardwareSlice {
   getAsicPosition: (id: string) => { row?: number; column?: number } | undefined;
   getAsicRowsByHashboard: (hashboardSerial: string) => number[];
 
-  // Relationship Actions
   linkAsicToHashboard: (asicId: string, hashboardSerial: string) => void;
 
-  // PSU Actions
   setPsus: (psus: PsuHardwareData[]) => void;
   addPsu: (psu: PsuHardwareData) => void;
   getPsu: (id: number) => PsuHardwareData | undefined;
   getAllPsus: () => PsuHardwareData[];
 
-  // Fan Actions
   setFans: (fans: FanHardwareData[]) => void;
   addFan: (fan: FanHardwareData) => void;
   getFan: (slot: number) => FanHardwareData | undefined;
   getAllFans: () => FanHardwareData[];
 
-  // Bulk Operations
   initializeMinerStructure: (
     miner: MinerHardwareData,
     hashboards: HashboardHardwareData[],
@@ -79,15 +66,10 @@ export interface HardwareSlice {
   ) => void;
 }
 
-// =============================================================================
-// Hardware Slice Implementation
-// =============================================================================
-
 export const createHardwareSlice: StateCreator<MinerStore, [["zustand/immer", never]], [], HardwareSlice> = (
   set,
   get,
 ) => ({
-  // Initial state
   miner: null,
   controlBoard: null,
   hashboards: new Map(),
@@ -95,7 +77,6 @@ export const createHardwareSlice: StateCreator<MinerStore, [["zustand/immer", ne
   psus: new Map(),
   fans: new Map(),
 
-  // Miner Actions
   setMiner: (miner) =>
     set((state) => {
       state.hardware.miner = miner;
@@ -105,7 +86,6 @@ export const createHardwareSlice: StateCreator<MinerStore, [["zustand/immer", ne
     return get().hardware.miner;
   },
 
-  // Control Board Actions
   setControlBoard: (controlBoard) =>
     set((state) => {
       state.hardware.controlBoard = controlBoard;
@@ -115,7 +95,6 @@ export const createHardwareSlice: StateCreator<MinerStore, [["zustand/immer", ne
     return get().hardware.controlBoard;
   },
 
-  // Hashboard Actions
   setHashboards: (hashboards) =>
     set((state) => {
       state.hardware.hashboards.clear();
@@ -128,12 +107,6 @@ export const createHardwareSlice: StateCreator<MinerStore, [["zustand/immer", ne
     set((state) => {
       state.hardware.hashboards.set(hashboard.serial, hashboard);
     });
-
-    // TODO: [STORE_REFACTOR] remove this when name is returened by the API
-    // Update ASIC names if this hashboard has asicIds (call after state is updated)
-    // if (hashboard.asicIds && hashboard.asicIds.length > 0) {
-    //   get().hardware.updateAsicNames(hashboard.serial);
-    // }
   },
 
   getHashboard: (serial) => {
@@ -162,7 +135,6 @@ export const createHardwareSlice: StateCreator<MinerStore, [["zustand/immer", ne
     return get().hardware.hashboards.get(serial)?.bay;
   },
 
-  // ASIC Actions
   setAsics: (asics) =>
     set((state) => {
       state.hardware.asics.clear();
@@ -209,7 +181,6 @@ export const createHardwareSlice: StateCreator<MinerStore, [["zustand/immer", ne
     return Array.from(uniqueRows).sort((a, b) => a - b);
   },
 
-  // Relationship Actions
   linkAsicToHashboard: (asicId, hashboardSerial) => {
     set((state) => {
       const hashboard = state.hardware.hashboards.get(hashboardSerial);
@@ -219,7 +190,6 @@ export const createHardwareSlice: StateCreator<MinerStore, [["zustand/immer", ne
     });
   },
 
-  // PSU Actions
   setPsus: (psus) =>
     set((state) => {
       state.hardware.psus.clear();
@@ -241,7 +211,6 @@ export const createHardwareSlice: StateCreator<MinerStore, [["zustand/immer", ne
     return Array.from(get().hardware.psus.values());
   },
 
-  // Fan Actions
   setFans: (fans) =>
     set((state) => {
       state.hardware.fans.clear();
@@ -263,29 +232,24 @@ export const createHardwareSlice: StateCreator<MinerStore, [["zustand/immer", ne
     return Array.from(get().hardware.fans.values());
   },
 
-  // Bulk Operations
   initializeMinerStructure: (miner, hashboards, asics, psus, fans, controlBoard) =>
     set((state) => {
       state.hardware.miner = miner;
 
-      // Initialize control board
       if (controlBoard) {
         state.hardware.controlBoard = controlBoard;
       }
 
-      // Initialize hashboards
       state.hardware.hashboards.clear();
       hashboards.forEach((hb) => {
         state.hardware.hashboards.set(hb.serial, hb);
       });
 
-      // Initialize ASICs
       state.hardware.asics.clear();
       asics.forEach((asic) => {
         state.hardware.asics.set(asic.id, asic);
       });
 
-      // Initialize PSUs
       if (psus) {
         state.hardware.psus.clear();
         psus.forEach((psu) => {
@@ -293,7 +257,6 @@ export const createHardwareSlice: StateCreator<MinerStore, [["zustand/immer", ne
         });
       }
 
-      // Initialize Fans
       if (fans) {
         state.hardware.fans.clear();
         fans.forEach((fan) => {

@@ -27,6 +27,7 @@ const useCoolingStatus = ({ poll, enabled = true }: UseCoolingStatusProps = {}) 
   const { api } = useMinerHosting();
   const [data, setData] = useState<CoolingStatusWithNullableFans>();
   const [error, setError] = useState<string>();
+  const [loaded, setLoaded] = useState<boolean>(false);
   const [pending, setPending] = useState<boolean>(false);
   const authRetry = useAuthRetry();
 
@@ -65,10 +66,12 @@ const useCoolingStatus = ({ poll, enabled = true }: UseCoolingStatusProps = {}) 
         } else {
           setData(coolingData);
         }
+        setLoaded(true);
         setPending(false);
       })
       .catch((err) => {
         setError(err?.error?.message ?? "An error occurred");
+        setLoaded(true);
         setPending(false);
       });
   }, [api]);
@@ -144,7 +147,7 @@ const useCoolingStatus = ({ poll, enabled = true }: UseCoolingStatusProps = {}) 
     [api, authRetry],
   );
 
-  return useMemo(() => ({ pending, error, data, setCooling }), [pending, error, data, setCooling]);
+  return useMemo(() => ({ pending, error, data, loaded, setCooling }), [pending, error, data, loaded, setCooling]);
 };
 
 export { useCoolingStatus };
