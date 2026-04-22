@@ -1,3 +1,8 @@
+// Tests for command retention config defaults + the drain loop. The drain
+// loop terminates when a delete returns fewer rows than the configured
+// DeleteBatchLimit, so test cases that want to exercise multi-iteration
+// behavior set an explicit small limit (typically 10) via RetentionConfig
+// so they can script the scripted replies deterministically.
 package command
 
 import (

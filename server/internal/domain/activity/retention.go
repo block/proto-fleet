@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
@@ -57,6 +58,8 @@ type RetentionCleaner struct {
 	config *RetentionConfig
 	now    func() time.Time
 
+	// mu guards the Start/Stop lifecycle fields.
+	mu     sync.Mutex
 	cancel context.CancelFunc
 	done   chan struct{}
 }
@@ -77,6 +80,8 @@ func (c *RetentionCleaner) Start(ctx context.Context) {
 	if c == nil {
 		return
 	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.cancel != nil {
 		c.cancel()
 		<-c.done
@@ -104,7 +109,12 @@ func (c *RetentionCleaner) Start(ctx context.Context) {
 
 // Stop signals the cleaner goroutine to exit and waits for it to drain.
 func (c *RetentionCleaner) Stop() {
-	if c == nil || c.cancel == nil {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.cancel == nil {
 		return
 	}
 	c.cancel()

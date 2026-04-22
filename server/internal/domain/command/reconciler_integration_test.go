@@ -49,7 +49,7 @@ func TestCompletionReconciler_BackfillsMissingCompletion(t *testing.T) {
 	activityStore := sqlstores.NewSQLActivityStore(conn)
 	activitySvc := activityDomain.NewService(activityStore)
 	batchIDCopy := batchUUID
-	userID := "ext-" + user.Username
+	userID := user.ExternalUserID
 	username := user.Username
 	orgID := user.OrganizationID
 	scope := 2

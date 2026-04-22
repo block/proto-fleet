@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
@@ -49,6 +50,8 @@ type CompletionReconciler struct {
 	activityLogger ActivityLogger
 	now           func() time.Time
 
+	// mu guards the Start/Stop lifecycle fields.
+	mu     sync.Mutex
 	cancel context.CancelFunc
 	done   chan struct{}
 }
@@ -80,6 +83,8 @@ func (r *CompletionReconciler) Start(ctx context.Context) {
 	if r == nil {
 		return
 	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if r.cancel != nil {
 		r.cancel()
 		<-r.done
@@ -109,7 +114,12 @@ func (r *CompletionReconciler) Start(ctx context.Context) {
 // Stop signals the reconciler goroutine to exit and waits for it to drain.
 // Safe to call with a nil receiver or before Start.
 func (r *CompletionReconciler) Stop() {
-	if r == nil || r.cancel == nil {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.cancel == nil {
 		return
 	}
 	r.cancel()

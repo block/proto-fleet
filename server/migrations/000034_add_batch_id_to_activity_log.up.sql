@@ -6,6 +6,17 @@
 --   2. A partial unique index scoped to '*.completed' event types, acting as an
 --      idempotency guard for the finalizer so a crash-recovery reconciler can
 --      safely re-insert without creating duplicate completion rows.
+--
+-- OPERATIONAL NOTE: CREATE INDEX (without CONCURRENTLY) acquires an
+-- ACCESS EXCLUSIVE lock on activity_log while the build runs. The partial
+-- predicate (batch_id IS NOT NULL) filters out all existing rows, so the
+-- index payload is small, but Postgres still scans the full table to
+-- evaluate the predicate. On activity_log tables well below the 1-year
+-- retention ceiling this is effectively instant; for operators running
+-- fleets with larger activity_log tables, run this migration during a
+-- low-traffic window. Switching to CREATE INDEX CONCURRENTLY is tracked
+-- as a follow-up (requires migrate-tool plumbing to split off the DDL
+-- from the wrapping transaction).
 
 ALTER TABLE activity_log
     ADD COLUMN batch_id TEXT NULL;

@@ -1096,52 +1096,59 @@ func (s *Service) GetCommandBatchDeviceResults(ctx context.Context, req *pb.GetC
 		return nil, fleeterror.NewInternalErrorf("error getting session info: %v", err)
 	}
 
+	// All three queries run inside a single read transaction so the header,
+	// aggregate counts, and per-device rows come from a consistent snapshot.
+	// A retention sweep between them would otherwise be able to skew the
+	// counts vs. the visible device list.
+	//
 	// db.WithTransaction's retry wrapper re-wraps non-FleetError errors into
-	// an Internal FleetError, which erases sql.ErrNoRows. Translate it into a
-	// NotFound FleetError inside the callback so the caller sees the right
-	// connect code; same for the counts lookup.
-	header, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (sqlc.GetBatchHeaderForOrgRow, error) {
-		row, qErr := q.GetBatchHeaderForOrg(ctx, sqlc.GetBatchHeaderForOrgParams{
-			Uuid: req.BatchIdentifier,
-			// NullInt64 lets sqlc round-trip the optional column; Valid is always
-			// true here because session info always carries a concrete org.
+	// an Internal FleetError, which erases sql.ErrNoRows. Translating to a
+	// NotFound FleetError inside the callback lets the caller see the right
+	// connect code.
+	type resultsBundle struct {
+		header sqlc.GetBatchHeaderForOrgRow
+		counts sqlc.GetBatchStatusAndDeviceCountsRow
+		rows   []sqlc.ListBatchDeviceResultsRow
+	}
+	bundle, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (resultsBundle, error) {
+		var b resultsBundle
+		header, hErr := q.GetBatchHeaderForOrg(ctx, sqlc.GetBatchHeaderForOrgParams{
+			Uuid:           req.BatchIdentifier,
 			OrganizationID: sql.NullInt64{Int64: info.OrganizationID, Valid: true},
 		})
-		if errors.Is(qErr, sql.ErrNoRows) {
-			return row, fleeterror.NewNotFoundErrorf("command batch %s not found", req.BatchIdentifier)
+		if errors.Is(hErr, sql.ErrNoRows) {
+			return b, fleeterror.NewNotFoundErrorf("command batch %s not found", req.BatchIdentifier)
 		}
-		return row, qErr
+		if hErr != nil {
+			return b, hErr
+		}
+		b.header = header
+
+		counts, cErr := q.GetBatchStatusAndDeviceCounts(ctx, req.BatchIdentifier)
+		if errors.Is(cErr, sql.ErrNoRows) {
+			return b, fleeterror.NewNotFoundErrorf("command batch %s not found", req.BatchIdentifier)
+		}
+		if cErr != nil {
+			return b, cErr
+		}
+		b.counts = counts
+
+		rows, rErr := q.ListBatchDeviceResults(ctx, req.BatchIdentifier)
+		if rErr != nil {
+			return b, rErr
+		}
+		b.rows = rows
+		return b, nil
 	})
 	if err != nil {
 		if fleeterror.IsNotFoundError(err) {
 			return nil, err
 		}
-		return nil, fleeterror.NewInternalErrorf("error loading batch header: %v", err)
+		return nil, fleeterror.NewInternalErrorf("error loading batch results: %v", err)
 	}
-
-	// Authoritative counts come from the aggregate query so they remain
-	// consistent with total_count even when device_results is capped by
-	// maxBatchDeviceResults.
-	counts, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (sqlc.GetBatchStatusAndDeviceCountsRow, error) {
-		row, qErr := q.GetBatchStatusAndDeviceCounts(ctx, req.BatchIdentifier)
-		if errors.Is(qErr, sql.ErrNoRows) {
-			return row, fleeterror.NewNotFoundErrorf("command batch %s not found", req.BatchIdentifier)
-		}
-		return row, qErr
-	})
-	if err != nil {
-		if fleeterror.IsNotFoundError(err) {
-			return nil, err
-		}
-		return nil, fleeterror.NewInternalErrorf("error loading batch counts: %v", err)
-	}
-
-	rows, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]sqlc.ListBatchDeviceResultsRow, error) {
-		return q.ListBatchDeviceResults(ctx, req.BatchIdentifier)
-	})
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error loading batch device results: %v", err)
-	}
+	header := bundle.header
+	counts := bundle.counts
+	rows := bundle.rows
 
 	truncated := len(rows) > maxBatchDeviceResults
 	capped := rows
