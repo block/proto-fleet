@@ -241,7 +241,6 @@ const AuthenticationSettings = () => {
           title="Security"
           titleSize="text-heading-300"
           description="Protect your mining fleet by managing system access, miner credentials, and team permissions."
-          descriptionClassName="max-w-none"
         />
         <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-4 rounded-xl border border-border-5 p-6">

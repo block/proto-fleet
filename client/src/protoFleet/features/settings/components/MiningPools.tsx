@@ -437,7 +437,6 @@ const MiningPools = () => {
           <Header
             title="Pools"
             description="Add and manage the pools for your fleet."
-            descriptionClassName="max-w-none"
             titleSize="text-heading-300"
           />
           <Button

@@ -1,5 +1,5 @@
 import { type ReactNode } from "react";
-import { render } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import Header from ".";
 import { variants } from "@/shared/components/Button";
@@ -63,5 +63,23 @@ describe("Header", () => {
     );
 
     expect(container.querySelector(".phone\\:hidden")).not.toBeNull();
+  });
+
+  it("constrains description copy width by default", () => {
+    render(<Header title="Pools" description="Add and manage the pools for your fleet." />);
+
+    expect(screen.getByText("Add and manage the pools for your fleet.")).toHaveClass("max-w-[600px]");
+  });
+
+  it("allows description width overrides when explicitly requested", () => {
+    render(
+      <Header
+        title="Pools"
+        description="Add and manage the pools for your fleet."
+        descriptionClassName="max-w-none"
+      />,
+    );
+
+    expect(screen.getByText("Add and manage the pools for your fleet.")).toHaveClass("max-w-none");
   });
 });

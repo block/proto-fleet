@@ -227,7 +227,6 @@ const SchedulesPage = () => {
           title="Schedules"
           titleSize="text-heading-300"
           description={SCHEDULE_PAGE_DESCRIPTION}
-          descriptionClassName="max-w-none"
         />
         <Button
           variant={variants.primary}
