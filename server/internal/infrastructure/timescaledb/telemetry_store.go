@@ -37,11 +37,18 @@ const (
 	secondsPerHour         = 3600.0
 	wattsPerKilowatt       = 1000.0
 
-	// Raw miner_state_snapshots are retained for 30 days; anything older must
-	// be served from the hourly rollup. Leave a 1h slack so queries that start
-	// right at the boundary don't miss rows expiring between check and scan.
-	uptimeSnapshotRawRetention = 30*24*time.Hour - time.Hour
+	// Must match add_retention_policy('miner_state_snapshots', ...) in
+	// migrations/000034_miner_state_snapshots_hourly.up.sql. Update both.
+	uptimeSnapshotRawRetentionPolicy = 30 * 24 * time.Hour
+
+	// Slack kicks the reader over to the hourly rollup an hour before the
+	// retention job would drop rows, so boundary queries don't race the job.
+	uptimeSnapshotRawRetention = uptimeSnapshotRawRetentionPolicy - time.Hour
 )
+
+// nargActive flips a sqlc `narg(...) IS NULL` filter to its non-null branch.
+// The string value is never read — sqlc checks Valid only.
+var nargActive = sql.NullString{String: "1", Valid: true}
 
 // estimateEnergyKWh computes estimated energy consumption in kilowatt-hours
 // from average power and data point count. Unlike the old CAGG formula
@@ -1277,7 +1284,7 @@ func (s *TimescaleTelemetryStore) queryUptimeRaw(
 		EndTime:        endTime,
 	}
 	if len(deviceIDs) > 0 {
-		params.DeviceIdentifiersFilter = sql.NullString{String: "1", Valid: true}
+		params.DeviceIdentifiersFilter = nargActive
 		params.DeviceIdentifierValues = deviceIDsToStrings(deviceIDs)
 	}
 
@@ -1319,7 +1326,7 @@ func (s *TimescaleTelemetryStore) queryUptimeHourly(
 		EndTime:        endTime,
 	}
 	if len(deviceIDs) > 0 {
-		params.DeviceIdentifiersFilter = sql.NullString{String: "1", Valid: true}
+		params.DeviceIdentifiersFilter = nargActive
 		params.DeviceIdentifierValues = deviceIDsToStrings(deviceIDs)
 	}
 
