@@ -12,8 +12,15 @@ import (
 // retentionStepTimeout bounds a single paginated delete statement.
 const retentionStepTimeout = 30 * time.Second
 
+// Bounds keep a misconfiguration from pinning the DB.
+const (
+	minCleanupInterval = time.Minute
+	maxDeleteBatchSize = 50000
+)
+
 // defaultRetentionConfig fills in sensible values for any RetentionConfig
-// field left at its zero value.
+// field left at its zero value, then clamps pathological ones so the cleaner
+// cannot run away with a 1ms interval or a million-row delete per tick.
 func defaultRetentionConfig(rc *RetentionConfig) {
 	if rc.ActivityLogRetention <= 0 {
 		rc.ActivityLogRetention = 8760 * time.Hour // 1 year
@@ -23,6 +30,17 @@ func defaultRetentionConfig(rc *RetentionConfig) {
 	}
 	if rc.DeleteBatchLimit <= 0 {
 		rc.DeleteBatchLimit = 1000
+	}
+
+	if rc.CleanupInterval < minCleanupInterval {
+		slog.Warn("activity retention: CleanupInterval below minimum, clamping",
+			"before", rc.CleanupInterval, "after", minCleanupInterval)
+		rc.CleanupInterval = minCleanupInterval
+	}
+	if rc.DeleteBatchLimit > maxDeleteBatchSize {
+		slog.Warn("activity retention: DeleteBatchLimit above maximum, clamping",
+			"before", rc.DeleteBatchLimit, "after", maxDeleteBatchSize)
+		rc.DeleteBatchLimit = maxDeleteBatchSize
 	}
 }
 

@@ -63,6 +63,20 @@ func TestDefaultRetentionConfig(t *testing.T) {
 	assert.Equal(t, 1000, rc.DeleteBatchLimit)
 }
 
+func TestDefaultRetentionConfig_ClampsTinyCleanupInterval(t *testing.T) {
+	rc := &RetentionConfig{CleanupInterval: time.Millisecond}
+	defaultRetentionConfig(rc)
+	assert.Equal(t, minCleanupInterval, rc.CleanupInterval,
+		"sub-minute cleanup interval must be clamped to the minimum")
+}
+
+func TestDefaultRetentionConfig_ClampsHugeDeleteBatchLimit(t *testing.T) {
+	rc := &RetentionConfig{DeleteBatchLimit: 10_000_000}
+	defaultRetentionConfig(rc)
+	assert.Equal(t, maxDeleteBatchSize, rc.DeleteBatchLimit,
+		"oversized delete batch limit must be clamped down")
+}
+
 func TestRetentionCleaner_DrainsUntilShortPage(t *testing.T) {
 	now := time.Date(2026, 4, 21, 0, 0, 0, 0, time.UTC)
 	store := &stubStore{script: []stubReply{

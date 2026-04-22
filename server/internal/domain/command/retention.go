@@ -15,9 +15,23 @@ import (
 // retention pass may issue many of these in a loop.
 const retentionStepTimeout = 30 * time.Second
 
+// Bounds applied to retention configs to keep misconfigurations from
+// hammering the DB or leaving orphan rows behind. Chosen to be permissive
+// enough that realistic operator tuning isn't clamped, while preventing
+// obvious foot-guns (e.g. a 1ms cleanup interval, a million-row delete
+// limit, or retention ordering that drops batch headers before their
+// queue-message children have aged out).
+const (
+	minCleanupInterval = time.Minute
+	maxDeleteBatchSize = 50000
+)
+
 // defaultRetentionConfig fills in sensible values for any RetentionConfig
-// field left at its zero value. Applied when NewRetentionCleaner is called so
-// tests and call-sites that build a Config by hand get a working cleaner.
+// field left at its zero value, then clamps pathological combinations so the
+// cleaner never runs with FK-breaking ordering or with values that would
+// overwhelm the database on a single tick. Applied when NewRetentionCleaner
+// is called so tests and call-sites that build a Config by hand get a
+// working cleaner.
 func defaultRetentionConfig(rc *RetentionConfig) {
 	if rc.QueueMessageRetention <= 0 {
 		rc.QueueMessageRetention = 720 * time.Hour
@@ -33,6 +47,34 @@ func defaultRetentionConfig(rc *RetentionConfig) {
 	}
 	if rc.DeleteBatchLimit <= 0 {
 		rc.DeleteBatchLimit = 1000
+	}
+
+	// Enforce FK-safe ordering: queue_message rows reference the batch header
+	// by uuid (no FK), and command_on_device_log rows reference the batch id
+	// directly, so any batch-header row that is still referenced by a
+	// per-device child will be skipped. But if queue-message retention were
+	// longer than device-log retention, we'd have queue rows whose batch has
+	// been deleted out from under them. Similarly for batch-log vs device-log.
+	if rc.DeviceLogRetention < rc.QueueMessageRetention {
+		slog.Warn("command retention: QueueMessageRetention exceeds DeviceLogRetention, clamping to avoid FK-orphan queue rows",
+			"before", rc.QueueMessageRetention, "after", rc.DeviceLogRetention)
+		rc.QueueMessageRetention = rc.DeviceLogRetention
+	}
+	if rc.BatchLogRetention < rc.DeviceLogRetention {
+		slog.Warn("command retention: DeviceLogRetention exceeds BatchLogRetention, clamping to avoid FK-orphan device log rows",
+			"before", rc.DeviceLogRetention, "after", rc.BatchLogRetention)
+		rc.DeviceLogRetention = rc.BatchLogRetention
+	}
+
+	if rc.CleanupInterval < minCleanupInterval {
+		slog.Warn("command retention: CleanupInterval below minimum, clamping",
+			"before", rc.CleanupInterval, "after", minCleanupInterval)
+		rc.CleanupInterval = minCleanupInterval
+	}
+	if rc.DeleteBatchLimit > maxDeleteBatchSize {
+		slog.Warn("command retention: DeleteBatchLimit above maximum, clamping",
+			"before", rc.DeleteBatchLimit, "after", maxDeleteBatchSize)
+		rc.DeleteBatchLimit = maxDeleteBatchSize
 	}
 }
 
