@@ -1,5 +1,5 @@
 name: Configure Go Cache
-description: Setup Go build and module caching for workspace
+description: Setup Go build, module, and golangci-lint caching for workspace
 
 runs:
   using: "composite"
@@ -14,3 +14,11 @@ runs:
         restore-keys: |
           ${{ runner.os }}-${{ runner.arch }}-go-workspace-
           ${{ runner.os }}-${{ runner.arch }}-go-
+
+    - name: Configure golangci-lint cache
+      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      with:
+        path: ~/.cache/golangci-lint
+        key: ${{ runner.os }}-${{ runner.arch }}-golangci-${{ hashFiles('**/.golangci.yaml', '**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ runner.arch }}-golangci-
