@@ -338,6 +338,7 @@ type ActivityLog struct {
 	OrganizationID sql.NullInt64
 	Metadata       pqtype.NullRawMessage
 	CreatedAt      time.Time
+	BatchID        sql.NullString
 }
 
 type ApiKey struct {

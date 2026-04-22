@@ -165,9 +165,9 @@ INSERT INTO activity_log (
     result, error_message,
     scope_type, scope_label, scope_count,
     actor_type, user_id, username,
-    organization_id, metadata
+    organization_id, metadata, batch_id
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
 )
 `
 
@@ -186,8 +186,11 @@ type InsertActivityLogParams struct {
 	Username       sql.NullString
 	OrganizationID sql.NullInt64
 	Metadata       pqtype.NullRawMessage
+	BatchID        sql.NullString
 }
 
+// The unique partial index on (batch_id, event_type) for '*.completed' event
+// types lets the Go layer detect idempotent re-inserts via pq unique_violation.
 func (q *Queries) InsertActivityLog(ctx context.Context, arg InsertActivityLogParams) error {
 	_, err := q.exec(ctx, q.insertActivityLogStmt, insertActivityLog,
 		arg.EventID,
@@ -204,6 +207,7 @@ func (q *Queries) InsertActivityLog(ctx context.Context, arg InsertActivityLogPa
 		arg.Username,
 		arg.OrganizationID,
 		arg.Metadata,
+		arg.BatchID,
 	)
 	return err
 }
@@ -214,7 +218,7 @@ SELECT
     result, error_message,
     scope_type, scope_label, scope_count,
     actor_type, user_id, username,
-    created_at, metadata
+    created_at, metadata, batch_id
 FROM activity_log
 WHERE organization_id = $1
     AND ($2::text[] IS NULL OR event_category = ANY($2::text[]))
@@ -259,6 +263,7 @@ type ListActivityLogsRow struct {
 	Username      sql.NullString
 	CreatedAt     time.Time
 	Metadata      pqtype.NullRawMessage
+	BatchID       sql.NullString
 }
 
 // Array filter contract: the Go store layer must pass nil (not empty slice)
@@ -301,6 +306,7 @@ func (q *Queries) ListActivityLogs(ctx context.Context, arg ListActivityLogsPara
 			&i.Username,
 			&i.CreatedAt,
 			&i.Metadata,
+			&i.BatchID,
 		); err != nil {
 			return nil, err
 		}
