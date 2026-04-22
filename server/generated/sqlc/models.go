@@ -373,6 +373,7 @@ type CommandOnDeviceLog struct {
 	DeviceID          int64
 	Status            DeviceCommandStatusEnum
 	UpdatedAt         time.Time
+	ErrorInfo         sql.NullString
 }
 
 type Device struct {

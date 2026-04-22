@@ -37,7 +37,9 @@ SET status = 'FINISHED',
 WHERE uuid = $1;
 
 -- name: UpsertCommandOnDeviceLog :exec
--- PostgreSQL version using CTE for the subquery
+-- PostgreSQL version using CTE for the subquery.
+-- error_info is NULL for SUCCESS rows; for FAILED rows it is either the worker
+-- error string (truncated by the caller) or the reaper reason.
 WITH batch AS (
     SELECT id FROM command_batch_log WHERE uuid = $4
 )
@@ -45,17 +47,20 @@ INSERT INTO command_on_device_log (
    command_batch_log_id,
    device_id,
    status,
-   updated_at
+   updated_at,
+   error_info
 )
 SELECT
   batch.id,
   $1,
   $2,
-  $3
+  $3,
+  $5
 FROM batch
 ON CONFLICT (command_batch_log_id, device_id) DO UPDATE SET
     status = EXCLUDED.status,
-    updated_at = EXCLUDED.updated_at;
+    updated_at = EXCLUDED.updated_at,
+    error_info = EXCLUDED.error_info;
 
 -- name: GetBatchStatusAndDeviceCounts :one
 SELECT

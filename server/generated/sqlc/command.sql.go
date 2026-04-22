@@ -169,17 +169,20 @@ INSERT INTO command_on_device_log (
    command_batch_log_id,
    device_id,
    status,
-   updated_at
+   updated_at,
+   error_info
 )
 SELECT
   batch.id,
   $1,
   $2,
-  $3
+  $3,
+  $5
 FROM batch
 ON CONFLICT (command_batch_log_id, device_id) DO UPDATE SET
     status = EXCLUDED.status,
-    updated_at = EXCLUDED.updated_at
+    updated_at = EXCLUDED.updated_at,
+    error_info = EXCLUDED.error_info
 `
 
 type UpsertCommandOnDeviceLogParams struct {
@@ -187,15 +190,19 @@ type UpsertCommandOnDeviceLogParams struct {
 	Status    DeviceCommandStatusEnum
 	UpdatedAt time.Time
 	Uuid      string
+	ErrorInfo sql.NullString
 }
 
-// PostgreSQL version using CTE for the subquery
+// PostgreSQL version using CTE for the subquery.
+// error_info is NULL for SUCCESS rows; for FAILED rows it is either the worker
+// error string (truncated by the caller) or the reaper reason.
 func (q *Queries) UpsertCommandOnDeviceLog(ctx context.Context, arg UpsertCommandOnDeviceLogParams) error {
 	_, err := q.exec(ctx, q.upsertCommandOnDeviceLogStmt, upsertCommandOnDeviceLog,
 		arg.DeviceID,
 		arg.Status,
 		arg.UpdatedAt,
 		arg.Uuid,
+		arg.ErrorInfo,
 	)
 	return err
 }
