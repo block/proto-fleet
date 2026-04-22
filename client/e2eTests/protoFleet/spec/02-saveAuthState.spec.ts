@@ -1,4 +1,5 @@
 /* eslint-disable playwright/expect-expect */
+import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
 import { testConfig } from "../config/test.config";
@@ -15,5 +16,7 @@ test("save admin auth storage state @setup", async ({ page, authPage }) => {
   await authPage.clickLogin();
   await authPage.validateLoggedIn();
 
+  // playwright/.auth/ is gitignored and absent on fresh checkouts.
+  await fs.mkdir(path.dirname(adminStorageStatePath), { recursive: true });
   await page.context().storageState({ path: adminStorageStatePath });
 });

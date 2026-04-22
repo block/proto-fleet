@@ -148,8 +148,9 @@ jobs:
           rm -rf blob-report playwright-report test-results
           mkdir -p blob-report
 
-          # The Playwright `setup` project (onboarding + pools + auth storageState)
-          # runs automatically before the target via project `dependencies`.
+          # The viewport-matched setup project (setup-${{ matrix.project }}:
+          # onboarding + pools + auth storageState) runs automatically before
+          # the target via project `dependencies`.
           PLAYWRIGHT_BLOB_OUTPUT_FILE="blob-report/${{ matrix.project }}-${{ steps.artifact.outputs.spec_name }}.zip" \
           PWTEST_BLOB_DO_NOT_REMOVE=1 \
           npx playwright test --project=${{ matrix.project }} --reporter=blob "spec/${{ matrix.spec }}"

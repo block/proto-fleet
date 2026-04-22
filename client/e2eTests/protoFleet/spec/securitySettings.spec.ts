@@ -7,6 +7,10 @@ import { SettingsPage } from "../pages/settings";
 import { SettingsSecurityPage } from "../pages/settingsSecurity";
 
 test.describe("Proto Fleet - Security Settings", () => {
+  // Tests here change admin credentials and log back in with them; opt out of
+  // the preloaded admin storageState so each test starts from a clean session.
+  test.use({ storageState: { cookies: [], origins: [] } });
+
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
   });
