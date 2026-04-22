@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/sqlc-dev/pqtype"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
@@ -1026,8 +1027,104 @@ func (s *Service) CheckCommandCapabilities(ctx context.Context, req *pb.CheckCom
 	return s.capabilityChecker.CheckCapabilities(ctx, req.DeviceSelector, req.CommandType, info.OrganizationID)
 }
 
-// GetCommandBatchDeviceResults returns the per-device outcome of a command
-// batch for the activity-log detail UI. Implemented in M8.
-func (s *Service) GetCommandBatchDeviceResults(_ context.Context, _ *pb.GetCommandBatchDeviceResultsRequest) (*pb.GetCommandBatchDeviceResultsResponse, error) {
-	return nil, fleeterror.NewUnimplementedError("GetCommandBatchDeviceResults is not implemented yet")
+// maxBatchDeviceResults caps the number of per-device rows returned by
+// GetCommandBatchDeviceResults. The activity-log drill-down only needs a
+// bounded slice; larger batches can be fetched page-by-page in a follow-up.
+const maxBatchDeviceResults = 5000
+
+// GetCommandBatchDeviceResults returns the per-device outcome for a command
+// batch so the activity-log UI can drill into which miners succeeded or
+// failed. Org-scoped via the session user.
+//
+// details_pruned semantics:
+//   - header missing: the batch is unknown in this org -- return NotFound.
+//   - header present but no per-device rows: either the command is still
+//     PENDING (no worker has written a row yet) or retention has purged them.
+//     In both cases we return an empty list and set details_pruned=true when
+//     the batch is FINISHED; for PENDING/PROCESSING we leave it false so the
+//     UI knows to keep streaming live updates.
+func (s *Service) GetCommandBatchDeviceResults(ctx context.Context, req *pb.GetCommandBatchDeviceResultsRequest) (*pb.GetCommandBatchDeviceResultsResponse, error) {
+	if req == nil || strings.TrimSpace(req.BatchIdentifier) == "" {
+		return nil, fleeterror.NewInvalidArgumentError("batch_identifier is required")
+	}
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error getting session info: %v", err)
+	}
+
+	header, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (sqlc.GetBatchHeaderForOrgRow, error) {
+		return q.GetBatchHeaderForOrg(ctx, sqlc.GetBatchHeaderForOrgParams{
+			Uuid:           req.BatchIdentifier,
+			OrganizationID: info.OrganizationID,
+		})
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fleeterror.NewNotFoundErrorf("command batch %s not found", req.BatchIdentifier)
+		}
+		return nil, fleeterror.NewInternalErrorf("error loading batch header: %v", err)
+	}
+
+	rows, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]sqlc.ListBatchDeviceResultsRow, error) {
+		return q.ListBatchDeviceResults(ctx, req.BatchIdentifier)
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error loading batch device results: %v", err)
+	}
+
+	capped := rows
+	if len(capped) > maxBatchDeviceResults {
+		capped = capped[:maxBatchDeviceResults]
+	}
+
+	var success, failure int32
+	results := make([]*pb.CommandBatchDeviceResult, 0, len(capped))
+	for _, row := range capped {
+		statusStr := deviceCommandStatusToProto(row.Status)
+		switch row.Status {
+		case sqlc.DeviceCommandStatusEnumSUCCESS:
+			success++
+		case sqlc.DeviceCommandStatusEnumFAILED:
+			failure++
+		}
+		entry := &pb.CommandBatchDeviceResult{
+			Status:    statusStr,
+			UpdatedAt: timestamppb.New(row.UpdatedAt),
+		}
+		if row.DeviceIdentifier.Valid {
+			entry.DeviceIdentifier = row.DeviceIdentifier.String
+		}
+		if row.ErrorInfo.Valid {
+			msg := row.ErrorInfo.String
+			entry.ErrorMessage = &msg
+		}
+		results = append(results, entry)
+	}
+
+	// Pruned when the batch is FINISHED but no per-device rows remain. If rows
+	// exist but fewer than devices_count, that is a transient mid-run state we
+	// don't flag as pruned.
+	detailsPruned := header.Status == sqlc.BatchStatusEnumFINISHED && len(rows) == 0
+
+	return &pb.GetCommandBatchDeviceResultsResponse{
+		BatchIdentifier: header.Uuid,
+		CommandType:     header.Type,
+		Status:          string(header.Status),
+		TotalCount:      header.DevicesCount,
+		SuccessCount:    success,
+		FailureCount:    failure,
+		DeviceResults:   results,
+		DetailsPruned:   detailsPruned,
+	}, nil
+}
+
+func deviceCommandStatusToProto(s sqlc.DeviceCommandStatusEnum) string {
+	switch s {
+	case sqlc.DeviceCommandStatusEnumSUCCESS:
+		return "success"
+	case sqlc.DeviceCommandStatusEnumFAILED:
+		return "failed"
+	default:
+		return strings.ToLower(string(s))
+	}
 }
