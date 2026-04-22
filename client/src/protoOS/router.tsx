@@ -1,29 +1,41 @@
-import { ComponentType, ReactNode } from "react";
+/* eslint-disable react-refresh/only-export-components -- lazy() route components colocated with route config; not HMR-relevant */
+import { ComponentType, lazy, ReactNode } from "react";
 import { createBrowserRouter, Outlet, redirect, RouteObject } from "react-router-dom";
 
-import { DiagnosticView } from "./features/diagnostic/components";
-import HashboardTemperature from "./features/diagnostic/components/HashboardTemperature";
 import App from "@/protoOS/components/App";
 import FullScreenContentLayout from "@/protoOS/components/ContentLayout/FullScreenContentLayout";
 import SettingsContentLayout from "@/protoOS/components/ContentLayout/SettingsContentLayout";
 import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
+import KpiLayout from "@/protoOS/features/kpis/components/KpiLayout";
+import { settingsRouteMetadata } from "@/protoOS/routeAuth";
 
 // Custom route type with requiresAuth property
 export type CustomRouteObject = RouteObject & {
   requiresAuth?: boolean;
   children?: CustomRouteObject[];
 };
-import { Efficiency, Hashrate, KpiLayout, PowerUsage, Temperature } from "@/protoOS/features/kpis";
-import { Authentication, MiningPool, Network, Onboarding, Verify, Welcome } from "@/protoOS/features/onboarding";
-import {
-  Authentication as AuthenticationSettings,
-  Cooling,
-  General,
-  Hardware,
-  MiningPools,
-} from "@/protoOS/features/settings";
-import Logs from "@/protoOS/pages/MinerLogs";
-import { settingsRouteMetadata } from "@/protoOS/routeAuth";
+
+// Route components are lazy so each pulls a separate chunk and protoFleet (which
+// embeds these routes via singleMinerRoutes) stays slim until the user enters
+// /miners/:id/*.
+const Hashrate = lazy(() => import("@/protoOS/features/kpis/components/Hashrate"));
+const Efficiency = lazy(() => import("@/protoOS/features/kpis/components/Efficiency"));
+const PowerUsage = lazy(() => import("@/protoOS/features/kpis/components/PowerUsage"));
+const Temperature = lazy(() => import("@/protoOS/features/kpis/components/Temperature"));
+const HashboardTemperature = lazy(() => import("@/protoOS/features/diagnostic/components/HashboardTemperature"));
+const DiagnosticView = lazy(() => import("@/protoOS/features/diagnostic/components/DiagnosticView/DiagnosticView"));
+const Logs = lazy(() => import("@/protoOS/pages/MinerLogs"));
+const Onboarding = lazy(() => import("@/protoOS/features/onboarding/components/Onboarding"));
+const OnboardingWelcome = lazy(() => import("@/protoOS/features/onboarding/components/Welcome"));
+const OnboardingVerify = lazy(() => import("@/protoOS/features/onboarding/components/Verify"));
+const OnboardingNetwork = lazy(() => import("@/protoOS/features/onboarding/components/Network"));
+const OnboardingAuthentication = lazy(() => import("@/protoOS/features/onboarding/components/Authentication"));
+const OnboardingMiningPool = lazy(() => import("@/protoOS/features/onboarding/components/MiningPool"));
+const SettingsAuthentication = lazy(() => import("@/protoOS/features/settings/components/Authentication"));
+const SettingsGeneral = lazy(() => import("@/protoOS/features/settings/components/General"));
+const SettingsMiningPools = lazy(() => import("@/protoOS/features/settings/components/MiningPools"));
+const SettingsHardware = lazy(() => import("@/protoOS/features/settings/components/Hardware"));
+const SettingsCooling = lazy(() => import("@/protoOS/features/settings/components/Cooling"));
 
 // Helper to create route objects with App wrapper
 interface CreateRouteOptions {
@@ -102,23 +114,23 @@ export const routerConfig: CustomRouteObject[] = [
     title: "Onboarding",
     fullscreen: true,
   }),
-  createRoute("onboarding/welcome", <Welcome />, {
+  createRoute("onboarding/welcome", <OnboardingWelcome />, {
     title: "Welcome",
     fullscreen: true,
   }),
-  createRoute("onboarding/verify", <Verify />, {
+  createRoute("onboarding/verify", <OnboardingVerify />, {
     title: "Verify",
     fullscreen: true,
   }),
-  createRoute("onboarding/network", <Network />, {
+  createRoute("onboarding/network", <OnboardingNetwork />, {
     title: "Network",
     fullscreen: true,
   }),
-  createRoute("onboarding/authentication", <Authentication />, {
+  createRoute("onboarding/authentication", <OnboardingAuthentication />, {
     title: "Authentication",
     fullscreen: true,
   }),
-  createRoute("onboarding/mining-pool", <MiningPool />, {
+  createRoute("onboarding/mining-pool", <OnboardingMiningPool />, {
     title: "Mining Pool",
     fullscreen: true,
   }),
@@ -134,24 +146,24 @@ export const routerConfig: CustomRouteObject[] = [
       },
       {
         path: settingsRouteMetadata.authentication.path,
-        element: <AuthenticationSettings />,
+        element: <SettingsAuthentication />,
       },
       {
         path: settingsRouteMetadata.general.path,
-        element: <General />,
+        element: <SettingsGeneral />,
       },
       {
         path: settingsRouteMetadata.miningPools.path,
-        element: <MiningPools />,
+        element: <SettingsMiningPools />,
         requiresAuth: settingsRouteMetadata.miningPools.requiresAuth,
       },
       {
         path: settingsRouteMetadata.hardware.path,
-        element: <Hardware />,
+        element: <SettingsHardware />,
       },
       {
         path: settingsRouteMetadata.cooling.path,
-        element: <Cooling />,
+        element: <SettingsCooling />,
         requiresAuth: settingsRouteMetadata.cooling.requiresAuth,
       },
     ],
