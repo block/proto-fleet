@@ -1116,11 +1116,14 @@ func (s *Service) GetCommandBatchDeviceResults(ctx context.Context, req *pb.GetC
 	// #nosec G115 -- same bound as successCount.
 	failureCount := int32(counts.FailedDevices)
 
-	// Pruned when the batch is FINISHED but no per-device rows remain. If rows
-	// exist but fewer than devices_count, that is a transient mid-run state we
-	// don't flag as pruned. (R4 will tighten this further to require
-	// devices_count > 0 so empty-selector batches don't false-positive.)
-	detailsPruned := header.Status == sqlc.BatchStatusEnumFINISHED && len(rows) == 0
+	// Pruned only when the batch had devices to begin with, is FINISHED, and
+	// every per-device row is gone. An empty-selector batch (devices_count=0)
+	// never had details to prune, so we keep details_pruned=false for it.
+	// Mid-run PENDING/PROCESSING batches with partial rows also stay
+	// details_pruned=false so the UI knows to keep polling.
+	detailsPruned := header.DevicesCount > 0 &&
+		header.Status == sqlc.BatchStatusEnumFINISHED &&
+		len(rows) == 0
 
 	return &pb.GetCommandBatchDeviceResultsResponse{
 		BatchIdentifier: header.Uuid,
