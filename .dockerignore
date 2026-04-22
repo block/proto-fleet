@@ -1,17 +1,11 @@
-# Ignore everything not needed by any Dockerfile building from repo root.
-# Dockerfiles that build from repo root:
-#   server/Dockerfile                    (needs server/)
-#   server/fake-proto-rig/Dockerfile     (needs server/)
-#   plugin/asicrs/Dockerfile.build       (needs server/sdk/v1/pb/, sdk/rust/, plugin/asicrs/)
-
-# VCS / tooling
+# Shrink build contexts for Dockerfiles that build from repo root:
+# server/Dockerfile(.dev), server/fake-proto-rig/Dockerfile, plugin/asicrs/Dockerfile.build.
 .git
 .github
 .hermit
 hermit-packages/
 bin/
 
-# Other project trees not needed by any server-side builder
 client/
 docs/
 packages/
@@ -20,7 +14,6 @@ scripts/
 deployment-files/
 tests/
 
-# Server tree: things not needed inside the build
 server/e2e/
 server/testing/
 server/plugins/
@@ -33,13 +26,12 @@ server/docker-compose*.yml
 server/README.md
 server/docker-compose-README.md
 
-# Plugin tree: only asicrs and (transitively) its deps need to be in the repo-root context
+# Only asicrs (and its deps) is built from repo-root context.
 plugin/antminer/
 plugin/proto/
 plugin/virtual/
 plugin/example-python/
 
-# Top-level files not referenced by any Dockerfile
 CLAUDE.local.md
 CODEOWNERS
 CODE_OF_CONDUCT.md
@@ -52,7 +44,6 @@ SECURITY.md
 lefthook.yml
 renovate.json
 
-# Misc
 **/node_modules/
 **/target/
 **/.DS_Store
