@@ -170,7 +170,7 @@ SET status = 'FAILED'::queue_status_enum,
 FROM stuck
 WHERE queue_message.id = stuck.id
   AND queue_message.status = 'PROCESSING'
-RETURNING queue_message.id, queue_message.device_id, queue_message.command_batch_log_uuid
+RETURNING queue_message.id, queue_message.device_id, queue_message.command_batch_log_uuid, queue_message.error_info
 `
 
 type ReapStuckFirmwareUpdateMessagesParams struct {
@@ -182,6 +182,7 @@ type ReapStuckFirmwareUpdateMessagesRow struct {
 	ID                  int64
 	DeviceID            int64
 	CommandBatchLogUuid string
+	ErrorInfo           sql.NullString
 }
 
 func (q *Queries) ReapStuckFirmwareUpdateMessages(ctx context.Context, arg ReapStuckFirmwareUpdateMessagesParams) ([]ReapStuckFirmwareUpdateMessagesRow, error) {
@@ -193,7 +194,12 @@ func (q *Queries) ReapStuckFirmwareUpdateMessages(ctx context.Context, arg ReapS
 	var items []ReapStuckFirmwareUpdateMessagesRow
 	for rows.Next() {
 		var i ReapStuckFirmwareUpdateMessagesRow
-		if err := rows.Scan(&i.ID, &i.DeviceID, &i.CommandBatchLogUuid); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.DeviceID,
+			&i.CommandBatchLogUuid,
+			&i.ErrorInfo,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -222,7 +228,7 @@ SET status = 'FAILED'::queue_status_enum,
 FROM stuck
 WHERE queue_message.id = stuck.id
   AND queue_message.status = 'PROCESSING'
-RETURNING queue_message.id, queue_message.device_id, queue_message.command_batch_log_uuid
+RETURNING queue_message.id, queue_message.device_id, queue_message.command_batch_log_uuid, queue_message.error_info
 `
 
 type ReapStuckProcessingMessagesParams struct {
@@ -234,6 +240,7 @@ type ReapStuckProcessingMessagesRow struct {
 	ID                  int64
 	DeviceID            int64
 	CommandBatchLogUuid string
+	ErrorInfo           sql.NullString
 }
 
 func (q *Queries) ReapStuckProcessingMessages(ctx context.Context, arg ReapStuckProcessingMessagesParams) ([]ReapStuckProcessingMessagesRow, error) {
@@ -245,7 +252,12 @@ func (q *Queries) ReapStuckProcessingMessages(ctx context.Context, arg ReapStuck
 	var items []ReapStuckProcessingMessagesRow
 	for rows.Next() {
 		var i ReapStuckProcessingMessagesRow
-		if err := rows.Scan(&i.ID, &i.DeviceID, &i.CommandBatchLogUuid); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.DeviceID,
+			&i.CommandBatchLogUuid,
+			&i.ErrorInfo,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

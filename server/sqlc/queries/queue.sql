@@ -79,7 +79,7 @@ SET status = 'FAILED'::queue_status_enum,
 FROM stuck
 WHERE queue_message.id = stuck.id
   AND queue_message.status = 'PROCESSING'
-RETURNING queue_message.id, queue_message.device_id, queue_message.command_batch_log_uuid;
+RETURNING queue_message.id, queue_message.device_id, queue_message.command_batch_log_uuid, queue_message.error_info;
 
 -- name: ReapStuckFirmwareUpdateMessages :many
 WITH stuck AS (
@@ -96,7 +96,7 @@ SET status = 'FAILED'::queue_status_enum,
 FROM stuck
 WHERE queue_message.id = stuck.id
   AND queue_message.status = 'PROCESSING'
-RETURNING queue_message.id, queue_message.device_id, queue_message.command_batch_log_uuid;
+RETURNING queue_message.id, queue_message.device_id, queue_message.command_batch_log_uuid, queue_message.error_info;
 
 -- name: IsBatchFinished :one
 SELECT
