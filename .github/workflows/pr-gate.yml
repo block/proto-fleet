@@ -1,0 +1,256 @@
+name: PR Gate
+
+on:
+  pull_request:
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  changes:
+    name: Detect changed areas
+    runs-on: ubuntu-latest
+    outputs:
+      proto: ${{ steps.detect.outputs.proto }}
+      client: ${{ steps.detect.outputs.client }}
+      server: ${{ steps.detect.outputs.server }}
+      antminer_plugin: ${{ steps.detect.outputs.antminer_plugin }}
+      proto_plugin: ${{ steps.detect.outputs.proto_plugin }}
+      virtual_plugin: ${{ steps.detect.outputs.virtual_plugin }}
+      asicrs_plugin: ${{ steps.detect.outputs.asicrs_plugin }}
+      python: ${{ steps.detect.outputs.python }}
+      example_python_plugin: ${{ steps.detect.outputs.example_python_plugin }}
+      contract_tests: ${{ steps.detect.outputs.contract_tests }}
+      rust_sdk: ${{ steps.detect.outputs.rust_sdk }}
+      windows: ${{ steps.detect.outputs.windows }}
+      powershell: ${{ steps.detect.outputs.powershell }}
+    steps:
+      - name: Detect changed files
+        id: detect
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          outputs=(
+            proto
+            client
+            server
+            antminer_plugin
+            proto_plugin
+            virtual_plugin
+            asicrs_plugin
+            python
+            example_python_plugin
+            contract_tests
+            rust_sdk
+            windows
+            powershell
+          )
+
+          for output in "${outputs[@]}"; do
+            echo "${output}=false" >> "$GITHUB_OUTPUT"
+          done
+
+          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+            for output in "${outputs[@]}"; do
+              echo "${output}=true" >> "$GITHUB_OUTPUT"
+            done
+            exit 0
+          fi
+
+          gh api \
+            --paginate \
+            repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files \
+            --jq '.[].filename' \
+            > changed-files.txt
+
+          if [[ ! -s changed-files.txt ]]; then
+            exit 0
+          fi
+
+          {
+            echo "### PR Gate changed files"
+            echo
+            sed 's/^/- `/' changed-files.txt | sed 's/$/`/'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          has_match() {
+            local pattern="$1"
+            grep -Eq "$pattern" changed-files.txt
+          }
+
+          global=false
+          if has_match '^(\.github/actions/|\.github/copilot-instructions\.md$|\.github/labeler\.yml$|\.github/workflows/|bin/|hermit-packages/|just/|justfile$|scripts/)'; then
+            global=true
+          fi
+
+          set_flag() {
+            local name="$1"
+            local pattern="$2"
+            if [[ "$global" == "true" ]] || has_match "$pattern"; then
+              echo "${name}=true" >> "$GITHUB_OUTPUT"
+            fi
+          }
+
+          set_flag proto '^(buf\.lock|buf\.yaml|proto/)'
+          set_flag client '^(client/|deployment-files/client/)'
+          set_flag server '^(go\.work(\.sum)?$|proto/|server/|deployment-files/server/)'
+          set_flag antminer_plugin '^(go\.work(\.sum)?$|just/go-plugin\.just|proto/|plugin/antminer/|server/go\.(mod|sum)|server/sdk/)'
+          set_flag proto_plugin '^(go\.work(\.sum)?$|just/go-plugin\.just|proto/|plugin/proto/|server/fake-proto-rig/|server/go\.(mod|sum)|server/sdk/)'
+          set_flag virtual_plugin '^(go\.work(\.sum)?$|plugin/virtual/|server/go\.(mod|sum)|server/sdk/)'
+          set_flag asicrs_plugin '^(plugin/asicrs/|sdk/rust/|server/sdk/v1/pb/driver\.proto)'
+          set_flag python '^(packages/proto-python-gen/|server/buf\.gen\.yaml|server/buf\.yaml|server/sdk/v1/pb/|server/sdk/v1/python/)'
+          set_flag example_python_plugin '^(plugin/example-python/|server/sdk/v1/python/)'
+          set_flag contract_tests '^(go\.work(\.sum)?$|plugin/antminer/|plugin/asicrs/|plugin/proto/|sdk/rust/|server/go\.(mod|sum)|server/sdk/|tests/plugin-contract/)'
+          set_flag rust_sdk '^(sdk/rust/|server/sdk/v1/pb/driver\.proto)'
+          set_flag windows '^(deployment-files/windows/)'
+          set_flag powershell '\.ps1$'
+
+  generated-code:
+    name: Generated Code Check
+    needs: changes
+    uses: ./.github/workflows/generated-code-check.yml
+    secrets: inherit
+
+  proto-checks:
+    name: Proto Checks
+    needs: changes
+    if: needs.changes.outputs.proto == 'true'
+    uses: ./.github/workflows/protofleet-proto-checks.yml
+    secrets: inherit
+
+  client-checks:
+    name: Client Checks
+    needs: changes
+    if: needs.changes.outputs.client == 'true'
+    uses: ./.github/workflows/protofleet-client-checks.yml
+    secrets: inherit
+
+  server-checks:
+    name: Server Checks
+    needs: changes
+    if: needs.changes.outputs.server == 'true'
+    uses: ./.github/workflows/protofleet-server-checks.yml
+    secrets: inherit
+
+  antminer-plugin-checks:
+    name: Antminer Plugin Checks
+    needs: changes
+    if: needs.changes.outputs.antminer_plugin == 'true'
+    uses: ./.github/workflows/protofleet-antminer-plugin-checks.yml
+    secrets: inherit
+
+  proto-plugin-checks:
+    name: Proto Plugin Checks
+    needs: changes
+    if: needs.changes.outputs.proto_plugin == 'true'
+    uses: ./.github/workflows/protofleet-proto-plugin-checks.yml
+    secrets: inherit
+
+  virtual-plugin-checks:
+    name: Virtual Plugin Checks
+    needs: changes
+    if: needs.changes.outputs.virtual_plugin == 'true'
+    uses: ./.github/workflows/protofleet-virtual-plugin-checks.yml
+    secrets: inherit
+
+  asicrs-plugin-checks:
+    name: asicrs Plugin Checks
+    needs: changes
+    if: needs.changes.outputs.asicrs_plugin == 'true'
+    uses: ./.github/workflows/asicrs-plugin-checks.yml
+    secrets: inherit
+
+  python-checks:
+    name: Python SDK and Generator Checks
+    needs: changes
+    if: needs.changes.outputs.python == 'true'
+    uses: ./.github/workflows/python-tests.yml
+    secrets: inherit
+
+  example-python-plugin-checks:
+    name: Example Python Plugin Checks
+    needs: changes
+    if: needs.changes.outputs.example_python_plugin == 'true'
+    uses: ./.github/workflows/protofleet-example-python-plugin-checks.yml
+    secrets: inherit
+
+  contract-checks:
+    name: Plugin Contract Checks
+    needs: changes
+    if: needs.changes.outputs.contract_tests == 'true'
+    uses: ./.github/workflows/protofleet-contract-checks.yml
+    secrets: inherit
+
+  rust-sdk-checks:
+    name: Rust SDK Checks
+    needs: changes
+    if: needs.changes.outputs.rust_sdk == 'true'
+    uses: ./.github/workflows/rust-sdk-checks.yml
+    secrets: inherit
+
+  windows-checks:
+    name: Windows C# Checks
+    needs: changes
+    if: needs.changes.outputs.windows == 'true'
+    uses: ./.github/workflows/windows-csharp-checks.yml
+    secrets: inherit
+
+  powershell-lint:
+    name: PowerShell Lint
+    needs: changes
+    if: needs.changes.outputs.powershell == 'true'
+    uses: ./.github/workflows/powershell-lint.yml
+    secrets: inherit
+
+  gate:
+    name: Gate
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - changes
+      - generated-code
+      - proto-checks
+      - client-checks
+      - server-checks
+      - antminer-plugin-checks
+      - proto-plugin-checks
+      - virtual-plugin-checks
+      - asicrs-plugin-checks
+      - python-checks
+      - example-python-plugin-checks
+      - contract-checks
+      - rust-sdk-checks
+      - windows-checks
+      - powershell-lint
+    steps:
+      - name: Evaluate gate
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          needs = json.loads(os.environ["NEEDS_JSON"])
+          failing = []
+          for job, meta in needs.items():
+            if job == "changes":
+              continue
+            result = meta["result"]
+            if result not in {"success", "skipped"}:
+              failing.append(f"{job}: {result}")
+
+          if failing:
+            print("PR gate failed:")
+            for item in failing:
+              print(f" - {item}")
+            sys.exit(1)
+
+          print("PR gate passed.")
+          PY

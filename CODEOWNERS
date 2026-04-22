@@ -1,24 +1,31 @@
-# This CODEOWNERS file denotes the project leads
-# and encodes their responsibilities for code review.
+# Repo-wide fallback maintainers.
+*                               @mcharles-square @negarn @rongxin-liu
 
-# Instructions: At a minimum, replace the '@GITHUB_USER_NAME_GOES_HERE'
-# here with at least one project lead.
+# Core project coordination and release automation.
+.github/**                      @mcharles-square @negarn @rongxin-liu
+bin/**                          @mcharles-square @negarn @rongxin-liu
+hermit-packages/**              @mcharles-square @negarn @rongxin-liu
+just/**                         @mcharles-square @negarn @rongxin-liu
+justfile                        @mcharles-square @negarn @rongxin-liu
+scripts/**                      @mcharles-square @negarn @rongxin-liu
 
-# Lines starting with '#' are comments.
-# Each line is a file pattern followed by one or more owners.
-# The format is described: https://github.blog/2017-07-06-introducing-code-owners/
+# Shared API contracts and generated SDK surfaces.
+proto/**                        @mcharles-square @ankitgoswami @flesher
+proto-rig-api/**                @mcharles-square @ankitgoswami @flesher
+packages/proto-python-gen/**    @mcharles-square @ankitgoswami @rongxin-liu
+sdk/**                          @mcharles-square @ankitgoswami @rongxin-liu
 
-# These owners will be the default owners for everything in the repo.
-*       @mcharles-square @negarn @ankitgoswami @rongxin-liu @flesher
+# Frontend applications and packaging.
+client/**                       @mcharles-square @flesher @negarn
+deployment-files/client/**      @mcharles-square @flesher @negarn
 
+# Backend services, plugins, and integration test harnesses.
+server/**                       @mcharles-square @ankitgoswami @rongxin-liu
+plugin/**                       @mcharles-square @ankitgoswami @rongxin-liu
+tests/plugin-contract/**        @mcharles-square @ankitgoswami @rongxin-liu
+deployment-files/server/**      @mcharles-square @ankitgoswami @rongxin-liu
+deployment-files/windows/**     @mcharles-square @ankitgoswami @rongxin-liu
+server/sdk/**                   @mcharles-square @ankitgoswami @rongxin-liu
 
-# -----------------------------------------------
-# BELOW THIS LINE ARE TEMPLATES, UNUSED
-# -----------------------------------------------
-# Order is important. The last matching pattern has the most precedence.
-# So if a pull request only touches javascript files, only these owners
-# will be requested to review.
-# *.js    @octocat @github/js
-
-# You can also use email addresses if you prefer.
-# docs/*  docs@example.com
+# Documentation.
+docs/**                         @mcharles-square @negarn

@@ -1,11 +1,6 @@
 name: Rust SDK Checks
 
 on:
-  pull_request:
-    paths:
-      - ".github/workflows/rust-sdk-checks.yml"
-      - "sdk/rust/**"
-      - "server/sdk/v1/pb/driver.proto"
   push:
     branches:
       - main
@@ -14,6 +9,7 @@ on:
       - "sdk/rust/**"
       - "server/sdk/v1/pb/driver.proto"
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read

@@ -1,12 +1,6 @@
 name: asicrs Plugin Checks
 
 on:
-  pull_request:
-    paths:
-      - ".github/workflows/asicrs-plugin-checks.yml"
-      - "plugin/asicrs/**"
-      - "sdk/rust/**"
-      - "server/sdk/v1/pb/driver.proto"
   push:
     branches:
       - main
@@ -16,6 +10,7 @@ on:
       - "sdk/rust/**"
       - "server/sdk/v1/pb/driver.proto"
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read

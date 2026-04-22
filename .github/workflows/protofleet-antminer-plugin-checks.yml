@@ -1,21 +1,6 @@
 name: Antminer Plugin Checks
 
 on:
-  pull_request:
-    paths:
-      - ".github/workflows/protofleet-antminer-plugin-checks.yml"
-      - ".github/actions/go-cache-setup/action.yml"
-      - ".github/actions/hermit-setup/action.yml"
-      - "bin/hermit.hcl"
-      - "hermit-packages/**"
-      - "go.work"
-      - "go.work.sum"
-      - "just/go-plugin.just"
-      - "proto/**"
-      - "plugin/antminer/**"
-      - "server/go.mod"
-      - "server/go.sum"
-      - "server/sdk/**"
   push:
     branches:
       - main
@@ -34,6 +19,7 @@ on:
       - "server/go.sum"
       - "server/sdk/**"
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
