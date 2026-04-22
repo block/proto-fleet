@@ -1,24 +1,6 @@
 name: Plugin Contract Checks
 
 on:
-  pull_request:
-    paths:
-      - ".github/workflows/protofleet-contract-checks.yml"
-      - ".github/actions/go-cache-setup/action.yml"
-      - ".github/actions/hermit-setup/action.yml"
-      - "bin/hermit.hcl"
-      - "hermit-packages/**"
-      - "go.work"
-      - "go.work.sum"
-      - "justfile"
-      - "tests/plugin-contract/**"
-      - "server/go.mod"
-      - "server/go.sum"
-      - "server/sdk/**"
-      - "plugin/asicrs/**"
-      - "plugin/proto/**"
-      - "plugin/antminer/**"
-      - "sdk/rust/**"
   push:
     branches:
       - main
@@ -40,6 +22,7 @@ on:
       - "plugin/antminer/**"
       - "sdk/rust/**"
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read

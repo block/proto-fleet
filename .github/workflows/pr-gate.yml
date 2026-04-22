@@ -1,0 +1,217 @@
+name: PR Gate
+
+on:
+  pull_request:
+  merge_group:
+  workflow_dispatch:
+
+concurrency:
+  group: pr-gate-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  changes:
+    name: Detect changed areas
+    runs-on: ubuntu-latest
+    outputs:
+      proto: ${{ github.event_name != 'pull_request' || steps.filter.outputs.proto == 'true' }}
+      client: ${{ github.event_name != 'pull_request' || steps.filter.outputs.client == 'true' }}
+      server: ${{ github.event_name != 'pull_request' || steps.filter.outputs.server == 'true' }}
+      antminer_plugin: ${{ github.event_name != 'pull_request' || steps.filter.outputs.antminer_plugin == 'true' }}
+      proto_plugin: ${{ github.event_name != 'pull_request' || steps.filter.outputs.proto_plugin == 'true' }}
+      virtual_plugin: ${{ github.event_name != 'pull_request' || steps.filter.outputs.virtual_plugin == 'true' }}
+      asicrs_plugin: ${{ github.event_name != 'pull_request' || steps.filter.outputs.asicrs_plugin == 'true' }}
+      python: ${{ github.event_name != 'pull_request' || steps.filter.outputs.python == 'true' }}
+      example_python_plugin: ${{ github.event_name != 'pull_request' || steps.filter.outputs.example_python_plugin == 'true' }}
+      contract_tests: ${{ github.event_name != 'pull_request' || steps.filter.outputs.contract_tests == 'true' }}
+      rust_sdk: ${{ github.event_name != 'pull_request' || steps.filter.outputs.rust_sdk == 'true' }}
+      windows: ${{ github.event_name != 'pull_request' || steps.filter.outputs.windows == 'true' }}
+      powershell: ${{ github.event_name != 'pull_request' || steps.filter.outputs.powershell == 'true' }}
+      protofleet_e2e: ${{ github.event_name != 'pull_request' || steps.filter.outputs.protofleet_e2e == 'true' }}
+      protoos_e2e: ${{ github.event_name != 'pull_request' || steps.filter.outputs.protoos_e2e == 'true' }}
+    steps:
+      - name: Checkout
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Detect changed areas
+        id: filter
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+        with:
+          filters: .github/path-filters.yml
+
+  generated-code:
+    name: Generated Code Check
+    needs: changes
+    uses: ./.github/workflows/generated-code-check.yml
+    secrets: inherit
+
+  dependency-review:
+    name: Dependency Review
+    needs: changes
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/dependency-review.yml
+    secrets: inherit
+
+  proto-checks:
+    name: Proto Checks
+    needs: changes
+    if: needs.changes.outputs.proto == 'true'
+    uses: ./.github/workflows/protofleet-proto-checks.yml
+    secrets: inherit
+
+  client-checks:
+    name: Client Checks
+    needs: changes
+    if: needs.changes.outputs.client == 'true'
+    uses: ./.github/workflows/protofleet-client-checks.yml
+    secrets: inherit
+
+  server-checks:
+    name: Server Checks
+    needs: changes
+    if: needs.changes.outputs.server == 'true'
+    uses: ./.github/workflows/protofleet-server-checks.yml
+    secrets: inherit
+
+  antminer-plugin-checks:
+    name: Antminer Plugin Checks
+    needs: changes
+    if: needs.changes.outputs.antminer_plugin == 'true'
+    uses: ./.github/workflows/protofleet-antminer-plugin-checks.yml
+    secrets: inherit
+
+  proto-plugin-checks:
+    name: Proto Plugin Checks
+    needs: changes
+    if: needs.changes.outputs.proto_plugin == 'true'
+    uses: ./.github/workflows/protofleet-proto-plugin-checks.yml
+    secrets: inherit
+
+  virtual-plugin-checks:
+    name: Virtual Plugin Checks
+    needs: changes
+    if: needs.changes.outputs.virtual_plugin == 'true'
+    uses: ./.github/workflows/protofleet-virtual-plugin-checks.yml
+    secrets: inherit
+
+  asicrs-plugin-checks:
+    name: asicrs Plugin Checks
+    needs: changes
+    if: needs.changes.outputs.asicrs_plugin == 'true'
+    uses: ./.github/workflows/asicrs-plugin-checks.yml
+    secrets: inherit
+
+  python-checks:
+    name: Python SDK and Generator Checks
+    needs: changes
+    if: needs.changes.outputs.python == 'true'
+    uses: ./.github/workflows/python-tests.yml
+    secrets: inherit
+
+  example-python-plugin-checks:
+    name: Example Python Plugin Checks
+    needs: changes
+    if: needs.changes.outputs.example_python_plugin == 'true'
+    uses: ./.github/workflows/protofleet-example-python-plugin-checks.yml
+    secrets: inherit
+
+  contract-checks:
+    name: Plugin Contract Checks
+    needs: changes
+    if: needs.changes.outputs.contract_tests == 'true'
+    uses: ./.github/workflows/protofleet-contract-checks.yml
+    secrets: inherit
+
+  rust-sdk-checks:
+    name: Rust SDK Checks
+    needs: changes
+    if: needs.changes.outputs.rust_sdk == 'true'
+    uses: ./.github/workflows/rust-sdk-checks.yml
+    secrets: inherit
+
+  windows-checks:
+    name: Windows C# Checks
+    needs: changes
+    if: needs.changes.outputs.windows == 'true'
+    uses: ./.github/workflows/windows-csharp-checks.yml
+    secrets: inherit
+
+  powershell-lint:
+    name: PowerShell Lint
+    needs: changes
+    if: needs.changes.outputs.powershell == 'true'
+    uses: ./.github/workflows/powershell-lint.yml
+    secrets: inherit
+
+  protofleet-e2e-tests:
+    name: ProtoFleet E2E Tests
+    needs: changes
+    if: needs.changes.outputs.protofleet_e2e == 'true'
+    uses: ./.github/workflows/protofleet-e2e-tests.yml
+    secrets: inherit
+
+  protoos-e2e-tests:
+    name: ProtoOS E2E Tests
+    needs: changes
+    if: needs.changes.outputs.protoos_e2e == 'true'
+    uses: ./.github/workflows/protoos-e2e-tests.yml
+    secrets: inherit
+
+  gate:
+    name: Gate
+    runs-on: ubuntu-latest
+    if: always()
+    needs:
+      - changes
+      - generated-code
+      - dependency-review
+      - proto-checks
+      - client-checks
+      - server-checks
+      - antminer-plugin-checks
+      - proto-plugin-checks
+      - virtual-plugin-checks
+      - asicrs-plugin-checks
+      - python-checks
+      - example-python-plugin-checks
+      - contract-checks
+      - rust-sdk-checks
+      - windows-checks
+      - powershell-lint
+      - protofleet-e2e-tests
+      - protoos-e2e-tests
+    steps:
+      - name: Evaluate gate
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          needs = json.loads(os.environ["NEEDS_JSON"])
+          changes_result = needs["changes"]["result"]
+          if changes_result != "success":
+            print(f"PR gate failed: changes job result was {changes_result}")
+            sys.exit(1)
+
+          failing = []
+          for job, meta in needs.items():
+            result = meta["result"]
+            if result not in {"success", "skipped"}:
+              failing.append(f"{job}: {result}")
+
+          if failing:
+            print("PR gate failed:")
+            for item in failing:
+              print(f" - {item}")
+            sys.exit(1)
+
+          print("PR gate passed.")
+          PY

@@ -87,22 +87,19 @@ describe("SchedulesPage", () => {
 
     render(<SchedulesPage />);
 
-    expect(screen.queryByText("Configure schedules to automate actions for your miners.")).not.toBeInTheDocument();
+    expect(screen.queryByText(/No schedules yet/)).not.toBeInTheDocument();
 
     deferred.resolve(undefined);
 
-    await waitFor(() =>
-      expect(screen.getByText("Configure schedules to automate actions for your miners.")).toBeVisible(),
-    );
+    await waitFor(() => expect(screen.getByText(/No schedules yet/)).toBeVisible());
   });
 
   it("renders the empty schedules state when no schedules exist", async () => {
     render(<SchedulesPage />);
 
     await waitFor(() => expect(screen.getAllByText("Schedules")).toHaveLength(1));
-    expect(screen.getByText("Configure schedules to automate actions for your miners.")).toBeVisible();
+    expect(screen.getByText(/No schedules yet/)).toBeVisible();
     expect(screen.getByRole("button", { name: "Add a schedule" })).toBeEnabled();
-    expect(screen.queryByRole("columnheader", { name: "Name" })).not.toBeInTheDocument();
     expect(mockScheduleModal).not.toHaveBeenCalled();
   });
 

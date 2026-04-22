@@ -2,6 +2,8 @@
 import { testConfig } from "../config/test.config";
 import { expect, test } from "../fixtures/pageFixtures";
 
+const EXPECTED_FAKE_NETWORK_MINER_COUNT = 14;
+
 test.describe("Proto Fleet - Onboarding", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
@@ -93,7 +95,8 @@ test.describe("Proto Fleet - Onboarding", () => {
 
       await test.step("Find and add miners", async () => {
         await addMinersPage.clickFindMinersInNetwork();
-        await addMinersPage.clickContinueWithSelectedMiners();
+        await addMinersPage.waitForExpectedNetworkMinerCount(EXPECTED_FAKE_NETWORK_MINER_COUNT);
+        await addMinersPage.clickContinueWithXMiners(EXPECTED_FAKE_NETWORK_MINER_COUNT);
       });
 
       await commonSteps.goToMinersPage();

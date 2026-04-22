@@ -1,17 +1,6 @@
 name: Server Checks
 
 on:
-  pull_request:
-    paths:
-      - ".github/workflows/protofleet-server-checks.yml"
-      - ".github/actions/go-cache-setup/action.yml"
-      - ".github/actions/hermit-setup/action.yml"
-      - "bin/hermit.hcl"
-      - "hermit-packages/**"
-      - "go.work"
-      - "go.work.sum"
-      - "proto/**"
-      - "server/**"
   push:
     branches:
       - main
@@ -26,6 +15,7 @@ on:
       - "proto/**"
       - "server/**"
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read

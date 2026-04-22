@@ -28,14 +28,14 @@ export const primaryNavItems: NavItem[] = [
     icon: Fleet,
   },
   {
-    path: "/groups",
-    label: "Groups",
-    icon: Groups,
-  },
-  {
     path: "/racks",
     label: "Racks",
     icon: Racks,
+  },
+  {
+    path: "/groups",
+    label: "Groups",
+    icon: Groups,
   },
   {
     path: "/activity",

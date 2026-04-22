@@ -1,19 +1,78 @@
 automation:
   - changed-files:
-      - any-glob-to-any-file: .github/**
+      - any-glob-to-any-file:
+          - .github/copilot-instructions.md
+          - CODEOWNERS
+          - bin/**
+          - hermit-packages/**
+          - just/**
+          - justfile
+          - scripts/**
+          - deployment-files/client/**
+          - deployment-files/server/**
+          - deployment-files/scripts/**
+
+github_actions:
+  - changed-files:
+      - any-glob-to-any-file:
+          - .github/actions/**
+          - .github/workflows/**
 
 client:
   - changed-files:
-      - any-glob-to-any-file: client/**
+      - any-glob-to-any-file:
+          - client/**
+          - deployment-files/client/**
+
+javascript:
+  - changed-files:
+      - any-glob-to-any-file:
+          - client/**/*.cjs
+          - client/**/*.js
+          - client/**/*.jsx
+          - client/**/*.mjs
+          - client/**/*.ts
+          - client/**/*.tsx
+          - client/package.json
+          - client/package-lock.json
 
 server:
   - changed-files:
-      - any-glob-to-any-file: server/**
+      - any-glob-to-any-file:
+          - deployment-files/server/**
+          - deployment-files/windows/**
+          - plugin/**
+          - server/**
+          - tests/plugin-contract/**
 
 shared:
   - changed-files:
-      - any-glob-to-any-file: proto/**
+      - any-glob-to-any-file:
+          - buf.lock
+          - buf.yaml
+          - packages/proto-python-gen/**
+          - proto/**
+          - proto-rig-api/**
+          - sdk/**
+          - server/sdk/**
 
-tooling:
+documentation:
   - changed-files:
-      - any-glob-to-any-file: bin/**
+      - any-glob-to-any-file:
+          - .github/ISSUE_TEMPLATE/**
+          - "**/*.md"
+          - docs/**
+
+dependencies:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "**/Cargo.lock"
+          - "**/Cargo.toml"
+          - "**/go.mod"
+          - "**/go.sum"
+          - "**/package-lock.json"
+          - "**/package.json"
+          - "**/pyproject.toml"
+          - "**/requirements*.txt"
+          - "**/uv.lock"
+          - bin/hermit.hcl
