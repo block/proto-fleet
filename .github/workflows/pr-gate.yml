@@ -248,10 +248,13 @@ jobs:
           import sys
 
           needs = json.loads(os.environ["NEEDS_JSON"])
+          changes_result = needs["changes"]["result"]
+          if changes_result != "success":
+            print(f"PR gate failed: changes job result was {changes_result}")
+            sys.exit(1)
+
           failing = []
           for job, meta in needs.items():
-            if job == "changes":
-              continue
             result = meta["result"]
             if result not in {"success", "skipped"}:
               failing.append(f"{job}: {result}")
