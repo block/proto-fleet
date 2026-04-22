@@ -1,11 +1,5 @@
-// =============================================================================
-// Miner Store - Clean Public API
-// =============================================================================
-
-// Main store
 export { default as useMinerStore } from "./useMinerStore";
 
-// Types (only export what consumers need)
 export type {
   ChartDataPoint,
   Measurement,
@@ -29,13 +23,11 @@ export type {
   FanData,
 } from "./types";
 
-// Utilities
 export { convertValueUnits, formatValue, convertAndFormatMeasurement } from "./utils/telemetryUtils";
 
 export { getAsicId } from "./utils/getAsicId";
 export { getAsicName } from "./utils/getAsicName";
 
-// Convenience hooks
 export {
   useMiner,
   useMinerHashboard,
@@ -136,14 +128,12 @@ export {
   useSetSystemStatus,
   useShowWakeDialog,
   useHideWakeDialog,
-  // Error selector hooks
   useGroupedErrors,
   useErrorsByComponent,
   useErrors,
   useHasIssues,
 } from "./hooks/useMinerStatus";
 
-// Pools hooks
 export { usePoolsInfo, useSetPoolsInfo } from "./hooks/usePools";
 
 export {
@@ -163,9 +153,6 @@ export {
   useSetSystemInfoError,
   useSetSystemInfoPending,
 } from "./hooks/useSystemInfo";
-
-// System status hooks removed - now in minerStatus
-// useOnboarded and usePasswordSet are exported from useMinerStatus above
 
 export {
   useNetworkInfo,

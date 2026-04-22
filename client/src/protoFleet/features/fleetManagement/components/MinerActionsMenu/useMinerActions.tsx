@@ -59,8 +59,6 @@ import {
 import type { BatchOperationInput } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
 import { createDeviceSelector } from "@/protoFleet/features/fleetManagement/utils/deviceSelector";
 import {
-  // ArrowLeftCompact, // TODO: Uncomment when Factory Reset is implemented
-  // Curtail, // TODO: Uncomment when Curtail is implemented
   Fan,
   Groups,
   LEDIndicator,
@@ -1217,12 +1215,6 @@ export const useMinerActions = ({
       });
     };
 
-    // TODO: Implement Factory Reset action
-    // const handleFactoryReset = () => {
-    //   setCurrentAction(deviceActions.factoryReset);
-    //   onActionStart?.();
-    // };
-
     const handleReboot = async () => {
       onActionStart?.();
       // Check for unsupported miners first - only show confirmation dialog if all supported
@@ -1281,12 +1273,6 @@ export const useMinerActions = ({
         setShowManagePowerModal(true);
       });
     };
-
-    // TODO: Implement Curtail action
-    // const handleCurtail = () => {
-    //   setCurrentAction(performanceActions.curtail);
-    //   onActionStart?.();
-    // };
 
     // Settings actions handlers
     const handleMiningPool = async () => {
@@ -1473,24 +1459,6 @@ export const useMinerActions = ({
         actionHandler: handleFirmwareUpdate,
         requiresConfirmation: false,
       },
-      // TODO: Implement Curtail action
-      // {
-      //   action: performanceActions.curtail,
-      //   title: "Curtail",
-      //   icon: <Curtail />,
-      //   actionHandler: handleCurtail,
-      //   requiresConfirmation: true,
-      //   confirmation: {
-      //     title: `Curtail ${numberOfMiners} miners?`,
-      //     subtitle:
-      //       "These miners will reduce power to 0.1 kW and stop hashing.",
-      //     confirmAction: {
-      //       title: "Curtail",
-      //       variant: variants.primary,
-      //     },
-      //     testId: "curtail-confirm-button",
-      //   },
-      // },
       {
         action: settingsActions.miningPool,
         title: "Edit pool",
