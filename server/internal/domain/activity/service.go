@@ -26,7 +26,21 @@ func NewService(store interfaces.ActivityStore) *Service {
 // accepted and persisted, but the current org-scoped read queries (List, Count,
 // GetFilterOptions) will not return them. A global/admin read path for org-less
 // events is planned as a follow-up.
+//
+// Use LogStrict if the caller needs to know whether the insert actually
+// succeeded (e.g. the command finalizer, whose retry loop depends on seeing
+// the error so the reconciler doesn't have to clean up).
 func (s *Service) Log(ctx context.Context, event models.Event) {
+	if err := s.LogStrict(ctx, event); err != nil {
+		slog.Error("failed to insert activity log", "error", err, "event_type", event.Type)
+	}
+}
+
+// LogStrict records an activity event and returns any persistence error to
+// the caller. Idempotent re-inserts against the '*.completed' partial unique
+// index are swallowed by the store layer and therefore look like success
+// here, which is the behavior the finalizer + reconciler rely on.
+func (s *Service) LogStrict(ctx context.Context, event models.Event) error {
 	if event.Result == "" {
 		event.Result = models.ResultSuccess
 	}
@@ -53,9 +67,7 @@ func (s *Service) Log(ctx context.Context, event models.Event) {
 		slog.Warn("activity event missing organization_id for non-auth category",
 			"event_type", event.Type, "category", string(event.Category))
 	}
-	if err := s.store.Insert(ctx, &event); err != nil {
-		slog.Error("failed to insert activity log", "error", err, "event_type", event.Type)
-	}
+	return s.store.Insert(ctx, &event)
 }
 
 func (s *Service) List(ctx context.Context, filter models.Filter) ([]models.Entry, error) {

@@ -15,9 +15,12 @@ import (
 
 // ActivityLogger is the subset of the activity service the reconciler needs.
 // Declared as an interface so tests can substitute a spy without depending on
-// the domain service struct.
+// the domain service struct. LogStrict surfaces persistence errors so the
+// reconciler can decide whether to log + skip vs. retry (today it logs and
+// continues; returning the error also lets composition layers see it).
 type ActivityLogger interface {
 	Log(ctx context.Context, event activitymodels.Event)
+	LogStrict(ctx context.Context, event activitymodels.Event) error
 }
 
 // reconcilerDBTimeout bounds individual database calls performed by the
@@ -217,7 +220,9 @@ func (r *CompletionReconciler) backfillOne(
 		event.OrganizationID = &v
 	}
 
-	r.activityLogger.Log(ctx, event)
+	if err := r.activityLogger.LogStrict(ctx, event); err != nil {
+		return fmt.Errorf("logging completion for %s: %w", batchID, err)
+	}
 	return nil
 }
 

@@ -233,7 +233,10 @@ func (s *Service) buildActivityCompletedCallback(ctx context.Context, batchID, e
 		batchIDCopy := batchID
 		completionDesc := fmt.Sprintf("%s completed: %d succeeded, %d failed",
 			description, counts.SuccessfulDevices, counts.FailedDevices)
-		s.activitySvc.Log(finCtx, activitymodels.Event{
+		// LogStrict surfaces a transient DB error back to the status routine's
+		// retry loop instead of being swallowed at slog.Error. The partial
+		// unique index + store-level duplicate swallow keep retries idempotent.
+		if err := s.activitySvc.LogStrict(finCtx, activitymodels.Event{
 			Category:       activitymodels.CategoryDeviceCommand,
 			Type:           eventType + activitymodels.CompletedEventSuffix,
 			Description:    completionDesc,
@@ -250,7 +253,9 @@ func (s *Service) buildActivityCompletedCallback(ctx context.Context, batchID, e
 				"success_count": counts.SuccessfulDevices,
 				"failure_count": counts.FailedDevices,
 			},
-		})
+		}); err != nil {
+			return fleeterror.NewInternalErrorf("finalizer writing completion for %s: %v", batchID, err)
+		}
 		return nil
 	}
 }
