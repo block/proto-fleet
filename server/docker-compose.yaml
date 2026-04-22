@@ -8,20 +8,30 @@ services:
       service: fleet-api
     build:
       context: ..
-      dockerfile: server/Dockerfile
+      dockerfile: server/Dockerfile.dev
+      args:
+        GO_GCFLAGS: "${GO_GCFLAGS:-}"
     develop:
       watch:
-        - action: rebuild
-          path: .
+        - action: sync+restart
+          path: ../server
+          target: /app
           ignore:
             - testing/
+            - e2e/
             - "**/*.http"
             - "**/*.md"
             - "**/*.yaml"
             - "**/*.yml"
             - "**/*.json"
             - "**/*.sh"
-            - "**/Dockerfile"
+            - "**/Dockerfile*"
+        - action: rebuild
+          path: ../server/go.mod
+        - action: rebuild
+          path: ../server/go.sum
+        - action: rebuild
+          path: ../go.work
     environment:
       AUTH_CLIENT_SECRET_KEY: "${AUTH_CLIENT_SECRET_KEY:-00000000000000000000000000000000000000000000}"
       AUTH_CLIENT_EXPIRATION_PERIOD: "168h" # Override to 168h for development
@@ -41,6 +51,8 @@ services:
         condition: service_started
     volumes:
       - ./plugins:/app/plugins:ro
+      - go-build-cache:/root/.cache/go-build
+      - go-mod-cache:/go/pkg/mod
     restart: unless-stopped
     networks:
       - fleet-network
@@ -345,6 +357,8 @@ services:
       - NET_RAW
 volumes:
   timescaledb-data:
+  go-build-cache:
+  go-mod-cache:
 
 
 networks:

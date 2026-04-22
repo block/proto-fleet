@@ -1,0 +1,23 @@
+FROM golang:1.25.4-alpine
+
+ARG GO_GCFLAGS=""
+ENV GO_GCFLAGS=${GO_GCFLAGS}
+
+RUN apk add --no-cache git nmap \
+ && go install github.com/go-delve/delve/cmd/dlv@v1.25.2
+
+WORKDIR /app
+
+COPY server/go.mod server/go.sum ./
+RUN go mod download
+
+COPY server/ ./
+
+RUN mkdir -p /app/plugins /app/out
+
+EXPOSE 4000
+EXPOSE 40000
+
+# Build on every container start so sync+restart picks up source changes.
+# Go's build cache (mounted as a named volume) makes incremental rebuilds fast.
+CMD ["sh", "-c", "go build -gcflags=\"$GO_GCFLAGS\" -o /app/out/fleetd ./cmd/fleetd && exec /go/bin/dlv --listen=:40000 --headless=true --continue --api-version=2 --accept-multiclient exec /app/out/fleetd"]

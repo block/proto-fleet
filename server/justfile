@@ -97,8 +97,11 @@ _run: db-up install
 seed-telemetry *args:
     go run ./devtools/seedtelemetry {{args}}
 
-# wipe and rebuild all docker compose services from scratch
-rebuild-all: _build-plugins-docker
+# wipe and rebuild all docker compose services from scratch (includes plugin rebuild)
+rebuild-all: _build-plugins-docker rebuild-services
+
+# wipe and rebuild docker compose services, reusing existing plugin binaries
+rebuild-services:
     docker compose down --rmi all --volumes && docker compose up --build -d
 
 _build-plugins-docker:

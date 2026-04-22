@@ -33,16 +33,33 @@ build-plugins-docker: (_build-go-plugins-cross "linux" "arm64" "server/plugins")
 # build plugin binaries for multiple architectures (deployment)
 build-plugins-release: _build-go-plugins-multi-arch _asicrs-build-release
 
-# build virtual miner plugin for Docker (Linux ARM64)
-build-virtual-plugin:
+# rebuild a specific plugin for the Docker runtime (linux/arm64): proto, antminer, virtual, or asicrs
+rebuild-plugin name:
   #!/usr/bin/env bash
   set -euo pipefail
-  echo "Building virtual miner plugin for Docker..."
   mkdir -p server/plugins
-  (cd plugin/virtual && GOOS=linux GOARCH=arm64 go build -o ../../server/plugins/virtual-plugin .)
-  cp plugin/virtual/config.json server/plugins/
-  chmod +x server/plugins/virtual-plugin
-  echo "Virtual plugin built successfully"
+  case "{{name}}" in
+    proto|antminer)
+      (cd plugin/{{name}} && GOOS=linux GOARCH=arm64 go build -o ../../server/plugins/{{name}}-plugin .)
+      chmod +x server/plugins/{{name}}-plugin
+      ;;
+    virtual)
+      (cd plugin/virtual && GOOS=linux GOARCH=arm64 go build -o ../../server/plugins/virtual-plugin .)
+      cp plugin/virtual/config.json server/plugins/
+      chmod +x server/plugins/virtual-plugin
+      ;;
+    asicrs)
+      just _asicrs-build-docker
+      ;;
+    *)
+      echo "Unknown plugin: {{name}}. Valid: proto, antminer, virtual, asicrs" >&2
+      exit 1
+      ;;
+  esac
+  echo "Rebuilt {{name}} plugin."
+
+# build virtual miner plugin for Docker (Linux ARM64) — alias for `just rebuild-plugin virtual`
+build-virtual-plugin: (rebuild-plugin "virtual")
 
 # --- Tests ---
 
@@ -126,6 +143,7 @@ update-go-deps:
   (cd server/fake-proto-rig && go get -u ./... && go mod tidy)
   echo "Syncing Go workspace..."
   go work sync
+  mkdir -p .git && touch .git/.go-work-synced
   echo "All Go dependencies updated successfully"
 
 # --- Packaging ---
@@ -206,33 +224,53 @@ _e2e suite *args:
   npx playwright install
   npx playwright test {{args}}
 
-_build-go-plugins-native outdir:
+# sync Go workspace only when go.work / go.work.sum has changed since last sync
+_go-work-sync:
   #!/usr/bin/env bash
   set -euo pipefail
+  STAMP=.git/.go-work-synced
+  # Skip if stamp exists and neither go.work nor go.work.sum is newer than it.
+  if [ -f "$STAMP" ] && ! [ go.work -nt "$STAMP" ] && { [ ! -f go.work.sum ] || ! [ go.work.sum -nt "$STAMP" ]; }; then
+    exit 0
+  fi
   echo "Syncing Go workspace..."
   go work sync
+  mkdir -p "$(dirname "$STAMP")"
+  # Sleep briefly so the stamp mtime is strictly newer than any file `go work sync` just wrote.
+  sleep 1
+  touch "$STAMP"
+
+_build-go-plugins-native outdir: _go-work-sync
+  #!/usr/bin/env bash
+  set -euo pipefail
+  if [ -f {{outdir}}/proto-plugin ] && [ -f {{outdir}}/antminer-plugin ] && \
+     [ -z "$(find plugin/proto plugin/antminer go.work -newer {{outdir}}/proto-plugin -type f 2>/dev/null | head -1)" ]; then
+    echo "Go plugins up to date, skipping build."
+    exit 0
+  fi
   echo "Building Go plugins..."
   mkdir -p {{outdir}}
   (cd plugin/proto && go build -o ../../{{outdir}}/proto-plugin .)
   (cd plugin/antminer && go build -o ../../{{outdir}}/antminer-plugin .)
   chmod +x {{outdir}}/proto-plugin {{outdir}}/antminer-plugin
 
-_build-go-plugins-cross goos goarch outdir:
+_build-go-plugins-cross goos goarch outdir: _go-work-sync
   #!/usr/bin/env bash
   set -euo pipefail
-  echo "Syncing Go workspace..."
-  go work sync
+  if [ -f {{outdir}}/proto-plugin ] && [ -f {{outdir}}/antminer-plugin ] && \
+     [ -z "$(find plugin/proto plugin/antminer go.work -newer {{outdir}}/proto-plugin -type f 2>/dev/null | head -1)" ]; then
+    echo "Go plugins up to date for {{goos}}/{{goarch}}, skipping build."
+    exit 0
+  fi
   echo "Building Go plugins for {{goos}}/{{goarch}}..."
   mkdir -p {{outdir}}
   (cd plugin/proto && GOOS={{goos}} GOARCH={{goarch}} go build -o ../../{{outdir}}/proto-plugin .)
   (cd plugin/antminer && GOOS={{goos}} GOARCH={{goarch}} go build -o ../../{{outdir}}/antminer-plugin .)
   chmod +x {{outdir}}/proto-plugin {{outdir}}/antminer-plugin
 
-_build-go-plugins-multi-arch:
+_build-go-plugins-multi-arch: _go-work-sync
   #!/usr/bin/env bash
   set -euo pipefail
-  echo "Syncing Go workspace..."
-  go work sync
   echo "Building Go plugins for multiple architectures..."
   mkdir -p deployment-files/server
   (cd plugin/proto && GOOS=linux GOARCH=amd64 go build -o ../../deployment-files/server/proto-plugin-amd64 .)
@@ -244,6 +282,11 @@ _build-go-plugins-multi-arch:
 _asicrs-build:
   #!/usr/bin/env bash
   set -euo pipefail
+  if [ -f server/plugins/asicrs-plugin ] && \
+     [ -z "$(find plugin/asicrs sdk/rust -newer server/plugins/asicrs-plugin -type f 2>/dev/null | head -1)" ]; then
+    echo "asicrs plugin up to date, skipping build."
+    exit 0
+  fi
   echo "Building asicrs plugin..."
   mkdir -p server/plugins
   docker buildx build \
@@ -255,6 +298,11 @@ _asicrs-build:
 _asicrs-build-docker:
   #!/usr/bin/env bash
   set -euo pipefail
+  if [ -f server/plugins/asicrs-plugin ] && \
+     [ -z "$(find plugin/asicrs sdk/rust -newer server/plugins/asicrs-plugin -type f 2>/dev/null | head -1)" ]; then
+    echo "asicrs plugin up to date for Docker (Linux ARM64), skipping build."
+    exit 0
+  fi
   echo "Building asicrs plugin for Docker (Linux ARM64)..."
   mkdir -p server/plugins
   docker buildx build \
