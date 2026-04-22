@@ -96,6 +96,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.createUserOrganizationStmt, err = db.PrepareContext(ctx, createUserOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateUserOrganization: %w", err)
 	}
+	if q.deleteActivityLogsOlderThanStmt, err = db.PrepareContext(ctx, deleteActivityLogsOlderThan); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteActivityLogsOlderThan: %w", err)
+	}
 	if q.deleteCommandBatchLogsOlderThanStmt, err = db.PrepareContext(ctx, deleteCommandBatchLogsOlderThan); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteCommandBatchLogsOlderThan: %w", err)
 	}
@@ -789,6 +792,11 @@ func (q *Queries) Close() error {
 	if q.createUserOrganizationStmt != nil {
 		if cerr := q.createUserOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createUserOrganizationStmt: %w", cerr)
+		}
+	}
+	if q.deleteActivityLogsOlderThanStmt != nil {
+		if cerr := q.deleteActivityLogsOlderThanStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteActivityLogsOlderThanStmt: %w", cerr)
 		}
 	}
 	if q.deleteCommandBatchLogsOlderThanStmt != nil {
@@ -1804,6 +1812,7 @@ type Queries struct {
 	createSessionStmt                                   *sql.Stmt
 	createUserStmt                                      *sql.Stmt
 	createUserOrganizationStmt                          *sql.Stmt
+	deleteActivityLogsOlderThanStmt                     *sql.Stmt
 	deleteCommandBatchLogsOlderThanStmt                 *sql.Stmt
 	deleteCommandOnDeviceLogsOlderThanStmt              *sql.Stmt
 	deleteExpiredSessionsStmt                           *sql.Stmt
@@ -2024,6 +2033,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		createSessionStmt:                                   q.createSessionStmt,
 		createUserStmt:                                      q.createUserStmt,
 		createUserOrganizationStmt:                          q.createUserOrganizationStmt,
+		deleteActivityLogsOlderThanStmt:                     q.deleteActivityLogsOlderThanStmt,
 		deleteCommandBatchLogsOlderThanStmt:                 q.deleteCommandBatchLogsOlderThanStmt,
 		deleteCommandOnDeviceLogsOlderThanStmt:              q.deleteCommandOnDeviceLogsOlderThanStmt,
 		deleteExpiredSessionsStmt:                           q.deleteExpiredSessionsStmt,

@@ -55,6 +55,32 @@ func (q *Queries) CountActivityLogs(ctx context.Context, arg CountActivityLogsPa
 	return count, err
 }
 
+const deleteActivityLogsOlderThan = `-- name: DeleteActivityLogsOlderThan :execrows
+DELETE FROM activity_log
+WHERE id IN (
+    SELECT al.id FROM activity_log al
+    WHERE al.created_at < $1
+    ORDER BY al.created_at
+    LIMIT $2
+)
+`
+
+type DeleteActivityLogsOlderThanParams struct {
+	Cutoff  time.Time
+	MaxRows int32
+}
+
+// Paginated retention delete of activity_log rows older than the cutoff.
+// Bounded by @max_rows so the cleaner keeps each transaction short; the
+// caller loops until this returns fewer rows than the limit.
+func (q *Queries) DeleteActivityLogsOlderThan(ctx context.Context, arg DeleteActivityLogsOlderThanParams) (int64, error) {
+	result, err := q.exec(ctx, q.deleteActivityLogsOlderThanStmt, deleteActivityLogsOlderThan, arg.Cutoff, arg.MaxRows)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const getDistinctActivityUsers = `-- name: GetDistinctActivityUsers :many
 SELECT user_id, username FROM (
     SELECT DISTINCT ON (user_id) user_id, username

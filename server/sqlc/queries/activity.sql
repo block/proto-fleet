@@ -68,6 +68,18 @@ FROM activity_log
 WHERE organization_id = sqlc.arg('org_id') AND scope_type IS NOT NULL
 ORDER BY scope_type;
 
+-- name: DeleteActivityLogsOlderThan :execrows
+-- Paginated retention delete of activity_log rows older than the cutoff.
+-- Bounded by @max_rows so the cleaner keeps each transaction short; the
+-- caller loops until this returns fewer rows than the limit.
+DELETE FROM activity_log
+WHERE id IN (
+    SELECT al.id FROM activity_log al
+    WHERE al.created_at < sqlc.arg('cutoff')
+    ORDER BY al.created_at
+    LIMIT sqlc.arg('max_rows')
+);
+
 -- name: ListFinishedBatchesWithoutCompletion :many
 -- Returns command batches that FINISHED but have no '<type>.completed' activity
 -- row. Used by the reconciler to backfill completion events lost to a server

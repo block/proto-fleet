@@ -157,6 +157,13 @@ func (s *SQLActivityStore) GetDistinctScopeTypes(ctx context.Context, orgID int6
 	return result, nil
 }
 
+func (s *SQLActivityStore) DeleteOlderThan(ctx context.Context, cutoff time.Time, maxRows int32) (int64, error) {
+	return s.GetQueries(ctx).DeleteActivityLogsOlderThan(ctx, sqlc.DeleteActivityLogsOlderThanParams{
+		Cutoff:  cutoff,
+		MaxRows: maxRows,
+	})
+}
+
 // --- filter mapping ---
 
 func toListParams(f models.Filter) sqlc.ListActivityLogsParams {
