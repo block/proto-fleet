@@ -2,7 +2,10 @@ package command
 
 import (
 	"database/sql"
+	"errors"
 	"unicode/utf8"
+
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
 // maxErrorInfoRunes bounds per-device error strings persisted in
@@ -40,11 +43,52 @@ func boundedErrorInfo(s string) sql.NullString {
 	return sql.NullString{String: s[:cut] + truncationSuffix, Valid: true}
 }
 
-// workerErrorInfo wraps boundedErrorInfo with the convention that a nil error
-// produces a NULL value (for SUCCESS rows) and any non-nil error is stored.
+// workerErrorInfo wraps boundedErrorInfo for callers that already hold a
+// server-authored, trusted error string. It echoes err.Error() verbatim
+// (bounded by maxErrorInfoRunes) and MUST NOT be used to persist raw errors
+// that crossed the plugin or device gRPC boundary -- use sanitizedErrorInfo
+// for those so the untrusted text can't be surfaced to operators. Today the
+// only safe call site is the reap path (queue.sql writes a short,
+// server-authored string before the reaper rehydrates it), which in
+// practice goes through msg.ErrorInfo directly rather than this helper.
 func workerErrorInfo(err error) sql.NullString {
 	if err == nil {
 		return sql.NullString{}
 	}
 	return boundedErrorInfo(err.Error())
+}
+
+// genericWorkerErrorMessage is the operator-safe placeholder stored in
+// command_on_device_log.error_info when a worker error is not a FleetError
+// (e.g. plugin-raised, device-raised, or transport errors). The raw
+// err.Error() is expected to be logged server-side by the caller so
+// admins can still debug via slog.
+const genericWorkerErrorMessage = "command failed"
+
+// sanitizedErrorInfo converts a worker error into an operator-safe
+// sql.NullString suitable for persistence in command_on_device_log.error_info
+// and later exposure to org members via GetCommandBatchDeviceResults.
+//
+// Only errors that unwrap to a fleeterror.FleetError are surfaced verbatim
+// (truncated to maxErrorInfoRunes): those are server-authored and their
+// DebugMessage is part of our controlled API surface. Any other error type --
+// including anything that crosses the plugin or device boundary --
+// collapses to a short generic marker so adversarial or noisy upstream
+// text cannot be injected into the operator-visible result.
+//
+// A nil error yields an invalid NullString (column stays NULL on SUCCESS
+// rows).
+func sanitizedErrorInfo(err error) sql.NullString {
+	if err == nil {
+		return sql.NullString{}
+	}
+	var fe fleeterror.FleetError
+	if errors.As(err, &fe) {
+		msg := fe.GRPCCode.String()
+		if fe.DebugMessage != "" {
+			msg = msg + ": " + fe.DebugMessage
+		}
+		return boundedErrorInfo(msg)
+	}
+	return boundedErrorInfo(genericWorkerErrorMessage)
 }

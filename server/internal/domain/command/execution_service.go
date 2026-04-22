@@ -322,14 +322,15 @@ func (es *ExecutionService) workerProcessCommand(ctx context.Context, message qu
 		}
 
 		// Second: write device log only if the queue transition succeeded.
-		// Persist the worker error string (truncated) so the activity-log detail
-		// RPC can surface it to operators.
+		// Persist a sanitized reason so the activity-log detail RPC can surface
+		// it to org members without leaking raw plugin/device-controlled text.
+		// The raw err.Error() is still logged below via slog.Error for admins.
 		if err := q.UpsertCommandOnDeviceLog(dbCtx, sqlc.UpsertCommandOnDeviceLogParams{
 			Uuid:      message.BatchLogUUID,
 			DeviceID:  message.DeviceID,
 			Status:    upsertCommandOnDeviceStatus(workerError),
 			UpdatedAt: time.Now(),
-			ErrorInfo: workerErrorInfo(workerError),
+			ErrorInfo: sanitizedErrorInfo(workerError),
 		}); err != nil {
 			return err
 		}
