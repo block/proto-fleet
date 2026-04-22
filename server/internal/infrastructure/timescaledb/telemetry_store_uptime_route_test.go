@@ -7,38 +7,27 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestUseHourlyRollup(t *testing.T) {
+func TestSelectUptimeDataSource(t *testing.T) {
 	now := time.Now()
 
-	t.Run("recent start uses raw", func(t *testing.T) {
-		// Act
-		got := useHourlyRollup(now.Add(-24 * time.Hour))
+	tests := []struct {
+		name      string
+		startTime time.Time
+		want      uptimeDataSource
+	}{
+		{"last 24h uses raw", now.Add(-24 * time.Hour), uptimeDataSourceRaw},
+		{"29 day window still uses raw", now.Add(-29 * 24 * time.Hour), uptimeDataSourceRaw},
+		{"31 day window uses hourly rollup", now.Add(-31 * 24 * time.Hour), uptimeDataSourceHourly},
+		{"1 year window uses hourly rollup", now.Add(-365 * 24 * time.Hour), uptimeDataSourceHourly},
+	}
 
-		// Assert
-		assert.False(t, got)
-	})
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Act
+			got := selectUptimeDataSource(tc.startTime)
 
-	t.Run("29 day window still uses raw", func(t *testing.T) {
-		// Act
-		got := useHourlyRollup(now.Add(-29 * 24 * time.Hour))
-
-		// Assert
-		assert.False(t, got)
-	})
-
-	t.Run("31 day window uses hourly rollup", func(t *testing.T) {
-		// Act
-		got := useHourlyRollup(now.Add(-31 * 24 * time.Hour))
-
-		// Assert
-		assert.True(t, got)
-	})
-
-	t.Run("1 year window uses hourly rollup", func(t *testing.T) {
-		// Act
-		got := useHourlyRollup(now.Add(-365 * 24 * time.Hour))
-
-		// Assert
-		assert.True(t, got)
-	})
+			// Assert
+			assert.Equal(t, tc.want, got)
+		})
+	}
 }

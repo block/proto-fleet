@@ -1253,21 +1253,47 @@ func (s *TimescaleTelemetryStore) getUptimeStatusCountsFromSnapshots(
 	ctx, cancel := context.WithTimeout(ctx, s.config.QueryTimeout)
 	defer cancel()
 
-	if useHourlyRollup(startTime) {
+	switch selectUptimeDataSource(startTime) {
+	case uptimeDataSourceHourly:
 		// Hourly rollup has 1h granularity; finer buckets can't add resolution.
 		if bucketDuration < time.Hour {
 			bucketDuration = time.Hour
 		}
 		return s.queryUptimeHourly(ctx, orgID, deviceIDs, startTime, endTime, bucketDuration)
+	case uptimeDataSourceRaw:
+		return s.queryUptimeRaw(ctx, orgID, deviceIDs, startTime, endTime, bucketDuration)
 	}
 	return s.queryUptimeRaw(ctx, orgID, deviceIDs, startTime, endTime, bucketDuration)
 }
 
-// useHourlyRollup routes chart queries whose window predates the raw snapshot
-// retention to miner_state_snapshots_hourly. Per-minute rows past that point
-// have been dropped; the hourly rollup is the only source of truth.
-func useHourlyRollup(startTime time.Time) bool {
-	return time.Since(startTime) > uptimeSnapshotRawRetention
+// uptimeDataSource mirrors dataSource for miner_state_snapshots — choosing
+// between the raw hypertable and its hourly continuous aggregate.
+type uptimeDataSource int
+
+const (
+	uptimeDataSourceRaw uptimeDataSource = iota
+	uptimeDataSourceHourly
+)
+
+func (ds uptimeDataSource) String() string {
+	switch ds {
+	case uptimeDataSourceRaw:
+		return "raw"
+	case uptimeDataSourceHourly:
+		return "hourly"
+	default:
+		return "unknown"
+	}
+}
+
+// selectUptimeDataSource routes chart queries whose window predates the raw
+// snapshot retention to miner_state_snapshots_hourly. Per-minute rows past
+// that point have been dropped; the hourly rollup is the only source of truth.
+func selectUptimeDataSource(startTime time.Time) uptimeDataSource {
+	if time.Since(startTime) > uptimeSnapshotRawRetention {
+		return uptimeDataSourceHourly
+	}
+	return uptimeDataSourceRaw
 }
 
 func (s *TimescaleTelemetryStore) queryUptimeRaw(
