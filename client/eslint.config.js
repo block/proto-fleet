@@ -38,6 +38,13 @@ export default [
         tsconfigRootDir: __dirname,
       },
     },
+    linterOptions: {
+      // Pre-existing `eslint-disable ... react-hooks/set-state-in-effect`
+      // comments are left in place while the rule itself is off (see below).
+      // They become unused-directives in that state, so silence the check
+      // until the rule is turned back on via the follow-up adoption issue.
+      reportUnusedDisableDirectives: "off",
+    },
     plugins: {
       "import-x": importX,
       "jsx-a11y": jsxA11y,
@@ -50,6 +57,14 @@ export default [
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
+      // React Compiler rules added to the `recommended` preset in
+      // eslint-plugin-react-hooks 7.1. Disabled for now; see follow-up issue
+      // for adopting them incrementally.
+      "react-hooks/set-state-in-effect": "off",
+      "react-hooks/refs": "off",
+      "react-hooks/immutability": "off",
+      "react-hooks/preserve-manual-memoization": "off",
+      "react-hooks/use-memo": "off",
       "no-unused-vars": "off",
       "@typescript-eslint/no-unused-vars": [
         "error",
