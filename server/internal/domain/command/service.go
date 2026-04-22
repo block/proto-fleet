@@ -109,12 +109,31 @@ func (s *Service) logCommandActivity(ctx context.Context, eventType, description
 		Type:           eventType,
 		Description:    description,
 		ScopeCount:     &deviceCount,
+		ActorType:      actorTypeFromSession(info),
 		UserID:         &info.ExternalUserID,
 		Username:       &info.Username,
 		OrganizationID: &info.OrganizationID,
 		BatchID:        &batchIDCopy,
 		Metadata:       map[string]any{"batch_id": batchID},
 	})
+}
+
+// actorTypeFromSession maps session.Info.Actor into the corresponding
+// activity.ActorType. An empty Actor yields an empty return so the activity
+// service's defaulting (ActorUser) kicks in; scheduler-synthesized sessions
+// (Actor == "scheduler") are attributed to ActorScheduler.
+func actorTypeFromSession(info *session.Info) activitymodels.ActorType {
+	if info == nil {
+		return ""
+	}
+	switch info.Actor {
+	case "scheduler":
+		return activitymodels.ActorScheduler
+	case "system":
+		return activitymodels.ActorSystem
+	default:
+		return ""
+	}
 }
 
 // composeFinalizers chains multiple onFinished callbacks so every command RPC
@@ -175,6 +194,7 @@ func (s *Service) buildActivityCompletedCallback(ctx context.Context, batchID, e
 	userID := info.ExternalUserID
 	username := info.Username
 	organizationID := info.OrganizationID
+	actorType := actorTypeFromSession(info)
 	return func() error {
 		finCtx, cancel := context.WithTimeout(context.Background(), finalizerDBTimeout)
 		defer cancel()
@@ -201,7 +221,7 @@ func (s *Service) buildActivityCompletedCallback(ctx context.Context, batchID, e
 			Description:    completionDesc,
 			Result:         result,
 			ScopeCount:     &scopeCount,
-			ActorType:      activitymodels.ActorUser,
+			ActorType:      actorType,
 			UserID:         &userID,
 			Username:       &username,
 			OrganizationID: &organizationID,

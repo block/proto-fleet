@@ -44,6 +44,14 @@ type Info struct {
 	ExternalUserID string
 	Username       string
 	Role           string
+
+	// Actor identifies the kind of principal acting on behalf of the request.
+	// Empty for user / API-key traffic (callers default to the user actor
+	// type). Set to a non-empty marker (e.g. "scheduler") by internal
+	// orchestrators that synthesize a session.Info; downstream code translates
+	// it into the correct activity actor type. Kept as a plain string so the
+	// session package does not need to import domain types.
+	Actor string
 }
 
 // CredentialID returns a stable identifier for the authenticated credential.
