@@ -61,7 +61,7 @@ const ActivityPage = () => {
 
   const [hasLoaded, setHasLoaded] = useState(false);
   const hasStartedLoadingRef = useRef(false);
-
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (isLoading) {
       hasStartedLoadingRef.current = true;
@@ -69,6 +69,7 @@ const ActivityPage = () => {
       setHasLoaded(true);
     }
   }, [isLoading, hasLoaded]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const isInitialLoad = isLoading && activities.length === 0 && !hasLoaded;
   const isLoadingMore = isLoading && activities.length > 0;

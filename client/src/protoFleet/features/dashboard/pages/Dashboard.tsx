@@ -134,7 +134,7 @@ const Dashboard = () => {
             <p className="px-10 pt-6 text-300 text-text-primary phone:px-6 tablet:px-6">
               Some devices do not make all data available to Proto Fleet.
             </p>
-            {}
+            {/* eslint-disable-next-line react-hooks/refs */}
             <div ref={refs.vertical.end} />
           </section>
 
