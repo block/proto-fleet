@@ -96,6 +96,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.createUserOrganizationStmt, err = db.PrepareContext(ctx, createUserOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateUserOrganization: %w", err)
 	}
+	if q.deleteCommandBatchLogsOlderThanStmt, err = db.PrepareContext(ctx, deleteCommandBatchLogsOlderThan); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteCommandBatchLogsOlderThan: %w", err)
+	}
+	if q.deleteCommandOnDeviceLogsOlderThanStmt, err = db.PrepareContext(ctx, deleteCommandOnDeviceLogsOlderThan); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteCommandOnDeviceLogsOlderThan: %w", err)
+	}
 	if q.deleteExpiredSessionsStmt, err = db.PrepareContext(ctx, deleteExpiredSessions); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteExpiredSessions: %w", err)
 	}
@@ -107,6 +113,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.deleteScheduleTargetsStmt, err = db.PrepareContext(ctx, deleteScheduleTargets); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteScheduleTargets: %w", err)
+	}
+	if q.deleteTerminalQueueMessagesOlderThanStmt, err = db.PrepareContext(ctx, deleteTerminalQueueMessagesOlderThan); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteTerminalQueueMessagesOlderThan: %w", err)
 	}
 	if q.deviceSetBelongsToOrgStmt, err = db.PrepareContext(ctx, deviceSetBelongsToOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query DeviceSetBelongsToOrg: %w", err)
@@ -782,6 +791,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing createUserOrganizationStmt: %w", cerr)
 		}
 	}
+	if q.deleteCommandBatchLogsOlderThanStmt != nil {
+		if cerr := q.deleteCommandBatchLogsOlderThanStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteCommandBatchLogsOlderThanStmt: %w", cerr)
+		}
+	}
+	if q.deleteCommandOnDeviceLogsOlderThanStmt != nil {
+		if cerr := q.deleteCommandOnDeviceLogsOlderThanStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteCommandOnDeviceLogsOlderThanStmt: %w", cerr)
+		}
+	}
 	if q.deleteExpiredSessionsStmt != nil {
 		if cerr := q.deleteExpiredSessionsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing deleteExpiredSessionsStmt: %w", cerr)
@@ -800,6 +819,11 @@ func (q *Queries) Close() error {
 	if q.deleteScheduleTargetsStmt != nil {
 		if cerr := q.deleteScheduleTargetsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing deleteScheduleTargetsStmt: %w", cerr)
+		}
+	}
+	if q.deleteTerminalQueueMessagesOlderThanStmt != nil {
+		if cerr := q.deleteTerminalQueueMessagesOlderThanStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteTerminalQueueMessagesOlderThanStmt: %w", cerr)
 		}
 	}
 	if q.deviceSetBelongsToOrgStmt != nil {
@@ -1780,10 +1804,13 @@ type Queries struct {
 	createSessionStmt                                   *sql.Stmt
 	createUserStmt                                      *sql.Stmt
 	createUserOrganizationStmt                          *sql.Stmt
+	deleteCommandBatchLogsOlderThanStmt                 *sql.Stmt
+	deleteCommandOnDeviceLogsOlderThanStmt              *sql.Stmt
 	deleteExpiredSessionsStmt                           *sql.Stmt
 	deleteOrganizationStmt                              *sql.Stmt
 	deletePoolStmt                                      *sql.Stmt
 	deleteScheduleTargetsStmt                           *sql.Stmt
+	deleteTerminalQueueMessagesOlderThanStmt            *sql.Stmt
 	deviceSetBelongsToOrgStmt                           *sql.Stmt
 	getActiveSchedulesStmt                              *sql.Stmt
 	getActiveUnpairedDiscoveredDevicesStmt              *sql.Stmt
@@ -1997,10 +2024,13 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		createSessionStmt:                                   q.createSessionStmt,
 		createUserStmt:                                      q.createUserStmt,
 		createUserOrganizationStmt:                          q.createUserOrganizationStmt,
+		deleteCommandBatchLogsOlderThanStmt:                 q.deleteCommandBatchLogsOlderThanStmt,
+		deleteCommandOnDeviceLogsOlderThanStmt:              q.deleteCommandOnDeviceLogsOlderThanStmt,
 		deleteExpiredSessionsStmt:                           q.deleteExpiredSessionsStmt,
 		deleteOrganizationStmt:                              q.deleteOrganizationStmt,
 		deletePoolStmt:                                      q.deletePoolStmt,
 		deleteScheduleTargetsStmt:                           q.deleteScheduleTargetsStmt,
+		deleteTerminalQueueMessagesOlderThanStmt:            q.deleteTerminalQueueMessagesOlderThanStmt,
 		deviceSetBelongsToOrgStmt:                           q.deviceSetBelongsToOrgStmt,
 		getActiveSchedulesStmt:                              q.getActiveSchedulesStmt,
 		getActiveUnpairedDiscoveredDevicesStmt:              q.getActiveUnpairedDiscoveredDevicesStmt,

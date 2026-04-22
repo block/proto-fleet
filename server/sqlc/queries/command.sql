@@ -121,3 +121,33 @@ JOIN command_batch_log cbl ON cbl.id = codl.command_batch_log_id
 LEFT JOIN device d ON d.id = codl.device_id
 WHERE cbl.uuid = $1
 ORDER BY d.device_identifier NULLS LAST, codl.id;
+
+-- name: DeleteCommandOnDeviceLogsOlderThan :execrows
+-- Paginated retention delete of per-device logs older than the cutoff.
+-- Bounded by @max_rows to keep each run short; the cleaner loops until the
+-- query returns zero rows.
+DELETE FROM command_on_device_log
+WHERE id IN (
+    SELECT codl.id FROM command_on_device_log codl
+    WHERE codl.updated_at < sqlc.arg('cutoff')
+    ORDER BY codl.updated_at
+    LIMIT sqlc.arg('max_rows')
+);
+
+-- name: DeleteCommandBatchLogsOlderThan :execrows
+-- Paginated retention delete of command batch headers. Only FINISHED batches
+-- older than the cutoff are eligible; a NOT EXISTS guard prevents deleting a
+-- header while any per-device rows still reference it (FK safety).
+DELETE FROM command_batch_log cbl
+WHERE cbl.id IN (
+    SELECT cbl_inner.id FROM command_batch_log cbl_inner
+    WHERE cbl_inner.status = 'FINISHED'
+      AND cbl_inner.finished_at IS NOT NULL
+      AND cbl_inner.finished_at < sqlc.arg('cutoff')
+      AND NOT EXISTS (
+        SELECT 1 FROM command_on_device_log codl
+        WHERE codl.command_batch_log_id = cbl_inner.id
+      )
+    ORDER BY cbl_inner.finished_at
+    LIMIT sqlc.arg('max_rows')
+);

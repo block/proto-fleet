@@ -19,4 +19,19 @@ type Config struct {
 	ReconcilerInterval    time.Duration `help:"How often the completion reconciler runs." default:"5m" env:"RECONCILER_INTERVAL"`
 	ReconcilerGracePeriod time.Duration `help:"How long to wait after a batch FINISHED before the reconciler treats it as missing its completion row." default:"2m" env:"RECONCILER_GRACE_PERIOD"`
 	ReconcilerMaxBatches  int           `help:"Maximum batches the reconciler backfills per tick." default:"200" env:"RECONCILER_MAX_BATCHES"`
+
+	// Retention governs paginated cleanup of the command-audit tables.
+	// Defaults are balanced for typical fleets; operators can tune per env.
+	Retention RetentionConfig `embed:"" prefix:""`
+}
+
+// RetentionConfig controls the command retention cleaner. Delete order is
+// enforced by the cleaner to respect FK constraints: queue_message terminal
+// rows first, then command_on_device_log, then command_batch_log headers.
+type RetentionConfig struct {
+	QueueMessageRetention time.Duration `help:"Retain SUCCESS/FAILED queue_message rows for this long before the cleaner deletes them." default:"720h" env:"QUEUE_MESSAGE_RETENTION"`
+	DeviceLogRetention    time.Duration `help:"Retain command_on_device_log rows for this long." default:"2160h" env:"DEVICE_LOG_RETENTION"`
+	BatchLogRetention     time.Duration `help:"Retain command_batch_log headers for this long after finishing." default:"4320h" env:"BATCH_LOG_RETENTION"`
+	CleanupInterval       time.Duration `help:"How often the command retention cleaner runs." default:"1h" env:"COMMAND_CLEANUP_INTERVAL"`
+	DeleteBatchLimit      int           `help:"Maximum rows deleted per retention query; the cleaner loops until the query returns zero." default:"1000" env:"COMMAND_DELETE_BATCH_LIMIT"`
 }

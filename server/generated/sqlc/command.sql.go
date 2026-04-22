@@ -55,6 +55,64 @@ func (q *Queries) CreateCommandBatchLog(ctx context.Context, arg CreateCommandBa
 	)
 }
 
+const deleteCommandBatchLogsOlderThan = `-- name: DeleteCommandBatchLogsOlderThan :execrows
+DELETE FROM command_batch_log cbl
+WHERE cbl.id IN (
+    SELECT cbl_inner.id FROM command_batch_log cbl_inner
+    WHERE cbl_inner.status = 'FINISHED'
+      AND cbl_inner.finished_at IS NOT NULL
+      AND cbl_inner.finished_at < $1
+      AND NOT EXISTS (
+        SELECT 1 FROM command_on_device_log codl
+        WHERE codl.command_batch_log_id = cbl_inner.id
+      )
+    ORDER BY cbl_inner.finished_at
+    LIMIT $2
+)
+`
+
+type DeleteCommandBatchLogsOlderThanParams struct {
+	Cutoff  sql.NullTime
+	MaxRows int32
+}
+
+// Paginated retention delete of command batch headers. Only FINISHED batches
+// older than the cutoff are eligible; a NOT EXISTS guard prevents deleting a
+// header while any per-device rows still reference it (FK safety).
+func (q *Queries) DeleteCommandBatchLogsOlderThan(ctx context.Context, arg DeleteCommandBatchLogsOlderThanParams) (int64, error) {
+	result, err := q.exec(ctx, q.deleteCommandBatchLogsOlderThanStmt, deleteCommandBatchLogsOlderThan, arg.Cutoff, arg.MaxRows)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const deleteCommandOnDeviceLogsOlderThan = `-- name: DeleteCommandOnDeviceLogsOlderThan :execrows
+DELETE FROM command_on_device_log
+WHERE id IN (
+    SELECT codl.id FROM command_on_device_log codl
+    WHERE codl.updated_at < $1
+    ORDER BY codl.updated_at
+    LIMIT $2
+)
+`
+
+type DeleteCommandOnDeviceLogsOlderThanParams struct {
+	Cutoff  time.Time
+	MaxRows int32
+}
+
+// Paginated retention delete of per-device logs older than the cutoff.
+// Bounded by @max_rows to keep each run short; the cleaner loops until the
+// query returns zero rows.
+func (q *Queries) DeleteCommandOnDeviceLogsOlderThan(ctx context.Context, arg DeleteCommandOnDeviceLogsOlderThanParams) (int64, error) {
+	result, err := q.exec(ctx, q.deleteCommandOnDeviceLogsOlderThanStmt, deleteCommandOnDeviceLogsOlderThan, arg.Cutoff, arg.MaxRows)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const getBatchHeaderForOrg = `-- name: GetBatchHeaderForOrg :one
 SELECT
     cbl.uuid,

@@ -64,6 +64,32 @@ func (q *Queries) CreateQueueMessage(ctx context.Context, arg CreateQueueMessage
 	return err
 }
 
+const deleteTerminalQueueMessagesOlderThan = `-- name: DeleteTerminalQueueMessagesOlderThan :execrows
+DELETE FROM queue_message
+WHERE id IN (
+    SELECT qm.id FROM queue_message qm
+    WHERE qm.status IN ('SUCCESS', 'FAILED')
+      AND qm.updated_at < $1
+    ORDER BY qm.updated_at
+    LIMIT $2
+)
+`
+
+type DeleteTerminalQueueMessagesOlderThanParams struct {
+	Cutoff  time.Time
+	MaxRows int32
+}
+
+// Paginated delete of terminal queue_message rows (SUCCESS/FAILED) older than
+// the cutoff. Bounded by @max_rows so cleanup doesn't hold long locks.
+func (q *Queries) DeleteTerminalQueueMessagesOlderThan(ctx context.Context, arg DeleteTerminalQueueMessagesOlderThanParams) (int64, error) {
+	result, err := q.exec(ctx, q.deleteTerminalQueueMessagesOlderThanStmt, deleteTerminalQueueMessagesOlderThan, arg.Cutoff, arg.MaxRows)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const getMessagesToProcess = `-- name: GetMessagesToProcess :many
 SELECT m.id, m.command_batch_log_uuid, m.device_id, m.command_type, m.status, m.retry_count, m.error_info, m.payload, m.created_at, m.updated_at
 FROM queue_message m

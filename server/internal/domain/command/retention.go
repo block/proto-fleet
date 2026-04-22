@@ -1,0 +1,205 @@
+package command
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"log/slog"
+	"time"
+
+	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/infrastructure/db"
+)
+
+// retentionStepTimeout bounds a single paginated delete statement. Each
+// retention pass may issue many of these in a loop.
+const retentionStepTimeout = 30 * time.Second
+
+// defaultRetentionConfig fills in sensible values for any RetentionConfig
+// field left at its zero value. Applied when NewRetentionCleaner is called so
+// tests and call-sites that build a Config by hand get a working cleaner.
+func defaultRetentionConfig(rc *RetentionConfig) {
+	if rc.QueueMessageRetention <= 0 {
+		rc.QueueMessageRetention = 720 * time.Hour
+	}
+	if rc.DeviceLogRetention <= 0 {
+		rc.DeviceLogRetention = 2160 * time.Hour
+	}
+	if rc.BatchLogRetention <= 0 {
+		rc.BatchLogRetention = 4320 * time.Hour
+	}
+	if rc.CleanupInterval <= 0 {
+		rc.CleanupInterval = time.Hour
+	}
+	if rc.DeleteBatchLimit <= 0 {
+		rc.DeleteBatchLimit = 1000
+	}
+}
+
+// RetentionCleaner periodically ages out command-audit tables per
+// RetentionConfig. Deletes are paginated and ordered so FK constraints never
+// block the cleaner:
+//
+//	queue_message (terminal)   -> command_on_device_log -> command_batch_log
+//
+// Each table is drained in a loop until its LIMIT-bounded delete returns zero
+// rows, then the cleaner sleeps until the next tick.
+type RetentionCleaner struct {
+	conn   *sql.DB
+	config *RetentionConfig
+	now    func() time.Time
+
+	cancel context.CancelFunc
+	done   chan struct{}
+}
+
+// NewRetentionCleaner returns a cleaner that mutates cfg to apply defaults for
+// zero-valued fields (the caller owns cfg so the defaults stick).
+func NewRetentionCleaner(conn *sql.DB, cfg *RetentionConfig) *RetentionCleaner {
+	defaultRetentionConfig(cfg)
+	return &RetentionCleaner{
+		conn:   conn,
+		config: cfg,
+		now:    time.Now,
+	}
+}
+
+// Start launches the cleaner goroutine. Safe to call with a nil receiver.
+func (c *RetentionCleaner) Start(ctx context.Context) {
+	if c == nil {
+		return
+	}
+	if c.cancel != nil {
+		c.cancel()
+		<-c.done
+	}
+	cleanCtx, cancel := context.WithCancel(ctx)
+	c.cancel = cancel
+	c.done = make(chan struct{})
+
+	go func() {
+		defer close(c.done)
+		ticker := time.NewTicker(c.config.CleanupInterval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-cleanCtx.Done():
+				return
+			case <-ticker.C:
+				if err := c.runOnce(cleanCtx); err != nil {
+					slog.Error("command retention cleaner run failed", "error", err)
+				}
+			}
+		}
+	}()
+}
+
+// Stop signals the cleaner goroutine to exit and waits for it to drain.
+func (c *RetentionCleaner) Stop() {
+	if c == nil || c.cancel == nil {
+		return
+	}
+	c.cancel()
+	<-c.done
+	c.cancel = nil
+}
+
+// runOnce performs a full pass: queue_message terminals first, then
+// per-device logs, then batch headers. Exposed for tests.
+func (c *RetentionCleaner) runOnce(ctx context.Context) error {
+	now := c.now()
+
+	qmDeleted, err := c.drain(ctx,
+		"queue_message terminal rows",
+		now.Add(-c.config.QueueMessageRetention),
+		c.deleteQueueMessages,
+	)
+	if err != nil {
+		return fmt.Errorf("draining queue_message: %w", err)
+	}
+
+	codlDeleted, err := c.drain(ctx,
+		"command_on_device_log rows",
+		now.Add(-c.config.DeviceLogRetention),
+		c.deleteDeviceLogs,
+	)
+	if err != nil {
+		return fmt.Errorf("draining command_on_device_log: %w", err)
+	}
+
+	cblDeleted, err := c.drain(ctx,
+		"command_batch_log headers",
+		now.Add(-c.config.BatchLogRetention),
+		c.deleteBatchLogs,
+	)
+	if err != nil {
+		return fmt.Errorf("draining command_batch_log: %w", err)
+	}
+
+	if qmDeleted+codlDeleted+cblDeleted > 0 {
+		slog.Info("command retention cleaner deleted rows",
+			"queue_message", qmDeleted,
+			"command_on_device_log", codlDeleted,
+			"command_batch_log", cblDeleted)
+	}
+	return nil
+}
+
+// drain runs the supplied delete function in a loop until it returns zero rows
+// or the context is done. Returns the total rows deleted.
+func (c *RetentionCleaner) drain(
+	ctx context.Context,
+	label string,
+	cutoff time.Time,
+	fn func(ctx context.Context, cutoff time.Time, limit int32) (int64, error),
+) (int64, error) {
+	total := int64(0)
+	// #nosec G115 -- DeleteBatchLimit is bounded by the config's int range.
+	limit := int32(c.config.DeleteBatchLimit)
+	for {
+		select {
+		case <-ctx.Done():
+			return total, ctx.Err()
+		default:
+		}
+
+		stepCtx, cancel := context.WithTimeout(ctx, retentionStepTimeout)
+		deleted, err := fn(stepCtx, cutoff, limit)
+		cancel()
+		if err != nil {
+			return total, fmt.Errorf("%s: %w", label, err)
+		}
+		total += deleted
+		if deleted < int64(limit) {
+			return total, nil
+		}
+	}
+}
+
+func (c *RetentionCleaner) deleteQueueMessages(ctx context.Context, cutoff time.Time, limit int32) (int64, error) {
+	return db.WithTransaction(ctx, c.conn, func(q *sqlc.Queries) (int64, error) {
+		return q.DeleteTerminalQueueMessagesOlderThan(ctx, sqlc.DeleteTerminalQueueMessagesOlderThanParams{
+			Cutoff:  cutoff,
+			MaxRows: limit,
+		})
+	})
+}
+
+func (c *RetentionCleaner) deleteDeviceLogs(ctx context.Context, cutoff time.Time, limit int32) (int64, error) {
+	return db.WithTransaction(ctx, c.conn, func(q *sqlc.Queries) (int64, error) {
+		return q.DeleteCommandOnDeviceLogsOlderThan(ctx, sqlc.DeleteCommandOnDeviceLogsOlderThanParams{
+			Cutoff:  cutoff,
+			MaxRows: limit,
+		})
+	})
+}
+
+func (c *RetentionCleaner) deleteBatchLogs(ctx context.Context, cutoff time.Time, limit int32) (int64, error) {
+	return db.WithTransaction(ctx, c.conn, func(q *sqlc.Queries) (int64, error) {
+		return q.DeleteCommandBatchLogsOlderThan(ctx, sqlc.DeleteCommandBatchLogsOlderThanParams{
+			Cutoff:  sql.NullTime{Time: cutoff, Valid: true},
+			MaxRows: limit,
+		})
+	})
+}
