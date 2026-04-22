@@ -5,6 +5,7 @@ import FoundMinersModal from "./FoundMinersModal";
 import { MinerDiscoveryMode } from "./types";
 import ValidationErrorDialog from "./ValidationErrorDialog";
 import { Device } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
+import NullState from "@/protoFleet/components/NullState";
 import { Dismiss, LogoAlt } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Dialog from "@/shared/components/Dialog";
@@ -178,27 +179,20 @@ const Miners = ({
   }
 
   return (
-    <div className="h-[calc(100vh-theme(spacing.1)*15)] p-6 sm:p-10">
+    <div className="h-[calc(100vh-theme(spacing.1)*15)]">
       <Dialog open={pairingPending} title="Pairing the found miners" subtitle="This may take a few seconds" loading />
 
       {mode === "onboarding" && (
-        <div className="flex h-full w-full items-center rounded-xl bg-landing-page p-6 sm:p-20">
-          <div className="flex flex-col gap-12">
-            <div className="flex flex-col gap-4">
-              <LogoAlt width="w-[48px]" />
-              <Header
-                title="Let's setup your fleet."
-                titleSize="text-display-200"
-                description="Add miners to your fleet to get started."
-              />
-            </div>
-            <div>
-              <Button variant="primary" onClick={() => setShowModal(true)}>
-                Get started
-              </Button>
-            </div>
-          </div>
-        </div>
+        <NullState
+          icon={<LogoAlt width="w-5" />}
+          title="Let's setup your fleet."
+          description="Add miners to your fleet to get started."
+          action={
+            <Button variant="primary" onClick={() => setShowModal(true)}>
+              Get started
+            </Button>
+          }
+        />
       )}
 
       <PageOverlay open={mode === "pairing" || showModal} zIndex="z-50">

@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import clsx from "clsx";
 
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useScheduleApiContext } from "@/protoFleet/api/ScheduleApiContext";
@@ -30,7 +29,6 @@ import type { ActiveFilters } from "@/shared/components/List/Filters/types";
 import type { ListAction, SortDirection } from "@/shared/components/List/types";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
-import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
 const defaultActiveFilters: ActiveFilters = {
   buttonFilters: ["all"],
@@ -49,7 +47,6 @@ const SchedulesPage = () => {
     deleteSchedule,
     reorderSchedules,
   } = useScheduleApiContext();
-  const { isPhone, isTablet } = useWindowDimensions();
   const [activeFilters, setActiveFilters] = useState<ActiveFilters>(defaultActiveFilters);
   const [currentSort, setCurrentSort] = useState<{ field: ScheduleColumn; direction: SortDirection }>();
   const [hasCompletedInitialLoad, setHasCompletedInitialLoad] = useState(false);
@@ -204,13 +201,15 @@ const SchedulesPage = () => {
     />
   ) : null;
 
-  const emptyStateRow = (
+  const emptyStateRow = filtersActive ? (
     <div className="flex flex-col items-center justify-center gap-1 py-12 text-center">
       <p className="text-heading-200 text-text-primary">No schedules match those filters</p>
       <p className="text-300 text-text-primary-70">
         Try clearing one or more filters to see the rest of your schedules.
       </p>
     </div>
+  ) : (
+    <div className="py-10 text-center text-text-primary-50">No schedules yet. {SCHEDULE_EMPTY_STATE_DESCRIPTION}</div>
   );
 
   if (isLoading || !hasCompletedInitialLoad) {
@@ -218,37 +217,6 @@ const SchedulesPage = () => {
       <div className="flex justify-center py-20">
         <ProgressCircular indeterminate />
       </div>
-    );
-  }
-
-  if (schedules.length === 0) {
-    return (
-      <>
-        <div
-          className={clsx("flex items-center rounded-xl bg-landing-page p-6 sm:p-20", {
-            "h-full": !isPhone && !isTablet,
-            "flex-1": isPhone || isTablet,
-          })}
-        >
-          <div className="flex flex-col gap-6">
-            <Header
-              title="Schedules"
-              subtitle={SCHEDULE_EMPTY_STATE_DESCRIPTION}
-              titleSize="text-heading-400"
-              subtitleSize="text-400"
-              subtitleClassName="mt-1"
-              className="items-center"
-            />
-            <Button
-              variant={variants.primary}
-              className="w-fit"
-              text="Add a schedule"
-              onClick={handleOpenCreateModal}
-            />
-          </div>
-        </div>
-        {scheduleModal}
-      </>
     );
   }
 
@@ -283,7 +251,7 @@ const SchedulesPage = () => {
         filters={scheduleFilters}
         filterItem={matchesScheduleFilters}
         onFilterChange={setActiveFilters}
-        emptyStateRow={filtersActive ? emptyStateRow : undefined}
+        emptyStateRow={emptyStateRow}
         sortableColumns={SORTABLE_COLUMNS}
         currentSort={currentSort}
         onSort={handleSort}
