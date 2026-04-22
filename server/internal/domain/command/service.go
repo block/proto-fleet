@@ -1068,6 +1068,19 @@ func (s *Service) GetCommandBatchDeviceResults(ctx context.Context, req *pb.GetC
 		return nil, fleeterror.NewInternalErrorf("error loading batch header: %v", err)
 	}
 
+	// Authoritative counts come from the aggregate query so they remain
+	// consistent with total_count even when device_results is capped by
+	// maxBatchDeviceResults.
+	counts, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (sqlc.GetBatchStatusAndDeviceCountsRow, error) {
+		return q.GetBatchStatusAndDeviceCounts(ctx, req.BatchIdentifier)
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fleeterror.NewNotFoundErrorf("command batch %s not found", req.BatchIdentifier)
+		}
+		return nil, fleeterror.NewInternalErrorf("error loading batch counts: %v", err)
+	}
+
 	rows, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]sqlc.ListBatchDeviceResultsRow, error) {
 		return q.ListBatchDeviceResults(ctx, req.BatchIdentifier)
 	})
@@ -1075,23 +1088,16 @@ func (s *Service) GetCommandBatchDeviceResults(ctx context.Context, req *pb.GetC
 		return nil, fleeterror.NewInternalErrorf("error loading batch device results: %v", err)
 	}
 
+	truncated := len(rows) > maxBatchDeviceResults
 	capped := rows
-	if len(capped) > maxBatchDeviceResults {
+	if truncated {
 		capped = capped[:maxBatchDeviceResults]
 	}
 
-	var success, failure int32
 	results := make([]*pb.CommandBatchDeviceResult, 0, len(capped))
 	for _, row := range capped {
-		statusStr := deviceCommandStatusToProto(row.Status)
-		switch row.Status {
-		case sqlc.DeviceCommandStatusEnumSUCCESS:
-			success++
-		case sqlc.DeviceCommandStatusEnumFAILED:
-			failure++
-		}
 		entry := &pb.CommandBatchDeviceResult{
-			Status:    statusStr,
+			Status:    deviceCommandStatusToProto(row.Status),
 			UpdatedAt: timestamppb.New(row.UpdatedAt),
 		}
 		if row.DeviceIdentifier.Valid {
@@ -1104,9 +1110,16 @@ func (s *Service) GetCommandBatchDeviceResults(ctx context.Context, req *pb.GetC
 		results = append(results, entry)
 	}
 
+	// #nosec G115 -- counts come from SUM over command_on_device_log, bounded by
+	// devices_count which itself fits in int32.
+	successCount := int32(counts.SuccessfulDevices)
+	// #nosec G115 -- same bound as successCount.
+	failureCount := int32(counts.FailedDevices)
+
 	// Pruned when the batch is FINISHED but no per-device rows remain. If rows
 	// exist but fewer than devices_count, that is a transient mid-run state we
-	// don't flag as pruned.
+	// don't flag as pruned. (R4 will tighten this further to require
+	// devices_count > 0 so empty-selector batches don't false-positive.)
 	detailsPruned := header.Status == sqlc.BatchStatusEnumFINISHED && len(rows) == 0
 
 	return &pb.GetCommandBatchDeviceResultsResponse{
@@ -1114,10 +1127,11 @@ func (s *Service) GetCommandBatchDeviceResults(ctx context.Context, req *pb.GetC
 		CommandType:     header.Type,
 		Status:          string(header.Status),
 		TotalCount:      header.DevicesCount,
-		SuccessCount:    success,
-		FailureCount:    failure,
+		SuccessCount:    successCount,
+		FailureCount:    failureCount,
 		DeviceResults:   results,
 		DetailsPruned:   detailsPruned,
+		Truncated:       truncated,
 	}, nil
 }
 

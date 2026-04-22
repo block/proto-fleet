@@ -230,6 +230,8 @@ message GetCommandBatchDeviceResultsResponse {
   string command_type = 2;
   // Batch-level status: PENDING | PROCESSING | FINISHED.
   string status = 3;
+  // Authoritative counts sourced from command_on_device_log aggregates, so
+  // they stay consistent with total_count even when device_results is capped.
   int32 total_count = 4;
   int32 success_count = 5;
   int32 failure_count = 6;
@@ -238,6 +240,12 @@ message GetCommandBatchDeviceResultsResponse {
   // available, or when neither is available. The UI uses this to show
   // "Per-miner details are no longer available." after retention prunes.
   bool details_pruned = 8;
+  // True when device_results was truncated because the batch has more
+  // per-device rows than the server's response cap. success_count,
+  // failure_count, and total_count continue to reflect the full batch; the
+  // UI should show an affordance (e.g. "showing first N of total_count") to
+  // direct operators at the CSV/ZIP export for the complete list.
+  bool truncated = 9;
 }
 
 // Command type enum for capability checking
