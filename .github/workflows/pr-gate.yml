@@ -86,6 +86,8 @@ jobs:
           global=false
           if has_match '^(\.github/actions/|\.github/copilot-instructions\.md$|\.github/labeler\.yml$|\.github/workflows/|bin/|hermit-packages/|just/|justfile$|scripts/)'; then
             global=true
+          elif has_match '^(deployment-files/(docker-compose[^/]*\.ya?ml|[^/]+\.sh)|deployment-files/scripts/)'; then
+            global=true
           fi
 
           set_flag() {
@@ -114,6 +116,13 @@ jobs:
     name: Generated Code Check
     needs: changes
     uses: ./.github/workflows/generated-code-check.yml
+    secrets: inherit
+
+  dependency-review:
+    name: Dependency Review
+    needs: changes
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/dependency-review.yml
     secrets: inherit
 
   proto-checks:
@@ -214,6 +223,7 @@ jobs:
     needs:
       - changes
       - generated-code
+      - dependency-review
       - proto-checks
       - client-checks
       - server-checks
