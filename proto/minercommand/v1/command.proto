@@ -206,6 +206,40 @@ message GetCommandBatchLogBundleResponse {
   string filename = 2;
 }
 
+// Per-device outcome of a command batch. Used by GetCommandBatchDeviceResults
+// to surface which miners succeeded or failed and, when available, the error
+// that caused the failure.
+message CommandBatchDeviceResult {
+  // Stable device identifier (e.g. MAC address), even for soft-deleted devices
+  string device_identifier = 1;
+  // "success" or "failed" mapped from device_command_status_enum.
+  string status = 2;
+  // Bounded failure reason; unset for successful rows.
+  optional string error_message = 3;
+  // When this row was last updated (start of this attempt's terminal write).
+  google.protobuf.Timestamp updated_at = 4;
+}
+
+message GetCommandBatchDeviceResultsRequest {
+  string batch_identifier = 1;
+}
+
+message GetCommandBatchDeviceResultsResponse {
+  string batch_identifier = 1;
+  // Command type (e.g. "REBOOT") mirrored from command_batch_log.type.
+  string command_type = 2;
+  // Batch-level status: PENDING | PROCESSING | FINISHED.
+  string status = 3;
+  int32 total_count = 4;
+  int32 success_count = 5;
+  int32 failure_count = 6;
+  repeated CommandBatchDeviceResult device_results = 7;
+  // True when the batch header is present but per-device rows are no longer
+  // available, or when neither is available. The UI uses this to show
+  // "Per-miner details are no longer available." after retention prunes.
+  bool details_pruned = 8;
+}
+
 // Command type enum for capability checking
 enum CommandType {
   COMMAND_TYPE_UNSPECIFIED = 0;
@@ -272,6 +306,13 @@ service MinerCommandService {
   rpc StreamCommandBatchUpdates(StreamCommandBatchUpdatesRequest) returns (stream StreamCommandBatchUpdatesResponse);
 
   rpc GetCommandBatchLogBundle(GetCommandBatchLogBundleRequest) returns (GetCommandBatchLogBundleResponse);
+
+  // Returns the per-device outcome of a completed (or in-progress) command
+  // batch so the activity log UI can drill into which miners succeeded and
+  // which failed, along with per-miner error messages.
+  // Org-scoped via the session user; returns details_pruned=true when retention
+  // has removed the per-device rows.
+  rpc GetCommandBatchDeviceResults(GetCommandBatchDeviceResultsRequest) returns (GetCommandBatchDeviceResultsResponse);
 
   rpc FirmwareUpdate(FirmwareUpdateRequest) returns (FirmwareUpdateResponse);
 

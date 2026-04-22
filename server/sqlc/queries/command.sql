@@ -89,3 +89,35 @@ SELECT
     cbl.type
 FROM command_batch_log cbl
 WHERE cbl.uuid = $1;
+
+-- name: GetBatchHeaderForOrg :one
+-- Returns the batch header only if the creating user belongs to the caller's
+-- organization, giving the detail RPC tenant isolation without a dedicated
+-- org_id column on command_batch_log (tracked as an issue #22 follow-up).
+-- Returns no rows when the batch does not exist or the caller is not
+-- authorized, which the handler translates into "not found".
+SELECT
+    cbl.uuid,
+    cbl.type,
+    cbl.status,
+    cbl.devices_count
+FROM command_batch_log cbl
+JOIN user_organization uo ON uo.user_id = cbl.created_by
+WHERE cbl.uuid = $1
+  AND uo.organization_id = $2
+  AND uo.deleted_at IS NULL;
+
+-- name: ListBatchDeviceResults :many
+-- Returns one row per device in the batch, ordered deterministically so the
+-- client can page or virtualize without reshuffling results across polls.
+-- The LEFT JOIN to device preserves identifiers for soft-deleted devices.
+SELECT
+    d.device_identifier,
+    codl.status,
+    codl.error_info,
+    codl.updated_at
+FROM command_on_device_log codl
+JOIN command_batch_log cbl ON cbl.id = codl.command_batch_log_id
+LEFT JOIN device d ON d.id = codl.device_id
+WHERE cbl.uuid = $1
+ORDER BY d.device_identifier NULLS LAST, codl.id;

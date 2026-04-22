@@ -144,6 +144,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getAvailableModelsStmt, err = db.PrepareContext(ctx, getAvailableModels); err != nil {
 		return nil, fmt.Errorf("error preparing query GetAvailableModels: %w", err)
 	}
+	if q.getBatchHeaderForOrgStmt, err = db.PrepareContext(ctx, getBatchHeaderForOrg); err != nil {
+		return nil, fmt.Errorf("error preparing query GetBatchHeaderForOrg: %w", err)
+	}
 	if q.getBatchLogStmt, err = db.PrepareContext(ctx, getBatchLog); err != nil {
 		return nil, fmt.Errorf("error preparing query GetBatchLog: %w", err)
 	}
@@ -413,6 +416,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.listApiKeysByOrganizationStmt, err = db.PrepareContext(ctx, listApiKeysByOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query ListApiKeysByOrganization: %w", err)
+	}
+	if q.listBatchDeviceResultsStmt, err = db.PrepareContext(ctx, listBatchDeviceResults); err != nil {
+		return nil, fmt.Errorf("error preparing query ListBatchDeviceResults: %w", err)
 	}
 	if q.listDeviceSetMembersPaginatedStmt, err = db.PrepareContext(ctx, listDeviceSetMembersPaginated); err != nil {
 		return nil, fmt.Errorf("error preparing query ListDeviceSetMembersPaginated: %w", err)
@@ -851,6 +857,11 @@ func (q *Queries) Close() error {
 	if q.getAvailableModelsStmt != nil {
 		if cerr := q.getAvailableModelsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getAvailableModelsStmt: %w", cerr)
+		}
+	}
+	if q.getBatchHeaderForOrgStmt != nil {
+		if cerr := q.getBatchHeaderForOrgStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getBatchHeaderForOrgStmt: %w", cerr)
 		}
 	}
 	if q.getBatchLogStmt != nil {
@@ -1301,6 +1312,11 @@ func (q *Queries) Close() error {
 	if q.listApiKeysByOrganizationStmt != nil {
 		if cerr := q.listApiKeysByOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listApiKeysByOrganizationStmt: %w", cerr)
+		}
+	}
+	if q.listBatchDeviceResultsStmt != nil {
+		if cerr := q.listBatchDeviceResultsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listBatchDeviceResultsStmt: %w", cerr)
 		}
 	}
 	if q.listDeviceSetMembersPaginatedStmt != nil {
@@ -1772,6 +1788,7 @@ type Queries struct {
 	getAllPairedDeviceIdentifiersStmt                   *sql.Stmt
 	getApiKeyByHashStmt                                 *sql.Stmt
 	getAvailableModelsStmt                              *sql.Stmt
+	getBatchHeaderForOrgStmt                            *sql.Stmt
 	getBatchLogStmt                                     *sql.Stmt
 	getBatchStatusAndDeviceCountsStmt                   *sql.Stmt
 	getDeviceByDeviceIdentifierStmt                     *sql.Stmt
@@ -1862,6 +1879,7 @@ type Queries struct {
 	isBatchProcessingStmt                               *sql.Stmt
 	listActivityLogsStmt                                *sql.Stmt
 	listApiKeysByOrganizationStmt                       *sql.Stmt
+	listBatchDeviceResultsStmt                          *sql.Stmt
 	listDeviceSetMembersPaginatedStmt                   *sql.Stmt
 	listDeviceSetMembersPaginatedAfterStmt              *sql.Stmt
 	listMinerStateSnapshotsStmt                         *sql.Stmt
@@ -1986,6 +2004,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getAllPairedDeviceIdentifiersStmt:                   q.getAllPairedDeviceIdentifiersStmt,
 		getApiKeyByHashStmt:                                 q.getApiKeyByHashStmt,
 		getAvailableModelsStmt:                              q.getAvailableModelsStmt,
+		getBatchHeaderForOrgStmt:                            q.getBatchHeaderForOrgStmt,
 		getBatchLogStmt:                                     q.getBatchLogStmt,
 		getBatchStatusAndDeviceCountsStmt:                   q.getBatchStatusAndDeviceCountsStmt,
 		getDeviceByDeviceIdentifierStmt:                     q.getDeviceByDeviceIdentifierStmt,
@@ -2076,6 +2095,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		isBatchProcessingStmt:                               q.isBatchProcessingStmt,
 		listActivityLogsStmt:                                q.listActivityLogsStmt,
 		listApiKeysByOrganizationStmt:                       q.listApiKeysByOrganizationStmt,
+		listBatchDeviceResultsStmt:                          q.listBatchDeviceResultsStmt,
 		listDeviceSetMembersPaginatedStmt:                   q.listDeviceSetMembersPaginatedStmt,
 		listDeviceSetMembersPaginatedAfterStmt:              q.listDeviceSetMembersPaginatedAfterStmt,
 		listMinerStateSnapshotsStmt:                         q.listMinerStateSnapshotsStmt,

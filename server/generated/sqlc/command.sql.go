@@ -55,6 +55,48 @@ func (q *Queries) CreateCommandBatchLog(ctx context.Context, arg CreateCommandBa
 	)
 }
 
+const getBatchHeaderForOrg = `-- name: GetBatchHeaderForOrg :one
+SELECT
+    cbl.uuid,
+    cbl.type,
+    cbl.status,
+    cbl.devices_count
+FROM command_batch_log cbl
+JOIN user_organization uo ON uo.user_id = cbl.created_by
+WHERE cbl.uuid = $1
+  AND uo.organization_id = $2
+  AND uo.deleted_at IS NULL
+`
+
+type GetBatchHeaderForOrgParams struct {
+	Uuid           string
+	OrganizationID int64
+}
+
+type GetBatchHeaderForOrgRow struct {
+	Uuid         string
+	Type         string
+	Status       BatchStatusEnum
+	DevicesCount int32
+}
+
+// Returns the batch header only if the creating user belongs to the caller's
+// organization, giving the detail RPC tenant isolation without a dedicated
+// org_id column on command_batch_log (tracked as an issue #22 follow-up).
+// Returns no rows when the batch does not exist or the caller is not
+// authorized, which the handler translates into "not found".
+func (q *Queries) GetBatchHeaderForOrg(ctx context.Context, arg GetBatchHeaderForOrgParams) (GetBatchHeaderForOrgRow, error) {
+	row := q.queryRow(ctx, q.getBatchHeaderForOrgStmt, getBatchHeaderForOrg, arg.Uuid, arg.OrganizationID)
+	var i GetBatchHeaderForOrgRow
+	err := row.Scan(
+		&i.Uuid,
+		&i.Type,
+		&i.Status,
+		&i.DevicesCount,
+	)
+	return i, err
+}
+
 const getBatchLog = `-- name: GetBatchLog :one
 SELECT
     cbl.status,
@@ -122,6 +164,57 @@ func (q *Queries) GetBatchStatusAndDeviceCounts(ctx context.Context, uuid string
 		&i.FailureDeviceIdentifiers,
 	)
 	return i, err
+}
+
+const listBatchDeviceResults = `-- name: ListBatchDeviceResults :many
+SELECT
+    d.device_identifier,
+    codl.status,
+    codl.error_info,
+    codl.updated_at
+FROM command_on_device_log codl
+JOIN command_batch_log cbl ON cbl.id = codl.command_batch_log_id
+LEFT JOIN device d ON d.id = codl.device_id
+WHERE cbl.uuid = $1
+ORDER BY d.device_identifier NULLS LAST, codl.id
+`
+
+type ListBatchDeviceResultsRow struct {
+	DeviceIdentifier sql.NullString
+	Status           DeviceCommandStatusEnum
+	ErrorInfo        sql.NullString
+	UpdatedAt        time.Time
+}
+
+// Returns one row per device in the batch, ordered deterministically so the
+// client can page or virtualize without reshuffling results across polls.
+// The LEFT JOIN to device preserves identifiers for soft-deleted devices.
+func (q *Queries) ListBatchDeviceResults(ctx context.Context, uuid string) ([]ListBatchDeviceResultsRow, error) {
+	rows, err := q.query(ctx, q.listBatchDeviceResultsStmt, listBatchDeviceResults, uuid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListBatchDeviceResultsRow
+	for rows.Next() {
+		var i ListBatchDeviceResultsRow
+		if err := rows.Scan(
+			&i.DeviceIdentifier,
+			&i.Status,
+			&i.ErrorInfo,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const markCommandBatchFinished = `-- name: MarkCommandBatchFinished :exec

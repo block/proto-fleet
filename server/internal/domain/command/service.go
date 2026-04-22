@@ -908,3 +908,9 @@ func (s *Service) CheckCommandCapabilities(ctx context.Context, req *pb.CheckCom
 
 	return s.capabilityChecker.CheckCapabilities(ctx, req.DeviceSelector, req.CommandType, info.OrganizationID)
 }
+
+// GetCommandBatchDeviceResults returns the per-device outcome of a command
+// batch for the activity-log detail UI. Implemented in M8.
+func (s *Service) GetCommandBatchDeviceResults(_ context.Context, _ *pb.GetCommandBatchDeviceResultsRequest) (*pb.GetCommandBatchDeviceResultsResponse, error) {
+	return nil, fleeterror.NewUnimplementedError("GetCommandBatchDeviceResults is not implemented yet")
+}

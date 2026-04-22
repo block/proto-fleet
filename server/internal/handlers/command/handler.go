@@ -211,3 +211,17 @@ func (h *Handler) CheckCommandCapabilities(
 
 	return connect.NewResponse(resp), nil
 }
+
+// GetCommandBatchDeviceResults returns the per-device outcome for a command
+// batch so the activity log can show which miners succeeded or failed. Wired
+// up in M8; stubbed here to satisfy the generated handler interface.
+func (h *Handler) GetCommandBatchDeviceResults(
+	ctx context.Context,
+	req *connect.Request[pb.GetCommandBatchDeviceResultsRequest],
+) (*connect.Response[pb.GetCommandBatchDeviceResultsResponse], error) {
+	resp, err := h.commandSvc.GetCommandBatchDeviceResults(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
+}
