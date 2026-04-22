@@ -1,13 +1,6 @@
 name: ProtoFleet Client Checks
 
 on:
-  pull_request:
-    paths:
-      - ".github/workflows/protofleet-client-checks.yml"
-      - ".github/actions/hermit-setup/action.yml"
-      - "bin/hermit.hcl"
-      - "hermit-packages/**"
-      - "client/**"
   push:
     branches:
       - main
@@ -18,6 +11,7 @@ on:
       - "hermit-packages/**"
       - "client/**"
   workflow_dispatch:
+  workflow_call:
 
 jobs:
   # Fast checks (lint, format, typecheck) run in a single job to reduce overhead
@@ -35,7 +29,7 @@ jobs:
         uses: ./.github/actions/hermit-setup
 
       - name: Cache npm dependencies
-        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.npm
           key: ${{ runner.os }}-npm-${{ hashFiles('client/package-lock.json') }}
@@ -68,7 +62,7 @@ jobs:
         uses: ./.github/actions/hermit-setup
 
       - name: Cache npm dependencies
-        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.npm
           key: ${{ runner.os }}-npm-${{ hashFiles('client/package-lock.json') }}
@@ -96,7 +90,7 @@ jobs:
         uses: ./.github/actions/hermit-setup
 
       - name: Cache npm dependencies
-        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.npm
           key: ${{ runner.os }}-npm-${{ hashFiles('client/package-lock.json') }}
