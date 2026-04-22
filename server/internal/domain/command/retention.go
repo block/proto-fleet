@@ -91,8 +91,9 @@ func defaultRetentionConfig(rc *RetentionConfig) {
 //
 //	queue_message (terminal)   -> command_on_device_log -> command_batch_log
 //
-// Each table is drained in a loop until its LIMIT-bounded delete returns zero
-// rows, then the cleaner sleeps until the next tick.
+// Each table is drained in a loop until its LIMIT-bounded delete returns a
+// short page (fewer rows than the batch limit), then the cleaner sleeps until
+// the next tick.
 type RetentionCleaner struct {
 	conn   *sql.DB
 	config *RetentionConfig
@@ -208,48 +209,40 @@ func (c *RetentionCleaner) RunOnceForTest(ctx context.Context) error {
 }
 
 // runOnce performs a full pass: queue_message terminals first, then
-// per-device logs, then batch headers. Exposed for tests.
+// per-device logs, then batch headers. Slice order is FK-safe -- children
+// before parents. Exposed for tests.
 func (c *RetentionCleaner) runOnce(ctx context.Context) error {
 	now := c.now()
-
-	qmDeleted, err := c.drain(ctx,
-		"queue_message terminal rows",
-		now.Add(-c.config.QueueMessageRetention),
-		c.deleteQueueMessages,
-	)
-	if err != nil {
-		return fmt.Errorf("draining queue_message: %w", err)
+	steps := []struct {
+		label, logKey string
+		cutoff        time.Time
+		fn            func(context.Context, time.Time, int32) (int64, error)
+	}{
+		{"queue_message terminal rows", "queue_message", now.Add(-c.config.QueueMessageRetention), c.deleteQueueMessages},
+		{"command_on_device_log rows", "command_on_device_log", now.Add(-c.config.DeviceLogRetention), c.deleteDeviceLogs},
+		{"command_batch_log headers", "command_batch_log", now.Add(-c.config.BatchLogRetention), c.deleteBatchLogs},
 	}
 
-	codlDeleted, err := c.drain(ctx,
-		"command_on_device_log rows",
-		now.Add(-c.config.DeviceLogRetention),
-		c.deleteDeviceLogs,
-	)
-	if err != nil {
-		return fmt.Errorf("draining command_on_device_log: %w", err)
+	total := int64(0)
+	attrs := make([]any, 0, 2*len(steps))
+	for _, s := range steps {
+		n, err := c.drain(ctx, s.label, s.cutoff, s.fn)
+		if err != nil {
+			return err
+		}
+		total += n
+		attrs = append(attrs, s.logKey, n)
 	}
 
-	cblDeleted, err := c.drain(ctx,
-		"command_batch_log headers",
-		now.Add(-c.config.BatchLogRetention),
-		c.deleteBatchLogs,
-	)
-	if err != nil {
-		return fmt.Errorf("draining command_batch_log: %w", err)
-	}
-
-	if qmDeleted+codlDeleted+cblDeleted > 0 {
-		slog.Info("command retention cleaner deleted rows",
-			"queue_message", qmDeleted,
-			"command_on_device_log", codlDeleted,
-			"command_batch_log", cblDeleted)
+	if total > 0 {
+		slog.Info("command retention cleaner deleted rows", attrs...)
 	}
 	return nil
 }
 
-// drain runs the supplied delete function in a loop until it returns zero rows
-// or the context is done. Returns the total rows deleted.
+// drain runs the supplied delete function in a loop until it returns a short
+// page (fewer rows than the batch limit) or the context is done. Returns the
+// total rows deleted.
 func (c *RetentionCleaner) drain(
 	ctx context.Context,
 	label string,
