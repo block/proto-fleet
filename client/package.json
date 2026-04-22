@@ -61,7 +61,6 @@
     "@typescript-eslint/eslint-plugin": "8.59.0",
     "@typescript-eslint/parser": "8.59.0",
     "@vitejs/plugin-react": "6.0.1",
-    "chromatic": "16.4.0",
     "concurrently": "9.2.1",
     "eslint": "10.2.1",
     "eslint-config-prettier": "10.1.8",
