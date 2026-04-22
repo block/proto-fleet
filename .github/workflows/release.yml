@@ -116,7 +116,7 @@ jobs:
         working-directory: ./server
         run: |
           go mod download
-          go build -v -o fleetd-${{ matrix.arch }} ./cmd/fleetd
+          go build -v -ldflags "-X main.version=$TAG_NAME" -o fleetd-${{ matrix.arch }} ./cmd/fleetd
           echo "version: $TAG_NAME" > version.txt
           if [[ "$TAG_NAME" == *-* ]]; then IS_PRERELEASE=true; else IS_PRERELEASE=false; fi
           echo "is_prerelease: $IS_PRERELEASE" >> version.txt
