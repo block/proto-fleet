@@ -2,9 +2,11 @@ import { expect } from "@playwright/test";
 import { BasePage } from "./base";
 
 export class AuthPage extends BasePage {
-  async isLoginFormVisible(timeoutMs = 2000): Promise<boolean> {
+  async isAlreadyLoggedIn(timeoutMs = 5000): Promise<boolean> {
+    // Probe for the post-login marker (mobile menu button or desktop logout
+    // button) to decide whether the full login flow can be skipped.
     try {
-      await this.page.locator(`//input[@id='username']`).waitFor({ state: "visible", timeout: timeoutMs });
+      await this.validateLoggedIn(timeoutMs);
       return true;
     } catch {
       return false;

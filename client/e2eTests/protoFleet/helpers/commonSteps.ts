@@ -11,11 +11,12 @@ export class CommonSteps {
 
   async loginAsAdmin() {
     await test.step("Login as admin", async () => {
-      // The setup project captures the admin session into storageState, so most
-      // tests start already authenticated. Skip the login flow when the auth
-      // form isn't on screen.
+      // With storageState preloaded by the setup project, tests usually start
+      // authenticated. Probe for the post-login marker first and only fall
+      // through to the full login flow when it isn't visible (e.g. auth spec,
+      // post-logout paths, or storageState opt-outs).
       // eslint-disable-next-line playwright/no-conditional-in-test
-      if (!(await this.authPage.isLoginFormVisible())) {
+      if (await this.authPage.isAlreadyLoggedIn()) {
         return;
       }
       await this.authPage.inputUsername(testConfig.users.admin.username);
