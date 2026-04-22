@@ -202,6 +202,12 @@ func TestTelemetryService_Start(t *testing.T) {
 		Return([]models.DeviceIdentifier{}, nil).
 		AnyTimes()
 
+	// Snapshot routine fires once on Start and then on the ticker.
+	mockDataStore.EXPECT().
+		InsertMinerStateSnapshot(gomock.Any(), gomock.Any()).
+		Return(nil).
+		AnyTimes()
+
 	config := Config{
 		StalenessThreshold: 1 * time.Minute,
 		FetchInterval:      100 * time.Millisecond, // Short interval for test
@@ -247,6 +253,11 @@ func TestTelemetryService_Stop(t *testing.T) {
 	mockDeviceStore.EXPECT().
 		GetAllPairedDeviceIdentifiers(gomock.Any()).
 		Return([]models.DeviceIdentifier{}, nil).
+		AnyTimes()
+
+	mockDataStore.EXPECT().
+		InsertMinerStateSnapshot(gomock.Any(), gomock.Any()).
+		Return(nil).
 		AnyTimes()
 
 	config := Config{
@@ -545,6 +556,11 @@ func TestTelemetryService_Integration(t *testing.T) {
 			GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 			Return(nil, nil).AnyTimes()
 
+		mockDataStore.EXPECT().
+			InsertMinerStateSnapshot(gomock.Any(), gomock.Any()).
+			Return(nil).
+			AnyTimes()
+
 		service := NewTelemetryService(Config{
 			StalenessThreshold: 1 * time.Minute,
 			FetchInterval:      100 * time.Millisecond, // Short interval for test
@@ -608,6 +624,11 @@ func TestTelemetryService_ComponentInteraction(t *testing.T) {
 		mockDeviceStore.EXPECT().
 			GetAllPairedDeviceIdentifiers(gomock.Any()).
 			Return([]models.DeviceIdentifier{}, nil).
+			AnyTimes()
+
+		mockDataStore.EXPECT().
+			InsertMinerStateSnapshot(gomock.Any(), gomock.Any()).
+			Return(nil).
 			AnyTimes()
 
 		config := Config{
@@ -720,6 +741,11 @@ func TestTelemetryService_ComponentInteraction(t *testing.T) {
 		mockDeviceStore.EXPECT().
 			GetAllPairedDeviceIdentifiers(gomock.Any()).
 			Return([]models.DeviceIdentifier{}, nil).
+			AnyTimes()
+
+		mockDataStore.EXPECT().
+			InsertMinerStateSnapshot(gomock.Any(), gomock.Any()).
+			Return(nil).
 			AnyTimes()
 
 		service := NewTelemetryService(Config{
@@ -2690,4 +2716,42 @@ func TestProcessStatusOnly_GenericForbiddenDoesNotUpdatePairingStatus(t *testing
 	device := models.Device{ID: deviceID}
 
 	service.processStatusOnly(ctx, device)
+}
+
+func TestWriteFleetStateSnapshot(t *testing.T) {
+	tickTime := time.Now().Truncate(time.Second)
+
+	t.Run("issues one insert per tick", func(t *testing.T) {
+		// Arrange
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+		mockDataStore.EXPECT().
+			InsertMinerStateSnapshot(gomock.Any(), tickTime).
+			Return(nil)
+
+		service := NewTelemetryService(Config{ConcurrencyLimit: 1}, mockDataStore, nil, nil, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+
+		// Act
+		service.writeFleetStateSnapshot(t.Context(), tickTime)
+	})
+
+	t.Run("logs and returns on insert error", func(t *testing.T) {
+		// Arrange
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+		mockDataStore.EXPECT().
+			InsertMinerStateSnapshot(gomock.Any(), tickTime).
+			Return(errors.New("db down"))
+
+		service := NewTelemetryService(Config{ConcurrencyLimit: 1}, mockDataStore, nil, nil, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+
+		// Act
+		service.writeFleetStateSnapshot(t.Context(), tickTime)
+	})
 }

@@ -12,6 +12,7 @@ const createMockUptimeStatusCount = (
   timestampSeconds: number,
   hashingCount: number,
   notHashingCount: number,
+  brokenCount: number,
 ): UptimeStatusCount => {
   return create(UptimeStatusCountSchema, {
     timestamp: {
@@ -20,6 +21,7 @@ const createMockUptimeStatusCount = (
     },
     hashingCount,
     notHashingCount,
+    brokenCount,
   });
 };
 
@@ -28,10 +30,17 @@ interface MockUptimePanelProps {
   duration: FleetDuration;
   hashingCount: number;
   notHashingCount: number;
+  brokenCount: number;
   isLoading?: boolean; // Used to set uptimeStatusCounts to undefined
 }
 
-function MockUptimePanel({ duration, hashingCount, notHashingCount, isLoading = false }: MockUptimePanelProps) {
+function MockUptimePanel({
+  duration,
+  hashingCount,
+  notHashingCount,
+  brokenCount,
+  isLoading = false,
+}: MockUptimePanelProps) {
   // Generate multiple data points across the time range to show a proper chart
   const uptimeStatusCounts = useMemo(() => {
     const durationHours = durationToHours(duration);
@@ -41,7 +50,7 @@ function MockUptimePanel({ duration, hashingCount, notHashingCount, isLoading = 
     const counts: UptimeStatusCount[] = [];
     // eslint-disable-next-line react-hooks/purity
     const now = Math.floor(Date.now() / 1000);
-    const totalMiners = hashingCount + notHashingCount;
+    const totalMiners = hashingCount + notHashingCount + brokenCount;
 
     // Create data points for each interval
     // Historical bars show 100% hashing, most recent bar shows actual state
@@ -54,12 +63,13 @@ function MockUptimePanel({ duration, hashingCount, notHashingCount, isLoading = 
       const isLatestBar = i === intervalCount - 1;
       const barHashingCount = isLatestBar ? hashingCount : totalMiners;
       const barNotHashingCount = isLatestBar ? notHashingCount : 0;
+      const barBrokenCount = isLatestBar ? brokenCount : 0;
 
-      counts.push(createMockUptimeStatusCount(timestampSeconds, barHashingCount, barNotHashingCount));
+      counts.push(createMockUptimeStatusCount(timestampSeconds, barHashingCount, barNotHashingCount, barBrokenCount));
     }
 
     return counts;
-  }, [duration, hashingCount, notHashingCount]);
+  }, [duration, hashingCount, notHashingCount, brokenCount]);
 
   return <UptimePanel duration={duration} uptimeStatusCounts={isLoading ? undefined : uptimeStatusCounts} />;
 }
@@ -97,11 +107,15 @@ const meta = {
     },
     hashingCount: {
       control: { type: "number", min: 0, max: 100 },
-      description: "Number of miners currently hashing",
+      description: "Number of miners currently hashing (healthy)",
     },
     notHashingCount: {
       control: { type: "number", min: 0, max: 100 },
-      description: "Number of miners not currently hashing",
+      description: "Number of miners not hashing (offline + sleeping)",
+    },
+    brokenCount: {
+      control: { type: "number", min: 0, max: 100 },
+      description: "Number of miners needing attention (degraded)",
     },
   },
 } satisfies Meta<typeof MockUptimePanel>;
@@ -111,13 +125,14 @@ type Story = StoryObj<typeof meta>;
 
 /**
  * Default 24-hour view with typical uptime data.
- * Shows 8 miners hashing and 2 not hashing (20% downtime).
+ * 7 hashing / 2 needs-attention / 1 not hashing (30% in non-healthy states).
  */
 export const Default: Story = {
   args: {
     duration: "24h",
-    hashingCount: 8,
-    notHashingCount: 2,
+    hashingCount: 7,
+    notHashingCount: 1,
+    brokenCount: 2,
   },
 };
 
@@ -129,6 +144,7 @@ export const Loading: Story = {
     duration: "24h",
     hashingCount: 0,
     notHashingCount: 0,
+    brokenCount: 0,
     isLoading: true,
   },
 };
@@ -142,6 +158,7 @@ export const NoData: Story = {
     duration: "24h",
     hashingCount: 0,
     notHashingCount: 0,
+    brokenCount: 0,
   },
   render: (args) => {
     return <MockUptimePanel {...args} />;
@@ -157,6 +174,7 @@ export const NoMiners: Story = {
     duration: "24h",
     hashingCount: 0,
     notHashingCount: 0,
+    brokenCount: 0,
   },
 };
 
@@ -169,6 +187,7 @@ export const AllNotHashing: Story = {
     duration: "24h",
     hashingCount: 0,
     notHashingCount: 10,
+    brokenCount: 0,
   },
 };
 
@@ -181,6 +200,7 @@ export const AllHashing: Story = {
     duration: "24h",
     hashingCount: 10,
     notHashingCount: 0,
+    brokenCount: 0,
   },
 };
 
@@ -193,6 +213,7 @@ export const OneMinerDown: Story = {
     duration: "24h",
     hashingCount: 9,
     notHashingCount: 1,
+    brokenCount: 0,
   },
 };
 
@@ -205,6 +226,32 @@ export const MultipleMinersDown: Story = {
     duration: "24h",
     hashingCount: 8,
     notHashingCount: 2,
+    brokenCount: 0,
+  },
+};
+
+/**
+ * Degraded-only state - fleet is hashing but a handful need attention.
+ * Exercises the needs-attention drill-through button.
+ */
+export const NeedsAttention: Story = {
+  args: {
+    duration: "24h",
+    hashingCount: 7,
+    notHashingCount: 0,
+    brokenCount: 3,
+  },
+};
+
+/**
+ * Mixed state - all three buckets populated.
+ */
+export const MixedStates: Story = {
+  args: {
+    duration: "24h",
+    hashingCount: 6,
+    notHashingCount: 2,
+    brokenCount: 2,
   },
 };
 
@@ -217,6 +264,7 @@ export const SignificantDowntime: Story = {
     duration: "24h",
     hashingCount: 5,
     notHashingCount: 5,
+    brokenCount: 0,
   },
 };
 
@@ -227,8 +275,9 @@ export const SignificantDowntime: Story = {
 export const LargeFleet: Story = {
   args: {
     duration: "24h",
-    hashingCount: 45,
+    hashingCount: 42,
     notHashingCount: 5,
+    brokenCount: 3,
   },
 };
 
@@ -239,7 +288,8 @@ export const OneWeek: Story = {
   args: {
     duration: "7d",
     hashingCount: 8,
-    notHashingCount: 2,
+    notHashingCount: 1,
+    brokenCount: 1,
   },
 };
 
@@ -250,6 +300,7 @@ export const ThirtyDays: Story = {
   args: {
     duration: "30d",
     hashingCount: 8,
-    notHashingCount: 2,
+    notHashingCount: 1,
+    brokenCount: 1,
   },
 };

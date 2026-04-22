@@ -29,6 +29,7 @@ import (
 	"connectrpc.com/validate"
 	"github.com/alecthomas/kong"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
+	fleet_telemetry "github.com/block/proto-fleet/server/internal/infrastructure/fleet-telemetry"
 	"github.com/block/proto-fleet/server/internal/infrastructure/logging"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
@@ -115,6 +116,17 @@ var reflectEnabledServices = []string{
 }
 
 func start(config *Config) error {
+	shutdownTracer, err := fleet_telemetry.Setup(context.Background(), config.FleetTelemetry)
+	if err != nil {
+		return fmt.Errorf("setup fleet telemetry: %w", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+		if err := shutdownTracer(shutdownCtx); err != nil {
+			slog.Error("Failed to shutdown tracer", "error", err)
+		}
+	}()
 
 	conn, err := db.ConnectAndMigrate(&config.DB)
 	if err != nil {
@@ -339,6 +351,7 @@ func start(config *Config) error {
 
 	middlewares := []server.Middleware{
 		middleware.NewCORSMiddleware(config.HTTP.SuppressCors),
+		middleware.TelemetryMiddleware{},
 	}
 
 	validateInterceptor := validate.NewInterceptor()

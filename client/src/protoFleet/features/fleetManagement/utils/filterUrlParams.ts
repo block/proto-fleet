@@ -63,6 +63,7 @@ export function encodeFilterToURL(filter: MinerListFilter): URLSearchParams {
           statusValues.add("offline");
           break;
         case DeviceStatus.INACTIVE:
+        case DeviceStatus.MAINTENANCE:
           statusValues.add("sleeping");
           break;
       }
@@ -152,6 +153,7 @@ export function parseFilterFromURL(params: URLSearchParams): MinerListFilter | u
           break;
         case "sleeping":
           filter.deviceStatus.push(DeviceStatus.INACTIVE);
+          filter.deviceStatus.push(DeviceStatus.MAINTENANCE);
           break;
       }
     });

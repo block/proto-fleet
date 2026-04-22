@@ -1,0 +1,23 @@
+# Hide generated files from GitHub diffs and language stats.
+# Docs: https://docs.github.com/en/repositories/working-with-files/managing-files/customizing-how-changed-files-appear-on-github
+
+# Anything emitted into a `generated/` directory
+**/generated/** linguist-generated=true
+
+# protoc / protoc-gen-go / protoc-gen-go-grpc / connect-go
+*.pb.go linguist-generated=true
+*_grpc.pb.go linguist-generated=true
+*.connect.go linguist-generated=true
+
+# protobuf-es (TypeScript)
+*_pb.ts linguist-generated=true
+
+# protoc python bindings
+*_pb2.py linguist-generated=true
+*_pb2_grpc.py linguist-generated=true
+
+# sqlc
+*.sql.go linguist-generated=true
+
+# gomock / mockgen
+**/mocks/mock_*.go linguist-generated=true
