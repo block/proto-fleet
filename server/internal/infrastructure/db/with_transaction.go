@@ -11,10 +11,26 @@ import (
 )
 
 func WithTransaction[T any](ctx context.Context, db *sql.DB, action func(q *sqlc.Queries) (T, error)) (T, error) {
-	return withTransactionWithRetry(ctx, db, action, DefaultRetryConfig)
+	return withTransactionWithRetry(ctx, db, nil, action, DefaultRetryConfig)
 }
 
-func withTransactionWithRetry[T any](ctx context.Context, db *sql.DB, action func(q *sqlc.Queries) (T, error), config RetryConfig) (T, error) {
+// WithReadOnlyTransaction runs action inside a read-only REPEATABLE READ
+// transaction so every query in action sees a single consistent snapshot of
+// the database. Use this for multi-query read paths whose correctness depends
+// on the queries agreeing with each other (e.g. a header + aggregate counts
+// + per-row list triple where a concurrent delete between queries would
+// produce mismatched totals vs. row counts).
+//
+// Retry semantics, FleetError preservation, and context cancellation behavior
+// are identical to WithTransaction.
+func WithReadOnlyTransaction[T any](ctx context.Context, db *sql.DB, action func(q *sqlc.Queries) (T, error)) (T, error) {
+	return withTransactionWithRetry(ctx, db, &sql.TxOptions{
+		Isolation: sql.LevelRepeatableRead,
+		ReadOnly:  true,
+	}, action, DefaultRetryConfig)
+}
+
+func withTransactionWithRetry[T any](ctx context.Context, db *sql.DB, opts *sql.TxOptions, action func(q *sqlc.Queries) (T, error), config RetryConfig) (T, error) {
 	var zero T
 	var lastErr error
 	currentBackoff := config.InitialBackoff
@@ -26,7 +42,7 @@ func withTransactionWithRetry[T any](ctx context.Context, db *sql.DB, action fun
 		default:
 		}
 
-		result, err := executeTransaction(ctx, db, action)
+		result, err := executeTransaction(ctx, db, opts, action)
 		if err == nil {
 			return result, nil
 		}
@@ -59,10 +75,10 @@ func withTransactionWithRetry[T any](ctx context.Context, db *sql.DB, action fun
 	return zero, fleeterror.NewInternalErrorf("transaction failed after %d attempts: %v", config.MaxAttempts, lastErr)
 }
 
-func executeTransaction[T any](ctx context.Context, db *sql.DB, action func(q *sqlc.Queries) (T, error)) (T, error) {
+func executeTransaction[T any](ctx context.Context, db *sql.DB, opts *sql.TxOptions, action func(q *sqlc.Queries) (T, error)) (T, error) {
 	var zero T
 
-	tx, err := db.BeginTx(ctx, nil)
+	tx, err := db.BeginTx(ctx, opts)
 	if err != nil {
 		return zero, fleeterror.NewInternalErrorf("error opening tx: %v", err)
 	}
@@ -89,7 +105,7 @@ func WithTransactionNoResult(ctx context.Context, db *sql.DB, action func(q *sql
 }
 
 func withTransactionNoResultWithRetry(ctx context.Context, db *sql.DB, action func(q *sqlc.Queries) error, config RetryConfig) error {
-	_, err := withTransactionWithRetry(ctx, db, func(sq *sqlc.Queries) (any, error) {
+	_, err := withTransactionWithRetry(ctx, db, nil, func(sq *sqlc.Queries) (any, error) {
 		var emptyResult any
 		return emptyResult, action(sq)
 	}, config)

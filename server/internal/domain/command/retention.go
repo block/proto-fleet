@@ -56,15 +56,21 @@ func defaultRetentionConfig(rc *RetentionConfig) {
 	// per-device child will be skipped. But if queue-message retention were
 	// longer than device-log retention, we'd have queue rows whose batch has
 	// been deleted out from under them. Similarly for batch-log vs device-log.
-	if rc.DeviceLogRetention < rc.QueueMessageRetention {
-		slog.Warn("command retention: QueueMessageRetention exceeds DeviceLogRetention, clamping to avoid FK-orphan queue rows",
-			"before", rc.QueueMessageRetention, "after", rc.DeviceLogRetention)
-		rc.QueueMessageRetention = rc.DeviceLogRetention
-	}
+	//
+	// Apply the outermost invariant first (batch -> device, then device ->
+	// queue) so a three-way violation cascades correctly. If we clamped queue
+	// first we could leave queue > device after a later device clamp; doing
+	// batch first ensures each subsequent clamp sees the already-reduced
+	// upstream value.
 	if rc.BatchLogRetention < rc.DeviceLogRetention {
 		slog.Warn("command retention: DeviceLogRetention exceeds BatchLogRetention, clamping to avoid FK-orphan device log rows",
 			"before", rc.DeviceLogRetention, "after", rc.BatchLogRetention)
 		rc.DeviceLogRetention = rc.BatchLogRetention
+	}
+	if rc.DeviceLogRetention < rc.QueueMessageRetention {
+		slog.Warn("command retention: QueueMessageRetention exceeds DeviceLogRetention, clamping to avoid FK-orphan queue rows",
+			"before", rc.QueueMessageRetention, "after", rc.DeviceLogRetention)
+		rc.QueueMessageRetention = rc.DeviceLogRetention
 	}
 
 	if rc.CleanupInterval < minCleanupInterval {

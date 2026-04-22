@@ -1096,21 +1096,28 @@ func (s *Service) GetCommandBatchDeviceResults(ctx context.Context, req *pb.GetC
 		return nil, fleeterror.NewInternalErrorf("error getting session info: %v", err)
 	}
 
-	// All three queries run inside a single read transaction so the header,
-	// aggregate counts, and per-device rows come from a consistent snapshot.
-	// A retention sweep between them would otherwise be able to skew the
-	// counts vs. the visible device list.
+	// All three queries run inside a single read-only REPEATABLE READ
+	// transaction so the header, aggregate counts, and per-device rows are
+	// guaranteed to be a consistent snapshot. A concurrent retention sweep
+	// between the queries would otherwise be able to skew the counts vs. the
+	// visible device list.
 	//
-	// db.WithTransaction's retry wrapper re-wraps non-FleetError errors into
-	// an Internal FleetError, which erases sql.ErrNoRows. Translating to a
-	// NotFound FleetError inside the callback lets the caller see the right
-	// connect code.
+	// db.WithReadOnlyTransaction's retry wrapper re-wraps non-FleetError
+	// errors into an Internal FleetError, which erases sql.ErrNoRows.
+	// Translating to a NotFound FleetError inside the callback lets the
+	// caller see the right connect code.
+	//
+	// The counts query (GetBatchStatusAndDeviceCounts) cannot return
+	// sql.ErrNoRows at this point: by the time we reach it the header query
+	// has already resolved the batch uuid, and we're holding a stable
+	// snapshot, so the aggregate query over GROUP BY cbl.id always yields a
+	// row.
 	type resultsBundle struct {
 		header sqlc.GetBatchHeaderForOrgRow
 		counts sqlc.GetBatchStatusAndDeviceCountsRow
 		rows   []sqlc.ListBatchDeviceResultsRow
 	}
-	bundle, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (resultsBundle, error) {
+	bundle, err := db.WithReadOnlyTransaction(ctx, s.conn, func(q *sqlc.Queries) (resultsBundle, error) {
 		var b resultsBundle
 		header, hErr := q.GetBatchHeaderForOrg(ctx, sqlc.GetBatchHeaderForOrgParams{
 			Uuid:           req.BatchIdentifier,
@@ -1125,9 +1132,6 @@ func (s *Service) GetCommandBatchDeviceResults(ctx context.Context, req *pb.GetC
 		b.header = header
 
 		counts, cErr := q.GetBatchStatusAndDeviceCounts(ctx, req.BatchIdentifier)
-		if errors.Is(cErr, sql.ErrNoRows) {
-			return b, fleeterror.NewNotFoundErrorf("command batch %s not found", req.BatchIdentifier)
-		}
 		if cErr != nil {
 			return b, cErr
 		}

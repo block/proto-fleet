@@ -67,6 +67,33 @@ func TestDefaultRetentionConfig_ClampsDeviceLogAboveBatchLog(t *testing.T) {
 		"DeviceLogRetention must be clamped down to BatchLogRetention")
 }
 
+// TestDefaultRetentionConfig_ClampsCascadingViolations guards against a
+// regression where two invariants were violated at once but only the inner
+// clamp ran: an initial Queue > Device clamp would later be undone when the
+// subsequent Device > Batch clamp reduced Device below Queue. With the
+// batch-first ordering, all three values cascade down to the same floor.
+func TestDefaultRetentionConfig_ClampsCascadingViolations(t *testing.T) {
+	rc := &RetentionConfig{
+		QueueMessageRetention: 365 * 24 * time.Hour, // 1 year
+		DeviceLogRetention:    30 * 24 * time.Hour,  // 1 month
+		BatchLogRetention:     10 * 24 * time.Hour,  // 10 days (innermost)
+	}
+	defaultRetentionConfig(rc)
+
+	assert.Equal(t, 10*24*time.Hour, rc.BatchLogRetention,
+		"BatchLogRetention is the innermost floor and must be untouched")
+	assert.Equal(t, 10*24*time.Hour, rc.DeviceLogRetention,
+		"DeviceLogRetention must clamp down to BatchLogRetention")
+	assert.Equal(t, 10*24*time.Hour, rc.QueueMessageRetention,
+		"QueueMessageRetention must clamp all the way down, not just to its direct upstream")
+
+	// Invariants the retention cleaner relies on.
+	assert.LessOrEqual(t, rc.QueueMessageRetention, rc.DeviceLogRetention,
+		"queue retention must be <= device retention after clamping")
+	assert.LessOrEqual(t, rc.DeviceLogRetention, rc.BatchLogRetention,
+		"device retention must be <= batch retention after clamping")
+}
+
 func TestDefaultRetentionConfig_ClampsTinyCleanupInterval(t *testing.T) {
 	rc := &RetentionConfig{CleanupInterval: time.Millisecond}
 	defaultRetentionConfig(rc)
