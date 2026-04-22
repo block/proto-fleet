@@ -1,8 +1,24 @@
+import type { ComponentProps } from "react";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import ChartTooltip from "./Tooltip";
 
-const TestTooltipIcon = ({ itemKey }: { itemKey: string }) => <span data-testid={`tooltip-icon-${itemKey}`} />;
+const AGGREGATE_TOOLTIP_STATUS_CIRCLE_TEST_ID = "aggregate-tooltip-status-circle";
+type ChartTooltipProps = ComponentProps<typeof ChartTooltip>;
+
+function TestTooltipIcon({ itemKey }: { itemKey: string }) {
+  return <span data-testid={`tooltip-icon-${itemKey}`} />;
+}
+
+function renderAggregateTooltip(props: Partial<ChartTooltipProps> = {}): void {
+  render(<ChartTooltip aggregateKey="total" aggregateLabel="Summary" activeKeys={["total"]} {...props} />);
+}
+
+function expectAggregateOnlyTooltip(value: string): void {
+  expect(screen.queryByText("Summary")).not.toBeInTheDocument();
+  expect(screen.queryByTestId(AGGREGATE_TOOLTIP_STATUS_CIRCLE_TEST_ID)).not.toBeInTheDocument();
+  expect(screen.getByText(value)).toBeInTheDocument();
+}
 
 describe("ChartTooltip", () => {
   it("disables pointer events and flips left when it would overflow the chart width", () => {
@@ -32,11 +48,48 @@ describe("ChartTooltip", () => {
     );
 
     expect(screen.getByText("Summary")).toBeInTheDocument();
+    expect(screen.getByTestId(AGGREGATE_TOOLTIP_STATUS_CIRCLE_TEST_ID)).toBeInTheDocument();
 
     const tooltip = container.firstChild as HTMLElement;
 
     expect(tooltip).toHaveClass("pointer-events-none");
     expect(tooltip.style.transform).toBe("translate(-124px, -96px)");
+  });
+
+  it("renders aggregate-only tooltips without the summary label or status dot", () => {
+    renderAggregateTooltip({
+      hideAggregateContextWhenSingleSeries: true,
+      payload: [
+        {
+          name: "total",
+          payload: {
+            datetime: 1_700_000_000_000,
+            total: 54,
+          },
+        },
+      ],
+      units: "W",
+    });
+
+    expectAggregateOnlyTooltip("54.0");
+  });
+
+  it("keeps aggregate-only tooltip context by default", () => {
+    renderAggregateTooltip({
+      payload: [
+        {
+          name: "total",
+          payload: {
+            datetime: 1_700_000_000_000,
+            total: 54,
+          },
+        },
+      ],
+    });
+
+    expect(screen.getByText("Summary")).toBeInTheDocument();
+    expect(screen.getByTestId(AGGREGATE_TOOLTIP_STATUS_CIRCLE_TEST_ID)).toBeInTheDocument();
+    expect(screen.getByText("54.0")).toBeInTheDocument();
   });
 
   it("stays to the right of the cursor when there is enough space", () => {
@@ -121,6 +174,31 @@ describe("ChartTooltip", () => {
     expect(screen.queryByTestId("tooltip-icon-seriesB")).not.toBeInTheDocument();
   });
 
+  it("keeps aggregate context when multi-series tooltips hover a null segment value", () => {
+    render(
+      <ChartTooltip
+        aggregateKey="total"
+        aggregateLabel="Summary"
+        activeKeys={["total", "seriesA"]}
+        hideAggregateContextWhenSingleSeries={true}
+        payload={[
+          {
+            name: "total",
+            payload: {
+              datetime: 1_700_000_000_000,
+              total: 54,
+              seriesA: null,
+            },
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("Summary")).toBeInTheDocument();
+    expect(screen.getByTestId(AGGREGATE_TOOLTIP_STATUS_CIRCLE_TEST_ID)).toBeInTheDocument();
+    expect(screen.getByText("54.0")).toBeInTheDocument();
+  });
+
   it("does not render tooltip content when the payload has no displayable values", () => {
     const { container } = render(
       <ChartTooltip
@@ -149,28 +227,23 @@ describe("ChartTooltip", () => {
       { datetime: 1_700_000_600_000, total: 20 },
     ];
 
-    render(
-      <ChartTooltip
-        aggregateKey="total"
-        aggregateLabel="Summary"
-        activeKeys={["total"]}
-        chartData={chartData}
-        connectNulls={true}
-        payload={[
-          {
-            name: "total",
-            payload: {
-              datetime: 1_700_000_300_000,
-              total: null,
-            },
+    renderAggregateTooltip({
+      hideAggregateContextWhenSingleSeries: true,
+      chartData,
+      connectNulls: true,
+      payload: [
+        {
+          name: "total",
+          payload: {
+            datetime: 1_700_000_300_000,
+            total: null,
           },
-        ]}
-        segmentsLabel="Hashboards"
-      />,
-    );
+        },
+      ],
+      segmentsLabel: "Hashboards",
+    });
 
-    expect(screen.getByText("Summary")).toBeInTheDocument();
-    expect(screen.getByText("10.0")).toBeInTheDocument();
+    expectAggregateOnlyTooltip("10.0");
   });
 
   it("falls back via label when connectNulls is true and Recharts strips null lines from payload", () => {
@@ -180,21 +253,16 @@ describe("ChartTooltip", () => {
       { datetime: 1_700_000_600_000, total: 20 },
     ];
 
-    render(
-      <ChartTooltip
-        aggregateKey="total"
-        aggregateLabel="Summary"
-        activeKeys={["total"]}
-        chartData={chartData}
-        connectNulls={true}
-        label={1_700_000_300_000}
-        payload={[]}
-        segmentsLabel="Hashboards"
-      />,
-    );
+    renderAggregateTooltip({
+      hideAggregateContextWhenSingleSeries: true,
+      chartData,
+      connectNulls: true,
+      label: 1_700_000_300_000,
+      payload: [],
+      segmentsLabel: "Hashboards",
+    });
 
-    expect(screen.getByText("Summary")).toBeInTheDocument();
-    expect(screen.getByText("10.0")).toBeInTheDocument();
+    expectAggregateOnlyTooltip("10.0");
   });
 
   it("picks the closer neighbor when distances are unequal", () => {
@@ -205,21 +273,16 @@ describe("ChartTooltip", () => {
       { datetime: 1_700_000_300_000, total: 30 },
     ];
 
-    render(
-      <ChartTooltip
-        aggregateKey="total"
-        aggregateLabel="Summary"
-        activeKeys={["total"]}
-        chartData={chartData}
-        connectNulls={true}
-        label={1_700_000_250_000}
-        payload={[]}
-        segmentsLabel="Hashboards"
-      />,
-    );
+    renderAggregateTooltip({
+      hideAggregateContextWhenSingleSeries: true,
+      chartData,
+      connectNulls: true,
+      label: 1_700_000_250_000,
+      payload: [],
+      segmentsLabel: "Hashboards",
+    });
 
-    expect(screen.getByText("Summary")).toBeInTheDocument();
-    expect(screen.getByText("30.0")).toBeInTheDocument();
+    expectAggregateOnlyTooltip("30.0");
   });
 
   it("does not fall back when hovering before the first non-null data point", () => {
