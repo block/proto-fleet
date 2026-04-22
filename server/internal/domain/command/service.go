@@ -308,13 +308,13 @@ func (s *Service) saveCommandBatchLogToDB(ctx context.Context, userID, organizat
 		newUUID := id.GenerateID()
 
 		_, err := q.CreateCommandBatchLog(ctx, sqlc.CreateCommandBatchLogParams{
-			Uuid:           newUUID,
-			Type:           command.commandType.String(),
-			CreatedBy:      userID,
-			CreatedAt:      timeNow,
-			Status:         sqlc.BatchStatusEnumPENDING,
-			DevicesCount:   devicesCount,
-			Payload:        pqtype.NullRawMessage{RawMessage: payloadBytes, Valid: len(payloadBytes) > 0},
+			Uuid:         newUUID,
+			Type:         command.commandType.String(),
+			CreatedBy:    userID,
+			CreatedAt:    timeNow,
+			Status:       sqlc.BatchStatusEnumPENDING,
+			DevicesCount: devicesCount,
+			Payload:      pqtype.NullRawMessage{RawMessage: payloadBytes, Valid: len(payloadBytes) > 0},
 			// Callers (processCommand and ReapplyCurrentPoolsWithWorkerNames) must
 			// have already rejected non-positive organizationID, so we can always
 			// mark the column Valid here. This is the precondition for a future
