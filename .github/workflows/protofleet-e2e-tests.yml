@@ -91,6 +91,37 @@ jobs:
           chmod +x server/plugins/proto-plugin server/plugins/antminer-plugin
           echo "Plugins built successfully"
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+      # Cache the docker-compose service images (fleet-api, timescaledb, 6x
+      # fake-antminer, 2x fake-proto-rig, ...) between CI runs. Keyed on the
+      # sources that actually change image contents; when the key matches,
+      # `docker load` is all the shards need and they skip the ~3-5 min
+      # per-shard `docker compose build` that was the Wave 1 critical-path
+      # regression.
+      - name: Restore Docker image cache
+        id: docker-image-cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: /tmp/docker-images
+          key: ${{ runner.os }}-protofleet-e2e-docker-${{ hashFiles('server/Dockerfile', 'server/docker-compose*.yaml', 'server/go.sum', 'server/go.mod', 'server/**/*.go', 'server/fake-antminer/**', 'server/fake-proto-rig/**', 'server/timescaledb/**') }}
+
+      - name: Build E2E Docker images
+        if: steps.docker-image-cache.outputs.cache-hit != 'true'
+        working-directory: server
+        run: |
+          mkdir -p /tmp/docker-images
+          echo "::group::docker compose build"
+          docker compose build
+          echo "::endgroup::"
+          echo "::group::Save images to compressed tarball"
+          mapfile -t images < <(docker compose config --images | sort -u)
+          printf '  - %s\n' "${images[@]}"
+          docker save "${images[@]}" | gzip > /tmp/docker-images/e2e-images.tar.gz
+          ls -lh /tmp/docker-images/
+          echo "::endgroup::"
+
       - name: Upload client build
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -104,6 +135,14 @@ jobs:
         with:
           name: protofleet-plugins
           path: server/plugins
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload Docker images
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: protofleet-e2e-docker-images
+          path: /tmp/docker-images/e2e-images.tar.gz
           if-no-files-found: error
           retention-days: 1
 
@@ -170,9 +209,22 @@ jobs:
       - name: Make plugins executable
         run: chmod +x server/plugins/proto-plugin server/plugins/antminer-plugin
 
+      - name: Download prebuilt Docker images
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: protofleet-e2e-docker-images
+          path: /tmp/docker-images
+
+      - name: Load Docker images
+        run: |
+          gunzip < /tmp/docker-images/e2e-images.tar.gz | docker load
+
       - name: Start services (TimeScaleDB + Backend + Simulators)
         working-directory: server
-        run: docker compose up -d
+        # --no-build: images were loaded from the prebuilt tarball. Fail loudly
+        # if any service image is missing instead of silently falling back to
+        # a per-shard rebuild (the very cost this change is eliminating).
+        run: docker compose up -d --no-build
 
       - name: Start frontend
         working-directory: client
