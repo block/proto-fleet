@@ -52,8 +52,6 @@ services:
         condition: service_started
     volumes:
       - ./plugins:/app/plugins:ro
-      - go-build-cache:/root/.cache/go-build
-      - go-mod-cache:/go/pkg/mod
     restart: unless-stopped
     networks:
       - fleet-network
@@ -358,8 +356,6 @@ services:
       - NET_RAW
 volumes:
   timescaledb-data:
-  go-build-cache:
-  go-mod-cache:
 
 
 networks:

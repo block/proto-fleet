@@ -34,10 +34,24 @@ build-plugins-docker: (_build-go-plugins-cross "linux" "arm64" "server/plugins")
 build-plugins-release: _build-go-plugins-multi-arch _asicrs-build-release
 
 # rebuild a specific plugin for the Docker runtime (linux/arm64): proto, antminer, virtual, or asicrs
+# Runs `build-plugins-docker` first so sibling plugins are guaranteed to be
+# present and built for linux/arm64 — fleet loads every executable in
+# PLUGINS_DIR and fails to start if any is missing or the wrong architecture.
 rebuild-plugin name:
   #!/usr/bin/env bash
   set -euo pipefail
-  mkdir -p server/plugins
+  case "{{name}}" in
+    proto|antminer|virtual|asicrs) ;;
+    *)
+      echo "Unknown plugin: {{name}}. Valid: proto, antminer, virtual, asicrs" >&2
+      exit 1
+      ;;
+  esac
+  # Ensure proto, antminer, and asicrs are all present and on the right
+  # platform. The guards inside these recipes make it a near no-op when
+  # everything is already coherent.
+  just build-plugins-docker
+  # Force-rebuild the named plugin on top of the coherent baseline.
   case "{{name}}" in
     proto|antminer)
       (cd plugin/{{name}} && GOOS=linux GOARCH=arm64 go build -o ../../server/plugins/{{name}}-plugin .)
@@ -49,11 +63,9 @@ rebuild-plugin name:
       chmod +x server/plugins/virtual-plugin
       ;;
     asicrs)
+      # Bust the platform guard so the forced rebuild actually runs.
+      rm -f server/plugins/.asicrs-platform
       just _asicrs-build-docker
-      ;;
-    *)
-      echo "Unknown plugin: {{name}}. Valid: proto, antminer, virtual, asicrs" >&2
-      exit 1
       ;;
   esac
   echo "Rebuilt {{name}} plugin."
@@ -243,7 +255,10 @@ _go-work-sync:
 _build-go-plugins-native outdir: _go-work-sync
   #!/usr/bin/env bash
   set -euo pipefail
-  SOURCES="plugin/proto plugin/antminer server/sdk/v1 go.work"
+  # Include module-graph inputs: the plugins import from the local ../../server
+  # module, so server/go.{mod,sum} and go.work.sum can change the effective
+  # dependency graph without touching the plugin source trees themselves.
+  SOURCES="plugin/proto plugin/antminer server/sdk/v1 go.work go.work.sum server/go.mod server/go.sum plugin/proto/go.mod plugin/proto/go.sum plugin/antminer/go.mod plugin/antminer/go.sum"
   PROTO_BIN={{outdir}}/proto-plugin
   ANT_BIN={{outdir}}/antminer-plugin
   PLATFORM_MARKER={{outdir}}/.go-plugins-platform
@@ -265,7 +280,10 @@ _build-go-plugins-native outdir: _go-work-sync
 _build-go-plugins-cross goos goarch outdir: _go-work-sync
   #!/usr/bin/env bash
   set -euo pipefail
-  SOURCES="plugin/proto plugin/antminer server/sdk/v1 go.work"
+  # Include module-graph inputs: the plugins import from the local ../../server
+  # module, so server/go.{mod,sum} and go.work.sum can change the effective
+  # dependency graph without touching the plugin source trees themselves.
+  SOURCES="plugin/proto plugin/antminer server/sdk/v1 go.work go.work.sum server/go.mod server/go.sum plugin/proto/go.mod plugin/proto/go.sum plugin/antminer/go.mod plugin/antminer/go.sum"
   PROTO_BIN={{outdir}}/proto-plugin
   ANT_BIN={{outdir}}/antminer-plugin
   PLATFORM_MARKER={{outdir}}/.go-plugins-platform

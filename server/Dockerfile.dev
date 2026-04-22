@@ -13,11 +13,20 @@ RUN go mod download
 
 COPY server/ ./
 
-RUN mkdir -p /app/plugins /app/out
+# Warm the build cache in the image layer so the first container-start build
+# is incremental. The cache lives in /root/.cache/go-build (image layer,
+# read-only at runtime); runtime writes go to the container's writable layer,
+# which is wiped on container recreate. No named volumes — that keeps the
+# cache non-persistent, so an attacker with RCE can't poison a cache that
+# survives across recreates.
+RUN mkdir -p /app/plugins /app/out \
+ && go build -gcflags="$GO_GCFLAGS" -o /app/out/fleetd ./cmd/fleetd
 
 EXPOSE 4000
 EXPOSE 40000
 
-# Build on every container start so sync+restart picks up source changes.
-# Go's build cache (mounted as a named volume) makes incremental rebuilds fast.
+# Rebuild on every container start so sync+restart picks up source changes.
+# First build uses the warmed image-layer cache; subsequent restarts of the
+# same container reuse the writable-layer cache. Container recreate wipes the
+# writable layer and falls back to the image-layer cache — still fast.
 CMD ["sh", "-c", "go build -gcflags=\"$GO_GCFLAGS\" -o /app/out/fleetd ./cmd/fleetd && exec /go/bin/dlv --listen=:40000 --headless=true --continue --api-version=2 --accept-multiclient exec /app/out/fleetd"]
