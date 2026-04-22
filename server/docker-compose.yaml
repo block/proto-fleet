@@ -19,6 +19,7 @@ services:
           ignore:
             - testing/
             - e2e/
+            - plugins/
             - "**/*.http"
             - "**/*.md"
             - "**/*.yaml"

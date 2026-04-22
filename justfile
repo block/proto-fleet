@@ -143,7 +143,7 @@ update-go-deps:
   (cd server/fake-proto-rig && go get -u ./... && go mod tidy)
   echo "Syncing Go workspace..."
   go work sync
-  mkdir -p .git && touch .git/.go-work-synced
+  mkdir -p .cache/go-work-sync && touch .cache/go-work-sync/stamp
   echo "All Go dependencies updated successfully"
 
 # --- Packaging ---
@@ -228,7 +228,7 @@ _e2e suite *args:
 _go-work-sync:
   #!/usr/bin/env bash
   set -euo pipefail
-  STAMP=.git/.go-work-synced
+  STAMP=.cache/go-work-sync/stamp
   # Skip if stamp exists and neither go.work nor go.work.sum is newer than it.
   if [ -f "$STAMP" ] && ! [ go.work -nt "$STAMP" ] && { [ ! -f go.work.sum ] || ! [ go.work.sum -nt "$STAMP" ]; }; then
     exit 0
@@ -243,8 +243,15 @@ _go-work-sync:
 _build-go-plugins-native outdir: _go-work-sync
   #!/usr/bin/env bash
   set -euo pipefail
-  if [ -f {{outdir}}/proto-plugin ] && [ -f {{outdir}}/antminer-plugin ] && \
-     [ -z "$(find plugin/proto plugin/antminer go.work -newer {{outdir}}/proto-plugin -type f 2>/dev/null | head -1)" ]; then
+  SOURCES="plugin/proto plugin/antminer server/sdk/v1 go.work"
+  PROTO_BIN={{outdir}}/proto-plugin
+  ANT_BIN={{outdir}}/antminer-plugin
+  PLATFORM_MARKER={{outdir}}/.go-plugins-platform
+  WANT_PLATFORM="native"
+  if [ -f "$PROTO_BIN" ] && [ -f "$ANT_BIN" ] \
+     && [ -f "$PLATFORM_MARKER" ] && [ "$(cat "$PLATFORM_MARKER")" = "$WANT_PLATFORM" ] \
+     && [ -z "$(find $SOURCES -newer "$PROTO_BIN" -type f 2>/dev/null | head -1)" ] \
+     && [ -z "$(find $SOURCES -newer "$ANT_BIN" -type f 2>/dev/null | head -1)" ]; then
     echo "Go plugins up to date, skipping build."
     exit 0
   fi
@@ -253,12 +260,20 @@ _build-go-plugins-native outdir: _go-work-sync
   (cd plugin/proto && go build -o ../../{{outdir}}/proto-plugin .)
   (cd plugin/antminer && go build -o ../../{{outdir}}/antminer-plugin .)
   chmod +x {{outdir}}/proto-plugin {{outdir}}/antminer-plugin
+  echo "$WANT_PLATFORM" > "$PLATFORM_MARKER"
 
 _build-go-plugins-cross goos goarch outdir: _go-work-sync
   #!/usr/bin/env bash
   set -euo pipefail
-  if [ -f {{outdir}}/proto-plugin ] && [ -f {{outdir}}/antminer-plugin ] && \
-     [ -z "$(find plugin/proto plugin/antminer go.work -newer {{outdir}}/proto-plugin -type f 2>/dev/null | head -1)" ]; then
+  SOURCES="plugin/proto plugin/antminer server/sdk/v1 go.work"
+  PROTO_BIN={{outdir}}/proto-plugin
+  ANT_BIN={{outdir}}/antminer-plugin
+  PLATFORM_MARKER={{outdir}}/.go-plugins-platform
+  WANT_PLATFORM="{{goos}}/{{goarch}}"
+  if [ -f "$PROTO_BIN" ] && [ -f "$ANT_BIN" ] \
+     && [ -f "$PLATFORM_MARKER" ] && [ "$(cat "$PLATFORM_MARKER")" = "$WANT_PLATFORM" ] \
+     && [ -z "$(find $SOURCES -newer "$PROTO_BIN" -type f 2>/dev/null | head -1)" ] \
+     && [ -z "$(find $SOURCES -newer "$ANT_BIN" -type f 2>/dev/null | head -1)" ]; then
     echo "Go plugins up to date for {{goos}}/{{goarch}}, skipping build."
     exit 0
   fi
@@ -267,6 +282,7 @@ _build-go-plugins-cross goos goarch outdir: _go-work-sync
   (cd plugin/proto && GOOS={{goos}} GOARCH={{goarch}} go build -o ../../{{outdir}}/proto-plugin .)
   (cd plugin/antminer && GOOS={{goos}} GOARCH={{goarch}} go build -o ../../{{outdir}}/antminer-plugin .)
   chmod +x {{outdir}}/proto-plugin {{outdir}}/antminer-plugin
+  echo "$WANT_PLATFORM" > "$PLATFORM_MARKER"
 
 _build-go-plugins-multi-arch: _go-work-sync
   #!/usr/bin/env bash
@@ -282,8 +298,12 @@ _build-go-plugins-multi-arch: _go-work-sync
 _asicrs-build:
   #!/usr/bin/env bash
   set -euo pipefail
-  if [ -f server/plugins/asicrs-plugin ] && \
-     [ -z "$(find plugin/asicrs sdk/rust -newer server/plugins/asicrs-plugin -type f 2>/dev/null | head -1)" ]; then
+  BIN=server/plugins/asicrs-plugin
+  PLATFORM_MARKER=server/plugins/.asicrs-platform
+  WANT_PLATFORM="native"
+  if [ -f "$BIN" ] \
+     && [ -f "$PLATFORM_MARKER" ] && [ "$(cat "$PLATFORM_MARKER")" = "$WANT_PLATFORM" ] \
+     && [ -z "$(find plugin/asicrs sdk/rust server/sdk/v1/pb -newer "$BIN" -type f 2>/dev/null | head -1)" ]; then
     echo "asicrs plugin up to date, skipping build."
     exit 0
   fi
@@ -293,13 +313,21 @@ _asicrs-build:
     --file plugin/asicrs/Dockerfile.build \
     --output type=local,dest=server/plugins \
     .
-  chmod +x server/plugins/asicrs-plugin
+  chmod +x "$BIN"
+  # docker buildx exports files with their build-time mtime; touch so future
+  # freshness checks compare against the actual build time.
+  touch "$BIN"
+  echo "$WANT_PLATFORM" > "$PLATFORM_MARKER"
 
 _asicrs-build-docker:
   #!/usr/bin/env bash
   set -euo pipefail
-  if [ -f server/plugins/asicrs-plugin ] && \
-     [ -z "$(find plugin/asicrs sdk/rust -newer server/plugins/asicrs-plugin -type f 2>/dev/null | head -1)" ]; then
+  BIN=server/plugins/asicrs-plugin
+  PLATFORM_MARKER=server/plugins/.asicrs-platform
+  WANT_PLATFORM="linux/arm64"
+  if [ -f "$BIN" ] \
+     && [ -f "$PLATFORM_MARKER" ] && [ "$(cat "$PLATFORM_MARKER")" = "$WANT_PLATFORM" ] \
+     && [ -z "$(find plugin/asicrs sdk/rust server/sdk/v1/pb -newer "$BIN" -type f 2>/dev/null | head -1)" ]; then
     echo "asicrs plugin up to date for Docker (Linux ARM64), skipping build."
     exit 0
   fi
@@ -310,7 +338,11 @@ _asicrs-build-docker:
     --file plugin/asicrs/Dockerfile.build \
     --output type=local,dest=server/plugins \
     .
-  chmod +x server/plugins/asicrs-plugin
+  chmod +x "$BIN"
+  # docker buildx exports files with their build-time mtime; touch so future
+  # freshness checks compare against the actual build time.
+  touch "$BIN"
+  echo "$WANT_PLATFORM" > "$PLATFORM_MARKER"
 
 _asicrs-build-release:
   #!/usr/bin/env bash
