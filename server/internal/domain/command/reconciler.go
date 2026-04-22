@@ -45,10 +45,10 @@ const reconcilerDBTimeout = 15 * time.Second
 // isCompletedBatchDuplicate. Concurrent reconcilers across replicas are
 // therefore safe.
 type CompletionReconciler struct {
-	conn          *sql.DB
-	config        *Config
+	conn           *sql.DB
+	config         *Config
 	activityLogger ActivityLogger
-	now           func() time.Time
+	now            func() time.Time
 
 	// mu guards the Start/Stop lifecycle fields.
 	mu     sync.Mutex
