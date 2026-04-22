@@ -32,21 +32,31 @@
 ALTER TABLE command_batch_log
     ADD COLUMN organization_id BIGINT NULL;
 
--- Backfill existing rows from the creator's earliest user_organization
--- membership. Single-org creators (the common case) get the unambiguous
--- answer; multi-org creators get a deterministic pick rather than an
--- arbitrary one. Rows whose creator has no live membership stay NULL and
--- are invisible to the RPC, which is the correct closed-by-default posture.
+-- Backfill existing rows ONLY when the creator's org is unambiguous:
+-- exactly one live user_organization membership. For multi-org creators we
+-- have no authoritative record of which org actually owned the batch, so
+-- guessing (e.g. "earliest membership") risks silently assigning history to
+-- the wrong tenant -- legacy per-device results could be denied to the
+-- rightful org and, worse, exposed to a different one if the batch UUID
+-- leaks. Multi-org rows and zero-org rows intentionally stay NULL and are
+-- invisible to GetBatchHeaderForOrg (closed-by-default). Operators can
+-- repair ambiguous rows manually once the correct org is determined
+-- out-of-band.
 UPDATE command_batch_log cbl
 SET organization_id = (
     SELECT uo.organization_id
     FROM user_organization uo
     WHERE uo.user_id = cbl.created_by
       AND uo.deleted_at IS NULL
-    ORDER BY uo.id
     LIMIT 1
 )
-WHERE cbl.organization_id IS NULL;
+WHERE cbl.organization_id IS NULL
+  AND (
+    SELECT COUNT(*)
+    FROM user_organization uo
+    WHERE uo.user_id = cbl.created_by
+      AND uo.deleted_at IS NULL
+  ) = 1;
 
 CREATE INDEX idx_command_batch_log_organization_id
     ON command_batch_log(organization_id)
