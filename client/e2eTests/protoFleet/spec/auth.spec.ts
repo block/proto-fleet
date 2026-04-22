@@ -3,8 +3,7 @@ import { testConfig } from "../config/test.config";
 import { test } from "../fixtures/pageFixtures";
 
 test.describe("Proto Fleet - Authentication", () => {
-  // Auth spec validates the login flow itself, so opt out of the admin
-  // storageState applied to other projects.
+  // Validates the login flow itself, so opt out of the preloaded admin storageState.
   test.use({ storageState: { cookies: [], origins: [] } });
 
   test.beforeEach(async ({ page }) => {
