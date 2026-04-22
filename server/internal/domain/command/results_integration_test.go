@@ -230,7 +230,7 @@ func TestGetCommandBatchDeviceResults_TruncatesLargeBatchesWithConsistentCounts(
 	seedBatchInState(t, conn, batchUUID, user.DatabaseID, user.OrganizationID, int32(deviceCount), sqlc.BatchStatusEnumFINISHED)
 
 	devs := make([]testutil.DeviceIdentification, 0, deviceCount)
-	for i := 0; i < deviceCount; i++ {
+	for range deviceCount {
 		devs = append(devs, dbService.CreateDevice(user.OrganizationID, "proto"))
 	}
 

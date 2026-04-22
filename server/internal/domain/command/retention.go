@@ -262,7 +262,7 @@ func (c *RetentionCleaner) drain(
 	for {
 		select {
 		case <-ctx.Done():
-			return total, ctx.Err()
+			return total, fmt.Errorf("%s: %w", label, ctx.Err())
 		default:
 		}
 

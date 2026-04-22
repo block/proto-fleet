@@ -176,7 +176,7 @@ func (r *CompletionReconciler) runOnce(ctx context.Context) error {
 	for _, row := range rows {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return fmt.Errorf("completion reconciler: %w", ctx.Err())
 		default:
 		}
 

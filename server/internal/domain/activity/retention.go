@@ -157,7 +157,7 @@ func (c *RetentionCleaner) runOnce(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return fmt.Errorf("activity retention: %w", ctx.Err())
 		default:
 		}
 
