@@ -92,12 +92,17 @@ const (
 	shutdownTimeout = 10 * time.Second
 )
 
+// version is overwritten at release build time via -ldflags "-X main.version=<tag>".
+var version = "dev"
+
 func main() {
 	config := &Config{}
 
 	_ = kong.Parse(config, kong.Name("fleetd"))
 
 	logging.InitLogger(config.Log)
+
+	slog.Info("fleetd starting", "version", version)
 
 	if err := start(config); err != nil {
 		slog.Error(fmt.Sprintf("%+v", err))
