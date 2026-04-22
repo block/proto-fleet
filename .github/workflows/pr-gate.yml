@@ -84,7 +84,7 @@ jobs:
           }
 
           global=false
-          if has_match '^(\.github/actions/|\.github/copilot-instructions\.md$|\.github/labeler\.yml$|\.github/workflows/|bin/|hermit-packages/|just/|justfile$|scripts/)'; then
+          if has_match '^(\.github/actions/|\.github/workflows/|\.github/[^/]+\.ya?ml$|\.github/copilot-instructions\.md$|bin/|hermit-packages/|just/|justfile$|scripts/)'; then
             global=true
           elif has_match '^(deployment-files/(docker-compose[^/]*\.ya?ml|[^/]+\.sh)|deployment-files/scripts/)'; then
             global=true
