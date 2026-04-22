@@ -32,8 +32,8 @@ services:
       PLUGINS_DIR: "/app/plugins"
       PLUGINS_ENABLED: "true"
       PROTO_MINER_PORT: "8080"
-      TRACING_ENABLED: "true"
-      TRACING_ENDPOINT: "http://otel-collector:4318"
+      FLEET_TELEMETRY_ENABLED: "true"
+      FLEET_TELEMETRY_ENDPOINT: "http://otel-collector:4318"
     depends_on:
       timescaledb:
         condition: service_healthy

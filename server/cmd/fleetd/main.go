@@ -29,8 +29,8 @@ import (
 	"connectrpc.com/validate"
 	"github.com/alecthomas/kong"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
+	fleet_telemetry "github.com/block/proto-fleet/server/internal/infrastructure/fleet-telemetry"
 	"github.com/block/proto-fleet/server/internal/infrastructure/logging"
-	"github.com/block/proto-fleet/server/internal/infrastructure/tracing"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 
@@ -111,9 +111,9 @@ var reflectEnabledServices = []string{
 }
 
 func start(config *Config) error {
-	shutdownTracer, err := tracing.Setup(context.Background(), config.Tracing)
+	shutdownTracer, err := fleet_telemetry.Setup(context.Background(), config.FleetTelemetry)
 	if err != nil {
-		return fmt.Errorf("setup tracing: %w", err)
+		return fmt.Errorf("setup fleet telemetry: %w", err)
 	}
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
@@ -346,6 +346,7 @@ func start(config *Config) error {
 
 	middlewares := []server.Middleware{
 		middleware.NewCORSMiddleware(config.HTTP.SuppressCors),
+		middleware.TelemetryMiddleware{},
 	}
 
 	validateInterceptor := validate.NewInterceptor()
@@ -424,7 +425,7 @@ func start(config *Config) error {
 		}()
 	}
 
-	var handler http.Handler = interceptors.TracingMiddleware(mux)
+	var handler http.Handler = mux
 	for _, m := range middlewares {
 		handler = m.Wrap(handler)
 	}

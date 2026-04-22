@@ -1,4 +1,4 @@
-package interceptors
+package middleware
 
 import (
 	"net/http"
@@ -8,8 +8,10 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
-// TracingMiddleware creates a span for every HTTP request and records the response status code.
-func TracingMiddleware(next http.Handler) http.Handler {
+// TelemetryMiddleware creates a span for every HTTP request and records the response status code.
+type TelemetryMiddleware struct{}
+
+func (t TelemetryMiddleware) Wrap(next http.Handler) http.Handler {
 	return otelhttp.NewHandler(next, "http.request",
 		otelhttp.WithPublicEndpointFn(func(*http.Request) bool { return true }),
 		otelhttp.WithTracerProvider(otel.GetTracerProvider()),
