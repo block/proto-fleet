@@ -105,6 +105,13 @@ func (c *RetentionCleaner) Stop() {
 	c.cancel = nil
 }
 
+// RunOnceForTest invokes a single retention pass without starting the
+// goroutine. Exposed for integration tests that want deterministic control
+// over when a pass runs.
+func (c *RetentionCleaner) RunOnceForTest(ctx context.Context) error {
+	return c.runOnce(ctx)
+}
+
 // runOnce performs a full pass: queue_message terminals first, then
 // per-device logs, then batch headers. Exposed for tests.
 func (c *RetentionCleaner) runOnce(ctx context.Context) error {

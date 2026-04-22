@@ -114,6 +114,12 @@ func (r *CompletionReconciler) Stop() {
 	r.cancel = nil
 }
 
+// RunOnceForTest invokes a single reconcile pass without starting the
+// goroutine. Exposed for integration tests that need deterministic control.
+func (r *CompletionReconciler) RunOnceForTest(ctx context.Context) error {
+	return r.runOnce(ctx)
+}
+
 // runOnce performs a single reconcile pass. Exposed for tests.
 func (r *CompletionReconciler) runOnce(ctx context.Context) error {
 	cutoff := r.now().Add(-r.config.ReconcilerGracePeriod)

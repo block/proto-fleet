@@ -95,6 +95,24 @@ func getAuditLogStatus(t *testing.T, conn *sql.DB, batchUUID string, deviceID in
 	return status, true
 }
 
+// getAuditLogErrorInfo returns the persisted error_info for a (batch, device)
+// row so tests can assert the reaper reason propagates all the way to the
+// audit log. Returns (string, true) when the row exists with a non-NULL value.
+func getAuditLogErrorInfo(t *testing.T, conn *sql.DB, batchUUID string, deviceID int64) (string, bool) {
+	t.Helper()
+	var errorInfo sql.NullString
+	err := conn.QueryRowContext(context.Background(),
+		`SELECT cdl.error_info FROM command_on_device_log cdl
+		 JOIN command_batch_log cbl ON cdl.command_batch_log_id = cbl.id
+		 WHERE cbl.uuid = $1 AND cdl.device_id = $2`,
+		batchUUID, deviceID).Scan(&errorInfo)
+	if err == sql.ErrNoRows {
+		return "", false
+	}
+	require.NoError(t, err)
+	return errorInfo.String, errorInfo.Valid
+}
+
 // noopMessageQueue is a minimal MessageQueue that blocks on Dequeue forever.
 type noopMessageQueue struct{}
 
@@ -152,6 +170,12 @@ func TestReaperIntegration(t *testing.T) {
 		auditStatus, found := getAuditLogStatus(t, conn, batchUUID, device.DatabaseID)
 		assert.True(t, found, "audit log should exist for reaped message")
 		assert.Equal(t, sqlc.DeviceCommandStatusEnumFAILED, auditStatus)
+
+		// Issue #22: the reaper reason should be persisted on the audit row
+		// so the activity-log detail RPC can surface it.
+		errInfo, errInfoValid := getAuditLogErrorInfo(t, conn, batchUUID, device.DatabaseID)
+		assert.True(t, errInfoValid, "audit log should carry a non-NULL error_info for reaped rows")
+		assert.Equal(t, "reaped: stuck in PROCESSING beyond timeout", errInfo)
 	})
 
 	t.Run("skips messages not yet past timeout", func(t *testing.T) {

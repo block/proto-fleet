@@ -248,6 +248,84 @@ func TestAtomicQueueStatusAndDeviceLog(t *testing.T) {
 		assert.True(t, queryDeviceLogExists(t, conn, batchUUID, device.DatabaseID))
 	})
 
+	t.Run("failure writes bounded error_info to audit log", func(t *testing.T) {
+		// Arrange
+		conn, dbService, user := setupMarkStatusTest(t)
+		device := dbService.CreateDevice(user.OrganizationID, "proto")
+		batchUUID := "atomic-error-info-1"
+		seedBatchLog(t, conn, batchUUID, user.DatabaseID, 1)
+		msgID := seedProcessingMessage(t, conn, batchUUID, device.DatabaseID)
+		failureReason := "plugin exploded: connection refused"
+
+		// Act — transition to FAILED and write the audit row with error_info.
+		err := db2.WithTransactionNoResult(context.Background(), conn, func(q *sqlc.Queries) error {
+			result, err := q.UpdateMessagePermanentlyFailed(context.Background(), sqlc.UpdateMessagePermanentlyFailedParams{
+				ID:        msgID,
+				ErrorInfo: sql.NullString{String: failureReason, Valid: true},
+			})
+			if err != nil {
+				return err
+			}
+			rowsAffected, _ := result.RowsAffected()
+			if rowsAffected == 0 {
+				return nil
+			}
+			return q.UpsertCommandOnDeviceLog(context.Background(), sqlc.UpsertCommandOnDeviceLogParams{
+				Uuid:      batchUUID,
+				DeviceID:  device.DatabaseID,
+				Status:    sqlc.DeviceCommandStatusEnumFAILED,
+				UpdatedAt: time.Now(),
+				ErrorInfo: sql.NullString{String: failureReason, Valid: true},
+			})
+		})
+
+		// Assert — audit row has the error string persisted for later drill-down.
+		require.NoError(t, err)
+		var (
+			status    sqlc.DeviceCommandStatusEnum
+			errorInfo sql.NullString
+		)
+		err = conn.QueryRowContext(context.Background(),
+			`SELECT cdl.status, cdl.error_info
+			 FROM command_on_device_log cdl
+			 JOIN command_batch_log cbl ON cdl.command_batch_log_id = cbl.id
+			 WHERE cbl.uuid = $1 AND cdl.device_id = $2`,
+			batchUUID, device.DatabaseID).Scan(&status, &errorInfo)
+		require.NoError(t, err)
+		assert.Equal(t, sqlc.DeviceCommandStatusEnumFAILED, status)
+		assert.True(t, errorInfo.Valid)
+		assert.Equal(t, failureReason, errorInfo.String)
+	})
+
+	t.Run("success leaves error_info NULL", func(t *testing.T) {
+		// Arrange
+		conn, dbService, user := setupMarkStatusTest(t)
+		device := dbService.CreateDevice(user.OrganizationID, "proto")
+		batchUUID := "atomic-error-info-null-1"
+		seedBatchLog(t, conn, batchUUID, user.DatabaseID, 1)
+
+		// Act — write a SUCCESS device log without any error info.
+		err := db2.WithTransactionNoResult(context.Background(), conn, func(q *sqlc.Queries) error {
+			return q.UpsertCommandOnDeviceLog(context.Background(), sqlc.UpsertCommandOnDeviceLogParams{
+				Uuid:      batchUUID,
+				DeviceID:  device.DatabaseID,
+				Status:    sqlc.DeviceCommandStatusEnumSUCCESS,
+				UpdatedAt: time.Now(),
+			})
+		})
+		require.NoError(t, err)
+
+		// Assert — error_info should remain NULL for successful rows.
+		var errorInfo sql.NullString
+		err = conn.QueryRowContext(context.Background(),
+			`SELECT cdl.error_info FROM command_on_device_log cdl
+			 JOIN command_batch_log cbl ON cdl.command_batch_log_id = cbl.id
+			 WHERE cbl.uuid = $1 AND cdl.device_id = $2`,
+			batchUUID, device.DatabaseID).Scan(&errorInfo)
+		require.NoError(t, err)
+		assert.False(t, errorInfo.Valid, "success rows must not populate error_info")
+	})
+
 	t.Run("stale message skips both queue status and device log", func(t *testing.T) {
 		// Arrange
 		conn, dbService, user := setupMarkStatusTest(t)
