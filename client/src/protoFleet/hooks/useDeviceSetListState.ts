@@ -136,11 +136,9 @@ export function useDeviceSetListState(
     fetchPage(0, undefined);
   }, [fetchPage]);
 
-  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     resetAndFetch();
   }, [resetAndFetch]);
-  /* eslint-enable react-hooks/set-state-in-effect */
 
   const handleSort = useCallback(
     (field: DeviceSetColumn, direction: SortDirection) => {

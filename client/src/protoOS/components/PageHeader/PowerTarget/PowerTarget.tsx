@@ -68,21 +68,18 @@ const PowerTarget = () => {
   useEffect(() => {
     if (hasAccess && pausedAuthAction === AUTH_ACTIONS.miningTarget && lastMiningTarget) {
       updateMiningTarget(lastMiningTarget);
-      /* eslint-disable react-hooks/set-state-in-effect */
+
       setPausedAuthAction(null);
       setLastMiningTarget(null);
-      /* eslint-enable react-hooks/set-state-in-effect */
     }
   }, [hasAccess, pausedAuthAction, setPausedAuthAction, updateMiningTarget, lastMiningTarget]);
 
   useEffect(() => {
     if (dismissedLoginModal) {
-      /* eslint-disable react-hooks/set-state-in-effect */
       setPending(false);
       setPausedAuthAction(null);
       setDismissedLoginModal(false);
       setLastMiningTarget(null);
-      /* eslint-enable react-hooks/set-state-in-effect */
     }
   }, [dismissedLoginModal, setDismissedLoginModal, setPausedAuthAction, setPending]);
 

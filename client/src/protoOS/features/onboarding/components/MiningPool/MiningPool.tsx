@@ -39,7 +39,6 @@ const MiningPoolPage = () => {
 
   useEffect(() => {
     if (settingUpMiner && createPoolsError?.status === 422) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSettingUpMiner(false);
       setPausedAction(true);
     }

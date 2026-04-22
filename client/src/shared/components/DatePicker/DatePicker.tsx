@@ -109,7 +109,7 @@ const DatePickerContent = (props: DatePickerProps) => {
   // Disabled is an external control boundary, so close the panel before paint when it flips on.
   useLayoutEffect(() => {
     if (!disabled || !open) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+
     closePicker();
   }, [disabled, open, closePicker]);
 

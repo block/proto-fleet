@@ -53,7 +53,6 @@ const FilterContent = ({
   // When buttons are shown, update internal state when external changes
   useEffect(() => {
     if (withButtons) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setInternalSelectedItems(externalSelectedItems);
     }
   }, [externalSelectedItems, withButtons]);

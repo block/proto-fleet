@@ -46,7 +46,6 @@ const PoolForm = ({
 
   useEffect(() => {
     if (shouldTestConnection && !isTestingConnection) {
-      /* eslint-disable react-hooks/set-state-in-effect */
       setShouldTestConnection(false);
       if (!pools[poolIndex].url.trim()) {
         setValidationErrors({
@@ -56,7 +55,7 @@ const PoolForm = ({
         return;
       }
       setError(false);
-      /* eslint-enable react-hooks/set-state-in-effect */
+
       testConnection({
         poolInfo: pools[poolIndex],
         onError: () => {

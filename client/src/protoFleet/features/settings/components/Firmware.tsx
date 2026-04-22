@@ -81,11 +81,10 @@ const Firmware = () => {
   }, [listFirmwareFiles]);
 
   // fetchFiles is a stable callback that internally manages state updates
-  /* eslint-disable react-hooks/set-state-in-effect */
+
   useEffect(() => {
     fetchFiles();
   }, [fetchFiles]);
-  /* eslint-enable react-hooks/set-state-in-effect */
 
   const handleDeleteFile = useCallback((file: FirmwareFileData) => {
     setFileToDelete(file);

@@ -32,7 +32,6 @@ const AddTeamMemberModal = ({ open, onDismiss, onSuccess }: AddTeamMemberModalPr
       return;
     }
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset modal state on close
     setStep("enterUsername");
     setUsername("");
     setTemporaryPassword("");

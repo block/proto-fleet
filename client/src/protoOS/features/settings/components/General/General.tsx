@@ -63,7 +63,7 @@ const General = () => {
   useEffect(() => {
     if (hasAccess && pausedAuthAction === AUTH_ACTIONS.systemTag) {
       setPausedAuthAction(null);
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+
       setShowMinerSystemTagEditModal(true);
     }
   }, [hasAccess, pausedAuthAction, setPausedAuthAction]);

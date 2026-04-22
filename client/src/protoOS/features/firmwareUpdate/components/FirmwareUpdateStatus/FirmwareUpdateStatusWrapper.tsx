@@ -26,7 +26,6 @@ const FirmwareUpdateStatusWrapper = () => {
 
   useEffect(() => {
     if (dismissedLoginModal) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setUpdatePending(false);
       setDismissedLoginModal(false);
       setPausedAuthAction(null);

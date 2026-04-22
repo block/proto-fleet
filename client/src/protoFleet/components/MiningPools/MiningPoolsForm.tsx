@@ -55,7 +55,7 @@ const MiningPoolsForm = ({ buttonLabel, onSaveRequested, onSaveDone, onSaveFaile
       ...existingPools.map((pool: Pool) => Number(pool.poolId)),
     );
     const emptyPools = getEmptyPoolsInfo(maxExistingPriority).slice(existingPools.length);
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+
     setPools([...currentPools, ...emptyPools]);
   }, [existingPools]);
 

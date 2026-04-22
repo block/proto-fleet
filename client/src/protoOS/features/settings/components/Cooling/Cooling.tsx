@@ -85,7 +85,6 @@ const Cooling = () => {
   useEffect(() => {
     // Read from store instead of local hook state for immediate updates
     if (storeCoolingMode) {
-      /* eslint-disable react-hooks/set-state-in-effect */
       if (isAirCooledMode(storeCoolingMode)) {
         setCoolingMode(COOLING_MODES.air);
         setLoading(false);
@@ -93,13 +92,11 @@ const Cooling = () => {
         setCoolingMode(COOLING_MODES.immersion);
         setLoading(false);
       }
-      /* eslint-enable react-hooks/set-state-in-effect */
     }
   }, [storeCoolingMode]);
 
   useEffect(() => {
     if (isSleeping) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setShowSleepDialog(false);
     }
   }, [isSleeping]);

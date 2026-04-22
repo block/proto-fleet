@@ -50,6 +50,14 @@ export default [
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
+      // React Compiler rules added to the `recommended` preset in
+      // eslint-plugin-react-hooks 7.1. Disabled for now; see follow-up issue
+      // for adopting them incrementally.
+      "react-hooks/set-state-in-effect": "off",
+      "react-hooks/refs": "off",
+      "react-hooks/immutability": "off",
+      "react-hooks/preserve-manual-memoization": "off",
+      "react-hooks/use-memo": "off",
       "no-unused-vars": "off",
       "@typescript-eslint/no-unused-vars": [
         "error",

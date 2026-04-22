@@ -80,7 +80,7 @@ const AuthenticationSettings = () => {
   const [showWeakPasswordWarning, setShowWeakPasswordWarning] = useState(false);
 
   // Reset form state when modal closes
-  /* eslint-disable react-hooks/set-state-in-effect -- reset modal state on close */
+
   useEffect(() => {
     if (showModal) {
       return;
@@ -100,7 +100,6 @@ const AuthenticationSettings = () => {
     setUsernameUpdateApiError(null);
     setShowWeakPasswordWarning(false);
   }, [showModal]);
-  /* eslint-enable react-hooks/set-state-in-effect */
 
   // Clear errors when user starts typing
   const handlePasswordChange = (value: string) => {

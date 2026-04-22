@@ -84,7 +84,7 @@ const PoolSelectionModal = ({
   const { validatePool, createPool, miningPools } = usePools(isVisible);
 
   // Reset internal state when hidden to mirror prior conditional-mount behavior.
-  /* eslint-disable react-hooks/set-state-in-effect */
+
   useEffect(() => {
     if (isVisible) {
       return;
@@ -98,7 +98,6 @@ const PoolSelectionModal = ({
     setShowConnectionCallout(false);
     setConnectionError(false);
   }, [isVisible]);
-  /* eslint-enable react-hooks/set-state-in-effect */
 
   const showSuccessCallout = useMemo(
     () => showConnectionCallout && !isTestingConnection && !connectionError,
