@@ -19,12 +19,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
-// completedEventSuffix identifies activity events written by the command
-// finalizer. Inserts for these events are guarded by a partial unique index
-// on (batch_id, event_type) so the finalizer (and its crash-recovery
-// reconciler) can be re-run idempotently.
-const completedEventSuffix = ".completed"
-
 // pgErrCodeUniqueViolation is PostgreSQL's SQLSTATE for unique_violation.
 const pgErrCodeUniqueViolation = "23505"
 
@@ -80,7 +74,7 @@ func (s *SQLActivityStore) Insert(ctx context.Context, event *models.Event) erro
 // isCompletedBatchDuplicate reports whether err is the unique_violation raised
 // by the partial index guarding '*.completed' events for a given batch_id.
 func isCompletedBatchDuplicate(event *models.Event, err error) bool {
-	if event == nil || event.BatchID == nil || !strings.HasSuffix(event.Type, completedEventSuffix) {
+	if event == nil || event.BatchID == nil || !strings.HasSuffix(event.Type, models.CompletedEventSuffix) {
 		return false
 	}
 	var pgErr *pgconn.PgError

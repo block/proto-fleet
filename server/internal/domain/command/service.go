@@ -102,6 +102,7 @@ func (s *Service) logCommandActivity(ctx context.Context, eventType, description
 		slog.Warn("failed to log command activity: session info unavailable", "error", err)
 		return
 	}
+	batchIDCopy := batchID
 	s.activitySvc.Log(ctx, activitymodels.Event{
 		Category:       activitymodels.CategoryDeviceCommand,
 		Type:           eventType,
@@ -110,8 +111,109 @@ func (s *Service) logCommandActivity(ctx context.Context, eventType, description
 		UserID:         &info.ExternalUserID,
 		Username:       &info.Username,
 		OrganizationID: &info.OrganizationID,
+		BatchID:        &batchIDCopy,
 		Metadata:       map[string]any{"batch_id": batchID},
 	})
+}
+
+// composeFinalizers chains multiple onFinished callbacks so every command RPC
+// can layer its own side-effects (e.g. the DownloadLogs bundle builder) with
+// the shared activity finalizer. Nil callbacks are skipped; if the resulting
+// chain is empty the helper returns nil so initializeStatusUpdateRoutine can
+// keep its zero-callback fast path.
+func composeFinalizers(callbacks ...onFinishedCallbackFunc) onFinishedCallbackFunc {
+	nonNil := make([]onFinishedCallbackFunc, 0, len(callbacks))
+	for _, cb := range callbacks {
+		if cb != nil {
+			nonNil = append(nonNil, cb)
+		}
+	}
+	switch len(nonNil) {
+	case 0:
+		return nil
+	case 1:
+		return nonNil[0]
+	default:
+		return func() error {
+			for _, cb := range nonNil {
+				if err := cb(); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}
+}
+
+// finalizerDBTimeout bounds the background transaction used by the activity
+// finalizer. Independent of request ctx since the finalizer runs long after
+// the originating RPC has returned.
+const finalizerDBTimeout = 15 * time.Second
+
+// buildActivityCompletedCallback returns a finalizer that writes the
+// '<event_type>.completed' activity row when the batch reaches FINISHED. The
+// row is idempotent: the partial unique index on (batch_id, event_type) plus
+// SQLActivityStore.Insert's duplicate-swallow let the crash-recovery
+// reconciler (M7) re-run this callback safely.
+//
+// Session info is captured at call time because the finalizer runs against a
+// background context (the originating request ctx is long gone).
+func (s *Service) buildActivityCompletedCallback(ctx context.Context, batchID, eventType, description string) onFinishedCallbackFunc {
+	if s.activitySvc == nil {
+		return nil
+	}
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		// Without session info we cannot attribute the completion event. The
+		// crash-recovery reconciler in M7 still produces a system-attributed
+		// completion row later, so we fail open rather than blocking the batch.
+		slog.Warn("command activity finalizer: session info unavailable at command start",
+			"error", err, "batch_id", batchID)
+		return nil
+	}
+	userID := info.ExternalUserID
+	username := info.Username
+	organizationID := info.OrganizationID
+	return func() error {
+		finCtx, cancel := context.WithTimeout(context.Background(), finalizerDBTimeout)
+		defer cancel()
+		counts, err := db.WithTransaction(finCtx, s.conn, func(q *sqlc.Queries) (sqlc.GetBatchStatusAndDeviceCountsRow, error) {
+			return q.GetBatchStatusAndDeviceCounts(finCtx, batchID)
+		})
+		if err != nil {
+			return fleeterror.NewInternalErrorf("finalizer reading counts for %s: %v", batchID, err)
+		}
+
+		result := activitymodels.ResultSuccess
+		if counts.FailedDevices > 0 {
+			result = activitymodels.ResultFailure
+		}
+
+		// #nosec G115 -- devices_count is bounded by the batch size we create.
+		scopeCount := int(counts.DevicesCount)
+		batchIDCopy := batchID
+		completionDesc := fmt.Sprintf("%s completed: %d succeeded, %d failed",
+			description, counts.SuccessfulDevices, counts.FailedDevices)
+		s.activitySvc.Log(finCtx, activitymodels.Event{
+			Category:       activitymodels.CategoryDeviceCommand,
+			Type:           eventType + activitymodels.CompletedEventSuffix,
+			Description:    completionDesc,
+			Result:         result,
+			ScopeCount:     &scopeCount,
+			ActorType:      activitymodels.ActorUser,
+			UserID:         &userID,
+			Username:       &username,
+			OrganizationID: &organizationID,
+			BatchID:        &batchIDCopy,
+			Metadata: map[string]any{
+				"batch_id":      batchID,
+				"total_count":   counts.DevicesCount,
+				"success_count": counts.SuccessfulDevices,
+				"failure_count": counts.FailedDevices,
+			},
+		})
+		return nil
+	}
 }
 
 func (s *Service) getDevicesCount(ctx context.Context, selector *pb.DeviceSelector) (int32, error) {
@@ -376,8 +478,9 @@ func (s *Service) Reboot(ctx context.Context, deviceSelector *pb.DeviceSelector)
 		return nil, err
 	}
 
-	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
 	s.logCommandActivity(ctx, "reboot", "Reboot", deviceCount, commandBatchLogUUID)
+	s.initializeStatusUpdateRoutine(commandBatchLogUUID,
+		s.buildActivityCompletedCallback(ctx, commandBatchLogUUID, "reboot", "Reboot"))
 
 	return &pb.RebootResponse{
 		BatchIdentifier: commandBatchLogUUID,
@@ -394,8 +497,9 @@ func (s *Service) StopMining(ctx context.Context, deviceSelector *pb.DeviceSelec
 		return nil, err
 	}
 
-	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
 	s.logCommandActivity(ctx, "stop_mining", "Sleep", deviceCount, commandBatchLogUUID)
+	s.initializeStatusUpdateRoutine(commandBatchLogUUID,
+		s.buildActivityCompletedCallback(ctx, commandBatchLogUUID, "stop_mining", "Sleep"))
 
 	return &pb.StopMiningResponse{
 		BatchIdentifier: commandBatchLogUUID,
@@ -412,8 +516,9 @@ func (s *Service) StartMining(ctx context.Context, deviceSelector *pb.DeviceSele
 		return nil, err
 	}
 
-	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
 	s.logCommandActivity(ctx, "start_mining", "Wake up", deviceCount, commandBatchLogUUID)
+	s.initializeStatusUpdateRoutine(commandBatchLogUUID,
+		s.buildActivityCompletedCallback(ctx, commandBatchLogUUID, "start_mining", "Wake up"))
 
 	return &pb.StartMiningResponse{
 		BatchIdentifier: commandBatchLogUUID,
@@ -430,8 +535,9 @@ func (s *Service) SetCoolingMode(ctx context.Context, deviceSelector *pb.DeviceS
 		return nil, err
 	}
 
-	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
 	s.logCommandActivity(ctx, "set_cooling_mode", "Cooling mode changed", deviceCount, commandBatchLogUUID)
+	s.initializeStatusUpdateRoutine(commandBatchLogUUID,
+		s.buildActivityCompletedCallback(ctx, commandBatchLogUUID, "set_cooling_mode", "Cooling mode changed"))
 
 	return &pb.SetCoolingModeResponse{
 		BatchIdentifier: commandBatchLogUUID,
@@ -450,8 +556,10 @@ func (s *Service) SetPowerTarget(ctx context.Context, deviceSelector *pb.DeviceS
 		return nil, err
 	}
 
-	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
-	s.logCommandActivity(ctx, "set_power_target", fmt.Sprintf("Power target changed to %s", performanceMode.String()), deviceCount, commandBatchLogUUID)
+	description := fmt.Sprintf("Power target changed to %s", performanceMode.String())
+	s.logCommandActivity(ctx, "set_power_target", description, deviceCount, commandBatchLogUUID)
+	s.initializeStatusUpdateRoutine(commandBatchLogUUID,
+		s.buildActivityCompletedCallback(ctx, commandBatchLogUUID, "set_power_target", description))
 
 	return &pb.SetPowerTargetResponse{
 		BatchIdentifier: commandBatchLogUUID,
@@ -579,8 +687,9 @@ func (s *Service) UpdateMiningPools(
 		return nil, err
 	}
 
-	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
 	s.logCommandActivity(ctx, "update_mining_pools", "Edit pool", deviceCount, commandBatchLogUUID)
+	s.initializeStatusUpdateRoutine(commandBatchLogUUID,
+		s.buildActivityCompletedCallback(ctx, commandBatchLogUUID, "update_mining_pools", "Edit pool"))
 
 	return &pb.UpdateMiningPoolsResponse{BatchIdentifier: commandBatchLogUUID}, nil
 }
@@ -713,9 +822,13 @@ func (s *Service) DownloadLogs(ctx context.Context, deviceSelector *pb.DeviceSel
 		return nil, err
 	}
 
-	callback := s.filesService.DownloadLogsOnFinishedCallback(commandBatchLogUUID)
-	s.initializeStatusUpdateRoutine(commandBatchLogUUID, callback)
+	// Bundle callback runs first so the ZIP is on disk before the activity log
+	// marks the batch as completed; the activity finalizer then writes the
+	// completion row. Both are chained through composeFinalizers.
+	bundleCb := s.filesService.DownloadLogsOnFinishedCallback(commandBatchLogUUID)
+	activityCb := s.buildActivityCompletedCallback(ctx, commandBatchLogUUID, "download_logs", "Download logs")
 	s.logCommandActivity(ctx, "download_logs", "Download logs", deviceCount, commandBatchLogUUID)
+	s.initializeStatusUpdateRoutine(commandBatchLogUUID, composeFinalizers(bundleCb, activityCb))
 
 	return &pb.DownloadLogsResponse{BatchIdentifier: commandBatchLogUUID}, nil
 }
@@ -726,8 +839,9 @@ func (s *Service) BlinkLED(ctx context.Context, deviceSelector *pb.DeviceSelecto
 		return nil, err
 	}
 
-	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
 	s.logCommandActivity(ctx, "blink_led", "Blink LEDs", deviceCount, commandBatchLogUUID)
+	s.initializeStatusUpdateRoutine(commandBatchLogUUID,
+		s.buildActivityCompletedCallback(ctx, commandBatchLogUUID, "blink_led", "Blink LEDs"))
 
 	return &pb.BlinkLEDResponse{BatchIdentifier: commandBatchLogUUID}, nil
 }
@@ -747,8 +861,9 @@ func (s *Service) FirmwareUpdate(ctx context.Context, deviceSelector *pb.DeviceS
 		return nil, err
 	}
 
-	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
 	s.logCommandActivity(ctx, "firmware_update", "Update firmware", deviceCount, commandBatchLogUUID)
+	s.initializeStatusUpdateRoutine(commandBatchLogUUID,
+		s.buildActivityCompletedCallback(ctx, commandBatchLogUUID, "firmware_update", "Update firmware"))
 
 	return &pb.FirmwareUpdateResponse{BatchIdentifier: commandBatchLogUUID}, nil
 }
@@ -759,8 +874,9 @@ func (s *Service) Unpair(ctx context.Context, deviceSelector *pb.DeviceSelector)
 		return nil, err
 	}
 
-	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
 	s.logCommandActivity(ctx, "unpair", "Unpair", deviceCount, commandBatchLogUUID)
+	s.initializeStatusUpdateRoutine(commandBatchLogUUID,
+		s.buildActivityCompletedCallback(ctx, commandBatchLogUUID, "unpair", "Unpair"))
 
 	return &pb.UnpairResponse{BatchIdentifier: commandBatchLogUUID}, nil
 }
@@ -838,8 +954,9 @@ func (s *Service) UpdateMinerPassword(
 		return nil, err
 	}
 
-	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
 	s.logCommandActivity(ctx, "update_miner_password", "Manage security", deviceCount, commandBatchLogUUID)
+	s.initializeStatusUpdateRoutine(commandBatchLogUUID,
+		s.buildActivityCompletedCallback(ctx, commandBatchLogUUID, "update_miner_password", "Manage security"))
 
 	return &pb.UpdateMinerPasswordResponse{
 		BatchIdentifier: commandBatchLogUUID,

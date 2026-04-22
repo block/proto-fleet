@@ -63,6 +63,13 @@ const (
 	MinPageSize     = 1
 )
 
+// CompletedEventSuffix is appended to a command event type to mark the
+// terminal row emitted by the batch finalizer. The combined pair
+// (batch_id, event_type) is guarded by a partial unique index in the
+// activity_log table so the finalizer (and its crash-recovery reconciler)
+// can re-run idempotently.
+const CompletedEventSuffix = ".completed"
+
 // Event is the write model used by callers of Service.Log().
 type Event struct {
 	Category       EventCategory
