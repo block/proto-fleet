@@ -11,10 +11,18 @@ jobs:
   dependency-review:
     runs-on: ubuntu-latest
     steps:
+      - name: Skip on non-public repositories
+        if: ${{ github.event.repository.private }}
+        run: |
+          echo "Dependency Review is only enforced for public repositories." >> "$GITHUB_STEP_SUMMARY"
+          echo "This repository is currently internal/private, so the dependency review action is skipped." >> "$GITHUB_STEP_SUMMARY"
+
       - name: Checkout code
+        if: ${{ !github.event.repository.private }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Dependency Review
+        if: ${{ !github.event.repository.private }}
         uses: actions/dependency-review-action@v4
         with:
           comment-summary-in-pr: on-failure
