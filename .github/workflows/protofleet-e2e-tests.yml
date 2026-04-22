@@ -99,7 +99,10 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: /tmp/docker-images
-          key: ${{ runner.os }}-protofleet-e2e-docker-${{ hashFiles('server/Dockerfile', 'server/docker-compose*.yaml', 'server/go.sum', 'server/go.mod', 'server/**/*.go', 'server/fake-antminer/**', 'server/fake-proto-rig/**', 'server/timescaledb/**') }}
+          # `schedule` salts run_id so daily runs always rebuild against
+          # current base images. `server/**` because the Dockerfile does
+          # `COPY server/ ./` (e.g. go:embed migrations).
+          key: ${{ runner.os }}-protofleet-e2e-docker-${{ github.event_name == 'schedule' && format('schedule-{0}', github.run_id) || hashFiles('server/**') }}
 
       - name: Build E2E Docker images
         if: steps.docker-image-cache.outputs.cache-hit != 'true'
