@@ -47,3 +47,40 @@ func TestComposeFinalizers_AllSucceed(t *testing.T) {
 	assert.NoError(t, fn())
 	assert.Equal(t, []string{"a", "b", "c"}, order)
 }
+
+func TestComposeFinalizers_RetrySkipsAlreadySucceededCallbacks(t *testing.T) {
+	// Simulates the status routine's retry loop: the first run fails at
+	// callback 2; the second run must not re-invoke callback 1, because its
+	// side effects already landed. Mirrors the DownloadLogs bundle + activity
+	// finalizer composition.
+	firstCalls := 0
+	secondCalls := 0
+	secondAttempts := 0
+
+	first := func() error {
+		firstCalls++
+		return nil
+	}
+	second := func() error {
+		secondCalls++
+		secondAttempts++
+		if secondAttempts == 1 {
+			return errors.New("transient blip")
+		}
+		return nil
+	}
+
+	fn := composeFinalizers(first, second)
+
+	// First invocation: first succeeds, second errors.
+	err := fn()
+	assert.EqualError(t, err, "transient blip")
+	assert.Equal(t, 1, firstCalls)
+	assert.Equal(t, 1, secondCalls)
+
+	// Retry: first must be skipped (already done), only second runs again.
+	err = fn()
+	assert.NoError(t, err)
+	assert.Equal(t, 1, firstCalls, "succeeded callbacks must not re-run on retry")
+	assert.Equal(t, 2, secondCalls)
+}

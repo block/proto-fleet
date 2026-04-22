@@ -141,24 +141,42 @@ func actorTypeFromSession(info *session.Info) activitymodels.ActorType {
 // the shared activity finalizer. Nil callbacks are skipped; if the resulting
 // chain is empty the helper returns nil so initializeStatusUpdateRoutine can
 // keep its zero-callback fast path.
+//
+// The composed closure remembers which callbacks have already succeeded so
+// that a failure partway through the chain triggers a retry of only the
+// failed (and subsequent) callbacks on the next invocation. This keeps
+// side-effecting callbacks (such as the DownloadLogs ZIP builder) from
+// re-running unnecessarily when a later callback (for example the activity
+// finalizer hitting a transient DB blip) returns an error and the status
+// routine retries the whole chain.
 func composeFinalizers(callbacks ...onFinishedCallbackFunc) onFinishedCallbackFunc {
-	nonNil := make([]onFinishedCallbackFunc, 0, len(callbacks))
+	type trackedCallback struct {
+		fn   onFinishedCallbackFunc
+		done bool
+	}
+	tracked := make([]*trackedCallback, 0, len(callbacks))
 	for _, cb := range callbacks {
 		if cb != nil {
-			nonNil = append(nonNil, cb)
+			tracked = append(tracked, &trackedCallback{fn: cb})
 		}
 	}
-	switch len(nonNil) {
+	switch len(tracked) {
 	case 0:
 		return nil
 	case 1:
-		return nonNil[0]
+		// Single callback: no tracking overhead needed; initializeStatusUpdateRoutine
+		// already guards the whole callback with its own callbackDone flag.
+		return tracked[0].fn
 	default:
 		return func() error {
-			for _, cb := range nonNil {
-				if err := cb(); err != nil {
+			for _, tc := range tracked {
+				if tc.done {
+					continue
+				}
+				if err := tc.fn(); err != nil {
 					return err
 				}
+				tc.done = true
 			}
 			return nil
 		}
