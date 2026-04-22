@@ -58,10 +58,13 @@ type RetentionCleaner struct {
 	config *RetentionConfig
 	now    func() time.Time
 
-	// mu guards the Start/Stop lifecycle fields.
-	mu     sync.Mutex
-	cancel context.CancelFunc
-	done   chan struct{}
+	// lifecycleMu serializes entire Start/Stop bodies so concurrent calls
+	// install and drain generations in turn; mu guards the short cancel/done
+	// field reads/writes. See command.RetentionCleaner for the full rationale.
+	lifecycleMu sync.Mutex
+	mu          sync.Mutex
+	cancel      context.CancelFunc
+	done        chan struct{}
 }
 
 // NewRetentionCleaner wires the cleaner to the store. It mutates cfg to apply
@@ -75,15 +78,20 @@ func NewRetentionCleaner(store interfaces.ActivityStore, cfg *RetentionConfig) *
 	}
 }
 
-// Start launches the cleaner goroutine. Safe with a nil receiver.
-// Locking order: fields are mutated under c.mu, but the drain of a previous
-// generation's goroutine happens outside the lock so a worker that ever
-// needs c.mu (none do today, defence in depth) cannot deadlock against
-// Start/Stop waiting on the drain.
+// Start launches the cleaner goroutine. Safe to call with a nil receiver
+// and safe to call multiple times -- lifecycleMu serializes overlapping
+// callers so the previous generation is always drained before a new one is
+// installed.
+//
+// Locking order: Start/Stop run under lifecycleMu; cancel/done are
+// read/written under c.mu but the drain happens outside c.mu so a worker
+// that ever needs c.mu cannot deadlock against Start/Stop on <-done.
 func (c *RetentionCleaner) Start(ctx context.Context) {
 	if c == nil {
 		return
 	}
+	c.lifecycleMu.Lock()
+	defer c.lifecycleMu.Unlock()
 
 	c.mu.Lock()
 	prevCancel, prevDone := c.cancel, c.done
@@ -125,6 +133,9 @@ func (c *RetentionCleaner) Stop() {
 	if c == nil {
 		return
 	}
+	c.lifecycleMu.Lock()
+	defer c.lifecycleMu.Unlock()
+
 	c.mu.Lock()
 	cancel, done := c.cancel, c.done
 	c.cancel, c.done = nil, nil

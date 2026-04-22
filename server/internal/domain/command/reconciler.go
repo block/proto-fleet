@@ -50,10 +50,14 @@ type CompletionReconciler struct {
 	activityLogger ActivityLogger
 	now            func() time.Time
 
-	// mu guards the Start/Stop lifecycle fields.
-	mu     sync.Mutex
-	cancel context.CancelFunc
-	done   chan struct{}
+	// lifecycleMu serializes Start/Stop so overlapping callers take turns
+	// installing and draining their generation; mu guards the short
+	// cancel/done field reads/writes. See command.RetentionCleaner for the
+	// full rationale.
+	lifecycleMu sync.Mutex
+	mu          sync.Mutex
+	cancel      context.CancelFunc
+	done        chan struct{}
 }
 
 // NewCompletionReconciler builds a reconciler ready to Start. Injecting the
@@ -78,15 +82,19 @@ func NewCompletionReconciler(conn *sql.DB, config *Config, activityLogger Activi
 }
 
 // Start launches the reconciler goroutine. Calling Start more than once
-// replaces the previous goroutine. Safe to call with a nil receiver.
-// Locking order: fields are mutated under r.mu, but the drain of a previous
-// generation's goroutine happens outside the lock so a worker that ever
-// needs r.mu (none do today, defence in depth) cannot deadlock against
-// Start/Stop waiting on the drain.
+// replaces the previous goroutine; overlapping callers take turns via
+// lifecycleMu so the previous generation is always drained before a new one
+// is installed. Safe to call with a nil receiver.
+//
+// Locking order: Start/Stop run under lifecycleMu; cancel/done are
+// read/written under r.mu but the drain happens outside r.mu so a worker
+// that ever needs r.mu cannot deadlock against Start/Stop on <-done.
 func (r *CompletionReconciler) Start(ctx context.Context) {
 	if r == nil {
 		return
 	}
+	r.lifecycleMu.Lock()
+	defer r.lifecycleMu.Unlock()
 
 	r.mu.Lock()
 	prevCancel, prevDone := r.cancel, r.done
@@ -130,6 +138,9 @@ func (r *CompletionReconciler) Stop() {
 	if r == nil {
 		return
 	}
+	r.lifecycleMu.Lock()
+	defer r.lifecycleMu.Unlock()
+
 	r.mu.Lock()
 	cancel, done := r.cancel, r.done
 	r.cancel, r.done = nil, nil

@@ -1111,16 +1111,22 @@ func (s *Service) GetCommandBatchDeviceResults(ctx context.Context, req *pb.GetC
 	// between the queries would otherwise be able to skew the counts vs. the
 	// visible device list.
 	//
-	// db.WithReadOnlyTransaction's retry wrapper re-wraps non-FleetError
-	// errors into an Internal FleetError, which erases sql.ErrNoRows.
-	// Translating to a NotFound FleetError inside the callback lets the
-	// caller see the right connect code.
+	// Why sql.ErrNoRows is translated inside the callback (not outside):
+	// db.WithReadOnlyTransaction's retry wrapper fabricates its terminal
+	// error with fleeterror.NewInternalErrorf("...: %v", lastErr). The %v
+	// verb formats the error but does not wrap it with %w, so the returned
+	// FleetError cannot be unwrapped back to sql.ErrNoRows via errors.Is at
+	// the call site. Catching the sentinel here, while it is still the raw
+	// driver error, is the only way to map it to a NotFound connect code.
 	//
-	// The counts query (GetBatchStatusAndDeviceCounts) cannot return
-	// sql.ErrNoRows at this point: by the time we reach it the header query
-	// has already resolved the batch uuid, and we're holding a stable
-	// snapshot, so the aggregate query over GROUP BY cbl.id always yields a
-	// row.
+	// Why the counts query never yields sql.ErrNoRows:
+	// GetBatchStatusAndDeviceCounts is an aggregate over GROUP BY cbl.id
+	// rooted in the same command_batch_log row that the header query just
+	// resolved. The aggregate always emits one row per group and the header
+	// row is guaranteed to exist (we would have already returned NotFound).
+	// REPEATABLE READ adds belt-and-suspenders: it rules out a concurrent
+	// delete slipping in between the two queries, but the structural
+	// argument alone is enough.
 	type resultsBundle struct {
 		header sqlc.GetBatchHeaderForOrgRow
 		counts sqlc.GetBatchStatusAndDeviceCountsRow

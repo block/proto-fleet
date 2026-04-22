@@ -98,11 +98,21 @@ type RetentionCleaner struct {
 	config *RetentionConfig
 	now    func() time.Time
 
-	// mu guards the Start/Stop lifecycle fields so back-to-back Start+Stop
-	// calls from a test (or an eventual hot-reload path in main) don't race.
-	mu     sync.Mutex
-	cancel context.CancelFunc
-	done   chan struct{}
+	// Two mutexes cooperate here:
+	//   - lifecycleMu serializes entire Start/Stop calls so concurrent
+	//     invocations take turns installing and draining their generation.
+	//     Without this, two concurrent Start calls could both observe
+	//     prev=nil, both spawn a goroutine, and one would leak.
+	//   - mu guards the short cancel/done field reads/writes. Held only for
+	//     the duration of a snapshot or install -- never across the drain,
+	//     so a worker goroutine that someday needs mu cannot deadlock
+	//     against Start/Stop waiting on <-done.
+	//
+	// The worker goroutine does not touch either mutex today.
+	lifecycleMu sync.Mutex
+	mu          sync.Mutex
+	cancel      context.CancelFunc
+	done        chan struct{}
 }
 
 // NewRetentionCleaner returns a cleaner that mutates cfg to apply defaults for
@@ -116,19 +126,25 @@ func NewRetentionCleaner(conn *sql.DB, cfg *RetentionConfig) *RetentionCleaner {
 	}
 }
 
-// Start launches the cleaner goroutine. Safe to call with a nil receiver.
-// Locking order: fields are mutated under c.mu, but the drain of a previous
-// generation's goroutine happens outside the lock so a worker that ever
-// needs c.mu (none do today, defence in depth) cannot deadlock against
-// Start/Stop waiting on the drain.
+// Start launches the cleaner goroutine. Safe to call with a nil receiver
+// and safe to call multiple times -- lifecycleMu serializes overlapping
+// callers so the previous generation's goroutine is always drained before a
+// new one is installed.
+//
+// Locking order: Start/Stop run under lifecycleMu. Inside, cancel/done are
+// read and written under c.mu but the drain of a previous generation
+// happens outside c.mu so a worker that ever needs c.mu (none do today,
+// defence in depth) cannot deadlock against Start/Stop waiting on <-done.
 func (c *RetentionCleaner) Start(ctx context.Context) {
 	if c == nil {
 		return
 	}
+	c.lifecycleMu.Lock()
+	defer c.lifecycleMu.Unlock()
 
-	// Snapshot and clear any previous generation under the lock, drain it
-	// outside. Subsequent Start/Stop callers observe a nil cancel and either
-	// install their own generation or no-op.
+	// Snapshot and clear any previous generation under the field lock, drain
+	// it outside. Since lifecycleMu serializes Start/Stop callers, we know
+	// nobody else will touch cancel/done while we're draining.
 	c.mu.Lock()
 	prevCancel, prevDone := c.cancel, c.done
 	c.cancel, c.done = nil, nil
@@ -170,6 +186,9 @@ func (c *RetentionCleaner) Stop() {
 	if c == nil {
 		return
 	}
+	c.lifecycleMu.Lock()
+	defer c.lifecycleMu.Unlock()
+
 	c.mu.Lock()
 	cancel, done := c.cancel, c.done
 	c.cancel, c.done = nil, nil
