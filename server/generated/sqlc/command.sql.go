@@ -120,6 +120,36 @@ func (q *Queries) DeleteCommandOnDeviceLogsOlderThan(ctx context.Context, arg De
 	return result.RowsAffected()
 }
 
+const getBatchDeviceCounts = `-- name: GetBatchDeviceCounts :one
+SELECT
+    cbl.devices_count,
+    CAST(COALESCE(SUM(CASE WHEN codl.status = 'SUCCESS' THEN 1 ELSE 0 END), 0) AS BIGINT) AS successful_devices,
+    CAST(COALESCE(SUM(CASE WHEN codl.status = 'FAILED' THEN 1 ELSE 0 END), 0) AS BIGINT) AS failed_devices
+FROM command_batch_log cbl
+LEFT JOIN command_on_device_log codl ON cbl.id = codl.command_batch_log_id
+WHERE cbl.uuid = $1
+GROUP BY cbl.id
+`
+
+type GetBatchDeviceCountsRow struct {
+	DevicesCount      int32
+	SuccessfulDevices int64
+	FailedDevices     int64
+}
+
+// Scalar counts only: same SUM/CASE aggregates as GetBatchStatusAndDeviceCounts
+// but without the per-device JSON_AGG arrays or the device join. Used by the
+// activity finalizer, the completion reconciler, and the detail RPC -- all
+// callers that read only the counts and would otherwise pay for materializing
+// two device-identifier arrays they never look at (expensive for large
+// batches, and wasteful inside a REPEATABLE READ snapshot).
+func (q *Queries) GetBatchDeviceCounts(ctx context.Context, uuid string) (GetBatchDeviceCountsRow, error) {
+	row := q.queryRow(ctx, q.getBatchDeviceCountsStmt, getBatchDeviceCounts, uuid)
+	var i GetBatchDeviceCountsRow
+	err := row.Scan(&i.DevicesCount, &i.SuccessfulDevices, &i.FailedDevices)
+	return i, err
+}
+
 const getBatchHeaderForOrg = `-- name: GetBatchHeaderForOrg :one
 SELECT
     cbl.uuid,
@@ -241,7 +271,13 @@ JOIN command_batch_log cbl ON cbl.id = codl.command_batch_log_id
 LEFT JOIN device d ON d.id = codl.device_id
 WHERE cbl.uuid = $1
 ORDER BY d.device_identifier NULLS LAST, codl.id
+LIMIT $2
 `
+
+type ListBatchDeviceResultsParams struct {
+	Uuid    string
+	MaxRows int32
+}
 
 type ListBatchDeviceResultsRow struct {
 	DeviceIdentifier sql.NullString
@@ -253,8 +289,13 @@ type ListBatchDeviceResultsRow struct {
 // Returns one row per device in the batch, ordered deterministically so the
 // client can page or virtualize without reshuffling results across polls.
 // The LEFT JOIN to device preserves identifiers for soft-deleted devices.
-func (q *Queries) ListBatchDeviceResults(ctx context.Context, uuid string) ([]ListBatchDeviceResultsRow, error) {
-	rows, err := q.query(ctx, q.listBatchDeviceResultsStmt, listBatchDeviceResults, uuid)
+//
+// max_rows caps the read server-side so a pathological batch cannot push
+// millions of rows through the driver buffer before the Go truncation cap
+// fires. Callers that want to detect truncation pass (cap + 1); reading one
+// sentinel row beyond the cap keeps `len(rows) > cap` a valid signal.
+func (q *Queries) ListBatchDeviceResults(ctx context.Context, arg ListBatchDeviceResultsParams) ([]ListBatchDeviceResultsRow, error) {
+	rows, err := q.query(ctx, q.listBatchDeviceResultsStmt, listBatchDeviceResults, arg.Uuid, arg.MaxRows)
 	if err != nil {
 		return nil, err
 	}

@@ -156,6 +156,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getAvailableModelsStmt, err = db.PrepareContext(ctx, getAvailableModels); err != nil {
 		return nil, fmt.Errorf("error preparing query GetAvailableModels: %w", err)
 	}
+	if q.getBatchDeviceCountsStmt, err = db.PrepareContext(ctx, getBatchDeviceCounts); err != nil {
+		return nil, fmt.Errorf("error preparing query GetBatchDeviceCounts: %w", err)
+	}
 	if q.getBatchHeaderForOrgStmt, err = db.PrepareContext(ctx, getBatchHeaderForOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query GetBatchHeaderForOrg: %w", err)
 	}
@@ -892,6 +895,11 @@ func (q *Queries) Close() error {
 	if q.getAvailableModelsStmt != nil {
 		if cerr := q.getAvailableModelsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getAvailableModelsStmt: %w", cerr)
+		}
+	}
+	if q.getBatchDeviceCountsStmt != nil {
+		if cerr := q.getBatchDeviceCountsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getBatchDeviceCountsStmt: %w", cerr)
 		}
 	}
 	if q.getBatchHeaderForOrgStmt != nil {
@@ -1832,6 +1840,7 @@ type Queries struct {
 	getAllPairedDeviceIdentifiersStmt                   *sql.Stmt
 	getApiKeyByHashStmt                                 *sql.Stmt
 	getAvailableModelsStmt                              *sql.Stmt
+	getBatchDeviceCountsStmt                            *sql.Stmt
 	getBatchHeaderForOrgStmt                            *sql.Stmt
 	getBatchLogStmt                                     *sql.Stmt
 	getBatchStatusAndDeviceCountsStmt                   *sql.Stmt
@@ -2053,6 +2062,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getAllPairedDeviceIdentifiersStmt:                   q.getAllPairedDeviceIdentifiersStmt,
 		getApiKeyByHashStmt:                                 q.getApiKeyByHashStmt,
 		getAvailableModelsStmt:                              q.getAvailableModelsStmt,
+		getBatchDeviceCountsStmt:                            q.getBatchDeviceCountsStmt,
 		getBatchHeaderForOrgStmt:                            q.getBatchHeaderForOrgStmt,
 		getBatchLogStmt:                                     q.getBatchLogStmt,
 		getBatchStatusAndDeviceCountsStmt:                   q.getBatchStatusAndDeviceCountsStmt,

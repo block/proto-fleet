@@ -208,8 +208,11 @@ func (r *CompletionReconciler) backfillOne(
 ) error {
 	countsCtx, cancel := context.WithTimeout(ctx, reconcilerDBTimeout)
 	defer cancel()
-	counts, err := db.WithTransaction(countsCtx, r.conn, func(q *sqlc.Queries) (sqlc.GetBatchStatusAndDeviceCountsRow, error) {
-		return q.GetBatchStatusAndDeviceCounts(countsCtx, row.BatchID)
+	// Counts-only query under a read-only snapshot: honest about the intent
+	// and avoids materializing the device-identifier arrays the reconciler
+	// doesn't read.
+	counts, err := db.WithReadOnlyTransaction(countsCtx, r.conn, func(q *sqlc.Queries) (sqlc.GetBatchDeviceCountsRow, error) {
+		return q.GetBatchDeviceCounts(countsCtx, row.BatchID)
 	})
 	if err != nil {
 		return fmt.Errorf("reading counts for %s: %w", row.BatchID, err)

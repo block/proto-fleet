@@ -209,13 +209,19 @@ func TestGetCommandBatchDeviceResults_NotPrunedForEmptySelector(t *testing.T) {
 	assert.Equal(t, int32(0), resp.TotalCount)
 }
 
+// TestGetCommandBatchDeviceResults_TruncatesLargeBatchesWithConsistentCounts
+// exercises the M1 SQL-enforced LIMIT: the query reads at most
+// maxBatchDeviceResults+1 rows, so truncation is detected server-side (via
+// `len(rows) > cap`) without materializing the full list in driver memory.
+// Aggregate counts come from the separate GetBatchDeviceCounts query and are
+// therefore always accurate regardless of truncation.
 func TestGetCommandBatchDeviceResults_TruncatesLargeBatchesWithConsistentCounts(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
 	}
 
 	conn, dbService, user := setupRetentionTest(t)
-	const deviceCount = 5100 // over the 5000 cap
+	const deviceCount = 5100 // over the 5000 cap; SQL reads 5001 and Go slices to 5000
 
 	batchUUID := "results-truncate-1"
 	seedBatchInState(t, conn, batchUUID, user.DatabaseID, user.OrganizationID, int32(deviceCount), sqlc.BatchStatusEnumFINISHED)

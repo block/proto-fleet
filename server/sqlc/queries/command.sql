@@ -88,6 +88,22 @@ WHERE
 GROUP BY
     cbl.id;
 
+-- name: GetBatchDeviceCounts :one
+-- Scalar counts only: same SUM/CASE aggregates as GetBatchStatusAndDeviceCounts
+-- but without the per-device JSON_AGG arrays or the device join. Used by the
+-- activity finalizer, the completion reconciler, and the detail RPC -- all
+-- callers that read only the counts and would otherwise pay for materializing
+-- two device-identifier arrays they never look at (expensive for large
+-- batches, and wasteful inside a REPEATABLE READ snapshot).
+SELECT
+    cbl.devices_count,
+    CAST(COALESCE(SUM(CASE WHEN codl.status = 'SUCCESS' THEN 1 ELSE 0 END), 0) AS BIGINT) AS successful_devices,
+    CAST(COALESCE(SUM(CASE WHEN codl.status = 'FAILED' THEN 1 ELSE 0 END), 0) AS BIGINT) AS failed_devices
+FROM command_batch_log cbl
+LEFT JOIN command_on_device_log codl ON cbl.id = codl.command_batch_log_id
+WHERE cbl.uuid = $1
+GROUP BY cbl.id;
+
 -- name: GetBatchLog :one
 SELECT
     cbl.status,
@@ -115,6 +131,11 @@ WHERE cbl.uuid = $1
 -- Returns one row per device in the batch, ordered deterministically so the
 -- client can page or virtualize without reshuffling results across polls.
 -- The LEFT JOIN to device preserves identifiers for soft-deleted devices.
+--
+-- max_rows caps the read server-side so a pathological batch cannot push
+-- millions of rows through the driver buffer before the Go truncation cap
+-- fires. Callers that want to detect truncation pass (cap + 1); reading one
+-- sentinel row beyond the cap keeps `len(rows) > cap` a valid signal.
 SELECT
     d.device_identifier,
     codl.status,
@@ -124,7 +145,8 @@ FROM command_on_device_log codl
 JOIN command_batch_log cbl ON cbl.id = codl.command_batch_log_id
 LEFT JOIN device d ON d.id = codl.device_id
 WHERE cbl.uuid = $1
-ORDER BY d.device_identifier NULLS LAST, codl.id;
+ORDER BY d.device_identifier NULLS LAST, codl.id
+LIMIT sqlc.arg('max_rows');
 
 -- name: DeleteCommandOnDeviceLogsOlderThan :execrows
 -- Paginated retention delete of per-device logs older than the cutoff.

@@ -225,8 +225,12 @@ func (s *Service) buildActivityCompletedCallback(ctx context.Context, batchID, e
 	return func() error {
 		finCtx, cancel := context.WithTimeout(context.Background(), finalizerDBTimeout)
 		defer cancel()
-		counts, err := db.WithTransaction(finCtx, s.conn, func(q *sqlc.Queries) (sqlc.GetBatchStatusAndDeviceCountsRow, error) {
-			return q.GetBatchStatusAndDeviceCounts(finCtx, batchID)
+		// Counts-only query; the full GetBatchStatusAndDeviceCounts pulls
+		// JSON_AGG arrays of device identifiers that the finalizer never
+		// reads. Read-only transaction is honest about intent and lets
+		// Postgres skip the usual read-write bookkeeping.
+		counts, err := db.WithReadOnlyTransaction(finCtx, s.conn, func(q *sqlc.Queries) (sqlc.GetBatchDeviceCountsRow, error) {
+			return q.GetBatchDeviceCounts(finCtx, batchID)
 		})
 		if err != nil {
 			return fleeterror.NewInternalErrorf("finalizer reading counts for %s: %v", batchID, err)
@@ -1144,7 +1148,7 @@ func (s *Service) GetCommandBatchDeviceResults(ctx context.Context, req *pb.GetC
 	// argument alone is enough.
 	type resultsBundle struct {
 		header sqlc.GetBatchHeaderForOrgRow
-		counts sqlc.GetBatchStatusAndDeviceCountsRow
+		counts sqlc.GetBatchDeviceCountsRow
 		rows   []sqlc.ListBatchDeviceResultsRow
 	}
 	bundle, err := db.WithReadOnlyTransaction(ctx, s.conn, func(q *sqlc.Queries) (resultsBundle, error) {
@@ -1161,13 +1165,19 @@ func (s *Service) GetCommandBatchDeviceResults(ctx context.Context, req *pb.GetC
 		}
 		b.header = header
 
-		counts, cErr := q.GetBatchStatusAndDeviceCounts(ctx, req.BatchIdentifier)
+		counts, cErr := q.GetBatchDeviceCounts(ctx, req.BatchIdentifier)
 		if cErr != nil {
 			return b, cErr
 		}
 		b.counts = counts
 
-		rows, rErr := q.ListBatchDeviceResults(ctx, req.BatchIdentifier)
+		// Pass (cap + 1) so Go can still detect truncation via
+		// len(rows) > maxBatchDeviceResults without pulling the full table
+		// through the driver first.
+		rows, rErr := q.ListBatchDeviceResults(ctx, sqlc.ListBatchDeviceResultsParams{
+			Uuid:    req.BatchIdentifier,
+			MaxRows: int32(maxBatchDeviceResults + 1),
+		})
 		if rErr != nil {
 			return b, rErr
 		}
