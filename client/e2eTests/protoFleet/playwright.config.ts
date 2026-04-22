@@ -56,10 +56,12 @@ export default defineConfig({
 
   // E.g.:  npx playwright test --project=desktop
   projects: [
-    // Setup project seeds backend state (onboarding, pools) and captures the
-    // admin auth storageState. Always runs before target specs via `dependencies`.
+    // Setup projects seed backend state (onboarding, pools) and capture the
+    // admin auth storageState. Split per viewport so the mobile matrix also
+    // exercises the mobile onboarding/pool-setup UI rather than inheriting
+    // desktop-driven state.
     {
-      name: "setup",
+      name: "setup-desktop",
       testMatch: SETUP_FILE_GLOB,
       use: {
         viewport: { width: 1600, height: 900 },
@@ -67,10 +69,18 @@ export default defineConfig({
       },
     },
     {
+      name: "setup-mobile",
+      testMatch: SETUP_FILE_GLOB,
+      use: {
+        viewport: { width: 393, height: 852 },
+        isMobile: true,
+      },
+    },
+    {
       name: "desktop",
       testMatch: /.*\.spec\.ts$/,
       testIgnore: SETUP_FILE_GLOB,
-      dependencies: ["setup"],
+      dependencies: ["setup-desktop"],
       use: {
         viewport: { width: 1600, height: 900 },
         isMobile: false,
@@ -82,7 +92,7 @@ export default defineConfig({
       name: "mobile",
       testMatch: /.*\.spec\.ts$/,
       testIgnore: SETUP_FILE_GLOB,
-      dependencies: ["setup"],
+      dependencies: ["setup-mobile"],
       use: {
         viewport: { width: 393, height: 852 },
         isMobile: true,

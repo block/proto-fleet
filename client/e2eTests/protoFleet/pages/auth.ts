@@ -3,14 +3,30 @@ import { BasePage } from "./base";
 
 export class AuthPage extends BasePage {
   async isAlreadyLoggedIn(timeoutMs = 5000): Promise<boolean> {
-    // Probe for the post-login marker (mobile menu button or desktop logout
-    // button) to decide whether the full login flow can be skipped.
+    // Wait for the page to settle into either the authenticated UI (mobile
+    // menu button or desktop logout button) or the login form. Return true
+    // only after positively confirming the authenticated state. Any other
+    // locator failure (e.g. selector rename, browser crash) is re-thrown so
+    // auth regressions surface here rather than as a secondary failure
+    // inside the login flow.
+    const loggedInMarker = this.isMobile
+      ? this.page.getByTestId("navigation-menu-button")
+      : this.page.getByTestId("logout-button");
+    const loginForm = this.page.locator(`//input[@id='username']`);
+
     try {
-      await this.validateLoggedIn(timeoutMs);
-      return true;
-    } catch {
-      return false;
+      await expect(loggedInMarker.or(loginForm)).toBeVisible({ timeout: timeoutMs });
+    } catch (err) {
+      // Only swallow Playwright timeouts (page hasn't settled into either
+      // state) so the caller can fall through to the full login flow which
+      // has its own assertion.
+      if (err instanceof Error && /Timeout/i.test(err.message)) {
+        return false;
+      }
+      throw err;
     }
+
+    return await loggedInMarker.isVisible();
   }
 
   async inputUsername(username: string) {
