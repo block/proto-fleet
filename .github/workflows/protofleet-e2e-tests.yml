@@ -109,6 +109,12 @@ jobs:
         working-directory: server
         run: |
           mkdir -p /tmp/docker-images
+          # `--ignore-buildable` pulls only services with `image:` and no
+          # `build:` (otel-collector, jaeger). `docker save` below otherwise
+          # fails on a cold runner because those images don't exist locally.
+          echo "::group::docker compose pull"
+          docker compose pull --ignore-buildable
+          echo "::endgroup::"
           echo "::group::docker compose build"
           docker compose build
           echo "::endgroup::"
