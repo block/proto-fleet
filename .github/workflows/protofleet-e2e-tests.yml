@@ -94,12 +94,6 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
-      # Cache the docker-compose service images (fleet-api, timescaledb, 6x
-      # fake-antminer, 2x fake-proto-rig, ...) between CI runs. Keyed on the
-      # sources that actually change image contents; when the key matches,
-      # `docker load` is all the shards need and they skip the ~3-5 min
-      # per-shard `docker compose build` that was the Wave 1 critical-path
-      # regression.
       - name: Restore Docker image cache
         id: docker-image-cache
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -221,9 +215,8 @@ jobs:
 
       - name: Start services (TimeScaleDB + Backend + Simulators)
         working-directory: server
-        # --no-build: images were loaded from the prebuilt tarball. Fail loudly
-        # if any service image is missing instead of silently falling back to
-        # a per-shard rebuild (the very cost this change is eliminating).
+        # --no-build: fail loudly on a missing image rather than falling back
+        # to a per-shard rebuild (the cost this change is eliminating).
         run: docker compose up -d --no-build
 
       - name: Start frontend
