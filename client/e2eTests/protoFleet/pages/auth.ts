@@ -2,6 +2,15 @@ import { expect } from "@playwright/test";
 import { BasePage } from "./base";
 
 export class AuthPage extends BasePage {
+  async isLoginFormVisible(timeoutMs = 2000): Promise<boolean> {
+    try {
+      await this.page.locator(`//input[@id='username']`).waitFor({ state: "visible", timeout: timeoutMs });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async inputUsername(username: string) {
     await this.page.locator(`//input[@id='username']`).fill(username);
   }

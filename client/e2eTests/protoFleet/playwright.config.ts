@@ -1,5 +1,9 @@
+import path from "path";
 import { defineConfig } from "@playwright/test";
 import { testConfig } from "./config/test.config";
+
+const adminStorageState = path.join(__dirname, "playwright", ".auth", "admin.json");
+const SETUP_FILE_PATTERN = /^[0-9]{2}-.*\.spec\.ts$/;
 
 /**
  * See https://playwright.dev/docs/test-configuration.
@@ -50,21 +54,37 @@ export default defineConfig({
 
   // E.g.:  npx playwright test --project=desktop
   projects: [
+    // Setup project seeds backend state (onboarding, pools) and captures the
+    // admin auth storageState. Always runs before target specs via `dependencies`.
     {
-      name: "desktop",
-      testMatch: /.*\.spec\.ts/,
+      name: "setup",
+      testMatch: SETUP_FILE_PATTERN,
       use: {
         viewport: { width: 1600, height: 900 },
         isMobile: false,
       },
     },
+    {
+      name: "desktop",
+      testMatch: /.*\.spec\.ts$/,
+      testIgnore: SETUP_FILE_PATTERN,
+      dependencies: ["setup"],
+      use: {
+        viewport: { width: 1600, height: 900 },
+        isMobile: false,
+        storageState: adminStorageState,
+      },
+    },
     // Resolution of the iPhone 14 Pro / 15 Pro / 16
     {
       name: "mobile",
-      testMatch: /.*\.spec\.ts/,
+      testMatch: /.*\.spec\.ts$/,
+      testIgnore: SETUP_FILE_PATTERN,
+      dependencies: ["setup"],
       use: {
         viewport: { width: 393, height: 852 },
         isMobile: true,
+        storageState: adminStorageState,
       },
     },
   ],

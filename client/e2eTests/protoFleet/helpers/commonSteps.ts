@@ -11,6 +11,12 @@ export class CommonSteps {
 
   async loginAsAdmin() {
     await test.step("Login as admin", async () => {
+      // The setup project captures the admin session into storageState, so most
+      // tests start already authenticated. Skip the login flow when the auth
+      // form isn't on screen.
+      if (!(await this.authPage.isLoginFormVisible())) {
+        return;
+      }
       await this.authPage.inputUsername(testConfig.users.admin.username);
       await this.authPage.inputPassword(testConfig.users.admin.password);
       await this.authPage.clickLogin();

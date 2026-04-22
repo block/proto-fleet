@@ -144,32 +144,15 @@ jobs:
         working-directory: client/e2eTests/protoFleet
         env:
           CI: true
-          SETUP_SPECS_JSON: ${{ needs.detect-specs.outputs.setup_specs }}
         run: |
-          run_spec() {
-            local spec_path="$1"
-            local spec_slug
-            spec_slug=$(echo "${spec_path}" | sed 's/\.spec\.ts$//' | sed 's/[^a-zA-Z0-9]/-/g')
-
-            echo "Running spec: ${spec_path} on project: ${{ matrix.project }}"
-            PLAYWRIGHT_BLOB_OUTPUT_FILE="blob-report/${{ matrix.project }}-${{ steps.artifact.outputs.spec_name }}-${spec_slug}.zip" \
-            PWTEST_BLOB_DO_NOT_REMOVE=1 \
-            npx playwright test --project=${{ matrix.project }} --reporter=blob "spec/${spec_path}"
-          }
-
           rm -rf blob-report playwright-report test-results
           mkdir -p blob-report
 
-          mapfile -t setup_specs < <(printf '%s' "${SETUP_SPECS_JSON}" | jq -r '.[]')
-          if [ "${#setup_specs[@]}" -gt 0 ]; then
-            echo "Running setup specs before target spec:"
-            printf ' - %s\n' "${setup_specs[@]}"
-            for spec in "${setup_specs[@]}"; do
-              run_spec "${spec}"
-            done
-          fi
-
-          run_spec "${{ matrix.spec }}"
+          # The Playwright `setup` project (onboarding + pools + auth storageState)
+          # runs automatically before the target via project `dependencies`.
+          PLAYWRIGHT_BLOB_OUTPUT_FILE="blob-report/${{ matrix.project }}-${{ steps.artifact.outputs.spec_name }}.zip" \
+          PWTEST_BLOB_DO_NOT_REMOVE=1 \
+          npx playwright test --project=${{ matrix.project }} --reporter=blob "spec/${{ matrix.spec }}"
 
           echo "Blob reports created:"
           find blob-report -maxdepth 2 -type f -print | sort || true
