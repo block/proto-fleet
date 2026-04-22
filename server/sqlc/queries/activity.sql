@@ -80,6 +80,26 @@ WHERE id IN (
     LIMIT sqlc.arg('max_rows')
 );
 
+-- name: GetLatestCompletedActivityForBatch :one
+-- Returns the most recent '*.completed' activity row for a batch in the
+-- caller's organization. Used by GetCommandBatchDeviceResults to render a
+-- details_pruned response when the batch header in command_batch_log has
+-- been retention-pruned but the activity row is still within retention
+-- (defaults: BatchLogRetention=180d, ActivityLogRetention=365d, so the
+-- activity row outlives its batch by up to ~6 months).
+--
+-- LIMIT 1 on id DESC picks the newest completion row; the partial unique
+-- index on (batch_id, event_type) for '%.completed' guarantees at most
+-- one row per batch anyway, but the bound keeps the query bounded even
+-- if the index is ever relaxed.
+SELECT event_type, result, scope_count, metadata, created_at
+FROM activity_log
+WHERE batch_id = $1
+  AND organization_id = $2
+  AND event_type LIKE '%.completed'
+ORDER BY id DESC
+LIMIT 1;
+
 -- name: ListFinishedBatchesWithoutCompletion :many
 -- Returns command batches that FINISHED but have no '<type>.completed' activity
 -- row. Used by the reconciler to backfill completion events lost to a server

@@ -285,6 +285,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getLatestAllDeviceMetricsStmt, err = db.PrepareContext(ctx, getLatestAllDeviceMetrics); err != nil {
 		return nil, fmt.Errorf("error preparing query GetLatestAllDeviceMetrics: %w", err)
 	}
+	if q.getLatestCompletedActivityForBatchStmt, err = db.PrepareContext(ctx, getLatestCompletedActivityForBatch); err != nil {
+		return nil, fmt.Errorf("error preparing query GetLatestCompletedActivityForBatch: %w", err)
+	}
 	if q.getLatestDeviceMetricsStmt, err = db.PrepareContext(ctx, getLatestDeviceMetrics); err != nil {
 		return nil, fmt.Errorf("error preparing query GetLatestDeviceMetrics: %w", err)
 	}
@@ -1118,6 +1121,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getLatestAllDeviceMetricsStmt: %w", cerr)
 		}
 	}
+	if q.getLatestCompletedActivityForBatchStmt != nil {
+		if cerr := q.getLatestCompletedActivityForBatchStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getLatestCompletedActivityForBatchStmt: %w", cerr)
+		}
+	}
 	if q.getLatestDeviceMetricsStmt != nil {
 		if cerr := q.getLatestDeviceMetricsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getLatestDeviceMetricsStmt: %w", cerr)
@@ -1899,6 +1907,7 @@ type Queries struct {
 	getGroupLabelsForDevicesStmt                        *sql.Stmt
 	getKnownSubnetsStmt                                 *sql.Stmt
 	getLatestAllDeviceMetricsStmt                       *sql.Stmt
+	getLatestCompletedActivityForBatchStmt              *sql.Stmt
 	getLatestDeviceMetricsStmt                          *sql.Stmt
 	getMaxPriorityStmt                                  *sql.Stmt
 	getMessagesToProcessStmt                            *sql.Stmt
@@ -2123,6 +2132,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getGroupLabelsForDevicesStmt:                        q.getGroupLabelsForDevicesStmt,
 		getKnownSubnetsStmt:                                 q.getKnownSubnetsStmt,
 		getLatestAllDeviceMetricsStmt:                       q.getLatestAllDeviceMetricsStmt,
+		getLatestCompletedActivityForBatchStmt:              q.getLatestCompletedActivityForBatchStmt,
 		getLatestDeviceMetricsStmt:                          q.getLatestDeviceMetricsStmt,
 		getMaxPriorityStmt:                                  q.getMaxPriorityStmt,
 		getMessagesToProcessStmt:                            q.getMessagesToProcessStmt,

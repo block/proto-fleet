@@ -184,6 +184,53 @@ func (q *Queries) GetDistinctScopeTypes(ctx context.Context, orgID sql.NullInt64
 	return items, nil
 }
 
+const getLatestCompletedActivityForBatch = `-- name: GetLatestCompletedActivityForBatch :one
+SELECT event_type, result, scope_count, metadata, created_at
+FROM activity_log
+WHERE batch_id = $1
+  AND organization_id = $2
+  AND event_type LIKE '%.completed'
+ORDER BY id DESC
+LIMIT 1
+`
+
+type GetLatestCompletedActivityForBatchParams struct {
+	BatchID        sql.NullString
+	OrganizationID sql.NullInt64
+}
+
+type GetLatestCompletedActivityForBatchRow struct {
+	EventType  string
+	Result     string
+	ScopeCount sql.NullInt32
+	Metadata   pqtype.NullRawMessage
+	CreatedAt  time.Time
+}
+
+// Returns the most recent '*.completed' activity row for a batch in the
+// caller's organization. Used by GetCommandBatchDeviceResults to render a
+// details_pruned response when the batch header in command_batch_log has
+// been retention-pruned but the activity row is still within retention
+// (defaults: BatchLogRetention=180d, ActivityLogRetention=365d, so the
+// activity row outlives its batch by up to ~6 months).
+//
+// LIMIT 1 on id DESC picks the newest completion row; the partial unique
+// index on (batch_id, event_type) for '%.completed' guarantees at most
+// one row per batch anyway, but the bound keeps the query bounded even
+// if the index is ever relaxed.
+func (q *Queries) GetLatestCompletedActivityForBatch(ctx context.Context, arg GetLatestCompletedActivityForBatchParams) (GetLatestCompletedActivityForBatchRow, error) {
+	row := q.queryRow(ctx, q.getLatestCompletedActivityForBatchStmt, getLatestCompletedActivityForBatch, arg.BatchID, arg.OrganizationID)
+	var i GetLatestCompletedActivityForBatchRow
+	err := row.Scan(
+		&i.EventType,
+		&i.Result,
+		&i.ScopeCount,
+		&i.Metadata,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const insertActivityLog = `-- name: InsertActivityLog :exec
 INSERT INTO activity_log (
     event_id,
