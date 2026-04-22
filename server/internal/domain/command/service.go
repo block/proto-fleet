@@ -1053,17 +1053,25 @@ func (s *Service) GetCommandBatchDeviceResults(ctx context.Context, req *pb.GetC
 		return nil, fleeterror.NewInternalErrorf("error getting session info: %v", err)
 	}
 
+	// db.WithTransaction's retry wrapper re-wraps non-FleetError errors into
+	// an Internal FleetError, which erases sql.ErrNoRows. Translate it into a
+	// NotFound FleetError inside the callback so the caller sees the right
+	// connect code; same for the counts lookup.
 	header, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (sqlc.GetBatchHeaderForOrgRow, error) {
-		return q.GetBatchHeaderForOrg(ctx, sqlc.GetBatchHeaderForOrgParams{
+		row, qErr := q.GetBatchHeaderForOrg(ctx, sqlc.GetBatchHeaderForOrgParams{
 			Uuid: req.BatchIdentifier,
 			// NullInt64 lets sqlc round-trip the optional column; Valid is always
 			// true here because session info always carries a concrete org.
 			OrganizationID: sql.NullInt64{Int64: info.OrganizationID, Valid: true},
 		})
+		if errors.Is(qErr, sql.ErrNoRows) {
+			return row, fleeterror.NewNotFoundErrorf("command batch %s not found", req.BatchIdentifier)
+		}
+		return row, qErr
 	})
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fleeterror.NewNotFoundErrorf("command batch %s not found", req.BatchIdentifier)
+		if fleeterror.IsNotFoundError(err) {
+			return nil, err
 		}
 		return nil, fleeterror.NewInternalErrorf("error loading batch header: %v", err)
 	}
@@ -1072,11 +1080,15 @@ func (s *Service) GetCommandBatchDeviceResults(ctx context.Context, req *pb.GetC
 	// consistent with total_count even when device_results is capped by
 	// maxBatchDeviceResults.
 	counts, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (sqlc.GetBatchStatusAndDeviceCountsRow, error) {
-		return q.GetBatchStatusAndDeviceCounts(ctx, req.BatchIdentifier)
+		row, qErr := q.GetBatchStatusAndDeviceCounts(ctx, req.BatchIdentifier)
+		if errors.Is(qErr, sql.ErrNoRows) {
+			return row, fleeterror.NewNotFoundErrorf("command batch %s not found", req.BatchIdentifier)
+		}
+		return row, qErr
 	})
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fleeterror.NewNotFoundErrorf("command batch %s not found", req.BatchIdentifier)
+		if fleeterror.IsNotFoundError(err) {
+			return nil, err
 		}
 		return nil, fleeterror.NewInternalErrorf("error loading batch counts: %v", err)
 	}
