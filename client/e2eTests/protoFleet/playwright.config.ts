@@ -13,6 +13,10 @@ const SETUP_FILE_GLOB = "**/[0-9][0-9]-*.spec.ts";
 
 export default defineConfig({
   testDir: "./spec",
+  // Guard against bare `npx playwright test` invocations. See globalSetup.ts
+  // for the rationale: the setup-desktop and setup-mobile projects are not
+  // safe to run against a shared backend at the same time.
+  globalSetup: "./globalSetup.ts",
   /* Run tests in serial order (one at a time) */
   fullyParallel: false,
   /* Fail the build on CI if you accidentally left test.only in the source code. */
