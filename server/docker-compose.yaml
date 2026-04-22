@@ -14,7 +14,7 @@ services:
     develop:
       watch:
         - action: sync+restart
-          path: ../server
+          path: .
           target: /app
           ignore:
             - testing/
@@ -27,9 +27,9 @@ services:
             - "**/*.sh"
             - "**/Dockerfile*"
         - action: rebuild
-          path: ../server/go.mod
+          path: ./go.mod
         - action: rebuild
-          path: ../server/go.sum
+          path: ./go.sum
         - action: rebuild
           path: ../go.work
     environment:
