@@ -3,7 +3,6 @@ package pools
 import (
 	"context"
 	"testing"
-	"time"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
@@ -109,10 +108,6 @@ func (noopActivityStore) GetDistinctEventTypes(ctx context.Context, orgID int64)
 
 func (noopActivityStore) GetDistinctScopeTypes(ctx context.Context, orgID int64) ([]string, error) {
 	return nil, nil
-}
-
-func (noopActivityStore) DeleteOlderThan(_ context.Context, _ time.Time, _ int32) (int64, error) {
-	return 0, nil
 }
 
 func testActivitySvc() *activity.Service {

@@ -56,25 +56,8 @@ func TestBoundedErrorInfo_HandlesMultibyteRunes(t *testing.T) {
 	}
 }
 
-func TestWorkerErrorInfo_NilErrorReturnsNull(t *testing.T) {
-	got := workerErrorInfo(nil)
-	if got.Valid {
-		t.Fatalf("expected NULL for nil error, got %+v", got)
-	}
-}
-
-func TestWorkerErrorInfo_PropagatesMessage(t *testing.T) {
-	got := workerErrorInfo(errors.New("plugin exploded"))
-	if !got.Valid {
-		t.Fatalf("expected valid NullString")
-	}
-	if got.String != "plugin exploded" {
-		t.Fatalf("unexpected message: %q", got.String)
-	}
-}
-
 // sanitizedErrorInfo is the operator-safe path used on the worker
-// completion write. These cases cover the four inputs a reviewer worried
+// completion write. These cases cover the inputs a reviewer worried
 // about (nil, bare error, FleetError, wrapped FleetError) plus the
 // long-message truncation invariant.
 

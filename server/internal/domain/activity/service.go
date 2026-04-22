@@ -19,27 +19,21 @@ func NewService(store interfaces.ActivityStore) *Service {
 	return &Service{store: store}
 }
 
-// Log records an activity event on a best-effort basis.
-// Insert errors are logged but never propagated to the caller.
+// Log records an activity event on a best-effort basis. Insert errors are
+// logged but never propagated. Callers that need to see persistence errors
+// (e.g. the command finalizer's retry loop) should use LogStrict instead.
 //
-// Events with a nil OrganizationID (e.g. auth failures for unknown users) are
-// accepted and persisted, but the current org-scoped read queries (List, Count,
-// GetFilterOptions) will not return them. A global/admin read path for org-less
-// events is planned as a follow-up.
-//
-// Use LogStrict if the caller needs to know whether the insert actually
-// succeeded (e.g. the command finalizer, whose retry loop depends on seeing
-// the error so the reconciler doesn't have to clean up).
+// Events with a nil OrganizationID (e.g. auth failures for unknown users)
+// are persisted but won't surface in the org-scoped read queries.
 func (s *Service) Log(ctx context.Context, event models.Event) {
 	if err := s.LogStrict(ctx, event); err != nil {
 		slog.Error("failed to insert activity log", "error", err, "event_type", event.Type)
 	}
 }
 
-// LogStrict records an activity event and returns any persistence error to
-// the caller. Idempotent re-inserts against the '*.completed' partial unique
-// index are swallowed by the store layer and therefore look like success
-// here, which is the behavior the finalizer + reconciler rely on.
+// LogStrict records an activity event and returns any persistence error.
+// Duplicate '*.completed' inserts are swallowed at the store layer so
+// finalizer retries look like success.
 func (s *Service) LogStrict(ctx context.Context, event models.Event) error {
 	if event.Result == "" {
 		event.Result = models.ResultSuccess

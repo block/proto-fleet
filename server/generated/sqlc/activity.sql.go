@@ -55,32 +55,6 @@ func (q *Queries) CountActivityLogs(ctx context.Context, arg CountActivityLogsPa
 	return count, err
 }
 
-const deleteActivityLogsOlderThan = `-- name: DeleteActivityLogsOlderThan :execrows
-DELETE FROM activity_log
-WHERE id IN (
-    SELECT al.id FROM activity_log al
-    WHERE al.created_at < $1
-    ORDER BY al.created_at
-    LIMIT $2
-)
-`
-
-type DeleteActivityLogsOlderThanParams struct {
-	Cutoff  time.Time
-	MaxRows int32
-}
-
-// Paginated retention delete of activity_log rows older than the cutoff.
-// Bounded by @max_rows so the cleaner keeps each transaction short; the
-// caller loops until this returns fewer rows than the limit.
-func (q *Queries) DeleteActivityLogsOlderThan(ctx context.Context, arg DeleteActivityLogsOlderThanParams) (int64, error) {
-	result, err := q.exec(ctx, q.deleteActivityLogsOlderThanStmt, deleteActivityLogsOlderThan, arg.Cutoff, arg.MaxRows)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
 const getDistinctActivityUsers = `-- name: GetDistinctActivityUsers :many
 SELECT user_id, username FROM (
     SELECT DISTINCT ON (user_id) user_id, username
@@ -182,53 +156,6 @@ func (q *Queries) GetDistinctScopeTypes(ctx context.Context, orgID sql.NullInt64
 		return nil, err
 	}
 	return items, nil
-}
-
-const getLatestCompletedActivityForBatch = `-- name: GetLatestCompletedActivityForBatch :one
-SELECT event_type, result, scope_count, metadata, created_at
-FROM activity_log
-WHERE batch_id = $1
-  AND organization_id = $2
-  AND event_type LIKE '%.completed'
-ORDER BY id DESC
-LIMIT 1
-`
-
-type GetLatestCompletedActivityForBatchParams struct {
-	BatchID        sql.NullString
-	OrganizationID sql.NullInt64
-}
-
-type GetLatestCompletedActivityForBatchRow struct {
-	EventType  string
-	Result     string
-	ScopeCount sql.NullInt32
-	Metadata   pqtype.NullRawMessage
-	CreatedAt  time.Time
-}
-
-// Returns the most recent '*.completed' activity row for a batch in the
-// caller's organization. Used by GetCommandBatchDeviceResults to render a
-// details_pruned response when the batch header in command_batch_log has
-// been retention-pruned but the activity row is still within retention
-// (defaults: BatchLogRetention=180d, ActivityLogRetention=365d, so the
-// activity row outlives its batch by up to ~6 months).
-//
-// LIMIT 1 on id DESC picks the newest completion row; the partial unique
-// index on (batch_id, event_type) for '%.completed' guarantees at most
-// one row per batch anyway, but the bound keeps the query bounded even
-// if the index is ever relaxed.
-func (q *Queries) GetLatestCompletedActivityForBatch(ctx context.Context, arg GetLatestCompletedActivityForBatchParams) (GetLatestCompletedActivityForBatchRow, error) {
-	row := q.queryRow(ctx, q.getLatestCompletedActivityForBatchStmt, getLatestCompletedActivityForBatch, arg.BatchID, arg.OrganizationID)
-	var i GetLatestCompletedActivityForBatchRow
-	err := row.Scan(
-		&i.EventType,
-		&i.Result,
-		&i.ScopeCount,
-		&i.Metadata,
-		&i.CreatedAt,
-	)
-	return i, err
 }
 
 const insertActivityLog = `-- name: InsertActivityLog :exec
@@ -380,110 +307,6 @@ func (q *Queries) ListActivityLogs(ctx context.Context, arg ListActivityLogsPara
 			&i.CreatedAt,
 			&i.Metadata,
 			&i.BatchID,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listFinishedBatchesWithoutCompletion = `-- name: ListFinishedBatchesWithoutCompletion :many
-WITH first_initiated AS (
-    SELECT DISTINCT ON (batch_id)
-        batch_id,
-        id,
-        event_type,
-        description,
-        user_id,
-        username,
-        organization_id,
-        actor_type
-    FROM activity_log
-    WHERE batch_id IS NOT NULL
-      AND event_type NOT LIKE '%.completed'
-    ORDER BY batch_id, id
-)
-SELECT
-    cbl.uuid            AS batch_id,
-    cbl.type            AS command_type,
-    cbl.devices_count   AS devices_count,
-    cbl.finished_at     AS finished_at,
-    init.event_type     AS initiated_event_type,
-    init.description    AS description,
-    init.user_id        AS user_id,
-    init.username       AS username,
-    init.organization_id AS organization_id,
-    init.actor_type     AS actor_type
-FROM command_batch_log cbl
-JOIN first_initiated init ON init.batch_id = cbl.uuid
-WHERE cbl.status = 'FINISHED'
-  AND cbl.finished_at IS NOT NULL
-  AND cbl.finished_at < $1
-  AND NOT EXISTS (
-    SELECT 1 FROM activity_log done
-    WHERE done.batch_id = cbl.uuid
-      AND done.event_type LIKE '%.completed'
-  )
-ORDER BY cbl.finished_at
-LIMIT $2
-`
-
-type ListFinishedBatchesWithoutCompletionParams struct {
-	Cutoff     sql.NullTime
-	MaxBatches int32
-}
-
-type ListFinishedBatchesWithoutCompletionRow struct {
-	BatchID            string
-	CommandType        string
-	DevicesCount       int32
-	FinishedAt         sql.NullTime
-	InitiatedEventType string
-	Description        string
-	UserID             sql.NullString
-	Username           sql.NullString
-	OrganizationID     sql.NullInt64
-	ActorType          string
-}
-
-// Returns command batches that FINISHED but have no '<type>.completed' activity
-// row. Used by the reconciler to backfill completion events lost to a server
-// crash or exhausted finalizer retries.
-//
-// Only batches whose creator already wrote an 'initiated' activity row are
-// returned; internally-triggered batches (e.g. worker-name reapply) therefore
-// stay out of the activity timeline.
-//
-// The attribution (user_id, username, organization_id, actor_type) is sourced
-// from the initiated row so the completion event matches the original action
-// even when the session that kicked it off is long gone.
-func (q *Queries) ListFinishedBatchesWithoutCompletion(ctx context.Context, arg ListFinishedBatchesWithoutCompletionParams) ([]ListFinishedBatchesWithoutCompletionRow, error) {
-	rows, err := q.query(ctx, q.listFinishedBatchesWithoutCompletionStmt, listFinishedBatchesWithoutCompletion, arg.Cutoff, arg.MaxBatches)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []ListFinishedBatchesWithoutCompletionRow
-	for rows.Next() {
-		var i ListFinishedBatchesWithoutCompletionRow
-		if err := rows.Scan(
-			&i.BatchID,
-			&i.CommandType,
-			&i.DevicesCount,
-			&i.FinishedAt,
-			&i.InitiatedEventType,
-			&i.Description,
-			&i.UserID,
-			&i.Username,
-			&i.OrganizationID,
-			&i.ActorType,
 		); err != nil {
 			return nil, err
 		}

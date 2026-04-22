@@ -117,15 +117,3 @@ SELECT
 FROM queue_message
 WHERE command_batch_log_uuid = $1
   AND status = 'PROCESSING';
-
--- name: DeleteTerminalQueueMessagesOlderThan :execrows
--- Paginated delete of terminal queue_message rows (SUCCESS/FAILED) older than
--- the cutoff. Bounded by @max_rows so cleanup doesn't hold long locks.
-DELETE FROM queue_message
-WHERE id IN (
-    SELECT qm.id FROM queue_message qm
-    WHERE qm.status IN ('SUCCESS', 'FAILED')
-      AND qm.updated_at < sqlc.arg('cutoff')
-    ORDER BY qm.updated_at
-    LIMIT sqlc.arg('max_rows')
-);

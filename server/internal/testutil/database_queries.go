@@ -40,10 +40,6 @@ type TestUser struct {
 	Password       string
 	OrganizationID int64
 	DatabaseID     int64
-	// ExternalUserID is the public identifier stored on the user row.
-	// Populated by CreateSuperAdminUser* so tests that need to construct a
-	// session.Info can match what the auth interceptor would have produced.
-	ExternalUserID string
 }
 
 type DeviceIdentification struct {
@@ -63,7 +59,6 @@ func (s *DatabaseService) CreateSuperAdminUser() *TestUser {
 	var testUser TestUser
 	testUser.Username = username
 	testUser.Password = password
-	testUser.ExternalUserID = externalUserID
 
 	err = db2.WithTransactionNoResult(context.Background(), s.DB, func(q *sqlc.Queries) error {
 		userID, err := q.CreateUser(context.Background(), sqlc.CreateUserParams{
@@ -128,7 +123,6 @@ func (s *DatabaseService) CreateSuperAdminUser2() *TestUser {
 	var testUser TestUser
 	testUser.Username = username
 	testUser.Password = password
-	testUser.ExternalUserID = externalUserID
 
 	err = db2.WithTransactionNoResult(context.Background(), s.DB, func(q *sqlc.Queries) error {
 		userID, err := q.CreateUser(context.Background(), sqlc.CreateUserParams{

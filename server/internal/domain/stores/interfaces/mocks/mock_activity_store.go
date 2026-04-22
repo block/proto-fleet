@@ -12,7 +12,6 @@ package mocks
 import (
 	context "context"
 	reflect "reflect"
-	time "time"
 
 	models "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	gomock "go.uber.org/mock/gomock"
@@ -55,21 +54,6 @@ func (m *MockActivityStore) Count(ctx context.Context, filter models.Filter) (in
 func (mr *MockActivityStoreMockRecorder) Count(ctx, filter any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Count", reflect.TypeOf((*MockActivityStore)(nil).Count), ctx, filter)
-}
-
-// DeleteOlderThan mocks base method.
-func (m *MockActivityStore) DeleteOlderThan(ctx context.Context, cutoff time.Time, maxRows int32) (int64, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DeleteOlderThan", ctx, cutoff, maxRows)
-	ret0, _ := ret[0].(int64)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// DeleteOlderThan indicates an expected call of DeleteOlderThan.
-func (mr *MockActivityStoreMockRecorder) DeleteOlderThan(ctx, cutoff, maxRows any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteOlderThan", reflect.TypeOf((*MockActivityStore)(nil).DeleteOlderThan), ctx, cutoff, maxRows)
 }
 
 // GetDistinctEventTypes mocks base method.

@@ -30,13 +30,6 @@ type ResultType string
 const (
 	ResultSuccess ResultType = "success"
 	ResultFailure ResultType = "failure"
-	// ResultUnknown marks an outcome the server can no longer determine. The
-	// completion reconciler writes this when a batch reached FINISHED but its
-	// per-device rows in command_on_device_log have already been retention-pruned,
-	// so we know the batch completed but cannot tell whether any device failed.
-	// The activity_log.result column is plain TEXT so no DB schema change is
-	// required; frontend should render unknown as a neutral state.
-	ResultUnknown ResultType = "unknown"
 )
 
 func (c EventCategory) Valid() bool {
@@ -58,7 +51,7 @@ func (a ActorType) Valid() bool {
 
 func (r ResultType) Valid() bool {
 	switch r {
-	case ResultSuccess, ResultFailure, ResultUnknown:
+	case ResultSuccess, ResultFailure:
 		return true
 	}
 	return false
@@ -71,10 +64,9 @@ const (
 )
 
 // CompletedEventSuffix is appended to a command event type to mark the
-// terminal row emitted by the batch finalizer. The combined pair
-// (batch_id, event_type) is guarded by a partial unique index in the
-// activity_log table so the finalizer (and its crash-recovery reconciler)
-// can re-run idempotently.
+// terminal row emitted by the batch finalizer. The partial unique index on
+// (batch_id, event_type) for '*.completed' rows keeps finalizer retries
+// idempotent.
 const CompletedEventSuffix = ".completed"
 
 // Event is the write model used by callers of Service.Log().
@@ -93,10 +85,9 @@ type Event struct {
 	OrganizationID *int64
 	Metadata       map[string]any
 
-	// BatchID links the activity row to a command_batch_log.uuid. For
-	// '<event_type>.completed' events this field is used by the unique partial
-	// index to guarantee at most one completion row per batch, so the finalizer
-	// can be re-run safely after crashes.
+	// BatchID links the activity row to a command_batch_log.uuid. The
+	// partial unique index on (batch_id, event_type) for '%.completed'
+	// event types guarantees at most one completion row per batch.
 	BatchID *string
 }
 

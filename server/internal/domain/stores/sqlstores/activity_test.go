@@ -46,8 +46,9 @@ func TestMarshalMetadata_Populated(t *testing.T) {
 
 func TestIsCompletedBatchDuplicate(t *testing.T) {
 	batchID := "b-123"
-	uniqueErr := &pgconn.PgError{Code: pgErrCodeUniqueViolation}
-	otherPgErr := &pgconn.PgError{Code: "23503"}
+	uniqueErr := &pgconn.PgError{Code: pgErrCodeUniqueViolation, ConstraintName: completedBatchUniqueIndex}
+	otherConstraintErr := &pgconn.PgError{Code: pgErrCodeUniqueViolation, ConstraintName: "activity_log_pkey"}
+	otherPgErr := &pgconn.PgError{Code: "23503", ConstraintName: completedBatchUniqueIndex}
 
 	cases := []struct {
 		name  string
@@ -83,6 +84,12 @@ func TestIsCompletedBatchDuplicate(t *testing.T) {
 			name:  "wrong pg code",
 			event: &models.Event{Type: "reboot.completed", BatchID: &batchID},
 			err:   otherPgErr,
+			want:  false,
+		},
+		{
+			name:  "wrong constraint name",
+			event: &models.Event{Type: "reboot.completed", BatchID: &batchID},
+			err:   otherConstraintErr,
 			want:  false,
 		},
 		{

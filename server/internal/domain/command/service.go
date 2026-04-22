@@ -118,46 +118,26 @@ func (s *Service) logCommandActivity(ctx context.Context, eventType, description
 	})
 }
 
-// actorTypeFromSession maps session.Info.Actor into the corresponding
-// activity.ActorType. An empty Actor yields an empty return so the activity
-// service's defaulting (ActorUser) kicks in; scheduler-synthesized sessions
-// are attributed to ActorScheduler, internal maintenance sessions to
-// ActorSystem. The switch is on typed session.Actor constants so adding a
-// new kind of synthetic session fails to compile here until mapped.
+// actorTypeFromSession maps session.Info.Actor into the activity ActorType.
+// Empty return falls back to the activity service's default (ActorUser).
 func actorTypeFromSession(info *session.Info) activitymodels.ActorType {
 	if info == nil {
 		return ""
 	}
-	switch info.Actor {
-	case session.ActorScheduler:
+	if info.Actor == session.ActorScheduler {
 		return activitymodels.ActorScheduler
-	case session.ActorSystem:
-		return activitymodels.ActorSystem
-	default:
-		return ""
 	}
+	return ""
 }
 
-// composeFinalizers chains multiple onFinished callbacks so every command RPC
-// can layer its own side-effects (e.g. the DownloadLogs bundle builder) with
-// the shared activity finalizer. Nil callbacks are skipped; if the resulting
-// chain is empty the helper returns nil so initializeStatusUpdateRoutine can
-// keep its zero-callback fast path.
+// composeFinalizers chains onFinished callbacks so commands like DownloadLogs
+// can layer a bundle builder alongside the activity finalizer. Nil callbacks
+// are skipped; empty input returns nil. The returned closure remembers which
+// callbacks already succeeded so a retry (e.g. a transient activity-DB blip)
+// does not re-run callbacks whose side effects already landed.
 //
-// The composed closure remembers which callbacks have already succeeded so
-// that a failure partway through the chain triggers a retry of only the
-// failed (and subsequent) callbacks on the next invocation. This keeps
-// side-effecting callbacks (such as the DownloadLogs ZIP builder) from
-// re-running unnecessarily when a later callback (for example the activity
-// finalizer hitting a transient DB blip) returns an error and the status
-// routine retries the whole chain.
-//
-// NOT SAFE FOR CONCURRENT USE: the returned closure mutates per-callback
-// completion state without synchronization. initializeStatusUpdateRoutine is
-// the only call site today and invokes the closure serially from a single
-// polling goroutine. Any future caller that wants to share a composed
-// finalizer across goroutines must add its own synchronization or build a
-// fresh composition per goroutine.
+// NOT SAFE FOR CONCURRENT USE: initializeStatusUpdateRoutine is the only
+// call site today and invokes the closure serially.
 func composeFinalizers(callbacks ...onFinishedCallbackFunc) onFinishedCallbackFunc {
 	type trackedCallback struct {
 		fn   onFinishedCallbackFunc
@@ -173,8 +153,8 @@ func composeFinalizers(callbacks ...onFinishedCallbackFunc) onFinishedCallbackFu
 	case 0:
 		return nil
 	case 1:
-		// Single callback: no tracking overhead needed; initializeStatusUpdateRoutine
-		// already guards the whole callback with its own callbackDone flag.
+		// Single callback: initializeStatusUpdateRoutine already guards it
+		// with its own callbackDone flag so per-callback tracking is moot.
 		return tracked[0].fn
 	default:
 		return func() error {
@@ -198,10 +178,9 @@ func composeFinalizers(callbacks ...onFinishedCallbackFunc) onFinishedCallbackFu
 const finalizerDBTimeout = 15 * time.Second
 
 // buildActivityCompletedCallback returns a finalizer that writes the
-// '<event_type>.completed' activity row when the batch reaches FINISHED. The
-// row is idempotent: the partial unique index on (batch_id, event_type) plus
-// SQLActivityStore.Insert's duplicate-swallow let the crash-recovery
-// reconciler (M7) re-run this callback safely.
+// '<event_type>.completed' activity row when the batch reaches FINISHED.
+// The partial unique index on (batch_id, event_type) plus SQLActivityStore's
+// duplicate swallow keep the finalizer's retry loop idempotent.
 //
 // Session info is captured at call time because the finalizer runs against a
 // background context (the originating request ctx is long gone).
@@ -211,9 +190,6 @@ func (s *Service) buildActivityCompletedCallback(ctx context.Context, batchID, e
 	}
 	info, err := session.GetInfo(ctx)
 	if err != nil {
-		// Without session info we cannot attribute the completion event. The
-		// crash-recovery reconciler in M7 still produces a system-attributed
-		// completion row later, so we fail open rather than blocking the batch.
 		slog.Warn("command activity finalizer: session info unavailable at command start",
 			"error", err, "batch_id", batchID)
 		return nil
@@ -225,12 +201,8 @@ func (s *Service) buildActivityCompletedCallback(ctx context.Context, batchID, e
 	return func() error {
 		finCtx, cancel := context.WithTimeout(context.Background(), finalizerDBTimeout)
 		defer cancel()
-		// Counts-only query; the full GetBatchStatusAndDeviceCounts pulls
-		// JSON_AGG arrays of device identifiers that the finalizer never
-		// reads. Read-only transaction is honest about intent and lets
-		// Postgres skip the usual read-write bookkeeping.
-		counts, err := db.WithReadOnlyTransaction(finCtx, s.conn, func(q *sqlc.Queries) (sqlc.GetBatchDeviceCountsRow, error) {
-			return q.GetBatchDeviceCounts(finCtx, batchID)
+		counts, err := db.WithTransaction(finCtx, s.conn, func(q *sqlc.Queries) (sqlc.GetBatchStatusAndDeviceCountsRow, error) {
+			return q.GetBatchStatusAndDeviceCounts(finCtx, batchID)
 		})
 		if err != nil {
 			return fleeterror.NewInternalErrorf("finalizer reading counts for %s: %v", batchID, err)
@@ -246,9 +218,8 @@ func (s *Service) buildActivityCompletedCallback(ctx context.Context, batchID, e
 		batchIDCopy := batchID
 		completionDesc := fmt.Sprintf("%s completed: %d succeeded, %d failed",
 			description, counts.SuccessfulDevices, counts.FailedDevices)
-		// LogStrict surfaces a transient DB error back to the status routine's
-		// retry loop instead of being swallowed at slog.Error. The partial
-		// unique index + store-level duplicate swallow keep retries idempotent.
+		// LogStrict surfaces transient DB errors back to the status routine's
+		// retry loop; the partial unique index keeps retries idempotent.
 		if err := s.activitySvc.LogStrict(finCtx, activitymodels.Event{
 			Category:       activitymodels.CategoryDeviceCommand,
 			Type:           eventType + activitymodels.CompletedEventSuffix,
@@ -307,18 +278,17 @@ func (s *Service) saveCommandBatchLogToDB(ctx context.Context, userID, organizat
 		timeNow := time.Now()
 		newUUID := id.GenerateID()
 
+		// Callers (processCommand / ReapplyCurrentPoolsWithWorkerNames) must
+		// have rejected non-positive organizationID already, so Valid is
+		// always true. This is the precondition for the planned NOT NULL flip.
 		_, err := q.CreateCommandBatchLog(ctx, sqlc.CreateCommandBatchLogParams{
-			Uuid:         newUUID,
-			Type:         command.commandType.String(),
-			CreatedBy:    userID,
-			CreatedAt:    timeNow,
-			Status:       sqlc.BatchStatusEnumPENDING,
-			DevicesCount: devicesCount,
-			Payload:      pqtype.NullRawMessage{RawMessage: payloadBytes, Valid: len(payloadBytes) > 0},
-			// Callers (processCommand and ReapplyCurrentPoolsWithWorkerNames) must
-			// have already rejected non-positive organizationID, so we can always
-			// mark the column Valid here. This is the precondition for a future
-			// NOT NULL migration.
+			Uuid:           newUUID,
+			Type:           command.commandType.String(),
+			CreatedBy:      userID,
+			CreatedAt:      timeNow,
+			Status:         sqlc.BatchStatusEnumPENDING,
+			DevicesCount:   devicesCount,
+			Payload:        pqtype.NullRawMessage{RawMessage: payloadBytes, Valid: len(payloadBytes) > 0},
 			OrganizationID: sql.NullInt64{Int64: organizationID, Valid: true},
 		})
 		if err != nil {
@@ -511,9 +481,8 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (string,
 	if err != nil {
 		return "", 0, fleeterror.NewInternalErrorf("error getting session info from ctx: %v", err)
 	}
-	// A session that reached this point must carry a real organization. Writing
-	// a batch with organization_id=NULL would hide it from GetCommandBatchDeviceResults
-	// and block the planned NOT NULL migration on command_batch_log.organization_id.
+	// Writing a batch with organization_id=NULL would hide it from
+	// GetCommandBatchDeviceResults and block the planned NOT NULL flip.
 	if info.OrganizationID <= 0 {
 		return "", 0, fleeterror.NewInternalErrorf("cannot create command batch: session missing organization_id")
 	}
@@ -786,8 +755,7 @@ func (s *Service) ReapplyCurrentPoolsWithWorkerNames(
 	if err != nil {
 		return "", fleeterror.NewInternalErrorf("error getting session info from ctx: %v", err)
 	}
-	// Same invariant as processCommand: a session must carry a real organization
-	// before we write a command_batch_log row.
+	// Same invariant as processCommand: a real org is required.
 	if info.OrganizationID <= 0 {
 		return "", fleeterror.NewInternalErrorf("cannot create command batch: session missing organization_id")
 	}
@@ -1106,22 +1074,12 @@ const maxBatchDeviceResults = 5000
 
 // GetCommandBatchDeviceResults returns the per-device outcome for a command
 // batch so the activity-log UI can drill into which miners succeeded or
-// failed. Org-scoped via the session user.
+// failed. Org-scoped via command_batch_log.organization_id.
 //
-// details_pruned semantics:
-//   - header missing and no completion activity row either: the batch is
-//     unknown in this org -- return NotFound.
-//   - header missing but a '*.completed' activity row still exists in the
-//     same org: the batch header has been retention-pruned (default
-//     BatchLogRetention=180d is shorter than ActivityLogRetention=365d) but
-//     the user can still see the entry in the activity timeline. We
-//     synthesize a details_pruned=true response from the activity metadata
-//     so the UI renders a graceful "detail aged out" state instead of 404.
-//   - header present but no per-device rows: either the command is still
-//     PENDING (no worker has written a row yet) or retention has purged them.
-//     In both cases we return an empty list and set details_pruned=true when
-//     the batch is FINISHED; for PENDING/PROCESSING we leave it false so the
-//     UI knows to keep streaming live updates.
+// details_pruned is true only when the batch is FINISHED with devices_count>0
+// and no per-device rows remain. PENDING/PROCESSING batches keep it false so
+// the UI knows to keep polling; empty-selector batches (devices_count=0) also
+// keep it false because they never had details to prune.
 func (s *Service) GetCommandBatchDeviceResults(ctx context.Context, req *pb.GetCommandBatchDeviceResultsRequest) (*pb.GetCommandBatchDeviceResultsResponse, error) {
 	if req == nil || strings.TrimSpace(req.BatchIdentifier) == "" {
 		return nil, fleeterror.NewInvalidArgumentError("batch_identifier is required")
@@ -1131,76 +1089,38 @@ func (s *Service) GetCommandBatchDeviceResults(ctx context.Context, req *pb.GetC
 		return nil, fleeterror.NewInternalErrorf("error getting session info: %v", err)
 	}
 
-	// All four queries (header, counts, per-device rows, and the activity
-	// fallback on header-miss) run inside a single read-only REPEATABLE
-	// READ transaction so the caller sees a consistent snapshot. A
-	// concurrent retention sweep between the queries would otherwise be
-	// able to skew the counts vs. the visible device list or, worse,
-	// race-delete the batch header between the header query and the
-	// activity fallback.
-	//
-	// Why sql.ErrNoRows is translated inside the callback (not outside):
-	// db.WithReadOnlyTransaction's retry wrapper fabricates its terminal
-	// error with fleeterror.NewInternalErrorf("...: %v", lastErr). The %v
-	// verb formats the error but does not wrap it with %w, so the returned
-	// FleetError cannot be unwrapped back to sql.ErrNoRows via errors.Is at
-	// the call site. Catching the sentinel here, while it is still the raw
-	// driver error, is the only way to map it to a NotFound connect code.
-	//
-	// Why the counts query never yields sql.ErrNoRows on the happy path:
-	// GetBatchDeviceCounts is an aggregate over GROUP BY cbl.id rooted in
-	// the same command_batch_log row that the header query just resolved.
-	// The aggregate always emits one row per group and the header row is
-	// guaranteed to exist. REPEATABLE READ adds belt-and-suspenders: it
-	// rules out a concurrent delete slipping in between the two queries,
-	// but the structural argument alone is enough.
+	// All three queries share a single transaction so header/counts/rows
+	// remain consistent with each other. sql.ErrNoRows must be translated
+	// inside the callback: WithTransaction's retry wrapper reformats any
+	// non-FleetError with %v, so the sentinel can't be recovered by
+	// errors.Is at the call site.
 	type resultsBundle struct {
-		header       sqlc.GetBatchHeaderForOrgRow
-		counts       sqlc.GetBatchDeviceCountsRow
-		rows         []sqlc.ListBatchDeviceResultsRow
-		fromFallback bool
-		fallback     sqlc.GetLatestCompletedActivityForBatchRow
+		header sqlc.GetBatchHeaderForOrgRow
+		counts sqlc.GetBatchStatusAndDeviceCountsRow
+		rows   []sqlc.ListBatchDeviceResultsRow
 	}
-	bundle, err := db.WithReadOnlyTransaction(ctx, s.conn, func(q *sqlc.Queries) (resultsBundle, error) {
+	bundle, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (resultsBundle, error) {
 		var b resultsBundle
 		header, hErr := q.GetBatchHeaderForOrg(ctx, sqlc.GetBatchHeaderForOrgParams{
 			Uuid:           req.BatchIdentifier,
 			OrganizationID: sql.NullInt64{Int64: info.OrganizationID, Valid: true},
 		})
 		if errors.Is(hErr, sql.ErrNoRows) {
-			// The batch header is gone. Before returning NotFound, see
-			// whether the caller's org still has a '*.completed' activity
-			// row for this batch_id; if so the header was retention-pruned
-			// out from under a still-visible activity entry and we can
-			// render details_pruned=true from the activity metadata.
-			fallback, aErr := q.GetLatestCompletedActivityForBatch(ctx, sqlc.GetLatestCompletedActivityForBatchParams{
-				BatchID:        sql.NullString{String: req.BatchIdentifier, Valid: true},
-				OrganizationID: sql.NullInt64{Int64: info.OrganizationID, Valid: true},
-			})
-			if errors.Is(aErr, sql.ErrNoRows) {
-				return b, fleeterror.NewNotFoundErrorf("command batch %s not found", req.BatchIdentifier)
-			}
-			if aErr != nil {
-				return b, aErr
-			}
-			b.fromFallback = true
-			b.fallback = fallback
-			return b, nil
+			return b, fleeterror.NewNotFoundErrorf("command batch %s not found", req.BatchIdentifier)
 		}
 		if hErr != nil {
 			return b, hErr
 		}
 		b.header = header
 
-		counts, cErr := q.GetBatchDeviceCounts(ctx, req.BatchIdentifier)
+		counts, cErr := q.GetBatchStatusAndDeviceCounts(ctx, req.BatchIdentifier)
 		if cErr != nil {
 			return b, cErr
 		}
 		b.counts = counts
 
-		// Pass (cap + 1) so Go can still detect truncation via
-		// len(rows) > maxBatchDeviceResults without pulling the full table
-		// through the driver first.
+		// Pass (cap + 1) so Go can detect truncation via len(rows) > cap
+		// without pulling the full table through the driver first.
 		rows, rErr := q.ListBatchDeviceResults(ctx, sqlc.ListBatchDeviceResultsParams{
 			Uuid:    req.BatchIdentifier,
 			MaxRows: int32(maxBatchDeviceResults + 1),
@@ -1216,10 +1136,6 @@ func (s *Service) GetCommandBatchDeviceResults(ctx context.Context, req *pb.GetC
 			return nil, err
 		}
 		return nil, fleeterror.NewInternalErrorf("error loading batch results: %v", err)
-	}
-
-	if bundle.fromFallback {
-		return synthesizeAgedOutResponse(req.BatchIdentifier, bundle.fallback), nil
 	}
 
 	header := bundle.header
@@ -1254,11 +1170,6 @@ func (s *Service) GetCommandBatchDeviceResults(ctx context.Context, req *pb.GetC
 	// #nosec G115 -- same bound as successCount.
 	failureCount := int32(counts.FailedDevices)
 
-	// Pruned only when the batch had devices to begin with, is FINISHED, and
-	// every per-device row is gone. An empty-selector batch (devices_count=0)
-	// never had details to prune, so we keep details_pruned=false for it.
-	// Mid-run PENDING/PROCESSING batches with partial rows also stay
-	// details_pruned=false so the UI knows to keep polling.
 	detailsPruned := header.DevicesCount > 0 &&
 		header.Status == sqlc.BatchStatusEnumFINISHED &&
 		len(rows) == 0
@@ -1274,56 +1185,6 @@ func (s *Service) GetCommandBatchDeviceResults(ctx context.Context, req *pb.GetC
 		DetailsPruned:   detailsPruned,
 		Truncated:       truncated,
 	}, nil
-}
-
-// synthesizeAgedOutResponse renders a details_pruned=true response when the
-// batch header has been retention-pruned out from under a still-visible
-// activity row. A completion activity row is only written when the batch
-// reached FINISHED, so status is hard-coded "FINISHED". Success/failure
-// counts come from the activity metadata; the reconciler's ResultUnknown
-// path (R14/M4) intentionally omits those fields, so the helper safely
-// returns zeros for that case.
-func synthesizeAgedOutResponse(batchID string, row sqlc.GetLatestCompletedActivityForBatchRow) *pb.GetCommandBatchDeviceResultsResponse {
-	successCount, failureCount := parseCompletionMetadata(row.Metadata)
-	totalCount := int32(0)
-	if row.ScopeCount.Valid {
-		totalCount = row.ScopeCount.Int32
-	}
-	return &pb.GetCommandBatchDeviceResultsResponse{
-		BatchIdentifier: batchID,
-		CommandType:     stripCompletedSuffix(row.EventType),
-		Status:          string(sqlc.BatchStatusEnumFINISHED),
-		TotalCount:      totalCount,
-		SuccessCount:    successCount,
-		FailureCount:    failureCount,
-		DeviceResults:   []*pb.CommandBatchDeviceResult{},
-		DetailsPruned:   true,
-		Truncated:       false,
-	}
-}
-
-// parseCompletionMetadata pulls the per-device outcome fields out of the
-// activity metadata JSON blob so synthesizeAgedOutResponse can surface the
-// last known success/failure split even after the batch header is gone.
-//
-// The reconciler's ResultUnknown path (R14/M4) omits both fields on
-// purpose ("we no longer know how the batch fared"); those cases fall
-// through to zeros here and the UI is expected to render the row with
-// details_pruned=true + a neutral state rather than asserting success.
-func parseCompletionMetadata(raw pqtype.NullRawMessage) (successCount, failureCount int32) {
-	if !raw.Valid {
-		return 0, 0
-	}
-	var m struct {
-		SuccessCount int64 `json:"success_count"`
-		FailureCount int64 `json:"failure_count"`
-	}
-	if err := json.Unmarshal(raw.RawMessage, &m); err != nil {
-		return 0, 0
-	}
-	// #nosec G115 -- success/failure come from SUM over command_on_device_log,
-	// bounded by the batch's devices_count which itself fits in int32.
-	return int32(m.SuccessCount), int32(m.FailureCount)
 }
 
 func deviceCommandStatusToProto(s sqlc.DeviceCommandStatusEnum) string {

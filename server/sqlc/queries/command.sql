@@ -88,22 +88,6 @@ WHERE
 GROUP BY
     cbl.id;
 
--- name: GetBatchDeviceCounts :one
--- Scalar counts only: same SUM/CASE aggregates as GetBatchStatusAndDeviceCounts
--- but without the per-device JSON_AGG arrays or the device join. Used by the
--- activity finalizer, the completion reconciler, and the detail RPC -- all
--- callers that read only the counts and would otherwise pay for materializing
--- two device-identifier arrays they never look at (expensive for large
--- batches, and wasteful inside a REPEATABLE READ snapshot).
-SELECT
-    cbl.devices_count,
-    CAST(COALESCE(SUM(CASE WHEN codl.status = 'SUCCESS' THEN 1 ELSE 0 END), 0) AS BIGINT) AS successful_devices,
-    CAST(COALESCE(SUM(CASE WHEN codl.status = 'FAILED' THEN 1 ELSE 0 END), 0) AS BIGINT) AS failed_devices
-FROM command_batch_log cbl
-LEFT JOIN command_on_device_log codl ON cbl.id = codl.command_batch_log_id
-WHERE cbl.uuid = $1
-GROUP BY cbl.id;
-
 -- name: GetBatchLog :one
 SELECT
     cbl.status,
@@ -148,32 +132,3 @@ WHERE cbl.uuid = $1
 ORDER BY d.device_identifier NULLS LAST, codl.id
 LIMIT sqlc.arg('max_rows');
 
--- name: DeleteCommandOnDeviceLogsOlderThan :execrows
--- Paginated retention delete of per-device logs older than the cutoff.
--- Bounded by @max_rows to keep each run short; the cleaner loops until the
--- query returns zero rows.
-DELETE FROM command_on_device_log
-WHERE id IN (
-    SELECT codl.id FROM command_on_device_log codl
-    WHERE codl.updated_at < sqlc.arg('cutoff')
-    ORDER BY codl.updated_at
-    LIMIT sqlc.arg('max_rows')
-);
-
--- name: DeleteCommandBatchLogsOlderThan :execrows
--- Paginated retention delete of command batch headers. Only FINISHED batches
--- older than the cutoff are eligible; a NOT EXISTS guard prevents deleting a
--- header while any per-device rows still reference it (FK safety).
-DELETE FROM command_batch_log cbl
-WHERE cbl.id IN (
-    SELECT cbl_inner.id FROM command_batch_log cbl_inner
-    WHERE cbl_inner.status = 'FINISHED'
-      AND cbl_inner.finished_at IS NOT NULL
-      AND cbl_inner.finished_at < sqlc.arg('cutoff')
-      AND NOT EXISTS (
-        SELECT 1 FROM command_on_device_log codl
-        WHERE codl.command_batch_log_id = cbl_inner.id
-      )
-    ORDER BY cbl_inner.finished_at
-    LIMIT sqlc.arg('max_rows')
-);

@@ -3,7 +3,6 @@ package main
 import (
 	"time"
 
-	"github.com/block/proto-fleet/server/internal/domain/activity"
 	"github.com/block/proto-fleet/server/internal/domain/command"
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics"
 	"github.com/block/proto-fleet/server/internal/domain/ipscanner"
@@ -45,6 +44,5 @@ type Config struct {
 	IPScanner      ipscanner.Config       `embed:"" prefix:"ipscanner" envprefix:"IPSCANNER_"`
 	Diagnostics    diagnostics.Config     `embed:"" prefix:"diagnostics" envprefix:"DIAGNOSTICS_"`
 	Files          files.Config           `embed:"" prefix:"files" envprefix:"FILES_"`
-	Activity       activity.Config        `embed:"" prefix:"activity" envprefix:"ACTIVITY_"`
 	FleetTelemetry fleet_telemetry.Config `embed:"" prefix:"fleet_telemetry" envprefix:"FLEET_TELEMETRY_"`
 }

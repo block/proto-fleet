@@ -96,15 +96,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.createUserOrganizationStmt, err = db.PrepareContext(ctx, createUserOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateUserOrganization: %w", err)
 	}
-	if q.deleteActivityLogsOlderThanStmt, err = db.PrepareContext(ctx, deleteActivityLogsOlderThan); err != nil {
-		return nil, fmt.Errorf("error preparing query DeleteActivityLogsOlderThan: %w", err)
-	}
-	if q.deleteCommandBatchLogsOlderThanStmt, err = db.PrepareContext(ctx, deleteCommandBatchLogsOlderThan); err != nil {
-		return nil, fmt.Errorf("error preparing query DeleteCommandBatchLogsOlderThan: %w", err)
-	}
-	if q.deleteCommandOnDeviceLogsOlderThanStmt, err = db.PrepareContext(ctx, deleteCommandOnDeviceLogsOlderThan); err != nil {
-		return nil, fmt.Errorf("error preparing query DeleteCommandOnDeviceLogsOlderThan: %w", err)
-	}
 	if q.deleteExpiredSessionsStmt, err = db.PrepareContext(ctx, deleteExpiredSessions); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteExpiredSessions: %w", err)
 	}
@@ -116,9 +107,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.deleteScheduleTargetsStmt, err = db.PrepareContext(ctx, deleteScheduleTargets); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteScheduleTargets: %w", err)
-	}
-	if q.deleteTerminalQueueMessagesOlderThanStmt, err = db.PrepareContext(ctx, deleteTerminalQueueMessagesOlderThan); err != nil {
-		return nil, fmt.Errorf("error preparing query DeleteTerminalQueueMessagesOlderThan: %w", err)
 	}
 	if q.deviceSetBelongsToOrgStmt, err = db.PrepareContext(ctx, deviceSetBelongsToOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query DeviceSetBelongsToOrg: %w", err)
@@ -155,9 +143,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getAvailableModelsStmt, err = db.PrepareContext(ctx, getAvailableModels); err != nil {
 		return nil, fmt.Errorf("error preparing query GetAvailableModels: %w", err)
-	}
-	if q.getBatchDeviceCountsStmt, err = db.PrepareContext(ctx, getBatchDeviceCounts); err != nil {
-		return nil, fmt.Errorf("error preparing query GetBatchDeviceCounts: %w", err)
 	}
 	if q.getBatchHeaderForOrgStmt, err = db.PrepareContext(ctx, getBatchHeaderForOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query GetBatchHeaderForOrg: %w", err)
@@ -284,9 +269,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getLatestAllDeviceMetricsStmt, err = db.PrepareContext(ctx, getLatestAllDeviceMetrics); err != nil {
 		return nil, fmt.Errorf("error preparing query GetLatestAllDeviceMetrics: %w", err)
-	}
-	if q.getLatestCompletedActivityForBatchStmt, err = db.PrepareContext(ctx, getLatestCompletedActivityForBatch); err != nil {
-		return nil, fmt.Errorf("error preparing query GetLatestCompletedActivityForBatch: %w", err)
 	}
 	if q.getLatestDeviceMetricsStmt, err = db.PrepareContext(ctx, getLatestDeviceMetrics); err != nil {
 		return nil, fmt.Errorf("error preparing query GetLatestDeviceMetrics: %w", err)
@@ -449,9 +431,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.listDeviceSetMembersPaginatedAfterStmt, err = db.PrepareContext(ctx, listDeviceSetMembersPaginatedAfter); err != nil {
 		return nil, fmt.Errorf("error preparing query ListDeviceSetMembersPaginatedAfter: %w", err)
-	}
-	if q.listFinishedBatchesWithoutCompletionStmt, err = db.PrepareContext(ctx, listFinishedBatchesWithoutCompletion); err != nil {
-		return nil, fmt.Errorf("error preparing query ListFinishedBatchesWithoutCompletion: %w", err)
 	}
 	if q.listMinerStateSnapshotsStmt, err = db.PrepareContext(ctx, listMinerStateSnapshots); err != nil {
 		return nil, fmt.Errorf("error preparing query ListMinerStateSnapshots: %w", err)
@@ -806,21 +785,6 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing createUserOrganizationStmt: %w", cerr)
 		}
 	}
-	if q.deleteActivityLogsOlderThanStmt != nil {
-		if cerr := q.deleteActivityLogsOlderThanStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing deleteActivityLogsOlderThanStmt: %w", cerr)
-		}
-	}
-	if q.deleteCommandBatchLogsOlderThanStmt != nil {
-		if cerr := q.deleteCommandBatchLogsOlderThanStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing deleteCommandBatchLogsOlderThanStmt: %w", cerr)
-		}
-	}
-	if q.deleteCommandOnDeviceLogsOlderThanStmt != nil {
-		if cerr := q.deleteCommandOnDeviceLogsOlderThanStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing deleteCommandOnDeviceLogsOlderThanStmt: %w", cerr)
-		}
-	}
 	if q.deleteExpiredSessionsStmt != nil {
 		if cerr := q.deleteExpiredSessionsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing deleteExpiredSessionsStmt: %w", cerr)
@@ -839,11 +803,6 @@ func (q *Queries) Close() error {
 	if q.deleteScheduleTargetsStmt != nil {
 		if cerr := q.deleteScheduleTargetsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing deleteScheduleTargetsStmt: %w", cerr)
-		}
-	}
-	if q.deleteTerminalQueueMessagesOlderThanStmt != nil {
-		if cerr := q.deleteTerminalQueueMessagesOlderThanStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing deleteTerminalQueueMessagesOlderThanStmt: %w", cerr)
 		}
 	}
 	if q.deviceSetBelongsToOrgStmt != nil {
@@ -904,11 +863,6 @@ func (q *Queries) Close() error {
 	if q.getAvailableModelsStmt != nil {
 		if cerr := q.getAvailableModelsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getAvailableModelsStmt: %w", cerr)
-		}
-	}
-	if q.getBatchDeviceCountsStmt != nil {
-		if cerr := q.getBatchDeviceCountsStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing getBatchDeviceCountsStmt: %w", cerr)
 		}
 	}
 	if q.getBatchHeaderForOrgStmt != nil {
@@ -1119,11 +1073,6 @@ func (q *Queries) Close() error {
 	if q.getLatestAllDeviceMetricsStmt != nil {
 		if cerr := q.getLatestAllDeviceMetricsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getLatestAllDeviceMetricsStmt: %w", cerr)
-		}
-	}
-	if q.getLatestCompletedActivityForBatchStmt != nil {
-		if cerr := q.getLatestCompletedActivityForBatchStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing getLatestCompletedActivityForBatchStmt: %w", cerr)
 		}
 	}
 	if q.getLatestDeviceMetricsStmt != nil {
@@ -1394,11 +1343,6 @@ func (q *Queries) Close() error {
 	if q.listDeviceSetMembersPaginatedAfterStmt != nil {
 		if cerr := q.listDeviceSetMembersPaginatedAfterStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listDeviceSetMembersPaginatedAfterStmt: %w", cerr)
-		}
-	}
-	if q.listFinishedBatchesWithoutCompletionStmt != nil {
-		if cerr := q.listFinishedBatchesWithoutCompletionStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing listFinishedBatchesWithoutCompletionStmt: %w", cerr)
 		}
 	}
 	if q.listMinerStateSnapshotsStmt != nil {
@@ -1844,14 +1788,10 @@ type Queries struct {
 	createSessionStmt                                   *sql.Stmt
 	createUserStmt                                      *sql.Stmt
 	createUserOrganizationStmt                          *sql.Stmt
-	deleteActivityLogsOlderThanStmt                     *sql.Stmt
-	deleteCommandBatchLogsOlderThanStmt                 *sql.Stmt
-	deleteCommandOnDeviceLogsOlderThanStmt              *sql.Stmt
 	deleteExpiredSessionsStmt                           *sql.Stmt
 	deleteOrganizationStmt                              *sql.Stmt
 	deletePoolStmt                                      *sql.Stmt
 	deleteScheduleTargetsStmt                           *sql.Stmt
-	deleteTerminalQueueMessagesOlderThanStmt            *sql.Stmt
 	deviceSetBelongsToOrgStmt                           *sql.Stmt
 	getActiveSchedulesStmt                              *sql.Stmt
 	getActiveUnpairedDiscoveredDevicesStmt              *sql.Stmt
@@ -1864,7 +1804,6 @@ type Queries struct {
 	getAllPairedDeviceIdentifiersStmt                   *sql.Stmt
 	getApiKeyByHashStmt                                 *sql.Stmt
 	getAvailableModelsStmt                              *sql.Stmt
-	getBatchDeviceCountsStmt                            *sql.Stmt
 	getBatchHeaderForOrgStmt                            *sql.Stmt
 	getBatchLogStmt                                     *sql.Stmt
 	getBatchStatusAndDeviceCountsStmt                   *sql.Stmt
@@ -1907,7 +1846,6 @@ type Queries struct {
 	getGroupLabelsForDevicesStmt                        *sql.Stmt
 	getKnownSubnetsStmt                                 *sql.Stmt
 	getLatestAllDeviceMetricsStmt                       *sql.Stmt
-	getLatestCompletedActivityForBatchStmt              *sql.Stmt
 	getLatestDeviceMetricsStmt                          *sql.Stmt
 	getMaxPriorityStmt                                  *sql.Stmt
 	getMessagesToProcessStmt                            *sql.Stmt
@@ -1962,7 +1900,6 @@ type Queries struct {
 	listBatchDeviceResultsStmt                          *sql.Stmt
 	listDeviceSetMembersPaginatedStmt                   *sql.Stmt
 	listDeviceSetMembersPaginatedAfterStmt              *sql.Stmt
-	listFinishedBatchesWithoutCompletionStmt            *sql.Stmt
 	listMinerStateSnapshotsStmt                         *sql.Stmt
 	listOrganizationsStmt                               *sql.Stmt
 	listPoolsStmt                                       *sql.Stmt
@@ -2069,14 +2006,10 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		createSessionStmt:                                   q.createSessionStmt,
 		createUserStmt:                                      q.createUserStmt,
 		createUserOrganizationStmt:                          q.createUserOrganizationStmt,
-		deleteActivityLogsOlderThanStmt:                     q.deleteActivityLogsOlderThanStmt,
-		deleteCommandBatchLogsOlderThanStmt:                 q.deleteCommandBatchLogsOlderThanStmt,
-		deleteCommandOnDeviceLogsOlderThanStmt:              q.deleteCommandOnDeviceLogsOlderThanStmt,
 		deleteExpiredSessionsStmt:                           q.deleteExpiredSessionsStmt,
 		deleteOrganizationStmt:                              q.deleteOrganizationStmt,
 		deletePoolStmt:                                      q.deletePoolStmt,
 		deleteScheduleTargetsStmt:                           q.deleteScheduleTargetsStmt,
-		deleteTerminalQueueMessagesOlderThanStmt:            q.deleteTerminalQueueMessagesOlderThanStmt,
 		deviceSetBelongsToOrgStmt:                           q.deviceSetBelongsToOrgStmt,
 		getActiveSchedulesStmt:                              q.getActiveSchedulesStmt,
 		getActiveUnpairedDiscoveredDevicesStmt:              q.getActiveUnpairedDiscoveredDevicesStmt,
@@ -2089,7 +2022,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getAllPairedDeviceIdentifiersStmt:                   q.getAllPairedDeviceIdentifiersStmt,
 		getApiKeyByHashStmt:                                 q.getApiKeyByHashStmt,
 		getAvailableModelsStmt:                              q.getAvailableModelsStmt,
-		getBatchDeviceCountsStmt:                            q.getBatchDeviceCountsStmt,
 		getBatchHeaderForOrgStmt:                            q.getBatchHeaderForOrgStmt,
 		getBatchLogStmt:                                     q.getBatchLogStmt,
 		getBatchStatusAndDeviceCountsStmt:                   q.getBatchStatusAndDeviceCountsStmt,
@@ -2132,7 +2064,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getGroupLabelsForDevicesStmt:                        q.getGroupLabelsForDevicesStmt,
 		getKnownSubnetsStmt:                                 q.getKnownSubnetsStmt,
 		getLatestAllDeviceMetricsStmt:                       q.getLatestAllDeviceMetricsStmt,
-		getLatestCompletedActivityForBatchStmt:              q.getLatestCompletedActivityForBatchStmt,
 		getLatestDeviceMetricsStmt:                          q.getLatestDeviceMetricsStmt,
 		getMaxPriorityStmt:                                  q.getMaxPriorityStmt,
 		getMessagesToProcessStmt:                            q.getMessagesToProcessStmt,
@@ -2187,7 +2118,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listBatchDeviceResultsStmt:                          q.listBatchDeviceResultsStmt,
 		listDeviceSetMembersPaginatedStmt:                   q.listDeviceSetMembersPaginatedStmt,
 		listDeviceSetMembersPaginatedAfterStmt:              q.listDeviceSetMembersPaginatedAfterStmt,
-		listFinishedBatchesWithoutCompletionStmt:            q.listFinishedBatchesWithoutCompletionStmt,
 		listMinerStateSnapshotsStmt:                         q.listMinerStateSnapshotsStmt,
 		listOrganizationsStmt:                               q.listOrganizationsStmt,
 		listPoolsStmt:                                       q.listPoolsStmt,
