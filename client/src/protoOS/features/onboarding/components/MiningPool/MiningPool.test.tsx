@@ -127,10 +127,10 @@ vi.mock("@/shared/components/ButtonGroup", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/shared/components/ButtonGroup")>();
   return {
     ...actual,
-    default: ({ buttons }: { buttons: Array<{ text: string; onClick: () => void }> }) => (
+    default: ({ buttons }: { buttons: Array<{ text: string; onClick: () => void; disabled?: boolean }> }) => (
       <div data-testid="button-group">
         {buttons.map((button, idx) => (
-          <button key={idx} onClick={button.onClick}>
+          <button key={idx} onClick={button.onClick} disabled={button.disabled}>
             {button.text}
           </button>
         ))}
@@ -158,6 +158,7 @@ describe("MiningPoolPage", () => {
         ],
       },
       setCooling: mockSetCooling,
+      loaded: true,
       pending: false,
     });
   });
@@ -180,6 +181,7 @@ describe("MiningPoolPage", () => {
             ],
           },
           setCooling: mockSetCooling,
+          loaded: true,
           pending: false,
         });
       });
@@ -207,38 +209,27 @@ describe("MiningPoolPage", () => {
       });
     });
 
-    describe("When fans array is null/undefined (no fans data)", () => {
+    describe("While cooling status is still loading", () => {
       beforeEach(() => {
-        // No fans data → no fans connected
         mockUseCoolingStatus.mockReturnValue({
-          data: {
-            fans: null,
-          },
+          data: undefined,
           setCooling: mockSetCooling,
+          loaded: false,
           pending: false,
         });
       });
 
-      it("shows dialog when Continue is clicked", async () => {
+      it("disables both actions until cooling status has loaded", () => {
         render(<MiningPoolPage />);
 
         const continueButton = screen.getByText("Continue");
-        continueButton.click();
-
-        await waitFor(() => {
-          expect(screen.getByTestId("no-fans-dialog")).toBeInTheDocument();
-        });
-      });
-
-      it("shows dialog when Skip is clicked", async () => {
-        render(<MiningPoolPage />);
-
         const skipButton = screen.getByText("Skip");
-        skipButton.click();
 
-        await waitFor(() => {
-          expect(screen.getByTestId("no-fans-dialog")).toBeInTheDocument();
-        });
+        expect(continueButton).toBeDisabled();
+        expect(skipButton).toBeDisabled();
+        expect(screen.queryByTestId("no-fans-dialog")).not.toBeInTheDocument();
+        expect(mockCheckAccess).not.toHaveBeenCalled();
+        expect(mockNavigate).not.toHaveBeenCalled();
       });
     });
 
@@ -250,6 +241,7 @@ describe("MiningPoolPage", () => {
             fans: [null, null, null],
           },
           setCooling: mockSetCooling,
+          loaded: true,
           pending: false,
         });
       });
@@ -289,6 +281,7 @@ describe("MiningPoolPage", () => {
             ],
           },
           setCooling: mockSetCooling,
+          loaded: true,
           pending: false,
         });
       });
@@ -336,6 +329,7 @@ describe("MiningPoolPage", () => {
             ],
           },
           setCooling: mockSetCooling,
+          loaded: true,
           pending: false,
         });
       });
@@ -459,6 +453,7 @@ describe("MiningPoolPage", () => {
             ],
           },
           setCooling: mockSetCooling,
+          loaded: true,
           pending: false,
         });
       });

@@ -67,11 +67,10 @@ test.describe("Onboarding", () => {
       await welcomePage.validateTitle("Continue without a backup pool?");
       await welcomePage.validateButtonIsVisible("Add a backup pool");
       await welcomePage.clickButton("Continue without backup");
-      await welcomePage.handleNoFansDetectedDialogIfVisible();
     });
 
     await test.step("Your miner is ready", async () => {
-      await welcomePage.waitForMinerReadyScreen();
+      await welcomePage.validateTitle("Configuring your miner");
       await welcomePage.validateTitle("Your miner is ready");
       await welcomePage.validateTextIsVisible("Testing your mining pool connections");
       await welcomePage.clickButton("Continue");

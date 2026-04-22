@@ -55,30 +55,4 @@ export class WelcomePage extends BasePage {
   async closeDefaultPoolWarning() {
     await this.page.getByTestId("warn-default-pool-callout").getByRole("button").click();
   }
-
-  async handleNoFansDetectedDialogIfVisible() {
-    const noFansTitle = this.page.getByText("No fans detected");
-
-    const dialogAppeared = await noFansTitle
-      .waitFor({ state: "visible", timeout: 5000 })
-      .then(() => true)
-      .catch(() => false);
-
-    if (!dialogAppeared) return;
-
-    await this.page.getByRole("button", { name: "Use air cooling" }).click();
-    await expect(noFansTitle).toBeHidden();
-  }
-
-  async waitForMinerReadyScreen() {
-    const loadingTitle = this.page.locator(`//*[contains(@class,'heading')][text()="Configuring your miner"]`);
-    const readyTitle = this.page.locator(`//*[contains(@class,'heading')][text()="Your miner is ready"]`);
-
-    await Promise.race([
-      readyTitle.waitFor({ state: "visible" }),
-      loadingTitle.waitFor({ state: "visible" }).then(async () => {
-        await readyTitle.waitFor({ state: "visible" });
-      }),
-    ]);
-  }
 }
