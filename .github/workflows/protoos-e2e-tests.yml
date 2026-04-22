@@ -1,28 +1,11 @@
 name: ProtoOS E2E Tests
 
 on:
-  pull_request:
-    paths:
-      - ".github/workflows/protoos-e2e-tests.yml"
-      - "client/.npmrc"
-      - "client/e2eTests/protoOS/**"
-      - "client/package.json"
-      - "client/package-lock.json"
-      - "client/postcss.config.js"
-      - "client/public/**"
-      - "client/src/protoOS/**"
-      - "client/src/shared/**"
-      - "client/tsconfig.json"
-      - "client/tsconfig.node.json"
-      - "client/vite.config.ts"
-      - "client/vitePlugins/**"
-      - "server/go.mod"
-      - "server/go.sum"
-      - "server/fake-proto-rig/**"
   schedule:
     # Run daily at 6 AM UTC on main branch
     - cron: "0 6 * * *"
   workflow_dispatch:
+  workflow_call:
 
 jobs:
   e2e-tests:

@@ -27,6 +27,8 @@ jobs:
       rust_sdk: ${{ steps.detect.outputs.rust_sdk }}
       windows: ${{ steps.detect.outputs.windows }}
       powershell: ${{ steps.detect.outputs.powershell }}
+      protofleet_e2e: ${{ steps.detect.outputs.protofleet_e2e }}
+      protoos_e2e: ${{ steps.detect.outputs.protoos_e2e }}
     steps:
       - name: Detect changed files
         id: detect
@@ -49,6 +51,8 @@ jobs:
             rust_sdk
             windows
             powershell
+            protofleet_e2e
+            protoos_e2e
           )
 
           for output in "${outputs[@]}"; do
@@ -111,6 +115,8 @@ jobs:
           set_flag rust_sdk '^(sdk/rust/|server/sdk/v1/pb/driver\.proto)'
           set_flag windows '^(deployment-files/windows/)'
           set_flag powershell '\.ps1$'
+          set_flag protofleet_e2e '^(\.github/workflows/protofleet-e2e-tests\.yml|\.github/actions/go-cache-setup/action\.yml|\.github/actions/hermit-setup/action\.yml|bin/hermit\.hcl|client/\.npmrc|client/e2eTests/protoFleet/|client/package\.json|client/package-lock\.json|client/postcss\.config\.js|client/public/|client/src/protoFleet/|client/src/shared/|client/vite\.config\.ts|client/vitePlugins/|client/tsconfig\.json|client/tsconfig\.node\.json|go\.work(\.sum)?$|hermit-packages/|plugin/antminer/|plugin/proto/|server/)'
+          set_flag protoos_e2e '^(\.github/workflows/protoos-e2e-tests\.yml|client/\.npmrc|client/e2eTests/protoOS/|client/package\.json|client/package-lock\.json|client/postcss\.config\.js|client/public/|client/src/protoOS/|client/src/shared/|client/tsconfig\.json|client/tsconfig\.node\.json|client/vite\.config\.ts|client/vitePlugins/|server/go\.(mod|sum)|server/fake-proto-rig/)'
 
   generated-code:
     name: Generated Code Check
@@ -216,6 +222,20 @@ jobs:
     uses: ./.github/workflows/powershell-lint.yml
     secrets: inherit
 
+  protofleet-e2e-tests:
+    name: ProtoFleet E2E Tests
+    needs: changes
+    if: needs.changes.outputs.protofleet_e2e == 'true'
+    uses: ./.github/workflows/protofleet-e2e-tests.yml
+    secrets: inherit
+
+  protoos-e2e-tests:
+    name: ProtoOS E2E Tests
+    needs: changes
+    if: needs.changes.outputs.protoos_e2e == 'true'
+    uses: ./.github/workflows/protoos-e2e-tests.yml
+    secrets: inherit
+
   gate:
     name: Gate
     runs-on: ubuntu-latest
@@ -237,6 +257,8 @@ jobs:
       - rust-sdk-checks
       - windows-checks
       - powershell-lint
+      - protofleet-e2e-tests
+      - protoos-e2e-tests
     steps:
       - name: Evaluate gate
         env:

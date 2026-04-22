@@ -1,34 +1,11 @@
 name: ProtoFleet E2E Tests
 
 on:
-  pull_request:
-    paths:
-      - ".github/workflows/protofleet-e2e-tests.yml"
-      - ".github/actions/go-cache-setup/action.yml"
-      - ".github/actions/hermit-setup/action.yml"
-      - "bin/hermit.hcl"
-      - "client/.npmrc"
-      - "client/e2eTests/protoFleet/**"
-      - "client/package.json"
-      - "client/package-lock.json"
-      - "client/postcss.config.js"
-      - "client/public/**"
-      - "client/src/protoFleet/**"
-      - "client/src/shared/**"
-      - "client/vite.config.ts"
-      - "client/vitePlugins/**"
-      - "client/tsconfig.json"
-      - "client/tsconfig.node.json"
-      - "go.work"
-      - "go.work.sum"
-      - "hermit-packages/**"
-      - "plugin/antminer/**"
-      - "plugin/proto/**"
-      - "server/**"
   schedule:
     # Run daily at 6 AM UTC on main branch
     - cron: "0 6 * * *"
   workflow_dispatch:
+  workflow_call:
 
 jobs:
   detect-specs:
