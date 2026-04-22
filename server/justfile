@@ -101,8 +101,10 @@ seed-telemetry *args:
 rebuild-all: _build-plugins-docker rebuild-services
 
 # wipe and rebuild docker compose services, reusing existing plugin binaries
+# `--rmi local` drops images we built but keeps pulled ones (jaeger, otel-collector),
+# saving ~12s of registry pulls per rebuild.
 rebuild-services:
-    docker compose down --rmi all --volumes && docker compose up --build -d
+    docker compose down --rmi local --volumes && docker compose up --build -d
 
 _build-plugins-docker:
   #!/usr/bin/env bash
