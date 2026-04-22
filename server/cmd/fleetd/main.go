@@ -311,6 +311,37 @@ func start(config *Config) error {
 
 	statusService := commandDomain.NewStatusService(conn, dbMessageQueue)
 	commandSvc := commandDomain.NewService(&config.Command, conn, executionService, dbMessageQueue, statusService, encryptSvc, filesService, deviceStore, userStore, authSvc, telemetryService, pluginService, activitySvc)
+
+	// Completion reconciler backfills '<event_type>.completed' activity rows
+	// for batches that FINISHED without one (crash or finalizer retry
+	// exhaustion). Idempotent via the partial unique index on activity_log.
+	completionReconciler := commandDomain.NewCompletionReconciler(conn, &config.Command, activitySvc)
+	completionReconcilerCtx, completionReconcilerCancel := context.WithCancel(context.Background())
+	completionReconciler.Start(completionReconcilerCtx)
+	defer func() {
+		completionReconcilerCancel()
+		completionReconciler.Stop()
+	}()
+
+	// Command-audit retention cleaner: ages out queue_message (terminal),
+	// command_on_device_log, and command_batch_log per RetentionConfig.
+	commandRetention := commandDomain.NewRetentionCleaner(conn, &config.Command.Retention)
+	commandRetentionCtx, commandRetentionCancel := context.WithCancel(context.Background())
+	commandRetention.Start(commandRetentionCtx)
+	defer func() {
+		commandRetentionCancel()
+		commandRetention.Stop()
+	}()
+
+	// Activity-log retention cleaner runs independently of the command
+	// retention so the two can be tuned separately.
+	activityRetention := activityDomain.NewRetentionCleaner(activityStore, &config.Activity.Retention)
+	activityRetentionCtx, activityRetentionCancel := context.WithCancel(context.Background())
+	activityRetention.Start(activityRetentionCtx)
+	defer func() {
+		activityRetentionCancel()
+		activityRetention.Stop()
+	}()
 	fleetMgmtSvc := fleetmanagementDomain.NewService(deviceStore, discoveredDeviceStore, telemetryService, minerService, pluginService, poolStore, errorStore, collectionStore, commandSvc, activitySvc)
 	defer fleetMgmtSvc.WaitForPendingClearAuthKeys(shutdownTimeout)
 	onboardingSvc := onboardingDomain.NewService(deviceStore, poolStore, userStore)
