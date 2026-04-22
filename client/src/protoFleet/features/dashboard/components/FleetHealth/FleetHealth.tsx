@@ -127,7 +127,7 @@ const FleetHealth = ({
         status: "WARNING" as Segment["status"],
         count: sleepingMiners,
         filter: create(MinerListFilterSchema, {
-          deviceStatus: [DeviceStatus.INACTIVE],
+          deviceStatus: [DeviceStatus.INACTIVE, DeviceStatus.MAINTENANCE],
         }),
         clickable: true,
       },

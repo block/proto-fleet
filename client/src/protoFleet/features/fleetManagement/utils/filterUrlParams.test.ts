@@ -167,6 +167,45 @@ describe("filterUrlParams", () => {
     });
   });
 
+  describe("sleeping <-> {INACTIVE, MAINTENANCE}", () => {
+    it("encodes INACTIVE and MAINTENANCE to a single sleeping status", () => {
+      // Arrange
+      const filter = create(MinerListFilterSchema, {
+        deviceStatus: [DeviceStatus.INACTIVE, DeviceStatus.MAINTENANCE],
+      });
+
+      // Act
+      const params = encodeFilterToURL(filter);
+
+      // Assert
+      expect(params.get("status")).toBe("sleeping");
+    });
+
+    it("encodes MAINTENANCE alone to sleeping", () => {
+      // Arrange
+      const filter = create(MinerListFilterSchema, {
+        deviceStatus: [DeviceStatus.MAINTENANCE],
+      });
+
+      // Act
+      const params = encodeFilterToURL(filter);
+
+      // Assert
+      expect(params.get("status")).toBe("sleeping");
+    });
+
+    it("parses sleeping URL state into both INACTIVE and MAINTENANCE", () => {
+      // Arrange
+      const params = new URLSearchParams("status=sleeping");
+
+      // Act
+      const filter = parseFilterFromURL(params);
+
+      // Assert
+      expect(filter?.deviceStatus).toEqual([DeviceStatus.INACTIVE, DeviceStatus.MAINTENANCE]);
+    });
+  });
+
   describe("parseUrlToActiveFilters - rack IDs", () => {
     it("should parse valid rack IDs from URL", () => {
       const params = new URLSearchParams("rack=10,20,30");

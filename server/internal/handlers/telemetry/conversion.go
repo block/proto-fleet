@@ -317,6 +317,7 @@ func convertUptimeStatusCounts(statusCounts []models.UptimeStatusCount) []*telem
 			Timestamp:       timestamppb.New(statusCount.Timestamp),
 			HashingCount:    statusCount.HashingCount,
 			NotHashingCount: statusCount.NotHashingCount,
+			BrokenCount:     statusCount.BrokenCount,
 		}
 	}
 	return result
