@@ -215,16 +215,48 @@ func (r *CompletionReconciler) backfillOne(
 		return fmt.Errorf("reading counts for %s: %w", row.BatchID, err)
 	}
 
-	result := activitymodels.ResultSuccess
-	if counts.FailedDevices > 0 {
-		result = activitymodels.ResultFailure
-	}
-
 	// #nosec G115 -- devices_count is bounded by the batch size we created.
 	scopeCount := int(counts.DevicesCount)
 	batchID := row.BatchID
-	completionDesc := fmt.Sprintf("%s completed: %d succeeded, %d failed",
-		row.Description, counts.SuccessfulDevices, counts.FailedDevices)
+
+	// Pruned case: the batch header still exists but every per-device row
+	// has been retention-deleted (90d default codl retention vs 180d cbl
+	// retention leaves a window where this can happen after a reconciler
+	// outage). Writing "0 succeeded, 0 failed" with result=success would be
+	// a lie -- the batch did have devices, we just no longer know how they
+	// fared. Flag the row as ResultUnknown and stop the reconciler from
+	// revisiting the batch (the partial unique index on (batch_id, event_type)
+	// makes this insert idempotent).
+	observed := counts.SuccessfulDevices + counts.FailedDevices
+	pruned := counts.DevicesCount > 0 && observed == 0
+
+	var (
+		result         activitymodels.ResultType
+		completionDesc string
+		metadata       = map[string]any{
+			"batch_id":    batchID,
+			"total_count": counts.DevicesCount,
+			"reconciled":  true,
+		}
+	)
+	switch {
+	case pruned:
+		result = activitymodels.ResultUnknown
+		completionDesc = fmt.Sprintf("%s completed: per-device detail no longer available", row.Description)
+		metadata["device_logs_pruned"] = true
+	case counts.FailedDevices > 0:
+		result = activitymodels.ResultFailure
+		completionDesc = fmt.Sprintf("%s completed: %d succeeded, %d failed",
+			row.Description, counts.SuccessfulDevices, counts.FailedDevices)
+		metadata["success_count"] = counts.SuccessfulDevices
+		metadata["failure_count"] = counts.FailedDevices
+	default:
+		result = activitymodels.ResultSuccess
+		completionDesc = fmt.Sprintf("%s completed: %d succeeded, %d failed",
+			row.Description, counts.SuccessfulDevices, counts.FailedDevices)
+		metadata["success_count"] = counts.SuccessfulDevices
+		metadata["failure_count"] = counts.FailedDevices
+	}
 
 	event := activitymodels.Event{
 		Category:    activitymodels.CategoryDeviceCommand,
@@ -234,13 +266,7 @@ func (r *CompletionReconciler) backfillOne(
 		ScopeCount:  &scopeCount,
 		ActorType:   activitymodels.ActorType(row.ActorType),
 		BatchID:     &batchID,
-		Metadata: map[string]any{
-			"batch_id":      batchID,
-			"total_count":   counts.DevicesCount,
-			"success_count": counts.SuccessfulDevices,
-			"failure_count": counts.FailedDevices,
-			"reconciled":    true,
-		},
+		Metadata:    metadata,
 	}
 	if row.UserID.Valid {
 		v := row.UserID.String

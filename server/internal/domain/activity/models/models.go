@@ -30,6 +30,13 @@ type ResultType string
 const (
 	ResultSuccess ResultType = "success"
 	ResultFailure ResultType = "failure"
+	// ResultUnknown marks an outcome the server can no longer determine. The
+	// completion reconciler writes this when a batch reached FINISHED but its
+	// per-device rows in command_on_device_log have already been retention-pruned,
+	// so we know the batch completed but cannot tell whether any device failed.
+	// The activity_log.result column is plain TEXT so no DB schema change is
+	// required; frontend should render unknown as a neutral state.
+	ResultUnknown ResultType = "unknown"
 )
 
 func (c EventCategory) Valid() bool {
@@ -51,7 +58,7 @@ func (a ActorType) Valid() bool {
 
 func (r ResultType) Valid() bool {
 	switch r {
-	case ResultSuccess, ResultFailure:
+	case ResultSuccess, ResultFailure, ResultUnknown:
 		return true
 	}
 	return false
