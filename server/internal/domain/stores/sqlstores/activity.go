@@ -4,18 +4,29 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/sqlc-dev/pqtype"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
+
+// completedEventSuffix identifies activity events written by the command
+// finalizer. Inserts for these events are guarded by a partial unique index
+// on (batch_id, event_type) so the finalizer (and its crash-recovery
+// reconciler) can be re-run idempotently.
+const completedEventSuffix = ".completed"
+
+// pgErrCodeUniqueViolation is PostgreSQL's SQLSTATE for unique_violation.
+const pgErrCodeUniqueViolation = "23505"
 
 var _ interfaces.ActivityStore = &SQLActivityStore{}
 
@@ -40,7 +51,7 @@ func (s *SQLActivityStore) Insert(ctx context.Context, event *models.Event) erro
 		return err
 	}
 
-	return s.GetQueries(ctx).InsertActivityLog(ctx, sqlc.InsertActivityLogParams{
+	err = s.GetQueries(ctx).InsertActivityLog(ctx, sqlc.InsertActivityLogParams{
 		EventID:        eventID,
 		EventCategory:  string(event.Category),
 		EventType:      event.Type,
@@ -55,7 +66,28 @@ func (s *SQLActivityStore) Insert(ctx context.Context, event *models.Event) erro
 		Username:       nullStringFromPtr(event.Username),
 		OrganizationID: nullInt64FromPtr(event.OrganizationID),
 		Metadata:       metadata,
+		BatchID:        nullStringFromPtr(event.BatchID),
 	})
+	if err != nil && isCompletedBatchDuplicate(event, err) {
+		// A concurrent finalizer or the crash-recovery reconciler already wrote
+		// this completion row. Silently succeed so the caller treats re-runs as
+		// no-ops.
+		return nil
+	}
+	return err
+}
+
+// isCompletedBatchDuplicate reports whether err is the unique_violation raised
+// by the partial index guarding '*.completed' events for a given batch_id.
+func isCompletedBatchDuplicate(event *models.Event, err error) bool {
+	if event == nil || event.BatchID == nil || !strings.HasSuffix(event.Type, completedEventSuffix) {
+		return false
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == pgErrCodeUniqueViolation {
+		return true
+	}
+	return false
 }
 
 func (s *SQLActivityStore) List(ctx context.Context, filter models.Filter) ([]models.Entry, error) {
@@ -193,6 +225,7 @@ func rowToEntry(row sqlc.ListActivityLogsRow) models.Entry {
 		Username:     ptrFromNullString(row.Username),
 		CreatedAt:    row.CreatedAt,
 		Metadata:     metadata,
+		BatchID:      ptrFromNullString(row.BatchID),
 	}
 }
 

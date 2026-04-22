@@ -78,6 +78,12 @@ type Event struct {
 	Username       *string
 	OrganizationID *int64
 	Metadata       map[string]any
+
+	// BatchID links the activity row to a command_batch_log.uuid. For
+	// '<event_type>.completed' events this field is used by the unique partial
+	// index to guarantee at most one completion row per batch, so the finalizer
+	// can be re-run safely after crashes.
+	BatchID *string
 }
 
 // Filter defines query parameters for listing activity entries.
@@ -112,6 +118,7 @@ type Entry struct {
 	Username     *string
 	CreatedAt    time.Time
 	Metadata     json.RawMessage
+	BatchID      *string
 }
 
 type UserInfo struct {
