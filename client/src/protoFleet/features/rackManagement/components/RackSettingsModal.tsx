@@ -358,7 +358,6 @@ const RackSettingsModal = ({
               }}
               error={zoneError}
               autoComplete="off"
-              autoFocus
             />
             {showZoneSuggestions && filteredSuggestions.length > 0 && (
               <div
