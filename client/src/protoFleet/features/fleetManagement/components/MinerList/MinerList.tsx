@@ -464,14 +464,19 @@ const MinerList = ({
 
   // Refs for values that change frequently but are only read at call/render time.
   // Keeps callbacks and minerColConfig stable across polls.
+  // These writes must happen synchronously during render: minerColConfig's cell
+  // components read `*.current` during their own render, so a useEffect-based sync
+  // would leave them one render behind (new `device.miner` row data paired with
+  // stale `miners` map / stale callbacks) after each poll.
   const minersRef = useRef(miners);
   const onRefetchMinersRef = useRef(onRefetchMiners);
   const onWorkerNameUpdatedRef = useRef(onWorkerNameUpdated);
-  useEffect(() => {
-    minersRef.current = miners;
-    onRefetchMinersRef.current = onRefetchMiners;
-    onWorkerNameUpdatedRef.current = onWorkerNameUpdated;
-  });
+  // eslint-disable-next-line react-hooks/refs -- intentional render-time sync; see comment above
+  minersRef.current = miners;
+  // eslint-disable-next-line react-hooks/refs -- intentional render-time sync; see comment above
+  onRefetchMinersRef.current = onRefetchMiners;
+  // eslint-disable-next-line react-hooks/refs -- intentional render-time sync; see comment above
+  onWorkerNameUpdatedRef.current = onWorkerNameUpdated;
 
   const closeModalFlow = useCallback(() => {
     setModalFlow({ kind: "closed" });
