@@ -102,13 +102,13 @@ Proto Fleet deploys into Docker on Linux and macOS, or into WSL2 on Windows.
 
 Requires Docker and Docker Compose.
 
-#### Latest version
+#### Latest Version
 
 ```bash
 bash <(curl -fsSL https://fleet.proto.xyz/install.sh)
 ```
 
-#### Specific version
+#### Specific Version
 
 ```bash
 bash <(curl -fsSL https://fleet.proto.xyz/install.sh) v0.1.0
@@ -128,7 +128,7 @@ bash <(curl -fsSL https://fleet.proto.xyz/uninstall.sh) --deployment-path /path/
 
 ### Windows
 
-Requires Windows 10 (build 19041 or newer) or Windows 11 (x64), local Administrator access, and virtualization enabled in BIOS/UEFI. Docker Desktop is **not** required — the installer enables WSL2, installs an Ubuntu distro and Docker Engine inside it, and deploys Fleet at `~/proto-fleet` within the distro.
+Requires Windows 10 (build 19041 or newer) or Windows 11 (x64), local Administrator access, and virtualization enabled in BIOS/UEFI. Docker Desktop is **not** required — the installer enables WSL2, installs an Ubuntu distro and Docker Engine inside it, and deploys Proto Fleet at `~/proto-fleet` within the distro.
 
 Download and run the latest installer:
 
