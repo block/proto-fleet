@@ -55,8 +55,12 @@ jobs:
       - name: Configure Go cache
         uses: ./.github/actions/go-cache-setup
 
-      - name: Cache Node modules
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      # Restore-only: the E2E shard job saves this key with an additional
+      # `~/.cache/ms-playwright` path. Cache keys are immutable, so if this job
+      # saved first it would permanently lock the shards out of caching their
+      # Playwright browsers. Restore here, save there.
+      - name: Restore Node modules cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: |
             client/node_modules
@@ -73,6 +77,56 @@ jobs:
         run: |
           # Skip lint in CI to avoid import order issues from merged main branch
           npm run build:protoFleet
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+      # Docker cache is computed before the plugin build so the gitignored
+      # `server/plugins/*` binaries (not a Docker build input) don't enter
+      # the hash and spuriously bust the cache.
+      #
+      # Scheduled runs skip restore + save so they rebuild against fresh
+      # upstream base images without polluting the cache namespace with
+      # one-off entries that would evict other workflow caches.
+      - name: Restore Docker image cache
+        id: docker-image-cache
+        if: github.event_name != 'schedule'
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: /tmp/docker-images
+          # `server/**` because the Dockerfile does `COPY server/ ./`
+          # (e.g. go:embed migrations).
+          key: ${{ runner.os }}-protofleet-e2e-docker-${{ hashFiles('server/**') }}
+
+      - name: Build E2E Docker images
+        if: steps.docker-image-cache.outputs.cache-hit != 'true'
+        working-directory: server
+        run: |
+          mkdir -p /tmp/docker-images
+          # `--ignore-buildable` pulls only services with `image:` and no
+          # `build:` (otel-collector, jaeger). `docker save` below otherwise
+          # fails on a cold runner because those images don't exist locally.
+          echo "::group::docker compose pull"
+          docker compose pull --ignore-buildable
+          echo "::endgroup::"
+          # `--pull` forces fresh upstream base images on rebuild so a stale
+          # cache miss key doesn't serve stale FROM layers.
+          echo "::group::docker compose build"
+          docker compose build --pull
+          echo "::endgroup::"
+          echo "::group::Save images to compressed tarball"
+          mapfile -t images < <(docker compose config --images | sort -u)
+          printf '  - %s\n' "${images[@]}"
+          docker save "${images[@]}" | gzip > /tmp/docker-images/e2e-images.tar.gz
+          ls -lh /tmp/docker-images/
+          echo "::endgroup::"
+
+      - name: Save Docker image cache
+        if: github.event_name != 'schedule' && steps.docker-image-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: /tmp/docker-images
+          key: ${{ runner.os }}-protofleet-e2e-docker-${{ hashFiles('server/**') }}
 
       - name: Build plugins for CI (Linux AMD64)
         run: |
@@ -100,6 +154,14 @@ jobs:
         with:
           name: protofleet-plugins
           path: server/plugins
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload Docker images
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: protofleet-e2e-docker-images
+          path: /tmp/docker-images/e2e-images.tar.gz
           if-no-files-found: error
           retention-days: 1
 
@@ -166,9 +228,21 @@ jobs:
       - name: Make plugins executable
         run: chmod +x server/plugins/proto-plugin server/plugins/antminer-plugin
 
+      - name: Download prebuilt Docker images
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: protofleet-e2e-docker-images
+          path: /tmp/docker-images
+
+      - name: Load Docker images
+        run: |
+          gunzip < /tmp/docker-images/e2e-images.tar.gz | docker load
+
       - name: Start services (TimeScaleDB + Backend + Simulators)
         working-directory: server
-        run: docker compose up -d
+        # --no-build: fail loudly on a missing image rather than falling back
+        # to a per-shard rebuild (the cost this change is eliminating).
+        run: docker compose up -d --no-build
 
       - name: Start frontend
         working-directory: client
@@ -259,8 +333,10 @@ jobs:
         with:
           preinstall: "false"
 
-      - name: Cache Node modules
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      # Restore-only: see the build job for rationale — the E2E shard owns the
+      # shared node cache key so it can include the Playwright browser cache.
+      - name: Restore Node modules cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: |
             client/node_modules
