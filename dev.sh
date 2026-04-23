@@ -8,23 +8,17 @@ BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "development")
 
 echo "Starting ProtoFleet client..."
-
-cd client
-export VITE_VERSION="$GIT_VERSION"
-export VITE_BUILD_DATE="$BUILD_DATE"
-export VITE_COMMIT="$GIT_COMMIT"
-npm run dev:protoFleet & CLIENT_PID=$!
+(
+  cd client
+  VITE_VERSION="$GIT_VERSION" \
+  VITE_BUILD_DATE="$BUILD_DATE" \
+  VITE_COMMIT="$GIT_COMMIT" \
+  npm run dev:protoFleet
+) & CLIENT_PID=$!
 echo "Client PID: $CLIENT_PID"
 
-echo "Waiting for client to be ready on port 5173..."
-while ! nc -z localhost 5173 2>/dev/null; do
-    sleep 1
-done
-echo "Client is ready!"
-
 echo "Starting server..."
-cd ../server
-just dev & SERVER_PID=$!
+(cd server && just dev) & SERVER_PID=$!
 echo "Server PID: $SERVER_PID"
 
 echo "Both processes started. Press Ctrl+C to stop both processes"
