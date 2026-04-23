@@ -184,6 +184,12 @@ const finalizerDBTimeout = 15 * time.Second
 //
 // Session info is captured at call time because the finalizer runs against a
 // background context (the originating request ctx is long gone).
+//
+// Ordering: runs BEFORE MarkCommandBatchFinished*, so a transient mark
+// failure can briefly leave a '*.completed' row visible while the batch is
+// still PROCESSING (self-heals on the next tick). Inverting the order would
+// risk a permanent audit gap if the post-mark write exhausted retries.
+// Race-free fix is transactional (single tx for write + mark); follow-up.
 func (s *Service) buildActivityCompletedCallback(ctx context.Context, batchID, eventType, description string) onFinishedCallbackFunc {
 	if s.activitySvc == nil {
 		return nil
@@ -370,10 +376,10 @@ func (s *Service) initializeStatusUpdateRoutine(commandBatchLogUUID string, onFi
 				}
 				if isFinished {
 					// Run the callback before marking the batch finished in the DB.
-					// This ensures any side-effects (e.g. ZIP creation for download-logs)
-					// are complete before the stream sees FINISHED and the client fetches
-					// the result, preventing a race where the client requests the bundle
-					// before it exists.
+					// This ensures side-effects (e.g. ZIP creation for download-logs)
+					// complete before the client sees FINISHED, and avoids a permanent
+					// audit gap for DB-side callbacks (see
+					// buildActivityCompletedCallback godoc).
 					if onFinishedCallback != nil && !callbackDone {
 						if callbackErr := onFinishedCallback(); callbackErr != nil {
 							callbackRetryCount++
