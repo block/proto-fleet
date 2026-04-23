@@ -55,4 +55,14 @@ export class WelcomePage extends BasePage {
   async closeDefaultPoolWarning() {
     await this.page.getByTestId("warn-default-pool-callout").getByRole("button").click();
   }
+
+  async confirmAirCoolingIfPrompted() {
+    const dialogTitle = this.page.getByText("No fans detected");
+    if (!(await dialogTitle.isVisible())) {
+      return;
+    }
+
+    await this.clickButton("Use air cooling");
+    await expect(dialogTitle).toBeHidden();
+  }
 }

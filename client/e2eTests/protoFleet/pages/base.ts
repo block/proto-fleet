@@ -130,6 +130,12 @@ export class BasePage {
     await expect(this.page).toHaveURL(/.*\/racks/);
   }
 
+  async navigateToActivityPage() {
+    await this.clickNavigationMenuIfMobile();
+    await this.page.getByTestId("navigation-menu").locator('a[href="/activity"]').click();
+    await expect(this.page).toHaveURL(/.*\/activity/);
+  }
+
   async navigateToSettingsPage() {
     await this.clickNavigationMenuIfMobile();
     await this.clickExpandSettingsIfMobile();

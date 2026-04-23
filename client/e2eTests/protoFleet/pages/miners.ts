@@ -138,6 +138,17 @@ export class MinersPage extends BasePage {
     await this.page.getByTestId("actions-menu-button").click();
   }
 
+  async clickBlinkLEDsButton() {
+    const quickAction = this.page.getByTestId("actions-menu-quick-action-blink-leds");
+    if (await quickAction.isVisible().catch(() => false)) {
+      await quickAction.click();
+      return;
+    }
+
+    await this.clickActionsMenuButton();
+    await this.page.getByText("Blink LEDs", { exact: true }).click();
+  }
+
   async validateActionBarMinerCount(expectedCount: number) {
     await expect(this.page.getByTestId("action-bar")).toBeVisible();
     if (expectedCount === 1) {
