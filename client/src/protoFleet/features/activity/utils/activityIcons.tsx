@@ -63,5 +63,5 @@ const iconMap: Record<string, (props: IconProps) => ReactNode> = {
 };
 
 export function getActivityIcon(eventType: string): (props: IconProps) => ReactNode {
-  return iconMap[eventType] ?? Info;
+  return iconMap[eventType] ?? iconMap[eventType.replace(".completed", "")] ?? Info;
 }
