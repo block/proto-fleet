@@ -43,6 +43,7 @@ const Toast = ({ message, onClose, status, index, numToasts, ttl = defaultTtl }:
       return;
     }
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- recompute stacked-toast transforms when toast position within the stack changes
     setScale(1 - (numToasts - index - 1) * 0.07);
     setYOffset((numToasts - index - 1) * -14);
     setHoverYOffset((numToasts - index - 1) * -55);

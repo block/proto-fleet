@@ -85,21 +85,20 @@ const Cooling = () => {
   useEffect(() => {
     // Read from store instead of local hook state for immediate updates
     if (storeCoolingMode) {
-      /* eslint-disable react-hooks/set-state-in-effect */
       if (isAirCooledMode(storeCoolingMode)) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- sync local draft with cooling store once it resolves
         setCoolingMode(COOLING_MODES.air);
         setLoading(false);
       } else if (isImmersionMode(storeCoolingMode)) {
         setCoolingMode(COOLING_MODES.immersion);
         setLoading(false);
       }
-      /* eslint-enable react-hooks/set-state-in-effect */
     }
   }, [storeCoolingMode]);
 
   useEffect(() => {
     if (isSleeping) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- dismiss sleep dialog once miner reports sleeping state
       setShowSleepDialog(false);
     }
   }, [isSleeping]);

@@ -52,6 +52,7 @@ const CreateApiKeyModal = ({ open, onDismiss, onSuccess }: CreateApiKeyModalProp
 
     createRequestIDRef.current += 1;
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset modal state on close
     setStep("enterDetails");
     setName("");
     setExpiresAt("");

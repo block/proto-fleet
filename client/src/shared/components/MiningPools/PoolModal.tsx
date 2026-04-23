@@ -90,11 +90,13 @@ const PoolModal = ({
   );
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- sync draft with incoming pools prop when parent updates it
     setDraftPoolInfo(deepClone(pools));
   }, [pools]);
 
   useEffect(() => {
     if (open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset modal state when modal opens
       setPoolNameError(undefined);
       setUrlError(undefined);
       setUsernameError(undefined);

@@ -71,14 +71,13 @@ const PowerWidget = ({
 
   useEffect(() => {
     if (hasAccess && pausedAuthAction) {
-      /* eslint-disable react-hooks/set-state-in-effect */
       if (pausedAuthAction === AUTH_ACTIONS.reboot) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- open reboot confirmation once auth is available
         setWarnReboot(true);
       } else if (pausedAuthAction === AUTH_ACTIONS.sleep) {
         setWarnSleep(true);
       }
       setPausedAuthAction(null);
-      /* eslint-enable react-hooks/set-state-in-effect */
     }
   }, [hasAccess, pausedAuthAction, setPausedAuthAction]);
 
@@ -120,8 +119,8 @@ const PowerWidget = ({
 
   useEffect(() => {
     if (shouldReboot) {
-      /* eslint-disable react-hooks/set-state-in-effect */
       if (rebootError) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- clear pending reboot flag once the reboot request settles
         setShouldReboot(false);
         if (rebootError?.status === 401) {
           setHasAccess(false);
@@ -132,14 +131,13 @@ const PowerWidget = ({
         setShouldReboot(false);
         afterReboot?.();
       }
-      /* eslint-enable react-hooks/set-state-in-effect */
     }
   }, [shouldReboot, isAwake, afterReboot, rebootError, setHasAccess, setPausedAuthAction]);
 
   useEffect(() => {
     if (shouldSleep) {
-      /* eslint-disable react-hooks/set-state-in-effect */
       if (sleepError) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- clear pending sleep flag once the sleep request settles
         setShouldSleep(false);
         if (sleepError?.status === 401) {
           setHasAccess(false);
@@ -150,7 +148,6 @@ const PowerWidget = ({
         setShouldSleep(false);
         afterSleep?.();
       }
-      /* eslint-enable react-hooks/set-state-in-effect */
     }
   }, [afterSleep, isSleeping, setHasAccess, shouldSleep, sleepError, setPausedAuthAction]);
 

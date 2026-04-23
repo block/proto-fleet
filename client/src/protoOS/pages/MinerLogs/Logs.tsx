@@ -72,10 +72,12 @@ const Logs = ({ logsData, fetchMaxLogs }: LogsProps) => {
   // when switching between filters reset the Init Page state so that the page
   // doesnt animate a long scroll to the bottom with filter change
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset first-load scroll flag when filters/search change so we don't animate a long scroll
     setInitPage(false);
   }, [filterByLogType, searchValue]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- recompute filteredLogs when logs/filter/search change
     updateFilteredLogs();
   }, [updateFilteredLogs]);
 
@@ -103,6 +105,7 @@ const Logs = ({ logsData, fetchMaxLogs }: LogsProps) => {
         : logsData.content;
 
       const combinedLogs = [...storedLogs, ...uniqueLogs];
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- ingest new logs when upstream logsData changes
       formatAndSetLogsData(combinedLogs);
     }
   }, [logsData, storedLogs, formatAndSetLogsData]);
@@ -180,6 +183,7 @@ const Logs = ({ logsData, fetchMaxLogs }: LogsProps) => {
 
   useEffect(() => {
     window.addEventListener("scroll", handleScroll);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initialize isPinnedToBottom from current scroll position on mount
     handleScroll();
 
     return () => {

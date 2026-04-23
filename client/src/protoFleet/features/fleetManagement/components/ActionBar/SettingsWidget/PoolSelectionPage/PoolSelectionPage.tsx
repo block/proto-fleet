@@ -108,6 +108,7 @@ const PoolSelectionPage = ({
     }
 
     loadedDeviceRef.current = null;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset widget state when hidden to mirror prior conditional-mount behavior
     setAssignedPoolData([]);
     setShowSelectionModal(false);
     setEditingPoolIndex(null);

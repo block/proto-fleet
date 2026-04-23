@@ -147,6 +147,7 @@ const AuthenticateMiners = ({
 
   useEffect(() => {
     if (!isVisible) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- resetting modal-internal state when parent hides the modal; owner-hoisting would leak modal lifecycle into every caller
       setBulkCredentials({ username: "", password: "" });
       setCredentials({});
       setHasMissingCredentials(false);

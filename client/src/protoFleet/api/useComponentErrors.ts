@@ -143,6 +143,7 @@ export const useComponentErrors = (options?: UseComponentErrorsOptions): UseComp
   // Initial fetch + refetch on scope change
   useEffect(() => {
     if (authLoading) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch + refetch on scope change; setState inside async fetch is the external-sync pattern
     fetchComponentErrors();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authLoading, deviceIdentifiersKey]);

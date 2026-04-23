@@ -143,6 +143,7 @@ export const useDeviceErrors = (deviceIds: string[]): UseDeviceErrorsReturn => {
     }
     prevDeviceIdsRef.current = deviceIds;
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- refetch on deviceIds change; setState inside async fetch is the external-sync pattern
     fetchDeviceErrors(deviceIds);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deviceIds]);

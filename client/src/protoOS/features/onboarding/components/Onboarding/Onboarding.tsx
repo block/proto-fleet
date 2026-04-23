@@ -33,7 +33,7 @@ const Onboarding = () => {
 
   useEffect(() => {
     if (hasAccess && pausedAction && waitingForAuth) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- resume paused onboarding action once auth becomes available
       setPausedAction(false);
       // have to reset the error here, otherwise it would cause an infinite cycle
       setCreatePoolsError(undefined);
@@ -47,7 +47,7 @@ const Onboarding = () => {
       if (status === 401) {
         setHasAccess(false);
       }
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- pause setup flow and surface login modal when backend responds with auth error
       setSettingUpMiner(false);
       setPausedAction(true);
     }
@@ -56,7 +56,7 @@ const Onboarding = () => {
 
   useEffect(() => {
     if (dismissedLoginModal) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- abandon paused action when user dismisses login modal
       setPausedAction(false);
       setDismissedLoginModal(false);
     }

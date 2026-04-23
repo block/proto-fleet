@@ -69,7 +69,7 @@ const PowerTargetPopover = ({ onDismiss, onUpdateStart }: PowerTargetPopoverProp
   };
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- sync local draft with performanceMode prop when it changes
     setSelectedPerformanceMode(performanceMode);
   }, [pending, performanceMode]);
 

@@ -89,6 +89,7 @@ const CoolingModeModal = ({ open, minerCount, initialCoolingMode, onConfirm, onD
 
   // Sync state with prop when initialCoolingMode changes
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- sync local selection with controlled initialCoolingMode prop
     setSelectedOption(coolingModeToOption(initialCoolingMode));
   }, [initialCoolingMode]);
 

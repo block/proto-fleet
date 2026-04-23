@@ -86,6 +86,7 @@ const ManageColumnsModal = ({ preferences, onDismiss, onSave }: ManageColumnsMod
   );
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- sync draft with incoming preferences prop when parent updates it
     setDraftPreferences(preferences);
   }, [preferences]);
 

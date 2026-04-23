@@ -42,6 +42,7 @@ export function useActivityFilterOptions(): UseActivityFilterOptionsResult {
   }, [handleAuthErrors]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch on mount; setState inside async fetch is the external-sync pattern
     void fetchFilterOptions();
   }, [fetchFilterOptions]);
 

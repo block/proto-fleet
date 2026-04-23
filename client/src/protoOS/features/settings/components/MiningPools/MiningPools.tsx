@@ -41,6 +41,7 @@ const SettingsMiningPools = () => {
           priority: pool?.priority || index,
         };
       });
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync local pools when upstream poolsInfo query resolves
       setPools(newPools);
       setPreviousPools(newPools);
     }
@@ -158,6 +159,7 @@ const SettingsMiningPools = () => {
 
   useEffect(() => {
     if (toastStatus === TOAST_STATUSES.loading && isStalePools && !poolsInfoPending) {
+      /* eslint-disable react-hooks/set-state-in-effect -- finalize toast status based on the outcome of a refetch after edit/create */
       if (poolsInfoError && !/failed to connect to cgminer/i.test(poolsInfoError)) {
         setToastStatus(TOAST_STATUSES.error);
         removeToast(toastId.current);
@@ -184,6 +186,7 @@ const SettingsMiningPools = () => {
         setIsStalePools(false);
         skipSuccessToastRef.current = false;
       }
+      /* eslint-enable react-hooks/set-state-in-effect */
     }
   }, [isStalePools, poolsInfo, poolsInfoPending, poolsInfoError, toastStatus]);
 

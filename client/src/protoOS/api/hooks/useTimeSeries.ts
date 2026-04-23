@@ -128,6 +128,7 @@ const useTimeSeries = ({ duration, levels, poll = true, pollIntervalMs = 30 * 10
   // Trigger fetch when hashboards change or when fetchData dependencies change (duration, levels, api)
   useEffect(() => {
     if (hashboardCount > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch on deps change; setState inside async fetch is the external-sync pattern
       fetchData();
     }
   }, [hashboardCount, fetchData]);

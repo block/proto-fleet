@@ -31,6 +31,7 @@ const AuthenticateFleetModal = ({ open, purpose, onAuthenticated, onDismiss }: A
   // Reset form when modal is dismissed
   useEffect(() => {
     if (!open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset modal state on close
       setUsername("");
       setPassword("");
       setErrorMessage("");

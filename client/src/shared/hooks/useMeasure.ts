@@ -116,7 +116,7 @@ function useMeasure<E extends Element = Element>(options: UseMeasureOptions = {}
 
   useLayoutEffect(() => {
     if (!element) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset measurements when element detaches so consumers don't read stale rects
       setContentRect(defaultState);
       setBoundingRect(defaultState);
       return;

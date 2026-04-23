@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useMemo } from "react";
 import type { Meta, StoryObj } from "@storybook/react";
 import MiniRackGrid from "./MiniRackGrid";
 import type { SlotStatus } from "./types";
@@ -55,11 +55,10 @@ function InteractiveMiniRackGrid({
   sleeping: number;
 }) {
   const total = cols * rows;
-  const [slots, setSlots] = useState<SlotStatus[]>(() => buildSlots(total, healthy, needsAttention, offline, sleeping));
-
-  useEffect(() => {
-    setSlots(buildSlots(total, healthy, needsAttention, offline, sleeping));
-  }, [total, healthy, needsAttention, offline, sleeping]);
+  const slots = useMemo<SlotStatus[]>(
+    () => buildSlots(total, healthy, needsAttention, offline, sleeping),
+    [total, healthy, needsAttention, offline, sleeping],
+  );
 
   return <MiniRackGrid cols={cols} rows={rows} slots={slots} />;
 }

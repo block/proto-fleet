@@ -18,6 +18,7 @@ const MinerSystemTagEditModal = ({ open, currentTag, onDismiss, onSaved }: Miner
   const { putSystemTag } = useSystemTag();
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- sync local value with controlled currentTag prop
     setValue(currentTag);
   }, [currentTag]);
 

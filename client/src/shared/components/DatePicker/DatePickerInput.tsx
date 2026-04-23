@@ -42,14 +42,17 @@ const DatePickerInput = ({
   const [endValue, setEndValue] = useState(() => formatValue(selectedEndDate));
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- sync input display with external date prop when parent updates it
     setDateValue(formatValue(selectedDate));
   }, [selectedDate, formatValue]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- sync input display with external date prop when parent updates it
     setStartValue(formatValue(selectedStartDate));
   }, [selectedStartDate, formatValue]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- sync input display with external date prop when parent updates it
     setEndValue(formatValue(selectedEndDate));
   }, [selectedEndDate, formatValue]);
 

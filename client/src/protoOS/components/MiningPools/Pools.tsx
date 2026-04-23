@@ -213,6 +213,7 @@ const Pools = ({ onChangePools, pools }: PoolsProps) => {
 
   useEffect(() => {
     if (!isEditing) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync local pool draft with upstream pools when not actively editing
       setLocalPools(deepClone(pools));
     }
   }, [isEditing, pools]);

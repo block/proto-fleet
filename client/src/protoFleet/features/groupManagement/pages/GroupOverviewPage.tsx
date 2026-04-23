@@ -104,6 +104,7 @@ const GroupOverviewPage = () => {
   // Resolve group label → group object → device IDs
   useEffect(() => {
     if (!label) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- flag not-found state when label missing
       setNotFound(true);
       setLoading(false);
       return;

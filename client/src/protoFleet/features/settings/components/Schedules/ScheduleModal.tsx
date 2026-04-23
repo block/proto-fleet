@@ -360,6 +360,7 @@ const ScheduleModal = ({
       return;
     }
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset available-target state and fetch racks/groups when modal opens
     setAvailableGroupIds(new Set());
     setHasLoadedAvailableGroups(false);
 

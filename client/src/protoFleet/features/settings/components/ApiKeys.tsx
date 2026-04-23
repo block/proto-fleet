@@ -55,14 +55,12 @@ const ApiKeys = () => {
     });
   }, [listApiKeys]);
 
-  // fetchApiKeys is a stable callback that internally manages state updates
-  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (isAdmin) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch when admin role resolves; setState inside async fetch is the external-sync pattern
       fetchApiKeys();
     }
   }, [fetchApiKeys, isAdmin]);
-  /* eslint-enable react-hooks/set-state-in-effect */
 
   const handleCreateSuccess = useCallback(() => {
     fetchApiKeys();

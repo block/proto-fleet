@@ -40,7 +40,7 @@ const MiningPoolPage = () => {
 
   useEffect(() => {
     if (settingUpMiner && createPoolsError?.status === 422) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- pause setup and prompt reauth when backend responds 422
       setSettingUpMiner(false);
       setPausedAction(true);
     }
