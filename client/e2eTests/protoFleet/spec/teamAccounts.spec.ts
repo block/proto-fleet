@@ -9,6 +9,10 @@ import { SettingsPage } from "../pages/settings";
 import { SettingsTeamPage } from "../pages/settingsTeam";
 
 test.describe("Proto Fleet - Team Accounts", () => {
+  // Tests here exercise logout + re-login as different users; opt out of the
+  // preloaded admin storageState so each test starts from a clean session.
+  test.use({ storageState: { cookies: [], origins: [] } });
+
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
   });

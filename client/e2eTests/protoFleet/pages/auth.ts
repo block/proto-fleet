@@ -2,6 +2,26 @@ import { expect } from "@playwright/test";
 import { BasePage } from "./base";
 
 export class AuthPage extends BasePage {
+  async isAlreadyLoggedIn(timeoutMs = 5000): Promise<boolean> {
+    const loggedInMarker = this.isMobile
+      ? this.page.getByTestId("navigation-menu-button")
+      : this.page.getByTestId("logout-button");
+    const loginForm = this.page.locator(`//input[@id='username']`);
+
+    try {
+      await expect(loggedInMarker.or(loginForm)).toBeVisible({ timeout: timeoutMs });
+    } catch (err) {
+      // Only swallow timeouts so selector regressions propagate instead of
+      // silently falling through to the login flow.
+      if (err instanceof Error && /Timeout/i.test(err.message)) {
+        return false;
+      }
+      throw err;
+    }
+
+    return await loggedInMarker.isVisible();
+  }
+
   async inputUsername(username: string) {
     await this.page.locator(`//input[@id='username']`).fill(username);
   }

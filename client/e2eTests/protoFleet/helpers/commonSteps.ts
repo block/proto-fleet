@@ -11,6 +11,10 @@ export class CommonSteps {
 
   async loginAsAdmin() {
     await test.step("Login as admin", async () => {
+      // eslint-disable-next-line playwright/no-conditional-in-test
+      if (await this.authPage.isAlreadyLoggedIn()) {
+        return;
+      }
       await this.authPage.inputUsername(testConfig.users.admin.username);
       await this.authPage.inputPassword(testConfig.users.admin.password);
       await this.authPage.clickLogin();

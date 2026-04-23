@@ -1,5 +1,4 @@
 /* eslint-disable playwright/expect-expect */
-import { testConfig } from "../config/test.config";
 import { test } from "../fixtures/pageFixtures";
 
 test.describe("Navigation", () => {
@@ -55,13 +54,8 @@ test.describe("Navigation", () => {
     });
   });
 
-  test("Navigate between main pages and settings sub-pages", async ({ authPage, settingsPage }) => {
-    await test.step("Log in as admin user", async () => {
-      await authPage.inputUsername(testConfig.users.admin.username);
-      await authPage.inputPassword(testConfig.users.admin.password);
-      await authPage.clickLogin();
-      await authPage.validateLoggedIn();
-    });
+  test("Navigate between main pages and settings sub-pages", async ({ authPage, commonSteps, settingsPage }) => {
+    await commonSteps.loginAsAdmin();
 
     await test.step("Navigate from Home to Settings page", async () => {
       await authPage.navigateToSettingsPage();
