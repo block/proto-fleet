@@ -12,7 +12,7 @@ just start            # Start all services (without watch)
 just stop             # Stop services
 just build            # Build all Go packages
 just install          # Install fleetd binary
-# just rebuild-all      # Clean rebuild (wipes all data, rebuilds plugins)
+just rebuild-all      # Clean rebuild (wipes all data, rebuilds plugins)
 just rebuild-services # Clean rebuild of docker services only (reuses existing plugin binaries)
 just rebuild-fleet-api  # Rebuild just fleet-api
 ```
