@@ -68,7 +68,7 @@ Requires Windows 10 (build 19041 or newer) or Windows 11 (x64), local Administra
 
 Download and run the latest installer:
 
-- [installer.exe](https://github.com/block/proto-fleet/releases/latest/download/installer.exe)
+- [install.exe](https://fleet.proto.xyz/install.exe)
 
 The installer self-elevates via UAC. If it has to enable Windows features for WSL, it may prompt for a reboot and then resume automatically.
 
@@ -76,7 +76,7 @@ To pin a specific version, grab `installer.exe` from the corresponding tag on th
 
 #### Uninstall
 
-- [uninstall.exe](https://github.com/block/proto-fleet/releases/latest/download/uninstall.exe)
+- [uninstall.exe](https://fleet.proto.xyz/uninstall.exe)
 
 For Windows installer/uninstaller build and test details, see [`deployment-files/windows/README.md`](deployment-files/windows/README.md).
 
