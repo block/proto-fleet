@@ -624,14 +624,12 @@ const ScheduleModal = ({
     return null;
   }
 
-  const hasSubModalOpen = showRackSelectionModal || showGroupSelectionModal || showMinerSelectionModal;
-
   return (
     <>
       <FullScreenTwoPaneModal
         open={open}
         title={isEditMode ? "Edit schedule" : "Add a schedule"}
-        onDismiss={hasSubModalOpen ? undefined : onDismiss}
+        onDismiss={onDismiss}
         isBusy={isBusy}
         closeAriaLabel="Close schedule editor"
         buttons={[

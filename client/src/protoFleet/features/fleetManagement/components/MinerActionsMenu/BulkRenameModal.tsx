@@ -554,14 +554,13 @@ const BulkRenameModal = ({
 
   const previewRows = useMemo(() => getPreviewRows(previewMiners, previewNames), [previewMiners, previewNames]);
   const isBusy = isSubmitting;
-  const hasSubModalOpen = activeOptionsPropertyId !== null || showDuplicateNamesWarning || showNoChangesWarning;
 
   return (
     <>
       <FullScreenTwoPaneModal
         open={open}
         title="Rename miners"
-        onDismiss={hasSubModalOpen ? undefined : onDismiss}
+        onDismiss={onDismiss}
         isBusy={isBusy}
         closeAriaLabel="Close rename miners"
         buttons={[

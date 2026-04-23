@@ -9,7 +9,7 @@ import Header from "@/shared/components/Header";
 import PageOverlay from "@/shared/components/PageOverlay";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { useClickOutside } from "@/shared/hooks/useClickOutside";
-import { useKeyDown } from "@/shared/hooks/useKeyDown";
+import { useEscapeDismiss } from "@/shared/hooks/useEscapeDismiss";
 import useSlideUpAnimation from "@/shared/hooks/useSlideUpAnimation";
 
 interface DialogProps {
@@ -56,12 +56,7 @@ const Dialog = ({
     onDismiss?.();
   }, [onDismiss]);
 
-  const handleEscape = useCallback(() => {
-    if (open !== false) {
-      dismissDialog();
-    }
-  }, [open, dismissDialog]);
-  useKeyDown({ key: "Escape", onKeyDown: handleEscape });
+  useEscapeDismiss(open === false ? undefined : dismissDialog);
 
   const shouldIgnoreClickOutside = useCallback(() => open === false, [open]);
   useClickOutside({

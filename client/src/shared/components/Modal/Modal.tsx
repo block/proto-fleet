@@ -10,7 +10,7 @@ import Divider from "@/shared/components/Divider";
 import Header from "@/shared/components/Header";
 import PageOverlay from "@/shared/components/PageOverlay";
 import { useClickOutside } from "@/shared/hooks/useClickOutside";
-import { useKeyDown } from "@/shared/hooks/useKeyDown";
+import { useEscapeDismiss } from "@/shared/hooks/useEscapeDismiss";
 import useSlideUpAnimation from "@/shared/hooks/useSlideUpAnimation";
 
 const sizeClasses: Record<keyof typeof sizes, string> = {
@@ -116,12 +116,7 @@ const Modal = ({
     [onDismiss],
   );
 
-  const handleEscape = useCallback(() => {
-    if (open !== false) {
-      dismissModal();
-    }
-  }, [open, dismissModal]);
-  useKeyDown({ key: "Escape", onKeyDown: handleEscape });
+  useEscapeDismiss(open === false ? undefined : dismissModal);
 
   const shouldIgnoreClickOutside = useCallback(() => open === false, [open]);
   useClickOutside({

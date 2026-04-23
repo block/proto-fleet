@@ -9,7 +9,7 @@ import Header from "@/shared/components/Header";
 import Modal, { sizes as modalSizes } from "@/shared/components/Modal";
 import Row from "@/shared/components/Row";
 import { useClickOutside } from "@/shared/hooks/useClickOutside";
-import { useKeyDown } from "@/shared/hooks/useKeyDown";
+import { useEscapeDismiss } from "@/shared/hooks/useEscapeDismiss";
 
 const defaultPaneContainerClassName =
   "flex min-h-[calc(100dvh-200px)] w-full flex-1 flex-col laptop:grid laptop:min-h-0 laptop:grid-cols-2 laptop:px-10 desktop:px-10 desktop:grid desktop:min-h-0 desktop:grid-cols-2";
@@ -42,10 +42,7 @@ const isDangerVariant = (variant: string) => variant === variants.danger || vari
 const OverflowActionSheet = ({ overflowButtons, onClose }: { overflowButtons: ButtonProps[]; onClose: () => void }) => {
   const sheetRef = useRef<HTMLDivElement>(null);
   useClickOutside({ ref: sheetRef, onClickOutside: onClose });
-  useKeyDown({
-    key: "Escape",
-    onKeyDown: () => onClose(),
-  });
+  useEscapeDismiss(onClose);
 
   const nonDangerItems = overflowButtons.filter((b) => !isDangerVariant(b.variant));
   const dangerItems = overflowButtons.filter((b) => isDangerVariant(b.variant));
@@ -165,7 +162,7 @@ const FullScreenTwoPaneModal = ({
     mobileButtons.push(primaryButton);
   }
 
-  const effectiveOnDismiss = isBusy || showOverflowSheet ? undefined : onDismiss;
+  const effectiveOnDismiss = isBusy ? undefined : onDismiss;
 
   return (
     <Modal
