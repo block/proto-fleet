@@ -67,11 +67,14 @@ export const useComponentErrors = (options?: UseComponentErrorsOptions): UseComp
     setPrevScope(deviceIdentifiersKey);
     setHasLoaded(false);
     setCounts({});
-  }
-  useEffect(() => {
-    hasLoadedRef.current = false;
+    // Ref writes must happen synchronously with the scope-change detection: deferring to an
+    // effect leaves a commit-to-effect window where an in-flight request from the old scope
+    // still matches the current requestId and can overwrite state with stale counts.
+    // eslint-disable-next-line react-hooks/refs -- intentional synchronous invalidation; see comment above
     ++requestIdRef.current;
-  }, [deviceIdentifiersKey]);
+    // eslint-disable-next-line react-hooks/refs -- intentional synchronous invalidation; see comment above
+    hasLoadedRef.current = false;
+  }
 
   const errorCounts: ComponentErrorCounts = {
     controlBoardErrors: counts[ComponentType.CONTROL_BOARD] || 0,
