@@ -78,31 +78,25 @@ jobs:
           # Skip lint in CI to avoid import order issues from merged main branch
           npm run build:protoFleet
 
-      - name: Build plugins for CI (Linux AMD64)
-        run: |
-          # CI runners use linux/amd64, not arm64
-          # CGO_ENABLED=0 creates static binaries that work in Alpine (musl libc)
-          echo "Syncing Go workspace..."
-          go work sync
-          echo "Building static plugins for Linux AMD64..."
-          mkdir -p server/plugins
-          (cd plugin/proto && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ../../server/plugins/proto-plugin .)
-          (cd plugin/antminer && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ../../server/plugins/antminer-plugin .)
-          chmod +x server/plugins/proto-plugin server/plugins/antminer-plugin
-          echo "Plugins built successfully"
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
+      # Docker cache is computed before the plugin build so the gitignored
+      # `server/plugins/*` binaries (not a Docker build input) don't enter
+      # the hash and spuriously bust the cache.
+      #
+      # Scheduled runs skip restore + save so they rebuild against fresh
+      # upstream base images without polluting the cache namespace with
+      # one-off entries that would evict other workflow caches.
       - name: Restore Docker image cache
         id: docker-image-cache
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        if: github.event_name != 'schedule'
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: /tmp/docker-images
-          # `schedule` salts run_id so daily runs always rebuild against
-          # current base images. `server/**` because the Dockerfile does
-          # `COPY server/ ./` (e.g. go:embed migrations).
-          key: ${{ runner.os }}-protofleet-e2e-docker-${{ github.event_name == 'schedule' && format('schedule-{0}', github.run_id) || hashFiles('server/**') }}
+          # `server/**` because the Dockerfile does `COPY server/ ./`
+          # (e.g. go:embed migrations).
+          key: ${{ runner.os }}-protofleet-e2e-docker-${{ hashFiles('server/**') }}
 
       - name: Build E2E Docker images
         if: steps.docker-image-cache.outputs.cache-hit != 'true'
@@ -115,8 +109,10 @@ jobs:
           echo "::group::docker compose pull"
           docker compose pull --ignore-buildable
           echo "::endgroup::"
+          # `--pull` forces fresh upstream base images on rebuild so a stale
+          # cache miss key doesn't serve stale FROM layers.
           echo "::group::docker compose build"
-          docker compose build
+          docker compose build --pull
           echo "::endgroup::"
           echo "::group::Save images to compressed tarball"
           mapfile -t images < <(docker compose config --images | sort -u)
@@ -124,6 +120,26 @@ jobs:
           docker save "${images[@]}" | gzip > /tmp/docker-images/e2e-images.tar.gz
           ls -lh /tmp/docker-images/
           echo "::endgroup::"
+
+      - name: Save Docker image cache
+        if: github.event_name != 'schedule' && steps.docker-image-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: /tmp/docker-images
+          key: ${{ runner.os }}-protofleet-e2e-docker-${{ hashFiles('server/**') }}
+
+      - name: Build plugins for CI (Linux AMD64)
+        run: |
+          # CI runners use linux/amd64, not arm64
+          # CGO_ENABLED=0 creates static binaries that work in Alpine (musl libc)
+          echo "Syncing Go workspace..."
+          go work sync
+          echo "Building static plugins for Linux AMD64..."
+          mkdir -p server/plugins
+          (cd plugin/proto && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ../../server/plugins/proto-plugin .)
+          (cd plugin/antminer && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ../../server/plugins/antminer-plugin .)
+          chmod +x server/plugins/proto-plugin server/plugins/antminer-plugin
+          echo "Plugins built successfully"
 
       - name: Upload client build
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
