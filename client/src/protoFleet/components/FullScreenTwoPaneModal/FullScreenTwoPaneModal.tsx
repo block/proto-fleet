@@ -8,7 +8,7 @@ import Divider from "@/shared/components/Divider";
 import Header from "@/shared/components/Header";
 import Modal, { sizes as modalSizes } from "@/shared/components/Modal";
 import Row from "@/shared/components/Row";
-import { useClickOutside } from "@/shared/hooks/useClickOutside";
+import { useClickOutsideDismiss } from "@/shared/hooks/useClickOutsideDismiss";
 import { useEscapeDismiss } from "@/shared/hooks/useEscapeDismiss";
 
 const defaultPaneContainerClassName =
@@ -41,7 +41,7 @@ const isDangerVariant = (variant: string) => variant === variants.danger || vari
 
 const OverflowActionSheet = ({ overflowButtons, onClose }: { overflowButtons: ButtonProps[]; onClose: () => void }) => {
   const sheetRef = useRef<HTMLDivElement>(null);
-  useClickOutside({ ref: sheetRef, onClickOutside: onClose });
+  useClickOutsideDismiss({ ref: sheetRef, onDismiss: onClose });
   useEscapeDismiss(onClose);
 
   const nonDangerItems = overflowButtons.filter((b) => !isDangerVariant(b.variant));

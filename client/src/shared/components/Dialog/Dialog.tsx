@@ -8,7 +8,7 @@ import { ButtonProps } from "@/shared/components/ButtonGroup/types";
 import Header from "@/shared/components/Header";
 import PageOverlay from "@/shared/components/PageOverlay";
 import ProgressCircular from "@/shared/components/ProgressCircular";
-import { useClickOutside } from "@/shared/hooks/useClickOutside";
+import { useClickOutsideDismiss } from "@/shared/hooks/useClickOutsideDismiss";
 import { useEscapeDismiss } from "@/shared/hooks/useEscapeDismiss";
 import useSlideUpAnimation from "@/shared/hooks/useSlideUpAnimation";
 
@@ -58,11 +58,9 @@ const Dialog = ({
 
   useEscapeDismiss(open === false ? undefined : dismissDialog);
 
-  const shouldIgnoreClickOutside = useCallback(() => open === false, [open]);
-  useClickOutside({
+  useClickOutsideDismiss({
     ref: dialogRef,
-    onClickOutside: dismissDialog,
-    shouldIgnore: shouldIgnoreClickOutside,
+    onDismiss: open === false ? undefined : dismissDialog,
   });
 
   return (

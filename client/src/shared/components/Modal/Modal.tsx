@@ -9,7 +9,7 @@ import { ButtonProps } from "@/shared/components/ButtonGroup";
 import Divider from "@/shared/components/Divider";
 import Header from "@/shared/components/Header";
 import PageOverlay from "@/shared/components/PageOverlay";
-import { useClickOutside } from "@/shared/hooks/useClickOutside";
+import { useClickOutsideDismiss } from "@/shared/hooks/useClickOutsideDismiss";
 import { useEscapeDismiss } from "@/shared/hooks/useEscapeDismiss";
 import useSlideUpAnimation from "@/shared/hooks/useSlideUpAnimation";
 
@@ -118,12 +118,10 @@ const Modal = ({
 
   useEscapeDismiss(open === false ? undefined : dismissModal);
 
-  const shouldIgnoreClickOutside = useCallback(() => open === false, [open]);
-  useClickOutside({
+  useClickOutsideDismiss({
     ref: modalRef,
-    onClickOutside: dismissModal,
+    onDismiss: open === false ? undefined : dismissModal,
     ignoreSelectors: [".popover-content"],
-    shouldIgnore: shouldIgnoreClickOutside,
   });
   const headerIconProps =
     icon === null
