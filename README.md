@@ -96,19 +96,25 @@ Per-device feature support.
 
 ## Production Install
 
-### Latest Version
+Proto Fleet deploys into Docker on Linux and macOS, or into WSL2 on Windows.
+
+### Linux and macOS
+
+Requires Docker and Docker Compose.
+
+#### Latest Version
 
 ```bash
 bash <(curl -fsSL https://fleet.proto.xyz/install.sh)
 ```
 
-### Specific Version
+#### Specific Version
 
 ```bash
 bash <(curl -fsSL https://fleet.proto.xyz/install.sh) v0.1.0
 ```
 
-### Uninstall
+#### Uninstall
 
 ```bash
 bash <(curl -fsSL https://fleet.proto.xyz/uninstall.sh)
@@ -119,6 +125,24 @@ If Proto Fleet was installed in a non-default location, pass it explicitly:
 ```bash
 bash <(curl -fsSL https://fleet.proto.xyz/uninstall.sh) --deployment-path /path/to/install/root
 ```
+
+### Windows
+
+Requires Windows 10 (build 19041 or newer) or Windows 11 (x64), local Administrator access, and virtualization enabled in BIOS/UEFI. Docker Desktop is **not** required — the installer enables WSL2, installs an Ubuntu distro and Docker Engine inside it, and deploys Proto Fleet at `~/proto-fleet` within the distro.
+
+Download and run the latest installer:
+
+- [installer.exe](https://github.com/block/proto-fleet/releases/latest/download/installer.exe)
+
+The installer self-elevates via UAC. If it has to enable Windows features for WSL, it may prompt for a reboot and then resume automatically.
+
+To pin a specific version, grab `installer.exe` from the corresponding tag on the [releases page](https://github.com/block/proto-fleet/releases).
+
+#### Uninstall
+
+- [uninstall.exe](https://github.com/block/proto-fleet/releases/latest/download/uninstall.exe)
+
+For Windows installer/uninstaller build and test details, see [`deployment-files/windows/README.md`](deployment-files/windows/README.md).
 
 ## Contributing
 
