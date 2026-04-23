@@ -33,7 +33,9 @@ export const useDeviceErrors = (deviceIds: string[]): UseDeviceErrorsReturn => {
 
   // Keep a ref to deviceIds so refetch() always uses the latest value
   const deviceIdsRef = useRef(deviceIds);
-  deviceIdsRef.current = deviceIds;
+  useEffect(() => {
+    deviceIdsRef.current = deviceIds;
+  });
 
   // Request sequencing — ignore responses from stale requests
   const requestIdRef = useRef(0);

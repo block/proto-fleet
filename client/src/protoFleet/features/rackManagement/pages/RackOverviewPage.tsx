@@ -406,6 +406,7 @@ const RackOverviewPage = () => {
           <div className="px-10 phone:px-6 tablet:px-6">
             <DeviceSetPerformanceSection duration={duration} metrics={metrics} />
           </div>
+          {/* eslint-disable-next-line react-hooks/refs -- ref object from useStickyState is passed to <div ref>; React writes .current during commit, not read during render */}
           <div ref={refs.vertical.end} />
         </section>
       </div>

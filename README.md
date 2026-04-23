@@ -30,43 +30,55 @@
 
 **Proto Fleet** is open-source fleet management software for bitcoin miners. It helps operators pair devices, monitor telemetry, and manage mining infrastructure without giving up control. Built with React and TypeScript clients, Go services, Connect RPC, Protocol Buffers, and TimescaleDB. For architecture details, see [docs/architecture.md](docs/architecture.md).
 
-## Getting Started
+## Install
 
-### Prerequisites
+Proto Fleet deploys into Docker on Linux and macOS, or into WSL2 on Windows.
 
-- Docker and Docker Compose
-- [Hermit](https://cashapp.github.io/hermit/), or a local installation of the required development tools
+### Linux and macOS
 
-### Initial Setup
+Requires Docker and Docker Compose. On macOS (and Windows via Docker Desktop), enable host networking under **Settings → Resources → Network → Enable host networking**. See [deployment-files/README.md](deployment-files/README.md) for the full prerequisites.
 
-```bash
-source ./bin/activate-hermit
-just setup
-```
-
-To install Git hooks after your toolchain is ready:
+#### Latest Version
 
 ```bash
-just install-hooks
+bash <(curl -fsSL https://fleet.proto.xyz/install.sh)
 ```
 
-For non-Hermit setup details, `lefthook` and Ruff hook prerequisites, and `go.work` guidance, see [CONTRIBUTING.md](CONTRIBUTING.md).
-
-### Start Development
+#### Specific Version
 
 ```bash
-just dev
+bash <(curl -fsSL https://fleet.proto.xyz/install.sh) v0.1.0
 ```
 
-This starts the Go backend with Docker Compose and the Vite dev server for ProtoFleet at http://localhost:5173.
-
-### Protocol Buffer Code Generation
-
-After modifying definitions in `proto/`, regenerate generated clients and server code:
+#### Uninstall
 
 ```bash
-just gen
+bash <(curl -fsSL https://fleet.proto.xyz/uninstall.sh)
 ```
+
+If Proto Fleet was installed in a non-default location, pass it explicitly:
+
+```bash
+bash <(curl -fsSL https://fleet.proto.xyz/uninstall.sh) --deployment-path /path/to/install/root
+```
+
+### Windows
+
+Requires Windows 10 (build 19041 or newer) or Windows 11 (x64), local Administrator access, and virtualization enabled in BIOS/UEFI. Docker Desktop is **not** required — the installer enables WSL2, installs an Ubuntu distro and Docker Engine inside it, and deploys Proto Fleet at `~/proto-fleet` within the distro.
+
+Download and run the latest installer:
+
+- [install.exe](https://fleet.proto.xyz/install.exe)
+
+The installer self-elevates via UAC. If it has to enable Windows features for WSL, it may prompt for a reboot and then resume automatically.
+
+To pin a specific version, grab `installer.exe` from the corresponding tag on the [releases page](https://github.com/block/proto-fleet/releases).
+
+#### Uninstall
+
+- [uninstall.exe](https://fleet.proto.xyz/uninstall.exe)
+
+For Windows installer/uninstaller build and test details, see [`deployment-files/windows/README.md`](deployment-files/windows/README.md).
 
 ## Supported Hardware
 
@@ -94,30 +106,42 @@ Per-device feature support.
 </table>
 <!-- prettier-ignore-end -->
 
-## Production Install
+## Local Development
 
-### Latest Version
+### Prerequisites
+
+- Docker and Docker Compose
+- [Hermit](https://cashapp.github.io/hermit/) (recommended) — activates the full toolchain. For a manual tool setup, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+### Initial Setup
 
 ```bash
-bash <(curl -fsSL https://fleet.proto.xyz/install.sh)
+source ./bin/activate-hermit
+just setup
 ```
 
-### Specific Version
+To install Git hooks after your toolchain is ready:
 
 ```bash
-bash <(curl -fsSL https://fleet.proto.xyz/install.sh) v0.1.0
+just install-hooks
 ```
 
-### Uninstall
+For `lefthook` and Ruff hook prerequisites and `go.work` guidance, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+### Start Development
 
 ```bash
-bash <(curl -fsSL https://fleet.proto.xyz/uninstall.sh)
+just dev
 ```
 
-If Proto Fleet was installed in a non-default location, pass it explicitly:
+This starts the Go backend with Docker Compose and the Vite dev server for ProtoFleet at http://localhost:5173.
+
+### Protocol Buffer Code Generation
+
+After modifying definitions in `proto/`, regenerate generated clients and server code:
 
 ```bash
-bash <(curl -fsSL https://fleet.proto.xyz/uninstall.sh) --deployment-path /path/to/install/root
+just gen
 ```
 
 ## Contributing

@@ -23,7 +23,7 @@ type Config struct {
 
 // Setup initialises a global TracerProvider and returns a shutdown function.
 // If telemetry is disabled the returned shutdown function is a no-op.
-func Setup(ctx context.Context, cfg Config) (func(context.Context) error, error) {
+func Setup(ctx context.Context, version string, cfg Config) (func(context.Context) error, error) {
 	if !cfg.Enabled {
 		return func(context.Context) error { return nil }, nil
 	}
@@ -34,7 +34,10 @@ func Setup(ctx context.Context, cfg Config) (func(context.Context) error, error)
 	}
 
 	res, err := resource.New(ctx,
-		resource.WithAttributes(semconv.ServiceName(cfg.ServiceName)),
+		resource.WithAttributes(
+			semconv.ServiceName(cfg.ServiceName),
+			semconv.ServiceVersion(version),
+		),
 		resource.WithProcessPID(),
 		resource.WithProcessExecutableName(),
 		resource.WithProcessRuntimeName(),

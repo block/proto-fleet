@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import {
   deviceActions,
@@ -962,7 +962,9 @@ export const useMinerActions = ({
     currentFilter,
   });
 
-  handleSecurityAuthRef.current = handleSecurityAuthenticated;
+  useEffect(() => {
+    handleSecurityAuthRef.current = handleSecurityAuthenticated;
+  });
 
   const handleConfirmation = useCallback(
     async (filteredSelector?: DeviceSelector, filteredDeviceIds?: string[], actionOverride?: SupportedAction) => {
