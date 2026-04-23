@@ -67,4 +67,3 @@ SELECT DISTINCT scope_type
 FROM activity_log
 WHERE organization_id = sqlc.arg('org_id') AND scope_type IS NOT NULL
 ORDER BY scope_type;
-

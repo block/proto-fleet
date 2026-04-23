@@ -128,4 +128,3 @@ LEFT JOIN device d ON d.id = codl.device_id
 WHERE cbl.uuid = $1
 ORDER BY d.device_identifier NULLS LAST, codl.id
 LIMIT sqlc.arg('max_rows');
-

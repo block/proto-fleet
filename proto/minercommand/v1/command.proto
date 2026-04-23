@@ -228,7 +228,8 @@ message GetCommandBatchDeviceResultsResponse {
   string batch_identifier = 1;
   // Command type (e.g. "REBOOT") mirrored from command_batch_log.type.
   string command_type = 2;
-  // Batch-level status: PENDING | PROCESSING | FINISHED.
+  // Batch-level status: "pending" | "processing" | "finished"
+  // (lowercased in the response to match the device-level status convention).
   string status = 3;
   // Authoritative counts sourced from command_on_device_log aggregates, so
   // they stay consistent with total_count even when device_results is capped.

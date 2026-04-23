@@ -232,7 +232,6 @@ func (s *Service) buildActivityCompletedCallback(ctx context.Context, batchID, e
 			OrganizationID: &organizationID,
 			BatchID:        &batchIDCopy,
 			Metadata: map[string]any{
-				"batch_id":      batchID,
 				"total_count":   counts.DevicesCount,
 				"success_count": counts.SuccessfulDevices,
 				"failure_count": counts.FailedDevices,
@@ -269,6 +268,13 @@ func (s *Service) getDevicesCount(ctx context.Context, selector *pb.DeviceSelect
 }
 
 func (s *Service) saveCommandBatchLogToDB(ctx context.Context, userID, organizationID int64, command *Command, payloadBytes []byte) (string, error) {
+	// Guard ordering matters: this check must fire before getDevicesCount so
+	// unit tests without a wired deviceStore still hit the org-id check
+	// cleanly, and invalid inputs do not waste a store round-trip.
+	if organizationID <= 0 {
+		return "", fleeterror.NewInternalErrorf("cannot create command batch: session missing organization_id")
+	}
+
 	devicesCount, err := s.getDevicesCount(ctx, command.deviceSelector)
 	if err != nil {
 		return "", err
@@ -278,8 +284,6 @@ func (s *Service) saveCommandBatchLogToDB(ctx context.Context, userID, organizat
 		timeNow := time.Now()
 		newUUID := id.GenerateID()
 
-		// Callers reject non-positive organizationID before reaching this
-		// helper, so Valid is always true for new writes.
 		_, err := q.CreateCommandBatchLog(ctx, sqlc.CreateCommandBatchLogParams{
 			Uuid:           newUUID,
 			Type:           command.commandType.String(),
@@ -479,11 +483,6 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (string,
 	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return "", 0, fleeterror.NewInternalErrorf("error getting session info from ctx: %v", err)
-	}
-	// Writing a batch with organization_id=NULL would hide it from
-	// GetCommandBatchDeviceResults.
-	if info.OrganizationID <= 0 {
-		return "", 0, fleeterror.NewInternalErrorf("cannot create command batch: session missing organization_id")
 	}
 
 	payloadBytes, err := json.Marshal(command.payload)
@@ -753,10 +752,6 @@ func (s *Service) ReapplyCurrentPoolsWithWorkerNames(
 	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return "", fleeterror.NewInternalErrorf("error getting session info from ctx: %v", err)
-	}
-	// Same invariant as processCommand: a real org is required.
-	if info.OrganizationID <= 0 {
-		return "", fleeterror.NewInternalErrorf("cannot create command batch: session missing organization_id")
 	}
 
 	deviceIdentifiers := make([]string, 0, len(desiredWorkerNamesByDeviceIdentifier))
@@ -1176,7 +1171,7 @@ func (s *Service) GetCommandBatchDeviceResults(ctx context.Context, req *pb.GetC
 	return &pb.GetCommandBatchDeviceResultsResponse{
 		BatchIdentifier: header.Uuid,
 		CommandType:     header.Type,
-		Status:          string(header.Status),
+		Status:          strings.ToLower(string(header.Status)),
 		TotalCount:      header.DevicesCount,
 		SuccessCount:    successCount,
 		FailureCount:    failureCount,

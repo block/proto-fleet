@@ -99,7 +99,7 @@ func TestGetCommandBatchDeviceResults_HappyPath(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, batchUUID, resp.BatchIdentifier)
 	assert.Equal(t, "REBOOT", resp.CommandType)
-	assert.Equal(t, string(sqlc.BatchStatusEnumFINISHED), resp.Status)
+	assert.Equal(t, "finished", resp.Status)
 	assert.Equal(t, int32(2), resp.TotalCount)
 	assert.Equal(t, int32(1), resp.SuccessCount)
 	assert.Equal(t, int32(1), resp.FailureCount)
