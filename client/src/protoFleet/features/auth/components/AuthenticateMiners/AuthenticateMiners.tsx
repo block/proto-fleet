@@ -82,19 +82,6 @@ const AuthenticateMiners = ({
     };
   }, []);
 
-  useEffect(() => {
-    if (!isVisible) {
-      setBulkCredentials({ username: "", password: "" });
-      setCredentials({});
-      setHasMissingCredentials(false);
-      setMinerErrors([]);
-      setAuthenticateLoading(false);
-      setShowMiners(false);
-      setShowPasswords(false);
-      hasInitializedSelectionRef.current = false;
-    }
-  }, [isVisible]);
-
   const [bulkCredentials, setBulkCredentials] = useState<Credentials>({
     username: "",
     password: "",
@@ -158,12 +145,27 @@ const AuthenticateMiners = ({
     dropdownFilters: {},
   });
 
+  useEffect(() => {
+    if (!isVisible) {
+      setBulkCredentials({ username: "", password: "" });
+      setCredentials({});
+      setHasMissingCredentials(false);
+      setMinerErrors([]);
+      setAuthenticateLoading(false);
+      setShowMiners(false);
+      setShowPasswords(false);
+      // eslint-disable-next-line react-hooks/immutability -- one-shot init guard reset on close; ref is local-only
+      hasInitializedSelectionRef.current = false;
+    }
+  }, [isVisible]);
+
   // Initialize selection to all miners only on first data load
   // After initial load, preserve user selection even when miner list updates
   useEffect(() => {
     const minerIds = Object.keys(minersByIdentifier);
     if (!hasInitializedSelectionRef.current && minerIds.length > 0) {
       setSelectedMiners(minerIds);
+      // eslint-disable-next-line react-hooks/immutability -- one-shot init guard; ref is local-only
       hasInitializedSelectionRef.current = true;
     }
   }, [minersByIdentifier]);
