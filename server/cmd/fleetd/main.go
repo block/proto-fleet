@@ -116,7 +116,7 @@ var reflectEnabledServices = []string{
 }
 
 func start(config *Config) error {
-	shutdownTracer, err := fleet_telemetry.Setup(context.Background(), config.FleetTelemetry)
+	shutdownTracer, err := fleet_telemetry.Setup(context.Background(), version, config.FleetTelemetry)
 	if err != nil {
 		return fmt.Errorf("setup fleet telemetry: %w", err)
 	}
