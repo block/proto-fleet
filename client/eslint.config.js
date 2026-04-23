@@ -58,8 +58,8 @@ export default [
     rules: {
       ...reactHooks.configs.recommended.rules,
       // React Compiler rules added to the `recommended` preset in
-      // eslint-plugin-react-hooks 7.1. Disabled for now; see follow-up issue
-      // for adopting them incrementally.
+      // eslint-plugin-react-hooks 7.1. The rules listed below remain
+      // disabled and are being adopted incrementally via follow-up issues.
       "react-hooks/set-state-in-effect": "off",
       "react-hooks/refs": "off",
       "react-hooks/immutability": "off",
