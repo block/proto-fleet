@@ -65,8 +65,9 @@ type Service struct {
 
 const defaultPoolPriority uint32 = 0
 
-// maxCallbackRetries is the maximum number of times the onFinished callback is retried
-// before marking the batch finished anyway to unblock the client.
+// maxCallbackRetries bounds callback attempts before marking FINISHED.
+// The callback gets up to maxCallbackRetries more post-finish attempts
+// to prevent permanent audit gaps from transient DB failures.
 const maxCallbackRetries = 3
 
 type Command struct {
@@ -191,11 +192,10 @@ const finalizerDBTimeout = 15 * time.Second
 // Session info is captured at call time because the finalizer runs against a
 // background context (the originating request ctx is long gone).
 //
-// Ordering: runs BEFORE MarkCommandBatchFinished*, so a transient mark
-// failure can briefly leave a '*.completed' row visible while the batch is
-// still PROCESSING (self-heals on the next tick). Inverting the order would
-// risk a permanent audit gap if the post-mark write exhausted retries.
-// Race-free fix is transactional (single tx for write + mark); follow-up.
+// Ordering: attempted BEFORE MarkCommandBatchFinished* (up to
+// maxCallbackRetries). If pre-mark attempts exhaust, the batch is marked
+// FINISHED anyway and the callback gets maxCallbackRetries more post-mark
+// attempts before giving up.
 func (s *Service) buildActivityCompletedCallback(ctx context.Context, batchID, eventType, description string) onFinishedCallbackFunc {
 	if s.activitySvc == nil {
 		return nil
@@ -361,13 +361,14 @@ func (s *Service) initializeStatusUpdateRoutine(commandBatchLogUUID string, onFi
 
 		processingMarkedInDB := false
 		callbackRetryCount := 0
-		callbackDone := false // true once callback succeeded or max retries exhausted
+		callbackDone := false
+		batchMarkedFinished := false
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				if !processingMarkedInDB {
+				if !batchMarkedFinished && !processingMarkedInDB {
 					isProcessing, err := s.statusUpdateIsProcessingBranch(ctx, commandBatchLogUUID)
 					if err != nil {
 						slog.Error("error in isProcessing branch", "error", err)
@@ -375,39 +376,47 @@ func (s *Service) initializeStatusUpdateRoutine(commandBatchLogUUID string, onFi
 					}
 					processingMarkedInDB = isProcessing
 				}
-				isFinished, err := s.statusUpdateIsFinishedBranch(ctx, commandBatchLogUUID)
-				if err != nil {
-					slog.Error("error in isFinished branch", "error", err)
-					return
+				if !batchMarkedFinished {
+					isFinished, err := s.statusUpdateIsFinishedBranch(ctx, commandBatchLogUUID)
+					if err != nil {
+						slog.Error("error in isFinished branch", "error", err)
+						return
+					}
+					if !isFinished {
+						continue
+					}
 				}
-				if isFinished {
-					// Run the callback before marking the batch finished in the DB.
-					// This ensures side-effects (e.g. ZIP creation for download-logs)
-					// complete before the client sees FINISHED, and avoids a permanent
-					// audit gap for DB-side callbacks (see
-					// buildActivityCompletedCallback godoc).
-					if onFinishedCallback != nil && !callbackDone {
-						if callbackErr := onFinishedCallback(); callbackErr != nil {
-							callbackRetryCount++
-							if callbackRetryCount < maxCallbackRetries {
-								// Retry on the next tick so the client doesn't see FINISHED
-								// until side-effects (e.g. bundle creation) have succeeded.
-								slog.Error("error in onFinished callback, will retry", "error", callbackErr, "retry", callbackRetryCount)
-								continue
-							}
-							// Max retries exceeded — mark the batch finished anyway to unblock the
-							// client. The bundle may be unavailable; the client will get an
-							// appropriate error when it attempts to fetch it.
-							slog.Error("onFinished callback failed after max retries, marking batch finished", "error", callbackErr)
+
+				if onFinishedCallback != nil && !callbackDone {
+					if callbackErr := onFinishedCallback(); callbackErr != nil {
+						callbackRetryCount++
+						if !batchMarkedFinished && callbackRetryCount < maxCallbackRetries {
+							slog.Error("onFinished callback failed, will retry before marking batch finished",
+								"error", callbackErr, "retry", callbackRetryCount)
+							continue
 						}
+						if callbackRetryCount >= maxCallbackRetries*2 {
+							slog.Error("onFinished callback permanently failed",
+								"error", callbackErr, "retries", callbackRetryCount)
+							callbackDone = true
+						} else {
+							slog.Error("onFinished callback failed, will retry",
+								"error", callbackErr, "retry", callbackRetryCount)
+						}
+					} else {
 						callbackDone = true
 					}
+				}
+
+				if !batchMarkedFinished {
 					if markErr := s.getMarkFinishedBatchFunction(processingMarkedInDB)(ctx, commandBatchLogUUID); markErr != nil {
-						// Retry on the next tick; the batch must reach FINISHED in the DB
-						// or the client stream will see it stuck in PROCESSING forever.
 						slog.Error("error marking batch finished, will retry", "error", markErr)
 						continue
 					}
+					batchMarkedFinished = true
+				}
+
+				if callbackDone || onFinishedCallback == nil {
 					return
 				}
 			}
