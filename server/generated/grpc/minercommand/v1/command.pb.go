@@ -2035,15 +2035,18 @@ type GetCommandBatchDeviceResultsResponse struct {
 	// Batch-level status: "pending" | "processing" | "finished"
 	// (lowercased in the response to match the device-level status convention).
 	Status string `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
-	// Authoritative counts sourced from command_on_device_log aggregates, so
-	// they stay consistent with total_count even when device_results is capped.
+	// total_count comes from command_batch_log.devices_count;
+	// success_count/failure_count are aggregated from command_on_device_log
+	// and are unaffected by the device_results truncation cap. They sum to
+	// total_count only for FINISHED batches with intact rows; in-progress
+	// batches will have success_count + failure_count < total_count.
 	TotalCount    int32                       `protobuf:"varint,4,opt,name=total_count,json=totalCount,proto3" json:"total_count,omitempty"`
 	SuccessCount  int32                       `protobuf:"varint,5,opt,name=success_count,json=successCount,proto3" json:"success_count,omitempty"`
 	FailureCount  int32                       `protobuf:"varint,6,opt,name=failure_count,json=failureCount,proto3" json:"failure_count,omitempty"`
 	DeviceResults []*CommandBatchDeviceResult `protobuf:"bytes,7,rep,name=device_results,json=deviceResults,proto3" json:"device_results,omitempty"`
-	// True when the batch header is present but per-device rows are no longer
-	// available, or when neither is available. The UI uses this to show
-	// "Per-miner details are no longer available." after retention prunes.
+	// True when the batch is FINISHED with devices_count > 0 but no
+	// per-device rows remain (retention pruned). A missing batch header
+	// surfaces as connect.CodeNotFound, not as this response.
 	DetailsPruned bool `protobuf:"varint,8,opt,name=details_pruned,json=detailsPruned,proto3" json:"details_pruned,omitempty"`
 	// True when device_results was truncated because the batch has more
 	// per-device rows than the server's response cap. success_count,

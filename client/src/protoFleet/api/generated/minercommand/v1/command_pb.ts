@@ -923,8 +923,11 @@ export type GetCommandBatchDeviceResultsResponse = Message<"minercommand.v1.GetC
   status: string;
 
   /**
-   * Authoritative counts sourced from command_on_device_log aggregates, so
-   * they stay consistent with total_count even when device_results is capped.
+   * total_count comes from command_batch_log.devices_count;
+   * success_count/failure_count are aggregated from command_on_device_log
+   * and are unaffected by the device_results truncation cap. They sum to
+   * total_count only for FINISHED batches with intact rows; in-progress
+   * batches will have success_count + failure_count < total_count.
    *
    * @generated from field: int32 total_count = 4;
    */
@@ -946,9 +949,9 @@ export type GetCommandBatchDeviceResultsResponse = Message<"minercommand.v1.GetC
   deviceResults: CommandBatchDeviceResult[];
 
   /**
-   * True when the batch header is present but per-device rows are no longer
-   * available, or when neither is available. The UI uses this to show
-   * "Per-miner details are no longer available." after retention prunes.
+   * True when the batch is FINISHED with devices_count > 0 but no
+   * per-device rows remain (retention pruned). A missing batch header
+   * surfaces as connect.CodeNotFound, not as this response.
    *
    * @generated from field: bool details_pruned = 8;
    */
