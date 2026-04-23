@@ -10,11 +10,11 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
-func WithTransaction[T any](ctx context.Context, db *sql.DB, action func(q *sqlc.Queries) (T, error)) (T, error) {
-	return withTransactionWithRetry(ctx, db, action, DefaultRetryConfig)
+func WithTransaction[T any](ctx context.Context, db *sql.DB, action func(q *sqlc.Queries) (T, error), opts ...*sql.TxOptions) (T, error) {
+	return withTransactionWithRetry(ctx, db, action, DefaultRetryConfig, firstTxOpts(opts))
 }
 
-func withTransactionWithRetry[T any](ctx context.Context, db *sql.DB, action func(q *sqlc.Queries) (T, error), config RetryConfig) (T, error) {
+func withTransactionWithRetry[T any](ctx context.Context, db *sql.DB, action func(q *sqlc.Queries) (T, error), config RetryConfig, txOpts *sql.TxOptions) (T, error) {
 	var zero T
 	var lastErr error
 	currentBackoff := config.InitialBackoff
@@ -26,7 +26,7 @@ func withTransactionWithRetry[T any](ctx context.Context, db *sql.DB, action fun
 		default:
 		}
 
-		result, err := executeTransaction(ctx, db, action)
+		result, err := executeTransaction(ctx, db, action, txOpts)
 		if err == nil {
 			return result, nil
 		}
@@ -59,10 +59,10 @@ func withTransactionWithRetry[T any](ctx context.Context, db *sql.DB, action fun
 	return zero, fleeterror.NewInternalErrorf("transaction failed after %d attempts: %v", config.MaxAttempts, lastErr)
 }
 
-func executeTransaction[T any](ctx context.Context, db *sql.DB, action func(q *sqlc.Queries) (T, error)) (T, error) {
+func executeTransaction[T any](ctx context.Context, db *sql.DB, action func(q *sqlc.Queries) (T, error), txOpts *sql.TxOptions) (T, error) {
 	var zero T
 
-	tx, err := db.BeginTx(ctx, nil)
+	tx, err := db.BeginTx(ctx, txOpts)
 	if err != nil {
 		return zero, fleeterror.NewInternalErrorf("error opening tx: %v", err)
 	}
@@ -84,15 +84,25 @@ func executeTransaction[T any](ctx context.Context, db *sql.DB, action func(q *s
 	return result, nil
 }
 
-func WithTransactionNoResult(ctx context.Context, db *sql.DB, action func(q *sqlc.Queries) error) error {
-	return withTransactionNoResultWithRetry(ctx, db, action, DefaultRetryConfig)
+func WithTransactionNoResult(ctx context.Context, db *sql.DB, action func(q *sqlc.Queries) error, opts ...*sql.TxOptions) error {
+	return withTransactionNoResultWithRetry(ctx, db, action, DefaultRetryConfig, firstTxOpts(opts))
 }
 
-func withTransactionNoResultWithRetry(ctx context.Context, db *sql.DB, action func(q *sqlc.Queries) error, config RetryConfig) error {
+func withTransactionNoResultWithRetry(ctx context.Context, db *sql.DB, action func(q *sqlc.Queries) error, config RetryConfig, txOpts *sql.TxOptions) error {
 	_, err := withTransactionWithRetry(ctx, db, func(sq *sqlc.Queries) (any, error) {
 		var emptyResult any
 		return emptyResult, action(sq)
-	}, config)
+	}, config, txOpts)
 
 	return err
+}
+
+// firstTxOpts returns the first element of opts or nil. Used to give
+// WithTransaction / WithTransactionNoResult a Go-idiomatic optional
+// last-arg signature. Nil preserves the historical default (READ COMMITTED).
+func firstTxOpts(opts []*sql.TxOptions) *sql.TxOptions {
+	if len(opts) > 0 {
+		return opts[0]
+	}
+	return nil
 }

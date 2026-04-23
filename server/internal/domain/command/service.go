@@ -1099,6 +1099,9 @@ func (s *Service) GetCommandBatchDeviceResults(ctx context.Context, req *pb.GetC
 		counts sqlc.GetBatchStatusAndDeviceCountsRow
 		rows   []sqlc.ListBatchDeviceResultsRow
 	}
+	// REPEATABLE READ + ReadOnly so header/counts/rows share one snapshot;
+	// the default READ COMMITTED would let concurrent worker writes to
+	// command_on_device_log produce inconsistent counts vs device_results.
 	bundle, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (resultsBundle, error) {
 		var b resultsBundle
 		header, hErr := q.GetBatchHeaderForOrg(ctx, sqlc.GetBatchHeaderForOrgParams{
@@ -1130,7 +1133,7 @@ func (s *Service) GetCommandBatchDeviceResults(ctx context.Context, req *pb.GetC
 		}
 		b.rows = rows
 		return b, nil
-	})
+	}, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
 	if err != nil {
 		if fleeterror.IsNotFoundError(err) {
 			return nil, err
