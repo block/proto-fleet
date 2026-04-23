@@ -915,7 +915,8 @@ export type GetCommandBatchDeviceResultsResponse = Message<"minercommand.v1.GetC
   commandType: string;
 
   /**
-   * Batch-level status: PENDING | PROCESSING | FINISHED.
+   * Batch-level status: "pending" | "processing" | "finished"
+   * (lowercased in the response to match the device-level status convention).
    *
    * @generated from field: string status = 3;
    */

@@ -2032,7 +2032,8 @@ type GetCommandBatchDeviceResultsResponse struct {
 	BatchIdentifier string                 `protobuf:"bytes,1,opt,name=batch_identifier,json=batchIdentifier,proto3" json:"batch_identifier,omitempty"`
 	// Command type (e.g. "REBOOT") mirrored from command_batch_log.type.
 	CommandType string `protobuf:"bytes,2,opt,name=command_type,json=commandType,proto3" json:"command_type,omitempty"`
-	// Batch-level status: PENDING | PROCESSING | FINISHED.
+	// Batch-level status: "pending" | "processing" | "finished"
+	// (lowercased in the response to match the device-level status convention).
 	Status string `protobuf:"bytes,3,opt,name=status,proto3" json:"status,omitempty"`
 	// Authoritative counts sourced from command_on_device_log aggregates, so
 	// they stay consistent with total_count even when device_results is capped.
