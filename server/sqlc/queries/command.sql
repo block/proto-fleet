@@ -97,11 +97,8 @@ WHERE cbl.uuid = $1;
 
 -- name: GetBatchHeaderForOrg :one
 -- Returns the batch header only if its recorded organization_id matches the
--- caller's session org. Rows whose organization_id is NULL (legacy backfill
--- miss: creator had no live user_organization membership at migration time)
--- are invisible to this query, which is the correct closed-by-default
--- posture for a cross-org RPC. The handler returns "not found" when the
--- query yields no row.
+-- caller's session org. Rows with organization_id IS NULL (pre-migration
+-- history) are intentionally invisible to this query.
 SELECT
     cbl.uuid,
     cbl.type,

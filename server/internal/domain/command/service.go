@@ -278,9 +278,8 @@ func (s *Service) saveCommandBatchLogToDB(ctx context.Context, userID, organizat
 		timeNow := time.Now()
 		newUUID := id.GenerateID()
 
-		// Callers (processCommand / ReapplyCurrentPoolsWithWorkerNames) must
-		// have rejected non-positive organizationID already, so Valid is
-		// always true. This is the precondition for the planned NOT NULL flip.
+		// Callers reject non-positive organizationID before reaching this
+		// helper, so Valid is always true for new writes.
 		_, err := q.CreateCommandBatchLog(ctx, sqlc.CreateCommandBatchLogParams{
 			Uuid:           newUUID,
 			Type:           command.commandType.String(),
@@ -482,7 +481,7 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (string,
 		return "", 0, fleeterror.NewInternalErrorf("error getting session info from ctx: %v", err)
 	}
 	// Writing a batch with organization_id=NULL would hide it from
-	// GetCommandBatchDeviceResults and block the planned NOT NULL flip.
+	// GetCommandBatchDeviceResults.
 	if info.OrganizationID <= 0 {
 		return "", 0, fleeterror.NewInternalErrorf("cannot create command batch: session missing organization_id")
 	}
