@@ -132,9 +132,11 @@ func actorTypeFromSession(info *session.Info) activitymodels.ActorType {
 
 // composeFinalizers chains onFinished callbacks so commands like DownloadLogs
 // can layer a bundle builder alongside the activity finalizer. Nil callbacks
-// are skipped; empty input returns nil. The returned closure remembers which
-// callbacks already succeeded so a retry (e.g. a transient activity-DB blip)
-// does not re-run callbacks whose side effects already landed.
+// are skipped; empty input returns nil. Best-effort: every callback runs even
+// if earlier ones fail, so a bundle-builder failure cannot block the activity
+// finalizer. The first error is returned so the retry loop in
+// initializeStatusUpdateRoutine still knows to retry on the next tick.
+// Already-succeeded callbacks are skipped on retry.
 //
 // NOT SAFE FOR CONCURRENT USE: initializeStatusUpdateRoutine is the only
 // call site today and invokes the closure serially.
@@ -158,16 +160,20 @@ func composeFinalizers(callbacks ...onFinishedCallbackFunc) onFinishedCallbackFu
 		return tracked[0].fn
 	default:
 		return func() error {
+			var firstErr error
 			for _, tc := range tracked {
 				if tc.done {
 					continue
 				}
 				if err := tc.fn(); err != nil {
-					return err
+					if firstErr == nil {
+						firstErr = err
+					}
+					continue
 				}
 				tc.done = true
 			}
-			return nil
+			return firstErr
 		}
 	}
 }

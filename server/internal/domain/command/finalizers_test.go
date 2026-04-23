@@ -25,7 +25,7 @@ func TestComposeFinalizers_SingleCallbackPassedThrough(t *testing.T) {
 	assert.Equal(t, 1, calls)
 }
 
-func TestComposeFinalizers_RunsInOrderAndStopsOnError(t *testing.T) {
+func TestComposeFinalizers_RunsAllAndReturnsFirstError(t *testing.T) {
 	order := []string{}
 	first := func() error { order = append(order, "first"); return nil }
 	second := func() error { order = append(order, "second"); return errors.New("boom") }
@@ -34,7 +34,8 @@ func TestComposeFinalizers_RunsInOrderAndStopsOnError(t *testing.T) {
 	fn := composeFinalizers(first, second, third)
 	err := fn()
 	assert.EqualError(t, err, "boom")
-	assert.Equal(t, []string{"first", "second"}, order, "finalizer after failure must not run")
+	assert.Equal(t, []string{"first", "second", "third"}, order,
+		"best-effort: all callbacks must run even if an earlier one fails")
 }
 
 func TestComposeFinalizers_AllSucceed(t *testing.T) {
