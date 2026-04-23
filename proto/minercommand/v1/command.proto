@@ -210,7 +210,7 @@ message GetCommandBatchLogBundleResponse {
 // to surface which miners succeeded or failed and, when available, the error
 // that caused the failure.
 message CommandBatchDeviceResult {
-  // Stable device identifier (e.g. MAC address), even for soft-deleted devices
+  // Stable device UUID, preserved for soft-deleted devices.
   string device_identifier = 1;
   // "success" or "failed" mapped from device_command_status_enum.
   string status = 2;

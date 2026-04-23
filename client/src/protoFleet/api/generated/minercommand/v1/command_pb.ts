@@ -844,7 +844,7 @@ export const GetCommandBatchLogBundleResponseSchema: GenMessage<GetCommandBatchL
  */
 export type CommandBatchDeviceResult = Message<"minercommand.v1.CommandBatchDeviceResult"> & {
   /**
-   * Stable device identifier (e.g. MAC address), even for soft-deleted devices
+   * Stable device UUID, preserved for soft-deleted devices.
    *
    * @generated from field: string device_identifier = 1;
    */

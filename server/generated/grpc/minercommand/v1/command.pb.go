@@ -1913,7 +1913,7 @@ func (x *GetCommandBatchLogBundleResponse) GetFilename() string {
 // that caused the failure.
 type CommandBatchDeviceResult struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Stable device identifier (e.g. MAC address), even for soft-deleted devices
+	// Stable device UUID, preserved for soft-deleted devices.
 	DeviceIdentifier string `protobuf:"bytes,1,opt,name=device_identifier,json=deviceIdentifier,proto3" json:"device_identifier,omitempty"`
 	// "success" or "failed" mapped from device_command_status_enum.
 	Status string `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
