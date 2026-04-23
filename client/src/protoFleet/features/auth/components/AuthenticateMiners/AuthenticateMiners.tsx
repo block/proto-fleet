@@ -118,21 +118,22 @@ const AuthenticateMiners = ({
 
   const handleBulkChange = useCallback(
     (value: string, id: string) => {
-      setBulkCredentials({ ...bulkCredentials, [id]: value.trim() });
+      setBulkCredentials((prev) => ({ ...prev, [id]: value.trim() }));
     },
-    [bulkCredentials],
+    [setBulkCredentials],
   );
 
   const handleMinerChange = useCallback(
     (deviceIdentifier: string, key: string, value: string) => {
-      const newValue = { ...credentials };
-      newValue[deviceIdentifier] = {
-        ...(credentials[deviceIdentifier] || {}),
-        [key]: value.trim(),
-      };
-      setCredentials(newValue);
+      setCredentials((prev) => ({
+        ...prev,
+        [deviceIdentifier]: {
+          ...(prev[deviceIdentifier] || {}),
+          [key]: value.trim(),
+        },
+      }));
     },
-    [credentials],
+    [setCredentials],
   );
 
   const [showMiners, setShowMiners] = useState(false);
@@ -439,6 +440,9 @@ const AuthenticateMiners = ({
     handleAuthenticationComplete,
     onClose,
     pair,
+    setHasMissingCredentials,
+    setAuthenticateLoading,
+    setMinerErrors,
   ]);
 
   return (
