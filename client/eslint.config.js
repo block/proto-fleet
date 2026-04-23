@@ -61,7 +61,6 @@ export default [
       // eslint-plugin-react-hooks 7.1. The rules listed below remain
       // disabled and are being adopted incrementally via follow-up issues.
       "react-hooks/set-state-in-effect": "off",
-      "react-hooks/refs": "off",
       "no-unused-vars": "off",
       "@typescript-eslint/no-unused-vars": [
         "error",

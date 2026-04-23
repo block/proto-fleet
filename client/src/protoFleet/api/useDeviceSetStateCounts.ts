@@ -37,15 +37,19 @@ export const useDeviceSetStateCounts = ({
   const requestIdRef = useRef(0);
   const hasLoadedRef = useRef(false);
 
-  // Reset on deviceSetId change — invalidate in-flight requests so stale responses can't land
-  const prevIdRef = useRef(deviceSetId);
-  if (prevIdRef.current !== deviceSetId) {
-    prevIdRef.current = deviceSetId;
-    ++requestIdRef.current;
-    hasLoadedRef.current = false;
+  // Reset on deviceSetId change — invalidate in-flight requests so stale responses can't land.
+  // useState "adjust during render" pattern resets visible state in the same pass that detects
+  // the change; ref-only resets move to an effect (ref writes aren't allowed during render).
+  const [prevId, setPrevId] = useState(deviceSetId);
+  if (prevId !== deviceSetId) {
+    setPrevId(deviceSetId);
     setHasLoaded(false);
     setStats(undefined);
   }
+  useEffect(() => {
+    hasLoadedRef.current = false;
+    ++requestIdRef.current;
+  }, [deviceSetId]);
 
   const fetchStats = useCallback(async () => {
     if (deviceSetId === undefined) {

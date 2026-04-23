@@ -465,11 +465,13 @@ const MinerList = ({
   // Refs for values that change frequently but are only read at call/render time.
   // Keeps callbacks and minerColConfig stable across polls.
   const minersRef = useRef(miners);
-  minersRef.current = miners;
   const onRefetchMinersRef = useRef(onRefetchMiners);
-  onRefetchMinersRef.current = onRefetchMiners;
   const onWorkerNameUpdatedRef = useRef(onWorkerNameUpdated);
-  onWorkerNameUpdatedRef.current = onWorkerNameUpdated;
+  useEffect(() => {
+    minersRef.current = miners;
+    onRefetchMinersRef.current = onRefetchMiners;
+    onWorkerNameUpdatedRef.current = onWorkerNameUpdated;
+  });
 
   const closeModalFlow = useCallback(() => {
     setModalFlow({ kind: "closed" });
@@ -531,6 +533,7 @@ const MinerList = ({
 
   const minerColConfig = useMemo(
     () =>
+      // eslint-disable-next-line react-hooks/refs -- refs are read inside the config's render-time component callbacks (not here); keeps config stable across poll-driven miners/callback identity changes
       createMinerColConfig({
         onOpenStatusFlow: handleOpenStatusFlow,
         availableGroups,
