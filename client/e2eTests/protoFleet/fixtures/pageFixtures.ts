@@ -2,6 +2,7 @@
 /* eslint-disable react-hooks/rules-of-hooks */
 import { test as base } from "@playwright/test";
 import { CommonSteps } from "../helpers/commonSteps";
+import { ActivityPage } from "../pages/activity";
 import { AddMinersPage } from "../pages/addMiners";
 import { AuthPage } from "../pages/auth";
 import { LoginModalComponent } from "../pages/components/loginModal";
@@ -20,6 +21,7 @@ import { SettingsSecurityPage } from "../pages/settingsSecurity";
 import { SettingsTeamPage } from "../pages/settingsTeam";
 
 type PageFixtures = {
+  activityPage: ActivityPage;
   authPage: AuthPage;
   homePage: HomePage;
   minersPage: MinersPage;
@@ -40,6 +42,9 @@ type PageFixtures = {
 };
 
 export const test = base.extend<PageFixtures>({
+  activityPage: async ({ page, isMobile }, use) => {
+    await use(new ActivityPage(page, isMobile));
+  },
   authPage: async ({ page, isMobile }, use) => {
     await use(new AuthPage(page, isMobile));
   },
