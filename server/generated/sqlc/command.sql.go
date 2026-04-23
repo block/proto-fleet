@@ -21,7 +21,8 @@ INSERT INTO command_batch_log (
     created_at,
     status,
     devices_count,
-    payload
+    payload,
+    organization_id
 ) VALUES (
   $1,
   $2,
@@ -29,20 +30,25 @@ INSERT INTO command_batch_log (
   $4,
   $5,
   $6,
-  $7
+  $7,
+  $8
 )
 `
 
 type CreateCommandBatchLogParams struct {
-	Uuid         string
-	Type         string
-	CreatedBy    int64
-	CreatedAt    time.Time
-	Status       BatchStatusEnum
-	DevicesCount int32
-	Payload      pqtype.NullRawMessage
+	Uuid           string
+	Type           string
+	CreatedBy      int64
+	CreatedAt      time.Time
+	Status         BatchStatusEnum
+	DevicesCount   int32
+	Payload        pqtype.NullRawMessage
+	OrganizationID sql.NullInt64
 }
 
+// organization_id is captured from the caller's session so downstream
+// org-scoped queries (e.g. GetBatchHeaderForOrg) can filter directly on the
+// batch's owning organization rather than joining through user_organization.
 func (q *Queries) CreateCommandBatchLog(ctx context.Context, arg CreateCommandBatchLogParams) (sql.Result, error) {
 	return q.exec(ctx, q.createCommandBatchLogStmt, createCommandBatchLog,
 		arg.Uuid,
@@ -52,7 +58,46 @@ func (q *Queries) CreateCommandBatchLog(ctx context.Context, arg CreateCommandBa
 		arg.Status,
 		arg.DevicesCount,
 		arg.Payload,
+		arg.OrganizationID,
 	)
+}
+
+const getBatchHeaderForOrg = `-- name: GetBatchHeaderForOrg :one
+SELECT
+    cbl.uuid,
+    cbl.type,
+    cbl.status,
+    cbl.devices_count
+FROM command_batch_log cbl
+WHERE cbl.uuid = $1
+  AND cbl.organization_id = $2
+`
+
+type GetBatchHeaderForOrgParams struct {
+	Uuid           string
+	OrganizationID sql.NullInt64
+}
+
+type GetBatchHeaderForOrgRow struct {
+	Uuid         string
+	Type         string
+	Status       BatchStatusEnum
+	DevicesCount int32
+}
+
+// Returns the batch header only if its recorded organization_id matches the
+// caller's session org. Rows with organization_id IS NULL (pre-migration
+// history) are intentionally invisible to this query.
+func (q *Queries) GetBatchHeaderForOrg(ctx context.Context, arg GetBatchHeaderForOrgParams) (GetBatchHeaderForOrgRow, error) {
+	row := q.queryRow(ctx, q.getBatchHeaderForOrgStmt, getBatchHeaderForOrg, arg.Uuid, arg.OrganizationID)
+	var i GetBatchHeaderForOrgRow
+	err := row.Scan(
+		&i.Uuid,
+		&i.Type,
+		&i.Status,
+		&i.DevicesCount,
+	)
+	return i, err
 }
 
 const getBatchLog = `-- name: GetBatchLog :one
@@ -124,6 +169,68 @@ func (q *Queries) GetBatchStatusAndDeviceCounts(ctx context.Context, uuid string
 	return i, err
 }
 
+const listBatchDeviceResults = `-- name: ListBatchDeviceResults :many
+SELECT
+    d.device_identifier,
+    codl.status,
+    codl.error_info,
+    codl.updated_at
+FROM command_on_device_log codl
+JOIN command_batch_log cbl ON cbl.id = codl.command_batch_log_id
+LEFT JOIN device d ON d.id = codl.device_id
+WHERE cbl.uuid = $1
+ORDER BY d.device_identifier NULLS LAST, codl.id
+LIMIT $2
+`
+
+type ListBatchDeviceResultsParams struct {
+	Uuid    string
+	MaxRows int32
+}
+
+type ListBatchDeviceResultsRow struct {
+	DeviceIdentifier sql.NullString
+	Status           DeviceCommandStatusEnum
+	ErrorInfo        sql.NullString
+	UpdatedAt        time.Time
+}
+
+// Returns one row per device in the batch, ordered deterministically so the
+// client can page or virtualize without reshuffling results across polls.
+// The LEFT JOIN to device preserves identifiers for soft-deleted devices.
+//
+// max_rows caps the read server-side so a pathological batch cannot push
+// millions of rows through the driver buffer before the Go truncation cap
+// fires. Callers that want to detect truncation pass (cap + 1); reading one
+// sentinel row beyond the cap keeps `len(rows) > cap` a valid signal.
+func (q *Queries) ListBatchDeviceResults(ctx context.Context, arg ListBatchDeviceResultsParams) ([]ListBatchDeviceResultsRow, error) {
+	rows, err := q.query(ctx, q.listBatchDeviceResultsStmt, listBatchDeviceResults, arg.Uuid, arg.MaxRows)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListBatchDeviceResultsRow
+	for rows.Next() {
+		var i ListBatchDeviceResultsRow
+		if err := rows.Scan(
+			&i.DeviceIdentifier,
+			&i.Status,
+			&i.ErrorInfo,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const markCommandBatchFinished = `-- name: MarkCommandBatchFinished :exec
 UPDATE command_batch_log
 SET status = 'FINISHED',
@@ -169,17 +276,20 @@ INSERT INTO command_on_device_log (
    command_batch_log_id,
    device_id,
    status,
-   updated_at
+   updated_at,
+   error_info
 )
 SELECT
   batch.id,
   $1,
   $2,
-  $3
+  $3,
+  $5
 FROM batch
 ON CONFLICT (command_batch_log_id, device_id) DO UPDATE SET
     status = EXCLUDED.status,
-    updated_at = EXCLUDED.updated_at
+    updated_at = EXCLUDED.updated_at,
+    error_info = EXCLUDED.error_info
 `
 
 type UpsertCommandOnDeviceLogParams struct {
@@ -187,15 +297,19 @@ type UpsertCommandOnDeviceLogParams struct {
 	Status    DeviceCommandStatusEnum
 	UpdatedAt time.Time
 	Uuid      string
+	ErrorInfo sql.NullString
 }
 
-// PostgreSQL version using CTE for the subquery
+// PostgreSQL version using CTE for the subquery.
+// error_info is NULL for SUCCESS rows; for FAILED rows it is either the worker
+// error string (truncated by the caller) or the reaper reason.
 func (q *Queries) UpsertCommandOnDeviceLog(ctx context.Context, arg UpsertCommandOnDeviceLogParams) error {
 	_, err := q.exec(ctx, q.upsertCommandOnDeviceLogStmt, upsertCommandOnDeviceLog,
 		arg.DeviceID,
 		arg.Status,
 		arg.UpdatedAt,
 		arg.Uuid,
+		arg.ErrorInfo,
 	)
 	return err
 }

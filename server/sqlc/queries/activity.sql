@@ -1,13 +1,15 @@
 -- name: InsertActivityLog :exec
+-- The unique partial index on (batch_id, event_type) for '*.completed' event
+-- types lets the Go layer detect idempotent re-inserts via pq unique_violation.
 INSERT INTO activity_log (
     event_id,
     event_category, event_type, description,
     result, error_message,
     scope_type, scope_label, scope_count,
     actor_type, user_id, username,
-    organization_id, metadata
+    organization_id, metadata, batch_id
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
 );
 
 -- name: ListActivityLogs :many
@@ -19,7 +21,7 @@ SELECT
     result, error_message,
     scope_type, scope_label, scope_count,
     actor_type, user_id, username,
-    created_at, metadata
+    created_at, metadata, batch_id
 FROM activity_log
 WHERE organization_id = sqlc.arg('org_id')
     AND (sqlc.narg('categories')::text[] IS NULL OR event_category = ANY(sqlc.narg('categories')::text[]))

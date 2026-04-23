@@ -26,6 +26,16 @@ type Session struct {
 	RevokedAt      *time.Time
 }
 
+// Actor marks sessions synthesized by internal orchestrators (e.g. the
+// schedule processor) so the command service can attribute activity rows
+// correctly. Empty for user/API-key traffic.
+type Actor string
+
+const (
+	// ActorScheduler marks sessions synthesized by the schedule processor.
+	ActorScheduler Actor = "scheduler"
+)
+
 // Info contains authenticated request context passed to handlers.
 // Populated by the auth interceptor for both session and API key authentication.
 type Info struct {
@@ -44,6 +54,10 @@ type Info struct {
 	ExternalUserID string
 	Username       string
 	Role           string
+
+	// Actor is set by internal orchestrators that synthesize a session.Info
+	// (e.g. scheduler). Empty for user/API-key traffic.
+	Actor Actor
 }
 
 // CredentialID returns a stable identifier for the authenticated credential.

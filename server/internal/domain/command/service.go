@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/sqlc-dev/pqtype"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
@@ -64,8 +65,9 @@ type Service struct {
 
 const defaultPoolPriority uint32 = 0
 
-// maxCallbackRetries is the maximum number of times the onFinished callback is retried
-// before marking the batch finished anyway to unblock the client.
+// maxCallbackRetries bounds callback attempts before marking FINISHED.
+// The callback gets up to maxCallbackRetries more post-finish attempts
+// to prevent permanent audit gaps from transient DB failures.
 const maxCallbackRetries = 3
 
 type Command struct {
@@ -102,16 +104,155 @@ func (s *Service) logCommandActivity(ctx context.Context, eventType, description
 		slog.Warn("failed to log command activity: session info unavailable", "error", err)
 		return
 	}
+	batchIDCopy := batchID
 	s.activitySvc.Log(ctx, activitymodels.Event{
 		Category:       activitymodels.CategoryDeviceCommand,
 		Type:           eventType,
 		Description:    description,
 		ScopeCount:     &deviceCount,
+		ActorType:      actorTypeFromSession(info),
 		UserID:         &info.ExternalUserID,
 		Username:       &info.Username,
 		OrganizationID: &info.OrganizationID,
+		BatchID:        &batchIDCopy,
 		Metadata:       map[string]any{"batch_id": batchID},
 	})
+}
+
+// actorTypeFromSession maps session.Info.Actor into the activity ActorType.
+// Empty return falls back to the activity service's default (ActorUser).
+func actorTypeFromSession(info *session.Info) activitymodels.ActorType {
+	if info == nil {
+		return ""
+	}
+	if info.Actor == session.ActorScheduler {
+		return activitymodels.ActorScheduler
+	}
+	return ""
+}
+
+// composeFinalizers chains onFinished callbacks so commands like DownloadLogs
+// can layer a bundle builder alongside the activity finalizer. Nil callbacks
+// are skipped; empty input returns nil. Best-effort: every callback runs even
+// if earlier ones fail, so a bundle-builder failure cannot block the activity
+// finalizer. The first error is returned so the retry loop in
+// initializeStatusUpdateRoutine still knows to retry on the next tick.
+// Already-succeeded callbacks are skipped on retry.
+//
+// NOT SAFE FOR CONCURRENT USE: initializeStatusUpdateRoutine is the only
+// call site today and invokes the closure serially.
+func composeFinalizers(callbacks ...onFinishedCallbackFunc) onFinishedCallbackFunc {
+	type trackedCallback struct {
+		fn   onFinishedCallbackFunc
+		done bool
+	}
+	tracked := make([]*trackedCallback, 0, len(callbacks))
+	for _, cb := range callbacks {
+		if cb != nil {
+			tracked = append(tracked, &trackedCallback{fn: cb})
+		}
+	}
+	switch len(tracked) {
+	case 0:
+		return nil
+	case 1:
+		// Single callback: initializeStatusUpdateRoutine already guards it
+		// with its own callbackDone flag so per-callback tracking is moot.
+		return tracked[0].fn
+	default:
+		return func() error {
+			var firstErr error
+			for _, tc := range tracked {
+				if tc.done {
+					continue
+				}
+				if err := tc.fn(); err != nil {
+					if firstErr == nil {
+						firstErr = err
+					}
+					continue
+				}
+				tc.done = true
+			}
+			return firstErr
+		}
+	}
+}
+
+// finalizerDBTimeout bounds the background transaction used by the activity
+// finalizer. Independent of request ctx since the finalizer runs long after
+// the originating RPC has returned.
+const finalizerDBTimeout = 15 * time.Second
+
+// buildActivityCompletedCallback returns a finalizer that writes the
+// '<event_type>.completed' activity row when the batch reaches FINISHED.
+// The partial unique index on (batch_id, event_type) plus SQLActivityStore's
+// duplicate swallow keep the finalizer's retry loop idempotent.
+//
+// Session info is captured at call time because the finalizer runs against a
+// background context (the originating request ctx is long gone).
+//
+// Ordering: attempted BEFORE MarkCommandBatchFinished* (up to
+// maxCallbackRetries). If pre-mark attempts exhaust, the batch is marked
+// FINISHED anyway and the callback gets maxCallbackRetries more post-mark
+// attempts before giving up.
+func (s *Service) buildActivityCompletedCallback(ctx context.Context, batchID, eventType, description string) onFinishedCallbackFunc {
+	if s.activitySvc == nil {
+		return nil
+	}
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		slog.Warn("command activity finalizer: session info unavailable at command start",
+			"error", err, "batch_id", batchID)
+		return nil
+	}
+	userID := info.ExternalUserID
+	username := info.Username
+	organizationID := info.OrganizationID
+	actorType := actorTypeFromSession(info)
+	return func() error {
+		finCtx, cancel := context.WithTimeout(context.Background(), finalizerDBTimeout)
+		defer cancel()
+		counts, err := db.WithTransaction(finCtx, s.conn, func(q *sqlc.Queries) (sqlc.GetBatchStatusAndDeviceCountsRow, error) {
+			return q.GetBatchStatusAndDeviceCounts(finCtx, batchID)
+		})
+		if err != nil {
+			return fleeterror.NewInternalErrorf("finalizer reading counts for %s: %v", batchID, err)
+		}
+
+		result := activitymodels.ResultSuccess
+		if counts.FailedDevices > 0 {
+			result = activitymodels.ResultFailure
+		}
+
+		// #nosec G115 -- devices_count is bounded by the batch size we create.
+		scopeCount := int(counts.DevicesCount)
+		batchIDCopy := batchID
+		completionDesc := fmt.Sprintf("%s completed: %d succeeded, %d failed",
+			description, counts.SuccessfulDevices, counts.FailedDevices)
+		// LogStrict surfaces transient DB errors back to the status routine's
+		// retry loop; the partial unique index keeps retries idempotent.
+		if err := s.activitySvc.LogStrict(finCtx, activitymodels.Event{
+			Category:       activitymodels.CategoryDeviceCommand,
+			Type:           eventType + activitymodels.CompletedEventSuffix,
+			Description:    completionDesc,
+			Result:         result,
+			ScopeCount:     &scopeCount,
+			ActorType:      actorType,
+			UserID:         &userID,
+			Username:       &username,
+			OrganizationID: &organizationID,
+			BatchID:        &batchIDCopy,
+			Metadata: map[string]any{
+				"total_count":   counts.DevicesCount,
+				"success_count": counts.SuccessfulDevices,
+				"failure_count": counts.FailedDevices,
+			},
+		}); err != nil {
+			return fleeterror.NewInternalErrorf("finalizer writing completion for %s: %v", batchID, err)
+		}
+		return nil
+	}
 }
 
 func (s *Service) getDevicesCount(ctx context.Context, selector *pb.DeviceSelector) (int32, error) {
@@ -138,7 +279,14 @@ func (s *Service) getDevicesCount(ctx context.Context, selector *pb.DeviceSelect
 	}
 }
 
-func (s *Service) saveCommandBatchLogToDB(ctx context.Context, userID int64, command *Command, payloadBytes []byte) (string, error) {
+func (s *Service) saveCommandBatchLogToDB(ctx context.Context, userID, organizationID int64, command *Command, payloadBytes []byte) (string, error) {
+	// Guard ordering matters: this check must fire before getDevicesCount so
+	// unit tests without a wired deviceStore still hit the org-id check
+	// cleanly, and invalid inputs do not waste a store round-trip.
+	if organizationID <= 0 {
+		return "", fleeterror.NewInternalErrorf("cannot create command batch: session missing organization_id")
+	}
+
 	devicesCount, err := s.getDevicesCount(ctx, command.deviceSelector)
 	if err != nil {
 		return "", err
@@ -149,13 +297,14 @@ func (s *Service) saveCommandBatchLogToDB(ctx context.Context, userID int64, com
 		newUUID := id.GenerateID()
 
 		_, err := q.CreateCommandBatchLog(ctx, sqlc.CreateCommandBatchLogParams{
-			Uuid:         newUUID,
-			Type:         command.commandType.String(),
-			CreatedBy:    userID,
-			CreatedAt:    timeNow,
-			Status:       sqlc.BatchStatusEnumPENDING,
-			DevicesCount: devicesCount,
-			Payload:      pqtype.NullRawMessage{RawMessage: payloadBytes, Valid: len(payloadBytes) > 0},
+			Uuid:           newUUID,
+			Type:           command.commandType.String(),
+			CreatedBy:      userID,
+			CreatedAt:      timeNow,
+			Status:         sqlc.BatchStatusEnumPENDING,
+			DevicesCount:   devicesCount,
+			Payload:        pqtype.NullRawMessage{RawMessage: payloadBytes, Valid: len(payloadBytes) > 0},
+			OrganizationID: sql.NullInt64{Int64: organizationID, Valid: true},
 		})
 		if err != nil {
 			return "", fleeterror.NewInternalErrorf("error creating command batch log: %v", err)
@@ -212,13 +361,14 @@ func (s *Service) initializeStatusUpdateRoutine(commandBatchLogUUID string, onFi
 
 		processingMarkedInDB := false
 		callbackRetryCount := 0
-		callbackDone := false // true once callback succeeded or max retries exhausted
+		callbackDone := false
+		batchMarkedFinished := false
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				if !processingMarkedInDB {
+				if !batchMarkedFinished && !processingMarkedInDB {
 					isProcessing, err := s.statusUpdateIsProcessingBranch(ctx, commandBatchLogUUID)
 					if err != nil {
 						slog.Error("error in isProcessing branch", "error", err)
@@ -226,39 +376,47 @@ func (s *Service) initializeStatusUpdateRoutine(commandBatchLogUUID string, onFi
 					}
 					processingMarkedInDB = isProcessing
 				}
-				isFinished, err := s.statusUpdateIsFinishedBranch(ctx, commandBatchLogUUID)
-				if err != nil {
-					slog.Error("error in isFinished branch", "error", err)
-					return
+				if !batchMarkedFinished {
+					isFinished, err := s.statusUpdateIsFinishedBranch(ctx, commandBatchLogUUID)
+					if err != nil {
+						slog.Error("error in isFinished branch", "error", err)
+						return
+					}
+					if !isFinished {
+						continue
+					}
 				}
-				if isFinished {
-					// Run the callback before marking the batch finished in the DB.
-					// This ensures any side-effects (e.g. ZIP creation for download-logs)
-					// are complete before the stream sees FINISHED and the client fetches
-					// the result, preventing a race where the client requests the bundle
-					// before it exists.
-					if onFinishedCallback != nil && !callbackDone {
-						if callbackErr := onFinishedCallback(); callbackErr != nil {
-							callbackRetryCount++
-							if callbackRetryCount < maxCallbackRetries {
-								// Retry on the next tick so the client doesn't see FINISHED
-								// until side-effects (e.g. bundle creation) have succeeded.
-								slog.Error("error in onFinished callback, will retry", "error", callbackErr, "retry", callbackRetryCount)
-								continue
-							}
-							// Max retries exceeded — mark the batch finished anyway to unblock the
-							// client. The bundle may be unavailable; the client will get an
-							// appropriate error when it attempts to fetch it.
-							slog.Error("onFinished callback failed after max retries, marking batch finished", "error", callbackErr)
+
+				if onFinishedCallback != nil && !callbackDone {
+					if callbackErr := onFinishedCallback(); callbackErr != nil {
+						callbackRetryCount++
+						if !batchMarkedFinished && callbackRetryCount < maxCallbackRetries {
+							slog.Error("onFinished callback failed, will retry before marking batch finished",
+								"error", callbackErr, "retry", callbackRetryCount)
+							continue
 						}
+						if callbackRetryCount >= maxCallbackRetries*2 {
+							slog.Error("onFinished callback permanently failed",
+								"error", callbackErr, "retries", callbackRetryCount)
+							callbackDone = true
+						} else {
+							slog.Error("onFinished callback failed, will retry",
+								"error", callbackErr, "retry", callbackRetryCount)
+						}
+					} else {
 						callbackDone = true
 					}
+				}
+
+				if !batchMarkedFinished {
 					if markErr := s.getMarkFinishedBatchFunction(processingMarkedInDB)(ctx, commandBatchLogUUID); markErr != nil {
-						// Retry on the next tick; the batch must reach FINISHED in the DB
-						// or the client stream will see it stuck in PROCESSING forever.
 						slog.Error("error marking batch finished, will retry", "error", markErr)
 						continue
 					}
+					batchMarkedFinished = true
+				}
+
+				if callbackDone || onFinishedCallback == nil {
 					return
 				}
 			}
@@ -353,7 +511,7 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (string,
 		return "", 0, fleeterror.NewInternalErrorf("error marshalling payload: %v", err)
 	}
 
-	batchLogIdentifier, err := s.saveCommandBatchLogToDB(ctx, info.UserID, command, payloadBytes)
+	batchLogIdentifier, err := s.saveCommandBatchLogToDB(ctx, info.UserID, info.OrganizationID, command, payloadBytes)
 	if err != nil {
 		return "", 0, fleeterror.NewInternalErrorf("error saving command batch log to db: %v", err)
 	}
@@ -376,8 +534,9 @@ func (s *Service) Reboot(ctx context.Context, deviceSelector *pb.DeviceSelector)
 		return nil, err
 	}
 
-	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
 	s.logCommandActivity(ctx, "reboot", "Reboot", deviceCount, commandBatchLogUUID)
+	s.initializeStatusUpdateRoutine(commandBatchLogUUID,
+		s.buildActivityCompletedCallback(ctx, commandBatchLogUUID, "reboot", "Reboot"))
 
 	return &pb.RebootResponse{
 		BatchIdentifier: commandBatchLogUUID,
@@ -394,8 +553,9 @@ func (s *Service) StopMining(ctx context.Context, deviceSelector *pb.DeviceSelec
 		return nil, err
 	}
 
-	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
 	s.logCommandActivity(ctx, "stop_mining", "Sleep", deviceCount, commandBatchLogUUID)
+	s.initializeStatusUpdateRoutine(commandBatchLogUUID,
+		s.buildActivityCompletedCallback(ctx, commandBatchLogUUID, "stop_mining", "Sleep"))
 
 	return &pb.StopMiningResponse{
 		BatchIdentifier: commandBatchLogUUID,
@@ -412,8 +572,9 @@ func (s *Service) StartMining(ctx context.Context, deviceSelector *pb.DeviceSele
 		return nil, err
 	}
 
-	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
 	s.logCommandActivity(ctx, "start_mining", "Wake up", deviceCount, commandBatchLogUUID)
+	s.initializeStatusUpdateRoutine(commandBatchLogUUID,
+		s.buildActivityCompletedCallback(ctx, commandBatchLogUUID, "start_mining", "Wake up"))
 
 	return &pb.StartMiningResponse{
 		BatchIdentifier: commandBatchLogUUID,
@@ -430,8 +591,9 @@ func (s *Service) SetCoolingMode(ctx context.Context, deviceSelector *pb.DeviceS
 		return nil, err
 	}
 
-	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
 	s.logCommandActivity(ctx, "set_cooling_mode", "Cooling mode changed", deviceCount, commandBatchLogUUID)
+	s.initializeStatusUpdateRoutine(commandBatchLogUUID,
+		s.buildActivityCompletedCallback(ctx, commandBatchLogUUID, "set_cooling_mode", "Cooling mode changed"))
 
 	return &pb.SetCoolingModeResponse{
 		BatchIdentifier: commandBatchLogUUID,
@@ -450,8 +612,10 @@ func (s *Service) SetPowerTarget(ctx context.Context, deviceSelector *pb.DeviceS
 		return nil, err
 	}
 
-	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
-	s.logCommandActivity(ctx, "set_power_target", fmt.Sprintf("Power target changed to %s", performanceMode.String()), deviceCount, commandBatchLogUUID)
+	description := fmt.Sprintf("Power target changed to %s", performanceMode.String())
+	s.logCommandActivity(ctx, "set_power_target", description, deviceCount, commandBatchLogUUID)
+	s.initializeStatusUpdateRoutine(commandBatchLogUUID,
+		s.buildActivityCompletedCallback(ctx, commandBatchLogUUID, "set_power_target", description))
 
 	return &pb.SetPowerTargetResponse{
 		BatchIdentifier: commandBatchLogUUID,
@@ -579,8 +743,9 @@ func (s *Service) UpdateMiningPools(
 		return nil, err
 	}
 
-	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
 	s.logCommandActivity(ctx, "update_mining_pools", "Edit pool", deviceCount, commandBatchLogUUID)
+	s.initializeStatusUpdateRoutine(commandBatchLogUUID,
+		s.buildActivityCompletedCallback(ctx, commandBatchLogUUID, "update_mining_pools", "Edit pool"))
 
 	return &pb.UpdateMiningPoolsResponse{BatchIdentifier: commandBatchLogUUID}, nil
 }
@@ -635,7 +800,7 @@ func (s *Service) ReapplyCurrentPoolsWithWorkerNames(
 		return "", fleeterror.NewInternalErrorf("error marshalling payload: %v", err)
 	}
 
-	commandBatchLogUUID, err := s.saveCommandBatchLogToDB(ctx, info.UserID, command, payloadBytes)
+	commandBatchLogUUID, err := s.saveCommandBatchLogToDB(ctx, info.UserID, info.OrganizationID, command, payloadBytes)
 	if err != nil {
 		return "", fleeterror.NewInternalErrorf("error saving command batch log to db: %v", err)
 	}
@@ -713,9 +878,13 @@ func (s *Service) DownloadLogs(ctx context.Context, deviceSelector *pb.DeviceSel
 		return nil, err
 	}
 
-	callback := s.filesService.DownloadLogsOnFinishedCallback(commandBatchLogUUID)
-	s.initializeStatusUpdateRoutine(commandBatchLogUUID, callback)
+	// Bundle callback runs first so the ZIP is on disk before the activity log
+	// marks the batch as completed; the activity finalizer then writes the
+	// completion row. Both are chained through composeFinalizers.
+	bundleCb := s.filesService.DownloadLogsOnFinishedCallback(commandBatchLogUUID)
+	activityCb := s.buildActivityCompletedCallback(ctx, commandBatchLogUUID, "download_logs", "Download logs")
 	s.logCommandActivity(ctx, "download_logs", "Download logs", deviceCount, commandBatchLogUUID)
+	s.initializeStatusUpdateRoutine(commandBatchLogUUID, composeFinalizers(bundleCb, activityCb))
 
 	return &pb.DownloadLogsResponse{BatchIdentifier: commandBatchLogUUID}, nil
 }
@@ -726,8 +895,9 @@ func (s *Service) BlinkLED(ctx context.Context, deviceSelector *pb.DeviceSelecto
 		return nil, err
 	}
 
-	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
 	s.logCommandActivity(ctx, "blink_led", "Blink LEDs", deviceCount, commandBatchLogUUID)
+	s.initializeStatusUpdateRoutine(commandBatchLogUUID,
+		s.buildActivityCompletedCallback(ctx, commandBatchLogUUID, "blink_led", "Blink LEDs"))
 
 	return &pb.BlinkLEDResponse{BatchIdentifier: commandBatchLogUUID}, nil
 }
@@ -747,8 +917,9 @@ func (s *Service) FirmwareUpdate(ctx context.Context, deviceSelector *pb.DeviceS
 		return nil, err
 	}
 
-	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
 	s.logCommandActivity(ctx, "firmware_update", "Update firmware", deviceCount, commandBatchLogUUID)
+	s.initializeStatusUpdateRoutine(commandBatchLogUUID,
+		s.buildActivityCompletedCallback(ctx, commandBatchLogUUID, "firmware_update", "Update firmware"))
 
 	return &pb.FirmwareUpdateResponse{BatchIdentifier: commandBatchLogUUID}, nil
 }
@@ -759,8 +930,9 @@ func (s *Service) Unpair(ctx context.Context, deviceSelector *pb.DeviceSelector)
 		return nil, err
 	}
 
-	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
 	s.logCommandActivity(ctx, "unpair", "Unpair", deviceCount, commandBatchLogUUID)
+	s.initializeStatusUpdateRoutine(commandBatchLogUUID,
+		s.buildActivityCompletedCallback(ctx, commandBatchLogUUID, "unpair", "Unpair"))
 
 	return &pb.UnpairResponse{BatchIdentifier: commandBatchLogUUID}, nil
 }
@@ -838,8 +1010,9 @@ func (s *Service) UpdateMinerPassword(
 		return nil, err
 	}
 
-	s.initializeStatusUpdateRoutine(commandBatchLogUUID, nil)
 	s.logCommandActivity(ctx, "update_miner_password", "Manage security", deviceCount, commandBatchLogUUID)
+	s.initializeStatusUpdateRoutine(commandBatchLogUUID,
+		s.buildActivityCompletedCallback(ctx, commandBatchLogUUID, "update_miner_password", "Manage security"))
 
 	return &pb.UpdateMinerPasswordResponse{
 		BatchIdentifier: commandBatchLogUUID,
@@ -907,4 +1080,138 @@ func (s *Service) CheckCommandCapabilities(ctx context.Context, req *pb.CheckCom
 	}
 
 	return s.capabilityChecker.CheckCapabilities(ctx, req.DeviceSelector, req.CommandType, info.OrganizationID)
+}
+
+// maxBatchDeviceResults caps the number of per-device rows returned by
+// GetCommandBatchDeviceResults. The activity-log drill-down only needs a
+// bounded slice; larger batches can be fetched page-by-page in a follow-up.
+const maxBatchDeviceResults = 5000
+
+// GetCommandBatchDeviceResults returns the per-device outcome for a command
+// batch so the activity-log UI can drill into which miners succeeded or
+// failed. Org-scoped via command_batch_log.organization_id.
+//
+// details_pruned is true only when the batch is FINISHED with devices_count>0
+// and no per-device rows remain. PENDING/PROCESSING batches keep it false so
+// the UI knows to keep polling; empty-selector batches (devices_count=0) also
+// keep it false because they never had details to prune.
+func (s *Service) GetCommandBatchDeviceResults(ctx context.Context, req *pb.GetCommandBatchDeviceResultsRequest) (*pb.GetCommandBatchDeviceResultsResponse, error) {
+	if req == nil || strings.TrimSpace(req.BatchIdentifier) == "" {
+		return nil, fleeterror.NewInvalidArgumentError("batch_identifier is required")
+	}
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error getting session info: %v", err)
+	}
+
+	// All three queries share a single transaction so header/counts/rows
+	// remain consistent with each other. sql.ErrNoRows must be translated
+	// inside the callback: WithTransaction's retry wrapper reformats any
+	// non-FleetError with %v, so the sentinel can't be recovered by
+	// errors.Is at the call site.
+	type resultsBundle struct {
+		header sqlc.GetBatchHeaderForOrgRow
+		counts sqlc.GetBatchStatusAndDeviceCountsRow
+		rows   []sqlc.ListBatchDeviceResultsRow
+	}
+	// REPEATABLE READ + ReadOnly so header/counts/rows share one snapshot;
+	// the default READ COMMITTED would let concurrent worker writes to
+	// command_on_device_log produce inconsistent counts vs device_results.
+	bundle, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (resultsBundle, error) {
+		var b resultsBundle
+		header, hErr := q.GetBatchHeaderForOrg(ctx, sqlc.GetBatchHeaderForOrgParams{
+			Uuid:           req.BatchIdentifier,
+			OrganizationID: sql.NullInt64{Int64: info.OrganizationID, Valid: true},
+		})
+		if errors.Is(hErr, sql.ErrNoRows) {
+			return b, fleeterror.NewNotFoundErrorf("command batch %s not found", req.BatchIdentifier)
+		}
+		if hErr != nil {
+			return b, hErr
+		}
+		b.header = header
+
+		counts, cErr := q.GetBatchStatusAndDeviceCounts(ctx, req.BatchIdentifier)
+		if cErr != nil {
+			return b, cErr
+		}
+		b.counts = counts
+
+		// Pass (cap + 1) so Go can detect truncation via len(rows) > cap
+		// without pulling the full table through the driver first.
+		rows, rErr := q.ListBatchDeviceResults(ctx, sqlc.ListBatchDeviceResultsParams{
+			Uuid:    req.BatchIdentifier,
+			MaxRows: int32(maxBatchDeviceResults + 1),
+		})
+		if rErr != nil {
+			return b, rErr
+		}
+		b.rows = rows
+		return b, nil
+	}, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
+	if err != nil {
+		if fleeterror.IsNotFoundError(err) {
+			return nil, err
+		}
+		return nil, fleeterror.NewInternalErrorf("error loading batch results: %v", err)
+	}
+
+	header := bundle.header
+	counts := bundle.counts
+	rows := bundle.rows
+
+	truncated := len(rows) > maxBatchDeviceResults
+	capped := rows
+	if truncated {
+		capped = capped[:maxBatchDeviceResults]
+	}
+
+	results := make([]*pb.CommandBatchDeviceResult, 0, len(capped))
+	for _, row := range capped {
+		entry := &pb.CommandBatchDeviceResult{
+			Status:    deviceCommandStatusToProto(row.Status),
+			UpdatedAt: timestamppb.New(row.UpdatedAt),
+		}
+		if row.DeviceIdentifier.Valid {
+			entry.DeviceIdentifier = row.DeviceIdentifier.String
+		}
+		if row.ErrorInfo.Valid {
+			msg := row.ErrorInfo.String
+			entry.ErrorMessage = &msg
+		}
+		results = append(results, entry)
+	}
+
+	// #nosec G115 -- counts come from SUM over command_on_device_log, bounded by
+	// devices_count which itself fits in int32.
+	successCount := int32(counts.SuccessfulDevices)
+	// #nosec G115 -- same bound as successCount.
+	failureCount := int32(counts.FailedDevices)
+
+	detailsPruned := header.DevicesCount > 0 &&
+		header.Status == sqlc.BatchStatusEnumFINISHED &&
+		len(rows) == 0
+
+	return &pb.GetCommandBatchDeviceResultsResponse{
+		BatchIdentifier: header.Uuid,
+		CommandType:     header.Type,
+		Status:          strings.ToLower(string(header.Status)),
+		TotalCount:      header.DevicesCount,
+		SuccessCount:    successCount,
+		FailureCount:    failureCount,
+		DeviceResults:   results,
+		DetailsPruned:   detailsPruned,
+		Truncated:       truncated,
+	}, nil
+}
+
+func deviceCommandStatusToProto(s sqlc.DeviceCommandStatusEnum) string {
+	switch s {
+	case sqlc.DeviceCommandStatusEnumSUCCESS:
+		return "success"
+	case sqlc.DeviceCommandStatusEnumFAILED:
+		return "failed"
+	default:
+		return strings.ToLower(string(s))
+	}
 }

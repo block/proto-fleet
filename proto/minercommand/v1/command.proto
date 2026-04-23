@@ -206,6 +206,52 @@ message GetCommandBatchLogBundleResponse {
   string filename = 2;
 }
 
+// Per-device outcome of a command batch. Used by GetCommandBatchDeviceResults
+// to surface which miners succeeded or failed and, when available, the error
+// that caused the failure.
+message CommandBatchDeviceResult {
+  // Stable device UUID, preserved for soft-deleted devices.
+  string device_identifier = 1;
+  // "success" or "failed" mapped from device_command_status_enum.
+  string status = 2;
+  // Bounded failure reason; unset for successful rows.
+  optional string error_message = 3;
+  // When this row was last updated (start of this attempt's terminal write).
+  google.protobuf.Timestamp updated_at = 4;
+}
+
+message GetCommandBatchDeviceResultsRequest {
+  string batch_identifier = 1;
+}
+
+message GetCommandBatchDeviceResultsResponse {
+  string batch_identifier = 1;
+  // Command type (e.g. "REBOOT") mirrored from command_batch_log.type.
+  string command_type = 2;
+  // Batch-level status: "pending" | "processing" | "finished"
+  // (lowercased in the response to match the device-level status convention).
+  string status = 3;
+  // total_count comes from command_batch_log.devices_count;
+  // success_count/failure_count are aggregated from command_on_device_log
+  // and are unaffected by the device_results truncation cap. They sum to
+  // total_count only for FINISHED batches with intact rows; in-progress
+  // batches will have success_count + failure_count < total_count.
+  int32 total_count = 4;
+  int32 success_count = 5;
+  int32 failure_count = 6;
+  repeated CommandBatchDeviceResult device_results = 7;
+  // True when the batch is FINISHED with devices_count > 0 but no
+  // per-device rows remain (retention pruned). A missing batch header
+  // surfaces as connect.CodeNotFound, not as this response.
+  bool details_pruned = 8;
+  // True when device_results was truncated because the batch has more
+  // per-device rows than the server's response cap. success_count,
+  // failure_count, and total_count continue to reflect the full batch.
+  // The UI should surface an affordance (e.g. "showing first N of total")
+  // so operators know device_results is partial.
+  bool truncated = 9;
+}
+
 // Command type enum for capability checking
 enum CommandType {
   COMMAND_TYPE_UNSPECIFIED = 0;
@@ -272,6 +318,13 @@ service MinerCommandService {
   rpc StreamCommandBatchUpdates(StreamCommandBatchUpdatesRequest) returns (stream StreamCommandBatchUpdatesResponse);
 
   rpc GetCommandBatchLogBundle(GetCommandBatchLogBundleRequest) returns (GetCommandBatchLogBundleResponse);
+
+  // Returns the per-device outcome of a completed (or in-progress) command
+  // batch so the activity log UI can drill into which miners succeeded and
+  // which failed, along with per-miner error messages.
+  // Org-scoped via the session user; returns details_pruned=true when retention
+  // has removed the per-device rows.
+  rpc GetCommandBatchDeviceResults(GetCommandBatchDeviceResultsRequest) returns (GetCommandBatchDeviceResultsResponse);
 
   rpc FirmwareUpdate(FirmwareUpdateRequest) returns (FirmwareUpdateResponse);
 

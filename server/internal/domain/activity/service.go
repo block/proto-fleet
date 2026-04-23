@@ -19,14 +19,25 @@ func NewService(store interfaces.ActivityStore) *Service {
 	return &Service{store: store}
 }
 
-// Log records an activity event on a best-effort basis.
-// Insert errors are logged but never propagated to the caller.
+// Log records an activity event on a best-effort basis. Insert errors are
+// logged but never propagated. Callers that need to see persistence errors
+// (e.g. the command finalizer's retry loop) should use LogStrict instead.
 //
-// Events with a nil OrganizationID (e.g. auth failures for unknown users) are
-// accepted and persisted, but the current org-scoped read queries (List, Count,
-// GetFilterOptions) will not return them. A global/admin read path for org-less
-// events is planned as a follow-up.
+// Events with a nil OrganizationID (e.g. auth failures for unknown users)
+// are persisted but won't surface in the org-scoped read queries.
 func (s *Service) Log(ctx context.Context, event models.Event) {
+	if err := s.LogStrict(ctx, event); err != nil {
+		slog.Error("failed to insert activity log", "error", err, "event_type", event.Type)
+	}
+}
+
+// LogStrict records an activity event and returns any persistence error.
+// Duplicate '*.completed' inserts are swallowed at the store layer so
+// finalizer retries look like success: unique-constraint violations on
+// uq_activity_log_batch_completed are recognized by isCompletedBatchDuplicate
+// in SQLActivityStore and yield a nil return, keeping idempotent retries
+// indistinguishable from a first-write success to callers.
+func (s *Service) LogStrict(ctx context.Context, event models.Event) error {
 	if event.Result == "" {
 		event.Result = models.ResultSuccess
 	}
@@ -53,9 +64,7 @@ func (s *Service) Log(ctx context.Context, event models.Event) {
 		slog.Warn("activity event missing organization_id for non-auth category",
 			"event_type", event.Type, "category", string(event.Category))
 	}
-	if err := s.store.Insert(ctx, &event); err != nil {
-		slog.Error("failed to insert activity log", "error", err, "event_type", event.Type)
-	}
+	return s.store.Insert(ctx, &event)
 }
 
 func (s *Service) List(ctx context.Context, filter models.Filter) ([]models.Entry, error) {

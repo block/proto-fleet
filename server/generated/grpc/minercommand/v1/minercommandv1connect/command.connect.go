@@ -64,6 +64,9 @@ const (
 	// MinerCommandServiceGetCommandBatchLogBundleProcedure is the fully-qualified name of the
 	// MinerCommandService's GetCommandBatchLogBundle RPC.
 	MinerCommandServiceGetCommandBatchLogBundleProcedure = "/minercommand.v1.MinerCommandService/GetCommandBatchLogBundle"
+	// MinerCommandServiceGetCommandBatchDeviceResultsProcedure is the fully-qualified name of the
+	// MinerCommandService's GetCommandBatchDeviceResults RPC.
+	MinerCommandServiceGetCommandBatchDeviceResultsProcedure = "/minercommand.v1.MinerCommandService/GetCommandBatchDeviceResults"
 	// MinerCommandServiceFirmwareUpdateProcedure is the fully-qualified name of the
 	// MinerCommandService's FirmwareUpdate RPC.
 	MinerCommandServiceFirmwareUpdateProcedure = "/minercommand.v1.MinerCommandService/FirmwareUpdate"
@@ -95,6 +98,12 @@ type MinerCommandServiceClient interface {
 	// Streams command batch updates
 	StreamCommandBatchUpdates(context.Context, *connect.Request[v1.StreamCommandBatchUpdatesRequest]) (*connect.ServerStreamForClient[v1.StreamCommandBatchUpdatesResponse], error)
 	GetCommandBatchLogBundle(context.Context, *connect.Request[v1.GetCommandBatchLogBundleRequest]) (*connect.Response[v1.GetCommandBatchLogBundleResponse], error)
+	// Returns the per-device outcome of a completed (or in-progress) command
+	// batch so the activity log UI can drill into which miners succeeded and
+	// which failed, along with per-miner error messages.
+	// Org-scoped via the session user; returns details_pruned=true when retention
+	// has removed the per-device rows.
+	GetCommandBatchDeviceResults(context.Context, *connect.Request[v1.GetCommandBatchDeviceResultsRequest]) (*connect.Response[v1.GetCommandBatchDeviceResultsResponse], error)
 	FirmwareUpdate(context.Context, *connect.Request[v1.FirmwareUpdateRequest]) (*connect.Response[v1.FirmwareUpdateResponse], error)
 	// Unpairs devices from the fleet
 	// Updates pairing status to UNPAIRED and clears credentials on the device
@@ -167,6 +176,11 @@ func NewMinerCommandServiceClient(httpClient connect.HTTPClient, baseURL string,
 			baseURL+MinerCommandServiceGetCommandBatchLogBundleProcedure,
 			opts...,
 		),
+		getCommandBatchDeviceResults: connect.NewClient[v1.GetCommandBatchDeviceResultsRequest, v1.GetCommandBatchDeviceResultsResponse](
+			httpClient,
+			baseURL+MinerCommandServiceGetCommandBatchDeviceResultsProcedure,
+			opts...,
+		),
 		firmwareUpdate: connect.NewClient[v1.FirmwareUpdateRequest, v1.FirmwareUpdateResponse](
 			httpClient,
 			baseURL+MinerCommandServiceFirmwareUpdateProcedure,
@@ -192,20 +206,21 @@ func NewMinerCommandServiceClient(httpClient connect.HTTPClient, baseURL string,
 
 // minerCommandServiceClient implements MinerCommandServiceClient.
 type minerCommandServiceClient struct {
-	reboot                    *connect.Client[v1.RebootRequest, v1.RebootResponse]
-	stopMining                *connect.Client[v1.StopMiningRequest, v1.StopMiningResponse]
-	startMining               *connect.Client[v1.StartMiningRequest, v1.StartMiningResponse]
-	setCoolingMode            *connect.Client[v1.SetCoolingModeRequest, v1.SetCoolingModeResponse]
-	setPowerTarget            *connect.Client[v1.SetPowerTargetRequest, v1.SetPowerTargetResponse]
-	updateMiningPools         *connect.Client[v1.UpdateMiningPoolsRequest, v1.UpdateMiningPoolsResponse]
-	downloadLogs              *connect.Client[v1.DownloadLogsRequest, v1.DownloadLogsResponse]
-	blinkLED                  *connect.Client[v1.BlinkLEDRequest, v1.BlinkLEDResponse]
-	streamCommandBatchUpdates *connect.Client[v1.StreamCommandBatchUpdatesRequest, v1.StreamCommandBatchUpdatesResponse]
-	getCommandBatchLogBundle  *connect.Client[v1.GetCommandBatchLogBundleRequest, v1.GetCommandBatchLogBundleResponse]
-	firmwareUpdate            *connect.Client[v1.FirmwareUpdateRequest, v1.FirmwareUpdateResponse]
-	unpair                    *connect.Client[v1.UnpairRequest, v1.UnpairResponse]
-	updateMinerPassword       *connect.Client[v1.UpdateMinerPasswordRequest, v1.UpdateMinerPasswordResponse]
-	checkCommandCapabilities  *connect.Client[v1.CheckCommandCapabilitiesRequest, v1.CheckCommandCapabilitiesResponse]
+	reboot                       *connect.Client[v1.RebootRequest, v1.RebootResponse]
+	stopMining                   *connect.Client[v1.StopMiningRequest, v1.StopMiningResponse]
+	startMining                  *connect.Client[v1.StartMiningRequest, v1.StartMiningResponse]
+	setCoolingMode               *connect.Client[v1.SetCoolingModeRequest, v1.SetCoolingModeResponse]
+	setPowerTarget               *connect.Client[v1.SetPowerTargetRequest, v1.SetPowerTargetResponse]
+	updateMiningPools            *connect.Client[v1.UpdateMiningPoolsRequest, v1.UpdateMiningPoolsResponse]
+	downloadLogs                 *connect.Client[v1.DownloadLogsRequest, v1.DownloadLogsResponse]
+	blinkLED                     *connect.Client[v1.BlinkLEDRequest, v1.BlinkLEDResponse]
+	streamCommandBatchUpdates    *connect.Client[v1.StreamCommandBatchUpdatesRequest, v1.StreamCommandBatchUpdatesResponse]
+	getCommandBatchLogBundle     *connect.Client[v1.GetCommandBatchLogBundleRequest, v1.GetCommandBatchLogBundleResponse]
+	getCommandBatchDeviceResults *connect.Client[v1.GetCommandBatchDeviceResultsRequest, v1.GetCommandBatchDeviceResultsResponse]
+	firmwareUpdate               *connect.Client[v1.FirmwareUpdateRequest, v1.FirmwareUpdateResponse]
+	unpair                       *connect.Client[v1.UnpairRequest, v1.UnpairResponse]
+	updateMinerPassword          *connect.Client[v1.UpdateMinerPasswordRequest, v1.UpdateMinerPasswordResponse]
+	checkCommandCapabilities     *connect.Client[v1.CheckCommandCapabilitiesRequest, v1.CheckCommandCapabilitiesResponse]
 }
 
 // Reboot calls minercommand.v1.MinerCommandService.Reboot.
@@ -258,6 +273,12 @@ func (c *minerCommandServiceClient) GetCommandBatchLogBundle(ctx context.Context
 	return c.getCommandBatchLogBundle.CallUnary(ctx, req)
 }
 
+// GetCommandBatchDeviceResults calls
+// minercommand.v1.MinerCommandService.GetCommandBatchDeviceResults.
+func (c *minerCommandServiceClient) GetCommandBatchDeviceResults(ctx context.Context, req *connect.Request[v1.GetCommandBatchDeviceResultsRequest]) (*connect.Response[v1.GetCommandBatchDeviceResultsResponse], error) {
+	return c.getCommandBatchDeviceResults.CallUnary(ctx, req)
+}
+
 // FirmwareUpdate calls minercommand.v1.MinerCommandService.FirmwareUpdate.
 func (c *minerCommandServiceClient) FirmwareUpdate(ctx context.Context, req *connect.Request[v1.FirmwareUpdateRequest]) (*connect.Response[v1.FirmwareUpdateResponse], error) {
 	return c.firmwareUpdate.CallUnary(ctx, req)
@@ -296,6 +317,12 @@ type MinerCommandServiceHandler interface {
 	// Streams command batch updates
 	StreamCommandBatchUpdates(context.Context, *connect.Request[v1.StreamCommandBatchUpdatesRequest], *connect.ServerStream[v1.StreamCommandBatchUpdatesResponse]) error
 	GetCommandBatchLogBundle(context.Context, *connect.Request[v1.GetCommandBatchLogBundleRequest]) (*connect.Response[v1.GetCommandBatchLogBundleResponse], error)
+	// Returns the per-device outcome of a completed (or in-progress) command
+	// batch so the activity log UI can drill into which miners succeeded and
+	// which failed, along with per-miner error messages.
+	// Org-scoped via the session user; returns details_pruned=true when retention
+	// has removed the per-device rows.
+	GetCommandBatchDeviceResults(context.Context, *connect.Request[v1.GetCommandBatchDeviceResultsRequest]) (*connect.Response[v1.GetCommandBatchDeviceResultsResponse], error)
 	FirmwareUpdate(context.Context, *connect.Request[v1.FirmwareUpdateRequest]) (*connect.Response[v1.FirmwareUpdateResponse], error)
 	// Unpairs devices from the fleet
 	// Updates pairing status to UNPAIRED and clears credentials on the device
@@ -364,6 +391,11 @@ func NewMinerCommandServiceHandler(svc MinerCommandServiceHandler, opts ...conne
 		svc.GetCommandBatchLogBundle,
 		opts...,
 	)
+	minerCommandServiceGetCommandBatchDeviceResultsHandler := connect.NewUnaryHandler(
+		MinerCommandServiceGetCommandBatchDeviceResultsProcedure,
+		svc.GetCommandBatchDeviceResults,
+		opts...,
+	)
 	minerCommandServiceFirmwareUpdateHandler := connect.NewUnaryHandler(
 		MinerCommandServiceFirmwareUpdateProcedure,
 		svc.FirmwareUpdate,
@@ -406,6 +438,8 @@ func NewMinerCommandServiceHandler(svc MinerCommandServiceHandler, opts ...conne
 			minerCommandServiceStreamCommandBatchUpdatesHandler.ServeHTTP(w, r)
 		case MinerCommandServiceGetCommandBatchLogBundleProcedure:
 			minerCommandServiceGetCommandBatchLogBundleHandler.ServeHTTP(w, r)
+		case MinerCommandServiceGetCommandBatchDeviceResultsProcedure:
+			minerCommandServiceGetCommandBatchDeviceResultsHandler.ServeHTTP(w, r)
 		case MinerCommandServiceFirmwareUpdateProcedure:
 			minerCommandServiceFirmwareUpdateHandler.ServeHTTP(w, r)
 		case MinerCommandServiceUnpairProcedure:
@@ -461,6 +495,10 @@ func (UnimplementedMinerCommandServiceHandler) StreamCommandBatchUpdates(context
 
 func (UnimplementedMinerCommandServiceHandler) GetCommandBatchLogBundle(context.Context, *connect.Request[v1.GetCommandBatchLogBundleRequest]) (*connect.Response[v1.GetCommandBatchLogBundleResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("minercommand.v1.MinerCommandService.GetCommandBatchLogBundle is not implemented"))
+}
+
+func (UnimplementedMinerCommandServiceHandler) GetCommandBatchDeviceResults(context.Context, *connect.Request[v1.GetCommandBatchDeviceResultsRequest]) (*connect.Response[v1.GetCommandBatchDeviceResultsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("minercommand.v1.MinerCommandService.GetCommandBatchDeviceResults is not implemented"))
 }
 
 func (UnimplementedMinerCommandServiceHandler) FirmwareUpdate(context.Context, *connect.Request[v1.FirmwareUpdateRequest]) (*connect.Response[v1.FirmwareUpdateResponse], error) {

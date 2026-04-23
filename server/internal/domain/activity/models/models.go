@@ -63,6 +63,12 @@ const (
 	MinPageSize     = 1
 )
 
+// CompletedEventSuffix is appended to a command event type to mark the
+// terminal row emitted by the batch finalizer. The partial unique index on
+// (batch_id, event_type) for '*.completed' rows keeps finalizer retries
+// idempotent.
+const CompletedEventSuffix = ".completed"
+
 // Event is the write model used by callers of Service.Log().
 type Event struct {
 	Category       EventCategory
@@ -78,6 +84,11 @@ type Event struct {
 	Username       *string
 	OrganizationID *int64
 	Metadata       map[string]any
+
+	// BatchID links the activity row to a command_batch_log.uuid. The
+	// partial unique index on (batch_id, event_type) for '%.completed'
+	// event types guarantees at most one completion row per batch.
+	BatchID *string
 }
 
 // Filter defines query parameters for listing activity entries.
@@ -112,6 +123,7 @@ type Entry struct {
 	Username     *string
 	CreatedAt    time.Time
 	Metadata     json.RawMessage
+	BatchID      *string
 }
 
 type UserInfo struct {

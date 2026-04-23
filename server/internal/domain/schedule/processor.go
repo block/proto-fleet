@@ -737,6 +737,9 @@ func schedulerContext(parent context.Context, sched *pb.Schedule, orgID int64) c
 		OrganizationID: orgID,
 		ExternalUserID: schedulerActorName,
 		Username:       schedulerActorName,
+		// Mark the session as scheduler-driven so downstream activity logging
+		// tags both the initiated and completed rows with ActorScheduler.
+		Actor: session.ActorScheduler,
 	})
 }
 

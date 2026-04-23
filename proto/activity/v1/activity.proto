@@ -62,6 +62,10 @@ message ActivityEntry {
 
     // Error message for failed activities, if any
     optional string error_message = 14;
+
+    // Links this row to a command_batch_log.uuid so the UI can group
+    // initiated + completed rows into one logical batch entry.
+    optional string batch_id = 15;
 }
 
 // Criteria for filtering activity entries

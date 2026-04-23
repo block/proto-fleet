@@ -338,6 +338,7 @@ type ActivityLog struct {
 	OrganizationID sql.NullInt64
 	Metadata       pqtype.NullRawMessage
 	CreatedAt      time.Time
+	BatchID        sql.NullString
 }
 
 type ApiKey struct {
@@ -355,16 +356,17 @@ type ApiKey struct {
 }
 
 type CommandBatchLog struct {
-	ID           int64
-	Uuid         string
-	Type         string
-	CreatedBy    int64
-	CreatedAt    time.Time
-	StartedAt    sql.NullTime
-	FinishedAt   sql.NullTime
-	Status       BatchStatusEnum
-	DevicesCount int32
-	Payload      pqtype.NullRawMessage
+	ID             int64
+	Uuid           string
+	Type           string
+	CreatedBy      int64
+	CreatedAt      time.Time
+	StartedAt      sql.NullTime
+	FinishedAt     sql.NullTime
+	Status         BatchStatusEnum
+	DevicesCount   int32
+	Payload        pqtype.NullRawMessage
+	OrganizationID sql.NullInt64
 }
 
 type CommandOnDeviceLog struct {
@@ -373,6 +375,7 @@ type CommandOnDeviceLog struct {
 	DeviceID          int64
 	Status            DeviceCommandStatusEnum
 	UpdatedAt         time.Time
+	ErrorInfo         sql.NullString
 }
 
 type Device struct {

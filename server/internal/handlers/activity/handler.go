@@ -306,6 +306,8 @@ func entryToProto(e models.Entry) *pb.ActivityEntry {
 		entry.ScopeCount = int32(*e.ScopeCount) // #nosec G115 -- scope_count is a small device count
 	}
 
+	entry.BatchId = e.BatchID
+
 	if len(e.Metadata) > 0 {
 		var raw map[string]any
 		if json.Unmarshal(e.Metadata, &raw) == nil {
