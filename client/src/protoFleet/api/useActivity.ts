@@ -40,7 +40,6 @@ export function useActivity({ filter, pageSize = 50 }: UseActivityParams): UseAc
     async (currentFilter: ActivityFilter | undefined, token: string, append: boolean) => {
       const requestId = ++requestIdRef.current;
       setIsLoading(true);
-      isLoadingRef.current = true;
       setError(null);
 
       try {
@@ -62,9 +61,7 @@ export function useActivity({ filter, pageSize = 50 }: UseActivityParams): UseAc
         }
 
         setPageToken(nextPageToken);
-        pageTokenRef.current = nextPageToken;
         setHasMore(nextPageToken !== "");
-        hasMoreRef.current = nextPageToken !== "";
       } catch (err) {
         if (requestId !== requestIdRef.current) return;
         handleAuthErrors({
@@ -76,7 +73,6 @@ export function useActivity({ filter, pageSize = 50 }: UseActivityParams): UseAc
       } finally {
         if (requestId === requestIdRef.current) {
           setIsLoading(false);
-          isLoadingRef.current = false;
         }
       }
     },
@@ -119,9 +115,7 @@ export function useActivity({ filter, pageSize = 50 }: UseActivityParams): UseAc
     if (isLoadingRef.current) return;
     setActivities([]);
     setPageToken("");
-    pageTokenRef.current = "";
     setHasMore(false);
-    hasMoreRef.current = false;
     setTotalCount(0);
     fetchRef.current(filterRef.current, "", false);
   }, []);
@@ -147,9 +141,7 @@ export function useActivity({ filter, pageSize = 50 }: UseActivityParams): UseAc
 
     setActivities([]);
     setPageToken("");
-    pageTokenRef.current = "";
     setHasMore(false);
-    hasMoreRef.current = false;
     setTotalCount(0);
 
     void fetchRef.current(filter, "", false);

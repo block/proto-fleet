@@ -1049,6 +1049,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
       : "",
   );
 
+  /* eslint-disable react-hooks/immutability -- callback-ref combiner forwards node to caller's mutable ref (standard ref-forwarding pattern) */
   const setCombinedScrollRef = useCallback(
     (node: HTMLDivElement | null) => {
       internalScrollRef.current = node;
@@ -1064,6 +1065,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
     },
     [scrollRef],
   );
+  /* eslint-enable react-hooks/immutability */
 
   useEffect(() => {
     if (!overflowContainer) {

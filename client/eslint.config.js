@@ -62,7 +62,6 @@ export default [
       // disabled and are being adopted incrementally via follow-up issues.
       "react-hooks/set-state-in-effect": "off",
       "react-hooks/refs": "off",
-      "react-hooks/immutability": "off",
       "no-unused-vars": "off",
       "@typescript-eslint/no-unused-vars": [
         "error",
