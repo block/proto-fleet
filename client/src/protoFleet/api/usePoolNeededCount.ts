@@ -76,7 +76,9 @@ const usePoolNeededCount = (): UsePoolNeededCountReturn => {
   }, [handleAuthErrors]);
 
   // Store fetchCount in a ref so refetch callback can access latest version without changing identity
-  fetchCountRef.current = fetchCount;
+  useEffect(() => {
+    fetchCountRef.current = fetchCount;
+  });
 
   // Track if this is the initial load
   const hasLoadedRef = useRef(false);

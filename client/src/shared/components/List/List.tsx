@@ -1209,7 +1209,9 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
     <>
       <div ref={refs.vertical.start} />
       <div className="sticky top-0 flex justify-between">
+        {/* eslint-disable-next-line react-hooks/refs -- ref object from useStickyState is passed to <div ref>; React writes .current during commit, not read during render */}
         <div ref={refs.horizontal.start} />
+        {/* eslint-disable-next-line react-hooks/refs -- ref object from useStickyState is passed to <div ref>; React writes .current during commit, not read during render */}
         <div ref={refs.horizontal.end} />
       </div>
       <table ref={tableRef} className={clsx("min-w-full table-fixed border-collapse", tableClassName ?? "mb-6")}>
@@ -1342,6 +1344,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
           {isLoadingMore && <ProgressCircular indeterminate />}
         </div>
       )}
+      {/* eslint-disable-next-line react-hooks/refs -- ref object from useStickyState is passed to <div ref>; React writes .current during commit, not read during render */}
       <div ref={refs.vertical.end} />
     </>
   );

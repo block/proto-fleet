@@ -46,7 +46,9 @@ export const useComponentErrors = (options?: UseComponentErrorsOptions): UseComp
 
   // Ref so fetchComponentErrors reads latest deviceIdentifiers without needing it as a dependency
   const deviceIdentifiersRef = useRef(deviceIdentifiers);
-  deviceIdentifiersRef.current = deviceIdentifiers;
+  useEffect(() => {
+    deviceIdentifiersRef.current = deviceIdentifiers;
+  });
 
   // Local state for error counts
   const [counts, setCounts] = useState<Partial<Record<ComponentType, number>>>({});
@@ -57,14 +59,21 @@ export const useComponentErrors = (options?: UseComponentErrorsOptions): UseComp
   const requestIdRef = useRef(0);
   const hasLoadedRef = useRef(false);
 
-  // Reset on scope change — invalidate in-flight requests so stale responses can't land
-  const prevScopeRef = useRef(deviceIdentifiersKey);
-  if (prevScopeRef.current !== deviceIdentifiersKey) {
-    prevScopeRef.current = deviceIdentifiersKey;
-    ++requestIdRef.current;
-    hasLoadedRef.current = false;
+  // Reset on scope change — invalidate in-flight requests so stale responses can't land.
+  // Driven via useState "adjust during render" pattern so React renders with the reset
+  // values in the same pass that detects the change (avoids a flash of stale data).
+  const [prevScope, setPrevScope] = useState(deviceIdentifiersKey);
+  if (prevScope !== deviceIdentifiersKey) {
+    setPrevScope(deviceIdentifiersKey);
     setHasLoaded(false);
     setCounts({});
+    // Ref writes must happen synchronously with the scope-change detection: deferring to an
+    // effect leaves a commit-to-effect window where an in-flight request from the old scope
+    // still matches the current requestId and can overwrite state with stale counts.
+    // eslint-disable-next-line react-hooks/refs -- intentional synchronous invalidation; see comment above
+    ++requestIdRef.current;
+    // eslint-disable-next-line react-hooks/refs -- intentional synchronous invalidation; see comment above
+    hasLoadedRef.current = false;
   }
 
   const errorCounts: ComponentErrorCounts = {

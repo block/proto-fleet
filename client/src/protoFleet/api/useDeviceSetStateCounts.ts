@@ -37,14 +37,21 @@ export const useDeviceSetStateCounts = ({
   const requestIdRef = useRef(0);
   const hasLoadedRef = useRef(false);
 
-  // Reset on deviceSetId change — invalidate in-flight requests so stale responses can't land
-  const prevIdRef = useRef(deviceSetId);
-  if (prevIdRef.current !== deviceSetId) {
-    prevIdRef.current = deviceSetId;
-    ++requestIdRef.current;
-    hasLoadedRef.current = false;
+  // Reset on deviceSetId change — invalidate in-flight requests so stale responses can't land.
+  // useState "adjust during render" pattern resets visible state in the same pass that detects
+  // the change.
+  const [prevId, setPrevId] = useState(deviceSetId);
+  if (prevId !== deviceSetId) {
+    setPrevId(deviceSetId);
     setHasLoaded(false);
     setStats(undefined);
+    // Ref writes must happen synchronously with the id-change detection: deferring to an
+    // effect leaves a commit-to-effect window where an in-flight getDeviceSetStats request
+    // from the old id still matches the current requestId and can overwrite stats.
+    // eslint-disable-next-line react-hooks/refs -- intentional synchronous invalidation; see comment above
+    ++requestIdRef.current;
+    // eslint-disable-next-line react-hooks/refs -- intentional synchronous invalidation; see comment above
+    hasLoadedRef.current = false;
   }
 
   const fetchStats = useCallback(async () => {

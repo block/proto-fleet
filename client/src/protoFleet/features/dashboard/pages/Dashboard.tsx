@@ -134,7 +134,7 @@ const Dashboard = () => {
             <p className="px-10 pt-6 text-300 text-text-primary phone:px-6 tablet:px-6">
               Some devices do not make all data available to Proto Fleet.
             </p>
-            {/* eslint-disable-next-line react-hooks/refs */}
+            {/* eslint-disable-next-line react-hooks/refs -- ref object from useStickyState is passed to <div ref>; React writes .current during commit, not read during render */}
             <div ref={refs.vertical.end} />
           </section>
 

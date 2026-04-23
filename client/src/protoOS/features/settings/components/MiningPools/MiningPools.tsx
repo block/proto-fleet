@@ -70,7 +70,7 @@ const SettingsMiningPools = () => {
   }, []);
 
   const submitPoolsRef = useRef<(newPools: PoolInfo[]) => void>(() => {});
-  submitPoolsRef.current = (newPools: PoolInfo[]) => {
+  const submitPools = (newPools: PoolInfo[]) => {
     setToastStatus(TOAST_STATUSES.loading);
     removeToast(toastId.current);
     toastId.current = pushToast({
@@ -141,10 +141,18 @@ const SettingsMiningPools = () => {
     }
   };
 
+  useEffect(() => {
+    submitPoolsRef.current = submitPools;
+  });
+
   // Stable debounced wrapper reads the latest submit impl via ref at fire time,
   // so pending submits always see current props/state (e.g. `previousPools` after
   // a successful edit) instead of a stale closure captured at schedule time.
-  const debouncedSubmitPools = useMemo(() => debounce((newPools: PoolInfo[]) => submitPoolsRef.current(newPools)), []);
+  const debouncedSubmitPools = useMemo(
+    // eslint-disable-next-line react-hooks/refs -- submitPoolsRef.current is read when the debounced callback fires (user input), not during render
+    () => debounce((newPools: PoolInfo[]) => submitPoolsRef.current(newPools)),
+    [],
+  );
 
   useEffect(() => () => debouncedSubmitPools.cancel(), [debouncedSubmitPools]);
 
