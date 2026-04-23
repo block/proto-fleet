@@ -217,11 +217,11 @@ const Pools = ({ onChangePools, pools }: PoolsProps) => {
     }
   }, [isEditing, pools]);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const debouncedEditDone = useCallback(
-    debounce(() => {
-      setIsEditing(false);
-    }),
+  const debouncedEditDone = useMemo(
+    () =>
+      debounce(() => {
+        setIsEditing(false);
+      }),
     [],
   );
 

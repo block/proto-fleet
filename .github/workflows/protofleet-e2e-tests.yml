@@ -37,8 +37,74 @@ jobs:
           echo "Detected specs: ${SPEC_FILES}"
           echo "Projects to run: ${PROJECTS}"
 
-  e2e-tests:
+  build:
+    name: Build client and plugins
     needs: detect-specs
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Hermit
+        uses: ./.github/actions/hermit-setup
+
+      - name: Configure Go cache
+        uses: ./.github/actions/go-cache-setup
+
+      - name: Cache Node modules
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            client/node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('client/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+      - name: Install client dependencies
+        working-directory: client
+        run: npm ci
+
+      - name: Build ProtoFleet
+        working-directory: client
+        run: |
+          # Skip lint in CI to avoid import order issues from merged main branch
+          npm run build:protoFleet
+
+      - name: Build plugins for CI (Linux AMD64)
+        run: |
+          # CI runners use linux/amd64, not arm64
+          # CGO_ENABLED=0 creates static binaries that work in Alpine (musl libc)
+          echo "Syncing Go workspace..."
+          go work sync
+          echo "Building static plugins for Linux AMD64..."
+          mkdir -p server/plugins
+          (cd plugin/proto && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ../../server/plugins/proto-plugin .)
+          (cd plugin/antminer && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ../../server/plugins/antminer-plugin .)
+          chmod +x server/plugins/proto-plugin server/plugins/antminer-plugin
+          echo "Plugins built successfully"
+
+      - name: Upload client build
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: protofleet-client-dist
+          path: client/dist
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload plugins
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: protofleet-plugins
+          path: server/plugins
+          if-no-files-found: error
+          retention-days: 1
+
+  e2e-tests:
+    needs: [detect-specs, build]
     timeout-minutes: 40
     runs-on: ubuntu-latest
     permissions:
@@ -67,21 +133,6 @@ jobs:
         with:
           preinstall: "false"
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
-
-      - name: Cache Docker layers
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-e2e-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-buildx-e2e-
-            ${{ runner.os }}-buildx-
-
-      - name: Configure Go cache
-        uses: ./.github/actions/go-cache-setup
-
       - name: Cache Node modules
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -100,24 +151,20 @@ jobs:
         working-directory: client/e2eTests/protoFleet
         run: npx playwright install --with-deps chromium
 
-      - name: Build ProtoFleet
-        working-directory: client
-        run: |
-          # Skip lint in CI to avoid import order issues from merged main branch
-          npm run build:protoFleet
+      - name: Download prebuilt client
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: protofleet-client-dist
+          path: client/dist
 
-      - name: Build plugins for CI (Linux AMD64)
-        run: |
-          # CI runners use linux/amd64, not arm64
-          # CGO_ENABLED=0 creates static binaries that work in Alpine (musl libc)
-          echo "Syncing Go workspace..."
-          go work sync
-          echo "Building static plugins for Linux AMD64..."
-          mkdir -p server/plugins
-          (cd plugin/proto && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ../../server/plugins/proto-plugin .)
-          (cd plugin/antminer && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o ../../server/plugins/antminer-plugin .)
-          chmod +x server/plugins/proto-plugin server/plugins/antminer-plugin
-          echo "Plugins built successfully"
+      - name: Download prebuilt plugins
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: protofleet-plugins
+          path: server/plugins
+
+      - name: Make plugins executable
+        run: chmod +x server/plugins/proto-plugin server/plugins/antminer-plugin
 
       - name: Start services (TimeScaleDB + Backend + Simulators)
         working-directory: server
@@ -144,32 +191,16 @@ jobs:
         working-directory: client/e2eTests/protoFleet
         env:
           CI: true
-          SETUP_SPECS_JSON: ${{ needs.detect-specs.outputs.setup_specs }}
         run: |
-          run_spec() {
-            local spec_path="$1"
-            local spec_slug
-            spec_slug=$(echo "${spec_path}" | sed 's/\.spec\.ts$//' | sed 's/[^a-zA-Z0-9]/-/g')
-
-            echo "Running spec: ${spec_path} on project: ${{ matrix.project }}"
-            PLAYWRIGHT_BLOB_OUTPUT_FILE="blob-report/${{ matrix.project }}-${{ steps.artifact.outputs.spec_name }}-${spec_slug}.zip" \
-            PWTEST_BLOB_DO_NOT_REMOVE=1 \
-            npx playwright test --project=${{ matrix.project }} --reporter=blob "spec/${spec_path}"
-          }
-
           rm -rf blob-report playwright-report test-results
           mkdir -p blob-report
 
-          mapfile -t setup_specs < <(printf '%s' "${SETUP_SPECS_JSON}" | jq -r '.[]')
-          if [ "${#setup_specs[@]}" -gt 0 ]; then
-            echo "Running setup specs before target spec:"
-            printf ' - %s\n' "${setup_specs[@]}"
-            for spec in "${setup_specs[@]}"; do
-              run_spec "${spec}"
-            done
-          fi
-
-          run_spec "${{ matrix.spec }}"
+          # The viewport-matched setup project (setup-${{ matrix.project }}:
+          # onboarding + pools + auth storageState) runs automatically before
+          # the target via project `dependencies`.
+          PLAYWRIGHT_BLOB_OUTPUT_FILE="blob-report/${{ matrix.project }}-${{ steps.artifact.outputs.spec_name }}.zip" \
+          PWTEST_BLOB_DO_NOT_REMOVE=1 \
+          npx playwright test --project=${{ matrix.project }} --reporter=blob "spec/${{ matrix.spec }}"
 
           echo "Blob reports created:"
           find blob-report -maxdepth 2 -type f -print | sort || true

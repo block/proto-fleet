@@ -1,4 +1,4 @@
-import { ComponentType, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ComponentType, ReactNode, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 
 import AuthenticatedShell from "./AuthenticatedShell";
@@ -366,19 +366,27 @@ const App = ({
       {/* Wake Dialog - Layout agnostic */}
       <WarnWakeDialog open={wakeDialog.show} onClose={wakeDialog.onClose} onSubmit={wakeDialog.onConfirm} />
 
-      {gateRouteChildren ? null : fullscreen ? (
-        // Fullscreen mode: Just render children without AppLayout chrome
-        children
-      ) : (
-        // Normal mode: Render with AppLayout + callouts
-        <AppLayout title={title} ContentLayout={ContentLayout} type={navigationMenuTypes.app}>
-          {calloutTopSpacing && hasVisibleCallout ? <div className="pt-14 phone:pt-6 tablet:pt-6" /> : null}
-          {isWarmingUp ? <WarmingUpCallout /> : <WakeCallout afterWake={afterWake} onWake={handleWake} />}
-          {noPoolsLive && !isWarmingUp && <NoPoolsCallout arePoolsConfigured={!!poolsInfo?.[0]?.url} />}
-          {!isWarmingUp && !isSleeping && errors.errors?.length && !hideErrors ? <ErrorCallout /> : null}
-          {children}
-        </AppLayout>
-      )}
+      <Suspense
+        fallback={
+          <div className="flex min-h-screen items-center justify-center">
+            <ProgressCircular indeterminate />
+          </div>
+        }
+      >
+        {gateRouteChildren ? null : fullscreen ? (
+          // Fullscreen mode: Just render children without AppLayout chrome
+          children
+        ) : (
+          // Normal mode: Render with AppLayout + callouts
+          <AppLayout title={title} ContentLayout={ContentLayout} type={navigationMenuTypes.app}>
+            {calloutTopSpacing && hasVisibleCallout ? <div className="pt-14 phone:pt-6 tablet:pt-6" /> : null}
+            {isWarmingUp ? <WarmingUpCallout /> : <WakeCallout afterWake={afterWake} onWake={handleWake} />}
+            {noPoolsLive && !isWarmingUp && <NoPoolsCallout arePoolsConfigured={!!poolsInfo?.[0]?.url} />}
+            {!isWarmingUp && !isSleeping && errors.errors?.length && !hideErrors ? <ErrorCallout /> : null}
+            {children}
+          </AppLayout>
+        )}
+      </Suspense>
     </ErrorBoundary>
   );
 };

@@ -34,8 +34,9 @@ const MiningPoolPage = () => {
   const { checkAccess } = useAccessToken(pausedAction);
 
   // Check if fans are connected using cooling API
-  const { data: coolingData, setCooling, pending: coolingPending } = useCoolingStatus();
-  const noFansConnected = areAllFansDisconnected(coolingData?.fans);
+  const { data: coolingData, setCooling, pending: coolingPending, loaded: coolingLoaded } = useCoolingStatus();
+  const isCoolingStatusReady = coolingLoaded && !coolingPending;
+  const noFansConnected = isCoolingStatusReady && areAllFansDisconnected(coolingData?.fans);
 
   useEffect(() => {
     if (settingUpMiner && createPoolsError?.status === 422) {
@@ -56,6 +57,8 @@ const MiningPoolPage = () => {
 
   const onContinue = useCallback(
     (ignoreBackupPools?: boolean) => {
+      if (!isCoolingStatusReady) return;
+
       // check if default pool has been entered
       const noValidDefaultPool = !isValidPool(pools[0]);
       if (noValidDefaultPool) {
@@ -81,7 +84,7 @@ const MiningPoolPage = () => {
 
       proceedWithSetup();
     },
-    [pools, noFansConnected, proceedWithSetup],
+    [isCoolingStatusReady, pools, noFansConnected, proceedWithSetup],
   );
 
   const onContinueWithoutBackup = useCallback(() => {
@@ -119,6 +122,8 @@ const MiningPoolPage = () => {
   }, [setCooling, dialogTriggeredBySkip, navigate, proceedWithSetup]);
 
   const handleSkip = useCallback(() => {
+    if (!isCoolingStatusReady) return;
+
     setCreatePoolsError(undefined);
 
     // Check if no fans are connected
@@ -129,7 +134,7 @@ const MiningPoolPage = () => {
     }
 
     navigate("/");
-  }, [noFansConnected, navigate]);
+  }, [isCoolingStatusReady, noFansConnected, navigate]);
 
   const onChangePools = useCallback((newPools: PoolInfo[]) => {
     setPools(newPools);
@@ -191,6 +196,7 @@ const MiningPoolPage = () => {
               text: "Skip",
               onClick: handleSkip,
               variant: "secondary",
+              disabled: !isCoolingStatusReady,
             },
             {
               text: "Continue",
@@ -198,6 +204,7 @@ const MiningPoolPage = () => {
                 onContinue(false);
               },
               variant: "primary",
+              disabled: !isCoolingStatusReady,
             },
           ]}
           variant={groupVariants.rightAligned}

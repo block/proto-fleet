@@ -8,8 +8,6 @@ import FanStatusCard from "../FanStatusCard";
 import HashboardStatusCard from "../HashboardStatusCard";
 import PsuStatusCard from "../PsuStatusCard";
 import { TOTAL_FAN_SLOTS, TOTAL_PSU_SLOTS, useCoolingStatus, useTelemetry } from "@/protoOS/api";
-// import { useErrors, useTelemetry } from "@/protoOS/api";
-// import { transformNotificationErrors } from "@/protoOS/features/diagnostic/utils/componentErrorUtils";
 import {
   useBayCount,
   useControlBoard,
@@ -20,7 +18,6 @@ import {
   useSlotsPerBay,
 } from "@/protoOS/store";
 import { areAllFansDisconnected } from "@/protoOS/store/utils/coolingUtils";
-// import ComponentStatusModal from "@/shared/components/ComponentStatusModal";
 import Immersion from "@/shared/assets/icons/Immersion";
 import { ErrorBoundary } from "@/shared/components/ErrorBoundary";
 
@@ -75,19 +72,14 @@ const HashboardsSection = () => {
   const bayCount = useBayCount();
   const slotsPerBay = useSlotsPerBay();
 
-  // Default to 3 bays if no hashboards detected
   const totalBays = bayCount || 3;
-
-  // Build array of bay indices (1-based)
   const bayIndices = Array.from({ length: totalBays }, (_, i) => i + 1);
 
   return (
     <ComponentSection title="Hashboards">
-      {/* Grid with responsive columns */}
       <div className="grid gap-1 tablet:grid-cols-2 laptop:grid-cols-2 desktop:grid-flow-col desktop:grid-cols-3 desktop:grid-rows-3">
         {bayIndices
           .map((bayIndex) => {
-            // Get serials for this bay, or create empty slots
             const serialsInBay = hashboardsByBay[bayIndex] || Array(slotsPerBay).fill(null);
 
             return serialsInBay.map((serial, slotIndex) => {
@@ -150,21 +142,7 @@ ControlBoardSection.displayName = "ControlBoardSection";
 
 function DiagnosticView({ className }: DiagnosticViewProps) {
   useTelemetry({ level: ["hashboard", "asic", "psu"] });
-
-  // Fetch errors
-  // const { data: errors } = useErrors();
-
-  // Component filter state
   const [selectedComponent, setSelectedComponent] = useState<ComponentFilterType>("all");
-
-  // Error modal state
-  // const [showErrorModal, setShowErrorModal] = useState(false);
-
-  // Transform errors for modal
-  // const componentErrors = useMemo(() => {
-  //   if (!errors || errors.length === 0) return [];
-  //   return transformNotificationErrors(errors);
-  // }, [errors]);
 
   const shouldShowComponent = (component: ComponentFilterType) => {
     return selectedComponent === "all" || selectedComponent === component;
@@ -172,51 +150,36 @@ function DiagnosticView({ className }: DiagnosticViewProps) {
 
   return (
     <div className={`w-full space-y-6 ${className || ""}`}>
-      {/* Component Selector */}
       <div className="flex flex-col items-start gap-3 pb-6 sm:flex-row sm:items-center">
         <div className="grow text-heading-300">Diagnostics</div>
         <ComponentSelector selectedComponent={selectedComponent} onSelect={setSelectedComponent} />
       </div>
 
       <div className="space-y-12">
-        {/* Fans Section */}
         {shouldShowComponent("fans") && (
           <ErrorBoundary>
             <FansSection />
           </ErrorBoundary>
         )}
 
-        {/* Hashboards Section */}
         {shouldShowComponent("hashboards") && (
           <ErrorBoundary>
             <HashboardsSection />
           </ErrorBoundary>
         )}
 
-        {/* PSUs Section */}
         {shouldShowComponent("psus") && (
           <ErrorBoundary>
             <PsusSection />
           </ErrorBoundary>
         )}
 
-        {/* Control Board Section */}
         {shouldShowComponent("controlBoard") && (
           <ErrorBoundary>
             <ControlBoardSection />
           </ErrorBoundary>
         )}
       </div>
-
-      {/* Component Errors Modal - TODO: Update to use new ComponentStatusModal interface */}
-      {/* {showErrorModal && (
-        <ComponentStatusModal
-          summary="Component errors"
-          componentType="controlBoard"
-          issues={componentErrors}
-          onDismiss={() => setShowErrorModal(false)}
-        />
-      )} */}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import clsx from "clsx";
 
@@ -69,60 +69,31 @@ const SettingsMiningPools = () => {
     return changesCount === 1 ? changedIndex : -1;
   }, []);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const debouncedSubmitPools = useCallback(
-    debounce((newPools: PoolInfo[]) => {
-      setToastStatus(TOAST_STATUSES.loading);
-      removeToast(toastId.current);
-      toastId.current = pushToast({
-        message: STATUS_MESSAGES.loading,
-        status: TOAST_STATUSES.loading,
-      });
+  const submitPoolsRef = useRef<(newPools: PoolInfo[]) => void>(() => {});
+  submitPoolsRef.current = (newPools: PoolInfo[]) => {
+    setToastStatus(TOAST_STATUSES.loading);
+    removeToast(toastId.current);
+    toastId.current = pushToast({
+      message: STATUS_MESSAGES.loading,
+      status: TOAST_STATUSES.loading,
+    });
 
-      const changedPoolIndex = findChangedPool(newPools, previousPools);
-      const validPools = newPools.filter(isValidPool);
+    const changedPoolIndex = findChangedPool(newPools, previousPools);
+    const validPools = newPools.filter(isValidPool);
 
-      // If only one pool changed and it exists in the server data, use edit
-      if (changedPoolIndex >= 0 && poolsInfo?.[changedPoolIndex]) {
-        const changedPool = newPools[changedPoolIndex];
-        if (isValidPool(changedPool)) {
-          editPool({
-            poolId: changedPoolIndex,
-            poolInfo: {
-              name: changedPool.name,
-              url: changedPool.url,
-              username: changedPool.username,
-              password: changedPool.password,
-              priority: changedPool.priority,
-            },
-            onSuccess: () => {
-              setCreatePoolsError(undefined);
-              setIsStalePools(true);
-              setPreviousPools(newPools);
-            },
-            onError: (error) => {
-              setCreatePoolsError(error);
-              setToastStatus(TOAST_STATUSES.error);
-              removeToast(toastId.current);
-              toastId.current = pushToast({
-                message: STATUS_MESSAGES.error,
-                status: TOAST_STATUSES.error,
-              });
-            },
-            retryOnMinerDown: true,
-          });
-        } else {
-          setToastStatus(TOAST_STATUSES.error);
-          removeToast(toastId.current);
-          toastId.current = pushToast({
-            message: "Invalid pool configuration",
-            status: TOAST_STATUSES.error,
-          });
-        }
-      } else {
-        // Multiple changes or new pools, use create (replace all)
-        createPools({
-          poolInfo: validPools,
+    // If only one pool changed and it exists in the server data, use edit
+    if (changedPoolIndex >= 0 && poolsInfo?.[changedPoolIndex]) {
+      const changedPool = newPools[changedPoolIndex];
+      if (isValidPool(changedPool)) {
+        editPool({
+          poolId: changedPoolIndex,
+          poolInfo: {
+            name: changedPool.name,
+            url: changedPool.url,
+            username: changedPool.username,
+            password: changedPool.password,
+            priority: changedPool.priority,
+          },
           onSuccess: () => {
             setCreatePoolsError(undefined);
             setIsStalePools(true);
@@ -139,10 +110,43 @@ const SettingsMiningPools = () => {
           },
           retryOnMinerDown: true,
         });
+      } else {
+        setToastStatus(TOAST_STATUSES.error);
+        removeToast(toastId.current);
+        toastId.current = pushToast({
+          message: "Invalid pool configuration",
+          status: TOAST_STATUSES.error,
+        });
       }
-    }),
-    [createPools, editPool, findChangedPool, previousPools, poolsInfo],
-  );
+    } else {
+      // Multiple changes or new pools, use create (replace all)
+      createPools({
+        poolInfo: validPools,
+        onSuccess: () => {
+          setCreatePoolsError(undefined);
+          setIsStalePools(true);
+          setPreviousPools(newPools);
+        },
+        onError: (error) => {
+          setCreatePoolsError(error);
+          setToastStatus(TOAST_STATUSES.error);
+          removeToast(toastId.current);
+          toastId.current = pushToast({
+            message: STATUS_MESSAGES.error,
+            status: TOAST_STATUSES.error,
+          });
+        },
+        retryOnMinerDown: true,
+      });
+    }
+  };
+
+  // Stable debounced wrapper reads the latest submit impl via ref at fire time,
+  // so pending submits always see current props/state (e.g. `previousPools` after
+  // a successful edit) instead of a stale closure captured at schedule time.
+  const debouncedSubmitPools = useMemo(() => debounce((newPools: PoolInfo[]) => submitPoolsRef.current(newPools)), []);
+
+  useEffect(() => () => debouncedSubmitPools.cancel(), [debouncedSubmitPools]);
 
   useEffect(() => {
     if (toastStatus === TOAST_STATUSES.loading && isStalePools && !poolsInfoPending) {

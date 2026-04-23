@@ -27,7 +27,6 @@ const AsicTable = ({ asics, hashboardSerialNumber, pending, showPopover, setShow
         ) : (
           <>
             <div className="w-full -space-y-[2px]">
-              {/* Individual ASICs */}
               {getAsicsRows(asics).map((row) => (
                 <div className="flex gap-1.5" key={`asic-${row}`}>
                   {asics

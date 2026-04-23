@@ -500,7 +500,7 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
             <div
               className={clsx(
                 allowWrap ? "overflow-hidden" : "truncate overflow-hidden",
-                tdPaddingClassList,
+                columnIndex === 1 && stickyFirstColumn ? "py-3 pr-2 pl-4 phone:pl-2" : tdPaddingClassList,
                 applyColumnWidthsToCells ? "box-border w-full" : columnWidthClass,
                 {
                   "opacity-50": rowDisabled && !isExempt,
@@ -1258,7 +1258,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
                 <th
                   scope="col"
                   className={clsx(
-                    "pl-2",
+                    idx === 1 && stickyFirstColumn ? "pl-4 phone:pl-2" : "pl-2",
                     thClassList,
                     idx === 0 && stickyFirstColumn && (itemSelectable ? secondStickyClasses : firstStickyClasses),
                     idx === 0 && stickyFirstColumn && columnShadowBaseClassList,

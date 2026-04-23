@@ -12,9 +12,22 @@ just start            # Start all services (without watch)
 just stop             # Stop services
 just build            # Build all Go packages
 just install          # Install fleetd binary
-just rebuild-all    # Clean rebuild (wipes all data)
+just rebuild-all      # Clean rebuild (wipes all data, rebuilds plugins)
+just rebuild-services # Clean rebuild of docker services only (reuses existing plugin binaries)
 just rebuild-fleet-api  # Rebuild just fleet-api
 ```
+
+From the repo root, `just rebuild-plugin <name>` rebuilds a single plugin (`proto`, `antminer`, `virtual`, or `asicrs`) without touching the others.
+
+### Delve debugging
+
+`fleet-api` runs under `dlv` and exposes it on `:40000` inside the container. By default the dev image builds with Go's usual optimizations and inlining, which makes breakpoints land unreliably (some lines get folded into their callers, locals get optimized away). For reliable breakpoints, opt into a debug build by disabling optimizations and inlining:
+
+```bash
+GO_GCFLAGS="all=-N -l" just dev
+```
+
+Attach from the host with `dlv connect` or your IDE. Requires mapping port 40000 in `docker-compose.yaml` (not mapped by default).
 
 ### Profiling
 

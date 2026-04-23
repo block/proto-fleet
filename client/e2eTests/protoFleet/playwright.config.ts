@@ -1,5 +1,11 @@
 import { defineConfig } from "@playwright/test";
+import path from "path";
+import { fileURLToPath } from "url";
 import { testConfig } from "./config/test.config";
+
+const configDir = path.dirname(fileURLToPath(import.meta.url));
+const adminStorageState = path.join(configDir, "playwright", ".auth", "admin.json");
+const SETUP_FILE_GLOB = "**/[0-9][0-9]-*.spec.ts";
 
 /**
  * See https://playwright.dev/docs/test-configuration.
@@ -7,6 +13,7 @@ import { testConfig } from "./config/test.config";
 
 export default defineConfig({
   testDir: "./spec",
+  globalSetup: "./globalSetup.ts",
   /* Run tests in serial order (one at a time) */
   fullyParallel: false,
   /* Fail the build on CI if you accidentally left test.only in the source code. */
@@ -51,20 +58,42 @@ export default defineConfig({
   // E.g.:  npx playwright test --project=desktop
   projects: [
     {
-      name: "desktop",
-      testMatch: /.*\.spec\.ts/,
+      name: "setup-desktop",
+      testMatch: SETUP_FILE_GLOB,
       use: {
         viewport: { width: 1600, height: 900 },
         isMobile: false,
       },
     },
-    // Resolution of the iPhone 14 Pro / 15 Pro / 16
     {
-      name: "mobile",
-      testMatch: /.*\.spec\.ts/,
+      name: "setup-mobile",
+      testMatch: SETUP_FILE_GLOB,
       use: {
         viewport: { width: 393, height: 852 },
         isMobile: true,
+      },
+    },
+    {
+      name: "desktop",
+      testMatch: /.*\.spec\.ts$/,
+      testIgnore: SETUP_FILE_GLOB,
+      dependencies: ["setup-desktop"],
+      use: {
+        viewport: { width: 1600, height: 900 },
+        isMobile: false,
+        storageState: adminStorageState,
+      },
+    },
+    // Resolution of the iPhone 14 Pro / 15 Pro / 16
+    {
+      name: "mobile",
+      testMatch: /.*\.spec\.ts$/,
+      testIgnore: SETUP_FILE_GLOB,
+      dependencies: ["setup-mobile"],
+      use: {
+        viewport: { width: 393, height: 852 },
+        isMobile: true,
+        storageState: adminStorageState,
       },
     },
   ],
