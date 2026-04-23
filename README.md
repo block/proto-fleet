@@ -30,77 +30,13 @@
 
 **Proto Fleet** is open-source fleet management software for bitcoin miners. It helps operators pair devices, monitor telemetry, and manage mining infrastructure without giving up control. Built with React and TypeScript clients, Go services, Connect RPC, Protocol Buffers, and TimescaleDB. For architecture details, see [docs/architecture.md](docs/architecture.md).
 
-## Getting Started
-
-### Prerequisites
-
-- Docker and Docker Compose
-- [Hermit](https://cashapp.github.io/hermit/), or a local installation of the required development tools
-
-### Initial Setup
-
-```bash
-source ./bin/activate-hermit
-just setup
-```
-
-To install Git hooks after your toolchain is ready:
-
-```bash
-just install-hooks
-```
-
-For non-Hermit setup details, `lefthook` and Ruff hook prerequisites, and `go.work` guidance, see [CONTRIBUTING.md](CONTRIBUTING.md).
-
-### Start Development
-
-```bash
-just dev
-```
-
-This starts the Go backend with Docker Compose and the Vite dev server for ProtoFleet at http://localhost:5173.
-
-### Protocol Buffer Code Generation
-
-After modifying definitions in `proto/`, regenerate generated clients and server code:
-
-```bash
-just gen
-```
-
-## Supported Hardware
-
-Per-device feature support.
-
-- **✅** — supported and tested.
-- **❌** — not supported.
-- **🟡** — supported by [asic-rs](https://github.com/asic-rs/asic-rs), but not yet tested on this combination.
-
-<!-- prettier-ignore-start -->
-<table>
-<tr align="center"><th>Manufacturer</th><th>Proto</th><th>MicroBT</th><th colspan="5">Bitmain</th><th>Canaan</th><th>Bitaxe</th><th>NerdAxe</th><th>ePIC</th><th>Auradine</th></tr>
-<tr align="center"><td>Model line</td><td>Rig</td><td>WhatsMiner</td><td colspan="5">Antminer</td><td>AvalonMiner</td><td>BitAxe</td><td>NerdAxe</td><td>ePIC</td><td>Auradine</td></tr>
-<tr align="center"><td>Firmware</td><td>ProtoOS</td><td>Stock</td><td>Stock</td><td>VNish</td><td>Braiins OS</td><td>LuxOS</td><td>Marathon</td><td>Stock</td><td>AxeOS</td><td>Stock</td><td>Stock</td><td>Stock</td></tr>
-<tr align="center"><td>Telemetry</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>🟡</td><td>✅</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td></tr>
-<tr align="center"><td>Reboot</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td></tr>
-<tr align="center"><td>Pause/Resume</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td></tr>
-<tr align="center"><td>Edit Pools</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td></tr>
-<tr align="center"><td>FW Update</td><td>✅</td><td>❌</td><td>✅</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td></tr>
-<tr align="center"><td>Power Mode</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td></tr>
-<tr align="center"><td>Cooling Mode</td><td>✅</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td></tr>
-<tr align="center"><td>Update Password</td><td>✅</td><td>❌</td><td>✅</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td></tr>
-<tr align="center"><td>Download Logs</td><td>✅</td><td>❌</td><td>✅</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td></tr>
-<tr align="center"><td>Blink LED</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td></tr>
-</table>
-<!-- prettier-ignore-end -->
-
-## Production Install
+## Install
 
 Proto Fleet deploys into Docker on Linux and macOS, or into WSL2 on Windows.
 
 ### Linux and macOS
 
-Requires Docker and Docker Compose.
+Requires Docker and Docker Compose. On macOS (and Windows via Docker Desktop), enable host networking under **Settings → Resources → Network → Enable host networking**. See [deployment-files/README.md](deployment-files/README.md) for the full prerequisites.
 
 #### Latest Version
 
@@ -132,7 +68,7 @@ Requires Windows 10 (build 19041 or newer) or Windows 11 (x64), local Administra
 
 Download and run the latest installer:
 
-- [installer.exe](https://github.com/block/proto-fleet/releases/latest/download/installer.exe)
+- [install.exe](https://fleet.proto.xyz/install.exe)
 
 The installer self-elevates via UAC. If it has to enable Windows features for WSL, it may prompt for a reboot and then resume automatically.
 
@@ -140,9 +76,73 @@ To pin a specific version, grab `installer.exe` from the corresponding tag on th
 
 #### Uninstall
 
-- [uninstall.exe](https://github.com/block/proto-fleet/releases/latest/download/uninstall.exe)
+- [uninstall.exe](https://fleet.proto.xyz/uninstall.exe)
 
 For Windows installer/uninstaller build and test details, see [`deployment-files/windows/README.md`](deployment-files/windows/README.md).
+
+## Supported Hardware
+
+Per-device feature support.
+
+- **✅** — supported and tested.
+- **❌** — not supported.
+- **🟡** — supported by [asic-rs](https://github.com/asic-rs/asic-rs), but not yet tested on this combination.
+
+<!-- prettier-ignore-start -->
+<table>
+<tr align="center"><th>Manufacturer</th><th>Proto</th><th>MicroBT</th><th colspan="5">Bitmain</th><th>Canaan</th><th>Bitaxe</th><th>NerdAxe</th><th>ePIC</th><th>Auradine</th></tr>
+<tr align="center"><td>Model line</td><td>Rig</td><td>WhatsMiner</td><td colspan="5">Antminer</td><td>AvalonMiner</td><td>BitAxe</td><td>NerdAxe</td><td>ePIC</td><td>Auradine</td></tr>
+<tr align="center"><td>Firmware</td><td>ProtoOS</td><td>Stock</td><td>Stock</td><td>VNish</td><td>Braiins OS</td><td>LuxOS</td><td>Marathon</td><td>Stock</td><td>AxeOS</td><td>Stock</td><td>Stock</td><td>Stock</td></tr>
+<tr align="center"><td>Telemetry</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>🟡</td><td>✅</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td></tr>
+<tr align="center"><td>Reboot</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td></tr>
+<tr align="center"><td>Pause/Resume</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td></tr>
+<tr align="center"><td>Edit Pools</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td></tr>
+<tr align="center"><td>FW Update</td><td>✅</td><td>❌</td><td>✅</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td></tr>
+<tr align="center"><td>Power Mode</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td></tr>
+<tr align="center"><td>Cooling Mode</td><td>✅</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td></tr>
+<tr align="center"><td>Update Password</td><td>✅</td><td>❌</td><td>✅</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td></tr>
+<tr align="center"><td>Download Logs</td><td>✅</td><td>❌</td><td>✅</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td><td>❌</td></tr>
+<tr align="center"><td>Blink LED</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td></tr>
+</table>
+<!-- prettier-ignore-end -->
+
+## Local Development
+
+### Prerequisites
+
+- Docker and Docker Compose
+- [Hermit](https://cashapp.github.io/hermit/) (recommended) — activates the full toolchain. For a manual tool setup, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+### Initial Setup
+
+```bash
+source ./bin/activate-hermit
+just setup
+```
+
+To install Git hooks after your toolchain is ready:
+
+```bash
+just install-hooks
+```
+
+For `lefthook` and Ruff hook prerequisites and `go.work` guidance, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+### Start Development
+
+```bash
+just dev
+```
+
+This starts the Go backend with Docker Compose and the Vite dev server for ProtoFleet at http://localhost:5173.
+
+### Protocol Buffer Code Generation
+
+After modifying definitions in `proto/`, regenerate generated clients and server code:
+
+```bash
+just gen
+```
 
 ## Contributing
 
