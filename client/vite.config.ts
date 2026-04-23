@@ -25,10 +25,15 @@ const createModeConfig = (mode) => {
         input: `src/${mode}/index.html`,
         output: {
           manualChunks: (id: string) => {
-            // Replicate splitVendorChunkPlugin behavior
-            if (id.includes("node_modules")) {
-              return "vendor";
-            }
+            if (!id.includes("node_modules")) return;
+            // Only force-bucket deps that we know ship in the entry. Everything
+            // else falls through to rolldown so lazy-route deps (recharts,
+            // dnd-kit, etc.) end up in their route chunk or a shared chunk
+            // loaded alongside it — not preloaded with the entry.
+            if (/[\\/]node_modules[\\/](react|react-dom|scheduler|use-sync-external-store)[\\/]/.test(id))
+              return "vendor-react";
+            if (/[\\/]node_modules[\\/](react-router|react-router-dom)[\\/]/.test(id)) return "vendor-router";
+            if (/[\\/]node_modules[\\/](@bufbuild|@connectrpc)[\\/]/.test(id)) return "vendor-protobuf";
           },
         },
       },

@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useMemo, useRef } from "react";
+import { ReactNode, Suspense, useEffect, useMemo, useRef } from "react";
 import { useMatches } from "react-router-dom";
 import clsx from "clsx";
 
@@ -115,13 +115,21 @@ const App = ({ children, fullscreen }: AppProps) => {
         <Toaster />
       </div>
 
-      {fullscreen ? (
-        // Fullscreen mode: Just render children without AppLayout chrome
-        children
-      ) : (
-        // Normal mode: Render with AppLayout
-        <AppLayout>{children}</AppLayout>
-      )}
+      <Suspense
+        fallback={
+          <div className="flex min-h-screen items-center justify-center">
+            <ProgressCircular indeterminate />
+          </div>
+        }
+      >
+        {fullscreen ? (
+          // Fullscreen mode: Just render children without AppLayout chrome
+          children
+        ) : (
+          // Normal mode: Render with AppLayout
+          <AppLayout>{children}</AppLayout>
+        )}
+      </Suspense>
     </ErrorBoundary>
   );
 };
