@@ -76,31 +76,33 @@ test-contract: _asicrs-build
   GO_VERSION=$(grep '^go ' tests/plugin-contract/go.mod | awk '{print $2}')
   IMAGE="golang:${GO_VERSION}-alpine"
 
-  # Share the host Go build + module cache with every container so the
-  # actions/cache restore on CI (and the local dev cache) isn't wasted.
-  mkdir -p "${HOME}/.cache/go-build" "${HOME}/go/pkg/mod"
-  DOCKER_RUN=(
+  DOCKER_COMMON=(
     docker run --rm
     -v "$(pwd):/work"
-    -v "${HOME}/.cache/go-build:/gocache"
-    -v "${HOME}/go/pkg/mod:/gomodcache"
     --user "$(id -u):$(id -g)"
-    -e GOCACHE=/gocache
-    -e GOMODCACHE=/gomodcache
     -e GOFLAGS=-buildvcs=false
     -e HOME=/tmp
     -w /work
   )
 
   # Build Go plugins and compile the contract-test binary in a single container
-  # so the three test runs below only need to execute it, not recompile it.
-  mkdir -p tests/plugin-contract/bin
-  "${DOCKER_RUN[@]}" "$IMAGE" sh -c '
-    mkdir -p server/plugins && \
-    (cd plugin/proto && go build -o ../../server/plugins/proto-plugin .) && \
-    (cd plugin/antminer && go build -o ../../server/plugins/antminer-plugin .) && \
-    (cd tests/plugin-contract && go test -c -o bin/miners.test ./miners/)
-  '
+  # so the three test runs below only need to execute the binary, not recompile
+  # it. Only this builder container mounts the host Go caches, so the
+  # actions/cache restore on CI (and the local dev cache) isn't wasted; the
+  # test-execution containers below don't need it and shouldn't have write
+  # access to the host's global Go caches.
+  mkdir -p "${HOME}/.cache/go-build" "${HOME}/go/pkg/mod" tests/plugin-contract/bin
+  "${DOCKER_COMMON[@]}" \
+    -v "${HOME}/.cache/go-build:/gocache" \
+    -v "${HOME}/go/pkg/mod:/gomodcache" \
+    -e GOCACHE=/gocache \
+    -e GOMODCACHE=/gomodcache \
+    "$IMAGE" sh -c '
+      mkdir -p server/plugins && \
+      (cd plugin/proto && go build -o ../../server/plugins/proto-plugin .) && \
+      (cd plugin/antminer && go build -o ../../server/plugins/antminer-plugin .) && \
+      (cd tests/plugin-contract && go test -c -o bin/miners.test ./miners/)
+    '
 
   # Run each test suite in its own container (isolated network namespace)
   # so mocks binding port 4028/80 don't conflict between suites. Keep the
@@ -111,7 +113,7 @@ test-contract: _asicrs-build
   for test in TestAntminerStock TestAntminerVNish TestWhatsMinerStock; do
     echo "=== Running ${test} ==="
     # cd into the miners package so the tests' relative testdata paths (../testdata/...) resolve.
-    "${DOCKER_RUN[@]}" "$IMAGE" sh -c \
+    "${DOCKER_COMMON[@]}" "$IMAGE" sh -c \
       "cd tests/plugin-contract/miners && ../bin/miners.test -test.v -test.timeout=2m -test.run '^${test}\$'" \
     || FAILED=1
   done
