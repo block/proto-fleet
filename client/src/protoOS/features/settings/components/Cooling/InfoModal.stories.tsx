@@ -19,7 +19,7 @@ const InfoModalStory = ({ hasButtons }: InfoModalProps) => {
           <Button onClick={() => setShowModal(true)} text="Show Modal" variant={variants.primary} size={sizes.base} />
         </div>
       </div>
-      {showModal && (
+      {showModal ? (
         <InfoModalComponent
           onDismiss={() => setShowModal(false)}
           buttons={
@@ -34,7 +34,7 @@ const InfoModalStory = ({ hasButtons }: InfoModalProps) => {
               : undefined
           }
         />
-      )}
+      ) : null}
     </>
   );
 };

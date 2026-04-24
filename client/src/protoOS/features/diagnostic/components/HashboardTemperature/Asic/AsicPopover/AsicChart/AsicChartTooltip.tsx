@@ -49,7 +49,7 @@ const AsicChartTooltip = ({
 
   return (
     <>
-      {payload.datetime && (
+      {payload.datetime ? (
         <div className="w-[180px] rounded-xl bg-surface-elevated-base/70 px-3 py-2 shadow-200 backdrop-blur-[7px]">
           {payload.temp_c !== undefined ? (
             <AsicPopoverRow
@@ -66,7 +66,7 @@ const AsicChartTooltip = ({
             />
           ) : null}
         </div>
-      )}
+      ) : null}
     </>
   );
 };

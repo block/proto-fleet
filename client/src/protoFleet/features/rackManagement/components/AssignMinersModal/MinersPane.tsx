@@ -125,37 +125,37 @@ function MinerRow({
             !isSelected && isAssigned && "bg-intent-success-fill",
           )}
         >
-          {isSelected && <ArrowRight width="w-3" className="text-white" />}
-          {!isSelected && isAssigned && <Checkmark width="w-4" className="text-white" />}
+          {isSelected ? <ArrowRight width="w-3" className="text-white" /> : null}
+          {!isSelected && isAssigned ? <Checkmark width="w-4" className="text-white" /> : null}
         </div>
       </div>
       <div className="min-w-0 flex-1">
         <div className="truncate text-300 text-text-primary" data-testid="rack-miner-name">
           {name || deviceId}
         </div>
-        {subtitleParts.length > 0 && (
+        {subtitleParts.length > 0 ? (
           <div className="truncate text-300 text-text-primary-50" data-testid="rack-miner-subtitle">
             {subtitleParts.join(", ")}
           </div>
-        )}
+        ) : null}
       </div>
 
-      {isSelected && (
+      {isSelected ? (
         <span className="shrink-0 text-200 text-text-primary">
           {slotAwaitingAssignment !== null
             ? `assign to slot ${String(slotAwaitingAssignment).padStart(2, "0")}`
             : "select rack position"}
         </span>
-      )}
+      ) : null}
 
-      {!isSelected && isAssigned && (
+      {!isSelected && isAssigned ? (
         <span
           className="shrink-0 text-300 font-medium text-text-primary tabular-nums"
           data-testid="rack-miner-position"
         >
           Position {String(assignedSlotNumber).padStart(2, "0")}
         </span>
-      )}
+      ) : null}
 
       <div className="relative shrink-0" ref={menuRef}>
         {isAssigned ? (
@@ -181,7 +181,7 @@ function MinerRow({
             >
               <Ellipsis width="w-4" />
             </button>
-            {showMenu && (
+            {showMenu ? (
               <>
                 <div
                   className="fixed inset-0 z-20"
@@ -213,7 +213,7 @@ function MinerRow({
                   </button>
                 </div>
               </>
-            )}
+            ) : null}
           </>
         )}
       </div>

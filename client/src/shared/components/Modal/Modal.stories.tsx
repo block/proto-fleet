@@ -27,7 +27,7 @@ export const Modal = ({ hasButtons, hasTitle, numberOfSecondaryButtons }: ModalP
           <Button onClick={() => setShowModal(true)} text="Show Modal" variant={variants.primary} size={sizes.base} />
         </div>
       </div>
-      {showModal && (
+      {showModal ? (
         <ModalComponent
           title={hasTitle ? "Title" : undefined}
           description="This is a description that stays in the content area."
@@ -47,7 +47,7 @@ export const Modal = ({ hasButtons, hasTitle, numberOfSecondaryButtons }: ModalP
         >
           <div>Description</div>
         </ModalComponent>
-      )}
+      ) : null}
     </>
   );
 };
@@ -84,7 +84,7 @@ export const Standard = () => {
           />
         </div>
       </div>
-      {showModal && (
+      {showModal ? (
         <ModalComponent
           title="Standard Modal"
           description="Form Content"
@@ -102,7 +102,7 @@ export const Standard = () => {
             <p>This modal is 640px max-width, the default size for forms and general content.</p>
           </div>
         </ModalComponent>
-      )}
+      ) : null}
     </>
   );
 };
@@ -124,7 +124,7 @@ export const Large = () => {
           />
         </div>
       </div>
-      {showModal && (
+      {showModal ? (
         <ModalComponent
           title="Large Modal"
           description="Data-Heavy Content"
@@ -145,7 +145,7 @@ export const Large = () => {
             </p>
           </div>
         </ModalComponent>
-      )}
+      ) : null}
     </>
   );
 };
@@ -167,7 +167,7 @@ export const Fullscreen = () => {
           />
         </div>
       </div>
-      {showModal && (
+      {showModal ? (
         <ModalComponent
           title="Fullscreen Modal"
           description="This modal takes up the full screen"
@@ -186,7 +186,7 @@ export const Fullscreen = () => {
             <p className="mt-2">It's useful for immersive experiences or when you need maximum space for content.</p>
           </div>
         </ModalComponent>
-      )}
+      ) : null}
     </>
   );
 };
@@ -208,7 +208,7 @@ export const LongContent = () => {
           />
         </div>
       </div>
-      {showModal && (
+      {showModal ? (
         <ModalComponent
           title="Scroll-Aware Title"
           description="Scroll down — the title collapses into the sticky header when it leaves the viewport."
@@ -231,7 +231,7 @@ export const LongContent = () => {
             ))}
           </div>
         </ModalComponent>
-      )}
+      ) : null}
     </>
   );
 };
@@ -253,7 +253,7 @@ export const NoHeader = () => {
           />
         </div>
       </div>
-      {showModal && (
+      {showModal ? (
         <ModalComponent
           showHeader={false}
           buttons={[
@@ -279,7 +279,7 @@ export const NoHeader = () => {
             <p className="mt-2">The modal can still be closed with Escape key or clicking outside.</p>
           </div>
         </ModalComponent>
-      )}
+      ) : null}
     </>
   );
 };

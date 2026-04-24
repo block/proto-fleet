@@ -402,14 +402,14 @@ const PoolSelectionPage = ({
             />
 
             {/* Duplicate pools warning */}
-            {hasDuplicatePools && (
+            {hasDuplicatePools ? (
               <Callout
                 intent={intents.warning}
                 prefixIcon={<Alert />}
                 title="Duplicate pool configuration detected"
                 subtitle="Two or more pools have the same URL and username. Please remove or change the duplicate pools before assigning."
               />
-            )}
+            ) : null}
 
             {/* Pool list */}
             {isLoadingInitialState ? (
@@ -449,7 +449,7 @@ const PoolSelectionPage = ({
                   </SortableContext>
                 </DndContext>
 
-                {canAddMorePools && (
+                {canAddMorePools ? (
                   <div className="flex">
                     <Button
                       text="Add another pool"
@@ -459,7 +459,7 @@ const PoolSelectionPage = ({
                       testId="add-another-pool-button"
                     />
                   </div>
-                )}
+                ) : null}
               </div>
             )}
           </div>
@@ -467,7 +467,7 @@ const PoolSelectionPage = ({
       </div>
 
       <PoolSelectionModal
-        open={isVisible && showSelectionModal}
+        open={isVisible ? showSelectionModal : false}
         onDismiss={() => {
           setShowSelectionModal(false);
           setEditingPoolIndex(null);

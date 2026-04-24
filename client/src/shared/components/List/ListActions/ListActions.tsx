@@ -53,7 +53,7 @@ const ListActions = <ListItem,>({ item, actions, disabled = false }: ListActionP
       >
         <Ellipsis />
       </button>
-      {actionsVisible && !disabled && (
+      {actionsVisible && !disabled ? (
         <Popover
           className="!space-y-0 px-4 pt-2 pb-1"
           position={positions["bottom left"]}
@@ -89,7 +89,7 @@ const ListActions = <ListItem,>({ item, actions, disabled = false }: ListActionP
             },
           )}
         </Popover>
-      )}
+      ) : null}
     </div>
   );
 };

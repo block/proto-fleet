@@ -32,7 +32,7 @@ const Tooltip = ({ header, body, position, icon = "question" }: TooltipProps) =>
           peerHover,
         )}
       >
-        {header && <div className="mb-1 text-heading-100 text-text-primary">{header}</div>}
+        {header ? <div className="mb-1 text-heading-100 text-text-primary">{header}</div> : null}
         <div className="text-300 text-text-primary-70">{body}</div>
       </div>
     </div>

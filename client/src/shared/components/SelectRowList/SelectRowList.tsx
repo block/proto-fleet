@@ -35,7 +35,7 @@ const SelectRowList = ({ className, onChange, selectRows, type }: SelectRowListP
               type={type}
             />
             {/* Add divider line after each row except the last */}
-            {index < selectRows.length - 1 && <div className="h-[0.5px] bg-border-10" />}
+            {index < selectRows.length - 1 ? <div className="h-[0.5px] bg-border-10" /> : null}
           </div>
         );
       })}

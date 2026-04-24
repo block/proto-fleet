@@ -67,7 +67,7 @@ const PageHeader = ({ isMenuOpen, openMenu, schedulePillData }: PageHeaderProps)
       <div className="flex h-12 items-center laptop:h-15 desktop:h-15">
         <div className="flex grow items-center px-4">
           <div className="flex grow items-center">
-            {(isPhone || isTablet) && (
+            {isPhone || isTablet ? (
               <Pause
                 ariaExpanded={isMenuOpen}
                 ariaLabel="Open navigation menu"
@@ -75,17 +75,17 @@ const PageHeader = ({ isMenuOpen, openMenu, schedulePillData }: PageHeaderProps)
                 onClick={openMenu}
                 testId="navigation-menu-button"
               />
-            )}
+            ) : null}
             <LocationSelector />
           </div>
-          {!isPhone && headerWidgetEnabled && <HeaderWidgets {...headerWidgetsProps} />}
+          {!isPhone && headerWidgetEnabled ? <HeaderWidgets {...headerWidgetsProps} /> : null}
         </div>
       </div>
-      {showPhoneWidgets && (
+      {showPhoneWidgets ? (
         <div className={clsx("flex h-[57px] items-center", bgClass)}>
           <HeaderWidgets className="ml-5" {...headerWidgetsProps} />
         </div>
-      )}
+      ) : null}
     </>
   );
 };

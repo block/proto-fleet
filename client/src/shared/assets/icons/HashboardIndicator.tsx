@@ -42,7 +42,7 @@ const HashboardIndicator = ({
                 backgroundColor: color && activeHashboardSlot === slotIndex ? `var(${color})` : undefined,
               }}
             />
-            {renderDivider && <div className="h-4.5 w-[1px] bg-core-primary-20" />}
+            {renderDivider ? <div className="h-4.5 w-[1px] bg-core-primary-20" /> : null}
           </Fragment>
         );
       })}

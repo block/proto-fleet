@@ -73,12 +73,12 @@ const Dialog = ({
       >
         <div className="p-6">
           <div className="flex flex-col gap-3">
-            {loading && (
+            {loading ? (
               <div className="flex w-10 items-center justify-center rounded-lg bg-surface-5 py-2.5">
                 <ProgressCircular indeterminate className="text-text-primary" />
               </div>
-            )}
-            {!loading && icon}
+            ) : null}
+            {!loading ? icon : null}
             <Header
               className={headerClassName}
               subtitleClassName={subtitleClassName}
@@ -88,11 +88,11 @@ const Dialog = ({
               subtitleSize={subtitleSize}
             />
           </div>
-          {children && <div className="mt-4">{children}</div>}
+          {children ? <div className="mt-4">{children}</div> : null}
         </div>
-        {buttons && buttons.length > 0 && (
+        {buttons && buttons.length > 0 ? (
           <ButtonGroup buttons={buttons} variant={buttonGroupVariant} className="rounded-b-3xl bg-surface-5 p-6" />
-        )}
+        ) : null}
       </motion.div>
     </PageOverlay>
   );

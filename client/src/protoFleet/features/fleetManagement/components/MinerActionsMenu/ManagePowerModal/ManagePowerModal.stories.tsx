@@ -23,9 +23,9 @@ const StoryWrapper = ({ infoMessage }: { infoMessage?: string }) => {
 
   return (
     <div>
-      {infoMessage && (
+      {infoMessage ? (
         <div className="mb-4 rounded-lg bg-intent-info-10 p-4 text-300 text-text-primary">{infoMessage}</div>
-      )}
+      ) : null}
       <ManagePowerModal
         onConfirm={(performanceMode) => {
           action("onConfirm")(performanceMode);

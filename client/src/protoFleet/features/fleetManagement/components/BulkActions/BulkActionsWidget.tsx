@@ -108,9 +108,9 @@ const BulkActionsWidget = <ActionType extends Key>({
       >
         {buttonTitle}
       </Button>
-      {isOpen && renderPopover(handleAction)}
+      {isOpen ? renderPopover(handleAction) : null}
       <UnsupportedMinersModal
-        open={!!onUnsupportedMinersDismiss && (unsupportedMinersInfo?.visible ?? false)}
+        open={onUnsupportedMinersDismiss ? (unsupportedMinersInfo?.visible ?? false) : false}
         unsupportedGroups={unsupportedMinersInfo?.unsupportedGroups ?? []}
         totalUnsupportedCount={unsupportedMinersInfo?.totalUnsupportedCount ?? 0}
         noneSupported={unsupportedMinersInfo?.noneSupported ?? false}

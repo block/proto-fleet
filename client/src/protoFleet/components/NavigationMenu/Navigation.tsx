@@ -73,7 +73,7 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
       )}
     >
       <div className="flex flex-col items-start gap-1">
-        {homeItem && homeItem.path && (
+        {homeItem && homeItem.path ? (
           <div
             className={clsx(
               "flex h-15 w-full items-start px-3 py-3 laptop:h-13 laptop:items-center laptop:!pb-0 desktop:h-13 desktop:items-center desktop:!pb-0",
@@ -99,7 +99,7 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
               )}
             </Link>
           </div>
-        )}
+        ) : null}
 
         <ul data-testid="navigation-menu" className="flex w-full flex-col items-start gap-1 px-3">
           {items.map((item, idx) => {
@@ -134,11 +134,11 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
                         })
                       : item.label}
                   </div>
-                  {item.icon && (
+                  {item.icon ? (
                     <span className="ml-3 text-emphasis-300 whitespace-nowrap text-text-primary-70 laptop:hidden laptop:group-hover/nav:inline desktop:inline">
                       {item.label}
                     </span>
-                  )}
+                  ) : null}
                 </Link>
               </li>
             ) : null;
@@ -146,86 +146,82 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
 
           {/* On mobile/tablet: show expandable Settings menu */}
           {(isPhone || isTablet) &&
-            settingsItem &&
-            secondaryNavItems.filter((nav) => nav.parent === "/settings").length > 0 && (
-              <>
-                <li className="w-full">
-                  <button
-                    onClick={() => setSettingsManuallyToggled(!settingsManuallyToggled)}
-                    onMouseEnter={() => handleSettingsHover(true)}
-                    onMouseLeave={() => handleSettingsHover(false)}
-                    aria-expanded={isSettingsExpanded}
-                    aria-controls="settings-submenu"
-                    aria-label="Settings menu toggle"
-                    className={clsx(
-                      "group flex w-full items-center justify-start rounded-lg px-2 py-1 text-text-primary",
-                      "hover:cursor-pointer hover:bg-core-primary-5",
-                    )}
-                  >
-                    {settingsItem.icon &&
-                      createElement(settingsItem.icon, {
+          settingsItem &&
+          secondaryNavItems.filter((nav) => nav.parent === "/settings").length > 0 ? (
+            <>
+              <li className="w-full">
+                <button
+                  onClick={() => setSettingsManuallyToggled(!settingsManuallyToggled)}
+                  onMouseEnter={() => handleSettingsHover(true)}
+                  onMouseLeave={() => handleSettingsHover(false)}
+                  aria-expanded={isSettingsExpanded}
+                  aria-controls="settings-submenu"
+                  aria-label="Settings menu toggle"
+                  className={clsx(
+                    "group flex w-full items-center justify-start rounded-lg px-2 py-1 text-text-primary",
+                    "hover:cursor-pointer hover:bg-core-primary-5",
+                  )}
+                >
+                  {settingsItem.icon
+                    ? createElement(settingsItem.icon, {
                         className: "transition-transform duration-200 ease-gentle group-hover:scale-105",
                         width: "w-5",
-                      })}
-                    <span className="ml-2 flex-1 text-left text-emphasis-300 text-text-primary-70">
-                      {settingsItem.label}
-                    </span>
-                    {(showSettingsHover || isSettingsExpanded) && (
-                      /*
-                       * Show MorphingPlusMinus icon when either hovered or expanded.
-                       * - When hovering and not expanded, show plus (indicates expandable).
-                       * - When expanded, show minus (indicates collapsible).
-                       */
-                      <MorphingPlusMinus condition={showSettingsHover && !isSettingsExpanded} />
-                    )}
-                  </button>
-                </li>
+                      })
+                    : null}
+                  <span className="ml-2 flex-1 text-left text-emphasis-300 text-text-primary-70">
+                    {settingsItem.label}
+                  </span>
+                  {showSettingsHover || isSettingsExpanded ? (
+                    <MorphingPlusMinus condition={showSettingsHover ? !isSettingsExpanded : false} />
+                  ) : null}
+                </button>
+              </li>
 
-                {/* Show secondary nav items when expanded */}
-                <AnimatePresence>
-                  {isSettingsExpanded && (
-                    <motion.div
-                      id="settings-submenu"
-                      data-testid="secondary-nav"
-                      initial={{ opacity: 0, y: -12 }}
-                      animate={{
-                        opacity: 1,
-                        y: 0,
-                        transition: { duration: 0.3, ease: easeGentle },
-                      }}
-                      exit={{
-                        opacity: 0,
-                        y: -12,
-                        transition: { duration: 0.3, ease: easeGentle },
-                      }}
-                      className="flex w-full flex-col gap-3"
-                    >
-                      {secondaryNavItems
-                        .filter((nav) => nav.parent === "/settings")
-                        .filter((nav) => !nav.allowedRoles || nav.allowedRoles.includes(currentRole))
-                        .map((nav) => (
-                          <li key={nav.path} className="w-full">
-                            <Link
-                              to={nav.path}
-                              onClick={() => closeMenu?.()}
-                              aria-current={isCurrentPath(nav.path) ? "page" : undefined}
-                              className={clsx(
-                                "block rounded-lg px-9 py-1 text-emphasis-300 text-text-primary-70",
-                                "hover:cursor-pointer hover:bg-core-primary-5",
-                                {
-                                  "bg-core-primary-5": isCurrentPath(nav.path),
-                                },
-                              )}
-                            >
-                              {nav.label}
-                            </Link>
-                          </li>
-                        ))}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </>
-            )}
+              {/* Show secondary nav items when expanded */}
+              <AnimatePresence>
+                {isSettingsExpanded ? (
+                  <motion.div
+                    id="settings-submenu"
+                    data-testid="secondary-nav"
+                    initial={{ opacity: 0, y: -12 }}
+                    animate={{
+                      opacity: 1,
+                      y: 0,
+                      transition: { duration: 0.3, ease: easeGentle },
+                    }}
+                    exit={{
+                      opacity: 0,
+                      y: -12,
+                      transition: { duration: 0.3, ease: easeGentle },
+                    }}
+                    className="flex w-full flex-col gap-3"
+                  >
+                    {secondaryNavItems
+                      .filter((nav) => nav.parent === "/settings")
+                      .filter((nav) => !nav.allowedRoles || nav.allowedRoles.includes(currentRole))
+                      .map((nav) => (
+                        <li key={nav.path} className="w-full">
+                          <Link
+                            to={nav.path}
+                            onClick={() => closeMenu?.()}
+                            aria-current={isCurrentPath(nav.path) ? "page" : undefined}
+                            className={clsx(
+                              "block rounded-lg px-9 py-1 text-emphasis-300 text-text-primary-70",
+                              "hover:cursor-pointer hover:bg-core-primary-5",
+                              {
+                                "bg-core-primary-5": isCurrentPath(nav.path),
+                              },
+                            )}
+                          >
+                            {nav.label}
+                          </Link>
+                        </li>
+                      ))}
+                  </motion.div>
+                ) : null}
+              </AnimatePresence>
+            </>
+          ) : null}
         </ul>
       </div>
       <div className="px-3 pb-3">

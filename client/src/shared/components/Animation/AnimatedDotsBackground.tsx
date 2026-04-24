@@ -96,7 +96,7 @@ const AnimatedDotsBackground = ({
         }}
       >
         {dotProps.map((props, i) => (
-          <Dot key={i} connecting={connecting && props.connecting} delay={props.delay} />
+          <Dot key={i} connecting={connecting ? props.connecting : false} delay={props.delay} />
         ))}
       </div>
     </div>

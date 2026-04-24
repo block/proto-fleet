@@ -172,7 +172,9 @@ const PowerWidget = ({
       >
         <Power width={iconSizes.small} className="m-1 -translate-y-0.25" />
       </WidgetWrapper>
-      {isOpen && <PowerPopover onReboot={handleRebootButton} onSleep={handleSleepButton} onWake={handleWakeButton} />}
+      {isOpen ? (
+        <PowerPopover onReboot={handleRebootButton} onSleep={handleSleepButton} onWake={handleWakeButton} />
+      ) : null}
       <WarnRebootDialog open={warnReboot} onClose={() => setWarnReboot(false)} onSubmit={handleRebootConfirm} />
       <RebootingDialog open={shouldReboot} />
       <WarnSleepDialog open={warnSleep} onClose={() => setWarnSleep(false)} onSubmit={handleSleepConfirm} />

@@ -10,7 +10,7 @@ type SwitchProps = {
 const Switch = ({ label, checked, setChecked, disabled = false }: SwitchProps) => {
   return (
     <label className="inline-flex cursor-pointer items-center gap-4 select-none">
-      {label && <span className="text-300">{label}</span>}
+      {label ? <span className="text-300">{label}</span> : null}
       <div className="relative inline-block">
         <input
           type="checkbox"

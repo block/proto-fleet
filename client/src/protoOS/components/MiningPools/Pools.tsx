@@ -90,7 +90,7 @@ const PoolActionsMenuInner = ({ onEdit, onDelete, poolIndex, canDelete = true }:
           setIsOpen((prev) => !prev);
         }}
       />
-      {isOpen && (
+      {isOpen ? (
         <Popover
           className="!space-y-0 px-4 pt-2 pb-1"
           position={positions["bottom right"]}
@@ -117,7 +117,7 @@ const PoolActionsMenuInner = ({ onEdit, onDelete, poolIndex, canDelete = true }:
             Delete
           </Row>
         </Popover>
-      )}
+      ) : null}
     </div>
   );
 };
@@ -397,7 +397,7 @@ const Pools = ({ onChangePools, pools }: PoolsProps) => {
         </SortableContext>
       </DndContext>
 
-      {configuredPools.length < MAX_POOLS && (
+      {configuredPools.length < MAX_POOLS ? (
         <div className="mt-4">
           <Button
             text="Add another pool"
@@ -407,7 +407,7 @@ const Pools = ({ onChangePools, pools }: PoolsProps) => {
             testId="add-another-pool-button"
           />
         </div>
-      )}
+      ) : null}
 
       <BackupPoolModalWrapper
         open={currentPoolIndex !== null}

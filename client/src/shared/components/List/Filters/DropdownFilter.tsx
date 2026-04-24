@@ -172,7 +172,7 @@ const FilterContent = ({
           {title}
         </Button>
 
-        {showPopover && (
+        {showPopover ? (
           <DropdownFilterPopover
             options={options}
             displaySelectedItems={displaySelectedItems}
@@ -188,7 +188,7 @@ const FilterContent = ({
             optionsMaxHeight={optionsMaxHeight}
             position={popoverPosition}
           />
-        )}
+        ) : null}
       </div>
     </div>
   );

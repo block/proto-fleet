@@ -41,15 +41,15 @@ const TaskCard = ({
         <div className="flex size-8 items-center justify-center rounded-lg bg-surface-5">{icon}</div>
         <div className="flex flex-col">
           <div className="text-emphasis-300">{title}</div>
-          {description && <div className="text-300">{description}</div>}
+          {description ? <div className="text-300">{description}</div> : null}
         </div>
       </div>
       <div className="flex justify-between gap-5">
-        {skippable && (
+        {skippable ? (
           <Button className="pl-0" variant="textOnly" onClick={onSkip} disabled={isLoading}>
             Skip
           </Button>
-        )}
+        ) : null}
         <Button
           onClick={onActionClick}
           variant={skippable ? "secondary" : "primary"}
@@ -400,7 +400,7 @@ const CompleteSetup = ({
 
   return (
     <>
-      {shouldShow && (
+      {shouldShow ? (
         <div className={className}>
           <div className="@container rounded-3xl bg-core-primary-5 p-6">
             <div className="mb-6 flex items-center justify-between gap-x-10">
@@ -414,7 +414,7 @@ const CompleteSetup = ({
             </div>
             <div className="grid gap-4 @lg:grid-cols-2 @3xl:grid-cols-3 @7xl:grid-cols-4">
               <AnimatePresence mode="popLayout">
-                {hasConfigurePoolCard && (
+                {hasConfigurePoolCard ? (
                   <motion.div
                     key="configure-pool-card"
                     layout
@@ -435,8 +435,8 @@ const CompleteSetup = ({
                       isLoading={isLoadingPoolNeeded || isPollingAfterPoolAssignment}
                     />
                   </motion.div>
-                )}
-                {hasAuthCard && (
+                ) : null}
+                {hasAuthCard ? (
                   <motion.div
                     key="auth-card"
                     layout
@@ -452,12 +452,12 @@ const CompleteSetup = ({
                       onPairingCompleted={onPairingCompleted}
                     />
                   </motion.div>
-                )}
+                ) : null}
               </AnimatePresence>
             </div>
           </div>
         </div>
-      )}
+      ) : null}
       <AuthenticateFleetModal
         open={showAuthModal}
         purpose="pool"
@@ -465,7 +465,7 @@ const CompleteSetup = ({
         onDismiss={handleAuthDismiss}
       />
       <PoolSelectionPageWrapper
-        open={showPoolSelectionModal && !!poolFleetCredentials}
+        open={showPoolSelectionModal ? !!poolFleetCredentials : false}
         selectionMode="all"
         poolNeededCount={poolNeededCount}
         filterCriteria={{

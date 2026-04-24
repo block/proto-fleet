@@ -222,26 +222,26 @@ const FirmwareUpdateStatusModal = ({
         rebootPending,
       })}
     >
-      {updateStatus && (
+      {updateStatus ? (
         <div className="space-y-2 text-sm">
           <div>{statusConfig.message ?? updateStatus.message}</div>
-          {updateStatus.current_version && (
+          {updateStatus.current_version ? (
             <div>
               <span className="font-medium">Current Version:</span> {updateStatus.current_version}
             </div>
-          )}
-          {updateStatus.new_version && (
+          ) : null}
+          {updateStatus.new_version ? (
             <div>
               <span className="font-medium">New Version:</span> {updateStatus.new_version}
             </div>
-          )}
-          {updateStatus.progress !== undefined && (
+          ) : null}
+          {updateStatus.progress !== undefined ? (
             <div>
               <span className="font-medium">Progress:</span> {updateStatus.progress}%
             </div>
-          )}
+          ) : null}
         </div>
-      )}
+      ) : null}
     </Dialog>
   );
 };

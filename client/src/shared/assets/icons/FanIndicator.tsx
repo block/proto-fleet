@@ -26,13 +26,13 @@ const FanIndicator = ({ numFans = 6, fanPosition = 1 }: FanIndicatorProps) => {
                   "bg-text-primary": fanPosition === firstFanIndex + 1,
                 })}
               />
-              {secondFanIndex < numFans && (
+              {secondFanIndex < numFans ? (
                 <div
                   className={clsx("h-2 w-2 rounded-full bg-core-primary-20", {
                     "bg-text-primary": fanPosition === secondFanIndex + 1,
                   })}
                 />
-              )}
+              ) : null}
             </div>
           );
         })}

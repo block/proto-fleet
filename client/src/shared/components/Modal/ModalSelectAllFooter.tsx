@@ -14,7 +14,7 @@ const ModalSelectAllFooter = ({ label, onSelectAll, onSelectNone }: ModalSelectA
       <div className="flex items-center justify-between pt-5">
         <div className="text-emphasis-300">{label}</div>
         <div className="flex items-center gap-2">
-          {onSelectAll && (
+          {onSelectAll ? (
             <Button
               className="py-1"
               size={sizes.textOnly}
@@ -25,8 +25,8 @@ const ModalSelectAllFooter = ({ label, onSelectAll, onSelectNone }: ModalSelectA
             >
               Select all
             </Button>
-          )}
-          {onSelectNone && (
+          ) : null}
+          {onSelectNone ? (
             <Button
               className="py-1"
               size={sizes.textOnly}
@@ -37,7 +37,7 @@ const ModalSelectAllFooter = ({ label, onSelectAll, onSelectNone }: ModalSelectA
             >
               Select none
             </Button>
-          )}
+          ) : null}
         </div>
       </div>
     </>

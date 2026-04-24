@@ -60,11 +60,11 @@ const SelectRow = ({
             <div className="text-emphasis-300">{text}</div>
           </div>
         </div>
-        {sideText && (
+        {sideText ? (
           <div className="ml-4">
             <div className="text-300">{sideText}</div>
           </div>
-        )}
+        ) : null}
         <div className="relative ml-4 flex">
           <input
             className={clsx("peer relative h-[20px] w-[20px] cursor-pointer appearance-none border border-border-20", {
@@ -97,7 +97,7 @@ const SelectRow = ({
           )}
         </div>
       </div>
-      {divider && <Divider className="mt-[-1px] px-4" />}
+      {divider ? <Divider className="mt-[-1px] px-4" /> : null}
     </>
   );
 };

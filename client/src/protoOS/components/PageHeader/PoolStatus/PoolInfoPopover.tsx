@@ -36,7 +36,7 @@ const PoolInfoPopover = ({ isConnected, onClickViewPools, poolInfo, poolsInfo }:
       position={positions["bottom left"]}
       testId="pool-info-popover"
     >
-      {poolInfo?.url && cardTitle && (
+      {poolInfo?.url && cardTitle ? (
         <Card title={cardTitle} type={isConnected ? cardType.success : cardType.warning}>
           {isConnected ? (
             <PoolInfoRow
@@ -59,7 +59,7 @@ const PoolInfoPopover = ({ isConnected, onClickViewPools, poolInfo, poolsInfo }:
             </>
           )}
         </Card>
-      )}
+      ) : null}
     </Popover>
   );
 };

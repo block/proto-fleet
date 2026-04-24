@@ -27,13 +27,13 @@ export const WithSomeSupported = () => {
 
   return (
     <>
-      {!open && (
+      {!open ? (
         <div className="flex h-screen items-center justify-center">
           <button onClick={() => setOpen(true)} className="bg-emphasis-300 rounded-lg px-4 py-2 text-surface-base">
             Show Modal
           </button>
         </div>
-      )}
+      ) : null}
       <UnsupportedMinersModal
         open={open}
         unsupportedGroups={mockGroups}
@@ -57,13 +57,13 @@ export const NoneSupported = () => {
 
   return (
     <>
-      {!open && (
+      {!open ? (
         <div className="flex h-screen items-center justify-center">
           <button onClick={() => setOpen(true)} className="bg-emphasis-300 rounded-lg px-4 py-2 text-surface-base">
             Show Modal
           </button>
         </div>
-      )}
+      ) : null}
       <UnsupportedMinersModal
         open={open}
         unsupportedGroups={mockGroups}
@@ -92,13 +92,13 @@ export const SingleMiner = () => {
 
   return (
     <>
-      {!open && (
+      {!open ? (
         <div className="flex h-screen items-center justify-center">
           <button onClick={() => setOpen(true)} className="bg-emphasis-300 rounded-lg px-4 py-2 text-surface-base">
             Show Modal
           </button>
         </div>
-      )}
+      ) : null}
       <UnsupportedMinersModal
         open={open}
         unsupportedGroups={singleGroup}

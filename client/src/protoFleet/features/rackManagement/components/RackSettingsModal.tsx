@@ -359,7 +359,7 @@ const RackSettingsModal = ({
               error={zoneError}
               autoComplete="off"
             />
-            {showZoneSuggestions && filteredSuggestions.length > 0 && (
+            {showZoneSuggestions && filteredSuggestions.length > 0 ? (
               <div
                 className="absolute top-full z-10 mt-1 w-full rounded-xl border border-border-5 bg-surface-elevated-base p-1.5 shadow-300"
                 onMouseEnter={() => {
@@ -386,7 +386,7 @@ const RackSettingsModal = ({
                   </button>
                 ))}
               </div>
-            )}
+            ) : null}
           </div>
 
           <Input
@@ -400,7 +400,7 @@ const RackSettingsModal = ({
             error={labelError}
           />
 
-          {rackTypes.length > 0 && (
+          {rackTypes.length > 0 ? (
             <Select
               id="rack-type-select"
               label="Rack type"
@@ -409,7 +409,7 @@ const RackSettingsModal = ({
               onChange={handleRackTypeChange}
               testId="rack-type-select"
             />
-          )}
+          ) : null}
 
           <div className="flex gap-3">
             <div className="flex-1">

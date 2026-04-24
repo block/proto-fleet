@@ -63,7 +63,7 @@ const ActivityFilters = ({
           onKeyDown={handleClearSearch}
         />
       </div>
-      {typeOptions.length > 0 && (
+      {typeOptions.length > 0 ? (
         <DropdownFilter
           title="Type"
           options={typeOptions}
@@ -71,8 +71,8 @@ const ActivityFilters = ({
           onSelect={onTypesChange}
           withButtons
         />
-      )}
-      {scopeOptions.length > 0 && (
+      ) : null}
+      {scopeOptions.length > 0 ? (
         <DropdownFilter
           title="Scope"
           options={scopeOptions}
@@ -80,8 +80,8 @@ const ActivityFilters = ({
           onSelect={onScopesChange}
           withButtons
         />
-      )}
-      {userOptions.length > 0 && (
+      ) : null}
+      {userOptions.length > 0 ? (
         <DropdownFilter
           title="Users"
           options={userOptions}
@@ -89,7 +89,7 @@ const ActivityFilters = ({
           onSelect={onUsersChange}
           withButtons
         />
-      )}
+      ) : null}
     </div>
   );
 };

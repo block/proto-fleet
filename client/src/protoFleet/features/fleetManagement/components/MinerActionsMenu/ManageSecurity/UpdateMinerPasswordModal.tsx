@@ -149,12 +149,12 @@ const UpdateMinerPasswordModal = ({
             type="password"
             onChange={(value) => setNewPassword(value)}
           />
-          {!hasThirdPartyMiners && (
+          {!hasThirdPartyMiners ? (
             <div className="flex items-center justify-between gap-5">
               <div className="text-200 text-text-primary-50">Password strength</div>
               <PasswordStrengthMeter score={score} onSetScore={setScore} password={newPassword} />
             </div>
-          )}
+          ) : null}
         </div>
 
         <Input

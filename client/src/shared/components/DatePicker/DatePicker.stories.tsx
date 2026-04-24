@@ -7,7 +7,7 @@ export const Single = () => {
   return (
     <div className="p-8">
       <DatePicker selectionMode="single" selectedDate={date} onSelectedDateChange={setDate} testId="single-picker" />
-      {date && <p className="mt-4 text-300 text-text-primary">Selected: {date.toLocaleDateString()}</p>}
+      {date ? <p className="mt-4 text-300 text-text-primary">Selected: {date.toLocaleDateString()}</p> : null}
     </div>
   );
 };
@@ -27,11 +27,11 @@ export const Range = () => {
         }}
         testId="range-picker"
       />
-      {start && end && (
+      {start && end ? (
         <p className="mt-4 text-300 text-text-primary">
           Range: {start.toLocaleDateString()} — {end.toLocaleDateString()}
         </p>
-      )}
+      ) : null}
     </div>
   );
 };

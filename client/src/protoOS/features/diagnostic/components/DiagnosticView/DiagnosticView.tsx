@@ -156,29 +156,29 @@ function DiagnosticView({ className }: DiagnosticViewProps) {
       </div>
 
       <div className="space-y-12">
-        {shouldShowComponent("fans") && (
+        {shouldShowComponent("fans") ? (
           <ErrorBoundary>
             <FansSection />
           </ErrorBoundary>
-        )}
+        ) : null}
 
-        {shouldShowComponent("hashboards") && (
+        {shouldShowComponent("hashboards") ? (
           <ErrorBoundary>
             <HashboardsSection />
           </ErrorBoundary>
-        )}
+        ) : null}
 
-        {shouldShowComponent("psus") && (
+        {shouldShowComponent("psus") ? (
           <ErrorBoundary>
             <PsusSection />
           </ErrorBoundary>
-        )}
+        ) : null}
 
-        {shouldShowComponent("controlBoard") && (
+        {shouldShowComponent("controlBoard") ? (
           <ErrorBoundary>
             <ControlBoardSection />
           </ErrorBoundary>
-        )}
+        ) : null}
       </div>
     </div>
   );

@@ -114,7 +114,7 @@ const DeviceSetList = ({
         emptyStateRow={emptyStateRow}
       />
 
-      {shouldRenderPagination && (
+      {shouldRenderPagination ? (
         <div className="sticky left-0 flex flex-col items-center gap-4 py-6">
           <span className="text-300 text-text-primary">
             Showing {firstItemIndex}–{lastItemIndex} of {total} {itemName.plural}
@@ -138,7 +138,7 @@ const DeviceSetList = ({
             />
           </div>
         </div>
-      )}
+      ) : null}
     </>
   );
 };

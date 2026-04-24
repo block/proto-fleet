@@ -9,7 +9,7 @@ const IpAddressInfo = ({ loading, value }: IpAddressInfoProps) => {
   return (
     <InfoItem
       label="IP Address"
-      loading={loading && !value}
+      loading={loading ? !value : false}
       value={value}
       divider={false}
       testId="ip-address-info-item"

@@ -89,11 +89,11 @@ const PopoverContent = ({
       data-testid={testId}
       onClick={handleClick}
     >
-      {(title || subtitle) && (
+      {title || subtitle ? (
         <Header title={title} titleSize={titleSize} subtitle={subtitle} subtitleSize="text-300" />
-      )}
+      ) : null}
       {children}
-      {buttons && <ButtonGroup buttons={buttons} variant={buttonGroupVariant} size={sizes.base} />}
+      {buttons ? <ButtonGroup buttons={buttons} variant={buttonGroupVariant} size={sizes.base} /> : null}
     </div>
   );
 };

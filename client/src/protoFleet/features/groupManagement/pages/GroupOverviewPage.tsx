@@ -314,7 +314,7 @@ const GroupOverviewPage = () => {
         </section>
       </div>
 
-      {showEditModal && group && (
+      {showEditModal && group ? (
         <GroupModal
           show
           group={group}
@@ -325,7 +325,7 @@ const GroupOverviewPage = () => {
             void refetchStats();
           }}
         />
-      )}
+      ) : null}
     </div>
   );
 };

@@ -103,7 +103,7 @@ const RackSelectionModal = ({ open, selectedRackIds, onDismiss, onSave }: RackSe
             <label className="flex w-full cursor-pointer items-center gap-4">
               <Checkbox
                 checked={allSelected}
-                partiallyChecked={!allSelected && selectedRackCount > 0}
+                partiallyChecked={!allSelected ? selectedRackCount > 0 : false}
                 onChange={() =>
                   setDraftSelection(allSelected ? new Set<string>() : new Set(racks.map((rack) => rack.id.toString())))
                 }

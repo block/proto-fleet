@@ -43,7 +43,7 @@ const AppNavigationItems = ({ onClick, pageName }: AppNavigationItemsProps) => {
       <NavigationItem
         suffixIcon={
           showAccordionExpand || showAccordionItems ? (
-            <MorphingPlusMinus condition={showAccordionExpand && !showAccordionItems} />
+            <MorphingPlusMinus condition={showAccordionExpand ? !showAccordionItems : false} />
           ) : undefined
         }
         text="Settings"
@@ -51,7 +51,7 @@ const AppNavigationItems = ({ onClick, pageName }: AppNavigationItemsProps) => {
         onHover={handleAccordionHover}
       />
       <AnimatePresence>
-        {showAccordionItems && (
+        {showAccordionItems ? (
           <motion.div
             initial={{ opacity: 0, y: -12 }}
             animate={{
@@ -101,7 +101,7 @@ const AppNavigationItems = ({ onClick, pageName }: AppNavigationItemsProps) => {
               isChildItem
             />
           </motion.div>
-        )}
+        ) : null}
       </AnimatePresence>
     </>
   );

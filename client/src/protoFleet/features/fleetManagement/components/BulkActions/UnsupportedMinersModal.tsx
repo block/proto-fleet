@@ -31,7 +31,7 @@ const UnsupportedMinersModal = ({
   return (
     <>
       <Dialog
-        open={open && noneSupported}
+        open={open ? noneSupported : false}
         title="Action not supported"
         subtitle={`This action is not supported by the connected ${minerText} firmware.`}
         subtitleSize="text-300"
@@ -48,7 +48,7 @@ const UnsupportedMinersModal = ({
         testId="action-not-supported-dialog"
       />
       <Modal
-        open={open && !noneSupported}
+        open={open ? !noneSupported : false}
         onDismiss={onDismiss}
         buttons={[
           {
@@ -81,7 +81,7 @@ const UnsupportedMinersModal = ({
                 {group.count} {group.count === 1 ? "miner" : "miners"}
               </div>
             </Row>
-            {index < unsupportedGroups.length - 1 && <Divider />}
+            {index < unsupportedGroups.length - 1 ? <Divider /> : null}
           </Fragment>
         ))}
       </Modal>

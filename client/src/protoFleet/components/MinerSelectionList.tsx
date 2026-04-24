@@ -377,9 +377,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
             overflowContainer
             stickyBgColor="bg-surface-elevated-base"
             footerContent={
-              !isLoading &&
-              totalMiners !== undefined &&
-              totalMiners > 0 && (
+              !isLoading && totalMiners !== undefined && totalMiners > 0 ? (
                 <div className="flex flex-col items-center gap-4 py-6">
                   <span className="text-300 text-text-primary">
                     Showing {currentPage * PAGE_SIZE + 1}–{currentPage * PAGE_SIZE + currentPageItems.length} of{" "}
@@ -404,11 +402,11 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
                     />
                   </div>
                 </div>
-              )
+              ) : null
             }
           />
         </div>
-        {showSelectAllFooter && totalMiners !== undefined && !singleSelect && (
+        {showSelectAllFooter && totalMiners !== undefined && !singleSelect ? (
           <div className="shrink-0">
             <ModalSelectAllFooter
               label={allSelected ? `All ${totalMiners} miners selected` : `${selectedItems.length} miners selected`}
@@ -425,7 +423,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
               }}
             />
           </div>
-        )}
+        ) : null}
       </div>
     );
   },

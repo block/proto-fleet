@@ -129,17 +129,17 @@ const Button = ({
       data-testid={testId}
     >
       {prefix}
-      {(text || children) && prefix && <div className={gap} />}
+      {(text || children) && prefix ? <div className={gap} /> : null}
       <div className="flex flex-col">
         <div className={clsx({ "mb-[2px] group-hover:mb-0": textOnly && textOnlyUnderlineOnHover })}>
           {text}
           {children}
         </div>
-        {textOnly && !disabledState && textOnlyUnderlineOnHover && (
+        {textOnly && !disabledState && textOnlyUnderlineOnHover ? (
           <div className={clsx("-mt-[2px] w-full opacity-20 group-hover:border-b-2", borderColor)} />
-        )}
+        ) : null}
       </div>
-      {(text || children) && suffixIcon && <div className={gap} />}
+      {(text || children) && suffixIcon ? <div className={gap} /> : null}
       {suffixIcon}
     </button>
   );

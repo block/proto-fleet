@@ -174,7 +174,7 @@ const Cooling = () => {
 
   return (
     <>
-      {showFansDetectedCallout && (
+      {showFansDetectedCallout ? (
         <div className="mb-10">
           <Callout
             intent={intents.danger}
@@ -183,7 +183,7 @@ const Cooling = () => {
             subtitle="Fans will not turn on while in immersion mode."
           />
         </div>
-      )}
+      ) : null}
       <h2 className="mb-10 text-heading-300">Cooling</h2>
       <div className="mb-10 flex flex-col gap-4">
         <SelectRow
@@ -240,7 +240,7 @@ const Cooling = () => {
         </div>
       </div>
 
-      {showImmersionModal && (
+      {showImmersionModal ? (
         <InfoModal
           onDismiss={handleImmersionCancel}
           buttons={[
@@ -252,9 +252,9 @@ const Cooling = () => {
             },
           ]}
         />
-      )}
+      ) : null}
 
-      {showLearnMoreModal && <InfoModal onDismiss={() => setShowLearnMoreModal(false)} />}
+      {showLearnMoreModal ? <InfoModal onDismiss={() => setShowLearnMoreModal(false)} /> : null}
 
       <EnteringSleepDialog open={showSleepDialog} />
     </>

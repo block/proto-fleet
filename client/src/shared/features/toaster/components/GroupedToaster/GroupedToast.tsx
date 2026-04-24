@@ -37,10 +37,10 @@ const GroupedToast = ({ message, onClose, status, progress, actions, ttl = defau
         {icon}
         <div className="flex flex-1 flex-col">
           <div className="text-emphasis-300 text-text-primary">{message}</div>
-          {progress !== undefined && <div className="text-200 text-text-primary-70">{progress}% complete</div>}
-          {status === STATUSES.queued && <div className="text-200 text-text-primary-70">Queued</div>}
+          {progress !== undefined ? <div className="text-200 text-text-primary-70">{progress}% complete</div> : null}
+          {status === STATUSES.queued ? <div className="text-200 text-text-primary-70">Queued</div> : null}
         </div>
-        {actions && actions.length > 0 && (
+        {actions && actions.length > 0 ? (
           <div className="shrink-0">
             {actions.map((action, i) => (
               <Button
@@ -53,7 +53,7 @@ const GroupedToast = ({ message, onClose, status, progress, actions, ttl = defau
               />
             ))}
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );

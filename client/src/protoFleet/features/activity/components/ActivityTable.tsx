@@ -41,7 +41,7 @@ const ActivityTable = ({ activities, totalCount, noDataElement }: ActivityTableP
                 <Icon width="w-4" />
               </div>
               <span className="min-w-0 break-words">{entry.description}</span>
-              {isFailed && <span className="text-intent-critical shrink-0 text-200">Failed</span>}
+              {isFailed ? <span className="text-intent-critical shrink-0 text-200">Failed</span> : null}
             </div>
           );
         },

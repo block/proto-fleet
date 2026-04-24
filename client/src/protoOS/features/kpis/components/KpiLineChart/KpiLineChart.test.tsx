@@ -35,7 +35,7 @@ vi.mock("recharts", async () => {
     Line: ({ dataKey, activeDot, isAnimationActive }: any) => (
       <div data-testid={`line-${dataKey}`}>
         <span data-testid={`animation-${dataKey}`}>{String(isAnimationActive)}</span>
-        {activeDot && <div data-testid={`dot-${dataKey}`}>{activeDot}</div>}
+        {activeDot ? <div data-testid={`dot-${dataKey}`}>{activeDot}</div> : null}
       </div>
     ),
     XAxis: ({ tick }: any) => <div data-testid="x-axis">{tick}</div>,

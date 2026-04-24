@@ -66,7 +66,7 @@ const PageOverlay = ({
 }: PageOverlayProps) => {
   return createPortal(
     <AnimatePresence>
-      {open && (
+      {open ? (
         <PageOverlayContent
           shouldPreventScroll={shouldPreventScroll}
           zIndex={zIndex}
@@ -75,7 +75,7 @@ const PageOverlay = ({
         >
           {children}
         </PageOverlayContent>
-      )}
+      ) : null}
     </AnimatePresence>,
     document.body,
   );

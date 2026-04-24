@@ -54,26 +54,26 @@ const FirmwareUploadDialog = ({ open, onSuccess, onDismiss }: FirmwareUploadDial
         Add a firmware file to make it available for miner updates.
       </div>
       <div className="mt-6 flex flex-col gap-4">
-        {showLoadingSpinner && (
+        {showLoadingSpinner ? (
           <div className="flex items-center justify-center p-8">
             <ProgressCircular indeterminate size={24} />
           </div>
-        )}
+        ) : null}
 
-        {showDropZone && <FileDropZone extensions={serverConfig.allowedExtensions} onFileSelect={processFile} />}
+        {showDropZone ? <FileDropZone extensions={serverConfig.allowedExtensions} onFileSelect={processFile} /> : null}
 
-        {showProcessingStatus && (
+        {showProcessingStatus ? (
           <FileProcessingStatus
             state={state as "hashing" | "checking" | "uploading"}
             fileName={file.name}
             fileSize={file.size}
             uploadProgress={uploadProgress}
           />
-        )}
+        ) : null}
 
-        {showReadyStatus && <FileReadyStatus fileName={file.name} fileSize={file.size} />}
+        {showReadyStatus ? <FileReadyStatus fileName={file.name} fileSize={file.size} /> : null}
 
-        {showError && <FileErrorStatus message={errorMessage} onRetry={retry} />}
+        {showError ? <FileErrorStatus message={errorMessage} onRetry={retry} /> : null}
       </div>
     </Modal>
   );

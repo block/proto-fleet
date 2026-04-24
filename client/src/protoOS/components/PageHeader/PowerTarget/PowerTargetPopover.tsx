@@ -136,7 +136,7 @@ const PowerTargetPopover = ({ onDismiss, onUpdateStart }: PowerTargetPopoverProp
         }}
       />
 
-      {selectedPowerTargetMode === powerTargetModes.custom && (
+      {selectedPowerTargetMode === powerTargetModes.custom ? (
         <div className="space-y-2">
           <Input
             id={"power-target-input"}
@@ -155,7 +155,7 @@ const PowerTargetPopover = ({ onDismiss, onUpdateStart }: PowerTargetPopoverProp
               ${convertWtoKW(bounds?.min || 0)} kW and ${convertWtoKW(bounds?.max || 0)} kW.`}
           </p>
         </div>
-      )}
+      ) : null}
 
       <div className="flex gap-3">
         <Button text="Cancel" variant={variants.secondary} className="grow" size={sizes.base} onClick={onDismiss} />

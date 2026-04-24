@@ -3,7 +3,7 @@ import HashboardTemperature from "./HashboardTemperature";
 
 const HashboardTemperatureWrapper = () => {
   const { serial } = useParams<{ serial: string }>();
-  return <>{serial !== undefined && <HashboardTemperature serial={serial} />}</>;
+  return <>{serial !== undefined ? <HashboardTemperature serial={serial} /> : null}</>;
 };
 
 export default HashboardTemperatureWrapper;

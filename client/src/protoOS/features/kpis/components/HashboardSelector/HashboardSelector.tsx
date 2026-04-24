@@ -142,7 +142,7 @@ const HashboardSelector = ({
         onClick={handleSummaryClick}
         testId="chart-filter-summary"
       />
-      {hashboardLines.length > 0 && (
+      {hashboardLines.length > 0 ? (
         <Button
           size={sizes.compact}
           variant={allHashboardsSelected ? variants.secondary : variants.ghost}
@@ -151,13 +151,13 @@ const HashboardSelector = ({
           onClick={handleAllHashboardsClick}
           testId="chart-filter-all-hashboards"
         />
-      )}
+      ) : null}
 
       {hashboardLines.map((serial) => (
         <HashboardSelectorItem
           key={serial}
           slot={useMinerStore.getState().hardware.getHashboard(serial)?.slot}
-          selected={isFilteredMode && activeChartLines.includes(serial)}
+          selected={isFilteredMode ? activeChartLines.includes(serial) : false}
           onClick={() => {
             handleHashboardClick(serial);
           }}

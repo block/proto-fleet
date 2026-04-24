@@ -240,12 +240,12 @@ const Authentication = ({
           onChange={handleChange}
           id="username"
           label={inputPrefix ? `${inputPrefix} username` : "Username"}
-          disabled={initUsername !== undefined && initUsername !== ""}
+          disabled={initUsername !== undefined ? initUsername !== "" : false}
           initValue={values.username}
           error={errors.username}
           autoFocus={!initUsername}
         />
-        {isUpdateMode && (
+        {isUpdateMode ? (
           <Input
             onChange={handleChange}
             id="currentPassword"
@@ -255,7 +255,7 @@ const Authentication = ({
             error={errors.currentPassword}
             autoFocus={!!initUsername}
           />
-        )}
+        ) : null}
         <div className="space-y-2">
           <Input
             onChange={handleChange}
@@ -264,7 +264,7 @@ const Authentication = ({
             type="password"
             initValue={values.password}
             error={errors.password}
-            autoFocus={!!initUsername && !isUpdateMode}
+            autoFocus={initUsername ? !isUpdateMode : false}
           />
           <div className="flex items-center justify-between gap-5">
             <div>
@@ -274,7 +274,7 @@ const Authentication = ({
           </div>
         </div>
       </div>
-      {requirePasswordConfirmation && (
+      {requirePasswordConfirmation ? (
         <Input
           onChange={handleChange}
           id="confirmPassword"
@@ -284,13 +284,13 @@ const Authentication = ({
           error={errors.confirmPassword}
           statusIcon={passwordsMatch ? <Success className="text-intent-success-fill" /> : undefined}
         />
-      )}
-      {showWeakPasswordWarning && !isSubmitting && (
+      ) : null}
+      {showWeakPasswordWarning && !isSubmitting ? (
         <WeakPasswordWarning
           onReturn={() => setShowWeakPasswordWarning(false)}
           onContinue={() => handleContinue(true)}
         />
-      )}
+      ) : null}
       <Button
         onClick={() => handleContinue(false)}
         className={buttonClassName}

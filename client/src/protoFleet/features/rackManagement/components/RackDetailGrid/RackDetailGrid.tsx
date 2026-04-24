@@ -44,7 +44,7 @@ export default function RackDetailGrid({
 
   return (
     <div ref={measureRef} className="flex w-full justify-center">
-      {computedSlotSize > 0 && (
+      {computedSlotSize > 0 ? (
         <div
           data-testid="rack-detail-grid"
           className="grid"
@@ -58,7 +58,7 @@ export default function RackDetailGrid({
             <RackDetailSlot key={i} slot={slot} slotSize={computedSlotSize} onEmptySlotClick={onEmptySlotClick} />
           ))}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

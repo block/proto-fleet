@@ -101,12 +101,12 @@ export const UpdatePasswordForm = ({
                 />
               </div>
 
-              {showWeakPasswordWarning && !isSubmitting && (
+              {showWeakPasswordWarning && !isSubmitting ? (
                 <WeakPasswordWarning
                   onReturn={() => setShowWeakPasswordWarning(false)}
                   onContinue={() => handleSubmit(true)}
                 />
-              )}
+              ) : null}
 
               <Button onClick={() => handleSubmit(false)} variant="primary" disabled={isSubmitting}>
                 {isSubmitting ? "Updating..." : "Continue"}

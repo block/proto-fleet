@@ -159,7 +159,7 @@ export const SegmentedMetricPanel = ({
                   xAxisTickInterval={getXAxisTickInterval(hours, isMultiDay)}
                   yAxisTickCount={4}
                   barWidth={barWidth}
-                  showDateLabel={isMultiDay && processedChartData.length > 1}
+                  showDateLabel={isMultiDay ? processedChartData.length > 1 : false}
                   useDateFormat={shouldUseDateFormat(hours)}
                   lastTickOverride={!isMultiDay && hours < 24 ? "live" : undefined}
                 />

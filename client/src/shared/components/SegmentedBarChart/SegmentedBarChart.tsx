@@ -397,7 +397,7 @@ const SegmentedBarChart = ({
                   </div>
                 </div>
                 {/* Always render tick but control visibility (only for time ticks, not date labels) */}
-                {!showDateLabel && (
+                {!showDateLabel ? (
                   <div
                     className={clsx(
                       "x-axis-tick absolute top-full left-1/2 mt-3 -translate-x-1/2 text-center text-200 text-text-primary-50 transition-opacity",
@@ -413,24 +413,24 @@ const SegmentedBarChart = ({
                         ? formatDate(data.datetime)
                         : formatTime(data.datetime, hasMinutesInTicks)}
                   </div>
-                )}
+                ) : null}
               </div>
             );
           })}
           {/* Centered date label when showDateLabel is true */}
-          {showDateLabel && transformedData.length > 0 && (
+          {showDateLabel && transformedData.length > 0 ? (
             <div className="absolute top-full left-1/2 mt-3 -translate-x-1/2 text-center text-200 text-text-primary-50">
               {formatDate(transformedData[Math.floor(transformedData.length / 2)].datetime)}
-              {hoveredBar !== null && (
+              {hoveredBar !== null ? (
                 <span className="ml-1">at {formatTime(transformedData[hoveredBar].datetime, hasMinutesInTicks)}</span>
-              )}
+              ) : null}
             </div>
-          )}
+          ) : null}
         </div>
       </div>
 
       {/* Tooltip */}
-      {tooltipData && hoveredBar !== null && tooltipPosition && (
+      {tooltipData && hoveredBar !== null && tooltipPosition ? (
         <div
           ref={tooltipRef}
           className="pointer-events-none absolute z-10 rounded-xl bg-surface-elevated-base/70 pt-6 pb-4 shadow-200 backdrop-blur-[7px]"
@@ -445,7 +445,7 @@ const SegmentedBarChart = ({
             <div className="text-200 text-text-primary-70">{tooltipData.timeRange}</div>
 
             {/* Segments */}
-            {tooltipData.segments.length > 0 && (
+            {tooltipData.segments.length > 0 ? (
               <div>
                 {tooltipData.segments.map((segment) => (
                   <div key={segment.key} className="flex items-center gap-2 py-1">
@@ -460,22 +460,23 @@ const SegmentedBarChart = ({
                     {/* Combined text: value + units + label */}
                     <span className="text-300 text-text-primary">
                       {segment.value}
-                      {units &&
-                        (typeof units === "string"
+                      {units
+                        ? typeof units === "string"
                           ? ` ${units}`
-                          : ` ${segment.value === 1 ? units.singular : units.plural}`)}{" "}
+                          : ` ${segment.value === 1 ? units.singular : units.plural}`
+                        : null}{" "}
                       {segment.label.toLowerCase()}
                     </span>
                   </div>
                 ))}
               </div>
-            )}
+            ) : null}
 
             {/* No data message if no segments */}
-            {tooltipData.segments.length === 0 && <div className="text-200 text-text-primary-50">No miners</div>}
+            {tooltipData.segments.length === 0 ? <div className="text-200 text-text-primary-50">No miners</div> : null}
           </div>
         </div>
-      )}
+      ) : null}
     </div>
   );
 };

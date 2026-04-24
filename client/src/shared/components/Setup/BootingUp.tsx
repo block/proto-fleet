@@ -31,7 +31,7 @@ const BootingUp = ({ title }: BootingUpProps) => {
           >
             <ProgressCircular indeterminate />
           </motion.div>
-          {title && (
+          {title ? (
             <motion.p
               animate={{ y: ["-50%", "0%"], opacity: [0, 1] }}
               transition={{ duration: 1, ease: easeGentle }}
@@ -39,7 +39,7 @@ const BootingUp = ({ title }: BootingUpProps) => {
             >
               {title}
             </motion.p>
-          )}
+          ) : null}
         </div>
       </AnimatedDotsBackground>
     </div>

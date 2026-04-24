@@ -192,14 +192,14 @@ const Team = () => {
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
         <Header title="Team" titleSize="text-heading-300" />
-        {canAddTeamMembers && (
+        {canAddTeamMembers ? (
           <Button
             variant={variants.primary}
             size={sizes.compact}
             text="Add team member"
             onClick={() => setShowAddMemberModal(true)}
           />
-        )}
+        ) : null}
       </div>
 
       {isLoading ? (
