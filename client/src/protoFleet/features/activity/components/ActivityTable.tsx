@@ -56,6 +56,7 @@ const ActivityTable = ({ activities, noDataElement }: ActivityTableProps) => {
               key={entry.eventId}
               role="button"
               tabIndex={0}
+              data-testid="list-row"
               className="grid cursor-pointer grid-cols-[1fr_12rem_10rem_13rem] items-start gap-4 px-4 py-3 hover:bg-surface-5"
               onClick={() => setSelectedEntry(entry)}
               onKeyDown={(e) => {
@@ -65,7 +66,7 @@ const ActivityTable = ({ activities, noDataElement }: ActivityTableProps) => {
                 }
               }}
             >
-              <div className="flex items-start gap-2">
+              <div data-testid="type" className="flex items-start gap-2">
                 <div className={clsx("shrink-0", isFailed ? "text-intent-critical" : "text-text-primary")}>
                   <Icon width="w-4" />
                 </div>
@@ -76,10 +77,12 @@ const ActivityTable = ({ activities, noDataElement }: ActivityTableProps) => {
                 </span>
                 {isFailed && <span className="text-intent-critical shrink-0 text-200">Failed</span>}
               </div>
-              <div className="text-text-primary">
+              <div data-testid="scope" className="text-text-primary">
                 {formatScope(entry.scopeType, entry.scopeLabel, entry.scopeCount || undefined)}
               </div>
-              <div className="text-text-primary">{entry.username ?? "—"}</div>
+              <div data-testid="user" className="text-text-primary">
+                {entry.username ?? "—"}
+              </div>
               <div className="text-text-primary">{formatActivityTimestamp(Number(entry.createdAt?.seconds))}</div>
             </div>
           );
