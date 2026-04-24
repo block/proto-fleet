@@ -5,7 +5,7 @@ import type { ActivityEntry } from "@/protoFleet/api/generated/activity/v1/activ
 import type { GetCommandBatchDeviceResultsResponse } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { useCommandBatchDeviceResults } from "@/protoFleet/api/useCommandBatchDeviceResults";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
-import { baseEventType } from "@/protoFleet/features/activity/utils/eventType";
+import { baseEventType, isCompletedEvent } from "@/protoFleet/features/activity/utils/eventType";
 import { formatLabel } from "@/protoFleet/features/activity/utils/formatLabel";
 import { formatScope } from "@/protoFleet/features/activity/utils/formatScope";
 import { Alert, Info } from "@/shared/assets/icons";
@@ -47,7 +47,7 @@ const ActivityDetailModal = ({ entry, onDismiss }: ActivityDetailModalProps) => 
   const batchState = batchId ? getResult(batchId) : null;
   const batchData = batchState?.data;
   const batchInProgress =
-    (batchId != null && batchData == null) ||
+    (batchId != null && batchData == null && !isCompletedEvent(entry.eventType)) ||
     (batchData != null && batchData.status !== "finished" && !batchData.detailsPruned);
   const isFailed =
     batchData != null && !batchInProgress && !batchData.detailsPruned
