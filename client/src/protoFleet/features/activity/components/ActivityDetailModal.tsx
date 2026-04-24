@@ -44,10 +44,10 @@ const ActivityDetailModal = ({ entry, onDismiss }: ActivityDetailModalProps) => 
   if (!entry) return null;
 
   const displayEventType = baseEventType(entry.eventType);
-  const isFailed = entry.result === "failure";
   const batchState = batchId ? getResult(batchId) : null;
   const batchData = batchState?.data;
   const batchInProgress = batchData != null && batchData.status !== "finished" && !batchData.detailsPruned;
+  const isFailed = batchData != null && !batchInProgress ? batchData.failureCount > 0 : entry.result === "failure";
 
   return (
     <Modal title="Actions" onDismiss={onDismiss}>
