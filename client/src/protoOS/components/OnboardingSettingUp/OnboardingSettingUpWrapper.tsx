@@ -40,13 +40,16 @@ const OnboardingSettingUpWrapper = ({
     });
   }, [fetchPools]);
 
+  // Stop polling once poolStatus settles; the cleanup clears the interval
+  // using the captured id before intervalId is reassigned to undefined.
   useEffect(() => {
-    if (poolStatus !== statuses.pending && intervalId) {
-      clearInterval(intervalId);
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- clear interval ref after polling ends
-      setIntervalId(undefined);
-    }
-  }, [intervalId, poolStatus]);
+    if (!intervalId) return;
+    return () => clearInterval(intervalId);
+  }, [intervalId]);
+
+  if (poolStatus !== statuses.pending && intervalId !== undefined) {
+    setIntervalId(undefined);
+  }
 
   useEffect(() => {
     if (poolStatus === statuses.fetch) {
