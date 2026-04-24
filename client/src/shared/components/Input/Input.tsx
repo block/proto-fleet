@@ -138,6 +138,10 @@ const Input = ({
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        e.currentTarget.blur();
+      }
       onKeyDown?.(e.key);
     },
     [onKeyDown],
