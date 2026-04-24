@@ -174,6 +174,22 @@ Scale replicas with: `docker compose up --scale fake-proto-rig=10`
 
 The service is configured using environment variables or command-line flags. See `internal/domain/config.go`. For local development, create a `.env` file in this directory.
 
+At startup, `fleetd` also loads `/etc/fleetd/config.yaml` if that file exists. The YAML file can use nested groups that mirror the config sections, for example:
+
+```yaml
+auth:
+  client:
+    secret-key: "replace-me"
+    expiration-period: "1h"
+  miner-token-expiration-period: "30m"
+encrypt:
+  service-master-key: "replace-me"
+http:
+  address: "0.0.0.0:4000"
+```
+
+Command-line flags override values from the YAML file.
+
 ## API Testing
 
 ## Error Query Service (Testing/Development Only)
