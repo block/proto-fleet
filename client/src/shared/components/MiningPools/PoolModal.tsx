@@ -1,4 +1,4 @@
-import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { ReactNode, useCallback, useMemo, useState } from "react";
 
 import { poolInfoAttributes } from "./constants";
 import { poolNameValidationErrors, urlValidationErrors } from "./PoolForm/constants";
@@ -89,10 +89,12 @@ const PoolModal = ({
     [draftPoolInfo, poolIndex, hidePoolName, usernameRequired],
   );
 
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- sync draft with incoming pools prop when parent updates it
+  // Sync draft with incoming pools prop when parent updates it
+  const [prevPools, setPrevPools] = useState(pools);
+  if (prevPools !== pools) {
+    setPrevPools(pools);
     setDraftPoolInfo(deepClone(pools));
-  }, [pools]);
+  }
 
   // Reset modal state when modal opens
   const [prevOpen, setPrevOpen] = useState(open);

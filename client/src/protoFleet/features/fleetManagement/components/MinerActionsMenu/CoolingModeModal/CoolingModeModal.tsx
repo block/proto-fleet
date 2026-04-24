@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import clsx from "clsx";
 import { CoolingMode } from "@/protoFleet/api/generated/common/v1/cooling_pb";
 import { Fan } from "@/shared/assets/icons";
@@ -88,10 +88,11 @@ const CoolingModeModal = ({ open, minerCount, initialCoolingMode, onConfirm, onD
   );
 
   // Sync state with prop when initialCoolingMode changes
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- sync local selection with controlled initialCoolingMode prop
+  const [prevInitialCoolingMode, setPrevInitialCoolingMode] = useState(initialCoolingMode);
+  if (prevInitialCoolingMode !== initialCoolingMode) {
+    setPrevInitialCoolingMode(initialCoolingMode);
     setSelectedOption(coolingModeToOption(initialCoolingMode));
-  }, [initialCoolingMode]);
+  }
 
   const handleConfirm = () => {
     if (!selectedOption) return;

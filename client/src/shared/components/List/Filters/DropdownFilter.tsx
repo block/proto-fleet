@@ -50,13 +50,12 @@ const FilterContent = ({
   // Only use internal state when buttons are shown
   const [internalSelectedItems, setInternalSelectedItems] = useState<string[]>(externalSelectedItems);
 
-  // When buttons are shown, update internal state when external changes
-  useEffect(() => {
-    if (withButtons) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync internal selection draft with external prop when parent updates
-      setInternalSelectedItems(externalSelectedItems);
-    }
-  }, [externalSelectedItems, withButtons]);
+  // Sync internal selection draft with external prop when parent updates
+  const [prevExternalSelectedItems, setPrevExternalSelectedItems] = useState(externalSelectedItems);
+  if (withButtons && prevExternalSelectedItems !== externalSelectedItems) {
+    setPrevExternalSelectedItems(externalSelectedItems);
+    setInternalSelectedItems(externalSelectedItems);
+  }
 
   useEffect(() => {
     if (!showPopover || !triggerRef.current) {
