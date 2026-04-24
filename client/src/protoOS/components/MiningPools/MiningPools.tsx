@@ -23,13 +23,13 @@ const MiningPools = ({ title, children, loading, onChange, pools }: MiningPoolsP
 
   return (
     <>
-      {hasConfiguredPools && (
+      {hasConfiguredPools ? (
         <ContentHeader
           title={title}
           subtitle="Add up to 3 pools in order of priority. If a pool fails or is removed, your miner switches to the next available pool automatically."
           testId="mining-pool-title"
         />
-      )}
+      ) : null}
       {children}
       {loading ? <ProgressCircular indeterminate /> : <Pools pools={pools} onChangePools={onChange} />}
     </>

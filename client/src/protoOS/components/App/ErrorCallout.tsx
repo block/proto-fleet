@@ -31,7 +31,7 @@ const ErrorCallout = () => {
 
   return (
     <>
-      {hasIssues && !dismissed && (
+      {hasIssues && !dismissed ? (
         <div className="mb-10">
           <Callout
             buttonOnClick={() => setModalOpen(true)}
@@ -47,7 +47,7 @@ const ErrorCallout = () => {
             }}
           />
         </div>
-      )}
+      ) : null}
 
       <ProtoOSStatusModal open={isModalOpen} onClose={() => setModalOpen(false)} />
     </>

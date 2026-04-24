@@ -25,18 +25,19 @@ const InfoTooltip = ({ heading, body }: { heading: string; body: string }) => {
       >
         <Info className="shrink-0 cursor-default text-text-primary-30" />
       </button>
-      {isVisible &&
-        createPortal(
-          <div
-            role="tooltip"
-            className="fixed z-50 w-80 rounded-lg bg-surface-base p-4 shadow-200"
-            style={floatingStyle}
-          >
-            <div className="text-300 text-text-primary-50">{heading}</div>
-            <div className="text-300 text-text-primary">{body}</div>
-          </div>,
-          document.body,
-        )}
+      {isVisible
+        ? createPortal(
+            <div
+              role="tooltip"
+              className="fixed z-50 w-80 rounded-lg bg-surface-base p-4 shadow-200"
+              style={floatingStyle}
+            >
+              <div className="text-300 text-text-primary-50">{heading}</div>
+              <div className="text-300 text-text-primary">{body}</div>
+            </div>,
+            document.body,
+          )
+        : null}
     </>
   );
 };

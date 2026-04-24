@@ -96,9 +96,9 @@ const Callout = ({
 
   return (
     <div className={clsx("rounded-xl shadow-100", className)} data-testid={testId}>
-      {header && /(information|success|warning|danger)/.test(intent) && (
+      {header && /(information|success|warning|danger)/.test(intent) ? (
         <div className={clsx("rounded-t-xl px-4 py-1 text-emphasis-300 text-text-contrast", bgColor)}>{header}</div>
-      )}
+      ) : null}
       <div className="flex rounded-xl bg-surface-elevated-base px-5 py-2.5 text-text-primary">
         <div
           className={clsx("mr-3", iconColor, {
@@ -111,9 +111,9 @@ const Callout = ({
         <div className="flex w-full items-center justify-between">
           <div>
             <div className="text-emphasis-300">{title}</div>
-            {subtitle && <div className="text-300 text-text-primary-70">{subtitle}</div>}
+            {subtitle ? <div className="text-300 text-text-primary-70">{subtitle}</div> : null}
           </div>
-          {buttons.length !== 0 && (
+          {buttons.length !== 0 ? (
             <div className="ml-4">
               <ButtonGroup
                 variant={groupVariants.rightAligned}
@@ -122,7 +122,7 @@ const Callout = ({
                 sortButtons={false}
               />
             </div>
-          )}
+          ) : null}
         </div>
       </div>
     </div>

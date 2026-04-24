@@ -412,7 +412,7 @@ const RackOverviewPage = () => {
         </section>
       </div>
 
-      {showEditModal && rack && assignMinersFormData && (
+      {showEditModal && rack && assignMinersFormData ? (
         <AssignMinersModal
           show
           rackSettings={assignMinersFormData}
@@ -441,9 +441,9 @@ const RackOverviewPage = () => {
             })
           }
         />
-      )}
+      ) : null}
 
-      {searchMinerSlot && rack && (
+      {searchMinerSlot && rack ? (
         <SearchMinersModal
           show
           currentRackLabel={rack.label}
@@ -484,7 +484,7 @@ const RackOverviewPage = () => {
             });
           }}
         />
-      )}
+      ) : null}
     </div>
   );
 };

@@ -26,11 +26,11 @@ const MinerStatusWidget = ({ onClick, summary, circle }: MinerStatusWidgetProps)
           </div>
         ) : (
           <>
-            {circle && (
+            {circle ? (
               <div className="flex items-center">
                 <StatusCircle status={circle} variant={variants.simple} width={"w-2"} removeMargin={true} />
               </div>
-            )}
+            ) : null}
           </>
         )}
         {summary || "Status"}

@@ -162,7 +162,7 @@ function ChartPanel({
           duration={duration}
           referenceLines={referenceLines}
         />
-        {legendStats && (
+        {legendStats ? (
           <div className="flex items-center gap-6 px-2 pt-2 text-200 text-core-primary-50">
             <div className="flex items-center gap-2">
               <svg width="24" height="4">
@@ -211,7 +211,7 @@ function ChartPanel({
               <span>{legendStats.min}</span>
             </div>
           </div>
-        )}
+        ) : null}
       </div>
     </ChartWidget>
   );

@@ -40,7 +40,7 @@ const Row = ({
         data-testid={testId}
         {...(Element === "button" && { type: "button" })}
       >
-        {prefixIcon && <div>{prefixIcon}</div>}
+        {prefixIcon ? <div>{prefixIcon}</div> : null}
         <div
           className={clsx(
             "grow text-left",
@@ -53,15 +53,15 @@ const Row = ({
         >
           {children}
         </div>
-        {suffixIcon && <div className="m-4">{suffixIcon}</div>}
+        {suffixIcon ? <div className="m-4">{suffixIcon}</div> : null}
       </Element>
-      {divider && (
+      {divider ? (
         <Divider
           className={clsx("mt-[-1px]", {
             "px-4": onClick,
           })}
         />
-      )}
+      ) : null}
     </div>
   );
 };

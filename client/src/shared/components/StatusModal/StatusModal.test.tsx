@@ -20,11 +20,11 @@ vi.mock("@/shared/components/Modal", () => ({
     return (
       <div data-testid="modal">
         <div data-testid="modal-title">{title}</div>
-        {icon && (
+        {icon ? (
           <button data-testid="modal-icon" onClick={onIconClick}>
             {icon}
           </button>
-        )}
+        ) : null}
         <button data-testid="modal-dismiss" onClick={onDismiss}>
           Dismiss
         </button>

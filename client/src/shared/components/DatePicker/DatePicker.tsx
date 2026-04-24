@@ -339,7 +339,7 @@ const DatePickerContent = (props: DatePickerProps) => {
           }}
           disabled={disabled}
           aria-haspopup="dialog"
-          aria-expanded={open && !disabled}
+          aria-expanded={open ? !disabled : undefined}
           aria-invalid={hasError || undefined}
           aria-describedby={id && typeof error === "string" && error ? `${id}-error` : undefined}
           onBlur={() => {
@@ -378,7 +378,7 @@ const DatePickerContent = (props: DatePickerProps) => {
       </div>
 
       {/* Dropdown panel */}
-      {open && !disabled && (
+      {open && !disabled ? (
         <Popover
           position={positions["bottom right"]}
           className="!w-auto !space-y-0"
@@ -388,7 +388,7 @@ const DatePickerContent = (props: DatePickerProps) => {
         >
           <div className="flex gap-4">
             {/* Preset menu */}
-            {displayMenu && (
+            {displayMenu ? (
               <PresetList
                 activePreset={activePreset}
                 timeframe={timeframe}
@@ -397,11 +397,11 @@ const DatePickerContent = (props: DatePickerProps) => {
                 onCustomPresetClick={handleCustomPresetClick}
                 testId={`${testId}-presets`}
               />
-            )}
+            ) : null}
 
             {/* Calendar + optional inputs */}
             <div className="flex flex-col">
-              {withInputs && (
+              {withInputs ? (
                 <DatePickerInput
                   selectionMode={selectionMode}
                   withInputs={withInputs}
@@ -413,7 +413,7 @@ const DatePickerContent = (props: DatePickerProps) => {
                   disabled={disabled}
                   testId={`${testId}-inputs`}
                 />
-              )}
+              ) : null}
               <Calendar
                 displayedYear={displayedYear}
                 displayedMonth={displayedMonth}
@@ -433,7 +433,7 @@ const DatePickerContent = (props: DatePickerProps) => {
             </div>
           </div>
         </Popover>
-      )}
+      ) : null}
     </div>
   );
 };

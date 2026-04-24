@@ -41,13 +41,13 @@ const MobileHeader = ({ openMenu, title, customButtons }: PageHeaderProps) => {
       </div>
       {/* Bottom bar */
       /* If custom buttons are passed (Onboarding flow), dont render bottom bar*/}
-      {!customButtons && (
+      {!customButtons ? (
         <div className="scrollbar-hide flex w-full gap-2 overflow-auto px-4 pb-6">
           <FirmwareUpdateStatus />
           <PowerTarget />
           <PoolStatus />
         </div>
-      )}
+      ) : null}
     </div>
   );
 };
@@ -57,12 +57,12 @@ const DesktopHeader = ({ customButtons }: { customButtons: PageHeaderProps["cust
     <div className="flex w-full items-center justify-end gap-4 pl-60">
       <div className="flex grow justify-between space-x-3 self-center px-4 [scrollbar-width:none]">
         <div className="flex space-x-3 phone:flex-shrink-0">
-          {!customButtons && (
+          {!customButtons ? (
             <>
               <MinerStatus />
               <FirmwareUpdateStatus />
             </>
-          )}
+          ) : null}
         </div>
 
         <div className="flex space-x-3 phone:flex-shrink-0">

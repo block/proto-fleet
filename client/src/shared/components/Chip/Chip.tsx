@@ -20,7 +20,7 @@ const Chip = ({ loading, prefixIcon, children, onClick }: ChipProps) => {
       onClick={() => onClick && onClick()}
     >
       {prefix}
-      {children && prefix && <span className="w-1" />}
+      {children && prefix ? <span className="w-1" /> : null}
       <span className="text-200">{children}</span>
     </div>
   );

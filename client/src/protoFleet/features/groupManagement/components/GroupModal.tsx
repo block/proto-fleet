@@ -145,7 +145,7 @@ const GroupModal = ({ show, onDismiss, onSuccess, group }: GroupModalProps) => {
     <>
       <Modal
         onDismiss={onDismiss}
-        open={show && !showDeleteConfirm}
+        open={show ? !showDeleteConfirm : false}
         size="large"
         className="flex !h-[calc(100vh-(--spacing(32)))] max-h-[calc(100vh-(--spacing(32)))] flex-col !overflow-hidden"
         bodyClassName="flex flex-1 min-h-0 flex-col"
@@ -207,7 +207,7 @@ const GroupModal = ({ show, onDismiss, onSuccess, group }: GroupModalProps) => {
         </div>
       </Modal>
 
-      {showDeleteConfirm && group && (
+      {showDeleteConfirm && group ? (
         <Dialog
           title={`Delete "${group.label}"?`}
           subtitle="This action cannot be undone. The miners in this group will not be affected."
@@ -226,7 +226,7 @@ const GroupModal = ({ show, onDismiss, onSuccess, group }: GroupModalProps) => {
             },
           ]}
         />
-      )}
+      ) : null}
     </>
   );
 };

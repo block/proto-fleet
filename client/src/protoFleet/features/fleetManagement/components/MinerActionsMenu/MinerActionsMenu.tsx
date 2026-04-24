@@ -261,7 +261,7 @@ const MinerActionsMenu = ({
         />
       </div>
       <PoolSelectionPageWrapper
-        open={showPoolSelectionPage && !!fleetCredentials}
+        open={showPoolSelectionPage ? !!fleetCredentials : false}
         selectedMiners={poolMiners}
         selectionMode={selectionMode}
         poolNeededCount={poolFilteredDeviceIds ? poolFilteredDeviceIds.length : totalCount}
@@ -272,17 +272,17 @@ const MinerActionsMenu = ({
         onDismiss={handleCancel}
       />
       <ManagePowerModal
-        open={currentAction === performanceActions.managePower && showManagePowerModal}
+        open={currentAction === performanceActions.managePower ? showManagePowerModal : false}
         onConfirm={handleManagePowerConfirm}
         onDismiss={handleManagePowerDismiss}
       />
       <FirmwareUpdateModal
-        open={currentAction === deviceActions.firmwareUpdate && showFirmwareUpdateModal}
+        open={currentAction === deviceActions.firmwareUpdate ? showFirmwareUpdateModal : false}
         onConfirm={handleFirmwareUpdateConfirm}
         onDismiss={handleFirmwareUpdateDismiss}
       />
       <CoolingModeModal
-        open={currentAction === settingsActions.coolingMode && showCoolingModeModal}
+        open={currentAction === settingsActions.coolingMode ? showCoolingModeModal : false}
         minerCount={coolingModeCount}
         initialCoolingMode={currentCoolingMode}
         onConfirm={handleCoolingModeConfirm}
@@ -318,7 +318,7 @@ const MinerActionsMenu = ({
         onDismiss={handlePasswordDismiss}
       />
       <AddToGroupModal
-        open={currentAction === groupActions.addToGroup && showAddToGroupModal}
+        open={currentAction === groupActions.addToGroup ? showAddToGroupModal : false}
         onDismiss={handleAddToGroupDismiss}
         selectedMiners={selectedMiners}
         selectionMode={selectionMode}

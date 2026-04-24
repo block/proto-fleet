@@ -85,7 +85,7 @@ const WelcomeFlow = ({
 
   return (
     <>
-      {!noMinersFound && (
+      {!noMinersFound ? (
         <div className="absolute top-1/2 left-1/2 z-10 flex h-[314px] w-[418px] -translate-x-1/2 -translate-y-1/2 flex-col items-center justify-center gap-6 bg-surface-base p-5 backdrop-blur-2xl">
           <motion.div
             initial={{ opacity: 0.2, y: "50%" }}
@@ -97,7 +97,7 @@ const WelcomeFlow = ({
           </motion.div>
           <div className="grid h-[112px] duration-500">
             <AnimatePresence>
-              {!searching && (
+              {!searching ? (
                 <motion.div
                   initial={{ y: "-50%", opacity: 0 }}
                   animate={{ y: "0%", opacity: 1 }}
@@ -111,11 +111,11 @@ const WelcomeFlow = ({
                     Get started
                   </Button>
                 </motion.div>
-              )}
+              ) : null}
             </AnimatePresence>
             <AnimatePresence>
-              {searching &&
-                (ipAddress ? (
+              {searching ? (
+                ipAddress ? (
                   <motion.div
                     className="col-start-1 row-start-1 text-center"
                     initial={{ scale: 0, opacity: 0 }}
@@ -134,11 +134,12 @@ const WelcomeFlow = ({
                   >
                     <p className="text-text-primary-70">Searching your network for miners</p>
                   </motion.div>
-                ))}
+                )
+              ) : null}
             </AnimatePresence>
           </div>
         </div>
-      )}
+      ) : null}
       <Modal
         open={noMinersFound}
         title="No Proto miners found"

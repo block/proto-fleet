@@ -318,7 +318,7 @@ const PoolModal = ({
         testId="pool-save-error-callout"
       />
       <div className="space-y-4">
-        {!hidePoolName && (
+        {!hidePoolName ? (
           <Input
             id={`${poolInfoAttributes.name} ${poolIndex}`}
             label="Pool Name"
@@ -328,7 +328,7 @@ const PoolModal = ({
             error={poolNameError}
             autoFocus
           />
-        )}
+        ) : null}
         <Input
           id={`${poolInfoAttributes.url} ${poolIndex}`}
           label="Pool URL"
@@ -348,7 +348,7 @@ const PoolModal = ({
             testId={`${poolInfoAttributes.username}-${poolIndex}-input`}
             error={usernameError}
           />
-          {usernameHelperText && <div className="text-200 text-text-primary-70">{usernameHelperText}</div>}
+          {usernameHelperText ? <div className="text-200 text-text-primary-70">{usernameHelperText}</div> : null}
         </div>
         <Input
           id={`${poolInfoAttributes.password} ${poolIndex}`}

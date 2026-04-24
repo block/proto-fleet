@@ -48,7 +48,7 @@ const MiniRackGrid = ({ cols, rows, slots }: MiniRackGridProps) => {
               })}
               style={{ width: slotSize, height: slotSize }}
             >
-              {hasDot && (
+              {hasDot ? (
                 <span
                   className={clsx("absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full", {
                     "bg-intent-critical-fill": status === "needsAttention",
@@ -56,7 +56,7 @@ const MiniRackGrid = ({ cols, rows, slots }: MiniRackGridProps) => {
                   })}
                   style={{ width: dotSize, height: dotSize }}
                 />
-              )}
+              ) : null}
             </div>
           );
         })}

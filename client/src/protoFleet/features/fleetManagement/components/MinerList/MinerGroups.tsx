@@ -56,33 +56,34 @@ const MinerGroups = ({ miner, availableGroups }: MinerGroupsProps) => {
   return (
     <span ref={triggerRef} className="cursor-default" onMouseEnter={open} onMouseLeave={closeWithDelay}>
       {groupLabels.length} groups
-      {isVisible &&
-        createPortal(
-          <div
-            className="fixed z-[9999] min-w-60 rounded-lg bg-surface-elevated-base px-3 py-2 shadow-lg"
-            style={floatingStyle}
-            onMouseEnter={open}
-            onMouseLeave={closeWithDelay}
-          >
-            <ul className="flex flex-col divide-y divide-border-5 whitespace-nowrap">
-              {groupLabels.map((label) => {
-                const link = getGroupLink(label);
-                return (
-                  <li key={label} className="py-2">
-                    {link ? (
-                      <Link to={link} className="text-300 hover:underline">
-                        {label}
-                      </Link>
-                    ) : (
-                      <span>{label}</span>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          </div>,
-          document.body,
-        )}
+      {isVisible
+        ? createPortal(
+            <div
+              className="fixed z-[9999] min-w-60 rounded-lg bg-surface-elevated-base px-3 py-2 shadow-lg"
+              style={floatingStyle}
+              onMouseEnter={open}
+              onMouseLeave={closeWithDelay}
+            >
+              <ul className="flex flex-col divide-y divide-border-5 whitespace-nowrap">
+                {groupLabels.map((label) => {
+                  const link = getGroupLink(label);
+                  return (
+                    <li key={label} className="py-2">
+                      {link ? (
+                        <Link to={link} className="text-300 hover:underline">
+                          {label}
+                        </Link>
+                      ) : (
+                        <span>{label}</span>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>,
+            document.body,
+          )
+        : null}
     </span>
   );
 };

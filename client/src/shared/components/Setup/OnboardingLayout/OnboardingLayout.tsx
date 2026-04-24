@@ -23,7 +23,7 @@ const OnboardingLayout = ({ children, steps, currentStep }: OnboardingLayoutProp
     <div className="min-h-screen bg-surface-base">
       <SetupHeader />
       <div className="relative px-6 pt-6 tablet:flex tablet:flex-row">
-        {steps && currentStep && (
+        {steps && currentStep ? (
           <div className="absolute w-30 phone:relative phone:mb-4 tablet:relative">
             <ol className="flex flex-col gap-2 phone:flex-row">
               {Object.entries(steps).map(([key, step]) => (
@@ -45,7 +45,7 @@ const OnboardingLayout = ({ children, steps, currentStep }: OnboardingLayoutProp
               ))}
             </ol>
           </div>
-        )}
+        ) : null}
         <div className="mx-auto w-full max-w-xl tablet:max-w-160">{children}</div>
       </div>
     </div>

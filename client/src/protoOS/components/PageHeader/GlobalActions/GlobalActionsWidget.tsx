@@ -43,7 +43,7 @@ export const GlobalActionsWidget = ({ onBlinkLEDs, onDownloadLogs }: GlobalActio
       >
         <Ellipsis width={iconSizes.small} className="m-1" />
       </WidgetWrapper>
-      {isOpen && <GlobalActionsPopover onBlinkLEDs={handleBlinkButton} onDownloadLogs={handleDownloadButton} />}
+      {isOpen ? <GlobalActionsPopover onBlinkLEDs={handleBlinkButton} onDownloadLogs={handleDownloadButton} /> : null}
     </div>
   );
 };

@@ -114,7 +114,7 @@ const ManageSecurityModal = ({ open, minerGroups, onUpdateGroup, onDismiss, onDo
                 >
                   <div className="text-emphasis-300 text-text-primary">{group.name}</div>
                 </Row>
-                {index < sortedGroups.length - 1 && <Divider />}
+                {index < sortedGroups.length - 1 ? <Divider /> : null}
               </div>
             ))}
           </div>

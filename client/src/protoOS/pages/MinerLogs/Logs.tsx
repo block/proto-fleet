@@ -245,7 +245,7 @@ const Logs = ({ logsData, fetchMaxLogs }: LogsProps) => {
                   prefixIcon={isExporting ? <ProgressCircular indeterminate /> : undefined}
                   onClick={handleExportLogs}
                 />
-                {searchValue && (
+                {searchValue ? (
                   <Button
                     variant={variants.secondary}
                     size={sizes.compact}
@@ -253,7 +253,7 @@ const Logs = ({ logsData, fetchMaxLogs }: LogsProps) => {
                     onClick={clearSearch}
                     className="rounded-full!"
                   />
-                )}
+                ) : null}
               </div>
             </div>
           </div>
@@ -278,7 +278,7 @@ const Logs = ({ logsData, fetchMaxLogs }: LogsProps) => {
                     >
                       <div className="mr-10">{line}</div>
                       <div ref={index === filteredLogs.length - 1 ? messagesEndRef : undefined}>
-                        {log.timestamp && <>[{log.timestamp}] </>}
+                        {log.timestamp ? <>[{log.timestamp}] </> : null}
                         {log.message}
                       </div>
                     </div>

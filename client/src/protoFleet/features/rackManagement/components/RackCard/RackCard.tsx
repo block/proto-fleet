@@ -68,11 +68,11 @@ const RackCard = ({
           <span data-testid="rack-card-label" className="text-300 text-emphasis-300">
             {label}
           </span>
-          {zone && (
+          {zone ? (
             <span data-testid="rack-card-zone" className="text-300 text-text-primary-50">
               {zone}
             </span>
-          )}
+          ) : null}
         </div>
 
         {/* Mini Rack Grid */}
@@ -96,7 +96,7 @@ const RackCard = ({
                 <span key={i} className="inline-flex items-center gap-1">
                   <span className={clsx("h-2 w-2 shrink-0 rounded-full", seg.color)} />
                   {seg.text}
-                  {i < statusSegments.length - 1 && ","}
+                  {i < statusSegments.length - 1 ? "," : null}
                 </span>
               ))}
             </span>

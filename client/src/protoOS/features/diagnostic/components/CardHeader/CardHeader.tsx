@@ -25,7 +25,7 @@ function CardHeader({
       </div>
       <div className="flex items-center gap-3">
         {componentIcon}
-        {onInfoIconClick && (
+        {onInfoIconClick ? (
           <button
             className="rounded-full border-0 bg-core-primary-5 p-1.5"
             onClick={onInfoIconClick}
@@ -33,7 +33,7 @@ function CardHeader({
           >
             <InfoInverted className="text-text-primary-70" width={iconSizes.small} />
           </button>
-        )}
+        ) : null}
         {actions}
       </div>
     </div>

@@ -12,13 +12,13 @@ export const Default = () => {
 
   return (
     <>
-      {!open && (
+      {!open ? (
         <div className="flex h-screen items-center justify-center">
           <button onClick={() => setOpen(true)} className="bg-emphasis-300 rounded-lg px-4 py-2 text-surface-base">
             Show Modal
           </button>
         </div>
-      )}
+      ) : null}
       <MinerSelectionModal
         open={open}
         selectedMinerIds={[]}
@@ -40,13 +40,13 @@ export const WithPreselected = () => {
 
   return (
     <>
-      {!open && (
+      {!open ? (
         <div className="flex h-screen items-center justify-center">
           <button onClick={() => setOpen(true)} className="bg-emphasis-300 rounded-lg px-4 py-2 text-surface-base">
             Show Modal
           </button>
         </div>
-      )}
+      ) : null}
       <MinerSelectionModal
         open={open}
         selectedMinerIds={["miner-001", "miner-002"]}

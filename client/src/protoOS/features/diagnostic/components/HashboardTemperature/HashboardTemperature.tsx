@@ -160,25 +160,25 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
         />
       </div>
       <div className={`${containerPadX} pt-4`}>
-        {serial && (
+        {serial ? (
           <div className="before:w-ful relative flex items-center justify-between font-mono text-mono-text-50 text-text-primary-50 before:absolute before:top-[50%] before:left-0 before:h-[1px] before:w-full before:bg-border-5">
             <div className="relative bg-surface-base pr-4">
               Front
-              {hashboard?.inletTemp?.latest && (
+              {hashboard?.inletTemp?.latest ? (
                 <> {convertAndFormatMeasurement(hashboard.inletTemp.latest, temperatureUnit, false)}</>
-              )}
+              ) : null}
             </div>
             <div className="relative bg-surface-base px-4">{serial}</div>
             <div className="relative bg-surface-base pl-4">
               Rear
-              {hashboard?.outletTemp?.latest && (
+              {hashboard?.outletTemp?.latest ? (
                 <> {convertAndFormatMeasurement(hashboard.outletTemp.latest, temperatureUnit, false)}</>
-              )}
+              ) : null}
             </div>
           </div>
-        )}
+        ) : null}
       </div>
-      {serial && (
+      {serial ? (
         <div className="scrollbar-hide max-w-screen overflow-x-auto">
           <div className={`relative ${containerMarginX} mb-2 min-w-[800px]`}>
             <AsicMetricProvider selectedMetric={selectedMetric}>
@@ -186,13 +186,13 @@ const HashboardTemperature = ({ serial }: HashboardTemperatureProps) => {
             </AsicMetricProvider>
           </div>
         </div>
-      )}
+      ) : null}
       <div className={`${containerPadX} mb-5`}>
-        {hashboard?.board && (
+        {hashboard?.board ? (
           <div className="before:w-ful relative flex items-center justify-around font-mono text-mono-text-50 text-text-primary-50 before:absolute before:top-[50%] before:left-0 before:h-[1px] before:w-full before:bg-border-5">
             <div className="relative bg-surface-base px-4">{hashboard.board}</div>
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );

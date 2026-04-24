@@ -434,7 +434,7 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
       }
       tabIndex={onRowClick ? 0 : undefined}
     >
-      {itemSelectable && (
+      {itemSelectable ? (
         <td
           className={clsx(tdClassList, firstStickyClasses, "w-9", onRowClick && rowHoverOverlayClassList)}
           style={paddingCssVariables}
@@ -467,7 +467,7 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
             )}
           </div>
         </td>
-      )}
+      ) : null}
 
       {activeCols.map((row, columnIndex) => {
         const isExempt = columnsExemptFromDisabledStyling?.has(row) ?? false;
@@ -1123,19 +1123,20 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
     "tablet:left-[calc(var(--list-padding-tablet)+theme(spacing.9))]",
   );
 
-  const filtersElement = (filters?.length || headerControls) && (
-    <Filters<ListItem>
-      key={JSON.stringify(initialActiveFilters ?? null)}
-      className={clsx("gap-4 py-6", paddingClasses)}
-      filterItems={filters ?? []}
-      filterSize={filterSize}
-      items={items}
-      onFilter={isServerSideFiltering ? handleServerFiltering : handleClientFiltering}
-      isServerSide={isServerSideFiltering}
-      headerControls={headerControls}
-      initialActiveFilters={initialActiveFilters}
-    />
-  );
+  const filtersElement =
+    filters?.length || headerControls ? (
+      <Filters<ListItem>
+        key={JSON.stringify(initialActiveFilters ?? null)}
+        className={clsx("gap-4 py-6", paddingClasses)}
+        filterItems={filters ?? []}
+        filterSize={filterSize}
+        items={items}
+        onFilter={isServerSideFiltering ? handleServerFiltering : handleClientFiltering}
+        isServerSide={isServerSideFiltering}
+        headerControls={headerControls}
+        initialActiveFilters={initialActiveFilters}
+      />
+    ) : null;
 
   const visibleItemKeys = useMemo(
     () => filteredItems.map((item) => item[itemKey] as ItemKeyValueType),
@@ -1228,19 +1229,19 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
                 : "shadow-[0_4px_6px_0_rgba(0,0,0,0)]",
             )}
           >
-            {itemSelectable && (
+            {itemSelectable ? (
               <th scope="col" className={clsx(thClassList, firstStickyClasses, "w-9")} style={paddingCssVariables}>
-                {selectionType !== "radio" && (
+                {selectionType !== "radio" ? (
                   <div className="w-9 truncate overflow-hidden" data-testid="select-all-checkbox">
                     <Checkbox
                       checked={allSelected}
-                      partiallyChecked={visibleSelectedCount > 0 && !allSelected}
+                      partiallyChecked={visibleSelectedCount > 0 ? !allSelected : false}
                       onChange={(e) => handleSelectAll(e.target.checked)}
                     />
                   </div>
-                )}
+                ) : null}
               </th>
-            )}
+            ) : null}
 
             {activeCols.map((row, idx) => {
               const isSortable = sortableColumns?.has(row);
@@ -1310,43 +1311,43 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
                 </th>
               );
             })}
-            {actions.length > 0 && (
+            {actions.length > 0 ? (
               <th scope="col" className={thClassList}>
                 <div className="w-11 truncate overflow-hidden" />
               </th>
-            )}
+            ) : null}
           </tr>
         </thead>
         {rowDragEnabled ? (
           <SortableContext items={visibleItemKeys as UniqueIdentifier[]} strategy={verticalListSortingStrategy}>
             <tbody data-testid="list-body">
-              {filteredItems.length > 0
-                ? filteredItems.map(renderRow)
-                : emptyStateRow && (
-                    <tr data-testid="list-empty-row">
-                      <td colSpan={totalColumnCount}>{emptyStateRow}</td>
-                    </tr>
-                  )}
+              {filteredItems.length > 0 ? (
+                filteredItems.map(renderRow)
+              ) : emptyStateRow ? (
+                <tr data-testid="list-empty-row">
+                  <td colSpan={totalColumnCount}>{emptyStateRow}</td>
+                </tr>
+              ) : null}
             </tbody>
           </SortableContext>
         ) : (
           <tbody data-testid="list-body">
-            {filteredItems.length > 0
-              ? filteredItems.map(renderRow)
-              : emptyStateRow && (
-                  <tr data-testid="list-empty-row">
-                    <td colSpan={totalColumnCount}>{emptyStateRow}</td>
-                  </tr>
-                )}
+            {filteredItems.length > 0 ? (
+              filteredItems.map(renderRow)
+            ) : emptyStateRow ? (
+              <tr data-testid="list-empty-row">
+                <td colSpan={totalColumnCount}>{emptyStateRow}</td>
+              </tr>
+            ) : null}
           </tbody>
         )}
       </table>
       {footerContent}
-      {onLoadMore && hasMore && (
+      {onLoadMore && hasMore ? (
         <div ref={loadMoreTriggerRef} className="flex justify-center py-6">
-          {isLoadingMore && <ProgressCircular indeterminate />}
+          {isLoadingMore ? <ProgressCircular indeterminate /> : null}
         </div>
-      )}
+      ) : null}
       {/* eslint-disable-next-line react-hooks/refs -- ref object from useStickyState is passed to <div ref>; React writes .current during commit, not read during render */}
       <div ref={refs.vertical.end} />
     </>
@@ -1358,13 +1359,13 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
         {filtersElement}
       </div>
       <div style={paddingCssVariables}>
-        {!hideTotal && total !== undefined && (
+        {!hideTotal && total !== undefined ? (
           <div className="sticky left-0 flex">
             <div className={clsx("sticky left-0 pb-4 text-emphasis-300 text-text-primary-70", paddingClasses)}>
               {total} {total === 1 ? itemName.singular : itemName.plural}
             </div>
           </div>
-        )}
+        ) : null}
         <div className={clsx("flex flex-col", containerClassName)}>
           <div
             ref={setCombinedScrollRef}
@@ -1385,11 +1386,11 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
               noDataElement
             )}
           </div>
-          {renderActionBar && (
+          {renderActionBar ? (
             <div className="w-full">
               {renderActionBar(currentSelectedItems, clearSelection, currentSelectionMode, totalSelectable)}
             </div>
-          )}
+          ) : null}
         </div>
       </div>
     </>

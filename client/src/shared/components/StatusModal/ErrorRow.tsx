@@ -20,14 +20,14 @@ const ErrorRow = ({ icon, title, subtitle, onClick, divider = true }: ErrorRowPr
     <Row prefixIcon={icon} className="flex items-center justify-between text-emphasis-300" compact divider={divider}>
       <div className="min-w-0 flex-1 py-2 pr-2">
         <div className="text-emphasis-300 text-text-primary">{title}</div>
-        {subtitle && <div className="mt-0.5 text-200 text-text-primary-70">{subtitle}</div>}
+        {subtitle ? <div className="mt-0.5 text-200 text-text-primary-70">{subtitle}</div> : null}
       </div>
 
-      {onClick && (
+      {onClick ? (
         <div className="ml-2 shrink-0">
           <ChevronDown width={iconSizes.small} className="rotate-270 text-text-primary-70" />
         </div>
-      )}
+      ) : null}
     </Row>
   );
 

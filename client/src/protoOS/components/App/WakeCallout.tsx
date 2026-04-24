@@ -55,7 +55,7 @@ const WakeCallout = ({ afterWake, onWake }: WakeCalloutProps) => {
 
   return (
     <>
-      {isSleeping && (
+      {isSleeping ? (
         <div className="mb-10">
           <Callout
             buttonOnClick={wakeMiner}
@@ -65,7 +65,7 @@ const WakeCallout = ({ afterWake, onWake }: WakeCalloutProps) => {
             title="This miner is asleep and is not hashing."
           />
         </div>
-      )}
+      ) : null}
       <WakingDialog open={shouldWake} />
 
       <FansDetectedDialog

@@ -56,7 +56,7 @@ const KpiLayout = () => {
   return (
     <ErrorBoundary>
       <div className="p-14 phone:p-6 tablet:p-10">
-        {noPoolsLive && <NoPoolsCallout arePoolsConfigured={!!poolsInfo?.[0]?.url} />}
+        {noPoolsLive ? <NoPoolsCallout arePoolsConfigured={!!poolsInfo?.[0]?.url} /> : null}
 
         <div className="relative flex h-[calc(100vh-theme(spacing.36))] min-h-[800px] flex-col phone:min-h-[1000px]">
           <div className="flex items-center pb-6">

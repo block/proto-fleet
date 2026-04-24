@@ -47,7 +47,7 @@ const FirmwareUpdateStatusWidget = ({
           <div className="flex items-center">
             <ProgressCircular indeterminate dataTestId="miner-status-spinner" size={12} />
           </div>
-          {updateStatus?.progress && <>{updateStatus.progress}%</>}
+          {updateStatus?.progress ? <>{updateStatus.progress}%</> : null}
         </div>
       ) : updateStatus?.status !== "installed" ? (
         <div className="flex items-center">

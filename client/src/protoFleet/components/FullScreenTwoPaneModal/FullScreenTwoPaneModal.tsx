@@ -71,7 +71,7 @@ const OverflowActionSheet = ({ overflowButtons, onClose }: { overflowButtons: Bu
           </Row>
         ))}
 
-        {dangerItems.length > 0 && nonDangerItems.length > 0 && <Divider />}
+        {dangerItems.length > 0 && nonDangerItems.length > 0 ? <Divider /> : null}
 
         {dangerItems.map((button, index) => (
           <Row
@@ -214,7 +214,7 @@ const FullScreenTwoPaneModal = ({
         </div>
       )}
 
-      {showOverflowSheet && <OverflowActionSheet overflowButtons={overflowButtons} onClose={closeSheet} />}
+      {showOverflowSheet ? <OverflowActionSheet overflowButtons={overflowButtons} onClose={closeSheet} /> : null}
     </Modal>
   );
 };

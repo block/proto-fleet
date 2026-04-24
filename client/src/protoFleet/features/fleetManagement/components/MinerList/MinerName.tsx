@@ -44,18 +44,15 @@ const MinerName = ({
       <div className="flex items-center gap-2">
         {isActionLoading ? (
           <ProgressCircular size={14} indeterminate />
-        ) : (
-          needsAttention &&
-          !needsAuthentication && (
-            <button
-              onClick={() => onOpenStatusFlow(deviceIdentifier)}
-              className="cursor-pointer transition-opacity hover:opacity-80"
-              aria-label="View issues"
-            >
-              <Alert width="w-4" className="text-red-500" />
-            </button>
-          )
-        )}
+        ) : needsAttention && !needsAuthentication ? (
+          <button
+            onClick={() => onOpenStatusFlow(deviceIdentifier)}
+            className="cursor-pointer transition-opacity hover:opacity-80"
+            aria-label="View issues"
+          >
+            <Alert width="w-4" className="text-red-500" />
+          </button>
+        ) : null}
         <SingleMinerActionsMenu
           deviceIdentifier={deviceIdentifier}
           minerUrl={miner.url || undefined}

@@ -279,15 +279,15 @@ const RacksPage = () => {
             </Button>
           }
         />
-        {showRackSettingsModal && (
+        {showRackSettingsModal ? (
           <RackSettingsModal
             show={showRackSettingsModal}
             existingRacks={racks}
             onDismiss={() => setShowRackSettingsModal(false)}
             onContinue={handleRackSettingsContinue}
           />
-        )}
-        {assignMinersFormData && (
+        ) : null}
+        {assignMinersFormData ? (
           <AssignMinersModal
             show={!!assignMinersFormData}
             rackSettings={assignMinersFormData}
@@ -297,7 +297,7 @@ const RacksPage = () => {
             onSave={handleAssignMinersSave}
             onDelete={assignMinersRackId ? handleDeleteRack : undefined}
           />
-        )}
+        ) : null}
       </>
     );
   }
@@ -354,7 +354,7 @@ const RacksPage = () => {
                 onSelect={handleIssuesChange}
                 withButtons
               />
-              {racksViewMode === "grid" && (
+              {racksViewMode === "grid" ? (
                 <DropdownFilter
                   title="Sort"
                   options={RACK_SORT_OPTIONS}
@@ -362,7 +362,7 @@ const RacksPage = () => {
                   onSelect={handleSortSelect}
                   showSelectAll={false}
                 />
-              )}
+              ) : null}
             </div>
             <Button variant={variants.secondary} size={sizes.compact} onClick={() => setShowRackSettingsModal(true)}>
               Add rack
@@ -384,7 +384,7 @@ const RacksPage = () => {
               onSelect={handleIssuesChange}
               withButtons
             />
-            {racksViewMode === "grid" && (
+            {racksViewMode === "grid" ? (
               <DropdownFilter
                 title="Sort"
                 options={RACK_SORT_OPTIONS}
@@ -392,9 +392,9 @@ const RacksPage = () => {
                 onSelect={handleSortSelect}
                 showSelectAll={false}
               />
-            )}
+            ) : null}
           </div>
-          {activeFilterPills.length > 0 && (
+          {activeFilterPills.length > 0 ? (
             <div className="flex flex-wrap gap-2">
               {activeFilterPills.map((pill) => (
                 <Button
@@ -408,7 +408,7 @@ const RacksPage = () => {
                 </Button>
               ))}
             </div>
-          )}
+          ) : null}
         </div>
       </div>
       {error ? (
@@ -472,7 +472,7 @@ const RacksPage = () => {
               </div>
             </div>
           )}
-          {(shouldRenderGridPagination || (currentPage > 0 && racks.length === 0)) && (
+          {shouldRenderGridPagination || (currentPage > 0 && racks.length === 0) ? (
             <div className="sticky left-0 flex flex-col items-center gap-4 py-6">
               <span className="text-300 text-text-primary">
                 Showing {firstItemIndex}–{lastItemIndex} of {totalCount} racks
@@ -496,18 +496,18 @@ const RacksPage = () => {
                 />
               </div>
             </div>
-          )}
+          ) : null}
         </div>
       )}
-      {showRackSettingsModal && (
+      {showRackSettingsModal ? (
         <RackSettingsModal
           show={showRackSettingsModal}
           existingRacks={racks}
           onDismiss={() => setShowRackSettingsModal(false)}
           onContinue={handleRackSettingsContinue}
         />
-      )}
-      {assignMinersFormData && (
+      ) : null}
+      {assignMinersFormData ? (
         <AssignMinersModal
           show={!!assignMinersFormData}
           rackSettings={assignMinersFormData}
@@ -516,7 +516,7 @@ const RacksPage = () => {
           onDismiss={handleAssignMinersDismiss}
           onSave={handleAssignMinersSave}
         />
-      )}
+      ) : null}
     </div>
   );
 };

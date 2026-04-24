@@ -48,11 +48,11 @@ const StatusModalLayout = ({
       <div className="mt-6 flex flex-col gap-2">
         {icon}
         <div className="text-heading-300 text-text-primary">{title}</div>
-        {subtitle && <div className="text-300 text-text-primary-50">{subtitle}</div>}
+        {subtitle ? <div className="text-300 text-text-primary-50">{subtitle}</div> : null}
       </div>
 
       {/* Divider and secondary title when miner is asleep with errors */}
-      {secondaryTitle && (
+      {secondaryTitle ? (
         <>
           <Divider />
           {/* Secondary section - identical structure to header section */}
@@ -61,13 +61,13 @@ const StatusModalLayout = ({
               <Alert />
             </DialogIcon>
             <div className="text-heading-300 text-text-primary">{secondaryTitle}</div>
-            {secondarySubtitle && <div className="text-300 text-text-primary-50">{secondarySubtitle}</div>}
+            {secondarySubtitle ? <div className="text-300 text-text-primary-50">{secondarySubtitle}</div> : null}
           </div>
         </>
-      )}
+      ) : null}
 
       {/* Error list section */}
-      {errors && errors.length > 0 && (
+      {errors && errors.length > 0 ? (
         <div>
           {/* Error rows */}
           <div className="flex flex-col">
@@ -83,7 +83,7 @@ const StatusModalLayout = ({
             ))}
           </div>
         </div>
-      )}
+      ) : null}
 
       {/* Additional content sections */}
       {children}

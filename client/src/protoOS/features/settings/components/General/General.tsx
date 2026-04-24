@@ -86,17 +86,17 @@ const General = () => {
     <>
       <h2 className="mb-10 text-heading-300">General</h2>
       <div className="mb-10 flex h-68 w-full items-center justify-center rounded-2xl bg-core-primary-5">
-        {isProtoRig && (
+        {isProtoRig ? (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>
             <Picture image={ProtoRigImage} alt={systemInfo?.product_name} />
             <div className="mt-2 text-center text-heading-100 text-text-primary-50">{systemInfo?.product_name}</div>
           </motion.div>
-        )}
+        ) : null}
       </div>
       <div className="mb-10">
         <div className="mb-2 flex items-center justify-between">
           <h3 className="text-heading-100">Details</h3>
-          {hasTag && (
+          {hasTag ? (
             <Button
               text="Edit"
               variant={variants.secondary}
@@ -104,7 +104,7 @@ const General = () => {
               onClick={handleMinerIdClick}
               testId="edit-details-button"
             />
-          )}
+          ) : null}
         </div>
         <Row className="flex justify-between">
           <h4 className="text-emphasis-300">Model</h4>
@@ -146,9 +146,9 @@ const General = () => {
             textColor="text-intent-warning-fill"
             text={convertToSentenceCase(theme)}
           />
-          {showThemeSwitcher && (
+          {showThemeSwitcher ? (
             <ThemeSwitcher onClickDone={() => setShowThemeSwitcher(false)} theme={theme} setTheme={setTheme} />
-          )}
+          ) : null}
         </Row>
         <Row className="flex justify-between">
           <h4 className="text-emphasis-300">Temperature</h4>
@@ -159,13 +159,13 @@ const General = () => {
             text={temperatureUnit === "C" ? "Celsius" : "Fahrenheit"}
             testId="temperature-button"
           />
-          {showTemperatureUnitsSwitcher && (
+          {showTemperatureUnitsSwitcher ? (
             <TemperatureUnitsSwitcher
               onClickDone={() => setShowTemperatureUnitsSwitcher(false)}
               temperatureUnit={temperatureUnit}
               setTemperatureUnit={setTemperatureUnit}
             />
-          )}
+          ) : null}
         </Row>
       </div>
       <MinerSystemTagEditModal

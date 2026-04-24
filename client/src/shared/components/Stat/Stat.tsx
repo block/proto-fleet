@@ -47,7 +47,7 @@ const Stat = ({
         >
           {label}
         </div>
-        {subtitle && (
+        {subtitle ? (
           <div
             className={clsx(
               "flex items-center gap-2 text-heading-50 text-text-primary-50 transition-opacity duration-500",
@@ -57,9 +57,9 @@ const Stat = ({
             aria-label="Data reporting status"
           >
             <span>{subtitle}</span>
-            {tooltipContent && <Tooltip body={tooltipContent} position="bottom left" icon="info" />}
+            {tooltipContent ? <Tooltip body={tooltipContent} position="bottom left" icon="info" /> : null}
           </div>
-        )}
+        ) : null}
       </div>
       {value === undefined ? (
         <SkeletonBar
@@ -82,12 +82,12 @@ const Stat = ({
             size === "small" && "text-heading-100",
           )}
         >
-          <span className={valueClassName}>{getDisplayValue(value)}</span> {units && units}
+          <span className={valueClassName}>{getDisplayValue(value)}</span> {units ? units : null}
         </motion.div>
       )}
-      {icon && <div className="absolute top-0 right-0">{icon}</div>}
-      {text && <div className="mt-1 text-300 text-text-primary-70">{text}</div>}
-      {chartPercentage !== undefined && (
+      {icon ? <div className="absolute top-0 right-0">{icon}</div> : null}
+      {text ? <div className="mt-1 text-300 text-text-primary-70">{text}</div> : null}
+      {chartPercentage !== undefined ? (
         <div className="relative mt-2 h-[2px] w-full">
           <div className={clsx("absolute h-full w-full opacity-20", statusColors[chartStatus])}></div>
           <div
@@ -99,7 +99,7 @@ const Stat = ({
             data-testid="stat-chart"
           ></div>
         </div>
-      )}
+      ) : null}
     </div>
   );
 };

@@ -39,7 +39,7 @@ const HashboardSelector = ({ hashboardList, currentHashboard }: HashboardSelecto
         {currentHashboardName || <SkeletonBar className="w-25 text-heading-300" />}
       </Button>
 
-      {showPopover && (
+      {showPopover ? (
         <Popover className="!space-y-0 px-0 py-0">
           <div ref={popoverRef} className="px-6 py-2">
             {hashboardList.map((hashboard, index) => (
@@ -61,7 +61,7 @@ const HashboardSelector = ({ hashboardList, currentHashboard }: HashboardSelecto
             ))}
           </div>
         </Popover>
-      )}
+      ) : null}
     </div>
   );
 };

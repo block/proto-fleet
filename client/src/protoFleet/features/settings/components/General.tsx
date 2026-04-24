@@ -49,9 +49,9 @@ const General = () => {
                   textColor="text-intent-warning-fill"
                   text={convertToSentenceCase(theme)}
                 />
-                {showThemeSwitcher && (
+                {showThemeSwitcher ? (
                   <ThemeSwitcher onClickDone={() => setShowThemeSwitcher(false)} theme={theme} setTheme={setTheme} />
-                )}
+                ) : null}
               </Row>
               <Row className="flex justify-between" divider={false}>
                 <div className="text-300">Temperature</div>
@@ -62,13 +62,13 @@ const General = () => {
                   textColor="text-intent-warning-fill"
                   text={temperatureUnit === "C" ? "Celsius" : "Fahrenheit"}
                 />
-                {showTemperatureUnitsSwitcher && (
+                {showTemperatureUnitsSwitcher ? (
                   <TemperatureUnitsSwitcher
                     onClickDone={() => setShowTemperatureUnitsSwitcher(false)}
                     temperatureUnit={temperatureUnit}
                     setTemperatureUnit={setTemperatureUnit}
                   />
-                )}
+                ) : null}
               </Row>
             </div>
           </div>

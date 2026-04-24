@@ -37,7 +37,7 @@ const StatusOverlay = ({ text, icon = <LogoAlt width="w-16" /> }: StatusOverlayP
         >
           <ProgressCircular indeterminate />
         </motion.div>
-        {text && (
+        {text ? (
           <motion.p
             animate={{ y: ["-50%", "0%"], opacity: [0, 1] }}
             transition={{ duration: 1, ease: easeGentle }}
@@ -45,7 +45,7 @@ const StatusOverlay = ({ text, icon = <LogoAlt width="w-16" /> }: StatusOverlayP
           >
             {text}
           </motion.p>
-        )}
+        ) : null}
       </div>
     </>
   );

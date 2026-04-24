@@ -174,32 +174,32 @@ const ChartTooltip = ({
       style={tooltipStyle}
     >
       <div className="px-6" style={{ width: tooltipWidth + "px" }}>
-        {shouldShowAggregate && aggregateKey && (
+        {shouldShowAggregate && aggregateKey ? (
           <div
             className={clsx("flex space-x-2", {
               "pb-4": hasSegmentEntries,
             })}
           >
             <div>
-              {showAggregateContext && (
+              {showAggregateContext ? (
                 <div className="mb-1 text-200 text-text-primary-70">{aggregateLabel || aggregateKey}</div>
-              )}
+              ) : null}
               <div className="inline-flex items-center gap-2 text-heading-100 text-text-primary">
-                {showAggregateContext && (
+                {showAggregateContext ? (
                   <StatusCircle
                     testId={AGGREGATE_TOOLTIP_STATUS_CIRCLE_TEST_ID}
                     width="w-2"
                     status={statuses.warning}
                     variant={variants.simple}
                   />
-                )}
-                {aggregateDisplayValue} {units && <span>{units}</span>}
+                ) : null}
+                {aggregateDisplayValue} {units ? <span>{units}</span> : null}
               </div>
             </div>
           </div>
-        )}
+        ) : null}
 
-        {hasSegmentEntries && (
+        {hasSegmentEntries ? (
           <div>
             <div className="mb-1 text-200 text-text-primary-70">{segmentsLabel}</div>
             {segmentEntries.map(([key, value], idx) => {
@@ -215,7 +215,7 @@ const ChartTooltip = ({
               );
             })}
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );

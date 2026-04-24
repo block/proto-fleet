@@ -111,13 +111,13 @@ const FirmwareUpdateModal = ({ open, onConfirm, onDismiss }: FirmwareUpdateModal
     <Modal open={open} title="Add firmware payload" onDismiss={handleDismiss} buttons={buttons} divider={false}>
       <div className="text-text-secondary mt-2 text-300">Upload the firmware payload file to update your miners.</div>
       <div className="mt-6 flex flex-col gap-4">
-        {showLoadingSpinner && (
+        {showLoadingSpinner ? (
           <div className="flex items-center justify-center p-8">
             <ProgressCircular indeterminate size={24} />
           </div>
-        )}
+        ) : null}
 
-        {hasExistingFiles && (
+        {hasExistingFiles ? (
           <div className="flex flex-col gap-2">
             <div className="text-300 text-text-primary">Select an existing firmware file</div>
             <div
@@ -147,7 +147,9 @@ const FirmwareUpdateModal = ({ open, onConfirm, onDismiss }: FirmwareUpdateModal
                       selectedExistingFileId === f.id ? "border-border-focus" : "border-border-20",
                     )}
                   >
-                    {selectedExistingFileId === f.id && <div className="h-2 w-2 rounded-full bg-core-primary-fill" />}
+                    {selectedExistingFileId === f.id ? (
+                      <div className="h-2 w-2 rounded-full bg-core-primary-fill" />
+                    ) : null}
                   </div>
                   <div className="flex min-w-0 flex-col">
                     <div className="truncate text-300 text-text-primary">{f.filename}</div>
@@ -159,7 +161,7 @@ const FirmwareUpdateModal = ({ open, onConfirm, onDismiss }: FirmwareUpdateModal
               ))}
             </div>
 
-            {serverConfig && (
+            {serverConfig ? (
               <div className="flex items-center gap-3 py-2">
                 <div className="h-px flex-1 bg-border-5" />
                 <Button
@@ -170,28 +172,28 @@ const FirmwareUpdateModal = ({ open, onConfirm, onDismiss }: FirmwareUpdateModal
                 />
                 <div className="h-px flex-1 bg-border-5" />
               </div>
-            )}
+            ) : null}
           </div>
-        )}
+        ) : null}
 
-        {uploadState === "error" && errorMessage && <FileErrorStatus message={errorMessage} onRetry={retry} />}
+        {uploadState === "error" && errorMessage ? <FileErrorStatus message={errorMessage} onRetry={retry} /> : null}
 
-        {uploadState === "idle" && serverConfig && (!hasExistingFiles || showUploadZone) && (
+        {uploadState === "idle" && serverConfig && (!hasExistingFiles || showUploadZone) ? (
           <FileDropZone extensions={serverConfig.allowedExtensions} onFileSelect={handleUploadFileSelect} />
-        )}
+        ) : null}
 
-        {isProcessing && uploadFile && (
+        {isProcessing && uploadFile ? (
           <FileProcessingStatus
             state={uploadState as "hashing" | "checking" | "uploading"}
             fileName={uploadFile.name}
             fileSize={uploadFile.size}
             uploadProgress={uploadProgress}
           />
-        )}
+        ) : null}
 
-        {uploadState === "ready" && uploadFile && !selectedExistingFileId && (
+        {uploadState === "ready" && uploadFile && !selectedExistingFileId ? (
           <FileReadyStatus fileName={uploadFile.name} fileSize={uploadFile.size} />
-        )}
+        ) : null}
       </div>
     </Modal>
   );

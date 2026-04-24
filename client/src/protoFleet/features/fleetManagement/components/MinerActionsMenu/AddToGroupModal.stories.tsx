@@ -12,13 +12,13 @@ export const Default = () => {
 
   return (
     <>
-      {!open && (
+      {!open ? (
         <div className="flex h-screen items-center justify-center">
           <button onClick={() => setOpen(true)} className="bg-emphasis-300 rounded-lg px-4 py-2 text-surface-base">
             Show Modal
           </button>
         </div>
-      )}
+      ) : null}
       <AddToGroupModal
         open={open}
         selectedMiners={["miner-1", "miner-2", "miner-3"]}
@@ -38,13 +38,13 @@ export const SingleMiner = () => {
 
   return (
     <>
-      {!open && (
+      {!open ? (
         <div className="flex h-screen items-center justify-center">
           <button onClick={() => setOpen(true)} className="bg-emphasis-300 rounded-lg px-4 py-2 text-surface-base">
             Show Modal
           </button>
         </div>
-      )}
+      ) : null}
       <AddToGroupModal
         open={open}
         selectedMiners={["miner-1"]}
@@ -64,13 +64,13 @@ export const AllMinersSelected = () => {
 
   return (
     <>
-      {!open && (
+      {!open ? (
         <div className="flex h-screen items-center justify-center">
           <button onClick={() => setOpen(true)} className="bg-emphasis-300 rounded-lg px-4 py-2 text-surface-base">
             Show Modal
           </button>
         </div>
-      )}
+      ) : null}
       <AddToGroupModal
         open={open}
         selectedMiners={[]}

@@ -200,14 +200,14 @@ const Fleet = () => {
 
   return (
     <>
-      {(!unfilteredCountLoaded || totalUnfilteredMiners > 0 || totalMiners > 0) && (
+      {!unfilteredCountLoaded || totalUnfilteredMiners > 0 || totalMiners > 0 ? (
         <CompleteSetup
           className="sticky left-0 mb-10 max-w-full px-10 pt-10 phone:px-6 phone:pt-6 tablet:px-6 tablet:pt-6"
           lastPairingCompletedAt={lastPairingCompletedAt}
           onRefetchMiners={refetchAll}
           onPairingCompleted={notifyPairingCompleted}
         />
-      )}
+      ) : null}
       <ErrorBoundary>
         <MinerList
           title="Miners"
@@ -249,7 +249,7 @@ const Fleet = () => {
         />
       </ErrorBoundary>
 
-      {showAddMinersModal && (
+      {showAddMinersModal ? (
         <Miners
           mode="pairing"
           onExit={handleAddMinersClose}
@@ -257,7 +257,7 @@ const Fleet = () => {
           onPairingCompleted={notifyPairingCompleted}
           onRefetchMiners={refetchAll}
         />
-      )}
+      ) : null}
     </>
   );
 };

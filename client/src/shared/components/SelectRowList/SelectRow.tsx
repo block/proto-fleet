@@ -56,7 +56,7 @@ const SelectRow = ({
         {prefixIcon}
         <div className={clsx({ "ml-4": prefixIcon })}>
           <div className="text-emphasis-300">{text}</div>
-          {subtext && (
+          {subtext ? (
             <div
               className={clsx("text-200", {
                 "text-text-primary-70": !disabled,
@@ -65,11 +65,11 @@ const SelectRow = ({
             >
               {subtext}
             </div>
-          )}
+          ) : null}
         </div>
       </div>
       <div className="flex items-center gap-4">
-        {sideText && <div className="text-right text-300">{sideText}</div>}
+        {sideText ? <div className="text-right text-300">{sideText}</div> : null}
         <div className="relative flex">
           <input
             className={clsx("peer relative h-[20px] w-[20px] appearance-none", {
@@ -82,7 +82,7 @@ const SelectRow = ({
             })}
             disabled={disabled}
             type={type}
-            checked={isSelected && !disabled}
+            checked={isSelected ? !disabled : false}
             onChange={handleChange}
           />
           <div

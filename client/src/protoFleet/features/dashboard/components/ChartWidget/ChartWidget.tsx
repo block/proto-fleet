@@ -30,7 +30,7 @@ const ChartWidget = ({
   return (
     <div className={clsx("rounded-xl bg-surface-base p-10 dark:bg-core-primary-5 phone:p-6", className)}>
       <div className={statsPadding}>
-        {statsArray.length > 0 && (
+        {statsArray.length > 0 ? (
           <Stats
             stats={statsArray}
             size={statsSize}
@@ -38,7 +38,7 @@ const ChartWidget = ({
             gap={statsGap}
             padding="" // let our parent handle padding
           />
-        )}
+        ) : null}
       </div>
       <div className="flex w-full">{children}</div>
     </div>

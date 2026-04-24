@@ -158,7 +158,7 @@ const Modal = ({
           ref={modalRef}
           data-testid={testId}
         >
-          {showHeader && (
+          {showHeader ? (
             <div
               ref={headerRef}
               className={clsx("sticky top-0 z-10 bg-surface-elevated-base pt-6", { "phone:hidden": hideHeaderOnPhone })}
@@ -182,8 +182,8 @@ const Modal = ({
                 <div className={headerSpacingClassName} />
               )}
             </div>
-          )}
-          {title && !isFullscreen && (
+          ) : null}
+          {title && !isFullscreen ? (
             <>
               <div ref={sentinelRef} className="h-0 w-0" />
               <div
@@ -194,8 +194,8 @@ const Modal = ({
                 {title}
               </div>
             </>
-          )}
-          {description && <div className="mb-4 max-w-[600px] text-300 text-text-primary-70">{description}</div>}
+          ) : null}
+          {description ? <div className="mb-4 max-w-[600px] text-300 text-text-primary-70">{description}</div> : null}
           <div className={clsx("text-300 text-text-primary-70", bodyClassName)}>{children}</div>
           {hasPhoneFooterButtons ? (
             <div className="mt-6 hidden w-full gap-3 phone:flex">

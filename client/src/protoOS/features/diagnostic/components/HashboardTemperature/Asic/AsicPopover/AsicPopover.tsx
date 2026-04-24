@@ -76,11 +76,9 @@ const AsicPopover = ({ asic, closePopover, closeIgnoreSelectors }: AsicPopoverPr
         ) : null}
         {hashrateData.length || temperatureData.length ? (
           <AsicChart hashrateData={hashrateData} temperatureData={temperatureData} />
-        ) : (
-          !isLoading && (
-            <div className="flex h-full items-center justify-center text-text-primary-50">No chart data available</div>
-          )
-        )}
+        ) : !isLoading ? (
+          <div className="flex h-full items-center justify-center text-text-primary-50">No chart data available</div>
+        ) : null}
       </div>
       <div>
         <AsicPopoverRow

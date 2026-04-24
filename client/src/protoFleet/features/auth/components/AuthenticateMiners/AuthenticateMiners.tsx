@@ -200,10 +200,11 @@ const AuthenticateMiners = ({
             initValue={credentials[item.deviceIdentifier]?.username ?? bulkCredentials.username}
             hideLabelOnFocus
             disabled={
-              authenticateLoading &&
-              (bulkCredentials.username !== "" ||
-                (credentials[item.deviceIdentifier] !== undefined &&
-                  credentials[item.deviceIdentifier].username !== ""))
+              authenticateLoading
+                ? bulkCredentials.username !== "" ||
+                  (credentials[item.deviceIdentifier] !== undefined &&
+                    credentials[item.deviceIdentifier].username !== "")
+                : false
             }
             error={minerErrors.find((id) => id === item.deviceIdentifier) !== undefined}
             onChange={handleMinerChange.bind(this, item.deviceIdentifier, ids.username)}
@@ -221,10 +222,11 @@ const AuthenticateMiners = ({
             initValue={credentials[item.deviceIdentifier]?.password ?? bulkCredentials.password}
             hideLabelOnFocus
             disabled={
-              authenticateLoading &&
-              (bulkCredentials.password !== "" ||
-                (credentials[item.deviceIdentifier] !== undefined &&
-                  credentials[item.deviceIdentifier].password !== ""))
+              authenticateLoading
+                ? bulkCredentials.password !== "" ||
+                  (credentials[item.deviceIdentifier] !== undefined &&
+                    credentials[item.deviceIdentifier].password !== "")
+                : false
             }
             error={minerErrors.find((id) => id === item.deviceIdentifier) !== undefined}
             onChange={handleMinerChange.bind(this, item.deviceIdentifier, ids.password)}
@@ -480,7 +482,7 @@ const AuthenticateMiners = ({
           : undefined
       }
     >
-      {errorMessage !== null && (
+      {errorMessage !== null ? (
         <Callout
           className="mt-6"
           intent={intents.information}
@@ -492,7 +494,7 @@ const AuthenticateMiners = ({
             setMinerErrors([]);
           }}
         />
-      )}
+      ) : null}
       <div className="mt-6 rounded-2xl bg-surface-5 p-6 dark:bg-core-primary-5">
         <div className="flex w-full flex-col gap-4">
           <div>
@@ -505,7 +507,7 @@ const AuthenticateMiners = ({
             id={ids.username}
             label="Miner username"
             initValue={bulkCredentials.username}
-            disabled={authenticateLoading && bulkCredentials.username !== ""}
+            disabled={authenticateLoading ? bulkCredentials.username !== "" : false}
             error={hasMissingCredentials && !bulkCredentials.username ? "Missing username" : undefined}
             onChange={handleBulkChange}
             autoFocus
@@ -515,13 +517,13 @@ const AuthenticateMiners = ({
             label="Miner password"
             type="password"
             initValue={bulkCredentials.password}
-            disabled={authenticateLoading && bulkCredentials.password !== ""}
+            disabled={authenticateLoading ? bulkCredentials.password !== "" : false}
             error={hasMissingCredentials && !bulkCredentials.password ? "Missing password" : undefined}
             onChange={handleBulkChange}
           />
         </div>
       </div>
-      {showMiners && (
+      {showMiners ? (
         <>
           <div className="mt-2">
             <List<UnauthenticatedMiner, UnauthenticatedMiner["deviceIdentifier"]>
@@ -548,7 +550,7 @@ const AuthenticateMiners = ({
             onSelectNone={() => setSelectedMiners([])}
           />
         </>
-      )}
+      ) : null}
     </Modal>
   );
 };
