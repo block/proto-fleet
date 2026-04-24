@@ -339,7 +339,7 @@ const DatePickerContent = (props: DatePickerProps) => {
           }}
           disabled={disabled}
           aria-haspopup="dialog"
-          aria-expanded={open ? !disabled : undefined}
+          aria-expanded={disabled ? undefined : open}
           aria-invalid={hasError || undefined}
           aria-describedby={id && typeof error === "string" && error ? `${id}-error` : undefined}
           onBlur={() => {
