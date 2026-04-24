@@ -1,0 +1,40 @@
+# Stratum V2 translator proxy configuration (SRI tProxy).
+#
+# Rendered by deployment-files/install.sh from operator-supplied answers
+# (upstream SV2 pool URL and LAN-facing miner URL). Operators who skip the
+# install prompt can edit this file directly — the proxy reads it once at
+# startup; any change requires a container restart via
+#   docker compose --profile sv2 restart sv2-tproxy
+#
+# Fields below are placeholders until the installer writes over them.
+# See https://github.com/stratum-mining/stratum for SRI's authoritative
+# config reference; only the fields Fleet cares about are documented here.
+
+# ---- Downstream (SV1 miners on the LAN) -----------------------------------
+# What SV1 miners on the LAN connect to. Must match the miner-facing URL
+# that the Fleet rewriter pushes to miners (STRATUM_V2_PROXY_MINER_URL)
+# minus the stratum+tcp:// scheme. Fleet writes the rewriter payload
+# including the scheme; the proxy listens on host:port only.
+downstream_address = "0.0.0.0"
+downstream_port = 34255
+
+# ---- Upstream (SV2 pool) --------------------------------------------------
+# The pool the operator is mining. Must be reachable from the proxy
+# container. Noise key is pool-specific — copy from the pool's operator
+# docs alongside their published SV2 endpoint.
+upstream_address = "REPLACE_WITH_POOL_HOST"
+upstream_port = 34254
+upstream_authority_pubkey = "REPLACE_WITH_POOL_NOISE_KEY"
+
+# ---- SRI internals --------------------------------------------------------
+# Extranonce size and min/max sv2 version — leave at SRI defaults unless
+# the upstream pool documents specific requirements.
+min_extranonce2_size = 8
+min_supported_version = 2
+max_supported_version = 2
+
+# Coinbase output script — the downstream proxy rewrites share jobs so
+# they credit this script. In SV1-to-SV2 translation mode this is
+# typically empty (the upstream pool's own output is used); override if
+# the pool's docs say otherwise.
+coinbase_outputs = []

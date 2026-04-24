@@ -64,6 +64,7 @@ import (
 	poolsDomain "github.com/block/proto-fleet/server/internal/domain/pools"
 	scheduleDomain "github.com/block/proto-fleet/server/internal/domain/schedule"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
+	"github.com/block/proto-fleet/server/internal/domain/sv2"
 	"github.com/block/proto-fleet/server/internal/domain/telemetry"
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/scheduler"
 	tokenDomain "github.com/block/proto-fleet/server/internal/domain/token"
@@ -333,6 +334,29 @@ func start(config *Config) error {
 
 	statusService := commandDomain.NewStatusService(conn, dbMessageQueue)
 	commandSvc := commandDomain.NewService(&config.Command, conn, executionService, dbMessageQueue, statusService, encryptSvc, filesService, deviceStore, userStore, authSvc, telemetryService, pluginService, activitySvc)
+	// Fail fast on bad StratumV2 config rather than surfacing at pool-
+	// assignment time. Passing nil for the SV2 capability resolver means
+	// preflight treats every device as SV1-only — plugins populate SV2
+	// support via telemetry; the capability resolver lookup is a planned
+	// server-side integration that will surface that telemetry to
+	// preflight without requiring a constructor change.
+	if err := config.StratumV2.Validate(); err != nil {
+		return fmt.Errorf("invalid STRATUM_V2 config: %w", err)
+	}
+	commandSvc.SetStratumV2Resolvers(nil, config.StratumV2.RewriterConfig())
+
+	// When the operator enabled the bundled SV2 translator proxy, start
+	// a background TCP health probe so operators can see at a glance
+	// whether the proxy they stood up is actually listening. The monitor
+	// is purely informational — pool assignment decisions consult the
+	// static ProxyEnabled flag, not this probe, so a flapping proxy
+	// still routes SV1 miners at the bundled URL.
+	if config.StratumV2.ProxyEnabled {
+		healthMonitor := sv2.NewHealthMonitor(config.StratumV2.ProxyHealthCheckAddr, config.StratumV2.ProxyHealthInterval)
+		// Reuse the executionServiceCtx so the monitor goroutine shuts
+		// down on the same signal as the rest of the async plumbing.
+		go healthMonitor.Start(executionServiceCtx)
+	}
 	fleetMgmtSvc := fleetmanagementDomain.NewService(deviceStore, discoveredDeviceStore, telemetryService, minerService, pluginService, poolStore, errorStore, collectionStore, commandSvc, activitySvc)
 	defer fleetMgmtSvc.WaitForPendingClearAuthKeys(shutdownTimeout)
 	onboardingSvc := onboardingDomain.NewService(deviceStore, poolStore, userStore)

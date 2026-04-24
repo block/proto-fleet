@@ -17,6 +17,17 @@ services:
       SESSION_COOKIE_SECURE: "${SESSION_COOKIE_SECURE:-true}"
       PLUGINS_DIR: "/app/plugins"
       PLUGINS_ENABLED: "true"
+      # Stratum V2 translator proxy. install.sh writes these into
+      # .env based on operator input; default-false keeps existing
+      # deployments unchanged on upgrade. The health address default
+      # assumes the host-networked fleet-api (see plan "Note on
+      # ProxyHealthCheckAddr default") — bridge-network operators
+      # override via .env.
+      STRATUM_V2_PROXY_ENABLED: "${STRATUM_V2_PROXY_ENABLED:-false}"
+      STRATUM_V2_PROXY_UPSTREAM_URL: "${STRATUM_V2_PROXY_UPSTREAM_URL:-}"
+      STRATUM_V2_PROXY_MINER_URL: "${STRATUM_V2_PROXY_MINER_URL:-}"
+      STRATUM_V2_PROXY_HEALTH_ADDR: "${STRATUM_V2_PROXY_HEALTH_ADDR:-127.0.0.1:34255}"
+      STRATUM_V2_PROXY_HEALTH_INTERVAL: "${STRATUM_V2_PROXY_HEALTH_INTERVAL:-30s}"
     depends_on:
       timescaledb:
         condition: service_healthy
@@ -40,6 +51,23 @@ services:
     network_mode: host
     volumes:
       - ./ssl:/etc/nginx/ssl:ro
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "5"
+        compress: "true"
+
+  # Bundled SRI translator proxy. Profile-gated — started with
+  # `COMPOSE_PROFILES=sv2 docker compose up` or `docker compose --profile sv2 up`.
+  # Default deployments without SV2 ignore this service entirely.
+  sv2-tproxy:
+    extends:
+      file: ./server/docker-compose.base.yaml
+      service: sv2-tproxy
+    profiles: ["sv2"]
+    volumes:
+      - ./sv2/tproxy.toml:/etc/tproxy/config.toml:ro
     logging:
       driver: "json-file"
       options:

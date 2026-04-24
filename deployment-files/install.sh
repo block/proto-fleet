@@ -245,5 +245,85 @@ for plugin in "${REQUIRED_PLUGINS[@]}"; do
 done
 echo "✅ Plugin binaries validated"
 
+configure_stratum_v2() {
+  local env_file="./.env"
+  local toml_template="./sv2/tproxy.toml"
+
+  # If the operator already configured SV2 on a prior install, preserve
+  # their answers. .env is extracted on first install and left alone on
+  # subsequent upgrades (see extract_and_cd), so a prior STRATUM_V2_*
+  # setting is load-bearing.
+  if [ -f "$env_file" ] && grep -q '^STRATUM_V2_PROXY_ENABLED=' "$env_file"; then
+    echo "🛰  Keeping existing Stratum V2 configuration in ${env_file}"
+    return 0
+  fi
+
+  echo ""
+  echo "🛰  Stratum V2 translator proxy (optional)"
+  echo "   Enables SV1-only miners to mine SV2 pools through a bundled"
+  echo "   translator. Fleet rewrites SV2 pool URLs to the proxy's"
+  echo "   LAN-facing URL at pool-assignment time."
+  echo "   Native SV2 miners do NOT need this — they mine SV2 pools directly."
+  read -p "   Enable Stratum V2 translation proxy? [y/N]: " enable_sv2
+
+  if [[ ! "$enable_sv2" =~ ^[Yy]$ ]]; then
+    cat >> "$env_file" <<EOF
+# Stratum V2 translator proxy (disabled)
+STRATUM_V2_PROXY_ENABLED=false
+EOF
+    echo "   Stratum V2 proxy disabled. Re-run installer or edit .env to enable later."
+    return 0
+  fi
+
+  local sv2_upstream=""
+  while [ -z "$sv2_upstream" ]; do
+    read -p "   Upstream SV2 pool URL (stratum2+tcp://host:port): " sv2_upstream
+  done
+
+  local sv2_miner_url=""
+  while [ -z "$sv2_miner_url" ]; do
+    read -p "   Miner-facing proxy URL (stratum+tcp://host:port, default port 34255): " sv2_miner_url
+  done
+
+  local sv2_pool_noise_key=""
+  read -p "   Pool's Noise authority pubkey (from pool operator docs, required): " sv2_pool_noise_key
+
+  cat >> "$env_file" <<EOF
+# Stratum V2 translator proxy
+# Enables SV1-only miners to mine SV2 pools; change requires compose restart.
+STRATUM_V2_PROXY_ENABLED=true
+STRATUM_V2_PROXY_UPSTREAM_URL=${sv2_upstream}
+STRATUM_V2_PROXY_MINER_URL=${sv2_miner_url}
+# Fleet probes the proxy over TCP; default works under Compose's host network.
+STRATUM_V2_PROXY_HEALTH_ADDR=127.0.0.1:34255
+STRATUM_V2_PROXY_HEALTH_INTERVAL=30s
+EOF
+
+  # Render the tProxy TOML from operator input. Host/port are parsed from
+  # the stratum2+tcp://host:port URL; regex lives here rather than in the
+  # TOML template so the placeholder file stays valid as-is for operators
+  # editing by hand.
+  if [ -f "$toml_template" ] && [ -n "$sv2_pool_noise_key" ]; then
+    local host port
+    host=$(echo "$sv2_upstream" | sed -E 's|^stratum2\+(tcp\|ssl)://([^:/]+):.*$|\2|')
+    port=$(echo "$sv2_upstream" | sed -E 's|^stratum2\+(tcp\|ssl)://[^:/]+:([0-9]+).*$|\2|')
+    if [ -n "$host" ] && [ -n "$port" ]; then
+      sed -i.bak \
+        -e "s|^upstream_address = .*|upstream_address = \"${host}\"|" \
+        -e "s|^upstream_port = .*|upstream_port = ${port}|" \
+        -e "s|^upstream_authority_pubkey = .*|upstream_authority_pubkey = \"${sv2_pool_noise_key}\"|" \
+        "$toml_template"
+      rm -f "${toml_template}.bak"
+      echo "   Rendered ${toml_template} with upstream ${host}:${port}"
+    else
+      echo "   ⚠️  Could not parse upstream URL; edit ${toml_template} manually before starting the proxy."
+    fi
+  fi
+
+  echo "   To start the proxy: docker compose --profile sv2 up -d"
+}
+
+configure_stratum_v2
+
 echo "🔧 Running deployment script..."
 ./run-fleet.sh

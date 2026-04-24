@@ -123,6 +123,27 @@ test-contract: _asicrs-build
     exit 1
   fi
 
+# run the SV2 plugin-integration Go test against a live stack with the
+# sv2 Compose profile enabled. Brings the stack up, waits for sv2-tproxy
+# to be healthy, runs the suite, then leaves the stack alive so the
+# operator can inspect logs — run `docker compose --profile sv2 down` to
+# tear it down.
+test-e2e-sv2:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  echo "=== Starting fleet stack with sv2 profile ==="
+  COMPOSE_PROFILES=sv2 docker compose up -d --wait
+  echo "=== Probing sv2-tproxy health ==="
+  for i in {1..30}; do
+    if nc -z localhost 34255 2>/dev/null; then
+      echo "sv2-tproxy listening on :34255"
+      break
+    fi
+    sleep 1
+  done
+  echo "=== Running SV2 e2e tests ==="
+  cd server && go test -tags e2e -v -count=1 -timeout=2m ./e2e/sv2/
+
 # run ProtoFleet E2E tests
 test-e2e-fleet: (_e2e "protoFleet" "--project=desktop")
 
