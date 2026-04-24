@@ -1,0 +1,464 @@
+name: ProtoFleet Artifact Build
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Version string used in artifact filenames and embedded metadata.
+        required: true
+        type: string
+      build_date:
+        description: Optional UTC ISO-8601 build date. Defaults to the workflow run time.
+        required: false
+        default: ""
+        type: string
+      retention_days:
+        description: Number of days to retain uploaded build artifacts.
+        required: false
+        default: 1
+        type: number
+      channel:
+        description: Build channel metadata. Release builds omit this from deployment version.txt.
+        required: false
+        default: release
+        type: string
+      is_prerelease:
+        description: Whether generated server metadata should mark this build as a prerelease.
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  metadata:
+    name: Build metadata
+    runs-on: ubuntu-latest
+    outputs:
+      build_date: ${{ steps.metadata.outputs.build_date }}
+      channel: ${{ steps.metadata.outputs.channel }}
+      is_prerelease: ${{ steps.metadata.outputs.is_prerelease }}
+      version: ${{ steps.metadata.outputs.version }}
+    steps:
+      - name: Resolve artifact metadata
+        id: metadata
+        env:
+          INPUT_BUILD_DATE: ${{ inputs.build_date }}
+          INPUT_CHANNEL: ${{ inputs.channel }}
+          INPUT_IS_PRERELEASE: ${{ inputs.is_prerelease }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [[ ! "$INPUT_VERSION" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            echo "::error::Version '$INPUT_VERSION' must only contain letters, numbers, dots, underscores, or hyphens."
+            exit 1
+          fi
+
+          if [[ -n "$INPUT_BUILD_DATE" ]]; then
+            BUILD_DATE="$INPUT_BUILD_DATE"
+          else
+            BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          fi
+
+          echo "build_date=$BUILD_DATE" >> "$GITHUB_OUTPUT"
+          echo "channel=$INPUT_CHANNEL" >> "$GITHUB_OUTPUT"
+          echo "is_prerelease=$INPUT_IS_PRERELEASE" >> "$GITHUB_OUTPUT"
+          echo "version=$INPUT_VERSION" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Artifact build"
+            echo ""
+            echo "- Version: \`$INPUT_VERSION\`"
+            echo "- Channel: \`$INPUT_CHANNEL\`"
+            echo "- Prerelease: \`$INPUT_IS_PRERELEASE\`"
+            echo "- Build date: \`$BUILD_DATE\`"
+            echo "- Commit: \`${GITHUB_SHA}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build-proto-fleet-windows-installer:
+    name: Build ProtoFleet Windows installer
+    runs-on: windows-latest
+    needs: [metadata]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup .NET SDK from global.json
+        uses: actions/setup-dotnet@c2fa09f4bde5ebb9d1777cf28262a3eb3db3ced7 # v5.2.0
+        with:
+          global-json-file: deployment-files/windows/global.json
+
+      - name: Show .NET SDK info
+        shell: powershell
+        run: dotnet --info
+
+      - name: Install ps2exe
+        shell: powershell
+        run: |
+          Set-PSRepository -Name "PSGallery" -InstallationPolicy Trusted
+          Install-Module -Name ps2exe -Force -Scope CurrentUser
+
+      - name: Build Windows installer EXE
+        shell: powershell
+        working-directory: ./deployment-files/windows
+        run: |
+          $outputDir = Join-Path $PWD "artifacts/protofleet-installer"
+          ./build-fleet-installer.ps1 -Configuration Release -OutputDir $outputDir
+          $installerPath = Join-Path $outputDir "installer.exe"
+          if (-not (Test-Path $installerPath)) {
+            throw "Installer build completed but installer.exe was not found in $outputDir."
+          }
+          Write-Host "Windows installer prepared at $installerPath"
+
+      - name: Build Windows uninstaller EXE
+        shell: powershell
+        working-directory: ./deployment-files/windows
+        run: |
+          $outputDir = Join-Path $PWD "artifacts/protofleet-installer"
+          $uninstallerPath = Join-Path $outputDir "uninstall.exe"
+          ./build-fleet-uninstaller-exe.ps1 -OutputExe $uninstallerPath
+          if (-not (Test-Path $uninstallerPath)) {
+            throw "Uninstaller build completed but uninstall.exe was not found at $uninstallerPath."
+          }
+          Write-Host "Windows uninstaller prepared at $uninstallerPath"
+
+      - name: Upload Windows installer artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: proto-fleet-windows-installer
+          path: |
+            ./deployment-files/windows/artifacts/protofleet-installer/installer.exe
+            ./deployment-files/windows/artifacts/protofleet-installer/uninstall.exe
+          retention-days: ${{ inputs.retention_days }}
+
+  build-proto-fleet-server:
+    name: Build ProtoFleet server (${{ matrix.arch }})
+    needs: [metadata]
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    env:
+      BUILD_DATE: ${{ needs.metadata.outputs.build_date }}
+      IS_PRERELEASE: ${{ needs.metadata.outputs.is_prerelease }}
+      VERSION: ${{ needs.metadata.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Hermit
+        uses: ./.github/actions/hermit-setup
+
+      - name: Configure Go cache
+        uses: ./.github/actions/go-cache-setup
+
+      - name: Build Golang server
+        working-directory: ./server
+        run: |
+          go mod download
+          go build -v -ldflags "-X main.version=$VERSION" -o fleetd-${{ matrix.arch }} ./cmd/fleetd
+          echo "version: $VERSION" > version.txt
+          echo "is_prerelease: $IS_PRERELEASE" >> version.txt
+          echo "build_date: $BUILD_DATE" >> version.txt
+          echo "commit: ${{ github.sha }}" >> version.txt
+
+      - name: Build Go plugin binaries
+        run: |
+          echo "Syncing Go workspace..."
+          go work sync
+          echo "Building Go plugins for ${{ matrix.arch }}..."
+          go build -o server/proto-plugin-${{ matrix.arch }} ./plugin/proto
+          go build -o server/antminer-plugin-${{ matrix.arch }} ./plugin/antminer
+          chmod +x server/proto-plugin-* server/antminer-plugin-*
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+      - name: Build asicrs plugin binary
+        run: |
+          docker buildx build \
+            --file plugin/asicrs/Dockerfile.build \
+            --output "type=local,dest=/tmp/asicrs" \
+            .
+          cp "/tmp/asicrs/asicrs-plugin" "server/asicrs-plugin-${{ matrix.arch }}"
+          cp "/tmp/asicrs/asicrs-config.yaml" "server/asicrs-config.yaml"
+          chmod +x server/asicrs-plugin-*
+          echo "asicrs plugin built successfully for ${{ matrix.arch }}"
+
+      - name: Package server binaries
+        working-directory: ./server
+        run: |
+          tar -czf "proto-fleet-server-${VERSION}-${{ matrix.arch }}.tar.gz" \
+            fleetd-${{ matrix.arch }} \
+            proto-plugin-${{ matrix.arch }} \
+            antminer-plugin-${{ matrix.arch }} \
+            asicrs-plugin-${{ matrix.arch }} \
+            asicrs-config.yaml \
+            version.txt
+
+      - name: Upload server artifact for job use
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: proto-fleet-server-artifact-${{ matrix.arch }}
+          path: ./server/proto-fleet-server-${{ needs.metadata.outputs.version }}-${{ matrix.arch }}.tar.gz
+          retention-days: ${{ inputs.retention_days }}
+
+  build-proto-fleet-client:
+    name: Build ProtoFleet client
+    runs-on: ubuntu-latest
+    needs: [metadata]
+    env:
+      BUILD_DATE: ${{ needs.metadata.outputs.build_date }}
+      VERSION: ${{ needs.metadata.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Hermit
+        uses: ./.github/actions/hermit-setup
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          cache: "npm"
+          cache-dependency-path: "./client/package-lock.json"
+
+      - name: Install dependencies
+        working-directory: ./client
+        run: npm ci
+
+      - name: Build ProtoFleet client
+        working-directory: ./client
+        run: |
+          export VITE_VERSION="$VERSION"
+          export VITE_BUILD_DATE="$BUILD_DATE"
+          export VITE_COMMIT="${{ github.sha }}"
+          npm run build:protoFleet
+
+      - name: Create version file
+        working-directory: ./client
+        run: |
+          echo "version: $VERSION" > dist/protoFleet/version.txt
+          echo "build_date: $BUILD_DATE" >> dist/protoFleet/version.txt
+          echo "commit: ${{ github.sha }}" >> dist/protoFleet/version.txt
+
+      - name: Package ProtoFleet client
+        working-directory: ./client
+        run: |
+          tar -czf "proto-fleet-client-${VERSION}.tar.gz" dist/protoFleet
+
+      - name: Upload client artifact for job use
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: proto-fleet-client-artifact
+          path: ./client/proto-fleet-client-${{ needs.metadata.outputs.version }}.tar.gz
+          retention-days: ${{ inputs.retention_days }}
+
+  build-proto-os:
+    name: Build ProtoOS
+    runs-on: ubuntu-latest
+    needs: [metadata]
+    env:
+      BUILD_DATE: ${{ needs.metadata.outputs.build_date }}
+      VERSION: ${{ needs.metadata.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Hermit
+        uses: ./.github/actions/hermit-setup
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          cache: "npm"
+          cache-dependency-path: "./client/package-lock.json"
+
+      - name: Install dependencies
+        working-directory: ./client
+        run: npm ci
+
+      - name: Build ProtoOS
+        working-directory: ./client
+        run: |
+          export VITE_VERSION="$VERSION"
+          export VITE_BUILD_DATE="$BUILD_DATE"
+          export VITE_COMMIT="${{ github.sha }}"
+          npm run build:protoOS
+
+      - name: Create version file
+        working-directory: ./client
+        run: |
+          echo "version: $VERSION" > dist/protoOS/version.txt
+          echo "build_date: $BUILD_DATE" >> dist/protoOS/version.txt
+          echo "commit: ${{ github.sha }}" >> dist/protoOS/version.txt
+
+      - name: Package ProtoOS
+        working-directory: ./client
+        run: |
+          tar -czf "proto-os-${VERSION}.tar.gz" dist/protoOS
+
+      - name: Create version file for control board package .ipk
+        working-directory: ./client
+        run: echo "$VERSION" > dist/web_dashboard_version
+
+      - name: Build ProtoOS .ipk package
+        working-directory: ./client
+        run: |
+          nfpm package --config nfpm-proto-os.yaml --packager ipk --target "proto-os_${VERSION}.ipk"
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+
+      - name: Upload ProtoOS artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: proto-os-artifact
+          path: |
+            ./client/proto-os-${{ needs.metadata.outputs.version }}.tar.gz
+            ./client/proto-os_${{ needs.metadata.outputs.version }}.ipk
+          retention-days: ${{ inputs.retention_days }}
+
+  build-timescaledb-image:
+    name: Build TimescaleDB image (${{ matrix.arch }})
+    needs: [metadata]
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+      - name: Build TimescaleDB image
+        run: |
+          docker buildx build \
+            -t proto-fleet-timescaledb:latest \
+            --output type=docker,dest=timescaledb-${{ matrix.arch }}.tar \
+            server/timescaledb
+          gzip -9 timescaledb-${{ matrix.arch }}.tar
+          echo "${{ matrix.arch }} image size: $(du -h timescaledb-${{ matrix.arch }}.tar.gz | cut -f1)"
+
+      - name: Upload TimescaleDB image artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: proto-fleet-timescaledb-${{ matrix.arch }}
+          path: timescaledb-${{ matrix.arch }}.tar.gz
+          retention-days: ${{ inputs.retention_days }}
+
+  build-proto-fleet:
+    name: Build ProtoFleet deployment bundle (${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    needs:
+      - metadata
+      - build-proto-fleet-server
+      - build-proto-fleet-client
+      - build-proto-fleet-windows-installer
+      - build-timescaledb-image
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    env:
+      BUILD_DATE: ${{ needs.metadata.outputs.build_date }}
+      CHANNEL: ${{ needs.metadata.outputs.channel }}
+      VERSION: ${{ needs.metadata.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Create deployment directory structure
+        run: |
+          mkdir -p deployment/server
+          mkdir -p deployment/client
+
+      - name: Download server artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: proto-fleet-server-artifact-${{ matrix.arch }}
+          path: /tmp/server-artifacts
+
+      - name: Download client artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: proto-fleet-client-artifact
+          path: /tmp
+
+      - name: Download Windows installer artifact
+        if: matrix.arch == 'amd64'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: proto-fleet-windows-installer
+          path: /tmp/windows-installer
+
+      - name: Download TimescaleDB image artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: proto-fleet-timescaledb-${{ matrix.arch }}
+          path: /tmp/timescaledb-images
+
+      - name: Extract artifacts
+        run: |
+          tar -xzf "/tmp/server-artifacts/proto-fleet-server-${VERSION}-${{ matrix.arch }}.tar.gz" -C deployment/server
+          cd deployment/server
+          mv fleetd-${{ matrix.arch }} fleetd
+          mv proto-plugin-${{ matrix.arch }} proto-plugin
+          mv antminer-plugin-${{ matrix.arch }} antminer-plugin
+          mv asicrs-plugin-${{ matrix.arch }} asicrs-plugin
+          cd ../..
+
+          mkdir -p /tmp/client
+          tar -xzf "/tmp/proto-fleet-client-${VERSION}.tar.gz" -C /tmp/client
+          mkdir -p deployment/client/protoFleet
+          cp -r /tmp/client/dist/protoFleet/* deployment/client/protoFleet/
+
+          if [ "${{ matrix.arch }}" = "amd64" ]; then
+            mkdir -p deployment/install
+            cp /tmp/windows-installer/installer.exe deployment/install/installer.exe
+            cp /tmp/windows-installer/uninstall.exe deployment/install/uninstall.exe
+          fi
+
+      - name: Copy deployment configuration files
+        run: |
+          cp deployment-files/client/Dockerfile deployment/client/
+          cp deployment-files/client/nginx.http.conf deployment/client/
+          cp deployment-files/client/nginx.https.conf deployment/client/
+          cp deployment-files/server/Dockerfile deployment/server/
+          cp deployment-files/docker-compose.yaml deployment/
+          cp server/docker-compose.base.yaml deployment/server/
+          cp deployment-files/run-fleet.sh deployment/
+          cp deployment-files/uninstall.sh deployment/
+          cp -r deployment-files/scripts deployment/
+          chmod +x deployment/run-fleet.sh deployment/uninstall.sh deployment/scripts/*.sh
+
+          mkdir -p deployment/images
+          cp /tmp/timescaledb-images/timescaledb-${{ matrix.arch }}.tar.gz deployment/images/timescaledb.tar.gz
+
+      - name: Create version file
+        run: |
+          echo "version: $VERSION" > deployment/version.txt
+          echo "build_date: $BUILD_DATE" >> deployment/version.txt
+          echo "commit: ${{ github.sha }}" >> deployment/version.txt
+          if [[ "$CHANNEL" != "release" ]]; then
+            echo "channel: $CHANNEL" >> deployment/version.txt
+          fi
+
+      - name: Package ProtoFleet deployment bundle
+        run: |
+          tar -czf "proto-fleet-${VERSION}-${{ matrix.arch }}.tar.gz" deployment
+
+      - name: Upload deployment bundle artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: proto-fleet-deployment-bundle-${{ matrix.arch }}
+          path: proto-fleet-${{ needs.metadata.outputs.version }}-${{ matrix.arch }}.tar.gz
+          retention-days: ${{ inputs.retention_days }}

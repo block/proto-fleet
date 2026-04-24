@@ -1,0 +1,99 @@
+name: Nightly Builds
+
+on:
+  schedule:
+    # Run daily at 4 AM UTC on the default branch.
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Optional artifact version override. Defaults to nightly-YYYYMMDD-<short-sha>.
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-builds-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  metadata:
+    name: Build metadata
+    runs-on: ubuntu-latest
+    outputs:
+      build_date: ${{ steps.metadata.outputs.build_date }}
+      version: ${{ steps.metadata.outputs.version }}
+    steps:
+      - name: Generate nightly metadata
+        id: metadata
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version || '' }}
+        run: |
+          BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          DATE_STAMP=$(date -u +"%Y%m%d")
+          SHORT_SHA="${GITHUB_SHA::12}"
+
+          if [[ -n "$INPUT_VERSION" ]]; then
+            VERSION="$INPUT_VERSION"
+          else
+            VERSION="nightly-${DATE_STAMP}-${SHORT_SHA}"
+          fi
+
+          if [[ ! "$VERSION" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            echo "::error::Version '$VERSION' must only contain letters, numbers, dots, underscores, or hyphens."
+            exit 1
+          fi
+
+          echo "build_date=$BUILD_DATE" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Nightly build"
+            echo ""
+            echo "- Version: \`$VERSION\`"
+            echo "- Build date: \`$BUILD_DATE\`"
+            echo "- Commit: \`${GITHUB_SHA}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build-artifacts:
+    name: Build nightly artifacts
+    needs: [metadata]
+    uses: ./.github/workflows/proto-fleet-artifact-build.yml
+    with:
+      version: ${{ needs.metadata.outputs.version }}
+      build_date: ${{ needs.metadata.outputs.build_date }}
+      retention_days: 14
+      channel: nightly
+      is_prerelease: true
+    secrets: inherit
+
+  summarize:
+    name: Summarize artifacts
+    runs-on: ubuntu-latest
+    needs:
+      - metadata
+      - build-artifacts
+    steps:
+      - name: Summarize nightly artifacts
+        env:
+          NIGHTLY_VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          {
+            echo "### Nightly artifacts"
+            echo ""
+            echo "Version: \`$NIGHTLY_VERSION\`"
+            echo ""
+            echo "Artifacts retained for 14 days:"
+            echo ""
+            echo "- \`proto-fleet-deployment-bundle-amd64\`"
+            echo "- \`proto-fleet-deployment-bundle-arm64\`"
+            echo "- \`proto-fleet-server-artifact-amd64\`"
+            echo "- \`proto-fleet-server-artifact-arm64\`"
+            echo "- \`proto-fleet-client-artifact\`"
+            echo "- \`proto-os-artifact\`"
+            echo "- \`proto-fleet-timescaledb-amd64\`"
+            echo "- \`proto-fleet-timescaledb-arm64\`"
+            echo "- \`proto-fleet-windows-installer\`"
+          } >> "$GITHUB_STEP_SUMMARY"
