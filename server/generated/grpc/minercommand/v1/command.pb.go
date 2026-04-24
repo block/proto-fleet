@@ -1921,15 +1921,16 @@ type CommandBatchDeviceResult struct {
 	ErrorMessage *string `protobuf:"bytes,3,opt,name=error_message,json=errorMessage,proto3,oneof" json:"error_message,omitempty"`
 	// When this row was last updated (start of this attempt's terminal write).
 	UpdatedAt *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	// Human-readable device name recorded at command-completion time so the
-	// activity-log detail view shows the operator what the miner was called
-	// when the action ran. Unset for historical rows (pre-migration) or when
-	// the device had no name information.
+	// Human-readable device name recorded at command-completion time (the
+	// first terminal write) so the activity-log detail view shows the
+	// operator what the miner was called then. Unset for historical rows
+	// (pre-migration) or when the device had no name information.
 	DeviceName *string `protobuf:"bytes,5,opt,name=device_name,json=deviceName,proto3,oneof" json:"device_name,omitempty"`
-	// Device IP address recorded at command-completion time. Reflects state at
-	// action-time so later DHCP changes do not rewrite the audit trail.
+	// Device IP address recorded at command-completion time (the first
+	// terminal write). Later DHCP lease changes do not rewrite the audit trail.
 	IpAddress *string `protobuf:"bytes,6,opt,name=ip_address,json=ipAddress,proto3,oneof" json:"ip_address,omitempty"`
-	// Device MAC address recorded at command-completion time.
+	// Device MAC address recorded at command-completion time (the first
+	// terminal write).
 	MacAddress    *string `protobuf:"bytes,7,opt,name=mac_address,json=macAddress,proto3,oneof" json:"mac_address,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

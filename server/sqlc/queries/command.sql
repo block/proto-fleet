@@ -47,11 +47,11 @@ WHERE uuid = $1;
 -- error string (truncated by the caller) or the reaper reason.
 --
 -- custom_name/manufacturer/model/ip_address/mac_address are captured from
--- device + discovered_device at command-completion time (first write) and
--- deliberately left untouched by the ON CONFLICT branch, so retries and the
--- reaper never overwrite the first-write values. The read path composes the
--- display name via fleetmanagement.ComposeDeviceName so this query stays free
--- of any rendering rules.
+-- device + discovered_device at command-completion time (the first terminal
+-- write) and deliberately left untouched by the ON CONFLICT branch, so
+-- retries and the reaper never overwrite the first-write values. The read
+-- path composes the display name via fleetmanagement.ComposeDeviceName so
+-- this query stays free of any rendering rules.
 WITH batch AS (
     SELECT id FROM command_batch_log WHERE uuid = $4
 ),

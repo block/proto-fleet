@@ -265,11 +265,12 @@ func TestGetCommandBatchDeviceResults_TruncatesLargeBatchesWithConsistentCounts(
 		"counts must sum to TotalCount regardless of truncation")
 }
 
-// TestGetCommandBatchDeviceResults_DeviceSnapshot exercises the audit-snapshot
-// feature end-to-end: the first Upsert freezes the device's display name, IP,
-// and MAC onto the codl row, and later Upserts (retries, reap-after-success)
-// update status/error_info but must never overwrite the snapshot — even if
-// the underlying device has since been renamed or moved to a new IP.
+// TestGetCommandBatchDeviceResults_DeviceSnapshot exercises the audit-capture
+// feature end-to-end: the first Upsert records the raw device-identity fields
+// (custom_name, manufacturer, model, IP, MAC) onto the codl row, and later
+// Upserts (retries, reap-after-success) update status/error_info but must
+// never overwrite those captured values — even if the underlying device is
+// renamed or moves to a new IP between the two writes.
 func TestGetCommandBatchDeviceResults_DeviceSnapshot(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")

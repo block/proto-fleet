@@ -218,15 +218,16 @@ message CommandBatchDeviceResult {
   optional string error_message = 3;
   // When this row was last updated (start of this attempt's terminal write).
   google.protobuf.Timestamp updated_at = 4;
-  // Human-readable device name recorded at command-completion time so the
-  // activity-log detail view shows the operator what the miner was called
-  // when the action ran. Unset for historical rows (pre-migration) or when
-  // the device had no name information.
+  // Human-readable device name recorded at command-completion time (the
+  // first terminal write) so the activity-log detail view shows the
+  // operator what the miner was called then. Unset for historical rows
+  // (pre-migration) or when the device had no name information.
   optional string device_name = 5;
-  // Device IP address recorded at command-completion time. Reflects state at
-  // action-time so later DHCP changes do not rewrite the audit trail.
+  // Device IP address recorded at command-completion time (the first
+  // terminal write). Later DHCP lease changes do not rewrite the audit trail.
   optional string ip_address = 6;
-  // Device MAC address recorded at command-completion time.
+  // Device MAC address recorded at command-completion time (the first
+  // terminal write).
   optional string mac_address = 7;
 }
 

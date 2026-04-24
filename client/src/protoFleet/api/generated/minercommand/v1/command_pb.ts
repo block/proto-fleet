@@ -872,25 +872,26 @@ export type CommandBatchDeviceResult = Message<"minercommand.v1.CommandBatchDevi
   updatedAt?: Timestamp;
 
   /**
-   * Human-readable device name recorded at command-completion time so the
-   * activity-log detail view shows the operator what the miner was called
-   * when the action ran. Unset for historical rows (pre-migration) or when
-   * the device had no name information.
+   * Human-readable device name recorded at command-completion time (the
+   * first terminal write) so the activity-log detail view shows the
+   * operator what the miner was called then. Unset for historical rows
+   * (pre-migration) or when the device had no name information.
    *
    * @generated from field: optional string device_name = 5;
    */
   deviceName?: string;
 
   /**
-   * Device IP address recorded at command-completion time. Reflects state at
-   * action-time so later DHCP changes do not rewrite the audit trail.
+   * Device IP address recorded at command-completion time (the first
+   * terminal write). Later DHCP lease changes do not rewrite the audit trail.
    *
    * @generated from field: optional string ip_address = 6;
    */
   ipAddress?: string;
 
   /**
-   * Device MAC address recorded at command-completion time.
+   * Device MAC address recorded at command-completion time (the first
+   * terminal write).
    *
    * @generated from field: optional string mac_address = 7;
    */

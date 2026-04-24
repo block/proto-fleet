@@ -341,11 +341,11 @@ type UpsertCommandOnDeviceLogParams struct {
 // error string (truncated by the caller) or the reaper reason.
 //
 // custom_name/manufacturer/model/ip_address/mac_address are captured from
-// device + discovered_device at command-completion time (first write) and
-// deliberately left untouched by the ON CONFLICT branch, so retries and the
-// reaper never overwrite the first-write values. The read path composes the
-// display name via fleetmanagement.ComposeDeviceName so this query stays free
-// of any rendering rules.
+// device + discovered_device at command-completion time (the first terminal
+// write) and deliberately left untouched by the ON CONFLICT branch, so
+// retries and the reaper never overwrite the first-write values. The read
+// path composes the display name via fleetmanagement.ComposeDeviceName so
+// this query stays free of any rendering rules.
 // batch × dev is a deliberate cross-join: both CTEs must return exactly one
 // row for the INSERT to write. fk_command_on_device_log_device guarantees
 // device $1 exists, and device.discovered_device_id is NOT NULL, so dev
