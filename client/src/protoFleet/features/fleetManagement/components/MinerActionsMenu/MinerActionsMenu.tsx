@@ -18,7 +18,7 @@ import type {
   MinerStateSnapshot,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
-import { useBatchOperations } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
+import { useBatchActions } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
 import { ChevronDown, Edit, MiningPools } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -66,7 +66,7 @@ const MinerActionsMenu = ({
   onActionStart,
   onActionComplete,
 }: MinerActionsMenuProps) => {
-  const { startBatchOperation, completeBatchOperation, removeDevicesFromBatch } = useBatchOperations();
+  const { startBatchOperation, completeBatchOperation, removeDevicesFromBatch } = useBatchActions();
   const [showBulkRenameModal, setShowBulkRenameModal] = useState(false);
   const [showBulkWorkerNameModal, setShowBulkWorkerNameModal] = useState(false);
   const [showWorkerNameAuthenticateModal, setShowWorkerNameAuthenticateModal] = useState(false);

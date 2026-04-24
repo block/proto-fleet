@@ -92,7 +92,7 @@ vi.mock("@/protoFleet/api/useMinerCommand", () => ({
 }));
 
 vi.mock("@/protoFleet/features/fleetManagement/hooks/useBatchOperations", () => ({
-  useBatchOperations: vi.fn(() => ({
+  useBatchActions: vi.fn(() => ({
     startBatchOperation: mockStartBatchOperation,
     completeBatchOperation: mockCompleteBatchOperation,
   })),
