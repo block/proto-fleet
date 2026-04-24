@@ -166,9 +166,9 @@ function BatchDeviceResults({
               <tr key={result.deviceIdentifier} className="text-text-primary">
                 <td className="px-3 py-2">
                   <div>{result.deviceName ?? result.deviceIdentifier}</div>
-                  {result.ipAddress || result.macAddress ? (
-                    <div className="text-100 text-text-primary-50">
-                      {[result.ipAddress, result.macAddress].filter(Boolean).join(" · ")}
+                  {result.macAddress || result.ipAddress ? (
+                    <div className="text-100 font-mono text-text-primary-50">
+                      {[result.macAddress, result.ipAddress].filter(Boolean).join(" · ")}
                     </div>
                   ) : null}
                 </td>
