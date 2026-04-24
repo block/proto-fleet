@@ -46,7 +46,9 @@ const ActivityDetailModal = ({ entry, onDismiss }: ActivityDetailModalProps) => 
   const displayEventType = baseEventType(entry.eventType);
   const batchState = batchId ? getResult(batchId) : null;
   const batchData = batchState?.data;
-  const batchInProgress = batchData != null && batchData.status !== "finished" && !batchData.detailsPruned;
+  const batchInProgress =
+    (batchId != null && batchData == null) ||
+    (batchData != null && batchData.status !== "finished" && !batchData.detailsPruned);
   const isFailed =
     batchData != null && !batchInProgress && !batchData.detailsPruned
       ? batchData.failureCount > 0

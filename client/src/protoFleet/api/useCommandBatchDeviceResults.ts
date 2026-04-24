@@ -55,7 +55,7 @@ export function useCommandBatchDeviceResults({
             setCache((prev) => ({
               ...prev,
               [batchId]: {
-                data: null,
+                data: prev[batchId]?.data ?? null,
                 isLoading: false,
                 error: getErrorMessage(e, "Failed to load batch details"),
               },
