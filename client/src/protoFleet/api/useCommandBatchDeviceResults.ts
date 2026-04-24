@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { minerCommandClient } from "@/protoFleet/api/clients";
 import type { GetCommandBatchDeviceResultsResponse } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
@@ -10,7 +10,15 @@ interface BatchDeviceResultsState {
   error: string | null;
 }
 
-export function useCommandBatchDeviceResults() {
+interface UseCommandBatchDeviceResultsOptions {
+  activeBatchId?: string;
+  pollIntervalMs?: number;
+}
+
+export function useCommandBatchDeviceResults({
+  activeBatchId,
+  pollIntervalMs,
+}: UseCommandBatchDeviceResultsOptions = {}) {
   const { handleAuthErrors } = useAuthErrors();
   const [cache, setCache] = useState<Record<string, BatchDeviceResultsState>>({});
   const inflightRef = useRef<Set<string>>(new Set());
@@ -21,10 +29,13 @@ export function useCommandBatchDeviceResults() {
       if (fetchedRef.current.has(batchId) || inflightRef.current.has(batchId)) return;
       inflightRef.current.add(batchId);
 
-      setCache((prev) => ({
-        ...prev,
-        [batchId]: { data: prev[batchId]?.data ?? null, isLoading: true, error: null },
-      }));
+      setCache((prev) => {
+        const existing = prev[batchId];
+        return {
+          ...prev,
+          [batchId]: { data: existing?.data ?? null, isLoading: !existing?.data, error: null },
+        };
+      });
 
       try {
         const response = await minerCommandClient.getCommandBatchDeviceResults({
@@ -57,6 +68,18 @@ export function useCommandBatchDeviceResults() {
     },
     [handleAuthErrors],
   );
+
+  const isTerminal = activeBatchId
+    ? cache[activeBatchId]?.data?.status === "finished" || cache[activeBatchId]?.data?.detailsPruned === true
+    : true;
+
+  useEffect(() => {
+    if (!pollIntervalMs || !activeBatchId || isTerminal) return;
+    const intervalId = setInterval(() => {
+      void fetch(activeBatchId);
+    }, pollIntervalMs);
+    return () => clearInterval(intervalId);
+  }, [pollIntervalMs, activeBatchId, isTerminal, fetch]);
 
   const getResult = useCallback(
     (batchId: string): BatchDeviceResultsState => {

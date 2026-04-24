@@ -4,6 +4,7 @@ import clsx from "clsx";
 import type { ActivityEntry } from "@/protoFleet/api/generated/activity/v1/activity_pb";
 import type { GetCommandBatchDeviceResultsResponse } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { useCommandBatchDeviceResults } from "@/protoFleet/api/useCommandBatchDeviceResults";
+import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import { baseEventType } from "@/protoFleet/features/activity/utils/eventType";
 import { formatLabel } from "@/protoFleet/features/activity/utils/formatLabel";
 import { formatScope } from "@/protoFleet/features/activity/utils/formatScope";
@@ -28,20 +29,25 @@ function SummaryRow({ label, children, className }: { label: string; children: R
 }
 
 const ActivityDetailModal = ({ entry, onDismiss }: ActivityDetailModalProps) => {
-  const { fetch, getResult } = useCommandBatchDeviceResults();
+  const batchId = entry?.batchId;
+  const { fetch, getResult } = useCommandBatchDeviceResults({
+    activeBatchId: batchId,
+    pollIntervalMs: POLL_INTERVAL_MS,
+  });
 
   useEffect(() => {
-    if (entry?.batchId) {
-      void fetch(entry.batchId);
+    if (batchId) {
+      void fetch(batchId);
     }
-  }, [entry?.batchId, fetch]);
+  }, [batchId, fetch]);
 
   if (!entry) return null;
 
   const displayEventType = baseEventType(entry.eventType);
   const isFailed = entry.result === "failure";
-  const batchState = entry.batchId ? getResult(entry.batchId) : null;
+  const batchState = batchId ? getResult(batchId) : null;
   const batchData = batchState?.data;
+  const batchInProgress = batchData != null && batchData.status !== "finished" && !batchData.detailsPruned;
 
   return (
     <Modal title="Actions" onDismiss={onDismiss}>
@@ -56,8 +62,13 @@ const ActivityDetailModal = ({ entry, onDismiss }: ActivityDetailModalProps) => 
             <SummaryRow label="User">{entry.username ?? "—"}</SummaryRow>
             <SummaryRow label="Result">
               <span className="inline-flex items-center gap-1.5">
-                <StatusCircle status={isFailed ? "error" : "normal"} variant="simple" width="w-1.5" removeMargin />
-                {isFailed ? "Failure" : "Success"}
+                <StatusCircle
+                  status={batchInProgress ? "pending" : isFailed ? "error" : "normal"}
+                  variant="simple"
+                  width="w-1.5"
+                  removeMargin
+                />
+                {batchInProgress ? "In progress" : isFailed ? "Failure" : "Success"}
               </span>
             </SummaryRow>
             {entry.errorMessage && (
@@ -79,7 +90,7 @@ const ActivityDetailModal = ({ entry, onDismiss }: ActivityDetailModalProps) => 
           )}
         </div>
 
-        {entry.batchId && (
+        {batchId && (
           <BatchDeviceResults
             isLoading={batchState?.isLoading ?? false}
             error={batchState?.error ?? null}
