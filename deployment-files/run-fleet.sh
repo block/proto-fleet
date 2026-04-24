@@ -590,24 +590,12 @@ echo "Stopping any running services..."
 docker compose -f "$COMPOSE_FILE" down
 
 echo "Starting services..."
-if ! docker compose -f "$COMPOSE_FILE" up -d; then
-    echo "Error: docker compose up failed. Check logs with: docker compose -f $COMPOSE_FILE logs"
-    exit 1
-fi
-
-# ----------------------------------------------------------------------------
-# Final Status Check
-# ----------------------------------------------------------------------------
-
-# `up -d` can exit 0 while containers stay in Created (e.g. port conflicts under host networking).
-sleep 3
-not_running=$(docker compose -f "$COMPOSE_FILE" ps --format '{{.Name}} {{.State}}' \
-    | awk '$2 != "running" {print $1}')
-if [ -n "$not_running" ]; then
-    echo "Error: these services failed to reach running state:"
-    echo "$not_running" | sed 's/^/  - /'
-    echo ""
-    echo "Check logs with: docker compose -f $COMPOSE_FILE logs"
+# --wait blocks until every service is running (or healthy, when a healthcheck is defined).
+# Without it, `up -d` can exit 0 while containers stay in Created (e.g. port conflicts under
+# host networking), producing a false "Proto Fleet is now running!" banner.
+if ! docker compose -f "$COMPOSE_FILE" up -d --wait --wait-timeout 60; then
+    echo "Error: services failed to reach running state."
+    echo "Check logs with: docker compose -f \"$COMPOSE_FILE\" logs"
     exit 1
 fi
 
