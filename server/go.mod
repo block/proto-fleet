@@ -11,6 +11,7 @@ require (
 	github.com/Ullaakut/nmap/v3 v3.1.0
 	github.com/alecthomas/assert/v2 v2.11.0
 	github.com/alecthomas/kong v1.15.0
+	github.com/alecthomas/kong-yaml v0.2.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/golang-migrate/migrate/v4 v4.19.1
 	github.com/google/uuid v1.6.0

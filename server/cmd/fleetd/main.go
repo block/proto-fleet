@@ -28,6 +28,7 @@ import (
 	"connectrpc.com/grpcreflect"
 	"connectrpc.com/validate"
 	"github.com/alecthomas/kong"
+	kongyaml "github.com/alecthomas/kong-yaml"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	fleet_telemetry "github.com/block/proto-fleet/server/internal/infrastructure/fleet-telemetry"
 	"github.com/block/proto-fleet/server/internal/infrastructure/logging"
@@ -98,7 +99,11 @@ var version = "dev"
 func main() {
 	config := &Config{}
 
-	_ = kong.Parse(config, kong.Name("fleetd"))
+	_ = kong.Parse(
+		config,
+		kong.Name("fleetd"),
+		kong.Configuration(kongyaml.Loader, "/etc/fleetd/config.yaml"),
+	)
 
 	logging.InitLogger(config.Log)
 
