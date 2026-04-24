@@ -234,6 +234,13 @@ message DeviceMetrics {
 
   // Firmware version reported by device during telemetry polling
   string firmware_version = 15;
+
+  // Whether the firmware on this device natively speaks Stratum V2, as
+  // observed at the moment of this telemetry scrape. Plugins that cannot
+  // probe for this leave the field UNKNOWN; the server then falls back to
+  // the merged static driver / model capability view. SUPPORTED /
+  // UNSUPPORTED win over the static view when present.
+  StratumV2SupportStatus stratum_v2_support = 16;
 }
 
 
@@ -309,10 +316,37 @@ message SetPowerTargetRequest {
   PerformanceMode performance_mode = 2;
 }
 
+// PoolProtocol identifies the stratum variant of a pool URL pushed to a
+// driver. It is a peer of pools.v1.PoolProtocol — the SDK intentionally
+// does not depend on internal proto packages, and the server translates
+// between the two. UNSPECIFIED is treated as SV1 for backward compatibility.
+enum PoolProtocol {
+  POOL_PROTOCOL_UNSPECIFIED = 0;
+  POOL_PROTOCOL_SV1         = 1;
+  POOL_PROTOCOL_SV2         = 2;
+}
+
+// StratumV2SupportStatus is a dynamic, per-device capability reported on
+// every telemetry scrape. It supersedes static driver/model capabilities
+// when set to SUPPORTED or UNSUPPORTED; UNKNOWN means "no opinion, fall
+// back to the static/model capability view."
+enum StratumV2SupportStatus {
+  STRATUM_V2_SUPPORT_STATUS_UNSPECIFIED = 0;
+  STRATUM_V2_SUPPORT_STATUS_UNKNOWN     = 1;  // plugin did not probe
+  STRATUM_V2_SUPPORT_STATUS_UNSUPPORTED = 2;  // firmware confirmed SV1-only
+  STRATUM_V2_SUPPORT_STATUS_SUPPORTED   = 3;  // firmware confirmed SV2-capable
+}
+
 message MiningPool {
   int32 priority = 1;        // 0 = default, 1 = backup1, 2 = backup2
-  string url = 2;            // e.g., stratum+tcp://pool.example:3333
+  // URL as it should be dispatched to the miner. For SV1 miners mining an
+  // SV2 pool via the bundled translator proxy, the server writes the proxy's
+  // miner-facing URL here, not the logical SV2 pool URL.
+  string url = 2;            // e.g., stratum+tcp://pool.example:3333 or stratum2+tcp://pool.example:34254
   string worker_name = 3;    // Worker name or address
+  // Protocol the URL speaks. Informational; most drivers treat URL as opaque.
+  // Useful for driver-side logging and future vendor-specific behaviour.
+  PoolProtocol protocol = 4;
 }
 
 message UpdateMiningPoolsRequest {
@@ -325,6 +359,10 @@ message ConfiguredPool {
   int32 priority = 1;        // Pool priority (0 = default, 1 = backup1, 2 = backup2)
   string url = 2;            // Pool URL (e.g., stratum+tcp://pool.example:3333)
   string username = 3;       // Worker name or username configured on the miner
+  // Protocol the configured URL speaks. UNSPECIFIED is treated as SV1.
+  // Drivers that can distinguish should set this so the reapply round-trip
+  // preserves SV2 intent.
+  PoolProtocol protocol = 4;
 }
 
 message GetMiningPoolsRequest {

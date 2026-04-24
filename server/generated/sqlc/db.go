@@ -183,6 +183,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getDeviceIdentifiersByDeviceSetIDStmt, err = db.PrepareContext(ctx, getDeviceIdentifiersByDeviceSetID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceIdentifiersByDeviceSetID: %w", err)
 	}
+	if q.getDeviceIdentifiersByIDsStmt, err = db.PrepareContext(ctx, getDeviceIdentifiersByIDs); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDeviceIdentifiersByIDs: %w", err)
+	}
 	if q.getDeviceInfoForCapabilityCheckStmt, err = db.PrepareContext(ctx, getDeviceInfoForCapabilityCheck); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceInfoForCapabilityCheck: %w", err)
 	}
@@ -928,6 +931,11 @@ func (q *Queries) Close() error {
 	if q.getDeviceIdentifiersByDeviceSetIDStmt != nil {
 		if cerr := q.getDeviceIdentifiersByDeviceSetIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getDeviceIdentifiersByDeviceSetIDStmt: %w", cerr)
+		}
+	}
+	if q.getDeviceIdentifiersByIDsStmt != nil {
+		if cerr := q.getDeviceIdentifiersByIDsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDeviceIdentifiersByIDsStmt: %w", cerr)
 		}
 	}
 	if q.getDeviceInfoForCapabilityCheckStmt != nil {
@@ -1817,6 +1825,7 @@ type Queries struct {
 	getDeviceIDsWithIdentifiersStmt                     *sql.Stmt
 	getDeviceIdentifierByIDStmt                         *sql.Stmt
 	getDeviceIdentifiersByDeviceSetIDStmt               *sql.Stmt
+	getDeviceIdentifiersByIDsStmt                       *sql.Stmt
 	getDeviceInfoForCapabilityCheckStmt                 *sql.Stmt
 	getDeviceMetricsDailyAggregatesStmt                 *sql.Stmt
 	getDeviceMetricsHourlyAggregatesStmt                *sql.Stmt
@@ -2035,6 +2044,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getDeviceIDsWithIdentifiersStmt:                     q.getDeviceIDsWithIdentifiersStmt,
 		getDeviceIdentifierByIDStmt:                         q.getDeviceIdentifierByIDStmt,
 		getDeviceIdentifiersByDeviceSetIDStmt:               q.getDeviceIdentifiersByDeviceSetIDStmt,
+		getDeviceIdentifiersByIDsStmt:                       q.getDeviceIdentifiersByIDsStmt,
 		getDeviceInfoForCapabilityCheckStmt:                 q.getDeviceInfoForCapabilityCheckStmt,
 		getDeviceMetricsDailyAggregatesStmt:                 q.getDeviceMetricsDailyAggregatesStmt,
 		getDeviceMetricsHourlyAggregatesStmt:                q.getDeviceMetricsHourlyAggregatesStmt,

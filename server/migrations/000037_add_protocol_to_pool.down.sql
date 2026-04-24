@@ -1,0 +1,2 @@
+ALTER TABLE pool
+    DROP COLUMN IF EXISTS protocol;

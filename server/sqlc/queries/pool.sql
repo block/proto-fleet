@@ -13,8 +13,8 @@ WHERE org_id = $1
 ORDER BY created_at DESC;
 
 -- name: CreatePool :one
-INSERT INTO pool (org_id, pool_name, url, username, password_enc, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $6)
+INSERT INTO pool (org_id, pool_name, url, username, password_enc, protocol, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
 RETURNING id;
 
 -- name: UpdatePool :exec
@@ -23,9 +23,10 @@ SET pool_name     = $1,
     url           = $2,
     username      = $3,
     password_enc = $4,
-    updated_at    = $5
-WHERE org_id = $6
-  AND id = $7;
+    protocol      = $5,
+    updated_at    = $6
+WHERE org_id = $7
+  AND id = $8;
 
 -- name: SoftDeletePool :exec
 UPDATE pool

@@ -12,22 +12,23 @@ import type { Message } from "@bufbuild/protobuf";
 /**
  * Describes the file pools/v1/pools.proto.
  */
-export const file_pools_v1_pools: GenFile =
-  /*@__PURE__*/
-  fileDesc(
-    "ChRwb29scy92MS9wb29scy5wcm90bxIIcG9vbHMudjEibgoKUG9vbENvbmZpZxILCgN1cmwYASABKAkSEAoIdXNlcm5hbWUYAiABKAkSLgoIcGFzc3dvcmQYAyABKAsyHC5nb29nbGUucHJvdG9idWYuU3RyaW5nVmFsdWUSEQoJcG9vbF9uYW1lGAQgASgJIkkKBFBvb2wSDwoHcG9vbF9pZBgBIAEoAxILCgN1cmwYAiABKAkSEAoIdXNlcm5hbWUYAyABKAkSEQoJcG9vbF9uYW1lGAQgASgJIhIKEExpc3RQb29sc1JlcXVlc3QiMgoRTGlzdFBvb2xzUmVzcG9uc2USHQoFcG9vbHMYASADKAsyDi5wb29scy52MS5Qb29sIj4KEUNyZWF0ZVBvb2xSZXF1ZXN0EikKC3Bvb2xfY29uZmlnGAEgASgLMhQucG9vbHMudjEuUG9vbENvbmZpZyIyChJDcmVhdGVQb29sUmVzcG9uc2USHAoEcG9vbBgBIAEoCzIOLnBvb2xzLnYxLlBvb2wihgEKEVVwZGF0ZVBvb2xSZXF1ZXN0Eg8KB3Bvb2xfaWQYASABKAMSEQoJcG9vbF9uYW1lGAIgASgJEgsKA3VybBgDIAEoCRIQCgh1c2VybmFtZRgEIAEoCRIuCghwYXNzd29yZBgFIAEoCzIcLmdvb2dsZS5wcm90b2J1Zi5TdHJpbmdWYWx1ZSIyChJVcGRhdGVQb29sUmVzcG9uc2USHAoEcG9vbBgBIAEoCzIOLnBvb2xzLnYxLlBvb2wiJAoRRGVsZXRlUG9vbFJlcXVlc3QSDwoHcG9vbF9pZBgBIAEoAyIUChJEZWxldGVQb29sUmVzcG9uc2UiwwIKE1ZhbGlkYXRlUG9vbFJlcXVlc3QSpAEKA3VybBgBIAEoCUKWAbpIkgHIAQFyjAEQDDKHAV5zdHJhdHVtXCsodGNwfHNzbHx3cyk6XC9cLygoW2EtekEtWjAtOV1bYS16QS1aMC05Li1dKlthLXpBLVowLTldXC5bYS16QS1aXXsyLH0pfChcZHsxLDN9XC4pezN9XGR7MSwzfXxcWyhbMC05YS1mQS1GOl0rKVxdKSg6XGR7MSw1fSk/JBIYCgh1c2VybmFtZRgCIAEoCUIGukgDyAEBEi4KCHBhc3N3b3JkGAMgASgLMhwuZ29vZ2xlLnByb3RvYnVmLlN0cmluZ1ZhbHVlEjsKB3RpbWVvdXQYBCABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb25CD7pIDKoBCSIDCOgCMgIIASIWChRWYWxpZGF0ZVBvb2xSZXNwb25zZSqjAQoUUG9vbENvbm5lY3Rpb25TdGF0dXMSJgoiUE9PTF9DT05ORUNUSU9OX1NUQVRVU19VTlNQRUNJRklFRBAAEh8KG1BPT0xfQ09OTkVDVElPTl9TVEFUVVNfSURMRRABEiEKHVBPT0xfQ09OTkVDVElPTl9TVEFUVVNfQUNUSVZFEAISHwobUE9PTF9DT05ORUNUSU9OX1NUQVRVU19ERUFEEAMy/gIKDFBvb2xzU2VydmljZRJECglMaXN0UG9vbHMSGi5wb29scy52MS5MaXN0UG9vbHNSZXF1ZXN0GhsucG9vbHMudjEuTGlzdFBvb2xzUmVzcG9uc2USRwoKQ3JlYXRlUG9vbBIbLnBvb2xzLnYxLkNyZWF0ZVBvb2xSZXF1ZXN0GhwucG9vbHMudjEuQ3JlYXRlUG9vbFJlc3BvbnNlEkcKClVwZGF0ZVBvb2wSGy5wb29scy52MS5VcGRhdGVQb29sUmVxdWVzdBocLnBvb2xzLnYxLlVwZGF0ZVBvb2xSZXNwb25zZRJHCgpEZWxldGVQb29sEhsucG9vbHMudjEuRGVsZXRlUG9vbFJlcXVlc3QaHC5wb29scy52MS5EZWxldGVQb29sUmVzcG9uc2USTQoMVmFsaWRhdGVQb29sEh0ucG9vbHMudjEuVmFsaWRhdGVQb29sUmVxdWVzdBoeLnBvb2xzLnYxLlZhbGlkYXRlUG9vbFJlc3BvbnNlQqABCgxjb20ucG9vbHMudjFCClBvb2xzUHJvdG9QAVpDZ2l0aHViLmNvbS9ibG9jay9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvcG9vbHMvdjE7cG9vbHN2MaICA1BYWKoCCFBvb2xzLlYxygIIUG9vbHNcVjHiAhRQb29sc1xWMVxHUEJNZXRhZGF0YeoCCVBvb2xzOjpWMWIGcHJvdG8z",
-    [file_google_protobuf_duration, file_google_protobuf_wrappers, file_buf_validate_validate],
-  );
+export const file_pools_v1_pools: GenFile = /*@__PURE__*/
+  fileDesc("ChRwb29scy92MS9wb29scy5wcm90bxIIcG9vbHMudjEi/AQKClBvb2xDb25maWcSCwoDdXJsGAEgASgJEhAKCHVzZXJuYW1lGAIgASgJEi4KCHBhc3N3b3JkGAMgASgLMhwuZ29vZ2xlLnByb3RvYnVmLlN0cmluZ1ZhbHVlEhEKCXBvb2xfbmFtZRgEIAEoCTrIA7pIxAMawQMKFnBvb2xfY29uZmlnX3VybF9zY2hlbWUSSnVybCBtdXN0IHN0YXJ0IHdpdGggc3RyYXR1bSsodGNwfHNzbHx3cyk6Ly8uLi4gb3Igc3RyYXR1bTIrKHRjcHxzc2wpOi8vLi4uGtoCdGhpcy51cmwubWF0Y2hlcygnXnN0cmF0dW1cXCsodGNwfHNzbHx3cyk6Ly8oKFthLXpBLVowLTldW2EtekEtWjAtOS4tXSpbYS16QS1aMC05XVxcLlthLXpBLVpdezIsfSl8KFxcZHsxLDN9XFwuKXszfVxcZHsxLDN9fFxcWyhbMC05YS1mQS1GOl0rKVxcXSkoOlxcZHsxLDV9KT8kJykgfHwgdGhpcy51cmwubWF0Y2hlcygnXnN0cmF0dW0yXFwrKHRjcHxzc2wpOi8vKChbYS16QS1aMC05XVthLXpBLVowLTkuLV0qW2EtekEtWjAtOV1cXC5bYS16QS1aXXsyLH0pfChcXGR7MSwzfVxcLil7M31cXGR7MSwzfXxcXFsoWzAtOWEtZkEtRjpdKylcXF0pKDpcXGR7MSw1fSk/KC9bQS1aYS16MC05Ll9+Kz0tXSspPyQnKUoECAUQBkoECAYQB0oECAcQCFIIcHJvdG9jb2xSDGpkc19lbmRwb2ludFIXam9iX2RlY2xhcmF0aW9uX2VuYWJsZWQipgEKBFBvb2wSDwoHcG9vbF9pZBgBIAEoAxILCgN1cmwYAiABKAkSEAoIdXNlcm5hbWUYAyABKAkSEQoJcG9vbF9uYW1lGAQgASgJEigKCHByb3RvY29sGAUgASgOMhYucG9vbHMudjEuUG9vbFByb3RvY29sSgQIBhAHSgQIBxAIUgxqZHNfZW5kcG9pbnRSF2pvYl9kZWNsYXJhdGlvbl9lbmFibGVkIhIKEExpc3RQb29sc1JlcXVlc3QiMgoRTGlzdFBvb2xzUmVzcG9uc2USHQoFcG9vbHMYASADKAsyDi5wb29scy52MS5Qb29sIj4KEUNyZWF0ZVBvb2xSZXF1ZXN0EikKC3Bvb2xfY29uZmlnGAEgASgLMhQucG9vbHMudjEuUG9vbENvbmZpZyIyChJDcmVhdGVQb29sUmVzcG9uc2USHAoEcG9vbBgBIAEoCzIOLnBvb2xzLnYxLlBvb2wirAUKEVVwZGF0ZVBvb2xSZXF1ZXN0Eg8KB3Bvb2xfaWQYASABKAMSFgoJcG9vbF9uYW1lGAIgASgJSACIAQESEAoDdXJsGAMgASgJSAGIAQESFQoIdXNlcm5hbWUYBCABKAlIAogBARIuCghwYXNzd29yZBgFIAEoCzIcLmdvb2dsZS5wcm90b2J1Zi5TdHJpbmdWYWx1ZTrhA7pI3QMa2gMKHXVwZGF0ZV9wb29sX3VybF9zY2hlbWVfaWZfc2V0Ekp1cmwgbXVzdCBzdGFydCB3aXRoIHN0cmF0dW0rKHRjcHxzc2x8d3MpOi8vLi4uIG9yIHN0cmF0dW0yKyh0Y3B8c3NsKTovLy4uLhrsAiFoYXModGhpcy51cmwpIHx8IHRoaXMudXJsLm1hdGNoZXMoJ15zdHJhdHVtXFwrKHRjcHxzc2x8d3MpOi8vKChbYS16QS1aMC05XVthLXpBLVowLTkuLV0qW2EtekEtWjAtOV1cXC5bYS16QS1aXXsyLH0pfChcXGR7MSwzfVxcLil7M31cXGR7MSwzfXxcXFsoWzAtOWEtZkEtRjpdKylcXF0pKDpcXGR7MSw1fSk/JCcpIHx8IHRoaXMudXJsLm1hdGNoZXMoJ15zdHJhdHVtMlxcKyh0Y3B8c3NsKTovLygoW2EtekEtWjAtOV1bYS16QS1aMC05Li1dKlthLXpBLVowLTldXFwuW2EtekEtWl17Mix9KXwoXFxkezEsM31cXC4pezN9XFxkezEsM318XFxbKFswLTlhLWZBLUY6XSspXFxdKSg6XFxkezEsNX0pPygvW0EtWmEtejAtOS5ffis9LV0rKT8kJylCDAoKX3Bvb2xfbmFtZUIGCgRfdXJsQgsKCV91c2VybmFtZUoECAYQB1IIcHJvdG9jb2wiMgoSVXBkYXRlUG9vbFJlc3BvbnNlEhwKBHBvb2wYASABKAsyDi5wb29scy52MS5Qb29sIiQKEURlbGV0ZVBvb2xSZXF1ZXN0Eg8KB3Bvb2xfaWQYASABKAMiFAoSRGVsZXRlUG9vbFJlc3BvbnNlIsgFChNWYWxpZGF0ZVBvb2xSZXF1ZXN0EhcKA3VybBgBIAEoCUIKukgHyAEBcgIQDBIYCgh1c2VybmFtZRgCIAEoCUIGukgDyAEBEi4KCHBhc3N3b3JkGAMgASgLMhwuZ29vZ2xlLnByb3RvYnVmLlN0cmluZ1ZhbHVlEjsKB3RpbWVvdXQYBCABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb25CD7pIDKoBCSIDCOgCMgIIARIoChBub2lzZV9wdWJsaWNfa2V5GAYgASgMQgm6SAZ6BBAAGCBIAIgBATrBA7pIvQMaugMKD3Bvb2xfdXJsX3NjaGVtZRJKdXJsIG11c3Qgc3RhcnQgd2l0aCBzdHJhdHVtKyh0Y3B8c3NsfHdzKTovLy4uLiBvciBzdHJhdHVtMisodGNwfHNzbCk6Ly8uLi4a2gJ0aGlzLnVybC5tYXRjaGVzKCdec3RyYXR1bVxcKyh0Y3B8c3NsfHdzKTovLygoW2EtekEtWjAtOV1bYS16QS1aMC05Li1dKlthLXpBLVowLTldXFwuW2EtekEtWl17Mix9KXwoXFxkezEsM31cXC4pezN9XFxkezEsM318XFxbKFswLTlhLWZBLUY6XSspXFxdKSg6XFxkezEsNX0pPyQnKSB8fCB0aGlzLnVybC5tYXRjaGVzKCdec3RyYXR1bTJcXCsodGNwfHNzbCk6Ly8oKFthLXpBLVowLTldW2EtekEtWjAtOS4tXSpbYS16QS1aMC05XVxcLlthLXpBLVpdezIsfSl8KFxcZHsxLDN9XFwuKXszfVxcZHsxLDN9fFxcWyhbMC05YS1mQS1GOl0rKVxcXSkoOlxcZHsxLDV9KT8oL1tBLVphLXowLTkuX34rPS1dKyk/JCcpQhMKEV9ub2lzZV9wdWJsaWNfa2V5SgQIBRAGUghwcm90b2NvbCJvChRWYWxpZGF0ZVBvb2xSZXNwb25zZRIRCglyZWFjaGFibGUYASABKAgSHAoUY3JlZGVudGlhbHNfdmVyaWZpZWQYAiABKAgSJgoEbW9kZRgDIAEoDjIYLnBvb2xzLnYxLlZhbGlkYXRpb25Nb2RlKlsKDFBvb2xQcm90b2NvbBIdChlQT09MX1BST1RPQ09MX1VOU1BFQ0lGSUVEEAASFQoRUE9PTF9QUk9UT0NPTF9TVjEQARIVChFQT09MX1BST1RPQ09MX1NWMhACKqMBChRQb29sQ29ubmVjdGlvblN0YXR1cxImCiJQT09MX0NPTk5FQ1RJT05fU1RBVFVTX1VOU1BFQ0lGSUVEEAASHwobUE9PTF9DT05ORUNUSU9OX1NUQVRVU19JRExFEAESIQodUE9PTF9DT05ORUNUSU9OX1NUQVRVU19BQ1RJVkUQAhIfChtQT09MX0NPTk5FQ1RJT05fU1RBVFVTX0RFQUQQAyqcAQoOVmFsaWRhdGlvbk1vZGUSHwobVkFMSURBVElPTl9NT0RFX1VOU1BFQ0lGSUVEEAASJAogVkFMSURBVElPTl9NT0RFX1NWMV9BVVRIRU5USUNBVEUQARIgChxWQUxJREFUSU9OX01PREVfU1YyX1RDUF9ESUFMEAISIQodVkFMSURBVElPTl9NT0RFX1NWMl9IQU5EU0hBS0UQAzL+AgoMUG9vbHNTZXJ2aWNlEkQKCUxpc3RQb29scxIaLnBvb2xzLnYxLkxpc3RQb29sc1JlcXVlc3QaGy5wb29scy52MS5MaXN0UG9vbHNSZXNwb25zZRJHCgpDcmVhdGVQb29sEhsucG9vbHMudjEuQ3JlYXRlUG9vbFJlcXVlc3QaHC5wb29scy52MS5DcmVhdGVQb29sUmVzcG9uc2USRwoKVXBkYXRlUG9vbBIbLnBvb2xzLnYxLlVwZGF0ZVBvb2xSZXF1ZXN0GhwucG9vbHMudjEuVXBkYXRlUG9vbFJlc3BvbnNlEkcKCkRlbGV0ZVBvb2wSGy5wb29scy52MS5EZWxldGVQb29sUmVxdWVzdBocLnBvb2xzLnYxLkRlbGV0ZVBvb2xSZXNwb25zZRJNCgxWYWxpZGF0ZVBvb2wSHS5wb29scy52MS5WYWxpZGF0ZVBvb2xSZXF1ZXN0Gh4ucG9vbHMudjEuVmFsaWRhdGVQb29sUmVzcG9uc2VCoAEKDGNvbS5wb29scy52MUIKUG9vbHNQcm90b1ABWkNnaXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9wb29scy92MTtwb29sc3YxogIDUFhYqgIIUG9vbHMuVjHKAghQb29sc1xWMeICFFBvb2xzXFYxXEdQQk1ldGFkYXRh6gIJUG9vbHM6OlYxYgZwcm90bzM", [file_google_protobuf_duration, file_google_protobuf_wrappers, file_buf_validate_validate]);
 
 /**
- * PoolConfig defines the connection details for a mining pool
+ * PoolConfig defines the connection details for a mining pool.
+ * Protocol is derived server-side from the URL scheme — callers do
+ * not pass it and cannot override it. stratum+(tcp|ssl|ws) -> SV1;
+ * stratum2+(tcp|ssl) -> SV2. The CEL rule below enforces the
+ * accepted scheme set at validation time.
  *
  * @generated from message pools.v1.PoolConfig
  */
 export type PoolConfig = Message<"pools.v1.PoolConfig"> & {
   /**
-   * Pool's stratum URL (e.g., "stratum+tcp://pool.example.com:3333")
-   * Required field that specifies the endpoint for connecting to the pool
+   * Pool's stratum URL. The scheme is the single source of truth for
+   * protocol (e.g., "stratum+tcp://pool.example.com:3333" is SV1,
+   * "stratum2+tcp://pool.example.com:34254" is SV2).
    *
    * @generated from field: string url = 1;
    */
@@ -62,7 +63,8 @@ export type PoolConfig = Message<"pools.v1.PoolConfig"> & {
  * Describes the message pools.v1.PoolConfig.
  * Use `create(PoolConfigSchema)` to create a new message.
  */
-export const PoolConfigSchema: GenMessage<PoolConfig> = /*@__PURE__*/ messageDesc(file_pools_v1_pools, 0);
+export const PoolConfigSchema: GenMessage<PoolConfig> = /*@__PURE__*/
+  messageDesc(file_pools_v1_pools, 0);
 
 /**
  * Pool defines a configured mining pool with its connection details and status
@@ -100,13 +102,22 @@ export type Pool = Message<"pools.v1.Pool"> & {
    * @generated from field: string pool_name = 4;
    */
   poolName: string;
+
+  /**
+   * Stratum protocol derived from the URL scheme. Read-only for clients
+   * — exposed here so UIs can render a protocol chip without re-parsing.
+   *
+   * @generated from field: pools.v1.PoolProtocol protocol = 5;
+   */
+  protocol: PoolProtocol;
 };
 
 /**
  * Describes the message pools.v1.Pool.
  * Use `create(PoolSchema)` to create a new message.
  */
-export const PoolSchema: GenMessage<Pool> = /*@__PURE__*/ messageDesc(file_pools_v1_pools, 1);
+export const PoolSchema: GenMessage<Pool> = /*@__PURE__*/
+  messageDesc(file_pools_v1_pools, 1);
 
 /**
  * Request to retrieve all configured mining pools
@@ -115,13 +126,15 @@ export const PoolSchema: GenMessage<Pool> = /*@__PURE__*/ messageDesc(file_pools
  *
  * @generated from message pools.v1.ListPoolsRequest
  */
-export type ListPoolsRequest = Message<"pools.v1.ListPoolsRequest"> & {};
+export type ListPoolsRequest = Message<"pools.v1.ListPoolsRequest"> & {
+};
 
 /**
  * Describes the message pools.v1.ListPoolsRequest.
  * Use `create(ListPoolsRequestSchema)` to create a new message.
  */
-export const ListPoolsRequestSchema: GenMessage<ListPoolsRequest> = /*@__PURE__*/ messageDesc(file_pools_v1_pools, 2);
+export const ListPoolsRequestSchema: GenMessage<ListPoolsRequest> = /*@__PURE__*/
+  messageDesc(file_pools_v1_pools, 2);
 
 /**
  * Response containing all configured mining pools
@@ -141,7 +154,8 @@ export type ListPoolsResponse = Message<"pools.v1.ListPoolsResponse"> & {
  * Describes the message pools.v1.ListPoolsResponse.
  * Use `create(ListPoolsResponseSchema)` to create a new message.
  */
-export const ListPoolsResponseSchema: GenMessage<ListPoolsResponse> = /*@__PURE__*/ messageDesc(file_pools_v1_pools, 3);
+export const ListPoolsResponseSchema: GenMessage<ListPoolsResponse> = /*@__PURE__*/
+  messageDesc(file_pools_v1_pools, 3);
 
 /**
  * Request to create a new mining pool configuration
@@ -162,7 +176,8 @@ export type CreatePoolRequest = Message<"pools.v1.CreatePoolRequest"> & {
  * Describes the message pools.v1.CreatePoolRequest.
  * Use `create(CreatePoolRequestSchema)` to create a new message.
  */
-export const CreatePoolRequestSchema: GenMessage<CreatePoolRequest> = /*@__PURE__*/ messageDesc(file_pools_v1_pools, 4);
+export const CreatePoolRequestSchema: GenMessage<CreatePoolRequest> = /*@__PURE__*/
+  messageDesc(file_pools_v1_pools, 4);
 
 /**
  * Response after creating a new mining pool
@@ -182,12 +197,21 @@ export type CreatePoolResponse = Message<"pools.v1.CreatePoolResponse"> & {
  * Describes the message pools.v1.CreatePoolResponse.
  * Use `create(CreatePoolResponseSchema)` to create a new message.
  */
-export const CreatePoolResponseSchema: GenMessage<CreatePoolResponse> =
-  /*@__PURE__*/
+export const CreatePoolResponseSchema: GenMessage<CreatePoolResponse> = /*@__PURE__*/
   messageDesc(file_pools_v1_pools, 5);
 
 /**
- * Request to update an existing pool's configuration
+ * Request to update an existing pool's configuration.
+ *
+ * All fields other than pool_id are patch-shaped via proto3 explicit presence:
+ *   - absent          -> leave stored value as-is
+ *   - present + valid -> set it
+ *   - present + invalid (empty url/username, bad URL scheme) -> INVALID_ARGUMENT
+ *
+ * This replaces the previous empty-string-means-unchanged convention, which
+ * made it impossible to legitimately set a field to "". Existing Fleet clients
+ * do not exercise that edge case, but external callers that relied on it must
+ * stop setting the field instead of setting it to "".
  *
  * @generated from message pools.v1.UpdatePoolRequest
  */
@@ -200,28 +224,30 @@ export type UpdatePoolRequest = Message<"pools.v1.UpdatePoolRequest"> & {
   poolId: bigint;
 
   /**
-   * New pool name (optional, leave empty to keep current value)
+   * New pool name (absent = leave unchanged)
    *
-   * @generated from field: string pool_name = 2;
+   * @generated from field: optional string pool_name = 2;
    */
-  poolName: string;
+  poolName?: string;
 
   /**
-   * New pool URL (optional, leave empty to keep current value)
+   * New pool URL (absent = leave unchanged). Changing the URL may
+   * change the pool's derived protocol — the server updates the
+   * stored protocol column to match.
    *
-   * @generated from field: string url = 3;
+   * @generated from field: optional string url = 3;
    */
-  url: string;
+  url?: string;
 
   /**
-   * New username (optional, leave empty to keep current value)
+   * New username (absent = leave unchanged)
    *
-   * @generated from field: string username = 4;
+   * @generated from field: optional string username = 4;
    */
-  username: string;
+  username?: string;
 
   /**
-   * New password (optional, leave empty to keep current value)
+   * New password (absent = leave unchanged)
    *
    * @generated from field: google.protobuf.StringValue password = 5;
    */
@@ -232,7 +258,8 @@ export type UpdatePoolRequest = Message<"pools.v1.UpdatePoolRequest"> & {
  * Describes the message pools.v1.UpdatePoolRequest.
  * Use `create(UpdatePoolRequestSchema)` to create a new message.
  */
-export const UpdatePoolRequestSchema: GenMessage<UpdatePoolRequest> = /*@__PURE__*/ messageDesc(file_pools_v1_pools, 6);
+export const UpdatePoolRequestSchema: GenMessage<UpdatePoolRequest> = /*@__PURE__*/
+  messageDesc(file_pools_v1_pools, 6);
 
 /**
  * Response after updating a pool's configuration
@@ -252,8 +279,7 @@ export type UpdatePoolResponse = Message<"pools.v1.UpdatePoolResponse"> & {
  * Describes the message pools.v1.UpdatePoolResponse.
  * Use `create(UpdatePoolResponseSchema)` to create a new message.
  */
-export const UpdatePoolResponseSchema: GenMessage<UpdatePoolResponse> =
-  /*@__PURE__*/
+export const UpdatePoolResponseSchema: GenMessage<UpdatePoolResponse> = /*@__PURE__*/
   messageDesc(file_pools_v1_pools, 7);
 
 /**
@@ -274,7 +300,8 @@ export type DeletePoolRequest = Message<"pools.v1.DeletePoolRequest"> & {
  * Describes the message pools.v1.DeletePoolRequest.
  * Use `create(DeletePoolRequestSchema)` to create a new message.
  */
-export const DeletePoolRequestSchema: GenMessage<DeletePoolRequest> = /*@__PURE__*/ messageDesc(file_pools_v1_pools, 8);
+export const DeletePoolRequestSchema: GenMessage<DeletePoolRequest> = /*@__PURE__*/
+  messageDesc(file_pools_v1_pools, 8);
 
 /**
  * Response after deleting a pool configuration
@@ -283,25 +310,32 @@ export const DeletePoolRequestSchema: GenMessage<DeletePoolRequest> = /*@__PURE_
  *
  * @generated from message pools.v1.DeletePoolResponse
  */
-export type DeletePoolResponse = Message<"pools.v1.DeletePoolResponse"> & {};
+export type DeletePoolResponse = Message<"pools.v1.DeletePoolResponse"> & {
+};
 
 /**
  * Describes the message pools.v1.DeletePoolResponse.
  * Use `create(DeletePoolResponseSchema)` to create a new message.
  */
-export const DeletePoolResponseSchema: GenMessage<DeletePoolResponse> =
-  /*@__PURE__*/
+export const DeletePoolResponseSchema: GenMessage<DeletePoolResponse> = /*@__PURE__*/
   messageDesc(file_pools_v1_pools, 9);
 
 /**
- * Request to validate a pool's connection details
+ * Request to validate a pool's connection details.
+ *
+ * URL scheme is the single source of truth for the target protocol:
+ *   stratum+(tcp|ssl|ws)://HOST[:PORT]                -> SV1 probe (subscribe + authorize)
+ *   stratum2+(tcp|ssl)://HOST[:PORT][/AUTHORITY_PUBKEY] -> SV2 probe
+ * For SV2, the optional /AUTHORITY_PUBKEY path is the canonical
+ * Braiins format; when present or when noise_public_key is set the
+ * server runs a Noise NX handshake probe, otherwise a TCP dial.
  *
  * @generated from message pools.v1.ValidatePoolRequest
  */
 export type ValidatePoolRequest = Message<"pools.v1.ValidatePoolRequest"> & {
   /**
-   * Pool's stratum URL (e.g., "stratum+tcp://pool.example.com:3333")
-   * Required field that specifies the endpoint for connecting to the pool
+   * Pool's stratum URL. Scheme must be one of the accepted prefixes
+   * (see message-level CEL rule).
    *
    * @generated from field: string url = 1;
    */
@@ -330,32 +364,91 @@ export type ValidatePoolRequest = Message<"pools.v1.ValidatePoolRequest"> & {
    * @generated from field: google.protobuf.Duration timeout = 4;
    */
   timeout?: Duration;
+
+  /**
+   * Pool's Noise authority public key (x25519, 32 bytes). Optional.
+   * When provided on an SV2 URL, the server runs a Noise NX handshake
+   * against the pool instead of a TCP dial only — mode switches to
+   * VALIDATION_MODE_SV2_HANDSHAKE.
+   *
+   * @generated from field: optional bytes noise_public_key = 6;
+   */
+  noisePublicKey?: Uint8Array;
 };
 
 /**
  * Describes the message pools.v1.ValidatePoolRequest.
  * Use `create(ValidatePoolRequestSchema)` to create a new message.
  */
-export const ValidatePoolRequestSchema: GenMessage<ValidatePoolRequest> =
-  /*@__PURE__*/
+export const ValidatePoolRequestSchema: GenMessage<ValidatePoolRequest> = /*@__PURE__*/
   messageDesc(file_pools_v1_pools, 10);
 
 /**
  * Response after validating a pool's connection details
  *
- * Empty response as success/failure is indicated by gRPC status
- *
  * @generated from message pools.v1.ValidatePoolResponse
  */
-export type ValidatePoolResponse = Message<"pools.v1.ValidatePoolResponse"> & {};
+export type ValidatePoolResponse = Message<"pools.v1.ValidatePoolResponse"> & {
+  /**
+   * True when the probe (TCP dial, and handshake if mode > TCP_DIAL) succeeded.
+   *
+   * @generated from field: bool reachable = 1;
+   */
+  reachable: boolean;
+
+  /**
+   * True only when the probe authenticated (SV1_AUTHENTICATE). SV2 modes in v1
+   * do not authenticate; this is always false for SV2_TCP_DIAL.
+   *
+   * @generated from field: bool credentials_verified = 2;
+   */
+  credentialsVerified: boolean;
+
+  /**
+   * What probe was actually attempted. Callers should branch on this rather
+   * than inferring from (protocol, reachable, credentials_verified).
+   *
+   * @generated from field: pools.v1.ValidationMode mode = 3;
+   */
+  mode: ValidationMode;
+};
 
 /**
  * Describes the message pools.v1.ValidatePoolResponse.
  * Use `create(ValidatePoolResponseSchema)` to create a new message.
  */
-export const ValidatePoolResponseSchema: GenMessage<ValidatePoolResponse> =
-  /*@__PURE__*/
+export const ValidatePoolResponseSchema: GenMessage<ValidatePoolResponse> = /*@__PURE__*/
   messageDesc(file_pools_v1_pools, 11);
+
+/**
+ * PoolProtocol identifies the stratum variant a pool speaks.
+ * UNSPECIFIED is treated as SV1 on reads for backward compatibility
+ * with pool rows written before the protocol column existed.
+ *
+ * @generated from enum pools.v1.PoolProtocol
+ */
+export enum PoolProtocol {
+  /**
+   * @generated from enum value: POOL_PROTOCOL_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: POOL_PROTOCOL_SV1 = 1;
+   */
+  SV1 = 1,
+
+  /**
+   * @generated from enum value: POOL_PROTOCOL_SV2 = 2;
+   */
+  SV2 = 2,
+}
+
+/**
+ * Describes the enum pools.v1.PoolProtocol.
+ */
+export const PoolProtocolSchema: GenEnum<PoolProtocol> = /*@__PURE__*/
+  enumDesc(file_pools_v1_pools, 0);
 
 /**
  * @generated from enum pools.v1.PoolConnectionStatus
@@ -385,7 +478,49 @@ export enum PoolConnectionStatus {
 /**
  * Describes the enum pools.v1.PoolConnectionStatus.
  */
-export const PoolConnectionStatusSchema: GenEnum<PoolConnectionStatus> = /*@__PURE__*/ enumDesc(file_pools_v1_pools, 0);
+export const PoolConnectionStatusSchema: GenEnum<PoolConnectionStatus> = /*@__PURE__*/
+  enumDesc(file_pools_v1_pools, 1);
+
+/**
+ * ValidationMode describes what kind of probe ValidatePool actually ran.
+ * Exposed in the response so the UI can render "reachable but credentials
+ * unverified" honestly, without inferring it from string fields.
+ *
+ * @generated from enum pools.v1.ValidationMode
+ */
+export enum ValidationMode {
+  /**
+   * @generated from enum value: VALIDATION_MODE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * SV1 subscribe + authorize (proves credentials)
+   *
+   * @generated from enum value: VALIDATION_MODE_SV1_AUTHENTICATE = 1;
+   */
+  SV1_AUTHENTICATE = 1,
+
+  /**
+   * SV2 v1 default: TCP dial with timeout only
+   *
+   * @generated from enum value: VALIDATION_MODE_SV2_TCP_DIAL = 2;
+   */
+  SV2_TCP_DIAL = 2,
+
+  /**
+   * Reserved for v1.5: Noise + SetupConnection roundtrip
+   *
+   * @generated from enum value: VALIDATION_MODE_SV2_HANDSHAKE = 3;
+   */
+  SV2_HANDSHAKE = 3,
+}
+
+/**
+ * Describes the enum pools.v1.ValidationMode.
+ */
+export const ValidationModeSchema: GenEnum<ValidationMode> = /*@__PURE__*/
+  enumDesc(file_pools_v1_pools, 2);
 
 /**
  * @generated from service pools.v1.PoolsService
@@ -400,7 +535,7 @@ export const PoolsService: GenService<{
     methodKind: "unary";
     input: typeof ListPoolsRequestSchema;
     output: typeof ListPoolsResponseSchema;
-  };
+  },
   /**
    * Creates a new mining pool configuration
    *
@@ -410,7 +545,7 @@ export const PoolsService: GenService<{
     methodKind: "unary";
     input: typeof CreatePoolRequestSchema;
     output: typeof CreatePoolResponseSchema;
-  };
+  },
   /**
    * Updates an existing pool's configuration
    *
@@ -420,7 +555,7 @@ export const PoolsService: GenService<{
     methodKind: "unary";
     input: typeof UpdatePoolRequestSchema;
     output: typeof UpdatePoolResponseSchema;
-  };
+  },
   /**
    * Deletes a pool configuration
    *
@@ -430,7 +565,7 @@ export const PoolsService: GenService<{
     methodKind: "unary";
     input: typeof DeletePoolRequestSchema;
     output: typeof DeletePoolResponseSchema;
-  };
+  },
   /**
    * Validates a pool's connection details
    *
@@ -440,5 +575,7 @@ export const PoolsService: GenService<{
     methodKind: "unary";
     input: typeof ValidatePoolRequestSchema;
     output: typeof ValidatePoolResponseSchema;
-  };
-}> = /*@__PURE__*/ serviceDesc(file_pools_v1_pools, 0);
+  },
+}> = /*@__PURE__*/
+  serviceDesc(file_pools_v1_pools, 0);
+

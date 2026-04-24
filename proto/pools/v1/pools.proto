@@ -23,10 +23,32 @@ service PoolsService {
     rpc ValidatePool(ValidatePoolRequest) returns (ValidatePoolResponse);
 }
 
-// PoolConfig defines the connection details for a mining pool
+// PoolProtocol identifies the stratum variant a pool speaks.
+// UNSPECIFIED is treated as SV1 on reads for backward compatibility
+// with pool rows written before the protocol column existed.
+enum PoolProtocol {
+  POOL_PROTOCOL_UNSPECIFIED = 0;
+  POOL_PROTOCOL_SV1 = 1;
+  POOL_PROTOCOL_SV2 = 2;
+}
+
+// PoolConfig defines the connection details for a mining pool.
+// Protocol is derived server-side from the URL scheme — callers do
+// not pass it and cannot override it. stratum+(tcp|ssl|ws) -> SV1;
+// stratum2+(tcp|ssl) -> SV2. The CEL rule below enforces the
+// accepted scheme set at validation time.
 message PoolConfig {
-  // Pool's stratum URL (e.g., "stratum+tcp://pool.example.com:3333")
-  // Required field that specifies the endpoint for connecting to the pool
+  option (buf.validate.message).cel = {
+    id: "pool_config_url_scheme",
+    message: "url must start with stratum+(tcp|ssl|ws)://... or stratum2+(tcp|ssl)://...",
+    expression:
+      "this.url.matches('^stratum\\\\+(tcp|ssl|ws)://(([a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]\\\\.[a-zA-Z]{2,})|(\\\\d{1,3}\\\\.){3}\\\\d{1,3}|\\\\[([0-9a-fA-F:]+)\\\\])(:\\\\d{1,5})?$') "
+      "|| this.url.matches('^stratum2\\\\+(tcp|ssl)://(([a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]\\\\.[a-zA-Z]{2,})|(\\\\d{1,3}\\\\.){3}\\\\d{1,3}|\\\\[([0-9a-fA-F:]+)\\\\])(:\\\\d{1,5})?(/[A-Za-z0-9._~+=-]+)?$')"
+  };
+
+  // Pool's stratum URL. The scheme is the single source of truth for
+  // protocol (e.g., "stratum+tcp://pool.example.com:3333" is SV1,
+  // "stratum2+tcp://pool.example.com:34254" is SV2).
   string url = 1;
 
   // Username or wallet address for pool authentication
@@ -40,6 +62,17 @@ message PoolConfig {
   // Pool name to identify this pool
   // Human-readable identifier for the pool within the fleet management system
   string pool_name = 4;
+
+  // Field 5 was PoolProtocol protocol — removed; protocol is derived
+  // from the URL scheme server-side.
+  reserved 5;
+  reserved "protocol";
+
+  // Reserved for v2 (Job Declaration Protocol):
+  //   string jds_endpoint            = 6;  // Job Declarator Server endpoint
+  //   bool   job_declaration_enabled = 7;
+  reserved 6, 7;
+  reserved "jds_endpoint", "job_declaration_enabled";
 }
 
 enum PoolConnectionStatus {
@@ -65,6 +98,14 @@ message Pool {
   // Pool name to identify this pool
   // Human-readable identifier for the pool within the fleet management system
   string pool_name = 4;
+
+  // Stratum protocol derived from the URL scheme. Read-only for clients
+  // — exposed here so UIs can render a protocol chip without re-parsing.
+  PoolProtocol protocol = 5;
+
+  // Reserved for v2 (Job Declaration Protocol).
+  reserved 6, 7;
+  reserved "jds_endpoint", "job_declaration_enabled";
 }
 
 // Request to retrieve all configured mining pools
@@ -91,22 +132,49 @@ message CreatePoolResponse {
   Pool pool = 1;
 }
 
-// Request to update an existing pool's configuration
+// Request to update an existing pool's configuration.
+//
+// All fields other than pool_id are patch-shaped via proto3 explicit presence:
+//   - absent          -> leave stored value as-is
+//   - present + valid -> set it
+//   - present + invalid (empty url/username, bad URL scheme) -> INVALID_ARGUMENT
+//
+// This replaces the previous empty-string-means-unchanged convention, which
+// made it impossible to legitimately set a field to "". Existing Fleet clients
+// do not exercise that edge case, but external callers that relied on it must
+// stop setting the field instead of setting it to "".
 message UpdatePoolRequest {
+  option (buf.validate.message).cel = {
+    id: "update_pool_url_scheme_if_set",
+    message: "url must start with stratum+(tcp|ssl|ws)://... or stratum2+(tcp|ssl)://...",
+    // url is optional on update; validate only when the caller set it.
+    expression:
+      "!has(this.url) "
+      "|| this.url.matches('^stratum\\\\+(tcp|ssl|ws)://(([a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]\\\\.[a-zA-Z]{2,})|(\\\\d{1,3}\\\\.){3}\\\\d{1,3}|\\\\[([0-9a-fA-F:]+)\\\\])(:\\\\d{1,5})?$') "
+      "|| this.url.matches('^stratum2\\\\+(tcp|ssl)://(([a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]\\\\.[a-zA-Z]{2,})|(\\\\d{1,3}\\\\.){3}\\\\d{1,3}|\\\\[([0-9a-fA-F:]+)\\\\])(:\\\\d{1,5})?(/[A-Za-z0-9._~+=-]+)?$')"
+  };
+
   // Unique identifier of the pool to update
   int64 pool_id = 1;
 
-  // New pool name (optional, leave empty to keep current value)
-  string pool_name = 2;
+  // New pool name (absent = leave unchanged)
+  optional string pool_name = 2;
 
-  // New pool URL (optional, leave empty to keep current value)
-  string url = 3;
+  // New pool URL (absent = leave unchanged). Changing the URL may
+  // change the pool's derived protocol — the server updates the
+  // stored protocol column to match.
+  optional string url = 3;
 
-  // New username (optional, leave empty to keep current value)
-  string username = 4;
+  // New username (absent = leave unchanged)
+  optional string username = 4;
 
-  // New password (optional, leave empty to keep current value)
+  // New password (absent = leave unchanged)
   google.protobuf.StringValue password = 5;
+
+  // Field 6 was optional PoolProtocol protocol — removed; protocol is
+  // derived from the URL scheme server-side.
+  reserved 6;
+  reserved "protocol";
 }
 
 // Response after updating a pool's configuration
@@ -126,17 +194,30 @@ message DeletePoolResponse {
   // Empty response as success/failure is indicated by gRPC status
 }
 
-// Request to validate a pool's connection details
+// Request to validate a pool's connection details.
+//
+// URL scheme is the single source of truth for the target protocol:
+//   stratum+(tcp|ssl|ws)://HOST[:PORT]                -> SV1 probe (subscribe + authorize)
+//   stratum2+(tcp|ssl)://HOST[:PORT][/AUTHORITY_PUBKEY] -> SV2 probe
+// For SV2, the optional /AUTHORITY_PUBKEY path is the canonical
+// Braiins format; when present or when noise_public_key is set the
+// server runs a Noise NX handshake probe, otherwise a TCP dial.
 message ValidatePoolRequest {
-    // Pool's stratum URL (e.g., "stratum+tcp://pool.example.com:3333")
-    // Required field that specifies the endpoint for connecting to the pool
-     string url = 1 [(buf.validate.field) = {
-        string: {
-            pattern: "^stratum\\+(tcp|ssl|ws):\\/\\/(([a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]\\.[a-zA-Z]{2,})|(\\d{1,3}\\.){3}\\d{1,3}|\\[([0-9a-fA-F:]+)\\])(:\\d{1,5})?$"
-            min_len: 12
-        }
+    option (buf.validate.message).cel = {
+        id: "pool_url_scheme",
+        message: "url must start with stratum+(tcp|ssl|ws)://... or stratum2+(tcp|ssl)://...",
+        expression:
+          "this.url.matches('^stratum\\\\+(tcp|ssl|ws)://(([a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]\\\\.[a-zA-Z]{2,})|(\\\\d{1,3}\\\\.){3}\\\\d{1,3}|\\\\[([0-9a-fA-F:]+)\\\\])(:\\\\d{1,5})?$') "
+          "|| this.url.matches('^stratum2\\\\+(tcp|ssl)://(([a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]\\\\.[a-zA-Z]{2,})|(\\\\d{1,3}\\\\.){3}\\\\d{1,3}|\\\\[([0-9a-fA-F:]+)\\\\])(:\\\\d{1,5})?(/[A-Za-z0-9._~+=-]+)?$')"
+    };
+
+    // Pool's stratum URL. Scheme must be one of the accepted prefixes
+    // (see message-level CEL rule).
+    string url = 1 [(buf.validate.field) = {
+        string: { min_len: 12 }
         required: true
     }];
+
     // Username or wallet address for pool authentication
     // Required field that identifies the user/wallet receiving mining rewards
     string username = 2[(buf.validate.field).required = true];
@@ -151,9 +232,42 @@ message ValidatePoolRequest {
         lte: { seconds: 360 } // Maximum timeout of 6 minutes
         gte: { seconds: 1 } // Minimum timeout of 1 second
     }];
+
+    // Field 5 was PoolProtocol protocol — removed; protocol is derived
+    // from the URL scheme server-side.
+    reserved 5;
+    reserved "protocol";
+
+    // Pool's Noise authority public key (x25519, 32 bytes). Optional.
+    // When provided on an SV2 URL, the server runs a Noise NX handshake
+    // against the pool instead of a TCP dial only — mode switches to
+    // VALIDATION_MODE_SV2_HANDSHAKE.
+    optional bytes noise_public_key = 6 [(buf.validate.field).bytes = {
+        min_len: 0
+        max_len: 32
+    }];
+}
+
+// ValidationMode describes what kind of probe ValidatePool actually ran.
+// Exposed in the response so the UI can render "reachable but credentials
+// unverified" honestly, without inferring it from string fields.
+enum ValidationMode {
+    VALIDATION_MODE_UNSPECIFIED      = 0;
+    VALIDATION_MODE_SV1_AUTHENTICATE = 1;  // SV1 subscribe + authorize (proves credentials)
+    VALIDATION_MODE_SV2_TCP_DIAL     = 2;  // SV2 v1 default: TCP dial with timeout only
+    VALIDATION_MODE_SV2_HANDSHAKE    = 3;  // Reserved for v1.5: Noise + SetupConnection roundtrip
 }
 
 // Response after validating a pool's connection details
 message ValidatePoolResponse {
-  // Empty response as success/failure is indicated by gRPC status
+  // True when the probe (TCP dial, and handshake if mode > TCP_DIAL) succeeded.
+  bool reachable = 1;
+
+  // True only when the probe authenticated (SV1_AUTHENTICATE). SV2 modes in v1
+  // do not authenticate; this is always false for SV2_TCP_DIAL.
+  bool credentials_verified = 2;
+
+  // What probe was actually attempted. Callers should branch on this rather
+  // than inferring from (protocol, reachable, credentials_verified).
+  ValidationMode mode = 3;
 }

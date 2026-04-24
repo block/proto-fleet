@@ -49,6 +49,19 @@ class PerformanceMode(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     PERFORMANCE_MODE_MAXIMUM_HASHRATE: _ClassVar[PerformanceMode]
     PERFORMANCE_MODE_EFFICIENCY: _ClassVar[PerformanceMode]
 
+class PoolProtocol(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    POOL_PROTOCOL_UNSPECIFIED: _ClassVar[PoolProtocol]
+    POOL_PROTOCOL_SV1: _ClassVar[PoolProtocol]
+    POOL_PROTOCOL_SV2: _ClassVar[PoolProtocol]
+
+class StratumV2SupportStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    STRATUM_V2_SUPPORT_STATUS_UNSPECIFIED: _ClassVar[StratumV2SupportStatus]
+    STRATUM_V2_SUPPORT_STATUS_UNKNOWN: _ClassVar[StratumV2SupportStatus]
+    STRATUM_V2_SUPPORT_STATUS_UNSUPPORTED: _ClassVar[StratumV2SupportStatus]
+    STRATUM_V2_SUPPORT_STATUS_SUPPORTED: _ClassVar[StratumV2SupportStatus]
+
 class MinerError(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     MINER_ERROR_UNSPECIFIED: _ClassVar[MinerError]
@@ -142,6 +155,13 @@ COOLING_MODE_MANUAL: CoolingMode
 PERFORMANCE_MODE_UNSPECIFIED: PerformanceMode
 PERFORMANCE_MODE_MAXIMUM_HASHRATE: PerformanceMode
 PERFORMANCE_MODE_EFFICIENCY: PerformanceMode
+POOL_PROTOCOL_UNSPECIFIED: PoolProtocol
+POOL_PROTOCOL_SV1: PoolProtocol
+POOL_PROTOCOL_SV2: PoolProtocol
+STRATUM_V2_SUPPORT_STATUS_UNSPECIFIED: StratumV2SupportStatus
+STRATUM_V2_SUPPORT_STATUS_UNKNOWN: StratumV2SupportStatus
+STRATUM_V2_SUPPORT_STATUS_UNSUPPORTED: StratumV2SupportStatus
+STRATUM_V2_SUPPORT_STATUS_SUPPORTED: StratumV2SupportStatus
 MINER_ERROR_UNSPECIFIED: MinerError
 PSU_NOT_PRESENT: MinerError
 PSU_MODEL_MISMATCH: MinerError
@@ -396,7 +416,7 @@ class SensorMetrics(_message.Message):
     def __init__(self, component_info: _Optional[_Union[ComponentInfo, _Mapping]] = ..., type: _Optional[str] = ..., unit: _Optional[str] = ..., value: _Optional[_Union[MetricValue, _Mapping]] = ...) -> None: ...
 
 class DeviceMetrics(_message.Message):
-    __slots__ = ("device_id", "timestamp", "health", "health_reason", "hashrate_hs", "temp_c", "fan_rpm", "power_w", "efficiency_jh", "hash_boards", "psu_metrics", "control_board_metrics", "fan_metrics", "sensor_metrics", "firmware_version")
+    __slots__ = ("device_id", "timestamp", "health", "health_reason", "hashrate_hs", "temp_c", "fan_rpm", "power_w", "efficiency_jh", "hash_boards", "psu_metrics", "control_board_metrics", "fan_metrics", "sensor_metrics", "firmware_version", "stratum_v2_support")
     DEVICE_ID_FIELD_NUMBER: _ClassVar[int]
     TIMESTAMP_FIELD_NUMBER: _ClassVar[int]
     HEALTH_FIELD_NUMBER: _ClassVar[int]
@@ -412,6 +432,7 @@ class DeviceMetrics(_message.Message):
     FAN_METRICS_FIELD_NUMBER: _ClassVar[int]
     SENSOR_METRICS_FIELD_NUMBER: _ClassVar[int]
     FIRMWARE_VERSION_FIELD_NUMBER: _ClassVar[int]
+    STRATUM_V2_SUPPORT_FIELD_NUMBER: _ClassVar[int]
     device_id: str
     timestamp: _timestamp_pb2.Timestamp
     health: HealthStatus
@@ -427,7 +448,8 @@ class DeviceMetrics(_message.Message):
     fan_metrics: _containers.RepeatedCompositeFieldContainer[FanMetrics]
     sensor_metrics: _containers.RepeatedCompositeFieldContainer[SensorMetrics]
     firmware_version: str
-    def __init__(self, device_id: _Optional[str] = ..., timestamp: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., health: _Optional[_Union[HealthStatus, str]] = ..., health_reason: _Optional[str] = ..., hashrate_hs: _Optional[_Union[MetricValue, _Mapping]] = ..., temp_c: _Optional[_Union[MetricValue, _Mapping]] = ..., fan_rpm: _Optional[_Union[MetricValue, _Mapping]] = ..., power_w: _Optional[_Union[MetricValue, _Mapping]] = ..., efficiency_jh: _Optional[_Union[MetricValue, _Mapping]] = ..., hash_boards: _Optional[_Iterable[_Union[HashBoardMetrics, _Mapping]]] = ..., psu_metrics: _Optional[_Iterable[_Union[PSUMetrics, _Mapping]]] = ..., control_board_metrics: _Optional[_Iterable[_Union[ControlBoardMetrics, _Mapping]]] = ..., fan_metrics: _Optional[_Iterable[_Union[FanMetrics, _Mapping]]] = ..., sensor_metrics: _Optional[_Iterable[_Union[SensorMetrics, _Mapping]]] = ..., firmware_version: _Optional[str] = ...) -> None: ...
+    stratum_v2_support: StratumV2SupportStatus
+    def __init__(self, device_id: _Optional[str] = ..., timestamp: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., health: _Optional[_Union[HealthStatus, str]] = ..., health_reason: _Optional[str] = ..., hashrate_hs: _Optional[_Union[MetricValue, _Mapping]] = ..., temp_c: _Optional[_Union[MetricValue, _Mapping]] = ..., fan_rpm: _Optional[_Union[MetricValue, _Mapping]] = ..., power_w: _Optional[_Union[MetricValue, _Mapping]] = ..., efficiency_jh: _Optional[_Union[MetricValue, _Mapping]] = ..., hash_boards: _Optional[_Iterable[_Union[HashBoardMetrics, _Mapping]]] = ..., psu_metrics: _Optional[_Iterable[_Union[PSUMetrics, _Mapping]]] = ..., control_board_metrics: _Optional[_Iterable[_Union[ControlBoardMetrics, _Mapping]]] = ..., fan_metrics: _Optional[_Iterable[_Union[FanMetrics, _Mapping]]] = ..., sensor_metrics: _Optional[_Iterable[_Union[SensorMetrics, _Mapping]]] = ..., firmware_version: _Optional[str] = ..., stratum_v2_support: _Optional[_Union[StratumV2SupportStatus, str]] = ...) -> None: ...
 
 class DescribeDeviceRequest(_message.Message):
     __slots__ = ("device_id",)
@@ -534,14 +556,16 @@ class SetPowerTargetRequest(_message.Message):
     def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ..., performance_mode: _Optional[_Union[PerformanceMode, str]] = ...) -> None: ...
 
 class MiningPool(_message.Message):
-    __slots__ = ("priority", "url", "worker_name")
+    __slots__ = ("priority", "url", "worker_name", "protocol")
     PRIORITY_FIELD_NUMBER: _ClassVar[int]
     URL_FIELD_NUMBER: _ClassVar[int]
     WORKER_NAME_FIELD_NUMBER: _ClassVar[int]
+    PROTOCOL_FIELD_NUMBER: _ClassVar[int]
     priority: int
     url: str
     worker_name: str
-    def __init__(self, priority: _Optional[int] = ..., url: _Optional[str] = ..., worker_name: _Optional[str] = ...) -> None: ...
+    protocol: PoolProtocol
+    def __init__(self, priority: _Optional[int] = ..., url: _Optional[str] = ..., worker_name: _Optional[str] = ..., protocol: _Optional[_Union[PoolProtocol, str]] = ...) -> None: ...
 
 class UpdateMiningPoolsRequest(_message.Message):
     __slots__ = ("ref", "pools")
@@ -552,14 +576,16 @@ class UpdateMiningPoolsRequest(_message.Message):
     def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ..., pools: _Optional[_Iterable[_Union[MiningPool, _Mapping]]] = ...) -> None: ...
 
 class ConfiguredPool(_message.Message):
-    __slots__ = ("priority", "url", "username")
+    __slots__ = ("priority", "url", "username", "protocol")
     PRIORITY_FIELD_NUMBER: _ClassVar[int]
     URL_FIELD_NUMBER: _ClassVar[int]
     USERNAME_FIELD_NUMBER: _ClassVar[int]
+    PROTOCOL_FIELD_NUMBER: _ClassVar[int]
     priority: int
     url: str
     username: str
-    def __init__(self, priority: _Optional[int] = ..., url: _Optional[str] = ..., username: _Optional[str] = ...) -> None: ...
+    protocol: PoolProtocol
+    def __init__(self, priority: _Optional[int] = ..., url: _Optional[str] = ..., username: _Optional[str] = ..., protocol: _Optional[_Union[PoolProtocol, str]] = ...) -> None: ...
 
 class GetMiningPoolsRequest(_message.Message):
     __slots__ = ("ref",)

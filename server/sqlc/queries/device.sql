@@ -151,6 +151,15 @@ FROM device
 WHERE device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
   AND deleted_at IS NULL;
 
+-- name: GetDeviceIdentifiersByIDs :many
+-- Inverse of GetDeviceIDsWithIdentifiers: given internal IDs returns each
+-- device's stable identifier. Used by the SV2 pool preflight to key
+-- warnings and per-device queue payloads by identifier.
+SELECT id, device_identifier
+FROM device
+WHERE id = ANY(sqlc.arg('device_ids')::bigint[])
+  AND deleted_at IS NULL;
+
 -- name: AllDevicesBelongToOrg :one
 -- Returns true if all provided device identifiers belong to the specified organization.
 -- Used for authorization checks - fails fast if any device is not owned by the org.

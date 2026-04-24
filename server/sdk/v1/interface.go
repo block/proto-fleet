@@ -188,6 +188,12 @@ type DeviceMetrics struct {
 	ControlBoardMetrics []ControlBoardMetrics
 	FanMetrics          []FanMetrics
 	SensorMetrics       []SensorMetrics
+
+	// StratumV2Support reports whether the firmware on this device natively
+	// speaks Stratum V2, as observed at the moment of this telemetry scrape.
+	// Plugins that cannot probe for this leave it Unknown (or Unspecified);
+	// the server then falls back to the merged static/model capability view.
+	StratumV2Support StratumV2SupportStatus
 }
 
 // ============================================================================
@@ -288,11 +294,41 @@ type SecretBundle struct {
 	TTL     *time.Duration
 }
 
+// PoolProtocol identifies the stratum variant of a pool URL. The SDK enum
+// mirrors pools.v1.PoolProtocol one-for-one — the server converts between
+// the two at the command/domain boundary so plugins never depend on
+// internal proto packages. Zero value (Unspecified) is treated as SV1 for
+// backward compatibility with drivers written before SV2 support existed.
+type PoolProtocol int32
+
+const (
+	PoolProtocolUnspecified PoolProtocol = 0
+	PoolProtocolSV1         PoolProtocol = 1
+	PoolProtocolSV2         PoolProtocol = 2
+)
+
+// StratumV2SupportStatus is a dynamic, per-device capability reported on
+// every telemetry scrape. It supersedes static driver/model capabilities
+// when set to Supported or Unsupported; Unknown means "no opinion, fall
+// back to the static/model capability view."
+type StratumV2SupportStatus int32
+
+const (
+	StratumV2SupportUnspecified StratumV2SupportStatus = 0
+	StratumV2SupportUnknown     StratumV2SupportStatus = 1
+	StratumV2SupportUnsupported StratumV2SupportStatus = 2
+	StratumV2SupportSupported   StratumV2SupportStatus = 3
+)
+
 // MiningPoolConfig represents a mining pool configuration for setting pools on a device
 type MiningPoolConfig struct {
 	Priority   int32
 	URL        string
 	WorkerName string
+	// Protocol the URL speaks. Informational for most drivers (URL is opaque).
+	// Drivers that log or branch on protocol can read it; drivers that don't
+	// can ignore it entirely.
+	Protocol PoolProtocol
 }
 
 // ConfiguredPool represents a pool currently configured on a device
@@ -301,6 +337,9 @@ type ConfiguredPool struct {
 	Priority int32
 	URL      string
 	Username string // Worker name / username configured on the miner
+	// Protocol the configured URL speaks. Drivers that can distinguish should
+	// set this so the worker-name reapply path preserves SV2 intent.
+	Protocol PoolProtocol
 }
 
 // NewDeviceResult contains the result of creating a new device
@@ -535,4 +574,14 @@ const (
 	// Authentication capabilities
 	CapabilityBasicAuth      = "basic_auth"      // Basic (username/password) authentication
 	CapabilityAsymmetricAuth = "asymmetric_auth" // Asymmetric key authentication
+
+	// Protocol capabilities
+	// CapabilityStratumV2Native is set when the firmware on the device can
+	// connect to Stratum V2 pools directly, without going through a translator
+	// proxy. It is consulted by the server-side URL rewriter to decide whether
+	// to rewrite an SV2 pool URL to the bundled proxy's miner-facing URL.
+	// Plugins should report this dynamically via DeviceMetrics.StratumV2Support
+	// rather than hard-coding it per driver or model; the server merges the
+	// telemetry view over the static/model view, with telemetry winning.
+	CapabilityStratumV2Native = "stratum_v2_native"
 )
