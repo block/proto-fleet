@@ -327,13 +327,17 @@ if ! docker compose version &> /dev/null; then
     fi
 fi
 
-# The post-start readiness check below relies on `--wait` (Compose v2.1.0+).
-# Fail fast here, before `docker compose down` takes an existing stack offline.
-if ! docker compose up --help 2>/dev/null | grep -q -- '--wait'; then
-    echo "Error: your docker compose does not support --wait (requires Compose v2.1.0+)."
-    echo "Please upgrade Docker Compose: https://docs.docker.com/compose/install/"
-    exit 1
-fi
+# The post-start readiness check below uses both `--wait` and `--wait-timeout`
+# (Compose v2.17.0+). Fail fast here, before `docker compose down` takes an
+# existing stack offline.
+compose_up_help=$(docker compose up --help 2>&1 || true)
+for flag in --wait --wait-timeout; do
+    if ! grep -qE -- "(^|[[:space:]])${flag}([[:space:]]|$)" <<<"$compose_up_help"; then
+        echo "Error: your docker compose does not support ${flag}."
+        echo "run-fleet.sh requires Compose v2.17.0+. Upgrade: https://docs.docker.com/compose/install/"
+        exit 1
+    fi
+done
 
 # ----------------------------------------------------------------------------
 # Database Volume Management Function
