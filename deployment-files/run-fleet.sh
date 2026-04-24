@@ -593,7 +593,7 @@ echo "Starting services..."
 # --wait blocks until every service is running (or healthy, when a healthcheck is defined).
 # Without it, `up -d` can exit 0 while containers stay in Created (e.g. port conflicts under
 # host networking), producing a false "Proto Fleet is now running!" banner.
-if ! docker compose -f "$COMPOSE_FILE" up -d --wait --wait-timeout 60; then
+if ! docker compose -f "$COMPOSE_FILE" up -d --wait --wait-timeout 300; then
     echo "Error: services failed to reach running state."
     echo "Check logs with: docker compose -f \"$COMPOSE_FILE\" logs"
     exit 1
