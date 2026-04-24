@@ -64,7 +64,7 @@ jobs:
     with:
       version: ${{ needs.metadata.outputs.version }}
       build_date: ${{ needs.metadata.outputs.build_date }}
-      retention_days: 14
+      retention_days: 7
       channel: nightly
       is_prerelease: true
     secrets: inherit
@@ -85,7 +85,7 @@ jobs:
             echo ""
             echo "Version: \`$NIGHTLY_VERSION\`"
             echo ""
-            echo "Artifacts retained for 14 days:"
+            echo "Artifacts retained for 7 days:"
             echo ""
             echo "- \`proto-fleet-deployment-bundle-amd64\`"
             echo "- \`proto-fleet-deployment-bundle-arm64\`"
