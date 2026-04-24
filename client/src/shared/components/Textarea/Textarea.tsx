@@ -98,6 +98,10 @@ const Textarea = ({
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        e.currentTarget.blur();
+      }
       onKeyDown?.(e.key);
     },
     [onKeyDown],

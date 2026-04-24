@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 
 import { create } from "@bufbuild/protobuf";
@@ -12,6 +12,7 @@ import { computeSlotNumber, type NumberingOrigin } from "@/protoFleet/features/r
 import { ArrowRight, Checkmark, DismissTiny, Ellipsis } from "@/shared/assets/icons";
 import Button, { sizes as buttonSizes, variants } from "@/shared/components/Button";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
+import { useEscapeDismiss } from "@/shared/hooks/useEscapeDismiss";
 
 interface MinersPaneProps {
   rackMiners: string[];
@@ -96,15 +97,7 @@ function MinerRow({
     onRemove(deviceId);
   }, [deviceId, onRemove]);
 
-  // Close menu on Escape
-  useEffect(() => {
-    if (!showMenu) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setShowMenu(false);
-    };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [showMenu]);
+  useEscapeDismiss(showMenu ? () => setShowMenu(false) : undefined);
 
   const subtitleParts = [ipAddress, macAddress, model].filter(Boolean);
   const hasIcon = isSelected || isAssigned;

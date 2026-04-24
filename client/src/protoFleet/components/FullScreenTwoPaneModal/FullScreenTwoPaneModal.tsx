@@ -6,10 +6,10 @@ import { sizes, variants } from "@/shared/components/Button";
 import ButtonGroup, { type ButtonProps, groupVariants } from "@/shared/components/ButtonGroup";
 import Divider from "@/shared/components/Divider";
 import Header from "@/shared/components/Header";
-import PageOverlay from "@/shared/components/PageOverlay";
+import Modal, { sizes as modalSizes } from "@/shared/components/Modal";
 import Row from "@/shared/components/Row";
-import { useClickOutside } from "@/shared/hooks/useClickOutside";
-import { useKeyDown } from "@/shared/hooks/useKeyDown";
+import { useClickOutsideDismiss } from "@/shared/hooks/useClickOutsideDismiss";
+import { useEscapeDismiss } from "@/shared/hooks/useEscapeDismiss";
 
 const defaultPaneContainerClassName =
   "flex min-h-[calc(100dvh-200px)] w-full flex-1 flex-col laptop:grid laptop:min-h-0 laptop:grid-cols-2 laptop:px-10 desktop:px-10 desktop:grid desktop:min-h-0 desktop:grid-cols-2";
@@ -41,11 +41,8 @@ const isDangerVariant = (variant: string) => variant === variants.danger || vari
 
 const OverflowActionSheet = ({ overflowButtons, onClose }: { overflowButtons: ButtonProps[]; onClose: () => void }) => {
   const sheetRef = useRef<HTMLDivElement>(null);
-  useClickOutside({ ref: sheetRef, onClickOutside: onClose });
-  useKeyDown({
-    key: "Escape",
-    onKeyDown: () => onClose(),
-  });
+  useClickOutsideDismiss({ ref: sheetRef, onDismiss: onClose });
+  useEscapeDismiss(onClose);
 
   const nonDangerItems = overflowButtons.filter((b) => !isDangerVariant(b.variant));
   const dangerItems = overflowButtons.filter((b) => isDangerVariant(b.variant));
@@ -165,54 +162,60 @@ const FullScreenTwoPaneModal = ({
     mobileButtons.push(primaryButton);
   }
 
+  const effectiveOnDismiss = isBusy ? undefined : onDismiss;
+
   return (
-    <PageOverlay open={open} {...(zIndex && { zIndex })}>
-      <div
-        className={clsx(
-          "h-full w-full overflow-auto bg-surface-base laptop:overflow-hidden desktop:overflow-hidden",
-          className,
-        )}
-      >
-        <div className="flex h-full min-h-0 w-full flex-col pb-6">
-          <div className="sticky top-0 z-10 mb-6 bg-surface-base px-6 pt-4 pb-4 phone:mb-0 tablet:mb-0 laptop:static desktop:static">
-            <Header
-              title={title}
-              titleSize="text-heading-200"
-              stackButtonsOnPhone={false}
-              iconAriaLabel={closeAriaLabel}
-              icon={<Dismiss className={isBusy ? "cursor-default text-text-primary-30" : "cursor-pointer"} />}
-              iconOnClick={() => {
-                if (!isBusy) {
-                  onDismiss?.();
-                }
-              }}
-              iconTextColor={isBusy ? "text-text-primary-30" : "text-text-primary"}
-              inline
-              buttonsWrapperClassName="hidden laptop:block desktop:block"
-              buttons={buttons}
-            >
-              {/* Mobile buttons: ellipsis + primary CTA */}
-              <div className="ml-3 shrink-0 laptop:hidden desktop:hidden">
-                <ButtonGroup buttons={mobileButtons} variant={groupVariants.rightAligned} size={sizes.base} />
-              </div>
-            </Header>
+    <Modal
+      open={open}
+      onDismiss={effectiveOnDismiss}
+      size={modalSizes.fullscreen}
+      showHeader={false}
+      zIndex={zIndex}
+      testId="full-screen-two-pane-modal"
+      className="!p-0"
+      bodyClassName={clsx(
+        "flex h-full min-h-0 w-full flex-col overflow-auto bg-surface-base pb-6 laptop:overflow-hidden desktop:overflow-hidden",
+        className,
+      )}
+    >
+      <div className="sticky top-0 z-10 mb-6 bg-surface-base px-6 pt-6 pb-4 phone:mb-0 tablet:mb-0 laptop:static desktop:static">
+        <Header
+          title={title}
+          titleSize="text-heading-200"
+          stackButtonsOnPhone={false}
+          iconAriaLabel={closeAriaLabel}
+          icon={<Dismiss className={isBusy ? "cursor-default text-text-primary-30" : "cursor-pointer"} />}
+          iconOnClick={() => {
+            if (!isBusy) {
+              onDismiss?.();
+            }
+          }}
+          iconTextColor={isBusy ? "text-text-primary-30" : "text-text-primary"}
+          inline
+          centerButton
+          buttonsWrapperClassName="hidden laptop:block desktop:block"
+          buttons={buttons}
+        >
+          {/* Mobile buttons: ellipsis + primary CTA */}
+          <div className="ml-3 shrink-0 laptop:hidden desktop:hidden">
+            <ButtonGroup buttons={mobileButtons} variant={groupVariants.rightAligned} size={sizes.base} />
           </div>
-
-          {abovePanes}
-
-          {loadingState ?? (
-            <div className="mx-auto flex min-h-0 w-full flex-1" style={maxWidth !== "none" ? { maxWidth } : undefined}>
-              <div className={paneContainerClassName ?? defaultPaneContainerClassName}>
-                <div className={clsx(defaultPrimaryPaneClassName, primaryPaneClassName)}>{primaryPane}</div>
-                <div className={clsx(defaultSecondaryPaneClassName, secondaryPaneClassName)}>{secondaryPane}</div>
-              </div>
-            </div>
-          )}
-        </div>
+        </Header>
       </div>
 
+      {abovePanes}
+
+      {loadingState ?? (
+        <div className="mx-auto flex min-h-0 w-full flex-1" style={maxWidth !== "none" ? { maxWidth } : undefined}>
+          <div className={paneContainerClassName ?? defaultPaneContainerClassName}>
+            <div className={clsx(defaultPrimaryPaneClassName, primaryPaneClassName)}>{primaryPane}</div>
+            <div className={clsx(defaultSecondaryPaneClassName, secondaryPaneClassName)}>{secondaryPane}</div>
+          </div>
+        </div>
+      )}
+
       {showOverflowSheet && <OverflowActionSheet overflowButtons={overflowButtons} onClose={closeSheet} />}
-    </PageOverlay>
+    </Modal>
   );
 };
 

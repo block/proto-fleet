@@ -1,8 +1,9 @@
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import clsx from "clsx";
 
 import type { AssignmentMode } from "./types";
 import { computeSlotNumber, type NumberingOrigin } from "@/protoFleet/features/rackManagement/utils/slotNumbering";
+import { useEscapeDismiss } from "@/shared/hooks/useEscapeDismiss";
 
 interface RackPaneProps {
   rows: number;
@@ -41,13 +42,7 @@ function SlotPopover({
   onSearchMiners: () => void;
   onDismiss: () => void;
 }) {
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onDismiss();
-    };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [onDismiss]);
+  useEscapeDismiss(onDismiss);
 
   return (
     <>

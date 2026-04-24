@@ -28,6 +28,7 @@ import Header from "@/shared/components/Header";
 import { MAX_POOLS } from "@/shared/components/MiningPools/constants";
 import PageOverlay from "@/shared/components/PageOverlay";
 import ProgressCircular from "@/shared/components/ProgressCircular";
+import { useEscapeDismiss } from "@/shared/hooks/useEscapeDismiss";
 const UNKNOWN_POOL_ID_PREFIX = "unknown-";
 
 interface AssignedPoolData {
@@ -85,21 +86,7 @@ const PoolSelectionPage = ({
     }),
   );
 
-  // Handle ESC key to dismiss the page (only when modal is not open)
-  useEffect(() => {
-    if (!isVisible) {
-      return;
-    }
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !showSelectionModal) {
-        onCancel();
-      }
-    };
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [isVisible, onCancel, showSelectionModal]);
+  useEscapeDismiss(isVisible ? onCancel : undefined);
 
   // Reset internal state when hidden to mirror prior conditional-mount behavior.
   useEffect(() => {

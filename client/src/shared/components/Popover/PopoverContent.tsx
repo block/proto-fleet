@@ -6,6 +6,7 @@ import { popoverSizes } from "@/shared/components/Popover/constants.ts";
 import { PopoverContentProps } from "@/shared/components/Popover/types";
 import { usePopover } from "@/shared/components/Popover/usePopover";
 import { useClickOutside } from "@/shared/hooks/useClickOutside";
+import { useEscapeDismiss } from "@/shared/hooks/useEscapeDismiss";
 
 const FOCUSABLE_SELECTOR =
   'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -20,7 +21,7 @@ const PopoverContent = ({
   subtitle,
   testId,
   title,
-  closePopover = () => {},
+  closePopover,
   titleSize = "text-heading-200",
   closeIgnoreSelectors,
 }: PopoverContentProps) => {
@@ -29,9 +30,10 @@ const PopoverContent = ({
 
   useClickOutside({
     ref: popoverRef,
-    onClickOutside: closePopover,
+    onClickOutside: closePopover ?? (() => {}),
     ignoreSelectors: closeIgnoreSelectors,
   });
+  useEscapeDismiss(closePopover);
 
   useLayoutEffect(() => {
     if (renderMode !== "portal-scrolling") {
@@ -56,7 +58,7 @@ const PopoverContent = ({
       const isInsideTrigger = triggerRef.current?.contains(event.target) ?? false;
 
       if (!isInsidePopover && !isInsideTrigger) {
-        closePopover();
+        closePopover?.();
       }
     };
 
