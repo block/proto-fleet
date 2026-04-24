@@ -172,10 +172,12 @@ describe("ScheduleModal", () => {
     expect(screen.getByLabelText("Schedule name")).toHaveValue("Draft reboot");
   });
 
-  it("shows the schedule timezone when editing an existing schedule", () => {
+  it("shows the schedule timezone when editing an existing schedule", async () => {
     renderScheduleModal(createScheduleListItem("running", { timezone: "America/Chicago" }));
 
-    expect(screen.getByText(/All times America\/Chicago/i)).toBeVisible();
+    await waitFor(() => {
+      expect(screen.getByText(/All times America\/Chicago/i)).toBeVisible();
+    });
   });
 
   it("loads the full rack list when the modal opens", () => {
