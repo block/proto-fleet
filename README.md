@@ -66,17 +66,23 @@ bash <(curl -fsSL https://fleet.proto.xyz/uninstall.sh) --deployment-path /path/
 
 Requires Windows 10 (build 19041 or newer) or Windows 11 (x64), local Administrator access, and virtualization enabled in BIOS/UEFI. Docker Desktop is **not** required — the installer enables WSL2, installs an Ubuntu distro and Docker Engine inside it, and deploys Proto Fleet at `~/proto-fleet` within the distro.
 
-Download and run the latest installer:
+`installer.exe` is not standalone. It resolves the deployment payload from files packaged alongside it in the release bundle, so you need to download and extract the full bundle before running it. Windows is supported on x64 only.
 
-- [install.exe](https://fleet.proto.xyz/install.exe)
+1. Go to the [latest release](https://github.com/block/proto-fleet/releases/latest) and download `proto-fleet-<version>-amd64.tar.gz`.
+2. Extract the archive. From PowerShell:
+
+   ```powershell
+   tar -xzf proto-fleet-<version>-amd64.tar.gz
+   ```
+
+   Or right-click the file in File Explorer and choose **Extract All**.
+3. Open the extracted `deployment\install\` folder and double-click `installer.exe`.
 
 The installer self-elevates via UAC. If it has to enable Windows features for WSL, it may prompt for a reboot and then resume automatically.
 
-To pin a specific version, grab `installer.exe` from the corresponding tag on the [releases page](https://github.com/block/proto-fleet/releases).
-
 #### Uninstall
 
-- [uninstall.exe](https://fleet.proto.xyz/uninstall.exe)
+Run `uninstall.exe` from the `deployment\install\` folder of the bundle you extracted during install. If you no longer have it, re-download and extract the latest release bundle and use the `uninstall.exe` inside it.
 
 For Windows installer/uninstaller build and test details, see [`deployment-files/windows/README.md`](deployment-files/windows/README.md).
 
