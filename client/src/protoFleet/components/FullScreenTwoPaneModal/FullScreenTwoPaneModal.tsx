@@ -171,6 +171,7 @@ const FullScreenTwoPaneModal = ({
       size={modalSizes.fullscreen}
       showHeader={false}
       zIndex={zIndex}
+      testId="full-screen-two-pane-modal"
       className="!p-0"
       bodyClassName={clsx(
         "flex h-full min-h-0 w-full flex-col overflow-auto bg-surface-base pb-6 laptop:overflow-hidden desktop:overflow-hidden",

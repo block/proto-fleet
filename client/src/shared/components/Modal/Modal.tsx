@@ -45,6 +45,7 @@ interface ModalProps {
   divider?: boolean;
   size?: keyof typeof sizes;
   zIndex?: string;
+  testId?: string;
 }
 
 const Modal = ({
@@ -68,6 +69,7 @@ const Modal = ({
   size = sizes.standard,
   zIndex,
   iconAriaLabel = "Close dialog",
+  testId = "modal",
 }: ModalProps) => {
   const modalRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
@@ -154,7 +156,7 @@ const Modal = ({
             className,
           )}
           ref={modalRef}
-          data-testid="modal"
+          data-testid={testId}
         >
           {showHeader && (
             <div
