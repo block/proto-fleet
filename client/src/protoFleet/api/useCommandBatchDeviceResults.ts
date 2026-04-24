@@ -14,10 +14,11 @@ export function useCommandBatchDeviceResults() {
   const { handleAuthErrors } = useAuthErrors();
   const [cache, setCache] = useState<Record<string, BatchDeviceResultsState>>({});
   const inflightRef = useRef<Set<string>>(new Set());
+  const fetchedRef = useRef<Set<string>>(new Set());
 
   const fetch = useCallback(
     async (batchId: string) => {
-      if (inflightRef.current.has(batchId)) return;
+      if (fetchedRef.current.has(batchId) || inflightRef.current.has(batchId)) return;
       inflightRef.current.add(batchId);
 
       setCache((prev) => ({
@@ -33,6 +34,7 @@ export function useCommandBatchDeviceResults() {
           ...prev,
           [batchId]: { data: response, isLoading: false, error: null },
         }));
+        fetchedRef.current.add(batchId);
       } catch (err) {
         handleAuthErrors({
           error: err,

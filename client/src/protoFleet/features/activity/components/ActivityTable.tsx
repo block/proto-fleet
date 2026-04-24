@@ -2,38 +2,32 @@ import React, { useCallback, useMemo, useState } from "react";
 import clsx from "clsx";
 
 import type { ActivityEntry } from "@/protoFleet/api/generated/activity/v1/activity_pb";
-import { useCommandBatchDeviceResults } from "@/protoFleet/api/useCommandBatchDeviceResults";
-import ActivityBatchDetails from "@/protoFleet/features/activity/components/ActivityBatchDetails";
+import ActivityDetailModal from "@/protoFleet/features/activity/components/ActivityDetailModal";
 import { getActivityIcon } from "@/protoFleet/features/activity/utils/activityIcons";
+import { isCompletedEvent } from "@/protoFleet/features/activity/utils/eventType";
 import { formatScope } from "@/protoFleet/features/activity/utils/formatScope";
-import { Alert, ChevronDown } from "@/shared/assets/icons";
+import { Alert } from "@/shared/assets/icons";
 import { formatActivityTimestamp } from "@/shared/utils/formatTimestamp";
 
 const defaultNoDataElement = <div className="py-10 text-center text-text-primary-50">No activity to display.</div>;
 
-function isCompletedEvent(eventType: string): boolean {
-  return eventType.endsWith(".completed");
-}
-
+/**
+ * When a batch completes, the backend writes both an initiated row (e.g. "reboot")
+ * and a completed row ("reboot.completed"). We collapse them into one entry by
+ * keeping the completed row and hiding the initiated row for the same batch_id.
+ */
 function groupActivities(activities: ActivityEntry[]): ActivityEntry[] {
-  const result: ActivityEntry[] = [];
-  const hiddenBatchIds = new Set<string>();
+  const completedBatchIds = new Set<string>();
   for (const entry of activities) {
-    if (!entry.batchId) {
-      result.push(entry);
-      continue;
+    if (entry.batchId && isCompletedEvent(entry.eventType)) {
+      completedBatchIds.add(entry.batchId);
     }
-    if (isCompletedEvent(entry.eventType)) {
-      result.push(entry);
-      hiddenBatchIds.add(entry.batchId);
-      continue;
-    }
-    if (hiddenBatchIds.has(entry.batchId)) {
-      continue;
-    }
-    result.push(entry);
   }
-  return result;
+  return activities.filter((entry) => {
+    if (!entry.batchId) return true;
+    if (isCompletedEvent(entry.eventType)) return true;
+    return !completedBatchIds.has(entry.batchId);
+  });
 }
 
 interface ActivityTableProps {
@@ -43,84 +37,51 @@ interface ActivityTableProps {
 }
 
 const ActivityTable = ({ activities, totalCount, noDataElement }: ActivityTableProps) => {
-  const [expandedBatchIds, setExpandedBatchIds] = useState<Set<string>>(new Set());
-  const { fetch, getResult } = useCommandBatchDeviceResults();
-
-  const toggleExpand = useCallback(
-    (batchId: string) => {
-      setExpandedBatchIds((prev) => {
-        const next = new Set(prev);
-        if (next.has(batchId)) {
-          next.delete(batchId);
-        } else {
-          next.add(batchId);
-          const cached = getResult(batchId);
-          if (!cached.data && !cached.isLoading) {
-            void fetch(batchId);
-          }
-        }
-        return next;
-      });
-    },
-    [fetch, getResult],
-  );
-
+  const [selectedEntry, setSelectedEntry] = useState<ActivityEntry | null>(null);
+  const handleDismiss = useCallback(() => setSelectedEntry(null), []);
   const grouped = useMemo(() => groupActivities(activities), [activities]);
+  const hiddenCount = activities.length - grouped.length;
+  const displayCount = totalCount - hiddenCount;
 
   return (
     <div>
       <div className="px-4 py-2 text-200 text-text-primary-50">
-        {totalCount} {totalCount === 1 ? "activity" : "activities"}
+        {displayCount} {displayCount === 1 ? "activity" : "activities"}
       </div>
       <div className="divide-y divide-surface-10">
         {grouped.length === 0 && (noDataElement ?? defaultNoDataElement)}
         {grouped.map((entry) => {
-          const hasBatch = !!entry.batchId;
-          const isExpanded = hasBatch && expandedBatchIds.has(entry.batchId!);
           const isFailed = entry.result === "failure";
-          const isCompleted = isCompletedEvent(entry.eventType);
-          const Icon = isFailed
-            ? Alert
-            : getActivityIcon(isCompleted ? entry.eventType.replace(".completed", "") : entry.eventType);
+          const Icon = isFailed ? Alert : getActivityIcon(entry.eventType);
 
           return (
-            <div key={entry.eventId}>
-              <div
-                className={clsx(
-                  "grid grid-cols-[1fr_12rem_10rem_10rem] items-start gap-4 px-4 py-3",
-                  hasBatch && "cursor-pointer hover:bg-surface-5",
-                )}
-                onClick={hasBatch ? () => toggleExpand(entry.batchId!) : undefined}
-              >
-                <div className="flex items-start gap-2">
-                  {hasBatch && (
-                    <div
-                      className={clsx("shrink-0 text-text-primary-50 transition-transform", isExpanded && "rotate-180")}
-                    >
-                      <ChevronDown width="w-4" />
-                    </div>
-                  )}
-                  <div className={clsx("shrink-0", isFailed ? "text-intent-critical" : "text-text-primary")}>
-                    <Icon width="w-4" />
-                  </div>
-                  <span className="min-w-0 break-words">{entry.description}</span>
-                  {isFailed && <span className="text-intent-critical shrink-0 text-200">Failed</span>}
+            <div
+              key={entry.eventId}
+              className="grid cursor-pointer grid-cols-[1fr_12rem_10rem_10rem] items-start gap-4 px-4 py-3 hover:bg-surface-5"
+              onClick={() => setSelectedEntry(entry)}
+            >
+              <div className="flex items-start gap-2">
+                <div className={clsx("shrink-0", isFailed ? "text-intent-critical" : "text-text-primary")}>
+                  <Icon width="w-4" />
                 </div>
-                <div className="text-text-primary">
-                  {formatScope(entry.scopeType, entry.scopeLabel, entry.scopeCount || undefined)}
-                </div>
-                <div className="text-text-primary">{entry.username ?? "—"}</div>
-                <div className="text-text-primary">{formatActivityTimestamp(Number(entry.createdAt?.seconds))}</div>
+                <span className="min-w-0 break-words">
+                  {isCompletedEvent(entry.eventType)
+                    ? entry.description.replace(/\s*completed\s*/i, " ").trim()
+                    : entry.description}
+                </span>
+                {isFailed && <span className="text-intent-critical shrink-0 text-200">Failed</span>}
               </div>
-              {isExpanded && entry.batchId && (
-                <div className="bg-surface-5 px-4 pb-3 pl-14">
-                  <ActivityBatchDetails batchId={entry.batchId} {...getResult(entry.batchId)} />
-                </div>
-              )}
+              <div className="text-text-primary">
+                {formatScope(entry.scopeType, entry.scopeLabel, entry.scopeCount || undefined)}
+              </div>
+              <div className="text-text-primary">{entry.username ?? "—"}</div>
+              <div className="text-text-primary">{formatActivityTimestamp(Number(entry.createdAt?.seconds))}</div>
             </div>
           );
         })}
       </div>
+
+      <ActivityDetailModal entry={selectedEntry} onDismiss={handleDismiss} />
     </div>
   );
 };
