@@ -590,37 +590,45 @@ echo "Stopping any running services..."
 docker compose -f "$COMPOSE_FILE" down
 
 echo "Starting services..."
-docker compose -f "$COMPOSE_FILE" up -d
-
-# ----------------------------------------------------------------------------
-# Docker Cleanup
-# ----------------------------------------------------------------------------
-
-# Remove dangling images and build cache left behind by previous deployments.
-echo "Cleaning up old Docker images and build cache..."
-docker image prune -f 2>/dev/null || true
-docker builder prune -f 2>/dev/null || true
+if ! docker compose -f "$COMPOSE_FILE" up -d; then
+    echo "Error: docker compose up failed. Check logs with: docker compose -f $COMPOSE_FILE logs"
+    exit 1
+fi
 
 # ----------------------------------------------------------------------------
 # Final Status Check
 # ----------------------------------------------------------------------------
 
-# Check if docker compose was successful
-if [ $? -eq 0 ]; then
-    echo "--------------------------------------------------------------"
-    echo "Proto Fleet is now running!"
+# `up -d` can exit 0 while containers stay in Created (e.g. port conflicts under host networking).
+sleep 3
+not_running=$(docker compose -f "$COMPOSE_FILE" ps --format '{{.Name}} {{.State}}' \
+    | awk '$2 != "running" {print $1}')
+if [ -n "$not_running" ]; then
+    echo "Error: these services failed to reach running state:"
+    echo "$not_running" | sed 's/^/  - /'
     echo ""
-    echo "Access URLs:"
-    protocol="http"
-    [ "$PROTOCOL_MODE" == "https" ] && protocol="https"
-    echo "  Local:  ${protocol}://localhost"
-    for ip in $(get_local_ips); do
-        echo "  LAN:    ${protocol}://$ip"
-    done
-    echo "--------------------------------------------------------------"
-else
-    echo "Error: Failed to start services. Check docker compose logs for details."
+    echo "Check logs with: docker compose -f $COMPOSE_FILE logs"
     exit 1
 fi
+
+# ----------------------------------------------------------------------------
+# Docker Cleanup
+# ----------------------------------------------------------------------------
+
+echo "Cleaning up old Docker images and build cache..."
+docker image prune -f 2>/dev/null || true
+docker builder prune -f 2>/dev/null || true
+
+echo "--------------------------------------------------------------"
+echo "Proto Fleet is now running!"
+echo ""
+echo "Access URLs:"
+protocol="http"
+[ "$PROTOCOL_MODE" == "https" ] && protocol="https"
+echo "  Local:  ${protocol}://localhost"
+for ip in $(get_local_ips); do
+    echo "  LAN:    ${protocol}://$ip"
+done
+echo "--------------------------------------------------------------"
 
 exit 0
