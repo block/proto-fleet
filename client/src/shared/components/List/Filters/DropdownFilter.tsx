@@ -50,10 +50,14 @@ const FilterContent = ({
   // Only use internal state when buttons are shown
   const [internalSelectedItems, setInternalSelectedItems] = useState<string[]>(externalSelectedItems);
 
-  // Sync internal selection draft with external prop when parent updates
-  const [prevExternalSelectedItems, setPrevExternalSelectedItems] = useState(externalSelectedItems);
-  if (withButtons && prevExternalSelectedItems !== externalSelectedItems) {
-    setPrevExternalSelectedItems(externalSelectedItems);
+  // Sync internal selection draft with external prop when parent updates.
+  // Compare by content — call sites pass `selectedOptions || []` which produces a
+  // fresh array on every render when the prop is undefined, so referential inequality
+  // would cycle forever.
+  const externalKey = externalSelectedItems.join("\u0000");
+  const [prevExternalKey, setPrevExternalKey] = useState(externalKey);
+  if (withButtons && prevExternalKey !== externalKey) {
+    setPrevExternalKey(externalKey);
     setInternalSelectedItems(externalSelectedItems);
   }
 
