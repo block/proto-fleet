@@ -196,9 +196,8 @@ jobs:
             "release_url": "${{ github.server_url }}/${{ github.repository }}/releases/tag/$VERSION"
           }
           EOF
-          cp "${GITHUB_WORKSPACE}/deployment-files/install.sh" install.sh
 
-          git add latest.txt latest.json install.sh
+          git add latest.txt latest.json
           if git diff --cached --quiet; then
             echo "Nightly channel pointer already up to date."
             exit 0

@@ -40,8 +40,10 @@ bash <(curl -fsSL https://github.com/block/proto-fleet/releases/latest/download/
 # Install a specific version
 bash <(curl -fsSL https://github.com/block/proto-fleet/releases/latest/download/install.sh) v0.1.0-beta-5
 
-# Install the latest nightly prerelease
-bash <(curl -fsSL https://raw.githubusercontent.com/block/proto-fleet/nightly-channel/install.sh) nightly
+# Install the latest nightly prerelease (installer is fetched from the resolved
+# nightly release asset, not from the mutable nightly-channel branch)
+VERSION=$(curl -fsSL https://raw.githubusercontent.com/block/proto-fleet/nightly-channel/latest.txt)
+bash <(curl -fsSL "https://github.com/block/proto-fleet/releases/download/$VERSION/install.sh") "$VERSION"
 ```
 
 The script will:
