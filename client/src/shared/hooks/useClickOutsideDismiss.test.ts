@@ -69,7 +69,7 @@ describe("useClickOutsideDismiss", () => {
     expect(parentDismiss).not.toHaveBeenCalled();
   });
 
-  it("click outside both layers dismisses both", () => {
+  it("click outside both layers dismisses only the topmost", () => {
     const parentDismiss = vi.fn();
     const childDismiss = vi.fn();
     renderHook(() => useClickOutsideDismiss({ ref: { current: parentEl }, onDismiss: parentDismiss }));
@@ -78,7 +78,7 @@ describe("useClickOutsideDismiss", () => {
     clickOn(outsideEl);
 
     expect(childDismiss).toHaveBeenCalledTimes(1);
-    expect(parentDismiss).toHaveBeenCalledTimes(1);
+    expect(parentDismiss).not.toHaveBeenCalled();
   });
 
   it("does not register when onDismiss is undefined", () => {

@@ -21,29 +21,18 @@ const handleDocumentPointerDown = (event: MouseEvent | TouchEvent) => {
   const target = event.target;
   const targetNode = target instanceof Node ? target : null;
 
-  for (let i = 0; i < stack.length; i++) {
+  for (let i = stack.length - 1; i >= 0; i--) {
     const frame = stack[i].current;
     if (!frame) continue;
     if (frame.shouldIgnore?.(event)) continue;
 
     const el = frame.ref.current;
-    if (el && targetNode && el.contains(targetNode)) continue;
+    if (el && targetNode && el.contains(targetNode)) return;
 
-    if (targetMatchesSelectors(target, frame.ignoreSelectors)) continue;
-
-    // Clicks inside any higher layer shield this layer from dismissal.
-    let insideHigher = false;
-    for (let j = i + 1; j < stack.length; j++) {
-      const higher = stack[j].current;
-      const higherEl = higher?.ref.current;
-      if (higherEl && targetNode && higherEl.contains(targetNode)) {
-        insideHigher = true;
-        break;
-      }
-    }
-    if (insideHigher) continue;
+    if (targetMatchesSelectors(target, frame.ignoreSelectors)) return;
 
     frame.onDismiss();
+    return;
   }
 };
 
@@ -62,10 +51,11 @@ interface ClickOutsideDismissProps {
 }
 
 /**
- * Click-outside dismiss that respects modal nesting. Each active layer
- * pushes a frame onto a shared stack. Clicks inside any frame above this
- * one are treated as inside — preventing a parent modal from dismissing
- * when a nested modal is clicked.
+ * Click-outside dismiss that respects modal nesting. Active layers push a
+ * frame onto a shared stack; a single outside click only dismisses the
+ * topmost frame. This mirrors the Escape stack and avoids cascade-close
+ * when nested overlays are rendered through portals (where a child's own
+ * backdrop is not contained by the parent's ref).
  *
  * Pass `onDismiss: undefined` to unregister (e.g. when the modal is closed).
  */
