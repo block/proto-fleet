@@ -25,8 +25,10 @@ The `install.sh` script sets up the Proto Fleet server components.
 Usage: install.sh [VERSION]
 
 If you omit VERSION or pass "latest", installs the latest GitHub release.
+Pass "nightly" to install the latest successful nightly prerelease.
 You can override by doing, e.g.:
   install.sh v0.1.0-beta-5
+  install.sh nightly
 ```
 
 Examples:
@@ -37,6 +39,9 @@ bash <(curl -fsSL https://github.com/block/proto-fleet/releases/latest/download/
 
 # Install a specific version
 bash <(curl -fsSL https://github.com/block/proto-fleet/releases/latest/download/install.sh) v0.1.0-beta-5
+
+# Install the latest nightly prerelease
+bash <(curl -fsSL https://raw.githubusercontent.com/block/proto-fleet/nightly-channel/install.sh) nightly
 ```
 
 The script will:

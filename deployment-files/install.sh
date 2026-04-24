@@ -58,8 +58,11 @@ usage() {
 Usage: install.sh [VERSION]
 
 If you omit VERSION or pass "latest", installs the latest GitHub release.
+Pass "nightly" to install the latest successful nightly prerelease.
 You can override by doing, e.g.:
   install.sh v0.1.0-beta-5
+  install.sh nightly
+  install.sh nightly-20260424-1234-1-68712dfabc12
 EOF
   exit 1
 }
@@ -88,6 +91,31 @@ resolve_latest_version() {
   echo "❌ Failed to determine the latest version from GitHub Releases." >&2
   echo "   Resolved URL: ${effective_url}" >&2
   exit 1
+}
+
+resolve_latest_nightly_version() {
+  local nightly_channel_url nightly_version curl_stderr
+
+  nightly_channel_url="https://raw.githubusercontent.com/block/proto-fleet/nightly-channel/latest.txt"
+  echo "🛰  Determining latest nightly version from ${nightly_channel_url}" >&2
+
+  curl_stderr=$(mktemp)
+  if ! nightly_version=$(curl -fsSL "${nightly_channel_url}" 2>"${curl_stderr}"); then
+    echo "❌ Failed to query the nightly channel pointer." >&2
+    echo "   URL: ${nightly_channel_url}" >&2
+    echo "   curl error: $(cat "${curl_stderr}")" >&2
+    rm -f "${curl_stderr}"
+    exit 1
+  fi
+  rm -f "${curl_stderr}"
+
+  nightly_version=$(printf '%s' "${nightly_version}" | tr -d '[:space:]')
+  if [[ ! "${nightly_version}" =~ ^nightly-[0-9]{8}-[0-9]+-[0-9]+-[0-9a-f]{12}$ ]]; then
+    echo "❌ Nightly channel pointer returned an invalid version: ${nightly_version}" >&2
+    exit 1
+  fi
+
+  echo "${nightly_version}"
 }
 
 check_page_size() {
@@ -126,12 +154,19 @@ check_page_size
 GITHUB_RELEASES_URL="https://github.com/block/proto-fleet/releases"
 
 # determine version and tarball name
-if [[ -n "${1:-}" && "${1:-}" != "latest" ]]; then
-  VERSION="$1"
-else
-  VERSION=$(resolve_latest_version)
-  echo "🔖 Latest version is ${VERSION}"
-fi
+case "${1:-latest}" in
+  latest)
+    VERSION=$(resolve_latest_version)
+    echo "🔖 Latest version is ${VERSION}"
+    ;;
+  nightly)
+    VERSION=$(resolve_latest_nightly_version)
+    echo "🔖 Latest nightly version is ${VERSION}"
+    ;;
+  *)
+    VERSION="$1"
+    ;;
+esac
 
 # Detect architecture
 case "$(uname -m)" in
