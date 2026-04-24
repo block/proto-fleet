@@ -104,7 +104,7 @@ jobs:
         shell: powershell
         run: |
           Set-PSRepository -Name "PSGallery" -InstallationPolicy Trusted
-          Install-Module -Name ps2exe -RequiredVersion 1.0.15 -Force -Scope CurrentUser
+          Install-Module -Name ps2exe -RequiredVersion 1.0.17 -Force -Scope CurrentUser
 
       - name: Build Windows installer EXE
         shell: powershell
