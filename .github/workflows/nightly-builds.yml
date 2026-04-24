@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Optional unique nightly version override. Defaults to nightly-YYYYMMDD-<run>-<attempt>-<short-sha>.
+        description: Optional unique nightly version override. Defaults to nightly-YYYYMMDD-<short-sha>.
         required: false
         type: string
 
@@ -48,11 +48,11 @@ jobs:
           if [[ -n "$INPUT_VERSION" ]]; then
             VERSION="$INPUT_VERSION"
           else
-            VERSION="nightly-${DATE_STAMP}-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}-${SHORT_SHA}"
+            VERSION="nightly-${DATE_STAMP}-${SHORT_SHA}"
           fi
 
-          if [[ ! "$VERSION" =~ ^nightly-[0-9]{8}-[0-9]+-[0-9]+-([0-9a-f]{12})$ ]]; then
-            echo "::error::Version '$VERSION' must match nightly-YYYYMMDD-<run-number>-<run-attempt>-<12-char-sha>."
+          if [[ ! "$VERSION" =~ ^nightly-[0-9]{8}-([0-9a-f]{12})$ ]]; then
+            echo "::error::Version '$VERSION' must match nightly-YYYYMMDD-<12-char-sha>."
             exit 1
           fi
 

@@ -62,7 +62,7 @@ Pass "nightly" to install the latest successful nightly prerelease.
 You can override by doing, e.g.:
   install.sh v0.1.0-beta-5
   install.sh nightly
-  install.sh nightly-20260424-1234-1-68712dfabc12
+  install.sh nightly-20260424-68712dfabc12
 EOF
   exit 1
 }
@@ -110,7 +110,7 @@ resolve_latest_nightly_version() {
   rm -f "${curl_stderr}"
 
   nightly_version=$(printf '%s' "${nightly_version}" | tr -d '[:space:]')
-  if [[ ! "${nightly_version}" =~ ^nightly-[0-9]{8}-[0-9]+-[0-9]+-[0-9a-f]{12}$ ]]; then
+  if [[ ! "${nightly_version}" =~ ^nightly-[0-9]{8}-[0-9a-f]{12}$ ]]; then
     echo "❌ Nightly channel pointer returned an invalid version: ${nightly_version}" >&2
     exit 1
   fi
