@@ -86,7 +86,7 @@ Per-device feature support.
 
 - **✅** — supported and tested.
 - **❌** — not supported.
-- **🟡** — supported by [asic-rs](https://github.com/asic-rs/asic-rs), but not yet tested on this combination.
+- **🟡** — supported by [asic-rs](https://github.com/256foundation/asic-rs), but not yet tested on this combination.
 
 <!-- prettier-ignore-start -->
 <table>
@@ -105,6 +105,12 @@ Per-device feature support.
 <tr align="center"><td>Blink LED</td><td>✅</td><td>✅</td><td>✅</td><td>✅</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td><td>🟡</td></tr>
 </table>
 <!-- prettier-ignore-end -->
+
+## Powered by asic-rs
+
+Multi-manufacturer miner support in Proto Fleet is built on top of [asic-rs](https://github.com/256foundation/asic-rs), a Rust library from the [256 Foundation](https://github.com/256foundation) that abstracts discovery, monitoring, and control across ASIC miner vendors and firmwares. It is the reason the 🟡 cells above exist at all: every new vendor or firmware that asic-rs learns to speak is one that Proto Fleet can drive with no extra plugin work.
+
+If you work on miner firmware or operate a heterogeneous fleet, go give them a star. Upstream contributions to asic-rs flow straight back into Proto Fleet via the [`plugin/asicrs/`](plugin/asicrs/) plugin.
 
 ## Local Development
 
