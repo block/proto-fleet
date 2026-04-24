@@ -114,14 +114,18 @@ function useMeasure<E extends Element = Element>(options: UseMeasureOptions = {}
     setElement(node);
   }, []);
 
-  useLayoutEffect(() => {
+  // Reset measurements when element detaches so consumers don't read stale rects
+  const [prevElement, setPrevElement] = useState(element);
+  if (prevElement !== element) {
+    setPrevElement(element);
     if (!element) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset measurements when element detaches so consumers don't read stale rects
       setContentRect(defaultState);
       setBoundingRect(defaultState);
-      return;
     }
+  }
 
+  useLayoutEffect(() => {
+    if (!element) return;
     if (!hasRequiredAPIs()) {
       return;
     }
@@ -199,6 +203,7 @@ function useMeasure<E extends Element = Element>(options: UseMeasureOptions = {}
         right: initialBoundingRect.width,
       };
 
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- initial measurement must read post-layout DOM and be available to consumers before the ResizeObserver's async callback fires
       setBoundingRect(initialBoundingRect);
       setContentRect(initialContentRect);
     } catch (error) {

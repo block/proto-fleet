@@ -25,7 +25,6 @@ const Logs = ({ logsData, fetchMaxLogs }: LogsProps) => {
   const [initPage, setInitPage] = useState(false);
   const [storedLogs, setStoredLogs] = useState<string[]>([]);
   const [logs, setLogs] = useState<LogInfo[]>([]);
-  const [filteredLogs, setFilteredLogs] = useState<LogInfo[]>([]);
   const [filterByLogType, setFilterByLogType] = useState<logType[]>([]);
   const [focusSearch, setFocusSearch] = useState(false);
   const [errorCount, setErrorCount] = useState(0);
@@ -41,6 +40,15 @@ const Logs = ({ logsData, fetchMaxLogs }: LogsProps) => {
     onClickOutside: () => setFocusSearch(false),
   });
 
+  const filteredLogs = useMemo(() => {
+    if (!searchValue && !filterByLogType.length) return logs;
+    return logs.filter(
+      (log) =>
+        `${log.timestamp} ${log.message}`.toLowerCase().includes(searchValue.toLowerCase()) &&
+        (!filterByLogType.length || filterByLogType.includes(log.logType as logType)),
+    );
+  }, [searchValue, logs, filterByLogType]);
+
   useEffect(() => {
     if (filteredLogs.length) {
       // on first load of the logs, scroll to bottom
@@ -53,33 +61,17 @@ const Logs = ({ logsData, fetchMaxLogs }: LogsProps) => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
       }
     }
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- mark init page done on first paint with content so subsequent updates animate instead of jump
   }, [filteredLogs, initPage, isPinnedToBottom]);
 
-  const updateFilteredLogs = useCallback(() => {
-    let newLogs = logs;
-    if (searchValue || filterByLogType.length) {
-      const newFilteredLogs = logs.filter(
-        (log) =>
-          `${log.timestamp} ${log.message}`.toLowerCase().includes(searchValue.toLowerCase()) &&
-          (!filterByLogType.length || filterByLogType.includes(log.logType as logType)),
-      );
-      newLogs = newFilteredLogs;
-    }
-
-    setFilteredLogs(newLogs);
-  }, [searchValue, logs, filterByLogType]);
-
-  // when switching between filters reset the Init Page state so that the page
-  // doesnt animate a long scroll to the bottom with filter change
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset first-load scroll flag when filters/search change so we don't animate a long scroll
+  // Reset first-load scroll flag when filters/search change so we don't animate a long scroll
+  const [prevFilterByLogType, setPrevFilterByLogType] = useState(filterByLogType);
+  const [prevSearchValue, setPrevSearchValue] = useState(searchValue);
+  if (prevFilterByLogType !== filterByLogType || prevSearchValue !== searchValue) {
+    setPrevFilterByLogType(filterByLogType);
+    setPrevSearchValue(searchValue);
     setInitPage(false);
-  }, [filterByLogType, searchValue]);
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- recompute filteredLogs when logs/filter/search change
-    updateFilteredLogs();
-  }, [updateFilteredLogs]);
+  }
 
   const formatAndSetLogsData = useCallback(
     (logsDataToSet: string[]) => {
@@ -92,9 +84,8 @@ const Logs = ({ logsData, fetchMaxLogs }: LogsProps) => {
 
       const formattedLogs = formatLogs(logsDataToSet);
       setLogs(formattedLogs);
-      updateFilteredLogs();
     },
-    [storedLogs, updateFilteredLogs],
+    [storedLogs],
   );
 
   useEffect(() => {
