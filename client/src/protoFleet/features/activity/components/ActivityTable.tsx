@@ -32,21 +32,18 @@ function groupActivities(activities: ActivityEntry[]): ActivityEntry[] {
 
 interface ActivityTableProps {
   activities: ActivityEntry[];
-  totalCount: number;
   noDataElement?: React.ReactNode;
 }
 
-const ActivityTable = ({ activities, totalCount, noDataElement }: ActivityTableProps) => {
+const ActivityTable = ({ activities, noDataElement }: ActivityTableProps) => {
   const [selectedEntry, setSelectedEntry] = useState<ActivityEntry | null>(null);
   const handleDismiss = useCallback(() => setSelectedEntry(null), []);
   const grouped = useMemo(() => groupActivities(activities), [activities]);
-  const hiddenCount = activities.length - grouped.length;
-  const displayCount = totalCount - hiddenCount;
 
   return (
     <div>
       <div className="px-4 py-2 text-200 text-text-primary-50">
-        {displayCount} {displayCount === 1 ? "activity" : "activities"}
+        {grouped.length} {grouped.length === 1 ? "activity" : "activities"}
       </div>
       <div className="divide-y divide-surface-10">
         {grouped.length === 0 && (noDataElement ?? defaultNoDataElement)}
@@ -57,8 +54,16 @@ const ActivityTable = ({ activities, totalCount, noDataElement }: ActivityTableP
           return (
             <div
               key={entry.eventId}
+              role="button"
+              tabIndex={0}
               className="grid cursor-pointer grid-cols-[1fr_12rem_10rem_13rem] items-start gap-4 px-4 py-3 hover:bg-surface-5"
               onClick={() => setSelectedEntry(entry)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setSelectedEntry(entry);
+                }
+              }}
             >
               <div className="flex items-start gap-2">
                 <div className={clsx("shrink-0", isFailed ? "text-intent-critical" : "text-text-primary")}>

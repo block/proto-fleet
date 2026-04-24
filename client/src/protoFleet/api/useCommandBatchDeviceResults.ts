@@ -34,7 +34,9 @@ export function useCommandBatchDeviceResults() {
           ...prev,
           [batchId]: { data: response, isLoading: false, error: null },
         }));
-        fetchedRef.current.add(batchId);
+        if (response.status === "finished" || response.detailsPruned) {
+          fetchedRef.current.add(batchId);
+        }
       } catch (err) {
         handleAuthErrors({
           error: err,
