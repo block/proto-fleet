@@ -76,29 +76,45 @@ test-contract: _asicrs-build
   GO_VERSION=$(grep '^go ' tests/plugin-contract/go.mod | awk '{print $2}')
   IMAGE="golang:${GO_VERSION}-alpine"
 
-  # Build Go plugins once (shared via volume mount)
-  docker run --rm \
-    -v "$(pwd)":/work \
-    -w /work \
-    -e GOFLAGS=-buildvcs=false \
-    "$IMAGE" \
-    sh -c '\
+  DOCKER_COMMON=(
+    docker run --rm
+    -v "$(pwd):/work"
+    --user "$(id -u):$(id -g)"
+    -e GOFLAGS=-buildvcs=false
+    -e HOME=/tmp
+    -w /work
+  )
+
+  # Build Go plugins and compile the contract-test binary in a single container
+  # so the three test runs below only need to execute the binary, not recompile
+  # it. Only this builder container mounts the host Go caches, so the
+  # actions/cache restore on CI (and the local dev cache) isn't wasted; the
+  # test-execution containers below don't need it and shouldn't have write
+  # access to the host's global Go caches.
+  mkdir -p "${HOME}/.cache/go-build" "${HOME}/go/pkg/mod" tests/plugin-contract/bin
+  "${DOCKER_COMMON[@]}" \
+    -v "${HOME}/.cache/go-build:/gocache" \
+    -v "${HOME}/go/pkg/mod:/gomodcache" \
+    -e GOCACHE=/gocache \
+    -e GOMODCACHE=/gomodcache \
+    "$IMAGE" sh -c '
       mkdir -p server/plugins && \
       (cd plugin/proto && go build -o ../../server/plugins/proto-plugin .) && \
-      (cd plugin/antminer && go build -o ../../server/plugins/antminer-plugin .) \
+      (cd plugin/antminer && go build -o ../../server/plugins/antminer-plugin .) && \
+      (cd tests/plugin-contract && go test -c -o bin/miners.test ./miners/)
     '
 
   # Run each test suite in its own container (isolated network namespace)
-  # so mocks binding port 4028/80 don't conflict between suites.
+  # so mocks binding port 4028/80 don't conflict between suites. Keep the
+  # loop sequential: the asicrs harness rewrites a shared config file next
+  # to the plugin binary, and parallel containers bind-mounting the same
+  # /work would race on server/plugins/asicrs-config.yaml.
   FAILED=0
   for test in TestAntminerStock TestAntminerVNish TestWhatsMinerStock; do
     echo "=== Running ${test} ==="
-    docker run --rm \
-      -v "$(pwd)":/work \
-      -w /work \
-      -e GOFLAGS=-buildvcs=false \
-      "$IMAGE" \
-      go test -v -count=1 -timeout=2m -run "^${test}$" ./tests/plugin-contract/miners/ \
+    # cd into the miners package so the tests' relative testdata paths (../testdata/...) resolve.
+    "${DOCKER_COMMON[@]}" "$IMAGE" sh -c \
+      "cd tests/plugin-contract/miners && ../bin/miners.test -test.v -test.timeout=2m -test.run '^${test}\$'" \
     || FAILED=1
   done
 
@@ -316,7 +332,13 @@ _asicrs-build:
   fi
   echo "Building asicrs plugin..."
   mkdir -p server/plugins
+  CACHE_ARGS=()
+  if [ -n "${GITHUB_ACTIONS:-}" ]; then
+    CACHE_ARGS+=(--cache-from 'type=gha,scope=asicrs-native')
+    CACHE_ARGS+=(--cache-to 'type=gha,mode=max,scope=asicrs-native')
+  fi
   docker buildx build \
+    ${CACHE_ARGS[@]+"${CACHE_ARGS[@]}"} \
     --file plugin/asicrs/Dockerfile.build \
     --output type=local,dest=server/plugins \
     .
