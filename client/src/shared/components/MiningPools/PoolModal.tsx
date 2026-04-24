@@ -94,9 +94,11 @@ const PoolModal = ({
     setDraftPoolInfo(deepClone(pools));
   }, [pools]);
 
-  useEffect(() => {
+  // Reset modal state when modal opens
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (prevOpen !== open) {
+    setPrevOpen(open);
     if (open) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset modal state when modal opens
       setPoolNameError(undefined);
       setUrlError(undefined);
       setUsernameError(undefined);
@@ -106,7 +108,7 @@ const PoolModal = ({
       setIsPasswordSet(false);
       setSaveError(false);
     }
-  }, [open]);
+  }
 
   const onPoolChange = useCallback(
     (value: string, id: string) => {

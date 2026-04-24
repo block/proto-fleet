@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useState } from "react";
 import { authClient } from "@/protoFleet/api/clients";
 import { Alert } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
@@ -29,15 +29,16 @@ const AuthenticateFleetModal = ({ open, purpose, onAuthenticated, onDismiss }: A
   const [isVerifying, setIsVerifying] = useState(false);
 
   // Reset form when modal is dismissed
-  useEffect(() => {
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (prevOpen !== open) {
+    setPrevOpen(open);
     if (!open) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset modal state on close
       setUsername("");
       setPassword("");
       setErrorMessage("");
       setIsVerifying(false);
     }
-  }, [open]);
+  }
 
   const canContinue = username && password && !isVerifying;
 
