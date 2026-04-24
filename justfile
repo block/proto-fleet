@@ -103,32 +103,17 @@ test-contract: _asicrs-build
   '
 
   # Run each test suite in its own container (isolated network namespace)
-  # so mocks binding port 4028/80 don't conflict between suites. Since the
-  # containers are network-isolated, run them in parallel and stream logs
-  # after each one finishes so output isn't interleaved mid-test.
-  declare -a PIDS NAMES LOGS
+  # so mocks binding port 4028/80 don't conflict between suites. Keep the
+  # loop sequential: the asicrs harness rewrites a shared config file next
+  # to the plugin binary, and parallel containers bind-mounting the same
+  # /work would race on server/plugins/asicrs-config.yaml.
+  FAILED=0
   for test in TestAntminerStock TestAntminerVNish TestWhatsMinerStock; do
-    LOG=$(mktemp)
-    echo "=== Launching ${test} (log: ${LOG}) ==="
+    echo "=== Running ${test} ==="
     # cd into the miners package so the tests' relative testdata paths (../testdata/...) resolve.
     "${DOCKER_RUN[@]}" "$IMAGE" sh -c \
       "cd tests/plugin-contract/miners && ../bin/miners.test -test.v -test.timeout=2m -test.run '^${test}\$'" \
-      >"$LOG" 2>&1 &
-    PIDS+=("$!")
-    NAMES+=("$test")
-    LOGS+=("$LOG")
-  done
-
-  FAILED=0
-  for i in "${!PIDS[@]}"; do
-    if wait "${PIDS[$i]}"; then
-      echo "=== PASSED: ${NAMES[$i]} ==="
-    else
-      echo "=== FAILED: ${NAMES[$i]} ==="
-      FAILED=1
-    fi
-    cat "${LOGS[$i]}"
-    rm -f "${LOGS[$i]}"
+    || FAILED=1
   done
 
   if [ "$FAILED" -ne 0 ]; then
