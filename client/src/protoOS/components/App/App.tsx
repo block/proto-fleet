@@ -353,7 +353,7 @@ const App = ({
   // ============================================================================
   return (
     <ErrorBoundary>
-      {canAccessProtectedApi && <AuthenticatedShell reloadSystemInfo={reloadSystemInfo} />}
+      {canAccessProtectedApi ? <AuthenticatedShell reloadSystemInfo={reloadSystemInfo} /> : null}
 
       {/* Toaster - Fixed position, renders above everything */}
       <div className="fixed right-4 bottom-4 z-10 phone:right-2 phone:bottom-2">
@@ -361,7 +361,7 @@ const App = ({
       </div>
 
       {/* Login Modal - Layout agnostic */}
-      {showLoginModal && <LoginModal onDismiss={handleDismissLogin} onSuccess={handleSuccessLogin} />}
+      {showLoginModal ? <LoginModal onDismiss={handleDismissLogin} onSuccess={handleSuccessLogin} /> : null}
 
       {/* Wake Dialog - Layout agnostic */}
       <WarnWakeDialog open={wakeDialog.show} onClose={wakeDialog.onClose} onSubmit={wakeDialog.onConfirm} />
@@ -381,7 +381,7 @@ const App = ({
           <AppLayout title={title} ContentLayout={ContentLayout} type={navigationMenuTypes.app}>
             {calloutTopSpacing && hasVisibleCallout ? <div className="pt-14 phone:pt-6 tablet:pt-6" /> : null}
             {isWarmingUp ? <WarmingUpCallout /> : <WakeCallout afterWake={afterWake} onWake={handleWake} />}
-            {noPoolsLive && !isWarmingUp && <NoPoolsCallout arePoolsConfigured={!!poolsInfo?.[0]?.url} />}
+            {noPoolsLive && !isWarmingUp ? <NoPoolsCallout arePoolsConfigured={!!poolsInfo?.[0]?.url} /> : null}
             {!isWarmingUp && !isSleeping && errors.errors?.length && !hideErrors ? <ErrorCallout /> : null}
             {children}
           </AppLayout>

@@ -169,7 +169,7 @@ const GroupsPage = () => {
                   </Button>
                 </div>
               </div>
-              {activeFilterPills.length > 0 && (
+              {activeFilterPills.length > 0 ? (
                 <div className="flex flex-wrap gap-2">
                   {activeFilterPills.map((pill) => (
                     <Button
@@ -183,7 +183,7 @@ const GroupsPage = () => {
                     </Button>
                   ))}
                 </div>
-              )}
+              ) : null}
             </div>
           </div>
           {error ? (
@@ -218,18 +218,18 @@ const GroupsPage = () => {
         </>
       )}
 
-      {showGroupModal && (
+      {showGroupModal ? (
         <GroupModal show={showGroupModal} onDismiss={() => setShowGroupModal(false)} onSuccess={resetAndFetch} />
-      )}
+      ) : null}
 
-      {editGroup && (
+      {editGroup ? (
         <GroupModal
           show={!!editGroup}
           group={editGroup}
           onDismiss={() => setEditGroup(null)}
           onSuccess={resetAndFetch}
         />
-      )}
+      ) : null}
     </>
   );
 };

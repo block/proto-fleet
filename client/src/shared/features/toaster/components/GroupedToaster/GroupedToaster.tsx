@@ -93,7 +93,7 @@ const GroupedToaster = ({ toasts }: GroupedToasterProps) => {
       onClick={() => !isExpanded && setIsExpanded(true)}
       data-testid="toaster-container"
     >
-      {(!isExpanded || toasts.length > 1) && (
+      {!isExpanded || toasts.length > 1 ? (
         <div
           className={clsx("cursor-pointer", {
             "pb-2": isExpanded,
@@ -104,7 +104,7 @@ const GroupedToaster = ({ toasts }: GroupedToasterProps) => {
           <div className="flex items-center">
             <div className="flex flex-row items-center">
               <AnimatePresence initial={false} mode="popLayout">
-                {!isExpanded && (
+                {!isExpanded ? (
                   <motion.div
                     initial={{ x: "-100%", opacity: 0 }}
                     animate={{ x: 0, opacity: 1 }}
@@ -122,7 +122,7 @@ const GroupedToaster = ({ toasts }: GroupedToasterProps) => {
                       <ProgressCircular indeterminate dataTestId="header-progress-circular" />
                     )}
                   </motion.div>
-                )}
+                ) : null}
               </AnimatePresence>
               <motion.div layout transition={{ duration: 0.3 }}>
                 <div className="flex flex-col">
@@ -140,9 +140,9 @@ const GroupedToaster = ({ toasts }: GroupedToasterProps) => {
             </div>
           </div>
         </div>
-      )}
+      ) : null}
       <ResizeablePanel className="w-full" resizeOn={isExpanded ? toasts.length : false}>
-        {isExpanded && (
+        {isExpanded ? (
           <>
             <div className="w-full divide-y divide-border-5">
               {toasts.map(({ message, status, id, progress, ttl, onClose, actions }) => (
@@ -166,7 +166,7 @@ const GroupedToaster = ({ toasts }: GroupedToasterProps) => {
               }}
             />
           </>
-        )}
+        ) : null}
       </ResizeablePanel>
     </div>
   );

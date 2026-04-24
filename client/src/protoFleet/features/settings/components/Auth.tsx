@@ -322,8 +322,10 @@ const AuthenticationSettings = () => {
             divider={false}
             onDismiss={() => setShowModal(false)}
           >
-            {step === "authenticate" && <AuthenticateForm onChange={handlePasswordChange} apiError={authApiError} />}
-            {step === "updatePassword" && (
+            {step === "authenticate" ? (
+              <AuthenticateForm onChange={handlePasswordChange} apiError={authApiError} />
+            ) : null}
+            {step === "updatePassword" ? (
               <div className="flex flex-col gap-6">
                 <Header
                   title="Update password"
@@ -367,15 +369,15 @@ const AuthenticationSettings = () => {
                     />
                   </div>
                 </div>
-                {showWeakPasswordWarning && !isSubmitting && (
+                {showWeakPasswordWarning && !isSubmitting ? (
                   <WeakPasswordWarning
                     onReturn={() => setShowWeakPasswordWarning(false)}
                     onContinue={() => submitPasswordUpdate(true)}
                   />
-                )}
+                ) : null}
               </div>
-            )}
-            {step === "updateUsername" && (
+            ) : null}
+            {step === "updateUsername" ? (
               <div className="flex flex-col gap-6">
                 <Header
                   title="Update username"
@@ -406,7 +408,7 @@ const AuthenticationSettings = () => {
                   </div>
                 </div>
               </div>
-            )}
+            ) : null}
           </Modal>
         </div>
       </div>

@@ -13,7 +13,7 @@ const {
   mockBulkWorkerNameModal,
   mockWithCapabilityCheck,
   mockPoolSelectionPageWrapper,
-  mockUseBatchOperations,
+  mockUseBatchActions,
   mockUseMinerActions,
   mockUseWindowDimensions,
 } = vi.hoisted(() => {
@@ -51,7 +51,7 @@ const {
         onDismiss: () => void;
       }) => null,
     ),
-    mockUseBatchOperations: vi.fn(() => ({
+    mockUseBatchActions: vi.fn(() => ({
       startBatchOperation: vi.fn(),
       completeBatchOperation: vi.fn(),
       removeDevicesFromBatch: vi.fn(),
@@ -188,7 +188,7 @@ vi.mock("./useMinerActions", () => ({
 }));
 
 vi.mock("@/protoFleet/features/fleetManagement/hooks/useBatchOperations", () => ({
-  useBatchOperations: mockUseBatchOperations,
+  useBatchActions: mockUseBatchActions,
 }));
 
 // Mock Popover

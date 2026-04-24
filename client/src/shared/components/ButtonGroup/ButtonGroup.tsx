@@ -81,7 +81,7 @@ const ButtonGroup = ({ buttons, className, size, sortButtons = true, variant }: 
             variant={textOnly ? variants.textOnly : button.variant}
             className={clsx({ grow: fill }, button.className)}
           />
-          {textOnly && index !== sortedButtons.length - 1 && <ButtonDivider />}
+          {textOnly && index !== sortedButtons.length - 1 ? <ButtonDivider /> : null}
         </Fragment>
       ))}
     </div>

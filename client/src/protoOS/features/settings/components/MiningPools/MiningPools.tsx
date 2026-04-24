@@ -202,7 +202,12 @@ const SettingsMiningPools = () => {
   );
 
   return (
-    <MiningPools title="Pools" onChange={onChangePools} pools={pools} loading={poolsInfoPending && !isStalePools}>
+    <MiningPools
+      title="Pools"
+      onChange={onChangePools}
+      pools={pools}
+      loading={poolsInfoPending ? !isStalePools : false}
+    >
       <DismissibleCalloutWrapper
         className={clsx({
           "mb-10!": createPoolsError?.error?.message !== undefined,

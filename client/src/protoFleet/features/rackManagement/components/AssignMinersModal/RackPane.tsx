@@ -150,14 +150,14 @@ function RackSlotCell({
       >
         <span className="font-medium text-text-primary-70">{String(slot.slotNumber).padStart(padWidth, "0")}</span>
       </button>
-      {isSelected && showPopover && (
+      {isSelected && showPopover ? (
         <SlotPopover
           selectFromListDisabled={!hasMiners}
           onSelectFromList={onSelectFromList}
           onSearchMiners={onSearchMiners}
           onDismiss={onPopoverDismiss}
         />
-      )}
+      ) : null}
     </div>
   );
 }
@@ -228,7 +228,7 @@ export default function RackPane({
                 assignedMinerId={slotAssignments[slot.key]}
                 isManualMode={assignmentMode === "manual"}
                 isSelected={selectedSlotKey === slot.key}
-                showPopover={showPopover && selectedSlotKey === slot.key}
+                showPopover={showPopover ? selectedSlotKey === slot.key : false}
                 hasMiners={hasMiners}
                 slotSize={slotSize}
                 padWidth={padWidth}

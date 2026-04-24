@@ -65,14 +65,14 @@ const PoolStatus = ({ loading = false, onClickViewPools, poolsInfo, shouldShowPo
         isOpen={isPopoverOpen}
         onTogglePopover={() => setShowPopover((prev) => !prev)}
       />
-      {isPopoverOpen && (
+      {isPopoverOpen ? (
         <PoolInfoPopover
           onClickViewPools={handleClickViewPools}
           poolInfo={poolInfo}
           poolsInfo={poolsInfo}
           isConnected={isConnected}
         />
-      )}
+      ) : null}
     </div>
   );
 };

@@ -30,15 +30,15 @@ const TaskCard = ({
         <div className="flex size-8 items-center justify-center rounded-lg bg-surface-5">{icon}</div>
         <div className="flex flex-col">
           <div className="text-emphasis-300">{title}</div>
-          {description && <div className="text-300">{description}</div>}
+          {description ? <div className="text-300">{description}</div> : null}
         </div>
       </div>
       <div className="flex justify-between gap-5">
-        {skippable && (
+        {skippable ? (
           <Button className="pl-0" variant="textOnly" onClick={onSkip} disabled={isLoading}>
             Skip
           </Button>
-        )}
+        ) : null}
         <Button
           onClick={onActionClick}
           variant={skippable ? "secondary" : "primary"}
@@ -75,7 +75,7 @@ const CompleteSetupStory = ({ poolNeededCount, authNeededCount, isLoading = fals
           <Button onClick={action("dismiss complete setup")} variant="secondary" prefixIcon={<div>×</div>}></Button>
         </div>
         <div className="grid gap-4 @lg:grid-cols-2 @3xl:grid-cols-3 @7xl:grid-cols-4">
-          {hasConfigurePoolCard && (
+          {hasConfigurePoolCard ? (
             <TaskCard
               icon={<MiningPools className="text-text-primary" />}
               title="Configure pools"
@@ -86,8 +86,8 @@ const CompleteSetupStory = ({ poolNeededCount, authNeededCount, isLoading = fals
               onSkip={action("skip configure pools")}
               isLoading={isLoading}
             />
-          )}
-          {hasAuthCard && (
+          ) : null}
+          {hasAuthCard ? (
             <TaskCard
               icon={<Alert className="text-text-critical" />}
               title="Authenticate miners"
@@ -95,7 +95,7 @@ const CompleteSetupStory = ({ poolNeededCount, authNeededCount, isLoading = fals
               actionText="Authenticate"
               onActionClick={action("authenticate miners")}
             />
-          )}
+          ) : null}
         </div>
       </div>
     </div>

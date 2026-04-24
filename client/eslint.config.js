@@ -73,6 +73,7 @@ export default [
         },
       ],
       "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
+      "react/jsx-no-leaked-render": ["error", { validStrategies: ["ternary"] }],
       quotes: ["error", "double"],
       "no-console": ["error", { allow: ["warn", "error"] }],
       "import-x/no-unresolved": "off",

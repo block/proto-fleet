@@ -146,7 +146,7 @@ const ActivityPage = () => {
             onScopesChange={setSelectedScopes}
             onUsersChange={setSelectedUsers}
           />
-          {activeFilterPills.length > 0 && (
+          {activeFilterPills.length > 0 ? (
             <div className="flex flex-wrap gap-2">
               {activeFilterPills.map((pill) => (
                 <Button
@@ -160,7 +160,7 @@ const ActivityPage = () => {
                 </Button>
               ))}
             </div>
-          )}
+          ) : null}
         </div>
       </div>
 
@@ -179,7 +179,7 @@ const ActivityPage = () => {
             ) : undefined
           }
         />
-        {hasMore && (
+        {hasMore ? (
           <div className="flex justify-center py-6">
             <Button
               variant={variants.secondary}
@@ -191,7 +191,7 @@ const ActivityPage = () => {
               Load more
             </Button>
           </div>
-        )}
+        ) : null}
       </div>
     </>
   );

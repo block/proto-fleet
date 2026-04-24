@@ -104,7 +104,7 @@ const GroupSelectionModal = ({ open, selectedGroupIds, onDismiss, onSave }: Grou
             <label className="flex w-full cursor-pointer items-center gap-4">
               <Checkbox
                 checked={allSelected}
-                partiallyChecked={!allSelected && selectedGroupCount > 0}
+                partiallyChecked={!allSelected ? selectedGroupCount > 0 : false}
                 onChange={() =>
                   setDraftSelection(
                     allSelected ? new Set<string>() : new Set(groups.map((group) => group.id.toString())),

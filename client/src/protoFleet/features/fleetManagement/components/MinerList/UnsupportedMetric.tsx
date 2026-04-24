@@ -15,14 +15,14 @@ const UnsupportedMetric = ({ message }: UnsupportedMetricProps) => {
       <span ref={triggerRef} className="text-text-primary-50" onMouseEnter={show} onMouseLeave={hide}>
         N/A
       </span>
-      {isVisible && (
+      {isVisible ? (
         <span
           className="pointer-events-none fixed z-50 w-max max-w-xs rounded-lg bg-surface-elevated-base px-3 py-2 text-300 text-text-primary shadow-300 transition-opacity duration-200"
           style={floatingStyle}
         >
           {message}
         </span>
-      )}
+      ) : null}
     </>
   );
 };

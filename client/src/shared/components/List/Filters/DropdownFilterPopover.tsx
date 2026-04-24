@@ -68,7 +68,7 @@ const DropdownFilterPopover = ({
         className="space-y-0 overflow-y-auto overscroll-contain"
         style={{ maxHeight: optionsMaxHeight }}
       >
-        {showSelectAll && (
+        {showSelectAll ? (
           <>
             <div
               className={clsx(
@@ -83,7 +83,7 @@ const DropdownFilterPopover = ({
             </div>
             <Divider className="px-0" />
           </>
-        )}
+        ) : null}
 
         {options.map((item, index) => (
           <div key={item.id}>
@@ -101,7 +101,7 @@ const DropdownFilterPopover = ({
               </div>
               <Checkbox className="shrink-0" checked={displaySelectedItems.includes(item.id)} />
             </div>
-            {index < options.length - 1 && <Divider className="px-0" />}
+            {index < options.length - 1 ? <Divider className="px-0" /> : null}
           </div>
         ))}
       </div>

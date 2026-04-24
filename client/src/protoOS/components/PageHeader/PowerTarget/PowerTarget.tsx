@@ -117,11 +117,15 @@ const PowerTarget = () => {
         }}
       >
         <div className="flex items-center">
-          {pending && <ProgressCircular className="mr-1" indeterminate dataTestId="mining-pool-spinner" size={12} />}
+          {pending ? (
+            <ProgressCircular className="mr-1" indeterminate dataTestId="mining-pool-spinner" size={12} />
+          ) : null}
           {chipText}
         </div>
       </WidgetWrapper>
-      {showPopover && <PowerTargetPopover onDismiss={() => setShowPopover(false)} onUpdateStart={handleUpdateStart} />}
+      {showPopover ? (
+        <PowerTargetPopover onDismiss={() => setShowPopover(false)} onUpdateStart={handleUpdateStart} />
+      ) : null}
     </div>
   );
 };

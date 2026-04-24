@@ -87,7 +87,7 @@ const CollapsibleSkeleton = ({ visible, showDivider }: { visible: boolean; showD
     >
       <div ref={contentRef}>
         <SkeletonMinerRows />
-        {showDivider && <Divider />}
+        {showDivider ? <Divider /> : null}
       </div>
     </div>
   );
@@ -175,7 +175,7 @@ const FoundMiners = ({ miners, deselectedMiners, isScanning, showSkeleton, class
                   {model.miners.filter((miner) => !deselectedMiners.includes(miner.deviceIdentifier)).length} miners
                 </div>
               </Row>
-              {modelEntries.length > index + 1 && <Divider />}
+              {modelEntries.length > index + 1 ? <Divider /> : null}
             </Fragment>
           ))}
         </div>

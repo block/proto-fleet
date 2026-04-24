@@ -36,7 +36,9 @@ export class MinersPage extends BasePage {
 
   async validateMinersAdded(minerCount: number = 5) {
     const rows = this.page.getByTestId("list-body").locator("tr");
-    expect(await rows.count()).toBeGreaterThanOrEqual(minerCount);
+    await expect
+      .poll(() => rows.count(), { timeout: PROLONGED_TIMEOUT, intervals: [DEFAULT_INTERVAL] })
+      .toBeGreaterThanOrEqual(minerCount);
   }
 
   private async filterMinersByModel(minerType: string) {

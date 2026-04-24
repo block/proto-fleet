@@ -108,7 +108,7 @@ const PoolRowMenu = ({
       ariaExpanded={showMenu}
       prefixIcon={<Ellipsis />}
     />
-    {showMenu && (
+    {showMenu ? (
       <Popover
         position={positions["top left"]}
         size={popoverSizes.small}
@@ -149,7 +149,7 @@ const PoolRowMenu = ({
           </Row>
         </div>
       </Popover>
-    )}
+    ) : null}
   </div>
 );
 
@@ -175,7 +175,7 @@ const PoolRowDesktop = ({ pool, onEdit, onTestConnection, onDelete, connectionSt
       </div>
       <div className="flex flex-col justify-center py-3" data-testid="pool-url">
         <span className="break-all">{formattedUrl}</span>
-        {connectionStatus === "failed" && <span className="text-200 text-text-critical">Connection failed</span>}
+        {connectionStatus === "failed" ? <span className="text-200 text-text-critical">Connection failed</span> : null}
       </div>
       <div className="flex items-center justify-between gap-4 py-3" data-testid="pool-username">
         <span className="break-all">{formattedUsername}</span>
@@ -226,7 +226,7 @@ const PoolRowMobile = ({ pool, onEdit, onTestConnection, onDelete, connectionSta
             {formattedUrl}
           </div>
         )}
-        {connectionStatus === "failed" && <span className="text-200 text-text-critical">Connection failed</span>}
+        {connectionStatus === "failed" ? <span className="text-200 text-text-critical">Connection failed</span> : null}
       </div>
 
       {/* Right column: Username and ellipsis */}

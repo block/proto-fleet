@@ -340,7 +340,7 @@ const ScopedMinerListBody = ({
         }
       />
 
-      {shouldRenderPagination && (
+      {shouldRenderPagination ? (
         <div
           className={clsx("sticky left-0 flex flex-col items-center gap-4 pt-6", {
             "pb-24": selectionMode !== "none",
@@ -370,7 +370,7 @@ const ScopedMinerListBody = ({
             />
           </div>
         </div>
-      )}
+      ) : null}
     </>
   );
 };
@@ -856,25 +856,25 @@ const MinerList = ({
         />
       ) : null}
 
-      {modalFlow.kind === "authenticate-miners" && (
+      {modalFlow.kind === "authenticate-miners" ? (
         <AuthenticateMiners
           open
           onClose={closeModalFlow}
           onRefetchMiners={onRefetchMiners}
           onPairingCompleted={onPairingCompleted}
         />
-      )}
+      ) : null}
 
-      {modalFlow.kind === "authenticate-fleet" && (
+      {modalFlow.kind === "authenticate-fleet" ? (
         <AuthenticateFleetModal
           open
           purpose="pool"
           onAuthenticated={handleFleetAuthenticated}
           onDismiss={closeModalFlow}
         />
-      )}
+      ) : null}
 
-      {modalFlow.kind === "pool-selection" && (
+      {modalFlow.kind === "pool-selection" ? (
         <PoolSelectionPageWrapper
           open
           selectedMiners={[
@@ -890,16 +890,16 @@ const MinerList = ({
           onError={closeModalFlow}
           onDismiss={closeModalFlow}
         />
-      )}
+      ) : null}
 
-      {modalFlow.kind === "status-modal" && (
+      {modalFlow.kind === "status-modal" ? (
         <ProtoFleetStatusModal
           open
           onClose={closeModalFlow}
           deviceId={modalFlow.deviceIdentifier}
           miner={miners[modalFlow.deviceIdentifier]}
         />
-      )}
+      ) : null}
     </>
   );
 };

@@ -27,6 +27,9 @@ plugin/asicrs/target/
 
 server/plugins/*
 
+# Compiled contract-test binary (built by `just test-contract`)
+tests/plugin-contract/bin/
+
 # Generated nginx config (copied from nginx.http.conf or nginx.https.conf by run-fleet.sh)
 deployment-files/client/nginx.conf
 

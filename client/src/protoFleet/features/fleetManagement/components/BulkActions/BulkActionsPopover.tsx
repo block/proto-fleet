@@ -33,7 +33,7 @@ const ActionItem = <ActionType,>({ action, onAction }: ActionItemProps<ActionTyp
           {action.title}
         </Row>
       </div>
-      {action.showGroupDivider && <Divider dividerStyle="thick" />}
+      {action.showGroupDivider ? <Divider dividerStyle="thick" /> : null}
     </>
   );
 };

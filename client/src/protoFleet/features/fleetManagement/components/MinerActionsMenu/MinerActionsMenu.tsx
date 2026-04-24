@@ -18,7 +18,7 @@ import type {
   MinerStateSnapshot,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
-import { useBatchOperations } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
+import { useBatchActions } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
 import { ChevronDown, Edit, MiningPools } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -66,7 +66,7 @@ const MinerActionsMenu = ({
   onActionStart,
   onActionComplete,
 }: MinerActionsMenuProps) => {
-  const { startBatchOperation, completeBatchOperation, removeDevicesFromBatch } = useBatchOperations();
+  const { startBatchOperation, completeBatchOperation, removeDevicesFromBatch } = useBatchActions();
   const [showBulkRenameModal, setShowBulkRenameModal] = useState(false);
   const [showBulkWorkerNameModal, setShowBulkWorkerNameModal] = useState(false);
   const [showWorkerNameAuthenticateModal, setShowWorkerNameAuthenticateModal] = useState(false);
@@ -261,7 +261,7 @@ const MinerActionsMenu = ({
         />
       </div>
       <PoolSelectionPageWrapper
-        open={showPoolSelectionPage && !!fleetCredentials}
+        open={showPoolSelectionPage ? !!fleetCredentials : false}
         selectedMiners={poolMiners}
         selectionMode={selectionMode}
         poolNeededCount={poolFilteredDeviceIds ? poolFilteredDeviceIds.length : totalCount}
@@ -272,17 +272,17 @@ const MinerActionsMenu = ({
         onDismiss={handleCancel}
       />
       <ManagePowerModal
-        open={currentAction === performanceActions.managePower && showManagePowerModal}
+        open={currentAction === performanceActions.managePower ? showManagePowerModal : false}
         onConfirm={handleManagePowerConfirm}
         onDismiss={handleManagePowerDismiss}
       />
       <FirmwareUpdateModal
-        open={currentAction === deviceActions.firmwareUpdate && showFirmwareUpdateModal}
+        open={currentAction === deviceActions.firmwareUpdate ? showFirmwareUpdateModal : false}
         onConfirm={handleFirmwareUpdateConfirm}
         onDismiss={handleFirmwareUpdateDismiss}
       />
       <CoolingModeModal
-        open={currentAction === settingsActions.coolingMode && showCoolingModeModal}
+        open={currentAction === settingsActions.coolingMode ? showCoolingModeModal : false}
         minerCount={coolingModeCount}
         initialCoolingMode={currentCoolingMode}
         onConfirm={handleCoolingModeConfirm}
@@ -318,7 +318,7 @@ const MinerActionsMenu = ({
         onDismiss={handlePasswordDismiss}
       />
       <AddToGroupModal
-        open={currentAction === groupActions.addToGroup && showAddToGroupModal}
+        open={currentAction === groupActions.addToGroup ? showAddToGroupModal : false}
         onDismiss={handleAddToGroupDismiss}
         selectedMiners={selectedMiners}
         selectionMode={selectionMode}

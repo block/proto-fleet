@@ -25,7 +25,7 @@ import type { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telem
 import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
 import useUpdateWorkerNames from "@/protoFleet/api/useUpdateWorkerNames";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
-import { useBatchOperations } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
+import { useBatchActions } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
 import { ArrowRight, Edit, Ellipsis, MiningPools } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -68,7 +68,7 @@ const SingleMinerActionsMenu = ({
   onRefetchMiners,
   onWorkerNameUpdated,
 }: SingleMinerActionsMenuProps) => {
-  const { startBatchOperation, completeBatchOperation, removeDevicesFromBatch } = useBatchOperations();
+  const { startBatchOperation, completeBatchOperation, removeDevicesFromBatch } = useBatchActions();
   const { streamCommandBatchUpdates } = useMinerCommand();
   const { updateSingleWorkerName } = useUpdateWorkerNames();
   const selectedMiners = useMemo(() => [{ deviceIdentifier, deviceStatus }], [deviceIdentifier, deviceStatus]);
@@ -578,7 +578,7 @@ const SingleMinerActionsMenuInner = ({
         testId="single-miner-actions-menu-button"
         onClick={() => setIsOpen((prev) => !prev)}
       />
-      {isOpen && (
+      {isOpen ? (
         <Popover
           className="!space-y-0 !rounded-2xl px-0 pt-2 pb-1"
           position={positions["bottom right"]}
@@ -600,11 +600,11 @@ const SingleMinerActionsMenuInner = ({
                   {action.title}
                 </Row>
               </div>
-              {action.showGroupDivider && <Divider dividerStyle="thick" />}
+              {action.showGroupDivider ? <Divider dividerStyle="thick" /> : null}
             </Fragment>
           ))}
         </Popover>
-      )}
+      ) : null}
       <UnsupportedMinersModal
         open={unsupportedMinersInfo.visible}
         unsupportedGroups={unsupportedMinersInfo.unsupportedGroups}
@@ -630,7 +630,7 @@ const SingleMinerActionsMenuInner = ({
           );
         })}
       <PoolSelectionPageWrapper
-        open={showPoolSelectionPage && !!fleetCredentials}
+        open={showPoolSelectionPage ? !!fleetCredentials : false}
         selectedMiners={selectedMiners}
         selectionMode="subset"
         userUsername={fleetCredentials?.username}
@@ -641,7 +641,7 @@ const SingleMinerActionsMenuInner = ({
       />
       <RenameMinerDialog
         key={showRenameDialog ? deviceIdentifier : "closed"}
-        open={currentAction === settingsActions.rename && showRenameDialog}
+        open={currentAction === settingsActions.rename ? showRenameDialog : false}
         deviceIdentifier={deviceIdentifier}
         currentMinerName={minerName}
         onConfirm={handleRenameConfirm}
@@ -655,17 +655,17 @@ const SingleMinerActionsMenuInner = ({
         onDismiss={handleUpdateWorkerNameDismiss}
       />
       <ManagePowerModal
-        open={currentAction === performanceActions.managePower && showManagePowerModal}
+        open={currentAction === performanceActions.managePower ? showManagePowerModal : false}
         onConfirm={handleManagePowerConfirm}
         onDismiss={handleManagePowerDismiss}
       />
       <FirmwareUpdateModal
-        open={currentAction === deviceActions.firmwareUpdate && showFirmwareUpdateModal}
+        open={currentAction === deviceActions.firmwareUpdate ? showFirmwareUpdateModal : false}
         onConfirm={handleFirmwareUpdateConfirm}
         onDismiss={handleFirmwareUpdateDismiss}
       />
       <CoolingModeModal
-        open={currentAction === settingsActions.coolingMode && showCoolingModeModal}
+        open={currentAction === settingsActions.coolingMode ? showCoolingModeModal : false}
         minerCount={coolingModeCount}
         initialCoolingMode={currentCoolingMode}
         onConfirm={handleCoolingModeConfirm}
@@ -697,7 +697,7 @@ const SingleMinerActionsMenuInner = ({
         onDismiss={handlePasswordDismiss}
       />
       <AddToGroupModal
-        open={currentAction === groupActions.addToGroup && showAddToGroupModal}
+        open={currentAction === groupActions.addToGroup ? showAddToGroupModal : false}
         onDismiss={handleAddToGroupDismiss}
         selectedMiners={[deviceIdentifier]}
         selectionMode="subset"

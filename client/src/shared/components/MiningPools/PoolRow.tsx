@@ -58,28 +58,28 @@ const PoolRow = ({
   return (
     <Row className="flex items-center justify-between gap-3" testId="pool-row">
       <div className="flex min-w-0 items-center gap-3">
-        {priorityNumber !== undefined && (
+        {priorityNumber !== undefined ? (
           <div className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-surface-5 text-xs font-medium text-text-primary">
             {priorityNumber}
           </div>
-        )}
+        ) : null}
         {prefixElement}
         <div className="flex min-w-0 flex-col">
           <div className="truncate text-text-primary">{displayTitle}</div>
-          {(displaySubtitle || displaySubtitleExtra) && (
+          {displaySubtitle || displaySubtitleExtra ? (
             <div className="text-200 text-text-primary-70">
-              {displaySubtitle && (
+              {displaySubtitle ? (
                 <div className="truncate" data-testid={`pool-${poolIndex}-saved-url`}>
                   {displaySubtitle}
                 </div>
-              )}
-              {displaySubtitleExtra && (
+              ) : null}
+              {displaySubtitleExtra ? (
                 <div className="truncate" data-testid={`pool-${poolIndex}-saved-username`}>
                   {displaySubtitleExtra}
                 </div>
-              )}
+              ) : null}
             </div>
-          )}
+          ) : null}
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-2">

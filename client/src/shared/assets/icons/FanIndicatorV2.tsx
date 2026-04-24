@@ -31,13 +31,13 @@ const FanIndicatorV2 = ({ totalSlots: numFans = 6, position = 1 }: FanIndicatorP
                   "bg-text-primary": isFirstActive,
                 })}
               />
-              {secondFanIndex < numFans && (
+              {secondFanIndex < numFans ? (
                 <div
                   className={clsx("h-1.5 w-1.5 rounded-full bg-core-primary-20", {
                     "bg-text-primary": isSecondActive,
                   })}
                 />
-              )}
+              ) : null}
             </div>
           );
         })}

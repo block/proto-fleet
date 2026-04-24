@@ -61,22 +61,22 @@ const SelectRowListForStory = ({ disabled, hasPrefixIcon, hasSubtext, type }: Se
         {
           id: selectRows.one,
           isSelected: selected.includes(selectRows.one),
-          prefixIcon: hasPrefixIcon && (
+          prefixIcon: hasPrefixIcon ? (
             <IconWrapper>
               <BaseIcon />
             </IconWrapper>
-          ),
+          ) : null,
           text: "Select row",
         },
         {
           disabled,
           id: selectRows.two,
           isSelected: selected.includes(selectRows.two),
-          prefixIcon: hasPrefixIcon && (
+          prefixIcon: hasPrefixIcon ? (
             <IconWrapper>
               <BaseIcon />
             </IconWrapper>
-          ),
+          ) : null,
           subtext: hasSubtext ? "Select row subtitle text." : undefined,
           text: "Select row",
         },

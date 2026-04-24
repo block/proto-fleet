@@ -26,7 +26,7 @@ const Checkbox = ({ onChange, checked, partiallyChecked = false, className = "",
           },
         )}
       />
-      {!disabled && (
+      {!disabled ? (
         <>
           {partiallyChecked ? (
             <PartialCheckmark
@@ -38,7 +38,7 @@ const Checkbox = ({ onChange, checked, partiallyChecked = false, className = "",
             <Checkmark className="pointer-events-none absolute top-0 hidden h-full w-full text-text-contrast peer-checked:block" />
           )}
         </>
-      )}
+      ) : null}
     </div>
   );
 };

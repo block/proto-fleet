@@ -31,7 +31,7 @@ const ConfiguringMiningPool = ({ onClickReconfigure, onClickRetry, status }: Con
         <div className="text-emphasis-300">
           {isError ? "Configuring your mining pool" : "Testing your mining pool connections"}
         </div>
-        {isError && (
+        {isError ? (
           <div className="text-200 text-text-primary-70">
             <div>We’re having trouble connecting to your mining pools.</div>
             <div>
@@ -42,9 +42,9 @@ const ConfiguringMiningPool = ({ onClickReconfigure, onClickRetry, status }: Con
               .
             </div>
           </div>
-        )}
+        ) : null}
       </div>
-      {isError && (
+      {isError ? (
         <div className="flex items-center">
           <Button
             variant={variants.primary}
@@ -53,7 +53,7 @@ const ConfiguringMiningPool = ({ onClickReconfigure, onClickRetry, status }: Con
             onClick={onClickReconfigure}
           />
         </div>
-      )}
+      ) : null}
     </Row>
   );
 };

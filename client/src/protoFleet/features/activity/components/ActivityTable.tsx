@@ -46,7 +46,7 @@ const ActivityTable = ({ activities, noDataElement }: ActivityTableProps) => {
         {grouped.length} {grouped.length === 1 ? "activity" : "activities"}
       </div>
       <div className="divide-y divide-surface-10">
-        {grouped.length === 0 && (noDataElement ?? defaultNoDataElement)}
+        {grouped.length === 0 ? (noDataElement ?? defaultNoDataElement) : null}
         {grouped.map((entry) => {
           const isFailed = entry.result === "failure";
           const Icon = isFailed ? Alert : getActivityIcon(entry.eventType);
@@ -75,7 +75,7 @@ const ActivityTable = ({ activities, noDataElement }: ActivityTableProps) => {
                     ? entry.description.replace(/\s*completed\s*/i, " ").trim()
                     : entry.description}
                 </span>
-                {isFailed && <span className="text-intent-critical shrink-0 text-200">Failed</span>}
+                {isFailed ? <span className="text-intent-critical shrink-0 text-200">Failed</span> : null}
               </div>
               <div data-testid="scope" className="text-text-primary">
                 {formatScope(entry.scopeType, entry.scopeLabel, entry.scopeCount || undefined)}

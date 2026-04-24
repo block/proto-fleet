@@ -81,7 +81,7 @@ const Header = ({
       )}
     >
       <div className={clsx("w-full", { "flex items-center": inline })}>
-        {icon && iconOnClick && (
+        {icon && iconOnClick ? (
           <Button
             ariaLabel={iconAriaLabel}
             textColor={iconTextColor}
@@ -92,8 +92,8 @@ const Header = ({
             className={iconButtonClassName}
             testId="header-icon-button"
           />
-        )}
-        {icon && !iconOnClick && icon}
+        ) : null}
+        {icon && !iconOnClick ? icon : null}
         <div
           className={clsx("text-text-primary", {
             "ml-4": (icon || iconOnClick) && inline,
@@ -101,13 +101,13 @@ const Header = ({
             "mb-1": subtitle && !compact,
           })}
         >
-          {eybrow && <div className="text-200 text-text-primary-70">{eybrow}</div>}
-          {title && (
+          {eybrow ? <div className="text-200 text-text-primary-70">{eybrow}</div> : null}
+          {title ? (
             <div className={titleSize} data-testid={testId}>
               {title}
             </div>
-          )}
-          {subtitle && (
+          ) : null}
+          {subtitle ? (
             <div
               className={clsx(
                 "text-text-primary-70",
@@ -119,20 +119,20 @@ const Header = ({
             >
               {subtitle}
             </div>
-          )}
-          {description && (
+          ) : null}
+          {description ? (
             <div className={clsx("mt-1 max-w-[600px] text-300 text-text-primary-70", descriptionClassName)}>
               {description}
             </div>
-          )}
+          ) : null}
         </div>
       </div>
       {children}
-      {buttons && (
+      {buttons ? (
         <div className={clsx("ml-3", { "phone:ml-0 phone:w-full": stackButtonsOnPhone }, buttonsWrapperClassName)}>
           <ButtonGroup buttons={buttons} variant={groupVariants.rightAligned} size={buttonSize} />
         </div>
-      )}
+      ) : null}
     </div>
   );
 };

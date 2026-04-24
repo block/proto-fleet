@@ -534,7 +534,7 @@ export default function AssignMinersModal({
         }
       />
 
-      {showRackSettings && (
+      {showRackSettings ? (
         <RackSettingsModal
           show={showRackSettings}
           existingRacks={existingRacks}
@@ -542,9 +542,9 @@ export default function AssignMinersModal({
           onDismiss={() => setShowRackSettings(false)}
           onContinue={handleRackSettingsUpdate}
         />
-      )}
+      ) : null}
 
-      {showManageMiners && (
+      {showManageMiners ? (
         <ManageMinersModal
           show={showManageMiners}
           currentRackMiners={rackMiners}
@@ -553,9 +553,9 @@ export default function AssignMinersModal({
           onDismiss={() => setShowManageMiners(false)}
           onConfirm={handleManageMinersConfirm}
         />
-      )}
+      ) : null}
 
-      {showSearchMiners && (
+      {showSearchMiners ? (
         <SearchMinersModal
           show={showSearchMiners}
           currentRackLabel={initialRackSettings.label}
@@ -565,9 +565,9 @@ export default function AssignMinersModal({
           }}
           onConfirm={handleSearchMinerConfirm}
         />
-      )}
+      ) : null}
 
-      {showDeleteConfirm && onDelete && (
+      {showDeleteConfirm && onDelete ? (
         <Dialog
           title={`Delete "${rackSettings.label}"?`}
           subtitle="This action cannot be undone. The miners in this rack will not be affected."
@@ -594,7 +594,7 @@ export default function AssignMinersModal({
             },
           ]}
         />
-      )}
+      ) : null}
     </>
   );
 }

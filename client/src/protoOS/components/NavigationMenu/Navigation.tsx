@@ -73,8 +73,8 @@ const Navigation = ({ ipAddressInfo, macInfo, minerNameInfo, onItemClick, versio
           )}
         </div>
         <div className="px-3" data-testid="navigation">
-          {isApp && <AppNavigationItems pageName={pageName} onClick={handleClick} />}
-          {isOnboarding && <OnboardingNavigationItems pageName={pageName} onClick={handleClick} />}
+          {isApp ? <AppNavigationItems pageName={pageName} onClick={handleClick} /> : null}
+          {isOnboarding ? <OnboardingNavigationItems pageName={pageName} onClick={handleClick} /> : null}
         </div>
       </div>
 

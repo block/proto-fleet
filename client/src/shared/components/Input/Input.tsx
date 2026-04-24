@@ -212,7 +212,7 @@ const Input = ({
             setFocused(false);
           }}
         />
-        {units && valueWidth !== undefined && value && (
+        {units && valueWidth !== undefined && value ? (
           <span
             className={clsx(
               "pointer-events-none absolute bottom-0 left-0 flex items-center text-300 text-text-primary-70",
@@ -226,7 +226,7 @@ const Input = ({
           >
             {units}
           </span>
-        )}
+        ) : null}
         <label
           htmlFor={id}
           className={clsx(
@@ -249,11 +249,11 @@ const Input = ({
         >
           {label}
         </label>
-        {tooltip && (
+        {tooltip ? (
           <div className="absolute top-7 right-4 -translate-y-1/2 transform">
             <Tooltip header={tooltip.header} body={tooltip.body} position={positions["top left"]} />
           </div>
-        )}
+        ) : null}
         {dismiss && length(value) && !compact ? (
           <div
             className={clsx("absolute right-4", {
@@ -271,7 +271,7 @@ const Input = ({
             ))}
           </div>
         ) : undefined}
-        {(type === "password" || statusIcon !== undefined) && (
+        {type === "password" || statusIcon !== undefined ? (
           <div
             className={clsx("absolute", {
               "top-1": compact,
@@ -294,7 +294,7 @@ const Input = ({
               />
             )}
           </div>
-        )}
+        ) : null}
       </div>
       <div
         className={clsx(

@@ -182,7 +182,7 @@ const Miners = ({
     <div className="h-[calc(100vh-theme(spacing.1)*15)]">
       <Dialog open={pairingPending} title="Pairing the found miners" subtitle="This may take a few seconds" loading />
 
-      {mode === "onboarding" && (
+      {mode === "onboarding" ? (
         <NullState
           icon={<LogoAlt width="w-5" />}
           title="Let's setup your fleet."
@@ -193,7 +193,7 @@ const Miners = ({
             </Button>
           }
         />
-      )}
+      ) : null}
 
       <PageOverlay open={mode === "pairing" || showModal} zIndex="z-50">
         <div className="h-full w-full overflow-auto bg-surface-base p-6">
@@ -261,7 +261,7 @@ const Miners = ({
                   ]
             }
           />
-          {activeStep === "findMiners" && (
+          {activeStep === "findMiners" ? (
             <div className="mx-auto max-w-4xl">
               <Header
                 title="Miners"
@@ -305,7 +305,7 @@ const Miners = ({
                   </div>
                 </div>
 
-                {onForemanImport && (
+                {onForemanImport ? (
                   <div
                     className="flex flex-col gap-4 rounded-3xl bg-core-primary-5 p-6"
                     data-testid="section-import-foreman"
@@ -322,7 +322,7 @@ const Miners = ({
                       </Button>
                     </div>
                   </div>
-                )}
+                ) : null}
               </div>
 
               <div className="flex flex-col gap-4 rounded-3xl bg-core-primary-5 p-6" data-testid="section-search-by-ip">
@@ -363,8 +363,8 @@ const Miners = ({
                 </div>
               </div>
             </div>
-          )}
-          {activeStep === "pairing" && (
+          ) : null}
+          {activeStep === "pairing" ? (
             <div className="mx-auto max-w-4xl">
               <FoundMiners
                 miners={displayMiners}
@@ -373,7 +373,7 @@ const Miners = ({
                 isScanning={discoveryPending}
                 showSkeleton={showLoadingSkeleton}
               />
-              {displayMiners.length > 0 && (
+              {displayMiners.length > 0 ? (
                 <FoundMinersModal
                   open={showFoundMinersModal}
                   setDeselectedMiners={setDeselectedMiners}
@@ -384,9 +384,9 @@ const Miners = ({
                   models={Array.from(new Set(displayMiners.map((miner) => miner.model)))}
                   onDismiss={() => setShowFoundMinersModal(false)}
                 />
-              )}
+              ) : null}
             </div>
-          )}
+          ) : null}
         </div>
       </PageOverlay>
 
@@ -432,7 +432,7 @@ const Miners = ({
       </Modal>
 
       <ValidationErrorDialog
-        open={showValidationErrorDialog && !!categorizedInvalidEntries}
+        open={showValidationErrorDialog ? !!categorizedInvalidEntries : false}
         invalidEntries={categorizedInvalidEntries ?? { ipAddresses: [], ipRanges: [], subnets: [] }}
         hasValidEntries={pendingValidTargets !== null}
         onBackToEditing={handleBackToEditing}

@@ -12,13 +12,13 @@ export const Default = () => {
 
   return (
     <>
-      {!open && (
+      {!open ? (
         <div className="flex h-screen items-center justify-center">
           <button onClick={() => setOpen(true)} className="bg-emphasis-300 rounded-lg px-4 py-2 text-surface-base">
             Show Modal
           </button>
         </div>
-      )}
+      ) : null}
       <AuthenticateFleetModal
         open={open}
         onAuthenticated={(username, password) => {
@@ -39,13 +39,13 @@ export const SecurityPurpose = () => {
 
   return (
     <>
-      {!open && (
+      {!open ? (
         <div className="flex h-screen items-center justify-center">
           <button onClick={() => setOpen(true)} className="bg-emphasis-300 rounded-lg px-4 py-2 text-surface-base">
             Show Modal
           </button>
         </div>
-      )}
+      ) : null}
       <AuthenticateFleetModal
         open={open}
         purpose="security"
@@ -67,13 +67,13 @@ export const PoolPurpose = () => {
 
   return (
     <>
-      {!open && (
+      {!open ? (
         <div className="flex h-screen items-center justify-center">
           <button onClick={() => setOpen(true)} className="bg-emphasis-300 rounded-lg px-4 py-2 text-surface-base">
             Show Modal
           </button>
         </div>
-      )}
+      ) : null}
       <AuthenticateFleetModal
         open={open}
         purpose="pool"

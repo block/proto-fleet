@@ -12,13 +12,13 @@ export const Default = () => {
 
   return (
     <>
-      {!show && (
+      {!show ? (
         <div className="flex h-screen items-center justify-center">
           <button onClick={() => setShow(true)} className="bg-emphasis-300 rounded-lg px-4 py-2 text-surface-base">
             Show Modal
           </button>
         </div>
-      )}
+      ) : null}
       <ManageMinersModal
         show={show}
         currentRackMiners={["miner-001", "miner-002"]}

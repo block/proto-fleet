@@ -64,9 +64,9 @@ const StoryWrapper = ({
 
   return (
     <div>
-      {infoMessage && (
+      {infoMessage ? (
         <div className="mb-4 rounded-lg bg-intent-info-10 p-4 text-300 text-text-primary">{infoMessage}</div>
-      )}
+      ) : null}
       <div className="fixed right-4 bottom-4 z-30 phone:right-2 phone:bottom-2">
         <ToasterComponent />
       </div>

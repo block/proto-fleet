@@ -190,7 +190,7 @@ const Filters = <ItemType,>({
       </div>
 
       {/* Active dropdown filters row */}
-      {activeDropdownFilterItems.length > 0 && (
+      {activeDropdownFilterItems.length > 0 ? (
         <div className="flex flex-wrap gap-2">
           {activeDropdownFilterItems.map((item) => (
             <Button
@@ -205,7 +205,7 @@ const Filters = <ItemType,>({
             </Button>
           ))}
         </div>
-      )}
+      ) : null}
     </div>
   );
 };

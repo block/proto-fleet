@@ -138,9 +138,9 @@ export function FileProcessingStatus({ state, fileName, fileSize, uploadProgress
       <div className="flex flex-col">
         <div className="text-300 text-text-primary">{fileName}</div>
         <div className="text-text-secondary text-200">
-          {state === "hashing" && "Computing checksum..."}
-          {state === "checking" && "Checking server..."}
-          {state === "uploading" && `${uploadProgress}% uploaded · ${formatFileSize(fileSize)}`}
+          {state === "hashing" ? "Computing checksum..." : null}
+          {state === "checking" ? "Checking server..." : null}
+          {state === "uploading" ? `${uploadProgress}% uploaded · ${formatFileSize(fileSize)}` : null}
         </div>
       </div>
     </div>

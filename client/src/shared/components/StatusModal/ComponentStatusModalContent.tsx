@@ -82,7 +82,7 @@ const ComponentStatusModalContent = ({
   return (
     <StatusModalLayout icon={icon} title={title} subtitle={subtitle} errors={layoutErrors}>
       {/* Performance metrics grid */}
-      {metrics && metrics.length > 0 && (
+      {metrics && metrics.length > 0 ? (
         <div
           className={clsx("grid gap-x-4 gap-y-6", metrics.length % 3 === 0 ? "grid-cols-3" : "grid-cols-2")}
           data-testid="status-modal-metrics"
@@ -91,10 +91,10 @@ const ComponentStatusModalContent = ({
             <LabeledValue key={`${metric.label}-${index}`} label={metric.label} value={metric.value} />
           ))}
         </div>
-      )}
+      ) : null}
 
       {/* Metadata section */}
-      {metadata && <ComponentMetadata metadata={metadata} />}
+      {metadata ? <ComponentMetadata metadata={metadata} /> : null}
     </StatusModalLayout>
   );
 };

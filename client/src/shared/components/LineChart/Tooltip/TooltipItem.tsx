@@ -22,11 +22,11 @@ const TooltipItem = ({ itemKey, value, units, icon: Icon, colorMap }: TooltipIte
         <div className="inline-flex items-center gap-2">
           <Circle style={{ backgroundColor: color }} width="w-2" />
           <div className="grow text-end text-300 text-text-primary">
-            {value} {units && <span>{units}</span>}
+            {value} {units ? <span>{units}</span> : null}
           </div>
         </div>
 
-        {Icon && <Icon itemKey={itemKey} />}
+        {Icon ? <Icon itemKey={itemKey} /> : null}
       </div>
     </>
   );

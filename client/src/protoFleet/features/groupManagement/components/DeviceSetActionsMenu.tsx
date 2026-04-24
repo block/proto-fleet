@@ -25,7 +25,7 @@ import {
   UpdateMinerPasswordModal,
 } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/ManageSecurity";
 import { useMinerActions } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/useMinerActions";
-import { useBatchOperations } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
+import { useBatchActions } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
 import { ArrowRight, Edit, Ellipsis } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { type ButtonVariant, sizes, variants } from "@/shared/components/Button";
@@ -81,7 +81,7 @@ const DeviceSetActionsMenuInner = ({
   actionActiveRef,
 }: DeviceSetActionsMenuProps) => {
   const { triggerRef, setPopoverRenderMode } = usePopover();
-  const batchOps = useBatchOperations();
+  const batchOps = useBatchActions();
   const [isOpen, setIsOpen] = useState(false);
 
   // Lazy-fetched member IDs for table context (when deviceSetId is provided but memberDeviceIds aren't)
@@ -363,8 +363,8 @@ const DeviceSetActionsMenuInner = ({
           prefixIcon={<Ellipsis width={iconSizes.small} className="text-text-primary-70" />}
           onClick={handleOpen}
         />
-        {isOpen &&
-          (fetchingMembers || fetchingMiners ? (
+        {isOpen ? (
+          fetchingMembers || fetchingMiners ? (
             <div
               className={`popover-content absolute right-0 z-10 flex items-center justify-center rounded-2xl bg-surface-overlay p-6 shadow-elevation-200 ${popoverClassName ?? ""}`}
             >
@@ -378,7 +378,8 @@ const DeviceSetActionsMenuInner = ({
               position={positions["bottom right"]}
               className={popoverClassName ?? "!space-y-0 !rounded-2xl px-0 pt-2 pb-1"}
             />
-          ))}
+          )
+        ) : null}
       </div>
 
       <UnsupportedMinersModal
@@ -408,7 +409,7 @@ const DeviceSetActionsMenuInner = ({
 
       {/* Modal dialogs */}
       <PoolSelectionPageWrapper
-        open={showPoolSelectionPage && !!fleetCredentials}
+        open={showPoolSelectionPage ? !!fleetCredentials : false}
         selectedMiners={poolMiners}
         selectionMode={"subset" as SelectionMode}
         poolNeededCount={poolFilteredDeviceIds ? poolFilteredDeviceIds.length : memberDeviceIds.length}
@@ -419,12 +420,12 @@ const DeviceSetActionsMenuInner = ({
         onDismiss={handleCancel}
       />
       <ManagePowerModal
-        open={currentAction === performanceActions.managePower && showManagePowerModal}
+        open={currentAction === performanceActions.managePower ? showManagePowerModal : false}
         onConfirm={handleManagePowerConfirm}
         onDismiss={handleManagePowerDismiss}
       />
       <CoolingModeModal
-        open={currentAction === settingsActions.coolingMode && showCoolingModeModal}
+        open={currentAction === settingsActions.coolingMode ? showCoolingModeModal : false}
         minerCount={coolingModeCount}
         initialCoolingMode={currentCoolingMode}
         onConfirm={handleCoolingModeConfirm}

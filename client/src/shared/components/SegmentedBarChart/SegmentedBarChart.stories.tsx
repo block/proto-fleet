@@ -263,7 +263,7 @@ export const InteractiveSpacing: Story = {
                     opacity: 0.5,
                   }}
                 />
-                {i < data.length - 1 && (
+                {i < data.length - 1 ? (
                   <div
                     style={{
                       width: "4px",
@@ -274,7 +274,7 @@ export const InteractiveSpacing: Story = {
                       opacity: 0.5,
                     }}
                   />
-                )}
+                ) : null}
               </div>
             ))}
           </div>

@@ -66,7 +66,7 @@ export default function RackDetailSlot({ slot, slotSize = 64, onEmptySlotClick }
       )}
       style={{ width: slotSize, height: slotSize, gap: iconOnly ? 0 : 4 }}
     >
-      {dotColor && (
+      {dotColor ? (
         <span
           className="inline-block shrink-0 rounded-full"
           style={{
@@ -75,8 +75,8 @@ export default function RackDetailSlot({ slot, slotSize = 64, onEmptySlotClick }
             background: dotColor,
           }}
         />
-      )}
-      {!iconOnly && (
+      ) : null}
+      {!iconOnly ? (
         <span
           data-testid="rack-detail-slot-number"
           className={clsx("leading-none", state === "sleeping" ? "text-text-primary-30" : "text-text-primary-70")}
@@ -84,7 +84,7 @@ export default function RackDetailSlot({ slot, slotSize = 64, onEmptySlotClick }
         >
           {num}
         </span>
-      )}
+      ) : null}
     </div>
   );
 }

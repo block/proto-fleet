@@ -51,24 +51,24 @@ const ValidationErrorDialog = ({
       ]}
     >
       <div className="flex flex-col gap-2 text-300 text-text-primary-70">
-        {hasIpAddresses && (
+        {hasIpAddresses ? (
           <div>
             <p className="font-medium text-text-primary">Invalid IP addresses</p>
             <p>{invalidEntries.ipAddresses.join(", ")}</p>
           </div>
-        )}
-        {hasIpRanges && (
+        ) : null}
+        {hasIpRanges ? (
           <div>
             <p className="font-medium text-text-primary">Invalid IP ranges</p>
             <p>{invalidEntries.ipRanges.join(", ")}</p>
           </div>
-        )}
-        {hasSubnets && (
+        ) : null}
+        {hasSubnets ? (
           <div>
             <p className="font-medium text-text-primary">Invalid subnet blocks</p>
             <p>{invalidEntries.subnets.join(", ")}</p>
           </div>
-        )}
+        ) : null}
       </div>
     </Dialog>
   );

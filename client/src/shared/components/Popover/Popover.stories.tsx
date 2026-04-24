@@ -22,7 +22,7 @@ export const Popover = ({ hasSubtitle, numberOfButtons }: PopoverProps) => {
   return (
     <div ref={triggerRef}>
       <button onClick={() => setShowPopover((prev) => !prev)}>Show Popover</button>
-      {showPopover && (
+      {showPopover ? (
         <PopoverComponent
           title="Title"
           subtitle={hasSubtitle ? "Subtitle" : undefined}
@@ -46,7 +46,7 @@ export const Popover = ({ hasSubtitle, numberOfButtons }: PopoverProps) => {
           }
           position="bottom right"
         />
-      )}
+      ) : null}
     </div>
   );
 };
