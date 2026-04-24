@@ -19,6 +19,7 @@ import (
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetmanagement"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
@@ -1179,8 +1180,15 @@ func (s *Service) GetCommandBatchDeviceResults(ctx context.Context, req *pb.GetC
 			msg := row.ErrorInfo.String
 			entry.ErrorMessage = &msg
 		}
-		if row.DeviceName.Valid {
-			name := row.DeviceName.String
+		// Compose the display name from the raw captured fields using the same
+		// rule the live fleet read path uses (see fleetmanagement.ComposeDeviceName).
+		// Historical rows (pre-migration) have all three NULL → name is "" → leave
+		// DeviceName unset so the frontend falls back to the UUID.
+		if name := fleetmanagement.ComposeDeviceName(
+			row.CustomName.String,
+			row.Manufacturer.String,
+			row.Model.String,
+		); name != "" {
 			entry.DeviceName = &name
 		}
 		if row.IpAddress.Valid {

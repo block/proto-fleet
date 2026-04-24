@@ -46,22 +46,22 @@ WHERE uuid = $1;
 -- error_info is NULL for SUCCESS rows; for FAILED rows it is either the worker
 -- error string (truncated by the caller) or the reaper reason.
 --
--- device_name/ip_address/mac_address are snapshotted from device + discovered_device
--- at first write for audit-log display, and deliberately left untouched by the
--- ON CONFLICT branch so that retries and the reaper never overwrite the
--- original values. device_name mirrors the runtime composition in
--- fleetmanagement.service.go (custom_name, else manufacturer + " " + model).
+-- custom_name/manufacturer/model/ip_address/mac_address are captured from
+-- device + discovered_device at command-completion time (first write) and
+-- deliberately left untouched by the ON CONFLICT branch, so retries and the
+-- reaper never overwrite the first-write values. The read path composes the
+-- display name via fleetmanagement.ComposeDeviceName so this query stays free
+-- of any rendering rules.
 WITH batch AS (
     SELECT id FROM command_batch_log WHERE uuid = $4
 ),
 dev AS (
     SELECT
-        COALESCE(
-            NULLIF(d.custom_name, ''),
-            NULLIF(CONCAT_WS(' ', dd.manufacturer, dd.model), '')
-        ) AS device_name,
-        dd.ip_address AS ip_address,
-        d.mac_address AS mac_address
+        d.custom_name   AS custom_name,
+        dd.manufacturer AS manufacturer,
+        dd.model        AS model,
+        dd.ip_address   AS ip_address,
+        d.mac_address   AS mac_address
     FROM device d
     JOIN discovered_device dd ON dd.id = d.discovered_device_id
     WHERE d.id = $1
@@ -72,17 +72,25 @@ INSERT INTO command_on_device_log (
    status,
    updated_at,
    error_info,
-   device_name,
+   custom_name,
+   manufacturer,
+   model,
    ip_address,
    mac_address
 )
+-- batch × dev is a deliberate cross-join: both CTEs must return exactly one
+-- row for the INSERT to write. fk_command_on_device_log_device guarantees
+-- device $1 exists, and device.discovered_device_id is NOT NULL, so dev
+-- always matches in practice.
 SELECT
   batch.id,
   $1,
   $2,
   $3,
   $5,
-  dev.device_name,
+  dev.custom_name,
+  dev.manufacturer,
+  dev.model,
   dev.ip_address,
   dev.mac_address
 FROM batch, dev
@@ -146,7 +154,9 @@ SELECT
     codl.status,
     codl.error_info,
     codl.updated_at,
-    codl.device_name,
+    codl.custom_name,
+    codl.manufacturer,
+    codl.model,
     codl.ip_address,
     codl.mac_address
 FROM command_on_device_log codl
