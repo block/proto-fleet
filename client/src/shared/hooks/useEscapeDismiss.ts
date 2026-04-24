@@ -33,8 +33,10 @@ const ensureListener = () => {
  * function instead.
  */
 const useEscapeDismiss = (onDismiss: EscapeHandler | undefined) => {
-  const ref = useRef<EscapeHandler | undefined>(onDismiss);
-  ref.current = onDismiss;
+  const ref = useRef<EscapeHandler | undefined>(undefined);
+  useEffect(() => {
+    ref.current = onDismiss;
+  });
 
   const registered = onDismiss !== undefined;
 

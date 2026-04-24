@@ -71,7 +71,9 @@ interface ClickOutsideDismissProps {
  */
 const useClickOutsideDismiss = ({ ref, onDismiss, ignoreSelectors = [], shouldIgnore }: ClickOutsideDismissProps) => {
   const frameRef = useRef<Frame | undefined>(undefined);
-  frameRef.current = onDismiss ? { ref, onDismiss, ignoreSelectors, shouldIgnore } : undefined;
+  useEffect(() => {
+    frameRef.current = onDismiss ? { ref, onDismiss, ignoreSelectors, shouldIgnore } : undefined;
+  });
 
   const registered = onDismiss !== undefined;
 
