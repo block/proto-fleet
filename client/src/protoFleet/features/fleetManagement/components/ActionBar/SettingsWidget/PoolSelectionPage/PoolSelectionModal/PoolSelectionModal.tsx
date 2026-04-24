@@ -83,13 +83,12 @@ const PoolSelectionModal = ({
 
   const { validatePool, createPool, miningPools } = usePools(isVisible);
 
-  // Reset internal state when hidden to mirror prior conditional-mount behavior.
-  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (isVisible) {
       return;
     }
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset modal state on close to mirror prior conditional-mount behavior
     setSelectedPoolId(undefined);
     setSearchQuery("");
     setShowAddPoolModal(false);
@@ -98,7 +97,6 @@ const PoolSelectionModal = ({
     setShowConnectionCallout(false);
     setConnectionError(false);
   }, [isVisible]);
-  /* eslint-enable react-hooks/set-state-in-effect */
 
   const showSuccessCallout = useMemo(
     () => showConnectionCallout && !isTestingConnection && !connectionError,

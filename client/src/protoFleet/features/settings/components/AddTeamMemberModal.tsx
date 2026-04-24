@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { useUserManagement } from "@/protoFleet/api/useUserManagement";
 import { Alert, Copy, Success } from "@/shared/assets/icons";
 import Button, { variants } from "@/shared/components/Button";
@@ -27,18 +27,18 @@ const AddTeamMemberModal = ({ open, onDismiss, onSuccess }: AddTeamMemberModalPr
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
-  useEffect(() => {
-    if (isVisible) {
-      return;
+  // Reset form state when modal closes
+  const [prevVisible, setPrevVisible] = useState(isVisible);
+  if (prevVisible !== isVisible) {
+    setPrevVisible(isVisible);
+    if (!isVisible) {
+      setStep("enterUsername");
+      setUsername("");
+      setTemporaryPassword("");
+      setIsSubmitting(false);
+      setErrorMsg("");
     }
-
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset modal state on close
-    setStep("enterUsername");
-    setUsername("");
-    setTemporaryPassword("");
-    setIsSubmitting(false);
-    setErrorMsg("");
-  }, [isVisible]);
+  }
 
   const handleCreateUser = useCallback(() => {
     if (!username.trim()) {

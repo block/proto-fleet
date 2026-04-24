@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useState } from "react";
 import { Alert } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
@@ -28,9 +28,10 @@ const UpdateMinerPasswordModal = ({
   const [showWeakPasswordWarning, setShowWeakPasswordWarning] = useState(false);
 
   // Reset form when modal is dismissed
-  useEffect(() => {
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (prevOpen !== open) {
+    setPrevOpen(open);
     if (!open) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- Form reset on modal close is intentional
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
@@ -38,7 +39,7 @@ const UpdateMinerPasswordModal = ({
       setValidationError("");
       setShowWeakPasswordWarning(false);
     }
-  }, [open]);
+  }
 
   const handleConfirm = useCallback(
     (forceWeakPassword: boolean) => {

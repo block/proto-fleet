@@ -918,6 +918,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   useEffect(() => {
     if (isServerSideFiltering) {
       // Server-side filtering: items are already filtered by server
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- refresh filteredItems when parent items prop changes
       setFilteredItems(items);
     } else if (!shouldRenderFilters && filterItem) {
       // Client-side filtering without Filters component: apply filterItem directly
@@ -950,6 +951,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
         if (customSetSelectedItems) {
           customSetSelectedItems(allSelectableItemKeys);
         } else {
+          // eslint-disable-next-line react-hooks/set-state-in-effect -- ensure newly loaded items join existing "select all" selection
           setSelectedItems(allSelectableItemKeys);
         }
       }
@@ -1069,6 +1071,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
 
   useEffect(() => {
     if (!overflowContainer) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- clear overflow flag when overflowContainer mode is disabled
       setHasHorizontalOverflow(false);
       return;
     }

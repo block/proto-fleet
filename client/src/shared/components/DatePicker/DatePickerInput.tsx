@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import clsx from "clsx";
 
 import { SelectionMode, WithInputs } from "./types";
@@ -41,17 +41,25 @@ const DatePickerInput = ({
   const [startValue, setStartValue] = useState(() => formatValue(selectedStartDate));
   const [endValue, setEndValue] = useState(() => formatValue(selectedEndDate));
 
-  useEffect(() => {
-    setDateValue(formatValue(selectedDate));
-  }, [selectedDate, formatValue]);
-
-  useEffect(() => {
-    setStartValue(formatValue(selectedStartDate));
-  }, [selectedStartDate, formatValue]);
-
-  useEffect(() => {
-    setEndValue(formatValue(selectedEndDate));
-  }, [selectedEndDate, formatValue]);
+  // Sync input display with external date props when parent updates them
+  const formattedDate = formatValue(selectedDate);
+  const formattedStart = formatValue(selectedStartDate);
+  const formattedEnd = formatValue(selectedEndDate);
+  const [prevFormattedDate, setPrevFormattedDate] = useState(formattedDate);
+  const [prevFormattedStart, setPrevFormattedStart] = useState(formattedStart);
+  const [prevFormattedEnd, setPrevFormattedEnd] = useState(formattedEnd);
+  if (prevFormattedDate !== formattedDate) {
+    setPrevFormattedDate(formattedDate);
+    setDateValue(formattedDate);
+  }
+  if (prevFormattedStart !== formattedStart) {
+    setPrevFormattedStart(formattedStart);
+    setStartValue(formattedStart);
+  }
+  if (prevFormattedEnd !== formattedEnd) {
+    setPrevFormattedEnd(formattedEnd);
+    setEndValue(formattedEnd);
+  }
 
   const handleSingleBlur = useCallback(() => {
     const parsed = includeTime ? parseDateTime(dateValue) : parseDate(dateValue);

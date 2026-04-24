@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import clsx from "clsx";
 import { create } from "@bufbuild/protobuf";
 import { AuthenticateRequestSchema } from "@/protoFleet/api/generated/auth/v1/auth_pb";
@@ -80,27 +80,25 @@ const AuthenticationSettings = () => {
   const [showWeakPasswordWarning, setShowWeakPasswordWarning] = useState(false);
 
   // Reset form state when modal closes
-  /* eslint-disable react-hooks/set-state-in-effect -- reset modal state on close */
-  useEffect(() => {
-    if (showModal) {
-      return;
+  const [prevShowModal, setPrevShowModal] = useState(showModal);
+  if (prevShowModal !== showModal) {
+    setPrevShowModal(showModal);
+    if (!showModal) {
+      setStep("authenticate");
+      setIsSubmitting(false);
+      setPassword("");
+      setScore(0);
+      setNewPassword("");
+      setConfirmPassword("");
+      setPasswordErrorMsg("");
+      setNewUsername("");
+      setUsernameErrorMsg("");
+      setAuthApiError(null);
+      setPasswordUpdateApiError(null);
+      setUsernameUpdateApiError(null);
+      setShowWeakPasswordWarning(false);
     }
-
-    setStep("authenticate");
-    setIsSubmitting(false);
-    setPassword("");
-    setScore(0);
-    setNewPassword("");
-    setConfirmPassword("");
-    setPasswordErrorMsg("");
-    setNewUsername("");
-    setUsernameErrorMsg("");
-    setAuthApiError(null);
-    setPasswordUpdateApiError(null);
-    setUsernameUpdateApiError(null);
-    setShowWeakPasswordWarning(false);
-  }, [showModal]);
-  /* eslint-enable react-hooks/set-state-in-effect */
+  }
 
   // Clear errors when user starts typing
   const handlePasswordChange = (value: string) => {

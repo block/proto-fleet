@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   closestCenter,
   DndContext,
@@ -85,9 +85,12 @@ const ManageColumnsModal = ({ preferences, onDismiss, onSave }: ManageColumnsMod
     }),
   );
 
-  useEffect(() => {
+  // Sync draft with incoming preferences prop when parent updates it
+  const [prevPreferences, setPrevPreferences] = useState(preferences);
+  if (prevPreferences !== preferences) {
+    setPrevPreferences(preferences);
     setDraftPreferences(preferences);
-  }, [preferences]);
+  }
 
   const handleDragEnd = useCallback((event: DragEndEvent) => {
     const { active, over } = event;

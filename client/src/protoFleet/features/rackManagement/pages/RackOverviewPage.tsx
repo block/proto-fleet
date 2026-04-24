@@ -144,6 +144,7 @@ const RackOverviewPage = () => {
   // Initial resolution from URL param
   useEffect(() => {
     if (!rackIdParam) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- flag not-found state when URL param missing
       setNotFound(true);
       setLoading(false);
       return;

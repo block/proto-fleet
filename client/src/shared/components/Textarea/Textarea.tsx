@@ -61,34 +61,30 @@ const Textarea = ({
   required,
 }: TextareaProps) => {
   const [value, setValue] = useState(initValue);
+  const [prevInitValue, setPrevInitValue] = useState(initValue);
+  if (initValue !== prevInitValue) {
+    setPrevInitValue(initValue);
+    setValue(initValue);
+  }
+
   // keep the error state until the animation is finished
   const [validationError, setValidationError] = useState(error);
+  const [prevError, setPrevError] = useState(error);
+  if (error && error !== prevError) {
+    setPrevError(error);
+    setValidationError(error);
+  }
 
   const [focused, setFocused] = useState(false);
   const fallbackRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    setValue(initValue);
-  }, [initValue]);
-
-  useEffect(() => {
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
-
-    if (error) {
+    if (error) return;
+    const timeoutId = setTimeout(() => {
       setValidationError(error);
-    } else {
-      // clear the error after the animation
-      timeoutId = setTimeout(() => {
-        setValidationError(error);
-      }, 200);
-    }
-
-    // Cleanup function to clear the timeout when the component unmounts or when dependencies change
-    return () => {
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
-    };
+      setPrevError(error);
+    }, 200);
+    return () => clearTimeout(timeoutId);
   }, [error]);
 
   const handleChange = useCallback(

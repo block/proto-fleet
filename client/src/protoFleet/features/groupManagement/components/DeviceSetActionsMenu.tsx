@@ -158,6 +158,7 @@ const DeviceSetActionsMenuInner = ({
     const controller = new AbortController();
     const isCurrent = () => version === fetchVersionRef.current;
 
+    /* eslint-disable react-hooks/set-state-in-effect -- fetch members + miners on open; setState inside async callbacks is the external-sync pattern */
     if (!propMemberDeviceIdsRef.current) {
       setFetchedMemberIds(null);
       setFetchingMembers(true);
@@ -178,6 +179,7 @@ const DeviceSetActionsMenuInner = ({
     const filter = deviceSetType === "rack" ? { rackIds: [deviceSetId] } : { groupIds: [deviceSetId] };
     setFetchedMiners({});
     setFetchingMiners(true);
+    /* eslint-enable react-hooks/set-state-in-effect */
     fetchAllMinerSnapshots(filter, controller.signal)
       .then((map) => {
         if (isCurrent()) setFetchedMiners(map);

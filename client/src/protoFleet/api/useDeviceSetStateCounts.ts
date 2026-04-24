@@ -97,6 +97,7 @@ export const useDeviceSetStateCounts = ({
 
   // Initial fetch + refetch on deviceSetId change
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch + refetch on deviceSetId change; setState inside async fetch is the external-sync pattern
     fetchStats();
   }, [fetchStats]);
 
