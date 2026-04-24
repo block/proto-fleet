@@ -47,7 +47,10 @@ const ActivityDetailModal = ({ entry, onDismiss }: ActivityDetailModalProps) => 
   const batchState = batchId ? getResult(batchId) : null;
   const batchData = batchState?.data;
   const batchInProgress = batchData != null && batchData.status !== "finished" && !batchData.detailsPruned;
-  const isFailed = batchData != null && !batchInProgress ? batchData.failureCount > 0 : entry.result === "failure";
+  const isFailed =
+    batchData != null && !batchInProgress && !batchData.detailsPruned
+      ? batchData.failureCount > 0
+      : entry.result === "failure";
 
   return (
     <Modal title="Actions" onDismiss={onDismiss}>
@@ -71,14 +74,14 @@ const ActivityDetailModal = ({ entry, onDismiss }: ActivityDetailModalProps) => 
                 {batchInProgress ? "In progress" : isFailed ? "Failure" : "Success"}
               </span>
             </SummaryRow>
-            {entry.errorMessage && (
+            {entry.errorMessage ? (
               <SummaryRow label="Error" className="text-intent-critical">
                 {entry.errorMessage}
               </SummaryRow>
-            )}
+            ) : null}
           </div>
 
-          {batchData && !batchData.detailsPruned && (
+          {batchData && !batchData.detailsPruned ? (
             <div className="py-3">
               <SummaryRow label="Succeeded">
                 {batchData.successCount} {batchData.successCount === 1 ? "miner" : "miners"}
@@ -87,16 +90,16 @@ const ActivityDetailModal = ({ entry, onDismiss }: ActivityDetailModalProps) => 
                 {batchData.failureCount} {batchData.failureCount === 1 ? "miner" : "miners"}
               </SummaryRow>
             </div>
-          )}
+          ) : null}
         </div>
 
-        {batchId && (
+        {batchId ? (
           <BatchDeviceResults
             isLoading={batchState?.isLoading ?? false}
             error={batchState?.error ?? null}
             data={batchData ?? null}
           />
-        )}
+        ) : null}
       </div>
     </Modal>
   );
@@ -162,12 +165,12 @@ function BatchDeviceResults({
             {data.deviceResults.map((result) => (
               <tr key={result.deviceIdentifier} className="text-text-primary">
                 <td className="px-3 py-2">
-                  <div>{result.deviceName ?? "Unknown device"}</div>
-                  {(result.ipAddress || result.macAddress) && (
+                  <div>{result.deviceName ?? result.deviceIdentifier}</div>
+                  {result.ipAddress || result.macAddress ? (
                     <div className="text-100 text-text-primary-50">
                       {[result.ipAddress, result.macAddress].filter(Boolean).join(" · ")}
                     </div>
-                  )}
+                  ) : null}
                 </td>
                 <td
                   className={clsx(
@@ -187,11 +190,11 @@ function BatchDeviceResults({
         </table>
       </div>
 
-      {data.truncated && (
+      {data.truncated ? (
         <div className="text-200 text-text-primary-50">
           Showing first {data.deviceResults.length} of {data.totalCount} devices.
         </div>
-      )}
+      ) : null}
     </>
   );
 }
