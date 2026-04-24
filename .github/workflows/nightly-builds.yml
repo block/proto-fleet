@@ -15,7 +15,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: nightly-builds-${{ github.ref }}
+  group: nightly-channel
   cancel-in-progress: false
 
 jobs:
@@ -26,6 +26,16 @@ jobs:
       build_date: ${{ steps.metadata.outputs.build_date }}
       version: ${{ steps.metadata.outputs.version }}
     steps:
+      - name: Guard default branch
+        env:
+          CURRENT_REF: ${{ github.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          if [[ "$CURRENT_REF" != "refs/heads/$DEFAULT_BRANCH" ]]; then
+            echo "::error::Nightly builds must run on the default branch ($DEFAULT_BRANCH); refusing to run from $CURRENT_REF."
+            exit 1
+          fi
+
       - name: Generate nightly metadata
         id: metadata
         env:
@@ -41,8 +51,13 @@ jobs:
             VERSION="nightly-${DATE_STAMP}-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}-${SHORT_SHA}"
           fi
 
-          if [[ ! "$VERSION" =~ ^nightly-[0-9]{8}-[0-9]+-[0-9]+-[0-9a-f]{12}$ ]]; then
+          if [[ ! "$VERSION" =~ ^nightly-[0-9]{8}-[0-9]+-[0-9]+-([0-9a-f]{12})$ ]]; then
             echo "::error::Version '$VERSION' must match nightly-YYYYMMDD-<run-number>-<run-attempt>-<12-char-sha>."
+            exit 1
+          fi
+
+          if [[ "${BASH_REMATCH[1]}" != "$SHORT_SHA" ]]; then
+            echo "::error::Version '$VERSION' has SHA suffix '${BASH_REMATCH[1]}' but the commit being built is '$SHORT_SHA'."
             exit 1
           fi
 
