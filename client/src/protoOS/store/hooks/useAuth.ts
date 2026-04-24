@@ -203,7 +203,7 @@ export const useAccessToken = (shouldCheckAccess: boolean = true) => {
   ]);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- re-run access check on dependency change; auth state updates are the effect's purpose
     checkAccess();
   }, [checkAccess]);
 

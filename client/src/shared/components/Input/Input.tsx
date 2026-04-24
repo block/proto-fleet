@@ -82,36 +82,39 @@ const Input = ({
   required,
 }: InputProps) => {
   const [value, setValue] = useState(initValue);
-  // keep the error state until the animation is finished
-  const [validationError, setValidationError] = useState(error);
+  const [prevInitValue, setPrevInitValue] = useState(initValue);
+  if (initValue !== prevInitValue) {
+    setPrevInitValue(initValue);
+    setValue(initValue);
+  }
 
   const [inputType, setInputType] = useState(type);
+  const [prevType, setPrevType] = useState(type);
+  if (type !== prevType) {
+    setPrevType(type);
+    setInputType(type);
+  }
+
+  // keep the error state until the animation is finished
+  const [validationError, setValidationError] = useState(error);
+  const [prevError, setPrevError] = useState(error);
+  if (error && error !== prevError) {
+    setPrevError(error);
+    setValidationError(error);
+  }
+
   const [focused, setFocused] = useState(false);
   const fallbackRef = useRef<HTMLInputElement>(null) as RefObject<HTMLInputElement>;
   const valueWidth = useValueWidth(value, inputRef || fallbackRef, units);
   const hasFloatingLabel = type === "date" || !!length(value) || focused;
 
   useEffect(() => {
-    setValue(initValue);
-  }, [initValue]);
-
-  useEffect(() => {
-    setInputType(type);
-  }, [type]);
-
-  useEffect(() => {
-    let timeoutId: ReturnType<typeof setTimeout>;
-    if (error) {
+    if (error) return;
+    const timeoutId = setTimeout(() => {
       setValidationError(error);
-    } else {
-      // clear the error after the animation
-      timeoutId = setTimeout(() => {
-        setValidationError(error);
-      }, 200);
-    }
-    return () => {
-      clearTimeout(timeoutId);
-    };
+      setPrevError(error);
+    }, 200);
+    return () => clearTimeout(timeoutId);
   }, [error]);
 
   // When a password input gains focus, React's re-render (from setFocused)
@@ -138,6 +141,10 @@ const Input = ({
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        e.currentTarget.blur();
+      }
       onKeyDown?.(e.key);
     },
     [onKeyDown],

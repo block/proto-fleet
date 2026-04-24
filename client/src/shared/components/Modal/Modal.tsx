@@ -9,8 +9,8 @@ import { ButtonProps } from "@/shared/components/ButtonGroup";
 import Divider from "@/shared/components/Divider";
 import Header from "@/shared/components/Header";
 import PageOverlay from "@/shared/components/PageOverlay";
-import { useClickOutside } from "@/shared/hooks/useClickOutside";
-import { useKeyDown } from "@/shared/hooks/useKeyDown";
+import { useClickOutsideDismiss } from "@/shared/hooks/useClickOutsideDismiss";
+import { useEscapeDismiss } from "@/shared/hooks/useEscapeDismiss";
 import useSlideUpAnimation from "@/shared/hooks/useSlideUpAnimation";
 
 const sizeClasses: Record<keyof typeof sizes, string> = {
@@ -45,6 +45,7 @@ interface ModalProps {
   divider?: boolean;
   size?: keyof typeof sizes;
   zIndex?: string;
+  testId?: string;
 }
 
 const Modal = ({
@@ -68,6 +69,7 @@ const Modal = ({
   size = sizes.standard,
   zIndex,
   iconAriaLabel = "Close dialog",
+  testId = "modal",
 }: ModalProps) => {
   const modalRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
@@ -116,19 +118,12 @@ const Modal = ({
     [onDismiss],
   );
 
-  const handleEscape = useCallback(() => {
-    if (open !== false) {
-      dismissModal();
-    }
-  }, [open, dismissModal]);
-  useKeyDown({ key: "Escape", onKeyDown: handleEscape });
+  useEscapeDismiss(open === false ? undefined : dismissModal);
 
-  const shouldIgnoreClickOutside = useCallback(() => open === false, [open]);
-  useClickOutside({
+  useClickOutsideDismiss({
     ref: modalRef,
-    onClickOutside: dismissModal,
+    onDismiss: open === false ? undefined : dismissModal,
     ignoreSelectors: [".popover-content"],
-    shouldIgnore: shouldIgnoreClickOutside,
   });
   const headerIconProps =
     icon === null
@@ -161,7 +156,7 @@ const Modal = ({
             className,
           )}
           ref={modalRef}
-          data-testid="modal"
+          data-testid={testId}
         >
           {showHeader && (
             <div

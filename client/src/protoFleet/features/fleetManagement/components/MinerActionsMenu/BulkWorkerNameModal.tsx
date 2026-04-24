@@ -572,6 +572,7 @@ const BulkWorkerNameModal = ({
 
   useEffect(() => {
     if (!open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- reset modal state on close
       setActiveOptionsPropertyId(null);
       setActiveOptionsDraft(null);
       setShowDuplicateNamesWarning(false);

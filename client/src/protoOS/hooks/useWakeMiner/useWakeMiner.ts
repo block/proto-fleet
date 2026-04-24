@@ -79,7 +79,6 @@ export const useWakeMiner = ({ afterWake, onSuccess, onError }: UseWakeMinerProp
         intervalIdRef.current = undefined;
       }
       isWakingRef.current = false;
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setShouldWake(false);
       setPending(false);
       afterWakeRef.current?.();

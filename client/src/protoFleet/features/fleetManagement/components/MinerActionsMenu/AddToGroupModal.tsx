@@ -33,6 +33,7 @@ const AddToGroupModal = ({ open, onDismiss, selectedMiners, selectionMode, displ
   useEffect(() => {
     if (!open) return;
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset modal state and fetch groups when modal opens
     setLoading(true);
     setGroups([]);
     setNewGroupName("");

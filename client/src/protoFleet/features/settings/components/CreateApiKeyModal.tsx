@@ -45,20 +45,20 @@ const CreateApiKeyModal = ({ open, onDismiss, onSuccess }: CreateApiKeyModalProp
     };
   }, []);
 
-  useEffect(() => {
-    if (isVisible) {
-      return;
+  // Reset form state when modal closes
+  const [prevVisible, setPrevVisible] = useState(isVisible);
+  if (prevVisible !== isVisible) {
+    setPrevVisible(isVisible);
+    if (!isVisible) {
+      createRequestIDRef.current += 1;
+      setStep("enterDetails");
+      setName("");
+      setExpiresAt("");
+      setFullKey("");
+      setIsSubmitting(false);
+      setErrorMsg("");
     }
-
-    createRequestIDRef.current += 1;
-
-    setStep("enterDetails");
-    setName("");
-    setExpiresAt("");
-    setFullKey("");
-    setIsSubmitting(false);
-    setErrorMsg("");
-  }, [isVisible]);
+  }
 
   const handleDismiss = useCallback(() => {
     createRequestIDRef.current += 1;

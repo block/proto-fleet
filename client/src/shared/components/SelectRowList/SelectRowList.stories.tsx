@@ -31,7 +31,7 @@ const SelectRowListForStory = ({ disabled, hasPrefixIcon, hasSubtext, type }: Se
   const [selected, setSelected] = useState<SelectRow[]>([selectRows.one]);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset selection when story control "type" changes
     setSelected([selectRows.one]);
   }, [type]);
 

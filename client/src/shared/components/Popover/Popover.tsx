@@ -59,7 +59,7 @@ const Popover = ({
   testId,
   title,
   titleSize = "text-heading-200",
-  closePopover = () => {},
+  closePopover,
   closeIgnoreSelectors = [],
 }: PopoverProps) => {
   const { triggerRef, renderMode } = usePopover();

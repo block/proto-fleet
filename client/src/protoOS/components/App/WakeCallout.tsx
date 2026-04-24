@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import FansDetectedDialog from "./FansDetectedDialog";
 import { useCoolingStatus } from "@/protoOS/api/hooks/useCoolingStatus";
 
@@ -25,20 +25,15 @@ const WakeCallout = ({ afterWake, onWake }: WakeCalloutProps) => {
   const fans = useFansTelemetry();
   const isSleeping = useIsSleeping();
   const [showFansDetectedDialog, setShowFansDetectedDialog] = useState(false);
-  const previousIsSleepingRef = useRef(isSleeping);
 
-  // Show dialog after miner wakes up if in immersion mode with fans running
-  useEffect(() => {
-    // Detect when miner wakes up (isSleeping goes from true to false)
-    if (previousIsSleepingRef.current && !isSleeping) {
-      if (areFansDetectedInImmersionMode(fans, coolingMode)) {
-        // eslint-disable-next-line react-hooks/set-state-in-effect -- Show dialog on wake completion (isSleeping: true → false transition)
-        setShowFansDetectedDialog(true);
-      }
+  // Show dialog on wake completion (isSleeping true→false) when fans are detected in immersion mode
+  const [prevIsSleeping, setPrevIsSleeping] = useState(isSleeping);
+  if (prevIsSleeping !== isSleeping) {
+    setPrevIsSleeping(isSleeping);
+    if (prevIsSleeping && !isSleeping && areFansDetectedInImmersionMode(fans, coolingMode)) {
+      setShowFansDetectedDialog(true);
     }
-
-    previousIsSleepingRef.current = isSleeping;
-  }, [isSleeping, shouldWake, fans, coolingMode]);
+  }
 
   const handleContinue = () => {
     setShowFansDetectedDialog(false);

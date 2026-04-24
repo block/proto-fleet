@@ -15,7 +15,7 @@ const useHashboards = () => {
       return;
     }
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch on mount; setState inside async fetch is the external-sync pattern
     setPending(true);
 
     api

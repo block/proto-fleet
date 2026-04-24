@@ -435,8 +435,6 @@ export default function AssignMinersModal({
     }
   }, [existingRackId, rackSettings, rackMiners, activeAssignments, saveRack, onSave]);
 
-  const hasSubModalOpen = showRackSettings || showManageMiners || showSearchMiners || showDeleteConfirm;
-
   if (!show) return null;
 
   return (
@@ -444,7 +442,7 @@ export default function AssignMinersModal({
       <FullScreenTwoPaneModal
         open={show}
         title={rackSettings.label}
-        onDismiss={hasSubModalOpen ? undefined : onDismiss}
+        onDismiss={onDismiss}
         isBusy={isSaving}
         buttons={[
           ...(onDelete

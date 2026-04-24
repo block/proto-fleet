@@ -1,5 +1,5 @@
 import { motion } from "motion/react";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import clsx from "clsx";
 
 import { defaultTtl, STATUSES } from "../../constants";
@@ -18,13 +18,13 @@ const extraPaddingForHover = 15;
 const initialTranslateY = 20;
 
 const Toast = ({ message, onClose, status, index, numToasts, ttl = defaultTtl }: ToastProps) => {
-  const [yOffset, setYOffset] = useState<number>(0);
-  const [hoverYOffset, setHoverYOffset] = useState<number>(0);
-  const [scale, setScale] = useState<number>(1);
-
-  // If Toast is used outside of toaster and we
-  // dont have index or numToast we just assume its on top
-  const [onTop, setOnTop] = useState<boolean>(index == undefined || numToasts == undefined || index + 1 == numToasts);
+  // If Toast is used outside of toaster and we don't have index or numToasts
+  // we just assume it's on top with no stacking transform applied.
+  const stackOffset = index !== undefined && numToasts !== undefined ? numToasts - index - 1 : 0;
+  const scale = 1 - stackOffset * 0.07;
+  const yOffset = stackOffset * -14;
+  const hoverYOffset = stackOffset * -55;
+  const onTop = index == undefined || numToasts == undefined || index + 1 == numToasts;
 
   const easeGentle = useCssVariable("--ease-gentle", cubicBezierValues);
 
@@ -37,17 +37,6 @@ const Toast = ({ message, onClose, status, index, numToasts, ttl = defaultTtl }:
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ttl]);
-
-  useEffect(() => {
-    if (numToasts == undefined || index == undefined) {
-      return;
-    }
-
-    setScale(1 - (numToasts - index - 1) * 0.07);
-    setYOffset((numToasts - index - 1) * -14);
-    setHoverYOffset((numToasts - index - 1) * -55);
-    setOnTop(index + 1 == numToasts);
-  }, [index, numToasts]);
 
   return (
     <motion.div

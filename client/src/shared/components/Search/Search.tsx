@@ -15,11 +15,12 @@ const id = "search";
 
 const Search = ({ className, compact, onChange, initValue, shouldFocus }: SearchProps) => {
   const [value, setValue] = useState(initValue);
-  const inputRef = useRef<HTMLInputElement>(null) as RefObject<HTMLInputElement>;
-
-  useEffect(() => {
+  const [prevInitValue, setPrevInitValue] = useState(initValue);
+  if (initValue !== prevInitValue) {
+    setPrevInitValue(initValue);
     setValue(initValue);
-  }, [initValue]);
+  }
+  const inputRef = useRef<HTMLInputElement>(null) as RefObject<HTMLInputElement>;
 
   const focusSearch = (event: KeyboardEvent) => {
     // event.metaKey - pressed Command key on Macs

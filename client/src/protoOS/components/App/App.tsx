@@ -157,7 +157,7 @@ const App = ({
       // as long as the mining status is not normal, keep checking the mining status
     } else if (isMining) {
       clearInterval(intervalId);
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- mark init page shown once miner reaches mining state
       setInitPage(true);
       // on first load, if the device is booting up, check the mining status until it's running
     } else if (isWarmingUp && !intervalId && !initPage) {

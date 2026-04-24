@@ -174,7 +174,12 @@ SELECT
     d.device_identifier,
     codl.status,
     codl.error_info,
-    codl.updated_at
+    codl.updated_at,
+    codl.custom_name,
+    codl.manufacturer,
+    codl.model,
+    codl.ip_address,
+    codl.mac_address
 FROM command_on_device_log codl
 JOIN command_batch_log cbl ON cbl.id = codl.command_batch_log_id
 LEFT JOIN device d ON d.id = codl.device_id
@@ -193,6 +198,11 @@ type ListBatchDeviceResultsRow struct {
 	Status           DeviceCommandStatusEnum
 	ErrorInfo        sql.NullString
 	UpdatedAt        time.Time
+	CustomName       sql.NullString
+	Manufacturer     sql.NullString
+	Model            sql.NullString
+	IpAddress        sql.NullString
+	MacAddress       sql.NullString
 }
 
 // Returns one row per device in the batch, ordered deterministically so the
@@ -217,6 +227,11 @@ func (q *Queries) ListBatchDeviceResults(ctx context.Context, arg ListBatchDevic
 			&i.Status,
 			&i.ErrorInfo,
 			&i.UpdatedAt,
+			&i.CustomName,
+			&i.Manufacturer,
+			&i.Model,
+			&i.IpAddress,
+			&i.MacAddress,
 		); err != nil {
 			return nil, err
 		}
@@ -271,21 +286,42 @@ func (q *Queries) MarkCommandBatchProcessing(ctx context.Context, uuid string) e
 const upsertCommandOnDeviceLog = `-- name: UpsertCommandOnDeviceLog :exec
 WITH batch AS (
     SELECT id FROM command_batch_log WHERE uuid = $4
+),
+dev AS (
+    SELECT
+        d.custom_name   AS custom_name,
+        dd.manufacturer AS manufacturer,
+        dd.model        AS model,
+        dd.ip_address   AS ip_address,
+        d.mac_address   AS mac_address
+    FROM device d
+    JOIN discovered_device dd ON dd.id = d.discovered_device_id
+    WHERE d.id = $1
 )
 INSERT INTO command_on_device_log (
    command_batch_log_id,
    device_id,
    status,
    updated_at,
-   error_info
+   error_info,
+   custom_name,
+   manufacturer,
+   model,
+   ip_address,
+   mac_address
 )
 SELECT
   batch.id,
   $1,
   $2,
   $3,
-  $5
-FROM batch
+  $5,
+  dev.custom_name,
+  dev.manufacturer,
+  dev.model,
+  dev.ip_address,
+  dev.mac_address
+FROM batch, dev
 ON CONFLICT (command_batch_log_id, device_id) DO UPDATE SET
     status = EXCLUDED.status,
     updated_at = EXCLUDED.updated_at,
@@ -303,6 +339,17 @@ type UpsertCommandOnDeviceLogParams struct {
 // PostgreSQL version using CTE for the subquery.
 // error_info is NULL for SUCCESS rows; for FAILED rows it is either the worker
 // error string (truncated by the caller) or the reaper reason.
+//
+// custom_name/manufacturer/model/ip_address/mac_address are captured from
+// device + discovered_device at command-completion time (the first terminal
+// write) and deliberately left untouched by the ON CONFLICT branch, so
+// retries and the reaper never overwrite the first-write values. The read
+// path composes the display name via fleetmanagement.ComposeDeviceName so
+// this query stays free of any rendering rules.
+// batch × dev is a deliberate cross-join: both CTEs must return exactly one
+// row for the INSERT to write. fk_command_on_device_log_device guarantees
+// device $1 exists, and device.discovered_device_id is NOT NULL, so dev
+// always matches in practice.
 func (q *Queries) UpsertCommandOnDeviceLog(ctx context.Context, arg UpsertCommandOnDeviceLogParams) error {
 	_, err := q.exec(ctx, q.upsertCommandOnDeviceLogStmt, upsertCommandOnDeviceLog,
 		arg.DeviceID,

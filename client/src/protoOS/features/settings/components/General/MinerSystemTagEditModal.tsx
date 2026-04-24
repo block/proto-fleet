@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useState } from "react";
 import { useSystemTag } from "@/protoOS/api";
 import { variants } from "@/shared/components/Button";
 import Input from "@/shared/components/Input";
@@ -17,9 +17,12 @@ const MinerSystemTagEditModal = ({ open, currentTag, onDismiss, onSaved }: Miner
   const [isSubmitting, setIsSubmitting] = useState(false);
   const { putSystemTag } = useSystemTag();
 
-  useEffect(() => {
+  // Sync local value with controlled currentTag prop
+  const [prevCurrentTag, setPrevCurrentTag] = useState(currentTag);
+  if (prevCurrentTag !== currentTag) {
+    setPrevCurrentTag(currentTag);
     setValue(currentTag);
-  }, [currentTag]);
+  }
 
   const handleSave = useCallback(() => {
     const trimmed = value.trim();

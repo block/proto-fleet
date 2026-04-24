@@ -40,6 +40,7 @@ const ActionBar = ({
   const [hidden, setHidden] = useState(false);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reveal action bar when selection grows; local `show` can also be cleared independently by the close button
     setShow(selectedItems.length > 0);
   }, [selectedItems]);
 

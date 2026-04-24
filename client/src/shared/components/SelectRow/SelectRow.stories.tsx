@@ -22,7 +22,7 @@ export const SelectRow = ({ hasPrefixIcon, hasSideText, type }: SelectRowProps) 
   const [selected, setSelected] = useState<number[]>([]);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset selection when story control "type" changes
     setSelected([0]);
   }, [type]);
 

@@ -136,11 +136,10 @@ export function useDeviceSetListState(
     fetchPage(0, undefined);
   }, [fetchPage]);
 
-  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- reset pagination and refetch when filters change; setState inside async fetch is the external-sync pattern
     resetAndFetch();
   }, [resetAndFetch]);
-  /* eslint-enable react-hooks/set-state-in-effect */
 
   const handleSort = useCallback(
     (field: DeviceSetColumn, direction: SortDirection) => {

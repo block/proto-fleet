@@ -1,4 +1,4 @@
-import { RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { RefObject, useCallback, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import { PerformanceMode } from "@/protoOS/api/generatedApi";
 import { useMiningTarget } from "@/protoOS/api/hooks/useMiningTarget";
@@ -68,10 +68,14 @@ const PowerTargetPopover = ({ onDismiss, onUpdateStart }: PowerTargetPopoverProp
     }
   };
 
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+  // Sync local draft with performanceMode when it (or pending) changes
+  const [prevPerformanceMode, setPrevPerformanceMode] = useState(performanceMode);
+  const [prevPending, setPrevPending] = useState(pending);
+  if (prevPerformanceMode !== performanceMode || prevPending !== pending) {
+    setPrevPerformanceMode(performanceMode);
+    setPrevPending(pending);
     setSelectedPerformanceMode(performanceMode);
-  }, [pending, performanceMode]);
+  }
 
   // Converts the selected power target to whole watts (the API rejects fractional watts).
   const calculatePowerTargetWattage = useCallback((): number | undefined => {
