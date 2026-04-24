@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -262,6 +263,118 @@ func TestGetCommandBatchDeviceResults_TruncatesLargeBatchesWithConsistentCounts(
 	assert.Equal(t, int32(0), resp.FailureCount)
 	assert.Equal(t, resp.TotalCount, resp.SuccessCount+resp.FailureCount,
 		"counts must sum to TotalCount regardless of truncation")
+}
+
+// TestGetCommandBatchDeviceResults_DeviceSnapshot exercises the audit-snapshot
+// feature end-to-end: the first Upsert freezes the device's display name, IP,
+// and MAC onto the codl row, and later Upserts (retries, reap-after-success)
+// update status/error_info but must never overwrite the snapshot — even if
+// the underlying device has since been renamed or moved to a new IP.
+func TestGetCommandBatchDeviceResults_DeviceSnapshot(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn, dbService, user := setupRetentionTest(t)
+	// testutil.CreateDevice seeds manufacturer=TestCorp, model=TestMiner,
+	// mac=00-1A-2B-3C-4D-5E, and an org-unique 127.0.x.y IP. custom_name is
+	// unset, so the composed fallback (manufacturer + " " + model) applies.
+	dev := dbService.CreateDevice(user.OrganizationID, "proto")
+
+	batchUUID := "results-snapshot"
+	seedBatchInState(t, conn, batchUUID, user.DatabaseID, user.OrganizationID, 1, sqlc.BatchStatusEnumFINISHED)
+
+	ctx := context.Background()
+	upsert := func(status sqlc.DeviceCommandStatusEnum, errInfo sql.NullString) {
+		require.NoError(t, db2.WithTransactionNoResult(ctx, conn, func(q *sqlc.Queries) error {
+			return q.UpsertCommandOnDeviceLog(ctx, sqlc.UpsertCommandOnDeviceLogParams{
+				Uuid:      batchUUID,
+				DeviceID:  dev.DatabaseID,
+				Status:    status,
+				UpdatedAt: time.Now(),
+				ErrorInfo: errInfo,
+			})
+		}))
+	}
+
+	// 1. First write captures the identity.
+	upsert(sqlc.DeviceCommandStatusEnumSUCCESS, sql.NullString{})
+
+	// 2. Rename the device and move it to a new IP. Represents a legitimate
+	// operator action that happens between the first Upsert and the reaper's
+	// follow-up.
+	_, err := conn.ExecContext(ctx, `UPDATE device SET custom_name = 'renamed-after-action' WHERE id = $1`, dev.DatabaseID)
+	require.NoError(t, err)
+	_, err = conn.ExecContext(ctx,
+		`UPDATE discovered_device SET ip_address = '10.99.99.99' WHERE id = (SELECT discovered_device_id FROM device WHERE id = $1)`,
+		dev.DatabaseID)
+	require.NoError(t, err)
+
+	// 3. Reaper-style second Upsert: status/error_info flip, snapshot must not.
+	upsert(sqlc.DeviceCommandStatusEnumFAILED, sql.NullString{String: "reaper timeout", Valid: true})
+
+	svc := newResultsTestService(conn)
+	rpcCtx := testutil.MockAuthContextForTesting(context.Background(), user.DatabaseID, user.OrganizationID)
+	resp, err := svc.GetCommandBatchDeviceResults(rpcCtx, &pb.GetCommandBatchDeviceResultsRequest{
+		BatchIdentifier: batchUUID,
+	})
+	require.NoError(t, err)
+	require.Len(t, resp.DeviceResults, 1)
+	row := resp.DeviceResults[0]
+
+	// Status and error_info reflect the second write.
+	assert.Equal(t, "failed", row.Status)
+	require.NotNil(t, row.ErrorMessage)
+	assert.Equal(t, "reaper timeout", *row.ErrorMessage)
+
+	// Snapshot reflects the first-write identity, unaffected by the rename/IP move.
+	require.NotNil(t, row.DeviceName)
+	assert.Equal(t, "TestCorp TestMiner", *row.DeviceName, "name uses manufacturer+model fallback when custom_name is unset")
+	require.NotNil(t, row.IpAddress)
+	assert.True(t, strings.HasPrefix(*row.IpAddress, "127.0."),
+		"snapshot must preserve the first-write IP (testutil seeds 127.0.x.y), got %q", *row.IpAddress)
+	assert.NotEqual(t, "10.99.99.99", *row.IpAddress)
+	require.NotNil(t, row.MacAddress)
+	assert.Equal(t, "00-1A-2B-3C-4D-5E", *row.MacAddress)
+}
+
+// TestGetCommandBatchDeviceResults_HistoricalRowsOmitSnapshot covers backward
+// compatibility: rows written before the 000037 migration have NULL snapshot
+// columns; the RPC must surface them as unset proto optionals so the frontend
+// can fall back to the UUID.
+func TestGetCommandBatchDeviceResults_HistoricalRowsOmitSnapshot(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn, dbService, user := setupRetentionTest(t)
+	dev := dbService.CreateDevice(user.OrganizationID, "proto")
+
+	batchUUID := "results-snapshot-historical"
+	seedBatchInState(t, conn, batchUUID, user.DatabaseID, user.OrganizationID, 1, sqlc.BatchStatusEnumFINISHED)
+
+	// Insert a codl row directly, bypassing UpsertCommandOnDeviceLog, so the
+	// snapshot columns stay NULL like a pre-migration row would.
+	ctx := context.Background()
+	_, err := conn.ExecContext(ctx, `
+		INSERT INTO command_on_device_log (command_batch_log_id, device_id, status, updated_at)
+		SELECT cbl.id, $2, 'SUCCESS', NOW()
+		FROM command_batch_log cbl WHERE cbl.uuid = $1`, batchUUID, dev.DatabaseID)
+	require.NoError(t, err)
+
+	svc := newResultsTestService(conn)
+	rpcCtx := testutil.MockAuthContextForTesting(context.Background(), user.DatabaseID, user.OrganizationID)
+	resp, err := svc.GetCommandBatchDeviceResults(rpcCtx, &pb.GetCommandBatchDeviceResultsRequest{
+		BatchIdentifier: batchUUID,
+	})
+	require.NoError(t, err)
+	require.Len(t, resp.DeviceResults, 1)
+	row := resp.DeviceResults[0]
+
+	assert.Nil(t, row.DeviceName, "pre-migration rows must surface as unset")
+	assert.Nil(t, row.IpAddress, "pre-migration rows must surface as unset")
+	assert.Nil(t, row.MacAddress, "pre-migration rows must surface as unset")
+	assert.Equal(t, dev.ID, row.DeviceIdentifier, "UUID remains available as frontend fallback")
 }
 
 func TestGetCommandBatchDeviceResults_InvalidArgumentOnEmptyIdentifier(t *testing.T) {

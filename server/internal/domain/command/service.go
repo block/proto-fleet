@@ -1179,6 +1179,18 @@ func (s *Service) GetCommandBatchDeviceResults(ctx context.Context, req *pb.GetC
 			msg := row.ErrorInfo.String
 			entry.ErrorMessage = &msg
 		}
+		if row.DeviceName.Valid {
+			name := row.DeviceName.String
+			entry.DeviceName = &name
+		}
+		if row.IpAddress.Valid {
+			ip := row.IpAddress.String
+			entry.IpAddress = &ip
+		}
+		if row.MacAddress.Valid {
+			mac := row.MacAddress.String
+			entry.MacAddress = &mac
+		}
 		results = append(results, entry)
 	}
 

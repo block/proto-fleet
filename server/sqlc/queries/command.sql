@@ -45,23 +45,47 @@ WHERE uuid = $1;
 -- PostgreSQL version using CTE for the subquery.
 -- error_info is NULL for SUCCESS rows; for FAILED rows it is either the worker
 -- error string (truncated by the caller) or the reaper reason.
+--
+-- device_name/ip_address/mac_address are snapshotted from device + discovered_device
+-- at first write for audit-log display, and deliberately left untouched by the
+-- ON CONFLICT branch so that retries and the reaper never overwrite the
+-- original values. device_name mirrors the runtime composition in
+-- fleetmanagement.service.go (custom_name, else manufacturer + " " + model).
 WITH batch AS (
     SELECT id FROM command_batch_log WHERE uuid = $4
+),
+dev AS (
+    SELECT
+        COALESCE(
+            NULLIF(d.custom_name, ''),
+            NULLIF(CONCAT_WS(' ', dd.manufacturer, dd.model), '')
+        ) AS device_name,
+        dd.ip_address AS ip_address,
+        d.mac_address AS mac_address
+    FROM device d
+    JOIN discovered_device dd ON dd.id = d.discovered_device_id
+    WHERE d.id = $1
 )
 INSERT INTO command_on_device_log (
    command_batch_log_id,
    device_id,
    status,
    updated_at,
-   error_info
+   error_info,
+   device_name,
+   ip_address,
+   mac_address
 )
 SELECT
   batch.id,
   $1,
   $2,
   $3,
-  $5
-FROM batch
+  $5,
+  dev.device_name,
+  dev.ip_address,
+  dev.mac_address
+FROM batch, dev
 ON CONFLICT (command_batch_log_id, device_id) DO UPDATE SET
     status = EXCLUDED.status,
     updated_at = EXCLUDED.updated_at,
@@ -121,7 +145,10 @@ SELECT
     d.device_identifier,
     codl.status,
     codl.error_info,
-    codl.updated_at
+    codl.updated_at,
+    codl.device_name,
+    codl.ip_address,
+    codl.mac_address
 FROM command_on_device_log codl
 JOIN command_batch_log cbl ON cbl.id = codl.command_batch_log_id
 LEFT JOIN device d ON d.id = codl.device_id

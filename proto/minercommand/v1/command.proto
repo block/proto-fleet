@@ -218,6 +218,15 @@ message CommandBatchDeviceResult {
   optional string error_message = 3;
   // When this row was last updated (start of this attempt's terminal write).
   google.protobuf.Timestamp updated_at = 4;
+  // Human-readable device name captured at first write (custom_name, else
+  // manufacturer + " " + model). Unset for historical rows written before
+  // the snapshot columns were added, or when neither value was available.
+  optional string device_name = 5;
+  // Device IP address captured at first write. Reflects state at action-time
+  // so later DHCP changes do not rewrite the audit trail.
+  optional string ip_address = 6;
+  // Device MAC address captured at first write.
+  optional string mac_address = 7;
 }
 
 message GetCommandBatchDeviceResultsRequest {
