@@ -57,7 +57,7 @@ const ActivityTable = ({ activities, totalCount, noDataElement }: ActivityTableP
           return (
             <div
               key={entry.eventId}
-              className="grid cursor-pointer grid-cols-[1fr_12rem_10rem_10rem] items-start gap-4 px-4 py-3 hover:bg-surface-5"
+              className="grid cursor-pointer grid-cols-[1fr_12rem_10rem_13rem] items-start gap-4 px-4 py-3 hover:bg-surface-5"
               onClick={() => setSelectedEntry(entry)}
             >
               <div className="flex items-start gap-2">

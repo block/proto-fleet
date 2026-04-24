@@ -32,14 +32,13 @@ export const formatTimestamp = (timestamp?: number): string => {
  */
 export const formatActivityTimestamp = (timestamp?: number): string => {
   if (timestamp == null || !Number.isFinite(timestamp)) return "";
-  const date = new Date(timestamp * 1000);
-  const month = (date.getMonth() + 1).toString().padStart(2, "0");
-  const day = date.getDate().toString().padStart(2, "0");
-  const year = date.getFullYear().toString().slice(-2);
-  let hours = date.getHours();
-  const minutes = date.getMinutes().toString().padStart(2, "0");
-  const seconds = date.getSeconds().toString().padStart(2, "0");
-  const ampm = hours >= 12 ? "PM" : "AM";
-  hours = hours % 12 || 12;
-  return `${month}/${day}/${year} ${hours}:${minutes}:${seconds} ${ampm}`;
+  return new Date(timestamp * 1000).toLocaleString("en-US", {
+    month: "2-digit",
+    day: "2-digit",
+    year: "2-digit",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+  });
 };
