@@ -40,6 +40,9 @@ import {
   UpdateMinerPasswordResponse,
   UpdateMiningPoolsRequestSchema,
   UpdateMiningPoolsResponse,
+  type DevicePoolPreview,
+  type PreviewMiningPoolAssignmentResponse,
+  PreviewMiningPoolAssignmentRequestSchema,
 } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useAuthErrors } from "@/protoFleet/store";
@@ -268,6 +271,62 @@ const useMinerCommand = () => {
     [handleAuthErrors],
   );
 
+  // previewMiningPoolAssignment is the read-only dry run of UpdateMiningPools.
+  // The UI calls it whenever the operator changes pools or device scope,
+  // so SV2-to-SV1 (no proxy) or multi-proxy-slot mismatches surface
+  // before Save is clicked — not after. Server-side it runs the same
+  // preflight UpdateMiningPools uses, so preview and commit agree.
+  const previewMiningPoolAssignment = useCallback(
+    async ({
+      deviceSelector,
+      poolConfig,
+      onSuccess,
+      onError,
+    }: {
+      deviceSelector: DeviceSelector;
+      poolConfig: PoolConfig;
+      onSuccess: (previews: DevicePoolPreview[]) => void;
+      onError?: (error: string) => void;
+    }) => {
+      const createPoolSlotConfig = (source: PoolSlotSource): PoolSlotConfig => {
+        if (source.type === "poolId") {
+          return create(PoolSlotConfigSchema, {
+            poolSource: { case: "poolId", value: BigInt(source.poolId) },
+          });
+        }
+        return create(PoolSlotConfigSchema, {
+          poolSource: {
+            case: "rawPool",
+            value: create(RawPoolInfoSchema, {
+              url: source.url,
+              username: source.username,
+            }),
+          },
+        });
+      };
+
+      const request = create(PreviewMiningPoolAssignmentRequestSchema, {
+        deviceSelector,
+        defaultPool: createPoolSlotConfig(poolConfig.defaultPool),
+        backup1Pool: poolConfig.backup1Pool ? createPoolSlotConfig(poolConfig.backup1Pool) : undefined,
+        backup2Pool: poolConfig.backup2Pool ? createPoolSlotConfig(poolConfig.backup2Pool) : undefined,
+      });
+
+      await minerCommandClient
+        .previewMiningPoolAssignment(request)
+        .then((response: PreviewMiningPoolAssignmentResponse) => onSuccess(response.previews ?? []))
+        .catch((err) => {
+          handleAuthErrors({
+            error: err,
+            onError: () => {
+              onError?.(getErrorMessage(err));
+            },
+          });
+        });
+    },
+    [handleAuthErrors],
+  );
+
   const updateMiningPools = useCallback(
     async ({ deviceSelector, poolConfig, userUsername, userPassword, onSuccess, onError }: UpdateMiningPoolsProps) => {
       const createPoolSlotConfig = (source: PoolSlotSource): PoolSlotConfig => {
@@ -470,6 +529,7 @@ const useMinerCommand = () => {
       reboot,
       streamCommandBatchUpdates,
       updateMiningPools,
+      previewMiningPoolAssignment,
       setPowerTarget,
       setCoolingMode,
       checkCommandCapabilities,
@@ -486,6 +546,7 @@ const useMinerCommand = () => {
       reboot,
       streamCommandBatchUpdates,
       updateMiningPools,
+      previewMiningPoolAssignment,
       setPowerTarget,
       setCoolingMode,
       checkCommandCapabilities,

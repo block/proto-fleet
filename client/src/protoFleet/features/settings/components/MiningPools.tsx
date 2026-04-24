@@ -287,7 +287,6 @@ const MiningPools = () => {
 
   const handleEditPool = useCallback((pool: Pool) => {
     setEditingPool(pool);
-    // Convert Pool to PoolInfo format for the modal
     setPoolsInfo([
       {
         name: pool.poolName || "",
@@ -363,6 +362,10 @@ const MiningPools = () => {
     async (pool: PoolInfo, isPasswordSet: boolean) => {
       if (!editingPool) return;
 
+      // UpdatePoolRequest is patch-shaped via proto3 explicit presence —
+      // setting a field means "apply this value", leaving it undefined
+      // means "leave as-is". Server derives protocol from URL so no
+      // explicit protocol field here.
       const updatePoolRequest = create(UpdatePoolRequestSchema, {
         poolId: editingPool.poolId,
         poolName: pool.name || "",

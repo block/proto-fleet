@@ -352,6 +352,12 @@ func (d *Device) convertStatus(minerStatus *antminer.Status, telemetry *antminer
 		FirmwareVersion: d.deviceInfo.FirmwareVersion,
 		Health:          health,
 		HealthReason:    healthReason,
+		// The antminer plugin only handles stock Bitmain firmware — the
+		// driver rejects non-stock variants (Braiins OS / VNish / LuxOS /
+		// MaraFW) at pair time and routes them to the asic-rs plugin.
+		// Stock Bitmain does not speak SV2, so this is a deterministic
+		// Unsupported rather than Unknown.
+		StratumV2Support: sdk.StratumV2SupportUnsupported,
 	}
 
 	// Add telemetry data if available

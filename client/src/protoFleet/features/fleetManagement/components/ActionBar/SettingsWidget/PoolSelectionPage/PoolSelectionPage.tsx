@@ -17,6 +17,7 @@ import {
 import FleetPoolRow from "./FleetPoolRow";
 import PoolSelectionModal from "./PoolSelectionModal/PoolSelectionModal";
 import { MiningPool } from "./types";
+import { usePoolAssignmentPreview } from "./usePoolAssignmentPreview";
 import { PoolConfig, PoolSlotSource } from "@/protoFleet/api/useMinerCommand";
 import useMinerPoolAssignments from "@/protoFleet/api/useMinerPoolAssignments";
 import usePools from "@/protoFleet/api/usePools";
@@ -30,6 +31,15 @@ import PageOverlay from "@/shared/components/PageOverlay";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { useEscapeDismiss } from "@/shared/hooks/useEscapeDismiss";
 const UNKNOWN_POOL_ID_PREFIX = "unknown-";
+
+// toPoolSlotSource normalizes an AssignedPoolData row onto the request
+// shape the command RPCs take. The preview hook and the commit
+// callback share this so they agree on exactly what "pool slot N"
+// resolves to for any given row — same inputs, same outputs, no drift.
+const toPoolSlotSource = (data: AssignedPoolData): PoolSlotSource =>
+  data.poolId
+    ? { type: "poolId", poolId: data.poolId }
+    : { type: "rawPool", url: data.poolUrl, username: data.poolUsername };
 
 interface AssignedPoolData {
   poolId: string | undefined; // undefined when pool not in Fleet
@@ -280,15 +290,6 @@ const PoolSelectionPage = ({
 
     setIsAssigning(true);
     try {
-      // Convert assigned pool data to PoolSlotSource objects
-      const toPoolSlotSource = (data: AssignedPoolData): PoolSlotSource => {
-        if (data.poolId) {
-          return { type: "poolId", poolId: data.poolId };
-        } else {
-          return { type: "rawPool", url: data.poolUrl, username: data.poolUsername };
-        }
-      };
-
       const poolConfig: PoolConfig = {
         defaultPool: toPoolSlotSource(assignedPoolData[0]),
         backup1Pool: assignedPoolData[1] ? toPoolSlotSource(assignedPoolData[1]) : undefined,
@@ -330,6 +331,27 @@ const PoolSelectionPage = ({
     [assignedPoolData, getPoolDisplayId],
   );
 
+  // Derive the PoolConfig the operator is about to commit so the preview
+  // hook can run with it. Memoized by assignedPoolData so we don't churn
+  // the preview on unrelated renders.
+  const pendingPoolConfig = useMemo((): PoolConfig | null => {
+    if (assignedPoolData.length === 0) return null;
+    return {
+      defaultPool: toPoolSlotSource(assignedPoolData[0]),
+      backup1Pool: assignedPoolData[1] ? toPoolSlotSource(assignedPoolData[1]) : undefined,
+      backup2Pool: assignedPoolData[2] ? toPoolSlotSource(assignedPoolData[2]) : undefined,
+    };
+  }, [assignedPoolData]);
+
+  // Preflight runs server-side with the same logic UpdateMiningPools
+  // uses, so SV2-to-SV1 (proxy off) and multi-proxied-slot mismatches
+  // show up before Save. Disable Save when any warning is set.
+  const { hasMismatch: hasPoolAssignmentMismatch } = usePoolAssignmentPreview(
+    deviceIdentifiers,
+    pendingPoolConfig,
+    isVisible,
+  );
+
   // Check for duplicate URL+username combinations in assigned pools
   const hasDuplicatePools = useMemo(() => {
     if (assignedPoolData.length < 2) return false;
@@ -366,7 +388,12 @@ const PoolSelectionPage = ({
               text: buttonText,
               variant: variants.primary,
               onClick: handleAssignPoolsClick,
-              disabled: !hasConfiguredPools || isLoadingInitialState || isAssigning || hasDuplicatePools,
+              disabled:
+                !hasConfiguredPools ||
+                isLoadingInitialState ||
+                isAssigning ||
+                hasDuplicatePools ||
+                hasPoolAssignmentMismatch,
               loading: isAssigning,
             },
           ]}
@@ -410,6 +437,18 @@ const PoolSelectionPage = ({
                 subtitle="Two or more pools have the same URL and username. Please remove or change the duplicate pools before assigning."
               />
             ) : null}
+
+            {/* Preflight mismatch — matches the server's FAILED_PRECONDITION
+                decision the commit path would return, so Save is blocked
+                before the request is sent rather than after. */}
+            {hasPoolAssignmentMismatch && (
+              <Callout
+                intent={intents.danger}
+                prefixIcon={<Alert />}
+                title="This pool assignment would fail for some miners"
+                subtitle="Some selected miners don't support the chosen protocol with the current translator-proxy configuration. Update the pools or enable the Stratum V2 translator proxy before assigning."
+              />
+            )}
 
             {/* Pool list */}
             {isLoadingInitialState ? (

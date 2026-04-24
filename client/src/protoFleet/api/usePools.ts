@@ -30,7 +30,12 @@ interface DeletePoolProps {
 }
 
 export interface ValidatePoolProps {
-  poolInfo: Omit<ValidatePoolRequest, "$typeName">;
+  // noisePublicKey is meaningful only for SV2 URLs (the server detects
+  // protocol from the URL scheme and switches to handshake-probe mode
+  // when a key is present). Optional everywhere else.
+  poolInfo: Omit<ValidatePoolRequest, "$typeName" | "noisePublicKey"> & {
+    noisePublicKey?: Uint8Array;
+  };
   onSuccess?: () => void;
   onError?: (error: string) => void;
   onFinally?: () => void;
@@ -151,11 +156,15 @@ const usePools = (enabled = true) => {
     async ({ poolInfo, onSuccess, onError, onFinally }: ValidatePoolProps) => {
       setValidatePoolPending(true);
 
-      // Create request object, only include password if it's not empty
+      // Protocol is derived server-side from the URL scheme. Only
+      // include password / noise pubkey / timeout when actually set.
       const request: Omit<ValidatePoolRequest, "$typeName"> = {
         url: poolInfo.url,
         username: poolInfo.username,
         ...(poolInfo.password && poolInfo.password.trim() && { password: poolInfo.password }),
+        ...(poolInfo.noisePublicKey && poolInfo.noisePublicKey.byteLength > 0 && {
+          noisePublicKey: poolInfo.noisePublicKey,
+        }),
         ...(poolInfo.timeout && {
           timeout: poolInfo.timeout as Duration,
         }),

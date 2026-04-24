@@ -1,7 +1,7 @@
 import { ReactNode, useCallback, useMemo, useState } from "react";
 
 import { poolInfoAttributes } from "./constants";
-import { poolNameValidationErrors, urlValidationErrors } from "./PoolForm/constants";
+import { poolNameValidationErrors, urlValidationErrors, validateURLScheme } from "./PoolForm/constants";
 import { PoolConnectionTestProps, PoolIndex, PoolInfo } from "./types";
 import { getPoolUsernameValidationError } from "./validation";
 
@@ -161,6 +161,11 @@ const PoolModal = ({
 
     if (!pool?.url?.trim()) {
       setUrlError(urlValidationErrors.required);
+      hasError = true;
+    } else if (validateURLScheme(pool.url)) {
+      // Surface scheme mismatch before the server rejects it with the
+      // same rule — saves an RPC roundtrip for obviously-wrong URLs.
+      setUrlError(validateURLScheme(pool.url));
       hasError = true;
     }
 
@@ -338,6 +343,10 @@ const PoolModal = ({
           testId={`${poolInfoAttributes.url}-${poolIndex}-input`}
           error={urlError}
           autoFocus={hidePoolName}
+          tooltip={{
+            header: "Mining Pool URL",
+            body: "stratum+tcp://, stratum+ssl://, stratum+ws:// are Stratum V1; stratum2+tcp://, stratum2+ssl:// are Stratum V2. Protocol is detected from the URL.",
+          }}
         />
         <div className="space-y-2">
           <Input

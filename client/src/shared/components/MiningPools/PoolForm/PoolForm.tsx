@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { poolInfoAttributes } from "../constants";
 import { PoolConnectionTestProps, PoolIndex, PoolInfo } from "../types";
-import { urlValidationErrors } from "./constants";
+import { urlValidationErrors, validateURLScheme } from "./constants";
 import { Info } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import { DismissibleCalloutWrapper, intents } from "@/shared/components/Callout";
@@ -88,9 +88,16 @@ const PoolForm = ({
       // e.g. "username 0"
       const infoKey = id.split(" ")[0];
       if (infoKey === poolInfoAttributes.url) {
+        const trimmed = value.trim();
+        let urlError: string | undefined;
+        if (!trimmed) {
+          urlError = urlValidationErrors.required;
+        } else {
+          urlError = validateURLScheme(trimmed);
+        }
         setValidationErrors({
           ...validationErrors,
-          url: value.trim() ? undefined : urlValidationErrors.required,
+          url: urlError,
         });
       }
       const poolsInfo = deepClone(pools);
@@ -136,7 +143,7 @@ const PoolForm = ({
           testId={`${poolInfoAttributes.url}-${poolIndex}-input`}
           tooltip={{
             header: "Mining Pool URL",
-            body: "Enter the mining pool URL you want this miner to connect with. A mining pool URL allows this miner to communicate with the pool's server.",
+            body: "Enter the mining pool URL. Protocol is determined by the URL scheme: stratum+tcp:// / stratum+ssl:// / stratum+ws:// are Stratum V1; stratum2+tcp:// / stratum2+ssl:// are Stratum V2.",
           }}
           error={validationErrors.url}
           onFocus={onFocus}

@@ -615,6 +615,82 @@ func (c *Client) GetFirmwareVersion(ctx context.Context) (string, error) {
 	return c.GetSoftwareInfo(ctx)
 }
 
+// StratumV2SupportProbe is the tri-state answer the proto plugin returns
+// after probing ProtoOS for SV2 support. Mirrors sdk.StratumV2SupportStatus
+// on the fleet side but kept local here so the proto client doesn't
+// depend on the fleet SDK's enum values.
+type StratumV2SupportProbe int
+
+const (
+	StratumV2ProbeUnknown     StratumV2SupportProbe = iota // ProtoOS didn't tell us
+	StratumV2ProbeUnsupported                              // Firmware is SV1-only
+	StratumV2ProbeSupported                                // Firmware natively speaks SV2
+)
+
+// SystemSnapshot bundles the firmware version string and the SV2-support
+// probe result from a single /api/v1/system fetch. The plugin's Status
+// path calls this once per throttle window instead of round-tripping
+// twice for two fields that come from the same payload.
+type SystemSnapshot struct {
+	FirmwareVersion  string
+	StratumV2Support StratumV2SupportProbe
+}
+
+// GetSystemSnapshot fetches /api/v1/system once and extracts both the
+// firmware version and the SV2-support verdict from the response. See
+// interpretStratumV2Support for the matching rules.
+func (c *Client) GetSystemSnapshot(ctx context.Context) (SystemSnapshot, error) {
+	var resp systemInfoResponse
+	if err := c.doGet(ctx, "/api/v1/system", &resp); err != nil {
+		return SystemSnapshot{}, fmt.Errorf("failed to get system info: %w", err)
+	}
+	var fw string
+	if resp.SystemInfo.OS != nil {
+		fw = resp.SystemInfo.OS.Version
+	}
+	return SystemSnapshot{
+		FirmwareVersion:  fw,
+		StratumV2Support: interpretStratumV2Support(resp.SystemInfo.PoolInterfaceSW),
+	}, nil
+}
+
+// interpretStratumV2Support maps ProtoOS's pool_interface_sw.name label
+// onto the tri-state probe result. Absent / empty pool interface is
+// Unknown (lets the server fall back to static caps); a recognised
+// "stratum v2"-ish label is Supported; any answered label that doesn't
+// match Supported is Unsupported — an unrecognised-but-answered name
+// is not the same as "no answer" and must not silently defer to the
+// static view.
+//
+// Matching is case-insensitive and tolerant of separator variations
+// (space, hyphen, underscore) so ProtoOS can evolve the label without
+// forcing a plugin release for every format change.
+func interpretStratumV2Support(sw *swInfo) StratumV2SupportProbe {
+	if sw == nil {
+		return StratumV2ProbeUnknown
+	}
+	name := strings.ToLower(sw.Name)
+	if name == "" {
+		return StratumV2ProbeUnknown
+	}
+	if containsSV2Token(name) {
+		return StratumV2ProbeSupported
+	}
+	return StratumV2ProbeUnsupported
+}
+
+// containsSV2Token returns true when the pool-interface-software label
+// indicates SV2. Accepts "sv2", "stratum-v2", "stratum v2", "stratum_v2",
+// and "stratumv2" — the separator is load-bearing enough elsewhere that
+// any reasonable rendering should match.
+func containsSV2Token(label string) bool {
+	if strings.Contains(label, "sv2") {
+		return true
+	}
+	normalized := strings.NewReplacer("-", "", "_", "", " ", "").Replace(label)
+	return strings.Contains(normalized, "stratumv2")
+}
+
 // GetUpdateStatus retrieves the firmware update installation status from the miner.
 // The status field tracks the swupdate lifecycle: "current", "downloading",
 // "downloaded", "installing", "installed", "confirming", "success".

@@ -56,6 +56,7 @@ type Device struct {
 	statusTTL    time.Duration
 
 	lastFirmwareCheckAt time.Time
+	lastSV2Support      sdk.StratumV2SupportStatus
 
 	mutex sync.Mutex
 }
@@ -223,7 +224,7 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 
 	metrics := d.convertStatus(minerStatus, telemetryResp)
 
-	d.refreshFirmwareVersion(ctx, &metrics)
+	d.refreshSystemSnapshot(ctx, &metrics)
 
 	d.lastStatus = &metrics
 	d.lastStatusAt = time.Now()
@@ -231,22 +232,35 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 	return metrics, nil
 }
 
-// refreshFirmwareVersion periodically re-fetches firmware version from the device
-// to detect firmware updates. Throttled to avoid excessive API calls.
-func (d *Device) refreshFirmwareVersion(ctx context.Context, metrics *sdk.DeviceMetrics) {
+// refreshSystemSnapshot pulls firmware version + SV2 support from a
+// single /api/v1/system fetch, throttled so the HTTP cost stays at one
+// request per device per firmwareRefreshInterval rather than one per
+// scrape. Between refreshes, the cached values on d.deviceInfo and the
+// last-seen SV2 status carry forward.
+func (d *Device) refreshSystemSnapshot(ctx context.Context, metrics *sdk.DeviceMetrics) {
+	metrics.StratumV2Support = d.lastSV2Support
 	if time.Since(d.lastFirmwareCheckAt) < firmwareRefreshInterval {
 		return
 	}
 	d.lastFirmwareCheckAt = time.Now()
-	fwVersion, err := d.client.GetFirmwareVersion(ctx)
+	snapshot, err := d.client.GetSystemSnapshot(ctx)
 	if err != nil {
-		slog.Debug("failed to get firmware version during Status", "error", err)
+		slog.Debug("system snapshot fetch failed during Status", "device_id", d.id, "error", err)
 		return
 	}
-	if fwVersion != "" {
-		d.deviceInfo.FirmwareVersion = fwVersion
-		metrics.FirmwareVersion = fwVersion
+	if snapshot.FirmwareVersion != "" {
+		d.deviceInfo.FirmwareVersion = snapshot.FirmwareVersion
+		metrics.FirmwareVersion = snapshot.FirmwareVersion
 	}
+	switch snapshot.StratumV2Support {
+	case proto.StratumV2ProbeSupported:
+		d.lastSV2Support = sdk.StratumV2SupportSupported
+	case proto.StratumV2ProbeUnsupported:
+		d.lastSV2Support = sdk.StratumV2SupportUnsupported
+	case proto.StratumV2ProbeUnknown:
+		d.lastSV2Support = sdk.StratumV2SupportUnknown
+	}
+	metrics.StratumV2Support = d.lastSV2Support
 }
 
 // GetErrors returns all active and historical errors for the device.

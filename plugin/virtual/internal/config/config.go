@@ -73,6 +73,12 @@ type VirtualMinerConfig struct {
 
 	// Behavior
 	Behavior BehaviorConfig `json:"behavior"`
+
+	// StratumV2Supported toggles whether this virtual miner reports SV2
+	// support in its telemetry snapshot. Default is false so existing
+	// fixtures keep behaving as SV1-only; integration tests that need
+	// to exercise the direct-SV2 path flip this on the relevant miners.
+	StratumV2Supported bool `json:"stratum_v2_supported,omitempty"`
 }
 
 // MinerProfile defines a template for generating miners with similar specs.
