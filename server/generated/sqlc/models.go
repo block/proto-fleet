@@ -376,6 +376,11 @@ type CommandOnDeviceLog struct {
 	Status            DeviceCommandStatusEnum
 	UpdatedAt         time.Time
 	ErrorInfo         sql.NullString
+	CustomName        sql.NullString
+	Manufacturer      sql.NullString
+	Model             sql.NullString
+	IpAddress         sql.NullString
+	MacAddress        sql.NullString
 }
 
 type Device struct {

@@ -365,11 +365,7 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 
 		isPaired := row.PairingStatus == "PAIRED"
 
-		if row.CustomName.Valid && row.CustomName.String != "" {
-			snapshot.Name = row.CustomName.String
-		} else {
-			snapshot.Name = snapshot.Manufacturer + " " + snapshot.Model
-		}
+		snapshot.Name = ComposeDeviceName(row.CustomName.String, snapshot.Manufacturer, snapshot.Model)
 
 		if isPaired {
 			snapshot.MacAddress = row.MacAddress
