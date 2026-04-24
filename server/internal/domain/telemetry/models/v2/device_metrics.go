@@ -34,7 +34,24 @@ type DeviceMetrics struct {
 	ControlBoardMetrics []ControlBoardMetrics `json:"control_board_metrics,omitempty"`
 	FanMetrics          []FanMetrics          `json:"fan_metrics,omitempty"`
 	SensorMetrics       []SensorMetrics       `json:"sensor_metrics,omitempty"`
+
+	// StratumV2Support is the firmware's live SV2 support report, observed
+	// at this scrape. Unspecified / Unknown means the plugin did not probe
+	// for it; the capability-merge helper falls back to the static driver
+	// and model capabilities in that case.
+	StratumV2Support StratumV2SupportStatus `json:"stratum_v2_support,omitempty"`
 }
+
+// StratumV2SupportStatus mirrors sdk.StratumV2SupportStatus on the server
+// side so the rewriter/preflight can query it without importing the SDK.
+type StratumV2SupportStatus int32
+
+const (
+	StratumV2SupportUnspecified StratumV2SupportStatus = 0
+	StratumV2SupportUnknown     StratumV2SupportStatus = 1
+	StratumV2SupportUnsupported StratumV2SupportStatus = 2
+	StratumV2SupportSupported   StratumV2SupportStatus = 3
+)
 
 // DefaultMeasurementTypes returns the standard set of measurement types for conversion.
 var DefaultMeasurementTypes = []models.MeasurementType{

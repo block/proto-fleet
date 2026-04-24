@@ -13,6 +13,7 @@ import (
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
+	poolspb "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
 	diagnosticsModels "github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
@@ -495,6 +496,7 @@ func (p *PluginMiner) GetMiningPools(ctx context.Context) ([]interfaces.MinerCon
 			Priority: pool.Priority,
 			URL:      pool.URL,
 			Username: pool.Username,
+			Protocol: sdkPoolProtocolToPB(pool.Protocol),
 		}
 	}
 	return pools, nil
@@ -512,7 +514,36 @@ func validateAndConvertPoolConfig(pool dto.MiningPool, poolName string) (sdk.Min
 		Priority:   int32(pool.Priority), //nolint:gosec // G115: Priority validated above to fit in int32
 		URL:        pool.URL,
 		WorkerName: pool.Username,
+		Protocol:   pbPoolProtocolToSDK(pool.Protocol),
 	}, nil
+}
+
+// pbPoolProtocolToSDK maps the fleet-internal pools.v1.PoolProtocol enum to
+// the plugin-facing sdk.PoolProtocol enum. The two are defined separately so
+// the SDK does not depend on internal proto packages; the number space is
+// identical by design, so the conversion is a typed passthrough with an
+// explicit fallback for unexpected values.
+func pbPoolProtocolToSDK(p poolspb.PoolProtocol) sdk.PoolProtocol {
+	switch p {
+	case poolspb.PoolProtocol_POOL_PROTOCOL_SV1:
+		return sdk.PoolProtocolSV1
+	case poolspb.PoolProtocol_POOL_PROTOCOL_SV2:
+		return sdk.PoolProtocolSV2
+	default:
+		return sdk.PoolProtocolUnspecified
+	}
+}
+
+// sdkPoolProtocolToPB inverts pbPoolProtocolToSDK.
+func sdkPoolProtocolToPB(p sdk.PoolProtocol) poolspb.PoolProtocol {
+	switch p {
+	case sdk.PoolProtocolSV1:
+		return poolspb.PoolProtocol_POOL_PROTOCOL_SV1
+	case sdk.PoolProtocolSV2:
+		return poolspb.PoolProtocol_POOL_PROTOCOL_SV2
+	default:
+		return poolspb.PoolProtocol_POOL_PROTOCOL_UNSPECIFIED
+	}
 }
 
 // isAuthError determines if an error represents an authentication failure.

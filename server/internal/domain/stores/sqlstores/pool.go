@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
@@ -73,6 +74,7 @@ func (s *SQLPoolStore) CreatePool(ctx context.Context, config *pb.PoolConfig, or
 		Url:         config.Url,
 		Username:    config.Username,
 		PasswordEnc: password,
+		Protocol:    dbProtocolFromURL(config.Url),
 		CreatedAt:   time.Now(),
 		OrgID:       orgID,
 	})
@@ -93,17 +95,20 @@ func (s *SQLPoolStore) UpdatePool(ctx context.Context, request *pb.UpdatePoolReq
 		return fleeterror.NewInternalErrorf("error getting pool: %v", err)
 	}
 
-	// Apply updates from the request
-	if request.PoolName != "" {
-		pool.PoolName = request.PoolName
+	// Apply updates from the request. Proto3 explicit presence: a field left
+	// absent means "leave unchanged"; an empty string explicitly set means
+	// the caller asked to blank the field (handler-level validation rejects
+	// empty url/username before we get here).
+	if request.PoolName != nil {
+		pool.PoolName = *request.PoolName
 	}
 
-	if request.Url != "" {
-		pool.Url = request.Url
+	if request.Url != nil {
+		pool.Url = *request.Url
 	}
 
-	if request.Username != "" {
-		pool.Username = request.Username
+	if request.Username != nil {
+		pool.Username = *request.Username
 	}
 
 	password := pool.PasswordEnc
@@ -115,12 +120,18 @@ func (s *SQLPoolStore) UpdatePool(ctx context.Context, request *pb.UpdatePoolReq
 		password = encryptedPassword
 	}
 
+	// Protocol is derived from the URL. If the URL didn't change,
+	// re-deriving from the stored pool.Url gives the same answer and
+	// keeps the column consistent with whatever we've persisted.
+	protocol := dbProtocolFromURL(pool.Url)
+
 	// Update the pool
 	return s.GetQueries(ctx).UpdatePool(ctx, sqlc.UpdatePoolParams{
 		PoolName:    pool.PoolName,
 		Url:         pool.Url,
 		Username:    pool.Username,
 		PasswordEnc: password,
+		Protocol:    protocol,
 		UpdatedAt:   time.Now(),
 		OrgID:       orgID,
 		ID:          request.PoolId,
@@ -140,5 +151,33 @@ func convertToProtoPool(pool sqlc.Pool) *pb.Pool {
 		PoolName: pool.PoolName,
 		Url:      pool.Url,
 		Username: pool.Username,
+		Protocol: DBProtocolToProto(pool.Protocol),
 	}
+}
+
+// DBProtocolToProto maps the DB protocol column to the proto enum.
+// Rows inserted before migration 000037 get the default 'sv1'; rows
+// inserted after it are derived from the URL scheme, so this is
+// effectively lossless on reads.
+func DBProtocolToProto(s string) pb.PoolProtocol {
+	switch s {
+	case "sv2":
+		return pb.PoolProtocol_POOL_PROTOCOL_SV2
+	default:
+		return pb.PoolProtocol_POOL_PROTOCOL_SV1
+	}
+}
+
+// dbProtocolFromURL derives the DB protocol column's value directly
+// from the pool URL's scheme. Parallels pools.ProtocolFromURL on the
+// domain side — kept inline here to avoid importing the pools domain
+// from the sqlstores layer. Falls back to 'sv1' when the scheme is
+// unrecognised; CEL validation upstream rejects bad schemes before
+// they ever reach the DB, so this path is just defensive.
+func dbProtocolFromURL(url string) string {
+	lower := strings.ToLower(strings.TrimSpace(url))
+	if strings.HasPrefix(lower, "stratum2+tcp://") || strings.HasPrefix(lower, "stratum2+ssl://") {
+		return "sv2"
+	}
+	return "sv1"
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
+	poolspb "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
 	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
@@ -74,4 +75,8 @@ type MinerConfiguredPool struct {
 	Priority int32
 	URL      string
 	Username string
+	// Protocol of the currently configured pool. Unspecified is treated as
+	// SV1. Plugins that can distinguish protocol from the device should
+	// set this so the worker-name reapply round-trip preserves SV2 intent.
+	Protocol poolspb.PoolProtocol
 }

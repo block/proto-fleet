@@ -51,6 +51,35 @@ func (d DatabaseMessageQueue) Enqueue(ctx context.Context, commandBatchLogUUID s
 	})
 }
 
+// EnqueuePerDevice writes one queue row per device with that device's
+// own already-marshaled payload. queue_message.payload is already a
+// per-row column, so the storage shape doesn't change — the new surface
+// is write-path only.
+func (d DatabaseMessageQueue) EnqueuePerDevice(ctx context.Context, commandBatchLogUUID string, commandType commandtype.Type, payloads map[int64][]byte) error {
+	if len(payloads) == 0 {
+		return nil
+	}
+	return db.WithTransactionNoResult(ctx, d.conn, func(q *sqlc.Queries) error {
+		for deviceID, payloadBytes := range payloads {
+			if len(payloadBytes) == 0 {
+				return fleeterror.NewInternalErrorf("empty payload for device %d in per-device enqueue", deviceID)
+			}
+			err := q.CreateQueueMessage(ctx, sqlc.CreateQueueMessageParams{
+				CommandBatchLogUuid: commandBatchLogUUID,
+				CommandType:         commandType.String(),
+				DeviceID:            deviceID,
+				Status:              sqlc.QueueStatusEnumPENDING,
+				RetryCount:          0,
+				Payload:             pqtype.NullRawMessage{RawMessage: payloadBytes, Valid: true},
+			})
+			if err != nil {
+				return fleeterror.NewInternalErrorf("failed to enqueue per-device message: %v", err)
+			}
+		}
+		return nil
+	})
+}
+
 func (d DatabaseMessageQueue) Dequeue(ctx context.Context) ([]Message, error) {
 	messages, err := db.WithTransaction(ctx, d.conn, func(q *sqlc.Queries) ([]Message, error) {
 		dbMessages, err := q.GetMessagesToProcess(ctx, sqlc.GetMessagesToProcessParams{

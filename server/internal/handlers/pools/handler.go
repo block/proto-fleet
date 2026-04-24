@@ -72,15 +72,23 @@ func (h *Handler) ValidatePool(ctx context.Context, r *connect.Request[pb.Valida
 		timeout = &tmp
 	}
 
-	ok, err := h.poolsSvc.ValidateConnection(ctx, r.Msg.Url, r.Msg.Username, pass, timeout)
-
+	// Forward the typed result as-is: Reachable / CredentialsVerified /
+	// Mode let the UI render "reachable but credentials unverified" (v1
+	// SV2 default) without guessing from the pair (protocol, success).
+	// Network-level failures (timeout, DNS, RST) still return a gRPC
+	// error; the success path with !Reachable would be unreachable but
+	// we keep the field for symmetry and future modes.
+	result, err := h.poolsSvc.ValidateConnection(ctx, r.Msg.Url, r.Msg.Username, pass, r.Msg.NoisePublicKey, timeout)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("failed to validate pool connection: %w", err))
 	}
-	if !ok {
-		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("failed to validate pool connection"))
+	if !result.Reachable {
+		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("pool unreachable"))
 	}
-	return connect.NewResponse(
-		&pb.ValidatePoolResponse{},
-	), nil
+
+	return connect.NewResponse(&pb.ValidatePoolResponse{
+		Reachable:           result.Reachable,
+		CredentialsVerified: result.CredentialsVerified,
+		Mode:                result.Mode,
+	}), nil
 }

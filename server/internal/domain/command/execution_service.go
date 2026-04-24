@@ -773,6 +773,7 @@ func configuredPoolToPayload(
 		Priority: priority,
 		URL:      pool.URL,
 		Username: rewritePoolUsernameWithStoredWorkerName(pool.Username, desiredWorkerName),
+		Protocol: pool.Protocol,
 	}
 }
 

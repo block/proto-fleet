@@ -11,6 +11,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 type stubPoolStore struct {
@@ -154,7 +155,7 @@ func TestService_UpdatePool_RejectsUsernameWithSeparator(t *testing.T) {
 
 	_, err := svc.UpdatePool(testCtx(t), &pb.UpdatePoolRequest{
 		PoolId:   1,
-		Username: "wallet.worker01",
+		Username: proto.String("wallet.worker01"),
 	})
 
 	require.Error(t, err)
@@ -179,8 +180,8 @@ func TestService_UpdatePool_AllowsUnchangedLegacyUsernameWithSeparator(t *testin
 
 	updated, err := svc.UpdatePool(testCtx(t), &pb.UpdatePoolRequest{
 		PoolId:   1,
-		PoolName: "Renamed Pool",
-		Username: "wallet.worker01",
+		PoolName: proto.String("Renamed Pool"),
+		Username: proto.String("wallet.worker01"),
 	})
 
 	require.NoError(t, err)
