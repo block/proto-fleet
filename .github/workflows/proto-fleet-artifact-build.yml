@@ -1,4 +1,4 @@
-name: ProtoFleet Artifact Build
+name: Proto Fleet Artifact Build
 
 on:
   workflow_call:
