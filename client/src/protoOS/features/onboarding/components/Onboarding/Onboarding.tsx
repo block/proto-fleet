@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import clsx from "clsx";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
 
@@ -31,36 +31,48 @@ const Onboarding = () => {
   const [createPoolsError, setCreatePoolsError] = useState<ErrorProps>();
   const { checkAccess, hasAccess, setHasAccess } = useAccessToken(pausedAction);
 
-  useEffect(() => {
+  // Resume paused onboarding action once auth becomes available
+  const [prevHasAccess, setPrevHasAccess] = useState(hasAccess);
+  const [prevPausedAction, setPrevPausedAction] = useState(pausedAction);
+  const [prevWaitingForAuth, setPrevWaitingForAuth] = useState(waitingForAuth);
+  if (prevHasAccess !== hasAccess || prevPausedAction !== pausedAction || prevWaitingForAuth !== waitingForAuth) {
+    setPrevHasAccess(hasAccess);
+    setPrevPausedAction(pausedAction);
+    setPrevWaitingForAuth(waitingForAuth);
     if (hasAccess && pausedAction && waitingForAuth) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- resume paused onboarding action once auth becomes available
       setPausedAction(false);
       // have to reset the error here, otherwise it would cause an infinite cycle
       setCreatePoolsError(undefined);
       setSettingUpMiner(true);
     }
-  }, [hasAccess, pausedAction, waitingForAuth]);
+  }
 
-  useEffect(() => {
-    const status = createPoolsError?.status;
-    if (settingUpMiner && (status === 401 || status === 422)) {
-      if (status === 401) {
+  // Pause setup flow and surface login modal when backend responds with auth error
+  const errorStatus = createPoolsError?.status;
+  const [prevErrorStatus, setPrevErrorStatus] = useState(errorStatus);
+  const [prevSettingUpMiner, setPrevSettingUpMiner] = useState(settingUpMiner);
+  if (prevErrorStatus !== errorStatus || prevSettingUpMiner !== settingUpMiner) {
+    setPrevErrorStatus(errorStatus);
+    setPrevSettingUpMiner(settingUpMiner);
+    if (settingUpMiner && (errorStatus === 401 || errorStatus === 422)) {
+      if (errorStatus === 401) {
         setHasAccess(false);
       }
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- pause setup flow and surface login modal when backend responds with auth error
       setSettingUpMiner(false);
       setPausedAction(true);
     }
     setWaitingForAuth(false);
-  }, [setHasAccess, settingUpMiner, createPoolsError?.status]);
+  }
 
-  useEffect(() => {
+  // Abandon paused action when user dismisses login modal
+  const [prevDismissedLoginModal, setPrevDismissedLoginModal] = useState(dismissedLoginModal);
+  if (prevDismissedLoginModal !== dismissedLoginModal) {
+    setPrevDismissedLoginModal(dismissedLoginModal);
     if (dismissedLoginModal) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- abandon paused action when user dismisses login modal
       setPausedAction(false);
       setDismissedLoginModal(false);
     }
-  }, [dismissedLoginModal, setDismissedLoginModal]);
+  }
 
   const onContinue = useCallback(
     (ignoreBackupPools?: boolean) => {

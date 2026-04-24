@@ -74,15 +74,17 @@ const PowerTarget = () => {
     }
   }, [hasAccess, pausedAuthAction, setPausedAuthAction, updateMiningTarget, lastMiningTarget]);
 
-  useEffect(() => {
+  // Abandon paused mining-target update when user dismisses login modal
+  const [prevDismissedLoginModal, setPrevDismissedLoginModal] = useState(dismissedLoginModal);
+  if (prevDismissedLoginModal !== dismissedLoginModal) {
+    setPrevDismissedLoginModal(dismissedLoginModal);
     if (dismissedLoginModal) {
       setPending(false);
       setPausedAuthAction(null);
       setDismissedLoginModal(false);
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- abandon paused mining-target update when user dismisses login modal
       setLastMiningTarget(null);
     }
-  }, [dismissedLoginModal, setDismissedLoginModal, setPausedAuthAction, setPending]);
+  }
 
   useEffect(() => {
     return () => {

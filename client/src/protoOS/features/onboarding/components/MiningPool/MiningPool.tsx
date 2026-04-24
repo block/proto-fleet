@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import clsx from "clsx";
 import { useCoolingStatus } from "@/protoOS/api";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
@@ -38,13 +38,16 @@ const MiningPoolPage = () => {
   const isCoolingStatusReady = coolingLoaded && !coolingPending;
   const noFansConnected = isCoolingStatusReady && areAllFansDisconnected(coolingData?.fans);
 
-  useEffect(() => {
-    if (settingUpMiner && createPoolsError?.status === 422) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- pause setup and prompt reauth when backend responds 422
+  // Pause setup and prompt reauth when backend responds 422
+  const errorStatus = createPoolsError?.status;
+  const [prevErrorStatus, setPrevErrorStatus] = useState(errorStatus);
+  if (prevErrorStatus !== errorStatus) {
+    setPrevErrorStatus(errorStatus);
+    if (settingUpMiner && errorStatus === 422) {
       setSettingUpMiner(false);
       setPausedAction(true);
     }
-  }, [createPoolsError?.status, settingUpMiner]);
+  }
 
   const proceedWithSetup = useCallback(() => {
     setPausedAction(true);

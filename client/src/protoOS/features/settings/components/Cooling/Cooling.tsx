@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useState } from "react";
 import clsx from "clsx";
 import InfoModal from "./InfoModal";
 import { useCoolingStatus } from "@/protoOS/api";
@@ -82,11 +82,12 @@ const Cooling = () => {
   const [showLearnMoreModal, setShowLearnMoreModal] = useState<boolean>(false);
   const [showSleepDialog, setShowSleepDialog] = useState<boolean>(false);
 
-  useEffect(() => {
-    // Read from store instead of local hook state for immediate updates
+  // Sync local draft with cooling store once it resolves
+  const [prevStoreCoolingMode, setPrevStoreCoolingMode] = useState(storeCoolingMode);
+  if (prevStoreCoolingMode !== storeCoolingMode) {
+    setPrevStoreCoolingMode(storeCoolingMode);
     if (storeCoolingMode) {
       if (isAirCooledMode(storeCoolingMode)) {
-        // eslint-disable-next-line react-hooks/set-state-in-effect -- sync local draft with cooling store once it resolves
         setCoolingMode(COOLING_MODES.air);
         setLoading(false);
       } else if (isImmersionMode(storeCoolingMode)) {
@@ -94,14 +95,16 @@ const Cooling = () => {
         setLoading(false);
       }
     }
-  }, [storeCoolingMode]);
+  }
 
-  useEffect(() => {
+  // Dismiss sleep dialog once miner reports sleeping state
+  const [prevIsSleeping, setPrevIsSleeping] = useState(isSleeping);
+  if (prevIsSleeping !== isSleeping) {
+    setPrevIsSleeping(isSleeping);
     if (isSleeping) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- dismiss sleep dialog once miner reports sleeping state
       setShowSleepDialog(false);
     }
-  }, [isSleeping]);
+  }
 
   const handleChange = useCallback(
     (id: string, confirmed = false) => {

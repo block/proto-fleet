@@ -69,17 +69,21 @@ const PowerWidget = ({
     ignoreSelectors: [".popover-content"],
   });
 
-  useEffect(() => {
+  // Open the confirmation dialog once auth is available for a paused action
+  const [prevHasAccess, setPrevHasAccess] = useState(hasAccess);
+  const [prevPausedAuthAction, setPrevPausedAuthAction] = useState(pausedAuthAction);
+  if (prevHasAccess !== hasAccess || prevPausedAuthAction !== pausedAuthAction) {
+    setPrevHasAccess(hasAccess);
+    setPrevPausedAuthAction(pausedAuthAction);
     if (hasAccess && pausedAuthAction) {
       if (pausedAuthAction === AUTH_ACTIONS.reboot) {
-        // eslint-disable-next-line react-hooks/set-state-in-effect -- open reboot confirmation once auth is available
         setWarnReboot(true);
       } else if (pausedAuthAction === AUTH_ACTIONS.sleep) {
         setWarnSleep(true);
       }
       setPausedAuthAction(null);
     }
-  }, [hasAccess, pausedAuthAction, setPausedAuthAction]);
+  }
 
   useEffect(() => {
     if (dismissedLoginModal) {
