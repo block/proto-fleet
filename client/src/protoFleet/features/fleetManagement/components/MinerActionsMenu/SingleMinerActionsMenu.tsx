@@ -25,7 +25,7 @@ import type { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telem
 import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
 import useUpdateWorkerNames from "@/protoFleet/api/useUpdateWorkerNames";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
-import { useBatchOperations } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
+import { useBatchActions } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
 import { ArrowRight, Edit, Ellipsis, MiningPools } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -68,7 +68,7 @@ const SingleMinerActionsMenu = ({
   onRefetchMiners,
   onWorkerNameUpdated,
 }: SingleMinerActionsMenuProps) => {
-  const { startBatchOperation, completeBatchOperation, removeDevicesFromBatch } = useBatchOperations();
+  const { startBatchOperation, completeBatchOperation, removeDevicesFromBatch } = useBatchActions();
   const { streamCommandBatchUpdates } = useMinerCommand();
   const { updateSingleWorkerName } = useUpdateWorkerNames();
   const selectedMiners = useMemo(() => [{ deviceIdentifier, deviceStatus }], [deviceIdentifier, deviceStatus]);

@@ -51,7 +51,7 @@ import {
 import { useMinerCommand } from "@/protoFleet/api/useMinerCommand";
 import useUpdateWorkerNames from "@/protoFleet/api/useUpdateWorkerNames";
 import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
-import { useBatchOperations } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
+import { useBatchActions } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
 import {
   applyFleetSelectablePairingStatuses,
   isFleetSelectablePairingStatus,
@@ -345,7 +345,7 @@ const BulkWorkerNameModal = ({
   getWorkerNameCredentials,
   onDismiss,
 }: BulkWorkerNameModalProps) => {
-  const { startBatchOperation, completeBatchOperation } = useBatchOperations();
+  const { startBatchOperation, completeBatchOperation } = useBatchActions();
   const preferences = useBulkWorkerNamePreferences();
   const setBulkWorkerNamePreferences = useSetBulkWorkerNamePreferences();
   const { handleAuthErrors } = useAuthErrors();

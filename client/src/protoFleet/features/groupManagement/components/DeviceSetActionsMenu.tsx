@@ -25,7 +25,7 @@ import {
   UpdateMinerPasswordModal,
 } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/ManageSecurity";
 import { useMinerActions } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/useMinerActions";
-import { useBatchOperations } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
+import { useBatchActions } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
 import { ArrowRight, Edit, Ellipsis } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { type ButtonVariant, sizes, variants } from "@/shared/components/Button";
@@ -81,7 +81,7 @@ const DeviceSetActionsMenuInner = ({
   actionActiveRef,
 }: DeviceSetActionsMenuProps) => {
   const { triggerRef, setPopoverRenderMode } = usePopover();
-  const batchOps = useBatchOperations();
+  const batchOps = useBatchActions();
   const [isOpen, setIsOpen] = useState(false);
 
   // Lazy-fetched member IDs for table context (when deviceSetId is provided but memberDeviceIds aren't)
