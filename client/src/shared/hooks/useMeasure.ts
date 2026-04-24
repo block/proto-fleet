@@ -114,16 +114,6 @@ function useMeasure<E extends Element = Element>(options: UseMeasureOptions = {}
     setElement(node);
   }, []);
 
-  // Reset measurements when element detaches so consumers don't read stale rects
-  const [prevElement, setPrevElement] = useState(element);
-  if (prevElement !== element) {
-    setPrevElement(element);
-    if (!element) {
-      setContentRect(defaultState);
-      setBoundingRect(defaultState);
-    }
-  }
-
   useLayoutEffect(() => {
     if (!element) return;
     if (!hasRequiredAPIs()) {

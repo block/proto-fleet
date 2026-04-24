@@ -74,17 +74,24 @@ const PowerTarget = () => {
     }
   }, [hasAccess, pausedAuthAction, setPausedAuthAction, updateMiningTarget, lastMiningTarget]);
 
-  // Abandon paused mining-target update when user dismisses login modal
+  // Abandon paused mining-target update when user dismisses login modal.
+  // Local state clears in render-phase; external store writes happen in the effect below
+  // (mutating a shared store during render can notify other subscribers mid-reconciliation).
   const [prevDismissedLoginModal, setPrevDismissedLoginModal] = useState(dismissedLoginModal);
   if (prevDismissedLoginModal !== dismissedLoginModal) {
     setPrevDismissedLoginModal(dismissedLoginModal);
     if (dismissedLoginModal) {
-      setPending(false);
-      setPausedAuthAction(null);
-      setDismissedLoginModal(false);
       setLastMiningTarget(null);
     }
   }
+
+  useEffect(() => {
+    if (dismissedLoginModal) {
+      setPending(false);
+      setPausedAuthAction(null);
+      setDismissedLoginModal(false);
+    }
+  }, [dismissedLoginModal, setPending, setPausedAuthAction, setDismissedLoginModal]);
 
   useEffect(() => {
     return () => {

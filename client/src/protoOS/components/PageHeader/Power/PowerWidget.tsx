@@ -81,9 +81,16 @@ const PowerWidget = ({
       } else if (pausedAuthAction === AUTH_ACTIONS.sleep) {
         setWarnSleep(true);
       }
-      setPausedAuthAction(null);
     }
   }
+
+  // Clear the auth-store flag after the warn dialog has surfaced (external store
+  // mutation must not happen in render; subscribers should only see updates post-commit)
+  useEffect(() => {
+    if (hasAccess && pausedAuthAction) {
+      setPausedAuthAction(null);
+    }
+  }, [hasAccess, pausedAuthAction, setPausedAuthAction]);
 
   useEffect(() => {
     if (dismissedLoginModal) {

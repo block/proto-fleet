@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import clsx from "clsx";
 import { ErrorProps } from "@/protoOS/api/apiResponseTypes";
 
@@ -64,15 +64,22 @@ const Onboarding = () => {
     setWaitingForAuth(false);
   }
 
-  // Abandon paused action when user dismisses login modal
+  // Abandon paused action when user dismisses login modal.
+  // Local state clears in render-phase; the Zustand store write happens in the effect below
+  // (mutating a shared store during render can notify other subscribers mid-reconciliation).
   const [prevDismissedLoginModal, setPrevDismissedLoginModal] = useState(dismissedLoginModal);
   if (prevDismissedLoginModal !== dismissedLoginModal) {
     setPrevDismissedLoginModal(dismissedLoginModal);
     if (dismissedLoginModal) {
       setPausedAction(false);
-      setDismissedLoginModal(false);
     }
   }
+
+  useEffect(() => {
+    if (dismissedLoginModal) {
+      setDismissedLoginModal(false);
+    }
+  }, [dismissedLoginModal, setDismissedLoginModal]);
 
   const onContinue = useCallback(
     (ignoreBackupPools?: boolean) => {
