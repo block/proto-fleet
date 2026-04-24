@@ -78,7 +78,6 @@ jobs:
   build-proto-fleet-windows-installer:
     name: Build ProtoFleet Windows installer
     runs-on: windows-latest
-    needs: [metadata]
     steps:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -324,7 +323,6 @@ jobs:
 
   build-timescaledb-image:
     name: Build TimescaleDB image (${{ matrix.arch }})
-    needs: [metadata]
     strategy:
       matrix:
         include:
@@ -448,7 +446,7 @@ jobs:
           echo "version: $VERSION" > deployment/version.txt
           echo "build_date: $BUILD_DATE" >> deployment/version.txt
           echo "commit: ${{ github.sha }}" >> deployment/version.txt
-          if [[ "$CHANNEL" != "release" ]]; then
+          if [[ "$CHANNEL" == "nightly" ]]; then
             echo "channel: $CHANNEL" >> deployment/version.txt
           fi
 
