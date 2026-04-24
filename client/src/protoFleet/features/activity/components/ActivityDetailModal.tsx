@@ -124,16 +124,14 @@ function BatchDeviceResults({
     );
   }
 
-  if (error) {
-    return (
+  if (!data) {
+    return error ? (
       <div className="text-intent-critical flex items-center gap-2 text-200">
         <Alert width="w-3.5" />
         <span>{error}</span>
       </div>
-    );
+    ) : null;
   }
-
-  if (!data) return null;
 
   if (data.detailsPruned) {
     return (
