@@ -193,27 +193,35 @@ func resolveSingle(pool Pool, caps DeviceCapabilities, proxy ProxyConfig) (strin
 	}
 }
 
-// sameStratumURL compares two stratum URLs for routing equivalence.
-// Pool URLs sometimes carry an /AUTHORITY_PUBKEY suffix (Braiins format)
-// and the proxy's configured upstream may or may not; the host:port pair
-// is what determines whether the same pool is reached. Trim trailing
-// slashes and the path so a saved pool of stratum2+tcp://host:port and
-// a configured upstream of stratum2+tcp://host:port/PUB compare equal.
+// sameStratumURL compares two stratum URLs for upstream-routing
+// equivalence. Both pool URLs and the proxy upstream may carry an
+// /AUTHORITY_PUBKEY suffix (Braiins SV2 format) — that suffix pins the
+// pool's identity, so it MUST be part of the comparison. Two URLs at the
+// same host:port with different pubkeys point at the same TCP endpoint
+// but different SV2 identities, and routing miners through a tProxy
+// pinned to identity A while the operator selected identity B would
+// silently divert hashrate. We therefore compare the full URL after
+// scheme-case normalisation; an asymmetric path (one side has /KEY,
+// the other doesn't) is also a mismatch — the operator must align
+// their proxy and pool entries.
 func sameStratumURL(a, b string) bool {
 	return canonicaliseStratumURL(a) == canonicaliseStratumURL(b)
 }
 
 func canonicaliseStratumURL(u string) string {
-	s := strings.ToLower(strings.TrimSpace(u))
-	if i := strings.Index(s, "://"); i != -1 {
-		scheme := s[:i]
-		rest := s[i+3:]
-		if j := strings.Index(rest, "/"); j != -1 {
-			rest = rest[:j]
-		}
-		return scheme + "://" + rest
+	s := strings.TrimSpace(u)
+	// Lowercase only the scheme and host portions — pubkeys in the
+	// /AUTHORITY_PUBKEY suffix are base58-ish and case-significant.
+	scheme, rest, ok := strings.Cut(s, "://")
+	if !ok {
+		return strings.ToLower(s)
 	}
-	return s
+	host, path, hasPath := strings.Cut(rest, "/")
+	canon := strings.ToLower(scheme) + "://" + strings.ToLower(host)
+	if hasPath {
+		canon += "/" + path
+	}
+	return canon
 }
 
 // normalizeProtocol collapses UNSPECIFIED to SV1 so internal comparisons

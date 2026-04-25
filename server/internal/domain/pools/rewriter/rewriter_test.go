@@ -237,6 +237,60 @@ func TestPoolURLsForDevice_NilCapabilitiesFallbackIsSV1Only(t *testing.T) {
 	assert.True(t, errors.Is(err, ErrSV2PoolNotSupportedByDevice))
 }
 
+func TestPoolURLsForDevice_ProxyUpstreamMismatchOnAuthorityKey(t *testing.T) {
+	// Two pools at the same host:port but with different Braiins-style
+	// /AUTHORITY_PUBKEY suffixes are different SV2 endpoints, so routing
+	// miners assigned to PUB_B through a proxy pinned to PUB_A would
+	// silently divert hashrate. The mismatch must fire even though the
+	// host:port portions are identical.
+	const (
+		urlPubA = "stratum2+tcp://pool.example.com:34254/PubKeyA"
+		urlPubB = "stratum2+tcp://pool.example.com:34254/PubKeyB"
+	)
+	_, err := PoolURLsForDevice(
+		[]SlotAssignment{
+			{Slot: SlotDefault, Pool: Pool{URL: urlPubB, Protocol: poolspb.PoolProtocol_POOL_PROTOCOL_SV2}},
+		},
+		fakeCaps{},
+		ProxyConfig{ProxyEnabled: true, MinerURL: proxyURL, UpstreamURL: urlPubA},
+	)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ErrProxyUpstreamMismatch))
+}
+
+func TestPoolURLsForDevice_ProxyUpstreamMismatchOnAsymmetricAuthorityKey(t *testing.T) {
+	// One side has /PubKey, the other doesn't — pubkey is a load-bearing
+	// part of the SV2 identity, so an unspecified-vs-specified asymmetry
+	// has to be a mismatch (not a host:port-only equivalence).
+	_, err := PoolURLsForDevice(
+		[]SlotAssignment{
+			{Slot: SlotDefault, Pool: Pool{URL: "stratum2+tcp://pool.example.com:34254/PubKeyA", Protocol: poolspb.PoolProtocol_POOL_PROTOCOL_SV2}},
+		},
+		fakeCaps{},
+		ProxyConfig{ProxyEnabled: true, MinerURL: proxyURL, UpstreamURL: "stratum2+tcp://pool.example.com:34254"},
+	)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ErrProxyUpstreamMismatch))
+}
+
+func TestPoolURLsForDevice_ProxyUpstreamMatchAllowsCaseDifferentHost(t *testing.T) {
+	// Hostname comparison is case-insensitive; pubkey comparison is not.
+	const (
+		poolURL    = "stratum2+tcp://Pool.Example.com:34254/SamePub"
+		proxyUpURL = "stratum2+tcp://pool.example.com:34254/SamePub"
+	)
+	resolved, err := PoolURLsForDevice(
+		[]SlotAssignment{
+			{Slot: SlotDefault, Pool: Pool{URL: poolURL, Protocol: poolspb.PoolProtocol_POOL_PROTOCOL_SV2}},
+		},
+		fakeCaps{},
+		ProxyConfig{ProxyEnabled: true, MinerURL: proxyURL, UpstreamURL: proxyUpURL},
+	)
+	require.NoError(t, err)
+	require.Len(t, resolved, 1)
+	assert.Equal(t, ReasonProxied, resolved[0].RewriteReason)
+}
+
 // --- MergeCapabilities ---------------------------------------------------
 
 func TestMergeCapabilities_Precedence(t *testing.T) {

@@ -52,6 +52,49 @@ func TestConfig_ValidateEnabledWithBothURLsIsOK(t *testing.T) {
 	require.NoError(t, c.Validate())
 }
 
+func TestConfig_ValidateRejectsUnsupportedSchemes(t *testing.T) {
+	cases := []struct {
+		name    string
+		cfg     Config
+		wantErr string
+	}{
+		{
+			name: "miner url ssl rejected",
+			cfg: Config{
+				ProxyEnabled:     true,
+				ProxyMinerURL:    "stratum+ssl://lan:34255",
+				ProxyUpstreamURL: "stratum2+tcp://pool:34254",
+			},
+			wantErr: "STRATUM_V2_PROXY_MINER_URL",
+		},
+		{
+			name: "miner url ws rejected",
+			cfg: Config{
+				ProxyEnabled:     true,
+				ProxyMinerURL:    "stratum+ws://lan:34255",
+				ProxyUpstreamURL: "stratum2+tcp://pool:34254",
+			},
+			wantErr: "STRATUM_V2_PROXY_MINER_URL",
+		},
+		{
+			name: "upstream url ssl rejected",
+			cfg: Config{
+				ProxyEnabled:     true,
+				ProxyMinerURL:    "stratum+tcp://lan:34255",
+				ProxyUpstreamURL: "stratum2+ssl://pool:34254",
+			},
+			wantErr: "STRATUM_V2_PROXY_UPSTREAM_URL",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.cfg.Validate()
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+}
+
 func TestConfig_RewriterConfig(t *testing.T) {
 	c := Config{
 		ProxyEnabled:  true,

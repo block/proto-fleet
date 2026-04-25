@@ -9,6 +9,7 @@ package sv2
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/pools/rewriter"
@@ -32,7 +33,11 @@ type Config struct {
 // contract. Called at startup so a misconfigured deployment fails fast
 // instead of rejecting pool assignments at commit time. When
 // ProxyEnabled is false, every other field is ignored — validation
-// passes regardless.
+// passes regardless. URL schemes are restricted to the runtime-supported
+// subset: ProxyMinerURL must be stratum+tcp:// (the SV1 listener miners
+// dial), ProxyUpstreamURL must be stratum2+tcp:// (the SV2 endpoint the
+// tProxy bridges to). SSL/WS variants are rejected up front rather than
+// being silently accepted by the deploy and failing later.
 func (c Config) Validate() error {
 	if !c.ProxyEnabled {
 		return nil
@@ -42,6 +47,12 @@ func (c Config) Validate() error {
 	}
 	if c.ProxyUpstreamURL == "" {
 		return fmt.Errorf("STRATUM_V2_PROXY_UPSTREAM_URL is required when STRATUM_V2_PROXY_ENABLED=true")
+	}
+	if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(c.ProxyMinerURL)), "stratum+tcp://") {
+		return fmt.Errorf("STRATUM_V2_PROXY_MINER_URL must be a stratum+tcp:// URL (plain TCP only in v1), got %q", c.ProxyMinerURL)
+	}
+	if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(c.ProxyUpstreamURL)), "stratum2+tcp://") {
+		return fmt.Errorf("STRATUM_V2_PROXY_UPSTREAM_URL must be a stratum2+tcp:// URL (plain TCP only in v1), got %q", c.ProxyUpstreamURL)
 	}
 	return nil
 }

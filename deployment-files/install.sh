@@ -324,8 +324,8 @@ EOF
     # routed to a port the proxy isn't listening on. Render it from the
     # same regex; default to listening on all interfaces inside the
     # container so containerised miners and host miners both reach it.
-    if [[ "$sv2_miner_url" =~ ^stratum\+(tcp|ssl|ws)://([^:/]+):([0-9]+).*$ ]]; then
-      local downstream_port="${BASH_REMATCH[3]}"
+    if [[ "$sv2_miner_url" =~ ^stratum\+tcp://([^:/]+):([0-9]+).*$ ]]; then
+      local downstream_port="${BASH_REMATCH[2]}"
       sed -i.bak \
         -e "s|^downstream_port = .*|downstream_port = ${downstream_port}|" \
         "$toml_template"
@@ -340,7 +340,7 @@ EOF
         rm -f "${env_file}.bak"
       fi
     elif [ -n "$sv2_miner_url" ]; then
-      echo "   ⚠️  Miner URL '${sv2_miner_url}' does not match stratum+(tcp|ssl|ws)://host:port; downstream_port left at the template default. Edit ${toml_template} if you chose a non-default port."
+      echo "   ⚠️  Miner URL '${sv2_miner_url}' does not match stratum+tcp://host:port; downstream_port left at the template default. Plain TCP only in v1; edit ${toml_template} if you chose a non-default port."
     fi
   fi
 
