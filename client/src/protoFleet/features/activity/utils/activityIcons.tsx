@@ -1,5 +1,6 @@
 import { type ReactNode } from "react";
 
+import { baseEventType } from "@/protoFleet/features/activity/utils/eventType";
 import {
   Alert,
   Edit,
@@ -63,5 +64,5 @@ const iconMap: Record<string, (props: IconProps) => ReactNode> = {
 };
 
 export function getActivityIcon(eventType: string): (props: IconProps) => ReactNode {
-  return iconMap[eventType] ?? Info;
+  return iconMap[eventType] ?? iconMap[baseEventType(eventType)] ?? Info;
 }

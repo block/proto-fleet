@@ -24,7 +24,7 @@ export const formatTimestamp = (timestamp?: number): string => {
 };
 
 /**
- * Format timestamp as "MM/DD/YY h:mm PM" with zero-padded month/day.
+ * Format timestamp as "MM/DD/YY h:mm:ss PM" with zero-padded month/day.
  * Used by the Activity page for a more compact display format.
  *
  * @param timestamp - Unix timestamp in seconds
@@ -32,13 +32,13 @@ export const formatTimestamp = (timestamp?: number): string => {
  */
 export const formatActivityTimestamp = (timestamp?: number): string => {
   if (timestamp == null || !Number.isFinite(timestamp)) return "";
-  const date = new Date(timestamp * 1000);
-  const month = (date.getMonth() + 1).toString().padStart(2, "0");
-  const day = date.getDate().toString().padStart(2, "0");
-  const year = date.getFullYear().toString().slice(-2);
-  let hours = date.getHours();
-  const minutes = date.getMinutes().toString().padStart(2, "0");
-  const ampm = hours >= 12 ? "PM" : "AM";
-  hours = hours % 12 || 12;
-  return `${month}/${day}/${year} ${hours}:${minutes} ${ampm}`;
+  return new Date(timestamp * 1000).toLocaleString(undefined, {
+    month: "2-digit",
+    day: "2-digit",
+    year: "2-digit",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+  });
 };

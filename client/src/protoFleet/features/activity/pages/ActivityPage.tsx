@@ -171,7 +171,6 @@ const ActivityPage = () => {
       <div className="p-10 pt-0 phone:p-6 phone:pt-0 tablet:p-6 tablet:pt-0">
         <ActivityTable
           activities={activities}
-          totalCount={totalCount}
           noDataElement={
             isLoading ? (
               <></>
