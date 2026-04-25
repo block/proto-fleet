@@ -92,8 +92,11 @@ The most important ones from an operator's perspective:
    native-SV2 miners or a second proxy instance running out-of-band.
 2. No runtime reconfiguration — restart after edits.
 3. No Fleet-side ingestion of per-miner SV2 stats yet.
-4. SV2 `ValidatePool` does a Noise NX handshake when the operator
-   supplies the pool's authority public key (32 raw bytes); otherwise it
-   falls back to a plain TCP dial. The handshake mode reports
-   `Reachable=true, CredentialsVerified=false, Mode=SV2_HANDSHAKE` —
-   credentials are unverified because no SV2 channel is opened.
+4. SV2 `ValidatePool` requires the pool's 32-byte Noise authority
+   public key. The probe runs a Noise NX handshake against the supplied
+   key; success reports `Reachable=true, CredentialsVerified=false,
+   Mode=SV2_HANDSHAKE` (the handshake pins identity but doesn't open
+   a channel, so credentials aren't verified). A request without a
+   key is rejected with `INVALID_ARGUMENT` — silently downgrading to
+   a plain TCP dial would turn the endpoint into a generic
+   reachability oracle.
