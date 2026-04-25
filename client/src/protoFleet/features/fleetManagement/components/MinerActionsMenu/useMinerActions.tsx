@@ -91,11 +91,11 @@ interface UseMinerActionsParams {
   currentFilter?: MinerListFilter;
   onActionStart?: () => void;
   onActionComplete?: () => void;
-  /** Start tracking a batch operation (from useBatchOperations) */
+  /** Start tracking a batch operation */
   startBatchOperation?: (batch: BatchOperationInput) => void;
-  /** Complete a batch operation (from useBatchOperations) */
+  /** Complete a batch operation */
   completeBatchOperation?: (batchIdentifier: string) => void;
-  /** Remove devices from a batch (from useBatchOperations) */
+  /** Remove devices from a batch */
   removeDevicesFromBatch?: (batchIdentifier: string, deviceIds: string[]) => void;
   /** The miners map — used for firmware model checks, unpair subtitle, and security grouping */
   miners?: Record<string, MinerStateSnapshot>;

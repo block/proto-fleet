@@ -1,0 +1,286 @@
+name: Nightly Builds
+
+on:
+  schedule:
+    # Run daily at 4 AM UTC on the default branch.
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Optional unique nightly version override. Defaults to nightly-YYYYMMDD-<short-sha>.
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-channel
+  cancel-in-progress: false
+
+jobs:
+  metadata:
+    name: Build metadata
+    runs-on: ubuntu-latest
+    outputs:
+      build_date: ${{ steps.metadata.outputs.build_date }}
+      version: ${{ steps.metadata.outputs.version }}
+    steps:
+      - name: Guard default branch
+        env:
+          CURRENT_REF: ${{ github.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          EXPECTED_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ "$CURRENT_REF" != "refs/heads/$DEFAULT_BRANCH" ]]; then
+            echo "::error::Nightly builds must run on the default branch ($DEFAULT_BRANCH); refusing to run from $CURRENT_REF."
+            exit 1
+          fi
+          BRANCH_TIP=$(gh api "repos/${GITHUB_REPOSITORY}/branches/${DEFAULT_BRANCH}" --jq '.commit.sha')
+          if [[ "$BRANCH_TIP" != "$EXPECTED_SHA" ]]; then
+            echo "::error::Run SHA $EXPECTED_SHA is not the current tip of $DEFAULT_BRANCH (tip is $BRANCH_TIP). Refusing to publish a stale nightly; trigger a fresh workflow_dispatch against the current tip instead."
+            exit 1
+          fi
+
+      - name: Generate nightly metadata
+        id: metadata
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version || '' }}
+        run: |
+          BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          DATE_STAMP=$(date -u +"%Y%m%d")
+          SHORT_SHA="${GITHUB_SHA::12}"
+
+          if [[ -n "$INPUT_VERSION" ]]; then
+            VERSION="$INPUT_VERSION"
+          else
+            VERSION="nightly-${DATE_STAMP}-${SHORT_SHA}"
+          fi
+
+          if [[ ! "$VERSION" =~ ^nightly-[0-9]{8}-([0-9a-f]{12})$ ]]; then
+            echo "::error::Version '$VERSION' must match nightly-YYYYMMDD-<12-char-sha>."
+            exit 1
+          fi
+
+          if [[ "${BASH_REMATCH[1]}" != "$SHORT_SHA" ]]; then
+            echo "::error::Version '$VERSION' has SHA suffix '${BASH_REMATCH[1]}' but the commit being built is '$SHORT_SHA'."
+            exit 1
+          fi
+
+          echo "build_date=$BUILD_DATE" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Nightly build"
+            echo ""
+            echo "- Version: \`$VERSION\`"
+            echo "- Build date: \`$BUILD_DATE\`"
+            echo "- Commit: \`${GITHUB_SHA}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build-artifacts:
+    name: Build nightly artifacts
+    needs: [metadata]
+    uses: ./.github/workflows/proto-fleet-artifact-build.yml
+    with:
+      version: ${{ needs.metadata.outputs.version }}
+      build_date: ${{ needs.metadata.outputs.build_date }}
+      retention_days: 7
+      channel: nightly
+      is_prerelease: true
+    secrets: inherit
+
+  publish-nightly:
+    name: Publish nightly prerelease
+    runs-on: ubuntu-latest
+    needs:
+      - metadata
+      - build-artifacts
+    permissions:
+      contents: write
+    env:
+      BUILD_DATE: ${{ needs.metadata.outputs.build_date }}
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.metadata.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Download deployment bundle artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: proto-fleet-deployment-bundle-*
+          path: /tmp/nightly-assets/bundles
+          merge-multiple: true
+
+      - name: Download Windows installer artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: proto-fleet-windows-installer
+          path: /tmp/nightly-assets/windows
+
+      - name: Download server artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: proto-fleet-server-artifact-*
+          path: /tmp/nightly-assets/server
+          merge-multiple: true
+
+      - name: Download client artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: proto-fleet-client-artifact
+          path: /tmp/nightly-assets/client
+
+      - name: Download ProtoOS artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: proto-os-artifact
+          path: /tmp/nightly-assets/proto-os
+
+      - name: List nightly assets
+        run: find /tmp/nightly-assets -type f | sort
+
+      - name: Create release notes
+        run: |
+          cat > /tmp/nightly-release-notes.md <<EOF
+          Nightly build from \`${{ github.ref_name }}\`.
+
+          - Version: \`${VERSION}\`
+          - Build date: \`${BUILD_DATE}\`
+          - Commit: \`${{ github.sha }}\`
+          - Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+          Nightly releases are immutable prereleases. Use the \`nightly\` installer channel to resolve the latest successful nightly build.
+          EOF
+
+      - name: Probe existing nightly release
+        id: release_state
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          if RELEASE_JSON=$(gh release view "$VERSION" --json isDraft,targetCommitish 2>/dev/null); then
+            IS_DRAFT=$(jq -r '.isDraft' <<<"$RELEASE_JSON")
+            TARGET_SHA=$(jq -r '.targetCommitish' <<<"$RELEASE_JSON")
+            if [[ "$TARGET_SHA" != "$EXPECTED_SHA" ]]; then
+              echo "::error::Release '$VERSION' already exists targeting commit '$TARGET_SHA' but this run is for '$EXPECTED_SHA'. Refusing to proceed."
+              exit 1
+            fi
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "is_draft=$IS_DRAFT" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "is_draft=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create draft nightly prerelease
+        if: steps.release_state.outputs.exists != 'true'
+        run: |
+          gh release create "$VERSION" \
+            /tmp/nightly-assets/bundles/proto-fleet-${VERSION}-*.tar.gz \
+            /tmp/nightly-assets/windows/installer.exe \
+            /tmp/nightly-assets/windows/uninstall.exe \
+            /tmp/nightly-assets/server/proto-fleet-server-${VERSION}-*.tar.gz \
+            /tmp/nightly-assets/client/proto-fleet-client-${VERSION}.tar.gz \
+            /tmp/nightly-assets/proto-os/proto-os-${VERSION}.tar.gz \
+            /tmp/nightly-assets/proto-os/proto-os_${VERSION}.ipk \
+            ./deployment-files/install.sh \
+            ./deployment-files/uninstall.sh \
+            --draft \
+            --notes-file /tmp/nightly-release-notes.md \
+            --prerelease \
+            --target "${{ github.sha }}" \
+            --title "Nightly Build ${VERSION}"
+
+      - name: Repair existing draft assets
+        if: steps.release_state.outputs.exists == 'true' && steps.release_state.outputs.is_draft == 'true'
+        run: |
+          gh release upload "$VERSION" \
+            /tmp/nightly-assets/bundles/proto-fleet-${VERSION}-*.tar.gz \
+            /tmp/nightly-assets/windows/installer.exe \
+            /tmp/nightly-assets/windows/uninstall.exe \
+            /tmp/nightly-assets/server/proto-fleet-server-${VERSION}-*.tar.gz \
+            /tmp/nightly-assets/client/proto-fleet-client-${VERSION}.tar.gz \
+            /tmp/nightly-assets/proto-os/proto-os-${VERSION}.tar.gz \
+            /tmp/nightly-assets/proto-os/proto-os_${VERSION}.ipk \
+            ./deployment-files/install.sh \
+            ./deployment-files/uninstall.sh \
+            --clobber
+
+      - name: Publish nightly prerelease
+        if: steps.release_state.outputs.is_draft != 'false'
+        run: gh release edit "$VERSION" --draft=false --prerelease=true
+
+      - name: Update nightly channel pointer
+        run: |
+          POINTER_DIR=$(mktemp -d)
+          git init "$POINTER_DIR"
+          cd "$POINTER_DIR"
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+          if git fetch --depth=1 origin nightly-channel; then
+            git checkout -B nightly-channel FETCH_HEAD
+          else
+            git checkout --orphan nightly-channel
+            git rm -rf . >/dev/null 2>&1 || true
+          fi
+
+          printf '%s\n' "$VERSION" > latest.txt
+          cat > latest.json <<EOF
+          {
+            "version": "$VERSION",
+            "tag": "$VERSION",
+            "commit": "${{ github.sha }}",
+            "build_date": "$BUILD_DATE",
+            "run_id": "${{ github.run_id }}",
+            "run_number": "${{ github.run_number }}",
+            "run_attempt": "${{ github.run_attempt }}",
+            "release_url": "${{ github.server_url }}/${{ github.repository }}/releases/tag/$VERSION"
+          }
+          EOF
+
+          git add latest.txt latest.json
+          if git diff --cached --quiet; then
+            echo "Nightly channel pointer already up to date."
+            exit 0
+          fi
+
+          git -c user.name="github-actions[bot]" \
+            -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -m "Update nightly channel to ${VERSION}"
+          git push origin HEAD:nightly-channel
+
+  summarize:
+    name: Summarize artifacts
+    runs-on: ubuntu-latest
+    needs:
+      - metadata
+      - publish-nightly
+    steps:
+      - name: Summarize nightly artifacts
+        env:
+          NIGHTLY_VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          {
+            echo "### Nightly artifacts"
+            echo ""
+            echo "Version: \`$NIGHTLY_VERSION\`"
+            echo ""
+            echo "Actions artifacts retained for 7 days."
+            echo "Published immutable prerelease: ${{ github.server_url }}/${{ github.repository }}/releases/tag/$NIGHTLY_VERSION"
+            echo "Latest nightly pointer: https://raw.githubusercontent.com/${{ github.repository }}/nightly-channel/latest.txt"
+            echo ""
+            echo "Published release assets:"
+            echo ""
+            echo "- \`proto-fleet-${NIGHTLY_VERSION}-amd64.tar.gz\`"
+            echo "- \`proto-fleet-${NIGHTLY_VERSION}-arm64.tar.gz\`"
+            echo "- \`proto-fleet-server-${NIGHTLY_VERSION}-amd64.tar.gz\`"
+            echo "- \`proto-fleet-server-${NIGHTLY_VERSION}-arm64.tar.gz\`"
+            echo "- \`proto-fleet-client-${NIGHTLY_VERSION}.tar.gz\`"
+            echo "- \`proto-os-${NIGHTLY_VERSION}.tar.gz\`"
+            echo "- \`proto-os_${NIGHTLY_VERSION}.ipk\`"
+            echo "- \`installer.exe\`"
+            echo "- \`uninstall.exe\`"
+            echo "- \`install.sh\`"
+          } >> "$GITHUB_STEP_SUMMARY"
