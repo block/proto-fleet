@@ -291,9 +291,18 @@ EOF
     echo "   ❌ URL must be stratum2+tcp://host:port/AUTHORITY_PUBKEY (the pubkey suffix is required so Fleet and the proxy agree on the pool identity)."
   done
 
+  # The miner-facing URL must match what the server's startup validation
+  # accepts (stratum+tcp://host:port). Loop on the prompt until the
+  # operator types something that parses, otherwise the installer would
+  # successfully write a STRATUM_V2_PROXY_MINER_URL the server then
+  # rejects at startup.
   local sv2_miner_url=""
-  while [ -z "$sv2_miner_url" ]; do
+  while true; do
     read -p "   Miner-facing proxy URL (stratum+tcp://host:port, default port 34255): " sv2_miner_url
+    if [[ "$sv2_miner_url" =~ ^stratum\+tcp://([^:/]+):([0-9]+)$ ]]; then
+      break
+    fi
+    echo "   ❌ URL must be stratum+tcp://host:port (plain TCP only in v1; explicit port required)."
   done
 
   cat >> "$env_file" <<EOF

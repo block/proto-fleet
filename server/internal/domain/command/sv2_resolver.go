@@ -5,6 +5,8 @@ import (
 	"log/slog"
 
 	"github.com/block/proto-fleet/server/internal/domain/pools/rewriter"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
+
 	tmodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
 )
@@ -19,25 +21,42 @@ type telemetryMetricsBatchGetter interface {
 	) (map[tmodels.DeviceIdentifier]modelsV2.DeviceMetrics, error)
 }
 
-// NewTelemetrySV2Resolver constructs an SV2CapabilityResolver backed by the
-// latest telemetry scrape's StratumV2Support per device. Plugins probe the
-// firmware on every cycle and set the field; the resolver pulls it for each
-// requested device and merges via rewriter.MergeCapabilities so an
-// Unknown/Unspecified result correctly falls back to the SV1 path.
+// staticCapabilitiesProvider returns the merged static + model
+// capability view for a given (org, device-identifier). Returning nil
+// for an unknown device is fine; the resolver passes that into
+// MergeCapabilities as the static layer (an empty map), which leaves
+// the SV2 bit driven by the telemetry layer alone.
+type staticCapabilitiesProvider interface {
+	StaticCapabilitiesForDevice(ctx context.Context, orgID int64, deviceIdentifier string) sdk.Capabilities
+}
+
+// NewTelemetrySV2Resolver constructs an SV2CapabilityResolver that
+// merges three layers, in order of increasing precedence:
 //
-// Telemetry-only is the intended v1 sourcing because every plugin in the
-// rollout writes the field explicitly. Static-driver-capability merging is a
-// later concern that arrives only when a plugin can't probe (none today).
-func NewTelemetrySV2Resolver(store telemetryMetricsBatchGetter) SV2CapabilityResolver {
-	return &telemetrySV2Resolver{store: store}
+//  1. Static driver capabilities (from the plugin's DescribeDriver),
+//     plus any per-model overrides — this is the day-1 view available
+//     before any telemetry scrape has landed and the only signal a
+//     plugin without a live SV2 probe ever provides.
+//  2. Telemetry-reported StratumV2Support — what the firmware actually
+//     said in the most recent scrape; overrides the static layer when
+//     the value is Supported or Unsupported.
+//
+// Telemetry-only sourcing was the v1 approach but misclassified
+// SV2-native miners as SV1-only during the window before their first
+// scrape and on transient telemetry-store failures. Static caps now
+// preserve the driver/model view in those cases.
+func NewTelemetrySV2Resolver(store telemetryMetricsBatchGetter, statics staticCapabilitiesProvider) SV2CapabilityResolver {
+	return &telemetrySV2Resolver{store: store, statics: statics}
 }
 
 type telemetrySV2Resolver struct {
-	store telemetryMetricsBatchGetter
+	store   telemetryMetricsBatchGetter
+	statics staticCapabilitiesProvider
 }
 
 func (r *telemetrySV2Resolver) ResolveCapabilities(
 	ctx context.Context,
+	orgID int64,
 	deviceIdentifiers []string,
 ) map[string]rewriter.DeviceCapabilities {
 	if len(deviceIdentifiers) == 0 {
@@ -49,11 +68,14 @@ func (r *telemetrySV2Resolver) ResolveCapabilities(
 	}
 	batch, err := r.store.GetLatestDeviceMetricsBatch(ctx, ids)
 	if err != nil {
-		// Failing closed (return empty caps → SV1-only) is safe: it
-		// degrades to the proxy path for SV2 pools, never to direct
-		// dispatch of an SV2 URL at an SV1-only firmware.
-		slog.Warn("sv2 capability resolver: telemetry lookup failed; treating fleet as SV1-only", "error", err)
-		return nil
+		// Telemetry batch failure: don't strip the static-capability
+		// layer. Build the result from static caps alone with telemetry
+		// reported as Unknown so MergeCapabilities leaves the SV2 bit
+		// driven by static. Without this, a transient telemetry outage
+		// would silently demote every native-SV2 miner to SV1-only and
+		// route them through the proxy.
+		slog.Warn("sv2 capability resolver: telemetry lookup failed; falling back to static caps", "error", err)
+		batch = nil
 	}
 	out := make(map[string]rewriter.DeviceCapabilities, len(deviceIdentifiers))
 	for _, id := range deviceIdentifiers {
@@ -61,7 +83,11 @@ func (r *telemetrySV2Resolver) ResolveCapabilities(
 		if m, ok := batch[tmodels.DeviceIdentifier(id)]; ok {
 			sv2 = m.StratumV2Support
 		}
-		out[id] = rewriter.MergeCapabilities(nil, nil, sv2)
+		var static map[string]bool
+		if r.statics != nil {
+			static = r.statics.StaticCapabilitiesForDevice(ctx, orgID, id)
+		}
+		out[id] = rewriter.MergeCapabilities(static, nil, sv2)
 	}
 	return out
 }

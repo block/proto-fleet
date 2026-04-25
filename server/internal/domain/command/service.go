@@ -81,8 +81,12 @@ type Service struct {
 // driver caps via rewriter.MergeCapabilities. A nil resolver is valid and
 // means "treat every device as SV1-only" — useful during the phased
 // plugin rollout before every plugin reports dynamic SV2 support.
+//
+// orgID is passed in so the static-capability lookup can be tenant-scoped
+// (the device store keys by org_id and we'd otherwise have to dig the
+// session out of the context every call).
 type SV2CapabilityResolver interface {
-	ResolveCapabilities(ctx context.Context, deviceIdentifiers []string) map[string]rewriter.DeviceCapabilities
+	ResolveCapabilities(ctx context.Context, orgID int64, deviceIdentifiers []string) map[string]rewriter.DeviceCapabilities
 }
 
 // ProxyHealthChecker reports whether the bundled tProxy is up. The
@@ -1097,11 +1101,21 @@ func (s *Service) resolveSV2Capabilities(ctx context.Context, idByIdentifier map
 	if s.sv2Caps == nil {
 		return nil
 	}
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		// No session in this code path is a programmer bug — every
+		// preflight/commit caller goes through an authenticated handler.
+		// Returning nil keeps the request safe (every device falls back
+		// to SV1-only routing) while the panic-free Warn surfaces the
+		// programming error in logs.
+		slog.Warn("sv2 capability resolver: no session in context; treating fleet as SV1-only", "error", err)
+		return nil
+	}
 	identifiers := make([]string, 0, len(idByIdentifier))
 	for k := range idByIdentifier {
 		identifiers = append(identifiers, k)
 	}
-	return s.sv2Caps.ResolveCapabilities(ctx, identifiers)
+	return s.sv2Caps.ResolveCapabilities(ctx, info.OrganizationID, identifiers)
 }
 
 // buildPreflightSlotAssignments extracts the (slot, pool) pairs from the
