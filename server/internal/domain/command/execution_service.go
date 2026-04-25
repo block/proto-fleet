@@ -62,11 +62,55 @@ type ExecutionService struct {
 	telemetryListener TelemetryListener
 	filesService      *files.Service
 
+	// sv2 wiring is mirrored from command.Service so the dispatch
+	// worker can re-check proxy health before applying a payload that
+	// was rewritten to use the bundled translator. Without this gate,
+	// a translator outage between commit-time preflight and
+	// per-device dispatch would still push the proxy URL to miners
+	// and take them off-pool. Set via SetStratumV2Resolvers; nil is
+	// valid (SV1-only deployment).
+	sv2ProxyMinerURL string
+	sv2Health        ProxyHealthChecker
+
 	workerSemaphore chan struct{}
 
 	queueProcessorMu      sync.Mutex
 	queueProcessorRunning bool
 	reaperCancel          context.CancelFunc
+}
+
+// SetStratumV2Resolvers wires the SV2 proxy URL + health check into the
+// execution worker so dispatch can fail closed when a payload's URL
+// matches the proxy and the proxy is no longer healthy. Mirrors the
+// command.Service.SetStratumV2Resolvers shape; main.go calls both.
+func (es *ExecutionService) SetStratumV2Resolvers(proxyMinerURL string, health ProxyHealthChecker) {
+	es.sv2ProxyMinerURL = proxyMinerURL
+	es.sv2Health = health
+}
+
+// proxyUnreachableForPayload returns true when the dispatched payload
+// would route through the bundled translator AND the bundled
+// translator is currently unhealthy. The pool URL match is the only
+// signal — preflight wrote the proxy URL into the slot it intended to
+// proxy, so any slot equal to sv2ProxyMinerURL means "this miner
+// depends on the translator." When that's true and the health check
+// reports down (or hasn't fired yet), bail with a typed error so the
+// queue retries instead of pushing miners at a dead listener.
+func (es *ExecutionService) proxyUnreachableForPayload(payload dto.UpdateMiningPoolsPayload) bool {
+	if es.sv2ProxyMinerURL == "" || es.sv2Health == nil {
+		return false
+	}
+	usesProxy := payload.DefaultPool.URL == es.sv2ProxyMinerURL
+	if !usesProxy && payload.Backup1Pool != nil {
+		usesProxy = payload.Backup1Pool.URL == es.sv2ProxyMinerURL
+	}
+	if !usesProxy && payload.Backup2Pool != nil {
+		usesProxy = payload.Backup2Pool.URL == es.sv2ProxyMinerURL
+	}
+	if !usesProxy {
+		return false
+	}
+	return !es.sv2Health.HasState() || !es.sv2Health.Up()
 }
 
 func NewExecutionService(ctx context.Context, config *Config, conn *sql.DB, messageQueue queue.MessageQueue, encryptService *encrypt.Service, tokenService *tokenDomain.Service, minerService CachedMinerGetter, deviceStore stores.DeviceStore, telemetryListener TelemetryListener, filesService *files.Service) *ExecutionService {
@@ -414,6 +458,20 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 		updateExtractErr := json.Unmarshal(message.Payload, &p)
 		if updateExtractErr != nil {
 			return fleeterror.NewInternalErrorf("error unmarshalling command payload: %v", updateExtractErr)
+		}
+		if es.proxyUnreachableForPayload(p) {
+			// commit-time preflight already gated on proxy health, but
+			// the translator can die between commit and per-device
+			// dispatch. Failing here keeps a partial fleet from being
+			// pushed at a dead listener while the rest of the batch
+			// succeeds. The queue treats this as a transient failure
+			// and surfaces it on the activity log alongside other
+			// per-device errors.
+			err = fleeterror.NewFailedPreconditionErrorf(
+				"sv2 translator proxy unreachable; pool update for device %d skipped to avoid pointing miner at a dead listener",
+				message.DeviceID,
+			)
+			break
 		}
 		var workerNameToPersist string
 		if p.ReapplyCurrentPoolsWithStoredWorkerName {

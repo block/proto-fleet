@@ -479,7 +479,7 @@ No plugin needs to speak SV2 itself. The field is a claim about the firmware on 
 
 ```yaml
 sv2-tproxy:
-  image: ghcr.io/stratum-mining/translator:<pinned-version>  # see "Known limitations"
+  image: stratumv2/translator_sv2:<pinned-tag>@sha256:<pinned-digest>  # see "Known limitations"
   restart: unless-stopped
   profiles: ["sv2"]  # only started when operator opts in
   ports:
@@ -698,8 +698,8 @@ Each of the below is the recommended call for v1, with rationale and a revisit t
    Silent "miner stopped hashing" failures are the single worst UX in a fleet tool — they surface hours later as support tickets, not as obvious errors. The `PreviewMiningPoolAssignment` RPC already gives the operator complete visibility into who would be rejected before they click Save, so hard-blocking is not a UX penalty; it's the natural endpoint of the preview-then-commit flow. The "operators can shoot themselves" precedent elsewhere in the repo applies to reversible actions, not to pushing known-bad config to a running fleet.
    *Revisit if* operators actually ask for force-override (unlikely — we can add a "--force" flag on the CLI path without changing the default).
 
-4. **SRI images: pull `ghcr.io/stratum-mining/*` directly; no vendored mirror in v1.**
-   YAGNI. Air-gapped operators are a self-identifying cohort that already mirrors every image in the stack; adding a mirror for SV2 specifically is premature. Document the image tags in `deployment-files/sv2/README.md` so mirror setup is mechanical.
+4. **SRI images: pull `stratumv2/translator_sv2` from Docker Hub, pinned by both tag and sha256 digest; no vendored mirror in v1.**
+   YAGNI on the mirror — air-gapped operators are a self-identifying cohort that already mirrors every image in the stack. Pin by digest because the translator sits in the miner→pool path and a tag overwrite or upstream compromise would be a direct hashrate-theft vector; the readable `:tag` pin stays alongside the digest so operators see what version they're running. Document image tag lookup in `deployment-files/sv2/README.md` so upgrade and mirror setup are both mechanical.
    *Revisit when* a real air-gapped customer asks, or if SRI's registry goes unreliable.
 
 5. **`PreviewMiningPoolAssignment` lives on `MinerCommandService`.**

@@ -54,9 +54,13 @@ rewriter knows the LAN-facing URL to push to SV1 miners.
 
 ## Version pinning
 
-The Compose service pins a specific `ghcr.io/stratum-mining/translator`
-tag; upgrading SRI is a deliberate operation (pull the new tag, smoke
-test, release). The current pin is set in `server/docker-compose.base.yaml`.
+The Compose service pins `stratumv2/translator_sv2` by both readable
+tag *and* immutable sha256 digest in
+`server/docker-compose.base.yaml`. The digest is the actual trust
+anchor — the tag is informational. Upgrading is a deliberate operation:
+look up the new tag's digest from
+`https://hub.docker.com/v2/repositories/stratumv2/translator_sv2/tags`,
+update both fields together, and smoke-test before releasing.
 
 ## Fleet integration
 

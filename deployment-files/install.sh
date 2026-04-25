@@ -418,9 +418,20 @@ render_sv2_tproxy_toml() {
       "$toml_template"
     rm -f "${toml_template}.bak"
     echo "   Rendered ${toml_template} downstream → 0.0.0.0:${downstream_port}"
-    if grep -q '^STRATUM_V2_PROXY_HEALTH_ADDR=127\.0\.0\.1:' "$env_file"; then
+    # Fleet's TCP probe needs an address that is actually reachable
+    # from the API process. When the operator scopes the listener to a
+    # specific bind IP we probe that same IP; only the wildcard bind
+    # falls through to 127.0.0.1 (which is reachable on every host
+    # because compose publishes the port on all NICs). Without this,
+    # probing 127.0.0.1 against a LAN-bound listener would fail forever
+    # and `effectiveProxyConfig` would reject every proxied assignment.
+    local health_host="$downstream_bind"
+    if [ "$health_host" = "0.0.0.0" ]; then
+      health_host="127.0.0.1"
+    fi
+    if grep -q '^STRATUM_V2_PROXY_HEALTH_ADDR=' "$env_file"; then
       sed -i.bak \
-        -e "s|^STRATUM_V2_PROXY_HEALTH_ADDR=127\.0\.0\.1:.*|STRATUM_V2_PROXY_HEALTH_ADDR=127.0.0.1:${downstream_port}|" \
+        -e "s|^STRATUM_V2_PROXY_HEALTH_ADDR=.*|STRATUM_V2_PROXY_HEALTH_ADDR=${health_host}:${downstream_port}|" \
         "$env_file"
       rm -f "${env_file}.bak"
     fi

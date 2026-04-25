@@ -361,6 +361,10 @@ func start(config *Config) error {
 		config.StratumV2.RewriterConfig(),
 		sv2HealthMonitor,
 	)
+	// Mirror the proxy URL + health check onto the dispatch worker so
+	// it can fail closed at time-of-use if the bundled translator
+	// dies between commit and per-device dispatch.
+	executionService.SetStratumV2Resolvers(config.StratumV2.ProxyMinerURL, sv2HealthMonitor)
 	fleetMgmtSvc := fleetmanagementDomain.NewService(deviceStore, discoveredDeviceStore, telemetryService, minerService, pluginService, poolStore, errorStore, collectionStore, commandSvc, activitySvc)
 	defer fleetMgmtSvc.WaitForPendingClearAuthKeys(shutdownTimeout)
 	onboardingSvc := onboardingDomain.NewService(deviceStore, poolStore, userStore)
