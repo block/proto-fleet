@@ -453,6 +453,48 @@ func (q *Queries) GetDeviceIDsByDeviceIdentifiers(ctx context.Context, deviceIde
 	return items, nil
 }
 
+const getDeviceIDsByDeviceIdentifiersForOrg = `-- name: GetDeviceIDsByDeviceIdentifiersForOrg :many
+SELECT id
+FROM device
+WHERE device_identifier = ANY($1::text[])
+  AND org_id = $2
+  AND deleted_at IS NULL
+`
+
+type GetDeviceIDsByDeviceIdentifiersForOrgParams struct {
+	DeviceIdentifiers []string
+	OrgID             int64
+}
+
+// Org-scoped variant of GetDeviceIDsByDeviceIdentifiers. Use this on any
+// code path where the identifiers come from caller input (RPC selectors,
+// query params, etc.) so cross-tenant probing is impossible. Identifiers
+// from a different org are silently dropped; callers compare the
+// returned count against the input length when they want to fail closed
+// on partial matches.
+func (q *Queries) GetDeviceIDsByDeviceIdentifiersForOrg(ctx context.Context, arg GetDeviceIDsByDeviceIdentifiersForOrgParams) ([]int64, error) {
+	rows, err := q.query(ctx, q.getDeviceIDsByDeviceIdentifiersForOrgStmt, getDeviceIDsByDeviceIdentifiersForOrg, pq.Array(arg.DeviceIdentifiers), arg.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getDeviceIDsWithIdentifiers = `-- name: GetDeviceIDsWithIdentifiers :many
 SELECT id, device_identifier
 FROM device
@@ -466,6 +508,9 @@ type GetDeviceIDsWithIdentifiersRow struct {
 }
 
 // Returns device IDs mapped to their identifiers for batch operations.
+// Internal-only: callers responsible for trusting the identifier set
+// (e.g. telemetry-driven status writers process IDs they already
+// generated). User-input paths use the ForOrg variant above.
 func (q *Queries) GetDeviceIDsWithIdentifiers(ctx context.Context, deviceIdentifiers []string) ([]GetDeviceIDsWithIdentifiersRow, error) {
 	rows, err := q.query(ctx, q.getDeviceIDsWithIdentifiersStmt, getDeviceIDsWithIdentifiers, pq.Array(deviceIdentifiers))
 	if err != nil {
@@ -528,6 +573,51 @@ func (q *Queries) GetDeviceIdentifiersByIDs(ctx context.Context, deviceIds []int
 	var items []GetDeviceIdentifiersByIDsRow
 	for rows.Next() {
 		var i GetDeviceIdentifiersByIDsRow
+		if err := rows.Scan(&i.ID, &i.DeviceIdentifier); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getDeviceIdentifiersByIDsForOrg = `-- name: GetDeviceIdentifiersByIDsForOrg :many
+SELECT id, device_identifier
+FROM device
+WHERE id = ANY($1::bigint[])
+  AND org_id = $2
+  AND deleted_at IS NULL
+`
+
+type GetDeviceIdentifiersByIDsForOrgParams struct {
+	DeviceIds []int64
+	OrgID     int64
+}
+
+type GetDeviceIdentifiersByIDsForOrgRow struct {
+	ID               int64
+	DeviceIdentifier string
+}
+
+// Org-scoped variant of GetDeviceIdentifiersByIDs. Used by the
+// PreviewMiningPoolAssignment / UpdateMiningPools paths so a caller who
+// somehow obtained an internal ID outside their tenant still can't
+// translate it to a device identifier.
+func (q *Queries) GetDeviceIdentifiersByIDsForOrg(ctx context.Context, arg GetDeviceIdentifiersByIDsForOrgParams) ([]GetDeviceIdentifiersByIDsForOrgRow, error) {
+	rows, err := q.query(ctx, q.getDeviceIdentifiersByIDsForOrgStmt, getDeviceIdentifiersByIDsForOrg, pq.Array(arg.DeviceIds), arg.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetDeviceIdentifiersByIDsForOrgRow
+	for rows.Next() {
+		var i GetDeviceIdentifiersByIDsForOrgRow
 		if err := rows.Scan(&i.ID, &i.DeviceIdentifier); err != nil {
 			return nil, err
 		}

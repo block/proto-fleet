@@ -547,9 +547,28 @@ func (s *Service) getDeviceIDs(ctx context.Context, selector *pb.DeviceSelector)
 			return []int64{}, nil
 		}
 
-		return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]int64, error) {
-			return q.GetDeviceIDsByDeviceIdentifiers(ctx, x.IncludeDevices.DeviceIdentifiers)
+		// Org-scope the lookup so a caller can't probe foreign-tenant
+		// devices through include_devices selectors. The query already
+		// drops cross-tenant identifiers; we additionally cross-check
+		// the row count so a partial-match request fails closed instead
+		// of silently operating on a strict subset.
+		ids, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]int64, error) {
+			return q.GetDeviceIDsByDeviceIdentifiersForOrg(ctx, sqlc.GetDeviceIDsByDeviceIdentifiersForOrgParams{
+				DeviceIdentifiers: x.IncludeDevices.DeviceIdentifiers,
+				OrgID:             info.OrganizationID,
+			})
 		})
+		if err != nil {
+			return nil, err
+		}
+		if len(ids) != len(x.IncludeDevices.DeviceIdentifiers) {
+			return nil, fleeterror.NewInvalidArgumentErrorf(
+				"include_devices: %d of %d identifiers are not in this organization or do not exist",
+				len(x.IncludeDevices.DeviceIdentifiers)-len(ids),
+				len(x.IncludeDevices.DeviceIdentifiers),
+			)
+		}
+		return ids, nil
 	default:
 		return nil, fleeterror.NewInternalErrorf("getDeviceIDs called with unknown type: %v", x)
 	}
@@ -1054,8 +1073,15 @@ func slotsMatchTemplate(template *dto.UpdateMiningPoolsPayload, d preflight.Devi
 }
 
 func (s *Service) resolveDeviceIdentifiers(ctx context.Context, deviceIDs []int64) (map[string]int64, error) {
-	rows, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]sqlc.GetDeviceIdentifiersByIDsRow, error) {
-		return q.GetDeviceIdentifiersByIDs(ctx, deviceIDs)
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error getting session info from context: %v", err)
+	}
+	rows, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]sqlc.GetDeviceIdentifiersByIDsForOrgRow, error) {
+		return q.GetDeviceIdentifiersByIDsForOrg(ctx, sqlc.GetDeviceIdentifiersByIDsForOrgParams{
+			DeviceIds: deviceIDs,
+			OrgID:     info.OrganizationID,
+		})
 	})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("error resolving device identifiers: %v", err)
@@ -1103,26 +1129,33 @@ func buildPreflightSlotAssignments(template *dto.UpdateMiningPoolsPayload) []pre
 	return slots
 }
 
-// marshalPerDevicePayload clones the template and replaces each slot's URL
-// with the rewriter's resolved URL for this device. Everything else
-// (Username, Password, Priority, AppendMinerName, Protocol) is unchanged
-// — only the URL can differ per device, and only because of rewriting.
+// marshalPerDevicePayload clones the template and replaces each slot's
+// URL and Protocol with the rewriter's resolved values for this device.
+// Both fields can differ per device because of proxied routing: an SV2
+// pool rewritten to the SV1-facing translator URL is on-the-wire SV1,
+// and downstream drivers branch on Protocol. Keeping the template's
+// Protocol intact would make preview show effective_protocol=SV1 while
+// dispatch sent protocol=SV2 alongside a stratum+tcp:// URL — exactly
+// the parity break the preflight is supposed to prevent.
 func marshalPerDevicePayload(template *dto.UpdateMiningPoolsPayload, d preflight.DeviceResult) ([]byte, error) {
 	deviceCopy := *template
 	for _, s := range d.Slots {
 		switch s.Slot {
 		case rewriter.SlotDefault:
 			deviceCopy.DefaultPool.URL = s.EffectiveURL
+			deviceCopy.DefaultPool.Protocol = s.Protocol
 		case rewriter.SlotBackup1:
 			if deviceCopy.Backup1Pool != nil {
 				backup := *deviceCopy.Backup1Pool
 				backup.URL = s.EffectiveURL
+				backup.Protocol = s.Protocol
 				deviceCopy.Backup1Pool = &backup
 			}
 		case rewriter.SlotBackup2:
 			if deviceCopy.Backup2Pool != nil {
 				backup := *deviceCopy.Backup2Pool
 				backup.URL = s.EffectiveURL
+				backup.Protocol = s.Protocol
 				deviceCopy.Backup2Pool = &backup
 			}
 		case rewriter.SlotUnspecified:

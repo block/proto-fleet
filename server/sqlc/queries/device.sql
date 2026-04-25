@@ -144,8 +144,24 @@ FROM device
 WHERE device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
   AND deleted_at IS NULL;
 
+-- name: GetDeviceIDsByDeviceIdentifiersForOrg :many
+-- Org-scoped variant of GetDeviceIDsByDeviceIdentifiers. Use this on any
+-- code path where the identifiers come from caller input (RPC selectors,
+-- query params, etc.) so cross-tenant probing is impossible. Identifiers
+-- from a different org are silently dropped; callers compare the
+-- returned count against the input length when they want to fail closed
+-- on partial matches.
+SELECT id
+FROM device
+WHERE device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
+  AND org_id = sqlc.arg('org_id')
+  AND deleted_at IS NULL;
+
 -- name: GetDeviceIDsWithIdentifiers :many
 -- Returns device IDs mapped to their identifiers for batch operations.
+-- Internal-only: callers responsible for trusting the identifier set
+-- (e.g. telemetry-driven status writers process IDs they already
+-- generated). User-input paths use the ForOrg variant above.
 SELECT id, device_identifier
 FROM device
 WHERE device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
@@ -158,6 +174,17 @@ WHERE device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
 SELECT id, device_identifier
 FROM device
 WHERE id = ANY(sqlc.arg('device_ids')::bigint[])
+  AND deleted_at IS NULL;
+
+-- name: GetDeviceIdentifiersByIDsForOrg :many
+-- Org-scoped variant of GetDeviceIdentifiersByIDs. Used by the
+-- PreviewMiningPoolAssignment / UpdateMiningPools paths so a caller who
+-- somehow obtained an internal ID outside their tenant still can't
+-- translate it to a device identifier.
+SELECT id, device_identifier
+FROM device
+WHERE id = ANY(sqlc.arg('device_ids')::bigint[])
+  AND org_id = sqlc.arg('org_id')
   AND deleted_at IS NULL;
 
 -- name: AllDevicesBelongToOrg :one
