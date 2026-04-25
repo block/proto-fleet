@@ -2715,7 +2715,7 @@ type MiningPool struct {
 	// URL as it should be dispatched to the miner. For SV1 miners mining an
 	// SV2 pool via the bundled translator proxy, the server writes the proxy's
 	// miner-facing URL here, not the logical SV2 pool URL.
-	Url        string `protobuf:"bytes,2,opt,name=url,proto3" json:"url,omitempty"`                                 // e.g., stratum+tcp://pool.example:3333 or sv2+tcp://pool.example:34254
+	Url        string `protobuf:"bytes,2,opt,name=url,proto3" json:"url,omitempty"`                                 // e.g., stratum+tcp://pool.example:3333 or stratum2+tcp://pool.example:34254
 	WorkerName string `protobuf:"bytes,3,opt,name=worker_name,json=workerName,proto3" json:"worker_name,omitempty"` // Worker name or address
 	// Protocol the URL speaks. Informational; most drivers treat URL as opaque.
 	// Useful for driver-side logging and future vendor-specific behaviour.

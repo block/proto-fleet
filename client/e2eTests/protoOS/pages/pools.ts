@@ -77,7 +77,7 @@ export class PoolsPage extends BasePage {
 
   async closePoolModal() {
     await this.page.keyboard.press("Escape");
-    await expect(this.page.getByTestId("modal")).not.toBeVisible();
+    await expect(this.page.getByTestId("modal")).toBeHidden();
   }
 
   async clickMiningPoolButton() {
