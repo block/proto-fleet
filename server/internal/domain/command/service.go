@@ -904,6 +904,20 @@ func (s *Service) UpdateMiningPools(
 	return &pb.UpdateMiningPoolsResponse{BatchIdentifier: commandBatchLogUUID}, nil
 }
 
+// maxPreviewDevices caps the number of devices a single
+// PreviewMiningPoolAssignment call can evaluate. The preview is the
+// only RPC that materializes a per-device result for an entire fleet
+// in a single unary response, and the UI auto-fires it on every pool
+// edit, so an unbounded call against a large org turns a dry run into
+// a synchronous resource-exhaustion path. The cap is high enough to
+// cover any realistic single-deployment fleet but bounded enough that
+// CPU/memory/response size stay predictable. Direct RPC callers
+// targeting larger fleets need to scope their selectors (or use the
+// commit RPC, which already runs preflight and returns a typed
+// FAILED_PRECONDITION on mismatches without materializing per-device
+// detail).
+const maxPreviewDevices = 1000
+
 // PreviewMiningPoolAssignment runs the same preflight UpdateMiningPools
 // uses, but returns the per-device resolution instead of enqueuing
 // anything. The UI calls it before enabling Save; the CLI exposes it as
@@ -925,6 +939,12 @@ func (s *Service) PreviewMiningPoolAssignment(
 	}
 	if len(deviceIDs) == 0 {
 		return nil, nil
+	}
+	if len(deviceIDs) > maxPreviewDevices {
+		return nil, fleeterror.NewInvalidArgumentErrorf(
+			"preview supports up to %d devices per request; selector resolved to %d. Narrow the selector (e.g. by manufacturer/model filter) or run preflight via UpdateMiningPools, which evaluates the same rules without materializing per-device detail.",
+			maxPreviewDevices, len(deviceIDs),
+		)
 	}
 
 	idByIdentifier, err := s.resolveDeviceIdentifiers(ctx, deviceIDs)
@@ -1089,6 +1109,19 @@ func (s *Service) resolveDeviceIdentifiers(ctx context.Context, deviceIDs []int6
 	})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("error resolving device identifiers: %v", err)
+	}
+	// Fail closed when fewer rows come back than were requested: a
+	// device disappearing between getDeviceIDs and this lookup (race
+	// against a delete, or a row that was never owned by this org)
+	// must not silently shrink the target set. Without this check the
+	// preflight + commit path would proceed against a subset while the
+	// activity log still recorded the original count, hiding a partial
+	// pool repoint behind a "success" response.
+	if len(rows) != len(deviceIDs) {
+		return nil, fleeterror.NewFailedPreconditionErrorf(
+			"device set changed during pool update: %d of %d devices are missing or no longer in this organization",
+			len(deviceIDs)-len(rows), len(deviceIDs),
+		)
 	}
 	out := make(map[string]int64, len(rows))
 	for _, r := range rows {

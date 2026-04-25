@@ -381,16 +381,37 @@ render_sv2_tproxy_toml() {
   # Downstream: listener must match the miner-facing URL operators put
   # in .env so SV1 miners reach the right port. The compose port
   # mapping is host-bind-aware (see STRATUM_V2_PROXY_DOWNSTREAM_HOST in
-  # docker-compose.base.yaml), so we default the bind to the IP literal
-  # in the miner URL when present and fall back to 0.0.0.0 only when
-  # the host is a hostname (compose can't resolve hostnames in port
-  # mappings). Operators can still override DOWNSTREAM_HOST in .env.
+  # docker-compose.base.yaml), so we want a real interface to bind to.
+  # Two paths:
+  #   - Miner URL host is an IP literal: bind to it (operator gave us
+  #     an unambiguous answer).
+  #   - Miner URL host is a hostname: fail closed by default — expose
+  #     prompt the operator for an explicit bind IP rather than
+  #     silently defaulting to 0.0.0.0, which on a multi-homed or
+  #     internet-facing host would publish an unauthenticated stratum
+  #     listener on every NIC. Operator must either provide an IP or
+  #     deliberately type 0.0.0.0 to confirm wildcard exposure.
   if [[ "$sv2_miner_url" =~ ^stratum\+tcp://([^:/]+):([0-9]+).*$ ]]; then
     local downstream_host="${BASH_REMATCH[1]}"
     local downstream_port="${BASH_REMATCH[2]}"
-    local downstream_bind="0.0.0.0"
+    local downstream_bind=""
     if [[ "$downstream_host" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || [[ "$downstream_host" =~ ^\[[0-9a-fA-F:]+\]$ ]]; then
       downstream_bind="$downstream_host"
+    elif grep -q '^STRATUM_V2_PROXY_DOWNSTREAM_HOST=' "$env_file"; then
+      downstream_bind=$(grep '^STRATUM_V2_PROXY_DOWNSTREAM_HOST=' "$env_file" | head -n1 | cut -d= -f2-)
+    else
+      echo ""
+      echo "   ⚠️  Miner URL host '${downstream_host}' is not an IP literal."
+      echo "      Compose needs a specific bind address for the proxy listener."
+      echo "      Type a private LAN IP (e.g. 192.168.1.10) to scope the listener,"
+      echo "      or 0.0.0.0 to deliberately expose it on all interfaces."
+      while [ -z "$downstream_bind" ]; do
+        read -p "   Bind translator listener to: " downstream_bind
+        if [[ ! "$downstream_bind" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] && [[ ! "$downstream_bind" =~ ^\[[0-9a-fA-F:]+\]$ ]] && [[ "$downstream_bind" != "0.0.0.0" ]]; then
+          echo "   ❌ Must be an IPv4/IPv6 literal (or 0.0.0.0 for all interfaces)."
+          downstream_bind=""
+        fi
+      done
     fi
     sed -i.bak \
       -e "s|^downstream_port = .*|downstream_port = ${downstream_port}|" \
