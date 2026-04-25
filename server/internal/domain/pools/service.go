@@ -78,6 +78,17 @@ func (s *Service) UpdatePool(ctx context.Context, r *pb.UpdatePoolRequest) (*pb.
 		return nil, err
 	}
 
+	// Validate URL scheme on every code path that reaches the store,
+	// not just CEL — internal callers and any future RPC bypass would
+	// otherwise persist an unsupported scheme that dbProtocolFromURL
+	// then silently coerces to 'sv1', defeating the SV2 preflight for
+	// the imported row.
+	if r.Url != nil {
+		if _, err := rewriter.ProtocolFromURL(*r.Url); err != nil {
+			return nil, fleeterror.NewInvalidArgumentErrorf("invalid pool url: %v", err)
+		}
+	}
+
 	// Proto3 explicit presence: an absent Username means "leave unchanged".
 	// An explicit empty string is always rejected so the patch contract
 	// can't be used to dispatch credential-less connections to miners.
@@ -140,6 +151,13 @@ func (s *Service) CreatePool(ctx context.Context, poolConfig *pb.PoolConfig) (*p
 	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, err
+	}
+
+	// Validate URL scheme as well as username so internal callers
+	// can't slip a scheme past CEL and end up with a row that
+	// dbProtocolFromURL would silently coerce to 'sv1'.
+	if _, err := rewriter.ProtocolFromURL(poolConfig.GetUrl()); err != nil {
+		return nil, fleeterror.NewInvalidArgumentErrorf("invalid pool url: %v", err)
 	}
 
 	if err := validatePoolUsername(poolConfig.GetUsername()); err != nil {

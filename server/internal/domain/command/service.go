@@ -840,6 +840,21 @@ func (s *Service) UpdateMiningPools(
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("error getting device IDs from device selector: %v", err)
 	}
+	if len(deviceIDs) > maxCommitDevices {
+		// Commit-time preflight materializes per-device JSON payloads
+		// in memory before writing queue rows. Without a cap a fleet-
+		// wide update on a very large org turns one unary RPC into a
+		// CPU/memory spike on the request path. The cap is high enough
+		// to cover any realistic single-deployment fleet but bounded
+		// enough that timing out / OOM-ing the API isn't a one-RPC
+		// move from an authenticated user. Operators with larger
+		// fleets need to scope the selector (manufacturer/model
+		// filters, sites, etc.) and run multiple updates.
+		return nil, fleeterror.NewInvalidArgumentErrorf(
+			"pool update supports up to %d devices per request; selector resolved to %d. Narrow the selector and run multiple updates.",
+			maxCommitDevices, len(deviceIDs),
+		)
+	}
 
 	// Synchronous preflight. The rewriter decides, per device, which slot
 	// URLs would get pushed; mismatches (SV2 pool + SV1 device + proxy off,
@@ -917,6 +932,17 @@ func (s *Service) UpdateMiningPools(
 // FAILED_PRECONDITION on mismatches without materializing per-device
 // detail).
 const maxPreviewDevices = 1000
+
+// maxCommitDevices caps the number of devices a single
+// UpdateMiningPools call can target. The commit path runs synchronous
+// preflight + per-device payload marshal before writing queue rows,
+// all in one unary RPC, so an unbounded fleet-wide update is a
+// straightforward request-path DoS lever. Higher than the preview cap
+// because operators legitimately push pool changes to large fleets
+// (commits are deliberate; the preview cap exists because the UI
+// auto-fires it). Operators above this need to scope the selector
+// (manufacturer/model/site filters) and run multiple updates.
+const maxCommitDevices = 5000
 
 // PreviewResult is the typed return of PreviewMiningPoolAssignment.
 // Previews is the per-device detail (empty when the preview was
