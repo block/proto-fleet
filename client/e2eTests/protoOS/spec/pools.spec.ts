@@ -48,12 +48,14 @@ test.describe("Mining pools", () => {
       // Client-side scheme validation now mirrors the server CEL rule, so
       // an obviously-wrong URL fails fast on Save with an inline error
       // instead of a server-side rejection toast — same outcome, just
-      // surfaced before the RPC.
+      // surfaced before the RPC. The modal stays open with the error
+      // shown, so we close it explicitly before continuing.
       await poolsPage.clickSave();
       await poolsPage.validateUrlValidationError(
         1,
         "Pool URL must start with stratum+tcp:// (Stratum V1) or stratum2+tcp:// (Stratum V2). Plain TCP only in v1; TLS / WebSocket variants are not supported by the dispatch path.",
       );
+      await poolsPage.closePoolModal();
     });
 
     await commonSteps.navigateToHome();
