@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import { MiningPool } from "../types";
-import { CreatePoolRequestSchema } from "@/protoFleet/api/generated/pools/v1/pools_pb";
+import { CreatePoolRequestSchema, ValidationMode } from "@/protoFleet/api/generated/pools/v1/pools_pb";
 import usePools from "@/protoFleet/api/usePools";
 import { Alert, Success } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
@@ -11,7 +11,7 @@ import Input from "@/shared/components/Input";
 import { emptyPoolInfo } from "@/shared/components/MiningPools/constants";
 import { fleetUsernameHelperText } from "@/shared/components/MiningPools/PoolForm/constants";
 import PoolModal from "@/shared/components/MiningPools/PoolModal";
-import { PoolConnectionTestProps, PoolInfo } from "@/shared/components/MiningPools/types";
+import { PoolConnectionTestOutcome, PoolConnectionTestProps, PoolInfo } from "@/shared/components/MiningPools/types";
 import Modal from "@/shared/components/Modal";
 import Radio from "@/shared/components/Radio";
 
@@ -80,6 +80,7 @@ const PoolSelectionModal = ({
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [showConnectionCallout, setShowConnectionCallout] = useState(false);
   const [connectionError, setConnectionError] = useState(false);
+  const [lastTestOutcome, setLastTestOutcome] = useState<PoolConnectionTestOutcome | undefined>();
 
   const { validatePool, createPool, miningPools } = usePools(isVisible);
 
@@ -96,12 +97,49 @@ const PoolSelectionModal = ({
     setIsTestingConnection(false);
     setShowConnectionCallout(false);
     setConnectionError(false);
+    setLastTestOutcome(undefined);
   }, [isVisible]);
 
+  // Saved-pool tests don't carry the encrypted password back through
+  // the client, so SV1 pools authenticate as reachable-but-unverified
+  // and SV2 pools come back as TCP-dial-only. Reflect that in the
+  // success callout so operators can't misread an unverified probe as
+  // proof of working credentials.
   const showSuccessCallout = useMemo(
-    () => showConnectionCallout && !isTestingConnection && !connectionError,
-    [showConnectionCallout, isTestingConnection, connectionError],
+    () =>
+      showConnectionCallout &&
+      !isTestingConnection &&
+      !connectionError &&
+      lastTestOutcome !== undefined &&
+      lastTestOutcome.reachable &&
+      lastTestOutcome.credentialsVerified,
+    [showConnectionCallout, isTestingConnection, connectionError, lastTestOutcome],
   );
+
+  const showReachableUnverifiedCallout = useMemo(
+    () =>
+      showConnectionCallout &&
+      !isTestingConnection &&
+      !connectionError &&
+      lastTestOutcome !== undefined &&
+      lastTestOutcome.reachable &&
+      !lastTestOutcome.credentialsVerified,
+    [showConnectionCallout, isTestingConnection, connectionError, lastTestOutcome],
+  );
+
+  const reachableUnverifiedTitle = useMemo(() => {
+    if (!lastTestOutcome) {
+      return "";
+    }
+    switch (lastTestOutcome.mode) {
+      case ValidationMode.SV2_TCP_DIAL:
+        return "Pool reachable. Credentials not verified — Stratum V2 connectivity check completed a TCP dial only.";
+      case ValidationMode.SV2_HANDSHAKE:
+        return "Pool reachable and Noise handshake succeeded. Credentials are verified at job-submission time.";
+      default:
+        return "Pool reachable. Credentials not verified.";
+    }
+  }, [lastTestOutcome]);
 
   const showErrorCallout = useMemo(
     () => showConnectionCallout && !isTestingConnection && connectionError,
@@ -131,13 +169,15 @@ const PoolSelectionModal = ({
 
     setIsTestingConnection(true);
     setConnectionError(false);
+    setLastTestOutcome(undefined);
     validatePool({
       poolInfo: {
         url: selectedPool.poolUrl,
         username: selectedPool.username,
       },
-      onSuccess: () => {
+      onSuccess: (outcome) => {
         setConnectionError(false);
+        setLastTestOutcome(outcome);
       },
       onError: () => {
         setConnectionError(true);
@@ -259,6 +299,14 @@ const PoolSelectionModal = ({
           show={showSuccessCallout}
           title="Pool connection successful"
           testId="pool-selection-modal-connection-success-callout"
+        />
+        <DismissibleCalloutWrapper
+          icon={<Alert width={iconSizes.medium} />}
+          intent={intents.warning}
+          onDismiss={() => setShowConnectionCallout(false)}
+          show={showReachableUnverifiedCallout}
+          title={reachableUnverifiedTitle}
+          testId="pool-selection-modal-connection-unverified-callout"
         />
         <DismissibleCalloutWrapper
           icon={<Alert width={iconSizes.medium} />}

@@ -44,12 +44,58 @@ func TestConfig_ValidateEnabledRequiresBothURLs(t *testing.T) {
 
 func TestConfig_ValidateEnabledWithBothURLsIsOK(t *testing.T) {
 	c := Config{
-		ProxyEnabled:        true,
-		ProxyMinerURL:       "stratum+tcp://lan:34255",
-		ProxyUpstreamURL:    "stratum2+tcp://pool:34254/UpstreamPubKey",
-		ProxyHealthInterval: 30 * time.Second,
+		ProxyEnabled:         true,
+		ProxyMinerURL:        "stratum+tcp://lan:34255",
+		ProxyUpstreamURL:     "stratum2+tcp://pool:34254/UpstreamPubKey",
+		ProxyHealthCheckAddr: "127.0.0.1:34255",
+		ProxyHealthInterval:  30 * time.Second,
 	}
 	require.NoError(t, c.Validate())
+}
+
+func TestConfig_ValidateRejectsBadHealthSettings(t *testing.T) {
+	base := Config{
+		ProxyEnabled:         true,
+		ProxyMinerURL:        "stratum+tcp://lan:34255",
+		ProxyUpstreamURL:     "stratum2+tcp://pool:34254/UpstreamPubKey",
+		ProxyHealthCheckAddr: "127.0.0.1:34255",
+		ProxyHealthInterval:  30 * time.Second,
+	}
+	cases := []struct {
+		name    string
+		mutate  func(c *Config)
+		wantErr string
+	}{
+		{
+			name:    "non-positive interval",
+			mutate:  func(c *Config) { c.ProxyHealthInterval = 0 },
+			wantErr: "STRATUM_V2_PROXY_HEALTH_INTERVAL",
+		},
+		{
+			name:    "negative interval",
+			mutate:  func(c *Config) { c.ProxyHealthInterval = -time.Second },
+			wantErr: "STRATUM_V2_PROXY_HEALTH_INTERVAL",
+		},
+		{
+			name:    "missing health addr",
+			mutate:  func(c *Config) { c.ProxyHealthCheckAddr = "" },
+			wantErr: "STRATUM_V2_PROXY_HEALTH_ADDR",
+		},
+		{
+			name:    "malformed health addr",
+			mutate:  func(c *Config) { c.ProxyHealthCheckAddr = "not-a-host-port" },
+			wantErr: "STRATUM_V2_PROXY_HEALTH_ADDR",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := base
+			tc.mutate(&c)
+			err := c.Validate()
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
 }
 
 func TestConfig_ValidateRejectsURLsWithoutPort(t *testing.T) {

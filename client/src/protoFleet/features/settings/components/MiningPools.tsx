@@ -5,6 +5,7 @@ import {
   CreatePoolRequestSchema,
   DeletePoolRequestSchema,
   UpdatePoolRequestSchema,
+  ValidationMode,
 } from "@/protoFleet/api/generated/pools/v1/pools_pb";
 import type { Pool } from "@/protoFleet/api/generated/pools/v1/pools_pb";
 import usePools from "@/protoFleet/api/usePools";
@@ -311,12 +312,44 @@ const MiningPools = () => {
           username: pool.username,
           password: "",
         },
-        onSuccess: () => {
+        onSuccess: (outcome) => {
           setConnectionStatuses((prev) => ({ ...prev, [poolId]: "idle" }));
-          pushToast({
-            message: "Pool connection successful",
-            status: STATUSES.success,
-          });
+          // Saved-pool tests don't carry the encrypted password back
+          // through the client, so SV1 pools that authenticate end up
+          // reachable-but-unverified — same for SV2 pools where the
+          // server only TCP-dialed. Reflect that distinction in the
+          // toast so operators don't read a green "successful" toast
+          // as proof of working credentials.
+          if (outcome.reachable && outcome.credentialsVerified) {
+            pushToast({
+              message: "Pool connection successful",
+              status: STATUSES.success,
+            });
+            return;
+          }
+          if (outcome.reachable) {
+            const detail =
+              outcome.mode === ValidationMode.SV2_TCP_DIAL
+                ? "TCP dial only — Stratum V2 credentials not verified."
+                : outcome.mode === ValidationMode.SV2_HANDSHAKE
+                  ? "Noise handshake completed; credentials verify at job submission."
+                  : "Credentials not verified.";
+            // The toaster only ships success/error styling, so route
+            // unverified-but-reachable through error: operators get
+            // visually distinct feedback that doesn't claim more than
+            // the probe actually proved. Better to over-warn than to
+            // greenlight a pool that may fail at first auth.
+            pushToast({
+              message: `Pool reachable. ${detail}`,
+              status: STATUSES.error,
+            });
+            return;
+          }
+          // Reachable=false from the server is rare on the success
+          // path (errors usually come back via onError) but possible
+          // for future modes; treat the same as the connection-failed
+          // toast so the connection-status row updates accordingly.
+          setConnectionStatuses((prev) => ({ ...prev, [poolId]: "failed" }));
         },
         onError: () => {
           setConnectionStatuses((prev) => ({ ...prev, [poolId]: "failed" }));

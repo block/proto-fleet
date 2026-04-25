@@ -94,13 +94,18 @@ const MiningPoolsForm = ({ buttonLabel, onSaveRequested, onSaveDone, onSaveFaile
         });
         return () => createPool({ createPoolRequest, onError: handleSaveError });
       } else {
-        // update existing pool
+        // update existing pool. Proto3 explicit presence on the
+        // password wrapper means an empty-string value is "erase the
+        // stored password," not "leave it unchanged" — only include
+        // the field when the user actually typed something. Without
+        // this guard, saving an unmodified existing pool would wipe
+        // its encrypted password and break subsequent mining auth.
         const updatePoolRequest = create(UpdatePoolRequestSchema, {
           poolId: BigInt(pool.poolId),
           poolName: pool.name || "",
           url: pool.url,
           username: pool.username,
-          password: pool.password,
+          ...(pool.password && pool.password.length > 0 ? { password: pool.password } : {}),
         });
         return () => updatePool({ updatePoolRequest, onError: handleSaveError });
       }
@@ -157,28 +162,28 @@ const MiningPoolsForm = ({ buttonLabel, onSaveRequested, onSaveDone, onSaveFaile
 
   const savePool = useCallback(
     async (pool: PoolInfo, isPasswordSet: boolean) => {
-      // Only send password if it was set
-      const passwordToSend = isPasswordSet ? pool.password : "";
-
       if (pool.poolId === undefined) {
-        // create new pool
+        // create new pool — pass through whatever password the user
+        // typed (empty string when none, which is fine on create).
         const createPoolRequest = create(CreatePoolRequestSchema, {
           poolConfig: {
             poolName: pool.name || "",
             url: pool.url,
             username: pool.username,
-            password: passwordToSend,
+            ...(isPasswordSet ? { password: pool.password } : {}),
           },
         });
         await createPool({ createPoolRequest, onError: handleSaveError });
       } else {
-        // update existing pool
+        // update existing pool. The password wrapper has presence
+        // semantics — passing "" erases the stored password — so only
+        // include it when the user actually changed it.
         const updatePoolRequest = create(UpdatePoolRequestSchema, {
           poolId: BigInt(pool.poolId),
           poolName: pool.name || "",
           url: pool.url,
           username: pool.username,
-          password: passwordToSend,
+          ...(isPasswordSet ? { password: pool.password } : {}),
         });
         await updatePool({ updatePoolRequest, onError: handleSaveError });
       }

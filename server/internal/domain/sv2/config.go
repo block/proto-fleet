@@ -9,6 +9,7 @@ package sv2
 
 import (
 	"fmt"
+	"net"
 	"regexp"
 	"strings"
 	"time"
@@ -68,6 +69,23 @@ func (c Config) Validate() error {
 	}
 	if !upstreamURLPattern.MatchString(strings.TrimSpace(c.ProxyUpstreamURL)) {
 		return fmt.Errorf("STRATUM_V2_PROXY_UPSTREAM_URL must be stratum2+tcp://host:port/AUTHORITY_PUBKEY (the pubkey suffix is required so the rewriter and the bundled tProxy agree on the pool identity), got %q", c.ProxyUpstreamURL)
+	}
+	// The health monitor and effectiveProxyConfig() form a fail-closed
+	// pair: when the monitor never gets a chance to set HasState (a
+	// non-positive interval makes Start return immediately), preflight
+	// will treat the proxy as down forever and reject every proxied
+	// route. Rather than letting that happen silently, reject the bad
+	// config at startup. Same for an unparseable health-check addr.
+	if c.ProxyHealthInterval <= 0 {
+		return fmt.Errorf("STRATUM_V2_PROXY_HEALTH_INTERVAL must be > 0 when STRATUM_V2_PROXY_ENABLED=true, got %s", c.ProxyHealthInterval)
+	}
+	addr := strings.TrimSpace(c.ProxyHealthCheckAddr)
+	if addr == "" {
+		return fmt.Errorf("STRATUM_V2_PROXY_HEALTH_ADDR is required when STRATUM_V2_PROXY_ENABLED=true")
+	}
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil || host == "" || port == "" {
+		return fmt.Errorf("STRATUM_V2_PROXY_HEALTH_ADDR must be host:port, got %q", c.ProxyHealthCheckAddr)
 	}
 	return nil
 }
