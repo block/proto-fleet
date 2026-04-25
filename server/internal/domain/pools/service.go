@@ -266,8 +266,7 @@ func (s *Service) ValidateConnection(
 	case pb.PoolProtocol_POOL_PROTOCOL_SV1, pb.PoolProtocol_POOL_PROTOCOL_UNSPECIFIED:
 		// UNSPECIFIED is rejected above by ProtocolFromURL when the URL
 		// has no recognised scheme; reach this case only when the URL
-		// said "stratum+tcp" / "stratum+ssl" / "stratum+ws" and the
-		// rewriter classified it SV1.
+		// said "stratum+tcp" and the rewriter classified it SV1.
 		ok, err := stratumv1.Authenticate(ctx, url, username, password)
 		if err != nil {
 			return ValidationResult{Mode: pb.ValidationMode_VALIDATION_MODE_SV1_AUTHENTICATE}, err

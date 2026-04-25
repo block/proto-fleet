@@ -176,7 +176,7 @@ func DBProtocolToProto(s string) pb.PoolProtocol {
 // they ever reach the DB, so this path is just defensive.
 func dbProtocolFromURL(url string) string {
 	lower := strings.ToLower(strings.TrimSpace(url))
-	if strings.HasPrefix(lower, "stratum2+tcp://") || strings.HasPrefix(lower, "stratum2+ssl://") {
+	if strings.HasPrefix(lower, "stratum2+tcp://") {
 		return "sv2"
 	}
 	return "sv1"

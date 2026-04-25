@@ -93,10 +93,11 @@ SV2 slots into the existing pool assignment path without a new domain package. T
 
 SV2 has no canonical URL form in the spec. We adopt and document:
 
-- `stratum2+tcp://host:port` — plain Noise-protected SV2.
-- `stratum2+ssl://host:port` — SV2 over TLS (pool-specific; still uses Noise handshake on top).
+- `stratum2+tcp://host:port[/AUTHORITY_PUBKEY]` — plain Noise-protected SV2.
 
-Rationale: `stratum2+tcp://` is what Braiins Pool documents and what operators paste from pool-operator instructions. The Stratum V2 spec itself does not mandate a URL syntax — SRI's tProxy config takes bare `address` / `port` / `authority_pubkey` fields — but Braiins' documented `stratum2+tcp://HOST:PORT/PUBKEY` is the closest thing to a canonical operator-facing rendering. Validation is keyed off `pool.protocol` — `SV1` pools must use `stratum+*`, `SV2` pools must use `stratum2+*`. We do not try to auto-detect.
+Rationale: `stratum2+tcp://` is what Braiins Pool documents and what operators paste from pool-operator instructions. The Stratum V2 spec itself does not mandate a URL syntax — SRI's tProxy config takes bare `address` / `port` / `authority_pubkey` fields — but Braiins' documented `stratum2+tcp://HOST:PORT/PUBKEY` is the closest thing to a canonical operator-facing rendering. Validation is keyed off the URL scheme — `stratum+tcp` is SV1, `stratum2+tcp` is SV2. We do not try to auto-detect.
+
+Plain TCP only in v1: TLS-wrapped variants (`stratum+ssl://` / `stratum2+ssl://`) and the WebSocket variant (`stratum+ws://`) are intentionally rejected by both the CEL rule and `rewriter.ProtocolFromURL`. The dispatch path uses bare `net.Dial` for SV1 and explicit host:port TCP for the SV2 Noise handshake; advertising `ssl`/`ws` schemes the runtime does not implement would just result in pools the API said were valid that fail at dispatch. TLS support is a v1.5 follow-up if operator demand materialises.
 
 ## API
 
@@ -685,9 +686,9 @@ Out of scope for this plan; tracked in the ProtoOS repo. Fleet's only concern is
 
 Each of the below is the recommended call for v1, with rationale and a revisit trigger. Team may override in review; defaults flow into the implementation otherwise.
 
-1. **URL scheme: `stratum2+tcp://` / `stratum2+ssl://`.**
-   Matches the format Braiins Pool documents for operators — the canonical SV2 pool, maintained by the protocol's co-authors — so URLs pasted from pool-operator docs match our validation regex without massaging. The SV2 spec itself defines no URL form; SRI's tProxy config takes separate `address` / `port` / `authority_pubkey` fields. An earlier draft of this plan adopted `sv2+tcp://` as a mirror of `stratum+tcp://`, but that invented a scheme no pool documents — Braiins' rendering is the one operators will paste.
-   *Revisit if* Braiins changes their documented format or SRI publishes a competing canonical scheme.
+1. **URL scheme: `stratum2+tcp://` only in v1; SSL/WS variants rejected.**
+   Matches the format Braiins Pool documents for operators — the canonical SV2 pool, maintained by the protocol's co-authors — so URLs pasted from pool-operator docs match our validation regex without massaging. The SV2 spec itself defines no URL form; SRI's tProxy config takes separate `address` / `port` / `authority_pubkey` fields. An earlier draft of this plan adopted `sv2+tcp://` as a mirror of `stratum+tcp://`, but that invented a scheme no pool documents — Braiins' rendering is the one operators will paste. TLS variants (`stratum+ssl://`, `stratum2+ssl://`) and `stratum+ws://` are not in v1: the dispatch path uses plain `net.Dial`, and surfacing schemes the runtime can't honor would create configs the API accepted but mining can't use.
+   *Revisit if* Braiins changes their documented format, or if a real customer needs TLS/WS — at which point `stratum2+ssl://` becomes a real (non-trivial) feature.
 
 2. **`STRATUM_V2_PROXY_ENABLED` default: `false` (opt-in).**
    The translation proxy introduces a new long-running service, a new network dependency (the upstream SV2 pool), and new config surface. Defaulting on would force every existing deployment to either configure it or explicitly disable it on upgrade — net negative for the ~100% of installs that don't need it today. Note: this flag controls *only* the translation proxy. Operators with native-SV2-only fleets can create and assign SV2 pools without ever flipping it on.

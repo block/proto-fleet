@@ -230,6 +230,16 @@ func perSlotResolution(device Device, slots []SlotAssignment, proxy rewriter.Pro
 				})
 				continue
 			}
+			if errors.Is(err, rewriter.ErrProxyUpstreamMismatch) {
+				out.Slots = append(out.Slots, SlotResult{
+					Slot:        s.Slot,
+					Protocol:    s.Pool.Protocol,
+					Warning:     commandpb.SlotWarning_SLOT_WARNING_PROXY_UPSTREAM_MISMATCH,
+					ProtoSlot:   protoSlot(s.Slot),
+					ProtoReason: commandpb.RewriteReason_REWRITE_REASON_UNSPECIFIED,
+				})
+				continue
+			}
 			// Unknown slot-level error: fall through with UNSPECIFIED
 			// warning so the caller at least sees something.
 			out.Slots = append(out.Slots, SlotResult{

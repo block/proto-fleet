@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"strings"
 
 	poolspb "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
@@ -38,14 +39,26 @@ var (
 	// proxy has exactly one upstream pool, primary/backup semantics would
 	// silently collapse, so we reject. Corresponds to DEVICE_WARNING_MULTIPLE_SV2_SLOTS_PROXIED.
 	ErrMultipleSV2SlotsRequireProxy = errors.New("more than one slot on this device would route through the bundled translator proxy; multi-proxy topology is not supported in v1")
+
+	// ErrProxyUpstreamMismatch is returned per-slot when the rewriter would
+	// route an SV2 pool through the bundled proxy whose configured upstream
+	// is a different pool. Pushing the miner-facing proxy URL in that case
+	// would silently divert hashrate to whatever pool the proxy's upstream
+	// targets — exactly the failure mode the v1 single-upstream topology
+	// must surface up front. Corresponds to SLOT_WARNING_PROXY_UPSTREAM_MISMATCH.
+	ErrProxyUpstreamMismatch = errors.New("the bundled translator proxy's upstream does not match this pool; configure the proxy for this pool or use a native-SV2 miner")
 )
 
 // ProxyConfig is the rewriter's view of the deployment-level proxy config.
 // ProxyEnabled gates whether the rewriter is allowed to emit proxied URLs
-// at all; MinerURL is the stratum+* URL that SV1 miners connect to.
+// at all; MinerURL is the stratum+* URL that SV1 miners connect to;
+// UpstreamURL is the SV2 pool URL the bundled tProxy is configured for —
+// the rewriter only emits the proxy URL when the slot's pool matches it,
+// since the v1 topology has exactly one upstream.
 type ProxyConfig struct {
 	ProxyEnabled bool
 	MinerURL     string
+	UpstreamURL  string
 }
 
 // DeviceCapabilities is the minimal capability surface the rewriter needs.
@@ -160,6 +173,13 @@ func resolveSingle(pool Pool, caps DeviceCapabilities, proxy ProxyConfig) (strin
 			return pool.URL, ReasonNative, nil
 		}
 		if proxy.ProxyEnabled && proxy.MinerURL != "" {
+			// The bundled tProxy has exactly one upstream pool baked in
+			// at startup. Pushing miner-facing proxy URL when that
+			// upstream is configured for a different pool would silently
+			// route the miner to the wrong pool, so reject the slot.
+			if !sameStratumURL(proxy.UpstreamURL, pool.URL) {
+				return "", ReasonUnspecified, ErrProxyUpstreamMismatch
+			}
 			return proxy.MinerURL, ReasonProxied, nil
 		}
 		return "", ReasonUnspecified, ErrSV2PoolNotSupportedByDevice
@@ -171,6 +191,29 @@ func resolveSingle(pool Pool, caps DeviceCapabilities, proxy ProxyConfig) (strin
 	default:
 		return "", ReasonUnspecified, fmt.Errorf("unknown pool protocol: %v", pool.Protocol)
 	}
+}
+
+// sameStratumURL compares two stratum URLs for routing equivalence.
+// Pool URLs sometimes carry an /AUTHORITY_PUBKEY suffix (Braiins format)
+// and the proxy's configured upstream may or may not; the host:port pair
+// is what determines whether the same pool is reached. Trim trailing
+// slashes and the path so a saved pool of stratum2+tcp://host:port and
+// a configured upstream of stratum2+tcp://host:port/PUB compare equal.
+func sameStratumURL(a, b string) bool {
+	return canonicaliseStratumURL(a) == canonicaliseStratumURL(b)
+}
+
+func canonicaliseStratumURL(u string) string {
+	s := strings.ToLower(strings.TrimSpace(u))
+	if i := strings.Index(s, "://"); i != -1 {
+		scheme := s[:i]
+		rest := s[i+3:]
+		if j := strings.Index(rest, "/"); j != -1 {
+			rest = rest[:j]
+		}
+		return scheme + "://" + rest
+	}
+	return s
 }
 
 // normalizeProtocol collapses UNSPECIFIED to SV1 so internal comparisons

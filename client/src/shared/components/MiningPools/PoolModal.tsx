@@ -2,8 +2,9 @@ import { ReactNode, useCallback, useMemo, useState } from "react";
 
 import { poolInfoAttributes } from "./constants";
 import { poolNameValidationErrors, urlValidationErrors, validateURLScheme } from "./PoolForm/constants";
-import { PoolConnectionTestProps, PoolIndex, PoolInfo } from "./types";
+import { PoolConnectionTestOutcome, PoolConnectionTestProps, PoolIndex, PoolInfo } from "./types";
 import { getPoolUsernameValidationError } from "./validation";
+import { ValidationMode } from "@/protoFleet/api/generated/pools/v1/pools_pb";
 
 import { Alert, Success } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
@@ -62,6 +63,7 @@ const PoolModal = ({
   const [isSaving, setIsSaving] = useState(false);
   const [isPasswordSet, setIsPasswordSet] = useState(false);
   const [saveError, setSaveError] = useState(false);
+  const [lastTestOutcome, setLastTestOutcome] = useState<PoolConnectionTestOutcome | undefined>();
 
   const modalSize = isPhone || isTablet ? "fullscreen" : "standard";
 
@@ -70,10 +72,45 @@ const PoolModal = ({
     [showCallout, error, isTestingConnection],
   );
 
+  // The "fully verified" callout fires when the probe authenticated
+  // (SV1) or completed the SV2 Noise handshake. Reachable-only outcomes
+  // (mode = SV2_TCP_DIAL) drop into the "reachable but unverified"
+  // callout below so the operator knows credentials weren't checked.
   const showConnectedCallout = useMemo(
-    () => showCallout && !isTestingConnection && !error,
-    [showCallout, error, isTestingConnection],
+    () =>
+      showCallout &&
+      !isTestingConnection &&
+      !error &&
+      lastTestOutcome !== undefined &&
+      lastTestOutcome.reachable &&
+      lastTestOutcome.credentialsVerified,
+    [showCallout, error, isTestingConnection, lastTestOutcome],
   );
+
+  const showReachableUnverifiedCallout = useMemo(
+    () =>
+      showCallout &&
+      !isTestingConnection &&
+      !error &&
+      lastTestOutcome !== undefined &&
+      lastTestOutcome.reachable &&
+      !lastTestOutcome.credentialsVerified,
+    [showCallout, error, isTestingConnection, lastTestOutcome],
+  );
+
+  const reachableUnverifiedTitle = useMemo(() => {
+    if (!lastTestOutcome) {
+      return "";
+    }
+    switch (lastTestOutcome.mode) {
+      case ValidationMode.SV2_TCP_DIAL:
+        return "Pool reachable. Credentials not verified — Stratum V2 connectivity check completed a TCP dial only.";
+      case ValidationMode.SV2_HANDSHAKE:
+        return "Pool reachable and Noise handshake succeeded. Credentials are verified at job-submission time.";
+      default:
+        return "Pool reachable. Credentials not verified.";
+    }
+  }, [lastTestOutcome]);
 
   const showSaveErrorCallout = useMemo(() => saveError && !isSaving, [saveError, isSaving]);
   const editableLegacyUsername = useMemo(
@@ -250,13 +287,15 @@ const PoolModal = ({
     }
 
     setError(false);
+    setLastTestOutcome(undefined);
     testConnection({
       poolInfo: draftPoolInfo[poolIndex],
       onError: () => {
         setError(true);
       },
-      onSuccess: () => {
+      onSuccess: (outcome) => {
         setError(false);
+        setLastTestOutcome(outcome);
       },
       onFinally: () => setShowCallout(true),
     });
@@ -311,6 +350,14 @@ const PoolModal = ({
       />
       <DismissibleCalloutWrapper
         icon={<Alert width={iconSizes.medium} />}
+        intent={intents.warning}
+        onDismiss={() => setShowCallout(false)}
+        show={showReachableUnverifiedCallout}
+        title={reachableUnverifiedTitle}
+        testId="pool-reachable-unverified-callout"
+      />
+      <DismissibleCalloutWrapper
+        icon={<Alert width={iconSizes.medium} />}
         intent={intents.danger}
         onDismiss={() => setShowCallout(false)}
         show={showNotConnectedCallout}
@@ -348,7 +395,7 @@ const PoolModal = ({
           autoFocus={hidePoolName}
           tooltip={{
             header: "Mining Pool URL",
-            body: "stratum+tcp://, stratum+ssl://, stratum+ws:// are Stratum V1; stratum2+tcp://, stratum2+ssl:// are Stratum V2. Protocol is detected from the URL.",
+            body: "stratum+tcp:// is Stratum V1; stratum2+tcp:// is Stratum V2. Protocol is detected from the URL. Plain TCP only in v1; TLS / WebSocket variants are not supported by the dispatch path.",
           }}
         />
         <div className="space-y-2">

@@ -65,7 +65,7 @@ func TestRun_MixedFleetSV2PoolProxiesSV1DevicesOnly(t *testing.T) {
 			{Identifier: "native", Capabilities: fakeCaps{sdk.CapabilityStratumV2Native: true}},
 			{Identifier: "sv1-only", Capabilities: fakeCaps{}},
 		},
-		Proxy: rewriter.ProxyConfig{ProxyEnabled: true, MinerURL: proxyURL},
+		Proxy: rewriter.ProxyConfig{ProxyEnabled: true, MinerURL: proxyURL, UpstreamURL: sv2URL},
 	})
 
 	require.NoError(t, err)
@@ -119,7 +119,7 @@ func TestRun_MultipleSV2SlotsProxiedSurfacesDeviceWarning(t *testing.T) {
 		Devices: []Device{
 			{Identifier: "sv1-only", Capabilities: fakeCaps{}},
 		},
-		Proxy: rewriter.ProxyConfig{ProxyEnabled: true, MinerURL: proxyURL},
+		Proxy: rewriter.ProxyConfig{ProxyEnabled: true, MinerURL: proxyURL, UpstreamURL: sv2URL},
 	})
 
 	require.NoError(t, err)

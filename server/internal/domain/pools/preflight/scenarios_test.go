@@ -44,7 +44,7 @@ func TestScenario_MixedFleetSV2PoolAssignment_BothCohortsRoutedCorrectly(t *test
 			{Identifier: "native-sv2", Capabilities: fakeCaps{sdk.CapabilityStratumV2Native: true}},
 			{Identifier: "sv1-only", Capabilities: fakeCaps{}},
 		},
-		Proxy: rewriter.ProxyConfig{ProxyEnabled: true, MinerURL: scenarioProxyURL},
+		Proxy: rewriter.ProxyConfig{ProxyEnabled: true, MinerURL: scenarioProxyURL, UpstreamURL: scenarioSV2URL},
 	})
 
 	require.NoError(t, err)
@@ -121,7 +121,7 @@ func TestScenario_ThreeSV2PoolsOnSV1Miner_DeviceWarningFires(t *testing.T) {
 		Devices: []Device{
 			{Identifier: "sv1-only", Capabilities: fakeCaps{}},
 		},
-		Proxy: rewriter.ProxyConfig{ProxyEnabled: true, MinerURL: scenarioProxyURL},
+		Proxy: rewriter.ProxyConfig{ProxyEnabled: true, MinerURL: scenarioProxyURL, UpstreamURL: scenarioSV2URL},
 	})
 
 	require.NoError(t, err)
@@ -158,7 +158,7 @@ func TestScenario_SV1PoolAssignment_AlwaysPassthrough(t *testing.T) {
 			{Identifier: "sv2-native", Capabilities: fakeCaps{sdk.CapabilityStratumV2Native: true}},
 			{Identifier: "sv1-only", Capabilities: fakeCaps{}},
 		},
-		Proxy: rewriter.ProxyConfig{ProxyEnabled: true, MinerURL: scenarioProxyURL},
+		Proxy: rewriter.ProxyConfig{ProxyEnabled: true, MinerURL: scenarioProxyURL, UpstreamURL: scenarioSV2URL},
 	})
 
 	require.NoError(t, err)
@@ -190,7 +190,7 @@ func TestScenario_TelemetryWinsOverStaticForSV2Capability(t *testing.T) {
 			{Identifier: "native", Capabilities: native},
 			{Identifier: "sv1", Capabilities: sv1},
 		},
-		Proxy: rewriter.ProxyConfig{ProxyEnabled: true, MinerURL: scenarioProxyURL},
+		Proxy: rewriter.ProxyConfig{ProxyEnabled: true, MinerURL: scenarioProxyURL, UpstreamURL: scenarioSV2URL},
 	})
 
 	require.NoError(t, err)

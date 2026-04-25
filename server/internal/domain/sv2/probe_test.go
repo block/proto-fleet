@@ -68,7 +68,7 @@ func TestTCPDial_AcceptsSV1Schemes(t *testing.T) {
 		}
 	}()
 
-	for _, scheme := range []string{"stratum+tcp://", "stratum+ssl://", "stratum+ws://"} {
+	for _, scheme := range []string{"stratum+tcp://", "stratum2+tcp://"} {
 		t.Run(scheme, func(t *testing.T) {
 			ok, err := TCPDial(context.Background(), scheme+lis.Addr().String(), time.Second)
 			require.NoError(t, err)

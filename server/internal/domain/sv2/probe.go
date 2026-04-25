@@ -38,9 +38,9 @@ func dialTCP(ctx context.Context, addr string, timeout time.Duration) error {
 }
 
 // TCPDial verifies that a stratum URL's host:port is reachable by opening
-// a TCP connection and closing it. Accepts both SV1 schemes
-// (stratum+tcp://..., stratum+ssl://...) and SV2 schemes
-// (stratum2+tcp://..., stratum2+ssl://...); anything else is rejected as a malformed
+// a TCP connection and closing it. Accepts the SV1 scheme
+// (stratum+tcp://...) and the SV2 scheme (stratum2+tcp://...);
+// anything else is rejected as a malformed
 // input error rather than a reachability failure.
 //
 // Returns (true, nil) when the TCP handshake completed. Returns
@@ -97,8 +97,5 @@ func addressFromStratumURL(raw string) (string, error) {
 func isSupportedScheme(raw string) bool {
 	lower := strings.ToLower(raw)
 	return strings.HasPrefix(lower, "stratum+tcp://") ||
-		strings.HasPrefix(lower, "stratum+ssl://") ||
-		strings.HasPrefix(lower, "stratum+ws://") ||
-		strings.HasPrefix(lower, "stratum2+tcp://") ||
-		strings.HasPrefix(lower, "stratum2+ssl://")
+		strings.HasPrefix(lower, "stratum2+tcp://")
 }

@@ -144,9 +144,15 @@ enum RewriteReason {
 
 // Slot-scoped warnings that would cause a commit to be rejected.
 enum SlotWarning {
-  SLOT_WARNING_UNSPECIFIED       = 0;
+  SLOT_WARNING_UNSPECIFIED              = 0;
   // SV2 pool was assigned to an SV1-only device while the translation proxy is disabled.
-  SLOT_WARNING_SV2_NOT_SUPPORTED = 1;
+  SLOT_WARNING_SV2_NOT_SUPPORTED        = 1;
+  // SV2 pool was assigned to an SV1-only device whose only path to SV2 is
+  // the bundled translator, but the translator's upstream is configured for
+  // a different pool. Routing the miner through the proxy would silently
+  // hash to the wrong upstream — the v1 single-proxy topology can only
+  // serve one upstream pool at a time.
+  SLOT_WARNING_PROXY_UPSTREAM_MISMATCH  = 2;
 }
 
 // Device-scoped warnings — attributable to the combination of slots on the

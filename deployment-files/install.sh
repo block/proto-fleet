@@ -305,17 +305,42 @@ EOF
   # the original string into the TOML.
   if [ -f "$toml_template" ] && [ -n "$sv2_pool_noise_key" ]; then
     if [[ "$sv2_upstream" =~ ^stratum2\+(tcp|ssl)://([^:/]+):([0-9]+)(/.*)?$ ]]; then
-      local host="${BASH_REMATCH[2]}"
-      local port="${BASH_REMATCH[3]}"
+      local upstream_host="${BASH_REMATCH[2]}"
+      local upstream_port="${BASH_REMATCH[3]}"
       sed -i.bak \
-        -e "s|^upstream_address = .*|upstream_address = \"${host}\"|" \
-        -e "s|^upstream_port = .*|upstream_port = ${port}|" \
+        -e "s|^upstream_address = .*|upstream_address = \"${upstream_host}\"|" \
+        -e "s|^upstream_port = .*|upstream_port = ${upstream_port}|" \
         -e "s|^upstream_authority_pubkey = .*|upstream_authority_pubkey = \"${sv2_pool_noise_key}\"|" \
         "$toml_template"
       rm -f "${toml_template}.bak"
-      echo "   Rendered ${toml_template} with upstream ${host}:${port}"
+      echo "   Rendered ${toml_template} upstream → ${upstream_host}:${upstream_port}"
     else
       echo "   ⚠️  Upstream URL '${sv2_upstream}' does not match stratum2+(tcp|ssl)://host:port; edit ${toml_template} manually before starting the proxy."
+    fi
+
+    # The downstream listener (what SV1 miners actually connect to) must
+    # match the miner-facing URL we wrote to .env: an operator who chose a
+    # custom port in STRATUM_V2_PROXY_MINER_URL would otherwise be silently
+    # routed to a port the proxy isn't listening on. Render it from the
+    # same regex; default to listening on all interfaces inside the
+    # container so containerised miners and host miners both reach it.
+    if [[ "$sv2_miner_url" =~ ^stratum\+(tcp|ssl|ws)://([^:/]+):([0-9]+).*$ ]]; then
+      local downstream_port="${BASH_REMATCH[3]}"
+      sed -i.bak \
+        -e "s|^downstream_port = .*|downstream_port = ${downstream_port}|" \
+        "$toml_template"
+      rm -f "${toml_template}.bak"
+      echo "   Rendered ${toml_template} downstream → 0.0.0.0:${downstream_port}"
+      # Also align the Fleet-side health probe address with the chosen
+      # port so the health gauge isn't pinned to a stale 34255 default.
+      if grep -q '^STRATUM_V2_PROXY_HEALTH_ADDR=127\.0\.0\.1:' "$env_file"; then
+        sed -i.bak \
+          -e "s|^STRATUM_V2_PROXY_HEALTH_ADDR=127\.0\.0\.1:.*|STRATUM_V2_PROXY_HEALTH_ADDR=127.0.0.1:${downstream_port}|" \
+          "$env_file"
+        rm -f "${env_file}.bak"
+      fi
+    elif [ -n "$sv2_miner_url" ]; then
+      echo "   ⚠️  Miner URL '${sv2_miner_url}' does not match stratum+(tcp|ssl|ws)://host:port; downstream_port left at the template default. Edit ${toml_template} if you chose a non-default port."
     fi
   fi
 

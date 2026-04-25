@@ -16,13 +16,14 @@ func TestProtocolFromURL(t *testing.T) {
 		err  bool
 	}{
 		{"stratum+tcp://pool.example.com:3333", pb.PoolProtocol_POOL_PROTOCOL_SV1, false},
-		{"stratum+ssl://pool.example.com:3333", pb.PoolProtocol_POOL_PROTOCOL_SV1, false},
-		{"stratum+ws://pool.example.com:3333", pb.PoolProtocol_POOL_PROTOCOL_SV1, false},
 		{"STRATUM+TCP://pool.example.com:3333", pb.PoolProtocol_POOL_PROTOCOL_SV1, false},
 		{"stratum2+tcp://pool.example.com:34254", pb.PoolProtocol_POOL_PROTOCOL_SV2, false},
-		{"stratum2+ssl://pool.example.com:34254", pb.PoolProtocol_POOL_PROTOCOL_SV2, false},
 		{"stratum2+tcp://pool.example.com:34254/pubkey", pb.PoolProtocol_POOL_PROTOCOL_SV2, false},
 		{"  stratum2+tcp://pool.example.com:34254  ", pb.PoolProtocol_POOL_PROTOCOL_SV2, false},
+		// SSL/WS variants are intentionally rejected — see protocol.go.
+		{"stratum+ssl://pool.example.com:3333", pb.PoolProtocol_POOL_PROTOCOL_UNSPECIFIED, true},
+		{"stratum+ws://pool.example.com:3333", pb.PoolProtocol_POOL_PROTOCOL_UNSPECIFIED, true},
+		{"stratum2+ssl://pool.example.com:34254", pb.PoolProtocol_POOL_PROTOCOL_UNSPECIFIED, true},
 		{"http://not-a-pool.com", pb.PoolProtocol_POOL_PROTOCOL_UNSPECIFIED, true},
 		{"", pb.PoolProtocol_POOL_PROTOCOL_UNSPECIFIED, true},
 		{"stratum+udp://", pb.PoolProtocol_POOL_PROTOCOL_UNSPECIFIED, true},

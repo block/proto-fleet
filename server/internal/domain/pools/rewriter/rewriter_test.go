@@ -21,7 +21,7 @@ func (f fakeCaps) Has(c string) bool { return f[c] }
 
 var (
 	sv1URL   = "stratum+tcp://pool.example.com:3333"
-	sv1URL2  = "stratum+ssl://backup.example.com:3443"
+	sv1URL2  = "stratum+tcp://backup.example.com:3443"
 	sv2URL   = "stratum2+tcp://pool.example.com:34254"
 	proxyURL = "stratum+tcp://127.0.0.1:34255"
 )
@@ -110,6 +110,10 @@ func TestPoolURLsForDevice_SingleSlotMatrix(t *testing.T) {
 				proxy.ProxyEnabled = true
 				if tc.name != "sv2 pool to sv1 device rejected when proxy enabled but miner URL blank" {
 					proxy.MinerURL = proxyURL
+					// Match the proxy upstream to the test pool so the
+					// rewriter doesn't reject with ErrProxyUpstreamMismatch
+					// for cases that should succeed via the proxy.
+					proxy.UpstreamURL = tc.poolURL
 				}
 			}
 
@@ -138,7 +142,7 @@ func TestPoolURLsForDevice_SingleSlotMatrix(t *testing.T) {
 
 func TestPoolURLsForDevice_RejectsMultipleProxiedSlots(t *testing.T) {
 	caps := fakeCaps{} // sv1 device
-	proxy := ProxyConfig{ProxyEnabled: true, MinerURL: proxyURL}
+	proxy := ProxyConfig{ProxyEnabled: true, MinerURL: proxyURL, UpstreamURL: sv2URL}
 
 	_, err := PoolURLsForDevice(
 		[]SlotAssignment{
@@ -181,7 +185,7 @@ func TestPoolURLsForDevice_MixedSV1AndProxiedSV2IsAllowed(t *testing.T) {
 	// Primary SV1 + one SV2 backup through the proxy — exactly one proxied
 	// slot, so the device-level rejection doesn't trip.
 	caps := fakeCaps{} // sv1 device
-	proxy := ProxyConfig{ProxyEnabled: true, MinerURL: proxyURL}
+	proxy := ProxyConfig{ProxyEnabled: true, MinerURL: proxyURL, UpstreamURL: sv2URL}
 
 	resolved, err := PoolURLsForDevice(
 		[]SlotAssignment{

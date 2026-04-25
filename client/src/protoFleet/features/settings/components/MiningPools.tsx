@@ -516,11 +516,11 @@ const MiningPools = () => {
         testConnection={(args) => {
           validatePool({
             ...args,
-            onSuccess: () => {
+            onSuccess: (outcome) => {
               if (editingPool) {
                 setConnectionStatuses((prev) => ({ ...prev, [editingPool.poolId.toString()]: "idle" }));
               }
-              args.onSuccess?.();
+              args.onSuccess?.(outcome);
             },
           });
         }}
