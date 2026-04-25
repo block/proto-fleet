@@ -30,9 +30,16 @@ jobs:
         env:
           CURRENT_REF: ${{ github.ref }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          EXPECTED_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           if [[ "$CURRENT_REF" != "refs/heads/$DEFAULT_BRANCH" ]]; then
             echo "::error::Nightly builds must run on the default branch ($DEFAULT_BRANCH); refusing to run from $CURRENT_REF."
+            exit 1
+          fi
+          BRANCH_TIP=$(gh api "repos/${GITHUB_REPOSITORY}/branches/${DEFAULT_BRANCH}" --jq '.commit.sha')
+          if [[ "$BRANCH_TIP" != "$EXPECTED_SHA" ]]; then
+            echo "::error::Run SHA $EXPECTED_SHA is not the current tip of $DEFAULT_BRANCH (tip is $BRANCH_TIP). Refusing to publish a stale nightly; trigger a fresh workflow_dispatch against the current tip instead."
             exit 1
           fi
 
