@@ -32,7 +32,7 @@ export const formatTimestamp = (timestamp?: number): string => {
  */
 export const formatActivityTimestamp = (timestamp?: number): string => {
   if (timestamp == null || !Number.isFinite(timestamp)) return "";
-  return new Date(timestamp * 1000).toLocaleString("en-US", {
+  return new Date(timestamp * 1000).toLocaleString(undefined, {
     month: "2-digit",
     day: "2-digit",
     year: "2-digit",
