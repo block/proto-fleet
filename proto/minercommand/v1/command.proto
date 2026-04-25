@@ -7,6 +7,7 @@ import "fleetmanagement/v1/fleetmanagement.proto";
 import "common/v1/device_selector.proto";
 import "common/v1/cooling.proto";
 import "pools/v1/pools.proto";
+import "buf/validate/validate.proto";
 
 message DeviceFilter {
   repeated fleetmanagement.v1.DeviceStatus device_status = 1;
@@ -86,8 +87,19 @@ message PoolSlotConfig {
 }
 
 // Raw pool configuration for pools not stored in Fleet. Protocol is
-// derived from the URL scheme server-side; callers don't pass it.
+// derived from the URL scheme server-side; callers don't pass it. The
+// CEL rule enforces the same scheme whitelist as pools.v1.PoolConfig
+// (plain TCP only in v1) so raw pools can't slip an unsupported scheme
+// past validation and end up silently treated as SV1 by the rewriter.
 message RawPoolInfo {
+  option (buf.validate.message).cel = {
+    id: "raw_pool_url_scheme",
+    message: "url must start with stratum+tcp://host:port or stratum2+tcp://host:port[/AUTHORITY_PUBKEY]",
+    expression:
+      "this.url.matches('^stratum\\\\+tcp://(([a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]\\\\.[a-zA-Z]{2,})|(\\\\d{1,3}\\\\.){3}\\\\d{1,3}|\\\\[([0-9a-fA-F:]+)\\\\]):\\\\d{1,5}$') "
+      "|| this.url.matches('^stratum2\\\\+tcp://(([a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]\\\\.[a-zA-Z]{2,})|(\\\\d{1,3}\\\\.){3}\\\\d{1,3}|\\\\[([0-9a-fA-F:]+)\\\\]):\\\\d{1,5}(/[A-Za-z0-9._~+=-]+)?$')"
+  };
+
   string url = 1;
   string username = 2;
   // Password is optional since miners don't expose it

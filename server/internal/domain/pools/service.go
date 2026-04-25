@@ -267,12 +267,21 @@ func (s *Service) ValidateConnection(
 		// UNSPECIFIED is rejected above by ProtocolFromURL when the URL
 		// has no recognised scheme; reach this case only when the URL
 		// said "stratum+tcp" and the rewriter classified it SV1.
+		//
+		// Authenticate returns (true, nil) on a clean subscribe+authorize,
+		// (false, nil) when the pool returned a JSON-RPC false (typically
+		// bad credentials), and (_, err) for transport failures (DNS,
+		// refused, RST). The first two cases both mean the host is
+		// reachable — the difference is whether credentials checked out —
+		// so we only flip Reachable to false when err itself is non-nil.
+		// Conflating ok=false with unreachable would mask credential
+		// problems as connectivity issues in the UI.
 		ok, err := stratumv1.Authenticate(ctx, url, username, password)
 		if err != nil {
 			return ValidationResult{Mode: pb.ValidationMode_VALIDATION_MODE_SV1_AUTHENTICATE}, err
 		}
 		return ValidationResult{
-			Reachable:           ok,
+			Reachable:           true,
 			CredentialsVerified: ok,
 			Mode:                pb.ValidationMode_VALIDATION_MODE_SV1_AUTHENTICATE,
 		}, nil

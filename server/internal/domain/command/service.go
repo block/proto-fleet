@@ -707,13 +707,24 @@ func (s *Service) createMiningPoolDTOFromSlotConfig(ctx context.Context, config 
 		if source.RawPool.Password != nil {
 			password = *source.RawPool.Password
 		}
+		// CEL on RawPoolInfo enforces the same scheme whitelist as
+		// pools.v1.PoolConfig, but ProtocolFromURL is the authoritative
+		// runtime check — surface a typed INVALID_ARGUMENT instead of
+		// silently treating an unrecognised scheme as SV1, otherwise
+		// the rewriter would skip the SV2 preflight for raw pools that
+		// slipped past CEL (e.g. CEL not yet running for a stale client
+		// in dev).
+		protocol, err := rewriter.ProtocolFromURL(source.RawPool.Url)
+		if err != nil {
+			return nil, fleeterror.NewInvalidArgumentErrorf("raw pool url: %v", err)
+		}
 		return &dto.MiningPool{
 			Priority:        defaultPoolPriority + priorityIncrement,
 			URL:             source.RawPool.Url,
 			Username:        source.RawPool.Username,
 			Password:        password,
 			AppendMinerName: shouldAppendMinerNameToUsername(source.RawPool.Username),
-			Protocol:        rewriter.MustProtocolFromURL(source.RawPool.Url),
+			Protocol:        protocol,
 		}, nil
 	default:
 		return nil, fleeterror.NewInternalErrorf("invalid pool source type")

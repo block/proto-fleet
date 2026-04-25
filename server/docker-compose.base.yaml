@@ -100,8 +100,13 @@ services:
     pull_policy: if_not_present
     restart: unless-stopped
     profiles: ["sv2"]
+    # Host port and the in-container listener port both come from
+    # STRATUM_V2_PROXY_DOWNSTREAM_PORT so a custom miner-facing port set
+    # in install.sh (parsed from STRATUM_V2_PROXY_MINER_URL) is actually
+    # reachable from miners. The tproxy.toml's downstream_port must
+    # match — the installer rewrites both. Default 34255.
     ports:
-      - "34255:34255"
+      - "${STRATUM_V2_PROXY_DOWNSTREAM_PORT:-34255}:${STRATUM_V2_PROXY_DOWNSTREAM_PORT:-34255}"
     volumes:
       - ../sv2/tproxy.toml:/etc/tproxy/config.toml:ro
     environment:
@@ -110,10 +115,9 @@ services:
       - "-c"
       - "/etc/tproxy/config.toml"
     healthcheck:
-      # Listening on 34255 is sufficient evidence of liveness for v1; the
-      # Fleet API runs its own TCP probe against the same port via
-      # STRATUM_V2_PROXY_HEALTH_ADDR, and that's what surfaces in logs.
-      test: ["CMD", "sh", "-c", "nc -z localhost 34255"]
+      # Probe the configured downstream port so a non-default miner-facing
+      # port doesn't leave the healthcheck pinned to a stale 34255.
+      test: ["CMD", "sh", "-c", "nc -z localhost ${STRATUM_V2_PROXY_DOWNSTREAM_PORT:-34255}"]
       interval: 30s
       timeout: 5s
       retries: 3

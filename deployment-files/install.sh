@@ -339,6 +339,14 @@ EOF
           "$env_file"
         rm -f "${env_file}.bak"
       fi
+      # Compose substitutes ${STRATUM_V2_PROXY_DOWNSTREAM_PORT} into the
+      # sv2-tproxy `ports` mapping so the host-published port matches the
+      # in-container listener. Without this the installer would render a
+      # custom port into tproxy.toml but Docker would still publish 34255,
+      # leaving miners trying to reach a port the host isn't forwarding.
+      cat >> "$env_file" <<EOF
+STRATUM_V2_PROXY_DOWNSTREAM_PORT=${downstream_port}
+EOF
     elif [ -n "$sv2_miner_url" ]; then
       echo "   ⚠️  Miner URL '${sv2_miner_url}' does not match stratum+tcp://host:port; downstream_port left at the template default. Plain TCP only in v1; edit ${toml_template} if you chose a non-default port."
     fi
