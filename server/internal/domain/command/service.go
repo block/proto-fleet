@@ -70,8 +70,9 @@ type Service struct {
 	// info", so SV2 pools assigned to SV1 devices only succeed via the
 	// proxy. Set via SetStratumV2Resolvers so callers that don't care
 	// about SV2 need not touch the constructor.
-	sv2Caps  SV2CapabilityResolver
-	sv2Proxy rewriter.ProxyConfig
+	sv2Caps   SV2CapabilityResolver
+	sv2Proxy  rewriter.ProxyConfig
+	sv2Health ProxyHealthChecker
 }
 
 // SV2CapabilityResolver supplies per-device capability snapshots to the
@@ -84,14 +85,45 @@ type SV2CapabilityResolver interface {
 	ResolveCapabilities(ctx context.Context, deviceIdentifiers []string) map[string]rewriter.DeviceCapabilities
 }
 
+// ProxyHealthChecker reports whether the bundled tProxy is up. The
+// preflight consults this before approving any proxied route — pushing
+// the proxy URL to miners while the translator is down would take a
+// fleet of SV1 miners off-pool until the operator notices. Up() and
+// HasState() match sv2.HealthMonitor's surface, so the production
+// wiring is just a direct hand-off; tests can plug in a fake.
+type ProxyHealthChecker interface {
+	Up() bool
+	HasState() bool
+}
+
 // SetStratumV2Resolvers wires SV2 inputs onto an existing service. Kept
 // out of NewService so the deployment wiring in main.go can install
 // optional SV2 plumbing without breaking tests that construct Service
 // positionally. A nil resolver + zero ProxyConfig is valid (SV1-only
 // deployment) and is the default until explicitly overridden.
-func (s *Service) SetStratumV2Resolvers(caps SV2CapabilityResolver, proxy rewriter.ProxyConfig) {
+func (s *Service) SetStratumV2Resolvers(caps SV2CapabilityResolver, proxy rewriter.ProxyConfig, health ProxyHealthChecker) {
 	s.sv2Caps = caps
 	s.sv2Proxy = proxy
+	s.sv2Health = health
+}
+
+// effectiveProxyConfig returns the static rewriter ProxyConfig with
+// ProxyEnabled forced to false when the bundled translator is not
+// known to be reachable. Without this, a successful UpdateMiningPools
+// could push the proxy's miner-facing URL to every SV1-only miner
+// while the proxy container is down, taking the affected fleet
+// off-pool. Health-unknown is treated as "down" — preflight should
+// fail closed until the first probe lands.
+func (s *Service) effectiveProxyConfig() rewriter.ProxyConfig {
+	if !s.sv2Proxy.ProxyEnabled {
+		return s.sv2Proxy
+	}
+	if s.sv2Health == nil || !s.sv2Health.HasState() || !s.sv2Health.Up() {
+		gated := s.sv2Proxy
+		gated.ProxyEnabled = false
+		return gated
+	}
+	return s.sv2Proxy
 }
 
 const defaultPoolPriority uint32 = 0
@@ -889,7 +921,7 @@ func (s *Service) PreviewMiningPoolAssignment(
 	out, err := preflight.Run(preflight.Input{
 		Slots:   buildPreflightSlotAssignments(pld),
 		Devices: devices,
-		Proxy:   s.sv2Proxy,
+		Proxy:   s.effectiveProxyConfig(),
 	})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("pool-assignment preflight: %v", err)
@@ -956,7 +988,7 @@ func (s *Service) preflightAndSerializePayloads(
 	out, err := preflight.Run(preflight.Input{
 		Slots:   slots,
 		Devices: devices,
-		Proxy:   s.sv2Proxy,
+		Proxy:   s.effectiveProxyConfig(),
 	})
 	if err != nil {
 		return nil, nil, nil, fleeterror.NewInternalErrorf("pool-assignment preflight: %v", err)

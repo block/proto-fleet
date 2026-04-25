@@ -275,18 +275,26 @@ EOF
     return 0
   fi
 
+  # Single-source-of-truth for the upstream identity: the operator pastes
+  # the canonical Braiins-format URL with the /AUTHORITY_PUBKEY suffix,
+  # and we derive the tproxy.toml pubkey from it. Asking for the pubkey
+  # separately created a class of bug where the URL Fleet's rewriter
+  # uses for routing decisions and the pubkey the proxy actually pins
+  # could disagree silently — exactly the hashrate-diversion case the
+  # rewriter's mismatch check is supposed to prevent.
   local sv2_upstream=""
-  while [ -z "$sv2_upstream" ]; do
-    read -p "   Upstream SV2 pool URL (stratum2+tcp://host:port): " sv2_upstream
+  while true; do
+    read -p "   Upstream SV2 pool URL (stratum2+tcp://host:port/AUTHORITY_PUBKEY): " sv2_upstream
+    if [[ "$sv2_upstream" =~ ^stratum2\+tcp://([^:/]+):([0-9]+)/([A-Za-z0-9._~+=-]+)$ ]]; then
+      break
+    fi
+    echo "   ❌ URL must be stratum2+tcp://host:port/AUTHORITY_PUBKEY (the pubkey suffix is required so Fleet and the proxy agree on the pool identity)."
   done
 
   local sv2_miner_url=""
   while [ -z "$sv2_miner_url" ]; do
     read -p "   Miner-facing proxy URL (stratum+tcp://host:port, default port 34255): " sv2_miner_url
   done
-
-  local sv2_pool_noise_key=""
-  read -p "   Pool's Noise authority pubkey (from pool operator docs, required): " sv2_pool_noise_key
 
   cat >> "$env_file" <<EOF
 # Stratum V2 translator proxy
@@ -299,25 +307,24 @@ STRATUM_V2_PROXY_HEALTH_ADDR=127.0.0.1:34255
 STRATUM_V2_PROXY_HEALTH_INTERVAL=30s
 EOF
 
-  # Render the tProxy TOML from operator input. Host/port come out of the
-  # stratum2+tcp://host:port[/pubkey] URL via bash's regex so a malformed
-  # URL fails the match outright rather than silently passing the
-  # original string into the TOML. Plain TCP only in v1 — the SSL/WS
-  # variants the server rejects at startup are also rejected here so the
-  # installer and the runtime agree on the supported scheme set.
-  if [ -f "$toml_template" ] && [ -n "$sv2_pool_noise_key" ]; then
-    if [[ "$sv2_upstream" =~ ^stratum2\+tcp://([^:/]+):([0-9]+)(/.*)?$ ]]; then
+  # Render the tProxy TOML from operator input. Host/port/pubkey come
+  # out of the same single URL — the suffix is required by the validation
+  # loop above, so the tproxy.toml pubkey field always matches whatever
+  # Fleet's rewriter compares against.
+  if [ -f "$toml_template" ]; then
+    if [[ "$sv2_upstream" =~ ^stratum2\+tcp://([^:/]+):([0-9]+)/([A-Za-z0-9._~+=-]+)$ ]]; then
       local upstream_host="${BASH_REMATCH[1]}"
       local upstream_port="${BASH_REMATCH[2]}"
+      local upstream_pubkey="${BASH_REMATCH[3]}"
       sed -i.bak \
         -e "s|^upstream_address = .*|upstream_address = \"${upstream_host}\"|" \
         -e "s|^upstream_port = .*|upstream_port = ${upstream_port}|" \
-        -e "s|^upstream_authority_pubkey = .*|upstream_authority_pubkey = \"${sv2_pool_noise_key}\"|" \
+        -e "s|^upstream_authority_pubkey = .*|upstream_authority_pubkey = \"${upstream_pubkey}\"|" \
         "$toml_template"
       rm -f "${toml_template}.bak"
       echo "   Rendered ${toml_template} upstream → ${upstream_host}:${upstream_port}"
     else
-      echo "   ⚠️  Upstream URL '${sv2_upstream}' does not match stratum2+tcp://host:port; edit ${toml_template} manually before starting the proxy. Plain TCP only in v1."
+      echo "   ⚠️  Upstream URL '${sv2_upstream}' does not match stratum2+tcp://host:port/PUBKEY; edit ${toml_template} manually before starting the proxy. Plain TCP only in v1."
     fi
 
     # The downstream listener (what SV1 miners actually connect to) must

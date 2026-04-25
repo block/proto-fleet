@@ -3,6 +3,7 @@ package pools
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
@@ -77,15 +78,21 @@ func (s *Service) UpdatePool(ctx context.Context, r *pb.UpdatePoolRequest) (*pb.
 		return nil, err
 	}
 
-	// Validate a new username only when it's actually changing. Absent field
-	// means "leave unchanged" under proto3 explicit presence; explicit empty
-	// string is rejected further down via validatePoolUsername.
+	// Proto3 explicit presence: an absent Username means "leave unchanged".
+	// An explicit empty string is always rejected so the patch contract
+	// can't be used to dispatch credential-less connections to miners.
+	// The separator rule (no '.') is enforced only when the username is
+	// actually changing — pools predating the separator restriction can
+	// still be edited (rename, etc.) without the legacy-data username
+	// being forced through the new contract.
 	if r.Username != nil {
+		if strings.TrimSpace(*r.Username) == "" {
+			return nil, fleeterror.NewInvalidArgumentError(invalidPoolUsernameEmptyMessage)
+		}
 		existingPool, err := s.poolStore.GetPool(ctx, info.OrganizationID, r.PoolId)
 		if err != nil {
 			return nil, err
 		}
-
 		if *r.Username != existingPool.GetUsername() {
 			if err := validatePoolUsername(*r.Username); err != nil {
 				return nil, err

@@ -24,7 +24,7 @@ func TestConfig_ValidateEnabledRequiresBothURLs(t *testing.T) {
 	}{
 		{
 			name:    "missing miner url",
-			cfg:     Config{ProxyEnabled: true, ProxyUpstreamURL: "stratum2+tcp://pool:34254"},
+			cfg:     Config{ProxyEnabled: true, ProxyUpstreamURL: "stratum2+tcp://pool:34254/UpstreamPubKey"},
 			wantErr: "STRATUM_V2_PROXY_MINER_URL",
 		},
 		{
@@ -46,7 +46,7 @@ func TestConfig_ValidateEnabledWithBothURLsIsOK(t *testing.T) {
 	c := Config{
 		ProxyEnabled:        true,
 		ProxyMinerURL:       "stratum+tcp://lan:34255",
-		ProxyUpstreamURL:    "stratum2+tcp://pool:34254",
+		ProxyUpstreamURL:    "stratum2+tcp://pool:34254/UpstreamPubKey",
 		ProxyHealthInterval: 30 * time.Second,
 	}
 	require.NoError(t, c.Validate())
@@ -62,7 +62,7 @@ func TestConfig_ValidateRejectsURLsWithoutPort(t *testing.T) {
 			cfg: Config{
 				ProxyEnabled:     true,
 				ProxyMinerURL:    "stratum+tcp://lan",
-				ProxyUpstreamURL: "stratum2+tcp://pool:34254",
+				ProxyUpstreamURL: "stratum2+tcp://pool:34254/UpstreamPubKey",
 			},
 		},
 		{
@@ -79,6 +79,14 @@ func TestConfig_ValidateRejectsURLsWithoutPort(t *testing.T) {
 				ProxyEnabled:     true,
 				ProxyMinerURL:    "stratum+tcp://lan:34255",
 				ProxyUpstreamURL: "stratum2+tcp://pool/PUBKEY",
+			},
+		},
+		{
+			name: "upstream url missing authority pubkey suffix",
+			cfg: Config{
+				ProxyEnabled:     true,
+				ProxyMinerURL:    "stratum+tcp://lan:34255",
+				ProxyUpstreamURL: "stratum2+tcp://pool:34254",
 			},
 		},
 	}
@@ -101,7 +109,7 @@ func TestConfig_ValidateRejectsUnsupportedSchemes(t *testing.T) {
 			cfg: Config{
 				ProxyEnabled:     true,
 				ProxyMinerURL:    "stratum+ssl://lan:34255",
-				ProxyUpstreamURL: "stratum2+tcp://pool:34254",
+				ProxyUpstreamURL: "stratum2+tcp://pool:34254/UpstreamPubKey",
 			},
 			wantErr: "STRATUM_V2_PROXY_MINER_URL",
 		},
@@ -110,7 +118,7 @@ func TestConfig_ValidateRejectsUnsupportedSchemes(t *testing.T) {
 			cfg: Config{
 				ProxyEnabled:     true,
 				ProxyMinerURL:    "stratum+ws://lan:34255",
-				ProxyUpstreamURL: "stratum2+tcp://pool:34254",
+				ProxyUpstreamURL: "stratum2+tcp://pool:34254/UpstreamPubKey",
 			},
 			wantErr: "STRATUM_V2_PROXY_MINER_URL",
 		},

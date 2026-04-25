@@ -342,23 +342,25 @@ func start(config *Config) error {
 	if err := config.StratumV2.Validate(); err != nil {
 		return fmt.Errorf("invalid STRATUM_V2 config: %w", err)
 	}
+	// Stand the health monitor up before wiring it into the command
+	// service so preflight has a (no-state-yet) gate from the moment the
+	// service can take requests. The monitor is also surfaced as the
+	// pool-assignment health gate: when ProxyEnabled is true but the
+	// bundled tProxy is down or hasn't responded yet, preflight fails
+	// closed for proxied routes rather than pushing a dead miner-facing
+	// URL to the fleet.
+	var sv2HealthMonitor *sv2.HealthMonitor
+	if config.StratumV2.ProxyEnabled {
+		sv2HealthMonitor = sv2.NewHealthMonitor(config.StratumV2.ProxyHealthCheckAddr, config.StratumV2.ProxyHealthInterval)
+		// Reuse the executionServiceCtx so the monitor goroutine shuts
+		// down on the same signal as the rest of the async plumbing.
+		go sv2HealthMonitor.Start(executionServiceCtx)
+	}
 	commandSvc.SetStratumV2Resolvers(
 		commandDomain.NewTelemetrySV2Resolver(timescaledbService),
 		config.StratumV2.RewriterConfig(),
+		sv2HealthMonitor,
 	)
-
-	// When the operator enabled the bundled SV2 translator proxy, start
-	// a background TCP health probe so operators can see at a glance
-	// whether the proxy they stood up is actually listening. The monitor
-	// is purely informational — pool assignment decisions consult the
-	// static ProxyEnabled flag, not this probe, so a flapping proxy
-	// still routes SV1 miners at the bundled URL.
-	if config.StratumV2.ProxyEnabled {
-		healthMonitor := sv2.NewHealthMonitor(config.StratumV2.ProxyHealthCheckAddr, config.StratumV2.ProxyHealthInterval)
-		// Reuse the executionServiceCtx so the monitor goroutine shuts
-		// down on the same signal as the rest of the async plumbing.
-		go healthMonitor.Start(executionServiceCtx)
-	}
 	fleetMgmtSvc := fleetmanagementDomain.NewService(deviceStore, discoveredDeviceStore, telemetryService, minerService, pluginService, poolStore, errorStore, collectionStore, commandSvc, activitySvc)
 	defer fleetMgmtSvc.WaitForPendingClearAuthKeys(shutdownTimeout)
 	onboardingSvc := onboardingDomain.NewService(deviceStore, poolStore, userStore)

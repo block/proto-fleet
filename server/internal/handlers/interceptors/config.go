@@ -19,6 +19,11 @@ var RedactedRequestProcedures = []string{
 	onboardingv1connect.OnboardingServiceCreateAdminLoginProcedure,
 	minercommandv1connect.MinerCommandServiceUpdateMiningPoolsProcedure,
 	minercommandv1connect.MinerCommandServiceUpdateMinerPasswordProcedure,
+	// Preview accepts the same PoolSlotConfig payload UpdateMiningPools
+	// does, including the optional RawPoolInfo.password — keep the
+	// preview body off debug logs for the same reason the commit RPC is
+	// redacted.
+	minercommandv1connect.MinerCommandServicePreviewMiningPoolAssignmentProcedure,
 }
 
 // RedactedResponseProcedures lists procedures whose responses contain secrets
