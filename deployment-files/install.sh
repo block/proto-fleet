@@ -379,12 +379,19 @@ render_sv2_tproxy_toml() {
   fi
 
   # Downstream: listener must match the miner-facing URL operators put
-  # in .env so SV1 miners reach the right port. Default the listener to
-  # 0.0.0.0 inside the container so containerised miners and host miners
-  # both reach it; the host port mapping in compose follows the same
-  # downstream port via STRATUM_V2_PROXY_DOWNSTREAM_PORT.
+  # in .env so SV1 miners reach the right port. The compose port
+  # mapping is host-bind-aware (see STRATUM_V2_PROXY_DOWNSTREAM_HOST in
+  # docker-compose.base.yaml), so we default the bind to the IP literal
+  # in the miner URL when present and fall back to 0.0.0.0 only when
+  # the host is a hostname (compose can't resolve hostnames in port
+  # mappings). Operators can still override DOWNSTREAM_HOST in .env.
   if [[ "$sv2_miner_url" =~ ^stratum\+tcp://([^:/]+):([0-9]+).*$ ]]; then
+    local downstream_host="${BASH_REMATCH[1]}"
     local downstream_port="${BASH_REMATCH[2]}"
+    local downstream_bind="0.0.0.0"
+    if [[ "$downstream_host" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || [[ "$downstream_host" =~ ^\[[0-9a-fA-F:]+\]$ ]]; then
+      downstream_bind="$downstream_host"
+    fi
     sed -i.bak \
       -e "s|^downstream_port = .*|downstream_port = ${downstream_port}|" \
       "$toml_template"
@@ -405,6 +412,21 @@ render_sv2_tproxy_toml() {
       cat >> "$env_file" <<EOF
 STRATUM_V2_PROXY_DOWNSTREAM_PORT=${downstream_port}
 EOF
+    fi
+    if grep -q '^STRATUM_V2_PROXY_DOWNSTREAM_HOST=' "$env_file"; then
+      sed -i.bak \
+        -e "s|^STRATUM_V2_PROXY_DOWNSTREAM_HOST=.*|STRATUM_V2_PROXY_DOWNSTREAM_HOST=${downstream_bind}|" \
+        "$env_file"
+      rm -f "${env_file}.bak"
+    else
+      cat >> "$env_file" <<EOF
+STRATUM_V2_PROXY_DOWNSTREAM_HOST=${downstream_bind}
+EOF
+    fi
+    if [ "$downstream_bind" = "0.0.0.0" ]; then
+      echo "   Listener bound to 0.0.0.0 (all interfaces). Edit STRATUM_V2_PROXY_DOWNSTREAM_HOST in .env to scope to a specific NIC."
+    else
+      echo "   Listener bound to ${downstream_bind} (parsed from miner URL host)."
     fi
   elif [ -n "$sv2_miner_url" ]; then
     echo "   ⚠️  Miner URL '${sv2_miner_url}' does not match stratum+tcp://host:port; downstream_port left at the template default. Plain TCP only in v1; edit ${toml_template} if you chose a non-default port."

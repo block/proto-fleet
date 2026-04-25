@@ -282,11 +282,19 @@ const useMinerCommand = () => {
       poolConfig,
       onSuccess,
       onError,
+      signal,
     }: {
       deviceSelector: DeviceSelector;
       poolConfig: PoolConfig;
       onSuccess: (previews: DevicePoolPreview[]) => void;
       onError?: (error: string) => void;
+      // Optional AbortSignal so the caller can cancel a superseded
+      // preview (e.g. when the operator reorders pool slots while the
+      // last RPC is still in flight). Without this, the request keeps
+      // running to completion server-side even after the UI has moved
+      // on, which is the abuse vector in the "preview is unbounded"
+      // finding from the security review.
+      signal?: AbortSignal;
     }) => {
       const createPoolSlotConfig = (source: PoolSlotSource): PoolSlotConfig => {
         if (source.type === "poolId") {
@@ -313,7 +321,7 @@ const useMinerCommand = () => {
       });
 
       await minerCommandClient
-        .previewMiningPoolAssignment(request)
+        .previewMiningPoolAssignment(request, { signal })
         .then((response: PreviewMiningPoolAssignmentResponse) => onSuccess(response.previews ?? []))
         .catch((err) => {
           handleAuthErrors({

@@ -26,8 +26,8 @@ import (
 // URLs missing a port (which net.Dial would reject at dispatch with a
 // much less actionable error).
 var (
-	minerURLPattern    = regexp.MustCompile(`^stratum\+tcp://([a-zA-Z0-9][a-zA-Z0-9.-]*|\d{1,3}(?:\.\d{1,3}){3}|\[[0-9a-fA-F:]+\]):\d{1,5}$`)
-	upstreamURLPattern = regexp.MustCompile(`^stratum2\+tcp://([a-zA-Z0-9][a-zA-Z0-9.-]*|\d{1,3}(?:\.\d{1,3}){3}|\[[0-9a-fA-F:]+\]):\d{1,5}/[A-Za-z0-9._~+=-]+$`)
+	minerURLPattern    = regexp.MustCompile(`^stratum\+tcp://([a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?|\d{1,3}(?:\.\d{1,3}){3}|\[[0-9a-fA-F:]+\]):\d{1,5}$`)
+	upstreamURLPattern = regexp.MustCompile(`^stratum2\+tcp://([a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?|\d{1,3}(?:\.\d{1,3}){3}|\[[0-9a-fA-F:]+\]):\d{1,5}/[A-Za-z0-9._~+=-]+$`)
 )
 
 // Config is the Kong-parsed StratumV2 block. See the "Server config block"

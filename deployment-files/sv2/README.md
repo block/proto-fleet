@@ -62,10 +62,15 @@ test, release). The current pin is set in `server/docker-compose.base.yaml`.
 
 The Fleet API runs a background TCP probe against the proxy's health
 address when `STRATUM_V2_PROXY_ENABLED=true`. Transitions surface in the
-API logs as `sv2 proxy health: up/down`. Pool-assignment decisions do
-NOT depend on the probe — they consult the static `ProxyEnabled` flag
-only, so a flapping proxy does not flip commit-time routing. The probe
-is purely informational.
+API logs as `sv2 proxy health: up/down`.
+
+Pool-assignment preflight consults the probe and **fails closed** for
+proxied routes when the bundled translator is down or has not yet
+responded to its first probe. Concretely: assignments that would push
+the miner-facing proxy URL to an SV1-only miner are rejected with
+`SLOT_WARNING_SV2_NOT_SUPPORTED` while the proxy is unhealthy, so a
+healthy fleet doesn't get knocked off-pool by an outage on the
+translator container. Native-SV2 assignments are unaffected.
 
 ## Air-gapped mirrors
 

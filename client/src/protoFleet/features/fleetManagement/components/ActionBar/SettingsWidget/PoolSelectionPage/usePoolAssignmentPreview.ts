@@ -45,6 +45,12 @@ export const usePoolAssignmentPreview = (
   // overwrite the state set by preview N+1, falsely re-enabling Save
   // for an assignment the latest preflight would actually reject.
   const latestRequestId = useRef(0);
+  // Abort the previous in-flight RPC when a new one supersedes it so
+  // server-side work for stale previews stops as soon as we know the
+  // result is irrelevant. Without this, every pool-reorder during a
+  // slow preview compounds load on the API; with it, only the latest
+  // one keeps running.
+  const inFlight = useRef<AbortController | null>(null);
 
   // Active when caller actually has something to preview. The deviceSelector
   // is the same one the commit path uses, so previewing an "allDevices"
@@ -64,10 +70,16 @@ export const usePoolAssignmentPreview = (
     timer.current = setTimeout(() => {
       latestRequestId.current += 1;
       const requestId = latestRequestId.current;
+      // Cancel any preview still in flight before kicking off the new
+      // one — server-side work stops as soon as the abort fires.
+      inFlight.current?.abort();
+      const controller = new AbortController();
+      inFlight.current = controller;
       setIsLoading(true);
       void previewMiningPoolAssignment({
         deviceSelector,
         poolConfig,
+        signal: controller.signal,
         onSuccess: (result) => {
           if (requestId !== latestRequestId.current) {
             return;
@@ -95,6 +107,11 @@ export const usePoolAssignmentPreview = (
         clearTimeout(timer.current);
         timer.current = null;
       }
+      // Aborting the in-flight RPC on unmount/effect-rerun stops the
+      // server doing work for a preview the consumer no longer cares
+      // about.
+      inFlight.current?.abort();
+      inFlight.current = null;
     };
   }, [isActive, deviceSelector, poolConfig, previewMiningPoolAssignment]);
 
