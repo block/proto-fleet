@@ -26,7 +26,14 @@ const mockPools = [
 ];
 
 const mockValidatePool = vi.fn(({ onSuccess, onFinally }) => {
-  onSuccess?.();
+  // Pass a fully-verified outcome so the page renders the success
+  // (rather than reachable-but-unverified) callout — the tests below
+  // assert against the green "Pool connection successful" state.
+  onSuccess?.({
+    reachable: true,
+    credentialsVerified: true,
+    mode: 1, // ValidationMode.SV1_AUTHENTICATE
+  });
   onFinally?.();
 });
 const mockFetchPoolAssignments = vi.fn().mockResolvedValue([]);
