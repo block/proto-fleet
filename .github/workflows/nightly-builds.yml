@@ -148,7 +148,27 @@ jobs:
           Nightly releases are immutable prereleases. Use the \`nightly\` installer channel to resolve the latest successful nightly build.
           EOF
 
+      - name: Probe existing nightly release
+        id: release_state
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          if RELEASE_JSON=$(gh release view "$VERSION" --json isDraft,targetCommitish 2>/dev/null); then
+            IS_DRAFT=$(jq -r '.isDraft' <<<"$RELEASE_JSON")
+            TARGET_SHA=$(jq -r '.targetCommitish' <<<"$RELEASE_JSON")
+            if [[ "$TARGET_SHA" != "$EXPECTED_SHA" ]]; then
+              echo "::error::Release '$VERSION' already exists targeting commit '$TARGET_SHA' but this run is for '$EXPECTED_SHA'. Refusing to proceed."
+              exit 1
+            fi
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "is_draft=$IS_DRAFT" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "is_draft=" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Create draft nightly prerelease
+        if: steps.release_state.outputs.exists != 'true'
         run: |
           gh release create "$VERSION" \
             /tmp/nightly-assets/bundles/proto-fleet-${VERSION}-*.tar.gz \
@@ -166,7 +186,23 @@ jobs:
             --target "${{ github.sha }}" \
             --title "Nightly Build ${VERSION}"
 
+      - name: Repair existing draft assets
+        if: steps.release_state.outputs.exists == 'true' && steps.release_state.outputs.is_draft == 'true'
+        run: |
+          gh release upload "$VERSION" \
+            /tmp/nightly-assets/bundles/proto-fleet-${VERSION}-*.tar.gz \
+            /tmp/nightly-assets/windows/installer.exe \
+            /tmp/nightly-assets/windows/uninstall.exe \
+            /tmp/nightly-assets/server/proto-fleet-server-${VERSION}-*.tar.gz \
+            /tmp/nightly-assets/client/proto-fleet-client-${VERSION}.tar.gz \
+            /tmp/nightly-assets/proto-os/proto-os-${VERSION}.tar.gz \
+            /tmp/nightly-assets/proto-os/proto-os_${VERSION}.ipk \
+            ./deployment-files/install.sh \
+            ./deployment-files/uninstall.sh \
+            --clobber
+
       - name: Publish nightly prerelease
+        if: steps.release_state.outputs.is_draft != 'false'
         run: gh release edit "$VERSION" --draft=false --prerelease=true
 
       - name: Update nightly channel pointer
