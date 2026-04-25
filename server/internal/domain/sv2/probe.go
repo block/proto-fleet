@@ -29,9 +29,12 @@ func dialTCP(ctx context.Context, addr string, timeout time.Duration) error {
 	dialer := net.Dialer{}
 	conn, err := dialer.DialContext(dialCtx, "tcp", addr)
 	if err != nil {
-		return err
+		return fmt.Errorf("tcp dial %s: %w", addr, err)
 	}
-	return conn.Close()
+	if err := conn.Close(); err != nil {
+		return fmt.Errorf("tcp close %s: %w", addr, err)
+	}
+	return nil
 }
 
 // TCPDial verifies that a stratum URL's host:port is reachable by opening

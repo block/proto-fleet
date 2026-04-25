@@ -156,7 +156,7 @@ func convertToProtoPool(pool sqlc.Pool) *pb.Pool {
 }
 
 // DBProtocolToProto maps the DB protocol column to the proto enum.
-// Rows inserted before migration 000037 get the default 'sv1'; rows
+// Rows inserted before migration 000038 get the default 'sv1'; rows
 // inserted after it are derived from the URL scheme, so this is
 // effectively lossless on reads.
 func DBProtocolToProto(s string) pb.PoolProtocol {

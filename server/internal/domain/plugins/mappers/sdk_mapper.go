@@ -45,6 +45,8 @@ func mapStratumV2Support(v sdk.StratumV2SupportStatus) modelsV2.StratumV2Support
 		return modelsV2.StratumV2SupportUnsupported
 	case sdk.StratumV2SupportUnknown:
 		return modelsV2.StratumV2SupportUnknown
+	case sdk.StratumV2SupportUnspecified:
+		return modelsV2.StratumV2SupportUnspecified
 	default:
 		return modelsV2.StratumV2SupportUnspecified
 	}

@@ -18,6 +18,7 @@ package rewriter
 import (
 	"errors"
 	"fmt"
+	"maps"
 
 	poolspb "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
@@ -162,6 +163,11 @@ func resolveSingle(pool Pool, caps DeviceCapabilities, proxy ProxyConfig) (strin
 			return proxy.MinerURL, ReasonProxied, nil
 		}
 		return "", ReasonUnspecified, ErrSV2PoolNotSupportedByDevice
+	case poolspb.PoolProtocol_POOL_PROTOCOL_UNSPECIFIED:
+		// normalizeProtocol collapses UNSPECIFIED to SV1, so this case is
+		// unreachable in practice; kept explicit so the exhaustive linter
+		// can prove the switch covers every enum member.
+		return pool.URL, ReasonPassthrough, nil
 	default:
 		return "", ReasonUnspecified, fmt.Errorf("unknown pool protocol: %v", pool.Protocol)
 	}
@@ -198,6 +204,8 @@ func (s PoolSlot) String() string {
 		return "BACKUP_1"
 	case SlotBackup2:
 		return "BACKUP_2"
+	case SlotUnspecified:
+		return "UNSPECIFIED"
 	default:
 		return "UNSPECIFIED"
 	}
@@ -212,6 +220,8 @@ func (r RewriteReason) String() string {
 		return "NATIVE"
 	case ReasonProxied:
 		return "PROXIED"
+	case ReasonUnspecified:
+		return "UNSPECIFIED"
 	default:
 		return "UNSPECIFIED"
 	}
@@ -250,12 +260,8 @@ func (m MergedCapabilities) Has(capability string) bool {
 // model view.
 func MergeCapabilities(static, model map[string]bool, telemetrySV2 modelsV2.StratumV2SupportStatus) MergedCapabilities {
 	merged := make(map[string]bool, len(static)+len(model))
-	for k, v := range static {
-		merged[k] = v
-	}
-	for k, v := range model {
-		merged[k] = v
-	}
+	maps.Copy(merged, static)
+	maps.Copy(merged, model)
 	switch telemetrySV2 {
 	case modelsV2.StratumV2SupportSupported:
 		merged[sdk.CapabilityStratumV2Native] = true

@@ -999,6 +999,12 @@ func slotsMatchTemplate(template *dto.UpdateMiningPoolsPayload, d preflight.Devi
 			if template.Backup2Pool == nil || s.EffectiveURL != template.Backup2Pool.URL {
 				return false
 			}
+		case rewriter.SlotUnspecified:
+			// preflight.Run rejects SlotUnspecified at input validation;
+			// reaching here would be a programming error. Treat as a
+			// non-match so the caller takes the slow per-device marshal
+			// path rather than silently dropping the slot.
+			return false
 		}
 	}
 	return true
@@ -1076,8 +1082,10 @@ func marshalPerDevicePayload(template *dto.UpdateMiningPoolsPayload, d preflight
 				backup.URL = s.EffectiveURL
 				deviceCopy.Backup2Pool = &backup
 			}
-		default:
-			// slot unspecified — should not happen from preflight output
+		case rewriter.SlotUnspecified:
+			// preflight rejects this at validateInput; reach here only on
+			// a programming error, in which case skipping the slot
+			// preserves whatever URL the template already had.
 		}
 	}
 	body, err := json.Marshal(&deviceCopy)

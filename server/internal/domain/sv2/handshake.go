@@ -142,19 +142,22 @@ func writeNoiseFrame(w io.Writer, payload []byte) error {
 		return fmt.Errorf("noise frame too large: %d bytes", len(payload))
 	}
 	var hdr [2]byte
+	// #nosec G115 — length-bounded above by the 0xFFFF check, fits in uint16.
 	binary.BigEndian.PutUint16(hdr[:], uint16(len(payload)))
 	if _, err := w.Write(hdr[:]); err != nil {
-		return err
+		return fmt.Errorf("write noise frame header: %w", err)
 	}
-	_, err := w.Write(payload)
-	return err
+	if _, err := w.Write(payload); err != nil {
+		return fmt.Errorf("write noise frame payload: %w", err)
+	}
+	return nil
 }
 
 // readNoiseFrame reads a length-prefixed Noise frame. Matches writeNoiseFrame.
 func readNoiseFrame(r io.Reader) ([]byte, error) {
 	var hdr [2]byte
 	if _, err := io.ReadFull(r, hdr[:]); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read noise frame header: %w", err)
 	}
 	n := int(binary.BigEndian.Uint16(hdr[:]))
 	if n == 0 {
@@ -162,7 +165,7 @@ func readNoiseFrame(r io.Reader) ([]byte, error) {
 	}
 	payload := make([]byte, n)
 	if _, err := io.ReadFull(r, payload); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read noise frame payload: %w", err)
 	}
 	return payload, nil
 }

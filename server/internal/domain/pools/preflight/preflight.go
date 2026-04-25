@@ -304,6 +304,8 @@ func protoSlot(s rewriter.PoolSlot) commandpb.PoolSlot {
 		return commandpb.PoolSlot_POOL_SLOT_BACKUP_1
 	case rewriter.SlotBackup2:
 		return commandpb.PoolSlot_POOL_SLOT_BACKUP_2
+	case rewriter.SlotUnspecified:
+		return commandpb.PoolSlot_POOL_SLOT_UNSPECIFIED
 	default:
 		return commandpb.PoolSlot_POOL_SLOT_UNSPECIFIED
 	}
@@ -317,6 +319,8 @@ func protoRewriteReason(r rewriter.RewriteReason) commandpb.RewriteReason {
 		return commandpb.RewriteReason_REWRITE_REASON_NATIVE
 	case rewriter.ReasonProxied:
 		return commandpb.RewriteReason_REWRITE_REASON_PROXIED
+	case rewriter.ReasonUnspecified:
+		return commandpb.RewriteReason_REWRITE_REASON_UNSPECIFIED
 	default:
 		return commandpb.RewriteReason_REWRITE_REASON_UNSPECIFIED
 	}

@@ -263,7 +263,11 @@ func (s *Service) ValidateConnection(
 			Reachable: ok,
 			Mode:      pb.ValidationMode_VALIDATION_MODE_SV2_TCP_DIAL,
 		}, nil
-	default: // SV1 (URLs with unrecognised schemes are rejected above).
+	case pb.PoolProtocol_POOL_PROTOCOL_SV1, pb.PoolProtocol_POOL_PROTOCOL_UNSPECIFIED:
+		// UNSPECIFIED is rejected above by ProtocolFromURL when the URL
+		// has no recognised scheme; reach this case only when the URL
+		// said "stratum+tcp" / "stratum+ssl" / "stratum+ws" and the
+		// rewriter classified it SV1.
 		ok, err := stratumv1.Authenticate(ctx, url, username, password)
 		if err != nil {
 			return ValidationResult{Mode: pb.ValidationMode_VALIDATION_MODE_SV1_AUTHENTICATE}, err
@@ -273,5 +277,7 @@ func (s *Service) ValidateConnection(
 			CredentialsVerified: ok,
 			Mode:                pb.ValidationMode_VALIDATION_MODE_SV1_AUTHENTICATE,
 		}, nil
+	default:
+		return ValidationResult{}, fleeterror.NewInvalidArgumentErrorf("unsupported pool protocol: %v", protocol)
 	}
 }

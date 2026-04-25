@@ -529,6 +529,8 @@ func pbPoolProtocolToSDK(p poolspb.PoolProtocol) sdk.PoolProtocol {
 		return sdk.PoolProtocolSV1
 	case poolspb.PoolProtocol_POOL_PROTOCOL_SV2:
 		return sdk.PoolProtocolSV2
+	case poolspb.PoolProtocol_POOL_PROTOCOL_UNSPECIFIED:
+		return sdk.PoolProtocolUnspecified
 	default:
 		return sdk.PoolProtocolUnspecified
 	}
@@ -541,6 +543,8 @@ func sdkPoolProtocolToPB(p sdk.PoolProtocol) poolspb.PoolProtocol {
 		return poolspb.PoolProtocol_POOL_PROTOCOL_SV1
 	case sdk.PoolProtocolSV2:
 		return poolspb.PoolProtocol_POOL_PROTOCOL_SV2
+	case sdk.PoolProtocolUnspecified:
+		return poolspb.PoolProtocol_POOL_PROTOCOL_UNSPECIFIED
 	default:
 		return poolspb.PoolProtocol_POOL_PROTOCOL_UNSPECIFIED
 	}
