@@ -327,6 +327,18 @@ if ! docker compose version &> /dev/null; then
     fi
 fi
 
+# The post-start readiness check below uses both `--wait` and `--wait-timeout`
+# (Compose v2.17.0+). Fail fast here, before `docker compose down` takes an
+# existing stack offline.
+compose_up_help=$(docker compose up --help 2>&1 || true)
+for flag in --wait --wait-timeout; do
+    if ! grep -qE -- "(^|[[:space:]])${flag}([[:space:]]|$)" <<<"$compose_up_help"; then
+        echo "Error: your docker compose does not support ${flag}."
+        echo "run-fleet.sh requires Compose v2.17.0+. Upgrade: https://docs.docker.com/compose/install/"
+        exit 1
+    fi
+done
+
 # ----------------------------------------------------------------------------
 # Database Volume Management Function
 # ----------------------------------------------------------------------------
@@ -590,37 +602,33 @@ echo "Stopping any running services..."
 docker compose -f "$COMPOSE_FILE" down
 
 echo "Starting services..."
-docker compose -f "$COMPOSE_FILE" up -d
+# --wait blocks until every service is running (or healthy, when a healthcheck is defined).
+# Without it, `up -d` can exit 0 while containers stay in Created (e.g. port conflicts under
+# host networking), producing a false "Proto Fleet is now running!" banner.
+if ! docker compose -f "$COMPOSE_FILE" up -d --wait --wait-timeout 300; then
+    echo "Error: services failed to reach running state."
+    echo "Check logs with: docker compose -f \"$COMPOSE_FILE\" logs"
+    exit 1
+fi
 
 # ----------------------------------------------------------------------------
 # Docker Cleanup
 # ----------------------------------------------------------------------------
 
-# Remove dangling images and build cache left behind by previous deployments.
 echo "Cleaning up old Docker images and build cache..."
 docker image prune -f 2>/dev/null || true
 docker builder prune -f 2>/dev/null || true
 
-# ----------------------------------------------------------------------------
-# Final Status Check
-# ----------------------------------------------------------------------------
-
-# Check if docker compose was successful
-if [ $? -eq 0 ]; then
-    echo "--------------------------------------------------------------"
-    echo "Proto Fleet is now running!"
-    echo ""
-    echo "Access URLs:"
-    protocol="http"
-    [ "$PROTOCOL_MODE" == "https" ] && protocol="https"
-    echo "  Local:  ${protocol}://localhost"
-    for ip in $(get_local_ips); do
-        echo "  LAN:    ${protocol}://$ip"
-    done
-    echo "--------------------------------------------------------------"
-else
-    echo "Error: Failed to start services. Check docker compose logs for details."
-    exit 1
-fi
+echo "--------------------------------------------------------------"
+echo "Proto Fleet is now running!"
+echo ""
+echo "Access URLs:"
+protocol="http"
+[ "$PROTOCOL_MODE" == "https" ] && protocol="https"
+echo "  Local:  ${protocol}://localhost"
+for ip in $(get_local_ips); do
+    echo "  LAN:    ${protocol}://$ip"
+done
+echo "--------------------------------------------------------------"
 
 exit 0
