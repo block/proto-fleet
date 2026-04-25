@@ -48,7 +48,6 @@ func TestRun_HappyPathAllNative(t *testing.T) {
 	for _, d := range out.Devices {
 		require.Len(t, d.Slots, 2)
 		for _, s := range d.Slots {
-			assert.Equal(t, commandpb.RewriteReason_REWRITE_REASON_NATIVE, s.ProtoReason)
 			assert.Equal(t, sv2URL, s.EffectiveURL)
 			assert.Equal(t, commandpb.SlotWarning_SLOT_WARNING_UNSPECIFIED, s.Warning)
 		}
@@ -72,9 +71,7 @@ func TestRun_MixedFleetSV2PoolProxiesSV1DevicesOnly(t *testing.T) {
 	assert.False(t, out.HasMismatch)
 
 	byID := byIdentifier(out.Devices)
-	assert.Equal(t, commandpb.RewriteReason_REWRITE_REASON_NATIVE, byID["native"].Slots[0].ProtoReason)
 	assert.Equal(t, sv2URL, byID["native"].Slots[0].EffectiveURL)
-	assert.Equal(t, commandpb.RewriteReason_REWRITE_REASON_PROXIED, byID["sv1-only"].Slots[0].ProtoReason)
 	assert.Equal(t, proxyURL, byID["sv1-only"].Slots[0].EffectiveURL)
 }
 
@@ -99,9 +96,7 @@ func TestRun_SV2ToSV1WithoutProxySurfacesSlotWarning(t *testing.T) {
 
 	require.Len(t, d.Slots, 2)
 	assert.Equal(t, commandpb.SlotWarning_SLOT_WARNING_UNSPECIFIED, d.Slots[0].Warning)
-	assert.Equal(t, commandpb.RewriteReason_REWRITE_REASON_PASSTHROUGH, d.Slots[0].ProtoReason)
 	assert.Equal(t, commandpb.SlotWarning_SLOT_WARNING_SV2_NOT_SUPPORTED, d.Slots[1].Warning)
-	assert.Equal(t, commandpb.RewriteReason_REWRITE_REASON_UNSPECIFIED, d.Slots[1].ProtoReason)
 
 	mismatches := out.Mismatches()
 	require.Len(t, mismatches, 1)
@@ -130,7 +125,7 @@ func TestRun_MultipleSV2SlotsProxiedSurfacesDeviceWarning(t *testing.T) {
 	// Per-slot info still populated so the UI can render it.
 	require.Len(t, d.Slots, 2)
 	for _, s := range d.Slots {
-		assert.Equal(t, commandpb.RewriteReason_REWRITE_REASON_PROXIED, s.ProtoReason)
+		assert.Equal(t, proxyURL, s.EffectiveURL)
 	}
 
 	mismatches := out.Mismatches()

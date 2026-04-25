@@ -5,13 +5,12 @@
 package minercommandv1connect
 
 import (
+	connect "connectrpc.com/connect"
 	context "context"
 	errors "errors"
+	v1 "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	http "net/http"
 	strings "strings"
-
-	connect "connectrpc.com/connect"
-	v1 "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 )
 
 // This is a compile-time assertion to ensure that this generated file and the connect package are
@@ -52,9 +51,6 @@ const (
 	// MinerCommandServiceUpdateMiningPoolsProcedure is the fully-qualified name of the
 	// MinerCommandService's UpdateMiningPools RPC.
 	MinerCommandServiceUpdateMiningPoolsProcedure = "/minercommand.v1.MinerCommandService/UpdateMiningPools"
-	// MinerCommandServicePreviewMiningPoolAssignmentProcedure is the fully-qualified name of the
-	// MinerCommandService's PreviewMiningPoolAssignment RPC.
-	MinerCommandServicePreviewMiningPoolAssignmentProcedure = "/minercommand.v1.MinerCommandService/PreviewMiningPoolAssignment"
 	// MinerCommandServiceDownloadLogsProcedure is the fully-qualified name of the MinerCommandService's
 	// DownloadLogs RPC.
 	MinerCommandServiceDownloadLogsProcedure = "/minercommand.v1.MinerCommandService/DownloadLogs"
@@ -96,10 +92,6 @@ type MinerCommandServiceClient interface {
 	SetCoolingMode(context.Context, *connect.Request[v1.SetCoolingModeRequest]) (*connect.Response[v1.SetCoolingModeResponse], error)
 	SetPowerTarget(context.Context, *connect.Request[v1.SetPowerTargetRequest]) (*connect.Response[v1.SetPowerTargetResponse], error)
 	UpdateMiningPools(context.Context, *connect.Request[v1.UpdateMiningPoolsRequest]) (*connect.Response[v1.UpdateMiningPoolsResponse], error)
-	// Shows what UpdateMiningPools would do per device without enqueuing anything.
-	// Backed by the same preflight used on the commit path, so preview and commit
-	// agree by construction. Consumed by the UI, the CLI, and integration tests.
-	PreviewMiningPoolAssignment(context.Context, *connect.Request[v1.PreviewMiningPoolAssignmentRequest]) (*connect.Response[v1.PreviewMiningPoolAssignmentResponse], error)
 	DownloadLogs(context.Context, *connect.Request[v1.DownloadLogsRequest]) (*connect.Response[v1.DownloadLogsResponse], error)
 	BlinkLED(context.Context, *connect.Request[v1.BlinkLEDRequest]) (*connect.Response[v1.BlinkLEDResponse], error)
 	// Streams command batch updates
@@ -163,11 +155,6 @@ func NewMinerCommandServiceClient(httpClient connect.HTTPClient, baseURL string,
 			baseURL+MinerCommandServiceUpdateMiningPoolsProcedure,
 			opts...,
 		),
-		previewMiningPoolAssignment: connect.NewClient[v1.PreviewMiningPoolAssignmentRequest, v1.PreviewMiningPoolAssignmentResponse](
-			httpClient,
-			baseURL+MinerCommandServicePreviewMiningPoolAssignmentProcedure,
-			opts...,
-		),
 		downloadLogs: connect.NewClient[v1.DownloadLogsRequest, v1.DownloadLogsResponse](
 			httpClient,
 			baseURL+MinerCommandServiceDownloadLogsProcedure,
@@ -224,7 +211,6 @@ type minerCommandServiceClient struct {
 	setCoolingMode               *connect.Client[v1.SetCoolingModeRequest, v1.SetCoolingModeResponse]
 	setPowerTarget               *connect.Client[v1.SetPowerTargetRequest, v1.SetPowerTargetResponse]
 	updateMiningPools            *connect.Client[v1.UpdateMiningPoolsRequest, v1.UpdateMiningPoolsResponse]
-	previewMiningPoolAssignment  *connect.Client[v1.PreviewMiningPoolAssignmentRequest, v1.PreviewMiningPoolAssignmentResponse]
 	downloadLogs                 *connect.Client[v1.DownloadLogsRequest, v1.DownloadLogsResponse]
 	blinkLED                     *connect.Client[v1.BlinkLEDRequest, v1.BlinkLEDResponse]
 	streamCommandBatchUpdates    *connect.Client[v1.StreamCommandBatchUpdatesRequest, v1.StreamCommandBatchUpdatesResponse]
@@ -264,12 +250,6 @@ func (c *minerCommandServiceClient) SetPowerTarget(ctx context.Context, req *con
 // UpdateMiningPools calls minercommand.v1.MinerCommandService.UpdateMiningPools.
 func (c *minerCommandServiceClient) UpdateMiningPools(ctx context.Context, req *connect.Request[v1.UpdateMiningPoolsRequest]) (*connect.Response[v1.UpdateMiningPoolsResponse], error) {
 	return c.updateMiningPools.CallUnary(ctx, req)
-}
-
-// PreviewMiningPoolAssignment calls
-// minercommand.v1.MinerCommandService.PreviewMiningPoolAssignment.
-func (c *minerCommandServiceClient) PreviewMiningPoolAssignment(ctx context.Context, req *connect.Request[v1.PreviewMiningPoolAssignmentRequest]) (*connect.Response[v1.PreviewMiningPoolAssignmentResponse], error) {
-	return c.previewMiningPoolAssignment.CallUnary(ctx, req)
 }
 
 // DownloadLogs calls minercommand.v1.MinerCommandService.DownloadLogs.
@@ -331,10 +311,6 @@ type MinerCommandServiceHandler interface {
 	SetCoolingMode(context.Context, *connect.Request[v1.SetCoolingModeRequest]) (*connect.Response[v1.SetCoolingModeResponse], error)
 	SetPowerTarget(context.Context, *connect.Request[v1.SetPowerTargetRequest]) (*connect.Response[v1.SetPowerTargetResponse], error)
 	UpdateMiningPools(context.Context, *connect.Request[v1.UpdateMiningPoolsRequest]) (*connect.Response[v1.UpdateMiningPoolsResponse], error)
-	// Shows what UpdateMiningPools would do per device without enqueuing anything.
-	// Backed by the same preflight used on the commit path, so preview and commit
-	// agree by construction. Consumed by the UI, the CLI, and integration tests.
-	PreviewMiningPoolAssignment(context.Context, *connect.Request[v1.PreviewMiningPoolAssignmentRequest]) (*connect.Response[v1.PreviewMiningPoolAssignmentResponse], error)
 	DownloadLogs(context.Context, *connect.Request[v1.DownloadLogsRequest]) (*connect.Response[v1.DownloadLogsResponse], error)
 	BlinkLED(context.Context, *connect.Request[v1.BlinkLEDRequest]) (*connect.Response[v1.BlinkLEDResponse], error)
 	// Streams command batch updates
@@ -392,11 +368,6 @@ func NewMinerCommandServiceHandler(svc MinerCommandServiceHandler, opts ...conne
 	minerCommandServiceUpdateMiningPoolsHandler := connect.NewUnaryHandler(
 		MinerCommandServiceUpdateMiningPoolsProcedure,
 		svc.UpdateMiningPools,
-		opts...,
-	)
-	minerCommandServicePreviewMiningPoolAssignmentHandler := connect.NewUnaryHandler(
-		MinerCommandServicePreviewMiningPoolAssignmentProcedure,
-		svc.PreviewMiningPoolAssignment,
 		opts...,
 	)
 	minerCommandServiceDownloadLogsHandler := connect.NewUnaryHandler(
@@ -458,8 +429,6 @@ func NewMinerCommandServiceHandler(svc MinerCommandServiceHandler, opts ...conne
 			minerCommandServiceSetPowerTargetHandler.ServeHTTP(w, r)
 		case MinerCommandServiceUpdateMiningPoolsProcedure:
 			minerCommandServiceUpdateMiningPoolsHandler.ServeHTTP(w, r)
-		case MinerCommandServicePreviewMiningPoolAssignmentProcedure:
-			minerCommandServicePreviewMiningPoolAssignmentHandler.ServeHTTP(w, r)
 		case MinerCommandServiceDownloadLogsProcedure:
 			minerCommandServiceDownloadLogsHandler.ServeHTTP(w, r)
 		case MinerCommandServiceBlinkLEDProcedure:
@@ -509,10 +478,6 @@ func (UnimplementedMinerCommandServiceHandler) SetPowerTarget(context.Context, *
 
 func (UnimplementedMinerCommandServiceHandler) UpdateMiningPools(context.Context, *connect.Request[v1.UpdateMiningPoolsRequest]) (*connect.Response[v1.UpdateMiningPoolsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("minercommand.v1.MinerCommandService.UpdateMiningPools is not implemented"))
-}
-
-func (UnimplementedMinerCommandServiceHandler) PreviewMiningPoolAssignment(context.Context, *connect.Request[v1.PreviewMiningPoolAssignmentRequest]) (*connect.Response[v1.PreviewMiningPoolAssignmentResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("minercommand.v1.MinerCommandService.PreviewMiningPoolAssignment is not implemented"))
 }
 
 func (UnimplementedMinerCommandServiceHandler) DownloadLogs(context.Context, *connect.Request[v1.DownloadLogsRequest]) (*connect.Response[v1.DownloadLogsResponse], error) {

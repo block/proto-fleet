@@ -17,8 +17,6 @@ import {
 import FleetPoolRow from "./FleetPoolRow";
 import PoolSelectionModal from "./PoolSelectionModal/PoolSelectionModal";
 import { MiningPool } from "./types";
-import { usePoolAssignmentPreview } from "./usePoolAssignmentPreview";
-import { type DeviceSelector } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { ValidationMode } from "@/protoFleet/api/generated/pools/v1/pools_pb";
 import { PoolConfig, PoolSlotSource } from "@/protoFleet/api/useMinerCommand";
 import useMinerPoolAssignments from "@/protoFleet/api/useMinerPoolAssignments";
@@ -35,10 +33,6 @@ import ProgressCircular from "@/shared/components/ProgressCircular";
 import { useEscapeDismiss } from "@/shared/hooks/useEscapeDismiss";
 const UNKNOWN_POOL_ID_PREFIX = "unknown-";
 
-// toPoolSlotSource normalizes an AssignedPoolData row onto the request
-// shape the command RPCs take. The preview hook and the commit
-// callback share this so they agree on exactly what "pool slot N"
-// resolves to for any given row — same inputs, same outputs, no drift.
 const toPoolSlotSource = (data: AssignedPoolData): PoolSlotSource =>
   data.poolId
     ? { type: "poolId", poolId: data.poolId }
@@ -54,12 +48,6 @@ interface AssignedPoolData {
 interface PoolSelectionPageProps {
   open?: boolean;
   deviceIdentifiers: string[];
-  // The same DeviceSelector the commit path uses. Threaded through so
-  // the preview RPC evaluates the same target set the eventual
-  // UpdateMiningPools call will touch — `allDevices` selectors are
-  // previewed directly instead of being reconstructed from a
-  // potentially-incomplete identifier list.
-  deviceSelector?: DeviceSelector;
   numberOfMiners?: number; // Optional explicit count (for "all" mode with filters)
   currentDevice?: string | null; // Optional single device identifier (for single miner edit)
   onAssignPools: (poolConfig: PoolConfig) => Promise<void>;
@@ -69,7 +57,6 @@ interface PoolSelectionPageProps {
 const PoolSelectionPage = ({
   open,
   deviceIdentifiers,
-  deviceSelector,
   numberOfMiners: numberOfMinersOverride,
   currentDevice,
   onAssignPools,
@@ -380,30 +367,6 @@ const PoolSelectionPage = ({
     [assignedPoolData, getPoolDisplayId],
   );
 
-  // Derive the PoolConfig the operator is about to commit so the preview
-  // hook can run with it. Memoized by assignedPoolData so we don't churn
-  // the preview on unrelated renders.
-  const pendingPoolConfig = useMemo((): PoolConfig | null => {
-    if (assignedPoolData.length === 0) return null;
-    return {
-      defaultPool: toPoolSlotSource(assignedPoolData[0]),
-      backup1Pool: assignedPoolData[1] ? toPoolSlotSource(assignedPoolData[1]) : undefined,
-      backup2Pool: assignedPoolData[2] ? toPoolSlotSource(assignedPoolData[2]) : undefined,
-    };
-  }, [assignedPoolData]);
-
-  // Preflight runs server-side with the same logic UpdateMiningPools
-  // uses, so SV2-to-SV1 (proxy off) and multi-proxied-slot mismatches
-  // show up before Save. Disable Save when any warning is set. The
-  // selector is the same one the commit path uses, so allDevices /
-  // filtered selections preview the full server-resolved fleet rather
-  // than just the locally-loaded subset.
-  const { hasMismatch: hasPoolAssignmentMismatch, previewSkipped } = usePoolAssignmentPreview(
-    deviceSelector,
-    pendingPoolConfig,
-    isVisible,
-  );
-
   // Check for duplicate URL+username combinations in assigned pools
   const hasDuplicatePools = useMemo(() => {
     if (assignedPoolData.length < 2) return false;
@@ -440,12 +403,7 @@ const PoolSelectionPage = ({
               text: buttonText,
               variant: variants.primary,
               onClick: handleAssignPoolsClick,
-              disabled:
-                !hasConfiguredPools ||
-                isLoadingInitialState ||
-                isAssigning ||
-                hasDuplicatePools ||
-                hasPoolAssignmentMismatch,
+              disabled: !hasConfiguredPools || isLoadingInitialState || isAssigning || hasDuplicatePools,
               loading: isAssigning,
             },
           ]}
@@ -495,30 +453,6 @@ const PoolSelectionPage = ({
                 prefixIcon={<Alert />}
                 title="Duplicate pool configuration detected"
                 subtitle="Two or more pools have the same URL and username. Please remove or change the duplicate pools before assigning."
-              />
-            ) : null}
-
-            {/* Preflight mismatch — matches the server's FAILED_PRECONDITION
-                decision the commit path would return, so Save is blocked
-                before the request is sent rather than after. */}
-            {hasPoolAssignmentMismatch ? (
-              <Callout
-                intent={intents.danger}
-                prefixIcon={<Alert />}
-                title="This pool assignment would fail for some miners"
-                subtitle="Some selected miners don't support the chosen protocol with the current translator-proxy configuration. Update the pools or enable the Stratum V2 translator proxy before assigning."
-              />
-            ) : null}
-
-            {/* Preview short-circuited — the selector resolved to too
-                many miners for the dry-run path. Save still works:
-                the commit RPC runs the same preflight server-side. */}
-            {previewSkipped && !hasPoolAssignmentMismatch ? (
-              <Callout
-                intent={intents.warning}
-                prefixIcon={<Alert />}
-                title="Per-device preview unavailable for large selections"
-                subtitle="Pool assignment will run preflight at commit time. Any miner that would fail the assignment is rejected synchronously by the server."
               />
             ) : null}
 

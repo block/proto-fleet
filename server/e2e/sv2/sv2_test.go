@@ -75,10 +75,9 @@ func fleetAPIReachable() bool {
 
 // TestSV2PoolAssignmentFlow exercises the full HTTP RPC path for SV2
 // pool assignment: bootstrap auth, discover/pair a proto-sim device,
-// create an SV1 pool (passthrough), create an SV2 pool
-// (SLOT_WARNING_SV2_NOT_SUPPORTED because proxy is off by default),
-// and confirm UpdateMiningPools rejects the SV2 assignment with
-// FAILED_PRECONDITION.
+// then confirm UpdateMiningPools rejects an SV2-pool-on-SV1-only-device
+// commit with FAILED_PRECONDITION (proxy is off by default in the e2e
+// stack, so the preflight surfaces SLOT_WARNING_SV2_NOT_SUPPORTED).
 func TestSV2PoolAssignmentFlow(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping e2e test in short mode")
@@ -111,44 +110,6 @@ func TestSV2PoolAssignmentFlow(t *testing.T) {
 
 	pools := poolsv1connect.NewPoolsServiceClient(client, fleetAPIURL)
 	cmd := minercommandv1connect.NewMinerCommandServiceClient(client, fleetAPIURL)
-
-	t.Run("SV1PoolPreviewsAsPassthrough", func(t *testing.T) {
-		id := createPool(t, ctx, pools, &poolsv1.PoolConfig{
-			PoolName: "e2e-sv2-sv1-pool",
-			Url:      "stratum+tcp://pool.e2e.example.com:3333",
-			Username: "sv1-worker",
-			Password: wrapperspb.String("x"),
-		})
-		t.Cleanup(func() { _ = deletePool(ctx, pools, id) })
-
-		previews := previewSinglePoolAssignment(t, ctx, cmd, deviceID, id)
-		require.Len(t, previews, 1)
-		d := previews[0]
-		require.Equal(t, deviceID, d.GetDeviceIdentifier())
-		assert.Equal(t, minercommandv1.DeviceWarning_DEVICE_WARNING_UNSPECIFIED, d.GetDeviceWarning())
-		require.Len(t, d.GetSlots(), 1)
-		assert.Equal(t, minercommandv1.RewriteReason_REWRITE_REASON_PASSTHROUGH, d.GetSlots()[0].GetRewriteReason())
-		assert.Equal(t, minercommandv1.SlotWarning_SLOT_WARNING_UNSPECIFIED, d.GetSlots()[0].GetWarning())
-	})
-
-	t.Run("SV2PoolPreviewSurfacesSlotWarning", func(t *testing.T) {
-		id := createPool(t, ctx, pools, &poolsv1.PoolConfig{
-			PoolName: "e2e-sv2-sv2-pool",
-			Url:      "stratum2+tcp://pool.e2e.example.com:34254",
-			Username: "sv2-worker",
-			Password: wrapperspb.String("x"),
-		})
-		t.Cleanup(func() { _ = deletePool(ctx, pools, id) })
-
-		previews := previewSinglePoolAssignment(t, ctx, cmd, deviceID, id)
-		require.Len(t, previews, 1)
-		d := previews[0]
-		require.Len(t, d.GetSlots(), 1)
-		assert.Equal(t, minercommandv1.SlotWarning_SLOT_WARNING_SV2_NOT_SUPPORTED, d.GetSlots()[0].GetWarning(),
-			"SV2 pool assigned to SV1-only device without proxy must surface SLOT_WARNING_SV2_NOT_SUPPORTED")
-		assert.Equal(t, minercommandv1.RewriteReason_REWRITE_REASON_UNSPECIFIED, d.GetSlots()[0].GetRewriteReason(),
-			"rejected slots carry UNSPECIFIED reason — there's no URL the commit path would push")
-	})
 
 	t.Run("SV2CommitRejectsSynchronously", func(t *testing.T) {
 		id := createPool(t, ctx, pools, &poolsv1.PoolConfig{
@@ -231,24 +192,6 @@ func createPool(t *testing.T, ctx context.Context, client poolsv1connect.PoolsSe
 func deletePool(ctx context.Context, client poolsv1connect.PoolsServiceClient, id int64) error {
 	_, err := client.DeletePool(ctx, connect.NewRequest(&poolsv1.DeletePoolRequest{PoolId: id}))
 	return err
-}
-
-func previewSinglePoolAssignment(
-	t *testing.T,
-	ctx context.Context,
-	client minercommandv1connect.MinerCommandServiceClient,
-	deviceID string,
-	poolID int64,
-) []*minercommandv1.DevicePoolPreview {
-	t.Helper()
-	resp, err := client.PreviewMiningPoolAssignment(ctx, connect.NewRequest(&minercommandv1.PreviewMiningPoolAssignmentRequest{
-		DeviceSelector: deviceSelector(deviceID),
-		DefaultPool: &minercommandv1.PoolSlotConfig{
-			PoolSource: &minercommandv1.PoolSlotConfig_PoolId{PoolId: poolID},
-		},
-	}))
-	require.NoError(t, err)
-	return resp.Msg.GetPreviews()
 }
 
 func deviceSelector(deviceID string) *minercommandv1.DeviceSelector {

@@ -13,7 +13,6 @@ import {
   CheckCommandCapabilitiesRequestSchema,
   CheckCommandCapabilitiesResponse,
   CommandType,
-  type DevicePoolPreview,
   DeviceSelector,
   DownloadLogsRequest,
   DownloadLogsResponse,
@@ -24,9 +23,6 @@ import {
   PerformanceMode,
   type PoolSlotConfig,
   PoolSlotConfigSchema,
-  PreviewMiningPoolAssignmentRequestSchema,
-  type PreviewMiningPoolAssignmentResponse,
-  PreviewSkipReason,
   RawPoolInfoSchema,
   RebootRequest,
   RebootResponse,
@@ -272,72 +268,6 @@ const useMinerCommand = () => {
     [handleAuthErrors],
   );
 
-  // previewMiningPoolAssignment is the read-only dry run of UpdateMiningPools.
-  // The UI calls it whenever the operator changes pools or device scope,
-  // so SV2-to-SV1 (no proxy) or multi-proxy-slot mismatches surface
-  // before Save is clicked — not after. Server-side it runs the same
-  // preflight UpdateMiningPools uses, so preview and commit agree.
-  const previewMiningPoolAssignment = useCallback(
-    async ({
-      deviceSelector,
-      poolConfig,
-      onSuccess,
-      onError,
-      signal,
-    }: {
-      deviceSelector: DeviceSelector;
-      poolConfig: PoolConfig;
-      onSuccess: (previews: DevicePoolPreview[], skippedReason: PreviewSkipReason) => void;
-      onError?: (error: string) => void;
-      // Optional AbortSignal so the caller can cancel a superseded
-      // preview (e.g. when the operator reorders pool slots while the
-      // last RPC is still in flight). Without this, the request keeps
-      // running to completion server-side even after the UI has moved
-      // on, which is the abuse vector in the "preview is unbounded"
-      // finding from the security review.
-      signal?: AbortSignal;
-    }) => {
-      const createPoolSlotConfig = (source: PoolSlotSource): PoolSlotConfig => {
-        if (source.type === "poolId") {
-          return create(PoolSlotConfigSchema, {
-            poolSource: { case: "poolId", value: BigInt(source.poolId) },
-          });
-        }
-        return create(PoolSlotConfigSchema, {
-          poolSource: {
-            case: "rawPool",
-            value: create(RawPoolInfoSchema, {
-              url: source.url,
-              username: source.username,
-            }),
-          },
-        });
-      };
-
-      const request = create(PreviewMiningPoolAssignmentRequestSchema, {
-        deviceSelector,
-        defaultPool: createPoolSlotConfig(poolConfig.defaultPool),
-        backup1Pool: poolConfig.backup1Pool ? createPoolSlotConfig(poolConfig.backup1Pool) : undefined,
-        backup2Pool: poolConfig.backup2Pool ? createPoolSlotConfig(poolConfig.backup2Pool) : undefined,
-      });
-
-      await minerCommandClient
-        .previewMiningPoolAssignment(request, { signal })
-        .then((response: PreviewMiningPoolAssignmentResponse) =>
-          onSuccess(response.previews ?? [], response.skippedReason ?? PreviewSkipReason.UNSPECIFIED),
-        )
-        .catch((err) => {
-          handleAuthErrors({
-            error: err,
-            onError: () => {
-              onError?.(getErrorMessage(err));
-            },
-          });
-        });
-    },
-    [handleAuthErrors],
-  );
-
   const updateMiningPools = useCallback(
     async ({ deviceSelector, poolConfig, userUsername, userPassword, onSuccess, onError }: UpdateMiningPoolsProps) => {
       const createPoolSlotConfig = (source: PoolSlotSource): PoolSlotConfig => {
@@ -540,7 +470,6 @@ const useMinerCommand = () => {
       reboot,
       streamCommandBatchUpdates,
       updateMiningPools,
-      previewMiningPoolAssignment,
       setPowerTarget,
       setCoolingMode,
       checkCommandCapabilities,
@@ -557,7 +486,6 @@ const useMinerCommand = () => {
       reboot,
       streamCommandBatchUpdates,
       updateMiningPools,
-      previewMiningPoolAssignment,
       setPowerTarget,
       setCoolingMode,
       checkCommandCapabilities,

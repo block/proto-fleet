@@ -105,29 +105,6 @@ func (h *Handler) UpdateMiningPools(
 	return connect.NewResponse(resp), nil
 }
 
-// PreviewMiningPoolAssignment is the read-only preview counterpart of
-// UpdateMiningPools. Runs the same preflight without enqueuing anything,
-// so the UI can show per-device resolution and warnings before Save.
-func (h *Handler) PreviewMiningPoolAssignment(
-	ctx context.Context,
-	req *connect.Request[pb.PreviewMiningPoolAssignmentRequest],
-) (*connect.Response[pb.PreviewMiningPoolAssignmentResponse], error) {
-	result, err := h.commandSvc.PreviewMiningPoolAssignment(
-		ctx,
-		req.Msg.DeviceSelector,
-		req.Msg.DefaultPool,
-		req.Msg.Backup_1Pool,
-		req.Msg.Backup_2Pool,
-	)
-	if err != nil {
-		return nil, err
-	}
-	return connect.NewResponse(&pb.PreviewMiningPoolAssignmentResponse{
-		Previews:      result.Previews,
-		SkippedReason: result.SkipReason,
-	}), nil
-}
-
 func (h *Handler) DownloadLogs(
 	ctx context.Context,
 	req *connect.Request[pb.DownloadLogsRequest],

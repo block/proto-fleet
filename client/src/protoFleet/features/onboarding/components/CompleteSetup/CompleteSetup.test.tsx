@@ -77,7 +77,6 @@ beforeEach(async () => {
     deleteMiners: vi.fn(),
     reboot: vi.fn(),
     updateMiningPools: vi.fn(),
-    previewMiningPoolAssignment: vi.fn(),
     setPowerTarget: vi.fn(),
     setCoolingMode: vi.fn(),
     updateMinerPassword: vi.fn(),

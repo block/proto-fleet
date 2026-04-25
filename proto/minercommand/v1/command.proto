@@ -145,16 +145,8 @@ enum PoolSlot {
   POOL_SLOT_BACKUP_2    = 3;  // priority 2
 }
 
-// Why a slot's URL would be what it is on dispatch. Every successful slot
-// has exactly one reason set (never UNSPECIFIED except as the default-zero).
-enum RewriteReason {
-  REWRITE_REASON_UNSPECIFIED = 0;
-  REWRITE_REASON_PASSTHROUGH = 1;  // SV1 pool, pushed as-is
-  REWRITE_REASON_NATIVE      = 2;  // SV2 pool, device speaks native SV2
-  REWRITE_REASON_PROXIED     = 3;  // SV2 pool, device is SV1-only; URL rewritten to the bundled tProxy
-}
-
-// Slot-scoped warnings that would cause a commit to be rejected.
+// Slot-scoped warnings the commit path attaches to a FAILED_PRECONDITION
+// rejection so clients can branch per-slot without parsing strings.
 enum SlotWarning {
   SLOT_WARNING_UNSPECIFIED              = 0;
   // SV2 pool was assigned to an SV1-only device while the translation proxy is disabled.
@@ -175,55 +167,6 @@ enum DeviceWarning {
   // proxy. Since the proxy has exactly one upstream pool, primary/backup
   // semantics would silently collapse, so we reject.
   DEVICE_WARNING_MULTIPLE_SV2_SLOTS_PROXIED = 1;
-}
-
-// Per-slot preview entry.
-message SlotPreview {
-  PoolSlot             slot               = 1;
-  pools.v1.PoolProtocol effective_protocol = 2;
-  // What would be pushed to this slot at dispatch time (already rewritten).
-  string               effective_url      = 3;
-  RewriteReason        rewrite_reason     = 4;
-  // UNSPECIFIED iff this slot would succeed. If non-zero, the commit path
-  // rejects the whole request with FAILED_PRECONDITION.
-  SlotWarning          warning            = 5;
-}
-
-// Per-device preview, one entry per slot present in the request.
-message DevicePoolPreview {
-  string               device_identifier = 1;
-  repeated SlotPreview slots             = 2;
-  // Device-level warning (UNSPECIFIED means none).
-  DeviceWarning        device_warning    = 3;
-}
-
-message PreviewMiningPoolAssignmentRequest {
-  DeviceSelector           device_selector = 1;
-  PoolSlotConfig           default_pool    = 2;
-  optional PoolSlotConfig  backup_1_pool   = 3;
-  optional PoolSlotConfig  backup_2_pool   = 4;
-}
-
-// PreviewSkipReason explains why the server returned no per-device
-// previews. The empty-previews / UNSPECIFIED case still means "preview
-// ran cleanly with no mismatches"; non-UNSPECIFIED values mean "preview
-// did not run and the UI should fall through to commit-time
-// validation instead of blocking Save on the missing preview."
-enum PreviewSkipReason {
-  PREVIEW_SKIP_REASON_UNSPECIFIED   = 0;
-  // Selector resolved to more devices than the preview cap. The UI
-  // should still allow Save; the commit path runs the same preflight
-  // and returns FAILED_PRECONDITION if any per-device mismatch exists.
-  PREVIEW_SKIP_REASON_SIZE_EXCEEDED = 1;
-}
-
-message PreviewMiningPoolAssignmentResponse {
-  repeated DevicePoolPreview previews = 1;
-  // Set when the server short-circuited preview without evaluating
-  // per-device detail. UNSPECIFIED + empty previews = clean (no
-  // mismatches); a non-UNSPECIFIED value tells the UI not to treat
-  // the empty result as a green light to bypass commit-time checks.
-  PreviewSkipReason skipped_reason = 2;
 }
 
 // Commit-path rejection detail. Attached to the FAILED_PRECONDITION status
@@ -448,11 +391,6 @@ service MinerCommandService {
   rpc SetPowerTarget(SetPowerTargetRequest) returns (SetPowerTargetResponse);
 
   rpc UpdateMiningPools(UpdateMiningPoolsRequest) returns (UpdateMiningPoolsResponse);
-
-  // Shows what UpdateMiningPools would do per device without enqueuing anything.
-  // Backed by the same preflight used on the commit path, so preview and commit
-  // agree by construction. Consumed by the UI, the CLI, and integration tests.
-  rpc PreviewMiningPoolAssignment(PreviewMiningPoolAssignmentRequest) returns (PreviewMiningPoolAssignmentResponse);
 
   rpc DownloadLogs(DownloadLogsRequest) returns (DownloadLogsResponse);
 

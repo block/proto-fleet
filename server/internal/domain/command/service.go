@@ -919,126 +919,14 @@ func (s *Service) UpdateMiningPools(
 	return &pb.UpdateMiningPoolsResponse{BatchIdentifier: commandBatchLogUUID}, nil
 }
 
-// maxPreviewDevices caps the number of devices a single
-// PreviewMiningPoolAssignment call can evaluate. The preview is the
-// only RPC that materializes a per-device result for an entire fleet
-// in a single unary response, and the UI auto-fires it on every pool
-// edit, so an unbounded call against a large org turns a dry run into
-// a synchronous resource-exhaustion path. The cap is high enough to
-// cover any realistic single-deployment fleet but bounded enough that
-// CPU/memory/response size stay predictable. Direct RPC callers
-// targeting larger fleets need to scope their selectors (or use the
-// commit RPC, which already runs preflight and returns a typed
-// FAILED_PRECONDITION on mismatches without materializing per-device
-// detail).
-const maxPreviewDevices = 1000
-
 // maxCommitDevices caps the number of devices a single
 // UpdateMiningPools call can target. The commit path runs synchronous
 // preflight + per-device payload marshal before writing queue rows,
 // all in one unary RPC, so an unbounded fleet-wide update is a
-// straightforward request-path DoS lever. Higher than the preview cap
-// because operators legitimately push pool changes to large fleets
-// (commits are deliberate; the preview cap exists because the UI
-// auto-fires it). Operators above this need to scope the selector
-// (manufacturer/model/site filters) and run multiple updates.
+// straightforward request-path DoS lever. Operators above this need
+// to scope the selector (manufacturer/model/site filters) and run
+// multiple updates.
 const maxCommitDevices = 5000
-
-// PreviewResult is the typed return of PreviewMiningPoolAssignment.
-// Previews is the per-device detail (empty when the preview was
-// short-circuited). SkipReason tells callers why no detail was
-// returned: UNSPECIFIED on a clean run, SIZE_EXCEEDED when the
-// selector exceeded the cap. The handler maps SkipReason onto the
-// proto response so the UI can distinguish "no mismatches" from
-// "preview not run; commit-time preflight is authoritative."
-type PreviewResult struct {
-	Previews   []*pb.DevicePoolPreview
-	SkipReason pb.PreviewSkipReason
-}
-
-// PreviewMiningPoolAssignment runs the same preflight UpdateMiningPools
-// uses, but returns the per-device resolution instead of enqueuing
-// anything. The UI calls it before enabling Save; the CLI exposes it as
-// a dry-run mode. Read-only — no credentials check, no batch log, no
-// queue writes.
-func (s *Service) PreviewMiningPoolAssignment(
-	ctx context.Context,
-	deviceSelector *pb.DeviceSelector,
-	defaultPool, backup1Pool, backup2Pool *pb.PoolSlotConfig,
-) (PreviewResult, error) {
-	pld, err := s.createUpdateMiningPoolsPayload(ctx, defaultPool, backup1Pool, backup2Pool)
-	if err != nil {
-		return PreviewResult{}, err
-	}
-
-	deviceIDs, err := s.getDeviceIDs(ctx, deviceSelector)
-	if err != nil {
-		return PreviewResult{}, fleeterror.NewInternalErrorf("error getting device IDs from device selector: %v", err)
-	}
-	if len(deviceIDs) == 0 {
-		return PreviewResult{}, nil
-	}
-	if len(deviceIDs) > maxPreviewDevices {
-		// Returning a typed skip rather than an error keeps Save
-		// reachable on huge fleets — the commit path runs the same
-		// preflight server-side and rejects with FAILED_PRECONDITION
-		// if there's a real mismatch. Blocking Save on a missing
-		// preview would lock operators out of pool assignment for
-		// any selection over the cap.
-		slog.Warn("preview skipped (size exceeded)", "device_count", len(deviceIDs), "cap", maxPreviewDevices)
-		return PreviewResult{SkipReason: pb.PreviewSkipReason_PREVIEW_SKIP_REASON_SIZE_EXCEEDED}, nil
-	}
-
-	idByIdentifier, err := s.resolveDeviceIdentifiers(ctx, deviceIDs)
-	if err != nil {
-		return PreviewResult{}, err
-	}
-	capsByIdentifier := s.resolveSV2Capabilities(ctx, idByIdentifier)
-
-	devices := make([]preflight.Device, 0, len(idByIdentifier))
-	for identifier := range idByIdentifier {
-		devices = append(devices, preflight.Device{
-			Identifier:   identifier,
-			Capabilities: capsByIdentifier[identifier],
-		})
-	}
-
-	out, err := preflight.Run(preflight.Input{
-		Slots:   buildPreflightSlotAssignments(pld),
-		Devices: devices,
-		Proxy:   s.effectiveProxyConfig(),
-	})
-	if err != nil {
-		return PreviewResult{}, fleeterror.NewInternalErrorf("pool-assignment preflight: %v", err)
-	}
-
-	return PreviewResult{Previews: previewsToProto(out.Devices)}, nil
-}
-
-// previewsToProto projects preflight.DeviceResult onto the proto response
-// shape. Lives here rather than in the preflight package so the preflight
-// stays free of RPC-shape concerns and remains reusable by CLIs and tests.
-func previewsToProto(devs []preflight.DeviceResult) []*pb.DevicePoolPreview {
-	out := make([]*pb.DevicePoolPreview, 0, len(devs))
-	for _, d := range devs {
-		slots := make([]*pb.SlotPreview, 0, len(d.Slots))
-		for _, s := range d.Slots {
-			slots = append(slots, &pb.SlotPreview{
-				Slot:              s.ProtoSlot,
-				EffectiveProtocol: s.Protocol,
-				EffectiveUrl:      s.EffectiveURL,
-				RewriteReason:     s.ProtoReason,
-				Warning:           s.Warning,
-			})
-		}
-		out = append(out, &pb.DevicePoolPreview{
-			DeviceIdentifier: d.DeviceIdentifier,
-			Slots:            slots,
-			DeviceWarning:    d.DeviceWarning,
-		})
-	}
-	return out
-}
 
 // preflightAndSerializePayloads runs the pool-assignment preflight for a
 // concrete device-ID set and returns (deviceID-by-identifier map,
@@ -1223,9 +1111,9 @@ func buildPreflightSlotAssignments(template *dto.UpdateMiningPoolsPayload) []pre
 // Both fields can differ per device because of proxied routing: an SV2
 // pool rewritten to the SV1-facing translator URL is on-the-wire SV1,
 // and downstream drivers branch on Protocol. Keeping the template's
-// Protocol intact would make preview show effective_protocol=SV1 while
-// dispatch sent protocol=SV2 alongside a stratum+tcp:// URL — exactly
-// the parity break the preflight is supposed to prevent.
+// Protocol intact would let dispatch send protocol=SV2 alongside a
+// stratum+tcp:// URL — the parity break the preflight is supposed to
+// prevent.
 func marshalPerDevicePayload(template *dto.UpdateMiningPoolsPayload, d preflight.DeviceResult) ([]byte, error) {
 	deviceCopy := *template
 	for _, s := range d.Slots {

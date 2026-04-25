@@ -335,7 +335,7 @@ func resolveSingle(pool Pool, caps DeviceCapabilities, proxy ProxyConfig) (strin
 }
 ```
 
-The rewriter operates on the full slot set (default + backup_1 + backup_2) rather than one pool at a time, specifically so it can enforce the "at most one proxied slot per device" rule. Without it, a mixed fleet where an operator configures three SV2 pools as primary+backups for SV1 miners would push three identical proxy URLs to each miner and silently lose both backups. The rewriter rejects the batch with `FAILED_PRECONDITION: multiple_sv2_slots_require_proxy` and the preview RPC surfaces the same warning per-device.
+The rewriter operates on the full slot set (default + backup_1 + backup_2) rather than one pool at a time, specifically so it can enforce the "at most one proxied slot per device" rule. Without it, a mixed fleet where an operator configures three SV2 pools as primary+backups for SV1 miners would push three identical proxy URLs to each miner and silently lose both backups. The rewriter rejects the batch with `FAILED_PRECONDITION` carrying `DEVICE_WARNING_MULTIPLE_SV2_SLOTS_PROXIED` per-device on the typed mismatch detail.
 
 **Why rewrite at command build time rather than at pool save time:**
 
@@ -364,24 +364,17 @@ EnqueuePerDevice(ctx, batchID, commandType, payloads map[string][]byte) error
 
 The underlying `queue_message` row already has its own `payload` column per device, so the storage change is zero — only the interface gains a variant that writes distinct bytes per row. `UpdateMiningPools` switches to `EnqueuePerDevice`; every other command keeps using `Enqueue` unchanged.
 
-**This removes the dispatch-time rewriter entirely.** `execution_service.go:412` unmarshals the device's own payload and pushes it straight to the plugin — it never needs to consult pool state, capabilities, or proxy config again. The rewriter runs exactly once per request, at preflight, against a single consistent capability snapshot. Preview and commit produce identical URLs by construction (same code path, same inputs); there is no capability-flip race to document because the dispatch worker does not re-evaluate.
+**This removes the dispatch-time rewriter entirely.** `execution_service.go:412` unmarshals the device's own payload and pushes it straight to the plugin — it never needs to consult pool state, capabilities, or proxy config again. The rewriter runs exactly once per request, at preflight, against a single consistent capability snapshot. There is no capability-flip race to document because the dispatch worker does not re-evaluate.
 
 The preflight also stashes a `capability_snapshot_at` timestamp on the batch row for observability: if a dispatch fails with a capability-type error from the plugin itself (e.g. firmware rejects the SV2 URL), the activity log can correlate against when the snapshot was taken, and an operator can rerun against current state.
 
 Reapply paths (worker-name reapply at `execution_service.go:549`) follow the same flow — they build per-device payloads from `MinerConfiguredPool` (which now carries protocol) through the preflight-and-resolve path, then enqueue per-device.
 
-### Preview/preflight API — stable, typed, shared
+### Preflight API — stable, typed, shared
 
-The preview and preflight code paths are the single source of truth for pool-assignment behavior: which slot resolves to which URL, why a slot was rewritten, why a device was rejected. They are consumed by the web UI, the forthcoming CLI, integration tests, and the commit path itself (via the shared preflight). Because of that, the RPC is treated as a stable public API, not a UI helper — all reasons are typed enums, not strings.
+The preflight code path is the single source of truth for pool-assignment behavior: which slot resolves to which URL, why a device was rejected. It is consumed by the commit path, by the forthcoming CLI, and by integration tests directly against the package. Because of that, the typed enums it surfaces are treated as a stable public API, not a UI helper — all reasons are typed enums, not strings.
 
 ```proto
-rpc PreviewMiningPoolAssignment(PreviewMiningPoolAssignmentRequest)
-    returns (PreviewMiningPoolAssignmentResponse);
-
-message PreviewMiningPoolAssignmentResponse {
-  repeated DevicePoolPreview previews = 1;
-}
-
 enum PoolSlot {
   POOL_SLOT_UNSPECIFIED = 0;
   POOL_SLOT_DEFAULT     = 1;
@@ -389,41 +382,19 @@ enum PoolSlot {
   POOL_SLOT_BACKUP_2    = 3;
 }
 
-enum RewriteReason {
-  REWRITE_REASON_UNSPECIFIED   = 0;
-  REWRITE_REASON_PASSTHROUGH   = 1;  // SV1 pool, pushed as-is
-  REWRITE_REASON_NATIVE        = 2;  // SV2 pool, device speaks native SV2
-  REWRITE_REASON_PROXIED       = 3;  // SV2 pool, device is SV1, proxy URL substituted
-}
-
 enum SlotWarning {
   SLOT_WARNING_UNSPECIFIED             = 0;
   SLOT_WARNING_SV2_NOT_SUPPORTED       = 1;  // SV2 pool + SV1 device + proxy disabled
+  SLOT_WARNING_PROXY_UPSTREAM_MISMATCH = 2;  // proxy enabled but pool URL ≠ configured proxy upstream
 }
 
 enum DeviceWarning {
   DEVICE_WARNING_UNSPECIFIED                 = 0;
   DEVICE_WARNING_MULTIPLE_SV2_SLOTS_PROXIED  = 1;  // >1 SV2 slot would route through single bundled proxy
 }
-
-message SlotPreview {
-  PoolSlot      slot               = 1;
-  PoolProtocol  effective_protocol = 2;
-  string        effective_url      = 3;  // what will actually be pushed to this slot
-  RewriteReason rewrite_reason     = 4;
-  SlotWarning   warning            = 5;  // UNSPECIFIED iff slot would succeed
-}
-
-message DevicePoolPreview {
-  string               device_identifier = 1;
-  repeated SlotPreview slots             = 2;  // one entry per slot present in the request
-  // Device-scoped warning that is not attributable to a single slot —
-  // a property of the combination of slots on this device, not of any one.
-  DeviceWarning        device_warning    = 3;
-}
 ```
 
-The same typed warnings flow back on the commit path's `FAILED_PRECONDITION` detail payload — no string-to-enum conversion, no frontend branching on free-form text:
+The typed warnings flow back on the commit path's `FAILED_PRECONDITION` detail payload — no string-to-enum conversion, no frontend branching on free-form text:
 
 ```proto
 message UpdateMiningPoolsMismatch {
@@ -434,9 +405,7 @@ message UpdateMiningPoolsMismatch {
 }
 ```
 
-**Package boundary.** The preview/preflight implementation lives in `server/internal/domain/pools/preflight/` as a reusable package with typed inputs and outputs. The Preview RPC handler and `command.Service.UpdateMiningPools` both call into it; the CLI and tests also depend on it directly.
-
-The UI calls `PreviewMiningPoolAssignment` before enabling Save. No writes; pure projection over the rewriter.
+**Package boundary.** The preflight implementation lives in `server/internal/domain/pools/preflight/` as a reusable package with typed inputs and outputs. `command.Service.UpdateMiningPools` calls into it before enqueueing per-device payloads; the CLI and tests also depend on it directly. There is no read-only Preview RPC: the operator clicks Save and any preflight failure surfaces synchronously as `FAILED_PRECONDITION` with the typed mismatch detail. This keeps the RPC surface and authorization model smaller and avoids preview/commit drift by construction.
 
 ## Data model
 
@@ -581,7 +550,7 @@ server/
         rewriter_test.go               # NEW — exhaustive capability/protocol matrix
         service.go                     # honor protocol field; ValidatePool SV2 mode
         preflight/                     # NEW — shared preflight package
-          preflight.go                 #   typed inputs/outputs, used by preview RPC, commit, CLI, tests
+          preflight.go                 #   typed inputs/outputs, used by commit path, CLI, tests
           preflight_test.go
       command/
         execution_service.go           # consume per-device payload (no rewrite at dispatch)
@@ -593,7 +562,7 @@ server/
       pools/
         handler.go                     # validate URL scheme vs protocol; UpdatePool patch semantics
       minercommand/
-        handler.go                     # PreviewMiningPoolAssignment
+        handler.go                     # UpdateMiningPools surfaces preflight mismatches as FAILED_PRECONDITION
     infrastructure/
       queue/
         interface.go                   # + EnqueuePerDevice variant
@@ -611,7 +580,7 @@ client/
     PoolForm/PoolForm.tsx              # protocol selector
     PoolForm/PoolForm.utils.ts         # URL scheme hints per protocol
   src/protoFleet/features/fleetManagement/components/ActionBar/SettingsWidget/PoolSelectionPage/
-    PoolSelectionPage.tsx              # capability warnings via preview RPC
+    PoolSelectionPage.tsx              # synchronous FAILED_PRECONDITION rendering on Save
 
 deployment-files/
   docker-compose.yaml                  # + sv2-tproxy service (profile: sv2)
@@ -623,24 +592,23 @@ deployment-files/
 
 ## Build sequence
 
-1. **Proto foundations** — `PoolProtocol` enum; `protocol` field on `PoolConfig`, `Pool`, `ValidatePoolRequest`, `RawPoolInfo`, and the driver-side pool structs; `UpdatePoolRequest` migrated to proto3 explicit presence on every patch field; typed enums (`ValidationMode`, `PoolSlot`, `RewriteReason`, `SlotWarning`, `DeviceWarning`) + `SlotPreview`/`DevicePoolPreview`/`UpdateMiningPoolsMismatch` messages; `reachable`/`credentials_verified`/`mode` on `ValidatePoolResponse`; `StratumV2Support` on the telemetry snapshot; relaxed validation via CEL. Regenerate; existing tests still pass because `UNSPECIFIED → SV1` on reads.
+1. **Proto foundations** — `PoolProtocol` enum; `protocol` field on `PoolConfig`, `Pool`, `ValidatePoolRequest`, `RawPoolInfo`, and the driver-side pool structs; `UpdatePoolRequest` migrated to proto3 explicit presence on every patch field; typed enums (`ValidationMode`, `PoolSlot`, `SlotWarning`, `DeviceWarning`) + `UpdateMiningPoolsMismatch` message; `reachable`/`credentials_verified`/`mode` on `ValidatePoolResponse`; `StratumV2Support` on the telemetry snapshot; relaxed validation via CEL. Regenerate; existing tests still pass because `UNSPECIFIED → SV1` on reads.
 2. **Internal DTO thread-through** — add protocol to `dto.MiningPool`, `interfaces.MinerConfiguredPool`, and the plugin-miner conversion at `plugin_miner.go:275`. `UpdatePool` handler migrates to presence-based patching (behavior change for callers relying on empty-string-means-unchanged; documented in release notes). Cover the worker-name reapply round-trip with a test that proves SV2 pools reapply as SV2.
 3. **DB migration** — add `protocol` column with SV1 default, backfill is a no-op.
 4. **SDK dynamic capability via telemetry** — `CapabilityStratumV2Native` constant; `StratumV2SupportStatus` field on `DeviceMetrics` and the telemetry proto; server-side merged-view helper (static ∪ model ∪ telemetry-reported, telemetry wins when not `Unknown`); capability cache keyed on telemetry scrape. Virtual plugin sets the field behind a config toggle. Strictly additive; no existing plugin interface changes.
 5. **URL rewriter** — pure function operating on the full slot set + exhaustive unit tests covering every (protocol, capability, `ProxyEnabled`) combination plus the multi-SV2-slot rejection path.
 6. **Queue per-device payloads** — add `EnqueuePerDevice(ctx, batchID, commandType, payloads map[string][]byte)` to the queue interface (`server/internal/infrastructure/queue/interface.go`) and service (`.../service.go`); existing `Enqueue` retained for one-payload-per-batch commands. Existing `queue_message.payload` storage is unchanged — only the write path gains a per-device variant. Tests cover heterogeneous payloads in the same batch.
-7. **Shared preflight package + synchronous commit path** — `server/internal/domain/pools/preflight/` holds the typed preflight function (input: pool slots + device IDs; output: per-device `SlotPreview` list + typed warnings or `UpdateMiningPoolsMismatch` list). Both the Preview RPC handler and `command.Service.UpdateMiningPools` call it. On success, the commit path marshals per-device pool payloads and uses `EnqueuePerDevice`; dispatch in `execution_service.go` just unmarshals and pushes to the plugin.
-8. **Preview RPC** — `PreviewMiningPoolAssignment` on `MinerCommandService` + handler; thin wrapper over the preflight package. Reusable by CLI and integration tests directly against the preflight package, not the RPC.
-9. **Proxy config block** — Kong struct, env wiring, startup validation (reject empty `ProxyMinerURL` / `ProxyUpstreamURL` when `ProxyEnabled=true`). SV2 pool creation and native-SV2 assignment remain allowed regardless of this flag.
-10. **Proxy health probe + SV2 `ValidatePool`** — shared TCP-probe helper. The proxy health loop runs on an interval; `ValidatePool` for SV2 calls the same helper and populates `reachable`/`credentials_verified`/`mode` accordingly. Activity log transitions for the proxy. Proxy probe starts/stops with `ProxyEnabled`.
-11. **Docker Compose** — `sv2-tproxy` service under the `sv2` profile, default `tproxy.toml`, healthcheck.
-12. **Installer prompt** — `install.sh` branches; writes `.env` entries and templates the TOML.
-13. **UI — pool form** — protocol selector, URL-scheme hints, client-side validation mirroring the CEL rule; protocol editable on update; validation button renders the three-field response explicitly.
-14. **UI — pool assignment** — call `PreviewMiningPoolAssignment` on scope change; switch on `RewriteReason`/`SlotWarning`/`DeviceWarning` enum values (no string parsing); block Save when any `SlotWarning` or `DeviceWarning` is set.
-15. **Plugin SV2-support rollout** — Proto plugin (ProtoOS probe populates `StratumV2Support` per scrape), Antminer plugin (firmware-id inspection), asic-rs models that report SV2 support at telemetry time.
-16. **E2E test** — mixed fleet (native + SV1), assign SV2 pool, verify telemetry shows both cohorts active; toggle proxy off, verify capability-mismatch rejection surfaces synchronously via typed enum; configure three SV2 pools on an SV1 miner, verify rejection via `DEVICE_WARNING_MULTIPLE_SV2_SLOTS_PROXIED`.
+7. **Shared preflight package + synchronous commit path** — `server/internal/domain/pools/preflight/` holds the typed preflight function (input: pool slots + device IDs; output: per-device `SlotResult` list with `EffectiveURL`/`Protocol` plus typed warnings, or an `UpdateMiningPoolsMismatch` list). `command.Service.UpdateMiningPools` calls it. On success, the commit path marshals per-device pool payloads and uses `EnqueuePerDevice`; dispatch in `execution_service.go` just unmarshals and pushes to the plugin. Failure surfaces synchronously as `FAILED_PRECONDITION` carrying the typed mismatch detail — no separate Preview RPC.
+8. **Proxy config block** — Kong struct, env wiring, startup validation (reject empty `ProxyMinerURL` / `ProxyUpstreamURL` when `ProxyEnabled=true`). SV2 pool creation and native-SV2 assignment remain allowed regardless of this flag.
+9. **Proxy health probe + SV2 `ValidatePool`** — shared TCP-probe helper. The proxy health loop runs on an interval; `ValidatePool` for SV2 calls the same helper and populates `reachable`/`credentials_verified`/`mode` accordingly. Activity log transitions for the proxy. Proxy probe starts/stops with `ProxyEnabled`.
+10. **Docker Compose** — `sv2-tproxy` service under the `sv2` profile, default `tproxy.toml`, healthcheck.
+11. **Installer prompt** — `install.sh` branches; writes `.env` entries and templates the TOML.
+12. **UI — pool form** — protocol selector, URL-scheme hints, client-side validation mirroring the CEL rule; protocol editable on update; validation button renders the three-field response explicitly.
+13. **UI — pool assignment** — render `FAILED_PRECONDITION` `UpdateMiningPoolsMismatch` details from the commit response by switching on `SlotWarning`/`DeviceWarning` enum values (no string parsing); the duplicate-pool check stays client-side; everything else surfaces from the server.
+14. **Plugin SV2-support rollout** — Proto plugin (ProtoOS probe populates `StratumV2Support` per scrape), Antminer plugin (firmware-id inspection), asic-rs models that report SV2 support at telemetry time.
+15. **E2E test** — mixed fleet (native + SV1), assign SV2 pool, verify telemetry shows both cohorts active; toggle proxy off, verify capability-mismatch rejection surfaces synchronously via typed enum; configure three SV2 pools on an SV1 miner, verify rejection via `DEVICE_WARNING_MULTIPLE_SV2_SLOTS_PROXIED`.
 
-Rough estimate: ~3–4 engineer-weeks for v1 if the sequence is followed linearly. Parallelizable: (1)–(4) are foundations for everyone; (6)–(7) (queue + preflight) are the critical path to unblock UI; (9)–(12) (deployment) can run in parallel with (13)–(14) (UI) once the preview RPC lands in step 8.
+Rough estimate: ~3–4 engineer-weeks for v1 if the sequence is followed linearly. Parallelizable: (1)–(4) are foundations for everyone; (6)–(7) (queue + preflight) are the critical path to unblock UI; (8)–(11) (deployment) can run in parallel with (12)–(13) (UI).
 
 ## Roadmap — how v1 enables each later phase
 
@@ -676,7 +644,7 @@ Out of scope for this plan; tracked in the ProtoOS repo. Fleet's only concern is
 2. **Proxy config changes require a container restart.** `UpstreamPool`, `MinerURL`, Noise keys are baked into the mounted TOML. Hot reload is a later concern.
 3. **SRI version pin is a maintenance burden.** SRI is post-1.0 but iterating. We pin a specific image tag, document the upgrade procedure, and accept that major SRI releases may need code on our side. Initial pin: latest 1.x release as of this plan.
 4. **No Fleet-side observability of per-miner SV2 health.** We know the proxy is up and the miner is dispatching shares; we do not surface SV2-specific metrics (channel opens, extranonce rotations, job rejections). Future: ingest tProxy admin API.
-5. **Capability detection is plugin-driven and therefore trust-based.** If a plugin incorrectly declares `stratum_v2_native` on firmware that doesn't support it, the miner will silently fail to connect. Mitigation: preview RPC shows which cohort each device fell into, and the pool assignment UI surfaces "zero miners mining" quickly via existing telemetry. No heuristic fallback in v1.
+5. **Capability detection is plugin-driven and therefore trust-based.** If a plugin incorrectly declares `stratum_v2_native` on firmware that doesn't support it, the miner will silently fail to connect. Mitigation: the commit-time preflight rejects mismatches synchronously, and the pool assignment UI surfaces "zero miners mining" quickly via existing telemetry for plugins whose declared capability is wrong but the preflight accepted. No heuristic fallback in v1.
 6. **No runtime multi-tenancy for the proxy.** The bundled proxy serves every SV1 miner in the fleet; there is no per-org isolation on the wire. Acceptable because Fleet's current deployment model is single-org anyway.
 7. **Uninstall leaves proxy state.** The Compose volume for `sv2/tproxy.toml` persists across uninstalls by design (to preserve the operator's upstream config). Documented.
 8. **SV2 `ValidatePool` is shallower than SV1, with two modes.** SV1 does a full subscribe+authorize; SV2 has two probes — Noise NX handshake when the operator supplies the 32-byte `noise_public_key`, falling back to a TCP dial when no key is supplied. Both surface the shallowness via `reachable` + `credentials_verified=false` + `mode=SV2_HANDSHAKE | SV2_TCP_DIAL` so the UI can render "reachable but credentials unverified" without inferring semantics. The TCP-dial fallback is bounded by the URL CEL rule (only stratum2+tcp:// schemes; explicit port required) but is technically a reachability check against any host:port reachable from the API server — a v1 trade-off so operators can validate connectivity before they have the pool's Noise key. Tightening this is a v1.5 fast-follow.
@@ -699,15 +667,16 @@ Each of the below is the recommended call for v1, with rationale and a revisit t
    *Revisit when* the `pool_protocol_total{protocol="sv2"}` metric shows majority adoption and a majority of those deployments have the proxy enabled.
 
 3. **Capability mismatch: hard-block the pool save with a structured error.**
-   Silent "miner stopped hashing" failures are the single worst UX in a fleet tool — they surface hours later as support tickets, not as obvious errors. The `PreviewMiningPoolAssignment` RPC already gives the operator complete visibility into who would be rejected before they click Save, so hard-blocking is not a UX penalty; it's the natural endpoint of the preview-then-commit flow. The "operators can shoot themselves" precedent elsewhere in the repo applies to reversible actions, not to pushing known-bad config to a running fleet.
+   Silent "miner stopped hashing" failures are the single worst UX in a fleet tool — they surface hours later as support tickets, not as obvious errors. The shared preflight runs server-side at commit time and rejects synchronously with `FAILED_PRECONDITION` carrying the typed `UpdateMiningPoolsMismatch` detail, so the UI surfaces who-would-be-rejected immediately on Save instead of risking a doomed dispatch. The "operators can shoot themselves" precedent elsewhere in the repo applies to reversible actions, not to pushing known-bad config to a running fleet.
    *Revisit if* operators actually ask for force-override (unlikely — we can add a "--force" flag on the CLI path without changing the default).
 
 4. **SRI images: pull `stratumv2/translator_sv2` from Docker Hub, pinned by both tag and sha256 digest; no vendored mirror in v1.**
    YAGNI on the mirror — air-gapped operators are a self-identifying cohort that already mirrors every image in the stack. Pin by digest because the translator sits in the miner→pool path and a tag overwrite or upstream compromise would be a direct hashrate-theft vector; the readable `:tag` pin stays alongside the digest so operators see what version they're running. Document image tag lookup in `deployment-files/sv2/README.md` so upgrade and mirror setup are both mechanical.
    *Revisit when* a real air-gapped customer asks, or if SRI's registry goes unreliable.
 
-5. **`PreviewMiningPoolAssignment` lives on `MinerCommandService`.**
-   The preview answers "what will be dispatched to each device" — that's a command concern, not a pool CRUD concern. Keeps `PoolsService` focused and matches the pattern in the curtailment plan (Preview sits next to Start, not next to pool CRUD). Cross-package dependency is trivial: the command service already reads pool records.
+5. **No separate preview RPC — preflight runs only at commit time.**
+   An earlier draft of this plan added a `PreviewMiningPoolAssignment` read-only RPC so the UI could disable Save before the operator clicked. We dropped it: the same shared preflight runs server-side inside `UpdateMiningPools` and any mismatch surfaces synchronously as a `FAILED_PRECONDITION` carrying `UpdateMiningPoolsMismatch` details, with no preview/commit drift to keep coherent. We don't preview SV1 pool assignments either, so the new SV2 path matches existing UX. Removing the preview also shrinks the RPC surface, the authorization model, and the rate-limit/abuse footprint.
+   *Revisit if* operators report friction from "I clicked Save and got an error" being too late — at which point a preview can return as a thin wrapper over the same preflight package.
 
 6. **Capability reporting: per-device at telemetry time; `ModelCapabilitiesProvider` only as fallback.**
    Firmware-version tables drift. Every new Braiins OS release requires a plugin PR just to flip a bit, and we will get the firmware-version cutoff wrong at least once. Per-device reporting — the plugin probes SV2 support during the same scrape that gathers telemetry — is self-updating, moves the truth closer to the wire, and matches how `pool_config`, `mining_start`, etc. are already surfaced. `ModelCapabilitiesProvider` remains available for plugins whose firmware doesn't expose a probe, but is not the default path.

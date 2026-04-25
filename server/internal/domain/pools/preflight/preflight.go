@@ -1,9 +1,7 @@
-// Package preflight is the shared pool-assignment preflight used by both
-// PreviewMiningPoolAssignment (read-only) and UpdateMiningPools (commit).
-//
-// Running the same function in both paths gives preview/commit parity by
-// construction — the dispatch worker has nothing to decide, so there is no
-// capability-flip race between preview and commit.
+// Package preflight is the shared pool-assignment preflight run by the
+// UpdateMiningPools commit path before dispatch. It evaluates whether each
+// (device, slot) assignment is supportable and surfaces typed warnings the
+// commit path attaches as FAILED_PRECONDITION details.
 //
 // The package is intentionally free of dependencies on the command service,
 // device store, and plugin manager. Callers supply resolved device
@@ -20,8 +18,8 @@ import (
 )
 
 // SlotAssignment is one (slot, pool) pair common to every device in a
-// preflight request — UpdateMiningPools and the preview RPC both assign
-// the same three slots to every targeted device.
+// preflight request — UpdateMiningPools assigns the same three slots to
+// every targeted device.
 type SlotAssignment struct {
 	Slot rewriter.PoolSlot
 	Pool rewriter.Pool
@@ -45,17 +43,13 @@ type Input struct {
 }
 
 // SlotResult is the preflight's verdict for a single (device, slot) pair.
-// RewriteReason is set on success; Warning is set on failure. They are
-// mutually exclusive — a successful slot never carries a warning, and a
-// failed slot never carries a reason other than UNSPECIFIED.
+// EffectiveURL/Protocol are set on success; Warning is set on failure.
 type SlotResult struct {
-	Slot          rewriter.PoolSlot
-	Protocol      poolspb.PoolProtocol
-	EffectiveURL  string
-	RewriteReason rewriter.RewriteReason
-	Warning       commandpb.SlotWarning
-	ProtoSlot     commandpb.PoolSlot // denormalized proto enum for convenient emission
-	ProtoReason   commandpb.RewriteReason
+	Slot         rewriter.PoolSlot
+	Protocol     poolspb.PoolProtocol
+	EffectiveURL string
+	Warning      commandpb.SlotWarning
+	ProtoSlot    commandpb.PoolSlot // denormalized proto enum for convenient emission
 }
 
 // DeviceResult is the preflight's verdict for one device. Slots preserves
@@ -69,7 +63,7 @@ type DeviceResult struct {
 
 // Output is the aggregate result of preflight. HasMismatch is true if any
 // slot or device warning is set — the commit path reads this to decide
-// whether to reject the request; the preview path surfaces the detail.
+// whether to reject the request.
 type Output struct {
 	Devices     []DeviceResult
 	HasMismatch bool
@@ -117,8 +111,8 @@ func Run(input Input) (Output, error) {
 
 func evaluateDevice(device Device, slots []SlotAssignment, proxy rewriter.ProxyConfig) DeviceResult {
 	// Re-use the rewriter — preflight is, structurally, "run the rewriter
-	// per device and translate its typed errors onto the preview/commit
-	// warning enums."
+	// per device and translate its typed errors onto the commit warning
+	// enums."
 	assignments := make([]rewriter.SlotAssignment, 0, len(slots))
 	for _, s := range slots {
 		assignments = append(assignments, rewriter.SlotAssignment{Slot: s.Slot, Pool: s.Pool})
@@ -151,12 +145,10 @@ func successfulDeviceResult(identifier string, resolved []rewriter.ResolvedSlot)
 	}
 	for _, r := range resolved {
 		out.Slots = append(out.Slots, SlotResult{
-			Slot:          r.Slot,
-			Protocol:      r.Protocol,
-			EffectiveURL:  r.EffectiveURL,
-			RewriteReason: r.RewriteReason,
-			ProtoSlot:     protoSlot(r.Slot),
-			ProtoReason:   protoRewriteReason(r.RewriteReason),
+			Slot:         r.Slot,
+			Protocol:     r.Protocol,
+			EffectiveURL: r.EffectiveURL,
+			ProtoSlot:    protoSlot(r.Slot),
 		})
 	}
 	return out
@@ -184,22 +176,19 @@ func proxyCollapseDeviceResult(device Device, slots []SlotAssignment, proxy rewr
 			// Should not happen since per-slot only fails when proxy is
 			// disabled, but defensively tag the slot warning.
 			out.Slots = append(out.Slots, SlotResult{
-				Slot:        s.Slot,
-				Protocol:    s.Pool.Protocol,
-				Warning:     commandpb.SlotWarning_SLOT_WARNING_SV2_NOT_SUPPORTED,
-				ProtoSlot:   protoSlot(s.Slot),
-				ProtoReason: commandpb.RewriteReason_REWRITE_REASON_UNSPECIFIED,
+				Slot:      s.Slot,
+				Protocol:  s.Pool.Protocol,
+				Warning:   commandpb.SlotWarning_SLOT_WARNING_SV2_NOT_SUPPORTED,
+				ProtoSlot: protoSlot(s.Slot),
 			})
 			continue
 		}
 		r := single[0]
 		out.Slots = append(out.Slots, SlotResult{
-			Slot:          r.Slot,
-			Protocol:      r.Protocol,
-			EffectiveURL:  r.EffectiveURL,
-			RewriteReason: r.RewriteReason,
-			ProtoSlot:     protoSlot(r.Slot),
-			ProtoReason:   protoRewriteReason(r.RewriteReason),
+			Slot:         r.Slot,
+			Protocol:     r.Protocol,
+			EffectiveURL: r.EffectiveURL,
+			ProtoSlot:    protoSlot(r.Slot),
 		})
 	}
 	return out
@@ -222,43 +211,38 @@ func perSlotResolution(device Device, slots []SlotAssignment, proxy rewriter.Pro
 		if err != nil {
 			if errors.Is(err, rewriter.ErrSV2PoolNotSupportedByDevice) {
 				out.Slots = append(out.Slots, SlotResult{
-					Slot:        s.Slot,
-					Protocol:    s.Pool.Protocol,
-					Warning:     commandpb.SlotWarning_SLOT_WARNING_SV2_NOT_SUPPORTED,
-					ProtoSlot:   protoSlot(s.Slot),
-					ProtoReason: commandpb.RewriteReason_REWRITE_REASON_UNSPECIFIED,
+					Slot:      s.Slot,
+					Protocol:  s.Pool.Protocol,
+					Warning:   commandpb.SlotWarning_SLOT_WARNING_SV2_NOT_SUPPORTED,
+					ProtoSlot: protoSlot(s.Slot),
 				})
 				continue
 			}
 			if errors.Is(err, rewriter.ErrProxyUpstreamMismatch) {
 				out.Slots = append(out.Slots, SlotResult{
-					Slot:        s.Slot,
-					Protocol:    s.Pool.Protocol,
-					Warning:     commandpb.SlotWarning_SLOT_WARNING_PROXY_UPSTREAM_MISMATCH,
-					ProtoSlot:   protoSlot(s.Slot),
-					ProtoReason: commandpb.RewriteReason_REWRITE_REASON_UNSPECIFIED,
+					Slot:      s.Slot,
+					Protocol:  s.Pool.Protocol,
+					Warning:   commandpb.SlotWarning_SLOT_WARNING_PROXY_UPSTREAM_MISMATCH,
+					ProtoSlot: protoSlot(s.Slot),
 				})
 				continue
 			}
 			// Unknown slot-level error: fall through with UNSPECIFIED
 			// warning so the caller at least sees something.
 			out.Slots = append(out.Slots, SlotResult{
-				Slot:        s.Slot,
-				Protocol:    s.Pool.Protocol,
-				Warning:     commandpb.SlotWarning_SLOT_WARNING_UNSPECIFIED,
-				ProtoSlot:   protoSlot(s.Slot),
-				ProtoReason: commandpb.RewriteReason_REWRITE_REASON_UNSPECIFIED,
+				Slot:      s.Slot,
+				Protocol:  s.Pool.Protocol,
+				Warning:   commandpb.SlotWarning_SLOT_WARNING_UNSPECIFIED,
+				ProtoSlot: protoSlot(s.Slot),
 			})
 			continue
 		}
 		r := single[0]
 		out.Slots = append(out.Slots, SlotResult{
-			Slot:          r.Slot,
-			Protocol:      r.Protocol,
-			EffectiveURL:  r.EffectiveURL,
-			RewriteReason: r.RewriteReason,
-			ProtoSlot:     protoSlot(r.Slot),
-			ProtoReason:   protoRewriteReason(r.RewriteReason),
+			Slot:         r.Slot,
+			Protocol:     r.Protocol,
+			EffectiveURL: r.EffectiveURL,
+			ProtoSlot:    protoSlot(r.Slot),
 		})
 	}
 	return out
@@ -318,20 +302,5 @@ func protoSlot(s rewriter.PoolSlot) commandpb.PoolSlot {
 		return commandpb.PoolSlot_POOL_SLOT_UNSPECIFIED
 	default:
 		return commandpb.PoolSlot_POOL_SLOT_UNSPECIFIED
-	}
-}
-
-func protoRewriteReason(r rewriter.RewriteReason) commandpb.RewriteReason {
-	switch r {
-	case rewriter.ReasonPassthrough:
-		return commandpb.RewriteReason_REWRITE_REASON_PASSTHROUGH
-	case rewriter.ReasonNative:
-		return commandpb.RewriteReason_REWRITE_REASON_NATIVE
-	case rewriter.ReasonProxied:
-		return commandpb.RewriteReason_REWRITE_REASON_PROXIED
-	case rewriter.ReasonUnspecified:
-		return commandpb.RewriteReason_REWRITE_REASON_UNSPECIFIED
-	default:
-		return commandpb.RewriteReason_REWRITE_REASON_UNSPECIFIED
 	}
 }

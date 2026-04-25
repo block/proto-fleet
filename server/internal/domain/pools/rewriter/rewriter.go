@@ -6,7 +6,7 @@
 // The preflight package calls it once per (device, slot) pair at commit
 // time against a consistent capability snapshot, and the per-device
 // resolved URLs are written into the queue payload. Dispatch never
-// re-evaluates — preview and commit agree by construction.
+// re-evaluates — commit decides everything up front.
 //
 // The package is a leaf: it imports proto types and the telemetry model
 // for merging capabilities, but no higher-level domain packages. This
@@ -27,7 +27,7 @@ import (
 )
 
 // Errors returned by the rewriter. Preflight maps these onto the typed
-// SlotWarning / DeviceWarning enums carried by the preview and commit paths.
+// SlotWarning / DeviceWarning enums carried by the commit path.
 var (
 	// ErrSV2PoolNotSupportedByDevice is returned for a single (device, slot)
 	// pair when the pool speaks SV2 but the device is SV1-only and the
@@ -93,9 +93,10 @@ type SlotAssignment struct {
 	Pool Pool
 }
 
-// RewriteReason mirrors minercommand.v1.RewriteReason so preflight can map
-// straight from rewriter output to the preview/mismatch proto without
-// inventing a second vocabulary.
+// RewriteReason describes why a slot resolved to its EffectiveURL: untouched
+// (passthrough), routed direct to the SV2 pool (native), or rewritten to the
+// bundled translator-proxy URL (proxied). Currently consumed by the
+// rewriter's own tests and by the queue payload-marshaling code path.
 type RewriteReason int
 
 const (
@@ -139,9 +140,8 @@ func PoolURLsForDevice(assignments []SlotAssignment, caps DeviceCapabilities, pr
 		// the rewriter swaps an SV2 pool URL for the SV1-facing tProxy
 		// URL, the slot's protocol on the wire is SV1. Derive from URL
 		// scheme rather than carrying a.Pool.Protocol forward, otherwise
-		// downstream surfaces (preview, dispatch payload, drivers that
-		// branch on protocol) see protocol=SV2 alongside a stratum+tcp
-		// URL.
+		// downstream surfaces (dispatch payload, drivers that branch on
+		// protocol) see protocol=SV2 alongside a stratum+tcp URL.
 		effectiveProtocol, err := ProtocolFromURL(url)
 		if err != nil {
 			// rewriter inputs (DB pool URL, configured proxy MinerURL)

@@ -15,9 +15,8 @@ import (
 
 // The scenarios below are the three "Step 16 E2E" cases called out in
 // docs/stratum-v2-plan.md. They exercise the shared preflight at its
-// RPC-shaped boundary so the commit path and the preview path agree on
-// every axis: which slots are marked which RewriteReason, which warning
-// enum values fire, and which slots carry the proxy URL.
+// RPC-shaped boundary so we cover which warning enum values fire and
+// which slots carry the proxy URL.
 //
 // A true end-to-end test (virtual-miner Docker stack + real tProxy +
 // live Fleet API roundtrip) lives outside this PR's scope — the
@@ -32,9 +31,8 @@ const (
 
 func TestScenario_MixedFleetSV2PoolAssignment_BothCohortsRoutedCorrectly(t *testing.T) {
 	// Native-SV2 miner + SV1-only miner, proxy enabled, single SV2 pool.
-	// Native miner should go direct (REWRITE_REASON_NATIVE); SV1 miner
-	// should be rewritten to the proxy URL (REWRITE_REASON_PROXIED).
-	// Neither device or slot warning fires.
+	// Native miner should go direct; SV1 miner should be rewritten to the
+	// proxy URL. Neither device nor slot warning fires.
 	out, err := Run(Input{
 		Slots: []SlotAssignment{{
 			Slot: rewriter.SlotDefault,
@@ -54,20 +52,15 @@ func TestScenario_MixedFleetSV2PoolAssignment_BothCohortsRoutedCorrectly(t *test
 
 	native := results["native-sv2"]
 	require.Len(t, native.Slots, 1)
-	assert.Equal(t, commandpb.RewriteReason_REWRITE_REASON_NATIVE, native.Slots[0].ProtoReason)
 	assert.Equal(t, scenarioSV2URL, native.Slots[0].EffectiveURL, "native miner receives the pool's own SV2 URL")
 	assert.Equal(t, commandpb.SlotWarning_SLOT_WARNING_UNSPECIFIED, native.Slots[0].Warning)
 	assert.Equal(t, commandpb.DeviceWarning_DEVICE_WARNING_UNSPECIFIED, native.DeviceWarning)
 
 	sv1 := results["sv1-only"]
 	require.Len(t, sv1.Slots, 1)
-	assert.Equal(t, commandpb.RewriteReason_REWRITE_REASON_PROXIED, sv1.Slots[0].ProtoReason)
 	assert.Equal(t, scenarioProxyURL, sv1.Slots[0].EffectiveURL, "SV1 miner receives the proxy's LAN-facing URL")
 	assert.Equal(t, commandpb.SlotWarning_SLOT_WARNING_UNSPECIFIED, sv1.Slots[0].Warning)
 
-	// No mismatches means the commit path would enqueue per-device
-	// payloads and the preview path would return zero-warning previews
-	// — by construction they agree.
 	assert.Empty(t, out.Mismatches())
 }
 
@@ -93,7 +86,6 @@ func TestScenario_SV2PoolAssignedWithProxyOff_SynchronousTypedRejection(t *testi
 	dev := out.Devices[0]
 	require.Len(t, dev.Slots, 1)
 	assert.Equal(t, commandpb.SlotWarning_SLOT_WARNING_SV2_NOT_SUPPORTED, dev.Slots[0].Warning)
-	assert.Equal(t, commandpb.RewriteReason_REWRITE_REASON_UNSPECIFIED, dev.Slots[0].ProtoReason)
 	assert.Equal(t, commandpb.DeviceWarning_DEVICE_WARNING_UNSPECIFIED, dev.DeviceWarning)
 
 	mismatches := out.Mismatches()
@@ -109,9 +101,7 @@ func TestScenario_ThreeSV2PoolsOnSV1Miner_DeviceWarningFires(t *testing.T) {
 	// The single bundled proxy has exactly one upstream pool. Pointing
 	// three SV2 slots at the same proxy URL on one device would silently
 	// collapse primary + both backups, so preflight rejects with the
-	// device-scoped warning rather than proceeding. Per-slot REWRITE_REASON
-	// stays PROXIED so the UI can show the operator what would have
-	// happened and why we refused.
+	// device-scoped warning rather than proceeding.
 	out, err := Run(Input{
 		Slots: []SlotAssignment{
 			{Slot: rewriter.SlotDefault, Pool: rewriter.Pool{URL: scenarioSV2URL, Protocol: poolspb.PoolProtocol_POOL_PROTOCOL_SV2}},
@@ -131,8 +121,8 @@ func TestScenario_ThreeSV2PoolsOnSV1Miner_DeviceWarningFires(t *testing.T) {
 	assert.Equal(t, commandpb.DeviceWarning_DEVICE_WARNING_MULTIPLE_SV2_SLOTS_PROXIED, dev.DeviceWarning)
 	require.Len(t, dev.Slots, 3)
 	for _, s := range dev.Slots {
-		assert.Equal(t, commandpb.RewriteReason_REWRITE_REASON_PROXIED, s.ProtoReason,
-			"per-slot resolution still reports PROXIED so the UI can explain the rejection")
+		assert.Equal(t, scenarioProxyURL, s.EffectiveURL,
+			"per-slot resolution still reports the proxy URL so the UI can explain the rejection")
 	}
 
 	mismatches := out.Mismatches()
@@ -166,7 +156,6 @@ func TestScenario_SV1PoolAssignment_AlwaysPassthrough(t *testing.T) {
 
 	for _, dev := range out.Devices {
 		require.Len(t, dev.Slots, 1)
-		assert.Equal(t, commandpb.RewriteReason_REWRITE_REASON_PASSTHROUGH, dev.Slots[0].ProtoReason)
 		assert.Equal(t, scenarioSV1URL, dev.Slots[0].EffectiveURL)
 	}
 }
@@ -197,6 +186,8 @@ func TestScenario_TelemetryWinsOverStaticForSV2Capability(t *testing.T) {
 	require.False(t, out.HasMismatch)
 
 	results := byIdentifier(out.Devices)
-	assert.Equal(t, commandpb.RewriteReason_REWRITE_REASON_NATIVE, results["native"].Slots[0].ProtoReason)
-	assert.Equal(t, commandpb.RewriteReason_REWRITE_REASON_PROXIED, results["sv1"].Slots[0].ProtoReason)
+	assert.Equal(t, scenarioSV2URL, results["native"].Slots[0].EffectiveURL,
+		"telemetry-Supported device routes direct to the SV2 pool")
+	assert.Equal(t, scenarioProxyURL, results["sv1"].Slots[0].EffectiveURL,
+		"telemetry-Unsupported device routes via the proxy")
 }
