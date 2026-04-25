@@ -56,6 +56,14 @@ export class HomePage extends BasePage {
     await expect(this.page.getByRole("button", { name: "Authenticate" })).toBeHidden();
   }
 
+  async validateConfigurePoolsButtonNotVisible() {
+    await expect(this.page.getByRole("button", { name: "Configure" })).toHaveCount(0);
+  }
+
+  async validateSetupTaskCardNotVisible(title: string) {
+    await expect(this.page.getByText(title, { exact: true })).toHaveCount(0);
+  }
+
   async validateDashboardSectionVisible(title: string) {
     await expect(this.page.getByText(title, { exact: true }).first()).toBeVisible();
   }
