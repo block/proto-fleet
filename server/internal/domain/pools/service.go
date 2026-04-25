@@ -261,30 +261,48 @@ func (s *Service) ValidateConnection(
 
 	switch protocol {
 	case pb.PoolProtocol_POOL_PROTOCOL_SV2:
-		// SV2 validation requires the operator to supply the pool's
-		// 32-byte Noise authority public key. The key drives a Noise
-		// NX handshake probe that pins the pool's identity — no key
-		// means we'd be falling back to a bare TCP dial, which both
-		// (a) tells the operator "connected" without ever proving
-		// they reached the right pool, and (b) turns ValidatePool
-		// into a generic TCP scanner against any host:port reachable
-		// from the API server. Reject up front and route operators
-		// to the docs that explain how to find the key.
-		if len(poolNoiseKey) == 0 {
-			return ValidationResult{Mode: pb.ValidationMode_VALIDATION_MODE_SV2_HANDSHAKE},
-				fleeterror.NewInvalidArgumentError("Stratum V2 pool validation requires the pool's Noise authority public key (32 raw bytes); look it up in the pool operator's docs")
-		}
-		if len(poolNoiseKey) != 32 {
+		// SV2 validation has two modes:
+		//
+		//   - HANDSHAKE: when the caller supplies the pool's 32-byte
+		//     Noise authority public key, run a Noise NX handshake
+		//     against the supplied key. This pins the pool's identity
+		//     and is the strongest probe v1 offers.
+		//
+		//   - TCP_DIAL: when no key is supplied, fall back to a TCP
+		//     reachability probe. The advertised contract on
+		//     ValidatePoolResponse (mode + reachable + credentials_
+		//     verified) makes the shallowness explicit so the UI
+		//     doesn't claim more than the probe proved. Documented as
+		//     a Known Limitation §8 — the URL CEL pins host portions
+		//     to stratum schemes, which limits but does not eliminate
+		//     the reachability-oracle concern; tightening that is a
+		//     v1.5 fast-follow.
+		//
+		// Anything other than 0 or 32 bytes is a bad request — the
+		// operator either supplied a malformed key or pasted
+		// something that isn't a key at all; silently downgrading to
+		// TCP would confuse the response semantics.
+		if len(poolNoiseKey) > 0 && len(poolNoiseKey) != 32 {
 			return ValidationResult{Mode: pb.ValidationMode_VALIDATION_MODE_SV2_HANDSHAKE},
 				fleeterror.NewInvalidArgumentErrorf("noise public key must be 32 raw bytes, got %d", len(poolNoiseKey))
 		}
-		ok, err := sv2.HandshakeProbe(ctx, url, poolNoiseKey, to)
+		if len(poolNoiseKey) == 32 {
+			ok, err := sv2.HandshakeProbe(ctx, url, poolNoiseKey, to)
+			if err != nil {
+				return ValidationResult{Mode: pb.ValidationMode_VALIDATION_MODE_SV2_HANDSHAKE}, err
+			}
+			return ValidationResult{
+				Reachable: ok,
+				Mode:      pb.ValidationMode_VALIDATION_MODE_SV2_HANDSHAKE,
+			}, nil
+		}
+		ok, err := sv2.TCPDial(ctx, url, to)
 		if err != nil {
-			return ValidationResult{Mode: pb.ValidationMode_VALIDATION_MODE_SV2_HANDSHAKE}, err
+			return ValidationResult{Mode: pb.ValidationMode_VALIDATION_MODE_SV2_TCP_DIAL}, err
 		}
 		return ValidationResult{
 			Reachable: ok,
-			Mode:      pb.ValidationMode_VALIDATION_MODE_SV2_HANDSHAKE,
+			Mode:      pb.ValidationMode_VALIDATION_MODE_SV2_TCP_DIAL,
 		}, nil
 	case pb.PoolProtocol_POOL_PROTOCOL_SV1, pb.PoolProtocol_POOL_PROTOCOL_UNSPECIFIED:
 		// UNSPECIFIED is rejected above by ProtocolFromURL when the URL

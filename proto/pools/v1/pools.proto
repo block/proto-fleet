@@ -45,10 +45,10 @@ enum PoolProtocol {
 message PoolConfig {
   option (buf.validate.message).cel = {
     id: "pool_config_url_scheme",
-    message: "url must start with stratum+tcp://host:port or stratum2+tcp://host:port[/AUTHORITY_PUBKEY]",
+    message: "url must start with stratum+tcp://host:port (Stratum V1) or stratum2+tcp://host:port/AUTHORITY_PUBKEY (Stratum V2 — pubkey suffix required so saved pools fully identify the upstream and match the bundled tProxy's pinned identity)",
     expression:
       "this.url.matches('^stratum\\\\+tcp://(([a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?)|(\\\\d{1,3}\\\\.){3}\\\\d{1,3}|\\\\[([0-9a-fA-F:]+)\\\\]):\\\\d{1,5}$') "
-      "|| this.url.matches('^stratum2\\\\+tcp://(([a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?)|(\\\\d{1,3}\\\\.){3}\\\\d{1,3}|\\\\[([0-9a-fA-F:]+)\\\\]):\\\\d{1,5}(/[A-Za-z0-9._~+=-]+)?$')"
+      "|| this.url.matches('^stratum2\\\\+tcp://(([a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?)|(\\\\d{1,3}\\\\.){3}\\\\d{1,3}|\\\\[([0-9a-fA-F:]+)\\\\]):\\\\d{1,5}/[A-Za-z0-9._~+=-]+$')"
   };
 
   // Pool's stratum URL. The scheme is the single source of truth for
@@ -151,12 +151,12 @@ message CreatePoolResponse {
 message UpdatePoolRequest {
   option (buf.validate.message).cel = {
     id: "update_pool_url_scheme_if_set",
-    message: "url must start with stratum+tcp://host:port or stratum2+tcp://host:port[/AUTHORITY_PUBKEY]",
+    message: "url must start with stratum+tcp://host:port (Stratum V1) or stratum2+tcp://host:port/AUTHORITY_PUBKEY (Stratum V2 — pubkey suffix required)",
     // url is optional on update; validate only when the caller set it.
     expression:
       "!has(this.url) "
       "|| this.url.matches('^stratum\\\\+tcp://(([a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?)|(\\\\d{1,3}\\\\.){3}\\\\d{1,3}|\\\\[([0-9a-fA-F:]+)\\\\]):\\\\d{1,5}$') "
-      "|| this.url.matches('^stratum2\\\\+tcp://(([a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?)|(\\\\d{1,3}\\\\.){3}\\\\d{1,3}|\\\\[([0-9a-fA-F:]+)\\\\]):\\\\d{1,5}(/[A-Za-z0-9._~+=-]+)?$')"
+      "|| this.url.matches('^stratum2\\\\+tcp://(([a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?)|(\\\\d{1,3}\\\\.){3}\\\\d{1,3}|\\\\[([0-9a-fA-F:]+)\\\\]):\\\\d{1,5}/[A-Za-z0-9._~+=-]+$')"
   };
 
   // Unique identifier of the pool to update
