@@ -211,7 +211,15 @@ describe("MiningPools", () => {
 
     it("shows success toast when connection test passes", async () => {
       mockValidatePool.mockImplementation(({ onSuccess }) => {
-        onSuccess?.();
+        // Pass a fully-verified outcome so the page renders the green
+        // success toast. The unverified-but-reachable branch routes
+        // through STATUSES.error with a different message, asserted
+        // separately below.
+        onSuccess?.({
+          reachable: true,
+          credentialsVerified: true,
+          mode: 1, // ValidationMode.SV1_AUTHENTICATE
+        });
       });
 
       render(<MiningPools />);
