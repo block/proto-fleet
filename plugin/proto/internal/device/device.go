@@ -233,21 +233,33 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 }
 
 // refreshSystemSnapshot pulls firmware version + SV2 support from a
-// single /api/v1/system fetch, throttled so the HTTP cost stays at one
-// request per device per firmwareRefreshInterval rather than one per
-// scrape. Between refreshes, the cached values on d.deviceInfo and the
+// single /api/v1/system fetch. The fetch is throttled to one request
+// per device per firmwareRefreshInterval *once we already have a
+// non-Unspecified SV2 reading*; before the first successful read we
+// fetch on every Status call so a freshly-paired Proto miner doesn't
+// get treated as SV1-only by preflight for the whole throttle window.
+// Between refreshes, the cached values on d.deviceInfo and the
 // last-seen SV2 status carry forward.
 func (d *Device) refreshSystemSnapshot(ctx context.Context, metrics *sdk.DeviceMetrics) {
 	metrics.StratumV2Support = d.lastSV2Support
-	if time.Since(d.lastFirmwareCheckAt) < firmwareRefreshInterval {
+	hasInitialReading := d.lastSV2Support != sdk.StratumV2SupportUnspecified
+	if hasInitialReading && time.Since(d.lastFirmwareCheckAt) < firmwareRefreshInterval {
 		return
 	}
-	d.lastFirmwareCheckAt = time.Now()
 	snapshot, err := d.client.GetSystemSnapshot(ctx)
 	if err != nil {
 		slog.Debug("system snapshot fetch failed during Status", "device_id", d.id, "error", err)
+		// Only mark the throttle window as serviced when we got a
+		// reading; otherwise the next Status call will retry, which is
+		// the right behavior pre-initial-read. Once we have one, a
+		// transient failure is allowed to coast on the cached value
+		// until the next interval boundary.
+		if hasInitialReading {
+			d.lastFirmwareCheckAt = time.Now()
+		}
 		return
 	}
+	d.lastFirmwareCheckAt = time.Now()
 	if snapshot.FirmwareVersion != "" {
 		d.deviceInfo.FirmwareVersion = snapshot.FirmwareVersion
 		metrics.FirmwareVersion = snapshot.FirmwareVersion

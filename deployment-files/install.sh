@@ -300,13 +300,15 @@ STRATUM_V2_PROXY_HEALTH_INTERVAL=30s
 EOF
 
   # Render the tProxy TOML from operator input. Host/port come out of the
-  # stratum2+(tcp|ssl)://host:port[/pubkey] URL via bash's regex so a
-  # malformed URL fails the match outright rather than silently passing
-  # the original string into the TOML.
+  # stratum2+tcp://host:port[/pubkey] URL via bash's regex so a malformed
+  # URL fails the match outright rather than silently passing the
+  # original string into the TOML. Plain TCP only in v1 — the SSL/WS
+  # variants the server rejects at startup are also rejected here so the
+  # installer and the runtime agree on the supported scheme set.
   if [ -f "$toml_template" ] && [ -n "$sv2_pool_noise_key" ]; then
-    if [[ "$sv2_upstream" =~ ^stratum2\+(tcp|ssl)://([^:/]+):([0-9]+)(/.*)?$ ]]; then
-      local upstream_host="${BASH_REMATCH[2]}"
-      local upstream_port="${BASH_REMATCH[3]}"
+    if [[ "$sv2_upstream" =~ ^stratum2\+tcp://([^:/]+):([0-9]+)(/.*)?$ ]]; then
+      local upstream_host="${BASH_REMATCH[1]}"
+      local upstream_port="${BASH_REMATCH[2]}"
       sed -i.bak \
         -e "s|^upstream_address = .*|upstream_address = \"${upstream_host}\"|" \
         -e "s|^upstream_port = .*|upstream_port = ${upstream_port}|" \
@@ -315,7 +317,7 @@ EOF
       rm -f "${toml_template}.bak"
       echo "   Rendered ${toml_template} upstream → ${upstream_host}:${upstream_port}"
     else
-      echo "   ⚠️  Upstream URL '${sv2_upstream}' does not match stratum2+(tcp|ssl)://host:port; edit ${toml_template} manually before starting the proxy."
+      echo "   ⚠️  Upstream URL '${sv2_upstream}' does not match stratum2+tcp://host:port; edit ${toml_template} manually before starting the proxy. Plain TCP only in v1."
     fi
 
     # The downstream listener (what SV1 miners actually connect to) must

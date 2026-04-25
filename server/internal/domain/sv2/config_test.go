@@ -52,6 +52,44 @@ func TestConfig_ValidateEnabledWithBothURLsIsOK(t *testing.T) {
 	require.NoError(t, c.Validate())
 }
 
+func TestConfig_ValidateRejectsURLsWithoutPort(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  Config
+	}{
+		{
+			name: "miner url missing port",
+			cfg: Config{
+				ProxyEnabled:     true,
+				ProxyMinerURL:    "stratum+tcp://lan",
+				ProxyUpstreamURL: "stratum2+tcp://pool:34254",
+			},
+		},
+		{
+			name: "upstream url missing port",
+			cfg: Config{
+				ProxyEnabled:     true,
+				ProxyMinerURL:    "stratum+tcp://lan:34255",
+				ProxyUpstreamURL: "stratum2+tcp://pool",
+			},
+		},
+		{
+			name: "upstream url with trailing slash but no port",
+			cfg: Config{
+				ProxyEnabled:     true,
+				ProxyMinerURL:    "stratum+tcp://lan:34255",
+				ProxyUpstreamURL: "stratum2+tcp://pool/PUBKEY",
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.cfg.Validate()
+			require.Error(t, err)
+		})
+	}
+}
+
 func TestConfig_ValidateRejectsUnsupportedSchemes(t *testing.T) {
 	cases := []struct {
 		name    string

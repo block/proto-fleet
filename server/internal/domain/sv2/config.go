@@ -9,10 +9,21 @@ package sv2
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/pools/rewriter"
+)
+
+// minerURLPattern and upstreamURLPattern mirror the runtime CEL/installer
+// rules: scheme + host + explicit port, with the optional /AUTHORITY_PUBKEY
+// path on SV2 only. Validation rejects schemes the dispatch path can't
+// honor (SSL/WS) and URLs missing a port (which net.Dial would reject at
+// dispatch with a much less actionable error).
+var (
+	minerURLPattern    = regexp.MustCompile(`^stratum\+tcp://([a-zA-Z0-9][a-zA-Z0-9.-]*|\d{1,3}(?:\.\d{1,3}){3}|\[[0-9a-fA-F:]+\]):\d{1,5}$`)
+	upstreamURLPattern = regexp.MustCompile(`^stratum2\+tcp://([a-zA-Z0-9][a-zA-Z0-9.-]*|\d{1,3}(?:\.\d{1,3}){3}|\[[0-9a-fA-F:]+\]):\d{1,5}(/[A-Za-z0-9._~+=-]+)?$`)
 )
 
 // Config is the Kong-parsed StratumV2 block. See the "Server config block"
@@ -48,11 +59,11 @@ func (c Config) Validate() error {
 	if c.ProxyUpstreamURL == "" {
 		return fmt.Errorf("STRATUM_V2_PROXY_UPSTREAM_URL is required when STRATUM_V2_PROXY_ENABLED=true")
 	}
-	if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(c.ProxyMinerURL)), "stratum+tcp://") {
-		return fmt.Errorf("STRATUM_V2_PROXY_MINER_URL must be a stratum+tcp:// URL (plain TCP only in v1), got %q", c.ProxyMinerURL)
+	if !minerURLPattern.MatchString(strings.TrimSpace(c.ProxyMinerURL)) {
+		return fmt.Errorf("STRATUM_V2_PROXY_MINER_URL must be stratum+tcp://host:port (plain TCP only in v1; explicit port required), got %q", c.ProxyMinerURL)
 	}
-	if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(c.ProxyUpstreamURL)), "stratum2+tcp://") {
-		return fmt.Errorf("STRATUM_V2_PROXY_UPSTREAM_URL must be a stratum2+tcp:// URL (plain TCP only in v1), got %q", c.ProxyUpstreamURL)
+	if !upstreamURLPattern.MatchString(strings.TrimSpace(c.ProxyUpstreamURL)) {
+		return fmt.Errorf("STRATUM_V2_PROXY_UPSTREAM_URL must be stratum2+tcp://host:port[/AUTHORITY_PUBKEY] (plain TCP only in v1; explicit port required), got %q", c.ProxyUpstreamURL)
 	}
 	return nil
 }

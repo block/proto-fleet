@@ -42,6 +42,12 @@ export const usePoolAssignmentPreview = (
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Monotonic request token. Each scheduled RPC captures the latest
+  // value; in-flight responses ignore themselves once a newer request
+  // has been issued. Without this, a slow response from preview N can
+  // overwrite the state set by preview N+1, falsely re-enabling Save
+  // for an assignment the latest preflight would actually reject.
+  const latestRequestId = useRef(0);
 
   // Active when caller actually has something to preview. When false we
   // skip the RPC and zero out the returned values via the read-side
@@ -64,19 +70,30 @@ export const usePoolAssignmentPreview = (
           value: create(DeviceIdentifierListSchema, { deviceIdentifiers }),
         },
       });
+      latestRequestId.current += 1;
+      const requestId = latestRequestId.current;
       setIsLoading(true);
       void previewMiningPoolAssignment({
         deviceSelector,
         poolConfig,
         onSuccess: (result) => {
+          if (requestId !== latestRequestId.current) {
+            return;
+          }
           setPreviews(result);
           setError(undefined);
         },
         onError: (msg) => {
+          if (requestId !== latestRequestId.current) {
+            return;
+          }
           setPreviews([]);
           setError(msg);
         },
       }).finally(() => {
+        if (requestId !== latestRequestId.current) {
+          return;
+        }
         setIsLoading(false);
       });
     }, debounceMs);
@@ -91,9 +108,17 @@ export const usePoolAssignmentPreview = (
 
   const effectivePreviews = isActive ? previews : [];
   const effectiveError = isActive ? error : undefined;
-  const hasMismatch = effectivePreviews.some(
-    (d) => d.deviceWarning !== DeviceWarning.UNSPECIFIED || d.slots.some((s) => s.warning !== SlotWarning.UNSPECIFIED),
-  );
+  // Treat any error or in-flight state as "not saveable yet" — a
+  // transient preview failure that left previews=[] would otherwise
+  // pass the every() check below and re-enable Save. The save path
+  // would still get rejected by the server, but the UI should match.
+  const hasMismatch =
+    effectiveError !== undefined ||
+    isLoading ||
+    effectivePreviews.some(
+      (d) =>
+        d.deviceWarning !== DeviceWarning.UNSPECIFIED || d.slots.some((s) => s.warning !== SlotWarning.UNSPECIFIED),
+    );
 
   return { previews: effectivePreviews, hasMismatch, isLoading, error: effectiveError };
 };
