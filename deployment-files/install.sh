@@ -250,11 +250,29 @@ configure_stratum_v2() {
   local toml_template="./sv2/tproxy.toml"
 
   # If the operator already configured SV2 on a prior install, preserve
-  # their answers. .env is extracted on first install and left alone on
-  # subsequent upgrades (see extract_and_cd), so a prior STRATUM_V2_*
-  # setting is load-bearing.
+  # their answers in .env (which is left alone on upgrades by
+  # extract_and_cd) but rerender the tproxy.toml from the saved values.
+  # The release tarball ships a placeholder tproxy.toml that the
+  # operator's render overwrites; without rerendering on upgrade the
+  # mounted config would revert to REPLACE_WITH_POOL_HOST and the
+  # bundled proxy would come up pointed at nothing.
   if [ -f "$env_file" ] && grep -q '^STRATUM_V2_PROXY_ENABLED=' "$env_file"; then
-    echo "🛰  Keeping existing Stratum V2 configuration in ${env_file}"
+    if grep -q '^STRATUM_V2_PROXY_ENABLED=true' "$env_file"; then
+      local saved_upstream
+      local saved_miner
+      saved_upstream=$(grep '^STRATUM_V2_PROXY_UPSTREAM_URL=' "$env_file" | head -n1 | cut -d= -f2-)
+      saved_miner=$(grep '^STRATUM_V2_PROXY_MINER_URL=' "$env_file" | head -n1 | cut -d= -f2-)
+      if [ -n "$saved_upstream" ] && [ -n "$saved_miner" ]; then
+        echo "🛰  Re-rendering Stratum V2 proxy config from existing ${env_file}"
+        sv2_upstream="$saved_upstream"
+        sv2_miner_url="$saved_miner"
+        render_sv2_tproxy_toml "$env_file" "$toml_template" "$sv2_upstream" "$sv2_miner_url"
+        return 0
+      fi
+      echo "🛰  Existing Stratum V2 settings in ${env_file} are incomplete; skipping re-render. Edit ${env_file} and ${toml_template} by hand if mining is broken."
+    else
+      echo "🛰  Keeping existing Stratum V2 configuration in ${env_file} (proxy disabled)"
+    fi
     return 0
   fi
 
@@ -296,6 +314,12 @@ EOF
   # operator types something that parses, otherwise the installer would
   # successfully write a STRATUM_V2_PROXY_MINER_URL the server then
   # rejects at startup.
+  #
+  # The host portion is what the rewriter pushes to miners (so they
+  # know where to dial). The proxy itself listens on all host interfaces
+  # by default; operators on multi-homed boxes can scope the published
+  # listener after install by setting STRATUM_V2_PROXY_DOWNSTREAM_HOST
+  # in .env (compose substitutes it into the sv2-tproxy ports mapping).
   local sv2_miner_url=""
   while true; do
     read -p "   Miner-facing proxy URL (stratum+tcp://host:port, default port 34255): " sv2_miner_url
@@ -316,61 +340,75 @@ STRATUM_V2_PROXY_HEALTH_ADDR=127.0.0.1:34255
 STRATUM_V2_PROXY_HEALTH_INTERVAL=30s
 EOF
 
-  # Render the tProxy TOML from operator input. Host/port/pubkey come
-  # out of the same single URL — the suffix is required by the validation
-  # loop above, so the tproxy.toml pubkey field always matches whatever
-  # Fleet's rewriter compares against.
-  if [ -f "$toml_template" ]; then
-    if [[ "$sv2_upstream" =~ ^stratum2\+tcp://([^:/]+):([0-9]+)/([A-Za-z0-9._~+=-]+)$ ]]; then
-      local upstream_host="${BASH_REMATCH[1]}"
-      local upstream_port="${BASH_REMATCH[2]}"
-      local upstream_pubkey="${BASH_REMATCH[3]}"
-      sed -i.bak \
-        -e "s|^upstream_address = .*|upstream_address = \"${upstream_host}\"|" \
-        -e "s|^upstream_port = .*|upstream_port = ${upstream_port}|" \
-        -e "s|^upstream_authority_pubkey = .*|upstream_authority_pubkey = \"${upstream_pubkey}\"|" \
-        "$toml_template"
-      rm -f "${toml_template}.bak"
-      echo "   Rendered ${toml_template} upstream → ${upstream_host}:${upstream_port}"
-    else
-      echo "   ⚠️  Upstream URL '${sv2_upstream}' does not match stratum2+tcp://host:port/PUBKEY; edit ${toml_template} manually before starting the proxy. Plain TCP only in v1."
-    fi
+  render_sv2_tproxy_toml "$env_file" "$toml_template" "$sv2_upstream" "$sv2_miner_url"
 
-    # The downstream listener (what SV1 miners actually connect to) must
-    # match the miner-facing URL we wrote to .env: an operator who chose a
-    # custom port in STRATUM_V2_PROXY_MINER_URL would otherwise be silently
-    # routed to a port the proxy isn't listening on. Render it from the
-    # same regex; default to listening on all interfaces inside the
-    # container so containerised miners and host miners both reach it.
-    if [[ "$sv2_miner_url" =~ ^stratum\+tcp://([^:/]+):([0-9]+).*$ ]]; then
-      local downstream_port="${BASH_REMATCH[2]}"
+  echo "   To start the proxy: docker compose --profile sv2 up -d"
+}
+
+# render_sv2_tproxy_toml writes upstream + downstream values from
+# operator input into ./sv2/tproxy.toml and aligns Fleet's
+# STRATUM_V2_PROXY_DOWNSTREAM_PORT in .env so compose's host port
+# mapping matches the in-container listener. Pure renderer: callers
+# pass the validated upstream/miner URLs; nothing prompts.
+render_sv2_tproxy_toml() {
+  local env_file="$1"
+  local toml_template="$2"
+  local sv2_upstream="$3"
+  local sv2_miner_url="$4"
+
+  if [ ! -f "$toml_template" ]; then
+    return 0
+  fi
+
+  # Upstream: host/port/pubkey come out of the canonical
+  # stratum2+tcp://host:port/PUBKEY URL — the same format the validation
+  # loop in configure_stratum_v2 enforces.
+  if [[ "$sv2_upstream" =~ ^stratum2\+tcp://([^:/]+):([0-9]+)/([A-Za-z0-9._~+=-]+)$ ]]; then
+    local upstream_host="${BASH_REMATCH[1]}"
+    local upstream_port="${BASH_REMATCH[2]}"
+    local upstream_pubkey="${BASH_REMATCH[3]}"
+    sed -i.bak \
+      -e "s|^upstream_address = .*|upstream_address = \"${upstream_host}\"|" \
+      -e "s|^upstream_port = .*|upstream_port = ${upstream_port}|" \
+      -e "s|^upstream_authority_pubkey = .*|upstream_authority_pubkey = \"${upstream_pubkey}\"|" \
+      "$toml_template"
+    rm -f "${toml_template}.bak"
+    echo "   Rendered ${toml_template} upstream → ${upstream_host}:${upstream_port}"
+  else
+    echo "   ⚠️  Upstream URL '${sv2_upstream}' does not match stratum2+tcp://host:port/PUBKEY; edit ${toml_template} manually before starting the proxy. Plain TCP only in v1."
+  fi
+
+  # Downstream: listener must match the miner-facing URL operators put
+  # in .env so SV1 miners reach the right port. Default the listener to
+  # 0.0.0.0 inside the container so containerised miners and host miners
+  # both reach it; the host port mapping in compose follows the same
+  # downstream port via STRATUM_V2_PROXY_DOWNSTREAM_PORT.
+  if [[ "$sv2_miner_url" =~ ^stratum\+tcp://([^:/]+):([0-9]+).*$ ]]; then
+    local downstream_port="${BASH_REMATCH[2]}"
+    sed -i.bak \
+      -e "s|^downstream_port = .*|downstream_port = ${downstream_port}|" \
+      "$toml_template"
+    rm -f "${toml_template}.bak"
+    echo "   Rendered ${toml_template} downstream → 0.0.0.0:${downstream_port}"
+    if grep -q '^STRATUM_V2_PROXY_HEALTH_ADDR=127\.0\.0\.1:' "$env_file"; then
       sed -i.bak \
-        -e "s|^downstream_port = .*|downstream_port = ${downstream_port}|" \
-        "$toml_template"
-      rm -f "${toml_template}.bak"
-      echo "   Rendered ${toml_template} downstream → 0.0.0.0:${downstream_port}"
-      # Also align the Fleet-side health probe address with the chosen
-      # port so the health gauge isn't pinned to a stale 34255 default.
-      if grep -q '^STRATUM_V2_PROXY_HEALTH_ADDR=127\.0\.0\.1:' "$env_file"; then
-        sed -i.bak \
-          -e "s|^STRATUM_V2_PROXY_HEALTH_ADDR=127\.0\.0\.1:.*|STRATUM_V2_PROXY_HEALTH_ADDR=127.0.0.1:${downstream_port}|" \
-          "$env_file"
-        rm -f "${env_file}.bak"
-      fi
-      # Compose substitutes ${STRATUM_V2_PROXY_DOWNSTREAM_PORT} into the
-      # sv2-tproxy `ports` mapping so the host-published port matches the
-      # in-container listener. Without this the installer would render a
-      # custom port into tproxy.toml but Docker would still publish 34255,
-      # leaving miners trying to reach a port the host isn't forwarding.
+        -e "s|^STRATUM_V2_PROXY_HEALTH_ADDR=127\.0\.0\.1:.*|STRATUM_V2_PROXY_HEALTH_ADDR=127.0.0.1:${downstream_port}|" \
+        "$env_file"
+      rm -f "${env_file}.bak"
+    fi
+    if grep -q '^STRATUM_V2_PROXY_DOWNSTREAM_PORT=' "$env_file"; then
+      sed -i.bak \
+        -e "s|^STRATUM_V2_PROXY_DOWNSTREAM_PORT=.*|STRATUM_V2_PROXY_DOWNSTREAM_PORT=${downstream_port}|" \
+        "$env_file"
+      rm -f "${env_file}.bak"
+    else
       cat >> "$env_file" <<EOF
 STRATUM_V2_PROXY_DOWNSTREAM_PORT=${downstream_port}
 EOF
-    elif [ -n "$sv2_miner_url" ]; then
-      echo "   ⚠️  Miner URL '${sv2_miner_url}' does not match stratum+tcp://host:port; downstream_port left at the template default. Plain TCP only in v1; edit ${toml_template} if you chose a non-default port."
     fi
+  elif [ -n "$sv2_miner_url" ]; then
+    echo "   ⚠️  Miner URL '${sv2_miner_url}' does not match stratum+tcp://host:port; downstream_port left at the template default. Plain TCP only in v1; edit ${toml_template} if you chose a non-default port."
   fi
-
-  echo "   To start the proxy: docker compose --profile sv2 up -d"
 }
 
 configure_stratum_v2

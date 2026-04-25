@@ -69,6 +69,7 @@ const PoolSelectionPageWrapper = ({
     <PoolSelectionPage
       open={open}
       deviceIdentifiers={deviceIdentifiers}
+      deviceSelector={deviceSelector}
       numberOfMiners={selectionMode === "all" ? poolNeededCount : deviceIdentifiers.length}
       currentDevice={deviceIdentifiers.length === 1 ? deviceIdentifiers[0] : null}
       onAssignPools={handleAssignPools}

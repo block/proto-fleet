@@ -1,10 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { create } from "@bufbuild/protobuf";
-import { DeviceIdentifierListSchema } from "@/protoFleet/api/generated/common/v1/device_selector_pb";
 import {
   type DevicePoolPreview,
   type DeviceSelector,
-  DeviceSelectorSchema,
   DeviceWarning,
   SlotWarning,
 } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
@@ -33,7 +30,7 @@ export interface PoolAssignmentPreview {
 const debounceMs = 300;
 
 export const usePoolAssignmentPreview = (
-  deviceIdentifiers: string[],
+  deviceSelector: DeviceSelector | undefined,
   poolConfig: PoolConfig | null,
   enabled: boolean,
 ): PoolAssignmentPreview => {
@@ -49,14 +46,15 @@ export const usePoolAssignmentPreview = (
   // for an assignment the latest preflight would actually reject.
   const latestRequestId = useRef(0);
 
-  // Active when caller actually has something to preview. When false we
-  // skip the RPC and zero out the returned values via the read-side
-  // (rather than calling setState during the effect, which trips
-  // react-hooks/set-state-in-effect).
-  const isActive = enabled && poolConfig !== null && deviceIdentifiers.length > 0;
+  // Active when caller actually has something to preview. The deviceSelector
+  // is the same one the commit path uses, so previewing an "allDevices"
+  // selector evaluates the full server-resolved fleet rather than the
+  // currently-loaded subset that an "includeDevices" reconstruction
+  // would have used.
+  const isActive = enabled && poolConfig !== null && deviceSelector !== undefined;
 
   useEffect(() => {
-    if (!isActive || !poolConfig) {
+    if (!isActive || !poolConfig || !deviceSelector) {
       return;
     }
 
@@ -64,12 +62,6 @@ export const usePoolAssignmentPreview = (
       clearTimeout(timer.current);
     }
     timer.current = setTimeout(() => {
-      const deviceSelector: DeviceSelector = create(DeviceSelectorSchema, {
-        selectionType: {
-          case: "includeDevices",
-          value: create(DeviceIdentifierListSchema, { deviceIdentifiers }),
-        },
-      });
       latestRequestId.current += 1;
       const requestId = latestRequestId.current;
       setIsLoading(true);
@@ -104,7 +96,7 @@ export const usePoolAssignmentPreview = (
         timer.current = null;
       }
     };
-  }, [isActive, deviceIdentifiers, poolConfig, previewMiningPoolAssignment]);
+  }, [isActive, deviceSelector, poolConfig, previewMiningPoolAssignment]);
 
   const effectivePreviews = isActive ? previews : [];
   const effectiveError = isActive ? error : undefined;

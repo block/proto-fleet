@@ -18,6 +18,7 @@ import FleetPoolRow from "./FleetPoolRow";
 import PoolSelectionModal from "./PoolSelectionModal/PoolSelectionModal";
 import { MiningPool } from "./types";
 import { usePoolAssignmentPreview } from "./usePoolAssignmentPreview";
+import { type DeviceSelector } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { ValidationMode } from "@/protoFleet/api/generated/pools/v1/pools_pb";
 import { PoolConfig, PoolSlotSource } from "@/protoFleet/api/useMinerCommand";
 import useMinerPoolAssignments from "@/protoFleet/api/useMinerPoolAssignments";
@@ -53,6 +54,12 @@ interface AssignedPoolData {
 interface PoolSelectionPageProps {
   open?: boolean;
   deviceIdentifiers: string[];
+  // The same DeviceSelector the commit path uses. Threaded through so
+  // the preview RPC evaluates the same target set the eventual
+  // UpdateMiningPools call will touch — `allDevices` selectors are
+  // previewed directly instead of being reconstructed from a
+  // potentially-incomplete identifier list.
+  deviceSelector?: DeviceSelector;
   numberOfMiners?: number; // Optional explicit count (for "all" mode with filters)
   currentDevice?: string | null; // Optional single device identifier (for single miner edit)
   onAssignPools: (poolConfig: PoolConfig) => Promise<void>;
@@ -62,6 +69,7 @@ interface PoolSelectionPageProps {
 const PoolSelectionPage = ({
   open,
   deviceIdentifiers,
+  deviceSelector,
   numberOfMiners: numberOfMinersOverride,
   currentDevice,
   onAssignPools,
@@ -386,9 +394,12 @@ const PoolSelectionPage = ({
 
   // Preflight runs server-side with the same logic UpdateMiningPools
   // uses, so SV2-to-SV1 (proxy off) and multi-proxied-slot mismatches
-  // show up before Save. Disable Save when any warning is set.
+  // show up before Save. Disable Save when any warning is set. The
+  // selector is the same one the commit path uses, so allDevices /
+  // filtered selections preview the full server-resolved fleet rather
+  // than just the locally-loaded subset.
   const { hasMismatch: hasPoolAssignmentMismatch } = usePoolAssignmentPreview(
-    deviceIdentifiers,
+    deviceSelector,
     pendingPoolConfig,
     isVisible,
   );

@@ -30,6 +30,18 @@ read-only into the container. The installer (`../install.sh`) renders
 this file from your answers; operators who skipped the prompt can edit
 directly and restart the container.
 
+### Listener bind address
+
+The compose service publishes the downstream listener on
+`${STRATUM_V2_PROXY_DOWNSTREAM_HOST:-0.0.0.0}:${STRATUM_V2_PROXY_DOWNSTREAM_PORT:-34255}`.
+The default `0.0.0.0` exposes the unauthenticated Stratum listener on
+every interface; on a multi-homed or internet-facing host, scope it to
+a private/LAN IP by setting `STRATUM_V2_PROXY_DOWNSTREAM_HOST` in
+`.env` (e.g. `STRATUM_V2_PROXY_DOWNSTREAM_HOST=192.0.2.10`). The host
+portion of `STRATUM_V2_PROXY_MINER_URL` is what Fleet pushes to miners
+and is independent of this binding — operators are responsible for
+keeping the two consistent.
+
 Changing any field requires a container restart — SRI does not hot-reload:
 
 ```

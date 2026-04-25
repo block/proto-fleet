@@ -105,8 +105,14 @@ services:
     # in install.sh (parsed from STRATUM_V2_PROXY_MINER_URL) is actually
     # reachable from miners. The tproxy.toml's downstream_port must
     # match — the installer rewrites both. Default 34255.
+    #
+    # STRATUM_V2_PROXY_DOWNSTREAM_HOST scopes the published listener to
+    # a specific host interface; default 0.0.0.0 (all interfaces) keeps
+    # the existing behavior. Operators on multi-homed or internet-facing
+    # hosts can set this to a private/LAN IP literal in .env so the
+    # unauthenticated stratum listener isn't exposed to the wider net.
     ports:
-      - "${STRATUM_V2_PROXY_DOWNSTREAM_PORT:-34255}:${STRATUM_V2_PROXY_DOWNSTREAM_PORT:-34255}"
+      - "${STRATUM_V2_PROXY_DOWNSTREAM_HOST:-0.0.0.0}:${STRATUM_V2_PROXY_DOWNSTREAM_PORT:-34255}:${STRATUM_V2_PROXY_DOWNSTREAM_PORT:-34255}"
     volumes:
       - ../sv2/tproxy.toml:/etc/tproxy/config.toml:ro
     environment:
