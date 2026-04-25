@@ -245,6 +245,11 @@ func countProxied(resolved []ResolvedSlot) int {
 	return n
 }
 
+// labelUnspecified is the proto-style label for the zero value of both
+// PoolSlot and RewriteReason. Pulled out as a constant so goconst stops
+// flagging the duplicated literals across the two String methods.
+const labelUnspecified = "UNSPECIFIED"
+
 // String renders PoolSlot with the same labels the proto enum uses so that
 // wrapped errors come out readable (e.g. "slot BACKUP_1: ...").
 func (s PoolSlot) String() string {
@@ -256,9 +261,9 @@ func (s PoolSlot) String() string {
 	case SlotBackup2:
 		return "BACKUP_2"
 	case SlotUnspecified:
-		return "UNSPECIFIED"
+		return labelUnspecified
 	default:
-		return "UNSPECIFIED"
+		return labelUnspecified
 	}
 }
 
@@ -272,9 +277,9 @@ func (r RewriteReason) String() string {
 	case ReasonProxied:
 		return "PROXIED"
 	case ReasonUnspecified:
-		return "UNSPECIFIED"
+		return labelUnspecified
 	default:
-		return "UNSPECIFIED"
+		return labelUnspecified
 	}
 }
 

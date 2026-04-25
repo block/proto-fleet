@@ -18,8 +18,18 @@ import type { Message } from "@bufbuild/protobuf";
 /**
  * Describes the file device_set/v1/device_set.proto.
  */
-export const file_device_set_v1_device_set: GenFile = /*@__PURE__*/
-  fileDesc("Ch5kZXZpY2Vfc2V0L3YxL2RldmljZV9zZXQucHJvdG8SDWRldmljZV9zZXQudjEiywIKCURldmljZVNldBIKCgJpZBgBIAEoAxIqCgR0eXBlGAIgASgOMhwuZGV2aWNlX3NldC52MS5EZXZpY2VTZXRUeXBlEg0KBWxhYmVsGAMgASgJEhMKC2Rlc2NyaXB0aW9uGAQgASgJEhQKDGRldmljZV9jb3VudBgFIAEoBRIuCgpjcmVhdGVkX2F0GAYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgp1cGRhdGVkX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIsCglyYWNrX2luZm8YCCABKAsyFy5kZXZpY2Vfc2V0LnYxLlJhY2tJbmZvSAASLgoKZ3JvdXBfaW5mbxgJIAEoCzIYLmRldmljZV9zZXQudjEuR3JvdXBJbmZvSABCDgoMdHlwZV9kZXRhaWxzIrwBCghSYWNrSW5mbxIVCgRyb3dzGAEgASgFQge6SAQaAiAAEhgKB2NvbHVtbnMYAiABKAVCB7pIBBoCIAASFQoEem9uZRgDIAEoCUIHukgEcgIQARIyCgtvcmRlcl9pbmRleBgEIAEoDjIdLmRldmljZV9zZXQudjEuUmFja09yZGVySW5kZXgSNAoMY29vbGluZ190eXBlGAUgASgOMh4uZGV2aWNlX3NldC52MS5SYWNrQ29vbGluZ1R5cGUiCwoJR3JvdXBJbmZvIp4BCg9EZXZpY2VTZXRNZW1iZXISGQoRZGV2aWNlX2lkZW50aWZpZXIYASABKAkSLAoIYWRkZWRfYXQYAiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjAKBHJhY2sYAyABKAsyIC5kZXZpY2Vfc2V0LnYxLlJhY2tNZW1iZXJEZXRhaWxzSABCEAoObWVtYmVyX2RldGFpbHMiSwoRUmFja01lbWJlckRldGFpbHMSNgoNc2xvdF9wb3NpdGlvbhgBIAEoCzIfLmRldmljZV9zZXQudjEuUmFja1Nsb3RQb3NpdGlvbiJBChBSYWNrU2xvdFBvc2l0aW9uEhQKA3JvdxgBIAEoBUIHukgEGgIoABIXCgZjb2x1bW4YAiABKAVCB7pIBBoCKAAixwIKFkNyZWF0ZURldmljZVNldFJlcXVlc3QSNgoEdHlwZRgBIAEoDjIcLmRldmljZV9zZXQudjEuRGV2aWNlU2V0VHlwZUIKukgHggEEEAEgABIbCgVsYWJlbBgCIAEoCUIMukgJyAEBcgQQARhkEh0KC2Rlc2NyaXB0aW9uGAMgASgJQgi6SAVyAxj0AxIsCglyYWNrX2luZm8YBCABKAsyFy5kZXZpY2Vfc2V0LnYxLlJhY2tJbmZvSAASLgoKZ3JvdXBfaW5mbxgFIAEoCzIYLmRldmljZV9zZXQudjEuR3JvdXBJbmZvSAASNwoPZGV2aWNlX3NlbGVjdG9yGAYgASgLMhkuY29tbW9uLnYxLkRldmljZVNlbGVjdG9ySAGIAQFCDgoMdHlwZV9kZXRhaWxzQhIKEF9kZXZpY2Vfc2VsZWN0b3IiXAoXQ3JlYXRlRGV2aWNlU2V0UmVzcG9uc2USLAoKZGV2aWNlX3NldBgBIAEoCzIYLmRldmljZV9zZXQudjEuRGV2aWNlU2V0EhMKC2FkZGVkX2NvdW50GAIgASgFIjUKE0dldERldmljZVNldFJlcXVlc3QSHgoNZGV2aWNlX3NldF9pZBgBIAEoA0IHukgEIgIgACJEChRHZXREZXZpY2VTZXRSZXNwb25zZRIsCgpkZXZpY2Vfc2V0GAEgASgLMhguZGV2aWNlX3NldC52MS5EZXZpY2VTZXQivQIKFlVwZGF0ZURldmljZVNldFJlcXVlc3QSHgoNZGV2aWNlX3NldF9pZBgBIAEoA0IHukgEIgIgABIgCgVsYWJlbBgCIAEoCUIMukgJ2AEBcgQQARhkSAGIAQESJQoLZGVzY3JpcHRpb24YAyABKAlCC7pICNgBAXIDGPQDSAKIAQESLAoJcmFja19pbmZvGAQgASgLMhcuZGV2aWNlX3NldC52MS5SYWNrSW5mb0gAEi4KCmdyb3VwX2luZm8YBSABKAsyGC5kZXZpY2Vfc2V0LnYxLkdyb3VwSW5mb0gAEjIKD2RldmljZV9zZWxlY3RvchgGIAEoCzIZLmNvbW1vbi52MS5EZXZpY2VTZWxlY3RvckIOCgx0eXBlX2RldGFpbHNCCAoGX2xhYmVsQg4KDF9kZXNjcmlwdGlvbiJHChdVcGRhdGVEZXZpY2VTZXRSZXNwb25zZRIsCgpkZXZpY2Vfc2V0GAEgASgLMhguZGV2aWNlX3NldC52MS5EZXZpY2VTZXQiOAoWRGVsZXRlRGV2aWNlU2V0UmVxdWVzdBIeCg1kZXZpY2Vfc2V0X2lkGAEgASgDQge6SAQiAiAAIhkKF0RlbGV0ZURldmljZVNldFJlc3BvbnNlIuoBChVMaXN0RGV2aWNlU2V0c1JlcXVlc3QSNAoEdHlwZRgBIAEoDjIcLmRldmljZV9zZXQudjEuRGV2aWNlU2V0VHlwZUIIukgFggECEAESGgoJcGFnZV9zaXplGAIgASgFQge6SAQaAigAEhIKCnBhZ2VfdG9rZW4YAyABKAkSIwoEc29ydBgEIAEoCzIVLmNvbW1vbi52MS5Tb3J0Q29uZmlnEjcKFWVycm9yX2NvbXBvbmVudF90eXBlcxgFIAMoDjIYLmVycm9ycy52MS5Db21wb25lbnRUeXBlEg0KBXpvbmVzGAYgAygJInUKFkxpc3REZXZpY2VTZXRzUmVzcG9uc2USLQoLZGV2aWNlX3NldHMYASADKAsyGC5kZXZpY2Vfc2V0LnYxLkRldmljZVNldBIXCg9uZXh0X3BhZ2VfdG9rZW4YAiABKAkSEwoLdG90YWxfY291bnQYAyABKAUiegocQWRkRGV2aWNlc1RvRGV2aWNlU2V0UmVxdWVzdBIeCg1kZXZpY2Vfc2V0X2lkGAEgASgDQge6SAQiAiAAEjoKD2RldmljZV9zZWxlY3RvchgCIAEoCzIZLmNvbW1vbi52MS5EZXZpY2VTZWxlY3RvckIGukgDyAEBIksKHUFkZERldmljZXNUb0RldmljZVNldFJlc3BvbnNlEhUKDWRldmljZV9zZXRfaWQYASABKAMSEwoLYWRkZWRfY291bnQYAiABKAUifwohUmVtb3ZlRGV2aWNlc0Zyb21EZXZpY2VTZXRSZXF1ZXN0Eh4KDWRldmljZV9zZXRfaWQYASABKANCB7pIBCICIAASOgoPZGV2aWNlX3NlbGVjdG9yGAIgASgLMhkuY29tbW9uLnYxLkRldmljZVNlbGVjdG9yQga6SAPIAQEiOwoiUmVtb3ZlRGV2aWNlc0Zyb21EZXZpY2VTZXRSZXNwb25zZRIVCg1yZW1vdmVkX2NvdW50GAEgASgFIm0KG0xpc3REZXZpY2VTZXRNZW1iZXJzUmVxdWVzdBIeCg1kZXZpY2Vfc2V0X2lkGAEgASgDQge6SAQiAiAAEhoKCXBhZ2Vfc2l6ZRgCIAEoBUIHukgEGgIoABISCgpwYWdlX3Rva2VuGAMgASgJImgKHExpc3REZXZpY2VTZXRNZW1iZXJzUmVzcG9uc2USLwoHbWVtYmVycxgBIAMoCzIeLmRldmljZV9zZXQudjEuRGV2aWNlU2V0TWVtYmVyEhcKD25leHRfcGFnZV90b2tlbhgCIAEoCSJsChpHZXREZXZpY2VEZXZpY2VTZXRzUmVxdWVzdBIiChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCUIHukgEcgIQARIqCgR0eXBlGAIgASgOMhwuZGV2aWNlX3NldC52MS5EZXZpY2VTZXRUeXBlIkwKG0dldERldmljZURldmljZVNldHNSZXNwb25zZRItCgtkZXZpY2Vfc2V0cxgBIAMoCzIYLmRldmljZV9zZXQudjEuRGV2aWNlU2V0IpsBChpTZXRSYWNrU2xvdFBvc2l0aW9uUmVxdWVzdBIeCg1kZXZpY2Vfc2V0X2lkGAEgASgDQge6SAQiAiAAEiIKEWRldmljZV9pZGVudGlmaWVyGAIgASgJQge6SARyAhABEjkKCHBvc2l0aW9uGAMgASgLMh8uZGV2aWNlX3NldC52MS5SYWNrU2xvdFBvc2l0aW9uQga6SAPIAQEiWwobU2V0UmFja1Nsb3RQb3NpdGlvblJlc3BvbnNlEhUKDWRldmljZV9zZXRfaWQYASABKAMSJQoEc2xvdBgCIAEoCzIXLmRldmljZV9zZXQudjEuUmFja1Nsb3QiYgocQ2xlYXJSYWNrU2xvdFBvc2l0aW9uUmVxdWVzdBIeCg1kZXZpY2Vfc2V0X2lkGAEgASgDQge6SAQiAiAAEiIKEWRldmljZV9pZGVudGlmaWVyGAIgASgJQge6SARyAhABIh8KHUNsZWFyUmFja1Nsb3RQb3NpdGlvblJlc3BvbnNlIjUKE0dldFJhY2tTbG90c1JlcXVlc3QSHgoNZGV2aWNlX3NldF9pZBgBIAEoA0IHukgEIgIgACJYCghSYWNrU2xvdBIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRIxCghwb3NpdGlvbhgCIAEoCzIfLmRldmljZV9zZXQudjEuUmFja1Nsb3RQb3NpdGlvbiI+ChRHZXRSYWNrU2xvdHNSZXNwb25zZRImCgVzbG90cxgBIAMoCzIXLmRldmljZV9zZXQudjEuUmFja1Nsb3Qi7QQKDkRldmljZVNldFN0YXRzEhUKDWRldmljZV9zZXRfaWQYASABKAMSFAoMZGV2aWNlX2NvdW50GAIgASgFEhcKD3JlcG9ydGluZ19jb3VudBgDIAEoBRIaChJ0b3RhbF9oYXNocmF0ZV90aHMYBCABKAESGgoSYXZnX2VmZmljaWVuY3lfanRoGAUgASgBEhYKDnRvdGFsX3Bvd2VyX2t3GAYgASgBEhkKEW1pbl90ZW1wZXJhdHVyZV9jGAcgASgBEhkKEW1heF90ZW1wZXJhdHVyZV9jGAggASgBEhUKDWhhc2hpbmdfY291bnQYCSABKAUSFAoMYnJva2VuX2NvdW50GAogASgFEhUKDW9mZmxpbmVfY291bnQYCyABKAUSFgoOc2xlZXBpbmdfY291bnQYDCABKAUSIAoYaGFzaHJhdGVfcmVwb3J0aW5nX2NvdW50GA0gASgFEiIKGmVmZmljaWVuY3lfcmVwb3J0aW5nX2NvdW50GA4gASgFEh0KFXBvd2VyX3JlcG9ydGluZ19jb3VudBgPIAEoBRIjCht0ZW1wZXJhdHVyZV9yZXBvcnRpbmdfY291bnQYECABKAUSIQoZY29udHJvbF9ib2FyZF9pc3N1ZV9jb3VudBgRIAEoBRIXCg9mYW5faXNzdWVfY291bnQYEiABKAUSHgoWaGFzaF9ib2FyZF9pc3N1ZV9jb3VudBgTIAEoBRIXCg9wc3VfaXNzdWVfY291bnQYFCABKAUSNAoNc2xvdF9zdGF0dXNlcxgVIAMoCzIdLmRldmljZV9zZXQudjEuUmFja1Nsb3RTdGF0dXMiMgoYR2V0RGV2aWNlU2V0U3RhdHNSZXF1ZXN0EhYKDmRldmljZV9zZXRfaWRzGAEgAygDIkkKGUdldERldmljZVNldFN0YXRzUmVzcG9uc2USLAoFc3RhdHMYASADKAsyHS5kZXZpY2Vfc2V0LnYxLkRldmljZVNldFN0YXRzIl4KDlJhY2tTbG90U3RhdHVzEgsKA3JvdxgBIAEoBRIOCgZjb2x1bW4YAiABKAUSLwoGc3RhdHVzGAMgASgOMh8uZGV2aWNlX3NldC52MS5TbG90RGV2aWNlU3RhdHVzIhYKFExpc3RSYWNrWm9uZXNSZXF1ZXN0IiYKFUxpc3RSYWNrWm9uZXNSZXNwb25zZRINCgV6b25lcxgBIAMoCSIWChRMaXN0UmFja1R5cGVzUmVxdWVzdCI9CghSYWNrVHlwZRIMCgRyb3dzGAEgASgFEg8KB2NvbHVtbnMYAiABKAUSEgoKcmFja19jb3VudBgDIAEoBSJEChVMaXN0UmFja1R5cGVzUmVzcG9uc2USKwoKcmFja190eXBlcxgBIAMoCzIXLmRldmljZV9zZXQudjEuUmFja1R5cGUiiwIKD1NhdmVSYWNrUmVxdWVzdBImCg1kZXZpY2Vfc2V0X2lkGAEgASgDQgq6SAfYAQEiAiAASACIAQESGwoFbGFiZWwYAiABKAlCDLpICcgBAXIEEAEYZBIyCglyYWNrX2luZm8YAyABKAsyFy5kZXZpY2Vfc2V0LnYxLlJhY2tJbmZvQga6SAPIAQESOgoPZGV2aWNlX3NlbGVjdG9yGAQgASgLMhkuY29tbW9uLnYxLkRldmljZVNlbGVjdG9yQga6SAPIAQESMQoQc2xvdF9hc3NpZ25tZW50cxgFIAMoCzIXLmRldmljZV9zZXQudjEuUmFja1Nsb3RCEAoOX2RldmljZV9zZXRfaWQiWAoQU2F2ZVJhY2tSZXNwb25zZRIsCgpkZXZpY2Vfc2V0GAEgASgLMhguZGV2aWNlX3NldC52MS5EZXZpY2VTZXQSFgoOYXNzaWduZWRfY291bnQYAiABKAUqZQoNRGV2aWNlU2V0VHlwZRIfChtERVZJQ0VfU0VUX1RZUEVfVU5TUEVDSUZJRUQQABIZChVERVZJQ0VfU0VUX1RZUEVfR1JPVVAQARIYChRERVZJQ0VfU0VUX1RZUEVfUkFDSxACKrYBCg5SYWNrT3JkZXJJbmRleBIgChxSQUNLX09SREVSX0lOREVYX1VOU1BFQ0lGSUVEEAASIAocUkFDS19PUkRFUl9JTkRFWF9CT1RUT01fTEVGVBABEh0KGVJBQ0tfT1JERVJfSU5ERVhfVE9QX0xFRlQQAhIhCh1SQUNLX09SREVSX0lOREVYX0JPVFRPTV9SSUdIVBADEh4KGlJBQ0tfT1JERVJfSU5ERVhfVE9QX1JJR0hUEAQqcAoPUmFja0Nvb2xpbmdUeXBlEiEKHVJBQ0tfQ09PTElOR19UWVBFX1VOU1BFQ0lGSUVEEAASGQoVUkFDS19DT09MSU5HX1RZUEVfQUlSEAESHwobUkFDS19DT09MSU5HX1RZUEVfSU1NRVJTSU9OEAIq3QEKEFNsb3REZXZpY2VTdGF0dXMSIgoeU0xPVF9ERVZJQ0VfU1RBVFVTX1VOU1BFQ0lGSUVEEAASHAoYU0xPVF9ERVZJQ0VfU1RBVFVTX0VNUFRZEAESHgoaU0xPVF9ERVZJQ0VfU1RBVFVTX0hFQUxUSFkQAhImCiJTTE9UX0RFVklDRV9TVEFUVVNfTkVFRFNfQVRURU5USU9OEAMSHgoaU0xPVF9ERVZJQ0VfU1RBVFVTX09GRkxJTkUQBBIfChtTTE9UX0RFVklDRV9TVEFUVVNfU0xFRVBJTkcQBTLvDAoQRGV2aWNlU2V0U2VydmljZRJgCg9DcmVhdGVEZXZpY2VTZXQSJS5kZXZpY2Vfc2V0LnYxLkNyZWF0ZURldmljZVNldFJlcXVlc3QaJi5kZXZpY2Vfc2V0LnYxLkNyZWF0ZURldmljZVNldFJlc3BvbnNlElcKDEdldERldmljZVNldBIiLmRldmljZV9zZXQudjEuR2V0RGV2aWNlU2V0UmVxdWVzdBojLmRldmljZV9zZXQudjEuR2V0RGV2aWNlU2V0UmVzcG9uc2USYAoPVXBkYXRlRGV2aWNlU2V0EiUuZGV2aWNlX3NldC52MS5VcGRhdGVEZXZpY2VTZXRSZXF1ZXN0GiYuZGV2aWNlX3NldC52MS5VcGRhdGVEZXZpY2VTZXRSZXNwb25zZRJgCg9EZWxldGVEZXZpY2VTZXQSJS5kZXZpY2Vfc2V0LnYxLkRlbGV0ZURldmljZVNldFJlcXVlc3QaJi5kZXZpY2Vfc2V0LnYxLkRlbGV0ZURldmljZVNldFJlc3BvbnNlEl0KDkxpc3REZXZpY2VTZXRzEiQuZGV2aWNlX3NldC52MS5MaXN0RGV2aWNlU2V0c1JlcXVlc3QaJS5kZXZpY2Vfc2V0LnYxLkxpc3REZXZpY2VTZXRzUmVzcG9uc2UScgoVQWRkRGV2aWNlc1RvRGV2aWNlU2V0EisuZGV2aWNlX3NldC52MS5BZGREZXZpY2VzVG9EZXZpY2VTZXRSZXF1ZXN0GiwuZGV2aWNlX3NldC52MS5BZGREZXZpY2VzVG9EZXZpY2VTZXRSZXNwb25zZRKBAQoaUmVtb3ZlRGV2aWNlc0Zyb21EZXZpY2VTZXQSMC5kZXZpY2Vfc2V0LnYxLlJlbW92ZURldmljZXNGcm9tRGV2aWNlU2V0UmVxdWVzdBoxLmRldmljZV9zZXQudjEuUmVtb3ZlRGV2aWNlc0Zyb21EZXZpY2VTZXRSZXNwb25zZRJvChRMaXN0RGV2aWNlU2V0TWVtYmVycxIqLmRldmljZV9zZXQudjEuTGlzdERldmljZVNldE1lbWJlcnNSZXF1ZXN0GisuZGV2aWNlX3NldC52MS5MaXN0RGV2aWNlU2V0TWVtYmVyc1Jlc3BvbnNlEmwKE0dldERldmljZURldmljZVNldHMSKS5kZXZpY2Vfc2V0LnYxLkdldERldmljZURldmljZVNldHNSZXF1ZXN0GiouZGV2aWNlX3NldC52MS5HZXREZXZpY2VEZXZpY2VTZXRzUmVzcG9uc2USbAoTU2V0UmFja1Nsb3RQb3NpdGlvbhIpLmRldmljZV9zZXQudjEuU2V0UmFja1Nsb3RQb3NpdGlvblJlcXVlc3QaKi5kZXZpY2Vfc2V0LnYxLlNldFJhY2tTbG90UG9zaXRpb25SZXNwb25zZRJyChVDbGVhclJhY2tTbG90UG9zaXRpb24SKy5kZXZpY2Vfc2V0LnYxLkNsZWFyUmFja1Nsb3RQb3NpdGlvblJlcXVlc3QaLC5kZXZpY2Vfc2V0LnYxLkNsZWFyUmFja1Nsb3RQb3NpdGlvblJlc3BvbnNlElcKDEdldFJhY2tTbG90cxIiLmRldmljZV9zZXQudjEuR2V0UmFja1Nsb3RzUmVxdWVzdBojLmRldmljZV9zZXQudjEuR2V0UmFja1Nsb3RzUmVzcG9uc2USZgoRR2V0RGV2aWNlU2V0U3RhdHMSJy5kZXZpY2Vfc2V0LnYxLkdldERldmljZVNldFN0YXRzUmVxdWVzdBooLmRldmljZV9zZXQudjEuR2V0RGV2aWNlU2V0U3RhdHNSZXNwb25zZRJaCg1MaXN0UmFja1pvbmVzEiMuZGV2aWNlX3NldC52MS5MaXN0UmFja1pvbmVzUmVxdWVzdBokLmRldmljZV9zZXQudjEuTGlzdFJhY2tab25lc1Jlc3BvbnNlEloKDUxpc3RSYWNrVHlwZXMSIy5kZXZpY2Vfc2V0LnYxLkxpc3RSYWNrVHlwZXNSZXF1ZXN0GiQuZGV2aWNlX3NldC52MS5MaXN0UmFja1R5cGVzUmVzcG9uc2USSwoIU2F2ZVJhY2sSHi5kZXZpY2Vfc2V0LnYxLlNhdmVSYWNrUmVxdWVzdBofLmRldmljZV9zZXQudjEuU2F2ZVJhY2tSZXNwb25zZULDAQoRY29tLmRldmljZV9zZXQudjFCDkRldmljZVNldFByb3RvUAFaTWdpdGh1Yi5jb20vYmxvY2svcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL2RldmljZV9zZXQvdjE7ZGV2aWNlX3NldHYxogIDRFhYqgIMRGV2aWNlU2V0LlYxygIMRGV2aWNlU2V0XFYx4gIYRGV2aWNlU2V0XFYxXEdQQk1ldGFkYXRh6gINRGV2aWNlU2V0OjpWMWIGcHJvdG8z", [file_google_protobuf_timestamp, file_buf_validate_validate, file_common_v1_device_selector, file_common_v1_sort, file_errors_v1_errors]);
+export const file_device_set_v1_device_set: GenFile =
+  /*@__PURE__*/
+  fileDesc(
+    "Ch5kZXZpY2Vfc2V0L3YxL2RldmljZV9zZXQucHJvdG8SDWRldmljZV9zZXQudjEiywIKCURldmljZVNldBIKCgJpZBgBIAEoAxIqCgR0eXBlGAIgASgOMhwuZGV2aWNlX3NldC52MS5EZXZpY2VTZXRUeXBlEg0KBWxhYmVsGAMgASgJEhMKC2Rlc2NyaXB0aW9uGAQgASgJEhQKDGRldmljZV9jb3VudBgFIAEoBRIuCgpjcmVhdGVkX2F0GAYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgp1cGRhdGVkX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIsCglyYWNrX2luZm8YCCABKAsyFy5kZXZpY2Vfc2V0LnYxLlJhY2tJbmZvSAASLgoKZ3JvdXBfaW5mbxgJIAEoCzIYLmRldmljZV9zZXQudjEuR3JvdXBJbmZvSABCDgoMdHlwZV9kZXRhaWxzIrwBCghSYWNrSW5mbxIVCgRyb3dzGAEgASgFQge6SAQaAiAAEhgKB2NvbHVtbnMYAiABKAVCB7pIBBoCIAASFQoEem9uZRgDIAEoCUIHukgEcgIQARIyCgtvcmRlcl9pbmRleBgEIAEoDjIdLmRldmljZV9zZXQudjEuUmFja09yZGVySW5kZXgSNAoMY29vbGluZ190eXBlGAUgASgOMh4uZGV2aWNlX3NldC52MS5SYWNrQ29vbGluZ1R5cGUiCwoJR3JvdXBJbmZvIp4BCg9EZXZpY2VTZXRNZW1iZXISGQoRZGV2aWNlX2lkZW50aWZpZXIYASABKAkSLAoIYWRkZWRfYXQYAiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjAKBHJhY2sYAyABKAsyIC5kZXZpY2Vfc2V0LnYxLlJhY2tNZW1iZXJEZXRhaWxzSABCEAoObWVtYmVyX2RldGFpbHMiSwoRUmFja01lbWJlckRldGFpbHMSNgoNc2xvdF9wb3NpdGlvbhgBIAEoCzIfLmRldmljZV9zZXQudjEuUmFja1Nsb3RQb3NpdGlvbiJBChBSYWNrU2xvdFBvc2l0aW9uEhQKA3JvdxgBIAEoBUIHukgEGgIoABIXCgZjb2x1bW4YAiABKAVCB7pIBBoCKAAixwIKFkNyZWF0ZURldmljZVNldFJlcXVlc3QSNgoEdHlwZRgBIAEoDjIcLmRldmljZV9zZXQudjEuRGV2aWNlU2V0VHlwZUIKukgHggEEEAEgABIbCgVsYWJlbBgCIAEoCUIMukgJyAEBcgQQARhkEh0KC2Rlc2NyaXB0aW9uGAMgASgJQgi6SAVyAxj0AxIsCglyYWNrX2luZm8YBCABKAsyFy5kZXZpY2Vfc2V0LnYxLlJhY2tJbmZvSAASLgoKZ3JvdXBfaW5mbxgFIAEoCzIYLmRldmljZV9zZXQudjEuR3JvdXBJbmZvSAASNwoPZGV2aWNlX3NlbGVjdG9yGAYgASgLMhkuY29tbW9uLnYxLkRldmljZVNlbGVjdG9ySAGIAQFCDgoMdHlwZV9kZXRhaWxzQhIKEF9kZXZpY2Vfc2VsZWN0b3IiXAoXQ3JlYXRlRGV2aWNlU2V0UmVzcG9uc2USLAoKZGV2aWNlX3NldBgBIAEoCzIYLmRldmljZV9zZXQudjEuRGV2aWNlU2V0EhMKC2FkZGVkX2NvdW50GAIgASgFIjUKE0dldERldmljZVNldFJlcXVlc3QSHgoNZGV2aWNlX3NldF9pZBgBIAEoA0IHukgEIgIgACJEChRHZXREZXZpY2VTZXRSZXNwb25zZRIsCgpkZXZpY2Vfc2V0GAEgASgLMhguZGV2aWNlX3NldC52MS5EZXZpY2VTZXQivQIKFlVwZGF0ZURldmljZVNldFJlcXVlc3QSHgoNZGV2aWNlX3NldF9pZBgBIAEoA0IHukgEIgIgABIgCgVsYWJlbBgCIAEoCUIMukgJ2AEBcgQQARhkSAGIAQESJQoLZGVzY3JpcHRpb24YAyABKAlCC7pICNgBAXIDGPQDSAKIAQESLAoJcmFja19pbmZvGAQgASgLMhcuZGV2aWNlX3NldC52MS5SYWNrSW5mb0gAEi4KCmdyb3VwX2luZm8YBSABKAsyGC5kZXZpY2Vfc2V0LnYxLkdyb3VwSW5mb0gAEjIKD2RldmljZV9zZWxlY3RvchgGIAEoCzIZLmNvbW1vbi52MS5EZXZpY2VTZWxlY3RvckIOCgx0eXBlX2RldGFpbHNCCAoGX2xhYmVsQg4KDF9kZXNjcmlwdGlvbiJHChdVcGRhdGVEZXZpY2VTZXRSZXNwb25zZRIsCgpkZXZpY2Vfc2V0GAEgASgLMhguZGV2aWNlX3NldC52MS5EZXZpY2VTZXQiOAoWRGVsZXRlRGV2aWNlU2V0UmVxdWVzdBIeCg1kZXZpY2Vfc2V0X2lkGAEgASgDQge6SAQiAiAAIhkKF0RlbGV0ZURldmljZVNldFJlc3BvbnNlIuoBChVMaXN0RGV2aWNlU2V0c1JlcXVlc3QSNAoEdHlwZRgBIAEoDjIcLmRldmljZV9zZXQudjEuRGV2aWNlU2V0VHlwZUIIukgFggECEAESGgoJcGFnZV9zaXplGAIgASgFQge6SAQaAigAEhIKCnBhZ2VfdG9rZW4YAyABKAkSIwoEc29ydBgEIAEoCzIVLmNvbW1vbi52MS5Tb3J0Q29uZmlnEjcKFWVycm9yX2NvbXBvbmVudF90eXBlcxgFIAMoDjIYLmVycm9ycy52MS5Db21wb25lbnRUeXBlEg0KBXpvbmVzGAYgAygJInUKFkxpc3REZXZpY2VTZXRzUmVzcG9uc2USLQoLZGV2aWNlX3NldHMYASADKAsyGC5kZXZpY2Vfc2V0LnYxLkRldmljZVNldBIXCg9uZXh0X3BhZ2VfdG9rZW4YAiABKAkSEwoLdG90YWxfY291bnQYAyABKAUiegocQWRkRGV2aWNlc1RvRGV2aWNlU2V0UmVxdWVzdBIeCg1kZXZpY2Vfc2V0X2lkGAEgASgDQge6SAQiAiAAEjoKD2RldmljZV9zZWxlY3RvchgCIAEoCzIZLmNvbW1vbi52MS5EZXZpY2VTZWxlY3RvckIGukgDyAEBIksKHUFkZERldmljZXNUb0RldmljZVNldFJlc3BvbnNlEhUKDWRldmljZV9zZXRfaWQYASABKAMSEwoLYWRkZWRfY291bnQYAiABKAUifwohUmVtb3ZlRGV2aWNlc0Zyb21EZXZpY2VTZXRSZXF1ZXN0Eh4KDWRldmljZV9zZXRfaWQYASABKANCB7pIBCICIAASOgoPZGV2aWNlX3NlbGVjdG9yGAIgASgLMhkuY29tbW9uLnYxLkRldmljZVNlbGVjdG9yQga6SAPIAQEiOwoiUmVtb3ZlRGV2aWNlc0Zyb21EZXZpY2VTZXRSZXNwb25zZRIVCg1yZW1vdmVkX2NvdW50GAEgASgFIm0KG0xpc3REZXZpY2VTZXRNZW1iZXJzUmVxdWVzdBIeCg1kZXZpY2Vfc2V0X2lkGAEgASgDQge6SAQiAiAAEhoKCXBhZ2Vfc2l6ZRgCIAEoBUIHukgEGgIoABISCgpwYWdlX3Rva2VuGAMgASgJImgKHExpc3REZXZpY2VTZXRNZW1iZXJzUmVzcG9uc2USLwoHbWVtYmVycxgBIAMoCzIeLmRldmljZV9zZXQudjEuRGV2aWNlU2V0TWVtYmVyEhcKD25leHRfcGFnZV90b2tlbhgCIAEoCSJsChpHZXREZXZpY2VEZXZpY2VTZXRzUmVxdWVzdBIiChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCUIHukgEcgIQARIqCgR0eXBlGAIgASgOMhwuZGV2aWNlX3NldC52MS5EZXZpY2VTZXRUeXBlIkwKG0dldERldmljZURldmljZVNldHNSZXNwb25zZRItCgtkZXZpY2Vfc2V0cxgBIAMoCzIYLmRldmljZV9zZXQudjEuRGV2aWNlU2V0IpsBChpTZXRSYWNrU2xvdFBvc2l0aW9uUmVxdWVzdBIeCg1kZXZpY2Vfc2V0X2lkGAEgASgDQge6SAQiAiAAEiIKEWRldmljZV9pZGVudGlmaWVyGAIgASgJQge6SARyAhABEjkKCHBvc2l0aW9uGAMgASgLMh8uZGV2aWNlX3NldC52MS5SYWNrU2xvdFBvc2l0aW9uQga6SAPIAQEiWwobU2V0UmFja1Nsb3RQb3NpdGlvblJlc3BvbnNlEhUKDWRldmljZV9zZXRfaWQYASABKAMSJQoEc2xvdBgCIAEoCzIXLmRldmljZV9zZXQudjEuUmFja1Nsb3QiYgocQ2xlYXJSYWNrU2xvdFBvc2l0aW9uUmVxdWVzdBIeCg1kZXZpY2Vfc2V0X2lkGAEgASgDQge6SAQiAiAAEiIKEWRldmljZV9pZGVudGlmaWVyGAIgASgJQge6SARyAhABIh8KHUNsZWFyUmFja1Nsb3RQb3NpdGlvblJlc3BvbnNlIjUKE0dldFJhY2tTbG90c1JlcXVlc3QSHgoNZGV2aWNlX3NldF9pZBgBIAEoA0IHukgEIgIgACJYCghSYWNrU2xvdBIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRIxCghwb3NpdGlvbhgCIAEoCzIfLmRldmljZV9zZXQudjEuUmFja1Nsb3RQb3NpdGlvbiI+ChRHZXRSYWNrU2xvdHNSZXNwb25zZRImCgVzbG90cxgBIAMoCzIXLmRldmljZV9zZXQudjEuUmFja1Nsb3Qi7QQKDkRldmljZVNldFN0YXRzEhUKDWRldmljZV9zZXRfaWQYASABKAMSFAoMZGV2aWNlX2NvdW50GAIgASgFEhcKD3JlcG9ydGluZ19jb3VudBgDIAEoBRIaChJ0b3RhbF9oYXNocmF0ZV90aHMYBCABKAESGgoSYXZnX2VmZmljaWVuY3lfanRoGAUgASgBEhYKDnRvdGFsX3Bvd2VyX2t3GAYgASgBEhkKEW1pbl90ZW1wZXJhdHVyZV9jGAcgASgBEhkKEW1heF90ZW1wZXJhdHVyZV9jGAggASgBEhUKDWhhc2hpbmdfY291bnQYCSABKAUSFAoMYnJva2VuX2NvdW50GAogASgFEhUKDW9mZmxpbmVfY291bnQYCyABKAUSFgoOc2xlZXBpbmdfY291bnQYDCABKAUSIAoYaGFzaHJhdGVfcmVwb3J0aW5nX2NvdW50GA0gASgFEiIKGmVmZmljaWVuY3lfcmVwb3J0aW5nX2NvdW50GA4gASgFEh0KFXBvd2VyX3JlcG9ydGluZ19jb3VudBgPIAEoBRIjCht0ZW1wZXJhdHVyZV9yZXBvcnRpbmdfY291bnQYECABKAUSIQoZY29udHJvbF9ib2FyZF9pc3N1ZV9jb3VudBgRIAEoBRIXCg9mYW5faXNzdWVfY291bnQYEiABKAUSHgoWaGFzaF9ib2FyZF9pc3N1ZV9jb3VudBgTIAEoBRIXCg9wc3VfaXNzdWVfY291bnQYFCABKAUSNAoNc2xvdF9zdGF0dXNlcxgVIAMoCzIdLmRldmljZV9zZXQudjEuUmFja1Nsb3RTdGF0dXMiMgoYR2V0RGV2aWNlU2V0U3RhdHNSZXF1ZXN0EhYKDmRldmljZV9zZXRfaWRzGAEgAygDIkkKGUdldERldmljZVNldFN0YXRzUmVzcG9uc2USLAoFc3RhdHMYASADKAsyHS5kZXZpY2Vfc2V0LnYxLkRldmljZVNldFN0YXRzIl4KDlJhY2tTbG90U3RhdHVzEgsKA3JvdxgBIAEoBRIOCgZjb2x1bW4YAiABKAUSLwoGc3RhdHVzGAMgASgOMh8uZGV2aWNlX3NldC52MS5TbG90RGV2aWNlU3RhdHVzIhYKFExpc3RSYWNrWm9uZXNSZXF1ZXN0IiYKFUxpc3RSYWNrWm9uZXNSZXNwb25zZRINCgV6b25lcxgBIAMoCSIWChRMaXN0UmFja1R5cGVzUmVxdWVzdCI9CghSYWNrVHlwZRIMCgRyb3dzGAEgASgFEg8KB2NvbHVtbnMYAiABKAUSEgoKcmFja19jb3VudBgDIAEoBSJEChVMaXN0UmFja1R5cGVzUmVzcG9uc2USKwoKcmFja190eXBlcxgBIAMoCzIXLmRldmljZV9zZXQudjEuUmFja1R5cGUiiwIKD1NhdmVSYWNrUmVxdWVzdBImCg1kZXZpY2Vfc2V0X2lkGAEgASgDQgq6SAfYAQEiAiAASACIAQESGwoFbGFiZWwYAiABKAlCDLpICcgBAXIEEAEYZBIyCglyYWNrX2luZm8YAyABKAsyFy5kZXZpY2Vfc2V0LnYxLlJhY2tJbmZvQga6SAPIAQESOgoPZGV2aWNlX3NlbGVjdG9yGAQgASgLMhkuY29tbW9uLnYxLkRldmljZVNlbGVjdG9yQga6SAPIAQESMQoQc2xvdF9hc3NpZ25tZW50cxgFIAMoCzIXLmRldmljZV9zZXQudjEuUmFja1Nsb3RCEAoOX2RldmljZV9zZXRfaWQiWAoQU2F2ZVJhY2tSZXNwb25zZRIsCgpkZXZpY2Vfc2V0GAEgASgLMhguZGV2aWNlX3NldC52MS5EZXZpY2VTZXQSFgoOYXNzaWduZWRfY291bnQYAiABKAUqZQoNRGV2aWNlU2V0VHlwZRIfChtERVZJQ0VfU0VUX1RZUEVfVU5TUEVDSUZJRUQQABIZChVERVZJQ0VfU0VUX1RZUEVfR1JPVVAQARIYChRERVZJQ0VfU0VUX1RZUEVfUkFDSxACKrYBCg5SYWNrT3JkZXJJbmRleBIgChxSQUNLX09SREVSX0lOREVYX1VOU1BFQ0lGSUVEEAASIAocUkFDS19PUkRFUl9JTkRFWF9CT1RUT01fTEVGVBABEh0KGVJBQ0tfT1JERVJfSU5ERVhfVE9QX0xFRlQQAhIhCh1SQUNLX09SREVSX0lOREVYX0JPVFRPTV9SSUdIVBADEh4KGlJBQ0tfT1JERVJfSU5ERVhfVE9QX1JJR0hUEAQqcAoPUmFja0Nvb2xpbmdUeXBlEiEKHVJBQ0tfQ09PTElOR19UWVBFX1VOU1BFQ0lGSUVEEAASGQoVUkFDS19DT09MSU5HX1RZUEVfQUlSEAESHwobUkFDS19DT09MSU5HX1RZUEVfSU1NRVJTSU9OEAIq3QEKEFNsb3REZXZpY2VTdGF0dXMSIgoeU0xPVF9ERVZJQ0VfU1RBVFVTX1VOU1BFQ0lGSUVEEAASHAoYU0xPVF9ERVZJQ0VfU1RBVFVTX0VNUFRZEAESHgoaU0xPVF9ERVZJQ0VfU1RBVFVTX0hFQUxUSFkQAhImCiJTTE9UX0RFVklDRV9TVEFUVVNfTkVFRFNfQVRURU5USU9OEAMSHgoaU0xPVF9ERVZJQ0VfU1RBVFVTX09GRkxJTkUQBBIfChtTTE9UX0RFVklDRV9TVEFUVVNfU0xFRVBJTkcQBTLvDAoQRGV2aWNlU2V0U2VydmljZRJgCg9DcmVhdGVEZXZpY2VTZXQSJS5kZXZpY2Vfc2V0LnYxLkNyZWF0ZURldmljZVNldFJlcXVlc3QaJi5kZXZpY2Vfc2V0LnYxLkNyZWF0ZURldmljZVNldFJlc3BvbnNlElcKDEdldERldmljZVNldBIiLmRldmljZV9zZXQudjEuR2V0RGV2aWNlU2V0UmVxdWVzdBojLmRldmljZV9zZXQudjEuR2V0RGV2aWNlU2V0UmVzcG9uc2USYAoPVXBkYXRlRGV2aWNlU2V0EiUuZGV2aWNlX3NldC52MS5VcGRhdGVEZXZpY2VTZXRSZXF1ZXN0GiYuZGV2aWNlX3NldC52MS5VcGRhdGVEZXZpY2VTZXRSZXNwb25zZRJgCg9EZWxldGVEZXZpY2VTZXQSJS5kZXZpY2Vfc2V0LnYxLkRlbGV0ZURldmljZVNldFJlcXVlc3QaJi5kZXZpY2Vfc2V0LnYxLkRlbGV0ZURldmljZVNldFJlc3BvbnNlEl0KDkxpc3REZXZpY2VTZXRzEiQuZGV2aWNlX3NldC52MS5MaXN0RGV2aWNlU2V0c1JlcXVlc3QaJS5kZXZpY2Vfc2V0LnYxLkxpc3REZXZpY2VTZXRzUmVzcG9uc2UScgoVQWRkRGV2aWNlc1RvRGV2aWNlU2V0EisuZGV2aWNlX3NldC52MS5BZGREZXZpY2VzVG9EZXZpY2VTZXRSZXF1ZXN0GiwuZGV2aWNlX3NldC52MS5BZGREZXZpY2VzVG9EZXZpY2VTZXRSZXNwb25zZRKBAQoaUmVtb3ZlRGV2aWNlc0Zyb21EZXZpY2VTZXQSMC5kZXZpY2Vfc2V0LnYxLlJlbW92ZURldmljZXNGcm9tRGV2aWNlU2V0UmVxdWVzdBoxLmRldmljZV9zZXQudjEuUmVtb3ZlRGV2aWNlc0Zyb21EZXZpY2VTZXRSZXNwb25zZRJvChRMaXN0RGV2aWNlU2V0TWVtYmVycxIqLmRldmljZV9zZXQudjEuTGlzdERldmljZVNldE1lbWJlcnNSZXF1ZXN0GisuZGV2aWNlX3NldC52MS5MaXN0RGV2aWNlU2V0TWVtYmVyc1Jlc3BvbnNlEmwKE0dldERldmljZURldmljZVNldHMSKS5kZXZpY2Vfc2V0LnYxLkdldERldmljZURldmljZVNldHNSZXF1ZXN0GiouZGV2aWNlX3NldC52MS5HZXREZXZpY2VEZXZpY2VTZXRzUmVzcG9uc2USbAoTU2V0UmFja1Nsb3RQb3NpdGlvbhIpLmRldmljZV9zZXQudjEuU2V0UmFja1Nsb3RQb3NpdGlvblJlcXVlc3QaKi5kZXZpY2Vfc2V0LnYxLlNldFJhY2tTbG90UG9zaXRpb25SZXNwb25zZRJyChVDbGVhclJhY2tTbG90UG9zaXRpb24SKy5kZXZpY2Vfc2V0LnYxLkNsZWFyUmFja1Nsb3RQb3NpdGlvblJlcXVlc3QaLC5kZXZpY2Vfc2V0LnYxLkNsZWFyUmFja1Nsb3RQb3NpdGlvblJlc3BvbnNlElcKDEdldFJhY2tTbG90cxIiLmRldmljZV9zZXQudjEuR2V0UmFja1Nsb3RzUmVxdWVzdBojLmRldmljZV9zZXQudjEuR2V0UmFja1Nsb3RzUmVzcG9uc2USZgoRR2V0RGV2aWNlU2V0U3RhdHMSJy5kZXZpY2Vfc2V0LnYxLkdldERldmljZVNldFN0YXRzUmVxdWVzdBooLmRldmljZV9zZXQudjEuR2V0RGV2aWNlU2V0U3RhdHNSZXNwb25zZRJaCg1MaXN0UmFja1pvbmVzEiMuZGV2aWNlX3NldC52MS5MaXN0UmFja1pvbmVzUmVxdWVzdBokLmRldmljZV9zZXQudjEuTGlzdFJhY2tab25lc1Jlc3BvbnNlEloKDUxpc3RSYWNrVHlwZXMSIy5kZXZpY2Vfc2V0LnYxLkxpc3RSYWNrVHlwZXNSZXF1ZXN0GiQuZGV2aWNlX3NldC52MS5MaXN0UmFja1R5cGVzUmVzcG9uc2USSwoIU2F2ZVJhY2sSHi5kZXZpY2Vfc2V0LnYxLlNhdmVSYWNrUmVxdWVzdBofLmRldmljZV9zZXQudjEuU2F2ZVJhY2tSZXNwb25zZULDAQoRY29tLmRldmljZV9zZXQudjFCDkRldmljZVNldFByb3RvUAFaTWdpdGh1Yi5jb20vYmxvY2svcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL2RldmljZV9zZXQvdjE7ZGV2aWNlX3NldHYxogIDRFhYqgIMRGV2aWNlU2V0LlYxygIMRGV2aWNlU2V0XFYx4gIYRGV2aWNlU2V0XFYxXEdQQk1ldGFkYXRh6gINRGV2aWNlU2V0OjpWMWIGcHJvdG8z",
+    [
+      file_google_protobuf_timestamp,
+      file_buf_validate_validate,
+      file_common_v1_device_selector,
+      file_common_v1_sort,
+      file_errors_v1_errors,
+    ],
+  );
 
 /**
  * DeviceSet represents a group or rack of devices
@@ -81,27 +91,29 @@ export type DeviceSet = Message<"device_set.v1.DeviceSet"> & {
    *
    * @generated from oneof device_set.v1.DeviceSet.type_details
    */
-  typeDetails: {
-    /**
-     * @generated from field: device_set.v1.RackInfo rack_info = 8;
-     */
-    value: RackInfo;
-    case: "rackInfo";
-  } | {
-    /**
-     * @generated from field: device_set.v1.GroupInfo group_info = 9;
-     */
-    value: GroupInfo;
-    case: "groupInfo";
-  } | { case: undefined; value?: undefined };
+  typeDetails:
+    | {
+        /**
+         * @generated from field: device_set.v1.RackInfo rack_info = 8;
+         */
+        value: RackInfo;
+        case: "rackInfo";
+      }
+    | {
+        /**
+         * @generated from field: device_set.v1.GroupInfo group_info = 9;
+         */
+        value: GroupInfo;
+        case: "groupInfo";
+      }
+    | { case: undefined; value?: undefined };
 };
 
 /**
  * Describes the message device_set.v1.DeviceSet.
  * Use `create(DeviceSetSchema)` to create a new message.
  */
-export const DeviceSetSchema: GenMessage<DeviceSet> = /*@__PURE__*/
-  messageDesc(file_device_set_v1_device_set, 0);
+export const DeviceSetSchema: GenMessage<DeviceSet> = /*@__PURE__*/ messageDesc(file_device_set_v1_device_set, 0);
 
 /**
  * Rack-specific metadata for rack-type device sets
@@ -149,8 +161,7 @@ export type RackInfo = Message<"device_set.v1.RackInfo"> & {
  * Describes the message device_set.v1.RackInfo.
  * Use `create(RackInfoSchema)` to create a new message.
  */
-export const RackInfoSchema: GenMessage<RackInfo> = /*@__PURE__*/
-  messageDesc(file_device_set_v1_device_set, 1);
+export const RackInfoSchema: GenMessage<RackInfo> = /*@__PURE__*/ messageDesc(file_device_set_v1_device_set, 1);
 
 /**
  * Group-specific metadata for group-type device sets
@@ -158,15 +169,13 @@ export const RackInfoSchema: GenMessage<RackInfo> = /*@__PURE__*/
  *
  * @generated from message device_set.v1.GroupInfo
  */
-export type GroupInfo = Message<"device_set.v1.GroupInfo"> & {
-};
+export type GroupInfo = Message<"device_set.v1.GroupInfo"> & {};
 
 /**
  * Describes the message device_set.v1.GroupInfo.
  * Use `create(GroupInfoSchema)` to create a new message.
  */
-export const GroupInfoSchema: GenMessage<GroupInfo> = /*@__PURE__*/
-  messageDesc(file_device_set_v1_device_set, 2);
+export const GroupInfoSchema: GenMessage<GroupInfo> = /*@__PURE__*/ messageDesc(file_device_set_v1_device_set, 2);
 
 /**
  * DeviceSetMember represents a device in a device set
@@ -193,20 +202,23 @@ export type DeviceSetMember = Message<"device_set.v1.DeviceSetMember"> & {
    *
    * @generated from oneof device_set.v1.DeviceSetMember.member_details
    */
-  memberDetails: {
-    /**
-     * @generated from field: device_set.v1.RackMemberDetails rack = 3;
-     */
-    value: RackMemberDetails;
-    case: "rack";
-  } | { case: undefined; value?: undefined };
+  memberDetails:
+    | {
+        /**
+         * @generated from field: device_set.v1.RackMemberDetails rack = 3;
+         */
+        value: RackMemberDetails;
+        case: "rack";
+      }
+    | { case: undefined; value?: undefined };
 };
 
 /**
  * Describes the message device_set.v1.DeviceSetMember.
  * Use `create(DeviceSetMemberSchema)` to create a new message.
  */
-export const DeviceSetMemberSchema: GenMessage<DeviceSetMember> = /*@__PURE__*/
+export const DeviceSetMemberSchema: GenMessage<DeviceSetMember> =
+  /*@__PURE__*/
   messageDesc(file_device_set_v1_device_set, 3);
 
 /**
@@ -227,7 +239,8 @@ export type RackMemberDetails = Message<"device_set.v1.RackMemberDetails"> & {
  * Describes the message device_set.v1.RackMemberDetails.
  * Use `create(RackMemberDetailsSchema)` to create a new message.
  */
-export const RackMemberDetailsSchema: GenMessage<RackMemberDetails> = /*@__PURE__*/
+export const RackMemberDetailsSchema: GenMessage<RackMemberDetails> =
+  /*@__PURE__*/
   messageDesc(file_device_set_v1_device_set, 4);
 
 /**
@@ -255,7 +268,8 @@ export type RackSlotPosition = Message<"device_set.v1.RackSlotPosition"> & {
  * Describes the message device_set.v1.RackSlotPosition.
  * Use `create(RackSlotPositionSchema)` to create a new message.
  */
-export const RackSlotPositionSchema: GenMessage<RackSlotPosition> = /*@__PURE__*/
+export const RackSlotPositionSchema: GenMessage<RackSlotPosition> =
+  /*@__PURE__*/
   messageDesc(file_device_set_v1_device_set, 5);
 
 /**
@@ -290,19 +304,22 @@ export type CreateDeviceSetRequest = Message<"device_set.v1.CreateDeviceSetReque
    *
    * @generated from oneof device_set.v1.CreateDeviceSetRequest.type_details
    */
-  typeDetails: {
-    /**
-     * @generated from field: device_set.v1.RackInfo rack_info = 4;
-     */
-    value: RackInfo;
-    case: "rackInfo";
-  } | {
-    /**
-     * @generated from field: device_set.v1.GroupInfo group_info = 5;
-     */
-    value: GroupInfo;
-    case: "groupInfo";
-  } | { case: undefined; value?: undefined };
+  typeDetails:
+    | {
+        /**
+         * @generated from field: device_set.v1.RackInfo rack_info = 4;
+         */
+        value: RackInfo;
+        case: "rackInfo";
+      }
+    | {
+        /**
+         * @generated from field: device_set.v1.GroupInfo group_info = 5;
+         */
+        value: GroupInfo;
+        case: "groupInfo";
+      }
+    | { case: undefined; value?: undefined };
 
   /**
    * Optional: devices to add atomically when creating the device set.
@@ -317,7 +334,8 @@ export type CreateDeviceSetRequest = Message<"device_set.v1.CreateDeviceSetReque
  * Describes the message device_set.v1.CreateDeviceSetRequest.
  * Use `create(CreateDeviceSetRequestSchema)` to create a new message.
  */
-export const CreateDeviceSetRequestSchema: GenMessage<CreateDeviceSetRequest> = /*@__PURE__*/
+export const CreateDeviceSetRequestSchema: GenMessage<CreateDeviceSetRequest> =
+  /*@__PURE__*/
   messageDesc(file_device_set_v1_device_set, 6);
 
 /**
@@ -345,7 +363,8 @@ export type CreateDeviceSetResponse = Message<"device_set.v1.CreateDeviceSetResp
  * Describes the message device_set.v1.CreateDeviceSetResponse.
  * Use `create(CreateDeviceSetResponseSchema)` to create a new message.
  */
-export const CreateDeviceSetResponseSchema: GenMessage<CreateDeviceSetResponse> = /*@__PURE__*/
+export const CreateDeviceSetResponseSchema: GenMessage<CreateDeviceSetResponse> =
+  /*@__PURE__*/
   messageDesc(file_device_set_v1_device_set, 7);
 
 /**
@@ -366,7 +385,8 @@ export type GetDeviceSetRequest = Message<"device_set.v1.GetDeviceSetRequest"> &
  * Describes the message device_set.v1.GetDeviceSetRequest.
  * Use `create(GetDeviceSetRequestSchema)` to create a new message.
  */
-export const GetDeviceSetRequestSchema: GenMessage<GetDeviceSetRequest> = /*@__PURE__*/
+export const GetDeviceSetRequestSchema: GenMessage<GetDeviceSetRequest> =
+  /*@__PURE__*/
   messageDesc(file_device_set_v1_device_set, 8);
 
 /**
@@ -387,7 +407,8 @@ export type GetDeviceSetResponse = Message<"device_set.v1.GetDeviceSetResponse">
  * Describes the message device_set.v1.GetDeviceSetResponse.
  * Use `create(GetDeviceSetResponseSchema)` to create a new message.
  */
-export const GetDeviceSetResponseSchema: GenMessage<GetDeviceSetResponse> = /*@__PURE__*/
+export const GetDeviceSetResponseSchema: GenMessage<GetDeviceSetResponse> =
+  /*@__PURE__*/
   messageDesc(file_device_set_v1_device_set, 9);
 
 /**
@@ -423,19 +444,22 @@ export type UpdateDeviceSetRequest = Message<"device_set.v1.UpdateDeviceSetReque
    *
    * @generated from oneof device_set.v1.UpdateDeviceSetRequest.type_details
    */
-  typeDetails: {
-    /**
-     * @generated from field: device_set.v1.RackInfo rack_info = 4;
-     */
-    value: RackInfo;
-    case: "rackInfo";
-  } | {
-    /**
-     * @generated from field: device_set.v1.GroupInfo group_info = 5;
-     */
-    value: GroupInfo;
-    case: "groupInfo";
-  } | { case: undefined; value?: undefined };
+  typeDetails:
+    | {
+        /**
+         * @generated from field: device_set.v1.RackInfo rack_info = 4;
+         */
+        value: RackInfo;
+        case: "rackInfo";
+      }
+    | {
+        /**
+         * @generated from field: device_set.v1.GroupInfo group_info = 5;
+         */
+        value: GroupInfo;
+        case: "groupInfo";
+      }
+    | { case: undefined; value?: undefined };
 
   /**
    * Optional: atomically replace all device set members with the selected devices.
@@ -449,7 +473,8 @@ export type UpdateDeviceSetRequest = Message<"device_set.v1.UpdateDeviceSetReque
  * Describes the message device_set.v1.UpdateDeviceSetRequest.
  * Use `create(UpdateDeviceSetRequestSchema)` to create a new message.
  */
-export const UpdateDeviceSetRequestSchema: GenMessage<UpdateDeviceSetRequest> = /*@__PURE__*/
+export const UpdateDeviceSetRequestSchema: GenMessage<UpdateDeviceSetRequest> =
+  /*@__PURE__*/
   messageDesc(file_device_set_v1_device_set, 10);
 
 /**
@@ -470,7 +495,8 @@ export type UpdateDeviceSetResponse = Message<"device_set.v1.UpdateDeviceSetResp
  * Describes the message device_set.v1.UpdateDeviceSetResponse.
  * Use `create(UpdateDeviceSetResponseSchema)` to create a new message.
  */
-export const UpdateDeviceSetResponseSchema: GenMessage<UpdateDeviceSetResponse> = /*@__PURE__*/
+export const UpdateDeviceSetResponseSchema: GenMessage<UpdateDeviceSetResponse> =
+  /*@__PURE__*/
   messageDesc(file_device_set_v1_device_set, 11);
 
 /**
@@ -491,7 +517,8 @@ export type DeleteDeviceSetRequest = Message<"device_set.v1.DeleteDeviceSetReque
  * Describes the message device_set.v1.DeleteDeviceSetRequest.
  * Use `create(DeleteDeviceSetRequestSchema)` to create a new message.
  */
-export const DeleteDeviceSetRequestSchema: GenMessage<DeleteDeviceSetRequest> = /*@__PURE__*/
+export const DeleteDeviceSetRequestSchema: GenMessage<DeleteDeviceSetRequest> =
+  /*@__PURE__*/
   messageDesc(file_device_set_v1_device_set, 12);
 
 /**
@@ -501,14 +528,14 @@ export const DeleteDeviceSetRequestSchema: GenMessage<DeleteDeviceSetRequest> = 
  *
  * @generated from message device_set.v1.DeleteDeviceSetResponse
  */
-export type DeleteDeviceSetResponse = Message<"device_set.v1.DeleteDeviceSetResponse"> & {
-};
+export type DeleteDeviceSetResponse = Message<"device_set.v1.DeleteDeviceSetResponse"> & {};
 
 /**
  * Describes the message device_set.v1.DeleteDeviceSetResponse.
  * Use `create(DeleteDeviceSetResponseSchema)` to create a new message.
  */
-export const DeleteDeviceSetResponseSchema: GenMessage<DeleteDeviceSetResponse> = /*@__PURE__*/
+export const DeleteDeviceSetResponseSchema: GenMessage<DeleteDeviceSetResponse> =
+  /*@__PURE__*/
   messageDesc(file_device_set_v1_device_set, 13);
 
 /**
@@ -568,7 +595,8 @@ export type ListDeviceSetsRequest = Message<"device_set.v1.ListDeviceSetsRequest
  * Describes the message device_set.v1.ListDeviceSetsRequest.
  * Use `create(ListDeviceSetsRequestSchema)` to create a new message.
  */
-export const ListDeviceSetsRequestSchema: GenMessage<ListDeviceSetsRequest> = /*@__PURE__*/
+export const ListDeviceSetsRequestSchema: GenMessage<ListDeviceSetsRequest> =
+  /*@__PURE__*/
   messageDesc(file_device_set_v1_device_set, 14);
 
 /**
@@ -603,7 +631,8 @@ export type ListDeviceSetsResponse = Message<"device_set.v1.ListDeviceSetsRespon
  * Describes the message device_set.v1.ListDeviceSetsResponse.
  * Use `create(ListDeviceSetsResponseSchema)` to create a new message.
  */
-export const ListDeviceSetsResponseSchema: GenMessage<ListDeviceSetsResponse> = /*@__PURE__*/
+export const ListDeviceSetsResponseSchema: GenMessage<ListDeviceSetsResponse> =
+  /*@__PURE__*/
   messageDesc(file_device_set_v1_device_set, 15);
 
 /**
@@ -631,7 +660,8 @@ export type AddDevicesToDeviceSetRequest = Message<"device_set.v1.AddDevicesToDe
  * Describes the message device_set.v1.AddDevicesToDeviceSetRequest.
  * Use `create(AddDevicesToDeviceSetRequestSchema)` to create a new message.
  */
-export const AddDevicesToDeviceSetRequestSchema: GenMessage<AddDevicesToDeviceSetRequest> = /*@__PURE__*/
+export const AddDevicesToDeviceSetRequestSchema: GenMessage<AddDevicesToDeviceSetRequest> =
+  /*@__PURE__*/
   messageDesc(file_device_set_v1_device_set, 16);
 
 /**
@@ -660,7 +690,8 @@ export type AddDevicesToDeviceSetResponse = Message<"device_set.v1.AddDevicesToD
  * Describes the message device_set.v1.AddDevicesToDeviceSetResponse.
  * Use `create(AddDevicesToDeviceSetResponseSchema)` to create a new message.
  */
-export const AddDevicesToDeviceSetResponseSchema: GenMessage<AddDevicesToDeviceSetResponse> = /*@__PURE__*/
+export const AddDevicesToDeviceSetResponseSchema: GenMessage<AddDevicesToDeviceSetResponse> =
+  /*@__PURE__*/
   messageDesc(file_device_set_v1_device_set, 17);
 
 /**
@@ -688,7 +719,8 @@ export type RemoveDevicesFromDeviceSetRequest = Message<"device_set.v1.RemoveDev
  * Describes the message device_set.v1.RemoveDevicesFromDeviceSetRequest.
  * Use `create(RemoveDevicesFromDeviceSetRequestSchema)` to create a new message.
  */
-export const RemoveDevicesFromDeviceSetRequestSchema: GenMessage<RemoveDevicesFromDeviceSetRequest> = /*@__PURE__*/
+export const RemoveDevicesFromDeviceSetRequestSchema: GenMessage<RemoveDevicesFromDeviceSetRequest> =
+  /*@__PURE__*/
   messageDesc(file_device_set_v1_device_set, 18);
 
 /**
@@ -709,7 +741,8 @@ export type RemoveDevicesFromDeviceSetResponse = Message<"device_set.v1.RemoveDe
  * Describes the message device_set.v1.RemoveDevicesFromDeviceSetResponse.
  * Use `create(RemoveDevicesFromDeviceSetResponseSchema)` to create a new message.
  */
-export const RemoveDevicesFromDeviceSetResponseSchema: GenMessage<RemoveDevicesFromDeviceSetResponse> = /*@__PURE__*/
+export const RemoveDevicesFromDeviceSetResponseSchema: GenMessage<RemoveDevicesFromDeviceSetResponse> =
+  /*@__PURE__*/
   messageDesc(file_device_set_v1_device_set, 19);
 
 /**
@@ -744,7 +777,8 @@ export type ListDeviceSetMembersRequest = Message<"device_set.v1.ListDeviceSetMe
  * Describes the message device_set.v1.ListDeviceSetMembersRequest.
  * Use `create(ListDeviceSetMembersRequestSchema)` to create a new message.
  */
-export const ListDeviceSetMembersRequestSchema: GenMessage<ListDeviceSetMembersRequest> = /*@__PURE__*/
+export const ListDeviceSetMembersRequestSchema: GenMessage<ListDeviceSetMembersRequest> =
+  /*@__PURE__*/
   messageDesc(file_device_set_v1_device_set, 20);
 
 /**
@@ -772,7 +806,8 @@ export type ListDeviceSetMembersResponse = Message<"device_set.v1.ListDeviceSetM
  * Describes the message device_set.v1.ListDeviceSetMembersResponse.
  * Use `create(ListDeviceSetMembersResponseSchema)` to create a new message.
  */
-export const ListDeviceSetMembersResponseSchema: GenMessage<ListDeviceSetMembersResponse> = /*@__PURE__*/
+export const ListDeviceSetMembersResponseSchema: GenMessage<ListDeviceSetMembersResponse> =
+  /*@__PURE__*/
   messageDesc(file_device_set_v1_device_set, 21);
 
 /**
@@ -800,7 +835,8 @@ export type GetDeviceDeviceSetsRequest = Message<"device_set.v1.GetDeviceDeviceS
  * Describes the message device_set.v1.GetDeviceDeviceSetsRequest.
  * Use `create(GetDeviceDeviceSetsRequestSchema)` to create a new message.
  */
-export const GetDeviceDeviceSetsRequestSchema: GenMessage<GetDeviceDeviceSetsRequest> = /*@__PURE__*/
+export const GetDeviceDeviceSetsRequestSchema: GenMessage<GetDeviceDeviceSetsRequest> =
+  /*@__PURE__*/
   messageDesc(file_device_set_v1_device_set, 22);
 
 /**
@@ -821,7 +857,8 @@ export type GetDeviceDeviceSetsResponse = Message<"device_set.v1.GetDeviceDevice
  * Describes the message device_set.v1.GetDeviceDeviceSetsResponse.
  * Use `create(GetDeviceDeviceSetsResponseSchema)` to create a new message.
  */
-export const GetDeviceDeviceSetsResponseSchema: GenMessage<GetDeviceDeviceSetsResponse> = /*@__PURE__*/
+export const GetDeviceDeviceSetsResponseSchema: GenMessage<GetDeviceDeviceSetsResponse> =
+  /*@__PURE__*/
   messageDesc(file_device_set_v1_device_set, 23);
 
 /**
@@ -856,7 +893,8 @@ export type SetRackSlotPositionRequest = Message<"device_set.v1.SetRackSlotPosit
  * Describes the message device_set.v1.SetRackSlotPositionRequest.
  * Use `create(SetRackSlotPositionRequestSchema)` to create a new message.
  */
-export const SetRackSlotPositionRequestSchema: GenMessage<SetRackSlotPositionRequest> = /*@__PURE__*/
+export const SetRackSlotPositionRequestSchema: GenMessage<SetRackSlotPositionRequest> =
+  /*@__PURE__*/
   messageDesc(file_device_set_v1_device_set, 24);
 
 /**
@@ -884,7 +922,8 @@ export type SetRackSlotPositionResponse = Message<"device_set.v1.SetRackSlotPosi
  * Describes the message device_set.v1.SetRackSlotPositionResponse.
  * Use `create(SetRackSlotPositionResponseSchema)` to create a new message.
  */
-export const SetRackSlotPositionResponseSchema: GenMessage<SetRackSlotPositionResponse> = /*@__PURE__*/
+export const SetRackSlotPositionResponseSchema: GenMessage<SetRackSlotPositionResponse> =
+  /*@__PURE__*/
   messageDesc(file_device_set_v1_device_set, 25);
 
 /**
@@ -912,7 +951,8 @@ export type ClearRackSlotPositionRequest = Message<"device_set.v1.ClearRackSlotP
  * Describes the message device_set.v1.ClearRackSlotPositionRequest.
  * Use `create(ClearRackSlotPositionRequestSchema)` to create a new message.
  */
-export const ClearRackSlotPositionRequestSchema: GenMessage<ClearRackSlotPositionRequest> = /*@__PURE__*/
+export const ClearRackSlotPositionRequestSchema: GenMessage<ClearRackSlotPositionRequest> =
+  /*@__PURE__*/
   messageDesc(file_device_set_v1_device_set, 26);
 
 /**
@@ -920,14 +960,14 @@ export const ClearRackSlotPositionRequestSchema: GenMessage<ClearRackSlotPositio
  *
  * @generated from message device_set.v1.ClearRackSlotPositionResponse
  */
-export type ClearRackSlotPositionResponse = Message<"device_set.v1.ClearRackSlotPositionResponse"> & {
-};
+export type ClearRackSlotPositionResponse = Message<"device_set.v1.ClearRackSlotPositionResponse"> & {};
 
 /**
  * Describes the message device_set.v1.ClearRackSlotPositionResponse.
  * Use `create(ClearRackSlotPositionResponseSchema)` to create a new message.
  */
-export const ClearRackSlotPositionResponseSchema: GenMessage<ClearRackSlotPositionResponse> = /*@__PURE__*/
+export const ClearRackSlotPositionResponseSchema: GenMessage<ClearRackSlotPositionResponse> =
+  /*@__PURE__*/
   messageDesc(file_device_set_v1_device_set, 27);
 
 /**
@@ -948,7 +988,8 @@ export type GetRackSlotsRequest = Message<"device_set.v1.GetRackSlotsRequest"> &
  * Describes the message device_set.v1.GetRackSlotsRequest.
  * Use `create(GetRackSlotsRequestSchema)` to create a new message.
  */
-export const GetRackSlotsRequestSchema: GenMessage<GetRackSlotsRequest> = /*@__PURE__*/
+export const GetRackSlotsRequestSchema: GenMessage<GetRackSlotsRequest> =
+  /*@__PURE__*/
   messageDesc(file_device_set_v1_device_set, 28);
 
 /**
@@ -976,8 +1017,7 @@ export type RackSlot = Message<"device_set.v1.RackSlot"> & {
  * Describes the message device_set.v1.RackSlot.
  * Use `create(RackSlotSchema)` to create a new message.
  */
-export const RackSlotSchema: GenMessage<RackSlot> = /*@__PURE__*/
-  messageDesc(file_device_set_v1_device_set, 29);
+export const RackSlotSchema: GenMessage<RackSlot> = /*@__PURE__*/ messageDesc(file_device_set_v1_device_set, 29);
 
 /**
  * Response containing all occupied rack slots
@@ -997,7 +1037,8 @@ export type GetRackSlotsResponse = Message<"device_set.v1.GetRackSlotsResponse">
  * Describes the message device_set.v1.GetRackSlotsResponse.
  * Use `create(GetRackSlotsResponseSchema)` to create a new message.
  */
-export const GetRackSlotsResponseSchema: GenMessage<GetRackSlotsResponse> = /*@__PURE__*/
+export const GetRackSlotsResponseSchema: GenMessage<GetRackSlotsResponse> =
+  /*@__PURE__*/
   messageDesc(file_device_set_v1_device_set, 30);
 
 /**
@@ -1141,7 +1182,8 @@ export type DeviceSetStats = Message<"device_set.v1.DeviceSetStats"> & {
  * Describes the message device_set.v1.DeviceSetStats.
  * Use `create(DeviceSetStatsSchema)` to create a new message.
  */
-export const DeviceSetStatsSchema: GenMessage<DeviceSetStats> = /*@__PURE__*/
+export const DeviceSetStatsSchema: GenMessage<DeviceSetStats> =
+  /*@__PURE__*/
   messageDesc(file_device_set_v1_device_set, 31);
 
 /**
@@ -1162,7 +1204,8 @@ export type GetDeviceSetStatsRequest = Message<"device_set.v1.GetDeviceSetStatsR
  * Describes the message device_set.v1.GetDeviceSetStatsRequest.
  * Use `create(GetDeviceSetStatsRequestSchema)` to create a new message.
  */
-export const GetDeviceSetStatsRequestSchema: GenMessage<GetDeviceSetStatsRequest> = /*@__PURE__*/
+export const GetDeviceSetStatsRequestSchema: GenMessage<GetDeviceSetStatsRequest> =
+  /*@__PURE__*/
   messageDesc(file_device_set_v1_device_set, 32);
 
 /**
@@ -1183,7 +1226,8 @@ export type GetDeviceSetStatsResponse = Message<"device_set.v1.GetDeviceSetStats
  * Describes the message device_set.v1.GetDeviceSetStatsResponse.
  * Use `create(GetDeviceSetStatsResponseSchema)` to create a new message.
  */
-export const GetDeviceSetStatsResponseSchema: GenMessage<GetDeviceSetStatsResponse> = /*@__PURE__*/
+export const GetDeviceSetStatsResponseSchema: GenMessage<GetDeviceSetStatsResponse> =
+  /*@__PURE__*/
   messageDesc(file_device_set_v1_device_set, 33);
 
 /**
@@ -1218,7 +1262,8 @@ export type RackSlotStatus = Message<"device_set.v1.RackSlotStatus"> & {
  * Describes the message device_set.v1.RackSlotStatus.
  * Use `create(RackSlotStatusSchema)` to create a new message.
  */
-export const RackSlotStatusSchema: GenMessage<RackSlotStatus> = /*@__PURE__*/
+export const RackSlotStatusSchema: GenMessage<RackSlotStatus> =
+  /*@__PURE__*/
   messageDesc(file_device_set_v1_device_set, 34);
 
 /**
@@ -1226,14 +1271,14 @@ export const RackSlotStatusSchema: GenMessage<RackSlotStatus> = /*@__PURE__*/
  *
  * @generated from message device_set.v1.ListRackZonesRequest
  */
-export type ListRackZonesRequest = Message<"device_set.v1.ListRackZonesRequest"> & {
-};
+export type ListRackZonesRequest = Message<"device_set.v1.ListRackZonesRequest"> & {};
 
 /**
  * Describes the message device_set.v1.ListRackZonesRequest.
  * Use `create(ListRackZonesRequestSchema)` to create a new message.
  */
-export const ListRackZonesRequestSchema: GenMessage<ListRackZonesRequest> = /*@__PURE__*/
+export const ListRackZonesRequestSchema: GenMessage<ListRackZonesRequest> =
+  /*@__PURE__*/
   messageDesc(file_device_set_v1_device_set, 35);
 
 /**
@@ -1254,7 +1299,8 @@ export type ListRackZonesResponse = Message<"device_set.v1.ListRackZonesResponse
  * Describes the message device_set.v1.ListRackZonesResponse.
  * Use `create(ListRackZonesResponseSchema)` to create a new message.
  */
-export const ListRackZonesResponseSchema: GenMessage<ListRackZonesResponse> = /*@__PURE__*/
+export const ListRackZonesResponseSchema: GenMessage<ListRackZonesResponse> =
+  /*@__PURE__*/
   messageDesc(file_device_set_v1_device_set, 36);
 
 /**
@@ -1262,14 +1308,14 @@ export const ListRackZonesResponseSchema: GenMessage<ListRackZonesResponse> = /*
  *
  * @generated from message device_set.v1.ListRackTypesRequest
  */
-export type ListRackTypesRequest = Message<"device_set.v1.ListRackTypesRequest"> & {
-};
+export type ListRackTypesRequest = Message<"device_set.v1.ListRackTypesRequest"> & {};
 
 /**
  * Describes the message device_set.v1.ListRackTypesRequest.
  * Use `create(ListRackTypesRequestSchema)` to create a new message.
  */
-export const ListRackTypesRequestSchema: GenMessage<ListRackTypesRequest> = /*@__PURE__*/
+export const ListRackTypesRequestSchema: GenMessage<ListRackTypesRequest> =
+  /*@__PURE__*/
   messageDesc(file_device_set_v1_device_set, 37);
 
 /**
@@ -1304,8 +1350,7 @@ export type RackType = Message<"device_set.v1.RackType"> & {
  * Describes the message device_set.v1.RackType.
  * Use `create(RackTypeSchema)` to create a new message.
  */
-export const RackTypeSchema: GenMessage<RackType> = /*@__PURE__*/
-  messageDesc(file_device_set_v1_device_set, 38);
+export const RackTypeSchema: GenMessage<RackType> = /*@__PURE__*/ messageDesc(file_device_set_v1_device_set, 38);
 
 /**
  * Response containing all distinct rack types
@@ -1325,7 +1370,8 @@ export type ListRackTypesResponse = Message<"device_set.v1.ListRackTypesResponse
  * Describes the message device_set.v1.ListRackTypesResponse.
  * Use `create(ListRackTypesResponseSchema)` to create a new message.
  */
-export const ListRackTypesResponseSchema: GenMessage<ListRackTypesResponse> = /*@__PURE__*/
+export const ListRackTypesResponseSchema: GenMessage<ListRackTypesResponse> =
+  /*@__PURE__*/
   messageDesc(file_device_set_v1_device_set, 39);
 
 /**
@@ -1377,7 +1423,8 @@ export type SaveRackRequest = Message<"device_set.v1.SaveRackRequest"> & {
  * Describes the message device_set.v1.SaveRackRequest.
  * Use `create(SaveRackRequestSchema)` to create a new message.
  */
-export const SaveRackRequestSchema: GenMessage<SaveRackRequest> = /*@__PURE__*/
+export const SaveRackRequestSchema: GenMessage<SaveRackRequest> =
+  /*@__PURE__*/
   messageDesc(file_device_set_v1_device_set, 40);
 
 /**
@@ -1405,7 +1452,8 @@ export type SaveRackResponse = Message<"device_set.v1.SaveRackResponse"> & {
  * Describes the message device_set.v1.SaveRackResponse.
  * Use `create(SaveRackResponseSchema)` to create a new message.
  */
-export const SaveRackResponseSchema: GenMessage<SaveRackResponse> = /*@__PURE__*/
+export const SaveRackResponseSchema: GenMessage<SaveRackResponse> =
+  /*@__PURE__*/
   messageDesc(file_device_set_v1_device_set, 41);
 
 /**
@@ -1439,8 +1487,7 @@ export enum DeviceSetType {
 /**
  * Describes the enum device_set.v1.DeviceSetType.
  */
-export const DeviceSetTypeSchema: GenEnum<DeviceSetType> = /*@__PURE__*/
-  enumDesc(file_device_set_v1_device_set, 0);
+export const DeviceSetTypeSchema: GenEnum<DeviceSetType> = /*@__PURE__*/ enumDesc(file_device_set_v1_device_set, 0);
 
 /**
  * Order index defining where row/column numbering starts in a rack
@@ -1477,8 +1524,7 @@ export enum RackOrderIndex {
 /**
  * Describes the enum device_set.v1.RackOrderIndex.
  */
-export const RackOrderIndexSchema: GenEnum<RackOrderIndex> = /*@__PURE__*/
-  enumDesc(file_device_set_v1_device_set, 1);
+export const RackOrderIndexSchema: GenEnum<RackOrderIndex> = /*@__PURE__*/ enumDesc(file_device_set_v1_device_set, 1);
 
 /**
  * Cooling type for a rack
@@ -1505,8 +1551,7 @@ export enum RackCoolingType {
 /**
  * Describes the enum device_set.v1.RackCoolingType.
  */
-export const RackCoolingTypeSchema: GenEnum<RackCoolingType> = /*@__PURE__*/
-  enumDesc(file_device_set_v1_device_set, 2);
+export const RackCoolingTypeSchema: GenEnum<RackCoolingType> = /*@__PURE__*/ enumDesc(file_device_set_v1_device_set, 2);
 
 /**
  * Status of a device in a specific rack slot position
@@ -1548,7 +1593,8 @@ export enum SlotDeviceStatus {
 /**
  * Describes the enum device_set.v1.SlotDeviceStatus.
  */
-export const SlotDeviceStatusSchema: GenEnum<SlotDeviceStatus> = /*@__PURE__*/
+export const SlotDeviceStatusSchema: GenEnum<SlotDeviceStatus> =
+  /*@__PURE__*/
   enumDesc(file_device_set_v1_device_set, 3);
 
 /**
@@ -1567,7 +1613,7 @@ export const DeviceSetService: GenService<{
     methodKind: "unary";
     input: typeof CreateDeviceSetRequestSchema;
     output: typeof CreateDeviceSetResponseSchema;
-  },
+  };
   /**
    * Gets a device set by ID
    *
@@ -1577,7 +1623,7 @@ export const DeviceSetService: GenService<{
     methodKind: "unary";
     input: typeof GetDeviceSetRequestSchema;
     output: typeof GetDeviceSetResponseSchema;
-  },
+  };
   /**
    * Updates a device set's label or description
    *
@@ -1587,7 +1633,7 @@ export const DeviceSetService: GenService<{
     methodKind: "unary";
     input: typeof UpdateDeviceSetRequestSchema;
     output: typeof UpdateDeviceSetResponseSchema;
-  },
+  };
   /**
    * Deletes a device set (soft delete)
    *
@@ -1597,7 +1643,7 @@ export const DeviceSetService: GenService<{
     methodKind: "unary";
     input: typeof DeleteDeviceSetRequestSchema;
     output: typeof DeleteDeviceSetResponseSchema;
-  },
+  };
   /**
    * Lists all device sets for the organization
    *
@@ -1607,7 +1653,7 @@ export const DeviceSetService: GenService<{
     methodKind: "unary";
     input: typeof ListDeviceSetsRequestSchema;
     output: typeof ListDeviceSetsResponseSchema;
-  },
+  };
   /**
    * Adds devices to a device set
    *
@@ -1617,7 +1663,7 @@ export const DeviceSetService: GenService<{
     methodKind: "unary";
     input: typeof AddDevicesToDeviceSetRequestSchema;
     output: typeof AddDevicesToDeviceSetResponseSchema;
-  },
+  };
   /**
    * Removes devices from a device set
    *
@@ -1627,7 +1673,7 @@ export const DeviceSetService: GenService<{
     methodKind: "unary";
     input: typeof RemoveDevicesFromDeviceSetRequestSchema;
     output: typeof RemoveDevicesFromDeviceSetResponseSchema;
-  },
+  };
   /**
    * Lists members of a device set
    *
@@ -1637,7 +1683,7 @@ export const DeviceSetService: GenService<{
     methodKind: "unary";
     input: typeof ListDeviceSetMembersRequestSchema;
     output: typeof ListDeviceSetMembersResponseSchema;
-  },
+  };
   /**
    * Gets device sets that a device belongs to
    *
@@ -1647,7 +1693,7 @@ export const DeviceSetService: GenService<{
     methodKind: "unary";
     input: typeof GetDeviceDeviceSetsRequestSchema;
     output: typeof GetDeviceDeviceSetsResponseSchema;
-  },
+  };
   /**
    * Sets a device's slot position within a rack
    *
@@ -1657,7 +1703,7 @@ export const DeviceSetService: GenService<{
     methodKind: "unary";
     input: typeof SetRackSlotPositionRequestSchema;
     output: typeof SetRackSlotPositionResponseSchema;
-  },
+  };
   /**
    * Clears a device's slot position within a rack
    *
@@ -1667,7 +1713,7 @@ export const DeviceSetService: GenService<{
     methodKind: "unary";
     input: typeof ClearRackSlotPositionRequestSchema;
     output: typeof ClearRackSlotPositionResponseSchema;
-  },
+  };
   /**
    * Lists all occupied slot positions in a rack
    *
@@ -1677,7 +1723,7 @@ export const DeviceSetService: GenService<{
     methodKind: "unary";
     input: typeof GetRackSlotsRequestSchema;
     output: typeof GetRackSlotsResponseSchema;
-  },
+  };
   /**
    * Returns aggregated telemetry stats for a list of device sets
    *
@@ -1687,7 +1733,7 @@ export const DeviceSetService: GenService<{
     methodKind: "unary";
     input: typeof GetDeviceSetStatsRequestSchema;
     output: typeof GetDeviceSetStatsResponseSchema;
-  },
+  };
   /**
    * Returns all distinct rack zones for the organization
    *
@@ -1697,7 +1743,7 @@ export const DeviceSetService: GenService<{
     methodKind: "unary";
     input: typeof ListRackZonesRequestSchema;
     output: typeof ListRackZonesResponseSchema;
-  },
+  };
   /**
    * Returns all distinct rack types (row/column combinations) for the organization
    *
@@ -1707,7 +1753,7 @@ export const DeviceSetService: GenService<{
     methodKind: "unary";
     input: typeof ListRackTypesRequestSchema;
     output: typeof ListRackTypesResponseSchema;
-  },
+  };
   /**
    * Atomically creates or updates a rack with its membership and slot assignments.
    * All operations (metadata, membership, slot positions) are applied in a single transaction.
@@ -1718,7 +1764,5 @@ export const DeviceSetService: GenService<{
     methodKind: "unary";
     input: typeof SaveRackRequestSchema;
     output: typeof SaveRackResponseSchema;
-  },
-}> = /*@__PURE__*/
-  serviceDesc(file_device_set_v1_device_set, 0);
-
+  };
+}> = /*@__PURE__*/ serviceDesc(file_device_set_v1_device_set, 0);
