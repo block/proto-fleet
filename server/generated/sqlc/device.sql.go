@@ -958,6 +958,54 @@ func (q *Queries) GetDeviceStatusForDeviceIdentifiers(ctx context.Context, devic
 	return items, nil
 }
 
+const getDriverNamesByDeviceIdentifiersForOrg = `-- name: GetDriverNamesByDeviceIdentifiersForOrg :many
+SELECT d.device_identifier, dd.driver_name
+FROM device d
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
+WHERE d.device_identifier = ANY($1::text[])
+  AND d.org_id = $2
+  AND d.deleted_at IS NULL
+`
+
+type GetDriverNamesByDeviceIdentifiersForOrgParams struct {
+	DeviceIdentifiers []string
+	OrgID             int64
+}
+
+type GetDriverNamesByDeviceIdentifiersForOrgRow struct {
+	DeviceIdentifier string
+	DriverName       string
+}
+
+// Batched (identifier → driver_name) lookup for the SV2 capability
+// resolver. Without this the resolver does an N+1
+// GetDeviceByDeviceIdentifier per device on every preview/commit;
+// pulling the driver name in one query keeps the static-caps fallback
+// O(1) DB calls rather than O(devices). Org-scoped so the lookup
+// can't be coerced into reading foreign-tenant rows.
+func (q *Queries) GetDriverNamesByDeviceIdentifiersForOrg(ctx context.Context, arg GetDriverNamesByDeviceIdentifiersForOrgParams) ([]GetDriverNamesByDeviceIdentifiersForOrgRow, error) {
+	rows, err := q.query(ctx, q.getDriverNamesByDeviceIdentifiersForOrgStmt, getDriverNamesByDeviceIdentifiersForOrg, pq.Array(arg.DeviceIdentifiers), arg.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetDriverNamesByDeviceIdentifiersForOrgRow
+	for rows.Next() {
+		var i GetDriverNamesByDeviceIdentifiersForOrgRow
+		if err := rows.Scan(&i.DeviceIdentifier, &i.DriverName); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getFilteredDeviceIds = `-- name: GetFilteredDeviceIds :many
 SELECT
     d.id as device_id

@@ -204,8 +204,26 @@ message PreviewMiningPoolAssignmentRequest {
   optional PoolSlotConfig  backup_2_pool   = 4;
 }
 
+// PreviewSkipReason explains why the server returned no per-device
+// previews. The empty-previews / UNSPECIFIED case still means "preview
+// ran cleanly with no mismatches"; non-UNSPECIFIED values mean "preview
+// did not run and the UI should fall through to commit-time
+// validation instead of blocking Save on the missing preview."
+enum PreviewSkipReason {
+  PREVIEW_SKIP_REASON_UNSPECIFIED   = 0;
+  // Selector resolved to more devices than the preview cap. The UI
+  // should still allow Save; the commit path runs the same preflight
+  // and returns FAILED_PRECONDITION if any per-device mismatch exists.
+  PREVIEW_SKIP_REASON_SIZE_EXCEEDED = 1;
+}
+
 message PreviewMiningPoolAssignmentResponse {
   repeated DevicePoolPreview previews = 1;
+  // Set when the server short-circuited preview without evaluating
+  // per-device detail. UNSPECIFIED + empty previews = clean (no
+  // mismatches); a non-UNSPECIFIED value tells the UI not to treat
+  // the empty result as a green light to bypass commit-time checks.
+  PreviewSkipReason skipped_reason = 2;
 }
 
 // Commit-path rejection detail. Attached to the FAILED_PRECONDITION status

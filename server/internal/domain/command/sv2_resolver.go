@@ -21,13 +21,14 @@ type telemetryMetricsBatchGetter interface {
 	) (map[tmodels.DeviceIdentifier]modelsV2.DeviceMetrics, error)
 }
 
-// staticCapabilitiesProvider returns the merged static + model
-// capability view for a given (org, device-identifier). Returning nil
-// for an unknown device is fine; the resolver passes that into
-// MergeCapabilities as the static layer (an empty map), which leaves
-// the SV2 bit driven by the telemetry layer alone.
+// staticCapabilitiesProvider returns the static capability view for
+// each device identifier in a single batched call. Implementations
+// must do at most O(1) DB lookups for the input set so a wide preview
+// or commit doesn't turn into an N+1 latency spike. Devices missing
+// from the returned map are treated as "no static signal" — the
+// resolver falls back to telemetry alone for those entries.
 type staticCapabilitiesProvider interface {
-	StaticCapabilitiesForDevice(ctx context.Context, orgID int64, deviceIdentifier string) sdk.Capabilities
+	StaticCapabilitiesForDevices(ctx context.Context, orgID int64, deviceIdentifiers []string) map[string]sdk.Capabilities
 }
 
 // NewTelemetrySV2Resolver constructs an SV2CapabilityResolver that
@@ -77,17 +78,17 @@ func (r *telemetrySV2Resolver) ResolveCapabilities(
 		slog.Warn("sv2 capability resolver: telemetry lookup failed; falling back to static caps", "error", err)
 		batch = nil
 	}
+	var staticByDevice map[string]sdk.Capabilities
+	if r.statics != nil {
+		staticByDevice = r.statics.StaticCapabilitiesForDevices(ctx, orgID, deviceIdentifiers)
+	}
 	out := make(map[string]rewriter.DeviceCapabilities, len(deviceIdentifiers))
 	for _, id := range deviceIdentifiers {
 		sv2 := modelsV2.StratumV2SupportUnknown
 		if m, ok := batch[tmodels.DeviceIdentifier(id)]; ok {
 			sv2 = m.StratumV2Support
 		}
-		var static map[string]bool
-		if r.statics != nil {
-			static = r.statics.StaticCapabilitiesForDevice(ctx, orgID, id)
-		}
-		out[id] = rewriter.MergeCapabilities(static, nil, sv2)
+		out[id] = rewriter.MergeCapabilities(staticByDevice[id], nil, sv2)
 	}
 	return out
 }

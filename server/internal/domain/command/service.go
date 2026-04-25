@@ -918,6 +918,18 @@ func (s *Service) UpdateMiningPools(
 // detail).
 const maxPreviewDevices = 1000
 
+// PreviewResult is the typed return of PreviewMiningPoolAssignment.
+// Previews is the per-device detail (empty when the preview was
+// short-circuited). SkipReason tells callers why no detail was
+// returned: UNSPECIFIED on a clean run, SIZE_EXCEEDED when the
+// selector exceeded the cap. The handler maps SkipReason onto the
+// proto response so the UI can distinguish "no mismatches" from
+// "preview not run; commit-time preflight is authoritative."
+type PreviewResult struct {
+	Previews   []*pb.DevicePoolPreview
+	SkipReason pb.PreviewSkipReason
+}
+
 // PreviewMiningPoolAssignment runs the same preflight UpdateMiningPools
 // uses, but returns the per-device resolution instead of enqueuing
 // anything. The UI calls it before enabling Save; the CLI exposes it as
@@ -927,29 +939,33 @@ func (s *Service) PreviewMiningPoolAssignment(
 	ctx context.Context,
 	deviceSelector *pb.DeviceSelector,
 	defaultPool, backup1Pool, backup2Pool *pb.PoolSlotConfig,
-) ([]*pb.DevicePoolPreview, error) {
+) (PreviewResult, error) {
 	pld, err := s.createUpdateMiningPoolsPayload(ctx, defaultPool, backup1Pool, backup2Pool)
 	if err != nil {
-		return nil, err
+		return PreviewResult{}, err
 	}
 
 	deviceIDs, err := s.getDeviceIDs(ctx, deviceSelector)
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error getting device IDs from device selector: %v", err)
+		return PreviewResult{}, fleeterror.NewInternalErrorf("error getting device IDs from device selector: %v", err)
 	}
 	if len(deviceIDs) == 0 {
-		return nil, nil
+		return PreviewResult{}, nil
 	}
 	if len(deviceIDs) > maxPreviewDevices {
-		return nil, fleeterror.NewInvalidArgumentErrorf(
-			"preview supports up to %d devices per request; selector resolved to %d. Narrow the selector (e.g. by manufacturer/model filter) or run preflight via UpdateMiningPools, which evaluates the same rules without materializing per-device detail.",
-			maxPreviewDevices, len(deviceIDs),
-		)
+		// Returning a typed skip rather than an error keeps Save
+		// reachable on huge fleets — the commit path runs the same
+		// preflight server-side and rejects with FAILED_PRECONDITION
+		// if there's a real mismatch. Blocking Save on a missing
+		// preview would lock operators out of pool assignment for
+		// any selection over the cap.
+		slog.Warn("preview skipped (size exceeded)", "device_count", len(deviceIDs), "cap", maxPreviewDevices)
+		return PreviewResult{SkipReason: pb.PreviewSkipReason_PREVIEW_SKIP_REASON_SIZE_EXCEEDED}, nil
 	}
 
 	idByIdentifier, err := s.resolveDeviceIdentifiers(ctx, deviceIDs)
 	if err != nil {
-		return nil, err
+		return PreviewResult{}, err
 	}
 	capsByIdentifier := s.resolveSV2Capabilities(ctx, idByIdentifier)
 
@@ -967,10 +983,10 @@ func (s *Service) PreviewMiningPoolAssignment(
 		Proxy:   s.effectiveProxyConfig(),
 	})
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("pool-assignment preflight: %v", err)
+		return PreviewResult{}, fleeterror.NewInternalErrorf("pool-assignment preflight: %v", err)
 	}
 
-	return previewsToProto(out.Devices), nil
+	return PreviewResult{Previews: previewsToProto(out.Devices)}, nil
 }
 
 // previewsToProto projects preflight.DeviceResult onto the proto response
@@ -1218,19 +1234,34 @@ func marshalPerDevicePayload(template *dto.UpdateMiningPoolsPayload, d preflight
 	return body, nil
 }
 
+// maxMismatchDetails caps the per-error detail payload size for
+// commit-time FAILED_PRECONDITION responses. A bad pool assignment
+// against a large fleet could otherwise serialize thousands of
+// UpdateMiningPoolsMismatch protobuf details into a single Connect-RPC
+// response, blowing up CPU/memory on both ends and risking
+// intermediary size limits. The summary string still reflects the
+// total count so operators know how many devices failed.
+const maxMismatchDetails = 100
+
 // mismatchesToFailedPrecondition wraps preflight mismatches in a typed
 // FAILED_PRECONDITION error. The UI treats FAILED_PRECONDITION on this
 // RPC as "pool assignment would reject some device" and renders the
-// typed detail — it never parses the error message. Every mismatch is
-// attached as an UpdateMiningPoolsMismatch proto detail so clients can
-// branch per-device/per-slot without parsing strings.
+// typed detail — it never parses the error message. The first
+// maxMismatchDetails mismatches are attached as
+// UpdateMiningPoolsMismatch proto details; remaining mismatches are
+// counted in the summary message but not materialized to keep the
+// response bounded.
 func mismatchesToFailedPrecondition(mismatches []preflight.Mismatch) error {
 	base := fleeterror.NewFailedPreconditionErrorf(
 		"pool assignment would fail preflight for %d device(s): %v",
 		len(mismatches), summarizeMismatches(mismatches),
 	)
 	connectErr := base.ConnectError()
-	for _, m := range mismatches {
+	limit := len(mismatches)
+	if limit > maxMismatchDetails {
+		limit = maxMismatchDetails
+	}
+	for _, m := range mismatches[:limit] {
 		detail, err := connect.NewErrorDetail(&pb.UpdateMiningPoolsMismatch{
 			DeviceIdentifier: m.DeviceIdentifier,
 			Slot:             m.Slot,
@@ -1248,6 +1279,11 @@ func mismatchesToFailedPrecondition(mismatches []preflight.Mismatch) error {
 			continue
 		}
 		connectErr.AddDetail(detail)
+	}
+	if len(mismatches) > maxMismatchDetails {
+		slog.Warn("truncated UpdateMiningPoolsMismatch detail payload",
+			"total_mismatches", len(mismatches),
+			"detail_cap", maxMismatchDetails)
 	}
 	return connectErr
 }

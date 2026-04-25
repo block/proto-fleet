@@ -112,7 +112,7 @@ func (h *Handler) PreviewMiningPoolAssignment(
 	ctx context.Context,
 	req *connect.Request[pb.PreviewMiningPoolAssignmentRequest],
 ) (*connect.Response[pb.PreviewMiningPoolAssignmentResponse], error) {
-	previews, err := h.commandSvc.PreviewMiningPoolAssignment(
+	result, err := h.commandSvc.PreviewMiningPoolAssignment(
 		ctx,
 		req.Msg.DeviceSelector,
 		req.Msg.DefaultPool,
@@ -122,7 +122,10 @@ func (h *Handler) PreviewMiningPoolAssignment(
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&pb.PreviewMiningPoolAssignmentResponse{Previews: previews}), nil
+	return connect.NewResponse(&pb.PreviewMiningPoolAssignmentResponse{
+		Previews:      result.Previews,
+		SkippedReason: result.SkipReason,
+	}), nil
 }
 
 func (h *Handler) DownloadLogs(

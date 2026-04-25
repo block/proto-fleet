@@ -187,6 +187,20 @@ WHERE id = ANY(sqlc.arg('device_ids')::bigint[])
   AND org_id = sqlc.arg('org_id')
   AND deleted_at IS NULL;
 
+-- name: GetDriverNamesByDeviceIdentifiersForOrg :many
+-- Batched (identifier → driver_name) lookup for the SV2 capability
+-- resolver. Without this the resolver does an N+1
+-- GetDeviceByDeviceIdentifier per device on every preview/commit;
+-- pulling the driver name in one query keeps the static-caps fallback
+-- O(1) DB calls rather than O(devices). Org-scoped so the lookup
+-- can't be coerced into reading foreign-tenant rows.
+SELECT d.device_identifier, dd.driver_name
+FROM device d
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
+WHERE d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
+  AND d.org_id = sqlc.arg('org_id')
+  AND d.deleted_at IS NULL;
+
 -- name: AllDevicesBelongToOrg :one
 -- Returns true if all provided device identifiers belong to the specified organization.
 -- Used for authorization checks - fails fast if any device is not owned by the org.

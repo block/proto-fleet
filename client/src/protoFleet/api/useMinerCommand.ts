@@ -26,6 +26,7 @@ import {
   PoolSlotConfigSchema,
   PreviewMiningPoolAssignmentRequestSchema,
   type PreviewMiningPoolAssignmentResponse,
+  PreviewSkipReason,
   RawPoolInfoSchema,
   RebootRequest,
   RebootResponse,
@@ -286,7 +287,7 @@ const useMinerCommand = () => {
     }: {
       deviceSelector: DeviceSelector;
       poolConfig: PoolConfig;
-      onSuccess: (previews: DevicePoolPreview[]) => void;
+      onSuccess: (previews: DevicePoolPreview[], skippedReason: PreviewSkipReason) => void;
       onError?: (error: string) => void;
       // Optional AbortSignal so the caller can cancel a superseded
       // preview (e.g. when the operator reorders pool slots while the
@@ -322,7 +323,9 @@ const useMinerCommand = () => {
 
       await minerCommandClient
         .previewMiningPoolAssignment(request, { signal })
-        .then((response: PreviewMiningPoolAssignmentResponse) => onSuccess(response.previews ?? []))
+        .then((response: PreviewMiningPoolAssignmentResponse) =>
+          onSuccess(response.previews ?? [], response.skippedReason ?? PreviewSkipReason.UNSPECIFIED),
+        )
         .catch((err) => {
           handleAuthErrors({
             error: err,

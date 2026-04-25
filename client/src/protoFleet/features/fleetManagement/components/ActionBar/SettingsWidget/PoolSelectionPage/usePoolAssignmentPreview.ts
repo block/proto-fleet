@@ -3,6 +3,7 @@ import {
   type DevicePoolPreview,
   type DeviceSelector,
   DeviceWarning,
+  PreviewSkipReason,
   SlotWarning,
 } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { PoolConfig, useMinerCommand } from "@/protoFleet/api/useMinerCommand";
@@ -22,6 +23,11 @@ export interface PoolAssignmentPreview {
   hasMismatch: boolean;
   isLoading: boolean;
   error?: string;
+  // True when the server short-circuited preview (selector exceeded
+  // the device cap). The UI should still allow Save in that case —
+  // commit-time preflight is authoritative — but can show a hint
+  // that per-device detail isn't available for the current selection.
+  previewSkipped: boolean;
 }
 
 // debounceMs smooths rapid pool-reorder and scope-change edits — drag-
@@ -36,6 +42,7 @@ export const usePoolAssignmentPreview = (
 ): PoolAssignmentPreview => {
   const { previewMiningPoolAssignment } = useMinerCommand();
   const [previews, setPreviews] = useState<DevicePoolPreview[]>([]);
+  const [skipReason, setSkipReason] = useState<PreviewSkipReason>(PreviewSkipReason.UNSPECIFIED);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -80,11 +87,12 @@ export const usePoolAssignmentPreview = (
         deviceSelector,
         poolConfig,
         signal: controller.signal,
-        onSuccess: (result) => {
+        onSuccess: (result, skipped) => {
           if (requestId !== latestRequestId.current) {
             return;
           }
           setPreviews(result);
+          setSkipReason(skipped);
           setError(undefined);
         },
         onError: (msg) => {
@@ -92,6 +100,7 @@ export const usePoolAssignmentPreview = (
             return;
           }
           setPreviews([]);
+          setSkipReason(PreviewSkipReason.UNSPECIFIED);
           setError(msg);
         },
       }).finally(() => {
@@ -117,10 +126,13 @@ export const usePoolAssignmentPreview = (
 
   const effectivePreviews = isActive ? previews : [];
   const effectiveError = isActive ? error : undefined;
-  // Treat any error or in-flight state as "not saveable yet" — a
-  // transient preview failure that left previews=[] would otherwise
-  // pass the every() check below and re-enable Save. The save path
-  // would still get rejected by the server, but the UI should match.
+  const previewSkipped = isActive && skipReason !== PreviewSkipReason.UNSPECIFIED;
+  // Treat error or in-flight state as "not saveable yet" — a transient
+  // preview failure that left previews=[] would otherwise pass the
+  // every() check below and re-enable Save. previewSkipped is the
+  // explicit "preview short-circuited; commit-time preflight will run
+  // the same check" path: the UI should still allow Save in that
+  // case, so it doesn't count as a mismatch.
   const hasMismatch =
     effectiveError !== undefined ||
     isLoading ||
@@ -129,5 +141,5 @@ export const usePoolAssignmentPreview = (
         d.deviceWarning !== DeviceWarning.UNSPECIFIED || d.slots.some((s) => s.warning !== SlotWarning.UNSPECIFIED),
     );
 
-  return { previews: effectivePreviews, hasMismatch, isLoading, error: effectiveError };
+  return { previews: effectivePreviews, hasMismatch, isLoading, error: effectiveError, previewSkipped };
 };

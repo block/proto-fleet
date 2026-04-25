@@ -261,6 +261,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getDistinctScopeTypesStmt, err = db.PrepareContext(ctx, getDistinctScopeTypes); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDistinctScopeTypes: %w", err)
 	}
+	if q.getDriverNamesByDeviceIdentifiersForOrgStmt, err = db.PrepareContext(ctx, getDriverNamesByDeviceIdentifiersForOrg); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDriverNamesByDeviceIdentifiersForOrg: %w", err)
+	}
 	if q.getErrorByErrorIDStmt, err = db.PrepareContext(ctx, getErrorByErrorID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetErrorByErrorID: %w", err)
 	}
@@ -1069,6 +1072,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getDistinctScopeTypesStmt: %w", cerr)
 		}
 	}
+	if q.getDriverNamesByDeviceIdentifiersForOrgStmt != nil {
+		if cerr := q.getDriverNamesByDeviceIdentifiersForOrgStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDriverNamesByDeviceIdentifiersForOrgStmt: %w", cerr)
+		}
+	}
 	if q.getErrorByErrorIDStmt != nil {
 		if cerr := q.getErrorByErrorIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getErrorByErrorIDStmt: %w", cerr)
@@ -1867,6 +1875,7 @@ type Queries struct {
 	getDistinctActivityUsersStmt                        *sql.Stmt
 	getDistinctEventTypesStmt                           *sql.Stmt
 	getDistinctScopeTypesStmt                           *sql.Stmt
+	getDriverNamesByDeviceIdentifiersForOrgStmt         *sql.Stmt
 	getErrorByErrorIDStmt                               *sql.Stmt
 	getErrorByIDStmt                                    *sql.Stmt
 	getFilteredDeviceIdsStmt                            *sql.Stmt
@@ -2088,6 +2097,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getDistinctActivityUsersStmt:                        q.getDistinctActivityUsersStmt,
 		getDistinctEventTypesStmt:                           q.getDistinctEventTypesStmt,
 		getDistinctScopeTypesStmt:                           q.getDistinctScopeTypesStmt,
+		getDriverNamesByDeviceIdentifiersForOrgStmt:         q.getDriverNamesByDeviceIdentifiersForOrgStmt,
 		getErrorByErrorIDStmt:                               q.getErrorByErrorIDStmt,
 		getErrorByIDStmt:                                    q.getErrorByIDStmt,
 		getFilteredDeviceIdsStmt:                            q.getFilteredDeviceIdsStmt,

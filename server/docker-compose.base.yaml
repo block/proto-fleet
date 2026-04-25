@@ -96,6 +96,12 @@ services:
   # limitations" for the v1 scope boundaries (one upstream pool per
   # instance, no multi-site, no runtime reconfig).
   sv2-tproxy:
+    # KNOWN LIMITATION: tag-pinned, not digest-pinned. The translator
+    # sits in the miner→pool path and could rewrite mining traffic if
+    # the upstream image ever served compromised bytes. v1 follow-up:
+    # add a sha256 digest (`:tag@sha256:...`) once the supply-chain
+    # verification flow is wired into the release artifacts. See
+    # docs/stratum-v2-plan.md "Known limitations" §3.
     image: ghcr.io/stratum-mining/translator:1.5.1
     pull_policy: if_not_present
     restart: unless-stopped

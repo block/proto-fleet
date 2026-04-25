@@ -398,7 +398,7 @@ const PoolSelectionPage = ({
   // selector is the same one the commit path uses, so allDevices /
   // filtered selections preview the full server-resolved fleet rather
   // than just the locally-loaded subset.
-  const { hasMismatch: hasPoolAssignmentMismatch } = usePoolAssignmentPreview(
+  const { hasMismatch: hasPoolAssignmentMismatch, previewSkipped } = usePoolAssignmentPreview(
     deviceSelector,
     pendingPoolConfig,
     isVisible,
@@ -507,6 +507,18 @@ const PoolSelectionPage = ({
                 prefixIcon={<Alert />}
                 title="This pool assignment would fail for some miners"
                 subtitle="Some selected miners don't support the chosen protocol with the current translator-proxy configuration. Update the pools or enable the Stratum V2 translator proxy before assigning."
+              />
+            ) : null}
+
+            {/* Preview short-circuited — the selector resolved to too
+                many miners for the dry-run path. Save still works:
+                the commit RPC runs the same preflight server-side. */}
+            {previewSkipped && !hasPoolAssignmentMismatch ? (
+              <Callout
+                intent={intents.warning}
+                prefixIcon={<Alert />}
+                title="Per-device preview unavailable for large selections"
+                subtitle="Pool assignment will run preflight at commit time. Any miner that would fail the assignment is rejected synchronously by the server."
               />
             ) : null}
 

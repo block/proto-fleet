@@ -357,7 +357,7 @@ func start(config *Config) error {
 		go sv2HealthMonitor.Start(executionServiceCtx)
 	}
 	commandSvc.SetStratumV2Resolvers(
-		commandDomain.NewTelemetrySV2Resolver(timescaledbService, newStaticSV2CapsProvider(deviceStore, pluginService)),
+		commandDomain.NewTelemetrySV2Resolver(timescaledbService, newStaticSV2CapsProvider(conn, pluginService)),
 		config.StratumV2.RewriterConfig(),
 		sv2HealthMonitor,
 	)
