@@ -9,8 +9,8 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/pools/rewriter"
+	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/sv2"
 	"github.com/block/proto-fleet/server/internal/infrastructure/secrets"
@@ -197,9 +197,9 @@ func (s *Service) ListPools(ctx context.Context) ([]*pb.Pool, error) {
 // !CredentialsVerified && Mode is an SV2 mode, which is the honest
 // description of what a TCP dial actually proves.
 type ValidationResult struct {
-	Reachable            bool
-	CredentialsVerified  bool
-	Mode                 pb.ValidationMode
+	Reachable           bool
+	CredentialsVerified bool
+	Mode                pb.ValidationMode
 }
 
 // ValidateConnection probes a pool server, picking the probe style by
@@ -236,6 +236,15 @@ func (s *Service) ValidateConnection(
 
 	switch protocol {
 	case pb.PoolProtocol_POOL_PROTOCOL_SV2:
+		// A non-empty noise key is the operator's request for a handshake
+		// probe with key pinning. Anything other than 32 raw bytes can't
+		// satisfy that — silently downgrading to TCP would tell the
+		// operator "connected" without ever pinning the pool's identity,
+		// which is the failure mode the field exists to catch.
+		if len(poolNoiseKey) > 0 && len(poolNoiseKey) != 32 {
+			return ValidationResult{Mode: pb.ValidationMode_VALIDATION_MODE_SV2_HANDSHAKE},
+				fleeterror.NewInvalidArgumentErrorf("noise public key must be 32 raw bytes, got %d", len(poolNoiseKey))
+		}
 		if len(poolNoiseKey) == 32 {
 			ok, err := sv2.HandshakeProbe(ctx, url, poolNoiseKey, to)
 			if err != nil {

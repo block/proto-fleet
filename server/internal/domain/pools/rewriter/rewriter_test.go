@@ -237,7 +237,7 @@ func TestPoolURLsForDevice_NilCapabilitiesFallbackIsSV1Only(t *testing.T) {
 
 func TestMergeCapabilities_Precedence(t *testing.T) {
 	static := map[string]bool{
-		"polling_host":              true,
+		"polling_host":                true,
 		sdk.CapabilityStratumV2Native: false,
 	}
 	model := map[string]bool{
@@ -245,9 +245,9 @@ func TestMergeCapabilities_Precedence(t *testing.T) {
 	}
 
 	cases := []struct {
-		name         string
-		telemetry    modelsV2.StratumV2SupportStatus
-		wantPolling  bool
+		name          string
+		telemetry     modelsV2.StratumV2SupportStatus
+		wantPolling   bool
 		wantSV2Native bool
 	}{
 		{

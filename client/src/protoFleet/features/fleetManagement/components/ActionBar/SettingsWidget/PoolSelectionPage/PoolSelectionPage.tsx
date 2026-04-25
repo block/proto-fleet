@@ -441,14 +441,14 @@ const PoolSelectionPage = ({
             {/* Preflight mismatch — matches the server's FAILED_PRECONDITION
                 decision the commit path would return, so Save is blocked
                 before the request is sent rather than after. */}
-            {hasPoolAssignmentMismatch && (
+            {hasPoolAssignmentMismatch ? (
               <Callout
                 intent={intents.danger}
                 prefixIcon={<Alert />}
                 title="This pool assignment would fail for some miners"
                 subtitle="Some selected miners don't support the chosen protocol with the current translator-proxy configuration. Update the pools or enable the Stratum V2 translator proxy before assigning."
               />
-            )}
+            ) : null}
 
             {/* Pool list */}
             {isLoadingInitialState ? (

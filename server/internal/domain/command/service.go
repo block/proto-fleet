@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"connectrpc.com/connect"
 	"github.com/sqlc-dev/pqtype"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -719,7 +720,6 @@ func (s *Service) createMiningPoolDTOFromSlotConfig(ctx context.Context, config 
 	}
 }
 
-
 func (s *Service) createUpdateMiningPoolsPayload(ctx context.Context, defaultPool, backup1Pool, backup2Pool *pb.PoolSlotConfig) (*dto.UpdateMiningPoolsPayload, error) {
 	defaultPoolDTO, err := s.createMiningPoolDTOFromSlotConfig(ctx, defaultPool, 0)
 	if err != nil {
@@ -1090,12 +1090,35 @@ func marshalPerDevicePayload(template *dto.UpdateMiningPoolsPayload, d preflight
 // mismatchesToFailedPrecondition wraps preflight mismatches in a typed
 // FAILED_PRECONDITION error. The UI treats FAILED_PRECONDITION on this
 // RPC as "pool assignment would reject some device" and renders the
-// typed detail — it never parses the error message.
+// typed detail — it never parses the error message. Every mismatch is
+// attached as an UpdateMiningPoolsMismatch proto detail so clients can
+// branch per-device/per-slot without parsing strings.
 func mismatchesToFailedPrecondition(mismatches []preflight.Mismatch) error {
-	return fleeterror.NewFailedPreconditionErrorf(
+	base := fleeterror.NewFailedPreconditionErrorf(
 		"pool assignment would fail preflight for %d device(s): %v",
 		len(mismatches), summarizeMismatches(mismatches),
 	)
+	connectErr := base.ConnectError()
+	for _, m := range mismatches {
+		detail, err := connect.NewErrorDetail(&pb.UpdateMiningPoolsMismatch{
+			DeviceIdentifier: m.DeviceIdentifier,
+			Slot:             m.Slot,
+			SlotWarning:      m.SlotWarning,
+			DeviceWarning:    m.DeviceWarning,
+		})
+		if err != nil {
+			// connect.NewErrorDetail only fails on proto-marshal errors;
+			// our inputs are pure proto messages, so this should never
+			// fire. Log and continue rather than swap the error type out
+			// from under the caller — preserving the FAILED_PRECONDITION
+			// + summary message is more important than the missing
+			// detail entry.
+			slog.Warn("failed to encode UpdateMiningPoolsMismatch detail; sending without it", "error", err)
+			continue
+		}
+		connectErr.AddDetail(detail)
+	}
+	return connectErr
 }
 
 func summarizeMismatches(mismatches []preflight.Mismatch) string {

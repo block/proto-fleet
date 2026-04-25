@@ -2,12 +2,14 @@ package pools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"connectrpc.com/connect"
 	pb "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/pools/v1/poolsv1connect"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/pools"
 	"github.com/block/proto-fleet/server/internal/infrastructure/secrets"
 )
@@ -80,10 +82,21 @@ func (h *Handler) ValidatePool(ctx context.Context, r *connect.Request[pb.Valida
 	// we keep the field for symmetry and future modes.
 	result, err := h.poolsSvc.ValidateConnection(ctx, r.Msg.Url, r.Msg.Username, pass, r.Msg.NoisePublicKey, timeout)
 	if err != nil {
-		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("failed to validate pool connection: %w", err))
+		// Preserve the underlying error semantics: validation errors
+		// (bad URL scheme, malformed Noise key) come back as FleetError
+		// with their gRPC code already set; everything else is a probe
+		// failure (TCP refused, DNS, SV1 auth rejection) that maps to
+		// Unavailable. Lumping all of these into PermissionDenied loses
+		// information the operator UI uses to render distinct error
+		// states.
+		var fe fleeterror.FleetError
+		if errors.As(err, &fe) {
+			return nil, fe.ConnectError()
+		}
+		return nil, connect.NewError(connect.CodeUnavailable, fmt.Errorf("failed to validate pool connection: %w", err))
 	}
 	if !result.Reachable {
-		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("pool unreachable"))
+		return nil, connect.NewError(connect.CodeUnavailable, fmt.Errorf("pool unreachable"))
 	}
 
 	return connect.NewResponse(&pb.ValidatePoolResponse{

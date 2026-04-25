@@ -121,10 +121,25 @@ func PoolURLsForDevice(assignments []SlotAssignment, caps DeviceCapabilities, pr
 		if err != nil {
 			return nil, fmt.Errorf("slot %s: %w", a.Slot, err)
 		}
+		// Effective protocol matches the URL we're actually pushing: when
+		// the rewriter swaps an SV2 pool URL for the SV1-facing tProxy
+		// URL, the slot's protocol on the wire is SV1. Derive from URL
+		// scheme rather than carrying a.Pool.Protocol forward, otherwise
+		// downstream surfaces (preview, dispatch payload, drivers that
+		// branch on protocol) see protocol=SV2 alongside a stratum+tcp
+		// URL.
+		effectiveProtocol, err := ProtocolFromURL(url)
+		if err != nil {
+			// rewriter inputs (DB pool URL, configured proxy MinerURL)
+			// were validated upstream by CEL/startup; reach here only on
+			// a programming bug. Fall back to the input protocol so we
+			// at least preserve the operator's intent.
+			effectiveProtocol = normalizeProtocol(a.Pool.Protocol)
+		}
 		resolved = append(resolved, ResolvedSlot{
 			Slot:          a.Slot,
 			EffectiveURL:  url,
-			Protocol:      a.Pool.Protocol,
+			Protocol:      effectiveProtocol,
 			RewriteReason: reason,
 		})
 	}
@@ -224,11 +239,11 @@ func (m MergedCapabilities) Has(capability string) bool {
 // per-model overrides and the latest telemetry-reported SV2 support.
 //
 // Precedence (later wins on conflict):
-//   1. static driver capabilities
-//   2. model capabilities (if present)
-//   3. telemetry StratumV2Support — overrides CapabilityStratumV2Native
-//      when its value is SUPPORTED or UNSUPPORTED. UNSPECIFIED / UNKNOWN
-//      leaves the lower-precedence view intact.
+//  1. static driver capabilities
+//  2. model capabilities (if present)
+//  3. telemetry StratumV2Support — overrides CapabilityStratumV2Native
+//     when its value is SUPPORTED or UNSUPPORTED. UNSPECIFIED / UNKNOWN
+//     leaves the lower-precedence view intact.
 //
 // All three inputs are optional — a caller without telemetry should pass
 // StratumV2SupportUnknown and the function will only consider the static +

@@ -23,7 +23,7 @@ import (
 type Config struct {
 	ProxyEnabled         bool          `help:"Enable bundled SV2 translation proxy (lets SV1 miners mine SV2 pools). Off by default; operators with native-SV2-only fleets never need to flip it on." default:"false" env:"PROXY_ENABLED"`
 	ProxyMinerURL        string        `help:"stratum+tcp URL the SV1 miners on the LAN should be pointed at when their assigned pool is SV2. Pushed by the URL rewriter at commit time." default:"" env:"PROXY_MINER_URL"`
-	ProxyUpstreamURL     string        `help:"sv2+* URL the tProxy connects upstream to (the actual SV2 pool). Read once at proxy startup and baked into the tProxy TOML; not consulted by Fleet at dispatch time." default:"" env:"PROXY_UPSTREAM_URL"`
+	ProxyUpstreamURL     string        `help:"stratum2+tcp:// or stratum2+ssl:// URL the tProxy connects upstream to (the actual SV2 pool). Read once at proxy startup and baked into the tProxy TOML; not consulted by Fleet at dispatch time." default:"" env:"PROXY_UPSTREAM_URL"`
 	ProxyHealthCheckAddr string        `help:"host:port Fleet uses to TCP-probe the bundled proxy. Default assumes host-network Compose (fleet-api on the host network reaches tProxy via 127.0.0.1); bridge-network operators override this." default:"127.0.0.1:34255" env:"PROXY_HEALTH_ADDR"`
 	ProxyHealthInterval  time.Duration `help:"How often to TCP-probe the proxy for the up/down gauge and activity-log transitions." default:"30s" env:"PROXY_HEALTH_INTERVAL"`
 }

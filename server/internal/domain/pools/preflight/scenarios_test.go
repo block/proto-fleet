@@ -200,4 +200,3 @@ func TestScenario_TelemetryWinsOverStaticForSV2Capability(t *testing.T) {
 	assert.Equal(t, commandpb.RewriteReason_REWRITE_REASON_NATIVE, results["native"].Slots[0].ProtoReason)
 	assert.Equal(t, commandpb.RewriteReason_REWRITE_REASON_PROXIED, results["sv1"].Slots[0].ProtoReason)
 }
-

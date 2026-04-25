@@ -49,13 +49,13 @@ type Input struct {
 // mutually exclusive — a successful slot never carries a warning, and a
 // failed slot never carries a reason other than UNSPECIFIED.
 type SlotResult struct {
-	Slot             rewriter.PoolSlot
-	Protocol         poolspb.PoolProtocol
-	EffectiveURL     string
-	RewriteReason    rewriter.RewriteReason
-	Warning          commandpb.SlotWarning
-	ProtoSlot        commandpb.PoolSlot // denormalized proto enum for convenient emission
-	ProtoReason      commandpb.RewriteReason
+	Slot          rewriter.PoolSlot
+	Protocol      poolspb.PoolProtocol
+	EffectiveURL  string
+	RewriteReason rewriter.RewriteReason
+	Warning       commandpb.SlotWarning
+	ProtoSlot     commandpb.PoolSlot // denormalized proto enum for convenient emission
+	ProtoReason   commandpb.RewriteReason
 }
 
 // DeviceResult is the preflight's verdict for one device. Slots preserves

@@ -70,8 +70,8 @@ func (m *HealthMonitor) Start(ctx context.Context) {
 // Up reports the last-known probe outcome. Returns false before the
 // first probe completes; callers that want to distinguish "down" from
 // "haven't probed yet" should consult HasState.
-func (m *HealthMonitor) Up() bool        { return m.up.Load() }
-func (m *HealthMonitor) HasState() bool  { return m.hasState.Load() }
+func (m *HealthMonitor) Up() bool       { return m.up.Load() }
+func (m *HealthMonitor) HasState() bool { return m.hasState.Load() }
 
 func (m *HealthMonitor) probe(ctx context.Context) {
 	err := m.dial(ctx, m.addr, DefaultTCPDialTimeout)
@@ -100,4 +100,3 @@ func (m *HealthMonitor) probe(ctx context.Context) {
 		m.logger.Warn("sv2 proxy health: down", "addr", m.addr, "error", err)
 	}
 }
-

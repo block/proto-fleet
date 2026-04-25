@@ -162,9 +162,10 @@ const usePools = (enabled = true) => {
         url: poolInfo.url,
         username: poolInfo.username,
         ...(poolInfo.password && poolInfo.password.trim() && { password: poolInfo.password }),
-        ...(poolInfo.noisePublicKey && poolInfo.noisePublicKey.byteLength > 0 && {
-          noisePublicKey: poolInfo.noisePublicKey,
-        }),
+        ...(poolInfo.noisePublicKey &&
+          poolInfo.noisePublicKey.byteLength > 0 && {
+            noisePublicKey: poolInfo.noisePublicKey,
+          }),
         ...(poolInfo.timeout && {
           timeout: poolInfo.timeout as Duration,
         }),

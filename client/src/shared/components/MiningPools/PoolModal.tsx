@@ -162,11 +162,14 @@ const PoolModal = ({
     if (!pool?.url?.trim()) {
       setUrlError(urlValidationErrors.required);
       hasError = true;
-    } else if (validateURLScheme(pool.url)) {
+    } else {
       // Surface scheme mismatch before the server rejects it with the
       // same rule — saves an RPC roundtrip for obviously-wrong URLs.
-      setUrlError(validateURLScheme(pool.url));
-      hasError = true;
+      const schemeError = validateURLScheme(pool.url);
+      if (schemeError) {
+        setUrlError(schemeError);
+        hasError = true;
+      }
     }
 
     const nextUsernameError = getPoolUsernameValidationError(pool?.username, {

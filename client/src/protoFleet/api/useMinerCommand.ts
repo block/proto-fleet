@@ -13,6 +13,7 @@ import {
   CheckCommandCapabilitiesRequestSchema,
   CheckCommandCapabilitiesResponse,
   CommandType,
+  type DevicePoolPreview,
   DeviceSelector,
   DownloadLogsRequest,
   DownloadLogsResponse,
@@ -23,6 +24,8 @@ import {
   PerformanceMode,
   type PoolSlotConfig,
   PoolSlotConfigSchema,
+  PreviewMiningPoolAssignmentRequestSchema,
+  type PreviewMiningPoolAssignmentResponse,
   RawPoolInfoSchema,
   RebootRequest,
   RebootResponse,
@@ -40,9 +43,6 @@ import {
   UpdateMinerPasswordResponse,
   UpdateMiningPoolsRequestSchema,
   UpdateMiningPoolsResponse,
-  type DevicePoolPreview,
-  type PreviewMiningPoolAssignmentResponse,
-  PreviewMiningPoolAssignmentRequestSchema,
 } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useAuthErrors } from "@/protoFleet/store";

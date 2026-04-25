@@ -43,10 +43,14 @@ export const usePoolAssignmentPreview = (
   const [error, setError] = useState<string | undefined>(undefined);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Active when caller actually has something to preview. When false we
+  // skip the RPC and zero out the returned values via the read-side
+  // (rather than calling setState during the effect, which trips
+  // react-hooks/set-state-in-effect).
+  const isActive = enabled && poolConfig !== null && deviceIdentifiers.length > 0;
+
   useEffect(() => {
-    if (!enabled || !poolConfig || deviceIdentifiers.length === 0) {
-      setPreviews([]);
-      setError(undefined);
+    if (!isActive || !poolConfig) {
       return;
     }
 
@@ -83,13 +87,13 @@ export const usePoolAssignmentPreview = (
         timer.current = null;
       }
     };
-  }, [deviceIdentifiers, poolConfig, enabled, previewMiningPoolAssignment]);
+  }, [isActive, deviceIdentifiers, poolConfig, previewMiningPoolAssignment]);
 
-  const hasMismatch = previews.some(
-    (d) =>
-      d.deviceWarning !== DeviceWarning.UNSPECIFIED ||
-      d.slots.some((s) => s.warning !== SlotWarning.UNSPECIFIED),
+  const effectivePreviews = isActive ? previews : [];
+  const effectiveError = isActive ? error : undefined;
+  const hasMismatch = effectivePreviews.some(
+    (d) => d.deviceWarning !== DeviceWarning.UNSPECIFIED || d.slots.some((s) => s.warning !== SlotWarning.UNSPECIFIED),
   );
 
-  return { previews, hasMismatch, isLoading, error };
+  return { previews: effectivePreviews, hasMismatch, isLoading, error: effectiveError };
 };

@@ -15,11 +15,11 @@ type PowerTargetPayload struct {
 }
 
 type MiningPool struct {
-	Priority        uint32               `json:"priority"`
-	URL             string               `json:"url"`
-	Username        string               `json:"username"`
-	Password        string               `json:"password,omitempty"`
-	AppendMinerName bool                 `json:"append_miner_name,omitempty"`
+	Priority        uint32 `json:"priority"`
+	URL             string `json:"url"`
+	Username        string `json:"username"`
+	Password        string `json:"password,omitempty"`
+	AppendMinerName bool   `json:"append_miner_name,omitempty"`
 	// Protocol the URL speaks. Unspecified is treated as SV1. Emitted
 	// unconditionally (no omitempty) so SV1 payloads round-trip through
 	// the queue as an explicit POOL_PROTOCOL_UNSPECIFIED rather than

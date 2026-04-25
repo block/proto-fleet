@@ -335,15 +335,17 @@ func start(config *Config) error {
 	statusService := commandDomain.NewStatusService(conn, dbMessageQueue)
 	commandSvc := commandDomain.NewService(&config.Command, conn, executionService, dbMessageQueue, statusService, encryptSvc, filesService, deviceStore, userStore, authSvc, telemetryService, pluginService, activitySvc)
 	// Fail fast on bad StratumV2 config rather than surfacing at pool-
-	// assignment time. Passing nil for the SV2 capability resolver means
-	// preflight treats every device as SV1-only — plugins populate SV2
-	// support via telemetry; the capability resolver lookup is a planned
-	// server-side integration that will surface that telemetry to
-	// preflight without requiring a constructor change.
+	// assignment time. The SV2 capability resolver reads each device's
+	// latest StratumV2Support from telemetry; without it preflight would
+	// treat every device as SV1-only and the native-SV2 path would never
+	// fire even for miners whose plugin reports Supported.
 	if err := config.StratumV2.Validate(); err != nil {
 		return fmt.Errorf("invalid STRATUM_V2 config: %w", err)
 	}
-	commandSvc.SetStratumV2Resolvers(nil, config.StratumV2.RewriterConfig())
+	commandSvc.SetStratumV2Resolvers(
+		commandDomain.NewTelemetrySV2Resolver(timescaledbService),
+		config.StratumV2.RewriterConfig(),
+	)
 
 	// When the operator enabled the bundled SV2 translator proxy, start
 	// a background TCP health probe so operators can see at a glance

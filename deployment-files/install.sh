@@ -299,15 +299,14 @@ STRATUM_V2_PROXY_HEALTH_ADDR=127.0.0.1:34255
 STRATUM_V2_PROXY_HEALTH_INTERVAL=30s
 EOF
 
-  # Render the tProxy TOML from operator input. Host/port are parsed from
-  # the stratum2+tcp://host:port URL; regex lives here rather than in the
-  # TOML template so the placeholder file stays valid as-is for operators
-  # editing by hand.
+  # Render the tProxy TOML from operator input. Host/port come out of the
+  # stratum2+(tcp|ssl)://host:port[/pubkey] URL via bash's regex so a
+  # malformed URL fails the match outright rather than silently passing
+  # the original string into the TOML.
   if [ -f "$toml_template" ] && [ -n "$sv2_pool_noise_key" ]; then
-    local host port
-    host=$(echo "$sv2_upstream" | sed -E 's|^stratum2\+(tcp\|ssl)://([^:/]+):.*$|\2|')
-    port=$(echo "$sv2_upstream" | sed -E 's|^stratum2\+(tcp\|ssl)://[^:/]+:([0-9]+).*$|\2|')
-    if [ -n "$host" ] && [ -n "$port" ]; then
+    if [[ "$sv2_upstream" =~ ^stratum2\+(tcp|ssl)://([^:/]+):([0-9]+)(/.*)?$ ]]; then
+      local host="${BASH_REMATCH[2]}"
+      local port="${BASH_REMATCH[3]}"
       sed -i.bak \
         -e "s|^upstream_address = .*|upstream_address = \"${host}\"|" \
         -e "s|^upstream_port = .*|upstream_port = ${port}|" \
@@ -316,7 +315,7 @@ EOF
       rm -f "${toml_template}.bak"
       echo "   Rendered ${toml_template} with upstream ${host}:${port}"
     else
-      echo "   ⚠️  Could not parse upstream URL; edit ${toml_template} manually before starting the proxy."
+      echo "   ⚠️  Upstream URL '${sv2_upstream}' does not match stratum2+(tcp|ssl)://host:port; edit ${toml_template} manually before starting the proxy."
     fi
   fi
 
