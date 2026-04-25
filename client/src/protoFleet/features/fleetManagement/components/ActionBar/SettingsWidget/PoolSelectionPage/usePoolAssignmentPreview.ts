@@ -127,19 +127,15 @@ export const usePoolAssignmentPreview = (
   const effectivePreviews = isActive ? previews : [];
   const effectiveError = isActive ? error : undefined;
   const previewSkipped = isActive && skipReason !== PreviewSkipReason.UNSPECIFIED;
-  // Treat error or in-flight state as "not saveable yet" — a transient
-  // preview failure that left previews=[] would otherwise pass the
-  // every() check below and re-enable Save. previewSkipped is the
-  // explicit "preview short-circuited; commit-time preflight will run
-  // the same check" path: the UI should still allow Save in that
-  // case, so it doesn't count as a mismatch.
-  const hasMismatch =
-    effectiveError !== undefined ||
-    isLoading ||
-    effectivePreviews.some(
-      (d) =>
-        d.deviceWarning !== DeviceWarning.UNSPECIFIED || d.slots.some((s) => s.warning !== SlotWarning.UNSPECIFIED),
-    );
+  // Block Save only on real preflight slot/device warnings. Preview
+  // is read-only — a transport failure (timeout, abort, 5xx) doesn't
+  // tell us anything about whether commit would succeed, and the
+  // commit RPC reruns the authoritative server-side preflight either
+  // way. Lumping transport errors into hasMismatch lets a transient
+  // network blip lock operators out of urgent pool rotations.
+  const hasMismatch = effectivePreviews.some(
+    (d) => d.deviceWarning !== DeviceWarning.UNSPECIFIED || d.slots.some((s) => s.warning !== SlotWarning.UNSPECIFIED),
+  );
 
   return { previews: effectivePreviews, hasMismatch, isLoading, error: effectiveError, previewSkipped };
 };

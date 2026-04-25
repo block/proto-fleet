@@ -98,6 +98,18 @@ func (h *Handler) ValidatePool(ctx context.Context, r *connect.Request[pb.Valida
 	if !result.Reachable {
 		return nil, connect.NewError(connect.CodeUnavailable, fmt.Errorf("pool unreachable"))
 	}
+	// Preserve the pre-v1 error contract for SV1 authentication
+	// failures: stale clients (browser bundles cached across an
+	// upgrade, third-party tooling) treat any 200 OK as "validation
+	// succeeded" and would silently accept invalid credentials with
+	// the new typed-success response. SV2 paths can't be authenticated
+	// in v1 (TCP_DIAL has nothing to verify; HANDSHAKE proves identity
+	// pinning, not credentials) so a !CredentialsVerified outcome
+	// there isn't a credential failure — return the typed success
+	// body. SV1 keeps the non-OK status for backward compat.
+	if result.Mode == pb.ValidationMode_VALIDATION_MODE_SV1_AUTHENTICATE && !result.CredentialsVerified {
+		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("pool authentication failed"))
+	}
 
 	return connect.NewResponse(&pb.ValidatePoolResponse{
 		Reachable:           result.Reachable,
