@@ -6,7 +6,6 @@ import "google/protobuf/timestamp.proto";
 import "fleetmanagement/v1/fleetmanagement.proto";
 import "common/v1/device_selector.proto";
 import "common/v1/cooling.proto";
-import "pools/v1/pools.proto";
 import "buf/validate/validate.proto";
 
 message DeviceFilter {

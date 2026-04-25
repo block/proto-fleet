@@ -12,8 +12,12 @@ import type { Message } from "@bufbuild/protobuf";
 /**
  * Describes the file pools/v1/pools.proto.
  */
-export const file_pools_v1_pools: GenFile = /*@__PURE__*/
-  fileDesc("ChRwb29scy92MS9wb29scy5wcm90bxIIcG9vbHMudjEi6gUKClBvb2xDb25maWcSCwoDdXJsGAEgASgJEhAKCHVzZXJuYW1lGAIgASgJEi4KCHBhc3N3b3JkGAMgASgLMhwuZ29vZ2xlLnByb3RvYnVmLlN0cmluZ1ZhbHVlEhEKCXBvb2xfbmFtZRgEIAEoCTq2BLpIsgQarwQKFnBvb2xfY29uZmlnX3VybF9zY2hlbWUS5wF1cmwgbXVzdCBzdGFydCB3aXRoIHN0cmF0dW0rdGNwOi8vaG9zdDpwb3J0IChTdHJhdHVtIFYxKSBvciBzdHJhdHVtMit0Y3A6Ly9ob3N0OnBvcnQvQVVUSE9SSVRZX1BVQktFWSAoU3RyYXR1bSBWMiDigJQgcHVia2V5IHN1ZmZpeCByZXF1aXJlZCBzbyBzYXZlZCBwb29scyBmdWxseSBpZGVudGlmeSB0aGUgdXBzdHJlYW0gYW5kIG1hdGNoIHRoZSBidW5kbGVkIHRQcm94eSdzIHBpbm5lZCBpZGVudGl0eSkaqgJ0aGlzLnVybC5tYXRjaGVzKCdec3RyYXR1bVxcK3RjcDovLygoW2EtekEtWjAtOV0oW2EtekEtWjAtOS4tXSpbYS16QS1aMC05XSk/KXwoXFxkezEsM31cXC4pezN9XFxkezEsM318XFxbKFswLTlhLWZBLUY6XSspXFxdKTpcXGR7MSw1fSQnKSB8fCB0aGlzLnVybC5tYXRjaGVzKCdec3RyYXR1bTJcXCt0Y3A6Ly8oKFthLXpBLVowLTldKFthLXpBLVowLTkuLV0qW2EtekEtWjAtOV0pPyl8KFxcZHsxLDN9XFwuKXszfVxcZHsxLDN9fFxcWyhbMC05YS1mQS1GOl0rKVxcXSk6XFxkezEsNX0vW0EtWmEtejAtOS5ffis9LV0rJCcpSgQIBRAGSgQIBhAHSgQIBxAIUghwcm90b2NvbFIMamRzX2VuZHBvaW50Uhdqb2JfZGVjbGFyYXRpb25fZW5hYmxlZCKmAQoEUG9vbBIPCgdwb29sX2lkGAEgASgDEgsKA3VybBgCIAEoCRIQCgh1c2VybmFtZRgDIAEoCRIRCglwb29sX25hbWUYBCABKAkSKAoIcHJvdG9jb2wYBSABKA4yFi5wb29scy52MS5Qb29sUHJvdG9jb2xKBAgGEAdKBAgHEAhSDGpkc19lbmRwb2ludFIXam9iX2RlY2xhcmF0aW9uX2VuYWJsZWQiEgoQTGlzdFBvb2xzUmVxdWVzdCIyChFMaXN0UG9vbHNSZXNwb25zZRIdCgVwb29scxgBIAMoCzIOLnBvb2xzLnYxLlBvb2wiPgoRQ3JlYXRlUG9vbFJlcXVlc3QSKQoLcG9vbF9jb25maWcYASABKAsyFC5wb29scy52MS5Qb29sQ29uZmlnIjIKEkNyZWF0ZVBvb2xSZXNwb25zZRIcCgRwb29sGAEgASgLMg4ucG9vbHMudjEuUG9vbCLABQoRVXBkYXRlUG9vbFJlcXVlc3QSDwoHcG9vbF9pZBgBIAEoAxIWCglwb29sX25hbWUYAiABKAlIAIgBARIQCgN1cmwYAyABKAlIAYgBARIVCgh1c2VybmFtZRgEIAEoCUgCiAEBEi4KCHBhc3N3b3JkGAUgASgLMhwuZ29vZ2xlLnByb3RvYnVmLlN0cmluZ1ZhbHVlOvUDukjxAxruAwoddXBkYXRlX3Bvb2xfdXJsX3NjaGVtZV9pZl9zZXQSjQF1cmwgbXVzdCBzdGFydCB3aXRoIHN0cmF0dW0rdGNwOi8vaG9zdDpwb3J0IChTdHJhdHVtIFYxKSBvciBzdHJhdHVtMit0Y3A6Ly9ob3N0OnBvcnQvQVVUSE9SSVRZX1BVQktFWSAoU3RyYXR1bSBWMiDigJQgcHVia2V5IHN1ZmZpeCByZXF1aXJlZCkavAIhaGFzKHRoaXMudXJsKSB8fCB0aGlzLnVybC5tYXRjaGVzKCdec3RyYXR1bVxcK3RjcDovLygoW2EtekEtWjAtOV0oW2EtekEtWjAtOS4tXSpbYS16QS1aMC05XSk/KXwoXFxkezEsM31cXC4pezN9XFxkezEsM318XFxbKFswLTlhLWZBLUY6XSspXFxdKTpcXGR7MSw1fSQnKSB8fCB0aGlzLnVybC5tYXRjaGVzKCdec3RyYXR1bTJcXCt0Y3A6Ly8oKFthLXpBLVowLTldKFthLXpBLVowLTkuLV0qW2EtekEtWjAtOV0pPyl8KFxcZHsxLDN9XFwuKXszfVxcZHsxLDN9fFxcWyhbMC05YS1mQS1GOl0rKVxcXSk6XFxkezEsNX0vW0EtWmEtejAtOS5ffis9LV0rJCcpQgwKCl9wb29sX25hbWVCBgoEX3VybEILCglfdXNlcm5hbWVKBAgGEAdSCHByb3RvY29sIjIKElVwZGF0ZVBvb2xSZXNwb25zZRIcCgRwb29sGAEgASgLMg4ucG9vbHMudjEuUG9vbCIkChFEZWxldGVQb29sUmVxdWVzdBIPCgdwb29sX2lkGAEgASgDIhQKEkRlbGV0ZVBvb2xSZXNwb25zZSKrBQoTVmFsaWRhdGVQb29sUmVxdWVzdBIXCgN1cmwYASABKAlCCrpIB8gBAXICEAwSGAoIdXNlcm5hbWUYAiABKAlCBrpIA8gBARIuCghwYXNzd29yZBgDIAEoCzIcLmdvb2dsZS5wcm90b2J1Zi5TdHJpbmdWYWx1ZRI7Cgd0aW1lb3V0GAQgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uQg+6SAyqAQkiAwjoAjICCAESKAoQbm9pc2VfcHVibGljX2tleRgGIAEoDEIJukgGegQQABggSACIAQE6pAO6SKADGp0DCg9wb29sX3VybF9zY2hlbWUSWnVybCBtdXN0IHN0YXJ0IHdpdGggc3RyYXR1bSt0Y3A6Ly9ob3N0OnBvcnQgb3Igc3RyYXR1bTIrdGNwOi8vaG9zdDpwb3J0Wy9BVVRIT1JJVFlfUFVCS0VZXRqtAnRoaXMudXJsLm1hdGNoZXMoJ15zdHJhdHVtXFwrdGNwOi8vKChbYS16QS1aMC05XShbYS16QS1aMC05Li1dKlthLXpBLVowLTldKT8pfChcXGR7MSwzfVxcLil7M31cXGR7MSwzfXxcXFsoWzAtOWEtZkEtRjpdKylcXF0pOlxcZHsxLDV9JCcpIHx8IHRoaXMudXJsLm1hdGNoZXMoJ15zdHJhdHVtMlxcK3RjcDovLygoW2EtekEtWjAtOV0oW2EtekEtWjAtOS4tXSpbYS16QS1aMC05XSk/KXwoXFxkezEsM31cXC4pezN9XFxkezEsM318XFxbKFswLTlhLWZBLUY6XSspXFxdKTpcXGR7MSw1fSgvW0EtWmEtejAtOS5ffis9LV0rKT8kJylCEwoRX25vaXNlX3B1YmxpY19rZXlKBAgFEAZSCHByb3RvY29sIm8KFFZhbGlkYXRlUG9vbFJlc3BvbnNlEhEKCXJlYWNoYWJsZRgBIAEoCBIcChRjcmVkZW50aWFsc192ZXJpZmllZBgCIAEoCBImCgRtb2RlGAMgASgOMhgucG9vbHMudjEuVmFsaWRhdGlvbk1vZGUqWwoMUG9vbFByb3RvY29sEh0KGVBPT0xfUFJPVE9DT0xfVU5TUEVDSUZJRUQQABIVChFQT09MX1BST1RPQ09MX1NWMRABEhUKEVBPT0xfUFJPVE9DT0xfU1YyEAIqowEKFFBvb2xDb25uZWN0aW9uU3RhdHVzEiYKIlBPT0xfQ09OTkVDVElPTl9TVEFUVVNfVU5TUEVDSUZJRUQQABIfChtQT09MX0NPTk5FQ1RJT05fU1RBVFVTX0lETEUQARIhCh1QT09MX0NPTk5FQ1RJT05fU1RBVFVTX0FDVElWRRACEh8KG1BPT0xfQ09OTkVDVElPTl9TVEFUVVNfREVBRBADKpwBCg5WYWxpZGF0aW9uTW9kZRIfChtWQUxJREFUSU9OX01PREVfVU5TUEVDSUZJRUQQABIkCiBWQUxJREFUSU9OX01PREVfU1YxX0FVVEhFTlRJQ0FURRABEiAKHFZBTElEQVRJT05fTU9ERV9TVjJfVENQX0RJQUwQAhIhCh1WQUxJREFUSU9OX01PREVfU1YyX0hBTkRTSEFLRRADMv4CCgxQb29sc1NlcnZpY2USRAoJTGlzdFBvb2xzEhoucG9vbHMudjEuTGlzdFBvb2xzUmVxdWVzdBobLnBvb2xzLnYxLkxpc3RQb29sc1Jlc3BvbnNlEkcKCkNyZWF0ZVBvb2wSGy5wb29scy52MS5DcmVhdGVQb29sUmVxdWVzdBocLnBvb2xzLnYxLkNyZWF0ZVBvb2xSZXNwb25zZRJHCgpVcGRhdGVQb29sEhsucG9vbHMudjEuVXBkYXRlUG9vbFJlcXVlc3QaHC5wb29scy52MS5VcGRhdGVQb29sUmVzcG9uc2USRwoKRGVsZXRlUG9vbBIbLnBvb2xzLnYxLkRlbGV0ZVBvb2xSZXF1ZXN0GhwucG9vbHMudjEuRGVsZXRlUG9vbFJlc3BvbnNlEk0KDFZhbGlkYXRlUG9vbBIdLnBvb2xzLnYxLlZhbGlkYXRlUG9vbFJlcXVlc3QaHi5wb29scy52MS5WYWxpZGF0ZVBvb2xSZXNwb25zZUKgAQoMY29tLnBvb2xzLnYxQgpQb29sc1Byb3RvUAFaQ2dpdGh1Yi5jb20vYmxvY2svcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL3Bvb2xzL3YxO3Bvb2xzdjGiAgNQWFiqAghQb29scy5WMcoCCFBvb2xzXFYx4gIUUG9vbHNcVjFcR1BCTWV0YWRhdGHqAglQb29sczo6VjFiBnByb3RvMw", [file_google_protobuf_duration, file_google_protobuf_wrappers, file_buf_validate_validate]);
+export const file_pools_v1_pools: GenFile =
+  /*@__PURE__*/
+  fileDesc(
+    "ChRwb29scy92MS9wb29scy5wcm90bxIIcG9vbHMudjEi6gUKClBvb2xDb25maWcSCwoDdXJsGAEgASgJEhAKCHVzZXJuYW1lGAIgASgJEi4KCHBhc3N3b3JkGAMgASgLMhwuZ29vZ2xlLnByb3RvYnVmLlN0cmluZ1ZhbHVlEhEKCXBvb2xfbmFtZRgEIAEoCTq2BLpIsgQarwQKFnBvb2xfY29uZmlnX3VybF9zY2hlbWUS5wF1cmwgbXVzdCBzdGFydCB3aXRoIHN0cmF0dW0rdGNwOi8vaG9zdDpwb3J0IChTdHJhdHVtIFYxKSBvciBzdHJhdHVtMit0Y3A6Ly9ob3N0OnBvcnQvQVVUSE9SSVRZX1BVQktFWSAoU3RyYXR1bSBWMiDigJQgcHVia2V5IHN1ZmZpeCByZXF1aXJlZCBzbyBzYXZlZCBwb29scyBmdWxseSBpZGVudGlmeSB0aGUgdXBzdHJlYW0gYW5kIG1hdGNoIHRoZSBidW5kbGVkIHRQcm94eSdzIHBpbm5lZCBpZGVudGl0eSkaqgJ0aGlzLnVybC5tYXRjaGVzKCdec3RyYXR1bVxcK3RjcDovLygoW2EtekEtWjAtOV0oW2EtekEtWjAtOS4tXSpbYS16QS1aMC05XSk/KXwoXFxkezEsM31cXC4pezN9XFxkezEsM318XFxbKFswLTlhLWZBLUY6XSspXFxdKTpcXGR7MSw1fSQnKSB8fCB0aGlzLnVybC5tYXRjaGVzKCdec3RyYXR1bTJcXCt0Y3A6Ly8oKFthLXpBLVowLTldKFthLXpBLVowLTkuLV0qW2EtekEtWjAtOV0pPyl8KFxcZHsxLDN9XFwuKXszfVxcZHsxLDN9fFxcWyhbMC05YS1mQS1GOl0rKVxcXSk6XFxkezEsNX0vW0EtWmEtejAtOS5ffis9LV0rJCcpSgQIBRAGSgQIBhAHSgQIBxAIUghwcm90b2NvbFIMamRzX2VuZHBvaW50Uhdqb2JfZGVjbGFyYXRpb25fZW5hYmxlZCKmAQoEUG9vbBIPCgdwb29sX2lkGAEgASgDEgsKA3VybBgCIAEoCRIQCgh1c2VybmFtZRgDIAEoCRIRCglwb29sX25hbWUYBCABKAkSKAoIcHJvdG9jb2wYBSABKA4yFi5wb29scy52MS5Qb29sUHJvdG9jb2xKBAgGEAdKBAgHEAhSDGpkc19lbmRwb2ludFIXam9iX2RlY2xhcmF0aW9uX2VuYWJsZWQiEgoQTGlzdFBvb2xzUmVxdWVzdCIyChFMaXN0UG9vbHNSZXNwb25zZRIdCgVwb29scxgBIAMoCzIOLnBvb2xzLnYxLlBvb2wiPgoRQ3JlYXRlUG9vbFJlcXVlc3QSKQoLcG9vbF9jb25maWcYASABKAsyFC5wb29scy52MS5Qb29sQ29uZmlnIjIKEkNyZWF0ZVBvb2xSZXNwb25zZRIcCgRwb29sGAEgASgLMg4ucG9vbHMudjEuUG9vbCLABQoRVXBkYXRlUG9vbFJlcXVlc3QSDwoHcG9vbF9pZBgBIAEoAxIWCglwb29sX25hbWUYAiABKAlIAIgBARIQCgN1cmwYAyABKAlIAYgBARIVCgh1c2VybmFtZRgEIAEoCUgCiAEBEi4KCHBhc3N3b3JkGAUgASgLMhwuZ29vZ2xlLnByb3RvYnVmLlN0cmluZ1ZhbHVlOvUDukjxAxruAwoddXBkYXRlX3Bvb2xfdXJsX3NjaGVtZV9pZl9zZXQSjQF1cmwgbXVzdCBzdGFydCB3aXRoIHN0cmF0dW0rdGNwOi8vaG9zdDpwb3J0IChTdHJhdHVtIFYxKSBvciBzdHJhdHVtMit0Y3A6Ly9ob3N0OnBvcnQvQVVUSE9SSVRZX1BVQktFWSAoU3RyYXR1bSBWMiDigJQgcHVia2V5IHN1ZmZpeCByZXF1aXJlZCkavAIhaGFzKHRoaXMudXJsKSB8fCB0aGlzLnVybC5tYXRjaGVzKCdec3RyYXR1bVxcK3RjcDovLygoW2EtekEtWjAtOV0oW2EtekEtWjAtOS4tXSpbYS16QS1aMC05XSk/KXwoXFxkezEsM31cXC4pezN9XFxkezEsM318XFxbKFswLTlhLWZBLUY6XSspXFxdKTpcXGR7MSw1fSQnKSB8fCB0aGlzLnVybC5tYXRjaGVzKCdec3RyYXR1bTJcXCt0Y3A6Ly8oKFthLXpBLVowLTldKFthLXpBLVowLTkuLV0qW2EtekEtWjAtOV0pPyl8KFxcZHsxLDN9XFwuKXszfVxcZHsxLDN9fFxcWyhbMC05YS1mQS1GOl0rKVxcXSk6XFxkezEsNX0vW0EtWmEtejAtOS5ffis9LV0rJCcpQgwKCl9wb29sX25hbWVCBgoEX3VybEILCglfdXNlcm5hbWVKBAgGEAdSCHByb3RvY29sIjIKElVwZGF0ZVBvb2xSZXNwb25zZRIcCgRwb29sGAEgASgLMg4ucG9vbHMudjEuUG9vbCIkChFEZWxldGVQb29sUmVxdWVzdBIPCgdwb29sX2lkGAEgASgDIhQKEkRlbGV0ZVBvb2xSZXNwb25zZSKrBQoTVmFsaWRhdGVQb29sUmVxdWVzdBIXCgN1cmwYASABKAlCCrpIB8gBAXICEAwSGAoIdXNlcm5hbWUYAiABKAlCBrpIA8gBARIuCghwYXNzd29yZBgDIAEoCzIcLmdvb2dsZS5wcm90b2J1Zi5TdHJpbmdWYWx1ZRI7Cgd0aW1lb3V0GAQgASgLMhkuZ29vZ2xlLnByb3RvYnVmLkR1cmF0aW9uQg+6SAyqAQkiAwjoAjICCAESKAoQbm9pc2VfcHVibGljX2tleRgGIAEoDEIJukgGegQQABggSACIAQE6pAO6SKADGp0DCg9wb29sX3VybF9zY2hlbWUSWnVybCBtdXN0IHN0YXJ0IHdpdGggc3RyYXR1bSt0Y3A6Ly9ob3N0OnBvcnQgb3Igc3RyYXR1bTIrdGNwOi8vaG9zdDpwb3J0Wy9BVVRIT1JJVFlfUFVCS0VZXRqtAnRoaXMudXJsLm1hdGNoZXMoJ15zdHJhdHVtXFwrdGNwOi8vKChbYS16QS1aMC05XShbYS16QS1aMC05Li1dKlthLXpBLVowLTldKT8pfChcXGR7MSwzfVxcLil7M31cXGR7MSwzfXxcXFsoWzAtOWEtZkEtRjpdKylcXF0pOlxcZHsxLDV9JCcpIHx8IHRoaXMudXJsLm1hdGNoZXMoJ15zdHJhdHVtMlxcK3RjcDovLygoW2EtekEtWjAtOV0oW2EtekEtWjAtOS4tXSpbYS16QS1aMC05XSk/KXwoXFxkezEsM31cXC4pezN9XFxkezEsM318XFxbKFswLTlhLWZBLUY6XSspXFxdKTpcXGR7MSw1fSgvW0EtWmEtejAtOS5ffis9LV0rKT8kJylCEwoRX25vaXNlX3B1YmxpY19rZXlKBAgFEAZSCHByb3RvY29sIm8KFFZhbGlkYXRlUG9vbFJlc3BvbnNlEhEKCXJlYWNoYWJsZRgBIAEoCBIcChRjcmVkZW50aWFsc192ZXJpZmllZBgCIAEoCBImCgRtb2RlGAMgASgOMhgucG9vbHMudjEuVmFsaWRhdGlvbk1vZGUqWwoMUG9vbFByb3RvY29sEh0KGVBPT0xfUFJPVE9DT0xfVU5TUEVDSUZJRUQQABIVChFQT09MX1BST1RPQ09MX1NWMRABEhUKEVBPT0xfUFJPVE9DT0xfU1YyEAIqowEKFFBvb2xDb25uZWN0aW9uU3RhdHVzEiYKIlBPT0xfQ09OTkVDVElPTl9TVEFUVVNfVU5TUEVDSUZJRUQQABIfChtQT09MX0NPTk5FQ1RJT05fU1RBVFVTX0lETEUQARIhCh1QT09MX0NPTk5FQ1RJT05fU1RBVFVTX0FDVElWRRACEh8KG1BPT0xfQ09OTkVDVElPTl9TVEFUVVNfREVBRBADKpwBCg5WYWxpZGF0aW9uTW9kZRIfChtWQUxJREFUSU9OX01PREVfVU5TUEVDSUZJRUQQABIkCiBWQUxJREFUSU9OX01PREVfU1YxX0FVVEhFTlRJQ0FURRABEiAKHFZBTElEQVRJT05fTU9ERV9TVjJfVENQX0RJQUwQAhIhCh1WQUxJREFUSU9OX01PREVfU1YyX0hBTkRTSEFLRRADMv4CCgxQb29sc1NlcnZpY2USRAoJTGlzdFBvb2xzEhoucG9vbHMudjEuTGlzdFBvb2xzUmVxdWVzdBobLnBvb2xzLnYxLkxpc3RQb29sc1Jlc3BvbnNlEkcKCkNyZWF0ZVBvb2wSGy5wb29scy52MS5DcmVhdGVQb29sUmVxdWVzdBocLnBvb2xzLnYxLkNyZWF0ZVBvb2xSZXNwb25zZRJHCgpVcGRhdGVQb29sEhsucG9vbHMudjEuVXBkYXRlUG9vbFJlcXVlc3QaHC5wb29scy52MS5VcGRhdGVQb29sUmVzcG9uc2USRwoKRGVsZXRlUG9vbBIbLnBvb2xzLnYxLkRlbGV0ZVBvb2xSZXF1ZXN0GhwucG9vbHMudjEuRGVsZXRlUG9vbFJlc3BvbnNlEk0KDFZhbGlkYXRlUG9vbBIdLnBvb2xzLnYxLlZhbGlkYXRlUG9vbFJlcXVlc3QaHi5wb29scy52MS5WYWxpZGF0ZVBvb2xSZXNwb25zZUKgAQoMY29tLnBvb2xzLnYxQgpQb29sc1Byb3RvUAFaQ2dpdGh1Yi5jb20vYmxvY2svcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL3Bvb2xzL3YxO3Bvb2xzdjGiAgNQWFiqAghQb29scy5WMcoCCFBvb2xzXFYx4gIUUG9vbHNcVjFcR1BCTWV0YWRhdGHqAglQb29sczo6VjFiBnByb3RvMw",
+    [file_google_protobuf_duration, file_google_protobuf_wrappers, file_buf_validate_validate],
+  );
 
 /**
  * PoolConfig defines the connection details for a mining pool.
@@ -68,8 +72,7 @@ export type PoolConfig = Message<"pools.v1.PoolConfig"> & {
  * Describes the message pools.v1.PoolConfig.
  * Use `create(PoolConfigSchema)` to create a new message.
  */
-export const PoolConfigSchema: GenMessage<PoolConfig> = /*@__PURE__*/
-  messageDesc(file_pools_v1_pools, 0);
+export const PoolConfigSchema: GenMessage<PoolConfig> = /*@__PURE__*/ messageDesc(file_pools_v1_pools, 0);
 
 /**
  * Pool defines a configured mining pool with its connection details and status
@@ -121,8 +124,7 @@ export type Pool = Message<"pools.v1.Pool"> & {
  * Describes the message pools.v1.Pool.
  * Use `create(PoolSchema)` to create a new message.
  */
-export const PoolSchema: GenMessage<Pool> = /*@__PURE__*/
-  messageDesc(file_pools_v1_pools, 1);
+export const PoolSchema: GenMessage<Pool> = /*@__PURE__*/ messageDesc(file_pools_v1_pools, 1);
 
 /**
  * Request to retrieve all configured mining pools
@@ -131,15 +133,13 @@ export const PoolSchema: GenMessage<Pool> = /*@__PURE__*/
  *
  * @generated from message pools.v1.ListPoolsRequest
  */
-export type ListPoolsRequest = Message<"pools.v1.ListPoolsRequest"> & {
-};
+export type ListPoolsRequest = Message<"pools.v1.ListPoolsRequest"> & {};
 
 /**
  * Describes the message pools.v1.ListPoolsRequest.
  * Use `create(ListPoolsRequestSchema)` to create a new message.
  */
-export const ListPoolsRequestSchema: GenMessage<ListPoolsRequest> = /*@__PURE__*/
-  messageDesc(file_pools_v1_pools, 2);
+export const ListPoolsRequestSchema: GenMessage<ListPoolsRequest> = /*@__PURE__*/ messageDesc(file_pools_v1_pools, 2);
 
 /**
  * Response containing all configured mining pools
@@ -159,8 +159,7 @@ export type ListPoolsResponse = Message<"pools.v1.ListPoolsResponse"> & {
  * Describes the message pools.v1.ListPoolsResponse.
  * Use `create(ListPoolsResponseSchema)` to create a new message.
  */
-export const ListPoolsResponseSchema: GenMessage<ListPoolsResponse> = /*@__PURE__*/
-  messageDesc(file_pools_v1_pools, 3);
+export const ListPoolsResponseSchema: GenMessage<ListPoolsResponse> = /*@__PURE__*/ messageDesc(file_pools_v1_pools, 3);
 
 /**
  * Request to create a new mining pool configuration
@@ -181,8 +180,7 @@ export type CreatePoolRequest = Message<"pools.v1.CreatePoolRequest"> & {
  * Describes the message pools.v1.CreatePoolRequest.
  * Use `create(CreatePoolRequestSchema)` to create a new message.
  */
-export const CreatePoolRequestSchema: GenMessage<CreatePoolRequest> = /*@__PURE__*/
-  messageDesc(file_pools_v1_pools, 4);
+export const CreatePoolRequestSchema: GenMessage<CreatePoolRequest> = /*@__PURE__*/ messageDesc(file_pools_v1_pools, 4);
 
 /**
  * Response after creating a new mining pool
@@ -202,7 +200,8 @@ export type CreatePoolResponse = Message<"pools.v1.CreatePoolResponse"> & {
  * Describes the message pools.v1.CreatePoolResponse.
  * Use `create(CreatePoolResponseSchema)` to create a new message.
  */
-export const CreatePoolResponseSchema: GenMessage<CreatePoolResponse> = /*@__PURE__*/
+export const CreatePoolResponseSchema: GenMessage<CreatePoolResponse> =
+  /*@__PURE__*/
   messageDesc(file_pools_v1_pools, 5);
 
 /**
@@ -263,8 +262,7 @@ export type UpdatePoolRequest = Message<"pools.v1.UpdatePoolRequest"> & {
  * Describes the message pools.v1.UpdatePoolRequest.
  * Use `create(UpdatePoolRequestSchema)` to create a new message.
  */
-export const UpdatePoolRequestSchema: GenMessage<UpdatePoolRequest> = /*@__PURE__*/
-  messageDesc(file_pools_v1_pools, 6);
+export const UpdatePoolRequestSchema: GenMessage<UpdatePoolRequest> = /*@__PURE__*/ messageDesc(file_pools_v1_pools, 6);
 
 /**
  * Response after updating a pool's configuration
@@ -284,7 +282,8 @@ export type UpdatePoolResponse = Message<"pools.v1.UpdatePoolResponse"> & {
  * Describes the message pools.v1.UpdatePoolResponse.
  * Use `create(UpdatePoolResponseSchema)` to create a new message.
  */
-export const UpdatePoolResponseSchema: GenMessage<UpdatePoolResponse> = /*@__PURE__*/
+export const UpdatePoolResponseSchema: GenMessage<UpdatePoolResponse> =
+  /*@__PURE__*/
   messageDesc(file_pools_v1_pools, 7);
 
 /**
@@ -305,8 +304,7 @@ export type DeletePoolRequest = Message<"pools.v1.DeletePoolRequest"> & {
  * Describes the message pools.v1.DeletePoolRequest.
  * Use `create(DeletePoolRequestSchema)` to create a new message.
  */
-export const DeletePoolRequestSchema: GenMessage<DeletePoolRequest> = /*@__PURE__*/
-  messageDesc(file_pools_v1_pools, 8);
+export const DeletePoolRequestSchema: GenMessage<DeletePoolRequest> = /*@__PURE__*/ messageDesc(file_pools_v1_pools, 8);
 
 /**
  * Response after deleting a pool configuration
@@ -315,14 +313,14 @@ export const DeletePoolRequestSchema: GenMessage<DeletePoolRequest> = /*@__PURE_
  *
  * @generated from message pools.v1.DeletePoolResponse
  */
-export type DeletePoolResponse = Message<"pools.v1.DeletePoolResponse"> & {
-};
+export type DeletePoolResponse = Message<"pools.v1.DeletePoolResponse"> & {};
 
 /**
  * Describes the message pools.v1.DeletePoolResponse.
  * Use `create(DeletePoolResponseSchema)` to create a new message.
  */
-export const DeletePoolResponseSchema: GenMessage<DeletePoolResponse> = /*@__PURE__*/
+export const DeletePoolResponseSchema: GenMessage<DeletePoolResponse> =
+  /*@__PURE__*/
   messageDesc(file_pools_v1_pools, 9);
 
 /**
@@ -387,7 +385,8 @@ export type ValidatePoolRequest = Message<"pools.v1.ValidatePoolRequest"> & {
  * Describes the message pools.v1.ValidatePoolRequest.
  * Use `create(ValidatePoolRequestSchema)` to create a new message.
  */
-export const ValidatePoolRequestSchema: GenMessage<ValidatePoolRequest> = /*@__PURE__*/
+export const ValidatePoolRequestSchema: GenMessage<ValidatePoolRequest> =
+  /*@__PURE__*/
   messageDesc(file_pools_v1_pools, 10);
 
 /**
@@ -424,7 +423,8 @@ export type ValidatePoolResponse = Message<"pools.v1.ValidatePoolResponse"> & {
  * Describes the message pools.v1.ValidatePoolResponse.
  * Use `create(ValidatePoolResponseSchema)` to create a new message.
  */
-export const ValidatePoolResponseSchema: GenMessage<ValidatePoolResponse> = /*@__PURE__*/
+export const ValidatePoolResponseSchema: GenMessage<ValidatePoolResponse> =
+  /*@__PURE__*/
   messageDesc(file_pools_v1_pools, 11);
 
 /**
@@ -454,8 +454,7 @@ export enum PoolProtocol {
 /**
  * Describes the enum pools.v1.PoolProtocol.
  */
-export const PoolProtocolSchema: GenEnum<PoolProtocol> = /*@__PURE__*/
-  enumDesc(file_pools_v1_pools, 0);
+export const PoolProtocolSchema: GenEnum<PoolProtocol> = /*@__PURE__*/ enumDesc(file_pools_v1_pools, 0);
 
 /**
  * @generated from enum pools.v1.PoolConnectionStatus
@@ -485,8 +484,7 @@ export enum PoolConnectionStatus {
 /**
  * Describes the enum pools.v1.PoolConnectionStatus.
  */
-export const PoolConnectionStatusSchema: GenEnum<PoolConnectionStatus> = /*@__PURE__*/
-  enumDesc(file_pools_v1_pools, 1);
+export const PoolConnectionStatusSchema: GenEnum<PoolConnectionStatus> = /*@__PURE__*/ enumDesc(file_pools_v1_pools, 1);
 
 /**
  * ValidationMode describes what kind of probe ValidatePool actually ran.
@@ -526,8 +524,7 @@ export enum ValidationMode {
 /**
  * Describes the enum pools.v1.ValidationMode.
  */
-export const ValidationModeSchema: GenEnum<ValidationMode> = /*@__PURE__*/
-  enumDesc(file_pools_v1_pools, 2);
+export const ValidationModeSchema: GenEnum<ValidationMode> = /*@__PURE__*/ enumDesc(file_pools_v1_pools, 2);
 
 /**
  * @generated from service pools.v1.PoolsService
@@ -542,7 +539,7 @@ export const PoolsService: GenService<{
     methodKind: "unary";
     input: typeof ListPoolsRequestSchema;
     output: typeof ListPoolsResponseSchema;
-  },
+  };
   /**
    * Creates a new mining pool configuration
    *
@@ -552,7 +549,7 @@ export const PoolsService: GenService<{
     methodKind: "unary";
     input: typeof CreatePoolRequestSchema;
     output: typeof CreatePoolResponseSchema;
-  },
+  };
   /**
    * Updates an existing pool's configuration
    *
@@ -562,7 +559,7 @@ export const PoolsService: GenService<{
     methodKind: "unary";
     input: typeof UpdatePoolRequestSchema;
     output: typeof UpdatePoolResponseSchema;
-  },
+  };
   /**
    * Deletes a pool configuration
    *
@@ -572,7 +569,7 @@ export const PoolsService: GenService<{
     methodKind: "unary";
     input: typeof DeletePoolRequestSchema;
     output: typeof DeletePoolResponseSchema;
-  },
+  };
   /**
    * Validates a pool's connection details
    *
@@ -582,7 +579,5 @@ export const PoolsService: GenService<{
     methodKind: "unary";
     input: typeof ValidatePoolRequestSchema;
     output: typeof ValidatePoolResponseSchema;
-  },
-}> = /*@__PURE__*/
-  serviceDesc(file_pools_v1_pools, 0);
-
+  };
+}> = /*@__PURE__*/ serviceDesc(file_pools_v1_pools, 0);
