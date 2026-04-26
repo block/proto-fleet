@@ -14,6 +14,7 @@ import DefaultContentLayout from "@/protoOS/components/ContentLayout/DefaultCont
 import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
 import { navigationMenuTypes } from "@/protoOS/components/NavigationMenu";
 import NoPoolsCallout from "@/protoOS/components/NoPoolsCallout";
+import { getNoPoolsCalloutState } from "@/protoOS/components/NoPoolsCallout/utility";
 import { WarnWakeDialog } from "@/protoOS/components/Power";
 import LoginModal from "@/protoOS/features/auth/components/LoginModal";
 import { isAuthRequiredPath } from "@/protoOS/routeAuth";
@@ -228,12 +229,15 @@ const App = ({
   const wakeDialog = useWakeDialog();
   const poolsInfo = usePoolsInfoStore();
 
-  const noPoolsLive = useMemo(
-    () => poolsInfo !== undefined && !poolsInfo?.find((pool) => /alive|active/i.test(pool?.status ?? "")),
-    [poolsInfo],
+  // Suppress the global "No mining pools configured" banner on the Pools
+  // page when it's already in its own null state — otherwise the user sees
+  // the same empty-state message and CTA twice.
+  const { arePoolsConfigured, shouldShowNoPoolsCallout } = useMemo(
+    () => getNoPoolsCalloutState(poolsInfo, pathname),
+    [poolsInfo, pathname],
   );
 
-  const hasVisibleCallout = isWarmingUp || isSleeping || noPoolsLive;
+  const hasVisibleCallout = isWarmingUp || isSleeping || shouldShowNoPoolsCallout;
 
   // ============================================================================
   // DERIVED FLAGS
@@ -381,7 +385,9 @@ const App = ({
           <AppLayout title={title} ContentLayout={ContentLayout} type={navigationMenuTypes.app}>
             {calloutTopSpacing && hasVisibleCallout ? <div className="pt-14 phone:pt-6 tablet:pt-6" /> : null}
             {isWarmingUp ? <WarmingUpCallout /> : <WakeCallout afterWake={afterWake} onWake={handleWake} />}
-            {noPoolsLive && !isWarmingUp ? <NoPoolsCallout arePoolsConfigured={!!poolsInfo?.[0]?.url} /> : null}
+            {shouldShowNoPoolsCallout && !isWarmingUp ? (
+              <NoPoolsCallout arePoolsConfigured={arePoolsConfigured} />
+            ) : null}
             {!isWarmingUp && !isSleeping && errors.errors?.length && !hideErrors ? <ErrorCallout /> : null}
             {children}
           </AppLayout>

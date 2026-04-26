@@ -1,8 +1,9 @@
 import { useMemo } from "react";
-import { Outlet } from "react-router-dom";
+import { Outlet, useLocation } from "react-router-dom";
 import { useTelemetry, useTimeSeries } from "@/protoOS/api";
 import { HashboardFieldType, MinerFieldType } from "@/protoOS/api/generatedApi";
 import NoPoolsCallout from "@/protoOS/components/NoPoolsCallout";
+import { getNoPoolsCalloutState } from "@/protoOS/components/NoPoolsCallout/utility";
 import TabMenu from "@/protoOS/features/kpis/components/TabMenu";
 import { usePoolsInfo } from "@/protoOS/store";
 import { useDuration, useSetDuration } from "@/protoOS/store";
@@ -13,6 +14,7 @@ const KpiLayout = () => {
   const poolsInfo = usePoolsInfo();
   const duration = useDuration();
   const setDuration = useSetDuration();
+  const { pathname } = useLocation();
 
   // Get latest miner level telemetry fo tabnav summary
   useTelemetry({ level: ["miner"] });
@@ -45,18 +47,15 @@ const KpiLayout = () => {
     poll: true,
   });
 
-  const noPoolsLive = useMemo(() => {
-    return (
-      poolsInfo !== undefined &&
-      // TODO: remove alive when cgminer is removed
-      !poolsInfo?.find((pool) => /alive|active/i.test(pool?.status ?? ""))
-    );
-  }, [poolsInfo]);
+  const { arePoolsConfigured, shouldShowNoPoolsCallout } = useMemo(
+    () => getNoPoolsCalloutState(poolsInfo, pathname),
+    [poolsInfo, pathname],
+  );
 
   return (
     <ErrorBoundary>
       <div className="p-14 phone:p-6 tablet:p-10">
-        {noPoolsLive ? <NoPoolsCallout arePoolsConfigured={!!poolsInfo?.[0]?.url} /> : null}
+        {shouldShowNoPoolsCallout ? <NoPoolsCallout arePoolsConfigured={arePoolsConfigured} /> : null}
 
         <div className="relative flex h-[calc(100vh-theme(spacing.36))] min-h-[800px] flex-col phone:min-h-[1000px]">
           <div className="flex items-center pb-6">
