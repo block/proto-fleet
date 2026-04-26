@@ -1,0 +1,10 @@
+{
+  "version": "nightly-20260426-5bf1ee7544c7",
+  "tag": "nightly-20260426-5bf1ee7544c7",
+  "commit": "5bf1ee7544c7185bac6c38df8f366bc73b8a0ffe",
+  "build_date": "2026-04-26T05:08:57Z",
+  "run_id": "24948859989",
+  "run_number": "1",
+  "run_attempt": "1",
+  "release_url": "https://github.com/block/proto-fleet/releases/tag/nightly-20260426-5bf1ee7544c7"
+}
