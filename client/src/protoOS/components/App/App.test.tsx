@@ -94,7 +94,9 @@ vi.mock("@/protoOS/components/NavigationMenu", () => ({
 }));
 
 vi.mock("@/protoOS/components/NoPoolsCallout", () => ({
-  default: () => null,
+  default: ({ arePoolsConfigured }: { arePoolsConfigured: boolean }) => (
+    <div data-testid="no-pools-callout" data-pools-configured={String(arePoolsConfigured)} />
+  ),
 }));
 
 vi.mock("@/protoOS/components/Power", () => ({
@@ -298,5 +300,43 @@ describe("App auth gating", () => {
     onDismiss();
 
     expect(mocks.navigate).not.toHaveBeenCalled();
+  });
+
+  it("hides the no-pools callout on the mining pools null state page", () => {
+    // The Pools page renders its own null state when no pools are configured
+    // ("Add up to 3 pools for your miner."). Surfacing the global "No mining
+    // pools configured" banner on top of it duplicates the empty-state
+    // message and CTA, so the App-level callout must defer to the page.
+    mocks.useLocation.mockReturnValue({ pathname: "/settings/mining-pools", state: null });
+    mocks.usePoolsInfoStore.mockReturnValue([]);
+
+    render(<App title="App" />);
+
+    expect(screen.queryByTestId("no-pools-callout")).not.toBeInTheDocument();
+  });
+
+  it("still shows the no-pools callout on other pages when no pools are configured", () => {
+    mocks.useLocation.mockReturnValue({ pathname: "/settings/general", state: null });
+    mocks.usePoolsInfoStore.mockReturnValue([]);
+
+    render(<App title="App" />);
+
+    const callout = screen.getByTestId("no-pools-callout");
+    expect(callout).toBeInTheDocument();
+    expect(callout).toHaveAttribute("data-pools-configured", "false");
+  });
+
+  it("shows the no-pools callout on the mining pools page when configured pools are all offline", () => {
+    // When pools ARE configured but every one is dead, the Pools page renders
+    // its normal edit UI rather than the null state — the lost-connection
+    // banner is still relevant context, so it should remain visible there.
+    mocks.useLocation.mockReturnValue({ pathname: "/settings/mining-pools", state: null });
+    mocks.usePoolsInfoStore.mockReturnValue([{ status: "Dead", url: "stratum+tcp://primary.example:3333" }]);
+
+    render(<App title="App" />);
+
+    const callout = screen.getByTestId("no-pools-callout");
+    expect(callout).toBeInTheDocument();
+    expect(callout).toHaveAttribute("data-pools-configured", "true");
   });
 });
