@@ -77,15 +77,11 @@ const AuthenticateFleetModal = ({ open, purpose, onAuthenticated, onDismiss }: A
   );
 
   return (
-    <Modal
-      open={open}
-      title={title}
-      description="Contact your system administrator if you need access to edit settings."
-      onDismiss={onDismiss}
-      icon={null}
-      divider={false}
-      bodyClassName="-mt-2"
-    >
+    <Modal open={open} onDismiss={onDismiss} icon={null} divider={false} showHeader={false}>
+      <div className="mb-1 text-heading-300 text-text-primary">{title}</div>
+      <div className="mb-4 max-w-[600px] text-300 text-text-primary-70">
+        Contact your system administrator if you need access to edit settings.
+      </div>
       {errorMessage ? <Callout className="mb-4" intent="danger" prefixIcon={<Alert />} title={errorMessage} /> : null}
 
       <div className="flex flex-col gap-4" onKeyDown={handleKeyDown}>
