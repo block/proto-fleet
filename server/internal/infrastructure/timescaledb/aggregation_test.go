@@ -9,6 +9,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestIsCumulativeMetric(t *testing.T) {
@@ -592,7 +593,7 @@ func TestCalculateTemperatureStatusCount_DedupesPerDevice(t *testing.T) {
 
 	// Two miners, each reporting many samples in the same bucket.
 	// Miner A: stable at 50°C (Ok). Miner B: stable at 85°C (Hot).
-	// Without dedup the per-sample counter returns 6 Ok + 6 Hot = 12 entries.
+	// Without dedup the per-sample counter returns 3 Ok + 3 Hot = 6 entries.
 	data := []modelsV2.DeviceMetrics{
 		{DeviceIdentifier: "miner-a", Timestamp: now, TempC: &modelsV2.MetricValue{Value: 50}},
 		{DeviceIdentifier: "miner-a", Timestamp: now.Add(10 * time.Second), TempC: &modelsV2.MetricValue{Value: 50}},
@@ -692,4 +693,54 @@ func TestCalculateUptimeStatusCount_LatestHealthWins(t *testing.T) {
 func TestLatestSamplePerDevice_Empty(t *testing.T) {
 	assert.Nil(t, latestSamplePerDevice(nil))
 	assert.Nil(t, latestSamplePerDevice([]modelsV2.DeviceMetrics{}))
+}
+
+// TestCalculateTemperatureStatusCount_FallsBackToEarlierTempSample verifies
+// that a device whose latest sample is missing TempC is still counted using
+// its most recent sample that has TempC populated. Without this fallback the
+// chart would underreport device counts whenever telemetry temporarily drops
+// the temperature field.
+func TestCalculateTemperatureStatusCount_FallsBackToEarlierTempSample(t *testing.T) {
+	now := time.Now()
+
+	// miner-a: earlier sample has TempC=85 (Hot), latest sample has nil TempC.
+	// miner-b: only one sample, with TempC=50 (Ok).
+	data := []modelsV2.DeviceMetrics{
+		{DeviceIdentifier: "miner-a", Timestamp: now, TempC: &modelsV2.MetricValue{Value: 85}},
+		{DeviceIdentifier: "miner-a", Timestamp: now.Add(30 * time.Second)}, // TempC nil
+		{DeviceIdentifier: "miner-b", Timestamp: now, TempC: &modelsV2.MetricValue{Value: 50}},
+	}
+
+	result := calculateTemperatureStatusCount(data, now)
+
+	assert.Equal(t, int32(1), result.OkCount, "miner-b counted from its only sample")
+	assert.Equal(t, int32(1), result.HotCount, "miner-a counted from its earlier TempC sample")
+}
+
+func TestLatestSamplesForStatusCounts_Empty(t *testing.T) {
+	uptime, temp := latestSamplesForStatusCounts(nil)
+	assert.Nil(t, uptime)
+	assert.Nil(t, temp)
+}
+
+// TestLatestSamplesForStatusCounts_DivergentLatest covers the case where
+// uptime and temperature views diverge: a device's latest sample drops TempC
+// but still carries Health, so it appears in the uptime view but is
+// represented by an earlier sample in the temperature view.
+func TestLatestSamplesForStatusCounts_DivergentLatest(t *testing.T) {
+	now := time.Now()
+	data := []modelsV2.DeviceMetrics{
+		{DeviceIdentifier: "miner-a", Timestamp: now, Health: modelsV2.HealthHealthyActive, TempC: &modelsV2.MetricValue{Value: 70}},
+		{DeviceIdentifier: "miner-a", Timestamp: now.Add(30 * time.Second), Health: modelsV2.HealthHealthyActive},
+	}
+
+	uptime, temp := latestSamplesForStatusCounts(data)
+
+	require.Len(t, uptime, 1)
+	assert.Equal(t, now.Add(30*time.Second), uptime[0].Timestamp, "uptime view uses absolute latest")
+
+	require.Len(t, temp, 1)
+	require.NotNil(t, temp[0].TempC)
+	assert.Equal(t, 70.0, temp[0].TempC.Value, "temp view uses latest sample with TempC")
+	assert.Equal(t, now, temp[0].Timestamp)
 }

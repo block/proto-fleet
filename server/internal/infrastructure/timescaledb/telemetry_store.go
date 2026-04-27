@@ -1157,14 +1157,15 @@ func (s *TimescaleTelemetryStore) aggregateMetrics(
 	for _, bucketTime := range bucketTimes {
 		bucketData := buckets[bucketTime]
 
-		// Dedupe once per bucket — both status-count functions need the
-		// per-device latest sample, and raw buckets can be large.
-		latestPerDevice := latestSamplePerDevice(bucketData)
+		// Dedupe once per bucket — both status-count functions need a
+		// per-device latest sample, with temperature using the latest
+		// sample that actually has TempC populated.
+		uptimeLatest, tempLatest := latestSamplesForStatusCounts(bucketData)
 
-		tempCount := temperatureStatusCountFromLatest(latestPerDevice, bucketTime)
+		tempCount := temperatureStatusCountFromLatest(tempLatest, bucketTime)
 		tempCounts = append(tempCounts, tempCount)
 
-		uptimeCount := uptimeStatusCountFromLatest(latestPerDevice, bucketTime)
+		uptimeCount := uptimeStatusCountFromLatest(uptimeLatest, bucketTime)
 		uptimeCounts = append(uptimeCounts, uptimeCount)
 
 		for _, measurementType := range measurementTypes {
@@ -1369,15 +1370,51 @@ func latestSamplePerDevice(data []modelsV2.DeviceMetrics) []modelsV2.DeviceMetri
 	return out
 }
 
+// latestSamplesForStatusCounts walks the bucket once and returns two deduped
+// views: the latest sample per device (for uptime), and the latest sample per
+// device that has a TempC reading (for temperature). The TempC-aware view
+// avoids dropping a device just because its very latest sample happens to be
+// missing a temperature — TempC reporting can be intermittent, while Health
+// is set on every sample.
+func latestSamplesForStatusCounts(data []modelsV2.DeviceMetrics) (uptime, temperature []modelsV2.DeviceMetrics) {
+	if len(data) == 0 {
+		return nil, nil
+	}
+	allLatest := make(map[string]modelsV2.DeviceMetrics, len(data))
+	tempLatest := make(map[string]modelsV2.DeviceMetrics, len(data))
+	for _, m := range data {
+		if existing, ok := allLatest[m.DeviceIdentifier]; !ok || m.Timestamp.After(existing.Timestamp) {
+			allLatest[m.DeviceIdentifier] = m
+		}
+		if m.TempC == nil {
+			continue
+		}
+		if existing, ok := tempLatest[m.DeviceIdentifier]; !ok || m.Timestamp.After(existing.Timestamp) {
+			tempLatest[m.DeviceIdentifier] = m
+		}
+	}
+	uptime = make([]modelsV2.DeviceMetrics, 0, len(allLatest))
+	for _, m := range allLatest {
+		uptime = append(uptime, m)
+	}
+	temperature = make([]modelsV2.DeviceMetrics, 0, len(tempLatest))
+	for _, m := range tempLatest {
+		temperature = append(temperature, m)
+	}
+	return uptime, temperature
+}
+
 // calculateTemperatureStatusCount dedupes the bucket and counts each device
-// once. Prefer temperatureStatusCountFromLatest in hot loops where the caller
-// has already deduped.
+// once, using its latest sample that has a TempC reading. Prefer
+// temperatureStatusCountFromLatest in hot loops where the caller has already
+// deduped.
 func calculateTemperatureStatusCount(data []modelsV2.DeviceMetrics, timestamp time.Time) models.TemperatureStatusCount {
-	return temperatureStatusCountFromLatest(latestSamplePerDevice(data), timestamp)
+	_, temp := latestSamplesForStatusCounts(data)
+	return temperatureStatusCountFromLatest(temp, timestamp)
 }
 
 // temperatureStatusCountFromLatest classifies an already-deduped slice (one
-// DeviceMetrics per device, latest sample in the bucket).
+// DeviceMetrics per device, latest sample with TempC populated).
 func temperatureStatusCountFromLatest(latestPerDevice []modelsV2.DeviceMetrics, timestamp time.Time) models.TemperatureStatusCount {
 	var cold, ok, hot, critical int32
 
