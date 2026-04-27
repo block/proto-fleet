@@ -1,0 +1,50 @@
+package rewriter
+
+import (
+	"fmt"
+	"strings"
+
+	pb "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
+)
+
+// ProtocolFromURL maps a pool URL's scheme to the PoolProtocol enum.
+// The URL is the single source of truth for protocol — stratum+tcp is
+// SV1, stratum2+tcp is SV2, anything else is a validation error.
+// Shape validation (host/port/path) is the proto-level CEL rule's job;
+// this function only inspects the scheme prefix.
+//
+// Plain TCP only in v1: TLS variants (stratum+ssl / stratum2+ssl) and
+// the WebSocket variant (stratum+ws) are intentionally rejected here
+// because the dispatch path uses bare net.Dial and would silently fail
+// to negotiate TLS. Aligning the ProtocolFromURL whitelist with the CEL
+// regex is what keeps "URL the API said was valid" and "URL dispatch
+// can actually use" the same set.
+//
+// Returned alongside an error so callers that receive a pool URL from
+// an untrusted source (RPC requests) can reject cleanly rather than
+// silently defaulting to SV1 on a malformed input.
+func ProtocolFromURL(url string) (pb.PoolProtocol, error) {
+	lower := strings.ToLower(strings.TrimSpace(url))
+	switch {
+	case strings.HasPrefix(lower, "stratum2+tcp://"):
+		return pb.PoolProtocol_POOL_PROTOCOL_SV2, nil
+	case strings.HasPrefix(lower, "stratum+tcp://"):
+		return pb.PoolProtocol_POOL_PROTOCOL_SV1, nil
+	default:
+		return pb.PoolProtocol_POOL_PROTOCOL_UNSPECIFIED,
+			fmt.Errorf("pool URL has no recognised stratum scheme: %q", url)
+	}
+}
+
+// MustProtocolFromURL is ProtocolFromURL with the error swallowed as
+// SV1 — for code paths where the URL has already been CEL-validated
+// upstream and a scheme mismatch would be a programmer bug rather than
+// a runtime concern. Still logs nothing; it's an assertion, not a
+// recovery path.
+func MustProtocolFromURL(url string) pb.PoolProtocol {
+	p, err := ProtocolFromURL(url)
+	if err != nil {
+		return pb.PoolProtocol_POOL_PROTOCOL_SV1
+	}
+	return p
+}

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"connectrpc.com/connect"
 	"github.com/sqlc-dev/pqtype"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -21,6 +22,8 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetmanagement"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
+	"github.com/block/proto-fleet/server/internal/domain/pools/preflight"
+	"github.com/block/proto-fleet/server/internal/domain/pools/rewriter"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
@@ -62,6 +65,69 @@ type Service struct {
 	telemetryListener   TelemetryListener
 	capabilityChecker   *CapabilityChecker
 	activitySvc         *activity.Service
+
+	// sv2Caps nil means "treat every device as having no dynamic SV2
+	// info", so SV2 pools assigned to SV1 devices only succeed via the
+	// proxy. Set via SetStratumV2Resolvers so callers that don't care
+	// about SV2 need not touch the constructor.
+	sv2Caps   SV2CapabilityResolver
+	sv2Proxy  rewriter.ProxyConfig
+	sv2Health ProxyHealthChecker
+}
+
+// SV2CapabilityResolver supplies per-device capability snapshots to the
+// pool-assignment preflight. Implementations typically read the latest
+// telemetry scrape's StratumV2Support and overlay it on static/model
+// driver caps via rewriter.MergeCapabilities. A nil resolver is valid and
+// means "treat every device as SV1-only" — useful during the phased
+// plugin rollout before every plugin reports dynamic SV2 support.
+//
+// orgID is passed in so the static-capability lookup can be tenant-scoped
+// (the device store keys by org_id and we'd otherwise have to dig the
+// session out of the context every call).
+type SV2CapabilityResolver interface {
+	ResolveCapabilities(ctx context.Context, orgID int64, deviceIdentifiers []string) map[string]rewriter.DeviceCapabilities
+}
+
+// ProxyHealthChecker reports whether the bundled tProxy is up. The
+// preflight consults this before approving any proxied route — pushing
+// the proxy URL to miners while the translator is down would take a
+// fleet of SV1 miners off-pool until the operator notices. Up() and
+// HasState() match sv2.HealthMonitor's surface, so the production
+// wiring is just a direct hand-off; tests can plug in a fake.
+type ProxyHealthChecker interface {
+	Up() bool
+	HasState() bool
+}
+
+// SetStratumV2Resolvers wires SV2 inputs onto an existing service. Kept
+// out of NewService so the deployment wiring in main.go can install
+// optional SV2 plumbing without breaking tests that construct Service
+// positionally. A nil resolver + zero ProxyConfig is valid (SV1-only
+// deployment) and is the default until explicitly overridden.
+func (s *Service) SetStratumV2Resolvers(caps SV2CapabilityResolver, proxy rewriter.ProxyConfig, health ProxyHealthChecker) {
+	s.sv2Caps = caps
+	s.sv2Proxy = proxy
+	s.sv2Health = health
+}
+
+// effectiveProxyConfig returns the static rewriter ProxyConfig with
+// ProxyEnabled forced to false when the bundled translator is not
+// known to be reachable. Without this, a successful UpdateMiningPools
+// could push the proxy's miner-facing URL to every SV1-only miner
+// while the proxy container is down, taking the affected fleet
+// off-pool. Health-unknown is treated as "down" — preflight should
+// fail closed until the first probe lands.
+func (s *Service) effectiveProxyConfig() rewriter.ProxyConfig {
+	if !s.sv2Proxy.ProxyEnabled {
+		return s.sv2Proxy
+	}
+	if s.sv2Health == nil || !s.sv2Health.HasState() || !s.sv2Health.Up() {
+		gated := s.sv2Proxy
+		gated.ProxyEnabled = false
+		return gated
+	}
+	return s.sv2Proxy
 }
 
 const defaultPoolPriority uint32 = 0
@@ -485,9 +551,28 @@ func (s *Service) getDeviceIDs(ctx context.Context, selector *pb.DeviceSelector)
 			return []int64{}, nil
 		}
 
-		return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]int64, error) {
-			return q.GetDeviceIDsByDeviceIdentifiers(ctx, x.IncludeDevices.DeviceIdentifiers)
+		// Org-scope the lookup so a caller can't probe foreign-tenant
+		// devices through include_devices selectors. The query already
+		// drops cross-tenant identifiers; we additionally cross-check
+		// the row count so a partial-match request fails closed instead
+		// of silently operating on a strict subset.
+		ids, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]int64, error) {
+			return q.GetDeviceIDsByDeviceIdentifiersForOrg(ctx, sqlc.GetDeviceIDsByDeviceIdentifiersForOrgParams{
+				DeviceIdentifiers: x.IncludeDevices.DeviceIdentifiers,
+				OrgID:             info.OrganizationID,
+			})
 		})
+		if err != nil {
+			return nil, err
+		}
+		if len(ids) != len(x.IncludeDevices.DeviceIdentifiers) {
+			return nil, fleeterror.NewInvalidArgumentErrorf(
+				"include_devices: %d of %d identifiers are not in this organization or do not exist",
+				len(x.IncludeDevices.DeviceIdentifiers)-len(ids),
+				len(x.IncludeDevices.DeviceIdentifiers),
+			)
+		}
+		return ids, nil
 	default:
 		return nil, fleeterror.NewInternalErrorf("getDeviceIDs called with unknown type: %v", x)
 	}
@@ -658,6 +743,7 @@ func (s *Service) createMiningPoolDTO(ctx context.Context, poolID int64, priorit
 		Username:        pool.Username,
 		Password:        password,
 		AppendMinerName: shouldAppendMinerNameToUsername(pool.Username),
+		Protocol:        sqlstores.DBProtocolToProto(pool.Protocol),
 	}, nil
 }
 
@@ -676,12 +762,24 @@ func (s *Service) createMiningPoolDTOFromSlotConfig(ctx context.Context, config 
 		if source.RawPool.Password != nil {
 			password = *source.RawPool.Password
 		}
+		// CEL on RawPoolInfo enforces the same scheme whitelist as
+		// pools.v1.PoolConfig, but ProtocolFromURL is the authoritative
+		// runtime check — surface a typed INVALID_ARGUMENT instead of
+		// silently treating an unrecognised scheme as SV1, otherwise
+		// the rewriter would skip the SV2 preflight for raw pools that
+		// slipped past CEL (e.g. CEL not yet running for a stale client
+		// in dev).
+		protocol, err := rewriter.ProtocolFromURL(source.RawPool.Url)
+		if err != nil {
+			return nil, fleeterror.NewInvalidArgumentErrorf("raw pool url: %v", err)
+		}
 		return &dto.MiningPool{
 			Priority:        defaultPoolPriority + priorityIncrement,
 			URL:             source.RawPool.Url,
 			Username:        source.RawPool.Username,
 			Password:        password,
 			AppendMinerName: shouldAppendMinerNameToUsername(source.RawPool.Username),
+			Protocol:        protocol,
 		}, nil
 	default:
 		return nil, fleeterror.NewInternalErrorf("invalid pool source type")
@@ -736,19 +834,386 @@ func (s *Service) UpdateMiningPools(
 		return nil, err
 	}
 
-	commandBatchLogUUID, deviceCount, err := s.processCommand(
-		ctx,
-		&Command{commandType: commandtype.UpdateMiningPools, deviceSelector: deviceSelector, payload: pld},
-	)
+	// Resolve the device selector once — preflight, batch log, and
+	// EnqueuePerDevice all consume this list against the same snapshot.
+	deviceIDs, err := s.getDeviceIDs(ctx, deviceSelector)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error getting device IDs from device selector: %v", err)
+	}
+	if len(deviceIDs) > maxCommitDevices {
+		// Commit-time preflight materializes per-device JSON payloads
+		// in memory before writing queue rows. Without a cap a fleet-
+		// wide update on a very large org turns one unary RPC into a
+		// CPU/memory spike on the request path. The cap is high enough
+		// to cover any realistic single-deployment fleet but bounded
+		// enough that timing out / OOM-ing the API isn't a one-RPC
+		// move from an authenticated user. Operators with larger
+		// fleets need to scope the selector (manufacturer/model
+		// filters, sites, etc.) and run multiple updates.
+		return nil, fleeterror.NewInvalidArgumentErrorf(
+			"pool update supports up to %d devices per request; selector resolved to %d. Narrow the selector and run multiple updates.",
+			maxCommitDevices, len(deviceIDs),
+		)
+	}
+
+	// Synchronous preflight. The rewriter decides, per device, which slot
+	// URLs would get pushed; mismatches (SV2 pool + SV1 device + proxy off,
+	// or >1 SV2 slot routing through the single bundled proxy) surface as
+	// typed FAILED_PRECONDITION details so the UI doesn't have to parse
+	// strings. See docs/stratum-v2-plan.md "URL rewriting — the core logic".
+	deviceIDByIdentifier, perDeviceBytes, mismatches, err := s.preflightAndSerializePayloads(ctx, pld, deviceIDs)
 	if err != nil {
 		return nil, err
 	}
+	if len(mismatches) > 0 {
+		return nil, mismatchesToFailedPrecondition(mismatches)
+	}
 
-	s.logCommandActivity(ctx, "update_mining_pools", "Edit pool", deviceCount, commandBatchLogUUID)
+	// Batch-log payload is the template (pre-rewrite) payload, so activity
+	// log readers see the operator's intent rather than N distinct per-device
+	// payloads. Device rows carry the resolved bytes instead.
+	templateBytes, err := json.Marshal(pld)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error marshalling payload: %v", err)
+	}
+
+	if !s.executionService.IsRunning() {
+		slog.Error("command execution service is not running, attempting to start it")
+		if startErr := s.executionService.Start(ctx); startErr != nil {
+			return nil, fleeterror.NewInternalErrorf("failed to start command execution service: %v", startErr)
+		}
+	}
+
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error getting session info from ctx: %v", err)
+	}
+
+	commandBatchLogUUID, err := s.saveCommandBatchLogToDB(ctx, info.UserID, info.OrganizationID,
+		&Command{commandType: commandtype.UpdateMiningPools, deviceSelector: deviceSelector, payload: pld},
+		templateBytes,
+	)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error saving command batch log to db: %v", err)
+	}
+
+	// Re-key the per-device payload map onto internal device IDs, since
+	// queue rows are keyed on id, not identifier.
+	payloadsByDeviceID := make(map[int64][]byte, len(perDeviceBytes))
+	for identifier, body := range perDeviceBytes {
+		id, ok := deviceIDByIdentifier[identifier]
+		if !ok {
+			return nil, fleeterror.NewInternalErrorf("preflight returned payload for unknown device %q", identifier)
+		}
+		payloadsByDeviceID[id] = body
+	}
+
+	if err := s.messageQueue.EnqueuePerDevice(ctx, commandBatchLogUUID, commandtype.UpdateMiningPools, payloadsByDeviceID); err != nil {
+		return nil, fleeterror.NewInternalErrorf("error enqueuing per-device mining-pool updates: %v", err)
+	}
+
+	s.logCommandActivity(ctx, "update_mining_pools", "Edit pool", len(deviceIDs), commandBatchLogUUID)
 	s.initializeStatusUpdateRoutine(commandBatchLogUUID,
 		s.buildActivityCompletedCallback(ctx, commandBatchLogUUID, "update_mining_pools", "Edit pool"))
 
 	return &pb.UpdateMiningPoolsResponse{BatchIdentifier: commandBatchLogUUID}, nil
+}
+
+// maxCommitDevices caps the number of devices a single
+// UpdateMiningPools call can target. The commit path runs synchronous
+// preflight + per-device payload marshal before writing queue rows,
+// all in one unary RPC, so an unbounded fleet-wide update is a
+// straightforward request-path DoS lever. Operators above this need
+// to scope the selector (manufacturer/model/site filters) and run
+// multiple updates.
+const maxCommitDevices = 5000
+
+// preflightAndSerializePayloads runs the pool-assignment preflight for a
+// concrete device-ID set and returns (deviceID-by-identifier map,
+// per-device marshaled payloads, mismatches). When there are mismatches
+// the per-device payloads are nil — the caller rejects the whole batch
+// synchronously and never enqueues.
+func (s *Service) preflightAndSerializePayloads(
+	ctx context.Context,
+	template *dto.UpdateMiningPoolsPayload,
+	deviceIDs []int64,
+) (map[string]int64, map[string][]byte, []preflight.Mismatch, error) {
+	if len(deviceIDs) == 0 {
+		return nil, nil, nil, nil
+	}
+
+	idByIdentifier, err := s.resolveDeviceIdentifiers(ctx, deviceIDs)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	capsByIdentifier := s.resolveSV2Capabilities(ctx, idByIdentifier)
+
+	devices := make([]preflight.Device, 0, len(idByIdentifier))
+	for identifier := range idByIdentifier {
+		devices = append(devices, preflight.Device{
+			Identifier:   identifier,
+			Capabilities: capsByIdentifier[identifier],
+		})
+	}
+
+	slots := buildPreflightSlotAssignments(template)
+	out, err := preflight.Run(preflight.Input{
+		Slots:   slots,
+		Devices: devices,
+		Proxy:   s.effectiveProxyConfig(),
+	})
+	if err != nil {
+		return nil, nil, nil, fleeterror.NewInternalErrorf("pool-assignment preflight: %v", err)
+	}
+
+	if out.HasMismatch {
+		return idByIdentifier, nil, out.Mismatches(), nil
+	}
+
+	// Fast path: on an SV1-only fleet (or any mix where no device gets
+	// proxy-rewritten) every device's payload equals the template. We
+	// marshal once and share the bytes rather than json.Marshal per
+	// device, which matters on wide updates (hundreds of miners).
+	templateBytes, err := json.Marshal(template)
+	if err != nil {
+		return nil, nil, nil, fleeterror.NewInternalErrorf("error marshalling pool template: %v", err)
+	}
+
+	perDevice := make(map[string][]byte, len(out.Devices))
+	for _, d := range out.Devices {
+		if slotsMatchTemplate(template, d) {
+			perDevice[d.DeviceIdentifier] = templateBytes
+			continue
+		}
+		body, marshalErr := marshalPerDevicePayload(template, d)
+		if marshalErr != nil {
+			return nil, nil, nil, marshalErr
+		}
+		perDevice[d.DeviceIdentifier] = body
+	}
+
+	return idByIdentifier, perDevice, nil, nil
+}
+
+// slotsMatchTemplate reports whether every resolved slot's URL equals
+// the template's slot URL. True means the rewriter decided no rewrite
+// was needed for this device — we can skip the marshal and share the
+// template bytes.
+func slotsMatchTemplate(template *dto.UpdateMiningPoolsPayload, d preflight.DeviceResult) bool {
+	for _, s := range d.Slots {
+		switch s.Slot {
+		case rewriter.SlotDefault:
+			if s.EffectiveURL != template.DefaultPool.URL {
+				return false
+			}
+		case rewriter.SlotBackup1:
+			if template.Backup1Pool == nil || s.EffectiveURL != template.Backup1Pool.URL {
+				return false
+			}
+		case rewriter.SlotBackup2:
+			if template.Backup2Pool == nil || s.EffectiveURL != template.Backup2Pool.URL {
+				return false
+			}
+		case rewriter.SlotUnspecified:
+			// preflight.Run rejects SlotUnspecified at input validation;
+			// reaching here would be a programming error. Treat as a
+			// non-match so the caller takes the slow per-device marshal
+			// path rather than silently dropping the slot.
+			return false
+		}
+	}
+	return true
+}
+
+func (s *Service) resolveDeviceIdentifiers(ctx context.Context, deviceIDs []int64) (map[string]int64, error) {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error getting session info from context: %v", err)
+	}
+	rows, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]sqlc.GetDeviceIdentifiersByIDsForOrgRow, error) {
+		return q.GetDeviceIdentifiersByIDsForOrg(ctx, sqlc.GetDeviceIdentifiersByIDsForOrgParams{
+			DeviceIds: deviceIDs,
+			OrgID:     info.OrganizationID,
+		})
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error resolving device identifiers: %v", err)
+	}
+	// Fail closed when fewer rows come back than were requested: a
+	// device disappearing between getDeviceIDs and this lookup (race
+	// against a delete, or a row that was never owned by this org)
+	// must not silently shrink the target set. Without this check the
+	// preflight + commit path would proceed against a subset while the
+	// activity log still recorded the original count, hiding a partial
+	// pool repoint behind a "success" response.
+	if len(rows) != len(deviceIDs) {
+		return nil, fleeterror.NewFailedPreconditionErrorf(
+			"device set changed during pool update: %d of %d devices are missing or no longer in this organization",
+			len(deviceIDs)-len(rows), len(deviceIDs),
+		)
+	}
+	out := make(map[string]int64, len(rows))
+	for _, r := range rows {
+		out[r.DeviceIdentifier] = r.ID
+	}
+	return out, nil
+}
+
+func (s *Service) resolveSV2Capabilities(ctx context.Context, idByIdentifier map[string]int64) map[string]rewriter.DeviceCapabilities {
+	if s.sv2Caps == nil {
+		return nil
+	}
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		// No session in this code path is a programmer bug — every
+		// preflight/commit caller goes through an authenticated handler.
+		// Returning nil keeps the request safe (every device falls back
+		// to SV1-only routing) while the panic-free Warn surfaces the
+		// programming error in logs.
+		slog.Warn("sv2 capability resolver: no session in context; treating fleet as SV1-only", "error", err)
+		return nil
+	}
+	identifiers := make([]string, 0, len(idByIdentifier))
+	for k := range idByIdentifier {
+		identifiers = append(identifiers, k)
+	}
+	return s.sv2Caps.ResolveCapabilities(ctx, info.OrganizationID, identifiers)
+}
+
+// buildPreflightSlotAssignments extracts the (slot, pool) pairs from the
+// shared payload template. The template's protocol field comes from the
+// DB read (createMiningPoolDTO) or the raw-pool path
+// (createMiningPoolDTOFromSlotConfig), so it faithfully represents the
+// operator's intent at commit time.
+func buildPreflightSlotAssignments(template *dto.UpdateMiningPoolsPayload) []preflight.SlotAssignment {
+	slots := []preflight.SlotAssignment{{
+		Slot: rewriter.SlotDefault,
+		Pool: rewriter.Pool{URL: template.DefaultPool.URL, Protocol: template.DefaultPool.Protocol},
+	}}
+	if template.Backup1Pool != nil {
+		slots = append(slots, preflight.SlotAssignment{
+			Slot: rewriter.SlotBackup1,
+			Pool: rewriter.Pool{URL: template.Backup1Pool.URL, Protocol: template.Backup1Pool.Protocol},
+		})
+	}
+	if template.Backup2Pool != nil {
+		slots = append(slots, preflight.SlotAssignment{
+			Slot: rewriter.SlotBackup2,
+			Pool: rewriter.Pool{URL: template.Backup2Pool.URL, Protocol: template.Backup2Pool.Protocol},
+		})
+	}
+	return slots
+}
+
+// marshalPerDevicePayload clones the template and replaces each slot's
+// URL and Protocol with the rewriter's resolved values for this device.
+// Both fields can differ per device because of proxied routing: an SV2
+// pool rewritten to the SV1-facing translator URL is on-the-wire SV1,
+// and downstream drivers branch on Protocol. Keeping the template's
+// Protocol intact would let dispatch send protocol=SV2 alongside a
+// stratum+tcp:// URL — the parity break the preflight is supposed to
+// prevent.
+func marshalPerDevicePayload(template *dto.UpdateMiningPoolsPayload, d preflight.DeviceResult) ([]byte, error) {
+	deviceCopy := *template
+	for _, s := range d.Slots {
+		switch s.Slot {
+		case rewriter.SlotDefault:
+			deviceCopy.DefaultPool.URL = s.EffectiveURL
+			deviceCopy.DefaultPool.Protocol = s.Protocol
+		case rewriter.SlotBackup1:
+			if deviceCopy.Backup1Pool != nil {
+				backup := *deviceCopy.Backup1Pool
+				backup.URL = s.EffectiveURL
+				backup.Protocol = s.Protocol
+				deviceCopy.Backup1Pool = &backup
+			}
+		case rewriter.SlotBackup2:
+			if deviceCopy.Backup2Pool != nil {
+				backup := *deviceCopy.Backup2Pool
+				backup.URL = s.EffectiveURL
+				backup.Protocol = s.Protocol
+				deviceCopy.Backup2Pool = &backup
+			}
+		case rewriter.SlotUnspecified:
+			// preflight rejects this at validateInput; reach here only on
+			// a programming error, in which case skipping the slot
+			// preserves whatever URL the template already had.
+		}
+	}
+	body, err := json.Marshal(&deviceCopy)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error marshalling per-device mining pools payload: %v", err)
+	}
+	return body, nil
+}
+
+// maxMismatchDetails caps the per-error detail payload size for
+// commit-time FAILED_PRECONDITION responses. A bad pool assignment
+// against a large fleet could otherwise serialize thousands of
+// UpdateMiningPoolsMismatch protobuf details into a single Connect-RPC
+// response, blowing up CPU/memory on both ends and risking
+// intermediary size limits. The summary string still reflects the
+// total count so operators know how many devices failed.
+const maxMismatchDetails = 100
+
+// mismatchesToFailedPrecondition wraps preflight mismatches in a typed
+// FAILED_PRECONDITION error. The UI treats FAILED_PRECONDITION on this
+// RPC as "pool assignment would reject some device" and renders the
+// typed detail — it never parses the error message. The first
+// maxMismatchDetails mismatches are attached as
+// UpdateMiningPoolsMismatch proto details; remaining mismatches are
+// counted in the summary message but not materialized to keep the
+// response bounded.
+func mismatchesToFailedPrecondition(mismatches []preflight.Mismatch) error {
+	base := fleeterror.NewFailedPreconditionErrorf(
+		"pool assignment would fail preflight for %d device(s): %v",
+		len(mismatches), summarizeMismatches(mismatches),
+	)
+	connectErr := base.ConnectError()
+	limit := len(mismatches)
+	if limit > maxMismatchDetails {
+		limit = maxMismatchDetails
+	}
+	for _, m := range mismatches[:limit] {
+		detail, err := connect.NewErrorDetail(&pb.UpdateMiningPoolsMismatch{
+			DeviceIdentifier: m.DeviceIdentifier,
+			Slot:             m.Slot,
+			SlotWarning:      m.SlotWarning,
+			DeviceWarning:    m.DeviceWarning,
+		})
+		if err != nil {
+			// connect.NewErrorDetail only fails on proto-marshal errors;
+			// our inputs are pure proto messages, so this should never
+			// fire. Log and continue rather than swap the error type out
+			// from under the caller — preserving the FAILED_PRECONDITION
+			// + summary message is more important than the missing
+			// detail entry.
+			slog.Warn("failed to encode UpdateMiningPoolsMismatch detail; sending without it", "error", err)
+			continue
+		}
+		connectErr.AddDetail(detail)
+	}
+	if len(mismatches) > maxMismatchDetails {
+		slog.Warn("truncated UpdateMiningPoolsMismatch detail payload",
+			"total_mismatches", len(mismatches),
+			"detail_cap", maxMismatchDetails)
+	}
+	return connectErr
+}
+
+func summarizeMismatches(mismatches []preflight.Mismatch) string {
+	if len(mismatches) == 0 {
+		return ""
+	}
+	// A stable short summary, surfaced in logs alongside the typed detail
+	// the handler attaches on the Connect error path.
+	first := mismatches[0]
+	if first.DeviceWarning != 0 {
+		return fmt.Sprintf("%s: %s", first.DeviceIdentifier, first.DeviceWarning.String())
+	}
+	return fmt.Sprintf("%s slot=%s: %s",
+		first.DeviceIdentifier, first.Slot.String(), first.SlotWarning.String())
 }
 
 func (s *Service) VerifyCredentials(ctx context.Context, username string, password string) error {

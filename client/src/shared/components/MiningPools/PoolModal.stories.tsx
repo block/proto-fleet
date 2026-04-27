@@ -3,6 +3,7 @@ import { action } from "storybook/actions";
 import { emptyPoolInfo } from "./constants";
 import PoolModal from "./PoolModal";
 import type { PoolInfo } from "./types";
+import { ValidationMode } from "@/protoFleet/api/generated/pools/v1/pools_pb";
 
 export default {
   title: "Shared/MiningPools/PoolModal",
@@ -37,7 +38,11 @@ export const AddPool = () => {
         isTestingConnection={false}
         testConnection={(args) => {
           action("testConnection")(args.poolInfo);
-          args.onSuccess?.();
+          args.onSuccess?.({
+            reachable: true,
+            credentialsVerified: true,
+            mode: ValidationMode.SV1_AUTHENTICATE,
+          });
           args.onFinally?.();
         }}
         mode="add"
@@ -82,7 +87,11 @@ export const EditPool = () => {
         isTestingConnection={false}
         testConnection={(args) => {
           action("testConnection")(args.poolInfo);
-          args.onSuccess?.();
+          args.onSuccess?.({
+            reachable: true,
+            credentialsVerified: true,
+            mode: ValidationMode.SV1_AUTHENTICATE,
+          });
           args.onFinally?.();
         }}
         mode="edit"

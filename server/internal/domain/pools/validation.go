@@ -8,6 +8,8 @@ import (
 
 const invalidPoolUsernameSeparatorMessage = "Fleet-level pool usernames can’t include periods (.). Set worker names on each miner instead."
 
+const invalidPoolUsernameEmptyMessage = "username cannot be empty"
+
 func validatePoolUsername(username string) error {
 	if strings.Contains(strings.TrimSpace(username), ".") {
 		return fleeterror.NewInvalidArgumentError(invalidPoolUsernameSeparatorMessage)

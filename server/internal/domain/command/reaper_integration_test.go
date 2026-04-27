@@ -116,6 +116,10 @@ func getAuditLogErrorInfo(t *testing.T, conn *sql.DB, batchUUID string, deviceID
 // noopMessageQueue is a minimal MessageQueue that blocks on Dequeue forever.
 type noopMessageQueue struct{}
 
+func (n *noopMessageQueue) EnqueuePerDevice(_ context.Context, _ string, _ commandtype.Type, _ map[int64][]byte) error {
+	return nil
+}
+
 func (n *noopMessageQueue) Enqueue(_ context.Context, _ string, _ commandtype.Type, _ []int64, _ interface{}) error {
 	return nil
 }

@@ -438,6 +438,8 @@ impl AsicRsDevice {
         };
 
         let firmware_version = data.firmware_version.clone().unwrap_or_default();
+        let make = data.device_info.make.to_string();
+        let stratum_v2_support = stratum_v2_support_for(&make, &firmware_version);
 
         pb::DeviceMetrics {
             device_id: self.id.clone(),
@@ -455,6 +457,7 @@ impl AsicRsDevice {
             fan_metrics,
             sensor_metrics: vec![],
             firmware_version,
+            stratum_v2_support: stratum_v2_support.into(),
         }
     }
 
@@ -633,10 +636,16 @@ impl AsicRsDevice {
                 if url.is_empty() {
                     continue; // skip unconfigured pool slots
                 }
+                // Protocol is carried through the reapply round-trip so a
+                // pool assigned as SV2 stays marked SV2 when Fleet reads it
+                // back. asic-rs doesn't distinguish SV1/SV2 on the
+                // configured-pool side yet; we default to UNSPECIFIED and
+                // the fleet-side read normalizes to SV1.
                 pools.push(pb::ConfiguredPool {
                     priority: i as i32,
                     url,
                     username: pool.user.clone().unwrap_or_default(),
+                    protocol: pb::PoolProtocol::Unspecified.into(),
                 });
             }
         }
@@ -925,6 +934,23 @@ fn metric_rate(value: f64) -> pb::MetricValue {
         value,
         kind: pb::MetricKind::Rate.into(),
         metadata: None,
+    }
+}
+
+/// stratum_v2_support_for maps the firmware variant asic-rs reports onto
+/// the SDK's StratumV2SupportStatus. Braiins OS is the only aftermarket
+/// firmware asic-rs handles that ships with native SV2 support; VNish,
+/// LuxOS, MaraFW, and stock firmware report Unsupported. Unknown is not
+/// used here because asic-rs always produces a concrete variant (stock
+/// when no tokens match) — a plugin that can't probe at all should leave
+/// the field at Unspecified, which the fleet-side capability merge then
+/// treats as "fall back to static view".
+fn stratum_v2_support_for(make: &str, firmware: &str) -> pb::StratumV2SupportStatus {
+    let variant = crate::capabilities::detect_variant(make, firmware);
+    if variant == crate::capabilities::VARIANT_BRAIINS {
+        pb::StratumV2SupportStatus::Supported
+    } else {
+        pb::StratumV2SupportStatus::Unsupported
     }
 }
 

@@ -6,6 +6,7 @@ import "google/protobuf/timestamp.proto";
 import "fleetmanagement/v1/fleetmanagement.proto";
 import "common/v1/device_selector.proto";
 import "common/v1/cooling.proto";
+import "buf/validate/validate.proto";
 
 message DeviceFilter {
   repeated fleetmanagement.v1.DeviceStatus device_status = 1;
@@ -84,12 +85,27 @@ message PoolSlotConfig {
   }
 }
 
-// Raw pool configuration for pools not stored in Fleet
+// Raw pool configuration for pools not stored in Fleet. Protocol is
+// derived from the URL scheme server-side; callers don't pass it. The
+// CEL rule enforces the same scheme whitelist as pools.v1.PoolConfig
+// (plain TCP only in v1) so raw pools can't slip an unsupported scheme
+// past validation and end up silently treated as SV1 by the rewriter.
 message RawPoolInfo {
+  option (buf.validate.message).cel = {
+    id: "raw_pool_url_scheme",
+    message: "url must start with stratum+tcp://host:port (Stratum V1) or stratum2+tcp://host:port/AUTHORITY_PUBKEY (Stratum V2 — pubkey suffix required)",
+    expression:
+      "this.url.matches('^stratum\\\\+tcp://(([a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?)|(\\\\d{1,3}\\\\.){3}\\\\d{1,3}|\\\\[([0-9a-fA-F:]+)\\\\]):\\\\d{1,5}$') "
+      "|| this.url.matches('^stratum2\\\\+tcp://(([a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?)|(\\\\d{1,3}\\\\.){3}\\\\d{1,3}|\\\\[([0-9a-fA-F:]+)\\\\]):\\\\d{1,5}/[A-Za-z0-9._~+=-]+$')"
+  };
+
   string url = 1;
   string username = 2;
   // Password is optional since miners don't expose it
   optional string password = 3;
+  // Field 4 was pools.v1.PoolProtocol protocol — removed; derived from URL.
+  reserved 4;
+  reserved "protocol";
 }
 
 message UpdateMiningPoolsRequest {
@@ -108,6 +124,60 @@ message UpdateMiningPoolsRequest {
 
 message UpdateMiningPoolsResponse {
   string batch_identifier = 1;
+}
+
+// -----------------------------------------------------------------------------
+// Pool-assignment preview / preflight.
+//
+// The Preview RPC, the commit-path preflight, the CLI, and integration tests
+// all share this vocabulary, so every reason and warning is a typed enum
+// rather than a free-form string.
+// -----------------------------------------------------------------------------
+
+// Logical pool slot within an UpdateMiningPoolsRequest. Preview and mismatch
+// messages use this instead of integer priorities so clients don't have to
+// memorize the priority-to-name mapping.
+enum PoolSlot {
+  POOL_SLOT_UNSPECIFIED = 0;
+  POOL_SLOT_DEFAULT     = 1;  // priority 0, required slot
+  POOL_SLOT_BACKUP_1    = 2;  // priority 1
+  POOL_SLOT_BACKUP_2    = 3;  // priority 2
+}
+
+// Slot-scoped warnings the commit path attaches to a FAILED_PRECONDITION
+// rejection so clients can branch per-slot without parsing strings.
+enum SlotWarning {
+  SLOT_WARNING_UNSPECIFIED              = 0;
+  // SV2 pool was assigned to an SV1-only device while the translation proxy is disabled.
+  SLOT_WARNING_SV2_NOT_SUPPORTED        = 1;
+  // SV2 pool was assigned to an SV1-only device whose only path to SV2 is
+  // the bundled translator, but the translator's upstream is configured for
+  // a different pool. Routing the miner through the proxy would silently
+  // hash to the wrong upstream — the v1 single-proxy topology can only
+  // serve one upstream pool at a time.
+  SLOT_WARNING_PROXY_UPSTREAM_MISMATCH  = 2;
+}
+
+// Device-scoped warnings — attributable to the combination of slots on the
+// device, not to any one slot.
+enum DeviceWarning {
+  DEVICE_WARNING_UNSPECIFIED                = 0;
+  // More than one slot on this device would route through the single bundled
+  // proxy. Since the proxy has exactly one upstream pool, primary/backup
+  // semantics would silently collapse, so we reject.
+  DEVICE_WARNING_MULTIPLE_SV2_SLOTS_PROXIED = 1;
+}
+
+// Commit-path rejection detail. Attached to the FAILED_PRECONDITION status
+// returned by UpdateMiningPools when preflight rejects the batch. Typed enums
+// match the preview so clients can render warnings identically in both flows.
+message UpdateMiningPoolsMismatch {
+  string        device_identifier = 1;
+  // UNSPECIFIED for device-level mismatches (slot_warning is also UNSPECIFIED
+  // in that case, and device_warning carries the reason).
+  PoolSlot      slot              = 2;
+  SlotWarning   slot_warning      = 3;
+  DeviceWarning device_warning    = 4;
 }
 
 message DownloadLogsRequest {

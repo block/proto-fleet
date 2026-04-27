@@ -7,6 +7,7 @@ import type {
   ListPoolsResponse,
   UpdatePoolRequest,
   ValidatePoolRequest,
+  ValidationMode,
 } from "@/protoFleet/api/generated/pools/v1/pools_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useAuthErrors } from "@/protoFleet/store";
@@ -29,9 +30,25 @@ interface DeletePoolProps {
   onError?: (error: string) => void;
 }
 
+// ValidatePoolOutcome carries every field the UI may want to render so the
+// button isn't lying about what was actually verified. SV2 probes that
+// only completed a TCP dial come back reachable=true, credentialsVerified=
+// false; SV1 authenticate flows come back reachable=true, credentialsVerified=
+// true. The mode lets the UI show the operator which kind of check ran.
+export interface ValidatePoolOutcome {
+  reachable: boolean;
+  credentialsVerified: boolean;
+  mode: ValidationMode;
+}
+
 export interface ValidatePoolProps {
-  poolInfo: Omit<ValidatePoolRequest, "$typeName">;
-  onSuccess?: () => void;
+  // noisePublicKey is meaningful only for SV2 URLs (the server detects
+  // protocol from the URL scheme and switches to handshake-probe mode
+  // when a key is present). Optional everywhere else.
+  poolInfo: Omit<ValidatePoolRequest, "$typeName" | "noisePublicKey"> & {
+    noisePublicKey?: Uint8Array;
+  };
+  onSuccess?: (outcome: ValidatePoolOutcome) => void;
   onError?: (error: string) => void;
   onFinally?: () => void;
 }
@@ -151,11 +168,16 @@ const usePools = (enabled = true) => {
     async ({ poolInfo, onSuccess, onError, onFinally }: ValidatePoolProps) => {
       setValidatePoolPending(true);
 
-      // Create request object, only include password if it's not empty
+      // Protocol is derived server-side from the URL scheme. Only
+      // include password / noise pubkey / timeout when actually set.
       const request: Omit<ValidatePoolRequest, "$typeName"> = {
         url: poolInfo.url,
         username: poolInfo.username,
         ...(poolInfo.password && poolInfo.password.trim() && { password: poolInfo.password }),
+        ...(poolInfo.noisePublicKey &&
+          poolInfo.noisePublicKey.byteLength > 0 && {
+            noisePublicKey: poolInfo.noisePublicKey,
+          }),
         ...(poolInfo.timeout && {
           timeout: poolInfo.timeout as Duration,
         }),
@@ -163,8 +185,12 @@ const usePools = (enabled = true) => {
 
       await poolsClient
         .validatePool(request)
-        .then(() => {
-          onSuccess?.();
+        .then((response) => {
+          onSuccess?.({
+            reachable: response.reachable,
+            credentialsVerified: response.credentialsVerified,
+            mode: response.mode,
+          });
         })
         .catch((err) => {
           handleAuthErrors({

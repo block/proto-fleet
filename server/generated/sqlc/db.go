@@ -174,6 +174,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getDeviceIDsByDeviceIdentifiersStmt, err = db.PrepareContext(ctx, getDeviceIDsByDeviceIdentifiers); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceIDsByDeviceIdentifiers: %w", err)
 	}
+	if q.getDeviceIDsByDeviceIdentifiersForOrgStmt, err = db.PrepareContext(ctx, getDeviceIDsByDeviceIdentifiersForOrg); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDeviceIDsByDeviceIdentifiersForOrg: %w", err)
+	}
 	if q.getDeviceIDsWithIdentifiersStmt, err = db.PrepareContext(ctx, getDeviceIDsWithIdentifiers); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceIDsWithIdentifiers: %w", err)
 	}
@@ -182,6 +185,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getDeviceIdentifiersByDeviceSetIDStmt, err = db.PrepareContext(ctx, getDeviceIdentifiersByDeviceSetID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceIdentifiersByDeviceSetID: %w", err)
+	}
+	if q.getDeviceIdentifiersByIDsStmt, err = db.PrepareContext(ctx, getDeviceIdentifiersByIDs); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDeviceIdentifiersByIDs: %w", err)
+	}
+	if q.getDeviceIdentifiersByIDsForOrgStmt, err = db.PrepareContext(ctx, getDeviceIdentifiersByIDsForOrg); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDeviceIdentifiersByIDsForOrg: %w", err)
 	}
 	if q.getDeviceInfoForCapabilityCheckStmt, err = db.PrepareContext(ctx, getDeviceInfoForCapabilityCheck); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceInfoForCapabilityCheck: %w", err)
@@ -251,6 +260,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getDistinctScopeTypesStmt, err = db.PrepareContext(ctx, getDistinctScopeTypes); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDistinctScopeTypes: %w", err)
+	}
+	if q.getDriverNamesByDeviceIdentifiersForOrgStmt, err = db.PrepareContext(ctx, getDriverNamesByDeviceIdentifiersForOrg); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDriverNamesByDeviceIdentifiersForOrg: %w", err)
 	}
 	if q.getErrorByErrorIDStmt, err = db.PrepareContext(ctx, getErrorByErrorID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetErrorByErrorID: %w", err)
@@ -915,6 +927,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getDeviceIDsByDeviceIdentifiersStmt: %w", cerr)
 		}
 	}
+	if q.getDeviceIDsByDeviceIdentifiersForOrgStmt != nil {
+		if cerr := q.getDeviceIDsByDeviceIdentifiersForOrgStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDeviceIDsByDeviceIdentifiersForOrgStmt: %w", cerr)
+		}
+	}
 	if q.getDeviceIDsWithIdentifiersStmt != nil {
 		if cerr := q.getDeviceIDsWithIdentifiersStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getDeviceIDsWithIdentifiersStmt: %w", cerr)
@@ -928,6 +945,16 @@ func (q *Queries) Close() error {
 	if q.getDeviceIdentifiersByDeviceSetIDStmt != nil {
 		if cerr := q.getDeviceIdentifiersByDeviceSetIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getDeviceIdentifiersByDeviceSetIDStmt: %w", cerr)
+		}
+	}
+	if q.getDeviceIdentifiersByIDsStmt != nil {
+		if cerr := q.getDeviceIdentifiersByIDsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDeviceIdentifiersByIDsStmt: %w", cerr)
+		}
+	}
+	if q.getDeviceIdentifiersByIDsForOrgStmt != nil {
+		if cerr := q.getDeviceIdentifiersByIDsForOrgStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDeviceIdentifiersByIDsForOrgStmt: %w", cerr)
 		}
 	}
 	if q.getDeviceInfoForCapabilityCheckStmt != nil {
@@ -1043,6 +1070,11 @@ func (q *Queries) Close() error {
 	if q.getDistinctScopeTypesStmt != nil {
 		if cerr := q.getDistinctScopeTypesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getDistinctScopeTypesStmt: %w", cerr)
+		}
+	}
+	if q.getDriverNamesByDeviceIdentifiersForOrgStmt != nil {
+		if cerr := q.getDriverNamesByDeviceIdentifiersForOrgStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDriverNamesByDeviceIdentifiersForOrgStmt: %w", cerr)
 		}
 	}
 	if q.getErrorByErrorIDStmt != nil {
@@ -1814,9 +1846,12 @@ type Queries struct {
 	getDeviceIDByDeviceIdentifierStmt                   *sql.Stmt
 	getDeviceIDByIdentifierStmt                         *sql.Stmt
 	getDeviceIDsByDeviceIdentifiersStmt                 *sql.Stmt
+	getDeviceIDsByDeviceIdentifiersForOrgStmt           *sql.Stmt
 	getDeviceIDsWithIdentifiersStmt                     *sql.Stmt
 	getDeviceIdentifierByIDStmt                         *sql.Stmt
 	getDeviceIdentifiersByDeviceSetIDStmt               *sql.Stmt
+	getDeviceIdentifiersByIDsStmt                       *sql.Stmt
+	getDeviceIdentifiersByIDsForOrgStmt                 *sql.Stmt
 	getDeviceInfoForCapabilityCheckStmt                 *sql.Stmt
 	getDeviceMetricsDailyAggregatesStmt                 *sql.Stmt
 	getDeviceMetricsHourlyAggregatesStmt                *sql.Stmt
@@ -1840,6 +1875,7 @@ type Queries struct {
 	getDistinctActivityUsersStmt                        *sql.Stmt
 	getDistinctEventTypesStmt                           *sql.Stmt
 	getDistinctScopeTypesStmt                           *sql.Stmt
+	getDriverNamesByDeviceIdentifiersForOrgStmt         *sql.Stmt
 	getErrorByErrorIDStmt                               *sql.Stmt
 	getErrorByIDStmt                                    *sql.Stmt
 	getFilteredDeviceIdsStmt                            *sql.Stmt
@@ -2032,9 +2068,12 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getDeviceIDByDeviceIdentifierStmt:                   q.getDeviceIDByDeviceIdentifierStmt,
 		getDeviceIDByIdentifierStmt:                         q.getDeviceIDByIdentifierStmt,
 		getDeviceIDsByDeviceIdentifiersStmt:                 q.getDeviceIDsByDeviceIdentifiersStmt,
+		getDeviceIDsByDeviceIdentifiersForOrgStmt:           q.getDeviceIDsByDeviceIdentifiersForOrgStmt,
 		getDeviceIDsWithIdentifiersStmt:                     q.getDeviceIDsWithIdentifiersStmt,
 		getDeviceIdentifierByIDStmt:                         q.getDeviceIdentifierByIDStmt,
 		getDeviceIdentifiersByDeviceSetIDStmt:               q.getDeviceIdentifiersByDeviceSetIDStmt,
+		getDeviceIdentifiersByIDsStmt:                       q.getDeviceIdentifiersByIDsStmt,
+		getDeviceIdentifiersByIDsForOrgStmt:                 q.getDeviceIdentifiersByIDsForOrgStmt,
 		getDeviceInfoForCapabilityCheckStmt:                 q.getDeviceInfoForCapabilityCheckStmt,
 		getDeviceMetricsDailyAggregatesStmt:                 q.getDeviceMetricsDailyAggregatesStmt,
 		getDeviceMetricsHourlyAggregatesStmt:                q.getDeviceMetricsHourlyAggregatesStmt,
@@ -2058,6 +2097,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getDistinctActivityUsersStmt:                        q.getDistinctActivityUsersStmt,
 		getDistinctEventTypesStmt:                           q.getDistinctEventTypesStmt,
 		getDistinctScopeTypesStmt:                           q.getDistinctScopeTypesStmt,
+		getDriverNamesByDeviceIdentifiersForOrgStmt:         q.getDriverNamesByDeviceIdentifiersForOrgStmt,
 		getErrorByErrorIDStmt:                               q.getErrorByErrorIDStmt,
 		getErrorByIDStmt:                                    q.getErrorByIDStmt,
 		getFilteredDeviceIdsStmt:                            q.getFilteredDeviceIdsStmt,

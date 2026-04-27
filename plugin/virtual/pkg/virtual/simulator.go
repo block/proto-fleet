@@ -71,17 +71,31 @@ func (s *Simulator) GenerateMetrics(deviceID string, isMining bool) sdk.DeviceMe
 	efficiency := s.calculateEfficiency(hashrate, power)
 
 	return sdk.DeviceMetrics{
-		DeviceID:     deviceID,
-		Timestamp:    now,
-		Health:       health,
-		HashrateHS:   toMetricValue(hashrate * teraHashToHash),
-		TempC:        toMetricValue(temp),
-		PowerW:       toMetricValue(power),
-		EfficiencyJH: toMetricValue(efficiency),
-		HashBoards:   s.generateHashboardsLocked(isMining),
-		FanMetrics:   s.generateFanMetricsLocked(),
-		PSUMetrics:   s.generatePSUMetricsLocked(isMining, power),
+		DeviceID:         deviceID,
+		Timestamp:        now,
+		Health:           health,
+		HashrateHS:       toMetricValue(hashrate * teraHashToHash),
+		TempC:            toMetricValue(temp),
+		PowerW:           toMetricValue(power),
+		EfficiencyJH:     toMetricValue(efficiency),
+		HashBoards:       s.generateHashboardsLocked(isMining),
+		FanMetrics:       s.generateFanMetricsLocked(),
+		PSUMetrics:       s.generatePSUMetricsLocked(isMining, power),
+		StratumV2Support: stratumV2SupportFor(s.config),
 	}
+}
+
+// stratumV2SupportFor maps the static config toggle onto the SDK enum.
+// Virtual miners always have a deterministic answer — unlike real plugins
+// where firmware probing can fail — so we never report Unknown here.
+func stratumV2SupportFor(cfg *config.VirtualMinerConfig) sdk.StratumV2SupportStatus {
+	if cfg == nil {
+		return sdk.StratumV2SupportUnsupported
+	}
+	if cfg.StratumV2Supported {
+		return sdk.StratumV2SupportSupported
+	}
+	return sdk.StratumV2SupportUnsupported
 }
 
 // calculateHashrateLocked requires mu to be held.

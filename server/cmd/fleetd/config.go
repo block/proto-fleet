@@ -9,6 +9,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/plugins"
 	"github.com/block/proto-fleet/server/internal/domain/pools"
 	"github.com/block/proto-fleet/server/internal/domain/session"
+	"github.com/block/proto-fleet/server/internal/domain/sv2"
 	"github.com/block/proto-fleet/server/internal/domain/telemetry"
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/scheduler"
 	"github.com/block/proto-fleet/server/internal/domain/token"
@@ -45,4 +46,5 @@ type Config struct {
 	Diagnostics    diagnostics.Config     `embed:"" prefix:"diagnostics-" envprefix:"DIAGNOSTICS_"`
 	Files          files.Config           `embed:"" prefix:"files-" envprefix:"FILES_"`
 	FleetTelemetry fleet_telemetry.Config `embed:"" prefix:"fleet-telemetry-" envprefix:"FLEET_TELEMETRY_"`
+	StratumV2      sv2.Config             `embed:"" prefix:"stratum-v2-" envprefix:"STRATUM_V2_"`
 }

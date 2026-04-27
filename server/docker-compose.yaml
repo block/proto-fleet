@@ -45,6 +45,16 @@ services:
       PROTO_MINER_PORT: "8080"
       FLEET_TELEMETRY_ENABLED: "true"
       FLEET_TELEMETRY_ENDPOINT: "http://otel-collector:4318"
+      # Stratum V2 translator proxy. Default-off so stock dev stacks are
+      # unchanged; set STRATUM_V2_PROXY_ENABLED=true in .env along with
+      # the upstream + miner URLs to exercise the proxy path. The health
+      # address resolves via the sv2 Compose service name because dev
+      # uses bridge networking (unlike the host-networked install).
+      STRATUM_V2_PROXY_ENABLED: "${STRATUM_V2_PROXY_ENABLED:-false}"
+      STRATUM_V2_PROXY_UPSTREAM_URL: "${STRATUM_V2_PROXY_UPSTREAM_URL:-}"
+      STRATUM_V2_PROXY_MINER_URL: "${STRATUM_V2_PROXY_MINER_URL:-}"
+      STRATUM_V2_PROXY_HEALTH_ADDR: "${STRATUM_V2_PROXY_HEALTH_ADDR:-sv2-tproxy:34255}"
+      STRATUM_V2_PROXY_HEALTH_INTERVAL: "${STRATUM_V2_PROXY_HEALTH_INTERVAL:-30s}"
     depends_on:
       timescaledb:
         condition: service_healthy

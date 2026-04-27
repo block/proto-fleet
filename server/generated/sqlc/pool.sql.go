@@ -11,8 +11,8 @@ import (
 )
 
 const createPool = `-- name: CreatePool :one
-INSERT INTO pool (org_id, pool_name, url, username, password_enc, created_at, updated_at)
-VALUES ($1, $2, $3, $4, $5, $6, $6)
+INSERT INTO pool (org_id, pool_name, url, username, password_enc, protocol, created_at, updated_at)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
 RETURNING id
 `
 
@@ -22,6 +22,7 @@ type CreatePoolParams struct {
 	Url         string
 	Username    string
 	PasswordEnc string
+	Protocol    string
 	CreatedAt   time.Time
 }
 
@@ -32,6 +33,7 @@ func (q *Queries) CreatePool(ctx context.Context, arg CreatePoolParams) (int64, 
 		arg.Url,
 		arg.Username,
 		arg.PasswordEnc,
+		arg.Protocol,
 		arg.CreatedAt,
 	)
 	var id int64
@@ -51,7 +53,7 @@ func (q *Queries) DeletePool(ctx context.Context, id int64) error {
 }
 
 const getPool = `-- name: GetPool :one
-SELECT id, org_id, pool_name, url, username, password_enc, created_at, updated_at, deleted_at
+SELECT id, org_id, pool_name, url, username, password_enc, created_at, updated_at, deleted_at, protocol
 FROM pool
 WHERE org_id = $1
   AND id = $2
@@ -76,6 +78,7 @@ func (q *Queries) GetPool(ctx context.Context, arg GetPoolParams) (Pool, error) 
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.Protocol,
 	)
 	return i, err
 }
@@ -95,7 +98,7 @@ func (q *Queries) GetTotalPools(ctx context.Context, orgID int64) (int64, error)
 }
 
 const listPools = `-- name: ListPools :many
-SELECT id, org_id, pool_name, url, username, password_enc, created_at, updated_at, deleted_at
+SELECT id, org_id, pool_name, url, username, password_enc, created_at, updated_at, deleted_at, protocol
 FROM pool
 WHERE org_id = $1
   AND deleted_at IS NULL
@@ -121,6 +124,7 @@ func (q *Queries) ListPools(ctx context.Context, orgID int64) ([]Pool, error) {
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.Protocol,
 		); err != nil {
 			return nil, err
 		}
@@ -158,9 +162,10 @@ SET pool_name     = $1,
     url           = $2,
     username      = $3,
     password_enc = $4,
-    updated_at    = $5
-WHERE org_id = $6
-  AND id = $7
+    protocol      = $5,
+    updated_at    = $6
+WHERE org_id = $7
+  AND id = $8
 `
 
 type UpdatePoolParams struct {
@@ -168,6 +173,7 @@ type UpdatePoolParams struct {
 	Url         string
 	Username    string
 	PasswordEnc string
+	Protocol    string
 	UpdatedAt   time.Time
 	OrgID       int64
 	ID          int64
@@ -179,6 +185,7 @@ func (q *Queries) UpdatePool(ctx context.Context, arg UpdatePoolParams) error {
 		arg.Url,
 		arg.Username,
 		arg.PasswordEnc,
+		arg.Protocol,
 		arg.UpdatedAt,
 		arg.OrgID,
 		arg.ID,

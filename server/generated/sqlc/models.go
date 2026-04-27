@@ -623,6 +623,7 @@ type Pool struct {
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 	DeletedAt   sql.NullTime
+	Protocol    string
 }
 
 type QueueMessage struct {

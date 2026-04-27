@@ -64,6 +64,7 @@ import (
 	poolsDomain "github.com/block/proto-fleet/server/internal/domain/pools"
 	scheduleDomain "github.com/block/proto-fleet/server/internal/domain/schedule"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
+	"github.com/block/proto-fleet/server/internal/domain/sv2"
 	"github.com/block/proto-fleet/server/internal/domain/telemetry"
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/scheduler"
 	tokenDomain "github.com/block/proto-fleet/server/internal/domain/token"
@@ -333,6 +334,37 @@ func start(config *Config) error {
 
 	statusService := commandDomain.NewStatusService(conn, dbMessageQueue)
 	commandSvc := commandDomain.NewService(&config.Command, conn, executionService, dbMessageQueue, statusService, encryptSvc, filesService, deviceStore, userStore, authSvc, telemetryService, pluginService, activitySvc)
+	// Fail fast on bad StratumV2 config rather than surfacing at pool-
+	// assignment time. The SV2 capability resolver reads each device's
+	// latest StratumV2Support from telemetry; without it preflight would
+	// treat every device as SV1-only and the native-SV2 path would never
+	// fire even for miners whose plugin reports Supported.
+	if err := config.StratumV2.Validate(); err != nil {
+		return fmt.Errorf("invalid STRATUM_V2 config: %w", err)
+	}
+	// Stand the health monitor up before wiring it into the command
+	// service so preflight has a (no-state-yet) gate from the moment the
+	// service can take requests. The monitor is also surfaced as the
+	// pool-assignment health gate: when ProxyEnabled is true but the
+	// bundled tProxy is down or hasn't responded yet, preflight fails
+	// closed for proxied routes rather than pushing a dead miner-facing
+	// URL to the fleet.
+	var sv2HealthMonitor *sv2.HealthMonitor
+	if config.StratumV2.ProxyEnabled {
+		sv2HealthMonitor = sv2.NewHealthMonitor(config.StratumV2.ProxyHealthCheckAddr, config.StratumV2.ProxyHealthInterval)
+		// Reuse the executionServiceCtx so the monitor goroutine shuts
+		// down on the same signal as the rest of the async plumbing.
+		go sv2HealthMonitor.Start(executionServiceCtx)
+	}
+	commandSvc.SetStratumV2Resolvers(
+		commandDomain.NewTelemetrySV2Resolver(timescaledbService, newStaticSV2CapsProvider(conn, pluginService)),
+		config.StratumV2.RewriterConfig(),
+		sv2HealthMonitor,
+	)
+	// Mirror the proxy URL + health check onto the dispatch worker so
+	// it can fail closed at time-of-use if the bundled translator
+	// dies between commit and per-device dispatch.
+	executionService.SetStratumV2Resolvers(config.StratumV2.ProxyMinerURL, sv2HealthMonitor)
 	fleetMgmtSvc := fleetmanagementDomain.NewService(deviceStore, discoveredDeviceStore, telemetryService, minerService, pluginService, poolStore, errorStore, collectionStore, commandSvc, activitySvc)
 	defer fleetMgmtSvc.WaitForPendingClearAuthKeys(shutdownTimeout)
 	onboardingSvc := onboardingDomain.NewService(deviceStore, poolStore, userStore)

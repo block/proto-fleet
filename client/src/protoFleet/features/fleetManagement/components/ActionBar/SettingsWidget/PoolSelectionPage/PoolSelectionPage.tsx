@@ -17,6 +17,7 @@ import {
 import FleetPoolRow from "./FleetPoolRow";
 import PoolSelectionModal from "./PoolSelectionModal/PoolSelectionModal";
 import { MiningPool } from "./types";
+import { ValidationMode } from "@/protoFleet/api/generated/pools/v1/pools_pb";
 import { PoolConfig, PoolSlotSource } from "@/protoFleet/api/useMinerCommand";
 import useMinerPoolAssignments from "@/protoFleet/api/useMinerPoolAssignments";
 import usePools from "@/protoFleet/api/usePools";
@@ -26,10 +27,16 @@ import Button, { sizes, variants } from "@/shared/components/Button";
 import Callout, { DismissibleCalloutWrapper, intents } from "@/shared/components/Callout";
 import Header from "@/shared/components/Header";
 import { MAX_POOLS } from "@/shared/components/MiningPools/constants";
+import { PoolConnectionTestOutcome } from "@/shared/components/MiningPools/types";
 import PageOverlay from "@/shared/components/PageOverlay";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { useEscapeDismiss } from "@/shared/hooks/useEscapeDismiss";
 const UNKNOWN_POOL_ID_PREFIX = "unknown-";
+
+const toPoolSlotSource = (data: AssignedPoolData): PoolSlotSource =>
+  data.poolId
+    ? { type: "poolId", poolId: data.poolId }
+    : { type: "rawPool", url: data.poolUrl, username: data.poolUsername };
 
 interface AssignedPoolData {
   poolId: string | undefined; // undefined when pool not in Fleet
@@ -62,11 +69,48 @@ const PoolSelectionPage = ({
   const [testingPoolId, setTestingPoolId] = useState<string | null>(null);
   const [showConnectionCallout, setShowConnectionCallout] = useState(false);
   const [connectionError, setConnectionError] = useState(false);
+  const [lastTestOutcome, setLastTestOutcome] = useState<PoolConnectionTestOutcome | undefined>();
 
+  // Mirror the shared PoolModal logic: a test that returns reachable=true
+  // but credentialsVerified=false (the default for SV2 pools without a
+  // pre-shared Noise key, and for SV1 pools when the page can't send a
+  // password) shows a distinct "reachable but unverified" callout
+  // instead of a green "successful" one.
   const showSuccessCallout = useMemo(
-    () => showConnectionCallout && !testingPoolId && !connectionError,
-    [showConnectionCallout, testingPoolId, connectionError],
+    () =>
+      showConnectionCallout &&
+      !testingPoolId &&
+      !connectionError &&
+      lastTestOutcome !== undefined &&
+      lastTestOutcome.reachable &&
+      lastTestOutcome.credentialsVerified,
+    [showConnectionCallout, testingPoolId, connectionError, lastTestOutcome],
   );
+
+  const showReachableUnverifiedCallout = useMemo(
+    () =>
+      showConnectionCallout &&
+      !testingPoolId &&
+      !connectionError &&
+      lastTestOutcome !== undefined &&
+      lastTestOutcome.reachable &&
+      !lastTestOutcome.credentialsVerified,
+    [showConnectionCallout, testingPoolId, connectionError, lastTestOutcome],
+  );
+
+  const reachableUnverifiedTitle = useMemo(() => {
+    if (!lastTestOutcome) {
+      return "";
+    }
+    switch (lastTestOutcome.mode) {
+      case ValidationMode.SV2_TCP_DIAL:
+        return "Pool reachable. Credentials not verified — Stratum V2 connectivity check completed a TCP dial only.";
+      case ValidationMode.SV2_HANDSHAKE:
+        return "Pool reachable and Noise handshake succeeded. Credentials are verified at job-submission time.";
+      default:
+        return "Pool reachable. Credentials not verified.";
+    }
+  }, [lastTestOutcome]);
 
   const showErrorCallout = useMemo(
     () => showConnectionCallout && !testingPoolId && connectionError,
@@ -255,13 +299,15 @@ const PoolSelectionPage = ({
 
       setTestingPoolId(pool.poolId);
       setConnectionError(false);
+      setLastTestOutcome(undefined);
       validatePool({
         poolInfo: {
           url: pool.poolUrl,
           username: pool.username,
         },
-        onSuccess: () => {
+        onSuccess: (outcome) => {
           setConnectionError(false);
+          setLastTestOutcome(outcome);
         },
         onError: () => {
           setConnectionError(true);
@@ -280,15 +326,6 @@ const PoolSelectionPage = ({
 
     setIsAssigning(true);
     try {
-      // Convert assigned pool data to PoolSlotSource objects
-      const toPoolSlotSource = (data: AssignedPoolData): PoolSlotSource => {
-        if (data.poolId) {
-          return { type: "poolId", poolId: data.poolId };
-        } else {
-          return { type: "rawPool", url: data.poolUrl, username: data.poolUsername };
-        }
-      };
-
       const poolConfig: PoolConfig = {
         defaultPool: toPoolSlotSource(assignedPoolData[0]),
         backup1Pool: assignedPoolData[1] ? toPoolSlotSource(assignedPoolData[1]) : undefined,
@@ -391,6 +428,14 @@ const PoolSelectionPage = ({
               show={showSuccessCallout}
               title="Pool connection successful"
               testId="pool-selection-page-connection-success-callout"
+            />
+            <DismissibleCalloutWrapper
+              icon={<Alert width={iconSizes.medium} />}
+              intent={intents.warning}
+              onDismiss={() => setShowConnectionCallout(false)}
+              show={showReachableUnverifiedCallout}
+              title={reachableUnverifiedTitle}
+              testId="pool-selection-page-connection-unverified-callout"
             />
             <DismissibleCalloutWrapper
               icon={<Alert width={iconSizes.medium} />}

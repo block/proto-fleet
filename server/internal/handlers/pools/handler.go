@@ -2,12 +2,14 @@ package pools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"connectrpc.com/connect"
 	pb "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/pools/v1/poolsv1connect"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/pools"
 	"github.com/block/proto-fleet/server/internal/infrastructure/secrets"
 )
@@ -72,15 +74,46 @@ func (h *Handler) ValidatePool(ctx context.Context, r *connect.Request[pb.Valida
 		timeout = &tmp
 	}
 
-	ok, err := h.poolsSvc.ValidateConnection(ctx, r.Msg.Url, r.Msg.Username, pass, timeout)
-
+	// Forward the typed result as-is: Reachable / CredentialsVerified /
+	// Mode let the UI render "reachable but credentials unverified" (v1
+	// SV2 default) without guessing from the pair (protocol, success).
+	// Network-level failures (timeout, DNS, RST) still return a gRPC
+	// error; the success path with !Reachable would be unreachable but
+	// we keep the field for symmetry and future modes.
+	result, err := h.poolsSvc.ValidateConnection(ctx, r.Msg.Url, r.Msg.Username, pass, r.Msg.NoisePublicKey, timeout)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+		// Preserve the underlying error semantics: validation errors
+		// (bad URL scheme, malformed Noise key) come back as FleetError
+		// with their gRPC code already set; everything else is a probe
+		// failure (TCP refused, DNS, SV1 auth rejection) that maps to
+		// Unavailable. Lumping all of these into PermissionDenied loses
+		// information the operator UI uses to render distinct error
+		// states.
+		var fe fleeterror.FleetError
+		if errors.As(err, &fe) {
+			return nil, fe.ConnectError()
+		}
+		return nil, connect.NewError(connect.CodeUnavailable, fmt.Errorf("failed to validate pool connection: %w", err))
 	}
-	if !ok {
-		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("failed to validate pool connection"))
+	if !result.Reachable {
+		return nil, connect.NewError(connect.CodeUnavailable, fmt.Errorf("pool unreachable"))
 	}
-	return connect.NewResponse(
-		&pb.ValidatePoolResponse{},
-	), nil
+	// Preserve the pre-v1 error contract for SV1 authentication
+	// failures: stale clients (browser bundles cached across an
+	// upgrade, third-party tooling) treat any 200 OK as "validation
+	// succeeded" and would silently accept invalid credentials with
+	// the new typed-success response. SV2 paths can't be authenticated
+	// in v1 (TCP_DIAL has nothing to verify; HANDSHAKE proves identity
+	// pinning, not credentials) so a !CredentialsVerified outcome
+	// there isn't a credential failure — return the typed success
+	// body. SV1 keeps the non-OK status for backward compat.
+	if result.Mode == pb.ValidationMode_VALIDATION_MODE_SV1_AUTHENTICATE && !result.CredentialsVerified {
+		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("pool authentication failed"))
+	}
+
+	return connect.NewResponse(&pb.ValidatePoolResponse{
+		Reachable:           result.Reachable,
+		CredentialsVerified: result.CredentialsVerified,
+		Mode:                result.Mode,
+	}), nil
 }

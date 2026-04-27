@@ -29,6 +29,26 @@ func SDKDeviceMetricsToV2(sdkMetrics sdk.DeviceMetrics) modelsV2.DeviceMetrics {
 		ControlBoardMetrics: mapControlBoardMetrics(sdkMetrics.ControlBoardMetrics),
 		FanMetrics:          mapFanMetrics(sdkMetrics.FanMetrics),
 		SensorMetrics:       mapSensorMetrics(sdkMetrics.SensorMetrics),
+
+		StratumV2Support: mapStratumV2Support(sdkMetrics.StratumV2Support),
+	}
+}
+
+// mapStratumV2Support translates the SDK enum to the server-side enum.
+// The number spaces are identical by construction, but we switch explicitly
+// so an unknown SDK value cannot silently poison the server representation.
+func mapStratumV2Support(v sdk.StratumV2SupportStatus) modelsV2.StratumV2SupportStatus {
+	switch v {
+	case sdk.StratumV2SupportSupported:
+		return modelsV2.StratumV2SupportSupported
+	case sdk.StratumV2SupportUnsupported:
+		return modelsV2.StratumV2SupportUnsupported
+	case sdk.StratumV2SupportUnknown:
+		return modelsV2.StratumV2SupportUnknown
+	case sdk.StratumV2SupportUnspecified:
+		return modelsV2.StratumV2SupportUnspecified
+	default:
+		return modelsV2.StratumV2SupportUnspecified
 	}
 }
 

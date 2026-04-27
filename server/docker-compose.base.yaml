@@ -82,6 +82,60 @@ services:
     networks:
       - fleet-network
 
+  # Stratum V2 translation proxy (bundled SRI tProxy).
+  #
+  # Profile-gated so the default `docker compose up` stays unchanged for
+  # operators that don't run SV2. Enable with either:
+  #   COMPOSE_PROFILES=sv2 docker compose up
+  #   docker compose --profile sv2 up
+  #
+  # The config file at deployment-files/sv2/tproxy.toml is rendered by
+  # install.sh from operator input (upstream sv2+* URL, miner-facing
+  # stratum+* URL). Changing the upstream requires a container restart —
+  # SRI does not hot-reload. See docs/stratum-v2-plan.md "Known
+  # limitations" for the v1 scope boundaries (one upstream pool per
+  # instance, no multi-site, no runtime reconfig).
+  sv2-tproxy:
+    # SRI translator binary, published to Docker Hub by sv2-apps's
+    # release workflow. The translator sits in the miner→pool path and
+    # could rewrite mining traffic if a tag is ever overwritten or the
+    # upstream image is compromised, so the pin includes both the
+    # tag (operator-readable) and the immutable sha256 digest (the
+    # actual trust anchor). Bumping the version is a deliberate review:
+    # update both `:tag` and `@sha256:...` after verifying the new
+    # digest from hub.docker.com/v2/repositories/stratumv2/translator_sv2/tags.
+    image: stratumv2/translator_sv2:v0.3.4@sha256:cf09ea242bcf04ad9b3d0c0aeaeb5593695652eefe5006c99684d8c145e7611b
+    pull_policy: if_not_present
+    restart: unless-stopped
+    profiles: ["sv2"]
+    # Host port and the in-container listener port both come from
+    # STRATUM_V2_PROXY_DOWNSTREAM_PORT so a custom miner-facing port set
+    # in install.sh (parsed from STRATUM_V2_PROXY_MINER_URL) is actually
+    # reachable from miners. The tproxy.toml's downstream_port must
+    # match — the installer rewrites both. Default 34255.
+    #
+    # STRATUM_V2_PROXY_DOWNSTREAM_HOST scopes the published listener to
+    # a specific host interface; default 0.0.0.0 (all interfaces) keeps
+    # the existing behavior. Operators on multi-homed or internet-facing
+    # hosts can set this to a private/LAN IP literal in .env so the
+    # unauthenticated stratum listener isn't exposed to the wider net.
+    ports:
+      - "${STRATUM_V2_PROXY_DOWNSTREAM_HOST:-0.0.0.0}:${STRATUM_V2_PROXY_DOWNSTREAM_PORT:-34255}:${STRATUM_V2_PROXY_DOWNSTREAM_PORT:-34255}"
+    volumes:
+      - ../sv2/tproxy.toml:/etc/tproxy/config.toml:ro
+    environment:
+      - RUST_LOG=info
+    command:
+      - "-c"
+      - "/etc/tproxy/config.toml"
+    healthcheck:
+      # Probe the configured downstream port so a non-default miner-facing
+      # port doesn't leave the healthcheck pinned to a stale 34255.
+      test: ["CMD", "sh", "-c", "nc -z localhost ${STRATUM_V2_PROXY_DOWNSTREAM_PORT:-34255}"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
 volumes:
   timescaledb-data:
 

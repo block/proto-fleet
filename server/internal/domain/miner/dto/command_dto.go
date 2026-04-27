@@ -3,6 +3,7 @@ package dto
 import (
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
+	poolspb "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
 )
 
 type CoolingModePayload struct {
@@ -19,6 +20,11 @@ type MiningPool struct {
 	Username        string `json:"username"`
 	Password        string `json:"password,omitempty"`
 	AppendMinerName bool   `json:"append_miner_name,omitempty"`
+	// Protocol the URL speaks. Unspecified is treated as SV1. Emitted
+	// unconditionally (no omitempty) so SV1 payloads round-trip through
+	// the queue as an explicit POOL_PROTOCOL_UNSPECIFIED rather than
+	// relying on json.Unmarshal to default the zero value.
+	Protocol poolspb.PoolProtocol `json:"protocol"`
 }
 
 type UpdateMiningPoolsPayload struct {

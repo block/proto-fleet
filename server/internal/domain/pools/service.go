@@ -3,14 +3,17 @@ package pools
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/pools/rewriter"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/domain/sv2"
 	"github.com/block/proto-fleet/server/internal/infrastructure/secrets"
 	stratumv1 "github.com/block/proto-fleet/server/internal/infrastructure/stratum/v1"
 )
@@ -75,14 +78,34 @@ func (s *Service) UpdatePool(ctx context.Context, r *pb.UpdatePoolRequest) (*pb.
 		return nil, err
 	}
 
-	if r.Username != "" {
+	// Validate URL scheme on every code path that reaches the store,
+	// not just CEL — internal callers and any future RPC bypass would
+	// otherwise persist an unsupported scheme that dbProtocolFromURL
+	// then silently coerces to 'sv1', defeating the SV2 preflight for
+	// the imported row.
+	if r.Url != nil {
+		if _, err := rewriter.ProtocolFromURL(*r.Url); err != nil {
+			return nil, fleeterror.NewInvalidArgumentErrorf("invalid pool url: %v", err)
+		}
+	}
+
+	// Proto3 explicit presence: an absent Username means "leave unchanged".
+	// An explicit empty string is always rejected so the patch contract
+	// can't be used to dispatch credential-less connections to miners.
+	// The separator rule (no '.') is enforced only when the username is
+	// actually changing — pools predating the separator restriction can
+	// still be edited (rename, etc.) without the legacy-data username
+	// being forced through the new contract.
+	if r.Username != nil {
+		if strings.TrimSpace(*r.Username) == "" {
+			return nil, fleeterror.NewInvalidArgumentError(invalidPoolUsernameEmptyMessage)
+		}
 		existingPool, err := s.poolStore.GetPool(ctx, info.OrganizationID, r.PoolId)
 		if err != nil {
 			return nil, err
 		}
-
-		if r.Username != existingPool.GetUsername() {
-			if err := validatePoolUsername(r.Username); err != nil {
+		if *r.Username != existingPool.GetUsername() {
+			if err := validatePoolUsername(*r.Username); err != nil {
 				return nil, err
 			}
 		}
@@ -128,6 +151,13 @@ func (s *Service) CreatePool(ctx context.Context, poolConfig *pb.PoolConfig) (*p
 	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, err
+	}
+
+	// Validate URL scheme as well as username so internal callers
+	// can't slip a scheme past CEL and end up with a row that
+	// dbProtocolFromURL would silently coerce to 'sv1'.
+	if _, err := rewriter.ProtocolFromURL(poolConfig.GetUrl()); err != nil {
+		return nil, fleeterror.NewInvalidArgumentErrorf("invalid pool url: %v", err)
 	}
 
 	if err := validatePoolUsername(poolConfig.GetUsername()); err != nil {
@@ -185,22 +215,118 @@ func (s *Service) ListPools(ctx context.Context) ([]*pb.Pool, error) {
 	return pools, nil
 }
 
-// ValidateConnection the connection to a pool server.
-// It returns true if the connection is successful, otherwise false.
-// We currently only support Stratum V1 connection pools, if you need V2
-// support please use a proxy v1->v2 as described https://stratumprotocol.org/docs/#proxies
-func (s *Service) ValidateConnection(ctx context.Context, url string, username string, password *secrets.Text, timeout *time.Duration) (bool, error) {
+// ValidationResult reports what ValidateConnection actually attempted and
+// what it observed. It maps 1:1 onto pools.v1.ValidatePoolResponse so the
+// handler can pass it through without losing fidelity: the UI renders
+// "reachable but credentials unverified" when Reachable &&
+// !CredentialsVerified && Mode is an SV2 mode, which is the honest
+// description of what a TCP dial actually proves.
+type ValidationResult struct {
+	Reachable           bool
+	CredentialsVerified bool
+	Mode                pb.ValidationMode
+}
+
+// ValidateConnection probes a pool server, picking the probe style by
+// the URL's scheme. SV1 URLs run a full Authenticate (subscribe +
+// authorize); SV2 URLs run either a Noise NX handshake (when the
+// caller provided the pool's Noise authority pubkey) or a TCP dial
+// only. The chosen mode is returned so the UI renders the honest
+// outcome rather than inferring from (URL, success).
+//
+// The SV2 handshake probe proves the pool holds the static key the
+// operator supplied — a substantial step up from "something answers
+// TCP on this port". It doesn't prove credentials authorise mining;
+// that would require a full SetupConnection + OpenStandardMiningChannel
+// roundtrip.
+func (s *Service) ValidateConnection(
+	ctx context.Context,
+	url string,
+	username string,
+	password *secrets.Text,
+	poolNoiseKey []byte,
+	timeout *time.Duration,
+) (ValidationResult, error) {
+	protocol, err := rewriter.ProtocolFromURL(url)
+	if err != nil {
+		return ValidationResult{}, fleeterror.NewInvalidArgumentErrorf("%v", err)
+	}
+
 	to := s.cfg.Timeout
 	if timeout != nil {
 		to = *timeout
 	}
 	ctx, cancel := context.WithTimeout(ctx, to)
 	defer cancel()
-	ok, err := stratumv1.Authenticate(ctx, url, username, password)
 
-	if err != nil {
-		return false, err
+	switch protocol {
+	case pb.PoolProtocol_POOL_PROTOCOL_SV2:
+		// SV2 validation has two modes:
+		//
+		//   - HANDSHAKE: when the caller supplies the pool's 32-byte
+		//     Noise authority public key, run a Noise NX handshake
+		//     against the supplied key. This pins the pool's identity
+		//     and is the strongest probe v1 offers.
+		//
+		//   - TCP_DIAL: when no key is supplied, fall back to a TCP
+		//     reachability probe. The advertised contract on
+		//     ValidatePoolResponse (mode + reachable + credentials_
+		//     verified) makes the shallowness explicit so the UI
+		//     doesn't claim more than the probe proved. Documented as
+		//     a Known Limitation §8 — the URL CEL pins host portions
+		//     to stratum schemes, which limits but does not eliminate
+		//     the reachability-oracle concern; tightening that is a
+		//     v1.5 fast-follow.
+		//
+		// Anything other than 0 or 32 bytes is a bad request — the
+		// operator either supplied a malformed key or pasted
+		// something that isn't a key at all; silently downgrading to
+		// TCP would confuse the response semantics.
+		if len(poolNoiseKey) > 0 && len(poolNoiseKey) != 32 {
+			return ValidationResult{Mode: pb.ValidationMode_VALIDATION_MODE_SV2_HANDSHAKE},
+				fleeterror.NewInvalidArgumentErrorf("noise public key must be 32 raw bytes, got %d", len(poolNoiseKey))
+		}
+		if len(poolNoiseKey) == 32 {
+			ok, err := sv2.HandshakeProbe(ctx, url, poolNoiseKey, to)
+			if err != nil {
+				return ValidationResult{Mode: pb.ValidationMode_VALIDATION_MODE_SV2_HANDSHAKE}, err
+			}
+			return ValidationResult{
+				Reachable: ok,
+				Mode:      pb.ValidationMode_VALIDATION_MODE_SV2_HANDSHAKE,
+			}, nil
+		}
+		ok, err := sv2.TCPDial(ctx, url, to)
+		if err != nil {
+			return ValidationResult{Mode: pb.ValidationMode_VALIDATION_MODE_SV2_TCP_DIAL}, err
+		}
+		return ValidationResult{
+			Reachable: ok,
+			Mode:      pb.ValidationMode_VALIDATION_MODE_SV2_TCP_DIAL,
+		}, nil
+	case pb.PoolProtocol_POOL_PROTOCOL_SV1, pb.PoolProtocol_POOL_PROTOCOL_UNSPECIFIED:
+		// UNSPECIFIED is rejected above by ProtocolFromURL when the URL
+		// has no recognised scheme; reach this case only when the URL
+		// said "stratum+tcp" and the rewriter classified it SV1.
+		//
+		// Authenticate returns (true, nil) on a clean subscribe+authorize,
+		// (false, nil) when the pool returned a JSON-RPC false (typically
+		// bad credentials), and (_, err) for transport failures (DNS,
+		// refused, RST). The first two cases both mean the host is
+		// reachable — the difference is whether credentials checked out —
+		// so we only flip Reachable to false when err itself is non-nil.
+		// Conflating ok=false with unreachable would mask credential
+		// problems as connectivity issues in the UI.
+		ok, err := stratumv1.Authenticate(ctx, url, username, password)
+		if err != nil {
+			return ValidationResult{Mode: pb.ValidationMode_VALIDATION_MODE_SV1_AUTHENTICATE}, err
+		}
+		return ValidationResult{
+			Reachable:           true,
+			CredentialsVerified: ok,
+			Mode:                pb.ValidationMode_VALIDATION_MODE_SV1_AUTHENTICATE,
+		}, nil
+	default:
+		return ValidationResult{}, fleeterror.NewInvalidArgumentErrorf("unsupported pool protocol: %v", protocol)
 	}
-
-	return ok, nil
 }
