@@ -2,6 +2,14 @@ import { expect } from "@playwright/test";
 import { BasePage } from "./base";
 
 export class HomePage extends BasePage {
+  private getDurationButton(duration: string) {
+    return this.page.getByRole("button", { name: duration, exact: true });
+  }
+
+  private getDashboardPanelHeading(title: string) {
+    return this.page.getByRole("heading", { name: title, exact: true }).first();
+  }
+
   private getOverviewIssueCard(title: string) {
     return this.page
       .locator(`//*[self::a or self::div][contains(@class,'rounded-xl')][.//*[normalize-space(text())='${title}']]`)
@@ -46,6 +54,52 @@ export class HomePage extends BasePage {
 
   async validateAuthenticateMinersButtonNotVisible() {
     await expect(this.page.getByRole("button", { name: "Authenticate" })).toBeHidden();
+  }
+
+  async validateConfigurePoolsButtonNotVisible() {
+    await expect(this.page.getByRole("button", { name: "Configure" })).toHaveCount(0);
+  }
+
+  async validateSetupTaskCardNotVisible(title: string) {
+    await expect(this.page.getByText(title, { exact: true })).toHaveCount(0);
+  }
+
+  async validateDashboardSectionVisible(title: string) {
+    await expect(this.page.getByText(title, { exact: true }).first()).toBeVisible();
+  }
+
+  async validateDashboardPanelVisible(title: string) {
+    await expect(this.getDashboardPanelHeading(title)).toBeVisible();
+  }
+
+  async validateDashboardPerformanceDisclaimerVisible() {
+    await this.validateTextIsVisible("Some devices do not make all data available to Proto Fleet.");
+  }
+
+  async clickDurationButton(duration: string) {
+    await this.getDurationButton(duration).click();
+  }
+
+  async validateDurationSelected(duration: string) {
+    await expect(this.getDurationButton(duration)).toHaveClass(/bg-core-primary-fill/);
+  }
+
+  async getSelectedDuration(durations: readonly string[]) {
+    const selectedDurations: string[] = [];
+
+    for (const duration of durations) {
+      const className = await this.getDurationButton(duration).getAttribute("class");
+      if (className?.includes("bg-core-primary-fill")) {
+        selectedDurations.push(duration);
+      }
+    }
+
+    expect(
+      selectedDurations,
+      `Expected exactly one selected duration, but found ${selectedDurations.length}: ${selectedDurations.join(", ") || "none"}`,
+    ).toHaveLength(1);
+
+    return selectedDurations[0];
   }
 
   async clickControlBoardsLink() {
