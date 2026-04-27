@@ -1,7 +1,7 @@
 import { ReactNode, useCallback, useMemo, useState } from "react";
 
 import { poolInfoAttributes } from "./constants";
-import { poolNameValidationErrors, urlValidationErrors } from "./PoolForm/constants";
+import { poolNameValidationErrors, urlValidationErrors, validateURLScheme } from "./PoolForm/constants";
 import { PoolConnectionTestProps, PoolIndex, PoolInfo } from "./types";
 import { getPoolUsernameValidationError } from "./validation";
 
@@ -125,8 +125,13 @@ const PoolModal = ({
         setPoolNameError(undefined);
       }
 
-      if (infoKey === poolInfoAttributes.url && value.trim()) {
-        setUrlError(undefined);
+      if (infoKey === poolInfoAttributes.url) {
+        const trimmed = value.trim();
+        if (!trimmed) {
+          setUrlError(undefined);
+        } else {
+          setUrlError(validateURLScheme(trimmed));
+        }
       }
 
       if (infoKey === poolInfoAttributes.username && value.trim()) {
@@ -162,6 +167,12 @@ const PoolModal = ({
     if (!pool?.url?.trim()) {
       setUrlError(urlValidationErrors.required);
       hasError = true;
+    } else {
+      const schemeError = validateURLScheme(pool.url.trim());
+      if (schemeError) {
+        setUrlError(schemeError);
+        hasError = true;
+      }
     }
 
     const nextUsernameError = getPoolUsernameValidationError(pool?.username, {

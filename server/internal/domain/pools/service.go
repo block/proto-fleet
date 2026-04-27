@@ -3,8 +3,6 @@ package pools
 import (
 	"context"
 	"fmt"
-	"net"
-	neturl "net/url"
 	"strings"
 	"time"
 
@@ -14,6 +12,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/domain/sv2"
 	"github.com/block/proto-fleet/server/internal/infrastructure/secrets"
 	stratumv1 "github.com/block/proto-fleet/server/internal/infrastructure/stratum/v1"
 )
@@ -209,10 +208,11 @@ func (s *Service) ListPools(ctx context.Context) ([]*pb.Pool, error) {
 	return pools, nil
 }
 
-// ValidateConnection probes a pool server. SV2 URLs cannot be validated
-// with an SV1 handshake (they speak Noise), so we fall back to TCP dial;
-// full credential verification for SV2 happens at the miner over the
-// real Noise handshake and surfaces back through telemetry.
+// ValidateConnection probes a pool server. SV1 URLs run a full
+// mining.subscribe + authorize. SV2 URLs run a Noise NX handshake
+// against the authority pubkey embedded in the URL path — proves the
+// pool speaks SV2 and presents the operator-pinned static key.
+// A TCP dial alone is not enough: any TCP listener would pass it.
 func (s *Service) ValidateConnection(ctx context.Context, url string, username string, password *secrets.Text, timeout *time.Duration) (bool, error) {
 	to := s.cfg.Timeout
 	if timeout != nil {
@@ -222,7 +222,11 @@ func (s *Service) ValidateConnection(ctx context.Context, url string, username s
 	defer cancel()
 
 	if isSV2URL(url) {
-		return tcpDial(ctx, url)
+		key, err := sv2.PoolNoiseKeyFromURL(url)
+		if err != nil {
+			return false, fleeterror.NewInvalidArgumentErrorf("%v", err)
+		}
+		return sv2.HandshakeProbe(ctx, url, key, to)
 	}
 
 	ok, err := stratumv1.Authenticate(ctx, url, username, password)
@@ -234,21 +238,4 @@ func (s *Service) ValidateConnection(ctx context.Context, url string, username s
 
 func isSV2URL(stratumURL string) bool {
 	return strings.HasPrefix(stratumURL, "stratum2+")
-}
-
-func tcpDial(ctx context.Context, stratumURL string) (bool, error) {
-	u, err := neturl.Parse(stratumURL)
-	if err != nil {
-		return false, fmt.Errorf("invalid pool URL: %w", err)
-	}
-	if u.Host == "" {
-		return false, fmt.Errorf("pool URL missing host")
-	}
-	var d net.Dialer
-	conn, err := d.DialContext(ctx, "tcp", u.Host)
-	if err != nil {
-		return false, err
-	}
-	_ = conn.Close()
-	return true, nil
 }

@@ -2,7 +2,6 @@ package pools
 
 import (
 	"context"
-	"net"
 	"testing"
 	"time"
 
@@ -358,30 +357,28 @@ func TestActivityLogging_DeletePoolBestEffortPreFetch(t *testing.T) {
 	assert.Empty(t, spy.events, "activity log should be skipped when pre-fetch fails")
 }
 
-func TestValidateConnection_SV2URLPerformsTCPDialOnly(t *testing.T) {
-	// Arrange — bind a local TCP listener and feed its address back as the
-	// pool URL. SV2 short-circuit must reach this listener and not attempt
-	// the SV1 mining.subscribe handshake (which would block on the silent
-	// listener until the test timeout fires).
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	defer listener.Close()
-
-	url := "stratum2+tcp://" + listener.Addr().String()
+func TestValidateConnection_SV2URLRejectsMissingPubkey(t *testing.T) {
+	// Arrange — without /PUBKEY in the path the URL would have slipped past
+	// the CEL rule (defensive: the service still must refuse rather than
+	// silently fall back to a meaningless TCP dial).
+	url := "stratum2+tcp://pool.example.com:3336"
 	svc := NewService(&stubPoolStore{}, stubTransactor{}, Config{Timeout: time.Second}, nil)
 
 	// Act
 	ok, err := svc.ValidateConnection(testCtx(t), url, "anything", nil, nil)
 
 	// Assert
-	require.NoError(t, err)
-	assert.True(t, ok, "SV2 TCP dial against a live listener should succeed")
+	require.Error(t, err)
+	assert.False(t, ok)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 }
 
-func TestValidateConnection_SV2URLDialFailureSurfaces(t *testing.T) {
-	// Arrange — TEST-NET-1 (RFC 5737) address that should never accept
-	// connections. A short timeout keeps this fast.
-	url := "stratum2+tcp://192.0.2.1:34254"
+func TestValidateConnection_SV2URLHandshakeFailureSurfaces(t *testing.T) {
+	// Arrange — TEST-NET-1 (RFC 5737) address that won't respond. A short
+	// timeout keeps the test fast; pubkey is well-formed so the failure has
+	// to come from the handshake/dial, not validation.
+	pubkey := "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"
+	url := "stratum2+tcp://192.0.2.1:34254/" + pubkey
 	svc := NewService(&stubPoolStore{}, stubTransactor{}, Config{Timeout: 100 * time.Millisecond}, nil)
 
 	// Act
@@ -389,5 +386,5 @@ func TestValidateConnection_SV2URLDialFailureSurfaces(t *testing.T) {
 
 	// Assert
 	assert.False(t, ok)
-	assert.Error(t, err, "unreachable SV2 host should surface a dial error")
+	assert.Error(t, err)
 }
