@@ -93,8 +93,6 @@ func (s *SQLPoolStore) UpdatePool(ctx context.Context, request *pb.UpdatePoolReq
 		return fleeterror.NewInternalErrorf("error getting pool: %v", err)
 	}
 
-	// Empty-string rejection lives upstream in domain/pools.Service.UpdatePool;
-	// by the time the request reaches here, a non-nil pointer is a valid value.
 	if request.PoolName != nil {
 		pool.PoolName = request.GetPoolName()
 	}

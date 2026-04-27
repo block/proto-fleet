@@ -189,12 +189,9 @@ export const CreatePoolResponseSchema: GenMessage<CreatePoolResponse> =
 /**
  * Request to update an existing pool's configuration.
  *
- * Patch semantics use proto3 explicit presence: a field that is absent
- * from the request is left unchanged; a field that is present is
- * applied. Sending an empty string for pool_name, url, or username
- * returns INVALID_ARGUMENT — those values are not meaningful as pool
- * state. Callers that previously passed "" to mean "leave unchanged"
- * must omit the field instead.
+ * Omit a field to leave it unchanged. Empty strings on pool_name, url,
+ * or username return INVALID_ARGUMENT; callers that previously sent ""
+ * to mean "leave unchanged" must omit the field instead.
  *
  * @generated from message pools.v1.UpdatePoolRequest
  */
