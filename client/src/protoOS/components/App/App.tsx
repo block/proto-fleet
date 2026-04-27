@@ -383,7 +383,7 @@ const App = ({
         ) : (
           // Normal mode: Render with AppLayout + callouts
           <AppLayout title={title} ContentLayout={ContentLayout} type={navigationMenuTypes.app}>
-            {calloutTopSpacing && hasVisibleCallout ? <div className="pt-14 phone:pt-6 tablet:pt-6" /> : null}
+            {calloutTopSpacing && hasVisibleCallout ? <div className="pt-6 laptop:pt-14" /> : null}
             {isWarmingUp ? <WarmingUpCallout /> : <WakeCallout afterWake={afterWake} onWake={handleWake} />}
             {shouldShowNoPoolsCallout && !isWarmingUp ? (
               <NoPoolsCallout arePoolsConfigured={arePoolsConfigured} />

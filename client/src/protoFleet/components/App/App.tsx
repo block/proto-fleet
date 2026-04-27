@@ -109,7 +109,7 @@ const App = ({ children, fullscreen }: AppProps) => {
       <div
         className={clsx(
           "fixed right-4 z-60 transition-[bottom] duration-200 phone:right-2",
-          isActionBarVisible ? "bottom-24 phone:bottom-30 tablet:bottom-30" : "bottom-4 phone:bottom-2",
+          isActionBarVisible ? "bottom-24 phone:bottom-30" : "bottom-4 phone:bottom-2",
         )}
       >
         <Toaster />

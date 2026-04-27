@@ -57,7 +57,7 @@ const OpenQualifierOptionsModal = ({
       mobileSaveTestId="qualifier-options-save-button-mobile"
     >
       <RenameOptionsModalBody>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 tablet:grid-cols-2">
           <Input
             id="qualifier-property-prefix"
             label="Prefix (optional)"

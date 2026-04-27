@@ -26,7 +26,7 @@ const Verify = ({ miner, className, handleContinueSetup }: VerifyProps) => {
           />
         </div>
         <div className="rounded-2xl bg-surface-10 px-5 pt-10 pb-7">
-          <div className="mx-auto sm:w-[600px]">
+          <div className="mx-auto tablet:w-[600px]">
             <div className="mx-auto w-fit">
               <Picture className="mb-2 max-w-[228px]" image={MinerImage} />
               <div className="text-center text-heading-100 text-text-primary-50">Proto Rack</div>

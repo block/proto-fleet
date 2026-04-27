@@ -12,11 +12,11 @@ import { useClickOutsideDismiss } from "@/shared/hooks/useClickOutsideDismiss";
 import { useEscapeDismiss } from "@/shared/hooks/useEscapeDismiss";
 
 const defaultPaneContainerClassName =
-  "flex min-h-[calc(100dvh-200px)] w-full flex-1 flex-col laptop:grid laptop:min-h-0 laptop:grid-cols-2 laptop:px-10 desktop:px-10 desktop:grid desktop:min-h-0 desktop:grid-cols-2";
+  "flex min-h-[calc(100dvh-200px)] w-full flex-1 flex-col laptop:grid laptop:min-h-0 laptop:grid-cols-2 laptop:px-10";
 const defaultPrimaryPaneClassName =
-  "order-2 flex flex-col phone:pl-6 tablet:pl-6 laptop:order-1 laptop:min-h-0 laptop:overflow-y-auto laptop:pl-1 desktop:order-1 desktop:min-h-0 desktop:overflow-y-auto desktop:pl-1";
+  "order-2 flex flex-col pl-6 laptop:order-1 laptop:min-h-0 laptop:overflow-y-auto laptop:pl-1";
 const defaultSecondaryPaneClassName =
-  "order-1 flex flex-col self-stretch bg-surface-overlay phone:mb-6 phone:max-h-[50vh] phone:overflow-y-auto tablet:mb-6 tablet:max-h-[50vh] tablet:overflow-y-auto laptop:order-2 laptop:min-h-0 laptop:rounded-xl laptop:pl-6 desktop:order-2 desktop:min-h-0 desktop:rounded-xl desktop:pl-6";
+  "order-1 flex max-h-[50vh] flex-col self-stretch overflow-y-auto bg-surface-overlay mb-6 laptop:order-2 laptop:min-h-0 laptop:max-h-none laptop:rounded-xl laptop:pl-6";
 
 interface FullScreenTwoPaneModalProps {
   open: boolean;
@@ -174,11 +174,11 @@ const FullScreenTwoPaneModal = ({
       testId="full-screen-two-pane-modal"
       className="!p-0"
       bodyClassName={clsx(
-        "flex h-full min-h-0 w-full flex-col overflow-auto bg-surface-base pb-6 laptop:overflow-hidden desktop:overflow-hidden",
+        "flex h-full min-h-0 w-full flex-col overflow-auto bg-surface-base pb-6 laptop:overflow-hidden",
         className,
       )}
     >
-      <div className="sticky top-0 z-10 mb-6 bg-surface-base px-6 pt-6 pb-4 phone:mb-0 tablet:mb-0 laptop:static desktop:static">
+      <div className="sticky top-0 z-10 mb-0 bg-surface-base px-6 pt-6 pb-4 laptop:static laptop:mb-6">
         <Header
           title={title}
           titleSize="text-heading-200"
@@ -193,11 +193,11 @@ const FullScreenTwoPaneModal = ({
           iconTextColor={isBusy ? "text-text-primary-30" : "text-text-primary"}
           inline
           centerButton
-          buttonsWrapperClassName="hidden laptop:block desktop:block"
+          buttonsWrapperClassName="hidden laptop:block"
           buttons={buttons}
         >
           {/* Mobile buttons: ellipsis + primary CTA */}
-          <div className="ml-3 shrink-0 laptop:hidden desktop:hidden">
+          <div className="ml-3 shrink-0 laptop:hidden">
             <ButtonGroup buttons={mobileButtons} variant={groupVariants.rightAligned} size={sizes.base} />
           </div>
         </Header>

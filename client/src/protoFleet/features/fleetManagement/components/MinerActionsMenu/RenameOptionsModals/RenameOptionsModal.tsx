@@ -70,7 +70,7 @@ const RenameOptionsModal = ({
 );
 
 export const RenameOptionsModalBody = ({ children }: RenameOptionsModalSectionProps) => {
-  return <div className="mt-6 flex flex-col gap-6 lg:mt-10">{children}</div>;
+  return <div className="mt-6 flex flex-col gap-6 laptop:mt-10">{children}</div>;
 };
 
 export const RenameOptionsModalPreview = ({ children }: RenameOptionsModalSectionProps) => {

@@ -22,7 +22,7 @@ const BulkRenamePreviewPanel = ({
   return (
     <>
       <div
-        className="flex min-h-16 items-center justify-center px-6 py-4 laptop:hidden desktop:hidden"
+        className="flex min-h-16 items-center justify-center px-6 py-4 laptop:hidden"
         data-testid="bulk-rename-mobile-preview"
       >
         {isLoadingPreview ? (
@@ -41,7 +41,7 @@ const BulkRenamePreviewPanel = ({
       </div>
 
       <div
-        className="hidden flex-col items-center justify-center gap-6 px-16 pt-6 pb-4 laptop:flex laptop:flex-1 desktop:flex desktop:flex-1"
+        className="hidden flex-col items-center justify-center gap-6 px-16 pt-6 pb-4 laptop:flex laptop:flex-1"
         data-testid="bulk-rename-desktop-preview"
       >
         {isLoadingPreview ? (

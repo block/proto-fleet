@@ -64,7 +64,7 @@ const PageHeader = ({ isMenuOpen, openMenu, schedulePillData }: PageHeaderProps)
 
   return (
     <>
-      <div className="flex h-12 items-center laptop:h-15 desktop:h-15">
+      <div className="flex h-12 items-center laptop:h-15">
         <div className="flex grow items-center px-4">
           <div className="flex grow items-center">
             {isPhone || isTablet ? (

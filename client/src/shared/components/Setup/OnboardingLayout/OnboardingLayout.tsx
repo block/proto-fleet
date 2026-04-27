@@ -24,7 +24,7 @@ const OnboardingLayout = ({ children, steps, currentStep }: OnboardingLayoutProp
       <SetupHeader />
       <div className="relative px-6 pt-6 tablet:flex tablet:flex-row">
         {steps && currentStep ? (
-          <div className="absolute w-30 phone:relative phone:mb-4 tablet:relative">
+          <div className="relative mb-4 w-30 laptop:absolute laptop:mb-0">
             <ol className="flex flex-col gap-2 phone:flex-row">
               {Object.entries(steps).map(([key, step]) => (
                 <div key={key} className="flex h-8 items-center gap-2 text-emphasis-300 text-text-primary-50">

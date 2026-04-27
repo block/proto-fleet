@@ -24,7 +24,7 @@ const FleetErrors = ({
   const suffix = extraFilterParams ? `&${extraFilterParams}` : "";
   return (
     <div className={className}>
-      <div className="grid grid-cols-4 gap-1 phone:grid-cols-1 tablet:grid-cols-2">
+      <div className="grid grid-cols-1 gap-1 tablet:grid-cols-2 laptop:grid-cols-4">
         <ComponentErrors
           icon={<ControlBoard />}
           heading="Control Boards"

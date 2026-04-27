@@ -57,9 +57,8 @@ const Navigation = ({ ipAddressInfo, macInfo, minerNameInfo, onItemClick, versio
   return (
     <div
       className={clsx(
-        "flex h-full max-h-screen w-[240px] flex-col border-r border-border-5 bg-surface-base text-text-primary-70",
-        "tablet:absolute tablet:z-30 tablet:max-h-[calc(100vh-16px)] tablet:rounded-lg",
-        "overflow-auto phone:absolute phone:z-30 phone:max-h-[calc(100vh-16px)] phone:rounded-lg",
+        "absolute z-30 flex h-full max-h-[calc(100vh-16px)] w-[240px] flex-col overflow-auto rounded-lg border-r border-border-5 bg-surface-base text-text-primary-70",
+        "laptop:static laptop:z-auto laptop:max-h-screen laptop:rounded-none",
       )}
     >
       <div className="grow">

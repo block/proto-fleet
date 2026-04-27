@@ -304,17 +304,17 @@ const RacksPage = () => {
 
   return (
     <div>
-      <div className="sticky left-0 z-3 px-10 pt-10 phone:px-6 phone:pt-6 tablet:px-6 tablet:pt-6">
+      <div className="sticky left-0 z-3 px-6 pt-6 laptop:px-10 laptop:pt-10">
         <h1 className="pb-4 text-heading-300 text-text-primary">Racks</h1>
         <div className="flex flex-col gap-2 pb-6">
           {/* Action button — full-width on tablet/phone */}
-          <div className="hidden phone:block tablet:block">
+          <div className="block laptop:hidden">
             <Button variant={variants.secondary} size={sizes.compact} onClick={() => setShowRackSettingsModal(true)}>
               Add rack
             </Button>
           </div>
           {/* View toggle — full width on tablet/phone */}
-          <div className="hidden phone:block tablet:block">
+          <div className="block laptop:hidden">
             <SegmentedControl
               key={`mobile-${racksViewMode}`}
               className="!w-full whitespace-nowrap [&>button]:flex-1"
@@ -328,7 +328,7 @@ const RacksPage = () => {
             />
           </div>
           {/* Desktop layout — single row with toggle + filters left, buttons right */}
-          <div className="flex items-center justify-between gap-2 phone:hidden tablet:hidden">
+          <div className="hidden items-center justify-between gap-2 laptop:flex">
             <div className="flex items-center gap-2">
               <SegmentedControl
                 key={`desktop-${racksViewMode}`}
@@ -369,7 +369,7 @@ const RacksPage = () => {
             </Button>
           </div>
           {/* Filters — shown separately on tablet/phone */}
-          <div className="hidden items-center gap-2 phone:flex tablet:flex">
+          <div className="flex items-center gap-2 laptop:hidden">
             <DropdownFilter
               title="Zone"
               options={allZones}
@@ -412,10 +412,10 @@ const RacksPage = () => {
         </div>
       </div>
       {error ? (
-        <Callout className="mx-10 mb-4 phone:mx-6 tablet:mx-6" intent="danger" prefixIcon={<Alert />} title={error} />
+        <Callout className="mx-6 mb-4 laptop:mx-10" intent="danger" prefixIcon={<Alert />} title={error} />
       ) : null}
       {racksViewMode === "list" ? (
-        <div className="overflow-x-auto p-10 pt-0 phone:p-6 phone:pt-0 tablet:p-6 tablet:pt-0">
+        <div className="overflow-x-auto p-6 pt-0 laptop:p-10 laptop:pt-0">
           <DeviceSetList
             deviceSets={racks}
             statsMap={statsMap}
@@ -437,7 +437,7 @@ const RacksPage = () => {
           />
         </div>
       ) : (
-        <div className="px-10 phone:px-6 tablet:px-6">
+        <div className="px-6 laptop:px-10">
           {isLoading && racks.length === 0 ? (
             <div className="flex items-center justify-center py-20">
               <ProgressCircular indeterminate />

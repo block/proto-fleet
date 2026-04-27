@@ -638,7 +638,7 @@ const rowHoverOverlayClassList =
   "group-hover:bg-[linear-gradient(var(--color-surface-5),var(--color-surface-5))] dark:group-hover:bg-[linear-gradient(var(--color-core-primary-5),var(--color-core-primary-5))]";
 const rowDividerExtensionClassList = `pointer-events-none absolute top-0 left-full h-full w-[100vw] border-b border-border-5 bg-transparent ${rowHoverOverlayClassList}`;
 const thClassList = cellClassList + " py-3 text-emphasis-300 text-text-primary";
-const baseStickyClassList = "tablet:sticky laptop:sticky desktop:sticky z-1";
+const baseStickyClassList = "tablet:sticky z-1";
 const tdClassList = "text-left text-300";
 const tdPaddingClassList = "px-2 py-3";
 const stickyShadowMaskColors: Record<string, string> = {
@@ -1108,12 +1108,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
     tableClassName,
   ]);
 
-  const firstStickyClasses = clsx(
-    baseStickyClassList,
-    "tablet:left-0 laptop:left-0 desktop:left-0",
-    stickyBgColor,
-    paddingClasses,
-  );
+  const firstStickyClasses = clsx(baseStickyClassList, "tablet:left-0", stickyBgColor, paddingClasses);
 
   const secondStickyClasses = clsx(
     baseStickyClassList,

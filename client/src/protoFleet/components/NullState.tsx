@@ -13,8 +13,8 @@ interface NullStateProps {
 }
 
 const NullState = ({ icon, title, description, action, className, testId }: NullStateProps) => (
-  <div className={clsx("flex h-full flex-col justify-center p-6 sm:p-10", className)} data-testid={testId}>
-    <div className="flex h-full w-full flex-col justify-center rounded-xl bg-core-primary-5 px-6 py-10 sm:px-20 sm:py-10">
+  <div className={clsx("flex h-full flex-col justify-center p-6 tablet:p-10", className)} data-testid={testId}>
+    <div className="flex h-full w-full flex-col justify-center rounded-xl bg-core-primary-5 px-6 py-10 tablet:px-20 tablet:py-10">
       <div className="flex flex-col gap-6">
         <div className="flex flex-col gap-4">
           {icon ? (

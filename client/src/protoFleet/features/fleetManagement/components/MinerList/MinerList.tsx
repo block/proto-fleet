@@ -761,8 +761,8 @@ const MinerList = ({
   if (showNullState) {
     return (
       <div className="h-full bg-surface-base">
-        <div className="h-full p-6 sm:p-10">
-          <div className="flex h-full w-full items-center rounded-xl bg-landing-page p-6 sm:p-20">
+        <div className="h-full p-6 tablet:p-10">
+          <div className="flex h-full w-full items-center rounded-xl bg-landing-page p-6 tablet:p-20">
             <div className="flex flex-col gap-12">
               <div className="flex flex-col gap-4">
                 <LogoAlt width="w-[48px]" />
@@ -791,14 +791,11 @@ const MinerList = ({
 
   return (
     <>
-      <div
-        ref={topRef}
-        className="sticky left-0 pt-10 phone:px-6 phone:pt-6 tablet:px-6 tablet:pt-6 laptop:px-10 desktop:px-10"
-      >
+      <div ref={topRef} className="sticky left-0 px-6 pt-6 laptop:px-10 laptop:pt-10">
         <h2 className="text-heading-300">{title}</h2>
       </div>
 
-      <div className="sticky left-0 text-300 text-text-primary-70 phone:px-6 tablet:px-6 laptop:px-10 desktop:px-10">
+      <div className="sticky left-0 px-6 text-300 text-text-primary-70 laptop:px-10">
         {hasActiveFilters && totalUnfilteredMiners !== undefined && totalMiners !== totalUnfilteredMiners
           ? `${totalMiners} of ${totalUnfilteredMiners} miners`
           : `${totalMiners ?? 0} miners`}

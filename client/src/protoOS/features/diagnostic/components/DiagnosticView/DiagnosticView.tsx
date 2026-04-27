@@ -36,7 +36,7 @@ const NoFansEmptyState = () => (
 );
 
 const FansGrid = ({ occupiedSlots }: { occupiedSlots: Set<number> }) => (
-  <div className="grid gap-1 tablet:grid-cols-2 laptop:grid-cols-2 desktop:auto-cols-fr desktop:grid-flow-col desktop:grid-rows-2">
+  <div className="grid gap-1 tablet:grid-cols-2 desktop:auto-cols-fr desktop:grid-flow-col desktop:grid-rows-2">
     {Array.from({ length: TOTAL_FAN_SLOTS }, (_, i) => {
       const slot = i + 1;
       if (occupiedSlots.has(slot)) {
@@ -77,7 +77,7 @@ const HashboardsSection = () => {
 
   return (
     <ComponentSection title="Hashboards">
-      <div className="grid gap-1 tablet:grid-cols-2 laptop:grid-cols-2 desktop:grid-flow-col desktop:grid-cols-3 desktop:grid-rows-3">
+      <div className="grid gap-1 tablet:grid-cols-2 desktop:grid-flow-col desktop:grid-cols-3 desktop:grid-rows-3">
         {bayIndices
           .map((bayIndex) => {
             const serialsInBay = hashboardsByBay[bayIndex] || Array(slotsPerBay).fill(null);
@@ -111,7 +111,7 @@ const PsusSection = () => {
 
   return (
     <ComponentSection title="PSU">
-      <div className="grid gap-1 md:grid-cols-2 xl:grid-cols-3">
+      <div className="grid gap-1 tablet:grid-cols-2 desktop:grid-cols-3">
         {Array.from({ length: TOTAL_PSU_SLOTS }, (_, i) => {
           const slot = i + 1;
           if (occupiedSlots.has(slot)) {
@@ -132,7 +132,7 @@ const ControlBoardSection = () => {
 
   return (
     <ComponentSection title="Control Board">
-      <div className="grid gap-1 md:grid-cols-2 xl:grid-cols-3">
+      <div className="grid gap-1 tablet:grid-cols-2 desktop:grid-cols-3">
         <ControlBoardStatusCard />
       </div>
     </ComponentSection>
@@ -150,7 +150,7 @@ function DiagnosticView({ className }: DiagnosticViewProps) {
 
   return (
     <div className={`w-full space-y-6 ${className || ""}`}>
-      <div className="flex flex-col items-start gap-3 pb-6 sm:flex-row sm:items-center">
+      <div className="flex flex-col items-start gap-3 pb-6 tablet:flex-row tablet:items-center">
         <div className="grow text-heading-300">Diagnostics</div>
         <ComponentSelector selectedComponent={selectedComponent} onSelect={setSelectedComponent} />
       </div>

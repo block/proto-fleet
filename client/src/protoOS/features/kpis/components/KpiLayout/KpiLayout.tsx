@@ -54,16 +54,16 @@ const KpiLayout = () => {
 
   return (
     <ErrorBoundary>
-      <div className="p-14 phone:p-6 tablet:p-10">
+      <div className="p-6 tablet:p-10 laptop:p-14">
         {shouldShowNoPoolsCallout ? <NoPoolsCallout arePoolsConfigured={arePoolsConfigured} /> : null}
 
-        <div className="relative flex h-[calc(100vh-theme(spacing.36))] min-h-[800px] flex-col phone:min-h-[1000px]">
+        <div className="relative flex h-[calc(100vh-theme(spacing.36))] min-h-[1000px] flex-col laptop:min-h-[800px]">
           <div className="flex items-center pb-6">
             <div className="grow text-heading-300">Home</div>
             <DurationSelector className="h-fit" duration={duration} onSelect={setDuration} />
           </div>
 
-          <div className="pb-6 phone:pb-6">
+          <div className="pb-6">
             <TabMenu />
           </div>
           <ErrorBoundary>

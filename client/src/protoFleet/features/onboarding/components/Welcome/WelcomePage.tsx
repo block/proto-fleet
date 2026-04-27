@@ -101,8 +101,8 @@ const WelcomePage = () => {
         </div>
       ) : (
         <div className="flex h-screen flex-1 bg-surface-base">
-          <div className="flex h-screen w-1/2 phone:w-full tablet:w-full">
-            <div className="mx-auto h-full py-10 phone:px-6 tablet:px-6">
+          <div className="flex h-screen w-full laptop:w-1/2">
+            <div className="mx-auto h-full px-6 py-10 laptop:px-0">
               <div className="flex h-full flex-col justify-center space-y-10">
                 <Logo className="text-text-primary" width="w-[86px]" />
 
@@ -133,7 +133,7 @@ const WelcomePage = () => {
               </div>
             </div>
           </div>
-          <div className="h-screen w-1/2 py-10 pr-10 phone:hidden tablet:hidden">
+          <div className="hidden h-screen w-1/2 py-10 pr-10 laptop:block">
             <div className="flex h-full flex-col justify-between rounded-3xl bg-landing-page">
               <div className="h-1/4 pt-10" />
               <div className="px-20">

@@ -202,7 +202,7 @@ const Fleet = () => {
     <>
       {!unfilteredCountLoaded || totalUnfilteredMiners > 0 || totalMiners > 0 ? (
         <CompleteSetup
-          className="sticky left-0 mb-10 max-w-full px-10 pt-10 phone:px-6 phone:pt-6 tablet:px-6 tablet:pt-6"
+          className="sticky left-0 mb-10 max-w-full px-6 pt-6 laptop:px-10 laptop:pt-10"
           lastPairingCompletedAt={lastPairingCompletedAt}
           onRefetchMiners={refetchAll}
           onPairingCompleted={notifyPairingCompleted}

@@ -43,35 +43,25 @@
 
 @custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
 
-/* TODO, tw4 implements breakpoints mobile first (no min-widths)
-these custom variants are workaround for supporting our tw3 utility. 
-WOuld be best to switch over to mobile first stying  */
+/* Tablet/laptop/desktop use Tailwind's mobile-first breakpoints from the
+theme below. Phone and tablet-only cover exact-range layouts. */
 @custom-variant phone {
   @media (max-width: 631px) {
     @slot;
   }
 }
 
-@custom-variant tablet {
+@custom-variant tablet-only {
   @media (min-width: 632px) and (max-width: 959px) {
-    @slot;
-  }
-}
-
-@custom-variant laptop {
-  @media (min-width: 960px) and (max-width: 1279px) {
-    @slot;
-  }
-}
-
-@custom-variant desktop {
-  @media (min-width: 1280px) {
     @slot;
   }
 }
 
 @theme {
   --breakpoint-*: initial;
+  --breakpoint-tablet: 39.5rem;
+  --breakpoint-laptop: 60rem;
+  --breakpoint-desktop: 80rem;
 
   /**
    * Colors : light

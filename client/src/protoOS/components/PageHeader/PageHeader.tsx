@@ -85,7 +85,7 @@ const PageHeader = ({ customButtons, openMenu, title }: PageHeaderProps) => {
 
   return (
     <div
-      className="fixed top-0 right-0 left-0 z-20 flex h-[60px] bg-surface-base phone:h-fit tablet:h-fit"
+      className="fixed top-0 right-0 left-0 z-20 flex h-fit bg-surface-base laptop:h-[60px]"
       data-testid="page-header"
     >
       {isPhone || isTablet ? (

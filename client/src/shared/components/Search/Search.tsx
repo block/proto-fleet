@@ -60,7 +60,7 @@ const Search = ({ className, compact, onChange, initValue, shouldFocus }: Search
   }, [shouldFocus]);
 
   return (
-    <div className="w-80 phone:w-24">
+    <div className="w-24 tablet:w-80">
       <Input
         id={id}
         className={className}
