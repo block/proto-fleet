@@ -1157,10 +1157,14 @@ func (s *TimescaleTelemetryStore) aggregateMetrics(
 	for _, bucketTime := range bucketTimes {
 		bucketData := buckets[bucketTime]
 
-		tempCount := calculateTemperatureStatusCount(bucketData, bucketTime)
+		// Dedupe once per bucket — both status-count functions need the
+		// per-device latest sample, and raw buckets can be large.
+		latestPerDevice := latestSamplePerDevice(bucketData)
+
+		tempCount := temperatureStatusCountFromLatest(latestPerDevice, bucketTime)
 		tempCounts = append(tempCounts, tempCount)
 
-		uptimeCount := calculateUptimeStatusCount(bucketData, bucketTime)
+		uptimeCount := uptimeStatusCountFromLatest(latestPerDevice, bucketTime)
 		uptimeCounts = append(uptimeCounts, uptimeCount)
 
 		for _, measurementType := range measurementTypes {
@@ -1365,10 +1369,19 @@ func latestSamplePerDevice(data []modelsV2.DeviceMetrics) []modelsV2.DeviceMetri
 	return out
 }
 
+// calculateTemperatureStatusCount dedupes the bucket and counts each device
+// once. Prefer temperatureStatusCountFromLatest in hot loops where the caller
+// has already deduped.
 func calculateTemperatureStatusCount(data []modelsV2.DeviceMetrics, timestamp time.Time) models.TemperatureStatusCount {
+	return temperatureStatusCountFromLatest(latestSamplePerDevice(data), timestamp)
+}
+
+// temperatureStatusCountFromLatest classifies an already-deduped slice (one
+// DeviceMetrics per device, latest sample in the bucket).
+func temperatureStatusCountFromLatest(latestPerDevice []modelsV2.DeviceMetrics, timestamp time.Time) models.TemperatureStatusCount {
 	var cold, ok, hot, critical int32
 
-	for _, m := range latestSamplePerDevice(data) {
+	for _, m := range latestPerDevice {
 		if m.TempC == nil {
 			continue
 		}
@@ -1394,10 +1407,19 @@ func calculateTemperatureStatusCount(data []modelsV2.DeviceMetrics, timestamp ti
 	}
 }
 
+// calculateUptimeStatusCount dedupes the bucket and counts each device once.
+// Prefer uptimeStatusCountFromLatest in hot loops where the caller has
+// already deduped.
 func calculateUptimeStatusCount(data []modelsV2.DeviceMetrics, timestamp time.Time) models.UptimeStatusCount {
+	return uptimeStatusCountFromLatest(latestSamplePerDevice(data), timestamp)
+}
+
+// uptimeStatusCountFromLatest classifies an already-deduped slice (one
+// DeviceMetrics per device, latest sample in the bucket).
+func uptimeStatusCountFromLatest(latestPerDevice []modelsV2.DeviceMetrics, timestamp time.Time) models.UptimeStatusCount {
 	var hashing, notHashing int32
 
-	for _, m := range latestSamplePerDevice(data) {
+	for _, m := range latestPerDevice {
 		if m.Health == modelsV2.HealthHealthyActive {
 			hashing++
 		} else {
