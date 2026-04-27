@@ -183,7 +183,7 @@ const Filters = <ItemType,>({
           return null;
         })}
         {headerControls ? (
-          <div className="ml-auto phone:mr-(--list-padding-phone) tablet:mr-(--list-padding-tablet) laptop:mr-(--list-padding-laptop) desktop:mr-(--list-padding-desktop)">
+          <div className="ml-auto tablet:mr-(--list-padding-tablet) laptop:mr-(--list-padding-laptop) desktop:mr-(--list-padding-desktop) phone:mr-(--list-padding-phone)">
             {headerControls}
           </div>
         ) : null}

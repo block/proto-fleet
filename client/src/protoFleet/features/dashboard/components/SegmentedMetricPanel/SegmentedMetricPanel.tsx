@@ -130,13 +130,10 @@ export const SegmentedMetricPanel = ({
 
   return (
     <div
-      className={`flex w-full flex-row overflow-hidden rounded-xl bg-surface-base dark:bg-core-primary-5 phone:flex-col phone:gap-6 tablet:flex-col tablet:gap-6 ${className || ""}`}
+      className={`flex w-full flex-col gap-6 overflow-hidden rounded-xl bg-surface-base laptop:flex-row laptop:gap-0 dark:bg-core-primary-5 ${className || ""}`}
     >
       {/* Left Panel: ChartWidget with SegmentedBarChart(s) */}
-      <ChartWidget
-        stats={stat}
-        className="w-1/2 rounded-none! bg-transparent dark:bg-transparent phone:w-full tablet:w-full"
-      >
+      <ChartWidget stats={stat} className="w-full rounded-none! bg-transparent laptop:w-1/2 dark:bg-transparent">
         <div className={`w-full ${isMultiDay ? "flex flex-row" : ""}`}>
           {processedChartData.map((dayData, index) => {
             // Use pre-calculated width for this chart
@@ -170,7 +167,7 @@ export const SegmentedMetricPanel = ({
       </ChartWidget>
 
       {/* Right Panel: Current Values Breakdown */}
-      <StatusBreakdownPanel items={currentBreakdown} className="w-1/2 phone:w-full tablet:w-full" />
+      <StatusBreakdownPanel items={currentBreakdown} className="w-full laptop:w-1/2" />
     </div>
   );
 };

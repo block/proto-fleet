@@ -59,17 +59,17 @@ const ActivityPage = () => {
   const { exportCsv, isExportingCsv } = useExportActivity();
   const { eventTypes, scopeTypes, users } = useActivityFilterOptions();
 
-  const [hasLoaded, setHasLoaded] = useState(false);
   const hasStartedLoadingRef = useRef(false);
+  const hasLoadedRef = useRef(false);
   useEffect(() => {
     if (isLoading) {
       hasStartedLoadingRef.current = true;
-    } else if (hasStartedLoadingRef.current && !hasLoaded) {
-      setHasLoaded(true);
+    } else if (hasStartedLoadingRef.current) {
+      hasLoadedRef.current = true;
     }
-  }, [isLoading, hasLoaded]);
+  }, [isLoading]);
 
-  const isInitialLoad = isLoading && activities.length === 0 && !hasLoaded;
+  const isInitialLoad = isLoading && activities.length === 0 && !hasLoadedRef.current;
   const isLoadingMore = isLoading && activities.length > 0;
 
   const hasActiveFilters =
@@ -119,7 +119,7 @@ const ActivityPage = () => {
 
   return (
     <>
-      <div className="sticky left-0 z-3 px-10 pt-10 phone:px-6 phone:pt-6 tablet:px-6 tablet:pt-6">
+      <div className="sticky left-0 z-3 px-6 pt-6 laptop:px-10 laptop:pt-10">
         <div className="flex items-center justify-between pb-4">
           <Header title="Activity" titleSize="text-heading-300" />
           <Button
@@ -165,10 +165,10 @@ const ActivityPage = () => {
       </div>
 
       {error ? (
-        <Callout className="mx-10 mb-4 phone:mx-6 tablet:mx-6" intent="danger" prefixIcon={<Alert />} title={error} />
+        <Callout className="mx-6 mb-4 laptop:mx-10" intent="danger" prefixIcon={<Alert />} title={error} />
       ) : null}
 
-      <div className="p-10 pt-0 phone:p-6 phone:pt-0 tablet:p-6 tablet:pt-0">
+      <div className="p-6 pt-0 laptop:p-10 laptop:pt-0">
         <ActivityTable
           activities={activities}
           noDataElement={

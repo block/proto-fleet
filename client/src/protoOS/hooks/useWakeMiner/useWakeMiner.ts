@@ -63,6 +63,18 @@ export const useWakeMiner = ({ afterWake, onSuccess, onError }: UseWakeMinerProp
     intervalIdRef.current = newIntervalId;
   }, [fetchMiningStatus, setMiningStatus]);
 
+  const completeWake = useCallback(() => {
+    if (intervalIdRef.current) {
+      clearInterval(intervalIdRef.current);
+      intervalIdRef.current = undefined;
+    }
+    isWakingRef.current = false;
+    setShouldWake(false);
+    setPending(false);
+    afterWakeRef.current?.();
+    onSuccessRef.current?.();
+  }, []);
+
   // Handle dismissed login modal
   useEffect(() => {
     if (dismissedLoginModal) {
@@ -73,18 +85,10 @@ export const useWakeMiner = ({ afterWake, onSuccess, onError }: UseWakeMinerProp
 
   useEffect(() => {
     if (!isSleeping && isWakingRef.current) {
-      // Miner is awake - stop polling and reset state
-      if (intervalIdRef.current) {
-        clearInterval(intervalIdRef.current);
-        intervalIdRef.current = undefined;
-      }
-      isWakingRef.current = false;
-      setShouldWake(false);
-      setPending(false);
-      afterWakeRef.current?.();
-      onSuccessRef.current?.();
+      const timeoutId = setTimeout(completeWake, 0);
+      return () => clearTimeout(timeoutId);
     }
-  }, [isSleeping]);
+  }, [isSleeping, completeWake]);
 
   const executeWake = useCallback(() => {
     setError(undefined);

@@ -45,7 +45,10 @@ const TabMenu = memo(({ items, basePath = "" }: TabMenuProps) => {
 
   return (
     <div
-      className={clsx("relative box-border grid w-full grid-cols-4 gap-1", "phone:grid-cols-2 phone:gap-2 phone:p-2")}
+      className={clsx(
+        "relative box-border grid w-full grid-cols-2 gap-2 p-2",
+        "tablet:grid-cols-4 tablet:gap-1 tablet:p-0",
+      )}
     >
       {tabElements}
     </div>

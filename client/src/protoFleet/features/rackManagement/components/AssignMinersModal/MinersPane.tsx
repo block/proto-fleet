@@ -300,8 +300,8 @@ export default function MinersPane({
     <div className="flex flex-col gap-4 pt-4 pr-4 pb-4">
       <div className="flex flex-col gap-3">
         <h3 className="text-emphasis-300 text-text-primary">Assign miners</h3>
-        <div className="scrollbar-hide flex items-center gap-2 overflow-x-auto phone:w-[calc(100%+48px)] phone:-translate-x-6 tablet:w-[calc(100%+48px)] tablet:-translate-x-6">
-          <div className="flex shrink-0 items-center gap-1 phone:pl-6 tablet:pl-6">
+        <div className="scrollbar-hide flex items-center gap-2 overflow-x-auto phone:w-[calc(100%+48px)] phone:-translate-x-6 tablet-only:w-[calc(100%+48px)] tablet-only:-translate-x-6">
+          <div className="flex shrink-0 items-center gap-1 phone:pl-6 tablet-only:pl-6">
             {modeSegments.map((seg) => (
               <Button
                 key={seg.key}

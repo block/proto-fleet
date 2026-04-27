@@ -187,7 +187,7 @@ const Logs = ({ logsData, fetchMaxLogs }: LogsProps) => {
       {logs.length ? (
         <>
           <div
-            className="sticky top-[60px] z-10 h-[58px] bg-surface-base phone:top-[100px] tablet:top-[100px]"
+            className="sticky top-[100px] z-10 h-[58px] bg-surface-base laptop:top-[60px]"
             onClick={handleClickSearchBar}
             ref={searchBarRef}
           >

@@ -174,7 +174,7 @@ const GroupOverviewPage = () => {
 
   if (notFound) {
     return (
-      <div className="p-10 phone:p-6 tablet:p-6">
+      <div className="p-6 laptop:p-10">
         <h1 className="text-heading-300 text-text-primary">Group not found</h1>
         <p className="mt-2 text-300 text-text-primary-50">No group with the label &ldquo;{label}&rdquo; exists.</p>
       </div>
@@ -183,7 +183,7 @@ const GroupOverviewPage = () => {
 
   if (resolveError) {
     return (
-      <div className="p-10 phone:p-6 tablet:p-6">
+      <div className="p-6 laptop:p-10">
         <h1 className="text-heading-300 text-text-primary">Error loading group</h1>
         <p className="mt-2 text-300 text-text-primary-50">{resolveError}</p>
       </div>
@@ -194,7 +194,7 @@ const GroupOverviewPage = () => {
     <div className="h-full">
       <div className="flex flex-col">
         {/* Header */}
-        <div className="p-10 pb-0 phone:p-6 phone:pb-0 tablet:p-6 tablet:pb-0">
+        <div className="p-6 pb-0 laptop:p-10 laptop:pb-0">
           <Header
             title={label}
             titleSize="text-heading-300"
@@ -224,7 +224,7 @@ const GroupOverviewPage = () => {
         </div>
 
         {/* Overview Section */}
-        <section className="p-10 phone:p-6 tablet:p-6">
+        <section className="p-6 laptop:p-10">
           <div className="flex flex-col gap-1">
             <FleetHealth
               title="Miners"
@@ -249,8 +249,8 @@ const GroupOverviewPage = () => {
         {/* Performance Section */}
         <section className="pb-6">
           <div ref={refs.vertical.start} />
-          <div className="sticky top-0 z-2 bg-surface-5 px-10 pt-10 pb-6 dark:bg-surface-base phone:px-6 phone:pt-6 tablet:px-6 tablet:pt-6">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="sticky top-0 z-2 bg-surface-5 px-6 pt-6 pb-6 laptop:px-10 laptop:pt-10 dark:bg-surface-base">
+            <div className="flex flex-col gap-4 tablet:flex-row tablet:items-center tablet:justify-between">
               <div className="text-heading-200 text-text-primary">Performance</div>
               <div className="flex items-center gap-6 text-200 text-core-primary-50">
                 <div className="flex items-center gap-2">
@@ -306,7 +306,7 @@ const GroupOverviewPage = () => {
             </div>
           </div>
 
-          <div className="px-10 phone:px-6 tablet:px-6">
+          <div className="px-6 laptop:px-10">
             <DeviceSetPerformanceSection duration={duration} metrics={metrics} />
           </div>
           {/* eslint-disable-next-line react-hooks/refs -- ref object from useStickyState is passed to <div ref>; React writes .current during commit, not read during render */}

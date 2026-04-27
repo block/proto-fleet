@@ -26,7 +26,7 @@ export const StatusBreakdownPanel = ({ items, className }: StatusBreakdownPanelP
   return (
     <div
       className={clsx(
-        "flex flex-col justify-between space-y-3 bg-transparent p-10 dark:bg-transparent phone:gap-4 phone:p-6 phone:pt-0 tablet:gap-4 tablet:p-6 tablet:pt-0",
+        "flex flex-col justify-between space-y-3 bg-transparent p-6 pt-0 laptop:p-10 laptop:pt-0 dark:bg-transparent",
         className,
       )}
     >

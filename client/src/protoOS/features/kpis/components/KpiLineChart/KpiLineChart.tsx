@@ -107,13 +107,13 @@ const KpiLineChart = ({
 
   return (
     <>
-      <div className="scrollbar-hide w-[calc(100%+theme(space.28))] -translate-x-14 overflow-x-auto phone:w-[calc(100%+theme(space.12))] phone:-translate-x-6 tablet:w-[calc(100%+theme(space.20))] tablet:-translate-x-10">
+      <div className="scrollbar-hide w-[calc(100%+theme(space.12))] -translate-x-6 overflow-x-auto tablet:w-[calc(100%+theme(space.20))] tablet:-translate-x-10 laptop:w-[calc(100%+theme(space.28))] laptop:-translate-x-14">
         <HashboardSelector
           chartLines={chartLines}
           setActiveChartLines={setActiveChartLines}
           activeChartLines={activeChartLines}
           aggregateKey={aggregateKey}
-          className={"px-14 phone:px-6 tablet:px-10"}
+          className={"px-6 tablet:px-10 laptop:px-14"}
         />
       </div>
       <LineChart

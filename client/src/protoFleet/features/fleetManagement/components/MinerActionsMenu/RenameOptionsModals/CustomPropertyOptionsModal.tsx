@@ -121,7 +121,7 @@ const OpenCustomPropertyOptionsModal = ({
         />
 
         {isStringAndCounter ? (
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 tablet:grid-cols-2">
             <Input
               id="custom-property-prefix"
               label="Prefix (optional)"

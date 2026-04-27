@@ -663,10 +663,10 @@ const ScheduleModal = ({
           },
         ]}
         primaryPane={
-          <section className="flex flex-col gap-10 pr-6 pb-6 laptop:pr-10 laptop:pb-10 desktop:pr-10 desktop:pb-10">
+          <section className="flex flex-col gap-10 pr-6 pb-6 laptop:pr-10 laptop:pb-10">
             <div className={sectionBodyClassName}>
               <div className={sectionTitleClassName}>Schedule details</div>
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-4 tablet:grid-cols-2">
                 <Input
                   id="schedule-name"
                   label="Schedule name"
@@ -715,7 +715,7 @@ const ScheduleModal = ({
                 <>
                   <div
                     className={clsx("grid gap-4", {
-                      "md:grid-cols-2": values.frequency === "weekly" || values.frequency === "monthly",
+                      "tablet:grid-cols-2": values.frequency === "weekly" || values.frequency === "monthly",
                     })}
                   >
                     <Select
@@ -751,7 +751,7 @@ const ScheduleModal = ({
                     ) : null}
                   </div>
 
-                  <div className={clsx("grid gap-4", { "md:grid-cols-2": showPowerTargetWindow })}>
+                  <div className={clsx("grid gap-4", { "tablet:grid-cols-2": showPowerTargetWindow })}>
                     <Select
                       id="schedule-start-time"
                       label="Start time"
@@ -772,7 +772,7 @@ const ScheduleModal = ({
                     ) : null}
                   </div>
 
-                  <div className="grid gap-4 md:grid-cols-2">
+                  <div className="grid gap-4 tablet:grid-cols-2">
                     <DatePickerField
                       id="schedule-start-date"
                       label="Start date"
@@ -804,7 +804,7 @@ const ScheduleModal = ({
                   </div>
 
                   {values.endBehavior === "endDate" ? (
-                    <div className="grid gap-4 md:grid-cols-2">
+                    <div className="grid gap-4 tablet:grid-cols-2">
                       <DatePickerField
                         id="schedule-end-date"
                         label="End date"
@@ -826,7 +826,7 @@ const ScheduleModal = ({
                   ) : null}
                 </>
               ) : (
-                <div className="grid gap-4 md:grid-cols-2">
+                <div className="grid gap-4 tablet:grid-cols-2">
                   <DatePickerField
                     id="schedule-start-date"
                     label="Start date"
@@ -861,7 +861,7 @@ const ScheduleModal = ({
 
             <div className={sectionBodyClassName}>
               <div className={sectionTitleClassName}>Apply to</div>
-              <div className="grid gap-4 md:grid-cols-3">
+              <div className="grid gap-4 tablet:grid-cols-3">
                 <TargetSelectButton
                   label="Racks"
                   value={getTargetButtonLabel(validRackTargetCount, "rack")}

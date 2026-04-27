@@ -125,9 +125,9 @@ export const RackHealthModule = ({
   }, [hashingCount, sleepingCount, needsAttentionCount, offlineCount, rackFilterParam, navigate]);
 
   return (
-    <div className="flex w-full flex-row overflow-hidden rounded-xl bg-surface-base dark:bg-core-primary-5 phone:flex-col tablet:flex-col">
+    <div className="flex w-full flex-col overflow-hidden rounded-xl bg-surface-base laptop:flex-row dark:bg-core-primary-5">
       {/* Left Panel: Rack Grid */}
-      <div className="flex w-1/2 items-center justify-center p-10 phone:w-full phone:p-6 tablet:w-full tablet:p-6">
+      <div className="flex w-full items-center justify-center p-6 laptop:w-1/2 laptop:p-10">
         <RackDetailGrid
           rows={rows}
           cols={cols}
@@ -139,21 +139,21 @@ export const RackHealthModule = ({
 
       {/* Right Panel: Status Breakdown */}
       {isLoading ? (
-        <div className="flex w-1/2 flex-col justify-center gap-8 p-10 phone:w-full phone:p-6 phone:pt-0 tablet:w-full tablet:p-6 tablet:pt-0">
+        <div className="flex w-full flex-col justify-center gap-8 p-6 pt-0 laptop:w-1/2 laptop:p-10 laptop:pt-0">
           <SkeletonBar className="h-14 w-full" />
           <SkeletonBar className="h-14 w-full" />
           <SkeletonBar className="h-14 w-full" />
           <SkeletonBar className="h-14 w-full" />
         </div>
       ) : hasNoData ? (
-        <div className="flex w-1/2 flex-col justify-center gap-4 p-10 text-300 text-text-primary-50 phone:w-full phone:p-6 phone:pt-0 tablet:w-full tablet:p-6 tablet:pt-0">
+        <div className="flex w-full flex-col justify-center gap-4 p-6 pt-0 text-300 text-text-primary-50 laptop:w-1/2 laptop:p-10 laptop:pt-0">
           <span>Healthy: &mdash;</span>
           <span>Sleeping: &mdash;</span>
           <span>Needs Attention: &mdash;</span>
           <span>Offline: &mdash;</span>
         </div>
       ) : (
-        <StatusBreakdownPanel items={breakdownItems} className="w-1/2 phone:w-full tablet:w-full" />
+        <StatusBreakdownPanel items={breakdownItems} className="w-full laptop:w-1/2" />
       )}
     </div>
   );

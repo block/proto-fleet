@@ -345,7 +345,7 @@ const Pools = ({ onChangePools, pools }: PoolsProps) => {
   if (configuredPools.length === 0) {
     return (
       <>
-        <div className="flex min-h-[60vh] w-full items-center rounded-xl bg-landing-page p-6 sm:p-20">
+        <div className="flex min-h-[60vh] w-full items-center rounded-xl bg-landing-page p-6 tablet:p-20">
           <div className="flex flex-col gap-6">
             <Header
               title="Pools"

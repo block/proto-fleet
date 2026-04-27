@@ -85,7 +85,7 @@ const MinerListActionBar = ({
 
   return (
     <ActionBar
-      className="fixed right-0 bottom-4 left-16 z-20 phone:left-0 tablet:left-0 desktop:left-50"
+      className="fixed right-0 bottom-4 left-0 z-20 laptop:left-16 desktop:left-50"
       selectedItems={selectedMiners}
       selectionMode={selectionMode}
       totalCount={totalCount}

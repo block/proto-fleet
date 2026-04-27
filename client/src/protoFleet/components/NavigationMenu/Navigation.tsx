@@ -62,25 +62,20 @@ const Navigation = ({ items, className, closeMenu }: NavigationProps) => {
     <nav
       aria-label="Main"
       className={clsx(
-        "group/nav flex min-h-screen w-60 flex-col justify-between bg-surface-base text-text-primary-70",
+        "group/nav absolute top-0 left-0 z-30 flex min-h-screen w-60 flex-col justify-between bg-surface-base text-text-primary-70",
         "laptop:absolute laptop:top-0 laptop:left-0 laptop:z-50 laptop:w-16 laptop:overflow-hidden laptop:hover:w-50 laptop:hover:border-r laptop:hover:border-core-primary-10 laptop:hover:bg-surface-base laptop:hover:shadow-lg",
         bg === "surface-5" ? "laptop:bg-surface-5 laptop:dark:bg-surface-base" : "laptop:bg-surface-base",
         "desktop:w-50 desktop:overflow-hidden desktop:border-r desktop:border-core-primary-10",
         bg === "surface-5" ? "desktop:bg-surface-5 desktop:dark:bg-surface-base" : "desktop:bg-surface-base",
-        "tablet:absolute tablet:z-30",
-        "phone:absolute phone:z-30",
         className,
       )}
     >
       <div className="flex flex-col items-start gap-1">
         {homeItem && homeItem.path ? (
           <div
-            className={clsx(
-              "flex h-15 w-full items-start px-3 py-3 laptop:h-13 laptop:items-center laptop:!pb-0 desktop:h-13 desktop:items-center desktop:!pb-0",
-              {
-                "border-b border-border-5": isPhone || isTablet,
-              },
-            )}
+            className={clsx("flex h-15 w-full items-start px-3 py-3 laptop:h-13 laptop:items-center laptop:!pb-0", {
+              "border-b border-border-5": isPhone || isTablet,
+            })}
           >
             <Link
               to={homeItem.path}

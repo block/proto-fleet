@@ -199,7 +199,7 @@ const SchedulePreview = ({ values, isEditMode = false }: SchedulePreviewProps) =
 
   return (
     <>
-      <div className="flex min-h-16 items-center justify-center px-6 py-4 laptop:hidden desktop:hidden">
+      <div className="flex min-h-16 items-center justify-center px-6 py-4 laptop:hidden">
         {!isReady ? (
           <div className="text-300 text-text-primary-50">Complete the schedule fields to preview the run.</div>
         ) : mobilePreviewRun ? (
@@ -211,7 +211,7 @@ const SchedulePreview = ({ values, isEditMode = false }: SchedulePreviewProps) =
         )}
       </div>
 
-      <div className="hidden flex-col justify-center px-16 pt-6 pb-4 laptop:flex laptop:flex-1 desktop:flex desktop:flex-1">
+      <div className="hidden flex-col justify-center px-16 pt-6 pb-4 laptop:flex laptop:flex-1">
         {!isReady ? (
           <div className="max-w-[420px] text-300 text-text-primary-70">
             Complete the date, time, and targeting fields to preview the schedule before saving.

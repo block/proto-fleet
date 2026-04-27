@@ -50,8 +50,8 @@ const getStats = (
   ];
 };
 
-const containerPadX = "px-14 tablet:px-10 phone:px-6";
-const containerMarginX = "mx-14 tablet:mx-10 phone:mx-6";
+const containerPadX = "px-6 tablet:px-10 laptop:px-14";
+const containerMarginX = "mx-6 tablet:mx-10 laptop:mx-14";
 
 type HashboardTemperatureProps = {
   serial: string;

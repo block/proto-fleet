@@ -70,7 +70,7 @@ const AppLayout = ({
       </div>
       <div className="w-full">
         <PageHeader title={title} openMenu={() => setIsMenuOpen(true)} customButtons={customHeaderButtons} />
-        <div className="relative w-full pt-[60px] pl-60 phone:pt-[100px] phone:pl-0 tablet:pt-[100px] tablet:pl-0">
+        <div className="relative w-full pt-[100px] pl-0 laptop:pt-[60px] laptop:pl-60">
           <ErrorBoundary>
             <ContentLayout>{children}</ContentLayout>
           </ErrorBoundary>

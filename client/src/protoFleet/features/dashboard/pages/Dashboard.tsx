@@ -89,10 +89,10 @@ const Dashboard = () => {
     <div className="h-full">
       {devicePaired ? (
         <div className="flex flex-col">
-          <CompleteSetup className="p-10 phone:p-6 tablet:p-6" />
+          <CompleteSetup className="p-6 laptop:p-10" />
 
           {/* Overview Section */}
-          <section className="p-10 phone:p-6 tablet:p-6">
+          <section className="p-6 laptop:p-10">
             <SectionHeading heading="Overview" />
             <div className="mt-6 flex flex-col gap-1">
               <FleetHealth
@@ -114,24 +114,24 @@ const Dashboard = () => {
           {/* Performance Section */}
           <section className="pb-6">
             <div ref={refs.vertical.start} />
-            <div className="sticky top-0 z-2 bg-surface-5 px-10 pt-10 pb-6 dark:bg-surface-base phone:px-6 phone:pt-6 tablet:px-6 tablet:pt-6">
+            <div className="sticky top-0 z-2 bg-surface-5 px-6 pt-6 pb-6 laptop:px-10 laptop:pt-10 dark:bg-surface-base">
               <SectionHeading heading="Performance">
                 <DurationSelector duration={duration} durations={fleetDurations} onSelect={setDuration} />
               </SectionHeading>
             </div>
 
-            <div className="flex flex-col gap-1 px-10 phone:px-6 tablet:px-6">
+            <div className="flex flex-col gap-1 px-6 laptop:px-10">
               <HashratePanel duration={duration} metrics={hashrateMetrics} />
               <UptimePanel duration={duration} uptimeStatusCounts={uptimeStatusCounts} />
               <TemperaturePanel duration={duration} temperatureStatusCounts={temperatureStatusCounts} />
 
-              <div className="grid grid-cols-2 gap-1 phone:grid-cols-1 tablet:grid-cols-1">
+              <div className="grid grid-cols-1 gap-1 laptop:grid-cols-2">
                 <PowerPanel duration={duration} metrics={powerMetrics} totalMiners={totalMiners} />
                 <EfficiencyPanel duration={duration} metrics={efficiencyMetrics} totalMiners={totalMiners} />
               </div>
             </div>
 
-            <p className="px-10 pt-6 text-300 text-text-primary phone:px-6 tablet:px-6">
+            <p className="px-6 pt-6 text-300 text-text-primary laptop:px-10">
               Some devices do not make all data available to Proto Fleet.
             </p>
             {/* eslint-disable-next-line react-hooks/refs -- ref object from useStickyState is passed to <div ref>; React writes .current during commit, not read during render */}
@@ -139,7 +139,7 @@ const Dashboard = () => {
           </section>
 
           {/* Privacy Policy */}
-          <footer className="px-10 pt-20 pb-6 text-300 phone:px-5 tablet:px-5">
+          <footer className="px-5 pt-20 pb-6 text-300 laptop:px-10">
             <p className="text-text-primary">
               Powerful mining tools. Built for decentralization.{" "}
               <span className="text-text-primary-50">
