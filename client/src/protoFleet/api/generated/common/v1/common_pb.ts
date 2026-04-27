@@ -9,11 +9,8 @@ import type { Message } from "@bufbuild/protobuf";
 /**
  * Describes the file common/v1/common.proto.
  */
-export const file_common_v1_common: GenFile =
-  /*@__PURE__*/
-  fileDesc(
-    "ChZjb21tb24vdjEvY29tbW9uLnByb3RvEgljb21tb24udjEibwoRRmxlZXRFcnJvckRldGFpbHMSKwoGY29tbW9uGAEgASgOMhkuY29tbW9uLnYxLkZsZWV0RXJyb3JDb2RlSAASEQoHc2VydmljZRgCIAEoBUgAEhIKCGVuZHBvaW50GAMgASgFSABCBgoEY29kZSoyCg5GbGVldEVycm9yQ29kZRIgChxGTEVFVF9FUlJPUl9DT0RFX1VOU1BFQ0lGSUVEEABCqAEKDWNvbS5jb21tb24udjFCC0NvbW1vblByb3RvUAFaRWdpdGh1Yi5jb20vYmxvY2svcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL2NvbW1vbi92MTtjb21tb252MaICA0NYWKoCCUNvbW1vbi5WMcoCCUNvbW1vblxWMeICFUNvbW1vblxWMVxHUEJNZXRhZGF0YeoCCkNvbW1vbjo6VjFiBnByb3RvMw",
-  );
+export const file_common_v1_common: GenFile = /*@__PURE__*/
+  fileDesc("ChZjb21tb24vdjEvY29tbW9uLnByb3RvEgljb21tb24udjEibwoRRmxlZXRFcnJvckRldGFpbHMSKwoGY29tbW9uGAEgASgOMhkuY29tbW9uLnYxLkZsZWV0RXJyb3JDb2RlSAASEQoHc2VydmljZRgCIAEoBUgAEhIKCGVuZHBvaW50GAMgASgFSABCBgoEY29kZSoyCg5GbGVldEVycm9yQ29kZRIgChxGTEVFVF9FUlJPUl9DT0RFX1VOU1BFQ0lGSUVEEABCqAEKDWNvbS5jb21tb24udjFCC0NvbW1vblByb3RvUAFaRWdpdGh1Yi5jb20vYmxvY2svcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL2NvbW1vbi92MTtjb21tb252MaICA0NYWKoCCUNvbW1vbi5WMcoCCUNvbW1vblxWMeICFUNvbW1vblxWMVxHUEJNZXRhZGF0YeoCCkNvbW1vbjo6VjFiBnByb3RvMw");
 
 /**
  * @generated from message common.v1.FleetErrorDetails
@@ -22,37 +19,32 @@ export type FleetErrorDetails = Message<"common.v1.FleetErrorDetails"> & {
   /**
    * @generated from oneof common.v1.FleetErrorDetails.code
    */
-  code:
-    | {
-        /**
-         * @generated from field: common.v1.FleetErrorCode common = 1;
-         */
-        value: FleetErrorCode;
-        case: "common";
-      }
-    | {
-        /**
-         * @generated from field: int32 service = 2;
-         */
-        value: number;
-        case: "service";
-      }
-    | {
-        /**
-         * @generated from field: int32 endpoint = 3;
-         */
-        value: number;
-        case: "endpoint";
-      }
-    | { case: undefined; value?: undefined };
+  code: {
+    /**
+     * @generated from field: common.v1.FleetErrorCode common = 1;
+     */
+    value: FleetErrorCode;
+    case: "common";
+  } | {
+    /**
+     * @generated from field: int32 service = 2;
+     */
+    value: number;
+    case: "service";
+  } | {
+    /**
+     * @generated from field: int32 endpoint = 3;
+     */
+    value: number;
+    case: "endpoint";
+  } | { case: undefined; value?: undefined };
 };
 
 /**
  * Describes the message common.v1.FleetErrorDetails.
  * Use `create(FleetErrorDetailsSchema)` to create a new message.
  */
-export const FleetErrorDetailsSchema: GenMessage<FleetErrorDetails> =
-  /*@__PURE__*/
+export const FleetErrorDetailsSchema: GenMessage<FleetErrorDetails> = /*@__PURE__*/
   messageDesc(file_common_v1_common, 0);
 
 /**
@@ -68,4 +60,6 @@ export enum FleetErrorCode {
 /**
  * Describes the enum common.v1.FleetErrorCode.
  */
-export const FleetErrorCodeSchema: GenEnum<FleetErrorCode> = /*@__PURE__*/ enumDesc(file_common_v1_common, 0);
+export const FleetErrorCodeSchema: GenEnum<FleetErrorCode> = /*@__PURE__*/
+  enumDesc(file_common_v1_common, 0);
+
