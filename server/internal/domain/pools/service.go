@@ -75,14 +75,29 @@ func (s *Service) UpdatePool(ctx context.Context, r *pb.UpdatePoolRequest) (*pb.
 		return nil, err
 	}
 
-	if r.Username != "" {
+	// Reject empty strings on patch fields. Under the new presence
+	// semantics, "" means "set to empty," which is never a valid pool
+	// name / URL / username — callers that previously used "" as a
+	// no-op must omit the field instead. Rejecting up-front avoids
+	// silently writing junk into the DB.
+	if r.PoolName != nil && r.GetPoolName() == "" {
+		return nil, fleeterror.NewInvalidArgumentError("pool_name cannot be empty; omit the field to leave unchanged")
+	}
+	if r.Url != nil && r.GetUrl() == "" {
+		return nil, fleeterror.NewInvalidArgumentError("url cannot be empty; omit the field to leave unchanged")
+	}
+	if r.Username != nil && r.GetUsername() == "" {
+		return nil, fleeterror.NewInvalidArgumentError("username cannot be empty; omit the field to leave unchanged")
+	}
+
+	if r.Username != nil {
 		existingPool, err := s.poolStore.GetPool(ctx, info.OrganizationID, r.PoolId)
 		if err != nil {
 			return nil, err
 		}
 
-		if r.Username != existingPool.GetUsername() {
-			if err := validatePoolUsername(r.Username); err != nil {
+		if r.GetUsername() != existingPool.GetUsername() {
+			if err := validatePoolUsername(r.GetUsername()); err != nil {
 				return nil, err
 			}
 		}

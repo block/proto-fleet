@@ -91,21 +91,28 @@ message CreatePoolResponse {
   Pool pool = 1;
 }
 
-// Request to update an existing pool's configuration
+// Request to update an existing pool's configuration.
+//
+// Patch semantics use proto3 explicit presence: a field that is absent
+// from the request is left unchanged; a field that is present is
+// applied. Sending an empty string for pool_name, url, or username
+// returns INVALID_ARGUMENT — those values are not meaningful as pool
+// state. Callers that previously passed "" to mean "leave unchanged"
+// must omit the field instead.
 message UpdatePoolRequest {
   // Unique identifier of the pool to update
   int64 pool_id = 1;
 
-  // New pool name (optional, leave empty to keep current value)
-  string pool_name = 2;
+  // New pool name. Omit to leave unchanged.
+  optional string pool_name = 2;
 
-  // New pool URL (optional, leave empty to keep current value)
-  string url = 3;
+  // New pool URL. Omit to leave unchanged.
+  optional string url = 3;
 
-  // New username (optional, leave empty to keep current value)
-  string username = 4;
+  // New username. Omit to leave unchanged.
+  optional string username = 4;
 
-  // New password (optional, leave empty to keep current value)
+  // New password. Omit to leave unchanged.
   google.protobuf.StringValue password = 5;
 }
 

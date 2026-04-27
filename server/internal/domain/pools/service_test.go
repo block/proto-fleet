@@ -152,9 +152,10 @@ func TestService_UpdatePool_RejectsUsernameWithSeparator(t *testing.T) {
 		},
 	}, stubTransactor{}, Config{}, testActivitySvc())
 
+	username := "wallet.worker01"
 	_, err := svc.UpdatePool(testCtx(t), &pb.UpdatePoolRequest{
 		PoolId:   1,
-		Username: "wallet.worker01",
+		Username: &username,
 	})
 
 	require.Error(t, err)
@@ -177,15 +178,104 @@ func TestService_UpdatePool_AllowsUnchangedLegacyUsernameWithSeparator(t *testin
 		},
 	}, stubTransactor{}, Config{}, testActivitySvc())
 
+	poolName := "Renamed Pool"
+	username := "wallet.worker01"
 	updated, err := svc.UpdatePool(testCtx(t), &pb.UpdatePoolRequest{
 		PoolId:   1,
-		PoolName: "Renamed Pool",
-		Username: "wallet.worker01",
+		PoolName: &poolName,
+		Username: &username,
 	})
 
 	require.NoError(t, err)
 	require.NotNil(t, updated)
 	assert.Equal(t, "wallet.worker01", updated.GetUsername())
+}
+
+func TestService_UpdatePool_RejectsEmptyStringPatches(t *testing.T) {
+	// Arrange — a request that explicitly sets pool_name="" must fail
+	// loud rather than silently accepting an unusable value. Same shape
+	// for url and username. Callers that used "" to mean "leave
+	// unchanged" must omit the field under the new presence semantics.
+	svc := NewService(&stubPoolStore{
+		updatePoolFn: func(context.Context, *pb.UpdatePoolRequest, int64) error {
+			t.Fatal("UpdatePool should not be called for empty patches")
+			return nil
+		},
+	}, stubTransactor{}, Config{}, testActivitySvc())
+
+	tests := []struct {
+		name     string
+		mutate   func(req *pb.UpdatePoolRequest)
+		wantSubs string
+	}{
+		{
+			name:     "empty pool_name",
+			mutate:   func(r *pb.UpdatePoolRequest) { empty := ""; r.PoolName = &empty },
+			wantSubs: "pool_name",
+		},
+		{
+			name:     "empty url",
+			mutate:   func(r *pb.UpdatePoolRequest) { empty := ""; r.Url = &empty },
+			wantSubs: "url",
+		},
+		{
+			name:     "empty username",
+			mutate:   func(r *pb.UpdatePoolRequest) { empty := ""; r.Username = &empty },
+			wantSubs: "username",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			req := &pb.UpdatePoolRequest{PoolId: 1}
+			tc.mutate(req)
+
+			// Act
+			_, err := svc.UpdatePool(testCtx(t), req)
+
+			// Assert
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsInvalidArgumentError(err))
+			assert.Contains(t, err.Error(), tc.wantSubs)
+		})
+	}
+}
+
+func TestService_UpdatePool_AbsentFieldsLeaveValuesUnchanged(t *testing.T) {
+	// Arrange — only pool_name is set; url/username/password should be
+	// left untouched by the SQL store. Service-level test verifies the
+	// patch reaches the store with PoolName set and others nil.
+	var captured *pb.UpdatePoolRequest
+	svc := NewService(&stubPoolStore{
+		getPoolFn: func(context.Context, int64, int64) (*pb.Pool, error) {
+			return &pb.Pool{
+				PoolId:   7,
+				PoolName: "Old Name",
+				Url:      "stratum+tcp://pool.example.com:3333",
+				Username: "wallet",
+			}, nil
+		},
+		updatePoolFn: func(_ context.Context, req *pb.UpdatePoolRequest, _ int64) error {
+			captured = req
+			return nil
+		},
+	}, stubTransactor{}, Config{}, testActivitySvc())
+
+	newName := "New Name"
+
+	// Act
+	_, err := svc.UpdatePool(testCtx(t), &pb.UpdatePoolRequest{
+		PoolId:   7,
+		PoolName: &newName,
+	})
+
+	// Assert
+	require.NoError(t, err)
+	require.NotNil(t, captured)
+	assert.Equal(t, "New Name", captured.GetPoolName())
+	assert.Nil(t, captured.Url, "url must remain absent on the patch")
+	assert.Nil(t, captured.Username, "username must remain absent on the patch")
 }
 
 func TestActivityLogging_CreatePoolLogsEvent(t *testing.T) {
