@@ -75,11 +75,9 @@ func (s *Service) UpdatePool(ctx context.Context, r *pb.UpdatePoolRequest) (*pb.
 		return nil, err
 	}
 
-	// Reject empty strings on patch fields. Under the new presence
-	// semantics, "" means "set to empty," which is never a valid pool
-	// name / URL / username — callers that previously used "" as a
-	// no-op must omit the field instead. Rejecting up-front avoids
-	// silently writing junk into the DB.
+	// Reject explicit "" before it reaches the DB: callers migrating
+	// from the old "empty means unchanged" contract must now omit the
+	// field instead, and pool_name/url/username are never valid empty.
 	if r.PoolName != nil && r.GetPoolName() == "" {
 		return nil, fleeterror.NewInvalidArgumentError("pool_name cannot be empty; omit the field to leave unchanged")
 	}

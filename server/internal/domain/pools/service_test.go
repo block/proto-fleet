@@ -192,10 +192,7 @@ func TestService_UpdatePool_AllowsUnchangedLegacyUsernameWithSeparator(t *testin
 }
 
 func TestService_UpdatePool_RejectsEmptyStringPatches(t *testing.T) {
-	// Arrange — a request that explicitly sets pool_name="" must fail
-	// loud rather than silently accepting an unusable value. Same shape
-	// for url and username. Callers that used "" to mean "leave
-	// unchanged" must omit the field under the new presence semantics.
+	// Arrange
 	svc := NewService(&stubPoolStore{
 		updatePoolFn: func(context.Context, *pb.UpdatePoolRequest, int64) error {
 			t.Fatal("UpdatePool should not be called for empty patches")
@@ -243,9 +240,7 @@ func TestService_UpdatePool_RejectsEmptyStringPatches(t *testing.T) {
 }
 
 func TestService_UpdatePool_AbsentFieldsLeaveValuesUnchanged(t *testing.T) {
-	// Arrange — only pool_name is set; url/username/password should be
-	// left untouched by the SQL store. Service-level test verifies the
-	// patch reaches the store with PoolName set and others nil.
+	// Arrange
 	var captured *pb.UpdatePoolRequest
 	svc := NewService(&stubPoolStore{
 		getPoolFn: func(context.Context, int64, int64) (*pb.Pool, error) {
@@ -274,8 +269,8 @@ func TestService_UpdatePool_AbsentFieldsLeaveValuesUnchanged(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, captured)
 	assert.Equal(t, "New Name", captured.GetPoolName())
-	assert.Nil(t, captured.Url, "url must remain absent on the patch")
-	assert.Nil(t, captured.Username, "username must remain absent on the patch")
+	assert.Nil(t, captured.Url)
+	assert.Nil(t, captured.Username)
 }
 
 func TestActivityLogging_CreatePoolLogsEvent(t *testing.T) {

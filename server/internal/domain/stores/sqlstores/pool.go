@@ -93,9 +93,8 @@ func (s *SQLPoolStore) UpdatePool(ctx context.Context, request *pb.UpdatePoolReq
 		return fleeterror.NewInternalErrorf("error getting pool: %v", err)
 	}
 
-	// Apply updates from the request. Proto3 explicit presence: only
-	// fields the caller explicitly set are considered. Empty-string
-	// rejection happens upstream in domain/pools.Service.UpdatePool.
+	// Empty-string rejection lives upstream in domain/pools.Service.UpdatePool;
+	// by the time the request reaches here, a non-nil pointer is a valid value.
 	if request.PoolName != nil {
 		pool.PoolName = request.GetPoolName()
 	}
