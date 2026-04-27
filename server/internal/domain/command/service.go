@@ -909,6 +909,7 @@ func (s *Service) createUpdateMiningPoolsPayload(ctx context.Context, defaultPoo
 // (device, slot) pair so the UI can render row-level warnings.
 func (s *Service) preflightSV2Capabilities(ctx context.Context, selector *pb.DeviceSelector, pld *dto.UpdateMiningPoolsPayload) error {
 	if s.telemetryReader == nil {
+		slog.Warn("SV2 preflight skipped: telemetry reader not wired", "default_pool_url", pld.DefaultPool.URL)
 		return nil
 	}
 	slots := preflightSlotsFromPayload(pld)
@@ -925,6 +926,7 @@ func (s *Service) preflightSV2Capabilities(ctx context.Context, selector *pb.Dev
 		return fleeterror.NewInternalErrorf("error resolving device IDs for SV2 preflight: %v", err)
 	}
 	if len(deviceIDs) == 0 {
+		slog.Info("SV2 preflight: selector resolved to zero devices", "default_pool_url", pld.DefaultPool.URL)
 		return nil
 	}
 
@@ -958,6 +960,11 @@ func (s *Service) preflightSV2Capabilities(ctx context.Context, selector *pb.Dev
 	}
 
 	mismatches := preflight.Run(devices, slots)
+	slog.Info("SV2 preflight evaluated",
+		"device_count", len(devices),
+		"slot_count", len(slots),
+		"mismatches", len(mismatches),
+	)
 	if len(mismatches) == 0 {
 		return nil
 	}

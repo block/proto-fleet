@@ -25,9 +25,17 @@ service PoolsService {
 
 // PoolConfig defines the connection details for a mining pool
 message PoolConfig {
-  // Pool's stratum URL (e.g., "stratum+tcp://pool.example.com:3333")
-  // Required field that specifies the endpoint for connecting to the pool
-  string url = 1;
+  // Pool's stratum URL.
+  //   V1: "stratum+tcp://pool.example.com:3333" (also +ssl, +ws); port optional.
+  //   V2: "stratum2+tcp://pool.example.com:3333/<authority_pubkey>" — port AND
+  //       pubkey required so the gate has a key to pin against.
+  string url = 1 [(buf.validate.field) = {
+    string: {
+      pattern: "^(stratum\\+(tcp|ssl|ws):\\/\\/(([a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]\\.[a-zA-Z]{2,})|(\\d{1,3}\\.){3}\\d{1,3}|\\[([0-9a-fA-F:]+)\\])(:\\d{1,5})?|stratum2\\+tcp:\\/\\/(([a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]\\.[a-zA-Z]{2,})|(\\d{1,3}\\.){3}\\d{1,3}|\\[([0-9a-fA-F:]+)\\]):\\d{1,5}\\/[A-Za-z0-9_+\\/=:.-]+)$"
+      min_len: 12
+    }
+    required: true
+  }];
 
   // Username or wallet address for pool authentication
   // Required field that identifies the user/wallet receiving mining rewards
@@ -103,8 +111,13 @@ message UpdatePoolRequest {
   // New pool name. Omit to leave unchanged.
   optional string pool_name = 2;
 
-  // New pool URL. Omit to leave unchanged.
-  optional string url = 3;
+  // New pool URL. Omit to leave unchanged. Same scheme rules as
+  // PoolConfig.url.
+  optional string url = 3 [(buf.validate.field) = {
+    string: {
+      pattern: "^(stratum\\+(tcp|ssl|ws):\\/\\/(([a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]\\.[a-zA-Z]{2,})|(\\d{1,3}\\.){3}\\d{1,3}|\\[([0-9a-fA-F:]+)\\])(:\\d{1,5})?|stratum2\\+tcp:\\/\\/(([a-zA-Z0-9][a-zA-Z0-9.-]*[a-zA-Z0-9]\\.[a-zA-Z]{2,})|(\\d{1,3}\\.){3}\\d{1,3}|\\[([0-9a-fA-F:]+)\\]):\\d{1,5}\\/[A-Za-z0-9_+\\/=:.-]+)$"
+    }
+  }];
 
   // New username. Omit to leave unchanged.
   optional string username = 4;
