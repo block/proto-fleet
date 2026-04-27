@@ -76,7 +76,6 @@ const UpdateWorkerNameDialog = ({ open, currentWorkerName, onConfirm, onDismiss 
       title="Update worker name"
       onDismiss={onDismiss}
       divider={false}
-      size="large"
       buttons={[
         {
           text: "Save",

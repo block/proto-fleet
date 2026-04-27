@@ -2,10 +2,11 @@ import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import { Alert, Success } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
+import { groupVariants } from "@/shared/components/ButtonGroup";
 import Callout from "@/shared/components/Callout";
+import Dialog from "@/shared/components/Dialog";
 import Header from "@/shared/components/Header";
 import Input from "@/shared/components/Input";
-import Modal from "@/shared/components/Modal";
 import {
   initErrors,
   initValues,
@@ -24,21 +25,23 @@ export type WeakPasswordWarningProps = {
 
 export const WeakPasswordWarning = ({ onReturn, onContinue }: WeakPasswordWarningProps) => {
   return (
-    <Modal
+    <Dialog
       title="Your password isn't secure"
-      description="The password you entered is easy to guess. We recommend creating a password that's harder to guess."
-      divider={false}
-      icon={null}
-    >
-      <div className="mt-4 flex grow-0 flex-col gap-3">
-        <Button onClick={onReturn} size="base" variant="primary" className="w-full">
-          Create a stronger password
-        </Button>
-        <Button onClick={onContinue} size="base" variant="secondary" className="w-full">
-          Continue anyway
-        </Button>
-      </div>
-    </Modal>
+      subtitle="The password you entered is easy to guess. We recommend creating a password that's harder to guess."
+      buttonGroupVariant={groupVariants.stack}
+      buttons={[
+        {
+          text: "Continue anyway",
+          onClick: onContinue,
+          variant: variants.secondary,
+        },
+        {
+          text: "Create a stronger password",
+          onClick: onReturn,
+          variant: variants.primary,
+        },
+      ]}
+    />
   );
 };
 
