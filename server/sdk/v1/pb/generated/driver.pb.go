@@ -85,18 +85,17 @@ func (HealthStatus) EnumDescriptor() ([]byte, []int) {
 	return file_pb_driver_proto_rawDescGZIP(), []int{0}
 }
 
-// StratumV2SupportStatus reports whether a device's firmware natively
-// speaks Stratum V2. Plugins set this on every telemetry scrape; fleet
-// uses it to gate SV2 pool assignments. UNSPECIFIED / UNKNOWN leave
-// the lower-precedence (driver/model) capability view intact —
-// SUPPORTED / UNSUPPORTED are authoritative.
+// StratumV2SupportStatus is the firmware's native-SV2 capability as
+// reported by the plugin on every telemetry scrape. UNSPECIFIED /
+// UNKNOWN leave fleet's static-cap view intact; SUPPORTED / UNSUPPORTED
+// are authoritative.
 type StratumV2SupportStatus int32
 
 const (
-	StratumV2SupportStatus_STRATUM_V2_SUPPORT_STATUS_UNSPECIFIED StratumV2SupportStatus = 0 // Plugin did not populate the field.
-	StratumV2SupportStatus_STRATUM_V2_SUPPORT_STATUS_UNKNOWN     StratumV2SupportStatus = 1 // Plugin couldn't probe (e.g., transient telemetry failure).
-	StratumV2SupportStatus_STRATUM_V2_SUPPORT_STATUS_UNSUPPORTED StratumV2SupportStatus = 2 // Firmware confirmed SV1-only.
-	StratumV2SupportStatus_STRATUM_V2_SUPPORT_STATUS_SUPPORTED   StratumV2SupportStatus = 3 // Firmware confirmed natively SV2-capable.
+	StratumV2SupportStatus_STRATUM_V2_SUPPORT_STATUS_UNSPECIFIED StratumV2SupportStatus = 0
+	StratumV2SupportStatus_STRATUM_V2_SUPPORT_STATUS_UNKNOWN     StratumV2SupportStatus = 1
+	StratumV2SupportStatus_STRATUM_V2_SUPPORT_STATUS_UNSUPPORTED StratumV2SupportStatus = 2
+	StratumV2SupportStatus_STRATUM_V2_SUPPORT_STATUS_SUPPORTED   StratumV2SupportStatus = 3
 )
 
 // Enum value maps for StratumV2SupportStatus.
@@ -1777,10 +1776,7 @@ type DeviceMetrics struct {
 	SensorMetrics       []*SensorMetrics       `protobuf:"bytes,14,rep,name=sensor_metrics,json=sensorMetrics,proto3" json:"sensor_metrics,omitempty"`
 	// Firmware version reported by device during telemetry polling
 	FirmwareVersion string `protobuf:"bytes,15,opt,name=firmware_version,json=firmwareVersion,proto3" json:"firmware_version,omitempty"`
-	// Live Stratum V2 native-support status reported by the firmware.
-	// Drives the commit-time gate that prevents SV2 pool URLs from being
-	// dispatched to SV1-only miners. Plugins that can't probe should
-	// leave this UNSPECIFIED rather than guess UNSUPPORTED.
+	// Drives the commit-time gate against SV1-only miners.
 	StratumV2Support StratumV2SupportStatus `protobuf:"varint,16,opt,name=stratum_v2_support,json=stratumV2Support,proto3,enum=sdk.v1.StratumV2SupportStatus" json:"stratum_v2_support,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
