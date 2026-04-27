@@ -16,7 +16,7 @@ const defaultPaneContainerClassName =
 const defaultPrimaryPaneClassName =
   "order-2 flex flex-col pl-6 laptop:order-1 laptop:min-h-0 laptop:overflow-y-auto laptop:pl-1";
 const defaultSecondaryPaneClassName =
-  "order-1 flex max-h-[50vh] flex-col self-stretch overflow-y-auto bg-surface-overlay mb-6 laptop:order-2 laptop:min-h-0 laptop:max-h-none laptop:rounded-xl laptop:pl-6";
+  "order-1 flex max-h-[50vh] flex-col self-stretch overflow-y-auto bg-surface-overlay mb-6 laptop:order-2 laptop:mb-0 laptop:min-h-0 laptop:max-h-none laptop:overflow-visible laptop:rounded-xl laptop:pl-6";
 
 interface FullScreenTwoPaneModalProps {
   open: boolean;
