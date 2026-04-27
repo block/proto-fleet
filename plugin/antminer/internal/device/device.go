@@ -352,6 +352,8 @@ func (d *Device) convertStatus(minerStatus *antminer.Status, telemetry *antminer
 		FirmwareVersion: d.deviceInfo.FirmwareVersion,
 		Health:          health,
 		HealthReason:    healthReason,
+		// Stock Bitmain firmware is SV1-only.
+		StratumV2Support: sdk.StratumV2SupportUnsupported,
 	}
 
 	// Add telemetry data if available

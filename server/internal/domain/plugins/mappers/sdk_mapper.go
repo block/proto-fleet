@@ -29,6 +29,21 @@ func SDKDeviceMetricsToV2(sdkMetrics sdk.DeviceMetrics) modelsV2.DeviceMetrics {
 		ControlBoardMetrics: mapControlBoardMetrics(sdkMetrics.ControlBoardMetrics),
 		FanMetrics:          mapFanMetrics(sdkMetrics.FanMetrics),
 		SensorMetrics:       mapSensorMetrics(sdkMetrics.SensorMetrics),
+
+		StratumV2Support: mapStratumV2Support(sdkMetrics.StratumV2Support),
+	}
+}
+
+func mapStratumV2Support(s sdk.StratumV2SupportStatus) modelsV2.StratumV2SupportStatus {
+	switch s {
+	case sdk.StratumV2SupportSupported:
+		return modelsV2.StratumV2SupportSupported
+	case sdk.StratumV2SupportUnsupported:
+		return modelsV2.StratumV2SupportUnsupported
+	case sdk.StratumV2SupportUnknown:
+		return modelsV2.StratumV2SupportUnknown
+	default:
+		return modelsV2.StratumV2SupportUnspecified
 	}
 }
 

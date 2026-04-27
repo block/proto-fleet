@@ -188,7 +188,20 @@ type DeviceMetrics struct {
 	ControlBoardMetrics []ControlBoardMetrics
 	FanMetrics          []FanMetrics
 	SensorMetrics       []SensorMetrics
+
+	// Live SV2-support report. Fleet uses this to gate SV2 pool
+	// assignments; plugins that can't probe should leave it Unspecified.
+	StratumV2Support StratumV2SupportStatus
 }
+
+type StratumV2SupportStatus int
+
+const (
+	StratumV2SupportUnspecified StratumV2SupportStatus = iota
+	StratumV2SupportUnknown
+	StratumV2SupportUnsupported
+	StratumV2SupportSupported
+)
 
 // ============================================================================
 // Error Reporting Types

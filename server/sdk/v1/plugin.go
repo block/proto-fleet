@@ -1257,10 +1257,11 @@ func (d *DeviceGRPCClient) TrySubscribe(ctx context.Context, ids []string) (<-ch
 // deviceMetricsToProto converts SDK DeviceMetrics to protobuf DeviceMetrics
 func deviceMetricsToProto(dm DeviceMetrics) *pb.DeviceMetrics {
 	pbMetrics := &pb.DeviceMetrics{
-		DeviceId:        dm.DeviceID,
-		Timestamp:       timestamppb.New(dm.Timestamp),
-		Health:          pb.HealthStatus(safeIntToInt32(int(dm.Health))),
-		FirmwareVersion: dm.FirmwareVersion,
+		DeviceId:         dm.DeviceID,
+		Timestamp:        timestamppb.New(dm.Timestamp),
+		Health:           pb.HealthStatus(safeIntToInt32(int(dm.Health))),
+		FirmwareVersion:  dm.FirmwareVersion,
+		StratumV2Support: pb.StratumV2SupportStatus(safeIntToInt32(int(dm.StratumV2Support))),
 	}
 
 	if dm.HealthReason != nil {
@@ -1287,10 +1288,11 @@ func deviceMetricsToProto(dm DeviceMetrics) *pb.DeviceMetrics {
 // deviceMetricsFromProto converts protobuf DeviceMetrics to SDK DeviceMetrics
 func deviceMetricsFromProto(pb *pb.DeviceMetrics) DeviceMetrics {
 	dm := DeviceMetrics{
-		DeviceID:        pb.DeviceId,
-		Timestamp:       pb.Timestamp.AsTime(),
-		Health:          HealthStatus(pb.Health),
-		FirmwareVersion: pb.FirmwareVersion,
+		DeviceID:         pb.DeviceId,
+		Timestamp:        pb.Timestamp.AsTime(),
+		Health:           HealthStatus(pb.Health),
+		FirmwareVersion:  pb.FirmwareVersion,
+		StratumV2Support: StratumV2SupportStatus(pb.StratumV2Support),
 	}
 
 	if pb.HealthReason != nil {

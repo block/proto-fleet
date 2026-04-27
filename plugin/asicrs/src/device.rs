@@ -438,6 +438,10 @@ impl AsicRsDevice {
         };
 
         let firmware_version = data.firmware_version.clone().unwrap_or_default();
+        let stratum_v2_support = crate::capabilities::stratum_v2_support_for(
+            &data.device_info.make,
+            &firmware_version,
+        );
 
         pb::DeviceMetrics {
             device_id: self.id.clone(),
@@ -455,6 +459,7 @@ impl AsicRsDevice {
             fan_metrics,
             sensor_metrics: vec![],
             firmware_version,
+            stratum_v2_support,
         }
     }
 

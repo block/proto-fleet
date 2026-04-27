@@ -38,10 +38,36 @@ import {
   StreamCommandBatchUpdatesResponse,
   UpdateMinerPasswordRequestSchema,
   UpdateMinerPasswordResponse,
+  UpdateMiningPoolsMismatch,
+  UpdateMiningPoolsMismatchSchema,
   UpdateMiningPoolsRequestSchema,
   UpdateMiningPoolsResponse,
 } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
+import { fromBinary } from "@bufbuild/protobuf";
+
+// formatUpdateMiningPoolsError surfaces the typed UpdateMiningPoolsMismatch
+// detail attached to FAILED_PRECONDITION errors as a human-readable
+// message naming the affected miners. Falls back to getErrorMessage for
+// non-mismatch errors.
+function formatUpdateMiningPoolsError(err: unknown): string {
+  if (!(err instanceof ConnectError)) return getErrorMessage(err);
+  const mismatches: UpdateMiningPoolsMismatch[] = [];
+  for (const detail of err.details) {
+    if (detail.type === UpdateMiningPoolsMismatchSchema.typeName && detail.value) {
+      try {
+        mismatches.push(fromBinary(UpdateMiningPoolsMismatchSchema, detail.value));
+      } catch {
+        // Malformed detail — fall through to generic handling.
+      }
+    }
+  }
+  if (mismatches.length === 0) return getErrorMessage(err);
+  const ids = Array.from(new Set(mismatches.map((m) => m.deviceIdentifier)));
+  const preview = ids.slice(0, 3).join(", ");
+  const more = ids.length > 3 ? ` (+${ids.length - 3} more)` : "";
+  return `Stratum V2 pool cannot be assigned to ${ids.length} miner${ids.length === 1 ? "" : "s"} that don't natively support SV2: ${preview}${more}`;
+}
 import { useAuthErrors } from "@/protoFleet/store";
 
 interface BlinkLEDProps {
@@ -303,7 +329,7 @@ const useMinerCommand = () => {
           handleAuthErrors({
             error: err,
             onError: () => {
-              onError?.(getErrorMessage(err));
+              onError?.(formatUpdateMiningPoolsError(err));
             },
           });
         });

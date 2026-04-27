@@ -19,6 +19,13 @@ class HealthStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     HEALTH_WARNING: _ClassVar[HealthStatus]
     HEALTH_CRITICAL: _ClassVar[HealthStatus]
 
+class StratumV2SupportStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    STRATUM_V2_SUPPORT_STATUS_UNSPECIFIED: _ClassVar[StratumV2SupportStatus]
+    STRATUM_V2_SUPPORT_STATUS_UNKNOWN: _ClassVar[StratumV2SupportStatus]
+    STRATUM_V2_SUPPORT_STATUS_UNSUPPORTED: _ClassVar[StratumV2SupportStatus]
+    STRATUM_V2_SUPPORT_STATUS_SUPPORTED: _ClassVar[StratumV2SupportStatus]
+
 class ComponentStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     COMPONENT_STATUS_UNSPECIFIED: _ClassVar[ComponentStatus]
@@ -124,6 +131,10 @@ HEALTH_HEALTHY_ACTIVE: HealthStatus
 HEALTH_HEALTHY_INACTIVE: HealthStatus
 HEALTH_WARNING: HealthStatus
 HEALTH_CRITICAL: HealthStatus
+STRATUM_V2_SUPPORT_STATUS_UNSPECIFIED: StratumV2SupportStatus
+STRATUM_V2_SUPPORT_STATUS_UNKNOWN: StratumV2SupportStatus
+STRATUM_V2_SUPPORT_STATUS_UNSUPPORTED: StratumV2SupportStatus
+STRATUM_V2_SUPPORT_STATUS_SUPPORTED: StratumV2SupportStatus
 COMPONENT_STATUS_UNSPECIFIED: ComponentStatus
 COMPONENT_STATUS_UNKNOWN: ComponentStatus
 COMPONENT_STATUS_HEALTHY: ComponentStatus
@@ -396,7 +407,7 @@ class SensorMetrics(_message.Message):
     def __init__(self, component_info: _Optional[_Union[ComponentInfo, _Mapping]] = ..., type: _Optional[str] = ..., unit: _Optional[str] = ..., value: _Optional[_Union[MetricValue, _Mapping]] = ...) -> None: ...
 
 class DeviceMetrics(_message.Message):
-    __slots__ = ("device_id", "timestamp", "health", "health_reason", "hashrate_hs", "temp_c", "fan_rpm", "power_w", "efficiency_jh", "hash_boards", "psu_metrics", "control_board_metrics", "fan_metrics", "sensor_metrics", "firmware_version")
+    __slots__ = ("device_id", "timestamp", "health", "health_reason", "hashrate_hs", "temp_c", "fan_rpm", "power_w", "efficiency_jh", "hash_boards", "psu_metrics", "control_board_metrics", "fan_metrics", "sensor_metrics", "firmware_version", "stratum_v2_support")
     DEVICE_ID_FIELD_NUMBER: _ClassVar[int]
     TIMESTAMP_FIELD_NUMBER: _ClassVar[int]
     HEALTH_FIELD_NUMBER: _ClassVar[int]
@@ -412,6 +423,7 @@ class DeviceMetrics(_message.Message):
     FAN_METRICS_FIELD_NUMBER: _ClassVar[int]
     SENSOR_METRICS_FIELD_NUMBER: _ClassVar[int]
     FIRMWARE_VERSION_FIELD_NUMBER: _ClassVar[int]
+    STRATUM_V2_SUPPORT_FIELD_NUMBER: _ClassVar[int]
     device_id: str
     timestamp: _timestamp_pb2.Timestamp
     health: HealthStatus
@@ -427,7 +439,8 @@ class DeviceMetrics(_message.Message):
     fan_metrics: _containers.RepeatedCompositeFieldContainer[FanMetrics]
     sensor_metrics: _containers.RepeatedCompositeFieldContainer[SensorMetrics]
     firmware_version: str
-    def __init__(self, device_id: _Optional[str] = ..., timestamp: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., health: _Optional[_Union[HealthStatus, str]] = ..., health_reason: _Optional[str] = ..., hashrate_hs: _Optional[_Union[MetricValue, _Mapping]] = ..., temp_c: _Optional[_Union[MetricValue, _Mapping]] = ..., fan_rpm: _Optional[_Union[MetricValue, _Mapping]] = ..., power_w: _Optional[_Union[MetricValue, _Mapping]] = ..., efficiency_jh: _Optional[_Union[MetricValue, _Mapping]] = ..., hash_boards: _Optional[_Iterable[_Union[HashBoardMetrics, _Mapping]]] = ..., psu_metrics: _Optional[_Iterable[_Union[PSUMetrics, _Mapping]]] = ..., control_board_metrics: _Optional[_Iterable[_Union[ControlBoardMetrics, _Mapping]]] = ..., fan_metrics: _Optional[_Iterable[_Union[FanMetrics, _Mapping]]] = ..., sensor_metrics: _Optional[_Iterable[_Union[SensorMetrics, _Mapping]]] = ..., firmware_version: _Optional[str] = ...) -> None: ...
+    stratum_v2_support: StratumV2SupportStatus
+    def __init__(self, device_id: _Optional[str] = ..., timestamp: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., health: _Optional[_Union[HealthStatus, str]] = ..., health_reason: _Optional[str] = ..., hashrate_hs: _Optional[_Union[MetricValue, _Mapping]] = ..., temp_c: _Optional[_Union[MetricValue, _Mapping]] = ..., fan_rpm: _Optional[_Union[MetricValue, _Mapping]] = ..., power_w: _Optional[_Union[MetricValue, _Mapping]] = ..., efficiency_jh: _Optional[_Union[MetricValue, _Mapping]] = ..., hash_boards: _Optional[_Iterable[_Union[HashBoardMetrics, _Mapping]]] = ..., psu_metrics: _Optional[_Iterable[_Union[PSUMetrics, _Mapping]]] = ..., control_board_metrics: _Optional[_Iterable[_Union[ControlBoardMetrics, _Mapping]]] = ..., fan_metrics: _Optional[_Iterable[_Union[FanMetrics, _Mapping]]] = ..., sensor_metrics: _Optional[_Iterable[_Union[SensorMetrics, _Mapping]]] = ..., firmware_version: _Optional[str] = ..., stratum_v2_support: _Optional[_Union[StratumV2SupportStatus, str]] = ...) -> None: ...
 
 class DescribeDeviceRequest(_message.Message):
     __slots__ = ("device_id",)

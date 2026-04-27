@@ -199,6 +199,38 @@ pub fn firmware_to_variant(firmware: &str) -> &'static str {
     }
 }
 
+/// Maps the firmware variant onto pb::StratumV2SupportStatus. Braiins
+/// OS is the only aftermarket firmware that ships native SV2 today.
+/// Unrecognized firmware returns Unspecified so the fleet can fall
+/// back to static caps rather than locking the device out of V2 pools.
+pub fn stratum_v2_support_for(make: &str, firmware: &str) -> i32 {
+    const UNSPECIFIED: i32 = 0;
+    const UNSUPPORTED: i32 = 2;
+    const SUPPORTED: i32 = 3;
+
+    let firmware_variant = firmware_to_variant(firmware);
+    let make_lower = make.as_bytes();
+
+    if firmware_variant == VARIANT_BRAIINS
+        || contains_ascii_ci(make_lower, VARIANT_BRAIINS.as_bytes())
+    {
+        return SUPPORTED;
+    }
+    if firmware_variant != VARIANT_STOCK {
+        return UNSUPPORTED;
+    }
+    if contains_ascii_ci(make_lower, VARIANT_VNISH.as_bytes())
+        || contains_ascii_ci(make_lower, VARIANT_LUXOS.as_bytes())
+        || contains_ascii_ci(make_lower, VARIANT_MARATHON.as_bytes())
+    {
+        UNSUPPORTED
+    } else if firmware.is_empty() && make.is_empty() {
+        UNSPECIFIED
+    } else {
+        UNSUPPORTED
+    }
+}
+
 /// Detect firmware variant using both firmware string and make.
 /// Falls back to make when the firmware string lacks recognizable tokens
 /// (e.g. VNish reporting make="VNish" with a version-only firmware string).
@@ -453,5 +485,40 @@ mod tests {
         assert_eq!(make_to_family("Braiins"), Some(FAMILY_ANTMINER));
         assert_eq!(make_to_family("LuxOS"), Some(FAMILY_ANTMINER));
         assert_eq!(make_to_family("Marathon"), Some(FAMILY_ANTMINER));
+    }
+
+    #[test]
+    fn test_stratum_v2_support_for_braiins_is_supported() {
+        // Act
+        let got = stratum_v2_support_for("Braiins", "Braiins OS+ 23.05");
+
+        // Assert
+        assert_eq!(got, 3); // SUPPORTED
+    }
+
+    #[test]
+    fn test_stratum_v2_support_for_known_aftermarket_is_unsupported() {
+        // Act + Assert
+        assert_eq!(stratum_v2_support_for("VNish", "vnish-1.0"), 2); // UNSUPPORTED
+        assert_eq!(stratum_v2_support_for("LuxOS", "luxos-3.0"), 2);
+        assert_eq!(stratum_v2_support_for("Marathon", "MARAFW_1.0.0"), 2);
+    }
+
+    #[test]
+    fn test_stratum_v2_support_for_stock_with_known_make_is_unsupported() {
+        // Act
+        let got = stratum_v2_support_for("Antminer", "S19");
+
+        // Assert
+        assert_eq!(got, 2); // UNSUPPORTED — recognized hardware running stock firmware
+    }
+
+    #[test]
+    fn test_stratum_v2_support_for_empty_returns_unspecified() {
+        // Act
+        let got = stratum_v2_support_for("", "");
+
+        // Assert
+        assert_eq!(got, 0); // UNSPECIFIED — fail-open, fleet falls back to static caps
     }
 }

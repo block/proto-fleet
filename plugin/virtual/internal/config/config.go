@@ -71,6 +71,9 @@ type VirtualMinerConfig struct {
 	FanRPMMin           int     `json:"fan_rpm_min"`
 	FanRPMMax           int     `json:"fan_rpm_max"`
 
+	// Whether the virtual miner advertises native SV2 in its telemetry.
+	StratumV2Supported bool `json:"stratum_v2_supported,omitempty"`
+
 	// Behavior
 	Behavior BehaviorConfig `json:"behavior"`
 }

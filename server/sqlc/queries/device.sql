@@ -138,6 +138,12 @@ WHERE id = $1
   AND deleted_at IS NULL
 LIMIT 1;
 
+-- name: GetDeviceIdentifiersByIDs :many
+SELECT id, device_identifier
+FROM device
+WHERE id = ANY(sqlc.arg('device_ids')::bigint[])
+  AND deleted_at IS NULL;
+
 -- name: GetDeviceIDsByDeviceIdentifiers :many
 SELECT id
 FROM device

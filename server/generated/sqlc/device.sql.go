@@ -504,6 +504,41 @@ func (q *Queries) GetDeviceIdentifierByID(ctx context.Context, id int64) (string
 	return device_identifier, err
 }
 
+const getDeviceIdentifiersByIDs = `-- name: GetDeviceIdentifiersByIDs :many
+SELECT id, device_identifier
+FROM device
+WHERE id = ANY($1::bigint[])
+  AND deleted_at IS NULL
+`
+
+type GetDeviceIdentifiersByIDsRow struct {
+	ID               int64
+	DeviceIdentifier string
+}
+
+func (q *Queries) GetDeviceIdentifiersByIDs(ctx context.Context, deviceIds []int64) ([]GetDeviceIdentifiersByIDsRow, error) {
+	rows, err := q.query(ctx, q.getDeviceIdentifiersByIDsStmt, getDeviceIdentifiersByIDs, pq.Array(deviceIds))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetDeviceIdentifiersByIDsRow
+	for rows.Next() {
+		var i GetDeviceIdentifiersByIDsRow
+		if err := rows.Scan(&i.ID, &i.DeviceIdentifier); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getDeviceInfoForCapabilityCheck = `-- name: GetDeviceInfoForCapabilityCheck :many
 SELECT
     d.id,

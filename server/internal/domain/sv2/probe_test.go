@@ -36,7 +36,7 @@ func TestPoolNoiseKeyFromURL_DecodesBase58(t *testing.T) {
 	// Assert
 	require.NoError(t, err)
 	require.Len(t, key, 32)
-	for i := 0; i < 32; i++ {
+	for i := range 32 {
 		assert.Equal(t, byte(0xff), key[i], "byte %d", i)
 	}
 }

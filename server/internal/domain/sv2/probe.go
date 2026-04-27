@@ -9,27 +9,19 @@ import (
 	"time"
 )
 
-// DefaultTCPDialTimeout caps the dial portion of HandshakeProbe when the
-// caller passes a zero duration. The Noise handshake itself is bounded
-// separately by noiseHandshakeTimeout so a half-open connection can't
-// hang ValidatePool indefinitely.
+// Default cap for the dial portion of HandshakeProbe; the Noise
+// handshake itself has its own deadline.
 const DefaultTCPDialTimeout = 10 * time.Second
 
-// noisePoolKeyLen is the X25519 public-key length used by the SRI v1.x
-// Noise NX handshake.
+// X25519 public-key length used by the SRI v1.x Noise NX handshake.
 const noisePoolKeyLen = 32
 
-// ErrMissingNoiseKey is returned by PoolNoiseKeyFromURL when the URL has
-// no path component carrying the pool's authority pubkey. The CEL rule
-// on ValidatePoolRequest.url enforces this format, so callers reaching
-// here saw it slip past validation — likely a programmer error.
 var ErrMissingNoiseKey = errors.New("stratum2+ URL is missing the /<authority_pubkey> path component")
 
-// PoolNoiseKeyFromURL extracts the Noise authority pubkey from a Braiins-
-// style SV2 URL: stratum2+tcp://HOST:PORT/<pubkey>. The pubkey is base58-
-// encoded per Braiins V2 operator docs; we accept hex (64 chars) as a
-// fallback so operators copy-pasting from raw Noise key dumps don't have
-// to convert manually.
+// PoolNoiseKeyFromURL extracts the Noise authority pubkey from a
+// Braiins-style SV2 URL (stratum2+tcp://HOST:PORT/<pubkey>). Accepts
+// base58 (Braiins docs) or hex so operators can paste raw Noise dumps
+// without converting.
 func PoolNoiseKeyFromURL(stratumURL string) ([]byte, error) {
 	u, err := url.Parse(stratumURL)
 	if err != nil {
@@ -48,8 +40,6 @@ func PoolNoiseKeyFromURL(stratumURL string) ([]byte, error) {
 	return nil, fmt.Errorf("authority pubkey %q must decode to %d bytes (base58 or hex)", encoded, noisePoolKeyLen)
 }
 
-// addressFromStratumURL extracts host:port from a stratum+(tcp|ssl|ws)
-// or stratum2+tcp URL. Used by HandshakeProbe.
 func addressFromStratumURL(raw string) (string, error) {
 	if raw == "" {
 		return "", fmt.Errorf("stratum URL is empty")
@@ -78,8 +68,7 @@ func isSupportedScheme(raw string) bool {
 		strings.HasPrefix(lower, "stratum2+tcp://")
 }
 
-// base58Alphabet is the Bitcoin alphabet (no 0, O, I, l) used by Braiins
-// V2 to encode the Noise authority pubkey in its operator-facing URLs.
+// Bitcoin alphabet — used by Braiins V2 to encode the authority pubkey.
 const base58Alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 
 func decodeBase58(s string) ([]byte, error) {

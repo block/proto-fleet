@@ -14,6 +14,7 @@ import (
 	"github.com/sqlc-dev/pqtype"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"connectrpc.com/connect"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
@@ -21,10 +22,12 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetmanagement"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
+	"github.com/block/proto-fleet/server/internal/domain/pools/preflight"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	tmodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
+	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 
@@ -39,6 +42,13 @@ import (
 // TelemetryListener provides interface for telemetry registration/unregistration
 type TelemetryListener interface {
 	RemoveDevices(ctx context.Context, deviceIDs ...tmodels.DeviceIdentifier) error
+}
+
+// TelemetryReader fetches the latest device-metrics snapshot for the
+// commit-time SV1↔SV2 capability gate. Wired via SetTelemetryReader so
+// the constructor signature stays stable; nil reader disables the gate.
+type TelemetryReader interface {
+	GetLatestDeviceMetrics(ctx context.Context, deviceIDs []tmodels.DeviceIdentifier) (map[tmodels.DeviceIdentifier]modelsV2.DeviceMetrics, error)
 }
 
 // UserCredentialsVerifier provides interface for verifying user credentials
@@ -60,6 +70,7 @@ type Service struct {
 	userStore           stores.UserStore
 	credentialsVerifier UserCredentialsVerifier
 	telemetryListener   TelemetryListener
+	telemetryReader     TelemetryReader
 	capabilityChecker   *CapabilityChecker
 	activitySvc         *activity.Service
 
@@ -68,6 +79,14 @@ type Service struct {
 	// filters run in registration order before commands are enqueued. Registered
 	// at startup only; the slice is not mutex-protected.
 	filters []CommandFilter
+}
+
+// SetTelemetryReader wires the source of latest device-metrics for the
+// commit-time SV1↔SV2 capability gate. Until called, UpdateMiningPools
+// skips the gate (open by default for tests; production wires it in
+// fleetd/main.go).
+func (s *Service) SetTelemetryReader(r TelemetryReader) {
+	s.telemetryReader = r
 }
 
 const defaultPoolPriority uint32 = 0
@@ -883,6 +902,113 @@ func (s *Service) createUpdateMiningPoolsPayload(ctx context.Context, defaultPoo
 	return pld, nil
 }
 
+// preflightSV2Capabilities rejects UpdateMiningPools requests that
+// would dispatch a Stratum V2 URL to a miner whose latest telemetry
+// reports it isn't natively SV2-capable. Mismatches are returned as
+// FAILED_PRECONDITION with one UpdateMiningPoolsMismatch detail per
+// (device, slot) pair so the UI can render row-level warnings.
+func (s *Service) preflightSV2Capabilities(ctx context.Context, selector *pb.DeviceSelector, pld *dto.UpdateMiningPoolsPayload) error {
+	if s.telemetryReader == nil {
+		return nil
+	}
+	slots := preflightSlotsFromPayload(pld)
+	if !anySV2(slots) {
+		return nil
+	}
+
+	identifiers, err := s.resolveSelectorIdentifiers(ctx, selector)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("error resolving devices for SV2 preflight: %v", err)
+	}
+	deviceIDs, err := s.resolveIdentifiersToDeviceIDs(ctx, identifiers)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("error resolving device IDs for SV2 preflight: %v", err)
+	}
+	if len(deviceIDs) == 0 {
+		return nil
+	}
+
+	rows, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]sqlc.GetDeviceIdentifiersByIDsRow, error) {
+		return q.GetDeviceIdentifiersByIDs(ctx, deviceIDs)
+	})
+	if err != nil {
+		return fleeterror.NewInternalErrorf("error resolving device identifiers for SV2 preflight: %v", err)
+	}
+
+	telemetryIDs := make([]tmodels.DeviceIdentifier, 0, len(rows))
+	for _, r := range rows {
+		telemetryIDs = append(telemetryIDs, tmodels.DeviceIdentifier(r.DeviceIdentifier))
+	}
+	metricsByID, err := s.telemetryReader.GetLatestDeviceMetrics(ctx, telemetryIDs)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("error reading latest telemetry for SV2 preflight: %v", err)
+	}
+
+	devices := make([]preflight.Device, 0, len(rows))
+	for _, r := range rows {
+		id := tmodels.DeviceIdentifier(r.DeviceIdentifier)
+		support := modelsV2.StratumV2SupportUnspecified
+		if m, ok := metricsByID[id]; ok {
+			support = m.StratumV2Support
+		}
+		devices = append(devices, preflight.Device{
+			Identifier:       r.DeviceIdentifier,
+			StratumV2Support: support,
+		})
+	}
+
+	mismatches := preflight.Run(devices, slots)
+	if len(mismatches) == 0 {
+		return nil
+	}
+	return mismatchesToFailedPrecondition(mismatches)
+}
+
+// preflightSlotsFromPayload projects the UpdateMiningPools payload onto
+// the (slot, URL) pairs preflight needs.
+func preflightSlotsFromPayload(pld *dto.UpdateMiningPoolsPayload) []preflight.SlotAssignment {
+	slots := []preflight.SlotAssignment{{Slot: preflight.SlotDefault, URL: pld.DefaultPool.URL}}
+	if pld.Backup1Pool != nil {
+		slots = append(slots, preflight.SlotAssignment{Slot: preflight.SlotBackup1, URL: pld.Backup1Pool.URL})
+	}
+	if pld.Backup2Pool != nil {
+		slots = append(slots, preflight.SlotAssignment{Slot: preflight.SlotBackup2, URL: pld.Backup2Pool.URL})
+	}
+	return slots
+}
+
+func anySV2(slots []preflight.SlotAssignment) bool {
+	for _, s := range slots {
+		if strings.HasPrefix(s.URL, "stratum2+") {
+			return true
+		}
+	}
+	return false
+}
+
+// mismatchesToFailedPrecondition wraps the preflight mismatches into a
+// connect.CodeFailedPrecondition error with typed UpdateMiningPoolsMismatch
+// details so the UI can dispatch on (device_identifier, slot, slot_warning).
+func mismatchesToFailedPrecondition(mismatches []preflight.Mismatch) error {
+	err := connect.NewError(
+		connect.CodeFailedPrecondition,
+		fmt.Errorf("pool assignment rejected: %d device/slot pair(s) cannot use the assigned Stratum V2 URL", len(mismatches)),
+	)
+	for _, m := range mismatches {
+		detail, dErr := connect.NewErrorDetail(&pb.UpdateMiningPoolsMismatch{
+			DeviceIdentifier: m.DeviceIdentifier,
+			Slot:             m.Slot.ProtoSlot(),
+			SlotWarning:      m.SlotWarning,
+		})
+		if dErr != nil {
+			slog.Warn("failed to build UpdateMiningPoolsMismatch detail", "error", dErr)
+			continue
+		}
+		err.AddDetail(detail)
+	}
+	return err
+}
+
 func (s *Service) UpdateMiningPools(
 	ctx context.Context,
 	deviceSelector *pb.DeviceSelector,
@@ -896,6 +1022,10 @@ func (s *Service) UpdateMiningPools(
 
 	pld, err := s.createUpdateMiningPoolsPayload(ctx, defaultPool, backup1Pool, backup2Pool)
 	if err != nil {
+		return nil, err
+	}
+
+	if err := s.preflightSV2Capabilities(ctx, deviceSelector, pld); err != nil {
 		return nil, err
 	}
 
