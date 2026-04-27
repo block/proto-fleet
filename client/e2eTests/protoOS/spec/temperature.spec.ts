@@ -1,4 +1,3 @@
-/* eslint-disable playwright/expect-expect */
 import { test } from "../fixtures/pageFixtures";
 
 test.describe("Temperature unit switching", () => {

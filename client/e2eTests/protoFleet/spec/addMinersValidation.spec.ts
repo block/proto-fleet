@@ -1,4 +1,3 @@
-/* eslint-disable playwright/expect-expect */
 import { expect, test } from "../fixtures/pageFixtures";
 
 test.describe("Proto Fleet - Add Miners Validation", () => {

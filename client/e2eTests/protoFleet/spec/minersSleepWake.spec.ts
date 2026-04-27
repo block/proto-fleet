@@ -1,4 +1,3 @@
-/* eslint-disable playwright/expect-expect */
 import { expect } from "@playwright/test";
 import { testConfig } from "../config/test.config";
 import { test } from "../fixtures/pageFixtures";
