@@ -1,4 +1,3 @@
-/* eslint-disable playwright/expect-expect */
 import { testConfig } from "../config/test.config";
 import { test } from "../fixtures/pageFixtures";
 import { generateRandomText, generateRandomUsername } from "../helpers/testDataHelper";

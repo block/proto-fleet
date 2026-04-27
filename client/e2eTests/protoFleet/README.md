@@ -310,7 +310,7 @@ await responsePromise;
 
 ### Code Quality
 
-- Disable `playwright/expect-expect` ESLint rule only when page objects handle assertions
+- E2E spec files already disable `playwright/expect-expect` via the shared ESLint config when page objects handle assertions
 - Keep page objects focused on single pages or components
 - Reuse common functionality in `BasePage`
 

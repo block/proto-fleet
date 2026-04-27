@@ -1,4 +1,3 @@
-/* eslint-disable playwright/expect-expect */
 import { test } from "../fixtures/pageFixtures";
 import { IssueIcon } from "../helpers/testDataHelper";
 

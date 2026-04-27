@@ -188,5 +188,11 @@ export default [
       "prettier/prettier": "error",
     },
   },
+  {
+    files: ["e2eTests/**/*.spec.ts"],
+    rules: {
+      "playwright/expect-expect": "off",
+    },
+  },
   eslintConfigPrettier,
 ];

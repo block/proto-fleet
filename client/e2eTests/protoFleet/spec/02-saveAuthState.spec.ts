@@ -1,4 +1,3 @@
-/* eslint-disable playwright/expect-expect */
 import fs from "fs/promises";
 import path from "path";
 import { fileURLToPath } from "url";
