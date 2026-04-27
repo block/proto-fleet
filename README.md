@@ -148,6 +148,24 @@ just dev
 
 This starts the Go backend with Docker Compose and the Vite dev server for ProtoFleet at http://localhost:5173.
 
+#### LAN access
+
+The Go backend is already reachable on your LAN at `http://<your-ip>:4000` because the container publishes `4000:4000` and binds to `0.0.0.0`. The Vite dev server, however, binds to localhost (loopback) by default.
+
+To expose the client to other devices on your network (e.g. test the UI from a phone), **don't run `just dev`** — it would start the default localhost-bound Vite server. Start the backend and the LAN-bound client separately instead:
+
+```bash
+# Terminal 1 — backend only
+cd server && just dev
+
+# Terminal 2 — client bound to all interfaces
+cd client && npx vite --mode protoFleet --host 0.0.0.0
+```
+
+Then browse to `http://<your-ip>:5173/` from any device on the same network. If you run the second command alongside `just dev`, Vite will detect that 5173 is busy and fall back to 5174 while the original localhost-only instance keeps holding 5173, so LAN access still fails.
+
+Only do this on networks you trust. The dev server serves unminified source and proxies requests to your backend, so anyone reachable on the network can hit both. On macOS, you may also see a firewall prompt the first time Node binds to `0.0.0.0`.
+
 ### Protocol Buffer Code Generation
 
 After modifying definitions in `proto/`, regenerate generated clients and server code:
