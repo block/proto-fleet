@@ -9,6 +9,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestIsCumulativeMetric(t *testing.T) {
@@ -581,4 +582,165 @@ func TestEstimateEnergyKWh(t *testing.T) {
 			assert.InDelta(t, tt.expected, result, 0.001)
 		})
 	}
+}
+
+// TestCalculateTemperatureStatusCount_DedupesPerDevice verifies that buckets
+// containing many samples per device (raw ~10s polling) count each device
+// once, not once per sample. Regression for issue #87.
+func TestCalculateTemperatureStatusCount_DedupesPerDevice(t *testing.T) {
+	now := time.Now()
+	bucket := now.Truncate(time.Minute)
+
+	// Two miners, each reporting many samples in the same bucket.
+	// Miner A: stable at 50°C (Ok). Miner B: stable at 85°C (Hot).
+	// Without dedup the per-sample counter returns 3 Ok + 3 Hot = 6 entries.
+	data := []modelsV2.DeviceMetrics{
+		{DeviceIdentifier: "miner-a", Timestamp: now, TempC: &modelsV2.MetricValue{Value: 50}},
+		{DeviceIdentifier: "miner-a", Timestamp: now.Add(10 * time.Second), TempC: &modelsV2.MetricValue{Value: 50}},
+		{DeviceIdentifier: "miner-a", Timestamp: now.Add(20 * time.Second), TempC: &modelsV2.MetricValue{Value: 50}},
+		{DeviceIdentifier: "miner-b", Timestamp: now, TempC: &modelsV2.MetricValue{Value: 85}},
+		{DeviceIdentifier: "miner-b", Timestamp: now.Add(10 * time.Second), TempC: &modelsV2.MetricValue{Value: 85}},
+		{DeviceIdentifier: "miner-b", Timestamp: now.Add(20 * time.Second), TempC: &modelsV2.MetricValue{Value: 85}},
+	}
+
+	result := calculateTemperatureStatusCount(data, bucket)
+
+	assert.Equal(t, int32(0), result.ColdCount)
+	assert.Equal(t, int32(1), result.OkCount, "miner-a should count once")
+	assert.Equal(t, int32(1), result.HotCount, "miner-b should count once")
+	assert.Equal(t, int32(0), result.CriticalCount)
+	assert.Equal(t, bucket, result.Timestamp)
+}
+
+// TestCalculateTemperatureStatusCount_UsesLatestSamplePerDevice verifies that
+// when a device crosses a threshold within a bucket, the latest sample wins
+// (represents the device's state at end of bucket).
+func TestCalculateTemperatureStatusCount_UsesLatestSamplePerDevice(t *testing.T) {
+	now := time.Now()
+	bucket := now.Truncate(time.Minute)
+
+	// miner-a starts Ok (50°C), warms into Critical (95°C) by end.
+	data := []modelsV2.DeviceMetrics{
+		{DeviceIdentifier: "miner-a", Timestamp: now, TempC: &modelsV2.MetricValue{Value: 50}},
+		{DeviceIdentifier: "miner-a", Timestamp: now.Add(30 * time.Second), TempC: &modelsV2.MetricValue{Value: 75}},
+		{DeviceIdentifier: "miner-a", Timestamp: now.Add(50 * time.Second), TempC: &modelsV2.MetricValue{Value: 95}},
+	}
+
+	result := calculateTemperatureStatusCount(data, bucket)
+
+	assert.Equal(t, int32(0), result.OkCount)
+	assert.Equal(t, int32(0), result.HotCount)
+	assert.Equal(t, int32(1), result.CriticalCount, "latest sample (95°C) wins")
+}
+
+// TestCalculateTemperatureStatusCount_AllThresholds covers the 4 buckets.
+func TestCalculateTemperatureStatusCount_AllThresholds(t *testing.T) {
+	now := time.Now()
+	data := []modelsV2.DeviceMetrics{
+		{DeviceIdentifier: "cold-1", Timestamp: now, TempC: &modelsV2.MetricValue{Value: -5}},
+		{DeviceIdentifier: "ok-1", Timestamp: now, TempC: &modelsV2.MetricValue{Value: 25}},
+		{DeviceIdentifier: "ok-2", Timestamp: now, TempC: &modelsV2.MetricValue{Value: 69.9}},
+		{DeviceIdentifier: "hot-1", Timestamp: now, TempC: &modelsV2.MetricValue{Value: 70}},
+		{DeviceIdentifier: "hot-2", Timestamp: now, TempC: &modelsV2.MetricValue{Value: 89.9}},
+		{DeviceIdentifier: "crit-1", Timestamp: now, TempC: &modelsV2.MetricValue{Value: 90}},
+		{DeviceIdentifier: "no-temp", Timestamp: now}, // missing TempC: ignored
+	}
+
+	result := calculateTemperatureStatusCount(data, now)
+
+	assert.Equal(t, int32(1), result.ColdCount)
+	assert.Equal(t, int32(2), result.OkCount)
+	assert.Equal(t, int32(2), result.HotCount)
+	assert.Equal(t, int32(1), result.CriticalCount)
+}
+
+// TestCalculateUptimeStatusCount_DedupesPerDevice mirrors the temperature
+// regression — uptime status was overcounted the same way. Regression for
+// issue #87.
+func TestCalculateUptimeStatusCount_DedupesPerDevice(t *testing.T) {
+	now := time.Now()
+	bucket := now.Truncate(time.Minute)
+
+	data := []modelsV2.DeviceMetrics{
+		{DeviceIdentifier: "hashing-1", Timestamp: now, Health: modelsV2.HealthHealthyActive},
+		{DeviceIdentifier: "hashing-1", Timestamp: now.Add(10 * time.Second), Health: modelsV2.HealthHealthyActive},
+		{DeviceIdentifier: "hashing-1", Timestamp: now.Add(20 * time.Second), Health: modelsV2.HealthHealthyActive},
+		{DeviceIdentifier: "down-1", Timestamp: now, Health: modelsV2.HealthWarning},
+		{DeviceIdentifier: "down-1", Timestamp: now.Add(10 * time.Second), Health: modelsV2.HealthWarning},
+	}
+
+	result := calculateUptimeStatusCount(data, bucket)
+
+	assert.Equal(t, int32(1), result.HashingCount)
+	assert.Equal(t, int32(1), result.NotHashingCount)
+}
+
+// TestCalculateUptimeStatusCount_LatestHealthWins confirms a device that
+// recovers within the bucket is counted as hashing (latest sample wins).
+func TestCalculateUptimeStatusCount_LatestHealthWins(t *testing.T) {
+	now := time.Now()
+	data := []modelsV2.DeviceMetrics{
+		{DeviceIdentifier: "miner-a", Timestamp: now, Health: modelsV2.HealthWarning},
+		{DeviceIdentifier: "miner-a", Timestamp: now.Add(30 * time.Second), Health: modelsV2.HealthHealthyActive},
+	}
+
+	result := calculateUptimeStatusCount(data, now)
+
+	assert.Equal(t, int32(1), result.HashingCount)
+	assert.Equal(t, int32(0), result.NotHashingCount)
+}
+
+func TestLatestSamplePerDevice_Empty(t *testing.T) {
+	assert.Nil(t, latestSamplePerDevice(nil))
+	assert.Nil(t, latestSamplePerDevice([]modelsV2.DeviceMetrics{}))
+}
+
+// TestCalculateTemperatureStatusCount_FallsBackToEarlierTempSample verifies
+// that a device whose latest sample is missing TempC is still counted using
+// its most recent sample that has TempC populated. Without this fallback the
+// chart would underreport device counts whenever telemetry temporarily drops
+// the temperature field.
+func TestCalculateTemperatureStatusCount_FallsBackToEarlierTempSample(t *testing.T) {
+	now := time.Now()
+
+	// miner-a: earlier sample has TempC=85 (Hot), latest sample has nil TempC.
+	// miner-b: only one sample, with TempC=50 (Ok).
+	data := []modelsV2.DeviceMetrics{
+		{DeviceIdentifier: "miner-a", Timestamp: now, TempC: &modelsV2.MetricValue{Value: 85}},
+		{DeviceIdentifier: "miner-a", Timestamp: now.Add(30 * time.Second)}, // TempC nil
+		{DeviceIdentifier: "miner-b", Timestamp: now, TempC: &modelsV2.MetricValue{Value: 50}},
+	}
+
+	result := calculateTemperatureStatusCount(data, now)
+
+	assert.Equal(t, int32(1), result.OkCount, "miner-b counted from its only sample")
+	assert.Equal(t, int32(1), result.HotCount, "miner-a counted from its earlier TempC sample")
+}
+
+func TestLatestSamplesForStatusCounts_Empty(t *testing.T) {
+	uptime, temp := latestSamplesForStatusCounts(nil)
+	assert.Nil(t, uptime)
+	assert.Nil(t, temp)
+}
+
+// TestLatestSamplesForStatusCounts_DivergentLatest covers the case where
+// uptime and temperature views diverge: a device's latest sample drops TempC
+// but still carries Health, so it appears in the uptime view but is
+// represented by an earlier sample in the temperature view.
+func TestLatestSamplesForStatusCounts_DivergentLatest(t *testing.T) {
+	now := time.Now()
+	data := []modelsV2.DeviceMetrics{
+		{DeviceIdentifier: "miner-a", Timestamp: now, Health: modelsV2.HealthHealthyActive, TempC: &modelsV2.MetricValue{Value: 70}},
+		{DeviceIdentifier: "miner-a", Timestamp: now.Add(30 * time.Second), Health: modelsV2.HealthHealthyActive},
+	}
+
+	uptime, temp := latestSamplesForStatusCounts(data)
+
+	require.Len(t, uptime, 1)
+	assert.Equal(t, now.Add(30*time.Second), uptime[0].Timestamp, "uptime view uses absolute latest")
+
+	require.Len(t, temp, 1)
+	require.NotNil(t, temp[0].TempC)
+	assert.Equal(t, 70.0, temp[0].TempC.Value, "temp view uses latest sample with TempC")
+	assert.Equal(t, now, temp[0].Timestamp)
 }
