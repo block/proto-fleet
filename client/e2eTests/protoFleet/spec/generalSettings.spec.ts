@@ -3,7 +3,7 @@ import { test } from "../fixtures/pageFixtures";
 import { CommonSteps } from "../helpers/commonSteps";
 import { AuthPage } from "../pages/auth";
 import { MinersPage } from "../pages/miners";
-import { SettingsPage } from "../pages/settings";
+import { SettingsPage, type SettingsTheme } from "../pages/settings";
 
 test.describe("General Settings", () => {
   test.beforeEach(async ({ page }) => {
@@ -108,10 +108,10 @@ test.describe("General Settings", () => {
   test("Theme preference persists after refresh", async ({ authPage, settingsPage, commonSteps }) => {
     await commonSteps.loginAsAdmin();
 
-    let originalTheme = "";
+    let originalTheme: SettingsTheme = "System";
     let targetTheme: "Light" | "Dark" = "Dark";
 
-    const targetThemeByCurrentTheme: Record<string, "Light" | "Dark"> = {
+    const targetThemeByCurrentTheme: Record<SettingsTheme, "Light" | "Dark"> = {
       Dark: "Light",
       Light: "Dark",
       System: "Dark",
@@ -143,7 +143,7 @@ test.describe("General Settings", () => {
 
     await test.step("Restore the original theme", async () => {
       await settingsPage.clickThemeButton();
-      await settingsPage.selectTheme(originalTheme as "System" | "Light" | "Dark");
+      await settingsPage.selectTheme(originalTheme);
       await settingsPage.clickDoneButton();
       await settingsPage.validateCurrentTheme(originalTheme);
     });

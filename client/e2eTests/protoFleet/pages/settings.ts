@@ -1,6 +1,8 @@
 import { expect } from "@playwright/test";
 import { BasePage } from "./base";
 
+export type SettingsTheme = "System" | "Light" | "Dark";
+
 export class SettingsPage extends BasePage {
   async clickTemperatureButton() {
     await this.page.locator('[data-testid="temperature-button"]').click();
@@ -12,20 +14,26 @@ export class SettingsPage extends BasePage {
     await this.validateTitleInModal("Theme");
   }
 
-  async selectTheme(theme: "System" | "Light" | "Dark") {
+  async selectTheme(theme: SettingsTheme) {
     await this.page.getByTestId("modal").getByText(theme, { exact: true }).click();
   }
 
-  async getCurrentTheme(): Promise<string> {
+  async getCurrentTheme(): Promise<SettingsTheme> {
     const themeButton = this.page
       .getByRole("button", {
         name: /^(System|Light|Dark)$/,
       })
       .first();
-    return await themeButton.innerText();
+    const currentTheme = (await themeButton.innerText()).trim();
+
+    if (currentTheme === "System" || currentTheme === "Light" || currentTheme === "Dark") {
+      return currentTheme;
+    }
+
+    throw new Error(`Unexpected theme value: ${currentTheme}`);
   }
 
-  async validateCurrentTheme(theme: string) {
+  async validateCurrentTheme(theme: SettingsTheme) {
     await expect(this.page.getByRole("button", { name: theme, exact: true }).first()).toBeVisible();
   }
 
