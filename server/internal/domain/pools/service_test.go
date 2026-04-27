@@ -2,7 +2,9 @@ package pools
 
 import (
 	"context"
+	"net"
 	"testing"
+	"time"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
@@ -354,4 +356,38 @@ func TestActivityLogging_DeletePoolBestEffortPreFetch(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Empty(t, spy.events, "activity log should be skipped when pre-fetch fails")
+}
+
+func TestValidateConnection_SV2URLPerformsTCPDialOnly(t *testing.T) {
+	// Arrange — bind a local TCP listener and feed its address back as the
+	// pool URL. SV2 short-circuit must reach this listener and not attempt
+	// the SV1 mining.subscribe handshake (which would block on the silent
+	// listener until the test timeout fires).
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer listener.Close()
+
+	url := "stratum2+tcp://" + listener.Addr().String()
+	svc := NewService(&stubPoolStore{}, stubTransactor{}, Config{Timeout: time.Second}, nil)
+
+	// Act
+	ok, err := svc.ValidateConnection(testCtx(t), url, "anything", nil, nil)
+
+	// Assert
+	require.NoError(t, err)
+	assert.True(t, ok, "SV2 TCP dial against a live listener should succeed")
+}
+
+func TestValidateConnection_SV2URLDialFailureSurfaces(t *testing.T) {
+	// Arrange — TEST-NET-1 (RFC 5737) address that should never accept
+	// connections. A short timeout keeps this fast.
+	url := "stratum2+tcp://192.0.2.1:34254"
+	svc := NewService(&stubPoolStore{}, stubTransactor{}, Config{Timeout: 100 * time.Millisecond}, nil)
+
+	// Act
+	ok, err := svc.ValidateConnection(testCtx(t), url, "anything", nil, nil)
+
+	// Assert
+	assert.False(t, ok)
+	assert.Error(t, err, "unreachable SV2 host should surface a dial error")
 }

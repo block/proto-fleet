@@ -3,6 +3,8 @@ package pools
 import (
 	"context"
 	"fmt"
+	"net"
+	neturl "net/url"
 	"strings"
 	"time"
 
@@ -207,10 +209,16 @@ func (s *Service) ListPools(ctx context.Context) ([]*pb.Pool, error) {
 	return pools, nil
 }
 
-// ValidateConnection the connection to a pool server.
-// It returns true if the connection is successful, otherwise false.
-// We currently only support Stratum V1 connection pools, if you need V2
-// support please use a proxy v1->v2 as described https://stratumprotocol.org/docs/#proxies
+// ValidateConnection probes a pool server.
+// Returns true if the connection is successful, otherwise false.
+//
+// SV1 URLs (stratum+tcp/ssl/ws) get a full mining.subscribe + authorize
+// probe via stratumv1.Authenticate. SV2 URLs (stratum2+tcp) speak the
+// Noise protocol; we can't run an SV1 handshake against them, so we fall
+// back to a bare TCP dial that confirms the host:port is reachable.
+// Operators who need full credential verification for SV2 should rely on
+// the assigned miner reporting its connection status via telemetry —
+// that path exercises the real Noise handshake against the pool.
 func (s *Service) ValidateConnection(ctx context.Context, url string, username string, password *secrets.Text, timeout *time.Duration) (bool, error) {
 	to := s.cfg.Timeout
 	if timeout != nil {
@@ -218,11 +226,41 @@ func (s *Service) ValidateConnection(ctx context.Context, url string, username s
 	}
 	ctx, cancel := context.WithTimeout(ctx, to)
 	defer cancel()
-	ok, err := stratumv1.Authenticate(ctx, url, username, password)
 
+	if isSV2URL(url) {
+		return tcpDial(ctx, url)
+	}
+
+	ok, err := stratumv1.Authenticate(ctx, url, username, password)
 	if err != nil {
 		return false, err
 	}
-
 	return ok, nil
+}
+
+// isSV2URL reports whether a stratum URL targets a Stratum V2 pool. The
+// CEL rule on ValidatePoolRequest.url restricts schemes server-side, so
+// a simple prefix check is sufficient here.
+func isSV2URL(stratumURL string) bool {
+	return strings.HasPrefix(stratumURL, "stratum2+")
+}
+
+// tcpDial parses a stratum URL and attempts a TCP connection to its
+// host:port. The username/password are not used — SV2 authentication
+// happens during the Noise handshake, which the v1 fleet does not run.
+func tcpDial(ctx context.Context, stratumURL string) (bool, error) {
+	u, err := neturl.Parse(stratumURL)
+	if err != nil {
+		return false, fmt.Errorf("invalid pool URL: %w", err)
+	}
+	if u.Host == "" {
+		return false, fmt.Errorf("pool URL missing host")
+	}
+	var d net.Dialer
+	conn, err := d.DialContext(ctx, "tcp", u.Host)
+	if err != nil {
+		return false, err
+	}
+	_ = conn.Close()
+	return true, nil
 }
