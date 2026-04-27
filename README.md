@@ -158,7 +158,7 @@ cd client && npx vite --mode protoFleet --host 0.0.0.0
 
 Then browse to `http://<your-ip>:5173/` from any device on the same network.
 
-Only do this on networks you trust. The dev server serves unminified source and proxies requests to your backend, so anyone reachable on the network can hit both. macOS will also prompt the firewall the first time Node binds to `0.0.0.0`.
+Only do this on networks you trust. The dev server serves unminified source and proxies requests to your backend, so anyone reachable on the network can hit both. On macOS, you may also see a firewall prompt the first time Node binds to `0.0.0.0`.
 
 ### Protocol Buffer Code Generation
 
