@@ -220,6 +220,21 @@ func TestService_UpdatePool_RejectsEmptyStringPatches(t *testing.T) {
 			mutate:   func(r *pb.UpdatePoolRequest) { empty := ""; r.Username = &empty },
 			wantSubs: "username",
 		},
+		{
+			name:     "whitespace pool_name",
+			mutate:   func(r *pb.UpdatePoolRequest) { ws := "   "; r.PoolName = &ws },
+			wantSubs: "pool_name",
+		},
+		{
+			name:     "whitespace url",
+			mutate:   func(r *pb.UpdatePoolRequest) { ws := "\t\n "; r.Url = &ws },
+			wantSubs: "url",
+		},
+		{
+			name:     "whitespace username",
+			mutate:   func(r *pb.UpdatePoolRequest) { ws := "   "; r.Username = &ws },
+			wantSubs: "username",
+		},
 	}
 
 	for _, tc := range tests {
@@ -271,6 +286,35 @@ func TestService_UpdatePool_AbsentFieldsLeaveValuesUnchanged(t *testing.T) {
 	assert.Equal(t, "New Name", captured.GetPoolName())
 	assert.Nil(t, captured.Url)
 	assert.Nil(t, captured.Username)
+}
+
+func TestService_UpdatePool_NoPatchFieldsIsNoop(t *testing.T) {
+	// Arrange
+	spy := &spyActivityStore{}
+	existing := &pb.Pool{
+		PoolId:   42,
+		PoolName: "Existing Pool",
+		Url:      "stratum+tcp://pool.example.com:3333",
+		Username: "wallet",
+	}
+	svc := NewService(&stubPoolStore{
+		getPoolFn: func(_ context.Context, _ int64, _ int64) (*pb.Pool, error) {
+			return existing, nil
+		},
+		updatePoolFn: func(context.Context, *pb.UpdatePoolRequest, int64) error {
+			t.Fatal("UpdatePool should not be called when no patch fields are set")
+			return nil
+		},
+	}, stubTransactor{}, Config{}, activity.NewService(spy))
+
+	// Act
+	pool, err := svc.UpdatePool(testCtx(t), &pb.UpdatePoolRequest{PoolId: 42})
+
+	// Assert
+	require.NoError(t, err)
+	require.NotNil(t, pool)
+	assert.Equal(t, existing, pool)
+	assert.Empty(t, spy.events, "no activity event should be emitted for an empty patch")
 }
 
 func TestActivityLogging_CreatePoolLogsEvent(t *testing.T) {
