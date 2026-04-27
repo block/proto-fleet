@@ -1343,10 +1343,32 @@ func parseMetricKindOrDefault(s string) modelsV2.MetricKind {
 	return kind
 }
 
+// latestSamplePerDevice returns one DeviceMetrics per device — the sample with
+// the latest Timestamp. Raw buckets contain many samples per device (~10s
+// polling cadence), so callers that classify devices into status categories
+// must dedupe first to avoid counting one device multiple times.
+func latestSamplePerDevice(data []modelsV2.DeviceMetrics) []modelsV2.DeviceMetrics {
+	if len(data) == 0 {
+		return nil
+	}
+	latest := make(map[string]modelsV2.DeviceMetrics, len(data))
+	for _, m := range data {
+		existing, ok := latest[m.DeviceIdentifier]
+		if !ok || m.Timestamp.After(existing.Timestamp) {
+			latest[m.DeviceIdentifier] = m
+		}
+	}
+	out := make([]modelsV2.DeviceMetrics, 0, len(latest))
+	for _, m := range latest {
+		out = append(out, m)
+	}
+	return out
+}
+
 func calculateTemperatureStatusCount(data []modelsV2.DeviceMetrics, timestamp time.Time) models.TemperatureStatusCount {
 	var cold, ok, hot, critical int32
 
-	for _, m := range data {
+	for _, m := range latestSamplePerDevice(data) {
 		if m.TempC == nil {
 			continue
 		}
@@ -1375,7 +1397,7 @@ func calculateTemperatureStatusCount(data []modelsV2.DeviceMetrics, timestamp ti
 func calculateUptimeStatusCount(data []modelsV2.DeviceMetrics, timestamp time.Time) models.UptimeStatusCount {
 	var hashing, notHashing int32
 
-	for _, m := range data {
+	for _, m := range latestSamplePerDevice(data) {
 		if m.Health == modelsV2.HealthHealthyActive {
 			hashing++
 		} else {
