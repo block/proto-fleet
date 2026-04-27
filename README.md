@@ -150,7 +150,7 @@ This starts the Go backend with Docker Compose and the Vite dev server for Proto
 
 #### LAN access
 
-By default, the Go backend is reachable on your LAN at `http://<your-ip>:4000` because the container publishes port `4000:4000` and binds to `0.0.0.0`. The Vite dev server, however, binds to `127.0.0.1` only. To expose it to other devices on your network (e.g. test the UI from a phone), start the client with an explicit host:
+By default, the Go backend is reachable on your LAN at `http://<your-ip>:4000` because the container publishes port `4000:4000` and binds to `0.0.0.0`. The Vite dev server, however, binds to localhost (loopback) by default. To expose it to other devices on your network (e.g. test the UI from a phone), start the client with an explicit host:
 
 ```bash
 cd client && npx vite --mode protoFleet --host 0.0.0.0
