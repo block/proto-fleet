@@ -4,6 +4,10 @@ import { test } from "../fixtures/pageFixtures";
 const FLEET_DURATIONS = ["1h", "24h", "7d", "30d", "90d", "1y"] as const;
 const DURATION_SWITCH_TARGETS = ["7d", "30d"] as const;
 
+function getDurationSwitchTarget(currentDuration: string) {
+  return currentDuration === DURATION_SWITCH_TARGETS[0] ? DURATION_SWITCH_TARGETS[1] : DURATION_SWITCH_TARGETS[0];
+}
+
 test.describe("Proto Fleet - Dashboard", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
@@ -39,14 +43,14 @@ test.describe("Proto Fleet - Dashboard", () => {
   test("Dashboard duration selection persists after refresh", async ({ homePage, commonSteps }) => {
     await commonSteps.loginAsAdmin();
 
-    let currentDuration: string | null = null;
+    let currentDuration = "";
     let targetDuration = "7d";
 
     await test.step("Choose a different dashboard duration", async () => {
       currentDuration = await homePage.getSelectedDuration(FLEET_DURATIONS);
-      targetDuration =
-        DURATION_SWITCH_TARGETS.find((duration) => duration !== currentDuration) ?? DURATION_SWITCH_TARGETS[0];
+      targetDuration = getDurationSwitchTarget(currentDuration);
 
+      test.expect(targetDuration).not.toBe(currentDuration);
       await homePage.clickDurationButton(targetDuration);
       await homePage.validateDurationSelected(targetDuration);
     });
@@ -78,14 +82,14 @@ test.describe("Proto Fleet - Dashboard", () => {
   }) => {
     await commonSteps.loginAsAdmin();
 
-    let currentDuration: string | null = null;
+    let currentDuration = "";
     let targetDuration = "7d";
 
     await test.step("Choose a different dashboard duration", async () => {
       currentDuration = await homePage.getSelectedDuration(FLEET_DURATIONS);
-      targetDuration =
-        DURATION_SWITCH_TARGETS.find((duration) => duration !== currentDuration) ?? DURATION_SWITCH_TARGETS[0];
+      targetDuration = getDurationSwitchTarget(currentDuration);
 
+      test.expect(targetDuration).not.toBe(currentDuration);
       await homePage.clickDurationButton(targetDuration);
       await homePage.validateDurationSelected(targetDuration);
     });

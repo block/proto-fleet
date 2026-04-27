@@ -85,14 +85,21 @@ export class HomePage extends BasePage {
   }
 
   async getSelectedDuration(durations: readonly string[]) {
+    const selectedDurations: string[] = [];
+
     for (const duration of durations) {
       const className = await this.getDurationButton(duration).getAttribute("class");
       if (className?.includes("bg-core-primary-fill")) {
-        return duration;
+        selectedDurations.push(duration);
       }
     }
 
-    return null;
+    expect(
+      selectedDurations,
+      `Expected exactly one selected duration, but found ${selectedDurations.length}: ${selectedDurations.join(", ") || "none"}`,
+    ).toHaveLength(1);
+
+    return selectedDurations[0];
   }
 
   async clickControlBoardsLink() {
