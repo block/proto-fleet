@@ -433,17 +433,13 @@ export const UpdateMiningPoolsResponseSchema: GenMessage<UpdateMiningPoolsRespon
   messageDesc(file_minercommand_v1_command, 15);
 
 /**
- * UpdateMiningPoolsMismatch is attached as a FAILED_PRECONDITION error
- * detail when commit-time preflight rejects an UpdateMiningPools call.
- * One per (device, slot) pair so the UI can render a row-level warning.
+ * Attached as a FAILED_PRECONDITION detail when commit-time preflight
+ * rejects an UpdateMiningPools call. One per (device, slot) pair.
  *
  * @generated from message minercommand.v1.UpdateMiningPoolsMismatch
  */
 export type UpdateMiningPoolsMismatch = Message<"minercommand.v1.UpdateMiningPoolsMismatch"> & {
   /**
-   * device_identifier matches DeviceMetrics.device_id — the same
-   * identifier the operator sees in the miner list.
-   *
    * @generated from field: string device_identifier = 1;
    */
   deviceIdentifier: string;
@@ -1171,15 +1167,10 @@ export enum PerformanceMode {
 export const PerformanceModeSchema: GenEnum<PerformanceMode> = /*@__PURE__*/ enumDesc(file_minercommand_v1_command, 0);
 
 /**
- * PoolSlot identifies which slot a mismatch refers to. Mirrors the
- * "default / backup_1 / backup_2" priority on UpdateMiningPoolsRequest.
- *
  * @generated from enum minercommand.v1.PoolSlot
  */
 export enum PoolSlot {
   /**
-   * Device-level mismatch with no specific slot.
-   *
    * @generated from enum value: POOL_SLOT_UNSPECIFIED = 0;
    */
   UNSPECIFIED = 0,
@@ -1206,11 +1197,6 @@ export enum PoolSlot {
 export const PoolSlotSchema: GenEnum<PoolSlot> = /*@__PURE__*/ enumDesc(file_minercommand_v1_command, 1);
 
 /**
- * SlotWarning enumerates per-slot reasons UpdateMiningPools refused to
- * dispatch. New variants must remain backwards-compatible — UI logic
- * dispatches on enum value and falls back to generic rendering for
- * unknown ones.
- *
  * @generated from enum minercommand.v1.SlotWarning
  */
 export enum SlotWarning {
@@ -1220,9 +1206,7 @@ export enum SlotWarning {
   UNSPECIFIED = 0,
 
   /**
-   * Slot's pool URL targets Stratum V2 but the device's last-reported
-   * telemetry says it doesn't natively support SV2. Fleet refuses
-   * rather than silently dispatching a URL the firmware can't speak.
+   * Slot URL targets SV2 but the device's telemetry says SV1-only.
    *
    * @generated from enum value: SLOT_WARNING_SV2_NOT_SUPPORTED = 1;
    */

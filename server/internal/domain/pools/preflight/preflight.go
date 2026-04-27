@@ -86,6 +86,8 @@ func (s Slot) ProtoSlot() mcpb.PoolSlot {
 		return mcpb.PoolSlot_POOL_SLOT_BACKUP_1
 	case SlotBackup2:
 		return mcpb.PoolSlot_POOL_SLOT_BACKUP_2
+	case SlotUnspecified:
+		return mcpb.PoolSlot_POOL_SLOT_UNSPECIFIED
 	default:
 		return mcpb.PoolSlot_POOL_SLOT_UNSPECIFIED
 	}

@@ -74,12 +74,10 @@ func (PerformanceMode) EnumDescriptor() ([]byte, []int) {
 	return file_minercommand_v1_command_proto_rawDescGZIP(), []int{0}
 }
 
-// PoolSlot identifies which slot a mismatch refers to. Mirrors the
-// "default / backup_1 / backup_2" priority on UpdateMiningPoolsRequest.
 type PoolSlot int32
 
 const (
-	PoolSlot_POOL_SLOT_UNSPECIFIED PoolSlot = 0 // Device-level mismatch with no specific slot.
+	PoolSlot_POOL_SLOT_UNSPECIFIED PoolSlot = 0
 	PoolSlot_POOL_SLOT_DEFAULT     PoolSlot = 1
 	PoolSlot_POOL_SLOT_BACKUP_1    PoolSlot = 2
 	PoolSlot_POOL_SLOT_BACKUP_2    PoolSlot = 3
@@ -128,17 +126,11 @@ func (PoolSlot) EnumDescriptor() ([]byte, []int) {
 	return file_minercommand_v1_command_proto_rawDescGZIP(), []int{1}
 }
 
-// SlotWarning enumerates per-slot reasons UpdateMiningPools refused to
-// dispatch. New variants must remain backwards-compatible — UI logic
-// dispatches on enum value and falls back to generic rendering for
-// unknown ones.
 type SlotWarning int32
 
 const (
 	SlotWarning_SLOT_WARNING_UNSPECIFIED SlotWarning = 0
-	// Slot's pool URL targets Stratum V2 but the device's last-reported
-	// telemetry says it doesn't natively support SV2. Fleet refuses
-	// rather than silently dispatching a URL the firmware can't speak.
+	// Slot URL targets SV2 but the device's telemetry says SV1-only.
 	SlotWarning_SLOT_WARNING_SV2_NOT_SUPPORTED SlotWarning = 1
 )
 
@@ -1198,16 +1190,13 @@ func (x *UpdateMiningPoolsResponse) GetBatchIdentifier() string {
 	return ""
 }
 
-// UpdateMiningPoolsMismatch is attached as a FAILED_PRECONDITION error
-// detail when commit-time preflight rejects an UpdateMiningPools call.
-// One per (device, slot) pair so the UI can render a row-level warning.
+// Attached as a FAILED_PRECONDITION detail when commit-time preflight
+// rejects an UpdateMiningPools call. One per (device, slot) pair.
 type UpdateMiningPoolsMismatch struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// device_identifier matches DeviceMetrics.device_id — the same
-	// identifier the operator sees in the miner list.
-	DeviceIdentifier string      `protobuf:"bytes,1,opt,name=device_identifier,json=deviceIdentifier,proto3" json:"device_identifier,omitempty"`
-	Slot             PoolSlot    `protobuf:"varint,2,opt,name=slot,proto3,enum=minercommand.v1.PoolSlot" json:"slot,omitempty"`
-	SlotWarning      SlotWarning `protobuf:"varint,3,opt,name=slot_warning,json=slotWarning,proto3,enum=minercommand.v1.SlotWarning" json:"slot_warning,omitempty"`
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	DeviceIdentifier string                 `protobuf:"bytes,1,opt,name=device_identifier,json=deviceIdentifier,proto3" json:"device_identifier,omitempty"`
+	Slot             PoolSlot               `protobuf:"varint,2,opt,name=slot,proto3,enum=minercommand.v1.PoolSlot" json:"slot,omitempty"`
+	SlotWarning      SlotWarning            `protobuf:"varint,3,opt,name=slot_warning,json=slotWarning,proto3,enum=minercommand.v1.SlotWarning" json:"slot_warning,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
