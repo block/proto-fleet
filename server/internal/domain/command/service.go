@@ -62,6 +62,13 @@ type Service struct {
 	telemetryListener   TelemetryListener
 	capabilityChecker   *CapabilityChecker
 	activitySvc         *activity.Service
+
+	// filters are consulted by processCommand before each dispatch. Order of
+	// registration is preserved at runtime; each filter sees only the survivors
+	// of earlier filters. Filters are registered at startup via RegisterFilter
+	// and the slice is not protected by a mutex — registration after the
+	// service starts handling traffic is not supported.
+	filters []CommandFilter
 }
 
 const defaultPoolPriority uint32 = 0
@@ -256,41 +263,9 @@ func (s *Service) buildActivityCompletedCallback(ctx context.Context, batchID, e
 	}
 }
 
-func (s *Service) getDevicesCount(ctx context.Context, selector *pb.DeviceSelector) (int32, error) {
-	info, err := session.GetInfo(ctx)
-	if err != nil {
-		return 0, fleeterror.NewInternalErrorf("error getting session info from ctx: %v", err)
-	}
-
-	switch x := selector.SelectionType.(type) {
-	case *pb.DeviceSelector_AllDevices:
-		return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (int32, error) {
-			count, err := q.GetTotalPairedDevices(ctx, sqlc.GetTotalPairedDevicesParams{OrgID: info.OrganizationID})
-			if err != nil {
-				return 0, err
-			}
-			// #nosec G115 - We know device identifiers len won't exceed int32 max value
-			return int32(count), nil
-		})
-	case *pb.DeviceSelector_IncludeDevices:
-		// #nosec G115 - We know device identifiers len won't exceed int32 max value
-		return int32(len(x.IncludeDevices.DeviceIdentifiers)), nil
-	default:
-		return 0, fleeterror.NewInternalErrorf("getDevicesCount called with unknown type: %v", x)
-	}
-}
-
-func (s *Service) saveCommandBatchLogToDB(ctx context.Context, userID, organizationID int64, command *Command, payloadBytes []byte) (string, error) {
-	// Guard ordering matters: this check must fire before getDevicesCount so
-	// unit tests without a wired deviceStore still hit the org-id check
-	// cleanly, and invalid inputs do not waste a store round-trip.
+func (s *Service) saveCommandBatchLogToDB(ctx context.Context, userID, organizationID int64, command *Command, payloadBytes []byte, devicesCount int) (string, error) {
 	if organizationID <= 0 {
 		return "", fleeterror.NewInternalErrorf("cannot create command batch: session missing organization_id")
-	}
-
-	devicesCount, err := s.getDevicesCount(ctx, command.deviceSelector)
-	if err != nil {
-		return "", err
 	}
 
 	return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (string, error) {
@@ -303,7 +278,7 @@ func (s *Service) saveCommandBatchLogToDB(ctx context.Context, userID, organizat
 			CreatedBy:      userID,
 			CreatedAt:      timeNow,
 			Status:         sqlc.BatchStatusEnumPENDING,
-			DevicesCount:   devicesCount,
+			DevicesCount:   int32(devicesCount), //nolint:gosec // bounded by fleet size
 			Payload:        pqtype.NullRawMessage{RawMessage: payloadBytes, Valid: len(payloadBytes) > 0},
 			OrganizationID: sql.NullInt64{Int64: organizationID, Valid: true},
 		})
@@ -425,7 +400,19 @@ func (s *Service) initializeStatusUpdateRoutine(commandBatchLogUUID string, onFi
 	}()
 }
 
-func (s *Service) getDeviceIDs(ctx context.Context, selector *pb.DeviceSelector) ([]int64, error) {
+// RegisterFilter appends a CommandFilter to the preflight chain. Filters run
+// in registration order on every command flowing through processCommand —
+// schedule processor, manual API handler, curtailment reconciler, and any
+// future caller. Call this only at startup, before the service begins
+// handling traffic; the filter slice is not mutex-protected.
+func (s *Service) RegisterFilter(f CommandFilter) {
+	s.filters = append(s.filters, f)
+}
+
+// resolveSelectorIdentifiers expands a DeviceSelector to a list of
+// device_identifier strings within the caller's org. Used by processCommand
+// to feed preflight filters before resolving to internal IDs for enqueue.
+func (s *Service) resolveSelectorIdentifiers(ctx context.Context, selector *pb.DeviceSelector) ([]string, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("error getting session info from context: %v", err)
@@ -438,7 +425,7 @@ func (s *Service) getDeviceIDs(ctx context.Context, selector *pb.DeviceSelector)
 			filter = &pb.DeviceFilter{}
 		}
 
-		return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]int64, error) {
+		return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]string, error) {
 			var deviceStatus sql.NullString
 			var pairingStatus sql.NullString
 			var modelFilter sql.NullString
@@ -472,7 +459,7 @@ func (s *Service) getDeviceIDs(ctx context.Context, selector *pb.DeviceSelector)
 				}
 			}
 
-			return q.GetFilteredDeviceIds(ctx, sqlc.GetFilteredDeviceIdsParams{
+			return q.GetFilteredDeviceIdentifiers(ctx, sqlc.GetFilteredDeviceIdentifiersParams{
 				OrgID:              info.OrganizationID,
 				DeviceStatus:       deviceStatus,
 				PairingStatus:      pairingStatus,
@@ -481,146 +468,194 @@ func (s *Service) getDeviceIDs(ctx context.Context, selector *pb.DeviceSelector)
 			})
 		})
 	case *pb.DeviceSelector_IncludeDevices:
-		if len(x.IncludeDevices.DeviceIdentifiers) == 0 {
-			return []int64{}, nil
+		if x.IncludeDevices == nil {
+			return []string{}, nil
 		}
-
-		return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]int64, error) {
-			return q.GetDeviceIDsByDeviceIdentifiers(ctx, x.IncludeDevices.DeviceIdentifiers)
-		})
+		// Defensive copy: filters MUST NOT mutate input slices, but a hostile
+		// or buggy filter shouldn't be able to corrupt the caller's request
+		// proto either.
+		out := make([]string, len(x.IncludeDevices.DeviceIdentifiers))
+		copy(out, x.IncludeDevices.DeviceIdentifiers)
+		return out, nil
 	default:
-		return nil, fleeterror.NewInternalErrorf("getDeviceIDs called with unknown type: %v", x)
+		return nil, fleeterror.NewInternalErrorf("resolveSelectorIdentifiers called with unknown selector type: %v", x)
 	}
 }
 
-func (s *Service) processCommand(ctx context.Context, command *Command) (string, int, error) {
+// resolveIdentifiersToDeviceIDs converts identifiers (post-filter) into the
+// internal int64 IDs the message queue uses.
+func (s *Service) resolveIdentifiersToDeviceIDs(ctx context.Context, identifiers []string) ([]int64, error) {
+	if len(identifiers) == 0 {
+		return []int64{}, nil
+	}
+	return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]int64, error) {
+		return q.GetDeviceIDsByDeviceIdentifiers(ctx, identifiers)
+	})
+}
+
+// processCommand is the single internal entry point used by every public
+// dispatch wrapper (Reboot, StopMining, SetPowerTarget, …).
+//
+// Order of operations:
+//  1. Ensure the execution service is running.
+//  2. Resolve the selector to device_identifier strings.
+//  3. Run registered preflight filters; partition into kept + skipped.
+//  4. If kept is empty: return a CommandResult with empty BatchIdentifier
+//     and the skipped slice. NO command_batch_log row is created and NO
+//     queue messages are enqueued — callers MUST treat empty
+//     BatchIdentifier as "nothing was dispatched, do not start a status
+//     watcher or write a 'started' activity row".
+//  5. Save the batch log row, resolve kept identifiers to internal IDs,
+//     and enqueue.
+//
+// Empty-after-filter semantics: returning an empty BatchIdentifier is the
+// success-with-no-op outcome. Manual handlers translate this into an empty
+// BatchIdentifier on the wire response (existing wrappers' clients already
+// tolerate empty UUIDs since they previously appeared on no-error
+// no-dispatch paths). Schedule-origin and curtailment-origin callers
+// inspect Skipped to decide what to log.
+func (s *Service) processCommand(ctx context.Context, command *Command) (*CommandResult, error) {
 	if !s.executionService.IsRunning() {
 		slog.Error("command execution service is not running, attempting to start it")
 		err := s.executionService.Start(ctx)
 		if err != nil {
-			return "", 0, fleeterror.NewInternalErrorf("failed to start command execution service: %v", err)
+			return nil, fleeterror.NewInternalErrorf("failed to start command execution service: %v", err)
 		}
 	}
 
 	info, err := session.GetInfo(ctx)
 	if err != nil {
-		return "", 0, fleeterror.NewInternalErrorf("error getting session info from ctx: %v", err)
+		return nil, fleeterror.NewInternalErrorf("error getting session info from ctx: %v", err)
+	}
+
+	// Org-id check moved up from saveCommandBatchLogToDB. With the preflight
+	// reorder, the selector resolver now runs first; we still want the same
+	// fast-path validation error to surface before any DB or filter call.
+	if info.OrganizationID <= 0 {
+		return nil, fleeterror.NewInternalErrorf("cannot create command batch: session missing organization_id")
+	}
+
+	identifiers, err := s.resolveSelectorIdentifiers(ctx, command.deviceSelector)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error resolving device identifiers: %v", err)
+	}
+
+	kept, skipped, err := applyFilters(ctx, s.filters, CommandFilterInput{
+		CommandType:       command.commandType,
+		OrganizationID:    info.OrganizationID,
+		Actor:             info.Actor,
+		Source:            info.Source,
+		DeviceIdentifiers: identifiers,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("preflight filter failed: %v", err)
+	}
+
+	if len(kept) == 0 {
+		return &CommandResult{Skipped: skipped}, nil
 	}
 
 	payloadBytes, err := json.Marshal(command.payload)
 	if err != nil {
-		return "", 0, fleeterror.NewInternalErrorf("error marshalling payload: %v", err)
+		return nil, fleeterror.NewInternalErrorf("error marshalling payload: %v", err)
 	}
 
-	batchLogIdentifier, err := s.saveCommandBatchLogToDB(ctx, info.UserID, info.OrganizationID, command, payloadBytes)
+	deviceIDs, err := s.resolveIdentifiersToDeviceIDs(ctx, kept)
 	if err != nil {
-		return "", 0, fleeterror.NewInternalErrorf("error saving command batch log to db: %v", err)
+		return nil, fleeterror.NewInternalErrorf("error resolving identifiers to device IDs: %v", err)
 	}
-	deviceIDs, err := s.getDeviceIDs(ctx, command.deviceSelector)
+
+	batchLogIdentifier, err := s.saveCommandBatchLogToDB(ctx, info.UserID, info.OrganizationID, command, payloadBytes, len(deviceIDs))
 	if err != nil {
-		return "", 0, fleeterror.NewInternalErrorf("error getting device IDs from device selector: %v", err)
+		return nil, fleeterror.NewInternalErrorf("error saving command batch log to db: %v", err)
 	}
 
 	err = s.messageQueue.Enqueue(ctx, batchLogIdentifier, command.commandType, deviceIDs, command.payload)
 	if err != nil {
-		return "", 0, fleeterror.NewInternalErrorf("error enqueuing a batch of commands: %v", err)
+		return nil, fleeterror.NewInternalErrorf("error enqueuing a batch of commands: %v", err)
 	}
 
-	return batchLogIdentifier, len(deviceIDs), nil
-}
-
-func (s *Service) Reboot(ctx context.Context, deviceSelector *pb.DeviceSelector) (*pb.RebootResponse, error) {
-	commandBatchLogUUID, deviceCount, err := s.processCommand(ctx, &Command{commandType: commandtype.Reboot, deviceSelector: deviceSelector, payload: nil})
-	if err != nil {
-		return nil, err
-	}
-
-	s.logCommandActivity(ctx, "reboot", "Reboot", deviceCount, commandBatchLogUUID)
-	s.initializeStatusUpdateRoutine(commandBatchLogUUID,
-		s.buildActivityCompletedCallback(ctx, commandBatchLogUUID, "reboot", "Reboot"))
-
-	return &pb.RebootResponse{
-		BatchIdentifier: commandBatchLogUUID,
+	return &CommandResult{
+		BatchIdentifier: batchLogIdentifier,
+		DispatchedCount: len(deviceIDs),
+		Skipped:         skipped,
 	}, nil
 }
 
+// finalizeDispatch wires up the activity-started log row and the post-batch
+// status routine for any wrapper that successfully enqueued a batch. It is a
+// no-op when result.BatchIdentifier is empty (the all-skipped or empty-selector
+// case from processCommand) — there is no batch to track.
+func (s *Service) finalizeDispatch(ctx context.Context, result *CommandResult, eventType, description string) {
+	if result.BatchIdentifier == "" {
+		return
+	}
+	s.logCommandActivity(ctx, eventType, description, result.DispatchedCount, result.BatchIdentifier)
+	s.initializeStatusUpdateRoutine(result.BatchIdentifier,
+		s.buildActivityCompletedCallback(ctx, result.BatchIdentifier, eventType, description))
+}
+
+func (s *Service) Reboot(ctx context.Context, deviceSelector *pb.DeviceSelector) (*CommandResult, error) {
+	result, err := s.processCommand(ctx, &Command{commandType: commandtype.Reboot, deviceSelector: deviceSelector, payload: nil})
+	if err != nil {
+		return nil, err
+	}
+	s.finalizeDispatch(ctx, result, "reboot", "Reboot")
+	return result, nil
+}
+
 // StopMining stops mining on the specified miners
-func (s *Service) StopMining(ctx context.Context, deviceSelector *pb.DeviceSelector) (*pb.StopMiningResponse, error) {
-	commandBatchLogUUID, deviceCount, err := s.processCommand(
+func (s *Service) StopMining(ctx context.Context, deviceSelector *pb.DeviceSelector) (*CommandResult, error) {
+	result, err := s.processCommand(
 		ctx,
 		&Command{commandType: commandtype.StopMining, deviceSelector: deviceSelector, payload: nil},
 	)
 	if err != nil {
 		return nil, err
 	}
-
-	s.logCommandActivity(ctx, "stop_mining", "Sleep", deviceCount, commandBatchLogUUID)
-	s.initializeStatusUpdateRoutine(commandBatchLogUUID,
-		s.buildActivityCompletedCallback(ctx, commandBatchLogUUID, "stop_mining", "Sleep"))
-
-	return &pb.StopMiningResponse{
-		BatchIdentifier: commandBatchLogUUID,
-	}, nil
+	s.finalizeDispatch(ctx, result, "stop_mining", "Sleep")
+	return result, nil
 }
 
 // StartMining starts mining on the specified miners
-func (s *Service) StartMining(ctx context.Context, deviceSelector *pb.DeviceSelector) (*pb.StartMiningResponse, error) {
-	commandBatchLogUUID, deviceCount, err := s.processCommand(
+func (s *Service) StartMining(ctx context.Context, deviceSelector *pb.DeviceSelector) (*CommandResult, error) {
+	result, err := s.processCommand(
 		ctx,
 		&Command{commandType: commandtype.StartMining, deviceSelector: deviceSelector, payload: nil},
 	)
 	if err != nil {
 		return nil, err
 	}
-
-	s.logCommandActivity(ctx, "start_mining", "Wake up", deviceCount, commandBatchLogUUID)
-	s.initializeStatusUpdateRoutine(commandBatchLogUUID,
-		s.buildActivityCompletedCallback(ctx, commandBatchLogUUID, "start_mining", "Wake up"))
-
-	return &pb.StartMiningResponse{
-		BatchIdentifier: commandBatchLogUUID,
-	}, nil
+	s.finalizeDispatch(ctx, result, "start_mining", "Wake up")
+	return result, nil
 }
 
-func (s *Service) SetCoolingMode(ctx context.Context, deviceSelector *pb.DeviceSelector, modeType commonpb.CoolingMode) (*pb.SetCoolingModeResponse, error) {
+func (s *Service) SetCoolingMode(ctx context.Context, deviceSelector *pb.DeviceSelector, modeType commonpb.CoolingMode) (*CommandResult, error) {
 	cm := dto.CoolingModePayload{Mode: modeType}
-	commandBatchLogUUID, deviceCount, err := s.processCommand(
+	result, err := s.processCommand(
 		ctx,
 		&Command{commandType: commandtype.SetCoolingMode, deviceSelector: deviceSelector, payload: cm},
 	)
 	if err != nil {
 		return nil, err
 	}
-
-	s.logCommandActivity(ctx, "set_cooling_mode", "Cooling mode changed", deviceCount, commandBatchLogUUID)
-	s.initializeStatusUpdateRoutine(commandBatchLogUUID,
-		s.buildActivityCompletedCallback(ctx, commandBatchLogUUID, "set_cooling_mode", "Cooling mode changed"))
-
-	return &pb.SetCoolingModeResponse{
-		BatchIdentifier: commandBatchLogUUID,
-	}, nil
+	s.finalizeDispatch(ctx, result, "set_cooling_mode", "Cooling mode changed")
+	return result, nil
 }
 
-func (s *Service) SetPowerTarget(ctx context.Context, deviceSelector *pb.DeviceSelector, performanceMode pb.PerformanceMode) (*pb.SetPowerTargetResponse, error) {
+func (s *Service) SetPowerTarget(ctx context.Context, deviceSelector *pb.DeviceSelector, performanceMode pb.PerformanceMode) (*CommandResult, error) {
 	pt := dto.PowerTargetPayload{
 		PerformanceMode: performanceMode,
 	}
-	commandBatchLogUUID, deviceCount, err := s.processCommand(
+	result, err := s.processCommand(
 		ctx,
 		&Command{commandType: commandtype.SetPowerTarget, deviceSelector: deviceSelector, payload: pt},
 	)
 	if err != nil {
 		return nil, err
 	}
-
-	description := fmt.Sprintf("Power target changed to %s", performanceMode.String())
-	s.logCommandActivity(ctx, "set_power_target", description, deviceCount, commandBatchLogUUID)
-	s.initializeStatusUpdateRoutine(commandBatchLogUUID,
-		s.buildActivityCompletedCallback(ctx, commandBatchLogUUID, "set_power_target", description))
-
-	return &pb.SetPowerTargetResponse{
-		BatchIdentifier: commandBatchLogUUID,
-	}, nil
+	s.finalizeDispatch(ctx, result, "set_power_target", fmt.Sprintf("Power target changed to %s", performanceMode.String()))
+	return result, nil
 }
 
 func (s *Service) createMiningPoolDTO(ctx context.Context, poolID int64, priorityIncrement uint32) (*dto.MiningPool, error) {
@@ -726,7 +761,7 @@ func (s *Service) UpdateMiningPools(
 	defaultPool, backup1Pool, backup2Pool *pb.PoolSlotConfig,
 	userUsername string,
 	userPassword string,
-) (*pb.UpdateMiningPoolsResponse, error) {
+) (*CommandResult, error) {
 	if err := s.verifyUserCredentials(ctx, userUsername, userPassword); err != nil {
 		return nil, err
 	}
@@ -736,19 +771,15 @@ func (s *Service) UpdateMiningPools(
 		return nil, err
 	}
 
-	commandBatchLogUUID, deviceCount, err := s.processCommand(
+	result, err := s.processCommand(
 		ctx,
 		&Command{commandType: commandtype.UpdateMiningPools, deviceSelector: deviceSelector, payload: pld},
 	)
 	if err != nil {
 		return nil, err
 	}
-
-	s.logCommandActivity(ctx, "update_mining_pools", "Edit pool", deviceCount, commandBatchLogUUID)
-	s.initializeStatusUpdateRoutine(commandBatchLogUUID,
-		s.buildActivityCompletedCallback(ctx, commandBatchLogUUID, "update_mining_pools", "Edit pool"))
-
-	return &pb.UpdateMiningPoolsResponse{BatchIdentifier: commandBatchLogUUID}, nil
+	s.finalizeDispatch(ctx, result, "update_mining_pools", "Edit pool")
+	return result, nil
 }
 
 func (s *Service) VerifyCredentials(ctx context.Context, username string, password string) error {
@@ -801,7 +832,7 @@ func (s *Service) ReapplyCurrentPoolsWithWorkerNames(
 		return "", fleeterror.NewInternalErrorf("error marshalling payload: %v", err)
 	}
 
-	commandBatchLogUUID, err := s.saveCommandBatchLogToDB(ctx, info.UserID, info.OrganizationID, command, payloadBytes)
+	commandBatchLogUUID, err := s.saveCommandBatchLogToDB(ctx, info.UserID, info.OrganizationID, command, payloadBytes, len(deviceIdentifiers))
 	if err != nil {
 		return "", fleeterror.NewInternalErrorf("error saving command batch log to db: %v", err)
 	}
@@ -870,8 +901,8 @@ func (s *Service) enqueueWorkerNameReapplyMessages(
 	})
 }
 
-func (s *Service) DownloadLogs(ctx context.Context, deviceSelector *pb.DeviceSelector) (*pb.DownloadLogsResponse, error) {
-	commandBatchLogUUID, deviceCount, err := s.processCommand(
+func (s *Service) DownloadLogs(ctx context.Context, deviceSelector *pb.DeviceSelector) (*CommandResult, error) {
+	result, err := s.processCommand(
 		ctx,
 		&Command{commandType: commandtype.DownloadLogs, deviceSelector: deviceSelector, payload: nil},
 	)
@@ -879,37 +910,35 @@ func (s *Service) DownloadLogs(ctx context.Context, deviceSelector *pb.DeviceSel
 		return nil, err
 	}
 
-	// Bundle callback runs first so the ZIP is on disk before the activity log
-	// marks the batch as completed; the activity finalizer then writes the
-	// completion row. Both are chained through composeFinalizers.
-	bundleCb := s.filesService.DownloadLogsOnFinishedCallback(commandBatchLogUUID)
-	activityCb := s.buildActivityCompletedCallback(ctx, commandBatchLogUUID, "download_logs", "Download logs")
-	s.logCommandActivity(ctx, "download_logs", "Download logs", deviceCount, commandBatchLogUUID)
-	s.initializeStatusUpdateRoutine(commandBatchLogUUID, composeFinalizers(bundleCb, activityCb))
+	if result.BatchIdentifier != "" {
+		// Bundle callback runs first so the ZIP is on disk before the activity
+		// log marks the batch as completed; the activity finalizer then writes
+		// the completion row. Both are chained through composeFinalizers.
+		bundleCb := s.filesService.DownloadLogsOnFinishedCallback(result.BatchIdentifier)
+		activityCb := s.buildActivityCompletedCallback(ctx, result.BatchIdentifier, "download_logs", "Download logs")
+		s.logCommandActivity(ctx, "download_logs", "Download logs", result.DispatchedCount, result.BatchIdentifier)
+		s.initializeStatusUpdateRoutine(result.BatchIdentifier, composeFinalizers(bundleCb, activityCb))
+	}
 
-	return &pb.DownloadLogsResponse{BatchIdentifier: commandBatchLogUUID}, nil
+	return result, nil
 }
 
-func (s *Service) BlinkLED(ctx context.Context, deviceSelector *pb.DeviceSelector) (*pb.BlinkLEDResponse, error) {
-	commandBatchLogUUID, deviceCount, err := s.processCommand(ctx, &Command{commandType: commandtype.BlinkLED, deviceSelector: deviceSelector, payload: nil})
+func (s *Service) BlinkLED(ctx context.Context, deviceSelector *pb.DeviceSelector) (*CommandResult, error) {
+	result, err := s.processCommand(ctx, &Command{commandType: commandtype.BlinkLED, deviceSelector: deviceSelector, payload: nil})
 	if err != nil {
 		return nil, err
 	}
-
-	s.logCommandActivity(ctx, "blink_led", "Blink LEDs", deviceCount, commandBatchLogUUID)
-	s.initializeStatusUpdateRoutine(commandBatchLogUUID,
-		s.buildActivityCompletedCallback(ctx, commandBatchLogUUID, "blink_led", "Blink LEDs"))
-
-	return &pb.BlinkLEDResponse{BatchIdentifier: commandBatchLogUUID}, nil
+	s.finalizeDispatch(ctx, result, "blink_led", "Blink LEDs")
+	return result, nil
 }
 
-func (s *Service) FirmwareUpdate(ctx context.Context, deviceSelector *pb.DeviceSelector, firmwareFileID string) (*pb.FirmwareUpdateResponse, error) {
+func (s *Service) FirmwareUpdate(ctx context.Context, deviceSelector *pb.DeviceSelector, firmwareFileID string) (*CommandResult, error) {
 	if _, err := s.filesService.GetFirmwareFilePath(firmwareFileID); err != nil {
 		return nil, fleeterror.NewInvalidArgumentError(fmt.Sprintf("invalid firmware_file_id: %v", err))
 	}
 
 	payload := dto.FirmwareUpdatePayload{FirmwareFileID: firmwareFileID}
-	commandBatchLogUUID, deviceCount, err := s.processCommand(ctx, &Command{
+	result, err := s.processCommand(ctx, &Command{
 		commandType:    commandtype.FirmwareUpdate,
 		deviceSelector: deviceSelector,
 		payload:        payload,
@@ -917,25 +946,17 @@ func (s *Service) FirmwareUpdate(ctx context.Context, deviceSelector *pb.DeviceS
 	if err != nil {
 		return nil, err
 	}
-
-	s.logCommandActivity(ctx, "firmware_update", "Update firmware", deviceCount, commandBatchLogUUID)
-	s.initializeStatusUpdateRoutine(commandBatchLogUUID,
-		s.buildActivityCompletedCallback(ctx, commandBatchLogUUID, "firmware_update", "Update firmware"))
-
-	return &pb.FirmwareUpdateResponse{BatchIdentifier: commandBatchLogUUID}, nil
+	s.finalizeDispatch(ctx, result, "firmware_update", "Update firmware")
+	return result, nil
 }
 
-func (s *Service) Unpair(ctx context.Context, deviceSelector *pb.DeviceSelector) (*pb.UnpairResponse, error) {
-	commandBatchLogUUID, deviceCount, err := s.processCommand(ctx, &Command{commandType: commandtype.Unpair, deviceSelector: deviceSelector, payload: nil})
+func (s *Service) Unpair(ctx context.Context, deviceSelector *pb.DeviceSelector) (*CommandResult, error) {
+	result, err := s.processCommand(ctx, &Command{commandType: commandtype.Unpair, deviceSelector: deviceSelector, payload: nil})
 	if err != nil {
 		return nil, err
 	}
-
-	s.logCommandActivity(ctx, "unpair", "Unpair", deviceCount, commandBatchLogUUID)
-	s.initializeStatusUpdateRoutine(commandBatchLogUUID,
-		s.buildActivityCompletedCallback(ctx, commandBatchLogUUID, "unpair", "Unpair"))
-
-	return &pb.UnpairResponse{BatchIdentifier: commandBatchLogUUID}, nil
+	s.finalizeDispatch(ctx, result, "unpair", "Unpair")
+	return result, nil
 }
 
 // verifyUserCredentials verifies the provided username and password match the current authenticated user
@@ -980,7 +1001,7 @@ func (s *Service) UpdateMinerPassword(
 	currentPassword string,
 	userUsername string,
 	userPassword string,
-) (*pb.UpdateMinerPasswordResponse, error) {
+) (*CommandResult, error) {
 	// Validate required fields
 	if newPassword == "" {
 		return nil, fleeterror.NewInvalidArgumentError("new_password is required")
@@ -999,7 +1020,7 @@ func (s *Service) UpdateMinerPassword(
 		CurrentPassword: currentPassword,
 	}
 
-	commandBatchLogUUID, deviceCount, err := s.processCommand(
+	result, err := s.processCommand(
 		ctx,
 		&Command{
 			commandType:    commandtype.UpdateMinerPassword,
@@ -1010,14 +1031,8 @@ func (s *Service) UpdateMinerPassword(
 	if err != nil {
 		return nil, err
 	}
-
-	s.logCommandActivity(ctx, "update_miner_password", "Manage security", deviceCount, commandBatchLogUUID)
-	s.initializeStatusUpdateRoutine(commandBatchLogUUID,
-		s.buildActivityCompletedCallback(ctx, commandBatchLogUUID, "update_miner_password", "Manage security"))
-
-	return &pb.UpdateMinerPasswordResponse{
-		BatchIdentifier: commandBatchLogUUID,
-	}, nil
+	s.finalizeDispatch(ctx, result, "update_miner_password", "Manage security")
+	return result, nil
 }
 
 func (s *Service) StreamCommandBatchUpdates(ctx context.Context, msg *pb.StreamCommandBatchUpdatesRequest) (<-chan *pb.StreamCommandBatchUpdatesResponse, error) {

@@ -50,7 +50,7 @@ func TestProcessCommand_RejectsMissingOrgID(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := sessionCtxWithOrg(tc.orgID)
-			_, _, err := svc.processCommand(ctx, &Command{
+			_, err := svc.processCommand(ctx, &Command{
 				commandType:    commandtype.Reboot,
 				deviceSelector: &pb.DeviceSelector{},
 			})
