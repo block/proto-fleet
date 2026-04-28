@@ -116,6 +116,18 @@ message UpdateMiningPoolsRequest {
 
 message UpdateMiningPoolsResponse {
   string batch_identifier = 1;
+  // Miners excluded from the dispatch because their firmware can't
+  // speak the assigned protocol. Empty when all selected miners were
+  // dispatched.
+  PoolAssignmentSkips skips = 2;
+}
+
+message PoolAssignmentSkips {
+  int32 skipped_count = 1;
+  int32 selected_count = 2;
+  // Distinct miner types skipped (e.g. "Antminer S19", "Whatsminer M30S"),
+  // sorted and deduped.
+  repeated string incompatible_types = 3;
 }
 
 message DownloadLogsRequest {

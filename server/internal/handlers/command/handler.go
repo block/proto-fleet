@@ -96,7 +96,15 @@ func (h *Handler) UpdateMiningPools(
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&pb.UpdateMiningPoolsResponse{BatchIdentifier: result.BatchIdentifier}), nil
+	resp := &pb.UpdateMiningPoolsResponse{BatchIdentifier: result.BatchIdentifier}
+	if result.SV2Skips != nil {
+		resp.Skips = &pb.PoolAssignmentSkips{
+			SkippedCount:      int32(result.SV2Skips.SkippedCount),
+			SelectedCount:     int32(result.SV2Skips.SelectedCount),
+			IncompatibleTypes: result.SV2Skips.IncompatibleTypes,
+		}
+	}
+	return connect.NewResponse(resp), nil
 }
 
 func (h *Handler) DownloadLogs(

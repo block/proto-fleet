@@ -143,7 +143,7 @@ const PoolForm = ({
           testId={`${poolInfoAttributes.url}-${poolIndex}-input`}
           tooltip={{
             header: "Mining Pool URL",
-            body: "Enter the mining pool URL. Protocol is determined by the URL scheme: stratum+tcp:// / stratum+ssl:// / stratum+ws:// are Stratum V1; stratum2+tcp:// is Stratum V2 (only miners with native V2 firmware can use V2 pools today).",
+            body: "Enter the mining pool URL you want this miner to connect with. A mining pool URL allows this miner to communicate with the pool's server.",
           }}
           error={validationErrors.url}
           onFocus={onFocus}

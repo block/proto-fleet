@@ -21,6 +21,7 @@ import {
   GetCommandBatchLogBundleRequest,
   GetCommandBatchLogBundleResponse,
   PerformanceMode,
+  type PoolAssignmentSkips,
   type PoolSlotConfig,
   PoolSlotConfigSchema,
   RawPoolInfoSchema,
@@ -43,6 +44,14 @@ import {
 } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useAuthErrors } from "@/protoFleet/store";
+
+function formatPoolAssignmentSkips(skips: PoolAssignmentSkips | undefined): string {
+  if (!skips || skips.skippedCount <= 0) return "";
+  const total = skips.selectedCount > 0 ? skips.selectedCount : skips.skippedCount;
+  const plural = skips.skippedCount === 1 ? "" : "s";
+  const types = skips.incompatibleTypes.join(", ");
+  return `${skips.skippedCount} of ${total} miner${plural} couldn't use this Stratum V2 pool. Incompatible types: ${types}`;
+}
 
 interface BlinkLEDProps {
   blinkLEDRequest: BlinkLEDRequest;
@@ -298,7 +307,11 @@ const useMinerCommand = () => {
 
       await minerCommandClient
         .updateMiningPools(updateMiningPoolsRequest)
-        .then((response) => onSuccess(response))
+        .then((response) => {
+          onSuccess(response);
+          const message = formatPoolAssignmentSkips(response.skips);
+          if (message) onError?.(message);
+        })
         .catch((err) => {
           handleAuthErrors({
             error: err,

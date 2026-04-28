@@ -898,38 +898,53 @@ func (s *Service) createUpdateMiningPoolsPayload(ctx context.Context, defaultPoo
 	return pld, nil
 }
 
-// preflightSV2Capabilities rejects UpdateMiningPools requests that would
-// dispatch a Stratum V2 URL to a miner whose plugin doesn't declare
-// native SV2 for the device's (manufacturer, model). Returns a single
-// FAILED_PRECONDITION error naming the distinct incompatible types.
-func (s *Service) preflightSV2Capabilities(ctx context.Context, selector *pb.DeviceSelector, pld *dto.UpdateMiningPoolsPayload) error {
+// SV2Skips summarizes the SV1 miners excluded from an UpdateMiningPools
+// dispatch when the assigned URL is Stratum V2.
+type SV2Skips struct {
+	SkippedCount      int
+	SelectedCount     int
+	IncompatibleTypes []string
+}
+
+// sv2PreflightOutcome describes a partial-dispatch result. The dispatch
+// selector is replaced with IncludeDevices(KeptIdentifiers); Skips is
+// surfaced on the response.
+type sv2PreflightOutcome struct {
+	KeptIdentifiers []string
+	Skips           *SV2Skips
+}
+
+// preflightSV2Capabilities returns nil when no filtering is needed,
+// an outcome when partial dispatch should proceed, or a
+// FAILED_PRECONDITION error when every selected miner is incompatible.
+func (s *Service) preflightSV2Capabilities(ctx context.Context, selector *pb.DeviceSelector, pld *dto.UpdateMiningPoolsPayload) (*sv2PreflightOutcome, error) {
 	if s.pluginCaps == nil {
 		slog.Warn("SV2 preflight skipped: plugin caps provider not wired", "default_pool_url", pld.DefaultPool.URL)
-		return nil
+		return nil, nil
 	}
 	slots := preflightSlotsFromPayload(pld)
 	if !anySV2(slots) {
-		return nil
+		return nil, nil
 	}
 
 	identifiers, err := s.resolveSelectorIdentifiers(ctx, selector)
 	if err != nil {
-		return fleeterror.NewInternalErrorf("error resolving devices for SV2 preflight: %v", err)
+		return nil, fleeterror.NewInternalErrorf("error resolving devices for SV2 preflight: %v", err)
 	}
 	deviceIDs, err := s.resolveIdentifiersToDeviceIDs(ctx, identifiers)
 	if err != nil {
-		return fleeterror.NewInternalErrorf("error resolving device IDs for SV2 preflight: %v", err)
+		return nil, fleeterror.NewInternalErrorf("error resolving device IDs for SV2 preflight: %v", err)
 	}
 	if len(deviceIDs) == 0 {
 		slog.Info("SV2 preflight: selector resolved to zero devices", "default_pool_url", pld.DefaultPool.URL)
-		return nil
+		return nil, nil
 	}
 
 	rows, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]sqlc.GetDeviceIdentifiersByIDsRow, error) {
 		return q.GetDeviceIdentifiersByIDs(ctx, deviceIDs)
 	})
 	if err != nil {
-		return fleeterror.NewInternalErrorf("error resolving device identifiers for SV2 preflight: %v", err)
+		return nil, fleeterror.NewInternalErrorf("error resolving device identifiers for SV2 preflight: %v", err)
 	}
 
 	type capsKey struct{ driver, manufacturer, model string }
@@ -958,9 +973,52 @@ func (s *Service) preflightSV2Capabilities(ctx context.Context, selector *pb.Dev
 		"mismatches", len(mismatches),
 	)
 	if len(mismatches) == 0 {
-		return nil
+		return nil, nil
 	}
-	return mismatchesToFailedPrecondition(mismatches)
+
+	skippedIDs := make(map[string]struct{}, len(mismatches))
+	typeSet := make(map[string]struct{}, len(mismatches))
+	for _, m := range mismatches {
+		skippedIDs[m.DeviceIdentifier] = struct{}{}
+		typeSet[formatMinerType(m.Make, m.Model)] = struct{}{}
+	}
+	sortedTypes := make([]string, 0, len(typeSet))
+	for t := range typeSet {
+		sortedTypes = append(sortedTypes, t)
+	}
+	sort.Strings(sortedTypes)
+
+	if len(skippedIDs) >= len(devices) {
+		return nil, sv2AllIncompatibleError(len(skippedIDs), sortedTypes)
+	}
+
+	kept := make([]string, 0, len(devices)-len(skippedIDs))
+	for _, d := range devices {
+		if _, skip := skippedIDs[d.Identifier]; !skip {
+			kept = append(kept, d.Identifier)
+		}
+	}
+	return &sv2PreflightOutcome{
+		KeptIdentifiers: kept,
+		Skips: &SV2Skips{
+			SkippedCount:      len(skippedIDs),
+			SelectedCount:     len(devices),
+			IncompatibleTypes: sortedTypes,
+		},
+	}, nil
+}
+
+// sv2AllIncompatibleError is returned when every selected miner is
+// SV2-incompatible.
+func sv2AllIncompatibleError(deviceCount int, sortedTypes []string) error {
+	plural := "s"
+	if deviceCount == 1 {
+		plural = ""
+	}
+	return fleeterror.NewFailedPreconditionErrorf(
+		"%d miner%s can't use this Stratum V2 pool. Incompatible types: %s",
+		deviceCount, plural, strings.Join(sortedTypes, ", "),
+	)
 }
 
 // preflightSlotsFromPayload projects the UpdateMiningPools payload onto
@@ -985,37 +1043,6 @@ func anySV2(slots []preflight.SlotAssignment) bool {
 	return false
 }
 
-// mismatchesToFailedPrecondition wraps the preflight mismatches into a
-// connect.CodeFailedPrecondition error whose message names the distinct
-// miner types affected, deduped per (device, slot) pair. Identifiers are
-// not surfaced — operators recognize types, not opaque IDs.
-func mismatchesToFailedPrecondition(mismatches []preflight.Mismatch) error {
-	devices := make(map[string]struct{}, len(mismatches))
-	types := make(map[string]struct{}, len(mismatches))
-	for _, m := range mismatches {
-		devices[m.DeviceIdentifier] = struct{}{}
-		types[formatMinerType(m.Make, m.Model)] = struct{}{}
-	}
-	sortedTypes := make([]string, 0, len(types))
-	for t := range types {
-		sortedTypes = append(sortedTypes, t)
-	}
-	sort.Strings(sortedTypes)
-
-	deviceCount := len(devices)
-	plural := "s"
-	if deviceCount == 1 {
-		plural = ""
-	}
-	// fleeterror.NewFailedPreconditionErrorf so the ErrorMappingInterceptor
-	// passes the error through unchanged. Returning a plain connect.NewError
-	// here would be re-wrapped as Internal with err.Error() ("failed_precondition:
-	// ...") leaking into the toast message.
-	return fleeterror.NewFailedPreconditionErrorf(
-		"%d miner%s can't use this Stratum V2 pool. Incompatible types: %s",
-		deviceCount, plural, strings.Join(sortedTypes, ", "),
-	)
-}
 
 // formatMinerType renders make/model as a human-readable type label.
 // Falls back to "unknown type" when both are empty so the toast never
@@ -1051,8 +1078,16 @@ func (s *Service) UpdateMiningPools(
 		return nil, err
 	}
 
-	if err := s.preflightSV2Capabilities(ctx, deviceSelector, pld); err != nil {
+	outcome, err := s.preflightSV2Capabilities(ctx, deviceSelector, pld)
+	if err != nil {
 		return nil, err
+	}
+	if outcome != nil {
+		deviceSelector = &pb.DeviceSelector{
+			SelectionType: &pb.DeviceSelector_IncludeDevices{
+				IncludeDevices: &commonpb.DeviceIdentifierList{DeviceIdentifiers: outcome.KeptIdentifiers},
+			},
+		}
 	}
 
 	result, err := s.processCommand(
@@ -1061,6 +1096,9 @@ func (s *Service) UpdateMiningPools(
 	)
 	if err != nil {
 		return nil, err
+	}
+	if outcome != nil {
+		result.SV2Skips = outcome.Skips
 	}
 	s.finalizeDispatch(ctx, result, "update_mining_pools", "Edit pool")
 	return result, nil
