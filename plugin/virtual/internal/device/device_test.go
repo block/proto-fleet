@@ -69,7 +69,11 @@ func TestDevice_CurtailFull_ThenUncurtail(t *testing.T) {
 func TestDevice_CurtailUnsupportedLevel_ReturnsCapabilityNotSupported(t *testing.T) {
 	d := newTestDevice(t)
 
-	cases := []sdk.CurtailLevel{sdk.CurtailLevelEfficiency, sdk.CurtailLevelPartialPercent}
+	cases := []sdk.CurtailLevel{
+		sdk.CurtailLevelUnspecified,
+		sdk.CurtailLevelEfficiency,
+		sdk.CurtailLevelPartialPercent,
+	}
 	for _, level := range cases {
 		err := d.Curtail(context.Background(), level)
 		require.Error(t, err)

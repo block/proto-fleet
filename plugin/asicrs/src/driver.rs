@@ -875,9 +875,10 @@ impl Driver for DriverService {
                 device.stop_mining().await.map_err(device_err_to_status)?;
                 Ok(Response::new(()))
             }
-            pb::CurtailLevel::Unspecified => {
-                Err(Status::invalid_argument("curtail level must be specified"))
-            }
+            // Any non-FULL level (including Unspecified) is a permanent
+            // capability error, matching the Go plugins. The server
+            // validator rejects Unspecified before reaching a plugin in
+            // normal flow; this branch is defense-in-depth.
             _ => Err(Status::unimplemented(format!(
                 "curtail level {level:?} not supported by asicrs"
             ))),
@@ -1126,5 +1127,36 @@ miners:
         assert_eq!(canonical_port(crate::capabilities::FAMILY_BITAXE), 80);
         assert_eq!(canonical_port(crate::capabilities::FAMILY_NERDAXE), 80);
         assert_eq!(canonical_port(crate::capabilities::FAMILY_EPIC), 80);
+    }
+
+    // Non-FULL curtail levels are permanent capability errors (Unimplemented),
+    // matching the Go plugins. The level dispatch short-circuits before the
+    // device map is consulted, so an empty service is enough to exercise it.
+    #[tokio::test]
+    async fn test_curtail_unspecified_level_returns_unimplemented() {
+        use tonic::Code;
+        let service = DriverService::new(config_from_yaml(TWO_FAMILY_CONFIG));
+        let req = Request::new(pb::CurtailRequest {
+            r#ref: Some(pb::DeviceRef {
+                device_id: "test-device".to_string(),
+            }),
+            level: pb::CurtailLevel::Unspecified as i32,
+        });
+        let err = service.curtail(req).await.expect_err("expected error");
+        assert_eq!(err.code(), Code::Unimplemented);
+    }
+
+    #[tokio::test]
+    async fn test_curtail_efficiency_level_returns_unimplemented() {
+        use tonic::Code;
+        let service = DriverService::new(config_from_yaml(TWO_FAMILY_CONFIG));
+        let req = Request::new(pb::CurtailRequest {
+            r#ref: Some(pb::DeviceRef {
+                device_id: "test-device".to_string(),
+            }),
+            level: pb::CurtailLevel::Efficiency as i32,
+        });
+        let err = service.curtail(req).await.expect_err("expected error");
+        assert_eq!(err.code(), Code::Unimplemented);
     }
 }

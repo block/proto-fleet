@@ -288,6 +288,20 @@ message SkippedCandidate {
 // PreviewCurtailmentPlan
 
 message PreviewCurtailmentPlanRequest {
+    // CEL rules below pin v1 to FIXED_KW=1 and FIXED_PERCENT=2. If
+    // CurtailmentMode slot bindings change or new modes ship in v2, the
+    // mode_params_match_mode expression must be extended in lockstep.
+    option (buf.validate.message).cel = {
+        id: "scope_required"
+        message: "exactly one scope must be set"
+        expression: "has(this.whole_org) || has(this.device_set_ids) || has(this.device_identifiers)"
+    };
+    option (buf.validate.message).cel = {
+        id: "mode_params_match_mode"
+        message: "mode_params must match mode (FIXED_KW=1 -> fixed_kw, FIXED_PERCENT=2 -> fixed_percent)"
+        expression: "(this.mode == 1 && has(this.fixed_kw)) || (this.mode == 2 && has(this.fixed_percent))"
+    };
+
     oneof scope {
         ScopeWholeOrg   whole_org           = 1;
         ScopeDeviceSets device_set_ids      = 2;
@@ -296,15 +310,16 @@ message PreviewCurtailmentPlanRequest {
 
     CurtailmentMode     mode     = 4 [(buf.validate.field).enum = {
         defined_only: true
-        not_in: [0]
         // v1 only honors FIXED_KW (1) and FIXED_PERCENT (2).
         in: [1, 2]
     }];
+    // 0 = use server default (LEAST_EFFICIENT_FIRST).
     CurtailmentStrategy strategy = 5 [(buf.validate.field).enum = {
         defined_only: true
         // v1 only honors LEAST_EFFICIENT_FIRST (1).
         in: [0, 1]
     }];
+    // 0 = use server default (FULL).
     CurtailmentLevel    level    = 6 [(buf.validate.field).enum = {
         defined_only: true
         // v1 only honors FULL (3).
@@ -354,6 +369,20 @@ message PreviewCurtailmentPlanResponse {
 // StartCurtailment
 
 message StartCurtailmentRequest {
+    // CEL rules below pin v1 to FIXED_KW=1 and FIXED_PERCENT=2. If
+    // CurtailmentMode slot bindings change or new modes ship in v2, the
+    // mode_params_match_mode expression must be extended in lockstep.
+    option (buf.validate.message).cel = {
+        id: "scope_required"
+        message: "exactly one scope must be set"
+        expression: "has(this.whole_org) || has(this.device_set_ids) || has(this.device_identifiers)"
+    };
+    option (buf.validate.message).cel = {
+        id: "mode_params_match_mode"
+        message: "mode_params must match mode (FIXED_KW=1 -> fixed_kw, FIXED_PERCENT=2 -> fixed_percent)"
+        expression: "(this.mode == 1 && has(this.fixed_kw)) || (this.mode == 2 && has(this.fixed_percent))"
+    };
+
     oneof scope {
         ScopeWholeOrg   whole_org           = 1;
         ScopeDeviceSets device_set_ids      = 2;
@@ -362,13 +391,14 @@ message StartCurtailmentRequest {
 
     CurtailmentMode     mode     = 4 [(buf.validate.field).enum = {
         defined_only: true
-        not_in: [0]
         in: [1, 2]
     }];
+    // 0 = use server default (LEAST_EFFICIENT_FIRST).
     CurtailmentStrategy strategy = 5 [(buf.validate.field).enum = {
         defined_only: true
         in: [0, 1]
     }];
+    // 0 = use server default (FULL).
     CurtailmentLevel    level    = 6 [(buf.validate.field).enum = {
         defined_only: true
         in: [0, 3]
@@ -446,7 +476,7 @@ message GetActiveCurtailmentResponse {
 // ListCurtailmentEvents returns historical events. Cursor-based pagination
 // uses an opaque page_token round-tripped between client and server.
 message ListCurtailmentEventsRequest {
-    // Page size. Server clamps to a sensible maximum.
+    // Page size. Validator caps at 200; server may further clamp downward.
     int32 page_size = 1 [(buf.validate.field).int32 = {
         gte: 0
         lte: 200

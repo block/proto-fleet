@@ -1189,7 +1189,7 @@ func (d *DeviceGRPCClient) UpdateMinerPassword(ctx context.Context, currentPassw
 func (d *DeviceGRPCClient) Curtail(ctx context.Context, level CurtailLevel) error {
 	_, err := d.client.Curtail(ctx, &pb.CurtailRequest{
 		Ref:   &pb.DeviceRef{DeviceId: d.deviceID},
-		Level: pb.CurtailLevel(safeIntToInt32(int(level))),
+		Level: pb.CurtailLevel(level),
 	})
 	return err
 }
