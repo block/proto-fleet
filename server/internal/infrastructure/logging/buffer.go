@@ -1,6 +1,7 @@
 package logging
 
 import (
+	"container/ring"
 	"context"
 	"fmt"
 	"log/slog"
@@ -38,21 +39,28 @@ type KeyValue struct {
 	Value string
 }
 
-// Buffer is a thread-safe ring buffer of recent slog records.
+// Buffer is a thread-safe ring buffer of recent slog records, backed by
+// container/ring. Once `capacity` records have been written, each new
+// record overwrites the oldest.
 //
 // It satisfies slog.Handler so it can be installed alongside (or instead of)
 // the regular text/JSON handler via slog.New. In normal use the package
 // composes both via teeHandler so writes to stdout still happen.
 //
-// Lookups (Snapshot / SnapshotSince) take a read-lock and copy out matching
-// records. The buffer is not designed for high-throughput querying — it's
-// intended for occasional polling from a single operator UI.
+// Lookups (Snapshot) take a read-lock and copy out matching records. The
+// buffer is not designed for high-throughput querying — it's intended for
+// occasional polling from a single operator UI.
 type Buffer struct {
 	mu       sync.RWMutex
 	capacity int
-	records  []BufferedRecord // length grows up to capacity, then overwrites
-	head     int              // index of the next slot to write
-	full     bool             // true once we've wrapped at least once
+	// head is the slot the next Handle call will write to, advancing one
+	// step per insert. Backed by container/ring so wrap-around is handled
+	// by the stdlib rather than by hand-rolled modular arithmetic.
+	head *ring.Ring
+	// size is the number of populated slots, capped at capacity. Tracked
+	// separately because container/ring has no concept of "filled" — it
+	// just exposes a fixed-size circular linked list.
+	size int
 
 	// nextID is the ID assigned to the next inserted record. Held under
 	// mu (not atomic) so ID assignment and physical insertion stay in
@@ -76,7 +84,7 @@ func NewBuffer(capacity int, minLevel slog.Level) *Buffer {
 	}
 	return &Buffer{
 		capacity: capacity,
-		records:  make([]BufferedRecord, 0, capacity),
+		head:     ring.New(capacity),
 		minLevel: minLevel,
 	}
 }
@@ -93,9 +101,9 @@ func (b *Buffer) Enabled(_ context.Context, level slog.Level) bool {
 // dropping a log record into an in-memory buffer can't fail in any way the
 // caller can act on.
 //
-// We do the (potentially slow) attribute rendering before acquiring the
-// lock so concurrent loggers don't serialize on each other. ID assignment
-// and the physical insert both happen under the lock so they stay paired.
+// Attribute rendering happens before acquiring the lock so concurrent
+// loggers don't serialize on each other. ID assignment and the physical
+// insert both happen under the lock so they stay paired.
 func (b *Buffer) Handle(_ context.Context, r slog.Record) error {
 	rec := BufferedRecord{
 		Time:    r.Time,
@@ -111,18 +119,11 @@ func (b *Buffer) Handle(_ context.Context, r slog.Record) error {
 	b.nextID++
 	rec.ID = b.nextID
 
-	if !b.full && len(b.records) < b.capacity {
-		b.records = append(b.records, rec)
-		b.head = len(b.records) % b.capacity
-		if len(b.records) == b.capacity {
-			b.full = true
-		}
-		return nil
+	b.head.Value = rec
+	b.head = b.head.Next()
+	if b.size < b.capacity {
+		b.size++
 	}
-
-	// Wrapped: overwrite the oldest slot.
-	b.records[b.head] = rec
-	b.head = (b.head + 1) % b.capacity
 	return nil
 }
 
@@ -174,32 +175,45 @@ func (b *Buffer) Snapshot(opts SnapshotOptions) SnapshotResult {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
-	res := SnapshotResult{Size: len(b.records)}
-	if len(b.records) == 0 {
+	res := SnapshotResult{Size: b.size}
+	if b.size == 0 {
 		return res
 	}
 
-	// Iterate oldest-to-newest. When the ring has wrapped, that means
-	// starting at head; otherwise records are in insertion order.
-	start := 0
-	if b.full {
-		start = b.head
+	// Determine the starting node (oldest record):
+	//   - When the ring is full, b.head points to the oldest record (the
+	//     slot about to be overwritten on the next write).
+	//   - When the ring isn't yet full, b.head points to the first empty
+	//     slot; the oldest record is `size` steps behind.
+	start := b.head
+	if b.size < b.capacity {
+		start = b.head.Move(-b.size)
 	}
-	needle := strings.ToLower(opts.Search)
 
-	for i := range len(b.records) {
-		idx := (start + i) % len(b.records)
-		r := b.records[idx]
-		if r.ID > res.LatestID {
-			res.LatestID = r.ID
-		}
-		if r.ID <= opts.SinceID {
+	needle := strings.ToLower(opts.Search)
+	cur := start
+	for range b.size {
+		rec, ok := cur.Value.(BufferedRecord)
+		cur = cur.Next()
+		if !ok {
+			// Defensive: if a slot somehow holds a non-record value
+			// (shouldn't happen in production), skip it.
 			continue
 		}
-		if r.Level < opts.MinLevel {
+
+		// LatestID tracks the newest record seen regardless of filter so
+		// the client cursor advances even when its window clips matches.
+		if rec.ID > res.LatestID {
+			res.LatestID = rec.ID
+		}
+
+		if rec.ID <= opts.SinceID {
 			continue
 		}
-		if needle != "" && !strings.Contains(strings.ToLower(r.Message), needle) {
+		if rec.Level < opts.MinLevel {
+			continue
+		}
+		if needle != "" && !strings.Contains(strings.ToLower(rec.Message), needle) {
 			continue
 		}
 		if opts.Limit > 0 && len(res.Records) == opts.Limit {
@@ -209,7 +223,7 @@ func (b *Buffer) Snapshot(opts SnapshotOptions) SnapshotResult {
 			// when its limit clips the visible window.
 			continue
 		}
-		res.Records = append(res.Records, r)
+		res.Records = append(res.Records, rec)
 	}
 	return res
 }

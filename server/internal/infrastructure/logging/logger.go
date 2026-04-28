@@ -8,7 +8,7 @@ import (
 type Config struct {
 	Level      slog.Level `help:"Log level" default:"debug" env:"LEVEL"`
 	JSON       bool       `help:"Log level" default:"false" env:"JSON"`
-	BufferSize uint       `help:"Log buffer size for export" default:"1000" env:"BUFFER_SIZE"`
+	BufferSize int        `help:"Log buffer size for export" default:"1000" env:"BUFFER_SIZE"`
 }
 
 func InitLogger(config Config) *Buffer {
@@ -24,7 +24,7 @@ func InitLogger(config Config) *Buffer {
 		logger = slog.NewTextHandler(os.Stdout, logOptions)
 	}
 
-	buf := NewBuffer(int(config.BufferSize), config.Level)
+	buf := NewBuffer(config.BufferSize, config.Level)
 
 	slog.SetDefault(slog.New(newTeeHandler(logger, buf)))
 
