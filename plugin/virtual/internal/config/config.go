@@ -71,7 +71,6 @@ type VirtualMinerConfig struct {
 	FanRPMMin           int     `json:"fan_rpm_min"`
 	FanRPMMax           int     `json:"fan_rpm_max"`
 
-	// Whether the virtual miner advertises native SV2 in its telemetry.
 	StratumV2Supported bool `json:"stratum_v2_supported,omitempty"`
 
 	// Behavior
@@ -98,6 +97,7 @@ type MinerProfile struct {
 	BaselineTempC       float64 `json:"baseline_temp_c"`
 	FanRPMMin           int     `json:"fan_rpm_min"`
 	FanRPMMax           int     `json:"fan_rpm_max"`
+	StratumV2Supported bool `json:"stratum_v2_supported,omitempty"`
 	// Behavior settings for generated miners
 	Behavior BehaviorConfig `json:"behavior"`
 }
@@ -222,6 +222,7 @@ func generateMiners(gen *GenerateConfig) ([]VirtualMinerConfig, error) {
 			BaselineTempC:       applyVariance(rng, profile.BaselineTempC, variancePercent/tempVarianceDivisor),
 			FanRPMMin:           profile.FanRPMMin,
 			FanRPMMax:           profile.FanRPMMax,
+			StratumV2Supported:  profile.StratumV2Supported,
 			Behavior:            profile.Behavior,
 		}
 

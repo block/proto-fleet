@@ -9,6 +9,7 @@ use tokio::sync::RwLock;
 use tonic::{Request, Response, Status};
 
 use pb::driver_server::Driver;
+use proto_fleet_plugin::capabilities::CAP_NATIVE_STRATUM_V2;
 use proto_fleet_plugin::pb;
 
 use crate::capabilities::{
@@ -595,42 +596,16 @@ impl Driver for DriverService {
         &self,
         req: Request<pb::GetCapabilitiesForModelRequest>,
     ) -> Result<Response<pb::GetCapabilitiesForModelResponse>, Status> {
-        let model = req.into_inner().model;
-        // Query live device caps. Find a probed device for this model,
-        // or collect unprobed candidates to try connecting.
-        let devices = self.devices.read().await;
-        let mut candidates: Vec<Arc<AsicRsDevice>> = Vec::new();
-        for device in devices.values() {
-            let dev_model = device.model().await;
-            if dev_model == model {
-                if device.is_probed().await {
-                    return Ok(Response::new(pb::GetCapabilitiesForModelResponse {
-                        caps: Some(pb::Capabilities {
-                            flags: device.get_caps().await,
-                        }),
-                    }));
-                }
-                candidates.push(device.clone());
-            } else if dev_model.is_empty() {
-                candidates.push(device.clone());
-            }
-        }
-        // Release the read lock before doing I/O
-        drop(devices);
-
-        // No probed device found — try connecting candidates until one succeeds.
-        for device in candidates {
-            if device.ensure_connected().await.is_ok() && device.model().await == model {
-                return Ok(Response::new(pb::GetCapabilitiesForModelResponse {
-                    caps: Some(pb::Capabilities {
-                        flags: device.get_caps().await,
-                    }),
-                }));
-            }
-        }
-        // No device could be probed for this model
+        let manufacturer = req.into_inner().manufacturer;
+        // Discovery canonicalizes the firmware-derived manufacturer; only
+        // Braiins-flashed miners speak native SV2.
+        let flags = if manufacturer.eq_ignore_ascii_case(crate::capabilities::DISPLAY_BRAIINS) {
+            std::collections::HashMap::from([(CAP_NATIVE_STRATUM_V2.to_string(), true)])
+        } else {
+            std::collections::HashMap::new()
+        };
         Ok(Response::new(pb::GetCapabilitiesForModelResponse {
-            caps: None,
+            caps: Some(pb::Capabilities { flags }),
         }))
     }
 

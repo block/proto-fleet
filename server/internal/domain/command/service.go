@@ -26,13 +26,13 @@ import (
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	tmodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
-	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	id "github.com/block/proto-fleet/server/internal/infrastructure/id"
 	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
@@ -43,11 +43,10 @@ type TelemetryListener interface {
 	RemoveDevices(ctx context.Context, deviceIDs ...tmodels.DeviceIdentifier) error
 }
 
-// TelemetryReader fetches the latest device-metrics snapshot for the
-// commit-time SV1↔SV2 capability gate. Wired via SetTelemetryReader so
-// the constructor signature stays stable; nil reader disables the gate.
-type TelemetryReader interface {
-	GetLatestDeviceMetrics(ctx context.Context, deviceIDs []tmodels.DeviceIdentifier) (map[tmodels.DeviceIdentifier]modelsV2.DeviceMetrics, error)
+// PluginCapabilitiesProvider feeds the SV1↔SV2 capability gate.
+// Wired via SetPluginCapabilitiesProvider; nil disables the gate.
+type PluginCapabilitiesProvider interface {
+	GetRawCapabilitiesForDevice(ctx context.Context, driverName, manufacturer, model string) sdk.Capabilities
 }
 
 // UserCredentialsVerifier provides interface for verifying user credentials
@@ -69,7 +68,7 @@ type Service struct {
 	userStore           stores.UserStore
 	credentialsVerifier UserCredentialsVerifier
 	telemetryListener   TelemetryListener
-	telemetryReader     TelemetryReader
+	pluginCaps          PluginCapabilitiesProvider
 	capabilityChecker   *CapabilityChecker
 	activitySvc         *activity.Service
 
@@ -80,12 +79,10 @@ type Service struct {
 	filters []CommandFilter
 }
 
-// SetTelemetryReader wires the source of latest device-metrics for the
-// commit-time SV1↔SV2 capability gate. Until called, UpdateMiningPools
-// skips the gate (open by default for tests; production wires it in
-// fleetd/main.go).
-func (s *Service) SetTelemetryReader(r TelemetryReader) {
-	s.telemetryReader = r
+// SetPluginCapabilitiesProvider wires the SV1↔SV2 gate's caps source.
+// Nil provider leaves the gate open (used by tests).
+func (s *Service) SetPluginCapabilitiesProvider(p PluginCapabilitiesProvider) {
+	s.pluginCaps = p
 }
 
 const defaultPoolPriority uint32 = 0
@@ -901,15 +898,13 @@ func (s *Service) createUpdateMiningPoolsPayload(ctx context.Context, defaultPoo
 	return pld, nil
 }
 
-// preflightSV2Capabilities rejects UpdateMiningPools requests that
-// would dispatch a Stratum V2 URL to a miner whose latest telemetry
-// reports it isn't natively SV2-capable. Mismatches are returned as
-// a single FAILED_PRECONDITION error whose message names the distinct
-// miner types (e.g. "Antminer S19, Whatsminer M30S") that can't take
-// the SV2 URL.
+// preflightSV2Capabilities rejects UpdateMiningPools requests that would
+// dispatch a Stratum V2 URL to a miner whose plugin doesn't declare
+// native SV2 for the device's (manufacturer, model). Returns a single
+// FAILED_PRECONDITION error naming the distinct incompatible types.
 func (s *Service) preflightSV2Capabilities(ctx context.Context, selector *pb.DeviceSelector, pld *dto.UpdateMiningPoolsPayload) error {
-	if s.telemetryReader == nil {
-		slog.Warn("SV2 preflight skipped: telemetry reader not wired", "default_pool_url", pld.DefaultPool.URL)
+	if s.pluginCaps == nil {
+		slog.Warn("SV2 preflight skipped: plugin caps provider not wired", "default_pool_url", pld.DefaultPool.URL)
 		return nil
 	}
 	slots := preflightSlotsFromPayload(pld)
@@ -937,27 +932,22 @@ func (s *Service) preflightSV2Capabilities(ctx context.Context, selector *pb.Dev
 		return fleeterror.NewInternalErrorf("error resolving device identifiers for SV2 preflight: %v", err)
 	}
 
-	telemetryIDs := make([]tmodels.DeviceIdentifier, 0, len(rows))
-	for _, r := range rows {
-		telemetryIDs = append(telemetryIDs, tmodels.DeviceIdentifier(r.DeviceIdentifier))
-	}
-	metricsByID, err := s.telemetryReader.GetLatestDeviceMetrics(ctx, telemetryIDs)
-	if err != nil {
-		return fleeterror.NewInternalErrorf("error reading latest telemetry for SV2 preflight: %v", err)
-	}
-
+	type capsKey struct{ driver, manufacturer, model string }
+	nativeSV2 := map[capsKey]bool{}
 	devices := make([]preflight.Device, 0, len(rows))
 	for _, r := range rows {
-		id := tmodels.DeviceIdentifier(r.DeviceIdentifier)
-		support := modelsV2.StratumV2SupportUnspecified
-		if m, ok := metricsByID[id]; ok {
-			support = m.StratumV2Support
+		key := capsKey{r.DriverName, r.Manufacturer.String, r.Model.String}
+		native, cached := nativeSV2[key]
+		if !cached {
+			caps := s.pluginCaps.GetRawCapabilitiesForDevice(ctx, key.driver, key.manufacturer, key.model)
+			native = caps[sdk.CapabilityNativeStratumV2]
+			nativeSV2[key] = native
 		}
 		devices = append(devices, preflight.Device{
-			Identifier:       r.DeviceIdentifier,
-			Make:             r.Manufacturer.String,
-			Model:            r.Model.String,
-			StratumV2Support: support,
+			Identifier:      r.DeviceIdentifier,
+			Make:            r.Manufacturer.String,
+			Model:           r.Model.String,
+			NativeStratumV2: native,
 		})
 	}
 

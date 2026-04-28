@@ -238,7 +238,7 @@ func (s *DriverGRPCServer) GetCapabilitiesForModel(ctx context.Context, req *pb.
 		return &pb.GetCapabilitiesForModelResponse{}, nil
 	}
 
-	caps := provider.GetCapabilitiesForModel(ctx, req.Model)
+	caps := provider.GetCapabilitiesForModel(ctx, req.Manufacturer, req.Model)
 	return &pb.GetCapabilitiesForModelResponse{
 		Caps: &pb.Capabilities{Flags: caps},
 	}, nil
@@ -865,12 +865,12 @@ func (c *DriverGRPCClient) GetDefaultCredentials(ctx context.Context, manufactur
 	return creds
 }
 
-// GetCapabilitiesForModel implements ModelCapabilitiesProvider for the gRPC client.
-// This allows the server to get model-specific capabilities from plugins over gRPC.
-// Returns nil if the plugin doesn't implement the method (not an error condition).
-func (c *DriverGRPCClient) GetCapabilitiesForModel(ctx context.Context, model string) Capabilities {
+// GetCapabilitiesForModel implements ModelCapabilitiesProvider over gRPC.
+// Returns nil when the plugin doesn't implement it.
+func (c *DriverGRPCClient) GetCapabilitiesForModel(ctx context.Context, manufacturer, model string) Capabilities {
 	resp, err := c.client.GetCapabilitiesForModel(ctx, &pb.GetCapabilitiesForModelRequest{
-		Model: model,
+		Model:        model,
+		Manufacturer: manufacturer,
 	})
 	if err != nil {
 		// If the plugin doesn't implement this method, return nil (not an error)
@@ -878,7 +878,7 @@ func (c *DriverGRPCClient) GetCapabilitiesForModel(ctx context.Context, model st
 			return nil
 		}
 		// For other errors, log a warning but return nil to maintain backwards compatibility.
-		slog.Warn("Failed to get capabilities for model from plugin", "error", err, "model", model)
+		slog.Warn("Failed to get capabilities for model from plugin", "error", err, "manufacturer", manufacturer, "model", model)
 		return nil
 	}
 
@@ -1257,11 +1257,10 @@ func (d *DeviceGRPCClient) TrySubscribe(ctx context.Context, ids []string) (<-ch
 // deviceMetricsToProto converts SDK DeviceMetrics to protobuf DeviceMetrics
 func deviceMetricsToProto(dm DeviceMetrics) *pb.DeviceMetrics {
 	pbMetrics := &pb.DeviceMetrics{
-		DeviceId:         dm.DeviceID,
-		Timestamp:        timestamppb.New(dm.Timestamp),
-		Health:           pb.HealthStatus(safeIntToInt32(int(dm.Health))),
-		FirmwareVersion:  dm.FirmwareVersion,
-		StratumV2Support: pb.StratumV2SupportStatus(safeIntToInt32(int(dm.StratumV2Support))),
+		DeviceId:        dm.DeviceID,
+		Timestamp:       timestamppb.New(dm.Timestamp),
+		Health:          pb.HealthStatus(safeIntToInt32(int(dm.Health))),
+		FirmwareVersion: dm.FirmwareVersion,
 	}
 
 	if dm.HealthReason != nil {
@@ -1288,11 +1287,10 @@ func deviceMetricsToProto(dm DeviceMetrics) *pb.DeviceMetrics {
 // deviceMetricsFromProto converts protobuf DeviceMetrics to SDK DeviceMetrics
 func deviceMetricsFromProto(pb *pb.DeviceMetrics) DeviceMetrics {
 	dm := DeviceMetrics{
-		DeviceID:         pb.DeviceId,
-		Timestamp:        pb.Timestamp.AsTime(),
-		Health:           HealthStatus(pb.Health),
-		FirmwareVersion:  pb.FirmwareVersion,
-		StratumV2Support: StratumV2SupportStatus(pb.StratumV2Support),
+		DeviceID:        pb.DeviceId,
+		Timestamp:       pb.Timestamp.AsTime(),
+		Health:          HealthStatus(pb.Health),
+		FirmwareVersion: pb.FirmwareVersion,
 	}
 
 	if pb.HealthReason != nil {

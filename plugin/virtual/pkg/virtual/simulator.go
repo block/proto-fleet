@@ -71,28 +71,17 @@ func (s *Simulator) GenerateMetrics(deviceID string, isMining bool) sdk.DeviceMe
 	efficiency := s.calculateEfficiency(hashrate, power)
 
 	return sdk.DeviceMetrics{
-		DeviceID:         deviceID,
-		Timestamp:        now,
-		Health:           health,
-		HashrateHS:       toMetricValue(hashrate * teraHashToHash),
-		TempC:            toMetricValue(temp),
-		PowerW:           toMetricValue(power),
-		EfficiencyJH:     toMetricValue(efficiency),
-		HashBoards:       s.generateHashboardsLocked(isMining),
-		FanMetrics:       s.generateFanMetricsLocked(),
-		PSUMetrics:       s.generatePSUMetricsLocked(isMining, power),
-		StratumV2Support: s.stratumV2SupportLocked(),
+		DeviceID:     deviceID,
+		Timestamp:    now,
+		Health:       health,
+		HashrateHS:   toMetricValue(hashrate * teraHashToHash),
+		TempC:        toMetricValue(temp),
+		PowerW:       toMetricValue(power),
+		EfficiencyJH: toMetricValue(efficiency),
+		HashBoards:   s.generateHashboardsLocked(isMining),
+		FanMetrics:   s.generateFanMetricsLocked(),
+		PSUMetrics:   s.generatePSUMetricsLocked(isMining, power),
 	}
-}
-
-func (s *Simulator) stratumV2SupportLocked() sdk.StratumV2SupportStatus {
-	if s.config == nil {
-		return sdk.StratumV2SupportUnsupported
-	}
-	if s.config.StratumV2Supported {
-		return sdk.StratumV2SupportSupported
-	}
-	return sdk.StratumV2SupportUnsupported
 }
 
 // calculateHashrateLocked requires mu to be held.

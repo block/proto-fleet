@@ -280,8 +280,6 @@ func (d *Device) convertStatus(minerStatus *proto.Status, telemetryResp *proto.T
 		FirmwareVersion: d.deviceInfo.FirmwareVersion,
 		Health:          health,
 		HealthReason:    healthReason,
-		// protoOS firmware is SV1-only (crates/mcdd uses sv1_api).
-		StratumV2Support: sdk.StratumV2SupportUnsupported,
 	}
 
 	if telemetryResp != nil {

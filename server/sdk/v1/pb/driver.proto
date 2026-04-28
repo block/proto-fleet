@@ -55,17 +55,6 @@ enum HealthStatus {
   HEALTH_CRITICAL = 5;            // Failed, non-functional, or requires immediate attention
 }
 
-// StratumV2SupportStatus is the firmware's native-SV2 capability as
-// reported by the plugin on every telemetry scrape. UNSPECIFIED /
-// UNKNOWN leave fleet's static-cap view intact; SUPPORTED / UNSUPPORTED
-// are authoritative.
-enum StratumV2SupportStatus {
-  STRATUM_V2_SUPPORT_STATUS_UNSPECIFIED = 0;
-  STRATUM_V2_SUPPORT_STATUS_UNKNOWN = 1;
-  STRATUM_V2_SUPPORT_STATUS_UNSUPPORTED = 2;
-  STRATUM_V2_SUPPORT_STATUS_SUPPORTED = 3;
-}
-
 // ComponentStatus represents the health and operational state of an individual component.
 // Typical status progression: COMPONENT_STATUS_UNKNOWN → COMPONENT_STATUS_HEALTHY → COMPONENT_STATUS_WARNING → COMPONENT_STATUS_CRITICAL/COMPONENT_STATUS_OFFLINE
 enum ComponentStatus {
@@ -246,8 +235,8 @@ message DeviceMetrics {
   // Firmware version reported by device during telemetry polling
   string firmware_version = 15;
 
-  // Drives the commit-time gate against SV1-only miners.
-  StratumV2SupportStatus stratum_v2_support = 16;
+  reserved 16;
+  reserved "stratum_v2_support";
 }
 
 
@@ -402,9 +391,9 @@ message GetDefaultCredentialsResponse {
   repeated UsernamePassword credentials = 1; // List of credentials to try in order
 }
 
-// GetCapabilitiesForModelRequest requests model-specific capabilities
 message GetCapabilitiesForModelRequest {
-  string model = 1; // Device model (e.g., "Antminer S19", "Antminer S21")
+  string model = 1;
+  string manufacturer = 2;
 }
 
 // GetCapabilitiesForModelResponse returns model-specific capability overrides

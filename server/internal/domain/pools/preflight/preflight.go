@@ -1,15 +1,11 @@
-// Package preflight rejects UpdateMiningPools requests that would
-// dispatch a Stratum V2 pool URL to a miner whose latest telemetry says
-// it doesn't natively speak SV2.
+// Package preflight gates SV2 URL assignments on per-device native-SV2
+// capability reported by the plugin via GetCapabilitiesForModel.
 package preflight
 
 import (
 	"strings"
-
-	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
 )
 
-// Slot identifies which pool slot a URL was assigned to.
 type Slot int
 
 const (
@@ -19,24 +15,20 @@ const (
 	SlotBackup2
 )
 
-// SlotAssignment is one (slot, URL) pair for a single device.
 type SlotAssignment struct {
 	Slot Slot
 	URL  string
 }
 
-// Device is the input shape: identifier the operator sees, the
-// last-observed SV2 capability from telemetry, and the device's
-// manufacturer/model so the rejection message can name distinct types.
+// Device pairs the operator-facing identifier with the firmware-derived
+// make/model (for the rejection toast) and the native-SV2 capability.
 type Device struct {
-	Identifier       string
-	Make             string
-	Model            string
-	StratumV2Support modelsV2.StratumV2SupportStatus
+	Identifier      string
+	Make            string
+	Model           string
+	NativeStratumV2 bool
 }
 
-// Mismatch is one (device, slot) rejection. Carries the device's
-// make/model so the rejection message can aggregate by type.
 type Mismatch struct {
 	DeviceIdentifier string
 	Make             string
@@ -44,14 +36,9 @@ type Mismatch struct {
 	Slot             Slot
 }
 
-// Run evaluates each (device, slot) pair against the SV1↔SV2 rule and
-// returns one Mismatch per offending pair. Empty result means commit
-// is safe to proceed.
-//
-// Rule: SV2 URL only dispatches to devices whose telemetry reports
-// StratumV2SupportSupported. Anything else (Unsupported, Unknown,
-// Unspecified) fails closed — we don't dispatch URLs the firmware
-// might not be able to speak.
+// Run returns one Mismatch per (device, slot) pair that pairs an SV2
+// URL with a non-native-SV2 device. Fails closed: only NativeStratumV2
+// = true passes.
 func Run(devices []Device, slots []SlotAssignment) []Mismatch {
 	if len(devices) == 0 || len(slots) == 0 {
 		return nil
@@ -62,7 +49,7 @@ func Run(devices []Device, slots []SlotAssignment) []Mismatch {
 			if !isSV2URL(s.URL) {
 				continue
 			}
-			if d.StratumV2Support == modelsV2.StratumV2SupportSupported {
+			if d.NativeStratumV2 {
 				continue
 			}
 			mismatches = append(mismatches, Mismatch{

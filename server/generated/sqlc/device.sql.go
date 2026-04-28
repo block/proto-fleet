@@ -505,7 +505,7 @@ func (q *Queries) GetDeviceIdentifierByID(ctx context.Context, id int64) (string
 }
 
 const getDeviceIdentifiersByIDs = `-- name: GetDeviceIdentifiersByIDs :many
-SELECT d.id, d.device_identifier, dd.manufacturer, dd.model
+SELECT d.id, d.device_identifier, dd.manufacturer, dd.model, dd.driver_name
 FROM device d
 JOIN discovered_device dd ON dd.id = d.discovered_device_id
 WHERE d.id = ANY($1::bigint[])
@@ -517,6 +517,7 @@ type GetDeviceIdentifiersByIDsRow struct {
 	DeviceIdentifier string
 	Manufacturer     sql.NullString
 	Model            sql.NullString
+	DriverName       string
 }
 
 func (q *Queries) GetDeviceIdentifiersByIDs(ctx context.Context, deviceIds []int64) ([]GetDeviceIdentifiersByIDsRow, error) {
@@ -533,6 +534,7 @@ func (q *Queries) GetDeviceIdentifiersByIDs(ctx context.Context, deviceIds []int
 			&i.DeviceIdentifier,
 			&i.Manufacturer,
 			&i.Model,
+			&i.DriverName,
 		); err != nil {
 			return nil, err
 		}

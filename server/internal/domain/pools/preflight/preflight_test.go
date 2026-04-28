@@ -3,16 +3,15 @@ package preflight
 import (
 	"testing"
 
-	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestRun_SV1URLPassesAnyMiner(t *testing.T) {
 	// Arrange
 	devs := []Device{
-		{Identifier: "a", StratumV2Support: modelsV2.StratumV2SupportSupported},
-		{Identifier: "b", StratumV2Support: modelsV2.StratumV2SupportUnsupported},
-		{Identifier: "c", StratumV2Support: modelsV2.StratumV2SupportUnknown},
+		{Identifier: "a", NativeStratumV2: true},
+		{Identifier: "b", NativeStratumV2: false},
+		{Identifier: "c", NativeStratumV2: false},
 	}
 	slots := []SlotAssignment{{Slot: SlotDefault, URL: "stratum+tcp://pool.example.com:3333"}}
 
@@ -26,7 +25,7 @@ func TestRun_SV1URLPassesAnyMiner(t *testing.T) {
 func TestRun_SV2URLPassesNativeOnly(t *testing.T) {
 	// Arrange
 	devs := []Device{
-		{Identifier: "native", StratumV2Support: modelsV2.StratumV2SupportSupported},
+		{Identifier: "native", NativeStratumV2: true},
 	}
 	slots := []SlotAssignment{{Slot: SlotDefault, URL: "stratum2+tcp://pool.example.com:3336/ABC"}}
 
@@ -37,13 +36,13 @@ func TestRun_SV2URLPassesNativeOnly(t *testing.T) {
 	assert.Empty(t, got)
 }
 
-func TestRun_SV2URLRejectsSV1AndUnknown(t *testing.T) {
+func TestRun_SV2URLRejectsNonNative(t *testing.T) {
 	// Arrange
 	devs := []Device{
-		{Identifier: "sv1", Make: "Antminer", Model: "S19", StratumV2Support: modelsV2.StratumV2SupportUnsupported},
-		{Identifier: "unknown", Make: "Whatsminer", Model: "M30S", StratumV2Support: modelsV2.StratumV2SupportUnknown},
-		{Identifier: "unspec", StratumV2Support: modelsV2.StratumV2SupportUnspecified},
-		{Identifier: "native", Make: "Antminer", Model: "S19j Pro", StratumV2Support: modelsV2.StratumV2SupportSupported},
+		{Identifier: "sv1", Make: "Antminer", Model: "S19", NativeStratumV2: false},
+		{Identifier: "unknown", Make: "Whatsminer", Model: "M30S", NativeStratumV2: false},
+		{Identifier: "unspec", NativeStratumV2: false},
+		{Identifier: "native", Make: "Antminer", Model: "S19j Pro", NativeStratumV2: true},
 	}
 	slots := []SlotAssignment{{Slot: SlotBackup1, URL: "stratum2+tcp://pool.example.com:3336/ABC"}}
 
@@ -61,7 +60,7 @@ func TestRun_SV2URLRejectsSV1AndUnknown(t *testing.T) {
 func TestRun_PropagatesMakeAndModel(t *testing.T) {
 	// Arrange
 	devs := []Device{
-		{Identifier: "sv1", Make: "Antminer", Model: "S19", StratumV2Support: modelsV2.StratumV2SupportUnsupported},
+		{Identifier: "sv1", Make: "Antminer", Model: "S19", NativeStratumV2: false},
 	}
 	slots := []SlotAssignment{{Slot: SlotDefault, URL: "stratum2+tcp://pool.example.com:3336/ABC"}}
 
@@ -76,7 +75,7 @@ func TestRun_PropagatesMakeAndModel(t *testing.T) {
 
 func TestRun_MultipleSlotsReportPerSlot(t *testing.T) {
 	// Arrange
-	devs := []Device{{Identifier: "sv1", StratumV2Support: modelsV2.StratumV2SupportUnsupported}}
+	devs := []Device{{Identifier: "sv1", NativeStratumV2: false}}
 	slots := []SlotAssignment{
 		{Slot: SlotDefault, URL: "stratum2+tcp://a:3336/k"},
 		{Slot: SlotBackup1, URL: "stratum+tcp://b:3333"},

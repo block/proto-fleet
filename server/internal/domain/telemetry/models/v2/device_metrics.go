@@ -34,19 +34,7 @@ type DeviceMetrics struct {
 	ControlBoardMetrics []ControlBoardMetrics `json:"control_board_metrics,omitempty"`
 	FanMetrics          []FanMetrics          `json:"fan_metrics,omitempty"`
 	SensorMetrics       []SensorMetrics       `json:"sensor_metrics,omitempty"`
-
-	// Consumed by the commit-time gate against SV1-only miners.
-	StratumV2Support StratumV2SupportStatus `json:"stratum_v2_support,omitempty"`
 }
-
-type StratumV2SupportStatus int32
-
-const (
-	StratumV2SupportUnspecified StratumV2SupportStatus = 0
-	StratumV2SupportUnknown     StratumV2SupportStatus = 1
-	StratumV2SupportUnsupported StratumV2SupportStatus = 2
-	StratumV2SupportSupported   StratumV2SupportStatus = 3
-)
 
 // DefaultMeasurementTypes returns the standard set of measurement types for conversion.
 var DefaultMeasurementTypes = []models.MeasurementType{
