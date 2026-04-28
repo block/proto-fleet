@@ -41,6 +41,18 @@ export const activeScheduleCols: ScheduleColumn[] = [
   scheduleCols.createdBy,
 ];
 
+export const scheduleTableClassName = [
+  "mb-2 w-full",
+  "phone:table-fixed",
+  "phone:[&_td:last-child]:w-9",
+  "phone:[&_th:last-child]:w-9",
+  "phone:[&_td:last-child>div]:box-border",
+  "phone:[&_td:last-child>div]:flex",
+  "phone:[&_td:last-child>div]:justify-end",
+  "phone:[&_td:last-child>div]:w-9",
+  "phone:[&_th:last-child>div]:w-9",
+].join(" ");
+
 export const scheduleStatusLabels: Record<ScheduleStatus, string> = {
   running: "Running",
   active: "Active",

@@ -127,6 +127,30 @@ describe("SchedulesPage", () => {
     expect(screen.getByText("Weekdays · 10:00 PM")).toBeVisible();
   });
 
+  it("keeps only the priority, name, schedule, and row action columns in the phone table layout", async () => {
+    vi.mocked(useScheduleApiContext).mockReturnValue(
+      createScheduleApiContextValue({
+        schedules: [createSchedule()],
+      }),
+    );
+
+    const { container } = render(<SchedulesPage />);
+
+    await waitFor(() => expect(screen.getByRole("columnheader", { name: "Name" })).toBeInTheDocument());
+
+    const table = container.querySelector("table");
+    expect(table).toHaveClass(
+      "phone:table-fixed",
+      "phone:[&_td:last-child]:w-9",
+      "phone:[&_th:last-child]:w-9",
+      "phone:[&_td:last-child>div]:justify-end",
+    );
+    for (const columnName of ["Action", "Status", "Created by"]) {
+      expect(screen.getByRole("columnheader", { name: columnName })).toHaveClass("phone:hidden");
+    }
+    expect(screen.getByTestId("list-actions-trigger")).toBeInTheDocument();
+  });
+
   it("shows an error toast when schedules fail to load", async () => {
     vi.mocked(useScheduleApiContext).mockReturnValue(
       createScheduleApiContextValue({
