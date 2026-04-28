@@ -30,6 +30,10 @@ type minerFilterParams struct {
 	groupIDValues             []int64
 	rackIDsFilter             sql.NullString
 	rackIDValues              []int64
+	firmwareVersionsFilter    sql.NullString
+	firmwareVersionValues     []string
+	zonesFilter               sql.NullString
+	zoneValues                []string
 }
 
 // buildMinerFilterParams converts a MinerFilter to SQL-ready parameters.
@@ -101,6 +105,18 @@ func buildMinerFilterParams(filter *stores.MinerFilter) minerFilterParams {
 	if len(filter.RackIDs) > 0 {
 		fp.rackIDsFilter = sql.NullString{Valid: true}
 		fp.rackIDValues = filter.RackIDs
+	}
+
+	// Firmware version filter
+	if len(filter.FirmwareVersions) > 0 {
+		fp.firmwareVersionsFilter = sql.NullString{Valid: true}
+		fp.firmwareVersionValues = filter.FirmwareVersions
+	}
+
+	// Zone filter
+	if len(filter.Zones) > 0 {
+		fp.zonesFilter = sql.NullString{Valid: true}
+		fp.zoneValues = filter.Zones
 	}
 
 	return fp
@@ -196,6 +212,28 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 				" AND dcm.device_set_id = ANY($%d::bigint[]))",
 			argNum, argNum+1)
 		args = append(args, orgID, pq.Array(fp.rackIDValues))
+		argNum += 2
+	}
+
+	if fp.firmwareVersionsFilter.Valid {
+		fmt.Fprintf(sb, " AND discovered_device.firmware_version = ANY($%d::text[])", argNum)
+		args = append(args, pq.Array(fp.firmwareVersionValues))
+		argNum++
+	}
+
+	if fp.zonesFilter.Valid {
+		// Match miners assigned to any rack whose zone is in the value list.
+		// Org scoping is enforced via device_set_membership.org_id; the join to
+		// device_set_rack pulls the zone for value comparison.
+		fmt.Fprintf(sb,
+			" AND EXISTS (SELECT 1 FROM device_set_membership dcm"+
+				" JOIN device_set_rack dsr ON dsr.device_set_id = dcm.device_set_id"+
+				" WHERE dcm.device_id = device.id"+
+				" AND dcm.org_id = $%d"+
+				" AND dcm.device_set_type = 'rack'"+
+				" AND dsr.zone = ANY($%d::text[]))",
+			argNum, argNum+1)
+		args = append(args, orgID, pq.Array(fp.zoneValues))
 		argNum += 2
 	}
 

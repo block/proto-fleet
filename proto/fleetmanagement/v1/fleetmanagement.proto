@@ -265,6 +265,22 @@ message MinerListFilter {
   // Filter by rack IDs. Returns miners that belong to ANY of the specified racks.
   // When combined with group_ids, uses AND logic (device must match both filters).
   repeated int64 rack_ids = 8;
+
+  // Filter by firmware versions (acts as OR condition)
+  // Returns miners whose firmware_version matches any of the specified values (e.g., "v3.5.1", "v3.5.2")
+  // When combined with other filters, uses AND logic (device must match both filters).
+  repeated string firmware_versions = 9;
+
+  // Filter by rack zones (acts as OR condition)
+  // Returns miners assigned to a rack whose zone matches any of the specified values.
+  // Miners not assigned to any rack are excluded by this filter.
+  // When combined with other filters, uses AND logic (device must match both filters).
+  repeated string zones = 10;
+
+  // Reserved for follow-up: per-miner cooling mode filtering (requires SDK cache).
+  reserved 11;
+  // Reserved for follow-up: pool filtering (requires pool-assignment cache).
+  reserved 12;
 }
 
 
@@ -292,6 +308,11 @@ message ListMinerStateSnapshotsResponse {
   // Useful for dynamically building model filter options in the UI
   // This includes all models across all pages, not just the current page (e.g., "S21 XP", "M60")
   repeated string models = 5;
+
+  // List of all firmware versions that exist in the user's fleet
+  // Useful for dynamically building firmware filter options in the UI
+  // This includes all versions across all pages, not just the current page (e.g., "v3.5.1", "v3.5.2")
+  repeated string firmware_versions = 6;
 }
 
 enum CsvTemperatureUnit {

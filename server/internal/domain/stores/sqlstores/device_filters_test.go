@@ -399,6 +399,125 @@ func TestAppendFilterSQL_NoRawSliceArgs_WithCollectionFilters(t *testing.T) {
 	}
 }
 
+func TestBuildMinerFilterParams_FirmwareVersions(t *testing.T) {
+	filter := &stores.MinerFilter{
+		FirmwareVersions: []string{"v3.5.1", "v3.5.2"},
+	}
+
+	params := buildMinerFilterParams(filter)
+
+	assert.True(t, params.firmwareVersionsFilter.Valid)
+	assert.Equal(t, []string{"v3.5.1", "v3.5.2"}, params.firmwareVersionValues)
+}
+
+func TestBuildMinerFilterParams_Zones(t *testing.T) {
+	filter := &stores.MinerFilter{
+		Zones: []string{"building-a", "building-b"},
+	}
+
+	params := buildMinerFilterParams(filter)
+
+	assert.True(t, params.zonesFilter.Valid)
+	assert.Equal(t, []string{"building-a", "building-b"}, params.zoneValues)
+}
+
+func TestBuildMinerFilterParams_FirmwareAndZones_Empty(t *testing.T) {
+	// Empty slices should leave the filter unset (valid=false).
+	filter := &stores.MinerFilter{
+		FirmwareVersions: []string{},
+		Zones:            []string{},
+	}
+
+	params := buildMinerFilterParams(filter)
+
+	assert.False(t, params.firmwareVersionsFilter.Valid)
+	assert.False(t, params.zonesFilter.Valid)
+}
+
+func TestAppendFilterSQL_FirmwareVersionsOnly(t *testing.T) {
+	var sb strings.Builder
+	args := []any{"initial"}
+	argNum := 2
+	fp := minerFilterParams{
+		firmwareVersionsFilter: validNullString(),
+		firmwareVersionValues:  []string{"v3.5.1", "v3.5.2"},
+	}
+	orgID := int64(42)
+
+	resultArgs, resultArgNum := appendFilterSQL(&sb, args, argNum, orgID, fp)
+
+	sql := sb.String()
+	assert.Contains(t, sql, "discovered_device.firmware_version = ANY($2::text[])")
+	assert.Len(t, resultArgs, 2) // initial + firmware values
+	assert.Equal(t, 3, resultArgNum)
+}
+
+func TestAppendFilterSQL_ZonesOnly(t *testing.T) {
+	var sb strings.Builder
+	args := []any{"initial"}
+	argNum := 2
+	fp := minerFilterParams{
+		zonesFilter: validNullString(),
+		zoneValues:  []string{"building-a"},
+	}
+	orgID := int64(42)
+
+	resultArgs, resultArgNum := appendFilterSQL(&sb, args, argNum, orgID, fp)
+
+	sql := sb.String()
+	assert.Contains(t, sql, "device_set_membership dcm")
+	assert.Contains(t, sql, "JOIN device_set_rack dsr ON dsr.device_set_id = dcm.device_set_id")
+	assert.Contains(t, sql, "device_set_type = 'rack'")
+	assert.Contains(t, sql, "dsr.zone = ANY($3::text[])")
+	assert.Contains(t, sql, "dcm.org_id = $2")
+	assert.Len(t, resultArgs, 3) // initial + orgID + zone values
+	assert.Equal(t, 4, resultArgNum)
+}
+
+func TestAppendFilterSQL_FirmwareAndZones_ProducesAND(t *testing.T) {
+	var sb strings.Builder
+	args := []any{"initial"}
+	argNum := 2
+	fp := minerFilterParams{
+		firmwareVersionsFilter: validNullString(),
+		firmwareVersionValues:  []string{"v3.5.1"},
+		zonesFilter:            validNullString(),
+		zoneValues:             []string{"building-a"},
+	}
+	orgID := int64(42)
+
+	resultArgs, resultArgNum := appendFilterSQL(&sb, args, argNum, orgID, fp)
+
+	sql := sb.String()
+	assert.Contains(t, sql, "discovered_device.firmware_version")
+	assert.Contains(t, sql, "dsr.zone")
+	// Two AND clauses, no OR between firmware and zones.
+	assert.GreaterOrEqual(t, strings.Count(sql, " AND "), 2)
+	// 3 new args: firmware values + orgID + zone values.
+	assert.Len(t, resultArgs, 4) // initial + firmware + orgID + zones
+	assert.Equal(t, 5, resultArgNum)
+}
+
+func TestAppendFilterSQL_NewFilters_NoRawSliceArgs(t *testing.T) {
+	// Both new filter args must be pq.Array-wrapped, not raw slices.
+	var sb strings.Builder
+	args := []any{"initial_org_id"}
+	fp := minerFilterParams{
+		firmwareVersionsFilter: validNullString(),
+		firmwareVersionValues:  []string{"v3.5.1"},
+		zonesFilter:            validNullString(),
+		zoneValues:             []string{"building-a"},
+	}
+
+	resultArgs, _ := appendFilterSQL(&sb, args, 2, 1, fp)
+
+	for i, arg := range resultArgs {
+		kind := reflect.TypeOf(arg).Kind()
+		assert.NotEqual(t, reflect.Slice, kind,
+			fmt.Sprintf("arg at position %d is a raw slice (%T); must be wrapped with pq.Array()", i, arg))
+	}
+}
+
 // validNullString creates a valid sql.NullString for testing.
 func validNullString() sql.NullString {
 	return sql.NullString{Valid: true}

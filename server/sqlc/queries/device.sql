@@ -372,6 +372,19 @@ WHERE dp.pairing_status = 'PAIRED'
 ORDER BY dd.model
 ;
 
+-- name: GetAvailableFirmwareVersions :many
+SELECT DISTINCT dd.firmware_version
+FROM device d
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
+JOIN device_pairing dp ON d.id = dp.device_id
+WHERE dp.pairing_status = 'PAIRED'
+  AND d.deleted_at IS NULL
+  AND d.org_id = $1
+  AND dd.firmware_version IS NOT NULL
+  AND dd.firmware_version != ''
+ORDER BY dd.firmware_version
+;
+
 -- name: GetOfflineDevices :many
 SELECT
     d.id,

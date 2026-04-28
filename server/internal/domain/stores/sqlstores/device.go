@@ -386,6 +386,20 @@ func (s *SQLDeviceStore) GetAvailableModels(ctx context.Context, orgID int64) ([
 	return models, nil
 }
 
+func (s *SQLDeviceStore) GetAvailableFirmwareVersions(ctx context.Context, orgID int64) ([]string, error) {
+	nullVersions, err := s.getQueries(ctx).GetAvailableFirmwareVersions(ctx, orgID)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to get available firmware versions: %v", err)
+	}
+	versions := make([]string, 0, len(nullVersions))
+	for _, v := range nullVersions {
+		if v.Valid && v.String != "" {
+			versions = append(versions, v.String)
+		}
+	}
+	return versions, nil
+}
+
 func (s *SQLDeviceStore) GetMinerModelGroups(ctx context.Context, orgID int64, filter *stores.MinerFilter) ([]stores.MinerModelGroupResult, error) {
 	statusFilter, modelFilter, _ := buildFilterParams(filter)
 

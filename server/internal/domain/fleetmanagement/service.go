@@ -306,12 +306,18 @@ func (s *Service) buildSnapshot(
 		return nil, fleeterror.NewInternalErrorf("failed to get available models: %v", err)
 	}
 
+	availableFirmwareVersions, err := s.deviceStore.GetAvailableFirmwareVersions(ctx, orgID)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to get available firmware versions: %v", err)
+	}
+
 	return &pb.ListMinerStateSnapshotsResponse{
 		Miners:           snapshots,
 		Cursor:           nextCursor,
 		TotalMiners:      int32(total), //nolint:gosec
 		TotalStateCounts: stateCounts,
 		Models:           availableModels,
+		FirmwareVersions: availableFirmwareVersions,
 	}, nil
 }
 
@@ -615,6 +621,14 @@ func parseFilter(pbFilter *pb.MinerListFilter) (*interfaces.MinerFilter, error) 
 
 	if len(pbFilter.RackIds) > 0 {
 		filter.RackIDs = pbFilter.RackIds
+	}
+
+	if len(pbFilter.FirmwareVersions) > 0 {
+		filter.FirmwareVersions = pbFilter.FirmwareVersions
+	}
+
+	if len(pbFilter.Zones) > 0 {
+		filter.Zones = pbFilter.Zones
 	}
 
 	return filter, nil
