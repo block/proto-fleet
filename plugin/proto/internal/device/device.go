@@ -178,6 +178,9 @@ func (d *Device) DescribeDevice(ctx context.Context) (sdk.DeviceInfo, sdk.Capabi
 		sdk.CapabilityFirmware:            true, // This device supports firmware updates
 		sdk.CapabilityPoolConfig:          true, // This device supports pool configuration
 		sdk.CapabilityUpdateMinerPassword: true, // This device supports updating web UI password
+		// FULL curtailment is implemented as StopMining/StartMining wrappers.
+		// Higher levels (efficiency, partial-percent) are reserved for v4.
+		sdk.CapabilityCurtail: true,
 	}
 
 	// Get firmware version if not already set (requires authentication, so we do it here)
@@ -505,6 +508,21 @@ func (d *Device) StopMining(ctx context.Context) error {
 	d.lastStatus = nil
 
 	return nil
+}
+
+// Curtail implements the SDK Device interface. The proto driver supports
+// FULL curtailment by wrapping StopMining; higher levels are reserved for v4
+// and require vendor-specific underclock logic.
+func (d *Device) Curtail(ctx context.Context, level sdk.CurtailLevel) error {
+	if level != sdk.CurtailLevelFull {
+		return sdk.NewErrCurtailCapabilityNotSupported(d.id, int32(level))
+	}
+	return d.StopMining(ctx)
+}
+
+// Uncurtail implements the SDK Device interface by wrapping StartMining.
+func (d *Device) Uncurtail(ctx context.Context) error {
+	return d.StartMining(ctx)
 }
 
 // SetCoolingMode implements the SDK Device interface.

@@ -155,6 +155,7 @@ func (d *Device) DescribeDevice(ctx context.Context) (sdk.DeviceInfo, sdk.Capabi
 		sdk.CapabilityReboot:              true,  // We can reboot devices
 		sdk.CapabilityMiningStart:         true,  // Supported via bitmain-work-mode = "0"
 		sdk.CapabilityMiningStop:          true,  // Supported via bitmain-work-mode = "1" (sleep)
+		sdk.CapabilityCurtail:             true,  // FULL curtailment wraps StopMining/StartMining; higher levels reserved for v4
 		sdk.CapabilityLEDBlink:            true,  // We can blink LED for identification
 		sdk.CapabilityFactoryReset:        false, // Factory reset not supported
 		sdk.CapabilityCoolingModeAir:      false, // Air cooling mode not configurable
@@ -444,6 +445,21 @@ func (d *Device) StartMining(ctx context.Context) error {
 // StopMining implements the SDK Device interface.
 func (d *Device) StopMining(ctx context.Context) error {
 	return d.client.StopMining(ctx)
+}
+
+// Curtail implements the SDK Device interface. The antminer driver supports
+// FULL curtailment by wrapping StopMining; higher levels are reserved for v4
+// and require vendor-specific underclock logic.
+func (d *Device) Curtail(ctx context.Context, level sdk.CurtailLevel) error {
+	if level != sdk.CurtailLevelFull {
+		return sdk.NewErrCurtailCapabilityNotSupported(d.id, int32(level))
+	}
+	return d.client.StopMining(ctx)
+}
+
+// Uncurtail implements the SDK Device interface by wrapping StartMining.
+func (d *Device) Uncurtail(ctx context.Context) error {
+	return d.client.StartMining(ctx)
 }
 
 // SetCoolingMode implements the SDK Device interface.

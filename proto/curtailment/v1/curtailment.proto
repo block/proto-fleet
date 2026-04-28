@@ -1,0 +1,467 @@
+syntax = "proto3";
+
+package curtailment.v1;
+
+import "google/protobuf/timestamp.proto";
+import "buf/validate/validate.proto";
+
+// Service for managing fleet curtailment events: select miners, dispatch
+// shutdown commands, verify reduction via telemetry, and restore safely.
+service CurtailmentService {
+    // Returns the candidate plan for a curtailment without persisting it. The
+    // operator inspects this before committing via StartCurtailment.
+    rpc PreviewCurtailmentPlan(PreviewCurtailmentPlanRequest)
+        returns (PreviewCurtailmentPlanResponse);
+
+    // Starts a new curtailment event. Persists the event and selected targets,
+    // then dispatches the initial Curtail commands.
+    rpc StartCurtailment(StartCurtailmentRequest)
+        returns (StartCurtailmentResponse);
+
+    // Updates operator-safe fields on an active curtailment event (e.g.
+    // reason, restore controls). Closed-loop target mutation is reserved.
+    rpc UpdateCurtailmentEvent(UpdateCurtailmentEventRequest)
+        returns (UpdateCurtailmentEventResponse);
+
+    // Stops an active curtailment event and begins staggered restore.
+    rpc StopCurtailment(StopCurtailmentRequest)
+        returns (StopCurtailmentResponse);
+
+    // Returns the current pending/active/restoring event with target rollups.
+    rpc GetActiveCurtailment(GetActiveCurtailmentRequest)
+        returns (GetActiveCurtailmentResponse);
+
+    // Lists historical curtailment events with cursor-based pagination.
+    rpc ListCurtailmentEvents(ListCurtailmentEventsRequest)
+        returns (ListCurtailmentEventsResponse);
+
+    // IngestCurtailmentSignal is reserved for v2 webhook ingestion. It is
+    // intentionally not declared here so v1 clients cannot call an
+    // unimplemented RPC. Service-level rpc names cannot be `reserved` in
+    // proto3, so this comment serves as the documentation contract: the
+    // name `IngestCurtailmentSignal` must not be reused for an unrelated
+    // service method.
+}
+
+// --- Enums ---
+
+// CurtailmentMode selects which dispatch algorithm chooses the target set.
+// Grouped by operational class. v1 modes occupy slots 1 and 2 so the most
+// common values fit in a 1-byte protobuf tag.
+enum CurtailmentMode {
+    CURTAILMENT_MODE_UNSPECIFIED = 0;
+
+    // Open-loop, operator-sized: operator specifies how much to shed; the
+    // target set is frozen at event creation and never re-evaluated.
+    // FIXED_KW occupies slot 1 because kW is the operator's native unit.
+    CURTAILMENT_MODE_FIXED_KW         = 1;  // v1 — accumulate ranked candidates until Σpower_w ≥ target_kw
+    CURTAILMENT_MODE_FIXED_PERCENT    = 2;  // v1 — top-N by ceil-percent of candidates
+    CURTAILMENT_MODE_FIXED_COUNT      = 3;  // reserved — operator picks an explicit miner count
+
+    // Open-loop, externally triggered: webhook or timer drives start/stop,
+    // but the target set is still frozen once selected.
+    CURTAILMENT_MODE_DEMAND_RESPONSE  = 4;  // reserved (v2)
+
+    // Closed-loop continuous control: the mode re-evaluates the target set
+    // every tick against an external signal or setpoint.
+    CURTAILMENT_MODE_SITE_POWER_CAP   = 5;  // reserved (v3)
+    CURTAILMENT_MODE_THERMAL_LIMIT    = 6;  // reserved (v3)
+    CURTAILMENT_MODE_PRICE_BREAKEVEN  = 7;  // reserved (v3)
+    CURTAILMENT_MODE_POWER_TRAJECTORY = 8;  // reserved (v3)
+}
+
+// CurtailmentStrategy selects how candidates are ranked. Grouped by ranking
+// philosophy.
+enum CurtailmentStrategy {
+    CURTAILMENT_STRATEGY_UNSPECIFIED            = 0;
+
+    // Economic ranking — rank candidates by per-miner attribute.
+    CURTAILMENT_STRATEGY_LEAST_EFFICIENT_FIRST  = 1;  // v1 default — worst J/TH first
+    CURTAILMENT_STRATEGY_MOST_POWER_FIRST       = 2;  // reserved — biggest single-miner shed first
+    CURTAILMENT_STRATEGY_OLDEST_HARDWARE_FIRST  = 3;  // reserved — accelerates retirement of aging gear
+
+    // Reliability ranking — rank candidates by stability heuristics.
+    CURTAILMENT_STRATEGY_UNSTABLE_MINERS_FIRST  = 4;  // reserved — restart-risk tolerant first
+
+    // Topology-aware — placement constraint, not a pure ranking.
+    CURTAILMENT_STRATEGY_RACK_GRANULAR          = 5;  // reserved — distribute across racks/PDUs
+}
+
+// CurtailmentLevel selects how aggressively each curtailed miner reduces
+// power. Ordered by ascending power-reduction impact, so the numeric value
+// of the level is a proxy for "how much power gets shed per curtailed miner."
+enum CurtailmentLevel {
+    CURTAILMENT_LEVEL_UNSPECIFIED     = 0;
+    CURTAILMENT_LEVEL_EFFICIENCY      = 1;  // reserved (v4) — peak J/TH setting; ~20–30% per-miner reduction
+    CURTAILMENT_LEVEL_PARTIAL_PERCENT = 2;  // reserved (v4) — operator-specified hash-rate %
+    CURTAILMENT_LEVEL_FULL            = 3;  // v1 — complete shutdown (~100% per-miner reduction modulo idle draw)
+}
+
+// CurtailmentPriority influences hysteresis and cooldown bypass.
+enum CurtailmentPriority {
+    CURTAILMENT_PRIORITY_UNSPECIFIED = 0;
+    CURTAILMENT_PRIORITY_NORMAL      = 1;  // default — respects hysteresis & cooldowns
+    CURTAILMENT_PRIORITY_HIGH        = 2;
+    // EMERGENCY bypasses post_event_cooldown and min_curtailed_duration_sec.
+    // It does NOT implicitly override maintenance — both include_maintenance
+    // and force_include_maintenance must still be set explicitly.
+    CURTAILMENT_PRIORITY_EMERGENCY   = 3;
+}
+
+// CurtailmentEventState tracks the lifecycle of a single curtailment event.
+// Lifecycle order: non-terminal states first (in transition order), then
+// terminal states ordered best-outcome → worst-outcome.
+enum CurtailmentEventState {
+    CURTAILMENT_EVENT_STATE_UNSPECIFIED              = 0;
+
+    // Non-terminal — event is in flight.
+    CURTAILMENT_EVENT_STATE_PENDING                  = 1;
+    CURTAILMENT_EVENT_STATE_ACTIVE                   = 2;
+    CURTAILMENT_EVENT_STATE_RESTORING                = 3;
+
+    // Terminal — best to worst outcome.
+    CURTAILMENT_EVENT_STATE_COMPLETED                = 4;  // every target resolved cleanly
+    CURTAILMENT_EVENT_STATE_COMPLETED_WITH_FAILURES  = 5;  // some targets RESTORE_FAILED
+    CURTAILMENT_EVENT_STATE_CANCELLED                = 6;  // user-initiated termination
+    CURTAILMENT_EVENT_STATE_FAILED                   = 7;  // system-initiated termination
+}
+
+// CurtailmentTargetState tracks a single miner inside a curtailment event.
+// CONFIRMED is steady-state, not terminal: it cycles back to DRIFTED →
+// DISPATCHED → CONFIRMED on detected drift.
+enum CurtailmentTargetState {
+    CURTAILMENT_TARGET_STATE_UNSPECIFIED    = 0;
+
+    // Non-terminal — target is in flight.
+    CURTAILMENT_TARGET_STATE_PENDING        = 1;
+    CURTAILMENT_TARGET_STATE_DISPATCHED     = 2;
+    CURTAILMENT_TARGET_STATE_CONFIRMED      = 3;
+    CURTAILMENT_TARGET_STATE_DRIFTED        = 4;  // re-dispatching
+
+    // Terminal — best to worst outcome.
+    CURTAILMENT_TARGET_STATE_RESOLVED       = 5;  // event ended cleanly for this target
+    CURTAILMENT_TARGET_STATE_RELEASED       = 6;  // removed by closed-loop mid-event (v3+); ends target, not event
+    CURTAILMENT_TARGET_STATE_RESTORE_FAILED = 7;  // unreachable after restore was attempted
+}
+
+// --- Scope wrappers ---
+
+// ScopeWholeOrg selects every miner in the caller's organization.
+message ScopeWholeOrg {}
+
+// ScopeDeviceSets selects miners that belong to one or more device sets
+// (racks or groups).
+message ScopeDeviceSets {
+    repeated string device_set_ids = 1 [(buf.validate.field).repeated = {
+        min_items: 1
+        items: { string: { min_len: 1 } }
+    }];
+}
+
+// ScopeDeviceList selects miners by explicit device_identifier. The handler
+// must validate that every identifier belongs to the caller's organization
+// before persistence or dispatch.
+message ScopeDeviceList {
+    repeated string device_identifiers = 1 [(buf.validate.field).repeated = {
+        min_items: 1
+        items: { string: { min_len: 1 } }
+    }];
+}
+
+// --- Mode parameter messages ---
+
+// FixedKwParams configures a CurtailmentMode_FIXED_KW request. Tolerance is
+// the operator's accepted undershoot; over-fulfillment beyond target_kw is
+// always accepted.
+message FixedKwParams {
+    // Target kilowatt reduction. Must be > 0.
+    double target_kw = 1 [(buf.validate.field).double.gt = 0];
+
+    // Optional accepted undershoot, in kW. Absent → server default applied;
+    // explicit 0 → strict satisfaction (must reach or exceed target_kw).
+    optional double tolerance_kw = 2 [(buf.validate.field).double.gte = 0];
+}
+
+// FixedPercentParams configures a CurtailmentMode_FIXED_PERCENT request.
+message FixedPercentParams {
+    // Percent of candidates to curtail. Must be in (0, 100].
+    double percent = 1 [(buf.validate.field).double = {
+        gt: 0
+        lte: 100
+    }];
+}
+
+// FixedCountParams is reserved for v2's CURTAILMENT_MODE_FIXED_COUNT.
+message FixedCountParams {
+    int32 count = 1;
+}
+
+// SitePowerCapParams is reserved for v3's CURTAILMENT_MODE_SITE_POWER_CAP.
+message SitePowerCapParams {
+    double cap_kw = 1;
+}
+
+// --- Domain messages ---
+
+// CurtailmentEvent is the full event entity returned by Get/List/Start RPCs.
+message CurtailmentEvent {
+    // Stable external identifier (matches the persisted event_uuid).
+    string event_uuid = 1;
+
+    CurtailmentEventState state    = 2;
+    CurtailmentMode       mode     = 3;
+    CurtailmentStrategy   strategy = 4;
+    CurtailmentLevel      level    = 5;
+    CurtailmentPriority   priority = 6;
+
+    // Echo of scope / mode_params from the originating request.
+    oneof scope {
+        ScopeWholeOrg   whole_org           = 7;
+        ScopeDeviceSets device_set_ids      = 8;
+        ScopeDeviceList device_identifiers  = 9;
+    }
+    oneof mode_params {
+        FixedKwParams      fixed_kw       = 10;
+        FixedPercentParams fixed_percent  = 11;
+        FixedCountParams   fixed_count    = 12;
+        SitePowerCapParams site_power_cap = 13;
+    }
+
+    // Operational controls echoed from the originating request.
+    uint32 max_duration_seconds       = 14;
+    uint32 restore_batch_size         = 15;
+    uint32 restore_batch_interval_sec = 16;
+    uint32 min_curtailed_duration_sec = 17;
+    bool   include_maintenance        = 18;
+    bool   force_include_maintenance  = 19;
+
+    // Operator-supplied free text (non-empty after trimming).
+    string reason = 20;
+
+    // Trigger attribution. Empty for direct user/API-key calls.
+    string external_source    = 21;
+    string external_reference = 22;
+    string idempotency_key    = 23;
+
+    // Timestamps. scheduled_start_at is null for "start now" events.
+    google.protobuf.Timestamp scheduled_start_at = 30;
+    google.protobuf.Timestamp started_at         = 31;
+    google.protobuf.Timestamp ended_at           = 32;
+    google.protobuf.Timestamp created_at         = 33;
+    google.protobuf.Timestamp updated_at         = 34;
+
+    // Per-state target counts so the UI can render rollups without fetching
+    // every target row.
+    CurtailmentTargetRollup target_rollup = 40;
+}
+
+// CurtailmentTargetRollup summarizes target states for an event.
+message CurtailmentTargetRollup {
+    int32 pending        = 1;
+    int32 dispatched     = 2;
+    int32 confirmed      = 3;
+    int32 drifted        = 4;
+    int32 resolved       = 5;
+    int32 released       = 6;
+    int32 restore_failed = 7;
+    int32 total          = 8;
+}
+
+// CurtailmentCandidate is a single miner returned by PreviewCurtailmentPlan.
+message CurtailmentCandidate {
+    string device_identifier = 1;
+    double current_power_w   = 2;
+    double efficiency_jh     = 3;
+    string reason_selected   = 4;  // human-readable selection rationale
+}
+
+// SkippedCandidate is a candidate excluded by the selector or candidate
+// filter, reported back so the UI can explain why a miner was not chosen.
+message SkippedCandidate {
+    string device_identifier = 1;
+    string reason            = 2;  // canonical exclusion reason (e.g. "phantom_load_no_hash")
+    string description       = 3;  // human-readable elaboration
+}
+
+// --- Requests / Responses ---
+
+// PreviewCurtailmentPlan
+
+message PreviewCurtailmentPlanRequest {
+    oneof scope {
+        ScopeWholeOrg   whole_org           = 1;
+        ScopeDeviceSets device_set_ids      = 2;
+        ScopeDeviceList device_identifiers  = 3;
+    }
+
+    CurtailmentMode     mode     = 4 [(buf.validate.field).enum = {
+        defined_only: true
+        not_in: [0]
+        // v1 only honors FIXED_KW (1) and FIXED_PERCENT (2).
+        in: [1, 2]
+    }];
+    CurtailmentStrategy strategy = 5 [(buf.validate.field).enum = {
+        defined_only: true
+        // v1 only honors LEAST_EFFICIENT_FIRST (1).
+        in: [0, 1]
+    }];
+    CurtailmentLevel    level    = 6 [(buf.validate.field).enum = {
+        defined_only: true
+        // v1 only honors FULL (3).
+        in: [0, 3]
+    }];
+
+    oneof mode_params {
+        FixedKwParams        fixed_kw         = 8;
+        FixedPercentParams   fixed_percent    = 9;
+        FixedCountParams     fixed_count      = 10;
+        SitePowerCapParams   site_power_cap   = 11;
+    }
+
+    bool include_maintenance       = 24;
+    bool force_include_maintenance = 25;
+
+    reserved 7, 12 to 23;
+}
+
+message PreviewCurtailmentPlanResponse {
+    // Selected miners in dispatch order.
+    repeated CurtailmentCandidate candidates = 1;
+
+    // Realized kW of the selected set (always ≥ target_kw modulo
+    // insufficient-load rejection for FIXED_KW; sum of selected miners'
+    // snapshot power for FIXED_PERCENT).
+    double estimated_reduction_kw = 2;
+
+    // Sum of remaining (non-selected) candidate power, for context.
+    double estimated_remaining_power_kw = 3;
+
+    // Echo of the request mode and mode_params so the UI can render the
+    // undershoot delta for FIXED_KW without re-fetching the request.
+    CurtailmentMode mode = 4;
+    oneof mode_params {
+        FixedKwParams      fixed_kw       = 5;
+        FixedPercentParams fixed_percent  = 6;
+        FixedCountParams   fixed_count    = 7;
+        SitePowerCapParams site_power_cap = 8;
+    }
+
+    // Candidates considered but excluded, with canonical reasons (e.g.
+    // phantom_load_no_hash, power_telemetry_unreliable, unreachable_residual_load).
+    repeated SkippedCandidate skipped_candidates = 20;
+}
+
+// StartCurtailment
+
+message StartCurtailmentRequest {
+    oneof scope {
+        ScopeWholeOrg   whole_org           = 1;
+        ScopeDeviceSets device_set_ids      = 2;
+        ScopeDeviceList device_identifiers  = 3;
+    }
+
+    CurtailmentMode     mode     = 4 [(buf.validate.field).enum = {
+        defined_only: true
+        not_in: [0]
+        in: [1, 2]
+    }];
+    CurtailmentStrategy strategy = 5 [(buf.validate.field).enum = {
+        defined_only: true
+        in: [0, 1]
+    }];
+    CurtailmentLevel    level    = 6 [(buf.validate.field).enum = {
+        defined_only: true
+        in: [0, 3]
+    }];
+    CurtailmentPriority priority = 7 [(buf.validate.field).enum.defined_only = true];
+
+    oneof mode_params {
+        FixedKwParams        fixed_kw         = 8;
+        FixedPercentParams   fixed_percent    = 9;
+        FixedCountParams     fixed_count      = 10;
+        SitePowerCapParams   site_power_cap   = 11;
+    }
+
+    // Operational controls
+    uint32 max_duration_seconds       = 20;  // 0 = no cap
+    uint32 restore_batch_size         = 21;  // 0 = server default
+    uint32 restore_batch_interval_sec = 22;  // 0 = server default
+    uint32 min_curtailed_duration_sec = 23;
+
+    // Maintenance override pair. include_maintenance=true requires
+    // force_include_maintenance=true; the handler enforces this with
+    // InvalidArgument and the DB has a CHECK on the pair.
+    bool include_maintenance       = 24;
+    bool force_include_maintenance = 25;
+
+    // Idempotency + trigger attribution
+    string idempotency_key    = 30;  // unique per (org, key) when non-empty
+    string reason             = 31 [(buf.validate.field).string.min_len = 1];
+    string external_source    = 32;  // webhook source name (v2)
+    string external_reference = 33;  // upstream event ID (v2)
+}
+
+message StartCurtailmentResponse {
+    CurtailmentEvent event = 1;
+}
+
+// UpdateCurtailmentEvent supports operator-safe field updates on an active
+// event in v1 (e.g. reason, restore controls). Closed-loop target mutation
+// is reserved.
+message UpdateCurtailmentEventRequest {
+    string event_uuid = 1 [(buf.validate.field).string.min_len = 1];
+
+    // Editable fields. Optional so callers can update individual fields
+    // without sending a full event payload.
+    optional string reason                     = 10;
+    optional uint32 restore_batch_size         = 11;
+    optional uint32 restore_batch_interval_sec = 12;
+    optional uint32 max_duration_seconds       = 13;
+}
+
+message UpdateCurtailmentEventResponse {
+    CurtailmentEvent event = 1;
+}
+
+// StopCurtailment moves an active event into RESTORING and begins staggered
+// restore. Rejected with FailedPrecondition if min_curtailed_duration_sec
+// has not elapsed (unless priority is EMERGENCY).
+message StopCurtailmentRequest {
+    string event_uuid = 1 [(buf.validate.field).string.min_len = 1];
+}
+
+message StopCurtailmentResponse {
+    CurtailmentEvent event = 1;
+}
+
+// GetActiveCurtailment returns the single active event for the caller's
+// organization, or empty if none.
+message GetActiveCurtailmentRequest {}
+
+message GetActiveCurtailmentResponse {
+    // Empty when no event is in pending/active/restoring state.
+    optional CurtailmentEvent event = 1;
+}
+
+// ListCurtailmentEvents returns historical events. Cursor-based pagination
+// uses an opaque page_token round-tripped between client and server.
+message ListCurtailmentEventsRequest {
+    // Page size. Server clamps to a sensible maximum.
+    int32 page_size = 1 [(buf.validate.field).int32 = {
+        gte: 0
+        lte: 200
+    }];
+
+    // Opaque cursor returned in the previous response. Empty for first page.
+    string page_token = 2;
+
+    // Optional state filter; unspecified returns all states.
+    CurtailmentEventState state_filter = 3 [(buf.validate.field).enum.defined_only = true];
+}
+
+message ListCurtailmentEventsResponse {
+    repeated CurtailmentEvent events = 1;
+
+    // Empty when there are no further pages.
+    string next_page_token = 2;
+}

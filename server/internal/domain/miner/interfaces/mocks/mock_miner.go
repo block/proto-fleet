@@ -171,6 +171,20 @@ func (mr *MockMinerMockRecorder) BlinkLED(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BlinkLED", reflect.TypeOf((*MockMiner)(nil).BlinkLED), ctx)
 }
 
+// Curtail mocks base method.
+func (m *MockMiner) Curtail(ctx context.Context, level sdk.CurtailLevel) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Curtail", ctx, level)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Curtail indicates an expected call of Curtail.
+func (mr *MockMinerMockRecorder) Curtail(ctx, level any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Curtail", reflect.TypeOf((*MockMiner)(nil).Curtail), ctx, level)
+}
+
 // DownloadLogs mocks base method.
 func (m *MockMiner) DownloadLogs(ctx context.Context, batchLogUUID string) error {
 	m.ctrl.T.Helper()
@@ -426,6 +440,20 @@ func (m *MockMiner) StopMining(ctx context.Context) error {
 func (mr *MockMinerMockRecorder) StopMining(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StopMining", reflect.TypeOf((*MockMiner)(nil).StopMining), ctx)
+}
+
+// Uncurtail mocks base method.
+func (m *MockMiner) Uncurtail(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Uncurtail", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Uncurtail indicates an expected call of Uncurtail.
+func (mr *MockMinerMockRecorder) Uncurtail(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Uncurtail", reflect.TypeOf((*MockMiner)(nil).Uncurtail), ctx)
 }
 
 // Unpair mocks base method.

@@ -1,5 +1,7 @@
 package sdk
 
+import "fmt"
+
 type ErrorCode string
 
 const (
@@ -15,6 +17,15 @@ const (
 	ErrCodeDriverShutdown ErrorCode = "DRIVER_SHUTDOWN"
 	// ErrCodeAuthenticationFailed represents an authentication failure error
 	ErrCodeAuthenticationFailed ErrorCode = "AUTHENTICATION_FAILED"
+	// ErrCodeCurtailCapabilityNotSupported represents a permanent failure
+	// where a miner does not support the requested curtail level. The
+	// selector should never see this error because capability gating runs
+	// before dispatch; it exists as a defensive fallback.
+	ErrCodeCurtailCapabilityNotSupported ErrorCode = "CURTAIL_CAPABILITY_NOT_SUPPORTED"
+	// ErrCodeCurtailTransient represents a transient failure during a
+	// curtail/uncurtail dispatch (network/timeout). The reconciler retries
+	// up to the per-target retry budget before declaring the target failed.
+	ErrCodeCurtailTransient ErrorCode = "CURTAIL_TRANSIENT"
 )
 
 type SDKError struct {
@@ -106,5 +117,31 @@ func NewErrorAuthenticationFailed(deviceID string, err ...error) SDKError {
 		Code:    ErrCodeAuthenticationFailed,
 		Message: "authentication failed for device: " + deviceID,
 		Err:     underlying,
+	}
+}
+
+// NewErrCurtailCapabilityNotSupported returns a permanent error indicating
+// the miner does not support the requested curtail level. Plugins return
+// this from Curtail() when level requirements exceed what the device or
+// firmware can perform.
+func NewErrCurtailCapabilityNotSupported(deviceID string, level int32, err ...error) SDKError {
+	var underlying error
+	if len(err) > 0 {
+		underlying = err[0]
+	}
+	return SDKError{
+		Code:    ErrCodeCurtailCapabilityNotSupported,
+		Message: fmt.Sprintf("curtail level %d not supported by device: %s", level, deviceID),
+		Err:     underlying,
+	}
+}
+
+// NewErrCurtailTransient wraps a transient curtail/uncurtail failure so the
+// reconciler can recognize it as retryable rather than permanent.
+func NewErrCurtailTransient(deviceID string, err error) SDKError {
+	return SDKError{
+		Code:    ErrCodeCurtailTransient,
+		Message: "transient curtail failure for device: " + deviceID,
+		Err:     err,
 	}
 }

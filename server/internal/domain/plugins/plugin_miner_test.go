@@ -43,6 +43,8 @@ type mockSDKDevice struct {
 	getErrorsFunc           func(ctx context.Context) (sdk.DeviceErrors, error)
 	tryGetWebViewFunc       func(ctx context.Context) (string, bool, error)
 	updateMinerPasswordFunc func(ctx context.Context, currentPassword string, newPassword string) error
+	curtailFunc             func(ctx context.Context, level sdk.CurtailLevel) error
+	uncurtailFunc           func(ctx context.Context) error
 }
 
 func (m *mockSDKDevice) ID() string {
@@ -94,6 +96,20 @@ func (m *mockSDKDevice) BlinkLED(ctx context.Context) error {
 func (m *mockSDKDevice) Reboot(ctx context.Context) error {
 	if m.rebootFunc != nil {
 		return m.rebootFunc(ctx)
+	}
+	return nil
+}
+
+func (m *mockSDKDevice) Curtail(ctx context.Context, level sdk.CurtailLevel) error {
+	if m.curtailFunc != nil {
+		return m.curtailFunc(ctx, level)
+	}
+	return nil
+}
+
+func (m *mockSDKDevice) Uncurtail(ctx context.Context) error {
+	if m.uncurtailFunc != nil {
+		return m.uncurtailFunc(ctx)
 	}
 	return nil
 }

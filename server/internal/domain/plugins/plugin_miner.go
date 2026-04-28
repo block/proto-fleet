@@ -209,6 +209,25 @@ func (p *PluginMiner) StopMining(ctx context.Context) error {
 	return nil
 }
 
+// Curtail implements interfaces.Miner. Levels other than Full surface as
+// ErrCurtailCapabilityNotSupported from the plugin (v1 supports Full only);
+// the curtailment domain treats unsupported-level errors as permanent
+// failures rather than retrying.
+func (p *PluginMiner) Curtail(ctx context.Context, level sdk.CurtailLevel) error {
+	if err := p.sdkDevice.Curtail(ctx, level); err != nil {
+		return wrapPluginError(err, "failed to curtail device")
+	}
+	return nil
+}
+
+// Uncurtail implements interfaces.Miner.
+func (p *PluginMiner) Uncurtail(ctx context.Context) error {
+	if err := p.sdkDevice.Uncurtail(ctx); err != nil {
+		return wrapPluginError(err, "failed to uncurtail device")
+	}
+	return nil
+}
+
 // SetCoolingMode implements interfaces.Miner
 func (p *PluginMiner) SetCoolingMode(ctx context.Context, payload dto.CoolingModePayload) error {
 	var sdkMode sdk.CoolingMode

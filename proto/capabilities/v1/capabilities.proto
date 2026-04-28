@@ -75,6 +75,13 @@ message CommandCapabilities {
 
   // Security management
   bool update_miner_password_supported = 13;
+
+  // Curtailment support — capability-gated per level.
+  // curtail_supported is required for CURTAILMENT_LEVEL_FULL (v1). The
+  // efficiency and partial flags are reserved for v4 plugin-specific support.
+  bool curtail_supported            = 14;
+  bool curtail_efficiency_supported = 15;
+  bool curtail_partial_supported    = 16;
 }
 
 // Telemetry data capabilities

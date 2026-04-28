@@ -139,6 +139,20 @@ func (mr *MockDeviceControlMockRecorder) BlinkLED(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BlinkLED", reflect.TypeOf((*MockDeviceControl)(nil).BlinkLED), ctx)
 }
 
+// Curtail mocks base method.
+func (m *MockDeviceControl) Curtail(ctx context.Context, level sdk.CurtailLevel) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Curtail", ctx, level)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Curtail indicates an expected call of Curtail.
+func (mr *MockDeviceControlMockRecorder) Curtail(ctx, level any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Curtail", reflect.TypeOf((*MockDeviceControl)(nil).Curtail), ctx, level)
+}
+
 // Reboot mocks base method.
 func (m *MockDeviceControl) Reboot(ctx context.Context) error {
 	m.ctrl.T.Helper()
@@ -179,6 +193,20 @@ func (m *MockDeviceControl) StopMining(ctx context.Context) error {
 func (mr *MockDeviceControlMockRecorder) StopMining(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StopMining", reflect.TypeOf((*MockDeviceControl)(nil).StopMining), ctx)
+}
+
+// Uncurtail mocks base method.
+func (m *MockDeviceControl) Uncurtail(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Uncurtail", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Uncurtail indicates an expected call of Uncurtail.
+func (mr *MockDeviceControlMockRecorder) Uncurtail(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Uncurtail", reflect.TypeOf((*MockDeviceControl)(nil).Uncurtail), ctx)
 }
 
 // MockDeviceConfiguration is a mock of DeviceConfiguration interface.
@@ -578,6 +606,20 @@ func (mr *MockDeviceMockRecorder) Close(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockDevice)(nil).Close), ctx)
 }
 
+// Curtail mocks base method.
+func (m *MockDevice) Curtail(ctx context.Context, level sdk.CurtailLevel) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Curtail", ctx, level)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Curtail indicates an expected call of Curtail.
+func (mr *MockDeviceMockRecorder) Curtail(ctx, level any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Curtail", reflect.TypeOf((*MockDevice)(nil).Curtail), ctx, level)
+}
+
 // DescribeDevice mocks base method.
 func (m *MockDevice) DescribeDevice(ctx context.Context) (sdk.DeviceInfo, sdk.Capabilities, error) {
 	m.ctrl.T.Helper()
@@ -831,6 +873,20 @@ func (m *MockDevice) TrySubscribe(ctx context.Context, ids []string) (<-chan sdk
 func (mr *MockDeviceMockRecorder) TrySubscribe(ctx, ids any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TrySubscribe", reflect.TypeOf((*MockDevice)(nil).TrySubscribe), ctx, ids)
+}
+
+// Uncurtail mocks base method.
+func (m *MockDevice) Uncurtail(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Uncurtail", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Uncurtail indicates an expected call of Uncurtail.
+func (mr *MockDeviceMockRecorder) Uncurtail(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Uncurtail", reflect.TypeOf((*MockDevice)(nil).Uncurtail), ctx)
 }
 
 // Unpair mocks base method.

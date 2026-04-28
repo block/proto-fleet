@@ -854,6 +854,43 @@ impl Driver for DriverService {
         Err(Status::unimplemented("update_miner_password not supported"))
     }
 
+    // --- Curtailment ---
+
+    // For v1, FULL curtailment is a stop_mining/start_mining wrapper.
+    // Higher levels (efficiency, partial-percent) are reserved for v4 and
+    // will require vendor-specific underclock logic.
+    async fn curtail(&self, req: Request<pb::CurtailRequest>) -> Result<Response<()>, Status> {
+        let req = req.into_inner();
+        let device_id = req
+            .r#ref
+            .as_ref()
+            .map(|r| &r.device_id)
+            .ok_or_else(|| Status::invalid_argument("Missing device ref"))?;
+        let level = pb::CurtailLevel::try_from(req.level).map_err(|_| {
+            Status::invalid_argument(format!("Unknown curtail level value: {}", req.level))
+        })?;
+        match level {
+            pb::CurtailLevel::Full => {
+                let device = self.get_device(device_id).await?;
+                device.stop_mining().await.map_err(device_err_to_status)?;
+                Ok(Response::new(()))
+            }
+            pb::CurtailLevel::Unspecified => Err(Status::invalid_argument(
+                "curtail level must be specified",
+            )),
+            _ => Err(Status::unimplemented(format!(
+                "curtail level {level:?} not supported by asicrs"
+            ))),
+        }
+    }
+
+    async fn uncurtail(&self, req: Request<pb::DeviceRef>) -> Result<Response<()>, Status> {
+        let device_id = req.into_inner().device_id;
+        let device = self.get_device(&device_id).await?;
+        device.start_mining().await.map_err(device_err_to_status)?;
+        Ok(Response::new(()))
+    }
+
     // --- Telemetry ---
 
     async fn device_status(

@@ -30,10 +30,18 @@ func sdkErrorToGRPCStatus(err error) error {
 			return fmt.Errorf("device not found: %w", status.Error(codes.NotFound, sdkErr.Message))
 		case ErrCodeUnsupportedCapability:
 			return fmt.Errorf("unsupported capability: %w", status.Error(codes.Unimplemented, sdkErr.Message))
+		case ErrCodeCurtailCapabilityNotSupported:
+			// Permanent: same Unimplemented signal as a missing capability so
+			// upstream callers (e.g. the curtailment reconciler) treat it as
+			// non-retryable rather than re-dispatching forever.
+			return fmt.Errorf("curtail capability not supported: %w", status.Error(codes.Unimplemented, sdkErr.Message))
 		case ErrCodeInvalidConfig:
 			return fmt.Errorf("invalid config: %w", status.Error(codes.InvalidArgument, sdkErr.Message))
 		case ErrCodeDeviceUnavailable:
 			return fmt.Errorf("device unavailable: %w", status.Error(codes.Unavailable, sdkErr.Message))
+		case ErrCodeCurtailTransient:
+			// Map to Unavailable so the standard retry semantics apply.
+			return fmt.Errorf("curtail transient failure: %w", status.Error(codes.Unavailable, sdkErr.Message))
 		case ErrCodeDriverShutdown:
 			return fmt.Errorf("driver shutdown: %w", status.Error(codes.Aborted, sdkErr.Message))
 		case ErrCodeAuthenticationFailed:
@@ -625,6 +633,35 @@ func (s *DriverGRPCServer) UpdateMinerPassword(ctx context.Context, req *pb.Upda
 	return &emptypb.Empty{}, err
 }
 
+func (s *DriverGRPCServer) Curtail(ctx context.Context, req *pb.CurtailRequest) (*emptypb.Empty, error) {
+	if req.Ref == nil {
+		return nil, fmt.Errorf("missing device ref: %w", status.Error(codes.InvalidArgument, "missing device ref"))
+	}
+	s.mu.RLock()
+	device, exists := s.devices[req.Ref.DeviceId]
+	s.mu.RUnlock()
+
+	if !exists {
+		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.Ref.DeviceId))
+	}
+
+	err := device.Curtail(ctx, CurtailLevel(req.Level))
+	return &emptypb.Empty{}, err
+}
+
+func (s *DriverGRPCServer) Uncurtail(ctx context.Context, req *pb.DeviceRef) (*emptypb.Empty, error) {
+	s.mu.RLock()
+	device, exists := s.devices[req.DeviceId]
+	s.mu.RUnlock()
+
+	if !exists {
+		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.DeviceId))
+	}
+
+	err := device.Uncurtail(ctx)
+	return &emptypb.Empty{}, err
+}
+
 func (s *DriverGRPCServer) GetTimeSeriesData(ctx context.Context, req *pb.GetTimeSeriesDataRequest) (*pb.GetTimeSeriesDataResponse, error) {
 	s.mu.RLock()
 	device, exists := s.devices[req.Ref.DeviceId]
@@ -1145,6 +1182,21 @@ func (d *DeviceGRPCClient) UpdateMinerPassword(ctx context.Context, currentPassw
 		Ref:             &pb.DeviceRef{DeviceId: d.deviceID},
 		CurrentPassword: currentPassword,
 		NewPassword:     newPassword,
+	})
+	return err
+}
+
+func (d *DeviceGRPCClient) Curtail(ctx context.Context, level CurtailLevel) error {
+	_, err := d.client.Curtail(ctx, &pb.CurtailRequest{
+		Ref:   &pb.DeviceRef{DeviceId: d.deviceID},
+		Level: pb.CurtailLevel(safeIntToInt32(int(level))),
+	})
+	return err
+}
+
+func (d *DeviceGRPCClient) Uncurtail(ctx context.Context) error {
+	_, err := d.client.Uncurtail(ctx, &pb.DeviceRef{
+		DeviceId: d.deviceID,
 	})
 	return err
 }

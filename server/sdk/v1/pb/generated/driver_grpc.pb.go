@@ -45,6 +45,8 @@ const (
 	Driver_GetFirmwareUpdateStatus_FullMethodName = "/sdk.v1.Driver/GetFirmwareUpdateStatus"
 	Driver_Unpair_FullMethodName                  = "/sdk.v1.Driver/Unpair"
 	Driver_UpdateMinerPassword_FullMethodName     = "/sdk.v1.Driver/UpdateMinerPassword"
+	Driver_Curtail_FullMethodName                 = "/sdk.v1.Driver/Curtail"
+	Driver_Uncurtail_FullMethodName               = "/sdk.v1.Driver/Uncurtail"
 	Driver_DeviceStatus_FullMethodName            = "/sdk.v1.Driver/DeviceStatus"
 	Driver_GetTimeSeriesData_FullMethodName       = "/sdk.v1.Driver/GetTimeSeriesData"
 	Driver_GetDeviceWebViewURL_FullMethodName     = "/sdk.v1.Driver/GetDeviceWebViewURL"
@@ -89,6 +91,11 @@ type DriverClient interface {
 	GetFirmwareUpdateStatus(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*GetFirmwareUpdateStatusResponse, error)
 	Unpair(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	UpdateMinerPassword(ctx context.Context, in *UpdateMinerPasswordRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	// Curtailment - Required for plugins that report curtail_supported.
+	// Plugins that do not implement curtailment should return Unimplemented;
+	// capability-gating in the server prevents Curtail dispatch to such miners.
+	Curtail(ctx context.Context, in *CurtailRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	Uncurtail(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// CoreV1 - Base Telemetry - Required methods
 	DeviceStatus(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*DeviceMetrics, error)
 	// CoreV1 - Advanced Telemetry - Optional methods
@@ -326,6 +333,24 @@ func (c *driverClient) UpdateMinerPassword(ctx context.Context, in *UpdateMinerP
 	return out, nil
 }
 
+func (c *driverClient) Curtail(ctx context.Context, in *CurtailRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, Driver_Curtail_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *driverClient) Uncurtail(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, Driver_Uncurtail_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *driverClient) DeviceStatus(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*DeviceMetrics, error) {
 	out := new(DeviceMetrics)
 	err := c.cc.Invoke(ctx, Driver_DeviceStatus_FullMethodName, in, out, opts...)
@@ -439,6 +464,11 @@ type DriverServer interface {
 	GetFirmwareUpdateStatus(context.Context, *DeviceRef) (*GetFirmwareUpdateStatusResponse, error)
 	Unpair(context.Context, *DeviceRef) (*emptypb.Empty, error)
 	UpdateMinerPassword(context.Context, *UpdateMinerPasswordRequest) (*emptypb.Empty, error)
+	// Curtailment - Required for plugins that report curtail_supported.
+	// Plugins that do not implement curtailment should return Unimplemented;
+	// capability-gating in the server prevents Curtail dispatch to such miners.
+	Curtail(context.Context, *CurtailRequest) (*emptypb.Empty, error)
+	Uncurtail(context.Context, *DeviceRef) (*emptypb.Empty, error)
 	// CoreV1 - Base Telemetry - Required methods
 	DeviceStatus(context.Context, *DeviceRef) (*DeviceMetrics, error)
 	// CoreV1 - Advanced Telemetry - Optional methods
@@ -528,6 +558,12 @@ func (UnimplementedDriverServer) Unpair(context.Context, *DeviceRef) (*emptypb.E
 }
 func (UnimplementedDriverServer) UpdateMinerPassword(context.Context, *UpdateMinerPasswordRequest) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateMinerPassword not implemented")
+}
+func (UnimplementedDriverServer) Curtail(context.Context, *CurtailRequest) (*emptypb.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Curtail not implemented")
+}
+func (UnimplementedDriverServer) Uncurtail(context.Context, *DeviceRef) (*emptypb.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Uncurtail not implemented")
 }
 func (UnimplementedDriverServer) DeviceStatus(context.Context, *DeviceRef) (*DeviceMetrics, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeviceStatus not implemented")
@@ -992,6 +1028,42 @@ func _Driver_UpdateMinerPassword_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Driver_Curtail_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CurtailRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DriverServer).Curtail(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Driver_Curtail_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DriverServer).Curtail(ctx, req.(*CurtailRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Driver_Uncurtail_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeviceRef)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DriverServer).Uncurtail(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Driver_Uncurtail_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DriverServer).Uncurtail(ctx, req.(*DeviceRef))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Driver_DeviceStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(DeviceRef)
 	if err := dec(in); err != nil {
@@ -1205,6 +1277,14 @@ var Driver_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UpdateMinerPassword",
 			Handler:    _Driver_UpdateMinerPassword_Handler,
+		},
+		{
+			MethodName: "Curtail",
+			Handler:    _Driver_Curtail_Handler,
+		},
+		{
+			MethodName: "Uncurtail",
+			Handler:    _Driver_Uncurtail_Handler,
 		},
 		{
 			MethodName: "DeviceStatus",

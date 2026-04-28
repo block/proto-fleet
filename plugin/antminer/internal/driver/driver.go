@@ -139,9 +139,12 @@ func (d *Driver) DescribeDriver(ctx context.Context) (sdk.DriverIdentifier, sdk.
 		sdk.CapabilityPairing:     true,
 
 		// Command capabilities
-		sdk.CapabilityReboot:             true,
-		sdk.CapabilityMiningStart:        true,
-		sdk.CapabilityMiningStop:         true,
+		sdk.CapabilityReboot:      true,
+		sdk.CapabilityMiningStart: true,
+		sdk.CapabilityMiningStop:  true,
+		// FULL curtailment is implemented as StopMining/StartMining wrappers.
+		// Higher levels (efficiency, partial-percent) are reserved for v4.
+		sdk.CapabilityCurtail:            true,
 		sdk.CapabilityLEDBlink:           true,
 		sdk.CapabilityFactoryReset:       false,
 		sdk.CapabilityCoolingModeAir:     false,

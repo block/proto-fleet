@@ -242,6 +242,24 @@ const (
 	PerformanceModeEfficiency
 )
 
+// CurtailLevel selects how aggressively a miner is curtailed. Numeric values
+// mirror the curtailment.v1 CurtailmentLevel proto enum (ordered by ascending
+// power-reduction impact) so callers can convert without translation.
+type CurtailLevel int32
+
+const (
+	// CurtailLevelUnspecified represents an unspecified curtail level
+	CurtailLevelUnspecified CurtailLevel = 0
+	// CurtailLevelEfficiency is reserved (v4) — peak J/TH setting,
+	// ~20–30% per-miner reduction. Plugins may return ErrCurtailCapabilityNotSupported.
+	CurtailLevelEfficiency CurtailLevel = 1
+	// CurtailLevelPartialPercent is reserved (v4) — operator-specified hash %.
+	CurtailLevelPartialPercent CurtailLevel = 2
+	// CurtailLevelFull is the v1 level — complete shutdown,
+	// ~100% per-miner reduction modulo idle draw.
+	CurtailLevelFull CurtailLevel = 3
+)
+
 // APIKey represents API key authentication
 type APIKey struct {
 	Key string
@@ -362,6 +380,16 @@ type DeviceControl interface {
 	StopMining(ctx context.Context) error
 	BlinkLED(ctx context.Context) error
 	Reboot(ctx context.Context) error
+
+	// Curtailment - required by plugins that report CapabilityCurtail.
+	// Plugins that do not implement curtailment should return
+	// ErrCurtailCapabilityNotSupported; capability gating in the server
+	// prevents Curtail dispatch to such miners.
+	//
+	// For v1, FULL is the only honored level; higher levels are reserved
+	// for v4 (see CurtailLevel).
+	Curtail(ctx context.Context, level CurtailLevel) error
+	Uncurtail(ctx context.Context) error
 }
 
 // DeviceConfiguration represents device configuration operations
@@ -510,6 +538,11 @@ const (
 
 	// Power mode capabilities
 	CapabilityPowerModeEfficiency = "power_mode_efficiency" // Efficiency/low power mode support
+
+	// Curtailment capabilities
+	CapabilityCurtail           = "curtail"            // Curtail/Uncurtail support (FULL level)
+	CapabilityCurtailEfficiency = "curtail_efficiency" // reserved (v4) — efficiency-mode curtailment
+	CapabilityCurtailPartial    = "curtail_partial"    // reserved (v4) — partial-percent curtailment
 
 	// Telemetry capabilities
 	CapabilityRealtimeTelemetry = "realtime_telemetry"    // Real-time telemetry support

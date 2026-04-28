@@ -304,6 +304,21 @@ enum PerformanceMode {
   PERFORMANCE_MODE_EFFICIENCY = 2;
 }
 
+// CurtailLevel mirrors the curtailment.v1 CurtailmentLevel enum, ordered by
+// ascending power-reduction impact. The numeric values must stay aligned
+// with the CurtailmentLevel enum so callers can convert without translation.
+enum CurtailLevel {
+  CURTAIL_LEVEL_UNSPECIFIED     = 0;
+  CURTAIL_LEVEL_EFFICIENCY      = 1;  // reserved (v4) — peak J/TH setting
+  CURTAIL_LEVEL_PARTIAL_PERCENT = 2;  // reserved (v4) — operator-specified hash %
+  CURTAIL_LEVEL_FULL            = 3;  // v1 — complete shutdown
+}
+
+message CurtailRequest {
+  DeviceRef ref = 1;
+  CurtailLevel level = 2;
+}
+
 message SetPowerTargetRequest {
   DeviceRef ref = 1;
   PerformanceMode performance_mode = 2;
@@ -632,6 +647,12 @@ service Driver {
   rpc GetFirmwareUpdateStatus(DeviceRef) returns (GetFirmwareUpdateStatusResponse);
   rpc Unpair(DeviceRef) returns (google.protobuf.Empty);
   rpc UpdateMinerPassword(UpdateMinerPasswordRequest) returns (google.protobuf.Empty);
+
+  // Curtailment - Required for plugins that report curtail_supported.
+  // Plugins that do not implement curtailment should return Unimplemented;
+  // capability-gating in the server prevents Curtail dispatch to such miners.
+  rpc Curtail(CurtailRequest) returns (google.protobuf.Empty);
+  rpc Uncurtail(DeviceRef) returns (google.protobuf.Empty);
 
   // CoreV1 - Base Telemetry - Required methods
   rpc DeviceStatus(DeviceRef) returns (DeviceMetrics);
