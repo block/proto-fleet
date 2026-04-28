@@ -11,6 +11,12 @@ type ScheduleIDStatus struct {
 	Status string
 }
 
+type ScheduleTargetOverlap struct {
+	ScheduleID       int64
+	SchedulePriority int32
+	DeviceIdentifier string
+}
+
 // ScheduleWithOrg pairs a proto Schedule with its org_id for cross-org processor queries.
 // The proto Schedule message is org-agnostic (all CRUD is org-scoped via session),
 // but the processor operates across orgs and needs the org_id for command dispatch.
@@ -54,7 +60,7 @@ type SchedulePriorityStore interface {
 // Schedule message omits. Org-scoped queries return plain *pb.Schedule.
 type ScheduleProcessorStore interface {
 	GetActiveSchedules(ctx context.Context) ([]ScheduleWithOrg, error)
-	GetRunningPowerTargetSchedules(ctx context.Context, orgID int64) ([]*pb.Schedule, error)
+	GetRunningPowerTargetScheduleOverlaps(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]ScheduleTargetOverlap, error)
 	UpdateScheduleAfterRun(ctx context.Context, scheduleID int64, lastRunAt, nextRunAt *int64, status string) error
 	SetScheduleRunning(ctx context.Context, scheduleID int64) (int64, error)
 	GetScheduleByID(ctx context.Context, scheduleID int64) (*ScheduleWithOrg, error)

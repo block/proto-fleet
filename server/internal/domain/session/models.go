@@ -36,6 +36,14 @@ const (
 	ActorScheduler Actor = "scheduler"
 )
 
+// Source carries optional policy context for command preflight filters.
+type Source struct {
+	// ScheduleID == 0 means there is no source schedule, so schedule-conflict
+	// filtering cannot apply priority semantics.
+	ScheduleID       int64
+	SchedulePriority int32
+}
+
 // Info contains authenticated request context passed to handlers.
 // Populated by the auth interceptor for both session and API key authentication.
 type Info struct {
@@ -58,6 +66,11 @@ type Info struct {
 	// Actor is set by internal orchestrators that synthesize a session.Info
 	// (e.g. scheduler). Empty for user/API-key traffic.
 	Actor Actor
+
+	// Source is populated by orchestrators that have policy context filters
+	// can act on (priority, schedule ID, etc.). Zero-valued for user/API-key
+	// traffic.
+	Source Source
 }
 
 // CredentialID returns a stable identifier for the authenticated credential.

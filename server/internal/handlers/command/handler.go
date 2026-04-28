@@ -29,67 +29,62 @@ func (h *Handler) Reboot(
 	ctx context.Context,
 	req *connect.Request[pb.RebootRequest],
 ) (*connect.Response[pb.RebootResponse], error) {
-	resp, err := h.commandSvc.Reboot(ctx, req.Msg.DeviceSelector)
+	result, err := h.commandSvc.Reboot(ctx, req.Msg.DeviceSelector)
 	if err != nil {
 		return nil, err
 	}
-
-	return connect.NewResponse(resp), nil
+	return connect.NewResponse(&pb.RebootResponse{BatchIdentifier: result.BatchIdentifier}), nil
 }
 
 func (h *Handler) StopMining(
 	ctx context.Context,
 	req *connect.Request[pb.StopMiningRequest],
 ) (*connect.Response[pb.StopMiningResponse], error) {
-	resp, err := h.commandSvc.StopMining(ctx, req.Msg.DeviceSelector)
+	result, err := h.commandSvc.StopMining(ctx, req.Msg.DeviceSelector)
 	if err != nil {
 		return nil, err
 	}
-
-	return connect.NewResponse(resp), nil
+	return connect.NewResponse(&pb.StopMiningResponse{BatchIdentifier: result.BatchIdentifier}), nil
 }
 
 func (h *Handler) StartMining(
 	ctx context.Context,
 	req *connect.Request[pb.StartMiningRequest],
 ) (*connect.Response[pb.StartMiningResponse], error) {
-	resp, err := h.commandSvc.StartMining(ctx, req.Msg.DeviceSelector)
+	result, err := h.commandSvc.StartMining(ctx, req.Msg.DeviceSelector)
 	if err != nil {
 		return nil, err
 	}
-
-	return connect.NewResponse(resp), nil
+	return connect.NewResponse(&pb.StartMiningResponse{BatchIdentifier: result.BatchIdentifier}), nil
 }
 
 func (h *Handler) SetCoolingMode(
 	ctx context.Context,
 	req *connect.Request[pb.SetCoolingModeRequest],
 ) (*connect.Response[pb.SetCoolingModeResponse], error) {
-	resp, err := h.commandSvc.SetCoolingMode(ctx, req.Msg.DeviceSelector, req.Msg.Mode)
+	result, err := h.commandSvc.SetCoolingMode(ctx, req.Msg.DeviceSelector, req.Msg.Mode)
 	if err != nil {
 		return nil, err
 	}
-
-	return connect.NewResponse(resp), nil
+	return connect.NewResponse(&pb.SetCoolingModeResponse{BatchIdentifier: result.BatchIdentifier}), nil
 }
 
 func (h *Handler) SetPowerTarget(
 	ctx context.Context,
 	req *connect.Request[pb.SetPowerTargetRequest],
 ) (*connect.Response[pb.SetPowerTargetResponse], error) {
-	resp, err := h.commandSvc.SetPowerTarget(ctx, req.Msg.DeviceSelector, req.Msg.PerformanceMode)
+	result, err := h.commandSvc.SetPowerTarget(ctx, req.Msg.DeviceSelector, req.Msg.PerformanceMode)
 	if err != nil {
 		return nil, err
 	}
-
-	return connect.NewResponse(resp), nil
+	return connect.NewResponse(&pb.SetPowerTargetResponse{BatchIdentifier: result.BatchIdentifier}), nil
 }
 
 func (h *Handler) UpdateMiningPools(
 	ctx context.Context,
 	req *connect.Request[pb.UpdateMiningPoolsRequest],
 ) (*connect.Response[pb.UpdateMiningPoolsResponse], error) {
-	resp, err := h.commandSvc.UpdateMiningPools(
+	result, err := h.commandSvc.UpdateMiningPools(
 		ctx,
 		req.Msg.DeviceSelector,
 		req.Msg.DefaultPool,
@@ -101,54 +96,49 @@ func (h *Handler) UpdateMiningPools(
 	if err != nil {
 		return nil, err
 	}
-
-	return connect.NewResponse(resp), nil
+	return connect.NewResponse(&pb.UpdateMiningPoolsResponse{BatchIdentifier: result.BatchIdentifier}), nil
 }
 
 func (h *Handler) DownloadLogs(
 	ctx context.Context,
 	req *connect.Request[pb.DownloadLogsRequest],
 ) (*connect.Response[pb.DownloadLogsResponse], error) {
-	resp, err := h.commandSvc.DownloadLogs(ctx, req.Msg.DeviceSelector)
+	result, err := h.commandSvc.DownloadLogs(ctx, req.Msg.DeviceSelector)
 	if err != nil {
 		return nil, err
 	}
-
-	return connect.NewResponse(resp), nil
+	return connect.NewResponse(&pb.DownloadLogsResponse{BatchIdentifier: result.BatchIdentifier}), nil
 }
 
 func (h *Handler) BlinkLED(ctx context.Context, req *connect.Request[pb.BlinkLEDRequest]) (*connect.Response[pb.BlinkLEDResponse], error) {
-	resp, err := h.commandSvc.BlinkLED(ctx, req.Msg.DeviceSelector)
+	result, err := h.commandSvc.BlinkLED(ctx, req.Msg.DeviceSelector)
 	if err != nil {
 		return nil, err
 	}
-
-	return connect.NewResponse(resp), nil
+	return connect.NewResponse(&pb.BlinkLEDResponse{BatchIdentifier: result.BatchIdentifier}), nil
 }
 
 func (h *Handler) FirmwareUpdate(ctx context.Context, req *connect.Request[pb.FirmwareUpdateRequest]) (*connect.Response[pb.FirmwareUpdateResponse], error) {
-	resp, err := h.commandSvc.FirmwareUpdate(ctx, req.Msg.DeviceSelector, req.Msg.GetFirmwareFileId())
+	result, err := h.commandSvc.FirmwareUpdate(ctx, req.Msg.DeviceSelector, req.Msg.GetFirmwareFileId())
 	if err != nil {
 		return nil, err
 	}
-
-	return connect.NewResponse(resp), nil
+	return connect.NewResponse(&pb.FirmwareUpdateResponse{BatchIdentifier: result.BatchIdentifier}), nil
 }
 
 func (h *Handler) Unpair(ctx context.Context, req *connect.Request[pb.UnpairRequest]) (*connect.Response[pb.UnpairResponse], error) {
-	resp, err := h.commandSvc.Unpair(ctx, req.Msg.DeviceSelector)
+	result, err := h.commandSvc.Unpair(ctx, req.Msg.DeviceSelector)
 	if err != nil {
 		return nil, err
 	}
-
-	return connect.NewResponse(resp), nil
+	return connect.NewResponse(&pb.UnpairResponse{BatchIdentifier: result.BatchIdentifier}), nil
 }
 
 func (h *Handler) UpdateMinerPassword(
 	ctx context.Context,
 	req *connect.Request[pb.UpdateMinerPasswordRequest],
 ) (*connect.Response[pb.UpdateMinerPasswordResponse], error) {
-	resp, err := h.commandSvc.UpdateMinerPassword(
+	result, err := h.commandSvc.UpdateMinerPassword(
 		ctx,
 		req.Msg.DeviceSelector,
 		req.Msg.NewPassword,
@@ -159,8 +149,7 @@ func (h *Handler) UpdateMinerPassword(
 	if err != nil {
 		return nil, err
 	}
-
-	return connect.NewResponse(resp), nil
+	return connect.NewResponse(&pb.UpdateMinerPasswordResponse{BatchIdentifier: result.BatchIdentifier}), nil
 }
 
 func (h *Handler) StreamCommandBatchUpdates(ctx context.Context, r *connect.Request[pb.StreamCommandBatchUpdatesRequest], stream *connect.ServerStream[pb.StreamCommandBatchUpdatesResponse]) error {

@@ -183,47 +183,61 @@ func (q *Queries) GetMaxPriority(ctx context.Context, orgID int64) (int32, error
 	return max_priority, err
 }
 
-const getRunningPowerTargetSchedules = `-- name: GetRunningPowerTargetSchedules :many
-SELECT id, org_id, name, action, action_config, schedule_type, recurrence, start_date, start_time, end_time, end_date, timezone, status, priority, created_by, created_at, updated_at, deleted_at, last_run_at, next_run_at
-FROM schedule
-WHERE org_id = $1
-  AND status = 'running'
-  AND action = 'set_power_target'
-  AND deleted_at IS NULL
-ORDER BY priority, id
+const getRunningPowerTargetScheduleOverlaps = `-- name: GetRunningPowerTargetScheduleOverlaps :many
+WITH requested AS (
+    SELECT UNNEST($2::text[]) AS device_identifier
+)
+SELECT DISTINCT
+    s.id AS schedule_id,
+    s.priority AS schedule_priority,
+    r.device_identifier::text AS device_identifier
+FROM schedule s
+JOIN schedule_target st ON st.schedule_id = s.id
+JOIN requested r ON (
+    (st.target_type = 'miner' AND st.target_id = r.device_identifier)
+    OR (
+        st.target_type IN ('rack', 'group')
+        AND EXISTS (
+            SELECT 1
+            FROM device_set_membership dsm
+            JOIN device_set ds ON ds.id = dsm.device_set_id
+            WHERE dsm.org_id = s.org_id
+              AND ds.org_id = s.org_id
+              AND ds.deleted_at IS NULL
+              -- Match expansion: rack/group targets resolve by device_set ID.
+              AND dsm.device_set_id = CASE WHEN st.target_id ~ '^[0-9]+$' THEN st.target_id::bigint ELSE NULL END
+              AND dsm.device_identifier = r.device_identifier
+        )
+    )
+)
+WHERE s.org_id = $1
+  AND s.status = 'running'
+  AND s.action = 'set_power_target'
+  AND s.deleted_at IS NULL
+ORDER BY s.priority, s.id, r.device_identifier
 `
 
-func (q *Queries) GetRunningPowerTargetSchedules(ctx context.Context, orgID int64) ([]Schedule, error) {
-	rows, err := q.query(ctx, q.getRunningPowerTargetSchedulesStmt, getRunningPowerTargetSchedules, orgID)
+type GetRunningPowerTargetScheduleOverlapsParams struct {
+	OrgID             int64
+	DeviceIdentifiers []string
+}
+
+type GetRunningPowerTargetScheduleOverlapsRow struct {
+	ScheduleID       int64
+	SchedulePriority int32
+	DeviceIdentifier string
+}
+
+func (q *Queries) GetRunningPowerTargetScheduleOverlaps(ctx context.Context, arg GetRunningPowerTargetScheduleOverlapsParams) ([]GetRunningPowerTargetScheduleOverlapsRow, error) {
+	rows, err := q.query(ctx, q.getRunningPowerTargetScheduleOverlapsStmt, getRunningPowerTargetScheduleOverlaps, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []Schedule
+	var items []GetRunningPowerTargetScheduleOverlapsRow
 	for rows.Next() {
-		var i Schedule
-		if err := rows.Scan(
-			&i.ID,
-			&i.OrgID,
-			&i.Name,
-			&i.Action,
-			&i.ActionConfig,
-			&i.ScheduleType,
-			&i.Recurrence,
-			&i.StartDate,
-			&i.StartTime,
-			&i.EndTime,
-			&i.EndDate,
-			&i.Timezone,
-			&i.Status,
-			&i.Priority,
-			&i.CreatedBy,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.DeletedAt,
-			&i.LastRunAt,
-			&i.NextRunAt,
-		); err != nil {
+		var i GetRunningPowerTargetScheduleOverlapsRow
+		if err := rows.Scan(&i.ScheduleID, &i.SchedulePriority, &i.DeviceIdentifier); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

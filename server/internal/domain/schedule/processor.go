@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +16,8 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/schedule/v1"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
+	"github.com/block/proto-fleet/server/internal/domain/command"
+	scheduletargets "github.com/block/proto-fleet/server/internal/domain/schedule/targets"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
@@ -27,24 +28,30 @@ const (
 	revertPerformanceMode = commandpb.PerformanceMode_PERFORMANCE_MODE_EFFICIENCY
 	schedulerActorName    = "scheduler"
 	oneTimeRetryDelay     = time.Second
+	// shutdownDeadline bounds Stop(): drain-before-cancel is the graceful
+	// path, the watchdog cancels workCtx if a DB/dispatch call wedges.
+	// Sized within the fleetd-wide shutdownTimeout (10s).
+	shutdownDeadline = 10 * time.Second
 )
 
+// shutdownDeadlineFn lets tests shrink the watchdog without affecting prod.
+var shutdownDeadlineFn = func() time.Duration { return shutdownDeadline }
+
 // CommandDispatcher is the subset of command.Service the processor needs.
+// CommandResult carries preflight skips for schedule-level audit.
 type CommandDispatcher interface {
-	SetPowerTarget(ctx context.Context, selector *commandpb.DeviceSelector, mode commandpb.PerformanceMode) (*commandpb.SetPowerTargetResponse, error)
-	Reboot(ctx context.Context, selector *commandpb.DeviceSelector) (*commandpb.RebootResponse, error)
-	StopMining(ctx context.Context, selector *commandpb.DeviceSelector) (*commandpb.StopMiningResponse, error)
+	SetPowerTarget(ctx context.Context, selector *commandpb.DeviceSelector, mode commandpb.PerformanceMode) (*command.CommandResult, error)
+	Reboot(ctx context.Context, selector *commandpb.DeviceSelector) (*command.CommandResult, error)
+	StopMining(ctx context.Context, selector *commandpb.DeviceSelector) (*command.CommandResult, error)
 }
 
-// jobEntry tracks a registered job and a fingerprint of the schedule's timing
-// fields so that edits can be detected during reconciliation. For recurring
-// schedules entryID holds the cron.EntryID; for one-time schedules timer holds
-// a *time.Timer that fires the callback.
+// jobEntry tracks a registered cron/timer job and its timing fingerprint.
 type jobEntry struct {
 	entryID     cron.EntryID
 	timer       *time.Timer
 	isOneTime   bool
 	fingerprint string
+	generation  uint64
 }
 
 type Processor struct {
@@ -56,10 +63,13 @@ type Processor struct {
 	activitySvc     *activity.Service
 	now             func() time.Time
 
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
-	mu     sync.Mutex
-	jobs   map[int64]jobEntry
+	stopCancel context.CancelFunc
+	workCancel context.CancelFunc
+	wg         sync.WaitGroup
+	timerWG    sync.WaitGroup
+	mu         sync.Mutex
+	jobs       map[int64]jobEntry
+	nextGen    uint64
 }
 
 func NewProcessor(
@@ -102,76 +112,104 @@ func scheduleFingerprint(sched *pb.Schedule) string {
 }
 
 func (p *Processor) Start(_ context.Context) error {
-	ctx, cancel := context.WithCancel(context.Background())
-	p.cancel = cancel
+	stopCtx, stopCancel := context.WithCancel(context.Background())
+	workCtx, workCancel := context.WithCancel(context.Background())
+	p.stopCancel = stopCancel
+	p.workCancel = workCancel
 
 	p.cron = cron.New(cron.WithChain(cron.SkipIfStillRunning(cron.DefaultLogger)))
 
-	if err := p.recoverStaleRunning(ctx); err != nil {
-		cancel()
+	if err := p.recoverStaleRunning(workCtx); err != nil {
+		stopCancel()
+		workCancel()
 		return fmt.Errorf("schedule processor startup: %w", err)
 	}
-	if err := p.syncSchedules(ctx); err != nil {
-		cancel()
+	if err := p.syncSchedules(workCtx); err != nil {
+		stopCancel()
+		workCancel()
 		return fmt.Errorf("schedule processor startup: %w", err)
 	}
 
 	p.cron.Start()
 
 	p.wg.Add(2)
-	go p.reconcileLoop(ctx)
-	go p.endOfWindowLoop(ctx)
+	go p.reconcileLoop(stopCtx, workCtx)
+	go p.endOfWindowLoop(stopCtx, workCtx)
 
 	slog.Info("schedule processor started")
 	return nil
 }
 
 func (p *Processor) Stop() error {
-	if p.cancel != nil {
-		p.cancel()
+	// Watchdog bounds total shutdown: workCancel is idempotent, so an early
+	// fire just unblocks wedged in-flight calls; the drain sequence below
+	// still runs to completion.
+	if p.workCancel != nil {
+		watchdog := time.AfterFunc(shutdownDeadlineFn(), p.workCancel)
+		defer watchdog.Stop()
 	}
+
+	if p.stopCancel != nil {
+		p.stopCancel()
+	}
+
+	// Stop cron before waiting on the loops so no new cron callbacks fire
+	// during shutdown. In-flight callbacks complete with workCtx still live;
+	// cron.Stop() returns a context that's done once they finish. AddFunc on
+	// a stopped cron appends to entries without firing, so a late
+	// registration from the reconcile loop's last iteration is harmless.
 	if p.cron != nil {
 		cronCtx := p.cron.Stop()
 		<-cronCtx.Done()
 	}
+
 	p.wg.Wait()
+
 	p.mu.Lock()
 	for _, entry := range p.jobs {
 		if entry.isOneTime && entry.timer != nil {
-			entry.timer.Stop()
+			if entry.timer.Stop() {
+				p.timerWG.Done()
+			}
 		}
 	}
 	p.mu.Unlock()
+
+	p.timerWG.Wait()
+
+	if p.workCancel != nil {
+		p.workCancel()
+	}
 	slog.Info("schedule processor stopped")
 	return nil
 }
 
-func (p *Processor) reconcileLoop(ctx context.Context) {
+func (p *Processor) reconcileLoop(stopCtx, workCtx context.Context) {
 	defer p.wg.Done()
 	ticker := time.NewTicker(reconcileInterval)
 	defer ticker.Stop()
 	for {
 		select {
-		case <-ctx.Done():
+		case <-stopCtx.Done():
 			return
 		case <-ticker.C:
-			if err := p.syncSchedules(ctx); err != nil {
+			if err := p.syncSchedules(workCtx); err != nil {
 				slog.Error("reconciliation failed, will retry next cycle", "error", err)
 			}
 		}
 	}
 }
 
-func (p *Processor) endOfWindowLoop(ctx context.Context) {
+func (p *Processor) endOfWindowLoop(stopCtx, workCtx context.Context) {
 	defer p.wg.Done()
 	ticker := time.NewTicker(endOfWindowInterval)
 	defer ticker.Stop()
 	for {
 		select {
-		case <-ctx.Done():
+		case <-stopCtx.Done():
 			return
 		case <-ticker.C:
-			p.checkEndOfWindow(ctx)
+			p.checkEndOfWindow(workCtx)
 		}
 	}
 }
@@ -239,6 +277,7 @@ func (p *Processor) syncSchedules(ctx context.Context) error {
 
 func (p *Processor) registerJob(ctx context.Context, sched *pb.Schedule) error {
 	scheduleID := sched.Id
+	generation := p.nextJobGenerationLocked()
 
 	if sched.ScheduleType == pb.ScheduleType_SCHEDULE_TYPE_ONE_TIME {
 		t, err := ParseScheduleTime(sched.StartDate, sched.StartTime, sched.Timezone)
@@ -249,8 +288,12 @@ func (p *Processor) registerJob(ctx context.Context, sched *pb.Schedule) error {
 		if delay < oneTimeRetryDelay {
 			delay = oneTimeRetryDelay
 		}
-		timer := time.AfterFunc(delay, func() { p.executeSchedule(ctx, scheduleID) })
-		p.jobs[scheduleID] = jobEntry{timer: timer, isOneTime: true, fingerprint: scheduleFingerprint(sched)}
+		p.timerWG.Add(1)
+		timer := time.AfterFunc(delay, func() {
+			defer p.timerWG.Done()
+			p.executeSchedule(ctx, scheduleID)
+		})
+		p.jobs[scheduleID] = jobEntry{timer: timer, isOneTime: true, fingerprint: scheduleFingerprint(sched), generation: generation}
 		return nil
 	}
 
@@ -268,12 +311,18 @@ func (p *Processor) registerJob(ctx context.Context, sched *pb.Schedule) error {
 		return fmt.Errorf("failed to register cron job: %w", err)
 	}
 
-	p.jobs[scheduleID] = jobEntry{entryID: entryID, fingerprint: scheduleFingerprint(sched)}
+	p.jobs[scheduleID] = jobEntry{entryID: entryID, fingerprint: scheduleFingerprint(sched), generation: generation}
 	return nil
+}
+
+func (p *Processor) nextJobGenerationLocked() uint64 {
+	p.nextGen++
+	return p.nextGen
 }
 
 // executeSchedule is called when a job fires.
 func (p *Processor) executeSchedule(ctx context.Context, scheduleID int64) {
+	gen, hasGen := p.currentJobGeneration(scheduleID)
 	slog.Info("executing schedule", "schedule_id", scheduleID)
 
 	rows, err := p.procStore.SetScheduleRunning(ctx, scheduleID)
@@ -293,7 +342,7 @@ func (p *Processor) executeSchedule(ctx context.Context, scheduleID int64) {
 			slog.Error("failed to revert schedule after read failure", "schedule_id", scheduleID, "error", rerr)
 			return
 		}
-		p.removeJob(scheduleID)
+		p.removeJobForRetry(scheduleID, gen, hasGen)
 		return
 	}
 
@@ -316,7 +365,7 @@ func (p *Processor) executeSchedule(ctx context.Context, scheduleID int64) {
 	if sched.EndDate != "" {
 		deadline, err := parseDateInLocation(sched.EndDate, sched.Timezone)
 		if err == nil && now.After(endOfDay(deadline)) {
-			p.transitionToCompleted(ctx, sched, orgID, now)
+			p.transitionToCompletedWithGeneration(ctx, sched, orgID, now, gen, hasGen)
 			return
 		}
 	}
@@ -328,36 +377,14 @@ func (p *Processor) executeSchedule(ctx context.Context, scheduleID int64) {
 			slog.Error("failed to revert schedule after target resolution failure", "schedule_id", scheduleID, "error", rerr)
 			return
 		}
-		p.removeJob(scheduleID)
+		p.removeJobForRetry(scheduleID, gen, hasGen)
 		return
 	}
 
 	if len(deviceIdentifiers) == 0 {
 		slog.Info("no target devices resolved, skipping dispatch", "schedule_id", scheduleID)
-		p.updateAfterRun(ctx, sched, orgID, now)
+		p.updateAfterRunWithGeneration(ctx, sched, orgID, now, gen, hasGen)
 		return
-	}
-
-	if sched.Action == pb.ScheduleAction_SCHEDULE_ACTION_SET_POWER_TARGET {
-		beforeCount := len(deviceIdentifiers)
-		deviceIdentifiers, err = p.filterConflictedMiners(ctx, sched, orgID, deviceIdentifiers)
-		if err != nil {
-			slog.Error("failed to check conflicts", "schedule_id", scheduleID, "error", err)
-			if rerr := p.procStore.RevertScheduleToActive(ctx, scheduleID); rerr != nil {
-				slog.Error("failed to revert schedule after conflict check failure", "schedule_id", scheduleID, "error", rerr)
-				return
-			}
-			p.removeJob(scheduleID)
-			return
-		}
-		if skipped := beforeCount - len(deviceIdentifiers); skipped > 0 {
-			p.logConflictSkip(ctx, sched, orgID, skipped)
-		}
-		if len(deviceIdentifiers) == 0 {
-			slog.Info("all miners overridden by higher-priority schedule", "schedule_id", scheduleID)
-			p.updateAfterRun(ctx, sched, orgID, now)
-			return
-		}
 	}
 
 	cmdCtx := schedulerContext(ctx, sched, orgID)
@@ -369,7 +396,10 @@ func (p *Processor) executeSchedule(ctx context.Context, scheduleID int64) {
 		},
 	}
 
-	if err := p.dispatch(cmdCtx, sched, selector); err != nil {
+	// commandSvc owns preflight filtering; the processor only records
+	// schedule-level skip activity from the returned metadata.
+	result, err := p.dispatch(cmdCtx, sched, selector)
+	if err != nil {
 		slog.Error("failed to dispatch command", "schedule_id", scheduleID, "action", sched.Action, "error", err)
 		if rerr := p.procStore.RevertScheduleToActive(ctx, scheduleID); rerr != nil {
 			slog.Error("failed to revert schedule after dispatch failure", "schedule_id", scheduleID, "error", rerr)
@@ -377,15 +407,71 @@ func (p *Processor) executeSchedule(ctx context.Context, scheduleID int64) {
 		}
 		// Remove the job so syncSchedules re-registers it. This is necessary
 		// for one-time schedules whose timer has already fired and won't retrigger.
-		p.removeJob(scheduleID)
+		p.removeJobForRetry(scheduleID, gen, hasGen)
 		return
 	}
 
-	p.updateAfterRun(ctx, sched, orgID, now)
-	p.logExecution(ctx, sched, orgID, len(deviceIdentifiers))
+	conflictSkips := countConflictSkips(result)
+	if conflictSkips > 0 {
+		p.logConflictSkip(ctx, sched, orgID, conflictSkips)
+	}
+
+	dispatched := 0
+	if result != nil {
+		dispatched = result.DispatchedCount
+		if dispatched == 0 && len(result.Skipped) > 0 {
+			slog.Info("all miners overridden by preflight filters", "schedule_id", scheduleID)
+		}
+	}
+
+	p.updateAfterRunWithGeneration(ctx, sched, orgID, now, gen, hasGen)
+	// Fully filtered dispatches are already captured by schedule_conflict_skip.
+	if dispatched > 0 || conflictSkips == 0 {
+		p.logExecution(ctx, sched, orgID, dispatched)
+	}
 }
 
-func (p *Processor) dispatch(ctx context.Context, sched *pb.Schedule, selector *commandpb.DeviceSelector) error {
+// countConflictSkips ignores other command preflight filters; schedule activity
+// should only summarize schedule-priority conflicts.
+func countConflictSkips(result *command.CommandResult) int {
+	if result == nil {
+		return 0
+	}
+	n := 0
+	for _, s := range result.Skipped {
+		if s.FilterName == command.ScheduleConflictFilterName {
+			n++
+		}
+	}
+	return n
+}
+
+func (p *Processor) currentJobGeneration(scheduleID int64) (uint64, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	entry, ok := p.jobs[scheduleID]
+	if !ok {
+		return 0, false
+	}
+	return entry.generation, true
+}
+
+func (p *Processor) removeJobIfCurrent(scheduleID int64, gen uint64, ok bool) {
+	if !ok {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if entry, exists := p.jobs[scheduleID]; exists && entry.generation == gen {
+		p.removeJobLocked(scheduleID)
+	}
+}
+
+func (p *Processor) removeJobForRetry(scheduleID int64, gen uint64, hasGen bool) {
+	p.removeJobIfCurrent(scheduleID, gen, hasGen)
+}
+
+func (p *Processor) dispatch(ctx context.Context, sched *pb.Schedule, selector *commandpb.DeviceSelector) (*command.CommandResult, error) {
 	switch sched.Action {
 	case pb.ScheduleAction_SCHEDULE_ACTION_SET_POWER_TARGET:
 		mode := commandpb.PerformanceMode_PERFORMANCE_MODE_EFFICIENCY
@@ -399,76 +485,27 @@ func (p *Processor) dispatch(ctx context.Context, sched *pb.Schedule, selector *
 				mode = commandpb.PerformanceMode_PERFORMANCE_MODE_EFFICIENCY
 			}
 		}
-		_, err := p.commandSvc.SetPowerTarget(ctx, selector, mode)
-		return err
+		return p.commandSvc.SetPowerTarget(ctx, selector, mode)
 
 	case pb.ScheduleAction_SCHEDULE_ACTION_REBOOT:
-		_, err := p.commandSvc.Reboot(ctx, selector)
-		return err
+		return p.commandSvc.Reboot(ctx, selector)
 
 	case pb.ScheduleAction_SCHEDULE_ACTION_SLEEP:
-		_, err := p.commandSvc.StopMining(ctx, selector)
-		return err
+		return p.commandSvc.StopMining(ctx, selector)
 
 	case pb.ScheduleAction_SCHEDULE_ACTION_UNSPECIFIED:
-		return fmt.Errorf("unspecified schedule action for schedule %d", sched.Id)
+		return nil, fmt.Errorf("unspecified schedule action for schedule %d", sched.Id)
 
 	default:
-		return fmt.Errorf("unsupported schedule action %v for schedule %d", sched.Action, sched.Id)
+		return nil, fmt.Errorf("unsupported schedule action %v for schedule %d", sched.Action, sched.Id)
 	}
 }
 
 // expandTargets converts a slice of ScheduleTarget into deduplicated device identifiers.
 func (p *Processor) expandTargets(ctx context.Context, targets []*pb.ScheduleTarget, orgID int64) ([]string, error) {
-	seen := make(map[string]struct{})
-	var identifiers []string
-
-	for _, t := range targets {
-		switch t.TargetType {
-		case pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER:
-			if _, dup := seen[t.TargetId]; !dup {
-				seen[t.TargetId] = struct{}{}
-				identifiers = append(identifiers, t.TargetId)
-			}
-
-		case pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_RACK:
-			rackID, err := strconv.ParseInt(t.TargetId, 10, 64)
-			if err != nil {
-				return nil, fmt.Errorf("invalid rack target_id %q: %w", t.TargetId, err)
-			}
-			rackDevices, err := p.collectionStore.GetDeviceIdentifiersByDeviceSetID(ctx, rackID, orgID)
-			if err != nil {
-				return nil, fmt.Errorf("failed to resolve rack %d devices: %w", rackID, err)
-			}
-			for _, d := range rackDevices {
-				if _, dup := seen[d]; !dup {
-					seen[d] = struct{}{}
-					identifiers = append(identifiers, d)
-				}
-			}
-
-		case pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_GROUP:
-			groupID, err := strconv.ParseInt(t.TargetId, 10, 64)
-			if err != nil {
-				return nil, fmt.Errorf("invalid group target_id %q: %w", t.TargetId, err)
-			}
-			groupDevices, err := p.collectionStore.GetDeviceIdentifiersByDeviceSetID(ctx, groupID, orgID)
-			if err != nil {
-				return nil, fmt.Errorf("failed to resolve group %d devices: %w", groupID, err)
-			}
-			for _, d := range groupDevices {
-				if _, dup := seen[d]; !dup {
-					seen[d] = struct{}{}
-					identifiers = append(identifiers, d)
-				}
-			}
-
-		case pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_UNSPECIFIED:
-			slog.Warn("unspecified target type", "target_id", t.TargetId)
-		}
-	}
-
-	return identifiers, nil
+	return scheduletargets.Expand(ctx, p.collectionStore, targets, orgID, func(targetID string) {
+		slog.Warn("unspecified target type", "target_id", targetID)
+	})
 }
 
 func (p *Processor) resolveTargets(ctx context.Context, sched *pb.Schedule, orgID int64) ([]string, error) {
@@ -479,47 +516,12 @@ func (p *Processor) resolveTargets(ctx context.Context, sched *pb.Schedule, orgI
 	return p.expandTargets(ctx, targets, orgID)
 }
 
-// filterConflictedMiners removes miners already covered by a higher-priority
-// running power-target schedule within the same org.
-func (p *Processor) filterConflictedMiners(ctx context.Context, sched *pb.Schedule, orgID int64, deviceIdentifiers []string) ([]string, error) {
-	running, err := p.procStore.GetRunningPowerTargetSchedules(ctx, orgID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get running power target schedules: %w", err)
-	}
-
-	conflicted := make(map[string]struct{})
-	for _, r := range running {
-		if r.Id == sched.Id || r.Priority >= sched.Priority {
-			continue
-		}
-		rTargets, err := p.targetStore.GetScheduleTargets(ctx, orgID, r.Id)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load targets for conflicting schedule %d: %w", r.Id, err)
-		}
-		rDevices, err := p.expandTargets(ctx, rTargets, orgID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to expand targets for conflicting schedule %d: %w", r.Id, err)
-		}
-		for _, d := range rDevices {
-			conflicted[d] = struct{}{}
-		}
-	}
-
-	if len(conflicted) == 0 {
-		return deviceIdentifiers, nil
-	}
-
-	var filtered []string
-	for _, id := range deviceIdentifiers {
-		if _, blocked := conflicted[id]; !blocked {
-			filtered = append(filtered, id)
-		}
-	}
-
-	return filtered, nil
+func (p *Processor) updateAfterRun(ctx context.Context, sched *pb.Schedule, orgID int64, now time.Time) {
+	gen, hasGen := p.currentJobGeneration(sched.Id)
+	p.updateAfterRunWithGeneration(ctx, sched, orgID, now, gen, hasGen)
 }
 
-func (p *Processor) updateAfterRun(ctx context.Context, sched *pb.Schedule, orgID int64, now time.Time) {
+func (p *Processor) updateAfterRunWithGeneration(ctx context.Context, sched *pb.Schedule, orgID int64, now time.Time, gen uint64, hasGen bool) {
 	lastRun := now.Unix()
 	nextRun, err := ComputeNextRun(sched, now)
 	if err != nil {
@@ -555,7 +557,7 @@ func (p *Processor) updateAfterRun(ctx context.Context, sched *pb.Schedule, orgI
 			slog.Error("failed to revert schedule after update failure", "schedule_id", sched.Id, "error", rerr)
 			return
 		}
-		p.removeJob(sched.Id)
+		p.removeJobForRetry(sched.Id, gen, hasGen)
 		return
 	}
 
@@ -566,6 +568,11 @@ func (p *Processor) updateAfterRun(ctx context.Context, sched *pb.Schedule, orgI
 }
 
 func (p *Processor) transitionToCompleted(ctx context.Context, sched *pb.Schedule, orgID int64, now time.Time) {
+	gen, hasGen := p.currentJobGeneration(sched.Id)
+	p.transitionToCompletedWithGeneration(ctx, sched, orgID, now, gen, hasGen)
+}
+
+func (p *Processor) transitionToCompletedWithGeneration(ctx context.Context, sched *pb.Schedule, orgID int64, now time.Time, gen uint64, hasGen bool) {
 	lastRun := now.Unix()
 	if err := p.procStore.UpdateScheduleAfterRun(ctx, sched.Id, &lastRun, nil, statusCompleted); err != nil {
 		slog.Error("failed to transition schedule to completed, reverting to active", "schedule_id", sched.Id, "error", err)
@@ -573,7 +580,7 @@ func (p *Processor) transitionToCompleted(ctx context.Context, sched *pb.Schedul
 			slog.Error("failed to revert schedule after completion failure", "schedule_id", sched.Id, "error", rerr)
 			return
 		}
-		p.removeJob(sched.Id)
+		p.removeJobForRetry(sched.Id, gen, hasGen)
 		return
 	}
 	p.removeJob(sched.Id)
@@ -679,13 +686,7 @@ func (p *Processor) checkEndOfWindow(ctx context.Context) {
 			continue
 		}
 
-		// Exclude miners still covered by a higher-priority running schedule.
-		deviceIdentifiers, err = p.filterConflictedMiners(ctx, sched, sw.OrgID, deviceIdentifiers)
-		if err != nil {
-			slog.Error("failed to filter conflicts for revert", "schedule_id", sched.Id, "error", err)
-			continue
-		}
-
+		// commandSvc applies conflict filtering; mirror normal dispatch audit.
 		if len(deviceIdentifiers) > 0 {
 			cmdCtx := schedulerContext(ctx, sched, sw.OrgID)
 			selector := &commandpb.DeviceSelector{
@@ -695,9 +696,13 @@ func (p *Processor) checkEndOfWindow(ctx context.Context) {
 					},
 				},
 			}
-			if _, err := p.commandSvc.SetPowerTarget(cmdCtx, selector, revertPerformanceMode); err != nil {
+			result, err := p.commandSvc.SetPowerTarget(cmdCtx, selector, revertPerformanceMode)
+			if err != nil {
 				slog.Error("failed to dispatch revert command, will retry next cycle", "schedule_id", sched.Id, "error", err)
 				continue
+			}
+			if skipped := countConflictSkips(result); skipped > 0 {
+				p.logConflictSkip(ctx, sched, sw.OrgID, skipped)
 			}
 		}
 
@@ -718,8 +723,8 @@ func (p *Processor) removeJob(scheduleID int64) {
 func (p *Processor) removeJobLocked(scheduleID int64) {
 	if entry, ok := p.jobs[scheduleID]; ok {
 		if entry.isOneTime {
-			if entry.timer != nil {
-				entry.timer.Stop()
+			if entry.timer != nil && entry.timer.Stop() {
+				p.timerWG.Done()
 			}
 		} else {
 			p.cron.Remove(entry.entryID)
@@ -728,8 +733,8 @@ func (p *Processor) removeJobLocked(scheduleID int64) {
 	}
 }
 
-// schedulerContext creates a context with synthetic session info so the command
-// service can create batch logs and resolve devices using the schedule's org.
+// schedulerContext adds synthetic scheduler session info for command dispatch.
+// Source lets ScheduleConflictFilter apply priority semantics.
 func schedulerContext(parent context.Context, sched *pb.Schedule, orgID int64) context.Context {
 	return authn.SetInfo(parent, &session.Info{
 		SessionID:      schedulerActorName,
@@ -737,9 +742,11 @@ func schedulerContext(parent context.Context, sched *pb.Schedule, orgID int64) c
 		OrganizationID: orgID,
 		ExternalUserID: schedulerActorName,
 		Username:       schedulerActorName,
-		// Mark the session as scheduler-driven so downstream activity logging
-		// tags both the initiated and completed rows with ActorScheduler.
-		Actor: session.ActorScheduler,
+		Actor:          session.ActorScheduler,
+		Source: session.Source{
+			ScheduleID:       sched.Id,
+			SchedulePriority: sched.Priority,
+		},
 	})
 }
 

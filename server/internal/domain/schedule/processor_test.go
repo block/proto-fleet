@@ -13,6 +13,9 @@ import (
 
 	commandpb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/schedule/v1"
+	"github.com/block/proto-fleet/server/internal/domain/activity"
+	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
+	commanddomain "github.com/block/proto-fleet/server/internal/domain/command"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 )
@@ -29,6 +32,245 @@ func newTestProcessor(t *testing.T, now time.Time) (*Processor, *mocks.MockSched
 	p := NewProcessor(procStore, targetStore, collectionStore, cmdSvc, nil)
 	p.now = func() time.Time { return now }
 	return p, procStore, targetStore, collectionStore, cmdSvc
+}
+
+type recordingActivityStore struct {
+	inserts []*activitymodels.Event
+}
+
+func (s *recordingActivityStore) Insert(_ context.Context, event *activitymodels.Event) error {
+	clone := *event
+	s.inserts = append(s.inserts, &clone)
+	return nil
+}
+
+func (s *recordingActivityStore) List(context.Context, activitymodels.Filter) ([]activitymodels.Entry, error) {
+	panic("not used in processor_test")
+}
+func (s *recordingActivityStore) Count(context.Context, activitymodels.Filter) (int64, error) {
+	panic("not used in processor_test")
+}
+func (s *recordingActivityStore) GetDistinctUsers(context.Context, int64) ([]activitymodels.UserInfo, error) {
+	panic("not used in processor_test")
+}
+func (s *recordingActivityStore) GetDistinctEventTypes(context.Context, int64) ([]activitymodels.EventTypeInfo, error) {
+	panic("not used in processor_test")
+}
+func (s *recordingActivityStore) GetDistinctScopeTypes(context.Context, int64) ([]string, error) {
+	panic("not used in processor_test")
+}
+
+func withRecordingActivity(p *Processor) *recordingActivityStore {
+	store := &recordingActivityStore{}
+	p.activitySvc = activity.NewService(store)
+	return store
+}
+
+func countActivityType(store *recordingActivityStore, eventType string) int {
+	n := 0
+	for _, event := range store.inserts {
+		if event.Type == eventType {
+			n++
+		}
+	}
+	return n
+}
+
+func waitForSignal(t *testing.T, ch <-chan struct{}, msg string) {
+	t.Helper()
+	select {
+	case <-ch:
+	case <-time.After(2 * time.Second):
+		t.Fatal(msg)
+	}
+}
+
+func assertNoSignal(t *testing.T, ch <-chan struct{}, d time.Duration, msg string) {
+	t.Helper()
+	select {
+	case <-ch:
+		t.Fatal(msg)
+	case <-time.After(d):
+	}
+}
+
+// --- lifecycle shutdown ---
+
+func TestStop_WaitsForInFlightTimerCallback(t *testing.T) {
+	p, procStore, _, _, _ := newTestProcessor(t, time.Now())
+	workCtx, workCancel := context.WithCancel(context.Background())
+	p.workCancel = workCancel
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	stopped := make(chan struct{})
+
+	procStore.EXPECT().SetScheduleRunning(gomock.Any(), int64(1)).DoAndReturn(
+		func(ctx context.Context, scheduleID int64) (int64, error) {
+			close(started)
+			<-release
+			assert.NoError(t, ctx.Err())
+			return int64(0), nil
+		},
+	)
+
+	p.timerWG.Add(1)
+	timer := time.AfterFunc(time.Hour, func() {
+		defer p.timerWG.Done()
+		p.executeSchedule(workCtx, 1)
+	})
+	p.jobs[1] = jobEntry{timer: timer, isOneTime: true, generation: 1}
+	timer.Reset(0)
+
+	waitForSignal(t, started, "timer callback did not start")
+
+	go func() {
+		assert.NoError(t, p.Stop())
+		close(stopped)
+	}()
+
+	assertNoSignal(t, stopped, 50*time.Millisecond, "Stop returned before timer callback finished")
+	close(release)
+	waitForSignal(t, stopped, "Stop did not return after timer callback finished")
+}
+
+func TestStop_DoesNotWaitForFutureStoppedTimer(t *testing.T) {
+	p, _, _, _, _ := newTestProcessor(t, time.Now())
+	_, workCancel := context.WithCancel(context.Background())
+	p.workCancel = workCancel
+
+	fired := make(chan struct{})
+	stopped := make(chan struct{})
+
+	p.timerWG.Add(1)
+	timer := time.AfterFunc(time.Hour, func() {
+		defer p.timerWG.Done()
+		close(fired)
+	})
+	p.jobs[1] = jobEntry{timer: timer, isOneTime: true, generation: 1}
+
+	go func() {
+		assert.NoError(t, p.Stop())
+		close(stopped)
+	}()
+
+	waitForSignal(t, stopped, "Stop waited for a future timer instead of stopping it")
+	assertNoSignal(t, fired, 10*time.Millisecond, "stopped timer fired")
+}
+
+func TestStop_DrainsTimersRegisteredByStoppingLoop(t *testing.T) {
+	p, _, _, _, _ := newTestProcessor(t, time.Now())
+	stopCtx, stopCancel := context.WithCancel(context.Background())
+	_, workCancel := context.WithCancel(context.Background())
+	p.stopCancel = stopCancel
+	p.workCancel = workCancel
+
+	registered := make(chan struct{})
+	fired := make(chan struct{})
+	stopped := make(chan struct{})
+
+	p.wg.Add(1)
+	go func() {
+		defer p.wg.Done()
+		<-stopCtx.Done()
+
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		p.timerWG.Add(1)
+		timer := time.AfterFunc(time.Hour, func() {
+			defer p.timerWG.Done()
+			close(fired)
+		})
+		p.jobs[1] = jobEntry{timer: timer, isOneTime: true, generation: 1}
+		close(registered)
+	}()
+
+	go func() {
+		assert.NoError(t, p.Stop())
+		close(stopped)
+	}()
+
+	waitForSignal(t, stopped, "Stop did not drain timer registered while stopping loops")
+	waitForSignal(t, registered, "stopping loop did not register timer before drain")
+	assertNoSignal(t, fired, 10*time.Millisecond, "timer registered during shutdown fired")
+}
+
+func TestStop_CronJobsFinishWithLiveContext(t *testing.T) {
+	p, _, _, _, _ := newTestProcessor(t, time.Now())
+	workCtx, workCancel := context.WithCancel(context.Background())
+	p.workCancel = workCancel
+	p.cron = cron.New(cron.WithSeconds())
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	stopped := make(chan struct{})
+
+	_, err := p.cron.AddFunc("@every 1s", func() {
+		close(started)
+		<-release
+		assert.NoError(t, workCtx.Err())
+	})
+	assert.NoError(t, err)
+	p.cron.Start()
+
+	waitForSignal(t, started, "cron callback did not start")
+
+	go func() {
+		assert.NoError(t, p.Stop())
+		close(stopped)
+	}()
+
+	assertNoSignal(t, stopped, 50*time.Millisecond, "Stop returned before cron callback finished")
+	close(release)
+	waitForSignal(t, stopped, "Stop did not return after cron callback finished")
+}
+
+// Drain must still be bounded: if work wedges, the watchdog cancels workCtx
+// so the in-flight call returns and the wg waits release.
+func TestStop_WatchdogCancelsHungWork(t *testing.T) {
+	prev := shutdownDeadlineFn
+	shutdownDeadlineFn = func() time.Duration { return 50 * time.Millisecond }
+	t.Cleanup(func() { shutdownDeadlineFn = prev })
+
+	p, procStore, _, _, _ := newTestProcessor(t, time.Now())
+	workCtx, workCancel := context.WithCancel(context.Background())
+	p.workCancel = workCancel
+
+	started := make(chan struct{})
+	cancelled := make(chan struct{})
+	stopped := make(chan struct{})
+
+	procStore.EXPECT().SetScheduleRunning(gomock.Any(), int64(1)).DoAndReturn(
+		func(ctx context.Context, _ int64) (int64, error) {
+			close(started)
+			<-ctx.Done()
+			close(cancelled)
+			return int64(0), ctx.Err()
+		},
+	)
+
+	p.timerWG.Add(1)
+	timer := time.AfterFunc(time.Hour, func() {
+		defer p.timerWG.Done()
+		p.executeSchedule(workCtx, 1)
+	})
+	p.jobs[1] = jobEntry{timer: timer, isOneTime: true, generation: 1}
+	timer.Reset(0)
+
+	waitForSignal(t, started, "hung callback did not start")
+
+	begin := time.Now()
+	go func() {
+		assert.NoError(t, p.Stop())
+		close(stopped)
+	}()
+
+	waitForSignal(t, cancelled, "watchdog did not cancel hung work via workCancel")
+	waitForSignal(t, stopped, "Stop did not return after watchdog fired")
+
+	if elapsed := time.Since(begin); elapsed > time.Second {
+		t.Fatalf("Stop took %v; watchdog should have bounded shutdown well below this", elapsed)
+	}
 }
 
 // --- recoverStaleRunning ---
@@ -168,6 +410,26 @@ func TestSyncSchedules_ReRegistersOnFingerprintChange(t *testing.T) {
 	assert.NotEqual(t, entryID, entry.entryID)
 }
 
+func TestRemoveJobIfCurrent_SkipsReregistered(t *testing.T) {
+	p, _, _, _, _ := newTestProcessor(t, time.Now())
+	p.jobs[1] = jobEntry{isOneTime: true, generation: 2}
+
+	p.removeJobIfCurrent(1, 1, true)
+
+	p.mu.Lock()
+	entry, exists := p.jobs[1]
+	p.mu.Unlock()
+	assert.True(t, exists)
+	assert.Equal(t, uint64(2), entry.generation)
+
+	p.removeJobIfCurrent(1, 2, true)
+
+	p.mu.Lock()
+	_, exists = p.jobs[1]
+	p.mu.Unlock()
+	assert.False(t, exists)
+}
+
 // --- scheduleFingerprint ---
 
 func TestScheduleFingerprint(t *testing.T) {
@@ -273,7 +535,7 @@ func TestDispatch(t *testing.T) {
 			tt.setup(cmdSvc)
 
 			sched := &pb.Schedule{Id: 1, Action: tt.action, ActionConfig: tt.config}
-			err := p.dispatch(context.Background(), sched, &commandpb.DeviceSelector{})
+			_, err := p.dispatch(context.Background(), sched, &commandpb.DeviceSelector{})
 			assert.NoError(t, err)
 		})
 	}
@@ -282,7 +544,7 @@ func TestDispatch(t *testing.T) {
 func TestDispatchUnspecifiedAction(t *testing.T) {
 	p, _, _, _, _ := newTestProcessor(t, time.Now())
 	sched := &pb.Schedule{Id: 1, Action: pb.ScheduleAction_SCHEDULE_ACTION_UNSPECIFIED}
-	err := p.dispatch(context.Background(), sched, &commandpb.DeviceSelector{})
+	_, err := p.dispatch(context.Background(), sched, &commandpb.DeviceSelector{})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "unspecified")
 }
@@ -368,43 +630,9 @@ func TestResolveTargets_Empty(t *testing.T) {
 	assert.Equal(t, 0, len(ids))
 }
 
-// --- filterConflictedMiners ---
-
-func TestFilterConflictedMiners(t *testing.T) {
-	p, procStore, targetStore, _, _ := newTestProcessor(t, time.Now())
-
-	sched := &pb.Schedule{Id: 10, Priority: 5, Action: pb.ScheduleAction_SCHEDULE_ACTION_SET_POWER_TARGET}
-	orgID := int64(1)
-
-	// A higher-priority (lower number) running schedule targets miner-1.
-	procStore.EXPECT().GetRunningPowerTargetSchedules(gomock.Any(), orgID).Return([]*pb.Schedule{
-		{Id: 20, Priority: 2, Action: pb.ScheduleAction_SCHEDULE_ACTION_SET_POWER_TARGET},
-	}, nil)
-
-	targetStore.EXPECT().GetScheduleTargets(gomock.Any(), orgID, int64(20)).Return([]*pb.ScheduleTarget{
-		{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER, TargetId: "miner-1"},
-	}, nil)
-
-	filtered, err := p.filterConflictedMiners(context.Background(), sched, orgID, []string{"miner-1", "miner-2", "miner-3"})
-	assert.NoError(t, err)
-	assert.Equal(t, []string{"miner-2", "miner-3"}, filtered)
-}
-
-func TestFilterConflictedMiners_LowerPriorityIgnored(t *testing.T) {
-	p, procStore, _, _, _ := newTestProcessor(t, time.Now())
-
-	sched := &pb.Schedule{Id: 10, Priority: 2}
-	orgID := int64(1)
-
-	// A lower-priority (higher number) running schedule — should not conflict.
-	procStore.EXPECT().GetRunningPowerTargetSchedules(gomock.Any(), orgID).Return([]*pb.Schedule{
-		{Id: 20, Priority: 5},
-	}, nil)
-
-	filtered, err := p.filterConflictedMiners(context.Background(), sched, orgID, []string{"miner-1"})
-	assert.NoError(t, err)
-	assert.Equal(t, []string{"miner-1"}, filtered)
-}
+// Schedule-conflict filtering moved to command.ScheduleConflictFilter; the
+// equivalent priority-semantics tests live in
+// server/internal/domain/command/schedule_conflict_filter_test.go.
 
 // --- executeSchedule ---
 
@@ -510,6 +738,68 @@ func TestExecuteSchedule_DispatchFailureRevertFails_KeepsJob(t *testing.T) {
 	assert.True(t, exists, "job should still exist when revert fails")
 }
 
+func TestExecuteSchedule_FullyConflictFilteredSkipsExecutionActivity(t *testing.T) {
+	now := time.Date(2026, 4, 1, 10, 0, 0, 0, time.UTC)
+	p, procStore, targetStore, _, cmdSvc := newTestProcessor(t, now)
+	activityStore := withRecordingActivity(p)
+
+	sched := &pb.Schedule{
+		Id:           1,
+		Name:         "power",
+		Action:       pb.ScheduleAction_SCHEDULE_ACTION_SET_POWER_TARGET,
+		ScheduleType: pb.ScheduleType_SCHEDULE_TYPE_ONE_TIME,
+		StartDate:    "2026-04-01",
+		StartTime:    "10:00",
+		Timezone:     "UTC",
+		CreatedBy:    42,
+	}
+
+	procStore.EXPECT().SetScheduleRunning(gomock.Any(), int64(1)).Return(int64(1), nil)
+	procStore.EXPECT().GetScheduleByID(gomock.Any(), int64(1)).Return(&interfaces.ScheduleWithOrg{Schedule: sched, OrgID: 1}, nil)
+	targetStore.EXPECT().GetScheduleTargets(gomock.Any(), int64(1), int64(1)).Return([]*pb.ScheduleTarget{
+		{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER, TargetId: "miner-1"},
+	}, nil)
+	cmdSvc.EXPECT().SetPowerTarget(gomock.Any(), gomock.Any(), revertPerformanceMode).Return(&commanddomain.CommandResult{
+		Skipped: []commanddomain.SkippedDevice{{DeviceIdentifier: "miner-1", FilterName: commanddomain.ScheduleConflictFilterName}},
+	}, nil)
+	procStore.EXPECT().UpdateScheduleAfterRun(gomock.Any(), int64(1), gomock.Any(), gomock.Nil(), statusCompleted).Return(nil)
+
+	p.executeSchedule(context.Background(), 1)
+
+	assert.Equal(t, 1, countActivityType(activityStore, "schedule_conflict_skip"))
+	assert.Equal(t, 0, countActivityType(activityStore, "schedule_executed"))
+}
+
+func TestExecuteSchedule_NonConflictZeroDispatchLogsExecution(t *testing.T) {
+	now := time.Date(2026, 4, 1, 10, 0, 0, 0, time.UTC)
+	p, procStore, targetStore, _, cmdSvc := newTestProcessor(t, now)
+	activityStore := withRecordingActivity(p)
+
+	sched := &pb.Schedule{
+		Id:           1,
+		Name:         "power",
+		Action:       pb.ScheduleAction_SCHEDULE_ACTION_SET_POWER_TARGET,
+		ScheduleType: pb.ScheduleType_SCHEDULE_TYPE_ONE_TIME,
+		StartDate:    "2026-04-01",
+		StartTime:    "10:00",
+		Timezone:     "UTC",
+		CreatedBy:    42,
+	}
+
+	procStore.EXPECT().SetScheduleRunning(gomock.Any(), int64(1)).Return(int64(1), nil)
+	procStore.EXPECT().GetScheduleByID(gomock.Any(), int64(1)).Return(&interfaces.ScheduleWithOrg{Schedule: sched, OrgID: 1}, nil)
+	targetStore.EXPECT().GetScheduleTargets(gomock.Any(), int64(1), int64(1)).Return([]*pb.ScheduleTarget{
+		{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER, TargetId: "stale-miner"},
+	}, nil)
+	cmdSvc.EXPECT().SetPowerTarget(gomock.Any(), gomock.Any(), revertPerformanceMode).Return(&commanddomain.CommandResult{}, nil)
+	procStore.EXPECT().UpdateScheduleAfterRun(gomock.Any(), int64(1), gomock.Any(), gomock.Nil(), statusCompleted).Return(nil)
+
+	p.executeSchedule(context.Background(), 1)
+
+	assert.Equal(t, 0, countActivityType(activityStore, "schedule_conflict_skip"))
+	assert.Equal(t, 1, countActivityType(activityStore, "schedule_executed"))
+}
+
 // --- updateAfterRun ---
 
 func TestUpdateAfterRun_RecurringStaysActive(t *testing.T) {
@@ -612,6 +902,36 @@ func TestUpdateAfterRun_UpdateFailsRevertFails_KeepsJob(t *testing.T) {
 	assert.True(t, exists, "job should still exist when revert fails")
 }
 
+func TestUpdateAfterRun_UpdateFails_DoesNotRemoveReregisteredJob(t *testing.T) {
+	now := time.Date(2026, 4, 1, 10, 0, 0, 0, time.UTC)
+	p, procStore, _, _, _ := newTestProcessor(t, now)
+	p.jobs[1] = jobEntry{isOneTime: true, generation: 2}
+
+	sched := &pb.Schedule{
+		Id:           1,
+		Action:       pb.ScheduleAction_SCHEDULE_ACTION_REBOOT,
+		ScheduleType: pb.ScheduleType_SCHEDULE_TYPE_RECURRING,
+		StartDate:    "2026-04-01",
+		StartTime:    "10:00",
+		Timezone:     "UTC",
+		Recurrence: &pb.ScheduleRecurrence{
+			Frequency: pb.RecurrenceFrequency_RECURRENCE_FREQUENCY_DAILY,
+			Interval:  1,
+		},
+	}
+
+	procStore.EXPECT().UpdateScheduleAfterRun(gomock.Any(), int64(1), gomock.Any(), gomock.Any(), statusActive).Return(errors.New("db down"))
+	procStore.EXPECT().RevertScheduleToActive(gomock.Any(), int64(1)).Return(nil)
+
+	p.updateAfterRunWithGeneration(context.Background(), sched, int64(1), now, 1, true)
+
+	p.mu.Lock()
+	entry, exists := p.jobs[1]
+	p.mu.Unlock()
+	assert.True(t, exists, "newer job should not be removed by stale retry cleanup")
+	assert.Equal(t, uint64(2), entry.generation)
+}
+
 // --- transitionToCompleted ---
 
 func TestTransitionToCompleted_UpdateFailsRevertFails_KeepsJob(t *testing.T) {
@@ -649,6 +969,37 @@ func TestTransitionToCompleted_UpdateFailsRevertFails_KeepsJob(t *testing.T) {
 	assert.True(t, exists, "job should still exist when revert fails")
 }
 
+func TestTransitionToCompleted_UpdateFails_DoesNotRemoveReregisteredJob(t *testing.T) {
+	now := time.Date(2026, 4, 1, 10, 0, 0, 0, time.UTC)
+	p, procStore, _, _, _ := newTestProcessor(t, now)
+	p.jobs[1] = jobEntry{isOneTime: true, generation: 2}
+
+	sched := &pb.Schedule{
+		Id:           1,
+		Action:       pb.ScheduleAction_SCHEDULE_ACTION_REBOOT,
+		ScheduleType: pb.ScheduleType_SCHEDULE_TYPE_RECURRING,
+		StartDate:    "2026-03-01",
+		StartTime:    "10:00",
+		EndDate:      "2026-03-31",
+		Timezone:     "UTC",
+		Recurrence: &pb.ScheduleRecurrence{
+			Frequency: pb.RecurrenceFrequency_RECURRENCE_FREQUENCY_DAILY,
+			Interval:  1,
+		},
+	}
+
+	procStore.EXPECT().UpdateScheduleAfterRun(gomock.Any(), int64(1), gomock.Any(), gomock.Nil(), statusCompleted).Return(errors.New("db down"))
+	procStore.EXPECT().RevertScheduleToActive(gomock.Any(), int64(1)).Return(nil)
+
+	p.transitionToCompletedWithGeneration(context.Background(), sched, int64(1), now, 1, true)
+
+	p.mu.Lock()
+	entry, exists := p.jobs[1]
+	p.mu.Unlock()
+	assert.True(t, exists, "newer job should not be removed by stale retry cleanup")
+	assert.Equal(t, uint64(2), entry.generation)
+}
+
 // --- checkEndOfWindow ---
 
 func TestCheckEndOfWindow_RevertsExpiredWindow(t *testing.T) {
@@ -675,7 +1026,6 @@ func TestCheckEndOfWindow_RevertsExpiredWindow(t *testing.T) {
 	procStore.EXPECT().GetActiveSchedules(gomock.Any()).Return([]interfaces.ScheduleWithOrg{
 		{Schedule: sched, OrgID: 1},
 	}, nil)
-	procStore.EXPECT().GetRunningPowerTargetSchedules(gomock.Any(), int64(1)).Return(nil, nil)
 	targetStore.EXPECT().GetScheduleTargets(gomock.Any(), int64(1), int64(1)).Return([]*pb.ScheduleTarget{
 		{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER, TargetId: "miner-1"},
 	}, nil)
@@ -737,7 +1087,6 @@ func TestCheckEndOfWindow_OvernightWindowExpired(t *testing.T) {
 	procStore.EXPECT().GetActiveSchedules(gomock.Any()).Return([]interfaces.ScheduleWithOrg{
 		{Schedule: sched, OrgID: 1},
 	}, nil)
-	procStore.EXPECT().GetRunningPowerTargetSchedules(gomock.Any(), int64(1)).Return(nil, nil)
 	targetStore.EXPECT().GetScheduleTargets(gomock.Any(), int64(1), int64(1)).Return([]*pb.ScheduleTarget{
 		{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER, TargetId: "miner-1"},
 	}, nil)
@@ -771,7 +1120,6 @@ func TestCheckEndOfWindow_FailedRevertRetries(t *testing.T) {
 	procStore.EXPECT().GetActiveSchedules(gomock.Any()).Return([]interfaces.ScheduleWithOrg{
 		{Schedule: sched, OrgID: 1},
 	}, nil)
-	procStore.EXPECT().GetRunningPowerTargetSchedules(gomock.Any(), int64(1)).Return(nil, nil)
 	targetStore.EXPECT().GetScheduleTargets(gomock.Any(), int64(1), int64(1)).Return([]*pb.ScheduleTarget{
 		{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER, TargetId: "miner-1"},
 	}, nil)
@@ -804,7 +1152,6 @@ func TestCheckEndOfWindow_RevertStateFailSkipsLog(t *testing.T) {
 	procStore.EXPECT().GetActiveSchedules(gomock.Any()).Return([]interfaces.ScheduleWithOrg{
 		{Schedule: sched, OrgID: 1},
 	}, nil)
-	procStore.EXPECT().GetRunningPowerTargetSchedules(gomock.Any(), int64(1)).Return(nil, nil)
 	targetStore.EXPECT().GetScheduleTargets(gomock.Any(), int64(1), int64(1)).Return([]*pb.ScheduleTarget{
 		{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER, TargetId: "miner-1"},
 	}, nil)

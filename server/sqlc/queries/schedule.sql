@@ -94,14 +94,38 @@ FROM schedule
 WHERE org_id = $1
   AND deleted_at IS NULL;
 
--- name: GetRunningPowerTargetSchedules :many
-SELECT *
-FROM schedule
-WHERE org_id = $1
-  AND status = 'running'
-  AND action = 'set_power_target'
-  AND deleted_at IS NULL
-ORDER BY priority, id;
+-- name: GetRunningPowerTargetScheduleOverlaps :many
+WITH requested AS (
+    SELECT UNNEST(sqlc.arg('device_identifiers')::text[]) AS device_identifier
+)
+SELECT DISTINCT
+    s.id AS schedule_id,
+    s.priority AS schedule_priority,
+    r.device_identifier::text AS device_identifier
+FROM schedule s
+JOIN schedule_target st ON st.schedule_id = s.id
+JOIN requested r ON (
+    (st.target_type = 'miner' AND st.target_id = r.device_identifier)
+    OR (
+        st.target_type IN ('rack', 'group')
+        AND EXISTS (
+            SELECT 1
+            FROM device_set_membership dsm
+            JOIN device_set ds ON ds.id = dsm.device_set_id
+            WHERE dsm.org_id = s.org_id
+              AND ds.org_id = s.org_id
+              AND ds.deleted_at IS NULL
+              -- Match expansion: rack/group targets resolve by device_set ID.
+              AND dsm.device_set_id = CASE WHEN st.target_id ~ '^[0-9]+$' THEN st.target_id::bigint ELSE NULL END
+              AND dsm.device_identifier = r.device_identifier
+        )
+    )
+)
+WHERE s.org_id = $1
+  AND s.status = 'running'
+  AND s.action = 'set_power_target'
+  AND s.deleted_at IS NULL
+ORDER BY s.priority, s.id, r.device_identifier;
 
 -- name: CreateScheduleTarget :exec
 INSERT INTO schedule_target (schedule_id, target_type, target_id)

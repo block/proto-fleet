@@ -830,6 +830,62 @@ func (q *Queries) GetDeviceStatusForDeviceIdentifiers(ctx context.Context, devic
 	return items, nil
 }
 
+const getFilteredDeviceIdentifiers = `-- name: GetFilteredDeviceIdentifiers :many
+SELECT
+    d.device_identifier
+FROM device d
+JOIN device_pairing dp ON d.id = dp.device_id
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
+LEFT JOIN device_status ds ON d.id = ds.device_id
+WHERE d.org_id = $1
+    AND dp.pairing_status::text = COALESCE($2::text, 'PAIRED')
+    AND d.deleted_at IS NULL
+    AND ($3::text IS NULL OR ds.status::text = $3::text)
+    AND ($4::text IS NULL OR dd.model = ANY(string_to_array($4, ',')))
+    AND ($5::text IS NULL OR dd.manufacturer = ANY(string_to_array($5, ',')))
+ORDER BY d.device_identifier
+`
+
+type GetFilteredDeviceIdentifiersParams struct {
+	OrgID              int64
+	PairingStatus      sql.NullString
+	DeviceStatus       sql.NullString
+	ModelFilter        sql.NullString
+	ManufacturerFilter sql.NullString
+}
+
+// Mirrors GetFilteredDeviceIds but returns device_identifier strings instead of
+// internal IDs. Used by command preflight filtering, which operates on
+// identifiers (the same primitive used by selectors and schedules).
+func (q *Queries) GetFilteredDeviceIdentifiers(ctx context.Context, arg GetFilteredDeviceIdentifiersParams) ([]string, error) {
+	rows, err := q.query(ctx, q.getFilteredDeviceIdentifiersStmt, getFilteredDeviceIdentifiers,
+		arg.OrgID,
+		arg.PairingStatus,
+		arg.DeviceStatus,
+		arg.ModelFilter,
+		arg.ManufacturerFilter,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var device_identifier string
+		if err := rows.Scan(&device_identifier); err != nil {
+			return nil, err
+		}
+		items = append(items, device_identifier)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getFilteredDeviceIds = `-- name: GetFilteredDeviceIds :many
 SELECT
     d.id as device_id

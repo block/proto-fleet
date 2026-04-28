@@ -611,6 +611,24 @@ WHERE d.org_id = sqlc.arg('org_id')
     AND (sqlc.narg('manufacturer_filter')::text IS NULL OR dd.manufacturer = ANY(string_to_array(sqlc.narg('manufacturer_filter'), ',')))
 ORDER BY d.id;
 
+-- name: GetFilteredDeviceIdentifiers :many
+-- Mirrors GetFilteredDeviceIds but returns device_identifier strings instead of
+-- internal IDs. Used by command preflight filtering, which operates on
+-- identifiers (the same primitive used by selectors and schedules).
+SELECT
+    d.device_identifier
+FROM device d
+JOIN device_pairing dp ON d.id = dp.device_id
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
+LEFT JOIN device_status ds ON d.id = ds.device_id
+WHERE d.org_id = sqlc.arg('org_id')
+    AND dp.pairing_status::text = COALESCE(sqlc.narg('pairing_status')::text, 'PAIRED')
+    AND d.deleted_at IS NULL
+    AND (sqlc.narg('device_status')::text IS NULL OR ds.status::text = sqlc.narg('device_status')::text)
+    AND (sqlc.narg('model_filter')::text IS NULL OR dd.model = ANY(string_to_array(sqlc.narg('model_filter'), ',')))
+    AND (sqlc.narg('manufacturer_filter')::text IS NULL OR dd.manufacturer = ANY(string_to_array(sqlc.narg('manufacturer_filter'), ',')))
+ORDER BY d.device_identifier;
+
 -- name: GetDeviceInfoForCapabilityCheck :many
 -- Returns device information needed for capability checking.
 -- Used when checking if specific devices support a command.
