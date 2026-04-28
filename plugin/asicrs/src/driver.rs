@@ -173,6 +173,41 @@ impl DriverService {
             .cloned()
             .ok_or_else(|| Status::not_found(format!("Device not found: {device_id}")))
     }
+
+    /// Probe a representative device for the given (manufacturer, model) and
+    /// return its cached capability flags. Returns None when no matching
+    /// device is loaded or none can be probed; the caller falls back to the
+    /// driver-level optimistic caps.
+    async fn probed_caps_for(
+        &self,
+        manufacturer: &str,
+        model: &str,
+    ) -> Option<std::collections::HashMap<String, bool>> {
+        let devices = self.devices.read().await;
+        let mut candidates: Vec<Arc<AsicRsDevice>> = Vec::new();
+        for device in devices.values() {
+            if !device.info.manufacturer.eq_ignore_ascii_case(manufacturer) {
+                continue;
+            }
+            let dev_model = device.model().await;
+            if dev_model == model {
+                if device.is_probed().await {
+                    return Some(device.get_caps().await);
+                }
+                candidates.push(device.clone());
+            } else if dev_model.is_empty() {
+                candidates.push(device.clone());
+            }
+        }
+        drop(devices);
+
+        for device in candidates {
+            if device.ensure_connected().await.is_ok() && device.model().await == model {
+                return Some(device.get_caps().await);
+            }
+        }
+        None
+    }
 }
 
 #[tonic::async_trait]
@@ -596,14 +631,25 @@ impl Driver for DriverService {
         &self,
         req: Request<pb::GetCapabilitiesForModelRequest>,
     ) -> Result<Response<pb::GetCapabilitiesForModelResponse>, Status> {
-        let manufacturer = req.into_inner().manufacturer;
-        // Discovery canonicalizes the firmware-derived manufacturer; only
-        // Braiins-flashed miners speak native SV2.
-        let flags = if manufacturer.eq_ignore_ascii_case(crate::capabilities::VARIANT_BRAIINS) {
-            std::collections::HashMap::from([(CAP_NATIVE_STRATUM_V2.to_string(), true)])
-        } else {
-            std::collections::HashMap::new()
-        };
+        let req = req.into_inner();
+        let manufacturer = req.manufacturer;
+        let model = req.model;
+
+        // Live device probe for control caps (reboot, mining_start, pool_config, …).
+        // Filter by both manufacturer and model so a fleet with mixed firmware on
+        // the same hardware (Braiins-S21 + VNish-S21) returns deterministic
+        // per-(manufacturer, model) caps instead of "whichever matched first".
+        let mut flags = self
+            .probed_caps_for(&manufacturer, &model)
+            .await
+            .unwrap_or_default();
+
+        // Firmware-derived: Braiins is the only asic-rs-handled firmware
+        // that ships native SV2.
+        if manufacturer.eq_ignore_ascii_case(crate::capabilities::VARIANT_BRAIINS) {
+            flags.insert(CAP_NATIVE_STRATUM_V2.to_string(), true);
+        }
+
         Ok(Response::new(pb::GetCapabilitiesForModelResponse {
             caps: Some(pb::Capabilities { flags }),
         }))
