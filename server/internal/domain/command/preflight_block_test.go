@@ -3,6 +3,7 @@ package command
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"connectrpc.com/authn"
@@ -34,7 +35,7 @@ func (s *recordingActivityStore) Insert(ctx context.Context, event *activitymode
 		return s.failErr
 	}
 	if err := ctx.Err(); err != nil {
-		return err
+		return fmt.Errorf("recording activity store insert: %w", err)
 	}
 	s.insertCtxErrs = append(s.insertCtxErrs, ctx.Err())
 	clone := *event
