@@ -80,7 +80,8 @@ func TestScheduleConflictFilter_SchedulerOriginHigherPriorityBlocks(t *testing.T
 	assert.Equal(t, []string{"miner-2", "miner-3"}, out.Kept)
 	assert.Equal(t, 1, len(out.Skipped))
 	assert.Equal(t, "miner-1", out.Skipped[0].DeviceIdentifier)
-	assert.Equal(t, "schedule_conflict", out.Skipped[0].FilterName)
+	assert.Equal(t, ScheduleConflictFilterName, out.Skipped[0].FilterName)
+	assert.Equal(t, "schedule 20 holds higher priority for set_power_target", out.Skipped[0].Reason)
 }
 
 func TestScheduleConflictFilter_SchedulerOriginLowerPriorityIgnored(t *testing.T) {
@@ -149,6 +150,7 @@ func TestScheduleConflictFilter_ManualBlockedByAnyRunningSchedule(t *testing.T) 
 	assert.Equal(t, []string{"miner-2"}, out.Kept)
 	assert.Equal(t, 1, len(out.Skipped))
 	assert.Equal(t, "miner-1", out.Skipped[0].DeviceIdentifier)
+	assert.Equal(t, "schedule 20 blocks set_power_target", out.Skipped[0].Reason)
 }
 
 func TestScheduleConflictFilter_ManualUnaffectedWhenNoRunningSchedules(t *testing.T) {

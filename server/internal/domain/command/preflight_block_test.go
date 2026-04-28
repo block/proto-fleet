@@ -19,9 +19,8 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/session"
 )
 
-// recordingActivityStore implements just enough of the ActivityStore interface
-// to record inserts. The other methods panic — every test in this file must
-// take a path that only calls Insert.
+// recordingActivityStore records inserts; other ActivityStore methods are not
+// used by these tests.
 type recordingActivityStore struct {
 	inserts []*activitymodels.Event
 	failErr error
@@ -52,39 +51,8 @@ func (s *recordingActivityStore) GetDistinctScopeTypes(context.Context, int64) (
 	panic("not used in preflight_block_test")
 }
 
-// blockingFilter excludes a fixed set of device identifiers. Drives the
-// preflight chain into "skipped" states without needing the real
-// ScheduleConflictFilter and its store dependencies.
-type blockingFilter struct {
-	exclude map[string]struct{}
-}
-
-func newBlockingFilter(exclude ...string) *blockingFilter {
-	set := make(map[string]struct{}, len(exclude))
-	for _, e := range exclude {
-		set[e] = struct{}{}
-	}
-	return &blockingFilter{exclude: set}
-}
-
-func (f *blockingFilter) Name() string { return "test_block" }
-
-func (f *blockingFilter) Apply(_ context.Context, in CommandFilterInput) (CommandFilterOutput, error) {
-	var kept []string
-	var skipped []SkippedDevice
-	for _, id := range in.DeviceIdentifiers {
-		if _, drop := f.exclude[id]; drop {
-			skipped = append(skipped, SkippedDevice{DeviceIdentifier: id, FilterName: f.Name(), Reason: "test"})
-			continue
-		}
-		kept = append(kept, id)
-	}
-	return CommandFilterOutput{Kept: kept, Skipped: skipped}, nil
-}
-
-// newPreflightTestService wires the minimum surface processCommand needs to
-// reach (or NOT reach) the manual-block path. messageQueue/conn are
-// intentionally nil — every test must short-circuit before they're touched.
+// newPreflightTestService leaves queue/DB nil so tests prove blocked paths
+// short-circuit before enqueue.
 func newPreflightTestService(t *testing.T, filter CommandFilter) (*Service, *recordingActivityStore) {
 	t.Helper()
 	store := &recordingActivityStore{}
@@ -128,7 +96,6 @@ func includeSelector(ids ...string) *pb.DeviceSelector {
 	}
 }
 
-// findActivity returns the single event with the given type, or fails.
 func findActivity(t *testing.T, store *recordingActivityStore, eventType string) *activitymodels.Event {
 	t.Helper()
 	var found *activitymodels.Event
@@ -145,7 +112,7 @@ func findActivity(t *testing.T, store *recordingActivityStore, eventType string)
 // --- Manual-origin block path: HIGH finding ---
 
 func TestProcessCommand_ManualPartialSkip_Blocks(t *testing.T) {
-	svc, store := newPreflightTestService(t, newBlockingFilter("miner-1"))
+	svc, store := newPreflightTestService(t, newFakeFilter("test_block", "miner-1"))
 
 	_, err := svc.processCommand(manualSessionCtx(1), &Command{
 		commandType:    commandtype.SetPowerTarget,
@@ -168,7 +135,7 @@ func TestProcessCommand_ManualPartialSkip_Blocks(t *testing.T) {
 }
 
 func TestProcessCommand_ManualFullSkip_Blocks(t *testing.T) {
-	svc, store := newPreflightTestService(t, newBlockingFilter("miner-1", "miner-2"))
+	svc, store := newPreflightTestService(t, newFakeFilter("test_block", "miner-1", "miner-2"))
 
 	_, err := svc.processCommand(manualSessionCtx(1), &Command{
 		commandType:    commandtype.SetPowerTarget,
@@ -189,7 +156,7 @@ func TestProcessCommand_ManualFullSkip_Blocks(t *testing.T) {
 // --- Scheduler-origin: block path must NOT fire ---
 
 func TestProcessCommand_SchedulerFullSkip_NoBlockActivity(t *testing.T) {
-	svc, store := newPreflightTestService(t, newBlockingFilter("miner-1", "miner-2"))
+	svc, store := newPreflightTestService(t, newFakeFilter("test_block", "miner-1", "miner-2"))
 
 	result, err := svc.processCommand(schedulerSessionCtx(1), &Command{
 		commandType:    commandtype.SetPowerTarget,
@@ -209,7 +176,7 @@ func TestProcessCommand_SchedulerFullSkip_NoBlockActivity(t *testing.T) {
 // --- Audit-failure path: must NOT degrade into a normal FailedPrecondition ---
 
 func TestProcessCommand_ManualBlock_AuditFailure_ReturnsInternal(t *testing.T) {
-	svc, store := newPreflightTestService(t, newBlockingFilter("miner-1"))
+	svc, store := newPreflightTestService(t, newFakeFilter("test_block", "miner-1"))
 	store.failErr = errors.New("activity_log: connection refused")
 
 	_, err := svc.processCommand(manualSessionCtx(1), &Command{
@@ -224,16 +191,11 @@ func TestProcessCommand_ManualBlock_AuditFailure_ReturnsInternal(t *testing.T) {
 	assert.Contains(t, err.Error(), "logging preflight block")
 }
 
-// --- Wrapper-level boundary check ---
-//
-// The Connect handler is a 3-line passthrough that returns the wrapper's
-// error verbatim; ErrorMappingInterceptor.mapError translates FleetError →
-// connect.Error using the FleetError.GRPCCode. Verifying the wrapper
-// returns a FleetError with CodeFailedPrecondition is the meaningful
-// boundary check at the unit test layer.
+// The handler passes wrapper errors through; ErrorMappingInterceptor maps this
+// FleetError.GRPCCode to the wire-level connect.Code.
 
 func TestSetPowerTarget_ManualBlock_PropagatesFailedPrecondition(t *testing.T) {
-	svc, _ := newPreflightTestService(t, newBlockingFilter("miner-1"))
+	svc, _ := newPreflightTestService(t, newFakeFilter("test_block", "miner-1"))
 
 	resp, err := svc.SetPowerTarget(
 		manualSessionCtx(1),

@@ -32,13 +32,8 @@ const (
 
 // CommandDispatcher is the subset of command.Service the processor needs.
 //
-// Each method returns a *command.CommandResult so the processor can read the
-// per-call list of devices the registered command preflight filters chose
-// to skip — primarily the schedule-conflict filter, which today only the
-// schedule processor cared about but now lives at the command-service layer
-// and runs for every caller (manual API, future curtailment, …). The
-// processor uses the skipped slice to emit `schedule_conflict_skip` activity
-// for both the normal dispatch and the end-of-window revert paths.
+// CommandResult carries preflight skips so the processor can emit
+// schedule_conflict_skip activity while command.Service owns the filtering.
 type CommandDispatcher interface {
 	SetPowerTarget(ctx context.Context, selector *commandpb.DeviceSelector, mode commandpb.PerformanceMode) (*command.CommandResult, error)
 	Reboot(ctx context.Context, selector *commandpb.DeviceSelector) (*command.CommandResult, error)
@@ -356,10 +351,8 @@ func (p *Processor) executeSchedule(ctx context.Context, scheduleID int64) {
 		},
 	}
 
-	// Dispatch through commandSvc — schedule-conflict filtering runs at the
-	// command-service layer for every caller now (see ScheduleConflictFilter).
-	// We read the skipped slice back to preserve the schedule_conflict_skip
-	// activity row.
+	// commandSvc owns preflight filtering; the processor only records
+	// schedule-level skip activity from the returned metadata.
 	result, err := p.dispatch(cmdCtx, sched, selector)
 	if err != nil {
 		slog.Error("failed to dispatch command", "schedule_id", scheduleID, "action", sched.Action, "error", err)
@@ -386,26 +379,21 @@ func (p *Processor) executeSchedule(ctx context.Context, scheduleID int64) {
 	}
 
 	p.updateAfterRun(ctx, sched, orgID, now)
-	// Skip the schedule_executed activity row when the entire dispatch was
-	// filtered out — the schedule_conflict_skip row already records the
-	// outcome, and a schedule_executed with device_count=0 misleads readers
-	// who scan the activity log for actual mining-state changes.
+	// Fully filtered dispatches are already captured by schedule_conflict_skip.
 	if dispatched > 0 {
 		p.logExecution(ctx, sched, orgID, dispatched)
 	}
 }
 
-// countConflictSkips returns how many devices the schedule-conflict filter
-// excluded from this dispatch. result may be nil for actions that don't fan
-// out to commandSvc (none today, but defensive); other filters' skips do not
-// count.
+// countConflictSkips ignores other command preflight filters; schedule activity
+// should only summarize schedule-priority conflicts.
 func countConflictSkips(result *command.CommandResult) int {
 	if result == nil {
 		return 0
 	}
 	n := 0
 	for _, s := range result.Skipped {
-		if s.FilterName == "schedule_conflict" {
+		if s.FilterName == command.ScheduleConflictFilterName {
 			n++
 		}
 	}
@@ -670,12 +658,7 @@ func (p *Processor) removeJobLocked(scheduleID int64) {
 // schedulerContext creates a context with synthetic session info so the command
 // service can create batch logs and resolve devices using the schedule's org.
 //
-// Source carries this schedule's id and priority so the command-service-level
-// schedule-conflict filter can apply scheduler-priority semantics (only
-// strictly higher-priority running schedules block) instead of the manual
-// fallback (every running schedule blocks). Without Source the filter would
-// treat every scheduler-origin call as if it were a manual call and block
-// against itself.
+// Source lets ScheduleConflictFilter apply scheduler priority semantics.
 func schedulerContext(parent context.Context, sched *pb.Schedule, orgID int64) context.Context {
 	return authn.SetInfo(parent, &session.Info{
 		SessionID:      schedulerActorName,

@@ -63,11 +63,8 @@ type Service struct {
 	capabilityChecker   *CapabilityChecker
 	activitySvc         *activity.Service
 
-	// filters are consulted by processCommand before each dispatch. Order of
-	// registration is preserved at runtime; each filter sees only the survivors
-	// of earlier filters. Filters are registered at startup via RegisterFilter
-	// and the slice is not protected by a mutex — registration after the
-	// service starts handling traffic is not supported.
+	// filters run in registration order before commands are enqueued. Registered
+	// at startup only; the slice is not mutex-protected.
 	filters []CommandFilter
 }
 
@@ -139,22 +136,14 @@ func actorTypeFromSession(info *session.Info) activitymodels.ActorType {
 	return ""
 }
 
-// isExternalCommand reports whether the command is being issued by an
-// end-user / API-key caller (as opposed to an internal orchestrator like
-// the schedule processor or, later, the curtailment reconciler). External
-// callers are blocked outright on any preflight skip; internal callers
-// MUST set a non-empty session.Actor (or session.Source.ScheduleID for
-// the scheduler) so they aren't accidentally treated as external. This
-// fail-safe default protects against silent override attempts.
+// isExternalCommand is true for user/API-key traffic. Internal orchestrators
+// must set Actor or Source so preflight skips can use their domain semantics.
 func isExternalCommand(info *session.Info) bool {
 	return info.Actor == "" && info.Source.ScheduleID == 0
 }
 
-// activityEventType maps a commandtype.Type to its snake_case activity
-// event_type string, matching the literals each wrapper passes to
-// finalizeDispatch (e.g. commandtype.SetPowerTarget → "set_power_target").
-// Centralised here so processCommand's manual-block path uses the same
-// string the wrapper would have used on the success path.
+// activityEventType mirrors the event_type literals used by successful command
+// activity rows, so blocked-command audit uses the same names.
 func activityEventType(t commandtype.Type) string {
 	switch t {
 	case commandtype.StartMining:
@@ -184,11 +173,9 @@ func activityEventType(t commandtype.Type) string {
 	}
 }
 
-// logPreflightBlockedStrict writes the audit row recording that an external
-// command was rejected because preflight filters skipped one or more devices.
-// Returns the persistence error so callers can fail the request — the
-// security finding is about *invisible* override attempts, so a lost audit
-// row must not degrade into a normal FailedPrecondition.
+// logPreflightBlockedStrict records an external command rejected by preflight.
+// If this audit write fails, the caller must fail closed instead of returning
+// a normal FailedPrecondition with no durable trace.
 func (s *Service) logPreflightBlockedStrict(
 	ctx context.Context,
 	commandType commandtype.Type,
@@ -216,14 +203,8 @@ func (s *Service) logPreflightBlockedStrict(
 	})
 }
 
-// logFilterSkips writes the audit row recording that a dispatched command
-// had some devices excluded by preflight filters. Best-effort: a missing
-// audit row here is annoying but not security-critical (the dispatched
-// portion succeeded), and the schedule processor's own schedule_conflict_skip
-// activity provides a backup record.
-//
-// eventType is the snake_case activity event_type (matching the wrapper's
-// activity log row, e.g. "set_power_target"), not commandtype.Type.String().
+// logFilterSkips best-effort records a dispatched command whose preflight
+// filters excluded some devices. eventType is the snake_case activity name.
 func (s *Service) logFilterSkips(
 	ctx context.Context,
 	eventType string,
@@ -252,9 +233,7 @@ func (s *Service) logFilterSkips(
 	})
 }
 
-// skipMetadata is the shared metadata schema used by both
-// command_preflight_blocked and command_filter_skip activity rows so a
-// downstream consumer can parse either with a single struct.
+// skipMetadata is shared by command_preflight_blocked and command_filter_skip.
 func skipMetadata(eventType string, requestedCount int, skipped []SkippedDevice) map[string]any {
 	skippedIDs := make([]string, 0, len(skipped))
 	filterSet := make(map[string]struct{}, len(skipped))
@@ -539,18 +518,13 @@ func (s *Service) initializeStatusUpdateRoutine(commandBatchLogUUID string, onFi
 	}()
 }
 
-// RegisterFilter appends a CommandFilter to the preflight chain. Filters run
-// in registration order on every command flowing through processCommand —
-// schedule processor, manual API handler, curtailment reconciler, and any
-// future caller. Call this only at startup, before the service begins
-// handling traffic; the filter slice is not mutex-protected.
+// RegisterFilter appends to the startup-only preflight chain.
 func (s *Service) RegisterFilter(f CommandFilter) {
 	s.filters = append(s.filters, f)
 }
 
-// resolveSelectorIdentifiers expands a DeviceSelector to a list of
-// device_identifier strings within the caller's org. Used by processCommand
-// to feed preflight filters before resolving to internal IDs for enqueue.
+// resolveSelectorIdentifiers expands selectors to device_identifier strings for
+// preflight filtering.
 func (s *Service) resolveSelectorIdentifiers(ctx context.Context, selector *pb.DeviceSelector) ([]string, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
@@ -610,9 +584,7 @@ func (s *Service) resolveSelectorIdentifiers(ctx context.Context, selector *pb.D
 		if x.IncludeDevices == nil {
 			return []string{}, nil
 		}
-		// Defensive copy: filters MUST NOT mutate input slices, but a hostile
-		// or buggy filter shouldn't be able to corrupt the caller's request
-		// proto either.
+		// Isolate caller-owned proto slices from filter implementations.
 		out := make([]string, len(x.IncludeDevices.DeviceIdentifiers))
 		copy(out, x.IncludeDevices.DeviceIdentifiers)
 		return out, nil
@@ -621,8 +593,7 @@ func (s *Service) resolveSelectorIdentifiers(ctx context.Context, selector *pb.D
 	}
 }
 
-// resolveIdentifiersToDeviceIDs converts identifiers (post-filter) into the
-// internal int64 IDs the message queue uses.
+// resolveIdentifiersToDeviceIDs converts post-filter identifiers for the queue.
 func (s *Service) resolveIdentifiersToDeviceIDs(ctx context.Context, identifiers []string) ([]int64, error) {
 	if len(identifiers) == 0 {
 		return []int64{}, nil
@@ -632,27 +603,10 @@ func (s *Service) resolveIdentifiersToDeviceIDs(ctx context.Context, identifiers
 	})
 }
 
-// processCommand is the single internal entry point used by every public
-// dispatch wrapper (Reboot, StopMining, SetPowerTarget, …).
-//
-// Order of operations:
-//  1. Ensure the execution service is running.
-//  2. Resolve the selector to device_identifier strings.
-//  3. Run registered preflight filters; partition into kept + skipped.
-//  4. If kept is empty: return a CommandResult with empty BatchIdentifier
-//     and the skipped slice. NO command_batch_log row is created and NO
-//     queue messages are enqueued — callers MUST treat empty
-//     BatchIdentifier as "nothing was dispatched, do not start a status
-//     watcher or write a 'started' activity row".
-//  5. Save the batch log row, resolve kept identifiers to internal IDs,
-//     and enqueue.
-//
-// Empty-after-filter semantics: returning an empty BatchIdentifier is the
-// success-with-no-op outcome. Manual handlers translate this into an empty
-// BatchIdentifier on the wire response (existing wrappers' clients already
-// tolerate empty UUIDs since they previously appeared on no-error
-// no-dispatch paths). Schedule-origin and curtailment-origin callers
-// inspect Skipped to decide what to log.
+// processCommand resolves selectors, runs preflight filters, writes the batch
+// row for surviving devices, and enqueues work. External callers fail fast on
+// any skip; internal callers may inspect CommandResult.Skipped and dispatch the
+// survivors. An empty BatchIdentifier means nothing was enqueued.
 func (s *Service) processCommand(ctx context.Context, command *Command) (*CommandResult, error) {
 	if !s.executionService.IsRunning() {
 		slog.Error("command execution service is not running, attempting to start it")
@@ -690,12 +644,8 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (*Comman
 		return nil, fleeterror.NewInternalErrorf("preflight filter failed: %v", err)
 	}
 
-	// External callers (manual API, API key) are blocked outright on any
-	// preflight skip — silent subset dispatch lets operators believe a
-	// command applied to all selected devices when it only applied to a
-	// subset (Codex security review HIGH on PR #110). Internal orchestrators
-	// like the schedule processor handle skips themselves and keep the
-	// dispatch-survivors path below.
+	// External callers should not see a successful subset dispatch without an
+	// explicit best-effort API contract.
 	if isExternalCommand(info) && len(skipped) > 0 {
 		if err := s.logPreflightBlockedStrict(ctx, command.commandType, identifiers, skipped); err != nil {
 			return nil, fleeterror.NewInternalErrorf("logging preflight block: %v", err)
@@ -736,14 +686,9 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (*Comman
 	}, nil
 }
 
-// finalizeDispatch wires up the activity-started log row and the post-batch
-// status routine for any wrapper that successfully enqueued a batch. When
-// result.BatchIdentifier is empty (the all-skipped or empty-selector case
-// from processCommand) the dispatch path is skipped entirely — there is no
-// batch to track. The skip-audit path runs whenever any device was excluded
-// by preflight filters AND a real dispatch happened (BatchIdentifier != "");
-// the manual-blocked path emits its own command_preflight_blocked entry
-// inside processCommand and never reaches finalizeDispatch.
+// finalizeDispatch starts batch tracking for real dispatches and records any
+// best-effort filter skips. Blocked external commands are audited in
+// processCommand before this helper is reached.
 func (s *Service) finalizeDispatch(ctx context.Context, result *CommandResult, eventType, description string) {
 	if result.BatchIdentifier == "" {
 		return

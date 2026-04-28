@@ -9,26 +9,17 @@ import (
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
+const ScheduleConflictFilterName = "schedule_conflict"
+
 // ScheduleConflictFilter prevents a SetPowerTarget command from racing a
 // running power-target schedule.
 //
-// Two priority semantics, distinguished by session.Source:
+// Scheduler-origin calls use schedule priority: only strictly higher-priority
+// running schedules block. Manual-origin calls have no priority context, so any
+// running power-target schedule blocks overlapping devices; processCommand then
+// rejects the whole external command.
 //
-//   - Scheduler-origin (Source.ScheduleID != 0): only schedules with strictly
-//     higher priority (numerically lower Priority field) than the caller block
-//     overlapping devices. This preserves today's behaviour for the schedule
-//     processor's normal dispatch and end-of-window revert paths.
-//
-//   - Manual-origin (Source.ScheduleID == 0, e.g. MinerCommandService over
-//     ConnectRPC, future curtailment-or-other paths that don't claim to be
-//     scheduler-origin): every running power-target schedule blocks
-//     overlapping devices. Manual callers have no priority to compare
-//     against; "skip the device, log it, dispatch the rest" is the same
-//     outcome the schedule processor would produce against itself.
-//
-// The filter only applies to SetPowerTarget commands — Reboot, StopMining,
-// etc. pass through unchanged, matching the existing scope of the inlined
-// filterConflictedMiners that this lift-and-shift replaces.
+// Only SetPowerTarget is gated; other command types pass through unchanged.
 type ScheduleConflictFilter struct {
 	procStore       stores.ScheduleProcessorStore
 	targetStore     stores.ScheduleTargetStore
@@ -52,7 +43,7 @@ func NewScheduleConflictFilter(
 }
 
 func (f *ScheduleConflictFilter) Name() string {
-	return "schedule_conflict"
+	return ScheduleConflictFilterName
 }
 
 func (f *ScheduleConflictFilter) Apply(ctx context.Context, in CommandFilterInput) (CommandFilterOutput, error) {
@@ -75,9 +66,6 @@ func (f *ScheduleConflictFilter) Apply(ctx context.Context, in CommandFilterInpu
 		if r.Id == in.Source.ScheduleID {
 			continue
 		}
-		// Scheduler-origin priority semantics: only blocks if running has
-		// strictly higher priority (lower numeric value). Manual-origin
-		// (Source.ScheduleID == 0): every running schedule is a blocker.
 		if in.Source.ScheduleID != 0 && r.Priority >= in.Source.SchedulePriority {
 			continue
 		}
@@ -104,10 +92,14 @@ func (f *ScheduleConflictFilter) Apply(ctx context.Context, in CommandFilterInpu
 	var skipped []SkippedDevice
 	for _, id := range in.DeviceIdentifiers {
 		if blockingID, blocked := conflicted[id]; blocked {
+			reason := fmt.Sprintf("schedule %d blocks set_power_target", blockingID)
+			if in.Source.ScheduleID != 0 {
+				reason = fmt.Sprintf("schedule %d holds higher priority for set_power_target", blockingID)
+			}
 			skipped = append(skipped, SkippedDevice{
 				DeviceIdentifier: id,
 				FilterName:       f.Name(),
-				Reason:           fmt.Sprintf("schedule %d holds higher priority for set_power_target", blockingID),
+				Reason:           reason,
 			})
 			continue
 		}

@@ -641,8 +641,6 @@ func TestCheckEndOfWindow_RevertsExpiredWindow(t *testing.T) {
 	procStore.EXPECT().GetActiveSchedules(gomock.Any()).Return([]interfaces.ScheduleWithOrg{
 		{Schedule: sched, OrgID: 1},
 	}, nil)
-	// GetRunningPowerTargetSchedules now lives behind commandSvc's filter,
-	// which is mocked at the dispatcher boundary — so no expectation here.
 	targetStore.EXPECT().GetScheduleTargets(gomock.Any(), int64(1), int64(1)).Return([]*pb.ScheduleTarget{
 		{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER, TargetId: "miner-1"},
 	}, nil)
@@ -704,8 +702,6 @@ func TestCheckEndOfWindow_OvernightWindowExpired(t *testing.T) {
 	procStore.EXPECT().GetActiveSchedules(gomock.Any()).Return([]interfaces.ScheduleWithOrg{
 		{Schedule: sched, OrgID: 1},
 	}, nil)
-	// GetRunningPowerTargetSchedules now lives behind commandSvc's filter,
-	// which is mocked at the dispatcher boundary — so no expectation here.
 	targetStore.EXPECT().GetScheduleTargets(gomock.Any(), int64(1), int64(1)).Return([]*pb.ScheduleTarget{
 		{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER, TargetId: "miner-1"},
 	}, nil)
@@ -739,8 +735,6 @@ func TestCheckEndOfWindow_FailedRevertRetries(t *testing.T) {
 	procStore.EXPECT().GetActiveSchedules(gomock.Any()).Return([]interfaces.ScheduleWithOrg{
 		{Schedule: sched, OrgID: 1},
 	}, nil)
-	// GetRunningPowerTargetSchedules now lives behind commandSvc's filter,
-	// which is mocked at the dispatcher boundary — so no expectation here.
 	targetStore.EXPECT().GetScheduleTargets(gomock.Any(), int64(1), int64(1)).Return([]*pb.ScheduleTarget{
 		{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER, TargetId: "miner-1"},
 	}, nil)
@@ -773,8 +767,6 @@ func TestCheckEndOfWindow_RevertStateFailSkipsLog(t *testing.T) {
 	procStore.EXPECT().GetActiveSchedules(gomock.Any()).Return([]interfaces.ScheduleWithOrg{
 		{Schedule: sched, OrgID: 1},
 	}, nil)
-	// GetRunningPowerTargetSchedules now lives behind commandSvc's filter,
-	// which is mocked at the dispatcher boundary — so no expectation here.
 	targetStore.EXPECT().GetScheduleTargets(gomock.Any(), int64(1), int64(1)).Return([]*pb.ScheduleTarget{
 		{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER, TargetId: "miner-1"},
 	}, nil)

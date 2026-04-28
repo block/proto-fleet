@@ -36,16 +36,10 @@ const (
 	ActorScheduler Actor = "scheduler"
 )
 
-// Source carries optional caller policy context used by command preflight
-// filters to make priority/conflict decisions. All fields are zero by default.
-// Filters that don't require a particular field should ignore it.
+// Source carries optional policy context for command preflight filters.
 type Source struct {
-	// ScheduleID + SchedulePriority are populated by the schedule processor
-	// for scheduler-origin commands. Manual callers (and any caller without
-	// schedule context) leave them zero. ScheduleID == 0 is the convention
-	// for "no source schedule" — the schedule_conflict filter uses it to
-	// decide whether to apply scheduler priority semantics or treat every
-	// running power-target schedule as a blocker.
+	// ScheduleID == 0 means there is no source schedule, so schedule-conflict
+	// filtering cannot apply priority semantics.
 	ScheduleID       int64
 	SchedulePriority int32
 }
