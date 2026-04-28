@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -18,6 +17,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/command"
+	scheduletargets "github.com/block/proto-fleet/server/internal/domain/schedule/targets"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
@@ -438,55 +438,9 @@ func (p *Processor) dispatch(ctx context.Context, sched *pb.Schedule, selector *
 
 // expandTargets converts a slice of ScheduleTarget into deduplicated device identifiers.
 func (p *Processor) expandTargets(ctx context.Context, targets []*pb.ScheduleTarget, orgID int64) ([]string, error) {
-	seen := make(map[string]struct{})
-	var identifiers []string
-
-	for _, t := range targets {
-		switch t.TargetType {
-		case pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER:
-			if _, dup := seen[t.TargetId]; !dup {
-				seen[t.TargetId] = struct{}{}
-				identifiers = append(identifiers, t.TargetId)
-			}
-
-		case pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_RACK:
-			rackID, err := strconv.ParseInt(t.TargetId, 10, 64)
-			if err != nil {
-				return nil, fmt.Errorf("invalid rack target_id %q: %w", t.TargetId, err)
-			}
-			rackDevices, err := p.collectionStore.GetDeviceIdentifiersByDeviceSetID(ctx, rackID, orgID)
-			if err != nil {
-				return nil, fmt.Errorf("failed to resolve rack %d devices: %w", rackID, err)
-			}
-			for _, d := range rackDevices {
-				if _, dup := seen[d]; !dup {
-					seen[d] = struct{}{}
-					identifiers = append(identifiers, d)
-				}
-			}
-
-		case pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_GROUP:
-			groupID, err := strconv.ParseInt(t.TargetId, 10, 64)
-			if err != nil {
-				return nil, fmt.Errorf("invalid group target_id %q: %w", t.TargetId, err)
-			}
-			groupDevices, err := p.collectionStore.GetDeviceIdentifiersByDeviceSetID(ctx, groupID, orgID)
-			if err != nil {
-				return nil, fmt.Errorf("failed to resolve group %d devices: %w", groupID, err)
-			}
-			for _, d := range groupDevices {
-				if _, dup := seen[d]; !dup {
-					seen[d] = struct{}{}
-					identifiers = append(identifiers, d)
-				}
-			}
-
-		case pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_UNSPECIFIED:
-			slog.Warn("unspecified target type", "target_id", t.TargetId)
-		}
-	}
-
-	return identifiers, nil
+	return scheduletargets.Expand(ctx, p.collectionStore, targets, orgID, func(targetID string) {
+		slog.Warn("unspecified target type", "target_id", targetID)
+	})
 }
 
 func (p *Processor) resolveTargets(ctx context.Context, sched *pb.Schedule, orgID int64) ([]string, error) {

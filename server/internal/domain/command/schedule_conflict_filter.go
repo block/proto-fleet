@@ -3,10 +3,9 @@ package command
 import (
 	"context"
 	"fmt"
-	"strconv"
 
-	pb "github.com/block/proto-fleet/server/generated/grpc/schedule/v1"
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
+	scheduletargets "github.com/block/proto-fleet/server/internal/domain/schedule/targets"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
@@ -86,7 +85,7 @@ func (f *ScheduleConflictFilter) Apply(ctx context.Context, in CommandFilterInpu
 		if err != nil {
 			return CommandFilterOutput{}, fmt.Errorf("failed to load targets for conflicting schedule %d: %w", r.Id, err)
 		}
-		rDevices, err := f.expandTargets(ctx, rTargets, in.OrganizationID)
+		rDevices, err := scheduletargets.Expand(ctx, f.collectionStore, rTargets, in.OrganizationID, nil)
 		if err != nil {
 			return CommandFilterOutput{}, fmt.Errorf("failed to expand targets for conflicting schedule %d: %w", r.Id, err)
 		}
@@ -115,61 +114,4 @@ func (f *ScheduleConflictFilter) Apply(ctx context.Context, in CommandFilterInpu
 		kept = append(kept, id)
 	}
 	return CommandFilterOutput{Kept: kept, Skipped: skipped}, nil
-}
-
-// expandTargets converts a slice of ScheduleTarget into deduplicated device
-// identifiers. Mirrors schedule.Processor.expandTargets — the duplication is
-// intentional: we don't want a schedule package import from command, and the
-// target-resolution shape may diverge once curtailment introduces its own
-// scope vocabulary.
-func (f *ScheduleConflictFilter) expandTargets(ctx context.Context, targets []*pb.ScheduleTarget, orgID int64) ([]string, error) {
-	seen := make(map[string]struct{})
-	var identifiers []string
-
-	for _, t := range targets {
-		switch t.TargetType {
-		case pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER:
-			if _, dup := seen[t.TargetId]; !dup {
-				seen[t.TargetId] = struct{}{}
-				identifiers = append(identifiers, t.TargetId)
-			}
-
-		case pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_RACK:
-			rackID, err := strconv.ParseInt(t.TargetId, 10, 64)
-			if err != nil {
-				return nil, fmt.Errorf("invalid rack target_id %q: %w", t.TargetId, err)
-			}
-			rackDevices, err := f.collectionStore.GetDeviceIdentifiersByDeviceSetID(ctx, rackID, orgID)
-			if err != nil {
-				return nil, fmt.Errorf("failed to resolve rack %d devices: %w", rackID, err)
-			}
-			for _, d := range rackDevices {
-				if _, dup := seen[d]; !dup {
-					seen[d] = struct{}{}
-					identifiers = append(identifiers, d)
-				}
-			}
-
-		case pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_GROUP:
-			groupID, err := strconv.ParseInt(t.TargetId, 10, 64)
-			if err != nil {
-				return nil, fmt.Errorf("invalid group target_id %q: %w", t.TargetId, err)
-			}
-			groupDevices, err := f.collectionStore.GetDeviceIdentifiersByDeviceSetID(ctx, groupID, orgID)
-			if err != nil {
-				return nil, fmt.Errorf("failed to resolve group %d devices: %w", groupID, err)
-			}
-			for _, d := range groupDevices {
-				if _, dup := seen[d]; !dup {
-					seen[d] = struct{}{}
-					identifiers = append(identifiers, d)
-				}
-			}
-
-		case pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_UNSPECIFIED:
-			// Unknown target type — skip silently, matches schedule.Processor.expandTargets.
-		}
-	}
-
-	return identifiers, nil
 }
