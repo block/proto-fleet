@@ -85,8 +85,16 @@ const PoolModal = ({
     () =>
       (!hidePoolName && !draftPoolInfo[poolIndex]?.name?.trim()) ||
       !draftPoolInfo[poolIndex]?.url?.trim() ||
-      (usernameRequired && !draftPoolInfo[poolIndex]?.username?.trim()),
-    [draftPoolInfo, poolIndex, hidePoolName, usernameRequired],
+      (usernameRequired && !draftPoolInfo[poolIndex]?.username?.trim()) ||
+      Boolean(poolNameError) ||
+      Boolean(urlError) ||
+      Boolean(usernameError),
+    [draftPoolInfo, poolIndex, hidePoolName, usernameRequired, poolNameError, urlError, usernameError],
+  );
+
+  const isTestConnectionDisabled = useMemo(
+    () => !draftPoolInfo[poolIndex]?.url?.trim() || Boolean(urlError),
+    [draftPoolInfo, poolIndex, urlError],
   );
 
   // Sync draft with incoming pools prop when parent updates it
@@ -288,6 +296,7 @@ const PoolModal = ({
       loading: isTestingConnection,
       variant: variants.secondary,
       className: "whitespace-nowrap overflow-clip",
+      disabled: isTestConnectionDisabled,
     },
     {
       text: "Save",
