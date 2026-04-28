@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"time"
 
 	"github.com/flynn/noise"
@@ -100,6 +101,14 @@ func HandshakeProbe(ctx context.Context, stratumURL string, poolPubKey []byte, t
 	// operator thinks they're talking to — classic key-pinning failure.
 	msg2, err := readNoiseFrame(conn)
 	if err != nil {
+		// A silent connection here usually means the operator hit the
+		// pool's SV1 port (e.g., Braiins V1 is 3333, V2 is 3336): the
+		// TCP layer accepted us but nothing on the other side speaks
+		// Noise. Surface that hint up-front instead of a raw i/o
+		// timeout that requires checking the pool's docs.
+		if errors.Is(err, io.EOF) || os.IsTimeout(err) {
+			return false, fmt.Errorf("connected to %s but no Stratum V2 handshake reply — is the URL pointing at the V2 port? (Braiins V2 is :3336): %w", addr, err)
+		}
 		return false, fmt.Errorf("read handshake message 2: %w", err)
 	}
 	if _, _, _, err := hs.ReadMessage(nil, msg2); err != nil {
