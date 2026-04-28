@@ -258,6 +258,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getErrorByIDStmt, err = db.PrepareContext(ctx, getErrorByID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetErrorByID: %w", err)
 	}
+	if q.getFilteredDeviceIdentifiersStmt, err = db.PrepareContext(ctx, getFilteredDeviceIdentifiers); err != nil {
+		return nil, fmt.Errorf("error preparing query GetFilteredDeviceIdentifiers: %w", err)
+	}
 	if q.getFilteredDeviceIdsStmt, err = db.PrepareContext(ctx, getFilteredDeviceIds); err != nil {
 		return nil, fmt.Errorf("error preparing query GetFilteredDeviceIds: %w", err)
 	}
@@ -1055,6 +1058,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getErrorByIDStmt: %w", cerr)
 		}
 	}
+	if q.getFilteredDeviceIdentifiersStmt != nil {
+		if cerr := q.getFilteredDeviceIdentifiersStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getFilteredDeviceIdentifiersStmt: %w", cerr)
+		}
+	}
 	if q.getFilteredDeviceIdsStmt != nil {
 		if cerr := q.getFilteredDeviceIdsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getFilteredDeviceIdsStmt: %w", cerr)
@@ -1842,6 +1850,7 @@ type Queries struct {
 	getDistinctScopeTypesStmt                           *sql.Stmt
 	getErrorByErrorIDStmt                               *sql.Stmt
 	getErrorByIDStmt                                    *sql.Stmt
+	getFilteredDeviceIdentifiersStmt                    *sql.Stmt
 	getFilteredDeviceIdsStmt                            *sql.Stmt
 	getGroupLabelsForDevicesStmt                        *sql.Stmt
 	getKnownSubnetsStmt                                 *sql.Stmt
@@ -2060,6 +2069,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getDistinctScopeTypesStmt:                           q.getDistinctScopeTypesStmt,
 		getErrorByErrorIDStmt:                               q.getErrorByErrorIDStmt,
 		getErrorByIDStmt:                                    q.getErrorByIDStmt,
+		getFilteredDeviceIdentifiersStmt:                    q.getFilteredDeviceIdentifiersStmt,
 		getFilteredDeviceIdsStmt:                            q.getFilteredDeviceIdsStmt,
 		getGroupLabelsForDevicesStmt:                        q.getGroupLabelsForDevicesStmt,
 		getKnownSubnetsStmt:                                 q.getKnownSubnetsStmt,
