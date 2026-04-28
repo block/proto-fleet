@@ -17,6 +17,8 @@ miners:
       enabled: true
     luxos:
       enabled: true
+    epic:
+      enabled: true
     marathon:
       enabled: true
 

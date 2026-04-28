@@ -19,11 +19,13 @@ pub const FAMILY_AURADINE: &str = "auradine";
 pub const VARIANT_STOCK: &str = "stock";
 pub const VARIANT_VNISH: &str = "vnish";
 pub const VARIANT_BRAIINS: &str = "braiins";
+pub const VARIANT_EPIC: &str = "epic";
 pub const VARIANT_LUXOS: &str = "luxos";
 pub const VARIANT_MARATHON: &str = "marathon";
 
 // Manufacturer display names for aftermarket firmware
 const DISPLAY_VNISH: &str = "VNish";
+const DISPLAY_EPIC: &str = "ePIC";
 const DISPLAY_BRAIINS: &str = "Braiins";
 const DISPLAY_LUXOS: &str = "LuxOS";
 const DISPLAY_MARATHON: &str = "Marathon";
@@ -182,6 +184,8 @@ pub fn firmware_to_variant(firmware: &str) -> &'static str {
     let lower = firmware.as_bytes();
     if contains_ascii_ci(lower, VARIANT_VNISH.as_bytes()) {
         VARIANT_VNISH
+    } else if contains_ascii_ci(lower, VARIANT_EPIC.as_bytes()) {
+        VARIANT_EPIC
     } else if contains_ascii_ci(lower, VARIANT_BRAIINS.as_bytes()) {
         VARIANT_BRAIINS
     } else if contains_ascii_ci(lower, VARIANT_LUXOS.as_bytes()) {
@@ -239,6 +243,7 @@ pub fn firmware_manufacturer(variant: &str) -> Option<&'static str> {
     match variant {
         VARIANT_BRAIINS => Some(DISPLAY_BRAIINS),
         VARIANT_VNISH => Some(DISPLAY_VNISH),
+        VARIANT_EPIC => Some(DISPLAY_EPIC),
         VARIANT_LUXOS => Some(DISPLAY_LUXOS),
         VARIANT_MARATHON => Some(DISPLAY_MARATHON),
         _ => None,
@@ -339,6 +344,10 @@ pub fn default_credentials(family: &str, variant: &str) -> Vec<DefaultCredential
             username: "admin",
             password: "admin",
         }],
+        (FAMILY_ANTMINER, VARIANT_EPIC) => vec![DefaultCredential {
+            username: "root",
+            password: "letmein",
+        }],
         (FAMILY_ANTMINER, _) => vec![DefaultCredential {
             username: "root",
             password: "root",
@@ -348,7 +357,7 @@ pub fn default_credentials(family: &str, variant: &str) -> Vec<DefaultCredential
             password: "admin",
         }],
         (FAMILY_EPIC, _) => vec![DefaultCredential {
-            username: "admin",
+            username: "root",
             password: "letmein",
         }],
         _ => vec![],
