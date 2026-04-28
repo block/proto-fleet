@@ -88,9 +88,6 @@ export const secondaryNavItems: SecondaryNavItem[] = [
     allowedRoles: ["SUPER_ADMIN", "ADMIN"],
   },
   {
-    // Server Logs is admin-only — same scope as API Keys, since the
-    // buffered records can include any structured attrs the server's
-    // slog calls attached (request ids, user ids, etc.).
     path: "/settings/server-logs",
     label: "Server Logs",
     parent: "/settings",
