@@ -77,9 +77,7 @@ func addressFromStratumURL(raw string) (string, error) {
 }
 
 func isSupportedScheme(raw string) bool {
-	lower := strings.ToLower(raw)
-	return strings.HasPrefix(lower, "stratum+tcp://") ||
-		strings.HasPrefix(lower, "stratum2+tcp://")
+	return strings.HasPrefix(strings.ToLower(raw), "stratum2+tcp://")
 }
 
 // Bitcoin alphabet — used by Braiins V2 to encode the authority pubkey.

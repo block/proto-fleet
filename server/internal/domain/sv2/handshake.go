@@ -188,9 +188,8 @@ func (s *handshakeState) mixKey(material []byte) {
 	s.n = 0
 }
 
-// encryptAndHash encrypts the plaintext (in place) with associated data
-// = current h, then mix_hash(ciphertext). When k is not yet set,
-// encryption is a no-op and we simply mix_hash the original bytes.
+// encryptAndHash encrypts plaintext with AD=h then mix_hashes the
+// ciphertext. Before the cipher key is set, encryption is a no-op.
 func (s *handshakeState) encryptAndHash(plaintext []byte) error {
 	var ct []byte
 	if s.haveK {
@@ -207,11 +206,10 @@ func (s *handshakeState) encryptAndHash(plaintext []byte) error {
 	return nil
 }
 
-// decryptAndHash mix_hashes the ciphertext, then decrypts (when k is
-// set). Returns the plaintext.
+// decryptAndHash decrypts ciphertext (when the cipher key is set) and
+// mix_hashes the original ciphertext.
 func (s *handshakeState) decryptAndHash(ciphertext []byte) ([]byte, error) {
-	encrypted := append([]byte(nil), ciphertext...)
-	var pt []byte
+	pt := ciphertext
 	if s.haveK {
 		var err error
 		pt, err = aeadDecrypt(s.k, s.n, s.h[:], ciphertext)
@@ -219,10 +217,8 @@ func (s *handshakeState) decryptAndHash(ciphertext []byte) ([]byte, error) {
 			return nil, err
 		}
 		s.n++
-	} else {
-		pt = encrypted
 	}
-	s.mixHash(encrypted)
+	s.mixHash(ciphertext)
 	return pt, nil
 }
 
