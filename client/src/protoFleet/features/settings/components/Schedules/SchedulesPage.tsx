@@ -15,6 +15,7 @@ import {
   scheduleColTitles,
   scheduleColumnAriaLabels,
   scheduleFilters,
+  scheduleTableClassName,
   SORTABLE_COLUMNS,
   sortSchedules,
 } from "@/protoFleet/features/settings/components/Schedules/constants";
@@ -256,7 +257,7 @@ const SchedulesPage = () => {
         getDefaultSortDirection={getDefaultScheduleSortDirection}
         actions={rowActions}
         applyColumnWidthsToCells
-        tableClassName="mb-2 w-full phone:w-max phone:!table-auto"
+        tableClassName={scheduleTableClassName}
       />
       <div className="px-2 pb-2 text-200 text-text-primary-70">{timezoneLabel}</div>
 

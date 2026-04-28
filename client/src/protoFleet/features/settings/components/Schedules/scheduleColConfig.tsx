@@ -18,7 +18,7 @@ const createScheduleColConfig = (): ColConfig<ScheduleListItem, string, Schedule
         <Grip width="w-4" className="h-4 shrink-0" />
       </div>
     ),
-    width: "w-[5%] phone:w-auto",
+    width: "w-[5%] phone:w-8",
   },
   [scheduleCols.name]: {
     component: (schedule) => (
@@ -40,7 +40,7 @@ const createScheduleColConfig = (): ColConfig<ScheduleListItem, string, Schedule
   },
   [scheduleCols.action]: {
     component: (schedule) => <span>{scheduleActionLabels[schedule.action]}</span>,
-    width: "w-[14%] phone:w-auto",
+    width: "w-[14%] phone:hidden",
   },
   [scheduleCols.status]: {
     component: (schedule) => (
@@ -49,11 +49,11 @@ const createScheduleColConfig = (): ColConfig<ScheduleListItem, string, Schedule
         <span>{scheduleStatusLabels[schedule.status]}</span>
       </div>
     ),
-    width: "w-[12%] phone:w-auto",
+    width: "w-[12%] phone:hidden",
   },
   [scheduleCols.createdBy]: {
     component: (schedule) => <span>{schedule.createdBy}</span>,
-    width: "w-[14%] phone:w-auto",
+    width: "w-[14%] phone:hidden",
   },
 });
 

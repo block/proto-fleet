@@ -17,6 +17,18 @@
   "editor.formatOnSave": true,
   "files.insertFinalNewline": true,
 
+  // Tailwind CSS
+  "tailwindCSS.classAttributes": [
+    "class",
+    "className",
+    "ngClass",
+    "class:list",
+    "tableClassName"
+  ],
+  "tailwindCSS.experimental.classRegex": [
+    ["ClassName\\s*=\\s*\\[([\\s\\S]*?)\\]\\.join\\(\" \"\\)", "\"([^\"]*)\""]
+  ],
+
   // Hermit
   "terminal.integrated.env.osx": {
     "ACTIVE_HERMIT": null,
