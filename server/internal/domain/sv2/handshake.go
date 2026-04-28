@@ -1,8 +1,9 @@
 package sv2
 
 import (
-	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -11,46 +12,53 @@ import (
 	"os"
 	"time"
 
-	"github.com/flynn/noise"
+	btcec "github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/ellswift"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"golang.org/x/crypto/chacha20poly1305"
 )
 
-// noiseHandshakeTimeout caps the entire handshake at this duration,
-// independent of the caller's context, so a half-open connection can't
-// block a ValidatePool request forever. The dial itself is separately
-// bounded by the timeout callers pass to HandshakeProbe.
+// SRI's Noise NX implementation uses secp256k1 + ElligatorSwift, NOT
+// vanilla X25519. The protocol name is
+// "Noise_NX_Secp256k1+EllSwift_ChaChaPoly_SHA256"; the constant below is
+// the precomputed SHA-256 of that name. See
+// https://github.com/stratum-mining/sv2-spec/blob/main/04-Protocol-Security.md
+var noiseProtocolHash = [32]byte{
+	46, 180, 120, 129, 32, 142, 158, 238, 31, 102, 159, 103, 198, 110, 231, 14,
+	169, 234, 136, 9, 13, 80, 63, 232, 48, 220, 75, 200, 62, 41, 191, 16,
+}
+
+const (
+	ellswiftEncodingSize             = 64
+	encryptedEllswiftEncodingSize    = ellswiftEncodingSize + chacha20poly1305.Overhead // 80
+	signatureNoiseMessageSize        = 74
+	encryptedSignatureNoiseMsgSize   = signatureNoiseMessageSize + chacha20poly1305.Overhead // 90
+	initiatorExpectedHandshakeMsgLen = ellswiftEncodingSize + encryptedEllswiftEncodingSize + encryptedSignatureNoiseMsgSize
+)
+
+// noiseHandshakeTimeout caps the entire handshake (post-dial). The dial
+// itself is bounded by the timeout passed to HandshakeProbe.
 const noiseHandshakeTimeout = 15 * time.Second
 
-// noiseProtocolName is the SRI SV2 Noise handshake pattern. SRI v1.x
-// uses Noise_NX_25519_ChaChaPoly_BLAKE2s — NX pattern (no client
-// static key, server sends its static), X25519 DH, ChaChaPoly
-// encryption, BLAKE2s hash. The exact string here matches the
-// "Noise_<Pattern>_<DH>_<Cipher>_<Hash>" format the protocol spec
-// requires for the hash prologue.
-var noiseProtocolName = []byte("Noise_NX_25519_ChaChaPoly_BLAKE2s")
+// ErrHandshakeUnsupported is returned when the caller didn't supply the
+// pool's authority pubkey (32 bytes). Without it the signature in
+// message 2 cannot be verified against an operator-pinned identity.
+var ErrHandshakeUnsupported = errors.New("handshake probe requires the pool's Noise authority public key")
 
-// ErrHandshakeUnsupported is returned when the caller asked for a
-// handshake probe but didn't supply a pool Noise pubkey. Callers fall
-// back to TCPDial in that case — it's a legitimate flow, not an error.
-var ErrHandshakeUnsupported = errors.New("handshake probe requires the pool's Noise public key")
-
-// HandshakeProbe attempts the Noise NX initiator side against an SV2
-// pool and returns (true, nil) if the handshake completes: the pool
-// presented a valid static key, we authenticated it against the
-// provided pubkey, and both sides have a shared secret. The probe
-// closes the connection immediately after; we don't send any SV2
-// application-layer message, so this validates "the pool speaks SV2
-// Noise with this authority key" rather than "credentials authorise
-// mining".
-//
-// A nil or empty poolPubKey yields ErrHandshakeUnsupported so the
-// caller can fall back to a pure TCP dial and mark the response mode
-// accordingly. Length mismatches (anything other than 32 bytes) return
-// the same — 32 bytes is the X25519 public-key length; other sizes
-// indicate operator misconfiguration.
-func HandshakeProbe(ctx context.Context, stratumURL string, poolPubKey []byte, timeout time.Duration) (bool, error) {
-	if len(poolPubKey) != 32 {
+// HandshakeProbe runs the SRI Noise NX initiator side against an SV2
+// pool. Returns (true, nil) if the responder presents a static key
+// signed by the operator-supplied authority key (BIP340 Schnorr
+// signature, valid_from/valid_to envelope from SRI's
+// SignatureNoiseMessage). Closes the connection immediately after.
+func HandshakeProbe(ctx context.Context, stratumURL string, authorityKey []byte, timeout time.Duration) (bool, error) {
+	if len(authorityKey) != 32 {
 		return false, ErrHandshakeUnsupported
 	}
+	authorityXOnly, err := schnorr.ParsePubKey(authorityKey)
+	if err != nil {
+		return false, fmt.Errorf("parse authority pubkey: %w", err)
+	}
+
 	addr, err := addressFromStratumURL(stratumURL)
 	if err != nil {
 		return false, err
@@ -58,12 +66,10 @@ func HandshakeProbe(ctx context.Context, stratumURL string, poolPubKey []byte, t
 	if timeout <= 0 {
 		timeout = DefaultTCPDialTimeout
 	}
-
 	dialCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	dialer := net.Dialer{}
-	conn, err := dialer.DialContext(dialCtx, "tcp", addr)
+	conn, err := (&net.Dialer{}).DialContext(dialCtx, "tcp", addr)
 	if err != nil {
 		return false, fmt.Errorf("tcp dial for handshake: %w", err)
 	}
@@ -79,102 +85,255 @@ func HandshakeProbe(ctx context.Context, stratumURL string, poolPubKey []byte, t
 		return false, fmt.Errorf("set handshake deadline: %w", err)
 	}
 
-	hs, err := newInitiatorHandshake()
+	priv, ourEllswift, err := ellswift.EllswiftCreate()
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("generate ephemeral ellswift keypair: %w", err)
 	}
 
-	// Round 1: send ephemeral public (message 'e'). NX pattern's first
-	// message has no payload.
-	msg1, _, _, err := hs.WriteMessage(nil, nil)
-	if err != nil {
-		return false, fmt.Errorf("build handshake message 1: %w", err)
-	}
-	if err := writeNoiseFrame(conn, msg1); err != nil {
-		return false, fmt.Errorf("send handshake message 1: %w", err)
+	state := newHandshakeState()
+	state.mixHash(ourEllswift[:])
+	if err := state.encryptAndHash(nil); err != nil {
+		return false, fmt.Errorf("step 0 encrypt empty payload: %w", err)
 	}
 
-	// Round 2: read server's response ('e, ee, s, es'). The NX pattern
-	// delivers the server's static key in this message; we then compare
-	// it to the operator-provided authority key to authenticate the
-	// pool. A mismatch means the pool on the wire isn't the pool the
-	// operator thinks they're talking to — classic key-pinning failure.
-	msg2, err := readNoiseFrame(conn)
-	if err != nil {
-		// A silent connection here usually means the operator hit the
-		// pool's SV1 port (e.g., Braiins V1 is 3333, V2 is 3336): the
-		// TCP layer accepted us but nothing on the other side speaks
-		// Noise. Surface that hint up-front instead of a raw i/o
-		// timeout that requires checking the pool's docs.
-		if errors.Is(err, io.EOF) || os.IsTimeout(err) {
-			return false, fmt.Errorf("connected to %s but no Stratum V2 handshake reply — is the URL pointing at the V2 port? (Braiins V2 is :3336): %w", addr, err)
+	if _, err := conn.Write(ourEllswift[:]); err != nil {
+		return false, fmt.Errorf("write handshake message 1: %w", err)
+	}
+
+	var reply [initiatorExpectedHandshakeMsgLen]byte
+	if _, err := io.ReadFull(conn, reply[:]); err != nil {
+		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || os.IsTimeout(err) {
+			return false, fmt.Errorf("connected to %s but the pool didn't reply with a Stratum V2 Noise handshake within the deadline — verify the URL points at a V2-capable endpoint: %w", addr, err)
 		}
 		return false, fmt.Errorf("read handshake message 2: %w", err)
 	}
-	if _, _, _, err := hs.ReadMessage(nil, msg2); err != nil {
-		return false, fmt.Errorf("verify handshake message 2: %w", err)
+
+	// Step 2 — process the responder's reply.
+	var theirEphemeralEllswift [ellswiftEncodingSize]byte
+	copy(theirEphemeralEllswift[:], reply[0:ellswiftEncodingSize])
+	state.mixHash(theirEphemeralEllswift[:])
+
+	ecdhEphemeral, err := ellswift.V2Ecdh(priv, theirEphemeralEllswift, ourEllswift, true)
+	if err != nil {
+		return false, fmt.Errorf("ecdh(e, re): %w", err)
+	}
+	state.mixKey(ecdhEphemeral[:])
+
+	encryptedTheirStaticEllswift := reply[ellswiftEncodingSize : ellswiftEncodingSize+encryptedEllswiftEncodingSize]
+	theirStaticEllswiftBuf, err := state.decryptAndHash(encryptedTheirStaticEllswift)
+	if err != nil {
+		return false, fmt.Errorf("decrypt responder static key: %w", err)
+	}
+	if len(theirStaticEllswiftBuf) != ellswiftEncodingSize {
+		return false, fmt.Errorf("decrypted static key has wrong length: got %d want %d", len(theirStaticEllswiftBuf), ellswiftEncodingSize)
+	}
+	var theirStaticEllswift [ellswiftEncodingSize]byte
+	copy(theirStaticEllswift[:], theirStaticEllswiftBuf)
+
+	ecdhStatic, err := ellswift.V2Ecdh(priv, theirStaticEllswift, ourEllswift, true)
+	if err != nil {
+		return false, fmt.Errorf("ecdh(e, rs): %w", err)
+	}
+	state.mixKey(ecdhStatic[:])
+
+	encryptedSignatureMsg := reply[ellswiftEncodingSize+encryptedEllswiftEncodingSize : initiatorExpectedHandshakeMsgLen]
+	signatureMsg, err := state.decryptAndHash(encryptedSignatureMsg)
+	if err != nil {
+		return false, fmt.Errorf("decrypt signature noise message: %w", err)
+	}
+	if len(signatureMsg) != signatureNoiseMessageSize {
+		return false, fmt.Errorf("signature noise message length: got %d want %d", len(signatureMsg), signatureNoiseMessageSize)
 	}
 
-	presented := hs.PeerStatic()
-	if !bytes.Equal(presented, poolPubKey) {
-		return false, fmt.Errorf("pool presented static key does not match operator-supplied authority key")
+	respStaticXOnly, err := ellswiftXOnly(theirStaticEllswift)
+	if err != nil {
+		return false, fmt.Errorf("decode responder static pubkey: %w", err)
+	}
+
+	if err := verifySignatureNoiseMessage(signatureMsg, respStaticXOnly, authorityXOnly, uint32(time.Now().Unix())); err != nil {
+		return false, fmt.Errorf("verify pool authority signature: %w", err)
 	}
 	return true, nil
 }
 
-// newInitiatorHandshake builds a Noise NX initiator state pinned to
-// SRI's cipher suite (Noise_NX_25519_ChaChaPoly_BLAKE2s). NX delivers
-// the responder's static key over the wire, so we do NOT pre-load it
-// here — the caller compares the received key to the operator-provided
-// authority key after the handshake completes.
-func newInitiatorHandshake() (*noise.HandshakeState, error) {
-	cs := noise.NewCipherSuite(noise.DH25519, noise.CipherChaChaPoly, noise.HashBLAKE2s)
-	hs, err := noise.NewHandshakeState(noise.Config{
-		CipherSuite: cs,
-		Random:      nil, // defaults to crypto/rand
-		Pattern:     noise.HandshakeNX,
-		Initiator:   true,
-		Prologue:    noiseProtocolName,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("noise handshake init: %w", err)
-	}
-	return hs, nil
+// handshakeState carries the chaining key (ck), handshake hash (h), and
+// optional cipher key (k) through the Noise NX progression. All
+// operations match SRI's HandshakeOp trait byte-for-byte.
+type handshakeState struct {
+	ck    [32]byte
+	h     [32]byte
+	k     [32]byte
+	haveK bool
+	n     uint64
 }
 
-// writeNoiseFrame sends a length-prefixed Noise frame on the wire.
-// SRI uses a 2-byte big-endian length header before the Noise payload;
-// we use the same framing so any future extension to a full
-// SetupConnection exchange can reuse these helpers.
-func writeNoiseFrame(w io.Writer, payload []byte) error {
-	if len(payload) > 0xFFFF {
-		return fmt.Errorf("noise frame too large: %d bytes", len(payload))
+func newHandshakeState() *handshakeState {
+	s := &handshakeState{ck: noiseProtocolHash}
+	s.h = sha256.Sum256(s.ck[:])
+	return s
+}
+
+func (s *handshakeState) mixHash(data []byte) {
+	hasher := sha256.New()
+	hasher.Write(s.h[:])
+	hasher.Write(data)
+	hasher.Sum(s.h[:0])
+}
+
+func (s *handshakeState) mixKey(material []byte) {
+	ck, k := hkdf2(s.ck[:], material)
+	s.ck = ck
+	s.k = k
+	s.haveK = true
+	s.n = 0
+}
+
+// encryptAndHash encrypts the plaintext (in place) with associated data
+// = current h, then mix_hash(ciphertext). When k is not yet set,
+// encryption is a no-op and we simply mix_hash the original bytes.
+func (s *handshakeState) encryptAndHash(plaintext []byte) error {
+	var ct []byte
+	if s.haveK {
+		var err error
+		ct, err = aeadEncrypt(s.k, s.n, s.h[:], plaintext)
+		if err != nil {
+			return err
+		}
+		s.n++
+	} else {
+		ct = plaintext
 	}
-	var hdr [2]byte
-	// #nosec G115 — length-bounded above by the 0xFFFF check, fits in uint16.
-	binary.BigEndian.PutUint16(hdr[:], uint16(len(payload)))
-	if _, err := w.Write(hdr[:]); err != nil {
-		return fmt.Errorf("write noise frame header: %w", err)
+	s.mixHash(ct)
+	return nil
+}
+
+// decryptAndHash mix_hashes the ciphertext, then decrypts (when k is
+// set). Returns the plaintext.
+func (s *handshakeState) decryptAndHash(ciphertext []byte) ([]byte, error) {
+	encrypted := append([]byte(nil), ciphertext...)
+	var pt []byte
+	if s.haveK {
+		var err error
+		pt, err = aeadDecrypt(s.k, s.n, s.h[:], ciphertext)
+		if err != nil {
+			return nil, err
+		}
+		s.n++
+	} else {
+		pt = encrypted
 	}
-	if _, err := w.Write(payload); err != nil {
-		return fmt.Errorf("write noise frame payload: %w", err)
+	s.mixHash(encrypted)
+	return pt, nil
+}
+
+func aeadEncrypt(key [32]byte, nonce uint64, ad, plaintext []byte) ([]byte, error) {
+	aead, err := chacha20poly1305.New(key[:])
+	if err != nil {
+		return nil, err
+	}
+	return aead.Seal(nil, noiseNonce(nonce), plaintext, ad), nil
+}
+
+func aeadDecrypt(key [32]byte, nonce uint64, ad, ciphertext []byte) ([]byte, error) {
+	aead, err := chacha20poly1305.New(key[:])
+	if err != nil {
+		return nil, err
+	}
+	return aead.Open(nil, noiseNonce(nonce), ciphertext, ad)
+}
+
+// noiseNonce builds the 12-byte ChaCha20-Poly1305 nonce: 4 zero bytes
+// followed by the 8-byte little-endian counter (Noise spec §5.1).
+func noiseNonce(n uint64) []byte {
+	nonce := make([]byte, 12)
+	binary.LittleEndian.PutUint64(nonce[4:], n)
+	return nonce
+}
+
+// hkdf2 implements the Noise HKDF (HMAC-SHA256) two-output variant that
+// SRI's hkdf_2 helper computes.
+func hkdf2(chainingKey, ikm []byte) ([32]byte, [32]byte) {
+	temp := hmacSHA256(chainingKey, ikm)
+	out1 := hmacSHA256(temp[:], []byte{0x01})
+	out2 := hmacSHA256(temp[:], append(out1[:], 0x02))
+	return out1, out2
+}
+
+func hmacSHA256(key, data []byte) [32]byte {
+	mac := hmac.New(sha256.New, key)
+	mac.Write(data)
+	var out [32]byte
+	copy(out[:], mac.Sum(nil))
+	return out
+}
+
+// verifySignatureNoiseMessage validates SRI's SignatureNoiseMessage
+// against the responder's static pubkey (recovered from the handshake)
+// and the operator-pinned authority pubkey. Layout:
+//
+//	bytes  0.. 1: u16 little-endian version (must be 0)
+//	bytes  2.. 5: u32 little-endian valid_from
+//	bytes  6.. 9: u32 little-endian not_valid_after
+//	bytes 10..73: 64-byte BIP340 Schnorr signature over the certificate body
+//
+// The signature is over sha256(version || valid_from || not_valid_after ||
+// responder_static_xonly).
+func verifySignatureNoiseMessage(msg []byte, responderStaticXOnly, authority *btcec.PublicKey, now uint32) error {
+	if len(msg) != signatureNoiseMessageSize {
+		return fmt.Errorf("unexpected length: %d", len(msg))
+	}
+	version := binary.LittleEndian.Uint16(msg[0:2])
+	if version != 0 {
+		return fmt.Errorf("unsupported SignatureNoiseMessage version %d", version)
+	}
+	validFrom := binary.LittleEndian.Uint32(msg[2:6])
+	notAfter := binary.LittleEndian.Uint32(msg[6:10])
+	if now < validFrom {
+		return fmt.Errorf("certificate not yet valid (valid_from=%d, now=%d)", validFrom, now)
+	}
+	if now > notAfter {
+		return fmt.Errorf("certificate expired (not_valid_after=%d, now=%d)", notAfter, now)
+	}
+
+	digest := signatureCertDigest(msg[0:10], responderStaticXOnly)
+
+	sig, err := schnorr.ParseSignature(msg[10:74])
+	if err != nil {
+		return fmt.Errorf("parse schnorr signature: %w", err)
+	}
+	if !sig.Verify(digest[:], authority) {
+		return errors.New("signature does not verify against operator-supplied authority key")
 	}
 	return nil
 }
 
-// readNoiseFrame reads a length-prefixed Noise frame. Matches writeNoiseFrame.
-func readNoiseFrame(r io.Reader) ([]byte, error) {
-	var hdr [2]byte
-	if _, err := io.ReadFull(r, hdr[:]); err != nil {
-		return nil, fmt.Errorf("read noise frame header: %w", err)
+func signatureCertDigest(envelope []byte, responderStaticXOnly *btcec.PublicKey) [32]byte {
+	var staticXOnly [32]byte
+	copy(staticXOnly[:], schnorr.SerializePubKey(responderStaticXOnly))
+	hasher := sha256.New()
+	hasher.Write(envelope)
+	hasher.Write(staticXOnly[:])
+	var out [32]byte
+	hasher.Sum(out[:0])
+	return out
+}
+
+// ellswiftXOnly decodes a 64-byte ElligatorSwift encoding into the
+// X-only secp256k1 public key the schnorr verifier wants. SRI fixes the
+// parity at Even, so we pass the raw 32-byte X-coordinate to
+// schnorr.ParsePubKey which assumes even Y.
+func ellswiftXOnly(enc [ellswiftEncodingSize]byte) (*btcec.PublicKey, error) {
+	var u, t btcec.FieldVal
+	if u.SetByteSlice(enc[0:32]) {
+		u.Normalize()
 	}
-	n := int(binary.BigEndian.Uint16(hdr[:]))
-	if n == 0 {
-		return nil, fmt.Errorf("empty noise frame")
+	if t.SetByteSlice(enc[32:64]) {
+		t.Normalize()
 	}
-	payload := make([]byte, n)
-	if _, err := io.ReadFull(r, payload); err != nil {
-		return nil, fmt.Errorf("read noise frame payload: %w", err)
+	x, err := ellswift.XSwiftEC(&u, &t)
+	if err != nil {
+		return nil, err
 	}
-	return payload, nil
+	xBytes := x.Bytes()
+	return schnorr.ParsePubKey(xBytes[:])
 }
