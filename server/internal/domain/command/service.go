@@ -63,6 +63,8 @@ type Service struct {
 	capabilityChecker   *CapabilityChecker
 	activitySvc         *activity.Service
 
+	resolveDeviceIDsOverride func(context.Context, []string) ([]int64, error)
+
 	// filters run in registration order before commands are enqueued. Registered
 	// at startup only; the slice is not mutex-protected.
 	filters []CommandFilter
@@ -598,6 +600,9 @@ func (s *Service) resolveIdentifiersToDeviceIDs(ctx context.Context, identifiers
 	if len(identifiers) == 0 {
 		return []int64{}, nil
 	}
+	if s.resolveDeviceIDsOverride != nil {
+		return s.resolveDeviceIDsOverride(ctx, identifiers)
+	}
 	return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]int64, error) {
 		return q.GetDeviceIDsByDeviceIdentifiers(ctx, identifiers)
 	})
@@ -648,6 +653,15 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (*Comman
 	// External callers should not see a successful subset dispatch without an
 	// explicit best-effort API contract.
 	if isExternalCommand(info) && len(skipped) > 0 {
+		if len(kept) == 0 {
+			deviceIDs, err := s.resolveIdentifiersToDeviceIDs(ctx, identifiers)
+			if err != nil {
+				return nil, fleeterror.NewInternalErrorf("error resolving identifiers to device IDs: %v", err)
+			}
+			if len(deviceIDs) == 0 {
+				return nil, fleeterror.NewInvalidArgumentError("no devices matched selector")
+			}
+		}
 		if err := s.logPreflightBlockedStrict(ctx, command.commandType, identifiers, skipped); err != nil {
 			return nil, fleeterror.NewInternalErrorf("logging preflight block: %v", err)
 		}

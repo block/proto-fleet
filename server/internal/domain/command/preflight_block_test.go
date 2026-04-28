@@ -136,6 +136,10 @@ func TestProcessCommand_ManualPartialSkip_Blocks(t *testing.T) {
 
 func TestProcessCommand_ManualFullSkip_Blocks(t *testing.T) {
 	svc, store := newPreflightTestService(t, newFakeFilter("test_block", "miner-1", "miner-2"))
+	svc.resolveDeviceIDsOverride = func(_ context.Context, identifiers []string) ([]int64, error) {
+		assert.Equal(t, []string{"miner-1", "miner-2"}, identifiers)
+		return []int64{101, 102}, nil
+	}
 
 	_, err := svc.processCommand(manualSessionCtx(1), &Command{
 		commandType:    commandtype.SetPowerTarget,
@@ -151,6 +155,29 @@ func TestProcessCommand_ManualFullSkip_Blocks(t *testing.T) {
 	assert.Equal(t, 2, ev.Metadata["requested_count"])
 	assert.Equal(t, 2, ev.Metadata["skipped_count"])
 	assert.Equal(t, []string{"miner-1", "miner-2"}, ev.Metadata["skipped_identifiers"])
+}
+
+func TestProcessCommand_ManualFullSkipWithNoLiveDevices_ReturnsInvalidArgument(t *testing.T) {
+	svc, store := newPreflightTestService(t, newFakeFilter("test_block", "stale-miner"))
+	svc.resolveDeviceIDsOverride = func(_ context.Context, identifiers []string) ([]int64, error) {
+		assert.Equal(t, []string{"stale-miner"}, identifiers)
+		return nil, nil
+	}
+
+	result, err := svc.processCommand(manualSessionCtx(1), &Command{
+		commandType:    commandtype.SetPowerTarget,
+		deviceSelector: includeSelector("stale-miner"),
+	})
+
+	require.Nil(t, result)
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.True(t, errors.As(err, &fleetErr), "expected FleetError, got %T", err)
+	require.Equal(t, connect.CodeInvalidArgument, fleetErr.GRPCCode)
+	assert.Contains(t, err.Error(), "no devices matched selector")
+	for _, ev := range store.inserts {
+		assert.NotEqual(t, "command_preflight_blocked", ev.Type, "zero-live-device selector is not a preflight block")
+	}
 }
 
 // --- Scheduler-origin: block path must NOT fire ---
