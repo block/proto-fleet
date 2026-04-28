@@ -13,6 +13,7 @@ import { routerConfig as singleMinerRoutes } from "@/protoOS/router";
 const Dashboard = lazy(() => import("@/protoFleet/features/dashboard/pages/Dashboard"));
 const Miners = lazy(() => import("./features/fleetManagement/components/Fleet"));
 const ActivityPage = lazy(() => import("@/protoFleet/features/activity/pages/ActivityPage"));
+const ServerLogsPage = lazy(() => import("@/protoFleet/features/serverLogs/pages/ServerLogsPage"));
 const GroupsPage = lazy(() => import("@/protoFleet/features/groupManagement/pages/GroupsPage"));
 const GroupOverviewPage = lazy(() => import("@/protoFleet/features/groupManagement/pages/GroupOverviewPage"));
 const RacksPage = lazy(() => import("@/protoFleet/features/rackManagement/pages/RacksPage"));
@@ -122,6 +123,9 @@ const router = createBrowserRouter([
 
   // Activity
   createRoute("/activity", <ActivityPage />),
+
+  // Server logs (live tail of fleetd's own log output)
+  createRoute("/server-logs", <ServerLogsPage />),
 
   // Single miner (fullscreen - protoOS routes handle layout)
   {
