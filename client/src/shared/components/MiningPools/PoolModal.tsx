@@ -92,10 +92,9 @@ const PoolModal = ({
     [draftPoolInfo, poolIndex, hidePoolName, usernameRequired, poolNameError, urlError, usernameError],
   );
 
-  const isTestConnectionDisabled = useMemo(
-    () => !draftPoolInfo[poolIndex]?.url?.trim() || Boolean(urlError),
-    [draftPoolInfo, poolIndex, urlError],
-  );
+  // Empty URL stays clickable so the click handler can surface the
+  // required-URL error inline.
+  const isTestConnectionDisabled = useMemo(() => Boolean(urlError), [urlError]);
 
   // Sync draft with incoming pools prop when parent updates it
   const [prevPools, setPrevPools] = useState(pools);

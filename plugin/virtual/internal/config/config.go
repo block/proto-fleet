@@ -97,7 +97,7 @@ type MinerProfile struct {
 	BaselineTempC       float64 `json:"baseline_temp_c"`
 	FanRPMMin           int     `json:"fan_rpm_min"`
 	FanRPMMax           int     `json:"fan_rpm_max"`
-	StratumV2Supported bool `json:"stratum_v2_supported,omitempty"`
+	StratumV2Supported  bool    `json:"stratum_v2_supported,omitempty"`
 	// Behavior settings for generated miners
 	Behavior BehaviorConfig `json:"behavior"`
 }

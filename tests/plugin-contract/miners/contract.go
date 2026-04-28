@@ -325,7 +325,7 @@ func AssertCapabilities(t *testing.T, tc TestContext, device sdk.Device) {
 		}
 
 		// Act
-		caps := provider.GetCapabilitiesForModel(TestCtx(t), "totally-unknown-model-xyz")
+		caps := provider.GetCapabilitiesForModel(TestCtx(t), "unknown-manufacturer", "totally-unknown-model-xyz")
 
 		// Assert -- plugins may return nil or conservative base caps for unknown models.
 		// Both are valid; the server merges with driver-level caps from DescribeDriver.

@@ -1043,7 +1043,6 @@ func anySV2(slots []preflight.SlotAssignment) bool {
 	return false
 }
 
-
 // formatMinerType renders make/model as a human-readable type label.
 // Falls back to "unknown type" when both are empty so the toast never
 // reads "Incompatible types: , ".
