@@ -175,5 +175,10 @@ message ValidatePoolRequest {
 
 // Response after validating a pool's connection details
 message ValidatePoolResponse {
-  // Empty response as success/failure is indicated by gRPC status
+  // True when the validation flow exchanged credentials with the pool
+  // and the pool accepted them (SV1 mining.subscribe + authorize). False
+  // when only endpoint identity was verified (SV2 Noise handshake — the
+  // pool's authority key is genuine, but worker credentials were not
+  // checked because asicrs's session/auth flow is not yet implemented).
+  bool credentials_verified = 1;
 }

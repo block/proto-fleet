@@ -87,6 +87,11 @@ func (s *Service) UpdatePool(ctx context.Context, r *pb.UpdatePoolRequest) (*pb.
 	if r.Url != nil && strings.TrimSpace(r.GetUrl()) == "" {
 		return nil, fleeterror.NewInvalidArgumentError("url cannot be empty; omit the field to leave unchanged")
 	}
+	if r.Url != nil {
+		if err := validateSV2PoolURL(r.GetUrl()); err != nil {
+			return nil, err
+		}
+	}
 	if r.Username != nil && strings.TrimSpace(r.GetUsername()) == "" {
 		return nil, fleeterror.NewInvalidArgumentError("username cannot be empty; omit the field to leave unchanged")
 	}
@@ -156,6 +161,9 @@ func (s *Service) CreatePool(ctx context.Context, poolConfig *pb.PoolConfig) (*p
 	if err := validatePoolUsername(poolConfig.GetUsername()); err != nil {
 		return nil, err
 	}
+	if err := validateSV2PoolURL(poolConfig.GetUrl()); err != nil {
+		return nil, err
+	}
 
 	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
 		poolID, err := s.poolStore.CreatePool(ctx, poolConfig, info.OrganizationID)
@@ -208,12 +216,21 @@ func (s *Service) ListPools(ctx context.Context) ([]*pb.Pool, error) {
 	return pools, nil
 }
 
+// ValidationOutcome reports the result of a pool connection probe.
+// CredentialsVerified is true only when the probe exchanged worker
+// credentials with the pool. SV2 currently leaves it false because the
+// Noise handshake proves endpoint identity but not credential validity.
+type ValidationOutcome struct {
+	Reachable           bool
+	CredentialsVerified bool
+}
+
 // ValidateConnection probes a pool server. SV1 URLs run a full
 // mining.subscribe + authorize. SV2 URLs run a Noise NX handshake
 // against the authority pubkey embedded in the URL path — proves the
-// pool speaks SV2 and presents the operator-pinned static key.
-// A TCP dial alone is not enough: any TCP listener would pass it.
-func (s *Service) ValidateConnection(ctx context.Context, url string, username string, password *secrets.Text, timeout *time.Duration) (bool, error) {
+// pool speaks SV2 and presents the operator-pinned static key, but
+// does not verify worker credentials.
+func (s *Service) ValidateConnection(ctx context.Context, url string, username string, password *secrets.Text, timeout *time.Duration) (ValidationOutcome, error) {
 	to := s.cfg.Timeout
 	if timeout != nil {
 		to = *timeout
@@ -221,21 +238,29 @@ func (s *Service) ValidateConnection(ctx context.Context, url string, username s
 	ctx, cancel := context.WithTimeout(ctx, to)
 	defer cancel()
 
-	if isSV2URL(url) {
+	if sv2.IsSV2URL(url) {
 		key, err := sv2.PoolNoiseKeyFromURL(url)
 		if err != nil {
-			return false, fleeterror.NewInvalidArgumentErrorf("%v", err)
+			return ValidationOutcome{}, fleeterror.NewInvalidArgumentErrorf("%v", err)
 		}
-		return sv2.HandshakeProbe(ctx, url, key, to)
+		ok, err := sv2.HandshakeProbe(ctx, url, key, to)
+		return ValidationOutcome{Reachable: ok, CredentialsVerified: false}, err
 	}
-
 	ok, err := stratumv1.Authenticate(ctx, url, username, password)
 	if err != nil {
-		return false, err
+		return ValidationOutcome{}, err
 	}
-	return ok, nil
+	return ValidationOutcome{Reachable: ok, CredentialsVerified: ok}, nil
 }
 
-func isSV2URL(stratumURL string) bool {
-	return strings.HasPrefix(stratumURL, "stratum2+")
+// validateSV2PoolURL rejects Stratum V2 URLs whose authority-pubkey path
+// component doesn't decode. The CEL pattern only checks shape.
+func validateSV2PoolURL(url string) error {
+	if !sv2.IsSV2URL(url) {
+		return nil
+	}
+	if _, err := sv2.PoolNoiseKeyFromURL(url); err != nil {
+		return fleeterror.NewInvalidArgumentErrorf("invalid Stratum V2 pool URL: %v", err)
+	}
+	return nil
 }

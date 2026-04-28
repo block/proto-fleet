@@ -37,7 +37,7 @@ export const AddPool = () => {
         isTestingConnection={false}
         testConnection={(args) => {
           action("testConnection")(args.poolInfo);
-          args.onSuccess?.();
+          args.onSuccess?.({ credentialsVerified: true });
           args.onFinally?.();
         }}
         mode="add"
@@ -82,7 +82,7 @@ export const EditPool = () => {
         isTestingConnection={false}
         testConnection={(args) => {
           action("testConnection")(args.poolInfo);
-          args.onSuccess?.();
+          args.onSuccess?.({ credentialsVerified: true });
           args.onFinally?.();
         }}
         mode="edit"

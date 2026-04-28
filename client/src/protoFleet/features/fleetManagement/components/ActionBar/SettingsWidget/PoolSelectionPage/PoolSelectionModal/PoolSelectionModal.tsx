@@ -11,7 +11,7 @@ import Input from "@/shared/components/Input";
 import { emptyPoolInfo } from "@/shared/components/MiningPools/constants";
 import { fleetUsernameHelperText } from "@/shared/components/MiningPools/PoolForm/constants";
 import PoolModal from "@/shared/components/MiningPools/PoolModal";
-import { PoolInfo } from "@/shared/components/MiningPools/types";
+import { PoolConnectionTestProps, PoolInfo } from "@/shared/components/MiningPools/types";
 import Modal from "@/shared/components/Modal";
 import Radio from "@/shared/components/Radio";
 
@@ -187,12 +187,7 @@ const PoolSelectionModal = ({
     setNewPoolInfo([emptyPoolInfo]);
   };
 
-  const handleTestConnection = (args: {
-    poolInfo: PoolInfo;
-    onError?: (error?: string) => void;
-    onSuccess?: () => void;
-    onFinally?: () => void;
-  }) => {
+  const handleTestConnection = (args: PoolConnectionTestProps) => {
     setIsTestingConnection(true);
     validatePool({
       poolInfo: {
@@ -200,8 +195,8 @@ const PoolSelectionModal = ({
         username: args.poolInfo.username,
         password: args.poolInfo.password,
       },
-      onSuccess: () => {
-        args.onSuccess?.();
+      onSuccess: (result) => {
+        args.onSuccess?.(result);
       },
       onError: (error) => {
         args.onError?.(error);

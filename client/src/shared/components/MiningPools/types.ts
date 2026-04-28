@@ -12,6 +12,6 @@ export type PoolIndex = DefaultPoolIndex | BackupPoolIndex;
 export type PoolConnectionTestProps = {
   poolInfo: PoolInfo;
   onError?: (error?: string) => void;
-  onSuccess?: () => void;
+  onSuccess?: (result: { credentialsVerified: boolean }) => void;
   onFinally?: () => void;
 };

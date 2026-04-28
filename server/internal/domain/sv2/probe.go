@@ -76,8 +76,13 @@ func addressFromStratumURL(raw string) (string, error) {
 	return net.JoinHostPort(host, port), nil
 }
 
-func isSupportedScheme(raw string) bool {
+// IsSV2URL reports whether the URL is a Stratum V2 scheme. Case-insensitive.
+func IsSV2URL(raw string) bool {
 	return strings.HasPrefix(strings.ToLower(raw), "stratum2+tcp://")
+}
+
+func isSupportedScheme(raw string) bool {
+	return IsSV2URL(raw)
 }
 
 // Bitcoin alphabet — used by Braiins V2 to encode the authority pubkey.

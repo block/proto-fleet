@@ -312,10 +312,12 @@ const MiningPools = () => {
           username: pool.username,
           password: "",
         },
-        onSuccess: () => {
+        onSuccess: ({ credentialsVerified }) => {
           setConnectionStatuses((prev) => ({ ...prev, [poolId]: "idle" }));
           pushToast({
-            message: "Pool connection successful",
+            message: credentialsVerified
+              ? "Pool connection successful"
+              : "Pool endpoint identity verified — credentials not checked (SV2)",
             status: STATUSES.success,
           });
         },
@@ -513,11 +515,11 @@ const MiningPools = () => {
         testConnection={(args) => {
           validatePool({
             ...args,
-            onSuccess: () => {
+            onSuccess: (result) => {
               if (editingPool) {
                 setConnectionStatuses((prev) => ({ ...prev, [editingPool.poolId.toString()]: "idle" }));
               }
-              args.onSuccess?.();
+              args.onSuccess?.(result);
             },
           });
         }}

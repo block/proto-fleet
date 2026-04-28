@@ -25,6 +25,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
+	"github.com/block/proto-fleet/server/internal/domain/sv2"
 	tmodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
@@ -926,6 +927,16 @@ func (s *Service) preflightSV2Capabilities(ctx context.Context, selector *pb.Dev
 	if !anySV2(slots) {
 		return nil, nil
 	}
+	// CEL only validates the URL shape; reject SV2 URLs whose authority
+	// pubkey path doesn't decode before dispatching to any miner.
+	for _, s := range slots {
+		if !sv2.IsSV2URL(s.URL) {
+			continue
+		}
+		if _, err := sv2.PoolNoiseKeyFromURL(s.URL); err != nil {
+			return nil, fleeterror.NewInvalidArgumentErrorf("invalid Stratum V2 pool URL %q: %v", s.URL, err)
+		}
+	}
 
 	identifiers, err := s.resolveSelectorIdentifiers(ctx, selector)
 	if err != nil {
@@ -1036,7 +1047,7 @@ func preflightSlotsFromPayload(pld *dto.UpdateMiningPoolsPayload) []preflight.Sl
 
 func anySV2(slots []preflight.SlotAssignment) bool {
 	for _, s := range slots {
-		if strings.HasPrefix(s.URL, "stratum2+") {
+		if sv2.IsSV2URL(s.URL) {
 			return true
 		}
 	}
