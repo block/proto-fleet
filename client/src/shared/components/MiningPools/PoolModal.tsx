@@ -237,8 +237,14 @@ const PoolModal = ({
   ]);
 
   const onTestConnection = useCallback(() => {
-    if (!draftPoolInfo[poolIndex].url.trim()) {
+    const url = draftPoolInfo[poolIndex].url.trim();
+    if (!url) {
       setUrlError(urlValidationErrors.required);
+      return;
+    }
+    const schemeError = validateURLScheme(url);
+    if (schemeError) {
+      setUrlError(schemeError);
       return;
     }
 
