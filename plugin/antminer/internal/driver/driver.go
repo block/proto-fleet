@@ -40,6 +40,7 @@ const (
 	firmwareMarkerBraiins = "braiins"
 	firmwareMarkerVNish   = "vnish"
 	firmwareMarkerMaraFW  = "marafw"
+	firmwareMarkerEpic    = "epic"
 )
 
 // nonStockFirmwareMarkers are case-insensitive substrings that indicate
@@ -49,6 +50,7 @@ var nonStockFirmwareMarkers = []string{
 	firmwareMarkerBraiins,
 	firmwareMarkerVNish,
 	firmwareMarkerMaraFW,
+	firmwareMarkerEpic,
 }
 
 // isNonStockFirmware reports whether the firmware string indicates a non-stock variant.

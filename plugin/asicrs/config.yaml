@@ -17,6 +17,8 @@ miners:
       enabled: true
     luxos:
       enabled: true
+    epic:
+      enabled: true
     marathon:
       enabled: true
 
@@ -34,6 +36,8 @@ miners:
 
   epic:
     stock:
+      enabled: true
+    epic:
       enabled: true
 
   auradine:
