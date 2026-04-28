@@ -4,8 +4,7 @@ import clsx from "clsx";
 import { logTypes } from "./constants";
 import LogBadges from "./LogBadges";
 import { LogInfo, logType } from "./types";
-import { downloadLogs, formatLogs, formatLogsToCSV, getErrorWarningCount } from "./utility";
-import { LogsResponseLogs } from "@/protoOS/api/generatedApi";
+import { downloadLogs, formatLogInfoToCSV, formatLogs, formatLogsToCSV, getErrorWarningCount } from "./utility";
 import { DismissTiny } from "@/shared/assets/icons";
 
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -15,15 +14,53 @@ import { useClickOutside } from "@/shared/hooks/useClickOutside";
 import { padLeft } from "@/shared/utils/stringUtils";
 import { getFileName } from "@/shared/utils/utility";
 
-interface LogsProps {
-  logsData?: LogsResponseLogs;
-  fetchMaxLogs: () => Promise<LogsResponseLogs | undefined>;
+export interface StructuredLogEntry {
+  id: string;
+  timestamp: string | null;
+  level: "debug" | "info" | "warn" | "error";
+  message: string;
 }
 
-const Logs = ({ logsData, fetchMaxLogs }: LogsProps) => {
+export type LogsData =
+  | {
+      kind?: "lines";
+      content?: string[];
+      lines?: number;
+      source?: string;
+    }
+  | {
+      kind: "structured";
+      entries: StructuredLogEntry[];
+      lines?: number;
+      source?: string;
+    };
+
+interface LogsProps {
+  logsData?: LogsData;
+  fetchMaxLogs: () => Promise<LogsData | undefined>;
+  downloadFilename?: string;
+}
+
+const LEVEL_TO_LOG_TYPE: Record<StructuredLogEntry["level"], logType> = {
+  debug: logTypes.debug,
+  info: logTypes.info,
+  warn: logTypes.warn,
+  error: logTypes.error,
+};
+
+const entryToLogInfo = (entry: StructuredLogEntry): LogInfo => ({
+  timestamp: entry.timestamp,
+  logType: LEVEL_TO_LOG_TYPE[entry.level],
+  message: entry.message,
+});
+
+const isStructured = (data: LogsData): data is Extract<LogsData, { kind: "structured" }> => data.kind === "structured";
+
+const Logs = ({ logsData, fetchMaxLogs, downloadFilename = "miner-logs" }: LogsProps) => {
   const [isExporting, setIsExporting] = useState(false);
   const [initPage, setInitPage] = useState(false);
   const [storedLogs, setStoredLogs] = useState<string[]>([]);
+  const [storedEntries, setStoredEntries] = useState<StructuredLogEntry[]>([]);
   const [logs, setLogs] = useState<LogInfo[]>([]);
   const [filterByLogType, setFilterByLogType] = useState<logType[]>([]);
   const [focusSearch, setFocusSearch] = useState(false);
@@ -88,8 +125,41 @@ const Logs = ({ logsData, fetchMaxLogs }: LogsProps) => {
     [storedLogs],
   );
 
+  const formatAndSetStructuredEntries = useCallback(
+    (entriesToSet: StructuredLogEntry[]) => {
+      if (entriesToSet.length === storedEntries.length) return;
+      setStoredEntries(entriesToSet);
+
+      let error = 0;
+      let warning = 0;
+      for (const entry of entriesToSet) {
+        if (entry.level === "error") error++;
+        else if (entry.level === "warn") warning++;
+      }
+      setErrorCount(error);
+      setWarningCount(warning);
+
+      setLogs(entriesToSet.map(entryToLogInfo));
+    },
+    [storedEntries],
+  );
+
   useEffect(() => {
-    if (logsData?.content?.length) {
+    if (!logsData) return;
+
+    if (isStructured(logsData)) {
+      if (!logsData.entries.length) return;
+      const knownIds = new Set(storedEntries.map((e) => e.id));
+      const uniqueEntries = storedEntries.length
+        ? logsData.entries.filter((e) => !knownIds.has(e.id))
+        : logsData.entries;
+      const combinedEntries = [...storedEntries, ...uniqueEntries];
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- ingest new entries when upstream logsData changes
+      formatAndSetStructuredEntries(combinedEntries);
+      return;
+    }
+
+    if (logsData.content?.length) {
       // after initial logs are fetched, remove duplicated logs and add them
       const uniqueLogs = storedLogs.length
         ? logsData.content.filter((log) => !storedLogs.find((storedLog) => storedLog === log))
@@ -99,7 +169,7 @@ const Logs = ({ logsData, fetchMaxLogs }: LogsProps) => {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- ingest new logs when upstream logsData changes
       formatAndSetLogsData(combinedLogs);
     }
-  }, [logsData, storedLogs, formatAndSetLogsData]);
+  }, [logsData, storedLogs, storedEntries, formatAndSetLogsData, formatAndSetStructuredEntries]);
 
   const blurSearch = (e: SyntheticEvent) => {
     e.stopPropagation();
@@ -130,9 +200,17 @@ const Logs = ({ logsData, fetchMaxLogs }: LogsProps) => {
         blurSearch(e);
         setIsExporting(true);
         const exportLogs = await fetchMaxLogs();
-        if (exportLogs?.content) {
-          const csvData = formatLogsToCSV(exportLogs.content);
-          downloadLogs(csvData, getFileName("miner-logs", "csv"));
+        if (!exportLogs) return;
+        let csvData: string[] | undefined;
+        if (isStructured(exportLogs)) {
+          if (exportLogs.entries.length) {
+            csvData = formatLogInfoToCSV(exportLogs.entries.map(entryToLogInfo));
+          }
+        } else if (exportLogs.content?.length) {
+          csvData = formatLogsToCSV(exportLogs.content);
+        }
+        if (csvData) {
+          downloadLogs(csvData, getFileName(downloadFilename, "csv"));
         }
       } catch (error) {
         console.error("Error exporting logs:", error);
@@ -140,7 +218,7 @@ const Logs = ({ logsData, fetchMaxLogs }: LogsProps) => {
         setIsExporting(false);
       }
     },
-    [fetchMaxLogs],
+    [fetchMaxLogs, downloadFilename],
   );
 
   const handleClickSearchBar = useCallback(() => {
