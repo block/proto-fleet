@@ -466,12 +466,35 @@ func TestAppendFilterSQL_ZonesOnly(t *testing.T) {
 
 	sql := sb.String()
 	assert.Contains(t, sql, "device_set_membership dcm")
+	assert.Contains(t, sql, "JOIN device_set ds ON ds.id = dcm.device_set_id")
 	assert.Contains(t, sql, "JOIN device_set_rack dsr ON dsr.device_set_id = dcm.device_set_id")
 	assert.Contains(t, sql, "device_set_type = 'rack'")
 	assert.Contains(t, sql, "dsr.zone = ANY($3::text[])")
 	assert.Contains(t, sql, "dcm.org_id = $2")
 	assert.Len(t, resultArgs, 3) // initial + orgID + zone values
 	assert.Equal(t, 4, resultArgNum)
+}
+
+// TestAppendFilterSQL_ZonesExcludeSoftDeletedRacks guards against the bug
+// where the zone EXISTS subquery would still match miners whose rack has been
+// soft-deleted. Soft delete sets device_set.deleted_at but leaves the
+// membership and rack-extension rows in place, so the subquery must include
+// the device_set join and the deleted_at IS NULL predicate.
+func TestAppendFilterSQL_ZonesExcludeSoftDeletedRacks(t *testing.T) {
+	var sb strings.Builder
+	args := []any{"initial"}
+	fp := minerFilterParams{
+		zonesFilter: validNullString(),
+		zoneValues:  []string{"building-a"},
+	}
+
+	appendFilterSQL(&sb, args, 2, 42, fp)
+
+	sql := sb.String()
+	assert.Contains(t, sql, "JOIN device_set ds ON ds.id = dcm.device_set_id",
+		"zone subquery must join device_set to access the soft-delete column")
+	assert.Contains(t, sql, "ds.deleted_at IS NULL",
+		"zone subquery must exclude soft-deleted racks")
 }
 
 func TestAppendFilterSQL_FirmwareAndZones_ProducesAND(t *testing.T) {

@@ -222,15 +222,19 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 	}
 
 	if fp.zonesFilter.Valid {
-		// Match miners assigned to any rack whose zone is in the value list.
-		// Org scoping is enforced via device_set_membership.org_id; the join to
-		// device_set_rack pulls the zone for value comparison.
+		// Match miners assigned to any non-deleted rack whose zone is in the value
+		// list. Org scoping is enforced via device_set_membership.org_id; the join
+		// to device_set carries the soft-delete check (rack delete sets
+		// device_set.deleted_at, but membership/rack-extension rows persist), and
+		// the join to device_set_rack pulls the zone for value comparison.
 		fmt.Fprintf(sb,
 			" AND EXISTS (SELECT 1 FROM device_set_membership dcm"+
+				" JOIN device_set ds ON ds.id = dcm.device_set_id"+
 				" JOIN device_set_rack dsr ON dsr.device_set_id = dcm.device_set_id"+
 				" WHERE dcm.device_id = device.id"+
 				" AND dcm.org_id = $%d"+
 				" AND dcm.device_set_type = 'rack'"+
+				" AND ds.deleted_at IS NULL"+
 				" AND dsr.zone = ANY($%d::text[]))",
 			argNum, argNum+1)
 		args = append(args, orgID, pq.Array(fp.zoneValues))
