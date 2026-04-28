@@ -340,6 +340,13 @@ func start(config *Config) error {
 	scheduleStore := sqlstores.NewSQLScheduleStore(conn)
 	scheduleSvc := scheduleDomain.NewService(scheduleStore, scheduleStore, scheduleStore, transactor, activitySvc)
 
+	// Register the schedule-conflict preflight filter on commandSvc so every
+	// caller (manual API, schedule processor, future curtailment reconciler)
+	// sees the same priority/manual-fallback semantics. Pre-pre-work this
+	// only ran inline inside the schedule processor, leaving manual
+	// SetPowerTarget calls free to race a running power-target schedule.
+	commandSvc.RegisterFilter(commandDomain.NewScheduleConflictFilter(scheduleStore, scheduleStore, collectionStore))
+
 	scheduleProcessor := scheduleDomain.NewProcessor(scheduleStore, scheduleStore, collectionStore, commandSvc, activitySvc)
 	if err := scheduleProcessor.Start(context.Background()); err != nil {
 		return fmt.Errorf("failed to start schedule processor: %w", err)

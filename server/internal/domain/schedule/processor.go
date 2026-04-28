@@ -17,6 +17,7 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/schedule/v1"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
+	"github.com/block/proto-fleet/server/internal/domain/command"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
@@ -30,10 +31,18 @@ const (
 )
 
 // CommandDispatcher is the subset of command.Service the processor needs.
+//
+// Each method returns a *command.CommandResult so the processor can read the
+// per-call list of devices the registered command preflight filters chose
+// to skip — primarily the schedule-conflict filter, which today only the
+// schedule processor cared about but now lives at the command-service layer
+// and runs for every caller (manual API, future curtailment, …). The
+// processor uses the skipped slice to emit `schedule_conflict_skip` activity
+// for both the normal dispatch and the end-of-window revert paths.
 type CommandDispatcher interface {
-	SetPowerTarget(ctx context.Context, selector *commandpb.DeviceSelector, mode commandpb.PerformanceMode) (*commandpb.SetPowerTargetResponse, error)
-	Reboot(ctx context.Context, selector *commandpb.DeviceSelector) (*commandpb.RebootResponse, error)
-	StopMining(ctx context.Context, selector *commandpb.DeviceSelector) (*commandpb.StopMiningResponse, error)
+	SetPowerTarget(ctx context.Context, selector *commandpb.DeviceSelector, mode commandpb.PerformanceMode) (*command.CommandResult, error)
+	Reboot(ctx context.Context, selector *commandpb.DeviceSelector) (*command.CommandResult, error)
+	StopMining(ctx context.Context, selector *commandpb.DeviceSelector) (*command.CommandResult, error)
 }
 
 // jobEntry tracks a registered job and a fingerprint of the schedule's timing
@@ -338,28 +347,6 @@ func (p *Processor) executeSchedule(ctx context.Context, scheduleID int64) {
 		return
 	}
 
-	if sched.Action == pb.ScheduleAction_SCHEDULE_ACTION_SET_POWER_TARGET {
-		beforeCount := len(deviceIdentifiers)
-		deviceIdentifiers, err = p.filterConflictedMiners(ctx, sched, orgID, deviceIdentifiers)
-		if err != nil {
-			slog.Error("failed to check conflicts", "schedule_id", scheduleID, "error", err)
-			if rerr := p.procStore.RevertScheduleToActive(ctx, scheduleID); rerr != nil {
-				slog.Error("failed to revert schedule after conflict check failure", "schedule_id", scheduleID, "error", rerr)
-				return
-			}
-			p.removeJob(scheduleID)
-			return
-		}
-		if skipped := beforeCount - len(deviceIdentifiers); skipped > 0 {
-			p.logConflictSkip(ctx, sched, orgID, skipped)
-		}
-		if len(deviceIdentifiers) == 0 {
-			slog.Info("all miners overridden by higher-priority schedule", "schedule_id", scheduleID)
-			p.updateAfterRun(ctx, sched, orgID, now)
-			return
-		}
-	}
-
 	cmdCtx := schedulerContext(ctx, sched, orgID)
 	selector := &commandpb.DeviceSelector{
 		SelectionType: &commandpb.DeviceSelector_IncludeDevices{
@@ -369,7 +356,12 @@ func (p *Processor) executeSchedule(ctx context.Context, scheduleID int64) {
 		},
 	}
 
-	if err := p.dispatch(cmdCtx, sched, selector); err != nil {
+	// Dispatch through commandSvc — schedule-conflict filtering runs at the
+	// command-service layer for every caller now (see ScheduleConflictFilter).
+	// We read the skipped slice back to preserve the schedule_conflict_skip
+	// activity row.
+	result, err := p.dispatch(cmdCtx, sched, selector)
+	if err != nil {
 		slog.Error("failed to dispatch command", "schedule_id", scheduleID, "action", sched.Action, "error", err)
 		if rerr := p.procStore.RevertScheduleToActive(ctx, scheduleID); rerr != nil {
 			slog.Error("failed to revert schedule after dispatch failure", "schedule_id", scheduleID, "error", rerr)
@@ -381,11 +373,40 @@ func (p *Processor) executeSchedule(ctx context.Context, scheduleID int64) {
 		return
 	}
 
+	if skipped := countConflictSkips(result); skipped > 0 {
+		p.logConflictSkip(ctx, sched, orgID, skipped)
+	}
+
+	dispatched := 0
+	if result != nil {
+		dispatched = result.DispatchedCount
+		if dispatched == 0 && len(result.Skipped) > 0 {
+			slog.Info("all miners overridden by preflight filters", "schedule_id", scheduleID)
+		}
+	}
+
 	p.updateAfterRun(ctx, sched, orgID, now)
-	p.logExecution(ctx, sched, orgID, len(deviceIdentifiers))
+	p.logExecution(ctx, sched, orgID, dispatched)
 }
 
-func (p *Processor) dispatch(ctx context.Context, sched *pb.Schedule, selector *commandpb.DeviceSelector) error {
+// countConflictSkips returns how many devices the schedule-conflict filter
+// excluded from this dispatch. result may be nil for actions that don't fan
+// out to commandSvc (none today, but defensive); other filters' skips do not
+// count.
+func countConflictSkips(result *command.CommandResult) int {
+	if result == nil {
+		return 0
+	}
+	n := 0
+	for _, s := range result.Skipped {
+		if s.FilterName == "schedule_conflict" {
+			n++
+		}
+	}
+	return n
+}
+
+func (p *Processor) dispatch(ctx context.Context, sched *pb.Schedule, selector *commandpb.DeviceSelector) (*command.CommandResult, error) {
 	switch sched.Action {
 	case pb.ScheduleAction_SCHEDULE_ACTION_SET_POWER_TARGET:
 		mode := commandpb.PerformanceMode_PERFORMANCE_MODE_EFFICIENCY
@@ -399,22 +420,19 @@ func (p *Processor) dispatch(ctx context.Context, sched *pb.Schedule, selector *
 				mode = commandpb.PerformanceMode_PERFORMANCE_MODE_EFFICIENCY
 			}
 		}
-		_, err := p.commandSvc.SetPowerTarget(ctx, selector, mode)
-		return err
+		return p.commandSvc.SetPowerTarget(ctx, selector, mode)
 
 	case pb.ScheduleAction_SCHEDULE_ACTION_REBOOT:
-		_, err := p.commandSvc.Reboot(ctx, selector)
-		return err
+		return p.commandSvc.Reboot(ctx, selector)
 
 	case pb.ScheduleAction_SCHEDULE_ACTION_SLEEP:
-		_, err := p.commandSvc.StopMining(ctx, selector)
-		return err
+		return p.commandSvc.StopMining(ctx, selector)
 
 	case pb.ScheduleAction_SCHEDULE_ACTION_UNSPECIFIED:
-		return fmt.Errorf("unspecified schedule action for schedule %d", sched.Id)
+		return nil, fmt.Errorf("unspecified schedule action for schedule %d", sched.Id)
 
 	default:
-		return fmt.Errorf("unsupported schedule action %v for schedule %d", sched.Action, sched.Id)
+		return nil, fmt.Errorf("unsupported schedule action %v for schedule %d", sched.Action, sched.Id)
 	}
 }
 
@@ -477,46 +495,6 @@ func (p *Processor) resolveTargets(ctx context.Context, sched *pb.Schedule, orgI
 		return nil, fmt.Errorf("failed to load schedule targets: %w", err)
 	}
 	return p.expandTargets(ctx, targets, orgID)
-}
-
-// filterConflictedMiners removes miners already covered by a higher-priority
-// running power-target schedule within the same org.
-func (p *Processor) filterConflictedMiners(ctx context.Context, sched *pb.Schedule, orgID int64, deviceIdentifiers []string) ([]string, error) {
-	running, err := p.procStore.GetRunningPowerTargetSchedules(ctx, orgID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get running power target schedules: %w", err)
-	}
-
-	conflicted := make(map[string]struct{})
-	for _, r := range running {
-		if r.Id == sched.Id || r.Priority >= sched.Priority {
-			continue
-		}
-		rTargets, err := p.targetStore.GetScheduleTargets(ctx, orgID, r.Id)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load targets for conflicting schedule %d: %w", r.Id, err)
-		}
-		rDevices, err := p.expandTargets(ctx, rTargets, orgID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to expand targets for conflicting schedule %d: %w", r.Id, err)
-		}
-		for _, d := range rDevices {
-			conflicted[d] = struct{}{}
-		}
-	}
-
-	if len(conflicted) == 0 {
-		return deviceIdentifiers, nil
-	}
-
-	var filtered []string
-	for _, id := range deviceIdentifiers {
-		if _, blocked := conflicted[id]; !blocked {
-			filtered = append(filtered, id)
-		}
-	}
-
-	return filtered, nil
 }
 
 func (p *Processor) updateAfterRun(ctx context.Context, sched *pb.Schedule, orgID int64, now time.Time) {
@@ -679,13 +657,10 @@ func (p *Processor) checkEndOfWindow(ctx context.Context) {
 			continue
 		}
 
-		// Exclude miners still covered by a higher-priority running schedule.
-		deviceIdentifiers, err = p.filterConflictedMiners(ctx, sched, sw.OrgID, deviceIdentifiers)
-		if err != nil {
-			slog.Error("failed to filter conflicts for revert", "schedule_id", sched.Id, "error", err)
-			continue
-		}
-
+		// commandSvc applies the schedule-conflict filter for us; we consume
+		// the skipped slice and log it the same way the normal dispatch path
+		// does. This makes audit symmetric — pre-pre-work, the revert path
+		// silently dropped overlapping miners.
 		if len(deviceIdentifiers) > 0 {
 			cmdCtx := schedulerContext(ctx, sched, sw.OrgID)
 			selector := &commandpb.DeviceSelector{
@@ -695,9 +670,13 @@ func (p *Processor) checkEndOfWindow(ctx context.Context) {
 					},
 				},
 			}
-			if _, err := p.commandSvc.SetPowerTarget(cmdCtx, selector, revertPerformanceMode); err != nil {
+			result, err := p.commandSvc.SetPowerTarget(cmdCtx, selector, revertPerformanceMode)
+			if err != nil {
 				slog.Error("failed to dispatch revert command, will retry next cycle", "schedule_id", sched.Id, "error", err)
 				continue
+			}
+			if skipped := countConflictSkips(result); skipped > 0 {
+				p.logConflictSkip(ctx, sched, sw.OrgID, skipped)
 			}
 		}
 
@@ -730,6 +709,13 @@ func (p *Processor) removeJobLocked(scheduleID int64) {
 
 // schedulerContext creates a context with synthetic session info so the command
 // service can create batch logs and resolve devices using the schedule's org.
+//
+// Source carries this schedule's id and priority so the command-service-level
+// schedule-conflict filter can apply scheduler-priority semantics (only
+// strictly higher-priority running schedules block) instead of the manual
+// fallback (every running schedule blocks). Without Source the filter would
+// treat every scheduler-origin call as if it were a manual call and block
+// against itself.
 func schedulerContext(parent context.Context, sched *pb.Schedule, orgID int64) context.Context {
 	return authn.SetInfo(parent, &session.Info{
 		SessionID:      schedulerActorName,
@@ -740,6 +726,10 @@ func schedulerContext(parent context.Context, sched *pb.Schedule, orgID int64) c
 		// Mark the session as scheduler-driven so downstream activity logging
 		// tags both the initiated and completed rows with ActorScheduler.
 		Actor: session.ActorScheduler,
+		Source: session.Source{
+			ScheduleID:       sched.Id,
+			SchedulePriority: sched.Priority,
+		},
 	})
 }
 

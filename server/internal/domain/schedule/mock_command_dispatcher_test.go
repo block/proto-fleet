@@ -14,6 +14,7 @@ import (
 	reflect "reflect"
 
 	minercommandv1 "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
+	command "github.com/block/proto-fleet/server/internal/domain/command"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -42,10 +43,10 @@ func (m *MockCommandDispatcher) EXPECT() *MockCommandDispatcherMockRecorder {
 }
 
 // Reboot mocks base method.
-func (m *MockCommandDispatcher) Reboot(ctx context.Context, selector *minercommandv1.DeviceSelector) (*minercommandv1.RebootResponse, error) {
+func (m *MockCommandDispatcher) Reboot(ctx context.Context, selector *minercommandv1.DeviceSelector) (*command.CommandResult, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Reboot", ctx, selector)
-	ret0, _ := ret[0].(*minercommandv1.RebootResponse)
+	ret0, _ := ret[0].(*command.CommandResult)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -57,10 +58,10 @@ func (mr *MockCommandDispatcherMockRecorder) Reboot(ctx, selector any) *gomock.C
 }
 
 // SetPowerTarget mocks base method.
-func (m *MockCommandDispatcher) SetPowerTarget(ctx context.Context, selector *minercommandv1.DeviceSelector, mode minercommandv1.PerformanceMode) (*minercommandv1.SetPowerTargetResponse, error) {
+func (m *MockCommandDispatcher) SetPowerTarget(ctx context.Context, selector *minercommandv1.DeviceSelector, mode minercommandv1.PerformanceMode) (*command.CommandResult, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "SetPowerTarget", ctx, selector, mode)
-	ret0, _ := ret[0].(*minercommandv1.SetPowerTargetResponse)
+	ret0, _ := ret[0].(*command.CommandResult)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -72,10 +73,10 @@ func (mr *MockCommandDispatcherMockRecorder) SetPowerTarget(ctx, selector, mode 
 }
 
 // StopMining mocks base method.
-func (m *MockCommandDispatcher) StopMining(ctx context.Context, selector *minercommandv1.DeviceSelector) (*minercommandv1.StopMiningResponse, error) {
+func (m *MockCommandDispatcher) StopMining(ctx context.Context, selector *minercommandv1.DeviceSelector) (*command.CommandResult, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "StopMining", ctx, selector)
-	ret0, _ := ret[0].(*minercommandv1.StopMiningResponse)
+	ret0, _ := ret[0].(*command.CommandResult)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

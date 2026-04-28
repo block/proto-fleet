@@ -273,7 +273,7 @@ func TestDispatch(t *testing.T) {
 			tt.setup(cmdSvc)
 
 			sched := &pb.Schedule{Id: 1, Action: tt.action, ActionConfig: tt.config}
-			err := p.dispatch(context.Background(), sched, &commandpb.DeviceSelector{})
+			_, err := p.dispatch(context.Background(), sched, &commandpb.DeviceSelector{})
 			assert.NoError(t, err)
 		})
 	}
@@ -282,7 +282,7 @@ func TestDispatch(t *testing.T) {
 func TestDispatchUnspecifiedAction(t *testing.T) {
 	p, _, _, _, _ := newTestProcessor(t, time.Now())
 	sched := &pb.Schedule{Id: 1, Action: pb.ScheduleAction_SCHEDULE_ACTION_UNSPECIFIED}
-	err := p.dispatch(context.Background(), sched, &commandpb.DeviceSelector{})
+	_, err := p.dispatch(context.Background(), sched, &commandpb.DeviceSelector{})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "unspecified")
 }
@@ -368,43 +368,9 @@ func TestResolveTargets_Empty(t *testing.T) {
 	assert.Equal(t, 0, len(ids))
 }
 
-// --- filterConflictedMiners ---
-
-func TestFilterConflictedMiners(t *testing.T) {
-	p, procStore, targetStore, _, _ := newTestProcessor(t, time.Now())
-
-	sched := &pb.Schedule{Id: 10, Priority: 5, Action: pb.ScheduleAction_SCHEDULE_ACTION_SET_POWER_TARGET}
-	orgID := int64(1)
-
-	// A higher-priority (lower number) running schedule targets miner-1.
-	procStore.EXPECT().GetRunningPowerTargetSchedules(gomock.Any(), orgID).Return([]*pb.Schedule{
-		{Id: 20, Priority: 2, Action: pb.ScheduleAction_SCHEDULE_ACTION_SET_POWER_TARGET},
-	}, nil)
-
-	targetStore.EXPECT().GetScheduleTargets(gomock.Any(), orgID, int64(20)).Return([]*pb.ScheduleTarget{
-		{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER, TargetId: "miner-1"},
-	}, nil)
-
-	filtered, err := p.filterConflictedMiners(context.Background(), sched, orgID, []string{"miner-1", "miner-2", "miner-3"})
-	assert.NoError(t, err)
-	assert.Equal(t, []string{"miner-2", "miner-3"}, filtered)
-}
-
-func TestFilterConflictedMiners_LowerPriorityIgnored(t *testing.T) {
-	p, procStore, _, _, _ := newTestProcessor(t, time.Now())
-
-	sched := &pb.Schedule{Id: 10, Priority: 2}
-	orgID := int64(1)
-
-	// A lower-priority (higher number) running schedule — should not conflict.
-	procStore.EXPECT().GetRunningPowerTargetSchedules(gomock.Any(), orgID).Return([]*pb.Schedule{
-		{Id: 20, Priority: 5},
-	}, nil)
-
-	filtered, err := p.filterConflictedMiners(context.Background(), sched, orgID, []string{"miner-1"})
-	assert.NoError(t, err)
-	assert.Equal(t, []string{"miner-1"}, filtered)
-}
+// Schedule-conflict filtering moved to command.ScheduleConflictFilter; the
+// equivalent priority-semantics tests live in
+// server/internal/domain/command/schedule_conflict_filter_test.go.
 
 // --- executeSchedule ---
 
@@ -675,7 +641,8 @@ func TestCheckEndOfWindow_RevertsExpiredWindow(t *testing.T) {
 	procStore.EXPECT().GetActiveSchedules(gomock.Any()).Return([]interfaces.ScheduleWithOrg{
 		{Schedule: sched, OrgID: 1},
 	}, nil)
-	procStore.EXPECT().GetRunningPowerTargetSchedules(gomock.Any(), int64(1)).Return(nil, nil)
+	// GetRunningPowerTargetSchedules now lives behind commandSvc's filter,
+	// which is mocked at the dispatcher boundary — so no expectation here.
 	targetStore.EXPECT().GetScheduleTargets(gomock.Any(), int64(1), int64(1)).Return([]*pb.ScheduleTarget{
 		{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER, TargetId: "miner-1"},
 	}, nil)
@@ -737,7 +704,8 @@ func TestCheckEndOfWindow_OvernightWindowExpired(t *testing.T) {
 	procStore.EXPECT().GetActiveSchedules(gomock.Any()).Return([]interfaces.ScheduleWithOrg{
 		{Schedule: sched, OrgID: 1},
 	}, nil)
-	procStore.EXPECT().GetRunningPowerTargetSchedules(gomock.Any(), int64(1)).Return(nil, nil)
+	// GetRunningPowerTargetSchedules now lives behind commandSvc's filter,
+	// which is mocked at the dispatcher boundary — so no expectation here.
 	targetStore.EXPECT().GetScheduleTargets(gomock.Any(), int64(1), int64(1)).Return([]*pb.ScheduleTarget{
 		{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER, TargetId: "miner-1"},
 	}, nil)
@@ -771,7 +739,8 @@ func TestCheckEndOfWindow_FailedRevertRetries(t *testing.T) {
 	procStore.EXPECT().GetActiveSchedules(gomock.Any()).Return([]interfaces.ScheduleWithOrg{
 		{Schedule: sched, OrgID: 1},
 	}, nil)
-	procStore.EXPECT().GetRunningPowerTargetSchedules(gomock.Any(), int64(1)).Return(nil, nil)
+	// GetRunningPowerTargetSchedules now lives behind commandSvc's filter,
+	// which is mocked at the dispatcher boundary — so no expectation here.
 	targetStore.EXPECT().GetScheduleTargets(gomock.Any(), int64(1), int64(1)).Return([]*pb.ScheduleTarget{
 		{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER, TargetId: "miner-1"},
 	}, nil)
@@ -804,7 +773,8 @@ func TestCheckEndOfWindow_RevertStateFailSkipsLog(t *testing.T) {
 	procStore.EXPECT().GetActiveSchedules(gomock.Any()).Return([]interfaces.ScheduleWithOrg{
 		{Schedule: sched, OrgID: 1},
 	}, nil)
-	procStore.EXPECT().GetRunningPowerTargetSchedules(gomock.Any(), int64(1)).Return(nil, nil)
+	// GetRunningPowerTargetSchedules now lives behind commandSvc's filter,
+	// which is mocked at the dispatcher boundary — so no expectation here.
 	targetStore.EXPECT().GetScheduleTargets(gomock.Any(), int64(1), int64(1)).Return([]*pb.ScheduleTarget{
 		{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER, TargetId: "miner-1"},
 	}, nil)
