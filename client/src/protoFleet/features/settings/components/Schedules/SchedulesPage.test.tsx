@@ -141,9 +141,8 @@ describe("SchedulesPage", () => {
     const table = container.querySelector("table");
     expect(table).toHaveClass(
       "phone:table-fixed",
-      "phone:[&_td:last-child]:w-9",
-      "phone:[&_th:last-child]:w-9",
-      "phone:[&_td:last-child>div]:justify-end",
+      "phone:[&_tbody_td[data-testid=action]:last-child]:w-9",
+      "phone:[&_tbody_td[data-testid=action]:last-child>div:first-child]:justify-end",
     );
     for (const columnName of ["Action", "Status", "Created by"]) {
       expect(screen.getByRole("columnheader", { name: columnName })).toHaveClass("phone:hidden");

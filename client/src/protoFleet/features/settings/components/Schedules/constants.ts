@@ -44,13 +44,13 @@ export const activeScheduleCols: ScheduleColumn[] = [
 export const scheduleTableClassName = [
   "mb-2 w-full",
   "phone:table-fixed",
-  "phone:[&_td:last-child]:w-9",
-  "phone:[&_th:last-child]:w-9",
-  "phone:[&_td:last-child>div]:box-border",
-  "phone:[&_td:last-child>div]:flex",
-  "phone:[&_td:last-child>div]:justify-end",
-  "phone:[&_td:last-child>div]:w-9",
-  "phone:[&_th:last-child>div]:w-9",
+  "phone:[&_thead_th:last-child]:w-9",
+  "phone:[&_thead_th:last-child>div]:w-9",
+  "phone:[&_tbody_td[data-testid=action]:last-child]:w-9",
+  "phone:[&_tbody_td[data-testid=action]:last-child>div:first-child]:box-border",
+  "phone:[&_tbody_td[data-testid=action]:last-child>div:first-child]:flex",
+  "phone:[&_tbody_td[data-testid=action]:last-child>div:first-child]:justify-end",
+  "phone:[&_tbody_td[data-testid=action]:last-child>div:first-child]:w-9",
 ].join(" ");
 
 export const scheduleStatusLabels: Record<ScheduleStatus, string> = {
