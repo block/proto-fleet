@@ -875,9 +875,9 @@ impl Driver for DriverService {
                 device.stop_mining().await.map_err(device_err_to_status)?;
                 Ok(Response::new(()))
             }
-            pb::CurtailLevel::Unspecified => Err(Status::invalid_argument(
-                "curtail level must be specified",
-            )),
+            pb::CurtailLevel::Unspecified => {
+                Err(Status::invalid_argument("curtail level must be specified"))
+            }
             _ => Err(Status::unimplemented(format!(
                 "curtail level {level:?} not supported by asicrs"
             ))),
