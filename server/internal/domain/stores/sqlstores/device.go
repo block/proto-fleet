@@ -359,6 +359,10 @@ func (s *SQLDeviceStore) GetMinerStateCounts(ctx context.Context, orgID int64, f
 		GroupIDValues:           fp.groupIDValues,
 		RackIdsFilter:           fp.rackIDsFilter,
 		RackIDValues:            fp.rackIDValues,
+		FirmwareVersionsFilter:  fp.firmwareVersionsFilter,
+		FirmwareVersionValues:   fp.firmwareVersionValues,
+		ZonesFilter:             fp.zonesFilter,
+		ZoneValues:              fp.zoneValues,
 	})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to count miners by state: %v", err)
@@ -816,6 +820,10 @@ func (s *SQLDeviceStore) ListMinerStateSnapshots(ctx context.Context, orgID int6
 		GroupIDValues:             fp.groupIDValues,
 		RackIdsFilter:             fp.rackIDsFilter,
 		RackIDValues:              fp.rackIDValues,
+		FirmwareVersionsFilter:    fp.firmwareVersionsFilter,
+		FirmwareVersionValues:     fp.firmwareVersionValues,
+		ZonesFilter:               fp.zonesFilter,
+		ZoneValues:                fp.zoneValues,
 	})
 	if err != nil {
 		return nil, "", 0, fleeterror.NewInternalErrorf("failed to get total count: %v", err)

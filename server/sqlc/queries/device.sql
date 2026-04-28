@@ -296,6 +296,24 @@ WHERE d.deleted_at IS NULL
             AND dsm.device_set_type = 'rack'
             AND dsm.device_set_id = ANY(sqlc.arg('rack_id_values')::bigint[])
       )
+  )
+  -- Firmware version filter
+  AND (
+      sqlc.narg('firmware_versions_filter')::text IS NULL
+      OR dd.firmware_version = ANY(sqlc.arg('firmware_version_values')::text[])
+  )
+  -- Zone filter (excludes soft-deleted racks)
+  AND (
+      sqlc.narg('zones_filter')::text IS NULL
+      OR EXISTS (
+          SELECT 1 FROM device_set_membership dsm
+          JOIN device_set ds_zone ON ds_zone.id = dsm.device_set_id AND ds_zone.deleted_at IS NULL
+          JOIN device_set_rack dsr ON dsr.device_set_id = dsm.device_set_id
+          WHERE dsm.device_id = d.id
+            AND dsm.org_id = sqlc.arg('org_id')
+            AND dsm.device_set_type = 'rack'
+            AND dsr.zone = ANY(sqlc.arg('zone_values')::text[])
+      )
   );
 
 -- name: UpsertDeviceStatus :exec
@@ -380,6 +398,8 @@ JOIN device_pairing dp ON d.id = dp.device_id
 WHERE dp.pairing_status = 'PAIRED'
   AND d.deleted_at IS NULL
   AND d.org_id = $1
+  AND dd.is_active = TRUE
+  AND dd.deleted_at IS NULL
   AND dd.firmware_version IS NOT NULL
   AND dd.firmware_version != ''
 ORDER BY dd.firmware_version
@@ -604,6 +624,24 @@ WHERE dd.org_id = sqlc.arg('org_id')
               AND dsm.org_id = sqlc.arg('org_id')
               AND dsm.device_set_type = 'rack'
               AND dsm.device_set_id = ANY(sqlc.arg('rack_id_values')::bigint[])
+        )
+    )
+    -- Firmware version filter
+    AND (
+        sqlc.narg('firmware_versions_filter')::text IS NULL
+        OR dd.firmware_version = ANY(sqlc.arg('firmware_version_values')::text[])
+    )
+    -- Zone filter (excludes soft-deleted racks)
+    AND (
+        sqlc.narg('zones_filter')::text IS NULL
+        OR EXISTS (
+            SELECT 1 FROM device_set_membership dsm
+            JOIN device_set ds_zone ON ds_zone.id = dsm.device_set_id AND ds_zone.deleted_at IS NULL
+            JOIN device_set_rack dsr ON dsr.device_set_id = dsm.device_set_id
+            WHERE dsm.device_id = d.id
+              AND dsm.org_id = sqlc.arg('org_id')
+              AND dsm.device_set_type = 'rack'
+              AND dsr.zone = ANY(sqlc.arg('zone_values')::text[])
         )
     );
 

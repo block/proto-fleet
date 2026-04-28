@@ -629,15 +629,29 @@ func parseFilter(pbFilter *pb.MinerListFilter) (*interfaces.MinerFilter, error) 
 	}
 
 	if len(pbFilter.FirmwareVersions) > 0 {
+		if len(pbFilter.FirmwareVersions) > maxFreeFormFilterValues {
+			return nil, fleeterror.NewInvalidArgumentErrorf(
+				"firmware_versions exceeds maximum of %d values", maxFreeFormFilterValues)
+		}
 		filter.FirmwareVersions = pbFilter.FirmwareVersions
 	}
 
 	if len(pbFilter.Zones) > 0 {
+		if len(pbFilter.Zones) > maxFreeFormFilterValues {
+			return nil, fleeterror.NewInvalidArgumentErrorf(
+				"zones exceeds maximum of %d values", maxFreeFormFilterValues)
+		}
 		filter.Zones = pbFilter.Zones
 	}
 
 	return filter, nil
 }
+
+// maxFreeFormFilterValues caps the size of free-form repeated-string filter
+// arrays (firmware_versions, zones). Real fleets have a handful of distinct
+// firmware versions or zones; arbitrarily large arrays from a misbehaving or
+// hostile client would balloon Postgres planner cost on `= ANY($N::text[])`.
+const maxFreeFormFilterValues = 1024
 
 // convertErrorComponentType converts a proto ComponentType to domain ComponentType.
 func convertErrorComponentType(ct errorsv1.ComponentType) diagnosticsmodels.ComponentType {

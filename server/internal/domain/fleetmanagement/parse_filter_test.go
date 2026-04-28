@@ -81,3 +81,44 @@ func TestParseFilter_FreeFormZoneWithSpecialChars(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"Austin, Building 1"}, filter.Zones)
 }
+
+func TestParseFilter_FirmwareVersions_RejectsOversizedArray(t *testing.T) {
+	// Cap protects Postgres planner from `= ANY(huge_array)` blowup.
+	values := make([]string, maxFreeFormFilterValues+1)
+	for i := range values {
+		values[i] = "v"
+	}
+	pbFilter := &pb.MinerListFilter{FirmwareVersions: values}
+
+	_, err := parseFilter(pbFilter)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "firmware_versions")
+}
+
+func TestParseFilter_Zones_RejectsOversizedArray(t *testing.T) {
+	values := make([]string, maxFreeFormFilterValues+1)
+	for i := range values {
+		values[i] = "z"
+	}
+	pbFilter := &pb.MinerListFilter{Zones: values}
+
+	_, err := parseFilter(pbFilter)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "zones")
+}
+
+func TestParseFilter_FirmwareVersions_AcceptsMaxSizedArray(t *testing.T) {
+	// Boundary: exactly maxFreeFormFilterValues is allowed.
+	values := make([]string, maxFreeFormFilterValues)
+	for i := range values {
+		values[i] = "v"
+	}
+	pbFilter := &pb.MinerListFilter{FirmwareVersions: values}
+
+	filter, err := parseFilter(pbFilter)
+
+	require.NoError(t, err)
+	assert.Len(t, filter.FirmwareVersions, maxFreeFormFilterValues)
+}
