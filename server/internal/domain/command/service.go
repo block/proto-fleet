@@ -14,7 +14,6 @@ import (
 	"github.com/sqlc-dev/pqtype"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"connectrpc.com/connect"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
@@ -1018,11 +1017,14 @@ func mismatchesToFailedPrecondition(mismatches []preflight.Mismatch) error {
 	if deviceCount == 1 {
 		plural = ""
 	}
-	msg := fmt.Sprintf(
+	// fleeterror.NewFailedPreconditionErrorf so the ErrorMappingInterceptor
+	// passes the error through unchanged. Returning a plain connect.NewError
+	// here would be re-wrapped as Internal with err.Error() ("failed_precondition:
+	// ...") leaking into the toast message.
+	return fleeterror.NewFailedPreconditionErrorf(
 		"%d miner%s can't use this Stratum V2 pool. Incompatible types: %s",
 		deviceCount, plural, strings.Join(sortedTypes, ", "),
 	)
-	return connect.NewError(connect.CodeFailedPrecondition, errors.New(msg))
 }
 
 // formatMinerType renders make/model as a human-readable type label.
