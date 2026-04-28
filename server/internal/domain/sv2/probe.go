@@ -16,12 +16,20 @@ const DefaultTCPDialTimeout = 10 * time.Second
 // X25519 public-key length used by the SRI v1.x Noise NX handshake.
 const noisePoolKeyLen = 32
 
+// SRI publishes authority pubkeys in a 38-byte base58check frame:
+// 1 version byte || 1 secp256k1 compressed prefix || 32 X-coordinate
+// bytes (used as the Noise X25519 key) || 4-byte BLAKE2b-256 checksum.
+// We strip the framing without verifying the checksum — Noise itself
+// authenticates the key over the wire.
+const sriFramedPoolKeyLen = 1 + 1 + noisePoolKeyLen + 4
+
 var ErrMissingNoiseKey = errors.New("stratum2+ URL is missing the /<authority_pubkey> path component")
 
 // PoolNoiseKeyFromURL extracts the Noise authority pubkey from a
 // Braiins-style SV2 URL (stratum2+tcp://HOST:PORT/<pubkey>). Accepts
-// base58 (Braiins docs) or hex so operators can paste raw Noise dumps
-// without converting.
+// base58 in either raw 32-byte form or SRI's framed 37-byte form
+// (1 version byte + 32 key bytes + 4 checksum bytes), and hex-encoded
+// raw 32 bytes as a fallback.
 func PoolNoiseKeyFromURL(stratumURL string) ([]byte, error) {
 	u, err := url.Parse(stratumURL)
 	if err != nil {
@@ -31,13 +39,19 @@ func PoolNoiseKeyFromURL(stratumURL string) ([]byte, error) {
 	if encoded == "" {
 		return nil, ErrMissingNoiseKey
 	}
-	if key, err := decodeBase58(encoded); err == nil && len(key) == noisePoolKeyLen {
-		return key, nil
+	if decoded, err := decodeBase58(encoded); err == nil {
+		switch len(decoded) {
+		case noisePoolKeyLen:
+			return decoded, nil
+		case sriFramedPoolKeyLen:
+			return decoded[2 : 2+noisePoolKeyLen], nil
+		}
 	}
 	if key, err := decodeHex(encoded); err == nil && len(key) == noisePoolKeyLen {
 		return key, nil
 	}
-	return nil, fmt.Errorf("authority pubkey %q must decode to %d bytes (base58 or hex)", encoded, noisePoolKeyLen)
+	return nil, fmt.Errorf("authority pubkey %q must decode to %d bytes (raw) or %d bytes (SRI framed) via base58, or %d bytes via hex",
+		encoded, noisePoolKeyLen, sriFramedPoolKeyLen, noisePoolKeyLen)
 }
 
 func addressFromStratumURL(raw string) (string, error) {

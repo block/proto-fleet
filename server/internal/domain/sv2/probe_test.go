@@ -23,6 +23,20 @@ func TestPoolNoiseKeyFromURL_DecodesHex(t *testing.T) {
 	assert.Equal(t, byte(0x20), key[31])
 }
 
+func TestPoolNoiseKeyFromURL_DecodesSRIFramedBase58(t *testing.T) {
+	// Arrange — the Braiins-published authority pubkey for v2.stratum.braiins.com:3336.
+	// This is SRI's framed format (version + 32 key bytes + 4-byte checksum).
+	encoded := "9awtMD5KQgvRUh2yFbjVeT7b6hjipWcAsQHd6wEhgtDT9soosna"
+	url := "stratum2+tcp://v2.stratum.braiins.com:3336/" + encoded
+
+	// Act
+	key, err := PoolNoiseKeyFromURL(url)
+
+	// Assert
+	require.NoError(t, err)
+	assert.Len(t, key, 32, "framed pubkey should yield 32 raw key bytes")
+}
+
 func TestPoolNoiseKeyFromURL_DecodesBase58(t *testing.T) {
 	// Arrange — Bitcoin alphabet base58 encoding of 32 zero bytes is "1"*32,
 	// which would decode to 32 leading-zero bytes. Use a non-trivial 32-byte
