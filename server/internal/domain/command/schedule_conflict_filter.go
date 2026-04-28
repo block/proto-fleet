@@ -10,15 +10,9 @@ import (
 
 const ScheduleConflictFilterName = "schedule_conflict"
 
-// ScheduleConflictFilter prevents a SetPowerTarget command from racing a
-// running power-target schedule.
-//
-// Scheduler-origin calls use schedule priority: only strictly higher-priority
-// running schedules block. Manual-origin calls have no priority context, so any
-// running power-target schedule blocks overlapping devices; processCommand then
-// rejects the whole external command.
-//
-// Only SetPowerTarget is gated; other command types pass through unchanged.
+// ScheduleConflictFilter gates SetPowerTarget against running power-target
+// schedules. Scheduler-origin calls use schedule priority; manual calls treat
+// any overlapping running schedule as a blocker.
 type ScheduleConflictFilter struct {
 	procStore stores.ScheduleProcessorStore
 }
@@ -49,7 +43,7 @@ func (f *ScheduleConflictFilter) Apply(ctx context.Context, in CommandFilterInpu
 	// device_identifier -> blocking schedule id (first one wins for diagnostic Reason)
 	conflicted := make(map[string]int64)
 	for _, r := range overlaps {
-		// Don't conflict with self (scheduler-origin re-entering its own dispatch).
+		// Scheduler-origin dispatch should not conflict with itself.
 		if r.ScheduleID == in.Source.ScheduleID {
 			continue
 		}

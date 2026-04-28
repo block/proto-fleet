@@ -204,8 +204,7 @@ JOIN requested r ON (
             WHERE dsm.org_id = s.org_id
               AND ds.org_id = s.org_id
               AND ds.deleted_at IS NULL
-              -- Match schedule target expansion semantics: rack/group targets
-              -- resolve by device_set ID, not by the stored target_type label.
+              -- Match expansion: rack/group targets resolve by device_set ID.
               AND dsm.device_set_id = CASE WHEN st.target_id ~ '^[0-9]+$' THEN st.target_id::bigint ELSE NULL END
               AND dsm.device_identifier = r.device_identifier
         )

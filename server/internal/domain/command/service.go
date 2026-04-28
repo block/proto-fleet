@@ -144,8 +144,7 @@ func isExternalCommand(info *session.Info) bool {
 	return info.Actor == "" && info.Source.ScheduleID == 0
 }
 
-// activityEventType mirrors the event_type literals used by successful command
-// activity rows, so blocked-command audit uses the same names.
+// activityEventType mirrors successful command activity event names.
 func activityEventType(t commandtype.Type) string {
 	switch t {
 	case commandtype.StartMining:
@@ -175,9 +174,8 @@ func activityEventType(t commandtype.Type) string {
 	}
 }
 
-// logPreflightBlockedStrict records an external command rejected by preflight.
-// If this audit write fails, the caller must fail closed instead of returning
-// a normal FailedPrecondition with no durable trace.
+// logPreflightBlockedStrict records an external preflight rejection. Audit
+// failures are fatal so blocked commands always leave a durable trace.
 func (s *Service) logPreflightBlockedStrict(
 	ctx context.Context,
 	commandType commandtype.Type,
@@ -608,11 +606,9 @@ func (s *Service) resolveIdentifiersToDeviceIDs(ctx context.Context, identifiers
 	})
 }
 
-// processCommand resolves selectors, runs preflight filters, writes the batch
-// row for surviving devices, and enqueues work. External callers fail fast on
-// any skip; internal callers may inspect CommandResult.Skipped and dispatch the
-// survivors. An empty BatchIdentifier is only valid for internal fully-filtered
-// no-ops.
+// processCommand resolves selectors, filters, writes the batch row, and
+// enqueues work. External callers fail on skips; internal callers may inspect
+// CommandResult.Skipped.
 func (s *Service) processCommand(ctx context.Context, command *Command) (*CommandResult, error) {
 	if !s.executionService.IsRunning() {
 		slog.Error("command execution service is not running, attempting to start it")
@@ -627,9 +623,7 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (*Comman
 		return nil, fleeterror.NewInternalErrorf("error getting session info from ctx: %v", err)
 	}
 
-	// Org-id check moved up from saveCommandBatchLogToDB. With the preflight
-	// reorder, the selector resolver now runs first; we still want the same
-	// fast-path validation error to surface before any DB or filter call.
+	// Selector resolution now runs before batch creation, so validate org first.
 	if info.OrganizationID <= 0 {
 		return nil, fleeterror.NewInternalErrorf("cannot create command batch: session missing organization_id")
 	}

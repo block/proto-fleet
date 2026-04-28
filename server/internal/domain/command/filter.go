@@ -38,12 +38,10 @@ type CommandFilterOutput struct {
 	Skipped []SkippedDevice
 }
 
-// CommandFilter is a preflight gate consulted before enqueue. Filters run in
-// registration order, each seeing only survivors from earlier filters.
+// CommandFilter gates identifiers before enqueue. Filters run in registration
+// order, each seeing only survivors from earlier filters.
 //
-// Apply returns an error only for I/O / data-fetch failures, never for the
-// policy decision itself — a "no devices pass this filter" outcome is
-// expressed by an empty Kept slice with the rejected devices in Skipped.
+// Policy exclusions are returned as Skipped, not errors.
 type CommandFilter interface {
 	Name() string
 	Apply(ctx context.Context, in CommandFilterInput) (CommandFilterOutput, error)

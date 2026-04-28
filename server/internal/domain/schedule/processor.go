@@ -31,19 +31,14 @@ const (
 )
 
 // CommandDispatcher is the subset of command.Service the processor needs.
-//
-// CommandResult carries preflight skips so the processor can emit
-// schedule_conflict_skip activity while command.Service owns the filtering.
+// CommandResult carries preflight skips for schedule-level audit.
 type CommandDispatcher interface {
 	SetPowerTarget(ctx context.Context, selector *commandpb.DeviceSelector, mode commandpb.PerformanceMode) (*command.CommandResult, error)
 	Reboot(ctx context.Context, selector *commandpb.DeviceSelector) (*command.CommandResult, error)
 	StopMining(ctx context.Context, selector *commandpb.DeviceSelector) (*command.CommandResult, error)
 }
 
-// jobEntry tracks a registered job and a fingerprint of the schedule's timing
-// fields so that edits can be detected during reconciliation. For recurring
-// schedules entryID holds the cron.EntryID; for one-time schedules timer holds
-// a *time.Timer that fires the callback.
+// jobEntry tracks a registered cron/timer job and its timing fingerprint.
 type jobEntry struct {
 	entryID     cron.EntryID
 	timer       *time.Timer
@@ -670,10 +665,7 @@ func (p *Processor) checkEndOfWindow(ctx context.Context) {
 			continue
 		}
 
-		// commandSvc applies the schedule-conflict filter for us; we consume
-		// the skipped slice and log it the same way the normal dispatch path
-		// does. This makes audit symmetric — pre-pre-work, the revert path
-		// silently dropped overlapping miners.
+		// commandSvc applies conflict filtering; mirror normal dispatch audit.
 		if len(deviceIdentifiers) > 0 {
 			cmdCtx := schedulerContext(ctx, sched, sw.OrgID)
 			selector := &commandpb.DeviceSelector{
@@ -720,10 +712,8 @@ func (p *Processor) removeJobLocked(scheduleID int64) {
 	}
 }
 
-// schedulerContext creates a context with synthetic session info so the command
-// service can create batch logs and resolve devices using the schedule's org.
-//
-// Source lets ScheduleConflictFilter apply scheduler priority semantics.
+// schedulerContext adds synthetic scheduler session info for command dispatch.
+// Source lets ScheduleConflictFilter apply priority semantics.
 func schedulerContext(parent context.Context, sched *pb.Schedule, orgID int64) context.Context {
 	return authn.SetInfo(parent, &session.Info{
 		SessionID:      schedulerActorName,
@@ -731,9 +721,7 @@ func schedulerContext(parent context.Context, sched *pb.Schedule, orgID int64) c
 		OrganizationID: orgID,
 		ExternalUserID: schedulerActorName,
 		Username:       schedulerActorName,
-		// Mark the session as scheduler-driven so downstream activity logging
-		// tags both the initiated and completed rows with ActorScheduler.
-		Actor: session.ActorScheduler,
+		Actor:          session.ActorScheduler,
 		Source: session.Source{
 			ScheduleID:       sched.Id,
 			SchedulePriority: sched.Priority,
