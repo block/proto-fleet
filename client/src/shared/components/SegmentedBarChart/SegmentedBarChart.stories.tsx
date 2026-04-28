@@ -3,7 +3,7 @@ import SegmentedBarChart from "./SegmentedBarChart";
 import type { SegmentedBarChartData } from "./types";
 
 const meta = {
-  title: "shared/SegmentedBarChart",
+  title: "Shared/SegmentedBarChart",
   component: SegmentedBarChart,
   parameters: {
     layout: "centered",

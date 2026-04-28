@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react";
 import EmptySlotCard from "./EmptySlotCard";
 
 const meta: Meta<typeof EmptySlotCard> = {
-  title: "ProtoOS/Diagnostic/EmptySlotCard",
+  title: "Proto OS/Diagnostic/EmptySlotCard",
   component: EmptySlotCard,
   parameters: {
     layout: "padded",

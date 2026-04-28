@@ -63,7 +63,7 @@ export const LineChart = ({ duration, hashboards, units }: LineChartProps) => {
 };
 
 export default {
-  title: "protoOS/LineChart",
+  title: "Proto OS/LineChart",
   args: {
     duration: "12h",
     hashboards: 3,

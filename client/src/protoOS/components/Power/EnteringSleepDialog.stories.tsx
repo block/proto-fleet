@@ -5,5 +5,5 @@ export const Default = () => {
 };
 
 export default {
-  title: "ProtoOS/Dialogs/Entering Sleep Dialog",
+  title: "Proto OS/Dialogs/Entering Sleep Dialog",
 };

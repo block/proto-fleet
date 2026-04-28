@@ -44,5 +44,5 @@ export const WithButton = () => <InfoModalStory hasButtons={true} />;
 export const WithoutButton = () => <InfoModalStory hasButtons={false} />;
 
 export default {
-  title: "ProtoOS/Settings/Cooling/InfoModal",
+  title: "Proto OS/Settings/Cooling/InfoModal",
 };

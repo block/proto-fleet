@@ -15,5 +15,5 @@ export const Verify = () => {
 };
 
 export default {
-  title: "ProtoOS/Onboarding/Verify",
+  title: "Proto OS/Onboarding/Verify",
 };

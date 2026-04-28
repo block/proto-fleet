@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect } from "react";
+import { type ReactNode, useEffect, useRef } from "react";
 import { Code, ConnectError } from "@connectrpc/connect";
 import type { Meta, StoryObj } from "@storybook/react";
 
@@ -11,8 +11,21 @@ type MutableClient<T> = { -readonly [K in keyof T]: T[K] };
 const mutableOnboardingClient = onboardingClient as MutableClient<typeof onboardingClient>;
 
 const MockedFleetDownApi = ({ children }: { children: ReactNode }) => {
+  const cleanupRef = useRef<(() => void) | null>(null);
+  // Install during render so the mock is in place before FleetDown's child
+  // effects fire. Without this, usePoll triggers a real getFleetInitStatus
+  // call before the decorator's effect runs, the non-ConnectError causes
+  // redirectFromFleetDown to navigate the iframe to "/", and Storybook
+  // renders nested inside its own preview.
+  if (cleanupRef.current === null) {
+    cleanupRef.current = installMockedFleetDownApi();
+  }
+
   useEffect(() => {
-    return installMockedFleetDownApi();
+    return () => {
+      cleanupRef.current?.();
+      cleanupRef.current = null;
+    };
   }, []);
 
   return <>{children}</>;

@@ -9,7 +9,7 @@ import { ProtoOSStatusModal } from "./index";
  * In production, it automatically fetches data from the store and handles all state management.
  */
 const meta = {
-  title: "ProtoOS/StatusModal",
+  title: "Proto OS/StatusModal",
   component: ProtoOSStatusModal,
   parameters: {
     layout: "centered",

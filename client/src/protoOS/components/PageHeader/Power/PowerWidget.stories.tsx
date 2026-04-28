@@ -28,7 +28,7 @@ export const PowerWidget = () => {
 };
 
 export default {
-  title: "protoOS/Page Header/Power Widget",
+  title: "Proto OS/Page Header/Power Widget",
   parameters: {
     withRouter: false,
   },

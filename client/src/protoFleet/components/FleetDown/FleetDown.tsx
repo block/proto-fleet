@@ -6,7 +6,7 @@ import AnimatedDotsBackground from "@/shared/components/Animation";
 import Button, { variants } from "@/shared/components/Button";
 import { usePoll } from "@/shared/hooks/usePoll";
 import { isBackendDownError } from "@/shared/utils/backendHealth";
-import { redirectFromFleetDown } from "@/shared/utils/fleetDownRedirect";
+import { redirectFromFleetDown } from "@/protoFleet/utils/fleetDownRedirect";
 
 const FleetDown = () => {
   const [isChecking, setIsChecking] = useState(false);

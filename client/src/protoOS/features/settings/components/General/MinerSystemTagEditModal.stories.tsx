@@ -30,5 +30,5 @@ export const Empty = () => <MinerSystemTagEditModalStory currentTag="" />;
 export const WithExistingTag = () => <MinerSystemTagEditModalStory currentTag="PM-H132435034" />;
 
 export default {
-  title: "ProtoOS/Settings/General/MinerSystemTagEditModal",
+  title: "Proto OS/Settings/General/MinerSystemTagEditModal",
 };

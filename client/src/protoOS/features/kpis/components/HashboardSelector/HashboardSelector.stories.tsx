@@ -69,6 +69,6 @@ export const WithAllSelected = () => {
 };
 
 export default {
-  title: "protoOS/HashboardSelector",
+  title: "Proto OS/HashboardSelector",
   component: HashboardSelectorComponent,
 };

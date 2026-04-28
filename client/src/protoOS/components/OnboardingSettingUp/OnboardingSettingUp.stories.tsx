@@ -29,7 +29,7 @@ export const SettingUp = ({ poolStatus }: OnboardingSettingUpProps) => {
 };
 
 export default {
-  title: "Shared/Onboarding/Setting Up",
+  title: "Proto OS/Onboarding/Setting Up",
   args: {
     poolStatus: statuses.success,
   },

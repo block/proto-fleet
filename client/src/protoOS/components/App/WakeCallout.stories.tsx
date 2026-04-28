@@ -15,7 +15,7 @@ export const WakeUpMiner = () => {
 };
 
 export default {
-  title: "ProtoOS/Wake Up Miner",
+  title: "Proto OS/Wake Up Miner",
   parameters: {
     withRouter: false,
   },

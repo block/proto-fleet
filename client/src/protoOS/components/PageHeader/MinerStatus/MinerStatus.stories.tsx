@@ -137,7 +137,7 @@ MinerStatus.argTypes = {
 };
 
 export default {
-  title: "protoOS/Page Header/Miner Status",
+  title: "Proto OS/Page Header/Miner Status",
   parameters: {
     withRouter: false,
   },

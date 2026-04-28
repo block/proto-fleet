@@ -116,7 +116,7 @@ const StoreDecorator = (Story: any, context: any) => {
 };
 
 const meta: Meta<typeof HashboardStatusCard> = {
-  title: "ProtoOS/Diagnostic/HashboardStatusCard",
+  title: "Proto OS/Diagnostic/HashboardStatusCard",
   component: HashboardStatusCard,
   decorators: [
     (Story) => (

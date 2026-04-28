@@ -8,7 +8,7 @@ export const PageHeader = () => {
 };
 
 export default {
-  title: "protoOS/Page Header",
+  title: "Proto OS/Page Header",
   parameters: {
     withRouter: false,
   },

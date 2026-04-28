@@ -98,7 +98,7 @@ const FullScreenTwoPaneModalStory = ({
 };
 
 const meta = {
-  title: "Shared/FullScreenTwoPaneModal",
+  title: "Proto Fleet/FullScreenTwoPaneModal",
   component: FullScreenTwoPaneModalStory,
   parameters: {
     layout: "fullscreen",

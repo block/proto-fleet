@@ -3,7 +3,7 @@ import { action } from "storybook/actions";
 import NoFansDetectedDialog from "./NoFansDetectedDialog";
 
 const meta: Meta<typeof NoFansDetectedDialog> = {
-  title: "ProtoOS/Onboarding/NoFansDetectedDialog",
+  title: "Proto OS/Onboarding/NoFansDetectedDialog",
   component: NoFansDetectedDialog,
   parameters: {
     layout: "centered",

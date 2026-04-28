@@ -58,7 +58,7 @@ const StoreDecorator = (Story: any, context: any) => {
 };
 
 const meta: Meta<typeof FanStatusCard> = {
-  title: "ProtoOS/Diagnostic/FanStatusCard",
+  title: "Proto OS/Diagnostic/FanStatusCard",
   component: FanStatusCard,
   decorators: [StoreDecorator],
   parameters: {

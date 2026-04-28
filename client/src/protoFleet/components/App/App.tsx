@@ -12,7 +12,7 @@ import ProgressCircular from "@/shared/components/ProgressCircular";
 import { useApplyTheme } from "@/shared/features/preferences";
 import { Toaster } from "@/shared/features/toaster";
 import { isBackendDownError } from "@/shared/utils/backendHealth";
-import { redirectFromFleetDown } from "@/shared/utils/fleetDownRedirect";
+import { redirectFromFleetDown } from "@/protoFleet/utils/fleetDownRedirect";
 
 interface AppProps {
   children?: ReactNode;

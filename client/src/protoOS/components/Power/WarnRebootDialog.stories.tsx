@@ -6,5 +6,5 @@ export const WarnRebootDialog = () => {
 };
 
 export default {
-  title: "ProtoOS/Power/WarnRebootDialog",
+  title: "Proto OS/Power/WarnRebootDialog",
 };

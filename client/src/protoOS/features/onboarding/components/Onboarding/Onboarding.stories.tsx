@@ -8,7 +8,7 @@ export const Onboarding = () => {
 };
 
 export default {
-  title: "ProtoOS/Onboarding/Mining Pools",
+  title: "Proto OS/Onboarding/Mining Pools",
   parameters: {
     withRouter: false,
   },

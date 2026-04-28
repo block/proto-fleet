@@ -45,7 +45,7 @@ export const MiningPools = ({
 };
 
 export default {
-  title: "Shared/Mining Pools",
+  title: "Proto OS/Mining Pools",
   parameters: {
     withRouter: false,
   },
