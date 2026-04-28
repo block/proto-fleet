@@ -26,7 +26,7 @@ pub const VARIANT_MARATHON: &str = "marathon";
 // Manufacturer display names for aftermarket firmware
 const DISPLAY_VNISH: &str = "VNish";
 const DISPLAY_EPIC: &str = "ePIC";
-pub(crate) const DISPLAY_BRAIINS: &str = "Braiins";
+const DISPLAY_BRAIINS: &str = "Braiins";
 const DISPLAY_LUXOS: &str = "LuxOS";
 const DISPLAY_MARATHON: &str = "Marathon";
 

@@ -599,7 +599,7 @@ impl Driver for DriverService {
         let manufacturer = req.into_inner().manufacturer;
         // Discovery canonicalizes the firmware-derived manufacturer; only
         // Braiins-flashed miners speak native SV2.
-        let flags = if manufacturer.eq_ignore_ascii_case(crate::capabilities::DISPLAY_BRAIINS) {
+        let flags = if manufacturer.eq_ignore_ascii_case(crate::capabilities::VARIANT_BRAIINS) {
             std::collections::HashMap::from([(CAP_NATIVE_STRATUM_V2.to_string(), true)])
         } else {
             std::collections::HashMap::new()
