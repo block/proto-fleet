@@ -124,9 +124,6 @@ const router = createBrowserRouter([
   // Activity
   createRoute("/activity", <ActivityPage />),
 
-  // Server logs (live tail of fleetd's own log output)
-  createRoute("/server-logs", <ServerLogsPage />),
-
   // Single miner (fullscreen - protoOS routes handle layout)
   {
     ...createRoute("/miners/:id", <Outlet />, { fullscreen: true }),
@@ -178,6 +175,12 @@ const router = createBrowserRouter([
     "/settings/api-keys",
     <SettingsLayout>
       <SettingsApiKeys />
+    </SettingsLayout>,
+  ),
+  createRoute(
+    "/settings/server-logs",
+    <SettingsLayout>
+      <ServerLogsPage />
     </SettingsLayout>,
   ),
 

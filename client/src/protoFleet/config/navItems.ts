@@ -1,6 +1,6 @@
 import { type ReactNode } from "react";
 
-import { Activity, Fleet, Groups, Home, IconProps, Logs, Racks, Settings } from "@/shared/assets/icons";
+import { Activity, Fleet, Groups, Home, IconProps, Racks, Settings } from "@/shared/assets/icons";
 
 export interface NavItem {
   path: string;
@@ -41,11 +41,6 @@ export const primaryNavItems: NavItem[] = [
     path: "/activity",
     label: "Activity",
     icon: Activity,
-  },
-  {
-    path: "/server-logs",
-    label: "Server Logs",
-    icon: Logs,
   },
   {
     path: "/settings",
@@ -89,6 +84,15 @@ export const secondaryNavItems: SecondaryNavItem[] = [
   {
     path: "/settings/api-keys",
     label: "API Keys",
+    parent: "/settings",
+    allowedRoles: ["SUPER_ADMIN", "ADMIN"],
+  },
+  {
+    // Server Logs is admin-only — same scope as API Keys, since the
+    // buffered records can include any structured attrs the server's
+    // slog calls attached (request ids, user ids, etc.).
+    path: "/settings/server-logs",
+    label: "Server Logs",
     parent: "/settings",
     allowedRoles: ["SUPER_ADMIN", "ADMIN"],
   },
