@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { type Timestamp } from "@bufbuild/protobuf/wkt";
+import { timestampDate } from "@bufbuild/protobuf/wkt";
 
 import { serverLogClient } from "@/protoFleet/api/clients";
 import { type LogEntry, LogLevel } from "@/protoFleet/api/generated/serverlog/v1/serverlog_pb";
@@ -38,37 +38,21 @@ const LEVEL_TOKEN: Record<LogLevel, string> = {
 };
 
 /**
- * Render a protobuf Timestamp as `YYYY-MM-DD HH:MM:SS.mmm` in local time.
- * That's the shape the MinerLogs `formatLog` utility extracts when it
- * splits a line on `": "` — anything else and the timestamp falls back
- * to the short syslog format, which is uglier in the UI.
- */
-function formatTime(t?: Timestamp): string {
-  if (!t) return "";
-  const millis = Number(t.seconds) * 1000 + Math.floor(t.nanos / 1_000_000);
-  const d = new Date(millis);
-  const pad = (n: number, w = 2) => String(n).padStart(w, "0");
-  const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-  const time = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-  return `${date} ${time}.${pad(d.getMilliseconds(), 3)}`;
-}
-
-/**
  * Convert a single LogEntry from the wire into the line string format
  * MinerLogs/Logs.tsx already knows how to parse and render. The shape is:
  *
- *   `proto-fleet: <ts> | <LEVEL> | <source> | <message> [k=v ...]`
+ *   `proto-fleet: <ts> | <LEVEL> | <source> <message> [k=v ...]`
  *
  * The leading `proto-fleet:` mimics the syslog-style program prefix
  * (mcdd in the miner case) so the parser's `prefix.split(": ")[1]` path
  * cleanly extracts the timestamp.
  */
 function entryToLine(entry: LogEntry): string {
-  const ts = formatTime(entry.time);
+  const ts = entry.time ? timestampDate(entry.time).toISOString().replace("T", " ") : "";
   const level = LEVEL_TOKEN[entry.level] ?? "INFO ";
   const source = entry.source || "fleetd";
   const attrSuffix = entry.attrs.length ? " " + entry.attrs.map((a) => `${a.key}=${a.value}`).join(" ") : "";
-  return `proto-fleet: ${ts} | ${level} | ${source} | ${entry.message}${attrSuffix}`;
+  return `proto-fleet: ${ts} | ${level} | ${source} ${entry.message}${attrSuffix}`;
 }
 
 /**
