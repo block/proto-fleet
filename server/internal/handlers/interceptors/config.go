@@ -10,6 +10,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/serverlog/v1/serverlogv1connect"
 )
 
 // RedactedRequestProcedures lists procedures whose requests contain secrets
@@ -38,6 +39,7 @@ var RedactedResponseProcedures = []string{
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceCompleteAuthHandshakeProcedure,
 	fleetnodeadminv1connect.FleetNodeAdminServiceCreateEnrollmentCodeProcedure,
 	fleetnodeadminv1connect.FleetNodeAdminServiceConfirmFleetNodeProcedure,
+	serverlogv1connect.ServerLogServiceListServerLogsProcedure,
 }
 
 // SessionOnlyProcedures lists procedures that require session-cookie auth and
@@ -74,6 +76,7 @@ var SessionOnlyProcedures = []string{
 	// handlers/curtailment/handler.go; neither check alone is sufficient.
 	// Other curtailment write RPCs remain API-key-accessible.
 	curtailmentv1connect.CurtailmentServiceAdminTerminateEventProcedure,
+	serverlogv1connect.ServerLogServiceListServerLogsProcedure,
 }
 
 var UnauthenticatedProcedures = []string{

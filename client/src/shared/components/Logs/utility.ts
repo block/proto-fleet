@@ -69,16 +69,22 @@ export const formatLogType = (logType: logType | null) => {
 
 export const CSV_HEADERS = "Time,Type,Message";
 
-/**
- * Format logs into CSV rows with proper quoting and escaping
- * Follows RFC 4180 CSV format specification
- */
-export const formatLogsToCSV = (logs: string[]): string[] => {
-  const formattedLogs = formatLogs(logs);
+export const formatLogInfoToCSV = (formattedLogs: LogInfo[]): string[] => {
   return [
     CSV_HEADERS,
     ...formattedLogs.map(
       (log) => `${log.timestamp},${formatLogType(log.logType)},"${log.message.replace(/"/g, '""')}"`,
     ),
   ];
+};
+
+export const formatLogsToCSV = (logs: string[]): string[] => formatLogInfoToCSV(formatLogs(logs));
+
+export const hasIdSequenceRegressed = (
+  stored: ReadonlyArray<{ id: bigint }>,
+  incoming: ReadonlyArray<{ id: bigint }>,
+): boolean => {
+  const max = (a: bigint, b: bigint) => (a > b ? a : b);
+  if (stored.length === 0 || incoming.length === 0) return false;
+  return incoming.map((e) => e.id).reduce(max) < stored.map((e) => e.id).reduce(max);
 };

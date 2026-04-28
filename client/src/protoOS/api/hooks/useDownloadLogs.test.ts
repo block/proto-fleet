@@ -1,15 +1,15 @@
 import { renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, type Mock, test, vi } from "vitest";
-import { downloadLogs as downloadLogsUtil, formatLogsToCSV } from "../../pages/MinerLogs/utility";
 import { useDownloadLogs } from "./useDownloadLogs";
 import { useSystemLogs } from "./useSystemLogs";
+import { downloadLogs as downloadLogsUtil, formatLogsToCSV } from "@/shared/components/Logs/utility";
 import { getFileName } from "@/shared/utils/utility";
 
 vi.mock("./useSystemLogs", () => ({
   useSystemLogs: vi.fn(),
 }));
 
-vi.mock("../../pages/MinerLogs/utility", () => ({
+vi.mock("@/shared/components/Logs/utility", () => ({
   downloadLogs: vi.fn(),
   formatLogsToCSV: vi.fn(),
 }));

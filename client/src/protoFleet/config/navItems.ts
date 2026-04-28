@@ -87,4 +87,10 @@ export const secondaryNavItems: SecondaryNavItem[] = [
     parent: "/settings",
     allowedRoles: ["SUPER_ADMIN", "ADMIN"],
   },
+  {
+    path: "/settings/server-logs",
+    label: "Server Logs",
+    parent: "/settings",
+    allowedRoles: ["SUPER_ADMIN", "ADMIN"],
+  },
 ];
