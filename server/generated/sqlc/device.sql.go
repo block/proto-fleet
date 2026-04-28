@@ -505,15 +505,18 @@ func (q *Queries) GetDeviceIdentifierByID(ctx context.Context, id int64) (string
 }
 
 const getDeviceIdentifiersByIDs = `-- name: GetDeviceIdentifiersByIDs :many
-SELECT id, device_identifier
-FROM device
-WHERE id = ANY($1::bigint[])
-  AND deleted_at IS NULL
+SELECT d.id, d.device_identifier, dd.manufacturer, dd.model
+FROM device d
+JOIN discovered_device dd ON dd.id = d.discovered_device_id
+WHERE d.id = ANY($1::bigint[])
+  AND d.deleted_at IS NULL
 `
 
 type GetDeviceIdentifiersByIDsRow struct {
 	ID               int64
 	DeviceIdentifier string
+	Manufacturer     sql.NullString
+	Model            sql.NullString
 }
 
 func (q *Queries) GetDeviceIdentifiersByIDs(ctx context.Context, deviceIds []int64) ([]GetDeviceIdentifiersByIDsRow, error) {
@@ -525,7 +528,12 @@ func (q *Queries) GetDeviceIdentifiersByIDs(ctx context.Context, deviceIds []int
 	var items []GetDeviceIdentifiersByIDsRow
 	for rows.Next() {
 		var i GetDeviceIdentifiersByIDsRow
-		if err := rows.Scan(&i.ID, &i.DeviceIdentifier); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.DeviceIdentifier,
+			&i.Manufacturer,
+			&i.Model,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

@@ -3,7 +3,6 @@ package preflight
 import (
 	"testing"
 
-	mcpb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
 	"github.com/stretchr/testify/assert"
 )
@@ -41,10 +40,10 @@ func TestRun_SV2URLPassesNativeOnly(t *testing.T) {
 func TestRun_SV2URLRejectsSV1AndUnknown(t *testing.T) {
 	// Arrange
 	devs := []Device{
-		{Identifier: "sv1", StratumV2Support: modelsV2.StratumV2SupportUnsupported},
-		{Identifier: "unknown", StratumV2Support: modelsV2.StratumV2SupportUnknown},
+		{Identifier: "sv1", Make: "Antminer", Model: "S19", StratumV2Support: modelsV2.StratumV2SupportUnsupported},
+		{Identifier: "unknown", Make: "Whatsminer", Model: "M30S", StratumV2Support: modelsV2.StratumV2SupportUnknown},
 		{Identifier: "unspec", StratumV2Support: modelsV2.StratumV2SupportUnspecified},
-		{Identifier: "native", StratumV2Support: modelsV2.StratumV2SupportSupported},
+		{Identifier: "native", Make: "Antminer", Model: "S19j Pro", StratumV2Support: modelsV2.StratumV2SupportSupported},
 	}
 	slots := []SlotAssignment{{Slot: SlotBackup1, URL: "stratum2+tcp://pool.example.com:3336/ABC"}}
 
@@ -56,8 +55,23 @@ func TestRun_SV2URLRejectsSV1AndUnknown(t *testing.T) {
 	for _, m := range got {
 		assert.NotEqual(t, "native", m.DeviceIdentifier)
 		assert.Equal(t, SlotBackup1, m.Slot)
-		assert.Equal(t, mcpb.SlotWarning_SLOT_WARNING_SV2_NOT_SUPPORTED, m.SlotWarning)
 	}
+}
+
+func TestRun_PropagatesMakeAndModel(t *testing.T) {
+	// Arrange
+	devs := []Device{
+		{Identifier: "sv1", Make: "Antminer", Model: "S19", StratumV2Support: modelsV2.StratumV2SupportUnsupported},
+	}
+	slots := []SlotAssignment{{Slot: SlotDefault, URL: "stratum2+tcp://pool.example.com:3336/ABC"}}
+
+	// Act
+	got := Run(devs, slots)
+
+	// Assert
+	assert.Len(t, got, 1)
+	assert.Equal(t, "Antminer", got[0].Make)
+	assert.Equal(t, "S19", got[0].Model)
 }
 
 func TestRun_MultipleSlotsReportPerSlot(t *testing.T) {
@@ -77,12 +91,4 @@ func TestRun_MultipleSlotsReportPerSlot(t *testing.T) {
 	slotsHit := []Slot{got[0].Slot, got[1].Slot}
 	assert.Contains(t, slotsHit, SlotDefault)
 	assert.Contains(t, slotsHit, SlotBackup2)
-}
-
-func TestSlot_ProtoSlot(t *testing.T) {
-	// Act + Assert
-	assert.Equal(t, mcpb.PoolSlot_POOL_SLOT_DEFAULT, SlotDefault.ProtoSlot())
-	assert.Equal(t, mcpb.PoolSlot_POOL_SLOT_BACKUP_1, SlotBackup1.ProtoSlot())
-	assert.Equal(t, mcpb.PoolSlot_POOL_SLOT_BACKUP_2, SlotBackup2.ProtoSlot())
-	assert.Equal(t, mcpb.PoolSlot_POOL_SLOT_UNSPECIFIED, SlotUnspecified.ProtoSlot())
 }

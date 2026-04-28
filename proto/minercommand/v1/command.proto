@@ -118,27 +118,6 @@ message UpdateMiningPoolsResponse {
   string batch_identifier = 1;
 }
 
-enum PoolSlot {
-  POOL_SLOT_UNSPECIFIED = 0;
-  POOL_SLOT_DEFAULT = 1;
-  POOL_SLOT_BACKUP_1 = 2;
-  POOL_SLOT_BACKUP_2 = 3;
-}
-
-enum SlotWarning {
-  SLOT_WARNING_UNSPECIFIED = 0;
-  // Slot URL targets SV2 but the device's telemetry says SV1-only.
-  SLOT_WARNING_SV2_NOT_SUPPORTED = 1;
-}
-
-// Attached as a FAILED_PRECONDITION detail when commit-time preflight
-// rejects an UpdateMiningPools call. One per (device, slot) pair.
-message UpdateMiningPoolsMismatch {
-  string device_identifier = 1;
-  PoolSlot slot = 2;
-  SlotWarning slot_warning = 3;
-}
-
 message DownloadLogsRequest {
   DeviceSelector device_selector = 1;
 }

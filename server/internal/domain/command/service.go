@@ -905,8 +905,9 @@ func (s *Service) createUpdateMiningPoolsPayload(ctx context.Context, defaultPoo
 // preflightSV2Capabilities rejects UpdateMiningPools requests that
 // would dispatch a Stratum V2 URL to a miner whose latest telemetry
 // reports it isn't natively SV2-capable. Mismatches are returned as
-// FAILED_PRECONDITION with one UpdateMiningPoolsMismatch detail per
-// (device, slot) pair so the UI can render row-level warnings.
+// a single FAILED_PRECONDITION error whose message names the distinct
+// miner types (e.g. "Antminer S19, Whatsminer M30S") that can't take
+// the SV2 URL.
 func (s *Service) preflightSV2Capabilities(ctx context.Context, selector *pb.DeviceSelector, pld *dto.UpdateMiningPoolsPayload) error {
 	if s.telemetryReader == nil {
 		slog.Warn("SV2 preflight skipped: telemetry reader not wired", "default_pool_url", pld.DefaultPool.URL)
@@ -955,6 +956,8 @@ func (s *Service) preflightSV2Capabilities(ctx context.Context, selector *pb.Dev
 		}
 		devices = append(devices, preflight.Device{
 			Identifier:       r.DeviceIdentifier,
+			Make:             r.Manufacturer.String,
+			Model:            r.Model.String,
 			StratumV2Support: support,
 		})
 	}
@@ -994,26 +997,50 @@ func anySV2(slots []preflight.SlotAssignment) bool {
 }
 
 // mismatchesToFailedPrecondition wraps the preflight mismatches into a
-// connect.CodeFailedPrecondition error with typed UpdateMiningPoolsMismatch
-// details so the UI can dispatch on (device_identifier, slot, slot_warning).
+// connect.CodeFailedPrecondition error whose message names the distinct
+// miner types affected, deduped per (device, slot) pair. Identifiers are
+// not surfaced — operators recognize types, not opaque IDs.
 func mismatchesToFailedPrecondition(mismatches []preflight.Mismatch) error {
-	err := connect.NewError(
-		connect.CodeFailedPrecondition,
-		fmt.Errorf("pool assignment rejected: %d device/slot pair(s) cannot use the assigned Stratum V2 URL", len(mismatches)),
-	)
+	devices := make(map[string]struct{}, len(mismatches))
+	types := make(map[string]struct{}, len(mismatches))
 	for _, m := range mismatches {
-		detail, dErr := connect.NewErrorDetail(&pb.UpdateMiningPoolsMismatch{
-			DeviceIdentifier: m.DeviceIdentifier,
-			Slot:             m.Slot.ProtoSlot(),
-			SlotWarning:      m.SlotWarning,
-		})
-		if dErr != nil {
-			slog.Warn("failed to build UpdateMiningPoolsMismatch detail", "error", dErr)
-			continue
-		}
-		err.AddDetail(detail)
+		devices[m.DeviceIdentifier] = struct{}{}
+		types[formatMinerType(m.Make, m.Model)] = struct{}{}
 	}
-	return err
+	sortedTypes := make([]string, 0, len(types))
+	for t := range types {
+		sortedTypes = append(sortedTypes, t)
+	}
+	sort.Strings(sortedTypes)
+
+	deviceCount := len(devices)
+	plural := "s"
+	if deviceCount == 1 {
+		plural = ""
+	}
+	msg := fmt.Sprintf(
+		"%d miner%s can't use this Stratum V2 pool. Incompatible types: %s",
+		deviceCount, plural, strings.Join(sortedTypes, ", "),
+	)
+	return connect.NewError(connect.CodeFailedPrecondition, errors.New(msg))
+}
+
+// formatMinerType renders make/model as a human-readable type label.
+// Falls back to "unknown type" when both are empty so the toast never
+// reads "Incompatible types: , ".
+func formatMinerType(make, model string) string {
+	make = strings.TrimSpace(make)
+	model = strings.TrimSpace(model)
+	switch {
+	case make != "" && model != "":
+		return make + " " + model
+	case make != "":
+		return make
+	case model != "":
+		return model
+	default:
+		return "unknown type"
+	}
 }
 
 func (s *Service) UpdateMiningPools(

@@ -6,12 +6,10 @@ package preflight
 import (
 	"strings"
 
-	mcpb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
 )
 
-// Slot mirrors mcpb.PoolSlot at the package boundary so callers don't
-// have to import the proto package just to express priority.
+// Slot identifies which pool slot a URL was assigned to.
 type Slot int
 
 const (
@@ -27,19 +25,23 @@ type SlotAssignment struct {
 	URL  string
 }
 
-// Device is the input shape: identifier the operator sees, plus the
-// last-observed SV2 capability from telemetry.
+// Device is the input shape: identifier the operator sees, the
+// last-observed SV2 capability from telemetry, and the device's
+// manufacturer/model so the rejection message can name distinct types.
 type Device struct {
 	Identifier       string
+	Make             string
+	Model            string
 	StratumV2Support modelsV2.StratumV2SupportStatus
 }
 
-// Mismatch is one (device, slot) rejection. Maps directly to the proto
-// detail attached to the FAILED_PRECONDITION error.
+// Mismatch is one (device, slot) rejection. Carries the device's
+// make/model so the rejection message can aggregate by type.
 type Mismatch struct {
 	DeviceIdentifier string
+	Make             string
+	Model            string
 	Slot             Slot
-	SlotWarning      mcpb.SlotWarning
 }
 
 // Run evaluates each (device, slot) pair against the SV1↔SV2 rule and
@@ -65,8 +67,9 @@ func Run(devices []Device, slots []SlotAssignment) []Mismatch {
 			}
 			mismatches = append(mismatches, Mismatch{
 				DeviceIdentifier: d.Identifier,
+				Make:             d.Make,
+				Model:            d.Model,
 				Slot:             s.Slot,
-				SlotWarning:      mcpb.SlotWarning_SLOT_WARNING_SV2_NOT_SUPPORTED,
 			})
 		}
 	}
@@ -75,20 +78,4 @@ func Run(devices []Device, slots []SlotAssignment) []Mismatch {
 
 func isSV2URL(stratumURL string) bool {
 	return strings.HasPrefix(stratumURL, "stratum2+")
-}
-
-// ProtoSlot projects a Slot into the proto enum.
-func (s Slot) ProtoSlot() mcpb.PoolSlot {
-	switch s {
-	case SlotDefault:
-		return mcpb.PoolSlot_POOL_SLOT_DEFAULT
-	case SlotBackup1:
-		return mcpb.PoolSlot_POOL_SLOT_BACKUP_1
-	case SlotBackup2:
-		return mcpb.PoolSlot_POOL_SLOT_BACKUP_2
-	case SlotUnspecified:
-		return mcpb.PoolSlot_POOL_SLOT_UNSPECIFIED
-	default:
-		return mcpb.PoolSlot_POOL_SLOT_UNSPECIFIED
-	}
 }
