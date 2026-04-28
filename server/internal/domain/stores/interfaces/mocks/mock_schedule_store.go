@@ -350,19 +350,19 @@ func (mr *MockScheduleProcessorStoreMockRecorder) GetActiveSchedules(ctx any) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetActiveSchedules", reflect.TypeOf((*MockScheduleProcessorStore)(nil).GetActiveSchedules), ctx)
 }
 
-// GetRunningPowerTargetSchedules mocks base method.
-func (m *MockScheduleProcessorStore) GetRunningPowerTargetSchedules(ctx context.Context, orgID int64) ([]*schedulev1.Schedule, error) {
+// GetRunningPowerTargetScheduleOverlaps mocks base method.
+func (m *MockScheduleProcessorStore) GetRunningPowerTargetScheduleOverlaps(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]interfaces.ScheduleTargetOverlap, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetRunningPowerTargetSchedules", ctx, orgID)
-	ret0, _ := ret[0].([]*schedulev1.Schedule)
+	ret := m.ctrl.Call(m, "GetRunningPowerTargetScheduleOverlaps", ctx, orgID, deviceIdentifiers)
+	ret0, _ := ret[0].([]interfaces.ScheduleTargetOverlap)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// GetRunningPowerTargetSchedules indicates an expected call of GetRunningPowerTargetSchedules.
-func (mr *MockScheduleProcessorStoreMockRecorder) GetRunningPowerTargetSchedules(ctx, orgID any) *gomock.Call {
+// GetRunningPowerTargetScheduleOverlaps indicates an expected call of GetRunningPowerTargetScheduleOverlaps.
+func (mr *MockScheduleProcessorStoreMockRecorder) GetRunningPowerTargetScheduleOverlaps(ctx, orgID, deviceIdentifiers any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRunningPowerTargetSchedules", reflect.TypeOf((*MockScheduleProcessorStore)(nil).GetRunningPowerTargetSchedules), ctx, orgID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRunningPowerTargetScheduleOverlaps", reflect.TypeOf((*MockScheduleProcessorStore)(nil).GetRunningPowerTargetScheduleOverlaps), ctx, orgID, deviceIdentifiers)
 }
 
 // GetScheduleByID mocks base method.

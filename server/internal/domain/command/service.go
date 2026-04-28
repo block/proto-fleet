@@ -606,7 +606,8 @@ func (s *Service) resolveIdentifiersToDeviceIDs(ctx context.Context, identifiers
 // processCommand resolves selectors, runs preflight filters, writes the batch
 // row for surviving devices, and enqueues work. External callers fail fast on
 // any skip; internal callers may inspect CommandResult.Skipped and dispatch the
-// survivors. An empty BatchIdentifier means nothing was enqueued.
+// survivors. An empty BatchIdentifier is only valid for internal fully-filtered
+// no-ops.
 func (s *Service) processCommand(ctx context.Context, command *Command) (*CommandResult, error) {
 	if !s.executionService.IsRunning() {
 		slog.Error("command execution service is not running, attempting to start it")
@@ -655,8 +656,11 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (*Comman
 			len(skipped), len(identifiers))
 	}
 
-	if len(kept) == 0 {
+	if len(kept) == 0 && len(skipped) > 0 {
 		return &CommandResult{Skipped: skipped}, nil
+	}
+	if len(kept) == 0 {
+		return nil, fleeterror.NewInvalidArgumentError("no devices matched selector")
 	}
 
 	payloadBytes, err := json.Marshal(command.payload)
@@ -667,6 +671,12 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (*Comman
 	deviceIDs, err := s.resolveIdentifiersToDeviceIDs(ctx, kept)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("error resolving identifiers to device IDs: %v", err)
+	}
+	if len(deviceIDs) == 0 {
+		if !isExternalCommand(info) {
+			return &CommandResult{Skipped: skipped}, nil
+		}
+		return nil, fleeterror.NewInvalidArgumentError("no devices matched selector")
 	}
 
 	batchLogIdentifier, err := s.saveCommandBatchLogToDB(ctx, info.UserID, info.OrganizationID, command, payloadBytes, len(deviceIDs))

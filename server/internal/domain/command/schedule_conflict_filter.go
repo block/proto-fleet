@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
-	scheduletargets "github.com/block/proto-fleet/server/internal/domain/schedule/targets"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
@@ -21,24 +20,12 @@ const ScheduleConflictFilterName = "schedule_conflict"
 //
 // Only SetPowerTarget is gated; other command types pass through unchanged.
 type ScheduleConflictFilter struct {
-	procStore       stores.ScheduleProcessorStore
-	targetStore     stores.ScheduleTargetStore
-	collectionStore stores.CollectionStore
+	procStore stores.ScheduleProcessorStore
 }
 
-// NewScheduleConflictFilter wires the stores the filter needs to enumerate
-// running power-target schedules and expand their target sets to identifiers.
-// The collection store is needed for rack/group expansion, mirroring the
-// schedule processor's resolveTargets path.
-func NewScheduleConflictFilter(
-	procStore stores.ScheduleProcessorStore,
-	targetStore stores.ScheduleTargetStore,
-	collectionStore stores.CollectionStore,
-) *ScheduleConflictFilter {
+func NewScheduleConflictFilter(procStore stores.ScheduleProcessorStore) *ScheduleConflictFilter {
 	return &ScheduleConflictFilter{
-		procStore:       procStore,
-		targetStore:     targetStore,
-		collectionStore: collectionStore,
+		procStore: procStore,
 	}
 }
 
@@ -54,33 +41,23 @@ func (f *ScheduleConflictFilter) Apply(ctx context.Context, in CommandFilterInpu
 		return CommandFilterOutput{Kept: in.DeviceIdentifiers}, nil
 	}
 
-	running, err := f.procStore.GetRunningPowerTargetSchedules(ctx, in.OrganizationID)
+	overlaps, err := f.procStore.GetRunningPowerTargetScheduleOverlaps(ctx, in.OrganizationID, in.DeviceIdentifiers)
 	if err != nil {
-		return CommandFilterOutput{}, fmt.Errorf("failed to get running power target schedules: %w", err)
+		return CommandFilterOutput{}, fmt.Errorf("failed to get running power target schedule overlaps: %w", err)
 	}
 
 	// device_identifier -> blocking schedule id (first one wins for diagnostic Reason)
 	conflicted := make(map[string]int64)
-	for _, r := range running {
+	for _, r := range overlaps {
 		// Don't conflict with self (scheduler-origin re-entering its own dispatch).
-		if r.Id == in.Source.ScheduleID {
+		if r.ScheduleID == in.Source.ScheduleID {
 			continue
 		}
-		if in.Source.ScheduleID != 0 && r.Priority >= in.Source.SchedulePriority {
+		if in.Source.ScheduleID != 0 && r.SchedulePriority >= in.Source.SchedulePriority {
 			continue
 		}
-		rTargets, err := f.targetStore.GetScheduleTargets(ctx, in.OrganizationID, r.Id)
-		if err != nil {
-			return CommandFilterOutput{}, fmt.Errorf("failed to load targets for conflicting schedule %d: %w", r.Id, err)
-		}
-		rDevices, err := scheduletargets.Expand(ctx, f.collectionStore, rTargets, in.OrganizationID, nil)
-		if err != nil {
-			return CommandFilterOutput{}, fmt.Errorf("failed to expand targets for conflicting schedule %d: %w", r.Id, err)
-		}
-		for _, d := range rDevices {
-			if _, exists := conflicted[d]; !exists {
-				conflicted[d] = r.Id
-			}
+		if _, exists := conflicted[r.DeviceIdentifier]; !exists {
+			conflicted[r.DeviceIdentifier] = r.ScheduleID
 		}
 	}
 

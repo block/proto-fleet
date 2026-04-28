@@ -345,7 +345,7 @@ func start(config *Config) error {
 	// sees the same priority/manual-fallback semantics. Pre-pre-work this
 	// only ran inline inside the schedule processor, leaving manual
 	// SetPowerTarget calls free to race a running power-target schedule.
-	commandSvc.RegisterFilter(commandDomain.NewScheduleConflictFilter(scheduleStore, scheduleStore, collectionStore))
+	commandSvc.RegisterFilter(commandDomain.NewScheduleConflictFilter(scheduleStore))
 
 	scheduleProcessor := scheduleDomain.NewProcessor(scheduleStore, scheduleStore, collectionStore, commandSvc, activitySvc)
 	if err := scheduleProcessor.Start(context.Background()); err != nil {

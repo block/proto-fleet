@@ -366,8 +366,9 @@ func (p *Processor) executeSchedule(ctx context.Context, scheduleID int64) {
 		return
 	}
 
-	if skipped := countConflictSkips(result); skipped > 0 {
-		p.logConflictSkip(ctx, sched, orgID, skipped)
+	conflictSkips := countConflictSkips(result)
+	if conflictSkips > 0 {
+		p.logConflictSkip(ctx, sched, orgID, conflictSkips)
 	}
 
 	dispatched := 0
@@ -380,7 +381,7 @@ func (p *Processor) executeSchedule(ctx context.Context, scheduleID int64) {
 
 	p.updateAfterRun(ctx, sched, orgID, now)
 	// Fully filtered dispatches are already captured by schedule_conflict_skip.
-	if dispatched > 0 {
+	if dispatched > 0 || conflictSkips == 0 {
 		p.logExecution(ctx, sched, orgID, dispatched)
 	}
 }

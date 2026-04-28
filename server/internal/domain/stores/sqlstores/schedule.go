@@ -299,18 +299,24 @@ func (s *SQLScheduleStore) GetActiveSchedules(ctx context.Context) ([]interfaces
 	return result, nil
 }
 
-func (s *SQLScheduleStore) GetRunningPowerTargetSchedules(ctx context.Context, orgID int64) ([]*pb.Schedule, error) {
-	rows, err := s.GetQueries(ctx).GetRunningPowerTargetSchedules(ctx, orgID)
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to get running power target schedules: %v", err)
+func (s *SQLScheduleStore) GetRunningPowerTargetScheduleOverlaps(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]interfaces.ScheduleTargetOverlap, error) {
+	if len(deviceIdentifiers) == 0 {
+		return nil, nil
 	}
-	result := make([]*pb.Schedule, 0, len(rows))
-	for _, row := range rows {
-		sched, err := convertToProtoSchedule(row)
-		if err != nil {
-			return nil, err
+	rows, err := s.GetQueries(ctx).GetRunningPowerTargetScheduleOverlaps(ctx, sqlc.GetRunningPowerTargetScheduleOverlapsParams{
+		OrgID:             orgID,
+		DeviceIdentifiers: deviceIdentifiers,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to get running power target schedule overlaps: %v", err)
+	}
+	result := make([]interfaces.ScheduleTargetOverlap, len(rows))
+	for i, row := range rows {
+		result[i] = interfaces.ScheduleTargetOverlap{
+			ScheduleID:       row.ScheduleID,
+			SchedulePriority: row.SchedulePriority,
+			DeviceIdentifier: row.DeviceIdentifier,
 		}
-		result = append(result, sched)
 	}
 	return result, nil
 }

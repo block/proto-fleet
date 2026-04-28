@@ -13,6 +13,9 @@ import (
 
 	commandpb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/schedule/v1"
+	"github.com/block/proto-fleet/server/internal/domain/activity"
+	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
+	commanddomain "github.com/block/proto-fleet/server/internal/domain/command"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 )
@@ -29,6 +32,48 @@ func newTestProcessor(t *testing.T, now time.Time) (*Processor, *mocks.MockSched
 	p := NewProcessor(procStore, targetStore, collectionStore, cmdSvc, nil)
 	p.now = func() time.Time { return now }
 	return p, procStore, targetStore, collectionStore, cmdSvc
+}
+
+type recordingActivityStore struct {
+	inserts []*activitymodels.Event
+}
+
+func (s *recordingActivityStore) Insert(_ context.Context, event *activitymodels.Event) error {
+	clone := *event
+	s.inserts = append(s.inserts, &clone)
+	return nil
+}
+
+func (s *recordingActivityStore) List(context.Context, activitymodels.Filter) ([]activitymodels.Entry, error) {
+	panic("not used in processor_test")
+}
+func (s *recordingActivityStore) Count(context.Context, activitymodels.Filter) (int64, error) {
+	panic("not used in processor_test")
+}
+func (s *recordingActivityStore) GetDistinctUsers(context.Context, int64) ([]activitymodels.UserInfo, error) {
+	panic("not used in processor_test")
+}
+func (s *recordingActivityStore) GetDistinctEventTypes(context.Context, int64) ([]activitymodels.EventTypeInfo, error) {
+	panic("not used in processor_test")
+}
+func (s *recordingActivityStore) GetDistinctScopeTypes(context.Context, int64) ([]string, error) {
+	panic("not used in processor_test")
+}
+
+func withRecordingActivity(p *Processor) *recordingActivityStore {
+	store := &recordingActivityStore{}
+	p.activitySvc = activity.NewService(store)
+	return store
+}
+
+func countActivityType(store *recordingActivityStore, eventType string) int {
+	n := 0
+	for _, event := range store.inserts {
+		if event.Type == eventType {
+			n++
+		}
+	}
+	return n
 }
 
 // --- recoverStaleRunning ---
@@ -474,6 +519,68 @@ func TestExecuteSchedule_DispatchFailureRevertFails_KeepsJob(t *testing.T) {
 	defer p.mu.Unlock()
 	_, exists := p.jobs[1]
 	assert.True(t, exists, "job should still exist when revert fails")
+}
+
+func TestExecuteSchedule_FullyConflictFilteredSkipsExecutionActivity(t *testing.T) {
+	now := time.Date(2026, 4, 1, 10, 0, 0, 0, time.UTC)
+	p, procStore, targetStore, _, cmdSvc := newTestProcessor(t, now)
+	activityStore := withRecordingActivity(p)
+
+	sched := &pb.Schedule{
+		Id:           1,
+		Name:         "power",
+		Action:       pb.ScheduleAction_SCHEDULE_ACTION_SET_POWER_TARGET,
+		ScheduleType: pb.ScheduleType_SCHEDULE_TYPE_ONE_TIME,
+		StartDate:    "2026-04-01",
+		StartTime:    "10:00",
+		Timezone:     "UTC",
+		CreatedBy:    42,
+	}
+
+	procStore.EXPECT().SetScheduleRunning(gomock.Any(), int64(1)).Return(int64(1), nil)
+	procStore.EXPECT().GetScheduleByID(gomock.Any(), int64(1)).Return(&interfaces.ScheduleWithOrg{Schedule: sched, OrgID: 1}, nil)
+	targetStore.EXPECT().GetScheduleTargets(gomock.Any(), int64(1), int64(1)).Return([]*pb.ScheduleTarget{
+		{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER, TargetId: "miner-1"},
+	}, nil)
+	cmdSvc.EXPECT().SetPowerTarget(gomock.Any(), gomock.Any(), revertPerformanceMode).Return(&commanddomain.CommandResult{
+		Skipped: []commanddomain.SkippedDevice{{DeviceIdentifier: "miner-1", FilterName: commanddomain.ScheduleConflictFilterName}},
+	}, nil)
+	procStore.EXPECT().UpdateScheduleAfterRun(gomock.Any(), int64(1), gomock.Any(), gomock.Nil(), statusCompleted).Return(nil)
+
+	p.executeSchedule(context.Background(), 1)
+
+	assert.Equal(t, 1, countActivityType(activityStore, "schedule_conflict_skip"))
+	assert.Equal(t, 0, countActivityType(activityStore, "schedule_executed"))
+}
+
+func TestExecuteSchedule_NonConflictZeroDispatchLogsExecution(t *testing.T) {
+	now := time.Date(2026, 4, 1, 10, 0, 0, 0, time.UTC)
+	p, procStore, targetStore, _, cmdSvc := newTestProcessor(t, now)
+	activityStore := withRecordingActivity(p)
+
+	sched := &pb.Schedule{
+		Id:           1,
+		Name:         "power",
+		Action:       pb.ScheduleAction_SCHEDULE_ACTION_SET_POWER_TARGET,
+		ScheduleType: pb.ScheduleType_SCHEDULE_TYPE_ONE_TIME,
+		StartDate:    "2026-04-01",
+		StartTime:    "10:00",
+		Timezone:     "UTC",
+		CreatedBy:    42,
+	}
+
+	procStore.EXPECT().SetScheduleRunning(gomock.Any(), int64(1)).Return(int64(1), nil)
+	procStore.EXPECT().GetScheduleByID(gomock.Any(), int64(1)).Return(&interfaces.ScheduleWithOrg{Schedule: sched, OrgID: 1}, nil)
+	targetStore.EXPECT().GetScheduleTargets(gomock.Any(), int64(1), int64(1)).Return([]*pb.ScheduleTarget{
+		{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER, TargetId: "stale-miner"},
+	}, nil)
+	cmdSvc.EXPECT().SetPowerTarget(gomock.Any(), gomock.Any(), revertPerformanceMode).Return(&commanddomain.CommandResult{}, nil)
+	procStore.EXPECT().UpdateScheduleAfterRun(gomock.Any(), int64(1), gomock.Any(), gomock.Nil(), statusCompleted).Return(nil)
+
+	p.executeSchedule(context.Background(), 1)
+
+	assert.Equal(t, 0, countActivityType(activityStore, "schedule_conflict_skip"))
+	assert.Equal(t, 1, countActivityType(activityStore, "schedule_executed"))
 }
 
 // --- updateAfterRun ---

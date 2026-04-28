@@ -167,9 +167,34 @@ func TestProcessCommand_SchedulerFullSkip_NoBlockActivity(t *testing.T) {
 	require.NotNil(t, result)
 	assert.Equal(t, "", result.BatchIdentifier)
 	assert.Equal(t, 0, result.DispatchedCount)
-	assert.Equal(t, 2, len(result.Skipped))
+	require.Equal(t, 2, len(result.Skipped))
+	assert.Equal(t, "miner-1", result.Skipped[0].DeviceIdentifier)
+	assert.Equal(t, "test_block", result.Skipped[0].FilterName)
+	assert.Equal(t, "excluded by test_block", result.Skipped[0].Reason)
+	assert.Equal(t, "miner-2", result.Skipped[1].DeviceIdentifier)
+	assert.Equal(t, "test_block", result.Skipped[1].FilterName)
+	assert.Equal(t, "excluded by test_block", result.Skipped[1].Reason)
 	for _, ev := range store.inserts {
 		assert.NotEqual(t, "command_preflight_blocked", ev.Type, "scheduler must not trigger the block path")
+	}
+}
+
+func TestProcessCommand_ExternalEmptySelector_ReturnsInvalidArgument(t *testing.T) {
+	svc, store := newPreflightTestService(t, newFakeFilter("test_block"))
+
+	result, err := svc.processCommand(manualSessionCtx(1), &Command{
+		commandType:    commandtype.SetPowerTarget,
+		deviceSelector: includeSelector(),
+	})
+
+	require.Nil(t, result)
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.True(t, errors.As(err, &fleetErr), "expected FleetError, got %T", err)
+	require.Equal(t, connect.CodeInvalidArgument, fleetErr.GRPCCode)
+	assert.Contains(t, err.Error(), "no devices matched selector")
+	for _, ev := range store.inserts {
+		assert.NotEqual(t, "command_preflight_blocked", ev.Type, "zero-target selector is not a preflight block")
 	}
 }
 

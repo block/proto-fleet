@@ -345,8 +345,8 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getRoleByNameStmt, err = db.PrepareContext(ctx, getRoleByName); err != nil {
 		return nil, fmt.Errorf("error preparing query GetRoleByName: %w", err)
 	}
-	if q.getRunningPowerTargetSchedulesStmt, err = db.PrepareContext(ctx, getRunningPowerTargetSchedules); err != nil {
-		return nil, fmt.Errorf("error preparing query GetRunningPowerTargetSchedules: %w", err)
+	if q.getRunningPowerTargetScheduleOverlapsStmt, err = db.PrepareContext(ctx, getRunningPowerTargetScheduleOverlaps); err != nil {
+		return nil, fmt.Errorf("error preparing query GetRunningPowerTargetScheduleOverlaps: %w", err)
 	}
 	if q.getScheduleStmt, err = db.PrepareContext(ctx, getSchedule); err != nil {
 		return nil, fmt.Errorf("error preparing query GetSchedule: %w", err)
@@ -1203,9 +1203,9 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getRoleByNameStmt: %w", cerr)
 		}
 	}
-	if q.getRunningPowerTargetSchedulesStmt != nil {
-		if cerr := q.getRunningPowerTargetSchedulesStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing getRunningPowerTargetSchedulesStmt: %w", cerr)
+	if q.getRunningPowerTargetScheduleOverlapsStmt != nil {
+		if cerr := q.getRunningPowerTargetScheduleOverlapsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getRunningPowerTargetScheduleOverlapsStmt: %w", cerr)
 		}
 	}
 	if q.getScheduleStmt != nil {
@@ -1879,7 +1879,7 @@ type Queries struct {
 	getRackSlotsStmt                                    *sql.Stmt
 	getRoleByIDStmt                                     *sql.Stmt
 	getRoleByNameStmt                                   *sql.Stmt
-	getRunningPowerTargetSchedulesStmt                  *sql.Stmt
+	getRunningPowerTargetScheduleOverlapsStmt           *sql.Stmt
 	getScheduleStmt                                     *sql.Stmt
 	getScheduleByIDForProcessorStmt                     *sql.Stmt
 	getScheduleTargetsStmt                              *sql.Stmt
@@ -2098,7 +2098,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getRackSlotsStmt:                                    q.getRackSlotsStmt,
 		getRoleByIDStmt:                                     q.getRoleByIDStmt,
 		getRoleByNameStmt:                                   q.getRoleByNameStmt,
-		getRunningPowerTargetSchedulesStmt:                  q.getRunningPowerTargetSchedulesStmt,
+		getRunningPowerTargetScheduleOverlapsStmt:           q.getRunningPowerTargetScheduleOverlapsStmt,
 		getScheduleStmt:                                     q.getScheduleStmt,
 		getScheduleByIDForProcessorStmt:                     q.getScheduleByIDForProcessorStmt,
 		getScheduleTargetsStmt:                              q.getScheduleTargetsStmt,
