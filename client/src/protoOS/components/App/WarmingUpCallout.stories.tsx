@@ -19,7 +19,7 @@ export const WarmingUpMiner = () => {
 };
 
 export default {
-  title: "ProtoOS/Warming Up Miner",
+  title: "Proto OS/Warming Up Miner",
   parameters: {
     withRouter: false,
   },

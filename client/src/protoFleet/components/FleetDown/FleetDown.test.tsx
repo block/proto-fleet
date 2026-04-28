@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 import FleetDown from "./FleetDown";
 
 // Mock the redirect utility
-vi.mock("@/shared/utils/fleetDownRedirect", () => ({
+vi.mock("@/protoFleet/utils/fleetDownRedirect", () => ({
   redirectFromFleetDown: vi.fn(),
 }));
 
@@ -56,7 +56,7 @@ describe("FleetDown", () => {
   });
 
   it("redirects when backend is back up", async () => {
-    const { redirectFromFleetDown } = await import("@/shared/utils/fleetDownRedirect");
+    const { redirectFromFleetDown } = await import("@/protoFleet/utils/fleetDownRedirect");
     const { onboardingClient } = await import("@/protoFleet/api/clients");
     const user = userEvent.setup();
 
@@ -73,7 +73,7 @@ describe("FleetDown", () => {
   });
 
   it("stays on error page when backend is still down", async () => {
-    const { redirectFromFleetDown } = await import("@/shared/utils/fleetDownRedirect");
+    const { redirectFromFleetDown } = await import("@/protoFleet/utils/fleetDownRedirect");
     const { onboardingClient } = await import("@/protoFleet/api/clients");
     const user = userEvent.setup();
 

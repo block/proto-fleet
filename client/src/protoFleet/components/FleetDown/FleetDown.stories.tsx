@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { Code, ConnectError } from "@connectrpc/connect";
 import type { Meta, StoryObj } from "@storybook/react";
 
@@ -11,10 +11,21 @@ type MutableClient<T> = { -readonly [K in keyof T]: T[K] };
 const mutableOnboardingClient = onboardingClient as MutableClient<typeof onboardingClient>;
 
 const MockedFleetDownApi = ({ children }: { children: ReactNode }) => {
+  // Defer rendering FleetDown until the mock is committed. Otherwise its
+  // child usePoll effect fires before this decorator's effect installs the
+  // mock, the real getFleetInitStatus throws a non-ConnectError, and
+  // redirectFromFleetDown navigates the iframe to "/" — rendering Storybook
+  // nested inside its own preview.
+  const [installed, setInstalled] = useState(false);
+
   useEffect(() => {
-    return installMockedFleetDownApi();
+    const cleanup = installMockedFleetDownApi();
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional: gate child render until mock is installed so usePoll never sees the real client
+    setInstalled(true);
+    return cleanup;
   }, []);
 
+  if (!installed) return null;
   return <>{children}</>;
 };
 

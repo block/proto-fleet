@@ -7,12 +7,12 @@ import AppLayout from "@/protoFleet/components/AppLayout";
 import { requiresAuth } from "@/protoFleet/router";
 import { useCheckAuthentication, useIsActionBarVisible } from "@/protoFleet/store";
 import { useDeviceTheme, useSetDeviceTheme, useTheme } from "@/protoFleet/store";
+import { redirectFromFleetDown } from "@/protoFleet/utils/fleetDownRedirect";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { useApplyTheme } from "@/shared/features/preferences";
 import { Toaster } from "@/shared/features/toaster";
 import { isBackendDownError } from "@/shared/utils/backendHealth";
-import { redirectFromFleetDown } from "@/shared/utils/fleetDownRedirect";
 
 interface AppProps {
   children?: ReactNode;

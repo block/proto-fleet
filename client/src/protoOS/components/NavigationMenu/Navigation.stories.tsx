@@ -39,7 +39,7 @@ export const NavigationSidebar = ({
 };
 
 export default {
-  title: "protoOS/Navigation Sidebar",
+  title: "Proto OS/Navigation Sidebar",
   parameters: {
     withRouter: false,
   },

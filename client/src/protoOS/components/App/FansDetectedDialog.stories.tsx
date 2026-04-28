@@ -17,5 +17,5 @@ export const Loading = () => {
 };
 
 export default {
-  title: "protoOS/Dialogs/Fans Detected Dialog",
+  title: "Proto OS/Dialogs/Fans Detected Dialog",
 };

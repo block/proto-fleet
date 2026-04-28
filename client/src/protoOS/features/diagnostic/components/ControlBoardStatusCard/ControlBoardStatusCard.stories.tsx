@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react";
 import ControlBoardStatusCard from "./ControlBoardStatusCard";
 
 const meta: Meta<typeof ControlBoardStatusCard> = {
-  title: "ProtoOS/Diagnostic/ControlBoardStatusCard",
+  title: "Proto OS/Diagnostic/ControlBoardStatusCard",
   component: ControlBoardStatusCard,
   parameters: {
     layout: "padded",

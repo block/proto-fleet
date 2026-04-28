@@ -54,7 +54,7 @@ export const PoolStatus = ({ loading, numberOfPools, poolStatus }: PoolStatusPro
 };
 
 export default {
-  title: "protoOS/Page Header/Pool Status",
+  title: "Proto OS/Page Header/Pool Status",
   parameters: {
     withRouter: false,
   },

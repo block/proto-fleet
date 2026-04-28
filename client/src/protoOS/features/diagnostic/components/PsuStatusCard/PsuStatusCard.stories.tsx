@@ -160,7 +160,7 @@ const StoreDecorator = (Story: any, context: any) => {
 };
 
 const meta: Meta<typeof PsuStatusCard> = {
-  title: "ProtoOS/Diagnostic/PsuStatusCard",
+  title: "Proto OS/Diagnostic/PsuStatusCard",
   component: PsuStatusCard,
   decorators: [StoreDecorator],
   parameters: {

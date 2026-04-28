@@ -6,6 +6,7 @@ import App from "./components/App";
 import SingleMinerWrapper from "./components/SingleMinerWrapper";
 import type { PageBackground } from "./hooks/usePageBackground";
 import { onboardingClient } from "@/protoFleet/api/clients";
+// eslint-disable-next-line no-restricted-imports -- Fleet shell embeds the protoOS single-miner experience
 import { routerConfig as singleMinerRoutes } from "@/protoOS/router";
 
 // Route components are lazy-loaded so each route ships in its own chunk and
@@ -31,7 +32,7 @@ const SettingsTeam = lazy(() => import("@/protoFleet/features/settings/component
 const SettingsFirmware = lazy(() => import("@/protoFleet/features/settings/components/Firmware"));
 const SettingsSchedules = lazy(() => import("@/protoFleet/features/settings/components/Schedules/SchedulesPage"));
 const SettingsApiKeys = lazy(() => import("@/protoFleet/features/settings/components/ApiKeys"));
-const FleetDown = lazy(() => import("@/shared/components/FleetDown/FleetDown"));
+const FleetDown = lazy(() => import("@/protoFleet/components/FleetDown/FleetDown"));
 
 // Helper to check if an admin user has been created
 const checkFleetInitStatus = async (): Promise<boolean> => {

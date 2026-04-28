@@ -21,7 +21,7 @@ export const AsicPopover = ({ asicIndex }: AsicPopoverStoryProps) => {
 };
 
 export default {
-  title: "ProtoOS/Asic Popover",
+  title: "Proto OS/Asic Popover",
   decorators: [
     (Story: ElementType) => (
       <PopoverProvider>

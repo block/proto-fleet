@@ -60,7 +60,7 @@ export const AsicTable = ({ pending }: AsicTableProps) => {
 };
 
 export default {
-  title: "ProtoOS/Asic Table",
+  title: "Proto OS/Asic Table",
   parameters: {
     withRouter: false,
   },

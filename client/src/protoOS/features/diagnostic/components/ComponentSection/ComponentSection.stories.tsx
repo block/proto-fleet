@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react";
 import ComponentSection from "./ComponentSection";
 
 const meta: Meta<typeof ComponentSection> = {
-  title: "ProtoOS/Diagnostic/ComponentSection",
+  title: "Proto OS/Diagnostic/ComponentSection",
   component: ComponentSection,
   parameters: {
     layout: "padded",

@@ -4,7 +4,7 @@ import CardHeader from "./CardHeader";
 import { Alert, Fan, Settings, Success } from "@/shared/assets/icons";
 
 const meta: Meta<typeof CardHeader> = {
-  title: "ProtoOS/Diagnostic/CardHeader",
+  title: "Proto OS/Diagnostic/CardHeader",
   component: CardHeader,
   parameters: {
     layout: "padded",

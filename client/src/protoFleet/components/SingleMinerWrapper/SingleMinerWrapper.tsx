@@ -1,5 +1,6 @@
 import { ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
+// eslint-disable-next-line no-restricted-imports -- Fleet shell hosts the protoOS single-miner experience
 import { MinerHostingProvider } from "@/protoOS/contexts/MinerHostingContext";
 import { DismissCircleDark } from "@/shared/assets/icons";
 

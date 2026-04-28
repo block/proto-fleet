@@ -7,6 +7,6 @@ export const Default = () => {
 };
 
 export default {
-  title: "ProtoOS/Login Modal",
+  title: "Proto OS/Login Modal",
   component: LoginModalComponent,
 };

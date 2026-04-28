@@ -8,7 +8,7 @@ export const SignUp = () => {
 };
 
 export default {
-  title: "ProtoOS/Sign Up",
+  title: "Proto OS/Sign Up",
   parameters: {
     withRouter: false,
   },

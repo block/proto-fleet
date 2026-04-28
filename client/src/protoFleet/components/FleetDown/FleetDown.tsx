@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { onboardingClient } from "@/protoFleet/api/clients";
+import { redirectFromFleetDown } from "@/protoFleet/utils/fleetDownRedirect";
 import LogoAlt from "@/shared/assets/icons/LogoAlt";
 import AnimatedDotsBackground from "@/shared/components/Animation";
 import Button, { variants } from "@/shared/components/Button";
 import { usePoll } from "@/shared/hooks/usePoll";
 import { isBackendDownError } from "@/shared/utils/backendHealth";
-import { redirectFromFleetDown } from "@/shared/utils/fleetDownRedirect";
 
 const FleetDown = () => {
   const [isChecking, setIsChecking] = useState(false);

@@ -14,5 +14,5 @@ export const GlobalActionsWidgetStory = () => {
 };
 
 export default {
-  title: "protoOS/Page Header/Global Actions Widget",
+  title: "Proto OS/Page Header/Global Actions Widget",
 };

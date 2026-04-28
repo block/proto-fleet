@@ -8,7 +8,7 @@ export const Header = () => {
 };
 
 export default {
-  title: "Shared/Onboarding/Header",
+  title: "Proto OS/Onboarding/Header",
   parameters: {
     withRouter: false,
   },

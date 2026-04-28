@@ -3,7 +3,7 @@ import FirmwareUpdateStatus from "./FirmwareUpdateStatus";
 import { UpdateStatus } from "@/protoOS/api/generatedApi";
 
 const meta: Meta<typeof FirmwareUpdateStatus> = {
-  title: "ProtoOS/Firmware Update/FirmwareUpdateStatus",
+  title: "Proto OS/Firmware Update/FirmwareUpdateStatus",
   component: FirmwareUpdateStatus,
   parameters: {
     layout: "centered",
