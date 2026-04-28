@@ -301,6 +301,11 @@ func (s *Service) buildSnapshot(
 		}
 	}
 
+	// TODO(#125): These option-array hydrations run on every list page request,
+	// not just page 1. The Fleet UI fans out to multiple list calls per render
+	// (main list + total + auth-needed total), so each page nav pays N DISTINCT
+	// scans. Accepted for now to keep deep-links working without client coupling;
+	// a per-org TTL cache (or equivalent) should replace this.
 	availableModels, err := s.deviceStore.GetAvailableModels(ctx, orgID)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to get available models: %v", err)

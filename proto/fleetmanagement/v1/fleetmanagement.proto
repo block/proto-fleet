@@ -276,11 +276,6 @@ message MinerListFilter {
   // Miners not assigned to any rack are excluded by this filter.
   // When combined with other filters, uses AND logic (device must match both filters).
   repeated string zones = 10;
-
-  // Reserved for follow-up: per-miner cooling mode filtering (requires SDK cache).
-  reserved 11;
-  // Reserved for follow-up: pool filtering (requires pool-assignment cache).
-  reserved 12;
 }
 
 
