@@ -152,12 +152,18 @@ func (p *Processor) Stop() error {
 	if p.stopCancel != nil {
 		p.stopCancel()
 	}
-	p.wg.Wait()
 
+	// Stop cron before waiting on the loops so no new cron callbacks fire
+	// during shutdown. In-flight callbacks complete with workCtx still live;
+	// cron.Stop() returns a context that's done once they finish. AddFunc on
+	// a stopped cron appends to entries without firing, so a late
+	// registration from the reconcile loop's last iteration is harmless.
 	if p.cron != nil {
 		cronCtx := p.cron.Stop()
 		<-cronCtx.Done()
 	}
+
+	p.wg.Wait()
 
 	p.mu.Lock()
 	for _, entry := range p.jobs {
