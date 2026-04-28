@@ -49,6 +49,7 @@ type jobEntry struct {
 	timer       *time.Timer
 	isOneTime   bool
 	fingerprint string
+	generation  uint64
 }
 
 type Processor struct {
@@ -60,10 +61,13 @@ type Processor struct {
 	activitySvc     *activity.Service
 	now             func() time.Time
 
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
-	mu     sync.Mutex
-	jobs   map[int64]jobEntry
+	stopCancel context.CancelFunc
+	workCancel context.CancelFunc
+	wg         sync.WaitGroup
+	timerWG    sync.WaitGroup
+	mu         sync.Mutex
+	jobs       map[int64]jobEntry
+	nextGen    uint64
 }
 
 func NewProcessor(
@@ -106,76 +110,90 @@ func scheduleFingerprint(sched *pb.Schedule) string {
 }
 
 func (p *Processor) Start(_ context.Context) error {
-	ctx, cancel := context.WithCancel(context.Background())
-	p.cancel = cancel
+	stopCtx, stopCancel := context.WithCancel(context.Background())
+	workCtx, workCancel := context.WithCancel(context.Background())
+	p.stopCancel = stopCancel
+	p.workCancel = workCancel
 
 	p.cron = cron.New(cron.WithChain(cron.SkipIfStillRunning(cron.DefaultLogger)))
 
-	if err := p.recoverStaleRunning(ctx); err != nil {
-		cancel()
+	if err := p.recoverStaleRunning(workCtx); err != nil {
+		stopCancel()
+		workCancel()
 		return fmt.Errorf("schedule processor startup: %w", err)
 	}
-	if err := p.syncSchedules(ctx); err != nil {
-		cancel()
+	if err := p.syncSchedules(workCtx); err != nil {
+		stopCancel()
+		workCancel()
 		return fmt.Errorf("schedule processor startup: %w", err)
 	}
 
 	p.cron.Start()
 
 	p.wg.Add(2)
-	go p.reconcileLoop(ctx)
-	go p.endOfWindowLoop(ctx)
+	go p.reconcileLoop(stopCtx, workCtx)
+	go p.endOfWindowLoop(stopCtx, workCtx)
 
 	slog.Info("schedule processor started")
 	return nil
 }
 
 func (p *Processor) Stop() error {
-	if p.cancel != nil {
-		p.cancel()
+	if p.stopCancel != nil {
+		p.stopCancel()
 	}
+	p.wg.Wait()
+
 	if p.cron != nil {
 		cronCtx := p.cron.Stop()
 		<-cronCtx.Done()
 	}
-	p.wg.Wait()
+
 	p.mu.Lock()
 	for _, entry := range p.jobs {
 		if entry.isOneTime && entry.timer != nil {
-			entry.timer.Stop()
+			if entry.timer.Stop() {
+				p.timerWG.Done()
+			}
 		}
 	}
 	p.mu.Unlock()
+
+	p.timerWG.Wait()
+
+	if p.workCancel != nil {
+		p.workCancel()
+	}
 	slog.Info("schedule processor stopped")
 	return nil
 }
 
-func (p *Processor) reconcileLoop(ctx context.Context) {
+func (p *Processor) reconcileLoop(stopCtx, workCtx context.Context) {
 	defer p.wg.Done()
 	ticker := time.NewTicker(reconcileInterval)
 	defer ticker.Stop()
 	for {
 		select {
-		case <-ctx.Done():
+		case <-stopCtx.Done():
 			return
 		case <-ticker.C:
-			if err := p.syncSchedules(ctx); err != nil {
+			if err := p.syncSchedules(workCtx); err != nil {
 				slog.Error("reconciliation failed, will retry next cycle", "error", err)
 			}
 		}
 	}
 }
 
-func (p *Processor) endOfWindowLoop(ctx context.Context) {
+func (p *Processor) endOfWindowLoop(stopCtx, workCtx context.Context) {
 	defer p.wg.Done()
 	ticker := time.NewTicker(endOfWindowInterval)
 	defer ticker.Stop()
 	for {
 		select {
-		case <-ctx.Done():
+		case <-stopCtx.Done():
 			return
 		case <-ticker.C:
-			p.checkEndOfWindow(ctx)
+			p.checkEndOfWindow(workCtx)
 		}
 	}
 }
@@ -243,6 +261,7 @@ func (p *Processor) syncSchedules(ctx context.Context) error {
 
 func (p *Processor) registerJob(ctx context.Context, sched *pb.Schedule) error {
 	scheduleID := sched.Id
+	generation := p.nextJobGenerationLocked()
 
 	if sched.ScheduleType == pb.ScheduleType_SCHEDULE_TYPE_ONE_TIME {
 		t, err := ParseScheduleTime(sched.StartDate, sched.StartTime, sched.Timezone)
@@ -253,8 +272,12 @@ func (p *Processor) registerJob(ctx context.Context, sched *pb.Schedule) error {
 		if delay < oneTimeRetryDelay {
 			delay = oneTimeRetryDelay
 		}
-		timer := time.AfterFunc(delay, func() { p.executeSchedule(ctx, scheduleID) })
-		p.jobs[scheduleID] = jobEntry{timer: timer, isOneTime: true, fingerprint: scheduleFingerprint(sched)}
+		p.timerWG.Add(1)
+		timer := time.AfterFunc(delay, func() {
+			defer p.timerWG.Done()
+			p.executeSchedule(ctx, scheduleID)
+		})
+		p.jobs[scheduleID] = jobEntry{timer: timer, isOneTime: true, fingerprint: scheduleFingerprint(sched), generation: generation}
 		return nil
 	}
 
@@ -272,12 +295,18 @@ func (p *Processor) registerJob(ctx context.Context, sched *pb.Schedule) error {
 		return fmt.Errorf("failed to register cron job: %w", err)
 	}
 
-	p.jobs[scheduleID] = jobEntry{entryID: entryID, fingerprint: scheduleFingerprint(sched)}
+	p.jobs[scheduleID] = jobEntry{entryID: entryID, fingerprint: scheduleFingerprint(sched), generation: generation}
 	return nil
+}
+
+func (p *Processor) nextJobGenerationLocked() uint64 {
+	p.nextGen++
+	return p.nextGen
 }
 
 // executeSchedule is called when a job fires.
 func (p *Processor) executeSchedule(ctx context.Context, scheduleID int64) {
+	gen, hasGen := p.currentJobGeneration(scheduleID)
 	slog.Info("executing schedule", "schedule_id", scheduleID)
 
 	rows, err := p.procStore.SetScheduleRunning(ctx, scheduleID)
@@ -297,7 +326,7 @@ func (p *Processor) executeSchedule(ctx context.Context, scheduleID int64) {
 			slog.Error("failed to revert schedule after read failure", "schedule_id", scheduleID, "error", rerr)
 			return
 		}
-		p.removeJob(scheduleID)
+		p.removeJobForRetry(scheduleID, gen, hasGen)
 		return
 	}
 
@@ -320,7 +349,7 @@ func (p *Processor) executeSchedule(ctx context.Context, scheduleID int64) {
 	if sched.EndDate != "" {
 		deadline, err := parseDateInLocation(sched.EndDate, sched.Timezone)
 		if err == nil && now.After(endOfDay(deadline)) {
-			p.transitionToCompleted(ctx, sched, orgID, now)
+			p.transitionToCompletedWithGeneration(ctx, sched, orgID, now, gen, hasGen)
 			return
 		}
 	}
@@ -332,13 +361,13 @@ func (p *Processor) executeSchedule(ctx context.Context, scheduleID int64) {
 			slog.Error("failed to revert schedule after target resolution failure", "schedule_id", scheduleID, "error", rerr)
 			return
 		}
-		p.removeJob(scheduleID)
+		p.removeJobForRetry(scheduleID, gen, hasGen)
 		return
 	}
 
 	if len(deviceIdentifiers) == 0 {
 		slog.Info("no target devices resolved, skipping dispatch", "schedule_id", scheduleID)
-		p.updateAfterRun(ctx, sched, orgID, now)
+		p.updateAfterRunWithGeneration(ctx, sched, orgID, now, gen, hasGen)
 		return
 	}
 
@@ -362,7 +391,7 @@ func (p *Processor) executeSchedule(ctx context.Context, scheduleID int64) {
 		}
 		// Remove the job so syncSchedules re-registers it. This is necessary
 		// for one-time schedules whose timer has already fired and won't retrigger.
-		p.removeJob(scheduleID)
+		p.removeJobForRetry(scheduleID, gen, hasGen)
 		return
 	}
 
@@ -379,7 +408,7 @@ func (p *Processor) executeSchedule(ctx context.Context, scheduleID int64) {
 		}
 	}
 
-	p.updateAfterRun(ctx, sched, orgID, now)
+	p.updateAfterRunWithGeneration(ctx, sched, orgID, now, gen, hasGen)
 	// Fully filtered dispatches are already captured by schedule_conflict_skip.
 	if dispatched > 0 || conflictSkips == 0 {
 		p.logExecution(ctx, sched, orgID, dispatched)
@@ -399,6 +428,31 @@ func countConflictSkips(result *command.CommandResult) int {
 		}
 	}
 	return n
+}
+
+func (p *Processor) currentJobGeneration(scheduleID int64) (uint64, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	entry, ok := p.jobs[scheduleID]
+	if !ok {
+		return 0, false
+	}
+	return entry.generation, true
+}
+
+func (p *Processor) removeJobIfCurrent(scheduleID int64, gen uint64, ok bool) {
+	if !ok {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if entry, exists := p.jobs[scheduleID]; exists && entry.generation == gen {
+		p.removeJobLocked(scheduleID)
+	}
+}
+
+func (p *Processor) removeJobForRetry(scheduleID int64, gen uint64, hasGen bool) {
+	p.removeJobIfCurrent(scheduleID, gen, hasGen)
 }
 
 func (p *Processor) dispatch(ctx context.Context, sched *pb.Schedule, selector *commandpb.DeviceSelector) (*command.CommandResult, error) {
@@ -447,6 +501,11 @@ func (p *Processor) resolveTargets(ctx context.Context, sched *pb.Schedule, orgI
 }
 
 func (p *Processor) updateAfterRun(ctx context.Context, sched *pb.Schedule, orgID int64, now time.Time) {
+	gen, hasGen := p.currentJobGeneration(sched.Id)
+	p.updateAfterRunWithGeneration(ctx, sched, orgID, now, gen, hasGen)
+}
+
+func (p *Processor) updateAfterRunWithGeneration(ctx context.Context, sched *pb.Schedule, orgID int64, now time.Time, gen uint64, hasGen bool) {
 	lastRun := now.Unix()
 	nextRun, err := ComputeNextRun(sched, now)
 	if err != nil {
@@ -482,7 +541,7 @@ func (p *Processor) updateAfterRun(ctx context.Context, sched *pb.Schedule, orgI
 			slog.Error("failed to revert schedule after update failure", "schedule_id", sched.Id, "error", rerr)
 			return
 		}
-		p.removeJob(sched.Id)
+		p.removeJobForRetry(sched.Id, gen, hasGen)
 		return
 	}
 
@@ -493,6 +552,11 @@ func (p *Processor) updateAfterRun(ctx context.Context, sched *pb.Schedule, orgI
 }
 
 func (p *Processor) transitionToCompleted(ctx context.Context, sched *pb.Schedule, orgID int64, now time.Time) {
+	gen, hasGen := p.currentJobGeneration(sched.Id)
+	p.transitionToCompletedWithGeneration(ctx, sched, orgID, now, gen, hasGen)
+}
+
+func (p *Processor) transitionToCompletedWithGeneration(ctx context.Context, sched *pb.Schedule, orgID int64, now time.Time, gen uint64, hasGen bool) {
 	lastRun := now.Unix()
 	if err := p.procStore.UpdateScheduleAfterRun(ctx, sched.Id, &lastRun, nil, statusCompleted); err != nil {
 		slog.Error("failed to transition schedule to completed, reverting to active", "schedule_id", sched.Id, "error", err)
@@ -500,7 +564,7 @@ func (p *Processor) transitionToCompleted(ctx context.Context, sched *pb.Schedul
 			slog.Error("failed to revert schedule after completion failure", "schedule_id", sched.Id, "error", rerr)
 			return
 		}
-		p.removeJob(sched.Id)
+		p.removeJobForRetry(sched.Id, gen, hasGen)
 		return
 	}
 	p.removeJob(sched.Id)
@@ -646,8 +710,8 @@ func (p *Processor) removeJob(scheduleID int64) {
 func (p *Processor) removeJobLocked(scheduleID int64) {
 	if entry, ok := p.jobs[scheduleID]; ok {
 		if entry.isOneTime {
-			if entry.timer != nil {
-				entry.timer.Stop()
+			if entry.timer != nil && entry.timer.Stop() {
+				p.timerWG.Done()
 			}
 		} else {
 			p.cron.Remove(entry.entryID)
