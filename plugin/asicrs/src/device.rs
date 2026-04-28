@@ -438,8 +438,19 @@ impl AsicRsDevice {
         };
 
         let firmware_version = data.firmware_version.clone().unwrap_or_default();
-        let stratum_v2_support =
-            crate::capabilities::stratum_v2_support_for(&data.device_info.make, &firmware_version);
+        // Pass device_info.firmware (firmware family/identifier, e.g. "BraiinsOS+")
+        // not firmware_version (just the numeric version, e.g. "23.05") so the
+        // variant detector can find markers like "braiins". Falls back to
+        // firmware_version if the family field is empty.
+        let firmware_for_variant = if data.device_info.firmware.is_empty() {
+            firmware_version.as_str()
+        } else {
+            data.device_info.firmware.as_str()
+        };
+        let stratum_v2_support = crate::capabilities::stratum_v2_support_for(
+            &data.device_info.make,
+            firmware_for_variant,
+        );
 
         pb::DeviceMetrics {
             device_id: self.id.clone(),
