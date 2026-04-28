@@ -6,6 +6,7 @@ import App from "./components/App";
 import SingleMinerWrapper from "./components/SingleMinerWrapper";
 import type { PageBackground } from "./hooks/usePageBackground";
 import { onboardingClient } from "@/protoFleet/api/clients";
+// eslint-disable-next-line no-restricted-imports -- Fleet shell embeds the protoOS single-miner experience
 import { routerConfig as singleMinerRoutes } from "@/protoOS/router";
 
 // Route components are lazy-loaded so each route ships in its own chunk and

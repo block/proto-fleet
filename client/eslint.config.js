@@ -162,6 +162,38 @@ export default [
     },
   },
   {
+    files: ["src/protoFleet/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@/protoOS", "@/protoOS/**"],
+              message: "protoFleet must not import from protoOS. Move shared code into src/shared.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["src/protoOS/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@/protoFleet", "@/protoFleet/**"],
+              message: "protoOS must not import from protoFleet. Move shared code into src/shared.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     files: ["e2eTests/**/*.ts"],
     languageOptions: {
       ecmaVersion: "latest",
