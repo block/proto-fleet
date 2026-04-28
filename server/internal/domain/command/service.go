@@ -139,6 +139,145 @@ func actorTypeFromSession(info *session.Info) activitymodels.ActorType {
 	return ""
 }
 
+// isExternalCommand reports whether the command is being issued by an
+// end-user / API-key caller (as opposed to an internal orchestrator like
+// the schedule processor or, later, the curtailment reconciler). External
+// callers are blocked outright on any preflight skip; internal callers
+// MUST set a non-empty session.Actor (or session.Source.ScheduleID for
+// the scheduler) so they aren't accidentally treated as external. This
+// fail-safe default protects against silent override attempts.
+func isExternalCommand(info *session.Info) bool {
+	return info.Actor == "" && info.Source.ScheduleID == 0
+}
+
+// activityEventType maps a commandtype.Type to its snake_case activity
+// event_type string, matching the literals each wrapper passes to
+// finalizeDispatch (e.g. commandtype.SetPowerTarget → "set_power_target").
+// Centralised here so processCommand's manual-block path uses the same
+// string the wrapper would have used on the success path.
+func activityEventType(t commandtype.Type) string {
+	switch t {
+	case commandtype.StartMining:
+		return "start_mining"
+	case commandtype.StopMining:
+		return "stop_mining"
+	case commandtype.SetCoolingMode:
+		return "set_cooling_mode"
+	case commandtype.SetPowerTarget:
+		return "set_power_target"
+	case commandtype.UpdateMiningPools:
+		return "update_mining_pools"
+	case commandtype.DownloadLogs:
+		return "download_logs"
+	case commandtype.Reboot:
+		return "reboot"
+	case commandtype.BlinkLED:
+		return "blink_led"
+	case commandtype.FirmwareUpdate:
+		return "firmware_update"
+	case commandtype.Unpair:
+		return "unpair"
+	case commandtype.UpdateMinerPassword:
+		return "update_miner_password"
+	default:
+		return t.String()
+	}
+}
+
+// logPreflightBlockedStrict writes the audit row recording that an external
+// command was rejected because preflight filters skipped one or more devices.
+// Returns the persistence error so callers can fail the request — the
+// security finding is about *invisible* override attempts, so a lost audit
+// row must not degrade into a normal FailedPrecondition.
+func (s *Service) logPreflightBlockedStrict(
+	ctx context.Context,
+	commandType commandtype.Type,
+	requestedIdentifiers []string,
+	skipped []SkippedDevice,
+) error {
+	if s.activitySvc == nil {
+		return nil
+	}
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("error getting session info from ctx: %v", err)
+	}
+	eventType := activityEventType(commandType)
+	return s.activitySvc.LogStrict(ctx, activitymodels.Event{
+		Category:       activitymodels.CategoryDeviceCommand,
+		Type:           "command_preflight_blocked",
+		Description:    fmt.Sprintf("Command %q blocked: %d of %d device(s) excluded by preflight filters", eventType, len(skipped), len(requestedIdentifiers)),
+		Result:         activitymodels.ResultFailure,
+		ActorType:      actorTypeFromSession(info),
+		UserID:         &info.ExternalUserID,
+		Username:       &info.Username,
+		OrganizationID: &info.OrganizationID,
+		Metadata:       skipMetadata(eventType, len(requestedIdentifiers), skipped),
+	})
+}
+
+// logFilterSkips writes the audit row recording that a dispatched command
+// had some devices excluded by preflight filters. Best-effort: a missing
+// audit row here is annoying but not security-critical (the dispatched
+// portion succeeded), and the schedule processor's own schedule_conflict_skip
+// activity provides a backup record.
+//
+// eventType is the snake_case activity event_type (matching the wrapper's
+// activity log row, e.g. "set_power_target"), not commandtype.Type.String().
+func (s *Service) logFilterSkips(
+	ctx context.Context,
+	eventType string,
+	dispatchedCount int,
+	skipped []SkippedDevice,
+) {
+	if s.activitySvc == nil {
+		return
+	}
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		slog.Warn("failed to log filter skips: session info unavailable", "error", err)
+		return
+	}
+	requestedCount := dispatchedCount + len(skipped)
+	s.activitySvc.Log(ctx, activitymodels.Event{
+		Category:       activitymodels.CategoryDeviceCommand,
+		Type:           "command_filter_skip",
+		Description:    fmt.Sprintf("Command %q dispatched with %d device(s) excluded by preflight filters", eventType, len(skipped)),
+		Result:         activitymodels.ResultSuccess,
+		ActorType:      actorTypeFromSession(info),
+		UserID:         &info.ExternalUserID,
+		Username:       &info.Username,
+		OrganizationID: &info.OrganizationID,
+		Metadata:       skipMetadata(eventType, requestedCount, skipped),
+	})
+}
+
+// skipMetadata is the shared metadata schema used by both
+// command_preflight_blocked and command_filter_skip activity rows so a
+// downstream consumer can parse either with a single struct.
+func skipMetadata(eventType string, requestedCount int, skipped []SkippedDevice) map[string]any {
+	skippedIDs := make([]string, 0, len(skipped))
+	filterSet := make(map[string]struct{}, len(skipped))
+	for _, sk := range skipped {
+		skippedIDs = append(skippedIDs, sk.DeviceIdentifier)
+		if sk.FilterName != "" {
+			filterSet[sk.FilterName] = struct{}{}
+		}
+	}
+	filters := make([]string, 0, len(filterSet))
+	for name := range filterSet {
+		filters = append(filters, name)
+	}
+	sort.Strings(filters)
+	return map[string]any{
+		"command_type":        eventType,
+		"requested_count":     requestedCount,
+		"skipped_count":       len(skipped),
+		"skipped_identifiers": skippedIDs,
+		"filters":             filters,
+	}
+}
+
 // composeFinalizers chains onFinished callbacks so commands like DownloadLogs
 // can layer a bundle builder alongside the activity finalizer. Nil callbacks
 // are skipped; empty input returns nil. Best-effort: every callback runs even
@@ -551,6 +690,21 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (*Comman
 		return nil, fleeterror.NewInternalErrorf("preflight filter failed: %v", err)
 	}
 
+	// External callers (manual API, API key) are blocked outright on any
+	// preflight skip — silent subset dispatch lets operators believe a
+	// command applied to all selected devices when it only applied to a
+	// subset (Codex security review HIGH on PR #110). Internal orchestrators
+	// like the schedule processor handle skips themselves and keep the
+	// dispatch-survivors path below.
+	if isExternalCommand(info) && len(skipped) > 0 {
+		if err := s.logPreflightBlockedStrict(ctx, command.commandType, identifiers, skipped); err != nil {
+			return nil, fleeterror.NewInternalErrorf("logging preflight block: %v", err)
+		}
+		return nil, fleeterror.NewFailedPreconditionErrorf(
+			"command blocked: %d of %d device(s) excluded by preflight filters",
+			len(skipped), len(identifiers))
+	}
+
 	if len(kept) == 0 {
 		return &CommandResult{Skipped: skipped}, nil
 	}
@@ -583,9 +737,13 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (*Comman
 }
 
 // finalizeDispatch wires up the activity-started log row and the post-batch
-// status routine for any wrapper that successfully enqueued a batch. It is a
-// no-op when result.BatchIdentifier is empty (the all-skipped or empty-selector
-// case from processCommand) — there is no batch to track.
+// status routine for any wrapper that successfully enqueued a batch. When
+// result.BatchIdentifier is empty (the all-skipped or empty-selector case
+// from processCommand) the dispatch path is skipped entirely — there is no
+// batch to track. The skip-audit path runs whenever any device was excluded
+// by preflight filters AND a real dispatch happened (BatchIdentifier != "");
+// the manual-blocked path emits its own command_preflight_blocked entry
+// inside processCommand and never reaches finalizeDispatch.
 func (s *Service) finalizeDispatch(ctx context.Context, result *CommandResult, eventType, description string) {
 	if result.BatchIdentifier == "" {
 		return
@@ -593,6 +751,9 @@ func (s *Service) finalizeDispatch(ctx context.Context, result *CommandResult, e
 	s.logCommandActivity(ctx, eventType, description, result.DispatchedCount, result.BatchIdentifier)
 	s.initializeStatusUpdateRoutine(result.BatchIdentifier,
 		s.buildActivityCompletedCallback(ctx, result.BatchIdentifier, eventType, description))
+	if len(result.Skipped) > 0 {
+		s.logFilterSkips(ctx, eventType, result.DispatchedCount, result.Skipped)
+	}
 }
 
 func (s *Service) Reboot(ctx context.Context, deviceSelector *pb.DeviceSelector) (*CommandResult, error) {

@@ -386,7 +386,13 @@ func (p *Processor) executeSchedule(ctx context.Context, scheduleID int64) {
 	}
 
 	p.updateAfterRun(ctx, sched, orgID, now)
-	p.logExecution(ctx, sched, orgID, dispatched)
+	// Skip the schedule_executed activity row when the entire dispatch was
+	// filtered out — the schedule_conflict_skip row already records the
+	// outcome, and a schedule_executed with device_count=0 misleads readers
+	// who scan the activity log for actual mining-state changes.
+	if dispatched > 0 {
+		p.logExecution(ctx, sched, orgID, dispatched)
+	}
 }
 
 // countConflictSkips returns how many devices the schedule-conflict filter
