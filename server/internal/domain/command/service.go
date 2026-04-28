@@ -21,9 +21,11 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetmanagement"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
+	"github.com/block/proto-fleet/server/internal/domain/pools/preflight"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
+	"github.com/block/proto-fleet/server/internal/domain/sv2"
 	tmodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
@@ -31,6 +33,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	id "github.com/block/proto-fleet/server/internal/infrastructure/id"
 	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
@@ -39,6 +42,12 @@ import (
 // TelemetryListener provides interface for telemetry registration/unregistration
 type TelemetryListener interface {
 	RemoveDevices(ctx context.Context, deviceIDs ...tmodels.DeviceIdentifier) error
+}
+
+// PluginCapabilitiesProvider feeds the SV1↔SV2 capability gate.
+// Wired via SetPluginCapabilitiesProvider; nil disables the gate.
+type PluginCapabilitiesProvider interface {
+	GetRawCapabilitiesForDevice(ctx context.Context, driverName, manufacturer, model string) sdk.Capabilities
 }
 
 // UserCredentialsVerifier provides interface for verifying user credentials
@@ -60,6 +69,7 @@ type Service struct {
 	userStore           stores.UserStore
 	credentialsVerifier UserCredentialsVerifier
 	telemetryListener   TelemetryListener
+	pluginCaps          PluginCapabilitiesProvider
 	capabilityChecker   *CapabilityChecker
 	activitySvc         *activity.Service
 
@@ -68,6 +78,12 @@ type Service struct {
 	// filters run in registration order before commands are enqueued. Registered
 	// at startup only; the slice is not mutex-protected.
 	filters []CommandFilter
+}
+
+// SetPluginCapabilitiesProvider wires the SV1↔SV2 gate's caps source.
+// Nil provider leaves the gate open (used by tests).
+func (s *Service) SetPluginCapabilitiesProvider(p PluginCapabilitiesProvider) {
+	s.pluginCaps = p
 }
 
 const defaultPoolPriority uint32 = 0
@@ -883,6 +899,179 @@ func (s *Service) createUpdateMiningPoolsPayload(ctx context.Context, defaultPoo
 	return pld, nil
 }
 
+// SV2Skips summarizes the SV1 miners excluded from an UpdateMiningPools
+// dispatch when the assigned URL is Stratum V2.
+type SV2Skips struct {
+	SkippedCount      int
+	SelectedCount     int
+	IncompatibleTypes []string
+}
+
+// sv2PreflightOutcome describes a partial-dispatch result. The dispatch
+// selector is replaced with IncludeDevices(KeptIdentifiers); Skips is
+// surfaced on the response.
+type sv2PreflightOutcome struct {
+	KeptIdentifiers []string
+	Skips           *SV2Skips
+}
+
+// preflightSV2Capabilities returns nil when no filtering is needed,
+// an outcome when partial dispatch should proceed, or a
+// FAILED_PRECONDITION error when every selected miner is incompatible.
+func (s *Service) preflightSV2Capabilities(ctx context.Context, selector *pb.DeviceSelector, pld *dto.UpdateMiningPoolsPayload) (*sv2PreflightOutcome, error) {
+	if s.pluginCaps == nil {
+		slog.Warn("SV2 preflight skipped: plugin caps provider not wired", "default_pool_url", pld.DefaultPool.URL)
+		return nil, nil
+	}
+	slots := preflightSlotsFromPayload(pld)
+	if !anySV2(slots) {
+		return nil, nil
+	}
+	// CEL only validates the URL shape; reject SV2 URLs whose authority
+	// pubkey path doesn't decode before dispatching to any miner.
+	for _, s := range slots {
+		if !sv2.IsSV2URL(s.URL) {
+			continue
+		}
+		if _, err := sv2.PoolNoiseKeyFromURL(s.URL); err != nil {
+			return nil, fleeterror.NewInvalidArgumentErrorf("invalid Stratum V2 pool URL %q: %v", s.URL, err)
+		}
+	}
+
+	identifiers, err := s.resolveSelectorIdentifiers(ctx, selector)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error resolving devices for SV2 preflight: %v", err)
+	}
+	deviceIDs, err := s.resolveIdentifiersToDeviceIDs(ctx, identifiers)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error resolving device IDs for SV2 preflight: %v", err)
+	}
+	if len(deviceIDs) == 0 {
+		slog.Info("SV2 preflight: selector resolved to zero devices", "default_pool_url", pld.DefaultPool.URL)
+		return nil, nil
+	}
+
+	rows, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]sqlc.GetDeviceIdentifiersByIDsRow, error) {
+		return q.GetDeviceIdentifiersByIDs(ctx, deviceIDs)
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error resolving device identifiers for SV2 preflight: %v", err)
+	}
+
+	type capsKey struct{ driver, manufacturer, model string }
+	nativeSV2 := map[capsKey]bool{}
+	devices := make([]preflight.Device, 0, len(rows))
+	for _, r := range rows {
+		key := capsKey{r.DriverName, r.Manufacturer.String, r.Model.String}
+		native, cached := nativeSV2[key]
+		if !cached {
+			caps := s.pluginCaps.GetRawCapabilitiesForDevice(ctx, key.driver, key.manufacturer, key.model)
+			native = caps[sdk.CapabilityNativeStratumV2]
+			nativeSV2[key] = native
+		}
+		devices = append(devices, preflight.Device{
+			Identifier:      r.DeviceIdentifier,
+			Make:            r.Manufacturer.String,
+			Model:           r.Model.String,
+			NativeStratumV2: native,
+		})
+	}
+
+	mismatches := preflight.Run(devices, slots)
+	slog.Info("SV2 preflight evaluated",
+		"device_count", len(devices),
+		"slot_count", len(slots),
+		"mismatches", len(mismatches),
+	)
+	if len(mismatches) == 0 {
+		return nil, nil
+	}
+
+	skippedIDs := make(map[string]struct{}, len(mismatches))
+	typeSet := make(map[string]struct{}, len(mismatches))
+	for _, m := range mismatches {
+		skippedIDs[m.DeviceIdentifier] = struct{}{}
+		typeSet[formatMinerType(m.Make, m.Model)] = struct{}{}
+	}
+	sortedTypes := make([]string, 0, len(typeSet))
+	for t := range typeSet {
+		sortedTypes = append(sortedTypes, t)
+	}
+	sort.Strings(sortedTypes)
+
+	if len(skippedIDs) >= len(devices) {
+		return nil, sv2AllIncompatibleError(len(skippedIDs), sortedTypes)
+	}
+
+	kept := make([]string, 0, len(devices)-len(skippedIDs))
+	for _, d := range devices {
+		if _, skip := skippedIDs[d.Identifier]; !skip {
+			kept = append(kept, d.Identifier)
+		}
+	}
+	return &sv2PreflightOutcome{
+		KeptIdentifiers: kept,
+		Skips: &SV2Skips{
+			SkippedCount:      len(skippedIDs),
+			SelectedCount:     len(devices),
+			IncompatibleTypes: sortedTypes,
+		},
+	}, nil
+}
+
+// sv2AllIncompatibleError is returned when every selected miner is
+// SV2-incompatible.
+func sv2AllIncompatibleError(deviceCount int, sortedTypes []string) error {
+	plural := "s"
+	if deviceCount == 1 {
+		plural = ""
+	}
+	return fleeterror.NewFailedPreconditionErrorf(
+		"%d miner%s can't use this Stratum V2 pool. Incompatible types: %s",
+		deviceCount, plural, strings.Join(sortedTypes, ", "),
+	)
+}
+
+// preflightSlotsFromPayload projects the UpdateMiningPools payload onto
+// the (slot, URL) pairs preflight needs.
+func preflightSlotsFromPayload(pld *dto.UpdateMiningPoolsPayload) []preflight.SlotAssignment {
+	slots := []preflight.SlotAssignment{{Slot: preflight.SlotDefault, URL: pld.DefaultPool.URL}}
+	if pld.Backup1Pool != nil {
+		slots = append(slots, preflight.SlotAssignment{Slot: preflight.SlotBackup1, URL: pld.Backup1Pool.URL})
+	}
+	if pld.Backup2Pool != nil {
+		slots = append(slots, preflight.SlotAssignment{Slot: preflight.SlotBackup2, URL: pld.Backup2Pool.URL})
+	}
+	return slots
+}
+
+func anySV2(slots []preflight.SlotAssignment) bool {
+	for _, s := range slots {
+		if sv2.IsSV2URL(s.URL) {
+			return true
+		}
+	}
+	return false
+}
+
+// formatMinerType renders make/model as a human-readable type label.
+// Falls back to "unknown type" when both are empty so the toast never
+// reads "Incompatible types: , ".
+func formatMinerType(make, model string) string {
+	make = strings.TrimSpace(make)
+	model = strings.TrimSpace(model)
+	switch {
+	case make != "" && model != "":
+		return make + " " + model
+	case make != "":
+		return make
+	case model != "":
+		return model
+	default:
+		return "unknown type"
+	}
+}
+
 func (s *Service) UpdateMiningPools(
 	ctx context.Context,
 	deviceSelector *pb.DeviceSelector,
@@ -899,12 +1088,27 @@ func (s *Service) UpdateMiningPools(
 		return nil, err
 	}
 
+	outcome, err := s.preflightSV2Capabilities(ctx, deviceSelector, pld)
+	if err != nil {
+		return nil, err
+	}
+	if outcome != nil {
+		deviceSelector = &pb.DeviceSelector{
+			SelectionType: &pb.DeviceSelector_IncludeDevices{
+				IncludeDevices: &commonpb.DeviceIdentifierList{DeviceIdentifiers: outcome.KeptIdentifiers},
+			},
+		}
+	}
+
 	result, err := s.processCommand(
 		ctx,
 		&Command{commandType: commandtype.UpdateMiningPools, deviceSelector: deviceSelector, payload: pld},
 	)
 	if err != nil {
 		return nil, err
+	}
+	if outcome != nil {
+		result.SV2Skips = outcome.Skips
 	}
 	s.finalizeDispatch(ctx, result, "update_mining_pools", "Edit pool")
 	return result, nil

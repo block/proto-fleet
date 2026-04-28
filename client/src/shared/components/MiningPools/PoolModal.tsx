@@ -1,7 +1,7 @@
 import { ReactNode, useCallback, useMemo, useState } from "react";
 
 import { poolInfoAttributes } from "./constants";
-import { poolNameValidationErrors, urlValidationErrors } from "./PoolForm/constants";
+import { poolNameValidationErrors, urlValidationErrors, validateURLScheme } from "./PoolForm/constants";
 import { PoolConnectionTestProps, PoolIndex, PoolInfo } from "./types";
 import { getPoolUsernameValidationError } from "./validation";
 
@@ -85,9 +85,16 @@ const PoolModal = ({
     () =>
       (!hidePoolName && !draftPoolInfo[poolIndex]?.name?.trim()) ||
       !draftPoolInfo[poolIndex]?.url?.trim() ||
-      (usernameRequired && !draftPoolInfo[poolIndex]?.username?.trim()),
-    [draftPoolInfo, poolIndex, hidePoolName, usernameRequired],
+      (usernameRequired && !draftPoolInfo[poolIndex]?.username?.trim()) ||
+      Boolean(poolNameError) ||
+      Boolean(urlError) ||
+      Boolean(usernameError),
+    [draftPoolInfo, poolIndex, hidePoolName, usernameRequired, poolNameError, urlError, usernameError],
   );
+
+  // Empty URL stays clickable so the click handler can surface the
+  // required-URL error inline.
+  const isTestConnectionDisabled = useMemo(() => Boolean(urlError), [urlError]);
 
   // Sync draft with incoming pools prop when parent updates it
   const [prevPools, setPrevPools] = useState(pools);
@@ -125,8 +132,13 @@ const PoolModal = ({
         setPoolNameError(undefined);
       }
 
-      if (infoKey === poolInfoAttributes.url && value.trim()) {
-        setUrlError(undefined);
+      if (infoKey === poolInfoAttributes.url) {
+        const trimmed = value.trim();
+        if (!trimmed) {
+          setUrlError(undefined);
+        } else {
+          setUrlError(validateURLScheme(trimmed));
+        }
       }
 
       if (infoKey === poolInfoAttributes.username && value.trim()) {
@@ -162,6 +174,12 @@ const PoolModal = ({
     if (!pool?.url?.trim()) {
       setUrlError(urlValidationErrors.required);
       hasError = true;
+    } else {
+      const schemeError = validateURLScheme(pool.url.trim());
+      if (schemeError) {
+        setUrlError(schemeError);
+        hasError = true;
+      }
     }
 
     const nextUsernameError = getPoolUsernameValidationError(pool?.username, {
@@ -226,8 +244,14 @@ const PoolModal = ({
   ]);
 
   const onTestConnection = useCallback(() => {
-    if (!draftPoolInfo[poolIndex].url.trim()) {
+    const url = draftPoolInfo[poolIndex].url.trim();
+    if (!url) {
       setUrlError(urlValidationErrors.required);
+      return;
+    }
+    const schemeError = validateURLScheme(url);
+    if (schemeError) {
+      setUrlError(schemeError);
       return;
     }
 
@@ -271,6 +295,7 @@ const PoolModal = ({
       loading: isTestingConnection,
       variant: variants.secondary,
       className: "whitespace-nowrap overflow-clip",
+      disabled: isTestConnectionDisabled,
     },
     {
       text: "Save",

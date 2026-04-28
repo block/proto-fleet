@@ -15,7 +15,7 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_pools_v1_pools: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "ChRwb29scy92MS9wb29scy5wcm90bxIIcG9vbHMudjEibgoKUG9vbENvbmZpZxILCgN1cmwYASABKAkSEAoIdXNlcm5hbWUYAiABKAkSLgoIcGFzc3dvcmQYAyABKAsyHC5nb29nbGUucHJvdG9idWYuU3RyaW5nVmFsdWUSEQoJcG9vbF9uYW1lGAQgASgJIkkKBFBvb2wSDwoHcG9vbF9pZBgBIAEoAxILCgN1cmwYAiABKAkSEAoIdXNlcm5hbWUYAyABKAkSEQoJcG9vbF9uYW1lGAQgASgJIhIKEExpc3RQb29sc1JlcXVlc3QiMgoRTGlzdFBvb2xzUmVzcG9uc2USHQoFcG9vbHMYASADKAsyDi5wb29scy52MS5Qb29sIj4KEUNyZWF0ZVBvb2xSZXF1ZXN0EikKC3Bvb2xfY29uZmlnGAEgASgLMhQucG9vbHMudjEuUG9vbENvbmZpZyIyChJDcmVhdGVQb29sUmVzcG9uc2USHAoEcG9vbBgBIAEoCzIOLnBvb2xzLnYxLlBvb2wiuAEKEVVwZGF0ZVBvb2xSZXF1ZXN0Eg8KB3Bvb2xfaWQYASABKAMSFgoJcG9vbF9uYW1lGAIgASgJSACIAQESEAoDdXJsGAMgASgJSAGIAQESFQoIdXNlcm5hbWUYBCABKAlIAogBARIuCghwYXNzd29yZBgFIAEoCzIcLmdvb2dsZS5wcm90b2J1Zi5TdHJpbmdWYWx1ZUIMCgpfcG9vbF9uYW1lQgYKBF91cmxCCwoJX3VzZXJuYW1lIjIKElVwZGF0ZVBvb2xSZXNwb25zZRIcCgRwb29sGAEgASgLMg4ucG9vbHMudjEuUG9vbCIkChFEZWxldGVQb29sUmVxdWVzdBIPCgdwb29sX2lkGAEgASgDIhQKEkRlbGV0ZVBvb2xSZXNwb25zZSLDAgoTVmFsaWRhdGVQb29sUmVxdWVzdBKkAQoDdXJsGAEgASgJQpYBukiSAcgBAXKMARAMMocBXnN0cmF0dW1cKyh0Y3B8c3NsfHdzKTpcL1wvKChbYS16QS1aMC05XVthLXpBLVowLTkuLV0qW2EtekEtWjAtOV1cLlthLXpBLVpdezIsfSl8KFxkezEsM31cLil7M31cZHsxLDN9fFxbKFswLTlhLWZBLUY6XSspXF0pKDpcZHsxLDV9KT8kEhgKCHVzZXJuYW1lGAIgASgJQga6SAPIAQESLgoIcGFzc3dvcmQYAyABKAsyHC5nb29nbGUucHJvdG9idWYuU3RyaW5nVmFsdWUSOwoHdGltZW91dBgEIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbkIPukgMqgEJIgMI6AIyAggBIhYKFFZhbGlkYXRlUG9vbFJlc3BvbnNlKqMBChRQb29sQ29ubmVjdGlvblN0YXR1cxImCiJQT09MX0NPTk5FQ1RJT05fU1RBVFVTX1VOU1BFQ0lGSUVEEAASHwobUE9PTF9DT05ORUNUSU9OX1NUQVRVU19JRExFEAESIQodUE9PTF9DT05ORUNUSU9OX1NUQVRVU19BQ1RJVkUQAhIfChtQT09MX0NPTk5FQ1RJT05fU1RBVFVTX0RFQUQQAzL+AgoMUG9vbHNTZXJ2aWNlEkQKCUxpc3RQb29scxIaLnBvb2xzLnYxLkxpc3RQb29sc1JlcXVlc3QaGy5wb29scy52MS5MaXN0UG9vbHNSZXNwb25zZRJHCgpDcmVhdGVQb29sEhsucG9vbHMudjEuQ3JlYXRlUG9vbFJlcXVlc3QaHC5wb29scy52MS5DcmVhdGVQb29sUmVzcG9uc2USRwoKVXBkYXRlUG9vbBIbLnBvb2xzLnYxLlVwZGF0ZVBvb2xSZXF1ZXN0GhwucG9vbHMudjEuVXBkYXRlUG9vbFJlc3BvbnNlEkcKCkRlbGV0ZVBvb2wSGy5wb29scy52MS5EZWxldGVQb29sUmVxdWVzdBocLnBvb2xzLnYxLkRlbGV0ZVBvb2xSZXNwb25zZRJNCgxWYWxpZGF0ZVBvb2wSHS5wb29scy52MS5WYWxpZGF0ZVBvb2xSZXF1ZXN0Gh4ucG9vbHMudjEuVmFsaWRhdGVQb29sUmVzcG9uc2VCoAEKDGNvbS5wb29scy52MUIKUG9vbHNQcm90b1ABWkNnaXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9wb29scy92MTtwb29sc3YxogIDUFhYqgIIUG9vbHMuVjHKAghQb29sc1xWMeICFFBvb2xzXFYxXEdQQk1ldGFkYXRh6gIJUG9vbHM6OlYxYgZwcm90bzM",
+    "ChRwb29scy92MS9wb29scy5wcm90bxIIcG9vbHMudjEimwMKClBvb2xDb25maWcStwIKA3VybBgBIAEoCUKpArpIpQLIAQFynwIQDDKaAl4oc3RyYXR1bVwrKHRjcHxzc2x8d3MpOlwvXC8oKFthLXpBLVowLTldW2EtekEtWjAtOS4tXSpbYS16QS1aMC05XVwuW2EtekEtWl17Mix9KXwoXGR7MSwzfVwuKXszfVxkezEsM318XFsoWzAtOWEtZkEtRjpdKylcXSkoOlxkezEsNX0pP3xzdHJhdHVtMlwrdGNwOlwvXC8oKFthLXpBLVowLTldW2EtekEtWjAtOS4tXSpbYS16QS1aMC05XVwuW2EtekEtWl17Mix9KXwoXGR7MSwzfVwuKXszfVxkezEsM318XFsoWzAtOWEtZkEtRjpdKylcXSk6XGR7MSw1fVwvW0EtWmEtejAtOV8rXC89Oi4tXSspJBIQCgh1c2VybmFtZRgCIAEoCRIuCghwYXNzd29yZBgDIAEoCzIcLmdvb2dsZS5wcm90b2J1Zi5TdHJpbmdWYWx1ZRIRCglwb29sX25hbWUYBCABKAkiSQoEUG9vbBIPCgdwb29sX2lkGAEgASgDEgsKA3VybBgCIAEoCRIQCgh1c2VybmFtZRgDIAEoCRIRCglwb29sX25hbWUYBCABKAkiEgoQTGlzdFBvb2xzUmVxdWVzdCIyChFMaXN0UG9vbHNSZXNwb25zZRIdCgVwb29scxgBIAMoCzIOLnBvb2xzLnYxLlBvb2wiPgoRQ3JlYXRlUG9vbFJlcXVlc3QSKQoLcG9vbF9jb25maWcYASABKAsyFC5wb29scy52MS5Qb29sQ29uZmlnIjIKEkNyZWF0ZVBvb2xSZXNwb25zZRIcCgRwb29sGAEgASgLMg4ucG9vbHMudjEuUG9vbCLgAwoRVXBkYXRlUG9vbFJlcXVlc3QSDwoHcG9vbF9pZBgBIAEoAxIWCglwb29sX25hbWUYAiABKAlIAIgBARK3AgoDdXJsGAMgASgJQqQCukigAnKdAjKaAl4oc3RyYXR1bVwrKHRjcHxzc2x8d3MpOlwvXC8oKFthLXpBLVowLTldW2EtekEtWjAtOS4tXSpbYS16QS1aMC05XVwuW2EtekEtWl17Mix9KXwoXGR7MSwzfVwuKXszfVxkezEsM318XFsoWzAtOWEtZkEtRjpdKylcXSkoOlxkezEsNX0pP3xzdHJhdHVtMlwrdGNwOlwvXC8oKFthLXpBLVowLTldW2EtekEtWjAtOS4tXSpbYS16QS1aMC05XVwuW2EtekEtWl17Mix9KXwoXGR7MSwzfVwuKXszfVxkezEsM318XFsoWzAtOWEtZkEtRjpdKylcXSk6XGR7MSw1fVwvW0EtWmEtejAtOV8rXC89Oi4tXSspJEgBiAEBEhUKCHVzZXJuYW1lGAQgASgJSAKIAQESLgoIcGFzc3dvcmQYBSABKAsyHC5nb29nbGUucHJvdG9idWYuU3RyaW5nVmFsdWVCDAoKX3Bvb2xfbmFtZUIGCgRfdXJsQgsKCV91c2VybmFtZSIyChJVcGRhdGVQb29sUmVzcG9uc2USHAoEcG9vbBgBIAEoCzIOLnBvb2xzLnYxLlBvb2wiJAoRRGVsZXRlUG9vbFJlcXVlc3QSDwoHcG9vbF9pZBgBIAEoAyIUChJEZWxldGVQb29sUmVzcG9uc2Ui1gMKE1ZhbGlkYXRlUG9vbFJlcXVlc3QStwIKA3VybBgBIAEoCUKpArpIpQLIAQFynwIQDDKaAl4oc3RyYXR1bVwrKHRjcHxzc2x8d3MpOlwvXC8oKFthLXpBLVowLTldW2EtekEtWjAtOS4tXSpbYS16QS1aMC05XVwuW2EtekEtWl17Mix9KXwoXGR7MSwzfVwuKXszfVxkezEsM318XFsoWzAtOWEtZkEtRjpdKylcXSkoOlxkezEsNX0pP3xzdHJhdHVtMlwrdGNwOlwvXC8oKFthLXpBLVowLTldW2EtekEtWjAtOS4tXSpbYS16QS1aMC05XVwuW2EtekEtWl17Mix9KXwoXGR7MSwzfVwuKXszfVxkezEsM318XFsoWzAtOWEtZkEtRjpdKylcXSk6XGR7MSw1fVwvW0EtWmEtejAtOV8rXC89Oi4tXSspJBIYCgh1c2VybmFtZRgCIAEoCUIGukgDyAEBEi4KCHBhc3N3b3JkGAMgASgLMhwuZ29vZ2xlLnByb3RvYnVmLlN0cmluZ1ZhbHVlEjsKB3RpbWVvdXQYBCABKAsyGS5nb29nbGUucHJvdG9idWYuRHVyYXRpb25CD7pIDKoBCSIDCOgCMgIIASI0ChRWYWxpZGF0ZVBvb2xSZXNwb25zZRIcChRjcmVkZW50aWFsc192ZXJpZmllZBgBIAEoCCqjAQoUUG9vbENvbm5lY3Rpb25TdGF0dXMSJgoiUE9PTF9DT05ORUNUSU9OX1NUQVRVU19VTlNQRUNJRklFRBAAEh8KG1BPT0xfQ09OTkVDVElPTl9TVEFUVVNfSURMRRABEiEKHVBPT0xfQ09OTkVDVElPTl9TVEFUVVNfQUNUSVZFEAISHwobUE9PTF9DT05ORUNUSU9OX1NUQVRVU19ERUFEEAMy/gIKDFBvb2xzU2VydmljZRJECglMaXN0UG9vbHMSGi5wb29scy52MS5MaXN0UG9vbHNSZXF1ZXN0GhsucG9vbHMudjEuTGlzdFBvb2xzUmVzcG9uc2USRwoKQ3JlYXRlUG9vbBIbLnBvb2xzLnYxLkNyZWF0ZVBvb2xSZXF1ZXN0GhwucG9vbHMudjEuQ3JlYXRlUG9vbFJlc3BvbnNlEkcKClVwZGF0ZVBvb2wSGy5wb29scy52MS5VcGRhdGVQb29sUmVxdWVzdBocLnBvb2xzLnYxLlVwZGF0ZVBvb2xSZXNwb25zZRJHCgpEZWxldGVQb29sEhsucG9vbHMudjEuRGVsZXRlUG9vbFJlcXVlc3QaHC5wb29scy52MS5EZWxldGVQb29sUmVzcG9uc2USTQoMVmFsaWRhdGVQb29sEh0ucG9vbHMudjEuVmFsaWRhdGVQb29sUmVxdWVzdBoeLnBvb2xzLnYxLlZhbGlkYXRlUG9vbFJlc3BvbnNlQqABCgxjb20ucG9vbHMudjFCClBvb2xzUHJvdG9QAVpDZ2l0aHViLmNvbS9ibG9jay9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvcG9vbHMvdjE7cG9vbHN2MaICA1BYWKoCCFBvb2xzLlYxygIIUG9vbHNcVjHiAhRQb29sc1xWMVxHUEJNZXRhZGF0YeoCCVBvb2xzOjpWMWIGcHJvdG8z",
     [file_google_protobuf_duration, file_google_protobuf_wrappers, file_buf_validate_validate],
   );
 
@@ -26,8 +26,10 @@ export const file_pools_v1_pools: GenFile =
  */
 export type PoolConfig = Message<"pools.v1.PoolConfig"> & {
   /**
-   * Pool's stratum URL (e.g., "stratum+tcp://pool.example.com:3333")
-   * Required field that specifies the endpoint for connecting to the pool
+   * Pool's stratum URL.
+   *   V1: "stratum+tcp://pool.example.com:3333" (also +ssl, +ws); port optional.
+   *   V2: "stratum2+tcp://pool.example.com:3333/<authority_pubkey>" — port AND
+   *       pubkey required so the gate has a key to pin against.
    *
    * @generated from field: string url = 1;
    */
@@ -211,7 +213,8 @@ export type UpdatePoolRequest = Message<"pools.v1.UpdatePoolRequest"> & {
   poolName?: string;
 
   /**
-   * New pool URL. Omit to leave unchanged.
+   * New pool URL. Omit to leave unchanged. Same scheme rules as
+   * PoolConfig.url.
    *
    * @generated from field: optional string url = 3;
    */
@@ -304,8 +307,11 @@ export const DeletePoolResponseSchema: GenMessage<DeletePoolResponse> =
  */
 export type ValidatePoolRequest = Message<"pools.v1.ValidatePoolRequest"> & {
   /**
-   * Pool's stratum URL (e.g., "stratum+tcp://pool.example.com:3333")
-   * Required field that specifies the endpoint for connecting to the pool
+   * Pool's stratum URL.
+   *   V1: "stratum+tcp://pool.example.com:3333" (also +ssl, +ws); port optional.
+   *   V2: "stratum2+tcp://pool.example.com:3333/<authority_pubkey>"
+   *       per Braiins V2 convention. Port AND pubkey are required so the
+   *       Noise NX handshake probe has a key to pin against.
    *
    * @generated from field: string url = 1;
    */
@@ -347,11 +353,20 @@ export const ValidatePoolRequestSchema: GenMessage<ValidatePoolRequest> =
 /**
  * Response after validating a pool's connection details
  *
- * Empty response as success/failure is indicated by gRPC status
- *
  * @generated from message pools.v1.ValidatePoolResponse
  */
-export type ValidatePoolResponse = Message<"pools.v1.ValidatePoolResponse"> & {};
+export type ValidatePoolResponse = Message<"pools.v1.ValidatePoolResponse"> & {
+  /**
+   * True when the validation flow exchanged credentials with the pool
+   * and the pool accepted them (SV1 mining.subscribe + authorize). False
+   * when only endpoint identity was verified (SV2 Noise handshake — the
+   * pool's authority key is genuine, but worker credentials were not
+   * checked because asicrs's session/auth flow is not yet implemented).
+   *
+   * @generated from field: bool credentials_verified = 1;
+   */
+  credentialsVerified: boolean;
+};
 
 /**
  * Describes the message pools.v1.ValidatePoolResponse.

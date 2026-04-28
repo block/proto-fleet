@@ -138,6 +138,13 @@ WHERE id = $1
   AND deleted_at IS NULL
 LIMIT 1;
 
+-- name: GetDeviceIdentifiersByIDs :many
+SELECT d.id, d.device_identifier, dd.manufacturer, dd.model, dd.driver_name
+FROM device d
+JOIN discovered_device dd ON dd.id = d.discovered_device_id
+WHERE d.id = ANY(sqlc.arg('device_ids')::bigint[])
+  AND d.deleted_at IS NULL;
+
 -- name: GetDeviceIDsByDeviceIdentifiers :many
 SELECT id
 FROM device

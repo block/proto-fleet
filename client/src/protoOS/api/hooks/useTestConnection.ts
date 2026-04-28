@@ -7,7 +7,7 @@ import { useAuthRetry } from "@/protoOS/store/hooks/useAuthRetry";
 export interface TestConnectionProps {
   onError?: () => void;
   onFinally?: () => void;
-  onSuccess?: () => void;
+  onSuccess?: (result: { credentialsVerified: boolean }) => void;
   poolInfo: TestConnection;
 }
 
@@ -23,7 +23,9 @@ const useTestConnection = () => {
       setPending(true);
       authRetry({
         request: (params) => api.testPoolConnection(poolInfo, params),
-        onSuccess: () => onSuccess?.(),
+        // protoOS only speaks SV1 today, so a successful test always
+        // implies credentials were verified.
+        onSuccess: () => onSuccess?.({ credentialsVerified: true }),
         onError: () => onError?.(),
       }).finally(() => {
         setPending(false);

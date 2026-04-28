@@ -103,6 +103,11 @@ impl AsicRsDevice {
         *self.probed.lock().await
     }
 
+    /// Live model string, populated from miner data during connection.
+    pub async fn model(&self) -> String {
+        self.model.lock().await.clone()
+    }
+
     /// Retry capability/model probing on a connected but unprobed device.
     /// Best-effort: failures are logged but don't disconnect the device.
     async fn retry_probe(&self) {
@@ -119,11 +124,6 @@ impl AsicRsDevice {
                 *self.model.lock().await = data.device_info.model.clone();
             }
         }
-    }
-
-    /// Get the device model, populated from live miner data during connection.
-    pub async fn model(&self) -> String {
-        self.model.lock().await.clone()
     }
 
     /// Ensure we have a live miner connection. Returns Ok if connected.

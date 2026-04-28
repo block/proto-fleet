@@ -59,7 +59,7 @@ const PoolSelectionPageWrapper = ({
       },
       onError: (error) => {
         console.error("Failed to assign pools:", error);
-        onError?.("Failed to assign pools");
+        onError?.(error);
         onDismiss();
       },
     });

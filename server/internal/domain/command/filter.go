@@ -20,6 +20,9 @@ type CommandResult struct {
 	BatchIdentifier string
 	DispatchedCount int
 	Skipped         []SkippedDevice
+	// SV2Skips, when non-nil, summarizes miners excluded by the SV2
+	// capability gate before dispatch. Surfaced via UpdateMiningPoolsResponse.
+	SV2Skips *SV2Skips
 }
 
 // CommandFilterInput is what processCommand passes to each registered filter.

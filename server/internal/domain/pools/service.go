@@ -12,6 +12,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/domain/sv2"
 	"github.com/block/proto-fleet/server/internal/infrastructure/secrets"
 	stratumv1 "github.com/block/proto-fleet/server/internal/infrastructure/stratum/v1"
 )
@@ -86,6 +87,11 @@ func (s *Service) UpdatePool(ctx context.Context, r *pb.UpdatePoolRequest) (*pb.
 	if r.Url != nil && strings.TrimSpace(r.GetUrl()) == "" {
 		return nil, fleeterror.NewInvalidArgumentError("url cannot be empty; omit the field to leave unchanged")
 	}
+	if r.Url != nil {
+		if err := validateSV2PoolURL(r.GetUrl()); err != nil {
+			return nil, err
+		}
+	}
 	if r.Username != nil && strings.TrimSpace(r.GetUsername()) == "" {
 		return nil, fleeterror.NewInvalidArgumentError("username cannot be empty; omit the field to leave unchanged")
 	}
@@ -155,6 +161,9 @@ func (s *Service) CreatePool(ctx context.Context, poolConfig *pb.PoolConfig) (*p
 	if err := validatePoolUsername(poolConfig.GetUsername()); err != nil {
 		return nil, err
 	}
+	if err := validateSV2PoolURL(poolConfig.GetUrl()); err != nil {
+		return nil, err
+	}
 
 	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
 		poolID, err := s.poolStore.CreatePool(ctx, poolConfig, info.OrganizationID)
@@ -207,22 +216,51 @@ func (s *Service) ListPools(ctx context.Context) ([]*pb.Pool, error) {
 	return pools, nil
 }
 
-// ValidateConnection the connection to a pool server.
-// It returns true if the connection is successful, otherwise false.
-// We currently only support Stratum V1 connection pools, if you need V2
-// support please use a proxy v1->v2 as described https://stratumprotocol.org/docs/#proxies
-func (s *Service) ValidateConnection(ctx context.Context, url string, username string, password *secrets.Text, timeout *time.Duration) (bool, error) {
+// ValidationOutcome reports the result of a pool connection probe.
+// CredentialsVerified is true only when the probe exchanged worker
+// credentials with the pool. SV2 currently leaves it false because the
+// Noise handshake proves endpoint identity but not credential validity.
+type ValidationOutcome struct {
+	Reachable           bool
+	CredentialsVerified bool
+}
+
+// ValidateConnection probes a pool server. SV1 URLs run a full
+// mining.subscribe + authorize. SV2 URLs run a Noise NX handshake
+// against the authority pubkey embedded in the URL path — proves the
+// pool speaks SV2 and presents the operator-pinned static key, but
+// does not verify worker credentials.
+func (s *Service) ValidateConnection(ctx context.Context, url string, username string, password *secrets.Text, timeout *time.Duration) (ValidationOutcome, error) {
 	to := s.cfg.Timeout
 	if timeout != nil {
 		to = *timeout
 	}
 	ctx, cancel := context.WithTimeout(ctx, to)
 	defer cancel()
-	ok, err := stratumv1.Authenticate(ctx, url, username, password)
 
-	if err != nil {
-		return false, err
+	if sv2.IsSV2URL(url) {
+		key, err := sv2.PoolNoiseKeyFromURL(url)
+		if err != nil {
+			return ValidationOutcome{}, fleeterror.NewInvalidArgumentErrorf("%v", err)
+		}
+		ok, err := sv2.HandshakeProbe(ctx, url, key, to)
+		return ValidationOutcome{Reachable: ok, CredentialsVerified: false}, err
 	}
+	ok, err := stratumv1.Authenticate(ctx, url, username, password)
+	if err != nil {
+		return ValidationOutcome{}, err
+	}
+	return ValidationOutcome{Reachable: ok, CredentialsVerified: ok}, nil
+}
 
-	return ok, nil
+// validateSV2PoolURL rejects Stratum V2 URLs whose authority-pubkey path
+// component doesn't decode. The CEL pattern only checks shape.
+func validateSV2PoolURL(url string) error {
+	if !sv2.IsSV2URL(url) {
+		return nil
+	}
+	if _, err := sv2.PoolNoiseKeyFromURL(url); err != nil {
+		return fleeterror.NewInvalidArgumentErrorf("invalid Stratum V2 pool URL: %v", err)
+	}
+	return nil
 }

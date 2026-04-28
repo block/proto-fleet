@@ -377,10 +377,9 @@ func (d *Driver) GetDefaultCredentials(_ context.Context, _, _ string) []sdk.Use
 }
 
 // GetCapabilitiesForModel implements sdk.ModelCapabilitiesProvider.
-// Returns model-specific capability overrides for Antminer devices.
-// Different Antminer models have different capabilities - for example,
-// S21 does not support efficiency mode while S17/S19 do.
-func (d *Driver) GetCapabilitiesForModel(_ context.Context, model string) sdk.Capabilities {
+// Stock Bitmain firmware is SV1-only and the plugin rejects non-stock
+// firmware at discovery, so CapabilityNativeStratumV2 is never set.
+func (d *Driver) GetCapabilitiesForModel(_ context.Context, _, model string) sdk.Capabilities {
 	caps := sdk.Capabilities{}
 	if d.modelSupportsEfficiencyMode(model) {
 		caps[sdk.CapabilityPowerModeEfficiency] = true
