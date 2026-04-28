@@ -93,17 +93,16 @@ func (s *SQLPoolStore) UpdatePool(ctx context.Context, request *pb.UpdatePoolReq
 		return fleeterror.NewInternalErrorf("error getting pool: %v", err)
 	}
 
-	// Apply updates from the request
-	if request.PoolName != "" {
-		pool.PoolName = request.PoolName
+	if request.PoolName != nil {
+		pool.PoolName = request.GetPoolName()
 	}
 
-	if request.Url != "" {
-		pool.Url = request.Url
+	if request.Url != nil {
+		pool.Url = request.GetUrl()
 	}
 
-	if request.Username != "" {
-		pool.Username = request.Username
+	if request.Username != nil {
+		pool.Username = request.GetUsername()
 	}
 
 	password := pool.PasswordEnc

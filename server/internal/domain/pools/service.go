@@ -3,6 +3,7 @@ package pools
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
@@ -75,14 +76,35 @@ func (s *Service) UpdatePool(ctx context.Context, r *pb.UpdatePoolRequest) (*pb.
 		return nil, err
 	}
 
-	if r.Username != "" {
+	// Callers migrating from the old "empty means unchanged" contract
+	// must now omit the field; reject explicit "" (and whitespace-only
+	// values, which are equally meaningless to the store) so we never
+	// write them.
+	if r.PoolName != nil && strings.TrimSpace(r.GetPoolName()) == "" {
+		return nil, fleeterror.NewInvalidArgumentError("pool_name cannot be empty; omit the field to leave unchanged")
+	}
+	if r.Url != nil && strings.TrimSpace(r.GetUrl()) == "" {
+		return nil, fleeterror.NewInvalidArgumentError("url cannot be empty; omit the field to leave unchanged")
+	}
+	if r.Username != nil && strings.TrimSpace(r.GetUsername()) == "" {
+		return nil, fleeterror.NewInvalidArgumentError("username cannot be empty; omit the field to leave unchanged")
+	}
+
+	// No patch fields set means the caller has nothing to change. Skip
+	// the UPDATE and the activity event so an empty patch isn't a write
+	// or a row in the activity feed.
+	if r.PoolName == nil && r.Url == nil && r.Username == nil && r.Password == nil {
+		return s.poolStore.GetPool(ctx, info.OrganizationID, r.PoolId)
+	}
+
+	if r.Username != nil {
 		existingPool, err := s.poolStore.GetPool(ctx, info.OrganizationID, r.PoolId)
 		if err != nil {
 			return nil, err
 		}
 
-		if r.Username != existingPool.GetUsername() {
-			if err := validatePoolUsername(r.Username); err != nil {
+		if r.GetUsername() != existingPool.GetUsername() {
+			if err := validatePoolUsername(r.GetUsername()); err != nil {
 				return nil, err
 			}
 		}
