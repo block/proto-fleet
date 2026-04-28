@@ -175,7 +175,10 @@ func activityEventType(t commandtype.Type) string {
 }
 
 // logPreflightBlockedStrict records an external preflight rejection. Audit
-// failures are fatal so blocked commands always leave a durable trace.
+// failures are fatal so blocked commands always leave a durable trace. The
+// store write uses a bounded background ctx so a client disconnect at the
+// deny-point cannot suppress the row or degrade FailedPrecondition into
+// Internal.
 func (s *Service) logPreflightBlockedStrict(
 	ctx context.Context,
 	commandType commandtype.Type,
@@ -190,7 +193,9 @@ func (s *Service) logPreflightBlockedStrict(
 		return fleeterror.NewInternalErrorf("error getting session info from ctx: %v", err)
 	}
 	eventType := activityEventType(commandType)
-	return s.activitySvc.LogStrict(ctx, activitymodels.Event{
+	auditCtx, cancel := context.WithTimeout(context.Background(), finalizerDBTimeout)
+	defer cancel()
+	return s.activitySvc.LogStrict(auditCtx, activitymodels.Event{
 		Category:       activitymodels.CategoryDeviceCommand,
 		Type:           "command_preflight_blocked",
 		Description:    fmt.Sprintf("Command %q blocked: %d of %d device(s) excluded by preflight filters", eventType, len(skipped), len(requestedIdentifiers)),
@@ -644,17 +649,16 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (*Comman
 		return nil, fleeterror.NewInternalErrorf("preflight filter failed: %v", err)
 	}
 
-	// External callers should not see a successful subset dispatch without an
-	// explicit best-effort API contract.
+	// External callers fail-closed on any skip. Resolve original identifiers
+	// first so a stale selector with zero live devices returns InvalidArgument
+	// regardless of how the kept/skipped partition fell.
 	if isExternalCommand(info) && len(skipped) > 0 {
-		if len(kept) == 0 {
-			deviceIDs, err := s.resolveIdentifiersToDeviceIDs(ctx, identifiers)
-			if err != nil {
-				return nil, fleeterror.NewInternalErrorf("error resolving identifiers to device IDs: %v", err)
-			}
-			if len(deviceIDs) == 0 {
-				return nil, fleeterror.NewInvalidArgumentError("no devices matched selector")
-			}
+		deviceIDs, err := s.resolveIdentifiersToDeviceIDs(ctx, identifiers)
+		if err != nil {
+			return nil, fleeterror.NewInternalErrorf("error resolving identifiers to device IDs: %v", err)
+		}
+		if len(deviceIDs) == 0 {
+			return nil, fleeterror.NewInvalidArgumentError("no devices matched selector")
 		}
 		if err := s.logPreflightBlockedStrict(ctx, command.commandType, identifiers, skipped); err != nil {
 			return nil, fleeterror.NewInternalErrorf("logging preflight block: %v", err)

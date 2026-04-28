@@ -225,6 +225,54 @@ func TestStop_CronJobsFinishWithLiveContext(t *testing.T) {
 	waitForSignal(t, stopped, "Stop did not return after cron callback finished")
 }
 
+// Drain must still be bounded: if work wedges, the watchdog cancels workCtx
+// so the in-flight call returns and the wg waits release.
+func TestStop_WatchdogCancelsHungWork(t *testing.T) {
+	prev := shutdownDeadlineFn
+	shutdownDeadlineFn = func() time.Duration { return 50 * time.Millisecond }
+	t.Cleanup(func() { shutdownDeadlineFn = prev })
+
+	p, procStore, _, _, _ := newTestProcessor(t, time.Now())
+	workCtx, workCancel := context.WithCancel(context.Background())
+	p.workCancel = workCancel
+
+	started := make(chan struct{})
+	cancelled := make(chan struct{})
+	stopped := make(chan struct{})
+
+	procStore.EXPECT().SetScheduleRunning(gomock.Any(), int64(1)).DoAndReturn(
+		func(ctx context.Context, _ int64) (int64, error) {
+			close(started)
+			<-ctx.Done()
+			close(cancelled)
+			return int64(0), ctx.Err()
+		},
+	)
+
+	p.timerWG.Add(1)
+	timer := time.AfterFunc(time.Hour, func() {
+		defer p.timerWG.Done()
+		p.executeSchedule(workCtx, 1)
+	})
+	p.jobs[1] = jobEntry{timer: timer, isOneTime: true, generation: 1}
+	timer.Reset(0)
+
+	waitForSignal(t, started, "hung callback did not start")
+
+	begin := time.Now()
+	go func() {
+		assert.NoError(t, p.Stop())
+		close(stopped)
+	}()
+
+	waitForSignal(t, cancelled, "watchdog did not cancel hung work via workCancel")
+	waitForSignal(t, stopped, "Stop did not return after watchdog fired")
+
+	if elapsed := time.Since(begin); elapsed > time.Second {
+		t.Fatalf("Stop took %v; watchdog should have bounded shutdown well below this", elapsed)
+	}
+}
+
 // --- recoverStaleRunning ---
 
 func TestRecoverStaleRunning_ResetsNonWindowSchedules(t *testing.T) {

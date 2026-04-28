@@ -20,16 +20,23 @@ import (
 )
 
 // recordingActivityStore records inserts; other ActivityStore methods are not
-// used by these tests.
+// used by these tests. Insert honours ctx cancellation and snapshots ctx.Err()
+// at insert time (callers typically defer-cancel the audit ctx right after the
+// write returns).
 type recordingActivityStore struct {
-	inserts []*activitymodels.Event
-	failErr error
+	inserts       []*activitymodels.Event
+	failErr       error
+	insertCtxErrs []error
 }
 
-func (s *recordingActivityStore) Insert(_ context.Context, event *activitymodels.Event) error {
+func (s *recordingActivityStore) Insert(ctx context.Context, event *activitymodels.Event) error {
 	if s.failErr != nil {
 		return s.failErr
 	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.insertCtxErrs = append(s.insertCtxErrs, ctx.Err())
 	clone := *event
 	s.inserts = append(s.inserts, &clone)
 	return nil
@@ -113,6 +120,10 @@ func findActivity(t *testing.T, store *recordingActivityStore, eventType string)
 
 func TestProcessCommand_ManualPartialSkip_Blocks(t *testing.T) {
 	svc, store := newPreflightTestService(t, newFakeFilter("test_block", "miner-1"))
+	svc.resolveDeviceIDsOverride = func(_ context.Context, identifiers []string) ([]int64, error) {
+		assert.Equal(t, []string{"miner-1", "miner-2", "miner-3"}, identifiers)
+		return []int64{101, 102, 103}, nil
+	}
 
 	_, err := svc.processCommand(manualSessionCtx(1), &Command{
 		commandType:    commandtype.SetPowerTarget,
@@ -132,6 +143,31 @@ func TestProcessCommand_ManualPartialSkip_Blocks(t *testing.T) {
 	assert.Equal(t, 1, ev.Metadata["skipped_count"])
 	assert.Equal(t, []string{"miner-1"}, ev.Metadata["skipped_identifiers"])
 	assert.Equal(t, []string{"test_block"}, ev.Metadata["filters"])
+}
+
+// Mixed-stale selector: filter skips one stale ID, the other stays in kept,
+// but neither resolves to a live device. Should be InvalidArgument, not a
+// misleading FailedPrecondition.
+func TestProcessCommand_ManualPartialSkipWithNoLiveDevices_ReturnsInvalidArgument(t *testing.T) {
+	svc, store := newPreflightTestService(t, newFakeFilter("test_block", "stale-A"))
+	svc.resolveDeviceIDsOverride = func(_ context.Context, identifiers []string) ([]int64, error) {
+		assert.Equal(t, []string{"stale-A", "stale-B"}, identifiers)
+		return nil, nil
+	}
+
+	_, err := svc.processCommand(manualSessionCtx(1), &Command{
+		commandType:    commandtype.SetPowerTarget,
+		deviceSelector: includeSelector("stale-A", "stale-B"),
+	})
+
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.True(t, errors.As(err, &fleetErr), "expected FleetError, got %T", err)
+	require.Equal(t, connect.CodeInvalidArgument, fleetErr.GRPCCode)
+	assert.Contains(t, err.Error(), "no devices matched selector")
+	for _, ev := range store.inserts {
+		assert.NotEqual(t, "command_preflight_blocked", ev.Type, "stale-mixed selector is not a preflight block")
+	}
 }
 
 func TestProcessCommand_ManualFullSkip_Blocks(t *testing.T) {
@@ -229,6 +265,9 @@ func TestProcessCommand_ExternalEmptySelector_ReturnsInvalidArgument(t *testing.
 
 func TestProcessCommand_ManualBlock_AuditFailure_ReturnsInternal(t *testing.T) {
 	svc, store := newPreflightTestService(t, newFakeFilter("test_block", "miner-1"))
+	svc.resolveDeviceIDsOverride = func(_ context.Context, _ []string) ([]int64, error) {
+		return []int64{101, 102}, nil
+	}
 	store.failErr = errors.New("activity_log: connection refused")
 
 	_, err := svc.processCommand(manualSessionCtx(1), &Command{
@@ -243,11 +282,43 @@ func TestProcessCommand_ManualBlock_AuditFailure_ReturnsInternal(t *testing.T) {
 	assert.Contains(t, err.Error(), "logging preflight block")
 }
 
+// A request-ctx cancel at the deny-point must not suppress the audit row or
+// degrade FailedPrecondition into Internal.
+func TestProcessCommand_ManualBlock_AuditWritesOnCanceledRequestCtx(t *testing.T) {
+	svc, store := newPreflightTestService(t, newFakeFilter("test_block", "miner-1"))
+	svc.resolveDeviceIDsOverride = func(_ context.Context, _ []string) ([]int64, error) {
+		return []int64{101, 102}, nil
+	}
+
+	reqCtx, cancel := context.WithCancel(manualSessionCtx(1))
+	cancel()
+
+	_, err := svc.processCommand(reqCtx, &Command{
+		commandType:    commandtype.SetPowerTarget,
+		deviceSelector: includeSelector("miner-1", "miner-2"),
+	})
+
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.True(t, errors.As(err, &fleetErr))
+	require.Equal(t, connect.CodeFailedPrecondition, fleetErr.GRPCCode,
+		"audit write on a bounded background ctx should not turn the deny into Internal")
+
+	findActivity(t, store, "command_preflight_blocked")
+
+	require.NotEmpty(t, store.insertCtxErrs)
+	insertErr := store.insertCtxErrs[len(store.insertCtxErrs)-1]
+	require.NoError(t, insertErr, "Insert must receive a live context, not the cancelled request ctx")
+}
+
 // The handler passes wrapper errors through; ErrorMappingInterceptor maps this
 // FleetError.GRPCCode to the wire-level connect.Code.
 
 func TestSetPowerTarget_ManualBlock_PropagatesFailedPrecondition(t *testing.T) {
 	svc, _ := newPreflightTestService(t, newFakeFilter("test_block", "miner-1"))
+	svc.resolveDeviceIDsOverride = func(_ context.Context, _ []string) ([]int64, error) {
+		return []int64{101, 102}, nil
+	}
 
 	resp, err := svc.SetPowerTarget(
 		manualSessionCtx(1),

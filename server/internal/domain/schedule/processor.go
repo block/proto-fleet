@@ -28,7 +28,14 @@ const (
 	revertPerformanceMode = commandpb.PerformanceMode_PERFORMANCE_MODE_EFFICIENCY
 	schedulerActorName    = "scheduler"
 	oneTimeRetryDelay     = time.Second
+	// shutdownDeadline bounds Stop(): drain-before-cancel is the graceful
+	// path, the watchdog cancels workCtx if a DB/dispatch call wedges.
+	// Sized within the fleetd-wide shutdownTimeout (10s).
+	shutdownDeadline = 10 * time.Second
 )
+
+// shutdownDeadlineFn lets tests shrink the watchdog without affecting prod.
+var shutdownDeadlineFn = func() time.Duration { return shutdownDeadline }
 
 // CommandDispatcher is the subset of command.Service the processor needs.
 // CommandResult carries preflight skips for schedule-level audit.
@@ -134,6 +141,14 @@ func (p *Processor) Start(_ context.Context) error {
 }
 
 func (p *Processor) Stop() error {
+	// Watchdog bounds total shutdown: workCancel is idempotent, so an early
+	// fire just unblocks wedged in-flight calls; the drain sequence below
+	// still runs to completion.
+	if p.workCancel != nil {
+		watchdog := time.AfterFunc(shutdownDeadlineFn(), p.workCancel)
+		defer watchdog.Stop()
+	}
+
 	if p.stopCancel != nil {
 		p.stopCancel()
 	}
