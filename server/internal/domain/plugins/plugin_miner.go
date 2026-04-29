@@ -247,6 +247,8 @@ func supportsCurtailLevel(caps sdk.Capabilities, level sdk.CurtailLevel) bool {
 		return caps[sdk.CapabilityCurtailEfficiency]
 	case sdk.CurtailLevelPartialPercent:
 		return caps[sdk.CapabilityCurtailPartial]
+	case sdk.CurtailLevelUnspecified:
+		return false
 	default:
 		return false
 	}
