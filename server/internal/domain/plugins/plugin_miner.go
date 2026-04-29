@@ -601,6 +601,18 @@ func wrapCurtailmentPluginError(err error, format string, a ...any) error {
 		return nil
 	}
 	msg := fmt.Sprintf(format, a...)
+	var sdkErr sdk.SDKError
+	if errors.As(err, &sdkErr) {
+		switch sdkErr.Code {
+		case sdk.ErrCodeCurtailCapabilityNotSupported, sdk.ErrCodeUnsupportedCapability:
+			return fleeterror.NewUnimplementedErrorf("%s: %s", msg, sdkErr.Message)
+		case sdk.ErrCodeCurtailTransient, sdk.ErrCodeDeviceUnavailable:
+			return fleeterror.NewUnavailableErrorf("%s: %s", msg, sdkErr.Message)
+		case sdk.ErrCodeDeviceNotFound, sdk.ErrCodeInvalidConfig,
+			sdk.ErrCodeDriverShutdown, sdk.ErrCodeAuthenticationFailed:
+			// Preserve legacy non-curtailment classification for other SDK errors.
+		}
+	}
 	if st, ok := grpcstatus.FromError(err); ok && st.Code() == codes.Unavailable {
 		return fleeterror.NewUnavailableErrorf("%s: %s", msg, st.Message())
 	}

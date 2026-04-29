@@ -213,3 +213,74 @@ func TestNew_DefaultPasswordActive_UnpairReportsDefaultPassword(t *testing.T) {
 	assert.True(t, isDefaultPasswordError(unpairErr), "Unpair error should be recognizable as default-password active; got: %v", unpairErr)
 	assert.Equal(t, 1, clearAuthKeyCalls, "Unpair should still attempt DELETE /api/v1/pairing/auth-key")
 }
+
+func TestDevice_CurtailFullWrapsDispatchFailureAsTransient(t *testing.T) {
+	dev := newMiningControlTestDevice(t, http.StatusInternalServerError)
+
+	err := dev.Curtail(context.Background(), sdk.CurtailLevelFull)
+
+	require.Error(t, err)
+	var sdkErr sdk.SDKError
+	require.True(t, errors.As(err, &sdkErr))
+	assert.Equal(t, sdk.ErrCodeCurtailTransient, sdkErr.Code)
+	assert.Contains(t, err.Error(), "transient curtail failure")
+}
+
+func TestDevice_UncurtailWrapsDispatchFailureAsTransient(t *testing.T) {
+	dev := newMiningControlTestDevice(t, http.StatusInternalServerError)
+
+	err := dev.Uncurtail(context.Background())
+
+	require.Error(t, err)
+	var sdkErr sdk.SDKError
+	require.True(t, errors.As(err, &sdkErr))
+	assert.Equal(t, sdk.ErrCodeCurtailTransient, sdkErr.Code)
+	assert.Contains(t, err.Error(), "transient curtail failure")
+}
+
+func TestDevice_CurtailUnsupportedLevelReturnsCapabilityNotSupported(t *testing.T) {
+	dev := newMiningControlTestDevice(t, http.StatusOK)
+
+	err := dev.Curtail(context.Background(), sdk.CurtailLevelEfficiency)
+
+	require.Error(t, err)
+	var sdkErr sdk.SDKError
+	require.True(t, errors.As(err, &sdkErr))
+	assert.Equal(t, sdk.ErrCodeCurtailCapabilityNotSupported, sdkErr.Code)
+}
+
+func newMiningControlTestDevice(t *testing.T, miningControlStatus int) *Device {
+	t.Helper()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/mining":
+			w.WriteHeader(http.StatusNoContent)
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/pools":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"pools":[]}`))
+		case r.Method == http.MethodPost && (r.URL.Path == "/api/v1/mining/start" || r.URL.Path == "/api/v1/mining/stop"):
+			w.WriteHeader(miningControlStatus)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	parsed, err := url.Parse(server.URL)
+	require.NoError(t, err)
+	host, portStr, err := net.SplitHostPort(parsed.Host)
+	require.NoError(t, err)
+	port, err := strconv.ParseInt(portStr, 10, 32)
+	require.NoError(t, err)
+
+	dev, err := New("device-curtail", sdk.DeviceInfo{
+		Host:      host,
+		Port:      int32(port),
+		URLScheme: "http",
+	}, sdk.BearerToken{Token: "test-token"}, SetStatusTTL(0*time.Second))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = dev.Close(context.Background()) })
+
+	return dev
+}

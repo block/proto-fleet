@@ -883,7 +883,10 @@ impl Driver for DriverService {
     async fn uncurtail(&self, req: Request<pb::DeviceRef>) -> Result<Response<()>, Status> {
         let device_id = req.into_inner().device_id;
         let device = self.get_device(&device_id).await?;
-        device.start_mining().await.map_err(device_err_to_status)?;
+        device
+            .uncurtail_full()
+            .await
+            .map_err(device_err_to_status)?;
         Ok(Response::new(()))
     }
 

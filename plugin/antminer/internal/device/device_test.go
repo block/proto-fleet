@@ -1,6 +1,7 @@
 package device
 
 import (
+	"errors"
 	"math"
 	"testing"
 
@@ -526,6 +527,41 @@ func TestDevice_CurtailFullInvalidatesStatusCache(t *testing.T) {
 	assert.True(t, device.lastStatusAt.IsZero())
 }
 
+func TestDevice_CurtailFullWrapsDispatchFailureAsTransient(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockClient := mocks.NewMockAntminerClient(ctrl)
+	device := createTestDevice(t, mockClient, defaultStatus(), defaultTelemetry())
+	defer cleanupDevice(t, device, mockClient)
+
+	mockClient.EXPECT().StopMining(gomock.Any()).Return(assert.AnError)
+
+	err := device.Curtail(t.Context(), sdk.CurtailLevelFull)
+
+	require.Error(t, err)
+	var sdkErr sdk.SDKError
+	require.True(t, errors.As(err, &sdkErr))
+	assert.Equal(t, sdk.ErrCodeCurtailTransient, sdkErr.Code)
+	assert.ErrorIs(t, err, assert.AnError)
+}
+
+func TestDevice_CurtailUnsupportedLevelReturnsCapabilityNotSupported(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockClient := mocks.NewMockAntminerClient(ctrl)
+	device := createTestDevice(t, mockClient, defaultStatus(), defaultTelemetry())
+	defer cleanupDevice(t, device, mockClient)
+
+	err := device.Curtail(t.Context(), sdk.CurtailLevelEfficiency)
+
+	require.Error(t, err)
+	var sdkErr sdk.SDKError
+	require.True(t, errors.As(err, &sdkErr))
+	assert.Equal(t, sdk.ErrCodeCurtailCapabilityNotSupported, sdkErr.Code)
+}
+
 func TestDevice_UncurtailInvalidatesStatusCache(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -543,6 +579,25 @@ func TestDevice_UncurtailInvalidatesStatusCache(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, device.lastStatus)
 	assert.True(t, device.lastStatusAt.IsZero())
+}
+
+func TestDevice_UncurtailWrapsDispatchFailureAsTransient(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockClient := mocks.NewMockAntminerClient(ctrl)
+	device := createTestDevice(t, mockClient, defaultStatus(), defaultTelemetry())
+	defer cleanupDevice(t, device, mockClient)
+
+	mockClient.EXPECT().StartMining(gomock.Any()).Return(assert.AnError)
+
+	err := device.Uncurtail(t.Context())
+
+	require.Error(t, err)
+	var sdkErr sdk.SDKError
+	require.True(t, errors.As(err, &sdkErr))
+	assert.Equal(t, sdk.ErrCodeCurtailTransient, sdkErr.Code)
+	assert.ErrorIs(t, err, assert.AnError)
 }
 
 func TestDevice_Reboot(t *testing.T) {

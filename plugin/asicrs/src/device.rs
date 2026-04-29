@@ -578,6 +578,25 @@ impl AsicRsDevice {
         Ok(())
     }
 
+    pub async fn uncurtail_full(&self) -> anyhow::Result<()> {
+        if *self.probed.lock().await {
+            self.require_cap(CAP_CURTAIL).await?;
+        }
+        let guard = self.connected_miner().await?;
+        self.require_cap(CAP_CURTAIL).await?;
+        let miner = guard.as_ref().unwrap();
+        let result = catch_panic(tokio::time::timeout(OP_TIMEOUT, miner.resume(None))).await?;
+        let ok = result
+            .map_err(|_| anyhow::anyhow!("uncurtail_full timed out"))?
+            .map_err(|e| anyhow::anyhow!("uncurtail_full failed: {e}"))?;
+        if !ok {
+            return Err(anyhow::anyhow!("uncurtail_full command returned false"));
+        }
+        drop(guard);
+        self.invalidate_cache().await;
+        Ok(())
+    }
+
     pub async fn reboot(&self) -> anyhow::Result<()> {
         let guard = self.connected_miner().await?;
         self.require_cap(CAP_REBOOT).await?;
@@ -1212,6 +1231,30 @@ mod tests {
 
         let err = device
             .curtail_full()
+            .await
+            .expect_err("expected curtail capability error");
+
+        assert!(err.to_string().contains("[unsupported] curtail"));
+    }
+
+    #[tokio::test]
+    async fn test_uncurtail_full_requires_curtail_capability() {
+        let mut caps = Capabilities::new();
+        caps.insert(CAP_MINING_START.into(), true);
+        caps.insert(CAP_CURTAIL.into(), false);
+        let device = AsicRsDevice::new(
+            "test".into(),
+            pb::DeviceInfo::default(),
+            caps,
+            None,
+            Duration::from_secs(5),
+            Arc::new(MinerFactory::new()),
+            None,
+        );
+        *device.probed.lock().await = true;
+
+        let err = device
+            .uncurtail_full()
             .await
             .expect_err("expected curtail capability error");
 

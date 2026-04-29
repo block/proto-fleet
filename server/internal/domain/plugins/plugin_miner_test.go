@@ -314,6 +314,36 @@ func TestPluginMiner_CurtailUnavailablePreservesTransientTaxonomy(t *testing.T) 
 	assert.Contains(t, err.Error(), "temporary transport outage")
 }
 
+func TestPluginMiner_CurtailSDKUnsupportedMapsUnimplemented(t *testing.T) {
+	pm, mockDevice := createTestPluginMiner()
+	mockDevice.curtailFunc = func(context.Context, sdk.CurtailLevel) error {
+		return sdk.NewErrCurtailCapabilityNotSupported("test-device", int32(sdk.CurtailLevelEfficiency))
+	}
+
+	err := pm.Curtail(t.Context(), sdk.CurtailLevelEfficiency)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsUnimplementedError(err))
+	assert.False(t, fleeterror.IsUnavailableError(err))
+	assert.Contains(t, err.Error(), "failed to curtail device")
+	assert.Contains(t, err.Error(), "curtail level")
+}
+
+func TestPluginMiner_CurtailSDKTransientMapsUnavailable(t *testing.T) {
+	pm, mockDevice := createTestPluginMiner()
+	mockDevice.curtailFunc = func(context.Context, sdk.CurtailLevel) error {
+		return sdk.NewErrCurtailTransient("test-device", errors.New("temporary transport outage"))
+	}
+
+	err := pm.Curtail(t.Context(), sdk.CurtailLevelFull)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsUnavailableError(err))
+	assert.False(t, fleeterror.IsUnimplementedError(err))
+	assert.Contains(t, err.Error(), "failed to curtail device")
+	assert.Contains(t, err.Error(), "transient curtail failure")
+}
+
 func TestPluginMiner_UncurtailReturnsUnimplementedWhenDeviceLacksCurtailment(t *testing.T) {
 	pm := createTestPluginMinerWithDevice(&mockSDKDeviceWithoutCurtailment{id: "test-device"})
 
@@ -337,6 +367,21 @@ func TestPluginMiner_UncurtailUnavailablePreservesTransientTaxonomy(t *testing.T
 	assert.False(t, fleeterror.IsUnimplementedError(err))
 	assert.Contains(t, err.Error(), "failed to uncurtail device")
 	assert.Contains(t, err.Error(), "temporary transport outage")
+}
+
+func TestPluginMiner_UncurtailSDKTransientMapsUnavailable(t *testing.T) {
+	pm, mockDevice := createTestPluginMiner()
+	mockDevice.uncurtailFunc = func(context.Context) error {
+		return sdk.NewErrCurtailTransient("test-device", errors.New("temporary transport outage"))
+	}
+
+	err := pm.Uncurtail(t.Context())
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsUnavailableError(err))
+	assert.False(t, fleeterror.IsUnimplementedError(err))
+	assert.Contains(t, err.Error(), "failed to uncurtail device")
+	assert.Contains(t, err.Error(), "transient curtail failure")
 }
 
 // mockLogSaver captures the rows passed to SaveLogs for assertion in tests.

@@ -16,6 +16,7 @@ package device
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -514,12 +515,29 @@ func (d *Device) Curtail(ctx context.Context, level sdk.CurtailLevel) error {
 	if level != sdk.CurtailLevelFull {
 		return sdk.NewErrCurtailCapabilityNotSupported(d.id, int32(level))
 	}
-	return d.StopMining(ctx)
+	if err := d.StopMining(ctx); err != nil {
+		return wrapCurtailDispatchError(d.id, err)
+	}
+	return nil
 }
 
 // Uncurtail restores mining via StartMining.
 func (d *Device) Uncurtail(ctx context.Context) error {
-	return d.StartMining(ctx)
+	if err := d.StartMining(ctx); err != nil {
+		return wrapCurtailDispatchError(d.id, err)
+	}
+	return nil
+}
+
+func wrapCurtailDispatchError(deviceID string, err error) error {
+	if err == nil {
+		return nil
+	}
+	var sdkErr sdk.SDKError
+	if errors.As(err, &sdkErr) || isAuthenticationError(err) || isDefaultPasswordError(err) {
+		return err
+	}
+	return sdk.NewErrCurtailTransient(deviceID, err)
 }
 
 // SetCoolingMode implements the SDK Device interface.
