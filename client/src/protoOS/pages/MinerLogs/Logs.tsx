@@ -210,6 +210,7 @@ const Logs = ({ logsData, fetchMaxLogs }: LogsProps) => {
                 <LogBadges
                   label={errorCount === 1 ? "error" : "errors"}
                   count={errorCount}
+                  testId="logs-error-badge"
                   className={clsx(
                     "text-text-critical",
                     {
@@ -225,6 +226,7 @@ const Logs = ({ logsData, fetchMaxLogs }: LogsProps) => {
                 <LogBadges
                   label={warningCount === 1 ? "warning" : "warnings"}
                   count={warningCount}
+                  testId="logs-warning-badge"
                   className={clsx(
                     "text-text-warning",
                     {
@@ -265,9 +267,12 @@ const Logs = ({ logsData, fetchMaxLogs }: LogsProps) => {
                   const isDebug = log.logType === logTypes.debug;
                   const isError = log.logType === logTypes.error;
                   const isWarning = log.logType === logTypes.warn;
+                  const normalizedLogType = isError ? "error" : isWarning ? "warn" : isDebug ? "debug" : "info";
                   return (
                     <div
                       key={line}
+                      data-testid="log-row"
+                      data-log-type={normalizedLogType}
                       className={clsx("mb-1 flex leading-6", {
                         "ml-[2px] text-text-primary-70": !isError && !isWarning && !isDebug,
                         "-ml-[16px] border-l-[2px] pl-4": isError || isWarning || isDebug,
@@ -285,7 +290,10 @@ const Logs = ({ logsData, fetchMaxLogs }: LogsProps) => {
                   );
                 })
               ) : (
-                <div className="flex h-[189px] w-full items-center justify-center rounded-2xl bg-core-primary-5">
+                <div
+                  data-testid="logs-empty-state"
+                  className="flex h-[189px] w-full items-center justify-center rounded-2xl bg-core-primary-5"
+                >
                   <div className="font-body text-heading-100 text-text-primary-50">{noResultsMessage}</div>
                 </div>
               )}
