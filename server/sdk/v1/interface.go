@@ -460,16 +460,13 @@ type DefaultCredentialsProvider interface {
 	GetDefaultCredentials(ctx context.Context, manufacturer, firmwareVersion string) []UsernamePassword
 }
 
-// ModelCapabilitiesProvider is an optional interface that drivers can implement
-// to provide model-specific capabilities. This allows plugins to report different
-// capabilities for different device models (e.g., Antminer S19 vs S21).
-// If a driver implements this interface, the server will call GetCapabilitiesForModel
-// with the device model to get model-specific capability overrides.
+// ModelCapabilitiesProvider returns per-(manufacturer, model) capability
+// overrides merged onto the driver's base caps. Manufacturer is the
+// firmware-derived display name so plugins like asicrs that handle
+// multiple firmware variants on the same hardware model (S21+Braiins
+// vs S21+VNish) can distinguish.
 type ModelCapabilitiesProvider interface {
-	// GetCapabilitiesForModel returns capability overrides for a specific device model.
-	// The returned capabilities will be merged with the base driver capabilities.
-	// Return nil to use only the base driver capabilities for this model.
-	GetCapabilitiesForModel(ctx context.Context, model string) Capabilities
+	GetCapabilitiesForModel(ctx context.Context, manufacturer, model string) Capabilities
 }
 
 // DiscoveryPortsProvider is an optional interface that drivers can implement
@@ -504,6 +501,7 @@ const (
 	CapabilityCoolingModeImmerse = "cooling_mode_immerse" // Immersion cooling mode support
 	CapabilityPoolConfig         = "pool_config"          // Pool configuration support
 	CapabilityPoolPriority       = "pool_priority"        // Pool priority support
+	CapabilityNativeStratumV2    = "native_stratum_v2"    // Firmware speaks Stratum V2 natively
 	CapabilityLogsDownload       = "logs_download"        // Device logs download support
 	//#nosec G101 -- Capability constant name, not actual credentials
 	CapabilityUpdateMinerPassword = "update_miner_password" // Update miner web UI password support

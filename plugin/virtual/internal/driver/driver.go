@@ -36,11 +36,14 @@ var defaultCredentials = []sdk.UsernamePassword{
 
 // Driver implements sdk.Driver for virtual miners.
 type Driver struct {
-	config     *config.Config
-	devices    map[string]sdk.Device
-	minersByIP map[string]*config.VirtualMinerConfig
-	mutex      sync.RWMutex
+	config         *config.Config
+	devices        map[string]sdk.Device
+	minersByIP     map[string]*config.VirtualMinerConfig
+	sv2ByMakeModel map[modelKey]bool
+	mutex          sync.RWMutex
 }
+
+type modelKey struct{ manufacturer, model string }
 
 // New creates a new virtual miner driver from the given config file path.
 func New(configPath string) (*Driver, error) {
@@ -51,18 +54,23 @@ func New(configPath string) (*Driver, error) {
 
 	// Index miners by IP address only (not port), since discovery may use different ports
 	minersByIP := make(map[string]*config.VirtualMinerConfig)
+	sv2ByMakeModel := make(map[modelKey]bool)
 	for i := range cfg.Miners {
 		miner := &cfg.Miners[i]
 		minersByIP[miner.IPAddress] = miner
+		if miner.StratumV2Supported {
+			sv2ByMakeModel[modelKey{miner.Manufacturer, miner.Model}] = true
+		}
 		slog.Info("Loaded virtual miner config", "serial", miner.SerialNumber, "ip", miner.IPAddress)
 	}
 
 	slog.Info("Virtual miner driver initialized", "miners", len(cfg.Miners))
 
 	return &Driver{
-		config:     cfg,
-		devices:    make(map[string]sdk.Device),
-		minersByIP: minersByIP,
+		config:         cfg,
+		devices:        make(map[string]sdk.Device),
+		minersByIP:     minersByIP,
+		sv2ByMakeModel: sv2ByMakeModel,
 	}, nil
 }
 
@@ -110,6 +118,16 @@ func (d *Driver) DescribeDriver(_ context.Context) (sdk.DriverIdentifier, sdk.Ca
 // GetDiscoveryPorts returns the canonical discovery port for virtual miners.
 func (d *Driver) GetDiscoveryPorts(_ context.Context) []string {
 	return []string{virtualDiscoveryPort}
+}
+
+// GetCapabilitiesForModel surfaces stratum_v2_supported from the matching
+// miner config so the SV2 gate sees per-profile support.
+func (d *Driver) GetCapabilitiesForModel(_ context.Context, manufacturer, model string) sdk.Capabilities {
+	caps := sdk.Capabilities{}
+	if d.sv2ByMakeModel[modelKey{manufacturer, model}] {
+		caps[sdk.CapabilityNativeStratumV2] = true
+	}
+	return caps
 }
 
 // DiscoverDevice implements sdk.Driver.

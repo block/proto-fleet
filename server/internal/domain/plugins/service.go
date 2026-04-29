@@ -135,7 +135,7 @@ func (s *Service) GetMinerCapabilitiesForDevice(ctx context.Context, device *pai
 	caps := plugin.Caps
 
 	if modelProvider, ok := plugin.Driver.(sdk.ModelCapabilitiesProvider); ok {
-		if modelCaps := modelProvider.GetCapabilitiesForModel(ctx, device.Model); modelCaps != nil {
+		if modelCaps := modelProvider.GetCapabilitiesForModel(ctx, device.Manufacturer, device.Model); modelCaps != nil {
 			caps = mergeCapabilities(caps, modelCaps)
 		}
 	}

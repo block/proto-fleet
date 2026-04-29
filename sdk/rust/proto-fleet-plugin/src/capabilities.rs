@@ -28,6 +28,7 @@ pub const CAP_UPDATE_MINING_POOLS: &str = "update_mining_pools";
 pub const CAP_GET_MINING_POOLS: &str = "get_mining_pools";
 pub const CAP_POOL_CONFIG: &str = "pool_config";
 pub const CAP_POOL_PRIORITY: &str = "pool_priority";
+pub const CAP_NATIVE_STRATUM_V2: &str = "native_stratum_v2"; // Firmware speaks SV2 natively
 pub const CAP_UPDATE_MINER_PASSWORD: &str = "update_miner_password";
 
 // Maintenance

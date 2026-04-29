@@ -234,6 +234,9 @@ message DeviceMetrics {
 
   // Firmware version reported by device during telemetry polling
   string firmware_version = 15;
+
+  reserved 16;
+  reserved "stratum_v2_support";
 }
 
 
@@ -388,9 +391,9 @@ message GetDefaultCredentialsResponse {
   repeated UsernamePassword credentials = 1; // List of credentials to try in order
 }
 
-// GetCapabilitiesForModelRequest requests model-specific capabilities
 message GetCapabilitiesForModelRequest {
-  string model = 1; // Device model (e.g., "Antminer S19", "Antminer S21")
+  string model = 1;
+  string manufacturer = 2;
 }
 
 // GetCapabilitiesForModelResponse returns model-specific capability overrides
