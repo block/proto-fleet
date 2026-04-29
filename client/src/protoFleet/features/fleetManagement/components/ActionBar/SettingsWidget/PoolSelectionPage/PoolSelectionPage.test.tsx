@@ -26,7 +26,7 @@ const mockPools = [
 ];
 
 const mockValidatePool = vi.fn(({ onSuccess, onFinally }) => {
-  onSuccess?.();
+  onSuccess?.({ credentialsVerified: true });
   onFinally?.();
 });
 const mockFetchPoolAssignments = vi.fn().mockResolvedValue([]);

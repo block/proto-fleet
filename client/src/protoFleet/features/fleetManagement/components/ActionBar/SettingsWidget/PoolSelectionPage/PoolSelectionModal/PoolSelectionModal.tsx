@@ -11,7 +11,7 @@ import Input from "@/shared/components/Input";
 import { emptyPoolInfo } from "@/shared/components/MiningPools/constants";
 import { fleetUsernameHelperText } from "@/shared/components/MiningPools/PoolForm/constants";
 import PoolModal from "@/shared/components/MiningPools/PoolModal";
-import { PoolInfo } from "@/shared/components/MiningPools/types";
+import { PoolConnectionTestProps, PoolInfo } from "@/shared/components/MiningPools/types";
 import Modal from "@/shared/components/Modal";
 import Radio from "@/shared/components/Radio";
 
@@ -80,6 +80,7 @@ const PoolSelectionModal = ({
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [showConnectionCallout, setShowConnectionCallout] = useState(false);
   const [connectionError, setConnectionError] = useState(false);
+  const [credentialsVerified, setCredentialsVerified] = useState(true);
 
   const { validatePool, createPool, miningPools } = usePools(isVisible);
 
@@ -136,8 +137,9 @@ const PoolSelectionModal = ({
         url: selectedPool.poolUrl,
         username: selectedPool.username,
       },
-      onSuccess: () => {
+      onSuccess: ({ credentialsVerified: verified }) => {
         setConnectionError(false);
+        setCredentialsVerified(verified);
       },
       onError: () => {
         setConnectionError(true);
@@ -187,12 +189,7 @@ const PoolSelectionModal = ({
     setNewPoolInfo([emptyPoolInfo]);
   };
 
-  const handleTestConnection = (args: {
-    poolInfo: PoolInfo;
-    onError?: (error?: string) => void;
-    onSuccess?: () => void;
-    onFinally?: () => void;
-  }) => {
+  const handleTestConnection = (args: PoolConnectionTestProps) => {
     setIsTestingConnection(true);
     validatePool({
       poolInfo: {
@@ -200,8 +197,8 @@ const PoolSelectionModal = ({
         username: args.poolInfo.username,
         password: args.poolInfo.password,
       },
-      onSuccess: () => {
-        args.onSuccess?.();
+      onSuccess: (result) => {
+        args.onSuccess?.(result);
       },
       onError: (error) => {
         args.onError?.(error);
@@ -262,7 +259,11 @@ const PoolSelectionModal = ({
           intent={intents.success}
           onDismiss={() => setShowConnectionCallout(false)}
           show={showSuccessCallout}
-          title="Pool connection successful"
+          title={
+            credentialsVerified
+              ? "Pool connection successful"
+              : "Pool endpoint identity verified, credentials not checked (SV2)"
+          }
           testId="pool-selection-modal-connection-success-callout"
         />
         <DismissibleCalloutWrapper

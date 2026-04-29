@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { poolInfoAttributes } from "../constants";
 import { PoolConnectionTestProps, PoolIndex, PoolInfo } from "../types";
-import { urlValidationErrors } from "./constants";
+import { urlValidationErrors, validateURLScheme } from "./constants";
 import { Info } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import { DismissibleCalloutWrapper, intents } from "@/shared/components/Callout";
@@ -61,9 +61,11 @@ const PoolForm = ({
         onError: () => {
           setError(true);
         },
-        onSuccess: () => {
+        onSuccess: ({ credentialsVerified }) => {
           pushToast({
-            message: "Mining pool connection successful",
+            message: credentialsVerified
+              ? "Mining pool connection successful"
+              : "Mining pool endpoint identity verified — credentials not checked (SV2)",
             status: TOAST_STATUSES.success,
           });
         },
@@ -88,9 +90,16 @@ const PoolForm = ({
       // e.g. "username 0"
       const infoKey = id.split(" ")[0];
       if (infoKey === poolInfoAttributes.url) {
+        const trimmed = value.trim();
+        let urlError: string | undefined;
+        if (!trimmed) {
+          urlError = urlValidationErrors.required;
+        } else {
+          urlError = validateURLScheme(trimmed);
+        }
         setValidationErrors({
           ...validationErrors,
-          url: value.trim() ? undefined : urlValidationErrors.required,
+          url: urlError,
         });
       }
       const poolsInfo = deepClone(pools);

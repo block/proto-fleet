@@ -224,7 +224,7 @@ describe("PoolSelectionModal", () => {
 
   test("shows success callout when test connection succeeds", async () => {
     mockValidatePool.mockImplementation(({ onSuccess, onFinally }) => {
-      onSuccess?.();
+      onSuccess?.({ credentialsVerified: true });
       onFinally?.();
     });
 
@@ -272,7 +272,7 @@ describe("PoolSelectionModal", () => {
 
   test("dismisses callout when selecting a different pool", async () => {
     mockValidatePool.mockImplementation(({ onSuccess, onFinally }) => {
-      onSuccess?.();
+      onSuccess?.({ credentialsVerified: true });
       onFinally?.();
     });
 

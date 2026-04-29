@@ -3,6 +3,7 @@ package pools
 import (
 	"context"
 	"testing"
+	"time"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
@@ -354,4 +355,38 @@ func TestActivityLogging_DeletePoolBestEffortPreFetch(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Empty(t, spy.events, "activity log should be skipped when pre-fetch fails")
+}
+
+func TestValidateConnection_SV2URLRejectsMissingPubkey(t *testing.T) {
+	// Arrange — without /PUBKEY in the path the URL would have slipped past
+	// the CEL rule (defensive: the service still must refuse rather than
+	// silently fall back to a meaningless TCP dial).
+	url := "stratum2+tcp://pool.example.com:3336"
+	svc := NewService(&stubPoolStore{}, stubTransactor{}, Config{Timeout: time.Second}, nil)
+
+	// Act
+	outcome, err := svc.ValidateConnection(testCtx(t), url, "anything", nil, nil)
+
+	// Assert
+	require.Error(t, err)
+	assert.False(t, outcome.Reachable)
+	assert.False(t, outcome.CredentialsVerified)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+}
+
+func TestValidateConnection_SV2URLHandshakeFailureSurfaces(t *testing.T) {
+	// Arrange — TEST-NET-1 (RFC 5737) address that won't respond. A short
+	// timeout keeps the test fast; pubkey is well-formed so the failure has
+	// to come from the handshake/dial, not validation.
+	pubkey := "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"
+	url := "stratum2+tcp://192.0.2.1:34254/" + pubkey
+	svc := NewService(&stubPoolStore{}, stubTransactor{}, Config{Timeout: 100 * time.Millisecond}, nil)
+
+	// Act
+	outcome, err := svc.ValidateConnection(testCtx(t), url, "anything", nil, nil)
+
+	// Assert
+	assert.False(t, outcome.Reachable)
+	assert.False(t, outcome.CredentialsVerified)
+	assert.Error(t, err)
 }

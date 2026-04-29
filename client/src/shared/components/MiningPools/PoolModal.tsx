@@ -1,7 +1,7 @@
 import { ReactNode, useCallback, useMemo, useState } from "react";
 
 import { poolInfoAttributes } from "./constants";
-import { poolNameValidationErrors, urlValidationErrors } from "./PoolForm/constants";
+import { poolNameValidationErrors, urlValidationErrors, validateURLScheme } from "./PoolForm/constants";
 import { PoolConnectionTestProps, PoolIndex, PoolInfo } from "./types";
 import { getPoolUsernameValidationError } from "./validation";
 
@@ -58,6 +58,7 @@ const PoolModal = ({
   const [urlError, setUrlError] = useState<string | undefined>();
   const [usernameError, setUsernameError] = useState<string | undefined>();
   const [showCallout, setShowCallout] = useState(false);
+  const [lastCredentialsVerified, setLastCredentialsVerified] = useState(true);
   const [error, setError] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isPasswordSet, setIsPasswordSet] = useState(false);
@@ -85,9 +86,16 @@ const PoolModal = ({
     () =>
       (!hidePoolName && !draftPoolInfo[poolIndex]?.name?.trim()) ||
       !draftPoolInfo[poolIndex]?.url?.trim() ||
-      (usernameRequired && !draftPoolInfo[poolIndex]?.username?.trim()),
-    [draftPoolInfo, poolIndex, hidePoolName, usernameRequired],
+      (usernameRequired && !draftPoolInfo[poolIndex]?.username?.trim()) ||
+      Boolean(poolNameError) ||
+      Boolean(urlError) ||
+      Boolean(usernameError),
+    [draftPoolInfo, poolIndex, hidePoolName, usernameRequired, poolNameError, urlError, usernameError],
   );
+
+  // Empty URL stays clickable so the click handler can surface the
+  // required-URL error inline.
+  const isTestConnectionDisabled = useMemo(() => Boolean(urlError), [urlError]);
 
   // Sync draft with incoming pools prop when parent updates it
   const [prevPools, setPrevPools] = useState(pools);
@@ -125,8 +133,13 @@ const PoolModal = ({
         setPoolNameError(undefined);
       }
 
-      if (infoKey === poolInfoAttributes.url && value.trim()) {
-        setUrlError(undefined);
+      if (infoKey === poolInfoAttributes.url) {
+        const trimmed = value.trim();
+        if (!trimmed) {
+          setUrlError(undefined);
+        } else {
+          setUrlError(validateURLScheme(trimmed));
+        }
       }
 
       if (infoKey === poolInfoAttributes.username && value.trim()) {
@@ -162,6 +175,12 @@ const PoolModal = ({
     if (!pool?.url?.trim()) {
       setUrlError(urlValidationErrors.required);
       hasError = true;
+    } else {
+      const schemeError = validateURLScheme(pool.url.trim());
+      if (schemeError) {
+        setUrlError(schemeError);
+        hasError = true;
+      }
     }
 
     const nextUsernameError = getPoolUsernameValidationError(pool?.username, {
@@ -226,8 +245,14 @@ const PoolModal = ({
   ]);
 
   const onTestConnection = useCallback(() => {
-    if (!draftPoolInfo[poolIndex].url.trim()) {
+    const url = draftPoolInfo[poolIndex].url.trim();
+    if (!url) {
       setUrlError(urlValidationErrors.required);
+      return;
+    }
+    const schemeError = validateURLScheme(url);
+    if (schemeError) {
+      setUrlError(schemeError);
       return;
     }
 
@@ -247,8 +272,9 @@ const PoolModal = ({
       onError: () => {
         setError(true);
       },
-      onSuccess: () => {
+      onSuccess: ({ credentialsVerified }) => {
         setError(false);
+        setLastCredentialsVerified(credentialsVerified);
       },
       onFinally: () => setShowCallout(true),
     });
@@ -271,6 +297,7 @@ const PoolModal = ({
       loading: isTestingConnection,
       variant: variants.secondary,
       className: "whitespace-nowrap overflow-clip",
+      disabled: isTestConnectionDisabled,
     },
     {
       text: "Save",
@@ -298,7 +325,11 @@ const PoolModal = ({
         intent={intents.success}
         onDismiss={() => setShowCallout(false)}
         show={showConnectedCallout}
-        title="Pool connection successful"
+        title={
+          lastCredentialsVerified
+            ? "Pool connection successful"
+            : "Pool endpoint identity verified — credentials not checked (SV2)"
+        }
         testId="pool-connected-callout"
       />
       <DismissibleCalloutWrapper

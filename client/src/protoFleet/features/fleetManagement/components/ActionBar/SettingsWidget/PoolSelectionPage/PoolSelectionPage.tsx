@@ -62,6 +62,7 @@ const PoolSelectionPage = ({
   const [testingPoolId, setTestingPoolId] = useState<string | null>(null);
   const [showConnectionCallout, setShowConnectionCallout] = useState(false);
   const [connectionError, setConnectionError] = useState(false);
+  const [credentialsVerified, setCredentialsVerified] = useState(true);
 
   const showSuccessCallout = useMemo(
     () => showConnectionCallout && !testingPoolId && !connectionError,
@@ -260,8 +261,9 @@ const PoolSelectionPage = ({
           url: pool.poolUrl,
           username: pool.username,
         },
-        onSuccess: () => {
+        onSuccess: ({ credentialsVerified: verified }) => {
           setConnectionError(false);
+          setCredentialsVerified(verified);
         },
         onError: () => {
           setConnectionError(true);
@@ -389,7 +391,11 @@ const PoolSelectionPage = ({
               intent={intents.success}
               onDismiss={() => setShowConnectionCallout(false)}
               show={showSuccessCallout}
-              title="Pool connection successful"
+              title={
+                credentialsVerified
+                  ? "Pool connection successful"
+                  : "Pool endpoint identity verified — credentials not checked (SV2)"
+              }
               testId="pool-selection-page-connection-success-callout"
             />
             <DismissibleCalloutWrapper
