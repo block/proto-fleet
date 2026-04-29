@@ -208,8 +208,6 @@ func (f fakeDriver) NewDevice(ctx context.Context, deviceID string, deviceInfo D
 type fakeDevice struct {
 	describeDeviceFunc      func(ctx context.Context) (DeviceInfo, Capabilities, error)
 	statusFunc              func(ctx context.Context) (DeviceMetrics, error)
-	curtailFunc             func(ctx context.Context, level CurtailLevel) error
-	uncurtailFunc           func(ctx context.Context) error
 	startMiningFunc         func(ctx context.Context) error
 	setCoolingModeFunc      func(ctx context.Context, mode CoolingMode) error
 	updateMinerPasswordFunc func(ctx context.Context, currentPassword, newPassword string) error
@@ -233,20 +231,29 @@ func (f fakeDevice) StartMining(ctx context.Context) error {
 	return nil
 }
 func (f fakeDevice) StopMining(ctx context.Context) error { return nil }
-func (f fakeDevice) Curtail(ctx context.Context, level CurtailLevel) error {
+func (f fakeDevice) BlinkLED(ctx context.Context) error   { return nil }
+func (f fakeDevice) Reboot(ctx context.Context) error     { return nil }
+
+type fakeCurtailingDevice struct {
+	fakeDevice
+	curtailFunc   func(ctx context.Context, level CurtailLevel) error
+	uncurtailFunc func(ctx context.Context) error
+}
+
+func (f fakeCurtailingDevice) Curtail(ctx context.Context, level CurtailLevel) error {
 	if f.curtailFunc != nil {
 		return f.curtailFunc(ctx, level)
 	}
 	return nil
 }
-func (f fakeDevice) Uncurtail(ctx context.Context) error {
+
+func (f fakeCurtailingDevice) Uncurtail(ctx context.Context) error {
 	if f.uncurtailFunc != nil {
 		return f.uncurtailFunc(ctx)
 	}
 	return nil
 }
-func (f fakeDevice) BlinkLED(ctx context.Context) error { return nil }
-func (f fakeDevice) Reboot(ctx context.Context) error   { return nil }
+
 func (f fakeDevice) SetCoolingMode(ctx context.Context, mode CoolingMode) error {
 	if f.setCoolingModeFunc != nil {
 		return f.setCoolingModeFunc(ctx, mode)
@@ -1073,7 +1080,7 @@ func TestSDKErrorToGRPCStatus_AllErrorCodes(t *testing.T) {
 }
 
 func TestDriverGRPCServer_CurtailMapsSDKErrorStatus(t *testing.T) {
-	device := fakeDevice{
+	device := fakeCurtailingDevice{
 		curtailFunc: func(_ context.Context, level CurtailLevel) error {
 			assert.Equal(t, CurtailLevelFull, level)
 			return NewErrCurtailCapabilityNotSupported("device-123", int32(level))
@@ -1095,7 +1102,7 @@ func TestDriverGRPCServer_CurtailMapsSDKErrorStatus(t *testing.T) {
 }
 
 func TestDriverGRPCServer_UncurtailMapsSDKErrorStatus(t *testing.T) {
-	device := fakeDevice{
+	device := fakeCurtailingDevice{
 		uncurtailFunc: func(_ context.Context) error {
 			return NewErrCurtailTransient("device-123", errors.New("temporary network failure"))
 		},
@@ -1110,6 +1117,37 @@ func TestDriverGRPCServer_UncurtailMapsSDKErrorStatus(t *testing.T) {
 	st, ok := status.FromError(err)
 	require.True(t, ok, "should be able to extract gRPC status from %v", err)
 	assert.Equal(t, codes.Unavailable, st.Code())
+}
+
+func TestDriverGRPCServer_CurtailReturnsUnimplementedWhenDeviceLacksCurtailment(t *testing.T) {
+	server := &DriverGRPCServer{
+		devices: map[string]Device{"device-123": fakeDevice{}},
+	}
+
+	_, err := server.Curtail(context.Background(), &pb.CurtailRequest{
+		Ref:   &pb.DeviceRef{DeviceId: "device-123"},
+		Level: pb.CurtailLevel_CURTAIL_LEVEL_FULL,
+	})
+
+	require.Error(t, err)
+	st, ok := status.FromError(err)
+	require.True(t, ok, "should be able to extract gRPC status from %v", err)
+	assert.Equal(t, codes.Unimplemented, st.Code())
+	assert.Contains(t, st.Message(), "device does not support curtailment")
+}
+
+func TestDriverGRPCServer_UncurtailReturnsUnimplementedWhenDeviceLacksCurtailment(t *testing.T) {
+	server := &DriverGRPCServer{
+		devices: map[string]Device{"device-123": fakeDevice{}},
+	}
+
+	_, err := server.Uncurtail(context.Background(), &pb.DeviceRef{DeviceId: "device-123"})
+
+	require.Error(t, err)
+	st, ok := status.FromError(err)
+	require.True(t, ok, "should be able to extract gRPC status from %v", err)
+	assert.Equal(t, codes.Unimplemented, st.Code())
+	assert.Contains(t, st.Message(), "device does not support curtailment")
 }
 
 // Sibling control RPCs (StartMining, SetCoolingMode, UpdateMinerPassword)

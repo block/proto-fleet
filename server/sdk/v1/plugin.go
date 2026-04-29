@@ -645,7 +645,12 @@ func (s *DriverGRPCServer) Curtail(ctx context.Context, req *pb.CurtailRequest) 
 		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.Ref.DeviceId))
 	}
 
-	err := device.Curtail(ctx, CurtailLevel(req.Level))
+	curtailer, ok := device.(DeviceCurtailment)
+	if !ok {
+		return nil, status.Error(codes.Unimplemented, "device does not support curtailment")
+	}
+
+	err := curtailer.Curtail(ctx, CurtailLevel(req.Level))
 	return &emptypb.Empty{}, sdkErrorToGRPCStatus(err)
 }
 
@@ -658,7 +663,12 @@ func (s *DriverGRPCServer) Uncurtail(ctx context.Context, req *pb.DeviceRef) (*e
 		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.DeviceId))
 	}
 
-	err := device.Uncurtail(ctx)
+	curtailer, ok := device.(DeviceCurtailment)
+	if !ok {
+		return nil, status.Error(codes.Unimplemented, "device does not support curtailment")
+	}
+
+	err := curtailer.Uncurtail(ctx)
 	return &emptypb.Empty{}, sdkErrorToGRPCStatus(err)
 }
 

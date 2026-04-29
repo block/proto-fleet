@@ -1,7 +1,8 @@
 package curtailment
 
 import (
-	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -9,6 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
+	"github.com/block/proto-fleet/server/generated/grpc/curtailment/v1/curtailmentv1connect"
+	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
 )
 
 // All v1 RPCs are stubbed; the contract for BE-1 is that every route is
@@ -17,8 +20,15 @@ import (
 func TestHandler_AllRPCsReturnUnimplemented(t *testing.T) {
 	t.Parallel()
 
-	h := NewHandler()
-	ctx := context.Background()
+	mux := http.NewServeMux()
+	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(
+		NewHandler(),
+		connect.WithInterceptors(interceptors.NewErrorMappingInterceptor()),
+	))
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+
+	client := curtailmentv1connect.NewCurtailmentServiceClient(http.DefaultClient, server.URL)
 
 	cases := []struct {
 		name string
@@ -27,42 +37,42 @@ func TestHandler_AllRPCsReturnUnimplemented(t *testing.T) {
 		{
 			"PreviewCurtailmentPlan",
 			func() error {
-				_, err := h.PreviewCurtailmentPlan(ctx, connect.NewRequest(&pb.PreviewCurtailmentPlanRequest{}))
+				_, err := client.PreviewCurtailmentPlan(t.Context(), connect.NewRequest(&pb.PreviewCurtailmentPlanRequest{}))
 				return err
 			},
 		},
 		{
 			"StartCurtailment",
 			func() error {
-				_, err := h.StartCurtailment(ctx, connect.NewRequest(&pb.StartCurtailmentRequest{}))
+				_, err := client.StartCurtailment(t.Context(), connect.NewRequest(&pb.StartCurtailmentRequest{}))
 				return err
 			},
 		},
 		{
 			"UpdateCurtailmentEvent",
 			func() error {
-				_, err := h.UpdateCurtailmentEvent(ctx, connect.NewRequest(&pb.UpdateCurtailmentEventRequest{}))
+				_, err := client.UpdateCurtailmentEvent(t.Context(), connect.NewRequest(&pb.UpdateCurtailmentEventRequest{}))
 				return err
 			},
 		},
 		{
 			"StopCurtailment",
 			func() error {
-				_, err := h.StopCurtailment(ctx, connect.NewRequest(&pb.StopCurtailmentRequest{}))
+				_, err := client.StopCurtailment(t.Context(), connect.NewRequest(&pb.StopCurtailmentRequest{}))
 				return err
 			},
 		},
 		{
 			"GetActiveCurtailment",
 			func() error {
-				_, err := h.GetActiveCurtailment(ctx, connect.NewRequest(&pb.GetActiveCurtailmentRequest{}))
+				_, err := client.GetActiveCurtailment(t.Context(), connect.NewRequest(&pb.GetActiveCurtailmentRequest{}))
 				return err
 			},
 		},
 		{
 			"ListCurtailmentEvents",
 			func() error {
-				_, err := h.ListCurtailmentEvents(ctx, connect.NewRequest(&pb.ListCurtailmentEventsRequest{}))
+				_, err := client.ListCurtailmentEvents(t.Context(), connect.NewRequest(&pb.ListCurtailmentEventsRequest{}))
 				return err
 			},
 		},

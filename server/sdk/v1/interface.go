@@ -380,14 +380,13 @@ type DeviceControl interface {
 	StopMining(ctx context.Context) error
 	BlinkLED(ctx context.Context) error
 	Reboot(ctx context.Context) error
+}
 
-	// Curtailment - required by plugins that report CapabilityCurtail.
-	// Plugins that do not implement curtailment should return
-	// ErrCurtailCapabilityNotSupported; capability gating in the server
-	// prevents Curtail dispatch to such miners.
-	//
-	// For v1, FULL is the only honored level; higher levels are reserved
-	// for v4 (see CurtailLevel).
+// DeviceCurtailment is an optional interface for devices that report
+// CapabilityCurtail. For v1, FULL is the only honored level; higher levels are
+// reserved for v4 (see CurtailLevel). Devices that do not support curtailment
+// should not implement this interface.
+type DeviceCurtailment interface {
 	Curtail(ctx context.Context, level CurtailLevel) error
 	Uncurtail(ctx context.Context) error
 }

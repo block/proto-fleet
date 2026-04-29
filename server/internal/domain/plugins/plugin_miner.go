@@ -214,7 +214,11 @@ func (p *PluginMiner) StopMining(ctx context.Context) error {
 // the curtailment domain treats unsupported-level errors as permanent
 // failures rather than retrying.
 func (p *PluginMiner) Curtail(ctx context.Context, level sdk.CurtailLevel) error {
-	if err := p.sdkDevice.Curtail(ctx, level); err != nil {
+	curtailer, ok := p.sdkDevice.(sdk.DeviceCurtailment)
+	if !ok {
+		return fleeterror.NewUnimplementedError("device does not support curtailment")
+	}
+	if err := curtailer.Curtail(ctx, level); err != nil {
 		return wrapPluginError(err, "failed to curtail device")
 	}
 	return nil
@@ -222,7 +226,11 @@ func (p *PluginMiner) Curtail(ctx context.Context, level sdk.CurtailLevel) error
 
 // Uncurtail implements interfaces.Miner.
 func (p *PluginMiner) Uncurtail(ctx context.Context) error {
-	if err := p.sdkDevice.Uncurtail(ctx); err != nil {
+	curtailer, ok := p.sdkDevice.(sdk.DeviceCurtailment)
+	if !ok {
+		return fleeterror.NewUnimplementedError("device does not support curtailment")
+	}
+	if err := curtailer.Uncurtail(ctx); err != nil {
 		return wrapPluginError(err, "failed to uncurtail device")
 	}
 	return nil

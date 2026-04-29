@@ -153,7 +153,7 @@ func (d *Device) Reboot(_ context.Context) error {
 	return nil
 }
 
-// Curtail implements sdk.DeviceControl. The virtual plugin honors FULL only;
+// Curtail implements sdk.DeviceCurtailment. The virtual plugin honors FULL only;
 // higher levels return ErrCurtailCapabilityNotSupported so reconciler tests
 // can exercise the unsupported-level branch.
 func (d *Device) Curtail(_ context.Context, level sdk.CurtailLevel) error {
@@ -171,7 +171,7 @@ func (d *Device) Curtail(_ context.Context, level sdk.CurtailLevel) error {
 	return nil
 }
 
-// Uncurtail implements sdk.DeviceControl. Restores mining if the miner was
+// Uncurtail implements sdk.DeviceCurtailment. Restores mining if the miner was
 // curtailed; otherwise a no-op so repeated uncurtail calls are safe.
 func (d *Device) Uncurtail(_ context.Context) error {
 	d.mutex.Lock()

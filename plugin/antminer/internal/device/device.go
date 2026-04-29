@@ -447,7 +447,7 @@ func (d *Device) StopMining(ctx context.Context) error {
 	return d.client.StopMining(ctx)
 }
 
-// Curtail implements the SDK Device interface. The antminer driver supports
+// Curtail implements the SDK DeviceCurtailment interface. The antminer driver supports
 // FULL curtailment by wrapping StopMining; higher levels are reserved for v4
 // and require vendor-specific underclock logic.
 func (d *Device) Curtail(ctx context.Context, level sdk.CurtailLevel) error {
@@ -465,7 +465,7 @@ func (d *Device) Curtail(ctx context.Context, level sdk.CurtailLevel) error {
 	return nil
 }
 
-// Uncurtail implements the SDK Device interface by wrapping StartMining.
+// Uncurtail implements the SDK DeviceCurtailment interface by wrapping StartMining.
 func (d *Device) Uncurtail(ctx context.Context) error {
 	if err := d.client.StartMining(ctx); err != nil {
 		return err

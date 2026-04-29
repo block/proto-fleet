@@ -510,7 +510,7 @@ func (d *Device) StopMining(ctx context.Context) error {
 	return nil
 }
 
-// Curtail implements the SDK Device interface. The proto driver supports
+// Curtail implements the SDK DeviceCurtailment interface. The proto driver supports
 // FULL curtailment by wrapping StopMining; higher levels are reserved for v4
 // and require vendor-specific underclock logic.
 func (d *Device) Curtail(ctx context.Context, level sdk.CurtailLevel) error {
@@ -520,7 +520,7 @@ func (d *Device) Curtail(ctx context.Context, level sdk.CurtailLevel) error {
 	return d.StopMining(ctx)
 }
 
-// Uncurtail implements the SDK Device interface by wrapping StartMining.
+// Uncurtail implements the SDK DeviceCurtailment interface by wrapping StartMining.
 func (d *Device) Uncurtail(ctx context.Context) error {
 	return d.StartMining(ctx)
 }
