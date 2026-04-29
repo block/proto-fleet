@@ -16,6 +16,7 @@ package device
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -178,6 +179,8 @@ func (d *Device) DescribeDevice(ctx context.Context) (sdk.DeviceInfo, sdk.Capabi
 		sdk.CapabilityFirmware:            true, // This device supports firmware updates
 		sdk.CapabilityPoolConfig:          true, // This device supports pool configuration
 		sdk.CapabilityUpdateMinerPassword: true, // This device supports updating web UI password
+		// FULL curtailment uses mining start/stop.
+		sdk.CapabilityCurtail: true,
 	}
 
 	// Get firmware version if not already set (requires authentication, so we do it here)
@@ -505,6 +508,39 @@ func (d *Device) StopMining(ctx context.Context) error {
 	d.lastStatus = nil
 
 	return nil
+}
+
+// Curtail implements FULL curtailment via StopMining.
+func (d *Device) Curtail(ctx context.Context, level sdk.CurtailLevel) error {
+	if level != sdk.CurtailLevelFull {
+		return sdk.NewErrCurtailCapabilityNotSupported(d.id, int32(level))
+	}
+	if err := d.StopMining(ctx); err != nil {
+		return wrapCurtailDispatchError(d.id, err)
+	}
+	return nil
+}
+
+// Uncurtail restores mining via StartMining.
+func (d *Device) Uncurtail(ctx context.Context) error {
+	if err := d.StartMining(ctx); err != nil {
+		return wrapCurtailDispatchError(d.id, err)
+	}
+	return nil
+}
+
+func wrapCurtailDispatchError(deviceID string, err error) error {
+	if err == nil {
+		return nil
+	}
+	var sdkErr sdk.SDKError
+	if errors.As(err, &sdkErr) || isDefaultPasswordError(err) {
+		return err
+	}
+	if isAuthenticationError(err) {
+		return sdk.NewErrorAuthenticationFailed(deviceID, err)
+	}
+	return sdk.NewErrCurtailTransient(deviceID, err)
 }
 
 // SetCoolingMode implements the SDK Device interface.

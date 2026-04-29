@@ -16,6 +16,9 @@ pub const CAP_MINING_STOP: &str = "mining_stop";
 pub const CAP_LED_BLINK: &str = "led_blink";
 pub const CAP_REBOOT: &str = "reboot";
 pub const CAP_FACTORY_RESET: &str = "factory_reset";
+pub const CAP_CURTAIL: &str = "curtail";
+pub const CAP_CURTAIL_EFFICIENCY: &str = "curtail_efficiency";
+pub const CAP_CURTAIL_PARTIAL: &str = "curtail_partial";
 
 // Configuration
 pub const CAP_SET_COOLING_MODE: &str = "set_cooling_mode";

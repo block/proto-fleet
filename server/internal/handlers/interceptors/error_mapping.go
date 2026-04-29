@@ -49,5 +49,10 @@ func mapError(err error) error {
 		return fleetErr.ConnectError()
 	}
 
+	var connectErr *connect.Error
+	if errors.As(err, &connectErr) {
+		return err
+	}
+
 	return fleeterror.NewInternalError(err.Error()).ConnectError()
 }

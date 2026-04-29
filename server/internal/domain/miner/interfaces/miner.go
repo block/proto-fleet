@@ -34,6 +34,10 @@ type Miner interface {
 	StartMining(ctx context.Context) error
 	StopMining(ctx context.Context) error
 
+	// v1 curtailment uses CurtailLevelFull with CapabilityCurtail; other levels are reserved.
+	Curtail(ctx context.Context, level sdk.CurtailLevel) error
+	Uncurtail(ctx context.Context) error
+
 	// Configuration operations
 	SetCoolingMode(ctx context.Context, payload dto.CoolingModePayload) error
 	GetCoolingMode(ctx context.Context) (commonpb.CoolingMode, error)

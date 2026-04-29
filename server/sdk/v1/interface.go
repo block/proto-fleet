@@ -242,6 +242,20 @@ const (
 	PerformanceModeEfficiency
 )
 
+// CurtailLevel mirrors curtailment.v1 CurtailmentLevel values.
+type CurtailLevel int32
+
+const (
+	// CurtailLevelUnspecified is unset.
+	CurtailLevelUnspecified CurtailLevel = 0
+	// CurtailLevelEfficiency is reserved for efficiency-mode curtailment.
+	CurtailLevelEfficiency CurtailLevel = 1
+	// CurtailLevelPartialPercent is reserved for partial-percent curtailment.
+	CurtailLevelPartialPercent CurtailLevel = 2
+	// CurtailLevelFull is the v1 full-shutdown level.
+	CurtailLevelFull CurtailLevel = 3
+)
+
 // APIKey represents API key authentication
 type APIKey struct {
 	Key string
@@ -362,6 +376,12 @@ type DeviceControl interface {
 	StopMining(ctx context.Context) error
 	BlinkLED(ctx context.Context) error
 	Reboot(ctx context.Context) error
+}
+
+// DeviceCurtailment is optional and should match reported curtail capabilities.
+type DeviceCurtailment interface {
+	Curtail(ctx context.Context, level CurtailLevel) error
+	Uncurtail(ctx context.Context) error
 }
 
 // DeviceConfiguration represents device configuration operations
@@ -510,6 +530,11 @@ const (
 
 	// Power mode capabilities
 	CapabilityPowerModeEfficiency = "power_mode_efficiency" // Efficiency/low power mode support
+
+	// Curtailment capabilities
+	CapabilityCurtail           = "curtail"            // Curtail/Uncurtail support (FULL level)
+	CapabilityCurtailEfficiency = "curtail_efficiency" // reserved (v4): efficiency-mode curtailment
+	CapabilityCurtailPartial    = "curtail_partial"    // reserved (v4): partial-percent curtailment
 
 	// Telemetry capabilities
 	CapabilityRealtimeTelemetry = "realtime_telemetry"    // Real-time telemetry support

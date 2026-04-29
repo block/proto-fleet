@@ -30,6 +30,9 @@ type Device struct {
 	performanceMode sdk.PerformanceMode
 	pools           []sdk.MiningPoolConfig
 
+	// curtailLevel is nonzero while telemetry should report inactive mining.
+	curtailLevel sdk.CurtailLevel
+
 	// Status caching
 	lastStatus   *sdk.DeviceMetrics
 	lastStatusAt time.Time
@@ -74,6 +77,8 @@ func (d *Device) DescribeDevice(_ context.Context) (sdk.DeviceInfo, sdk.Capabili
 		sdk.CapabilityPerBoardStats:     true,
 		sdk.CapabilityPSUStats:          true,
 		sdk.CapabilityRealtimeTelemetry: true,
+		// v1 advertises FULL curtailment only.
+		sdk.CapabilityCurtail: true,
 	}, nil
 }
 
@@ -143,6 +148,38 @@ func (d *Device) Reboot(_ context.Context) error {
 	// Immediately come back up (in a real scenario you might add a delay)
 	d.isMining = true
 
+	return nil
+}
+
+// Curtail honors FULL and rejects reserved levels.
+func (d *Device) Curtail(_ context.Context, level sdk.CurtailLevel) error {
+	if level != sdk.CurtailLevelFull {
+		return sdk.NewErrCurtailCapabilityNotSupported(d.id, int32(level))
+	}
+
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
+
+	d.curtailLevel = level
+	d.isMining = false
+	d.lastStatus = nil
+	slog.Info("Virtual miner curtailed", "device_id", d.id, "level", level)
+	return nil
+}
+
+// Uncurtail clears curtailment; duplicate calls are no-ops.
+func (d *Device) Uncurtail(_ context.Context) error {
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
+
+	if d.curtailLevel == sdk.CurtailLevelUnspecified {
+		slog.Info("Virtual miner uncurtail requested while not curtailed (no-op)", "device_id", d.id)
+		return nil
+	}
+	d.curtailLevel = sdk.CurtailLevelUnspecified
+	d.isMining = true
+	d.lastStatus = nil
+	slog.Info("Virtual miner uncurtailed", "device_id", d.id)
 	return nil
 }
 

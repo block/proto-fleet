@@ -204,6 +204,12 @@ type DeviceControl interface {
     Reboot(ctx context.Context) error
 }
 
+// DeviceCurtailment is optional and should match reported curtailment capabilities.
+type DeviceCurtailment interface {
+    Curtail(ctx context.Context, level CurtailLevel) error
+    Uncurtail(ctx context.Context) error
+}
+
 // DeviceConfiguration represents device configuration operations
 type DeviceConfiguration interface {
     // CoreV1 - Configuration methods (required)

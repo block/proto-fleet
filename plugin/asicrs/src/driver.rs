@@ -854,6 +854,42 @@ impl Driver for DriverService {
         Err(Status::unimplemented("update_miner_password not supported"))
     }
 
+    // --- Curtailment ---
+
+    // v1 supports FULL curtailment only.
+    async fn curtail(&self, req: Request<pb::CurtailRequest>) -> Result<Response<()>, Status> {
+        let req = req.into_inner();
+        let device_id = req
+            .r#ref
+            .as_ref()
+            .map(|r| &r.device_id)
+            .ok_or_else(|| Status::invalid_argument("Missing device ref"))?;
+        let level = pb::CurtailLevel::try_from(req.level).map_err(|_| {
+            Status::invalid_argument(format!("Unknown curtail level value: {}", req.level))
+        })?;
+        match level {
+            pb::CurtailLevel::Full => {
+                let device = self.get_device(device_id).await?;
+                device.curtail_full().await.map_err(device_err_to_status)?;
+                Ok(Response::new(()))
+            }
+            // Reject non-FULL levels before any device lookup.
+            _ => Err(Status::unimplemented(format!(
+                "curtail level {level:?} not supported by asicrs"
+            ))),
+        }
+    }
+
+    async fn uncurtail(&self, req: Request<pb::DeviceRef>) -> Result<Response<()>, Status> {
+        let device_id = req.into_inner().device_id;
+        let device = self.get_device(&device_id).await?;
+        device
+            .uncurtail_full()
+            .await
+            .map_err(device_err_to_status)?;
+        Ok(Response::new(()))
+    }
+
     // --- Telemetry ---
 
     async fn device_status(
@@ -1089,5 +1125,34 @@ miners:
         assert_eq!(canonical_port(crate::capabilities::FAMILY_BITAXE), 80);
         assert_eq!(canonical_port(crate::capabilities::FAMILY_NERDAXE), 80);
         assert_eq!(canonical_port(crate::capabilities::FAMILY_EPIC), 80);
+    }
+
+    // Non-FULL levels short-circuit before device lookup.
+    #[tokio::test]
+    async fn test_curtail_unspecified_level_returns_unimplemented() {
+        use tonic::Code;
+        let service = DriverService::new(config_from_yaml(TWO_FAMILY_CONFIG));
+        let req = Request::new(pb::CurtailRequest {
+            r#ref: Some(pb::DeviceRef {
+                device_id: "test-device".to_string(),
+            }),
+            level: pb::CurtailLevel::Unspecified as i32,
+        });
+        let err = service.curtail(req).await.expect_err("expected error");
+        assert_eq!(err.code(), Code::Unimplemented);
+    }
+
+    #[tokio::test]
+    async fn test_curtail_efficiency_level_returns_unimplemented() {
+        use tonic::Code;
+        let service = DriverService::new(config_from_yaml(TWO_FAMILY_CONFIG));
+        let req = Request::new(pb::CurtailRequest {
+            r#ref: Some(pb::DeviceRef {
+                device_id: "test-device".to_string(),
+            }),
+            level: pb::CurtailLevel::Efficiency as i32,
+        });
+        let err = service.curtail(req).await.expect_err("expected error");
+        assert_eq!(err.code(), Code::Unimplemented);
     }
 }

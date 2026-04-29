@@ -156,6 +156,16 @@ class DriverStub(object):
                 request_serializer=pb_dot_driver__pb2.UpdateMinerPasswordRequest.SerializeToString,
                 response_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
                 _registered_method=True)
+        self.Curtail = channel.unary_unary(
+                '/sdk.v1.Driver/Curtail',
+                request_serializer=pb_dot_driver__pb2.CurtailRequest.SerializeToString,
+                response_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+                _registered_method=True)
+        self.Uncurtail = channel.unary_unary(
+                '/sdk.v1.Driver/Uncurtail',
+                request_serializer=pb_dot_driver__pb2.DeviceRef.SerializeToString,
+                response_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+                _registered_method=True)
         self.DeviceStatus = channel.unary_unary(
                 '/sdk.v1.Driver/DeviceStatus',
                 request_serializer=pb_dot_driver__pb2.DeviceRef.SerializeToString,
@@ -344,6 +354,19 @@ class DriverServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def Curtail(self, request, context):
+        """Required for plugins that report any curtailment capability.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def Uncurtail(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def DeviceStatus(self, request, context):
         """CoreV1 - Base Telemetry - Required methods
         """
@@ -506,6 +529,16 @@ def add_DriverServicer_to_server(servicer, server):
             'UpdateMinerPassword': grpc.unary_unary_rpc_method_handler(
                     servicer.UpdateMinerPassword,
                     request_deserializer=pb_dot_driver__pb2.UpdateMinerPasswordRequest.FromString,
+                    response_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
+            ),
+            'Curtail': grpc.unary_unary_rpc_method_handler(
+                    servicer.Curtail,
+                    request_deserializer=pb_dot_driver__pb2.CurtailRequest.FromString,
+                    response_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
+            ),
+            'Uncurtail': grpc.unary_unary_rpc_method_handler(
+                    servicer.Uncurtail,
+                    request_deserializer=pb_dot_driver__pb2.DeviceRef.FromString,
                     response_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
             ),
             'DeviceStatus': grpc.unary_unary_rpc_method_handler(
@@ -1187,6 +1220,60 @@ class Driver(object):
             target,
             '/sdk.v1.Driver/UpdateMinerPassword',
             pb_dot_driver__pb2.UpdateMinerPasswordRequest.SerializeToString,
+            google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Curtail(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/sdk.v1.Driver/Curtail',
+            pb_dot_driver__pb2.CurtailRequest.SerializeToString,
+            google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def Uncurtail(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/sdk.v1.Driver/Uncurtail',
+            pb_dot_driver__pb2.DeviceRef.SerializeToString,
             google_dot_protobuf_dot_empty__pb2.Empty.FromString,
             options,
             channel_credentials,
