@@ -559,6 +559,25 @@ impl AsicRsDevice {
         Ok(())
     }
 
+    pub async fn curtail_full(&self) -> anyhow::Result<()> {
+        if *self.probed.lock().await {
+            self.require_cap(CAP_CURTAIL).await?;
+        }
+        let guard = self.connected_miner().await?;
+        self.require_cap(CAP_CURTAIL).await?;
+        let miner = guard.as_ref().unwrap();
+        let result = catch_panic(tokio::time::timeout(OP_TIMEOUT, miner.pause(None))).await?;
+        let ok = result
+            .map_err(|_| anyhow::anyhow!("curtail_full timed out"))?
+            .map_err(|e| anyhow::anyhow!("curtail_full failed: {e}"))?;
+        if !ok {
+            return Err(anyhow::anyhow!("curtail_full command returned false"));
+        }
+        drop(guard);
+        self.invalidate_cache().await;
+        Ok(())
+    }
+
     pub async fn reboot(&self) -> anyhow::Result<()> {
         let guard = self.connected_miner().await?;
         self.require_cap(CAP_REBOOT).await?;
@@ -1173,6 +1192,30 @@ mod tests {
         );
         assert!(device.require_cap(CAP_REBOOT).await.is_ok());
         assert!(device.require_cap(CAP_MINING_START).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_curtail_full_requires_curtail_capability() {
+        let mut caps = Capabilities::new();
+        caps.insert(CAP_MINING_STOP.into(), true);
+        caps.insert(CAP_CURTAIL.into(), false);
+        let device = AsicRsDevice::new(
+            "test".into(),
+            pb::DeviceInfo::default(),
+            caps,
+            None,
+            Duration::from_secs(5),
+            Arc::new(MinerFactory::new()),
+            None,
+        );
+        *device.probed.lock().await = true;
+
+        let err = device
+            .curtail_full()
+            .await
+            .expect_err("expected curtail capability error");
+
+        assert!(err.to_string().contains("[unsupported] curtail"));
     }
 
     // --- WriteAccessProbeStrategy::for_miner ---

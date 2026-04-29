@@ -872,7 +872,7 @@ impl Driver for DriverService {
         match level {
             pb::CurtailLevel::Full => {
                 let device = self.get_device(device_id).await?;
-                device.stop_mining().await.map_err(device_err_to_status)?;
+                device.curtail_full().await.map_err(device_err_to_status)?;
                 Ok(Response::new(()))
             }
             // Any non-FULL level (including Unspecified) is a permanent
