@@ -86,16 +86,9 @@ const PoolModal = ({
     () =>
       (!hidePoolName && !draftPoolInfo[poolIndex]?.name?.trim()) ||
       !draftPoolInfo[poolIndex]?.url?.trim() ||
-      (usernameRequired && !draftPoolInfo[poolIndex]?.username?.trim()) ||
-      Boolean(poolNameError) ||
-      Boolean(urlError) ||
-      Boolean(usernameError),
-    [draftPoolInfo, poolIndex, hidePoolName, usernameRequired, poolNameError, urlError, usernameError],
+      (usernameRequired && !draftPoolInfo[poolIndex]?.username?.trim()),
+    [draftPoolInfo, poolIndex, hidePoolName, usernameRequired],
   );
-
-  // Empty URL stays clickable so the click handler can surface the
-  // required-URL error inline.
-  const isTestConnectionDisabled = useMemo(() => Boolean(urlError), [urlError]);
 
   // Sync draft with incoming pools prop when parent updates it
   const [prevPools, setPrevPools] = useState(pools);
@@ -297,7 +290,6 @@ const PoolModal = ({
       loading: isTestingConnection,
       variant: variants.secondary,
       className: "whitespace-nowrap overflow-clip",
-      disabled: isTestConnectionDisabled,
     },
     {
       text: "Save",
