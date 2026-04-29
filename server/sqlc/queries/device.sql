@@ -382,7 +382,7 @@ SELECT DISTINCT dd.model
 FROM device d
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
-WHERE dp.pairing_status = 'PAIRED'
+WHERE dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED')
   AND d.deleted_at IS NULL
   AND d.org_id = $1
   AND dd.model IS NOT NULL
@@ -395,7 +395,7 @@ SELECT DISTINCT dd.firmware_version
 FROM device d
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
-WHERE dp.pairing_status = 'PAIRED'
+WHERE dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED')
   AND d.deleted_at IS NULL
   AND d.org_id = $1
   AND dd.is_active = TRUE
