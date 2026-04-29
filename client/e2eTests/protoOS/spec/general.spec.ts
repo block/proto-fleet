@@ -10,9 +10,20 @@ function getThemeColor(theme: "Light" | "Dark") {
 }
 
 test.describe("General settings", () => {
+  let originalMinerId: string | null | undefined;
+
   test.beforeEach(async ({ page, commonSteps }) => {
+    originalMinerId = undefined;
     await page.goto("/");
     await commonSteps.authenticateAsAdmin();
+  });
+
+  test.afterEach(async ({ generalPage }) => {
+    if (originalMinerId === undefined) {
+      return;
+    }
+
+    await generalPage.restoreMinerIdIfNeeded(originalMinerId);
   });
 
   test("Theme preference persists after reload", async ({ generalPage, commonSteps }) => {
@@ -47,7 +58,7 @@ test.describe("General settings", () => {
     const nextMinerId = generateRandomText("miner-id");
     await commonSteps.navigateToGeneralSettings();
 
-    const originalMinerId = await generalPage.getMinerId();
+    originalMinerId = await generalPage.getMinerId();
 
     await test.step("Save a new Miner ID", async () => {
       await generalPage.openMinerIdEditor();
@@ -56,10 +67,6 @@ test.describe("General settings", () => {
       await generalPage.saveMinerId();
       await generalPage.validateMinerIdSavedToast();
       await generalPage.validateMinerId(nextMinerId);
-    });
-
-    await test.step("Restore the original Miner ID when one already existed", async () => {
-      await generalPage.restoreMinerIdIfNeeded(originalMinerId);
     });
   });
 });
