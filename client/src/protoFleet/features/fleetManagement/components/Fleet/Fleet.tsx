@@ -95,11 +95,13 @@ const Fleet = () => {
     miners,
     totalMiners,
     hasMore,
+    isLoading,
     hasInitialLoadCompleted,
     refetch,
     refreshCurrentPage,
     updateMinerWorkerName,
     availableModels,
+    availableFirmwareVersions,
     currentPage,
     hasPreviousPage,
     goToNextPage,
@@ -228,6 +230,7 @@ const Fleet = () => {
           }}
           onAddMiners={() => setShowAddMinersModal(true)}
           loading={!hasInitialLoadCompleted}
+          isRefetching={Boolean(hasInitialLoadCompleted && isLoading)}
           pageSize={MINERS_PAGE_SIZE}
           currentPage={currentPage}
           hasPreviousPage={hasPreviousPage}
@@ -237,6 +240,7 @@ const Fleet = () => {
           currentSort={currentSort}
           onSort={handleSort}
           availableModels={availableModels}
+          availableFirmwareVersions={availableFirmwareVersions}
           availableGroups={availableGroups}
           availableRacks={availableRacks}
           currentFilter={currentFilter}

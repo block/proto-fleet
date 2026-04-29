@@ -6,11 +6,21 @@ import DropdownFilter, { type DropdownOption } from "./DropdownFilter";
 import { DismissTiny } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import { defaultListFilter } from "@/shared/components/List/constants";
-import { ActiveFilters, type FilterItem } from "@/shared/components/List/Filters/types";
+import { ActiveFilters, type DropdownFilterItem, type FilterItem } from "@/shared/components/List/Filters/types";
 
 type FilterProps<ItemType> = {
   className?: string;
   filterItems: FilterItem[];
+  /**
+   * Filters that participate in the active-pill row but have no standalone trigger
+   * in the bar (surfaced via the leadingControls slot, e.g. a meta-dropdown).
+   */
+  metaOnlyFilters?: DropdownFilterItem[];
+  /**
+   * Optional content rendered at the start of the filter bar, before the standalone
+   * filterItems. Used to host a meta-dropdown that exposes the full filter set.
+   */
+  leadingControls?: ReactNode;
   filterSize?: keyof typeof sizes;
   items: ItemType[];
   onFilter: (activeFilters: ActiveFilters) => void | Promise<void>;
@@ -26,6 +36,8 @@ type ActiveDropdownFilterItem = DropdownOption & {
 const Filters = <ItemType,>({
   className,
   filterItems,
+  metaOnlyFilters,
+  leadingControls,
   filterSize = sizes.compact,
   items,
   onFilter,
@@ -48,7 +60,25 @@ const Filters = <ItemType,>({
     onFilterRef.current = onFilter;
   }, [onFilter]);
 
+  // Sync internal state when initialActiveFilters changes (e.g., URL navigation from a
+  // sibling component). Uses the during-render derivation pattern so React reschedules cleanly.
+  // Skips the resulting onFilter call so the URL writer doesn't loop.
+  const initialActiveFiltersKey = useMemo(() => JSON.stringify(initialActiveFilters ?? null), [initialActiveFilters]);
+  const [prevSyncedKey, setPrevSyncedKey] = useState(initialActiveFiltersKey);
+  const skipNextOnFilterRef = useRef(false);
+  if (prevSyncedKey !== initialActiveFiltersKey) {
+    setPrevSyncedKey(initialActiveFiltersKey);
+    if (initialActiveFilters) {
+      skipNextOnFilterRef.current = true;
+      setActiveFilters(initialActiveFilters);
+    }
+  }
+
   useEffect(() => {
+    if (skipNextOnFilterRef.current) {
+      skipNextOnFilterRef.current = false;
+      return;
+    }
     onFilterRef.current(activeFilters);
   }, [activeFilters]);
 
@@ -96,30 +126,31 @@ const Filters = <ItemType,>({
     });
   };
 
-  // Derive active dropdown filter items from activeFilters - no need for separate state
+  // Derive active dropdown filter items from activeFilters - no need for separate state.
+  // metaOnlyFilters participate in the pill row even though they have no standalone trigger.
   const activeDropdownFilterItems = useMemo(() => {
     const items: ActiveDropdownFilterItem[] = [];
+    const dropdownSources: DropdownFilterItem[] = [
+      ...filterItems.filter((f): f is DropdownFilterItem => f.type === "dropdown"),
+      ...(metaOnlyFilters ?? []),
+    ];
 
-    filterItems.forEach((filter) => {
-      if (filter.type === "dropdown") {
-        const selectedIds = activeFilters.dropdownFilters[filter.value] || [];
-
-        // Only add items if there are selections (empty means no filtering)
-        if (selectedIds.length > 0) {
-          filter.options.forEach((option) => {
-            if (selectedIds.includes(option.id)) {
-              items.push({
-                ...option,
-                filterValue: filter.value,
-              });
-            }
-          });
-        }
+    dropdownSources.forEach((filter) => {
+      const selectedIds = activeFilters.dropdownFilters[filter.value] || [];
+      if (selectedIds.length > 0) {
+        filter.options.forEach((option) => {
+          if (selectedIds.includes(option.id)) {
+            items.push({
+              ...option,
+              filterValue: filter.value,
+            });
+          }
+        });
       }
     });
 
     return items;
-  }, [activeFilters.dropdownFilters, filterItems]);
+  }, [activeFilters.dropdownFilters, filterItems, metaOnlyFilters]);
 
   const handleRemoveDropdownFilter = useCallback(
     (optionId: string, filterValue: string) => {
@@ -141,6 +172,7 @@ const Filters = <ItemType,>({
     <div className={clsx("flex w-full flex-col gap-2", className)}>
       {/* Filter buttons row */}
       <div className="flex flex-row flex-wrap items-center gap-2">
+        {leadingControls}
         {filterItems.map((filter) => {
           if (filter.type === "button") {
             return (

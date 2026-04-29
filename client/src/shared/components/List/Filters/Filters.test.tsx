@@ -181,4 +181,54 @@ describe("Filters", () => {
       expect(screen.queryByText("Select all")).not.toBeInTheDocument();
     });
   });
+
+  it("renders pills for meta-only filters that have no standalone trigger", () => {
+    const handleFiltering = vi.fn();
+
+    const metaOnly = [
+      {
+        type: "dropdown" as const,
+        title: "Firmware",
+        value: "firmware",
+        options: [
+          { id: "v3.5.1", label: "v3.5.1" },
+          { id: "v3.5.2", label: "v3.5.2" },
+        ],
+        defaultOptionIds: [],
+      },
+    ];
+
+    render(
+      <Filters<TestItem>
+        filterItems={[]}
+        metaOnlyFilters={metaOnly}
+        items={testItems}
+        onFilter={handleFiltering}
+        initialActiveFilters={{
+          buttonFilters: [],
+          dropdownFilters: { firmware: ["v3.5.1"] },
+        }}
+      />,
+    );
+
+    // The pill renders the option label even though no standalone "Firmware" trigger exists in the bar.
+    expect(screen.getByTestId("active-filter-firmware-v3.5.1")).toBeInTheDocument();
+    // No standalone "Firmware" filter trigger.
+    expect(screen.queryByTestId("filter-dropdown-Firmware")).not.toBeInTheDocument();
+  });
+
+  it("renders leading controls before standalone filter triggers", () => {
+    const handleFiltering = vi.fn();
+
+    render(
+      <Filters<TestItem>
+        filterItems={[]}
+        leadingControls={<button data-testid="leading-slot">Filters</button>}
+        items={testItems}
+        onFilter={handleFiltering}
+      />,
+    );
+
+    expect(screen.getByTestId("leading-slot")).toBeInTheDocument();
+  });
 });

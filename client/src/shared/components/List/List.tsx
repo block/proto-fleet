@@ -34,7 +34,7 @@ import { CSS } from "@dnd-kit/utilities";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Checkbox from "@/shared/components/Checkbox";
 import Filters from "@/shared/components/List/Filters";
-import { ActiveFilters, FilterItem } from "@/shared/components/List/Filters/types";
+import { ActiveFilters, type DropdownFilterItem, FilterItem } from "@/shared/components/List/Filters/types";
 import ListActions from "@/shared/components/List/ListActions";
 import {
   ColConfig,
@@ -141,6 +141,16 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
   colTitles: ColTitles<ColKey>;
   colConfig: ColConfig<ListItem, ItemKeyValueType, ColKey>;
   filters?: FilterItem[];
+  /**
+   * Filters that participate in the active-pill row but have no standalone trigger
+   * in the bar (surfaced via filtersLeadingControls, e.g. a meta-dropdown).
+   */
+  metaOnlyFilters?: DropdownFilterItem[];
+  /**
+   * Optional content rendered at the start of the filter bar (before standalone filters).
+   * Use to host a meta-dropdown that exposes filters not present as standalone triggers.
+   */
+  filtersLeadingControls?: ReactNode;
   filterItem?: (item: ListItem, filters: ActiveFilters) => boolean;
   onServerFilter?: (filters: ActiveFilters) => Promise<void>;
   filterSize?: keyof typeof sizes;
@@ -217,6 +227,11 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
    * Whether the list is currently loading more items.
    */
   isLoadingMore?: boolean;
+  /**
+   * Dims the table area and disables pointer events on rows while a refetch is in flight.
+   * The filter bar stays interactive so the user can keep adjusting filters.
+   */
+  tableLoading?: boolean;
   /**
    * Optional callback to determine if a specific row should be disabled.
    * Disabled rows are greyed out and cannot be selected.
@@ -658,10 +673,13 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   colTitles,
   colConfig,
   filters,
+  metaOnlyFilters,
+  filtersLeadingControls,
   filterItem,
   onServerFilter,
   filterSize = sizes.compact,
   headerControls,
+  tableLoading = false,
   initialSelectedItems = [],
   customSetSelectedItems,
   customSelectedItems,
@@ -1119,11 +1137,12 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   );
 
   const filtersElement =
-    filters?.length || headerControls ? (
+    filters?.length || metaOnlyFilters?.length || headerControls || filtersLeadingControls ? (
       <Filters<ListItem>
-        key={JSON.stringify(initialActiveFilters ?? null)}
         className={clsx("gap-4 py-6", paddingClasses)}
         filterItems={filters ?? []}
+        metaOnlyFilters={metaOnlyFilters}
+        leadingControls={filtersLeadingControls}
         filterSize={filterSize}
         items={items}
         onFilter={isServerSideFiltering ? handleServerFiltering : handleClientFiltering}
@@ -1353,7 +1372,13 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
       <div style={paddingCssVariables} className="sticky left-0 z-3">
         {filtersElement}
       </div>
-      <div style={paddingCssVariables}>
+      <div
+        style={paddingCssVariables}
+        className={clsx({
+          "pointer-events-none opacity-60 transition-opacity duration-200": tableLoading,
+        })}
+        aria-busy={tableLoading || undefined}
+      >
         {!hideTotal && total !== undefined ? (
           <div className="sticky left-0 flex">
             <div className={clsx("sticky left-0 pb-4 text-emphasis-300 text-text-primary-70", paddingClasses)}>

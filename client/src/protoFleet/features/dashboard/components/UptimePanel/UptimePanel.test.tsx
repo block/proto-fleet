@@ -145,6 +145,6 @@ describe("UptimePanel", () => {
     expect(mockNavigate).toHaveBeenCalledTimes(1);
     const url = new URL(mockNavigate.mock.calls[0][0], "http://dummy");
     expect(url.pathname).toBe("/miners");
-    expect(url.searchParams.get("status")?.split(",").sort()).toEqual(["offline", "sleeping"]);
+    expect(url.searchParams.getAll("status").sort()).toEqual(["offline", "sleeping"]);
   });
 });
