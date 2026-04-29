@@ -61,9 +61,11 @@ const PoolForm = ({
         onError: () => {
           setError(true);
         },
-        onSuccess: () => {
+        onSuccess: ({ credentialsVerified }) => {
           pushToast({
-            message: "Mining pool connection successful",
+            message: credentialsVerified
+              ? "Mining pool connection successful"
+              : "Mining pool endpoint identity verified — credentials not checked (SV2)",
             status: TOAST_STATUSES.success,
           });
         },

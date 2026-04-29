@@ -106,6 +106,10 @@ interface UpdateMiningPoolsProps {
   userPassword: string;
   onSuccess: (value: UpdateMiningPoolsResponse) => void;
   onError?: (error: string) => void;
+  // Called when the request succeeded but some miners were excluded
+  // from the dispatch (e.g. SV2 incompatibility). Distinct from onError
+  // — the batch is real and partially fulfilled.
+  onPartialSuccess?: (warning: string) => void;
 }
 
 interface SetPowerTargetProps {
@@ -278,7 +282,15 @@ const useMinerCommand = () => {
   );
 
   const updateMiningPools = useCallback(
-    async ({ deviceSelector, poolConfig, userUsername, userPassword, onSuccess, onError }: UpdateMiningPoolsProps) => {
+    async ({
+      deviceSelector,
+      poolConfig,
+      userUsername,
+      userPassword,
+      onSuccess,
+      onError,
+      onPartialSuccess,
+    }: UpdateMiningPoolsProps) => {
       const createPoolSlotConfig = (source: PoolSlotSource): PoolSlotConfig => {
         if (source.type === "poolId") {
           return create(PoolSlotConfigSchema, {
@@ -309,8 +321,8 @@ const useMinerCommand = () => {
         .updateMiningPools(updateMiningPoolsRequest)
         .then((response) => {
           onSuccess(response);
-          const message = formatPoolAssignmentSkips(response.skips);
-          if (message) onError?.(message);
+          const warning = formatPoolAssignmentSkips(response.skips);
+          if (warning) onPartialSuccess?.(warning);
         })
         .catch((err) => {
           handleAuthErrors({

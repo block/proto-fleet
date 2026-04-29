@@ -58,6 +58,7 @@ const PoolModal = ({
   const [urlError, setUrlError] = useState<string | undefined>();
   const [usernameError, setUsernameError] = useState<string | undefined>();
   const [showCallout, setShowCallout] = useState(false);
+  const [lastCredentialsVerified, setLastCredentialsVerified] = useState(true);
   const [error, setError] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isPasswordSet, setIsPasswordSet] = useState(false);
@@ -271,8 +272,9 @@ const PoolModal = ({
       onError: () => {
         setError(true);
       },
-      onSuccess: () => {
+      onSuccess: ({ credentialsVerified }) => {
         setError(false);
+        setLastCredentialsVerified(credentialsVerified);
       },
       onFinally: () => setShowCallout(true),
     });
@@ -323,7 +325,11 @@ const PoolModal = ({
         intent={intents.success}
         onDismiss={() => setShowCallout(false)}
         show={showConnectedCallout}
-        title="Pool connection successful"
+        title={
+          lastCredentialsVerified
+            ? "Pool connection successful"
+            : "Pool endpoint identity verified — credentials not checked (SV2)"
+        }
         testId="pool-connected-callout"
       />
       <DismissibleCalloutWrapper

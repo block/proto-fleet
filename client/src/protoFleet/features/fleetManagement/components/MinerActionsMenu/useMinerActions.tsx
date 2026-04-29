@@ -629,6 +629,16 @@ export const useMinerActions = ({
     [onActionComplete],
   );
 
+  // Partial-success: the batch was created and at least some miners
+  // were updated; surface the skip summary as a non-error notification.
+  const handleMiningPoolWarning = useCallback((warning: string) => {
+    pushToast({
+      message: warning,
+      status: TOAST_STATUSES.success,
+      longRunning: true,
+    });
+  }, []);
+
   const handleManagePowerConfirm = useCallback(
     (performanceMode: PerformanceMode) => {
       const selectorToUse = filteredSelectorForPowerModal ?? deviceSelector;
@@ -1551,6 +1561,7 @@ export const useMinerActions = ({
     displayCount,
     handleMiningPoolSuccess,
     handleMiningPoolError,
+    handleMiningPoolWarning,
     showPoolSelectionPage,
     poolFilteredDeviceIds,
     fleetCredentials,

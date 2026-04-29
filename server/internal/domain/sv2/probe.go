@@ -88,9 +88,17 @@ func isSupportedScheme(raw string) bool {
 // Bitcoin alphabet — used by Braiins V2 to encode the authority pubkey.
 const base58Alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
 
+// SRI's longest legitimate authority key is 38 bytes (1 version + 1 prefix +
+// 32 X-coord + 4 checksum), which encodes to ~52 base58 chars. Reject
+// anything materially longer rather than spending CPU on attacker input.
+const maxBase58Len = 80
+
 func decodeBase58(s string) ([]byte, error) {
 	if s == "" {
 		return nil, fmt.Errorf("empty input")
+	}
+	if len(s) > maxBase58Len {
+		return nil, fmt.Errorf("base58 input too long: %d > %d", len(s), maxBase58Len)
 	}
 	leadingZeros := 0
 	for _, c := range s {
@@ -99,23 +107,29 @@ func decodeBase58(s string) ([]byte, error) {
 		}
 		leadingZeros++
 	}
-	num := make([]byte, 0, len(s))
+	// Pre-size the working buffer once. log2(58)/8 ≈ 0.7325, +1 for rounding.
+	// Multiply right-to-left into the fixed buffer; no per-char reallocations.
+	capacity := len(s)*733/1000 + 1
+	buf := make([]byte, capacity)
+	written := 0
 	for _, c := range s {
 		idx := strings.IndexRune(base58Alphabet, c)
 		if idx < 0 {
 			return nil, fmt.Errorf("invalid base58 character %q", c)
 		}
 		carry := idx
-		for i := len(num) - 1; i >= 0; i-- {
-			carry += int(num[i]) * 58
-			num[i] = byte(carry & 0xff)
+		for i := capacity - 1; i >= capacity-written; i-- {
+			carry += int(buf[i]) * 58
+			buf[i] = byte(carry & 0xff)
 			carry >>= 8
 		}
 		for carry > 0 {
-			num = append([]byte{byte(carry & 0xff)}, num...)
+			written++
+			buf[capacity-written] = byte(carry & 0xff)
 			carry >>= 8
 		}
 	}
+	num := buf[capacity-written:]
 	out := make([]byte, leadingZeros+len(num))
 	copy(out[leadingZeros:], num)
 	return out, nil

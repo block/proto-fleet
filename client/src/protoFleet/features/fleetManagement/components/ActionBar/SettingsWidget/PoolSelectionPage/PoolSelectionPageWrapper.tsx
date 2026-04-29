@@ -18,6 +18,9 @@ interface PoolSelectionPageWrapperProps {
   userPassword?: string;
   onSuccess: (batchIdentifier: string) => void;
   onError?: (error: string) => void;
+  // Partial-success: the request succeeded but some miners were
+  // excluded (e.g. SV2 incompatibility). Distinct from onError.
+  onWarning?: (warning: string) => void;
   onDismiss: () => void;
 }
 
@@ -31,6 +34,7 @@ const PoolSelectionPageWrapper = ({
   userPassword,
   onSuccess,
   onError,
+  onWarning,
   onDismiss: onDismiss,
 }: PoolSelectionPageWrapperProps) => {
   const { updateMiningPools } = useMinerCommand();
@@ -61,6 +65,9 @@ const PoolSelectionPageWrapper = ({
         console.error("Failed to assign pools:", error);
         onError?.(error);
         onDismiss();
+      },
+      onPartialSuccess: (warning) => {
+        onWarning?.(warning);
       },
     });
   };

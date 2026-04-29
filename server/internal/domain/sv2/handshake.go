@@ -173,9 +173,11 @@ type handshakeState struct {
 }
 
 func newHandshakeState() *handshakeState {
-	s := &handshakeState{ck: noiseProtocolHash}
-	s.h = sha256.Sum256(s.ck[:])
-	return s
+	// Noise framework spec: when the protocol name's SHA-256 is used as
+	// the chaining key, h is initialized to that same hash. Don't double-
+	// hash here — that would make the transcript diverge from a
+	// conforming SV2 peer on the first message.
+	return &handshakeState{ck: noiseProtocolHash, h: noiseProtocolHash}
 }
 
 func (s *handshakeState) mixHash(data []byte) {

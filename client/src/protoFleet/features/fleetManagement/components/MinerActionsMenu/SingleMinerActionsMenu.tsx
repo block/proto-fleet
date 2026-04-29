@@ -83,6 +83,7 @@ const SingleMinerActionsMenu = ({
     handleCancel,
     handleMiningPoolSuccess,
     handleMiningPoolError,
+    handleMiningPoolWarning,
     showPoolSelectionPage,
     fleetCredentials,
     showManagePowerModal,
@@ -409,6 +410,7 @@ const SingleMinerActionsMenu = ({
         fleetCredentials={fleetCredentials}
         handleMiningPoolSuccess={handleMiningPoolSuccess}
         handleMiningPoolError={handleMiningPoolError}
+        handleMiningPoolWarning={handleMiningPoolWarning}
         handleCancel={handleCancel}
         showManagePowerModal={showManagePowerModal}
         handleManagePowerConfirm={handleManagePowerConfirm}
@@ -470,6 +472,7 @@ type SingleMinerActionsMenuInnerProps = {
   fleetCredentials: { username: string; password: string } | undefined;
   handleMiningPoolSuccess: (batchIdentifier: string) => void;
   handleMiningPoolError: (error: string) => void;
+  handleMiningPoolWarning: (warning: string) => void;
   handleCancel: () => void;
   showManagePowerModal: boolean;
   handleManagePowerConfirm: (performanceMode: PerformanceMode) => void;
@@ -516,6 +519,7 @@ const SingleMinerActionsMenuInner = ({
   fleetCredentials,
   handleMiningPoolSuccess,
   handleMiningPoolError,
+  handleMiningPoolWarning,
   handleCancel,
   showManagePowerModal,
   handleManagePowerConfirm,
@@ -637,6 +641,7 @@ const SingleMinerActionsMenuInner = ({
         userPassword={fleetCredentials?.password}
         onSuccess={handleMiningPoolSuccess}
         onError={handleMiningPoolError}
+        onWarning={handleMiningPoolWarning}
         onDismiss={handleCancel}
       />
       <RenameMinerDialog
