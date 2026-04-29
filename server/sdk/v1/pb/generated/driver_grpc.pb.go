@@ -93,6 +93,7 @@ type DriverClient interface {
 	UpdateMinerPassword(ctx context.Context, in *UpdateMinerPasswordRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// Required for plugins that report any curtailment capability.
 	Curtail(ctx context.Context, in *CurtailRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	// Restore a previously curtailed device to normal operation.
 	Uncurtail(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// CoreV1 - Base Telemetry - Required methods
 	DeviceStatus(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*DeviceMetrics, error)
@@ -464,6 +465,7 @@ type DriverServer interface {
 	UpdateMinerPassword(context.Context, *UpdateMinerPasswordRequest) (*emptypb.Empty, error)
 	// Required for plugins that report any curtailment capability.
 	Curtail(context.Context, *CurtailRequest) (*emptypb.Empty, error)
+	// Restore a previously curtailed device to normal operation.
 	Uncurtail(context.Context, *DeviceRef) (*emptypb.Empty, error)
 	// CoreV1 - Base Telemetry - Required methods
 	DeviceStatus(context.Context, *DeviceRef) (*DeviceMetrics, error)

@@ -362,7 +362,8 @@ class DriverServicer(object):
         raise NotImplementedError('Method not implemented!')
 
     def Uncurtail(self, request, context):
-        """Missing associated documentation comment in .proto file."""
+        """Restore a previously curtailed device to normal operation.
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')

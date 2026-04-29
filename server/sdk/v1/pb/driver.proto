@@ -648,6 +648,7 @@ service Driver {
 
   // Required for plugins that report any curtailment capability.
   rpc Curtail(CurtailRequest) returns (google.protobuf.Empty);
+  // Restore a previously curtailed device to normal operation.
   rpc Uncurtail(DeviceRef) returns (google.protobuf.Empty);
 
   // CoreV1 - Base Telemetry - Required methods

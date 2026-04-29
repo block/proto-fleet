@@ -304,6 +304,11 @@ message PreviewCurtailmentPlanRequest {
         message: "mode_params must match mode (FIXED_KW=1 -> fixed_kw, FIXED_PERCENT=2 -> fixed_percent)"
         expression: "(this.mode == 1 && has(this.fixed_kw)) || (this.mode == 2 && has(this.fixed_percent))"
     };
+    option (buf.validate.message).cel = {
+        id: "maintenance_force_required"
+        message: "force_include_maintenance must be true when include_maintenance is true"
+        expression: "!this.include_maintenance || this.force_include_maintenance"
+    };
 
     oneof scope {
         ScopeWholeOrg   whole_org           = 1;
@@ -383,6 +388,11 @@ message StartCurtailmentRequest {
         id: "mode_params_match_mode"
         message: "mode_params must match mode (FIXED_KW=1 -> fixed_kw, FIXED_PERCENT=2 -> fixed_percent)"
         expression: "(this.mode == 1 && has(this.fixed_kw)) || (this.mode == 2 && has(this.fixed_percent))"
+    };
+    option (buf.validate.message).cel = {
+        id: "maintenance_force_required"
+        message: "force_include_maintenance must be true when include_maintenance is true"
+        expression: "!this.include_maintenance || this.force_include_maintenance"
     };
 
     oneof scope {

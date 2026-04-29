@@ -96,8 +96,8 @@ pub fn static_base_capabilities() -> Capabilities {
 
 /// Optimistic driver-level capabilities returned by DescribeDriver.
 /// Control/config caps are set to true because the plugin supports these
-/// operations in general — per-model overrides from GetCapabilitiesForModel
-/// and per-device require_cap() checks provide the accurate gatekeeping.
+/// operations in general. Curtailment stays model-probed because it requires
+/// both pause and resume support.
 pub fn driver_base_capabilities() -> Capabilities {
     let mut caps = static_base_capabilities();
     for &key in PROBED_CAPS {
@@ -108,13 +108,12 @@ pub fn driver_base_capabilities() -> Capabilities {
 
 /// Control and configuration caps that vary per miner model.
 /// Probed from the live miner by probe_capabilities(); set optimistically
-/// by driver_base_capabilities() for the driver-level default.
+/// by driver_base_capabilities() for the driver-level default when safe.
 const PROBED_CAPS: &[&str] = &[
     CAP_REBOOT,
     CAP_LED_BLINK,
     CAP_MINING_START,
     CAP_MINING_STOP,
-    CAP_CURTAIL,
     CAP_POOL_CONFIG,
     CAP_POOL_PRIORITY,
     CAP_GET_MINING_POOLS,
@@ -383,10 +382,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_driver_base_capabilities_advertise_full_curtail_only() {
+    fn test_driver_base_capabilities_do_not_advertise_model_dependent_curtail() {
         let caps = driver_base_capabilities();
 
-        assert_eq!(caps.get(CAP_CURTAIL), Some(&true));
+        assert_eq!(caps.get(CAP_CURTAIL), Some(&false));
         assert_eq!(caps.get(CAP_CURTAIL_EFFICIENCY), Some(&false));
         assert_eq!(caps.get(CAP_CURTAIL_PARTIAL), Some(&false));
     }

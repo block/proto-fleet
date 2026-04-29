@@ -89,7 +89,7 @@ func TestHandler_AllRPCsReturnUnimplemented(t *testing.T) {
 	}
 }
 
-func TestHandler_PriorityValidation(t *testing.T) {
+func TestHandler_RequestValidation(t *testing.T) {
 	t.Parallel()
 
 	client := newValidationTestClient(t)
@@ -122,6 +122,36 @@ func TestHandler_PriorityValidation(t *testing.T) {
 		assert.Equal(t, connect.CodeInvalidArgument, connectErr.Code())
 	})
 
+	t.Run("Preview rejects maintenance inclusion without force", func(t *testing.T) {
+		t.Parallel()
+
+		req := validPreviewCurtailmentPlanRequest(pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL)
+		req.IncludeMaintenance = true
+		req.ForceIncludeMaintenance = false
+
+		_, err := client.PreviewCurtailmentPlan(t.Context(), connect.NewRequest(req))
+
+		require.Error(t, err)
+		var connectErr *connect.Error
+		require.ErrorAs(t, err, &connectErr)
+		assert.Equal(t, connect.CodeInvalidArgument, connectErr.Code())
+	})
+
+	t.Run("Preview accepts maintenance inclusion with force and reaches handler", func(t *testing.T) {
+		t.Parallel()
+
+		req := validPreviewCurtailmentPlanRequest(pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL)
+		req.IncludeMaintenance = true
+		req.ForceIncludeMaintenance = true
+
+		_, err := client.PreviewCurtailmentPlan(t.Context(), connect.NewRequest(req))
+
+		require.Error(t, err)
+		var connectErr *connect.Error
+		require.ErrorAs(t, err, &connectErr)
+		assert.Equal(t, connect.CodeUnimplemented, connectErr.Code())
+	})
+
 	t.Run("Start rejects HIGH", func(t *testing.T) {
 		t.Parallel()
 
@@ -134,6 +164,36 @@ func TestHandler_PriorityValidation(t *testing.T) {
 		var connectErr *connect.Error
 		require.ErrorAs(t, err, &connectErr)
 		assert.Equal(t, connect.CodeInvalidArgument, connectErr.Code())
+	})
+
+	t.Run("Start rejects maintenance inclusion without force", func(t *testing.T) {
+		t.Parallel()
+
+		req := validStartCurtailmentRequest(pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL)
+		req.IncludeMaintenance = true
+		req.ForceIncludeMaintenance = false
+
+		_, err := client.StartCurtailment(t.Context(), connect.NewRequest(req))
+
+		require.Error(t, err)
+		var connectErr *connect.Error
+		require.ErrorAs(t, err, &connectErr)
+		assert.Equal(t, connect.CodeInvalidArgument, connectErr.Code())
+	})
+
+	t.Run("Start accepts maintenance inclusion with force and reaches handler", func(t *testing.T) {
+		t.Parallel()
+
+		req := validStartCurtailmentRequest(pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL)
+		req.IncludeMaintenance = true
+		req.ForceIncludeMaintenance = true
+
+		_, err := client.StartCurtailment(t.Context(), connect.NewRequest(req))
+
+		require.Error(t, err)
+		var connectErr *connect.Error
+		require.ErrorAs(t, err, &connectErr)
+		assert.Equal(t, connect.CodeUnimplemented, connectErr.Code())
 	})
 }
 
