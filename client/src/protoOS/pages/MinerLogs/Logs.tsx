@@ -207,36 +207,40 @@ const Logs = ({ logsData, fetchMaxLogs }: LogsProps) => {
                 />
               </div>
               <div className="flex items-center space-x-4">
-                <LogBadges
-                  label={errorCount === 1 ? "error" : "errors"}
-                  count={errorCount}
-                  className={clsx(
-                    "text-text-critical",
-                    {
-                      "border-transparent bg-intent-critical-10": filterByLogType?.includes(logTypes.error),
-                    },
-                    {
-                      "border-intent-critical-10": !filterByLogType?.includes(logTypes.error),
-                    },
-                  )}
-                  selected={filterByLogType?.includes(logTypes.error) || false}
-                  onClick={createToggleFilter(logTypes.error)}
-                />
-                <LogBadges
-                  label={warningCount === 1 ? "warning" : "warnings"}
-                  count={warningCount}
-                  className={clsx(
-                    "text-text-warning",
-                    {
-                      "border-transparent bg-intent-warning-10": filterByLogType?.includes(logTypes.warn),
-                    },
-                    {
-                      "border-intent-warning-10": !filterByLogType?.includes(logTypes.warn),
-                    },
-                  )}
-                  selected={filterByLogType?.includes(logTypes.warn) || false}
-                  onClick={createToggleFilter(logTypes.warn)}
-                />
+                <div data-testid="logs-error-filter">
+                  <LogBadges
+                    label={errorCount === 1 ? "error" : "errors"}
+                    count={errorCount}
+                    className={clsx(
+                      "text-text-critical",
+                      {
+                        "border-transparent bg-intent-critical-10": filterByLogType?.includes(logTypes.error),
+                      },
+                      {
+                        "border-intent-critical-10": !filterByLogType?.includes(logTypes.error),
+                      },
+                    )}
+                    selected={filterByLogType?.includes(logTypes.error) || false}
+                    onClick={createToggleFilter(logTypes.error)}
+                  />
+                </div>
+                <div data-testid="logs-warning-filter">
+                  <LogBadges
+                    label={warningCount === 1 ? "warning" : "warnings"}
+                    count={warningCount}
+                    className={clsx(
+                      "text-text-warning",
+                      {
+                        "border-transparent bg-intent-warning-10": filterByLogType?.includes(logTypes.warn),
+                      },
+                      {
+                        "border-intent-warning-10": !filterByLogType?.includes(logTypes.warn),
+                      },
+                    )}
+                    selected={filterByLogType?.includes(logTypes.warn) || false}
+                    onClick={createToggleFilter(logTypes.warn)}
+                  />
+                </div>
                 <Button
                   size={sizes.compact}
                   variant={variants.secondary}
@@ -268,6 +272,8 @@ const Logs = ({ logsData, fetchMaxLogs }: LogsProps) => {
                   return (
                     <div
                       key={line}
+                      data-testid="log-row"
+                      data-log-type={log.logType}
                       className={clsx("mb-1 flex leading-6", {
                         "ml-[2px] text-text-primary-70": !isError && !isWarning && !isDebug,
                         "-ml-[16px] border-l-[2px] pl-4": isError || isWarning || isDebug,
@@ -285,7 +291,10 @@ const Logs = ({ logsData, fetchMaxLogs }: LogsProps) => {
                   );
                 })
               ) : (
-                <div className="flex h-[189px] w-full items-center justify-center rounded-2xl bg-core-primary-5">
+                <div
+                  data-testid="logs-empty-state"
+                  className="flex h-[189px] w-full items-center justify-center rounded-2xl bg-core-primary-5"
+                >
                   <div className="font-body text-heading-100 text-text-primary-50">{noResultsMessage}</div>
                 </div>
               )}
