@@ -3,19 +3,46 @@ import { BasePage } from "./base";
 
 type ThemeLabel = "System" | "Light" | "Dark";
 type ThemeColor = "light" | "dark";
-type MinerIdState = "missing" | "existing";
+
+type ProtoOsApi = {
+  getSystemTag: () => Promise<{ data: unknown }>;
+  deleteSystemTag: () => Promise<void>;
+};
 
 export class GeneralPage extends BasePage {
-  private async getMinerIdState(): Promise<MinerIdState> {
-    const editButton = this.page.getByTestId("edit-details-button");
+  private async getSystemTagFromApi(): Promise<string | null> {
+    return this.page.evaluate(async () => {
+      const protoOsWindow = window as Window & { api?: ProtoOsApi };
+      if (!protoOsWindow.api) {
+        throw new Error("ProtoOS API is not available on window");
+      }
 
-    try {
-      await editButton.waitFor({ state: "visible", timeout: 3000 });
-      return "existing";
-    } catch {
-      await this.page.getByTestId("add-miner-id").waitFor({ state: "visible" });
-      return "missing";
-    }
+      try {
+        const response = await protoOsWindow.api.getSystemTag();
+        if (typeof response.data === "string") {
+          return response.data.trim() || null;
+        }
+
+        return JSON.stringify(response.data);
+      } catch (error: unknown) {
+        if ((error as { status?: number })?.status === 404) {
+          return null;
+        }
+
+        throw error;
+      }
+    });
+  }
+
+  private async deleteSystemTagViaApi() {
+    await this.page.evaluate(async () => {
+      const protoOsWindow = window as Window & { api?: ProtoOsApi };
+      if (!protoOsWindow.api) {
+        throw new Error("ProtoOS API is not available on window");
+      }
+
+      await protoOsWindow.api.deleteSystemTag();
+    });
   }
 
   async clickThemeButton() {
@@ -43,7 +70,7 @@ export class GeneralPage extends BasePage {
   }
 
   async getSelectedTheme(): Promise<ThemeLabel> {
-    const theme = await this.page.getByTestId("theme-button").innerText();
+    const theme = (await this.page.getByTestId("theme-button").innerText()).trim();
 
     if (theme === "System" || theme === "Light" || theme === "Dark") {
       return theme;
@@ -73,19 +100,17 @@ export class GeneralPage extends BasePage {
   }
 
   async getMinerId(): Promise<string | null> {
-    if ((await this.getMinerIdState()) === "missing") {
-      return null;
-    }
-
-    return (await this.page.getByTestId("miner-id-value").innerText()).trim();
+    return this.getSystemTagFromApi();
   }
 
   async openMinerIdEditor() {
-    if ((await this.getMinerIdState()) === "existing") {
+    if (await this.getSystemTagFromApi()) {
+      await this.page.getByTestId("edit-details-button").waitFor({ state: "visible" });
       await this.page.getByTestId("edit-details-button").click();
       return;
     }
 
+    await this.page.getByTestId("add-miner-id").waitFor({ state: "visible" });
     await this.page.getByTestId("add-miner-id").click();
   }
 
@@ -111,15 +136,18 @@ export class GeneralPage extends BasePage {
   }
 
   async restoreMinerIdIfNeeded(originalMinerId: string | null) {
-    if (!originalMinerId) {
+    if (originalMinerId) {
+      await this.openMinerIdEditor();
+      await this.validateMinerIdModalOpened();
+      await this.inputMinerId(originalMinerId);
+      await this.saveMinerId();
+      await this.validateMinerIdSavedToast();
+      await this.validateMinerId(originalMinerId);
       return;
     }
 
-    await this.openMinerIdEditor();
-    await this.validateMinerIdModalOpened();
-    await this.inputMinerId(originalMinerId);
-    await this.saveMinerId();
-    await this.validateMinerIdSavedToast();
-    await this.validateMinerId(originalMinerId);
+    await this.deleteSystemTagViaApi();
+    await this.reloadPage();
+    await this.page.getByTestId("add-miner-id").waitFor({ state: "visible" });
   }
 }

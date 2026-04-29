@@ -14,19 +14,24 @@ export class BasePage {
     await expect(this.page.getByTestId("power-button")).toBeVisible();
   }
 
+  private getPageTitleLocator(expectedTitle: string) {
+    return this.page.locator('[class*="text-heading"]').getByText(expectedTitle, { exact: true });
+  }
+
+  private getModalTitleLocator(expectedTitle: string) {
+    return this.page.getByTestId("modal").locator('[class*="text-heading"]').getByText(expectedTitle, { exact: true });
+  }
+
   async validateTitle(expectedTitle: string) {
-    const titleLocator = this.page.getByText(expectedTitle, { exact: true });
-    await expect(titleLocator).toBeVisible();
+    await expect(this.getPageTitleLocator(expectedTitle)).toBeVisible();
   }
 
   async validateTitleInModal(expectedTitle: string) {
-    const titleLocator = this.page.getByTestId("modal").getByText(expectedTitle, { exact: true });
-    await expect(titleLocator).toBeVisible();
+    await expect(this.getModalTitleLocator(expectedTitle)).toBeVisible();
   }
 
   async validateTitleNotVisible(expectedTitle: string) {
-    const titleLocator = this.page.getByText(expectedTitle, { exact: true });
-    await expect(titleLocator).toBeHidden();
+    await expect(this.getPageTitleLocator(expectedTitle)).toBeHidden();
   }
 
   async validateTextIsVisible(text: string) {
