@@ -212,7 +212,7 @@ type fakeDevice struct {
 	uncurtailFunc           func(ctx context.Context) error
 	startMiningFunc         func(ctx context.Context) error
 	setCoolingModeFunc      func(ctx context.Context, mode CoolingMode) error
-	updateMinerPasswordFunc func(ctx context.Context, current, new string) error
+	updateMinerPasswordFunc func(ctx context.Context, currentPassword, newPassword string) error
 }
 
 func (f fakeDevice) ID() string { return "device-123" }
