@@ -21,31 +21,41 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+const errDeviceDoesNotSupportCurtailment = "device does not support curtailment"
+
+func grpcStatusError(label string, code codes.Code, message string) error {
+	return fmt.Errorf("%s: %w", label, status.Error(code, message))
+}
+
 // Helper function to convert SDK errors to gRPC status errors
 func sdkErrorToGRPCStatus(err error) error {
+	if err == nil {
+		return nil
+	}
+
 	var sdkErr SDKError
 	if errors.As(err, &sdkErr) {
 		switch sdkErr.Code {
 		case ErrCodeDeviceNotFound:
-			return fmt.Errorf("device not found: %w", status.Error(codes.NotFound, sdkErr.Message))
+			return grpcStatusError("device not found", codes.NotFound, sdkErr.Message)
 		case ErrCodeUnsupportedCapability:
-			return fmt.Errorf("unsupported capability: %w", status.Error(codes.Unimplemented, sdkErr.Message))
+			return grpcStatusError("unsupported capability", codes.Unimplemented, sdkErr.Message)
 		case ErrCodeCurtailCapabilityNotSupported:
 			// Permanent: report as Unimplemented to avoid retries.
-			return fmt.Errorf("curtail capability not supported: %w", status.Error(codes.Unimplemented, sdkErr.Message))
+			return grpcStatusError("curtail capability not supported", codes.Unimplemented, sdkErr.Message)
 		case ErrCodeInvalidConfig:
-			return fmt.Errorf("invalid config: %w", status.Error(codes.InvalidArgument, sdkErr.Message))
+			return grpcStatusError("invalid config", codes.InvalidArgument, sdkErr.Message)
 		case ErrCodeDeviceUnavailable:
-			return fmt.Errorf("device unavailable: %w", status.Error(codes.Unavailable, sdkErr.Message))
+			return grpcStatusError("device unavailable", codes.Unavailable, sdkErr.Message)
 		case ErrCodeCurtailTransient:
 			// Retryable: map to Unavailable.
-			return fmt.Errorf("curtail transient failure: %w", status.Error(codes.Unavailable, sdkErr.Message))
+			return grpcStatusError("curtail transient failure", codes.Unavailable, sdkErr.Message)
 		case ErrCodeDriverShutdown:
-			return fmt.Errorf("driver shutdown: %w", status.Error(codes.Aborted, sdkErr.Message))
+			return grpcStatusError("driver shutdown", codes.Aborted, sdkErr.Message)
 		case ErrCodeAuthenticationFailed:
-			return fmt.Errorf("authentication failed: %w", status.Error(codes.Unauthenticated, sdkErr.Message))
+			return grpcStatusError("authentication failed", codes.Unauthenticated, sdkErr.Message)
 		default:
-			return fmt.Errorf("internal error: %w", status.Error(codes.Internal, sdkErr.Message))
+			return grpcStatusError("internal error", codes.Internal, sdkErr.Message)
 		}
 	}
 	return err
@@ -633,7 +643,7 @@ func (s *DriverGRPCServer) UpdateMinerPassword(ctx context.Context, req *pb.Upda
 
 func (s *DriverGRPCServer) Curtail(ctx context.Context, req *pb.CurtailRequest) (*emptypb.Empty, error) {
 	if req.Ref == nil {
-		return nil, fmt.Errorf("missing device ref: %w", status.Error(codes.InvalidArgument, "missing device ref"))
+		return nil, grpcStatusError("missing device ref", codes.InvalidArgument, "missing device ref")
 	}
 	s.mu.RLock()
 	device, exists := s.devices[req.Ref.DeviceId]
@@ -645,7 +655,7 @@ func (s *DriverGRPCServer) Curtail(ctx context.Context, req *pb.CurtailRequest) 
 
 	curtailer, ok := device.(DeviceCurtailment)
 	if !ok {
-		return nil, fmt.Errorf("device does not support curtailment: %w", status.Error(codes.Unimplemented, "device does not support curtailment"))
+		return nil, grpcStatusError(errDeviceDoesNotSupportCurtailment, codes.Unimplemented, errDeviceDoesNotSupportCurtailment)
 	}
 
 	err := curtailer.Curtail(ctx, CurtailLevel(req.Level))
@@ -663,7 +673,7 @@ func (s *DriverGRPCServer) Uncurtail(ctx context.Context, req *pb.DeviceRef) (*e
 
 	curtailer, ok := device.(DeviceCurtailment)
 	if !ok {
-		return nil, fmt.Errorf("device does not support curtailment: %w", status.Error(codes.Unimplemented, "device does not support curtailment"))
+		return nil, grpcStatusError(errDeviceDoesNotSupportCurtailment, codes.Unimplemented, errDeviceDoesNotSupportCurtailment)
 	}
 
 	err := curtailer.Uncurtail(ctx)

@@ -595,6 +595,7 @@ func wrapPluginError(err error, format string, a ...any) error {
 }
 
 // wrapCurtailmentPluginError preserves Unavailable for retryable dispatches.
+// wrapPluginError maps Unavailable to Internal for legacy control RPCs.
 func wrapCurtailmentPluginError(err error, format string, a ...any) error {
 	if err == nil {
 		return nil

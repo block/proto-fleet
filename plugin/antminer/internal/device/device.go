@@ -447,6 +447,13 @@ func (d *Device) StopMining(ctx context.Context) error {
 	return d.client.StopMining(ctx)
 }
 
+func (d *Device) invalidateStatusCache() {
+	d.statusMutex.Lock()
+	defer d.statusMutex.Unlock()
+	d.lastStatus = nil
+	d.lastStatusAt = time.Time{}
+}
+
 // Curtail implements FULL curtailment via StopMining.
 func (d *Device) Curtail(ctx context.Context, level sdk.CurtailLevel) error {
 	if level != sdk.CurtailLevelFull {
@@ -456,10 +463,7 @@ func (d *Device) Curtail(ctx context.Context, level sdk.CurtailLevel) error {
 		return err
 	}
 
-	d.statusMutex.Lock()
-	defer d.statusMutex.Unlock()
-	d.lastStatus = nil
-	d.lastStatusAt = time.Time{}
+	d.invalidateStatusCache()
 	return nil
 }
 
@@ -469,10 +473,7 @@ func (d *Device) Uncurtail(ctx context.Context) error {
 		return err
 	}
 
-	d.statusMutex.Lock()
-	defer d.statusMutex.Unlock()
-	d.lastStatus = nil
-	d.lastStatusAt = time.Time{}
+	d.invalidateStatusCache()
 	return nil
 }
 
