@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"os"
 	"time"
@@ -150,7 +151,11 @@ func HandshakeProbe(ctx context.Context, stratumURL string, authorityKey []byte,
 		return false, fmt.Errorf("decode responder static pubkey: %w", err)
 	}
 
-	if err := verifySignatureNoiseMessage(signatureMsg, respStaticXOnly, authorityXOnly, uint32(time.Now().Unix())); err != nil {
+	now, err := unixSecondsAsUint32(time.Now())
+	if err != nil {
+		return false, err
+	}
+	if err := verifySignatureNoiseMessage(signatureMsg, respStaticXOnly, authorityXOnly, now); err != nil {
 		return false, fmt.Errorf("verify pool authority signature: %w", err)
 	}
 	return true, nil
@@ -225,7 +230,7 @@ func (s *handshakeState) decryptAndHash(ciphertext []byte) ([]byte, error) {
 func aeadEncrypt(key [32]byte, nonce uint64, ad, plaintext []byte) ([]byte, error) {
 	aead, err := chacha20poly1305.New(key[:])
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("chacha20poly1305 init: %w", err)
 	}
 	return aead.Seal(nil, noiseNonce(nonce), plaintext, ad), nil
 }
@@ -233,9 +238,13 @@ func aeadEncrypt(key [32]byte, nonce uint64, ad, plaintext []byte) ([]byte, erro
 func aeadDecrypt(key [32]byte, nonce uint64, ad, ciphertext []byte) ([]byte, error) {
 	aead, err := chacha20poly1305.New(key[:])
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("chacha20poly1305 init: %w", err)
 	}
-	return aead.Open(nil, noiseNonce(nonce), ciphertext, ad)
+	pt, err := aead.Open(nil, noiseNonce(nonce), ciphertext, ad)
+	if err != nil {
+		return nil, fmt.Errorf("aead open: %w", err)
+	}
+	return pt, nil
 }
 
 // noiseNonce builds the 12-byte ChaCha20-Poly1305 nonce: 4 zero bytes
@@ -328,8 +337,23 @@ func ellswiftXOnly(enc [ellswiftEncodingSize]byte) (*btcec.PublicKey, error) {
 	}
 	x, err := ellswift.XSwiftEC(&u, &t)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ellswift decode: %w", err)
 	}
 	xBytes := x.Bytes()
-	return schnorr.ParsePubKey(xBytes[:])
+	pk, err := schnorr.ParsePubKey(xBytes[:])
+	if err != nil {
+		return nil, fmt.Errorf("schnorr parse pubkey: %w", err)
+	}
+	return pk, nil
+}
+
+// unixSecondsAsUint32 narrows a time.Time to the SV2 SignatureNoiseMessage's
+// 4-byte epoch-seconds slot. Year-2106 problem aside, no real clock should
+// reach this branch.
+func unixSecondsAsUint32(t time.Time) (uint32, error) {
+	secs := t.Unix()
+	if secs < 0 || secs > math.MaxUint32 {
+		return 0, fmt.Errorf("clock %v out of uint32 epoch-seconds range", t)
+	}
+	return uint32(secs), nil
 }

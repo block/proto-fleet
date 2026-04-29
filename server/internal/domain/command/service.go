@@ -1054,17 +1054,17 @@ func anySV2(slots []preflight.SlotAssignment) bool {
 	return false
 }
 
-// formatMinerType renders make/model as a human-readable type label.
-// Falls back to "unknown type" when both are empty so the toast never
-// reads "Incompatible types: , ".
-func formatMinerType(make, model string) string {
-	make = strings.TrimSpace(make)
+// formatMinerType renders manufacturer/model as a human-readable type
+// label. Falls back to "unknown type" when both are empty so the toast
+// never reads "Incompatible types: , ".
+func formatMinerType(manufacturer, model string) string {
+	manufacturer = strings.TrimSpace(manufacturer)
 	model = strings.TrimSpace(model)
 	switch {
-	case make != "" && model != "":
-		return make + " " + model
-	case make != "":
-		return make
+	case manufacturer != "" && model != "":
+		return manufacturer + " " + model
+	case manufacturer != "":
+		return manufacturer
 	case model != "":
 		return model
 	default:

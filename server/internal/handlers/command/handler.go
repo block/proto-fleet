@@ -3,6 +3,7 @@ package command
 import (
 	"context"
 	"log/slog"
+	"math"
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 
@@ -99,12 +100,25 @@ func (h *Handler) UpdateMiningPools(
 	resp := &pb.UpdateMiningPoolsResponse{BatchIdentifier: result.BatchIdentifier}
 	if result.SV2Skips != nil {
 		resp.Skips = &pb.PoolAssignmentSkips{
-			SkippedCount:      int32(result.SV2Skips.SkippedCount),
-			SelectedCount:     int32(result.SV2Skips.SelectedCount),
+			SkippedCount:      clampToInt32(result.SV2Skips.SkippedCount),
+			SelectedCount:     clampToInt32(result.SV2Skips.SelectedCount),
 			IncompatibleTypes: result.SV2Skips.IncompatibleTypes,
 		}
 	}
 	return connect.NewResponse(resp), nil
+}
+
+// clampToInt32 saturates an int to int32. Device counts in real fleets
+// are well below MaxInt32; the clamp is purely to satisfy the gosec
+// overflow check.
+func clampToInt32(n int) int32 {
+	if n > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	if n < math.MinInt32 {
+		return math.MinInt32
+	}
+	return int32(n)
 }
 
 func (h *Handler) DownloadLogs(
