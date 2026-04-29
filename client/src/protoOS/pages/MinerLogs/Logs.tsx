@@ -267,11 +267,12 @@ const Logs = ({ logsData, fetchMaxLogs }: LogsProps) => {
                   const isDebug = log.logType === logTypes.debug;
                   const isError = log.logType === logTypes.error;
                   const isWarning = log.logType === logTypes.warn;
+                  const normalizedLogType = isError ? "error" : isWarning ? "warn" : isDebug ? "debug" : "info";
                   return (
                     <div
                       key={line}
                       data-testid="log-row"
-                      data-log-type={log.logType}
+                      data-log-type={normalizedLogType}
                       className={clsx("mb-1 flex leading-6", {
                         "ml-[2px] text-text-primary-70": !isError && !isWarning && !isDebug,
                         "-ml-[16px] border-l-[2px] pl-4": isError || isWarning || isDebug,

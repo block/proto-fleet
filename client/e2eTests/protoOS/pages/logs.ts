@@ -33,11 +33,11 @@ export class LogsPage extends BasePage {
   }
 
   async clickErrorFilter() {
-    await this.page.getByTestId("logs-error-filter").click();
+    await this.page.getByTestId("logs-error-badge").click();
   }
 
   async clickWarningFilter() {
-    await this.page.getByTestId("logs-warning-filter").click();
+    await this.page.getByTestId("logs-warning-badge").click();
   }
 
   async validateOnlyLogTypeVisible(logType: "error" | "warn") {
