@@ -243,11 +243,6 @@ const PoolModal = ({
       setUrlError(urlValidationErrors.required);
       return;
     }
-    const schemeError = validateURLScheme(url);
-    if (schemeError) {
-      setUrlError(schemeError);
-      return;
-    }
 
     const nextUsernameError = getPoolUsernameValidationError(draftPoolInfo[poolIndex].username, {
       required: usernameRequired,
