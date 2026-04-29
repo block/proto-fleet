@@ -216,12 +216,8 @@ func (s *Service) ListPools(ctx context.Context) ([]*pb.Pool, error) {
 	return pools, nil
 }
 
-// ValidateConnection probes a pool server. SV1 URLs run a full
-// mining.subscribe + authorize. SV2 URLs run a Noise NX handshake
-// against the authority pubkey embedded in the URL path, which
-// confirms the pool speaks SV2 and presents the operator-pinned
-// static key. The protocol has no equivalent of SV1's credential
-// check — credentials are deferred to the worker connection.
+// ValidateConnection probes a pool. SV1 runs mining.subscribe + authorize;
+// SV2 runs the Noise NX handshake against the URL's authority pubkey.
 func (s *Service) ValidateConnection(ctx context.Context, url string, username string, password *secrets.Text, timeout *time.Duration) (bool, error) {
 	to := s.cfg.Timeout
 	if timeout != nil {
@@ -239,4 +235,3 @@ func (s *Service) ValidateConnection(ctx context.Context, url string, username s
 	}
 	return stratumv1.Authenticate(ctx, url, username, password)
 }
-
