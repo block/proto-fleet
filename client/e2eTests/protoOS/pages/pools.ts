@@ -66,10 +66,6 @@ export class PoolsPage extends BasePage {
     await expect(this.page.getByTestId("modal").getByRole("button", { name: "Save" })).toBeEnabled();
   }
 
-  async validateTestConnectionDisabled() {
-    await expect(this.page.getByTestId("modal").getByRole("button", { name: "Test connection" })).toBeDisabled();
-  }
-
   async validateCalloutWithText(text: string) {
     await expect(this.page.getByTestId("callout")).toBeVisible();
     await expect(this.page.getByTestId("callout").getByText(text)).toBeVisible();

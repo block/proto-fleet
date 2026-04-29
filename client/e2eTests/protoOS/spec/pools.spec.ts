@@ -20,20 +20,32 @@ test.describe("Mining pools", () => {
       await poolsPage.validateUrlValidationError(1, "A Pool URL is required to connect to this pool.");
     });
 
-    await test.step("Invalid URL scheme surfaces inline error and disables Test connection + Save", async () => {
+    await test.step("Test connection fails for invalid pool URL", async () => {
       await poolsPage.inputPoolUrl("aaa", 1);
-      await poolsPage.validateUrlValidationError(
-        1,
-        "Pool URL must start with stratum+tcp://, stratum+ssl://, stratum+ws:// (V1) or stratum2+tcp:// (V2).",
-      );
-      await poolsPage.validateTestConnectionDisabled();
-      await poolsPage.validateSaveButtonDisabled();
+      await poolsPage.clickTestConnection();
+      await poolsPage.validateConnectionFailed();
+      await poolsPage.closePoolNotConnectedCallout();
     });
 
-    await test.step("Save stays disabled even when name + username are valid while URL is invalid", async () => {
-      await poolsPage.inputPoolName("aaa", 1);
+    await test.step("Validate save button enable/disable rules", async () => {
+      await poolsPage.validateSaveButtonDisabled();
+
       await poolsPage.inputPoolUsername("aaa", 1);
       await poolsPage.validateSaveButtonDisabled();
+
+      await poolsPage.inputPoolName("aaa", 1);
+      await poolsPage.validateSaveButtonEnabled();
+
+      await poolsPage.inputPoolUsername("", 1);
+      await poolsPage.validateSaveButtonEnabled();
+
+      await poolsPage.inputPoolUsername("aaa", 1);
+      await poolsPage.validateSaveButtonEnabled();
+    });
+
+    await test.step("Save invalid pool URL shows error toast", async () => {
+      await poolsPage.clickSave();
+      await poolsPage.validateToastMessage("Your changes were not saved");
     });
 
     await commonSteps.navigateToHome();
