@@ -544,6 +544,12 @@ class CurtailRequest(_message.Message):
     level: CurtailLevel
     def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ..., level: _Optional[_Union[CurtailLevel, str]] = ...) -> None: ...
 
+class UncurtailRequest(_message.Message):
+    __slots__ = ("ref",)
+    REF_FIELD_NUMBER: _ClassVar[int]
+    ref: DeviceRef
+    def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ...) -> None: ...
+
 class SetPowerTargetRequest(_message.Message):
     __slots__ = ("ref", "performance_mode")
     REF_FIELD_NUMBER: _ClassVar[int]

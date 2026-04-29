@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from proto_fleet_sdk import (
-    CAP_CURTAIL,
+    CAP_CURTAIL_FULL,
     CAP_CURTAIL_EFFICIENCY,
     CAP_CURTAIL_PARTIAL,
 )
@@ -28,7 +28,7 @@ class TestCapabilityHelpers:
 
     def test_curtail_capability_constants_are_exported(self) -> None:
         """Test curtailment capability constants."""
-        assert CAP_CURTAIL == "curtail"
+        assert CAP_CURTAIL_FULL == "curtail_full"
         assert CAP_CURTAIL_EFFICIENCY == "curtail_efficiency"
         assert CAP_CURTAIL_PARTIAL == "curtail_partial"
 

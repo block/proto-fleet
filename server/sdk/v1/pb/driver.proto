@@ -307,14 +307,18 @@ enum PerformanceMode {
 // CurtailLevel mirrors curtailment.v1 CurtailmentLevel numeric values.
 enum CurtailLevel {
   CURTAIL_LEVEL_UNSPECIFIED     = 0;
-  CURTAIL_LEVEL_EFFICIENCY      = 1;  // reserved (v4): peak J/TH setting
-  CURTAIL_LEVEL_PARTIAL_PERCENT = 2;  // reserved (v4): operator-specified hash %
-  CURTAIL_LEVEL_FULL            = 3;  // v1: complete shutdown
+  CURTAIL_LEVEL_EFFICIENCY      = 1;  // peak J/TH setting
+  CURTAIL_LEVEL_PARTIAL_PERCENT = 2;  // reserved: operator-specified hash %
+  CURTAIL_LEVEL_FULL            = 3;  // complete shutdown
 }
 
 message CurtailRequest {
   DeviceRef ref = 1;
   CurtailLevel level = 2;
+}
+
+message UncurtailRequest {
+  DeviceRef ref = 1;
 }
 
 message SetPowerTargetRequest {
@@ -649,7 +653,7 @@ service Driver {
   // Required for plugins that report any curtailment capability.
   rpc Curtail(CurtailRequest) returns (google.protobuf.Empty);
   // Restore a previously curtailed device to normal operation.
-  rpc Uncurtail(DeviceRef) returns (google.protobuf.Empty);
+  rpc Uncurtail(UncurtailRequest) returns (google.protobuf.Empty);
 
   // CoreV1 - Base Telemetry - Required methods
   rpc DeviceStatus(DeviceRef) returns (DeviceMetrics);

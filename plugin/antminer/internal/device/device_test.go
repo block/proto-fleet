@@ -466,6 +466,9 @@ func TestDevice_DescribeDevice(t *testing.T) {
 	assert.True(t, capabilities[sdk.CapabilityBasicAuth])
 	assert.True(t, capabilities[sdk.CapabilityMiningStart])
 	assert.True(t, capabilities[sdk.CapabilityMiningStop])
+	assert.True(t, capabilities[sdk.CapabilityCurtailFull])
+	assert.False(t, capabilities[sdk.CapabilityCurtailEfficiency])
+	assert.False(t, capabilities[sdk.CapabilityCurtailPartial])
 }
 
 func ptrFloat64(v float64) *float64 {
@@ -520,7 +523,7 @@ func TestDevice_CurtailFullInvalidatesStatusCache(t *testing.T) {
 	require.False(t, device.lastStatusAt.IsZero())
 	mockClient.EXPECT().StopMining(gomock.Any()).Return(nil)
 
-	err := device.Curtail(t.Context(), sdk.CurtailLevelFull)
+	err := device.Curtail(t.Context(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull})
 
 	require.NoError(t, err)
 	assert.Nil(t, device.lastStatus)
@@ -537,7 +540,7 @@ func TestDevice_CurtailFullWrapsDispatchFailureAsTransient(t *testing.T) {
 
 	mockClient.EXPECT().StopMining(gomock.Any()).Return(assert.AnError)
 
-	err := device.Curtail(t.Context(), sdk.CurtailLevelFull)
+	err := device.Curtail(t.Context(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull})
 
 	require.Error(t, err)
 	var sdkErr sdk.SDKError
@@ -554,7 +557,7 @@ func TestDevice_CurtailUnsupportedLevelReturnsCapabilityNotSupported(t *testing.
 	device := createTestDevice(t, mockClient, defaultStatus(), defaultTelemetry())
 	defer cleanupDevice(t, device, mockClient)
 
-	err := device.Curtail(t.Context(), sdk.CurtailLevelEfficiency)
+	err := device.Curtail(t.Context(), sdk.CurtailRequest{Level: sdk.CurtailLevelEfficiency})
 
 	require.Error(t, err)
 	var sdkErr sdk.SDKError
@@ -574,7 +577,7 @@ func TestDevice_UncurtailInvalidatesStatusCache(t *testing.T) {
 	require.False(t, device.lastStatusAt.IsZero())
 	mockClient.EXPECT().StartMining(gomock.Any()).Return(nil)
 
-	err := device.Uncurtail(t.Context())
+	err := device.Uncurtail(t.Context(), sdk.UncurtailRequest{})
 
 	require.NoError(t, err)
 	assert.Nil(t, device.lastStatus)
@@ -591,7 +594,7 @@ func TestDevice_UncurtailWrapsDispatchFailureAsTransient(t *testing.T) {
 
 	mockClient.EXPECT().StartMining(gomock.Any()).Return(assert.AnError)
 
-	err := device.Uncurtail(t.Context())
+	err := device.Uncurtail(t.Context(), sdk.UncurtailRequest{})
 
 	require.Error(t, err)
 	var sdkErr sdk.SDKError

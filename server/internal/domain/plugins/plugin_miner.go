@@ -210,24 +210,24 @@ func (p *PluginMiner) StopMining(ctx context.Context) error {
 }
 
 // Curtail dispatches through optional SDK curtailment support.
-func (p *PluginMiner) Curtail(ctx context.Context, level sdk.CurtailLevel) error {
+func (p *PluginMiner) Curtail(ctx context.Context, req sdk.CurtailRequest) error {
 	curtailer, ok := p.sdkDevice.(sdk.DeviceCurtailment)
 	if !ok {
 		return fleeterror.NewUnimplementedError("device does not support curtailment")
 	}
-	if err := curtailer.Curtail(ctx, level); err != nil {
+	if err := curtailer.Curtail(ctx, req); err != nil {
 		return wrapCurtailmentPluginError(err, "failed to curtail device")
 	}
 	return nil
 }
 
 // Uncurtail dispatches through optional SDK curtailment support.
-func (p *PluginMiner) Uncurtail(ctx context.Context) error {
+func (p *PluginMiner) Uncurtail(ctx context.Context, req sdk.UncurtailRequest) error {
 	curtailer, ok := p.sdkDevice.(sdk.DeviceCurtailment)
 	if !ok {
 		return fleeterror.NewUnimplementedError("device does not support curtailment")
 	}
-	if err := curtailer.Uncurtail(ctx); err != nil {
+	if err := curtailer.Uncurtail(ctx, req); err != nil {
 		return wrapCurtailmentPluginError(err, "failed to uncurtail device")
 	}
 	return nil

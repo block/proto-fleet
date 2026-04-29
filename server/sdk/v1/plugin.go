@@ -658,17 +658,22 @@ func (s *DriverGRPCServer) Curtail(ctx context.Context, req *pb.CurtailRequest) 
 		return nil, grpcStatusError(errDeviceDoesNotSupportCurtailment, codes.Unimplemented, errDeviceDoesNotSupportCurtailment)
 	}
 
-	err := curtailer.Curtail(ctx, CurtailLevel(req.Level))
+	err := curtailer.Curtail(ctx, CurtailRequest{
+		Level: CurtailLevel(req.Level),
+	})
 	return &emptypb.Empty{}, sdkErrorToGRPCStatus(err)
 }
 
-func (s *DriverGRPCServer) Uncurtail(ctx context.Context, req *pb.DeviceRef) (*emptypb.Empty, error) {
+func (s *DriverGRPCServer) Uncurtail(ctx context.Context, req *pb.UncurtailRequest) (*emptypb.Empty, error) {
+	if req.Ref == nil {
+		return nil, grpcStatusError("missing device ref", codes.InvalidArgument, "missing device ref")
+	}
 	s.mu.RLock()
-	device, exists := s.devices[req.DeviceId]
+	device, exists := s.devices[req.Ref.DeviceId]
 	s.mu.RUnlock()
 
 	if !exists {
-		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.DeviceId))
+		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.Ref.DeviceId))
 	}
 
 	curtailer, ok := device.(DeviceCurtailment)
@@ -676,7 +681,7 @@ func (s *DriverGRPCServer) Uncurtail(ctx context.Context, req *pb.DeviceRef) (*e
 		return nil, grpcStatusError(errDeviceDoesNotSupportCurtailment, codes.Unimplemented, errDeviceDoesNotSupportCurtailment)
 	}
 
-	err := curtailer.Uncurtail(ctx)
+	err := curtailer.Uncurtail(ctx, UncurtailRequest{})
 	return &emptypb.Empty{}, sdkErrorToGRPCStatus(err)
 }
 
@@ -1204,17 +1209,17 @@ func (d *DeviceGRPCClient) UpdateMinerPassword(ctx context.Context, currentPassw
 	return err
 }
 
-func (d *DeviceGRPCClient) Curtail(ctx context.Context, level CurtailLevel) error {
+func (d *DeviceGRPCClient) Curtail(ctx context.Context, req CurtailRequest) error {
 	_, err := d.client.Curtail(ctx, &pb.CurtailRequest{
 		Ref:   &pb.DeviceRef{DeviceId: d.deviceID},
-		Level: pb.CurtailLevel(level),
+		Level: pb.CurtailLevel(req.Level),
 	})
 	return err
 }
 
-func (d *DeviceGRPCClient) Uncurtail(ctx context.Context) error {
-	_, err := d.client.Uncurtail(ctx, &pb.DeviceRef{
-		DeviceId: d.deviceID,
+func (d *DeviceGRPCClient) Uncurtail(ctx context.Context, _ UncurtailRequest) error {
+	_, err := d.client.Uncurtail(ctx, &pb.UncurtailRequest{
+		Ref: &pb.DeviceRef{DeviceId: d.deviceID},
 	})
 	return err
 }

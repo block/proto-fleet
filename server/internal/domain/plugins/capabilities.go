@@ -66,7 +66,7 @@ func convertCommandCapabilities(caps sdk.Capabilities) *capabilitiespb.CommandCa
 		LogsDownloadSupported:        caps[sdk.CapabilityLogsDownload],
 		PowerModeEfficiencySupported: caps[sdk.CapabilityPowerModeEfficiency],
 		UpdateMinerPasswordSupported: caps[sdk.CapabilityUpdateMinerPassword],
-		CurtailSupported:             caps[sdk.CapabilityCurtail],
+		CurtailFullSupported:         caps[sdk.CapabilityCurtailFull],
 		CurtailEfficiencySupported:   caps[sdk.CapabilityCurtailEfficiency],
 		CurtailPartialSupported:      caps[sdk.CapabilityCurtailPartial],
 	}

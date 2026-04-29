@@ -43,8 +43,8 @@ type mockSDKDevice struct {
 	getErrorsFunc           func(ctx context.Context) (sdk.DeviceErrors, error)
 	tryGetWebViewFunc       func(ctx context.Context) (string, bool, error)
 	updateMinerPasswordFunc func(ctx context.Context, currentPassword string, newPassword string) error
-	curtailFunc             func(ctx context.Context, level sdk.CurtailLevel) error
-	uncurtailFunc           func(ctx context.Context) error
+	curtailFunc             func(ctx context.Context, req sdk.CurtailRequest) error
+	uncurtailFunc           func(ctx context.Context, req sdk.UncurtailRequest) error
 }
 
 func (m *mockSDKDevice) ID() string {
@@ -100,16 +100,16 @@ func (m *mockSDKDevice) Reboot(ctx context.Context) error {
 	return nil
 }
 
-func (m *mockSDKDevice) Curtail(ctx context.Context, level sdk.CurtailLevel) error {
+func (m *mockSDKDevice) Curtail(ctx context.Context, req sdk.CurtailRequest) error {
 	if m.curtailFunc != nil {
-		return m.curtailFunc(ctx, level)
+		return m.curtailFunc(ctx, req)
 	}
 	return nil
 }
 
-func (m *mockSDKDevice) Uncurtail(ctx context.Context) error {
+func (m *mockSDKDevice) Uncurtail(ctx context.Context, req sdk.UncurtailRequest) error {
 	if m.uncurtailFunc != nil {
-		return m.uncurtailFunc(ctx)
+		return m.uncurtailFunc(ctx, req)
 	}
 	return nil
 }
@@ -292,7 +292,7 @@ func createTestPluginMiner() (*PluginMiner, *mockSDKDevice) {
 func TestPluginMiner_CurtailReturnsUnimplementedWhenDeviceLacksCurtailment(t *testing.T) {
 	pm := createTestPluginMinerWithDevice(&mockSDKDeviceWithoutCurtailment{id: "test-device"})
 
-	err := pm.Curtail(t.Context(), sdk.CurtailLevelFull)
+	err := pm.Curtail(t.Context(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull})
 
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsUnimplementedError(err))
@@ -301,11 +301,11 @@ func TestPluginMiner_CurtailReturnsUnimplementedWhenDeviceLacksCurtailment(t *te
 
 func TestPluginMiner_CurtailUnavailablePreservesTransientTaxonomy(t *testing.T) {
 	pm, mockDevice := createTestPluginMiner()
-	mockDevice.curtailFunc = func(context.Context, sdk.CurtailLevel) error {
+	mockDevice.curtailFunc = func(context.Context, sdk.CurtailRequest) error {
 		return grpcstatus.Error(codes.Unavailable, "temporary transport outage")
 	}
 
-	err := pm.Curtail(t.Context(), sdk.CurtailLevelFull)
+	err := pm.Curtail(t.Context(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull})
 
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsUnavailableError(err))
@@ -316,11 +316,11 @@ func TestPluginMiner_CurtailUnavailablePreservesTransientTaxonomy(t *testing.T) 
 
 func TestPluginMiner_CurtailSDKUnsupportedMapsUnimplemented(t *testing.T) {
 	pm, mockDevice := createTestPluginMiner()
-	mockDevice.curtailFunc = func(context.Context, sdk.CurtailLevel) error {
+	mockDevice.curtailFunc = func(context.Context, sdk.CurtailRequest) error {
 		return sdk.NewErrCurtailCapabilityNotSupported("test-device", int32(sdk.CurtailLevelEfficiency))
 	}
 
-	err := pm.Curtail(t.Context(), sdk.CurtailLevelEfficiency)
+	err := pm.Curtail(t.Context(), sdk.CurtailRequest{Level: sdk.CurtailLevelEfficiency})
 
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsUnimplementedError(err))
@@ -331,11 +331,11 @@ func TestPluginMiner_CurtailSDKUnsupportedMapsUnimplemented(t *testing.T) {
 
 func TestPluginMiner_CurtailSDKTransientMapsUnavailable(t *testing.T) {
 	pm, mockDevice := createTestPluginMiner()
-	mockDevice.curtailFunc = func(context.Context, sdk.CurtailLevel) error {
+	mockDevice.curtailFunc = func(context.Context, sdk.CurtailRequest) error {
 		return sdk.NewErrCurtailTransient("test-device", errors.New("temporary transport outage"))
 	}
 
-	err := pm.Curtail(t.Context(), sdk.CurtailLevelFull)
+	err := pm.Curtail(t.Context(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull})
 
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsUnavailableError(err))
@@ -347,7 +347,7 @@ func TestPluginMiner_CurtailSDKTransientMapsUnavailable(t *testing.T) {
 func TestPluginMiner_UncurtailReturnsUnimplementedWhenDeviceLacksCurtailment(t *testing.T) {
 	pm := createTestPluginMinerWithDevice(&mockSDKDeviceWithoutCurtailment{id: "test-device"})
 
-	err := pm.Uncurtail(t.Context())
+	err := pm.Uncurtail(t.Context(), sdk.UncurtailRequest{})
 
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsUnimplementedError(err))
@@ -356,11 +356,11 @@ func TestPluginMiner_UncurtailReturnsUnimplementedWhenDeviceLacksCurtailment(t *
 
 func TestPluginMiner_UncurtailUnavailablePreservesTransientTaxonomy(t *testing.T) {
 	pm, mockDevice := createTestPluginMiner()
-	mockDevice.uncurtailFunc = func(context.Context) error {
+	mockDevice.uncurtailFunc = func(context.Context, sdk.UncurtailRequest) error {
 		return grpcstatus.Error(codes.Unavailable, "temporary transport outage")
 	}
 
-	err := pm.Uncurtail(t.Context())
+	err := pm.Uncurtail(t.Context(), sdk.UncurtailRequest{})
 
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsUnavailableError(err))
@@ -371,11 +371,11 @@ func TestPluginMiner_UncurtailUnavailablePreservesTransientTaxonomy(t *testing.T
 
 func TestPluginMiner_UncurtailSDKTransientMapsUnavailable(t *testing.T) {
 	pm, mockDevice := createTestPluginMiner()
-	mockDevice.uncurtailFunc = func(context.Context) error {
+	mockDevice.uncurtailFunc = func(context.Context, sdk.UncurtailRequest) error {
 		return sdk.NewErrCurtailTransient("test-device", errors.New("temporary transport outage"))
 	}
 
-	err := pm.Uncurtail(t.Context())
+	err := pm.Uncurtail(t.Context(), sdk.UncurtailRequest{})
 
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsUnavailableError(err))

@@ -206,31 +206,31 @@ func (m *MockDeviceCurtailment) EXPECT() *MockDeviceCurtailmentMockRecorder {
 }
 
 // Curtail mocks base method.
-func (m *MockDeviceCurtailment) Curtail(ctx context.Context, level sdk.CurtailLevel) error {
+func (m *MockDeviceCurtailment) Curtail(ctx context.Context, req sdk.CurtailRequest) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Curtail", ctx, level)
+	ret := m.ctrl.Call(m, "Curtail", ctx, req)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Curtail indicates an expected call of Curtail.
-func (mr *MockDeviceCurtailmentMockRecorder) Curtail(ctx, level any) *gomock.Call {
+func (mr *MockDeviceCurtailmentMockRecorder) Curtail(ctx, req any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Curtail", reflect.TypeOf((*MockDeviceCurtailment)(nil).Curtail), ctx, level)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Curtail", reflect.TypeOf((*MockDeviceCurtailment)(nil).Curtail), ctx, req)
 }
 
 // Uncurtail mocks base method.
-func (m *MockDeviceCurtailment) Uncurtail(ctx context.Context) error {
+func (m *MockDeviceCurtailment) Uncurtail(ctx context.Context, req sdk.UncurtailRequest) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Uncurtail", ctx)
+	ret := m.ctrl.Call(m, "Uncurtail", ctx, req)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Uncurtail indicates an expected call of Uncurtail.
-func (mr *MockDeviceCurtailmentMockRecorder) Uncurtail(ctx any) *gomock.Call {
+func (mr *MockDeviceCurtailmentMockRecorder) Uncurtail(ctx, req any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Uncurtail", reflect.TypeOf((*MockDeviceCurtailment)(nil).Uncurtail), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Uncurtail", reflect.TypeOf((*MockDeviceCurtailment)(nil).Uncurtail), ctx, req)
 }
 
 // MockDeviceConfiguration is a mock of DeviceConfiguration interface.

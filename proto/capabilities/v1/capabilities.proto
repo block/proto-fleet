@@ -76,8 +76,8 @@ message CommandCapabilities {
   // Security management
   bool update_miner_password_supported = 13;
 
-  // Curtailment flags. v1 uses curtail_supported; other levels are reserved.
-  bool curtail_supported            = 14;
+  // Curtailment flags. Each level is an explicit, independent opt-in.
+  bool curtail_full_supported       = 14;
   bool curtail_efficiency_supported = 15;
   bool curtail_partial_supported    = 16;
 }

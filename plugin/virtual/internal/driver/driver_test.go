@@ -14,7 +14,7 @@ func TestDescribeDriver_AdvertisesCurtailCapability(t *testing.T) {
 	_, caps, err := d.DescribeDriver(t.Context())
 
 	require.NoError(t, err)
-	assert.True(t, caps[sdk.CapabilityCurtail])
+	assert.True(t, caps[sdk.CapabilityCurtailFull])
 	assert.False(t, caps[sdk.CapabilityCurtailEfficiency])
 	assert.False(t, caps[sdk.CapabilityCurtailPartial])
 }

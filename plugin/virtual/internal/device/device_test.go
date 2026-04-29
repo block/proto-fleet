@@ -35,26 +35,26 @@ func newTestDevice(t *testing.T) *Device {
 	return d
 }
 
-// FULL curtailment is advertised; efficiency/partial remain reserved.
+// FULL curtailment is advertised; efficiency/partial are not.
 func TestDevice_DescribeDevice_AdvertisesCurtailCapability(t *testing.T) {
 	d := newTestDevice(t)
 
 	_, caps, err := d.DescribeDevice(context.Background())
 	require.NoError(t, err)
-	assert.True(t, caps[sdk.CapabilityCurtail], "virtual plugin must advertise CapabilityCurtail")
-	assert.False(t, caps[sdk.CapabilityCurtailEfficiency], "v4 efficiency curtailment is reserved")
-	assert.False(t, caps[sdk.CapabilityCurtailPartial], "v4 partial curtailment is reserved")
+	assert.True(t, caps[sdk.CapabilityCurtailFull], "virtual plugin must advertise CapabilityCurtailFull")
+	assert.False(t, caps[sdk.CapabilityCurtailEfficiency], "virtual plugin does not support efficiency curtailment")
+	assert.False(t, caps[sdk.CapabilityCurtailPartial], "partial curtailment is reserved")
 }
 
 // FULL curtailment stops mining until Uncurtail.
 func TestDevice_CurtailFull_ThenUncurtail(t *testing.T) {
 	d := newTestDevice(t)
 
-	require.NoError(t, d.Curtail(context.Background(), sdk.CurtailLevelFull))
+	require.NoError(t, d.Curtail(context.Background(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull}))
 	assert.False(t, d.isMining, "Curtail(FULL) must stop mining")
 	assert.Equal(t, sdk.CurtailLevelFull, d.curtailLevel, "Curtail(FULL) must record the level")
 
-	require.NoError(t, d.Uncurtail(context.Background()))
+	require.NoError(t, d.Uncurtail(context.Background(), sdk.UncurtailRequest{}))
 	assert.True(t, d.isMining, "Uncurtail must restart mining")
 	assert.Equal(t, sdk.CurtailLevelUnspecified, d.curtailLevel, "Uncurtail must clear the level")
 }
@@ -69,7 +69,7 @@ func TestDevice_CurtailUnsupportedLevel_ReturnsCapabilityNotSupported(t *testing
 		sdk.CurtailLevelPartialPercent,
 	}
 	for _, level := range cases {
-		err := d.Curtail(context.Background(), level)
+		err := d.Curtail(context.Background(), sdk.CurtailRequest{Level: level})
 		require.Error(t, err)
 		var sdkErr sdk.SDKError
 		require.True(t, errors.As(err, &sdkErr), "expected sdk.SDKError, got %T", err)
@@ -83,6 +83,6 @@ func TestDevice_UncurtailWhileNotCurtailed_IsNoop(t *testing.T) {
 	d := newTestDevice(t)
 	wasMining := d.isMining
 
-	require.NoError(t, d.Uncurtail(context.Background()))
+	require.NoError(t, d.Uncurtail(context.Background(), sdk.UncurtailRequest{}))
 	assert.Equal(t, wasMining, d.isMining, "Uncurtail on a non-curtailed miner should not change state")
 }

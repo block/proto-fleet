@@ -94,7 +94,7 @@ type DriverClient interface {
 	// Required for plugins that report any curtailment capability.
 	Curtail(ctx context.Context, in *CurtailRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// Restore a previously curtailed device to normal operation.
-	Uncurtail(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	Uncurtail(ctx context.Context, in *UncurtailRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// CoreV1 - Base Telemetry - Required methods
 	DeviceStatus(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*DeviceMetrics, error)
 	// CoreV1 - Advanced Telemetry - Optional methods
@@ -341,7 +341,7 @@ func (c *driverClient) Curtail(ctx context.Context, in *CurtailRequest, opts ...
 	return out, nil
 }
 
-func (c *driverClient) Uncurtail(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+func (c *driverClient) Uncurtail(ctx context.Context, in *UncurtailRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	out := new(emptypb.Empty)
 	err := c.cc.Invoke(ctx, Driver_Uncurtail_FullMethodName, in, out, opts...)
 	if err != nil {
@@ -466,7 +466,7 @@ type DriverServer interface {
 	// Required for plugins that report any curtailment capability.
 	Curtail(context.Context, *CurtailRequest) (*emptypb.Empty, error)
 	// Restore a previously curtailed device to normal operation.
-	Uncurtail(context.Context, *DeviceRef) (*emptypb.Empty, error)
+	Uncurtail(context.Context, *UncurtailRequest) (*emptypb.Empty, error)
 	// CoreV1 - Base Telemetry - Required methods
 	DeviceStatus(context.Context, *DeviceRef) (*DeviceMetrics, error)
 	// CoreV1 - Advanced Telemetry - Optional methods
@@ -560,7 +560,7 @@ func (UnimplementedDriverServer) UpdateMinerPassword(context.Context, *UpdateMin
 func (UnimplementedDriverServer) Curtail(context.Context, *CurtailRequest) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Curtail not implemented")
 }
-func (UnimplementedDriverServer) Uncurtail(context.Context, *DeviceRef) (*emptypb.Empty, error) {
+func (UnimplementedDriverServer) Uncurtail(context.Context, *UncurtailRequest) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Uncurtail not implemented")
 }
 func (UnimplementedDriverServer) DeviceStatus(context.Context, *DeviceRef) (*DeviceMetrics, error) {
@@ -1045,7 +1045,7 @@ func _Driver_Curtail_Handler(srv interface{}, ctx context.Context, dec func(inte
 }
 
 func _Driver_Uncurtail_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(DeviceRef)
+	in := new(UncurtailRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -1057,7 +1057,7 @@ func _Driver_Uncurtail_Handler(srv interface{}, ctx context.Context, dec func(in
 		FullMethod: Driver_Uncurtail_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DriverServer).Uncurtail(ctx, req.(*DeviceRef))
+		return srv.(DriverServer).Uncurtail(ctx, req.(*UncurtailRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }

@@ -274,3 +274,17 @@ func TestConvertCommandCapabilities_PoolMaxCount(t *testing.T) {
 		})
 	}
 }
+
+func TestConvertCommandCapabilities_CurtailmentLevels(t *testing.T) {
+	caps := sdk.Capabilities{
+		sdk.CapabilityCurtailFull:       true,
+		sdk.CapabilityCurtailEfficiency: true,
+		sdk.CapabilityCurtailPartial:    false,
+	}
+
+	result := convertCommandCapabilities(caps)
+
+	assert.True(t, result.CurtailFullSupported)
+	assert.True(t, result.CurtailEfficiencySupported)
+	assert.False(t, result.CurtailPartialSupported)
+}

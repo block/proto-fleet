@@ -78,7 +78,7 @@ func (d *Device) DescribeDevice(_ context.Context) (sdk.DeviceInfo, sdk.Capabili
 		sdk.CapabilityPSUStats:          true,
 		sdk.CapabilityRealtimeTelemetry: true,
 		// v1 advertises FULL curtailment only.
-		sdk.CapabilityCurtail: true,
+		sdk.CapabilityCurtailFull: true,
 	}, nil
 }
 
@@ -152,23 +152,23 @@ func (d *Device) Reboot(_ context.Context) error {
 }
 
 // Curtail honors FULL and rejects reserved levels.
-func (d *Device) Curtail(_ context.Context, level sdk.CurtailLevel) error {
-	if level != sdk.CurtailLevelFull {
-		return sdk.NewErrCurtailCapabilityNotSupported(d.id, int32(level))
+func (d *Device) Curtail(_ context.Context, req sdk.CurtailRequest) error {
+	if req.Level != sdk.CurtailLevelFull {
+		return sdk.NewErrCurtailCapabilityNotSupported(d.id, int32(req.Level))
 	}
 
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 
-	d.curtailLevel = level
+	d.curtailLevel = req.Level
 	d.isMining = false
 	d.lastStatus = nil
-	slog.Info("Virtual miner curtailed", "device_id", d.id, "level", level)
+	slog.Info("Virtual miner curtailed", "device_id", d.id, "level", req.Level)
 	return nil
 }
 
 // Uncurtail clears curtailment; duplicate calls are no-ops.
-func (d *Device) Uncurtail(_ context.Context) error {
+func (d *Device) Uncurtail(_ context.Context, _ sdk.UncurtailRequest) error {
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 

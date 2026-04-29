@@ -58,7 +58,10 @@ type Device struct {
 
 	lastFirmwareCheckAt time.Time
 
-	mutex sync.Mutex
+	mutex              sync.Mutex
+	curtailmentMutex   sync.Mutex
+	activeCurtailLevel sdk.CurtailLevel
+	preCurtailTarget   *proto.PowerTargetInfo
 }
 
 type DeviceOption func(*Device)
@@ -179,8 +182,9 @@ func (d *Device) DescribeDevice(ctx context.Context) (sdk.DeviceInfo, sdk.Capabi
 		sdk.CapabilityFirmware:            true, // This device supports firmware updates
 		sdk.CapabilityPoolConfig:          true, // This device supports pool configuration
 		sdk.CapabilityUpdateMinerPassword: true, // This device supports updating web UI password
-		// FULL curtailment uses mining start/stop.
-		sdk.CapabilityCurtail: true,
+		// FULL curtailment uses mining start/stop. Efficiency uses the power target mode.
+		sdk.CapabilityCurtailFull:       true,
+		sdk.CapabilityCurtailEfficiency: true,
 	}
 
 	// Get firmware version if not already set (requires authentication, so we do it here)
@@ -510,23 +514,99 @@ func (d *Device) StopMining(ctx context.Context) error {
 	return nil
 }
 
-// Curtail implements FULL curtailment via StopMining.
-func (d *Device) Curtail(ctx context.Context, level sdk.CurtailLevel) error {
-	if level != sdk.CurtailLevelFull {
-		return sdk.NewErrCurtailCapabilityNotSupported(d.id, int32(level))
+// Curtail applies a supported curtailment level.
+func (d *Device) Curtail(ctx context.Context, req sdk.CurtailRequest) error {
+	switch req.Level {
+	case sdk.CurtailLevelFull:
+		return d.curtailFull(ctx)
+	case sdk.CurtailLevelEfficiency:
+		return d.curtailEfficiency(ctx)
+	default:
+		return sdk.NewErrCurtailCapabilityNotSupported(d.id, int32(req.Level))
 	}
+}
+
+func (d *Device) curtailFull(ctx context.Context) error {
 	if err := d.StopMining(ctx); err != nil {
 		return wrapCurtailDispatchError(d.id, err)
 	}
+	d.setCurtailmentState(sdk.CurtailLevelFull, nil)
 	return nil
 }
 
-// Uncurtail restores mining via StartMining.
-func (d *Device) Uncurtail(ctx context.Context) error {
+func (d *Device) curtailEfficiency(ctx context.Context) error {
+	target, err := d.client.GetPowerTarget(ctx)
+	if err != nil {
+		return wrapCurtailDispatchError(d.id, err)
+	}
+	if target == nil {
+		return sdk.NewErrCurtailTransient(d.id, fmt.Errorf("power target not available yet"))
+	}
+
+	if err := d.client.SetPowerTarget(ctx, target.DefaultW, sdk.PerformanceModeEfficiency); err != nil {
+		return wrapCurtailDispatchError(d.id, err)
+	}
+
+	d.setCurtailmentState(sdk.CurtailLevelEfficiency, target)
+	d.lastStatus = nil
+	return nil
+}
+
+// Uncurtail restores the device based on the active curtailment level.
+func (d *Device) Uncurtail(ctx context.Context, _ sdk.UncurtailRequest) error {
+	level, target := d.curtailmentState()
+	if level == sdk.CurtailLevelEfficiency {
+		if target == nil {
+			return sdk.NewErrCurtailTransient(d.id, fmt.Errorf("efficiency curtail restore state missing"))
+		}
+		if err := d.client.SetPowerTarget(ctx, target.CurrentW, target.Mode); err != nil {
+			return wrapCurtailDispatchError(d.id, err)
+		}
+
+		d.clearCurtailmentState()
+		d.lastStatus = nil
+		return nil
+	}
+
 	if err := d.StartMining(ctx); err != nil {
 		return wrapCurtailDispatchError(d.id, err)
 	}
+	d.clearCurtailmentState()
 	return nil
+}
+
+func (d *Device) setCurtailmentState(level sdk.CurtailLevel, target *proto.PowerTargetInfo) {
+	d.curtailmentMutex.Lock()
+	defer d.curtailmentMutex.Unlock()
+
+	d.activeCurtailLevel = level
+	if target == nil {
+		d.preCurtailTarget = nil
+		return
+	}
+	if d.preCurtailTarget == nil || level != sdk.CurtailLevelEfficiency {
+		snapshot := *target
+		d.preCurtailTarget = &snapshot
+	}
+}
+
+func (d *Device) curtailmentState() (sdk.CurtailLevel, *proto.PowerTargetInfo) {
+	d.curtailmentMutex.Lock()
+	defer d.curtailmentMutex.Unlock()
+
+	if d.preCurtailTarget == nil {
+		return d.activeCurtailLevel, nil
+	}
+	target := *d.preCurtailTarget
+	return d.activeCurtailLevel, &target
+}
+
+func (d *Device) clearCurtailmentState() {
+	d.curtailmentMutex.Lock()
+	defer d.curtailmentMutex.Unlock()
+
+	d.activeCurtailLevel = sdk.CurtailLevelUnspecified
+	d.preCurtailTarget = nil
 }
 
 func wrapCurtailDispatchError(deviceID string, err error) error {

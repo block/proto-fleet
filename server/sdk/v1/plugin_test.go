@@ -236,20 +236,20 @@ func (f fakeDevice) Reboot(ctx context.Context) error     { return nil }
 
 type fakeCurtailingDevice struct {
 	fakeDevice
-	curtailFunc   func(ctx context.Context, level CurtailLevel) error
-	uncurtailFunc func(ctx context.Context) error
+	curtailFunc   func(ctx context.Context, req CurtailRequest) error
+	uncurtailFunc func(ctx context.Context, req UncurtailRequest) error
 }
 
-func (f fakeCurtailingDevice) Curtail(ctx context.Context, level CurtailLevel) error {
+func (f fakeCurtailingDevice) Curtail(ctx context.Context, req CurtailRequest) error {
 	if f.curtailFunc != nil {
-		return f.curtailFunc(ctx, level)
+		return f.curtailFunc(ctx, req)
 	}
 	return nil
 }
 
-func (f fakeCurtailingDevice) Uncurtail(ctx context.Context) error {
+func (f fakeCurtailingDevice) Uncurtail(ctx context.Context, req UncurtailRequest) error {
 	if f.uncurtailFunc != nil {
-		return f.uncurtailFunc(ctx)
+		return f.uncurtailFunc(ctx, req)
 	}
 	return nil
 }
@@ -1081,9 +1081,9 @@ func TestSDKErrorToGRPCStatus_AllErrorCodes(t *testing.T) {
 
 func TestDriverGRPCServer_CurtailMapsSDKErrorStatus(t *testing.T) {
 	device := fakeCurtailingDevice{
-		curtailFunc: func(_ context.Context, level CurtailLevel) error {
-			assert.Equal(t, CurtailLevelFull, level)
-			return NewErrCurtailCapabilityNotSupported("device-123", int32(level))
+		curtailFunc: func(_ context.Context, req CurtailRequest) error {
+			assert.Equal(t, CurtailLevelFull, req.Level)
+			return NewErrCurtailCapabilityNotSupported("device-123", int32(req.Level))
 		},
 	}
 	server := &DriverGRPCServer{
@@ -1101,9 +1101,24 @@ func TestDriverGRPCServer_CurtailMapsSDKErrorStatus(t *testing.T) {
 	assert.Equal(t, codes.Unimplemented, st.Code())
 }
 
+func TestDriverGRPCServer_CurtailRequiresDeviceRef(t *testing.T) {
+	server := &DriverGRPCServer{
+		devices: map[string]Device{"device-123": fakeCurtailingDevice{}},
+	}
+
+	_, err := server.Curtail(context.Background(), &pb.CurtailRequest{
+		Level: pb.CurtailLevel_CURTAIL_LEVEL_FULL,
+	})
+
+	require.Error(t, err)
+	st, ok := status.FromError(err)
+	require.True(t, ok, "should be able to extract gRPC status from %v", err)
+	assert.Equal(t, codes.InvalidArgument, st.Code())
+}
+
 func TestDriverGRPCServer_UncurtailMapsSDKErrorStatus(t *testing.T) {
 	device := fakeCurtailingDevice{
-		uncurtailFunc: func(_ context.Context) error {
+		uncurtailFunc: func(_ context.Context, _ UncurtailRequest) error {
 			return NewErrCurtailTransient("device-123", errors.New("temporary network failure"))
 		},
 	}
@@ -1111,12 +1126,27 @@ func TestDriverGRPCServer_UncurtailMapsSDKErrorStatus(t *testing.T) {
 		devices: map[string]Device{"device-123": device},
 	}
 
-	_, err := server.Uncurtail(context.Background(), &pb.DeviceRef{DeviceId: "device-123"})
+	_, err := server.Uncurtail(context.Background(), &pb.UncurtailRequest{
+		Ref: &pb.DeviceRef{DeviceId: "device-123"},
+	})
 
 	require.Error(t, err)
 	st, ok := status.FromError(err)
 	require.True(t, ok, "should be able to extract gRPC status from %v", err)
 	assert.Equal(t, codes.Unavailable, st.Code())
+}
+
+func TestDriverGRPCServer_UncurtailRequiresDeviceRef(t *testing.T) {
+	server := &DriverGRPCServer{
+		devices: map[string]Device{"device-123": fakeCurtailingDevice{}},
+	}
+
+	_, err := server.Uncurtail(context.Background(), &pb.UncurtailRequest{})
+
+	require.Error(t, err)
+	st, ok := status.FromError(err)
+	require.True(t, ok, "should be able to extract gRPC status from %v", err)
+	assert.Equal(t, codes.InvalidArgument, st.Code())
 }
 
 func TestDriverGRPCServer_CurtailReturnsUnimplementedWhenDeviceLacksCurtailment(t *testing.T) {
@@ -1141,7 +1171,9 @@ func TestDriverGRPCServer_UncurtailReturnsUnimplementedWhenDeviceLacksCurtailmen
 		devices: map[string]Device{"device-123": fakeDevice{}},
 	}
 
-	_, err := server.Uncurtail(context.Background(), &pb.DeviceRef{DeviceId: "device-123"})
+	_, err := server.Uncurtail(context.Background(), &pb.UncurtailRequest{
+		Ref: &pb.DeviceRef{DeviceId: "device-123"},
+	})
 
 	require.Error(t, err)
 	st, ok := status.FromError(err)

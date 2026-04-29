@@ -61,7 +61,7 @@ static BASE_CAPABILITIES: LazyLock<Capabilities> = LazyLock::new(|| {
     caps.insert(CAP_LED_BLINK.into(), false);
     caps.insert(CAP_MINING_START.into(), false);
     caps.insert(CAP_MINING_STOP.into(), false);
-    caps.insert(CAP_CURTAIL.into(), false);
+    caps.insert(CAP_CURTAIL_FULL.into(), false);
     caps.insert(CAP_CURTAIL_EFFICIENCY.into(), false);
     caps.insert(CAP_CURTAIL_PARTIAL.into(), false);
 
@@ -133,7 +133,7 @@ pub fn probe_capabilities(miner: &dyn Miner) -> Capabilities {
     caps.insert(CAP_MINING_START.into(), supports_resume);
     caps.insert(CAP_MINING_STOP.into(), supports_pause);
     caps.insert(
-        CAP_CURTAIL.into(),
+        CAP_CURTAIL_FULL.into(),
         curtail_capability(supports_pause, supports_resume),
     );
 
@@ -385,7 +385,7 @@ mod tests {
     fn test_driver_base_capabilities_do_not_advertise_model_dependent_curtail() {
         let caps = driver_base_capabilities();
 
-        assert_eq!(caps.get(CAP_CURTAIL), Some(&false));
+        assert_eq!(caps.get(CAP_CURTAIL_FULL), Some(&false));
         assert_eq!(caps.get(CAP_CURTAIL_EFFICIENCY), Some(&false));
         assert_eq!(caps.get(CAP_CURTAIL_PARTIAL), Some(&false));
     }

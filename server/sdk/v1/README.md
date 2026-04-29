@@ -206,8 +206,8 @@ type DeviceControl interface {
 
 // DeviceCurtailment is optional and should match reported curtailment capabilities.
 type DeviceCurtailment interface {
-    Curtail(ctx context.Context, level CurtailLevel) error
-    Uncurtail(ctx context.Context) error
+    Curtail(ctx context.Context, req CurtailRequest) error
+    Uncurtail(ctx context.Context, req UncurtailRequest) error
 }
 
 // DeviceConfiguration represents device configuration operations

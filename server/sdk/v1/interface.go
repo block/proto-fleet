@@ -248,13 +248,21 @@ type CurtailLevel int32
 const (
 	// CurtailLevelUnspecified is unset.
 	CurtailLevelUnspecified CurtailLevel = 0
-	// CurtailLevelEfficiency is reserved for efficiency-mode curtailment.
+	// CurtailLevelEfficiency requests the device's lowest-energy supported mining mode.
 	CurtailLevelEfficiency CurtailLevel = 1
 	// CurtailLevelPartialPercent is reserved for partial-percent curtailment.
 	CurtailLevelPartialPercent CurtailLevel = 2
 	// CurtailLevelFull is the v1 full-shutdown level.
 	CurtailLevelFull CurtailLevel = 3
 )
+
+// CurtailRequest describes a curtailment request for a device.
+type CurtailRequest struct {
+	Level CurtailLevel
+}
+
+// UncurtailRequest describes a request to restore a previously curtailed device.
+type UncurtailRequest struct{}
 
 // APIKey represents API key authentication
 type APIKey struct {
@@ -380,8 +388,8 @@ type DeviceControl interface {
 
 // DeviceCurtailment is optional and should match reported curtail capabilities.
 type DeviceCurtailment interface {
-	Curtail(ctx context.Context, level CurtailLevel) error
-	Uncurtail(ctx context.Context) error
+	Curtail(ctx context.Context, req CurtailRequest) error
+	Uncurtail(ctx context.Context, req UncurtailRequest) error
 }
 
 // DeviceConfiguration represents device configuration operations
@@ -532,9 +540,9 @@ const (
 	CapabilityPowerModeEfficiency = "power_mode_efficiency" // Efficiency/low power mode support
 
 	// Curtailment capabilities
-	CapabilityCurtail           = "curtail"            // Curtail/Uncurtail support (FULL level)
-	CapabilityCurtailEfficiency = "curtail_efficiency" // reserved (v4): efficiency-mode curtailment
-	CapabilityCurtailPartial    = "curtail_partial"    // reserved (v4): partial-percent curtailment
+	CapabilityCurtailFull       = "curtail_full"       // Curtail/Uncurtail support (FULL level)
+	CapabilityCurtailEfficiency = "curtail_efficiency" // Efficiency-mode curtailment support
+	CapabilityCurtailPartial    = "curtail_partial"    // reserved: partial-percent curtailment
 
 	// Telemetry capabilities
 	CapabilityRealtimeTelemetry = "realtime_telemetry"    // Real-time telemetry support

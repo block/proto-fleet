@@ -26,12 +26,14 @@ func TestDriverDescribe(t *testing.T) {
 		sdk.CapabilityDiscovery,
 		sdk.CapabilityPairing,
 		sdk.CapabilityPowerModeEfficiency,
-		sdk.CapabilityCurtail,
+		sdk.CapabilityCurtailFull,
+		sdk.CapabilityCurtailEfficiency,
 	}
 
 	for _, cap := range requiredCaps {
 		assert.True(t, caps[cap], "Expected capability '%s' to be true", cap)
 	}
+	assert.False(t, caps[sdk.CapabilityCurtailPartial], "partial curtailment should remain unsupported")
 
 	assert.Equal(t, []string{"443"}, driver.GetDiscoveryPorts(ctx))
 }

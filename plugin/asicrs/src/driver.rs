@@ -880,8 +880,13 @@ impl Driver for DriverService {
         }
     }
 
-    async fn uncurtail(&self, req: Request<pb::DeviceRef>) -> Result<Response<()>, Status> {
-        let device_id = req.into_inner().device_id;
+    async fn uncurtail(&self, req: Request<pb::UncurtailRequest>) -> Result<Response<()>, Status> {
+        let req = req.into_inner();
+        let device_id = req
+            .r#ref
+            .as_ref()
+            .map(|r| &r.device_id)
+            .ok_or_else(|| Status::invalid_argument("Missing device ref"))?;
         let device = self.get_device(&device_id).await?;
         device
             .uncurtail_full()
