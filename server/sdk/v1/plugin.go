@@ -366,7 +366,7 @@ func (s *DriverGRPCServer) CloseDevice(ctx context.Context, req *pb.DeviceRef) (
 	}
 
 	err := device.Close(ctx)
-	return &emptypb.Empty{}, err
+	return &emptypb.Empty{}, sdkErrorToGRPCStatus(err)
 }
 
 func (s *DriverGRPCServer) StartMining(ctx context.Context, req *pb.DeviceRef) (*emptypb.Empty, error) {
@@ -379,7 +379,7 @@ func (s *DriverGRPCServer) StartMining(ctx context.Context, req *pb.DeviceRef) (
 	}
 
 	err := device.StartMining(ctx)
-	return &emptypb.Empty{}, err
+	return &emptypb.Empty{}, sdkErrorToGRPCStatus(err)
 }
 
 func (s *DriverGRPCServer) StopMining(ctx context.Context, req *pb.DeviceRef) (*emptypb.Empty, error) {
@@ -392,7 +392,7 @@ func (s *DriverGRPCServer) StopMining(ctx context.Context, req *pb.DeviceRef) (*
 	}
 
 	err := device.StopMining(ctx)
-	return &emptypb.Empty{}, err
+	return &emptypb.Empty{}, sdkErrorToGRPCStatus(err)
 }
 
 func (s *DriverGRPCServer) SetCoolingMode(ctx context.Context, req *pb.SetCoolingModeRequest) (*emptypb.Empty, error) {
@@ -405,7 +405,7 @@ func (s *DriverGRPCServer) SetCoolingMode(ctx context.Context, req *pb.SetCoolin
 	}
 
 	err := device.SetCoolingMode(ctx, CoolingMode(req.Mode))
-	return &emptypb.Empty{}, err
+	return &emptypb.Empty{}, sdkErrorToGRPCStatus(err)
 }
 
 func (s *DriverGRPCServer) GetCoolingMode(ctx context.Context, req *pb.DeviceRef) (*pb.GetCoolingModeResponse, error) {
@@ -436,7 +436,7 @@ func (s *DriverGRPCServer) SetPowerTarget(ctx context.Context, req *pb.SetPowerT
 	}
 
 	err := device.SetPowerTarget(ctx, PerformanceMode(req.PerformanceMode))
-	return &emptypb.Empty{}, err
+	return &emptypb.Empty{}, sdkErrorToGRPCStatus(err)
 }
 
 func (s *DriverGRPCServer) UpdateMiningPools(ctx context.Context, req *pb.UpdateMiningPoolsRequest) (*emptypb.Empty, error) {
@@ -458,7 +458,7 @@ func (s *DriverGRPCServer) UpdateMiningPools(ctx context.Context, req *pb.Update
 	}
 
 	err := device.UpdateMiningPools(ctx, pools)
-	return &emptypb.Empty{}, err
+	return &emptypb.Empty{}, sdkErrorToGRPCStatus(err)
 }
 
 func (s *DriverGRPCServer) GetMiningPools(ctx context.Context, req *pb.GetMiningPoolsRequest) (*pb.GetMiningPoolsResponse, error) {
@@ -497,7 +497,7 @@ func (s *DriverGRPCServer) BlinkLED(ctx context.Context, req *pb.DeviceRef) (*em
 	}
 
 	err := device.BlinkLED(ctx)
-	return &emptypb.Empty{}, err
+	return &emptypb.Empty{}, sdkErrorToGRPCStatus(err)
 }
 
 func (s *DriverGRPCServer) DownloadLogs(ctx context.Context, req *pb.DownloadLogsRequest) (*pb.DownloadLogsResponse, error) {
@@ -536,7 +536,7 @@ func (s *DriverGRPCServer) Reboot(ctx context.Context, req *pb.DeviceRef) (*empt
 	}
 
 	err := device.Reboot(ctx)
-	return &emptypb.Empty{}, err
+	return &emptypb.Empty{}, sdkErrorToGRPCStatus(err)
 }
 
 func (s *DriverGRPCServer) UpdateFirmware(ctx context.Context, req *pb.UpdateFirmwareRequest) (*emptypb.Empty, error) {
@@ -567,7 +567,7 @@ func (s *DriverGRPCServer) UpdateFirmware(ctx context.Context, req *pb.UpdateFir
 	}
 
 	if err := device.FirmwareUpdate(ctx, firmware); err != nil {
-		return nil, err
+		return nil, sdkErrorToGRPCStatus(err)
 	}
 	return &emptypb.Empty{}, nil
 }
@@ -617,7 +617,7 @@ func (s *DriverGRPCServer) Unpair(ctx context.Context, req *pb.DeviceRef) (*empt
 	}
 
 	err := device.Unpair(ctx)
-	return &emptypb.Empty{}, err
+	return &emptypb.Empty{}, sdkErrorToGRPCStatus(err)
 }
 
 func (s *DriverGRPCServer) UpdateMinerPassword(ctx context.Context, req *pb.UpdateMinerPasswordRequest) (*emptypb.Empty, error) {
@@ -630,7 +630,7 @@ func (s *DriverGRPCServer) UpdateMinerPassword(ctx context.Context, req *pb.Upda
 	}
 
 	err := device.UpdateMinerPassword(ctx, req.CurrentPassword, req.NewPassword)
-	return &emptypb.Empty{}, err
+	return &emptypb.Empty{}, sdkErrorToGRPCStatus(err)
 }
 
 func (s *DriverGRPCServer) Curtail(ctx context.Context, req *pb.CurtailRequest) (*emptypb.Empty, error) {
@@ -646,7 +646,7 @@ func (s *DriverGRPCServer) Curtail(ctx context.Context, req *pb.CurtailRequest) 
 	}
 
 	err := device.Curtail(ctx, CurtailLevel(req.Level))
-	return &emptypb.Empty{}, err
+	return &emptypb.Empty{}, sdkErrorToGRPCStatus(err)
 }
 
 func (s *DriverGRPCServer) Uncurtail(ctx context.Context, req *pb.DeviceRef) (*emptypb.Empty, error) {
@@ -659,7 +659,7 @@ func (s *DriverGRPCServer) Uncurtail(ctx context.Context, req *pb.DeviceRef) (*e
 	}
 
 	err := device.Uncurtail(ctx)
-	return &emptypb.Empty{}, err
+	return &emptypb.Empty{}, sdkErrorToGRPCStatus(err)
 }
 
 func (s *DriverGRPCServer) GetTimeSeriesData(ctx context.Context, req *pb.GetTimeSeriesDataRequest) (*pb.GetTimeSeriesDataResponse, error) {
