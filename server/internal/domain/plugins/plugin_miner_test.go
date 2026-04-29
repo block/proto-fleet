@@ -299,6 +299,21 @@ func TestPluginMiner_CurtailReturnsUnimplementedWhenDeviceLacksCurtailment(t *te
 	assert.Contains(t, err.Error(), "device does not support curtailment")
 }
 
+func TestPluginMiner_CurtailUnavailablePreservesTransientTaxonomy(t *testing.T) {
+	pm, mockDevice := createTestPluginMiner()
+	mockDevice.curtailFunc = func(context.Context, sdk.CurtailLevel) error {
+		return grpcstatus.Error(codes.Unavailable, "temporary transport outage")
+	}
+
+	err := pm.Curtail(t.Context(), sdk.CurtailLevelFull)
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsUnavailableError(err))
+	assert.False(t, fleeterror.IsUnimplementedError(err))
+	assert.Contains(t, err.Error(), "failed to curtail device")
+	assert.Contains(t, err.Error(), "temporary transport outage")
+}
+
 func TestPluginMiner_UncurtailReturnsUnimplementedWhenDeviceLacksCurtailment(t *testing.T) {
 	pm := createTestPluginMinerWithDevice(&mockSDKDeviceWithoutCurtailment{id: "test-device"})
 
@@ -307,6 +322,21 @@ func TestPluginMiner_UncurtailReturnsUnimplementedWhenDeviceLacksCurtailment(t *
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsUnimplementedError(err))
 	assert.Contains(t, err.Error(), "device does not support curtailment")
+}
+
+func TestPluginMiner_UncurtailUnavailablePreservesTransientTaxonomy(t *testing.T) {
+	pm, mockDevice := createTestPluginMiner()
+	mockDevice.uncurtailFunc = func(context.Context) error {
+		return grpcstatus.Error(codes.Unavailable, "temporary transport outage")
+	}
+
+	err := pm.Uncurtail(t.Context())
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsUnavailableError(err))
+	assert.False(t, fleeterror.IsUnimplementedError(err))
+	assert.Contains(t, err.Error(), "failed to uncurtail device")
+	assert.Contains(t, err.Error(), "temporary transport outage")
 }
 
 // mockLogSaver captures the rows passed to SaveLogs for assertion in tests.

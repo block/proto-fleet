@@ -219,7 +219,7 @@ func (p *PluginMiner) Curtail(ctx context.Context, level sdk.CurtailLevel) error
 		return fleeterror.NewUnimplementedError("device does not support curtailment")
 	}
 	if err := curtailer.Curtail(ctx, level); err != nil {
-		return wrapPluginError(err, "failed to curtail device")
+		return wrapCurtailmentPluginError(err, "failed to curtail device")
 	}
 	return nil
 }
@@ -231,7 +231,7 @@ func (p *PluginMiner) Uncurtail(ctx context.Context) error {
 		return fleeterror.NewUnimplementedError("device does not support curtailment")
 	}
 	if err := curtailer.Uncurtail(ctx); err != nil {
-		return wrapPluginError(err, "failed to uncurtail device")
+		return wrapCurtailmentPluginError(err, "failed to uncurtail device")
 	}
 	return nil
 }
@@ -595,6 +595,19 @@ func wrapPluginError(err error, format string, a ...any) error {
 		return fleeterror.NewForbiddenErrorf("%s: %v", msg, err)
 	}
 	return fleeterror.NewInternalErrorf("%s: %v", msg, err)
+}
+
+// wrapCurtailmentPluginError preserves transient dispatch taxonomy for the
+// curtailment reconciler while leaving the generic plugin error mapping intact.
+func wrapCurtailmentPluginError(err error, format string, a ...any) error {
+	if err == nil {
+		return nil
+	}
+	msg := fmt.Sprintf(format, a...)
+	if st, ok := grpcstatus.FromError(err); ok && st.Code() == codes.Unavailable {
+		return fleeterror.NewUnavailableErrorf("%s: %s", msg, st.Message())
+	}
+	return wrapPluginError(err, format, a...)
 }
 
 // isDefaultPasswordActiveError detects the Proto firmware default-password

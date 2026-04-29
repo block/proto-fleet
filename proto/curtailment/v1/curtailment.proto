@@ -3,6 +3,7 @@ syntax = "proto3";
 package curtailment.v1;
 
 import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
 import "buf/validate/validate.proto";
 
 // Service for managing fleet curtailment events: select miners, dispatch
@@ -144,6 +145,13 @@ enum CurtailmentTargetState {
     CURTAILMENT_TARGET_STATE_RESTORE_FAILED = 7;  // unreachable after restore was attempted
 }
 
+// CurtailmentTargetDesiredState is the reconciler's desired state for a target.
+enum CurtailmentTargetDesiredState {
+    CURTAILMENT_TARGET_DESIRED_STATE_UNSPECIFIED = 0;
+    CURTAILMENT_TARGET_DESIRED_STATE_CURTAILED   = 1;
+    CURTAILMENT_TARGET_DESIRED_STATE_ACTIVE      = 2;
+}
+
 // --- Scope wrappers ---
 
 // ScopeWholeOrg selects every miner in the caller's organization.
@@ -253,6 +261,14 @@ message CurtailmentEvent {
     // Per-state target counts so the UI can render rollups without fetching
     // every target row.
     CurtailmentTargetRollup target_rollup = 40;
+
+    // Full target details for operator visibility and audit review.
+    repeated CurtailmentTarget targets = 41;
+
+    // Selector decision snapshot persisted as JSONB and returned as a protobuf
+    // struct so future selector versions can add fields without changing wire
+    // shape.
+    google.protobuf.Struct decision_snapshot = 42;
 }
 
 // CurtailmentTargetRollup summarizes target states for an event.
@@ -265,6 +281,28 @@ message CurtailmentTargetRollup {
     int32 released       = 6;
     int32 restore_failed = 7;
     int32 total          = 8;
+}
+
+// CurtailmentTarget is the event-scoped desired/observed state for one miner.
+message CurtailmentTarget {
+    string device_identifier = 1;
+    string target_type       = 2;  // v1: "miner"; future: "pdu", "rack"
+
+    CurtailmentTargetState        state         = 3;
+    CurtailmentTargetDesiredState desired_state = 4;
+
+    optional double baseline_power_w = 5;
+    optional double observed_power_w = 6;
+
+    google.protobuf.Timestamp added_at           = 7;
+    google.protobuf.Timestamp released_at        = 8;
+    google.protobuf.Timestamp last_dispatched_at = 9;
+    string                    last_batch_uuid    = 10;
+    google.protobuf.Timestamp observed_at        = 11;
+    google.protobuf.Timestamp confirmed_at       = 12;
+
+    uint32 retry_count = 13;
+    string last_error  = 14;
 }
 
 // CurtailmentCandidate is a single miner returned by PreviewCurtailmentPlan.
@@ -325,6 +363,12 @@ message PreviewCurtailmentPlanRequest {
         // v1 only honors FULL (3).
         in: [0, 3]
     }];
+    // 0 = use server default (NORMAL). v1 honors NORMAL and EMERGENCY only;
+    // HIGH is reserved until a later phase defines behavior for it.
+    CurtailmentPriority priority = 7 [(buf.validate.field).enum = {
+        defined_only: true
+        in: [0, 1, 3]
+    }];
 
     oneof mode_params {
         FixedKwParams        fixed_kw         = 8;
@@ -336,7 +380,7 @@ message PreviewCurtailmentPlanRequest {
     bool include_maintenance       = 24;
     bool force_include_maintenance = 25;
 
-    reserved 7, 12 to 23;
+    reserved 12 to 23;
 }
 
 message PreviewCurtailmentPlanResponse {
@@ -403,7 +447,10 @@ message StartCurtailmentRequest {
         defined_only: true
         in: [0, 3]
     }];
-    CurtailmentPriority priority = 7 [(buf.validate.field).enum.defined_only = true];
+    CurtailmentPriority priority = 7 [(buf.validate.field).enum = {
+        defined_only: true
+        in: [0, 1, 3]
+    }];
 
     oneof mode_params {
         FixedKwParams        fixed_kw         = 8;
