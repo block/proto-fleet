@@ -80,7 +80,6 @@ const PoolSelectionModal = ({
   const [isTestingConnection, setIsTestingConnection] = useState(false);
   const [showConnectionCallout, setShowConnectionCallout] = useState(false);
   const [connectionError, setConnectionError] = useState(false);
-  const [credentialsVerified, setCredentialsVerified] = useState(true);
 
   const { validatePool, createPool, miningPools } = usePools(isVisible);
 
@@ -137,9 +136,8 @@ const PoolSelectionModal = ({
         url: selectedPool.poolUrl,
         username: selectedPool.username,
       },
-      onSuccess: ({ credentialsVerified: verified }) => {
+      onSuccess: () => {
         setConnectionError(false);
-        setCredentialsVerified(verified);
       },
       onError: () => {
         setConnectionError(true);
@@ -197,8 +195,8 @@ const PoolSelectionModal = ({
         username: args.poolInfo.username,
         password: args.poolInfo.password,
       },
-      onSuccess: (result) => {
-        args.onSuccess?.(result);
+      onSuccess: () => {
+        args.onSuccess?.();
       },
       onError: (error) => {
         args.onError?.(error);
@@ -259,11 +257,7 @@ const PoolSelectionModal = ({
           intent={intents.success}
           onDismiss={() => setShowConnectionCallout(false)}
           show={showSuccessCallout}
-          title={
-            credentialsVerified
-              ? "Pool connection successful"
-              : "Pool endpoint identity verified, credentials not checked (SV2)"
-          }
+          title="Pool connection successful"
           testId="pool-selection-modal-connection-success-callout"
         />
         <DismissibleCalloutWrapper

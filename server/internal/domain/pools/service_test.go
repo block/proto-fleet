@@ -365,12 +365,11 @@ func TestValidateConnection_SV2URLRejectsMissingPubkey(t *testing.T) {
 	svc := NewService(&stubPoolStore{}, stubTransactor{}, Config{Timeout: time.Second}, nil)
 
 	// Act
-	outcome, err := svc.ValidateConnection(testCtx(t), url, "anything", nil, nil)
+	ok, err := svc.ValidateConnection(testCtx(t), url, "anything", nil, nil)
 
 	// Assert
 	require.Error(t, err)
-	assert.False(t, outcome.Reachable)
-	assert.False(t, outcome.CredentialsVerified)
+	assert.False(t, ok)
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 }
 
@@ -383,10 +382,9 @@ func TestValidateConnection_SV2URLHandshakeFailureSurfaces(t *testing.T) {
 	svc := NewService(&stubPoolStore{}, stubTransactor{}, Config{Timeout: 100 * time.Millisecond}, nil)
 
 	// Act
-	outcome, err := svc.ValidateConnection(testCtx(t), url, "anything", nil, nil)
+	ok, err := svc.ValidateConnection(testCtx(t), url, "anything", nil, nil)
 
 	// Assert
-	assert.False(t, outcome.Reachable)
-	assert.False(t, outcome.CredentialsVerified)
+	assert.False(t, ok)
 	assert.Error(t, err)
 }

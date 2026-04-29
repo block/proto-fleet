@@ -216,21 +216,13 @@ func (s *Service) ListPools(ctx context.Context) ([]*pb.Pool, error) {
 	return pools, nil
 }
 
-// ValidationOutcome reports the result of a pool connection probe.
-// CredentialsVerified is true only when the probe exchanged worker
-// credentials with the pool. SV2 currently leaves it false because the
-// Noise handshake proves endpoint identity but not credential validity.
-type ValidationOutcome struct {
-	Reachable           bool
-	CredentialsVerified bool
-}
-
 // ValidateConnection probes a pool server. SV1 URLs run a full
 // mining.subscribe + authorize. SV2 URLs run a Noise NX handshake
-// against the authority pubkey embedded in the URL path — proves the
-// pool speaks SV2 and presents the operator-pinned static key, but
-// does not verify worker credentials.
-func (s *Service) ValidateConnection(ctx context.Context, url string, username string, password *secrets.Text, timeout *time.Duration) (ValidationOutcome, error) {
+// against the authority pubkey embedded in the URL path, which
+// confirms the pool speaks SV2 and presents the operator-pinned
+// static key. The protocol has no equivalent of SV1's credential
+// check — credentials are deferred to the worker connection.
+func (s *Service) ValidateConnection(ctx context.Context, url string, username string, password *secrets.Text, timeout *time.Duration) (bool, error) {
 	to := s.cfg.Timeout
 	if timeout != nil {
 		to = *timeout
@@ -241,16 +233,11 @@ func (s *Service) ValidateConnection(ctx context.Context, url string, username s
 	if sv2.IsSV2URL(url) {
 		key, err := sv2.PoolNoiseKeyFromURL(url)
 		if err != nil {
-			return ValidationOutcome{}, fleeterror.NewInvalidArgumentErrorf("%v", err)
+			return false, fleeterror.NewInvalidArgumentErrorf("%v", err)
 		}
-		ok, err := sv2.HandshakeProbe(ctx, url, key, to)
-		return ValidationOutcome{Reachable: ok, CredentialsVerified: false}, err
+		return sv2.HandshakeProbe(ctx, url, key, to)
 	}
-	ok, err := stratumv1.Authenticate(ctx, url, username, password)
-	if err != nil {
-		return ValidationOutcome{}, err
-	}
-	return ValidationOutcome{Reachable: ok, CredentialsVerified: ok}, nil
+	return stratumv1.Authenticate(ctx, url, username, password)
 }
 
 // validateSV2PoolURL rejects Stratum V2 URLs whose authority-pubkey path

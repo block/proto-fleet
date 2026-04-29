@@ -72,15 +72,13 @@ func (h *Handler) ValidatePool(ctx context.Context, r *connect.Request[pb.Valida
 		timeout = &tmp
 	}
 
-	outcome, err := h.poolsSvc.ValidateConnection(ctx, r.Msg.Url, r.Msg.Username, pass, timeout)
+	ok, err := h.poolsSvc.ValidateConnection(ctx, r.Msg.Url, r.Msg.Username, pass, timeout)
 
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
-	if !outcome.Reachable {
+	if !ok {
 		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("failed to validate pool connection"))
 	}
-	return connect.NewResponse(&pb.ValidatePoolResponse{
-		CredentialsVerified: outcome.CredentialsVerified,
-	}), nil
+	return connect.NewResponse(&pb.ValidatePoolResponse{}), nil
 }

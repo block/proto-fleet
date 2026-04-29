@@ -31,7 +31,7 @@ interface DeletePoolProps {
 
 export interface ValidatePoolProps {
   poolInfo: Omit<ValidatePoolRequest, "$typeName">;
-  onSuccess?: (result: { credentialsVerified: boolean }) => void;
+  onSuccess?: () => void;
   onError?: (error: string) => void;
   onFinally?: () => void;
 }
@@ -163,8 +163,8 @@ const usePools = (enabled = true) => {
 
       await poolsClient
         .validatePool(request)
-        .then((response) => {
-          onSuccess?.({ credentialsVerified: response.credentialsVerified });
+        .then(() => {
+          onSuccess?.();
         })
         .catch((err) => {
           handleAuthErrors({

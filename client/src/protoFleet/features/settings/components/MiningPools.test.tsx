@@ -211,7 +211,7 @@ describe("MiningPools", () => {
 
     it("shows success toast when connection test passes", async () => {
       mockValidatePool.mockImplementation(({ onSuccess }) => {
-        onSuccess?.({ credentialsVerified: true });
+        onSuccess?.();
       });
 
       render(<MiningPools />);
