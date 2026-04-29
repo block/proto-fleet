@@ -15,19 +15,17 @@ export class BasePage {
   }
 
   async validateTitle(expectedTitle: string) {
-    const titleLocator = this.page.locator(`//*[contains(@class,'heading')][text()="${expectedTitle}"]`);
+    const titleLocator = this.page.getByText(expectedTitle, { exact: true });
     await expect(titleLocator).toBeVisible();
   }
 
   async validateTitleInModal(expectedTitle: string) {
-    const titleLocator = this.page.locator(
-      `//*[@data-testid='modal']//*[contains(@class,'heading')][text()="${expectedTitle}"]`,
-    );
+    const titleLocator = this.page.getByTestId("modal").getByText(expectedTitle, { exact: true });
     await expect(titleLocator).toBeVisible();
   }
 
   async validateTitleNotVisible(expectedTitle: string) {
-    const titleLocator = this.page.locator(`//*[contains(@class,'heading')][text()="${expectedTitle}"]`);
+    const titleLocator = this.page.getByText(expectedTitle, { exact: true });
     await expect(titleLocator).toBeHidden();
   }
 

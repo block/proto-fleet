@@ -3,8 +3,21 @@ import { BasePage } from "./base";
 
 type ThemeLabel = "System" | "Light" | "Dark";
 type ThemeColor = "light" | "dark";
+type MinerIdState = "missing" | "existing";
 
 export class GeneralPage extends BasePage {
+  private async getMinerIdState(): Promise<MinerIdState> {
+    const editButton = this.page.getByTestId("edit-details-button");
+
+    try {
+      await editButton.waitFor({ state: "visible", timeout: 3000 });
+      return "existing";
+    } catch {
+      await this.page.getByTestId("add-miner-id").waitFor({ state: "visible" });
+      return "missing";
+    }
+  }
+
   async clickThemeButton() {
     await this.page.getByTestId("theme-button").click();
   }
@@ -60,8 +73,7 @@ export class GeneralPage extends BasePage {
   }
 
   async getMinerId(): Promise<string | null> {
-    const addButton = this.page.getByTestId("add-miner-id");
-    if (await addButton.isVisible()) {
+    if ((await this.getMinerIdState()) === "missing") {
       return null;
     }
 
@@ -69,12 +81,12 @@ export class GeneralPage extends BasePage {
   }
 
   async openMinerIdEditor() {
-    const addButton = this.page.getByTestId("add-miner-id");
-    if (await addButton.isVisible()) {
-      await addButton.click();
-    } else {
+    if ((await this.getMinerIdState()) === "existing") {
       await this.page.getByTestId("edit-details-button").click();
+      return;
     }
+
+    await this.page.getByTestId("add-miner-id").click();
   }
 
   async validateMinerIdModalOpened() {
