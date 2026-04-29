@@ -167,12 +167,6 @@ const PoolModal = ({
     if (!pool?.url?.trim()) {
       setUrlError(urlValidationErrors.required);
       hasError = true;
-    } else {
-      const schemeError = validateURLScheme(pool.url.trim());
-      if (schemeError) {
-        setUrlError(schemeError);
-        hasError = true;
-      }
     }
 
     const nextUsernameError = getPoolUsernameValidationError(pool?.username, {
