@@ -887,7 +887,7 @@ impl Driver for DriverService {
             .as_ref()
             .map(|r| &r.device_id)
             .ok_or_else(|| Status::invalid_argument("Missing device ref"))?;
-        let device = self.get_device(&device_id).await?;
+        let device = self.get_device(device_id).await?;
         device
             .uncurtail_full()
             .await
