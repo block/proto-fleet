@@ -89,6 +89,7 @@ func (d *Driver) DescribeDriver(ctx context.Context) (sdk.DriverIdentifier, sdk.
 		sdk.CapabilityReboot:             true,  // We can reboot devices
 		sdk.CapabilityMiningStart:        true,  // We can start mining
 		sdk.CapabilityMiningStop:         true,  // We can stop mining
+		sdk.CapabilityCurtail:            true,  // FULL curtailment wraps StopMining/StartMining
 		sdk.CapabilityLEDBlink:           true,  // We can blink LED for identification
 		sdk.CapabilityFactoryReset:       false, // Factory reset not supported
 		sdk.CapabilityCoolingModeAir:     true,  // We support air cooling mode
