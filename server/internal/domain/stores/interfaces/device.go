@@ -26,6 +26,8 @@ type MinerFilter struct {
 	GroupIDs            []int64                           // Filter by group membership (OR logic: match any group)
 	RackIDs             []int64                           // Filter by rack membership (OR logic: match any rack)
 	DeviceIdentifiers   []string                          // Filter by specific device identifiers (e.g., for group-scoped queries)
+	FirmwareVersions    []string                          // Filter by firmware version strings (OR logic)
+	Zones               []string                          // Filter by rack zones (OR logic). Excludes miners not assigned to any rack.
 }
 
 // MinerStateCounts holds fleet health state counts for a collection.
@@ -107,6 +109,7 @@ type DeviceStore interface {
 	GetAllPairedDeviceIdentifiers(ctx context.Context) ([]models.DeviceIdentifier, error)
 	GetMinerStateCounts(ctx context.Context, orgID int64, filter *MinerFilter) (*tm.MinerStateCounts, error)
 	GetAvailableModels(ctx context.Context, orgID int64) ([]string, error)
+	GetAvailableFirmwareVersions(ctx context.Context, orgID int64) ([]string, error)
 	GetMinerModelGroups(ctx context.Context, orgID int64, filter *MinerFilter) ([]MinerModelGroupResult, error)
 	UpsertDeviceStatus(ctx context.Context, deviceIdentifier models.DeviceIdentifier, status mm.MinerStatus, details string) error
 	UpsertDeviceStatuses(ctx context.Context, updates []DeviceStatusUpdate) error
