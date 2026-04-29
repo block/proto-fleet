@@ -454,12 +454,28 @@ func (d *Device) Curtail(ctx context.Context, level sdk.CurtailLevel) error {
 	if level != sdk.CurtailLevelFull {
 		return sdk.NewErrCurtailCapabilityNotSupported(d.id, int32(level))
 	}
-	return d.client.StopMining(ctx)
+	if err := d.client.StopMining(ctx); err != nil {
+		return err
+	}
+
+	d.statusMutex.Lock()
+	defer d.statusMutex.Unlock()
+	d.lastStatus = nil
+	d.lastStatusAt = time.Time{}
+	return nil
 }
 
 // Uncurtail implements the SDK Device interface by wrapping StartMining.
 func (d *Device) Uncurtail(ctx context.Context) error {
-	return d.client.StartMining(ctx)
+	if err := d.client.StartMining(ctx); err != nil {
+		return err
+	}
+
+	d.statusMutex.Lock()
+	defer d.statusMutex.Unlock()
+	d.lastStatus = nil
+	d.lastStatusAt = time.Time{}
+	return nil
 }
 
 // SetCoolingMode implements the SDK Device interface.
