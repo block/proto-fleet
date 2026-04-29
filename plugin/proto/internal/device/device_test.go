@@ -238,6 +238,30 @@ func TestDevice_UncurtailWrapsDispatchFailureAsTransient(t *testing.T) {
 	assert.Contains(t, err.Error(), "transient curtail failure")
 }
 
+func TestDevice_CurtailAuthFailureReturnsAuthenticationFailed(t *testing.T) {
+	dev := newMiningControlTestDevice(t, http.StatusUnauthorized)
+
+	err := dev.Curtail(context.Background(), sdk.CurtailLevelFull)
+
+	require.Error(t, err)
+	var sdkErr sdk.SDKError
+	require.True(t, errors.As(err, &sdkErr))
+	assert.Equal(t, sdk.ErrCodeAuthenticationFailed, sdkErr.Code)
+	assert.ErrorIs(t, err, sdkErr.Err)
+}
+
+func TestDevice_UncurtailAuthFailureReturnsAuthenticationFailed(t *testing.T) {
+	dev := newMiningControlTestDevice(t, http.StatusUnauthorized)
+
+	err := dev.Uncurtail(context.Background())
+
+	require.Error(t, err)
+	var sdkErr sdk.SDKError
+	require.True(t, errors.As(err, &sdkErr))
+	assert.Equal(t, sdk.ErrCodeAuthenticationFailed, sdkErr.Code)
+	assert.ErrorIs(t, err, sdkErr.Err)
+}
+
 func TestDevice_CurtailUnsupportedLevelReturnsCapabilityNotSupported(t *testing.T) {
 	dev := newMiningControlTestDevice(t, http.StatusOK)
 

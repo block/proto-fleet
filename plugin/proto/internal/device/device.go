@@ -534,8 +534,11 @@ func wrapCurtailDispatchError(deviceID string, err error) error {
 		return nil
 	}
 	var sdkErr sdk.SDKError
-	if errors.As(err, &sdkErr) || isAuthenticationError(err) || isDefaultPasswordError(err) {
+	if errors.As(err, &sdkErr) || isDefaultPasswordError(err) {
 		return err
+	}
+	if isAuthenticationError(err) {
+		return sdk.NewErrorAuthenticationFailed(deviceID, err)
 	}
 	return sdk.NewErrCurtailTransient(deviceID, err)
 }
