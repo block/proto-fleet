@@ -15,9 +15,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
 )
 
-// All v1 RPCs are stubbed; the contract for BE-1 is that every route is
-// wired through Connect and returns CodeUnimplemented so later issues only
-// have to swap in real business logic without touching main.go.
+// All v1 routes are wired and return CodeUnimplemented.
 func TestHandler_AllRPCsReturnUnimplemented(t *testing.T) {
 	t.Parallel()
 

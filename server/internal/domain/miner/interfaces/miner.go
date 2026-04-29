@@ -34,13 +34,7 @@ type Miner interface {
 	StartMining(ctx context.Context) error
 	StopMining(ctx context.Context) error
 
-	// Curtailment operations.
-	//
-	// Curtail reduces device power output to the requested level. v1 honors
-	// CurtailLevelFull only; higher levels are reserved for v4 plugin-specific
-	// support and return ErrCurtailCapabilityNotSupported until then.
-	// Capability gating in the curtailment selector ensures Curtail is only
-	// dispatched to miners that report CapabilityCurtail.
+	// v1 curtailment uses CurtailLevelFull with CapabilityCurtail; other levels are reserved.
 	Curtail(ctx context.Context, level sdk.CurtailLevel) error
 	Uncurtail(ctx context.Context) error
 

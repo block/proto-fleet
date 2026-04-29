@@ -174,11 +174,8 @@ func classifyNewDeviceError(err error, deviceID string) error {
 			sdk.ErrCodeInvalidConfig, sdk.ErrCodeDeviceUnavailable,
 			sdk.ErrCodeDriverShutdown,
 			sdk.ErrCodeCurtailCapabilityNotSupported, sdk.ErrCodeCurtailTransient:
-			// All other SDK error codes fall through to InternalError below.
-			// Curtail-specific codes only surface from Curtail/Uncurtail
-			// dispatches and never from NewDevice, so listing them here is
-			// purely for exhaustiveness; the InternalError fallback is
-			// correct if a plugin ever returns one from this path.
+			// Curtail codes should not surface from NewDevice; keep the
+			// InternalError fallback if a plugin returns one here.
 		}
 	}
 	if isDefaultPasswordActiveError(err) {

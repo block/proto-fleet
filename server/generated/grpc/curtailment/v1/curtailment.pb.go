@@ -25,24 +25,18 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// CurtailmentMode selects which dispatch algorithm chooses the target set.
-// Grouped by operational class. v1 modes occupy slots 1 and 2 so the most
-// common values fit in a 1-byte protobuf tag.
+// CurtailmentMode selects the target-set algorithm.
 type CurtailmentMode int32
 
 const (
 	CurtailmentMode_CURTAILMENT_MODE_UNSPECIFIED CurtailmentMode = 0
-	// Open-loop, operator-sized: operator specifies how much to shed; the
-	// target set is frozen at event creation and never re-evaluated.
-	// FIXED_KW occupies slot 1 because kW is the operator's native unit.
-	CurtailmentMode_CURTAILMENT_MODE_FIXED_KW      CurtailmentMode = 1 // v1 — accumulate ranked candidates until Σpower_w ≥ target_kw
-	CurtailmentMode_CURTAILMENT_MODE_FIXED_PERCENT CurtailmentMode = 2 // v1 — top-N by ceil-percent of candidates
-	CurtailmentMode_CURTAILMENT_MODE_FIXED_COUNT   CurtailmentMode = 3 // reserved — operator picks an explicit miner count
-	// Open-loop, externally triggered: webhook or timer drives start/stop,
-	// but the target set is still frozen once selected.
+	// Open-loop, operator-sized; targets are frozen at event creation.
+	CurtailmentMode_CURTAILMENT_MODE_FIXED_KW      CurtailmentMode = 1 // v1: select until sum(power_w) >= target_kw
+	CurtailmentMode_CURTAILMENT_MODE_FIXED_PERCENT CurtailmentMode = 2 // v1: top-N by ceil-percent of candidates
+	CurtailmentMode_CURTAILMENT_MODE_FIXED_COUNT   CurtailmentMode = 3 // reserved: explicit miner count
+	// Open-loop, externally triggered; targets are frozen once selected.
 	CurtailmentMode_CURTAILMENT_MODE_DEMAND_RESPONSE CurtailmentMode = 4 // reserved (v2)
-	// Closed-loop continuous control: the mode re-evaluates the target set
-	// every tick against an external signal or setpoint.
+	// Closed-loop modes re-evaluate targets against a signal or setpoint.
 	CurtailmentMode_CURTAILMENT_MODE_SITE_POWER_CAP   CurtailmentMode = 5 // reserved (v3)
 	CurtailmentMode_CURTAILMENT_MODE_THERMAL_LIMIT    CurtailmentMode = 6 // reserved (v3)
 	CurtailmentMode_CURTAILMENT_MODE_PRICE_BREAKEVEN  CurtailmentMode = 7 // reserved (v3)
@@ -102,20 +96,19 @@ func (CurtailmentMode) EnumDescriptor() ([]byte, []int) {
 	return file_curtailment_v1_curtailment_proto_rawDescGZIP(), []int{0}
 }
 
-// CurtailmentStrategy selects how candidates are ranked. Grouped by ranking
-// philosophy.
+// CurtailmentStrategy selects candidate ranking.
 type CurtailmentStrategy int32
 
 const (
 	CurtailmentStrategy_CURTAILMENT_STRATEGY_UNSPECIFIED CurtailmentStrategy = 0
-	// Economic ranking — rank candidates by per-miner attribute.
-	CurtailmentStrategy_CURTAILMENT_STRATEGY_LEAST_EFFICIENT_FIRST CurtailmentStrategy = 1 // v1 default — worst J/TH first
-	CurtailmentStrategy_CURTAILMENT_STRATEGY_MOST_POWER_FIRST      CurtailmentStrategy = 2 // reserved — biggest single-miner shed first
-	CurtailmentStrategy_CURTAILMENT_STRATEGY_OLDEST_HARDWARE_FIRST CurtailmentStrategy = 3 // reserved — accelerates retirement of aging gear
-	// Reliability ranking — rank candidates by stability heuristics.
-	CurtailmentStrategy_CURTAILMENT_STRATEGY_UNSTABLE_MINERS_FIRST CurtailmentStrategy = 4 // reserved — restart-risk tolerant first
-	// Topology-aware — placement constraint, not a pure ranking.
-	CurtailmentStrategy_CURTAILMENT_STRATEGY_RACK_GRANULAR CurtailmentStrategy = 5 // reserved — distribute across racks/PDUs
+	// Economic ranking by per-miner attributes.
+	CurtailmentStrategy_CURTAILMENT_STRATEGY_LEAST_EFFICIENT_FIRST CurtailmentStrategy = 1 // v1 default: worst J/TH first
+	CurtailmentStrategy_CURTAILMENT_STRATEGY_MOST_POWER_FIRST      CurtailmentStrategy = 2 // reserved: biggest single-miner shed first
+	CurtailmentStrategy_CURTAILMENT_STRATEGY_OLDEST_HARDWARE_FIRST CurtailmentStrategy = 3 // reserved: oldest gear first
+	// Reliability ranking by stability heuristics.
+	CurtailmentStrategy_CURTAILMENT_STRATEGY_UNSTABLE_MINERS_FIRST CurtailmentStrategy = 4 // reserved: restart-risk tolerant first
+	// Topology-aware placement constraints.
+	CurtailmentStrategy_CURTAILMENT_STRATEGY_RACK_GRANULAR CurtailmentStrategy = 5 // reserved: distribute across racks/PDUs
 )
 
 // Enum value maps for CurtailmentStrategy.
@@ -165,16 +158,14 @@ func (CurtailmentStrategy) EnumDescriptor() ([]byte, []int) {
 	return file_curtailment_v1_curtailment_proto_rawDescGZIP(), []int{1}
 }
 
-// CurtailmentLevel selects how aggressively each curtailed miner reduces
-// power. Ordered by ascending power-reduction impact, so the numeric value
-// of the level is a proxy for "how much power gets shed per curtailed miner."
+// CurtailmentLevel is ordered by ascending per-miner power reduction.
 type CurtailmentLevel int32
 
 const (
 	CurtailmentLevel_CURTAILMENT_LEVEL_UNSPECIFIED     CurtailmentLevel = 0
-	CurtailmentLevel_CURTAILMENT_LEVEL_EFFICIENCY      CurtailmentLevel = 1 // reserved (v4) — peak J/TH setting; ~20–30% per-miner reduction
-	CurtailmentLevel_CURTAILMENT_LEVEL_PARTIAL_PERCENT CurtailmentLevel = 2 // reserved (v4) — operator-specified hash-rate %
-	CurtailmentLevel_CURTAILMENT_LEVEL_FULL            CurtailmentLevel = 3 // v1 — complete shutdown (~100% per-miner reduction modulo idle draw)
+	CurtailmentLevel_CURTAILMENT_LEVEL_EFFICIENCY      CurtailmentLevel = 1 // reserved (v4): peak J/TH setting
+	CurtailmentLevel_CURTAILMENT_LEVEL_PARTIAL_PERCENT CurtailmentLevel = 2 // reserved (v4): operator-specified hash-rate %
+	CurtailmentLevel_CURTAILMENT_LEVEL_FULL            CurtailmentLevel = 3 // v1: complete shutdown
 )
 
 // Enum value maps for CurtailmentLevel.
@@ -220,16 +211,14 @@ func (CurtailmentLevel) EnumDescriptor() ([]byte, []int) {
 	return file_curtailment_v1_curtailment_proto_rawDescGZIP(), []int{2}
 }
 
-// CurtailmentPriority influences hysteresis and cooldown bypass.
+// CurtailmentPriority controls cooldown and hysteresis behavior.
 type CurtailmentPriority int32
 
 const (
 	CurtailmentPriority_CURTAILMENT_PRIORITY_UNSPECIFIED CurtailmentPriority = 0
-	CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL      CurtailmentPriority = 1 // default — respects hysteresis & cooldowns
+	CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL      CurtailmentPriority = 1 // default; respects hysteresis and cooldowns
 	CurtailmentPriority_CURTAILMENT_PRIORITY_HIGH        CurtailmentPriority = 2
-	// EMERGENCY bypasses post_event_cooldown and min_curtailed_duration_sec.
-	// It does NOT implicitly override maintenance — both include_maintenance
-	// and force_include_maintenance must still be set explicitly.
+	// EMERGENCY bypasses cooldown/min-duration, but not maintenance checks.
 	CurtailmentPriority_CURTAILMENT_PRIORITY_EMERGENCY CurtailmentPriority = 3
 )
 
@@ -276,18 +265,16 @@ func (CurtailmentPriority) EnumDescriptor() ([]byte, []int) {
 	return file_curtailment_v1_curtailment_proto_rawDescGZIP(), []int{3}
 }
 
-// CurtailmentEventState tracks the lifecycle of a single curtailment event.
-// Lifecycle order: non-terminal states first (in transition order), then
-// terminal states ordered best-outcome → worst-outcome.
+// CurtailmentEventState tracks one event lifecycle.
 type CurtailmentEventState int32
 
 const (
 	CurtailmentEventState_CURTAILMENT_EVENT_STATE_UNSPECIFIED CurtailmentEventState = 0
-	// Non-terminal — event is in flight.
+	// In-flight states.
 	CurtailmentEventState_CURTAILMENT_EVENT_STATE_PENDING   CurtailmentEventState = 1
 	CurtailmentEventState_CURTAILMENT_EVENT_STATE_ACTIVE    CurtailmentEventState = 2
 	CurtailmentEventState_CURTAILMENT_EVENT_STATE_RESTORING CurtailmentEventState = 3
-	// Terminal — best to worst outcome.
+	// Terminal outcomes.
 	CurtailmentEventState_CURTAILMENT_EVENT_STATE_COMPLETED               CurtailmentEventState = 4 // every target resolved cleanly
 	CurtailmentEventState_CURTAILMENT_EVENT_STATE_COMPLETED_WITH_FAILURES CurtailmentEventState = 5 // some targets RESTORE_FAILED
 	CurtailmentEventState_CURTAILMENT_EVENT_STATE_CANCELLED               CurtailmentEventState = 6 // user-initiated termination
@@ -345,19 +332,17 @@ func (CurtailmentEventState) EnumDescriptor() ([]byte, []int) {
 	return file_curtailment_v1_curtailment_proto_rawDescGZIP(), []int{4}
 }
 
-// CurtailmentTargetState tracks a single miner inside a curtailment event.
-// CONFIRMED is steady-state, not terminal: it cycles back to DRIFTED →
-// DISPATCHED → CONFIRMED on detected drift.
+// CurtailmentTargetState tracks one target inside an event.
 type CurtailmentTargetState int32
 
 const (
 	CurtailmentTargetState_CURTAILMENT_TARGET_STATE_UNSPECIFIED CurtailmentTargetState = 0
-	// Non-terminal — target is in flight.
+	// In-flight states; CONFIRMED can drift and be re-dispatched.
 	CurtailmentTargetState_CURTAILMENT_TARGET_STATE_PENDING    CurtailmentTargetState = 1
 	CurtailmentTargetState_CURTAILMENT_TARGET_STATE_DISPATCHED CurtailmentTargetState = 2
 	CurtailmentTargetState_CURTAILMENT_TARGET_STATE_CONFIRMED  CurtailmentTargetState = 3
 	CurtailmentTargetState_CURTAILMENT_TARGET_STATE_DRIFTED    CurtailmentTargetState = 4 // re-dispatching
-	// Terminal — best to worst outcome.
+	// Terminal outcomes.
 	CurtailmentTargetState_CURTAILMENT_TARGET_STATE_RESOLVED       CurtailmentTargetState = 5 // event ended cleanly for this target
 	CurtailmentTargetState_CURTAILMENT_TARGET_STATE_RELEASED       CurtailmentTargetState = 6 // removed by closed-loop mid-event (v3+); ends target, not event
 	CurtailmentTargetState_CURTAILMENT_TARGET_STATE_RESTORE_FAILED CurtailmentTargetState = 7 // unreachable after restore was attempted
@@ -414,7 +399,7 @@ func (CurtailmentTargetState) EnumDescriptor() ([]byte, []int) {
 	return file_curtailment_v1_curtailment_proto_rawDescGZIP(), []int{5}
 }
 
-// CurtailmentTargetDesiredState is the reconciler's desired state for a target.
+// CurtailmentTargetDesiredState is the reconciler target state.
 type CurtailmentTargetDesiredState int32
 
 const (
@@ -464,7 +449,7 @@ func (CurtailmentTargetDesiredState) EnumDescriptor() ([]byte, []int) {
 	return file_curtailment_v1_curtailment_proto_rawDescGZIP(), []int{6}
 }
 
-// ScopeWholeOrg selects every miner in the caller's organization.
+// ScopeWholeOrg selects every miner in the caller organization.
 type ScopeWholeOrg struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -501,8 +486,7 @@ func (*ScopeWholeOrg) Descriptor() ([]byte, []int) {
 	return file_curtailment_v1_curtailment_proto_rawDescGZIP(), []int{0}
 }
 
-// ScopeDeviceSets selects miners that belong to one or more device sets
-// (racks or groups).
+// ScopeDeviceSets selects miners in device sets.
 type ScopeDeviceSets struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	DeviceSetIds  []string               `protobuf:"bytes,1,rep,name=device_set_ids,json=deviceSetIds,proto3" json:"device_set_ids,omitempty"`
@@ -547,9 +531,7 @@ func (x *ScopeDeviceSets) GetDeviceSetIds() []string {
 	return nil
 }
 
-// ScopeDeviceList selects miners by explicit device_identifier. The handler
-// must validate that every identifier belongs to the caller's organization
-// before persistence or dispatch.
+// ScopeDeviceList selects explicit device identifiers.
 type ScopeDeviceList struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
 	DeviceIdentifiers []string               `protobuf:"bytes,1,rep,name=device_identifiers,json=deviceIdentifiers,proto3" json:"device_identifiers,omitempty"`
@@ -594,15 +576,12 @@ func (x *ScopeDeviceList) GetDeviceIdentifiers() []string {
 	return nil
 }
 
-// FixedKwParams configures a CurtailmentMode_FIXED_KW request. Tolerance is
-// the operator's accepted undershoot; over-fulfillment beyond target_kw is
-// always accepted.
+// FixedKwParams configures a fixed-kW reduction target.
 type FixedKwParams struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Target kilowatt reduction. Must be > 0.
+	// Target kW reduction.
 	TargetKw float64 `protobuf:"fixed64,1,opt,name=target_kw,json=targetKw,proto3" json:"target_kw,omitempty"`
-	// Optional accepted undershoot, in kW. Absent → server default applied;
-	// explicit 0 → strict satisfaction (must reach or exceed target_kw).
+	// Optional accepted undershoot; absent uses server default, 0 is strict.
 	ToleranceKw   *float64 `protobuf:"fixed64,2,opt,name=tolerance_kw,json=toleranceKw,proto3,oneof" json:"tolerance_kw,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -652,10 +631,10 @@ func (x *FixedKwParams) GetToleranceKw() float64 {
 	return 0
 }
 
-// FixedPercentParams configures a CurtailmentMode_FIXED_PERCENT request.
+// FixedPercentParams configures a fixed-percent target.
 type FixedPercentParams struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Percent of candidates to curtail. Must be in (0, 100].
+	// Percent of candidates to curtail.
 	Percent       float64 `protobuf:"fixed64,1,opt,name=percent,proto3" json:"percent,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -698,7 +677,7 @@ func (x *FixedPercentParams) GetPercent() float64 {
 	return 0
 }
 
-// FixedCountParams is reserved for v2's CURTAILMENT_MODE_FIXED_COUNT.
+// FixedCountParams is reserved for FIXED_COUNT.
 type FixedCountParams struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Count         int32                  `protobuf:"varint,1,opt,name=count,proto3" json:"count,omitempty"`
@@ -743,7 +722,7 @@ func (x *FixedCountParams) GetCount() int32 {
 	return 0
 }
 
-// SitePowerCapParams is reserved for v3's CURTAILMENT_MODE_SITE_POWER_CAP.
+// SitePowerCapParams is reserved for SITE_POWER_CAP.
 type SitePowerCapParams struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	CapKw         float64                `protobuf:"fixed64,1,opt,name=cap_kw,json=capKw,proto3" json:"cap_kw,omitempty"`
@@ -788,17 +767,17 @@ func (x *SitePowerCapParams) GetCapKw() float64 {
 	return 0
 }
 
-// CurtailmentEvent is the full event entity returned by Get/List/Start RPCs.
+// CurtailmentEvent is the full event returned by Get/List/Start RPCs.
 type CurtailmentEvent struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Stable external identifier (matches the persisted event_uuid).
+	// Stable external event identifier.
 	EventUuid string                `protobuf:"bytes,1,opt,name=event_uuid,json=eventUuid,proto3" json:"event_uuid,omitempty"`
 	State     CurtailmentEventState `protobuf:"varint,2,opt,name=state,proto3,enum=curtailment.v1.CurtailmentEventState" json:"state,omitempty"`
 	Mode      CurtailmentMode       `protobuf:"varint,3,opt,name=mode,proto3,enum=curtailment.v1.CurtailmentMode" json:"mode,omitempty"`
 	Strategy  CurtailmentStrategy   `protobuf:"varint,4,opt,name=strategy,proto3,enum=curtailment.v1.CurtailmentStrategy" json:"strategy,omitempty"`
 	Level     CurtailmentLevel      `protobuf:"varint,5,opt,name=level,proto3,enum=curtailment.v1.CurtailmentLevel" json:"level,omitempty"`
 	Priority  CurtailmentPriority   `protobuf:"varint,6,opt,name=priority,proto3,enum=curtailment.v1.CurtailmentPriority" json:"priority,omitempty"`
-	// Echo of scope / mode_params from the originating request.
+	// Original request scope and mode params.
 	//
 	// Types that are valid to be assigned to Scope:
 	//
@@ -813,33 +792,30 @@ type CurtailmentEvent struct {
 	//	*CurtailmentEvent_FixedCount
 	//	*CurtailmentEvent_SitePowerCap
 	ModeParams isCurtailmentEvent_ModeParams `protobuf_oneof:"mode_params"`
-	// Operational controls echoed from the originating request.
+	// Original operational controls.
 	MaxDurationSeconds      uint32 `protobuf:"varint,14,opt,name=max_duration_seconds,json=maxDurationSeconds,proto3" json:"max_duration_seconds,omitempty"`
 	RestoreBatchSize        uint32 `protobuf:"varint,15,opt,name=restore_batch_size,json=restoreBatchSize,proto3" json:"restore_batch_size,omitempty"`
 	RestoreBatchIntervalSec uint32 `protobuf:"varint,16,opt,name=restore_batch_interval_sec,json=restoreBatchIntervalSec,proto3" json:"restore_batch_interval_sec,omitempty"`
 	MinCurtailedDurationSec uint32 `protobuf:"varint,17,opt,name=min_curtailed_duration_sec,json=minCurtailedDurationSec,proto3" json:"min_curtailed_duration_sec,omitempty"`
 	IncludeMaintenance      bool   `protobuf:"varint,18,opt,name=include_maintenance,json=includeMaintenance,proto3" json:"include_maintenance,omitempty"`
 	ForceIncludeMaintenance bool   `protobuf:"varint,19,opt,name=force_include_maintenance,json=forceIncludeMaintenance,proto3" json:"force_include_maintenance,omitempty"`
-	// Operator-supplied free text (non-empty after trimming).
+	// Operator-supplied reason.
 	Reason string `protobuf:"bytes,20,opt,name=reason,proto3" json:"reason,omitempty"`
-	// Trigger attribution. Empty for direct user/API-key calls.
+	// Trigger attribution; empty for direct user/API-key calls.
 	ExternalSource    string `protobuf:"bytes,21,opt,name=external_source,json=externalSource,proto3" json:"external_source,omitempty"`
 	ExternalReference string `protobuf:"bytes,22,opt,name=external_reference,json=externalReference,proto3" json:"external_reference,omitempty"`
 	IdempotencyKey    string `protobuf:"bytes,23,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
-	// Timestamps. scheduled_start_at is null for "start now" events.
+	// scheduled_start_at is null for "start now" events.
 	ScheduledStartAt *timestamppb.Timestamp `protobuf:"bytes,30,opt,name=scheduled_start_at,json=scheduledStartAt,proto3" json:"scheduled_start_at,omitempty"`
 	StartedAt        *timestamppb.Timestamp `protobuf:"bytes,31,opt,name=started_at,json=startedAt,proto3" json:"started_at,omitempty"`
 	EndedAt          *timestamppb.Timestamp `protobuf:"bytes,32,opt,name=ended_at,json=endedAt,proto3" json:"ended_at,omitempty"`
 	CreatedAt        *timestamppb.Timestamp `protobuf:"bytes,33,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	UpdatedAt        *timestamppb.Timestamp `protobuf:"bytes,34,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
-	// Per-state target counts so the UI can render rollups without fetching
-	// every target row.
+	// Per-state target counts for summaries.
 	TargetRollup *CurtailmentTargetRollup `protobuf:"bytes,40,opt,name=target_rollup,json=targetRollup,proto3" json:"target_rollup,omitempty"`
-	// Full target details for operator visibility and audit review.
+	// Full target details.
 	Targets []*CurtailmentTarget `protobuf:"bytes,41,rep,name=targets,proto3" json:"targets,omitempty"`
-	// Selector decision snapshot persisted as JSONB and returned as a protobuf
-	// struct so future selector versions can add fields without changing wire
-	// shape.
+	// Extensible selector decision snapshot.
 	DecisionSnapshot *structpb.Struct `protobuf:"bytes,42,opt,name=decision_snapshot,json=decisionSnapshot,proto3" json:"decision_snapshot,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
@@ -1170,7 +1146,7 @@ func (*CurtailmentEvent_FixedCount) isCurtailmentEvent_ModeParams() {}
 
 func (*CurtailmentEvent_SitePowerCap) isCurtailmentEvent_ModeParams() {}
 
-// CurtailmentTargetRollup summarizes target states for an event.
+// CurtailmentTargetRollup summarizes target states.
 type CurtailmentTargetRollup struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Pending       int32                  `protobuf:"varint,1,opt,name=pending,proto3" json:"pending,omitempty"`
@@ -1271,7 +1247,7 @@ func (x *CurtailmentTargetRollup) GetTotal() int32 {
 	return 0
 }
 
-// CurtailmentTarget is the event-scoped desired/observed state for one miner.
+// CurtailmentTarget is one event-scoped target.
 type CurtailmentTarget struct {
 	state            protoimpl.MessageState        `protogen:"open.v1"`
 	DeviceIdentifier string                        `protobuf:"bytes,1,opt,name=device_identifier,json=deviceIdentifier,proto3" json:"device_identifier,omitempty"`
@@ -1420,7 +1396,7 @@ func (x *CurtailmentTarget) GetLastError() string {
 	return ""
 }
 
-// CurtailmentCandidate is a single miner returned by PreviewCurtailmentPlan.
+// CurtailmentCandidate is one selected preview candidate.
 type CurtailmentCandidate struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	DeviceIdentifier string                 `protobuf:"bytes,1,opt,name=device_identifier,json=deviceIdentifier,proto3" json:"device_identifier,omitempty"`
@@ -1489,8 +1465,7 @@ func (x *CurtailmentCandidate) GetReasonSelected() string {
 	return ""
 }
 
-// SkippedCandidate is a candidate excluded by the selector or candidate
-// filter, reported back so the UI can explain why a miner was not chosen.
+// SkippedCandidate explains why a candidate was excluded.
 type SkippedCandidate struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	DeviceIdentifier string                 `protobuf:"bytes,1,opt,name=device_identifier,json=deviceIdentifier,proto3" json:"device_identifier,omitempty"`
@@ -1564,8 +1539,7 @@ type PreviewCurtailmentPlanRequest struct {
 	Strategy CurtailmentStrategy `protobuf:"varint,5,opt,name=strategy,proto3,enum=curtailment.v1.CurtailmentStrategy" json:"strategy,omitempty"`
 	// 0 = use server default (FULL).
 	Level CurtailmentLevel `protobuf:"varint,6,opt,name=level,proto3,enum=curtailment.v1.CurtailmentLevel" json:"level,omitempty"`
-	// 0 = use server default (NORMAL). v1 honors NORMAL and EMERGENCY only;
-	// HIGH is reserved until a later phase defines behavior for it.
+	// 0 = server default. HIGH is reserved.
 	Priority CurtailmentPriority `protobuf:"varint,7,opt,name=priority,proto3,enum=curtailment.v1.CurtailmentPriority" json:"priority,omitempty"`
 	// Types that are valid to be assigned to ModeParams:
 	//
@@ -1783,14 +1757,11 @@ type PreviewCurtailmentPlanResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Selected miners in dispatch order.
 	Candidates []*CurtailmentCandidate `protobuf:"bytes,1,rep,name=candidates,proto3" json:"candidates,omitempty"`
-	// Realized kW of the selected set (always ≥ target_kw modulo
-	// insufficient-load rejection for FIXED_KW; sum of selected miners'
-	// snapshot power for FIXED_PERCENT).
+	// Realized kW from selected miners.
 	EstimatedReductionKw float64 `protobuf:"fixed64,2,opt,name=estimated_reduction_kw,json=estimatedReductionKw,proto3" json:"estimated_reduction_kw,omitempty"`
-	// Sum of remaining (non-selected) candidate power, for context.
+	// Remaining non-selected candidate power.
 	EstimatedRemainingPowerKw float64 `protobuf:"fixed64,3,opt,name=estimated_remaining_power_kw,json=estimatedRemainingPowerKw,proto3" json:"estimated_remaining_power_kw,omitempty"`
-	// Echo of the request mode and mode_params so the UI can render the
-	// undershoot delta for FIXED_KW without re-fetching the request.
+	// Echoes request mode params for UI deltas.
 	Mode CurtailmentMode `protobuf:"varint,4,opt,name=mode,proto3,enum=curtailment.v1.CurtailmentMode" json:"mode,omitempty"`
 	// Types that are valid to be assigned to ModeParams:
 	//
@@ -1799,8 +1770,7 @@ type PreviewCurtailmentPlanResponse struct {
 	//	*PreviewCurtailmentPlanResponse_FixedCount
 	//	*PreviewCurtailmentPlanResponse_SitePowerCap
 	ModeParams isPreviewCurtailmentPlanResponse_ModeParams `protobuf_oneof:"mode_params"`
-	// Candidates considered but excluded, with canonical reasons (e.g.
-	// phantom_load_no_hash, power_telemetry_unreliable, unreachable_residual_load).
+	// Excluded candidates with canonical reasons.
 	SkippedCandidates []*SkippedCandidate `protobuf:"bytes,20,rep,name=skipped_candidates,json=skippedCandidates,proto3" json:"skipped_candidates,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
@@ -1963,17 +1933,15 @@ type StartCurtailmentRequest struct {
 	//	*StartCurtailmentRequest_FixedCount
 	//	*StartCurtailmentRequest_SitePowerCap
 	ModeParams isStartCurtailmentRequest_ModeParams `protobuf_oneof:"mode_params"`
-	// Operational controls
+	// Operational controls.
 	MaxDurationSeconds      uint32 `protobuf:"varint,20,opt,name=max_duration_seconds,json=maxDurationSeconds,proto3" json:"max_duration_seconds,omitempty"`                  // 0 = no cap
 	RestoreBatchSize        uint32 `protobuf:"varint,21,opt,name=restore_batch_size,json=restoreBatchSize,proto3" json:"restore_batch_size,omitempty"`                        // 0 = server default
 	RestoreBatchIntervalSec uint32 `protobuf:"varint,22,opt,name=restore_batch_interval_sec,json=restoreBatchIntervalSec,proto3" json:"restore_batch_interval_sec,omitempty"` // 0 = server default
 	MinCurtailedDurationSec uint32 `protobuf:"varint,23,opt,name=min_curtailed_duration_sec,json=minCurtailedDurationSec,proto3" json:"min_curtailed_duration_sec,omitempty"`
-	// Maintenance override pair. include_maintenance=true requires
-	// force_include_maintenance=true; the handler enforces this with
-	// InvalidArgument and the DB has a CHECK on the pair.
+	// include_maintenance requires force_include_maintenance.
 	IncludeMaintenance      bool `protobuf:"varint,24,opt,name=include_maintenance,json=includeMaintenance,proto3" json:"include_maintenance,omitempty"`
 	ForceIncludeMaintenance bool `protobuf:"varint,25,opt,name=force_include_maintenance,json=forceIncludeMaintenance,proto3" json:"force_include_maintenance,omitempty"`
-	// Idempotency + trigger attribution
+	// Idempotency and trigger attribution.
 	IdempotencyKey    string `protobuf:"bytes,30,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"` // unique per (org, key) when non-empty
 	Reason            string `protobuf:"bytes,31,opt,name=reason,proto3" json:"reason,omitempty"`
 	ExternalSource    string `protobuf:"bytes,32,opt,name=external_source,json=externalSource,proto3" json:"external_source,omitempty"`          // webhook source name (v2)
@@ -2281,14 +2249,11 @@ func (x *StartCurtailmentResponse) GetEvent() *CurtailmentEvent {
 	return nil
 }
 
-// UpdateCurtailmentEvent supports operator-safe field updates on an active
-// event in v1 (e.g. reason, restore controls). Closed-loop target mutation
-// is reserved.
+// UpdateCurtailmentEvent supports operator-safe field updates.
 type UpdateCurtailmentEventRequest struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
 	EventUuid string                 `protobuf:"bytes,1,opt,name=event_uuid,json=eventUuid,proto3" json:"event_uuid,omitempty"`
-	// Editable fields. Optional so callers can update individual fields
-	// without sending a full event payload.
+	// Optional fields allow partial updates.
 	Reason                  *string `protobuf:"bytes,10,opt,name=reason,proto3,oneof" json:"reason,omitempty"`
 	RestoreBatchSize        *uint32 `protobuf:"varint,11,opt,name=restore_batch_size,json=restoreBatchSize,proto3,oneof" json:"restore_batch_size,omitempty"`
 	RestoreBatchIntervalSec *uint32 `protobuf:"varint,12,opt,name=restore_batch_interval_sec,json=restoreBatchIntervalSec,proto3,oneof" json:"restore_batch_interval_sec,omitempty"`
@@ -2406,9 +2371,7 @@ func (x *UpdateCurtailmentEventResponse) GetEvent() *CurtailmentEvent {
 	return nil
 }
 
-// StopCurtailment moves an active event into RESTORING and begins staggered
-// restore. Rejected with FailedPrecondition if min_curtailed_duration_sec
-// has not elapsed (unless priority is EMERGENCY).
+// StopCurtailment starts restore; min duration may block normal priority.
 type StopCurtailmentRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	EventUuid     string                 `protobuf:"bytes,1,opt,name=event_uuid,json=eventUuid,proto3" json:"event_uuid,omitempty"`
@@ -2497,8 +2460,7 @@ func (x *StopCurtailmentResponse) GetEvent() *CurtailmentEvent {
 	return nil
 }
 
-// GetActiveCurtailment returns the single active event for the caller's
-// organization, or empty if none.
+// GetActiveCurtailment returns the caller's active event, if any.
 type GetActiveCurtailmentRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -2537,7 +2499,7 @@ func (*GetActiveCurtailmentRequest) Descriptor() ([]byte, []int) {
 
 type GetActiveCurtailmentResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Empty when no event is in pending/active/restoring state.
+	// Empty when no event is pending, active, or restoring.
 	Event         *CurtailmentEvent `protobuf:"bytes,1,opt,name=event,proto3,oneof" json:"event,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2580,13 +2542,12 @@ func (x *GetActiveCurtailmentResponse) GetEvent() *CurtailmentEvent {
 	return nil
 }
 
-// ListCurtailmentEvents returns historical events. Cursor-based pagination
-// uses an opaque page_token round-tripped between client and server.
+// ListCurtailmentEvents returns historical events.
 type ListCurtailmentEventsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Page size. Validator caps at 200; server may further clamp downward.
+	// Page size; validator caps at 200.
 	PageSize int32 `protobuf:"varint,1,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
-	// Opaque cursor returned in the previous response. Empty for first page.
+	// Opaque cursor; empty for first page.
 	PageToken string `protobuf:"bytes,2,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
 	// Optional state filter; unspecified returns all states.
 	StateFilter   CurtailmentEventState `protobuf:"varint,3,opt,name=state_filter,json=stateFilter,proto3,enum=curtailment.v1.CurtailmentEventState" json:"state_filter,omitempty"`
@@ -2648,7 +2609,7 @@ func (x *ListCurtailmentEventsRequest) GetStateFilter() CurtailmentEventState {
 type ListCurtailmentEventsResponse struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	Events []*CurtailmentEvent    `protobuf:"bytes,1,rep,name=events,proto3" json:"events,omitempty"`
-	// Empty when there are no further pages.
+	// Empty when no further pages remain.
 	NextPageToken string `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

@@ -56,20 +56,17 @@ const (
 
 // CurtailmentServiceClient is a client for the curtailment.v1.CurtailmentService service.
 type CurtailmentServiceClient interface {
-	// Returns the candidate plan for a curtailment without persisting it. The
-	// operator inspects this before committing via StartCurtailment.
+	// Preview a candidate plan without persisting it.
 	PreviewCurtailmentPlan(context.Context, *connect.Request[v1.PreviewCurtailmentPlanRequest]) (*connect.Response[v1.PreviewCurtailmentPlanResponse], error)
-	// Starts a new curtailment event. Persists the event and selected targets,
-	// then dispatches the initial Curtail commands.
+	// Start an event, persist targets, and dispatch initial Curtail commands.
 	StartCurtailment(context.Context, *connect.Request[v1.StartCurtailmentRequest]) (*connect.Response[v1.StartCurtailmentResponse], error)
-	// Updates operator-safe fields on an active curtailment event (e.g.
-	// reason, restore controls). Closed-loop target mutation is reserved.
+	// Update operator-safe fields; target mutation is reserved.
 	UpdateCurtailmentEvent(context.Context, *connect.Request[v1.UpdateCurtailmentEventRequest]) (*connect.Response[v1.UpdateCurtailmentEventResponse], error)
-	// Stops an active curtailment event and begins staggered restore.
+	// Stop an active event and begin staggered restore.
 	StopCurtailment(context.Context, *connect.Request[v1.StopCurtailmentRequest]) (*connect.Response[v1.StopCurtailmentResponse], error)
-	// Returns the current pending/active/restoring event with target rollups.
+	// Get the current pending, active, or restoring event.
 	GetActiveCurtailment(context.Context, *connect.Request[v1.GetActiveCurtailmentRequest]) (*connect.Response[v1.GetActiveCurtailmentResponse], error)
-	// Lists historical curtailment events with cursor-based pagination.
+	// List historical events with cursor pagination.
 	ListCurtailmentEvents(context.Context, *connect.Request[v1.ListCurtailmentEventsRequest]) (*connect.Response[v1.ListCurtailmentEventsResponse], error)
 }
 
@@ -158,20 +155,17 @@ func (c *curtailmentServiceClient) ListCurtailmentEvents(ctx context.Context, re
 
 // CurtailmentServiceHandler is an implementation of the curtailment.v1.CurtailmentService service.
 type CurtailmentServiceHandler interface {
-	// Returns the candidate plan for a curtailment without persisting it. The
-	// operator inspects this before committing via StartCurtailment.
+	// Preview a candidate plan without persisting it.
 	PreviewCurtailmentPlan(context.Context, *connect.Request[v1.PreviewCurtailmentPlanRequest]) (*connect.Response[v1.PreviewCurtailmentPlanResponse], error)
-	// Starts a new curtailment event. Persists the event and selected targets,
-	// then dispatches the initial Curtail commands.
+	// Start an event, persist targets, and dispatch initial Curtail commands.
 	StartCurtailment(context.Context, *connect.Request[v1.StartCurtailmentRequest]) (*connect.Response[v1.StartCurtailmentResponse], error)
-	// Updates operator-safe fields on an active curtailment event (e.g.
-	// reason, restore controls). Closed-loop target mutation is reserved.
+	// Update operator-safe fields; target mutation is reserved.
 	UpdateCurtailmentEvent(context.Context, *connect.Request[v1.UpdateCurtailmentEventRequest]) (*connect.Response[v1.UpdateCurtailmentEventResponse], error)
-	// Stops an active curtailment event and begins staggered restore.
+	// Stop an active event and begin staggered restore.
 	StopCurtailment(context.Context, *connect.Request[v1.StopCurtailmentRequest]) (*connect.Response[v1.StopCurtailmentResponse], error)
-	// Returns the current pending/active/restoring event with target rollups.
+	// Get the current pending, active, or restoring event.
 	GetActiveCurtailment(context.Context, *connect.Request[v1.GetActiveCurtailmentRequest]) (*connect.Response[v1.GetActiveCurtailmentResponse], error)
-	// Lists historical curtailment events with cursor-based pagination.
+	// List historical events with cursor pagination.
 	ListCurtailmentEvents(context.Context, *connect.Request[v1.ListCurtailmentEventsRequest]) (*connect.Response[v1.ListCurtailmentEventsResponse], error)
 }
 

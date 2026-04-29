@@ -1,8 +1,4 @@
-// Package curtailment exposes the curtailment Connect-RPC surface. v1 wires
-// every RPC to a stub that returns connect.CodeUnimplemented; persistence,
-// the selector, dispatch, reconciliation, and restore land in follow-up
-// issues. The proto types and route registrations exist now so later work
-// can plug into a fixed handler/main.go contract.
+// Package curtailment registers v1 stubs that return Unimplemented.
 package curtailment
 
 import (
@@ -15,15 +11,12 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
-// Handler implements curtailmentv1connect.CurtailmentServiceHandler. All v1
-// RPCs return connect.CodeUnimplemented until the corresponding business
-// logic lands.
+// Handler implements curtailment v1 stubs.
 type Handler struct{}
 
 var _ curtailmentv1connect.CurtailmentServiceHandler = &Handler{}
 
-// NewHandler returns a Handler. It takes no dependencies in v1 because every
-// RPC is a stub; later issues will inject the curtailment domain service.
+// NewHandler returns a stub curtailment handler.
 func NewHandler() *Handler {
 	return &Handler{}
 }
@@ -52,8 +45,7 @@ func (h *Handler) ListCurtailmentEvents(_ context.Context, _ *connect.Request[pb
 	return nil, errCurtailmentNotImplemented("ListCurtailmentEvents")
 }
 
-// errCurtailmentNotImplemented produces a uniform error message for v1 stubs
-// so log surfaces and client errors are easy to grep for during the build-out.
+// errCurtailmentNotImplemented standardizes stub errors.
 func errCurtailmentNotImplemented(rpc string) error {
 	return fleeterror.NewUnimplementedErrorf("curtailment.%s is not implemented yet", rpc)
 }

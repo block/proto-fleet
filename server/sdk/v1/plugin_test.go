@@ -1150,10 +1150,7 @@ func TestDriverGRPCServer_UncurtailReturnsUnimplementedWhenDeviceLacksCurtailmen
 	assert.Contains(t, st.Message(), "device does not support curtailment")
 }
 
-// Sibling control RPCs (StartMining, SetCoolingMode, UpdateMinerPassword)
-// must propagate SDKError codes through sdkErrorToGRPCStatus the same way
-// Curtail/Uncurtail do, so wrapPluginError can distinguish Unauthenticated
-// from Unavailable from Unimplemented downstream.
+// Control RPCs should preserve SDKError status codes across gRPC.
 func TestDriverGRPCServer_ControlRPCsMapSDKErrorStatus(t *testing.T) {
 	tests := []struct {
 		name         string

@@ -242,21 +242,17 @@ const (
 	PerformanceModeEfficiency
 )
 
-// CurtailLevel selects how aggressively a miner is curtailed. Numeric values
-// mirror the curtailment.v1 CurtailmentLevel proto enum (ordered by ascending
-// power-reduction impact) so callers can convert without translation.
+// CurtailLevel mirrors curtailment.v1 CurtailmentLevel values.
 type CurtailLevel int32
 
 const (
-	// CurtailLevelUnspecified represents an unspecified curtail level
+	// CurtailLevelUnspecified is unset.
 	CurtailLevelUnspecified CurtailLevel = 0
-	// CurtailLevelEfficiency is reserved (v4) — peak J/TH setting,
-	// ~20–30% per-miner reduction. Plugins may return ErrCurtailCapabilityNotSupported.
+	// CurtailLevelEfficiency is reserved for efficiency-mode curtailment.
 	CurtailLevelEfficiency CurtailLevel = 1
-	// CurtailLevelPartialPercent is reserved (v4) — operator-specified hash %.
+	// CurtailLevelPartialPercent is reserved for partial-percent curtailment.
 	CurtailLevelPartialPercent CurtailLevel = 2
-	// CurtailLevelFull is the v1 level — complete shutdown,
-	// ~100% per-miner reduction modulo idle draw.
+	// CurtailLevelFull is the v1 full-shutdown level.
 	CurtailLevelFull CurtailLevel = 3
 )
 
@@ -382,10 +378,7 @@ type DeviceControl interface {
 	Reboot(ctx context.Context) error
 }
 
-// DeviceCurtailment is an optional interface for devices that report
-// CapabilityCurtail. For v1, FULL is the only honored level; higher levels are
-// reserved for v4 (see CurtailLevel). Devices that do not support curtailment
-// should not implement this interface.
+// DeviceCurtailment is optional and should match reported curtail capabilities.
 type DeviceCurtailment interface {
 	Curtail(ctx context.Context, level CurtailLevel) error
 	Uncurtail(ctx context.Context) error
@@ -540,8 +533,8 @@ const (
 
 	// Curtailment capabilities
 	CapabilityCurtail           = "curtail"            // Curtail/Uncurtail support (FULL level)
-	CapabilityCurtailEfficiency = "curtail_efficiency" // reserved (v4) — efficiency-mode curtailment
-	CapabilityCurtailPartial    = "curtail_partial"    // reserved (v4) — partial-percent curtailment
+	CapabilityCurtailEfficiency = "curtail_efficiency" // reserved (v4): efficiency-mode curtailment
+	CapabilityCurtailPartial    = "curtail_partial"    // reserved (v4): partial-percent curtailment
 
 	// Telemetry capabilities
 	CapabilityRealtimeTelemetry = "realtime_telemetry"    // Real-time telemetry support

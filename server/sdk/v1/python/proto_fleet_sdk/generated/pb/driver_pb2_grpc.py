@@ -355,9 +355,7 @@ class DriverServicer(object):
         raise NotImplementedError('Method not implemented!')
 
     def Curtail(self, request, context):
-        """Curtailment - Required for plugins that report curtail_supported.
-        Plugins that do not implement curtailment should return Unimplemented;
-        capability-gating in the server prevents Curtail dispatch to such miners.
+        """Required for plugins that report any curtailment capability.
         """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')

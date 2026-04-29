@@ -142,8 +142,7 @@ func (d *Driver) DescribeDriver(ctx context.Context) (sdk.DriverIdentifier, sdk.
 		sdk.CapabilityReboot:      true,
 		sdk.CapabilityMiningStart: true,
 		sdk.CapabilityMiningStop:  true,
-		// FULL curtailment is implemented as StopMining/StartMining wrappers.
-		// Higher levels (efficiency, partial-percent) are reserved for v4.
+		// FULL curtailment uses mining start/stop.
 		sdk.CapabilityCurtail:            true,
 		sdk.CapabilityLEDBlink:           true,
 		sdk.CapabilityFactoryReset:       false,

@@ -35,9 +35,7 @@ func newTestDevice(t *testing.T) *Device {
 	return d
 }
 
-// CapabilityCurtail must be advertised so the curtailment selector pulls
-// virtual miners into v1 events. CapabilityCurtailEfficiency / Partial
-// remain off because they are reserved for v4.
+// FULL curtailment is advertised; efficiency/partial remain reserved.
 func TestDevice_DescribeDevice_AdvertisesCurtailCapability(t *testing.T) {
 	d := newTestDevice(t)
 
@@ -48,9 +46,7 @@ func TestDevice_DescribeDevice_AdvertisesCurtailCapability(t *testing.T) {
 	assert.False(t, caps[sdk.CapabilityCurtailPartial], "v4 partial curtailment is reserved")
 }
 
-// FULL curtailment is the only honored level in v1; the virtual plugin must
-// stop mining and remember the level so subsequent telemetry reflects the
-// curtailed state. Uncurtail returns the miner to mining.
+// FULL curtailment stops mining until Uncurtail.
 func TestDevice_CurtailFull_ThenUncurtail(t *testing.T) {
 	d := newTestDevice(t)
 
@@ -63,9 +59,7 @@ func TestDevice_CurtailFull_ThenUncurtail(t *testing.T) {
 	assert.Equal(t, sdk.CurtailLevelUnspecified, d.curtailLevel, "Uncurtail must clear the level")
 }
 
-// Higher levels (efficiency, partial) are reserved for v4; the plugin must
-// surface a permanent CurtailCapabilityNotSupported error so the curtailment
-// reconciler can mark the target failed instead of retrying forever.
+// Unsupported levels are permanent capability errors.
 func TestDevice_CurtailUnsupportedLevel_ReturnsCapabilityNotSupported(t *testing.T) {
 	d := newTestDevice(t)
 
@@ -84,8 +78,7 @@ func TestDevice_CurtailUnsupportedLevel_ReturnsCapabilityNotSupported(t *testing
 	}
 }
 
-// Uncurtail when the miner is not curtailed is a safe no-op so duplicate
-// restore dispatches from the reconciler do not error.
+// Duplicate restore dispatches are no-ops.
 func TestDevice_UncurtailWhileNotCurtailed_IsNoop(t *testing.T) {
 	d := newTestDevice(t)
 	wasMining := d.isMining

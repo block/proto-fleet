@@ -209,10 +209,7 @@ func (p *PluginMiner) StopMining(ctx context.Context) error {
 	return nil
 }
 
-// Curtail implements interfaces.Miner. Levels other than Full surface as
-// ErrCurtailCapabilityNotSupported from the plugin (v1 supports Full only);
-// the curtailment domain treats unsupported-level errors as permanent
-// failures rather than retrying.
+// Curtail dispatches through optional SDK curtailment support.
 func (p *PluginMiner) Curtail(ctx context.Context, level sdk.CurtailLevel) error {
 	curtailer, ok := p.sdkDevice.(sdk.DeviceCurtailment)
 	if !ok {
@@ -224,7 +221,7 @@ func (p *PluginMiner) Curtail(ctx context.Context, level sdk.CurtailLevel) error
 	return nil
 }
 
-// Uncurtail implements interfaces.Miner.
+// Uncurtail dispatches through optional SDK curtailment support.
 func (p *PluginMiner) Uncurtail(ctx context.Context) error {
 	curtailer, ok := p.sdkDevice.(sdk.DeviceCurtailment)
 	if !ok {
@@ -597,8 +594,7 @@ func wrapPluginError(err error, format string, a ...any) error {
 	return fleeterror.NewInternalErrorf("%s: %v", msg, err)
 }
 
-// wrapCurtailmentPluginError preserves transient dispatch taxonomy for the
-// curtailment reconciler while leaving the generic plugin error mapping intact.
+// wrapCurtailmentPluginError preserves Unavailable for retryable dispatches.
 func wrapCurtailmentPluginError(err error, format string, a ...any) error {
 	if err == nil {
 		return nil

@@ -20,7 +20,7 @@ export const file_curtailment_v1_curtailment: GenFile =
   );
 
 /**
- * ScopeWholeOrg selects every miner in the caller's organization.
+ * ScopeWholeOrg selects every miner in the caller organization.
  *
  * @generated from message curtailment.v1.ScopeWholeOrg
  */
@@ -35,8 +35,7 @@ export const ScopeWholeOrgSchema: GenMessage<ScopeWholeOrg> =
   messageDesc(file_curtailment_v1_curtailment, 0);
 
 /**
- * ScopeDeviceSets selects miners that belong to one or more device sets
- * (racks or groups).
+ * ScopeDeviceSets selects miners in device sets.
  *
  * @generated from message curtailment.v1.ScopeDeviceSets
  */
@@ -56,9 +55,7 @@ export const ScopeDeviceSetsSchema: GenMessage<ScopeDeviceSets> =
   messageDesc(file_curtailment_v1_curtailment, 1);
 
 /**
- * ScopeDeviceList selects miners by explicit device_identifier. The handler
- * must validate that every identifier belongs to the caller's organization
- * before persistence or dispatch.
+ * ScopeDeviceList selects explicit device identifiers.
  *
  * @generated from message curtailment.v1.ScopeDeviceList
  */
@@ -78,23 +75,20 @@ export const ScopeDeviceListSchema: GenMessage<ScopeDeviceList> =
   messageDesc(file_curtailment_v1_curtailment, 2);
 
 /**
- * FixedKwParams configures a CurtailmentMode_FIXED_KW request. Tolerance is
- * the operator's accepted undershoot; over-fulfillment beyond target_kw is
- * always accepted.
+ * FixedKwParams configures a fixed-kW reduction target.
  *
  * @generated from message curtailment.v1.FixedKwParams
  */
 export type FixedKwParams = Message<"curtailment.v1.FixedKwParams"> & {
   /**
-   * Target kilowatt reduction. Must be > 0.
+   * Target kW reduction.
    *
    * @generated from field: double target_kw = 1;
    */
   targetKw: number;
 
   /**
-   * Optional accepted undershoot, in kW. Absent → server default applied;
-   * explicit 0 → strict satisfaction (must reach or exceed target_kw).
+   * Optional accepted undershoot; absent uses server default, 0 is strict.
    *
    * @generated from field: optional double tolerance_kw = 2;
    */
@@ -110,13 +104,13 @@ export const FixedKwParamsSchema: GenMessage<FixedKwParams> =
   messageDesc(file_curtailment_v1_curtailment, 3);
 
 /**
- * FixedPercentParams configures a CurtailmentMode_FIXED_PERCENT request.
+ * FixedPercentParams configures a fixed-percent target.
  *
  * @generated from message curtailment.v1.FixedPercentParams
  */
 export type FixedPercentParams = Message<"curtailment.v1.FixedPercentParams"> & {
   /**
-   * Percent of candidates to curtail. Must be in (0, 100].
+   * Percent of candidates to curtail.
    *
    * @generated from field: double percent = 1;
    */
@@ -132,7 +126,7 @@ export const FixedPercentParamsSchema: GenMessage<FixedPercentParams> =
   messageDesc(file_curtailment_v1_curtailment, 4);
 
 /**
- * FixedCountParams is reserved for v2's CURTAILMENT_MODE_FIXED_COUNT.
+ * FixedCountParams is reserved for FIXED_COUNT.
  *
  * @generated from message curtailment.v1.FixedCountParams
  */
@@ -152,7 +146,7 @@ export const FixedCountParamsSchema: GenMessage<FixedCountParams> =
   messageDesc(file_curtailment_v1_curtailment, 5);
 
 /**
- * SitePowerCapParams is reserved for v3's CURTAILMENT_MODE_SITE_POWER_CAP.
+ * SitePowerCapParams is reserved for SITE_POWER_CAP.
  *
  * @generated from message curtailment.v1.SitePowerCapParams
  */
@@ -172,13 +166,13 @@ export const SitePowerCapParamsSchema: GenMessage<SitePowerCapParams> =
   messageDesc(file_curtailment_v1_curtailment, 6);
 
 /**
- * CurtailmentEvent is the full event entity returned by Get/List/Start RPCs.
+ * CurtailmentEvent is the full event returned by Get/List/Start RPCs.
  *
  * @generated from message curtailment.v1.CurtailmentEvent
  */
 export type CurtailmentEvent = Message<"curtailment.v1.CurtailmentEvent"> & {
   /**
-   * Stable external identifier (matches the persisted event_uuid).
+   * Stable external event identifier.
    *
    * @generated from field: string event_uuid = 1;
    */
@@ -210,7 +204,7 @@ export type CurtailmentEvent = Message<"curtailment.v1.CurtailmentEvent"> & {
   priority: CurtailmentPriority;
 
   /**
-   * Echo of scope / mode_params from the originating request.
+   * Original request scope and mode params.
    *
    * @generated from oneof curtailment.v1.CurtailmentEvent.scope
    */
@@ -273,7 +267,7 @@ export type CurtailmentEvent = Message<"curtailment.v1.CurtailmentEvent"> & {
     | { case: undefined; value?: undefined };
 
   /**
-   * Operational controls echoed from the originating request.
+   * Original operational controls.
    *
    * @generated from field: uint32 max_duration_seconds = 14;
    */
@@ -305,14 +299,14 @@ export type CurtailmentEvent = Message<"curtailment.v1.CurtailmentEvent"> & {
   forceIncludeMaintenance: boolean;
 
   /**
-   * Operator-supplied free text (non-empty after trimming).
+   * Operator-supplied reason.
    *
    * @generated from field: string reason = 20;
    */
   reason: string;
 
   /**
-   * Trigger attribution. Empty for direct user/API-key calls.
+   * Trigger attribution; empty for direct user/API-key calls.
    *
    * @generated from field: string external_source = 21;
    */
@@ -329,7 +323,7 @@ export type CurtailmentEvent = Message<"curtailment.v1.CurtailmentEvent"> & {
   idempotencyKey: string;
 
   /**
-   * Timestamps. scheduled_start_at is null for "start now" events.
+   * scheduled_start_at is null for "start now" events.
    *
    * @generated from field: google.protobuf.Timestamp scheduled_start_at = 30;
    */
@@ -356,24 +350,21 @@ export type CurtailmentEvent = Message<"curtailment.v1.CurtailmentEvent"> & {
   updatedAt?: Timestamp;
 
   /**
-   * Per-state target counts so the UI can render rollups without fetching
-   * every target row.
+   * Per-state target counts for summaries.
    *
    * @generated from field: curtailment.v1.CurtailmentTargetRollup target_rollup = 40;
    */
   targetRollup?: CurtailmentTargetRollup;
 
   /**
-   * Full target details for operator visibility and audit review.
+   * Full target details.
    *
    * @generated from field: repeated curtailment.v1.CurtailmentTarget targets = 41;
    */
   targets: CurtailmentTarget[];
 
   /**
-   * Selector decision snapshot persisted as JSONB and returned as a protobuf
-   * struct so future selector versions can add fields without changing wire
-   * shape.
+   * Extensible selector decision snapshot.
    *
    * @generated from field: google.protobuf.Struct decision_snapshot = 42;
    */
@@ -389,7 +380,7 @@ export const CurtailmentEventSchema: GenMessage<CurtailmentEvent> =
   messageDesc(file_curtailment_v1_curtailment, 7);
 
 /**
- * CurtailmentTargetRollup summarizes target states for an event.
+ * CurtailmentTargetRollup summarizes target states.
  *
  * @generated from message curtailment.v1.CurtailmentTargetRollup
  */
@@ -444,7 +435,7 @@ export const CurtailmentTargetRollupSchema: GenMessage<CurtailmentTargetRollup> 
   messageDesc(file_curtailment_v1_curtailment, 8);
 
 /**
- * CurtailmentTarget is the event-scoped desired/observed state for one miner.
+ * CurtailmentTarget is one event-scoped target.
  *
  * @generated from message curtailment.v1.CurtailmentTarget
  */
@@ -531,7 +522,7 @@ export const CurtailmentTargetSchema: GenMessage<CurtailmentTarget> =
   messageDesc(file_curtailment_v1_curtailment, 9);
 
 /**
- * CurtailmentCandidate is a single miner returned by PreviewCurtailmentPlan.
+ * CurtailmentCandidate is one selected preview candidate.
  *
  * @generated from message curtailment.v1.CurtailmentCandidate
  */
@@ -568,8 +559,7 @@ export const CurtailmentCandidateSchema: GenMessage<CurtailmentCandidate> =
   messageDesc(file_curtailment_v1_curtailment, 10);
 
 /**
- * SkippedCandidate is a candidate excluded by the selector or candidate
- * filter, reported back so the UI can explain why a miner was not chosen.
+ * SkippedCandidate explains why a candidate was excluded.
  *
  * @generated from message curtailment.v1.SkippedCandidate
  */
@@ -653,8 +643,7 @@ export type PreviewCurtailmentPlanRequest = Message<"curtailment.v1.PreviewCurta
   level: CurtailmentLevel;
 
   /**
-   * 0 = use server default (NORMAL). v1 honors NORMAL and EMERGENCY only;
-   * HIGH is reserved until a later phase defines behavior for it.
+   * 0 = server default. HIGH is reserved.
    *
    * @generated from field: curtailment.v1.CurtailmentPriority priority = 7;
    */
@@ -725,24 +714,21 @@ export type PreviewCurtailmentPlanResponse = Message<"curtailment.v1.PreviewCurt
   candidates: CurtailmentCandidate[];
 
   /**
-   * Realized kW of the selected set (always ≥ target_kw modulo
-   * insufficient-load rejection for FIXED_KW; sum of selected miners'
-   * snapshot power for FIXED_PERCENT).
+   * Realized kW from selected miners.
    *
    * @generated from field: double estimated_reduction_kw = 2;
    */
   estimatedReductionKw: number;
 
   /**
-   * Sum of remaining (non-selected) candidate power, for context.
+   * Remaining non-selected candidate power.
    *
    * @generated from field: double estimated_remaining_power_kw = 3;
    */
   estimatedRemainingPowerKw: number;
 
   /**
-   * Echo of the request mode and mode_params so the UI can render the
-   * undershoot delta for FIXED_KW without re-fetching the request.
+   * Echoes request mode params for UI deltas.
    *
    * @generated from field: curtailment.v1.CurtailmentMode mode = 4;
    */
@@ -783,8 +769,7 @@ export type PreviewCurtailmentPlanResponse = Message<"curtailment.v1.PreviewCurt
     | { case: undefined; value?: undefined };
 
   /**
-   * Candidates considered but excluded, with canonical reasons (e.g.
-   * phantom_load_no_hash, power_telemetry_unreliable, unreachable_residual_load).
+   * Excluded candidates with canonical reasons.
    *
    * @generated from field: repeated curtailment.v1.SkippedCandidate skipped_candidates = 20;
    */
@@ -889,7 +874,7 @@ export type StartCurtailmentRequest = Message<"curtailment.v1.StartCurtailmentRe
     | { case: undefined; value?: undefined };
 
   /**
-   * Operational controls
+   * Operational controls.
    *
    * 0 = no cap
    *
@@ -917,9 +902,7 @@ export type StartCurtailmentRequest = Message<"curtailment.v1.StartCurtailmentRe
   minCurtailedDurationSec: number;
 
   /**
-   * Maintenance override pair. include_maintenance=true requires
-   * force_include_maintenance=true; the handler enforces this with
-   * InvalidArgument and the DB has a CHECK on the pair.
+   * include_maintenance requires force_include_maintenance.
    *
    * @generated from field: bool include_maintenance = 24;
    */
@@ -931,7 +914,7 @@ export type StartCurtailmentRequest = Message<"curtailment.v1.StartCurtailmentRe
   forceIncludeMaintenance: boolean;
 
   /**
-   * Idempotency + trigger attribution
+   * Idempotency and trigger attribution.
    *
    * unique per (org, key) when non-empty
    *
@@ -986,9 +969,7 @@ export const StartCurtailmentResponseSchema: GenMessage<StartCurtailmentResponse
   messageDesc(file_curtailment_v1_curtailment, 15);
 
 /**
- * UpdateCurtailmentEvent supports operator-safe field updates on an active
- * event in v1 (e.g. reason, restore controls). Closed-loop target mutation
- * is reserved.
+ * UpdateCurtailmentEvent supports operator-safe field updates.
  *
  * @generated from message curtailment.v1.UpdateCurtailmentEventRequest
  */
@@ -999,8 +980,7 @@ export type UpdateCurtailmentEventRequest = Message<"curtailment.v1.UpdateCurtai
   eventUuid: string;
 
   /**
-   * Editable fields. Optional so callers can update individual fields
-   * without sending a full event payload.
+   * Optional fields allow partial updates.
    *
    * @generated from field: optional string reason = 10;
    */
@@ -1049,9 +1029,7 @@ export const UpdateCurtailmentEventResponseSchema: GenMessage<UpdateCurtailmentE
   messageDesc(file_curtailment_v1_curtailment, 17);
 
 /**
- * StopCurtailment moves an active event into RESTORING and begins staggered
- * restore. Rejected with FailedPrecondition if min_curtailed_duration_sec
- * has not elapsed (unless priority is EMERGENCY).
+ * StopCurtailment starts restore; min duration may block normal priority.
  *
  * @generated from message curtailment.v1.StopCurtailmentRequest
  */
@@ -1089,8 +1067,7 @@ export const StopCurtailmentResponseSchema: GenMessage<StopCurtailmentResponse> 
   messageDesc(file_curtailment_v1_curtailment, 19);
 
 /**
- * GetActiveCurtailment returns the single active event for the caller's
- * organization, or empty if none.
+ * GetActiveCurtailment returns the caller's active event, if any.
  *
  * @generated from message curtailment.v1.GetActiveCurtailmentRequest
  */
@@ -1109,7 +1086,7 @@ export const GetActiveCurtailmentRequestSchema: GenMessage<GetActiveCurtailmentR
  */
 export type GetActiveCurtailmentResponse = Message<"curtailment.v1.GetActiveCurtailmentResponse"> & {
   /**
-   * Empty when no event is in pending/active/restoring state.
+   * Empty when no event is pending, active, or restoring.
    *
    * @generated from field: optional curtailment.v1.CurtailmentEvent event = 1;
    */
@@ -1125,21 +1102,20 @@ export const GetActiveCurtailmentResponseSchema: GenMessage<GetActiveCurtailment
   messageDesc(file_curtailment_v1_curtailment, 21);
 
 /**
- * ListCurtailmentEvents returns historical events. Cursor-based pagination
- * uses an opaque page_token round-tripped between client and server.
+ * ListCurtailmentEvents returns historical events.
  *
  * @generated from message curtailment.v1.ListCurtailmentEventsRequest
  */
 export type ListCurtailmentEventsRequest = Message<"curtailment.v1.ListCurtailmentEventsRequest"> & {
   /**
-   * Page size. Validator caps at 200; server may further clamp downward.
+   * Page size; validator caps at 200.
    *
    * @generated from field: int32 page_size = 1;
    */
   pageSize: number;
 
   /**
-   * Opaque cursor returned in the previous response. Empty for first page.
+   * Opaque cursor; empty for first page.
    *
    * @generated from field: string page_token = 2;
    */
@@ -1171,7 +1147,7 @@ export type ListCurtailmentEventsResponse = Message<"curtailment.v1.ListCurtailm
   events: CurtailmentEvent[];
 
   /**
-   * Empty when there are no further pages.
+   * Empty when no further pages remain.
    *
    * @generated from field: string next_page_token = 2;
    */
@@ -1187,9 +1163,7 @@ export const ListCurtailmentEventsResponseSchema: GenMessage<ListCurtailmentEven
   messageDesc(file_curtailment_v1_curtailment, 23);
 
 /**
- * CurtailmentMode selects which dispatch algorithm chooses the target set.
- * Grouped by operational class. v1 modes occupy slots 1 and 2 so the most
- * common values fit in a 1-byte protobuf tag.
+ * CurtailmentMode selects the target-set algorithm.
  *
  * @generated from enum curtailment.v1.CurtailmentMode
  */
@@ -1200,33 +1174,30 @@ export enum CurtailmentMode {
   UNSPECIFIED = 0,
 
   /**
-   * Open-loop, operator-sized: operator specifies how much to shed; the
-   * target set is frozen at event creation and never re-evaluated.
-   * FIXED_KW occupies slot 1 because kW is the operator's native unit.
+   * Open-loop, operator-sized; targets are frozen at event creation.
    *
-   * v1 — accumulate ranked candidates until Σpower_w ≥ target_kw
+   * v1: select until sum(power_w) >= target_kw
    *
    * @generated from enum value: CURTAILMENT_MODE_FIXED_KW = 1;
    */
   FIXED_KW = 1,
 
   /**
-   * v1 — top-N by ceil-percent of candidates
+   * v1: top-N by ceil-percent of candidates
    *
    * @generated from enum value: CURTAILMENT_MODE_FIXED_PERCENT = 2;
    */
   FIXED_PERCENT = 2,
 
   /**
-   * reserved — operator picks an explicit miner count
+   * reserved: explicit miner count
    *
    * @generated from enum value: CURTAILMENT_MODE_FIXED_COUNT = 3;
    */
   FIXED_COUNT = 3,
 
   /**
-   * Open-loop, externally triggered: webhook or timer drives start/stop,
-   * but the target set is still frozen once selected.
+   * Open-loop, externally triggered; targets are frozen once selected.
    *
    * reserved (v2)
    *
@@ -1235,8 +1206,7 @@ export enum CurtailmentMode {
   DEMAND_RESPONSE = 4,
 
   /**
-   * Closed-loop continuous control: the mode re-evaluates the target set
-   * every tick against an external signal or setpoint.
+   * Closed-loop modes re-evaluate targets against a signal or setpoint.
    *
    * reserved (v3)
    *
@@ -1274,8 +1244,7 @@ export const CurtailmentModeSchema: GenEnum<CurtailmentMode> =
   enumDesc(file_curtailment_v1_curtailment, 0);
 
 /**
- * CurtailmentStrategy selects how candidates are ranked. Grouped by ranking
- * philosophy.
+ * CurtailmentStrategy selects candidate ranking.
  *
  * @generated from enum curtailment.v1.CurtailmentStrategy
  */
@@ -1286,41 +1255,41 @@ export enum CurtailmentStrategy {
   UNSPECIFIED = 0,
 
   /**
-   * Economic ranking — rank candidates by per-miner attribute.
+   * Economic ranking by per-miner attributes.
    *
-   * v1 default — worst J/TH first
+   * v1 default: worst J/TH first
    *
    * @generated from enum value: CURTAILMENT_STRATEGY_LEAST_EFFICIENT_FIRST = 1;
    */
   LEAST_EFFICIENT_FIRST = 1,
 
   /**
-   * reserved — biggest single-miner shed first
+   * reserved: biggest single-miner shed first
    *
    * @generated from enum value: CURTAILMENT_STRATEGY_MOST_POWER_FIRST = 2;
    */
   MOST_POWER_FIRST = 2,
 
   /**
-   * reserved — accelerates retirement of aging gear
+   * reserved: oldest gear first
    *
    * @generated from enum value: CURTAILMENT_STRATEGY_OLDEST_HARDWARE_FIRST = 3;
    */
   OLDEST_HARDWARE_FIRST = 3,
 
   /**
-   * Reliability ranking — rank candidates by stability heuristics.
+   * Reliability ranking by stability heuristics.
    *
-   * reserved — restart-risk tolerant first
+   * reserved: restart-risk tolerant first
    *
    * @generated from enum value: CURTAILMENT_STRATEGY_UNSTABLE_MINERS_FIRST = 4;
    */
   UNSTABLE_MINERS_FIRST = 4,
 
   /**
-   * Topology-aware — placement constraint, not a pure ranking.
+   * Topology-aware placement constraints.
    *
-   * reserved — distribute across racks/PDUs
+   * reserved: distribute across racks/PDUs
    *
    * @generated from enum value: CURTAILMENT_STRATEGY_RACK_GRANULAR = 5;
    */
@@ -1335,9 +1304,7 @@ export const CurtailmentStrategySchema: GenEnum<CurtailmentStrategy> =
   enumDesc(file_curtailment_v1_curtailment, 1);
 
 /**
- * CurtailmentLevel selects how aggressively each curtailed miner reduces
- * power. Ordered by ascending power-reduction impact, so the numeric value
- * of the level is a proxy for "how much power gets shed per curtailed miner."
+ * CurtailmentLevel is ordered by ascending per-miner power reduction.
  *
  * @generated from enum curtailment.v1.CurtailmentLevel
  */
@@ -1348,21 +1315,21 @@ export enum CurtailmentLevel {
   UNSPECIFIED = 0,
 
   /**
-   * reserved (v4) — peak J/TH setting; ~20–30% per-miner reduction
+   * reserved (v4): peak J/TH setting
    *
    * @generated from enum value: CURTAILMENT_LEVEL_EFFICIENCY = 1;
    */
   EFFICIENCY = 1,
 
   /**
-   * reserved (v4) — operator-specified hash-rate %
+   * reserved (v4): operator-specified hash-rate %
    *
    * @generated from enum value: CURTAILMENT_LEVEL_PARTIAL_PERCENT = 2;
    */
   PARTIAL_PERCENT = 2,
 
   /**
-   * v1 — complete shutdown (~100% per-miner reduction modulo idle draw)
+   * v1: complete shutdown
    *
    * @generated from enum value: CURTAILMENT_LEVEL_FULL = 3;
    */
@@ -1377,7 +1344,7 @@ export const CurtailmentLevelSchema: GenEnum<CurtailmentLevel> =
   enumDesc(file_curtailment_v1_curtailment, 2);
 
 /**
- * CurtailmentPriority influences hysteresis and cooldown bypass.
+ * CurtailmentPriority controls cooldown and hysteresis behavior.
  *
  * @generated from enum curtailment.v1.CurtailmentPriority
  */
@@ -1388,7 +1355,7 @@ export enum CurtailmentPriority {
   UNSPECIFIED = 0,
 
   /**
-   * default — respects hysteresis & cooldowns
+   * default; respects hysteresis and cooldowns
    *
    * @generated from enum value: CURTAILMENT_PRIORITY_NORMAL = 1;
    */
@@ -1400,9 +1367,7 @@ export enum CurtailmentPriority {
   HIGH = 2,
 
   /**
-   * EMERGENCY bypasses post_event_cooldown and min_curtailed_duration_sec.
-   * It does NOT implicitly override maintenance — both include_maintenance
-   * and force_include_maintenance must still be set explicitly.
+   * EMERGENCY bypasses cooldown/min-duration, but not maintenance checks.
    *
    * @generated from enum value: CURTAILMENT_PRIORITY_EMERGENCY = 3;
    */
@@ -1417,9 +1382,7 @@ export const CurtailmentPrioritySchema: GenEnum<CurtailmentPriority> =
   enumDesc(file_curtailment_v1_curtailment, 3);
 
 /**
- * CurtailmentEventState tracks the lifecycle of a single curtailment event.
- * Lifecycle order: non-terminal states first (in transition order), then
- * terminal states ordered best-outcome → worst-outcome.
+ * CurtailmentEventState tracks one event lifecycle.
  *
  * @generated from enum curtailment.v1.CurtailmentEventState
  */
@@ -1430,7 +1393,7 @@ export enum CurtailmentEventState {
   UNSPECIFIED = 0,
 
   /**
-   * Non-terminal — event is in flight.
+   * In-flight states.
    *
    * @generated from enum value: CURTAILMENT_EVENT_STATE_PENDING = 1;
    */
@@ -1447,7 +1410,7 @@ export enum CurtailmentEventState {
   RESTORING = 3,
 
   /**
-   * Terminal — best to worst outcome.
+   * Terminal outcomes.
    *
    * every target resolved cleanly
    *
@@ -1485,9 +1448,7 @@ export const CurtailmentEventStateSchema: GenEnum<CurtailmentEventState> =
   enumDesc(file_curtailment_v1_curtailment, 4);
 
 /**
- * CurtailmentTargetState tracks a single miner inside a curtailment event.
- * CONFIRMED is steady-state, not terminal: it cycles back to DRIFTED →
- * DISPATCHED → CONFIRMED on detected drift.
+ * CurtailmentTargetState tracks one target inside an event.
  *
  * @generated from enum curtailment.v1.CurtailmentTargetState
  */
@@ -1498,7 +1459,7 @@ export enum CurtailmentTargetState {
   UNSPECIFIED = 0,
 
   /**
-   * Non-terminal — target is in flight.
+   * In-flight states; CONFIRMED can drift and be re-dispatched.
    *
    * @generated from enum value: CURTAILMENT_TARGET_STATE_PENDING = 1;
    */
@@ -1522,7 +1483,7 @@ export enum CurtailmentTargetState {
   DRIFTED = 4,
 
   /**
-   * Terminal — best to worst outcome.
+   * Terminal outcomes.
    *
    * event ended cleanly for this target
    *
@@ -1553,7 +1514,7 @@ export const CurtailmentTargetStateSchema: GenEnum<CurtailmentTargetState> =
   enumDesc(file_curtailment_v1_curtailment, 5);
 
 /**
- * CurtailmentTargetDesiredState is the reconciler's desired state for a target.
+ * CurtailmentTargetDesiredState is the reconciler target state.
  *
  * @generated from enum curtailment.v1.CurtailmentTargetDesiredState
  */
@@ -1582,15 +1543,13 @@ export const CurtailmentTargetDesiredStateSchema: GenEnum<CurtailmentTargetDesir
   enumDesc(file_curtailment_v1_curtailment, 6);
 
 /**
- * Service for managing fleet curtailment events: select miners, dispatch
- * shutdown commands, verify reduction via telemetry, and restore safely.
+ * Service for previewing, starting, tracking, and stopping curtailment events.
  *
  * @generated from service curtailment.v1.CurtailmentService
  */
 export const CurtailmentService: GenService<{
   /**
-   * Returns the candidate plan for a curtailment without persisting it. The
-   * operator inspects this before committing via StartCurtailment.
+   * Preview a candidate plan without persisting it.
    *
    * @generated from rpc curtailment.v1.CurtailmentService.PreviewCurtailmentPlan
    */
@@ -1600,8 +1559,7 @@ export const CurtailmentService: GenService<{
     output: typeof PreviewCurtailmentPlanResponseSchema;
   };
   /**
-   * Starts a new curtailment event. Persists the event and selected targets,
-   * then dispatches the initial Curtail commands.
+   * Start an event, persist targets, and dispatch initial Curtail commands.
    *
    * @generated from rpc curtailment.v1.CurtailmentService.StartCurtailment
    */
@@ -1611,8 +1569,7 @@ export const CurtailmentService: GenService<{
     output: typeof StartCurtailmentResponseSchema;
   };
   /**
-   * Updates operator-safe fields on an active curtailment event (e.g.
-   * reason, restore controls). Closed-loop target mutation is reserved.
+   * Update operator-safe fields; target mutation is reserved.
    *
    * @generated from rpc curtailment.v1.CurtailmentService.UpdateCurtailmentEvent
    */
@@ -1622,7 +1579,7 @@ export const CurtailmentService: GenService<{
     output: typeof UpdateCurtailmentEventResponseSchema;
   };
   /**
-   * Stops an active curtailment event and begins staggered restore.
+   * Stop an active event and begin staggered restore.
    *
    * @generated from rpc curtailment.v1.CurtailmentService.StopCurtailment
    */
@@ -1632,7 +1589,7 @@ export const CurtailmentService: GenService<{
     output: typeof StopCurtailmentResponseSchema;
   };
   /**
-   * Returns the current pending/active/restoring event with target rollups.
+   * Get the current pending, active, or restoring event.
    *
    * @generated from rpc curtailment.v1.CurtailmentService.GetActiveCurtailment
    */
@@ -1642,7 +1599,7 @@ export const CurtailmentService: GenService<{
     output: typeof GetActiveCurtailmentResponseSchema;
   };
   /**
-   * Lists historical curtailment events with cursor-based pagination.
+   * List historical events with cursor pagination.
    *
    * @generated from rpc curtailment.v1.CurtailmentService.ListCurtailmentEvents
    */

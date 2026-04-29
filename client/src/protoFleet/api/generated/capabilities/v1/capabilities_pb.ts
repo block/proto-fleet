@@ -177,9 +177,7 @@ export type CommandCapabilities = Message<"capabilities.v1.CommandCapabilities">
   updateMinerPasswordSupported: boolean;
 
   /**
-   * Curtailment support — capability-gated per level.
-   * curtail_supported is required for CURTAILMENT_LEVEL_FULL (v1). The
-   * efficiency and partial flags are reserved for v4 plugin-specific support.
+   * Curtailment flags. v1 uses curtail_supported; other levels are reserved.
    *
    * @generated from field: bool curtail_supported = 14;
    */

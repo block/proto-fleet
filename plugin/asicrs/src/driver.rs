@@ -856,9 +856,7 @@ impl Driver for DriverService {
 
     // --- Curtailment ---
 
-    // For v1, FULL curtailment is a stop_mining/start_mining wrapper.
-    // Higher levels (efficiency, partial-percent) are reserved for v4 and
-    // will require vendor-specific underclock logic.
+    // v1 supports FULL curtailment only.
     async fn curtail(&self, req: Request<pb::CurtailRequest>) -> Result<Response<()>, Status> {
         let req = req.into_inner();
         let device_id = req
@@ -875,10 +873,7 @@ impl Driver for DriverService {
                 device.curtail_full().await.map_err(device_err_to_status)?;
                 Ok(Response::new(()))
             }
-            // Any non-FULL level (including Unspecified) is a permanent
-            // capability error, matching the Go plugins. The server
-            // validator rejects Unspecified before reaching a plugin in
-            // normal flow; this branch is defense-in-depth.
+            // Reject non-FULL levels before any device lookup.
             _ => Err(Status::unimplemented(format!(
                 "curtail level {level:?} not supported by asicrs"
             ))),
@@ -1129,9 +1124,7 @@ miners:
         assert_eq!(canonical_port(crate::capabilities::FAMILY_EPIC), 80);
     }
 
-    // Non-FULL curtail levels are permanent capability errors (Unimplemented),
-    // matching the Go plugins. The level dispatch short-circuits before the
-    // device map is consulted, so an empty service is enough to exercise it.
+    // Non-FULL levels short-circuit before device lookup.
     #[tokio::test]
     async fn test_curtail_unspecified_level_returns_unimplemented() {
         use tonic::Code;

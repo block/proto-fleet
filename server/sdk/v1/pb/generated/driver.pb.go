@@ -303,16 +303,14 @@ func (PerformanceMode) EnumDescriptor() ([]byte, []int) {
 	return file_pb_driver_proto_rawDescGZIP(), []int{4}
 }
 
-// CurtailLevel mirrors the curtailment.v1 CurtailmentLevel enum, ordered by
-// ascending power-reduction impact. The numeric values must stay aligned
-// with the CurtailmentLevel enum so callers can convert without translation.
+// CurtailLevel mirrors curtailment.v1 CurtailmentLevel numeric values.
 type CurtailLevel int32
 
 const (
 	CurtailLevel_CURTAIL_LEVEL_UNSPECIFIED     CurtailLevel = 0
-	CurtailLevel_CURTAIL_LEVEL_EFFICIENCY      CurtailLevel = 1 // reserved (v4) — peak J/TH setting
-	CurtailLevel_CURTAIL_LEVEL_PARTIAL_PERCENT CurtailLevel = 2 // reserved (v4) — operator-specified hash %
-	CurtailLevel_CURTAIL_LEVEL_FULL            CurtailLevel = 3 // v1 — complete shutdown
+	CurtailLevel_CURTAIL_LEVEL_EFFICIENCY      CurtailLevel = 1 // reserved (v4): peak J/TH setting
+	CurtailLevel_CURTAIL_LEVEL_PARTIAL_PERCENT CurtailLevel = 2 // reserved (v4): operator-specified hash %
+	CurtailLevel_CURTAIL_LEVEL_FULL            CurtailLevel = 3 // v1: complete shutdown
 )
 
 // Enum value maps for CurtailLevel.

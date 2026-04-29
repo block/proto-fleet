@@ -91,9 +91,7 @@ type DriverClient interface {
 	GetFirmwareUpdateStatus(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*GetFirmwareUpdateStatusResponse, error)
 	Unpair(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	UpdateMinerPassword(ctx context.Context, in *UpdateMinerPasswordRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
-	// Curtailment - Required for plugins that report curtail_supported.
-	// Plugins that do not implement curtailment should return Unimplemented;
-	// capability-gating in the server prevents Curtail dispatch to such miners.
+	// Required for plugins that report any curtailment capability.
 	Curtail(ctx context.Context, in *CurtailRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	Uncurtail(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// CoreV1 - Base Telemetry - Required methods
@@ -464,9 +462,7 @@ type DriverServer interface {
 	GetFirmwareUpdateStatus(context.Context, *DeviceRef) (*GetFirmwareUpdateStatusResponse, error)
 	Unpair(context.Context, *DeviceRef) (*emptypb.Empty, error)
 	UpdateMinerPassword(context.Context, *UpdateMinerPasswordRequest) (*emptypb.Empty, error)
-	// Curtailment - Required for plugins that report curtail_supported.
-	// Plugins that do not implement curtailment should return Unimplemented;
-	// capability-gating in the server prevents Curtail dispatch to such miners.
+	// Required for plugins that report any curtailment capability.
 	Curtail(context.Context, *CurtailRequest) (*emptypb.Empty, error)
 	Uncurtail(context.Context, *DeviceRef) (*emptypb.Empty, error)
 	// CoreV1 - Base Telemetry - Required methods

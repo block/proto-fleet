@@ -31,16 +31,14 @@ func sdkErrorToGRPCStatus(err error) error {
 		case ErrCodeUnsupportedCapability:
 			return fmt.Errorf("unsupported capability: %w", status.Error(codes.Unimplemented, sdkErr.Message))
 		case ErrCodeCurtailCapabilityNotSupported:
-			// Permanent: same Unimplemented signal as a missing capability so
-			// upstream callers (e.g. the curtailment reconciler) treat it as
-			// non-retryable rather than re-dispatching forever.
+			// Permanent: report as Unimplemented to avoid retries.
 			return fmt.Errorf("curtail capability not supported: %w", status.Error(codes.Unimplemented, sdkErr.Message))
 		case ErrCodeInvalidConfig:
 			return fmt.Errorf("invalid config: %w", status.Error(codes.InvalidArgument, sdkErr.Message))
 		case ErrCodeDeviceUnavailable:
 			return fmt.Errorf("device unavailable: %w", status.Error(codes.Unavailable, sdkErr.Message))
 		case ErrCodeCurtailTransient:
-			// Map to Unavailable so the standard retry semantics apply.
+			// Retryable: map to Unavailable.
 			return fmt.Errorf("curtail transient failure: %w", status.Error(codes.Unavailable, sdkErr.Message))
 		case ErrCodeDriverShutdown:
 			return fmt.Errorf("driver shutdown: %w", status.Error(codes.Aborted, sdkErr.Message))

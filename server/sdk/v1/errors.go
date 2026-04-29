@@ -17,14 +17,9 @@ const (
 	ErrCodeDriverShutdown ErrorCode = "DRIVER_SHUTDOWN"
 	// ErrCodeAuthenticationFailed represents an authentication failure error
 	ErrCodeAuthenticationFailed ErrorCode = "AUTHENTICATION_FAILED"
-	// ErrCodeCurtailCapabilityNotSupported represents a permanent failure
-	// where a miner does not support the requested curtail level. The
-	// selector should never see this error because capability gating runs
-	// before dispatch; it exists as a defensive fallback.
+	// ErrCodeCurtailCapabilityNotSupported is a permanent unsupported-level error.
 	ErrCodeCurtailCapabilityNotSupported ErrorCode = "CURTAIL_CAPABILITY_NOT_SUPPORTED"
-	// ErrCodeCurtailTransient represents a transient failure during a
-	// curtail/uncurtail dispatch (network/timeout). The reconciler retries
-	// up to the per-target retry budget before declaring the target failed.
+	// ErrCodeCurtailTransient is a retryable curtail/uncurtail dispatch failure.
 	ErrCodeCurtailTransient ErrorCode = "CURTAIL_TRANSIENT"
 )
 
@@ -120,10 +115,7 @@ func NewErrorAuthenticationFailed(deviceID string, err ...error) SDKError {
 	}
 }
 
-// NewErrCurtailCapabilityNotSupported returns a permanent error indicating
-// the miner does not support the requested curtail level. Plugins return
-// this from Curtail() when level requirements exceed what the device or
-// firmware can perform.
+// NewErrCurtailCapabilityNotSupported reports an unsupported curtail level.
 func NewErrCurtailCapabilityNotSupported(deviceID string, level int32, err ...error) SDKError {
 	var underlying error
 	if len(err) > 0 {
@@ -136,8 +128,7 @@ func NewErrCurtailCapabilityNotSupported(deviceID string, level int32, err ...er
 	}
 }
 
-// NewErrCurtailTransient wraps a transient curtail/uncurtail failure so the
-// reconciler can recognize it as retryable rather than permanent.
+// NewErrCurtailTransient marks a curtail dispatch failure as retryable.
 func NewErrCurtailTransient(deviceID string, err error) SDKError {
 	return SDKError{
 		Code:    ErrCodeCurtailTransient,

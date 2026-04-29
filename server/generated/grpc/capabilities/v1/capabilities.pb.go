@@ -225,9 +225,7 @@ type CommandCapabilities struct {
 	PowerModeEfficiencySupported bool `protobuf:"varint,12,opt,name=power_mode_efficiency_supported,json=powerModeEfficiencySupported,proto3" json:"power_mode_efficiency_supported,omitempty"`
 	// Security management
 	UpdateMinerPasswordSupported bool `protobuf:"varint,13,opt,name=update_miner_password_supported,json=updateMinerPasswordSupported,proto3" json:"update_miner_password_supported,omitempty"`
-	// Curtailment support — capability-gated per level.
-	// curtail_supported is required for CURTAILMENT_LEVEL_FULL (v1). The
-	// efficiency and partial flags are reserved for v4 plugin-specific support.
+	// Curtailment flags. v1 uses curtail_supported; other levels are reserved.
 	CurtailSupported           bool `protobuf:"varint,14,opt,name=curtail_supported,json=curtailSupported,proto3" json:"curtail_supported,omitempty"`
 	CurtailEfficiencySupported bool `protobuf:"varint,15,opt,name=curtail_efficiency_supported,json=curtailEfficiencySupported,proto3" json:"curtail_efficiency_supported,omitempty"`
 	CurtailPartialSupported    bool `protobuf:"varint,16,opt,name=curtail_partial_supported,json=curtailPartialSupported,proto3" json:"curtail_partial_supported,omitempty"`
