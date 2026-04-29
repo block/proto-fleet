@@ -96,13 +96,15 @@ pub fn static_base_capabilities() -> Capabilities {
 
 /// Optimistic driver-level capabilities returned by DescribeDriver.
 /// Control/config caps are set to true because the plugin supports these
-/// operations in general. Curtailment stays model-probed because it requires
-/// both pause and resume support.
+/// operations in general. FULL curtailment is advertised here so Fleet can
+/// dispatch to ASIC-RS; live probing still gates pause/resume support before
+/// execution.
 pub fn driver_base_capabilities() -> Capabilities {
     let mut caps = static_base_capabilities();
     for &key in PROBED_CAPS {
         caps.insert(key.into(), true);
     }
+    caps.insert(CAP_CURTAIL_FULL.into(), true);
     caps
 }
 
@@ -382,10 +384,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_driver_base_capabilities_do_not_advertise_model_dependent_curtail() {
+    fn test_driver_base_capabilities_advertise_full_curtail_only() {
         let caps = driver_base_capabilities();
 
-        assert_eq!(caps.get(CAP_CURTAIL_FULL), Some(&false));
+        assert_eq!(caps.get(CAP_CURTAIL_FULL), Some(&true));
         assert_eq!(caps.get(CAP_CURTAIL_EFFICIENCY), Some(&false));
         assert_eq!(caps.get(CAP_CURTAIL_PARTIAL), Some(&false));
     }
