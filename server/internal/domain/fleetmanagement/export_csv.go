@@ -49,7 +49,8 @@ func (s *Service) ExportMinerListCsv(ctx context.Context, req *pb.ExportMinerLis
 
 	filter, err := parseFilter(req.Filter)
 	if err != nil {
-		return fleeterror.NewInternalErrorf("failed to parse filter parameters: %v", err)
+		// Pass FleetError through unchanged so InvalidArgument doesn't become a 500.
+		return err
 	}
 
 	filter.PairingStatuses = []pb.PairingStatus{

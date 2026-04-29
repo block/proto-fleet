@@ -141,6 +141,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getApiKeyByHashStmt, err = db.PrepareContext(ctx, getApiKeyByHash); err != nil {
 		return nil, fmt.Errorf("error preparing query GetApiKeyByHash: %w", err)
 	}
+	if q.getAvailableFirmwareVersionsStmt, err = db.PrepareContext(ctx, getAvailableFirmwareVersions); err != nil {
+		return nil, fmt.Errorf("error preparing query GetAvailableFirmwareVersions: %w", err)
+	}
 	if q.getAvailableModelsStmt, err = db.PrepareContext(ctx, getAvailableModels); err != nil {
 		return nil, fmt.Errorf("error preparing query GetAvailableModels: %w", err)
 	}
@@ -861,6 +864,11 @@ func (q *Queries) Close() error {
 	if q.getApiKeyByHashStmt != nil {
 		if cerr := q.getApiKeyByHashStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getApiKeyByHashStmt: %w", cerr)
+		}
+	}
+	if q.getAvailableFirmwareVersionsStmt != nil {
+		if cerr := q.getAvailableFirmwareVersionsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getAvailableFirmwareVersionsStmt: %w", cerr)
 		}
 	}
 	if q.getAvailableModelsStmt != nil {
@@ -1811,6 +1819,7 @@ type Queries struct {
 	getAllDeviceStatusHourlyAggregatesStmt              *sql.Stmt
 	getAllPairedDeviceIdentifiersStmt                   *sql.Stmt
 	getApiKeyByHashStmt                                 *sql.Stmt
+	getAvailableFirmwareVersionsStmt                    *sql.Stmt
 	getAvailableModelsStmt                              *sql.Stmt
 	getBatchHeaderForOrgStmt                            *sql.Stmt
 	getBatchLogStmt                                     *sql.Stmt
@@ -2030,6 +2039,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getAllDeviceStatusHourlyAggregatesStmt:              q.getAllDeviceStatusHourlyAggregatesStmt,
 		getAllPairedDeviceIdentifiersStmt:                   q.getAllPairedDeviceIdentifiersStmt,
 		getApiKeyByHashStmt:                                 q.getApiKeyByHashStmt,
+		getAvailableFirmwareVersionsStmt:                    q.getAvailableFirmwareVersionsStmt,
 		getAvailableModelsStmt:                              q.getAvailableModelsStmt,
 		getBatchHeaderForOrgStmt:                            q.getBatchHeaderForOrgStmt,
 		getBatchLogStmt:                                     q.getBatchLogStmt,

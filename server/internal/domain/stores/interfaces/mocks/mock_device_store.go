@@ -78,6 +78,21 @@ func (mr *MockDeviceStoreMockRecorder) GetAllPairedDeviceIdentifiers(ctx any) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllPairedDeviceIdentifiers", reflect.TypeOf((*MockDeviceStore)(nil).GetAllPairedDeviceIdentifiers), ctx)
 }
 
+// GetAvailableFirmwareVersions mocks base method.
+func (m *MockDeviceStore) GetAvailableFirmwareVersions(ctx context.Context, orgID int64) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAvailableFirmwareVersions", ctx, orgID)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAvailableFirmwareVersions indicates an expected call of GetAvailableFirmwareVersions.
+func (mr *MockDeviceStoreMockRecorder) GetAvailableFirmwareVersions(ctx, orgID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAvailableFirmwareVersions", reflect.TypeOf((*MockDeviceStore)(nil).GetAvailableFirmwareVersions), ctx, orgID)
+}
+
 // GetAvailableModels mocks base method.
 func (m *MockDeviceStore) GetAvailableModels(ctx context.Context, orgID int64) ([]string, error) {
 	m.ctrl.T.Helper()

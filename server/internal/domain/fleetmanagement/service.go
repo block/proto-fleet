@@ -245,7 +245,10 @@ func (s *Service) GetMinerModelGroups(ctx context.Context, req *pb.GetMinerModel
 
 	filter, err := parseFilter(req.Filter)
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to parse filter: %v", err)
+		// parseFilter returns FleetError values (InvalidArgument for oversized
+		// free-form arrays, Internal for unsupported enum values). Pass through
+		// unchanged so InvalidArgument doesn't surface as a 500.
+		return nil, err
 	}
 
 	groups, err := s.deviceStore.GetMinerModelGroups(ctx, info.OrganizationID, filter)
@@ -277,7 +280,8 @@ func (s *Service) buildSnapshot(
 ) (*pb.ListMinerStateSnapshotsResponse, error) {
 	filter, err := parseFilter(filterProto)
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to parse filter parameters: %v", err)
+		// Pass FleetError through unchanged; see GetMinerModelGroups for rationale.
+		return nil, err
 	}
 
 	pageSize = validatePageSize(pageSize)
@@ -301,9 +305,19 @@ func (s *Service) buildSnapshot(
 		}
 	}
 
+	// TODO(#125): These option-array hydrations run on every list page request,
+	// not just page 1. The Fleet UI fans out to multiple list calls per render
+	// (main list + total + auth-needed total), so each page nav pays N DISTINCT
+	// scans. Accepted for now to keep deep-links working without client coupling;
+	// a per-org TTL cache (or equivalent) should replace this.
 	availableModels, err := s.deviceStore.GetAvailableModels(ctx, orgID)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to get available models: %v", err)
+	}
+
+	availableFirmwareVersions, err := s.deviceStore.GetAvailableFirmwareVersions(ctx, orgID)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to get available firmware versions: %v", err)
 	}
 
 	return &pb.ListMinerStateSnapshotsResponse{
@@ -312,6 +326,7 @@ func (s *Service) buildSnapshot(
 		TotalMiners:      int32(total), //nolint:gosec
 		TotalStateCounts: stateCounts,
 		Models:           availableModels,
+		FirmwareVersions: availableFirmwareVersions,
 	}, nil
 }
 
@@ -617,8 +632,30 @@ func parseFilter(pbFilter *pb.MinerListFilter) (*interfaces.MinerFilter, error) 
 		filter.RackIDs = pbFilter.RackIds
 	}
 
+	if len(pbFilter.FirmwareVersions) > 0 {
+		if len(pbFilter.FirmwareVersions) > maxFreeFormFilterValues {
+			return nil, fleeterror.NewInvalidArgumentErrorf(
+				"firmware_versions exceeds maximum of %d values", maxFreeFormFilterValues)
+		}
+		filter.FirmwareVersions = pbFilter.FirmwareVersions
+	}
+
+	if len(pbFilter.Zones) > 0 {
+		if len(pbFilter.Zones) > maxFreeFormFilterValues {
+			return nil, fleeterror.NewInvalidArgumentErrorf(
+				"zones exceeds maximum of %d values", maxFreeFormFilterValues)
+		}
+		filter.Zones = pbFilter.Zones
+	}
+
 	return filter, nil
 }
+
+// maxFreeFormFilterValues caps the size of free-form repeated-string filter
+// arrays (firmware_versions, zones). Real fleets have a handful of distinct
+// firmware versions or zones; arbitrarily large arrays from a misbehaving or
+// hostile client would balloon Postgres planner cost on `= ANY($N::text[])`.
+const maxFreeFormFilterValues = 1024
 
 // convertErrorComponentType converts a proto ComponentType to domain ComponentType.
 func convertErrorComponentType(ct errorsv1.ComponentType) diagnosticsmodels.ComponentType {
