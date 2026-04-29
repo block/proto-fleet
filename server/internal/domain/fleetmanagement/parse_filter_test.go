@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -121,4 +122,35 @@ func TestParseFilter_FirmwareVersions_AcceptsMaxSizedArray(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Len(t, filter.FirmwareVersions, maxFreeFormFilterValues)
+}
+
+// TestParseFilter_OversizedArrays_ReturnInvalidArgument guards against the bug
+// where an oversized free-form array would be wrapped by callers
+// (buildSnapshot, GetMinerModelGroups, ExportMinerListCsv) with
+// NewInternalErrorf, converting a 400-style client validation failure into a
+// 500. parseFilter must return an InvalidArgument FleetError so callers can
+// pass it through unchanged.
+func TestParseFilter_OversizedArrays_ReturnInvalidArgument(t *testing.T) {
+	cases := []struct {
+		name   string
+		filter *pb.MinerListFilter
+	}{
+		{
+			name:   "firmware_versions",
+			filter: &pb.MinerListFilter{FirmwareVersions: make([]string, maxFreeFormFilterValues+1)},
+		},
+		{
+			name:   "zones",
+			filter: &pb.MinerListFilter{Zones: make([]string, maxFreeFormFilterValues+1)},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := parseFilter(tc.filter)
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsInvalidArgumentError(err),
+				"oversized %s must surface as InvalidArgument, not Internal — got %v",
+				tc.name, err)
+		})
+	}
 }

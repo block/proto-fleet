@@ -245,7 +245,10 @@ func (s *Service) GetMinerModelGroups(ctx context.Context, req *pb.GetMinerModel
 
 	filter, err := parseFilter(req.Filter)
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to parse filter: %v", err)
+		// parseFilter returns FleetError values (InvalidArgument for oversized
+		// free-form arrays, Internal for unsupported enum values). Pass through
+		// unchanged so InvalidArgument doesn't surface as a 500.
+		return nil, err
 	}
 
 	groups, err := s.deviceStore.GetMinerModelGroups(ctx, info.OrganizationID, filter)
@@ -277,7 +280,8 @@ func (s *Service) buildSnapshot(
 ) (*pb.ListMinerStateSnapshotsResponse, error) {
 	filter, err := parseFilter(filterProto)
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to parse filter parameters: %v", err)
+		// Pass FleetError through unchanged; see GetMinerModelGroups for rationale.
+		return nil, err
 	}
 
 	pageSize = validatePageSize(pageSize)
