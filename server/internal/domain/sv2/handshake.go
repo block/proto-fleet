@@ -173,11 +173,11 @@ type handshakeState struct {
 }
 
 func newHandshakeState() *handshakeState {
-	// Noise framework spec: when the protocol name's SHA-256 is used as
-	// the chaining key, h is initialized to that same hash. Don't double-
-	// hash here — that would make the transcript diverge from a
-	// conforming SV2 peer on the first message.
-	return &handshakeState{ck: noiseProtocolHash, h: noiseProtocolHash}
+	// Noise spec: ck = HASH(name), then mixHash(prologue). SRI uses an
+	// empty prologue, so h = HASH(ck) = HASH(HASH(name)).
+	s := &handshakeState{ck: noiseProtocolHash}
+	s.h = sha256.Sum256(s.ck[:])
+	return s
 }
 
 func (s *handshakeState) mixHash(data []byte) {

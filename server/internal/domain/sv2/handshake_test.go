@@ -3,6 +3,7 @@ package sv2
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"testing"
 	"time"
@@ -49,14 +50,12 @@ func TestHandshakeProbe_FailsOnUnreachableHost(t *testing.T) {
 }
 
 func TestHandshakeState_InitialKeyAndHash(t *testing.T) {
-	// Arrange / Act — Noise framework spec: when the protocol name's
-	// SHA-256 is the chaining key, h is initialized to that same hash.
-	// Both ck and h must equal HASH("Noise_NX_Secp256k1+EllSwift_ChaChaPoly_SHA256").
+	// Act
 	state := newHandshakeState()
 
-	// Assert
+	// Assert — ck = HASH(name), h = HASH(ck) (mixHash empty prologue).
 	assert.Equal(t, noiseProtocolHash, state.ck)
-	assert.Equal(t, noiseProtocolHash, state.h)
+	assert.Equal(t, sha256.Sum256(noiseProtocolHash[:]), state.h)
 	assert.False(t, state.haveK)
 }
 
