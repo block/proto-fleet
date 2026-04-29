@@ -7,6 +7,10 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
 // Default cap for the dial portion of HandshakeProbe; the Noise
@@ -25,11 +29,11 @@ const sriFramedPoolKeyLen = 1 + 1 + noisePoolKeyLen + 4
 
 var ErrMissingNoiseKey = errors.New("stratum2+ URL is missing the /<authority_pubkey> path component")
 
-// PoolNoiseKeyFromURL extracts the Noise authority pubkey from a
-// Braiins-style SV2 URL (stratum2+tcp://HOST:PORT/<pubkey>). Accepts
-// base58 in either raw 32-byte form or SRI's framed 37-byte form
-// (1 version byte + 32 key bytes + 4 checksum bytes), and hex-encoded
-// raw 32 bytes as a fallback.
+// PoolNoiseKeyFromURL extracts the authority pubkey from a Braiins-style
+// SV2 URL (stratum2+tcp://HOST:PORT/<pubkey>). Accepts base58 raw or
+// SRI-framed forms, plus hex. The decoded 32 bytes must parse as a
+// BIP340 X-only secp256k1 public key — same constraint the handshake
+// imposes, applied here so a mistyped key is rejected upfront.
 func PoolNoiseKeyFromURL(stratumURL string) ([]byte, error) {
 	u, err := url.Parse(stratumURL)
 	if err != nil {
@@ -39,19 +43,30 @@ func PoolNoiseKeyFromURL(stratumURL string) ([]byte, error) {
 	if encoded == "" {
 		return nil, ErrMissingNoiseKey
 	}
+	key, ok := decodeAuthorityKey(encoded)
+	if !ok {
+		return nil, fmt.Errorf("authority pubkey %q must decode to %d bytes (raw) or %d bytes (SRI framed) via base58, or %d bytes via hex",
+			encoded, noisePoolKeyLen, sriFramedPoolKeyLen, noisePoolKeyLen)
+	}
+	if _, err := schnorr.ParsePubKey(key); err != nil {
+		return nil, fmt.Errorf("authority pubkey %q is not a valid secp256k1 X-only public key: %w", encoded, err)
+	}
+	return key, nil
+}
+
+func decodeAuthorityKey(encoded string) ([]byte, bool) {
 	if decoded, err := decodeBase58(encoded); err == nil {
 		switch len(decoded) {
 		case noisePoolKeyLen:
-			return decoded, nil
+			return decoded, true
 		case sriFramedPoolKeyLen:
-			return decoded[2 : 2+noisePoolKeyLen], nil
+			return decoded[2 : 2+noisePoolKeyLen], true
 		}
 	}
 	if key, err := decodeHex(encoded); err == nil && len(key) == noisePoolKeyLen {
-		return key, nil
+		return key, true
 	}
-	return nil, fmt.Errorf("authority pubkey %q must decode to %d bytes (raw) or %d bytes (SRI framed) via base58, or %d bytes via hex",
-		encoded, noisePoolKeyLen, sriFramedPoolKeyLen, noisePoolKeyLen)
+	return nil, false
 }
 
 func addressFromStratumURL(raw string) (string, error) {
@@ -79,6 +94,18 @@ func addressFromStratumURL(raw string) (string, error) {
 // IsSV2URL reports whether the URL is a Stratum V2 scheme. Case-insensitive.
 func IsSV2URL(raw string) bool {
 	return strings.HasPrefix(strings.ToLower(raw), "stratum2+tcp://")
+}
+
+// ValidatePoolURL is the semantic check for SV2 pool URLs; non-SV2
+// URLs pass through. Run at every pool URL entry point.
+func ValidatePoolURL(rawURL string) error {
+	if !IsSV2URL(rawURL) {
+		return nil
+	}
+	if _, err := PoolNoiseKeyFromURL(rawURL); err != nil {
+		return fleeterror.NewInvalidArgumentErrorf("invalid Stratum V2 pool URL: %v", err)
+	}
+	return nil
 }
 
 func isSupportedScheme(raw string) bool {

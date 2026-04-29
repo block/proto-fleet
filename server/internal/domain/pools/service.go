@@ -88,7 +88,7 @@ func (s *Service) UpdatePool(ctx context.Context, r *pb.UpdatePoolRequest) (*pb.
 		return nil, fleeterror.NewInvalidArgumentError("url cannot be empty; omit the field to leave unchanged")
 	}
 	if r.Url != nil {
-		if err := validateSV2PoolURL(r.GetUrl()); err != nil {
+		if err := sv2.ValidatePoolURL(r.GetUrl()); err != nil {
 			return nil, err
 		}
 	}
@@ -161,7 +161,7 @@ func (s *Service) CreatePool(ctx context.Context, poolConfig *pb.PoolConfig) (*p
 	if err := validatePoolUsername(poolConfig.GetUsername()); err != nil {
 		return nil, err
 	}
-	if err := validateSV2PoolURL(poolConfig.GetUrl()); err != nil {
+	if err := sv2.ValidatePoolURL(poolConfig.GetUrl()); err != nil {
 		return nil, err
 	}
 
@@ -240,14 +240,3 @@ func (s *Service) ValidateConnection(ctx context.Context, url string, username s
 	return stratumv1.Authenticate(ctx, url, username, password)
 }
 
-// validateSV2PoolURL rejects Stratum V2 URLs whose authority-pubkey path
-// component doesn't decode. The CEL pattern only checks shape.
-func validateSV2PoolURL(url string) error {
-	if !sv2.IsSV2URL(url) {
-		return nil
-	}
-	if _, err := sv2.PoolNoiseKeyFromURL(url); err != nil {
-		return fleeterror.NewInvalidArgumentErrorf("invalid Stratum V2 pool URL: %v", err)
-	}
-	return nil
-}

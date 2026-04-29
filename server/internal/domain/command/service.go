@@ -22,6 +22,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleetmanagement"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
 	"github.com/block/proto-fleet/server/internal/domain/session"
+	"github.com/block/proto-fleet/server/internal/domain/sv2"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	tmodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
@@ -835,6 +836,9 @@ func (s *Service) createMiningPoolDTOFromSlotConfig(ctx context.Context, config 
 	case *pb.PoolSlotConfig_PoolId:
 		return s.createMiningPoolDTO(ctx, source.PoolId, priorityIncrement)
 	case *pb.PoolSlotConfig_RawPool:
+		if err := sv2.ValidatePoolURL(source.RawPool.Url); err != nil {
+			return nil, err
+		}
 		var password string
 		if source.RawPool.Password != nil {
 			password = *source.RawPool.Password
