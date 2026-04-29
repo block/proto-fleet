@@ -207,40 +207,38 @@ const Logs = ({ logsData, fetchMaxLogs }: LogsProps) => {
                 />
               </div>
               <div className="flex items-center space-x-4">
-                <div data-testid="logs-error-filter">
-                  <LogBadges
-                    label={errorCount === 1 ? "error" : "errors"}
-                    count={errorCount}
-                    className={clsx(
-                      "text-text-critical",
-                      {
-                        "border-transparent bg-intent-critical-10": filterByLogType?.includes(logTypes.error),
-                      },
-                      {
-                        "border-intent-critical-10": !filterByLogType?.includes(logTypes.error),
-                      },
-                    )}
-                    selected={filterByLogType?.includes(logTypes.error) || false}
-                    onClick={createToggleFilter(logTypes.error)}
-                  />
-                </div>
-                <div data-testid="logs-warning-filter">
-                  <LogBadges
-                    label={warningCount === 1 ? "warning" : "warnings"}
-                    count={warningCount}
-                    className={clsx(
-                      "text-text-warning",
-                      {
-                        "border-transparent bg-intent-warning-10": filterByLogType?.includes(logTypes.warn),
-                      },
-                      {
-                        "border-intent-warning-10": !filterByLogType?.includes(logTypes.warn),
-                      },
-                    )}
-                    selected={filterByLogType?.includes(logTypes.warn) || false}
-                    onClick={createToggleFilter(logTypes.warn)}
-                  />
-                </div>
+                <LogBadges
+                  label={errorCount === 1 ? "error" : "errors"}
+                  count={errorCount}
+                  testId="logs-error-badge"
+                  className={clsx(
+                    "text-text-critical",
+                    {
+                      "border-transparent bg-intent-critical-10": filterByLogType?.includes(logTypes.error),
+                    },
+                    {
+                      "border-intent-critical-10": !filterByLogType?.includes(logTypes.error),
+                    },
+                  )}
+                  selected={filterByLogType?.includes(logTypes.error) || false}
+                  onClick={createToggleFilter(logTypes.error)}
+                />
+                <LogBadges
+                  label={warningCount === 1 ? "warning" : "warnings"}
+                  count={warningCount}
+                  testId="logs-warning-badge"
+                  className={clsx(
+                    "text-text-warning",
+                    {
+                      "border-transparent bg-intent-warning-10": filterByLogType?.includes(logTypes.warn),
+                    },
+                    {
+                      "border-intent-warning-10": !filterByLogType?.includes(logTypes.warn),
+                    },
+                  )}
+                  selected={filterByLogType?.includes(logTypes.warn) || false}
+                  onClick={createToggleFilter(logTypes.warn)}
+                />
                 <Button
                   size={sizes.compact}
                   variant={variants.secondary}
