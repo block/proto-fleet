@@ -59,6 +59,28 @@ func TestDevice_CurtailFull_ThenUncurtail(t *testing.T) {
 	assert.Equal(t, sdk.CurtailLevelUnspecified, d.curtailLevel, "Uncurtail must clear the level")
 }
 
+func TestDevice_CurtailFull_InactiveMinerStaysInactiveAfterUncurtail(t *testing.T) {
+	d := newTestDevice(t)
+
+	require.NoError(t, d.StopMining(context.Background()))
+	require.NoError(t, d.Curtail(context.Background(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull}))
+	assert.False(t, d.isMining, "Curtail(FULL) must leave inactive miner stopped")
+
+	require.NoError(t, d.Uncurtail(context.Background(), sdk.UncurtailRequest{}))
+	assert.False(t, d.isMining, "Uncurtail must not start a miner that was inactive before FULL curtailment")
+	assert.Equal(t, sdk.CurtailLevelUnspecified, d.curtailLevel, "Uncurtail must clear the level")
+}
+
+func TestDevice_CurtailFull_RepeatedCallsPreserveOriginalMiningState(t *testing.T) {
+	d := newTestDevice(t)
+
+	require.NoError(t, d.Curtail(context.Background(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull}))
+	require.NoError(t, d.Curtail(context.Background(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull}))
+	require.NoError(t, d.Uncurtail(context.Background(), sdk.UncurtailRequest{}))
+
+	assert.True(t, d.isMining, "repeated FULL curtailment must not overwrite the original active state")
+}
+
 // Unsupported levels are permanent capability errors.
 func TestDevice_CurtailUnsupportedLevel_ReturnsCapabilityNotSupported(t *testing.T) {
 	d := newTestDevice(t)
@@ -85,4 +107,18 @@ func TestDevice_UncurtailWhileNotCurtailed_IsNoop(t *testing.T) {
 
 	require.NoError(t, d.Uncurtail(context.Background(), sdk.UncurtailRequest{}))
 	assert.Equal(t, wasMining, d.isMining, "Uncurtail on a non-curtailed miner should not change state")
+}
+
+func TestDevice_ManualMiningControlClearsCurtailmentState(t *testing.T) {
+	d := newTestDevice(t)
+
+	require.NoError(t, d.Curtail(context.Background(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull}))
+	require.NoError(t, d.StartMining(context.Background()))
+	assert.Equal(t, sdk.CurtailLevelUnspecified, d.curtailLevel)
+	assert.Nil(t, d.preCurtailMiningActive)
+
+	require.NoError(t, d.Curtail(context.Background(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull}))
+	require.NoError(t, d.StopMining(context.Background()))
+	assert.Equal(t, sdk.CurtailLevelUnspecified, d.curtailLevel)
+	assert.Nil(t, d.preCurtailMiningActive)
 }

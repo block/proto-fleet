@@ -303,6 +303,24 @@ func TestDevice_CurtailFullStopsAndUncurtailStartsMining(t *testing.T) {
 	require.True(t, started)
 }
 
+func TestDevice_CurtailFullOnInactiveMinerDoesNotStartOnUncurtail(t *testing.T) {
+	var stopped, started bool
+	dev := newMiningControlTestDeviceWithMiningState(t, http.StatusOK, "Stopped", func(path string) {
+		switch path {
+		case "/api/v1/mining/stop":
+			stopped = true
+		case "/api/v1/mining/start":
+			started = true
+		}
+	})
+
+	require.NoError(t, dev.Curtail(context.Background(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull}))
+	require.True(t, stopped)
+
+	require.NoError(t, dev.Uncurtail(context.Background(), sdk.UncurtailRequest{}))
+	require.False(t, started)
+}
+
 func TestDevice_CurtailEfficiencySnapshotsAndSetsEfficiency(t *testing.T) {
 	var requests []powerTargetRequest
 	dev := newPowerTargetTestDevice(t, http.StatusOK, targetResponse{
@@ -340,6 +358,68 @@ func TestDevice_UncurtailAfterEfficiencyRestoresSnapshot(t *testing.T) {
 	assert.Equal(t, "MaximumHashrate", requests[1].PerformanceMode)
 }
 
+func TestDevice_CurtailFullThenEfficiencyUncurtailRestoresTargetAndMining(t *testing.T) {
+	var requests []powerTargetRequest
+	var stopped, started bool
+	dev := newFullEfficiencyCurtailmentTestDevice(t, "Mining", targetResponse{
+		PowerTargetWatts:        2800,
+		PowerTargetMinWatts:     1200,
+		PowerTargetMaxWatts:     3200,
+		DefaultPowerTargetWatts: 1800,
+		PerformanceMode:         "MaximumHashrate",
+	}, &requests, func(path string) {
+		switch path {
+		case "/api/v1/mining/stop":
+			stopped = true
+		case "/api/v1/mining/start":
+			started = true
+		}
+	})
+
+	require.NoError(t, dev.Curtail(context.Background(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull}))
+	require.NoError(t, dev.Curtail(context.Background(), sdk.CurtailRequest{Level: sdk.CurtailLevelEfficiency}))
+	require.NoError(t, dev.Uncurtail(context.Background(), sdk.UncurtailRequest{}))
+
+	require.True(t, stopped)
+	require.True(t, started)
+	require.Len(t, requests, 2)
+	assert.Equal(t, "Efficiency", requests[0].PerformanceMode)
+	require.NotNil(t, requests[1].PowerTargetWatts)
+	assert.Equal(t, 2800, *requests[1].PowerTargetWatts)
+	assert.Equal(t, "MaximumHashrate", requests[1].PerformanceMode)
+}
+
+func TestDevice_CurtailEfficiencyThenFullUncurtailRestoresTargetAndMining(t *testing.T) {
+	var requests []powerTargetRequest
+	var stopped, started bool
+	dev := newFullEfficiencyCurtailmentTestDevice(t, "Mining", targetResponse{
+		PowerTargetWatts:        2800,
+		PowerTargetMinWatts:     1200,
+		PowerTargetMaxWatts:     3200,
+		DefaultPowerTargetWatts: 1800,
+		PerformanceMode:         "MaximumHashrate",
+	}, &requests, func(path string) {
+		switch path {
+		case "/api/v1/mining/stop":
+			stopped = true
+		case "/api/v1/mining/start":
+			started = true
+		}
+	})
+
+	require.NoError(t, dev.Curtail(context.Background(), sdk.CurtailRequest{Level: sdk.CurtailLevelEfficiency}))
+	require.NoError(t, dev.Curtail(context.Background(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull}))
+	require.NoError(t, dev.Uncurtail(context.Background(), sdk.UncurtailRequest{}))
+
+	require.True(t, stopped)
+	require.True(t, started)
+	require.Len(t, requests, 2)
+	assert.Equal(t, "Efficiency", requests[0].PerformanceMode)
+	require.NotNil(t, requests[1].PowerTargetWatts)
+	assert.Equal(t, 2800, *requests[1].PowerTargetWatts)
+	assert.Equal(t, "MaximumHashrate", requests[1].PerformanceMode)
+}
+
 func TestDevice_CurtailEfficiencyMissingTargetReturnsTransient(t *testing.T) {
 	dev := newPowerTargetTestDevice(t, http.StatusNoContent, targetResponse{}, nil)
 
@@ -359,15 +439,20 @@ func newMiningControlTestDevice(t *testing.T, miningControlStatus int) *Device {
 }
 
 func newMiningControlTestDeviceWithCallback(t *testing.T, miningControlStatus int, onControl func(path string)) *Device {
+	return newMiningControlTestDeviceWithMiningState(t, miningControlStatus, "Mining", onControl)
+}
+
+func newMiningControlTestDeviceWithMiningState(t *testing.T, miningControlStatus int, miningState string, onControl func(path string)) *Device {
 	t.Helper()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/mining":
-			w.WriteHeader(http.StatusNoContent)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(fmt.Sprintf(`{"mining-status":{"status":%q}}`, miningState)))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/pools":
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"pools":[]}`))
+			_, _ = w.Write([]byte(`{"pools":[{"id":0,"url":"stratum+tcp://pool.example:3333","user":"worker"}]}`))
 		case r.Method == http.MethodPost && (r.URL.Path == "/api/v1/mining/start" || r.URL.Path == "/api/v1/mining/stop"):
 			if onControl != nil {
 				onControl(r.URL.Path)
@@ -427,6 +512,68 @@ func newPowerTargetTestDevice(t *testing.T, targetStatus int, target targetRespo
 				if err := json.NewEncoder(w).Encode(target); err != nil {
 					t.Errorf("encode target response: %v", err)
 				}
+			}
+		case r.Method == http.MethodPut && r.URL.Path == "/api/v1/mining/target":
+			var req powerTargetRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Errorf("decode target request: %v", err)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			if requests != nil {
+				*requests = append(*requests, req)
+			}
+			w.WriteHeader(http.StatusOK)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	parsed, err := url.Parse(server.URL)
+	require.NoError(t, err)
+	host, portStr, err := net.SplitHostPort(parsed.Host)
+	require.NoError(t, err)
+	port, err := strconv.ParseInt(portStr, 10, 32)
+	require.NoError(t, err)
+
+	dev, err := New("device-curtail", sdk.DeviceInfo{
+		Host:      host,
+		Port:      int32(port),
+		URLScheme: "http",
+	}, sdk.BearerToken{Token: "test-token"}, SetStatusTTL(0*time.Second))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = dev.Close(context.Background()) })
+
+	return dev
+}
+
+func newFullEfficiencyCurtailmentTestDevice(
+	t *testing.T,
+	miningState string,
+	target targetResponse,
+	requests *[]powerTargetRequest,
+	onControl func(path string),
+) *Device {
+	t.Helper()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/mining":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(fmt.Sprintf(`{"mining-status":{"status":%q}}`, miningState)))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/pools":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"pools":[{"id":0,"url":"stratum+tcp://pool.example:3333","user":"worker"}]}`))
+		case r.Method == http.MethodPost && (r.URL.Path == "/api/v1/mining/start" || r.URL.Path == "/api/v1/mining/stop"):
+			if onControl != nil {
+				onControl(r.URL.Path)
+			}
+			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/mining/target":
+			w.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(w).Encode(target); err != nil {
+				t.Errorf("encode target response: %v", err)
 			}
 		case r.Method == http.MethodPut && r.URL.Path == "/api/v1/mining/target":
 			var req powerTargetRequest

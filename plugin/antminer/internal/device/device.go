@@ -93,6 +93,9 @@ type Device struct {
 	statusTTL    time.Duration
 
 	lastFirmwareCheckAt time.Time
+
+	curtailmentMutex       sync.Mutex
+	preFullCurtailIsMining *bool
 }
 
 // New creates a new Antminer device instance.
@@ -440,11 +443,29 @@ func (d *Device) Close(ctx context.Context) error {
 
 // StartMining implements the SDK Device interface.
 func (d *Device) StartMining(ctx context.Context) error {
-	return d.client.StartMining(ctx)
+	if err := d.startMining(ctx); err != nil {
+		return err
+	}
+	d.clearCurtailmentState()
+	d.invalidateStatusCache()
+	return nil
 }
 
 // StopMining implements the SDK Device interface.
 func (d *Device) StopMining(ctx context.Context) error {
+	if err := d.stopMining(ctx); err != nil {
+		return err
+	}
+	d.clearCurtailmentState()
+	d.invalidateStatusCache()
+	return nil
+}
+
+func (d *Device) startMining(ctx context.Context) error {
+	return d.client.StartMining(ctx)
+}
+
+func (d *Device) stopMining(ctx context.Context) error {
 	return d.client.StopMining(ctx)
 }
 
@@ -460,22 +481,63 @@ func (d *Device) Curtail(ctx context.Context, req sdk.CurtailRequest) error {
 	if req.Level != sdk.CurtailLevelFull {
 		return sdk.NewErrCurtailCapabilityNotSupported(d.id, int32(req.Level))
 	}
-	if err := d.client.StopMining(ctx); err != nil {
+
+	status, err := d.Status(ctx)
+	if err != nil {
+		return wrapCurtailDispatchError(d.id, err)
+	}
+	wasMining := isMiningHealth(status.Health)
+
+	if err := d.stopMining(ctx); err != nil {
 		return wrapCurtailDispatchError(d.id, err)
 	}
 
+	d.recordFullCurtailment(wasMining)
 	d.invalidateStatusCache()
 	return nil
 }
 
 // Uncurtail restores mining via StartMining.
 func (d *Device) Uncurtail(ctx context.Context, _ sdk.UncurtailRequest) error {
-	if err := d.client.StartMining(ctx); err != nil {
-		return wrapCurtailDispatchError(d.id, err)
+	wasMining, ok := d.fullCurtailmentWasMining()
+	shouldStart := !ok || wasMining
+	if shouldStart {
+		if err := d.startMining(ctx); err != nil {
+			return wrapCurtailDispatchError(d.id, err)
+		}
 	}
 
+	d.clearCurtailmentState()
 	d.invalidateStatusCache()
 	return nil
+}
+
+func (d *Device) recordFullCurtailment(wasMining bool) {
+	d.curtailmentMutex.Lock()
+	defer d.curtailmentMutex.Unlock()
+	if d.preFullCurtailIsMining == nil {
+		snapshot := wasMining
+		d.preFullCurtailIsMining = &snapshot
+	}
+}
+
+func (d *Device) fullCurtailmentWasMining() (bool, bool) {
+	d.curtailmentMutex.Lock()
+	defer d.curtailmentMutex.Unlock()
+	if d.preFullCurtailIsMining == nil {
+		return false, false
+	}
+	return *d.preFullCurtailIsMining, true
+}
+
+func (d *Device) clearCurtailmentState() {
+	d.curtailmentMutex.Lock()
+	defer d.curtailmentMutex.Unlock()
+	d.preFullCurtailIsMining = nil
+}
+
+func isMiningHealth(health sdk.HealthStatus) bool {
+	return health == sdk.HealthHealthyActive || health == sdk.HealthWarning
 }
 
 func wrapCurtailDispatchError(deviceID string, err error) error {

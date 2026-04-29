@@ -58,10 +58,15 @@ type Device struct {
 
 	lastFirmwareCheckAt time.Time
 
-	mutex              sync.Mutex
-	curtailmentMutex   sync.Mutex
-	activeCurtailLevel sdk.CurtailLevel
-	preCurtailTarget   *proto.PowerTargetInfo
+	mutex            sync.Mutex
+	curtailmentMutex sync.Mutex
+	curtailmentState curtailmentRestoreState
+}
+
+type curtailmentRestoreState struct {
+	activeLevel         sdk.CurtailLevel
+	preEfficiencyTarget *proto.PowerTargetInfo
+	preFullMiningActive *bool
 }
 
 type DeviceOption func(*Device)
@@ -474,8 +479,7 @@ func (d *Device) Close(ctx context.Context) error {
 		d.client.Close()
 	}
 
-	d.lastStatus = nil
-	d.lastStatusAt = time.Time{}
+	d.clearStatusCacheLocked()
 
 	return nil
 }
@@ -484,6 +488,17 @@ func (d *Device) Close(ctx context.Context) error {
 //
 // This method starts mining operations on the device.
 func (d *Device) StartMining(ctx context.Context) error {
+	if err := d.startMining(ctx); err != nil {
+		return err
+	}
+
+	d.clearCurtailmentState()
+	d.invalidateStatusCache()
+
+	return nil
+}
+
+func (d *Device) startMining(ctx context.Context) error {
 	slog.Info("Plugin device starting mining",
 		"device_id", d.id,
 		"host", d.deviceInfo.Host)
@@ -492,8 +507,6 @@ func (d *Device) StartMining(ctx context.Context) error {
 		return fmt.Errorf("failed to start mining: %w", err)
 	}
 
-	d.lastStatus = nil
-
 	return nil
 }
 
@@ -501,6 +514,17 @@ func (d *Device) StartMining(ctx context.Context) error {
 //
 // This method stops mining operations on the device.
 func (d *Device) StopMining(ctx context.Context) error {
+	if err := d.stopMining(ctx); err != nil {
+		return err
+	}
+
+	d.clearCurtailmentState()
+	d.invalidateStatusCache()
+
+	return nil
+}
+
+func (d *Device) stopMining(ctx context.Context) error {
 	slog.Info("Plugin device stopping mining",
 		"device_id", d.id,
 		"host", d.deviceInfo.Host)
@@ -508,8 +532,6 @@ func (d *Device) StopMining(ctx context.Context) error {
 	if err := d.client.StopMining(ctx); err != nil {
 		return fmt.Errorf("failed to stop mining: %w", err)
 	}
-
-	d.lastStatus = nil
 
 	return nil
 }
@@ -529,10 +551,17 @@ func (d *Device) Curtail(ctx context.Context, req sdk.CurtailRequest) error {
 }
 
 func (d *Device) curtailFull(ctx context.Context) error {
-	if err := d.StopMining(ctx); err != nil {
+	metrics, err := d.Status(ctx)
+	if err != nil {
 		return wrapCurtailDispatchError(d.id, err)
 	}
-	d.setCurtailmentState(sdk.CurtailLevelFull, nil)
+	wasMining := isMiningHealth(metrics.Health)
+
+	if err := d.stopMining(ctx); err != nil {
+		return wrapCurtailDispatchError(d.id, err)
+	}
+	d.recordFullCurtailment(wasMining)
+	d.invalidateStatusCache()
 	return nil
 }
 
@@ -549,66 +578,109 @@ func (d *Device) curtailEfficiency(ctx context.Context) error {
 		return wrapCurtailDispatchError(d.id, err)
 	}
 
-	d.setCurtailmentState(sdk.CurtailLevelEfficiency, target)
-	d.lastStatus = nil
+	d.recordEfficiencyCurtailment(target)
+	d.invalidateStatusCache()
 	return nil
 }
 
 // Uncurtail restores the device based on the active curtailment level.
 func (d *Device) Uncurtail(ctx context.Context, _ sdk.UncurtailRequest) error {
-	level, target := d.curtailmentState()
-	if level == sdk.CurtailLevelEfficiency {
-		if target == nil {
-			return sdk.NewErrCurtailTransient(d.id, fmt.Errorf("efficiency curtail restore state missing"))
-		}
+	level, target, fullWasMining := d.restoreCurtailmentState()
+	if target != nil {
 		if err := d.client.SetPowerTarget(ctx, target.CurrentW, target.Mode); err != nil {
 			return wrapCurtailDispatchError(d.id, err)
 		}
+		d.invalidateStatusCache()
+	}
 
+	shouldStartMining := false
+	switch {
+	case fullWasMining != nil:
+		shouldStartMining = *fullWasMining
+	case level == sdk.CurtailLevelFull || (level == sdk.CurtailLevelUnspecified && target == nil):
+		// If plugin-local restore state was lost, keep direct Uncurtail's legacy
+		// explicit-restore behavior.
+		shouldStartMining = true
+	}
+
+	if shouldStartMining {
+		if err := d.startMining(ctx); err != nil {
+			return wrapCurtailDispatchError(d.id, err)
+		}
+		d.invalidateStatusCache()
+	}
+
+	if target == nil && fullWasMining == nil && level == sdk.CurtailLevelEfficiency {
+		return sdk.NewErrCurtailTransient(d.id, fmt.Errorf("efficiency curtail restore state missing"))
+	}
+
+	if target != nil || fullWasMining != nil || shouldStartMining {
 		d.clearCurtailmentState()
-		d.lastStatus = nil
-		return nil
 	}
 
-	if err := d.StartMining(ctx); err != nil {
-		return wrapCurtailDispatchError(d.id, err)
-	}
-	d.clearCurtailmentState()
 	return nil
 }
 
-func (d *Device) setCurtailmentState(level sdk.CurtailLevel, target *proto.PowerTargetInfo) {
+func (d *Device) recordFullCurtailment(wasMining bool) {
 	d.curtailmentMutex.Lock()
 	defer d.curtailmentMutex.Unlock()
 
-	d.activeCurtailLevel = level
-	if target == nil {
-		d.preCurtailTarget = nil
-		return
-	}
-	if d.preCurtailTarget == nil || level != sdk.CurtailLevelEfficiency {
-		snapshot := *target
-		d.preCurtailTarget = &snapshot
+	d.curtailmentState.activeLevel = sdk.CurtailLevelFull
+	if d.curtailmentState.preFullMiningActive == nil {
+		snapshot := wasMining
+		d.curtailmentState.preFullMiningActive = &snapshot
 	}
 }
 
-func (d *Device) curtailmentState() (sdk.CurtailLevel, *proto.PowerTargetInfo) {
+func (d *Device) recordEfficiencyCurtailment(target *proto.PowerTargetInfo) {
 	d.curtailmentMutex.Lock()
 	defer d.curtailmentMutex.Unlock()
 
-	if d.preCurtailTarget == nil {
-		return d.activeCurtailLevel, nil
+	d.curtailmentState.activeLevel = sdk.CurtailLevelEfficiency
+	if target == nil || d.curtailmentState.preEfficiencyTarget != nil {
+		return
 	}
-	target := *d.preCurtailTarget
-	return d.activeCurtailLevel, &target
+	snapshot := *target
+	d.curtailmentState.preEfficiencyTarget = &snapshot
+}
+
+func (d *Device) restoreCurtailmentState() (sdk.CurtailLevel, *proto.PowerTargetInfo, *bool) {
+	d.curtailmentMutex.Lock()
+	defer d.curtailmentMutex.Unlock()
+
+	var target *proto.PowerTargetInfo
+	if d.curtailmentState.preEfficiencyTarget != nil {
+		targetCopy := *d.curtailmentState.preEfficiencyTarget
+		target = &targetCopy
+	}
+	var fullWasMining *bool
+	if d.curtailmentState.preFullMiningActive != nil {
+		fullCopy := *d.curtailmentState.preFullMiningActive
+		fullWasMining = &fullCopy
+	}
+	return d.curtailmentState.activeLevel, target, fullWasMining
 }
 
 func (d *Device) clearCurtailmentState() {
 	d.curtailmentMutex.Lock()
 	defer d.curtailmentMutex.Unlock()
 
-	d.activeCurtailLevel = sdk.CurtailLevelUnspecified
-	d.preCurtailTarget = nil
+	d.curtailmentState = curtailmentRestoreState{}
+}
+
+func isMiningHealth(health sdk.HealthStatus) bool {
+	return health == sdk.HealthHealthyActive || health == sdk.HealthWarning
+}
+
+func (d *Device) invalidateStatusCache() {
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
+	d.clearStatusCacheLocked()
+}
+
+func (d *Device) clearStatusCacheLocked() {
+	d.lastStatus = nil
+	d.lastStatusAt = time.Time{}
 }
 
 func wrapCurtailDispatchError(deviceID string, err error) error {
@@ -750,7 +822,7 @@ func (d *Device) Reboot(ctx context.Context) error {
 		return fmt.Errorf("failed to reboot device: %w", err)
 	}
 
-	d.lastStatus = nil
+	d.invalidateStatusCache()
 
 	return nil
 }
@@ -812,10 +884,8 @@ func (d *Device) Unpair(ctx context.Context) error {
 		return fmt.Errorf("failed to clear auth key: %w", err)
 	}
 
-	// Clear cached status to force fresh data on next query
-	d.mutex.Lock()
-	d.lastStatus = nil
-	d.mutex.Unlock()
+	// Clear cached status to force fresh data on next query.
+	d.invalidateStatusCache()
 
 	slog.Info("Plugin device unpaired successfully",
 		"device_id", d.id)
@@ -835,8 +905,8 @@ func (d *Device) UpdateMinerPassword(ctx context.Context, currentPassword string
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 
-	// Clear cached status since credentials are changing
-	d.lastStatus = nil
+	// Clear cached status since credentials are changing.
+	d.clearStatusCacheLocked()
 
 	// Update password via REST API
 	if err := d.client.ChangePassword(ctx, currentPassword, newPassword); err != nil {

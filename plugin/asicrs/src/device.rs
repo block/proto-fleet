@@ -53,6 +53,7 @@ pub struct AsicRsDevice {
     miner: Arc<Mutex<Option<Box<dyn Miner>>>>,
     cache_ttl: Duration,
     last_data: Mutex<Option<(Instant, MinerData)>>,
+    pre_full_curtail_mining: Mutex<Option<bool>>,
     last_connect_attempt: Mutex<Option<Instant>>,
     factory: Arc<MinerFactory>,
     auth: Option<MinerAuth>,
@@ -78,6 +79,7 @@ impl AsicRsDevice {
             miner: Arc::new(Mutex::new(miner)),
             cache_ttl,
             last_data: Mutex::new(None),
+            pre_full_curtail_mining: Mutex::new(None),
             last_connect_attempt: Mutex::new(None),
             factory,
             auth,
@@ -539,6 +541,7 @@ impl AsicRsDevice {
             return Err(anyhow::anyhow!("resume_mining command returned false"));
         }
         drop(guard);
+        self.clear_full_curtailment_state().await;
         self.invalidate_cache().await;
         Ok(())
     }
@@ -555,6 +558,7 @@ impl AsicRsDevice {
             return Err(anyhow::anyhow!("stop_mining command returned false"));
         }
         drop(guard);
+        self.clear_full_curtailment_state().await;
         self.invalidate_cache().await;
         Ok(())
     }
@@ -563,6 +567,7 @@ impl AsicRsDevice {
         if *self.probed.lock().await {
             self.require_cap(CAP_CURTAIL_FULL).await?;
         }
+        let was_mining = self.get_data().await?.is_mining;
         let guard = self.connected_miner().await?;
         self.require_cap(CAP_CURTAIL_FULL).await?;
         let miner = guard.as_ref().unwrap();
@@ -574,6 +579,7 @@ impl AsicRsDevice {
             return Err(anyhow::anyhow!("curtail_full command returned false"));
         }
         drop(guard);
+        self.record_full_curtailment_state(was_mining).await;
         self.invalidate_cache().await;
         Ok(())
     }
@@ -581,6 +587,12 @@ impl AsicRsDevice {
     pub async fn uncurtail_full(&self) -> anyhow::Result<()> {
         if *self.probed.lock().await {
             self.require_cap(CAP_CURTAIL_FULL).await?;
+        }
+        let should_resume = self.full_curtailment_should_resume().await.unwrap_or(true);
+        if !should_resume {
+            self.clear_full_curtailment_state().await;
+            self.invalidate_cache().await;
+            return Ok(());
         }
         let guard = self.connected_miner().await?;
         self.require_cap(CAP_CURTAIL_FULL).await?;
@@ -593,8 +605,24 @@ impl AsicRsDevice {
             return Err(anyhow::anyhow!("uncurtail_full command returned false"));
         }
         drop(guard);
+        self.clear_full_curtailment_state().await;
         self.invalidate_cache().await;
         Ok(())
+    }
+
+    async fn record_full_curtailment_state(&self, was_mining: bool) {
+        let mut state = self.pre_full_curtail_mining.lock().await;
+        if state.is_none() {
+            *state = Some(was_mining);
+        }
+    }
+
+    async fn full_curtailment_should_resume(&self) -> Option<bool> {
+        *self.pre_full_curtail_mining.lock().await
+    }
+
+    async fn clear_full_curtailment_state(&self) {
+        *self.pre_full_curtail_mining.lock().await = None;
     }
 
     pub async fn reboot(&self) -> anyhow::Result<()> {
@@ -1259,6 +1287,48 @@ mod tests {
             .expect_err("expected curtail capability error");
 
         assert!(err.to_string().contains("[unsupported] curtail_full"));
+    }
+
+    #[tokio::test]
+    async fn test_full_curtailment_state_preserves_first_snapshot() {
+        let device = AsicRsDevice::new(
+            "test".into(),
+            pb::DeviceInfo::default(),
+            Capabilities::new(),
+            None,
+            Duration::from_secs(5),
+            Arc::new(MinerFactory::new()),
+            None,
+        );
+
+        device.record_full_curtailment_state(true).await;
+        device.record_full_curtailment_state(false).await;
+
+        assert_eq!(device.full_curtailment_should_resume().await, Some(true));
+    }
+
+    #[tokio::test]
+    async fn test_uncurtail_full_skips_resume_when_snapshot_was_not_mining() {
+        let mut caps = Capabilities::new();
+        caps.insert(CAP_CURTAIL_FULL.into(), true);
+        let device = AsicRsDevice::new(
+            "test".into(),
+            pb::DeviceInfo::default(),
+            caps,
+            None,
+            Duration::from_secs(5),
+            Arc::new(MinerFactory::new()),
+            None,
+        );
+        *device.probed.lock().await = true;
+        device.record_full_curtailment_state(false).await;
+
+        device
+            .uncurtail_full()
+            .await
+            .expect("uncurtail should skip resume when FULL did not stop mining");
+
+        assert_eq!(device.full_curtailment_should_resume().await, None);
     }
 
     // --- WriteAccessProbeStrategy::for_miner ---

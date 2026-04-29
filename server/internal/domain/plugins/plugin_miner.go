@@ -211,6 +211,9 @@ func (p *PluginMiner) StopMining(ctx context.Context) error {
 
 // Curtail dispatches through optional SDK curtailment support.
 func (p *PluginMiner) Curtail(ctx context.Context, req sdk.CurtailRequest) error {
+	if !supportsCurtailLevel(p.caps, req.Level) {
+		return fleeterror.NewUnimplementedError("device does not support curtailment")
+	}
 	curtailer, ok := p.sdkDevice.(sdk.DeviceCurtailment)
 	if !ok {
 		return fleeterror.NewUnimplementedError("device does not support curtailment")
@@ -223,6 +226,9 @@ func (p *PluginMiner) Curtail(ctx context.Context, req sdk.CurtailRequest) error
 
 // Uncurtail dispatches through optional SDK curtailment support.
 func (p *PluginMiner) Uncurtail(ctx context.Context, req sdk.UncurtailRequest) error {
+	if !supportsAnyCurtailLevel(p.caps) {
+		return fleeterror.NewUnimplementedError("device does not support curtailment")
+	}
 	curtailer, ok := p.sdkDevice.(sdk.DeviceCurtailment)
 	if !ok {
 		return fleeterror.NewUnimplementedError("device does not support curtailment")
@@ -231,6 +237,25 @@ func (p *PluginMiner) Uncurtail(ctx context.Context, req sdk.UncurtailRequest) e
 		return wrapCurtailmentPluginError(err, "failed to uncurtail device")
 	}
 	return nil
+}
+
+func supportsCurtailLevel(caps sdk.Capabilities, level sdk.CurtailLevel) bool {
+	switch level {
+	case sdk.CurtailLevelFull:
+		return caps[sdk.CapabilityCurtailFull]
+	case sdk.CurtailLevelEfficiency:
+		return caps[sdk.CapabilityCurtailEfficiency]
+	case sdk.CurtailLevelPartialPercent:
+		return caps[sdk.CapabilityCurtailPartial]
+	default:
+		return false
+	}
+}
+
+func supportsAnyCurtailLevel(caps sdk.Capabilities) bool {
+	return caps[sdk.CapabilityCurtailFull] ||
+		caps[sdk.CapabilityCurtailEfficiency] ||
+		caps[sdk.CapabilityCurtailPartial]
 }
 
 // SetCoolingMode implements interfaces.Miner

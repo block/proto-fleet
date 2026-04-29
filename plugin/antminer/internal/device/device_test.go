@@ -530,6 +530,37 @@ func TestDevice_CurtailFullInvalidatesStatusCache(t *testing.T) {
 	assert.True(t, device.lastStatusAt.IsZero())
 }
 
+func TestDevice_CurtailFullOnActiveMinerUncurtailStartsMining(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockClient := mocks.NewMockAntminerClient(ctrl)
+	device := createTestDevice(t, mockClient, defaultStatus(), defaultTelemetry())
+	defer cleanupDevice(t, device, mockClient)
+
+	mockClient.EXPECT().StopMining(gomock.Any()).Return(nil)
+	require.NoError(t, device.Curtail(t.Context(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull}))
+
+	mockClient.EXPECT().StartMining(gomock.Any()).Return(nil)
+	require.NoError(t, device.Uncurtail(t.Context(), sdk.UncurtailRequest{}))
+}
+
+func TestDevice_CurtailFullOnInactiveMinerUncurtailDoesNotStartMining(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockClient := mocks.NewMockAntminerClient(ctrl)
+	status := defaultStatus()
+	status.State = sdk.HealthHealthyInactive
+	device := createTestDevice(t, mockClient, status, defaultTelemetry())
+	defer cleanupDevice(t, device, mockClient)
+
+	mockClient.EXPECT().StopMining(gomock.Any()).Return(nil)
+	require.NoError(t, device.Curtail(t.Context(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull}))
+
+	require.NoError(t, device.Uncurtail(t.Context(), sdk.UncurtailRequest{}))
+}
+
 func TestDevice_CurtailFullWrapsDispatchFailureAsTransient(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -547,6 +578,8 @@ func TestDevice_CurtailFullWrapsDispatchFailureAsTransient(t *testing.T) {
 	require.True(t, errors.As(err, &sdkErr))
 	assert.Equal(t, sdk.ErrCodeCurtailTransient, sdkErr.Code)
 	assert.ErrorIs(t, err, assert.AnError)
+	_, ok := device.fullCurtailmentWasMining()
+	assert.False(t, ok)
 }
 
 func TestDevice_CurtailUnsupportedLevelReturnsCapabilityNotSupported(t *testing.T) {
@@ -601,6 +634,40 @@ func TestDevice_UncurtailWrapsDispatchFailureAsTransient(t *testing.T) {
 	require.True(t, errors.As(err, &sdkErr))
 	assert.Equal(t, sdk.ErrCodeCurtailTransient, sdkErr.Code)
 	assert.ErrorIs(t, err, assert.AnError)
+}
+
+func TestDevice_ManualMiningControlClearsCurtailmentState(t *testing.T) {
+	t.Run("start", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockClient := mocks.NewMockAntminerClient(ctrl)
+		device := createTestDevice(t, mockClient, defaultStatus(), defaultTelemetry())
+		defer cleanupDevice(t, device, mockClient)
+		device.recordFullCurtailment(true)
+
+		mockClient.EXPECT().StartMining(gomock.Any()).Return(nil)
+		require.NoError(t, device.StartMining(t.Context()))
+
+		_, ok := device.fullCurtailmentWasMining()
+		assert.False(t, ok)
+	})
+
+	t.Run("stop", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockClient := mocks.NewMockAntminerClient(ctrl)
+		device := createTestDevice(t, mockClient, defaultStatus(), defaultTelemetry())
+		defer cleanupDevice(t, device, mockClient)
+		device.recordFullCurtailment(true)
+
+		mockClient.EXPECT().StopMining(gomock.Any()).Return(nil)
+		require.NoError(t, device.StopMining(t.Context()))
+
+		_, ok := device.fullCurtailmentWasMining()
+		assert.False(t, ok)
+	})
 }
 
 func TestDevice_Reboot(t *testing.T) {

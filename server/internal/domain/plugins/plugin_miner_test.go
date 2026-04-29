@@ -285,6 +285,10 @@ func createTestPluginMinerWithDevice(device sdk.Device) *PluginMiner {
 func createTestPluginMiner() (*PluginMiner, *mockSDKDevice) {
 	mockDevice := &mockSDKDevice{id: "test-device"}
 	pm := createTestPluginMinerWithDevice(mockDevice)
+	pm.caps = sdk.Capabilities{
+		sdk.CapabilityCurtailFull:       true,
+		sdk.CapabilityCurtailEfficiency: true,
+	}
 
 	return pm, mockDevice
 }
@@ -296,6 +300,23 @@ func TestPluginMiner_CurtailReturnsUnimplementedWhenDeviceLacksCurtailment(t *te
 
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsUnimplementedError(err))
+	assert.Contains(t, err.Error(), "device does not support curtailment")
+}
+
+func TestPluginMiner_CurtailReturnsUnimplementedWhenCapabilityMissing(t *testing.T) {
+	mockDevice := &mockSDKDevice{id: "test-device"}
+	called := false
+	mockDevice.curtailFunc = func(context.Context, sdk.CurtailRequest) error {
+		called = true
+		return nil
+	}
+	pm := createTestPluginMinerWithDevice(mockDevice)
+
+	err := pm.Curtail(t.Context(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsUnimplementedError(err))
+	assert.False(t, called, "unsupported curtailment must be rejected before SDK dispatch")
 	assert.Contains(t, err.Error(), "device does not support curtailment")
 }
 
@@ -351,6 +372,23 @@ func TestPluginMiner_UncurtailReturnsUnimplementedWhenDeviceLacksCurtailment(t *
 
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsUnimplementedError(err))
+	assert.Contains(t, err.Error(), "device does not support curtailment")
+}
+
+func TestPluginMiner_UncurtailReturnsUnimplementedWhenNoCurtailCapabilities(t *testing.T) {
+	mockDevice := &mockSDKDevice{id: "test-device"}
+	called := false
+	mockDevice.uncurtailFunc = func(context.Context, sdk.UncurtailRequest) error {
+		called = true
+		return nil
+	}
+	pm := createTestPluginMinerWithDevice(mockDevice)
+
+	err := pm.Uncurtail(t.Context(), sdk.UncurtailRequest{})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsUnimplementedError(err))
+	assert.False(t, called, "unsupported uncurtailment must be rejected before SDK dispatch")
 	assert.Contains(t, err.Error(), "device does not support curtailment")
 }
 
