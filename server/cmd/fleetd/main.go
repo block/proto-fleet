@@ -58,6 +58,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/deviceresolver"
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics"
 	fleetmanagementDomain "github.com/block/proto-fleet/server/internal/domain/fleetmanagement"
+	"github.com/block/proto-fleet/server/internal/domain/fleetoptions"
 	foremanImportDomain "github.com/block/proto-fleet/server/internal/domain/foremanimport"
 	onboardingDomain "github.com/block/proto-fleet/server/internal/domain/onboarding"
 	pairingDomain "github.com/block/proto-fleet/server/internal/domain/pairing"
@@ -249,6 +250,11 @@ func start(config *Config) error {
 	errorStore := sqlstores.NewSQLErrorStore(conn, transactor)
 	diagnosticsService := diagnostics.NewService(diagnosticsCtx, config.Diagnostics, errorStore, transactor)
 
+	// Shared per-org cache for ListMinerStateSnapshots option arrays
+	// (models, firmware versions). The TTL is a safety net; pairing,
+	// telemetry, and fleet management invalidate at known mutation sites.
+	fleetOptionsCache := fleetoptions.NewCache(10*time.Minute, 1024)
+
 	telemetryService := telemetry.NewTelemetryService(
 		config.Telemetry,
 		timescaledbService,
@@ -257,6 +263,7 @@ func start(config *Config) error {
 		deviceStore,
 		diagnosticsService,
 	)
+	telemetryService.WithOptionsCache(fleetOptionsCache)
 
 	if err := telemetryService.Start(context.Background()); err != nil {
 		slog.Error("failed to start telemetry service", "error", err)
@@ -286,6 +293,7 @@ func start(config *Config) error {
 		pluginPairer,
 	)
 	pairingSvc.WithMinerInvalidator(minerService.InvalidateMiner)
+	pairingSvc.WithOptionsCache(fleetOptionsCache)
 
 	// Initialize IP scanner service
 	ipScannerService := ipscanner.NewIPScannerService(
@@ -326,6 +334,7 @@ func start(config *Config) error {
 	}()
 
 	executionService := commandDomain.NewExecutionService(executionServiceCtx, &config.Command, conn, dbMessageQueue, encryptSvc, tokenSvc, minerService, deviceStore, telemetryService, filesService)
+	executionService.WithOptionsCache(fleetOptionsCache)
 	err = executionService.Start(executionServiceCtx)
 	if err != nil {
 		slog.Error("failed to start command execution service", "error", err)
@@ -334,6 +343,7 @@ func start(config *Config) error {
 	statusService := commandDomain.NewStatusService(conn, dbMessageQueue)
 	commandSvc := commandDomain.NewService(&config.Command, conn, executionService, dbMessageQueue, statusService, encryptSvc, filesService, deviceStore, userStore, authSvc, telemetryService, pluginService, activitySvc)
 	fleetMgmtSvc := fleetmanagementDomain.NewService(deviceStore, discoveredDeviceStore, telemetryService, minerService, pluginService, poolStore, errorStore, collectionStore, commandSvc, activitySvc)
+	fleetMgmtSvc.WithOptionsCache(fleetOptionsCache)
 	defer fleetMgmtSvc.WaitForPendingClearAuthKeys(shutdownTimeout)
 	onboardingSvc := onboardingDomain.NewService(deviceStore, poolStore, userStore)
 	poolsSvc := poolsDomain.NewService(poolStore, transactor, config.Pools, activitySvc)

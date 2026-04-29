@@ -1206,15 +1206,22 @@ GROUP BY dcm.device_set_id, e.component_type`,
 	return results, nil
 }
 
-func (s *SQLDeviceStore) UpdateFirmwareVersion(ctx context.Context, deviceIdentifier models.DeviceIdentifier, firmwareVersion string) error {
-	err := s.getQueries(ctx).UpdateDiscoveredDeviceFirmwareVersion(ctx, sqlc.UpdateDiscoveredDeviceFirmwareVersionParams{
+// UpdateFirmwareVersion writes the firmware version for the device when it
+// differs from the stored value. The returned int64 is the org_id of the
+// updated row, or 0 when no row was changed (firmware unchanged or device
+// missing). Callers use the org_id to invalidate per-org option caches.
+func (s *SQLDeviceStore) UpdateFirmwareVersion(ctx context.Context, deviceIdentifier models.DeviceIdentifier, firmwareVersion string) (int64, error) {
+	orgIDs, err := s.getQueries(ctx).UpdateDiscoveredDeviceFirmwareVersion(ctx, sqlc.UpdateDiscoveredDeviceFirmwareVersionParams{
 		DeviceIdentifier: string(deviceIdentifier),
 		FirmwareVersion:  sql.NullString{String: firmwareVersion, Valid: firmwareVersion != ""},
 	})
 	if err != nil {
-		return fleeterror.NewInternalErrorf("failed to update firmware version for device %s: %v", deviceIdentifier, err)
+		return 0, fleeterror.NewInternalErrorf("failed to update firmware version for device %s: %v", deviceIdentifier, err)
 	}
-	return nil
+	if len(orgIDs) == 0 {
+		return 0, nil
+	}
+	return orgIDs[0], nil
 }
 
 func (s *SQLDeviceStore) UpdateWorkerName(ctx context.Context, deviceIdentifier models.DeviceIdentifier, workerName string) error {

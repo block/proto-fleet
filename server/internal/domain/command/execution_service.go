@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/block/proto-fleet/server/internal/domain/fleetoptions"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
@@ -62,11 +63,21 @@ type ExecutionService struct {
 	telemetryListener TelemetryListener
 	filesService      *files.Service
 
+	// optionsCache lets unpair commands invalidate stale model/firmware
+	// dropdowns served by ListMinerStateSnapshots. Nil-safe.
+	optionsCache *fleetoptions.Cache
+
 	workerSemaphore chan struct{}
 
 	queueProcessorMu      sync.Mutex
 	queueProcessorRunning bool
 	reaperCancel          context.CancelFunc
+}
+
+// WithOptionsCache wires the per-org fleet options cache so successful
+// unpair commands can evict stale option arrays. Pass nil to disable.
+func (es *ExecutionService) WithOptionsCache(cache *fleetoptions.Cache) {
+	es.optionsCache = cache
 }
 
 func NewExecutionService(ctx context.Context, config *Config, conn *sql.DB, messageQueue queue.MessageQueue, encryptService *encrypt.Service, tokenService *tokenDomain.Service, minerService CachedMinerGetter, deviceStore stores.DeviceStore, telemetryListener TelemetryListener, filesService *files.Service) *ExecutionService {
@@ -828,12 +839,13 @@ func normalizePoolUsernameBase(username string) string {
 
 // handleUnpairPostProcessing updates device pairing status and unregisters from telemetry after successful unpair
 func (es *ExecutionService) handleUnpairPostProcessing(ctx context.Context, deviceID int64) error {
-	deviceIdentifier, err := db.WithTransaction(ctx, es.conn, func(q *sqlc.Queries) (string, error) {
-		return q.GetDeviceIdentifierByID(ctx, deviceID)
+	row, err := db.WithTransaction(ctx, es.conn, func(q *sqlc.Queries) (sqlc.GetDeviceIdentifierAndOrgIDByIDRow, error) {
+		return q.GetDeviceIdentifierAndOrgIDByID(ctx, deviceID)
 	})
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to get device identifier by ID: %v", err)
 	}
+	deviceIdentifier := row.DeviceIdentifier
 
 	err = es.deviceStore.UpdateDevicePairingStatusByIdentifier(ctx, deviceIdentifier, string(sqlc.PairingStatusEnumUNPAIRED))
 	if err != nil {
@@ -841,6 +853,11 @@ func (es *ExecutionService) handleUnpairPostProcessing(ctx context.Context, devi
 	}
 
 	slog.Info("device pairing status updated to UNPAIRED", "device_identifier", deviceIdentifier)
+
+	// Drop the org's cached option arrays — UNPAIRED leaves the PAIRED set
+	// scanned by GetAvailableModels / GetAvailableFirmwareVersions, so the
+	// dropdown could otherwise show ghost values until TTL expiry.
+	es.optionsCache.Invalidate(row.OrgID)
 
 	// Evict the cached miner immediately. This is unconditional so that any
 	// command queued after this point always fetches fresh state from the DB,

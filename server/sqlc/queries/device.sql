@@ -138,6 +138,13 @@ WHERE id = $1
   AND deleted_at IS NULL
 LIMIT 1;
 
+-- name: GetDeviceIdentifierAndOrgIDByID :one
+SELECT device_identifier, org_id
+FROM device
+WHERE id = $1
+  AND deleted_at IS NULL
+LIMIT 1;
+
 -- name: GetDeviceIDsByDeviceIdentifiers :many
 SELECT id
 FROM device

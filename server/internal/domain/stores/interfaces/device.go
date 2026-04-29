@@ -121,7 +121,9 @@ type DeviceStore interface {
 	SoftDeleteDevices(ctx context.Context, deviceIdentifiers []string, orgID int64) (int64, error)
 	GetDeviceIdentifiersByOrgWithFilter(ctx context.Context, orgID int64, filter *MinerFilter) ([]string, error)
 	GetMinerStateCountsByCollections(ctx context.Context, orgID int64, collectionIDs []int64) (map[int64]MinerStateCounts, error)
-	UpdateFirmwareVersion(ctx context.Context, deviceIdentifier models.DeviceIdentifier, firmwareVersion string) error
+	// UpdateFirmwareVersion returns the org_id of the updated row, or 0 if
+	// no row changed. Callers use this for per-org cache invalidation.
+	UpdateFirmwareVersion(ctx context.Context, deviceIdentifier models.DeviceIdentifier, firmwareVersion string) (int64, error)
 	UpdateWorkerName(ctx context.Context, deviceIdentifier models.DeviceIdentifier, workerName string) error
 	GetDevicePropertiesForRename(ctx context.Context, orgID int64, deviceIdentifiers []string, includeTelemetry bool) ([]DeviceRenameProperties, error)
 	UpdateDeviceCustomNames(ctx context.Context, orgID int64, names map[string]string) error

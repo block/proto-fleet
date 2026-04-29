@@ -437,11 +437,12 @@ func (mr *MockDeviceStoreMockRecorder) UpdateDevicePairingStatusByIdentifier(ctx
 }
 
 // UpdateFirmwareVersion mocks base method.
-func (m *MockDeviceStore) UpdateFirmwareVersion(ctx context.Context, deviceIdentifier models1.DeviceIdentifier, firmwareVersion string) error {
+func (m *MockDeviceStore) UpdateFirmwareVersion(ctx context.Context, deviceIdentifier models1.DeviceIdentifier, firmwareVersion string) (int64, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateFirmwareVersion", ctx, deviceIdentifier, firmwareVersion)
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // UpdateFirmwareVersion indicates an expected call of UpdateFirmwareVersion.

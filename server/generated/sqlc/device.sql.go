@@ -553,6 +553,26 @@ func (q *Queries) GetDeviceIDsWithIdentifiers(ctx context.Context, deviceIdentif
 	return items, nil
 }
 
+const getDeviceIdentifierAndOrgIDByID = `-- name: GetDeviceIdentifierAndOrgIDByID :one
+SELECT device_identifier, org_id
+FROM device
+WHERE id = $1
+  AND deleted_at IS NULL
+LIMIT 1
+`
+
+type GetDeviceIdentifierAndOrgIDByIDRow struct {
+	DeviceIdentifier string
+	OrgID            int64
+}
+
+func (q *Queries) GetDeviceIdentifierAndOrgIDByID(ctx context.Context, id int64) (GetDeviceIdentifierAndOrgIDByIDRow, error) {
+	row := q.queryRow(ctx, q.getDeviceIdentifierAndOrgIDByIDStmt, getDeviceIdentifierAndOrgIDByID, id)
+	var i GetDeviceIdentifierAndOrgIDByIDRow
+	err := row.Scan(&i.DeviceIdentifier, &i.OrgID)
+	return i, err
+}
+
 const getDeviceIdentifierByID = `-- name: GetDeviceIdentifierByID :one
 SELECT device_identifier
 FROM device

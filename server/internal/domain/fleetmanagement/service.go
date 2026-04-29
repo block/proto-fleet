@@ -6,15 +6,19 @@ import (
 	"log/slog"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/sync/singleflight"
 
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/deviceresolver"
 	diagnosticsmodels "github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetoptions"
 	"github.com/block/proto-fleet/server/internal/domain/miner"
 	minerInterfaces "github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	mm "github.com/block/proto-fleet/server/internal/domain/miner/models"
@@ -102,6 +106,12 @@ type Service struct {
 	deviceResolver        *deviceresolver.Resolver
 	activitySvc           *activity.Service
 
+	// optionsCache holds per-org models + firmware version arrays surfaced
+	// by ListMinerStateSnapshots. The TTL is a safety net; pairing and
+	// telemetry call Invalidate at known mutation sites.
+	optionsCache  *fleetoptions.Cache
+	optionsSingle singleflight.Group
+
 	// backgroundWg tracks in-flight background ClearAuthKey goroutines so they can
 	// be awaited during graceful shutdown via WaitForPendingClearAuthKeys.
 	backgroundWg sync.WaitGroup
@@ -138,6 +148,13 @@ func NewService(
 		deviceResolver:        deviceresolver.New(deviceStore),
 		clearAuthKeySem:       make(chan struct{}, concurrentClearAuthKeyLimit),
 	}
+}
+
+// WithOptionsCache wires the per-org options cache used to serve
+// ListMinerStateSnapshots option arrays without re-running DISTINCT scans
+// on every page request. Pass nil to disable caching (tests).
+func (s *Service) WithOptionsCache(cache *fleetoptions.Cache) {
+	s.optionsCache = cache
 }
 
 func (s *Service) logActivity(ctx context.Context, event activitymodels.Event) {
@@ -305,19 +322,9 @@ func (s *Service) buildSnapshot(
 		}
 	}
 
-	// TODO(#125): These option-array hydrations run on every list page request,
-	// not just page 1. The Fleet UI fans out to multiple list calls per render
-	// (main list + total + auth-needed total), so each page nav pays N DISTINCT
-	// scans. Accepted for now to keep deep-links working without client coupling;
-	// a per-org TTL cache (or equivalent) should replace this.
-	availableModels, err := s.deviceStore.GetAvailableModels(ctx, orgID)
+	options, err := s.getCachedFleetOptions(ctx, orgID)
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to get available models: %v", err)
-	}
-
-	availableFirmwareVersions, err := s.deviceStore.GetAvailableFirmwareVersions(ctx, orgID)
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to get available firmware versions: %v", err)
+		return nil, err
 	}
 
 	return &pb.ListMinerStateSnapshotsResponse{
@@ -325,9 +332,50 @@ func (s *Service) buildSnapshot(
 		Cursor:           nextCursor,
 		TotalMiners:      int32(total), //nolint:gosec
 		TotalStateCounts: stateCounts,
-		Models:           availableModels,
-		FirmwareVersions: availableFirmwareVersions,
+		Models:           options.Models,
+		FirmwareVersions: options.FirmwareVersions,
 	}, nil
+}
+
+// getCachedFleetOptions returns the per-org option arrays surfaced by
+// ListMinerStateSnapshots. On a cache miss the underlying DISTINCT scans
+// are run once and shared across concurrent callers via singleflight.
+func (s *Service) getCachedFleetOptions(ctx context.Context, orgID int64) (fleetoptions.Options, error) {
+	if opts, ok := s.optionsCache.Get(orgID); ok {
+		return opts, nil
+	}
+
+	v, err, _ := s.optionsSingle.Do(strconv.FormatInt(orgID, 10), func() (any, error) {
+		// Re-check after acquiring the singleflight slot in case a sibling
+		// caller populated the cache while we were waiting.
+		if opts, ok := s.optionsCache.Get(orgID); ok {
+			return opts, nil
+		}
+
+		models, err := s.deviceStore.GetAvailableModels(ctx, orgID)
+		if err != nil {
+			return fleetoptions.Options{}, fleeterror.NewInternalErrorf("failed to get available models: %v", err)
+		}
+
+		firmwares, err := s.deviceStore.GetAvailableFirmwareVersions(ctx, orgID)
+		if err != nil {
+			return fleetoptions.Options{}, fleeterror.NewInternalErrorf("failed to get available firmware versions: %v", err)
+		}
+
+		opts := fleetoptions.Options{Models: models, FirmwareVersions: firmwares}
+		s.optionsCache.Put(orgID, opts)
+		return opts, nil
+	})
+	if err != nil {
+		// Errors come from the inner func above, which already wraps store
+		// errors as fleeterror values. Pass through unchanged.
+		return fleetoptions.Options{}, err //nolint:wrapcheck
+	}
+	opts, ok := v.(fleetoptions.Options)
+	if !ok {
+		return fleetoptions.Options{}, fleeterror.NewInternalErrorf("unexpected type from options singleflight: %T", v)
+	}
+	return opts, nil
 }
 
 func (s *Service) buildSnapshotsFromUnifiedQuery(
@@ -852,6 +900,8 @@ func (s *Service) DeleteMiners(ctx context.Context, req *pb.DeleteMinersRequest)
 	if err != nil {
 		return nil, err
 	}
+
+	s.optionsCache.Invalidate(info.OrganizationID)
 
 	for _, id := range deviceIdentifiers {
 		s.minerService.InvalidateMiner(mm.DeviceIdentifier(id))

@@ -254,7 +254,7 @@ func (q *Queries) SoftDeleteDiscoveredDeviceByIdentifier(ctx context.Context, ar
 	return err
 }
 
-const updateDiscoveredDeviceFirmwareVersion = `-- name: UpdateDiscoveredDeviceFirmwareVersion :exec
+const updateDiscoveredDeviceFirmwareVersion = `-- name: UpdateDiscoveredDeviceFirmwareVersion :many
 UPDATE discovered_device dd
 SET firmware_version = $2
 WHERE dd.device_identifier = $1
@@ -267,6 +267,7 @@ WHERE dd.device_identifier = $1
       AND d.deleted_at IS NULL
     LIMIT 1
   )
+RETURNING dd.org_id
 `
 
 type UpdateDiscoveredDeviceFirmwareVersionParams struct {
@@ -274,9 +275,27 @@ type UpdateDiscoveredDeviceFirmwareVersionParams struct {
 	FirmwareVersion  sql.NullString
 }
 
-func (q *Queries) UpdateDiscoveredDeviceFirmwareVersion(ctx context.Context, arg UpdateDiscoveredDeviceFirmwareVersionParams) error {
-	_, err := q.exec(ctx, q.updateDiscoveredDeviceFirmwareVersionStmt, updateDiscoveredDeviceFirmwareVersion, arg.DeviceIdentifier, arg.FirmwareVersion)
-	return err
+func (q *Queries) UpdateDiscoveredDeviceFirmwareVersion(ctx context.Context, arg UpdateDiscoveredDeviceFirmwareVersionParams) ([]int64, error) {
+	rows, err := q.query(ctx, q.updateDiscoveredDeviceFirmwareVersionStmt, updateDiscoveredDeviceFirmwareVersion, arg.DeviceIdentifier, arg.FirmwareVersion)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var org_id int64
+		if err := rows.Scan(&org_id); err != nil {
+			return nil, err
+		}
+		items = append(items, org_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const upsertDiscoveredDevice = `-- name: UpsertDiscoveredDevice :one
