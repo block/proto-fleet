@@ -25,9 +25,11 @@ type PluginDriverGetter interface {
 // PluginMinerConfig contains all parameters needed to create a plugin-based miner
 type PluginMinerConfig struct {
 	// Device information
-	DeviceIdentifier   string
-	DriverName         string           // Plugin routing key (from discovered_device.driver_name)
-	Caps               sdk.Capabilities // Plugin capabilities (for auth strategy, log format)
+	DeviceIdentifier string
+	DriverName       string // Plugin routing key (from discovered_device.driver_name)
+	// Effective current driver/model caps for auth, log formatting, and command gates;
+	// not persisted device JSON.
+	Caps               sdk.Capabilities
 	DeviceIPAddress    string
 	DevicePort         string
 	DeviceScheme       string
