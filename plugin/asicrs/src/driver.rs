@@ -9,6 +9,7 @@ use tokio::sync::RwLock;
 use tonic::{Request, Response, Status};
 
 use pb::driver_server::Driver;
+use proto_fleet_plugin::capabilities::CAP_NATIVE_STRATUM_V2;
 use proto_fleet_plugin::pb;
 
 use crate::capabilities::{
@@ -171,6 +172,41 @@ impl DriverService {
             .get(device_id)
             .cloned()
             .ok_or_else(|| Status::not_found(format!("Device not found: {device_id}")))
+    }
+
+    /// Probe a representative device for the given (manufacturer, model) and
+    /// return its cached capability flags. Returns None when no matching
+    /// device is loaded or none can be probed; the caller falls back to the
+    /// driver-level optimistic caps.
+    async fn probed_caps_for(
+        &self,
+        manufacturer: &str,
+        model: &str,
+    ) -> Option<std::collections::HashMap<String, bool>> {
+        let devices = self.devices.read().await;
+        let mut candidates: Vec<Arc<AsicRsDevice>> = Vec::new();
+        for device in devices.values() {
+            if !device.info.manufacturer.eq_ignore_ascii_case(manufacturer) {
+                continue;
+            }
+            let dev_model = device.model().await;
+            if dev_model == model {
+                if device.is_probed().await {
+                    return Some(device.get_caps().await);
+                }
+                candidates.push(device.clone());
+            } else if dev_model.is_empty() {
+                candidates.push(device.clone());
+            }
+        }
+        drop(devices);
+
+        for device in candidates {
+            if device.ensure_connected().await.is_ok() && device.model().await == model {
+                return Some(device.get_caps().await);
+            }
+        }
+        None
     }
 }
 
@@ -595,42 +631,27 @@ impl Driver for DriverService {
         &self,
         req: Request<pb::GetCapabilitiesForModelRequest>,
     ) -> Result<Response<pb::GetCapabilitiesForModelResponse>, Status> {
-        let model = req.into_inner().model;
-        // Query live device caps. Find a probed device for this model,
-        // or collect unprobed candidates to try connecting.
-        let devices = self.devices.read().await;
-        let mut candidates: Vec<Arc<AsicRsDevice>> = Vec::new();
-        for device in devices.values() {
-            let dev_model = device.model().await;
-            if dev_model == model {
-                if device.is_probed().await {
-                    return Ok(Response::new(pb::GetCapabilitiesForModelResponse {
-                        caps: Some(pb::Capabilities {
-                            flags: device.get_caps().await,
-                        }),
-                    }));
-                }
-                candidates.push(device.clone());
-            } else if dev_model.is_empty() {
-                candidates.push(device.clone());
-            }
-        }
-        // Release the read lock before doing I/O
-        drop(devices);
+        let req = req.into_inner();
+        let manufacturer = req.manufacturer;
+        let model = req.model;
 
-        // No probed device found — try connecting candidates until one succeeds.
-        for device in candidates {
-            if device.ensure_connected().await.is_ok() && device.model().await == model {
-                return Ok(Response::new(pb::GetCapabilitiesForModelResponse {
-                    caps: Some(pb::Capabilities {
-                        flags: device.get_caps().await,
-                    }),
-                }));
-            }
+        // Live device probe for control caps (reboot, mining_start, pool_config, …).
+        // Filter by both manufacturer and model so a fleet with mixed firmware on
+        // the same hardware (Braiins-S21 + VNish-S21) returns deterministic
+        // per-(manufacturer, model) caps instead of "whichever matched first".
+        let mut flags = self
+            .probed_caps_for(&manufacturer, &model)
+            .await
+            .unwrap_or_default();
+
+        // Firmware-derived: Braiins is the only asic-rs-handled firmware
+        // that ships native SV2.
+        if manufacturer.eq_ignore_ascii_case(crate::capabilities::VARIANT_BRAIINS) {
+            flags.insert(CAP_NATIVE_STRATUM_V2.to_string(), true);
         }
-        // No device could be probed for this model
+
         Ok(Response::new(pb::GetCapabilitiesForModelResponse {
-            caps: None,
+            caps: Some(pb::Capabilities { flags }),
         }))
     }
 

@@ -16,8 +16,10 @@ interface PoolSelectionPageWrapperProps {
   selectedMiners?: MinerSelection[]; // For "subset" mode
   userUsername?: string;
   userPassword?: string;
-  onSuccess: (batchIdentifier: string) => void;
+  // dispatchedDeviceIdentifiers empty when no SV2 gate ran.
+  onSuccess: (batchIdentifier: string, dispatchedDeviceIdentifiers: string[]) => void;
   onError?: (error: string) => void;
+  onWarning?: (warning: string) => void;
   onDismiss: () => void;
 }
 
@@ -31,6 +33,7 @@ const PoolSelectionPageWrapper = ({
   userPassword,
   onSuccess,
   onError,
+  onWarning,
   onDismiss: onDismiss,
 }: PoolSelectionPageWrapperProps) => {
   const { updateMiningPools } = useMinerCommand();
@@ -54,13 +57,16 @@ const PoolSelectionPageWrapper = ({
       userUsername: userUsername || "",
       userPassword: userPassword || "",
       onSuccess: (response) => {
-        onSuccess(response.batchIdentifier);
+        onSuccess(response.batchIdentifier, response.dispatchedDeviceIdentifiers);
         onDismiss();
       },
       onError: (error) => {
         console.error("Failed to assign pools:", error);
-        onError?.("Failed to assign pools");
+        onError?.(error);
         onDismiss();
+      },
+      onPartialSuccess: (warning) => {
+        onWarning?.(warning);
       },
     });
   };

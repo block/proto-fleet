@@ -217,6 +217,7 @@ const DeviceSetActionsMenuInner = ({
     handleCancel,
     handleMiningPoolSuccess,
     handleMiningPoolError,
+    handleMiningPoolWarning,
     showPoolSelectionPage,
     poolFilteredDeviceIds,
     fleetCredentials,
@@ -417,6 +418,7 @@ const DeviceSetActionsMenuInner = ({
         userPassword={fleetCredentials?.password}
         onSuccess={handleMiningPoolSuccess}
         onError={handleMiningPoolError}
+        onWarning={handleMiningPoolWarning}
         onDismiss={handleCancel}
       />
       <ManagePowerModal

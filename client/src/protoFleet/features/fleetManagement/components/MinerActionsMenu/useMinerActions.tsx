@@ -596,11 +596,16 @@ export const useMinerActions = ({
   );
 
   const handleMiningPoolSuccess = useCallback(
-    (batchIdentifier: string) => {
+    (batchIdentifier: string, dispatchedDeviceIdentifiers: string[]) => {
+      // Priority: SV2-vetted > capability-filtered > original selection.
+      const batchIdentifiers =
+        dispatchedDeviceIdentifiers.length > 0
+          ? dispatchedDeviceIdentifiers
+          : (poolFilteredDeviceIds ?? deviceIdentifiers);
       startBatchOperation({
         batchIdentifier: batchIdentifier,
         action: settingsActions.miningPool,
-        deviceIdentifiers: deviceIdentifiers,
+        deviceIdentifiers: batchIdentifiers,
       });
 
       const toastId = pushToast({
@@ -613,7 +618,7 @@ export const useMinerActions = ({
       setCurrentAction(null);
       onActionComplete?.();
     },
-    [handleSuccess, onActionComplete, startBatchOperation, deviceIdentifiers],
+    [handleSuccess, onActionComplete, startBatchOperation, deviceIdentifiers, poolFilteredDeviceIds],
   );
 
   const handleMiningPoolError = useCallback(
@@ -628,6 +633,14 @@ export const useMinerActions = ({
     },
     [onActionComplete],
   );
+
+  const handleMiningPoolWarning = useCallback((warning: string) => {
+    pushToast({
+      message: warning,
+      status: TOAST_STATUSES.success,
+      longRunning: true,
+    });
+  }, []);
 
   const handleManagePowerConfirm = useCallback(
     (performanceMode: PerformanceMode) => {
@@ -1551,6 +1564,7 @@ export const useMinerActions = ({
     displayCount,
     handleMiningPoolSuccess,
     handleMiningPoolError,
+    handleMiningPoolWarning,
     showPoolSelectionPage,
     poolFilteredDeviceIds,
     fleetCredentials,

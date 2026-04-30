@@ -75,6 +75,11 @@ export class PoolsPage extends BasePage {
     await this.page.getByTestId("callout").getByRole("button").click();
   }
 
+  async closeModal() {
+    await this.page.getByTestId("modal").getByLabel("Close dialog").click();
+    await this.validateModalIsClosed();
+  }
+
   async clickMiningPoolButton() {
     await this.clickButton("Mining Pool");
   }

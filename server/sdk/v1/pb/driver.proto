@@ -234,6 +234,9 @@ message DeviceMetrics {
 
   // Firmware version reported by device during telemetry polling
   string firmware_version = 15;
+
+  reserved 16;
+  reserved "stratum_v2_support";
 }
 
 
@@ -351,8 +354,31 @@ message DeviceInfo {
   int32 port = 2;      // e.g., "22"
   string url_scheme = 3; // e.g., "ssh", "http", "https"
   string serial_number = 4; // e.g., "SN123456789"
-  string model = 5;         // e.g., "Antminer S19"
-  string manufacturer = 6;  // e.g., "Bitmain"
+  // Marketing/hardware model name reported by the live device, e.g.
+  // "Antminer S21", "M50S++". Populated from device data during pairing,
+  // not user-supplied. Stable across firmware reflashes on the same
+  // hardware. Treated together with `manufacturer` as a compound key for
+  // capability and credential lookups -- see `manufacturer` below for the
+  // rationale.
+  string model = 5;
+  // NOT a strict OEM identifier. By plugin SDK convention, plugins MAY
+  // report the firmware vendor in this slot for aftermarket firmware
+  // (Braiins, VNish, LuxOS, Marathon, ePIC) so that capability and
+  // credential lookups can distinguish per-firmware behavior on shared
+  // hardware -- a Bitmain S21 running stock vs. running Braiins OS+ will
+  // report different `manufacturer` values even though the hardware is
+  // identical. Stock firmware reports the hardware vendor.
+  //
+  // Examples:
+  //   stock Bitmain S21        -> "Bitmain"
+  //   Braiins-flashed S21      -> "Braiins"
+  //   VNish-flashed WhatsMiner -> "VNish"
+  //   stock WhatsMiner M50S++  -> "MicroBT"
+  //
+  // Consumers must treat (`manufacturer`, `model`) as the compound lookup
+  // key and must NOT assume `manufacturer` is firmware-stable: reflashing
+  // a miner between stock and aftermarket firmware can change this field.
+  string manufacturer = 6;
   reserved 7;
   reserved "type";
   string mac_address = 8; // e.g., "00:1A:2B:3C:4D:5E"
@@ -379,7 +405,8 @@ message PairDeviceResponse {
 
 // GetDefaultCredentialsRequest specifies the device context for credential lookup
 message GetDefaultCredentialsRequest {
-  string manufacturer = 1;      // device make from discovery (e.g. "whatsminer", "antminer")
+  // See DeviceInfo.manufacturer for semantics. Same convention applies here.
+  string manufacturer = 1;
   string firmware_version = 2;  // firmware version string (e.g. "2.0.4", "VNish_1.2.0")
 }
 
@@ -388,9 +415,16 @@ message GetDefaultCredentialsResponse {
   repeated UsernamePassword credentials = 1; // List of credentials to try in order
 }
 
-// GetCapabilitiesForModelRequest requests model-specific capabilities
+// GetCapabilitiesForModelRequest looks up capability overrides keyed by
+// (manufacturer, model). Both fields share the semantics defined on
+// DeviceInfo -- see DeviceInfo.manufacturer in particular for why
+// `manufacturer` may carry a firmware-vendor name rather than the
+// hardware OEM.
 message GetCapabilitiesForModelRequest {
-  string model = 1; // Device model (e.g., "Antminer S19", "Antminer S21")
+  // See DeviceInfo.model.
+  string model = 1;
+  // See DeviceInfo.manufacturer.
+  string manufacturer = 2;
 }
 
 // GetCapabilitiesForModelResponse returns model-specific capability overrides
