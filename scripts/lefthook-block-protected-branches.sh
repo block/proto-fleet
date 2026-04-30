@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# Pre-commit guard: refuse commits on `main`, `master`, or detached HEAD.
-# Cut a feature branch first and commit there; the merge to main happens
-# via PR.
+# Branch-protection guard: refuse commits on `main`, `master`, or detached
+# HEAD. Cut a feature branch first; merges to main happen via PR.
+#
+# Wired into both `pre-commit` (covers `git commit` and `git merge`) and
+# `prepare-commit-msg` (covers `git cherry-pick` and `git revert`, which
+# bypass pre-commit) in `lefthook.yml`.
 #
 # Exemption: skips the check during a paused rebase. Detached HEAD is
 # normal during rebase conflict resolution; blocking would strand

@@ -8,6 +8,8 @@ glob_matcher: doublestar
 pre-commit:
   parallel: true
   commands:
+    # `git commit` and `git merge` fire pre-commit. `git cherry-pick` and
+    # `git revert` do not — they're covered by `prepare-commit-msg` below.
     block-protected-branches:
       run: scripts/lefthook-block-protected-branches.sh
 
@@ -36,6 +38,13 @@ pre-commit:
       glob: "**/*.py"
       stage_fixed: true
       run: scripts/lefthook-python-ruff.sh {staged_files}
+
+prepare-commit-msg:
+  commands:
+    # Catches `git cherry-pick` and `git revert`, which create commits
+    # without invoking `pre-commit`. Same script as the pre-commit guard.
+    block-protected-branches:
+      run: scripts/lefthook-block-protected-branches.sh
 
 pre-push:
   parallel: true
