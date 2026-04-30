@@ -53,6 +53,13 @@ const (
 
 	// clearAuthKeyTimeout is the per-device timeout for best-effort ClearAuthKey calls
 	clearAuthKeyTimeout = 5 * time.Second
+
+	// fleetOptionsFetchTimeout bounds the singleflight fetch that hydrates
+	// the per-org option cache. The fetch runs on a context detached from
+	// any individual caller (so a caller cancellation does not abort the
+	// shared work for siblings); this timeout prevents a stuck fetch from
+	// running indefinitely when no caller is left waiting.
+	fleetOptionsFetchTimeout = 10 * time.Second
 )
 
 // bracketIPv6Host wraps bare IPv6 addresses in brackets for use in URLs.
@@ -340,24 +347,33 @@ func (s *Service) buildSnapshot(
 // getCachedFleetOptions returns the per-org option arrays surfaced by
 // ListMinerStateSnapshots. On a cache miss the underlying DISTINCT scans
 // are run once and shared across concurrent callers via singleflight.
+//
+// The shared fetch runs on a context detached from any individual caller
+// (context.WithoutCancel + a fixed timeout) so that a cancellation of
+// whichever caller raced into singleflight first does not poison the
+// result for siblings whose own contexts are still valid. Each caller
+// then selects between the shared result and its own ctx independently.
 func (s *Service) getCachedFleetOptions(ctx context.Context, orgID int64) (fleetoptions.Options, error) {
 	if opts, ok := s.optionsCache.Get(orgID); ok {
 		return opts, nil
 	}
 
-	v, err, _ := s.optionsSingle.Do(strconv.FormatInt(orgID, 10), func() (any, error) {
+	ch := s.optionsSingle.DoChan(strconv.FormatInt(orgID, 10), func() (any, error) {
+		fetchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), fleetOptionsFetchTimeout)
+		defer cancel()
+
 		// Re-check after acquiring the singleflight slot in case a sibling
 		// caller populated the cache while we were waiting.
 		if opts, ok := s.optionsCache.Get(orgID); ok {
 			return opts, nil
 		}
 
-		models, err := s.deviceStore.GetAvailableModels(ctx, orgID)
+		models, err := s.deviceStore.GetAvailableModels(fetchCtx, orgID)
 		if err != nil {
 			return fleetoptions.Options{}, fleeterror.NewInternalErrorf("failed to get available models: %v", err)
 		}
 
-		firmwares, err := s.deviceStore.GetAvailableFirmwareVersions(ctx, orgID)
+		firmwares, err := s.deviceStore.GetAvailableFirmwareVersions(fetchCtx, orgID)
 		if err != nil {
 			return fleetoptions.Options{}, fleeterror.NewInternalErrorf("failed to get available firmware versions: %v", err)
 		}
@@ -366,16 +382,24 @@ func (s *Service) getCachedFleetOptions(ctx context.Context, orgID int64) (fleet
 		s.optionsCache.Put(orgID, opts)
 		return opts, nil
 	})
-	if err != nil {
-		// Errors come from the inner func above, which already wraps store
-		// errors as fleeterror values. Pass through unchanged.
-		return fleetoptions.Options{}, err //nolint:wrapcheck
+
+	select {
+	case res := <-ch:
+		if res.Err != nil {
+			// Errors come from the inner func above, which already wraps
+			// store errors as fleeterror values. Pass through unchanged.
+			return fleetoptions.Options{}, res.Err //nolint:wrapcheck
+		}
+		opts, ok := res.Val.(fleetoptions.Options)
+		if !ok {
+			return fleetoptions.Options{}, fleeterror.NewInternalErrorf("unexpected type from options singleflight: %T", res.Val)
+		}
+		return opts, nil
+	case <-ctx.Done():
+		// This caller gave up; the detached fetch keeps running in the
+		// background and will populate the cache for the next request.
+		return fleetoptions.Options{}, ctx.Err() //nolint:wrapcheck
 	}
-	opts, ok := v.(fleetoptions.Options)
-	if !ok {
-		return fleetoptions.Options{}, fleeterror.NewInternalErrorf("unexpected type from options singleflight: %T", v)
-	}
-	return opts, nil
 }
 
 func (s *Service) buildSnapshotsFromUnifiedQuery(

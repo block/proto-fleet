@@ -1,6 +1,7 @@
 package fleetmanagement
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"testing"
@@ -122,4 +123,40 @@ func TestGetCachedFleetOptions_NilCacheStillFetches(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, []string{"S19"}, opts.Models)
 	}
+}
+
+// Caller cancellation must not abort the shared singleflight fetch. The
+// canceled caller returns ctx.Err() immediately, but the detached fetch
+// keeps running and populates the cache for the next request.
+func TestGetCachedFleetOptions_CallerCancelDoesNotAbortSharedFetch(t *testing.T) {
+	svc, store, _ := newServiceWithCache(t, time.Minute)
+
+	// The mock asserts it received a non-canceled context — proving the
+	// fetch ran on a context detached from the caller's ctx.
+	store.EXPECT().GetAvailableModels(gomock.Any(), int64(1)).
+		DoAndReturn(func(ctx context.Context, _ int64) ([]string, error) {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			return []string{"S19"}, nil
+		}).Times(1)
+	store.EXPECT().GetAvailableFirmwareVersions(gomock.Any(), int64(1)).
+		DoAndReturn(func(ctx context.Context, _ int64) ([]string, error) {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			return []string{"v1"}, nil
+		}).Times(1)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel() // canceled before the call
+
+	_, err := svc.getCachedFleetOptions(ctx, 1)
+	require.ErrorIs(t, err, context.Canceled)
+
+	// The detached fetch goroutine still ran and populated the cache.
+	require.Eventually(t, func() bool {
+		opts, ok := svc.optionsCache.Get(1)
+		return ok && len(opts.Models) == 1 && opts.Models[0] == "S19"
+	}, time.Second, 5*time.Millisecond, "expected detached fetch to populate cache despite caller cancellation")
 }
