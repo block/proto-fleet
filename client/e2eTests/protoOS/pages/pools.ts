@@ -76,7 +76,7 @@ export class PoolsPage extends BasePage {
   }
 
   async closeModal() {
-    await this.page.keyboard.press("Escape");
+    await this.page.getByTestId("modal").getByLabel("Close dialog").click();
     await this.validateModalIsClosed();
   }
 
