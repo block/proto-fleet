@@ -767,9 +767,15 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context) {
 // default-password rotation before normal operations).
 func (s *TelemetryService) handleAuthenticationFailure(ctx context.Context, deviceID models.DeviceIdentifier) error {
 	// Update pairing status to AUTHENTICATION_NEEDED using device identifier directly
-	err := s.deviceStore.UpdateDevicePairingStatusByIdentifier(ctx, string(deviceID), pairing.StatusAuthenticationNeeded)
+	orgID, err := s.deviceStore.UpdateDevicePairingStatusByIdentifier(ctx, string(deviceID), pairing.StatusAuthenticationNeeded)
 	if err != nil {
 		return fmt.Errorf("failed to update pairing status for device %s: %w", deviceID, err)
+	}
+	// The device leaves the PAIRED set scanned by GetAvailableModels /
+	// GetAvailableFirmwareVersions, so the cached dropdown could otherwise
+	// show a ghost value when this was the only contributor.
+	if orgID != 0 {
+		s.optionsCache.Invalidate(orgID)
 	}
 
 	return nil

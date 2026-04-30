@@ -180,9 +180,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getDeviceIDsWithIdentifiersStmt, err = db.PrepareContext(ctx, getDeviceIDsWithIdentifiers); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceIDsWithIdentifiers: %w", err)
 	}
-	if q.getDeviceIdentifierAndOrgIDByIDStmt, err = db.PrepareContext(ctx, getDeviceIdentifierAndOrgIDByID); err != nil {
-		return nil, fmt.Errorf("error preparing query GetDeviceIdentifierAndOrgIDByID: %w", err)
-	}
 	if q.getDeviceIdentifierByIDStmt, err = db.PrepareContext(ctx, getDeviceIdentifierByID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceIdentifierByID: %w", err)
 	}
@@ -932,11 +929,6 @@ func (q *Queries) Close() error {
 	if q.getDeviceIDsWithIdentifiersStmt != nil {
 		if cerr := q.getDeviceIDsWithIdentifiersStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getDeviceIDsWithIdentifiersStmt: %w", cerr)
-		}
-	}
-	if q.getDeviceIdentifierAndOrgIDByIDStmt != nil {
-		if cerr := q.getDeviceIdentifierAndOrgIDByIDStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing getDeviceIdentifierAndOrgIDByIDStmt: %w", cerr)
 		}
 	}
 	if q.getDeviceIdentifierByIDStmt != nil {
@@ -1840,7 +1832,6 @@ type Queries struct {
 	getDeviceIDByIdentifierStmt                         *sql.Stmt
 	getDeviceIDsByDeviceIdentifiersStmt                 *sql.Stmt
 	getDeviceIDsWithIdentifiersStmt                     *sql.Stmt
-	getDeviceIdentifierAndOrgIDByIDStmt                 *sql.Stmt
 	getDeviceIdentifierByIDStmt                         *sql.Stmt
 	getDeviceIdentifiersByDeviceSetIDStmt               *sql.Stmt
 	getDeviceInfoForCapabilityCheckStmt                 *sql.Stmt
@@ -2061,7 +2052,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getDeviceIDByIdentifierStmt:                         q.getDeviceIDByIdentifierStmt,
 		getDeviceIDsByDeviceIdentifiersStmt:                 q.getDeviceIDsByDeviceIdentifiersStmt,
 		getDeviceIDsWithIdentifiersStmt:                     q.getDeviceIDsWithIdentifiersStmt,
-		getDeviceIdentifierAndOrgIDByIDStmt:                 q.getDeviceIdentifierAndOrgIDByIDStmt,
 		getDeviceIdentifierByIDStmt:                         q.getDeviceIdentifierByIDStmt,
 		getDeviceIdentifiersByDeviceSetIDStmt:               q.getDeviceIdentifiersByDeviceSetIDStmt,
 		getDeviceInfoForCapabilityCheckStmt:                 q.getDeviceInfoForCapabilityCheckStmt,

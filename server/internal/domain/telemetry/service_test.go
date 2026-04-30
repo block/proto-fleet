@@ -2621,7 +2621,7 @@ func TestFetchStatusFromMiner_AuthErrorFromGetMinerFromDeviceIdentifier_Invalida
 	// processStatusOnly calls handleAuthenticationFailure on auth error
 	mockDeviceStore.EXPECT().
 		UpdateDevicePairingStatusByIdentifier(gomock.Any(), string(deviceID), gomock.Any()).
-		Return(nil)
+		Return(int64(0), nil)
 
 	service := NewTelemetryService(Config{
 		StalenessThreshold: 1 * time.Minute,
@@ -2669,7 +2669,7 @@ func TestFetchStatusFromMiner_AuthErrorFromGetDeviceStatus_InvalidatesMinerCache
 	// processStatusOnly calls handleAuthenticationFailure on auth error
 	mockDeviceStore.EXPECT().
 		UpdateDevicePairingStatusByIdentifier(gomock.Any(), string(deviceID), gomock.Any()).
-		Return(nil)
+		Return(int64(0), nil)
 
 	service := NewTelemetryService(Config{
 		StalenessThreshold: 1 * time.Minute,
@@ -2709,7 +2709,7 @@ func TestProcessStatusOnly_ForbiddenError_UpdatesPairingStatus(t *testing.T) {
 
 	mockDeviceStore.EXPECT().
 		UpdateDevicePairingStatusByIdentifier(gomock.Any(), string(deviceID), gomock.Any()).
-		Return(nil)
+		Return(int64(0), nil)
 
 	service := NewTelemetryService(Config{
 		StalenessThreshold: 1 * time.Minute,

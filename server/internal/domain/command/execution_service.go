@@ -839,15 +839,14 @@ func normalizePoolUsernameBase(username string) string {
 
 // handleUnpairPostProcessing updates device pairing status and unregisters from telemetry after successful unpair
 func (es *ExecutionService) handleUnpairPostProcessing(ctx context.Context, deviceID int64) error {
-	row, err := db.WithTransaction(ctx, es.conn, func(q *sqlc.Queries) (sqlc.GetDeviceIdentifierAndOrgIDByIDRow, error) {
-		return q.GetDeviceIdentifierAndOrgIDByID(ctx, deviceID)
+	deviceIdentifier, err := db.WithTransaction(ctx, es.conn, func(q *sqlc.Queries) (string, error) {
+		return q.GetDeviceIdentifierByID(ctx, deviceID)
 	})
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to get device identifier by ID: %v", err)
 	}
-	deviceIdentifier := row.DeviceIdentifier
 
-	err = es.deviceStore.UpdateDevicePairingStatusByIdentifier(ctx, deviceIdentifier, string(sqlc.PairingStatusEnumUNPAIRED))
+	orgID, err := es.deviceStore.UpdateDevicePairingStatusByIdentifier(ctx, deviceIdentifier, string(sqlc.PairingStatusEnumUNPAIRED))
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to update device pairing status to UNPAIRED: %v", err)
 	}
@@ -857,7 +856,9 @@ func (es *ExecutionService) handleUnpairPostProcessing(ctx context.Context, devi
 	// Drop the org's cached option arrays — UNPAIRED leaves the PAIRED set
 	// scanned by GetAvailableModels / GetAvailableFirmwareVersions, so the
 	// dropdown could otherwise show ghost values until TTL expiry.
-	es.optionsCache.Invalidate(row.OrgID)
+	if orgID != 0 {
+		es.optionsCache.Invalidate(orgID)
+	}
 
 	// Evict the cached miner immediately. This is unconditional so that any
 	// command queued after this point always fetches fresh state from the DB,

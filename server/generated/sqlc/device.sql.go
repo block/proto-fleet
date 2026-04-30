@@ -553,26 +553,6 @@ func (q *Queries) GetDeviceIDsWithIdentifiers(ctx context.Context, deviceIdentif
 	return items, nil
 }
 
-const getDeviceIdentifierAndOrgIDByID = `-- name: GetDeviceIdentifierAndOrgIDByID :one
-SELECT device_identifier, org_id
-FROM device
-WHERE id = $1
-  AND deleted_at IS NULL
-LIMIT 1
-`
-
-type GetDeviceIdentifierAndOrgIDByIDRow struct {
-	DeviceIdentifier string
-	OrgID            int64
-}
-
-func (q *Queries) GetDeviceIdentifierAndOrgIDByID(ctx context.Context, id int64) (GetDeviceIdentifierAndOrgIDByIDRow, error) {
-	row := q.queryRow(ctx, q.getDeviceIdentifierAndOrgIDByIDStmt, getDeviceIdentifierAndOrgIDByID, id)
-	var i GetDeviceIdentifierAndOrgIDByIDRow
-	err := row.Scan(&i.DeviceIdentifier, &i.OrgID)
-	return i, err
-}
-
 const getDeviceIdentifierByID = `-- name: GetDeviceIdentifierByID :one
 SELECT device_identifier
 FROM device
@@ -1873,13 +1853,14 @@ func (q *Queries) UpdateDeviceInfo(ctx context.Context, arg UpdateDeviceInfoPara
 	return err
 }
 
-const updateDevicePairingStatusByIdentifier = `-- name: UpdateDevicePairingStatusByIdentifier :exec
+const updateDevicePairingStatusByIdentifier = `-- name: UpdateDevicePairingStatusByIdentifier :one
 UPDATE device_pairing
 SET pairing_status = $1
 FROM device d
 WHERE device_pairing.device_id = d.id
   AND d.device_identifier = $2
   AND d.deleted_at IS NULL
+RETURNING d.org_id
 `
 
 type UpdateDevicePairingStatusByIdentifierParams struct {
@@ -1887,10 +1868,16 @@ type UpdateDevicePairingStatusByIdentifierParams struct {
 	DeviceIdentifier string
 }
 
-// PostgreSQL equivalent of UPDATE with INNER JOIN
-func (q *Queries) UpdateDevicePairingStatusByIdentifier(ctx context.Context, arg UpdateDevicePairingStatusByIdentifierParams) error {
-	_, err := q.exec(ctx, q.updateDevicePairingStatusByIdentifierStmt, updateDevicePairingStatusByIdentifier, arg.PairingStatus, arg.DeviceIdentifier)
-	return err
+// PostgreSQL equivalent of UPDATE with INNER JOIN.
+// RETURNING d.org_id lets callers invalidate per-org caches that depend on
+// pairing_status membership (e.g. fleetoptions). At most one row matches:
+// device.device_identifier is partial-UNIQUE on deleted_at IS NULL and
+// device_pairing has a UNIQUE(device_id) constraint.
+func (q *Queries) UpdateDevicePairingStatusByIdentifier(ctx context.Context, arg UpdateDevicePairingStatusByIdentifierParams) (int64, error) {
+	row := q.queryRow(ctx, q.updateDevicePairingStatusByIdentifierStmt, updateDevicePairingStatusByIdentifier, arg.PairingStatus, arg.DeviceIdentifier)
+	var org_id int64
+	err := row.Scan(&org_id)
+	return org_id, err
 }
 
 const updateDeviceWorkerName = `-- name: UpdateDeviceWorkerName :execrows

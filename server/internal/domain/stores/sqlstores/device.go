@@ -220,15 +220,24 @@ func (s *SQLDeviceStore) UpsertDevicePairing(ctx context.Context, device *pb.Dev
 	return nil
 }
 
-func (s *SQLDeviceStore) UpdateDevicePairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, pairingStatus string) error {
-	err := s.getQueries(ctx).UpdateDevicePairingStatusByIdentifier(ctx, sqlc.UpdateDevicePairingStatusByIdentifierParams{
+// UpdateDevicePairingStatusByIdentifier writes the new pairing_status for
+// the device. The returned int64 is the org_id of the updated row, or 0
+// when no row was changed (device missing or already soft-deleted).
+// Callers use the org_id to invalidate per-org caches whose membership
+// depends on pairing_status.
+func (s *SQLDeviceStore) UpdateDevicePairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, pairingStatus string) (int64, error) {
+	orgID, err := s.getQueries(ctx).UpdateDevicePairingStatusByIdentifier(ctx, sqlc.UpdateDevicePairingStatusByIdentifierParams{
 		PairingStatus:    sqlc.PairingStatusEnum(pairingStatus),
 		DeviceIdentifier: deviceIdentifier,
 	})
-	if err != nil {
-		return fleeterror.NewInternalErrorf("failed to update device pairing status for device %s: %v", deviceIdentifier, err)
+	if errors.Is(err, sql.ErrNoRows) {
+		// No row matched — device missing or already soft-deleted.
+		return 0, nil
 	}
-	return nil
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to update device pairing status for device %s: %v", deviceIdentifier, err)
+	}
+	return orgID, nil
 }
 
 func (s *SQLDeviceStore) GetDevicePairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, orgID int64) (string, error) {

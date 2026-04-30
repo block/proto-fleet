@@ -423,11 +423,12 @@ func (mr *MockDeviceStoreMockRecorder) UpdateDeviceInfo(ctx, device, orgID any) 
 }
 
 // UpdateDevicePairingStatusByIdentifier mocks base method.
-func (m *MockDeviceStore) UpdateDevicePairingStatusByIdentifier(ctx context.Context, deviceIdentifier, pairingStatus string) error {
+func (m *MockDeviceStore) UpdateDevicePairingStatusByIdentifier(ctx context.Context, deviceIdentifier, pairingStatus string) (int64, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateDevicePairingStatusByIdentifier", ctx, deviceIdentifier, pairingStatus)
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // UpdateDevicePairingStatusByIdentifier indicates an expected call of UpdateDevicePairingStatusByIdentifier.

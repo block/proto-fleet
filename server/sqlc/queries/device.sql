@@ -71,14 +71,19 @@ ON CONFLICT (device_id) DO UPDATE SET
     paired_at = CURRENT_TIMESTAMP,
     unpaired_at = NULL;
 
--- name: UpdateDevicePairingStatusByIdentifier :exec
--- PostgreSQL equivalent of UPDATE with INNER JOIN
+-- name: UpdateDevicePairingStatusByIdentifier :one
+-- PostgreSQL equivalent of UPDATE with INNER JOIN.
+-- RETURNING d.org_id lets callers invalidate per-org caches that depend on
+-- pairing_status membership (e.g. fleetoptions). At most one row matches:
+-- device.device_identifier is partial-UNIQUE on deleted_at IS NULL and
+-- device_pairing has a UNIQUE(device_id) constraint.
 UPDATE device_pairing
 SET pairing_status = $1
 FROM device d
 WHERE device_pairing.device_id = d.id
   AND d.device_identifier = $2
-  AND d.deleted_at IS NULL;
+  AND d.deleted_at IS NULL
+RETURNING d.org_id;
 
 -- name: GetDeviceByID :one
 SELECT *
@@ -133,13 +138,6 @@ LIMIT 1;
 
 -- name: GetDeviceIdentifierByID :one
 SELECT device_identifier
-FROM device
-WHERE id = $1
-  AND deleted_at IS NULL
-LIMIT 1;
-
--- name: GetDeviceIdentifierAndOrgIDByID :one
-SELECT device_identifier, org_id
 FROM device
 WHERE id = $1
   AND deleted_at IS NULL
