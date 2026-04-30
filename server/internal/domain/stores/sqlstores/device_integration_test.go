@@ -2302,3 +2302,218 @@ func setupIPAddressSortingTestData(t *testing.T, conn *sql.DB) {
 		require.NoError(t, err)
 	}
 }
+
+// availableFiltersFixture seeds device rows with configurable pairing statuses
+// so the GetAvailableModels / GetAvailableFirmwareVersions tests can verify
+// which statuses are surfaced to the filter dropdowns.
+type availableFiltersFixture struct {
+	id              int64
+	identifier      string
+	model           string
+	firmwareVersion string
+	pairingStatus   string
+}
+
+func seedAvailableFiltersFixtures(t *testing.T, conn *sql.DB, fixtures []availableFiltersFixture) {
+	t.Helper()
+
+	_, err := conn.Exec(`
+		INSERT INTO organization (id, org_id, name, miner_auth_private_key)
+		VALUES (1, '00000000-0000-0000-0000-000000000001', 'Test Org', 'test-private-key')
+		ON CONFLICT (id) DO NOTHING
+	`)
+	require.NoError(t, err)
+
+	for _, f := range fixtures {
+		_, err := conn.Exec(`
+			INSERT INTO discovered_device (id, org_id, device_identifier, model, manufacturer, driver_name, ip_address, port, url_scheme, firmware_version, is_active)
+			VALUES ($1, 1, $2, $3, 'test-manufacturer', 'proto', '192.168.1.1', '50051', 'grpc', $4, TRUE)
+		`, f.id, f.identifier, f.model, f.firmwareVersion)
+		require.NoError(t, err)
+
+		_, err = conn.Exec(`
+			INSERT INTO device (id, org_id, discovered_device_id, device_identifier, mac_address)
+			VALUES ($1, 1, $1, $2, $3)
+		`, f.id, f.identifier, fmt.Sprintf("AA:BB:CC:DD:EE:%02d", f.id%100))
+		require.NoError(t, err)
+
+		_, err = conn.Exec(`
+			INSERT INTO device_pairing (device_id, pairing_status, paired_at)
+			VALUES ($1, $2, NOW())
+		`, f.id, f.pairingStatus)
+		require.NoError(t, err)
+	}
+}
+
+// TestGetAvailableModels_PairedOnly verifies models on PAIRED devices are returned.
+func TestGetAvailableModels_PairedOnly(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLDeviceStore(conn)
+
+	seedAvailableFiltersFixtures(t, conn, []availableFiltersFixture{
+		{id: 601, identifier: "paired-1", model: "S19", firmwareVersion: "1.0.0", pairingStatus: "PAIRED"},
+		{id: 602, identifier: "paired-2", model: "S21", firmwareVersion: "2.0.0", pairingStatus: "PAIRED"},
+	})
+
+	models, err := store.GetAvailableModels(ctx, 1)
+	require.NoError(t, err)
+	require.Equal(t, []string{"S19", "S21"}, models)
+}
+
+// TestGetAvailableModels_AuthenticationNeededOnly verifies models from devices
+// stuck in AUTHENTICATION_NEEDED still appear in the dropdown — the bug fix.
+func TestGetAvailableModels_AuthenticationNeededOnly(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLDeviceStore(conn)
+
+	seedAvailableFiltersFixtures(t, conn, []availableFiltersFixture{
+		{id: 611, identifier: "auth-1", model: "S19", firmwareVersion: "1.0.0", pairingStatus: "AUTHENTICATION_NEEDED"},
+		{id: 612, identifier: "auth-2", model: "T19", firmwareVersion: "1.5.0", pairingStatus: "AUTHENTICATION_NEEDED"},
+	})
+
+	models, err := store.GetAvailableModels(ctx, 1)
+	require.NoError(t, err)
+	require.Equal(t, []string{"S19", "T19"}, models)
+}
+
+// TestGetAvailableModels_PairedAndAuthenticationNeeded verifies combined
+// PAIRED + AUTHENTICATION_NEEDED rows surface a deduplicated, sorted list.
+func TestGetAvailableModels_PairedAndAuthenticationNeeded(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLDeviceStore(conn)
+
+	seedAvailableFiltersFixtures(t, conn, []availableFiltersFixture{
+		{id: 621, identifier: "paired", model: "S19", firmwareVersion: "1.0.0", pairingStatus: "PAIRED"},
+		{id: 622, identifier: "auth", model: "T19", firmwareVersion: "1.5.0", pairingStatus: "AUTHENTICATION_NEEDED"},
+		{id: 623, identifier: "paired-dup", model: "S19", firmwareVersion: "1.0.0", pairingStatus: "PAIRED"},
+	})
+
+	models, err := store.GetAvailableModels(ctx, 1)
+	require.NoError(t, err)
+	require.Equal(t, []string{"S19", "T19"}, models)
+}
+
+// TestGetAvailableModels_ExcludesOtherStatuses verifies PENDING / UNPAIRED / FAILED
+// devices are not surfaced in the dropdown.
+func TestGetAvailableModels_ExcludesOtherStatuses(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLDeviceStore(conn)
+
+	seedAvailableFiltersFixtures(t, conn, []availableFiltersFixture{
+		{id: 631, identifier: "pending", model: "PENDING_MODEL", firmwareVersion: "0.0.1", pairingStatus: "PENDING"},
+		{id: 632, identifier: "unpaired", model: "UNPAIRED_MODEL", firmwareVersion: "0.0.2", pairingStatus: "UNPAIRED"},
+		{id: 633, identifier: "failed", model: "FAILED_MODEL", firmwareVersion: "0.0.3", pairingStatus: "FAILED"},
+		{id: 634, identifier: "paired", model: "S19", firmwareVersion: "1.0.0", pairingStatus: "PAIRED"},
+	})
+
+	models, err := store.GetAvailableModels(ctx, 1)
+	require.NoError(t, err)
+	require.Equal(t, []string{"S19"}, models)
+}
+
+// TestGetAvailableFirmwareVersions_PairedOnly verifies firmware versions on
+// PAIRED devices are returned.
+func TestGetAvailableFirmwareVersions_PairedOnly(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLDeviceStore(conn)
+
+	seedAvailableFiltersFixtures(t, conn, []availableFiltersFixture{
+		{id: 701, identifier: "paired-1", model: "S19", firmwareVersion: "1.0.0", pairingStatus: "PAIRED"},
+		{id: 702, identifier: "paired-2", model: "S21", firmwareVersion: "2.0.0", pairingStatus: "PAIRED"},
+	})
+
+	versions, err := store.GetAvailableFirmwareVersions(ctx, 1)
+	require.NoError(t, err)
+	require.Equal(t, []string{"1.0.0", "2.0.0"}, versions)
+}
+
+// TestGetAvailableFirmwareVersions_AuthenticationNeededOnly verifies firmware
+// versions from devices stuck in AUTHENTICATION_NEEDED still appear — the fix.
+func TestGetAvailableFirmwareVersions_AuthenticationNeededOnly(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLDeviceStore(conn)
+
+	seedAvailableFiltersFixtures(t, conn, []availableFiltersFixture{
+		{id: 711, identifier: "auth-1", model: "S19", firmwareVersion: "1.0.0", pairingStatus: "AUTHENTICATION_NEEDED"},
+		{id: 712, identifier: "auth-2", model: "T19", firmwareVersion: "1.5.0", pairingStatus: "AUTHENTICATION_NEEDED"},
+	})
+
+	versions, err := store.GetAvailableFirmwareVersions(ctx, 1)
+	require.NoError(t, err)
+	require.Equal(t, []string{"1.0.0", "1.5.0"}, versions)
+}
+
+// TestGetAvailableFirmwareVersions_PairedAndAuthenticationNeeded verifies
+// combined PAIRED + AUTHENTICATION_NEEDED rows produce a deduplicated, sorted list.
+func TestGetAvailableFirmwareVersions_PairedAndAuthenticationNeeded(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLDeviceStore(conn)
+
+	seedAvailableFiltersFixtures(t, conn, []availableFiltersFixture{
+		{id: 721, identifier: "paired", model: "S19", firmwareVersion: "1.0.0", pairingStatus: "PAIRED"},
+		{id: 722, identifier: "auth", model: "T19", firmwareVersion: "1.5.0", pairingStatus: "AUTHENTICATION_NEEDED"},
+		{id: 723, identifier: "paired-dup", model: "S19", firmwareVersion: "1.0.0", pairingStatus: "PAIRED"},
+	})
+
+	versions, err := store.GetAvailableFirmwareVersions(ctx, 1)
+	require.NoError(t, err)
+	require.Equal(t, []string{"1.0.0", "1.5.0"}, versions)
+}
+
+// TestGetAvailableFirmwareVersions_ExcludesOtherStatuses verifies PENDING /
+// UNPAIRED / FAILED devices are not surfaced.
+func TestGetAvailableFirmwareVersions_ExcludesOtherStatuses(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	conn := testutil.GetTestDB(t)
+	ctx := t.Context()
+	store := sqlstores.NewSQLDeviceStore(conn)
+
+	seedAvailableFiltersFixtures(t, conn, []availableFiltersFixture{
+		{id: 731, identifier: "pending", model: "S19", firmwareVersion: "9.9.1", pairingStatus: "PENDING"},
+		{id: 732, identifier: "unpaired", model: "S19", firmwareVersion: "9.9.2", pairingStatus: "UNPAIRED"},
+		{id: 733, identifier: "failed", model: "S19", firmwareVersion: "9.9.3", pairingStatus: "FAILED"},
+		{id: 734, identifier: "paired", model: "S19", firmwareVersion: "1.0.0", pairingStatus: "PAIRED"},
+	})
+
+	versions, err := store.GetAvailableFirmwareVersions(ctx, 1)
+	require.NoError(t, err)
+	require.Equal(t, []string{"1.0.0"}, versions)
+}
