@@ -1,12 +1,12 @@
 import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
 import clsx from "clsx";
-import { createPortal } from "react-dom";
 
 import { type DropdownOption } from "./DropdownFilter";
-import { NESTED_POPOVER_WIDTH, POPOVER_VIEWPORT_PADDING, useFilterDropdownPosition } from "./useFilterDropdownPosition";
+import NestedSubmenu from "./NestedSubmenu";
+import { POPOVER_VIEWPORT_PADDING, useFilterDropdownPosition } from "./useFilterDropdownPosition";
+import { useNestedDropdownHoverState } from "./useNestedDropdownHoverState";
 import { ChevronDown } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
-import Checkbox from "@/shared/components/Checkbox";
 import Divider from "@/shared/components/Divider";
 import Popover, { PopoverProvider, usePopover } from "@/shared/components/Popover";
 import { type Position, positions } from "@/shared/constants";
@@ -43,8 +43,6 @@ type CategoryRowProps = {
   onNestedEnter: () => void;
   onNestedLeave: () => void;
 };
-
-const HOVER_CLOSE_DELAY_MS = 150;
 
 const CategoryRow = ({
   category,
@@ -119,54 +117,18 @@ const CategoryRow = ({
         {!isEmpty ? <ChevronDown width="w-3" className="-rotate-90 opacity-60" /> : null}
       </button>
 
-      {showNested
-        ? createPortal(
-            <div
-              ref={nestedRef}
-              className="popover-content fixed z-50 space-y-4 rounded-3xl bg-surface-elevated-base/85 p-6 shadow-200 backdrop-blur-[7px]"
-              style={{
-                top: `${position?.top ?? 0}px`,
-                left: `${position?.left ?? 0}px`,
-                width: `${NESTED_POPOVER_WIDTH}px`,
-                // Hide on first render until measurement completes so the user never
-                // sees the panel pop in at an unmeasured location.
-                visibility: position ? "visible" : "hidden",
-                ...(position?.maxHeight !== undefined ? { maxHeight: `${position.maxHeight}px` } : {}),
-              }}
-              data-testid={`nested-dropdown-filter-submenu-${category.key}`}
-              onMouseEnter={onNestedEnter}
-              onMouseLeave={onNestedLeave}
-            >
-              <div
-                className="space-y-0 overflow-y-auto overscroll-contain"
-                // Inner scroll caps to (outer max minus padding) only when the outer is
-                // actually clipped; otherwise let the inner size to its content.
-                style={position?.maxHeight !== undefined ? { maxHeight: `${position.maxHeight - 48}px` } : undefined}
-              >
-                {category.options.map((item, index) => (
-                  <div key={item.id}>
-                    <div
-                      className={clsx(
-                        "flex cursor-pointer items-center rounded-xl p-3 text-left select-none",
-                        "transition-[background-color] duration-200 ease-in-out",
-                        "text-text-primary hover:bg-core-primary-5",
-                      )}
-                      onClick={() => handleToggleItem(item.id)}
-                      data-testid={`filter-option-${item.id}`}
-                    >
-                      <div className="min-w-0 grow truncate text-emphasis-300" title={item.label}>
-                        {item.label}
-                      </div>
-                      <Checkbox className="shrink-0" checked={category.selectedValues.includes(item.id)} />
-                    </div>
-                    {index < category.options.length - 1 ? <Divider className="px-0" /> : null}
-                  </div>
-                ))}
-              </div>
-            </div>,
-            document.body,
-          )
-        : null}
+      {showNested ? (
+        <NestedSubmenu
+          categoryKey={category.key}
+          options={category.options}
+          selectedValues={category.selectedValues}
+          onToggleItem={handleToggleItem}
+          onMouseEnter={onNestedEnter}
+          onMouseLeave={onNestedLeave}
+          position={position}
+          panelRef={nestedRef}
+        />
+      ) : null}
     </div>
   );
 };
@@ -184,40 +146,10 @@ const NestedDropdownFilterContent = ({
   const { height: windowHeight } = useWindowDimensions();
   const [popoverPosition, setPopoverPosition] = useState<Position>(positions["bottom right"]);
   const [optionsMaxHeight, setOptionsMaxHeight] = useState<number | undefined>();
-  const [activeRowKey, setActiveRowKey] = useState<string | null>(null);
-  const closeTimerRef = useRef<number | null>(null);
 
-  const cancelClose = useCallback(() => {
-    if (closeTimerRef.current !== null) {
-      window.clearTimeout(closeTimerRef.current);
-      closeTimerRef.current = null;
-    }
-  }, []);
-
-  const scheduleClose = useCallback(() => {
-    cancelClose();
-    closeTimerRef.current = window.setTimeout(() => {
-      setActiveRowKey(null);
-      closeTimerRef.current = null;
-    }, HOVER_CLOSE_DELAY_MS);
-  }, [cancelClose]);
-
-  const handleRowEnter = useCallback(
-    (key: string) => {
-      cancelClose();
-      setActiveRowKey(key);
-    },
-    [cancelClose],
-  );
-
-  // Cleanup pending timers on unmount.
-  useEffect(() => () => cancelClose(), [cancelClose]);
-
-  const closeOuterPopover = useCallback(() => {
-    cancelClose();
-    setActiveRowKey(null);
-    setShowPopover(false);
-  }, [cancelClose]);
+  const closeOuterPopover = useCallback(() => setShowPopover(false), []);
+  const { activeRowKey, handleRowEnter, scheduleClose, cancelClose, closeAll } =
+    useNestedDropdownHoverState(closeOuterPopover);
 
   useEffect(() => {
     if (!showPopover || !triggerRef.current) {
@@ -246,7 +178,7 @@ const NestedDropdownFilterContent = ({
 
   useClickOutside({
     ref: triggerRef,
-    onClickOutside: closeOuterPopover,
+    onClickOutside: closeAll,
     ignoreSelectors: [".popover-content"],
   });
 
@@ -287,7 +219,7 @@ const NestedDropdownFilterContent = ({
                     variant: variants.secondary,
                     onClick: () => {
                       onClearAll();
-                      closeOuterPopover();
+                      closeAll();
                     },
                   },
                 ]
