@@ -29,6 +29,24 @@ func pairDevice(t *testing.T, ctx context.Context, store *sqlstores.SQLDeviceSto
 	))
 }
 
+// assertModalInvariant fetches model groups and the filtered list total under
+// the same filter, then asserts the bulk-password modal's load-bearing
+// invariant: Σ groups[i].count == ListMinerStateSnapshots(filter).total.
+// The modal cannot show a different fleet-size than the table behind it.
+func assertModalInvariant(t *testing.T, ctx context.Context, store *sqlstores.SQLDeviceStore, orgID int64, filter *stores.MinerFilter) {
+	t.Helper()
+	groups, err := store.GetMinerModelGroups(ctx, orgID, filter)
+	require.NoError(t, err)
+	_, _, listTotal, err := store.ListMinerStateSnapshots(ctx, orgID, "", 100, filter, nil)
+	require.NoError(t, err)
+	var groupTotal int32
+	for _, g := range groups {
+		groupTotal += g.Count
+	}
+	assert.Equal(t, listTotal, int64(groupTotal),
+		"bulk-password modal invariant: model-group counts must match filtered list total")
+}
+
 // setDiscoveredDeviceModel patches discovered_device.model directly because
 // CreateDevice hardcodes model="TestMiner" and exposes no override.
 func setDiscoveredDeviceModel(t *testing.T, db *sql.DB, deviceIdentifier, model string) {
@@ -77,27 +95,27 @@ func TestGetMinerModelGroups_FirmwareFilter(t *testing.T) {
 	assert.Equal(t, int32(3), groups[0].Count)
 
 	// Firmware filter narrows to the matching subset.
-	groups, err = deviceStore.GetMinerModelGroups(ctx, user.OrganizationID, &stores.MinerFilter{
-		FirmwareVersions: []string{"v3.5.1"},
-	})
+	singleFirmware := &stores.MinerFilter{FirmwareVersions: []string{"v3.5.1"}}
+	groups, err = deviceStore.GetMinerModelGroups(ctx, user.OrganizationID, singleFirmware)
 	require.NoError(t, err)
 	require.Len(t, groups, 1)
 	assert.Equal(t, int32(2), groups[0].Count, "firmware=v3.5.1 should narrow count to the two matching devices")
+	assertModalInvariant(t, ctx, deviceStore, user.OrganizationID, singleFirmware)
 
 	// Multi-value firmware filter unions the matches.
-	groups, err = deviceStore.GetMinerModelGroups(ctx, user.OrganizationID, &stores.MinerFilter{
-		FirmwareVersions: []string{"v3.5.1", "v3.5.2"},
-	})
+	multiFirmware := &stores.MinerFilter{FirmwareVersions: []string{"v3.5.1", "v3.5.2"}}
+	groups, err = deviceStore.GetMinerModelGroups(ctx, user.OrganizationID, multiFirmware)
 	require.NoError(t, err)
 	require.Len(t, groups, 1)
 	assert.Equal(t, int32(3), groups[0].Count)
+	assertModalInvariant(t, ctx, deviceStore, user.OrganizationID, multiFirmware)
 
 	// No matches: filter returns no groups.
-	groups, err = deviceStore.GetMinerModelGroups(ctx, user.OrganizationID, &stores.MinerFilter{
-		FirmwareVersions: []string{"v9.9.9"},
-	})
+	emptyFirmware := &stores.MinerFilter{FirmwareVersions: []string{"v9.9.9"}}
+	groups, err = deviceStore.GetMinerModelGroups(ctx, user.OrganizationID, emptyFirmware)
 	require.NoError(t, err)
 	assert.Empty(t, groups)
+	assertModalInvariant(t, ctx, deviceStore, user.OrganizationID, emptyFirmware)
 }
 
 // TestGetMinerModelGroups_ZoneFilter proves the zone filter narrows the
@@ -135,25 +153,25 @@ func TestGetMinerModelGroups_ZoneFilter(t *testing.T) {
 	_, err = collectionStore.AddDevicesToCollection(ctx, user.OrganizationID, rackB.Id, []string{inZoneB.ID})
 	require.NoError(t, err)
 
-	groups, err := deviceStore.GetMinerModelGroups(ctx, user.OrganizationID, &stores.MinerFilter{
-		Zones: []string{"zone-a"},
-	})
+	singleZone := &stores.MinerFilter{Zones: []string{"zone-a"}}
+	groups, err := deviceStore.GetMinerModelGroups(ctx, user.OrganizationID, singleZone)
 	require.NoError(t, err)
 	require.Len(t, groups, 1)
 	assert.Equal(t, int32(1), groups[0].Count, "zone=zone-a should match only the device in rack A")
+	assertModalInvariant(t, ctx, deviceStore, user.OrganizationID, singleZone)
 
-	groups, err = deviceStore.GetMinerModelGroups(ctx, user.OrganizationID, &stores.MinerFilter{
-		Zones: []string{"zone-a", "zone-b"},
-	})
+	multiZone := &stores.MinerFilter{Zones: []string{"zone-a", "zone-b"}}
+	groups, err = deviceStore.GetMinerModelGroups(ctx, user.OrganizationID, multiZone)
 	require.NoError(t, err)
 	require.Len(t, groups, 1)
 	assert.Equal(t, int32(2), groups[0].Count, "noZone is unassigned, so zone filter must exclude it")
+	assertModalInvariant(t, ctx, deviceStore, user.OrganizationID, multiZone)
 
-	groups, err = deviceStore.GetMinerModelGroups(ctx, user.OrganizationID, &stores.MinerFilter{
-		Zones: []string{"missing-zone"},
-	})
+	missingZone := &stores.MinerFilter{Zones: []string{"missing-zone"}}
+	groups, err = deviceStore.GetMinerModelGroups(ctx, user.OrganizationID, missingZone)
 	require.NoError(t, err)
 	assert.Empty(t, groups)
+	assertModalInvariant(t, ctx, deviceStore, user.OrganizationID, missingZone)
 }
 
 // TestGetMinerModelGroups_ZoneWithComma guards the comma-in-value case. Zones
@@ -182,12 +200,12 @@ func TestGetMinerModelGroups_ZoneWithComma(t *testing.T) {
 	_, err = collectionStore.AddDevicesToCollection(ctx, user.OrganizationID, rack.Id, []string{dev.ID})
 	require.NoError(t, err)
 
-	groups, err := deviceStore.GetMinerModelGroups(ctx, user.OrganizationID, &stores.MinerFilter{
-		Zones: []string{zone},
-	})
+	commaFilter := &stores.MinerFilter{Zones: []string{zone}}
+	groups, err := deviceStore.GetMinerModelGroups(ctx, user.OrganizationID, commaFilter)
 	require.NoError(t, err)
 	require.Len(t, groups, 1)
 	assert.Equal(t, int32(1), groups[0].Count)
+	assertModalInvariant(t, ctx, deviceStore, user.OrganizationID, commaFilter)
 }
 
 // TestGetMinerModelGroups_FirmwareAndZoneFilters proves both filters compose
@@ -251,15 +269,5 @@ func TestGetMinerModelGroups_FirmwareAndZoneFilters(t *testing.T) {
 	require.Len(t, groups, 1)
 	assert.Equal(t, "S21 XP", groups[0].Model)
 	assert.Equal(t, int32(1), groups[0].Count)
-
-	// The bulk-password modal invariant: sum of model-group counts equals the
-	// total returned by the filtered list view for every filter combination.
-	_, _, listTotal, err := deviceStore.ListMinerStateSnapshots(ctx, user.OrganizationID, "", 100, filter, nil)
-	require.NoError(t, err)
-	var groupTotal int32
-	for _, g := range groups {
-		groupTotal += g.Count
-	}
-	assert.Equal(t, listTotal, int64(groupTotal),
-		"bulk-password modal invariant: model-group counts must match the filtered list total")
+	assertModalInvariant(t, ctx, deviceStore, user.OrganizationID, filter)
 }
