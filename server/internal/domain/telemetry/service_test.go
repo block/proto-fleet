@@ -2253,6 +2253,7 @@ func TestPersistFirmwareVersionIfChanged(t *testing.T) {
 		service.persistFirmwareVersionIfChanged(t.Context(), deviceID, firmwareV1)
 		service.persistFirmwareVersionIfChanged(t.Context(), deviceID, firmwareV1)
 	})
+
 }
 
 func TestSendCombinedMetricUpdate_DeviceScopedMinerStateCounts(t *testing.T) {

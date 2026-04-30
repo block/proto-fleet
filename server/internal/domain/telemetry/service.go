@@ -755,9 +755,8 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context) {
 // when the device requires credential remediation (for example auth failure or
 // default-password rotation before normal operations).
 func (s *TelemetryService) handleAuthenticationFailure(ctx context.Context, deviceID models.DeviceIdentifier) error {
-	// Update pairing status to AUTHENTICATION_NEEDED using device identifier directly
-	err := s.deviceStore.UpdateDevicePairingStatusByIdentifier(ctx, string(deviceID), pairing.StatusAuthenticationNeeded)
-	if err != nil {
+	// Update pairing status to AUTHENTICATION_NEEDED using device identifier directly.
+	if err := s.deviceStore.UpdateDevicePairingStatusByIdentifier(ctx, string(deviceID), pairing.StatusAuthenticationNeeded); err != nil {
 		return fmt.Errorf("failed to update pairing status for device %s: %w", deviceID, err)
 	}
 

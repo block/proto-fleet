@@ -15,6 +15,7 @@ import (
 	capabilitiespb "github.com/block/proto-fleet/server/generated/grpc/capabilities/v1"
 	commandpb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetoptions"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/minerdiscovery"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
@@ -199,6 +200,7 @@ type Service struct {
 	localNetworkInfo      func(context.Context) (*NetworkInfo, error)
 	probeSemaphore        chan struct{}
 	invalidateMiner       func(models.DeviceIdentifier)
+	optionsCache          *fleetoptions.Cache
 }
 
 func NewService(
@@ -229,6 +231,12 @@ func NewService(
 // (IP/port changes) and successful pairing (credential updates).
 func (s *Service) WithMinerInvalidator(invalidate func(models.DeviceIdentifier)) {
 	s.invalidateMiner = invalidate
+}
+
+// WithOptionsCache wires the per-org fleet options cache so explicit
+// pairing adds can evict stale model/firmware lists. Pass nil to disable.
+func (s *Service) WithOptionsCache(cache *fleetoptions.Cache) {
+	s.optionsCache = cache
 }
 
 // Helper function to convert IP string to uint32 for range comparison
@@ -1443,7 +1451,7 @@ func isAlreadyPairedKeyRotationError(err error) bool {
 // handleAuthenticationRequiredPairing inserts a device and creates a pairing record with AUTHENTICATION_NEEDED status
 func (s *Service) handleAuthenticationRequiredPairing(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice) error {
 	originalIdentifier := discoveredDevice.DeviceIdentifier
-	return s.transactor.RunInTx(ctx, func(ctx context.Context) error {
+	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
 		// Restore original identifier so retries after serialization failures start with clean state.
 		discoveredDevice.DeviceIdentifier = originalIdentifier
 
@@ -1494,7 +1502,12 @@ func (s *Service) handleAuthenticationRequiredPairing(ctx context.Context, disco
 		}
 
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+
+	s.optionsCache.Invalidate(discoveredDevice.OrgID)
+	return nil
 }
 
 func (s *Service) pairDevice(ctx context.Context, deviceID string, orgID int64, credentials *pb.Credentials) (models.DeviceIdentifier, error) {
@@ -1607,5 +1620,6 @@ func (s *Service) pairDevice(ctx context.Context, deviceID string, orgID int64, 
 		return "", fleeterror.NewInternalErrorf("error saving updated device info after pairing: %v", err)
 	}
 
+	s.optionsCache.Invalidate(orgID)
 	return models.DeviceIdentifier(discoveredDevice.DeviceIdentifier), nil
 }
