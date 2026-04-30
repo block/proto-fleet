@@ -1,0 +1,265 @@
+package sqlstores_test
+
+import (
+	"context"
+	"database/sql"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	collectionpb "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
+	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/miner/models"
+	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
+	"github.com/block/proto-fleet/server/internal/testutil"
+)
+
+// pairDevice marks a device PAIRED so it shows up in GetMinerModelGroups,
+// which scopes to PAIRED rows only.
+func pairDevice(t *testing.T, ctx context.Context, store *sqlstores.SQLDeviceStore, orgID int64, deviceIdentifier string) {
+	t.Helper()
+	require.NoError(t, store.UpsertDevicePairing(
+		ctx,
+		&pb.Device{DeviceIdentifier: deviceIdentifier},
+		orgID,
+		string(sqlc.PairingStatusEnumPAIRED),
+	))
+}
+
+// setDiscoveredDeviceModel patches discovered_device.model directly because
+// CreateDevice hardcodes model="TestMiner" and exposes no override.
+func setDiscoveredDeviceModel(t *testing.T, db *sql.DB, deviceIdentifier, model string) {
+	t.Helper()
+	res, err := db.Exec(`
+		UPDATE discovered_device
+		SET model = $1
+		WHERE id = (SELECT discovered_device_id FROM device WHERE device_identifier = $2)
+	`, model, deviceIdentifier)
+	require.NoError(t, err)
+	rows, err := res.RowsAffected()
+	require.NoError(t, err)
+	require.Equal(t, int64(1), rows)
+}
+
+// TestGetMinerModelGroups_FirmwareFilter proves the firmware filter narrows the
+// model-group counts so the bulk-password modal agrees with the filtered list.
+func TestGetMinerModelGroups_FirmwareFilter(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	tc := testutil.InitializeDBServiceInfrastructure(t)
+	dbSvc := tc.DatabaseService
+	db := tc.ServiceProvider.DB
+	deviceStore := sqlstores.NewSQLDeviceStore(db)
+	ctx := t.Context()
+
+	user := dbSvc.CreateSuperAdminUser()
+
+	d1 := dbSvc.CreateDevice(user.OrganizationID, "proto")
+	d2 := dbSvc.CreateDevice(user.OrganizationID, "proto")
+	d3 := dbSvc.CreateDevice(user.OrganizationID, "proto")
+	for _, d := range []string{d1.ID, d2.ID, d3.ID} {
+		pairDevice(t, ctx, deviceStore, user.OrganizationID, d)
+	}
+
+	require.NoError(t, deviceStore.UpdateFirmwareVersion(ctx, models.DeviceIdentifier(d1.ID), "v3.5.1"))
+	require.NoError(t, deviceStore.UpdateFirmwareVersion(ctx, models.DeviceIdentifier(d2.ID), "v3.5.1"))
+	require.NoError(t, deviceStore.UpdateFirmwareVersion(ctx, models.DeviceIdentifier(d3.ID), "v3.5.2"))
+
+	// No filter: all three paired devices roll up into a single TestMiner group.
+	groups, err := deviceStore.GetMinerModelGroups(ctx, user.OrganizationID, nil)
+	require.NoError(t, err)
+	require.Len(t, groups, 1)
+	assert.Equal(t, int32(3), groups[0].Count)
+
+	// Firmware filter narrows to the matching subset.
+	groups, err = deviceStore.GetMinerModelGroups(ctx, user.OrganizationID, &stores.MinerFilter{
+		FirmwareVersions: []string{"v3.5.1"},
+	})
+	require.NoError(t, err)
+	require.Len(t, groups, 1)
+	assert.Equal(t, int32(2), groups[0].Count, "firmware=v3.5.1 should narrow count to the two matching devices")
+
+	// Multi-value firmware filter unions the matches.
+	groups, err = deviceStore.GetMinerModelGroups(ctx, user.OrganizationID, &stores.MinerFilter{
+		FirmwareVersions: []string{"v3.5.1", "v3.5.2"},
+	})
+	require.NoError(t, err)
+	require.Len(t, groups, 1)
+	assert.Equal(t, int32(3), groups[0].Count)
+
+	// No matches: filter returns no groups.
+	groups, err = deviceStore.GetMinerModelGroups(ctx, user.OrganizationID, &stores.MinerFilter{
+		FirmwareVersions: []string{"v9.9.9"},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, groups)
+}
+
+// TestGetMinerModelGroups_ZoneFilter proves the zone filter narrows the
+// model-group counts and excludes miners not in any rack.
+func TestGetMinerModelGroups_ZoneFilter(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	tc := testutil.InitializeDBServiceInfrastructure(t)
+	dbSvc := tc.DatabaseService
+	db := tc.ServiceProvider.DB
+	deviceStore := sqlstores.NewSQLDeviceStore(db)
+	collectionStore := sqlstores.NewSQLCollectionStore(db)
+	ctx := t.Context()
+
+	user := dbSvc.CreateSuperAdminUser()
+
+	inZoneA := dbSvc.CreateDevice(user.OrganizationID, "proto")
+	inZoneB := dbSvc.CreateDevice(user.OrganizationID, "proto")
+	noZone := dbSvc.CreateDevice(user.OrganizationID, "proto")
+	for _, d := range []string{inZoneA.ID, inZoneB.ID, noZone.ID} {
+		pairDevice(t, ctx, deviceStore, user.OrganizationID, d)
+	}
+
+	rackA, err := collectionStore.CreateCollection(ctx, user.OrganizationID, collectionpb.CollectionType_COLLECTION_TYPE_RACK, "Rack A", "")
+	require.NoError(t, err)
+	require.NoError(t, collectionStore.CreateRackExtension(ctx, rackA.Id, "zone-a", 4, 8, 0, 0, user.OrganizationID))
+	_, err = collectionStore.AddDevicesToCollection(ctx, user.OrganizationID, rackA.Id, []string{inZoneA.ID})
+	require.NoError(t, err)
+
+	rackB, err := collectionStore.CreateCollection(ctx, user.OrganizationID, collectionpb.CollectionType_COLLECTION_TYPE_RACK, "Rack B", "")
+	require.NoError(t, err)
+	require.NoError(t, collectionStore.CreateRackExtension(ctx, rackB.Id, "zone-b", 4, 8, 0, 0, user.OrganizationID))
+	_, err = collectionStore.AddDevicesToCollection(ctx, user.OrganizationID, rackB.Id, []string{inZoneB.ID})
+	require.NoError(t, err)
+
+	groups, err := deviceStore.GetMinerModelGroups(ctx, user.OrganizationID, &stores.MinerFilter{
+		Zones: []string{"zone-a"},
+	})
+	require.NoError(t, err)
+	require.Len(t, groups, 1)
+	assert.Equal(t, int32(1), groups[0].Count, "zone=zone-a should match only the device in rack A")
+
+	groups, err = deviceStore.GetMinerModelGroups(ctx, user.OrganizationID, &stores.MinerFilter{
+		Zones: []string{"zone-a", "zone-b"},
+	})
+	require.NoError(t, err)
+	require.Len(t, groups, 1)
+	assert.Equal(t, int32(2), groups[0].Count, "noZone is unassigned, so zone filter must exclude it")
+
+	groups, err = deviceStore.GetMinerModelGroups(ctx, user.OrganizationID, &stores.MinerFilter{
+		Zones: []string{"missing-zone"},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, groups)
+}
+
+// TestGetMinerModelGroups_ZoneWithComma guards the comma-in-value case. Zones
+// allow free-form names like "Austin, Building 1"; an earlier CSV transport
+// would have split that into two zones and produced zero matches.
+func TestGetMinerModelGroups_ZoneWithComma(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	tc := testutil.InitializeDBServiceInfrastructure(t)
+	dbSvc := tc.DatabaseService
+	db := tc.ServiceProvider.DB
+	deviceStore := sqlstores.NewSQLDeviceStore(db)
+	collectionStore := sqlstores.NewSQLCollectionStore(db)
+	ctx := t.Context()
+
+	user := dbSvc.CreateSuperAdminUser()
+	dev := dbSvc.CreateDevice(user.OrganizationID, "proto")
+	pairDevice(t, ctx, deviceStore, user.OrganizationID, dev.ID)
+
+	const zone = "Austin, Building 1"
+	rack, err := collectionStore.CreateCollection(ctx, user.OrganizationID, collectionpb.CollectionType_COLLECTION_TYPE_RACK, "Rack", "")
+	require.NoError(t, err)
+	require.NoError(t, collectionStore.CreateRackExtension(ctx, rack.Id, zone, 4, 8, 0, 0, user.OrganizationID))
+	_, err = collectionStore.AddDevicesToCollection(ctx, user.OrganizationID, rack.Id, []string{dev.ID})
+	require.NoError(t, err)
+
+	groups, err := deviceStore.GetMinerModelGroups(ctx, user.OrganizationID, &stores.MinerFilter{
+		Zones: []string{zone},
+	})
+	require.NoError(t, err)
+	require.Len(t, groups, 1)
+	assert.Equal(t, int32(1), groups[0].Count)
+}
+
+// TestGetMinerModelGroups_FirmwareAndZoneFilters proves both filters compose
+// (AND semantics) and that group counts agree with the filtered list — the
+// invariant the bulk-password modal depends on.
+func TestGetMinerModelGroups_FirmwareAndZoneFilters(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	tc := testutil.InitializeDBServiceInfrastructure(t)
+	dbSvc := tc.DatabaseService
+	db := tc.ServiceProvider.DB
+	deviceStore := sqlstores.NewSQLDeviceStore(db)
+	collectionStore := sqlstores.NewSQLCollectionStore(db)
+	ctx := t.Context()
+
+	user := dbSvc.CreateSuperAdminUser()
+
+	// Two model groups so we can verify firmware + zone narrow counts WITHIN
+	// each group, not just collapse them into one.
+	s21a := dbSvc.CreateDevice(user.OrganizationID, "proto")
+	s21b := dbSvc.CreateDevice(user.OrganizationID, "proto")
+	m60a := dbSvc.CreateDevice(user.OrganizationID, "proto")
+	m60b := dbSvc.CreateDevice(user.OrganizationID, "proto")
+	for _, d := range []string{s21a.ID, s21b.ID, m60a.ID, m60b.ID} {
+		pairDevice(t, ctx, deviceStore, user.OrganizationID, d)
+	}
+
+	setDiscoveredDeviceModel(t, db, s21a.ID, "S21 XP")
+	setDiscoveredDeviceModel(t, db, s21b.ID, "S21 XP")
+	setDiscoveredDeviceModel(t, db, m60a.ID, "M60")
+	setDiscoveredDeviceModel(t, db, m60b.ID, "M60")
+
+	// Firmware: s21a + m60a on v1, s21b + m60b on v2.
+	require.NoError(t, deviceStore.UpdateFirmwareVersion(ctx, models.DeviceIdentifier(s21a.ID), "v1"))
+	require.NoError(t, deviceStore.UpdateFirmwareVersion(ctx, models.DeviceIdentifier(m60a.ID), "v1"))
+	require.NoError(t, deviceStore.UpdateFirmwareVersion(ctx, models.DeviceIdentifier(s21b.ID), "v2"))
+	require.NoError(t, deviceStore.UpdateFirmwareVersion(ctx, models.DeviceIdentifier(m60b.ID), "v2"))
+
+	// Zones: s21a + s21b in zone-a, m60a + m60b in zone-b.
+	rackA, err := collectionStore.CreateCollection(ctx, user.OrganizationID, collectionpb.CollectionType_COLLECTION_TYPE_RACK, "Rack A", "")
+	require.NoError(t, err)
+	require.NoError(t, collectionStore.CreateRackExtension(ctx, rackA.Id, "zone-a", 4, 8, 0, 0, user.OrganizationID))
+	_, err = collectionStore.AddDevicesToCollection(ctx, user.OrganizationID, rackA.Id, []string{s21a.ID, s21b.ID})
+	require.NoError(t, err)
+
+	rackB, err := collectionStore.CreateCollection(ctx, user.OrganizationID, collectionpb.CollectionType_COLLECTION_TYPE_RACK, "Rack B", "")
+	require.NoError(t, err)
+	require.NoError(t, collectionStore.CreateRackExtension(ctx, rackB.Id, "zone-b", 4, 8, 0, 0, user.OrganizationID))
+	_, err = collectionStore.AddDevicesToCollection(ctx, user.OrganizationID, rackB.Id, []string{m60a.ID, m60b.ID})
+	require.NoError(t, err)
+
+	// Firmware=v1 + Zone=zone-a → only s21a (S21 XP, count=1); M60 drops out.
+	filter := &stores.MinerFilter{
+		FirmwareVersions: []string{"v1"},
+		Zones:            []string{"zone-a"},
+	}
+	groups, err := deviceStore.GetMinerModelGroups(ctx, user.OrganizationID, filter)
+	require.NoError(t, err)
+	require.Len(t, groups, 1)
+	assert.Equal(t, "S21 XP", groups[0].Model)
+	assert.Equal(t, int32(1), groups[0].Count)
+
+	// The bulk-password modal invariant: sum of model-group counts equals the
+	// total returned by the filtered list view for every filter combination.
+	_, _, listTotal, err := deviceStore.ListMinerStateSnapshots(ctx, user.OrganizationID, "", 100, filter, nil)
+	require.NoError(t, err)
+	var groupTotal int32
+	for _, g := range groups {
+		groupTotal += g.Count
+	}
+	assert.Equal(t, listTotal, int64(groupTotal),
+		"bulk-password modal invariant: model-group counts must match the filtered list total")
+}
