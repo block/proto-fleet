@@ -77,12 +77,18 @@ ON CONFLICT (device_id) DO UPDATE SET
 -- pairing_status membership (e.g. fleetoptions). At most one row matches:
 -- device.device_identifier is partial-UNIQUE on deleted_at IS NULL and
 -- device_pairing has a UNIQUE(device_id) constraint.
+--
+-- The IS DISTINCT FROM guard makes a no-op write (status already matches)
+-- return zero rows, which the wrapper maps to (0, nil). This prevents
+-- repeated AUTH_NEEDED writes from churning the options cache on every
+-- failed-auth polling cycle.
 UPDATE device_pairing
 SET pairing_status = $1
 FROM device d
 WHERE device_pairing.device_id = d.id
   AND d.device_identifier = $2
   AND d.deleted_at IS NULL
+  AND device_pairing.pairing_status IS DISTINCT FROM $1
 RETURNING d.org_id;
 
 -- name: GetDeviceByID :one
