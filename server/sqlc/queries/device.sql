@@ -71,7 +71,6 @@ ON CONFLICT (device_id) DO UPDATE SET
     paired_at = CURRENT_TIMESTAMP,
     unpaired_at = NULL;
 
--- name: UpdateDevicePairingStatusByIdentifier :one
 -- PostgreSQL equivalent of UPDATE with INNER JOIN.
 -- At most one row matches:
 -- device.device_identifier is partial-UNIQUE on deleted_at IS NULL and

@@ -1868,7 +1868,8 @@ type UpdateDevicePairingStatusByIdentifierParams struct {
 	DeviceIdentifier string
 }
 
-// PostgreSQL equivalent of UPDATE with INNER JOIN. At most one row matches:
+// PostgreSQL equivalent of UPDATE with INNER JOIN.
+// At most one row matches:
 // device.device_identifier is partial-UNIQUE on deleted_at IS NULL and
 // device_pairing has a UNIQUE(device_id) constraint.
 //
