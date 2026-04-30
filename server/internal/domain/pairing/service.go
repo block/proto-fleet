@@ -1061,6 +1061,17 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice 
 		return false, err
 	}
 
+	// The upsert can rewrite model, firmware_version, and is_active on
+	// already-known devices. If this device is currently PAIRED or
+	// AUTHENTICATION_NEEDED, those fields feed the dropdown source set
+	// scanned by GetAvailableModels / GetAvailableFirmwareVersions, so
+	// the cached options could otherwise lag behind a re-discovery
+	// metadata change until TTL expiry. We invalidate unconditionally
+	// here — for net-new (not-yet-paired) devices the eviction is a
+	// harmless cache miss on the next read; for re-discoveries it
+	// surfaces the change immediately.
+	s.optionsCache.Invalidate(info.OrganizationID)
+
 	minerCapabilities := s.capabilitiesProvider.GetMinerCapabilitiesForDevice(ctx, &discoveredDevice.Device)
 	result.Device.Capabilities = minerCapabilities
 
