@@ -57,9 +57,11 @@ const (
 	// fleetOptionsFetchTimeout bounds the singleflight fetch that hydrates
 	// the per-org option cache. The fetch runs on a context detached from
 	// any individual caller (so a caller cancellation does not abort the
-	// shared work for siblings); this timeout prevents a stuck fetch from
-	// running indefinitely when no caller is left waiting.
-	fleetOptionsFetchTimeout = 10 * time.Second
+	// shared work for siblings); this timeout exists only to prevent a
+	// stuck DB connection from leaking the goroutine forever. Set well
+	// above any plausible scan time on a healthy DB (target p99 < 250ms)
+	// so a slow-but-valid query is not artificially capped.
+	fleetOptionsFetchTimeout = 60 * time.Second
 )
 
 // bracketIPv6Host wraps bare IPv6 addresses in brackets for use in URLs.
