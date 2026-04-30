@@ -1203,14 +1203,13 @@ func (s *Service) IsSameDevice(ctx context.Context, newDiscoveredDevice *discove
 		if fleeterror.IsAuthenticationError(err) {
 			slog.Info("authentication failed for paired device, updating pairing status",
 				"device_identifier", pairedDevice.DeviceIdentifier)
-			orgID, updateErr := s.deviceStore.UpdateDevicePairingStatusByIdentifier(ctx, pairedDevice.DeviceIdentifier, StatusAuthenticationNeeded)
-			if updateErr != nil {
+			// No options-cache invalidation needed: PAIRED → AUTH_NEEDED
+			// keeps the device in the dropdown source set
+			// (GetAvailableModels / GetAvailableFirmwareVersions scan
+			// PAIRED ∪ AUTH_NEEDED).
+			if _, updateErr := s.deviceStore.UpdateDevicePairingStatusByIdentifier(ctx, pairedDevice.DeviceIdentifier, StatusAuthenticationNeeded); updateErr != nil {
 				slog.Error("failed to update pairing status to AUTHENTICATION_NEEDED",
 					"device_identifier", pairedDevice.DeviceIdentifier, "error", updateErr)
-			} else if orgID != 0 {
-				// Device leaves the PAIRED set; invalidate the org's
-				// cached model/firmware dropdowns.
-				s.optionsCache.Invalidate(orgID)
 			}
 		}
 		slog.Debug("failed to get new discovered device info", "error", err)
@@ -1456,7 +1455,7 @@ func isAlreadyPairedKeyRotationError(err error) bool {
 // handleAuthenticationRequiredPairing inserts a device and creates a pairing record with AUTHENTICATION_NEEDED status
 func (s *Service) handleAuthenticationRequiredPairing(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice) error {
 	originalIdentifier := discoveredDevice.DeviceIdentifier
-	return s.transactor.RunInTx(ctx, func(ctx context.Context) error {
+	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
 		// Restore original identifier so retries after serialization failures start with clean state.
 		discoveredDevice.DeviceIdentifier = originalIdentifier
 
@@ -1507,7 +1506,16 @@ func (s *Service) handleAuthenticationRequiredPairing(ctx context.Context, disco
 		}
 
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+
+	// The device is now AUTHENTICATION_NEEDED, which is part of the
+	// dropdown source set (GetAvailableModels / GetAvailableFirmwareVersions
+	// scan PAIRED ∪ AUTH_NEEDED). Evict so the new device's model and
+	// firmware show up immediately rather than after TTL expiry.
+	s.optionsCache.Invalidate(discoveredDevice.OrgID)
+	return nil
 }
 
 func (s *Service) pairDevice(ctx context.Context, deviceID string, orgID int64, credentials *pb.Credentials) (models.DeviceIdentifier, error) {
