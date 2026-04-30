@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -1211,17 +1212,18 @@ GROUP BY dcm.device_set_id, e.component_type`,
 // updated row, or 0 when no row was changed (firmware unchanged or device
 // missing). Callers use the org_id to invalidate per-org option caches.
 func (s *SQLDeviceStore) UpdateFirmwareVersion(ctx context.Context, deviceIdentifier models.DeviceIdentifier, firmwareVersion string) (int64, error) {
-	orgIDs, err := s.getQueries(ctx).UpdateDiscoveredDeviceFirmwareVersion(ctx, sqlc.UpdateDiscoveredDeviceFirmwareVersionParams{
+	orgID, err := s.getQueries(ctx).UpdateDiscoveredDeviceFirmwareVersion(ctx, sqlc.UpdateDiscoveredDeviceFirmwareVersionParams{
 		DeviceIdentifier: string(deviceIdentifier),
 		FirmwareVersion:  sql.NullString{String: firmwareVersion, Valid: firmwareVersion != ""},
 	})
+	if errors.Is(err, sql.ErrNoRows) {
+		// No row matched — firmware unchanged or device missing/deleted.
+		return 0, nil
+	}
 	if err != nil {
 		return 0, fleeterror.NewInternalErrorf("failed to update firmware version for device %s: %v", deviceIdentifier, err)
 	}
-	if len(orgIDs) == 0 {
-		return 0, nil
-	}
-	return orgIDs[0], nil
+	return orgID, nil
 }
 
 func (s *SQLDeviceStore) UpdateWorkerName(ctx context.Context, deviceIdentifier models.DeviceIdentifier, workerName string) error {
