@@ -87,13 +87,15 @@ const PoolForm = ({
       // the id is in the format of "poolKey poolIndex"
       // e.g. "username 0"
       const infoKey = id.split(" ")[0];
+      // Pasted URLs commonly carry leading/trailing whitespace which then
+      // fails the strict server-side regex validation; normalize at the input.
+      const stored = infoKey === poolInfoAttributes.url ? value.trim() : value;
       if (infoKey === poolInfoAttributes.url) {
-        const trimmed = value.trim();
         let urlError: string | undefined;
-        if (!trimmed) {
+        if (!stored) {
           urlError = urlValidationErrors.required;
         } else {
-          urlError = validateURLScheme(trimmed);
+          urlError = validateURLScheme(stored);
         }
         setValidationErrors({
           ...validationErrors,
@@ -101,7 +103,7 @@ const PoolForm = ({
         });
       }
       const poolsInfo = deepClone(pools);
-      poolsInfo[poolIndex][infoKey] = value;
+      poolsInfo[poolIndex][infoKey] = stored;
       onChangePools(poolsInfo);
     },
     [pools, poolIndex, onChangePools, validationErrors],

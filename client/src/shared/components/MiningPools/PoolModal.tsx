@@ -119,8 +119,11 @@ const PoolModal = ({
     (value: string, id: string) => {
       setShowCallout(false);
       const infoKey = id.split(" ")[0];
+      // Pasted URLs commonly carry leading/trailing whitespace which then
+      // fails the strict server-side regex validation; normalize at the input.
+      const stored = infoKey === poolInfoAttributes.url ? value.trim() : value;
       const poolsInfo = deepClone(draftPoolInfo);
-      poolsInfo[poolIndex][infoKey] = value;
+      poolsInfo[poolIndex][infoKey] = stored;
       setDraftPoolInfo(poolsInfo);
 
       // Clear errors as user types (but don't validate/show new errors until submission)
@@ -129,11 +132,10 @@ const PoolModal = ({
       }
 
       if (infoKey === poolInfoAttributes.url) {
-        const trimmed = value.trim();
-        if (!trimmed) {
+        if (!stored) {
           setUrlError(undefined);
         } else {
-          setUrlError(validateURLScheme(trimmed));
+          setUrlError(validateURLScheme(stored));
         }
       }
 
