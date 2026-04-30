@@ -1396,9 +1396,9 @@ describe("useMinerActions", () => {
   });
 
   describe("handleMiningPoolSuccess", () => {
-    it("should start batch operation and push toast", () => {
+    it("falls back to selected miners when no dispatched set is provided", () => {
+      // Arrange
       const batchIdentifier = "batch-pool";
-
       const { result } = renderHook(() =>
         useMinerActions({
           ...batchOpsParams(),
@@ -1407,16 +1407,17 @@ describe("useMinerActions", () => {
         }),
       );
 
+      // Act
       act(() => {
-        result.current.handleMiningPoolSuccess(batchIdentifier);
+        result.current.handleMiningPoolSuccess(batchIdentifier, []);
       });
 
+      // Assert
       expect(mockStartBatchOperation).toHaveBeenCalledWith({
         batchIdentifier,
         action: settingsActions.miningPool,
         deviceIdentifiers: ["device-1"],
       });
-
       expect(toaster.pushToast).toHaveBeenCalledWith(
         expect.objectContaining({
           message: "Assigning pools miners",
@@ -1424,8 +1425,80 @@ describe("useMinerActions", () => {
           longRunning: true,
         }),
       );
-
       expect(result.current.currentAction).toBeNull();
+    });
+
+    it("uses the server's dispatched set when the SV2 gate filtered miners", () => {
+      // Arrange
+      const batchIdentifier = "batch-pool";
+      const { result } = renderHook(() =>
+        useMinerActions({
+          ...batchOpsParams(),
+          selectedMiners: [
+            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
+            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
+            { deviceIdentifier: "device-3", deviceStatus: DeviceStatus.ONLINE },
+          ],
+          selectionMode: "subset",
+        }),
+      );
+
+      // Act
+      act(() => {
+        result.current.handleMiningPoolSuccess(batchIdentifier, ["device-2"]);
+      });
+
+      // Assert
+      expect(mockStartBatchOperation).toHaveBeenCalledWith({
+        batchIdentifier,
+        action: settingsActions.miningPool,
+        deviceIdentifiers: ["device-2"],
+      });
+    });
+
+    it("uses capability-filtered subset when no SV2 dispatch set is provided", async () => {
+      // Arrange
+      const batchIdentifier = "batch-pool";
+      mockCheckCommandCapabilities.mockImplementationOnce(({ onSuccess }: any) => {
+        onSuccess({
+          allSupported: false,
+          noneSupported: false,
+          supportedCount: 1,
+          unsupportedCount: 1,
+          totalCount: 2,
+          unsupportedGroups: [{ model: "S19", firmwareVersion: "1.0.0", count: 1 }],
+          supportedDeviceIdentifiers: ["device-1"],
+        });
+      });
+      const { result } = renderHook(() =>
+        useMinerActions({
+          ...batchOpsParams(),
+          selectedMiners: [
+            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
+            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
+          ],
+          selectionMode: "subset",
+        }),
+      );
+      const poolAction = result.current.popoverActions.find((a) => a.action === settingsActions.miningPool);
+      await act(async () => {
+        await poolAction?.actionHandler();
+      });
+      await act(async () => {
+        result.current.handleUnsupportedMinersContinue();
+      });
+
+      // Act
+      act(() => {
+        result.current.handleMiningPoolSuccess(batchIdentifier, []);
+      });
+
+      // Assert — batch tracks only the capability-supported subset, not the original selection.
+      expect(mockStartBatchOperation).toHaveBeenCalledWith({
+        batchIdentifier,
+        action: settingsActions.miningPool,
+        deviceIdentifiers: ["device-1"],
+      });
     });
   });
 

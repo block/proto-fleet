@@ -126,21 +126,31 @@ func (s *Service) GetMinerCapabilitiesForDevice(ctx context.Context, device *pai
 	if device == nil {
 		return nil
 	}
-
-	plugin := s.resolvePluginForDevice(device)
-	if plugin == nil {
+	caps := s.GetRawCapabilitiesForDevice(ctx, device.DriverName, device.Manufacturer, device.Model)
+	if caps == nil {
 		return nil
 	}
+	return ConvertToMinerCapabilities(caps, device.Manufacturer)
+}
 
+// GetRawCapabilitiesForDevice returns the merged sdk.Capabilities map
+// for a (driver, manufacturer, model) triple. Returns nil when the
+// driver isn't loaded.
+func (s *Service) GetRawCapabilitiesForDevice(ctx context.Context, driverName, manufacturer, model string) sdk.Capabilities {
+	if driverName == "" {
+		return nil
+	}
+	plugin, exists := s.manager.GetPluginByDriverName(driverName)
+	if !exists {
+		return nil
+	}
 	caps := plugin.Caps
-
 	if modelProvider, ok := plugin.Driver.(sdk.ModelCapabilitiesProvider); ok {
-		if modelCaps := modelProvider.GetCapabilitiesForModel(ctx, device.Manufacturer, device.Model); modelCaps != nil {
+		if modelCaps := modelProvider.GetCapabilitiesForModel(ctx, manufacturer, model); modelCaps != nil {
 			caps = mergeCapabilities(caps, modelCaps)
 		}
 	}
-
-	return ConvertToMinerCapabilities(caps, device.Manufacturer)
+	return caps
 }
 
 // resolvePluginForDevice finds the plugin for a device by driver name.
