@@ -113,7 +113,9 @@ const General = () => {
         <Row className="flex justify-between">
           <h4 className="text-emphasis-300">Miner ID</h4>
           {hasTag ? (
-            <div className="text-300">{minerTag}</div>
+            <div className="text-300" data-testid="miner-id-value">
+              {minerTag}
+            </div>
           ) : (
             <Button
               text="Add"
@@ -145,6 +147,7 @@ const General = () => {
             onClick={() => setShowThemeSwitcher(true)}
             textColor="text-intent-warning-fill"
             text={convertToSentenceCase(theme)}
+            testId="theme-button"
           />
           {showThemeSwitcher ? (
             <ThemeSwitcher onClickDone={() => setShowThemeSwitcher(false)} theme={theme} setTheme={setTheme} />
