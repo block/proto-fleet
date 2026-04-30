@@ -232,6 +232,16 @@ func NewNotFoundErrorf(format string, a ...any) FleetError {
 	).WithCallerStackTrace()
 }
 
+func NewFailedPreconditionError(debugMessage string) FleetError {
+	return NewPlainError(debugMessage, connect.CodeFailedPrecondition).WithCallerStackTrace()
+}
+
+func NewFailedPreconditionErrorf(format string, a ...any) FleetError {
+	return NewFailedPreconditionError(
+		fmt.Sprintf(format, a...),
+	).WithCallerStackTrace()
+}
+
 func NewUnimplementedError(debugMessage string) FleetError {
 	return NewPlainError(debugMessage, connect.CodeUnimplemented).WithCallerStackTrace()
 }
@@ -239,13 +249,6 @@ func NewUnimplementedError(debugMessage string) FleetError {
 func NewUnimplementedErrorf(format string, a ...any) FleetError {
 	return NewUnimplementedError(
 		fmt.Sprintf(format, a...),
-	).WithCallerStackTrace()
-}
-
-func NewFailedPreconditionErrorf(format string, a ...any) FleetError {
-	return NewPlainError(
-		fmt.Sprintf(format, a...),
-		connect.CodeFailedPrecondition,
 	).WithCallerStackTrace()
 }
 

@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2/ellswift"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -104,6 +106,62 @@ func TestHkdf2_MatchesSpec(t *testing.T) {
 	expected2 := hmacSHA256(temp[:], append(expected1[:], 0x02))
 	assert.Equal(t, expected1, out1)
 	assert.Equal(t, expected2, out2)
+}
+
+// TestV2Ecdh_MatchesBIP324Spec hand-composes the BIP324 tagged hash against
+// V2Ecdh's output for the same inputs. SRI's Noise NX uses libsecp's
+// secp256k1_ellswift_xdh_hash_function_bip324 (see bitcoin-core/secp256k1
+// src/modules/ellswift/main_impl.h):
+//
+//	output = TaggedHash("bip324_ellswift_xonly_ecdh", ell_a || ell_b || x32)
+//
+// where ell_a is the initiator's ellswift, ell_b the responder's, and x32
+// the X-coordinate of priv*lift_x(decode(ellswift_theirs)). If V2Ecdh diverges
+// from that composition, real SRI responders will fail AEAD on message 2.
+func TestV2Ecdh_MatchesBIP324Spec(t *testing.T) {
+	// Arrange -- two ellswift keypairs; A is the initiator.
+	privA, ellA, err := ellswift.EllswiftCreate()
+	require.NoError(t, err)
+	_, ellB, err := ellswift.EllswiftCreate()
+	require.NoError(t, err)
+
+	// Act
+	got, err := ellswift.V2Ecdh(privA, ellB, ellA, true)
+	require.NoError(t, err)
+
+	x32, err := ellswift.EllswiftECDHXOnly(ellB, privA)
+	require.NoError(t, err)
+	var msg []byte
+	msg = append(msg, ellA[:]...)
+	msg = append(msg, ellB[:]...)
+	msg = append(msg, x32[:]...)
+	want := chainhash.TaggedHash([]byte("bip324_ellswift_xonly_ecdh"), msg)
+
+	// Assert
+	assert.Equal(t, want[:], got[:],
+		"V2Ecdh(initiating=true) must equal TaggedHash(\"bip324_ellswift_xonly_ecdh\", ourEllswift || theirEllswift || x32)")
+}
+
+// TestV2Ecdh_SymmetricBetweenSides confirms initiator and responder derive
+// the same shared secret from V2Ecdh, as required by the Noise NX
+// MixKey(ECDH(e, re)) step on both sides of the handshake. If this fails
+// our chain key would diverge from any peer.
+func TestV2Ecdh_SymmetricBetweenSides(t *testing.T) {
+	// Arrange
+	privA, ellA, err := ellswift.EllswiftCreate()
+	require.NoError(t, err)
+	privB, ellB, err := ellswift.EllswiftCreate()
+	require.NoError(t, err)
+
+	// Act -- A is initiator, B is responder; both must compute the same secret.
+	fromInitiator, err := ellswift.V2Ecdh(privA, ellB, ellA, true)
+	require.NoError(t, err)
+	fromResponder, err := ellswift.V2Ecdh(privB, ellA, ellB, false)
+	require.NoError(t, err)
+
+	// Assert
+	assert.Equal(t, fromInitiator[:], fromResponder[:],
+		"initiator and responder must derive the same shared secret from V2Ecdh")
 }
 
 func TestAEAD_RoundTrip(t *testing.T) {

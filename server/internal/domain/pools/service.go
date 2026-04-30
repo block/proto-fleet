@@ -231,7 +231,15 @@ func (s *Service) ValidateConnection(ctx context.Context, url string, username s
 		if err != nil {
 			return false, fleeterror.NewInvalidArgumentErrorf("%v", err)
 		}
-		return sv2.HandshakeProbe(ctx, url, key, to)
+		ok, err := sv2.HandshakeProbe(ctx, url, key, to)
+		if err != nil {
+			return false, fleeterror.NewFailedPreconditionErrorf("validate sv2 pool connection: %v", err)
+		}
+		return ok, nil
 	}
-	return stratumv1.Authenticate(ctx, url, username, password)
+	ok, err := stratumv1.Authenticate(ctx, url, username, password)
+	if err != nil {
+		return false, fleeterror.NewFailedPreconditionErrorf("validate sv1 pool connection: %v", err)
+	}
+	return ok, nil
 }
