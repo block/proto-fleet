@@ -62,4 +62,3 @@ func Run(devices []Device, slots []SlotAssignment) []Mismatch {
 	}
 	return mismatches
 }
-
