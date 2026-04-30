@@ -48,7 +48,7 @@ import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import List from "@/shared/components/List";
 import { type SelectionMode } from "@/shared/components/List";
-import { ActiveFilters, FilterItem } from "@/shared/components/List/Filters/types";
+import { ActiveFilters, type DropdownFilterItem, FilterItem } from "@/shared/components/List/Filters/types";
 import { type SortDirection } from "@/shared/components/List/types";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { Breakpoint } from "@/shared/constants/breakpoints";
@@ -139,6 +139,11 @@ type MinerListProps = {
    */
   availableModels?: string[];
   /**
+   * Available firmware versions for the firmware filter dropdown.
+   * Comes from the API response.
+   */
+  availableFirmwareVersions?: string[];
+  /**
    * Available groups for the group filter dropdown.
    */
   availableGroups?: DeviceSet[];
@@ -167,6 +172,12 @@ type MinerListProps = {
 };
 
 type ScopedMinerListBodyProps = {
+  /**
+   * Selection-scope identifier — when this changes, internal selection state resets.
+   * Replaces the previous key-based remount strategy so children (e.g., the meta-dropdown
+   * popover) keep their state across filter/page changes.
+   */
+  selectionScopeKey: string;
   activeCols: MinerColumn[];
   deviceItems: DeviceListItem[];
   minerColConfig: ReturnType<typeof createMinerColConfig>;
@@ -204,6 +215,7 @@ type ScopedMinerListBodyProps = {
 };
 
 const ScopedMinerListBody = ({
+  selectionScopeKey,
   activeCols,
   deviceItems,
   minerColConfig,
@@ -241,6 +253,14 @@ const ScopedMinerListBody = ({
 }: ScopedMinerListBodyProps) => {
   const [selectedMinerIds, setSelectedMinerIds] = useState<string[]>([]);
   const [selectionMode, setSelectionMode] = useState<SelectionMode>("none");
+  // Reset selection when the scope key changes (filter or page) without remounting the
+  // subtree — uses the during-render derive pattern so children keep their own state.
+  const [prevSelectionScopeKey, setPrevSelectionScopeKey] = useState(selectionScopeKey);
+  if (prevSelectionScopeKey !== selectionScopeKey) {
+    setPrevSelectionScopeKey(selectionScopeKey);
+    setSelectedMinerIds([]);
+    setSelectionMode("none");
+  }
   const sortableColumnsSet = useMemo(() => new Set(SORTABLE_COLUMNS), []);
 
   const currentPageSelectableMinerIds = deviceItems
@@ -400,6 +420,7 @@ const MinerList = ({
   currentSort,
   onSort,
   availableModels = [],
+  availableFirmwareVersions = [],
   availableGroups = [],
   availableRacks = [],
   onExportCsv,
@@ -559,7 +580,9 @@ const MinerList = ({
       searchParams.has("issues") ||
       searchParams.has("model") ||
       searchParams.has("group") ||
-      searchParams.has("rack")
+      searchParams.has("rack") ||
+      searchParams.has("firmware") ||
+      searchParams.has("zone")
     );
   }, [searchParams]);
   useEffect(() => {
@@ -578,7 +601,7 @@ const MinerList = ({
 
   const selectionFilterKey = useMemo(() => {
     const params = new URLSearchParams();
-    ["status", "issues", "model"].forEach((key) => {
+    ["status", "issues", "model", "firmware", "zone"].forEach((key) => {
       searchParams
         .getAll(key)
         .sort()
@@ -595,63 +618,129 @@ const MinerList = ({
     nextSearchParams.delete("model");
     nextSearchParams.delete("group");
     nextSearchParams.delete("rack");
+    nextSearchParams.delete("firmware");
+    nextSearchParams.delete("zone");
 
     const nextSearch = nextSearchParams.toString();
     navigate({ search: nextSearch ? `?${nextSearch}` : "" }, { replace: true });
   }, [navigate, searchParams]);
 
-  const filters = useMemo(() => {
-    return [
+  // Zone options come from rack metadata client-side — no separate server fetch.
+  // Each rack-type DeviceSet stores its zone on typeDetails.value.zone (oneof).
+  const availableZones = useMemo(() => {
+    const zones = new Set<string>();
+    availableRacks.forEach((rack) => {
+      if (rack.typeDetails.case === "rackInfo") {
+        const zone = rack.typeDetails.value.zone.trim();
+        if (zone) zones.add(zone);
+      }
+    });
+    return Array.from(zones).sort();
+  }, [availableRacks]);
+
+  const statusFilter: DropdownFilterItem = useMemo(
+    () => ({
+      type: "dropdown",
+      title: "Status",
+      value: "status",
+      options: [
+        { id: deviceStatusFilterStates.hashing, label: "Hashing" },
+        { id: deviceStatusFilterStates.needsAttention, label: "Needs Attention" },
+        { id: deviceStatusFilterStates.offline, label: "Offline" },
+        { id: deviceStatusFilterStates.sleeping, label: "Sleeping" },
+      ],
+      defaultOptionIds: [],
+    }),
+    [],
+  );
+
+  const issuesFilter: DropdownFilterItem = useMemo(
+    () => ({
+      type: "dropdown",
+      title: "Issues",
+      value: "issues",
+      options: [
+        { id: componentIssues.controlBoard, label: "Control board issue" },
+        { id: componentIssues.fans, label: "Fan issue" },
+        { id: componentIssues.hashBoards, label: "Hash board issue" },
+        { id: componentIssues.psu, label: "PSU issue" },
+      ],
+      defaultOptionIds: [],
+    }),
+    [],
+  );
+
+  const modelFilter: DropdownFilterItem = useMemo(
+    () => ({
+      type: "dropdown",
+      title: "Model",
+      value: "model",
+      options: availableModels.map((model) => ({ id: model, label: model })),
+      defaultOptionIds: [],
+    }),
+    [availableModels],
+  );
+
+  const groupsFilter: DropdownFilterItem = useMemo(
+    () => ({
+      type: "dropdown",
+      title: "Groups",
+      value: "group",
+      options: availableGroups.map((g) => ({ id: String(g.id), label: g.label })),
+      defaultOptionIds: [],
+    }),
+    [availableGroups],
+  );
+
+  const racksFilter: DropdownFilterItem = useMemo(
+    () => ({
+      type: "dropdown",
+      title: "Racks",
+      value: "rack",
+      options: availableRacks.map((r) => ({ id: String(r.id), label: r.label })),
+      defaultOptionIds: [],
+    }),
+    [availableRacks],
+  );
+
+  const firmwareFilter: DropdownFilterItem = useMemo(
+    () => ({
+      type: "dropdown",
+      title: "Firmware",
+      value: "firmware",
+      options: availableFirmwareVersions.map((v) => ({ id: v, label: v })),
+      defaultOptionIds: [],
+    }),
+    [availableFirmwareVersions],
+  );
+
+  const zonesFilter: DropdownFilterItem = useMemo(
+    () => ({
+      type: "dropdown",
+      title: "Zones",
+      value: "zone",
+      options: availableZones.map((z) => ({ id: z, label: z })),
+      defaultOptionIds: [],
+    }),
+    [availableZones],
+  );
+
+  const filters = useMemo<FilterItem[]>(
+    () => [
       {
-        type: "dropdown",
-        title: "Status",
-        value: "status",
-        options: [
-          { id: deviceStatusFilterStates.hashing, label: "Hashing" },
-          {
-            id: deviceStatusFilterStates.needsAttention,
-            label: "Needs Attention",
-          },
-          { id: deviceStatusFilterStates.offline, label: "Offline" },
-          { id: deviceStatusFilterStates.sleeping, label: "Sleeping" },
-        ],
-        defaultOptionIds: [],
+        type: "nestedFilterDropdown",
+        title: "Filters",
+        value: "filters-meta",
+        children: [statusFilter, modelFilter, zonesFilter, racksFilter, groupsFilter, firmwareFilter, issuesFilter],
       },
-      {
-        type: "dropdown",
-        title: "Issues",
-        value: "issues",
-        options: [
-          { id: componentIssues.controlBoard, label: "Control board issue" },
-          { id: componentIssues.fans, label: "Fan issue" },
-          { id: componentIssues.hashBoards, label: "Hash board issue" },
-          { id: componentIssues.psu, label: "PSU issue" },
-        ],
-        defaultOptionIds: [],
-      },
-      {
-        type: "dropdown",
-        title: "Model",
-        value: "model",
-        options: availableModels.map((model) => ({ id: model, label: model })),
-        defaultOptionIds: [],
-      },
-      {
-        type: "dropdown",
-        title: "Groups",
-        value: "group",
-        options: availableGroups.map((g) => ({ id: String(g.id), label: g.label })),
-        defaultOptionIds: [],
-      },
-      {
-        type: "dropdown",
-        title: "Racks",
-        value: "rack",
-        options: availableRacks.map((r) => ({ id: String(r.id), label: r.label })),
-        defaultOptionIds: [],
-      },
-    ] as FilterItem[];
-  }, [availableModels, availableGroups, availableRacks]);
+      statusFilter,
+      issuesFilter,
+      modelFilter,
+      groupsFilter,
+      racksFilter,
+    ],
+    [statusFilter, issuesFilter, modelFilter, groupsFilter, racksFilter, firmwareFilter, zonesFilter],
+  );
 
   const handleServerFilter = useCallback(
     async (filters: ActiveFilters) => {
@@ -721,6 +810,16 @@ const MinerList = ({
         });
       }
 
+      const firmwareFilters = filters.dropdownFilters.firmware;
+      if (firmwareFilters && firmwareFilters.length > 0) {
+        minerFilter.firmwareVersions.push(...firmwareFilters);
+      }
+
+      const zoneFilters = filters.dropdownFilters.zone;
+      if (zoneFilters && zoneFilters.length > 0) {
+        minerFilter.zones.push(...zoneFilters);
+      }
+
       // Navigate with URL params instead of calling parent callback
       // Start fresh with filter params, then preserve existing sort params
       const params = encodeFilterToURL(minerFilter);
@@ -732,6 +831,7 @@ const MinerList = ({
     },
     [navigate, searchParams],
   );
+
   const handleOpenManageColumns = useCallback(() => {
     setShowManageColumnsModal(true);
   }, []);
@@ -807,7 +907,7 @@ const MinerList = ({
         </div>
       ) : (
         <ScopedMinerListBody
-          key={selectionScopeKey}
+          selectionScopeKey={selectionScopeKey}
           activeCols={activeCols}
           deviceItems={deviceItems}
           minerColConfig={minerColConfig}

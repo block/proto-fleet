@@ -63,6 +63,17 @@ describe("applyFleetSelectablePairingStatuses", () => {
 
     expect(applyFleetSelectablePairingStatuses(filter).pairingStatuses).toEqual([]);
   });
+
+  it("copies firmware and zone filters through so bulk actions respect them", () => {
+    const filter: MinerListFilter = create(MinerListFilterSchema, {
+      firmwareVersions: ["v3.5.1"],
+      zones: ["Austin, Building 1"],
+    });
+
+    const result = applyFleetSelectablePairingStatuses(filter);
+    expect(result.firmwareVersions).toEqual(["v3.5.1"]);
+    expect(result.zones).toEqual(["Austin, Building 1"]);
+  });
 });
 
 describe("isFleetSelectablePairingStatus", () => {

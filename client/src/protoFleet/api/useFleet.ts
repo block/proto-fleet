@@ -75,6 +75,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
   const [miners, setMiners] = useState<Record<string, MinerStateSnapshot>>({});
   const [totalMiners, setTotalMiners] = useState(0);
   const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [availableFirmwareVersions, setAvailableFirmwareVersions] = useState<string[]>([]);
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(0);
@@ -106,11 +107,6 @@ const useFleet = (options: UseFleetOptions = {}) => {
       const requestId = ++latestRequestIdRef.current;
       setIsLoading(true);
 
-      // Reset initial load flag when fetching page 0 (but not for polling refreshes)
-      if (!pageCursor && !isRefresh) {
-        setHasInitialLoadCompleted(false);
-      }
-
       try {
         // Merge pairing statuses into the filter
         const filterWithPairingStatuses = filter ? { ...filter, pairingStatuses } : { pairingStatuses };
@@ -122,7 +118,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
           sort: sort ? [sort] : undefined,
         });
 
-        const { miners, cursor: newCursor, totalMiners: responseTotalMiners, models } = response;
+        const { miners, cursor: newCursor, totalMiners: responseTotalMiners, models, firmwareVersions } = response;
 
         if (requestId !== latestRequestIdRef.current) {
           return;
@@ -158,6 +154,11 @@ const useFleet = (options: UseFleetOptions = {}) => {
         // Update available models for filter dropdown
         if (models && models.length > 0) {
           setAvailableModels(models);
+        }
+
+        // Update available firmware versions for filter dropdown
+        if (firmwareVersions && firmwareVersions.length > 0) {
+          setAvailableFirmwareVersions(firmwareVersions);
         }
 
         // Store the response cursor for the next page
@@ -423,6 +424,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
     refreshCurrentPage,
     updateMinerWorkerName,
     availableModels,
+    availableFirmwareVersions,
   };
 };
 

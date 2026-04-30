@@ -100,6 +100,7 @@ const Fleet = () => {
     refreshCurrentPage,
     updateMinerWorkerName,
     availableModels,
+    availableFirmwareVersions,
     currentPage,
     hasPreviousPage,
     goToNextPage,
@@ -237,6 +238,7 @@ const Fleet = () => {
           currentSort={currentSort}
           onSort={handleSort}
           availableModels={availableModels}
+          availableFirmwareVersions={availableFirmwareVersions}
           availableGroups={availableGroups}
           availableRacks={availableRacks}
           currentFilter={currentFilter}

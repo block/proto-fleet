@@ -32,6 +32,8 @@ const applyAllowedPairingStatuses = (
       pairingStatuses.length > 0 || hasExplicitPairingStatuses ? pairingStatuses : [...allowedPairingStatuses],
     groupIds: filter?.groupIds ?? [],
     rackIds: filter?.rackIds ?? [],
+    firmwareVersions: filter?.firmwareVersions ?? [],
+    zones: filter?.zones ?? [],
   });
 };
 

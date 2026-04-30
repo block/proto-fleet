@@ -181,4 +181,125 @@ describe("Filters", () => {
       expect(screen.queryByText("Select all")).not.toBeInTheDocument();
     });
   });
+
+  it("renders pills for filters declared inside a nestedFilterDropdown that have no standalone trigger", () => {
+    const handleFiltering = vi.fn();
+
+    const firmwareChild = {
+      type: "dropdown" as const,
+      title: "Firmware",
+      value: "firmware",
+      options: [
+        { id: "v3.5.1", label: "v3.5.1" },
+        { id: "v3.5.2", label: "v3.5.2" },
+      ],
+      defaultOptionIds: [],
+    };
+
+    render(
+      <Filters<TestItem>
+        filterItems={[
+          {
+            type: "nestedFilterDropdown",
+            title: "Filters",
+            value: "all-filters",
+            children: [firmwareChild],
+          },
+        ]}
+        items={testItems}
+        onFilter={handleFiltering}
+        initialActiveFilters={{
+          buttonFilters: [],
+          dropdownFilters: { firmware: ["v3.5.1"] },
+        }}
+      />,
+    );
+
+    // The pill renders the option label even though no standalone "Firmware" trigger exists in the bar.
+    expect(screen.getByTestId("active-filter-firmware-v3.5.1")).toBeInTheDocument();
+    // No standalone "Firmware" filter trigger.
+    expect(screen.queryByTestId("filter-dropdown-Firmware")).not.toBeInTheDocument();
+    // The nested-dropdown trigger is in the bar.
+    expect(screen.getByTestId("filter-nested-all-filters")).toBeInTheDocument();
+  });
+
+  it("dedups pills when the same filter value appears in both standalone and nested-dropdown surfaces", () => {
+    const handleFiltering = vi.fn();
+
+    const statusOptions = [
+      { id: "hashing", label: "Hashing" },
+      { id: "offline", label: "Offline" },
+    ];
+    const statusFilter = {
+      type: "dropdown" as const,
+      title: "Status",
+      value: "status",
+      options: statusOptions,
+      defaultOptionIds: [],
+    };
+
+    render(
+      <Filters<TestItem>
+        filterItems={[
+          {
+            type: "nestedFilterDropdown",
+            title: "Filters",
+            value: "all-filters",
+            children: [statusFilter],
+          },
+          statusFilter,
+        ]}
+        items={testItems}
+        onFilter={handleFiltering}
+        initialActiveFilters={{
+          buttonFilters: [],
+          dropdownFilters: { status: ["hashing"] },
+        }}
+      />,
+    );
+
+    // Only one pill for `status=hashing` even though it lives in two filter sources.
+    const pills = screen.getAllByTestId(/^active-filter-status-/);
+    expect(pills).toHaveLength(1);
+    expect(pills[0]).toHaveAttribute("data-testid", "active-filter-status-hashing");
+  });
+
+  it("clears active filters when initialActiveFilters transitions to undefined", () => {
+    const handleFiltering = vi.fn();
+
+    const statusFilter = {
+      type: "dropdown" as const,
+      title: "Status",
+      value: "status",
+      options: [
+        { id: "hashing", label: "Hashing" },
+        { id: "offline", label: "Offline" },
+      ],
+      defaultOptionIds: [],
+    };
+
+    const { rerender } = render(
+      <Filters<TestItem>
+        filterItems={[statusFilter]}
+        items={testItems}
+        onFilter={handleFiltering}
+        initialActiveFilters={{ buttonFilters: [], dropdownFilters: { status: ["hashing"] } }}
+      />,
+    );
+
+    expect(screen.getByTestId("active-filter-status-hashing")).toBeInTheDocument();
+
+    // Parent clears the controlled prop — internal state should reset to defaults
+    // so stale selections don't linger.
+    rerender(
+      <Filters<TestItem>
+        filterItems={[statusFilter]}
+        items={testItems}
+        onFilter={handleFiltering}
+        initialActiveFilters={undefined}
+      />,
+    );
+
+    expect(screen.queryByTestId("active-filter-status-hashing")).not.toBeInTheDocument();
+  });
 });

@@ -8,20 +8,16 @@ import {
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import type { ActiveFilters } from "@/shared/components/List/Filters/types";
 
-/**
- * URL parameter keys for filter state
- */
 const URL_PARAMS = {
   STATUS: "status",
   ISSUES: "issues",
   MODEL: "model",
   GROUP: "group",
   RACK: "rack",
+  FIRMWARE: "firmware",
+  ZONE: "zone",
 } as const;
 
-/**
- * Maps device status filter states to URL values
- */
 const STATUS_TO_URL: Record<string, string> = {
   [deviceStatusFilterStates.hashing]: "hashing",
   [deviceStatusFilterStates.offline]: "offline",
@@ -29,9 +25,6 @@ const STATUS_TO_URL: Record<string, string> = {
   [deviceStatusFilterStates.needsAttention]: "needs-attention",
 };
 
-/**
- * Maps URL values to device status filter states
- */
 const URL_TO_STATUS: Record<string, string> = {
   hashing: deviceStatusFilterStates.hashing,
   offline: deviceStatusFilterStates.offline,
@@ -39,13 +32,31 @@ const URL_TO_STATUS: Record<string, string> = {
   "needs-attention": deviceStatusFilterStates.needsAttention,
 };
 
+// Encode each value as a separate URLSearchParams entry so individual values can contain
+// commas, spaces, or other special chars without ambiguity. URLSearchParams handles the
+// percent-encoding on `.toString()` and decodes it on construction.
+const setMulti = (params: URLSearchParams, key: string, values: string[]): void => {
+  values.forEach((value) => {
+    if (value !== "") params.append(key, value);
+  });
+};
+
+// Read values from URL using only the repeated-key format (`?k=a&k=b`).
+// Used for keys whose values may contain commas (firmware/zone) — splitting would corrupt them.
+const getMulti = (params: URLSearchParams, key: string): string[] => params.getAll(key).filter((value) => value !== "");
+
+// Read values from URL accepting both repeated-key (`?k=a&k=b`) and the legacy
+// comma-joined (`?k=a,b`) format that older bookmarks may carry. Only safe for keys whose
+// values are guaranteed to not contain commas (enum strings, numeric IDs).
+const getMultiLegacy = (params: URLSearchParams, key: string): string[] =>
+  params.getAll(key).flatMap((raw) => raw.split(",").filter((piece) => piece !== ""));
+
 /**
  * Encodes a MinerListFilter to URL search parameters
  */
 export function encodeFilterToURL(filter: MinerListFilter): URLSearchParams {
   const params = new URLSearchParams();
 
-  // Encode device statuses
   if (filter.deviceStatus.length > 0) {
     const statusValues = new Set<string>();
     filter.deviceStatus.forEach((status) => {
@@ -68,12 +79,9 @@ export function encodeFilterToURL(filter: MinerListFilter): URLSearchParams {
           break;
       }
     });
-    if (statusValues.size > 0) {
-      params.set(URL_PARAMS.STATUS, Array.from(statusValues).sort().join(","));
-    }
+    setMulti(params, URL_PARAMS.STATUS, Array.from(statusValues).sort());
   }
 
-  // Encode error component types (issues)
   if (filter.errorComponentTypes.length > 0) {
     const issueValues = new Set<string>();
     filter.errorComponentTypes.forEach((componentType) => {
@@ -92,24 +100,27 @@ export function encodeFilterToURL(filter: MinerListFilter): URLSearchParams {
           break;
       }
     });
-    if (issueValues.size > 0) {
-      params.set(URL_PARAMS.ISSUES, Array.from(issueValues).sort().join(","));
-    }
+    setMulti(params, URL_PARAMS.ISSUES, Array.from(issueValues).sort());
   }
 
-  // Encode models
   if (filter.models.length > 0) {
-    params.set(URL_PARAMS.MODEL, filter.models.sort().join(","));
+    setMulti(params, URL_PARAMS.MODEL, [...filter.models].sort());
   }
 
-  // Encode group IDs
   if (filter.groupIds.length > 0) {
-    params.set(URL_PARAMS.GROUP, filter.groupIds.map(String).sort().join(","));
+    setMulti(params, URL_PARAMS.GROUP, filter.groupIds.map(String).sort());
   }
 
-  // Encode rack IDs
   if (filter.rackIds.length > 0) {
-    params.set(URL_PARAMS.RACK, filter.rackIds.map(String).sort().join(","));
+    setMulti(params, URL_PARAMS.RACK, filter.rackIds.map(String).sort());
+  }
+
+  if (filter.firmwareVersions.length > 0) {
+    setMulti(params, URL_PARAMS.FIRMWARE, [...filter.firmwareVersions].sort());
+  }
+
+  if (filter.zones.length > 0) {
+    setMulti(params, URL_PARAMS.ZONE, [...filter.zones].sort());
   }
 
   return params;
@@ -119,14 +130,17 @@ export function encodeFilterToURL(filter: MinerListFilter): URLSearchParams {
  * Parses URL search parameters into a MinerListFilter
  */
 export function parseFilterFromURL(params: URLSearchParams): MinerListFilter | undefined {
-  const statusParam = params.get(URL_PARAMS.STATUS);
-  const issuesParam = params.get(URL_PARAMS.ISSUES);
-  const modelParam = params.get(URL_PARAMS.MODEL);
-  const groupParam = params.get(URL_PARAMS.GROUP);
-  const rackParam = params.get(URL_PARAMS.RACK);
+  const hasAnyFilter = [
+    URL_PARAMS.STATUS,
+    URL_PARAMS.ISSUES,
+    URL_PARAMS.MODEL,
+    URL_PARAMS.GROUP,
+    URL_PARAMS.RACK,
+    URL_PARAMS.FIRMWARE,
+    URL_PARAMS.ZONE,
+  ].some((key) => params.has(key));
 
-  // If no filter params, return undefined
-  if (!statusParam && !issuesParam && !modelParam && !groupParam && !rackParam) {
+  if (!hasAnyFilter) {
     return undefined;
   }
 
@@ -134,85 +148,69 @@ export function parseFilterFromURL(params: URLSearchParams): MinerListFilter | u
     errorComponentTypes: [],
   });
 
-  // Parse device statuses
-  if (statusParam) {
-    const statusValues = statusParam.split(",");
-    statusValues.forEach((value) => {
-      switch (value) {
-        case "hashing":
-          filter.deviceStatus.push(DeviceStatus.ONLINE);
-          break;
-        case "needs-attention":
-          filter.deviceStatus.push(DeviceStatus.ERROR);
-          filter.deviceStatus.push(DeviceStatus.NEEDS_MINING_POOL);
-          filter.deviceStatus.push(DeviceStatus.UPDATING);
-          filter.deviceStatus.push(DeviceStatus.REBOOT_REQUIRED);
-          break;
-        case "offline":
-          filter.deviceStatus.push(DeviceStatus.OFFLINE);
-          break;
-        case "sleeping":
-          filter.deviceStatus.push(DeviceStatus.INACTIVE);
-          filter.deviceStatus.push(DeviceStatus.MAINTENANCE);
-          break;
-      }
-    });
-  }
+  getMultiLegacy(params, URL_PARAMS.STATUS).forEach((value) => {
+    switch (value) {
+      case "hashing":
+        filter.deviceStatus.push(DeviceStatus.ONLINE);
+        break;
+      case "needs-attention":
+        filter.deviceStatus.push(DeviceStatus.ERROR);
+        filter.deviceStatus.push(DeviceStatus.NEEDS_MINING_POOL);
+        filter.deviceStatus.push(DeviceStatus.UPDATING);
+        filter.deviceStatus.push(DeviceStatus.REBOOT_REQUIRED);
+        break;
+      case "offline":
+        filter.deviceStatus.push(DeviceStatus.OFFLINE);
+        break;
+      case "sleeping":
+        filter.deviceStatus.push(DeviceStatus.INACTIVE);
+        filter.deviceStatus.push(DeviceStatus.MAINTENANCE);
+        break;
+    }
+  });
 
-  // Parse component issues
-  if (issuesParam) {
-    const issueValues = issuesParam.split(",");
-    issueValues.forEach((issue) => {
-      switch (issue) {
-        case componentIssues.controlBoard:
-          filter.errorComponentTypes.push(ComponentType.CONTROL_BOARD);
-          break;
-        case componentIssues.fans:
-          filter.errorComponentTypes.push(ComponentType.FAN);
-          break;
-        case componentIssues.hashBoards:
-          filter.errorComponentTypes.push(ComponentType.HASH_BOARD);
-          break;
-        case componentIssues.psu:
-          filter.errorComponentTypes.push(ComponentType.PSU);
-          break;
-        default:
-          return; // Skip unknown issues
-      }
-    });
-  }
+  getMultiLegacy(params, URL_PARAMS.ISSUES).forEach((issue) => {
+    switch (issue) {
+      case componentIssues.controlBoard:
+        filter.errorComponentTypes.push(ComponentType.CONTROL_BOARD);
+        break;
+      case componentIssues.fans:
+        filter.errorComponentTypes.push(ComponentType.FAN);
+        break;
+      case componentIssues.hashBoards:
+        filter.errorComponentTypes.push(ComponentType.HASH_BOARD);
+        break;
+      case componentIssues.psu:
+        filter.errorComponentTypes.push(ComponentType.PSU);
+        break;
+    }
+  });
 
-  // Parse models
-  if (modelParam) {
-    const modelValues = modelParam.split(",");
-    modelValues.forEach((model) => {
-      if (model) {
-        filter.models.push(model);
-      }
-    });
-  }
+  getMultiLegacy(params, URL_PARAMS.MODEL).forEach((model) => {
+    if (model) filter.models.push(model);
+  });
 
-  // Parse group IDs
-  if (groupParam) {
-    const groupValues = groupParam.split(",");
-    groupValues.forEach((id) => {
-      const trimmed = id.trim();
-      if (trimmed && /^\d+$/.test(trimmed)) {
-        filter.groupIds.push(BigInt(trimmed));
-      }
-    });
-  }
+  getMultiLegacy(params, URL_PARAMS.GROUP).forEach((id) => {
+    const trimmed = id.trim();
+    if (trimmed && /^\d+$/.test(trimmed)) {
+      filter.groupIds.push(BigInt(trimmed));
+    }
+  });
 
-  // Parse rack IDs
-  if (rackParam) {
-    const rackValues = rackParam.split(",");
-    rackValues.forEach((id) => {
-      const trimmed = id.trim();
-      if (trimmed && /^\d+$/.test(trimmed)) {
-        filter.rackIds.push(BigInt(trimmed));
-      }
-    });
-  }
+  getMultiLegacy(params, URL_PARAMS.RACK).forEach((id) => {
+    const trimmed = id.trim();
+    if (trimmed && /^\d+$/.test(trimmed)) {
+      filter.rackIds.push(BigInt(trimmed));
+    }
+  });
+
+  getMulti(params, URL_PARAMS.FIRMWARE).forEach((value) => {
+    if (value) filter.firmwareVersions.push(value);
+  });
+
+  getMulti(params, URL_PARAMS.ZONE).forEach((value) => {
+    if (value) filter.zones.push(value);
+  });
 
   return filter;
 }
@@ -226,56 +224,46 @@ export function parseUrlToActiveFilters(params: URLSearchParams): ActiveFilters 
     dropdownFilters: {},
   };
 
-  // Parse status dropdown
-  const statusParam = params.get(URL_PARAMS.STATUS);
-  if (statusParam) {
-    const statusValues = statusParam.split(",");
-    const mappedStatuses = statusValues.map((v) => URL_TO_STATUS[v]).filter(Boolean);
-    // Deduplicate to prevent infinite loops from duplicate URL params
-    const uniqueStatuses = Array.from(new Set(mappedStatuses));
-    if (uniqueStatuses.length > 0) {
-      activeFilters.dropdownFilters.status = uniqueStatuses;
-    }
+  const statusValues = getMultiLegacy(params, URL_PARAMS.STATUS)
+    .map((v) => URL_TO_STATUS[v])
+    .filter(Boolean);
+  const uniqueStatuses = Array.from(new Set(statusValues));
+  if (uniqueStatuses.length > 0) {
+    activeFilters.dropdownFilters.status = uniqueStatuses;
   }
 
-  // Parse issues dropdown
-  const issuesParam = params.get(URL_PARAMS.ISSUES);
-  if (issuesParam) {
-    const issueValues = issuesParam.split(",");
-    // Deduplicate to prevent infinite loops from duplicate URL params
-    activeFilters.dropdownFilters.issues = Array.from(new Set(issueValues));
+  const issuesValues = getMultiLegacy(params, URL_PARAMS.ISSUES);
+  if (issuesValues.length > 0) {
+    activeFilters.dropdownFilters.issues = Array.from(new Set(issuesValues));
   }
 
-  // Parse model dropdown
-  const modelParam = params.get(URL_PARAMS.MODEL);
-  if (modelParam) {
-    const modelValues = modelParam.split(",");
-    // Deduplicate to prevent infinite loops from duplicate URL params
+  const modelValues = getMultiLegacy(params, URL_PARAMS.MODEL);
+  if (modelValues.length > 0) {
     activeFilters.dropdownFilters.model = Array.from(new Set(modelValues));
   }
 
-  // Parse group dropdown
-  const groupParam = params.get(URL_PARAMS.GROUP);
-  if (groupParam) {
-    const groupValues = groupParam
-      .split(",")
-      .map((value) => value.trim())
-      .filter((value) => value !== "" && /^\d+$/.test(value));
-    if (groupValues.length > 0) {
-      activeFilters.dropdownFilters.group = Array.from(new Set(groupValues));
-    }
+  const groupValues = getMultiLegacy(params, URL_PARAMS.GROUP)
+    .map((value) => value.trim())
+    .filter((value) => value !== "" && /^\d+$/.test(value));
+  if (groupValues.length > 0) {
+    activeFilters.dropdownFilters.group = Array.from(new Set(groupValues));
   }
 
-  // Parse rack dropdown
-  const rackParam = params.get(URL_PARAMS.RACK);
-  if (rackParam) {
-    const rackValues = rackParam
-      .split(",")
-      .map((value) => value.trim())
-      .filter((value) => value !== "" && /^\d+$/.test(value));
-    if (rackValues.length > 0) {
-      activeFilters.dropdownFilters.rack = Array.from(new Set(rackValues));
-    }
+  const rackValues = getMultiLegacy(params, URL_PARAMS.RACK)
+    .map((value) => value.trim())
+    .filter((value) => value !== "" && /^\d+$/.test(value));
+  if (rackValues.length > 0) {
+    activeFilters.dropdownFilters.rack = Array.from(new Set(rackValues));
+  }
+
+  const firmwareValues = getMulti(params, URL_PARAMS.FIRMWARE).filter((v) => v !== "");
+  if (firmwareValues.length > 0) {
+    activeFilters.dropdownFilters.firmware = Array.from(new Set(firmwareValues));
+  }
+
+  const zoneValues = getMulti(params, URL_PARAMS.ZONE).filter((v) => v !== "");
+  if (zoneValues.length > 0) {
+    activeFilters.dropdownFilters.zone = Array.from(new Set(zoneValues));
   }
 
   return activeFilters;
@@ -287,37 +275,40 @@ export function parseUrlToActiveFilters(params: URLSearchParams): ActiveFilters 
 export function encodeActiveFiltersToURL(filters: ActiveFilters): URLSearchParams {
   const params = new URLSearchParams();
 
-  // Encode status dropdown
   const statusFilters = filters.dropdownFilters.status;
   if (statusFilters && statusFilters.length > 0) {
     const urlValues = statusFilters.map((s) => STATUS_TO_URL[s]).filter(Boolean);
-    if (urlValues.length > 0) {
-      params.set(URL_PARAMS.STATUS, urlValues.sort().join(","));
-    }
+    setMulti(params, URL_PARAMS.STATUS, [...urlValues].sort());
   }
 
-  // Encode issues dropdown
   const issueFilters = filters.dropdownFilters.issues;
   if (issueFilters && issueFilters.length > 0) {
-    params.set(URL_PARAMS.ISSUES, issueFilters.sort().join(","));
+    setMulti(params, URL_PARAMS.ISSUES, [...issueFilters].sort());
   }
 
-  // Encode model dropdown
   const modelFilters = filters.dropdownFilters.model;
   if (modelFilters && modelFilters.length > 0) {
-    params.set(URL_PARAMS.MODEL, modelFilters.sort().join(","));
+    setMulti(params, URL_PARAMS.MODEL, [...modelFilters].sort());
   }
 
-  // Encode group dropdown
   const groupFilters = filters.dropdownFilters.group;
   if (groupFilters && groupFilters.length > 0) {
-    params.set(URL_PARAMS.GROUP, groupFilters.sort().join(","));
+    setMulti(params, URL_PARAMS.GROUP, [...groupFilters].sort());
   }
 
-  // Encode rack dropdown
   const rackFilters = filters.dropdownFilters.rack;
   if (rackFilters && rackFilters.length > 0) {
-    params.set(URL_PARAMS.RACK, rackFilters.sort().join(","));
+    setMulti(params, URL_PARAMS.RACK, [...rackFilters].sort());
+  }
+
+  const firmwareFilters = filters.dropdownFilters.firmware;
+  if (firmwareFilters && firmwareFilters.length > 0) {
+    setMulti(params, URL_PARAMS.FIRMWARE, [...firmwareFilters].sort());
+  }
+
+  const zoneFilters = filters.dropdownFilters.zone;
+  if (zoneFilters && zoneFilters.length > 0) {
+    setMulti(params, URL_PARAMS.ZONE, [...zoneFilters].sort());
   }
 
   return params;

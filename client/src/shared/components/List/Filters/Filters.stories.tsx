@@ -214,6 +214,85 @@ export const WithHeaderControls = () => {
   );
 };
 
+const firmwareOptions = [
+  { id: "v3.5.1", label: "v3.5.1" },
+  { id: "v3.5.2", label: "v3.5.2" },
+  { id: "v3.6.0", label: "v3.6.0" },
+];
+
+const zoneOptions = [
+  { id: "building-a", label: "Building A" },
+  { id: "Austin, Building 1", label: "Austin, Building 1" },
+  { id: "remote-site-3", label: "Remote site 3" },
+];
+
+export const WithNestedFilterDropdown = () => {
+  const statusFilter = {
+    type: "dropdown" as const,
+    title: "Status",
+    value: "status",
+    options: statusOptions,
+    defaultOptionIds: [],
+  };
+  const typeFilter = {
+    type: "dropdown" as const,
+    title: "Type",
+    value: "type",
+    options: typeOptions,
+    defaultOptionIds: [],
+  };
+  const firmwareFilter = {
+    type: "dropdown" as const,
+    title: "Firmware",
+    value: "firmware",
+    options: firmwareOptions,
+    defaultOptionIds: [],
+  };
+  const zoneFilter = {
+    type: "dropdown" as const,
+    title: "Zones",
+    value: "zone",
+    options: zoneOptions,
+    defaultOptionIds: [],
+  };
+
+  const filters: FilterItem[] = [
+    // Meta-dropdown rendered first in the bar exposes every category, including
+    // firmware + zones which have no standalone trigger.
+    {
+      type: "nestedFilterDropdown",
+      title: "Filters",
+      value: "all-filters",
+      children: [statusFilter, typeFilter, firmwareFilter, zoneFilter],
+    },
+    // Standalone shortcuts for the most-used filters. Same `value` keys as the
+    // nested children so selecting in either surface stays in sync and pills dedup.
+    statusFilter,
+    typeFilter,
+  ];
+
+  return (
+    <div className="flex flex-col gap-4 p-4">
+      <FiltersComponent
+        className="gap-4"
+        filterItems={filters}
+        items={[]}
+        onFilter={(activeFilters) => {
+          onFilterChange(activeFilters);
+        }}
+        isServerSide
+      />
+      <div className="text-300">
+        <p>
+          <strong>Nested dropdown filter:</strong> a meta-dropdown that exposes every category as a hover-triggered
+          submenu. Same <code>value</code> keys as standalone triggers, so selecting in either surface stays in sync and
+          active-pills dedup. Hover the &ldquo;Filters&rdquo; button, then hover any row to open its submenu.
+        </p>
+      </div>
+    </div>
+  );
+};
+
 export const StatefulExample = () => {
   const [activeFilters, setActiveFilters] = useState<ActiveFilters>({
     buttonFilters: [defaultListFilter],

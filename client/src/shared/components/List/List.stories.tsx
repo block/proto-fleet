@@ -1,7 +1,8 @@
+import { useMemo } from "react";
 import { action } from "storybook/actions";
 import ListComponent from ".";
 import { defaultListFilter } from "@/shared/components/List/constants";
-import { ActiveFilters } from "@/shared/components/List/Filters/types";
+import { ActiveFilters, type DropdownFilterItem, type FilterItem } from "@/shared/components/List/Filters/types";
 import testColConfig from "@/shared/components/List/mocks/colConfig";
 import { testCols, testColTitles, testFilters, TestItem, testItems } from "@/shared/components/List/mocks/data";
 import Switch from "@/shared/components/Switch";
@@ -60,12 +61,42 @@ export const List = ({ numberOfItems, numberOfColumns, numberOfItemActions, item
     return true;
   };
 
+  // Demonstrate the meta-dropdown alongside the existing button + dropdown filters.
+  // Wraps the value-range dropdown from `testFilters` plus an extra firmware category
+  // that has no standalone trigger — selecting it shows up in the active-pill row.
+  const filtersWithMeta = useMemo<FilterItem[]>(() => {
+    const valueRangeFilter = testFilters.find(
+      (f): f is DropdownFilterItem => f.type === "dropdown" && f.value === "valueRange",
+    );
+    const firmwareFilter: DropdownFilterItem = {
+      type: "dropdown",
+      title: "Firmware",
+      value: "firmware",
+      options: [
+        { id: "v3.5.1", label: "v3.5.1" },
+        { id: "v3.5.2", label: "v3.5.2" },
+        { id: "v3.6.0", label: "v3.6.0" },
+      ],
+      defaultOptionIds: [],
+    };
+    const nestedChildren = valueRangeFilter ? [valueRangeFilter, firmwareFilter] : [firmwareFilter];
+    return [
+      {
+        type: "nestedFilterDropdown",
+        title: "Filters",
+        value: "all-filters",
+        children: nestedChildren,
+      },
+      ...testFilters,
+    ];
+  }, []);
+
   return (
     <ListComponent<TestItem, TestItem["id"]>
       activeCols={activeCols.slice(0, numberOfColumns)}
       colTitles={testColTitles}
       colConfig={testColConfig}
-      filters={testFilters}
+      filters={filtersWithMeta}
       filterItem={filterItem}
       headerControls={<Switch label="Show passwords" />}
       items={[...testItems, ...testItems, ...testItems, ...testItems].slice(0, numberOfItems)}
