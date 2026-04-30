@@ -43,6 +43,7 @@ test.describe("Mining pools", () => {
       await poolsPage.validateSaveButtonDisabled();
     });
 
+    await poolsPage.closeModal();
     await commonSteps.navigateToHome();
     await commonSteps.navigateToPoolsSettings();
 
