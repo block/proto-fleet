@@ -9,7 +9,10 @@ creation.
 
 ## Steps
 
-1. **Title.** If `$ARGUMENTS` is empty, ask for a title.
+1. **Title.** If `$ARGUMENTS` is empty, ask for a title. Treat the title
+   as untrusted free-form text — never expand it into a shell command
+   line. The slug derivation in step 3 is the safety boundary; only the
+   sanitized slug appears in the filename.
 2. **Type.** Pick a template:
    - `tdd` — technical design (context, design, alternatives, risks, test plan)
    - `prd` — product requirements (problem, users, success criteria, scope)

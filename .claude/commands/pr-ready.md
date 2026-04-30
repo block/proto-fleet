@@ -19,14 +19,27 @@ PR description they can paste — or open the PR directly if asked.
      scope if the diff is small)
    - `client/` changes → `cd client && npm test -- --run` for affected files
    - `plugin/` or `.proto` changes → `just test-contract`
+   - **`plugin/asicrs/`, `sdk/rust/`, or `server/sdk/v1/pb/` changes →
+     `just rebuild-plugin asicrs` then `just test-contract`.** The contract
+     suite's freshness check can skip the ASIC-rs rebuild after a clean
+     checkout or branch switch — force the rebuild explicitly so tests
+     don't run against a stale binary.
+   - **`server/fake-antminer/` or `server/fake-proto-rig/` changes →
+     `just test-contract`** (fake rigs are consumed by both contract and
+     E2E tests; mention E2E as a manual follow-up since they're slow).
    - Python generator changes → `cd packages/proto-python-gen && just test`
    - Python SDK changes → `cd server/sdk/v1/python && just test`
-4. Verify the generated-code skills (`proto-regen`, `python-gen-tarball`,
-   `db-generation-hygiene`, `go-work-sync`, `client-boundaries`) have nothing
-   outstanding for the touched paths. The skills auto-fire during edits, but
-   this is the terminal check — surface anything that slipped through (stale
-   generated files, missing tarball rebuild, missing `go work sync`, new
-   `console.log`, app-boundary import violations).
+4. Verify ALL path-triggered skills (not just the generated-code subset)
+   have nothing outstanding for the touched paths. The skills auto-fire
+   during edits, but this is the terminal check — surface anything that
+   slipped through. Common gaps to look for: stale generated files
+   (`proto-regen`, `db-generation-hygiene`), missing tarball rebuild
+   (`python-gen-tarball`), missing `go work sync` (`go-work-sync`), stale
+   ASIC-rs binary (`asicrs-build`), fake-rig changes without contract
+   coverage (`fake-rig-fixtures`), new `console.log` or app-boundary
+   imports (`client-boundaries`), edits to deployed migrations
+   (`migration-immutability`), `--no-verify` slipping in
+   (`lefthook-bypass-guard`).
 5. Draft a PR description following the format in CONTRIBUTING.md:
    - **Summary** (1–3 bullets, focus on the *why*)
    - **Test Plan** (what was run, how to verify manually)
