@@ -66,7 +66,10 @@ These are the rules that recur in code review and that contributors most often m
 ## Git workflow
 
 - Never commit to `main`. Always work on a feature branch. Verify with
-  `git branch --show-current` before each commit.
+  `git branch --show-current` before each commit. Lefthook also rejects
+  commits on `main`/`master`/detached HEAD as a safety net (see
+  `scripts/lefthook-block-protected-branches.sh`) — don't rely on it as a
+  substitute for following the rule.
 - After a PR merges, do not reuse that branch for follow-up work — cut a
   fresh branch from the updated `main`.
 

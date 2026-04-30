@@ -8,6 +8,9 @@ glob_matcher: doublestar
 pre-commit:
   parallel: true
   commands:
+    block-protected-branches:
+      run: scripts/lefthook-block-protected-branches.sh
+
     client-format:
       glob: "client/**/*.{ts,tsx,js,jsx,css,md}"
       stage_fixed: true

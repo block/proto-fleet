@@ -5,18 +5,5 @@
       "Bash(git branch --show-current:*)",
       "Bash(git rev-parse --abbrev-ref HEAD:*)"
     ]
-  },
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash .claude/hooks/git-commit-guard.sh"
-          }
-        ]
-      }
-    ]
   }
 }
