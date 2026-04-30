@@ -233,8 +233,8 @@ func (s *Service) WithMinerInvalidator(invalidate func(models.DeviceIdentifier))
 	s.invalidateMiner = invalidate
 }
 
-// WithOptionsCache wires the per-org fleet options cache so pairing writes
-// can invalidate stale model/firmware lists. Pass nil to disable.
+// WithOptionsCache wires the per-org fleet options cache so explicit
+// pairing adds can evict stale model/firmware lists. Pass nil to disable.
 func (s *Service) WithOptionsCache(cache *fleetoptions.Cache) {
 	s.optionsCache = cache
 }
@@ -1061,21 +1061,6 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice 
 		return false, err
 	}
 
-	// The upsert can rewrite model, firmware_version, and is_active on
-	// already-known devices. Those fields feed the dropdown source set
-	// scanned by GetAvailableModels / GetAvailableFirmwareVersions
-	// (PAIRED ∪ AUTH_NEEDED), so re-discoveries of paired devices may
-	// need an eviction. Skip the invalidation when the device isn't in
-	// the source set — net-new scan hits and rescans of unpaired
-	// devices are the dominant case during scans, and evicting on
-	// every hit would defeat the cache.
-	if statusProvider, ok := s.deviceStore.(devicePairingStatusProvider); ok {
-		status, statusErr := statusProvider.GetDevicePairingStatusByIdentifier(ctx, deviceIdentifier, info.OrganizationID)
-		if statusErr == nil && (status == StatusPaired || status == StatusAuthenticationNeeded) {
-			s.optionsCache.Invalidate(info.OrganizationID)
-		}
-	}
-
 	minerCapabilities := s.capabilitiesProvider.GetMinerCapabilitiesForDevice(ctx, &discoveredDevice.Device)
 	result.Device.Capabilities = minerCapabilities
 
@@ -1218,11 +1203,7 @@ func (s *Service) IsSameDevice(ctx context.Context, newDiscoveredDevice *discove
 		if fleeterror.IsAuthenticationError(err) {
 			slog.Info("authentication failed for paired device, updating pairing status",
 				"device_identifier", pairedDevice.DeviceIdentifier)
-			// No options-cache invalidation needed: PAIRED → AUTH_NEEDED
-			// keeps the device in the dropdown source set
-			// (GetAvailableModels / GetAvailableFirmwareVersions scan
-			// PAIRED ∪ AUTH_NEEDED).
-			if _, updateErr := s.deviceStore.UpdateDevicePairingStatusByIdentifier(ctx, pairedDevice.DeviceIdentifier, StatusAuthenticationNeeded); updateErr != nil {
+			if updateErr := s.deviceStore.UpdateDevicePairingStatusByIdentifier(ctx, pairedDevice.DeviceIdentifier, StatusAuthenticationNeeded); updateErr != nil {
 				slog.Error("failed to update pairing status to AUTHENTICATION_NEEDED",
 					"device_identifier", pairedDevice.DeviceIdentifier, "error", updateErr)
 			}
@@ -1525,10 +1506,6 @@ func (s *Service) handleAuthenticationRequiredPairing(ctx context.Context, disco
 		return err
 	}
 
-	// The device is now AUTHENTICATION_NEEDED, which is part of the
-	// dropdown source set (GetAvailableModels / GetAvailableFirmwareVersions
-	// scan PAIRED ∪ AUTH_NEEDED). Evict so the new device's model and
-	// firmware show up immediately rather than after TTL expiry.
 	s.optionsCache.Invalidate(discoveredDevice.OrgID)
 	return nil
 }
@@ -1644,6 +1621,5 @@ func (s *Service) pairDevice(ctx context.Context, deviceID string, orgID int64, 
 	}
 
 	s.optionsCache.Invalidate(orgID)
-
 	return models.DeviceIdentifier(discoveredDevice.DeviceIdentifier), nil
 }

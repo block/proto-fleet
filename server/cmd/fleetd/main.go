@@ -251,9 +251,10 @@ func start(config *Config) error {
 	diagnosticsService := diagnostics.NewService(diagnosticsCtx, config.Diagnostics, errorStore, transactor)
 
 	// Shared per-org cache for ListMinerStateSnapshots option arrays
-	// (models, firmware versions). The TTL is a safety net; pairing,
-	// telemetry, and fleet management invalidate at known mutation sites.
-	fleetOptionsCache := fleetoptions.NewCache(10*time.Minute, 1024)
+	// (models, firmware versions). The TTL is the primary freshness
+	// mechanism; pairing and delete flows invalidate obvious add/remove
+	// membership changes.
+	fleetOptionsCache := fleetoptions.NewCache(fleetoptions.DefaultTTL, 1024)
 
 	telemetryService := telemetry.NewTelemetryService(
 		config.Telemetry,
@@ -263,8 +264,6 @@ func start(config *Config) error {
 		deviceStore,
 		diagnosticsService,
 	)
-	telemetryService.WithOptionsCache(fleetOptionsCache)
-
 	if err := telemetryService.Start(context.Background()); err != nil {
 		slog.Error("failed to start telemetry service", "error", err)
 		return fmt.Errorf("failed to start telemetry service: %w", err)
@@ -334,7 +333,6 @@ func start(config *Config) error {
 	}()
 
 	executionService := commandDomain.NewExecutionService(executionServiceCtx, &config.Command, conn, dbMessageQueue, encryptSvc, tokenSvc, minerService, deviceStore, telemetryService, filesService)
-	executionService.WithOptionsCache(fleetOptionsCache)
 	err = executionService.Start(executionServiceCtx)
 	if err != nil {
 		slog.Error("failed to start command execution service", "error", err)

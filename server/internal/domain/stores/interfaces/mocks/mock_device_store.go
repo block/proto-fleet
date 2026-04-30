@@ -423,12 +423,11 @@ func (mr *MockDeviceStoreMockRecorder) UpdateDeviceInfo(ctx, device, orgID any) 
 }
 
 // UpdateDevicePairingStatusByIdentifier mocks base method.
-func (m *MockDeviceStore) UpdateDevicePairingStatusByIdentifier(ctx context.Context, deviceIdentifier, pairingStatus string) (int64, error) {
+func (m *MockDeviceStore) UpdateDevicePairingStatusByIdentifier(ctx context.Context, deviceIdentifier, pairingStatus string) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateDevicePairingStatusByIdentifier", ctx, deviceIdentifier, pairingStatus)
-	ret0, _ := ret[0].(int64)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // UpdateDevicePairingStatusByIdentifier indicates an expected call of UpdateDevicePairingStatusByIdentifier.
@@ -438,12 +437,11 @@ func (mr *MockDeviceStoreMockRecorder) UpdateDevicePairingStatusByIdentifier(ctx
 }
 
 // UpdateFirmwareVersion mocks base method.
-func (m *MockDeviceStore) UpdateFirmwareVersion(ctx context.Context, deviceIdentifier models1.DeviceIdentifier, firmwareVersion string) (int64, error) {
+func (m *MockDeviceStore) UpdateFirmwareVersion(ctx context.Context, deviceIdentifier models1.DeviceIdentifier, firmwareVersion string) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateFirmwareVersion", ctx, deviceIdentifier, firmwareVersion)
-	ret0, _ := ret[0].(int64)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
 // UpdateFirmwareVersion indicates an expected call of UpdateFirmwareVersion.

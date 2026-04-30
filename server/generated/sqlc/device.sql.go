@@ -1853,7 +1853,7 @@ func (q *Queries) UpdateDeviceInfo(ctx context.Context, arg UpdateDeviceInfoPara
 	return err
 }
 
-const updateDevicePairingStatusByIdentifier = `-- name: UpdateDevicePairingStatusByIdentifier :one
+const updateDevicePairingStatusByIdentifier = `-- name: UpdateDevicePairingStatusByIdentifier :exec
 UPDATE device_pairing
 SET pairing_status = $1
 FROM device d
@@ -1861,7 +1861,6 @@ WHERE device_pairing.device_id = d.id
   AND d.device_identifier = $2
   AND d.deleted_at IS NULL
   AND device_pairing.pairing_status IS DISTINCT FROM $1
-RETURNING d.org_id
 `
 
 type UpdateDevicePairingStatusByIdentifierParams struct {
@@ -1869,21 +1868,15 @@ type UpdateDevicePairingStatusByIdentifierParams struct {
 	DeviceIdentifier string
 }
 
-// PostgreSQL equivalent of UPDATE with INNER JOIN.
-// RETURNING d.org_id lets callers invalidate per-org caches that depend on
-// pairing_status membership (e.g. fleetoptions). At most one row matches:
+// PostgreSQL equivalent of UPDATE with INNER JOIN. At most one row matches:
 // device.device_identifier is partial-UNIQUE on deleted_at IS NULL and
 // device_pairing has a UNIQUE(device_id) constraint.
 //
-// The IS DISTINCT FROM guard makes a no-op write (status already matches)
-// return zero rows, which the wrapper maps to (0, nil). This prevents
-// repeated AUTH_NEEDED writes from churning the options cache on every
-// failed-auth polling cycle.
-func (q *Queries) UpdateDevicePairingStatusByIdentifier(ctx context.Context, arg UpdateDevicePairingStatusByIdentifierParams) (int64, error) {
-	row := q.queryRow(ctx, q.updateDevicePairingStatusByIdentifierStmt, updateDevicePairingStatusByIdentifier, arg.PairingStatus, arg.DeviceIdentifier)
-	var org_id int64
-	err := row.Scan(&org_id)
-	return org_id, err
+// The IS DISTINCT FROM guard skips no-op writes when the status already
+// matches, avoiding unnecessary UPDATE churn during repeated auth failures.
+func (q *Queries) UpdateDevicePairingStatusByIdentifier(ctx context.Context, arg UpdateDevicePairingStatusByIdentifierParams) error {
+	_, err := q.exec(ctx, q.updateDevicePairingStatusByIdentifierStmt, updateDevicePairingStatusByIdentifier, arg.PairingStatus, arg.DeviceIdentifier)
+	return err
 }
 
 const updateDeviceWorkerName = `-- name: UpdateDeviceWorkerName :execrows

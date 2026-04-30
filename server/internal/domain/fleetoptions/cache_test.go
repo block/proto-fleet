@@ -88,47 +88,5 @@ func TestCache_NilReceiverIsSafe(t *testing.T) {
 		c.Invalidate(1)
 		_, ok := c.Get(1)
 		assert.False(t, ok)
-		_ = c.Generation(1)
-		ok = c.PutIfGeneration(1, fleetoptions.Options{}, 0)
-		assert.False(t, ok)
 	})
-}
-
-func TestCache_GenerationBumpsOnInvalidate(t *testing.T) {
-	c := fleetoptions.NewCache(time.Minute, 16)
-
-	assert.Equal(t, uint64(0), c.Generation(1))
-	c.Invalidate(1)
-	assert.Equal(t, uint64(1), c.Generation(1))
-	c.Invalidate(1)
-	assert.Equal(t, uint64(2), c.Generation(1))
-	// Different orgs are independent.
-	assert.Equal(t, uint64(0), c.Generation(2))
-}
-
-func TestCache_PutIfGenerationDiscardsStaleAfterInvalidate(t *testing.T) {
-	c := fleetoptions.NewCache(time.Minute, 16)
-	want := fleetoptions.Options{Models: []string{"S19"}}
-
-	gen := c.Generation(1)
-	c.Invalidate(1) // races ahead of the fetch
-
-	ok := c.PutIfGeneration(1, want, gen)
-	assert.False(t, ok, "put with stale generation must be a no-op")
-
-	_, hit := c.Get(1)
-	assert.False(t, hit, "stale put must not have written to the cache")
-}
-
-func TestCache_PutIfGenerationWritesWhenGenerationMatches(t *testing.T) {
-	c := fleetoptions.NewCache(time.Minute, 16)
-	want := fleetoptions.Options{Models: []string{"S19"}}
-
-	gen := c.Generation(1)
-	ok := c.PutIfGeneration(1, want, gen)
-	assert.True(t, ok)
-
-	got, hit := c.Get(1)
-	assert.True(t, hit)
-	assert.Equal(t, want, got)
 }

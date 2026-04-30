@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -221,23 +220,16 @@ func (s *SQLDeviceStore) UpsertDevicePairing(ctx context.Context, device *pb.Dev
 }
 
 // UpdateDevicePairingStatusByIdentifier writes the new pairing_status for
-// the device. The returned int64 is the org_id of the updated row, or 0
-// when no row was changed (device missing or already soft-deleted).
-// Callers use the org_id to invalidate per-org caches whose membership
-// depends on pairing_status.
-func (s *SQLDeviceStore) UpdateDevicePairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, pairingStatus string) (int64, error) {
-	orgID, err := s.getQueries(ctx).UpdateDevicePairingStatusByIdentifier(ctx, sqlc.UpdateDevicePairingStatusByIdentifierParams{
+// the device when the device exists and is not soft-deleted.
+func (s *SQLDeviceStore) UpdateDevicePairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, pairingStatus string) error {
+	err := s.getQueries(ctx).UpdateDevicePairingStatusByIdentifier(ctx, sqlc.UpdateDevicePairingStatusByIdentifierParams{
 		PairingStatus:    sqlc.PairingStatusEnum(pairingStatus),
 		DeviceIdentifier: deviceIdentifier,
 	})
-	if errors.Is(err, sql.ErrNoRows) {
-		// No row matched — device missing or already soft-deleted.
-		return 0, nil
-	}
 	if err != nil {
-		return 0, fleeterror.NewInternalErrorf("failed to update device pairing status for device %s: %v", deviceIdentifier, err)
+		return fleeterror.NewInternalErrorf("failed to update device pairing status for device %s: %v", deviceIdentifier, err)
 	}
-	return orgID, nil
+	return nil
 }
 
 func (s *SQLDeviceStore) GetDevicePairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, orgID int64) (string, error) {
@@ -1217,22 +1209,16 @@ GROUP BY dcm.device_set_id, e.component_type`,
 }
 
 // UpdateFirmwareVersion writes the firmware version for the device when it
-// differs from the stored value. The returned int64 is the org_id of the
-// updated row, or 0 when no row was changed (firmware unchanged or device
-// missing). Callers use the org_id to invalidate per-org option caches.
-func (s *SQLDeviceStore) UpdateFirmwareVersion(ctx context.Context, deviceIdentifier models.DeviceIdentifier, firmwareVersion string) (int64, error) {
-	orgID, err := s.getQueries(ctx).UpdateDiscoveredDeviceFirmwareVersion(ctx, sqlc.UpdateDiscoveredDeviceFirmwareVersionParams{
+// differs from the stored value.
+func (s *SQLDeviceStore) UpdateFirmwareVersion(ctx context.Context, deviceIdentifier models.DeviceIdentifier, firmwareVersion string) error {
+	err := s.getQueries(ctx).UpdateDiscoveredDeviceFirmwareVersion(ctx, sqlc.UpdateDiscoveredDeviceFirmwareVersionParams{
 		DeviceIdentifier: string(deviceIdentifier),
 		FirmwareVersion:  sql.NullString{String: firmwareVersion, Valid: firmwareVersion != ""},
 	})
-	if errors.Is(err, sql.ErrNoRows) {
-		// No row matched — firmware unchanged or device missing/deleted.
-		return 0, nil
-	}
 	if err != nil {
-		return 0, fleeterror.NewInternalErrorf("failed to update firmware version for device %s: %v", deviceIdentifier, err)
+		return fleeterror.NewInternalErrorf("failed to update firmware version for device %s: %v", deviceIdentifier, err)
 	}
-	return orgID, nil
+	return nil
 }
 
 func (s *SQLDeviceStore) UpdateWorkerName(ctx context.Context, deviceIdentifier models.DeviceIdentifier, workerName string) error {

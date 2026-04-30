@@ -115,11 +115,11 @@ func TestGetMinerModelGroups_FirmwareFilter(t *testing.T) {
 		pairDevice(t, ctx, deviceStore, user.OrganizationID, d)
 	}
 
-	_, err := deviceStore.UpdateFirmwareVersion(ctx, models.DeviceIdentifier(d1.ID), "v3.5.1")
+	err := deviceStore.UpdateFirmwareVersion(ctx, models.DeviceIdentifier(d1.ID), "v3.5.1")
 	require.NoError(t, err)
-	_, err = deviceStore.UpdateFirmwareVersion(ctx, models.DeviceIdentifier(d2.ID), "v3.5.1")
+	err = deviceStore.UpdateFirmwareVersion(ctx, models.DeviceIdentifier(d2.ID), "v3.5.1")
 	require.NoError(t, err)
-	_, err = deviceStore.UpdateFirmwareVersion(ctx, models.DeviceIdentifier(d3.ID), "v3.5.2")
+	err = deviceStore.UpdateFirmwareVersion(ctx, models.DeviceIdentifier(d3.ID), "v3.5.2")
 	require.NoError(t, err)
 
 	// No filter: all three paired devices roll up into a single TestMiner group.
@@ -275,13 +275,13 @@ func TestGetMinerModelGroups_FirmwareAndZoneFilters(t *testing.T) {
 	setDiscoveredDeviceModel(t, db, m60b.ID, "M60")
 
 	// Firmware: s21a + m60a on v1, s21b + m60b on v2.
-	_, err := deviceStore.UpdateFirmwareVersion(ctx, models.DeviceIdentifier(s21a.ID), "v1")
+	err := deviceStore.UpdateFirmwareVersion(ctx, models.DeviceIdentifier(s21a.ID), "v1")
 	require.NoError(t, err)
-	_, err = deviceStore.UpdateFirmwareVersion(ctx, models.DeviceIdentifier(m60a.ID), "v1")
+	err = deviceStore.UpdateFirmwareVersion(ctx, models.DeviceIdentifier(m60a.ID), "v1")
 	require.NoError(t, err)
-	_, err = deviceStore.UpdateFirmwareVersion(ctx, models.DeviceIdentifier(s21b.ID), "v2")
+	err = deviceStore.UpdateFirmwareVersion(ctx, models.DeviceIdentifier(s21b.ID), "v2")
 	require.NoError(t, err)
-	_, err = deviceStore.UpdateFirmwareVersion(ctx, models.DeviceIdentifier(m60b.ID), "v2")
+	err = deviceStore.UpdateFirmwareVersion(ctx, models.DeviceIdentifier(m60b.ID), "v2")
 	require.NoError(t, err)
 
 	// Zones: s21a + s21b in zone-a, m60a + m60b in zone-b.

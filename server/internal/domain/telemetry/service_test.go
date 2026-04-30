@@ -15,7 +15,6 @@ import (
 	telemetryv1 "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/block/proto-fleet/server/internal/domain/fleetoptions"
 	minerMocks "github.com/block/proto-fleet/server/internal/domain/miner/interfaces/mocks"
 	mm "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
@@ -2200,7 +2199,7 @@ func TestPersistFirmwareVersionIfChanged(t *testing.T) {
 		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 		mockDeviceStore.EXPECT().
 			UpdateFirmwareVersion(gomock.Any(), deviceID, firmwareV1).
-			Return(int64(7), nil)
+			Return(nil)
 
 		service := NewTelemetryService(Config{ConcurrencyLimit: 1}, nil, nil, nil, mockDeviceStore, nil)
 
@@ -2212,7 +2211,7 @@ func TestPersistFirmwareVersionIfChanged(t *testing.T) {
 		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 		mockDeviceStore.EXPECT().
 			UpdateFirmwareVersion(gomock.Any(), deviceID, firmwareV1).
-			Return(int64(7), nil)
+			Return(nil)
 
 		service := NewTelemetryService(Config{ConcurrencyLimit: 1}, nil, nil, nil, mockDeviceStore, nil)
 
@@ -2227,10 +2226,10 @@ func TestPersistFirmwareVersionIfChanged(t *testing.T) {
 		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 		mockDeviceStore.EXPECT().
 			UpdateFirmwareVersion(gomock.Any(), deviceID, firmwareV1).
-			Return(int64(7), nil)
+			Return(nil)
 		mockDeviceStore.EXPECT().
 			UpdateFirmwareVersion(gomock.Any(), deviceID, firmwareV2).
-			Return(int64(7), nil)
+			Return(nil)
 
 		service := NewTelemetryService(Config{ConcurrencyLimit: 1}, nil, nil, nil, mockDeviceStore, nil)
 
@@ -2243,11 +2242,11 @@ func TestPersistFirmwareVersionIfChanged(t *testing.T) {
 		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 		mockDeviceStore.EXPECT().
 			UpdateFirmwareVersion(gomock.Any(), deviceID, firmwareV1).
-			Return(int64(0), fmt.Errorf("db error"))
+			Return(fmt.Errorf("db error"))
 		// Retry should call UpdateFirmwareVersion again since previous failed
 		mockDeviceStore.EXPECT().
 			UpdateFirmwareVersion(gomock.Any(), deviceID, firmwareV1).
-			Return(int64(7), nil)
+			Return(nil)
 
 		service := NewTelemetryService(Config{ConcurrencyLimit: 1}, nil, nil, nil, mockDeviceStore, nil)
 
@@ -2255,42 +2254,6 @@ func TestPersistFirmwareVersionIfChanged(t *testing.T) {
 		service.persistFirmwareVersionIfChanged(t.Context(), deviceID, firmwareV1)
 	})
 
-	t.Run("invalidates options cache when firmware actually changed", func(t *testing.T) {
-		ctrl := gomock.NewController(t)
-		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
-		mockDeviceStore.EXPECT().
-			UpdateFirmwareVersion(gomock.Any(), deviceID, firmwareV1).
-			Return(int64(99), nil)
-
-		service := NewTelemetryService(Config{ConcurrencyLimit: 1}, nil, nil, nil, mockDeviceStore, nil)
-		cache := fleetoptions.NewCache(time.Minute, 16)
-		cache.Put(99, fleetoptions.Options{Models: []string{"stale"}})
-		service.WithOptionsCache(cache)
-
-		service.persistFirmwareVersionIfChanged(t.Context(), deviceID, firmwareV1)
-
-		_, ok := cache.Get(99)
-		require.False(t, ok, "expected cache entry for org 99 to be invalidated")
-	})
-
-	t.Run("does not invalidate options cache when no row was updated", func(t *testing.T) {
-		ctrl := gomock.NewController(t)
-		mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
-		mockDeviceStore.EXPECT().
-			UpdateFirmwareVersion(gomock.Any(), deviceID, firmwareV1).
-			Return(int64(0), nil)
-
-		service := NewTelemetryService(Config{ConcurrencyLimit: 1}, nil, nil, nil, mockDeviceStore, nil)
-		cache := fleetoptions.NewCache(time.Minute, 16)
-		cache.Put(99, fleetoptions.Options{Models: []string{"keep"}})
-		service.WithOptionsCache(cache)
-
-		service.persistFirmwareVersionIfChanged(t.Context(), deviceID, firmwareV1)
-
-		opts, ok := cache.Get(99)
-		require.True(t, ok)
-		assert.Equal(t, []string{"keep"}, opts.Models)
-	})
 }
 
 func TestSendCombinedMetricUpdate_DeviceScopedMinerStateCounts(t *testing.T) {
@@ -2621,7 +2584,7 @@ func TestFetchStatusFromMiner_AuthErrorFromGetMinerFromDeviceIdentifier_Invalida
 	// processStatusOnly calls handleAuthenticationFailure on auth error
 	mockDeviceStore.EXPECT().
 		UpdateDevicePairingStatusByIdentifier(gomock.Any(), string(deviceID), gomock.Any()).
-		Return(int64(0), nil)
+		Return(nil)
 
 	service := NewTelemetryService(Config{
 		StalenessThreshold: 1 * time.Minute,
@@ -2669,7 +2632,7 @@ func TestFetchStatusFromMiner_AuthErrorFromGetDeviceStatus_InvalidatesMinerCache
 	// processStatusOnly calls handleAuthenticationFailure on auth error
 	mockDeviceStore.EXPECT().
 		UpdateDevicePairingStatusByIdentifier(gomock.Any(), string(deviceID), gomock.Any()).
-		Return(int64(0), nil)
+		Return(nil)
 
 	service := NewTelemetryService(Config{
 		StalenessThreshold: 1 * time.Minute,
@@ -2709,7 +2672,7 @@ func TestProcessStatusOnly_ForbiddenError_UpdatesPairingStatus(t *testing.T) {
 
 	mockDeviceStore.EXPECT().
 		UpdateDevicePairingStatusByIdentifier(gomock.Any(), string(deviceID), gomock.Any()).
-		Return(int64(0), nil)
+		Return(nil)
 
 	service := NewTelemetryService(Config{
 		StalenessThreshold: 1 * time.Minute,

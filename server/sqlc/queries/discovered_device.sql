@@ -99,7 +99,7 @@ WHERE device_identifier = $1
   AND org_id = $2
   AND deleted_at IS NULL;
 
--- name: UpdateDiscoveredDeviceFirmwareVersion :one
+-- name: UpdateDiscoveredDeviceFirmwareVersion :exec
 UPDATE discovered_device dd
 SET firmware_version = $2
 WHERE dd.device_identifier = $1
@@ -111,5 +111,4 @@ WHERE dd.device_identifier = $1
     WHERE d.device_identifier = $1
       AND d.deleted_at IS NULL
     LIMIT 1
-  )
-RETURNING dd.org_id;
+  );

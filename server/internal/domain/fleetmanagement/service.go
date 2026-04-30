@@ -117,7 +117,7 @@ type Service struct {
 
 	// optionsCache holds per-org models + firmware version arrays surfaced
 	// by ListMinerStateSnapshots. The TTL is a safety net; pairing and
-	// telemetry call Invalidate at known mutation sites.
+	// fleet management invalidate it at obvious membership-change sites.
 	optionsCache  *fleetoptions.Cache
 	optionsSingle singleflight.Group
 
@@ -155,6 +155,7 @@ func NewService(
 		workerNamePoolService: workerNamePoolService,
 		activitySvc:           activitySvc,
 		deviceResolver:        deviceresolver.New(deviceStore),
+		optionsCache:          fleetoptions.NewCache(fleetoptions.DefaultTTL, 1024),
 		clearAuthKeySem:       make(chan struct{}, concurrentClearAuthKeyLimit),
 	}
 }
@@ -370,13 +371,6 @@ func (s *Service) getCachedFleetOptions(ctx context.Context, orgID int64) (fleet
 			return opts, nil
 		}
 
-		// Snapshot the generation BEFORE the store reads. If a concurrent
-		// Invalidate (pair / unpair / firmware change / status demotion)
-		// races with this fetch, PutIfGeneration below will discard the
-		// pre-mutation result so the next request re-fetches with fresh
-		// data instead of being served the stale value.
-		gen := s.optionsCache.Generation(orgID)
-
 		models, err := s.deviceStore.GetAvailableModels(fetchCtx, orgID)
 		if err != nil {
 			return fleetoptions.Options{}, fleeterror.NewInternalErrorf("failed to get available models: %v", err)
@@ -388,7 +382,7 @@ func (s *Service) getCachedFleetOptions(ctx context.Context, orgID int64) (fleet
 		}
 
 		opts := fleetoptions.Options{Models: models, FirmwareVersions: firmwares}
-		s.optionsCache.PutIfGeneration(orgID, opts, gen)
+		s.optionsCache.Put(orgID, opts)
 		return opts, nil
 	})
 
@@ -933,9 +927,7 @@ func (s *Service) DeleteMiners(ctx context.Context, req *pb.DeleteMinersRequest)
 	if err != nil {
 		return nil, err
 	}
-
 	s.optionsCache.Invalidate(info.OrganizationID)
-
 	for _, id := range deviceIdentifiers {
 		s.minerService.InvalidateMiner(mm.DeviceIdentifier(id))
 	}

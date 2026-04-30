@@ -80,7 +80,6 @@ import (
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/block/proto-fleet/server/internal/domain/fleetoptions"
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	mm "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/pairing"
@@ -230,16 +229,6 @@ type TelemetryService struct {
 	// statusPollingRoutine skips devices in this map to avoid double-processing the same
 	// device simultaneously in both the full-telemetry and status-only paths.
 	inFlight sync.Map // map[DeviceIdentifier]struct{}
-	// optionsCache holds per-org models + firmware version arrays surfaced
-	// by ListMinerStateSnapshots. Telemetry invalidates this when a device
-	// reports a new firmware version.
-	optionsCache *fleetoptions.Cache
-}
-
-// WithOptionsCache wires the per-org fleet options cache so firmware-change
-// events can invalidate stale option arrays. Pass nil to disable.
-func (s *TelemetryService) WithOptionsCache(cache *fleetoptions.Cache) {
-	s.optionsCache = cache
 }
 
 func NewTelemetryService(config Config, telemetryDataStore TelemetryDataStore, minerManager CachedMinerGetter, scheduler UpdateScheduler, deviceStore stores.DeviceStore, errorPoller ErrorPoller) *TelemetryService {
@@ -767,10 +756,7 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context) {
 // default-password rotation before normal operations).
 func (s *TelemetryService) handleAuthenticationFailure(ctx context.Context, deviceID models.DeviceIdentifier) error {
 	// Update pairing status to AUTHENTICATION_NEEDED using device identifier directly.
-	// No options-cache invalidation needed: PAIRED → AUTH_NEEDED keeps the
-	// device in the dropdown source set (GetAvailableModels /
-	// GetAvailableFirmwareVersions scan PAIRED ∪ AUTH_NEEDED).
-	if _, err := s.deviceStore.UpdateDevicePairingStatusByIdentifier(ctx, string(deviceID), pairing.StatusAuthenticationNeeded); err != nil {
+	if err := s.deviceStore.UpdateDevicePairingStatusByIdentifier(ctx, string(deviceID), pairing.StatusAuthenticationNeeded); err != nil {
 		return fmt.Errorf("failed to update pairing status for device %s: %w", deviceID, err)
 	}
 
@@ -830,15 +816,11 @@ func (s *TelemetryService) persistFirmwareVersionIfChanged(ctx context.Context, 
 	if oldFW == firmwareVersion {
 		return
 	}
-	orgID, err := s.deviceStore.UpdateFirmwareVersion(ctx, deviceID, firmwareVersion)
-	if err != nil {
+	if err := s.deviceStore.UpdateFirmwareVersion(ctx, deviceID, firmwareVersion); err != nil {
 		slog.Error("failed to update firmware version", "device_id", deviceID, "error", err)
 		return
 	}
 	s.lastKnownFirmware.Store(deviceID, firmwareVersion)
-	if orgID != 0 {
-		s.optionsCache.Invalidate(orgID)
-	}
 }
 
 func (s *TelemetryService) fetchTelemetryFromMiner(ctx context.Context, device models.Device) (*deviceResult, error) {

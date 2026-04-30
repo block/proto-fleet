@@ -1653,7 +1653,7 @@ func TestPairDevices_AllDevices_WithAuthNeededFilter(t *testing.T) {
 			PairDevice(gomock.Any(), gomock.Any(), gomock.Any()).
 			DoAndReturn(func(_ context.Context, device *discoverymodels.DiscoveredDevice, _ *pb.Credentials) error {
 				// Simulate what the real plugin pairer does: set status to PAIRED
-				_, err := queries.UpdateDevicePairingStatusByIdentifier(ctx, sqlc.UpdateDevicePairingStatusByIdentifierParams{
+				err := queries.UpdateDevicePairingStatusByIdentifier(ctx, sqlc.UpdateDevicePairingStatusByIdentifierParams{
 					PairingStatus:    sqlc.PairingStatusEnumPAIRED,
 					DeviceIdentifier: device.DeviceIdentifier,
 				})

@@ -254,7 +254,7 @@ func (q *Queries) SoftDeleteDiscoveredDeviceByIdentifier(ctx context.Context, ar
 	return err
 }
 
-const updateDiscoveredDeviceFirmwareVersion = `-- name: UpdateDiscoveredDeviceFirmwareVersion :one
+const updateDiscoveredDeviceFirmwareVersion = `-- name: UpdateDiscoveredDeviceFirmwareVersion :exec
 UPDATE discovered_device dd
 SET firmware_version = $2
 WHERE dd.device_identifier = $1
@@ -267,7 +267,6 @@ WHERE dd.device_identifier = $1
       AND d.deleted_at IS NULL
     LIMIT 1
   )
-RETURNING dd.org_id
 `
 
 type UpdateDiscoveredDeviceFirmwareVersionParams struct {
@@ -275,11 +274,9 @@ type UpdateDiscoveredDeviceFirmwareVersionParams struct {
 	FirmwareVersion  sql.NullString
 }
 
-func (q *Queries) UpdateDiscoveredDeviceFirmwareVersion(ctx context.Context, arg UpdateDiscoveredDeviceFirmwareVersionParams) (int64, error) {
-	row := q.queryRow(ctx, q.updateDiscoveredDeviceFirmwareVersionStmt, updateDiscoveredDeviceFirmwareVersion, arg.DeviceIdentifier, arg.FirmwareVersion)
-	var org_id int64
-	err := row.Scan(&org_id)
-	return org_id, err
+func (q *Queries) UpdateDiscoveredDeviceFirmwareVersion(ctx context.Context, arg UpdateDiscoveredDeviceFirmwareVersionParams) error {
+	_, err := q.exec(ctx, q.updateDiscoveredDeviceFirmwareVersionStmt, updateDiscoveredDeviceFirmwareVersion, arg.DeviceIdentifier, arg.FirmwareVersion)
+	return err
 }
 
 const upsertDiscoveredDevice = `-- name: UpsertDiscoveredDevice :one
