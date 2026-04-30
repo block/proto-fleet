@@ -2961,15 +2961,39 @@ func (x *DownloadLogsResponse) GetMoreData() bool {
 }
 
 type DeviceInfo struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	Host            string                 `protobuf:"bytes,1,opt,name=host,proto3" json:"host,omitempty"`                                              // e.g., "192.168.1.100"
-	Port            int32                  `protobuf:"varint,2,opt,name=port,proto3" json:"port,omitempty"`                                             // e.g., "22"
-	UrlScheme       string                 `protobuf:"bytes,3,opt,name=url_scheme,json=urlScheme,proto3" json:"url_scheme,omitempty"`                   // e.g., "ssh", "http", "https"
-	SerialNumber    string                 `protobuf:"bytes,4,opt,name=serial_number,json=serialNumber,proto3" json:"serial_number,omitempty"`          // e.g., "SN123456789"
-	Model           string                 `protobuf:"bytes,5,opt,name=model,proto3" json:"model,omitempty"`                                            // e.g., "Antminer S19"
-	Manufacturer    string                 `protobuf:"bytes,6,opt,name=manufacturer,proto3" json:"manufacturer,omitempty"`                              // e.g., "Bitmain"
-	MacAddress      string                 `protobuf:"bytes,8,opt,name=mac_address,json=macAddress,proto3" json:"mac_address,omitempty"`                // e.g., "00:1A:2B:3C:4D:5E"
-	FirmwareVersion string                 `protobuf:"bytes,9,opt,name=firmware_version,json=firmwareVersion,proto3" json:"firmware_version,omitempty"` // e.g., "1.0.0", "mcdd-v1.2.3"
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	Host         string                 `protobuf:"bytes,1,opt,name=host,proto3" json:"host,omitempty"`                                     // e.g., "192.168.1.100"
+	Port         int32                  `protobuf:"varint,2,opt,name=port,proto3" json:"port,omitempty"`                                    // e.g., "22"
+	UrlScheme    string                 `protobuf:"bytes,3,opt,name=url_scheme,json=urlScheme,proto3" json:"url_scheme,omitempty"`          // e.g., "ssh", "http", "https"
+	SerialNumber string                 `protobuf:"bytes,4,opt,name=serial_number,json=serialNumber,proto3" json:"serial_number,omitempty"` // e.g., "SN123456789"
+	// Marketing/hardware model name reported by the live device, e.g.
+	// "Antminer S21", "M50S++". Populated from device data during pairing,
+	// not user-supplied. Stable across firmware reflashes on the same
+	// hardware. Treated together with `manufacturer` as a compound key for
+	// capability and credential lookups -- see `manufacturer` below for the
+	// rationale.
+	Model string `protobuf:"bytes,5,opt,name=model,proto3" json:"model,omitempty"`
+	// NOT a strict OEM identifier. By plugin SDK convention, plugins MAY
+	// report the firmware vendor in this slot for aftermarket firmware
+	// (Braiins, VNish, LuxOS, Marathon, ePIC) so that capability and
+	// credential lookups can distinguish per-firmware behavior on shared
+	// hardware -- a Bitmain S21 running stock vs. running Braiins OS+ will
+	// report different `manufacturer` values even though the hardware is
+	// identical. Stock firmware reports the hardware vendor.
+	//
+	// Examples:
+	//
+	//	stock Bitmain S21        -> "Bitmain"
+	//	Braiins-flashed S21      -> "Braiins"
+	//	VNish-flashed WhatsMiner -> "VNish"
+	//	stock WhatsMiner M50S++  -> "MicroBT"
+	//
+	// Consumers must treat (`manufacturer`, `model`) as the compound lookup
+	// key and must NOT assume `manufacturer` is firmware-stable: reflashing
+	// a miner between stock and aftermarket firmware can change this field.
+	Manufacturer    string `protobuf:"bytes,6,opt,name=manufacturer,proto3" json:"manufacturer,omitempty"`
+	MacAddress      string `protobuf:"bytes,8,opt,name=mac_address,json=macAddress,proto3" json:"mac_address,omitempty"`                // e.g., "00:1A:2B:3C:4D:5E"
+	FirmwareVersion string `protobuf:"bytes,9,opt,name=firmware_version,json=firmwareVersion,proto3" json:"firmware_version,omitempty"` // e.g., "1.0.0", "mcdd-v1.2.3"
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -3254,9 +3278,10 @@ func (x *PairDeviceResponse) GetDevice() *DeviceInfo {
 
 // GetDefaultCredentialsRequest specifies the device context for credential lookup
 type GetDefaultCredentialsRequest struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	Manufacturer    string                 `protobuf:"bytes,1,opt,name=manufacturer,proto3" json:"manufacturer,omitempty"`                              // device make from discovery (e.g. "whatsminer", "antminer")
-	FirmwareVersion string                 `protobuf:"bytes,2,opt,name=firmware_version,json=firmwareVersion,proto3" json:"firmware_version,omitempty"` // firmware version string (e.g. "2.0.4", "VNish_1.2.0")
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// See DeviceInfo.manufacturer for semantics. Same convention applies here.
+	Manufacturer    string `protobuf:"bytes,1,opt,name=manufacturer,proto3" json:"manufacturer,omitempty"`
+	FirmwareVersion string `protobuf:"bytes,2,opt,name=firmware_version,json=firmwareVersion,proto3" json:"firmware_version,omitempty"` // firmware version string (e.g. "2.0.4", "VNish_1.2.0")
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -3350,10 +3375,17 @@ func (x *GetDefaultCredentialsResponse) GetCredentials() []*UsernamePassword {
 	return nil
 }
 
+// GetCapabilitiesForModelRequest looks up capability overrides keyed by
+// (manufacturer, model). Both fields share the semantics defined on
+// DeviceInfo -- see DeviceInfo.manufacturer in particular for why
+// `manufacturer` may carry a firmware-vendor name rather than the
+// hardware OEM.
 type GetCapabilitiesForModelRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Model         string                 `protobuf:"bytes,1,opt,name=model,proto3" json:"model,omitempty"`
-	Manufacturer  string                 `protobuf:"bytes,2,opt,name=manufacturer,proto3" json:"manufacturer,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// See DeviceInfo.model.
+	Model string `protobuf:"bytes,1,opt,name=model,proto3" json:"model,omitempty"`
+	// See DeviceInfo.manufacturer.
+	Manufacturer  string `protobuf:"bytes,2,opt,name=manufacturer,proto3" json:"manufacturer,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
