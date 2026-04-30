@@ -1,5 +1,5 @@
 ---
-description: Triage a pull request — fetch metadata, check status, summarize failing CI logs, and propose next steps.
+description: Triage a pull request — fetch metadata, check status, summarize failing CI logs, ingest reviewer comments, and propose next steps.
 argument-hint: <pr-number-or-url>
 ---
 
@@ -28,21 +28,41 @@ they can decide what to do next without reading the GitHub UI.
    - **Reviews**: approval state
    - **CI**: count of pending / failing / passing checks. Name the failing
      ones explicitly.
-5. For each failing check, fetch its logs:
-   `gh run view --log-failed --job <id>` (resolve the job id from the
-   check name via `gh pr checks --json`)
-   Identify the root-cause line — usually a test name, lint rule, or
-   compile error. Surface that, not the full log.
+5. For each failing check, fetch logs:
+   - Get the run URL via `gh pr checks $ARGUMENTS --json name,state,link`
+     and filter where `state == "FAILURE"`. The integer after `/runs/` in
+     the `link` URL is the run ID.
+   - Fetch failing logs: `gh run view <run-id> --log-failed`. Identify
+     the root-cause line — test name, lint rule, or compile error.
+     Surface that, not the full log.
 6. Map failing checks to likely culprit areas using the PR diff:
    `gh pr diff $ARGUMENTS --name-only` — match against the workflow that
    failed (e.g. `protofleet-server-checks.yml` failing with `server/`
    diffs is straightforward; failing without `server/` diffs is suspicious).
-7. Propose the next concrete action: "Fix the failing test in X",
-   "Rerun CI (probably flaky)", "This needs a rebase against main",
-   "Approval is the only blocker", etc.
+7. **Pull and triage reviewer feedback.** Fetch all comment surfaces:
+   - Line comments: `gh api repos/<owner>/<repo>/pulls/<n>/comments`
+   - Issue comments: `gh api repos/<owner>/<repo>/issues/<n>/comments`
+   - Reviews: `gh pr view $ARGUMENTS --json reviews`
+
+   Dedupe findings that appear from multiple sources (the same path:line
+   flagged by both Copilot and Codex is one finding, not two). For each
+   unique finding, classify:
+   - **Priority** — use the comment's own badge (`P0`/`P1`/`P2`,
+     low/medium/high) if present; otherwise infer from severity language.
+   - **Status** — `valid` (real, needs fix), `already-addressed` (fixed
+     in a later commit on the branch — re-check the current code on disk),
+     `invalid` (false positive, with a brief reason), or
+     `needs-discussion`.
+
+   Output a punch-list table: file:line | source | priority | finding |
+   status. Skip purely informational bot output (e.g. "auto-formatted N
+   files"). Group the table after the CI section in the final summary.
+8. Propose the next concrete action based on the CI summary AND the
+   comment triage. Examples: "Fix the failing test in X", "Address the
+   P1 from Codex re: <thing>", "Rerun CI (probably flaky)", "This needs
+   a rebase against main", "Approval is the only blocker".
 
 ## Notes
 
-- Do NOT push a fix, comment on the PR, or rerun checks. Triage is
-  read-only.
+- Do NOT push a fix, post a reply, or rerun checks. Triage is read-only.
 - If the PR is in another repo, pass the URL form to `gh pr view`.

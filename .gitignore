@@ -4,9 +4,10 @@
 node_modules/
 server/influx_config/.env
 **/.goose/
-# Claude Code repo tooling is committed; keep local per-user settings private.
+# Claude Code repo tooling is committed; keep local per-user settings + worktrees private.
 .claude/settings.local.json
 .claude/**/*.local.json
+.claude/worktrees/
 .gstack/
 .mcp.json
 lefthook-local.yml
