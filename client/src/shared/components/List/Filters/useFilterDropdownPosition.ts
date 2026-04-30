@@ -108,23 +108,39 @@ export const useFilterDropdownPosition = ({
 
     updatePosition();
 
+    // Coalesce high-frequency events (scroll fires faster than the browser paints) into
+    // one update per animation frame.
+    let rafId: number | null = null;
+    const scheduleUpdate = () => {
+      if (rafId !== null) return;
+      rafId = window.requestAnimationFrame(() => {
+        rafId = null;
+        updatePosition();
+      });
+    };
+
     // Re-measure once the portal mounts and whenever its content size changes (selection
     // count badges shifting, scrollbars appearing, etc.). Without this, the first paint
     // uses the soft-min height and the panel may render larger than necessary.
     let observer: ResizeObserver | undefined;
-    if (nestedRef.current) {
-      observer = new ResizeObserver(() => updatePosition());
+    if (nestedRef.current && typeof ResizeObserver !== "undefined") {
+      observer = new ResizeObserver(scheduleUpdate);
       observer.observe(nestedRef.current);
     }
 
-    window.addEventListener("resize", updatePosition);
-    window.addEventListener("scroll", updatePosition, true);
-    window.visualViewport?.addEventListener("resize", updatePosition);
+    // Window resize is already covered by useWindowDimensions (windowWidth/windowHeight
+    // are deps above), so no separate `window.resize` listener is needed. visualViewport
+    // resize fires for zoom changes the shared hook doesn't track, and scroll keeps the
+    // anchor in sync when an ancestor scrolls. `passive: true` keeps the scroll thread
+    // from blocking on this handler.
+    const scrollOptions = { capture: true, passive: true } as const;
+    window.addEventListener("scroll", scheduleUpdate, scrollOptions);
+    window.visualViewport?.addEventListener("resize", scheduleUpdate);
     return () => {
+      if (rafId !== null) window.cancelAnimationFrame(rafId);
       observer?.disconnect();
-      window.removeEventListener("resize", updatePosition);
-      window.removeEventListener("scroll", updatePosition, true);
-      window.visualViewport?.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", scheduleUpdate, scrollOptions);
+      window.visualViewport?.removeEventListener("resize", scheduleUpdate);
     };
   }, [enabled, triggerRef, parentRef, windowWidth, windowHeight]);
 

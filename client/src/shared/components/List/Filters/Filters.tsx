@@ -34,12 +34,15 @@ const Filters = <ItemType,>({
   headerControls,
   initialActiveFilters,
 }: FilterProps<ItemType>) => {
-  const [activeFilters, setActiveFilters] = useState<ActiveFilters>(
-    initialActiveFilters || {
+  const defaultActiveFilters = useMemo<ActiveFilters>(
+    () => ({
       buttonFilters: [defaultListFilter],
       dropdownFilters: {},
-    },
+    }),
+    [],
   );
+
+  const [activeFilters, setActiveFilters] = useState<ActiveFilters>(initialActiveFilters || defaultActiveFilters);
 
   // Store onFilter in a ref to avoid re-running effects when the callback reference changes.
   // The callback changes when parent's items change (due to useCallback dependencies in List),
@@ -50,17 +53,17 @@ const Filters = <ItemType,>({
   }, [onFilter]);
 
   // Sync internal state when initialActiveFilters changes (e.g., URL navigation from a
-  // sibling component). Uses the during-render derivation pattern so React reschedules cleanly.
-  // Skips the resulting onFilter call so the URL writer doesn't loop.
+  // sibling component, or the parent clearing the prop). Uses the during-render derivation
+  // pattern so React reschedules cleanly. Skips the resulting onFilter call so the URL
+  // writer doesn't loop. When the prop transitions to undefined, fall back to defaults so
+  // stale selections don't linger.
   const initialActiveFiltersKey = useMemo(() => JSON.stringify(initialActiveFilters ?? null), [initialActiveFilters]);
   const [prevSyncedKey, setPrevSyncedKey] = useState(initialActiveFiltersKey);
   const skipNextOnFilterRef = useRef(false);
   if (prevSyncedKey !== initialActiveFiltersKey) {
     setPrevSyncedKey(initialActiveFiltersKey);
-    if (initialActiveFilters) {
-      skipNextOnFilterRef.current = true;
-      setActiveFilters(initialActiveFilters);
-    }
+    skipNextOnFilterRef.current = true;
+    setActiveFilters(initialActiveFilters ?? defaultActiveFilters);
   }
 
   useEffect(() => {

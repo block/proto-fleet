@@ -263,4 +263,43 @@ describe("Filters", () => {
     expect(pills).toHaveLength(1);
     expect(pills[0]).toHaveAttribute("data-testid", "active-filter-status-hashing");
   });
+
+  it("clears active filters when initialActiveFilters transitions to undefined", () => {
+    const handleFiltering = vi.fn();
+
+    const statusFilter = {
+      type: "dropdown" as const,
+      title: "Status",
+      value: "status",
+      options: [
+        { id: "hashing", label: "Hashing" },
+        { id: "offline", label: "Offline" },
+      ],
+      defaultOptionIds: [],
+    };
+
+    const { rerender } = render(
+      <Filters<TestItem>
+        filterItems={[statusFilter]}
+        items={testItems}
+        onFilter={handleFiltering}
+        initialActiveFilters={{ buttonFilters: [], dropdownFilters: { status: ["hashing"] } }}
+      />,
+    );
+
+    expect(screen.getByTestId("active-filter-status-hashing")).toBeInTheDocument();
+
+    // Parent clears the controlled prop — internal state should reset to defaults
+    // so stale selections don't linger.
+    rerender(
+      <Filters<TestItem>
+        filterItems={[statusFilter]}
+        items={testItems}
+        onFilter={handleFiltering}
+        initialActiveFilters={undefined}
+      />,
+    );
+
+    expect(screen.queryByTestId("active-filter-status-hashing")).not.toBeInTheDocument();
+  });
 });

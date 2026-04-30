@@ -99,11 +99,6 @@ type MinerListProps = {
    */
   loading?: boolean;
   /**
-   * Whether a refetch is in flight after the initial load. Dims the table area and
-   * disables row interactions while keeping the filter bar interactive.
-   */
-  isRefetching?: boolean;
-  /**
    * Number of items per page. Used to compute the displayed item range (e.g., "Showing 1–100").
    * Must match the pageSize passed to useFleet.
    */
@@ -195,7 +190,6 @@ type ScopedMinerListBodyProps = {
   totalDisabledMiners: number;
   itemRef?: (itemKey: string, element: HTMLTableRowElement | null) => void;
   hasActiveFilters: boolean;
-  isRefetching: boolean;
   onAddMiners: () => void;
   onExportCsv?: () => void | Promise<void>;
   exportCsvLoading?: boolean;
@@ -234,7 +228,6 @@ const ScopedMinerListBody = ({
   totalDisabledMiners,
   itemRef,
   hasActiveFilters,
-  isRefetching,
   onAddMiners,
   onExportCsv,
   exportCsvLoading = false,
@@ -291,7 +284,6 @@ const ScopedMinerListBody = ({
         colTitles={minerColTitles}
         colConfig={minerColConfig}
         filters={filters}
-        tableLoading={isRefetching}
         onServerFilter={handleServerFilter}
         items={deviceItems}
         itemKey={"deviceIdentifier"}
@@ -419,7 +411,6 @@ const MinerList = ({
   totalDisabledMiners = 0,
   itemRef,
   loading = false,
-  isRefetching = false,
   pageSize = MINERS_PAGE_SIZE,
   currentPage = 0,
   hasPreviousPage = false,
@@ -929,7 +920,6 @@ const MinerList = ({
           totalDisabledMiners={totalDisabledMiners}
           itemRef={itemRef}
           hasActiveFilters={hasActiveFilters}
-          isRefetching={isRefetching}
           onAddMiners={onAddMiners}
           onExportCsv={onExportCsv}
           exportCsvLoading={exportCsvLoading}

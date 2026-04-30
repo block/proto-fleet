@@ -218,11 +218,6 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
    */
   isLoadingMore?: boolean;
   /**
-   * Dims the table area and disables pointer events on rows while a refetch is in flight.
-   * The filter bar stays interactive so the user can keep adjusting filters.
-   */
-  tableLoading?: boolean;
-  /**
    * Optional callback to determine if a specific row should be disabled.
    * Disabled rows are greyed out and cannot be selected.
    * @param item - The list item
@@ -667,7 +662,6 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   onServerFilter,
   filterSize = sizes.compact,
   headerControls,
-  tableLoading = false,
   initialSelectedItems = [],
   customSetSelectedItems,
   customSelectedItems,
@@ -1358,13 +1352,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
       <div style={paddingCssVariables} className="sticky left-0 z-3">
         {filtersElement}
       </div>
-      <div
-        style={paddingCssVariables}
-        className={clsx({
-          "pointer-events-none opacity-60 transition-opacity duration-200": tableLoading,
-        })}
-        aria-busy={tableLoading || undefined}
-      >
+      <div style={paddingCssVariables}>
         {!hideTotal && total !== undefined ? (
           <div className="sticky left-0 flex">
             <div className={clsx("sticky left-0 pb-4 text-emphasis-300 text-text-primary-70", paddingClasses)}>

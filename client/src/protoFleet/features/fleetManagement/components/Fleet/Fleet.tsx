@@ -95,7 +95,6 @@ const Fleet = () => {
     miners,
     totalMiners,
     hasMore,
-    isLoading,
     hasInitialLoadCompleted,
     refetch,
     refreshCurrentPage,
@@ -230,7 +229,6 @@ const Fleet = () => {
           }}
           onAddMiners={() => setShowAddMinersModal(true)}
           loading={!hasInitialLoadCompleted}
-          isRefetching={Boolean(hasInitialLoadCompleted && isLoading)}
           pageSize={MINERS_PAGE_SIZE}
           currentPage={currentPage}
           hasPreviousPage={hasPreviousPage}
