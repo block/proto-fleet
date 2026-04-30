@@ -62,6 +62,37 @@ func setDiscoveredDeviceModel(t *testing.T, db *sql.DB, deviceIdentifier, model 
 	require.Equal(t, int64(1), rows)
 }
 
+// markDiscoveredDeviceInactive flips dd.is_active = FALSE on the device's
+// discovered_device row. Used to verify that GetMinerModelGroups excludes
+// inactive rows the same way the list/count queries do.
+func markDiscoveredDeviceInactive(t *testing.T, db *sql.DB, deviceIdentifier string) {
+	t.Helper()
+	res, err := db.Exec(`
+		UPDATE discovered_device
+		SET is_active = FALSE
+		WHERE id = (SELECT discovered_device_id FROM device WHERE device_identifier = $1)
+	`, deviceIdentifier)
+	require.NoError(t, err)
+	rows, err := res.RowsAffected()
+	require.NoError(t, err)
+	require.Equal(t, int64(1), rows)
+}
+
+// softDeleteDiscoveredDevice sets dd.deleted_at on the device's
+// discovered_device row.
+func softDeleteDiscoveredDevice(t *testing.T, db *sql.DB, deviceIdentifier string) {
+	t.Helper()
+	res, err := db.Exec(`
+		UPDATE discovered_device
+		SET deleted_at = NOW()
+		WHERE id = (SELECT discovered_device_id FROM device WHERE device_identifier = $1)
+	`, deviceIdentifier)
+	require.NoError(t, err)
+	rows, err := res.RowsAffected()
+	require.NoError(t, err)
+	require.Equal(t, int64(1), rows)
+}
+
 // TestGetMinerModelGroups_FirmwareFilter proves the firmware filter narrows the
 // model-group counts so the bulk-password modal agrees with the filtered list.
 func TestGetMinerModelGroups_FirmwareFilter(t *testing.T) {
@@ -270,4 +301,48 @@ func TestGetMinerModelGroups_FirmwareAndZoneFilters(t *testing.T) {
 	assert.Equal(t, "S21 XP", groups[0].Model)
 	assert.Equal(t, int32(1), groups[0].Count)
 	assertModalInvariant(t, ctx, deviceStore, user.OrganizationID, filter)
+}
+
+// TestGetMinerModelGroups_ExcludesInactiveAndSoftDeletedDiscoveredDevices
+// guards the modal invariant against discovered_device state drift. The
+// list/count queries already exclude rows where dd.is_active = FALSE or
+// dd.deleted_at IS NOT NULL; without matching predicates here, model-group
+// counts would silently include miners the table has hidden.
+func TestGetMinerModelGroups_ExcludesInactiveAndSoftDeletedDiscoveredDevices(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	tc := testutil.InitializeDBServiceInfrastructure(t)
+	dbSvc := tc.DatabaseService
+	db := tc.ServiceProvider.DB
+	deviceStore := sqlstores.NewSQLDeviceStore(db)
+	ctx := t.Context()
+
+	user := dbSvc.CreateSuperAdminUser()
+
+	healthy := dbSvc.CreateDevice(user.OrganizationID, "proto")
+	inactive := dbSvc.CreateDevice(user.OrganizationID, "proto")
+	deleted := dbSvc.CreateDevice(user.OrganizationID, "proto")
+	for _, d := range []string{healthy.ID, inactive.ID, deleted.ID} {
+		pairDevice(t, ctx, deviceStore, user.OrganizationID, d)
+	}
+
+	// Sanity: all three count before any are removed from scope.
+	groups, err := deviceStore.GetMinerModelGroups(ctx, user.OrganizationID, nil)
+	require.NoError(t, err)
+	require.Len(t, groups, 1)
+	assert.Equal(t, int32(3), groups[0].Count)
+	assertModalInvariant(t, ctx, deviceStore, user.OrganizationID, nil)
+
+	markDiscoveredDeviceInactive(t, db, inactive.ID)
+	softDeleteDiscoveredDevice(t, db, deleted.ID)
+
+	// Only the healthy device should count now.
+	groups, err = deviceStore.GetMinerModelGroups(ctx, user.OrganizationID, nil)
+	require.NoError(t, err)
+	require.Len(t, groups, 1)
+	assert.Equal(t, int32(1), groups[0].Count,
+		"inactive and soft-deleted discovered_device rows must be excluded")
+	assertModalInvariant(t, ctx, deviceStore, user.OrganizationID, nil)
 }

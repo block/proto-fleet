@@ -1061,6 +1061,11 @@ JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ds ON d.id = ds.device_id
 WHERE dp.pairing_status = 'PAIRED'
   AND d.deleted_at IS NULL
+  -- Match the list/count queries so the bulk-password modal invariant holds:
+  -- inactive or soft-deleted discovered_device rows are excluded from both
+  -- the filtered list total and the model-group counts.
+  AND dd.is_active = TRUE
+  AND dd.deleted_at IS NULL
   AND d.org_id = $1
   AND dd.model IS NOT NULL
   AND dd.model != ''
