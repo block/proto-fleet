@@ -1061,19 +1061,48 @@ JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ds ON d.id = ds.device_id
 WHERE dp.pairing_status = 'PAIRED'
   AND d.deleted_at IS NULL
+  -- Match the list/count queries so the bulk-password modal invariant holds:
+  -- inactive or soft-deleted discovered_device rows are excluded from both
+  -- the filtered list total and the model-group counts.
+  AND dd.is_active = TRUE
+  AND dd.deleted_at IS NULL
   AND d.org_id = $1
   AND dd.model IS NOT NULL
   AND dd.model != ''
   AND ($2::text IS NULL OR dd.model = ANY(string_to_array($2, ',')))
   AND ($3::text IS NULL OR ds.status::text = ANY(string_to_array($3, ',')))
+  -- Firmware version filter (values list passes as a real PG array so values
+  -- can contain commas; the narg sentinel signals "filter applied").
+  AND (
+      $4::text IS NULL
+      OR dd.firmware_version = ANY($5::text[])
+  )
+  -- Zone filter (excludes soft-deleted racks). Uses array values for the same
+  -- comma-safety reason as firmware above.
+  AND (
+      $6::text IS NULL
+      OR EXISTS (
+          SELECT 1 FROM device_set_membership dsm
+          JOIN device_set ds_zone ON ds_zone.id = dsm.device_set_id AND ds_zone.deleted_at IS NULL
+          JOIN device_set_rack dsr ON dsr.device_set_id = dsm.device_set_id
+          WHERE dsm.device_id = d.id
+            AND dsm.org_id = $1
+            AND dsm.device_set_type = 'rack'
+            AND dsr.zone = ANY($7::text[])
+      )
+  )
 GROUP BY dd.model, dd.manufacturer
 ORDER BY dd.manufacturer, dd.model
 `
 
 type GetMinerModelGroupsParams struct {
-	OrgID        int64
-	ModelFilter  sql.NullString
-	StatusFilter sql.NullString
+	OrgID          int64
+	ModelFilter    sql.NullString
+	StatusFilter   sql.NullString
+	FirmwareFilter sql.NullString
+	FirmwareValues []string
+	ZoneFilter     sql.NullString
+	ZoneValues     []string
 }
 
 type GetMinerModelGroupsRow struct {
@@ -1083,7 +1112,15 @@ type GetMinerModelGroupsRow struct {
 }
 
 func (q *Queries) GetMinerModelGroups(ctx context.Context, arg GetMinerModelGroupsParams) ([]GetMinerModelGroupsRow, error) {
-	rows, err := q.query(ctx, q.getMinerModelGroupsStmt, getMinerModelGroups, arg.OrgID, arg.ModelFilter, arg.StatusFilter)
+	rows, err := q.query(ctx, q.getMinerModelGroupsStmt, getMinerModelGroups,
+		arg.OrgID,
+		arg.ModelFilter,
+		arg.StatusFilter,
+		arg.FirmwareFilter,
+		pq.Array(arg.FirmwareValues),
+		arg.ZoneFilter,
+		pq.Array(arg.ZoneValues),
+	)
 	if err != nil {
 		return nil, err
 	}

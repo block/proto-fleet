@@ -312,12 +312,12 @@ func (s *SQLDeviceStore) GetDeviceWithIPAssignment(ctx context.Context, deviceId
 }
 
 func (s *SQLDeviceStore) GetTotalPairedDevices(ctx context.Context, orgID int64, filter *stores.MinerFilter) (int64, error) {
-	statusFilter, modelFilter, _ := buildFilterParams(filter)
+	fp := buildFilterParams(filter)
 
 	return s.GetQueries(ctx).GetTotalPairedDevices(ctx, sqlc.GetTotalPairedDevicesParams{
 		OrgID:        orgID,
-		StatusFilter: statusFilter,
-		ModelFilter:  modelFilter,
+		StatusFilter: fp.statusFilter,
+		ModelFilter:  fp.modelFilter,
 	})
 }
 
@@ -405,12 +405,16 @@ func (s *SQLDeviceStore) GetAvailableFirmwareVersions(ctx context.Context, orgID
 }
 
 func (s *SQLDeviceStore) GetMinerModelGroups(ctx context.Context, orgID int64, filter *stores.MinerFilter) ([]stores.MinerModelGroupResult, error) {
-	statusFilter, modelFilter, _ := buildFilterParams(filter)
+	fp := buildFilterParams(filter)
 
 	rows, err := s.getQueries(ctx).GetMinerModelGroups(ctx, sqlc.GetMinerModelGroupsParams{
-		OrgID:        orgID,
-		ModelFilter:  modelFilter,
-		StatusFilter: statusFilter,
+		OrgID:          orgID,
+		ModelFilter:    fp.modelFilter,
+		StatusFilter:   fp.statusFilter,
+		FirmwareFilter: fp.firmwareFilter,
+		FirmwareValues: fp.firmwareValues,
+		ZoneFilter:     fp.zoneFilter,
+		ZoneValues:     fp.zoneValues,
 	})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to get miner model groups: %v", err)
@@ -427,24 +431,55 @@ func (s *SQLDeviceStore) GetMinerModelGroups(ctx context.Context, orgID int64, f
 	return results, nil
 }
 
-func buildFilterParams(filter *stores.MinerFilter) (statusFilter, modelFilter, deviceIdentifiersFilter sql.NullString) {
-	if filter != nil && len(filter.DeviceStatusFilter) > 0 {
-		deviceFilter := make([]string, 0, len(filter.DeviceStatusFilter))
+// modelGroupFilterParams carries the parameters consumed by GetTotalPairedDevices
+// and GetMinerModelGroups. Status and model use the legacy CSV+string_to_array
+// pattern (their values are enum/UI-controlled and never contain commas);
+// firmware versions and zones pass as real PG arrays (sentinel + values) so
+// values like "Austin, Building 1" survive intact. The unset sentinel signals
+// "no filter applied".
+type modelGroupFilterParams struct {
+	statusFilter   sql.NullString
+	modelFilter    sql.NullString
+	firmwareFilter sql.NullString
+	firmwareValues []string
+	zoneFilter     sql.NullString
+	zoneValues     []string
+}
+
+// csvNullString joins values with commas. An empty input produces an unset
+// (NULL-valued) NullString so the SQL narg check treats the filter as absent.
+func csvNullString(values []string) sql.NullString {
+	if len(values) == 0 {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: strings.Join(values, ","), Valid: true}
+}
+
+func buildFilterParams(filter *stores.MinerFilter) modelGroupFilterParams {
+	var fp modelGroupFilterParams
+	if filter == nil {
+		return fp
+	}
+
+	if len(filter.DeviceStatusFilter) > 0 {
+		statuses := make([]string, 0, len(filter.DeviceStatusFilter))
 		for _, status := range filter.DeviceStatusFilter {
-			deviceFilter = append(deviceFilter, string(toDeviceStatus(status)))
+			statuses = append(statuses, string(toDeviceStatus(status)))
 		}
-		statusFilter = sql.NullString{String: strings.Join(deviceFilter, ","), Valid: true}
+		fp.statusFilter = csvNullString(statuses)
+	}
+	fp.modelFilter = csvNullString(filter.ModelNames)
+
+	if len(filter.FirmwareVersions) > 0 {
+		fp.firmwareFilter = sql.NullString{Valid: true}
+		fp.firmwareValues = filter.FirmwareVersions
+	}
+	if len(filter.Zones) > 0 {
+		fp.zoneFilter = sql.NullString{Valid: true}
+		fp.zoneValues = filter.Zones
 	}
 
-	if filter != nil && len(filter.ModelNames) > 0 {
-		modelFilter = sql.NullString{String: strings.Join(filter.ModelNames, ","), Valid: true}
-	}
-
-	if filter != nil && len(filter.DeviceIdentifiers) > 0 {
-		deviceIdentifiersFilter = sql.NullString{String: strings.Join(filter.DeviceIdentifiers, ","), Valid: true}
-	}
-
-	return statusFilter, modelFilter, deviceIdentifiersFilter
+	return fp
 }
 
 func (s *SQLDeviceStore) UpsertDeviceStatus(ctx context.Context, deviceIdentifier models.DeviceIdentifier, status minermodels.MinerStatus, details string) error {
