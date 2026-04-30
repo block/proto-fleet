@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import clsx from "clsx";
@@ -48,7 +48,6 @@ import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import List from "@/shared/components/List";
 import { type SelectionMode } from "@/shared/components/List";
-import FiltersDropdown, { type FilterCategory } from "@/shared/components/List/Filters/FiltersDropdown";
 import { ActiveFilters, type DropdownFilterItem, FilterItem } from "@/shared/components/List/Filters/types";
 import { type SortDirection } from "@/shared/components/List/types";
 import ProgressCircular from "@/shared/components/ProgressCircular";
@@ -180,16 +179,14 @@ type MinerListProps = {
 type ScopedMinerListBodyProps = {
   /**
    * Selection-scope identifier — when this changes, internal selection state resets.
-   * Replaces the previous key-based remount strategy so children (e.g., FiltersDropdown)
-   * keep their state across filter/page changes.
+   * Replaces the previous key-based remount strategy so children (e.g., the meta-dropdown
+   * popover) keep their state across filter/page changes.
    */
   selectionScopeKey: string;
   activeCols: MinerColumn[];
   deviceItems: DeviceListItem[];
   minerColConfig: ReturnType<typeof createMinerColConfig>;
   filters: FilterItem[];
-  metaOnlyFilters: DropdownFilterItem[];
-  filtersLeadingControls: ReactNode;
   handleServerFilter: (filters: ActiveFilters) => Promise<void>;
   initialActiveFilters: ActiveFilters;
   listClassName?: string;
@@ -229,8 +226,6 @@ const ScopedMinerListBody = ({
   deviceItems,
   minerColConfig,
   filters,
-  metaOnlyFilters,
-  filtersLeadingControls,
   handleServerFilter,
   initialActiveFilters,
   listClassName,
@@ -296,8 +291,6 @@ const ScopedMinerListBody = ({
         colTitles={minerColTitles}
         colConfig={minerColConfig}
         filters={filters}
-        metaOnlyFilters={metaOnlyFilters}
-        filtersLeadingControls={filtersLeadingControls}
         tableLoading={isRefetching}
         onServerFilter={handleServerFilter}
         items={deviceItems}
@@ -742,35 +735,21 @@ const MinerList = ({
   );
 
   const filters = useMemo<FilterItem[]>(
-    () => [statusFilter, issuesFilter, modelFilter, groupsFilter, racksFilter],
-    [statusFilter, issuesFilter, modelFilter, groupsFilter, racksFilter],
+    () => [
+      {
+        type: "nestedFilterDropdown",
+        title: "Filters",
+        value: "filters-meta",
+        children: [statusFilter, modelFilter, zonesFilter, racksFilter, groupsFilter, firmwareFilter, issuesFilter],
+      },
+      statusFilter,
+      issuesFilter,
+      modelFilter,
+      groupsFilter,
+      racksFilter,
+    ],
+    [statusFilter, issuesFilter, modelFilter, groupsFilter, racksFilter, firmwareFilter, zonesFilter],
   );
-
-  const metaOnlyFilters = useMemo<DropdownFilterItem[]>(
-    () => [firmwareFilter, zonesFilter],
-    [firmwareFilter, zonesFilter],
-  );
-
-  const filtersDropdownCategories = useMemo<FilterCategory[]>(() => {
-    const dropdownFilters = initialActiveFilters.dropdownFilters;
-    return [statusFilter, modelFilter, zonesFilter, racksFilter, groupsFilter, firmwareFilter, issuesFilter].map(
-      (filter) => ({
-        key: filter.value,
-        label: filter.title,
-        options: filter.options,
-        selectedValues: dropdownFilters[filter.value] ?? [],
-      }),
-    );
-  }, [
-    initialActiveFilters,
-    statusFilter,
-    modelFilter,
-    zonesFilter,
-    racksFilter,
-    groupsFilter,
-    firmwareFilter,
-    issuesFilter,
-  ]);
 
   const handleServerFilter = useCallback(
     async (filters: ActiveFilters) => {
@@ -862,19 +841,6 @@ const MinerList = ({
     [navigate, searchParams],
   );
 
-  const handleFiltersDropdownChange = useCallback(
-    (key: string, selectedValues: string[]) => {
-      const next: ActiveFilters = {
-        buttonFilters: initialActiveFilters.buttonFilters,
-        dropdownFilters: {
-          ...initialActiveFilters.dropdownFilters,
-          [key]: selectedValues,
-        },
-      };
-      void handleServerFilter(next);
-    },
-    [handleServerFilter, initialActiveFilters],
-  );
   const handleOpenManageColumns = useCallback(() => {
     setShowManageColumnsModal(true);
   }, []);
@@ -955,14 +921,6 @@ const MinerList = ({
           deviceItems={deviceItems}
           minerColConfig={minerColConfig}
           filters={filters}
-          metaOnlyFilters={metaOnlyFilters}
-          filtersLeadingControls={
-            <FiltersDropdown
-              categories={filtersDropdownCategories}
-              onChange={handleFiltersDropdownChange}
-              onClearAll={handleClearFilters}
-            />
-          }
           handleServerFilter={handleServerFilter}
           initialActiveFilters={initialActiveFilters}
           listClassName={listClassName}

@@ -34,7 +34,7 @@ import { CSS } from "@dnd-kit/utilities";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Checkbox from "@/shared/components/Checkbox";
 import Filters from "@/shared/components/List/Filters";
-import { ActiveFilters, type DropdownFilterItem, FilterItem } from "@/shared/components/List/Filters/types";
+import { ActiveFilters, FilterItem } from "@/shared/components/List/Filters/types";
 import ListActions from "@/shared/components/List/ListActions";
 import {
   ColConfig,
@@ -141,16 +141,6 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
   colTitles: ColTitles<ColKey>;
   colConfig: ColConfig<ListItem, ItemKeyValueType, ColKey>;
   filters?: FilterItem[];
-  /**
-   * Filters that participate in the active-pill row but have no standalone trigger
-   * in the bar (surfaced via filtersLeadingControls, e.g. a meta-dropdown).
-   */
-  metaOnlyFilters?: DropdownFilterItem[];
-  /**
-   * Optional content rendered at the start of the filter bar (before standalone filters).
-   * Use to host a meta-dropdown that exposes filters not present as standalone triggers.
-   */
-  filtersLeadingControls?: ReactNode;
   filterItem?: (item: ListItem, filters: ActiveFilters) => boolean;
   onServerFilter?: (filters: ActiveFilters) => Promise<void>;
   filterSize?: keyof typeof sizes;
@@ -673,8 +663,6 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   colTitles,
   colConfig,
   filters,
-  metaOnlyFilters,
-  filtersLeadingControls,
   filterItem,
   onServerFilter,
   filterSize = sizes.compact,
@@ -1137,12 +1125,10 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   );
 
   const filtersElement =
-    filters?.length || metaOnlyFilters?.length || headerControls || filtersLeadingControls ? (
+    filters?.length || headerControls ? (
       <Filters<ListItem>
         className={clsx("gap-4 py-6", paddingClasses)}
         filterItems={filters ?? []}
-        metaOnlyFilters={metaOnlyFilters}
-        leadingControls={filtersLeadingControls}
         filterSize={filterSize}
         items={items}
         onFilter={isServerSideFiltering ? handleServerFiltering : handleClientFiltering}

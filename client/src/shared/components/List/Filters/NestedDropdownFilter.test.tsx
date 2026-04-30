@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import FiltersDropdown, { type FilterCategory } from "./FiltersDropdown";
+import NestedDropdownFilter, { type FilterCategory } from "./NestedDropdownFilter";
 import { computeNestedPosition } from "./useFilterDropdownPosition";
 
 const rect = (overrides: Partial<DOMRect>): DOMRect => {
@@ -39,26 +39,47 @@ const buildCategories = (overrides: Partial<Record<string, FilterCategory>> = {}
   },
 ];
 
-describe("FiltersDropdown", () => {
+describe("NestedDropdownFilter", () => {
   it("renders the trigger and reveals categories on click", () => {
     const onChange = vi.fn();
     const onClearAll = vi.fn();
 
-    render(<FiltersDropdown categories={buildCategories()} onChange={onChange} onClearAll={onClearAll} />);
+    render(
+      <NestedDropdownFilter
+        label="Filters"
+        categories={buildCategories()}
+        onChange={onChange}
+        onClearAll={onClearAll}
+      />,
+    );
 
-    expect(screen.getByTestId("filters-dropdown")).toBeInTheDocument();
+    expect(screen.getByTestId("nested-dropdown-filter")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByTestId("filters-dropdown"));
+    fireEvent.click(screen.getByTestId("nested-dropdown-filter"));
 
-    expect(screen.getByTestId("filters-dropdown-popover")).toBeInTheDocument();
-    expect(screen.getByTestId("filters-dropdown-row-status")).toBeInTheDocument();
-    expect(screen.getByTestId("filters-dropdown-row-firmware")).toBeInTheDocument();
-    expect(screen.getByTestId("filters-dropdown-row-zone")).toBeInTheDocument();
+    expect(screen.getByTestId("nested-dropdown-filter-popover")).toBeInTheDocument();
+    expect(screen.getByTestId("nested-dropdown-filter-row-status")).toBeInTheDocument();
+    expect(screen.getByTestId("nested-dropdown-filter-row-firmware")).toBeInTheDocument();
+    expect(screen.getByTestId("nested-dropdown-filter-row-zone")).toBeInTheDocument();
   });
 
-  it("shows the active count badge when any category has selections", () => {
+  it("uses the provided label on the trigger button", () => {
     render(
-      <FiltersDropdown
+      <NestedDropdownFilter
+        label="More filters"
+        categories={buildCategories()}
+        onChange={vi.fn()}
+        onClearAll={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("More filters")).toBeInTheDocument();
+  });
+
+  it("renders a per-category count badge on each row that has selections", () => {
+    render(
+      <NestedDropdownFilter
+        label="Filters"
         categories={buildCategories({
           status: {
             key: "status",
@@ -81,27 +102,35 @@ describe("FiltersDropdown", () => {
       />,
     );
 
-    // 3 selected across categories
-    expect(screen.getByText("3")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("nested-dropdown-filter"));
+
+    const statusRow = screen.getByTestId("nested-dropdown-filter-row-status");
+    expect(statusRow).toHaveTextContent("2");
+    const firmwareRow = screen.getByTestId("nested-dropdown-filter-row-firmware");
+    expect(firmwareRow).toHaveTextContent("1");
   });
 
   it("disables the row and shows '(no values)' when a category has no options", () => {
-    render(<FiltersDropdown categories={buildCategories()} onChange={vi.fn()} onClearAll={vi.fn()} />);
+    render(
+      <NestedDropdownFilter label="Filters" categories={buildCategories()} onChange={vi.fn()} onClearAll={vi.fn()} />,
+    );
 
-    fireEvent.click(screen.getByTestId("filters-dropdown"));
+    fireEvent.click(screen.getByTestId("nested-dropdown-filter"));
 
-    const zoneRow = screen.getByTestId("filters-dropdown-row-zone");
+    const zoneRow = screen.getByTestId("nested-dropdown-filter-row-zone");
     expect(zoneRow).toBeDisabled();
     expect(screen.getByText("(no values)")).toBeInTheDocument();
   });
 
-  it("opens a nested popover and propagates selection via onChange", async () => {
+  it("opens a nested submenu and propagates selection via onChange", async () => {
     const onChange = vi.fn();
 
-    render(<FiltersDropdown categories={buildCategories()} onChange={onChange} onClearAll={vi.fn()} />);
+    render(
+      <NestedDropdownFilter label="Filters" categories={buildCategories()} onChange={onChange} onClearAll={vi.fn()} />,
+    );
 
-    fireEvent.click(screen.getByTestId("filters-dropdown"));
-    fireEvent.click(screen.getByTestId("filters-dropdown-row-firmware"));
+    fireEvent.click(screen.getByTestId("nested-dropdown-filter"));
+    fireEvent.click(screen.getByTestId("nested-dropdown-filter-row-firmware"));
 
     await waitFor(() => {
       expect(screen.getByText("v3.5.1")).toBeInTheDocument();
@@ -116,7 +145,8 @@ describe("FiltersDropdown", () => {
     const onClearAll = vi.fn();
 
     render(
-      <FiltersDropdown
+      <NestedDropdownFilter
+        label="Filters"
         categories={buildCategories({
           status: {
             key: "status",
@@ -130,7 +160,7 @@ describe("FiltersDropdown", () => {
       />,
     );
 
-    fireEvent.click(screen.getByTestId("filters-dropdown"));
+    fireEvent.click(screen.getByTestId("nested-dropdown-filter"));
 
     fireEvent.click(screen.getByText("Clear all"));
 
@@ -138,9 +168,11 @@ describe("FiltersDropdown", () => {
   });
 
   it("hides Clear all when no filters are active", () => {
-    render(<FiltersDropdown categories={buildCategories()} onChange={vi.fn()} onClearAll={vi.fn()} />);
+    render(
+      <NestedDropdownFilter label="Filters" categories={buildCategories()} onChange={vi.fn()} onClearAll={vi.fn()} />,
+    );
 
-    fireEvent.click(screen.getByTestId("filters-dropdown"));
+    fireEvent.click(screen.getByTestId("nested-dropdown-filter"));
 
     expect(screen.queryByText("Clear all")).not.toBeInTheDocument();
   });
@@ -170,7 +202,7 @@ describe("computeNestedPosition", () => {
   });
 
   it("shifts top upward so a short panel fits without overflowing the viewport bottom", () => {
-    // The Codex case: row is near the bottom of the parent popover on a 600px viewport.
+    // Row is near the bottom of the parent popover on a 600px viewport.
     // Content is 240px tall — fits in the viewport but row.top would push the bottom off-screen.
     const row = rect({ left: 36, top: 450, right: 316, bottom: 490, width: 280, height: 40 });
     const viewportHeight = 600;

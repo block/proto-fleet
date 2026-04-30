@@ -24,7 +24,9 @@ export type FilterCategory = {
   selectedValues: string[];
 };
 
-type FiltersDropdownProps = {
+type NestedDropdownFilterProps = {
+  /** Trigger button label (e.g. "Filters", "More"). */
+  label: string;
   categories: FilterCategory[];
   onChange: (key: string, selectedValues: string[]) => void;
   onClearAll: () => void;
@@ -99,15 +101,21 @@ const CategoryRow = ({
         disabled={isEmpty}
         aria-haspopup="dialog"
         aria-expanded={showNested}
-        data-testid={`filters-dropdown-row-${category.key}`}
+        data-testid={`nested-dropdown-filter-row-${category.key}`}
       >
-        <span className="grow truncate text-emphasis-300">{category.label}</span>
-        {isEmpty ? <span className="text-300 text-text-primary-70">(no values)</span> : null}
+        <span className="truncate text-emphasis-300">{category.label}</span>
         {!isEmpty && selectedCount > 0 ? (
-          <span className="rounded-full bg-core-primary-10 px-2 py-0.5 text-200 text-text-primary">
+          <span
+            className={clsx(
+              "relative inline-flex h-5 w-5 shrink-0 items-center justify-center text-200 text-intent-warning-fill",
+              "before:absolute before:inset-0 before:-z-10 before:rounded-full before:bg-intent-warning-10 before:content-['']",
+            )}
+          >
             {selectedCount}
           </span>
         ) : null}
+        <span className="grow" />
+        {isEmpty ? <span className="text-300 text-text-primary-70">(no values)</span> : null}
         {!isEmpty ? <ChevronDown width="w-3" className="-rotate-90 opacity-60" /> : null}
       </button>
 
@@ -125,7 +133,7 @@ const CategoryRow = ({
                 visibility: position ? "visible" : "hidden",
                 ...(position?.maxHeight !== undefined ? { maxHeight: `${position.maxHeight}px` } : {}),
               }}
-              data-testid={`filters-dropdown-nested-${category.key}`}
+              data-testid={`nested-dropdown-filter-submenu-${category.key}`}
               onMouseEnter={onNestedEnter}
               onMouseLeave={onNestedLeave}
             >
@@ -163,7 +171,13 @@ const CategoryRow = ({
   );
 };
 
-const FiltersDropdownContent = ({ categories, onChange, onClearAll, testId }: FiltersDropdownProps) => {
+const NestedDropdownFilterContent = ({
+  label,
+  categories,
+  onChange,
+  onClearAll,
+  testId,
+}: NestedDropdownFilterProps) => {
   const [showPopover, setShowPopover] = useState(false);
   const { triggerRef } = usePopover();
   const parentPopoverRef = useRef<HTMLDivElement | null>(null);
@@ -246,7 +260,7 @@ const FiltersDropdownContent = ({ categories, onChange, onClearAll, testId }: Fi
         textColor="text-text-primary"
         className="overflow-hidden !px-3"
         onClick={() => setShowPopover((prev) => !prev)}
-        testId={testId ?? "filters-dropdown"}
+        testId={testId ?? "nested-dropdown-filter"}
         suffixIcon={
           <div
             className={clsx("opacity-60 transition-transform duration-200", {
@@ -257,19 +271,12 @@ const FiltersDropdownContent = ({ categories, onChange, onClearAll, testId }: Fi
           </div>
         }
       >
-        <span className="flex items-center gap-2">
-          <span>Filters</span>
-          {activeCount > 0 ? (
-            <span className="rounded-full bg-core-primary-10 px-2 py-0.5 text-200 text-text-primary">
-              {activeCount}
-            </span>
-          ) : null}
-        </span>
+        <span>{label}</span>
       </Button>
 
       {showPopover ? (
         <Popover
-          testId="filters-dropdown-popover"
+          testId="nested-dropdown-filter-popover"
           position={popoverPosition}
           offset={8}
           buttons={
@@ -322,12 +329,12 @@ const FiltersDropdownContent = ({ categories, onChange, onClearAll, testId }: Fi
   );
 };
 
-const FiltersDropdown = (props: FiltersDropdownProps) => {
+const NestedDropdownFilter = (props: NestedDropdownFilterProps) => {
   return (
     <PopoverProvider>
-      <FiltersDropdownContent {...props} />
+      <NestedDropdownFilterContent {...props} />
     </PopoverProvider>
   );
 };
 
-export default FiltersDropdown;
+export default NestedDropdownFilter;
