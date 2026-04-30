@@ -89,6 +89,7 @@ beforeEach(() => {
     refreshCurrentPage: vi.fn(),
     updateMinerWorkerName: vi.fn(),
     availableModels: [],
+    availableFirmwareVersions: [],
   });
 
   vi.clearAllMocks();

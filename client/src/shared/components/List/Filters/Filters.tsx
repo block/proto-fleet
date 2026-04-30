@@ -3,10 +3,11 @@ import clsx from "clsx";
 
 import ButtonFilter from "./ButtonFilter";
 import DropdownFilter, { type DropdownOption } from "./DropdownFilter";
+import NestedDropdownFilter, { type FilterCategory } from "./NestedDropdownFilter";
 import { DismissTiny } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import { defaultListFilter } from "@/shared/components/List/constants";
-import { ActiveFilters, type FilterItem } from "@/shared/components/List/Filters/types";
+import { ActiveFilters, type DropdownFilterItem, type FilterItem } from "@/shared/components/List/Filters/types";
 
 type FilterProps<ItemType> = {
   className?: string;
@@ -33,12 +34,15 @@ const Filters = <ItemType,>({
   headerControls,
   initialActiveFilters,
 }: FilterProps<ItemType>) => {
-  const [activeFilters, setActiveFilters] = useState<ActiveFilters>(
-    initialActiveFilters || {
+  const defaultActiveFilters = useMemo<ActiveFilters>(
+    () => ({
       buttonFilters: [defaultListFilter],
       dropdownFilters: {},
-    },
+    }),
+    [],
   );
+
+  const [activeFilters, setActiveFilters] = useState<ActiveFilters>(initialActiveFilters || defaultActiveFilters);
 
   // Store onFilter in a ref to avoid re-running effects when the callback reference changes.
   // The callback changes when parent's items change (due to useCallback dependencies in List),
@@ -48,7 +52,25 @@ const Filters = <ItemType,>({
     onFilterRef.current = onFilter;
   }, [onFilter]);
 
+  // Sync internal state when initialActiveFilters changes (e.g., URL navigation from a
+  // sibling component, or the parent clearing the prop). Uses the during-render derivation
+  // pattern so React reschedules cleanly. Skips the resulting onFilter call so the URL
+  // writer doesn't loop. When the prop transitions to undefined, fall back to defaults so
+  // stale selections don't linger.
+  const initialActiveFiltersKey = useMemo(() => JSON.stringify(initialActiveFilters ?? null), [initialActiveFilters]);
+  const [prevSyncedKey, setPrevSyncedKey] = useState(initialActiveFiltersKey);
+  const skipNextOnFilterRef = useRef(false);
+  if (prevSyncedKey !== initialActiveFiltersKey) {
+    setPrevSyncedKey(initialActiveFiltersKey);
+    skipNextOnFilterRef.current = true;
+    setActiveFilters(initialActiveFilters ?? defaultActiveFilters);
+  }
+
   useEffect(() => {
+    if (skipNextOnFilterRef.current) {
+      skipNextOnFilterRef.current = false;
+      return;
+    }
     onFilterRef.current(activeFilters);
   }, [activeFilters]);
 
@@ -96,45 +118,58 @@ const Filters = <ItemType,>({
     });
   };
 
-  // Derive active dropdown filter items from activeFilters - no need for separate state
-  const activeDropdownFilterItems = useMemo(() => {
-    const items: ActiveDropdownFilterItem[] = [];
+  const setDropdownSelection = useCallback((value: string, selectedIds: string[]) => {
+    setActiveFilters((prev) => ({
+      ...prev,
+      dropdownFilters: {
+        ...prev.dropdownFilters,
+        [value]: selectedIds,
+      },
+    }));
+  }, []);
 
+  // Walk every dropdown source (top-level + every nestedFilterDropdown.children) and
+  // dedup by `value`. First-seen wins so callers control which surface "owns" the option
+  // labels in the active-pill row when the same key is exposed in multiple places.
+  const dedupedDropdownSources = useMemo(() => {
+    const map = new Map<string, DropdownFilterItem>();
     filterItems.forEach((filter) => {
       if (filter.type === "dropdown") {
-        const selectedIds = activeFilters.dropdownFilters[filter.value] || [];
-
-        // Only add items if there are selections (empty means no filtering)
-        if (selectedIds.length > 0) {
-          filter.options.forEach((option) => {
-            if (selectedIds.includes(option.id)) {
-              items.push({
-                ...option,
-                filterValue: filter.value,
-              });
-            }
-          });
-        }
+        if (!map.has(filter.value)) map.set(filter.value, filter);
+      } else if (filter.type === "nestedFilterDropdown") {
+        filter.children.forEach((child) => {
+          if (!map.has(child.value)) map.set(child.value, child);
+        });
       }
     });
+    return Array.from(map.values());
+  }, [filterItems]);
 
+  const activeDropdownFilterItems = useMemo(() => {
+    const items: ActiveDropdownFilterItem[] = [];
+    dedupedDropdownSources.forEach((filter) => {
+      const selectedIds = activeFilters.dropdownFilters[filter.value] || [];
+      if (selectedIds.length > 0) {
+        filter.options.forEach((option) => {
+          if (selectedIds.includes(option.id)) {
+            items.push({
+              ...option,
+              filterValue: filter.value,
+            });
+          }
+        });
+      }
+    });
     return items;
-  }, [activeFilters.dropdownFilters, filterItems]);
+  }, [activeFilters.dropdownFilters, dedupedDropdownSources]);
 
   const handleRemoveDropdownFilter = useCallback(
     (optionId: string, filterValue: string) => {
       const currentSelection = activeFilters.dropdownFilters[filterValue] || [];
       const newSelection = currentSelection.filter((id) => id !== optionId);
-
-      setActiveFilters((prev) => ({
-        ...prev,
-        dropdownFilters: {
-          ...prev.dropdownFilters,
-          [filterValue]: newSelection,
-        },
-      }));
+      setDropdownSelection(filterValue, newSelection);
     },
-    [activeFilters.dropdownFilters],
+    [activeFilters.dropdownFilters, setDropdownSelection],
   );
 
   return (
@@ -155,9 +190,10 @@ const Filters = <ItemType,>({
                 size={filterSize}
               />
             );
-          } else if (filter.type === "dropdown") {
-            const selectedOptions = activeFilters.dropdownFilters[filter.value];
+          }
 
+          if (filter.type === "dropdown") {
+            const selectedOptions = activeFilters.dropdownFilters[filter.value];
             return (
               <div key={filter.value}>
                 <DropdownFilter
@@ -166,20 +202,40 @@ const Filters = <ItemType,>({
                   options={filter.options}
                   selectedOptions={selectedOptions || []}
                   showSelectAll={filter.showSelectAll}
-                  onSelect={(items) => {
-                    setActiveFilters((prev) => ({
-                      ...prev,
-                      dropdownFilters: {
-                        ...prev.dropdownFilters,
-                        [filter.value]: items,
-                      },
-                    }));
-                  }}
+                  onSelect={(items) => setDropdownSelection(filter.value, items)}
                   withButtons={isServerSide}
                 />
               </div>
             );
           }
+
+          if (filter.type === "nestedFilterDropdown") {
+            const categories: FilterCategory[] = filter.children.map((child) => ({
+              key: child.value,
+              label: child.title,
+              options: child.options,
+              selectedValues: activeFilters.dropdownFilters[child.value] ?? [],
+            }));
+            return (
+              <NestedDropdownFilter
+                key={filter.value}
+                testId={`filter-nested-${filter.value}`}
+                label={filter.title}
+                categories={categories}
+                onChange={setDropdownSelection}
+                onClearAll={() =>
+                  setActiveFilters((prev) => {
+                    const next = { ...prev.dropdownFilters };
+                    filter.children.forEach((child) => {
+                      delete next[child.value];
+                    });
+                    return { ...prev, dropdownFilters: next };
+                  })
+                }
+              />
+            );
+          }
+
           return null;
         })}
         {headerControls ? (

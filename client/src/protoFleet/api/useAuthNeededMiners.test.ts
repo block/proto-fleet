@@ -27,6 +27,7 @@ describe("useAuthNeededMiners", () => {
     refreshCurrentPage: vi.fn(),
     updateMinerWorkerName: vi.fn(),
     availableModels: [],
+    availableFirmwareVersions: [],
   };
 
   beforeEach(() => {

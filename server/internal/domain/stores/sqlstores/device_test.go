@@ -5,6 +5,9 @@ import (
 
 	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
+	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -115,4 +118,86 @@ func TestProtoPairingStatusToSQL(t *testing.T) {
 			require.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestBuildFilterParams_NilFilter(t *testing.T) {
+	fp := buildFilterParams(nil)
+
+	assert.False(t, fp.statusFilter.Valid)
+	assert.False(t, fp.modelFilter.Valid)
+	assert.False(t, fp.firmwareFilter.Valid)
+	assert.False(t, fp.zoneFilter.Valid)
+}
+
+func TestBuildFilterParams_FirmwareOnly(t *testing.T) {
+	fp := buildFilterParams(&stores.MinerFilter{
+		FirmwareVersions: []string{"v3.5.1", "v3.5.2"},
+	})
+
+	assert.True(t, fp.firmwareFilter.Valid)
+	assert.Equal(t, []string{"v3.5.1", "v3.5.2"}, fp.firmwareValues)
+	assert.False(t, fp.zoneFilter.Valid)
+	assert.Nil(t, fp.zoneValues)
+}
+
+func TestBuildFilterParams_ZonesOnly(t *testing.T) {
+	fp := buildFilterParams(&stores.MinerFilter{
+		Zones: []string{"building-a", "building-b"},
+	})
+
+	assert.True(t, fp.zoneFilter.Valid)
+	assert.Equal(t, []string{"building-a", "building-b"}, fp.zoneValues)
+	assert.False(t, fp.firmwareFilter.Valid)
+	assert.Nil(t, fp.firmwareValues)
+}
+
+// Zones may contain commas (e.g. "Austin, Building 1"). The values must pass
+// through verbatim — no CSV splitting — so the SQL ANY($N::text[]) match works.
+func TestBuildFilterParams_ZoneWithCommaPassesThrough(t *testing.T) {
+	fp := buildFilterParams(&stores.MinerFilter{
+		Zones: []string{"Austin, Building 1", "Dallas"},
+	})
+
+	assert.True(t, fp.zoneFilter.Valid)
+	assert.Equal(t, []string{"Austin, Building 1", "Dallas"}, fp.zoneValues)
+}
+
+func TestBuildFilterParams_FirmwareAndZones(t *testing.T) {
+	fp := buildFilterParams(&stores.MinerFilter{
+		FirmwareVersions: []string{"v3.5.1"},
+		Zones:            []string{"building-a"},
+	})
+
+	assert.True(t, fp.firmwareFilter.Valid)
+	assert.Equal(t, []string{"v3.5.1"}, fp.firmwareValues)
+	assert.True(t, fp.zoneFilter.Valid)
+	assert.Equal(t, []string{"building-a"}, fp.zoneValues)
+}
+
+// Empty slices must leave the filter unset so the query treats them as
+// "no filter applied" rather than "match nothing".
+func TestBuildFilterParams_EmptySlicesUnset(t *testing.T) {
+	fp := buildFilterParams(&stores.MinerFilter{
+		FirmwareVersions: []string{},
+		Zones:            []string{},
+	})
+
+	assert.False(t, fp.firmwareFilter.Valid)
+	assert.Nil(t, fp.firmwareValues)
+	assert.False(t, fp.zoneFilter.Valid)
+	assert.Nil(t, fp.zoneValues)
+}
+
+func TestBuildFilterParams_AllFilters(t *testing.T) {
+	fp := buildFilterParams(&stores.MinerFilter{
+		DeviceStatusFilter: []minermodels.MinerStatus{minermodels.MinerStatusActive},
+		ModelNames:         []string{"S21 XP"},
+		FirmwareVersions:   []string{"v3.5.1"},
+		Zones:              []string{"zone-a"},
+	})
+
+	assert.True(t, fp.statusFilter.Valid)
+	assert.True(t, fp.modelFilter.Valid)
+	assert.True(t, fp.firmwareFilter.Valid)
+	assert.True(t, fp.zoneFilter.Valid)
 }

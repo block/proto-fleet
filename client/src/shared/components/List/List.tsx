@@ -1121,7 +1121,6 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   const filtersElement =
     filters?.length || headerControls ? (
       <Filters<ListItem>
-        key={JSON.stringify(initialActiveFilters ?? null)}
         className={clsx("gap-4 py-6", paddingClasses)}
         filterItems={filters ?? []}
         filterSize={filterSize}
