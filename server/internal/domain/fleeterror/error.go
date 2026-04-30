@@ -55,6 +55,13 @@ func (e FleetError) IsExpected() bool {
 	return isExpectedCode(e.GRPCCode)
 }
 
+// IsExpectedCode is the exported form of isExpectedCode for callers
+// outside this package (e.g. interceptors that need to classify a
+// connect.Error from a third-party source like protovalidate).
+func IsExpectedCode(code connect.Code) bool {
+	return isExpectedCode(code)
+}
+
 // isExpectedCode reports whether a gRPC code represents an expected (client-side) error.
 // Stack traces are not captured for expected errors since they fire on hot paths
 // (e.g. every failed plugin probe during discovery) and the traces are never useful.

@@ -66,7 +66,17 @@ func (e ErrorStackTraceLoggingInterceptor) logError(err error) {
 				_, _ = fmt.Fprint(os.Stderr, fleetErr.ErrorWithStackTrace())
 			}
 		}
-	} else {
-		slog.Warn("non-FleetError encountered - possible missing error wrapping", "error", err.Error())
+		return
 	}
+
+	// Errors from third-party interceptors (e.g. protovalidate) are
+	// *connect.Error values that bypass our FleetError plumbing. If their
+	// code is in the expected/client-error set, treat them like an
+	// expected FleetError -- not a code-quality issue worth warning about.
+	var connectErr *connect.Error
+	if errors.As(err, &connectErr) && fleeterror.IsExpectedCode(connectErr.Code()) {
+		return
+	}
+
+	slog.Warn("non-FleetError encountered - possible missing error wrapping", "error", err.Error())
 }
