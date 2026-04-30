@@ -13,7 +13,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cmd=$(jq -r '.tool_input.command // empty'); case \"$cmd\" in 'git commit'|'git commit '*) b=$(git branch --show-current 2>/dev/null); case \"$b\" in main|master) printf 'Refusing git commit on protected branch %s. Cut a feature branch first: git switch -c <name>\\n' \"$b\" >&2; exit 2;; esac;; esac"
+            "command": "bash .claude/hooks/git-commit-guard.sh"
           }
         ]
       }
