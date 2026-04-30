@@ -34,6 +34,25 @@ type minerFilterParams struct {
 	firmwareVersionValues     []string
 	zonesFilter               sql.NullString
 	zoneValues                []string
+	// numericRanges drives both the WHERE predicates emitted by
+	// appendFilterSQL and the CTE/JOIN gating in buildListQuerySQL: when
+	// non-empty, latest_metrics is INNER-joined and OFFLINE miners are
+	// excluded so results match how the UI renders telemetry cells.
+	numericRanges []stores.NumericRange
+	ipCIDRsFilter sql.NullString
+	// ipCIDRValues are pre-stringified prefixes (already normalized by
+	// parseFilter) suitable for pq.Array on a $N::cidr[] parameter.
+	ipCIDRValues []string
+}
+
+// filterRequiresTelemetry reports whether any predicate in filter targets a
+// device_metrics column. When true, callers must build the latest_metrics CTE
+// and INNER-join it so missing telemetry naturally excludes the row.
+func filterRequiresTelemetry(filter *stores.MinerFilter) bool {
+	if filter == nil {
+		return false
+	}
+	return len(filter.NumericRanges) > 0
 }
 
 // buildMinerFilterParams converts a MinerFilter to SQL-ready parameters.
@@ -119,7 +138,46 @@ func buildMinerFilterParams(filter *stores.MinerFilter) minerFilterParams {
 		fp.zoneValues = filter.Zones
 	}
 
+	// Numeric range filters (telemetry predicates).
+	if len(filter.NumericRanges) > 0 {
+		fp.numericRanges = filter.NumericRanges
+	}
+
+	// IP CIDR filter — pre-stringify so appendFilterSQL hands one pq.Array
+	// into the cidr[] cast regardless of how many prefixes were supplied.
+	if len(filter.IPCIDRs) > 0 {
+		fp.ipCIDRsFilter = sql.NullString{Valid: true}
+		fp.ipCIDRValues = make([]string, len(filter.IPCIDRs))
+		for i, p := range filter.IPCIDRs {
+			fp.ipCIDRValues[i] = p.String()
+		}
+	}
+
 	return fp
+}
+
+// numericFieldColumn returns the SQL expression that yields a value in the
+// same display units the corresponding Measurement is emitted in by other
+// telemetry APIs. The column→display conversions mirror
+// telemetry/models/units.go: hashrate H/s ÷ 1e12 → TH/s, power W ÷ 1e3 → kW,
+// efficiency J/H × 1e12 → J/TH; temperature/voltage/current pass through.
+func numericFieldColumn(f stores.NumericFilterField) string {
+	//nolint:exhaustive // Unspecified is filtered out by parseFilter; treat as unknown.
+	switch f {
+	case stores.NumericFilterFieldHashrateTHs:
+		return "latest_metrics.hash_rate_hs / 1e12"
+	case stores.NumericFilterFieldEfficiencyJTH:
+		return "latest_metrics.efficiency_jh * 1e12"
+	case stores.NumericFilterFieldPowerKW:
+		return "latest_metrics.power_w / 1e3"
+	case stores.NumericFilterFieldTemperatureC:
+		return "latest_metrics.temp_c"
+	case stores.NumericFilterFieldVoltageV:
+		return "latest_metrics.voltage_v"
+	case stores.NumericFilterFieldCurrentA:
+		return "latest_metrics.current_a"
+	}
+	return ""
 }
 
 // appendFilterSQL appends filter conditions to the query builder and returns updated args.
@@ -218,6 +276,46 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 	if fp.firmwareVersionsFilter.Valid {
 		fmt.Fprintf(sb, " AND discovered_device.firmware_version = ANY($%d::text[])", argNum)
 		args = append(args, pq.Array(fp.firmwareVersionValues))
+		argNum++
+	}
+
+	if len(fp.numericRanges) > 0 {
+		for _, r := range fp.numericRanges {
+			col := numericFieldColumn(r.Field)
+			if col == "" {
+				continue
+			}
+			if r.Min != nil {
+				op := ">"
+				if r.MinInclusive {
+					op = ">="
+				}
+				fmt.Fprintf(sb, " AND %s %s $%d", col, op, argNum)
+				args = append(args, *r.Min)
+				argNum++
+			}
+			if r.Max != nil {
+				op := "<"
+				if r.MaxInclusive {
+					op = "<="
+				}
+				fmt.Fprintf(sb, " AND %s %s $%d", col, op, argNum)
+				args = append(args, *r.Max)
+				argNum++
+			}
+		}
+		// Match the UI's em-dash semantics: OFFLINE miners never expose a
+		// telemetry value, so a numeric predicate should not surface them
+		// even if a fresh metric exists.
+		sb.WriteString(" AND (device_status.status IS NULL OR device_status.status != 'OFFLINE')")
+	}
+
+	if fp.ipCIDRsFilter.Valid {
+		fmt.Fprintf(sb,
+			" AND EXISTS (SELECT 1 FROM unnest($%d::cidr[]) c"+
+				" WHERE discovered_device.ip_address::inet <<= c)",
+			argNum)
+		args = append(args, pq.Array(fp.ipCIDRValues))
 		argNum++
 	}
 

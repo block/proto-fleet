@@ -120,12 +120,20 @@ var sortExpressions = map[stores.SortField]string{
 	stores.SortFieldWorkerName:  "device.worker_name",
 }
 
-// latestMetricsCTE is the Common Table Expression that fetches the latest telemetry
-// values for sorting. It extracts the appropriate metric based on the sort field.
+// latestMetricsCTE is the Common Table Expression that fetches the latest
+// telemetry values within telemetryFreshnessWindow. All comparable telemetry
+// columns are projected so numeric range filters can reference them via
+// latest_metrics.<col>; sort_value carries the (possibly NULL) sort expression.
 // Parameter: $1 = org_id, uses sort_metric_type placeholder for the metric selector
 var latestMetricsCTE = `WITH latest_metrics AS (
     SELECT DISTINCT ON (device_metrics.device_identifier)
         device_metrics.device_identifier,
+        device_metrics.hash_rate_hs,
+        device_metrics.efficiency_jh,
+        device_metrics.power_w,
+        device_metrics.temp_c,
+        device_metrics.voltage_v,
+        device_metrics.current_a,
         %s as sort_value
     FROM device_metrics
     INNER JOIN device d2 ON device_metrics.device_identifier = d2.device_identifier
@@ -135,8 +143,14 @@ var latestMetricsCTE = `WITH latest_metrics AS (
     ORDER BY device_metrics.device_identifier, device_metrics.time DESC
 )`
 
-// minerTelemetryJoin is the LEFT JOIN clause for telemetry sorting queries.
+// minerTelemetryJoin is the LEFT JOIN used when telemetry is needed for sort
+// only; rows without recent metrics still appear with NULL sort values.
 const minerTelemetryJoin = `LEFT JOIN latest_metrics ON device.device_identifier = latest_metrics.device_identifier`
+
+// minerTelemetryInnerJoin is the INNER JOIN used when a numeric filter
+// references latest_metrics columns. Missing telemetry naturally excludes
+// the row, matching the UI's em-dash rendering for stale cells.
+const minerTelemetryInnerJoin = `INNER JOIN latest_metrics ON device.device_identifier = latest_metrics.device_identifier`
 
 // getTelemetryMetricExpression returns the SQL expression for extracting
 // the sort value from the device_metrics table for the given sort field.

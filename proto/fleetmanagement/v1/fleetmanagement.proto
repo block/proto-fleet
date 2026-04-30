@@ -3,6 +3,7 @@ syntax = "proto3";
 package fleetmanagement.v1;
 
 import "google/protobuf/timestamp.proto";
+import "google/protobuf/wrappers.proto";
 import "common/v1/measurement.proto";
 import "common/v1/cooling.proto";
 import "telemetry/v1/telemetry.proto";
@@ -276,6 +277,46 @@ message MinerListFilter {
   // Miners not assigned to any rack are excluded by this filter.
   // When combined with other filters, uses AND logic (device must match both filters).
   repeated string zones = 10;
+
+  // Numeric range conditions on telemetry. Multiple entries are AND'd, and
+  // multiple entries on the same field compose a tighter range
+  // (e.g. 90 < hashrate < 100). When any numeric range is set, miners with no
+  // telemetry in the last 10 minutes — and miners whose status is OFFLINE —
+  // are excluded, matching how the UI renders an em-dash for those cells.
+  repeated NumericRangeFilter numeric_ranges = 11;
+
+  // Filter miners whose IP address falls inside any of the supplied prefixes
+  // (acts as OR condition across entries). Bare IPs without a prefix length
+  // are treated as /32 (IPv4) or /128 (IPv6). Non-canonical CIDRs such as
+  // "192.168.1.5/24" are normalized to their network ("192.168.1.0/24").
+  repeated string ip_cidrs = 12;
+}
+
+// Telemetry field selector for numeric range filters. Values are interpreted
+// in the same display units the corresponding Measurement is emitted in by
+// telemetry-bearing responses (ListMinerStateSnapshots, TelemetryService,
+// ExportMinerListCsv), so a filter of "2.5" on POWER_KW matches a miner the
+// UI shows as "2.5 kW". The server applies the storage→display conversion
+// internally before comparing.
+enum NumericField {
+  NUMERIC_FIELD_UNSPECIFIED      = 0;
+  NUMERIC_FIELD_HASHRATE_THS     = 1; // TH/s   (column hash_rate_hs / 1e12)
+  NUMERIC_FIELD_EFFICIENCY_JTH   = 2; // J/TH   (column efficiency_jh * 1e12)
+  NUMERIC_FIELD_POWER_KW         = 3; // kW     (column power_w / 1e3)
+  NUMERIC_FIELD_TEMPERATURE_C    = 4; // °C     (column temp_c)
+  NUMERIC_FIELD_VOLTAGE_V        = 5; // V      (column voltage_v)
+  NUMERIC_FIELD_CURRENT_A        = 6; // A      (column current_a)
+}
+
+// Range predicate on a single telemetry field. At least one of min/max must be
+// set; setting both expresses a between/range. Inclusivity defaults to false
+// to mirror the strict comparisons used in product copy ("> 90 TH/s").
+message NumericRangeFilter {
+  NumericField field = 1;
+  google.protobuf.DoubleValue min = 2;
+  google.protobuf.DoubleValue max = 3;
+  bool min_inclusive = 4;
+  bool max_inclusive = 5;
 }
 
 

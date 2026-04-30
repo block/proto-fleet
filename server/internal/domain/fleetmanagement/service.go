@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"net/netip"
 	"sort"
 	"strconv"
 	"strings"
@@ -723,7 +724,129 @@ func parseFilter(pbFilter *pb.MinerListFilter) (*interfaces.MinerFilter, error) 
 		filter.Zones = pbFilter.Zones
 	}
 
+	if len(pbFilter.NumericRanges) > 0 {
+		if len(pbFilter.NumericRanges) > maxFreeFormFilterValues {
+			return nil, fleeterror.NewInvalidArgumentErrorf(
+				"numeric_ranges exceeds maximum of %d values", maxFreeFormFilterValues)
+		}
+		ranges := make([]interfaces.NumericRange, 0, len(pbFilter.NumericRanges))
+		for i, r := range pbFilter.NumericRanges {
+			parsed, err := parseNumericRange(i, r)
+			if err != nil {
+				return nil, err
+			}
+			ranges = append(ranges, parsed)
+		}
+		filter.NumericRanges = ranges
+	}
+
+	if len(pbFilter.IpCidrs) > 0 {
+		if len(pbFilter.IpCidrs) > maxFreeFormFilterValues {
+			return nil, fleeterror.NewInvalidArgumentErrorf(
+				"ip_cidrs exceeds maximum of %d values", maxFreeFormFilterValues)
+		}
+		prefixes := make([]netip.Prefix, 0, len(pbFilter.IpCidrs))
+		for i, c := range pbFilter.IpCidrs {
+			p, err := parseCIDR(i, c)
+			if err != nil {
+				return nil, err
+			}
+			prefixes = append(prefixes, p)
+		}
+		filter.IPCIDRs = prefixes
+	}
+
 	return filter, nil
+}
+
+func parseNumericRange(idx int, r *pb.NumericRangeFilter) (interfaces.NumericRange, error) {
+	if r == nil {
+		return interfaces.NumericRange{}, fleeterror.NewInvalidArgumentErrorf(
+			"numeric_ranges[%d] is nil", idx)
+	}
+	field, err := convertNumericField(r.Field)
+	if err != nil {
+		return interfaces.NumericRange{}, fleeterror.NewInvalidArgumentErrorf(
+			"numeric_ranges[%d].field: %v", idx, err)
+	}
+	if r.Min == nil && r.Max == nil {
+		return interfaces.NumericRange{}, fleeterror.NewInvalidArgumentErrorf(
+			"numeric_ranges[%d]: at least one of min or max must be set", idx)
+	}
+	out := interfaces.NumericRange{
+		Field:        field,
+		MinInclusive: r.MinInclusive,
+		MaxInclusive: r.MaxInclusive,
+	}
+	if r.Min != nil {
+		v := r.Min.Value
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return interfaces.NumericRange{}, fleeterror.NewInvalidArgumentErrorf(
+				"numeric_ranges[%d].min must be finite", idx)
+		}
+		out.Min = &v
+	}
+	if r.Max != nil {
+		v := r.Max.Value
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return interfaces.NumericRange{}, fleeterror.NewInvalidArgumentErrorf(
+				"numeric_ranges[%d].max must be finite", idx)
+		}
+		out.Max = &v
+	}
+	if out.Min != nil && out.Max != nil && *out.Min > *out.Max {
+		return interfaces.NumericRange{}, fleeterror.NewInvalidArgumentErrorf(
+			"numeric_ranges[%d]: min (%v) must not exceed max (%v)", idx, *out.Min, *out.Max)
+	}
+	return out, nil
+}
+
+func convertNumericField(f pb.NumericField) (interfaces.NumericFilterField, error) {
+	switch f {
+	case pb.NumericField_NUMERIC_FIELD_HASHRATE_THS:
+		return interfaces.NumericFilterFieldHashrateTHs, nil
+	case pb.NumericField_NUMERIC_FIELD_EFFICIENCY_JTH:
+		return interfaces.NumericFilterFieldEfficiencyJTH, nil
+	case pb.NumericField_NUMERIC_FIELD_POWER_KW:
+		return interfaces.NumericFilterFieldPowerKW, nil
+	case pb.NumericField_NUMERIC_FIELD_TEMPERATURE_C:
+		return interfaces.NumericFilterFieldTemperatureC, nil
+	case pb.NumericField_NUMERIC_FIELD_VOLTAGE_V:
+		return interfaces.NumericFilterFieldVoltageV, nil
+	case pb.NumericField_NUMERIC_FIELD_CURRENT_A:
+		return interfaces.NumericFilterFieldCurrentA, nil
+	case pb.NumericField_NUMERIC_FIELD_UNSPECIFIED:
+		return 0, fmt.Errorf("field is required")
+	}
+	return 0, fmt.Errorf("unsupported field %v", f)
+}
+
+// parseCIDR accepts both bare IPs (treated as /32 or /128) and prefixes,
+// then normalizes to the network address (Masked) so DB comparisons are
+// canonical and equality tests in unit tests are deterministic.
+func parseCIDR(idx int, raw string) (netip.Prefix, error) {
+	if raw == "" {
+		return netip.Prefix{}, fleeterror.NewInvalidArgumentErrorf(
+			"ip_cidrs[%d] is empty", idx)
+	}
+	if !strings.Contains(raw, "/") {
+		addr, err := netip.ParseAddr(raw)
+		if err != nil {
+			return netip.Prefix{}, fleeterror.NewInvalidArgumentErrorf(
+				"ip_cidrs[%d]: %v", idx, err)
+		}
+		raw = fmt.Sprintf("%s/%d", addr.String(), addr.BitLen())
+	}
+	prefix, err := netip.ParsePrefix(raw)
+	if err != nil {
+		return netip.Prefix{}, fleeterror.NewInvalidArgumentErrorf(
+			"ip_cidrs[%d]: %v", idx, err)
+	}
+	if !prefix.IsValid() {
+		return netip.Prefix{}, fleeterror.NewInvalidArgumentErrorf(
+			"ip_cidrs[%d]: invalid prefix", idx)
+	}
+	return prefix.Masked(), nil
 }
 
 // maxFreeFormFilterValues caps the size of free-form repeated-string filter
