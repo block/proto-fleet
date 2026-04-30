@@ -370,6 +370,13 @@ func (s *Service) getCachedFleetOptions(ctx context.Context, orgID int64) (fleet
 			return opts, nil
 		}
 
+		// Snapshot the generation BEFORE the store reads. If a concurrent
+		// Invalidate (pair / unpair / firmware change / status demotion)
+		// races with this fetch, PutIfGeneration below will discard the
+		// pre-mutation result so the next request re-fetches with fresh
+		// data instead of being served the stale value.
+		gen := s.optionsCache.Generation(orgID)
+
 		models, err := s.deviceStore.GetAvailableModels(fetchCtx, orgID)
 		if err != nil {
 			return fleetoptions.Options{}, fleeterror.NewInternalErrorf("failed to get available models: %v", err)
@@ -381,7 +388,7 @@ func (s *Service) getCachedFleetOptions(ctx context.Context, orgID int64) (fleet
 		}
 
 		opts := fleetoptions.Options{Models: models, FirmwareVersions: firmwares}
-		s.optionsCache.Put(orgID, opts)
+		s.optionsCache.PutIfGeneration(orgID, opts, gen)
 		return opts, nil
 	})
 
