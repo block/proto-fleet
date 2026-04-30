@@ -3,7 +3,7 @@
 package preflight
 
 import (
-	"strings"
+	"github.com/block/proto-fleet/server/internal/domain/sv2"
 )
 
 type Slot int
@@ -46,7 +46,7 @@ func Run(devices []Device, slots []SlotAssignment) []Mismatch {
 	var mismatches []Mismatch
 	for _, d := range devices {
 		for _, s := range slots {
-			if !isSV2URL(s.URL) {
+			if !sv2.IsSV2URL(s.URL) {
 				continue
 			}
 			if d.NativeStratumV2 {
@@ -63,6 +63,3 @@ func Run(devices []Device, slots []SlotAssignment) []Mismatch {
 	return mismatches
 }
 
-func isSV2URL(stratumURL string) bool {
-	return strings.HasPrefix(stratumURL, "stratum2+")
-}

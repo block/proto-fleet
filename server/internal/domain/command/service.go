@@ -1017,7 +1017,7 @@ func (s *Service) preflightSV2Capabilities(ctx context.Context, selector *pb.Dev
 		return nil, nil, sv2AllIncompatibleError(skippedSet)
 	}
 
-	kept := make([]string, 0, len(devices)-len(skippedSet))
+	kept := make([]string, 0, len(devices))
 	for _, d := range devices {
 		if _, skip := skippedSet[d.Identifier]; !skip {
 			kept = append(kept, d.Identifier)
