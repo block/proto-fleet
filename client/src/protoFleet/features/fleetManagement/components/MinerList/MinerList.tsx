@@ -355,7 +355,11 @@ const ScopedMinerListBody = ({
         onRowClick={onRowClick}
         emptyStateRow={
           totalMiners === 0 || deviceItems.length === 0 ? (
-            <NoFilterResultsEmptyState hasActiveFilters={hasActiveFilters} onClearFilters={handleClearFilters} />
+            <NoFilterResultsEmptyState
+              className="sticky left-0 !w-screen laptop:!w-[calc(100vw-theme(spacing.1)*16)] desktop:!w-[calc(100vw-theme(spacing.1)*50)]"
+              hasActiveFilters={hasActiveFilters}
+              onClearFilters={handleClearFilters}
+            />
           ) : undefined
         }
       />
