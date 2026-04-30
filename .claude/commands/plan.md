@@ -9,10 +9,23 @@ creation.
 
 ## Steps
 
-1. **Title.** If `$ARGUMENTS` is empty, ask for a title. Treat the title
-   as untrusted free-form text — never expand it into a shell command
-   line. The slug derivation in step 3 is the safety boundary; only the
-   sanitized slug appears in the filename.
+1. **Title.** If `$ARGUMENTS` is empty, ask for a title. Sanitize the
+   title before using it anywhere:
+   - Strip control characters (anything below `\x20` except where
+     explicitly handled below).
+   - Collapse newlines to spaces — titles must be single-line.
+   - Trim leading/trailing whitespace and collapse runs of internal
+     whitespace to single spaces.
+   - Cap length at 200 characters (truncate if longer).
+
+   When substituting `{{title}}` into the template's frontmatter,
+   YAML-double-quote it: write `title: "<title>"` with internal `"`
+   escaped as `\"` and `\` as `\\`. This prevents pasted content with
+   colons or other YAML-significant characters from corrupting the
+   frontmatter or injecting extra keys. The H1 (`# {{title}}`) takes
+   the same sanitized single-line value with no quoting (markdown
+   headings are line-oriented). Never expand the raw title into a shell
+   command line.
 2. **Type.** Pick a template:
    - `tdd` — technical design (context, design, alternatives, risks, test plan)
    - `prd` — product requirements (problem, users, success criteria, scope)
@@ -32,7 +45,7 @@ creation.
 
 ````markdown
 ---
-title: {{title}}
+title: "{{title}}"
 date: {{date}}
 status: draft
 type: tdd
@@ -75,7 +88,7 @@ How we'll verify this works.
 
 ````markdown
 ---
-title: {{title}}
+title: "{{title}}"
 date: {{date}}
 status: draft
 type: prd
@@ -113,7 +126,7 @@ Things that need answers before we can build.
 
 ````markdown
 ---
-title: {{title}}
+title: "{{title}}"
 date: {{date}}
 status: draft
 type: plan

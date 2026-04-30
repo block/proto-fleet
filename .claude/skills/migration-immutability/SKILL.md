@@ -12,9 +12,18 @@ databases that ran the old version and those that ran the new one.
 
 ## When this skill applies
 
-The user is editing a migration file already on `main`. Check via
-`git log --diff-filter=A -- <path>`: if the *creation* commit is on `main`,
-the migration is considered deployed.
+The user is editing a migration file whose *creation* commit is reachable
+from `origin/main` (i.e. the migration has already merged). Check via:
+
+```bash
+commit=$(git log --diff-filter=A --format=%H -- <path> | tail -1)
+git merge-base --is-ancestor "$commit" origin/main && echo deployed
+```
+
+Falls back to `main` if `origin/main` isn't fetched. Don't use plain
+`git log -- <path>` to make this decision — that scans the *current*
+branch's history, not main's specifically, so a feature-branch migration
+would be misclassified as deployed.
 
 ## When this skill does NOT apply
 
