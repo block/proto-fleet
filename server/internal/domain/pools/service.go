@@ -12,6 +12,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/domain/sv2"
 	"github.com/block/proto-fleet/server/internal/infrastructure/secrets"
 	stratumv1 "github.com/block/proto-fleet/server/internal/infrastructure/stratum/v1"
 )
@@ -86,6 +87,11 @@ func (s *Service) UpdatePool(ctx context.Context, r *pb.UpdatePoolRequest) (*pb.
 	if r.Url != nil && strings.TrimSpace(r.GetUrl()) == "" {
 		return nil, fleeterror.NewInvalidArgumentError("url cannot be empty; omit the field to leave unchanged")
 	}
+	if r.Url != nil {
+		if err := sv2.ValidatePoolURL(r.GetUrl()); err != nil {
+			return nil, err
+		}
+	}
 	if r.Username != nil && strings.TrimSpace(r.GetUsername()) == "" {
 		return nil, fleeterror.NewInvalidArgumentError("username cannot be empty; omit the field to leave unchanged")
 	}
@@ -155,6 +161,9 @@ func (s *Service) CreatePool(ctx context.Context, poolConfig *pb.PoolConfig) (*p
 	if err := validatePoolUsername(poolConfig.GetUsername()); err != nil {
 		return nil, err
 	}
+	if err := sv2.ValidatePoolURL(poolConfig.GetUrl()); err != nil {
+		return nil, err
+	}
 
 	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
 		poolID, err := s.poolStore.CreatePool(ctx, poolConfig, info.OrganizationID)
@@ -207,10 +216,8 @@ func (s *Service) ListPools(ctx context.Context) ([]*pb.Pool, error) {
 	return pools, nil
 }
 
-// ValidateConnection the connection to a pool server.
-// It returns true if the connection is successful, otherwise false.
-// We currently only support Stratum V1 connection pools, if you need V2
-// support please use a proxy v1->v2 as described https://stratumprotocol.org/docs/#proxies
+// ValidateConnection probes a pool. SV1 runs mining.subscribe + authorize;
+// SV2 runs the Noise NX handshake against the URL's authority pubkey.
 func (s *Service) ValidateConnection(ctx context.Context, url string, username string, password *secrets.Text, timeout *time.Duration) (bool, error) {
 	to := s.cfg.Timeout
 	if timeout != nil {
@@ -218,11 +225,13 @@ func (s *Service) ValidateConnection(ctx context.Context, url string, username s
 	}
 	ctx, cancel := context.WithTimeout(ctx, to)
 	defer cancel()
-	ok, err := stratumv1.Authenticate(ctx, url, username, password)
 
-	if err != nil {
-		return false, err
+	if sv2.IsSV2URL(url) {
+		key, err := sv2.PoolNoiseKeyFromURL(url)
+		if err != nil {
+			return false, fleeterror.NewInvalidArgumentErrorf("%v", err)
+		}
+		return sv2.HandshakeProbe(ctx, url, key, to)
 	}
-
-	return ok, nil
+	return stratumv1.Authenticate(ctx, url, username, password)
 }

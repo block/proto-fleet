@@ -27,25 +27,20 @@ test.describe("Mining pools", () => {
       await poolsPage.closePoolNotConnectedCallout();
     });
 
-    await test.step("Validate save button enable/disable rules", async () => {
+    await test.step("Save stays disabled while URL is invalid, regardless of name/username", async () => {
       await poolsPage.validateSaveButtonDisabled();
 
       await poolsPage.inputPoolUsername("aaa", 1);
       await poolsPage.validateSaveButtonDisabled();
 
       await poolsPage.inputPoolName("aaa", 1);
-      await poolsPage.validateSaveButtonEnabled();
+      await poolsPage.validateSaveButtonDisabled();
 
       await poolsPage.inputPoolUsername("", 1);
-      await poolsPage.validateSaveButtonEnabled();
+      await poolsPage.validateSaveButtonDisabled();
 
       await poolsPage.inputPoolUsername("aaa", 1);
-      await poolsPage.validateSaveButtonEnabled();
-    });
-
-    await test.step("Save invalid pool URL shows error toast", async () => {
-      await poolsPage.clickSave();
-      await poolsPage.validateToastMessage("Your changes were not saved");
+      await poolsPage.validateSaveButtonDisabled();
     });
 
     await commonSteps.navigateToHome();

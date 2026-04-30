@@ -85,6 +85,7 @@ const MinerActionsMenu = ({
     handleCancel,
     handleMiningPoolSuccess,
     handleMiningPoolError,
+    handleMiningPoolWarning,
     showPoolSelectionPage,
     poolFilteredDeviceIds,
     fleetCredentials,
@@ -269,6 +270,7 @@ const MinerActionsMenu = ({
         userPassword={fleetCredentials?.password}
         onSuccess={handleMiningPoolSuccess}
         onError={handleMiningPoolError}
+        onWarning={handleMiningPoolWarning}
         onDismiss={handleCancel}
       />
       <ManagePowerModal

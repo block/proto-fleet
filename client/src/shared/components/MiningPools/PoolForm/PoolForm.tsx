@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { poolInfoAttributes } from "../constants";
 import { PoolConnectionTestProps, PoolIndex, PoolInfo } from "../types";
-import { urlValidationErrors } from "./constants";
+import { urlValidationErrors, validateURLScheme } from "./constants";
 import { Info } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import { DismissibleCalloutWrapper, intents } from "@/shared/components/Callout";
@@ -88,9 +88,16 @@ const PoolForm = ({
       // e.g. "username 0"
       const infoKey = id.split(" ")[0];
       if (infoKey === poolInfoAttributes.url) {
+        const trimmed = value.trim();
+        let urlError: string | undefined;
+        if (!trimmed) {
+          urlError = urlValidationErrors.required;
+        } else {
+          urlError = validateURLScheme(trimmed);
+        }
         setValidationErrors({
           ...validationErrors,
-          url: value.trim() ? undefined : urlValidationErrors.required,
+          url: urlError,
         });
       }
       const poolsInfo = deepClone(pools);

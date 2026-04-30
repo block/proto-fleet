@@ -17,9 +17,10 @@ type SkippedDevice struct {
 // CommandResult is the command-domain result before handlers project it back
 // to the existing response protos.
 type CommandResult struct {
-	BatchIdentifier string
-	DispatchedCount int
-	Skipped         []SkippedDevice
+	BatchIdentifier             string
+	DispatchedCount             int
+	Skipped                     []SkippedDevice
+	DispatchedDeviceIdentifiers []string
 }
 
 // CommandFilterInput is what processCommand passes to each registered filter.
