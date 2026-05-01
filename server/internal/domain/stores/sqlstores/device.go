@@ -407,6 +407,15 @@ func (s *SQLDeviceStore) GetAvailableFirmwareVersions(ctx context.Context, orgID
 }
 
 func (s *SQLDeviceStore) GetMinerModelGroups(ctx context.Context, orgID int64, filter *stores.MinerFilter) ([]stores.MinerModelGroupResult, error) {
+	// Numeric range and CIDR predicates can't be expressed in the static sqlc
+	// query (variadic operators, inet membership). Route through the dynamic
+	// builder when those filters are active so the bulk-action modal counts
+	// stay aligned with the filtered list; planner-friendly static path for
+	// every other call.
+	if filter != nil && (len(filter.NumericRanges) > 0 || len(filter.IPCIDRs) > 0) {
+		return s.executeModelGroupsDynamicQuery(ctx, orgID, filter)
+	}
+
 	fp := buildFilterParams(filter)
 
 	rows, err := s.getQueries(ctx).GetMinerModelGroups(ctx, sqlc.GetMinerModelGroupsParams{
@@ -431,6 +440,70 @@ func (s *SQLDeviceStore) GetMinerModelGroups(ctx context.Context, orgID int64, f
 		})
 	}
 	return results, nil
+}
+
+// executeModelGroupsDynamicQuery runs the dynamic equivalent of the static
+// GetMinerModelGroups sqlc query, used when the filter contains predicates
+// the static query can't express (numeric ranges, CIDR membership).
+func (s *SQLDeviceStore) executeModelGroupsDynamicQuery(ctx context.Context, orgID int64, filter *stores.MinerFilter) ([]stores.MinerModelGroupResult, error) {
+	fp := buildMinerFilterParams(filter)
+	query, args := s.buildModelGroupsQuerySQL(orgID, fp)
+
+	sqlRows, err := s.conn.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to get miner model groups: %v", err)
+	}
+	defer sqlRows.Close()
+
+	var results []stores.MinerModelGroupResult
+	for sqlRows.Next() {
+		var row stores.MinerModelGroupResult
+		var model, manufacturer sql.NullString
+		if err := sqlRows.Scan(&model, &manufacturer, &row.Count); err != nil {
+			return nil, fleeterror.NewInternalErrorf("failed to scan miner model group row: %v", err)
+		}
+		row.Model = model.String
+		row.Manufacturer = manufacturer.String
+		results = append(results, row)
+	}
+	if err := sqlRows.Err(); err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to iterate miner model groups: %v", err)
+	}
+	return results, nil
+}
+
+// buildModelGroupsQuerySQL mirrors the static GetMinerModelGroups query's
+// shape (PAIRED-only, non-empty model, GROUP BY model+manufacturer) while
+// reusing appendFilterSQL so numeric/CIDR predicates and the OFFLINE-exclusion
+// rule stay consistent with the list query.
+func (s *SQLDeviceStore) buildModelGroupsQuerySQL(orgID int64, fp minerFilterParams) (string, []any) {
+	var sb strings.Builder
+	args := []any{orgID}
+	argNum := 2
+
+	filterNeedsTelemetry := len(fp.numericRanges) > 0
+	if filterNeedsTelemetry {
+		fmt.Fprintf(&sb, latestMetricsCTE+" ", "NULL")
+	}
+
+	sb.WriteString(`SELECT discovered_device.model, discovered_device.manufacturer, COUNT(*)::int AS count`)
+	sb.WriteString(minerFromJoins)
+	if filterNeedsTelemetry {
+		sb.WriteString(" " + minerTelemetryInnerJoin)
+	}
+	sb.WriteString(minerWhereClause)
+	sb.WriteString(`
+    AND device_pairing.pairing_status = 'PAIRED'
+    AND discovered_device.model IS NOT NULL
+    AND discovered_device.model != ''`)
+
+	args, _ = appendFilterSQL(&sb, args, argNum, orgID, fp)
+
+	sb.WriteString(`
+GROUP BY discovered_device.model, discovered_device.manufacturer
+ORDER BY discovered_device.manufacturer, discovered_device.model`)
+
+	return sb.String(), args
 }
 
 // modelGroupFilterParams carries the parameters consumed by GetTotalPairedDevices
