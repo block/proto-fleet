@@ -219,6 +219,15 @@ describe("PoolModal", () => {
       expect(urlInput).toHaveValue("stratum+tcp://pool.example.com:3333");
     });
 
+    it("trims whitespace from pasted pool URLs", () => {
+      const { getByLabelText } = render(<PoolModal {...defaultProps} />);
+
+      const urlInput = getByLabelText("Pool URL");
+      fireEvent.change(urlInput, { target: { value: "  stratum+tcp://pool.example.com:3333  " } });
+
+      expect(urlInput).toHaveValue("stratum+tcp://pool.example.com:3333");
+    });
+
     it("allows saving without a username when usernameRequired is false", () => {
       render(
         <PoolModal

@@ -214,7 +214,7 @@ func TestGetCapabilitiesForModel(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			caps := d.GetCapabilitiesForModel(ctx, tt.model)
+			caps := d.GetCapabilitiesForModel(ctx, "Bitmain", tt.model)
 			require.NotNil(t, caps)
 			assert.Equal(t, tt.expectedEfficiencySupport, caps[sdk.CapabilityPowerModeEfficiency],
 				"model %q should have efficiency support = %v", tt.model, tt.expectedEfficiencySupport)

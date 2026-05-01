@@ -8,6 +8,7 @@ import (
 	"connectrpc.com/connect"
 	pb "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/pools/v1/poolsv1connect"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/pools"
 	"github.com/block/proto-fleet/server/internal/infrastructure/secrets"
 )
@@ -75,12 +76,13 @@ func (h *Handler) ValidatePool(ctx context.Context, r *connect.Request[pb.Valida
 	ok, err := h.poolsSvc.ValidateConnection(ctx, r.Msg.Url, r.Msg.Username, pass, timeout)
 
 	if err != nil {
+		if fleeterror.IsInvalidArgumentError(err) {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 	if !ok {
 		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("failed to validate pool connection"))
 	}
-	return connect.NewResponse(
-		&pb.ValidatePoolResponse{},
-	), nil
+	return connect.NewResponse(&pb.ValidatePoolResponse{}), nil
 }

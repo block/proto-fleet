@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { poolInfoAttributes } from "../constants";
 import { PoolConnectionTestProps, PoolIndex, PoolInfo } from "../types";
-import { urlValidationErrors } from "./constants";
+import { urlValidationErrors, validateURLScheme } from "./constants";
 import { Info } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import { DismissibleCalloutWrapper, intents } from "@/shared/components/Callout";
@@ -87,14 +87,23 @@ const PoolForm = ({
       // the id is in the format of "poolKey poolIndex"
       // e.g. "username 0"
       const infoKey = id.split(" ")[0];
+      // Pasted URLs commonly carry leading/trailing whitespace which then
+      // fails the strict server-side regex validation; normalize at the input.
+      const stored = infoKey === poolInfoAttributes.url ? value.trim() : value;
       if (infoKey === poolInfoAttributes.url) {
+        let urlError: string | undefined;
+        if (!stored) {
+          urlError = urlValidationErrors.required;
+        } else {
+          urlError = validateURLScheme(stored);
+        }
         setValidationErrors({
           ...validationErrors,
-          url: value.trim() ? undefined : urlValidationErrors.required,
+          url: urlError,
         });
       }
       const poolsInfo = deepClone(pools);
-      poolsInfo[poolIndex][infoKey] = value;
+      poolsInfo[poolIndex][infoKey] = stored;
       onChangePools(poolsInfo);
     },
     [pools, poolIndex, onChangePools, validationErrors],

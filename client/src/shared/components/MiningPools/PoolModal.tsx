@@ -1,7 +1,7 @@
 import { ReactNode, useCallback, useMemo, useState } from "react";
 
 import { poolInfoAttributes } from "./constants";
-import { poolNameValidationErrors, urlValidationErrors } from "./PoolForm/constants";
+import { poolNameValidationErrors, urlValidationErrors, validateURLScheme } from "./PoolForm/constants";
 import { PoolConnectionTestProps, PoolIndex, PoolInfo } from "./types";
 import { getPoolUsernameValidationError } from "./validation";
 
@@ -85,8 +85,11 @@ const PoolModal = ({
     () =>
       (!hidePoolName && !draftPoolInfo[poolIndex]?.name?.trim()) ||
       !draftPoolInfo[poolIndex]?.url?.trim() ||
-      (usernameRequired && !draftPoolInfo[poolIndex]?.username?.trim()),
-    [draftPoolInfo, poolIndex, hidePoolName, usernameRequired],
+      (usernameRequired && !draftPoolInfo[poolIndex]?.username?.trim()) ||
+      Boolean(poolNameError) ||
+      Boolean(urlError) ||
+      Boolean(usernameError),
+    [draftPoolInfo, poolIndex, hidePoolName, usernameRequired, poolNameError, urlError, usernameError],
   );
 
   // Sync draft with incoming pools prop when parent updates it
@@ -116,8 +119,11 @@ const PoolModal = ({
     (value: string, id: string) => {
       setShowCallout(false);
       const infoKey = id.split(" ")[0];
+      // Pasted URLs commonly carry leading/trailing whitespace which then
+      // fails the strict server-side regex validation; normalize at the input.
+      const stored = infoKey === poolInfoAttributes.url ? value.trim() : value;
       const poolsInfo = deepClone(draftPoolInfo);
-      poolsInfo[poolIndex][infoKey] = value;
+      poolsInfo[poolIndex][infoKey] = stored;
       setDraftPoolInfo(poolsInfo);
 
       // Clear errors as user types (but don't validate/show new errors until submission)
@@ -125,8 +131,12 @@ const PoolModal = ({
         setPoolNameError(undefined);
       }
 
-      if (infoKey === poolInfoAttributes.url && value.trim()) {
-        setUrlError(undefined);
+      if (infoKey === poolInfoAttributes.url) {
+        if (!stored) {
+          setUrlError(undefined);
+        } else {
+          setUrlError(validateURLScheme(stored));
+        }
       }
 
       if (infoKey === poolInfoAttributes.username && value.trim()) {
@@ -226,7 +236,8 @@ const PoolModal = ({
   ]);
 
   const onTestConnection = useCallback(() => {
-    if (!draftPoolInfo[poolIndex].url.trim()) {
+    const url = draftPoolInfo[poolIndex].url.trim();
+    if (!url) {
       setUrlError(urlValidationErrors.required);
       return;
     }

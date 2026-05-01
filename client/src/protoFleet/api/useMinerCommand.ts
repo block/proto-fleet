@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react";
 import { create } from "@bufbuild/protobuf";
-import { ConnectError } from "@connectrpc/connect";
+import { Code, ConnectError } from "@connectrpc/connect";
 import { fleetManagementClient, minerCommandClient } from "@/protoFleet/api/clients";
 import { CoolingMode } from "@/protoFleet/api/generated/common/v1/cooling_pb";
 import {
@@ -21,6 +21,7 @@ import {
   GetCommandBatchLogBundleRequest,
   GetCommandBatchLogBundleResponse,
   PerformanceMode,
+  type PoolAssignmentSkips,
   type PoolSlotConfig,
   PoolSlotConfigSchema,
   RawPoolInfoSchema,
@@ -43,6 +44,23 @@ import {
 } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useAuthErrors } from "@/protoFleet/store";
+
+// Only surface user-fixable codes; mask server-internal detail.
+function updateMiningPoolsErrorMessage(err: unknown): string {
+  const code = ConnectError.from(err).code;
+  if (code === Code.InvalidArgument || code === Code.FailedPrecondition) {
+    return getErrorMessage(err, "Failed to assign pools");
+  }
+  return "Failed to assign pools";
+}
+
+function formatPoolAssignmentSkips(skips: PoolAssignmentSkips | undefined): string {
+  if (!skips || skips.skippedCount <= 0) return "";
+  const total = skips.selectedCount > 0 ? skips.selectedCount : skips.skippedCount;
+  const plural = skips.skippedCount === 1 ? "" : "s";
+  const types = skips.incompatibleTypes.join(", ");
+  return `${skips.skippedCount} of ${total} miner${plural} couldn't use this Stratum V2 pool. Incompatible types: ${types}`;
+}
 
 interface BlinkLEDProps {
   blinkLEDRequest: BlinkLEDRequest;
@@ -97,6 +115,7 @@ interface UpdateMiningPoolsProps {
   userPassword: string;
   onSuccess: (value: UpdateMiningPoolsResponse) => void;
   onError?: (error: string) => void;
+  onPartialSuccess?: (warning: string) => void;
 }
 
 interface SetPowerTargetProps {
@@ -269,7 +288,15 @@ const useMinerCommand = () => {
   );
 
   const updateMiningPools = useCallback(
-    async ({ deviceSelector, poolConfig, userUsername, userPassword, onSuccess, onError }: UpdateMiningPoolsProps) => {
+    async ({
+      deviceSelector,
+      poolConfig,
+      userUsername,
+      userPassword,
+      onSuccess,
+      onError,
+      onPartialSuccess,
+    }: UpdateMiningPoolsProps) => {
       const createPoolSlotConfig = (source: PoolSlotSource): PoolSlotConfig => {
         if (source.type === "poolId") {
           return create(PoolSlotConfigSchema, {
@@ -298,12 +325,16 @@ const useMinerCommand = () => {
 
       await minerCommandClient
         .updateMiningPools(updateMiningPoolsRequest)
-        .then((response) => onSuccess(response))
+        .then((response) => {
+          onSuccess(response);
+          const warning = formatPoolAssignmentSkips(response.skips);
+          if (warning) onPartialSuccess?.(warning);
+        })
         .catch((err) => {
           handleAuthErrors({
             error: err,
             onError: () => {
-              onError?.(getErrorMessage(err));
+              onError?.(updateMiningPoolsErrorMessage(err));
             },
           });
         });

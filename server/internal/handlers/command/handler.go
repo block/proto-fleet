@@ -3,6 +3,8 @@ package command
 import (
 	"context"
 	"log/slog"
+	"math"
+	"sort"
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 
@@ -96,7 +98,55 @@ func (h *Handler) UpdateMiningPools(
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&pb.UpdateMiningPoolsResponse{BatchIdentifier: result.BatchIdentifier}), nil
+	resp := &pb.UpdateMiningPoolsResponse{
+		BatchIdentifier:             result.BatchIdentifier,
+		DispatchedDeviceIdentifiers: result.DispatchedDeviceIdentifiers,
+	}
+	if skips := poolAssignmentSkipsFromResult(result); skips != nil {
+		resp.Skips = skips
+	}
+	return connect.NewResponse(resp), nil
+}
+
+// poolAssignmentSkipsFromResult derives the SV2 toast summary from the
+// per-device skip list. Returns nil when no SV2 skips were recorded.
+func poolAssignmentSkipsFromResult(result *command.CommandResult) *pb.PoolAssignmentSkips {
+	var sv2Count int
+	typeSet := map[string]struct{}{}
+	for _, sk := range result.Skipped {
+		if sk.FilterName != command.SV2FilterName {
+			continue
+		}
+		sv2Count++
+		typeSet[sk.Reason] = struct{}{}
+	}
+	if sv2Count == 0 {
+		return nil
+	}
+	types := make([]string, 0, len(typeSet))
+	for t := range typeSet {
+		types = append(types, t)
+	}
+	sort.Strings(types)
+	// Selected = everything originally resolved by the selector = all skips
+	// (sv2 + any other filter) + the post-filter dispatched set.
+	selected := len(result.Skipped) + len(result.DispatchedDeviceIdentifiers)
+	return &pb.PoolAssignmentSkips{
+		SkippedCount:      clampToInt32(sv2Count),
+		SelectedCount:     clampToInt32(selected),
+		IncompatibleTypes: types,
+	}
+}
+
+// clampToInt32 satisfies gosec; device counts never approach the bounds.
+func clampToInt32(n int) int32 {
+	if n > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	if n < math.MinInt32 {
+		return math.MinInt32
+	}
+	return int32(n)
 }
 
 func (h *Handler) DownloadLogs(

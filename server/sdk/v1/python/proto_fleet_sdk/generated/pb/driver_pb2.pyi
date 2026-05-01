@@ -677,10 +677,12 @@ class GetDefaultCredentialsResponse(_message.Message):
     def __init__(self, credentials: _Optional[_Iterable[_Union[UsernamePassword, _Mapping]]] = ...) -> None: ...
 
 class GetCapabilitiesForModelRequest(_message.Message):
-    __slots__ = ("model",)
+    __slots__ = ("model", "manufacturer")
     MODEL_FIELD_NUMBER: _ClassVar[int]
+    MANUFACTURER_FIELD_NUMBER: _ClassVar[int]
     model: str
-    def __init__(self, model: _Optional[str] = ...) -> None: ...
+    manufacturer: str
+    def __init__(self, model: _Optional[str] = ..., manufacturer: _Optional[str] = ...) -> None: ...
 
 class GetCapabilitiesForModelResponse(_message.Message):
     __slots__ = ("caps",)

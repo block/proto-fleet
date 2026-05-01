@@ -835,8 +835,7 @@ func (es *ExecutionService) handleUnpairPostProcessing(ctx context.Context, devi
 		return fleeterror.NewInternalErrorf("failed to get device identifier by ID: %v", err)
 	}
 
-	err = es.deviceStore.UpdateDevicePairingStatusByIdentifier(ctx, deviceIdentifier, string(sqlc.PairingStatusEnumUNPAIRED))
-	if err != nil {
+	if err := es.deviceStore.UpdateDevicePairingStatusByIdentifier(ctx, deviceIdentifier, string(sqlc.PairingStatusEnumUNPAIRED)); err != nil {
 		return fleeterror.NewInternalErrorf("failed to update device pairing status to UNPAIRED: %v", err)
 	}
 

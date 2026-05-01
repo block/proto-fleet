@@ -71,14 +71,21 @@ ON CONFLICT (device_id) DO UPDATE SET
     paired_at = CURRENT_TIMESTAMP,
     unpaired_at = NULL;
 
+-- PostgreSQL equivalent of UPDATE with INNER JOIN.
+-- At most one row matches:
+-- device.device_identifier is partial-UNIQUE on deleted_at IS NULL and
+-- device_pairing has a UNIQUE(device_id) constraint.
+--
+-- The IS DISTINCT FROM guard skips no-op writes when the status already
+-- matches, avoiding unnecessary UPDATE churn during repeated auth failures.
 -- name: UpdateDevicePairingStatusByIdentifier :exec
--- PostgreSQL equivalent of UPDATE with INNER JOIN
 UPDATE device_pairing
 SET pairing_status = $1
 FROM device d
 WHERE device_pairing.device_id = d.id
   AND d.device_identifier = $2
-  AND d.deleted_at IS NULL;
+  AND d.deleted_at IS NULL
+  AND device_pairing.pairing_status IS DISTINCT FROM $1;
 
 -- name: GetDeviceByID :one
 SELECT *

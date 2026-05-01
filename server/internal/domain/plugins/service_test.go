@@ -492,7 +492,7 @@ func TestService_GetMinerCapabilitiesForDevice_WithModelCapabilitiesProvider(t *
 	}
 
 	mockModelCapProvider.EXPECT().
-		GetCapabilitiesForModel(gomock.Any(), "Antminer S21").
+		GetCapabilitiesForModel(gomock.Any(), "Bitmain", "Antminer S21").
 		Return(sdk.Capabilities{
 			sdk.CapabilityPowerModeEfficiency: false,
 			sdk.CapabilityCurtailFull:         false,

@@ -1090,17 +1090,17 @@ func (m *MockModelCapabilitiesProvider) EXPECT() *MockModelCapabilitiesProviderM
 }
 
 // GetCapabilitiesForModel mocks base method.
-func (m *MockModelCapabilitiesProvider) GetCapabilitiesForModel(ctx context.Context, model string) sdk.Capabilities {
+func (m *MockModelCapabilitiesProvider) GetCapabilitiesForModel(ctx context.Context, manufacturer, model string) sdk.Capabilities {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetCapabilitiesForModel", ctx, model)
+	ret := m.ctrl.Call(m, "GetCapabilitiesForModel", ctx, manufacturer, model)
 	ret0, _ := ret[0].(sdk.Capabilities)
 	return ret0
 }
 
 // GetCapabilitiesForModel indicates an expected call of GetCapabilitiesForModel.
-func (mr *MockModelCapabilitiesProviderMockRecorder) GetCapabilitiesForModel(ctx, model any) *gomock.Call {
+func (mr *MockModelCapabilitiesProviderMockRecorder) GetCapabilitiesForModel(ctx, manufacturer, model any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCapabilitiesForModel", reflect.TypeOf((*MockModelCapabilitiesProvider)(nil).GetCapabilitiesForModel), ctx, model)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCapabilitiesForModel", reflect.TypeOf((*MockModelCapabilitiesProvider)(nil).GetCapabilitiesForModel), ctx, manufacturer, model)
 }
 
 // MockDiscoveryPortsProvider is a mock of DiscoveryPortsProvider interface.

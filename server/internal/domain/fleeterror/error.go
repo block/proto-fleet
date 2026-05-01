@@ -55,6 +55,13 @@ func (e FleetError) IsExpected() bool {
 	return isExpectedCode(e.GRPCCode)
 }
 
+// IsExpectedCode is the exported form of isExpectedCode for callers
+// outside this package (e.g. interceptors that need to classify a
+// connect.Error from a third-party source like protovalidate).
+func IsExpectedCode(code connect.Code) bool {
+	return isExpectedCode(code)
+}
+
 // isExpectedCode reports whether a gRPC code represents an expected (client-side) error.
 // Stack traces are not captured for expected errors since they fire on hot paths
 // (e.g. every failed plugin probe during discovery) and the traces are never useful.
@@ -232,6 +239,16 @@ func NewNotFoundErrorf(format string, a ...any) FleetError {
 	).WithCallerStackTrace()
 }
 
+func NewFailedPreconditionError(debugMessage string) FleetError {
+	return NewPlainError(debugMessage, connect.CodeFailedPrecondition).WithCallerStackTrace()
+}
+
+func NewFailedPreconditionErrorf(format string, a ...any) FleetError {
+	return NewFailedPreconditionError(
+		fmt.Sprintf(format, a...),
+	).WithCallerStackTrace()
+}
+
 func NewUnimplementedError(debugMessage string) FleetError {
 	return NewPlainError(debugMessage, connect.CodeUnimplemented).WithCallerStackTrace()
 }
@@ -246,13 +263,6 @@ func NewUnavailableErrorf(format string, a ...any) FleetError {
 	return NewPlainError(
 		fmt.Sprintf(format, a...),
 		connect.CodeUnavailable,
-	).WithCallerStackTrace()
-}
-
-func NewFailedPreconditionErrorf(format string, a ...any) FleetError {
-	return NewPlainError(
-		fmt.Sprintf(format, a...),
-		connect.CodeFailedPrecondition,
 	).WithCallerStackTrace()
 }
 

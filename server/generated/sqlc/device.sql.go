@@ -1860,6 +1860,7 @@ FROM device d
 WHERE device_pairing.device_id = d.id
   AND d.device_identifier = $2
   AND d.deleted_at IS NULL
+  AND device_pairing.pairing_status IS DISTINCT FROM $1
 `
 
 type UpdateDevicePairingStatusByIdentifierParams struct {
@@ -1867,7 +1868,13 @@ type UpdateDevicePairingStatusByIdentifierParams struct {
 	DeviceIdentifier string
 }
 
-// PostgreSQL equivalent of UPDATE with INNER JOIN
+// PostgreSQL equivalent of UPDATE with INNER JOIN.
+// At most one row matches:
+// device.device_identifier is partial-UNIQUE on deleted_at IS NULL and
+// device_pairing has a UNIQUE(device_id) constraint.
+//
+// The IS DISTINCT FROM guard skips no-op writes when the status already
+// matches, avoiding unnecessary UPDATE churn during repeated auth failures.
 func (q *Queries) UpdateDevicePairingStatusByIdentifier(ctx context.Context, arg UpdateDevicePairingStatusByIdentifierParams) error {
 	_, err := q.exec(ctx, q.updateDevicePairingStatusByIdentifierStmt, updateDevicePairingStatusByIdentifier, arg.PairingStatus, arg.DeviceIdentifier)
 	return err

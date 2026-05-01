@@ -31,6 +31,7 @@ __all__ = [
     "CAP_GET_MINING_POOLS",
     "CAP_POOL_CONFIG",
     "CAP_POOL_PRIORITY",
+    "CAP_NATIVE_STRATUM_V2",
     "CAP_UPDATE_MINER_PASSWORD",
     # Maintenance
     "CAP_LOGS_DOWNLOAD",
@@ -106,6 +107,7 @@ CAP_UPDATE_MINING_POOLS = "update_mining_pools"
 CAP_GET_MINING_POOLS = "get_mining_pools"
 CAP_POOL_CONFIG = "pool_config"
 CAP_POOL_PRIORITY = "pool_priority"
+CAP_NATIVE_STRATUM_V2 = "native_stratum_v2"
 CAP_UPDATE_MINER_PASSWORD = "update_miner_password"
 
 # Maintenance Capabilities

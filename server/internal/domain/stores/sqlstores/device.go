@@ -219,6 +219,8 @@ func (s *SQLDeviceStore) UpsertDevicePairing(ctx context.Context, device *pb.Dev
 	return nil
 }
 
+// UpdateDevicePairingStatusByIdentifier writes the new pairing_status for
+// the device when the device exists and is not soft-deleted.
 func (s *SQLDeviceStore) UpdateDevicePairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, pairingStatus string) error {
 	err := s.getQueries(ctx).UpdateDevicePairingStatusByIdentifier(ctx, sqlc.UpdateDevicePairingStatusByIdentifierParams{
 		PairingStatus:    sqlc.PairingStatusEnum(pairingStatus),
@@ -1206,6 +1208,8 @@ GROUP BY dcm.device_set_id, e.component_type`,
 	return results, nil
 }
 
+// UpdateFirmwareVersion writes the firmware version for the device when it
+// differs from the stored value.
 func (s *SQLDeviceStore) UpdateFirmwareVersion(ctx context.Context, deviceIdentifier models.DeviceIdentifier, firmwareVersion string) error {
 	err := s.getQueries(ctx).UpdateDiscoveredDeviceFirmwareVersion(ctx, sqlc.UpdateDiscoveredDeviceFirmwareVersionParams{
 		DeviceIdentifier: string(deviceIdentifier),

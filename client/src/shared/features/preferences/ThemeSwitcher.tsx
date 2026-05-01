@@ -55,6 +55,7 @@ const ThemeSwitcher = ({ onClickDone, theme, setTheme }: ThemeSwitcherProps) => 
             </div>
           }
           type={selectTypes.radio}
+          data-testid="theme-system-option"
         />
         <SelectRow
           id={"light"}
@@ -71,6 +72,7 @@ const ThemeSwitcher = ({ onClickDone, theme, setTheme }: ThemeSwitcherProps) => 
             </div>
           }
           type={selectTypes.radio}
+          data-testid="theme-light-option"
         />
         <SelectRow
           id={"dark"}
@@ -87,6 +89,7 @@ const ThemeSwitcher = ({ onClickDone, theme, setTheme }: ThemeSwitcherProps) => 
             </div>
           }
           type={selectTypes.radio}
+          data-testid="theme-dark-option"
         />
       </div>
     </Modal>
