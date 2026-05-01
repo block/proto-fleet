@@ -115,6 +115,8 @@ func miningStateBeforeFullCurtail(wasMining bool) fullCurtailMiningState {
 
 func (s fullCurtailMiningState) restoreMiningDecision() (bool, bool) {
 	switch s {
+	case fullCurtailMiningStateUnknown:
+		return false, false
 	case fullCurtailMiningStateWasMining:
 		return true, true
 	case fullCurtailMiningStateWasNotMining:
