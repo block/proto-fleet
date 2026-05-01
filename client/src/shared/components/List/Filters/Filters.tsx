@@ -17,6 +17,12 @@ type FilterProps<ItemType> = {
   onFilter: (activeFilters: ActiveFilters) => void | Promise<void>;
   isServerSide?: boolean;
   headerControls?: ReactNode;
+  /**
+   * Right-aligned content rendered alongside the active filter chips. Appears
+   * inline after the chips so callers can attach actions that visually belong
+   * with them (e.g. "Reset view" / "Update view" for saved views).
+   */
+  chipsRowTrailing?: ReactNode;
   initialActiveFilters?: ActiveFilters;
 };
 
@@ -36,6 +42,7 @@ const Filters = <ItemType,>({
   onFilter,
   isServerSide = false,
   headerControls,
+  chipsRowTrailing,
   initialActiveFilters,
 }: FilterProps<ItemType>) => {
   const defaultActiveFilters = useMemo<ActiveFilters>(
@@ -243,6 +250,8 @@ const Filters = <ItemType,>({
           }
         />
       ))}
+
+      {chipsRowTrailing}
 
       {nestedFilters.map((filter) => {
         const categories: FilterCategory[] = filter.children.map((child) => ({
