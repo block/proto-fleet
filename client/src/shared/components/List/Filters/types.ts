@@ -1,3 +1,5 @@
+import { type ReactNode } from "react";
+
 import { StatusCircleStatus } from "@/shared/components/StatusCircle/constants";
 
 export type DropdownOption = {
@@ -24,6 +26,10 @@ export type DropdownFilterItem = BaseFilterItem & {
   options: DropdownOption[];
   defaultOptionIds: string[];
   showSelectAll?: boolean;
+  // Plural form of `title` used in active-filter chips when multiple options are selected
+  // (e.g. "3 statuses"). Defaults to `title + "s"` if omitted, which is wrong for
+  // irregular plurals like "Status".
+  pluralTitle?: string;
 };
 
 /**
@@ -34,6 +40,10 @@ export type DropdownFilterItem = BaseFilterItem & {
 export type NestedFilterDropdownItem = BaseFilterItem & {
   type: "nestedFilterDropdown";
   children: DropdownFilterItem[];
+  // Optional icon rendered to the left of the trigger label. When provided the
+  // trigger drops its chevron suffix so the icon-led action style ("+ Add Filter")
+  // reads as a button instead of a select.
+  prefixIcon?: ReactNode;
 };
 
 export type FilterItem = ButtonFilterItem | DropdownFilterItem | NestedFilterDropdownItem;

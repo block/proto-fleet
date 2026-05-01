@@ -1,4 +1,4 @@
-import { CSSProperties, MutableRefObject, useCallback, useEffect, useLayoutEffect, useState } from "react";
+import { CSSProperties, MutableRefObject, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { minimalMargin } from "@/shared/components/Popover/constants";
 import { Position, positions } from "@/shared/constants";
 import useMeasure, { UseMeasureRect } from "@/shared/hooks/useMeasure";
@@ -92,6 +92,7 @@ const usePopoverPosition = (
   yOffset: number,
   renderMode: PopoverRenderMode,
   position?: Position,
+  freezePosition?: boolean,
 ) => {
   const { width: viewportWidth, height: viewportHeight } = useWindowDimensions();
 
@@ -106,7 +107,12 @@ const usePopoverPosition = (
   // Track actual visible viewport dimensions (changes with zoom)
   const [visibleViewport, setVisibleViewport] = useState({ width: viewportWidth, height: viewportHeight });
 
+  // Once a freeze-positioned popover takes its first valid measurement we stop tracking
+  // the trigger's live coordinates so layout shifts (chips appearing before the trigger,
+  // sibling resizes) don't drag the popover around mid-interaction.
+  const frozenRef = useRef(false);
   const updateMeasurements = useCallback(() => {
+    if (freezePosition && frozenRef.current) return;
     if (triggerRef.current) {
       const rect = triggerRef.current.getBoundingClientRect();
       const vv = window.visualViewport;
@@ -131,8 +137,10 @@ const usePopoverPosition = (
         width: vv?.width ?? viewportWidth,
         height: currentViewportHeight,
       });
+
+      if (freezePosition) frozenRef.current = true;
     }
-  }, [triggerRef, viewportWidth, viewportHeight]);
+  }, [triggerRef, viewportWidth, viewportHeight, freezePosition]);
 
   useEffect(() => {
     updateMeasurements();

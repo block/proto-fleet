@@ -310,28 +310,76 @@ export class RacksPage extends BasePage {
     await this.clickButton("View grid");
   }
 
+  private async openVisibleAddFilter() {
+    const triggers = this.page.getByTestId("filter-nested-add-filter");
+    const count = await triggers.count();
+    for (let i = 0; i < count; i++) {
+      const trigger = triggers.nth(i);
+      if (await trigger.isVisible().catch(() => false)) {
+        await trigger.click();
+        const popover = this.page.getByTestId("nested-dropdown-filter-popover");
+        await expect(popover).toBeVisible();
+        return popover;
+      }
+    }
+    throw new Error("No visible Add Filter trigger found");
+  }
+
+  private async openZoneSubmenu(popover: Locator) {
+    await popover.getByTestId("nested-dropdown-filter-row-zone").click();
+    const submenu = this.page.getByTestId("nested-dropdown-filter-submenu-zone");
+    await expect(submenu).toBeVisible();
+    return submenu;
+  }
+
+  private async dismissAddFilterPopover() {
+    await this.page.mouse.click(1, 1);
+    await expect(this.page.getByTestId("nested-dropdown-filter-popover")).toBeHidden();
+  }
+
   async applyZoneFilter(zoneNames: string[]) {
-    await this.clickVisibleFilterDropdown("Zone");
-    const popover = this.page.getByTestId("dropdown-filter-popover");
-    await expect(popover).toBeVisible();
-
-    await popover.getByRole("button", { name: "Reset", exact: true }).click();
-
-    for (const zoneName of zoneNames) {
-      await this.clickDropdownFilterOption(popover, zoneName);
+    // Replace whatever zone selection currently exists with `zoneNames`. Open the chip's
+    // edit popover when any zones are already selected (chip exists); otherwise drill in
+    // through the Add Filter trigger.
+    const chipEdit = this.page.getByTestId("active-filter-zone-edit");
+    if (await chipEdit.isVisible().catch(() => false)) {
+      await chipEdit.click();
+      const popover = this.page.getByTestId("dropdown-filter-popover");
+      await expect(popover).toBeVisible();
+      const checkboxes = popover.locator('[data-testid^="filter-option-"] input[type="checkbox"]');
+      const count = await checkboxes.count();
+      for (let i = 0; i < count; i++) {
+        const cb = checkboxes.nth(i);
+        if (await cb.isChecked().catch(() => false)) {
+          await cb.click();
+        }
+      }
+      for (const zoneName of zoneNames) {
+        await this.clickDropdownFilterOption(popover, zoneName);
+      }
+      await this.page.mouse.click(1, 1);
+      await expect(popover).toBeHidden();
+      return;
     }
 
-    await popover.getByRole("button", { name: "Apply", exact: true }).click();
-    await expect(popover).toBeHidden();
+    const popover = await this.openVisibleAddFilter();
+    const submenu = await this.openZoneSubmenu(popover);
+    for (const zoneName of zoneNames) {
+      await this.clickDropdownFilterOption(submenu, zoneName);
+    }
+    await this.dismissAddFilterPopover();
   }
 
   async toggleAllZoneFilters() {
-    await this.clickVisibleFilterDropdown("Zone");
-    const popover = this.page.getByTestId("dropdown-filter-popover");
-    await expect(popover).toBeVisible();
-    await popover.getByText("Select all", { exact: true }).click();
-    await popover.getByRole("button", { name: "Apply", exact: true }).click();
-    await expect(popover).toBeHidden();
+    // The nested submenu has no Select-all; click every option to toggle them on.
+    const popover = await this.openVisibleAddFilter();
+    const submenu = await this.openZoneSubmenu(popover);
+    const options = submenu.locator('[data-testid^="filter-option-"]');
+    const count = await options.count();
+    for (let i = 0; i < count; i++) {
+      await options.nth(i).click();
+    }
+    await this.dismissAddFilterPopover();
   }
 
   async selectGridSort(sortLabel: string) {

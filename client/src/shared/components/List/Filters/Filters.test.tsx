@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import Filters from "./Filters";
 import { testFilters, TestItem, testItems } from "@/shared/components/List/mocks/data";
@@ -215,8 +215,12 @@ describe("Filters", () => {
       />,
     );
 
-    // The pill renders the option label even though no standalone "Firmware" trigger exists in the bar.
-    expect(screen.getByTestId("active-filter-firmware-v3.5.1")).toBeInTheDocument();
+    // The chip renders even though no standalone "Firmware" trigger exists in the bar.
+    const chip = screen.getByTestId("active-filter-firmware");
+    expect(chip).toBeInTheDocument();
+    // Bifurcated chip: left half is the category title, right half summarizes selections.
+    expect(chip).toHaveTextContent("Firmware");
+    expect(chip).toHaveTextContent("v3.5.1");
     // No standalone "Firmware" filter trigger.
     expect(screen.queryByTestId("filter-dropdown-Firmware")).not.toBeInTheDocument();
     // The nested-dropdown trigger is in the bar.
@@ -258,10 +262,235 @@ describe("Filters", () => {
       />,
     );
 
-    // Only one pill for `status=hashing` even though it lives in two filter sources.
-    const pills = screen.getAllByTestId(/^active-filter-status-/);
-    expect(pills).toHaveLength(1);
-    expect(pills[0]).toHaveAttribute("data-testid", "active-filter-status-hashing");
+    // Only one chip for `status` even though it lives in two filter sources.
+    const chips = screen.getAllByTestId(/^active-filter-status$/);
+    expect(chips).toHaveLength(1);
+    expect(chips[0]).toHaveTextContent("Status");
+    expect(chips[0]).toHaveTextContent("Hashing");
+  });
+
+  it("renders one bifurcated chip per category showing the option label when one is selected", () => {
+    const handleFiltering = vi.fn();
+
+    const modelFilter = {
+      type: "dropdown" as const,
+      title: "Model",
+      pluralTitle: "models",
+      value: "model",
+      options: [
+        { id: "S19", label: "S19" },
+        { id: "S21", label: "S21" },
+      ],
+      defaultOptionIds: [],
+    };
+
+    render(
+      <Filters<TestItem>
+        filterItems={[modelFilter]}
+        items={testItems}
+        onFilter={handleFiltering}
+        initialActiveFilters={{
+          buttonFilters: [],
+          dropdownFilters: { model: ["S19"] },
+        }}
+      />,
+    );
+
+    const chip = screen.getByTestId("active-filter-model");
+    expect(chip).toHaveTextContent("Model");
+    // Single selection shows the option label directly.
+    expect(within(chip).getByTestId("active-filter-model-edit")).toHaveTextContent("S19");
+  });
+
+  it("summarizes the right side as `n plural` when multiple options are selected", () => {
+    const handleFiltering = vi.fn();
+
+    const statusFilter = {
+      type: "dropdown" as const,
+      title: "Status",
+      pluralTitle: "statuses",
+      value: "status",
+      options: [
+        { id: "hashing", label: "Hashing" },
+        { id: "offline", label: "Offline" },
+        { id: "sleeping", label: "Sleeping" },
+      ],
+      defaultOptionIds: [],
+    };
+
+    render(
+      <Filters<TestItem>
+        filterItems={[statusFilter]}
+        items={testItems}
+        onFilter={handleFiltering}
+        initialActiveFilters={{
+          buttonFilters: [],
+          dropdownFilters: { status: ["hashing", "offline"] },
+        }}
+      />,
+    );
+
+    const chip = screen.getByTestId("active-filter-status");
+    expect(within(chip).getByTestId("active-filter-status-edit")).toHaveTextContent("2 statuses");
+  });
+
+  it("clears every selected option in a category when the chip's clear icon is clicked", () => {
+    const handleFiltering = vi.fn();
+
+    const issuesFilter = {
+      type: "dropdown" as const,
+      title: "Issues",
+      pluralTitle: "issues",
+      value: "issues",
+      options: [
+        { id: "control-board", label: "Control board issue" },
+        { id: "hash-boards", label: "Hash board issue" },
+      ],
+      defaultOptionIds: [],
+    };
+
+    render(
+      <Filters<TestItem>
+        filterItems={[issuesFilter]}
+        items={testItems}
+        onFilter={handleFiltering}
+        initialActiveFilters={{
+          buttonFilters: [],
+          dropdownFilters: { issues: ["control-board", "hash-boards"] },
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("active-filter-issues-clear"));
+
+    expect(screen.queryByTestId("active-filter-issues")).not.toBeInTheDocument();
+    expect(handleFiltering).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dropdownFilters: expect.objectContaining({ issues: [] }),
+      }),
+    );
+  });
+
+  it("opens an editable popover when the chip's right side is clicked and toggles options inline", async () => {
+    const handleFiltering = vi.fn();
+
+    const issuesFilter = {
+      type: "dropdown" as const,
+      title: "Issues",
+      pluralTitle: "issues",
+      value: "issues",
+      options: [
+        { id: "control-board", label: "Control board issue" },
+        { id: "hash-boards", label: "Hash board issue" },
+      ],
+      defaultOptionIds: [],
+    };
+
+    render(
+      <Filters<TestItem>
+        filterItems={[issuesFilter]}
+        items={testItems}
+        onFilter={handleFiltering}
+        initialActiveFilters={{
+          buttonFilters: [],
+          dropdownFilters: { issues: ["control-board"] },
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("active-filter-issues-edit"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("filter-option-hash-boards")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId("filter-option-hash-boards"));
+
+    expect(handleFiltering).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dropdownFilters: expect.objectContaining({
+          issues: ["control-board", "hash-boards"],
+        }),
+      }),
+    );
+  });
+
+  it("keeps the chip and its popover mounted while the user clears every option from inside it", async () => {
+    const handleFiltering = vi.fn();
+
+    const issuesFilter = {
+      type: "dropdown" as const,
+      title: "Issues",
+      pluralTitle: "issues",
+      value: "issues",
+      options: [
+        { id: "control-board", label: "Control board issue" },
+        { id: "hash-boards", label: "Hash board issue" },
+      ],
+      defaultOptionIds: [],
+    };
+
+    render(
+      <Filters<TestItem>
+        filterItems={[issuesFilter]}
+        items={testItems}
+        onFilter={handleFiltering}
+        initialActiveFilters={{
+          buttonFilters: [],
+          dropdownFilters: { issues: ["control-board", "hash-boards"] },
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("active-filter-issues-edit"));
+    await waitFor(() => {
+      expect(screen.getByTestId("filter-option-control-board")).toBeInTheDocument();
+    });
+
+    // Deselect every option one by one from inside the popover. Without the open-popover
+    // guard the chip would unmount on the toggle that drops the last selection because
+    // selectedIds becomes empty.
+    fireEvent.click(screen.getByTestId("filter-option-control-board"));
+    fireEvent.click(screen.getByTestId("filter-option-hash-boards"));
+
+    expect(screen.getByTestId("active-filter-issues")).toBeInTheDocument();
+    expect(screen.getByTestId("filter-option-control-board")).toBeInTheDocument();
+    expect(screen.getByTestId("active-filter-issues-edit")).toHaveTextContent("0 issues");
+  });
+
+  it("does not render a Select all row inside the chip's edit popover", async () => {
+    const handleFiltering = vi.fn();
+
+    const issuesFilter = {
+      type: "dropdown" as const,
+      title: "Issues",
+      pluralTitle: "issues",
+      value: "issues",
+      options: [
+        { id: "control-board", label: "Control board issue" },
+        { id: "hash-boards", label: "Hash board issue" },
+      ],
+      defaultOptionIds: [],
+    };
+
+    render(
+      <Filters<TestItem>
+        filterItems={[issuesFilter]}
+        items={testItems}
+        onFilter={handleFiltering}
+        initialActiveFilters={{
+          buttonFilters: [],
+          dropdownFilters: { issues: ["control-board"] },
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("active-filter-issues-edit"));
+    await waitFor(() => {
+      expect(screen.getByTestId("filter-option-control-board")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText("Select all")).not.toBeInTheDocument();
   });
 
   it("clears active filters when initialActiveFilters transitions to undefined", () => {
@@ -287,7 +516,7 @@ describe("Filters", () => {
       />,
     );
 
-    expect(screen.getByTestId("active-filter-status-hashing")).toBeInTheDocument();
+    expect(screen.getByTestId("active-filter-status")).toBeInTheDocument();
 
     // Parent clears the controlled prop — internal state should reset to defaults
     // so stale selections don't linger.
@@ -300,6 +529,6 @@ describe("Filters", () => {
       />,
     );
 
-    expect(screen.queryByTestId("active-filter-status-hashing")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("active-filter-status")).not.toBeInTheDocument();
   });
 });
