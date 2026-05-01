@@ -176,6 +176,20 @@ describe("ViewsBar", () => {
     expect(readPersistedRecord()).toBeNull();
   });
 
+  it("rejects a name that matches a built-in view (case-insensitive)", async () => {
+    const user = userEvent.setup();
+    renderViewsBar();
+
+    await user.click(screen.getByTestId("views-bar-new-view-button"));
+
+    const nameInput = screen.getByLabelText("Name");
+    await user.type(nameInput, "all miners");
+    await user.click(screen.getByText("Save"));
+
+    expect(screen.getByText("A view with this name already exists")).toBeInTheDocument();
+    expect(readPersistedRecord()).toBeNull();
+  });
+
   it("does not render dirty-state actions in the strip — those live in <ViewActions>", () => {
     renderViewsBar(["/?view=needs-attention&status=needs-attention&model=S21"]);
     expect(screen.queryByTestId("views-bar-modified-actions")).not.toBeInTheDocument();

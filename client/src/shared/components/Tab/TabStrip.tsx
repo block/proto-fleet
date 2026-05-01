@@ -41,19 +41,25 @@ type TabStripProps = {
 /**
  * Controlled, content-less tab bar. Use `<TabStripItem>` as children.
  * For tabs that own panel content too, use `Tabs` from this same module.
+ *
+ * Note on ARIA: this is a navigation-style tab strip, not an ARIA tabs widget.
+ * Children may include non-tab controls (e.g. "+ New view"), so we don't put
+ * `role="tablist"` on the container, and items use plain buttons rather than
+ * `role="tab"` (we don't implement the ARIA tabs keyboard model — roving
+ * tabindex, arrow keys, Home/End). The active item is announced via
+ * `aria-current="page"` instead.
  */
 const TabStrip = ({ children, activeId, onSelect, className, ariaLabel, trailing }: TabStripProps) => {
   const value = useMemo<TabStripContextValue>(() => ({ activeId, onSelect }), [activeId, onSelect]);
   return (
     <TabStripContext.Provider value={value}>
-      <div
-        role="tablist"
+      <nav
         aria-label={ariaLabel}
         className={clsx("flex w-full items-end space-x-2 border-b-2 border-border-5 whitespace-nowrap", className)}
       >
         {children}
         {trailing ? <div className="ml-auto flex items-end gap-4">{trailing}</div> : null}
-      </div>
+      </nav>
     </TabStripContext.Provider>
   );
 };
@@ -127,8 +133,7 @@ export const TabStripItem = ({
       {leading}
       <button
         type="button"
-        role="tab"
-        aria-selected={isActive}
+        aria-current={isActive ? "page" : undefined}
         disabled={disabled}
         onClick={() => {
           if (!disabled) onSelect(id);

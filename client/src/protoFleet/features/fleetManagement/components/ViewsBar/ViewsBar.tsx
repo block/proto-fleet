@@ -400,13 +400,17 @@ const ViewsBar = ({ viewsState, availableGroups, availableRacks, className }: Vi
     [userViews, reorderUserViews],
   );
 
+  // Reserve built-in names too — otherwise a user view named "All miners"
+  // would collide with the built-in tab and produce duplicate labels.
   const existingNames = useMemo(() => {
+    const builtInNames = builtIns.map((view) => view.name);
     if (modal.open && modal.mode.kind === "update") {
       const editingId = modal.mode.viewId;
-      return userViews.filter((view) => view.id !== editingId).map((view) => view.name);
+      const otherUserNames = userViews.filter((view) => view.id !== editingId).map((view) => view.name);
+      return [...builtInNames, ...otherUserNames];
     }
-    return userViews.map((view) => view.name);
-  }, [userViews, modal]);
+    return [...builtInNames, ...userViews.map((view) => view.name)];
+  }, [builtIns, userViews, modal]);
 
   return (
     <>

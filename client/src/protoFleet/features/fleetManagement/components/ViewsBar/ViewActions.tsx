@@ -106,9 +106,14 @@ const ViewActions = ({ viewsState, availableGroups, availableRacks }: ViewAction
     [activeView, currentCanonical, updateUserViewParams, renameUserView, navigate],
   );
 
+  // Reserve built-in names too — otherwise an Update view rename could land
+  // on "All miners" / "Offline" / "Needs attention" and produce duplicate tabs.
   const existingNames = useMemo(
-    () => record.views.filter((view) => view.id !== activeView?.id).map((view) => view.name),
-    [record.views, activeView],
+    () => [
+      ...visibleBuiltInViews(record).map((view) => view.name),
+      ...record.views.filter((view) => view.id !== activeView?.id).map((view) => view.name),
+    ],
+    [record, activeView],
   );
 
   if (!isModified || !activeView) return null;

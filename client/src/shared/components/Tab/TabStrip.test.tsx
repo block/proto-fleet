@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import TabStrip, { TabStripItem } from "./TabStrip";
 
 describe("TabStrip", () => {
-  it("renders items as tabs and marks the active one with aria-selected", () => {
+  it("marks the active item with aria-current=page", () => {
     render(
       <TabStrip activeId="b" onSelect={() => {}} ariaLabel="Demo">
         <TabStripItem id="a" label="A" testId="tab-a" />
@@ -15,8 +15,8 @@ describe("TabStrip", () => {
     const tabA = screen.getByTestId("tab-a-activate");
     const tabB = screen.getByTestId("tab-b-activate");
 
-    expect(tabA).toHaveAttribute("aria-selected", "false");
-    expect(tabB).toHaveAttribute("aria-selected", "true");
+    expect(tabA).not.toHaveAttribute("aria-current");
+    expect(tabB).toHaveAttribute("aria-current", "page");
   });
 
   it("invokes onSelect with the item id when clicked", async () => {

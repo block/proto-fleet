@@ -96,16 +96,19 @@ export const createDefaultSavedViewsRecord = (): SavedViewsRecord => ({
 export const getSavedViewsStorageKey = (username: string): string => `${STORAGE_KEY_PREFIX}:${username || "anonymous"}`;
 
 /**
- * Sort URLSearchParams entries deterministically and drop the `view` key
- * so two states can be compared by string equality.
+ * Sort the filter+sort URL entries deterministically so two states can be
+ * compared by string equality. Keys outside the filter+sort set (including
+ * the `view` key and any unrelated URL state) are dropped, so a saved view
+ * never accidentally captures transient query params.
  */
 export const canonicalizeSearchParams = (params: URLSearchParams | string): string => {
   const source = typeof params === "string" ? new URLSearchParams(params) : new URLSearchParams(params);
-  source.delete(VIEW_URL_PARAM);
 
   const entries: [string, string][] = [];
   source.forEach((value, key) => {
-    entries.push([key, value]);
+    if (FILTER_AND_SORT_KEYS.has(key)) {
+      entries.push([key, value]);
+    }
   });
   entries.sort(([aKey, aValue], [bKey, bValue]) => {
     if (aKey !== bKey) return aKey < bKey ? -1 : 1;

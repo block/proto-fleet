@@ -35,6 +35,10 @@ describe("savedViews helpers", () => {
         canonicalizeSearchParams("status=hashing&status=offline&model=S21"),
       );
     });
+
+    it("drops keys outside the filter+sort+view set so unrelated URL state never enters a saved view", () => {
+      expect(canonicalizeSearchParams("status=offline&page=3&debug=1&utm_source=test")).toBe("status=offline");
+    });
   });
 
   describe("normalizeSavedViewsRecord", () => {
