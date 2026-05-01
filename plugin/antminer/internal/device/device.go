@@ -573,7 +573,21 @@ func wrapCurtailDispatchError(deviceID string, err error) error {
 	if errors.As(err, &sdkErr) {
 		return err
 	}
+	if isAntminerAuthenticationError(err) {
+		return sdk.NewErrorAuthenticationFailed(deviceID, err)
+	}
 	return sdk.NewErrCurtailTransient(deviceID, err)
+}
+
+func isAntminerAuthenticationError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "unauthenticated") ||
+		strings.Contains(msg, "authentication failed") ||
+		strings.Contains(msg, "unauthorized") ||
+		strings.Contains(msg, "credentials required")
 }
 
 // SetCoolingMode implements the SDK Device interface.

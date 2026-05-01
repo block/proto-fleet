@@ -589,6 +589,30 @@ func TestDevice_CurtailFullWrapsDispatchFailureAsTransient(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func TestDevice_CurtailFullPreservesAuthenticationFailure(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockClient := mocks.NewMockAntminerClient(ctrl)
+	device := createTestDevice(t, mockClient, defaultStatus(), defaultTelemetry())
+	defer cleanupDevice(t, device, mockClient)
+
+	authErr := errors.New("failed to get current miner config: credentials required for miner configuration")
+	mockClient.EXPECT().GetStatus(gomock.Any()).Return(defaultStatus(), nil)
+	mockClient.EXPECT().GetTelemetry(gomock.Any()).Return(defaultTelemetry(), nil)
+	mockClient.EXPECT().StopMining(gomock.Any()).Return(authErr)
+
+	err := device.Curtail(t.Context(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull})
+
+	require.Error(t, err)
+	var sdkErr sdk.SDKError
+	require.True(t, errors.As(err, &sdkErr))
+	assert.Equal(t, sdk.ErrCodeAuthenticationFailed, sdkErr.Code)
+	assert.ErrorIs(t, err, authErr)
+	_, ok := device.fullCurtailRestoreDecision()
+	assert.False(t, ok)
+}
+
 func TestDevice_CurtailUnsupportedLevelReturnsCapabilityNotSupported(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -659,6 +683,26 @@ func TestDevice_UncurtailWrapsDispatchFailureAsTransient(t *testing.T) {
 	require.True(t, errors.As(err, &sdkErr))
 	assert.Equal(t, sdk.ErrCodeCurtailTransient, sdkErr.Code)
 	assert.ErrorIs(t, err, assert.AnError)
+}
+
+func TestDevice_UncurtailPreservesAuthenticationFailure(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockClient := mocks.NewMockAntminerClient(ctrl)
+	device := createTestDevice(t, mockClient, defaultStatus(), defaultTelemetry())
+	defer cleanupDevice(t, device, mockClient)
+
+	authErr := errors.New("unauthorized")
+	mockClient.EXPECT().StartMining(gomock.Any()).Return(authErr)
+
+	err := device.Uncurtail(t.Context(), sdk.UncurtailRequest{})
+
+	require.Error(t, err)
+	var sdkErr sdk.SDKError
+	require.True(t, errors.As(err, &sdkErr))
+	assert.Equal(t, sdk.ErrCodeAuthenticationFailed, sdkErr.Code)
+	assert.ErrorIs(t, err, authErr)
 }
 
 func TestDevice_ManualMiningControlClearsCurtailmentState(t *testing.T) {
