@@ -1,4 +1,4 @@
-// Package curtailment registers v1 stubs that return Unimplemented.
+// Package curtailment registers the curtailment v1 handler.
 package curtailment
 
 import (
@@ -11,18 +11,32 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
-// Handler implements curtailment v1 stubs.
-type Handler struct{}
+type previewService interface {
+	PreviewCurtailmentPlan(ctx context.Context, req *pb.PreviewCurtailmentPlanRequest) (*pb.PreviewCurtailmentPlanResponse, error)
+}
+
+// Handler implements curtailment v1 RPCs.
+type Handler struct {
+	svc previewService
+}
 
 var _ curtailmentv1connect.CurtailmentServiceHandler = &Handler{}
 
-// NewHandler returns a stub curtailment handler.
-func NewHandler() *Handler {
-	return &Handler{}
+// NewHandler returns a curtailment handler. A nil service keeps preview in
+// Unimplemented mode for tests or partial wiring.
+func NewHandler(svc previewService) *Handler {
+	return &Handler{svc: svc}
 }
 
-func (h *Handler) PreviewCurtailmentPlan(_ context.Context, _ *connect.Request[pb.PreviewCurtailmentPlanRequest]) (*connect.Response[pb.PreviewCurtailmentPlanResponse], error) {
-	return nil, errCurtailmentNotImplemented("PreviewCurtailmentPlan")
+func (h *Handler) PreviewCurtailmentPlan(ctx context.Context, req *connect.Request[pb.PreviewCurtailmentPlanRequest]) (*connect.Response[pb.PreviewCurtailmentPlanResponse], error) {
+	if h.svc == nil {
+		return nil, errCurtailmentNotImplemented("PreviewCurtailmentPlan")
+	}
+	resp, err := h.svc.PreviewCurtailmentPlan(ctx, req.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(resp), nil
 }
 
 func (h *Handler) StartCurtailment(_ context.Context, _ *connect.Request[pb.StartCurtailmentRequest]) (*connect.Response[pb.StartCurtailmentResponse], error) {

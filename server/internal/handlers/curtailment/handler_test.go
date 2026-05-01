@@ -1,6 +1,7 @@
 package curtailment
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -21,7 +22,7 @@ func TestHandler_AllRPCsReturnUnimplemented(t *testing.T) {
 
 	mux := http.NewServeMux()
 	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(
-		NewHandler(),
+		NewHandler(nil),
 		connect.WithInterceptors(interceptors.NewErrorMappingInterceptor()),
 	))
 	server := httptest.NewServer(mux)
@@ -87,6 +88,28 @@ func TestHandler_AllRPCsReturnUnimplemented(t *testing.T) {
 			assert.Equal(t, connect.CodeUnimplemented, connectErr.Code())
 		})
 	}
+}
+
+func TestHandler_PreviewCurtailmentPlanDelegates(t *testing.T) {
+	t.Parallel()
+
+	expected := &pb.PreviewCurtailmentPlanResponse{
+		Mode: pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+		ModeParams: &pb.PreviewCurtailmentPlanResponse_FixedKw{
+			FixedKw: &pb.FixedKwParams{TargetKw: 2},
+		},
+		Candidates: []*pb.CurtailmentCandidate{
+			{DeviceIdentifier: "miner-1", CurrentPowerW: 2000, EfficiencyJh: 30, ReasonSelected: "least_efficient_first"},
+		},
+		EstimatedReductionKw: 2,
+	}
+	h := NewHandler(fakePreviewService{resp: expected})
+
+	resp, err := h.PreviewCurtailmentPlan(t.Context(), connect.NewRequest(validPreviewCurtailmentPlanRequest(pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL)))
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Equal(t, expected, resp.Msg)
 }
 
 func TestHandler_RequestValidation(t *testing.T) {
@@ -232,7 +255,7 @@ func newValidationTestClient(t *testing.T) curtailmentv1connect.CurtailmentServi
 
 	mux := http.NewServeMux()
 	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(
-		NewHandler(),
+		NewHandler(nil),
 		connect.WithInterceptors(
 			interceptors.NewErrorMappingInterceptor(),
 			validate.NewInterceptor(),
@@ -242,6 +265,15 @@ func newValidationTestClient(t *testing.T) curtailmentv1connect.CurtailmentServi
 	t.Cleanup(server.Close)
 
 	return curtailmentv1connect.NewCurtailmentServiceClient(http.DefaultClient, server.URL)
+}
+
+type fakePreviewService struct {
+	resp *pb.PreviewCurtailmentPlanResponse
+	err  error
+}
+
+func (s fakePreviewService) PreviewCurtailmentPlan(_ context.Context, _ *pb.PreviewCurtailmentPlanRequest) (*pb.PreviewCurtailmentPlanResponse, error) {
+	return s.resp, s.err
 }
 
 func validPreviewCurtailmentPlanRequest(priority pb.CurtailmentPriority) *pb.PreviewCurtailmentPlanRequest {

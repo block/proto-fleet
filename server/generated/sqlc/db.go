@@ -432,6 +432,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listBatchDeviceResultsStmt, err = db.PrepareContext(ctx, listBatchDeviceResults); err != nil {
 		return nil, fmt.Errorf("error preparing query ListBatchDeviceResults: %w", err)
 	}
+	if q.listCurtailmentPreviewDevicesStmt, err = db.PrepareContext(ctx, listCurtailmentPreviewDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query ListCurtailmentPreviewDevices: %w", err)
+	}
 	if q.listDeviceSetMembersPaginatedStmt, err = db.PrepareContext(ctx, listDeviceSetMembersPaginated); err != nil {
 		return nil, fmt.Errorf("error preparing query ListDeviceSetMembersPaginated: %w", err)
 	}
@@ -1351,6 +1354,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listBatchDeviceResultsStmt: %w", cerr)
 		}
 	}
+	if q.listCurtailmentPreviewDevicesStmt != nil {
+		if cerr := q.listCurtailmentPreviewDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listCurtailmentPreviewDevicesStmt: %w", cerr)
+		}
+	}
 	if q.listDeviceSetMembersPaginatedStmt != nil {
 		if cerr := q.listDeviceSetMembersPaginatedStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listDeviceSetMembersPaginatedStmt: %w", cerr)
@@ -1916,6 +1924,7 @@ type Queries struct {
 	listActivityLogsStmt                                *sql.Stmt
 	listApiKeysByOrganizationStmt                       *sql.Stmt
 	listBatchDeviceResultsStmt                          *sql.Stmt
+	listCurtailmentPreviewDevicesStmt                   *sql.Stmt
 	listDeviceSetMembersPaginatedStmt                   *sql.Stmt
 	listDeviceSetMembersPaginatedAfterStmt              *sql.Stmt
 	listMinerStateSnapshotsStmt                         *sql.Stmt
@@ -2136,6 +2145,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listActivityLogsStmt:                                q.listActivityLogsStmt,
 		listApiKeysByOrganizationStmt:                       q.listApiKeysByOrganizationStmt,
 		listBatchDeviceResultsStmt:                          q.listBatchDeviceResultsStmt,
+		listCurtailmentPreviewDevicesStmt:                   q.listCurtailmentPreviewDevicesStmt,
 		listDeviceSetMembersPaginatedStmt:                   q.listDeviceSetMembersPaginatedStmt,
 		listDeviceSetMembersPaginatedAfterStmt:              q.listDeviceSetMembersPaginatedAfterStmt,
 		listMinerStateSnapshotsStmt:                         q.listMinerStateSnapshotsStmt,
