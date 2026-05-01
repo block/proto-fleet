@@ -2,6 +2,7 @@ package sqlstores_test
 
 import (
 	"database/sql"
+	"fmt"
 	"testing"
 	"time"
 
@@ -242,7 +243,10 @@ func insertCurtailmentPreviewEventWithMaintenance(
 			'{}'::jsonb, '{}'::jsonb, 1, 60, $2, $3, 'test', 'test maintenance consistency'
 		)
 	`, orgID, includeMaintenance, forceIncludeMaintenance)
-	return err
+	if err != nil {
+		return fmt.Errorf("insert curtailment preview event with maintenance flags: %w", err)
+	}
+	return nil
 }
 
 func insertCurtailmentPreviewTarget(t *testing.T, conn *sql.DB, eventID int64, identifier string, state string, releasedAt *time.Time, confirmedAt *time.Time) {
