@@ -155,7 +155,7 @@ message FixedKwParams {
     // Target kW reduction.
     double target_kw = 1 [(buf.validate.field).double.gt = 0];
 
-    // Optional accepted undershoot; absent uses server default, 0 is strict.
+    // Optional accepted undershoot; absent or 0 is strict.
     optional double tolerance_kw = 2 [(buf.validate.field).double.gte = 0];
 }
 
@@ -281,7 +281,7 @@ message SkippedCandidate {
 // PreviewCurtailmentPlan
 
 message PreviewCurtailmentPlanRequest {
-    // Keep this CEL in sync with supported v1 modes.
+    // Keep these CEL validators in sync with supported v1 request shapes.
     option (buf.validate.message).cel = {
         id: "scope_required"
         message: "exactly one scope must be set"
@@ -364,7 +364,7 @@ message PreviewCurtailmentPlanResponse {
 // StartCurtailment
 
 message StartCurtailmentRequest {
-    // Keep this CEL in sync with supported v1 modes.
+    // Keep these CEL validators in sync with supported v1 request shapes.
     option (buf.validate.message).cel = {
         id: "scope_required"
         message: "exactly one scope must be set"

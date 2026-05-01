@@ -575,7 +575,7 @@ type FixedKwParams struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Target kW reduction.
 	TargetKw float64 `protobuf:"fixed64,1,opt,name=target_kw,json=targetKw,proto3" json:"target_kw,omitempty"`
-	// Optional accepted undershoot; absent uses server default, 0 is strict.
+	// Optional accepted undershoot; absent or 0 is strict.
 	ToleranceKw   *float64 `protobuf:"fixed64,2,opt,name=tolerance_kw,json=toleranceKw,proto3,oneof" json:"tolerance_kw,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

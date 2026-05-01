@@ -88,7 +88,7 @@ export type FixedKwParams = Message<"curtailment.v1.FixedKwParams"> & {
   targetKw: number;
 
   /**
-   * Optional accepted undershoot; absent uses server default, 0 is strict.
+   * Optional accepted undershoot; absent or 0 is strict.
    *
    * @generated from field: optional double tolerance_kw = 2;
    */
