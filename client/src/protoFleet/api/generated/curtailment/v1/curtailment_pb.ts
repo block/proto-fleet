@@ -12,22 +12,26 @@ import type { JsonObject, Message } from "@bufbuild/protobuf";
 /**
  * Describes the file curtailment/v1/curtailment.proto.
  */
-export const file_curtailment_v1_curtailment: GenFile = /*@__PURE__*/
-  fileDesc("CiBjdXJ0YWlsbWVudC92MS9jdXJ0YWlsbWVudC5wcm90bxIOY3VydGFpbG1lbnQudjEiDwoNU2NvcGVXaG9sZU9yZyI5Cg9TY29wZURldmljZVNldHMSJgoOZGV2aWNlX3NldF9pZHMYASADKAlCDrpIC5IBCAgBIgRyAhABIj0KD1Njb3BlRGV2aWNlTGlzdBIqChJkZXZpY2VfaWRlbnRpZmllcnMYASADKAlCDrpIC5IBCAgBIgRyAhABIm4KDUZpeGVkS3dQYXJhbXMSIQoJdGFyZ2V0X2t3GAEgASgBQg66SAsSCSEAAAAAAAAAABIpCgx0b2xlcmFuY2Vfa3cYAiABKAFCDrpICxIJKQAAAAAAAAAASACIAQFCDwoNX3RvbGVyYW5jZV9rdyIhChBGaXhlZENvdW50UGFyYW1zEg0KBWNvdW50GAEgASgFIiQKElNpdGVQb3dlckNhcFBhcmFtcxIOCgZjYXBfa3cYASABKAEi2AoKEEN1cnRhaWxtZW50RXZlbnQSEgoKZXZlbnRfdXVpZBgBIAEoCRI0CgVzdGF0ZRgCIAEoDjIlLmN1cnRhaWxtZW50LnYxLkN1cnRhaWxtZW50RXZlbnRTdGF0ZRItCgRtb2RlGAMgASgOMh8uY3VydGFpbG1lbnQudjEuQ3VydGFpbG1lbnRNb2RlEjUKCHN0cmF0ZWd5GAQgASgOMiMuY3VydGFpbG1lbnQudjEuQ3VydGFpbG1lbnRTdHJhdGVneRIvCgVsZXZlbBgFIAEoDjIgLmN1cnRhaWxtZW50LnYxLkN1cnRhaWxtZW50TGV2ZWwSNQoIcHJpb3JpdHkYBiABKA4yIy5jdXJ0YWlsbWVudC52MS5DdXJ0YWlsbWVudFByaW9yaXR5EjIKCXdob2xlX29yZxgHIAEoCzIdLmN1cnRhaWxtZW50LnYxLlNjb3BlV2hvbGVPcmdIABI5Cg5kZXZpY2Vfc2V0X2lkcxgIIAEoCzIfLmN1cnRhaWxtZW50LnYxLlNjb3BlRGV2aWNlU2V0c0gAEj0KEmRldmljZV9pZGVudGlmaWVycxgJIAEoCzIfLmN1cnRhaWxtZW50LnYxLlNjb3BlRGV2aWNlTGlzdEgAEjEKCGZpeGVkX2t3GAogASgLMh0uY3VydGFpbG1lbnQudjEuRml4ZWRLd1BhcmFtc0gBEjcKC2ZpeGVkX2NvdW50GAsgASgLMiAuY3VydGFpbG1lbnQudjEuRml4ZWRDb3VudFBhcmFtc0gBEjwKDnNpdGVfcG93ZXJfY2FwGAwgASgLMiIuY3VydGFpbG1lbnQudjEuU2l0ZVBvd2VyQ2FwUGFyYW1zSAESHAoUbWF4X2R1cmF0aW9uX3NlY29uZHMYDiABKA0SGgoScmVzdG9yZV9iYXRjaF9zaXplGA8gASgNEiIKGnJlc3RvcmVfYmF0Y2hfaW50ZXJ2YWxfc2VjGBAgASgNEiIKGm1pbl9jdXJ0YWlsZWRfZHVyYXRpb25fc2VjGBEgASgNEhsKE2luY2x1ZGVfbWFpbnRlbmFuY2UYEiABKAgSIQoZZm9yY2VfaW5jbHVkZV9tYWludGVuYW5jZRgTIAEoCBIOCgZyZWFzb24YFCABKAkSFwoPZXh0ZXJuYWxfc291cmNlGBUgASgJEhoKEmV4dGVybmFsX3JlZmVyZW5jZRgWIAEoCRIXCg9pZGVtcG90ZW5jeV9rZXkYFyABKAkSNgoSc2NoZWR1bGVkX3N0YXJ0X2F0GB4gASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgpzdGFydGVkX2F0GB8gASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIsCghlbmRlZF9hdBggIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKY3JlYXRlZF9hdBghIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKdXBkYXRlZF9hdBgiIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASPgoNdGFyZ2V0X3JvbGx1cBgoIAEoCzInLmN1cnRhaWxtZW50LnYxLkN1cnRhaWxtZW50VGFyZ2V0Um9sbHVwEjIKB3RhcmdldHMYKSADKAsyIS5jdXJ0YWlsbWVudC52MS5DdXJ0YWlsbWVudFRhcmdldBIyChFkZWNpc2lvbl9zbmFwc2hvdBgqIAEoCzIXLmdvb2dsZS5wcm90b2J1Zi5TdHJ1Y3RCBwoFc2NvcGVCDQoLbW9kZV9wYXJhbXMirQEKF0N1cnRhaWxtZW50VGFyZ2V0Um9sbHVwEg8KB3BlbmRpbmcYASABKAUSEgoKZGlzcGF0Y2hlZBgCIAEoBRIRCgljb25maXJtZWQYAyABKAUSDwoHZHJpZnRlZBgEIAEoBRIQCghyZXNvbHZlZBgFIAEoBRIQCghyZWxlYXNlZBgGIAEoBRIWCg5yZXN0b3JlX2ZhaWxlZBgHIAEoBRINCgV0b3RhbBgIIAEoBSLkBAoRQ3VydGFpbG1lbnRUYXJnZXQSGQoRZGV2aWNlX2lkZW50aWZpZXIYASABKAkSEwoLdGFyZ2V0X3R5cGUYAiABKAkSNQoFc3RhdGUYAyABKA4yJi5jdXJ0YWlsbWVudC52MS5DdXJ0YWlsbWVudFRhcmdldFN0YXRlEkQKDWRlc2lyZWRfc3RhdGUYBCABKA4yLS5jdXJ0YWlsbWVudC52MS5DdXJ0YWlsbWVudFRhcmdldERlc2lyZWRTdGF0ZRIdChBiYXNlbGluZV9wb3dlcl93GAUgASgBSACIAQESHQoQb2JzZXJ2ZWRfcG93ZXJfdxgGIAEoAUgBiAEBEiwKCGFkZGVkX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIvCgtyZWxlYXNlZF9hdBgIIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASNgoSbGFzdF9kaXNwYXRjaGVkX2F0GAkgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIXCg9sYXN0X2JhdGNoX3V1aWQYCiABKAkSLwoLb2JzZXJ2ZWRfYXQYCyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjAKDGNvbmZpcm1lZF9hdBgMIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEwoLcmV0cnlfY291bnQYDSABKA0SEgoKbGFzdF9lcnJvchgOIAEoCUITChFfYmFzZWxpbmVfcG93ZXJfd0ITChFfb2JzZXJ2ZWRfcG93ZXJfdyJ6ChRDdXJ0YWlsbWVudENhbmRpZGF0ZRIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRIXCg9jdXJyZW50X3Bvd2VyX3cYAiABKAESFQoNZWZmaWNpZW5jeV9qaBgDIAEoARIXCg9yZWFzb25fc2VsZWN0ZWQYBCABKAkiUgoQU2tpcHBlZENhbmRpZGF0ZRIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRIOCgZyZWFzb24YAiABKAkSEwoLZGVzY3JpcHRpb24YAyABKAki/ggKHVByZXZpZXdDdXJ0YWlsbWVudFBsYW5SZXF1ZXN0EjIKCXdob2xlX29yZxgBIAEoCzIdLmN1cnRhaWxtZW50LnYxLlNjb3BlV2hvbGVPcmdIABI5Cg5kZXZpY2Vfc2V0X2lkcxgCIAEoCzIfLmN1cnRhaWxtZW50LnYxLlNjb3BlRGV2aWNlU2V0c0gAEj0KEmRldmljZV9pZGVudGlmaWVycxgDIAEoCzIfLmN1cnRhaWxtZW50LnYxLlNjb3BlRGV2aWNlTGlzdEgAEjkKBG1vZGUYBCABKA4yHy5jdXJ0YWlsbWVudC52MS5DdXJ0YWlsbWVudE1vZGVCCrpIB4IBBBABGAESQwoIc3RyYXRlZ3kYBSABKA4yIy5jdXJ0YWlsbWVudC52MS5DdXJ0YWlsbWVudFN0cmF0ZWd5Qgy6SAmCAQYQARgAGAESPQoFbGV2ZWwYBiABKA4yIC5jdXJ0YWlsbWVudC52MS5DdXJ0YWlsbWVudExldmVsQgy6SAmCAQYQARgAGAISRQoIcHJpb3JpdHkYByABKA4yIy5jdXJ0YWlsbWVudC52MS5DdXJ0YWlsbWVudFByaW9yaXR5Qg66SAuCAQgQARgAGAEYAxIxCghmaXhlZF9rdxgIIAEoCzIdLmN1cnRhaWxtZW50LnYxLkZpeGVkS3dQYXJhbXNIARI3CgtmaXhlZF9jb3VudBgJIAEoCzIgLmN1cnRhaWxtZW50LnYxLkZpeGVkQ291bnRQYXJhbXNIARI8Cg5zaXRlX3Bvd2VyX2NhcBgKIAEoCzIiLmN1cnRhaWxtZW50LnYxLlNpdGVQb3dlckNhcFBhcmFtc0gBEhsKE2luY2x1ZGVfbWFpbnRlbmFuY2UYGCABKAgSIQoZZm9yY2VfaW5jbHVkZV9tYWludGVuYW5jZRgZIAEoCDqgA7pInAMagAEKDnNjb3BlX3JlcXVpcmVkEh1leGFjdGx5IG9uZSBzY29wZSBtdXN0IGJlIHNldBpPaGFzKHRoaXMud2hvbGVfb3JnKSB8fCBoYXModGhpcy5kZXZpY2Vfc2V0X2lkcykgfHwgaGFzKHRoaXMuZGV2aWNlX2lkZW50aWZpZXJzKRp0ChZtb2RlX3BhcmFtc19tYXRjaF9tb2RlEjRtb2RlX3BhcmFtcyBtdXN0IG1hdGNoIG1vZGUgKEZJWEVEX0tXPTEgLT4gZml4ZWRfa3cpGiR0aGlzLm1vZGUgPT0gMSAmJiBoYXModGhpcy5maXhlZF9rdykaoAEKGm1haW50ZW5hbmNlX2ZvcmNlX3JlcXVpcmVkEkZpbmNsdWRlX21haW50ZW5hbmNlIGFuZCBmb3JjZV9pbmNsdWRlX21haW50ZW5hbmNlIG11c3QgYmUgc2V0IHRvZ2V0aGVyGjp0aGlzLmluY2x1ZGVfbWFpbnRlbmFuY2UgPT0gdGhpcy5mb3JjZV9pbmNsdWRlX21haW50ZW5hbmNlQgcKBXNjb3BlQg0KC21vZGVfcGFyYW1zSgQICxAYIsYDCh5QcmV2aWV3Q3VydGFpbG1lbnRQbGFuUmVzcG9uc2USOAoKY2FuZGlkYXRlcxgBIAMoCzIkLmN1cnRhaWxtZW50LnYxLkN1cnRhaWxtZW50Q2FuZGlkYXRlEh4KFmVzdGltYXRlZF9yZWR1Y3Rpb25fa3cYAiABKAESJAocZXN0aW1hdGVkX3JlbWFpbmluZ19wb3dlcl9rdxgDIAEoARItCgRtb2RlGAQgASgOMh8uY3VydGFpbG1lbnQudjEuQ3VydGFpbG1lbnRNb2RlEjEKCGZpeGVkX2t3GAUgASgLMh0uY3VydGFpbG1lbnQudjEuRml4ZWRLd1BhcmFtc0gAEjcKC2ZpeGVkX2NvdW50GAYgASgLMiAuY3VydGFpbG1lbnQudjEuRml4ZWRDb3VudFBhcmFtc0gAEjwKDnNpdGVfcG93ZXJfY2FwGAcgASgLMiIuY3VydGFpbG1lbnQudjEuU2l0ZVBvd2VyQ2FwUGFyYW1zSAASPAoSc2tpcHBlZF9jYW5kaWRhdGVzGBQgAygLMiAuY3VydGFpbG1lbnQudjEuU2tpcHBlZENhbmRpZGF0ZUINCgttb2RlX3BhcmFtcyLbCgoXU3RhcnRDdXJ0YWlsbWVudFJlcXVlc3QSMgoJd2hvbGVfb3JnGAEgASgLMh0uY3VydGFpbG1lbnQudjEuU2NvcGVXaG9sZU9yZ0gAEjkKDmRldmljZV9zZXRfaWRzGAIgASgLMh8uY3VydGFpbG1lbnQudjEuU2NvcGVEZXZpY2VTZXRzSAASPQoSZGV2aWNlX2lkZW50aWZpZXJzGAMgASgLMh8uY3VydGFpbG1lbnQudjEuU2NvcGVEZXZpY2VMaXN0SAASOQoEbW9kZRgEIAEoDjIfLmN1cnRhaWxtZW50LnYxLkN1cnRhaWxtZW50TW9kZUIKukgHggEEEAEYARJDCghzdHJhdGVneRgFIAEoDjIjLmN1cnRhaWxtZW50LnYxLkN1cnRhaWxtZW50U3RyYXRlZ3lCDLpICYIBBhABGAAYARI9CgVsZXZlbBgGIAEoDjIgLmN1cnRhaWxtZW50LnYxLkN1cnRhaWxtZW50TGV2ZWxCDLpICYIBBhABGAAYAhJFCghwcmlvcml0eRgHIAEoDjIjLmN1cnRhaWxtZW50LnYxLkN1cnRhaWxtZW50UHJpb3JpdHlCDrpIC4IBCBABGAAYARgDEjEKCGZpeGVkX2t3GAggASgLMh0uY3VydGFpbG1lbnQudjEuRml4ZWRLd1BhcmFtc0gBEjcKC2ZpeGVkX2NvdW50GAkgASgLMiAuY3VydGFpbG1lbnQudjEuRml4ZWRDb3VudFBhcmFtc0gBEjwKDnNpdGVfcG93ZXJfY2FwGAogASgLMiIuY3VydGFpbG1lbnQudjEuU2l0ZVBvd2VyQ2FwUGFyYW1zSAESHAoUbWF4X2R1cmF0aW9uX3NlY29uZHMYFCABKA0SGgoScmVzdG9yZV9iYXRjaF9zaXplGBUgASgNEiIKGnJlc3RvcmVfYmF0Y2hfaW50ZXJ2YWxfc2VjGBYgASgNEiIKGm1pbl9jdXJ0YWlsZWRfZHVyYXRpb25fc2VjGBcgASgNEhsKE2luY2x1ZGVfbWFpbnRlbmFuY2UYGCABKAgSIQoZZm9yY2VfaW5jbHVkZV9tYWludGVuYW5jZRgZIAEoCBIXCg9pZGVtcG90ZW5jeV9rZXkYHiABKAkSFwoGcmVhc29uGB8gASgJQge6SARyAhABEhcKD2V4dGVybmFsX3NvdXJjZRggIAEoCRIaChJleHRlcm5hbF9yZWZlcmVuY2UYISABKAk6oAO6SJwDGoABCg5zY29wZV9yZXF1aXJlZBIdZXhhY3RseSBvbmUgc2NvcGUgbXVzdCBiZSBzZXQaT2hhcyh0aGlzLndob2xlX29yZykgfHwgaGFzKHRoaXMuZGV2aWNlX3NldF9pZHMpIHx8IGhhcyh0aGlzLmRldmljZV9pZGVudGlmaWVycykadAoWbW9kZV9wYXJhbXNfbWF0Y2hfbW9kZRI0bW9kZV9wYXJhbXMgbXVzdCBtYXRjaCBtb2RlIChGSVhFRF9LVz0xIC0+IGZpeGVkX2t3KRokdGhpcy5tb2RlID09IDEgJiYgaGFzKHRoaXMuZml4ZWRfa3cpGqABChptYWludGVuYW5jZV9mb3JjZV9yZXF1aXJlZBJGaW5jbHVkZV9tYWludGVuYW5jZSBhbmQgZm9yY2VfaW5jbHVkZV9tYWludGVuYW5jZSBtdXN0IGJlIHNldCB0b2dldGhlcho6dGhpcy5pbmNsdWRlX21haW50ZW5hbmNlID09IHRoaXMuZm9yY2VfaW5jbHVkZV9tYWludGVuYW5jZUIHCgVzY29wZUINCgttb2RlX3BhcmFtcyJLChhTdGFydEN1cnRhaWxtZW50UmVzcG9uc2USLwoFZXZlbnQYASABKAsyIC5jdXJ0YWlsbWVudC52MS5DdXJ0YWlsbWVudEV2ZW50IpgCCh1VcGRhdGVDdXJ0YWlsbWVudEV2ZW50UmVxdWVzdBIbCgpldmVudF91dWlkGAEgASgJQge6SARyAhABEhMKBnJlYXNvbhgKIAEoCUgAiAEBEh8KEnJlc3RvcmVfYmF0Y2hfc2l6ZRgLIAEoDUgBiAEBEicKGnJlc3RvcmVfYmF0Y2hfaW50ZXJ2YWxfc2VjGAwgASgNSAKIAQESIQoUbWF4X2R1cmF0aW9uX3NlY29uZHMYDSABKA1IA4gBAUIJCgdfcmVhc29uQhUKE19yZXN0b3JlX2JhdGNoX3NpemVCHQobX3Jlc3RvcmVfYmF0Y2hfaW50ZXJ2YWxfc2VjQhcKFV9tYXhfZHVyYXRpb25fc2Vjb25kcyJRCh5VcGRhdGVDdXJ0YWlsbWVudEV2ZW50UmVzcG9uc2USLwoFZXZlbnQYASABKAsyIC5jdXJ0YWlsbWVudC52MS5DdXJ0YWlsbWVudEV2ZW50IjUKFlN0b3BDdXJ0YWlsbWVudFJlcXVlc3QSGwoKZXZlbnRfdXVpZBgBIAEoCUIHukgEcgIQASJKChdTdG9wQ3VydGFpbG1lbnRSZXNwb25zZRIvCgVldmVudBgBIAEoCzIgLmN1cnRhaWxtZW50LnYxLkN1cnRhaWxtZW50RXZlbnQiHQobR2V0QWN0aXZlQ3VydGFpbG1lbnRSZXF1ZXN0Il4KHEdldEFjdGl2ZUN1cnRhaWxtZW50UmVzcG9uc2USNAoFZXZlbnQYASABKAsyIC5jdXJ0YWlsbWVudC52MS5DdXJ0YWlsbWVudEV2ZW50SACIAQFCCAoGX2V2ZW50IpgBChxMaXN0Q3VydGFpbG1lbnRFdmVudHNSZXF1ZXN0Eh0KCXBhZ2Vfc2l6ZRgBIAEoBUIKukgHGgUYyAEoABISCgpwYWdlX3Rva2VuGAIgASgJEkUKDHN0YXRlX2ZpbHRlchgDIAEoDjIlLmN1cnRhaWxtZW50LnYxLkN1cnRhaWxtZW50RXZlbnRTdGF0ZUIIukgFggECEAEiagodTGlzdEN1cnRhaWxtZW50RXZlbnRzUmVzcG9uc2USMAoGZXZlbnRzGAEgAygLMiAuY3VydGFpbG1lbnQudjEuQ3VydGFpbG1lbnRFdmVudBIXCg9uZXh0X3BhZ2VfdG9rZW4YAiABKAkqsAIKD0N1cnRhaWxtZW50TW9kZRIgChxDVVJUQUlMTUVOVF9NT0RFX1VOU1BFQ0lGSUVEEAASHQoZQ1VSVEFJTE1FTlRfTU9ERV9GSVhFRF9LVxABEiAKHENVUlRBSUxNRU5UX01PREVfRklYRURfQ09VTlQQAhIkCiBDVVJUQUlMTUVOVF9NT0RFX0RFTUFORF9SRVNQT05TRRADEiMKH0NVUlRBSUxNRU5UX01PREVfU0lURV9QT1dFUl9DQVAQBBIiCh5DVVJUQUlMTUVOVF9NT0RFX1RIRVJNQUxfTElNSVQQBRIkCiBDVVJUQUlMTUVOVF9NT0RFX1BSSUNFX0JSRUFLRVZFThAGEiUKIUNVUlRBSUxNRU5UX01PREVfUE9XRVJfVFJBSkVDVE9SWRAHKp4CChNDdXJ0YWlsbWVudFN0cmF0ZWd5EiQKIENVUlRBSUxNRU5UX1NUUkFURUdZX1VOU1BFQ0lGSUVEEAASLgoqQ1VSVEFJTE1FTlRfU1RSQVRFR1lfTEVBU1RfRUZGSUNJRU5UX0ZJUlNUEAESKQolQ1VSVEFJTE1FTlRfU1RSQVRFR1lfTU9TVF9QT1dFUl9GSVJTVBACEi4KKkNVUlRBSUxNRU5UX1NUUkFURUdZX09MREVTVF9IQVJEV0FSRV9GSVJTVBADEi4KKkNVUlRBSUxNRU5UX1NUUkFURUdZX1VOU1RBQkxFX01JTkVSU19GSVJTVBAEEiYKIkNVUlRBSUxNRU5UX1NUUkFURUdZX1JBQ0tfR1JBTlVMQVIQBSpzChBDdXJ0YWlsbWVudExldmVsEiEKHUNVUlRBSUxNRU5UX0xFVkVMX1VOU1BFQ0lGSUVEEAASIAocQ1VSVEFJTE1FTlRfTEVWRUxfRUZGSUNJRU5DWRABEhoKFkNVUlRBSUxNRU5UX0xFVkVMX0ZVTEwQAiqfAQoTQ3VydGFpbG1lbnRQcmlvcml0eRIkCiBDVVJUQUlMTUVOVF9QUklPUklUWV9VTlNQRUNJRklFRBAAEh8KG0NVUlRBSUxNRU5UX1BSSU9SSVRZX05PUk1BTBABEh0KGUNVUlRBSUxNRU5UX1BSSU9SSVRZX0hJR0gQAhIiCh5DVVJUQUlMTUVOVF9QUklPUklUWV9FTUVSR0VOQ1kQAyrXAgoVQ3VydGFpbG1lbnRFdmVudFN0YXRlEicKI0NVUlRBSUxNRU5UX0VWRU5UX1NUQVRFX1VOU1BFQ0lGSUVEEAASIwofQ1VSVEFJTE1FTlRfRVZFTlRfU1RBVEVfUEVORElORxABEiIKHkNVUlRBSUxNRU5UX0VWRU5UX1NUQVRFX0FDVElWRRACEiUKIUNVUlRBSUxNRU5UX0VWRU5UX1NUQVRFX1JFU1RPUklORxADEiUKIUNVUlRBSUxNRU5UX0VWRU5UX1NUQVRFX0NPTVBMRVRFRBAEEjMKL0NVUlRBSUxNRU5UX0VWRU5UX1NUQVRFX0NPTVBMRVRFRF9XSVRIX0ZBSUxVUkVTEAUSJQohQ1VSVEFJTE1FTlRfRVZFTlRfU1RBVEVfQ0FOQ0VMTEVEEAYSIgoeQ1VSVEFJTE1FTlRfRVZFTlRfU1RBVEVfRkFJTEVEEAcq2gIKFkN1cnRhaWxtZW50VGFyZ2V0U3RhdGUSKAokQ1VSVEFJTE1FTlRfVEFSR0VUX1NUQVRFX1VOU1BFQ0lGSUVEEAASJAogQ1VSVEFJTE1FTlRfVEFSR0VUX1NUQVRFX1BFTkRJTkcQARInCiNDVVJUQUlMTUVOVF9UQVJHRVRfU1RBVEVfRElTUEFUQ0hFRBACEiYKIkNVUlRBSUxNRU5UX1RBUkdFVF9TVEFURV9DT05GSVJNRUQQAxIkCiBDVVJUQUlMTUVOVF9UQVJHRVRfU1RBVEVfRFJJRlRFRBAEEiUKIUNVUlRBSUxNRU5UX1RBUkdFVF9TVEFURV9SRVNPTFZFRBAFEiUKIUNVUlRBSUxNRU5UX1RBUkdFVF9TVEFURV9SRUxFQVNFRBAGEisKJ0NVUlRBSUxNRU5UX1RBUkdFVF9TVEFURV9SRVNUT1JFX0ZBSUxFRBAHKq4BCh1DdXJ0YWlsbWVudFRhcmdldERlc2lyZWRTdGF0ZRIwCixDVVJUQUlMTUVOVF9UQVJHRVRfREVTSVJFRF9TVEFURV9VTlNQRUNJRklFRBAAEi4KKkNVUlRBSUxNRU5UX1RBUkdFVF9ERVNJUkVEX1NUQVRFX0NVUlRBSUxFRBABEisKJ0NVUlRBSUxNRU5UX1RBUkdFVF9ERVNJUkVEX1NUQVRFX0FDVElWRRACMroFChJDdXJ0YWlsbWVudFNlcnZpY2USdwoWUHJldmlld0N1cnRhaWxtZW50UGxhbhItLmN1cnRhaWxtZW50LnYxLlByZXZpZXdDdXJ0YWlsbWVudFBsYW5SZXF1ZXN0Gi4uY3VydGFpbG1lbnQudjEuUHJldmlld0N1cnRhaWxtZW50UGxhblJlc3BvbnNlEmUKEFN0YXJ0Q3VydGFpbG1lbnQSJy5jdXJ0YWlsbWVudC52MS5TdGFydEN1cnRhaWxtZW50UmVxdWVzdBooLmN1cnRhaWxtZW50LnYxLlN0YXJ0Q3VydGFpbG1lbnRSZXNwb25zZRJ3ChZVcGRhdGVDdXJ0YWlsbWVudEV2ZW50Ei0uY3VydGFpbG1lbnQudjEuVXBkYXRlQ3VydGFpbG1lbnRFdmVudFJlcXVlc3QaLi5jdXJ0YWlsbWVudC52MS5VcGRhdGVDdXJ0YWlsbWVudEV2ZW50UmVzcG9uc2USYgoPU3RvcEN1cnRhaWxtZW50EiYuY3VydGFpbG1lbnQudjEuU3RvcEN1cnRhaWxtZW50UmVxdWVzdBonLmN1cnRhaWxtZW50LnYxLlN0b3BDdXJ0YWlsbWVudFJlc3BvbnNlEnEKFEdldEFjdGl2ZUN1cnRhaWxtZW50EisuY3VydGFpbG1lbnQudjEuR2V0QWN0aXZlQ3VydGFpbG1lbnRSZXF1ZXN0GiwuY3VydGFpbG1lbnQudjEuR2V0QWN0aXZlQ3VydGFpbG1lbnRSZXNwb25zZRJ0ChVMaXN0Q3VydGFpbG1lbnRFdmVudHMSLC5jdXJ0YWlsbWVudC52MS5MaXN0Q3VydGFpbG1lbnRFdmVudHNSZXF1ZXN0Gi0uY3VydGFpbG1lbnQudjEuTGlzdEN1cnRhaWxtZW50RXZlbnRzUmVzcG9uc2VC0AEKEmNvbS5jdXJ0YWlsbWVudC52MUIQQ3VydGFpbG1lbnRQcm90b1ABWk9naXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9jdXJ0YWlsbWVudC92MTtjdXJ0YWlsbWVudHYxogIDQ1hYqgIOQ3VydGFpbG1lbnQuVjHKAg5DdXJ0YWlsbWVudFxWMeICGkN1cnRhaWxtZW50XFYxXEdQQk1ldGFkYXRh6gIPQ3VydGFpbG1lbnQ6OlYxYgZwcm90bzM", [file_google_protobuf_timestamp, file_google_protobuf_struct, file_buf_validate_validate]);
+export const file_curtailment_v1_curtailment: GenFile =
+  /*@__PURE__*/
+  fileDesc(
+    "CiBjdXJ0YWlsbWVudC92MS9jdXJ0YWlsbWVudC5wcm90bxIOY3VydGFpbG1lbnQudjEiDwoNU2NvcGVXaG9sZU9yZyI5Cg9TY29wZURldmljZVNldHMSJgoOZGV2aWNlX3NldF9pZHMYASADKAlCDrpIC5IBCAgBIgRyAhABIj0KD1Njb3BlRGV2aWNlTGlzdBIqChJkZXZpY2VfaWRlbnRpZmllcnMYASADKAlCDrpIC5IBCAgBIgRyAhABIm4KDUZpeGVkS3dQYXJhbXMSIQoJdGFyZ2V0X2t3GAEgASgBQg66SAsSCSEAAAAAAAAAABIpCgx0b2xlcmFuY2Vfa3cYAiABKAFCDrpICxIJKQAAAAAAAAAASACIAQFCDwoNX3RvbGVyYW5jZV9rdyIhChBGaXhlZENvdW50UGFyYW1zEg0KBWNvdW50GAEgASgFIiQKElNpdGVQb3dlckNhcFBhcmFtcxIOCgZjYXBfa3cYASABKAEi2AoKEEN1cnRhaWxtZW50RXZlbnQSEgoKZXZlbnRfdXVpZBgBIAEoCRI0CgVzdGF0ZRgCIAEoDjIlLmN1cnRhaWxtZW50LnYxLkN1cnRhaWxtZW50RXZlbnRTdGF0ZRItCgRtb2RlGAMgASgOMh8uY3VydGFpbG1lbnQudjEuQ3VydGFpbG1lbnRNb2RlEjUKCHN0cmF0ZWd5GAQgASgOMiMuY3VydGFpbG1lbnQudjEuQ3VydGFpbG1lbnRTdHJhdGVneRIvCgVsZXZlbBgFIAEoDjIgLmN1cnRhaWxtZW50LnYxLkN1cnRhaWxtZW50TGV2ZWwSNQoIcHJpb3JpdHkYBiABKA4yIy5jdXJ0YWlsbWVudC52MS5DdXJ0YWlsbWVudFByaW9yaXR5EjIKCXdob2xlX29yZxgHIAEoCzIdLmN1cnRhaWxtZW50LnYxLlNjb3BlV2hvbGVPcmdIABI5Cg5kZXZpY2Vfc2V0X2lkcxgIIAEoCzIfLmN1cnRhaWxtZW50LnYxLlNjb3BlRGV2aWNlU2V0c0gAEj0KEmRldmljZV9pZGVudGlmaWVycxgJIAEoCzIfLmN1cnRhaWxtZW50LnYxLlNjb3BlRGV2aWNlTGlzdEgAEjEKCGZpeGVkX2t3GAogASgLMh0uY3VydGFpbG1lbnQudjEuRml4ZWRLd1BhcmFtc0gBEjcKC2ZpeGVkX2NvdW50GAsgASgLMiAuY3VydGFpbG1lbnQudjEuRml4ZWRDb3VudFBhcmFtc0gBEjwKDnNpdGVfcG93ZXJfY2FwGAwgASgLMiIuY3VydGFpbG1lbnQudjEuU2l0ZVBvd2VyQ2FwUGFyYW1zSAESHAoUbWF4X2R1cmF0aW9uX3NlY29uZHMYDiABKA0SGgoScmVzdG9yZV9iYXRjaF9zaXplGA8gASgNEiIKGnJlc3RvcmVfYmF0Y2hfaW50ZXJ2YWxfc2VjGBAgASgNEiIKGm1pbl9jdXJ0YWlsZWRfZHVyYXRpb25fc2VjGBEgASgNEhsKE2luY2x1ZGVfbWFpbnRlbmFuY2UYEiABKAgSIQoZZm9yY2VfaW5jbHVkZV9tYWludGVuYW5jZRgTIAEoCBIOCgZyZWFzb24YFCABKAkSFwoPZXh0ZXJuYWxfc291cmNlGBUgASgJEhoKEmV4dGVybmFsX3JlZmVyZW5jZRgWIAEoCRIXCg9pZGVtcG90ZW5jeV9rZXkYFyABKAkSNgoSc2NoZWR1bGVkX3N0YXJ0X2F0GB4gASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgpzdGFydGVkX2F0GB8gASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIsCghlbmRlZF9hdBggIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKY3JlYXRlZF9hdBghIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKdXBkYXRlZF9hdBgiIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASPgoNdGFyZ2V0X3JvbGx1cBgoIAEoCzInLmN1cnRhaWxtZW50LnYxLkN1cnRhaWxtZW50VGFyZ2V0Um9sbHVwEjIKB3RhcmdldHMYKSADKAsyIS5jdXJ0YWlsbWVudC52MS5DdXJ0YWlsbWVudFRhcmdldBIyChFkZWNpc2lvbl9zbmFwc2hvdBgqIAEoCzIXLmdvb2dsZS5wcm90b2J1Zi5TdHJ1Y3RCBwoFc2NvcGVCDQoLbW9kZV9wYXJhbXMirQEKF0N1cnRhaWxtZW50VGFyZ2V0Um9sbHVwEg8KB3BlbmRpbmcYASABKAUSEgoKZGlzcGF0Y2hlZBgCIAEoBRIRCgljb25maXJtZWQYAyABKAUSDwoHZHJpZnRlZBgEIAEoBRIQCghyZXNvbHZlZBgFIAEoBRIQCghyZWxlYXNlZBgGIAEoBRIWCg5yZXN0b3JlX2ZhaWxlZBgHIAEoBRINCgV0b3RhbBgIIAEoBSLkBAoRQ3VydGFpbG1lbnRUYXJnZXQSGQoRZGV2aWNlX2lkZW50aWZpZXIYASABKAkSEwoLdGFyZ2V0X3R5cGUYAiABKAkSNQoFc3RhdGUYAyABKA4yJi5jdXJ0YWlsbWVudC52MS5DdXJ0YWlsbWVudFRhcmdldFN0YXRlEkQKDWRlc2lyZWRfc3RhdGUYBCABKA4yLS5jdXJ0YWlsbWVudC52MS5DdXJ0YWlsbWVudFRhcmdldERlc2lyZWRTdGF0ZRIdChBiYXNlbGluZV9wb3dlcl93GAUgASgBSACIAQESHQoQb2JzZXJ2ZWRfcG93ZXJfdxgGIAEoAUgBiAEBEiwKCGFkZGVkX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIvCgtyZWxlYXNlZF9hdBgIIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASNgoSbGFzdF9kaXNwYXRjaGVkX2F0GAkgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIXCg9sYXN0X2JhdGNoX3V1aWQYCiABKAkSLwoLb2JzZXJ2ZWRfYXQYCyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjAKDGNvbmZpcm1lZF9hdBgMIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEwoLcmV0cnlfY291bnQYDSABKA0SEgoKbGFzdF9lcnJvchgOIAEoCUITChFfYmFzZWxpbmVfcG93ZXJfd0ITChFfb2JzZXJ2ZWRfcG93ZXJfdyJ6ChRDdXJ0YWlsbWVudENhbmRpZGF0ZRIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRIXCg9jdXJyZW50X3Bvd2VyX3cYAiABKAESFQoNZWZmaWNpZW5jeV9qaBgDIAEoARIXCg9yZWFzb25fc2VsZWN0ZWQYBCABKAkiUgoQU2tpcHBlZENhbmRpZGF0ZRIZChFkZXZpY2VfaWRlbnRpZmllchgBIAEoCRIOCgZyZWFzb24YAiABKAkSEwoLZGVzY3JpcHRpb24YAyABKAki/ggKHVByZXZpZXdDdXJ0YWlsbWVudFBsYW5SZXF1ZXN0EjIKCXdob2xlX29yZxgBIAEoCzIdLmN1cnRhaWxtZW50LnYxLlNjb3BlV2hvbGVPcmdIABI5Cg5kZXZpY2Vfc2V0X2lkcxgCIAEoCzIfLmN1cnRhaWxtZW50LnYxLlNjb3BlRGV2aWNlU2V0c0gAEj0KEmRldmljZV9pZGVudGlmaWVycxgDIAEoCzIfLmN1cnRhaWxtZW50LnYxLlNjb3BlRGV2aWNlTGlzdEgAEjkKBG1vZGUYBCABKA4yHy5jdXJ0YWlsbWVudC52MS5DdXJ0YWlsbWVudE1vZGVCCrpIB4IBBBABGAESQwoIc3RyYXRlZ3kYBSABKA4yIy5jdXJ0YWlsbWVudC52MS5DdXJ0YWlsbWVudFN0cmF0ZWd5Qgy6SAmCAQYQARgAGAESPQoFbGV2ZWwYBiABKA4yIC5jdXJ0YWlsbWVudC52MS5DdXJ0YWlsbWVudExldmVsQgy6SAmCAQYQARgAGAISRQoIcHJpb3JpdHkYByABKA4yIy5jdXJ0YWlsbWVudC52MS5DdXJ0YWlsbWVudFByaW9yaXR5Qg66SAuCAQgQARgAGAEYAxIxCghmaXhlZF9rdxgIIAEoCzIdLmN1cnRhaWxtZW50LnYxLkZpeGVkS3dQYXJhbXNIARI3CgtmaXhlZF9jb3VudBgJIAEoCzIgLmN1cnRhaWxtZW50LnYxLkZpeGVkQ291bnRQYXJhbXNIARI8Cg5zaXRlX3Bvd2VyX2NhcBgKIAEoCzIiLmN1cnRhaWxtZW50LnYxLlNpdGVQb3dlckNhcFBhcmFtc0gBEhsKE2luY2x1ZGVfbWFpbnRlbmFuY2UYGCABKAgSIQoZZm9yY2VfaW5jbHVkZV9tYWludGVuYW5jZRgZIAEoCDqgA7pInAMagAEKDnNjb3BlX3JlcXVpcmVkEh1leGFjdGx5IG9uZSBzY29wZSBtdXN0IGJlIHNldBpPaGFzKHRoaXMud2hvbGVfb3JnKSB8fCBoYXModGhpcy5kZXZpY2Vfc2V0X2lkcykgfHwgaGFzKHRoaXMuZGV2aWNlX2lkZW50aWZpZXJzKRp0ChZtb2RlX3BhcmFtc19tYXRjaF9tb2RlEjRtb2RlX3BhcmFtcyBtdXN0IG1hdGNoIG1vZGUgKEZJWEVEX0tXPTEgLT4gZml4ZWRfa3cpGiR0aGlzLm1vZGUgPT0gMSAmJiBoYXModGhpcy5maXhlZF9rdykaoAEKGm1haW50ZW5hbmNlX2ZvcmNlX3JlcXVpcmVkEkZpbmNsdWRlX21haW50ZW5hbmNlIGFuZCBmb3JjZV9pbmNsdWRlX21haW50ZW5hbmNlIG11c3QgYmUgc2V0IHRvZ2V0aGVyGjp0aGlzLmluY2x1ZGVfbWFpbnRlbmFuY2UgPT0gdGhpcy5mb3JjZV9pbmNsdWRlX21haW50ZW5hbmNlQgcKBXNjb3BlQg0KC21vZGVfcGFyYW1zSgQICxAYIsYDCh5QcmV2aWV3Q3VydGFpbG1lbnRQbGFuUmVzcG9uc2USOAoKY2FuZGlkYXRlcxgBIAMoCzIkLmN1cnRhaWxtZW50LnYxLkN1cnRhaWxtZW50Q2FuZGlkYXRlEh4KFmVzdGltYXRlZF9yZWR1Y3Rpb25fa3cYAiABKAESJAocZXN0aW1hdGVkX3JlbWFpbmluZ19wb3dlcl9rdxgDIAEoARItCgRtb2RlGAQgASgOMh8uY3VydGFpbG1lbnQudjEuQ3VydGFpbG1lbnRNb2RlEjEKCGZpeGVkX2t3GAUgASgLMh0uY3VydGFpbG1lbnQudjEuRml4ZWRLd1BhcmFtc0gAEjcKC2ZpeGVkX2NvdW50GAYgASgLMiAuY3VydGFpbG1lbnQudjEuRml4ZWRDb3VudFBhcmFtc0gAEjwKDnNpdGVfcG93ZXJfY2FwGAcgASgLMiIuY3VydGFpbG1lbnQudjEuU2l0ZVBvd2VyQ2FwUGFyYW1zSAASPAoSc2tpcHBlZF9jYW5kaWRhdGVzGBQgAygLMiAuY3VydGFpbG1lbnQudjEuU2tpcHBlZENhbmRpZGF0ZUINCgttb2RlX3BhcmFtcyLbCgoXU3RhcnRDdXJ0YWlsbWVudFJlcXVlc3QSMgoJd2hvbGVfb3JnGAEgASgLMh0uY3VydGFpbG1lbnQudjEuU2NvcGVXaG9sZU9yZ0gAEjkKDmRldmljZV9zZXRfaWRzGAIgASgLMh8uY3VydGFpbG1lbnQudjEuU2NvcGVEZXZpY2VTZXRzSAASPQoSZGV2aWNlX2lkZW50aWZpZXJzGAMgASgLMh8uY3VydGFpbG1lbnQudjEuU2NvcGVEZXZpY2VMaXN0SAASOQoEbW9kZRgEIAEoDjIfLmN1cnRhaWxtZW50LnYxLkN1cnRhaWxtZW50TW9kZUIKukgHggEEEAEYARJDCghzdHJhdGVneRgFIAEoDjIjLmN1cnRhaWxtZW50LnYxLkN1cnRhaWxtZW50U3RyYXRlZ3lCDLpICYIBBhABGAAYARI9CgVsZXZlbBgGIAEoDjIgLmN1cnRhaWxtZW50LnYxLkN1cnRhaWxtZW50TGV2ZWxCDLpICYIBBhABGAAYAhJFCghwcmlvcml0eRgHIAEoDjIjLmN1cnRhaWxtZW50LnYxLkN1cnRhaWxtZW50UHJpb3JpdHlCDrpIC4IBCBABGAAYARgDEjEKCGZpeGVkX2t3GAggASgLMh0uY3VydGFpbG1lbnQudjEuRml4ZWRLd1BhcmFtc0gBEjcKC2ZpeGVkX2NvdW50GAkgASgLMiAuY3VydGFpbG1lbnQudjEuRml4ZWRDb3VudFBhcmFtc0gBEjwKDnNpdGVfcG93ZXJfY2FwGAogASgLMiIuY3VydGFpbG1lbnQudjEuU2l0ZVBvd2VyQ2FwUGFyYW1zSAESHAoUbWF4X2R1cmF0aW9uX3NlY29uZHMYFCABKA0SGgoScmVzdG9yZV9iYXRjaF9zaXplGBUgASgNEiIKGnJlc3RvcmVfYmF0Y2hfaW50ZXJ2YWxfc2VjGBYgASgNEiIKGm1pbl9jdXJ0YWlsZWRfZHVyYXRpb25fc2VjGBcgASgNEhsKE2luY2x1ZGVfbWFpbnRlbmFuY2UYGCABKAgSIQoZZm9yY2VfaW5jbHVkZV9tYWludGVuYW5jZRgZIAEoCBIXCg9pZGVtcG90ZW5jeV9rZXkYHiABKAkSFwoGcmVhc29uGB8gASgJQge6SARyAhABEhcKD2V4dGVybmFsX3NvdXJjZRggIAEoCRIaChJleHRlcm5hbF9yZWZlcmVuY2UYISABKAk6oAO6SJwDGoABCg5zY29wZV9yZXF1aXJlZBIdZXhhY3RseSBvbmUgc2NvcGUgbXVzdCBiZSBzZXQaT2hhcyh0aGlzLndob2xlX29yZykgfHwgaGFzKHRoaXMuZGV2aWNlX3NldF9pZHMpIHx8IGhhcyh0aGlzLmRldmljZV9pZGVudGlmaWVycykadAoWbW9kZV9wYXJhbXNfbWF0Y2hfbW9kZRI0bW9kZV9wYXJhbXMgbXVzdCBtYXRjaCBtb2RlIChGSVhFRF9LVz0xIC0+IGZpeGVkX2t3KRokdGhpcy5tb2RlID09IDEgJiYgaGFzKHRoaXMuZml4ZWRfa3cpGqABChptYWludGVuYW5jZV9mb3JjZV9yZXF1aXJlZBJGaW5jbHVkZV9tYWludGVuYW5jZSBhbmQgZm9yY2VfaW5jbHVkZV9tYWludGVuYW5jZSBtdXN0IGJlIHNldCB0b2dldGhlcho6dGhpcy5pbmNsdWRlX21haW50ZW5hbmNlID09IHRoaXMuZm9yY2VfaW5jbHVkZV9tYWludGVuYW5jZUIHCgVzY29wZUINCgttb2RlX3BhcmFtcyJLChhTdGFydEN1cnRhaWxtZW50UmVzcG9uc2USLwoFZXZlbnQYASABKAsyIC5jdXJ0YWlsbWVudC52MS5DdXJ0YWlsbWVudEV2ZW50IpgCCh1VcGRhdGVDdXJ0YWlsbWVudEV2ZW50UmVxdWVzdBIbCgpldmVudF91dWlkGAEgASgJQge6SARyAhABEhMKBnJlYXNvbhgKIAEoCUgAiAEBEh8KEnJlc3RvcmVfYmF0Y2hfc2l6ZRgLIAEoDUgBiAEBEicKGnJlc3RvcmVfYmF0Y2hfaW50ZXJ2YWxfc2VjGAwgASgNSAKIAQESIQoUbWF4X2R1cmF0aW9uX3NlY29uZHMYDSABKA1IA4gBAUIJCgdfcmVhc29uQhUKE19yZXN0b3JlX2JhdGNoX3NpemVCHQobX3Jlc3RvcmVfYmF0Y2hfaW50ZXJ2YWxfc2VjQhcKFV9tYXhfZHVyYXRpb25fc2Vjb25kcyJRCh5VcGRhdGVDdXJ0YWlsbWVudEV2ZW50UmVzcG9uc2USLwoFZXZlbnQYASABKAsyIC5jdXJ0YWlsbWVudC52MS5DdXJ0YWlsbWVudEV2ZW50IjUKFlN0b3BDdXJ0YWlsbWVudFJlcXVlc3QSGwoKZXZlbnRfdXVpZBgBIAEoCUIHukgEcgIQASJKChdTdG9wQ3VydGFpbG1lbnRSZXNwb25zZRIvCgVldmVudBgBIAEoCzIgLmN1cnRhaWxtZW50LnYxLkN1cnRhaWxtZW50RXZlbnQiHQobR2V0QWN0aXZlQ3VydGFpbG1lbnRSZXF1ZXN0Il4KHEdldEFjdGl2ZUN1cnRhaWxtZW50UmVzcG9uc2USNAoFZXZlbnQYASABKAsyIC5jdXJ0YWlsbWVudC52MS5DdXJ0YWlsbWVudEV2ZW50SACIAQFCCAoGX2V2ZW50IpgBChxMaXN0Q3VydGFpbG1lbnRFdmVudHNSZXF1ZXN0Eh0KCXBhZ2Vfc2l6ZRgBIAEoBUIKukgHGgUYyAEoABISCgpwYWdlX3Rva2VuGAIgASgJEkUKDHN0YXRlX2ZpbHRlchgDIAEoDjIlLmN1cnRhaWxtZW50LnYxLkN1cnRhaWxtZW50RXZlbnRTdGF0ZUIIukgFggECEAEiagodTGlzdEN1cnRhaWxtZW50RXZlbnRzUmVzcG9uc2USMAoGZXZlbnRzGAEgAygLMiAuY3VydGFpbG1lbnQudjEuQ3VydGFpbG1lbnRFdmVudBIXCg9uZXh0X3BhZ2VfdG9rZW4YAiABKAkqsAIKD0N1cnRhaWxtZW50TW9kZRIgChxDVVJUQUlMTUVOVF9NT0RFX1VOU1BFQ0lGSUVEEAASHQoZQ1VSVEFJTE1FTlRfTU9ERV9GSVhFRF9LVxABEiAKHENVUlRBSUxNRU5UX01PREVfRklYRURfQ09VTlQQAhIkCiBDVVJUQUlMTUVOVF9NT0RFX0RFTUFORF9SRVNQT05TRRADEiMKH0NVUlRBSUxNRU5UX01PREVfU0lURV9QT1dFUl9DQVAQBBIiCh5DVVJUQUlMTUVOVF9NT0RFX1RIRVJNQUxfTElNSVQQBRIkCiBDVVJUQUlMTUVOVF9NT0RFX1BSSUNFX0JSRUFLRVZFThAGEiUKIUNVUlRBSUxNRU5UX01PREVfUE9XRVJfVFJBSkVDVE9SWRAHKp4CChNDdXJ0YWlsbWVudFN0cmF0ZWd5EiQKIENVUlRBSUxNRU5UX1NUUkFURUdZX1VOU1BFQ0lGSUVEEAASLgoqQ1VSVEFJTE1FTlRfU1RSQVRFR1lfTEVBU1RfRUZGSUNJRU5UX0ZJUlNUEAESKQolQ1VSVEFJTE1FTlRfU1RSQVRFR1lfTU9TVF9QT1dFUl9GSVJTVBACEi4KKkNVUlRBSUxNRU5UX1NUUkFURUdZX09MREVTVF9IQVJEV0FSRV9GSVJTVBADEi4KKkNVUlRBSUxNRU5UX1NUUkFURUdZX1VOU1RBQkxFX01JTkVSU19GSVJTVBAEEiYKIkNVUlRBSUxNRU5UX1NUUkFURUdZX1JBQ0tfR1JBTlVMQVIQBSpzChBDdXJ0YWlsbWVudExldmVsEiEKHUNVUlRBSUxNRU5UX0xFVkVMX1VOU1BFQ0lGSUVEEAASIAocQ1VSVEFJTE1FTlRfTEVWRUxfRUZGSUNJRU5DWRABEhoKFkNVUlRBSUxNRU5UX0xFVkVMX0ZVTEwQAiqfAQoTQ3VydGFpbG1lbnRQcmlvcml0eRIkCiBDVVJUQUlMTUVOVF9QUklPUklUWV9VTlNQRUNJRklFRBAAEh8KG0NVUlRBSUxNRU5UX1BSSU9SSVRZX05PUk1BTBABEh0KGUNVUlRBSUxNRU5UX1BSSU9SSVRZX0hJR0gQAhIiCh5DVVJUQUlMTUVOVF9QUklPUklUWV9FTUVSR0VOQ1kQAyrXAgoVQ3VydGFpbG1lbnRFdmVudFN0YXRlEicKI0NVUlRBSUxNRU5UX0VWRU5UX1NUQVRFX1VOU1BFQ0lGSUVEEAASIwofQ1VSVEFJTE1FTlRfRVZFTlRfU1RBVEVfUEVORElORxABEiIKHkNVUlRBSUxNRU5UX0VWRU5UX1NUQVRFX0FDVElWRRACEiUKIUNVUlRBSUxNRU5UX0VWRU5UX1NUQVRFX1JFU1RPUklORxADEiUKIUNVUlRBSUxNRU5UX0VWRU5UX1NUQVRFX0NPTVBMRVRFRBAEEjMKL0NVUlRBSUxNRU5UX0VWRU5UX1NUQVRFX0NPTVBMRVRFRF9XSVRIX0ZBSUxVUkVTEAUSJQohQ1VSVEFJTE1FTlRfRVZFTlRfU1RBVEVfQ0FOQ0VMTEVEEAYSIgoeQ1VSVEFJTE1FTlRfRVZFTlRfU1RBVEVfRkFJTEVEEAcq2gIKFkN1cnRhaWxtZW50VGFyZ2V0U3RhdGUSKAokQ1VSVEFJTE1FTlRfVEFSR0VUX1NUQVRFX1VOU1BFQ0lGSUVEEAASJAogQ1VSVEFJTE1FTlRfVEFSR0VUX1NUQVRFX1BFTkRJTkcQARInCiNDVVJUQUlMTUVOVF9UQVJHRVRfU1RBVEVfRElTUEFUQ0hFRBACEiYKIkNVUlRBSUxNRU5UX1RBUkdFVF9TVEFURV9DT05GSVJNRUQQAxIkCiBDVVJUQUlMTUVOVF9UQVJHRVRfU1RBVEVfRFJJRlRFRBAEEiUKIUNVUlRBSUxNRU5UX1RBUkdFVF9TVEFURV9SRVNPTFZFRBAFEiUKIUNVUlRBSUxNRU5UX1RBUkdFVF9TVEFURV9SRUxFQVNFRBAGEisKJ0NVUlRBSUxNRU5UX1RBUkdFVF9TVEFURV9SRVNUT1JFX0ZBSUxFRBAHKq4BCh1DdXJ0YWlsbWVudFRhcmdldERlc2lyZWRTdGF0ZRIwCixDVVJUQUlMTUVOVF9UQVJHRVRfREVTSVJFRF9TVEFURV9VTlNQRUNJRklFRBAAEi4KKkNVUlRBSUxNRU5UX1RBUkdFVF9ERVNJUkVEX1NUQVRFX0NVUlRBSUxFRBABEisKJ0NVUlRBSUxNRU5UX1RBUkdFVF9ERVNJUkVEX1NUQVRFX0FDVElWRRACMroFChJDdXJ0YWlsbWVudFNlcnZpY2USdwoWUHJldmlld0N1cnRhaWxtZW50UGxhbhItLmN1cnRhaWxtZW50LnYxLlByZXZpZXdDdXJ0YWlsbWVudFBsYW5SZXF1ZXN0Gi4uY3VydGFpbG1lbnQudjEuUHJldmlld0N1cnRhaWxtZW50UGxhblJlc3BvbnNlEmUKEFN0YXJ0Q3VydGFpbG1lbnQSJy5jdXJ0YWlsbWVudC52MS5TdGFydEN1cnRhaWxtZW50UmVxdWVzdBooLmN1cnRhaWxtZW50LnYxLlN0YXJ0Q3VydGFpbG1lbnRSZXNwb25zZRJ3ChZVcGRhdGVDdXJ0YWlsbWVudEV2ZW50Ei0uY3VydGFpbG1lbnQudjEuVXBkYXRlQ3VydGFpbG1lbnRFdmVudFJlcXVlc3QaLi5jdXJ0YWlsbWVudC52MS5VcGRhdGVDdXJ0YWlsbWVudEV2ZW50UmVzcG9uc2USYgoPU3RvcEN1cnRhaWxtZW50EiYuY3VydGFpbG1lbnQudjEuU3RvcEN1cnRhaWxtZW50UmVxdWVzdBonLmN1cnRhaWxtZW50LnYxLlN0b3BDdXJ0YWlsbWVudFJlc3BvbnNlEnEKFEdldEFjdGl2ZUN1cnRhaWxtZW50EisuY3VydGFpbG1lbnQudjEuR2V0QWN0aXZlQ3VydGFpbG1lbnRSZXF1ZXN0GiwuY3VydGFpbG1lbnQudjEuR2V0QWN0aXZlQ3VydGFpbG1lbnRSZXNwb25zZRJ0ChVMaXN0Q3VydGFpbG1lbnRFdmVudHMSLC5jdXJ0YWlsbWVudC52MS5MaXN0Q3VydGFpbG1lbnRFdmVudHNSZXF1ZXN0Gi0uY3VydGFpbG1lbnQudjEuTGlzdEN1cnRhaWxtZW50RXZlbnRzUmVzcG9uc2VC0AEKEmNvbS5jdXJ0YWlsbWVudC52MUIQQ3VydGFpbG1lbnRQcm90b1ABWk9naXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9jdXJ0YWlsbWVudC92MTtjdXJ0YWlsbWVudHYxogIDQ1hYqgIOQ3VydGFpbG1lbnQuVjHKAg5DdXJ0YWlsbWVudFxWMeICGkN1cnRhaWxtZW50XFYxXEdQQk1ldGFkYXRh6gIPQ3VydGFpbG1lbnQ6OlYxYgZwcm90bzM",
+    [file_google_protobuf_timestamp, file_google_protobuf_struct, file_buf_validate_validate],
+  );
 
 /**
  * ScopeWholeOrg selects every miner in the caller organization.
  *
  * @generated from message curtailment.v1.ScopeWholeOrg
  */
-export type ScopeWholeOrg = Message<"curtailment.v1.ScopeWholeOrg"> & {
-};
+export type ScopeWholeOrg = Message<"curtailment.v1.ScopeWholeOrg"> & {};
 
 /**
  * Describes the message curtailment.v1.ScopeWholeOrg.
  * Use `create(ScopeWholeOrgSchema)` to create a new message.
  */
-export const ScopeWholeOrgSchema: GenMessage<ScopeWholeOrg> = /*@__PURE__*/
+export const ScopeWholeOrgSchema: GenMessage<ScopeWholeOrg> =
+  /*@__PURE__*/
   messageDesc(file_curtailment_v1_curtailment, 0);
 
 /**
@@ -46,7 +50,8 @@ export type ScopeDeviceSets = Message<"curtailment.v1.ScopeDeviceSets"> & {
  * Describes the message curtailment.v1.ScopeDeviceSets.
  * Use `create(ScopeDeviceSetsSchema)` to create a new message.
  */
-export const ScopeDeviceSetsSchema: GenMessage<ScopeDeviceSets> = /*@__PURE__*/
+export const ScopeDeviceSetsSchema: GenMessage<ScopeDeviceSets> =
+  /*@__PURE__*/
   messageDesc(file_curtailment_v1_curtailment, 1);
 
 /**
@@ -65,7 +70,8 @@ export type ScopeDeviceList = Message<"curtailment.v1.ScopeDeviceList"> & {
  * Describes the message curtailment.v1.ScopeDeviceList.
  * Use `create(ScopeDeviceListSchema)` to create a new message.
  */
-export const ScopeDeviceListSchema: GenMessage<ScopeDeviceList> = /*@__PURE__*/
+export const ScopeDeviceListSchema: GenMessage<ScopeDeviceList> =
+  /*@__PURE__*/
   messageDesc(file_curtailment_v1_curtailment, 2);
 
 /**
@@ -93,7 +99,8 @@ export type FixedKwParams = Message<"curtailment.v1.FixedKwParams"> & {
  * Describes the message curtailment.v1.FixedKwParams.
  * Use `create(FixedKwParamsSchema)` to create a new message.
  */
-export const FixedKwParamsSchema: GenMessage<FixedKwParams> = /*@__PURE__*/
+export const FixedKwParamsSchema: GenMessage<FixedKwParams> =
+  /*@__PURE__*/
   messageDesc(file_curtailment_v1_curtailment, 3);
 
 /**
@@ -112,7 +119,8 @@ export type FixedCountParams = Message<"curtailment.v1.FixedCountParams"> & {
  * Describes the message curtailment.v1.FixedCountParams.
  * Use `create(FixedCountParamsSchema)` to create a new message.
  */
-export const FixedCountParamsSchema: GenMessage<FixedCountParams> = /*@__PURE__*/
+export const FixedCountParamsSchema: GenMessage<FixedCountParams> =
+  /*@__PURE__*/
   messageDesc(file_curtailment_v1_curtailment, 4);
 
 /**
@@ -131,7 +139,8 @@ export type SitePowerCapParams = Message<"curtailment.v1.SitePowerCapParams"> & 
  * Describes the message curtailment.v1.SitePowerCapParams.
  * Use `create(SitePowerCapParamsSchema)` to create a new message.
  */
-export const SitePowerCapParamsSchema: GenMessage<SitePowerCapParams> = /*@__PURE__*/
+export const SitePowerCapParamsSchema: GenMessage<SitePowerCapParams> =
+  /*@__PURE__*/
   messageDesc(file_curtailment_v1_curtailment, 5);
 
 /**
@@ -177,48 +186,56 @@ export type CurtailmentEvent = Message<"curtailment.v1.CurtailmentEvent"> & {
    *
    * @generated from oneof curtailment.v1.CurtailmentEvent.scope
    */
-  scope: {
-    /**
-     * @generated from field: curtailment.v1.ScopeWholeOrg whole_org = 7;
-     */
-    value: ScopeWholeOrg;
-    case: "wholeOrg";
-  } | {
-    /**
-     * @generated from field: curtailment.v1.ScopeDeviceSets device_set_ids = 8;
-     */
-    value: ScopeDeviceSets;
-    case: "deviceSetIds";
-  } | {
-    /**
-     * @generated from field: curtailment.v1.ScopeDeviceList device_identifiers = 9;
-     */
-    value: ScopeDeviceList;
-    case: "deviceIdentifiers";
-  } | { case: undefined; value?: undefined };
+  scope:
+    | {
+        /**
+         * @generated from field: curtailment.v1.ScopeWholeOrg whole_org = 7;
+         */
+        value: ScopeWholeOrg;
+        case: "wholeOrg";
+      }
+    | {
+        /**
+         * @generated from field: curtailment.v1.ScopeDeviceSets device_set_ids = 8;
+         */
+        value: ScopeDeviceSets;
+        case: "deviceSetIds";
+      }
+    | {
+        /**
+         * @generated from field: curtailment.v1.ScopeDeviceList device_identifiers = 9;
+         */
+        value: ScopeDeviceList;
+        case: "deviceIdentifiers";
+      }
+    | { case: undefined; value?: undefined };
 
   /**
    * @generated from oneof curtailment.v1.CurtailmentEvent.mode_params
    */
-  modeParams: {
-    /**
-     * @generated from field: curtailment.v1.FixedKwParams fixed_kw = 10;
-     */
-    value: FixedKwParams;
-    case: "fixedKw";
-  } | {
-    /**
-     * @generated from field: curtailment.v1.FixedCountParams fixed_count = 11;
-     */
-    value: FixedCountParams;
-    case: "fixedCount";
-  } | {
-    /**
-     * @generated from field: curtailment.v1.SitePowerCapParams site_power_cap = 12;
-     */
-    value: SitePowerCapParams;
-    case: "sitePowerCap";
-  } | { case: undefined; value?: undefined };
+  modeParams:
+    | {
+        /**
+         * @generated from field: curtailment.v1.FixedKwParams fixed_kw = 10;
+         */
+        value: FixedKwParams;
+        case: "fixedKw";
+      }
+    | {
+        /**
+         * @generated from field: curtailment.v1.FixedCountParams fixed_count = 11;
+         */
+        value: FixedCountParams;
+        case: "fixedCount";
+      }
+    | {
+        /**
+         * @generated from field: curtailment.v1.SitePowerCapParams site_power_cap = 12;
+         */
+        value: SitePowerCapParams;
+        case: "sitePowerCap";
+      }
+    | { case: undefined; value?: undefined };
 
   /**
    * Original operational controls.
@@ -329,7 +346,8 @@ export type CurtailmentEvent = Message<"curtailment.v1.CurtailmentEvent"> & {
  * Describes the message curtailment.v1.CurtailmentEvent.
  * Use `create(CurtailmentEventSchema)` to create a new message.
  */
-export const CurtailmentEventSchema: GenMessage<CurtailmentEvent> = /*@__PURE__*/
+export const CurtailmentEventSchema: GenMessage<CurtailmentEvent> =
+  /*@__PURE__*/
   messageDesc(file_curtailment_v1_curtailment, 6);
 
 /**
@@ -383,7 +401,8 @@ export type CurtailmentTargetRollup = Message<"curtailment.v1.CurtailmentTargetR
  * Describes the message curtailment.v1.CurtailmentTargetRollup.
  * Use `create(CurtailmentTargetRollupSchema)` to create a new message.
  */
-export const CurtailmentTargetRollupSchema: GenMessage<CurtailmentTargetRollup> = /*@__PURE__*/
+export const CurtailmentTargetRollupSchema: GenMessage<CurtailmentTargetRollup> =
+  /*@__PURE__*/
   messageDesc(file_curtailment_v1_curtailment, 7);
 
 /**
@@ -469,7 +488,8 @@ export type CurtailmentTarget = Message<"curtailment.v1.CurtailmentTarget"> & {
  * Describes the message curtailment.v1.CurtailmentTarget.
  * Use `create(CurtailmentTargetSchema)` to create a new message.
  */
-export const CurtailmentTargetSchema: GenMessage<CurtailmentTarget> = /*@__PURE__*/
+export const CurtailmentTargetSchema: GenMessage<CurtailmentTarget> =
+  /*@__PURE__*/
   messageDesc(file_curtailment_v1_curtailment, 8);
 
 /**
@@ -505,7 +525,8 @@ export type CurtailmentCandidate = Message<"curtailment.v1.CurtailmentCandidate"
  * Describes the message curtailment.v1.CurtailmentCandidate.
  * Use `create(CurtailmentCandidateSchema)` to create a new message.
  */
-export const CurtailmentCandidateSchema: GenMessage<CurtailmentCandidate> = /*@__PURE__*/
+export const CurtailmentCandidateSchema: GenMessage<CurtailmentCandidate> =
+  /*@__PURE__*/
   messageDesc(file_curtailment_v1_curtailment, 9);
 
 /**
@@ -538,7 +559,8 @@ export type SkippedCandidate = Message<"curtailment.v1.SkippedCandidate"> & {
  * Describes the message curtailment.v1.SkippedCandidate.
  * Use `create(SkippedCandidateSchema)` to create a new message.
  */
-export const SkippedCandidateSchema: GenMessage<SkippedCandidate> = /*@__PURE__*/
+export const SkippedCandidateSchema: GenMessage<SkippedCandidate> =
+  /*@__PURE__*/
   messageDesc(file_curtailment_v1_curtailment, 10);
 
 /**
@@ -548,25 +570,29 @@ export type PreviewCurtailmentPlanRequest = Message<"curtailment.v1.PreviewCurta
   /**
    * @generated from oneof curtailment.v1.PreviewCurtailmentPlanRequest.scope
    */
-  scope: {
-    /**
-     * @generated from field: curtailment.v1.ScopeWholeOrg whole_org = 1;
-     */
-    value: ScopeWholeOrg;
-    case: "wholeOrg";
-  } | {
-    /**
-     * @generated from field: curtailment.v1.ScopeDeviceSets device_set_ids = 2;
-     */
-    value: ScopeDeviceSets;
-    case: "deviceSetIds";
-  } | {
-    /**
-     * @generated from field: curtailment.v1.ScopeDeviceList device_identifiers = 3;
-     */
-    value: ScopeDeviceList;
-    case: "deviceIdentifiers";
-  } | { case: undefined; value?: undefined };
+  scope:
+    | {
+        /**
+         * @generated from field: curtailment.v1.ScopeWholeOrg whole_org = 1;
+         */
+        value: ScopeWholeOrg;
+        case: "wholeOrg";
+      }
+    | {
+        /**
+         * @generated from field: curtailment.v1.ScopeDeviceSets device_set_ids = 2;
+         */
+        value: ScopeDeviceSets;
+        case: "deviceSetIds";
+      }
+    | {
+        /**
+         * @generated from field: curtailment.v1.ScopeDeviceList device_identifiers = 3;
+         */
+        value: ScopeDeviceList;
+        case: "deviceIdentifiers";
+      }
+    | { case: undefined; value?: undefined };
 
   /**
    * @generated from field: curtailment.v1.CurtailmentMode mode = 4;
@@ -597,25 +623,29 @@ export type PreviewCurtailmentPlanRequest = Message<"curtailment.v1.PreviewCurta
   /**
    * @generated from oneof curtailment.v1.PreviewCurtailmentPlanRequest.mode_params
    */
-  modeParams: {
-    /**
-     * @generated from field: curtailment.v1.FixedKwParams fixed_kw = 8;
-     */
-    value: FixedKwParams;
-    case: "fixedKw";
-  } | {
-    /**
-     * @generated from field: curtailment.v1.FixedCountParams fixed_count = 9;
-     */
-    value: FixedCountParams;
-    case: "fixedCount";
-  } | {
-    /**
-     * @generated from field: curtailment.v1.SitePowerCapParams site_power_cap = 10;
-     */
-    value: SitePowerCapParams;
-    case: "sitePowerCap";
-  } | { case: undefined; value?: undefined };
+  modeParams:
+    | {
+        /**
+         * @generated from field: curtailment.v1.FixedKwParams fixed_kw = 8;
+         */
+        value: FixedKwParams;
+        case: "fixedKw";
+      }
+    | {
+        /**
+         * @generated from field: curtailment.v1.FixedCountParams fixed_count = 9;
+         */
+        value: FixedCountParams;
+        case: "fixedCount";
+      }
+    | {
+        /**
+         * @generated from field: curtailment.v1.SitePowerCapParams site_power_cap = 10;
+         */
+        value: SitePowerCapParams;
+        case: "sitePowerCap";
+      }
+    | { case: undefined; value?: undefined };
 
   /**
    * @generated from field: bool include_maintenance = 24;
@@ -632,7 +662,8 @@ export type PreviewCurtailmentPlanRequest = Message<"curtailment.v1.PreviewCurta
  * Describes the message curtailment.v1.PreviewCurtailmentPlanRequest.
  * Use `create(PreviewCurtailmentPlanRequestSchema)` to create a new message.
  */
-export const PreviewCurtailmentPlanRequestSchema: GenMessage<PreviewCurtailmentPlanRequest> = /*@__PURE__*/
+export const PreviewCurtailmentPlanRequestSchema: GenMessage<PreviewCurtailmentPlanRequest> =
+  /*@__PURE__*/
   messageDesc(file_curtailment_v1_curtailment, 11);
 
 /**
@@ -670,25 +701,29 @@ export type PreviewCurtailmentPlanResponse = Message<"curtailment.v1.PreviewCurt
   /**
    * @generated from oneof curtailment.v1.PreviewCurtailmentPlanResponse.mode_params
    */
-  modeParams: {
-    /**
-     * @generated from field: curtailment.v1.FixedKwParams fixed_kw = 5;
-     */
-    value: FixedKwParams;
-    case: "fixedKw";
-  } | {
-    /**
-     * @generated from field: curtailment.v1.FixedCountParams fixed_count = 6;
-     */
-    value: FixedCountParams;
-    case: "fixedCount";
-  } | {
-    /**
-     * @generated from field: curtailment.v1.SitePowerCapParams site_power_cap = 7;
-     */
-    value: SitePowerCapParams;
-    case: "sitePowerCap";
-  } | { case: undefined; value?: undefined };
+  modeParams:
+    | {
+        /**
+         * @generated from field: curtailment.v1.FixedKwParams fixed_kw = 5;
+         */
+        value: FixedKwParams;
+        case: "fixedKw";
+      }
+    | {
+        /**
+         * @generated from field: curtailment.v1.FixedCountParams fixed_count = 6;
+         */
+        value: FixedCountParams;
+        case: "fixedCount";
+      }
+    | {
+        /**
+         * @generated from field: curtailment.v1.SitePowerCapParams site_power_cap = 7;
+         */
+        value: SitePowerCapParams;
+        case: "sitePowerCap";
+      }
+    | { case: undefined; value?: undefined };
 
   /**
    * Excluded candidates with canonical reasons.
@@ -702,7 +737,8 @@ export type PreviewCurtailmentPlanResponse = Message<"curtailment.v1.PreviewCurt
  * Describes the message curtailment.v1.PreviewCurtailmentPlanResponse.
  * Use `create(PreviewCurtailmentPlanResponseSchema)` to create a new message.
  */
-export const PreviewCurtailmentPlanResponseSchema: GenMessage<PreviewCurtailmentPlanResponse> = /*@__PURE__*/
+export const PreviewCurtailmentPlanResponseSchema: GenMessage<PreviewCurtailmentPlanResponse> =
+  /*@__PURE__*/
   messageDesc(file_curtailment_v1_curtailment, 12);
 
 /**
@@ -712,25 +748,29 @@ export type StartCurtailmentRequest = Message<"curtailment.v1.StartCurtailmentRe
   /**
    * @generated from oneof curtailment.v1.StartCurtailmentRequest.scope
    */
-  scope: {
-    /**
-     * @generated from field: curtailment.v1.ScopeWholeOrg whole_org = 1;
-     */
-    value: ScopeWholeOrg;
-    case: "wholeOrg";
-  } | {
-    /**
-     * @generated from field: curtailment.v1.ScopeDeviceSets device_set_ids = 2;
-     */
-    value: ScopeDeviceSets;
-    case: "deviceSetIds";
-  } | {
-    /**
-     * @generated from field: curtailment.v1.ScopeDeviceList device_identifiers = 3;
-     */
-    value: ScopeDeviceList;
-    case: "deviceIdentifiers";
-  } | { case: undefined; value?: undefined };
+  scope:
+    | {
+        /**
+         * @generated from field: curtailment.v1.ScopeWholeOrg whole_org = 1;
+         */
+        value: ScopeWholeOrg;
+        case: "wholeOrg";
+      }
+    | {
+        /**
+         * @generated from field: curtailment.v1.ScopeDeviceSets device_set_ids = 2;
+         */
+        value: ScopeDeviceSets;
+        case: "deviceSetIds";
+      }
+    | {
+        /**
+         * @generated from field: curtailment.v1.ScopeDeviceList device_identifiers = 3;
+         */
+        value: ScopeDeviceList;
+        case: "deviceIdentifiers";
+      }
+    | { case: undefined; value?: undefined };
 
   /**
    * @generated from field: curtailment.v1.CurtailmentMode mode = 4;
@@ -759,25 +799,29 @@ export type StartCurtailmentRequest = Message<"curtailment.v1.StartCurtailmentRe
   /**
    * @generated from oneof curtailment.v1.StartCurtailmentRequest.mode_params
    */
-  modeParams: {
-    /**
-     * @generated from field: curtailment.v1.FixedKwParams fixed_kw = 8;
-     */
-    value: FixedKwParams;
-    case: "fixedKw";
-  } | {
-    /**
-     * @generated from field: curtailment.v1.FixedCountParams fixed_count = 9;
-     */
-    value: FixedCountParams;
-    case: "fixedCount";
-  } | {
-    /**
-     * @generated from field: curtailment.v1.SitePowerCapParams site_power_cap = 10;
-     */
-    value: SitePowerCapParams;
-    case: "sitePowerCap";
-  } | { case: undefined; value?: undefined };
+  modeParams:
+    | {
+        /**
+         * @generated from field: curtailment.v1.FixedKwParams fixed_kw = 8;
+         */
+        value: FixedKwParams;
+        case: "fixedKw";
+      }
+    | {
+        /**
+         * @generated from field: curtailment.v1.FixedCountParams fixed_count = 9;
+         */
+        value: FixedCountParams;
+        case: "fixedCount";
+      }
+    | {
+        /**
+         * @generated from field: curtailment.v1.SitePowerCapParams site_power_cap = 10;
+         */
+        value: SitePowerCapParams;
+        case: "sitePowerCap";
+      }
+    | { case: undefined; value?: undefined };
 
   /**
    * Operational controls.
@@ -852,7 +896,8 @@ export type StartCurtailmentRequest = Message<"curtailment.v1.StartCurtailmentRe
  * Describes the message curtailment.v1.StartCurtailmentRequest.
  * Use `create(StartCurtailmentRequestSchema)` to create a new message.
  */
-export const StartCurtailmentRequestSchema: GenMessage<StartCurtailmentRequest> = /*@__PURE__*/
+export const StartCurtailmentRequestSchema: GenMessage<StartCurtailmentRequest> =
+  /*@__PURE__*/
   messageDesc(file_curtailment_v1_curtailment, 13);
 
 /**
@@ -869,7 +914,8 @@ export type StartCurtailmentResponse = Message<"curtailment.v1.StartCurtailmentR
  * Describes the message curtailment.v1.StartCurtailmentResponse.
  * Use `create(StartCurtailmentResponseSchema)` to create a new message.
  */
-export const StartCurtailmentResponseSchema: GenMessage<StartCurtailmentResponse> = /*@__PURE__*/
+export const StartCurtailmentResponseSchema: GenMessage<StartCurtailmentResponse> =
+  /*@__PURE__*/
   messageDesc(file_curtailment_v1_curtailment, 14);
 
 /**
@@ -910,7 +956,8 @@ export type UpdateCurtailmentEventRequest = Message<"curtailment.v1.UpdateCurtai
  * Describes the message curtailment.v1.UpdateCurtailmentEventRequest.
  * Use `create(UpdateCurtailmentEventRequestSchema)` to create a new message.
  */
-export const UpdateCurtailmentEventRequestSchema: GenMessage<UpdateCurtailmentEventRequest> = /*@__PURE__*/
+export const UpdateCurtailmentEventRequestSchema: GenMessage<UpdateCurtailmentEventRequest> =
+  /*@__PURE__*/
   messageDesc(file_curtailment_v1_curtailment, 15);
 
 /**
@@ -927,7 +974,8 @@ export type UpdateCurtailmentEventResponse = Message<"curtailment.v1.UpdateCurta
  * Describes the message curtailment.v1.UpdateCurtailmentEventResponse.
  * Use `create(UpdateCurtailmentEventResponseSchema)` to create a new message.
  */
-export const UpdateCurtailmentEventResponseSchema: GenMessage<UpdateCurtailmentEventResponse> = /*@__PURE__*/
+export const UpdateCurtailmentEventResponseSchema: GenMessage<UpdateCurtailmentEventResponse> =
+  /*@__PURE__*/
   messageDesc(file_curtailment_v1_curtailment, 16);
 
 /**
@@ -946,7 +994,8 @@ export type StopCurtailmentRequest = Message<"curtailment.v1.StopCurtailmentRequ
  * Describes the message curtailment.v1.StopCurtailmentRequest.
  * Use `create(StopCurtailmentRequestSchema)` to create a new message.
  */
-export const StopCurtailmentRequestSchema: GenMessage<StopCurtailmentRequest> = /*@__PURE__*/
+export const StopCurtailmentRequestSchema: GenMessage<StopCurtailmentRequest> =
+  /*@__PURE__*/
   messageDesc(file_curtailment_v1_curtailment, 17);
 
 /**
@@ -963,7 +1012,8 @@ export type StopCurtailmentResponse = Message<"curtailment.v1.StopCurtailmentRes
  * Describes the message curtailment.v1.StopCurtailmentResponse.
  * Use `create(StopCurtailmentResponseSchema)` to create a new message.
  */
-export const StopCurtailmentResponseSchema: GenMessage<StopCurtailmentResponse> = /*@__PURE__*/
+export const StopCurtailmentResponseSchema: GenMessage<StopCurtailmentResponse> =
+  /*@__PURE__*/
   messageDesc(file_curtailment_v1_curtailment, 18);
 
 /**
@@ -971,14 +1021,14 @@ export const StopCurtailmentResponseSchema: GenMessage<StopCurtailmentResponse> 
  *
  * @generated from message curtailment.v1.GetActiveCurtailmentRequest
  */
-export type GetActiveCurtailmentRequest = Message<"curtailment.v1.GetActiveCurtailmentRequest"> & {
-};
+export type GetActiveCurtailmentRequest = Message<"curtailment.v1.GetActiveCurtailmentRequest"> & {};
 
 /**
  * Describes the message curtailment.v1.GetActiveCurtailmentRequest.
  * Use `create(GetActiveCurtailmentRequestSchema)` to create a new message.
  */
-export const GetActiveCurtailmentRequestSchema: GenMessage<GetActiveCurtailmentRequest> = /*@__PURE__*/
+export const GetActiveCurtailmentRequestSchema: GenMessage<GetActiveCurtailmentRequest> =
+  /*@__PURE__*/
   messageDesc(file_curtailment_v1_curtailment, 19);
 
 /**
@@ -997,7 +1047,8 @@ export type GetActiveCurtailmentResponse = Message<"curtailment.v1.GetActiveCurt
  * Describes the message curtailment.v1.GetActiveCurtailmentResponse.
  * Use `create(GetActiveCurtailmentResponseSchema)` to create a new message.
  */
-export const GetActiveCurtailmentResponseSchema: GenMessage<GetActiveCurtailmentResponse> = /*@__PURE__*/
+export const GetActiveCurtailmentResponseSchema: GenMessage<GetActiveCurtailmentResponse> =
+  /*@__PURE__*/
   messageDesc(file_curtailment_v1_curtailment, 20);
 
 /**
@@ -1032,7 +1083,8 @@ export type ListCurtailmentEventsRequest = Message<"curtailment.v1.ListCurtailme
  * Describes the message curtailment.v1.ListCurtailmentEventsRequest.
  * Use `create(ListCurtailmentEventsRequestSchema)` to create a new message.
  */
-export const ListCurtailmentEventsRequestSchema: GenMessage<ListCurtailmentEventsRequest> = /*@__PURE__*/
+export const ListCurtailmentEventsRequestSchema: GenMessage<ListCurtailmentEventsRequest> =
+  /*@__PURE__*/
   messageDesc(file_curtailment_v1_curtailment, 21);
 
 /**
@@ -1056,7 +1108,8 @@ export type ListCurtailmentEventsResponse = Message<"curtailment.v1.ListCurtailm
  * Describes the message curtailment.v1.ListCurtailmentEventsResponse.
  * Use `create(ListCurtailmentEventsResponseSchema)` to create a new message.
  */
-export const ListCurtailmentEventsResponseSchema: GenMessage<ListCurtailmentEventsResponse> = /*@__PURE__*/
+export const ListCurtailmentEventsResponseSchema: GenMessage<ListCurtailmentEventsResponse> =
+  /*@__PURE__*/
   messageDesc(file_curtailment_v1_curtailment, 22);
 
 /**
@@ -1129,7 +1182,8 @@ export enum CurtailmentMode {
 /**
  * Describes the enum curtailment.v1.CurtailmentMode.
  */
-export const CurtailmentModeSchema: GenEnum<CurtailmentMode> = /*@__PURE__*/
+export const CurtailmentModeSchema: GenEnum<CurtailmentMode> =
+  /*@__PURE__*/
   enumDesc(file_curtailment_v1_curtailment, 0);
 
 /**
@@ -1188,7 +1242,8 @@ export enum CurtailmentStrategy {
 /**
  * Describes the enum curtailment.v1.CurtailmentStrategy.
  */
-export const CurtailmentStrategySchema: GenEnum<CurtailmentStrategy> = /*@__PURE__*/
+export const CurtailmentStrategySchema: GenEnum<CurtailmentStrategy> =
+  /*@__PURE__*/
   enumDesc(file_curtailment_v1_curtailment, 1);
 
 /**
@@ -1220,7 +1275,8 @@ export enum CurtailmentLevel {
 /**
  * Describes the enum curtailment.v1.CurtailmentLevel.
  */
-export const CurtailmentLevelSchema: GenEnum<CurtailmentLevel> = /*@__PURE__*/
+export const CurtailmentLevelSchema: GenEnum<CurtailmentLevel> =
+  /*@__PURE__*/
   enumDesc(file_curtailment_v1_curtailment, 2);
 
 /**
@@ -1257,7 +1313,8 @@ export enum CurtailmentPriority {
 /**
  * Describes the enum curtailment.v1.CurtailmentPriority.
  */
-export const CurtailmentPrioritySchema: GenEnum<CurtailmentPriority> = /*@__PURE__*/
+export const CurtailmentPrioritySchema: GenEnum<CurtailmentPriority> =
+  /*@__PURE__*/
   enumDesc(file_curtailment_v1_curtailment, 3);
 
 /**
@@ -1322,7 +1379,8 @@ export enum CurtailmentEventState {
 /**
  * Describes the enum curtailment.v1.CurtailmentEventState.
  */
-export const CurtailmentEventStateSchema: GenEnum<CurtailmentEventState> = /*@__PURE__*/
+export const CurtailmentEventStateSchema: GenEnum<CurtailmentEventState> =
+  /*@__PURE__*/
   enumDesc(file_curtailment_v1_curtailment, 4);
 
 /**
@@ -1387,7 +1445,8 @@ export enum CurtailmentTargetState {
 /**
  * Describes the enum curtailment.v1.CurtailmentTargetState.
  */
-export const CurtailmentTargetStateSchema: GenEnum<CurtailmentTargetState> = /*@__PURE__*/
+export const CurtailmentTargetStateSchema: GenEnum<CurtailmentTargetState> =
+  /*@__PURE__*/
   enumDesc(file_curtailment_v1_curtailment, 5);
 
 /**
@@ -1415,7 +1474,8 @@ export enum CurtailmentTargetDesiredState {
 /**
  * Describes the enum curtailment.v1.CurtailmentTargetDesiredState.
  */
-export const CurtailmentTargetDesiredStateSchema: GenEnum<CurtailmentTargetDesiredState> = /*@__PURE__*/
+export const CurtailmentTargetDesiredStateSchema: GenEnum<CurtailmentTargetDesiredState> =
+  /*@__PURE__*/
   enumDesc(file_curtailment_v1_curtailment, 6);
 
 /**
@@ -1433,7 +1493,7 @@ export const CurtailmentService: GenService<{
     methodKind: "unary";
     input: typeof PreviewCurtailmentPlanRequestSchema;
     output: typeof PreviewCurtailmentPlanResponseSchema;
-  },
+  };
   /**
    * Start an event, persist targets, and dispatch initial Curtail commands.
    *
@@ -1443,7 +1503,7 @@ export const CurtailmentService: GenService<{
     methodKind: "unary";
     input: typeof StartCurtailmentRequestSchema;
     output: typeof StartCurtailmentResponseSchema;
-  },
+  };
   /**
    * Update operator-safe fields; target mutation is reserved.
    *
@@ -1453,7 +1513,7 @@ export const CurtailmentService: GenService<{
     methodKind: "unary";
     input: typeof UpdateCurtailmentEventRequestSchema;
     output: typeof UpdateCurtailmentEventResponseSchema;
-  },
+  };
   /**
    * Stop an active event and begin staggered restore.
    *
@@ -1463,7 +1523,7 @@ export const CurtailmentService: GenService<{
     methodKind: "unary";
     input: typeof StopCurtailmentRequestSchema;
     output: typeof StopCurtailmentResponseSchema;
-  },
+  };
   /**
    * Get the current pending, active, or restoring event.
    *
@@ -1473,7 +1533,7 @@ export const CurtailmentService: GenService<{
     methodKind: "unary";
     input: typeof GetActiveCurtailmentRequestSchema;
     output: typeof GetActiveCurtailmentResponseSchema;
-  },
+  };
   /**
    * List historical events with cursor pagination.
    *
@@ -1483,6 +1543,5 @@ export const CurtailmentService: GenService<{
     methodKind: "unary";
     input: typeof ListCurtailmentEventsRequestSchema;
     output: typeof ListCurtailmentEventsResponseSchema;
-  },
-}> = /*@__PURE__*/
-  serviceDesc(file_curtailment_v1_curtailment, 0);
+  };
+}> = /*@__PURE__*/ serviceDesc(file_curtailment_v1_curtailment, 0);
