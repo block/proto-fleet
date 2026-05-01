@@ -543,7 +543,7 @@ func (d *Device) Curtail(ctx context.Context, req sdk.CurtailRequest) error {
 		return d.curtailFull(ctx)
 	case sdk.CurtailLevelEfficiency:
 		return d.curtailEfficiency(ctx)
-	case sdk.CurtailLevelUnspecified, sdk.CurtailLevelPartialPercent:
+	case sdk.CurtailLevelUnspecified:
 		return sdk.NewErrCurtailCapabilityNotSupported(d.id, int32(req.Level))
 	default:
 		return sdk.NewErrCurtailCapabilityNotSupported(d.id, int32(req.Level))
@@ -551,6 +551,7 @@ func (d *Device) Curtail(ctx context.Context, req sdk.CurtailRequest) error {
 }
 
 func (d *Device) curtailFull(ctx context.Context) error {
+	d.invalidateStatusCache()
 	metrics, err := d.Status(ctx)
 	if err != nil {
 		return wrapCurtailDispatchError(d.id, err)

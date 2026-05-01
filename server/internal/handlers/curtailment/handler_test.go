@@ -137,6 +137,21 @@ func TestHandler_RequestValidation(t *testing.T) {
 		assert.Equal(t, connect.CodeInvalidArgument, connectErr.Code())
 	})
 
+	t.Run("Preview rejects force without maintenance inclusion", func(t *testing.T) {
+		t.Parallel()
+
+		req := validPreviewCurtailmentPlanRequest(pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL)
+		req.IncludeMaintenance = false
+		req.ForceIncludeMaintenance = true
+
+		_, err := client.PreviewCurtailmentPlan(t.Context(), connect.NewRequest(req))
+
+		require.Error(t, err)
+		var connectErr *connect.Error
+		require.ErrorAs(t, err, &connectErr)
+		assert.Equal(t, connect.CodeInvalidArgument, connectErr.Code())
+	})
+
 	t.Run("Preview accepts maintenance inclusion with force and reaches handler", func(t *testing.T) {
 		t.Parallel()
 
@@ -172,6 +187,21 @@ func TestHandler_RequestValidation(t *testing.T) {
 		req := validStartCurtailmentRequest(pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL)
 		req.IncludeMaintenance = true
 		req.ForceIncludeMaintenance = false
+
+		_, err := client.StartCurtailment(t.Context(), connect.NewRequest(req))
+
+		require.Error(t, err)
+		var connectErr *connect.Error
+		require.ErrorAs(t, err, &connectErr)
+		assert.Equal(t, connect.CodeInvalidArgument, connectErr.Code())
+	})
+
+	t.Run("Start rejects force without maintenance inclusion", func(t *testing.T) {
+		t.Parallel()
+
+		req := validStartCurtailmentRequest(pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL)
+		req.IncludeMaintenance = false
+		req.ForceIncludeMaintenance = true
 
 		_, err := client.StartCurtailment(t.Context(), connect.NewRequest(req))
 
@@ -219,12 +249,12 @@ func validPreviewCurtailmentPlanRequest(priority pb.CurtailmentPriority) *pb.Pre
 		Scope: &pb.PreviewCurtailmentPlanRequest_WholeOrg{
 			WholeOrg: &pb.ScopeWholeOrg{},
 		},
-		Mode:     pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_PERCENT,
+		Mode:     pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
 		Strategy: pb.CurtailmentStrategy_CURTAILMENT_STRATEGY_LEAST_EFFICIENT_FIRST,
 		Level:    pb.CurtailmentLevel_CURTAILMENT_LEVEL_FULL,
 		Priority: priority,
-		ModeParams: &pb.PreviewCurtailmentPlanRequest_FixedPercent{
-			FixedPercent: &pb.FixedPercentParams{Percent: 50},
+		ModeParams: &pb.PreviewCurtailmentPlanRequest_FixedKw{
+			FixedKw: &pb.FixedKwParams{TargetKw: 50},
 		},
 	}
 }
@@ -234,12 +264,12 @@ func validStartCurtailmentRequest(priority pb.CurtailmentPriority) *pb.StartCurt
 		Scope: &pb.StartCurtailmentRequest_WholeOrg{
 			WholeOrg: &pb.ScopeWholeOrg{},
 		},
-		Mode:     pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_PERCENT,
+		Mode:     pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
 		Strategy: pb.CurtailmentStrategy_CURTAILMENT_STRATEGY_LEAST_EFFICIENT_FIRST,
 		Level:    pb.CurtailmentLevel_CURTAILMENT_LEVEL_FULL,
 		Priority: priority,
-		ModeParams: &pb.StartCurtailmentRequest_FixedPercent{
-			FixedPercent: &pb.FixedPercentParams{Percent: 50},
+		ModeParams: &pb.StartCurtailmentRequest_FixedKw{
+			FixedKw: &pb.FixedKwParams{TargetKw: 50},
 		},
 		Reason: "operator validation test",
 	}

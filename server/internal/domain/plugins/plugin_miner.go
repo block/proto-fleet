@@ -245,8 +245,6 @@ func supportsCurtailLevel(caps sdk.Capabilities, level sdk.CurtailLevel) bool {
 		return caps[sdk.CapabilityCurtailFull]
 	case sdk.CurtailLevelEfficiency:
 		return caps[sdk.CapabilityCurtailEfficiency]
-	case sdk.CurtailLevelPartialPercent:
-		return caps[sdk.CapabilityCurtailPartial]
 	case sdk.CurtailLevelUnspecified:
 		return false
 	default:
@@ -256,8 +254,7 @@ func supportsCurtailLevel(caps sdk.Capabilities, level sdk.CurtailLevel) bool {
 
 func supportsAnyCurtailLevel(caps sdk.Capabilities) bool {
 	return caps[sdk.CapabilityCurtailFull] ||
-		caps[sdk.CapabilityCurtailEfficiency] ||
-		caps[sdk.CapabilityCurtailPartial]
+		caps[sdk.CapabilityCurtailEfficiency]
 }
 
 // SetCoolingMode implements interfaces.Miner

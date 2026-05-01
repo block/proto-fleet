@@ -271,13 +271,12 @@ func TestDevice_DescribeDeviceAdvertisesFullAndEfficiencyCurtailment(t *testing.
 	require.NoError(t, err)
 	assert.True(t, caps[sdk.CapabilityCurtailFull])
 	assert.True(t, caps[sdk.CapabilityCurtailEfficiency])
-	assert.False(t, caps[sdk.CapabilityCurtailPartial])
 }
 
 func TestDevice_CurtailUnsupportedLevelReturnsCapabilityNotSupported(t *testing.T) {
 	dev := newMiningControlTestDevice(t, http.StatusOK)
 
-	err := dev.Curtail(context.Background(), sdk.CurtailRequest{Level: sdk.CurtailLevelPartialPercent})
+	err := dev.Curtail(context.Background(), sdk.CurtailRequest{Level: sdk.CurtailLevel(99)})
 
 	require.Error(t, err)
 	var sdkErr sdk.SDKError
@@ -313,6 +312,29 @@ func TestDevice_CurtailFullOnInactiveMinerDoesNotStartOnUncurtail(t *testing.T) 
 			started = true
 		}
 	})
+
+	require.NoError(t, dev.Curtail(context.Background(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull}))
+	require.True(t, stopped)
+
+	require.NoError(t, dev.Uncurtail(context.Background(), sdk.UncurtailRequest{}))
+	require.False(t, started)
+}
+
+func TestDevice_CurtailFullRefreshesStatusBeforeSnapshot(t *testing.T) {
+	var miningState = "Mining"
+	var stopped, started bool
+	dev := newMiningControlTestDeviceWithDynamicMiningState(t, http.StatusOK, &miningState, func(path string) {
+		switch path {
+		case "/api/v1/mining/stop":
+			stopped = true
+		case "/api/v1/mining/start":
+			started = true
+		}
+	})
+
+	_, err := dev.Status(context.Background())
+	require.NoError(t, err)
+	miningState = "Stopped"
 
 	require.NoError(t, dev.Curtail(context.Background(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull}))
 	require.True(t, stopped)
@@ -444,12 +466,17 @@ func newMiningControlTestDeviceWithCallback(t *testing.T, miningControlStatus in
 
 func newMiningControlTestDeviceWithMiningState(t *testing.T, miningControlStatus int, miningState string, onControl func(path string)) *Device {
 	t.Helper()
+	return newMiningControlTestDeviceWithDynamicMiningState(t, miningControlStatus, &miningState, onControl, SetStatusTTL(0*time.Second))
+}
+
+func newMiningControlTestDeviceWithDynamicMiningState(t *testing.T, miningControlStatus int, miningState *string, onControl func(path string), opts ...DeviceOption) *Device {
+	t.Helper()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/mining":
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(fmt.Sprintf(`{"mining-status":{"status":%q}}`, miningState)))
+			_, _ = w.Write([]byte(fmt.Sprintf(`{"mining-status":{"status":%q}}`, *miningState)))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/pools":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"pools":[{"id":0,"url":"stratum+tcp://pool.example:3333","user":"worker"}]}`))
@@ -475,7 +502,7 @@ func newMiningControlTestDeviceWithMiningState(t *testing.T, miningControlStatus
 		Host:      host,
 		Port:      int32(port),
 		URLScheme: "http",
-	}, sdk.BearerToken{Token: "test-token"}, SetStatusTTL(0*time.Second))
+	}, sdk.BearerToken{Token: "test-token"}, opts...)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = dev.Close(context.Background()) })
 

@@ -44,17 +44,16 @@ enum CurtailmentMode {
 
     // Open-loop, operator-sized; targets are frozen at event creation.
     CURTAILMENT_MODE_FIXED_KW         = 1;  // v1: select until sum(power_w) >= target_kw
-    CURTAILMENT_MODE_FIXED_PERCENT    = 2;  // v1: top-N by ceil-percent of candidates
-    CURTAILMENT_MODE_FIXED_COUNT      = 3;  // reserved: explicit miner count
+    CURTAILMENT_MODE_FIXED_COUNT      = 2;  // reserved: explicit miner count
 
     // Open-loop, externally triggered; targets are frozen once selected.
-    CURTAILMENT_MODE_DEMAND_RESPONSE  = 4;  // reserved (v2)
+    CURTAILMENT_MODE_DEMAND_RESPONSE  = 3;  // reserved (v2)
 
     // Closed-loop modes re-evaluate targets against a signal or setpoint.
-    CURTAILMENT_MODE_SITE_POWER_CAP   = 5;  // reserved (v3)
-    CURTAILMENT_MODE_THERMAL_LIMIT    = 6;  // reserved (v3)
-    CURTAILMENT_MODE_PRICE_BREAKEVEN  = 7;  // reserved (v3)
-    CURTAILMENT_MODE_POWER_TRAJECTORY = 8;  // reserved (v3)
+    CURTAILMENT_MODE_SITE_POWER_CAP   = 4;  // reserved (v3)
+    CURTAILMENT_MODE_THERMAL_LIMIT    = 5;  // reserved (v3)
+    CURTAILMENT_MODE_PRICE_BREAKEVEN  = 6;  // reserved (v3)
+    CURTAILMENT_MODE_POWER_TRAJECTORY = 7;  // reserved (v3)
 }
 
 // CurtailmentStrategy selects candidate ranking.
@@ -77,8 +76,7 @@ enum CurtailmentStrategy {
 enum CurtailmentLevel {
     CURTAILMENT_LEVEL_UNSPECIFIED     = 0;
     CURTAILMENT_LEVEL_EFFICIENCY      = 1;  // reserved (v4): peak J/TH setting
-    CURTAILMENT_LEVEL_PARTIAL_PERCENT = 2;  // reserved (v4): operator-specified hash-rate %
-    CURTAILMENT_LEVEL_FULL            = 3;  // v1: complete shutdown
+    CURTAILMENT_LEVEL_FULL            = 2;  // v1: complete shutdown
 }
 
 // CurtailmentPriority controls cooldown and hysteresis behavior.
@@ -161,15 +159,6 @@ message FixedKwParams {
     optional double tolerance_kw = 2 [(buf.validate.field).double.gte = 0];
 }
 
-// FixedPercentParams configures a fixed-percent target.
-message FixedPercentParams {
-    // Percent of candidates to curtail.
-    double percent = 1 [(buf.validate.field).double = {
-        gt: 0
-        lte: 100
-    }];
-}
-
 // FixedCountParams is reserved for FIXED_COUNT.
 message FixedCountParams {
     int32 count = 1;
@@ -201,9 +190,8 @@ message CurtailmentEvent {
     }
     oneof mode_params {
         FixedKwParams      fixed_kw       = 10;
-        FixedPercentParams fixed_percent  = 11;
-        FixedCountParams   fixed_count    = 12;
-        SitePowerCapParams site_power_cap = 13;
+        FixedCountParams   fixed_count    = 11;
+        SitePowerCapParams site_power_cap = 12;
     }
 
     // Original operational controls.
@@ -301,13 +289,13 @@ message PreviewCurtailmentPlanRequest {
     };
     option (buf.validate.message).cel = {
         id: "mode_params_match_mode"
-        message: "mode_params must match mode (FIXED_KW=1 -> fixed_kw, FIXED_PERCENT=2 -> fixed_percent)"
-        expression: "(this.mode == 1 && has(this.fixed_kw)) || (this.mode == 2 && has(this.fixed_percent))"
+        message: "mode_params must match mode (FIXED_KW=1 -> fixed_kw)"
+        expression: "this.mode == 1 && has(this.fixed_kw)"
     };
     option (buf.validate.message).cel = {
         id: "maintenance_force_required"
-        message: "force_include_maintenance must be true when include_maintenance is true"
-        expression: "!this.include_maintenance || this.force_include_maintenance"
+        message: "include_maintenance and force_include_maintenance must be set together"
+        expression: "this.include_maintenance == this.force_include_maintenance"
     };
 
     oneof scope {
@@ -318,8 +306,8 @@ message PreviewCurtailmentPlanRequest {
 
     CurtailmentMode     mode     = 4 [(buf.validate.field).enum = {
         defined_only: true
-        // v1 supports FIXED_KW and FIXED_PERCENT.
-        in: [1, 2]
+        // v1 supports FIXED_KW.
+        in: [1]
     }];
     // 0 = use server default (LEAST_EFFICIENT_FIRST).
     CurtailmentStrategy strategy = 5 [(buf.validate.field).enum = {
@@ -331,7 +319,7 @@ message PreviewCurtailmentPlanRequest {
     CurtailmentLevel    level    = 6 [(buf.validate.field).enum = {
         defined_only: true
         // v1 supports FULL.
-        in: [0, 3]
+        in: [0, 2]
     }];
     // 0 = server default. HIGH is reserved.
     CurtailmentPriority priority = 7 [(buf.validate.field).enum = {
@@ -341,15 +329,14 @@ message PreviewCurtailmentPlanRequest {
 
     oneof mode_params {
         FixedKwParams        fixed_kw         = 8;
-        FixedPercentParams   fixed_percent    = 9;
-        FixedCountParams     fixed_count      = 10;
-        SitePowerCapParams   site_power_cap   = 11;
+        FixedCountParams     fixed_count      = 9;
+        SitePowerCapParams   site_power_cap   = 10;
     }
 
     bool include_maintenance       = 24;
     bool force_include_maintenance = 25;
 
-    reserved 12 to 23;
+    reserved 11 to 23;
 }
 
 message PreviewCurtailmentPlanResponse {
@@ -366,9 +353,8 @@ message PreviewCurtailmentPlanResponse {
     CurtailmentMode mode = 4;
     oneof mode_params {
         FixedKwParams      fixed_kw       = 5;
-        FixedPercentParams fixed_percent  = 6;
-        FixedCountParams   fixed_count    = 7;
-        SitePowerCapParams site_power_cap = 8;
+        FixedCountParams   fixed_count    = 6;
+        SitePowerCapParams site_power_cap = 7;
     }
 
     // Excluded candidates with canonical reasons.
@@ -386,13 +372,13 @@ message StartCurtailmentRequest {
     };
     option (buf.validate.message).cel = {
         id: "mode_params_match_mode"
-        message: "mode_params must match mode (FIXED_KW=1 -> fixed_kw, FIXED_PERCENT=2 -> fixed_percent)"
-        expression: "(this.mode == 1 && has(this.fixed_kw)) || (this.mode == 2 && has(this.fixed_percent))"
+        message: "mode_params must match mode (FIXED_KW=1 -> fixed_kw)"
+        expression: "this.mode == 1 && has(this.fixed_kw)"
     };
     option (buf.validate.message).cel = {
         id: "maintenance_force_required"
-        message: "force_include_maintenance must be true when include_maintenance is true"
-        expression: "!this.include_maintenance || this.force_include_maintenance"
+        message: "include_maintenance and force_include_maintenance must be set together"
+        expression: "this.include_maintenance == this.force_include_maintenance"
     };
 
     oneof scope {
@@ -403,7 +389,7 @@ message StartCurtailmentRequest {
 
     CurtailmentMode     mode     = 4 [(buf.validate.field).enum = {
         defined_only: true
-        in: [1, 2]
+        in: [1]
     }];
     // 0 = use server default (LEAST_EFFICIENT_FIRST).
     CurtailmentStrategy strategy = 5 [(buf.validate.field).enum = {
@@ -413,7 +399,7 @@ message StartCurtailmentRequest {
     // 0 = use server default (FULL).
     CurtailmentLevel    level    = 6 [(buf.validate.field).enum = {
         defined_only: true
-        in: [0, 3]
+        in: [0, 2]
     }];
     CurtailmentPriority priority = 7 [(buf.validate.field).enum = {
         defined_only: true
@@ -422,9 +408,8 @@ message StartCurtailmentRequest {
 
     oneof mode_params {
         FixedKwParams        fixed_kw         = 8;
-        FixedPercentParams   fixed_percent    = 9;
-        FixedCountParams     fixed_count      = 10;
-        SitePowerCapParams   site_power_cap   = 11;
+        FixedCountParams     fixed_count      = 9;
+        SitePowerCapParams   site_power_cap   = 10;
     }
 
     // Operational controls.

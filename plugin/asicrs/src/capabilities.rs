@@ -63,7 +63,6 @@ static BASE_CAPABILITIES: LazyLock<Capabilities> = LazyLock::new(|| {
     caps.insert(CAP_MINING_STOP.into(), false);
     caps.insert(CAP_CURTAIL_FULL.into(), false);
     caps.insert(CAP_CURTAIL_EFFICIENCY.into(), false);
-    caps.insert(CAP_CURTAIL_PARTIAL.into(), false);
 
     // Configuration -- default false
     caps.insert(CAP_POOL_CONFIG.into(), false);
@@ -389,7 +388,6 @@ mod tests {
 
         assert_eq!(caps.get(CAP_CURTAIL_FULL), Some(&true));
         assert_eq!(caps.get(CAP_CURTAIL_EFFICIENCY), Some(&false));
-        assert_eq!(caps.get(CAP_CURTAIL_PARTIAL), Some(&false));
     }
 
     #[test]

@@ -20,7 +20,6 @@ __all__ = [
     "CAP_FACTORY_RESET",
     "CAP_CURTAIL_FULL",
     "CAP_CURTAIL_EFFICIENCY",
-    "CAP_CURTAIL_PARTIAL",
     # Configuration
     "CAP_SET_COOLING_MODE",
     "CAP_GET_COOLING_MODE",
@@ -95,7 +94,6 @@ CAP_REBOOT = "reboot"
 CAP_FACTORY_RESET = "factory_reset"
 CAP_CURTAIL_FULL = "curtail_full"
 CAP_CURTAIL_EFFICIENCY = "curtail_efficiency"
-CAP_CURTAIL_PARTIAL = "curtail_partial"
 
 # Configuration Capabilities
 CAP_SET_COOLING_MODE = "set_cooling_mode"

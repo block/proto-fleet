@@ -308,8 +308,7 @@ enum PerformanceMode {
 enum CurtailLevel {
   CURTAIL_LEVEL_UNSPECIFIED     = 0;
   CURTAIL_LEVEL_EFFICIENCY      = 1;  // peak J/TH setting
-  CURTAIL_LEVEL_PARTIAL_PERCENT = 2;  // reserved: operator-specified hash %
-  CURTAIL_LEVEL_FULL            = 3;  // complete shutdown
+  CURTAIL_LEVEL_FULL            = 2;  // complete shutdown
 }
 
 message CurtailRequest {

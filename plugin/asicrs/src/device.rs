@@ -567,6 +567,7 @@ impl AsicRsDevice {
         if *self.probed.lock().await {
             self.require_cap(CAP_CURTAIL_FULL).await?;
         }
+        self.invalidate_cache().await;
         let was_mining = self.get_data().await?.is_mining;
         let guard = self.connected_miner().await?;
         self.require_cap(CAP_CURTAIL_FULL).await?;

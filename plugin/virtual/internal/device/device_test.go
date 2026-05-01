@@ -35,7 +35,7 @@ func newTestDevice(t *testing.T) *Device {
 	return d
 }
 
-// FULL curtailment is advertised; efficiency/partial are not.
+// FULL curtailment is advertised; efficiency is not.
 func TestDevice_DescribeDevice_AdvertisesCurtailCapability(t *testing.T) {
 	d := newTestDevice(t)
 
@@ -43,7 +43,6 @@ func TestDevice_DescribeDevice_AdvertisesCurtailCapability(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, caps[sdk.CapabilityCurtailFull], "virtual plugin must advertise CapabilityCurtailFull")
 	assert.False(t, caps[sdk.CapabilityCurtailEfficiency], "virtual plugin does not support efficiency curtailment")
-	assert.False(t, caps[sdk.CapabilityCurtailPartial], "partial curtailment is reserved")
 }
 
 // FULL curtailment stops mining until Uncurtail.
@@ -88,7 +87,7 @@ func TestDevice_CurtailUnsupportedLevel_ReturnsCapabilityNotSupported(t *testing
 	cases := []sdk.CurtailLevel{
 		sdk.CurtailLevelUnspecified,
 		sdk.CurtailLevelEfficiency,
-		sdk.CurtailLevelPartialPercent,
+		sdk.CurtailLevel(99),
 	}
 	for _, level := range cases {
 		err := d.Curtail(context.Background(), sdk.CurtailRequest{Level: level})

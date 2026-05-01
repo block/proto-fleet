@@ -482,6 +482,7 @@ func (d *Device) Curtail(ctx context.Context, req sdk.CurtailRequest) error {
 		return sdk.NewErrCurtailCapabilityNotSupported(d.id, int32(req.Level))
 	}
 
+	d.invalidateStatusCache()
 	status, err := d.Status(ctx)
 	if err != nil {
 		return wrapCurtailDispatchError(d.id, err)

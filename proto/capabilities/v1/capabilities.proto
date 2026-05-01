@@ -79,7 +79,6 @@ message CommandCapabilities {
   // Curtailment flags. Each level is an explicit, independent opt-in.
   bool curtail_full_supported       = 14;
   bool curtail_efficiency_supported = 15;
-  bool curtail_partial_supported    = 16;
 }
 
 // Telemetry data capabilities

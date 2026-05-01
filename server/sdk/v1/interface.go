@@ -250,10 +250,8 @@ const (
 	CurtailLevelUnspecified CurtailLevel = 0
 	// CurtailLevelEfficiency requests the device's lowest-energy supported mining mode.
 	CurtailLevelEfficiency CurtailLevel = 1
-	// CurtailLevelPartialPercent is reserved for partial-percent curtailment.
-	CurtailLevelPartialPercent CurtailLevel = 2
 	// CurtailLevelFull is the v1 full-shutdown level.
-	CurtailLevelFull CurtailLevel = 3
+	CurtailLevelFull CurtailLevel = 2
 )
 
 // CurtailRequest describes a curtailment request for a device.
@@ -542,7 +540,6 @@ const (
 	// Curtailment capabilities
 	CapabilityCurtailFull       = "curtail_full"       // Curtail/Uncurtail support (FULL level)
 	CapabilityCurtailEfficiency = "curtail_efficiency" // Efficiency-mode curtailment support
-	CapabilityCurtailPartial    = "curtail_partial"    // reserved: partial-percent curtailment
 
 	// Telemetry capabilities
 	CapabilityRealtimeTelemetry = "realtime_telemetry"    // Real-time telemetry support

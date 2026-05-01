@@ -7,7 +7,6 @@ import pytest
 from proto_fleet_sdk import (
     CAP_CURTAIL_FULL,
     CAP_CURTAIL_EFFICIENCY,
-    CAP_CURTAIL_PARTIAL,
 )
 from proto_fleet_sdk.errors import InvalidConfigError
 from proto_fleet_sdk.utils import (
@@ -30,7 +29,6 @@ class TestCapabilityHelpers:
         """Test curtailment capability constants."""
         assert CAP_CURTAIL_FULL == "curtail_full"
         assert CAP_CURTAIL_EFFICIENCY == "curtail_efficiency"
-        assert CAP_CURTAIL_PARTIAL == "curtail_partial"
 
 
 class TestPortUtils:

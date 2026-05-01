@@ -468,7 +468,6 @@ func TestDevice_DescribeDevice(t *testing.T) {
 	assert.True(t, capabilities[sdk.CapabilityMiningStop])
 	assert.True(t, capabilities[sdk.CapabilityCurtailFull])
 	assert.False(t, capabilities[sdk.CapabilityCurtailEfficiency])
-	assert.False(t, capabilities[sdk.CapabilityCurtailPartial])
 }
 
 func ptrFloat64(v float64) *float64 {
@@ -521,6 +520,8 @@ func TestDevice_CurtailFullInvalidatesStatusCache(t *testing.T) {
 
 	require.NotNil(t, device.lastStatus)
 	require.False(t, device.lastStatusAt.IsZero())
+	mockClient.EXPECT().GetStatus(gomock.Any()).Return(defaultStatus(), nil)
+	mockClient.EXPECT().GetTelemetry(gomock.Any()).Return(defaultTelemetry(), nil)
 	mockClient.EXPECT().StopMining(gomock.Any()).Return(nil)
 
 	err := device.Curtail(t.Context(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull})
@@ -538,6 +539,8 @@ func TestDevice_CurtailFullOnActiveMinerUncurtailStartsMining(t *testing.T) {
 	device := createTestDevice(t, mockClient, defaultStatus(), defaultTelemetry())
 	defer cleanupDevice(t, device, mockClient)
 
+	mockClient.EXPECT().GetStatus(gomock.Any()).Return(defaultStatus(), nil)
+	mockClient.EXPECT().GetTelemetry(gomock.Any()).Return(defaultTelemetry(), nil)
 	mockClient.EXPECT().StopMining(gomock.Any()).Return(nil)
 	require.NoError(t, device.Curtail(t.Context(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull}))
 
@@ -555,6 +558,8 @@ func TestDevice_CurtailFullOnInactiveMinerUncurtailDoesNotStartMining(t *testing
 	device := createTestDevice(t, mockClient, status, defaultTelemetry())
 	defer cleanupDevice(t, device, mockClient)
 
+	mockClient.EXPECT().GetStatus(gomock.Any()).Return(status, nil)
+	mockClient.EXPECT().GetTelemetry(gomock.Any()).Return(defaultTelemetry(), nil)
 	mockClient.EXPECT().StopMining(gomock.Any()).Return(nil)
 	require.NoError(t, device.Curtail(t.Context(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull}))
 
@@ -569,6 +574,8 @@ func TestDevice_CurtailFullWrapsDispatchFailureAsTransient(t *testing.T) {
 	device := createTestDevice(t, mockClient, defaultStatus(), defaultTelemetry())
 	defer cleanupDevice(t, device, mockClient)
 
+	mockClient.EXPECT().GetStatus(gomock.Any()).Return(defaultStatus(), nil)
+	mockClient.EXPECT().GetTelemetry(gomock.Any()).Return(defaultTelemetry(), nil)
 	mockClient.EXPECT().StopMining(gomock.Any()).Return(assert.AnError)
 
 	err := device.Curtail(t.Context(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull})
@@ -596,6 +603,24 @@ func TestDevice_CurtailUnsupportedLevelReturnsCapabilityNotSupported(t *testing.
 	var sdkErr sdk.SDKError
 	require.True(t, errors.As(err, &sdkErr))
 	assert.Equal(t, sdk.ErrCodeCurtailCapabilityNotSupported, sdkErr.Code)
+}
+
+func TestDevice_CurtailFullRefreshesStatusBeforeSnapshot(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockClient := mocks.NewMockAntminerClient(ctrl)
+	device := createTestDevice(t, mockClient, defaultStatus(), defaultTelemetry())
+	defer cleanupDevice(t, device, mockClient)
+
+	stoppedStatus := defaultStatus()
+	stoppedStatus.State = sdk.HealthHealthyInactive
+	mockClient.EXPECT().GetStatus(gomock.Any()).Return(stoppedStatus, nil)
+	mockClient.EXPECT().GetTelemetry(gomock.Any()).Return(defaultTelemetry(), nil)
+	mockClient.EXPECT().StopMining(gomock.Any()).Return(nil)
+
+	require.NoError(t, device.Curtail(t.Context(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull}))
+	require.NoError(t, device.Uncurtail(t.Context(), sdk.UncurtailRequest{}))
 }
 
 func TestDevice_UncurtailInvalidatesStatusCache(t *testing.T) {

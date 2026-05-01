@@ -18,7 +18,6 @@ pub const CAP_REBOOT: &str = "reboot";
 pub const CAP_FACTORY_RESET: &str = "factory_reset";
 pub const CAP_CURTAIL_FULL: &str = "curtail_full";
 pub const CAP_CURTAIL_EFFICIENCY: &str = "curtail_efficiency";
-pub const CAP_CURTAIL_PARTIAL: &str = "curtail_partial";
 
 // Configuration
 pub const CAP_SET_COOLING_MODE: &str = "set_cooling_mode";

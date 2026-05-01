@@ -53,7 +53,6 @@ class CurtailLevel(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     CURTAIL_LEVEL_UNSPECIFIED: _ClassVar[CurtailLevel]
     CURTAIL_LEVEL_EFFICIENCY: _ClassVar[CurtailLevel]
-    CURTAIL_LEVEL_PARTIAL_PERCENT: _ClassVar[CurtailLevel]
     CURTAIL_LEVEL_FULL: _ClassVar[CurtailLevel]
 
 class MinerError(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
@@ -151,7 +150,6 @@ PERFORMANCE_MODE_MAXIMUM_HASHRATE: PerformanceMode
 PERFORMANCE_MODE_EFFICIENCY: PerformanceMode
 CURTAIL_LEVEL_UNSPECIFIED: CurtailLevel
 CURTAIL_LEVEL_EFFICIENCY: CurtailLevel
-CURTAIL_LEVEL_PARTIAL_PERCENT: CurtailLevel
 CURTAIL_LEVEL_FULL: CurtailLevel
 MINER_ERROR_UNSPECIFIED: MinerError
 PSU_NOT_PRESENT: MinerError
