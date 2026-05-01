@@ -417,7 +417,7 @@ export type CurtailmentTarget = Message<"curtailment.v1.CurtailmentTarget"> & {
   deviceIdentifier: string;
 
   /**
-   * v1: "miner"; future: "pdu", "rack"
+   * v1: "miner"; future: "pdu", "pdu_outlet", "rack"
    *
    * @generated from field: string target_type = 2;
    */

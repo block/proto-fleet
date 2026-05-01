@@ -1183,7 +1183,7 @@ func (x *CurtailmentTargetRollup) GetTotal() int32 {
 type CurtailmentTarget struct {
 	state            protoimpl.MessageState        `protogen:"open.v1"`
 	DeviceIdentifier string                        `protobuf:"bytes,1,opt,name=device_identifier,json=deviceIdentifier,proto3" json:"device_identifier,omitempty"`
-	TargetType       string                        `protobuf:"bytes,2,opt,name=target_type,json=targetType,proto3" json:"target_type,omitempty"` // v1: "miner"; future: "pdu", "rack"
+	TargetType       string                        `protobuf:"bytes,2,opt,name=target_type,json=targetType,proto3" json:"target_type,omitempty"` // v1: "miner"; future: "pdu", "pdu_outlet", "rack"
 	State            CurtailmentTargetState        `protobuf:"varint,3,opt,name=state,proto3,enum=curtailment.v1.CurtailmentTargetState" json:"state,omitempty"`
 	DesiredState     CurtailmentTargetDesiredState `protobuf:"varint,4,opt,name=desired_state,json=desiredState,proto3,enum=curtailment.v1.CurtailmentTargetDesiredState" json:"desired_state,omitempty"`
 	BaselinePowerW   *float64                      `protobuf:"fixed64,5,opt,name=baseline_power_w,json=baselinePowerW,proto3,oneof" json:"baseline_power_w,omitempty"`

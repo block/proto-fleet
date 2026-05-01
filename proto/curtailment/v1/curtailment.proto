@@ -242,7 +242,7 @@ message CurtailmentTargetRollup {
 // CurtailmentTarget is one event-scoped target.
 message CurtailmentTarget {
     string device_identifier = 1;
-    string target_type       = 2;  // v1: "miner"; future: "pdu", "rack"
+    string target_type       = 2;  // v1: "miner"; future: "pdu", "pdu_outlet", "rack"
 
     CurtailmentTargetState        state         = 3;
     CurtailmentTargetDesiredState desired_state = 4;
