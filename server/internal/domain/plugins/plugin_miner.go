@@ -209,6 +209,54 @@ func (p *PluginMiner) StopMining(ctx context.Context) error {
 	return nil
 }
 
+// Curtail dispatches through optional SDK curtailment support.
+func (p *PluginMiner) Curtail(ctx context.Context, req sdk.CurtailRequest) error {
+	if !supportsCurtailLevel(p.caps, req.Level) {
+		return fleeterror.NewUnimplementedError("device does not support curtailment")
+	}
+	curtailer, ok := p.sdkDevice.(sdk.DeviceCurtailment)
+	if !ok {
+		return fleeterror.NewUnimplementedError("device does not support curtailment")
+	}
+	if err := curtailer.Curtail(ctx, req); err != nil {
+		return wrapCurtailmentPluginError(err, "failed to curtail device")
+	}
+	return nil
+}
+
+// Uncurtail dispatches through optional SDK curtailment support.
+func (p *PluginMiner) Uncurtail(ctx context.Context, req sdk.UncurtailRequest) error {
+	if !supportsAnyCurtailLevel(p.caps) {
+		return fleeterror.NewUnimplementedError("device does not support curtailment")
+	}
+	curtailer, ok := p.sdkDevice.(sdk.DeviceCurtailment)
+	if !ok {
+		return fleeterror.NewUnimplementedError("device does not support curtailment")
+	}
+	if err := curtailer.Uncurtail(ctx, req); err != nil {
+		return wrapCurtailmentPluginError(err, "failed to uncurtail device")
+	}
+	return nil
+}
+
+func supportsCurtailLevel(caps sdk.Capabilities, level sdk.CurtailLevel) bool {
+	switch level {
+	case sdk.CurtailLevelFull:
+		return caps[sdk.CapabilityCurtailFull]
+	case sdk.CurtailLevelEfficiency:
+		return caps[sdk.CapabilityCurtailEfficiency]
+	case sdk.CurtailLevelUnspecified:
+		return false
+	default:
+		return false
+	}
+}
+
+func supportsAnyCurtailLevel(caps sdk.Capabilities) bool {
+	return caps[sdk.CapabilityCurtailFull] ||
+		caps[sdk.CapabilityCurtailEfficiency]
+}
+
 // SetCoolingMode implements interfaces.Miner
 func (p *PluginMiner) SetCoolingMode(ctx context.Context, payload dto.CoolingModePayload) error {
 	var sdkMode sdk.CoolingMode
@@ -568,6 +616,31 @@ func wrapPluginError(err error, format string, a ...any) error {
 		return fleeterror.NewForbiddenErrorf("%s: %v", msg, err)
 	}
 	return fleeterror.NewInternalErrorf("%s: %v", msg, err)
+}
+
+// wrapCurtailmentPluginError preserves Unavailable for retryable dispatches.
+// wrapPluginError maps Unavailable to Internal for legacy control RPCs.
+func wrapCurtailmentPluginError(err error, format string, a ...any) error {
+	if err == nil {
+		return nil
+	}
+	msg := fmt.Sprintf(format, a...)
+	var sdkErr sdk.SDKError
+	if errors.As(err, &sdkErr) {
+		switch sdkErr.Code {
+		case sdk.ErrCodeCurtailCapabilityNotSupported, sdk.ErrCodeUnsupportedCapability:
+			return fleeterror.NewUnimplementedErrorf("%s: %s", msg, sdkErr.Message)
+		case sdk.ErrCodeCurtailTransient, sdk.ErrCodeDeviceUnavailable:
+			return fleeterror.NewUnavailableErrorf("%s: %s", msg, sdkErr.Message)
+		case sdk.ErrCodeDeviceNotFound, sdk.ErrCodeInvalidConfig,
+			sdk.ErrCodeDriverShutdown, sdk.ErrCodeAuthenticationFailed:
+			// Preserve legacy non-curtailment classification for other SDK errors.
+		}
+	}
+	if st, ok := grpcstatus.FromError(err); ok && st.Code() == codes.Unavailable {
+		return fleeterror.NewUnavailableErrorf("%s: %s", msg, st.Message())
+	}
+	return wrapPluginError(err, format, a...)
 }
 
 // isDefaultPasswordActiveError detects the Proto firmware default-password

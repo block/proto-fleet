@@ -191,6 +191,12 @@ func (m *mockMinerForPassword) GetWebViewURL() *url.URL { return &url.URL{} }
 func (m *mockMinerForPassword) Reboot(ctx context.Context) error      { return nil }
 func (m *mockMinerForPassword) StartMining(ctx context.Context) error { return nil }
 func (m *mockMinerForPassword) StopMining(ctx context.Context) error  { return nil }
+func (m *mockMinerForPassword) Curtail(ctx context.Context, req sdk.CurtailRequest) error {
+	return nil
+}
+func (m *mockMinerForPassword) Uncurtail(ctx context.Context, req sdk.UncurtailRequest) error {
+	return nil
+}
 func (m *mockMinerForPassword) SetCoolingMode(ctx context.Context, payload dto.CoolingModePayload) error {
 	return nil
 }

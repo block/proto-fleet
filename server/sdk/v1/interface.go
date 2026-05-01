@@ -242,6 +242,26 @@ const (
 	PerformanceModeEfficiency
 )
 
+// CurtailLevel mirrors curtailment.v1 CurtailmentLevel values.
+type CurtailLevel int32
+
+const (
+	// CurtailLevelUnspecified is unset.
+	CurtailLevelUnspecified CurtailLevel = 0
+	// CurtailLevelEfficiency requests the device's lowest-energy supported mining mode.
+	CurtailLevelEfficiency CurtailLevel = 1
+	// CurtailLevelFull is the v1 full-shutdown level.
+	CurtailLevelFull CurtailLevel = 2
+)
+
+// CurtailRequest describes a curtailment request for a device.
+type CurtailRequest struct {
+	Level CurtailLevel
+}
+
+// UncurtailRequest describes a request to restore a previously curtailed device.
+type UncurtailRequest struct{}
+
 // APIKey represents API key authentication
 type APIKey struct {
 	Key string
@@ -362,6 +382,12 @@ type DeviceControl interface {
 	StopMining(ctx context.Context) error
 	BlinkLED(ctx context.Context) error
 	Reboot(ctx context.Context) error
+}
+
+// DeviceCurtailment is optional and should match reported curtail capabilities.
+type DeviceCurtailment interface {
+	Curtail(ctx context.Context, req CurtailRequest) error
+	Uncurtail(ctx context.Context, req UncurtailRequest) error
 }
 
 // DeviceConfiguration represents device configuration operations
@@ -508,6 +534,10 @@ const (
 
 	// Power mode capabilities
 	CapabilityPowerModeEfficiency = "power_mode_efficiency" // Efficiency/low power mode support
+
+	// Curtailment capabilities
+	CapabilityCurtailFull       = "curtail_full"       // Curtail/Uncurtail support (FULL level)
+	CapabilityCurtailEfficiency = "curtail_efficiency" // Efficiency-mode curtailment support
 
 	// Telemetry capabilities
 	CapabilityRealtimeTelemetry = "realtime_telemetry"    // Real-time telemetry support

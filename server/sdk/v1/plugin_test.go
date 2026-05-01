@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	pb "github.com/block/proto-fleet/server/sdk/v1/pb/generated"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -205,8 +206,11 @@ func (f fakeDriver) NewDevice(ctx context.Context, deviceID string, deviceInfo D
 }
 
 type fakeDevice struct {
-	describeDeviceFunc func(ctx context.Context) (DeviceInfo, Capabilities, error)
-	statusFunc         func(ctx context.Context) (DeviceMetrics, error)
+	describeDeviceFunc      func(ctx context.Context) (DeviceInfo, Capabilities, error)
+	statusFunc              func(ctx context.Context) (DeviceMetrics, error)
+	startMiningFunc         func(ctx context.Context) error
+	setCoolingModeFunc      func(ctx context.Context, mode CoolingMode) error
+	updateMinerPasswordFunc func(ctx context.Context, currentPassword, newPassword string) error
 }
 
 func (f fakeDevice) ID() string { return "device-123" }
@@ -219,12 +223,43 @@ func (f fakeDevice) Status(ctx context.Context) (DeviceMetrics, error) {
 	return f.statusFunc(ctx)
 }
 
-func (f fakeDevice) Close(ctx context.Context) error                            { return nil }
-func (f fakeDevice) StartMining(ctx context.Context) error                      { return nil }
-func (f fakeDevice) StopMining(ctx context.Context) error                       { return nil }
-func (f fakeDevice) BlinkLED(ctx context.Context) error                         { return nil }
-func (f fakeDevice) Reboot(ctx context.Context) error                           { return nil }
-func (f fakeDevice) SetCoolingMode(ctx context.Context, mode CoolingMode) error { return nil }
+func (f fakeDevice) Close(ctx context.Context) error { return nil }
+func (f fakeDevice) StartMining(ctx context.Context) error {
+	if f.startMiningFunc != nil {
+		return f.startMiningFunc(ctx)
+	}
+	return nil
+}
+func (f fakeDevice) StopMining(ctx context.Context) error { return nil }
+func (f fakeDevice) BlinkLED(ctx context.Context) error   { return nil }
+func (f fakeDevice) Reboot(ctx context.Context) error     { return nil }
+
+type fakeCurtailingDevice struct {
+	fakeDevice
+	curtailFunc   func(ctx context.Context, req CurtailRequest) error
+	uncurtailFunc func(ctx context.Context, req UncurtailRequest) error
+}
+
+func (f fakeCurtailingDevice) Curtail(ctx context.Context, req CurtailRequest) error {
+	if f.curtailFunc != nil {
+		return f.curtailFunc(ctx, req)
+	}
+	return nil
+}
+
+func (f fakeCurtailingDevice) Uncurtail(ctx context.Context, req UncurtailRequest) error {
+	if f.uncurtailFunc != nil {
+		return f.uncurtailFunc(ctx, req)
+	}
+	return nil
+}
+
+func (f fakeDevice) SetCoolingMode(ctx context.Context, mode CoolingMode) error {
+	if f.setCoolingModeFunc != nil {
+		return f.setCoolingModeFunc(ctx, mode)
+	}
+	return nil
+}
 func (f fakeDevice) GetCoolingMode(ctx context.Context) (CoolingMode, error) {
 	return CoolingModeUnspecified, nil
 }
@@ -235,6 +270,9 @@ func (f fakeDevice) UpdateMiningPools(ctx context.Context, pools []MiningPoolCon
 	return nil
 }
 func (f fakeDevice) UpdateMinerPassword(ctx context.Context, currentPassword string, newPassword string) error {
+	if f.updateMinerPasswordFunc != nil {
+		return f.updateMinerPasswordFunc(ctx, currentPassword, newPassword)
+	}
 	return nil
 }
 func (f fakeDevice) GetMiningPools(ctx context.Context) ([]ConfiguredPool, error) { return nil, nil }
@@ -1016,6 +1054,16 @@ func TestSDKErrorToGRPCStatus_AllErrorCodes(t *testing.T) {
 			sdkErr:       NewErrorAuthenticationFailed("device-123"),
 			expectedCode: codes.Unauthenticated,
 		},
+		{
+			name:         "curtail_capability_not_supported",
+			sdkErr:       NewErrCurtailCapabilityNotSupported("device-123", int32(CurtailLevelEfficiency)),
+			expectedCode: codes.Unimplemented,
+		},
+		{
+			name:         "curtail_transient",
+			sdkErr:       NewErrCurtailTransient("device-123", errors.New("timeout")),
+			expectedCode: codes.Unavailable,
+		},
 	}
 
 	for _, tt := range tests {
@@ -1026,6 +1074,176 @@ func TestSDKErrorToGRPCStatus_AllErrorCodes(t *testing.T) {
 
 			st, ok := status.FromError(errors.Unwrap(grpcErr))
 			require.True(t, ok, "should be able to extract gRPC status from %v", grpcErr)
+			assert.Equal(t, tt.expectedCode, st.Code())
+		})
+	}
+}
+
+func TestDriverGRPCServer_CurtailMapsSDKErrorStatus(t *testing.T) {
+	device := fakeCurtailingDevice{
+		curtailFunc: func(_ context.Context, req CurtailRequest) error {
+			assert.Equal(t, CurtailLevelFull, req.Level)
+			return NewErrCurtailCapabilityNotSupported("device-123", int32(req.Level))
+		},
+	}
+	server := &DriverGRPCServer{
+		devices: map[string]Device{"device-123": device},
+	}
+
+	_, err := server.Curtail(context.Background(), &pb.CurtailRequest{
+		Ref:   &pb.DeviceRef{DeviceId: "device-123"},
+		Level: pb.CurtailLevel_CURTAIL_LEVEL_FULL,
+	})
+
+	require.Error(t, err)
+	st, ok := status.FromError(err)
+	require.True(t, ok, "should be able to extract gRPC status from %v", err)
+	assert.Equal(t, codes.Unimplemented, st.Code())
+}
+
+func TestDriverGRPCServer_CurtailRequiresDeviceRef(t *testing.T) {
+	server := &DriverGRPCServer{
+		devices: map[string]Device{"device-123": fakeCurtailingDevice{}},
+	}
+
+	_, err := server.Curtail(context.Background(), &pb.CurtailRequest{
+		Level: pb.CurtailLevel_CURTAIL_LEVEL_FULL,
+	})
+
+	require.Error(t, err)
+	st, ok := status.FromError(err)
+	require.True(t, ok, "should be able to extract gRPC status from %v", err)
+	assert.Equal(t, codes.InvalidArgument, st.Code())
+}
+
+func TestDriverGRPCServer_UncurtailMapsSDKErrorStatus(t *testing.T) {
+	device := fakeCurtailingDevice{
+		uncurtailFunc: func(_ context.Context, _ UncurtailRequest) error {
+			return NewErrCurtailTransient("device-123", errors.New("temporary network failure"))
+		},
+	}
+	server := &DriverGRPCServer{
+		devices: map[string]Device{"device-123": device},
+	}
+
+	_, err := server.Uncurtail(context.Background(), &pb.UncurtailRequest{
+		Ref: &pb.DeviceRef{DeviceId: "device-123"},
+	})
+
+	require.Error(t, err)
+	st, ok := status.FromError(err)
+	require.True(t, ok, "should be able to extract gRPC status from %v", err)
+	assert.Equal(t, codes.Unavailable, st.Code())
+}
+
+func TestDriverGRPCServer_UncurtailRequiresDeviceRef(t *testing.T) {
+	server := &DriverGRPCServer{
+		devices: map[string]Device{"device-123": fakeCurtailingDevice{}},
+	}
+
+	_, err := server.Uncurtail(context.Background(), &pb.UncurtailRequest{})
+
+	require.Error(t, err)
+	st, ok := status.FromError(err)
+	require.True(t, ok, "should be able to extract gRPC status from %v", err)
+	assert.Equal(t, codes.InvalidArgument, st.Code())
+}
+
+func TestDriverGRPCServer_CurtailReturnsUnimplementedWhenDeviceLacksCurtailment(t *testing.T) {
+	server := &DriverGRPCServer{
+		devices: map[string]Device{"device-123": fakeDevice{}},
+	}
+
+	_, err := server.Curtail(context.Background(), &pb.CurtailRequest{
+		Ref:   &pb.DeviceRef{DeviceId: "device-123"},
+		Level: pb.CurtailLevel_CURTAIL_LEVEL_FULL,
+	})
+
+	require.Error(t, err)
+	st, ok := status.FromError(err)
+	require.True(t, ok, "should be able to extract gRPC status from %v", err)
+	assert.Equal(t, codes.Unimplemented, st.Code())
+	assert.Contains(t, st.Message(), "device does not support curtailment")
+}
+
+func TestDriverGRPCServer_UncurtailReturnsUnimplementedWhenDeviceLacksCurtailment(t *testing.T) {
+	server := &DriverGRPCServer{
+		devices: map[string]Device{"device-123": fakeDevice{}},
+	}
+
+	_, err := server.Uncurtail(context.Background(), &pb.UncurtailRequest{
+		Ref: &pb.DeviceRef{DeviceId: "device-123"},
+	})
+
+	require.Error(t, err)
+	st, ok := status.FromError(err)
+	require.True(t, ok, "should be able to extract gRPC status from %v", err)
+	assert.Equal(t, codes.Unimplemented, st.Code())
+	assert.Contains(t, st.Message(), "device does not support curtailment")
+}
+
+// Control RPCs should preserve SDKError status codes across gRPC.
+func TestDriverGRPCServer_ControlRPCsMapSDKErrorStatus(t *testing.T) {
+	tests := []struct {
+		name         string
+		device       fakeDevice
+		invoke       func(server *DriverGRPCServer) error
+		expectedCode codes.Code
+	}{
+		{
+			name: "StartMining maps Unauthenticated",
+			device: fakeDevice{
+				startMiningFunc: func(_ context.Context) error {
+					return NewErrorAuthenticationFailed("device-123")
+				},
+			},
+			invoke: func(server *DriverGRPCServer) error {
+				_, err := server.StartMining(context.Background(), &pb.DeviceRef{DeviceId: "device-123"})
+				return err
+			},
+			expectedCode: codes.Unauthenticated,
+		},
+		{
+			name: "SetCoolingMode maps DeviceUnavailable",
+			device: fakeDevice{
+				setCoolingModeFunc: func(_ context.Context, _ CoolingMode) error {
+					return NewErrorDeviceUnavailable("device-123")
+				},
+			},
+			invoke: func(server *DriverGRPCServer) error {
+				_, err := server.SetCoolingMode(context.Background(), &pb.SetCoolingModeRequest{
+					Ref: &pb.DeviceRef{DeviceId: "device-123"},
+				})
+				return err
+			},
+			expectedCode: codes.Unavailable,
+		},
+		{
+			name: "UpdateMinerPassword maps UnsupportedCapability",
+			device: fakeDevice{
+				updateMinerPasswordFunc: func(_ context.Context, _, _ string) error {
+					return NewErrUnsupportedCapability("update_miner_password")
+				},
+			},
+			invoke: func(server *DriverGRPCServer) error {
+				_, err := server.UpdateMinerPassword(context.Background(), &pb.UpdateMinerPasswordRequest{
+					Ref: &pb.DeviceRef{DeviceId: "device-123"},
+				})
+				return err
+			},
+			expectedCode: codes.Unimplemented,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := &DriverGRPCServer{
+				devices: map[string]Device{"device-123": tt.device},
+			}
+			err := tt.invoke(server)
+			require.Error(t, err)
+			st, ok := status.FromError(err)
+			require.True(t, ok, "should be able to extract gRPC status from %v", err)
 			assert.Equal(t, tt.expectedCode, st.Code())
 		})
 	}

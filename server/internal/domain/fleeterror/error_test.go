@@ -187,6 +187,67 @@ func TestIsUnimplementedError(t *testing.T) {
 	}
 }
 
+func TestIsUnavailableError(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		expected bool
+	}{
+		{
+			name:     "nil error",
+			err:      nil,
+			expected: false,
+		},
+		{
+			name:     "FleetError with CodeUnavailable via format",
+			err:      NewUnavailableErrorf("device %s unavailable", "miner-1"),
+			expected: true,
+		},
+		{
+			name:     "wrapped FleetError with CodeUnavailable",
+			err:      fmt.Errorf("plugin error: %w", NewUnavailableErrorf("device unavailable")),
+			expected: true,
+		},
+		{
+			name:     "connect.Error with CodeUnavailable",
+			err:      connect.NewError(connect.CodeUnavailable, errors.New("unavailable")),
+			expected: true,
+		},
+		{
+			name:     "wrapped connect.Error with CodeUnavailable",
+			err:      fmt.Errorf("rpc failed: %w", connect.NewError(connect.CodeUnavailable, errors.New("unavailable"))),
+			expected: true,
+		},
+		{
+			name:     "FleetError with CodeInternal is not unavailable",
+			err:      NewInternalError("internal error"),
+			expected: false,
+		},
+		{
+			name:     "FleetError with CodeUnimplemented is not unavailable",
+			err:      NewUnimplementedError("unimplemented"),
+			expected: false,
+		},
+		{
+			name:     "connect.Error with CodeInternal is not unavailable",
+			err:      connect.NewError(connect.CodeInternal, errors.New("internal")),
+			expected: false,
+		},
+		{
+			name:     "generic error is not unavailable",
+			err:      errors.New("something went wrong"),
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := IsUnavailableError(tt.err)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
 func TestIsFailedPreconditionError(t *testing.T) {
 	tests := []struct {
 		name     string

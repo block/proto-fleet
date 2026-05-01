@@ -43,6 +43,8 @@ type mockSDKDevice struct {
 	getErrorsFunc           func(ctx context.Context) (sdk.DeviceErrors, error)
 	tryGetWebViewFunc       func(ctx context.Context) (string, bool, error)
 	updateMinerPasswordFunc func(ctx context.Context, currentPassword string, newPassword string) error
+	curtailFunc             func(ctx context.Context, req sdk.CurtailRequest) error
+	uncurtailFunc           func(ctx context.Context, req sdk.UncurtailRequest) error
 }
 
 func (m *mockSDKDevice) ID() string {
@@ -94,6 +96,20 @@ func (m *mockSDKDevice) BlinkLED(ctx context.Context) error {
 func (m *mockSDKDevice) Reboot(ctx context.Context) error {
 	if m.rebootFunc != nil {
 		return m.rebootFunc(ctx)
+	}
+	return nil
+}
+
+func (m *mockSDKDevice) Curtail(ctx context.Context, req sdk.CurtailRequest) error {
+	if m.curtailFunc != nil {
+		return m.curtailFunc(ctx, req)
+	}
+	return nil
+}
+
+func (m *mockSDKDevice) Uncurtail(ctx context.Context, req sdk.UncurtailRequest) error {
+	if m.uncurtailFunc != nil {
+		return m.uncurtailFunc(ctx, req)
 	}
 	return nil
 }
@@ -181,28 +197,229 @@ func (m *mockSDKDevice) GetMiningPools(ctx context.Context) ([]sdk.ConfiguredPoo
 	return nil, nil
 }
 
+type mockSDKDeviceWithoutCurtailment struct {
+	id string
+}
+
+func (m *mockSDKDeviceWithoutCurtailment) ID() string { return m.id }
+func (m *mockSDKDeviceWithoutCurtailment) Status(context.Context) (sdk.DeviceMetrics, error) {
+	return sdk.DeviceMetrics{}, nil
+}
+func (m *mockSDKDeviceWithoutCurtailment) DescribeDevice(context.Context) (sdk.DeviceInfo, sdk.Capabilities, error) {
+	return sdk.DeviceInfo{}, sdk.Capabilities{}, nil
+}
+func (m *mockSDKDeviceWithoutCurtailment) Close(context.Context) error { return nil }
+func (m *mockSDKDeviceWithoutCurtailment) StartMining(context.Context) error {
+	return nil
+}
+func (m *mockSDKDeviceWithoutCurtailment) StopMining(context.Context) error {
+	return nil
+}
+func (m *mockSDKDeviceWithoutCurtailment) BlinkLED(context.Context) error {
+	return nil
+}
+func (m *mockSDKDeviceWithoutCurtailment) Reboot(context.Context) error {
+	return nil
+}
+func (m *mockSDKDeviceWithoutCurtailment) SetCoolingMode(context.Context, sdk.CoolingMode) error {
+	return nil
+}
+func (m *mockSDKDeviceWithoutCurtailment) GetCoolingMode(context.Context) (sdk.CoolingMode, error) {
+	return sdk.CoolingModeUnspecified, nil
+}
+func (m *mockSDKDeviceWithoutCurtailment) SetPowerTarget(context.Context, sdk.PerformanceMode) error {
+	return nil
+}
+func (m *mockSDKDeviceWithoutCurtailment) UpdateMiningPools(context.Context, []sdk.MiningPoolConfig) error {
+	return nil
+}
+func (m *mockSDKDeviceWithoutCurtailment) UpdateMinerPassword(context.Context, string, string) error {
+	return nil
+}
+func (m *mockSDKDeviceWithoutCurtailment) GetMiningPools(context.Context) ([]sdk.ConfiguredPool, error) {
+	return nil, nil
+}
+func (m *mockSDKDeviceWithoutCurtailment) DownloadLogs(context.Context, *time.Time, string) (string, bool, error) {
+	return "", false, nil
+}
+func (m *mockSDKDeviceWithoutCurtailment) FirmwareUpdate(context.Context, sdk.FirmwareFile) error {
+	return nil
+}
+func (m *mockSDKDeviceWithoutCurtailment) Unpair(context.Context) error { return nil }
+func (m *mockSDKDeviceWithoutCurtailment) GetErrors(context.Context) (sdk.DeviceErrors, error) {
+	return sdk.DeviceErrors{}, nil
+}
+func (m *mockSDKDeviceWithoutCurtailment) TryGetWebViewURL(context.Context) (string, bool, error) {
+	return "", false, nil
+}
+func (m *mockSDKDeviceWithoutCurtailment) TryBatchStatus(context.Context, []string) (map[string]sdk.DeviceMetrics, bool, error) {
+	return nil, false, nil
+}
+func (m *mockSDKDeviceWithoutCurtailment) TrySubscribe(context.Context, []string) (<-chan sdk.DeviceMetrics, bool, error) {
+	return nil, false, nil
+}
+func (m *mockSDKDeviceWithoutCurtailment) TryGetTimeSeriesData(context.Context, []string, time.Time, time.Time, *time.Duration, int32, string) ([]sdk.DeviceMetrics, string, bool, error) {
+	return nil, "", false, nil
+}
+
 const testOrgID = int64(1)
 
-func createTestPluginMiner() (*PluginMiner, *mockSDKDevice) {
+func createTestPluginMinerWithDevice(device sdk.Device) *PluginMiner {
 	connInfo, _ := networking.NewConnectionInfo("192.168.1.100", "4028", networking.ProtocolHTTP)
-	mockDevice := &mockSDKDevice{id: "test-device"}
-
-	pm := NewPluginMiner(
+	return NewPluginMiner(
 		testOrgID,
 		models.DeviceIdentifier("test-device-123"),
 		"antminer",
 		nil,
 		"SN123456",
 		*connInfo,
-		mockDevice,
+		device,
 		sdk.DeviceInfo{
 			Host: "192.168.1.100",
 			Port: 4028,
 		},
 		nil,
 	)
+}
+
+func createTestPluginMiner() (*PluginMiner, *mockSDKDevice) {
+	mockDevice := &mockSDKDevice{id: "test-device"}
+	pm := createTestPluginMinerWithDevice(mockDevice)
+	pm.caps = sdk.Capabilities{
+		sdk.CapabilityCurtailFull:       true,
+		sdk.CapabilityCurtailEfficiency: true,
+	}
 
 	return pm, mockDevice
+}
+
+func TestPluginMiner_CurtailReturnsUnimplementedWhenDeviceLacksCurtailment(t *testing.T) {
+	pm := createTestPluginMinerWithDevice(&mockSDKDeviceWithoutCurtailment{id: "test-device"})
+
+	err := pm.Curtail(t.Context(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsUnimplementedError(err))
+	assert.Contains(t, err.Error(), "device does not support curtailment")
+}
+
+func TestPluginMiner_CurtailReturnsUnimplementedWhenCapabilityMissing(t *testing.T) {
+	mockDevice := &mockSDKDevice{id: "test-device"}
+	called := false
+	mockDevice.curtailFunc = func(context.Context, sdk.CurtailRequest) error {
+		called = true
+		return nil
+	}
+	pm := createTestPluginMinerWithDevice(mockDevice)
+
+	err := pm.Curtail(t.Context(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsUnimplementedError(err))
+	assert.False(t, called, "unsupported curtailment must be rejected before SDK dispatch")
+	assert.Contains(t, err.Error(), "device does not support curtailment")
+}
+
+func TestPluginMiner_CurtailUnavailablePreservesTransientTaxonomy(t *testing.T) {
+	pm, mockDevice := createTestPluginMiner()
+	mockDevice.curtailFunc = func(context.Context, sdk.CurtailRequest) error {
+		return grpcstatus.Error(codes.Unavailable, "temporary transport outage")
+	}
+
+	err := pm.Curtail(t.Context(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsUnavailableError(err))
+	assert.False(t, fleeterror.IsUnimplementedError(err))
+	assert.Contains(t, err.Error(), "failed to curtail device")
+	assert.Contains(t, err.Error(), "temporary transport outage")
+}
+
+func TestPluginMiner_CurtailSDKUnsupportedMapsUnimplemented(t *testing.T) {
+	pm, mockDevice := createTestPluginMiner()
+	mockDevice.curtailFunc = func(context.Context, sdk.CurtailRequest) error {
+		return sdk.NewErrCurtailCapabilityNotSupported("test-device", int32(sdk.CurtailLevelEfficiency))
+	}
+
+	err := pm.Curtail(t.Context(), sdk.CurtailRequest{Level: sdk.CurtailLevelEfficiency})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsUnimplementedError(err))
+	assert.False(t, fleeterror.IsUnavailableError(err))
+	assert.Contains(t, err.Error(), "failed to curtail device")
+	assert.Contains(t, err.Error(), "curtail level")
+}
+
+func TestPluginMiner_CurtailSDKTransientMapsUnavailable(t *testing.T) {
+	pm, mockDevice := createTestPluginMiner()
+	mockDevice.curtailFunc = func(context.Context, sdk.CurtailRequest) error {
+		return sdk.NewErrCurtailTransient("test-device", errors.New("temporary transport outage"))
+	}
+
+	err := pm.Curtail(t.Context(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsUnavailableError(err))
+	assert.False(t, fleeterror.IsUnimplementedError(err))
+	assert.Contains(t, err.Error(), "failed to curtail device")
+	assert.Contains(t, err.Error(), "transient curtail failure")
+}
+
+func TestPluginMiner_UncurtailReturnsUnimplementedWhenDeviceLacksCurtailment(t *testing.T) {
+	pm := createTestPluginMinerWithDevice(&mockSDKDeviceWithoutCurtailment{id: "test-device"})
+
+	err := pm.Uncurtail(t.Context(), sdk.UncurtailRequest{})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsUnimplementedError(err))
+	assert.Contains(t, err.Error(), "device does not support curtailment")
+}
+
+func TestPluginMiner_UncurtailReturnsUnimplementedWhenNoCurtailCapabilities(t *testing.T) {
+	mockDevice := &mockSDKDevice{id: "test-device"}
+	called := false
+	mockDevice.uncurtailFunc = func(context.Context, sdk.UncurtailRequest) error {
+		called = true
+		return nil
+	}
+	pm := createTestPluginMinerWithDevice(mockDevice)
+
+	err := pm.Uncurtail(t.Context(), sdk.UncurtailRequest{})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsUnimplementedError(err))
+	assert.False(t, called, "unsupported uncurtailment must be rejected before SDK dispatch")
+	assert.Contains(t, err.Error(), "device does not support curtailment")
+}
+
+func TestPluginMiner_UncurtailUnavailablePreservesTransientTaxonomy(t *testing.T) {
+	pm, mockDevice := createTestPluginMiner()
+	mockDevice.uncurtailFunc = func(context.Context, sdk.UncurtailRequest) error {
+		return grpcstatus.Error(codes.Unavailable, "temporary transport outage")
+	}
+
+	err := pm.Uncurtail(t.Context(), sdk.UncurtailRequest{})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsUnavailableError(err))
+	assert.False(t, fleeterror.IsUnimplementedError(err))
+	assert.Contains(t, err.Error(), "failed to uncurtail device")
+	assert.Contains(t, err.Error(), "temporary transport outage")
+}
+
+func TestPluginMiner_UncurtailSDKTransientMapsUnavailable(t *testing.T) {
+	pm, mockDevice := createTestPluginMiner()
+	mockDevice.uncurtailFunc = func(context.Context, sdk.UncurtailRequest) error {
+		return sdk.NewErrCurtailTransient("test-device", errors.New("temporary transport outage"))
+	}
+
+	err := pm.Uncurtail(t.Context(), sdk.UncurtailRequest{})
+
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsUnavailableError(err))
+	assert.False(t, fleeterror.IsUnimplementedError(err))
+	assert.Contains(t, err.Error(), "failed to uncurtail device")
+	assert.Contains(t, err.Error(), "transient curtail failure")
 }
 
 // mockLogSaver captures the rows passed to SaveLogs for assertion in tests.

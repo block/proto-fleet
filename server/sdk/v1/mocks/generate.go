@@ -1,4 +1,4 @@
-//go:generate go run go.uber.org/mock/mockgen -source=../interface.go -destination=mock_driver.go -package=mocks Driver,Device,DefaultCredentialsProvider,ModelCapabilitiesProvider
+//go:generate go run go.uber.org/mock/mockgen -source=../interface.go -destination=mock_driver.go -package=mocks Driver,Device,DeviceCurtailment,DefaultCredentialsProvider,ModelCapabilitiesProvider
 
 package mocks
 

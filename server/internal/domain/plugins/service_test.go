@@ -488,12 +488,14 @@ func TestService_GetMinerCapabilitiesForDevice_WithModelCapabilitiesProvider(t *
 		sdk.CapabilityBasicAuth:           true,
 		sdk.CapabilityReboot:              true,
 		sdk.CapabilityPowerModeEfficiency: true,
+		sdk.CapabilityCurtailFull:         true,
 	}
 
 	mockModelCapProvider.EXPECT().
 		GetCapabilitiesForModel(gomock.Any(), "Bitmain", "Antminer S21").
 		Return(sdk.Capabilities{
 			sdk.CapabilityPowerModeEfficiency: false,
+			sdk.CapabilityCurtailFull:         false,
 		})
 
 	type combinedDriver struct {
@@ -527,6 +529,7 @@ func TestService_GetMinerCapabilitiesForDevice_WithModelCapabilitiesProvider(t *
 	require.NotNil(t, result)
 	require.NotNil(t, result.Commands)
 	assert.False(t, result.Commands.PowerModeEfficiencySupported)
+	assert.False(t, result.Commands.CurtailFullSupported)
 }
 
 func TestMergeCapabilities(t *testing.T) {
@@ -589,15 +592,18 @@ func TestMergeCapabilities(t *testing.T) {
 				sdk.CapabilityReboot:              true,
 				sdk.CapabilityLEDBlink:            true,
 				sdk.CapabilityPowerModeEfficiency: true,
+				sdk.CapabilityCurtailFull:         true,
 			},
 			override: sdk.Capabilities{
 				sdk.CapabilityLEDBlink:            false,
 				sdk.CapabilityPowerModeEfficiency: false,
+				sdk.CapabilityCurtailFull:         false,
 			},
 			expected: sdk.Capabilities{
 				sdk.CapabilityReboot:              true,
 				sdk.CapabilityLEDBlink:            false,
 				sdk.CapabilityPowerModeEfficiency: false,
+				sdk.CapabilityCurtailFull:         false,
 			},
 		},
 	}

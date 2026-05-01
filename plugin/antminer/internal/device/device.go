@@ -3,6 +3,7 @@ package device
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -92,6 +93,37 @@ type Device struct {
 	statusTTL    time.Duration
 
 	lastFirmwareCheckAt time.Time
+
+	curtailmentMutex          sync.Mutex
+	preFullCurtailMiningState fullCurtailMiningState
+}
+
+type fullCurtailMiningState int
+
+const (
+	fullCurtailMiningStateUnknown fullCurtailMiningState = iota
+	fullCurtailMiningStateWasMining
+	fullCurtailMiningStateWasNotMining
+)
+
+func miningStateBeforeFullCurtail(wasMining bool) fullCurtailMiningState {
+	if wasMining {
+		return fullCurtailMiningStateWasMining
+	}
+	return fullCurtailMiningStateWasNotMining
+}
+
+func (s fullCurtailMiningState) restoreMiningDecision() (bool, bool) {
+	switch s {
+	case fullCurtailMiningStateUnknown:
+		return false, false
+	case fullCurtailMiningStateWasMining:
+		return true, true
+	case fullCurtailMiningStateWasNotMining:
+		return false, true
+	default:
+		return false, false
+	}
 }
 
 // New creates a new Antminer device instance.
@@ -155,6 +187,7 @@ func (d *Device) DescribeDevice(ctx context.Context) (sdk.DeviceInfo, sdk.Capabi
 		sdk.CapabilityReboot:              true,  // We can reboot devices
 		sdk.CapabilityMiningStart:         true,  // Supported via bitmain-work-mode = "0"
 		sdk.CapabilityMiningStop:          true,  // Supported via bitmain-work-mode = "1" (sleep)
+		sdk.CapabilityCurtailFull:         true,  // FULL curtailment uses mining start/stop.
 		sdk.CapabilityLEDBlink:            true,  // We can blink LED for identification
 		sdk.CapabilityFactoryReset:        false, // Factory reset not supported
 		sdk.CapabilityCoolingModeAir:      false, // Air cooling mode not configurable
@@ -438,12 +471,123 @@ func (d *Device) Close(ctx context.Context) error {
 
 // StartMining implements the SDK Device interface.
 func (d *Device) StartMining(ctx context.Context) error {
-	return d.client.StartMining(ctx)
+	if err := d.startMining(ctx); err != nil {
+		return err
+	}
+	d.clearCurtailmentState()
+	d.invalidateStatusCache()
+	return nil
 }
 
 // StopMining implements the SDK Device interface.
 func (d *Device) StopMining(ctx context.Context) error {
+	if err := d.stopMining(ctx); err != nil {
+		return err
+	}
+	d.clearCurtailmentState()
+	d.invalidateStatusCache()
+	return nil
+}
+
+func (d *Device) startMining(ctx context.Context) error {
+	return d.client.StartMining(ctx)
+}
+
+func (d *Device) stopMining(ctx context.Context) error {
 	return d.client.StopMining(ctx)
+}
+
+func (d *Device) invalidateStatusCache() {
+	d.statusMutex.Lock()
+	defer d.statusMutex.Unlock()
+	d.lastStatus = nil
+	d.lastStatusAt = time.Time{}
+}
+
+// Curtail implements FULL curtailment via StopMining.
+func (d *Device) Curtail(ctx context.Context, req sdk.CurtailRequest) error {
+	if req.Level != sdk.CurtailLevelFull {
+		return sdk.NewErrCurtailCapabilityNotSupported(d.id, int32(req.Level))
+	}
+
+	d.invalidateStatusCache()
+	status, err := d.Status(ctx)
+	if err != nil {
+		return wrapCurtailDispatchError(d.id, err)
+	}
+	wasMining := isMiningHealth(status.Health)
+
+	if err := d.stopMining(ctx); err != nil {
+		return wrapCurtailDispatchError(d.id, err)
+	}
+
+	d.recordFullCurtailment(wasMining)
+	d.invalidateStatusCache()
+	return nil
+}
+
+// Uncurtail restores mining via StartMining.
+func (d *Device) Uncurtail(ctx context.Context, _ sdk.UncurtailRequest) error {
+	restoreMining, ok := d.fullCurtailRestoreDecision()
+	shouldStart := !ok || restoreMining
+	if shouldStart {
+		if err := d.startMining(ctx); err != nil {
+			return wrapCurtailDispatchError(d.id, err)
+		}
+	}
+
+	d.clearCurtailmentState()
+	d.invalidateStatusCache()
+	return nil
+}
+
+func (d *Device) recordFullCurtailment(wasMining bool) {
+	d.curtailmentMutex.Lock()
+	defer d.curtailmentMutex.Unlock()
+	if d.preFullCurtailMiningState == fullCurtailMiningStateUnknown {
+		d.preFullCurtailMiningState = miningStateBeforeFullCurtail(wasMining)
+	}
+}
+
+func (d *Device) fullCurtailRestoreDecision() (bool, bool) {
+	d.curtailmentMutex.Lock()
+	defer d.curtailmentMutex.Unlock()
+	return d.preFullCurtailMiningState.restoreMiningDecision()
+}
+
+func (d *Device) clearCurtailmentState() {
+	d.curtailmentMutex.Lock()
+	defer d.curtailmentMutex.Unlock()
+	d.preFullCurtailMiningState = fullCurtailMiningStateUnknown
+}
+
+func isMiningHealth(health sdk.HealthStatus) bool {
+	return health == sdk.HealthHealthyActive || health == sdk.HealthWarning
+}
+
+func wrapCurtailDispatchError(deviceID string, err error) error {
+	if err == nil {
+		return nil
+	}
+	var sdkErr sdk.SDKError
+	if errors.As(err, &sdkErr) {
+		return err
+	}
+	if isAntminerAuthenticationError(err) {
+		return sdk.NewErrorAuthenticationFailed(deviceID, err)
+	}
+	return sdk.NewErrCurtailTransient(deviceID, err)
+}
+
+func isAntminerAuthenticationError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "unauthenticated") ||
+		strings.Contains(msg, "authentication failed") ||
+		strings.Contains(msg, "unauthorized") ||
+		strings.Contains(msg, "credentials required")
 }
 
 // SetCoolingMode implements the SDK Device interface.

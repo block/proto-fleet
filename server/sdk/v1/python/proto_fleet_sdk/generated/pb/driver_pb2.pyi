@@ -49,6 +49,12 @@ class PerformanceMode(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     PERFORMANCE_MODE_MAXIMUM_HASHRATE: _ClassVar[PerformanceMode]
     PERFORMANCE_MODE_EFFICIENCY: _ClassVar[PerformanceMode]
 
+class CurtailLevel(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    CURTAIL_LEVEL_UNSPECIFIED: _ClassVar[CurtailLevel]
+    CURTAIL_LEVEL_EFFICIENCY: _ClassVar[CurtailLevel]
+    CURTAIL_LEVEL_FULL: _ClassVar[CurtailLevel]
+
 class MinerError(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     MINER_ERROR_UNSPECIFIED: _ClassVar[MinerError]
@@ -142,6 +148,9 @@ COOLING_MODE_MANUAL: CoolingMode
 PERFORMANCE_MODE_UNSPECIFIED: PerformanceMode
 PERFORMANCE_MODE_MAXIMUM_HASHRATE: PerformanceMode
 PERFORMANCE_MODE_EFFICIENCY: PerformanceMode
+CURTAIL_LEVEL_UNSPECIFIED: CurtailLevel
+CURTAIL_LEVEL_EFFICIENCY: CurtailLevel
+CURTAIL_LEVEL_FULL: CurtailLevel
 MINER_ERROR_UNSPECIFIED: MinerError
 PSU_NOT_PRESENT: MinerError
 PSU_MODEL_MISMATCH: MinerError
@@ -524,6 +533,20 @@ class GetCoolingModeResponse(_message.Message):
     MODE_FIELD_NUMBER: _ClassVar[int]
     mode: CoolingMode
     def __init__(self, mode: _Optional[_Union[CoolingMode, str]] = ...) -> None: ...
+
+class CurtailRequest(_message.Message):
+    __slots__ = ("ref", "level")
+    REF_FIELD_NUMBER: _ClassVar[int]
+    LEVEL_FIELD_NUMBER: _ClassVar[int]
+    ref: DeviceRef
+    level: CurtailLevel
+    def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ..., level: _Optional[_Union[CurtailLevel, str]] = ...) -> None: ...
+
+class UncurtailRequest(_message.Message):
+    __slots__ = ("ref",)
+    REF_FIELD_NUMBER: _ClassVar[int]
+    ref: DeviceRef
+    def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ...) -> None: ...
 
 class SetPowerTargetRequest(_message.Message):
     __slots__ = ("ref", "performance_mode")

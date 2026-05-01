@@ -34,6 +34,10 @@ type Miner interface {
 	StartMining(ctx context.Context) error
 	StopMining(ctx context.Context) error
 
+	// Curtailment requests must match the device's advertised curtail capabilities.
+	Curtail(ctx context.Context, req sdk.CurtailRequest) error
+	Uncurtail(ctx context.Context, req sdk.UncurtailRequest) error
+
 	// Configuration operations
 	SetCoolingMode(ctx context.Context, payload dto.CoolingModePayload) error
 	GetCoolingMode(ctx context.Context) (commonpb.CoolingMode, error)

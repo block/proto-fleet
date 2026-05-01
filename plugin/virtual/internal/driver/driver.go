@@ -97,6 +97,7 @@ func (d *Driver) DescribeDriver(_ context.Context) (sdk.DriverIdentifier, sdk.Ca
 			sdk.CapabilityReboot:             true,
 			sdk.CapabilityMiningStart:        true,
 			sdk.CapabilityMiningStop:         true,
+			sdk.CapabilityCurtailFull:        true, // FULL curtailment uses mining start/stop.
 			sdk.CapabilityLEDBlink:           true,
 			sdk.CapabilityCoolingModeAir:     true,
 			sdk.CapabilityCoolingModeImmerse: true,

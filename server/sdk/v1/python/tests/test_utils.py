@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import pytest
 
+from proto_fleet_sdk import (
+    CAP_CURTAIL_FULL,
+    CAP_CURTAIL_EFFICIENCY,
+)
 from proto_fleet_sdk.errors import InvalidConfigError
 from proto_fleet_sdk.utils import (
     has_capability,
@@ -20,6 +24,11 @@ class TestCapabilityHelpers:
         assert has_capability(caps, "discover_device") is True
         assert has_capability(caps, "pair_device") is False
         assert has_capability(caps, "nonexistent") is False
+
+    def test_curtail_capability_constants_are_exported(self) -> None:
+        """Test curtailment capability constants."""
+        assert CAP_CURTAIL_FULL == "curtail_full"
+        assert CAP_CURTAIL_EFFICIENCY == "curtail_efficiency"
 
 
 class TestPortUtils:

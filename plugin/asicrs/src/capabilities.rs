@@ -61,6 +61,8 @@ static BASE_CAPABILITIES: LazyLock<Capabilities> = LazyLock::new(|| {
     caps.insert(CAP_LED_BLINK.into(), false);
     caps.insert(CAP_MINING_START.into(), false);
     caps.insert(CAP_MINING_STOP.into(), false);
+    caps.insert(CAP_CURTAIL_FULL.into(), false);
+    caps.insert(CAP_CURTAIL_EFFICIENCY.into(), false);
 
     // Configuration -- default false
     caps.insert(CAP_POOL_CONFIG.into(), false);
@@ -93,19 +95,21 @@ pub fn static_base_capabilities() -> Capabilities {
 
 /// Optimistic driver-level capabilities returned by DescribeDriver.
 /// Control/config caps are set to true because the plugin supports these
-/// operations in general — per-model overrides from GetCapabilitiesForModel
-/// and per-device require_cap() checks provide the accurate gatekeeping.
+/// operations in general. FULL curtailment is advertised here so Fleet can
+/// dispatch to ASIC-RS; live probing still gates pause/resume support before
+/// execution.
 pub fn driver_base_capabilities() -> Capabilities {
     let mut caps = static_base_capabilities();
     for &key in PROBED_CAPS {
         caps.insert(key.into(), true);
     }
+    caps.insert(CAP_CURTAIL_FULL.into(), true);
     caps
 }
 
 /// Control and configuration caps that vary per miner model.
 /// Probed from the live miner by probe_capabilities(); set optimistically
-/// by driver_base_capabilities() for the driver-level default.
+/// by driver_base_capabilities() for the driver-level default when safe.
 const PROBED_CAPS: &[&str] = &[
     CAP_REBOOT,
     CAP_LED_BLINK,
@@ -123,10 +127,16 @@ pub fn probe_capabilities(miner: &dyn Miner) -> Capabilities {
     let mut caps = static_base_capabilities();
 
     // Control -- from live miner introspection
+    let supports_resume = miner.supports_resume();
+    let supports_pause = miner.supports_pause();
     caps.insert(CAP_REBOOT.into(), miner.supports_restart());
     caps.insert(CAP_LED_BLINK.into(), miner.supports_set_fault_light());
-    caps.insert(CAP_MINING_START.into(), miner.supports_resume());
-    caps.insert(CAP_MINING_STOP.into(), miner.supports_pause());
+    caps.insert(CAP_MINING_START.into(), supports_resume);
+    caps.insert(CAP_MINING_STOP.into(), supports_pause);
+    caps.insert(
+        CAP_CURTAIL_FULL.into(),
+        curtail_capability(supports_pause, supports_resume),
+    );
 
     // Configuration -- from live miner introspection
     let pools = miner.supports_pools_config();
@@ -142,6 +152,10 @@ pub fn probe_capabilities(miner: &dyn Miner) -> Capabilities {
     caps.insert(CAP_FIRMWARE.into(), false);
 
     caps
+}
+
+fn curtail_capability(supports_pause: bool, supports_resume: bool) -> bool {
+    supports_pause && supports_resume
 }
 
 /// Map manufacturer/make string to config family name (no allocation).
@@ -367,6 +381,22 @@ pub fn default_credentials(family: &str, variant: &str) -> Vec<DefaultCredential
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_driver_base_capabilities_advertise_full_curtail_only() {
+        let caps = driver_base_capabilities();
+
+        assert_eq!(caps.get(CAP_CURTAIL_FULL), Some(&true));
+        assert_eq!(caps.get(CAP_CURTAIL_EFFICIENCY), Some(&false));
+    }
+
+    #[test]
+    fn test_curtail_capability_requires_pause_and_resume() {
+        assert!(curtail_capability(true, true));
+        assert!(!curtail_capability(true, false));
+        assert!(!curtail_capability(false, true));
+        assert!(!curtail_capability(false, false));
+    }
 
     #[test]
     fn test_make_to_family_marathon_maps_to_antminer() {
