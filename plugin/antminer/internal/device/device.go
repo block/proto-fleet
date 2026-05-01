@@ -94,8 +94,34 @@ type Device struct {
 
 	lastFirmwareCheckAt time.Time
 
-	curtailmentMutex       sync.Mutex
-	preFullCurtailIsMining *bool
+	curtailmentMutex          sync.Mutex
+	preFullCurtailMiningState fullCurtailMiningState
+}
+
+type fullCurtailMiningState int
+
+const (
+	fullCurtailMiningStateUnknown fullCurtailMiningState = iota
+	fullCurtailMiningStateWasMining
+	fullCurtailMiningStateWasNotMining
+)
+
+func miningStateBeforeFullCurtail(wasMining bool) fullCurtailMiningState {
+	if wasMining {
+		return fullCurtailMiningStateWasMining
+	}
+	return fullCurtailMiningStateWasNotMining
+}
+
+func (s fullCurtailMiningState) restoreMiningDecision() (bool, bool) {
+	switch s {
+	case fullCurtailMiningStateWasMining:
+		return true, true
+	case fullCurtailMiningStateWasNotMining:
+		return false, true
+	default:
+		return false, false
+	}
 }
 
 // New creates a new Antminer device instance.
@@ -500,8 +526,8 @@ func (d *Device) Curtail(ctx context.Context, req sdk.CurtailRequest) error {
 
 // Uncurtail restores mining via StartMining.
 func (d *Device) Uncurtail(ctx context.Context, _ sdk.UncurtailRequest) error {
-	wasMining, ok := d.fullCurtailmentWasMining()
-	shouldStart := !ok || wasMining
+	restoreMining, ok := d.fullCurtailRestoreDecision()
+	shouldStart := !ok || restoreMining
 	if shouldStart {
 		if err := d.startMining(ctx); err != nil {
 			return wrapCurtailDispatchError(d.id, err)
@@ -516,25 +542,21 @@ func (d *Device) Uncurtail(ctx context.Context, _ sdk.UncurtailRequest) error {
 func (d *Device) recordFullCurtailment(wasMining bool) {
 	d.curtailmentMutex.Lock()
 	defer d.curtailmentMutex.Unlock()
-	if d.preFullCurtailIsMining == nil {
-		snapshot := wasMining
-		d.preFullCurtailIsMining = &snapshot
+	if d.preFullCurtailMiningState == fullCurtailMiningStateUnknown {
+		d.preFullCurtailMiningState = miningStateBeforeFullCurtail(wasMining)
 	}
 }
 
-func (d *Device) fullCurtailmentWasMining() (bool, bool) {
+func (d *Device) fullCurtailRestoreDecision() (bool, bool) {
 	d.curtailmentMutex.Lock()
 	defer d.curtailmentMutex.Unlock()
-	if d.preFullCurtailIsMining == nil {
-		return false, false
-	}
-	return *d.preFullCurtailIsMining, true
+	return d.preFullCurtailMiningState.restoreMiningDecision()
 }
 
 func (d *Device) clearCurtailmentState() {
 	d.curtailmentMutex.Lock()
 	defer d.curtailmentMutex.Unlock()
-	d.preFullCurtailIsMining = nil
+	d.preFullCurtailMiningState = fullCurtailMiningStateUnknown
 }
 
 func isMiningHealth(health sdk.HealthStatus) bool {

@@ -585,7 +585,7 @@ func TestDevice_CurtailFullWrapsDispatchFailureAsTransient(t *testing.T) {
 	require.True(t, errors.As(err, &sdkErr))
 	assert.Equal(t, sdk.ErrCodeCurtailTransient, sdkErr.Code)
 	assert.ErrorIs(t, err, assert.AnError)
-	_, ok := device.fullCurtailmentWasMining()
+	_, ok := device.fullCurtailRestoreDecision()
 	assert.False(t, ok)
 }
 
@@ -674,7 +674,7 @@ func TestDevice_ManualMiningControlClearsCurtailmentState(t *testing.T) {
 		mockClient.EXPECT().StartMining(gomock.Any()).Return(nil)
 		require.NoError(t, device.StartMining(t.Context()))
 
-		_, ok := device.fullCurtailmentWasMining()
+		_, ok := device.fullCurtailRestoreDecision()
 		assert.False(t, ok)
 	})
 
@@ -690,7 +690,7 @@ func TestDevice_ManualMiningControlClearsCurtailmentState(t *testing.T) {
 		mockClient.EXPECT().StopMining(gomock.Any()).Return(nil)
 		require.NoError(t, device.StopMining(t.Context()))
 
-		_, ok := device.fullCurtailmentWasMining()
+		_, ok := device.fullCurtailRestoreDecision()
 		assert.False(t, ok)
 	})
 }

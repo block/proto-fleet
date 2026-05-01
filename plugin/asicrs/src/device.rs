@@ -53,10 +53,35 @@ pub struct AsicRsDevice {
     miner: Arc<Mutex<Option<Box<dyn Miner>>>>,
     cache_ttl: Duration,
     last_data: Mutex<Option<(Instant, MinerData)>>,
-    pre_full_curtail_mining: Mutex<Option<bool>>,
+    pre_full_curtail_mining: Mutex<FullCurtailMiningState>,
     last_connect_attempt: Mutex<Option<Instant>>,
     factory: Arc<MinerFactory>,
     auth: Option<MinerAuth>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum FullCurtailMiningState {
+    Unknown,
+    WasMining,
+    WasNotMining,
+}
+
+impl FullCurtailMiningState {
+    fn from_mining_status(was_mining: bool) -> Self {
+        if was_mining {
+            Self::WasMining
+        } else {
+            Self::WasNotMining
+        }
+    }
+
+    fn restore_decision(self) -> Option<bool> {
+        match self {
+            Self::Unknown => None,
+            Self::WasMining => Some(true),
+            Self::WasNotMining => Some(false),
+        }
+    }
 }
 
 impl AsicRsDevice {
@@ -79,7 +104,7 @@ impl AsicRsDevice {
             miner: Arc::new(Mutex::new(miner)),
             cache_ttl,
             last_data: Mutex::new(None),
-            pre_full_curtail_mining: Mutex::new(None),
+            pre_full_curtail_mining: Mutex::new(FullCurtailMiningState::Unknown),
             last_connect_attempt: Mutex::new(None),
             factory,
             auth,
@@ -613,17 +638,17 @@ impl AsicRsDevice {
 
     async fn record_full_curtailment_state(&self, was_mining: bool) {
         let mut state = self.pre_full_curtail_mining.lock().await;
-        if state.is_none() {
-            *state = Some(was_mining);
+        if *state == FullCurtailMiningState::Unknown {
+            *state = FullCurtailMiningState::from_mining_status(was_mining);
         }
     }
 
     async fn full_curtailment_should_resume(&self) -> Option<bool> {
-        *self.pre_full_curtail_mining.lock().await
+        self.pre_full_curtail_mining.lock().await.restore_decision()
     }
 
     async fn clear_full_curtailment_state(&self) {
-        *self.pre_full_curtail_mining.lock().await = None;
+        *self.pre_full_curtail_mining.lock().await = FullCurtailMiningState::Unknown;
     }
 
     pub async fn reboot(&self) -> anyhow::Result<()> {

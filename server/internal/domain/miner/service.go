@@ -123,6 +123,10 @@ func (s *Service) GetMinerFromDeviceIdentifier(ctx context.Context, deviceID mod
 	if deviceData.Model.Valid {
 		deviceModel = deviceData.Model.String
 	}
+	deviceManufacturer := ""
+	if deviceData.Manufacturer.Valid {
+		deviceManufacturer = deviceData.Manufacturer.String
+	}
 
 	m, err := s.createMiner(
 		ctx,
@@ -130,6 +134,7 @@ func (s *Service) GetMinerFromDeviceIdentifier(ctx context.Context, deviceID mod
 		deviceData.OrgID,
 		deviceData.Port,
 		deviceData.DriverName,
+		deviceManufacturer,
 		deviceModel,
 		deviceData.UsernameEnc.String,
 		deviceData.PasswordEnc.String,
@@ -168,14 +173,14 @@ func (s *Service) getProtoMinerAuthPrivateKey(ctx context.Context, orgID int64) 
 	return privateKey, nil
 }
 
-func (s *Service) createMiner(ctx context.Context, deviceIdentifier string, orgID int64, devicePort string, driverName string, deviceModel string, deviceUsername string, devicePassword string, deviceIPAddress string, deviceScheme string, deviceSerialNumber string, macAddress string) (interfaces.Miner, error) {
+func (s *Service) createMiner(ctx context.Context, deviceIdentifier string, orgID int64, devicePort string, driverName string, deviceManufacturer string, deviceModel string, deviceUsername string, devicePassword string, deviceIPAddress string, deviceScheme string, deviceSerialNumber string, macAddress string) (interfaces.Miner, error) {
 	if !s.pluginManager.HasPluginForDriverName(driverName) {
 		return nil, fmt.Errorf("no plugin available (driver_name=%q) — ensure the device has been discovered and the appropriate plugin is loaded", driverName)
 	}
 	return plugins.NewPluginMinerWithCredentials(ctx, plugins.PluginMinerConfig{
 		DeviceIdentifier:   deviceIdentifier,
 		DriverName:         driverName,
-		Caps:               s.effectiveCapabilitiesForDevice(ctx, driverName, deviceModel),
+		Caps:               s.effectiveCapabilitiesForDevice(ctx, driverName, deviceManufacturer, deviceModel),
 		DeviceIPAddress:    deviceIPAddress,
 		DevicePort:         devicePort,
 		DeviceScheme:       deviceScheme,
@@ -192,10 +197,14 @@ func (s *Service) createMiner(ctx context.Context, deviceIdentifier string, orgI
 	})
 }
 
-func (s *Service) effectiveCapabilitiesForDevice(ctx context.Context, driverName string, deviceModel string) sdk.Capabilities {
+func (s *Service) effectiveCapabilitiesForDevice(ctx context.Context, driverName string, deviceManufacturer string, deviceModel string) sdk.Capabilities {
 	caps := sdk.Capabilities{}
 	for capability, enabled := range s.pluginManager.GetCapabilitiesForDriverName(driverName) {
 		caps[capability] = enabled
+	}
+
+	if deviceModel == "" {
+		return caps
 	}
 
 	driver, err := s.pluginManager.GetDriverByDriverName(driverName)
@@ -208,7 +217,7 @@ func (s *Service) effectiveCapabilitiesForDevice(ctx context.Context, driverName
 		return caps
 	}
 
-	modelCaps := modelProvider.GetCapabilitiesForModel(ctx, deviceModel)
+	modelCaps := modelProvider.GetCapabilitiesForModel(ctx, deviceManufacturer, deviceModel)
 	if modelCaps == nil {
 		return caps
 	}

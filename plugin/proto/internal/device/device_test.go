@@ -343,6 +343,32 @@ func TestDevice_CurtailFullRefreshesStatusBeforeSnapshot(t *testing.T) {
 	require.False(t, started)
 }
 
+func TestDevice_UncurtailAfterFullDoesNotRestorePowerTarget(t *testing.T) {
+	var requests []powerTargetRequest
+	var stopped, started bool
+	dev := newFullEfficiencyCurtailmentTestDevice(t, "Mining", targetResponse{
+		PowerTargetWatts:        2800,
+		PowerTargetMinWatts:     1200,
+		PowerTargetMaxWatts:     3200,
+		DefaultPowerTargetWatts: 1800,
+		PerformanceMode:         "MaximumHashrate",
+	}, &requests, func(path string) {
+		switch path {
+		case "/api/v1/mining/stop":
+			stopped = true
+		case "/api/v1/mining/start":
+			started = true
+		}
+	})
+
+	require.NoError(t, dev.Curtail(context.Background(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull}))
+	require.NoError(t, dev.Uncurtail(context.Background(), sdk.UncurtailRequest{}))
+
+	require.True(t, stopped)
+	require.True(t, started)
+	assert.Empty(t, requests)
+}
+
 func TestDevice_CurtailEfficiencySnapshotsAndSetsEfficiency(t *testing.T) {
 	var requests []powerTargetRequest
 	dev := newPowerTargetTestDevice(t, http.StatusOK, targetResponse{
