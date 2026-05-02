@@ -38,6 +38,10 @@ const (
 	wattsPerKilowatt       = 1000.0
 )
 
+// nargActive flips a sqlc `narg(...) IS NULL` filter to its non-null branch.
+// The string value is never read — sqlc checks Valid only.
+var nargActive = sql.NullString{String: "1", Valid: true}
+
 // estimateEnergyKWh computes estimated energy consumption in kilowatt-hours
 // from average power and data point count. Unlike the old CAGG formula
 // (SUM(power_w) / COUNT(*) * 24) which assumed 24h of uniform sampling,
@@ -1238,14 +1242,82 @@ func (s *TimescaleTelemetryStore) getUptimeStatusCountsFromSnapshots(
 	if orgID == 0 {
 		return nil
 	}
-	// Snapshot cadence is ~60s, so finer buckets would yield empty slots.
-	if bucketDuration < time.Minute {
-		bucketDuration = time.Minute
-	}
 
 	ctx, cancel := context.WithTimeout(ctx, s.config.QueryTimeout)
 	defer cancel()
 
+	switch selectUptimeDataSource(&startTime, &endTime) {
+	case uptimeDataSourceDaily:
+		// Daily rollup has 1d granularity.
+		if bucketDuration < dailyBucketDuration {
+			bucketDuration = dailyBucketDuration
+		}
+		return s.queryUptimeDaily(ctx, orgID, deviceIDs, startTime, endTime, bucketDuration)
+	case uptimeDataSourceHourly:
+		// Hourly rollup has 1h granularity.
+		if bucketDuration < hourlyBucketDuration {
+			bucketDuration = hourlyBucketDuration
+		}
+		return s.queryUptimeHourly(ctx, orgID, deviceIDs, startTime, endTime, bucketDuration)
+	case uptimeDataSourceRaw:
+		fallthrough
+	default:
+		// Snapshot cadence is ~60s, so finer buckets would yield empty slots.
+		if bucketDuration < time.Minute {
+			bucketDuration = time.Minute
+		}
+		return s.queryUptimeRaw(ctx, orgID, deviceIDs, startTime, endTime, bucketDuration)
+	}
+}
+
+// uptimeDataSource mirrors dataSource for miner_state_snapshots — choosing
+// between the raw hypertable and its hourly or daily continuous aggregates.
+type uptimeDataSource int
+
+const (
+	uptimeDataSourceRaw uptimeDataSource = iota
+	uptimeDataSourceHourly
+	uptimeDataSourceDaily
+)
+
+func (ds uptimeDataSource) String() string {
+	switch ds {
+	case uptimeDataSourceRaw:
+		return "raw"
+	case uptimeDataSourceHourly:
+		return "hourly"
+	case uptimeDataSourceDaily:
+		return "daily"
+	default:
+		return "unknown"
+	}
+}
+
+// selectUptimeDataSource mirrors selectDataSource: route by window duration,
+// shorter → higher resolution. Raw retention (30d) always covers rawDataMaxDuration
+// and hourly retention (3 months) covers hourlyMaxDuration, so the duration
+// thresholds never outrun the source data.
+func selectUptimeDataSource(startTime, endTime *time.Time) uptimeDataSource {
+	if startTime == nil || endTime == nil {
+		return uptimeDataSourceRaw
+	}
+	duration := endTime.Sub(*startTime)
+	if duration <= rawDataMaxDuration {
+		return uptimeDataSourceRaw
+	}
+	if duration <= hourlyMaxDuration {
+		return uptimeDataSourceHourly
+	}
+	return uptimeDataSourceDaily
+}
+
+func (s *TimescaleTelemetryStore) queryUptimeRaw(
+	ctx context.Context,
+	orgID int64,
+	deviceIDs []models.DeviceIdentifier,
+	startTime, endTime time.Time,
+	bucketDuration time.Duration,
+) []models.UptimeStatusCount {
 	params := sqlc.GetMinerStateSnapshotsParams{
 		BucketInterval: fmt.Sprintf("%d seconds", int64(bucketDuration.Seconds())),
 		OrgID:          orgID,
@@ -1253,13 +1325,97 @@ func (s *TimescaleTelemetryStore) getUptimeStatusCountsFromSnapshots(
 		EndTime:        endTime,
 	}
 	if len(deviceIDs) > 0 {
-		params.DeviceIdentifiersFilter = sql.NullString{String: "1", Valid: true}
+		params.DeviceIdentifiersFilter = nargActive
 		params.DeviceIdentifierValues = deviceIDsToStrings(deviceIDs)
 	}
 
 	rows, err := s.queries.GetMinerStateSnapshots(ctx, params)
 	if err != nil {
 		s.logger.Error("failed to query miner state snapshots",
+			slog.Int64("org_id", orgID),
+			slog.String("error", err.Error()))
+		return nil
+	}
+
+	if len(rows) == 0 {
+		return nil
+	}
+
+	result := make([]models.UptimeStatusCount, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, models.UptimeStatusCount{
+			Timestamp:       row.Bucket,
+			HashingCount:    row.HashingCount,
+			BrokenCount:     row.BrokenCount,
+			NotHashingCount: row.OfflineCount + row.SleepingCount,
+		})
+	}
+	return result
+}
+
+func (s *TimescaleTelemetryStore) queryUptimeHourly(
+	ctx context.Context,
+	orgID int64,
+	deviceIDs []models.DeviceIdentifier,
+	startTime, endTime time.Time,
+	bucketDuration time.Duration,
+) []models.UptimeStatusCount {
+	params := sqlc.GetMinerStateSnapshotsHourlyParams{
+		BucketInterval: fmt.Sprintf("%d seconds", int64(bucketDuration.Seconds())),
+		OrgID:          orgID,
+		StartTime:      startTime,
+		EndTime:        endTime,
+	}
+	if len(deviceIDs) > 0 {
+		params.DeviceIdentifiersFilter = nargActive
+		params.DeviceIdentifierValues = deviceIDsToStrings(deviceIDs)
+	}
+
+	rows, err := s.queries.GetMinerStateSnapshotsHourly(ctx, params)
+	if err != nil {
+		s.logger.Error("failed to query hourly miner state snapshots",
+			slog.Int64("org_id", orgID),
+			slog.String("error", err.Error()))
+		return nil
+	}
+
+	if len(rows) == 0 {
+		return nil
+	}
+
+	result := make([]models.UptimeStatusCount, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, models.UptimeStatusCount{
+			Timestamp:       row.Bucket,
+			HashingCount:    row.HashingCount,
+			BrokenCount:     row.BrokenCount,
+			NotHashingCount: row.OfflineCount + row.SleepingCount,
+		})
+	}
+	return result
+}
+
+func (s *TimescaleTelemetryStore) queryUptimeDaily(
+	ctx context.Context,
+	orgID int64,
+	deviceIDs []models.DeviceIdentifier,
+	startTime, endTime time.Time,
+	bucketDuration time.Duration,
+) []models.UptimeStatusCount {
+	params := sqlc.GetMinerStateSnapshotsDailyParams{
+		BucketInterval: fmt.Sprintf("%d seconds", int64(bucketDuration.Seconds())),
+		OrgID:          orgID,
+		StartTime:      startTime,
+		EndTime:        endTime,
+	}
+	if len(deviceIDs) > 0 {
+		params.DeviceIdentifiersFilter = nargActive
+		params.DeviceIdentifierValues = deviceIDsToStrings(deviceIDs)
+	}
+
+	rows, err := s.queries.GetMinerStateSnapshotsDaily(ctx, params)
+	if err != nil {
+		s.logger.Error("failed to query daily miner state snapshots",
 			slog.Int64("org_id", orgID),
 			slog.String("error", err.Error()))
 		return nil

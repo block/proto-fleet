@@ -93,6 +93,166 @@ func (q *Queries) GetMinerStateSnapshots(ctx context.Context, arg GetMinerStateS
 	return items, nil
 }
 
+const getMinerStateSnapshotsDaily = `-- name: GetMinerStateSnapshotsDaily :many
+WITH per_device_bucket AS (
+    SELECT DISTINCT ON (time_bucket($1::text::interval, bucket), device_identifier)
+        time_bucket($1::text::interval, bucket)::timestamptz AS bucket,
+        device_identifier,
+        state
+    FROM miner_state_snapshots_daily
+    WHERE org_id = $2
+      AND bucket >= $3
+      AND bucket <= $4
+      AND ($5::text IS NULL
+           OR device_identifier = ANY($6::text[]))
+    ORDER BY time_bucket($1::text::interval, bucket), device_identifier, bucket DESC
+)
+SELECT
+    bucket,
+    SUM(CASE WHEN state = 3 THEN 1 ELSE 0 END)::int AS hashing_count,
+    SUM(CASE WHEN state = 2 THEN 1 ELSE 0 END)::int AS broken_count,
+    SUM(CASE WHEN state = 0 THEN 1 ELSE 0 END)::int AS offline_count,
+    SUM(CASE WHEN state = 1 THEN 1 ELSE 0 END)::int AS sleeping_count
+FROM per_device_bucket
+GROUP BY bucket
+ORDER BY bucket ASC
+`
+
+type GetMinerStateSnapshotsDailyParams struct {
+	BucketInterval          string
+	OrgID                   int64
+	StartTime               time.Time
+	EndTime                 time.Time
+	DeviceIdentifiersFilter sql.NullString
+	DeviceIdentifierValues  []string
+}
+
+type GetMinerStateSnapshotsDailyRow struct {
+	Bucket        time.Time
+	HashingCount  int32
+	BrokenCount   int32
+	OfflineCount  int32
+	SleepingCount int32
+}
+
+// Same aggregation shape as GetMinerStateSnapshots but reads from the daily
+// continuous aggregate; used for chart windows longer than 10 days.
+func (q *Queries) GetMinerStateSnapshotsDaily(ctx context.Context, arg GetMinerStateSnapshotsDailyParams) ([]GetMinerStateSnapshotsDailyRow, error) {
+	rows, err := q.query(ctx, q.getMinerStateSnapshotsDailyStmt, getMinerStateSnapshotsDaily,
+		arg.BucketInterval,
+		arg.OrgID,
+		arg.StartTime,
+		arg.EndTime,
+		arg.DeviceIdentifiersFilter,
+		pq.Array(arg.DeviceIdentifierValues),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetMinerStateSnapshotsDailyRow
+	for rows.Next() {
+		var i GetMinerStateSnapshotsDailyRow
+		if err := rows.Scan(
+			&i.Bucket,
+			&i.HashingCount,
+			&i.BrokenCount,
+			&i.OfflineCount,
+			&i.SleepingCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getMinerStateSnapshotsHourly = `-- name: GetMinerStateSnapshotsHourly :many
+WITH per_device_bucket AS (
+    SELECT DISTINCT ON (time_bucket($1::text::interval, bucket), device_identifier)
+        time_bucket($1::text::interval, bucket)::timestamptz AS bucket,
+        device_identifier,
+        state
+    FROM miner_state_snapshots_hourly
+    WHERE org_id = $2
+      AND bucket >= $3
+      AND bucket <= $4
+      AND ($5::text IS NULL
+           OR device_identifier = ANY($6::text[]))
+    ORDER BY time_bucket($1::text::interval, bucket), device_identifier, bucket DESC
+)
+SELECT
+    bucket,
+    SUM(CASE WHEN state = 3 THEN 1 ELSE 0 END)::int AS hashing_count,
+    SUM(CASE WHEN state = 2 THEN 1 ELSE 0 END)::int AS broken_count,
+    SUM(CASE WHEN state = 0 THEN 1 ELSE 0 END)::int AS offline_count,
+    SUM(CASE WHEN state = 1 THEN 1 ELSE 0 END)::int AS sleeping_count
+FROM per_device_bucket
+GROUP BY bucket
+ORDER BY bucket ASC
+`
+
+type GetMinerStateSnapshotsHourlyParams struct {
+	BucketInterval          string
+	OrgID                   int64
+	StartTime               time.Time
+	EndTime                 time.Time
+	DeviceIdentifiersFilter sql.NullString
+	DeviceIdentifierValues  []string
+}
+
+type GetMinerStateSnapshotsHourlyRow struct {
+	Bucket        time.Time
+	HashingCount  int32
+	BrokenCount   int32
+	OfflineCount  int32
+	SleepingCount int32
+}
+
+// Same aggregation shape as GetMinerStateSnapshots but reads from the hourly
+// continuous aggregate; used for chart windows 1–10 days.
+func (q *Queries) GetMinerStateSnapshotsHourly(ctx context.Context, arg GetMinerStateSnapshotsHourlyParams) ([]GetMinerStateSnapshotsHourlyRow, error) {
+	rows, err := q.query(ctx, q.getMinerStateSnapshotsHourlyStmt, getMinerStateSnapshotsHourly,
+		arg.BucketInterval,
+		arg.OrgID,
+		arg.StartTime,
+		arg.EndTime,
+		arg.DeviceIdentifiersFilter,
+		pq.Array(arg.DeviceIdentifierValues),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetMinerStateSnapshotsHourlyRow
+	for rows.Next() {
+		var i GetMinerStateSnapshotsHourlyRow
+		if err := rows.Scan(
+			&i.Bucket,
+			&i.HashingCount,
+			&i.BrokenCount,
+			&i.OfflineCount,
+			&i.SleepingCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const insertMinerStateSnapshot = `-- name: InsertMinerStateSnapshot :exec
 INSERT INTO miner_state_snapshots (time, org_id, device_identifier, state)
 SELECT
