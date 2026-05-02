@@ -75,7 +75,7 @@ const ActivityTable = ({ activities, noDataElement }: ActivityTableProps) => {
                     ? entry.description.replace(/\s*completed\s*/i, " ").trim()
                     : entry.description}
                 </span>
-                {isFailed ? <span className="text-intent-critical shrink-0 text-200">Failed</span> : null}
+                {isFailed ? <span className="sr-only">Failed</span> : null}
               </div>
               <div data-testid="scope" className="text-text-primary">
                 {formatScope(entry.scopeType, entry.scopeLabel, entry.scopeCount || undefined)}
