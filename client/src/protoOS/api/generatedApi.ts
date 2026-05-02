@@ -1619,7 +1619,12 @@ export interface SystemInfoSysteminfo {
    */
   product_name?: string;
   /** @example "STM32MP157F" */
-  soc?: "STM32MP157F" | "STM32MP157D" | "STM32MP151F" | "STM32MP131F" | "unknown";
+  soc?:
+    | "STM32MP157F"
+    | "STM32MP157D"
+    | "STM32MP151F"
+    | "STM32MP131F"
+    | "unknown";
   /** Current status and information about system software updates */
   sw_update_status?: UpdateStatus;
   /**
@@ -1636,7 +1641,7 @@ export interface SystemInfoSysteminfo {
 /** System status information including onboarding and password setup */
 export interface SystemStatuses {
   /**
-   * True when the device is still using the factory default password. Most API endpoints return 403 until the password is changed.
+   * True when the system is secure and the default password has not been changed. Clients should prompt the user to change their password when this is true.
    * @example false
    */
   default_password_active?: boolean;
@@ -2038,16 +2043,22 @@ export interface FullRequestParams extends Omit<RequestInit, "body"> {
   cancelToken?: CancelToken;
 }
 
-export type RequestParams = Omit<FullRequestParams, "body" | "method" | "query" | "path">;
+export type RequestParams = Omit<
+  FullRequestParams,
+  "body" | "method" | "query" | "path"
+>;
 
 export interface ApiConfig<SecurityDataType = unknown> {
   baseUrl?: string;
   baseApiParams?: Omit<RequestParams, "baseUrl" | "cancelToken" | "signal">;
-  securityWorker?: (securityData: SecurityDataType | null) => Promise<RequestParams | void> | RequestParams | void;
+  securityWorker?: (
+    securityData: SecurityDataType | null,
+  ) => Promise<RequestParams | void> | RequestParams | void;
   customFetch?: typeof fetch;
 }
 
-export interface HttpResponse<D extends unknown, E extends unknown = unknown> extends Response {
+export interface HttpResponse<D extends unknown, E extends unknown = unknown>
+  extends Response {
   data: D;
   error: E;
 }
@@ -2067,7 +2078,8 @@ export class HttpClient<SecurityDataType = unknown> {
   private securityData: SecurityDataType | null = null;
   private securityWorker?: ApiConfig<SecurityDataType>["securityWorker"];
   private abortControllers = new Map<CancelToken, AbortController>();
-  private customFetch = (...fetchParams: Parameters<typeof fetch>) => fetch(...fetchParams);
+  private customFetch = (...fetchParams: Parameters<typeof fetch>) =>
+    fetch(...fetchParams);
 
   private baseApiParams: RequestParams = {
     credentials: "same-origin",
@@ -2100,9 +2112,15 @@ export class HttpClient<SecurityDataType = unknown> {
 
   protected toQueryString(rawQuery?: QueryParamsType): string {
     const query = rawQuery || {};
-    const keys = Object.keys(query).filter((key) => "undefined" !== typeof query[key]);
+    const keys = Object.keys(query).filter(
+      (key) => "undefined" !== typeof query[key],
+    );
     return keys
-      .map((key) => (Array.isArray(query[key]) ? this.addArrayQueryParam(query, key) : this.addQueryParam(query, key)))
+      .map((key) =>
+        Array.isArray(query[key])
+          ? this.addArrayQueryParam(query, key)
+          : this.addQueryParam(query, key),
+      )
       .join("&");
   }
 
@@ -2113,10 +2131,17 @@ export class HttpClient<SecurityDataType = unknown> {
 
   private contentFormatters: Record<ContentType, (input: any) => any> = {
     [ContentType.Json]: (input: any) =>
-      input !== null && (typeof input === "object" || typeof input === "string") ? JSON.stringify(input) : input,
+      input !== null && (typeof input === "object" || typeof input === "string")
+        ? JSON.stringify(input)
+        : input,
     [ContentType.JsonApi]: (input: any) =>
-      input !== null && (typeof input === "object" || typeof input === "string") ? JSON.stringify(input) : input,
-    [ContentType.Text]: (input: any) => (input !== null && typeof input !== "string" ? JSON.stringify(input) : input),
+      input !== null && (typeof input === "object" || typeof input === "string")
+        ? JSON.stringify(input)
+        : input,
+    [ContentType.Text]: (input: any) =>
+      input !== null && typeof input !== "string"
+        ? JSON.stringify(input)
+        : input,
     [ContentType.FormData]: (input: any) => {
       if (input instanceof FormData) {
         return input;
@@ -2138,7 +2163,10 @@ export class HttpClient<SecurityDataType = unknown> {
     [ContentType.UrlEncoded]: (input: any) => this.toQueryString(input),
   };
 
-  protected mergeRequestParams(params1: RequestParams, params2?: RequestParams): RequestParams {
+  protected mergeRequestParams(
+    params1: RequestParams,
+    params2?: RequestParams,
+  ): RequestParams {
     return {
       ...this.baseApiParams,
       ...params1,
@@ -2151,7 +2179,9 @@ export class HttpClient<SecurityDataType = unknown> {
     };
   }
 
-  protected createAbortSignal = (cancelToken: CancelToken): AbortSignal | undefined => {
+  protected createAbortSignal = (
+    cancelToken: CancelToken,
+  ): AbortSignal | undefined => {
     if (this.abortControllers.has(cancelToken)) {
       const abortController = this.abortControllers.get(cancelToken);
       if (abortController) {
@@ -2195,15 +2225,26 @@ export class HttpClient<SecurityDataType = unknown> {
     const payloadFormatter = this.contentFormatters[type || ContentType.Json];
     const responseFormat = format || requestParams.format;
 
-    return this.customFetch(`${baseUrl || this.baseUrl || ""}${path}${queryString ? `?${queryString}` : ""}`, {
-      ...requestParams,
-      headers: {
-        ...(requestParams.headers || {}),
-        ...(type && type !== ContentType.FormData ? { "Content-Type": type } : {}),
+    return this.customFetch(
+      `${baseUrl || this.baseUrl || ""}${path}${queryString ? `?${queryString}` : ""}`,
+      {
+        ...requestParams,
+        headers: {
+          ...(requestParams.headers || {}),
+          ...(type && type !== ContentType.FormData
+            ? { "Content-Type": type }
+            : {}),
+        },
+        signal:
+          (cancelToken
+            ? this.createAbortSignal(cancelToken)
+            : requestParams.signal) || null,
+        body:
+          typeof body === "undefined" || body === null
+            ? null
+            : payloadFormatter(body),
       },
-      signal: (cancelToken ? this.createAbortSignal(cancelToken) : requestParams.signal) || null,
-      body: typeof body === "undefined" || body === null ? null : payloadFormatter(body),
-    }).then(async (response) => {
+    ).then(async (response) => {
       const r = response as HttpResponse<T, E>;
       r.data = null as unknown as T;
       r.error = null as unknown as E;
@@ -2244,7 +2285,9 @@ export class HttpClient<SecurityDataType = unknown> {
  *
  * The Mining Development Kit API serves as a means to access information from the mining device and make necessary adjustments to its settings.
  */
-export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDataType> {
+export class Api<
+  SecurityDataType extends unknown,
+> extends HttpClient<SecurityDataType> {
   api = {
     /**
      * @description The get pools endpoint returns the full list of currently configured pools.
@@ -2252,11 +2295,13 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @tags Pools
      * @name ListPools
      * @request GET:/api/v1/pools
+     * @secure
      */
     listPools: (params: RequestParams = {}) =>
       this.request<PoolsList, MessageResponse>({
         path: `/api/v1/pools`,
         method: "GET",
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -2286,11 +2331,13 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @tags Pools
      * @name GetPool
      * @request GET:/api/v1/pools/{id}
+     * @secure
      */
     getPool: ({ id }: GetPoolParams, params: RequestParams = {}) =>
       this.request<PoolResponse, MessageResponse>({
         path: `/api/v1/pools/${id}`,
         method: "GET",
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -2303,7 +2350,11 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/pools/{id}
      * @secure
      */
-    editPool: ({ id }: EditPoolParams, data: PoolConfigInner, params: RequestParams = {}) =>
+    editPool: (
+      { id }: EditPoolParams,
+      data: PoolConfigInner,
+      params: RequestParams = {},
+    ) =>
       this.request<MessageResponse, MessageResponse>({
         path: `/api/v1/pools/${id}`,
         method: "PUT",
@@ -2337,12 +2388,14 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @tags Pools
      * @name TestPoolConnection
      * @request POST:/api/v1/pools/test-connection
+     * @secure
      */
     testPoolConnection: (data: TestConnection, params: RequestParams = {}) =>
       this.request<MessageResponse, MessageResponse>({
         path: `/api/v1/pools/test-connection`,
         method: "POST",
         body: data,
+        secure: true,
         type: ContentType.Json,
         format: "json",
         ...params,
@@ -2366,7 +2419,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
       }),
 
     /**
-     * @description Change the current password to a new password. Requires the current password for verification.
+     * @description Change the current password to a new password. Requires the current password for verification. The new password cannot be the same as the default password. After a successful password change, all existing JWT tokens are invalidated and clients must re-authenticate.
      *
      * @tags Authentication
      * @name ChangePassword
@@ -2475,11 +2528,13 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @tags Mining
      * @name GetMiningStatus
      * @request GET:/api/v1/mining
+     * @secure
      */
     getMiningStatus: (params: RequestParams = {}) =>
       this.request<MiningStatus, MessageResponse>({
         path: `/api/v1/mining`,
         method: "GET",
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -2490,11 +2545,13 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @tags Mining
      * @name GetMiningTarget
      * @request GET:/api/v1/mining/target
+     * @secure
      */
     getMiningTarget: (params: RequestParams = {}) =>
       this.request<MiningTargetResponse, MessageResponse>({
         path: `/api/v1/mining/target`,
         method: "GET",
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -2628,11 +2685,13 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @tags System
      * @name UpdateCheck
      * @request POST:/api/v1/system/update/check
+     * @secure
      */
     updateCheck: (params: RequestParams = {}) =>
       this.request<void, MessageResponse>({
         path: `/api/v1/system/update/check`,
         method: "POST",
+        secure: true,
         ...params,
       }),
 
@@ -2769,11 +2828,13 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @tags Hashboards
      * @name GetAllHashboards
      * @request GET:/api/v1/hashboards
+     * @secure
      */
     getAllHashboards: (params: RequestParams = {}) =>
       this.request<HashboardsInfo, MessageResponse>({
         path: `/api/v1/hashboards`,
         method: "GET",
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -2784,11 +2845,16 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @tags Hashboards
      * @name GetHashboardStatus
      * @request GET:/api/v1/hashboards/{hb_sn}
+     * @secure
      */
-    getHashboardStatus: ({ hbSn }: GetHashboardStatusParams, params: RequestParams = {}) =>
+    getHashboardStatus: (
+      { hbSn }: GetHashboardStatusParams,
+      params: RequestParams = {},
+    ) =>
       this.request<HashboardStats, MessageResponse>({
         path: `/api/v1/hashboards/${hbSn}`,
         method: "GET",
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -2799,11 +2865,16 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @tags Hashboards
      * @name GetAsicStatus
      * @request GET:/api/v1/hashboards/{hb_sn}/{asic_id}
+     * @secure
      */
-    getAsicStatus: ({ hbSn, asicId }: GetAsicStatusParams, params: RequestParams = {}) =>
+    getAsicStatus: (
+      { hbSn, asicId }: GetAsicStatusParams,
+      params: RequestParams = {},
+    ) =>
       this.request<AsicStatsResponse, MessageResponse>({
         path: `/api/v1/hashboards/${hbSn}/${asicId}`,
         method: "GET",
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -2814,12 +2885,17 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @tags Hashrate
      * @name GetMinerHashrate
      * @request GET:/api/v1/hashrate
+     * @secure
      */
-    getMinerHashrate: (query: GetMinerHashrateParams, params: RequestParams = {}) =>
+    getMinerHashrate: (
+      query: GetMinerHashrateParams,
+      params: RequestParams = {},
+    ) =>
       this.request<HashrateResponse, MessageResponse>({
         path: `/api/v1/hashrate`,
         method: "GET",
         query: query,
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -2830,12 +2906,17 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @tags Hashrate
      * @name GetHashboardHashrate
      * @request GET:/api/v1/hashrate/{hb_sn}
+     * @secure
      */
-    getHashboardHashrate: ({ hbSn, ...query }: GetHashboardHashrateParams, params: RequestParams = {}) =>
+    getHashboardHashrate: (
+      { hbSn, ...query }: GetHashboardHashrateParams,
+      params: RequestParams = {},
+    ) =>
       this.request<HashrateResponse, MessageResponse>({
         path: `/api/v1/hashrate/${hbSn}`,
         method: "GET",
         query: query,
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -2846,12 +2927,17 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @tags Hashrate
      * @name GetAsicHashrate
      * @request GET:/api/v1/hashrate/{hb_sn}/{asic_id}
+     * @secure
      */
-    getAsicHashrate: ({ hbSn, asicId, ...query }: GetAsicHashrateParams, params: RequestParams = {}) =>
+    getAsicHashrate: (
+      { hbSn, asicId, ...query }: GetAsicHashrateParams,
+      params: RequestParams = {},
+    ) =>
       this.request<HashrateResponse, MessageResponse>({
         path: `/api/v1/hashrate/${hbSn}/${asicId}`,
         method: "GET",
         query: query,
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -2862,12 +2948,17 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @tags Temperature
      * @name GetMinerTemperature
      * @request GET:/api/v1/temperature
+     * @secure
      */
-    getMinerTemperature: (query: GetMinerTemperatureParams, params: RequestParams = {}) =>
+    getMinerTemperature: (
+      query: GetMinerTemperatureParams,
+      params: RequestParams = {},
+    ) =>
       this.request<TemperatureResponse, MessageResponse>({
         path: `/api/v1/temperature`,
         method: "GET",
         query: query,
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -2878,12 +2969,17 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @tags Temperature
      * @name GetHashboardTemperature
      * @request GET:/api/v1/temperature/{hb_sn}
+     * @secure
      */
-    getHashboardTemperature: ({ hbSn, ...query }: GetHashboardTemperatureParams, params: RequestParams = {}) =>
+    getHashboardTemperature: (
+      { hbSn, ...query }: GetHashboardTemperatureParams,
+      params: RequestParams = {},
+    ) =>
       this.request<TemperatureResponse, MessageResponse>({
         path: `/api/v1/temperature/${hbSn}`,
         method: "GET",
         query: query,
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -2894,12 +2990,17 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @tags Temperature
      * @name GetAsicTemperature
      * @request GET:/api/v1/temperature/{hb_sn}/{asic_id}
+     * @secure
      */
-    getAsicTemperature: ({ hbSn, asicId, ...query }: GetAsicTemperatureParams, params: RequestParams = {}) =>
+    getAsicTemperature: (
+      { hbSn, asicId, ...query }: GetAsicTemperatureParams,
+      params: RequestParams = {},
+    ) =>
       this.request<TemperatureResponse, MessageResponse>({
         path: `/api/v1/temperature/${hbSn}/${asicId}`,
         method: "GET",
         query: query,
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -2910,12 +3011,14 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @tags Power
      * @name GetMinerPower
      * @request GET:/api/v1/power
+     * @secure
      */
     getMinerPower: (query: GetMinerPowerParams, params: RequestParams = {}) =>
       this.request<PowerResponse, MessageResponse>({
         path: `/api/v1/power`,
         method: "GET",
         query: query,
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -2926,11 +3029,13 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @tags Hardware, PSUs, Hashboards, Fans
      * @name GetHardware
      * @request GET:/api/v1/hardware
+     * @secure
      */
     getHardware: (params: RequestParams = {}) =>
       this.request<HardwareInfo, MessageResponse>({
         path: `/api/v1/hardware`,
         method: "GET",
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -2941,11 +3046,13 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @tags PSUs
      * @name ListPowerSupplies
      * @request GET:/api/v1/hardware/psus
+     * @secure
      */
     listPowerSupplies: (params: RequestParams = {}) =>
       this.request<PsusInfo, MessageResponse>({
         path: `/api/v1/hardware/psus`,
         method: "GET",
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -2956,11 +3063,13 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @tags PSUs
      * @name GetPowerSupplies
      * @request GET:/api/v1/power-supplies
+     * @secure
      */
     getPowerSupplies: (params: RequestParams = {}) =>
       this.request<PowerSuppliesResponse, MessageResponse>({
         path: `/api/v1/power-supplies`,
         method: "GET",
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -2989,12 +3098,17 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @tags Power
      * @name GetHashboardPower
      * @request GET:/api/v1/power/{hb_sn}
+     * @secure
      */
-    getHashboardPower: ({ hbSn, ...query }: GetHashboardPowerParams, params: RequestParams = {}) =>
+    getHashboardPower: (
+      { hbSn, ...query }: GetHashboardPowerParams,
+      params: RequestParams = {},
+    ) =>
       this.request<PowerResponse, MessageResponse>({
         path: `/api/v1/power/${hbSn}`,
         method: "GET",
         query: query,
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -3005,12 +3119,17 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @tags Efficiency
      * @name GetMinerEfficiency
      * @request GET:/api/v1/efficiency
+     * @secure
      */
-    getMinerEfficiency: (query: GetMinerEfficiencyParams, params: RequestParams = {}) =>
+    getMinerEfficiency: (
+      query: GetMinerEfficiencyParams,
+      params: RequestParams = {},
+    ) =>
       this.request<EfficiencyResponse, MessageResponse>({
         path: `/api/v1/efficiency`,
         method: "GET",
         query: query,
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -3021,12 +3140,17 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @tags Efficiency
      * @name GetHashboardEfficiency
      * @request GET:/api/v1/efficiency/{hb_sn}
+     * @secure
      */
-    getHashboardEfficiency: ({ hbSn, ...query }: GetHashboardEfficiencyParams, params: RequestParams = {}) =>
+    getHashboardEfficiency: (
+      { hbSn, ...query }: GetHashboardEfficiencyParams,
+      params: RequestParams = {},
+    ) =>
       this.request<EfficiencyResponse, MessageResponse>({
         path: `/api/v1/efficiency/${hbSn}`,
         method: "GET",
         query: query,
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -3037,11 +3161,13 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @tags Cooling
      * @name GetCooling
      * @request GET:/api/v1/cooling
+     * @secure
      */
     getCooling: (params: RequestParams = {}) =>
       this.request<CoolingStatus, MessageResponse>({
         path: `/api/v1/cooling`,
         method: "GET",
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -3105,11 +3231,13 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @tags Errors
      * @name GetErrors
      * @request GET:/api/v1/errors
+     * @secure
      */
     getErrors: (params: RequestParams = {}) =>
       this.request<ErrorListResponse, MessageResponse>({
         path: `/api/v1/errors`,
         method: "GET",
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -3122,12 +3250,14 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request GET:/api/v1/system/tag
      */
     getSystemTag: (params: RequestParams = {}) =>
-      this.request<string | number | boolean | object | any[], MessageResponse>({
-        path: `/api/v1/system/tag`,
-        method: "GET",
-        format: "json",
-        ...params,
-      }),
+      this.request<string | number | boolean | object | any[], MessageResponse>(
+        {
+          path: `/api/v1/system/tag`,
+          method: "GET",
+          format: "json",
+          ...params,
+        },
+      ),
 
     /**
      * @description Set or update the system tag value. Accepts any non-null JSON value (string, number, boolean, object, or array). Maximum size is 10 KiB when serialized.
@@ -3137,7 +3267,10 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @request PUT:/api/v1/system/tag
      * @secure
      */
-    putSystemTag: (data: string | number | boolean | object | any[], params: RequestParams = {}) =>
+    putSystemTag: (
+      data: string | number | boolean | object | any[],
+      params: RequestParams = {},
+    ) =>
       this.request<MessageResponse, MessageResponse>({
         path: `/api/v1/system/tag`,
         method: "PUT",
@@ -3185,12 +3318,17 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @tags System
      * @name SetSystemTelemetryEnabled
      * @request PUT:/api/v1/system/telemetry
+     * @secure
      */
-    setSystemTelemetryEnabled: (data: TelemetryConfig, params: RequestParams = {}) =>
+    setSystemTelemetryEnabled: (
+      data: TelemetryConfig,
+      params: RequestParams = {},
+    ) =>
       this.request<TelemetryResponse, MessageResponse | TelemetryResponse>({
         path: `/api/v1/system/telemetry`,
         method: "PUT",
         body: data,
+        secure: true,
         type: ContentType.Json,
         format: "json",
         ...params,
@@ -3202,12 +3340,14 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @tags Time Series
      * @name GetTimeSeries
      * @request POST:/api/v1/timeseries
+     * @secure
      */
     getTimeSeries: (data: TimeSeriesRequest, params: RequestParams = {}) =>
       this.request<TimeSeriesResponse, MessageResponse>({
         path: `/api/v1/timeseries`,
         method: "POST",
         body: data,
+        secure: true,
         type: ContentType.Json,
         format: "json",
         ...params,
@@ -3220,12 +3360,17 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @name GetCurrentTelemetry
      * @summary Get current telemetry data
      * @request GET:/api/v1/telemetry
+     * @secure
      */
-    getCurrentTelemetry: (query: GetCurrentTelemetryParams, params: RequestParams = {}) =>
+    getCurrentTelemetry: (
+      query: GetCurrentTelemetryParams,
+      params: RequestParams = {},
+    ) =>
       this.request<TelemetryData, MessageResponse>({
         path: `/api/v1/telemetry`,
         method: "GET",
         query: query,
+        secure: true,
         format: "json",
         ...params,
       }),
@@ -3271,7 +3416,7 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @secure
      */
     clearAuthKey: (params: RequestParams = {}) =>
-      this.request<MessageResponse, ErrorResponse>({
+      this.request<MessageResponse, ErrorResponse | MessageResponse>({
         path: `/api/v1/pairing/auth-key`,
         method: "DELETE",
         secure: true,

@@ -76,6 +76,7 @@ enum HashboardServiceState {
     HASHBOARD_SERVICE_STATE_READY = 3;
     HASHBOARD_SERVICE_STATE_MINING = 4;
     HASHBOARD_SERVICE_STATE_DISABLED = 5;
+    HASHBOARD_SERVICE_STATE_UNKNOWN = 6;
 }
 
 enum HashboardPerformanceMode {
@@ -128,6 +129,10 @@ message HashboardStatus {
     fwpb.mining_state board_mining_state = 7;
     // Last error code recorded before the most recent Init transition; absent if no error has occurred.
     optional int32 last_error_code = 8;
+    // Accumulated seconds spent in the Mining state; pauses when not mining.
+    uint32 mining_uptime_s = 9;
+    // Number of times this hashboard has transitioned into the Mining state.
+    uint32 power_on_count = 10;
 }
 
 // hashboard.<slot>.share — published on nonce received

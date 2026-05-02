@@ -13,7 +13,7 @@ This simulator allows the fleet management system to be tested without physical 
 
 - Stateful simulation of mining state, pools, and configuration
 - Realistic telemetry data with random variation
-- Authentication: mutating REST endpoints require a Bearer token (access token from `/api/v1/auth/login` or a paired EdDSA JWT), while read-only endpoints remain accessible without auth
+- Authentication: protected REST endpoints require a Bearer token (access token from `/api/v1/auth/login` or a paired EdDSA JWT), with a small public surface for login, password setup, system status, network info, and pairing discovery
 - Error injection via environment variables
 - REST API for both ProtoFleet plugin and ProtoOS dashboard
 
