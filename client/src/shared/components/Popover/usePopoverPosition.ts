@@ -109,37 +109,37 @@ const usePopoverPosition = (
 
   // Once a freeze-positioned popover takes its first valid measurement we stop tracking
   // the trigger's live coordinates so layout shifts (chips appearing before the trigger,
-  // sibling resizes) don't drag the popover around mid-interaction.
+  // sibling resizes) don't drag the popover around mid-interaction. We keep updating
+  // visibleViewport regardless so the layout effect can re-clamp the frozen anchor on
+  // viewport resize / zoom / mobile-chrome collapse.
   const frozenRef = useRef(false);
   const updateMeasurements = useCallback(() => {
+    if (!triggerRef.current) return;
+    const vv = window.visualViewport;
+    const currentViewportHeight = vv?.height ?? viewportHeight;
+    setVisibleViewport({
+      width: vv?.width ?? viewportWidth,
+      height: currentViewportHeight,
+    });
+
     if (freezePosition && frozenRef.current) return;
-    if (triggerRef.current) {
-      const rect = triggerRef.current.getBoundingClientRect();
-      const vv = window.visualViewport;
-      const currentViewportHeight = vv?.height ?? viewportHeight;
 
-      // Only update if the trigger is visible in the viewport.
-      // When scrolled out of view, getBoundingClientRect returns off-screen coordinates
-      // which cause incorrect overflow detection and position flipping.
-      const isInViewport = rect.bottom > 0 && rect.top < currentViewportHeight;
-      if (!isInViewport) {
-        setTriggerRect(null);
-        setPopoverStyle({ visibility: "hidden" });
-        return;
-      }
-
-      const { x, y, width, height, top, left, bottom, right } = rect;
-      setTriggerRect({ x, y, width, height, top, left, bottom, right });
-      setInitialPageOffset(window.scrollY);
-
-      // Use visualViewport dimensions when available (reflects actual visible area after zoom)
-      setVisibleViewport({
-        width: vv?.width ?? viewportWidth,
-        height: currentViewportHeight,
-      });
-
-      if (freezePosition) frozenRef.current = true;
+    const rect = triggerRef.current.getBoundingClientRect();
+    // Only update if the trigger is visible in the viewport.
+    // When scrolled out of view, getBoundingClientRect returns off-screen coordinates
+    // which cause incorrect overflow detection and position flipping.
+    const isInViewport = rect.bottom > 0 && rect.top < currentViewportHeight;
+    if (!isInViewport) {
+      setTriggerRect(null);
+      setPopoverStyle({ visibility: "hidden" });
+      return;
     }
+
+    const { x, y, width, height, top, left, bottom, right } = rect;
+    setTriggerRect({ x, y, width, height, top, left, bottom, right });
+    setInitialPageOffset(window.scrollY);
+
+    if (freezePosition) frozenRef.current = true;
   }, [triggerRef, viewportWidth, viewportHeight, freezePosition]);
 
   useEffect(() => {

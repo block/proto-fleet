@@ -110,7 +110,7 @@ const RacksPage = () => {
         resetAndFetch();
       }
     },
-    [resetAndFetch, selectedIssuesRef],
+    [resetAndFetch, selectedIssuesRef, selectedZonesRef],
   );
 
   const filterChipsBarFilters = useMemo(
@@ -141,7 +141,7 @@ const RacksPage = () => {
     setSelectedIssues([]);
     selectedIssuesRef.current = [];
     resetAndFetch();
-  }, [resetAndFetch, selectedIssuesRef]);
+  }, [resetAndFetch, selectedIssuesRef, selectedZonesRef]);
 
   const emptyStateRow: ReactNode = useMemo(() => {
     if (isLoading || totalCount > 0) return undefined;

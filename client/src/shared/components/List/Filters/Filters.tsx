@@ -47,6 +47,9 @@ const Filters = <ItemType,>({
   );
 
   const [activeFilters, setActiveFilters] = useState<ActiveFilters>(initialActiveFilters || defaultActiveFilters);
+  // Tracking the open chip keeps it mounted while the user toggles its last selection off
+  // — otherwise the chip unmounts mid-interaction and takes its popover with it.
+  const [openChipFilterValue, setOpenChipFilterValue] = useState<string | null>(null);
 
   // Store onFilter in a ref to avoid re-running effects when the callback reference changes.
   // The callback changes when parent's items change (due to useCallback dependencies in List),
@@ -68,6 +71,9 @@ const Filters = <ItemType,>({
     setPrevSyncedKey(initialActiveFiltersKey);
     skipNextOnFilterRef.current = true;
     setActiveFilters(initialActiveFilters ?? defaultActiveFilters);
+    // Drop any chip-edit state from before the resync so an external sync (back/forward,
+    // sibling URL writer) doesn't leave a stale empty chip mounted.
+    setOpenChipFilterValue(null);
   }
 
   useEffect(() => {
@@ -148,10 +154,6 @@ const Filters = <ItemType,>({
     });
     return Array.from(map.values());
   }, [filterItems]);
-
-  // Tracking the open chip keeps it mounted while the user toggles its last selection off
-  // — otherwise the chip unmounts mid-interaction and takes its popover with it.
-  const [openChipFilterValue, setOpenChipFilterValue] = useState<string | null>(null);
 
   const activeDropdownFilterGroups = useMemo<ActiveDropdownFilterGroup[]>(() => {
     const groups: ActiveDropdownFilterGroup[] = [];
