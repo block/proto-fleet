@@ -63,7 +63,7 @@ jobs:
       - name: Run Codex Security Review
         id: run_codex
         if: ${{ env.OPENAI_API_KEY != '' }}
-        uses: openai/codex-action@c25d10f3f498316d4b2496cc4c6dd58057a7b031 # v1.6
+        uses: openai/codex-action@e0fdf01220eb9a88167c4898839d273e3f2609d1 # v1.8
         with:
           openai-api-key: ${{ env.OPENAI_API_KEY }}
           model: ${{ env.CODEX_MODEL }}
