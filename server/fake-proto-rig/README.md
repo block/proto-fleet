@@ -77,23 +77,42 @@ curl http://localhost:8080/health
 The REST API implements endpoints matching the MDK OpenAPI spec:
 
 ```bash
-# Mining status
-curl http://localhost:8080/api/v1/mining
-
 # System info
 curl http://localhost:8080/api/v1/system
 
-# Pool configuration
-curl http://localhost:8080/api/v1/pools
+# System status
+curl http://localhost:8080/api/v1/system/status
 
-# Hardware info
-curl http://localhost:8080/api/v1/hardware
-
-# Telemetry data
-curl http://localhost:8080/api/v1/telemetry?level=miner
+# Network info
+curl http://localhost:8080/api/v1/network
 
 # Pairing info
 curl http://localhost:8080/api/v1/pairing/info
+```
+
+Most data and configuration endpoints require a bearer token:
+
+```bash
+# Login
+TOKEN=$(curl -s http://localhost:8080/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"password":"your-password"}' | jq -r '.access_token')
+
+# Mining status
+curl http://localhost:8080/api/v1/mining \
+  -H "Authorization: Bearer ${TOKEN}"
+
+# Pool configuration
+curl http://localhost:8080/api/v1/pools \
+  -H "Authorization: Bearer ${TOKEN}"
+
+# Hardware info
+curl http://localhost:8080/api/v1/hardware \
+  -H "Authorization: Bearer ${TOKEN}"
+
+# Telemetry data
+curl "http://localhost:8080/api/v1/telemetry?level=miner" \
+  -H "Authorization: Bearer ${TOKEN}"
 ```
 
 **Available REST endpoints:**

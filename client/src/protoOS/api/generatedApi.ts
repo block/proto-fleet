@@ -1636,7 +1636,7 @@ export interface SystemInfoSysteminfo {
 /** System status information including onboarding and password setup */
 export interface SystemStatuses {
   /**
-   * True when the system is secure and the default password has not been changed. Clients should prompt the user to change their password when this is true.
+   * True when the miner is in secure mode and the factory default password is still active. Clients should prompt for a password change, and most authenticated endpoints are 403-gated until changed.
    * @example false
    */
   default_password_active?: boolean;

@@ -529,6 +529,34 @@ func TestHandleChangePassword_NewPasswordTooShort_Returns400(t *testing.T) {
 	}
 }
 
+func TestHandleChangePassword_NewPasswordMatchesDefault_Returns400(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.SeedDefaultPassword("defaultPass123")
+	h := NewRESTApiHandler(state)
+	const expectedMessage = "New password cannot be the same as the default password"
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/auth/change-password",
+		strings.NewReader(`{"current_password":"defaultPass123","new_password":"defaultPass123"}`))
+	h.handleChangePassword(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusBadRequest, rr.Code, rr.Body.String())
+	}
+
+	var resp ErrorResponse
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.Error.Message != expectedMessage {
+		t.Fatalf("expected error message %q, got %q", expectedMessage, resp.Error.Message)
+	}
+
+	if state.GetPassword() != "defaultPass123" {
+		t.Fatal("password should not have changed")
+	}
+}
+
 func TestClearAuthKey_AlsoClearsPassword(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
 	state.SetAuthKey("some-key")

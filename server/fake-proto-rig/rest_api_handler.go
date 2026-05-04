@@ -1260,6 +1260,11 @@ func (h *RESTApiHandler) handleChangePassword(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	if h.state.IsDefaultPassword(req.NewPassword) {
+		h.writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "New password cannot be the same as the default password")
+		return
+	}
+
 	h.state.SetPassword(req.NewPassword)
 
 	// Revoke existing tokens after password change, matching firmware behavior.
