@@ -2622,12 +2622,14 @@ export class Api<SecurityDataType extends unknown> extends HttpClient<SecurityDa
      * @tags System
      * @name GetSystemLogs
      * @request GET:/api/v1/system/logs
+     * @secure
      */
     getSystemLogs: (query: GetSystemLogsParams, params: RequestParams = {}) =>
       this.request<LogsResponse, MessageResponse>({
         path: `/api/v1/system/logs`,
         method: "GET",
         query: query,
+        secure: true,
         format: "json",
         ...params,
       }),
