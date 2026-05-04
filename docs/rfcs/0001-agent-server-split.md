@@ -1,7 +1,7 @@
 # RFC 0001: Agent + cloud-server split
 
 - **Status**: draft
-- **Author(s)**: @ankitgoswami
+- **Author(s)**: Ankit Goswami (@ankitgoswami)
 - **Created**: 2026-04-30
 - **Last updated**: 2026-05-04
 
