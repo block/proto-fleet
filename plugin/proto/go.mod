@@ -3,10 +3,10 @@ module github.com/block/proto-fleet/plugin/proto
 go 1.25.4
 
 require (
-	github.com/block/proto-fleet/server v0.0.0-20251219190746-f0a6d1e48032
+	github.com/block/proto-fleet/server v0.0.0-20260501130613-a57c322c6ff0
 	github.com/docker/docker v28.5.2+incompatible
 	github.com/golang-jwt/jwt/v5 v5.3.1
-	github.com/hashicorp/go-plugin v1.7.0
+	github.com/hashicorp/go-plugin v1.8.0
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.40.0
 	google.golang.org/grpc v1.80.0
@@ -43,7 +43,7 @@ require (
 	github.com/lufia/plan9stats v0.0.0-20251013123823-9fd1530e3ec3 // indirect
 	github.com/magiconair/properties v1.8.10 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
-	github.com/mattn/go-isatty v0.0.21 // indirect
+	github.com/mattn/go-isatty v0.0.22 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
 	github.com/moby/go-archive v0.2.0 // indirect
 	github.com/moby/patternmatcher v0.6.0 // indirect
@@ -73,7 +73,7 @@ require (
 	golang.org/x/sys v0.43.0 // indirect
 	golang.org/x/text v0.36.0 // indirect
 	golang.org/x/time v0.12.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260420184626-e10c466a9529 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260427160629-7cedc36a6bc4 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
