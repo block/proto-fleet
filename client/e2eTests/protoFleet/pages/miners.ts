@@ -61,9 +61,10 @@ export class MinersPage extends BasePage {
   }
 
   private async dismissAddFilterPopover() {
-    // Mouse-down on the page heading to trigger useClickOutside without risk of hitting
-    // an interactive element near the viewport edge.
-    await this.page.locator("h1").first().click();
+    // Toggle the trigger to close — the trigger is never covered by its own popover, so
+    // this is more reliable than clicking page chrome that may not exist or may be
+    // intercepted by the portal-fixed popover.
+    await this.page.getByTestId("filter-nested-filters-meta").click();
     const popover = this.page.getByTestId("nested-dropdown-filter-popover");
     await expect(popover).toBeHidden();
   }

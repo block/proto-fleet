@@ -310,19 +310,22 @@ export class RacksPage extends BasePage {
     await this.clickButton("View grid");
   }
 
-  private async openVisibleAddFilter() {
+  private async getVisibleAddFilterTrigger(): Promise<Locator> {
     const triggers = this.page.getByTestId("filter-nested-add-filter");
     const count = await triggers.count();
     for (let i = 0; i < count; i++) {
       const trigger = triggers.nth(i);
-      if (await trigger.isVisible().catch(() => false)) {
-        await trigger.click();
-        const popover = this.page.getByTestId("nested-dropdown-filter-popover");
-        await expect(popover).toBeVisible();
-        return popover;
-      }
+      if (await trigger.isVisible().catch(() => false)) return trigger;
     }
     throw new Error("No visible Add Filter trigger found");
+  }
+
+  private async openVisibleAddFilter() {
+    const trigger = await this.getVisibleAddFilterTrigger();
+    await trigger.click();
+    const popover = this.page.getByTestId("nested-dropdown-filter-popover");
+    await expect(popover).toBeVisible();
+    return popover;
   }
 
   private async openZoneSubmenu(popover: Locator) {
@@ -338,37 +341,72 @@ export class RacksPage extends BasePage {
   }
 
   private async dismissAddFilterPopover() {
-    // Mouse-down on the page heading to trigger useClickOutside without risk of hitting
-    // an interactive element near the viewport edge.
-    await this.page.locator("h1").first().click();
+    // Toggle the trigger to close — the trigger is never covered by its own popover, so
+    // this is more reliable than clicking page chrome that may not exist or may be
+    // intercepted by the portal-fixed popover.
+    const trigger = await this.getVisibleAddFilterTrigger();
+    await trigger.click();
     await expect(this.page.getByTestId("nested-dropdown-filter-popover")).toBeHidden();
   }
 
-  async applyZoneFilter(zoneNames: string[]) {
-    // Always start from a clean state — clear any active zone chip first, then add the
-    // requested zones via the Add Filter trigger. Avoids racy editing of an existing chip.
-    const chipClear = this.page.getByTestId("active-filter-zone-clear");
-    if (await chipClear.isVisible().catch(() => false)) {
-      await chipClear.click();
-      await expect(this.page.getByTestId("active-filter-zone")).toHaveCount(0);
-    }
-    if (zoneNames.length === 0) return;
-    const popover = await this.openVisibleAddFilter();
-    const submenu = await this.openZoneSubmenu(popover);
-    for (const zoneName of zoneNames) {
-      await this.clickDropdownFilterOption(submenu, zoneName);
-    }
-    await this.dismissAddFilterPopover();
-  }
-
-  async toggleAllZoneFilters() {
-    // The nested submenu has no Select-all; click every option to toggle them on.
+  private async setZoneSelection(target: string[]) {
+    // Open Add Filter, drill into Zone, and toggle each option to match the desired set.
+    // Reading the live submenu (which reflects current selection) avoids the race in
+    // editing an existing chip's popover while resetAndFetch is in flight.
     const popover = await this.openVisibleAddFilter();
     const submenu = await this.openZoneSubmenu(popover);
     const options = submenu.locator('[data-testid^="filter-option-"]');
     const count = await options.count();
+    const wanted = new Set(target);
     for (let i = 0; i < count; i++) {
-      await options.nth(i).click();
+      const opt = options.nth(i);
+      const testId = await opt.getAttribute("data-testid");
+      if (!testId) continue;
+      const optionId = testId.replace(/^filter-option-/, "");
+      const isChecked = await opt
+        .locator('input[type="checkbox"]')
+        .isChecked()
+        .catch(() => false);
+      if (isChecked !== wanted.has(optionId)) {
+        await opt.click();
+      }
+    }
+    await this.dismissAddFilterPopover();
+  }
+
+  async applyZoneFilter(zoneNames: string[]) {
+    await this.setZoneSelection(zoneNames);
+  }
+
+  async toggleAllZoneFilters() {
+    // Toggle: if any zone is currently selected, clear; otherwise select all.
+    const popover = await this.openVisibleAddFilter();
+    const submenu = await this.openZoneSubmenu(popover);
+    const options = submenu.locator('[data-testid^="filter-option-"]');
+    const count = await options.count();
+    let anyChecked = false;
+    for (let i = 0; i < count; i++) {
+      if (
+        await options
+          .nth(i)
+          .locator('input[type="checkbox"]')
+          .isChecked()
+          .catch(() => false)
+      ) {
+        anyChecked = true;
+        break;
+      }
+    }
+    for (let i = 0; i < count; i++) {
+      const opt = options.nth(i);
+      const isChecked = await opt
+        .locator('input[type="checkbox"]')
+        .isChecked()
+        .catch(() => false);
+      if (isChecked === anyChecked) {
+        // anyChecked => clear all (uncheck checked); !anyChecked => select all (check unchecked).
+        await opt.click();
+      }
     }
     await this.dismissAddFilterPopover();
   }
