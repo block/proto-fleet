@@ -327,41 +327,32 @@ export class RacksPage extends BasePage {
 
   private async openZoneSubmenu(popover: Locator) {
     await popover.getByTestId("nested-dropdown-filter-row-zone").click();
-    const submenu = this.page.getByTestId("nested-dropdown-filter-submenu-zone");
-    await expect(submenu).toBeVisible();
-    return submenu;
+    // Desktop renders a portaled side submenu; phone/tablet collapses options into the
+    // parent popover with a "back" header. Either way the option rows for the chosen
+    // category become visible — return whichever container holds them.
+    const desktopSubmenu = this.page.getByTestId("nested-dropdown-filter-submenu-zone");
+    const mobileBack = popover.getByTestId("nested-dropdown-filter-back");
+    await expect(desktopSubmenu.or(mobileBack)).toBeVisible();
+    if (await desktopSubmenu.isVisible().catch(() => false)) return desktopSubmenu;
+    return popover;
   }
 
   private async dismissAddFilterPopover() {
-    await this.page.mouse.click(1, 1);
+    // Mouse-down on the page heading to trigger useClickOutside without risk of hitting
+    // an interactive element near the viewport edge.
+    await this.page.locator("h1").first().click();
     await expect(this.page.getByTestId("nested-dropdown-filter-popover")).toBeHidden();
   }
 
   async applyZoneFilter(zoneNames: string[]) {
-    // Replace whatever zone selection currently exists with `zoneNames`. Open the chip's
-    // edit popover when any zones are already selected (chip exists); otherwise drill in
-    // through the Add Filter trigger.
-    const chipEdit = this.page.getByTestId("active-filter-zone-edit");
-    if (await chipEdit.isVisible().catch(() => false)) {
-      await chipEdit.click();
-      const popover = this.page.getByTestId("dropdown-filter-popover");
-      await expect(popover).toBeVisible();
-      const checkboxes = popover.locator('[data-testid^="filter-option-"] input[type="checkbox"]');
-      const count = await checkboxes.count();
-      for (let i = 0; i < count; i++) {
-        const cb = checkboxes.nth(i);
-        if (await cb.isChecked().catch(() => false)) {
-          await cb.click();
-        }
-      }
-      for (const zoneName of zoneNames) {
-        await this.clickDropdownFilterOption(popover, zoneName);
-      }
-      await this.page.mouse.click(1, 1);
-      await expect(popover).toBeHidden();
-      return;
+    // Always start from a clean state — clear any active zone chip first, then add the
+    // requested zones via the Add Filter trigger. Avoids racy editing of an existing chip.
+    const chipClear = this.page.getByTestId("active-filter-zone-clear");
+    if (await chipClear.isVisible().catch(() => false)) {
+      await chipClear.click();
+      await expect(this.page.getByTestId("active-filter-zone")).toHaveCount(0);
     }
-
+    if (zoneNames.length === 0) return;
     const popover = await this.openVisibleAddFilter();
     const submenu = await this.openZoneSubmenu(popover);
     for (const zoneName of zoneNames) {

@@ -50,14 +50,20 @@ export class MinersPage extends BasePage {
 
   private async openModelSubmenu(popover: Locator) {
     await popover.getByTestId("nested-dropdown-filter-row-model").click();
-    const submenu = this.page.getByTestId("nested-dropdown-filter-submenu-model");
-    await expect(submenu).toBeVisible();
-    return submenu;
+    // Desktop renders a portaled side submenu; phone/tablet collapses options into the
+    // parent popover with a "back" header. Either way the option rows for the chosen
+    // category become visible — return whichever container holds them.
+    const desktopSubmenu = this.page.getByTestId("nested-dropdown-filter-submenu-model");
+    const mobileBack = popover.getByTestId("nested-dropdown-filter-back");
+    await expect(desktopSubmenu.or(mobileBack)).toBeVisible();
+    if (await desktopSubmenu.isVisible().catch(() => false)) return desktopSubmenu;
+    return popover;
   }
 
   private async dismissAddFilterPopover() {
-    // Click outside the portaled popover so useClickOutside fires and the trigger closes.
-    await this.page.mouse.click(1, 1);
+    // Mouse-down on the page heading to trigger useClickOutside without risk of hitting
+    // an interactive element near the viewport edge.
+    await this.page.locator("h1").first().click();
     const popover = this.page.getByTestId("nested-dropdown-filter-popover");
     await expect(popover).toBeHidden();
   }
@@ -834,12 +840,19 @@ export class MinersPage extends BasePage {
   }
 
   async validateActiveFilter(filterLabel: string) {
-    const activeFilterButton = this.page.locator(`[data-testid*="active-filter-"]`, { hasText: filterLabel });
+    // Match the chip's editable summary button only — the outer chip wrapper also carries
+    // an `active-filter-*` testid, which would otherwise resolve two elements with the
+    // same text and trip Playwright's strict mode.
+    const activeFilterButton = this.page.locator('button[data-testid^="active-filter-"][data-testid$="-edit"]', {
+      hasText: filterLabel,
+    });
     await expect(activeFilterButton).toBeVisible();
   }
 
   async validateActiveFilterNotVisible(filterLabel: string) {
-    const activeFilterButton = this.page.locator(`[data-testid*="active-filter-"]`, { hasText: filterLabel });
+    const activeFilterButton = this.page.locator('button[data-testid^="active-filter-"][data-testid$="-edit"]', {
+      hasText: filterLabel,
+    });
     await expect(activeFilterButton).toHaveCount(0);
   }
 
