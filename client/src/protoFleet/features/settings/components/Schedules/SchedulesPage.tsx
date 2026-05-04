@@ -34,6 +34,8 @@ import { pushToast, STATUSES } from "@/shared/features/toaster";
 const defaultActiveFilters: ActiveFilters = {
   buttonFilters: ["all"],
   dropdownFilters: {},
+  numericFilters: {},
+  textareaListFilters: {},
 };
 
 const SchedulesPage = () => {

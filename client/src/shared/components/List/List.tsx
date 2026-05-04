@@ -925,7 +925,11 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
       setFilteredItems(items);
     } else if (!shouldRenderFilters && filterItem) {
       // Client-side filtering without Filters component: apply filterItem directly
-      setFilteredItems(items.filter((item) => filterItem(item, { buttonFilters: [], dropdownFilters: {} })));
+      setFilteredItems(
+        items.filter((item) =>
+          filterItem(item, { buttonFilters: [], dropdownFilters: {}, numericFilters: {}, textareaListFilters: {} }),
+        ),
+      );
     } else if (!shouldRenderFilters) {
       // No filtering at all: use items directly
       setFilteredItems(items);

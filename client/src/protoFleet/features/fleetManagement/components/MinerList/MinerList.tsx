@@ -25,6 +25,7 @@ import {
   type MinerListFilter,
   MinerListFilterSchema,
   type MinerStateSnapshot,
+  NumericRangeFilterSchema,
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
@@ -43,6 +44,11 @@ import {
   parseUrlToActiveFilters,
 } from "@/protoFleet/features/fleetManagement/utils/filterUrlParams";
 import { encodeSortToURL, parseSortFromURL } from "@/protoFleet/features/fleetManagement/utils/sortUrlParams";
+import {
+  protoFieldForTelemetryKey,
+  TELEMETRY_FILTER_BOUNDS,
+  type TelemetryFilterKey,
+} from "@/protoFleet/features/fleetManagement/utils/telemetryFilterBounds";
 import { VIEW_URL_PARAM } from "@/protoFleet/features/fleetManagement/views/savedViews";
 import useMinerViews from "@/protoFleet/features/fleetManagement/views/useMinerViews";
 import { useUsername } from "@/protoFleet/store";
@@ -52,10 +58,17 @@ import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import List from "@/shared/components/List";
 import { type SelectionMode } from "@/shared/components/List";
-import { ActiveFilters, type DropdownFilterItem, FilterItem } from "@/shared/components/List/Filters/types";
+import {
+  ActiveFilters,
+  type DropdownFilterItem,
+  FilterItem,
+  type NumericRangeFilterItem,
+  type TextareaListFilterItem,
+} from "@/shared/components/List/Filters/types";
 import { type SortDirection } from "@/shared/components/List/types";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { Breakpoint } from "@/shared/constants/breakpoints";
+import { normalizeCidrLine, validateCidrLine } from "@/shared/utils/filterValidation";
 
 type FleetCredentials = { username: string; password: string };
 
@@ -745,6 +758,33 @@ const MinerList = ({
     [availableZones],
   );
 
+  const buildNumericFilter = useCallback(
+    (key: TelemetryFilterKey, value: string): NumericRangeFilterItem => ({
+      type: "numericRange",
+      title: TELEMETRY_FILTER_BOUNDS[key].label,
+      value,
+      bounds: TELEMETRY_FILTER_BOUNDS[key],
+    }),
+    [],
+  );
+
+  const hashrateFilter = useMemo(() => buildNumericFilter("hashrate", "hashrate"), [buildNumericFilter]);
+  const efficiencyFilter = useMemo(() => buildNumericFilter("efficiency", "efficiency"), [buildNumericFilter]);
+  const powerFilter = useMemo(() => buildNumericFilter("power", "power"), [buildNumericFilter]);
+  const temperatureFilter = useMemo(() => buildNumericFilter("temperature", "temperature"), [buildNumericFilter]);
+
+  const subnetFilter: TextareaListFilterItem = useMemo(
+    () => ({
+      type: "textareaList",
+      title: "Subnet",
+      value: "subnet",
+      validate: validateCidrLine,
+      normalize: normalizeCidrLine,
+      placeholder: "e.g. 192.168.1.0/24\n10.0.0.0/8",
+    }),
+    [],
+  );
+
   const filters = useMemo<FilterItem[]>(
     () => [
       {
@@ -752,10 +792,36 @@ const MinerList = ({
         title: "Add Filter",
         value: "filters-meta",
         prefixIcon: <Plus width="w-3" />,
-        children: [statusFilter, modelFilter, zonesFilter, racksFilter, groupsFilter, firmwareFilter, issuesFilter],
+        children: [
+          statusFilter,
+          modelFilter,
+          zonesFilter,
+          racksFilter,
+          groupsFilter,
+          firmwareFilter,
+          issuesFilter,
+          hashrateFilter,
+          efficiencyFilter,
+          powerFilter,
+          temperatureFilter,
+          subnetFilter,
+        ],
       },
     ],
-    [statusFilter, issuesFilter, modelFilter, groupsFilter, racksFilter, firmwareFilter, zonesFilter],
+    [
+      statusFilter,
+      issuesFilter,
+      modelFilter,
+      groupsFilter,
+      racksFilter,
+      firmwareFilter,
+      zonesFilter,
+      hashrateFilter,
+      efficiencyFilter,
+      powerFilter,
+      temperatureFilter,
+      subnetFilter,
+    ],
   );
 
   const handleServerFilter = useCallback(
@@ -834,6 +900,27 @@ const MinerList = ({
       const zoneFilters = filters.dropdownFilters.zone;
       if (zoneFilters && zoneFilters.length > 0) {
         minerFilter.zones.push(...zoneFilters);
+      }
+
+      // Numeric range filters — emit one entry per active bound, in display
+      // units. minInclusive/maxInclusive default to true (matches the UI).
+      Object.entries(filters.numericFilters).forEach(([key, value]) => {
+        if (value.min === undefined && value.max === undefined) return;
+        const protoField = protoFieldForTelemetryKey[key as TelemetryFilterKey];
+        if (protoField === undefined) return;
+        const range = create(NumericRangeFilterSchema, {
+          field: protoField,
+          minInclusive: true,
+          maxInclusive: true,
+        });
+        if (value.min !== undefined) range.min = value.min;
+        if (value.max !== undefined) range.max = value.max;
+        minerFilter.numericRanges.push(range);
+      });
+
+      const subnetCidrs = filters.textareaListFilters.subnet;
+      if (subnetCidrs && subnetCidrs.length > 0) {
+        minerFilter.ipCidrs.push(...subnetCidrs);
       }
 
       // Navigate with URL params instead of calling parent callback.

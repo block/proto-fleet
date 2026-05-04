@@ -42,6 +42,7 @@ const FilterChipsBar = ({
   }, [filters, onChange]);
 
   const categories: FilterCategory[] = filters.map((f) => ({
+    kind: "checkbox",
     key: f.key,
     label: f.title,
     options: f.options,
@@ -78,7 +79,12 @@ const FilterChipsBar = ({
         label={triggerLabel}
         prefixIcon={triggerPrefixIcon}
         categories={categories}
-        onChange={onChange}
+        onCheckboxChange={onChange}
+        onRequestEdit={() => {
+          // FilterChipsBar is checkbox-only; the trigger drilldown closes via
+          // onCheckboxChange. onRequestEdit is reachable in theory but no path
+          // here exposes a numeric/textareaList category, so a no-op is fine.
+        }}
         onClearAll={onClearAll ?? fallbackClearAll}
       />
     </>

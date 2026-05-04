@@ -1,8 +1,8 @@
 import { type ReactNode, type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 
-import { type DropdownOption } from "./DropdownFilter";
 import NestedSubmenu, { CheckboxOptionRow } from "./NestedSubmenu";
+import { type FilterCategory } from "./types";
 import { POPOVER_VIEWPORT_PADDING, useFilterDropdownPosition } from "./useFilterDropdownPosition";
 import { useNestedDropdownHoverState } from "./useNestedDropdownHoverState";
 import { ChevronDown } from "@/shared/assets/icons";
@@ -17,23 +17,38 @@ import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 // scroll viewport so the panel fits inside the viewport edge.
 const POPOVER_CHROME = 120;
 
-export type FilterCategory = {
-  key: string;
-  label: string;
-  options: DropdownOption[];
-  selectedValues: string[];
-};
+export type { FilterCategory };
 
 type NestedDropdownFilterProps = {
   /** Trigger button label (e.g. "Filters", "More", "Add Filter"). */
   label: string;
   categories: FilterCategory[];
-  onChange: (key: string, selectedValues: string[]) => void;
+  onCheckboxChange: (key: string, selectedValues: string[]) => void;
+  /**
+   * Click handler for non-checkbox kinds (numericRange, textareaList). Parent
+   * is expected to launch a modal for that category. The popover closes
+   * automatically when this fires so the modal isn't underneath it.
+   */
+  onRequestEdit: (key: string) => void;
   onClearAll: () => void;
   testId?: string;
   /** Optional icon rendered before the label. Suppresses the chevron suffix when set. */
   prefixIcon?: ReactNode;
 };
+
+const categorySelectedCount = (category: FilterCategory): number => {
+  switch (category.kind) {
+    case "checkbox":
+      return category.selectedValues.length;
+    case "numericRange":
+      return category.value.min !== undefined || category.value.max !== undefined ? 1 : 0;
+    case "textareaList":
+      return category.value.length;
+  }
+};
+
+const categoryIsEmpty = (category: FilterCategory): boolean =>
+  category.kind === "checkbox" && category.options.length === 0;
 
 type CategoryRowButtonProps = {
   category: FilterCategory;
@@ -42,8 +57,8 @@ type CategoryRowButtonProps = {
 };
 
 const CategoryRowButton = ({ category, onClick, isActive = false }: CategoryRowButtonProps) => {
-  const isEmpty = category.options.length === 0;
-  const selectedCount = category.selectedValues.length;
+  const isEmpty = categoryIsEmpty(category);
+  const selectedCount = categorySelectedCount(category);
   return (
     <button
       type="button"
@@ -79,7 +94,8 @@ const CategoryRowButton = ({ category, onClick, isActive = false }: CategoryRowB
 
 type CategoryRowProps = {
   category: FilterCategory;
-  onChange: (key: string, selectedValues: string[]) => void;
+  onCheckboxChange: (key: string, selectedValues: string[]) => void;
+  onRequestEdit: (key: string) => void;
   parentPopoverRef: RefObject<HTMLDivElement | null>;
   isActive: boolean;
   onRowEnter: (key: string) => void;
@@ -90,7 +106,8 @@ type CategoryRowProps = {
 
 const CategoryRow = ({
   category,
-  onChange,
+  onCheckboxChange,
+  onRequestEdit,
   parentPopoverRef,
   isActive,
   onRowEnter,
@@ -99,8 +116,13 @@ const CategoryRow = ({
   onNestedLeave,
 }: CategoryRowProps) => {
   const triggerRef = useRef<HTMLDivElement>(null);
-  const isEmpty = category.options.length === 0;
-  const showNested = isActive && !isEmpty;
+
+  const isEmpty = categoryIsEmpty(category);
+  // Only checkbox kinds open an inline submenu. Numeric and textareaList kinds
+  // hand off to a parent-rendered modal on click so the form has a focused
+  // surface (and isn't subject to the hover-driven popover state machine).
+  const usesInlineSubmenu = category.kind === "checkbox";
+  const showNested = isActive && !isEmpty && usesInlineSubmenu;
 
   const { position, nestedRef } = useFilterDropdownPosition({
     enabled: showNested,
@@ -110,32 +132,36 @@ const CategoryRow = ({
 
   const handleToggleItem = useCallback(
     (itemId: string) => {
+      if (category.kind !== "checkbox") return;
       const next = category.selectedValues.includes(itemId)
         ? category.selectedValues.filter((id) => id !== itemId)
         : [...category.selectedValues, itemId];
-      onChange(category.key, next);
+      onCheckboxChange(category.key, next);
     },
-    [category.key, category.selectedValues, onChange],
+    [category, onCheckboxChange],
   );
+
+  const handleRowClick = () => {
+    if (isEmpty) return;
+    if (usesInlineSubmenu) {
+      onRowEnter(category.key);
+      return;
+    }
+    onRequestEdit(category.key);
+  };
 
   return (
     <div
       ref={triggerRef}
       className="relative"
       onMouseEnter={() => {
-        if (!isEmpty) onRowEnter(category.key);
+        if (!isEmpty && usesInlineSubmenu) onRowEnter(category.key);
       }}
-      onMouseLeave={onRowLeave}
+      onMouseLeave={usesInlineSubmenu ? onRowLeave : undefined}
     >
-      <CategoryRowButton
-        category={category}
-        isActive={showNested}
-        onClick={() => {
-          if (!isEmpty) onRowEnter(category.key);
-        }}
-      />
+      <CategoryRowButton category={category} isActive={showNested} onClick={handleRowClick} />
 
-      {showNested ? (
+      {showNested && category.kind === "checkbox" ? (
         <NestedSubmenu
           categoryKey={category.key}
           options={category.options}
@@ -163,7 +189,7 @@ const MobileCategoryList = ({ categories, onSelect }: MobileCategoryListProps) =
         <CategoryRowButton
           category={category}
           onClick={() => {
-            if (category.options.length > 0) onSelect(category.key);
+            if (!categoryIsEmpty(category)) onSelect(category.key);
           }}
         />
         {index < categories.length - 1 ? <Divider className="px-0" /> : null}
@@ -178,39 +204,46 @@ type MobileOptionListProps = {
   onToggleOption: (categoryKey: string, optionId: string) => void;
 };
 
-const MobileOptionList = ({ category, onBack, onToggleOption }: MobileOptionListProps) => (
-  <>
-    <button
-      type="button"
-      onClick={onBack}
-      className={clsx(
-        "flex w-full items-center gap-2 rounded-xl p-3 text-left select-none",
-        "transition-[background-color] duration-200 ease-in-out",
-        "text-text-primary hover:bg-core-primary-5",
-      )}
-      data-testid="nested-dropdown-filter-back"
-    >
-      <ChevronDown width="w-3" className="rotate-90 opacity-60" />
-      <span className="truncate text-emphasis-300">{category.label}</span>
-    </button>
-    <Divider className="px-0" />
-    {category.options.map((option, index) => (
-      <div key={option.id}>
-        <CheckboxOptionRow
-          option={option}
-          checked={category.selectedValues.includes(option.id)}
-          onToggle={(id) => onToggleOption(category.key, id)}
-        />
-        {index < category.options.length - 1 ? <Divider className="px-0" /> : null}
-      </div>
-    ))}
-  </>
-);
+const MobileOptionList = ({ category, onBack, onToggleOption }: MobileOptionListProps) => {
+  // Drilldown only renders the option list for checkbox kinds. Numeric and
+  // textareaList kinds short-circuit at MobileCategoryList by routing to the
+  // modal via onRequestEdit, so this branch is a no-op for them.
+  if (category.kind !== "checkbox") return null;
+  return (
+    <>
+      <button
+        type="button"
+        onClick={onBack}
+        className={clsx(
+          "flex w-full items-center gap-2 rounded-xl p-3 text-left select-none",
+          "transition-[background-color] duration-200 ease-in-out",
+          "text-text-primary hover:bg-core-primary-5",
+        )}
+        data-testid="nested-dropdown-filter-back"
+      >
+        <ChevronDown width="w-3" className="rotate-90 opacity-60" />
+        <span className="truncate text-emphasis-300">{category.label}</span>
+      </button>
+      <Divider className="px-0" />
+      {category.options.map((option, index) => (
+        <div key={option.id}>
+          <CheckboxOptionRow
+            option={option}
+            checked={category.selectedValues.includes(option.id)}
+            onToggle={(id) => onToggleOption(category.key, id)}
+          />
+          {index < category.options.length - 1 ? <Divider className="px-0" /> : null}
+        </div>
+      ))}
+    </>
+  );
+};
 
 const NestedDropdownFilterContent = ({
   label,
   categories,
-  onChange,
+  onCheckboxChange,
+  onRequestEdit,
   onClearAll,
   testId,
   prefixIcon,
@@ -236,13 +269,13 @@ const NestedDropdownFilterContent = ({
   const handleMobileToggleOption = useCallback(
     (categoryKey: string, optionId: string) => {
       const category = categories.find((c) => c.key === categoryKey);
-      if (!category) return;
+      if (!category || category.kind !== "checkbox") return;
       const next = category.selectedValues.includes(optionId)
         ? category.selectedValues.filter((id) => id !== optionId)
         : [...category.selectedValues, optionId];
-      onChange(categoryKey, next);
+      onCheckboxChange(categoryKey, next);
     },
-    [categories, onChange],
+    [categories, onCheckboxChange],
   );
 
   const mobileSelectedCategory = useMemo(
@@ -281,7 +314,7 @@ const NestedDropdownFilterContent = ({
     ignoreSelectors: [".popover-content"],
   });
 
-  const activeCount = categories.reduce((acc, c) => acc + c.selectedValues.length, 0);
+  const activeCount = categories.reduce((acc, c) => acc + categorySelectedCount(c), 0);
 
   return (
     <div ref={triggerRef} className="relative z-10">
@@ -351,13 +384,31 @@ const NestedDropdownFilterContent = ({
                 onToggleOption={handleMobileToggleOption}
               />
             ) : isMobile ? (
-              <MobileCategoryList categories={categories} onSelect={setMobileSelectedKey} />
+              <MobileCategoryList
+                categories={categories}
+                onSelect={(key) => {
+                  // Checkbox kinds drill down inside the popover; numeric/
+                  // textareaList kinds dispatch to the parent-rendered modal.
+                  const category = categories.find((c) => c.key === key);
+                  if (!category) return;
+                  if (category.kind === "checkbox") {
+                    setMobileSelectedKey(key);
+                  } else {
+                    closeAll();
+                    onRequestEdit(key);
+                  }
+                }}
+              />
             ) : (
               categories.map((category, index) => (
                 <div key={category.key}>
                   <CategoryRow
                     category={category}
-                    onChange={onChange}
+                    onCheckboxChange={onCheckboxChange}
+                    onRequestEdit={(key) => {
+                      closeAll();
+                      onRequestEdit(key);
+                    }}
                     parentPopoverRef={parentPopoverRef}
                     isActive={activeRowKey === category.key}
                     onRowEnter={handleRowEnter}

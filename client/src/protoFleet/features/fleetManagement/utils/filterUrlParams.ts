@@ -1,12 +1,16 @@
 import { create } from "@bufbuild/protobuf";
 import { componentIssues, deviceStatusFilterStates } from "../components/MinerList/constants";
+import { protoFieldForTelemetryKey, type TelemetryFilterKey } from "./telemetryFilterBounds";
 import { ComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import {
   DeviceStatus,
   type MinerListFilter,
   MinerListFilterSchema,
+  NumericField,
+  NumericRangeFilterSchema,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import type { ActiveFilters } from "@/shared/components/List/Filters/types";
+import type { ActiveFilters, NumericRangeValue } from "@/shared/components/List/Filters/types";
+import { normalizeCidrLine, validateCidrLine } from "@/shared/utils/filterValidation";
 
 const URL_PARAMS = {
   STATUS: "status",
@@ -16,7 +20,35 @@ const URL_PARAMS = {
   RACK: "rack",
   FIRMWARE: "firmware",
   ZONE: "zone",
+  SUBNET: "subnet",
 } as const;
+
+// Telemetry numeric filters use `${key}_min` / `${key}_max` URL params, one
+// pair per field. Missing key = unbounded on that side.
+const NUMERIC_KEYS: TelemetryFilterKey[] = ["hashrate", "efficiency", "power", "temperature"];
+const numericMinParam = (key: TelemetryFilterKey) => `${key}_min`;
+const numericMaxParam = (key: TelemetryFilterKey) => `${key}_max`;
+
+const numericKeyFromProtoField = (field: NumericField): TelemetryFilterKey | undefined => {
+  switch (field) {
+    case NumericField.HASHRATE_THS:
+      return "hashrate";
+    case NumericField.EFFICIENCY_JTH:
+      return "efficiency";
+    case NumericField.POWER_KW:
+      return "power";
+    case NumericField.TEMPERATURE_C:
+      return "temperature";
+    default:
+      return undefined;
+  }
+};
+
+const parseFiniteNumber = (raw: string): number | undefined => {
+  if (raw.trim() === "") return undefined;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : undefined;
+};
 
 const STATUS_TO_URL: Record<string, string> = {
   [deviceStatusFilterStates.hashing]: "hashing",
@@ -123,6 +155,17 @@ export function encodeFilterToURL(filter: MinerListFilter): URLSearchParams {
     setMulti(params, URL_PARAMS.ZONE, [...filter.zones].sort());
   }
 
+  filter.numericRanges.forEach((range) => {
+    const key = numericKeyFromProtoField(range.field);
+    if (!key) return;
+    if (range.min !== undefined) params.append(numericMinParam(key), String(range.min));
+    if (range.max !== undefined) params.append(numericMaxParam(key), String(range.max));
+  });
+
+  if (filter.ipCidrs.length > 0) {
+    setMulti(params, URL_PARAMS.SUBNET, [...filter.ipCidrs].sort());
+  }
+
   return params;
 }
 
@@ -130,15 +173,18 @@ export function encodeFilterToURL(filter: MinerListFilter): URLSearchParams {
  * Parses URL search parameters into a MinerListFilter
  */
 export function parseFilterFromURL(params: URLSearchParams): MinerListFilter | undefined {
-  const hasAnyFilter = [
-    URL_PARAMS.STATUS,
-    URL_PARAMS.ISSUES,
-    URL_PARAMS.MODEL,
-    URL_PARAMS.GROUP,
-    URL_PARAMS.RACK,
-    URL_PARAMS.FIRMWARE,
-    URL_PARAMS.ZONE,
-  ].some((key) => params.has(key));
+  const hasAnyFilter =
+    [
+      URL_PARAMS.STATUS,
+      URL_PARAMS.ISSUES,
+      URL_PARAMS.MODEL,
+      URL_PARAMS.GROUP,
+      URL_PARAMS.RACK,
+      URL_PARAMS.FIRMWARE,
+      URL_PARAMS.ZONE,
+      URL_PARAMS.SUBNET,
+    ].some((key) => params.has(key)) ||
+    NUMERIC_KEYS.some((key) => params.has(numericMinParam(key)) || params.has(numericMaxParam(key)));
 
   if (!hasAnyFilter) {
     return undefined;
@@ -212,6 +258,28 @@ export function parseFilterFromURL(params: URLSearchParams): MinerListFilter | u
     if (value) filter.zones.push(value);
   });
 
+  NUMERIC_KEYS.forEach((key) => {
+    const minRaw = params.get(numericMinParam(key));
+    const maxRaw = params.get(numericMaxParam(key));
+    const min = minRaw !== null ? parseFiniteNumber(minRaw) : undefined;
+    const max = maxRaw !== null ? parseFiniteNumber(maxRaw) : undefined;
+    if (min === undefined && max === undefined) return;
+    const range = create(NumericRangeFilterSchema, {
+      field: protoFieldForTelemetryKey[key],
+      minInclusive: true,
+      maxInclusive: true,
+    });
+    if (min !== undefined) range.min = min;
+    if (max !== undefined) range.max = max;
+    filter.numericRanges.push(range);
+  });
+
+  getMulti(params, URL_PARAMS.SUBNET).forEach((value) => {
+    if (validateCidrLine(value) === null) {
+      filter.ipCidrs.push(normalizeCidrLine(value));
+    }
+  });
+
   return filter;
 }
 
@@ -222,7 +290,28 @@ export function parseUrlToActiveFilters(params: URLSearchParams): ActiveFilters 
   const activeFilters: ActiveFilters = {
     buttonFilters: [],
     dropdownFilters: {},
+    numericFilters: {},
+    textareaListFilters: {},
   };
+
+  NUMERIC_KEYS.forEach((key) => {
+    const minRaw = params.get(numericMinParam(key));
+    const maxRaw = params.get(numericMaxParam(key));
+    const min = minRaw !== null ? parseFiniteNumber(minRaw) : undefined;
+    const max = maxRaw !== null ? parseFiniteNumber(maxRaw) : undefined;
+    if (min === undefined && max === undefined) return;
+    const value: NumericRangeValue = {};
+    if (min !== undefined) value.min = min;
+    if (max !== undefined) value.max = max;
+    activeFilters.numericFilters[key] = value;
+  });
+
+  const subnetValues = getMulti(params, URL_PARAMS.SUBNET)
+    .filter((value) => validateCidrLine(value) === null)
+    .map(normalizeCidrLine);
+  if (subnetValues.length > 0) {
+    activeFilters.textareaListFilters.subnet = Array.from(new Set(subnetValues));
+  }
 
   const statusValues = getMultiLegacy(params, URL_PARAMS.STATUS)
     .map((v) => URL_TO_STATUS[v])
@@ -309,6 +398,18 @@ export function encodeActiveFiltersToURL(filters: ActiveFilters): URLSearchParam
   const zoneFilters = filters.dropdownFilters.zone;
   if (zoneFilters && zoneFilters.length > 0) {
     setMulti(params, URL_PARAMS.ZONE, [...zoneFilters].sort());
+  }
+
+  NUMERIC_KEYS.forEach((key) => {
+    const value = filters.numericFilters[key];
+    if (!value) return;
+    if (value.min !== undefined) params.append(numericMinParam(key), String(value.min));
+    if (value.max !== undefined) params.append(numericMaxParam(key), String(value.max));
+  });
+
+  const subnetCidrs = filters.textareaListFilters.subnet;
+  if (subnetCidrs && subnetCidrs.length > 0) {
+    setMulti(params, URL_PARAMS.SUBNET, [...subnetCidrs].sort());
   }
 
   return params;

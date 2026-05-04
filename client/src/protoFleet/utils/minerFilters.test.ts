@@ -45,6 +45,10 @@ describe("minerFilters", () => {
       const filters: ActiveFilters = {
         buttonFilters: [],
         dropdownFilters: { model: [] },
+
+        numericFilters: {},
+
+        textareaListFilters: {},
       };
 
       expect(filterByModel(createItem("S19"), filters)).toBe(true);
@@ -55,6 +59,10 @@ describe("minerFilters", () => {
       const filters: ActiveFilters = {
         buttonFilters: [],
         dropdownFilters: {},
+
+        numericFilters: {},
+
+        textareaListFilters: {},
       };
 
       expect(filterByModel(createItem("S19"), filters)).toBe(true);
@@ -64,6 +72,10 @@ describe("minerFilters", () => {
       const filters: ActiveFilters = {
         buttonFilters: [],
         dropdownFilters: { model: ["S19", "S21"] },
+
+        numericFilters: {},
+
+        textareaListFilters: {},
       };
 
       expect(filterByModel(createItem("S19"), filters)).toBe(true);
@@ -74,6 +86,10 @@ describe("minerFilters", () => {
       const filters: ActiveFilters = {
         buttonFilters: [],
         dropdownFilters: { model: ["S19"] },
+
+        numericFilters: {},
+
+        textareaListFilters: {},
       };
 
       expect(filterByModel(createItem("S21"), filters)).toBe(false);
@@ -84,6 +100,10 @@ describe("minerFilters", () => {
       const filters: ActiveFilters = {
         buttonFilters: [],
         dropdownFilters: { model: ["S19"] },
+
+        numericFilters: {},
+
+        textareaListFilters: {},
       };
 
       expect(filterByModel(createItem("S19"), filters)).toBe(true);
