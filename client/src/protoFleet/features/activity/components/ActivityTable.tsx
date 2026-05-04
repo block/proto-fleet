@@ -69,13 +69,13 @@ const ActivityTable = ({ activities, noDataElement }: ActivityTableProps) => {
               <div data-testid="type" className="flex items-start gap-2">
                 <div className={clsx("shrink-0", isFailed ? "text-intent-critical" : "text-text-primary")}>
                   <Icon width="w-4" />
+                  {isFailed ? <span className="sr-only">Failed</span> : null}
                 </div>
                 <span className="min-w-0 break-words">
                   {isCompletedEvent(entry.eventType)
                     ? entry.description.replace(/\s*completed\s*/i, " ").trim()
                     : entry.description}
                 </span>
-                {isFailed ? <span className="sr-only">Failed</span> : null}
               </div>
               <div data-testid="scope" className="text-text-primary">
                 {formatScope(entry.scopeType, entry.scopeLabel, entry.scopeCount || undefined)}
