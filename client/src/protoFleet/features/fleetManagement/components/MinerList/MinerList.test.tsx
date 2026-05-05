@@ -1089,6 +1089,7 @@ describe("MinerList", () => {
         title: "Miners",
         minerIds: [],
         totalMiners: 0,
+        totalUnfilteredMiners: 0,
         onAddMiners,
       });
 
@@ -1108,12 +1109,26 @@ describe("MinerList", () => {
         title: "Miners",
         minerIds: [],
         totalMiners: 0,
+        totalUnfilteredMiners: 0,
         onAddMiners,
       });
 
       await user.click(screen.getByRole("button", { name: "Get started" }));
 
       expect(onAddMiners).toHaveBeenCalledTimes(1);
+    });
+
+    it("falls back to totalMiners=0 when totalUnfilteredMiners is omitted", () => {
+      // Callers that don't plumb totalUnfilteredMiners still get the null state
+      // when totalMiners is 0 — preserves the prior contract on a shared component.
+      renderMinerList({
+        title: "Miners",
+        minerIds: [],
+        totalMiners: 0,
+        onAddMiners: vi.fn(),
+      });
+
+      expect(screen.getByText("You haven't paired any miners")).toBeInTheDocument();
     });
 
     it("should not show null state when loading", () => {

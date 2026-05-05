@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import clsx from "clsx";
@@ -34,6 +34,8 @@ import AuthenticateFleetModal from "@/protoFleet/features/auth/components/Authen
 import { AuthenticateMiners } from "@/protoFleet/features/auth/components/AuthenticateMiners";
 import PoolSelectionPageWrapper from "@/protoFleet/features/fleetManagement/components/ActionBar/SettingsWidget/PoolSelectionPage";
 import MinerListActionBar from "@/protoFleet/features/fleetManagement/components/MinerList/MinerListActionBar";
+import ViewsBar from "@/protoFleet/features/fleetManagement/components/ViewsBar";
+import ViewActions from "@/protoFleet/features/fleetManagement/components/ViewsBar/ViewActions";
 import type { BatchOperation } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
 
 import {
@@ -41,6 +43,8 @@ import {
   parseUrlToActiveFilters,
 } from "@/protoFleet/features/fleetManagement/utils/filterUrlParams";
 import { encodeSortToURL, parseSortFromURL } from "@/protoFleet/features/fleetManagement/utils/sortUrlParams";
+import { VIEW_URL_PARAM } from "@/protoFleet/features/fleetManagement/views/savedViews";
+import useMinerViews from "@/protoFleet/features/fleetManagement/views/useMinerViews";
 import { useUsername } from "@/protoFleet/store";
 
 import { ChevronDown, LogoAlt, Plus, Slider } from "@/shared/assets/icons";
@@ -212,6 +216,7 @@ type ScopedMinerListBodyProps = {
   minerIds?: string[];
   onRefetchMiners?: () => void;
   onWorkerNameUpdated?: (deviceIdentifier: string, workerName: string) => void;
+  chipsRowTrailing?: ReactNode;
 };
 
 const ScopedMinerListBody = ({
@@ -250,6 +255,7 @@ const ScopedMinerListBody = ({
   minerIds: minerIdsProp,
   onRefetchMiners,
   onWorkerNameUpdated,
+  chipsRowTrailing,
 }: ScopedMinerListBodyProps) => {
   const [selectedMinerIds, setSelectedMinerIds] = useState<string[]>([]);
   const [selectionMode, setSelectionMode] = useState<SelectionMode>("none");
@@ -293,6 +299,7 @@ const ScopedMinerListBody = ({
         itemSelectable
         pageScopedSelection
         hasActiveFilters={hasActiveFilters}
+        chipsRowTrailing={chipsRowTrailing}
         headerControls={
           <div className="flex items-center gap-2">
             <Button
@@ -440,6 +447,7 @@ const MinerList = ({
   const username = useUsername();
   const { preferences: columnPreferences, setPreferences: setColumnPreferences } =
     useMinerTableColumnPreferences(username);
+  const viewsState = useMinerViews(username);
 
   const [modalFlow, setModalFlow] = useState<MinerModalFlow>({ kind: "closed" });
   const [showManageColumnsModal, setShowManageColumnsModal] = useState(false);
@@ -624,6 +632,7 @@ const MinerList = ({
     nextSearchParams.delete("rack");
     nextSearchParams.delete("firmware");
     nextSearchParams.delete("zone");
+    nextSearchParams.delete(VIEW_URL_PARAM);
 
     const nextSearch = nextSearchParams.toString();
     navigate({ search: nextSearch ? `?${nextSearch}` : "" }, { replace: true });
@@ -827,13 +836,16 @@ const MinerList = ({
         minerFilter.zones.push(...zoneFilters);
       }
 
-      // Navigate with URL params instead of calling parent callback
-      // Start fresh with filter params, then preserve existing sort params
+      // Navigate with URL params instead of calling parent callback.
+      // Start fresh with filter params, then preserve existing sort + active
+      // view so dirtying a view doesn't lose its identity.
       const params = encodeFilterToURL(minerFilter);
       const sortParam = searchParams.get("sort");
       const dirParam = searchParams.get("dir");
+      const viewParam = searchParams.get(VIEW_URL_PARAM);
       if (sortParam) params.set("sort", sortParam);
       if (dirParam) params.set("dir", dirParam);
+      if (viewParam) params.set(VIEW_URL_PARAM, viewParam);
       navigate(`?${params.toString()}`, { replace: true });
     },
     [navigate, searchParams],
@@ -862,8 +874,12 @@ const MinerList = ({
     [activeSortColumn, navigate, searchParams, setColumnPreferences],
   );
 
-  // Show null state when no miners are paired and not loading
-  const showNullState = !loading && totalMiners === 0 && !hasActiveFilters;
+  // Show null state when no miners are paired and not loading. Prefer the
+  // unfiltered count (stable across filter switches; avoids flashing during
+  // refetch); fall back to totalMiners so callers that don't pass the
+  // unfiltered count still get the null state.
+  const referenceMinerCount = totalUnfilteredMiners ?? totalMiners;
+  const showNullState = !loading && referenceMinerCount === 0 && !hasActiveFilters;
 
   if (showNullState) {
     return (
@@ -908,6 +924,8 @@ const MinerList = ({
           : `${totalMiners ?? 0} miners`}
       </div>
 
+      <ViewsBar viewsState={viewsState} availableGroups={availableGroups} availableRacks={availableRacks} />
+
       {loading ? (
         <div className="flex justify-center py-20">
           <ProgressCircular indeterminate />
@@ -949,6 +967,9 @@ const MinerList = ({
           minerIds={minerIds}
           onRefetchMiners={onRefetchMiners}
           onWorkerNameUpdated={onWorkerNameUpdated}
+          chipsRowTrailing={
+            <ViewActions viewsState={viewsState} availableGroups={availableGroups} availableRacks={availableRacks} />
+          }
         />
       )}
 
