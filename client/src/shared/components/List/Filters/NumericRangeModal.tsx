@@ -1,7 +1,7 @@
 import { useState } from "react";
-import clsx from "clsx";
 
 import { variants } from "@/shared/components/Button";
+import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
 import { type NumericRangeBounds, type NumericRangeValue, validateNumericRange } from "@/shared/utils/filterValidation";
 
@@ -29,8 +29,8 @@ const NumericRangeModal = ({
   onApply,
   onClose,
 }: NumericRangeModalProps) => {
-  // Re-keying on initialValue ensures the modal hydrates fresh every time the
-  // parent opens it for a different category, without needing useEffect.
+  // Re-key on open so the draft state hydrates fresh each time the parent
+  // opens the modal for a different category, without needing useEffect.
   return open ? (
     <NumericRangeModalContent
       key={`${categoryKey}-${initialValue.min ?? ""}-${initialValue.max ?? ""}`}
@@ -89,23 +89,33 @@ const NumericRangeModalContent = ({
         },
       ]}
     >
-      <div className="mt-4 flex flex-col gap-4">
-        <RangeInput
-          id={minId}
-          label="Min"
-          unit={bounds.unit}
-          value={minDraft}
-          onChange={setMinDraft}
-          error={errors.min}
-        />
-        <RangeInput
-          id={maxId}
-          label="Max"
-          unit={bounds.unit}
-          value={maxDraft}
-          onChange={setMaxDraft}
-          error={errors.max}
-        />
+      <div className="mt-4 flex flex-col gap-2">
+        <div className="flex flex-row items-start gap-3">
+          <div className="flex-1">
+            <Input
+              id={minId}
+              label={`Min ${bounds.unit}`}
+              type="number"
+              units={bounds.unit}
+              initValue={minDraft}
+              onChange={(value) => setMinDraft(value)}
+              error={errors.min ?? false}
+              testId={minId}
+            />
+          </div>
+          <div className="flex-1">
+            <Input
+              id={maxId}
+              label={`Max ${bounds.unit}`}
+              type="number"
+              units={bounds.unit}
+              initValue={maxDraft}
+              onChange={(value) => setMaxDraft(value)}
+              error={errors.max ?? false}
+              testId={maxId}
+            />
+          </div>
+        </div>
         {errors.cross ? (
           <div className="text-200 text-intent-critical-fill" data-testid={`numeric-range-${categoryKey}-cross-error`}>
             {errors.cross}
@@ -115,43 +125,5 @@ const NumericRangeModalContent = ({
     </Modal>
   );
 };
-
-type RangeInputProps = {
-  id: string;
-  label: string;
-  unit: string;
-  value: string;
-  onChange: (value: string) => void;
-  error?: string;
-};
-
-const RangeInput = ({ id, label, unit, value, onChange, error }: RangeInputProps) => (
-  <div className="space-y-1">
-    <label htmlFor={id} className="text-200 text-text-primary-70">
-      {label}
-    </label>
-    <div
-      className={clsx(
-        "flex items-center gap-2 rounded-xl border bg-surface-elevated-base px-3 py-2",
-        error ? "border-intent-critical-fill" : "border-border-primary",
-      )}
-    >
-      <input
-        id={id}
-        type="number"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="grow bg-transparent text-emphasis-300 text-text-primary outline-none placeholder:text-text-primary-50"
-        placeholder="—"
-      />
-      <span className="text-200 text-text-primary-70">{unit}</span>
-    </div>
-    {error ? (
-      <div className="text-200 text-intent-critical-fill" data-testid={`${id}-error`}>
-        {error}
-      </div>
-    ) : null}
-  </div>
-);
 
 export default NumericRangeModal;

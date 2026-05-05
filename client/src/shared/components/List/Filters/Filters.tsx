@@ -4,6 +4,7 @@ import clsx from "clsx";
 import ButtonFilter from "./ButtonFilter";
 import DropdownFilter from "./DropdownFilter";
 import FilterChip from "./FilterChip";
+import ModalFilterChip from "./ModalFilterChip";
 import NestedDropdownFilter from "./NestedDropdownFilter";
 import NumericRangeModal from "./NumericRangeModal";
 import TextareaListModal from "./TextareaListModal";
@@ -18,6 +19,7 @@ import {
   type NumericRangeFilterItem,
   type TextareaListFilterItem,
 } from "@/shared/components/List/Filters/types";
+import { formatNumericRangeCondition, formatTextareaListCondition } from "@/shared/utils/filterChipFormatting";
 import type { NumericRangeValue } from "@/shared/utils/filterValidation";
 
 type FilterProps<ItemType> = {
@@ -239,6 +241,43 @@ const Filters = <ItemType,>({
     [filterItems],
   );
 
+  // Look up numeric/textareaList children once so the chip render below can resolve
+  // a key (e.g. "hashrate") back to the originating FilterItem (label, bounds, etc.)
+  // without re-walking every nested dropdown's children on every render.
+  const modalChildByKey = useMemo(() => {
+    const map = new Map<string, NumericRangeFilterItem | TextareaListFilterItem>();
+    nestedFilters.forEach((filter) => {
+      filter.children.forEach((child) => {
+        if (child.type === "numericRange" || child.type === "textareaList") {
+          if (!map.has(child.value)) map.set(child.value, child);
+        }
+      });
+    });
+    return map;
+  }, [nestedFilters]);
+
+  // Active chips for numeric / textareaList filters. We build them as a flat list
+  // so they slot into the chip row alongside FilterChip instances and respect the
+  // parent declaration order (numeric keys first, then textareaList keys).
+  const activeModalChips = useMemo(() => {
+    const chips: { key: string; child: NumericRangeFilterItem | TextareaListFilterItem; condition: string }[] = [];
+    Object.entries(activeFilters.numericFilters).forEach(([key, value]) => {
+      const child = modalChildByKey.get(key);
+      if (!child || child.type !== "numericRange") return;
+      const condition = formatNumericRangeCondition(value, child.bounds.unit);
+      if (!condition) return;
+      chips.push({ key, child, condition });
+    });
+    Object.entries(activeFilters.textareaListFilters).forEach(([key, values]) => {
+      const child = modalChildByKey.get(key);
+      if (!child || child.type !== "textareaList") return;
+      const condition = formatTextareaListCondition(values, { noun: child.noun });
+      if (!condition) return;
+      chips.push({ key, child, condition });
+    });
+    return chips;
+  }, [activeFilters.numericFilters, activeFilters.textareaListFilters, modalChildByKey]);
+
   return (
     <div className={clsx("flex w-full flex-row flex-wrap items-center gap-2", className)}>
       {leadingFilters.map((filter) => {
@@ -296,6 +335,23 @@ const Filters = <ItemType,>({
               return prev === group.filterValue ? null : prev;
             })
           }
+        />
+      ))}
+
+      {activeModalChips.map(({ key, child, condition }) => (
+        <ModalFilterChip
+          key={key}
+          filterValue={key}
+          typeLabel={child.title}
+          condition={condition}
+          onEdit={() => setEditingFilterKey(key)}
+          onClear={() => {
+            if (child.type === "numericRange") {
+              setNumericFilter(key, {});
+            } else {
+              setTextareaListFilter(key, []);
+            }
+          }}
         />
       ))}
 

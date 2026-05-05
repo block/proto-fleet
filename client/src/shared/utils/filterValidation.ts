@@ -64,7 +64,7 @@ export const validateCidrLine = (line: string): string | null => {
   if (trimmed === "") return "Empty value";
 
   if (trimmed.includes("/")) {
-    return isValidCidr(trimmed) ? null : "Not a valid CIDR (e.g. 192.168.1.0/24)";
+    return isValidCidr(trimmed) ? null : "Not a valid CIDR (e.g. 255.255.255.0/24)";
   }
 
   return isValidIpv4(trimmed) ? null : "Not a valid IPv4 address or CIDR";

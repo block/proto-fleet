@@ -600,14 +600,23 @@ const MinerList = ({
   const activeCols = useMemo(() => buildActiveMinerColumns(columnPreferences), [columnPreferences]);
 
   const hasActiveFilters = useMemo(() => {
-    return (
+    if (
       searchParams.has("status") ||
       searchParams.has("issues") ||
       searchParams.has("model") ||
       searchParams.has("group") ||
       searchParams.has("rack") ||
       searchParams.has("firmware") ||
-      searchParams.has("zone")
+      searchParams.has("zone") ||
+      searchParams.has("subnet")
+    ) {
+      return true;
+    }
+    // Numeric range filters use `<key>_min` / `<key>_max` URL params, one
+    // pair per telemetry field. Mirror the keys defined in
+    // telemetryFilterBounds so adding a new field auto-extends this check.
+    return (Object.keys(TELEMETRY_FILTER_BOUNDS) as TelemetryFilterKey[]).some(
+      (key) => searchParams.has(`${key}_min`) || searchParams.has(`${key}_max`),
     );
   }, [searchParams]);
   useEffect(() => {
@@ -780,7 +789,8 @@ const MinerList = ({
       value: "subnet",
       validate: validateCidrLine,
       normalize: normalizeCidrLine,
-      placeholder: "e.g. 192.168.1.0/24\n10.0.0.0/8",
+      placeholder: "255.255.255.0/24\n255.255.0.0/16",
+      noun: "subnet",
     }),
     [],
   );

@@ -58,6 +58,11 @@ export type TextareaListFilterItem = BaseFilterItem & {
   normalize?: (line: string) => string;
   placeholder?: string;
   maxLines?: number;
+  /**
+   * Singular noun used in the chip summary when there are multiple entries
+   * (e.g. "subnet" → "3 subnets"). Falls back to "entries" when omitted.
+   */
+  noun?: string;
 };
 
 /**

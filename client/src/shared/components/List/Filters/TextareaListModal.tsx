@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 
 import { variants } from "@/shared/components/Button";
 import Modal from "@/shared/components/Modal";
+import Textarea from "@/shared/components/Textarea";
 
 const DEFAULT_MAX_LINES = 1024;
 
@@ -39,8 +40,8 @@ const parseLines = (
 };
 
 const TextareaListModal = (props: TextareaListModalProps) => {
-  // Re-key on category so a fresh draft is created each time the modal opens
-  // for a different category.
+  // Re-key on open so the draft state hydrates fresh each time the parent
+  // opens the modal for a different category, without needing useEffect.
   return props.open ? <TextareaListModalContent key={props.categoryKey} {...props} /> : null;
 };
 
@@ -78,6 +79,8 @@ const TextareaListModalContent = ({
     onClose();
   };
 
+  const textareaId = `textarea-list-${categoryKey}`;
+
   return (
     <Modal
       open
@@ -95,14 +98,21 @@ const TextareaListModalContent = ({
       ]}
     >
       <div className="mt-4 flex flex-col gap-3">
-        <textarea
-          aria-label={label}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder={placeholder}
+        {placeholder ? (
+          <div className="text-200 text-text-primary-70" data-testid={`textarea-list-${categoryKey}-hint`}>
+            One per line. Example: <span className="font-mono">{placeholder.split("\n")[0]}</span>
+          </div>
+        ) : null}
+        <Textarea
+          id={textareaId}
+          label={label}
+          initValue={draft}
+          onChange={(value) => setDraft(value)}
           rows={8}
-          className="w-full rounded-xl border border-border-primary bg-surface-elevated-base p-3 text-300 text-text-primary outline-none placeholder:text-text-primary-50"
-          data-testid={`textarea-list-${categoryKey}`}
+          // Boolean error tints the border red; per-line messages render below
+          // (they're easier to scan as a list than as one joined string).
+          error={errorEntries.length > 0}
+          testId={textareaId}
         />
         {errorEntries.length > 0 ? (
           <div
