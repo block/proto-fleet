@@ -445,8 +445,11 @@ func TestHandler_OverrideFieldsRoleGate(t *testing.T) {
 		{"Preview override + viewer session", previewWithOverride, "VIEWER", session.AuthMethodSession, connect.CodePermissionDenied},
 		{"Preview override + viewer API key", previewWithOverride, "VIEWER", session.AuthMethodAPIKey, connect.CodePermissionDenied},
 		{"Start candidate override + viewer session", startWithCandidateOverride, "VIEWER", session.AuthMethodSession, connect.CodePermissionDenied},
+		{"Start candidate override + viewer API key", startWithCandidateOverride, "VIEWER", session.AuthMethodAPIKey, connect.CodePermissionDenied},
 		{"Start allow_unbounded + viewer session", startWithAllowUnbounded, "VIEWER", session.AuthMethodSession, connect.CodePermissionDenied},
+		{"Start allow_unbounded + viewer API key", startWithAllowUnbounded, "VIEWER", session.AuthMethodAPIKey, connect.CodePermissionDenied},
 		{"Stop batch override + viewer session", stopWithBatchOverride, "VIEWER", session.AuthMethodSession, connect.CodePermissionDenied},
+		{"Stop batch override + viewer API key", stopWithBatchOverride, "VIEWER", session.AuthMethodAPIKey, connect.CodePermissionDenied},
 
 		// Admin role reaches Unimplemented regardless of auth method — admin
 		// API-key callers can drive override paths so external integrations

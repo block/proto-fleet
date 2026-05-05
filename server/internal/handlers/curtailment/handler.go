@@ -82,10 +82,7 @@ func errCurtailmentNotImplemented(rpc string) error {
 	return fleeterror.NewUnimplementedErrorf("curtailment.%s is not implemented yet", rpc)
 }
 
-// requireAdminFromContext enforces the Admin / SuperAdmin gate on the caller.
-// Mirrors apikey's requireAdmin pattern. Auth method is not checked here:
-// integrations holding an admin-role API key can drive admin-gated paths,
-// matching the existing role-only gating in the apikey handler.
+// requireAdminFromContext returns Forbidden unless the caller has Admin or SuperAdmin role.
 func requireAdminFromContext(ctx context.Context, action string) error {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
