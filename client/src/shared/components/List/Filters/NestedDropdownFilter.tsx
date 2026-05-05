@@ -8,7 +8,7 @@ import { useNestedDropdownHoverState } from "./useNestedDropdownHoverState";
 import { ChevronDown } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Divider from "@/shared/components/Divider";
-import Popover, { PopoverProvider, usePopover } from "@/shared/components/Popover";
+import Popover, { PopoverProvider, popoverSizes, usePopover } from "@/shared/components/Popover";
 import { type Position, positions } from "@/shared/constants";
 import { useClickOutside } from "@/shared/hooks/useClickOutside";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
@@ -63,7 +63,7 @@ const CategoryRowButton = ({ category, onClick, isActive = false }: CategoryRowB
     <button
       type="button"
       className={clsx(
-        "flex w-full items-center gap-2 rounded-xl p-3 text-left select-none",
+        "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left select-none",
         "transition-[background-color] duration-200 ease-in-out",
         "text-text-primary hover:bg-core-primary-5 disabled:cursor-not-allowed disabled:opacity-50",
         { "bg-core-primary-5": isActive },
@@ -186,13 +186,17 @@ const MobileCategoryList = ({ categories, onSelect }: MobileCategoryListProps) =
   <>
     {categories.map((category, index) => (
       <div key={category.key}>
-        <CategoryRowButton
-          category={category}
-          onClick={() => {
-            if (!categoryIsEmpty(category)) onSelect(category.key);
-          }}
-        />
-        {index < categories.length - 1 ? <Divider className="px-0" /> : null}
+        <div className="px-2">
+          <CategoryRowButton
+            category={category}
+            onClick={() => {
+              if (!categoryIsEmpty(category)) onSelect(category.key);
+            }}
+          />
+        </div>
+        {category.showGroupDivider && index < categories.length - 1 ? (
+          <Divider className="my-1 px-0" dividerStyle="thick" />
+        ) : null}
       </div>
     ))}
   </>
@@ -351,6 +355,8 @@ const NestedDropdownFilterContent = ({
           position={popoverPosition}
           offset={8}
           freezePosition
+          size={popoverSizes.small}
+          className="!space-y-0 !rounded-2xl px-0 pt-2 pb-1"
           buttons={
             activeCount > 0
               ? [
@@ -402,21 +408,25 @@ const NestedDropdownFilterContent = ({
             ) : (
               categories.map((category, index) => (
                 <div key={category.key}>
-                  <CategoryRow
-                    category={category}
-                    onCheckboxChange={onCheckboxChange}
-                    onRequestEdit={(key) => {
-                      closeAll();
-                      onRequestEdit(key);
-                    }}
-                    parentPopoverRef={parentPopoverRef}
-                    isActive={activeRowKey === category.key}
-                    onRowEnter={handleRowEnter}
-                    onRowLeave={scheduleClose}
-                    onNestedEnter={cancelClose}
-                    onNestedLeave={scheduleClose}
-                  />
-                  {index < categories.length - 1 ? <Divider className="px-0" /> : null}
+                  <div className="px-2">
+                    <CategoryRow
+                      category={category}
+                      onCheckboxChange={onCheckboxChange}
+                      onRequestEdit={(key) => {
+                        closeAll();
+                        onRequestEdit(key);
+                      }}
+                      parentPopoverRef={parentPopoverRef}
+                      isActive={activeRowKey === category.key}
+                      onRowEnter={handleRowEnter}
+                      onRowLeave={scheduleClose}
+                      onNestedEnter={cancelClose}
+                      onNestedLeave={scheduleClose}
+                    />
+                  </div>
+                  {category.showGroupDivider && index < categories.length - 1 ? (
+                    <Divider className="my-1 px-0" dividerStyle="thick" />
+                  ) : null}
                 </div>
               ))
             )}

@@ -36,7 +36,6 @@ import { AuthenticateMiners } from "@/protoFleet/features/auth/components/Authen
 import PoolSelectionPageWrapper from "@/protoFleet/features/fleetManagement/components/ActionBar/SettingsWidget/PoolSelectionPage";
 import MinerListActionBar from "@/protoFleet/features/fleetManagement/components/MinerList/MinerListActionBar";
 import ViewsBar from "@/protoFleet/features/fleetManagement/components/ViewsBar";
-import ViewActions from "@/protoFleet/features/fleetManagement/components/ViewsBar/ViewActions";
 import type { BatchOperation } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
 
 import {
@@ -802,18 +801,20 @@ const MinerList = ({
         title: "Add Filter",
         value: "filters-meta",
         prefixIcon: <Plus width="w-3" />,
+        // Logical groupings — health / identity / collections / telemetry / network.
+        // showGroupDivider on the last row of each group draws a thick divider after it.
         children: [
           statusFilter,
+          { ...issuesFilter, showGroupDivider: true },
           modelFilter,
-          zonesFilter,
+          { ...firmwareFilter, showGroupDivider: true },
           racksFilter,
-          groupsFilter,
-          firmwareFilter,
-          issuesFilter,
+          zonesFilter,
+          { ...groupsFilter, showGroupDivider: true },
           hashrateFilter,
-          efficiencyFilter,
-          powerFilter,
           temperatureFilter,
+          efficiencyFilter,
+          { ...powerFilter, showGroupDivider: true },
           subnetFilter,
         ],
       },
@@ -1064,9 +1065,6 @@ const MinerList = ({
           minerIds={minerIds}
           onRefetchMiners={onRefetchMiners}
           onWorkerNameUpdated={onWorkerNameUpdated}
-          chipsRowTrailing={
-            <ViewActions viewsState={viewsState} availableGroups={availableGroups} availableRacks={availableRacks} />
-          }
         />
       )}
 

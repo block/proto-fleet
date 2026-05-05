@@ -282,8 +282,10 @@ describe("computeNestedPosition", () => {
 
   it("flips to the left side when the right side would overflow the viewport", () => {
     const row = rect({ left: 36, top: 200, right: 316, bottom: 240, width: 280, height: 40 });
-    const pos = computeNestedPosition(parent, row, 240, 600, 800);
-    expect(pos.left).toBe(Math.max(16, parent.left - 2 - 320));
+    // Viewport just narrow enough that parent.right + gap + NESTED_POPOVER_WIDTH (240)
+    // doesn't fit on the right; the panel should flip to the left of the parent.
+    const pos = computeNestedPosition(parent, row, 240, 500, 800);
+    expect(pos.left).toBe(Math.max(16, parent.left - 2 - 240));
   });
 
   it("shifts top upward so a short panel fits without overflowing the viewport bottom", () => {

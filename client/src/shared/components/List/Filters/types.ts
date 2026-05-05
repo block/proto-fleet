@@ -16,6 +16,13 @@ export type BaseFilterItem = {
   title: string;
   value: string;
   type: FilterType;
+  /**
+   * When true and rendered as a child of a `nestedFilterDropdown`, draws a
+   * thick divider AFTER this row so callers can visually group adjacent
+   * rows (e.g. "status / issues" then a divider, then "model / firmware").
+   * Mirrors `BulkAction.showGroupDivider`.
+   */
+  showGroupDivider?: boolean;
 };
 
 export type ButtonFilterItem = BaseFilterItem & {
@@ -89,7 +96,12 @@ export type FilterItem = ButtonFilterItem | DropdownFilterItem | NestedFilterDro
  * min/max inputs, textarea). Keeps the props strongly typed without a render
  * prop.
  */
-export type FilterCategoryBase = { key: string; label: string };
+export type FilterCategoryBase = {
+  key: string;
+  label: string;
+  /** Mirrors `BaseFilterItem.showGroupDivider` — divider drawn after this row. */
+  showGroupDivider?: boolean;
+};
 
 export type CheckboxFilterCategory = FilterCategoryBase & {
   kind: "checkbox";

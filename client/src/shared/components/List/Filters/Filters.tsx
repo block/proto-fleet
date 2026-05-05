@@ -279,180 +279,185 @@ const Filters = <ItemType,>({
   }, [activeFilters.numericFilters, activeFilters.textareaListFilters, modalChildByKey]);
 
   return (
-    <div className={clsx("flex w-full flex-row flex-wrap items-center gap-2", className)}>
-      {leadingFilters.map((filter) => {
-        if (filter.type === "button") {
-          return (
-            <ButtonFilter
-              key={filter.value}
-              status={filter.status}
-              title={filter.title}
-              count={filter.count}
-              filter={filter.value}
-              activeFilters={activeFilters.buttonFilters}
-              setActiveFilter={handleButtonFilterChange}
-              size={filterSize}
-            />
-          );
-        }
+    <div className={clsx("flex w-full flex-row items-center justify-start", className)}>
+      <div className="flex min-w-0 grow flex-wrap items-center gap-2">
+        {leadingFilters.map((filter) => {
+          if (filter.type === "button") {
+            return (
+              <ButtonFilter
+                key={filter.value}
+                status={filter.status}
+                title={filter.title}
+                count={filter.count}
+                filter={filter.value}
+                activeFilters={activeFilters.buttonFilters}
+                setActiveFilter={handleButtonFilterChange}
+                size={filterSize}
+              />
+            );
+          }
 
-        if (filter.type === "dropdown") {
-          const selectedOptions = activeFilters.dropdownFilters[filter.value];
+          if (filter.type === "dropdown") {
+            const selectedOptions = activeFilters.dropdownFilters[filter.value];
+            return (
+              <div key={filter.value}>
+                <DropdownFilter
+                  title={filter.title}
+                  pluralTitle={filter.pluralTitle ?? `${filter.title}s`}
+                  options={filter.options}
+                  selectedOptions={selectedOptions || []}
+                  showSelectAll={filter.showSelectAll}
+                  onSelect={(items) => setDropdownSelection(filter.value, items)}
+                  withButtons={isServerSide}
+                />
+              </div>
+            );
+          }
+
+          return null;
+        })}
+
+        {activeDropdownFilterGroups.map((group) => (
+          <FilterChip
+            key={group.filterValue}
+            filterValue={group.filterValue}
+            title={group.title}
+            pluralTitle={group.pluralTitle}
+            options={group.options}
+            selectedIds={group.selectedIds}
+            onChange={(ids) => setDropdownSelection(group.filterValue, ids)}
+            onClear={() => {
+              setDropdownSelection(group.filterValue, []);
+              setOpenChipFilterValue((prev) => (prev === group.filterValue ? null : prev));
+            }}
+            onOpenChange={(open) =>
+              setOpenChipFilterValue((prev) => {
+                if (open) return group.filterValue;
+                return prev === group.filterValue ? null : prev;
+              })
+            }
+          />
+        ))}
+
+        {activeModalChips.map(({ key, child, condition }) => (
+          <ModalFilterChip
+            key={key}
+            filterValue={key}
+            typeLabel={child.title}
+            condition={condition}
+            onEdit={() => setEditingFilterKey(key)}
+            onClear={() => {
+              if (child.type === "numericRange") {
+                setNumericFilter(key, {});
+              } else {
+                setTextareaListFilter(key, []);
+              }
+            }}
+          />
+        ))}
+
+        {chipsRowTrailing}
+
+        {nestedFilters.map((filter) => {
+          const childByKey = new Map(filter.children.map((c) => [c.value, c] as const));
+          const categories: FilterCategory[] = filter.children.map((child): FilterCategory => {
+            if (child.type === "numericRange") {
+              return {
+                kind: "numericRange",
+                key: child.value,
+                label: child.title,
+                bounds: child.bounds,
+                value: activeFilters.numericFilters[child.value] ?? {},
+                showGroupDivider: child.showGroupDivider,
+              };
+            }
+            if (child.type === "textareaList") {
+              return {
+                kind: "textareaList",
+                key: child.value,
+                label: child.title,
+                validate: child.validate,
+                normalize: child.normalize,
+                placeholder: child.placeholder,
+                maxLines: child.maxLines,
+                value: activeFilters.textareaListFilters[child.value] ?? [],
+                showGroupDivider: child.showGroupDivider,
+              };
+            }
+            return {
+              kind: "checkbox",
+              key: child.value,
+              label: child.title,
+              options: child.options,
+              selectedValues: activeFilters.dropdownFilters[child.value] ?? [],
+              showGroupDivider: child.showGroupDivider,
+            };
+          });
+          const editingChild = editingFilterKey ? childByKey.get(editingFilterKey) : undefined;
+          const editingNumeric =
+            editingChild?.type === "numericRange" ? (editingChild as NumericRangeFilterItem) : undefined;
+          const editingTextareaList =
+            editingChild?.type === "textareaList" ? (editingChild as TextareaListFilterItem) : undefined;
           return (
             <div key={filter.value}>
-              <DropdownFilter
-                title={filter.title}
-                pluralTitle={filter.pluralTitle ?? `${filter.title}s`}
-                options={filter.options}
-                selectedOptions={selectedOptions || []}
-                showSelectAll={filter.showSelectAll}
-                onSelect={(items) => setDropdownSelection(filter.value, items)}
-                withButtons={isServerSide}
+              <NestedDropdownFilter
+                testId={`filter-nested-${filter.value}`}
+                label={filter.title}
+                prefixIcon={filter.prefixIcon}
+                categories={categories}
+                onCheckboxChange={setDropdownSelection}
+                onRequestEdit={setEditingFilterKey}
+                onClearAll={() =>
+                  setActiveFilters((prev) => {
+                    const nextDropdown = { ...prev.dropdownFilters };
+                    const nextNumeric = { ...prev.numericFilters };
+                    const nextTextareaList = { ...prev.textareaListFilters };
+                    filter.children.forEach((child: NestedFilterChildItem) => {
+                      delete nextDropdown[child.value];
+                      delete nextNumeric[child.value];
+                      delete nextTextareaList[child.value];
+                    });
+                    return {
+                      ...prev,
+                      dropdownFilters: nextDropdown,
+                      numericFilters: nextNumeric,
+                      textareaListFilters: nextTextareaList,
+                    };
+                  })
+                }
               />
+              {editingNumeric ? (
+                <NumericRangeModal
+                  open
+                  categoryKey={editingNumeric.value}
+                  label={editingNumeric.title}
+                  bounds={editingNumeric.bounds}
+                  initialValue={activeFilters.numericFilters[editingNumeric.value] ?? {}}
+                  onApply={(value) => setNumericFilter(editingNumeric.value, value)}
+                  onClose={() => setEditingFilterKey(null)}
+                />
+              ) : null}
+              {editingTextareaList ? (
+                <TextareaListModal
+                  open
+                  categoryKey={editingTextareaList.value}
+                  label={editingTextareaList.title}
+                  validate={editingTextareaList.validate}
+                  normalize={editingTextareaList.normalize}
+                  placeholder={editingTextareaList.placeholder}
+                  maxLines={editingTextareaList.maxLines}
+                  initialValue={activeFilters.textareaListFilters[editingTextareaList.value] ?? []}
+                  onApply={(value) => setTextareaListFilter(editingTextareaList.value, value)}
+                  onClose={() => setEditingFilterKey(null)}
+                />
+              ) : null}
             </div>
           );
-        }
-
-        return null;
-      })}
-
-      {activeDropdownFilterGroups.map((group) => (
-        <FilterChip
-          key={group.filterValue}
-          filterValue={group.filterValue}
-          title={group.title}
-          pluralTitle={group.pluralTitle}
-          options={group.options}
-          selectedIds={group.selectedIds}
-          onChange={(ids) => setDropdownSelection(group.filterValue, ids)}
-          onClear={() => {
-            setDropdownSelection(group.filterValue, []);
-            setOpenChipFilterValue((prev) => (prev === group.filterValue ? null : prev));
-          }}
-          onOpenChange={(open) =>
-            setOpenChipFilterValue((prev) => {
-              if (open) return group.filterValue;
-              return prev === group.filterValue ? null : prev;
-            })
-          }
-        />
-      ))}
-
-      {activeModalChips.map(({ key, child, condition }) => (
-        <ModalFilterChip
-          key={key}
-          filterValue={key}
-          typeLabel={child.title}
-          condition={condition}
-          onEdit={() => setEditingFilterKey(key)}
-          onClear={() => {
-            if (child.type === "numericRange") {
-              setNumericFilter(key, {});
-            } else {
-              setTextareaListFilter(key, []);
-            }
-          }}
-        />
-      ))}
-
-      {chipsRowTrailing}
-
-      {nestedFilters.map((filter) => {
-        const childByKey = new Map(filter.children.map((c) => [c.value, c] as const));
-        const categories: FilterCategory[] = filter.children.map((child): FilterCategory => {
-          if (child.type === "numericRange") {
-            return {
-              kind: "numericRange",
-              key: child.value,
-              label: child.title,
-              bounds: child.bounds,
-              value: activeFilters.numericFilters[child.value] ?? {},
-            };
-          }
-          if (child.type === "textareaList") {
-            return {
-              kind: "textareaList",
-              key: child.value,
-              label: child.title,
-              validate: child.validate,
-              normalize: child.normalize,
-              placeholder: child.placeholder,
-              maxLines: child.maxLines,
-              value: activeFilters.textareaListFilters[child.value] ?? [],
-            };
-          }
-          return {
-            kind: "checkbox",
-            key: child.value,
-            label: child.title,
-            options: child.options,
-            selectedValues: activeFilters.dropdownFilters[child.value] ?? [],
-          };
-        });
-        const editingChild = editingFilterKey ? childByKey.get(editingFilterKey) : undefined;
-        const editingNumeric =
-          editingChild?.type === "numericRange" ? (editingChild as NumericRangeFilterItem) : undefined;
-        const editingTextareaList =
-          editingChild?.type === "textareaList" ? (editingChild as TextareaListFilterItem) : undefined;
-        return (
-          <div key={filter.value}>
-            <NestedDropdownFilter
-              testId={`filter-nested-${filter.value}`}
-              label={filter.title}
-              prefixIcon={filter.prefixIcon}
-              categories={categories}
-              onCheckboxChange={setDropdownSelection}
-              onRequestEdit={setEditingFilterKey}
-              onClearAll={() =>
-                setActiveFilters((prev) => {
-                  const nextDropdown = { ...prev.dropdownFilters };
-                  const nextNumeric = { ...prev.numericFilters };
-                  const nextTextareaList = { ...prev.textareaListFilters };
-                  filter.children.forEach((child: NestedFilterChildItem) => {
-                    delete nextDropdown[child.value];
-                    delete nextNumeric[child.value];
-                    delete nextTextareaList[child.value];
-                  });
-                  return {
-                    ...prev,
-                    dropdownFilters: nextDropdown,
-                    numericFilters: nextNumeric,
-                    textareaListFilters: nextTextareaList,
-                  };
-                })
-              }
-            />
-            {editingNumeric ? (
-              <NumericRangeModal
-                open
-                categoryKey={editingNumeric.value}
-                label={editingNumeric.title}
-                bounds={editingNumeric.bounds}
-                initialValue={activeFilters.numericFilters[editingNumeric.value] ?? {}}
-                onApply={(value) => setNumericFilter(editingNumeric.value, value)}
-                onClose={() => setEditingFilterKey(null)}
-              />
-            ) : null}
-            {editingTextareaList ? (
-              <TextareaListModal
-                open
-                categoryKey={editingTextareaList.value}
-                label={editingTextareaList.title}
-                validate={editingTextareaList.validate}
-                normalize={editingTextareaList.normalize}
-                placeholder={editingTextareaList.placeholder}
-                maxLines={editingTextareaList.maxLines}
-                initialValue={activeFilters.textareaListFilters[editingTextareaList.value] ?? []}
-                onApply={(value) => setTextareaListFilter(editingTextareaList.value, value)}
-                onClose={() => setEditingFilterKey(null)}
-              />
-            ) : null}
-          </div>
-        );
-      })}
+        })}
+      </div>
 
       {headerControls ? (
-        <div className="ml-auto tablet:mr-(--list-padding-tablet) laptop:mr-(--list-padding-laptop) desktop:mr-(--list-padding-desktop) phone:mr-(--list-padding-phone)">
+        <div className="shrink-0 tablet:mr-(--list-padding-tablet) laptop:mr-(--list-padding-laptop) desktop:mr-(--list-padding-desktop) phone:mr-(--list-padding-phone)">
           {headerControls}
         </div>
       ) : null}
