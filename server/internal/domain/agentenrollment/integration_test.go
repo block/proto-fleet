@@ -310,6 +310,27 @@ func TestConcurrentCompleteHandshakesYieldOneSession(t *testing.T) {
 	require.Equal(t, 1, count, "concurrent CompleteHandshakes for one agent must leave exactly one session row")
 }
 
+func TestCompleteHandshakeRaceWithRevokeReturnsUnauthenticated(t *testing.T) {
+	// Arrange
+	ctx := t.Context()
+	_, userID, orgID, enrollment, auth := setupEnrollmentTest(t)
+	pubKey, privKey, _ := ed25519.GenerateKey(rand.Reader)
+	signing, _, _ := ed25519.GenerateKey(rand.Reader)
+	code, _, _ := enrollment.CreateCode(ctx, userID, orgID, time.Hour)
+	agent, _, _ := enrollment.RegisterAgent(ctx, code, "agent-1", pubKey, signing)
+	apiKeyPlaintext, _, _ := enrollment.Confirm(ctx, agent.ID, orgID)
+	challenge, _, err := auth.BeginHandshake(ctx, apiKeyPlaintext, pubKey)
+	require.NoError(t, err)
+	require.NoError(t, enrollment.RevokeAgent(ctx, agent.ID, orgID))
+
+	// Act
+	_, _, completeErr := auth.CompleteHandshake(ctx, challenge, ed25519.Sign(privKey, challenge))
+
+	// Assert
+	require.Error(t, completeErr)
+	require.True(t, fleeterror.IsAuthenticationError(completeErr), "race with revoke must surface as Unauthenticated, not internal")
+}
+
 func TestRevokeAgentFreesIdentityForReenrollment(t *testing.T) {
 	// Arrange
 	ctx := t.Context()

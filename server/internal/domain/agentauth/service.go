@@ -115,6 +115,12 @@ func (s *Service) CompleteHandshake(ctx context.Context, challenge, signature []
 
 	agent, err := s.enrollmentStore.GetAgentByIDUnscoped(ctx, agentID)
 	if err != nil {
+		// The agent may have been soft-deleted by RevokeAgent between
+		// BeginHandshake and CompleteHandshake; treat that race as an auth
+		// failure rather than a 500 so legitimate retries don't page on-call.
+		if fleeterror.IsNotFoundError(err) {
+			return "", time.Time{}, fleeterror.NewUnauthenticatedError("agent not found")
+		}
 		return "", time.Time{}, logInternal("agent lookup", clientErrAuth, err)
 	}
 	if !ed25519.Verify(agent.IdentityPubkey, challenge, signature) {
