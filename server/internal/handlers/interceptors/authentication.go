@@ -132,10 +132,10 @@ func (i *AuthInterceptor) authenticateWithApiKey(ctx context.Context, authHeader
 		return ctx, err
 	}
 
-	if !apiKeyRecord.IsUserKey() {
+	userID, ok := apiKeyRecord.AsUser()
+	if !ok {
 		return ctx, fleeterror.NewUnauthenticatedError("invalid api key")
 	}
-	userID := *apiKeyRecord.UserID
 
 	user, err := i.userStore.GetUserByID(ctx, userID)
 	if err != nil {

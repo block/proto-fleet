@@ -65,10 +65,11 @@ func (s *Service) BeginHandshake(ctx context.Context, apiKeyPlaintext string, id
 	if err != nil {
 		return nil, time.Time{}, err
 	}
-	if !apiKey.IsAgentKey() {
+	agentID, ok := apiKey.AsAgent()
+	if !ok {
 		return nil, time.Time{}, fleeterror.NewUnauthenticatedError("invalid api key")
 	}
-	agent, err := s.enrollmentStore.GetAgentByID(ctx, *apiKey.AgentID, apiKey.OrganizationID)
+	agent, err := s.enrollmentStore.GetAgentByID(ctx, agentID, apiKey.OrganizationID)
 	if err != nil {
 		if fleeterror.IsNotFoundError(err) {
 			return nil, time.Time{}, fleeterror.NewUnauthenticatedError("invalid api key")

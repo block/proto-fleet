@@ -32,12 +32,20 @@ type ApiKey struct {
 	CreatedByUsername string
 }
 
-func (k *ApiKey) IsUserKey() bool {
-	return k.SubjectKind == ApiKeySubjectKindUser && k.UserID != nil
+// AsUser returns the user_id if this key is bound to a user, with ok=false
+// otherwise.
+func (k *ApiKey) AsUser() (int64, bool) {
+	if k.SubjectKind == ApiKeySubjectKindUser && k.UserID != nil {
+		return *k.UserID, true
+	}
+	return 0, false
 }
 
-func (k *ApiKey) IsAgentKey() bool {
-	return k.SubjectKind == ApiKeySubjectKindAgent && k.AgentID != nil
+func (k *ApiKey) AsAgent() (int64, bool) {
+	if k.SubjectKind == ApiKeySubjectKindAgent && k.AgentID != nil {
+		return *k.AgentID, true
+	}
+	return 0, false
 }
 
 // ApiKeyStore handles API key persistence operations.

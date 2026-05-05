@@ -53,7 +53,7 @@ func (h *Handler) ListAgents(ctx context.Context, _ *connect.Request[pb.ListAgen
 		summary := &pb.AgentSummary{
 			AgentId:             a.ID,
 			Name:                a.Name,
-			EnrollmentStatus:    enrollmentStatusToProto(a.EnrollmentStatus),
+			EnrollmentStatus:    agentStatusToProto[a.EnrollmentStatus],
 			IdentityFingerprint: agentenrollment.IdentityFingerprint(a.IdentityPubkey),
 			CreatedAt:           timestamppb.New(a.CreatedAt),
 		}
@@ -81,15 +81,10 @@ func (h *Handler) ConfirmAgent(ctx context.Context, req *connect.Request[pb.Conf
 	return connect.NewResponse(resp), nil
 }
 
+// Map miss yields _UNSPECIFIED (the proto enum's zero value), which is the
+// intended fallback for an unknown status.
 var agentStatusToProto = map[agentenrollment.AgentStatus]pb.AgentEnrollmentStatus{
 	agentenrollment.AgentStatusPending:   pb.AgentEnrollmentStatus_AGENT_ENROLLMENT_STATUS_PENDING,
 	agentenrollment.AgentStatusConfirmed: pb.AgentEnrollmentStatus_AGENT_ENROLLMENT_STATUS_CONFIRMED,
 	agentenrollment.AgentStatusRevoked:   pb.AgentEnrollmentStatus_AGENT_ENROLLMENT_STATUS_REVOKED,
-}
-
-func enrollmentStatusToProto(status agentenrollment.AgentStatus) pb.AgentEnrollmentStatus {
-	if v, ok := agentStatusToProto[status]; ok {
-		return v
-	}
-	return pb.AgentEnrollmentStatus_AGENT_ENROLLMENT_STATUS_UNSPECIFIED
 }
