@@ -407,6 +407,12 @@ func (s *MinerState) IsDefaultPasswordActive() bool {
 	return s.DefaultPassword != "" && s.Password == s.DefaultPassword
 }
 
+func (s *MinerState) IsDefaultPassword(password string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.DefaultPassword != "" && password == s.DefaultPassword
+}
+
 // SetAccessToken safely stores the current bearer token issued by the simulator.
 func (s *MinerState) SetAccessToken(token string) {
 	s.mu.Lock()

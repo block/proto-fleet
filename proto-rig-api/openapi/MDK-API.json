@@ -121,8 +121,19 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       },
       "post": {
         "tags": [
@@ -162,6 +173,9 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -210,8 +224,19 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       },
       "put": {
         "tags": [
@@ -265,6 +290,9 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -314,6 +342,9 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -364,8 +395,19 @@
                 }
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/api/v1/auth/password": {
@@ -414,7 +456,7 @@
         "tags": [
           "Authentication"
         ],
-        "description": "Change the current password to a new password. Requires the current password for verification.",
+        "description": "Change the current password to a new password. Requires the current password for verification. The new password cannot be the same as the default password. After a successful password change, all existing JWT tokens are invalidated and clients must re-authenticate.",
         "operationId": "ChangePassword",
         "requestBody": {
           "description": "Current and new password data for changing the device password",
@@ -540,6 +582,9 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -656,8 +701,19 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/api/v1/mining/target": {
@@ -683,8 +739,19 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       },
       "put": {
         "tags": [
@@ -725,6 +792,9 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -774,6 +844,9 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -809,6 +882,9 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -844,6 +920,9 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -876,6 +955,9 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -922,6 +1004,9 @@
           },
           "422": {
             "$ref": "#/components/responses/UnprocessableEntity"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -990,8 +1075,19 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/api/v1/system/update/check": {
@@ -1016,8 +1112,19 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/api/v1/system/update": {
@@ -1045,6 +1152,9 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -1099,6 +1209,9 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -1170,6 +1283,9 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -1265,6 +1381,9 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -1294,8 +1413,19 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/api/v1/hashboards/{hb_sn}": {
@@ -1329,8 +1459,19 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/api/v1/hashboards/{hb_sn}/{asic_id}": {
@@ -1375,8 +1516,19 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/api/v1/hashrate": {
@@ -1407,8 +1559,19 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/api/v1/hashrate/{hb_sn}": {
@@ -1442,8 +1605,19 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/api/v1/hashrate/{hb_sn}/{asic_id}": {
@@ -1491,8 +1665,19 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/api/v1/temperature": {
@@ -1523,8 +1708,19 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/api/v1/temperature/{hb_sn}": {
@@ -1561,8 +1757,19 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/api/v1/temperature/{hb_sn}/{asic_id}": {
@@ -1610,8 +1817,19 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/api/v1/power": {
@@ -1642,8 +1860,19 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/api/v1/hardware": {
@@ -1669,8 +1898,19 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/api/v1/hardware/psus": {
@@ -1693,8 +1933,19 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/api/v1/power-supplies": {
@@ -1717,8 +1968,19 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/api/v1/power-supplies/update": {
@@ -1762,6 +2024,9 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -1802,8 +2067,19 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/api/v1/efficiency": {
@@ -1834,8 +2110,19 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/api/v1/efficiency/{hb_sn}": {
@@ -1869,8 +2156,19 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/api/v1/cooling": {
@@ -1893,8 +2191,19 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       },
       "put": {
         "tags": [
@@ -1942,6 +2251,9 @@
                 }
               }
             }
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -2017,6 +2329,9 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -2049,8 +2364,19 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/api/v1/system/tag": {
@@ -2270,6 +2596,9 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -2293,6 +2622,9 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
         },
         "security": [
@@ -2393,8 +2725,19 @@
                 }
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/api/v1/timeseries": {
@@ -2434,8 +2777,19 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/api/v1/telemetry": {
@@ -2757,8 +3111,19 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
-        }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
       }
     },
     "/api/v1/pairing/info": {
@@ -2854,6 +3219,9 @@
                 }
               }
             }
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
           }
         }
       }
@@ -4636,7 +5004,7 @@
           },
           "default_password_active": {
             "type": "boolean",
-            "description": "True when the device is still using the factory default password. Most API endpoints return 403 until the password is changed.",
+            "description": "True when the miner is in secure mode and the factory default password is still active. Clients should prompt for a password change, and most authenticated endpoints are 403-gated until changed.",
             "example": false
           }
         }
@@ -5766,7 +6134,7 @@
         }
       },
       "Forbidden": {
-        "description": "Forbidden.",
+        "description": "Forbidden. On secure systems, this is also returned for all authenticated endpoints (except password change and pool configuration) when the default password has not been changed.",
         "content": {
           "application/json": {
             "schema": {
