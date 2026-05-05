@@ -193,6 +193,17 @@ func (s *Service) List(ctx context.Context, orgID int64) ([]interfaces.ApiKey, e
 	return keys, nil
 }
 
+// RevokeForAgent revokes every active api_key bound to an agent. Returns the
+// number of rows affected; zero is not an error (the agent may simply have no
+// outstanding key). Used by agent revocation; user-key revoke uses Revoke.
+func (s *Service) RevokeForAgent(ctx context.Context, agentID, orgID int64) (int64, error) {
+	rows, err := s.store.RevokeApiKeysByAgentID(ctx, agentID, orgID, time.Now().UTC())
+	if err != nil {
+		return 0, logInternalError("failed to revoke agent api keys", revokeAPIKeyClientError, err, "agent_id", agentID, "org_id", orgID)
+	}
+	return rows, nil
+}
+
 // Revoke permanently revokes an API key. Returns NotFound if the key does not
 // exist, is already revoked, or belongs to a different organization.
 func (s *Service) Revoke(ctx context.Context, keyID string, orgID int64, externalUserID, username string) error {

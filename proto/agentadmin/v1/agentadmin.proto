@@ -12,6 +12,7 @@ service AgentAdminService {
     rpc CreateEnrollmentCode(CreateEnrollmentCodeRequest) returns (CreateEnrollmentCodeResponse);
     rpc ListAgents(ListAgentsRequest) returns (ListAgentsResponse);
     rpc ConfirmAgent(ConfirmAgentRequest) returns (ConfirmAgentResponse);
+    rpc RevokeAgent(RevokeAgentRequest) returns (RevokeAgentResponse);
 }
 
 enum AgentEnrollmentStatus {
@@ -54,3 +55,9 @@ message ConfirmAgentResponse {
     string api_key = 1;
     optional google.protobuf.Timestamp expires_at = 2;
 }
+
+message RevokeAgentRequest {
+    int64 agent_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message RevokeAgentResponse {}

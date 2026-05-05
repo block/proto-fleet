@@ -25,6 +25,7 @@ const (
 	clientErrConfirmAgent  = "agent confirmation failed"
 	clientErrCancel        = "enrollment cancellation failed"
 	clientErrListAgents    = "failed to list agents"
+	clientErrRevokeAgent   = "agent revocation failed"
 
 	component = "agent enrollment"
 )
@@ -177,6 +178,28 @@ func (s *Service) Confirm(ctx context.Context, agentID, orgID int64) (string, ti
 		return "", time.Time{}, err
 	}
 	return plaintext, expires, nil
+}
+
+// RevokeAgent locks an agent out: marks enrollment_status REVOKED and revokes
+// the agent's api_keys. The agent_session join filter on enrollment_status
+// causes any in-flight session to fail to resolve on the next call, and
+// challenge rows expire on their own 30s TTL.
+func (s *Service) RevokeAgent(ctx context.Context, agentID, orgID int64) error {
+	return s.transactor.RunInTx(ctx, func(ctx context.Context) error {
+		if _, err := s.store.GetAgentByID(ctx, agentID, orgID); err != nil {
+			if fleeterror.IsNotFoundError(err) {
+				return fleeterror.NewNotFoundError("agent not found")
+			}
+			return logInternal("agent lookup", clientErrRevokeAgent, err)
+		}
+		if _, err := s.store.SetAgentEnrollmentStatus(ctx, AgentStatusRevoked, agentID, orgID); err != nil {
+			return logInternal("set agent revoked", clientErrRevokeAgent, err)
+		}
+		if _, err := s.apiKeySvc.RevokeForAgent(ctx, agentID, orgID); err != nil {
+			return err
+		}
+		return nil
+	})
 }
 
 func (s *Service) Cancel(ctx context.Context, enrollmentID, orgID int64) error {

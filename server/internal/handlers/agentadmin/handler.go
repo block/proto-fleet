@@ -9,6 +9,8 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/agentadmin/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/agentadmin/v1/agentadminv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/agentenrollment"
+	domainAuth "github.com/block/proto-fleet/server/internal/domain/auth"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 )
 
@@ -25,7 +27,7 @@ func NewHandler(enrollment *agentenrollment.Service) *Handler {
 }
 
 func (h *Handler) CreateEnrollmentCode(ctx context.Context, _ *connect.Request[pb.CreateEnrollmentCodeRequest]) (*connect.Response[pb.CreateEnrollmentCodeResponse], error) {
-	info, err := session.GetInfo(ctx)
+	info, err := h.requireAdminSession(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -40,7 +42,7 @@ func (h *Handler) CreateEnrollmentCode(ctx context.Context, _ *connect.Request[p
 }
 
 func (h *Handler) ListAgents(ctx context.Context, _ *connect.Request[pb.ListAgentsRequest]) (*connect.Response[pb.ListAgentsResponse], error) {
-	info, err := session.GetInfo(ctx)
+	info, err := h.requireAdminSession(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +68,7 @@ func (h *Handler) ListAgents(ctx context.Context, _ *connect.Request[pb.ListAgen
 }
 
 func (h *Handler) ConfirmAgent(ctx context.Context, req *connect.Request[pb.ConfirmAgentRequest]) (*connect.Response[pb.ConfirmAgentResponse], error) {
-	info, err := session.GetInfo(ctx)
+	info, err := h.requireAdminSession(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -79,6 +81,28 @@ func (h *Handler) ConfirmAgent(ctx context.Context, req *connect.Request[pb.Conf
 		resp.ExpiresAt = timestamppb.New(expiresAt)
 	}
 	return connect.NewResponse(resp), nil
+}
+
+func (h *Handler) RevokeAgent(ctx context.Context, req *connect.Request[pb.RevokeAgentRequest]) (*connect.Response[pb.RevokeAgentResponse], error) {
+	info, err := h.requireAdminSession(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := h.enrollment.RevokeAgent(ctx, req.Msg.GetAgentId(), info.OrganizationID); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.RevokeAgentResponse{}), nil
+}
+
+func (h *Handler) requireAdminSession(ctx context.Context) (*session.Info, error) {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if info.Role != domainAuth.SuperAdminRoleName && info.Role != domainAuth.AdminRoleName {
+		return nil, fleeterror.NewForbiddenError("only admins can manage agents")
+	}
+	return info, nil
 }
 
 // Map miss yields _UNSPECIFIED (the proto enum's zero value), which is the

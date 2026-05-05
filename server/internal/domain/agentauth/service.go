@@ -11,6 +11,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/agentenrollment"
 	"github.com/block/proto-fleet/server/internal/domain/apikey"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/infrastructure/cryptohash"
 )
 
@@ -27,6 +28,7 @@ const (
 type Store interface {
 	CreateChallenge(ctx context.Context, challenge []byte, agentID int64, expiresAt time.Time) error
 	ConsumeChallenge(ctx context.Context, challenge []byte, now time.Time) (agentID int64, err error)
+	DeleteChallengesForAgent(ctx context.Context, agentID int64) (int64, error)
 	SweepExpiredChallenges(ctx context.Context, now time.Time) (int64, error)
 
 	CreateSession(ctx context.Context, tokenHash string, agentID int64, expiresAt time.Time) error
@@ -46,15 +48,17 @@ type Service struct {
 	store           Store
 	enrollmentStore agentenrollment.Store
 	apiKeySvc       *apikey.Service
+	transactor      stores.Transactor
 	challengeTTL    time.Duration
 	sessionTTL      time.Duration
 }
 
-func NewService(store Store, enrollmentStore agentenrollment.Store, apiKeySvc *apikey.Service) *Service {
+func NewService(store Store, enrollmentStore agentenrollment.Store, apiKeySvc *apikey.Service, transactor stores.Transactor) *Service {
 	return &Service{
 		store:           store,
 		enrollmentStore: enrollmentStore,
 		apiKeySvc:       apiKeySvc,
+		transactor:      transactor,
 		challengeTTL:    defaultChallengeTTL,
 		sessionTTL:      defaultSessionTTL,
 	}
@@ -91,8 +95,18 @@ func (s *Service) BeginHandshake(ctx context.Context, apiKeyPlaintext string, id
 		return nil, time.Time{}, logInternal("generate challenge", clientErrAuth, err)
 	}
 	expiresAt := time.Now().UTC().Add(s.challengeTTL)
-	if err := s.store.CreateChallenge(ctx, challenge, agent.ID, expiresAt); err != nil {
-		return nil, time.Time{}, logInternal("store challenge", clientErrAuth, err)
+	// Drop any prior challenge for this agent so the table can't grow without
+	// bound under repeated BeginHandshake calls.
+	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
+		if _, err := s.store.DeleteChallengesForAgent(ctx, agent.ID); err != nil {
+			return logInternal("delete prior challenges", clientErrAuth, err)
+		}
+		if err := s.store.CreateChallenge(ctx, challenge, agent.ID, expiresAt); err != nil {
+			return logInternal("store challenge", clientErrAuth, err)
+		}
+		return nil
+	}); err != nil {
+		return nil, time.Time{}, err
 	}
 	s.apiKeySvc.RecordSuccessfulUse(ctx, apiKey)
 	return challenge, expiresAt, nil

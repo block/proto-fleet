@@ -51,6 +51,10 @@ func (s *SQLAgentAuthStore) SweepExpiredChallenges(ctx context.Context, now time
 	return s.q(ctx).SweepExpiredAgentAuthChallenges(ctx, now)
 }
 
+func (s *SQLAgentAuthStore) DeleteChallengesForAgent(ctx context.Context, agentID int64) (int64, error) {
+	return s.q(ctx).DeleteAgentAuthChallengesByAgentID(ctx, agentID)
+}
+
 func (s *SQLAgentAuthStore) CreateSession(ctx context.Context, tokenHash string, agentID int64, expiresAt time.Time) error {
 	return s.q(ctx).CreateAgentSession(ctx, sqlc.CreateAgentSessionParams{
 		TokenHash: tokenHash,

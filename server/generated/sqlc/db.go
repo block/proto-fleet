@@ -123,6 +123,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.createUserOrganizationStmt, err = db.PrepareContext(ctx, createUserOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateUserOrganization: %w", err)
 	}
+	if q.deleteAgentAuthChallengesByAgentIDStmt, err = db.PrepareContext(ctx, deleteAgentAuthChallengesByAgentID); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteAgentAuthChallengesByAgentID: %w", err)
+	}
 	if q.deleteExpiredSessionsStmt, err = db.PrepareContext(ctx, deleteExpiredSessions); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteExpiredSessions: %w", err)
 	}
@@ -564,6 +567,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.revokeApiKeyStmt, err = db.PrepareContext(ctx, revokeApiKey); err != nil {
 		return nil, fmt.Errorf("error preparing query RevokeApiKey: %w", err)
 	}
+	if q.revokeApiKeysByAgentIDStmt, err = db.PrepareContext(ctx, revokeApiKeysByAgentID); err != nil {
+		return nil, fmt.Errorf("error preparing query RevokeApiKeysByAgentID: %w", err)
+	}
 	if q.revokeSessionStmt, err = db.PrepareContext(ctx, revokeSession); err != nil {
 		return nil, fmt.Errorf("error preparing query RevokeSession: %w", err)
 	}
@@ -891,6 +897,11 @@ func (q *Queries) Close() error {
 	if q.createUserOrganizationStmt != nil {
 		if cerr := q.createUserOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createUserOrganizationStmt: %w", cerr)
+		}
+	}
+	if q.deleteAgentAuthChallengesByAgentIDStmt != nil {
+		if cerr := q.deleteAgentAuthChallengesByAgentIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteAgentAuthChallengesByAgentIDStmt: %w", cerr)
 		}
 	}
 	if q.deleteExpiredSessionsStmt != nil {
@@ -1628,6 +1639,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing revokeApiKeyStmt: %w", cerr)
 		}
 	}
+	if q.revokeApiKeysByAgentIDStmt != nil {
+		if cerr := q.revokeApiKeysByAgentIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing revokeApiKeysByAgentIDStmt: %w", cerr)
+		}
+	}
 	if q.revokeSessionStmt != nil {
 		if cerr := q.revokeSessionStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing revokeSessionStmt: %w", cerr)
@@ -1965,6 +1981,7 @@ type Queries struct {
 	createSessionStmt                                   *sql.Stmt
 	createUserStmt                                      *sql.Stmt
 	createUserOrganizationStmt                          *sql.Stmt
+	deleteAgentAuthChallengesByAgentIDStmt              *sql.Stmt
 	deleteExpiredSessionsStmt                           *sql.Stmt
 	deleteOrganizationStmt                              *sql.Stmt
 	deletePoolStmt                                      *sql.Stmt
@@ -2112,6 +2129,7 @@ type Queries struct {
 	revertScheduleToActiveStmt                          *sql.Stmt
 	revokeAllSessionsByUserIDStmt                       *sql.Stmt
 	revokeApiKeyStmt                                    *sql.Stmt
+	revokeApiKeysByAgentIDStmt                          *sql.Stmt
 	revokeSessionStmt                                   *sql.Stmt
 	setAgentEnrollmentStatusStmt                        *sql.Stmt
 	setRackSlotPositionStmt                             *sql.Stmt
@@ -2204,6 +2222,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		createSessionStmt:                                   q.createSessionStmt,
 		createUserStmt:                                      q.createUserStmt,
 		createUserOrganizationStmt:                          q.createUserOrganizationStmt,
+		deleteAgentAuthChallengesByAgentIDStmt:              q.deleteAgentAuthChallengesByAgentIDStmt,
 		deleteExpiredSessionsStmt:                           q.deleteExpiredSessionsStmt,
 		deleteOrganizationStmt:                              q.deleteOrganizationStmt,
 		deletePoolStmt:                                      q.deletePoolStmt,
@@ -2351,6 +2370,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		revertScheduleToActiveStmt:                          q.revertScheduleToActiveStmt,
 		revokeAllSessionsByUserIDStmt:                       q.revokeAllSessionsByUserIDStmt,
 		revokeApiKeyStmt:                                    q.revokeApiKeyStmt,
+		revokeApiKeysByAgentIDStmt:                          q.revokeApiKeysByAgentIDStmt,
 		revokeSessionStmt:                                   q.revokeSessionStmt,
 		setAgentEnrollmentStatusStmt:                        q.setAgentEnrollmentStatusStmt,
 		setRackSlotPositionStmt:                             q.setRackSlotPositionStmt,

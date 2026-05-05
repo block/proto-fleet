@@ -31,6 +31,11 @@ UPDATE api_key
 SET revoked_at = $1
 WHERE key_id = $2 AND organization_id = $3 AND revoked_at IS NULL;
 
+-- name: RevokeApiKeysByAgentID :execrows
+UPDATE api_key
+SET revoked_at = $1
+WHERE agent_id = $2 AND organization_id = $3 AND revoked_at IS NULL;
+
 -- name: UpdateApiKeyLastUsed :exec
 UPDATE api_key
 SET last_used_at = $1

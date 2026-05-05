@@ -55,5 +55,6 @@ type ApiKeyStore interface {
 	GetApiKeyByHash(ctx context.Context, keyHash string) (*ApiKey, error)
 	ListApiKeysByOrganization(ctx context.Context, orgID int64) ([]ApiKey, error)
 	RevokeApiKey(ctx context.Context, keyID string, orgID int64, revokedAt time.Time) (int64, error)
+	RevokeApiKeysByAgentID(ctx context.Context, agentID, orgID int64, revokedAt time.Time) (int64, error)
 	UpdateApiKeyLastUsed(ctx context.Context, id int64, lastUsedAt time.Time) error
 }

@@ -38,7 +38,7 @@ func setupEnrollmentTest(t *testing.T) (*sql.DB, int64, int64, *agentenrollment.
 	enrollmentSvc := agentenrollment.NewService(enrollmentStore, apiKeySvc, transactor)
 
 	authStore := sqlstores.NewSQLAgentAuthStore(db)
-	authSvc := agentauth.NewService(authStore, enrollmentStore, apiKeySvc)
+	authSvc := agentauth.NewService(authStore, enrollmentStore, apiKeySvc, transactor)
 
 	return db, 1, 1, enrollmentSvc, authSvc
 }
@@ -201,6 +201,47 @@ func TestConfirmRejectsExpiredEnrollment(t *testing.T) {
 
 	// Assert
 	require.Error(t, err)
+}
+
+func TestRevokeAgentLocksOutHandshake(t *testing.T) {
+	// Arrange
+	ctx := t.Context()
+	_, userID, orgID, enrollment, auth := setupEnrollmentTest(t)
+	pubKey, _, _ := ed25519.GenerateKey(rand.Reader)
+	signing, _, _ := ed25519.GenerateKey(rand.Reader)
+	code, _, _ := enrollment.CreateCode(ctx, userID, orgID, time.Hour)
+	agent, _, _ := enrollment.RegisterAgent(ctx, code, "agent-1", pubKey, signing)
+	apiKeyPlaintext, _, _ := enrollment.Confirm(ctx, agent.ID, orgID)
+
+	// Act
+	err := enrollment.RevokeAgent(ctx, agent.ID, orgID)
+
+	// Assert
+	require.NoError(t, err)
+	_, _, handshakeErr := auth.BeginHandshake(ctx, apiKeyPlaintext, pubKey)
+	require.Error(t, handshakeErr, "BeginHandshake must fail with revoked api_key")
+}
+
+func TestBeginHandshakeBoundsChallengesPerAgent(t *testing.T) {
+	// Arrange
+	ctx := t.Context()
+	db, userID, orgID, enrollment, auth := setupEnrollmentTest(t)
+	pubKey, _, _ := ed25519.GenerateKey(rand.Reader)
+	signing, _, _ := ed25519.GenerateKey(rand.Reader)
+	code, _, _ := enrollment.CreateCode(ctx, userID, orgID, time.Hour)
+	agent, _, _ := enrollment.RegisterAgent(ctx, code, "agent-1", pubKey, signing)
+	apiKeyPlaintext, _, _ := enrollment.Confirm(ctx, agent.ID, orgID)
+
+	// Act
+	_, _, err1 := auth.BeginHandshake(ctx, apiKeyPlaintext, pubKey)
+	require.NoError(t, err1)
+	_, _, err2 := auth.BeginHandshake(ctx, apiKeyPlaintext, pubKey)
+	require.NoError(t, err2)
+
+	// Assert
+	var count int
+	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM agent_auth_challenge WHERE agent_id = $1`, agent.ID).Scan(&count))
+	require.Equal(t, 1, count, "BeginHandshake must drop the prior challenge for this agent")
 }
 
 func TestConfirmRejectsBeforeRegister(t *testing.T) {

@@ -45,6 +45,10 @@ func (s apiKeyStoreStub) CreateAgentApiKey(ctx context.Context, key *interfaces.
 	return nil
 }
 
+func (s apiKeyStoreStub) RevokeApiKeysByAgentID(context.Context, int64, int64, time.Time) (int64, error) {
+	return 0, nil
+}
+
 func (s apiKeyStoreStub) GetApiKeyByHash(ctx context.Context, keyHash string) (*interfaces.ApiKey, error) {
 	if s.getByHashFn != nil {
 		return s.getByHashFn(ctx, keyHash)

@@ -125,6 +125,14 @@ func (s *SQLApiKeyStore) RevokeApiKey(ctx context.Context, keyID string, orgID i
 	})
 }
 
+func (s *SQLApiKeyStore) RevokeApiKeysByAgentID(ctx context.Context, agentID, orgID int64, revokedAt time.Time) (int64, error) {
+	return s.getQueries(ctx).RevokeApiKeysByAgentID(ctx, sqlc.RevokeApiKeysByAgentIDParams{
+		RevokedAt:      sql.NullTime{Time: revokedAt, Valid: true},
+		AgentID:        sql.NullInt64{Int64: agentID, Valid: true},
+		OrganizationID: orgID,
+	})
+}
+
 func (s *SQLApiKeyStore) UpdateApiKeyLastUsed(ctx context.Context, id int64, lastUsedAt time.Time) error {
 	return s.getQueries(ctx).UpdateApiKeyLastUsed(ctx, sqlc.UpdateApiKeyLastUsedParams{
 		LastUsedAt: sql.NullTime{Time: lastUsedAt, Valid: true},

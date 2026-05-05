@@ -65,6 +65,19 @@ func (q *Queries) CreateAgentSession(ctx context.Context, arg CreateAgentSession
 	return err
 }
 
+const deleteAgentAuthChallengesByAgentID = `-- name: DeleteAgentAuthChallengesByAgentID :execrows
+DELETE FROM agent_auth_challenge
+WHERE agent_id = $1
+`
+
+func (q *Queries) DeleteAgentAuthChallengesByAgentID(ctx context.Context, agentID int64) (int64, error) {
+	result, err := q.exec(ctx, q.deleteAgentAuthChallengesByAgentIDStmt, deleteAgentAuthChallengesByAgentID, agentID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const getAgentSessionByTokenHash = `-- name: GetAgentSessionByTokenHash :one
 SELECT s.token_hash, s.agent_id, s.expires_at, s.created_at,
        a.org_id, a.name, a.identity_pubkey

@@ -201,6 +201,26 @@ func (q *Queries) RevokeApiKey(ctx context.Context, arg RevokeApiKeyParams) (int
 	return result.RowsAffected()
 }
 
+const revokeApiKeysByAgentID = `-- name: RevokeApiKeysByAgentID :execrows
+UPDATE api_key
+SET revoked_at = $1
+WHERE agent_id = $2 AND organization_id = $3 AND revoked_at IS NULL
+`
+
+type RevokeApiKeysByAgentIDParams struct {
+	RevokedAt      sql.NullTime
+	AgentID        sql.NullInt64
+	OrganizationID int64
+}
+
+func (q *Queries) RevokeApiKeysByAgentID(ctx context.Context, arg RevokeApiKeysByAgentIDParams) (int64, error) {
+	result, err := q.exec(ctx, q.revokeApiKeysByAgentIDStmt, revokeApiKeysByAgentID, arg.RevokedAt, arg.AgentID, arg.OrganizationID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const updateApiKeyLastUsed = `-- name: UpdateApiKeyLastUsed :exec
 UPDATE api_key
 SET last_used_at = $1

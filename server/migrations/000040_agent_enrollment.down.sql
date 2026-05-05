@@ -1,3 +1,7 @@
+-- Drop agent-owned api_keys before restoring user_id NOT NULL; otherwise the
+-- ALTER below fails on rows created by ConfirmAgent.
+DELETE FROM api_key WHERE user_id IS NULL;
+
 DROP TABLE IF EXISTS agent_session;
 DROP TABLE IF EXISTS agent_auth_challenge;
 DROP TABLE IF EXISTS pending_enrollment;

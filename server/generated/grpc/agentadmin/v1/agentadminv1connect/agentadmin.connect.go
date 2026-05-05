@@ -46,6 +46,9 @@ const (
 	// AgentAdminServiceConfirmAgentProcedure is the fully-qualified name of the AgentAdminService's
 	// ConfirmAgent RPC.
 	AgentAdminServiceConfirmAgentProcedure = "/agentadmin.v1.AgentAdminService/ConfirmAgent"
+	// AgentAdminServiceRevokeAgentProcedure is the fully-qualified name of the AgentAdminService's
+	// RevokeAgent RPC.
+	AgentAdminServiceRevokeAgentProcedure = "/agentadmin.v1.AgentAdminService/RevokeAgent"
 )
 
 // AgentAdminServiceClient is a client for the agentadmin.v1.AgentAdminService service.
@@ -53,6 +56,7 @@ type AgentAdminServiceClient interface {
 	CreateEnrollmentCode(context.Context, *connect.Request[v1.CreateEnrollmentCodeRequest]) (*connect.Response[v1.CreateEnrollmentCodeResponse], error)
 	ListAgents(context.Context, *connect.Request[v1.ListAgentsRequest]) (*connect.Response[v1.ListAgentsResponse], error)
 	ConfirmAgent(context.Context, *connect.Request[v1.ConfirmAgentRequest]) (*connect.Response[v1.ConfirmAgentResponse], error)
+	RevokeAgent(context.Context, *connect.Request[v1.RevokeAgentRequest]) (*connect.Response[v1.RevokeAgentResponse], error)
 }
 
 // NewAgentAdminServiceClient constructs a client for the agentadmin.v1.AgentAdminService service.
@@ -80,6 +84,11 @@ func NewAgentAdminServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			baseURL+AgentAdminServiceConfirmAgentProcedure,
 			opts...,
 		),
+		revokeAgent: connect.NewClient[v1.RevokeAgentRequest, v1.RevokeAgentResponse](
+			httpClient,
+			baseURL+AgentAdminServiceRevokeAgentProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -88,6 +97,7 @@ type agentAdminServiceClient struct {
 	createEnrollmentCode *connect.Client[v1.CreateEnrollmentCodeRequest, v1.CreateEnrollmentCodeResponse]
 	listAgents           *connect.Client[v1.ListAgentsRequest, v1.ListAgentsResponse]
 	confirmAgent         *connect.Client[v1.ConfirmAgentRequest, v1.ConfirmAgentResponse]
+	revokeAgent          *connect.Client[v1.RevokeAgentRequest, v1.RevokeAgentResponse]
 }
 
 // CreateEnrollmentCode calls agentadmin.v1.AgentAdminService.CreateEnrollmentCode.
@@ -105,11 +115,17 @@ func (c *agentAdminServiceClient) ConfirmAgent(ctx context.Context, req *connect
 	return c.confirmAgent.CallUnary(ctx, req)
 }
 
+// RevokeAgent calls agentadmin.v1.AgentAdminService.RevokeAgent.
+func (c *agentAdminServiceClient) RevokeAgent(ctx context.Context, req *connect.Request[v1.RevokeAgentRequest]) (*connect.Response[v1.RevokeAgentResponse], error) {
+	return c.revokeAgent.CallUnary(ctx, req)
+}
+
 // AgentAdminServiceHandler is an implementation of the agentadmin.v1.AgentAdminService service.
 type AgentAdminServiceHandler interface {
 	CreateEnrollmentCode(context.Context, *connect.Request[v1.CreateEnrollmentCodeRequest]) (*connect.Response[v1.CreateEnrollmentCodeResponse], error)
 	ListAgents(context.Context, *connect.Request[v1.ListAgentsRequest]) (*connect.Response[v1.ListAgentsResponse], error)
 	ConfirmAgent(context.Context, *connect.Request[v1.ConfirmAgentRequest]) (*connect.Response[v1.ConfirmAgentResponse], error)
+	RevokeAgent(context.Context, *connect.Request[v1.RevokeAgentRequest]) (*connect.Response[v1.RevokeAgentResponse], error)
 }
 
 // NewAgentAdminServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -133,6 +149,11 @@ func NewAgentAdminServiceHandler(svc AgentAdminServiceHandler, opts ...connect.H
 		svc.ConfirmAgent,
 		opts...,
 	)
+	agentAdminServiceRevokeAgentHandler := connect.NewUnaryHandler(
+		AgentAdminServiceRevokeAgentProcedure,
+		svc.RevokeAgent,
+		opts...,
+	)
 	return "/agentadmin.v1.AgentAdminService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AgentAdminServiceCreateEnrollmentCodeProcedure:
@@ -141,6 +162,8 @@ func NewAgentAdminServiceHandler(svc AgentAdminServiceHandler, opts ...connect.H
 			agentAdminServiceListAgentsHandler.ServeHTTP(w, r)
 		case AgentAdminServiceConfirmAgentProcedure:
 			agentAdminServiceConfirmAgentHandler.ServeHTTP(w, r)
+		case AgentAdminServiceRevokeAgentProcedure:
+			agentAdminServiceRevokeAgentHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -160,4 +183,8 @@ func (UnimplementedAgentAdminServiceHandler) ListAgents(context.Context, *connec
 
 func (UnimplementedAgentAdminServiceHandler) ConfirmAgent(context.Context, *connect.Request[v1.ConfirmAgentRequest]) (*connect.Response[v1.ConfirmAgentResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentadmin.v1.AgentAdminService.ConfirmAgent is not implemented"))
+}
+
+func (UnimplementedAgentAdminServiceHandler) RevokeAgent(context.Context, *connect.Request[v1.RevokeAgentRequest]) (*connect.Response[v1.RevokeAgentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("agentadmin.v1.AgentAdminService.RevokeAgent is not implemented"))
 }

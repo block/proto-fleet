@@ -169,7 +169,7 @@ func start(config *Config) error {
 	agentEnrollmentStore := sqlstores.NewSQLAgentEnrollmentStore(conn)
 	agentEnrollmentSvc := agentenrollment.NewService(agentEnrollmentStore, apiKeySvc, transactor)
 	agentAuthStore := sqlstores.NewSQLAgentAuthStore(conn)
-	agentAuthSvc := agentauth.NewService(agentAuthStore, agentEnrollmentStore, apiKeySvc)
+	agentAuthSvc := agentauth.NewService(agentAuthStore, agentEnrollmentStore, apiKeySvc, transactor)
 
 	tokenSvc, err := tokenDomain.NewService(config.Auth)
 	if err != nil {

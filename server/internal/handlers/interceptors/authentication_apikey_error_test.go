@@ -33,6 +33,10 @@ func (s interceptorAPIKeyStoreStub) CreateAgentApiKey(context.Context, *interfac
 	return nil
 }
 
+func (s interceptorAPIKeyStoreStub) RevokeApiKeysByAgentID(context.Context, int64, int64, time.Time) (int64, error) {
+	return 0, nil
+}
+
 func (s interceptorAPIKeyStoreStub) GetApiKeyByHash(ctx context.Context, keyHash string) (*interfaces.ApiKey, error) {
 	if s.getByHashFn != nil {
 		return s.getByHashFn(ctx, keyHash)

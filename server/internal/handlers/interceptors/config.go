@@ -66,6 +66,7 @@ var SessionOnlyProcedures = []string{
 	agentadminv1connect.AgentAdminServiceCreateEnrollmentCodeProcedure,
 	agentadminv1connect.AgentAdminServiceListAgentsProcedure,
 	agentadminv1connect.AgentAdminServiceConfirmAgentProcedure,
+	agentadminv1connect.AgentAdminServiceRevokeAgentProcedure,
 }
 
 var UnauthenticatedProcedures = []string{
