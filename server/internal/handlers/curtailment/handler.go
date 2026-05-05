@@ -17,7 +17,7 @@ import (
 // them once prevents wording drift across the override call sites.
 const (
 	actionSupplyOverrideFields = "supply curtailment override fields"
-	actionTransitionEvents     = "transition curtailment events"
+	actionTerminateEvents      = "terminate curtailment events"
 )
 
 // Handler implements curtailment v1 stubs.
@@ -69,12 +69,12 @@ func (h *Handler) ListCurtailmentEvents(_ context.Context, _ *connect.Request[pb
 	return nil, errCurtailmentNotImplemented("ListCurtailmentEvents")
 }
 
-// AdminTransitionEvent forces a non-terminal event to a terminal state. Admin-only.
-func (h *Handler) AdminTransitionEvent(ctx context.Context, _ *connect.Request[pb.AdminTransitionEventRequest]) (*connect.Response[pb.AdminTransitionEventResponse], error) {
-	if err := requireAdminFromContext(ctx, actionTransitionEvents); err != nil {
+// AdminTerminateEvent forces a non-terminal event to a terminal state. Admin-only.
+func (h *Handler) AdminTerminateEvent(ctx context.Context, _ *connect.Request[pb.AdminTerminateEventRequest]) (*connect.Response[pb.AdminTerminateEventResponse], error) {
+	if err := requireAdminFromContext(ctx, actionTerminateEvents); err != nil {
 		return nil, err
 	}
-	return nil, errCurtailmentNotImplemented("AdminTransitionEvent")
+	return nil, errCurtailmentNotImplemented("AdminTerminateEvent")
 }
 
 // errCurtailmentNotImplemented standardizes stub errors.

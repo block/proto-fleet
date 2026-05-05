@@ -34,8 +34,8 @@ service CurtailmentService {
 
     // Admin recovery RPC: force a non-terminal event to a terminal state.
     // Session-only, Admin role. Manual fallback for the dead-reconciler runbook.
-    rpc AdminTransitionEvent(AdminTransitionEventRequest)
-        returns (AdminTransitionEventResponse);
+    rpc AdminTerminateEvent(AdminTerminateEventRequest)
+        returns (AdminTerminateEventResponse);
 
     // IngestCurtailmentSignal is reserved for v2 webhook ingestion.
     // Proto3 cannot reserve service RPC names.
@@ -507,7 +507,7 @@ message ListCurtailmentEventsResponse {
     string next_page_token = 2;
 }
 
-message AdminTransitionEventRequest {
+message AdminTerminateEventRequest {
     string event_uuid = 1 [(buf.validate.field).string.min_len = 1];
 
     // Restricted to CANCELLED (=6) or FAILED (=7); COMPLETED states are not
@@ -520,6 +520,6 @@ message AdminTransitionEventRequest {
     string reason = 3 [(buf.validate.field).string.min_len = 1];
 }
 
-message AdminTransitionEventResponse {
+message AdminTerminateEventResponse {
     CurtailmentEvent event = 1;
 }

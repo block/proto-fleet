@@ -21,15 +21,15 @@ func TestUpdateWorkerNamesProcedureIsRedacted(t *testing.T) {
 	assert.True(t, SensitiveBodyProcedures[procedure])
 }
 
-// AdminTransitionEvent is the operator-of-last-resort recovery RPC and must
+// AdminTerminateEvent is the operator-of-last-resort recovery RPC and must
 // reject API-key auth. The other curtailment write RPCs remain API-key-
 // accessible so external integrations can drive curtailment via the public API.
 func TestCurtailmentAdminProcedureIsSessionOnly(t *testing.T) {
 	t.Parallel()
 
 	assert.Contains(t, SessionOnlyProcedures,
-		curtailmentv1connect.CurtailmentServiceAdminTransitionEventProcedure,
-		"AdminTransitionEvent must be session-only; recovery escape hatch should not be reachable via API key")
+		curtailmentv1connect.CurtailmentServiceAdminTerminateEventProcedure,
+		"AdminTerminateEvent must be session-only; recovery escape hatch should not be reachable via API key")
 }
 
 // Every other curtailment RPC must remain reachable via API-key auth so
@@ -53,9 +53,9 @@ func TestCurtailmentNonAdminProceduresStayApiKeyAccessible(t *testing.T) {
 	}
 }
 
-// API-key auth on AdminTransitionEvent returns PermissionDenied. nil service
+// API-key auth on AdminTerminateEvent returns PermissionDenied. nil service
 // deps are fine — the SessionOnly branch returns before any service is touched.
-func TestAuthInterceptor_AdminTransitionEventRejectsApiKeyAuth(t *testing.T) {
+func TestAuthInterceptor_AdminTerminateEventRejectsApiKeyAuth(t *testing.T) {
 	t.Parallel()
 
 	interceptor := NewAuthInterceptor(nil, nil, nil, nil, nil, SessionOnlyProcedures)
@@ -65,7 +65,7 @@ func TestAuthInterceptor_AdminTransitionEventRejectsApiKeyAuth(t *testing.T) {
 
 	_, err := interceptor.authenticate(
 		context.Background(),
-		curtailmentv1connect.CurtailmentServiceAdminTransitionEventProcedure,
+		curtailmentv1connect.CurtailmentServiceAdminTerminateEventProcedure,
 		header,
 	)
 

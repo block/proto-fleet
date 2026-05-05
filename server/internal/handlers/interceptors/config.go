@@ -51,12 +51,12 @@ var SessionOnlyProcedures = []string{
 	authv1connect.AuthServiceResetUserPasswordProcedure,
 	authv1connect.AuthServiceDeactivateUserProcedure,
 	authv1connect.AuthServiceVerifyCredentialsProcedure,
-	// AdminTransitionEvent is the operator-of-last-resort recovery RPC; force a
+	// AdminTerminateEvent is the operator-of-last-resort recovery RPC; force a
 	// non-terminal event to a terminal state should not be reachable via a
 	// long-lived bearer token. Start / Stop / Update / Preview / GetActive /
 	// List remain API-key-accessible so external integrations can drive
 	// curtailment via the public API.
-	curtailmentv1connect.CurtailmentServiceAdminTransitionEventProcedure,
+	curtailmentv1connect.CurtailmentServiceAdminTerminateEventProcedure,
 }
 
 var UnauthenticatedProcedures = []string{

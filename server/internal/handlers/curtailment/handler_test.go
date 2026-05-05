@@ -21,8 +21,8 @@ import (
 )
 
 // Non-admin-gated v1 routes are wired and return CodeUnimplemented when
-// called without override fields. AdminTransitionEvent's Unimplemented body
-// is covered by TestHandler_AdminTransitionEventRoleGate (admin/super-admin
+// called without override fields. AdminTerminateEvent's Unimplemented body
+// is covered by TestHandler_AdminTerminateEventRoleGate (admin/super-admin
 // subcases), since its admin-role gate fires before the body.
 func TestHandler_NonAdminRPCsReturnUnimplemented(t *testing.T) {
 	t.Parallel()
@@ -235,13 +235,13 @@ func TestHandler_RequestValidation(t *testing.T) {
 	})
 }
 
-// AdminTransitionEvent rejects non-Admin roles before the Unimplemented body.
+// AdminTerminateEvent rejects non-Admin roles before the Unimplemented body.
 // Direct handler call so session.Info can be injected via authn.SetInfo.
-func TestHandler_AdminTransitionEventRoleGate(t *testing.T) {
+func TestHandler_AdminTerminateEventRoleGate(t *testing.T) {
 	t.Parallel()
 
 	h := NewHandler()
-	req := connect.NewRequest(&pb.AdminTransitionEventRequest{
+	req := connect.NewRequest(&pb.AdminTerminateEventRequest{
 		EventUuid:   "event-uuid",
 		TargetState: pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_CANCELLED,
 		Reason:      "operator role-gate test",
@@ -266,7 +266,7 @@ func TestHandler_AdminTransitionEventRoleGate(t *testing.T) {
 				Role: tc.role,
 			})
 
-			_, err := h.AdminTransitionEvent(ctx, req)
+			_, err := h.AdminTerminateEvent(ctx, req)
 
 			require.Error(t, err)
 			var fleetErr fleeterror.FleetError
@@ -276,18 +276,18 @@ func TestHandler_AdminTransitionEventRoleGate(t *testing.T) {
 	}
 }
 
-// buf.validate constraints on AdminTransitionEventRequest: event_uuid
+// buf.validate constraints on AdminTerminateEventRequest: event_uuid
 // min_len, target_state restricted to CANCELLED/FAILED, reason min_len.
 // Validator-passed requests reach the handler and surface CodeInternal from
 // session.GetInfo (no session in context); we accept that as "validator
-// passed". Role-gate behavior is covered by TestHandler_AdminTransitionEventRoleGate.
-func TestHandler_AdminTransitionEventValidation(t *testing.T) {
+// passed". Role-gate behavior is covered by TestHandler_AdminTerminateEventRoleGate.
+func TestHandler_AdminTerminateEventValidation(t *testing.T) {
 	t.Parallel()
 
 	client := newValidationTestClient(t)
 
-	validReq := func() *pb.AdminTransitionEventRequest {
-		return &pb.AdminTransitionEventRequest{
+	validReq := func() *pb.AdminTerminateEventRequest {
+		return &pb.AdminTerminateEventRequest{
 			EventUuid:   "00000000-0000-0000-0000-000000000001",
 			TargetState: pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_CANCELLED,
 			Reason:      "operator validation test",
@@ -296,69 +296,69 @@ func TestHandler_AdminTransitionEventValidation(t *testing.T) {
 
 	cases := []struct {
 		name     string
-		mutate   func(*pb.AdminTransitionEventRequest)
+		mutate   func(*pb.AdminTerminateEventRequest)
 		wantCode connect.Code
 	}{
 		{
 			"valid CANCELLED reaches handler",
-			func(*pb.AdminTransitionEventRequest) {},
+			func(*pb.AdminTerminateEventRequest) {},
 			connect.CodeInternal,
 		},
 		{
 			"valid FAILED reaches handler",
-			func(r *pb.AdminTransitionEventRequest) {
+			func(r *pb.AdminTerminateEventRequest) {
 				r.TargetState = pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_FAILED
 			},
 			connect.CodeInternal,
 		},
 		{
 			"empty event_uuid is rejected",
-			func(r *pb.AdminTransitionEventRequest) { r.EventUuid = "" },
+			func(r *pb.AdminTerminateEventRequest) { r.EventUuid = "" },
 			connect.CodeInvalidArgument,
 		},
 		{
 			"empty reason is rejected",
-			func(r *pb.AdminTransitionEventRequest) { r.Reason = "" },
+			func(r *pb.AdminTerminateEventRequest) { r.Reason = "" },
 			connect.CodeInvalidArgument,
 		},
 		{
 			"target_state UNSPECIFIED is rejected",
-			func(r *pb.AdminTransitionEventRequest) {
+			func(r *pb.AdminTerminateEventRequest) {
 				r.TargetState = pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_UNSPECIFIED
 			},
 			connect.CodeInvalidArgument,
 		},
 		{
 			"target_state PENDING is rejected",
-			func(r *pb.AdminTransitionEventRequest) {
+			func(r *pb.AdminTerminateEventRequest) {
 				r.TargetState = pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_PENDING
 			},
 			connect.CodeInvalidArgument,
 		},
 		{
 			"target_state ACTIVE is rejected",
-			func(r *pb.AdminTransitionEventRequest) {
+			func(r *pb.AdminTerminateEventRequest) {
 				r.TargetState = pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_ACTIVE
 			},
 			connect.CodeInvalidArgument,
 		},
 		{
 			"target_state RESTORING is rejected",
-			func(r *pb.AdminTransitionEventRequest) {
+			func(r *pb.AdminTerminateEventRequest) {
 				r.TargetState = pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_RESTORING
 			},
 			connect.CodeInvalidArgument,
 		},
 		{
 			"target_state COMPLETED is rejected (would misreport real outcome)",
-			func(r *pb.AdminTransitionEventRequest) {
+			func(r *pb.AdminTerminateEventRequest) {
 				r.TargetState = pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_COMPLETED
 			},
 			connect.CodeInvalidArgument,
 		},
 		{
 			"target_state COMPLETED_WITH_FAILURES is rejected (would misreport real outcome)",
-			func(r *pb.AdminTransitionEventRequest) {
+			func(r *pb.AdminTerminateEventRequest) {
 				r.TargetState = pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_COMPLETED_WITH_FAILURES
 			},
 			connect.CodeInvalidArgument,
@@ -372,7 +372,7 @@ func TestHandler_AdminTransitionEventValidation(t *testing.T) {
 			req := validReq()
 			tc.mutate(req)
 
-			_, err := client.AdminTransitionEvent(t.Context(), connect.NewRequest(req))
+			_, err := client.AdminTerminateEvent(t.Context(), connect.NewRequest(req))
 
 			require.Error(t, err)
 			var connectErr *connect.Error
@@ -516,18 +516,18 @@ func TestHandler_NoOverrideSkipsRoleGate(t *testing.T) {
 	assert.Equal(t, connect.CodeUnimplemented, fleetErr.GRPCCode, "Stop without override must skip role gate")
 }
 
-// AdminTransitionEvent rejects a request with no session info in context.
-func TestHandler_AdminTransitionEventRejectsMissingSession(t *testing.T) {
+// AdminTerminateEvent rejects a request with no session info in context.
+func TestHandler_AdminTerminateEventRejectsMissingSession(t *testing.T) {
 	t.Parallel()
 
 	h := NewHandler()
-	req := connect.NewRequest(&pb.AdminTransitionEventRequest{
+	req := connect.NewRequest(&pb.AdminTerminateEventRequest{
 		EventUuid:   "event-uuid",
 		TargetState: pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_CANCELLED,
 		Reason:      "missing-session test",
 	})
 
-	_, err := h.AdminTransitionEvent(t.Context(), req)
+	_, err := h.AdminTerminateEvent(t.Context(), req)
 
 	require.Error(t, err)
 	// session.GetInfo returns an internal error when no Info is in context,
