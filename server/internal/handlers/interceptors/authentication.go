@@ -24,6 +24,7 @@ type AuthInterceptor struct {
 	apiKeyService   *apikey.Service
 	allowList       map[string]struct{}
 	sessionOnlyList map[string]struct{}
+	agentAuthList   map[string]struct{}
 }
 
 var _ connect.Interceptor = &AuthInterceptor{}
@@ -35,6 +36,7 @@ func NewAuthInterceptor(
 	apiKeyService *apikey.Service,
 	allowedProcedures []string,
 	sessionOnlyProcedures []string,
+	agentAuthProcedures []string,
 ) *AuthInterceptor {
 	allowList := make(map[string]struct{})
 	for _, item := range allowedProcedures {
@@ -46,6 +48,11 @@ func NewAuthInterceptor(
 		sessionOnlyList[item] = struct{}{}
 	}
 
+	agentAuthList := make(map[string]struct{})
+	for _, item := range agentAuthProcedures {
+		agentAuthList[item] = struct{}{}
+	}
+
 	return &AuthInterceptor{
 		sessionService:  sessionService,
 		userStore:       userStore,
@@ -53,6 +60,7 @@ func NewAuthInterceptor(
 		apiKeyService:   apiKeyService,
 		allowList:       allowList,
 		sessionOnlyList: sessionOnlyList,
+		agentAuthList:   agentAuthList,
 	}
 }
 
@@ -89,6 +97,9 @@ func (i *AuthInterceptor) authenticate(ctx context.Context, procedure string, re
 	if _, ok := i.allowList[procedure]; ok {
 		return ctx, nil
 	}
+	if _, ok := i.agentAuthList[procedure]; ok {
+		return ctx, nil
+	}
 
 	hasAuthHeader := requestHeader.Get("Authorization") != ""
 	hasSessionCookie := i.hasSessionCookie(requestHeader)
@@ -121,14 +132,21 @@ func (i *AuthInterceptor) authenticateWithApiKey(ctx context.Context, authHeader
 		return ctx, err
 	}
 
-	user, err := i.userStore.GetUserByID(ctx, apiKeyRecord.UserID)
+	// Agent-owned api_keys never reach the user-session AuthInterceptor; they
+	// flow through AgentAuthInterceptor at the agentgateway entry points.
+	if apiKeyRecord.SubjectKind != interfaces.ApiKeySubjectKindUser || apiKeyRecord.UserID == nil {
+		return ctx, fleeterror.NewUnauthenticatedError("invalid api key")
+	}
+	userID := *apiKeyRecord.UserID
+
+	user, err := i.userStore.GetUserByID(ctx, userID)
 	if err != nil {
-		return ctx, classifyLookupError(err, "api key auth: user lookup failed", apiKeyRecord.UserID)
+		return ctx, classifyLookupError(err, "api key auth: user lookup failed", userID)
 	}
 
-	roleName, err := i.userMgmtStore.GetUserRoleName(ctx, apiKeyRecord.UserID, apiKeyRecord.OrganizationID)
+	roleName, err := i.userMgmtStore.GetUserRoleName(ctx, userID, apiKeyRecord.OrganizationID)
 	if err != nil {
-		return ctx, classifyLookupError(err, "api key auth: role lookup failed", apiKeyRecord.UserID)
+		return ctx, classifyLookupError(err, "api key auth: role lookup failed", userID)
 	}
 
 	i.apiKeyService.RecordSuccessfulUse(ctx, apiKeyRecord)
@@ -136,7 +154,7 @@ func (i *AuthInterceptor) authenticateWithApiKey(ctx context.Context, authHeader
 	info := &session.Info{
 		AuthMethod:     session.AuthMethodAPIKey,
 		APIKeyID:       apiKeyRecord.KeyID,
-		UserID:         apiKeyRecord.UserID,
+		UserID:         userID,
 		OrganizationID: apiKeyRecord.OrganizationID,
 		ExternalUserID: user.UserID,
 		Username:       user.Username,

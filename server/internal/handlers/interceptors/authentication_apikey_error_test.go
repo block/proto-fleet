@@ -29,6 +29,10 @@ func (s interceptorAPIKeyStoreStub) CreateApiKey(context.Context, *interfaces.Ap
 	return nil
 }
 
+func (s interceptorAPIKeyStoreStub) CreateAgentApiKey(context.Context, *interfaces.ApiKey) error {
+	return nil
+}
+
 func (s interceptorAPIKeyStoreStub) GetApiKeyByHash(ctx context.Context, keyHash string) (*interfaces.ApiKey, error) {
 	if s.getByHashFn != nil {
 		return s.getByHashFn(ctx, keyHash)
@@ -58,7 +62,7 @@ func TestAuthInterceptor_SanitizesAPIKeyValidationErrors(t *testing.T) {
 
 	opts := connect.WithInterceptors(
 		interceptors.NewErrorMappingInterceptor(),
-		interceptors.NewAuthInterceptor(nil, nil, nil, apiKeyService, nil, nil),
+		interceptors.NewAuthInterceptor(nil, nil, nil, apiKeyService, nil, nil, nil),
 	)
 
 	mux := http.NewServeMux()

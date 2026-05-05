@@ -106,13 +106,77 @@ func (s *Service) tryCreate(ctx context.Context, userID, orgID int64, name strin
 		Name:           name,
 		Prefix:         prefix,
 		KeyHash:        keyHash,
-		UserID:         userID,
+		SubjectKind:    interfaces.ApiKeySubjectKindUser,
+		UserID:         &userID,
 		OrganizationID: orgID,
 		CreatedAt:      now,
 		ExpiresAt:      expiresAt,
 	}
 
 	if err := s.store.CreateApiKey(ctx, apiKey); err != nil {
+		return "", nil, err
+	}
+
+	return fullKey, apiKey, nil
+}
+
+// CreateAgent issues an api_key bound to an agent rather than a user. Returns
+// the plaintext key exactly once (never re-fetchable). Retries on prefix
+// collision up to maxCreateRetries times, mirroring Create.
+func (s *Service) CreateAgent(ctx context.Context, agentID, orgID int64, name string, expiresAt *time.Time) (string, *interfaces.ApiKey, error) {
+	if expiresAt != nil && !expiresAt.After(time.Now().UTC()) {
+		return "", nil, fleeterror.NewInvalidArgumentError("expiration date must be in the future")
+	}
+	var lastErr error
+	for attempt := range maxCreateRetries {
+		fullKey, apiKey, err := s.tryCreateAgent(ctx, agentID, orgID, name, expiresAt)
+		if err == nil {
+			return fullKey, apiKey, nil
+		}
+		if !db.IsUniqueViolationError(err) {
+			return "", nil, logInternalError("agent api key creation failed", createAPIKeyClientError, err)
+		}
+		lastErr = err
+		slog.Debug("agent api key prefix collision, retrying", "attempt", attempt+1)
+	}
+	return "", nil, logInternalError(
+		"agent api key creation failed after retries",
+		createAPIKeyClientError,
+		lastErr,
+		"attempts", maxCreateRetries,
+	)
+}
+
+func (s *Service) tryCreateAgent(ctx context.Context, agentID, orgID int64, name string, expiresAt *time.Time) (string, *interfaces.ApiKey, error) {
+	prefixBytes := make([]byte, prefixRandomBytes)
+	if _, err := rand.Read(prefixBytes); err != nil {
+		return "", nil, fmt.Errorf("failed to generate api key prefix: %w", err)
+	}
+	prefix := hex.EncodeToString(prefixBytes)
+
+	secretBytes := make([]byte, secretRandomBytes)
+	if _, err := rand.Read(secretBytes); err != nil {
+		return "", nil, fmt.Errorf("failed to generate api key secret: %w", err)
+	}
+	secret := base64.RawURLEncoding.EncodeToString(secretBytes)
+
+	fullKey := fmt.Sprintf("%s_%s_%s", keyPrefix, prefix, secret)
+	keyHash := hashKey(fullKey)
+
+	now := time.Now().UTC()
+	apiKey := &interfaces.ApiKey{
+		KeyID:          id.GenerateID(),
+		Name:           name,
+		Prefix:         prefix,
+		KeyHash:        keyHash,
+		SubjectKind:    interfaces.ApiKeySubjectKindAgent,
+		AgentID:        &agentID,
+		OrganizationID: orgID,
+		CreatedAt:      now,
+		ExpiresAt:      expiresAt,
+	}
+
+	if err := s.store.CreateAgentApiKey(ctx, apiKey); err != nil {
 		return "", nil, err
 	}
 

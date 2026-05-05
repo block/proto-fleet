@@ -1,14 +1,18 @@
 -- name: CreateApiKey :exec
-INSERT INTO api_key (key_id, name, prefix, key_hash, user_id, organization_id, created_at, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8);
+INSERT INTO api_key (key_id, name, prefix, key_hash, user_id, organization_id, subject_kind, created_at, expires_at)
+VALUES ($1, $2, $3, $4, $5, $6, 'user', $7, $8);
+
+-- name: CreateAgentApiKey :exec
+INSERT INTO api_key (key_id, name, prefix, key_hash, agent_id, organization_id, subject_kind, created_at, expires_at)
+VALUES ($1, $2, $3, $4, $5, $6, 'agent', $7, $8);
 
 -- name: GetApiKeyByHash :one
-SELECT ak.*, u.username AS created_by_username
+SELECT ak.*, COALESCE(u.username, '')::text AS created_by_username
 FROM api_key ak
-JOIN "user" u ON ak.user_id = u.id
+LEFT JOIN "user" u ON ak.user_id = u.id
 WHERE ak.key_hash = $1
   AND ak.revoked_at IS NULL
-  AND u.deleted_at IS NULL;
+  AND (ak.user_id IS NULL OR u.deleted_at IS NULL);
 
 -- name: ListApiKeysByOrganization :many
 SELECT ak.id, ak.key_id, ak.name, ak.prefix, ak.user_id, ak.organization_id,
@@ -17,6 +21,7 @@ SELECT ak.id, ak.key_id, ak.name, ak.prefix, ak.user_id, ak.organization_id,
 FROM api_key ak
 JOIN "user" u ON ak.user_id = u.id
 WHERE ak.organization_id = $1
+  AND ak.subject_kind = 'user'
   AND ak.revoked_at IS NULL
   AND u.deleted_at IS NULL
 ORDER BY ak.created_at DESC;

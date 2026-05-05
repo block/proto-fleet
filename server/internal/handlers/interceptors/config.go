@@ -64,12 +64,18 @@ var UnauthenticatedProcedures = []string{
 	authv1connect.AuthServiceAuthenticateProcedure,
 	onboardingv1connect.OnboardingServiceCreateAdminLoginProcedure,
 	onboardingv1connect.OnboardingServiceGetFleetInitStatusProcedure,
-	// AgentGatewayService uses session_token in Authorization metadata,
-	// which the user-session AuthInterceptor cannot validate; the handler
-	// is responsible for validating agent credentials itself.
+	// Bootstrap RPCs: the agent has no session_token yet. Register validates
+	// an enrollment_token in the body; the handshake validates an api_key.
 	agentgatewayv1connect.AgentGatewayServiceRegisterProcedure,
 	agentgatewayv1connect.AgentGatewayServiceBeginAuthHandshakeProcedure,
 	agentgatewayv1connect.AgentGatewayServiceCompleteAuthHandshakeProcedure,
+}
+
+// AgentAuthenticatedProcedures lists procedures gated by AgentAuthInterceptor
+// (Authorization: Bearer <session_token>). The user-session AuthInterceptor
+// short-circuits these so the two interceptors don't fight over the same
+// procedure.
+var AgentAuthenticatedProcedures = []string{
 	agentgatewayv1connect.AgentGatewayServiceUploadTelemetryProcedure,
 	agentgatewayv1connect.AgentGatewayServiceUploadEventsProcedure,
 	agentgatewayv1connect.AgentGatewayServiceUploadHeartbeatProcedure,
