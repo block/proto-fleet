@@ -81,17 +81,15 @@ func (h *Handler) ConfirmAgent(ctx context.Context, req *connect.Request[pb.Conf
 	return connect.NewResponse(resp), nil
 }
 
-func enrollmentStatusToProto(status string) pb.AgentEnrollmentStatus {
-	switch status {
-	case "PENDING":
-		return pb.AgentEnrollmentStatus_AGENT_ENROLLMENT_STATUS_PENDING
-	case "AWAITING_CONFIRMATION":
-		return pb.AgentEnrollmentStatus_AGENT_ENROLLMENT_STATUS_AWAITING_CONFIRMATION
-	case "CONFIRMED":
-		return pb.AgentEnrollmentStatus_AGENT_ENROLLMENT_STATUS_CONFIRMED
-	case "REVOKED":
-		return pb.AgentEnrollmentStatus_AGENT_ENROLLMENT_STATUS_REVOKED
-	default:
-		return pb.AgentEnrollmentStatus_AGENT_ENROLLMENT_STATUS_UNSPECIFIED
+var agentStatusToProto = map[agentenrollment.AgentStatus]pb.AgentEnrollmentStatus{
+	agentenrollment.AgentStatusPending:   pb.AgentEnrollmentStatus_AGENT_ENROLLMENT_STATUS_PENDING,
+	agentenrollment.AgentStatusConfirmed: pb.AgentEnrollmentStatus_AGENT_ENROLLMENT_STATUS_CONFIRMED,
+	agentenrollment.AgentStatusRevoked:   pb.AgentEnrollmentStatus_AGENT_ENROLLMENT_STATUS_REVOKED,
+}
+
+func enrollmentStatusToProto(status agentenrollment.AgentStatus) pb.AgentEnrollmentStatus {
+	if v, ok := agentStatusToProto[status]; ok {
+		return v
 	}
+	return pb.AgentEnrollmentStatus_AGENT_ENROLLMENT_STATUS_UNSPECIFIED
 }

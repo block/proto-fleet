@@ -12,6 +12,14 @@ const (
 	StatusCancelled            Status = "CANCELLED"
 )
 
+type AgentStatus string
+
+const (
+	AgentStatusPending   AgentStatus = "PENDING"
+	AgentStatusConfirmed AgentStatus = "CONFIRMED"
+	AgentStatusRevoked   AgentStatus = "REVOKED"
+)
+
 type PendingEnrollment struct {
 	ID         int64
 	CodeHash   string
@@ -30,7 +38,7 @@ type Agent struct {
 	Name               string
 	IdentityPubkey     []byte
 	MinerSigningPubkey []byte
-	EnrollmentStatus   string
+	EnrollmentStatus   AgentStatus
 	LastSeenAt         *time.Time
 	CreatedAt          time.Time
 	UpdatedAt          time.Time

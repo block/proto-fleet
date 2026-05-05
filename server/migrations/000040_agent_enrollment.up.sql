@@ -1,7 +1,3 @@
--- api_key gains an agent subject mode in addition to the existing user mode.
--- Existing rows back-fill to subject_kind='user'; the CHECK guarantees exactly
--- one of (user_id, agent_id) is populated for any row.
-
 ALTER TABLE api_key
     ALTER COLUMN user_id DROP NOT NULL,
     ADD COLUMN agent_id BIGINT NULL,

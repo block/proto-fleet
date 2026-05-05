@@ -136,9 +136,9 @@ func (s *SQLAgentEnrollmentStore) ListAgentsForOrganization(ctx context.Context,
 	return out, nil
 }
 
-func (s *SQLAgentEnrollmentStore) SetAgentEnrollmentStatus(ctx context.Context, status string, agentID, orgID int64) (int64, error) {
+func (s *SQLAgentEnrollmentStore) SetAgentEnrollmentStatus(ctx context.Context, status agentenrollment.AgentStatus, agentID, orgID int64) (int64, error) {
 	return s.q(ctx).SetAgentEnrollmentStatus(ctx, sqlc.SetAgentEnrollmentStatusParams{
-		EnrollmentStatus: status,
+		EnrollmentStatus: string(status),
 		ID:               agentID,
 		OrgID:            orgID,
 	})
@@ -165,7 +165,7 @@ func rowToAgent(id, orgID int64, name string, identityPubkey, minerSigningPubkey
 		Name:               name,
 		IdentityPubkey:     identityPubkey,
 		MinerSigningPubkey: minerSigningPubkey,
-		EnrollmentStatus:   status,
+		EnrollmentStatus:   agentenrollment.AgentStatus(status),
 		LastSeenAt:         nullTimeToPtr(lastSeenAt),
 		CreatedAt:          createdAt,
 		UpdatedAt:          updatedAt,

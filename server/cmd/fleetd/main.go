@@ -184,7 +184,7 @@ func start(config *Config) error {
 	authSvc := authDomain.NewService(userStore, userStore, transactor, tokenSvc, sessionSvc, encryptSvc, activitySvc)
 
 	// Start session cleanup goroutine
-	sessionCleanupCtx, sessionCleanupCancel := context.WithCancel(context.Background())
+	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
 	go func() {
 		ticker := time.NewTicker(sessionSvc.CleanupInterval())
 		defer ticker.Stop()
@@ -192,45 +192,27 @@ func start(config *Config) error {
 		for {
 			select {
 			case <-ticker.C:
-				deleted, err := sessionSvc.CleanupExpired(context.Background())
-				if err != nil {
+				if deleted, err := sessionSvc.CleanupExpired(cleanupCtx); err != nil {
 					slog.Error("failed to cleanup expired sessions", "error", err)
 				} else if deleted > 0 {
 					slog.Debug("cleaned up expired sessions", "count", deleted)
 				}
-			case <-sessionCleanupCtx.Done():
-				return
-			}
-		}
-	}()
-	defer sessionCleanupCancel()
-
-	agentSweepCtx, agentSweepCancel := context.WithCancel(context.Background())
-	go func() {
-		ticker := time.NewTicker(sessionSvc.CleanupInterval())
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ticker.C:
-				bg := context.Background()
-				if swept, err := agentEnrollmentSvc.SweepExpired(bg); err != nil {
+				if swept, err := agentEnrollmentSvc.SweepExpired(cleanupCtx); err != nil {
 					slog.Error("failed to sweep expired agent enrollments", "error", err)
 				} else if swept > 0 {
 					slog.Debug("swept expired agent enrollments", "count", swept)
 				}
-				challenges, sessions, err := agentAuthSvc.SweepExpired(bg)
-				if err != nil {
+				if challenges, sessions, err := agentAuthSvc.SweepExpired(cleanupCtx); err != nil {
 					slog.Error("failed to sweep expired agent auth state", "error", err)
 				} else if challenges > 0 || sessions > 0 {
 					slog.Debug("swept expired agent auth state", "challenges", challenges, "sessions", sessions)
 				}
-			case <-agentSweepCtx.Done():
+			case <-cleanupCtx.Done():
 				return
 			}
 		}
 	}()
-	defer agentSweepCancel()
+	defer cleanupCancel()
 
 	if err := config.Plugins.Validate(); err != nil {
 		return fmt.Errorf("invalid plugin configuration: %w", err)

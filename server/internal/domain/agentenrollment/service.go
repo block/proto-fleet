@@ -1,9 +1,3 @@
-// Package agentenrollment manages the operator-issued enrollment-code lifecycle.
-//
-// Codes are 32 random bytes shown to the operator once at creation; only the
-// SHA-256 hash is persisted. State machine: PENDING (created) -> AWAITING_CONFIRMATION
-// (agent registered, fingerprint visible to operator) -> CONFIRMED (operator
-// confirmed; api_key issued). EXPIRED and CANCELLED are terminal failure states.
 package agentenrollment
 
 import (
@@ -12,13 +6,12 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
-	"errors"
-	"log/slog"
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/apikey"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/infrastructure/cryptohash"
 )
 
 const (
@@ -32,6 +25,8 @@ const (
 	clientErrConfirmAgent  = "agent confirmation failed"
 	clientErrCancel        = "enrollment cancellation failed"
 	clientErrListAgents    = "failed to list agents"
+
+	component = "agent enrollment"
 )
 
 type PendingEnrollmentStore interface {
@@ -49,11 +44,9 @@ type AgentStore interface {
 	GetAgentByID(ctx context.Context, agentID, orgID int64) (*Agent, error)
 	GetAgentByIDUnscoped(ctx context.Context, agentID int64) (*Agent, error)
 	ListAgentsForOrganization(ctx context.Context, orgID int64) ([]Agent, error)
-	SetAgentEnrollmentStatus(ctx context.Context, status string, agentID, orgID int64) (int64, error)
+	SetAgentEnrollmentStatus(ctx context.Context, status AgentStatus, agentID, orgID int64) (int64, error)
 }
 
-// Store is the union of pending-enrollment and agent-row operations the
-// service needs. Implementations typically satisfy both via one SQL store.
 type Store interface {
 	PendingEnrollmentStore
 	AgentStore
@@ -69,9 +62,8 @@ func NewService(store Store, apiKeySvc *apikey.Service, transactor stores.Transa
 	return &Service{store: store, apiKeySvc: apiKeySvc, transactor: transactor}
 }
 
-// CreateCode generates a new enrollment code and stores its hash. The plaintext
-// is returned exactly once; the operator hands it to the agent operator
-// out-of-band.
+// CreateCode mints an enrollment code. Plaintext is returned exactly once;
+// only the SHA-256 hash is persisted.
 func (s *Service) CreateCode(ctx context.Context, userID, orgID int64, ttl time.Duration) (string, time.Time, error) {
 	if ttl <= 0 {
 		ttl = defaultCodeTTL
@@ -88,9 +80,6 @@ func (s *Service) CreateCode(ctx context.Context, userID, orgID int64, ttl time.
 	return plaintext, expiresAt, nil
 }
 
-// resolveCode validates an incoming plaintext code from a Register call.
-// Returns the matching pending enrollment if PENDING and unexpired; otherwise
-// a fixed Unauthenticated error.
 func (s *Service) resolveCode(ctx context.Context, plaintextCode string) (*PendingEnrollment, error) {
 	row, err := s.store.GetPendingEnrollmentByCodeHash(ctx, hashCode(plaintextCode))
 	if err != nil {
@@ -108,10 +97,8 @@ func (s *Service) resolveCode(ctx context.Context, plaintextCode string) (*Pendi
 	return row, nil
 }
 
-// RegisterAgent atomically creates the agent row and binds the pending
-// enrollment to it. The pending enrollment must be in PENDING state.
-// Wrapped in a transaction so a partial failure cannot leave an orphan agent
-// row behind a still-PENDING code.
+// RegisterAgent runs in a transaction so a partial failure cannot leave an
+// orphan agent row behind a still-PENDING enrollment code.
 func (s *Service) RegisterAgent(ctx context.Context, plaintextCode, name string, identityPubkey, minerSigningPubkey []byte) (*Agent, *PendingEnrollment, error) {
 	var (
 		agent *Agent
@@ -143,10 +130,10 @@ func (s *Service) RegisterAgent(ctx context.Context, plaintextCode, name string,
 	return agent, pe, nil
 }
 
-// Confirm flips an AWAITING_CONFIRMATION enrollment to CONFIRMED, marks the
-// agent CONFIRMED, and issues an api_key for the agent. Returns the plaintext
-// api_key (one-time view, never re-fetchable). Rejects expired rows directly
-// rather than relying on the sweeper to flip them.
+// Confirm runs in a transaction: confirm enrollment, mark agent CONFIRMED,
+// issue the api_key. The plaintext api_key is returned exactly once. Rejects
+// expired rows directly so the sweeper can be slow without expanding the
+// confirmable window.
 func (s *Service) Confirm(ctx context.Context, agentID, orgID int64) (string, time.Time, error) {
 	var (
 		plaintext string
@@ -174,7 +161,7 @@ func (s *Service) Confirm(ctx context.Context, agentID, orgID int64) (string, ti
 		if rows == 0 {
 			return fleeterror.NewFailedPreconditionError("enrollment state changed; refresh and retry")
 		}
-		if _, err := s.store.SetAgentEnrollmentStatus(ctx, "CONFIRMED", agentID, orgID); err != nil {
+		if _, err := s.store.SetAgentEnrollmentStatus(ctx, AgentStatusConfirmed, agentID, orgID); err != nil {
 			return logInternal("update agent status", clientErrConfirmAgent, err)
 		}
 		key, apiKey, err := s.apiKeySvc.CreateAgent(ctx, agentID, orgID, agentApiKeyLabel, nil)
@@ -192,8 +179,6 @@ func (s *Service) Confirm(ctx context.Context, agentID, orgID int64) (string, ti
 	return plaintext, expires, nil
 }
 
-// Cancel marks a PENDING enrollment as cancelled. Returns NotFound if the
-// enrollment doesn't exist, doesn't belong to the org, or is past PENDING.
 func (s *Service) Cancel(ctx context.Context, enrollmentID, orgID int64) error {
 	rows, err := s.store.CancelPendingEnrollment(ctx, enrollmentID, orgID, time.Now().UTC())
 	if err != nil {
@@ -205,13 +190,10 @@ func (s *Service) Cancel(ctx context.Context, enrollmentID, orgID int64) error {
 	return nil
 }
 
-// SweepExpired flips PENDING/AWAITING_CONFIRMATION rows past their TTL to
-// EXPIRED. Should run periodically alongside session cleanup.
 func (s *Service) SweepExpired(ctx context.Context) (int64, error) {
 	return s.store.SweepExpiredEnrollments(ctx, time.Now().UTC())
 }
 
-// ListAgents returns all non-deleted agents for an organization.
 func (s *Service) ListAgents(ctx context.Context, orgID int64) ([]Agent, error) {
 	agents, err := s.store.ListAgentsForOrganization(ctx, orgID)
 	if err != nil {
@@ -220,28 +202,18 @@ func (s *Service) ListAgents(ctx context.Context, orgID int64) ([]Agent, error) 
 	return agents, nil
 }
 
-// IdentityFingerprint produces the operator-visible fingerprint for an
-// identity public key. Hex-encoded, 16 chars (8 bytes of SHA-256).
+// IdentityFingerprint is the short hex form the operator visually compares to
+// the value the agent prints locally on first run. 16 hex chars = 64 bits of
+// SHA-256, enough to reject a substituted-pubkey attack with a brief glance.
 func IdentityFingerprint(identityPubkey []byte) string {
 	h := sha256.Sum256(identityPubkey)
 	return hex.EncodeToString(h[:8])
 }
 
 func hashCode(plaintext string) string {
-	h := sha256.Sum256([]byte(plaintext))
-	return hex.EncodeToString(h[:])
+	return cryptohash.Sha256Hex(plaintext)
 }
 
-// logInternal records the raw error server-side and returns a generic
-// client-safe internal error so backend details don't leak over the wire.
 func logInternal(op, clientMsg string, err error) error {
-	if err == nil {
-		return fleeterror.NewInternalError(clientMsg)
-	}
-	slog.Error("agent enrollment internal error", "op", op, "error", err)
-	return fleeterror.NewInternalError(clientMsg)
+	return fleeterror.LogInternal(component, op, clientMsg, err)
 }
-
-// ErrInvalidStatus is sentinel for state-machine violations callers may want
-// to distinguish from generic NotFound.
-var ErrInvalidStatus = errors.New("invalid pending_enrollment status for operation")

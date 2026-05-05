@@ -132,9 +132,7 @@ func (i *AuthInterceptor) authenticateWithApiKey(ctx context.Context, authHeader
 		return ctx, err
 	}
 
-	// Agent-owned api_keys never reach the user-session AuthInterceptor; they
-	// flow through AgentAuthInterceptor at the agentgateway entry points.
-	if apiKeyRecord.SubjectKind != interfaces.ApiKeySubjectKindUser || apiKeyRecord.UserID == nil {
+	if !apiKeyRecord.IsUserKey() {
 		return ctx, fleeterror.NewUnauthenticatedError("invalid api key")
 	}
 	userID := *apiKeyRecord.UserID

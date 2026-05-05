@@ -5,7 +5,6 @@ import (
 	"time"
 )
 
-// ApiKeySubjectKind names the principal type an api_key is bound to.
 type ApiKeySubjectKind string
 
 const (
@@ -13,8 +12,9 @@ const (
 	ApiKeySubjectKindAgent ApiKeySubjectKind = "agent"
 )
 
-// ApiKey represents an API key stored in the database.
-// Exactly one of UserID or AgentID is populated, matching SubjectKind.
+// ApiKey is the persisted form of an API key. Exactly one of UserID or
+// AgentID is populated, matching SubjectKind; consumers should branch via
+// IsUserKey / IsAgentKey rather than nil-checking the pointer fields.
 type ApiKey struct {
 	ID                int64
 	KeyID             string
@@ -30,6 +30,14 @@ type ApiKey struct {
 	RevokedAt         *time.Time
 	LastUsedAt        *time.Time
 	CreatedByUsername string
+}
+
+func (k *ApiKey) IsUserKey() bool {
+	return k.SubjectKind == ApiKeySubjectKindUser && k.UserID != nil
+}
+
+func (k *ApiKey) IsAgentKey() bool {
+	return k.SubjectKind == ApiKeySubjectKindAgent && k.AgentID != nil
 }
 
 // ApiKeyStore handles API key persistence operations.

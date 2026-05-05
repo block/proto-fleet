@@ -13,10 +13,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
-// AgentAuthInterceptor authenticates agent traffic using an Authorization
-// bearer session_token issued by CompleteAuthHandshake. It only fires on
-// procedures registered in AgentAuthenticatedProcedures; other procedures
-// pass through.
 type AgentAuthInterceptor struct {
 	auth         *agentauth.Service
 	procedureSet map[string]struct{}

@@ -1,7 +1,6 @@
 package agentenrollment_test
 
 import (
-	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"database/sql"
@@ -65,7 +64,7 @@ func TestEnrollmentHappyPath(t *testing.T) {
 	// Act 2: agent registers with the code
 	agent, _, err := enrollment.RegisterAgent(ctx, code, "agent-1", pubKey, signingPubKey)
 	require.NoError(t, err)
-	require.Equal(t, "PENDING", agent.EnrollmentStatus)
+	require.Equal(t, agentenrollment.AgentStatusPending, agent.EnrollmentStatus)
 	require.Equal(t, orgID, agent.OrgID)
 
 	// Act 3: operator confirms; api_key is issued
@@ -215,5 +214,4 @@ func TestConfirmRejectsBeforeRegister(t *testing.T) {
 	// Assert
 	require.Error(t, err)
 	require.True(t, fleeterror.IsNotFoundError(err))
-	_ = context.Background()
 }

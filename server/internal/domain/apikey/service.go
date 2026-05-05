@@ -3,7 +3,6 @@ package apikey
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
@@ -16,6 +15,7 @@ import (
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/infrastructure/cryptohash"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	id "github.com/block/proto-fleet/server/internal/infrastructure/id"
 )
@@ -284,8 +284,7 @@ func (s *Service) updateLastUsedDebounced(ctx context.Context, keyID string, dbI
 }
 
 func hashKey(key string) string {
-	h := sha256.Sum256([]byte(key))
-	return hex.EncodeToString(h[:])
+	return cryptohash.Sha256Hex(key)
 }
 
 func logInternalError(logMessage, clientMessage string, err error, attrs ...any) error {
