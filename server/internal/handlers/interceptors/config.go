@@ -3,6 +3,7 @@ package interceptors
 import (
 	"github.com/block/proto-fleet/server/generated/grpc/apikey/v1/apikeyv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/curtailment/v1/curtailmentv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
@@ -50,6 +51,12 @@ var SessionOnlyProcedures = []string{
 	authv1connect.AuthServiceResetUserPasswordProcedure,
 	authv1connect.AuthServiceDeactivateUserProcedure,
 	authv1connect.AuthServiceVerifyCredentialsProcedure,
+	// Curtailment write/admin RPCs — leaked API key must not mass-stop, abort,
+	// or force-recover events. Read RPCs stay API-key-accessible.
+	curtailmentv1connect.CurtailmentServiceStartCurtailmentProcedure,
+	curtailmentv1connect.CurtailmentServiceStopCurtailmentProcedure,
+	curtailmentv1connect.CurtailmentServiceUpdateCurtailmentEventProcedure,
+	curtailmentv1connect.CurtailmentServiceAdminTransitionEventProcedure,
 }
 
 var UnauthenticatedProcedures = []string{
