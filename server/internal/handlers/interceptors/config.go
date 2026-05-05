@@ -1,6 +1,7 @@
 package interceptors
 
 import (
+	"github.com/block/proto-fleet/server/generated/grpc/agentgateway/v1/agentgatewayv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/apikey/v1/apikeyv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
@@ -19,6 +20,10 @@ var RedactedRequestProcedures = []string{
 	onboardingv1connect.OnboardingServiceCreateAdminLoginProcedure,
 	minercommandv1connect.MinerCommandServiceUpdateMiningPoolsProcedure,
 	minercommandv1connect.MinerCommandServiceUpdateMinerPasswordProcedure,
+	agentgatewayv1connect.AgentGatewayServiceRegisterProcedure,
+	agentgatewayv1connect.AgentGatewayServiceBeginAuthHandshakeProcedure,
+	agentgatewayv1connect.AgentGatewayServiceCompleteAuthHandshakeProcedure,
+	agentgatewayv1connect.AgentGatewayServiceUploadHeartbeatProcedure,
 }
 
 // RedactedResponseProcedures lists procedures whose responses contain secrets
@@ -27,6 +32,7 @@ var RedactedResponseProcedures = []string{
 	apikeyv1connect.ApiKeyServiceCreateApiKeyProcedure,
 	authv1connect.AuthServiceCreateUserProcedure,
 	authv1connect.AuthServiceResetUserPasswordProcedure,
+	agentgatewayv1connect.AgentGatewayServiceCompleteAuthHandshakeProcedure,
 }
 
 // SessionOnlyProcedures lists procedures that require session-cookie auth and
@@ -58,14 +64,29 @@ var UnauthenticatedProcedures = []string{
 	authv1connect.AuthServiceAuthenticateProcedure,
 	onboardingv1connect.OnboardingServiceCreateAdminLoginProcedure,
 	onboardingv1connect.OnboardingServiceGetFleetInitStatusProcedure,
+	// AgentGatewayService uses session_token in Authorization metadata,
+	// which the user-session AuthInterceptor cannot validate; the handler
+	// is responsible for validating agent credentials itself.
+	agentgatewayv1connect.AgentGatewayServiceRegisterProcedure,
+	agentgatewayv1connect.AgentGatewayServiceBeginAuthHandshakeProcedure,
+	agentgatewayv1connect.AgentGatewayServiceCompleteAuthHandshakeProcedure,
+	agentgatewayv1connect.AgentGatewayServiceUploadTelemetryProcedure,
+	agentgatewayv1connect.AgentGatewayServiceUploadEventsProcedure,
+	agentgatewayv1connect.AgentGatewayServiceUploadHeartbeatProcedure,
+	agentgatewayv1connect.AgentGatewayServiceControlStreamProcedure,
 }
 
 // SensitiveBodyProcedures lists RPCs whose request/response bodies must not be
 // logged, even at debug level, because they contain secrets (e.g., API keys).
+// For streaming RPCs, this also suppresses individual message bodies in
+// loggingStreamingHandlerConn.
 var SensitiveBodyProcedures = map[string]bool{
 	foremanimportv1connect.ForemanImportServiceImportFromForemanProcedure:     true,
 	foremanimportv1connect.ForemanImportServiceCompleteImportProcedure:        true,
 	authv1connect.AuthServiceAuthenticateProcedure:                            true,
 	authv1connect.AuthServiceVerifyCredentialsProcedure:                       true,
 	fleetmanagementv1connect.FleetManagementServiceUpdateWorkerNamesProcedure: true,
+	agentgatewayv1connect.AgentGatewayServiceControlStreamProcedure:           true,
+	agentgatewayv1connect.AgentGatewayServiceUploadTelemetryProcedure:         true,
+	agentgatewayv1connect.AgentGatewayServiceUploadEventsProcedure:            true,
 }

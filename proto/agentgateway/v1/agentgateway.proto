@@ -1,0 +1,123 @@
+syntax = "proto3";
+
+// Wire protocol between an on-prem fleet-agent and a cloud fleetd --mode=server.
+// All streams are agent-initiated; post-handshake RPCs carry the session token
+// in `Authorization: Bearer <session_token>` metadata, and server handlers
+// derive the effective agent identity from that token rather than any body
+// field. See docs/rfcs/0001-agent-server-split.md.
+package agentgateway.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+
+service AgentGatewayService {
+    rpc Register(RegisterRequest) returns (RegisterResponse);
+    rpc BeginAuthHandshake(BeginAuthHandshakeRequest) returns (BeginAuthHandshakeResponse);
+    rpc CompleteAuthHandshake(CompleteAuthHandshakeRequest) returns (CompleteAuthHandshakeResponse);
+    rpc UploadTelemetry(stream UploadTelemetryRequest) returns (UploadTelemetryResponse);
+    rpc UploadEvents(stream UploadEventsRequest) returns (UploadEventsResponse);
+    rpc UploadHeartbeat(UploadHeartbeatRequest) returns (UploadHeartbeatResponse);
+    rpc ControlStream(stream ControlStreamRequest) returns (stream ControlStreamResponse);
+}
+
+enum EnrollmentStatus {
+    ENROLLMENT_STATUS_UNSPECIFIED = 0;
+    ENROLLMENT_STATUS_PENDING     = 1;
+    ENROLLMENT_STATUS_CONFIRMED   = 2;
+    ENROLLMENT_STATUS_REVOKED     = 3;
+}
+
+message RegisterRequest {
+    // Single-use, org-scoped token issued by an operator; pins the agent's tenant.
+    string enrollment_token     = 1 [(buf.validate.field).string = {min_len: 20, max_len: 512}];
+    string name                 = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    bytes  identity_pubkey      = 3 [(buf.validate.field).bytes.len = 32];
+    bytes  miner_signing_pubkey = 4 [(buf.validate.field).bytes.len = 32];
+}
+
+message RegisterResponse {
+    int64 agent_id = 1;
+    EnrollmentStatus enrollment_status = 2;
+    string identity_fingerprint = 3;
+}
+
+message BeginAuthHandshakeRequest {
+    string api_key         = 1 [(buf.validate.field).string = {min_len: 20, max_len: 512}];
+    bytes  identity_pubkey = 2 [(buf.validate.field).bytes.len = 32];
+}
+
+message BeginAuthHandshakeResponse {
+    bytes challenge = 1;
+    google.protobuf.Timestamp expires_at = 2;
+}
+
+message CompleteAuthHandshakeRequest {
+    bytes challenge = 1 [(buf.validate.field).bytes = {min_len: 16, max_len: 64}];
+    bytes signature = 2 [(buf.validate.field).bytes.len = 64];
+}
+
+message CompleteAuthHandshakeResponse {
+    string session_token = 1;
+    google.protobuf.Timestamp expires_at = 2;
+}
+
+message UploadTelemetryRequest {
+    bytes payload                        = 1 [(buf.validate.field).bytes.max_len = 1048576];
+    google.protobuf.Timestamp captured_at = 2 [(buf.validate.field).required = true];
+}
+
+message UploadTelemetryResponse {
+    int64 accepted_count = 1;
+}
+
+message UploadEventsRequest {
+    bytes payload                        = 1 [(buf.validate.field).bytes.max_len = 1048576];
+    google.protobuf.Timestamp captured_at = 2 [(buf.validate.field).required = true];
+}
+
+message UploadEventsResponse {
+    int64 accepted_count = 1;
+}
+
+message UploadHeartbeatRequest {
+    google.protobuf.Timestamp sent_at = 1 [(buf.validate.field).required = true];
+}
+
+message UploadHeartbeatResponse {
+    google.protobuf.Timestamp received_at = 1;
+}
+
+message ControlStreamRequest {
+    oneof kind {
+        option (buf.validate.oneof).required = true;
+
+        ControlHello hello = 1;
+        ControlAck   ack   = 2;
+    }
+}
+
+message ControlStreamResponse {
+    oneof kind {
+        option (buf.validate.oneof).required = true;
+
+        ControlAccepted accepted = 1;
+        ControlCommand  command  = 2;
+    }
+}
+
+message ControlHello {}
+
+message ControlAccepted {
+    google.protobuf.Timestamp server_time = 1;
+}
+
+message ControlCommand {
+    string command_id = 1 [(buf.validate.field).string = {min_len: 1, max_len: 128}];
+    bytes  payload    = 2 [(buf.validate.field).bytes.max_len = 1048576];
+}
+
+message ControlAck {
+    string command_id    = 1 [(buf.validate.field).string = {min_len: 1, max_len: 128}];
+    bool   succeeded     = 2;
+    string error_message = 3 [(buf.validate.field).string.max_len = 4096];
+}

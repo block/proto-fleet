@@ -28,6 +28,8 @@ type HTTPConfig struct {
 	PprofAddr         string        `help:"Address to listen for pprof debug server, e.g. 127.0.0.1:6060 (empty disables it; use a non-loopback address only if you intentionally want remote access)" default:"" env:"PPROF_ADDR"`
 }
 type Config struct {
+	Mode string `help:"Execution mode" enum:"server,agent,combined" default:"combined" env:"MODE"`
+
 	DB             db.Config              `embed:"" prefix:"db-" envprefix:"DB_"`
 	Log            logging.Config         `embed:"" prefix:"logging-" envprefix:"LOG_"`
 	HTTP           HTTPConfig             `embed:"" prefix:"http-" envprefix:"HTTP_"`

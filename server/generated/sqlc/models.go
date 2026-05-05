@@ -341,6 +341,27 @@ type ActivityLog struct {
 	BatchID        sql.NullString
 }
 
+type Agent struct {
+	ID                 int64
+	OrgID              int64
+	Name               string
+	IdentityPubkey     []byte
+	MinerSigningPubkey []byte
+	EnrollmentStatus   string
+	LastSeenAt         sql.NullTime
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	DeletedAt          sql.NullTime
+}
+
+type AgentDevice struct {
+	AgentID    int64
+	DeviceID   int64
+	OrgID      int64
+	AssignedAt time.Time
+	AssignedBy sql.NullInt64
+}
+
 type ApiKey struct {
 	ID             int64
 	KeyID          string
