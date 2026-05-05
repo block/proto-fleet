@@ -66,6 +66,7 @@ func TestHandleChangePassword_WrongCurrentPassword_Returns401(t *testing.T) {
 func TestHandleChangePassword_CorrectCurrentPassword_Returns200(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
 	state.SetPassword("correctPassword")
+	state.SetAuthKey("old-auth-key")
 	state.SetAccessToken("old-access-token")
 	state.SetRefreshToken("old-refresh-token")
 	h := NewRESTApiHandler(state)
@@ -83,6 +84,9 @@ func TestHandleChangePassword_CorrectCurrentPassword_Returns200(t *testing.T) {
 		t.Fatalf("expected password to be updated to %q, got %q", "newPassword123", state.GetPassword())
 	}
 
+	if state.GetAuthKey() != "" {
+		t.Fatalf("expected auth key to be revoked after password change, got %q", state.GetAuthKey())
+	}
 	if state.GetAccessToken() != "" {
 		t.Fatalf("expected access token to be revoked after password change, got %q", state.GetAccessToken())
 	}
@@ -401,6 +405,54 @@ func TestProtectedRouteAcceptsPairedJWT(t *testing.T) {
 
 	if rr.Code != http.StatusAccepted {
 		t.Fatalf("expected %d, got %d; body=%s", http.StatusAccepted, rr.Code, rr.Body.String())
+	}
+}
+
+func TestChangePasswordRevokesPairedJWT(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.SeedDefaultPassword("defaultPass123")
+	state.SetMiningState(MiningStateStopped)
+
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate key pair: %v", err)
+	}
+
+	publicKeyDER, err := x509.MarshalPKIXPublicKey(publicKey)
+	if err != nil {
+		t.Fatalf("failed to marshal public key: %v", err)
+	}
+	state.SetAuthKey(base64.StdEncoding.EncodeToString(publicKeyDER))
+
+	jwtToken, err := signTestJWT(privateKey, state.SerialNumber, time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatalf("failed to sign jwt: %v", err)
+	}
+
+	h := NewRESTApiHandler(state)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	changeRR := httptest.NewRecorder()
+	changeReq := httptest.NewRequest(http.MethodPut, "/api/v1/auth/change-password",
+		strings.NewReader(`{"current_password":"defaultPass123","new_password":"newPassword123"}`))
+	changeReq.Header.Set("Authorization", "Bearer "+jwtToken)
+	mux.ServeHTTP(changeRR, changeReq)
+
+	if changeRR.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, changeRR.Code, changeRR.Body.String())
+	}
+	if state.GetAuthKey() != "" {
+		t.Fatalf("expected auth key to be revoked after password change, got %q", state.GetAuthKey())
+	}
+
+	retryRR := httptest.NewRecorder()
+	retryReq := httptest.NewRequest(http.MethodPost, "/api/v1/mining/start", nil)
+	retryReq.Header.Set("Authorization", "Bearer "+jwtToken)
+	mux.ServeHTTP(retryRR, retryReq)
+
+	if retryRR.Code != http.StatusUnauthorized {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusUnauthorized, retryRR.Code, retryRR.Body.String())
 	}
 }
 

@@ -1267,8 +1267,9 @@ func (h *RESTApiHandler) handleChangePassword(w http.ResponseWriter, r *http.Req
 
 	h.state.SetPassword(req.NewPassword)
 
-	// Revoke existing tokens after password change, matching firmware behavior.
+	// Revoke existing bearer credentials after password change, matching firmware behavior.
 	// Clients must re-authenticate with the new password.
+	h.state.SetAuthKey("")
 	h.state.SetAccessToken("")
 	h.state.SetRefreshToken("")
 
