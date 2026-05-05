@@ -152,6 +152,18 @@ func (s *SQLAgentEnrollmentStore) SetAgentEnrollmentStatus(ctx context.Context, 
 	})
 }
 
+func (s *SQLAgentEnrollmentStore) SoftDeleteAgent(ctx context.Context, agentID, orgID int64, deletedAt time.Time) (int64, error) {
+	return s.q(ctx).SoftDeleteAgent(ctx, sqlc.SoftDeleteAgentParams{
+		DeletedAt: sql.NullTime{Time: deletedAt, Valid: true},
+		ID:        agentID,
+		OrgID:     orgID,
+	})
+}
+
+func (s *SQLAgentEnrollmentStore) SoftDeleteAgentsForExpiredEnrollments(ctx context.Context, now time.Time) (int64, error) {
+	return s.q(ctx).SoftDeleteAgentsForExpiredEnrollments(ctx, sql.NullTime{Time: now, Valid: true})
+}
+
 func rowToPending(row sqlc.PendingEnrollment) *agentenrollment.PendingEnrollment {
 	return &agentenrollment.PendingEnrollment{
 		ID:         row.ID,

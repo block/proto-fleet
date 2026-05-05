@@ -11,7 +11,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/agentenrollment"
 	"github.com/block/proto-fleet/server/internal/domain/apikey"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
-	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/infrastructure/cryptohash"
 )
 
@@ -26,14 +25,12 @@ const (
 )
 
 type Store interface {
-	CreateChallenge(ctx context.Context, challenge []byte, agentID int64, expiresAt time.Time) error
+	UpsertChallenge(ctx context.Context, challenge []byte, agentID int64, expiresAt time.Time) error
 	ConsumeChallenge(ctx context.Context, challenge []byte, now time.Time) (agentID int64, err error)
-	DeleteChallengesForAgent(ctx context.Context, agentID int64) (int64, error)
 	SweepExpiredChallenges(ctx context.Context, now time.Time) (int64, error)
 
-	CreateSession(ctx context.Context, tokenHash string, agentID int64, expiresAt time.Time) error
+	UpsertSession(ctx context.Context, tokenHash string, agentID int64, expiresAt time.Time) error
 	GetSessionAgent(ctx context.Context, tokenHash string, now time.Time) (*ResolvedAgent, error)
-	DeleteSessionsForAgent(ctx context.Context, agentID int64) (int64, error)
 	SweepExpiredSessions(ctx context.Context, now time.Time) (int64, error)
 }
 
@@ -49,17 +46,15 @@ type Service struct {
 	store           Store
 	enrollmentStore agentenrollment.Store
 	apiKeySvc       *apikey.Service
-	transactor      stores.Transactor
 	challengeTTL    time.Duration
 	sessionTTL      time.Duration
 }
 
-func NewService(store Store, enrollmentStore agentenrollment.Store, apiKeySvc *apikey.Service, transactor stores.Transactor) *Service {
+func NewService(store Store, enrollmentStore agentenrollment.Store, apiKeySvc *apikey.Service) *Service {
 	return &Service{
 		store:           store,
 		enrollmentStore: enrollmentStore,
 		apiKeySvc:       apiKeySvc,
-		transactor:      transactor,
 		challengeTTL:    defaultChallengeTTL,
 		sessionTTL:      defaultSessionTTL,
 	}
@@ -96,18 +91,11 @@ func (s *Service) BeginHandshake(ctx context.Context, apiKeyPlaintext string, id
 		return nil, time.Time{}, logInternal("generate challenge", clientErrAuth, err)
 	}
 	expiresAt := time.Now().UTC().Add(s.challengeTTL)
-	// Drop any prior challenge for this agent so the table can't grow without
-	// bound under repeated BeginHandshake calls.
-	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
-		if _, err := s.store.DeleteChallengesForAgent(ctx, agent.ID); err != nil {
-			return logInternal("delete prior challenges", clientErrAuth, err)
-		}
-		if err := s.store.CreateChallenge(ctx, challenge, agent.ID, expiresAt); err != nil {
-			return logInternal("store challenge", clientErrAuth, err)
-		}
-		return nil
-	}); err != nil {
-		return nil, time.Time{}, err
+	// UpsertChallenge atomically replaces any prior row for this agent (one
+	// challenge per agent enforced by uq_agent_auth_challenge_agent_id), so
+	// concurrent BeginHandshakes can't leave multiple valid challenges.
+	if err := s.store.UpsertChallenge(ctx, challenge, agent.ID, expiresAt); err != nil {
+		return nil, time.Time{}, logInternal("store challenge", clientErrAuth, err)
 	}
 	s.apiKeySvc.RecordSuccessfulUse(ctx, apiKey)
 	return challenge, expiresAt, nil
@@ -139,18 +127,11 @@ func (s *Service) CompleteHandshake(ctx context.Context, challenge, signature []
 	}
 	plaintext := base64.RawURLEncoding.EncodeToString(tokenBytes)
 	expiresAt := now.Add(s.sessionTTL)
-	// Drop any prior sessions for this agent so re-authentication rotates the
-	// token rather than letting bearer credentials accumulate.
-	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
-		if _, err := s.store.DeleteSessionsForAgent(ctx, agentID); err != nil {
-			return logInternal("delete prior sessions", clientErrAuth, err)
-		}
-		if err := s.store.CreateSession(ctx, hashToken(plaintext), agentID, expiresAt); err != nil {
-			return logInternal("store session", clientErrAuth, err)
-		}
-		return nil
-	}); err != nil {
-		return "", time.Time{}, err
+	// UpsertSession atomically replaces any prior session for this agent
+	// (one session per agent enforced by uq_agent_session_agent_id), so
+	// re-authentication rotates the bearer token instead of accumulating.
+	if err := s.store.UpsertSession(ctx, hashToken(plaintext), agentID, expiresAt); err != nil {
+		return "", time.Time{}, logInternal("store session", clientErrAuth, err)
 	}
 	return plaintext, expiresAt, nil
 }

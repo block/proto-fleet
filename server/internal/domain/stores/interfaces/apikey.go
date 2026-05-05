@@ -14,7 +14,7 @@ const (
 
 // ApiKey is the persisted form of an API key. Exactly one of UserID or
 // AgentID is populated, matching SubjectKind; consumers should branch via
-// IsUserKey / IsAgentKey rather than nil-checking the pointer fields.
+// AsUser / AsAgent rather than nil-checking the pointer fields.
 type ApiKey struct {
 	ID                int64
 	KeyID             string

@@ -375,6 +375,44 @@ func (q *Queries) SetAgentEnrollmentStatus(ctx context.Context, arg SetAgentEnro
 	return result.RowsAffected()
 }
 
+const softDeleteAgent = `-- name: SoftDeleteAgent :execrows
+UPDATE agent
+SET deleted_at = $1
+WHERE id = $2 AND org_id = $3 AND deleted_at IS NULL
+`
+
+type SoftDeleteAgentParams struct {
+	DeletedAt sql.NullTime
+	ID        int64
+	OrgID     int64
+}
+
+func (q *Queries) SoftDeleteAgent(ctx context.Context, arg SoftDeleteAgentParams) (int64, error) {
+	result, err := q.exec(ctx, q.softDeleteAgentStmt, softDeleteAgent, arg.DeletedAt, arg.ID, arg.OrgID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const softDeleteAgentsForExpiredEnrollments = `-- name: SoftDeleteAgentsForExpiredEnrollments :execrows
+UPDATE agent a
+SET deleted_at = $1
+FROM pending_enrollment pe
+WHERE a.id = pe.agent_id
+  AND a.deleted_at IS NULL
+  AND pe.status IN ('PENDING', 'AWAITING_CONFIRMATION')
+  AND pe.expires_at < $1
+`
+
+func (q *Queries) SoftDeleteAgentsForExpiredEnrollments(ctx context.Context, deletedAt sql.NullTime) (int64, error) {
+	result, err := q.exec(ctx, q.softDeleteAgentsForExpiredEnrollmentsStmt, softDeleteAgentsForExpiredEnrollments, deletedAt)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const sweepExpiredEnrollments = `-- name: SweepExpiredEnrollments :execrows
 UPDATE pending_enrollment
 SET status = 'EXPIRED'

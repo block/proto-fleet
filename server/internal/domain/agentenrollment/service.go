@@ -47,6 +47,8 @@ type AgentStore interface {
 	GetAgentByIDUnscoped(ctx context.Context, agentID int64) (*Agent, error)
 	ListAgentsForOrganization(ctx context.Context, orgID int64) ([]Agent, error)
 	SetAgentEnrollmentStatus(ctx context.Context, status AgentStatus, agentID, orgID int64) (int64, error)
+	SoftDeleteAgent(ctx context.Context, agentID, orgID int64, deletedAt time.Time) (int64, error)
+	SoftDeleteAgentsForExpiredEnrollments(ctx context.Context, now time.Time) (int64, error)
 }
 
 type Store interface {
@@ -191,9 +193,11 @@ func (s *Service) Confirm(ctx context.Context, agentID, orgID int64) (string, ti
 	return plaintext, expires, nil
 }
 
-// RevokeAgent locks an agent out: marks enrollment_status REVOKED, cancels
-// any AWAITING_CONFIRMATION pending_enrollment so the agent can't be
-// resurrected by a later Confirm, and revokes the agent's api_keys. The
+// RevokeAgent locks an agent out and soft-deletes its row so the same
+// identity_pubkey or org-local name can be re-enrolled. Marks
+// enrollment_status REVOKED, cancels any AWAITING_CONFIRMATION
+// pending_enrollment so the agent can't be resurrected by a later Confirm,
+// revokes the agent's api_keys, and soft-deletes the agent. The
 // agent_session join filter on enrollment_status causes any in-flight session
 // to fail to resolve on the next call; challenge rows expire on their own
 // 30s TTL.
@@ -205,14 +209,18 @@ func (s *Service) RevokeAgent(ctx context.Context, agentID, orgID int64) error {
 			}
 			return logInternal("agent lookup", clientErrRevokeAgent, err)
 		}
+		now := time.Now().UTC()
 		if _, err := s.store.SetAgentEnrollmentStatus(ctx, AgentStatusRevoked, agentID, orgID); err != nil {
 			return logInternal("set agent revoked", clientErrRevokeAgent, err)
 		}
-		if _, err := s.store.CancelEnrollmentForAgent(ctx, agentID, orgID, time.Now().UTC()); err != nil {
+		if _, err := s.store.CancelEnrollmentForAgent(ctx, agentID, orgID, now); err != nil {
 			return logInternal("cancel pending enrollment", clientErrRevokeAgent, err)
 		}
 		if _, err := s.apiKeySvc.RevokeForAgent(ctx, agentID, orgID); err != nil {
 			return err
+		}
+		if _, err := s.store.SoftDeleteAgent(ctx, agentID, orgID, now); err != nil {
+			return logInternal("soft delete agent", clientErrRevokeAgent, err)
 		}
 		return nil
 	})
@@ -229,8 +237,18 @@ func (s *Service) Cancel(ctx context.Context, enrollmentID, orgID int64) error {
 	return nil
 }
 
+// SweepExpired flips PENDING/AWAITING_CONFIRMATION rows past their TTL to
+// EXPIRED and soft-deletes any agent rows bound to them so their
+// identity_pubkey and org-local name aren't permanently consumed.
 func (s *Service) SweepExpired(ctx context.Context) (int64, error) {
-	return s.store.SweepExpiredEnrollments(ctx, time.Now().UTC())
+	now := time.Now().UTC()
+	// Soft-delete the agents first so the partial unique indexes on agent
+	// (uq_agent_identity_pubkey, uq_agent_org_name) free up before any retry
+	// observes the EXPIRED enrollment row.
+	if _, err := s.store.SoftDeleteAgentsForExpiredEnrollments(ctx, now); err != nil {
+		return 0, logInternal("soft delete expired agents", clientErrCancel, err)
+	}
+	return s.store.SweepExpiredEnrollments(ctx, now)
 }
 
 func (s *Service) ListAgents(ctx context.Context, orgID int64) ([]Agent, error) {

@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"database/sql"
+	"sync"
 	"testing"
 	"time"
 
@@ -38,7 +39,7 @@ func setupEnrollmentTest(t *testing.T) (*sql.DB, int64, int64, *agentenrollment.
 	enrollmentSvc := agentenrollment.NewService(enrollmentStore, apiKeySvc, transactor)
 
 	authStore := sqlstores.NewSQLAgentAuthStore(db)
-	authSvc := agentauth.NewService(authStore, enrollmentStore, apiKeySvc, transactor)
+	authSvc := agentauth.NewService(authStore, enrollmentStore, apiKeySvc)
 
 	return db, 1, 1, enrollmentSvc, authSvc
 }
@@ -222,7 +223,7 @@ func TestRevokeAgentLocksOutHandshake(t *testing.T) {
 	require.Error(t, handshakeErr, "BeginHandshake must fail with revoked api_key")
 }
 
-func TestBeginHandshakeBoundsChallengesPerAgent(t *testing.T) {
+func TestConcurrentBeginHandshakesYieldOneChallenge(t *testing.T) {
 	// Arrange
 	ctx := t.Context()
 	db, userID, orgID, enrollment, auth := setupEnrollmentTest(t)
@@ -233,15 +234,21 @@ func TestBeginHandshakeBoundsChallengesPerAgent(t *testing.T) {
 	apiKeyPlaintext, _, _ := enrollment.Confirm(ctx, agent.ID, orgID)
 
 	// Act
-	_, _, err1 := auth.BeginHandshake(ctx, apiKeyPlaintext, pubKey)
-	require.NoError(t, err1)
-	_, _, err2 := auth.BeginHandshake(ctx, apiKeyPlaintext, pubKey)
-	require.NoError(t, err2)
+	const callers = 10
+	var wg sync.WaitGroup
+	wg.Add(callers)
+	for range callers {
+		go func() {
+			defer wg.Done()
+			_, _, _ = auth.BeginHandshake(ctx, apiKeyPlaintext, pubKey)
+		}()
+	}
+	wg.Wait()
 
 	// Assert
 	var count int
 	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM agent_auth_challenge WHERE agent_id = $1`, agent.ID).Scan(&count))
-	require.Equal(t, 1, count, "BeginHandshake must drop the prior challenge for this agent")
+	require.Equal(t, 1, count, "concurrent BeginHandshakes for one agent must leave exactly one challenge row")
 }
 
 func TestRevokeBeforeConfirmCannotBeResurrected(t *testing.T) {
@@ -262,7 +269,7 @@ func TestRevokeBeforeConfirmCannotBeResurrected(t *testing.T) {
 	require.Error(t, confirmErr, "Confirm must reject a revoked agent")
 }
 
-func TestCompleteHandshakeBoundsSessionsPerAgent(t *testing.T) {
+func TestConcurrentCompleteHandshakesYieldOneSession(t *testing.T) {
 	// Arrange
 	ctx := t.Context()
 	db, userID, orgID, enrollment, auth := setupEnrollmentTest(t)
@@ -271,19 +278,56 @@ func TestCompleteHandshakeBoundsSessionsPerAgent(t *testing.T) {
 	code, _, _ := enrollment.CreateCode(ctx, userID, orgID, time.Hour)
 	agent, _, _ := enrollment.RegisterAgent(ctx, code, "agent-1", pubKey, signing)
 	apiKeyPlaintext, _, _ := enrollment.Confirm(ctx, agent.ID, orgID)
+	// Pre-mint challenges so multiple CompleteHandshake calls can race against
+	// the latest one. Each BeginHandshake replaces the prior; the test then
+	// races as many CompleteHandshakes as we have stored signatures.
+	type signed struct {
+		challenge []byte
+		sig       []byte
+	}
+	const callers = 5
+	signedChallenges := make([]signed, 0, callers)
+	for range callers {
+		ch, _, err := auth.BeginHandshake(ctx, apiKeyPlaintext, pubKey)
+		require.NoError(t, err)
+		signedChallenges = append(signedChallenges, signed{ch, ed25519.Sign(privKey, ch)})
+	}
 
 	// Act
-	for range 2 {
-		challenge, _, err := auth.BeginHandshake(ctx, apiKeyPlaintext, pubKey)
-		require.NoError(t, err)
-		_, _, err = auth.CompleteHandshake(ctx, challenge, ed25519.Sign(privKey, challenge))
-		require.NoError(t, err)
+	var wg sync.WaitGroup
+	wg.Add(len(signedChallenges))
+	for _, sc := range signedChallenges {
+		go func(sc signed) {
+			defer wg.Done()
+			_, _, _ = auth.CompleteHandshake(ctx, sc.challenge, sc.sig)
+		}(sc)
 	}
+	wg.Wait()
 
 	// Assert
 	var count int
 	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM agent_session WHERE agent_id = $1`, agent.ID).Scan(&count))
-	require.Equal(t, 1, count, "CompleteHandshake must drop prior sessions for the same agent")
+	require.Equal(t, 1, count, "concurrent CompleteHandshakes for one agent must leave exactly one session row")
+}
+
+func TestRevokeAgentFreesIdentityForReenrollment(t *testing.T) {
+	// Arrange
+	ctx := t.Context()
+	_, userID, orgID, enrollment, _ := setupEnrollmentTest(t)
+	pubKey, _, _ := ed25519.GenerateKey(rand.Reader)
+	signing, _, _ := ed25519.GenerateKey(rand.Reader)
+	code1, _, _ := enrollment.CreateCode(ctx, userID, orgID, time.Hour)
+	agent1, _, err := enrollment.RegisterAgent(ctx, code1, "agent-1", pubKey, signing)
+	require.NoError(t, err)
+	require.NoError(t, enrollment.RevokeAgent(ctx, agent1.ID, orgID))
+
+	// Act
+	code2, _, _ := enrollment.CreateCode(ctx, userID, orgID, time.Hour)
+	agent2, _, err := enrollment.RegisterAgent(ctx, code2, "agent-1", pubKey, signing)
+
+	// Assert
+	require.NoError(t, err, "re-enrollment with the same identity_pubkey + name must succeed after revoke soft-deletes the prior agent")
+	require.NotEqual(t, agent1.ID, agent2.ID)
 }
 
 func TestConfirmRejectsBeforeRegister(t *testing.T) {

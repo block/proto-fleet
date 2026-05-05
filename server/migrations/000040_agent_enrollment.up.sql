@@ -55,6 +55,9 @@ CREATE TABLE pending_enrollment (
 
 CREATE INDEX idx_pending_enrollment_org_status ON pending_enrollment(org_id, status);
 CREATE INDEX idx_pending_enrollment_expires_at ON pending_enrollment(expires_at);
+CREATE INDEX idx_pending_enrollment_agent_id
+    ON pending_enrollment(agent_id)
+    WHERE agent_id IS NOT NULL;
 
 -- agent_auth_challenge: short-TTL nonces used during BeginAuthHandshake.
 -- Atomic DELETE ... RETURNING on consume gives replay safety without a
@@ -66,6 +69,10 @@ CREATE TABLE agent_auth_challenge (
     expires_at  TIMESTAMPTZ NOT NULL,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
+    -- One live challenge per agent. Combined with INSERT ... ON CONFLICT
+    -- (agent_id) DO UPDATE in BeginHandshake, this gives an atomic replace
+    -- under concurrent calls.
+    CONSTRAINT uq_agent_auth_challenge_agent_id UNIQUE (agent_id),
     CONSTRAINT fk_agent_auth_challenge_agent FOREIGN KEY (agent_id)
         REFERENCES agent(id) ON DELETE CASCADE
 );
@@ -81,9 +88,11 @@ CREATE TABLE agent_session (
     expires_at  TIMESTAMPTZ NOT NULL,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
+    -- One live session per agent; CompleteHandshake upserts on (agent_id) so
+    -- re-authentication rotates the token atomically.
+    CONSTRAINT uq_agent_session_agent_id UNIQUE (agent_id),
     CONSTRAINT fk_agent_session_agent FOREIGN KEY (agent_id)
         REFERENCES agent(id) ON DELETE CASCADE
 );
 
-CREATE INDEX idx_agent_session_agent_id ON agent_session(agent_id);
 CREATE INDEX idx_agent_session_expires_at ON agent_session(expires_at);

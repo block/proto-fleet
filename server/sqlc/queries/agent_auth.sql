@@ -1,6 +1,10 @@
--- name: CreateAgentAuthChallenge :exec
+-- name: UpsertAgentAuthChallenge :exec
 INSERT INTO agent_auth_challenge (challenge, agent_id, expires_at)
-VALUES ($1, $2, $3);
+VALUES ($1, $2, $3)
+ON CONFLICT (agent_id) DO UPDATE
+SET challenge = EXCLUDED.challenge,
+    expires_at = EXCLUDED.expires_at,
+    created_at = CURRENT_TIMESTAMP;
 
 -- name: ConsumeAgentAuthChallenge :one
 DELETE FROM agent_auth_challenge
@@ -11,13 +15,13 @@ RETURNING challenge, agent_id, expires_at, created_at;
 DELETE FROM agent_auth_challenge
 WHERE expires_at < $1;
 
--- name: DeleteAgentAuthChallengesByAgentID :execrows
-DELETE FROM agent_auth_challenge
-WHERE agent_id = $1;
-
--- name: CreateAgentSession :exec
+-- name: UpsertAgentSession :exec
 INSERT INTO agent_session (token_hash, agent_id, expires_at)
-VALUES ($1, $2, $3);
+VALUES ($1, $2, $3)
+ON CONFLICT (agent_id) DO UPDATE
+SET token_hash = EXCLUDED.token_hash,
+    expires_at = EXCLUDED.expires_at,
+    created_at = CURRENT_TIMESTAMP;
 
 -- name: GetAgentSessionByTokenHash :one
 SELECT s.token_hash, s.agent_id, s.expires_at, s.created_at,
@@ -32,7 +36,3 @@ WHERE s.token_hash = $1
 -- name: SweepExpiredAgentSessions :execrows
 DELETE FROM agent_session
 WHERE expires_at < $1;
-
--- name: DeleteAgentSessionsByAgentID :execrows
-DELETE FROM agent_session
-WHERE agent_id = $1;

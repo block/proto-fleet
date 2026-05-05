@@ -25,8 +25,8 @@ func (s *SQLAgentAuthStore) q(ctx context.Context) *sqlc.Queries {
 	return s.GetQueries(ctx)
 }
 
-func (s *SQLAgentAuthStore) CreateChallenge(ctx context.Context, challenge []byte, agentID int64, expiresAt time.Time) error {
-	return s.q(ctx).CreateAgentAuthChallenge(ctx, sqlc.CreateAgentAuthChallengeParams{
+func (s *SQLAgentAuthStore) UpsertChallenge(ctx context.Context, challenge []byte, agentID int64, expiresAt time.Time) error {
+	return s.q(ctx).UpsertAgentAuthChallenge(ctx, sqlc.UpsertAgentAuthChallengeParams{
 		Challenge: challenge,
 		AgentID:   agentID,
 		ExpiresAt: expiresAt,
@@ -51,12 +51,8 @@ func (s *SQLAgentAuthStore) SweepExpiredChallenges(ctx context.Context, now time
 	return s.q(ctx).SweepExpiredAgentAuthChallenges(ctx, now)
 }
 
-func (s *SQLAgentAuthStore) DeleteChallengesForAgent(ctx context.Context, agentID int64) (int64, error) {
-	return s.q(ctx).DeleteAgentAuthChallengesByAgentID(ctx, agentID)
-}
-
-func (s *SQLAgentAuthStore) CreateSession(ctx context.Context, tokenHash string, agentID int64, expiresAt time.Time) error {
-	return s.q(ctx).CreateAgentSession(ctx, sqlc.CreateAgentSessionParams{
+func (s *SQLAgentAuthStore) UpsertSession(ctx context.Context, tokenHash string, agentID int64, expiresAt time.Time) error {
+	return s.q(ctx).UpsertAgentSession(ctx, sqlc.UpsertAgentSessionParams{
 		TokenHash: tokenHash,
 		AgentID:   agentID,
 		ExpiresAt: expiresAt,
@@ -84,8 +80,4 @@ func (s *SQLAgentAuthStore) GetSessionAgent(ctx context.Context, tokenHash strin
 
 func (s *SQLAgentAuthStore) SweepExpiredSessions(ctx context.Context, now time.Time) (int64, error) {
 	return s.q(ctx).SweepExpiredAgentSessions(ctx, now)
-}
-
-func (s *SQLAgentAuthStore) DeleteSessionsForAgent(ctx context.Context, agentID int64) (int64, error) {
-	return s.q(ctx).DeleteAgentSessionsByAgentID(ctx, agentID)
 }

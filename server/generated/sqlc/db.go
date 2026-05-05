@@ -81,12 +81,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.createAgentApiKeyStmt, err = db.PrepareContext(ctx, createAgentApiKey); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateAgentApiKey: %w", err)
 	}
-	if q.createAgentAuthChallengeStmt, err = db.PrepareContext(ctx, createAgentAuthChallenge); err != nil {
-		return nil, fmt.Errorf("error preparing query CreateAgentAuthChallenge: %w", err)
-	}
-	if q.createAgentSessionStmt, err = db.PrepareContext(ctx, createAgentSession); err != nil {
-		return nil, fmt.Errorf("error preparing query CreateAgentSession: %w", err)
-	}
 	if q.createApiKeyStmt, err = db.PrepareContext(ctx, createApiKey); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateApiKey: %w", err)
 	}
@@ -125,12 +119,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.createUserOrganizationStmt, err = db.PrepareContext(ctx, createUserOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateUserOrganization: %w", err)
-	}
-	if q.deleteAgentAuthChallengesByAgentIDStmt, err = db.PrepareContext(ctx, deleteAgentAuthChallengesByAgentID); err != nil {
-		return nil, fmt.Errorf("error preparing query DeleteAgentAuthChallengesByAgentID: %w", err)
-	}
-	if q.deleteAgentSessionsByAgentIDStmt, err = db.PrepareContext(ctx, deleteAgentSessionsByAgentID); err != nil {
-		return nil, fmt.Errorf("error preparing query DeleteAgentSessionsByAgentID: %w", err)
 	}
 	if q.deleteExpiredSessionsStmt, err = db.PrepareContext(ctx, deleteExpiredSessions); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteExpiredSessions: %w", err)
@@ -591,6 +579,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.setScheduleRunningStmt, err = db.PrepareContext(ctx, setScheduleRunning); err != nil {
 		return nil, fmt.Errorf("error preparing query SetScheduleRunning: %w", err)
 	}
+	if q.softDeleteAgentStmt, err = db.PrepareContext(ctx, softDeleteAgent); err != nil {
+		return nil, fmt.Errorf("error preparing query SoftDeleteAgent: %w", err)
+	}
+	if q.softDeleteAgentsForExpiredEnrollmentsStmt, err = db.PrepareContext(ctx, softDeleteAgentsForExpiredEnrollments); err != nil {
+		return nil, fmt.Errorf("error preparing query SoftDeleteAgentsForExpiredEnrollments: %w", err)
+	}
 	if q.softDeleteDeviceSetStmt, err = db.PrepareContext(ctx, softDeleteDeviceSet); err != nil {
 		return nil, fmt.Errorf("error preparing query SoftDeleteDeviceSet: %w", err)
 	}
@@ -717,6 +711,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.updateUserUsernameStmt, err = db.PrepareContext(ctx, updateUserUsername); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateUserUsername: %w", err)
 	}
+	if q.upsertAgentAuthChallengeStmt, err = db.PrepareContext(ctx, upsertAgentAuthChallenge); err != nil {
+		return nil, fmt.Errorf("error preparing query UpsertAgentAuthChallenge: %w", err)
+	}
+	if q.upsertAgentSessionStmt, err = db.PrepareContext(ctx, upsertAgentSession); err != nil {
+		return nil, fmt.Errorf("error preparing query UpsertAgentSession: %w", err)
+	}
 	if q.upsertCommandOnDeviceLogStmt, err = db.PrepareContext(ctx, upsertCommandOnDeviceLog); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertCommandOnDeviceLog: %w", err)
 	}
@@ -835,16 +835,6 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing createAgentApiKeyStmt: %w", cerr)
 		}
 	}
-	if q.createAgentAuthChallengeStmt != nil {
-		if cerr := q.createAgentAuthChallengeStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing createAgentAuthChallengeStmt: %w", cerr)
-		}
-	}
-	if q.createAgentSessionStmt != nil {
-		if cerr := q.createAgentSessionStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing createAgentSessionStmt: %w", cerr)
-		}
-	}
 	if q.createApiKeyStmt != nil {
 		if cerr := q.createApiKeyStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createApiKeyStmt: %w", cerr)
@@ -908,16 +898,6 @@ func (q *Queries) Close() error {
 	if q.createUserOrganizationStmt != nil {
 		if cerr := q.createUserOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createUserOrganizationStmt: %w", cerr)
-		}
-	}
-	if q.deleteAgentAuthChallengesByAgentIDStmt != nil {
-		if cerr := q.deleteAgentAuthChallengesByAgentIDStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing deleteAgentAuthChallengesByAgentIDStmt: %w", cerr)
-		}
-	}
-	if q.deleteAgentSessionsByAgentIDStmt != nil {
-		if cerr := q.deleteAgentSessionsByAgentIDStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing deleteAgentSessionsByAgentIDStmt: %w", cerr)
 		}
 	}
 	if q.deleteExpiredSessionsStmt != nil {
@@ -1685,6 +1665,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing setScheduleRunningStmt: %w", cerr)
 		}
 	}
+	if q.softDeleteAgentStmt != nil {
+		if cerr := q.softDeleteAgentStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing softDeleteAgentStmt: %w", cerr)
+		}
+	}
+	if q.softDeleteAgentsForExpiredEnrollmentsStmt != nil {
+		if cerr := q.softDeleteAgentsForExpiredEnrollmentsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing softDeleteAgentsForExpiredEnrollmentsStmt: %w", cerr)
+		}
+	}
 	if q.softDeleteDeviceSetStmt != nil {
 		if cerr := q.softDeleteDeviceSetStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing softDeleteDeviceSetStmt: %w", cerr)
@@ -1895,6 +1885,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing updateUserUsernameStmt: %w", cerr)
 		}
 	}
+	if q.upsertAgentAuthChallengeStmt != nil {
+		if cerr := q.upsertAgentAuthChallengeStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing upsertAgentAuthChallengeStmt: %w", cerr)
+		}
+	}
+	if q.upsertAgentSessionStmt != nil {
+		if cerr := q.upsertAgentSessionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing upsertAgentSessionStmt: %w", cerr)
+		}
+	}
 	if q.upsertCommandOnDeviceLogStmt != nil {
 		if cerr := q.upsertCommandOnDeviceLogStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing upsertCommandOnDeviceLogStmt: %w", cerr)
@@ -1983,8 +1983,6 @@ type Queries struct {
 	countMinersByStateStmt                              *sql.Stmt
 	createAgentStmt                                     *sql.Stmt
 	createAgentApiKeyStmt                               *sql.Stmt
-	createAgentAuthChallengeStmt                        *sql.Stmt
-	createAgentSessionStmt                              *sql.Stmt
 	createApiKeyStmt                                    *sql.Stmt
 	createCommandBatchLogStmt                           *sql.Stmt
 	createDeviceSetStmt                                 *sql.Stmt
@@ -1998,8 +1996,6 @@ type Queries struct {
 	createSessionStmt                                   *sql.Stmt
 	createUserStmt                                      *sql.Stmt
 	createUserOrganizationStmt                          *sql.Stmt
-	deleteAgentAuthChallengesByAgentIDStmt              *sql.Stmt
-	deleteAgentSessionsByAgentIDStmt                    *sql.Stmt
 	deleteExpiredSessionsStmt                           *sql.Stmt
 	deleteOrganizationStmt                              *sql.Stmt
 	deletePoolStmt                                      *sql.Stmt
@@ -2153,6 +2149,8 @@ type Queries struct {
 	setRackSlotPositionStmt                             *sql.Stmt
 	setSchedulePrioritiesStmt                           *sql.Stmt
 	setScheduleRunningStmt                              *sql.Stmt
+	softDeleteAgentStmt                                 *sql.Stmt
+	softDeleteAgentsForExpiredEnrollmentsStmt           *sql.Stmt
 	softDeleteDeviceSetStmt                             *sql.Stmt
 	softDeleteDevicesStmt                               *sql.Stmt
 	softDeleteDiscoveredDeviceByIdentifierStmt          *sql.Stmt
@@ -2195,6 +2193,8 @@ type Queries struct {
 	updateUserPasswordAndFlagStmt                       *sql.Stmt
 	updateUserRoleStmt                                  *sql.Stmt
 	updateUserUsernameStmt                              *sql.Stmt
+	upsertAgentAuthChallengeStmt                        *sql.Stmt
+	upsertAgentSessionStmt                              *sql.Stmt
 	upsertCommandOnDeviceLogStmt                        *sql.Stmt
 	upsertDevicePairingStmt                             *sql.Stmt
 	upsertDeviceStatusStmt                              *sql.Stmt
@@ -2226,8 +2226,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		countMinersByStateStmt:                              q.countMinersByStateStmt,
 		createAgentStmt:                                     q.createAgentStmt,
 		createAgentApiKeyStmt:                               q.createAgentApiKeyStmt,
-		createAgentAuthChallengeStmt:                        q.createAgentAuthChallengeStmt,
-		createAgentSessionStmt:                              q.createAgentSessionStmt,
 		createApiKeyStmt:                                    q.createApiKeyStmt,
 		createCommandBatchLogStmt:                           q.createCommandBatchLogStmt,
 		createDeviceSetStmt:                                 q.createDeviceSetStmt,
@@ -2241,8 +2239,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		createSessionStmt:                                   q.createSessionStmt,
 		createUserStmt:                                      q.createUserStmt,
 		createUserOrganizationStmt:                          q.createUserOrganizationStmt,
-		deleteAgentAuthChallengesByAgentIDStmt:              q.deleteAgentAuthChallengesByAgentIDStmt,
-		deleteAgentSessionsByAgentIDStmt:                    q.deleteAgentSessionsByAgentIDStmt,
 		deleteExpiredSessionsStmt:                           q.deleteExpiredSessionsStmt,
 		deleteOrganizationStmt:                              q.deleteOrganizationStmt,
 		deletePoolStmt:                                      q.deletePoolStmt,
@@ -2396,6 +2392,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		setRackSlotPositionStmt:                             q.setRackSlotPositionStmt,
 		setSchedulePrioritiesStmt:                           q.setSchedulePrioritiesStmt,
 		setScheduleRunningStmt:                              q.setScheduleRunningStmt,
+		softDeleteAgentStmt:                                 q.softDeleteAgentStmt,
+		softDeleteAgentsForExpiredEnrollmentsStmt:           q.softDeleteAgentsForExpiredEnrollmentsStmt,
 		softDeleteDeviceSetStmt:                             q.softDeleteDeviceSetStmt,
 		softDeleteDevicesStmt:                               q.softDeleteDevicesStmt,
 		softDeleteDiscoveredDeviceByIdentifierStmt:          q.softDeleteDiscoveredDeviceByIdentifierStmt,
@@ -2438,6 +2436,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		updateUserPasswordAndFlagStmt:                       q.updateUserPasswordAndFlagStmt,
 		updateUserRoleStmt:                                  q.updateUserRoleStmt,
 		updateUserUsernameStmt:                              q.updateUserUsernameStmt,
+		upsertAgentAuthChallengeStmt:                        q.upsertAgentAuthChallengeStmt,
+		upsertAgentSessionStmt:                              q.upsertAgentSessionStmt,
 		upsertCommandOnDeviceLogStmt:                        q.upsertCommandOnDeviceLogStmt,
 		upsertDevicePairingStmt:                             q.upsertDevicePairingStmt,
 		upsertDeviceStatusStmt:                              q.upsertDeviceStatusStmt,

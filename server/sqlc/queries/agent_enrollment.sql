@@ -70,3 +70,17 @@ RETURNING id, org_id, name, identity_pubkey, miner_signing_pubkey,
 UPDATE agent
 SET enrollment_status = $1
 WHERE id = $2 AND org_id = $3 AND deleted_at IS NULL;
+
+-- name: SoftDeleteAgent :execrows
+UPDATE agent
+SET deleted_at = $1
+WHERE id = $2 AND org_id = $3 AND deleted_at IS NULL;
+
+-- name: SoftDeleteAgentsForExpiredEnrollments :execrows
+UPDATE agent a
+SET deleted_at = $1
+FROM pending_enrollment pe
+WHERE a.id = pe.agent_id
+  AND a.deleted_at IS NULL
+  AND pe.status IN ('PENDING', 'AWAITING_CONFIRMATION')
+  AND pe.expires_at < $1;

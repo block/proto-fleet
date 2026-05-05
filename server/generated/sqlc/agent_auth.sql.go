@@ -33,64 +33,6 @@ func (q *Queries) ConsumeAgentAuthChallenge(ctx context.Context, arg ConsumeAgen
 	return i, err
 }
 
-const createAgentAuthChallenge = `-- name: CreateAgentAuthChallenge :exec
-INSERT INTO agent_auth_challenge (challenge, agent_id, expires_at)
-VALUES ($1, $2, $3)
-`
-
-type CreateAgentAuthChallengeParams struct {
-	Challenge []byte
-	AgentID   int64
-	ExpiresAt time.Time
-}
-
-func (q *Queries) CreateAgentAuthChallenge(ctx context.Context, arg CreateAgentAuthChallengeParams) error {
-	_, err := q.exec(ctx, q.createAgentAuthChallengeStmt, createAgentAuthChallenge, arg.Challenge, arg.AgentID, arg.ExpiresAt)
-	return err
-}
-
-const createAgentSession = `-- name: CreateAgentSession :exec
-INSERT INTO agent_session (token_hash, agent_id, expires_at)
-VALUES ($1, $2, $3)
-`
-
-type CreateAgentSessionParams struct {
-	TokenHash string
-	AgentID   int64
-	ExpiresAt time.Time
-}
-
-func (q *Queries) CreateAgentSession(ctx context.Context, arg CreateAgentSessionParams) error {
-	_, err := q.exec(ctx, q.createAgentSessionStmt, createAgentSession, arg.TokenHash, arg.AgentID, arg.ExpiresAt)
-	return err
-}
-
-const deleteAgentAuthChallengesByAgentID = `-- name: DeleteAgentAuthChallengesByAgentID :execrows
-DELETE FROM agent_auth_challenge
-WHERE agent_id = $1
-`
-
-func (q *Queries) DeleteAgentAuthChallengesByAgentID(ctx context.Context, agentID int64) (int64, error) {
-	result, err := q.exec(ctx, q.deleteAgentAuthChallengesByAgentIDStmt, deleteAgentAuthChallengesByAgentID, agentID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
-const deleteAgentSessionsByAgentID = `-- name: DeleteAgentSessionsByAgentID :execrows
-DELETE FROM agent_session
-WHERE agent_id = $1
-`
-
-func (q *Queries) DeleteAgentSessionsByAgentID(ctx context.Context, agentID int64) (int64, error) {
-	result, err := q.exec(ctx, q.deleteAgentSessionsByAgentIDStmt, deleteAgentSessionsByAgentID, agentID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
 const getAgentSessionByTokenHash = `-- name: GetAgentSessionByTokenHash :one
 SELECT s.token_hash, s.agent_id, s.expires_at, s.created_at,
        a.org_id, a.name, a.identity_pubkey
@@ -156,4 +98,44 @@ func (q *Queries) SweepExpiredAgentSessions(ctx context.Context, expiresAt time.
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const upsertAgentAuthChallenge = `-- name: UpsertAgentAuthChallenge :exec
+INSERT INTO agent_auth_challenge (challenge, agent_id, expires_at)
+VALUES ($1, $2, $3)
+ON CONFLICT (agent_id) DO UPDATE
+SET challenge = EXCLUDED.challenge,
+    expires_at = EXCLUDED.expires_at,
+    created_at = CURRENT_TIMESTAMP
+`
+
+type UpsertAgentAuthChallengeParams struct {
+	Challenge []byte
+	AgentID   int64
+	ExpiresAt time.Time
+}
+
+func (q *Queries) UpsertAgentAuthChallenge(ctx context.Context, arg UpsertAgentAuthChallengeParams) error {
+	_, err := q.exec(ctx, q.upsertAgentAuthChallengeStmt, upsertAgentAuthChallenge, arg.Challenge, arg.AgentID, arg.ExpiresAt)
+	return err
+}
+
+const upsertAgentSession = `-- name: UpsertAgentSession :exec
+INSERT INTO agent_session (token_hash, agent_id, expires_at)
+VALUES ($1, $2, $3)
+ON CONFLICT (agent_id) DO UPDATE
+SET token_hash = EXCLUDED.token_hash,
+    expires_at = EXCLUDED.expires_at,
+    created_at = CURRENT_TIMESTAMP
+`
+
+type UpsertAgentSessionParams struct {
+	TokenHash string
+	AgentID   int64
+	ExpiresAt time.Time
+}
+
+func (q *Queries) UpsertAgentSession(ctx context.Context, arg UpsertAgentSessionParams) error {
+	_, err := q.exec(ctx, q.upsertAgentSessionStmt, upsertAgentSession, arg.TokenHash, arg.AgentID, arg.ExpiresAt)
+	return err
 }
