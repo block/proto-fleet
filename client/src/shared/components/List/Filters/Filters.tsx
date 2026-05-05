@@ -2,10 +2,10 @@ import { ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, us
 import clsx from "clsx";
 
 import ButtonFilter from "./ButtonFilter";
-import DropdownFilter, { type DropdownOption } from "./DropdownFilter";
+import DropdownFilter from "./DropdownFilter";
+import FilterChip from "./FilterChip";
 import NestedDropdownFilter, { type FilterCategory } from "./NestedDropdownFilter";
-import { DismissTiny } from "@/shared/assets/icons";
-import Button, { sizes, variants } from "@/shared/components/Button";
+import { sizes } from "@/shared/components/Button";
 import { defaultListFilter } from "@/shared/components/List/constants";
 import { ActiveFilters, type DropdownFilterItem, type FilterItem } from "@/shared/components/List/Filters/types";
 
@@ -20,8 +20,12 @@ type FilterProps<ItemType> = {
   initialActiveFilters?: ActiveFilters;
 };
 
-type ActiveDropdownFilterItem = DropdownOption & {
+type ActiveDropdownFilterGroup = {
   filterValue: string;
+  title: string;
+  pluralTitle?: string;
+  options: DropdownFilterItem["options"];
+  selectedIds: string[];
 };
 
 const Filters = <ItemType,>({
@@ -43,6 +47,9 @@ const Filters = <ItemType,>({
   );
 
   const [activeFilters, setActiveFilters] = useState<ActiveFilters>(initialActiveFilters || defaultActiveFilters);
+  // Tracking the open chip keeps it mounted while the user toggles its last selection off
+  // — otherwise the chip unmounts mid-interaction and takes its popover with it.
+  const [openChipFilterValue, setOpenChipFilterValue] = useState<string | null>(null);
 
   // Store onFilter in a ref to avoid re-running effects when the callback reference changes.
   // The callback changes when parent's items change (due to useCallback dependencies in List),
@@ -64,6 +71,9 @@ const Filters = <ItemType,>({
     setPrevSyncedKey(initialActiveFiltersKey);
     skipNextOnFilterRef.current = true;
     setActiveFilters(initialActiveFilters ?? defaultActiveFilters);
+    // Drop any chip-edit state from before the resync so an external sync (back/forward,
+    // sibling URL writer) doesn't leave a stale empty chip mounted.
+    setOpenChipFilterValue(null);
   }
 
   useEffect(() => {
@@ -145,121 +155,126 @@ const Filters = <ItemType,>({
     return Array.from(map.values());
   }, [filterItems]);
 
-  const activeDropdownFilterItems = useMemo(() => {
-    const items: ActiveDropdownFilterItem[] = [];
+  const activeDropdownFilterGroups = useMemo<ActiveDropdownFilterGroup[]>(() => {
+    const groups: ActiveDropdownFilterGroup[] = [];
     dedupedDropdownSources.forEach((filter) => {
       const selectedIds = activeFilters.dropdownFilters[filter.value] || [];
-      if (selectedIds.length > 0) {
-        filter.options.forEach((option) => {
-          if (selectedIds.includes(option.id)) {
-            items.push({
-              ...option,
-              filterValue: filter.value,
-            });
-          }
-        });
-      }
+      if (selectedIds.length === 0 && openChipFilterValue !== filter.value) return;
+      groups.push({
+        filterValue: filter.value,
+        title: filter.title,
+        pluralTitle: filter.pluralTitle,
+        options: filter.options,
+        selectedIds,
+      });
     });
-    return items;
-  }, [activeFilters.dropdownFilters, dedupedDropdownSources]);
+    return groups;
+  }, [activeFilters.dropdownFilters, dedupedDropdownSources, openChipFilterValue]);
 
-  const handleRemoveDropdownFilter = useCallback(
-    (optionId: string, filterValue: string) => {
-      const currentSelection = activeFilters.dropdownFilters[filterValue] || [];
-      const newSelection = currentSelection.filter((id) => id !== optionId);
-      setDropdownSelection(filterValue, newSelection);
-    },
-    [activeFilters.dropdownFilters, setDropdownSelection],
+  const leadingFilters = useMemo(
+    () => filterItems.filter((filter) => filter.type !== "nestedFilterDropdown"),
+    [filterItems],
+  );
+  const nestedFilters = useMemo(
+    () =>
+      filterItems.filter(
+        (filter): filter is Extract<FilterItem, { type: "nestedFilterDropdown" }> =>
+          filter.type === "nestedFilterDropdown",
+      ),
+    [filterItems],
   );
 
   return (
-    <div className={clsx("flex w-full flex-col gap-2", className)}>
-      {/* Filter buttons row */}
-      <div className="flex flex-row flex-wrap items-center gap-2">
-        {filterItems.map((filter) => {
-          if (filter.type === "button") {
-            return (
-              <ButtonFilter
-                key={filter.value}
-                status={filter.status}
+    <div className={clsx("flex w-full flex-row flex-wrap items-center gap-2", className)}>
+      {leadingFilters.map((filter) => {
+        if (filter.type === "button") {
+          return (
+            <ButtonFilter
+              key={filter.value}
+              status={filter.status}
+              title={filter.title}
+              count={filter.count}
+              filter={filter.value}
+              activeFilters={activeFilters.buttonFilters}
+              setActiveFilter={handleButtonFilterChange}
+              size={filterSize}
+            />
+          );
+        }
+
+        if (filter.type === "dropdown") {
+          const selectedOptions = activeFilters.dropdownFilters[filter.value];
+          return (
+            <div key={filter.value}>
+              <DropdownFilter
                 title={filter.title}
-                count={filter.count}
-                filter={filter.value}
-                activeFilters={activeFilters.buttonFilters}
-                setActiveFilter={handleButtonFilterChange}
-                size={filterSize}
+                pluralTitle={filter.pluralTitle ?? `${filter.title}s`}
+                options={filter.options}
+                selectedOptions={selectedOptions || []}
+                showSelectAll={filter.showSelectAll}
+                onSelect={(items) => setDropdownSelection(filter.value, items)}
+                withButtons={isServerSide}
               />
-            );
+            </div>
+          );
+        }
+
+        return null;
+      })}
+
+      {activeDropdownFilterGroups.map((group) => (
+        <FilterChip
+          key={group.filterValue}
+          filterValue={group.filterValue}
+          title={group.title}
+          pluralTitle={group.pluralTitle}
+          options={group.options}
+          selectedIds={group.selectedIds}
+          onChange={(ids) => setDropdownSelection(group.filterValue, ids)}
+          onClear={() => {
+            setDropdownSelection(group.filterValue, []);
+            setOpenChipFilterValue((prev) => (prev === group.filterValue ? null : prev));
+          }}
+          onOpenChange={(open) =>
+            setOpenChipFilterValue((prev) => {
+              if (open) return group.filterValue;
+              return prev === group.filterValue ? null : prev;
+            })
           }
+        />
+      ))}
 
-          if (filter.type === "dropdown") {
-            const selectedOptions = activeFilters.dropdownFilters[filter.value];
-            return (
-              <div key={filter.value}>
-                <DropdownFilter
-                  title={filter.title}
-                  pluralTitle={filter.title + "s"}
-                  options={filter.options}
-                  selectedOptions={selectedOptions || []}
-                  showSelectAll={filter.showSelectAll}
-                  onSelect={(items) => setDropdownSelection(filter.value, items)}
-                  withButtons={isServerSide}
-                />
-              </div>
-            );
-          }
+      {nestedFilters.map((filter) => {
+        const categories: FilterCategory[] = filter.children.map((child) => ({
+          key: child.value,
+          label: child.title,
+          options: child.options,
+          selectedValues: activeFilters.dropdownFilters[child.value] ?? [],
+        }));
+        return (
+          <NestedDropdownFilter
+            key={filter.value}
+            testId={`filter-nested-${filter.value}`}
+            label={filter.title}
+            prefixIcon={filter.prefixIcon}
+            categories={categories}
+            onChange={setDropdownSelection}
+            onClearAll={() =>
+              setActiveFilters((prev) => {
+                const next = { ...prev.dropdownFilters };
+                filter.children.forEach((child) => {
+                  delete next[child.value];
+                });
+                return { ...prev, dropdownFilters: next };
+              })
+            }
+          />
+        );
+      })}
 
-          if (filter.type === "nestedFilterDropdown") {
-            const categories: FilterCategory[] = filter.children.map((child) => ({
-              key: child.value,
-              label: child.title,
-              options: child.options,
-              selectedValues: activeFilters.dropdownFilters[child.value] ?? [],
-            }));
-            return (
-              <NestedDropdownFilter
-                key={filter.value}
-                testId={`filter-nested-${filter.value}`}
-                label={filter.title}
-                categories={categories}
-                onChange={setDropdownSelection}
-                onClearAll={() =>
-                  setActiveFilters((prev) => {
-                    const next = { ...prev.dropdownFilters };
-                    filter.children.forEach((child) => {
-                      delete next[child.value];
-                    });
-                    return { ...prev, dropdownFilters: next };
-                  })
-                }
-              />
-            );
-          }
-
-          return null;
-        })}
-        {headerControls ? (
-          <div className="ml-auto tablet:mr-(--list-padding-tablet) laptop:mr-(--list-padding-laptop) desktop:mr-(--list-padding-desktop) phone:mr-(--list-padding-phone)">
-            {headerControls}
-          </div>
-        ) : null}
-      </div>
-
-      {/* Active dropdown filters row */}
-      {activeDropdownFilterItems.length > 0 ? (
-        <div className="flex flex-wrap gap-2">
-          {activeDropdownFilterItems.map((item) => (
-            <Button
-              size={sizes.compact}
-              variant={variants.accent}
-              key={`${item.filterValue}-${item.id}`}
-              prefixIcon={<DismissTiny />}
-              onClick={() => handleRemoveDropdownFilter(item.id, item.filterValue)}
-              testId={`active-filter-${item.filterValue}-${item.id}`}
-            >
-              {item.label}
-            </Button>
-          ))}
+      {headerControls ? (
+        <div className="ml-auto tablet:mr-(--list-padding-tablet) laptop:mr-(--list-padding-laptop) desktop:mr-(--list-padding-desktop) phone:mr-(--list-padding-phone)">
+          {headerControls}
         </div>
       ) : null}
     </div>

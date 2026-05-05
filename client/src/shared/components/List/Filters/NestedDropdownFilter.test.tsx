@@ -1,7 +1,35 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import NestedDropdownFilter, { type FilterCategory } from "./NestedDropdownFilter";
 import { computeNestedPosition } from "./useFilterDropdownPosition";
+
+const mockedDimensions = {
+  width: 1280,
+  height: 800,
+  isPhone: false,
+  isTablet: false,
+  isLaptop: false,
+  isDesktop: true,
+};
+
+vi.mock("@/shared/hooks/useWindowDimensions", () => ({
+  useWindowDimensions: () => mockedDimensions,
+}));
+
+const setViewport = (overrides: Partial<typeof mockedDimensions>) => {
+  Object.assign(mockedDimensions, overrides);
+};
+
+const resetViewport = () => {
+  Object.assign(mockedDimensions, {
+    width: 1280,
+    height: 800,
+    isPhone: false,
+    isTablet: false,
+    isLaptop: false,
+    isDesktop: true,
+  });
+};
 
 const rect = (overrides: Partial<DOMRect>): DOMRect => {
   const base = { x: 0, y: 0, width: 0, height: 0, top: 0, left: 0, right: 0, bottom: 0 };
@@ -175,6 +203,69 @@ describe("NestedDropdownFilter", () => {
     fireEvent.click(screen.getByTestId("nested-dropdown-filter"));
 
     expect(screen.queryByText("Clear all")).not.toBeInTheDocument();
+  });
+});
+
+describe("NestedDropdownFilter on small viewports", () => {
+  afterEach(() => {
+    resetViewport();
+  });
+
+  it("replaces the category list with the selected category's options on click in mobile mode", async () => {
+    setViewport({ isPhone: true, isDesktop: false, width: 375 });
+    const onChange = vi.fn();
+
+    render(
+      <NestedDropdownFilter label="Filters" categories={buildCategories()} onChange={onChange} onClearAll={vi.fn()} />,
+    );
+
+    fireEvent.click(screen.getByTestId("nested-dropdown-filter"));
+    fireEvent.click(screen.getByTestId("nested-dropdown-filter-row-firmware"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("filter-option-v3.5.1")).toBeInTheDocument();
+    });
+
+    // Sibling category rows are no longer rendered — the options replaced them.
+    expect(screen.queryByTestId("nested-dropdown-filter-row-status")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("filter-option-v3.5.1"));
+    expect(onChange).toHaveBeenCalledWith("firmware", ["v3.5.1"]);
+  });
+
+  it("returns to the category list when the back affordance is clicked", async () => {
+    setViewport({ isPhone: true, isDesktop: false, width: 375 });
+
+    render(
+      <NestedDropdownFilter label="Filters" categories={buildCategories()} onChange={vi.fn()} onClearAll={vi.fn()} />,
+    );
+
+    fireEvent.click(screen.getByTestId("nested-dropdown-filter"));
+    fireEvent.click(screen.getByTestId("nested-dropdown-filter-row-firmware"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("filter-option-v3.5.1")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId("nested-dropdown-filter-back"));
+
+    expect(screen.getByTestId("nested-dropdown-filter-row-status")).toBeInTheDocument();
+    expect(screen.getByTestId("nested-dropdown-filter-row-firmware")).toBeInTheDocument();
+    expect(screen.queryByTestId("filter-option-v3.5.1")).not.toBeInTheDocument();
+  });
+
+  it("does not portal a side-by-side submenu when in mobile mode", () => {
+    setViewport({ isTablet: true, isDesktop: false, width: 800 });
+
+    render(
+      <NestedDropdownFilter label="Filters" categories={buildCategories()} onChange={vi.fn()} onClearAll={vi.fn()} />,
+    );
+
+    fireEvent.click(screen.getByTestId("nested-dropdown-filter"));
+    fireEvent.click(screen.getByTestId("nested-dropdown-filter-row-firmware"));
+
+    // The portaled side panel testId is reserved for the desktop hover layout.
+    expect(screen.queryByTestId("nested-dropdown-filter-submenu-firmware")).not.toBeInTheDocument();
   });
 });
 

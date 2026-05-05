@@ -16,6 +16,12 @@ type PopoverProps = PopoverContentProps & {
   offset?: number;
   xOffset?: number;
   yOffset?: number;
+  /**
+   * Anchor the popover to the trigger's position at the moment of mount and stop
+   * tracking it afterwards. Renders portal-fixed so layout shifts (e.g. chips inserted
+   * before the trigger button) don't drag the popover sideways while it's open.
+   */
+  freezePosition?: boolean;
 };
 
 /**
@@ -61,8 +67,12 @@ const Popover = ({
   titleSize = "text-heading-200",
   closePopover,
   closeIgnoreSelectors = [],
+  freezePosition = false,
 }: PopoverProps) => {
-  const { triggerRef, renderMode } = usePopover();
+  const { triggerRef, renderMode: contextRenderMode } = usePopover();
+  // Frozen popovers must be portal'd to body so they're positioned relative to the
+  // viewport rather than the trigger element's absolute container (which moves with it).
+  const renderMode = freezePosition ? "portal-fixed" : contextRenderMode;
   const { popoverAnimation, popoverStyle, popoverRef } = usePopoverPosition(
     triggerRef,
     offset ?? minimalMargin,
@@ -70,6 +80,7 @@ const Popover = ({
     yOffset,
     renderMode,
     position,
+    freezePosition,
   );
 
   const popoverElement = (

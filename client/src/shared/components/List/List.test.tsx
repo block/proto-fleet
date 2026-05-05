@@ -473,7 +473,7 @@ describe("List", () => {
 
     const { rerender } = render(<List<TestItem, TestItemKey> {...props} />);
 
-    expect(await screen.findByTestId("active-filter-valueRange-low")).toBeInTheDocument();
+    expect(await screen.findByTestId("active-filter-valueRange")).toBeInTheDocument();
 
     rerender(
       <List<TestItem, TestItemKey>
@@ -485,7 +485,7 @@ describe("List", () => {
       />,
     );
 
-    expect(screen.queryByTestId("active-filter-valueRange-low")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("active-filter-valueRange")).not.toBeInTheDocument();
   });
 
   it("clearSelection callback deselects all items", async () => {

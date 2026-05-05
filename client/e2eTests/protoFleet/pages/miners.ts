@@ -41,14 +41,39 @@ export class MinersPage extends BasePage {
       .toBeGreaterThanOrEqual(minerCount);
   }
 
-  private async filterMinersByModel(minerType: string) {
-    await this.page.getByTestId("filter-dropdown-Model").click();
-    const popover = this.page.getByTestId("dropdown-filter-popover");
+  private async openAddFilterPopover() {
+    await this.page.getByTestId("filter-nested-filters-meta").click();
+    const popover = this.page.getByTestId("nested-dropdown-filter-popover");
     await expect(popover).toBeVisible();
-    await expect(popover).toHaveCSS("opacity", "1");
-    await this.clickDropdownFilterOption(popover, [minerType]);
-    await popover.getByRole("button", { name: "Apply" }).click();
+    return popover;
+  }
+
+  private async openModelSubmenu(popover: Locator) {
+    await popover.getByTestId("nested-dropdown-filter-row-model").click();
+    // Desktop renders a portaled side submenu; phone/tablet collapses options into the
+    // parent popover with a "back" header. Either way the option rows for the chosen
+    // category become visible — return whichever container holds them.
+    const desktopSubmenu = this.page.getByTestId("nested-dropdown-filter-submenu-model");
+    const mobileBack = popover.getByTestId("nested-dropdown-filter-back");
+    await expect(desktopSubmenu.or(mobileBack)).toBeVisible();
+    if (await desktopSubmenu.isVisible().catch(() => false)) return desktopSubmenu;
+    return popover;
+  }
+
+  private async dismissAddFilterPopover() {
+    // Toggle the trigger to close — the trigger is never covered by its own popover, so
+    // this is more reliable than clicking page chrome that may not exist or may be
+    // intercepted by the portal-fixed popover.
+    await this.page.getByTestId("filter-nested-filters-meta").click();
+    const popover = this.page.getByTestId("nested-dropdown-filter-popover");
     await expect(popover).toBeHidden();
+  }
+
+  private async filterMinersByModel(minerType: string) {
+    const popover = await this.openAddFilterPopover();
+    const submenu = await this.openModelSubmenu(popover);
+    await this.clickDropdownFilterOption(submenu, [minerType]);
+    await this.dismissAddFilterPopover();
   }
 
   async filterRigMiners() {
@@ -57,15 +82,18 @@ export class MinersPage extends BasePage {
   }
 
   async filterAllMinersExceptRig() {
-    await this.page.getByTestId("filter-dropdown-Model").click();
-    const popover = this.page.getByTestId("dropdown-filter-popover");
-    await expect(popover).toBeVisible();
-    await expect(popover).toHaveCSS("opacity", "1");
-    await popover.getByText("Select all", { exact: true }).click();
-    await this.clickDropdownFilterOption(popover, [PROTO_RIG_MODEL]);
-
-    await popover.getByRole("button", { name: "Apply" }).click();
-    await expect(popover).toBeHidden();
+    const popover = await this.openAddFilterPopover();
+    const submenu = await this.openModelSubmenu(popover);
+    // Nested submenu has no select-all; toggle every non-rig option individually.
+    const optionRows = submenu.locator('[data-testid^="filter-option-"]');
+    const count = await optionRows.count();
+    const skipTestId = `filter-option-${PROTO_RIG_MODEL}`;
+    for (let i = 0; i < count; i++) {
+      const row = optionRows.nth(i);
+      const testId = await row.getAttribute("data-testid");
+      if (testId !== skipTestId) await row.click();
+    }
+    await this.dismissAddFilterPopover();
     await this.waitForRigMinersToDisappear();
   }
 
@@ -813,12 +841,19 @@ export class MinersPage extends BasePage {
   }
 
   async validateActiveFilter(filterLabel: string) {
-    const activeFilterButton = this.page.locator(`[data-testid*="active-filter-"]`, { hasText: filterLabel });
+    // Match the chip's editable summary button only — the outer chip wrapper also carries
+    // an `active-filter-*` testid, which would otherwise resolve two elements with the
+    // same text and trip Playwright's strict mode.
+    const activeFilterButton = this.page.locator('button[data-testid^="active-filter-"][data-testid$="-edit"]', {
+      hasText: filterLabel,
+    });
     await expect(activeFilterButton).toBeVisible();
   }
 
   async validateActiveFilterNotVisible(filterLabel: string) {
-    const activeFilterButton = this.page.locator(`[data-testid*="active-filter-"]`, { hasText: filterLabel });
+    const activeFilterButton = this.page.locator('button[data-testid^="active-filter-"][data-testid$="-edit"]', {
+      hasText: filterLabel,
+    });
     await expect(activeFilterButton).toHaveCount(0);
   }
 

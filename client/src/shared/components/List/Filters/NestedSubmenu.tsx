@@ -11,6 +11,29 @@ import Divider from "@/shared/components/Divider";
 // outer is height-clipped so the inner area doesn't overflow the panel chrome.
 const PANEL_PADDING_TOTAL = 48;
 
+type CheckboxOptionRowProps = {
+  option: DropdownOption;
+  checked: boolean;
+  onToggle: (id: string) => void;
+};
+
+export const CheckboxOptionRow = ({ option, checked, onToggle }: CheckboxOptionRowProps) => (
+  <div
+    className={clsx(
+      "flex cursor-pointer items-center rounded-xl p-3 text-left select-none",
+      "transition-[background-color] duration-200 ease-in-out",
+      "text-text-primary hover:bg-core-primary-5",
+    )}
+    onClick={() => onToggle(option.id)}
+    data-testid={`filter-option-${option.id}`}
+  >
+    <div className="min-w-0 grow truncate text-emphasis-300" title={option.label}>
+      {option.label}
+    </div>
+    <Checkbox className="shrink-0" checked={checked} />
+  </div>
+);
+
 type NestedSubmenuProps = {
   /** Used in test ids and as a stable key. */
   categoryKey: string;
@@ -60,22 +83,9 @@ const NestedSubmenu = ({
           position?.maxHeight !== undefined ? { maxHeight: `${position.maxHeight - PANEL_PADDING_TOTAL}px` } : undefined
         }
       >
-        {options.map((item, index) => (
-          <div key={item.id}>
-            <div
-              className={clsx(
-                "flex cursor-pointer items-center rounded-xl p-3 text-left select-none",
-                "transition-[background-color] duration-200 ease-in-out",
-                "text-text-primary hover:bg-core-primary-5",
-              )}
-              onClick={() => onToggleItem(item.id)}
-              data-testid={`filter-option-${item.id}`}
-            >
-              <div className="min-w-0 grow truncate text-emphasis-300" title={item.label}>
-                {item.label}
-              </div>
-              <Checkbox className="shrink-0" checked={selectedValues.includes(item.id)} />
-            </div>
+        {options.map((option, index) => (
+          <div key={option.id}>
+            <CheckboxOptionRow option={option} checked={selectedValues.includes(option.id)} onToggle={onToggleItem} />
             {index < options.length - 1 ? <Divider className="px-0" /> : null}
           </div>
         ))}

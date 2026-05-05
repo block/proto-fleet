@@ -43,7 +43,7 @@ import {
 import { encodeSortToURL, parseSortFromURL } from "@/protoFleet/features/fleetManagement/utils/sortUrlParams";
 import { useUsername } from "@/protoFleet/store";
 
-import { ChevronDown, LogoAlt, Slider } from "@/shared/assets/icons";
+import { ChevronDown, LogoAlt, Plus, Slider } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import List from "@/shared/components/List";
@@ -646,6 +646,7 @@ const MinerList = ({
     () => ({
       type: "dropdown",
       title: "Status",
+      pluralTitle: "statuses",
       value: "status",
       options: [
         { id: deviceStatusFilterStates.hashing, label: "Hashing" },
@@ -662,6 +663,7 @@ const MinerList = ({
     () => ({
       type: "dropdown",
       title: "Issues",
+      pluralTitle: "issues",
       value: "issues",
       options: [
         { id: componentIssues.controlBoard, label: "Control board issue" },
@@ -678,6 +680,7 @@ const MinerList = ({
     () => ({
       type: "dropdown",
       title: "Model",
+      pluralTitle: "models",
       value: "model",
       options: availableModels.map((model) => ({ id: model, label: model })),
       defaultOptionIds: [],
@@ -689,6 +692,7 @@ const MinerList = ({
     () => ({
       type: "dropdown",
       title: "Groups",
+      pluralTitle: "groups",
       value: "group",
       options: availableGroups.map((g) => ({ id: String(g.id), label: g.label })),
       defaultOptionIds: [],
@@ -700,6 +704,7 @@ const MinerList = ({
     () => ({
       type: "dropdown",
       title: "Racks",
+      pluralTitle: "racks",
       value: "rack",
       options: availableRacks.map((r) => ({ id: String(r.id), label: r.label })),
       defaultOptionIds: [],
@@ -711,6 +716,7 @@ const MinerList = ({
     () => ({
       type: "dropdown",
       title: "Firmware",
+      pluralTitle: "firmware versions",
       value: "firmware",
       options: availableFirmwareVersions.map((v) => ({ id: v, label: v })),
       defaultOptionIds: [],
@@ -722,6 +728,7 @@ const MinerList = ({
     () => ({
       type: "dropdown",
       title: "Zones",
+      pluralTitle: "zones",
       value: "zone",
       options: availableZones.map((z) => ({ id: z, label: z })),
       defaultOptionIds: [],
@@ -733,15 +740,11 @@ const MinerList = ({
     () => [
       {
         type: "nestedFilterDropdown",
-        title: "Filters",
+        title: "Add Filter",
         value: "filters-meta",
+        prefixIcon: <Plus width="w-3" />,
         children: [statusFilter, modelFilter, zonesFilter, racksFilter, groupsFilter, firmwareFilter, issuesFilter],
       },
-      statusFilter,
-      issuesFilter,
-      modelFilter,
-      groupsFilter,
-      racksFilter,
     ],
     [statusFilter, issuesFilter, modelFilter, groupsFilter, racksFilter, firmwareFilter, zonesFilter],
   );
