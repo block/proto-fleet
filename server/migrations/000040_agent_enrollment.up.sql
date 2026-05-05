@@ -43,9 +43,13 @@ CREATE TABLE pending_enrollment (
     CONSTRAINT ck_pending_enrollment_status CHECK (
         status IN ('PENDING', 'AWAITING_CONFIRMATION', 'CONFIRMED', 'EXPIRED', 'CANCELLED')
     ),
+    -- agent_id is bound at Register; pre-Register the row can sit in PENDING,
+    -- CANCELLED, or EXPIRED with no agent. Post-Register it can land in any
+    -- terminal state (CANCELLED handles operator revoke of an unconfirmed
+    -- agent; EXPIRED handles abandoned awaiting-confirmation rows).
     CONSTRAINT ck_pending_enrollment_agent_states CHECK (
-        (status IN ('PENDING', 'CANCELLED', 'EXPIRED') AND agent_id IS NULL) OR
-        (status IN ('AWAITING_CONFIRMATION', 'CONFIRMED') AND agent_id IS NOT NULL)
+        (agent_id IS NULL     AND status IN ('PENDING', 'CANCELLED', 'EXPIRED')) OR
+        (agent_id IS NOT NULL AND status IN ('AWAITING_CONFIRMATION', 'CONFIRMED', 'CANCELLED', 'EXPIRED'))
     )
 );
 

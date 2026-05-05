@@ -36,6 +36,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.bindEnrollmentToAgentStmt, err = db.PrepareContext(ctx, bindEnrollmentToAgent); err != nil {
 		return nil, fmt.Errorf("error preparing query BindEnrollmentToAgent: %w", err)
 	}
+	if q.cancelEnrollmentForAgentStmt, err = db.PrepareContext(ctx, cancelEnrollmentForAgent); err != nil {
+		return nil, fmt.Errorf("error preparing query CancelEnrollmentForAgent: %w", err)
+	}
 	if q.cancelPendingEnrollmentStmt, err = db.PrepareContext(ctx, cancelPendingEnrollment); err != nil {
 		return nil, fmt.Errorf("error preparing query CancelPendingEnrollment: %w", err)
 	}
@@ -125,6 +128,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.deleteAgentAuthChallengesByAgentIDStmt, err = db.PrepareContext(ctx, deleteAgentAuthChallengesByAgentID); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteAgentAuthChallengesByAgentID: %w", err)
+	}
+	if q.deleteAgentSessionsByAgentIDStmt, err = db.PrepareContext(ctx, deleteAgentSessionsByAgentID); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteAgentSessionsByAgentID: %w", err)
 	}
 	if q.deleteExpiredSessionsStmt, err = db.PrepareContext(ctx, deleteExpiredSessions); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteExpiredSessions: %w", err)
@@ -754,6 +760,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing bindEnrollmentToAgentStmt: %w", cerr)
 		}
 	}
+	if q.cancelEnrollmentForAgentStmt != nil {
+		if cerr := q.cancelEnrollmentForAgentStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing cancelEnrollmentForAgentStmt: %w", cerr)
+		}
+	}
 	if q.cancelPendingEnrollmentStmt != nil {
 		if cerr := q.cancelPendingEnrollmentStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing cancelPendingEnrollmentStmt: %w", cerr)
@@ -902,6 +913,11 @@ func (q *Queries) Close() error {
 	if q.deleteAgentAuthChallengesByAgentIDStmt != nil {
 		if cerr := q.deleteAgentAuthChallengesByAgentIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing deleteAgentAuthChallengesByAgentIDStmt: %w", cerr)
+		}
+	}
+	if q.deleteAgentSessionsByAgentIDStmt != nil {
+		if cerr := q.deleteAgentSessionsByAgentIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteAgentSessionsByAgentIDStmt: %w", cerr)
 		}
 	}
 	if q.deleteExpiredSessionsStmt != nil {
@@ -1952,6 +1968,7 @@ type Queries struct {
 	adminResetUserPasswordStmt                          *sql.Stmt
 	allDevicesBelongToOrgStmt                           *sql.Stmt
 	bindEnrollmentToAgentStmt                           *sql.Stmt
+	cancelEnrollmentForAgentStmt                        *sql.Stmt
 	cancelPendingEnrollmentStmt                         *sql.Stmt
 	claimMessageForProcessingStmt                       *sql.Stmt
 	clearRackSlotPositionStmt                           *sql.Stmt
@@ -1982,6 +1999,7 @@ type Queries struct {
 	createUserStmt                                      *sql.Stmt
 	createUserOrganizationStmt                          *sql.Stmt
 	deleteAgentAuthChallengesByAgentIDStmt              *sql.Stmt
+	deleteAgentSessionsByAgentIDStmt                    *sql.Stmt
 	deleteExpiredSessionsStmt                           *sql.Stmt
 	deleteOrganizationStmt                              *sql.Stmt
 	deletePoolStmt                                      *sql.Stmt
@@ -2193,6 +2211,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		adminResetUserPasswordStmt:                          q.adminResetUserPasswordStmt,
 		allDevicesBelongToOrgStmt:                           q.allDevicesBelongToOrgStmt,
 		bindEnrollmentToAgentStmt:                           q.bindEnrollmentToAgentStmt,
+		cancelEnrollmentForAgentStmt:                        q.cancelEnrollmentForAgentStmt,
 		cancelPendingEnrollmentStmt:                         q.cancelPendingEnrollmentStmt,
 		claimMessageForProcessingStmt:                       q.claimMessageForProcessingStmt,
 		clearRackSlotPositionStmt:                           q.clearRackSlotPositionStmt,
@@ -2223,6 +2242,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		createUserStmt:                                      q.createUserStmt,
 		createUserOrganizationStmt:                          q.createUserOrganizationStmt,
 		deleteAgentAuthChallengesByAgentIDStmt:              q.deleteAgentAuthChallengesByAgentIDStmt,
+		deleteAgentSessionsByAgentIDStmt:                    q.deleteAgentSessionsByAgentIDStmt,
 		deleteExpiredSessionsStmt:                           q.deleteExpiredSessionsStmt,
 		deleteOrganizationStmt:                              q.deleteOrganizationStmt,
 		deletePoolStmt:                                      q.deletePoolStmt,

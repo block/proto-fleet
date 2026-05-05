@@ -32,3 +32,7 @@ WHERE s.token_hash = $1
 -- name: SweepExpiredAgentSessions :execrows
 DELETE FROM agent_session
 WHERE expires_at < $1;
+
+-- name: DeleteAgentSessionsByAgentID :execrows
+DELETE FROM agent_session
+WHERE agent_id = $1;

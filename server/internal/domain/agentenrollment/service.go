@@ -37,6 +37,7 @@ type PendingEnrollmentStore interface {
 	BindEnrollmentToAgent(ctx context.Context, enrollmentID, agentID int64) (int64, error)
 	ConfirmEnrollment(ctx context.Context, enrollmentID int64, consumedAt time.Time) (int64, error)
 	CancelPendingEnrollment(ctx context.Context, enrollmentID, orgID int64, consumedAt time.Time) (int64, error)
+	CancelEnrollmentForAgent(ctx context.Context, agentID, orgID int64, consumedAt time.Time) (int64, error)
 	SweepExpiredEnrollments(ctx context.Context, now time.Time) (int64, error)
 }
 
@@ -141,6 +142,16 @@ func (s *Service) Confirm(ctx context.Context, agentID, orgID int64) (string, ti
 		expires   time.Time
 	)
 	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
+		agent, err := s.store.GetAgentByID(ctx, agentID, orgID)
+		if err != nil {
+			if fleeterror.IsNotFoundError(err) {
+				return fleeterror.NewNotFoundError("agent not found")
+			}
+			return logInternal("agent lookup", clientErrConfirmAgent, err)
+		}
+		if agent.EnrollmentStatus == AgentStatusRevoked {
+			return fleeterror.NewFailedPreconditionError("agent is revoked; cannot confirm")
+		}
 		pe, err := s.store.GetPendingEnrollmentByAgent(ctx, agentID, orgID)
 		if err != nil {
 			if fleeterror.IsNotFoundError(err) {
@@ -180,10 +191,12 @@ func (s *Service) Confirm(ctx context.Context, agentID, orgID int64) (string, ti
 	return plaintext, expires, nil
 }
 
-// RevokeAgent locks an agent out: marks enrollment_status REVOKED and revokes
-// the agent's api_keys. The agent_session join filter on enrollment_status
-// causes any in-flight session to fail to resolve on the next call, and
-// challenge rows expire on their own 30s TTL.
+// RevokeAgent locks an agent out: marks enrollment_status REVOKED, cancels
+// any AWAITING_CONFIRMATION pending_enrollment so the agent can't be
+// resurrected by a later Confirm, and revokes the agent's api_keys. The
+// agent_session join filter on enrollment_status causes any in-flight session
+// to fail to resolve on the next call; challenge rows expire on their own
+// 30s TTL.
 func (s *Service) RevokeAgent(ctx context.Context, agentID, orgID int64) error {
 	return s.transactor.RunInTx(ctx, func(ctx context.Context) error {
 		if _, err := s.store.GetAgentByID(ctx, agentID, orgID); err != nil {
@@ -194,6 +207,9 @@ func (s *Service) RevokeAgent(ctx context.Context, agentID, orgID int64) error {
 		}
 		if _, err := s.store.SetAgentEnrollmentStatus(ctx, AgentStatusRevoked, agentID, orgID); err != nil {
 			return logInternal("set agent revoked", clientErrRevokeAgent, err)
+		}
+		if _, err := s.store.CancelEnrollmentForAgent(ctx, agentID, orgID, time.Now().UTC()); err != nil {
+			return logInternal("cancel pending enrollment", clientErrRevokeAgent, err)
 		}
 		if _, err := s.apiKeySvc.RevokeForAgent(ctx, agentID, orgID); err != nil {
 			return err

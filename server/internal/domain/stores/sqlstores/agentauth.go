@@ -85,3 +85,7 @@ func (s *SQLAgentAuthStore) GetSessionAgent(ctx context.Context, tokenHash strin
 func (s *SQLAgentAuthStore) SweepExpiredSessions(ctx context.Context, now time.Time) (int64, error) {
 	return s.q(ctx).SweepExpiredAgentSessions(ctx, now)
 }
+
+func (s *SQLAgentAuthStore) DeleteSessionsForAgent(ctx context.Context, agentID int64) (int64, error) {
+	return s.q(ctx).DeleteAgentSessionsByAgentID(ctx, agentID)
+}

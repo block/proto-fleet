@@ -30,6 +30,27 @@ func (q *Queries) BindEnrollmentToAgent(ctx context.Context, arg BindEnrollmentT
 	return result.RowsAffected()
 }
 
+const cancelEnrollmentForAgent = `-- name: CancelEnrollmentForAgent :execrows
+UPDATE pending_enrollment
+SET status = 'CANCELLED', consumed_at = $1
+WHERE agent_id = $2 AND org_id = $3
+  AND status IN ('PENDING', 'AWAITING_CONFIRMATION')
+`
+
+type CancelEnrollmentForAgentParams struct {
+	ConsumedAt sql.NullTime
+	AgentID    sql.NullInt64
+	OrgID      int64
+}
+
+func (q *Queries) CancelEnrollmentForAgent(ctx context.Context, arg CancelEnrollmentForAgentParams) (int64, error) {
+	result, err := q.exec(ctx, q.cancelEnrollmentForAgentStmt, cancelEnrollmentForAgent, arg.ConsumedAt, arg.AgentID, arg.OrgID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const cancelPendingEnrollment = `-- name: CancelPendingEnrollment :execrows
 UPDATE pending_enrollment
 SET status = 'CANCELLED', consumed_at = $1

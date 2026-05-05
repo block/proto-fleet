@@ -244,6 +244,48 @@ func TestBeginHandshakeBoundsChallengesPerAgent(t *testing.T) {
 	require.Equal(t, 1, count, "BeginHandshake must drop the prior challenge for this agent")
 }
 
+func TestRevokeBeforeConfirmCannotBeResurrected(t *testing.T) {
+	// Arrange
+	ctx := t.Context()
+	_, userID, orgID, enrollment, _ := setupEnrollmentTest(t)
+	pubKey, _, _ := ed25519.GenerateKey(rand.Reader)
+	signing, _, _ := ed25519.GenerateKey(rand.Reader)
+	code, _, _ := enrollment.CreateCode(ctx, userID, orgID, time.Hour)
+	agent, _, err := enrollment.RegisterAgent(ctx, code, "agent-1", pubKey, signing)
+	require.NoError(t, err)
+	require.NoError(t, enrollment.RevokeAgent(ctx, agent.ID, orgID))
+
+	// Act
+	_, _, confirmErr := enrollment.Confirm(ctx, agent.ID, orgID)
+
+	// Assert
+	require.Error(t, confirmErr, "Confirm must reject a revoked agent")
+}
+
+func TestCompleteHandshakeBoundsSessionsPerAgent(t *testing.T) {
+	// Arrange
+	ctx := t.Context()
+	db, userID, orgID, enrollment, auth := setupEnrollmentTest(t)
+	pubKey, privKey, _ := ed25519.GenerateKey(rand.Reader)
+	signing, _, _ := ed25519.GenerateKey(rand.Reader)
+	code, _, _ := enrollment.CreateCode(ctx, userID, orgID, time.Hour)
+	agent, _, _ := enrollment.RegisterAgent(ctx, code, "agent-1", pubKey, signing)
+	apiKeyPlaintext, _, _ := enrollment.Confirm(ctx, agent.ID, orgID)
+
+	// Act
+	for range 2 {
+		challenge, _, err := auth.BeginHandshake(ctx, apiKeyPlaintext, pubKey)
+		require.NoError(t, err)
+		_, _, err = auth.CompleteHandshake(ctx, challenge, ed25519.Sign(privKey, challenge))
+		require.NoError(t, err)
+	}
+
+	// Assert
+	var count int
+	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM agent_session WHERE agent_id = $1`, agent.ID).Scan(&count))
+	require.Equal(t, 1, count, "CompleteHandshake must drop prior sessions for the same agent")
+}
+
 func TestConfirmRejectsBeforeRegister(t *testing.T) {
 	// Arrange
 	ctx := t.Context()

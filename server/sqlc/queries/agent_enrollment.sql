@@ -28,6 +28,12 @@ UPDATE pending_enrollment
 SET status = 'CANCELLED', consumed_at = $1
 WHERE id = $2 AND status = 'PENDING' AND org_id = $3;
 
+-- name: CancelEnrollmentForAgent :execrows
+UPDATE pending_enrollment
+SET status = 'CANCELLED', consumed_at = $1
+WHERE agent_id = $2 AND org_id = $3
+  AND status IN ('PENDING', 'AWAITING_CONFIRMATION');
+
 -- name: SweepExpiredEnrollments :execrows
 UPDATE pending_enrollment
 SET status = 'EXPIRED'

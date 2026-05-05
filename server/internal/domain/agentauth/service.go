@@ -33,6 +33,7 @@ type Store interface {
 
 	CreateSession(ctx context.Context, tokenHash string, agentID int64, expiresAt time.Time) error
 	GetSessionAgent(ctx context.Context, tokenHash string, now time.Time) (*ResolvedAgent, error)
+	DeleteSessionsForAgent(ctx context.Context, agentID int64) (int64, error)
 	SweepExpiredSessions(ctx context.Context, now time.Time) (int64, error)
 }
 
@@ -138,8 +139,18 @@ func (s *Service) CompleteHandshake(ctx context.Context, challenge, signature []
 	}
 	plaintext := base64.RawURLEncoding.EncodeToString(tokenBytes)
 	expiresAt := now.Add(s.sessionTTL)
-	if err := s.store.CreateSession(ctx, hashToken(plaintext), agentID, expiresAt); err != nil {
-		return "", time.Time{}, logInternal("store session", clientErrAuth, err)
+	// Drop any prior sessions for this agent so re-authentication rotates the
+	// token rather than letting bearer credentials accumulate.
+	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
+		if _, err := s.store.DeleteSessionsForAgent(ctx, agentID); err != nil {
+			return logInternal("delete prior sessions", clientErrAuth, err)
+		}
+		if err := s.store.CreateSession(ctx, hashToken(plaintext), agentID, expiresAt); err != nil {
+			return logInternal("store session", clientErrAuth, err)
+		}
+		return nil
+	}); err != nil {
+		return "", time.Time{}, err
 	}
 	return plaintext, expiresAt, nil
 }

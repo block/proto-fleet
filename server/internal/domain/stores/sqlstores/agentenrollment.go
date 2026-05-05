@@ -85,6 +85,14 @@ func (s *SQLAgentEnrollmentStore) CancelPendingEnrollment(ctx context.Context, e
 	})
 }
 
+func (s *SQLAgentEnrollmentStore) CancelEnrollmentForAgent(ctx context.Context, agentID, orgID int64, consumedAt time.Time) (int64, error) {
+	return s.q(ctx).CancelEnrollmentForAgent(ctx, sqlc.CancelEnrollmentForAgentParams{
+		ConsumedAt: sql.NullTime{Time: consumedAt, Valid: true},
+		AgentID:    sql.NullInt64{Int64: agentID, Valid: true},
+		OrgID:      orgID,
+	})
+}
+
 func (s *SQLAgentEnrollmentStore) SweepExpiredEnrollments(ctx context.Context, now time.Time) (int64, error) {
 	return s.q(ctx).SweepExpiredEnrollments(ctx, now)
 }
