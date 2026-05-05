@@ -15,10 +15,10 @@ import GroupModal from "@/protoFleet/features/groupManagement/components/GroupMo
 import GroupNameCell from "@/protoFleet/features/groupManagement/components/GroupsTable/GroupNameCell";
 import { useDeviceSetListState } from "@/protoFleet/hooks/useDeviceSetListState";
 
-import { Alert, DismissTiny, Groups } from "@/shared/assets/icons";
+import { Alert, Groups } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
-import DropdownFilter from "@/shared/components/List/Filters/DropdownFilter";
+import FilterChipsBar from "@/shared/components/List/Filters/FilterChipsBar";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 
 const GROUPS_PAGE_SIZE = 50;
@@ -48,34 +48,28 @@ const GroupsPage = () => {
     resetAndFetch,
   } = useDeviceSetListState(listGroups, GROUPS_PAGE_SIZE, getErrorComponentTypes);
 
-  const handleIssuesChange = useCallback(
-    (issues: string[]) => {
-      setSelectedIssues(issues);
-      selectedIssuesRef.current = issues;
+  const handleFilterChange = useCallback(
+    (key: string, values: string[]) => {
+      if (key !== "issues") return;
+      setSelectedIssues(values);
+      selectedIssuesRef.current = values;
       resetAndFetch();
     },
     [resetAndFetch, selectedIssuesRef],
   );
 
-  const handleRemoveIssue = useCallback(
-    (issueId: string) => {
-      const next = selectedIssues.filter((id) => id !== issueId);
-      setSelectedIssues(next);
-      selectedIssuesRef.current = next;
-      resetAndFetch();
-    },
-    [selectedIssues, resetAndFetch, selectedIssuesRef],
+  const filterChipsBarFilters = useMemo(
+    () => [
+      {
+        key: "issues",
+        title: "Issues",
+        pluralTitle: "issues",
+        options: issueOptions,
+        selectedValues: selectedIssues,
+      },
+    ],
+    [selectedIssues],
   );
-
-  const activeFilterPills = useMemo(() => {
-    return selectedIssues
-      .map((issueId) => {
-        const issue = issueOptions.find((o) => o.id === issueId);
-        if (!issue) return null;
-        return { key: `issue-${issueId}`, label: issue.label, onRemove: () => handleRemoveIssue(issueId) };
-      })
-      .filter(Boolean) as { key: string; label: string; onRemove: () => void }[];
-  }, [selectedIssues, handleRemoveIssue]);
 
   const hasActiveFilters = selectedIssues.length > 0;
 
@@ -152,38 +146,20 @@ const GroupsPage = () => {
         <>
           <div className="sticky left-0 z-3 px-6 pt-6 laptop:px-10 laptop:pt-10">
             <h1 className="pb-4 text-heading-300 text-text-primary">Groups</h1>
-            <div className="flex flex-col gap-2 pb-6">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <DropdownFilter
-                    title="Issues"
-                    options={issueOptions}
-                    selectedOptions={selectedIssues}
-                    onSelect={handleIssuesChange}
-                    withButtons
-                  />
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button variant={variants.secondary} size={sizes.compact} onClick={() => setShowGroupModal(true)}>
-                    Add group
-                  </Button>
-                </div>
-              </div>
-              {activeFilterPills.length > 0 ? (
-                <div className="flex flex-wrap gap-2">
-                  {activeFilterPills.map((pill) => (
-                    <Button
-                      key={pill.key}
-                      size={sizes.compact}
-                      variant={variants.accent}
-                      prefixIcon={<DismissTiny />}
-                      onClick={pill.onRemove}
-                    >
-                      {pill.label}
-                    </Button>
-                  ))}
-                </div>
-              ) : null}
+            <div className="flex flex-row flex-wrap items-center gap-2 pb-6">
+              <FilterChipsBar
+                filters={filterChipsBarFilters}
+                onChange={handleFilterChange}
+                onClearAll={handleClearFilters}
+              />
+              <Button
+                className="ml-auto"
+                variant={variants.secondary}
+                size={sizes.compact}
+                onClick={() => setShowGroupModal(true)}
+              >
+                Add group
+              </Button>
             </div>
           </div>
           {error ? (

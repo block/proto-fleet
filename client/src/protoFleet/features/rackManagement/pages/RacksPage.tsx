@@ -18,10 +18,11 @@ import { mapRackToCardProps } from "@/protoFleet/features/rackManagement/utils/r
 import { useDeviceSetListState } from "@/protoFleet/hooks/useDeviceSetListState";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 
-import { Alert, ChevronDown, DismissTiny, Racks } from "@/shared/assets/icons";
+import { Alert, ChevronDown, Racks } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
 import DropdownFilter from "@/shared/components/List/Filters/DropdownFilter";
+import FilterChipsBar from "@/shared/components/List/Filters/FilterChipsBar";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import SegmentedControl from "@/shared/components/SegmentedControl";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
@@ -95,60 +96,42 @@ const RacksPage = () => {
     fetchZones();
   }, [fetchZones]);
 
-  const handleIssuesChange = useCallback(
-    (issues: string[]) => {
-      setSelectedIssues(issues);
-      selectedIssuesRef.current = issues;
-      resetAndFetch();
-    },
-    [resetAndFetch, selectedIssuesRef],
-  );
-
-  const handleZonesChange = useCallback(
-    (zones: string[]) => {
-      setSelectedZones(zones);
-      selectedZonesRef.current = zones;
-      resetAndFetch();
-    },
-    [resetAndFetch],
-  );
-
-  const handleRemoveZone = useCallback(
-    (zoneId: string) => {
-      const next = selectedZones.filter((id) => id !== zoneId);
-      setSelectedZones(next);
-      selectedZonesRef.current = next;
-      resetAndFetch();
-    },
-    [selectedZones, resetAndFetch],
-  );
-
-  const handleRemoveIssue = useCallback(
-    (issueId: string) => {
-      const next = selectedIssues.filter((id) => id !== issueId);
-      setSelectedIssues(next);
-      selectedIssuesRef.current = next;
-      resetAndFetch();
-    },
-    [selectedIssues, resetAndFetch, selectedIssuesRef],
-  );
-
-  const activeFilterPills = useMemo(() => {
-    const pills: { key: string; label: string; type: "zone" | "issue"; id: string }[] = [];
-    for (const zoneId of selectedZones) {
-      const z = allZones.find((l) => l.id === zoneId);
-      if (z) {
-        pills.push({ key: `zone-${zoneId}`, label: z.label, type: "zone", id: zoneId });
+  const handleFilterChange = useCallback(
+    (key: string, values: string[]) => {
+      if (key === "zone") {
+        setSelectedZones(values);
+        selectedZonesRef.current = values;
+        resetAndFetch();
+        return;
       }
-    }
-    for (const issueId of selectedIssues) {
-      const issue = issueOptions.find((o) => o.id === issueId);
-      if (issue) {
-        pills.push({ key: `issue-${issueId}`, label: issue.label, type: "issue", id: issueId });
+      if (key === "issues") {
+        setSelectedIssues(values);
+        selectedIssuesRef.current = values;
+        resetAndFetch();
       }
-    }
-    return pills;
-  }, [selectedZones, selectedIssues, allZones]);
+    },
+    [resetAndFetch, selectedIssuesRef, selectedZonesRef],
+  );
+
+  const filterChipsBarFilters = useMemo(
+    () => [
+      {
+        key: "zone",
+        title: "Zone",
+        pluralTitle: "zones",
+        options: allZones,
+        selectedValues: selectedZones,
+      },
+      {
+        key: "issues",
+        title: "Issues",
+        pluralTitle: "issues",
+        options: issueOptions,
+        selectedValues: selectedIssues,
+      },
+    ],
+    [allZones, selectedZones, selectedIssues],
+  );
 
   const hasActiveFilters = selectedZones.length > 0 || selectedIssues.length > 0;
 
@@ -158,7 +141,7 @@ const RacksPage = () => {
     setSelectedIssues([]);
     selectedIssuesRef.current = [];
     resetAndFetch();
-  }, [resetAndFetch, selectedIssuesRef]);
+  }, [resetAndFetch, selectedIssuesRef, selectedZonesRef]);
 
   const emptyStateRow: ReactNode = useMemo(() => {
     if (isLoading || totalCount > 0) return undefined;
@@ -328,61 +311,46 @@ const RacksPage = () => {
             />
           </div>
           {/* Desktop layout — single row with toggle + filters left, buttons right */}
-          <div className="hidden items-center justify-between gap-2 laptop:flex">
-            <div className="flex items-center gap-2">
-              <SegmentedControl
-                key={`desktop-${racksViewMode}`}
-                className="shrink-0 whitespace-nowrap"
-                segments={[
-                  { key: "grid", title: "View grid" },
-                  { key: "list", title: "View list" },
-                ]}
-                initialSegmentKey={racksViewMode}
-                onSelect={(key) => setRacksViewMode(key as "grid" | "list")}
-              />
+          <div className="hidden flex-row flex-wrap items-center gap-2 laptop:flex">
+            <SegmentedControl
+              key={`desktop-${racksViewMode}`}
+              className="shrink-0 whitespace-nowrap"
+              segments={[
+                { key: "grid", title: "View grid" },
+                { key: "list", title: "View list" },
+              ]}
+              initialSegmentKey={racksViewMode}
+              onSelect={(key) => setRacksViewMode(key as "grid" | "list")}
+            />
+            <FilterChipsBar
+              filters={filterChipsBarFilters}
+              onChange={handleFilterChange}
+              onClearAll={handleClearFilters}
+            />
+            {racksViewMode === "grid" ? (
               <DropdownFilter
-                title="Zone"
-                options={allZones}
-                selectedOptions={selectedZones}
-                onSelect={handleZonesChange}
-                withButtons
+                title="Sort"
+                options={RACK_SORT_OPTIONS}
+                selectedOptions={[currentSort.field]}
+                onSelect={handleSortSelect}
+                showSelectAll={false}
               />
-              <DropdownFilter
-                title="Issues"
-                options={issueOptions}
-                selectedOptions={selectedIssues}
-                onSelect={handleIssuesChange}
-                withButtons
-              />
-              {racksViewMode === "grid" ? (
-                <DropdownFilter
-                  title="Sort"
-                  options={RACK_SORT_OPTIONS}
-                  selectedOptions={[currentSort.field]}
-                  onSelect={handleSortSelect}
-                  showSelectAll={false}
-                />
-              ) : null}
-            </div>
-            <Button variant={variants.secondary} size={sizes.compact} onClick={() => setShowRackSettingsModal(true)}>
+            ) : null}
+            <Button
+              className="ml-auto"
+              variant={variants.secondary}
+              size={sizes.compact}
+              onClick={() => setShowRackSettingsModal(true)}
+            >
               Add rack
             </Button>
           </div>
           {/* Filters — shown separately on tablet/phone */}
-          <div className="flex items-center gap-2 laptop:hidden">
-            <DropdownFilter
-              title="Zone"
-              options={allZones}
-              selectedOptions={selectedZones}
-              onSelect={handleZonesChange}
-              withButtons
-            />
-            <DropdownFilter
-              title="Issues"
-              options={issueOptions}
-              selectedOptions={selectedIssues}
-              onSelect={handleIssuesChange}
-              withButtons
+          <div className="flex flex-row flex-wrap items-center gap-2 laptop:hidden">
+            <FilterChipsBar
+              filters={filterChipsBarFilters}
+              onChange={handleFilterChange}
+              onClearAll={handleClearFilters}
             />
             {racksViewMode === "grid" ? (
               <DropdownFilter
@@ -394,21 +362,6 @@ const RacksPage = () => {
               />
             ) : null}
           </div>
-          {activeFilterPills.length > 0 ? (
-            <div className="flex flex-wrap gap-2">
-              {activeFilterPills.map((pill) => (
-                <Button
-                  key={pill.key}
-                  size={sizes.compact}
-                  variant={variants.accent}
-                  prefixIcon={<DismissTiny />}
-                  onClick={() => (pill.type === "zone" ? handleRemoveZone(pill.id) : handleRemoveIssue(pill.id))}
-                >
-                  {pill.label}
-                </Button>
-              ))}
-            </div>
-          ) : null}
         </div>
       </div>
       {error ? (
