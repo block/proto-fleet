@@ -36,6 +36,7 @@ import (
 	"golang.org/x/net/http2/h2c"
 
 	"github.com/block/proto-fleet/server/generated/grpc/activity/v1/activityv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/agentgateway/v1/agentgatewayv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/apikey/v1/apikeyv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/collection/v1/collectionv1connect"
@@ -70,6 +71,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/scheduler"
 	tokenDomain "github.com/block/proto-fleet/server/internal/domain/token"
 	activityHandler "github.com/block/proto-fleet/server/internal/handlers/activity"
+	"github.com/block/proto-fleet/server/internal/handlers/agentgateway"
 	apikeyHandler "github.com/block/proto-fleet/server/internal/handlers/apikey"
 	"github.com/block/proto-fleet/server/internal/handlers/auth"
 	collectionHandler "github.com/block/proto-fleet/server/internal/handlers/collection"
@@ -121,6 +123,7 @@ func main() {
 var reflectEnabledServices = []string{
 	pairingv1connect.PairingServiceName,
 	telemetryv1connect.TelemetryServiceName,
+	agentgatewayv1connect.AgentGatewayServiceName,
 }
 
 func start(config *Config) error {
@@ -423,6 +426,7 @@ func start(config *Config) error {
 	mux.Handle(schedulev1connect.NewScheduleServiceHandler(scheduleHandler.NewHandler(scheduleSvc), li))
 	// Register v1 curtailment routes; the handler returns Unimplemented for now.
 	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(curtailmentHandler.NewHandler(), li))
+	mux.Handle(agentgatewayv1connect.NewAgentGatewayServiceHandler(agentgateway.NewHandler(), li))
 	mux.Handle(collectionv1connect.NewDeviceCollectionServiceHandler(collectionHandler.NewHandler(collectionSvc), li))
 	mux.Handle(device_setv1connect.NewDeviceSetServiceHandler(devicesetHandler.NewHandler(collectionSvc), li))
 	mux.Handle(telemetryv1connect.NewTelemetryServiceHandler(telemetryHandler.NewHandler(telemetryService), li))

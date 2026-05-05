@@ -114,6 +114,7 @@ func (e *RequestLoggingInterceptor) WrapStreamingHandler(next connect.StreamingH
 			procedure:            procedure,
 			start:                start,
 			logLevel:             e.logLevel,
+			suppressBody:         SensitiveBodyProcedures[procedure],
 		}
 
 		err := next(ctx, wrappedConn)
@@ -165,6 +166,7 @@ type loggingStreamingHandlerConn struct {
 	procedure       string
 	start           time.Time
 	logLevel        slog.Level
+	suppressBody    bool
 	receivedCounter atomic.Int64
 	sentCounter     atomic.Int64
 }
@@ -187,6 +189,13 @@ func (w *loggingStreamingHandlerConn) Receive(msg interface{}) error {
 			"message_index", messageIndex,
 			"error", err,
 		)
+	} else if w.suppressBody {
+		slog.Debug("incoming streaming request received a message",
+			"request_id", w.requestID,
+			"procedure", w.procedure,
+			"since_start", time.Since(w.start),
+			"message_index", messageIndex,
+		)
 	} else {
 		slog.Debug("incoming streaming request received a message",
 			"request_id", w.requestID,
@@ -207,7 +216,7 @@ func (w *loggingStreamingHandlerConn) Send(msg interface{}) error {
 	messageIndex := getAndAdd(&w.sentCounter, 1)
 
 	if err != nil {
-		if w.logLevel <= slog.LevelDebug {
+		if w.logLevel <= slog.LevelDebug && !w.suppressBody {
 			slog.Error("incoming streaming request failed to send a message",
 				"request_id", w.requestID,
 				"procedure", w.procedure,
@@ -225,6 +234,13 @@ func (w *loggingStreamingHandlerConn) Send(msg interface{}) error {
 				"error", err,
 			)
 		}
+	} else if w.suppressBody {
+		slog.Debug("incoming streaming request sent a message",
+			"request_id", w.requestID,
+			"procedure", w.procedure,
+			"since_start", time.Since(w.start),
+			"message_index", messageIndex,
+		)
 	} else {
 		slog.Debug("incoming streaming request sent a message",
 			"request_id", w.requestID,
