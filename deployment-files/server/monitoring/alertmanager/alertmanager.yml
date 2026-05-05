@@ -1,0 +1,50 @@
+# Alertmanager — minimal starting configuration.
+#
+# This file is REWRITTEN by ProtoFleet's reload pipeline (Epic E) to add
+# user-configured receivers and routes. What ships on a fresh install:
+#
+#   * The default route goes to `null` — no notifications are delivered for
+#     user alerts until an operator configures channels (Epic D).
+#   * Self-monitoring alerts (rule_group="protofleet-self", Issue 3) are
+#     routed to the built-in `__protofleet_internal` receiver, which
+#     fleet-api will consume via /internal/alertmanager-webhook (Issue 21)
+#     and write to the activity log.
+#   * `continue: true` on the self-monitoring sub-route lets user-configured
+#     fan-out (added later) also receive these alerts when the operator has
+#     wired an "operator channel".
+#
+# Mounted read-write so ProtoFleet can swap it.
+
+global:
+  resolve_timeout: 5m
+
+route:
+  group_by: ["alertname", "organization_id", "device_id"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 1h
+  receiver: "null"
+  routes:
+    - matchers:
+        - rule_group="protofleet-self"
+      receiver: __protofleet_internal
+      continue: true
+
+receivers:
+  # Placeholder receiver. Stays as the default until Epic D's reload pipeline
+  # rewrites this file with user-configured receivers.
+  - name: "null"
+
+  # Internal receiver: fleet-api will receive alerts here and project them
+  # into the activity log. Issue 21 turns this URL on; until then alerts
+  # routed here will be retried by Alertmanager and silently dropped after
+  # the configured retry window. The bearer-token header will be added by
+  # Issue 21 once the handler exists.
+  - name: __protofleet_internal
+    webhook_configs:
+      - url: http://fleet-api:4000/internal/alertmanager-webhook
+        send_resolved: true
+
+inhibit_rules: []
+
+templates: []

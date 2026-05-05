@@ -1,0 +1,89 @@
+# Self-monitoring alert rules (Issue 3).
+#
+# This file lives outside the user-rewriteable rules.yml so it survives every
+# reload pipeline pass. vmalert is started with both
+# `-rule=/etc/vmalert/rules.yml` AND `-rule=/etc/vmalert/rules.d/*.yml` so this
+# group is always loaded, independent of any user-defined rules.
+#
+# These alerts cover the failure modes that would otherwise make a broken
+# monitoring stack indistinguishable from a healthy fleet (per the design's
+# staleness section).
+#
+# The protected status of group `protofleet-self` is enforced server-side by
+# server/internal/domain/notifications/selfmonitoring.GuardDelete — the
+# future rules API refuses any DELETE/PUT against this group name.
+
+groups:
+  - name: protofleet-self
+    interval: 30s
+    rules:
+      - alert: OTelCollectorDown
+        # vmalert evaluates this against victoria-metrics. The vm_app_uptime
+        # series is emitted by victoria-metrics itself for every OTLP source
+        # it has seen recently; absent_over_time fires when the collector
+        # has stopped writing for 5 minutes.
+        expr: absent_over_time(vm_app_uptime_seconds{job="protofleet-fleet-api"}[5m]) == 1
+        for: 5m
+        labels:
+          severity: critical
+          rule_group: protofleet-self
+          component: otel-collector
+        annotations:
+          summary: "OpenTelemetry Collector has stopped ingesting from fleet-api"
+          description: |
+            No metric samples have arrived from the fleet-api OTLP source for
+            5 minutes. Either the collector is down or the connection from
+            fleet-api to the collector is broken. The fleet may still be
+            healthy, but ProtoFleet cannot tell — alerts will not fire.
+
+      - alert: VMAlertEvaluationStalled
+        # vmalert reports its own last-evaluation timestamp. If it stops
+        # evaluating, no user alerts can fire.
+        expr: time() - max(vmalert_alerting_rules_last_evaluation_timestamp_seconds) > 120
+        for: 5m
+        labels:
+          severity: critical
+          rule_group: protofleet-self
+          component: vmalert
+        annotations:
+          summary: "vmalert rule evaluation has stalled"
+          description: |
+            vmalert has not evaluated any rule group in over 2 minutes. New
+            alert conditions cannot be detected until evaluation resumes.
+
+      - alert: AlertmanagerUnreachable
+        # vmalert exposes notification failure counters. A sustained increase
+        # means alerts are being generated but not delivered.
+        expr: increase(vmalert_alerts_send_errors_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: critical
+          rule_group: protofleet-self
+          component: alertmanager
+        annotations:
+          summary: "vmalert cannot deliver alerts to Alertmanager"
+          description: |
+            vmalert recorded delivery errors against Alertmanager in the last
+            5 minutes. Alerts may be evaluated but are not reaching channels.
+
+      - alert: MonitoringStackDegraded
+        # OR over the previous three with a 5-minute `for:` window. Designed
+        # so an operator can wire a single high-priority channel (PagerDuty
+        # etc.) just to this alert and catch any monitoring outage.
+        expr: |
+          (absent_over_time(vm_app_uptime_seconds{job="protofleet-fleet-api"}[5m]) == 1)
+          or
+          ((time() - max(vmalert_alerting_rules_last_evaluation_timestamp_seconds)) > 120)
+          or
+          (increase(vmalert_alerts_send_errors_total[5m]) > 0)
+        for: 5m
+        labels:
+          severity: critical
+          rule_group: protofleet-self
+          component: monitoring-stack
+        annotations:
+          summary: "ProtoFleet monitoring stack is degraded"
+          description: |
+            One or more components of the monitoring pipeline (otel-collector,
+            vmalert, alertmanager) are unhealthy. The fleet may appear quiet
+            because alerts cannot fire, NOT because everything is fine.

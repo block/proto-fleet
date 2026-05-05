@@ -17,13 +17,48 @@ services:
       SESSION_COOKIE_SECURE: "${SESSION_COOKIE_SECURE:-true}"
       PLUGINS_DIR: "/app/plugins"
       PLUGINS_ENABLED: "true"
+      FLEET_NOTIFICATIONS_ENABLED: "${FLEET_NOTIFICATIONS_ENABLED:-true}"
     depends_on:
       timescaledb:
         condition: service_healthy
+      # Notifications sidecars (Epic A). `required: false` so the API still
+      # starts with FLEET_NOTIFICATIONS_ENABLED=false (no `notifications`
+      # profile activated → sidecars not created → wait would otherwise hang).
+      otel-collector:
+        # service_started, not service_healthy: the contrib image is
+        # distroless and cannot run an in-container HTTP probe (see
+        # docker-compose.base.yaml otel-collector healthcheck).
+        condition: service_started
+        required: false
+      victoria-metrics:
+        condition: service_healthy
+        required: false
+      vmalert:
+        condition: service_healthy
+        required: false
+      alertmanager:
+        condition: service_healthy
+        required: false
     restart: always
     network_mode: host
+    # fleet-api uses `network_mode: host` to discover miners on the operator's
+    # LAN; Docker disallows combining host networking with custom bridges, so
+    # the monitoring sidecars publish 127.0.0.1-bound loopback ports below and
+    # we map their service names to the loopback here. This is a host-loopback
+    # binding (NOT a host-wide port exposure) — the sidecars remain
+    # unreachable from the LAN.
     extra_hosts:
       - "timescaledb:127.0.0.1"
+      - "otel-collector:127.0.0.1"
+      - "victoria-metrics:127.0.0.1"
+      - "vmalert:127.0.0.1"
+      - "alertmanager:127.0.0.1"
+    # Mounts for the notifications/monitoring config trees so the API can read
+    # current rules and atomically rewrite them (Epic E). Mounted read-only
+    # here; the reload pipeline writes to a sibling temp dir and renames.
+    volumes:
+      - ./server/monitoring/vmalert:/etc/protofleet/monitoring/vmalert:rw
+      - ./server/monitoring/alertmanager:/etc/protofleet/monitoring/alertmanager:rw
     logging:
       driver: "json-file"
       options:
@@ -75,9 +110,93 @@ services:
         max-file: "3"
         compress: "true"
 
+  # ---------------------------------------------------------------------------
+  # Notifications/monitoring sidecars (Epic A).
+  #
+  # Each sidecar inherits its image, command, healthcheck, and `monitoring`
+  # network attachment from server/docker-compose.base.yaml. We extend them
+  # here only to:
+  #   - mount the deployment-shipped config files into the right paths,
+  #   - bind their listen ports to 127.0.0.1 on the host so the host-networked
+  #     fleet-api can reach them via loopback (these bindings do NOT expose
+  #     the sidecars to the LAN).
+  # ---------------------------------------------------------------------------
+
+  otel-collector:
+    extends:
+      file: ./server/docker-compose.base.yaml
+      service: otel-collector
+    volumes:
+      - ./server/monitoring/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+        compress: "true"
+
+  victoria-metrics:
+    extends:
+      file: ./server/docker-compose.base.yaml
+      service: victoria-metrics
+    # No host port binding: vmalert and otel-collector both reach VM by service
+    # name on the `monitoring` bridge network. fleet-api never queries VM
+    # directly — it goes through vmalert (Issue 22).
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+        compress: "true"
+
+  vmalert:
+    extends:
+      file: ./server/docker-compose.base.yaml
+      service: vmalert
+    volumes:
+      - ./server/monitoring/vmalert/rules.yml:/etc/vmalert/rules.yml:rw
+      - ./server/monitoring/vmalert/rules.d:/etc/vmalert/rules.d:ro
+    ports:
+      - "127.0.0.1:8880:8880"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+        compress: "true"
+
+  alertmanager:
+    extends:
+      file: ./server/docker-compose.base.yaml
+      service: alertmanager
+    volumes:
+      - ./server/monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:rw
+    ports:
+      - "127.0.0.1:9093:9093"
+    # alertmanager.yml's __protofleet_internal receiver POSTs alerts to
+    # http://fleet-api:4000/internal/alertmanager-webhook. fleet-api uses
+    # `network_mode: host` here so it isn't on the `monitoring` bridge;
+    # `host-gateway` resolves to the docker host (Docker 20.10+), which has
+    # fleet-api listening on :4000 via host networking.
+    extra_hosts:
+      - "fleet-api:host-gateway"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+        compress: "true"
+
 volumes:
   timescaledb-data:
+  victoria-metrics-data:
+  alertmanager-data:
 
 networks:
   fleet-network:
+    driver: bridge
+  monitoring:
     driver: bridge

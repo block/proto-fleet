@@ -50,11 +50,29 @@ services:
         condition: service_healthy
       otel-collector:
         condition: service_started
+      # Notifications sidecars only present when the `notifications` profile
+      # is active. `required: false` lets dev runs opt out by setting
+      # FLEET_NOTIFICATIONS_ENABLED=false (see deployment-files/README.md).
+      victoria-metrics:
+        condition: service_healthy
+        required: false
+      vmalert:
+        condition: service_healthy
+        required: false
+      alertmanager:
+        condition: service_healthy
+        required: false
     volumes:
       - ./plugins:/app/plugins:ro
+      - ../deployment-files/server/monitoring/vmalert:/etc/protofleet/monitoring/vmalert:rw
+      - ../deployment-files/server/monitoring/alertmanager:/etc/protofleet/monitoring/alertmanager:rw
     restart: unless-stopped
     networks:
+      # In dev fleet-api joins both fleet-network (miners, db) and monitoring
+      # (sidecars). In production fleet-api uses host networking and reaches
+      # the sidecars via 127.0.0.1 instead.
       - fleet-network
+      - monitoring
     ports:
       - "4000:4000"
 
@@ -103,18 +121,50 @@ services:
       start_period: 5s
 
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.150.1
-    command: [ "--config", "/etc/otelcol-contrib/config.yaml" ]
+    extends:
+      file: ./docker-compose.base.yaml
+      service: otel-collector
+    # Dev stays bound on 127.0.0.1 for the OTLP ports so engineers running
+    # tools on the host (e.g. otel-cli, telemetry replays) can hit the
+    # collector without joining the docker network.
     ports:
-      - "127.0.0.1:4317:4317" # OTLP gRPC
-      - "127.0.0.1:4318:4318" # OTLP HTTP
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"
     depends_on:
       - jaeger
     volumes:
-      - ./otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml
-    restart: unless-stopped
+      # Dev config still ships traces to jaeger AND metrics to victoria-metrics
+      # (production drops the jaeger fan-out).
+      - ./otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
     networks:
       - fleet-network
+      - monitoring
+
+  victoria-metrics:
+    extends:
+      file: ./docker-compose.base.yaml
+      service: victoria-metrics
+    networks:
+      - monitoring
+
+  vmalert:
+    extends:
+      file: ./docker-compose.base.yaml
+      service: vmalert
+    volumes:
+      - ../deployment-files/server/monitoring/vmalert/rules.yml:/etc/vmalert/rules.yml:rw
+      - ../deployment-files/server/monitoring/vmalert/rules.d:/etc/vmalert/rules.d:ro
+    networks:
+      - monitoring
+
+  alertmanager:
+    extends:
+      file: ./docker-compose.base.yaml
+      service: alertmanager
+    volumes:
+      - ../deployment-files/server/monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:rw
+    networks:
+      - monitoring
 
   jaeger:
     image: jaegertracing/all-in-one:1.76.0
@@ -356,6 +406,8 @@ services:
       - NET_RAW
 volumes:
   timescaledb-data:
+  victoria-metrics-data:
+  alertmanager-data:
 
 
 networks:
@@ -364,3 +416,5 @@ networks:
       config:
         - subnet: "192.168.2.0/24"
           gateway: "192.168.2.1"
+  monitoring:
+    driver: bridge
