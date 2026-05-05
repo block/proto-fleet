@@ -16,6 +16,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"log/slog"
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/agentenrollment"
@@ -29,6 +30,10 @@ const (
 	sessionTokenBytes   = 32
 	defaultChallengeTTL = 30 * time.Second
 	defaultSessionTTL   = 24 * time.Hour
+
+	clientErrBeginHandshake    = "agent authentication failed"
+	clientErrCompleteHandshake = "agent authentication failed"
+	clientErrResolveSession    = "agent authentication failed"
 )
 
 type Store interface {
@@ -85,7 +90,7 @@ func (s *Service) BeginHandshake(ctx context.Context, apiKeyPlaintext string, id
 		if fleeterror.IsNotFoundError(err) {
 			return nil, time.Time{}, fleeterror.NewUnauthenticatedError("invalid api key")
 		}
-		return nil, time.Time{}, fleeterror.NewInternalErrorf("agent lookup: %v", err)
+		return nil, time.Time{}, logInternal("agent lookup", clientErrBeginHandshake, err)
 	}
 	if agent.EnrollmentStatus != "CONFIRMED" {
 		return nil, time.Time{}, fleeterror.NewFailedPreconditionError("agent enrollment not confirmed")
@@ -96,11 +101,11 @@ func (s *Service) BeginHandshake(ctx context.Context, apiKeyPlaintext string, id
 
 	challenge := make([]byte, challengeBytes)
 	if _, err := rand.Read(challenge); err != nil {
-		return nil, time.Time{}, fleeterror.NewInternalErrorf("generate challenge: %v", err)
+		return nil, time.Time{}, logInternal("generate challenge", clientErrBeginHandshake, err)
 	}
 	expiresAt := time.Now().UTC().Add(s.challengeTTL)
 	if err := s.store.CreateChallenge(ctx, challenge, agent.ID, expiresAt); err != nil {
-		return nil, time.Time{}, fleeterror.NewInternalErrorf("store challenge: %v", err)
+		return nil, time.Time{}, logInternal("store challenge", clientErrBeginHandshake, err)
 	}
 	s.apiKeySvc.RecordSuccessfulUse(ctx, apiKey)
 	return challenge, expiresAt, nil
@@ -117,12 +122,12 @@ func (s *Service) CompleteHandshake(ctx context.Context, challenge, signature []
 		if fleeterror.IsNotFoundError(err) {
 			return "", time.Time{}, fleeterror.NewUnauthenticatedError("challenge expired or not found")
 		}
-		return "", time.Time{}, fleeterror.NewInternalErrorf("consume challenge: %v", err)
+		return "", time.Time{}, logInternal("consume challenge", clientErrCompleteHandshake, err)
 	}
 
 	agent, err := s.enrollmentStore.GetAgentByIDUnscoped(ctx, agentID)
 	if err != nil {
-		return "", time.Time{}, fleeterror.NewInternalErrorf("agent lookup: %v", err)
+		return "", time.Time{}, logInternal("agent lookup", clientErrCompleteHandshake, err)
 	}
 	if !ed25519.Verify(agent.IdentityPubkey, challenge, signature) {
 		return "", time.Time{}, fleeterror.NewUnauthenticatedError("signature verification failed")
@@ -130,12 +135,12 @@ func (s *Service) CompleteHandshake(ctx context.Context, challenge, signature []
 
 	tokenBytes := make([]byte, sessionTokenBytes)
 	if _, err := rand.Read(tokenBytes); err != nil {
-		return "", time.Time{}, fleeterror.NewInternalErrorf("generate session token: %v", err)
+		return "", time.Time{}, logInternal("generate session token", clientErrCompleteHandshake, err)
 	}
 	plaintext := base64.RawURLEncoding.EncodeToString(tokenBytes)
 	expiresAt := now.Add(s.sessionTTL)
 	if err := s.store.CreateSession(ctx, hashToken(plaintext), agentID, expiresAt); err != nil {
-		return "", time.Time{}, fleeterror.NewInternalErrorf("store session: %v", err)
+		return "", time.Time{}, logInternal("store session", clientErrCompleteHandshake, err)
 	}
 	return plaintext, expiresAt, nil
 }
@@ -148,9 +153,19 @@ func (s *Service) ResolveSession(ctx context.Context, sessionTokenPlaintext stri
 		if fleeterror.IsNotFoundError(err) {
 			return nil, fleeterror.NewUnauthenticatedError("invalid session token")
 		}
-		return nil, fleeterror.NewInternalErrorf("session lookup: %v", err)
+		return nil, logInternal("session lookup", clientErrResolveSession, err)
 	}
 	return row, nil
+}
+
+// logInternal records the raw error server-side and returns a generic
+// client-safe internal error so backend details don't leak over the wire.
+func logInternal(op, clientMsg string, err error) error {
+	if err == nil {
+		return fleeterror.NewInternalError(clientMsg)
+	}
+	slog.Error("agent auth internal error", "op", op, "error", err)
+	return fleeterror.NewInternalError(clientMsg)
 }
 
 // SweepExpired drops expired challenges and sessions.

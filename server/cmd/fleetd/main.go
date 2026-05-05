@@ -167,7 +167,7 @@ func start(config *Config) error {
 	apiKeySvc := apikeyDomain.NewService(apiKeyStore, activitySvc)
 
 	agentEnrollmentStore := sqlstores.NewSQLAgentEnrollmentStore(conn)
-	agentEnrollmentSvc := agentenrollment.NewService(agentEnrollmentStore, apiKeySvc)
+	agentEnrollmentSvc := agentenrollment.NewService(agentEnrollmentStore, apiKeySvc, transactor)
 	agentAuthStore := sqlstores.NewSQLAgentAuthStore(conn)
 	agentAuthSvc := agentauth.NewService(agentAuthStore, agentEnrollmentStore, apiKeySvc)
 
@@ -204,6 +204,33 @@ func start(config *Config) error {
 		}
 	}()
 	defer sessionCleanupCancel()
+
+	agentSweepCtx, agentSweepCancel := context.WithCancel(context.Background())
+	go func() {
+		ticker := time.NewTicker(sessionSvc.CleanupInterval())
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				bg := context.Background()
+				if swept, err := agentEnrollmentSvc.SweepExpired(bg); err != nil {
+					slog.Error("failed to sweep expired agent enrollments", "error", err)
+				} else if swept > 0 {
+					slog.Debug("swept expired agent enrollments", "count", swept)
+				}
+				challenges, sessions, err := agentAuthSvc.SweepExpired(bg)
+				if err != nil {
+					slog.Error("failed to sweep expired agent auth state", "error", err)
+				} else if challenges > 0 || sessions > 0 {
+					slog.Debug("swept expired agent auth state", "challenges", challenges, "sessions", sessions)
+				}
+			case <-agentSweepCtx.Done():
+				return
+			}
+		}
+	}()
+	defer agentSweepCancel()
 
 	if err := config.Plugins.Validate(); err != nil {
 		return fmt.Errorf("invalid plugin configuration: %w", err)

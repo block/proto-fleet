@@ -34,8 +34,9 @@ func setupEnrollmentTest(t *testing.T) (*sql.DB, int64, int64, *agentenrollment.
 	apiKeyStore := sqlstores.NewSQLApiKeyStore(db)
 	apiKeySvc := apikey.NewService(apiKeyStore, nil)
 
+	transactor := sqlstores.NewSQLTransactor(db)
 	enrollmentStore := sqlstores.NewSQLAgentEnrollmentStore(db)
-	enrollmentSvc := agentenrollment.NewService(enrollmentStore, apiKeySvc)
+	enrollmentSvc := agentenrollment.NewService(enrollmentStore, apiKeySvc, transactor)
 
 	authStore := sqlstores.NewSQLAgentAuthStore(db)
 	authSvc := agentauth.NewService(authStore, enrollmentStore, apiKeySvc)
@@ -181,6 +182,26 @@ func TestSweepExpiredEnrollments(t *testing.T) {
 	// Assert
 	require.NoError(t, err)
 	require.Equal(t, int64(1), swept)
+}
+
+func TestConfirmRejectsExpiredEnrollment(t *testing.T) {
+	// Arrange
+	ctx := t.Context()
+	db, userID, orgID, enrollment, _ := setupEnrollmentTest(t)
+	pubKey, _, _ := ed25519.GenerateKey(rand.Reader)
+	signing, _, _ := ed25519.GenerateKey(rand.Reader)
+	code, _, err := enrollment.CreateCode(ctx, userID, orgID, time.Hour)
+	require.NoError(t, err)
+	agent, _, err := enrollment.RegisterAgent(ctx, code, "agent-1", pubKey, signing)
+	require.NoError(t, err)
+	_, err = db.Exec(`UPDATE pending_enrollment SET expires_at = $1`, time.Now().UTC().Add(-time.Minute))
+	require.NoError(t, err)
+
+	// Act
+	_, _, err = enrollment.Confirm(ctx, agent.ID, orgID)
+
+	// Assert
+	require.Error(t, err)
 }
 
 func TestConfirmRejectsBeforeRegister(t *testing.T) {

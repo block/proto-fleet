@@ -1,6 +1,7 @@
 package interceptors
 
 import (
+	"github.com/block/proto-fleet/server/generated/grpc/agentadmin/v1/agentadminv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/agentgateway/v1/agentgatewayv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/apikey/v1/apikeyv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
@@ -33,6 +34,8 @@ var RedactedResponseProcedures = []string{
 	authv1connect.AuthServiceCreateUserProcedure,
 	authv1connect.AuthServiceResetUserPasswordProcedure,
 	agentgatewayv1connect.AgentGatewayServiceCompleteAuthHandshakeProcedure,
+	agentadminv1connect.AgentAdminServiceCreateEnrollmentCodeProcedure,
+	agentadminv1connect.AgentAdminServiceConfirmAgentProcedure,
 }
 
 // SessionOnlyProcedures lists procedures that require session-cookie auth and
@@ -56,6 +59,13 @@ var SessionOnlyProcedures = []string{
 	authv1connect.AuthServiceResetUserPasswordProcedure,
 	authv1connect.AuthServiceDeactivateUserProcedure,
 	authv1connect.AuthServiceVerifyCredentialsProcedure,
+	// AgentAdminService mints credentials (enrollment codes, agent api_keys)
+	// and exposes operator-only fleet metadata. Restrict to interactive
+	// browser sessions so a leaked user api_key cannot bootstrap rogue
+	// agents.
+	agentadminv1connect.AgentAdminServiceCreateEnrollmentCodeProcedure,
+	agentadminv1connect.AgentAdminServiceListAgentsProcedure,
+	agentadminv1connect.AgentAdminServiceConfirmAgentProcedure,
 }
 
 var UnauthenticatedProcedures = []string{

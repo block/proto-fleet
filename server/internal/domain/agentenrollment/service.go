@@ -13,18 +13,25 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
-	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/apikey"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
 const (
 	codeRandomBytes  = 32
 	defaultCodeTTL   = 1 * time.Hour
-	agentApiKeyName  = "agent-bootstrap"
 	agentApiKeyLabel = "Agent enrollment"
+
+	clientErrCreateCode    = "failed to create enrollment code"
+	clientErrResolveCode   = "enrollment lookup failed"
+	clientErrRegisterAgent = "agent registration failed"
+	clientErrConfirmAgent  = "agent confirmation failed"
+	clientErrCancel        = "enrollment cancellation failed"
+	clientErrListAgents    = "failed to list agents"
 )
 
 type PendingEnrollmentStore interface {
@@ -53,12 +60,13 @@ type Store interface {
 }
 
 type Service struct {
-	store     Store
-	apiKeySvc *apikey.Service
+	store      Store
+	apiKeySvc  *apikey.Service
+	transactor stores.Transactor
 }
 
-func NewService(store Store, apiKeySvc *apikey.Service) *Service {
-	return &Service{store: store, apiKeySvc: apiKeySvc}
+func NewService(store Store, apiKeySvc *apikey.Service, transactor stores.Transactor) *Service {
+	return &Service{store: store, apiKeySvc: apiKeySvc, transactor: transactor}
 }
 
 // CreateCode generates a new enrollment code and stores its hash. The plaintext
@@ -70,26 +78,26 @@ func (s *Service) CreateCode(ctx context.Context, userID, orgID int64, ttl time.
 	}
 	codeBytes := make([]byte, codeRandomBytes)
 	if _, err := rand.Read(codeBytes); err != nil {
-		return "", time.Time{}, fmt.Errorf("generate enrollment code: %w", err)
+		return "", time.Time{}, logInternal("generate enrollment code", clientErrCreateCode, err)
 	}
 	plaintext := base64.RawURLEncoding.EncodeToString(codeBytes)
 	expiresAt := time.Now().UTC().Add(ttl)
 	if _, err := s.store.CreatePendingEnrollment(ctx, hashCode(plaintext), orgID, userID, expiresAt); err != nil {
-		return "", time.Time{}, fleeterror.NewInternalErrorf("create pending enrollment: %v", err)
+		return "", time.Time{}, logInternal("create pending enrollment", clientErrCreateCode, err)
 	}
 	return plaintext, expiresAt, nil
 }
 
-// ResolveCode validates an incoming plaintext code from a Register call. Returns
-// the matching pending enrollment if PENDING and unexpired; otherwise a
-// NotFound (unknown code) or FailedPrecondition (already consumed/expired/cancelled).
-func (s *Service) ResolveCode(ctx context.Context, plaintextCode string) (*PendingEnrollment, error) {
+// resolveCode validates an incoming plaintext code from a Register call.
+// Returns the matching pending enrollment if PENDING and unexpired; otherwise
+// a fixed Unauthenticated error.
+func (s *Service) resolveCode(ctx context.Context, plaintextCode string) (*PendingEnrollment, error) {
 	row, err := s.store.GetPendingEnrollmentByCodeHash(ctx, hashCode(plaintextCode))
 	if err != nil {
 		if fleeterror.IsNotFoundError(err) {
 			return nil, fleeterror.NewUnauthenticatedError("invalid enrollment code")
 		}
-		return nil, fleeterror.NewInternalErrorf("resolve enrollment code: %v", err)
+		return nil, logInternal("resolve enrollment code", clientErrResolveCode, err)
 	}
 	if row.Status != StatusPending {
 		return nil, fleeterror.NewUnauthenticatedError("invalid enrollment code")
@@ -102,59 +110,84 @@ func (s *Service) ResolveCode(ctx context.Context, plaintextCode string) (*Pendi
 
 // RegisterAgent atomically creates the agent row and binds the pending
 // enrollment to it. The pending enrollment must be in PENDING state.
+// Wrapped in a transaction so a partial failure cannot leave an orphan agent
+// row behind a still-PENDING code.
 func (s *Service) RegisterAgent(ctx context.Context, plaintextCode, name string, identityPubkey, minerSigningPubkey []byte) (*Agent, *PendingEnrollment, error) {
-	pe, err := s.ResolveCode(ctx, plaintextCode)
-	if err != nil {
+	var (
+		agent *Agent
+		pe    *PendingEnrollment
+	)
+	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
+		var err error
+		pe, err = s.resolveCode(ctx, plaintextCode)
+		if err != nil {
+			return err
+		}
+		agent, err = s.store.CreateAgent(ctx, pe.OrgID, name, identityPubkey, minerSigningPubkey)
+		if err != nil {
+			return logInternal("create agent", clientErrRegisterAgent, err)
+		}
+		bound, err := s.store.BindEnrollmentToAgent(ctx, pe.ID, agent.ID)
+		if err != nil {
+			return logInternal("bind enrollment", clientErrRegisterAgent, err)
+		}
+		if bound == 0 {
+			return fleeterror.NewFailedPreconditionError("enrollment code already consumed")
+		}
+		pe.Status = StatusAwaitingConfirmation
+		pe.AgentID = &agent.ID
+		return nil
+	}); err != nil {
 		return nil, nil, err
 	}
-	agent, err := s.store.CreateAgent(ctx, pe.OrgID, name, identityPubkey, minerSigningPubkey)
-	if err != nil {
-		return nil, nil, fleeterror.NewInternalErrorf("create agent: %v", err)
-	}
-	bound, err := s.store.BindEnrollmentToAgent(ctx, pe.ID, agent.ID)
-	if err != nil {
-		return nil, nil, fleeterror.NewInternalErrorf("bind enrollment: %v", err)
-	}
-	if bound == 0 {
-		return nil, nil, fleeterror.NewFailedPreconditionError("enrollment code already consumed")
-	}
-	pe.Status = StatusAwaitingConfirmation
-	pe.AgentID = &agent.ID
 	return agent, pe, nil
 }
 
 // Confirm flips an AWAITING_CONFIRMATION enrollment to CONFIRMED, marks the
 // agent CONFIRMED, and issues an api_key for the agent. Returns the plaintext
-// api_key (one-time view, never re-fetchable).
+// api_key (one-time view, never re-fetchable). Rejects expired rows directly
+// rather than relying on the sweeper to flip them.
 func (s *Service) Confirm(ctx context.Context, agentID, orgID int64) (string, time.Time, error) {
-	pe, err := s.store.GetPendingEnrollmentByAgent(ctx, agentID, orgID)
-	if err != nil {
-		if fleeterror.IsNotFoundError(err) {
-			return "", time.Time{}, fleeterror.NewNotFoundError("no pending enrollment for agent")
+	var (
+		plaintext string
+		expires   time.Time
+	)
+	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
+		pe, err := s.store.GetPendingEnrollmentByAgent(ctx, agentID, orgID)
+		if err != nil {
+			if fleeterror.IsNotFoundError(err) {
+				return fleeterror.NewNotFoundError("no pending enrollment for agent")
+			}
+			return logInternal("lookup pending enrollment", clientErrConfirmAgent, err)
 		}
-		return "", time.Time{}, fleeterror.NewInternalErrorf("lookup pending enrollment: %v", err)
-	}
-	if pe.Status != StatusAwaitingConfirmation {
-		return "", time.Time{}, fleeterror.NewFailedPreconditionErrorf("enrollment in status %s; cannot confirm", pe.Status)
-	}
-	now := time.Now().UTC()
-	rows, err := s.store.ConfirmEnrollment(ctx, pe.ID, now)
-	if err != nil {
-		return "", time.Time{}, fleeterror.NewInternalErrorf("confirm enrollment: %v", err)
-	}
-	if rows == 0 {
-		return "", time.Time{}, fleeterror.NewFailedPreconditionError("enrollment state changed; refresh and retry")
-	}
-	if _, err := s.store.SetAgentEnrollmentStatus(ctx, "CONFIRMED", agentID, orgID); err != nil {
-		return "", time.Time{}, fleeterror.NewInternalErrorf("update agent status: %v", err)
-	}
-	plaintext, apiKey, err := s.apiKeySvc.CreateAgent(ctx, agentID, orgID, agentApiKeyLabel, nil)
-	if err != nil {
+		if pe.Status != StatusAwaitingConfirmation {
+			return fleeterror.NewFailedPreconditionErrorf("enrollment in status %s; cannot confirm", pe.Status)
+		}
+		if !pe.ExpiresAt.After(time.Now().UTC()) {
+			return fleeterror.NewFailedPreconditionError("enrollment expired")
+		}
+		now := time.Now().UTC()
+		rows, err := s.store.ConfirmEnrollment(ctx, pe.ID, now)
+		if err != nil {
+			return logInternal("confirm enrollment", clientErrConfirmAgent, err)
+		}
+		if rows == 0 {
+			return fleeterror.NewFailedPreconditionError("enrollment state changed; refresh and retry")
+		}
+		if _, err := s.store.SetAgentEnrollmentStatus(ctx, "CONFIRMED", agentID, orgID); err != nil {
+			return logInternal("update agent status", clientErrConfirmAgent, err)
+		}
+		key, apiKey, err := s.apiKeySvc.CreateAgent(ctx, agentID, orgID, agentApiKeyLabel, nil)
+		if err != nil {
+			return err
+		}
+		plaintext = key
+		if apiKey.ExpiresAt != nil {
+			expires = *apiKey.ExpiresAt
+		}
+		return nil
+	}); err != nil {
 		return "", time.Time{}, err
-	}
-	expires := time.Time{}
-	if apiKey.ExpiresAt != nil {
-		expires = *apiKey.ExpiresAt
 	}
 	return plaintext, expires, nil
 }
@@ -164,7 +197,7 @@ func (s *Service) Confirm(ctx context.Context, agentID, orgID int64) (string, ti
 func (s *Service) Cancel(ctx context.Context, enrollmentID, orgID int64) error {
 	rows, err := s.store.CancelPendingEnrollment(ctx, enrollmentID, orgID, time.Now().UTC())
 	if err != nil {
-		return fleeterror.NewInternalErrorf("cancel enrollment: %v", err)
+		return logInternal("cancel enrollment", clientErrCancel, err)
 	}
 	if rows == 0 {
 		return fleeterror.NewNotFoundError("enrollment not cancellable")
@@ -180,7 +213,11 @@ func (s *Service) SweepExpired(ctx context.Context) (int64, error) {
 
 // ListAgents returns all non-deleted agents for an organization.
 func (s *Service) ListAgents(ctx context.Context, orgID int64) ([]Agent, error) {
-	return s.store.ListAgentsForOrganization(ctx, orgID)
+	agents, err := s.store.ListAgentsForOrganization(ctx, orgID)
+	if err != nil {
+		return nil, logInternal("list agents", clientErrListAgents, err)
+	}
+	return agents, nil
 }
 
 // IdentityFingerprint produces the operator-visible fingerprint for an
@@ -193,6 +230,16 @@ func IdentityFingerprint(identityPubkey []byte) string {
 func hashCode(plaintext string) string {
 	h := sha256.Sum256([]byte(plaintext))
 	return hex.EncodeToString(h[:])
+}
+
+// logInternal records the raw error server-side and returns a generic
+// client-safe internal error so backend details don't leak over the wire.
+func logInternal(op, clientMsg string, err error) error {
+	if err == nil {
+		return fleeterror.NewInternalError(clientMsg)
+	}
+	slog.Error("agent enrollment internal error", "op", op, "error", err)
+	return fleeterror.NewInternalError(clientMsg)
 }
 
 // ErrInvalidStatus is sentinel for state-machine violations callers may want
