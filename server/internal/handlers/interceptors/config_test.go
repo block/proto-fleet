@@ -21,76 +21,56 @@ func TestUpdateWorkerNamesProcedureIsRedacted(t *testing.T) {
 	assert.True(t, SensitiveBodyProcedures[procedure])
 }
 
-// Curtailment write and admin RPCs must reject API-key auth. A leaked API
-// key would otherwise be able to mass-stop a fleet, abort a live event, or
-// force-recover a non-terminal event via AdminTransitionEvent.
-func TestCurtailmentWriteProceduresAreSessionOnly(t *testing.T) {
+// AdminTransitionEvent is the operator-of-last-resort recovery RPC and must
+// reject API-key auth. The other curtailment write RPCs remain API-key-
+// accessible so external integrations can drive curtailment via the public API.
+func TestCurtailmentAdminProcedureIsSessionOnly(t *testing.T) {
 	t.Parallel()
 
-	sessionOnly := []string{
-		curtailmentv1connect.CurtailmentServiceStartCurtailmentProcedure,
-		curtailmentv1connect.CurtailmentServiceStopCurtailmentProcedure,
-		curtailmentv1connect.CurtailmentServiceUpdateCurtailmentEventProcedure,
+	assert.Contains(t, SessionOnlyProcedures,
 		curtailmentv1connect.CurtailmentServiceAdminTransitionEventProcedure,
-	}
-
-	for _, procedure := range sessionOnly {
-		assert.Contains(t, SessionOnlyProcedures, procedure,
-			"%s must be in SessionOnlyProcedures so a leaked API key cannot invoke it",
-			procedure)
-	}
+		"AdminTransitionEvent must be session-only; recovery escape hatch should not be reachable via API key")
 }
 
-// Curtailment read RPCs must remain reachable via API-key auth so monitoring
-// dashboards and fleet-health probes can call them without an interactive
-// session.
-func TestCurtailmentReadProceduresStayApiKeyAccessible(t *testing.T) {
+// Every other curtailment RPC must remain reachable via API-key auth so
+// integrations and monitoring callers can drive the public surface.
+func TestCurtailmentNonAdminProceduresStayApiKeyAccessible(t *testing.T) {
 	t.Parallel()
 
 	apiKeyAccessible := []string{
 		curtailmentv1connect.CurtailmentServicePreviewCurtailmentPlanProcedure,
+		curtailmentv1connect.CurtailmentServiceStartCurtailmentProcedure,
+		curtailmentv1connect.CurtailmentServiceUpdateCurtailmentEventProcedure,
+		curtailmentv1connect.CurtailmentServiceStopCurtailmentProcedure,
 		curtailmentv1connect.CurtailmentServiceGetActiveCurtailmentProcedure,
 		curtailmentv1connect.CurtailmentServiceListCurtailmentEventsProcedure,
 	}
 
 	for _, procedure := range apiKeyAccessible {
 		assert.NotContains(t, SessionOnlyProcedures, procedure,
-			"%s is a read RPC and must remain API-key-accessible",
+			"%s must remain API-key-accessible for public-API integrations",
 			procedure)
 	}
 }
 
-// API-key auth on SessionOnly curtailment procedures returns PermissionDenied.
-// nil service deps are fine — the SessionOnly branch returns before any
-// service is touched.
-func TestAuthInterceptor_SessionOnlyRejectsApiKeyAuth(t *testing.T) {
+// API-key auth on AdminTransitionEvent returns PermissionDenied. nil service
+// deps are fine — the SessionOnly branch returns before any service is touched.
+func TestAuthInterceptor_AdminTransitionEventRejectsApiKeyAuth(t *testing.T) {
 	t.Parallel()
 
 	interceptor := NewAuthInterceptor(nil, nil, nil, nil, nil, SessionOnlyProcedures)
 
-	cases := []struct {
-		name      string
-		procedure string
-	}{
-		{"StartCurtailment", curtailmentv1connect.CurtailmentServiceStartCurtailmentProcedure},
-		{"StopCurtailment", curtailmentv1connect.CurtailmentServiceStopCurtailmentProcedure},
-		{"UpdateCurtailmentEvent", curtailmentv1connect.CurtailmentServiceUpdateCurtailmentEventProcedure},
-		{"AdminTransitionEvent", curtailmentv1connect.CurtailmentServiceAdminTransitionEventProcedure},
-	}
+	header := http.Header{}
+	header.Set("Authorization", "Bearer fleet_test_some_key")
 
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+	_, err := interceptor.authenticate(
+		context.Background(),
+		curtailmentv1connect.CurtailmentServiceAdminTransitionEventProcedure,
+		header,
+	)
 
-			header := http.Header{}
-			header.Set("Authorization", "Bearer fleet_test_some_key")
-
-			_, err := interceptor.authenticate(context.Background(), tc.procedure, header)
-
-			require.Error(t, err)
-			var fleetErr fleeterror.FleetError
-			require.ErrorAs(t, err, &fleetErr)
-			assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
-		})
-	}
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
 }

@@ -83,16 +83,13 @@ func errCurtailmentNotImplemented(rpc string) error {
 }
 
 // requireAdminFromContext enforces the Admin / SuperAdmin gate on the caller.
-// Also rejects API-key auth so a leaked key cannot exercise admin-gated paths
-// even when its owning user has the admin role; this hardens the override path
-// on Preview, which is otherwise API-key-accessible.
+// Mirrors apikey's requireAdmin pattern. Auth method is not checked here:
+// integrations holding an admin-role API key can drive admin-gated paths,
+// matching the existing role-only gating in the apikey handler.
 func requireAdminFromContext(ctx context.Context, action string) error {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return err
-	}
-	if info.AuthMethod == session.AuthMethodAPIKey {
-		return fleeterror.NewForbiddenErrorf("API key auth cannot %s; use an admin session", action)
 	}
 	if info.Role != domainAuth.SuperAdminRoleName && info.Role != domainAuth.AdminRoleName {
 		return fleeterror.NewForbiddenErrorf("only admins can %s", action)

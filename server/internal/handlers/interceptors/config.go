@@ -51,11 +51,11 @@ var SessionOnlyProcedures = []string{
 	authv1connect.AuthServiceResetUserPasswordProcedure,
 	authv1connect.AuthServiceDeactivateUserProcedure,
 	authv1connect.AuthServiceVerifyCredentialsProcedure,
-	// Curtailment write/admin RPCs — leaked API key must not mass-stop, abort,
-	// or force-recover events. Read RPCs stay API-key-accessible.
-	curtailmentv1connect.CurtailmentServiceStartCurtailmentProcedure,
-	curtailmentv1connect.CurtailmentServiceStopCurtailmentProcedure,
-	curtailmentv1connect.CurtailmentServiceUpdateCurtailmentEventProcedure,
+	// AdminTransitionEvent is the operator-of-last-resort recovery RPC; force a
+	// non-terminal event to a terminal state should not be reachable via a
+	// long-lived bearer token. Start / Stop / Update / Preview / GetActive /
+	// List remain API-key-accessible so external integrations can drive
+	// curtailment via the public API.
 	curtailmentv1connect.CurtailmentServiceAdminTransitionEventProcedure,
 }
 

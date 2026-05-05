@@ -441,23 +441,24 @@ func TestHandler_OverrideFieldsRoleGate(t *testing.T) {
 	}
 
 	cases := []call{
-		// Non-Admin role with override field set is rejected.
-		{"Preview override + viewer", previewWithOverride, "VIEWER", session.AuthMethodSession, connect.CodePermissionDenied},
-		{"Start candidate override + viewer", startWithCandidateOverride, "VIEWER", session.AuthMethodSession, connect.CodePermissionDenied},
-		{"Start allow_unbounded + viewer", startWithAllowUnbounded, "VIEWER", session.AuthMethodSession, connect.CodePermissionDenied},
-		{"Stop batch override + viewer", stopWithBatchOverride, "VIEWER", session.AuthMethodSession, connect.CodePermissionDenied},
+		// Non-admin role with override field set is rejected regardless of auth method.
+		{"Preview override + viewer session", previewWithOverride, "VIEWER", session.AuthMethodSession, connect.CodePermissionDenied},
+		{"Preview override + viewer API key", previewWithOverride, "VIEWER", session.AuthMethodAPIKey, connect.CodePermissionDenied},
+		{"Start candidate override + viewer session", startWithCandidateOverride, "VIEWER", session.AuthMethodSession, connect.CodePermissionDenied},
+		{"Start allow_unbounded + viewer session", startWithAllowUnbounded, "VIEWER", session.AuthMethodSession, connect.CodePermissionDenied},
+		{"Stop batch override + viewer session", stopWithBatchOverride, "VIEWER", session.AuthMethodSession, connect.CodePermissionDenied},
 
-		// API-key auth is rejected on override paths even with the admin role —
-		// a leaked key must not exercise admin-gated escape hatches.
-		{"Preview override + admin via API key", previewWithOverride, domainAuth.AdminRoleName, session.AuthMethodAPIKey, connect.CodePermissionDenied},
-		{"Start candidate override + admin via API key", startWithCandidateOverride, domainAuth.AdminRoleName, session.AuthMethodAPIKey, connect.CodePermissionDenied},
-		{"Start allow_unbounded + super admin via API key", startWithAllowUnbounded, domainAuth.SuperAdminRoleName, session.AuthMethodAPIKey, connect.CodePermissionDenied},
-
-		// Admin role on a session reaches Unimplemented (gate passed).
+		// Admin role reaches Unimplemented regardless of auth method — admin
+		// API-key callers can drive override paths so external integrations
+		// can use the override fields without an interactive session.
 		{"Preview override + admin session", previewWithOverride, domainAuth.AdminRoleName, session.AuthMethodSession, connect.CodeUnimplemented},
+		{"Preview override + admin API key", previewWithOverride, domainAuth.AdminRoleName, session.AuthMethodAPIKey, connect.CodeUnimplemented},
 		{"Start candidate override + admin session", startWithCandidateOverride, domainAuth.AdminRoleName, session.AuthMethodSession, connect.CodeUnimplemented},
+		{"Start candidate override + admin API key", startWithCandidateOverride, domainAuth.AdminRoleName, session.AuthMethodAPIKey, connect.CodeUnimplemented},
 		{"Start allow_unbounded + super admin session", startWithAllowUnbounded, domainAuth.SuperAdminRoleName, session.AuthMethodSession, connect.CodeUnimplemented},
+		{"Start allow_unbounded + super admin API key", startWithAllowUnbounded, domainAuth.SuperAdminRoleName, session.AuthMethodAPIKey, connect.CodeUnimplemented},
 		{"Stop batch override + admin session", stopWithBatchOverride, domainAuth.AdminRoleName, session.AuthMethodSession, connect.CodeUnimplemented},
+		{"Stop batch override + admin API key", stopWithBatchOverride, domainAuth.AdminRoleName, session.AuthMethodAPIKey, connect.CodeUnimplemented},
 	}
 
 	for _, tc := range cases {
