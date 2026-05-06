@@ -20,20 +20,17 @@ type Candidate struct {
 type Outcome int
 
 const (
-	// OutcomeTargetReached: walking the ranking hit a candidate whose
-	// inclusion brought the running sum to or past target. Realized kW is
-	// in [target_kw, target_kw + last_added.power_w] — a small overshoot
-	// is unavoidable since miners are atomic.
+	// OutcomeTargetReached: realized kW lands in
+	// [target_kw, target_kw + last_added.power_w]. A small overshoot is
+	// unavoidable since miners are atomic.
 	OutcomeTargetReached Outcome = iota
 
-	// OutcomeUndershootTolerated: the entire ranked list summed below
-	// target_kw, but at least target_kw - tolerance_kw. Operator
-	// explicitly accepted the near-miss via positive tolerance_kw.
+	// OutcomeUndershootTolerated: sum < target_kw but >= target_kw - tolerance_kw.
+	// Only fires when the operator passes a positive tolerance.
 	OutcomeUndershootTolerated
 
-	// OutcomeInsufficientLoad: even with all candidates selected, the
-	// sum is below target_kw - tolerance_kw. The plan rejects with a
-	// structured InsufficientLoadDetail; selected list is empty.
+	// OutcomeInsufficientLoad: sum < target_kw - tolerance_kw. Empty
+	// selection plus a structured detail.
 	OutcomeInsufficientLoad
 )
 

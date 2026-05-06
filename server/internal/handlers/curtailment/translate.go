@@ -157,13 +157,10 @@ func strategyReasonLabel(s pb.CurtailmentStrategy) string {
 }
 
 func levelName(l pb.CurtailmentLevel) string {
-	if l == pb.CurtailmentLevel_CURTAILMENT_LEVEL_UNSPECIFIED {
-		return "FULL"
-	}
-	// Generated enum names are CURTAILMENT_LEVEL_FULL etc.; the service
-	// matches on "FULL" directly so map the v1 case explicitly and pass
-	// the raw name otherwise (the service rejects unsupported values).
-	if l == pb.CurtailmentLevel_CURTAILMENT_LEVEL_FULL {
+	// Service matches on "FULL" directly; UNSPECIFIED defaults to FULL,
+	// other values pass through their proto names so the service rejects them.
+	if l == pb.CurtailmentLevel_CURTAILMENT_LEVEL_UNSPECIFIED ||
+		l == pb.CurtailmentLevel_CURTAILMENT_LEVEL_FULL {
 		return "FULL"
 	}
 	return l.String()

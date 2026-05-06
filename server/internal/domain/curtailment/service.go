@@ -95,13 +95,9 @@ func (s *Service) Preview(ctx context.Context, req PreviewRequest) (*Plan, error
 		return nil, err
 	}
 
-	// Cross-org ownership guard for explicit device-list scope: the SQL
-	// already filters by org_id, so any device_identifier the caller listed
-	// that belongs to another org (or doesn't exist) is silently dropped.
-	// Explicit miner-list scope must validate org ownership at this layer
-	// before any persistence or dispatch path consumes the result; without
-	// this check the caller sees a confusing InsufficientLoad instead of
-	// "you don't own these IDs."
+	// Org-ownership guard: cross-org ids are silently dropped by the SQL
+	// org_id filter; surface them as NotFound so the caller sees the real
+	// error instead of a misleading InsufficientLoad.
 	if len(deviceFilter) > 0 {
 		if missing := missingDeviceIdentifiers(deviceFilter, candidates); len(missing) > 0 {
 			return nil, fleeterror.NewNotFoundErrorf(
@@ -110,14 +106,8 @@ func (s *Service) Preview(ctx context.Context, req PreviewRequest) (*Plan, error
 		}
 	}
 
-	// TODO: extend the capability gate. classifyCandidates already skips
-	// devices with no driver_name (defense-in-depth for a missing
-	// discovered_device row), but the full check — does the loaded plugin
-	// advertise curtail_full for this device's model? — needs the plugin
-	// registry that is not yet wired in. Until then, devices with a known
-	// driver but an unsupported model can slip through; the candidate query
-	// already returns driver_name + model so the registry-driven check can
-	// layer on without a schema change.
+	// TODO: registry-driven curtail_full capability check. classifyCandidates
+	// already skips devices missing driver metadata as defense-in-depth.
 
 	eligible, preFiltered, summary := classifyCandidates(candidates, classifyOpts{
 		IncludeMaintenance: req.IncludeMaintenance && req.ForceIncludeMaintenance,
@@ -202,7 +192,7 @@ type classifyOpts struct {
 // caller without a re-walk.
 func classifyCandidates(cands []*models.Candidate, opts classifyOpts) ([]CandidateInput, []SkippedDevice, modes.InsufficientLoadDetail) {
 	eligible := make([]CandidateInput, 0, len(cands))
-	skipped := make([]SkippedDevice, 0)
+	skipped := make([]SkippedDevice, 0, len(cands))
 	summary := modes.InsufficientLoadDetail{
 		CandidateMinPowerW: opts.CandidateMinPowerW,
 	}

@@ -84,25 +84,12 @@ type SelectedDevice struct {
 	EfficiencyJH     float64
 }
 
-// BuildPlan applies the v1 selection pipeline against `inputs` (the per-device
-// state pre-aggregated by the service layer):
+// BuildPlan runs the v1 selection pipeline (dual-signal filter, rank by
+// worst avg_efficiency first, hand off to the mode for the stop condition).
+// `preFiltered` carries upstream skips (status/pairing/cooldown/capability)
+// through to the Plan's Skipped list unchanged.
 //
-//  1. Dual-signal filter: require power_w >= candidateMinPowerW AND hash_rate > 0.
-//     Skip with phantom_load_no_hash / power_telemetry_unreliable / below_candidate_min_power_w
-//     accordingly. (Status / pairing / cooldown / capability filters happen
-//     upstream in the service layer; their skip reasons arrive in `preFiltered`.)
-//  2. Rank by avg_efficiency descending — worst J/H first. Unknown efficiency
-//     ranks LAST (not first via COALESCE-to-zero), so an unranked miner does
-//     not silently get treated as best-in-class.
-//  3. Apply the mode. The mode owns the stop condition; the selector just
-//     passes the ranked candidate list through.
-//
-// `preFiltered` is the list of devices already-skipped before reaching the
-// dual-signal filter (e.g., wrong device_status, unpaired, in cooldown). The
-// selector forwards them into the Plan's Skipped list without re-evaluating.
-//
-// The function is pure: no time, no I/O, no shared state. All inputs flow
-// through the parameters; all outputs through the return value.
+// Pure: no time, no I/O, no shared state.
 func BuildPlan(
 	inputs []CandidateInput,
 	preFiltered []SkippedDevice,
