@@ -1,0 +1,91 @@
+package main
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"time"
+
+	"gopkg.in/yaml.v3"
+)
+
+type State struct {
+	ServerURL                 string    `yaml:"server_url"`
+	AgentID                   int64     `yaml:"agent_id"`
+	IdentityFingerprint       string    `yaml:"identity_fingerprint"`
+	IdentityPrivateKeyHex     string    `yaml:"identity_private_key_hex"`
+	IdentityPublicKeyHex      string    `yaml:"identity_public_key_hex"`
+	MinerSigningPrivateKeyHex string    `yaml:"miner_signing_private_key_hex"`
+	MinerSigningPublicKeyHex  string    `yaml:"miner_signing_public_key_hex"`
+	APIKey                    string    `yaml:"api_key,omitempty"`
+	SessionToken              string    `yaml:"session_token,omitempty"`
+	SessionExpiresAt          time.Time `yaml:"session_expires_at,omitempty"`
+}
+
+func resolveStateDir(override string) (string, error) {
+	if override != "" {
+		return override, nil
+	}
+	if v := os.Getenv("XDG_STATE_HOME"); v != "" {
+		return filepath.Join(v, "fleet-agent"), nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve home dir: %w", err)
+	}
+	return filepath.Join(home, ".local", "state", "fleet-agent"), nil
+}
+
+func statePath(dir string) string {
+	return filepath.Join(dir, "state.yaml")
+}
+
+func loadState(path string) (*State, bool, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return &State{}, false, nil
+		}
+		return nil, false, fmt.Errorf("read state: %w", err)
+	}
+	var s State
+	if err := yaml.Unmarshal(data, &s); err != nil {
+		return nil, false, fmt.Errorf("parse state: %w", err)
+	}
+	return &s, true, nil
+}
+
+// saveState writes atomically via a temp file in the same directory so a
+// crash mid-write cannot leave a half-formed state.yaml.
+func saveState(path string, s *State) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("create state dir: %w", err)
+	}
+	data, err := yaml.Marshal(s)
+	if err != nil {
+		return fmt.Errorf("marshal state: %w", err)
+	}
+	tmp, err := os.CreateTemp(dir, "state-*.yaml.tmp")
+	if err != nil {
+		return fmt.Errorf("create temp: %w", err)
+	}
+	tmpName := tmp.Name()
+	defer func() { _ = os.Remove(tmpName) }()
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("chmod temp: %w", err)
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("write temp: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close temp: %w", err)
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		return fmt.Errorf("rename state: %w", err)
+	}
+	return nil
+}
