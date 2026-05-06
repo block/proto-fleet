@@ -69,12 +69,7 @@ export const formatLogType = (logType: logType | null) => {
 
 export const CSV_HEADERS = "Time,Type,Message";
 
-/**
- * Format logs into CSV rows with proper quoting and escaping
- * Follows RFC 4180 CSV format specification
- */
-export const formatLogsToCSV = (logs: string[]): string[] => {
-  const formattedLogs = formatLogs(logs);
+export const formatLogInfoToCSV = (formattedLogs: LogInfo[]): string[] => {
   return [
     CSV_HEADERS,
     ...formattedLogs.map(
@@ -82,3 +77,5 @@ export const formatLogsToCSV = (logs: string[]): string[] => {
     ),
   ];
 };
+
+export const formatLogsToCSV = (logs: string[]): string[] => formatLogInfoToCSV(formatLogs(logs));

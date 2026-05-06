@@ -1,5 +1,5 @@
-import { mockLogs } from "./constants";
-import LogsComponent from "./Logs";
+import { mockLogs } from "@/shared/components/Logs/constants";
+import LogsComponent from "@/shared/components/Logs/Logs";
 
 export const Logs = () => {
   return (
