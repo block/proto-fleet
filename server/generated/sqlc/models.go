@@ -583,6 +583,7 @@ type DiscoveredDevice struct {
 	UpdatedAt         sql.NullTime
 	DeletedAt         sql.NullTime
 	DriverName        string
+	IpAddressInet     pqtype.Inet
 }
 
 type Error struct {

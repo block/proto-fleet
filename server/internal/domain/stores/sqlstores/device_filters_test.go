@@ -756,7 +756,7 @@ func TestAppendFilterSQL_NumericAndCIDRWithExistingFilters_ArgContinuity(t *test
 	assert.Contains(t, sql, "discovered_device.model = ANY($2::text[])")
 	assert.Contains(t, sql, "latest_metrics.hash_rate_hs / 1e12 > $3")
 	assert.Contains(t, sql, "latest_metrics.power_w / 1e3 < $4")
-	assert.Contains(t, sql, "unnest($5::cidr[])")
+	assert.Contains(t, sql, "discovered_device.ip_address_inet <<= ANY($5::cidr[])")
 	assert.Len(t, resultArgs, 5) // initial + model + 2 numeric + cidrs
 	assert.Equal(t, 6, resultArgNum)
 }
