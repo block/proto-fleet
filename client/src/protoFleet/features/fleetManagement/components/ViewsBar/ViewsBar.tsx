@@ -123,7 +123,23 @@ type ViewKebabProps = {
   onUpdate?: () => void;
 };
 
+type KebabRowProps = {
+  testId: string;
+  onClick: () => void;
+  icon: ReactNode;
+  label: string;
+};
+
+const KebabRow = ({ testId, onClick, icon, label }: KebabRowProps) => (
+  <div className="px-4">
+    <Row className="text-emphasis-300" testId={testId} onClick={onClick} compact divider={false} prefixIcon={icon}>
+      {label}
+    </Row>
+  </div>
+);
+
 const ViewKebab = ({ view, isOpen, setIsOpen, onRename, onDelete, onReset, onUpdate }: ViewKebabProps) => {
+  const close = () => setIsOpen(false);
   return (
     <>
       <button
@@ -148,72 +164,48 @@ const ViewKebab = ({ view, isOpen, setIsOpen, onRename, onDelete, onReset, onUpd
           testId={`views-bar-tab-${view.id}-kebab-popover`}
         >
           {onReset ? (
-            <div className="px-4">
-              <Row
-                className="text-emphasis-300"
-                testId={`views-bar-tab-${view.id}-reset-action`}
-                onClick={() => {
-                  setIsOpen(false);
-                  onReset();
-                }}
-                compact
-                divider={false}
-                prefixIcon={<Reboot />}
-              >
-                Reset view
-              </Row>
-            </div>
+            <KebabRow
+              testId={`views-bar-tab-${view.id}-reset-action`}
+              onClick={() => {
+                close();
+                onReset();
+              }}
+              icon={<Reboot />}
+              label="Reset view"
+            />
           ) : null}
           {onUpdate ? (
-            <div className="px-4">
-              <Row
-                className="text-emphasis-300"
-                testId={`views-bar-tab-${view.id}-update-action`}
-                onClick={() => {
-                  setIsOpen(false);
-                  onUpdate();
-                }}
-                compact
-                divider={false}
-                prefixIcon={<Checkmark />}
-              >
-                Update view
-              </Row>
-            </div>
+            <KebabRow
+              testId={`views-bar-tab-${view.id}-update-action`}
+              onClick={() => {
+                close();
+                onUpdate();
+              }}
+              icon={<Checkmark />}
+              label="Update view"
+            />
           ) : null}
           {onRename ? (
-            <div className="px-4">
-              <Row
-                className="text-emphasis-300"
-                testId={`views-bar-tab-${view.id}-rename-action`}
-                onClick={() => {
-                  setIsOpen(false);
-                  onRename(view);
-                }}
-                compact
-                divider={false}
-                prefixIcon={<Edit />}
-              >
-                Rename
-              </Row>
-            </div>
+            <KebabRow
+              testId={`views-bar-tab-${view.id}-rename-action`}
+              onClick={() => {
+                close();
+                onRename(view);
+              }}
+              icon={<Edit />}
+              label="Rename"
+            />
           ) : null}
           {onDelete ? (
-            <div className="px-4">
-              <Row
-                className="text-emphasis-300"
-                testId={`views-bar-tab-${view.id}-delete-action`}
-                onClick={() => {
-                  setIsOpen(false);
-                  onDelete(view);
-                }}
-                compact
-                divider={false}
-                prefixIcon={<Trash />}
-              >
-                Delete
-              </Row>
-            </div>
+            <KebabRow
+              testId={`views-bar-tab-${view.id}-delete-action`}
+              onClick={() => {
+                close();
+                onDelete(view);
+              }}
+              icon={<Trash />}
+              label="Delete"
+            />
           ) : null}
         </Popover>
       ) : null}

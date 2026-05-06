@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import clsx from "clsx";
@@ -228,7 +228,6 @@ type ScopedMinerListBodyProps = {
   minerIds?: string[];
   onRefetchMiners?: () => void;
   onWorkerNameUpdated?: (deviceIdentifier: string, workerName: string) => void;
-  chipsRowTrailing?: ReactNode;
 };
 
 const ScopedMinerListBody = ({
@@ -267,7 +266,6 @@ const ScopedMinerListBody = ({
   minerIds: minerIdsProp,
   onRefetchMiners,
   onWorkerNameUpdated,
-  chipsRowTrailing,
 }: ScopedMinerListBodyProps) => {
   const [selectedMinerIds, setSelectedMinerIds] = useState<string[]>([]);
   const [selectionMode, setSelectionMode] = useState<SelectionMode>("none");
@@ -311,7 +309,6 @@ const ScopedMinerListBody = ({
         itemSelectable
         pageScopedSelection
         hasActiveFilters={hasActiveFilters}
-        chipsRowTrailing={chipsRowTrailing}
         headerControls={
           <div className="flex items-center gap-2">
             <Button
