@@ -78,7 +78,8 @@ export class GroupsPage extends BasePage {
     const groupRow = this.getGroupRow(groupName);
     await expect(groupRow).toBeVisible();
     await groupRow.getByTestId("name").getByRole("link", { name: groupName, exact: true }).click();
-    await expect(this.page).toHaveURL(new RegExp(`/groups/${groupName}$`));
+    const expectedPath = `/groups/${encodeURIComponent(groupName)}`;
+    await expect(this.page).toHaveURL((url) => url.pathname === expectedPath);
     await this.validateTitle(groupName);
   }
 

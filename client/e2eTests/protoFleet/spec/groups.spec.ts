@@ -349,8 +349,11 @@ test.describe("Groups", () => {
   }) => {
     const groupName = generateRandomText("automation");
     let minerCount = 0;
+    let selectedDeviceIdentifiers: string[] = [];
 
     await test.step("Create a rig-only group with two miners", async () => {
+      const createGroupRequestPromise = page.waitForRequest(/CreateDeviceSet/);
+
       await groupsPage.clickAddGroupButton();
       await groupsPage.inputGroupName(groupName);
       await groupsPage.waitForModalListToLoad();
@@ -361,9 +364,14 @@ test.describe("Groups", () => {
       await groupsPage.selectMinersByIndex([0, 1]);
       await groupsPage.clickSaveInModal();
 
+      const createGroupRequest = await createGroupRequestPromise;
+      const createGroupRequestBody = createGroupRequest.postDataJSON();
+      selectedDeviceIdentifiers = createGroupRequestBody.deviceSelector.deviceList.deviceIdentifiers;
+
       await groupsPage.validateTextInToast(`Group "${groupName}" created`);
       await groupsPage.validateSavedGroupVisible(groupName);
       await groupsPage.validateSavedGroupMinerCount(groupName, minerCount);
+      test.expect(selectedDeviceIdentifiers).toHaveLength(minerCount);
     });
 
     await test.step("Open the group overview", async () => {
@@ -389,6 +397,9 @@ test.describe("Groups", () => {
       const request = await requestPromise;
       const response = await responsePromise;
       const requestBody = request.postDataJSON();
+      const targetedDeviceIdentifiers = requestBody.deviceSelector.includeDevices.deviceIdentifiers;
+      const sortedTargetedDeviceIdentifiers = [...targetedDeviceIdentifiers].sort();
+      const sortedSelectedDeviceIdentifiers = [...selectedDeviceIdentifiers].sort();
 
       test.expect(request.method()).toBe("POST");
       test.expect(requestBody).toHaveProperty("performanceMode");
@@ -396,7 +407,7 @@ test.describe("Groups", () => {
       test.expect(requestBody).toHaveProperty("deviceSelector");
       test.expect(requestBody.deviceSelector).toHaveProperty("includeDevices");
       test.expect(requestBody.deviceSelector.includeDevices).toHaveProperty("deviceIdentifiers");
-      test.expect(requestBody.deviceSelector.includeDevices.deviceIdentifiers).toHaveLength(minerCount);
+      test.expect(sortedTargetedDeviceIdentifiers).toEqual(sortedSelectedDeviceIdentifiers);
       test.expect(response.status()).toBe(200);
     });
   });
