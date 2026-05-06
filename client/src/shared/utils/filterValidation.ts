@@ -1,4 +1,4 @@
-import { isValidCidr, isValidIpv4 } from "./networkDiscovery";
+import { isValidCidr, isValidIpv4, isValidIpv6 } from "./networkDiscovery";
 
 export type NumericRangeValue = {
   min?: number;
@@ -54,35 +54,60 @@ export const validateNumericRange = (value: NumericRangeValue, bounds: NumericRa
   return errors;
 };
 
+const parseCidrLine = (line: string): { ip: string; mask: number } | null => {
+  const slashIndex = line.lastIndexOf("/");
+  if (slashIndex <= 0 || slashIndex === line.length - 1) return null;
+
+  const ip = line.slice(0, slashIndex);
+  const maskStr = line.slice(slashIndex + 1);
+  if (!/^\d+$/.test(maskStr)) return null;
+
+  return { ip, mask: Number(maskStr) };
+};
+
+const isValidIpv6Cidr = (value: string): boolean => {
+  const parsed = parseCidrLine(value);
+  if (!parsed) return false;
+
+  return isValidIpv6(parsed.ip) && parsed.mask >= 0 && parsed.mask <= 128;
+};
+
 /**
- * Returns null if the line is a valid IPv4 CIDR or bare IPv4 address (treated
- * as /32). Returns a human-readable error string otherwise. IPv6 is rejected
- * to keep parity with the existing `isValidCidr` in networkDiscovery.ts.
+ * Returns null if the line is a valid IPv4/IPv6 CIDR or bare IP address
+ * (treated as /32 or /128). Returns a human-readable error string otherwise.
+ * Link-local and scoped IPv6 are rejected to match discovery/pairing support.
  */
 export const validateCidrLine = (line: string): string | null => {
   const trimmed = line.trim();
   if (trimmed === "") return "Empty value";
 
   if (trimmed.includes("/")) {
-    return isValidCidr(trimmed) ? null : "Not a valid CIDR (e.g. 255.255.255.0/24)";
+    return isValidCidr(trimmed) || isValidIpv6Cidr(trimmed)
+      ? null
+      : "Not a valid CIDR (e.g. 255.255.255.0/24 or 2001:db8::/64)";
   }
 
-  return isValidIpv4(trimmed) ? null : "Not a valid IPv4 address or CIDR";
+  return isValidIpv4(trimmed) || isValidIpv6(trimmed) ? null : "Not a valid IP address or CIDR";
 };
 
 /**
  * Normalizes a CIDR or bare IP to canonical network form, mirroring the
- * server's parseCIDR semantics (mask host bits + append /32 to bare IPs).
- * Assumes the input has already passed validateCidrLine; on bad input it
- * returns the trimmed value unchanged.
+ * server's parseCIDR semantics. IPv4 inputs are canonicalized client-side;
+ * IPv6 bare IPs become /128, while IPv6 CIDRs are left as-is for the server
+ * to canonicalize. Assumes the input has already passed validateCidrLine; on
+ * bad input it returns the trimmed value unchanged.
  */
 export const normalizeCidrLine = (line: string): string => {
   const trimmed = line.trim();
   if (trimmed === "") return trimmed;
 
   if (!trimmed.includes("/")) {
-    return isValidIpv4(trimmed) ? `${trimmed}/32` : trimmed;
+    if (isValidIpv4(trimmed)) return `${trimmed}/32`;
+    if (isValidIpv6(trimmed)) return `${trimmed}/128`;
+    return trimmed;
   }
+
+  if (isValidIpv6Cidr(trimmed)) return trimmed;
 
   const [ip, maskStr] = trimmed.split("/");
   const mask = Number(maskStr);

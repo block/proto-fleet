@@ -429,8 +429,20 @@ describe("filterUrlParams", () => {
       expect(active.textareaListFilters.subnet).toEqual(["192.168.1.0/24"]);
     });
 
+    it("accepts IPv6 CIDRs and bare IPv6 addresses from the URL", () => {
+      const params = new URLSearchParams("subnet=2001%3Adb8%3A%3A%2F64&subnet=2001%3Adb8%3A%3A1");
+      const active = parseUrlToActiveFilters(params);
+      expect(active.textareaListFilters.subnet).toEqual(["2001:db8::/64", "2001:db8::1/128"]);
+    });
+
+    it("parses IPv6 CIDRs and bare IPv6 addresses into the protobuf filter", () => {
+      const params = new URLSearchParams("subnet=2001%3Adb8%3A%3A%2F64&subnet=2001%3Adb8%3A%3A1");
+      const filter = parseFilterFromURL(params);
+      expect(filter?.ipCidrs).toEqual(["2001:db8::/64", "2001:db8::1/128"]);
+    });
+
     it("silently drops invalid CIDRs from the URL", () => {
-      const params = new URLSearchParams("subnet=garbage&subnet=10.0.0.0%2F8");
+      const params = new URLSearchParams("subnet=garbage&subnet=10.0.0.0%2F8&subnet=fe80%3A%3A%2F64");
       const active = parseUrlToActiveFilters(params);
       expect(active.textareaListFilters.subnet).toEqual(["10.0.0.0/8"]);
     });

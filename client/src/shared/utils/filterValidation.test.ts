@@ -66,12 +66,20 @@ describe("validateCidrLine", () => {
     expect(validateCidrLine("192.168.1.0/24")).toBeNull();
   });
 
+  it("accepts a routable IPv6 CIDR", () => {
+    expect(validateCidrLine("2001:db8::/64")).toBeNull();
+  });
+
   it("accepts a non-canonical CIDR (host bits set) — server normalizes", () => {
     expect(validateCidrLine("192.168.1.5/24")).toBeNull();
   });
 
   it("accepts a bare IPv4 address (treated as /32)", () => {
     expect(validateCidrLine("10.0.0.5")).toBeNull();
+  });
+
+  it("accepts a bare routable IPv6 address (treated as /128)", () => {
+    expect(validateCidrLine("2001:db8::1")).toBeNull();
   });
 
   it("rejects garbage", () => {
@@ -82,13 +90,15 @@ describe("validateCidrLine", () => {
     expect(validateCidrLine("192.168.1.0/-1")).toBeTypeOf("string");
   });
 
-  it("rejects IPv6 (server v1 scope is IPv4 — keep parity with networkDiscovery)", () => {
-    expect(validateCidrLine("2001:db8::/32")).toBeTypeOf("string");
-    expect(validateCidrLine("::1")).toBeTypeOf("string");
+  it("rejects scoped and link-local IPv6", () => {
+    expect(validateCidrLine("fe80::1")).toBeTypeOf("string");
+    expect(validateCidrLine("fe80::/64")).toBeTypeOf("string");
+    expect(validateCidrLine("fe80::1%en0")).toBeTypeOf("string");
   });
 
   it("trims surrounding whitespace before validating", () => {
     expect(validateCidrLine("  192.168.1.0/24  ")).toBeNull();
+    expect(validateCidrLine("  2001:db8::1  ")).toBeNull();
   });
 });
 
@@ -102,12 +112,18 @@ describe("normalizeCidrLine", () => {
     expect(normalizeCidrLine("10.0.0.5")).toBe("10.0.0.5/32");
   });
 
+  it("appends /128 to a bare IPv6", () => {
+    expect(normalizeCidrLine("2001:db8::1")).toBe("2001:db8::1/128");
+  });
+
   it("leaves already-canonical CIDRs unchanged", () => {
     expect(normalizeCidrLine("192.168.1.0/24")).toBe("192.168.1.0/24");
+    expect(normalizeCidrLine("2001:db8::/64")).toBe("2001:db8::/64");
   });
 
   it("trims surrounding whitespace", () => {
     expect(normalizeCidrLine("  192.168.1.0/24  ")).toBe("192.168.1.0/24");
+    expect(normalizeCidrLine("  2001:db8::1  ")).toBe("2001:db8::1/128");
   });
 
   it("preserves host == network for /32", () => {
