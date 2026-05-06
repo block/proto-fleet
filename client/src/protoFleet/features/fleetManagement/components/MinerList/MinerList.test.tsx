@@ -983,6 +983,47 @@ describe("MinerList", () => {
       expect(screen.queryByTestId("mock-miner-list-action-bar")).not.toBeInTheDocument();
     });
 
+    it.each(["/?status=hashing&subnet=192.168.2.0/24", "/?status=hashing&power_min=3.5"])(
+      "clears bulk selection when filters change to %s",
+      async (nextSearch) => {
+        const user = userEvent.setup();
+
+        render(
+          <BrowserRouter>
+            <MinerList
+              title="Miners"
+              minerIds={["m1", "m2"]}
+              miners={autoMiners(["m1", "m2"])}
+              errorsByDevice={{}}
+              errorsLoaded={true}
+              getActiveBatches={mockGetActiveBatches}
+              totalMiners={2}
+              currentPage={0}
+              onAddMiners={vi.fn()}
+              loading={false}
+            />
+            <LocationDisplay />
+          </BrowserRouter>,
+        );
+
+        const rowCheckboxes = screen.getAllByTestId("checkbox");
+        await user.click(rowCheckboxes[0].querySelector("input[type='checkbox']") as HTMLInputElement);
+
+        expect(screen.getByTestId("mock-miner-list-selection-mode")).toHaveTextContent("subset");
+        expect(screen.getByTestId("mock-miner-list-selection-count")).toHaveTextContent("1");
+
+        await act(async () => {
+          window.history.pushState({}, "", nextSearch);
+          window.dispatchEvent(new PopStateEvent("popstate"));
+        });
+
+        await waitFor(() => {
+          expect(screen.getByTestId("location-display")).toHaveTextContent(nextSearch.slice(1));
+          expect(screen.queryByTestId("mock-miner-list-action-bar")).not.toBeInTheDocument();
+        });
+      },
+    );
+
     it("recomputes selectable miners when a row becomes disabled between renders", async () => {
       const user = userEvent.setup();
 
@@ -1169,7 +1210,11 @@ describe("MinerList", () => {
       const user = userEvent.setup();
 
       render(
-        <MemoryRouter initialEntries={["/?status=hashing&issues=control-board&sort=name&dir=desc"]}>
+        <MemoryRouter
+          initialEntries={[
+            "/?status=hashing&issues=control-board&subnet=192.168.2.0%2F24&power_min=3.5&sort=name&dir=desc",
+          ]}
+        >
           <MinerList
             title="Miners"
             minerIds={[]}

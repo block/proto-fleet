@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { encodeFilterToURL, parseFilterFromURL, parseUrlToActiveFilters } from "./filterUrlParams";
-import { MinerListFilterSchema } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import {
+  MinerListFilterSchema,
+  NumericField,
+  NumericRangeFilterSchema,
+} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 
 describe("filterUrlParams", () => {
@@ -360,6 +364,87 @@ describe("filterUrlParams", () => {
       const filter = create(MinerListFilterSchema, {});
 
       expect(encodeFilterToURL(filter).has("zone")).toBe(false);
+    });
+  });
+
+  describe("numeric range filters", () => {
+    it("encodes both min and max for the matching telemetry field", () => {
+      const filter = create(MinerListFilterSchema, {
+        numericRanges: [
+          create(NumericRangeFilterSchema, {
+            field: NumericField.HASHRATE_THS,
+            min: 90,
+            max: 110,
+            minInclusive: true,
+            maxInclusive: true,
+          }),
+        ],
+      });
+
+      const params = encodeFilterToURL(filter);
+      expect(params.get("hashrate_min")).toBe("90");
+      expect(params.get("hashrate_max")).toBe("110");
+    });
+
+    it("encodes only min when max is unbounded", () => {
+      const filter = create(MinerListFilterSchema, {
+        numericRanges: [create(NumericRangeFilterSchema, { field: NumericField.POWER_KW, min: 2 })],
+      });
+      const params = encodeFilterToURL(filter);
+      expect(params.get("power_min")).toBe("2");
+      expect(params.has("power_max")).toBe(false);
+    });
+
+    it("round-trips a numeric filter through ActiveFilters", () => {
+      const params = new URLSearchParams("hashrate_min=90&hashrate_max=110");
+      const active = parseUrlToActiveFilters(params);
+      expect(active.numericFilters.hashrate).toEqual({ min: 90, max: 110 });
+    });
+
+    it("drops malformed numeric values from the URL", () => {
+      const params = new URLSearchParams("hashrate_min=abc&power_max=Infinity");
+      const active = parseUrlToActiveFilters(params);
+      expect(active.numericFilters.hashrate).toBeUndefined();
+      expect(active.numericFilters.power).toBeUndefined();
+    });
+  });
+
+  describe("subnet (textareaList) filter", () => {
+    it("encodes ip_cidrs as repeated subnet entries, sorted", () => {
+      const filter = create(MinerListFilterSchema, {
+        ipCidrs: ["192.168.1.0/24", "10.0.0.0/8"],
+      });
+      expect(encodeFilterToURL(filter).getAll("subnet")).toEqual(["10.0.0.0/8", "192.168.1.0/24"]);
+    });
+
+    it("round-trips valid CIDRs into ActiveFilters textareaListFilters.subnet", () => {
+      const params = new URLSearchParams("subnet=192.168.1.0%2F24&subnet=10.0.0.0%2F8");
+      const active = parseUrlToActiveFilters(params);
+      expect(active.textareaListFilters.subnet).toEqual(["192.168.1.0/24", "10.0.0.0/8"]);
+    });
+
+    it("normalizes a non-canonical CIDR from the URL", () => {
+      const params = new URLSearchParams("subnet=192.168.1.5%2F24");
+      const active = parseUrlToActiveFilters(params);
+      expect(active.textareaListFilters.subnet).toEqual(["192.168.1.0/24"]);
+    });
+
+    it("accepts IPv6 CIDRs and bare IPv6 addresses from the URL", () => {
+      const params = new URLSearchParams("subnet=2001%3Adb8%3A%3A%2F64&subnet=2001%3Adb8%3A%3A1");
+      const active = parseUrlToActiveFilters(params);
+      expect(active.textareaListFilters.subnet).toEqual(["2001:db8::/64", "2001:db8::1/128"]);
+    });
+
+    it("parses IPv6 CIDRs and bare IPv6 addresses into the protobuf filter", () => {
+      const params = new URLSearchParams("subnet=2001%3Adb8%3A%3A%2F64&subnet=2001%3Adb8%3A%3A1");
+      const filter = parseFilterFromURL(params);
+      expect(filter?.ipCidrs).toEqual(["2001:db8::/64", "2001:db8::1/128"]);
+    });
+
+    it("silently drops invalid CIDRs from the URL", () => {
+      const params = new URLSearchParams("subnet=garbage&subnet=10.0.0.0%2F8&subnet=fe80%3A%3A%2F64");
+      const active = parseUrlToActiveFilters(params);
+      expect(active.textareaListFilters.subnet).toEqual(["10.0.0.0/8"]);
     });
   });
 });

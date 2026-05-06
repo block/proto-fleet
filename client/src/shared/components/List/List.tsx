@@ -145,8 +145,6 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
   onServerFilter?: (filters: ActiveFilters) => Promise<void>;
   filterSize?: keyof typeof sizes;
   headerControls?: ReactNode;
-  /** Right-aligned trailing slot in the active-filter-chips row (renders the row even with no chips). */
-  chipsRowTrailing?: ReactNode;
   items: ListItem[];
   itemKey: keyof ListItem;
   itemSelectable?: boolean;
@@ -664,7 +662,6 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   onServerFilter,
   filterSize = sizes.compact,
   headerControls,
-  chipsRowTrailing,
   initialSelectedItems = [],
   customSetSelectedItems,
   customSelectedItems,
@@ -915,7 +912,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   );
 
   // Determine if Filters component will render (and handle filtering)
-  const shouldRenderFilters = !!(filters?.length || headerControls || chipsRowTrailing);
+  const shouldRenderFilters = !!(filters?.length || headerControls);
 
   // Update filteredItems when items change
   useEffect(() => {
@@ -925,7 +922,11 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
       setFilteredItems(items);
     } else if (!shouldRenderFilters && filterItem) {
       // Client-side filtering without Filters component: apply filterItem directly
-      setFilteredItems(items.filter((item) => filterItem(item, { buttonFilters: [], dropdownFilters: {} })));
+      setFilteredItems(
+        items.filter((item) =>
+          filterItem(item, { buttonFilters: [], dropdownFilters: {}, numericFilters: {}, textareaListFilters: {} }),
+        ),
+      );
     } else if (!shouldRenderFilters) {
       // No filtering at all: use items directly
       setFilteredItems(items);
@@ -1122,7 +1123,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   );
 
   const filtersElement =
-    filters?.length || headerControls || chipsRowTrailing ? (
+    filters?.length || headerControls ? (
       <Filters<ListItem>
         className={clsx("gap-4 py-6", paddingClasses)}
         filterItems={filters ?? []}
@@ -1131,7 +1132,6 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
         onFilter={isServerSideFiltering ? handleServerFiltering : handleClientFiltering}
         isServerSide={isServerSideFiltering}
         headerControls={headerControls}
-        chipsRowTrailing={chipsRowTrailing}
         initialActiveFilters={initialActiveFilters}
       />
     ) : null;

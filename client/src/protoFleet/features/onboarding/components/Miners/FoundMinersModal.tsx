@@ -37,6 +37,8 @@ const FoundMinersModal = ({ open, miners, models, setDeselectedMiners, onDismiss
   const [activeFilters, setActiveFilters] = useState<ActiveFilters>({
     buttonFilters: [],
     dropdownFilters: {},
+    numericFilters: {},
+    textareaListFilters: {},
   });
 
   const selectedMiners = useMemo(() => {

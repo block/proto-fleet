@@ -3,6 +3,8 @@
  * presets. See docs/plans/2026-04-30-custom-views.md.
  */
 
+import { TELEMETRY_FILTER_BOUNDS } from "@/protoFleet/features/fleetManagement/utils/telemetryFilterBounds";
+
 const STORAGE_KEY_PREFIX = "proto-fleet-miner-views";
 
 export const VIEWS_SCHEMA_VERSION = 1;
@@ -13,7 +15,12 @@ export const VIEW_URL_PARAM = "view";
 /** Built-in view id for the unfiltered default — kept as a clean URL. */
 export const ALL_MINERS_VIEW_ID = "all-miners";
 
-/** URL keys owned by filter + sort + view machinery. */
+/**
+ * URL keys owned by filter + sort + view machinery. Numeric range keys are
+ * derived from `TELEMETRY_FILTER_BOUNDS` so adding a new telemetry filter
+ * auto-extends the whitelist; we don't need to remember to update this list
+ * in two places.
+ */
 const FILTER_AND_SORT_KEYS: ReadonlySet<string> = new Set([
   "status",
   "issues",
@@ -22,6 +29,8 @@ const FILTER_AND_SORT_KEYS: ReadonlySet<string> = new Set([
   "rack",
   "firmware",
   "zone",
+  "subnet",
+  ...Object.keys(TELEMETRY_FILTER_BOUNDS).flatMap((key) => [`${key}_min`, `${key}_max`]),
   "sort",
   "dir",
 ]);

@@ -211,6 +211,10 @@ describe("Filters", () => {
         initialActiveFilters={{
           buttonFilters: [],
           dropdownFilters: { firmware: ["v3.5.1"] },
+
+          numericFilters: {},
+
+          textareaListFilters: {},
         }}
       />,
     );
@@ -258,6 +262,10 @@ describe("Filters", () => {
         initialActiveFilters={{
           buttonFilters: [],
           dropdownFilters: { status: ["hashing"] },
+
+          numericFilters: {},
+
+          textareaListFilters: {},
         }}
       />,
     );
@@ -292,6 +300,10 @@ describe("Filters", () => {
         initialActiveFilters={{
           buttonFilters: [],
           dropdownFilters: { model: ["S19"] },
+
+          numericFilters: {},
+
+          textareaListFilters: {},
         }}
       />,
     );
@@ -326,6 +338,10 @@ describe("Filters", () => {
         initialActiveFilters={{
           buttonFilters: [],
           dropdownFilters: { status: ["hashing", "offline"] },
+
+          numericFilters: {},
+
+          textareaListFilters: {},
         }}
       />,
     );
@@ -357,6 +373,10 @@ describe("Filters", () => {
         initialActiveFilters={{
           buttonFilters: [],
           dropdownFilters: { issues: ["control-board", "hash-boards"] },
+
+          numericFilters: {},
+
+          textareaListFilters: {},
         }}
       />,
     );
@@ -394,6 +414,10 @@ describe("Filters", () => {
         initialActiveFilters={{
           buttonFilters: [],
           dropdownFilters: { issues: ["control-board"] },
+
+          numericFilters: {},
+
+          textareaListFilters: {},
         }}
       />,
     );
@@ -438,6 +462,10 @@ describe("Filters", () => {
         initialActiveFilters={{
           buttonFilters: [],
           dropdownFilters: { issues: ["control-board", "hash-boards"] },
+
+          numericFilters: {},
+
+          textareaListFilters: {},
         }}
       />,
     );
@@ -481,6 +509,10 @@ describe("Filters", () => {
         initialActiveFilters={{
           buttonFilters: [],
           dropdownFilters: { issues: ["control-board"] },
+
+          numericFilters: {},
+
+          textareaListFilters: {},
         }}
       />,
     );
@@ -512,7 +544,12 @@ describe("Filters", () => {
         filterItems={[statusFilter]}
         items={testItems}
         onFilter={handleFiltering}
-        initialActiveFilters={{ buttonFilters: [], dropdownFilters: { status: ["hashing"] } }}
+        initialActiveFilters={{
+          buttonFilters: [],
+          dropdownFilters: { status: ["hashing"] },
+          numericFilters: {},
+          textareaListFilters: {},
+        }}
       />,
     );
 

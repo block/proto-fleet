@@ -2,6 +2,7 @@ package interfaces
 
 import (
 	"context"
+	"net/netip"
 
 	mm "github.com/block/proto-fleet/server/internal/domain/miner/models"
 
@@ -16,6 +17,31 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/secrets"
 )
 
+// NumericFilterField selects which device_metrics column a NumericRange targets.
+// Mirrors fleetmanagement.v1.NumericField on the wire.
+type NumericFilterField int
+
+const (
+	NumericFilterFieldUnspecified NumericFilterField = iota
+	NumericFilterFieldHashrateTHs
+	NumericFilterFieldEfficiencyJTH
+	NumericFilterFieldPowerKW
+	NumericFilterFieldTemperatureC
+	NumericFilterFieldVoltageV
+	NumericFilterFieldCurrentA
+)
+
+// NumericRange is a half-open or closed range predicate on a single telemetry
+// field. Min and Max are pointers so either bound can be omitted; at least one
+// must be non-nil after parseFilter validation.
+type NumericRange struct {
+	Field        NumericFilterField
+	Min          *float64
+	Max          *float64
+	MinInclusive bool
+	MaxInclusive bool
+}
+
 //go:generate go run go.uber.org/mock/mockgen -source=device.go -destination=mocks/mock_device_store.go -package=mocks DeviceStore
 
 type MinerFilter struct {
@@ -28,6 +54,8 @@ type MinerFilter struct {
 	DeviceIdentifiers   []string                          // Filter by specific device identifiers (e.g., for group-scoped queries)
 	FirmwareVersions    []string                          // Filter by firmware version strings (OR logic)
 	Zones               []string                          // Filter by rack zones (OR logic). Excludes miners not assigned to any rack.
+	NumericRanges       []NumericRange                    // Range predicates on telemetry. Multiple entries AND'd; presence triggers an INNER JOIN to latest_metrics and excludes OFFLINE miners.
+	IPCIDRs             []netip.Prefix                    // CIDR membership filter (OR logic across entries). Already normalized via Prefix.Masked().
 }
 
 // MinerStateCounts holds fleet health state counts for a collection.

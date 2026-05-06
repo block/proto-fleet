@@ -346,6 +346,9 @@ func (s *SQLDeviceStore) GetAllPairedDeviceIdentifiers(ctx context.Context) ([]m
 // and mirror MinerStatus.tsx (auth-needed overrides sleeping).
 func (s *SQLDeviceStore) GetMinerStateCounts(ctx context.Context, orgID int64, filter *stores.MinerFilter) (*tm.MinerStateCounts, error) {
 	fp := buildMinerFilterParams(filter)
+	if len(fp.numericRanges) > 0 || fp.ipCIDRsFilter.Valid {
+		return s.executeStateCountsQuery(ctx, orgID, fp)
+	}
 
 	counts, err := s.getQueries(ctx).CountMinersByState(ctx, sqlc.CountMinersByStateParams{
 		OrgID:                   orgID,
@@ -407,6 +410,15 @@ func (s *SQLDeviceStore) GetAvailableFirmwareVersions(ctx context.Context, orgID
 }
 
 func (s *SQLDeviceStore) GetMinerModelGroups(ctx context.Context, orgID int64, filter *stores.MinerFilter) ([]stores.MinerModelGroupResult, error) {
+	// Numeric range and CIDR predicates can't be expressed in the static sqlc
+	// query (variadic operators, inet membership). Route through the dynamic
+	// builder when those filters are active so the bulk-action modal counts
+	// stay aligned with the filtered list; planner-friendly static path for
+	// every other call.
+	if filter != nil && (len(filter.NumericRanges) > 0 || len(filter.IPCIDRs) > 0) {
+		return s.executeModelGroupsDynamicQuery(ctx, orgID, filter)
+	}
+
 	fp := buildFilterParams(filter)
 
 	rows, err := s.getQueries(ctx).GetMinerModelGroups(ctx, sqlc.GetMinerModelGroupsParams{
@@ -431,6 +443,70 @@ func (s *SQLDeviceStore) GetMinerModelGroups(ctx context.Context, orgID int64, f
 		})
 	}
 	return results, nil
+}
+
+// executeModelGroupsDynamicQuery runs the dynamic equivalent of the static
+// GetMinerModelGroups sqlc query, used when the filter contains predicates
+// the static query can't express (numeric ranges, CIDR membership).
+func (s *SQLDeviceStore) executeModelGroupsDynamicQuery(ctx context.Context, orgID int64, filter *stores.MinerFilter) ([]stores.MinerModelGroupResult, error) {
+	fp := buildMinerFilterParams(filter)
+	query, args := s.buildModelGroupsQuerySQL(orgID, fp)
+
+	sqlRows, err := s.conn.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to get miner model groups: %v", err)
+	}
+	defer sqlRows.Close()
+
+	var results []stores.MinerModelGroupResult
+	for sqlRows.Next() {
+		var row stores.MinerModelGroupResult
+		var model, manufacturer sql.NullString
+		if err := sqlRows.Scan(&model, &manufacturer, &row.Count); err != nil {
+			return nil, fleeterror.NewInternalErrorf("failed to scan miner model group row: %v", err)
+		}
+		row.Model = model.String
+		row.Manufacturer = manufacturer.String
+		results = append(results, row)
+	}
+	if err := sqlRows.Err(); err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to iterate miner model groups: %v", err)
+	}
+	return results, nil
+}
+
+// buildModelGroupsQuerySQL mirrors the static GetMinerModelGroups query's
+// shape (PAIRED-only, non-empty model, GROUP BY model+manufacturer) while
+// reusing appendFilterSQL so numeric/CIDR predicates and the OFFLINE-exclusion
+// rule stay consistent with the list query.
+func (s *SQLDeviceStore) buildModelGroupsQuerySQL(orgID int64, fp minerFilterParams) (string, []any) {
+	var sb strings.Builder
+	args := []any{orgID}
+	argNum := 2
+
+	filterNeedsTelemetry := len(fp.numericRanges) > 0
+	if filterNeedsTelemetry {
+		fmt.Fprintf(&sb, latestMetricsCTE+" ", "NULL")
+	}
+
+	sb.WriteString(`SELECT discovered_device.model, discovered_device.manufacturer, COUNT(*)::int AS count`)
+	sb.WriteString(minerFromJoins)
+	if filterNeedsTelemetry {
+		sb.WriteString(" " + minerTelemetryInnerJoin)
+	}
+	sb.WriteString(minerWhereClause)
+	sb.WriteString(`
+    AND device_pairing.pairing_status = 'PAIRED'
+    AND discovered_device.model IS NOT NULL
+    AND discovered_device.model != ''`)
+
+	args, _ = appendFilterSQL(&sb, args, argNum, orgID, fp)
+
+	sb.WriteString(`
+GROUP BY discovered_device.model, discovered_device.manufacturer
+ORDER BY discovered_device.manufacturer, discovered_device.model`)
+
+	return sb.String(), args
 }
 
 // modelGroupFilterParams carries the parameters consumed by GetTotalPairedDevices
@@ -840,30 +916,42 @@ func (s *SQLDeviceStore) ListMinerStateSnapshots(ctx context.Context, orgID int6
 		})
 	}
 
-	// Get total count with same filters (still uses SQLC for count query)
-	total, err := s.getQueries(ctx).GetTotalMinerStateSnapshots(ctx, sqlc.GetTotalMinerStateSnapshotsParams{
-		OrgID:                     orgID,
-		StatusFilter:              fp.statusFilter,
-		StatusValues:              fp.statusValues,
-		ModelFilter:               fp.modelFilter,
-		ModelValues:               fp.modelValues,
-		PairingStatusFilter:       fp.pairingStatusFilter,
-		PairingStatusValues:       fp.pairingStatusValues,
-		NeedsAttentionFilter:      sql.NullBool{Bool: fp.needsAttentionFilter, Valid: fp.needsAttentionFilter},
-		IncludeNullStatusFilter:   sql.NullBool{Bool: fp.includeNullStatus, Valid: fp.includeNullStatus},
-		ErrorComponentTypesFilter: fp.errorComponentTypesFilter,
-		ErrorComponentTypeValues:  fp.errorComponentTypeValues,
-		GroupIdsFilter:            fp.groupIDsFilter,
-		GroupIDValues:             fp.groupIDValues,
-		RackIdsFilter:             fp.rackIDsFilter,
-		RackIDValues:              fp.rackIDValues,
-		FirmwareVersionsFilter:    fp.firmwareVersionsFilter,
-		FirmwareVersionValues:     fp.firmwareVersionValues,
-		ZonesFilter:               fp.zonesFilter,
-		ZoneValues:                fp.zoneValues,
-	})
-	if err != nil {
-		return nil, "", 0, fleeterror.NewInternalErrorf("failed to get total count: %v", err)
+	// Get total count with same filters. The static sqlc query
+	// (GetTotalMinerStateSnapshots) cannot express variadic numeric range
+	// operators or CIDR membership, so route through the dynamic builder
+	// whenever those filters are active; fall back to sqlc otherwise to keep
+	// the planner-friendly path for existing callers.
+	var total int64
+	if len(fp.numericRanges) > 0 || fp.ipCIDRsFilter.Valid {
+		total, err = s.executeCountQuery(ctx, orgID, fp)
+		if err != nil {
+			return nil, "", 0, err
+		}
+	} else {
+		total, err = s.getQueries(ctx).GetTotalMinerStateSnapshots(ctx, sqlc.GetTotalMinerStateSnapshotsParams{
+			OrgID:                     orgID,
+			StatusFilter:              fp.statusFilter,
+			StatusValues:              fp.statusValues,
+			ModelFilter:               fp.modelFilter,
+			ModelValues:               fp.modelValues,
+			PairingStatusFilter:       fp.pairingStatusFilter,
+			PairingStatusValues:       fp.pairingStatusValues,
+			NeedsAttentionFilter:      sql.NullBool{Bool: fp.needsAttentionFilter, Valid: fp.needsAttentionFilter},
+			IncludeNullStatusFilter:   sql.NullBool{Bool: fp.includeNullStatus, Valid: fp.includeNullStatus},
+			ErrorComponentTypesFilter: fp.errorComponentTypesFilter,
+			ErrorComponentTypeValues:  fp.errorComponentTypeValues,
+			GroupIdsFilter:            fp.groupIDsFilter,
+			GroupIDValues:             fp.groupIDValues,
+			RackIdsFilter:             fp.rackIDsFilter,
+			RackIDValues:              fp.rackIDValues,
+			FirmwareVersionsFilter:    fp.firmwareVersionsFilter,
+			FirmwareVersionValues:     fp.firmwareVersionValues,
+			ZonesFilter:               fp.zonesFilter,
+			ZoneValues:                fp.zoneValues,
+		})
+		if err != nil {
+			return nil, "", 0, fleeterror.NewInternalErrorf("failed to get total count: %v", err)
+		}
 	}
 
 	// Convert to SQLC row type for return
@@ -928,6 +1016,130 @@ func (s *SQLDeviceStore) executeListQuery(ctx context.Context, orgID int64, curs
 	return rows, nil
 }
 
+// executeStateCountsQuery returns miner state counts using the dynamic filter
+// builder. This path is required for filters that the static sqlc query cannot
+// express (numeric telemetry ranges, CIDR membership).
+func (s *SQLDeviceStore) executeStateCountsQuery(ctx context.Context, orgID int64, fp minerFilterParams) (*tm.MinerStateCounts, error) {
+	query, args := s.buildStateCountsQuerySQL(orgID, fp)
+
+	var offlineCount, sleepingCount, brokenCount, hashingCount int64
+	if err := s.conn.QueryRowContext(ctx, query, args...).Scan(&offlineCount, &sleepingCount, &brokenCount, &hashingCount); err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to count miners by state: %v", err)
+	}
+
+	return &tm.MinerStateCounts{
+		HashingCount:  int32(hashingCount),  //nolint:gosec // Miner counts bounded by fleet size (<millions)
+		BrokenCount:   int32(brokenCount),   //nolint:gosec // Miner counts bounded by fleet size (<millions)
+		OfflineCount:  int32(offlineCount),  //nolint:gosec // Miner counts bounded by fleet size (<millions)
+		SleepingCount: int32(sleepingCount), //nolint:gosec // Miner counts bounded by fleet size (<millions)
+	}, nil
+}
+
+// executeCountQuery returns the total count of miners matching fp by running
+// the dynamic builder. Used when filter shape can't be expressed in the static
+// sqlc count query (numeric ranges, CIDR membership).
+func (s *SQLDeviceStore) executeCountQuery(ctx context.Context, orgID int64, fp minerFilterParams) (int64, error) {
+	query, args := s.buildCountQuerySQL(orgID, fp)
+	var total int64
+	if err := s.conn.QueryRowContext(ctx, query, args...).Scan(&total); err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to get total count: %v", err)
+	}
+	return total, nil
+}
+
+// buildCountQuerySQL mirrors buildListQuerySQL's WHERE/JOIN composition but
+// projects COUNT(*) and skips ordering/pagination.
+func (s *SQLDeviceStore) buildCountQuerySQL(orgID int64, fp minerFilterParams) (string, []any) {
+	var sb strings.Builder
+	args := []any{orgID}
+	argNum := 2
+
+	filterNeedsTelemetry := len(fp.numericRanges) > 0
+	if filterNeedsTelemetry {
+		fmt.Fprintf(&sb, latestMetricsCTE+" ", "NULL")
+	}
+
+	sb.WriteString(`SELECT COUNT(*)` + minerFromJoins)
+	if filterNeedsTelemetry {
+		sb.WriteString(" " + minerTelemetryInnerJoin)
+	}
+	sb.WriteString(minerWhereClause)
+
+	args, _ = appendFilterSQL(&sb, args, argNum, orgID, fp)
+
+	return sb.String(), args
+}
+
+// buildStateCountsQuerySQL mirrors CountMinersByState's bucket logic while
+// routing predicate composition through appendFilterSQL so numeric/CIDR filters
+// stay aligned with the filtered list response.
+func (s *SQLDeviceStore) buildStateCountsQuerySQL(orgID int64, fp minerFilterParams) (string, []any) {
+	var sb strings.Builder
+	args := []any{orgID}
+	argNum := 2
+
+	filterNeedsTelemetry := len(fp.numericRanges) > 0
+	if filterNeedsTelemetry {
+		fmt.Fprintf(&sb, latestMetricsCTE+", ", "NULL")
+	} else {
+		sb.WriteString("WITH ")
+	}
+
+	sb.WriteString(`open_errors AS (
+    SELECT DISTINCT device_id
+    FROM errors
+    WHERE errors.org_id = $1
+      AND errors.closed_at IS NULL
+      AND errors.severity IN (1, 2, 3, 4)
+)
+SELECT
+    COALESCE(SUM(CASE
+        WHEN filtered.status = 'OFFLINE'
+             OR (filtered.status IS NULL AND filtered.pairing_status != 'AUTHENTICATION_NEEDED')
+        THEN 1 ELSE 0
+    END), 0)::bigint AS offline_count,
+    COALESCE(SUM(CASE
+        WHEN filtered.status IN ('MAINTENANCE', 'INACTIVE')
+             AND filtered.pairing_status != 'AUTHENTICATION_NEEDED'
+        THEN 1 ELSE 0
+    END), 0)::bigint AS sleeping_count,
+    COALESCE(SUM(CASE
+        WHEN filtered.status IS DISTINCT FROM 'OFFLINE'
+             AND NOT (filtered.status IS NULL AND filtered.pairing_status != 'AUTHENTICATION_NEEDED')
+             AND NOT (filtered.status IN ('MAINTENANCE', 'INACTIVE') AND filtered.pairing_status != 'AUTHENTICATION_NEEDED')
+             AND (filtered.status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
+                  OR filtered.pairing_status = 'AUTHENTICATION_NEEDED'
+                  OR filtered.has_open_error)
+        THEN 1 ELSE 0
+    END), 0)::bigint AS broken_count,
+    COALESCE(SUM(CASE
+        WHEN filtered.status = 'ACTIVE'
+             AND filtered.pairing_status != 'AUTHENTICATION_NEEDED'
+             AND NOT filtered.has_open_error
+        THEN 1 ELSE 0
+    END), 0)::bigint AS hashing_count
+FROM (
+    SELECT
+        device_status.status,
+        device_pairing.pairing_status,
+        open_errors.device_id IS NOT NULL AS has_open_error`)
+	sb.WriteString(minerFromJoins)
+	if filterNeedsTelemetry {
+		sb.WriteString(" " + minerTelemetryInnerJoin)
+	}
+	sb.WriteString(`
+LEFT JOIN open_errors ON device.id = open_errors.device_id`)
+	sb.WriteString(minerWhereClause)
+	sb.WriteString(`
+    AND device_pairing.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED')`)
+
+	args, _ = appendFilterSQL(&sb, args, argNum, orgID, fp)
+	sb.WriteString(`
+) filtered`)
+
+	return sb.String(), args
+}
+
 // buildListQuerySQL builds the SQL query for listing miners with filters and sorting.
 func (s *SQLDeviceStore) buildListQuerySQL(orgID int64, cursor *sortedCursor, pageSize int32, fp minerFilterParams, sortConfig *stores.SortConfig) (string, []any) {
 	var sb strings.Builder
@@ -935,20 +1147,34 @@ func (s *SQLDeviceStore) buildListQuerySQL(orgID int64, cursor *sortedCursor, pa
 	argNum := 2
 
 	isTelemetrySort := sortConfig != nil && sortConfig.IsTelemetrySort()
+	filterNeedsTelemetry := len(fp.numericRanges) > 0
+	needsCTE := isTelemetrySort || filterNeedsTelemetry
 
-	// Add CTE for telemetry sorting
-	if isTelemetrySort {
-		metricExpr := getTelemetryMetricExpression(sortConfig.Field)
+	if needsCTE {
+		metricExpr := "NULL"
+		if isTelemetrySort {
+			metricExpr = getTelemetryMetricExpression(sortConfig.Field)
+		}
 		fmt.Fprintf(&sb, latestMetricsCTE+" ", metricExpr)
 	}
 
-	// Base query with appropriate sort column
-	if isTelemetrySort {
+	// Base query with appropriate sort column. When the CTE is built we always
+	// route through the WithSortValue variant so the column count stays stable.
+	switch {
+	case isTelemetrySort:
 		sb.WriteString(minerBaseQueryWithSortValue("latest_metrics.sort_value"))
-		sb.WriteString(" " + minerTelemetryJoin)
-		sb.WriteString(minerWhereClause)
-	} else {
+	case filterNeedsTelemetry:
+		sb.WriteString(minerBaseQueryWithSortValue("NULL::float8"))
+	default:
 		sb.WriteString(minerBaseQuery)
+	}
+	if needsCTE {
+		if filterNeedsTelemetry {
+			sb.WriteString(" " + minerTelemetryInnerJoin)
+		} else {
+			sb.WriteString(" " + minerTelemetryJoin)
+		}
+		sb.WriteString(minerWhereClause)
 	}
 
 	// Keyset pagination condition
@@ -1044,23 +1270,9 @@ func (s *SQLDeviceStore) GetDeviceIdentifiersByOrgWithFilter(ctx context.Context
 		fp.pairingStatusValues = []string{"PAIRED"}
 	}
 
-	var sb strings.Builder
-	args := []any{orgID}
-	argNum := 2
+	query, args := buildDeviceIdentifiersByOrgWithFilterQuerySQL(orgID, fp)
 
-	sb.WriteString(`SELECT device.device_identifier
-FROM device
-JOIN discovered_device ON device.discovered_device_id = discovered_device.id
-JOIN device_pairing ON device.id = device_pairing.device_id
-LEFT JOIN device_status ON device.id = device_status.device_id
-WHERE device.deleted_at IS NULL
-    AND device.org_id = $1
-    AND discovered_device.is_active = TRUE
-    AND discovered_device.deleted_at IS NULL`)
-
-	args, _ = appendFilterSQL(&sb, args, argNum, orgID, fp)
-
-	rows, err := s.conn.QueryContext(ctx, sb.String(), args...)
+	rows, err := s.conn.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to get filtered device identifiers for org %d: %v", orgID, err)
 	}
@@ -1079,6 +1291,33 @@ WHERE device.deleted_at IS NULL
 	}
 
 	return identifiers, nil
+}
+
+func buildDeviceIdentifiersByOrgWithFilterQuerySQL(orgID int64, fp minerFilterParams) (string, []any) {
+	var sb strings.Builder
+	args := []any{orgID}
+	argNum := 2
+	filterNeedsTelemetry := len(fp.numericRanges) > 0
+
+	if filterNeedsTelemetry {
+		fmt.Fprintf(&sb, latestMetricsCTE+" ", "NULL")
+	}
+	sb.WriteString(`SELECT device.device_identifier
+FROM device
+JOIN discovered_device ON device.discovered_device_id = discovered_device.id
+JOIN device_pairing ON device.id = device_pairing.device_id
+LEFT JOIN device_status ON device.id = device_status.device_id`)
+	if filterNeedsTelemetry {
+		sb.WriteString(" " + minerTelemetryInnerJoin)
+	}
+	sb.WriteString(`
+WHERE device.deleted_at IS NULL
+    AND device.org_id = $1
+    AND discovered_device.is_active = TRUE
+    AND discovered_device.deleted_at IS NULL`)
+
+	args, _ = appendFilterSQL(&sb, args, argNum, orgID, fp)
+	return sb.String(), args
 }
 
 // GetMinerStateCountsByCollections returns miner state counts grouped by collection ID.
