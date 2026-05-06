@@ -26,14 +26,14 @@ type fakeStore struct {
 	candidatesByOrg      map[int64][]*models.Candidate
 
 	// Captures for assertions.
-	listCandidatesCalls       int
-	lastListCandidatesOrgID   int64
-	lastListCandidatesFilter  []string
-	cooldownCalls             int
-	lastCooldownOrgID         int64
-	lastCooldownSec           int32
-	activeDevicesCalls        int
-	lastActiveDevicesOrgID    int64
+	listCandidatesCalls      int
+	lastListCandidatesOrgID  int64
+	lastListCandidatesFilter []string
+	cooldownCalls            int
+	lastCooldownOrgID        int64
+	lastCooldownSec          int32
+	activeDevicesCalls       int
+	lastActiveDevicesOrgID   int64
 }
 
 func newFakeStore() *fakeStore {
