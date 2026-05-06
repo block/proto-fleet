@@ -11,9 +11,39 @@ import (
 	"time"
 )
 
+const createAgentApiKey = `-- name: CreateAgentApiKey :exec
+INSERT INTO api_key (key_id, name, prefix, key_hash, agent_id, organization_id, subject_kind, created_at, expires_at)
+VALUES ($1, $2, $3, $4, $5, $6, 'agent', $7, $8)
+`
+
+type CreateAgentApiKeyParams struct {
+	KeyID          string
+	Name           string
+	Prefix         string
+	KeyHash        string
+	AgentID        sql.NullInt64
+	OrganizationID int64
+	CreatedAt      time.Time
+	ExpiresAt      sql.NullTime
+}
+
+func (q *Queries) CreateAgentApiKey(ctx context.Context, arg CreateAgentApiKeyParams) error {
+	_, err := q.exec(ctx, q.createAgentApiKeyStmt, createAgentApiKey,
+		arg.KeyID,
+		arg.Name,
+		arg.Prefix,
+		arg.KeyHash,
+		arg.AgentID,
+		arg.OrganizationID,
+		arg.CreatedAt,
+		arg.ExpiresAt,
+	)
+	return err
+}
+
 const createApiKey = `-- name: CreateApiKey :exec
-INSERT INTO api_key (key_id, name, prefix, key_hash, user_id, organization_id, created_at, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+INSERT INTO api_key (key_id, name, prefix, key_hash, user_id, organization_id, subject_kind, created_at, expires_at)
+VALUES ($1, $2, $3, $4, $5, $6, 'user', $7, $8)
 `
 
 type CreateApiKeyParams struct {
@@ -21,7 +51,7 @@ type CreateApiKeyParams struct {
 	Name           string
 	Prefix         string
 	KeyHash        string
-	UserID         int64
+	UserID         sql.NullInt64
 	OrganizationID int64
 	CreatedAt      time.Time
 	ExpiresAt      sql.NullTime
@@ -42,12 +72,12 @@ func (q *Queries) CreateApiKey(ctx context.Context, arg CreateApiKeyParams) erro
 }
 
 const getApiKeyByHash = `-- name: GetApiKeyByHash :one
-SELECT ak.id, ak.key_id, ak.name, ak.prefix, ak.key_hash, ak.user_id, ak.organization_id, ak.created_at, ak.expires_at, ak.revoked_at, ak.last_used_at, u.username AS created_by_username
+SELECT ak.id, ak.key_id, ak.name, ak.prefix, ak.key_hash, ak.user_id, ak.organization_id, ak.created_at, ak.expires_at, ak.revoked_at, ak.last_used_at, ak.agent_id, ak.subject_kind, COALESCE(u.username, '')::text AS created_by_username
 FROM api_key ak
-JOIN "user" u ON ak.user_id = u.id
+LEFT JOIN "user" u ON ak.user_id = u.id
 WHERE ak.key_hash = $1
   AND ak.revoked_at IS NULL
-  AND u.deleted_at IS NULL
+  AND (ak.user_id IS NULL OR u.deleted_at IS NULL)
 `
 
 type GetApiKeyByHashRow struct {
@@ -56,12 +86,14 @@ type GetApiKeyByHashRow struct {
 	Name              string
 	Prefix            string
 	KeyHash           string
-	UserID            int64
+	UserID            sql.NullInt64
 	OrganizationID    int64
 	CreatedAt         time.Time
 	ExpiresAt         sql.NullTime
 	RevokedAt         sql.NullTime
 	LastUsedAt        sql.NullTime
+	AgentID           sql.NullInt64
+	SubjectKind       string
 	CreatedByUsername string
 }
 
@@ -80,6 +112,8 @@ func (q *Queries) GetApiKeyByHash(ctx context.Context, keyHash string) (GetApiKe
 		&i.ExpiresAt,
 		&i.RevokedAt,
 		&i.LastUsedAt,
+		&i.AgentID,
+		&i.SubjectKind,
 		&i.CreatedByUsername,
 	)
 	return i, err
@@ -92,6 +126,7 @@ SELECT ak.id, ak.key_id, ak.name, ak.prefix, ak.user_id, ak.organization_id,
 FROM api_key ak
 JOIN "user" u ON ak.user_id = u.id
 WHERE ak.organization_id = $1
+  AND ak.subject_kind = 'user'
   AND ak.revoked_at IS NULL
   AND u.deleted_at IS NULL
 ORDER BY ak.created_at DESC
@@ -102,7 +137,7 @@ type ListApiKeysByOrganizationRow struct {
 	KeyID             string
 	Name              string
 	Prefix            string
-	UserID            int64
+	UserID            sql.NullInt64
 	OrganizationID    int64
 	CreatedAt         time.Time
 	ExpiresAt         sql.NullTime
@@ -160,6 +195,26 @@ type RevokeApiKeyParams struct {
 
 func (q *Queries) RevokeApiKey(ctx context.Context, arg RevokeApiKeyParams) (int64, error) {
 	result, err := q.exec(ctx, q.revokeApiKeyStmt, revokeApiKey, arg.RevokedAt, arg.KeyID, arg.OrganizationID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const revokeApiKeysByAgentID = `-- name: RevokeApiKeysByAgentID :execrows
+UPDATE api_key
+SET revoked_at = $1
+WHERE agent_id = $2 AND organization_id = $3 AND revoked_at IS NULL
+`
+
+type RevokeApiKeysByAgentIDParams struct {
+	RevokedAt      sql.NullTime
+	AgentID        sql.NullInt64
+	OrganizationID int64
+}
+
+func (q *Queries) RevokeApiKeysByAgentID(ctx context.Context, arg RevokeApiKeysByAgentIDParams) (int64, error) {
+	result, err := q.exec(ctx, q.revokeApiKeysByAgentIDStmt, revokeApiKeysByAgentID, arg.RevokedAt, arg.AgentID, arg.OrganizationID)
 	if err != nil {
 		return 0, err
 	}

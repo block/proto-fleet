@@ -58,7 +58,7 @@ func TestCurtailmentNonAdminProceduresStayApiKeyAccessible(t *testing.T) {
 func TestAuthInterceptor_AdminTerminateEventRejectsApiKeyAuth(t *testing.T) {
 	t.Parallel()
 
-	interceptor := NewAuthInterceptor(nil, nil, nil, nil, nil, SessionOnlyProcedures)
+	interceptor := NewAuthInterceptor(nil, nil, nil, nil, nil, SessionOnlyProcedures, AgentAuthenticatedProcedures)
 
 	header := http.Header{}
 	header.Set("Authorization", "Bearer fleet_test_some_key")

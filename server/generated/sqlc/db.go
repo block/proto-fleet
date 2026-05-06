@@ -33,6 +33,15 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.allDevicesBelongToOrgStmt, err = db.PrepareContext(ctx, allDevicesBelongToOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query AllDevicesBelongToOrg: %w", err)
 	}
+	if q.bindEnrollmentToAgentStmt, err = db.PrepareContext(ctx, bindEnrollmentToAgent); err != nil {
+		return nil, fmt.Errorf("error preparing query BindEnrollmentToAgent: %w", err)
+	}
+	if q.cancelEnrollmentForAgentStmt, err = db.PrepareContext(ctx, cancelEnrollmentForAgent); err != nil {
+		return nil, fmt.Errorf("error preparing query CancelEnrollmentForAgent: %w", err)
+	}
+	if q.cancelPendingEnrollmentStmt, err = db.PrepareContext(ctx, cancelPendingEnrollment); err != nil {
+		return nil, fmt.Errorf("error preparing query CancelPendingEnrollment: %w", err)
+	}
 	if q.claimMessageForProcessingStmt, err = db.PrepareContext(ctx, claimMessageForProcessing); err != nil {
 		return nil, fmt.Errorf("error preparing query ClaimMessageForProcessing: %w", err)
 	}
@@ -41,6 +50,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.closeStaleErrorsStmt, err = db.PrepareContext(ctx, closeStaleErrors); err != nil {
 		return nil, fmt.Errorf("error preparing query CloseStaleErrors: %w", err)
+	}
+	if q.confirmEnrollmentStmt, err = db.PrepareContext(ctx, confirmEnrollment); err != nil {
+		return nil, fmt.Errorf("error preparing query ConfirmEnrollment: %w", err)
+	}
+	if q.consumeAgentAuthChallengeStmt, err = db.PrepareContext(ctx, consumeAgentAuthChallenge); err != nil {
+		return nil, fmt.Errorf("error preparing query ConsumeAgentAuthChallenge: %w", err)
 	}
 	if q.countActiveUnpairedDiscoveredDevicesStmt, err = db.PrepareContext(ctx, countActiveUnpairedDiscoveredDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query CountActiveUnpairedDiscoveredDevices: %w", err)
@@ -60,6 +75,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.countMinersByStateStmt, err = db.PrepareContext(ctx, countMinersByState); err != nil {
 		return nil, fmt.Errorf("error preparing query CountMinersByState: %w", err)
 	}
+	if q.createAgentStmt, err = db.PrepareContext(ctx, createAgent); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateAgent: %w", err)
+	}
+	if q.createAgentApiKeyStmt, err = db.PrepareContext(ctx, createAgentApiKey); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateAgentApiKey: %w", err)
+	}
 	if q.createApiKeyStmt, err = db.PrepareContext(ctx, createApiKey); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateApiKey: %w", err)
 	}
@@ -71,6 +92,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.createOrganizationStmt, err = db.PrepareContext(ctx, createOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateOrganization: %w", err)
+	}
+	if q.createPendingEnrollmentStmt, err = db.PrepareContext(ctx, createPendingEnrollment); err != nil {
+		return nil, fmt.Errorf("error preparing query CreatePendingEnrollment: %w", err)
 	}
 	if q.createPoolStmt, err = db.PrepareContext(ctx, createPool); err != nil {
 		return nil, fmt.Errorf("error preparing query CreatePool: %w", err)
@@ -116,6 +140,15 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getActiveUnpairedDiscoveredDevicesStmt, err = db.PrepareContext(ctx, getActiveUnpairedDiscoveredDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query GetActiveUnpairedDiscoveredDevices: %w", err)
+	}
+	if q.getAgentByIDStmt, err = db.PrepareContext(ctx, getAgentByID); err != nil {
+		return nil, fmt.Errorf("error preparing query GetAgentByID: %w", err)
+	}
+	if q.getAgentByIDUnscopedStmt, err = db.PrepareContext(ctx, getAgentByIDUnscoped); err != nil {
+		return nil, fmt.Errorf("error preparing query GetAgentByIDUnscoped: %w", err)
+	}
+	if q.getAgentSessionByTokenHashStmt, err = db.PrepareContext(ctx, getAgentSessionByTokenHash); err != nil {
+		return nil, fmt.Errorf("error preparing query GetAgentSessionByTokenHash: %w", err)
 	}
 	if q.getAllDeviceInfoForCapabilityCheckStmt, err = db.PrepareContext(ctx, getAllDeviceInfoForCapabilityCheck); err != nil {
 		return nil, fmt.Errorf("error preparing query GetAllDeviceInfoForCapabilityCheck: %w", err)
@@ -327,6 +360,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getPairedDevicesIdsStmt, err = db.PrepareContext(ctx, getPairedDevicesIds); err != nil {
 		return nil, fmt.Errorf("error preparing query GetPairedDevicesIds: %w", err)
 	}
+	if q.getPendingEnrollmentByAgentStmt, err = db.PrepareContext(ctx, getPendingEnrollmentByAgent); err != nil {
+		return nil, fmt.Errorf("error preparing query GetPendingEnrollmentByAgent: %w", err)
+	}
+	if q.getPendingEnrollmentByCodeHashStmt, err = db.PrepareContext(ctx, getPendingEnrollmentByCodeHash); err != nil {
+		return nil, fmt.Errorf("error preparing query GetPendingEnrollmentByCodeHash: %w", err)
+	}
 	if q.getPoolStmt, err = db.PrepareContext(ctx, getPool); err != nil {
 		return nil, fmt.Errorf("error preparing query GetPool: %w", err)
 	}
@@ -426,6 +465,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listActivityLogsStmt, err = db.PrepareContext(ctx, listActivityLogs); err != nil {
 		return nil, fmt.Errorf("error preparing query ListActivityLogs: %w", err)
 	}
+	if q.listAgentsForOrganizationStmt, err = db.PrepareContext(ctx, listAgentsForOrganization); err != nil {
+		return nil, fmt.Errorf("error preparing query ListAgentsForOrganization: %w", err)
+	}
 	if q.listApiKeysByOrganizationStmt, err = db.PrepareContext(ctx, listApiKeysByOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query ListApiKeysByOrganization: %w", err)
 	}
@@ -519,8 +561,14 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.revokeApiKeyStmt, err = db.PrepareContext(ctx, revokeApiKey); err != nil {
 		return nil, fmt.Errorf("error preparing query RevokeApiKey: %w", err)
 	}
+	if q.revokeApiKeysByAgentIDStmt, err = db.PrepareContext(ctx, revokeApiKeysByAgentID); err != nil {
+		return nil, fmt.Errorf("error preparing query RevokeApiKeysByAgentID: %w", err)
+	}
 	if q.revokeSessionStmt, err = db.PrepareContext(ctx, revokeSession); err != nil {
 		return nil, fmt.Errorf("error preparing query RevokeSession: %w", err)
+	}
+	if q.setAgentEnrollmentStatusStmt, err = db.PrepareContext(ctx, setAgentEnrollmentStatus); err != nil {
+		return nil, fmt.Errorf("error preparing query SetAgentEnrollmentStatus: %w", err)
 	}
 	if q.setRackSlotPositionStmt, err = db.PrepareContext(ctx, setRackSlotPosition); err != nil {
 		return nil, fmt.Errorf("error preparing query SetRackSlotPosition: %w", err)
@@ -530,6 +578,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.setScheduleRunningStmt, err = db.PrepareContext(ctx, setScheduleRunning); err != nil {
 		return nil, fmt.Errorf("error preparing query SetScheduleRunning: %w", err)
+	}
+	if q.softDeleteAgentStmt, err = db.PrepareContext(ctx, softDeleteAgent); err != nil {
+		return nil, fmt.Errorf("error preparing query SoftDeleteAgent: %w", err)
+	}
+	if q.softDeleteAgentsForExpiredEnrollmentsStmt, err = db.PrepareContext(ctx, softDeleteAgentsForExpiredEnrollments); err != nil {
+		return nil, fmt.Errorf("error preparing query SoftDeleteAgentsForExpiredEnrollments: %w", err)
 	}
 	if q.softDeleteDeviceSetStmt, err = db.PrepareContext(ctx, softDeleteDeviceSet); err != nil {
 		return nil, fmt.Errorf("error preparing query SoftDeleteDeviceSet: %w", err)
@@ -560,6 +614,15 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.softDeleteUserFromOrganizationStmt, err = db.PrepareContext(ctx, softDeleteUserFromOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query SoftDeleteUserFromOrganization: %w", err)
+	}
+	if q.sweepExpiredAgentAuthChallengesStmt, err = db.PrepareContext(ctx, sweepExpiredAgentAuthChallenges); err != nil {
+		return nil, fmt.Errorf("error preparing query SweepExpiredAgentAuthChallenges: %w", err)
+	}
+	if q.sweepExpiredAgentSessionsStmt, err = db.PrepareContext(ctx, sweepExpiredAgentSessions); err != nil {
+		return nil, fmt.Errorf("error preparing query SweepExpiredAgentSessions: %w", err)
+	}
+	if q.sweepExpiredEnrollmentsStmt, err = db.PrepareContext(ctx, sweepExpiredEnrollments); err != nil {
+		return nil, fmt.Errorf("error preparing query SweepExpiredEnrollments: %w", err)
 	}
 	if q.undeleteOrganizationStmt, err = db.PrepareContext(ctx, undeleteOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query UndeleteOrganization: %w", err)
@@ -648,6 +711,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.updateUserUsernameStmt, err = db.PrepareContext(ctx, updateUserUsername); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateUserUsername: %w", err)
 	}
+	if q.upsertAgentAuthChallengeStmt, err = db.PrepareContext(ctx, upsertAgentAuthChallenge); err != nil {
+		return nil, fmt.Errorf("error preparing query UpsertAgentAuthChallenge: %w", err)
+	}
+	if q.upsertAgentSessionStmt, err = db.PrepareContext(ctx, upsertAgentSession); err != nil {
+		return nil, fmt.Errorf("error preparing query UpsertAgentSession: %w", err)
+	}
 	if q.upsertCommandOnDeviceLogStmt, err = db.PrepareContext(ctx, upsertCommandOnDeviceLog); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertCommandOnDeviceLog: %w", err)
 	}
@@ -686,6 +755,21 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing allDevicesBelongToOrgStmt: %w", cerr)
 		}
 	}
+	if q.bindEnrollmentToAgentStmt != nil {
+		if cerr := q.bindEnrollmentToAgentStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing bindEnrollmentToAgentStmt: %w", cerr)
+		}
+	}
+	if q.cancelEnrollmentForAgentStmt != nil {
+		if cerr := q.cancelEnrollmentForAgentStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing cancelEnrollmentForAgentStmt: %w", cerr)
+		}
+	}
+	if q.cancelPendingEnrollmentStmt != nil {
+		if cerr := q.cancelPendingEnrollmentStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing cancelPendingEnrollmentStmt: %w", cerr)
+		}
+	}
 	if q.claimMessageForProcessingStmt != nil {
 		if cerr := q.claimMessageForProcessingStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing claimMessageForProcessingStmt: %w", cerr)
@@ -699,6 +783,16 @@ func (q *Queries) Close() error {
 	if q.closeStaleErrorsStmt != nil {
 		if cerr := q.closeStaleErrorsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing closeStaleErrorsStmt: %w", cerr)
+		}
+	}
+	if q.confirmEnrollmentStmt != nil {
+		if cerr := q.confirmEnrollmentStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing confirmEnrollmentStmt: %w", cerr)
+		}
+	}
+	if q.consumeAgentAuthChallengeStmt != nil {
+		if cerr := q.consumeAgentAuthChallengeStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing consumeAgentAuthChallengeStmt: %w", cerr)
 		}
 	}
 	if q.countActiveUnpairedDiscoveredDevicesStmt != nil {
@@ -731,6 +825,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing countMinersByStateStmt: %w", cerr)
 		}
 	}
+	if q.createAgentStmt != nil {
+		if cerr := q.createAgentStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createAgentStmt: %w", cerr)
+		}
+	}
+	if q.createAgentApiKeyStmt != nil {
+		if cerr := q.createAgentApiKeyStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createAgentApiKeyStmt: %w", cerr)
+		}
+	}
 	if q.createApiKeyStmt != nil {
 		if cerr := q.createApiKeyStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createApiKeyStmt: %w", cerr)
@@ -749,6 +853,11 @@ func (q *Queries) Close() error {
 	if q.createOrganizationStmt != nil {
 		if cerr := q.createOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createOrganizationStmt: %w", cerr)
+		}
+	}
+	if q.createPendingEnrollmentStmt != nil {
+		if cerr := q.createPendingEnrollmentStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createPendingEnrollmentStmt: %w", cerr)
 		}
 	}
 	if q.createPoolStmt != nil {
@@ -824,6 +933,21 @@ func (q *Queries) Close() error {
 	if q.getActiveUnpairedDiscoveredDevicesStmt != nil {
 		if cerr := q.getActiveUnpairedDiscoveredDevicesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getActiveUnpairedDiscoveredDevicesStmt: %w", cerr)
+		}
+	}
+	if q.getAgentByIDStmt != nil {
+		if cerr := q.getAgentByIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getAgentByIDStmt: %w", cerr)
+		}
+	}
+	if q.getAgentByIDUnscopedStmt != nil {
+		if cerr := q.getAgentByIDUnscopedStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getAgentByIDUnscopedStmt: %w", cerr)
+		}
+	}
+	if q.getAgentSessionByTokenHashStmt != nil {
+		if cerr := q.getAgentSessionByTokenHashStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getAgentSessionByTokenHashStmt: %w", cerr)
 		}
 	}
 	if q.getAllDeviceInfoForCapabilityCheckStmt != nil {
@@ -1176,6 +1300,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getPairedDevicesIdsStmt: %w", cerr)
 		}
 	}
+	if q.getPendingEnrollmentByAgentStmt != nil {
+		if cerr := q.getPendingEnrollmentByAgentStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getPendingEnrollmentByAgentStmt: %w", cerr)
+		}
+	}
+	if q.getPendingEnrollmentByCodeHashStmt != nil {
+		if cerr := q.getPendingEnrollmentByCodeHashStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getPendingEnrollmentByCodeHashStmt: %w", cerr)
+		}
+	}
 	if q.getPoolStmt != nil {
 		if cerr := q.getPoolStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getPoolStmt: %w", cerr)
@@ -1341,6 +1475,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listActivityLogsStmt: %w", cerr)
 		}
 	}
+	if q.listAgentsForOrganizationStmt != nil {
+		if cerr := q.listAgentsForOrganizationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listAgentsForOrganizationStmt: %w", cerr)
+		}
+	}
 	if q.listApiKeysByOrganizationStmt != nil {
 		if cerr := q.listApiKeysByOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listApiKeysByOrganizationStmt: %w", cerr)
@@ -1496,9 +1635,19 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing revokeApiKeyStmt: %w", cerr)
 		}
 	}
+	if q.revokeApiKeysByAgentIDStmt != nil {
+		if cerr := q.revokeApiKeysByAgentIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing revokeApiKeysByAgentIDStmt: %w", cerr)
+		}
+	}
 	if q.revokeSessionStmt != nil {
 		if cerr := q.revokeSessionStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing revokeSessionStmt: %w", cerr)
+		}
+	}
+	if q.setAgentEnrollmentStatusStmt != nil {
+		if cerr := q.setAgentEnrollmentStatusStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing setAgentEnrollmentStatusStmt: %w", cerr)
 		}
 	}
 	if q.setRackSlotPositionStmt != nil {
@@ -1514,6 +1663,16 @@ func (q *Queries) Close() error {
 	if q.setScheduleRunningStmt != nil {
 		if cerr := q.setScheduleRunningStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing setScheduleRunningStmt: %w", cerr)
+		}
+	}
+	if q.softDeleteAgentStmt != nil {
+		if cerr := q.softDeleteAgentStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing softDeleteAgentStmt: %w", cerr)
+		}
+	}
+	if q.softDeleteAgentsForExpiredEnrollmentsStmt != nil {
+		if cerr := q.softDeleteAgentsForExpiredEnrollmentsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing softDeleteAgentsForExpiredEnrollmentsStmt: %w", cerr)
 		}
 	}
 	if q.softDeleteDeviceSetStmt != nil {
@@ -1564,6 +1723,21 @@ func (q *Queries) Close() error {
 	if q.softDeleteUserFromOrganizationStmt != nil {
 		if cerr := q.softDeleteUserFromOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing softDeleteUserFromOrganizationStmt: %w", cerr)
+		}
+	}
+	if q.sweepExpiredAgentAuthChallengesStmt != nil {
+		if cerr := q.sweepExpiredAgentAuthChallengesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing sweepExpiredAgentAuthChallengesStmt: %w", cerr)
+		}
+	}
+	if q.sweepExpiredAgentSessionsStmt != nil {
+		if cerr := q.sweepExpiredAgentSessionsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing sweepExpiredAgentSessionsStmt: %w", cerr)
+		}
+	}
+	if q.sweepExpiredEnrollmentsStmt != nil {
+		if cerr := q.sweepExpiredEnrollmentsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing sweepExpiredEnrollmentsStmt: %w", cerr)
 		}
 	}
 	if q.undeleteOrganizationStmt != nil {
@@ -1711,6 +1885,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing updateUserUsernameStmt: %w", cerr)
 		}
 	}
+	if q.upsertAgentAuthChallengeStmt != nil {
+		if cerr := q.upsertAgentAuthChallengeStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing upsertAgentAuthChallengeStmt: %w", cerr)
+		}
+	}
+	if q.upsertAgentSessionStmt != nil {
+		if cerr := q.upsertAgentSessionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing upsertAgentSessionStmt: %w", cerr)
+		}
+	}
 	if q.upsertCommandOnDeviceLogStmt != nil {
 		if cerr := q.upsertCommandOnDeviceLogStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing upsertCommandOnDeviceLogStmt: %w", cerr)
@@ -1783,19 +1967,27 @@ type Queries struct {
 	addDevicesToDeviceSetStmt                           *sql.Stmt
 	adminResetUserPasswordStmt                          *sql.Stmt
 	allDevicesBelongToOrgStmt                           *sql.Stmt
+	bindEnrollmentToAgentStmt                           *sql.Stmt
+	cancelEnrollmentForAgentStmt                        *sql.Stmt
+	cancelPendingEnrollmentStmt                         *sql.Stmt
 	claimMessageForProcessingStmt                       *sql.Stmt
 	clearRackSlotPositionStmt                           *sql.Stmt
 	closeStaleErrorsStmt                                *sql.Stmt
+	confirmEnrollmentStmt                               *sql.Stmt
+	consumeAgentAuthChallengeStmt                       *sql.Stmt
 	countActiveUnpairedDiscoveredDevicesStmt            *sql.Stmt
 	countActivityLogsStmt                               *sql.Stmt
 	countComponentsWithErrorsStmt                       *sql.Stmt
 	countDevicesWithErrorsStmt                          *sql.Stmt
 	countErrorsStmt                                     *sql.Stmt
 	countMinersByStateStmt                              *sql.Stmt
+	createAgentStmt                                     *sql.Stmt
+	createAgentApiKeyStmt                               *sql.Stmt
 	createApiKeyStmt                                    *sql.Stmt
 	createCommandBatchLogStmt                           *sql.Stmt
 	createDeviceSetStmt                                 *sql.Stmt
 	createOrganizationStmt                              *sql.Stmt
+	createPendingEnrollmentStmt                         *sql.Stmt
 	createPoolStmt                                      *sql.Stmt
 	createQueueMessageStmt                              *sql.Stmt
 	createRackExtensionStmt                             *sql.Stmt
@@ -1811,6 +2003,9 @@ type Queries struct {
 	deviceSetBelongsToOrgStmt                           *sql.Stmt
 	getActiveSchedulesStmt                              *sql.Stmt
 	getActiveUnpairedDiscoveredDevicesStmt              *sql.Stmt
+	getAgentByIDStmt                                    *sql.Stmt
+	getAgentByIDUnscopedStmt                            *sql.Stmt
+	getAgentSessionByTokenHashStmt                      *sql.Stmt
 	getAllDeviceInfoForCapabilityCheckStmt              *sql.Stmt
 	getAllDeviceMetricsDailyAggregatesStmt              *sql.Stmt
 	getAllDeviceMetricsHourlyAggregatesStmt             *sql.Stmt
@@ -1881,6 +2076,8 @@ type Queries struct {
 	getPairedDeviceBySerialNumberStmt                   *sql.Stmt
 	getPairedDevicesByMACAddressesStmt                  *sql.Stmt
 	getPairedDevicesIdsStmt                             *sql.Stmt
+	getPendingEnrollmentByAgentStmt                     *sql.Stmt
+	getPendingEnrollmentByCodeHashStmt                  *sql.Stmt
 	getPoolStmt                                         *sql.Stmt
 	getRackDetailsForDevicesStmt                        *sql.Stmt
 	getRackInfoStmt                                     *sql.Stmt
@@ -1914,6 +2111,7 @@ type Queries struct {
 	isBatchFinishedStmt                                 *sql.Stmt
 	isBatchProcessingStmt                               *sql.Stmt
 	listActivityLogsStmt                                *sql.Stmt
+	listAgentsForOrganizationStmt                       *sql.Stmt
 	listApiKeysByOrganizationStmt                       *sql.Stmt
 	listBatchDeviceResultsStmt                          *sql.Stmt
 	listDeviceSetMembersPaginatedStmt                   *sql.Stmt
@@ -1945,10 +2143,14 @@ type Queries struct {
 	revertScheduleToActiveStmt                          *sql.Stmt
 	revokeAllSessionsByUserIDStmt                       *sql.Stmt
 	revokeApiKeyStmt                                    *sql.Stmt
+	revokeApiKeysByAgentIDStmt                          *sql.Stmt
 	revokeSessionStmt                                   *sql.Stmt
+	setAgentEnrollmentStatusStmt                        *sql.Stmt
 	setRackSlotPositionStmt                             *sql.Stmt
 	setSchedulePrioritiesStmt                           *sql.Stmt
 	setScheduleRunningStmt                              *sql.Stmt
+	softDeleteAgentStmt                                 *sql.Stmt
+	softDeleteAgentsForExpiredEnrollmentsStmt           *sql.Stmt
 	softDeleteDeviceSetStmt                             *sql.Stmt
 	softDeleteDevicesStmt                               *sql.Stmt
 	softDeleteDiscoveredDeviceByIdentifierStmt          *sql.Stmt
@@ -1959,6 +2161,9 @@ type Queries struct {
 	softDeleteScheduleStmt                              *sql.Stmt
 	softDeleteUserStmt                                  *sql.Stmt
 	softDeleteUserFromOrganizationStmt                  *sql.Stmt
+	sweepExpiredAgentAuthChallengesStmt                 *sql.Stmt
+	sweepExpiredAgentSessionsStmt                       *sql.Stmt
+	sweepExpiredEnrollmentsStmt                         *sql.Stmt
 	undeleteOrganizationStmt                            *sql.Stmt
 	undeleteRoleStmt                                    *sql.Stmt
 	updateApiKeyLastUsedStmt                            *sql.Stmt
@@ -1988,6 +2193,8 @@ type Queries struct {
 	updateUserPasswordAndFlagStmt                       *sql.Stmt
 	updateUserRoleStmt                                  *sql.Stmt
 	updateUserUsernameStmt                              *sql.Stmt
+	upsertAgentAuthChallengeStmt                        *sql.Stmt
+	upsertAgentSessionStmt                              *sql.Stmt
 	upsertCommandOnDeviceLogStmt                        *sql.Stmt
 	upsertDevicePairingStmt                             *sql.Stmt
 	upsertDeviceStatusStmt                              *sql.Stmt
@@ -2003,19 +2210,27 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		addDevicesToDeviceSetStmt:                           q.addDevicesToDeviceSetStmt,
 		adminResetUserPasswordStmt:                          q.adminResetUserPasswordStmt,
 		allDevicesBelongToOrgStmt:                           q.allDevicesBelongToOrgStmt,
+		bindEnrollmentToAgentStmt:                           q.bindEnrollmentToAgentStmt,
+		cancelEnrollmentForAgentStmt:                        q.cancelEnrollmentForAgentStmt,
+		cancelPendingEnrollmentStmt:                         q.cancelPendingEnrollmentStmt,
 		claimMessageForProcessingStmt:                       q.claimMessageForProcessingStmt,
 		clearRackSlotPositionStmt:                           q.clearRackSlotPositionStmt,
 		closeStaleErrorsStmt:                                q.closeStaleErrorsStmt,
+		confirmEnrollmentStmt:                               q.confirmEnrollmentStmt,
+		consumeAgentAuthChallengeStmt:                       q.consumeAgentAuthChallengeStmt,
 		countActiveUnpairedDiscoveredDevicesStmt:            q.countActiveUnpairedDiscoveredDevicesStmt,
 		countActivityLogsStmt:                               q.countActivityLogsStmt,
 		countComponentsWithErrorsStmt:                       q.countComponentsWithErrorsStmt,
 		countDevicesWithErrorsStmt:                          q.countDevicesWithErrorsStmt,
 		countErrorsStmt:                                     q.countErrorsStmt,
 		countMinersByStateStmt:                              q.countMinersByStateStmt,
+		createAgentStmt:                                     q.createAgentStmt,
+		createAgentApiKeyStmt:                               q.createAgentApiKeyStmt,
 		createApiKeyStmt:                                    q.createApiKeyStmt,
 		createCommandBatchLogStmt:                           q.createCommandBatchLogStmt,
 		createDeviceSetStmt:                                 q.createDeviceSetStmt,
 		createOrganizationStmt:                              q.createOrganizationStmt,
+		createPendingEnrollmentStmt:                         q.createPendingEnrollmentStmt,
 		createPoolStmt:                                      q.createPoolStmt,
 		createQueueMessageStmt:                              q.createQueueMessageStmt,
 		createRackExtensionStmt:                             q.createRackExtensionStmt,
@@ -2031,6 +2246,9 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		deviceSetBelongsToOrgStmt:                           q.deviceSetBelongsToOrgStmt,
 		getActiveSchedulesStmt:                              q.getActiveSchedulesStmt,
 		getActiveUnpairedDiscoveredDevicesStmt:              q.getActiveUnpairedDiscoveredDevicesStmt,
+		getAgentByIDStmt:                                    q.getAgentByIDStmt,
+		getAgentByIDUnscopedStmt:                            q.getAgentByIDUnscopedStmt,
+		getAgentSessionByTokenHashStmt:                      q.getAgentSessionByTokenHashStmt,
 		getAllDeviceInfoForCapabilityCheckStmt:              q.getAllDeviceInfoForCapabilityCheckStmt,
 		getAllDeviceMetricsDailyAggregatesStmt:              q.getAllDeviceMetricsDailyAggregatesStmt,
 		getAllDeviceMetricsHourlyAggregatesStmt:             q.getAllDeviceMetricsHourlyAggregatesStmt,
@@ -2101,6 +2319,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getPairedDeviceBySerialNumberStmt:                   q.getPairedDeviceBySerialNumberStmt,
 		getPairedDevicesByMACAddressesStmt:                  q.getPairedDevicesByMACAddressesStmt,
 		getPairedDevicesIdsStmt:                             q.getPairedDevicesIdsStmt,
+		getPendingEnrollmentByAgentStmt:                     q.getPendingEnrollmentByAgentStmt,
+		getPendingEnrollmentByCodeHashStmt:                  q.getPendingEnrollmentByCodeHashStmt,
 		getPoolStmt:                                         q.getPoolStmt,
 		getRackDetailsForDevicesStmt:                        q.getRackDetailsForDevicesStmt,
 		getRackInfoStmt:                                     q.getRackInfoStmt,
@@ -2134,6 +2354,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		isBatchFinishedStmt:                                 q.isBatchFinishedStmt,
 		isBatchProcessingStmt:                               q.isBatchProcessingStmt,
 		listActivityLogsStmt:                                q.listActivityLogsStmt,
+		listAgentsForOrganizationStmt:                       q.listAgentsForOrganizationStmt,
 		listApiKeysByOrganizationStmt:                       q.listApiKeysByOrganizationStmt,
 		listBatchDeviceResultsStmt:                          q.listBatchDeviceResultsStmt,
 		listDeviceSetMembersPaginatedStmt:                   q.listDeviceSetMembersPaginatedStmt,
@@ -2165,10 +2386,14 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		revertScheduleToActiveStmt:                          q.revertScheduleToActiveStmt,
 		revokeAllSessionsByUserIDStmt:                       q.revokeAllSessionsByUserIDStmt,
 		revokeApiKeyStmt:                                    q.revokeApiKeyStmt,
+		revokeApiKeysByAgentIDStmt:                          q.revokeApiKeysByAgentIDStmt,
 		revokeSessionStmt:                                   q.revokeSessionStmt,
+		setAgentEnrollmentStatusStmt:                        q.setAgentEnrollmentStatusStmt,
 		setRackSlotPositionStmt:                             q.setRackSlotPositionStmt,
 		setSchedulePrioritiesStmt:                           q.setSchedulePrioritiesStmt,
 		setScheduleRunningStmt:                              q.setScheduleRunningStmt,
+		softDeleteAgentStmt:                                 q.softDeleteAgentStmt,
+		softDeleteAgentsForExpiredEnrollmentsStmt:           q.softDeleteAgentsForExpiredEnrollmentsStmt,
 		softDeleteDeviceSetStmt:                             q.softDeleteDeviceSetStmt,
 		softDeleteDevicesStmt:                               q.softDeleteDevicesStmt,
 		softDeleteDiscoveredDeviceByIdentifierStmt:          q.softDeleteDiscoveredDeviceByIdentifierStmt,
@@ -2179,6 +2404,9 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		softDeleteScheduleStmt:                              q.softDeleteScheduleStmt,
 		softDeleteUserStmt:                                  q.softDeleteUserStmt,
 		softDeleteUserFromOrganizationStmt:                  q.softDeleteUserFromOrganizationStmt,
+		sweepExpiredAgentAuthChallengesStmt:                 q.sweepExpiredAgentAuthChallengesStmt,
+		sweepExpiredAgentSessionsStmt:                       q.sweepExpiredAgentSessionsStmt,
+		sweepExpiredEnrollmentsStmt:                         q.sweepExpiredEnrollmentsStmt,
 		undeleteOrganizationStmt:                            q.undeleteOrganizationStmt,
 		undeleteRoleStmt:                                    q.undeleteRoleStmt,
 		updateApiKeyLastUsedStmt:                            q.updateApiKeyLastUsedStmt,
@@ -2208,6 +2436,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		updateUserPasswordAndFlagStmt:                       q.updateUserPasswordAndFlagStmt,
 		updateUserRoleStmt:                                  q.updateUserRoleStmt,
 		updateUserUsernameStmt:                              q.updateUserUsernameStmt,
+		upsertAgentAuthChallengeStmt:                        q.upsertAgentAuthChallengeStmt,
+		upsertAgentSessionStmt:                              q.upsertAgentSessionStmt,
 		upsertCommandOnDeviceLogStmt:                        q.upsertCommandOnDeviceLogStmt,
 		upsertDevicePairingStmt:                             q.upsertDevicePairingStmt,
 		upsertDeviceStatusStmt:                              q.upsertDeviceStatusStmt,

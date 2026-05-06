@@ -1,0 +1,63 @@
+syntax = "proto3";
+
+// Operator-facing administration of fleet-agents. Authenticated via the
+// existing user-session/api-key flow; org_id is resolved from the caller's
+// session. Distinct from agentgateway.v1, which is the agent-facing wire.
+package agentadmin.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+
+service AgentAdminService {
+    rpc CreateEnrollmentCode(CreateEnrollmentCodeRequest) returns (CreateEnrollmentCodeResponse);
+    rpc ListAgents(ListAgentsRequest) returns (ListAgentsResponse);
+    rpc ConfirmAgent(ConfirmAgentRequest) returns (ConfirmAgentResponse);
+    rpc RevokeAgent(RevokeAgentRequest) returns (RevokeAgentResponse);
+}
+
+enum AgentEnrollmentStatus {
+    AGENT_ENROLLMENT_STATUS_UNSPECIFIED            = 0;
+    AGENT_ENROLLMENT_STATUS_PENDING                = 1;
+    AGENT_ENROLLMENT_STATUS_AWAITING_CONFIRMATION  = 2;
+    AGENT_ENROLLMENT_STATUS_CONFIRMED              = 3;
+    AGENT_ENROLLMENT_STATUS_REVOKED                = 4;
+}
+
+message CreateEnrollmentCodeRequest {}
+
+message CreateEnrollmentCodeResponse {
+    // Plaintext code. Returned exactly once and never re-fetchable.
+    string code = 1;
+    google.protobuf.Timestamp expires_at = 2;
+}
+
+message ListAgentsRequest {}
+
+message ListAgentsResponse {
+    repeated AgentSummary agents = 1;
+}
+
+message AgentSummary {
+    int64 agent_id = 1;
+    string name = 2;
+    AgentEnrollmentStatus enrollment_status = 3;
+    string identity_fingerprint = 4;
+    google.protobuf.Timestamp created_at = 5;
+    optional google.protobuf.Timestamp last_seen_at = 6;
+}
+
+message ConfirmAgentRequest {
+    int64 agent_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message ConfirmAgentResponse {
+    // Plaintext api_key for the agent. Returned exactly once.
+    string api_key = 1;
+    optional google.protobuf.Timestamp expires_at = 2;
+}
+
+message RevokeAgentRequest {
+    int64 agent_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message RevokeAgentResponse {}

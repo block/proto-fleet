@@ -354,6 +354,13 @@ type Agent struct {
 	DeletedAt          sql.NullTime
 }
 
+type AgentAuthChallenge struct {
+	Challenge []byte
+	AgentID   int64
+	ExpiresAt time.Time
+	CreatedAt time.Time
+}
+
 type AgentDevice struct {
 	AgentID    int64
 	DeviceID   int64
@@ -362,18 +369,27 @@ type AgentDevice struct {
 	AssignedBy sql.NullInt64
 }
 
+type AgentSession struct {
+	TokenHash string
+	AgentID   int64
+	ExpiresAt time.Time
+	CreatedAt time.Time
+}
+
 type ApiKey struct {
 	ID             int64
 	KeyID          string
 	Name           string
 	Prefix         string
 	KeyHash        string
-	UserID         int64
+	UserID         sql.NullInt64
 	OrganizationID int64
 	CreatedAt      time.Time
 	ExpiresAt      sql.NullTime
 	RevokedAt      sql.NullTime
 	LastUsedAt     sql.NullTime
+	AgentID        sql.NullInt64
+	SubjectKind    string
 }
 
 type CommandBatchLog struct {
@@ -632,6 +648,18 @@ type Organization struct {
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
 	DeletedAt           sql.NullTime
+}
+
+type PendingEnrollment struct {
+	ID         int64
+	CodeHash   string
+	OrgID      int64
+	CreatedBy  int64
+	AgentID    sql.NullInt64
+	Status     string
+	ExpiresAt  time.Time
+	ConsumedAt sql.NullTime
+	CreatedAt  time.Time
 }
 
 type Pool struct {

@@ -30,12 +30,31 @@ func (s *SQLApiKeyStore) getQueries(ctx context.Context) *sqlc.Queries {
 }
 
 func (s *SQLApiKeyStore) CreateApiKey(ctx context.Context, key *interfaces.ApiKey) error {
+	if key.UserID == nil {
+		return fleeterror.NewInvalidArgumentError("user api key requires user_id")
+	}
 	return s.getQueries(ctx).CreateApiKey(ctx, sqlc.CreateApiKeyParams{
 		KeyID:          key.KeyID,
 		Name:           key.Name,
 		Prefix:         key.Prefix,
 		KeyHash:        key.KeyHash,
-		UserID:         key.UserID,
+		UserID:         sql.NullInt64{Int64: *key.UserID, Valid: true},
+		OrganizationID: key.OrganizationID,
+		CreatedAt:      key.CreatedAt,
+		ExpiresAt:      timePtrToNullTime(key.ExpiresAt),
+	})
+}
+
+func (s *SQLApiKeyStore) CreateAgentApiKey(ctx context.Context, key *interfaces.ApiKey) error {
+	if key.AgentID == nil {
+		return fleeterror.NewInvalidArgumentError("agent api key requires agent_id")
+	}
+	return s.getQueries(ctx).CreateAgentApiKey(ctx, sqlc.CreateAgentApiKeyParams{
+		KeyID:          key.KeyID,
+		Name:           key.Name,
+		Prefix:         key.Prefix,
+		KeyHash:        key.KeyHash,
+		AgentID:        sql.NullInt64{Int64: *key.AgentID, Valid: true},
 		OrganizationID: key.OrganizationID,
 		CreatedAt:      key.CreatedAt,
 		ExpiresAt:      timePtrToNullTime(key.ExpiresAt),
@@ -57,7 +76,9 @@ func (s *SQLApiKeyStore) GetApiKeyByHash(ctx context.Context, keyHash string) (*
 		Name:              row.Name,
 		Prefix:            row.Prefix,
 		KeyHash:           row.KeyHash,
-		UserID:            row.UserID,
+		SubjectKind:       interfaces.ApiKeySubjectKind(row.SubjectKind),
+		UserID:            nullInt64ToPtr(row.UserID),
+		AgentID:           nullInt64ToPtr(row.AgentID),
 		OrganizationID:    row.OrganizationID,
 		CreatedAt:         row.CreatedAt,
 		ExpiresAt:         nullTimeToPtr(row.ExpiresAt),
@@ -67,8 +88,9 @@ func (s *SQLApiKeyStore) GetApiKeyByHash(ctx context.Context, keyHash string) (*
 	}, nil
 }
 
-// ListApiKeysByOrganization returns non-revoked keys for the org.
-// KeyHash is intentionally not populated in list results — only prefix and metadata are exposed.
+// ListApiKeysByOrganization returns non-revoked user-owned keys for the org.
+// Agent-owned keys are intentionally excluded; agents are listed via the
+// agentadmin service.
 func (s *SQLApiKeyStore) ListApiKeysByOrganization(ctx context.Context, orgID int64) ([]interfaces.ApiKey, error) {
 	rows, err := s.getQueries(ctx).ListApiKeysByOrganization(ctx, orgID)
 	if err != nil {
@@ -82,7 +104,8 @@ func (s *SQLApiKeyStore) ListApiKeysByOrganization(ctx context.Context, orgID in
 			KeyID:             row.KeyID,
 			Name:              row.Name,
 			Prefix:            row.Prefix,
-			UserID:            row.UserID,
+			SubjectKind:       interfaces.ApiKeySubjectKindUser,
+			UserID:            nullInt64ToPtr(row.UserID),
 			OrganizationID:    row.OrganizationID,
 			CreatedAt:         row.CreatedAt,
 			ExpiresAt:         nullTimeToPtr(row.ExpiresAt),
@@ -102,6 +125,14 @@ func (s *SQLApiKeyStore) RevokeApiKey(ctx context.Context, keyID string, orgID i
 	})
 }
 
+func (s *SQLApiKeyStore) RevokeApiKeysByAgentID(ctx context.Context, agentID, orgID int64, revokedAt time.Time) (int64, error) {
+	return s.getQueries(ctx).RevokeApiKeysByAgentID(ctx, sqlc.RevokeApiKeysByAgentIDParams{
+		RevokedAt:      sql.NullTime{Time: revokedAt, Valid: true},
+		AgentID:        sql.NullInt64{Int64: agentID, Valid: true},
+		OrganizationID: orgID,
+	})
+}
+
 func (s *SQLApiKeyStore) UpdateApiKeyLastUsed(ctx context.Context, id int64, lastUsedAt time.Time) error {
 	return s.getQueries(ctx).UpdateApiKeyLastUsed(ctx, sqlc.UpdateApiKeyLastUsedParams{
 		LastUsedAt: sql.NullTime{Time: lastUsedAt, Valid: true},
@@ -114,4 +145,12 @@ func timePtrToNullTime(t *time.Time) sql.NullTime {
 		return sql.NullTime{}
 	}
 	return sql.NullTime{Time: *t, Valid: true}
+}
+
+func nullInt64ToPtr(n sql.NullInt64) *int64 {
+	if !n.Valid {
+		return nil
+	}
+	v := n.Int64
+	return &v
 }

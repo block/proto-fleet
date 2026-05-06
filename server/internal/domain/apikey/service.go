@@ -3,7 +3,6 @@ package apikey
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
@@ -16,6 +15,7 @@ import (
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/infrastructure/cryptohash"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	id "github.com/block/proto-fleet/server/internal/infrastructure/id"
 )
@@ -106,13 +106,77 @@ func (s *Service) tryCreate(ctx context.Context, userID, orgID int64, name strin
 		Name:           name,
 		Prefix:         prefix,
 		KeyHash:        keyHash,
-		UserID:         userID,
+		SubjectKind:    interfaces.ApiKeySubjectKindUser,
+		UserID:         &userID,
 		OrganizationID: orgID,
 		CreatedAt:      now,
 		ExpiresAt:      expiresAt,
 	}
 
 	if err := s.store.CreateApiKey(ctx, apiKey); err != nil {
+		return "", nil, err
+	}
+
+	return fullKey, apiKey, nil
+}
+
+// CreateAgent issues an api_key bound to an agent rather than a user. Returns
+// the plaintext key exactly once (never re-fetchable). Retries on prefix
+// collision up to maxCreateRetries times, mirroring Create.
+func (s *Service) CreateAgent(ctx context.Context, agentID, orgID int64, name string, expiresAt *time.Time) (string, *interfaces.ApiKey, error) {
+	if expiresAt != nil && !expiresAt.After(time.Now().UTC()) {
+		return "", nil, fleeterror.NewInvalidArgumentError("expiration date must be in the future")
+	}
+	var lastErr error
+	for attempt := range maxCreateRetries {
+		fullKey, apiKey, err := s.tryCreateAgent(ctx, agentID, orgID, name, expiresAt)
+		if err == nil {
+			return fullKey, apiKey, nil
+		}
+		if !db.IsUniqueViolationError(err) {
+			return "", nil, logInternalError("agent api key creation failed", createAPIKeyClientError, err)
+		}
+		lastErr = err
+		slog.Debug("agent api key prefix collision, retrying", "attempt", attempt+1)
+	}
+	return "", nil, logInternalError(
+		"agent api key creation failed after retries",
+		createAPIKeyClientError,
+		lastErr,
+		"attempts", maxCreateRetries,
+	)
+}
+
+func (s *Service) tryCreateAgent(ctx context.Context, agentID, orgID int64, name string, expiresAt *time.Time) (string, *interfaces.ApiKey, error) {
+	prefixBytes := make([]byte, prefixRandomBytes)
+	if _, err := rand.Read(prefixBytes); err != nil {
+		return "", nil, fmt.Errorf("failed to generate api key prefix: %w", err)
+	}
+	prefix := hex.EncodeToString(prefixBytes)
+
+	secretBytes := make([]byte, secretRandomBytes)
+	if _, err := rand.Read(secretBytes); err != nil {
+		return "", nil, fmt.Errorf("failed to generate api key secret: %w", err)
+	}
+	secret := base64.RawURLEncoding.EncodeToString(secretBytes)
+
+	fullKey := fmt.Sprintf("%s_%s_%s", keyPrefix, prefix, secret)
+	keyHash := hashKey(fullKey)
+
+	now := time.Now().UTC()
+	apiKey := &interfaces.ApiKey{
+		KeyID:          id.GenerateID(),
+		Name:           name,
+		Prefix:         prefix,
+		KeyHash:        keyHash,
+		SubjectKind:    interfaces.ApiKeySubjectKindAgent,
+		AgentID:        &agentID,
+		OrganizationID: orgID,
+		CreatedAt:      now,
+		ExpiresAt:      expiresAt,
+	}
+
+	if err := s.store.CreateAgentApiKey(ctx, apiKey); err != nil {
 		return "", nil, err
 	}
 
@@ -127,6 +191,17 @@ func (s *Service) List(ctx context.Context, orgID int64) ([]interfaces.ApiKey, e
 	}
 
 	return keys, nil
+}
+
+// RevokeForAgent revokes every active api_key bound to an agent. Returns the
+// number of rows affected; zero is not an error (the agent may simply have no
+// outstanding key). Used by agent revocation; user-key revoke uses Revoke.
+func (s *Service) RevokeForAgent(ctx context.Context, agentID, orgID int64) (int64, error) {
+	rows, err := s.store.RevokeApiKeysByAgentID(ctx, agentID, orgID, time.Now().UTC())
+	if err != nil {
+		return 0, logInternalError("failed to revoke agent api keys", revokeAPIKeyClientError, err, "agent_id", agentID, "org_id", orgID)
+	}
+	return rows, nil
 }
 
 // Revoke permanently revokes an API key. Returns NotFound if the key does not
@@ -220,8 +295,7 @@ func (s *Service) updateLastUsedDebounced(ctx context.Context, keyID string, dbI
 }
 
 func hashKey(key string) string {
-	h := sha256.Sum256([]byte(key))
-	return hex.EncodeToString(h[:])
+	return cryptohash.Sha256Hex(key)
 }
 
 func logInternalError(logMessage, clientMessage string, err error, attrs ...any) error {

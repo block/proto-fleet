@@ -37,7 +37,8 @@ func TestServiceExcludesAPIKeysForDeactivatedUsers(t *testing.T) {
 
 	validatedKey, err := serviceProvider.ApiKeyService.Validate(t.Context(), fullKey)
 	assert.NoError(t, err)
-	assert.Equal(t, testUser.DatabaseID, validatedKey.UserID)
+	assert.NotEqual(t, (*int64)(nil), validatedKey.UserID)
+	assert.Equal(t, testUser.DatabaseID, *validatedKey.UserID)
 
 	err = db2.WithTransactionNoResult(t.Context(), databaseService.DB, func(q *sqlc.Queries) error {
 		return q.SoftDeleteUser(t.Context(), testUser.DatabaseID)

@@ -1,6 +1,7 @@
 package interceptors
 
 import (
+	"github.com/block/proto-fleet/server/generated/grpc/agentadmin/v1/agentadminv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/agentgateway/v1/agentgatewayv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/apikey/v1/apikeyv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
@@ -34,6 +35,8 @@ var RedactedResponseProcedures = []string{
 	authv1connect.AuthServiceCreateUserProcedure,
 	authv1connect.AuthServiceResetUserPasswordProcedure,
 	agentgatewayv1connect.AgentGatewayServiceCompleteAuthHandshakeProcedure,
+	agentadminv1connect.AgentAdminServiceCreateEnrollmentCodeProcedure,
+	agentadminv1connect.AgentAdminServiceConfirmAgentProcedure,
 }
 
 // SessionOnlyProcedures lists procedures that require session-cookie auth and
@@ -57,6 +60,14 @@ var SessionOnlyProcedures = []string{
 	authv1connect.AuthServiceResetUserPasswordProcedure,
 	authv1connect.AuthServiceDeactivateUserProcedure,
 	authv1connect.AuthServiceVerifyCredentialsProcedure,
+	// AgentAdminService mints credentials (enrollment codes, agent api_keys)
+	// and exposes operator-only fleet metadata. Restrict to interactive
+	// browser sessions so a leaked user api_key cannot bootstrap rogue
+	// agents.
+	agentadminv1connect.AgentAdminServiceCreateEnrollmentCodeProcedure,
+	agentadminv1connect.AgentAdminServiceListAgentsProcedure,
+	agentadminv1connect.AgentAdminServiceConfirmAgentProcedure,
+	agentadminv1connect.AgentAdminServiceRevokeAgentProcedure,
 	// AdminTerminateEvent forces a non-terminal event to a terminal state and
 	// is session-only. Paired with handler-side requireAdminFromContext in
 	// handlers/curtailment/handler.go; neither check alone is sufficient.
@@ -70,12 +81,18 @@ var UnauthenticatedProcedures = []string{
 	authv1connect.AuthServiceAuthenticateProcedure,
 	onboardingv1connect.OnboardingServiceCreateAdminLoginProcedure,
 	onboardingv1connect.OnboardingServiceGetFleetInitStatusProcedure,
-	// AgentGatewayService uses session_token in Authorization metadata,
-	// which the user-session AuthInterceptor cannot validate; the handler
-	// is responsible for validating agent credentials itself.
+	// Bootstrap RPCs: the agent has no session_token yet. Register validates
+	// an enrollment_token in the body; the handshake validates an api_key.
 	agentgatewayv1connect.AgentGatewayServiceRegisterProcedure,
 	agentgatewayv1connect.AgentGatewayServiceBeginAuthHandshakeProcedure,
 	agentgatewayv1connect.AgentGatewayServiceCompleteAuthHandshakeProcedure,
+}
+
+// AgentAuthenticatedProcedures lists procedures gated by AgentAuthInterceptor
+// (Authorization: Bearer <session_token>). The user-session AuthInterceptor
+// short-circuits these so the two interceptors don't fight over the same
+// procedure.
+var AgentAuthenticatedProcedures = []string{
 	agentgatewayv1connect.AgentGatewayServiceUploadTelemetryProcedure,
 	agentgatewayv1connect.AgentGatewayServiceUploadEventsProcedure,
 	agentgatewayv1connect.AgentGatewayServiceUploadHeartbeatProcedure,
