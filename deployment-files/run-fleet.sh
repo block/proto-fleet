@@ -601,6 +601,29 @@ docker compose -f "$COMPOSE_FILE" build --no-cache || { echo "Error: Build faile
 echo "Stopping any running services..."
 docker compose -f "$COMPOSE_FILE" down
 
+# ----------------------------------------------------------------------------
+# Notifications profile activation (Epic A).
+#
+# The four monitoring sidecars (otel-collector, victoria-metrics, vmalert,
+# alertmanager) live behind the `notifications` Compose profile. We translate
+# the single FLEET_NOTIFICATIONS_ENABLED env var (default: true) into the
+# COMPOSE_PROFILES setting that activates them. Setting the env var to
+# "false" leaves the profile unset, so docker compose never creates the
+# sidecars and `depends_on: required: false` lets fleet-api start anyway.
+# ----------------------------------------------------------------------------
+notifications_enabled="$(grep -E '^FLEET_NOTIFICATIONS_ENABLED=' "$ENV_FILE" 2>/dev/null | tail -n 1 | cut -d= -f2-)"
+notifications_enabled="${notifications_enabled:-${FLEET_NOTIFICATIONS_ENABLED:-true}}"
+case "$notifications_enabled" in
+    [Tt][Rr][Uu][Ee]|1|[Yy][Ee][Ss])
+        export COMPOSE_PROFILES="notifications"
+        echo "Notifications stack: enabled (otel-collector, victoria-metrics, vmalert, alertmanager)"
+        ;;
+    *)
+        unset COMPOSE_PROFILES
+        echo "Notifications stack: disabled (FLEET_NOTIFICATIONS_ENABLED=$notifications_enabled)"
+        ;;
+esac
+
 echo "Starting services..."
 # --wait blocks until every service is running (or healthy, when a healthcheck is defined).
 # Without it, `up -d` can exit 0 while containers stay in Created (e.g. port conflicts under

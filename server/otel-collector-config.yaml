@@ -1,3 +1,8 @@
+# OpenTelemetry Collector — DEV configuration (server/docker-compose.yaml).
+#
+# Production uses deployment-files/server/monitoring/otel-collector.yaml; this
+# file additionally fans traces out to the local jaeger container to keep the
+# trace-debug workflow alive. Metrics go to victoria-metrics in both envs.
 receivers:
   otlp:
     protocols:
@@ -6,12 +11,30 @@ receivers:
       http:
         endpoint: 0.0.0.0:4318
 
+processors:
+  batch:
+    timeout: 5s
+
 exporters:
-  otlphttp:
+  # Traces -> jaeger (dev only).
+  otlphttp/jaeger:
     endpoint: http://jaeger:4318
+  # Metrics -> victoria-metrics (OTLP/HTTP write endpoint).
+  otlphttp/vm:
+    endpoint: http://victoria-metrics:8428/opentelemetry
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
 
 service:
+  extensions: [health_check]
   pipelines:
     traces:
       receivers: [otlp]
-      exporters: [otlphttp]
+      processors: [batch]
+      exporters: [otlphttp/jaeger]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/vm]

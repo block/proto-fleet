@@ -90,3 +90,64 @@ The script will auto-detect existing certificates and use HTTPS mode automatical
 - Certificate file: `ssl/cert.pem` (PEM format)
 - Private key file: `ssl/key.pem` (PEM format, unencrypted)
 - For LAN access, ensure the certificate includes the server's IP address(es) in the Subject Alternative Names (SANs)
+
+## Notifications / Monitoring Sidecars
+
+Starting with Phase 1 of the notifications work (Epic A), the deployment
+runs four additional containers that together form the alerting pipeline:
+
+| Service             | Image (pinned)                                       | Approx. RAM | Purpose                                                                        |
+| ------------------- | ---------------------------------------------------- | ----------- | ------------------------------------------------------------------------------ |
+| `otel-collector`    | `otel/opentelemetry-collector-contrib:0.150.1`       | ~80 MB      | Receives OTLP from `fleet-api` and forwards metrics to VictoriaMetrics.        |
+| `victoria-metrics`  | `victoriametrics/victoria-metrics:v1.107.0`          | ~150 MB     | Stores metrics. 30-day retention by default. Persistent volume.                |
+| `vmalert`           | `victoriametrics/vmalert:v1.107.0`                   | ~50 MB      | Evaluates alert rules against VictoriaMetrics, fires to Alertmanager.          |
+| `alertmanager`      | `prom/alertmanager:v0.27.0`                          | ~40 MB      | Routes firing alerts to channels (email/webhook). Persistent volume.           |
+
+Total resource footprint is roughly **+320 MB RAM** and one persistent
+volume per stateful sidecar (`victoria-metrics-data`, `alertmanager-data`).
+
+### Network topology
+
+All four sidecars run on a private docker bridge network called
+`monitoring`. None of them publish ports on `0.0.0.0` — they are not
+reachable from the LAN. To allow the host-networked `fleet-api` to talk to
+them, the `vmalert`, `alertmanager`, and `otel-collector` services bind
+their listen ports to **`127.0.0.1` on the host loopback only**. Operators
+running tools on the box can hit `127.0.0.1:8880` (vmalert),
+`127.0.0.1:9093` (Alertmanager), and `127.0.0.1:4317`/`4318` (OTLP
+collector) — these endpoints are not exposed beyond loopback. VictoriaMetrics
+itself is reachable only from inside the `monitoring` network.
+
+`alertmanager` reaches `fleet-api` (for the activity-log webhook) via the
+docker `host-gateway` extra-host entry, since `fleet-api` uses
+`network_mode: host`.
+
+### Disabling the notifications stack
+
+The whole pipeline is gated by a single environment variable,
+`FLEET_NOTIFICATIONS_ENABLED`, defaulting to `true`. To run a fleet without
+notifications:
+
+```bash
+echo "FLEET_NOTIFICATIONS_ENABLED=false" >> .env
+# When starting compose, omit the notifications profile:
+docker compose --profile "" up -d
+# (or simply `docker compose up -d` without `COMPOSE_PROFILES=notifications`)
+```
+
+When disabled, the four sidecars are not created, and `fleet-api` skips the
+notifications surface (channels API, rules API, activity-log webhook). The
+rest of the fleet — onboarding, telemetry, command dispatch, the dashboard
+— continues to work.
+
+### Configuration files
+
+The configs that ProtoFleet's reload pipeline (Epic E) rewrites on every
+notification change live under `deployment-files/server/monitoring/`:
+
+- `otel-collector.yaml` — read-only OTLP receiver + VictoriaMetrics exporter.
+- `vmalert/rules.yml` — user-rendered rule file (rewritten by ProtoFleet).
+- `vmalert/rules.d/*.yml` — built-in rule groups (e.g. `protofleet-self.yml`)
+  that ship with the deployment and are not mutated by the reload pipeline.
+- `alertmanager/alertmanager.yml` — receivers and routes (rewritten by
+  ProtoFleet).

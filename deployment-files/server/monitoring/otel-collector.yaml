@@ -1,0 +1,56 @@
+# OpenTelemetry Collector — production configuration shipped with the
+# ProtoFleet deployment bundle. Mounted read-only at
+# /etc/otelcol-contrib/config.yaml inside the otel-collector container.
+#
+# Receives OTLP from fleet-api and forwards to victoria-metrics' OTLP/HTTP
+# write endpoint. Traces are dropped at the collector in production —
+# tracing is a dev convenience and adds storage cost we don't need here.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    timeout: 10s
+    send_batch_size: 1024
+  # Drop noisy resource attributes that would balloon victoria-metrics
+  # cardinality without adding signal value.
+  resource:
+    attributes:
+      - key: process.command_args
+        action: delete
+      - key: process.executable.path
+        action: delete
+      - key: process.runtime.description
+        action: delete
+
+exporters:
+  otlphttp/vm:
+    endpoint: http://victoria-metrics:8428/opentelemetry
+    tls:
+      insecure: true
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 5m
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  extensions: [health_check]
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [resource, batch]
+      exporters: [otlphttp/vm]
+  telemetry:
+    logs:
+      level: info

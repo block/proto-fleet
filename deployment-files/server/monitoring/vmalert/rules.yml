@@ -1,0 +1,19 @@
+# vmalert user-rules file.
+#
+# This file is REWRITTEN by ProtoFleet's reload pipeline (Epic E). The reload
+# pipeline serializes the union of (compiled rules across all orgs) into this
+# file, validates it with `vmalert -dryRun`, atomically renames into place,
+# and POSTs to vmalert /-/reload. The previous version is retained next door
+# as `rules.yml.previous` for rollback.
+#
+# Built-in self-monitoring rules live in rules.d/protofleet-self.yml and are
+# loaded from a separate `-rule=` flag so they are present even before any
+# user-defined rules exist.
+#
+# Mounted read-write so ProtoFleet can swap it. DO NOT hand-edit on a running
+# deployment; the reload coordinator will overwrite manual changes.
+
+groups:
+  - name: protofleet
+    interval: 30s
+    rules: []

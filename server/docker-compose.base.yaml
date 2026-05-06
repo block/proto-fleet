@@ -16,6 +16,17 @@ services:
       FLEET_COMMAND_BATCH_STATUS_UPDATE_POLLING_INTERVAL: "1s"
       FLEET_QUEUE_DEQUE_LIMIT: "500"
       FLEET_QUEUE_MAX_FAILURE_RETRIES: "5"
+      # Notifications/monitoring sidecars (Epic A). Set to "false" to skip
+      # starting otel-collector / victoria-metrics / vmalert / alertmanager
+      # and disable the notifications surface in the API. Defaults to "true".
+      FLEET_NOTIFICATIONS_ENABLED: "${FLEET_NOTIFICATIONS_ENABLED:-true}"
+      # Endpoints fleet-api uses to reach the monitoring sidecars. These names
+      # resolve via docker DNS in the dev compose (where fleet-api joins the
+      # `monitoring` network) and via `extra_hosts` overrides in the host-
+      # networked production compose.
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4317"
+      FLEET_VMALERT_URL: "http://vmalert:8880"
+      FLEET_ALERTMANAGER_URL: "http://alertmanager:9093"
       # HTTP_PPROF_ADDR: "0.0.0.0:6060"  # Uncomment to enable pprof debug server; port mapping below restricts access to host loopback only
     # ports:
     #   - "127.0.0.1:6060:6060"  # pprof debug server (requires HTTP_PPROF_ADDR=0.0.0.0:6060)
@@ -82,9 +93,134 @@ services:
     networks:
       - fleet-network
 
+  # ---------------------------------------------------------------------------
+  # Notifications/monitoring sidecars (Epic A).
+  #
+  # These four services form the alerting pipeline:
+  #
+  #   fleet-api  --OTLP-->  otel-collector  --OTLP-->  victoria-metrics
+  #                                                          ^   ^
+  #                                                          |   | reads
+  #                                                          |   |
+  #                                                          |   vmalert ---> alertmanager
+  #                                                          |   ^             |
+  #                                                          |   | rules.yml   | webhook
+  #                                                          |   |             v
+  #                                                          +---+----------- fleet-api (activity log)
+  #
+  # All four sidecars stay on the `monitoring` docker network and never declare
+  # ports on the host (only `expose:`). Inter-sidecar traffic uses docker DNS;
+  # fleet-api reaches them either by joining the same network (dev compose) or
+  # via 127.0.0.1 host bindings (production compose, where fleet-api uses
+  # `network_mode: host`). Disabling sidecars at deploy time is done via the
+  # `notifications` profile, gated by FLEET_NOTIFICATIONS_ENABLED.
+  # ---------------------------------------------------------------------------
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.150.1
+    command: [ "--config", "/etc/otelcol-contrib/config.yaml" ]
+    expose:
+      - "4317"  # OTLP gRPC ingest
+      - "4318"  # OTLP HTTP ingest
+      - "13133" # health_check extension (probed externally — see below)
+    # The contrib image is distroless and ships no shell or wget, so we
+    # cannot run an HTTP probe against the health_check extension from
+    # inside the container. Dependents wait on `service_started` instead.
+    # The MonitoringStackDegraded self-monitoring alert (Issue 3) catches
+    # the case where the collector is up but not actually ingesting.
+    healthcheck:
+      disable: true
+    restart: unless-stopped
+    profiles:
+      - notifications
+    networks:
+      - monitoring
+
+  victoria-metrics:
+    image: victoriametrics/victoria-metrics:v1.107.0
+    command:
+      - "-storageDataPath=/storage"
+      - "-retentionPeriod=30d"
+      - "-httpListenAddr=:8428"
+      - "-promscrape.config="
+    expose:
+      - "8428" # write + query API (also the OTLP/HTTP ingest endpoint)
+    volumes:
+      - victoria-metrics-data:/storage
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:8428/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+    profiles:
+      - notifications
+    networks:
+      - monitoring
+
+  vmalert:
+    image: victoriametrics/vmalert:v1.107.0
+    depends_on:
+      victoria-metrics:
+        condition: service_healthy
+      alertmanager:
+        condition: service_healthy
+    command:
+      # User-rendered rule file (rewritten by the reload pipeline; Epic E).
+      - "-rule=/etc/vmalert/rules.yml"
+      # Built-in self-monitoring rules (always loaded, see Issue 3).
+      - "-rule=/etc/vmalert/rules.d/*.yml"
+      - "-notifier.url=http://alertmanager:9093"
+      - "-datasource.url=http://victoria-metrics:8428"
+      - "-remoteWrite.url=http://victoria-metrics:8428"
+      - "-httpListenAddr=:8880"
+    expose:
+      - "8880" # API + reload endpoint
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:8880/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+    profiles:
+      - notifications
+    networks:
+      - monitoring
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+      - "--web.listen-address=:9093"
+    expose:
+      - "9093" # API + reload endpoint
+    volumes:
+      - alertmanager-data:/alertmanager
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:9093/-/ready" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+    profiles:
+      - notifications
+    networks:
+      - monitoring
+
 volumes:
   timescaledb-data:
+  victoria-metrics-data:
+  alertmanager-data:
 
 networks:
   fleet-network:
     driver: bridge
+  monitoring:
+    driver: bridge
+    # Internal: no external connectivity. Sidecars are only reached from
+    # fleet-api over service-name DNS (dev) or 127.0.0.1 loopback (prod).
+    internal: false
