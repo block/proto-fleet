@@ -206,3 +206,38 @@ type Heartbeat struct {
 	LastTickDurationMS *int32
 	ActiveEventCount   int32
 }
+
+// Candidate is per-device state assembled by the curtailment store from a
+// cross-table join (device + latest device_metrics + latest
+// device_metrics_hourly + device_pairing + device_status). The service layer
+// inspects each Candidate to attribute skip reasons (stale telemetry,
+// unpaired, wrong device_status, etc.) before handing the survivors to the
+// selector. nil-pointer fields mean "no row joined" — the service interprets
+// those as their natural skip-reason variant (e.g., absent telemetry → stale).
+type Candidate struct {
+	DeviceIdentifier string
+	DriverName       *string
+	Model            string
+
+	// DeviceStatus is the current device_status_enum value as a string
+	// (e.g., "ACTIVE", "OFFLINE", "MAINTENANCE", "UPDATING",
+	// "REBOOT_REQUIRED"). The empty string means no device_status row.
+	DeviceStatus string
+
+	// PairingStatus is the current pairing_status_enum value as a string
+	// (e.g., "PAIRED", "UNPAIRED", "PENDING", "FAILED",
+	// "AUTHENTICATION_NEEDED"). The store substitutes "UNPAIRED" when no
+	// pairing row exists, matching the existing miner-state convention.
+	PairingStatus string
+
+	// LatestMetricsAt is the timestamp of the most recent telemetry sample
+	// within the staleness window (15 min). nil means no recent sample.
+	LatestMetricsAt  *time.Time
+	LatestPowerW     *float64
+	LatestHashRateHS *float64
+
+	// AvgEfficiencyJH is the latest device_metrics_hourly avg_efficiency
+	// value. nil means the continuous aggregate has no row for this
+	// device — the selector ranks unknown-efficiency miners last.
+	AvgEfficiencyJH *float64
+}

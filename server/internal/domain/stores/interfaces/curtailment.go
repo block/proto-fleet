@@ -37,4 +37,12 @@ type CurtailmentStore interface {
 	// Heartbeat singleton — used by the alert predicate evaluator and by
 	// future reconciler liveness checks.
 	GetHeartbeat(ctx context.Context) (*models.Heartbeat, error)
+
+	// ListCandidates returns per-device state for the selector's filter
+	// + rank pipeline. Org-scoped; deviceIdentifiers narrows to a specific
+	// list when non-nil/non-empty (device-list scope), or whole-org when
+	// nil/empty. The query LEFT-JOINs telemetry so devices with no recent
+	// samples come back with nil PowerW/HashRateHS — the service layer
+	// interprets that as stale telemetry and emits the skip reason.
+	ListCandidates(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]*models.Candidate, error)
 }

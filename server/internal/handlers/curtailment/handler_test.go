@@ -29,7 +29,7 @@ func TestHandler_NonAdminRPCsReturnUnimplemented(t *testing.T) {
 
 	mux := http.NewServeMux()
 	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(
-		NewHandler(),
+		NewHandler(nil),
 		connect.WithInterceptors(interceptors.NewErrorMappingInterceptor()),
 	))
 	server := httptest.NewServer(mux)
@@ -240,7 +240,7 @@ func TestHandler_RequestValidation(t *testing.T) {
 func TestHandler_AdminTerminateEventRoleGate(t *testing.T) {
 	t.Parallel()
 
-	h := NewHandler()
+	h := NewHandler(nil)
 	req := connect.NewRequest(&pb.AdminTerminateEventRequest{
 		EventUuid:   "event-uuid",
 		TargetState: pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_CANCELLED,
@@ -388,7 +388,7 @@ func TestHandler_AdminTerminateEventValidation(t *testing.T) {
 func TestHandler_OverrideFieldsRoleGate(t *testing.T) {
 	t.Parallel()
 
-	h := NewHandler()
+	h := NewHandler(nil)
 
 	type call struct {
 		name       string
@@ -489,7 +489,7 @@ func TestHandler_OverrideFieldsRoleGate(t *testing.T) {
 func TestHandler_NoOverrideSkipsRoleGate(t *testing.T) {
 	t.Parallel()
 
-	h := NewHandler()
+	h := NewHandler(nil)
 
 	previewNoOverride := connect.NewRequest(&pb.PreviewCurtailmentPlanRequest{
 		Scope: &pb.PreviewCurtailmentPlanRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
@@ -521,7 +521,7 @@ func TestHandler_NoOverrideSkipsRoleGate(t *testing.T) {
 func TestHandler_AdminTerminateEventRejectsMissingSession(t *testing.T) {
 	t.Parallel()
 
-	h := NewHandler()
+	h := NewHandler(nil)
 	req := connect.NewRequest(&pb.AdminTerminateEventRequest{
 		EventUuid:   "event-uuid",
 		TargetState: pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_CANCELLED,
@@ -542,7 +542,7 @@ func newValidationTestClient(t *testing.T) curtailmentv1connect.CurtailmentServi
 
 	mux := http.NewServeMux()
 	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(
-		NewHandler(),
+		NewHandler(nil),
 		connect.WithInterceptors(
 			interceptors.NewErrorMappingInterceptor(),
 			validate.NewInterceptor(),

@@ -149,6 +149,31 @@ func (s *SQLCurtailmentStore) ListTargetsByEvent(ctx context.Context, orgID int6
 	return targets, nil
 }
 
+func (s *SQLCurtailmentStore) ListCandidates(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]*models.Candidate, error) {
+	rows, err := s.GetQueries(ctx).ListCurtailmentCandidatesByOrg(ctx, sqlc.ListCurtailmentCandidatesByOrgParams{
+		OrgID:             orgID,
+		DeviceIdentifiers: deviceIdentifiers,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to list curtailment candidates: %v", err)
+	}
+	out := make([]*models.Candidate, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, &models.Candidate{
+			DeviceIdentifier: row.DeviceIdentifier,
+			DriverName:       nullStringToPtr(row.DriverName),
+			Model:            row.Model,
+			DeviceStatus:     row.DeviceStatus,
+			PairingStatus:    row.PairingStatus,
+			LatestMetricsAt:  nullTimeToPtr(row.LatestMetricsAt),
+			LatestPowerW:     nullFloat64ToPtr(row.LatestPowerW),
+			LatestHashRateHS: nullFloat64ToPtr(row.LatestHashRateHs),
+			AvgEfficiencyJH:  nullFloat64ToPtr(row.AvgEfficiency),
+		})
+	}
+	return out, nil
+}
+
 func (s *SQLCurtailmentStore) GetHeartbeat(ctx context.Context) (*models.Heartbeat, error) {
 	row, err := s.GetQueries(ctx).GetCurtailmentReconcilerHeartbeat(ctx)
 	if err != nil {
@@ -260,6 +285,14 @@ func nullInt32ToPtr(n sql.NullInt32) *int32 {
 		return nil
 	}
 	v := n.Int32
+	return &v
+}
+
+func nullFloat64ToPtr(n sql.NullFloat64) *float64 {
+	if !n.Valid {
+		return nil
+	}
+	v := n.Float64
 	return &v
 }
 

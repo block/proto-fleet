@@ -13,18 +13,18 @@ import (
 type SkipReason string
 
 const (
-	SkipBelowThreshold        SkipReason = "below_candidate_min_power_w"
-	SkipPhantomLoadNoHash     SkipReason = "phantom_load_no_hash"
+	SkipBelowThreshold           SkipReason = "below_candidate_min_power_w"
+	SkipPhantomLoadNoHash        SkipReason = "phantom_load_no_hash"
 	SkipPowerTelemetryUnreliable SkipReason = "power_telemetry_unreliable"
-	SkipStaleTelemetry        SkipReason = "stale_telemetry"
-	SkipUnreachableResidualLoad SkipReason = "unreachable_residual_load"
-	SkipUpdating              SkipReason = "updating"
-	SkipRebootRequired        SkipReason = "reboot_required"
-	SkipMaintenance           SkipReason = "maintenance"
-	SkipPairing               SkipReason = "pairing"
-	SkipCurtailFullUnsupported SkipReason = "curtail_full_unsupported"
-	SkipCooldown              SkipReason = "cooldown"
-	SkipActiveEvent           SkipReason = "active_event"
+	SkipStaleTelemetry           SkipReason = "stale_telemetry"
+	SkipUnreachableResidualLoad  SkipReason = "unreachable_residual_load"
+	SkipUpdating                 SkipReason = "updating"
+	SkipRebootRequired           SkipReason = "reboot_required"
+	SkipMaintenance              SkipReason = "maintenance"
+	SkipPairing                  SkipReason = "pairing"
+	SkipCurtailFullUnsupported   SkipReason = "curtail_full_unsupported"
+	SkipCooldown                 SkipReason = "cooldown"
+	SkipActiveEvent              SkipReason = "active_event"
 )
 
 // CandidateInput is one device's pre-aggregated state at selection time:

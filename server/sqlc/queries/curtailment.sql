@@ -144,3 +144,62 @@ ORDER BY ct.device_identifier;
 SELECT id, last_tick_at, last_tick_uuid, last_tick_duration_ms, active_event_count
 FROM curtailment_reconciler_heartbeat
 WHERE id = 1;
+
+-- name: ListCurtailmentCandidatesByOrg :many
+-- Pulls per-device state for the selector's filter / rank pipeline. Returns
+-- ALL devices in scope (org + optional device_identifiers narrow), including
+-- unpaired / stale / unstatused — the service layer applies skip-reason
+-- attribution in Go so the diagnostic detail (phantom_load vs stale vs
+-- offline-residual etc.) lands in PreviewCurtailmentPlanResponse.skipped_candidates.
+--
+-- LEFT JOIN on telemetry: a device with no recent samples returns NULL
+-- power_w / hash_rate_hs, which the service interprets as stale. The 15-min
+-- window matches the design doc's staleness boundary.
+--
+-- device_identifiers narrow: pass NULL for whole-org scope; pass a non-empty
+-- array for device-list scope (after org-ownership validation).
+WITH latest_metrics AS (
+    SELECT DISTINCT ON (device_metrics.device_identifier)
+        device_metrics.device_identifier,
+        device_metrics.time,
+        device_metrics.power_w,
+        device_metrics.hash_rate_hs
+    FROM device_metrics
+    INNER JOIN device d2 ON device_metrics.device_identifier = d2.device_identifier
+        AND d2.deleted_at IS NULL
+        AND d2.org_id = sqlc.arg('org_id')
+    WHERE device_metrics.time > NOW() - INTERVAL '15 minutes'
+    ORDER BY device_metrics.device_identifier, device_metrics.time DESC
+),
+latest_hourly AS (
+    SELECT DISTINCT ON (device_metrics_hourly.device_identifier)
+        device_metrics_hourly.device_identifier,
+        device_metrics_hourly.avg_efficiency
+    FROM device_metrics_hourly
+    ORDER BY device_metrics_hourly.device_identifier, bucket DESC
+)
+SELECT
+    d.device_identifier,
+    dd.driver_name,
+    COALESCE(dd.model, '') AS model,
+    -- device_status / pairing_status default to safe sentinels when the
+    -- joined row is missing. Service treats NULL device_status as
+    -- "unknown" (skip with stale reason); NULL pairing_status as UNPAIRED.
+    ds.status::text AS device_status,
+    CASE WHEN dp.id IS NOT NULL THEN dp.pairing_status::text ELSE 'UNPAIRED' END AS pairing_status,
+    lm.time            AS latest_metrics_at,
+    lm.power_w         AS latest_power_w,
+    lm.hash_rate_hs    AS latest_hash_rate_hs,
+    lh.avg_efficiency  AS avg_efficiency
+FROM device d
+LEFT JOIN discovered_device dd ON dd.id = d.discovered_device_id
+LEFT JOIN device_status ds ON ds.device_id = d.id
+LEFT JOIN device_pairing dp ON dp.device_id = d.id
+LEFT JOIN latest_metrics lm ON lm.device_identifier = d.device_identifier
+LEFT JOIN latest_hourly lh ON lh.device_identifier = d.device_identifier
+WHERE d.org_id = sqlc.arg('org_id')
+    AND d.deleted_at IS NULL
+    AND (
+        sqlc.narg('device_identifiers')::text[] IS NULL
+        OR d.device_identifier = ANY(sqlc.narg('device_identifiers')::text[])
+    );

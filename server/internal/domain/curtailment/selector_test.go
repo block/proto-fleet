@@ -181,8 +181,8 @@ func TestBuildPlan_FixedKwEndToEnd(t *testing.T) {
 
 	inputs := []CandidateInput{
 		// Eligible miners, mixed efficiency.
-		{DeviceIdentifier: "best",  PowerW: 3000, HashRateHS: 100, AvgEfficiencyJH: eff(20)},
-		{DeviceIdentifier: "mid",   PowerW: 3000, HashRateHS: 100, AvgEfficiencyJH: eff(30)},
+		{DeviceIdentifier: "best", PowerW: 3000, HashRateHS: 100, AvgEfficiencyJH: eff(20)},
+		{DeviceIdentifier: "mid", PowerW: 3000, HashRateHS: 100, AvgEfficiencyJH: eff(30)},
 		{DeviceIdentifier: "worst", PowerW: 3000, HashRateHS: 100, AvgEfficiencyJH: eff(40)},
 		// Phantom-load miner — drawing power above threshold but not hashing.
 		{DeviceIdentifier: "phantom", PowerW: 2000, HashRateHS: 0, AvgEfficiencyJH: nil},
