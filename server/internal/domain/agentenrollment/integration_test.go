@@ -331,6 +331,48 @@ func TestCompleteHandshakeRaceWithRevokeReturnsUnauthenticated(t *testing.T) {
 	require.True(t, fleeterror.IsAuthenticationError(completeErr), "race with revoke must surface as Unauthenticated, not internal")
 }
 
+func TestConfirmRejectsAgentRevokedMidConfirm(t *testing.T) {
+	// Arrange
+	ctx := t.Context()
+	db, userID, orgID, enrollment, _ := setupEnrollmentTest(t)
+	pubKey, _, _ := ed25519.GenerateKey(rand.Reader)
+	signing, _, _ := ed25519.GenerateKey(rand.Reader)
+	code, _, _ := enrollment.CreateCode(ctx, userID, orgID, time.Hour)
+	agent, _, _ := enrollment.RegisterAgent(ctx, code, "agent-1", pubKey, signing)
+	// Simulate a concurrent RevokeAgent that lands between Confirm's reads
+	// and its SetAgentEnrollmentStatus update.
+	_, err := db.Exec(`UPDATE agent SET deleted_at = $1 WHERE id = $2`, time.Now().UTC(), agent.ID)
+	require.NoError(t, err)
+
+	// Act
+	_, _, confirmErr := enrollment.Confirm(ctx, agent.ID, orgID)
+
+	// Assert
+	require.Error(t, confirmErr, "Confirm must reject when the agent is soft-deleted")
+	var apiKeyCount int
+	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM api_key WHERE agent_id = $1`, agent.ID).Scan(&apiKeyCount))
+	require.Equal(t, 0, apiKeyCount, "no api_key must be issued for a revoked/deleted agent")
+}
+
+func TestRegisterAgentDuplicateIdentityIsPrecondition(t *testing.T) {
+	// Arrange
+	ctx := t.Context()
+	_, userID, orgID, enrollment, _ := setupEnrollmentTest(t)
+	pubKey, _, _ := ed25519.GenerateKey(rand.Reader)
+	signing, _, _ := ed25519.GenerateKey(rand.Reader)
+	code1, _, _ := enrollment.CreateCode(ctx, userID, orgID, time.Hour)
+	code2, _, _ := enrollment.CreateCode(ctx, userID, orgID, time.Hour)
+	_, _, err := enrollment.RegisterAgent(ctx, code1, "agent-1", pubKey, signing)
+	require.NoError(t, err)
+
+	// Act
+	_, _, err2 := enrollment.RegisterAgent(ctx, code2, "agent-2", pubKey, signing)
+
+	// Assert
+	require.Error(t, err2)
+	require.True(t, fleeterror.IsFailedPreconditionError(err2), "duplicate identity_pubkey must surface as FailedPrecondition, not internal")
+}
+
 func TestRevokeAgentFreesIdentityForReenrollment(t *testing.T) {
 	// Arrange
 	ctx := t.Context()

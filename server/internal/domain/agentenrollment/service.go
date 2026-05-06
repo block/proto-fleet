@@ -12,6 +12,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/infrastructure/cryptohash"
+	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 )
 
 const (
@@ -116,6 +117,12 @@ func (s *Service) RegisterAgent(ctx context.Context, plaintextCode, name string,
 		}
 		agent, err = s.store.CreateAgent(ctx, pe.OrgID, name, identityPubkey, minerSigningPubkey)
 		if err != nil {
+			// Concurrent Register calls with the same identity_pubkey or
+			// (org_id, name) lose on the partial unique indexes; surface as
+			// a precondition failure instead of a 500.
+			if db.IsUniqueViolationError(err) {
+				return fleeterror.NewFailedPreconditionError("agent identity or name already in use")
+			}
 			return logInternal("create agent", clientErrRegisterAgent, err)
 		}
 		bound, err := s.store.BindEnrollmentToAgent(ctx, pe.ID, agent.ID)
@@ -175,8 +182,16 @@ func (s *Service) Confirm(ctx context.Context, agentID, orgID int64) (string, ti
 		if rows == 0 {
 			return fleeterror.NewFailedPreconditionError("enrollment state changed; refresh and retry")
 		}
-		if _, err := s.store.SetAgentEnrollmentStatus(ctx, AgentStatusConfirmed, agentID, orgID); err != nil {
+		// SetAgentEnrollmentStatus filters by deleted_at IS NULL, so a
+		// concurrent RevokeAgent that soft-deleted the agent between the
+		// initial read above and this update will affect zero rows. Reject
+		// instead of minting an api_key for a revoked agent.
+		statusRows, err := s.store.SetAgentEnrollmentStatus(ctx, AgentStatusConfirmed, agentID, orgID)
+		if err != nil {
 			return logInternal("update agent status", clientErrConfirmAgent, err)
+		}
+		if statusRows == 0 {
+			return fleeterror.NewFailedPreconditionError("agent state changed; refresh and retry")
 		}
 		key, apiKey, err := s.apiKeySvc.CreateAgent(ctx, agentID, orgID, agentApiKeyLabel, nil)
 		if err != nil {

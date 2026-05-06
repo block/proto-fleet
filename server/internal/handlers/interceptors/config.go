@@ -5,6 +5,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/agentgateway/v1/agentgatewayv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/apikey/v1/apikeyv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/curtailment/v1/curtailmentv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
@@ -67,6 +68,11 @@ var SessionOnlyProcedures = []string{
 	agentadminv1connect.AgentAdminServiceListAgentsProcedure,
 	agentadminv1connect.AgentAdminServiceConfirmAgentProcedure,
 	agentadminv1connect.AgentAdminServiceRevokeAgentProcedure,
+	// AdminTerminateEvent forces a non-terminal event to a terminal state and
+	// is session-only. Paired with handler-side requireAdminFromContext in
+	// handlers/curtailment/handler.go; neither check alone is sufficient.
+	// Other curtailment write RPCs remain API-key-accessible.
+	curtailmentv1connect.CurtailmentServiceAdminTerminateEventProcedure,
 }
 
 var UnauthenticatedProcedures = []string{
