@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"strconv"
 	"time"
 
@@ -326,6 +327,12 @@ func nullStringToFloat64Ptr(n sql.NullString) *float64 {
 	}
 	v, err := strconv.ParseFloat(n.String, 64)
 	if err != nil {
+		// A non-NULL NUMERIC column that doesn't parse signals real data
+		// corruption or a schema/driver mismatch. Surface it via the same
+		// slog.Warn pattern other sqlstores use; keep returning nil so the
+		// read path stays tolerant of one-off corruption (the selector
+		// treats this as "unknown efficiency" and ranks it last).
+		slog.Warn("failed to parse NUMERIC string", "value", n.String, "err", err)
 		return nil
 	}
 	return &v

@@ -17,26 +17,60 @@ import (
 )
 
 const ensureCurtailmentOrgConfig = `-- name: EnsureCurtailmentOrgConfig :one
-INSERT INTO curtailment_org_config (org_id)
-VALUES ($1)
-ON CONFLICT (org_id) DO UPDATE SET org_id = EXCLUDED.org_id
-RETURNING
+WITH ins AS (
+    INSERT INTO curtailment_org_config (org_id)
+    VALUES ($1)
+    ON CONFLICT (org_id) DO NOTHING
+    RETURNING
+        org_id,
+        max_duration_default_sec,
+        candidate_min_power_w,
+        post_event_cooldown_sec,
+        created_at,
+        updated_at
+)
+SELECT
     org_id,
     max_duration_default_sec,
     candidate_min_power_w,
     post_event_cooldown_sec,
     created_at,
     updated_at
+FROM ins
+UNION ALL
+SELECT
+    org_id,
+    max_duration_default_sec,
+    candidate_min_power_w,
+    post_event_cooldown_sec,
+    created_at,
+    updated_at
+FROM curtailment_org_config
+WHERE org_id = $1
+    AND NOT EXISTS (SELECT 1 FROM ins)
+LIMIT 1
 `
+
+type EnsureCurtailmentOrgConfigRow struct {
+	OrgID                 int64
+	MaxDurationDefaultSec int32
+	CandidateMinPowerW    int32
+	PostEventCooldownSec  int32
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+}
 
 // Idempotent backfill of the per-org config row. Required because the
 // 000040 migration only seeds existing orgs at deploy time; orgs created
-// afterwards have no row until something writes one. The DO UPDATE arm
-// is a no-op (re-asserts org_id) so the RETURNING clause always fires
-// and the caller can read the effective row in a single round trip.
-func (q *Queries) EnsureCurtailmentOrgConfig(ctx context.Context, orgID int64) (CurtailmentOrgConfig, error) {
+// afterwards have no row until something writes one.
+//
+// The conflict path is a read, not a write: the INSERT uses DO NOTHING so
+// existing rows are not touched, and the fallback SELECT returns the row
+// already on disk. This preserves `updated_at` as a real config-change
+// signal and keeps Preview off the WAL on the hot path.
+func (q *Queries) EnsureCurtailmentOrgConfig(ctx context.Context, orgID int64) (EnsureCurtailmentOrgConfigRow, error) {
 	row := q.queryRow(ctx, q.ensureCurtailmentOrgConfigStmt, ensureCurtailmentOrgConfig, orgID)
-	var i CurtailmentOrgConfig
+	var i EnsureCurtailmentOrgConfigRow
 	err := row.Scan(
 		&i.OrgID,
 		&i.MaxDurationDefaultSec,
@@ -429,6 +463,7 @@ WHERE d.org_id = $1
         $2::text[] IS NULL
         OR d.device_identifier = ANY($2::text[])
     )
+ORDER BY d.device_identifier
 `
 
 type ListCurtailmentCandidatesByOrgParams struct {
@@ -460,6 +495,9 @@ type ListCurtailmentCandidatesByOrgRow struct {
 //
 // device_identifiers narrow: pass NULL for whole-org scope; pass a non-empty
 // array for device-list scope (after org-ownership validation).
+// Stable order: the selector's stable sort preserves this ordering on
+// ties (equal or NULL avg_efficiency), so two Previews against the same
+// inputs produce the same selected list.
 func (q *Queries) ListCurtailmentCandidatesByOrg(ctx context.Context, arg ListCurtailmentCandidatesByOrgParams) ([]ListCurtailmentCandidatesByOrgRow, error) {
 	rows, err := q.query(ctx, q.listCurtailmentCandidatesByOrgStmt, listCurtailmentCandidatesByOrg, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
 	if err != nil {

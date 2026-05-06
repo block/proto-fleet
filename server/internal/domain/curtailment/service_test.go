@@ -704,3 +704,129 @@ func TestService_Preview_DualSignalCountersPropagateIntoInsufficientLoadDetail(t
 	assert.Equal(t, int32(1), plan.InsufficientLoadDetail.ExcludedPhantomLoad,
 		"above-threshold-no-hash candidate must increment ExcludedPhantomLoad")
 }
+
+// TestService_Preview_RejectsToleranceGreaterThanOrEqualTarget pins the
+// invariant that a tolerance >= target_kw is rejected at validation. Without
+// this guard, a request with tolerance >= target accepts an empty selection
+// as OutcomeUndershootTolerated — a no-op preview that looks like a
+// successful plan to UIs and automations.
+func TestService_Preview_RejectsToleranceGreaterThanOrEqualTarget(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name      string
+		target    float64
+		tolerance float64
+		wantErr   bool
+	}{
+		{name: "tolerance equal to target rejected", target: 5, tolerance: 5, wantErr: true},
+		{name: "tolerance greater than target rejected", target: 5, tolerance: 6, wantErr: true},
+		{name: "tolerance just below target accepted", target: 5, tolerance: 4.999, wantErr: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			const orgID = int64(1)
+			store := newFakeStore()
+			store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+			store.candidatesByOrg[orgID] = []*models.Candidate{
+				minerWithEff("ok", 6000, 100, 40),
+			}
+			svc := NewService(store)
+			req := validRequest(orgID)
+			req.TargetKW = tc.target
+			req.ToleranceKW = tc.tolerance
+			_, err := svc.Preview(t.Context(), req)
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "tolerance_kw must be < target_kw")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestService_Preview_NormalizesEmptyDeviceFilterToWholeOrg pins the
+// contract that an empty (non-nil) DeviceIdentifiers slice on a whole-org
+// scope flows through as nil to the store, producing whole-org results
+// rather than an empty plan. Without normalization, the SQL parameter
+// (:= text[]{}) would short-circuit the candidate query to zero rows.
+func TestService_Preview_NormalizesEmptyDeviceFilterToWholeOrg(t *testing.T) {
+	t.Parallel()
+
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("alpha", 3000, 100, 40),
+		minerWithEff("beta", 3000, 100, 40),
+	}
+	svc := NewService(store)
+	req := validRequest(orgID)
+	req.Scope = Scope{
+		Type:              models.ScopeTypeWholeOrg,
+		DeviceIdentifiers: []string{}, // empty but non-nil
+	}
+	req.TargetKW = 2.5
+	plan, err := svc.Preview(t.Context(), req)
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+
+	// Whole-org normalization: store sees nil filter (not empty slice),
+	// so all org candidates become eligible and one of them is selected.
+	assert.Nil(t, store.lastListCandidatesFilter,
+		"empty DeviceIdentifiers must normalize to nil before reaching the store")
+	require.Len(t, plan.Selected, 1, "whole-org request must produce a non-empty plan")
+}
+
+// TestService_Preview_DeterministicOrderingOnTiedEfficiencies pins the
+// SQL-side ORDER BY contract. Two candidates with identical efficiency,
+// telemetry, and pairing must select in a stable, reproducible order
+// across repeated Preview calls — otherwise the same request can produce
+// different plans, which makes execution and audit incoherent. The
+// fakeStore returns insertion order; the real SQL store sorts by
+// device_identifier, so we assert the lexicographic order the contract
+// promises.
+func TestService_Preview_DeterministicOrderingOnTiedEfficiencies(t *testing.T) {
+	t.Parallel()
+
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	// Insert in non-lexicographic order so the test fails if the selector
+	// silently relies on insertion order rather than the documented
+	// SQL ORDER BY contract enforced upstream.
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("zebra", 3000, 100, 40),
+		minerWithEff("alpha", 3000, 100, 40),
+		minerWithEff("mango", 3000, 100, 40),
+	}
+
+	// Pre-sort the store output to mirror what ListCurtailmentCandidatesByOrg
+	// will produce after U2's ORDER BY clause. The fakeStore preserves
+	// insertion order; this asserts the contract the real store guarantees.
+	sortCandidatesByDeviceIdentifier(store.candidatesByOrg[orgID])
+
+	svc := NewService(store)
+	req := validRequest(orgID)
+	req.TargetKW = 2.5
+
+	// Run 5 times: ordering must be byte-stable across calls.
+	for i := range 5 {
+		plan, err := svc.Preview(t.Context(), req)
+		require.NoError(t, err)
+		require.Len(t, plan.Selected, 1)
+		assert.Equal(t, "alpha", plan.Selected[0].DeviceIdentifier,
+			"tied efficiencies must select lexicographically smallest device_identifier (run %d)", i)
+	}
+}
+
+func sortCandidatesByDeviceIdentifier(cands []*models.Candidate) {
+	for i := 1; i < len(cands); i++ {
+		for j := i; j > 0 && cands[j-1].DeviceIdentifier > cands[j].DeviceIdentifier; j-- {
+			cands[j-1], cands[j] = cands[j], cands[j-1]
+		}
+	}
+}

@@ -17,19 +17,44 @@ WHERE org_id = sqlc.arg('org_id');
 -- name: EnsureCurtailmentOrgConfig :one
 -- Idempotent backfill of the per-org config row. Required because the
 -- 000040 migration only seeds existing orgs at deploy time; orgs created
--- afterwards have no row until something writes one. The DO UPDATE arm
--- is a no-op (re-asserts org_id) so the RETURNING clause always fires
--- and the caller can read the effective row in a single round trip.
-INSERT INTO curtailment_org_config (org_id)
-VALUES (sqlc.arg('org_id'))
-ON CONFLICT (org_id) DO UPDATE SET org_id = EXCLUDED.org_id
-RETURNING
+-- afterwards have no row until something writes one.
+--
+-- The conflict path is a read, not a write: the INSERT uses DO NOTHING so
+-- existing rows are not touched, and the fallback SELECT returns the row
+-- already on disk. This preserves `updated_at` as a real config-change
+-- signal and keeps Preview off the WAL on the hot path.
+WITH ins AS (
+    INSERT INTO curtailment_org_config (org_id)
+    VALUES (sqlc.arg('org_id'))
+    ON CONFLICT (org_id) DO NOTHING
+    RETURNING
+        org_id,
+        max_duration_default_sec,
+        candidate_min_power_w,
+        post_event_cooldown_sec,
+        created_at,
+        updated_at
+)
+SELECT
     org_id,
     max_duration_default_sec,
     candidate_min_power_w,
     post_event_cooldown_sec,
     created_at,
-    updated_at;
+    updated_at
+FROM ins
+UNION ALL
+SELECT
+    org_id,
+    max_duration_default_sec,
+    candidate_min_power_w,
+    post_event_cooldown_sec,
+    created_at,
+    updated_at
+FROM curtailment_org_config
+WHERE org_id = sqlc.arg('org_id')
+    AND NOT EXISTS (SELECT 1 FROM ins)
+LIMIT 1;
 
 -- name: ListActiveCurtailedDevicesByOrg :many
 -- Devices currently locked in a non-terminal curtailment event. The selector
@@ -231,4 +256,8 @@ WHERE d.org_id = sqlc.arg('org_id')
     AND (
         sqlc.narg('device_identifiers')::text[] IS NULL
         OR d.device_identifier = ANY(sqlc.narg('device_identifiers')::text[])
-    );
+    )
+-- Stable order: the selector's stable sort preserves this ordering on
+-- ties (equal or NULL avg_efficiency), so two Previews against the same
+-- inputs produce the same selected list.
+ORDER BY d.device_identifier;

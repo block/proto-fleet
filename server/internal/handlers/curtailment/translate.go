@@ -1,7 +1,9 @@
 package curtailment
 
 import (
+	"fmt"
 	"math"
+	"strings"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment"
@@ -187,14 +189,52 @@ func priorityName(p pb.CurtailmentPriority) string {
 // fleeterror InvalidArgument with a structured detail message. Connect-RPC
 // error-detail propagation is a future enhancement; v1 returns the key
 // numbers in the message body so the UI can render them directly.
+//
+// Every non-zero exclusion counter is included so callers can distinguish
+// phantom-load vs dead-monitor vs below-threshold vs capability-miss without
+// regex-parsing a partial set. Zero counters are omitted to keep the message
+// tight; the per-counter order is fixed so the message is byte-stable for
+// the same input.
 func translateInsufficientLoad(detail *modes.InsufficientLoadDetail) error {
 	if detail == nil {
 		return fleeterror.NewInvalidArgumentError("insufficient curtailable load")
 	}
-	return fleeterror.NewInvalidArgumentErrorf(
-		"insufficient curtailable load: %.3f kW available, %.3f kW requested, tolerance %.3f kW; %d offline, %d maintenance, %d cooldown, %d active-event, %d unpaired",
-		detail.AvailableKW, detail.RequestedKW, detail.ToleranceKW,
-		detail.ExcludedOffline, detail.ExcludedMaintenance, detail.ExcludedCooldown,
-		detail.ExcludedActiveEvent, detail.ExcludedPairing,
+	exclusions := formatExclusionCounters(detail)
+	header := fmt.Sprintf(
+		"insufficient curtailable load: %.3f kW available, %.3f kW requested, tolerance %.3f kW, candidate_min_power_w=%dW",
+		detail.AvailableKW, detail.RequestedKW, detail.ToleranceKW, detail.CandidateMinPowerW,
 	)
+	if exclusions == "" {
+		return fleeterror.NewInvalidArgumentError(header)
+	}
+	return fleeterror.NewInvalidArgumentErrorf("%s; excluded: %s", header, exclusions)
+}
+
+// formatExclusionCounters renders the non-zero ExcludedX fields of an
+// InsufficientLoadDetail in a stable, human-readable order. Order is fixed
+// at the source-code level (not derived from a map) so two calls with the
+// same input produce byte-identical output.
+func formatExclusionCounters(d *modes.InsufficientLoadDetail) string {
+	type counter struct {
+		name string
+		val  int32
+	}
+	all := []counter{
+		{"below_threshold", d.ExcludedBelowThreshold},
+		{"phantom_load", d.ExcludedPhantomLoad},
+		{"dead_monitor", d.ExcludedDeadMonitor},
+		{"offline", d.ExcludedOffline},
+		{"maintenance", d.ExcludedMaintenance},
+		{"pairing", d.ExcludedPairing},
+		{"cooldown", d.ExcludedCooldown},
+		{"active_event", d.ExcludedActiveEvent},
+		{"capability_miss", d.ExcludedCapabilityMiss},
+	}
+	var parts []string
+	for _, c := range all {
+		if c.val > 0 {
+			parts = append(parts, fmt.Sprintf("%s=%d", c.name, c.val))
+		}
+	}
+	return strings.Join(parts, ", ")
 }

@@ -57,6 +57,14 @@ func (s *Service) Preview(ctx context.Context, req PreviewRequest) (*Plan, error
 	if err != nil {
 		return nil, err
 	}
+	// Normalize empty-but-non-nil slice to nil so the store's whole-org path
+	// fires. The candidate query treats nil as "no narrow" and a non-nil
+	// empty array as "match nothing" (because it checks IS NULL on the
+	// parameter); collapsing the difference here means the store interface
+	// can document a single rule.
+	if len(deviceFilter) == 0 {
+		deviceFilter = nil
+	}
 
 	orgConfig, err := s.store.GetOrgConfig(ctx, req.OrgID)
 	if err != nil {
@@ -137,6 +145,16 @@ func validatePreviewRequest(req PreviewRequest) error {
 	}
 	if req.ToleranceKW < 0 {
 		return fleeterror.NewInvalidArgumentErrorf("tolerance_kw must be >= 0, got %v", req.ToleranceKW)
+	}
+	// tolerance_kw >= target_kw makes the undershoot branch trivially pass
+	// even when the candidate sum is zero, producing an empty plan that
+	// looks like a successful preview. Reject so the caller sees the real
+	// reason (insufficient load) rather than a no-op selection.
+	if req.ToleranceKW >= req.TargetKW {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"tolerance_kw must be < target_kw, got tolerance=%v target=%v",
+			req.ToleranceKW, req.TargetKW,
+		)
 	}
 	// candidate_min_power_w_override = 0 effectively disables the dual-signal
 	// floor (every powered miner becomes a candidate). The proto declares the
