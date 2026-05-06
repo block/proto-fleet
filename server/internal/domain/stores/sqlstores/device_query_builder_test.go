@@ -47,7 +47,7 @@ func TestBuildStateCountsQuerySQL_NumericAndCIDRFilters_UsesDynamicPredicates(t 
 	assert.Contains(t, query, "open_errors AS")
 	assert.Contains(t, query, minerTelemetryInnerJoin)
 	assert.Contains(t, query, "filtered.has_open_error")
-	assert.Contains(t, query, "NULLIF(discovered_device.ip_address, '')::inet <<=")
+	assert.Contains(t, query, "discovered_device.ip_address_inet <<= ANY(")
 	require.Len(t, args, 3)
 	assert.EqualValues(t, 1, args[0])
 	assert.Equal(t, minValue, args[1])

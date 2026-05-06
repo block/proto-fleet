@@ -702,7 +702,7 @@ func TestAppendFilterSQL_NoNumericRange_DoesNotExcludeOffline(t *testing.T) {
 	assert.NotContains(t, sb.String(), "device_status.status != 'OFFLINE'")
 }
 
-func TestAppendFilterSQL_IPCIDRs_EmitsUnnestExists(t *testing.T) {
+func TestAppendFilterSQL_IPCIDRs_UsesInetAnyPredicate(t *testing.T) {
 	var sb strings.Builder
 	args := []any{"initial"}
 	fp := minerFilterParams{
@@ -713,8 +713,7 @@ func TestAppendFilterSQL_IPCIDRs_EmitsUnnestExists(t *testing.T) {
 	resultArgs, resultArgNum := appendFilterSQL(&sb, args, 2, 1, fp)
 
 	sql := sb.String()
-	assert.Contains(t, sql, "unnest($2::cidr[])")
-	assert.Contains(t, sql, "NULLIF(discovered_device.ip_address, '')::inet <<=")
+	assert.Contains(t, sql, "discovered_device.ip_address_inet <<= ANY($2::cidr[])")
 	// Single param regardless of CIDR count.
 	assert.Len(t, resultArgs, 2)
 	assert.Equal(t, 3, resultArgNum)
