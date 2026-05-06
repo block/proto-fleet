@@ -30,7 +30,7 @@ const ModalFilterChip = ({ filterValue, typeLabel, condition, onEdit, onClear }:
         <button
           type="button"
           onClick={onEdit}
-          className="flex cursor-pointer items-center bg-surface-20 px-3 py-1 text-text-primary hover:opacity-80"
+          className="flex cursor-pointer items-center bg-core-primary-5 px-3 py-1 text-text-primary hover:opacity-80"
           data-testid={`active-filter-${filterValue}-edit`}
           aria-haspopup="dialog"
         >
@@ -39,7 +39,7 @@ const ModalFilterChip = ({ filterValue, typeLabel, condition, onEdit, onClear }:
         <button
           type="button"
           onClick={onClear}
-          className="flex cursor-pointer items-center bg-surface-20 py-1 pr-3 pl-1 text-text-primary hover:opacity-80"
+          className="flex cursor-pointer items-center bg-core-primary-5 py-1 pr-3 pl-1 text-text-primary hover:opacity-80"
           data-testid={`active-filter-${filterValue}-clear`}
           aria-label={`Clear ${typeLabel} filter`}
         >

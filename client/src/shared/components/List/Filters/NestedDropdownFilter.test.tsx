@@ -121,7 +121,7 @@ describe("NestedDropdownFilter", () => {
     expect(firmwareRow).toHaveTextContent("1");
   });
 
-  it("disables the row and shows '(no values)' when a category has no options", () => {
+  it("disables the row and shows a label-specific empty state when a category has no options", () => {
     render(
       <NestedDropdownFilter label="Filters" categories={defaultCategories} {...noopCallbacks()} onClearAll={vi.fn()} />,
     );
@@ -130,7 +130,7 @@ describe("NestedDropdownFilter", () => {
 
     const zoneRow = screen.getByTestId("nested-dropdown-filter-row-zone");
     expect(zoneRow).toBeDisabled();
-    expect(screen.getByText("(no values)")).toBeInTheDocument();
+    expect(screen.getByText("no zones")).toBeInTheDocument();
   });
 
   it("opens a nested submenu and propagates selection via onCheckboxChange", async () => {
@@ -182,6 +182,20 @@ describe("NestedDropdownFilter", () => {
     fireEvent.click(screen.getByTestId("nested-dropdown-filter"));
 
     expect(screen.queryByText("Clear all")).not.toBeInTheDocument();
+  });
+
+  it("renders the Clear all footer as a full-width action with row-aligned horizontal inset", () => {
+    const categories: FilterCategory[] = [
+      checkbox("status", "Status", [{ id: "hashing", label: "Hashing" }], ["hashing"]),
+    ];
+
+    render(<NestedDropdownFilter label="Filters" categories={categories} {...noopCallbacks()} onClearAll={vi.fn()} />);
+
+    fireEvent.click(screen.getByTestId("nested-dropdown-filter"));
+
+    const clearAllButton = screen.getByText("Clear all").closest("button");
+    expect(clearAllButton).not.toBeNull();
+    expect(clearAllButton?.className).toContain("mx-2");
   });
 });
 

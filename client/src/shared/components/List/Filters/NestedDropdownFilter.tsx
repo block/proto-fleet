@@ -50,6 +50,8 @@ const categorySelectedCount = (category: FilterCategory): number => {
 const categoryIsEmpty = (category: FilterCategory): boolean =>
   category.kind === "checkbox" && category.options.length === 0;
 
+const categoryEmptyLabel = (category: FilterCategory): string => `no ${category.label.toLowerCase()}`;
+
 type CategoryRowButtonProps = {
   category: FilterCategory;
   onClick: () => void;
@@ -86,7 +88,7 @@ const CategoryRowButton = ({ category, onClick, isActive = false }: CategoryRowB
         </span>
       ) : null}
       <span className="grow" />
-      {isEmpty ? <span className="text-300 text-text-primary-70">(no values)</span> : null}
+      {isEmpty ? <span className="text-300 text-text-primary-70">{categoryEmptyLabel(category)}</span> : null}
       {!isEmpty ? <ChevronDown width="w-3" className="-rotate-90 opacity-60" /> : null}
     </button>
   );
@@ -363,6 +365,7 @@ const NestedDropdownFilterContent = ({
                   {
                     text: "Clear all",
                     variant: variants.secondary,
+                    className: "mx-2",
                     onClick: () => {
                       onClearAll();
                       closeAll();
