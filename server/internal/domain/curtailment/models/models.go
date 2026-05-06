@@ -41,6 +41,8 @@ func (s EventState) IsTerminal() bool {
 	case EventStateCompleted, EventStateCompletedWithFailures,
 		EventStateCancelled, EventStateFailed:
 		return true
+	case EventStatePending, EventStateActive, EventStateRestoring:
+		return false
 	}
 	return false
 }

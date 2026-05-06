@@ -69,7 +69,7 @@ func (s *Service) Preview(ctx context.Context, req PreviewRequest) (*Plan, error
 	// service trusts that the override has cleared that gate.
 	minPowerW := orgConfig.CandidateMinPowerW
 	if req.CandidateMinPowerWOverride != nil {
-		minPowerW = int32(*req.CandidateMinPowerWOverride)
+		minPowerW = *req.CandidateMinPowerWOverride
 	}
 
 	// Cooldown bypass: EMERGENCY priority skips post_event_cooldown_sec.

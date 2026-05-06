@@ -1,6 +1,8 @@
 package curtailment
 
 import (
+	"math"
+
 	pb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
@@ -49,7 +51,15 @@ func translatePreviewRequest(msg *pb.PreviewCurtailmentPlanRequest, orgID int64)
 		ForceIncludeMaintenance: msg.GetForceIncludeMaintenance(),
 	}
 	if override := msg.CandidateMinPowerWOverride; override != nil {
-		v := int32(*override)
+		// Defense-in-depth bounds check: the proto validator caps the
+		// override well below int32's max, but if interceptor wiring is
+		// ever bypassed, reject loudly rather than wrap silently.
+		if *override > math.MaxInt32 {
+			return curtailment.PreviewRequest{}, fleeterror.NewInvalidArgumentErrorf(
+				"candidate_min_power_w_override exceeds int32 max: %d", *override,
+			)
+		}
+		v := int32(*override) // #nosec G115 -- bounds-checked above
 		out.CandidateMinPowerWOverride = &v
 	}
 	return out, nil
@@ -137,6 +147,14 @@ func priorityName(p pb.CurtailmentPriority) string {
 	switch p {
 	case pb.CurtailmentPriority_CURTAILMENT_PRIORITY_EMERGENCY:
 		return "EMERGENCY"
+	case pb.CurtailmentPriority_CURTAILMENT_PRIORITY_UNSPECIFIED,
+		pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL,
+		pb.CurtailmentPriority_CURTAILMENT_PRIORITY_HIGH:
+		// HIGH is reserved-but-undesigned in v1; the proto validator
+		// rejects it before this function runs. UNSPECIFIED and NORMAL
+		// both map to NORMAL since the service treats absent priority as
+		// the default.
+		return "NORMAL"
 	default:
 		return "NORMAL"
 	}
