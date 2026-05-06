@@ -1,6 +1,7 @@
 import { testConfig } from "../config/test.config";
 import { test } from "../fixtures/pageFixtures";
 import { CommonSteps } from "../helpers/commonSteps";
+import { PROTO_RIG_MODEL } from "../helpers/minerModels";
 import { AuthPage } from "../pages/auth";
 import { MinersPage } from "../pages/miners";
 import { type RackSelectorMiner, RacksPage } from "../pages/racks";
@@ -91,6 +92,31 @@ test.describe("Racks", () => {
     test.expect(slotNumbers).toHaveLength(minerCount);
 
     await racksPage.clickAddMiners();
+    await racksPage.waitForMinerSelectorListToLoad();
+
+    const selectableMinerIndexes = await racksPage.getSelectableMinerIndexes(minerCount);
+    const selectedMiners = await racksPage.getMinersFromSelector(selectableMinerIndexes);
+    await racksPage.selectMinersInSelectorByIndex(selectableMinerIndexes);
+    await racksPage.clickContinueInMinerSelector();
+
+    for (let i = 0; i < selectedMiners.length; i++) {
+      await racksPage.selectRackMiner(selectedMiners[i].ipAddress);
+      await racksPage.clickRackSlot(slotNumbers[i]);
+    }
+
+    return selectedMiners;
+  }
+
+  async function addSelectableRigMinersToSlots(
+    racksPage: RacksPage,
+    minerCount: number,
+    slotNumbers: readonly number[],
+  ): Promise<RackSelectorMiner[]> {
+    test.expect(slotNumbers).toHaveLength(minerCount);
+
+    await racksPage.clickAddMiners();
+    await racksPage.waitForMinerSelectorListToLoad();
+    await racksPage.filterModalType(PROTO_RIG_MODEL);
     await racksPage.waitForMinerSelectorListToLoad();
 
     const selectableMinerIndexes = await racksPage.getSelectableMinerIndexes(minerCount);
@@ -396,6 +422,66 @@ test.describe("Racks", () => {
       await minersPage.validateActiveFilterNotVisible(rackLabel);
       await minersPage.waitForMinersListToLoad();
       await minersPage.validateMinersAdded(expectedVisibleMinerCount);
+    });
+  });
+
+  test("Rack overview actions menu manages power for assigned rig miners", async ({ racksPage, minersPage, page }) => {
+    let rackLabel = "";
+    let selectedMiners: RackSelectorMiner[] = [];
+
+    await test.step("Create and save a new rack with two rig miners", async () => {
+      await racksPage.clickAddRackButton();
+      await racksPage.inputZone(AUTOMATION_ZONE);
+
+      rackLabel = await racksPage.getGeneratedRackLabel();
+      test.expect(rackLabel).toBeTruthy();
+
+      await racksPage.enableCustomRackLayout();
+      await racksPage.inputColumns(RACK_COLUMNS);
+      await racksPage.inputRows(RACK_ROWS);
+      await racksPage.clickContinueFromRackSettings();
+
+      selectedMiners = await addSelectableRigMinersToSlots(racksPage, 2, [1, 2]);
+      test.expect(selectedMiners).toHaveLength(2);
+
+      await racksPage.clickSaveRack();
+      await racksPage.validateRackToast(rackLabel);
+    });
+
+    await test.step("Open the rack overview and validate assigned slots", async () => {
+      await racksPage.clickViewGrid();
+      await racksPage.openRackCard(rackLabel, AUTOMATION_ZONE);
+      await racksPage.validateRackOverviewAssignedSlots([1, 2]);
+    });
+
+    const requestPromise = page.waitForRequest(/SetPowerTarget/);
+    const responsePromise = page.waitForResponse(/SetPowerTarget/);
+
+    await test.step("Use the overview actions menu to reduce power", async () => {
+      await racksPage.openRackOverviewActionsMenu();
+      await racksPage.clickRackOverviewManagePower();
+      await minersPage.clickReducePowerOption();
+      await minersPage.clickManagePowerConfirm();
+    });
+
+    await test.step("Validate manage power toasts", async () => {
+      await minersPage.validateTextInToastGroup("Updating power settings");
+      await minersPage.validateTextInToastGroup("Updated power settings");
+    });
+
+    await test.step("Validate the SetPowerTarget request targets the rack miners", async () => {
+      const request = await requestPromise;
+      const response = await responsePromise;
+      const requestBody = request.postDataJSON();
+
+      test.expect(request.method()).toBe("POST");
+      test.expect(requestBody).toHaveProperty("performanceMode");
+      test.expect(requestBody.performanceMode).toBe("PERFORMANCE_MODE_EFFICIENCY");
+      test.expect(requestBody).toHaveProperty("deviceSelector");
+      test.expect(requestBody.deviceSelector).toHaveProperty("includeDevices");
+      test.expect(requestBody.deviceSelector.includeDevices).toHaveProperty("deviceIdentifiers");
+      test.expect(requestBody.deviceSelector.includeDevices.deviceIdentifiers).toHaveLength(2);
+      test.expect(response.status()).toBe(200);
     });
   });
 

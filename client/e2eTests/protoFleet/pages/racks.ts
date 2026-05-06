@@ -91,6 +91,16 @@ export class RacksPage extends BasePage {
     await this.validateTitleInModal("Select miners");
   }
 
+  async filterModalType(type: string) {
+    await this.page.getByTestId("modal").getByTestId("filter-dropdown-Model").click();
+    const popover = this.page.getByTestId("dropdown-filter-popover");
+    await expect(popover).toBeVisible();
+    await expect(popover).toHaveCSS("opacity", "1");
+    await this.clickDropdownFilterOption(popover, type);
+    await popover.getByRole("button", { name: "Apply" }).click();
+    await expect(popover).toBeHidden();
+  }
+
   async waitForMinerSelectorListToLoad() {
     await this.modalMinerList.waitForListToLoad();
   }
@@ -403,6 +413,16 @@ export class RacksPage extends BasePage {
 
   async clickEditRack() {
     await this.clickButton("Edit rack");
+  }
+
+  async openRackOverviewActionsMenu() {
+    await this.page.getByLabel("Device set actions").click();
+    await expect(this.page.getByTestId("group-actions-popover")).toBeVisible();
+  }
+
+  async clickRackOverviewManagePower() {
+    await this.page.getByTestId("manage-power-popover-button").click();
+    await this.validateTitleInModal("Manage power");
   }
 
   async clickDeleteRack() {
