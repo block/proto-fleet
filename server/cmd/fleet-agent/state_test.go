@@ -37,16 +37,7 @@ func TestSaveLoadState_RoundTrip(t *testing.T) {
 	// Assert
 	require.NoError(t, err)
 	require.True(t, exists)
-	assert.Equal(t, original.ServerURL, loaded.ServerURL)
-	assert.Equal(t, original.AgentID, loaded.AgentID)
-	assert.Equal(t, original.IdentityFingerprint, loaded.IdentityFingerprint)
-	assert.Equal(t, original.IdentityPrivateKeyHex, loaded.IdentityPrivateKeyHex)
-	assert.Equal(t, original.IdentityPublicKeyHex, loaded.IdentityPublicKeyHex)
-	assert.Equal(t, original.MinerSigningPrivateKeyHex, loaded.MinerSigningPrivateKeyHex)
-	assert.Equal(t, original.MinerSigningPublicKeyHex, loaded.MinerSigningPublicKeyHex)
-	assert.Equal(t, original.APIKey, loaded.APIKey)
-	assert.Equal(t, original.SessionToken, loaded.SessionToken)
-	assert.True(t, loaded.SessionExpiresAt.Equal(expectedTime), "want %s, got %s", expectedTime, loaded.SessionExpiresAt)
+	assert.Equal(t, original, loaded)
 }
 
 func TestLoadState_MalformedYAML(t *testing.T) {

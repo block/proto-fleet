@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/url"
 	"os"
 	"strings"
@@ -35,11 +36,11 @@ func (e *EnrollCmd) run(c *Context, stdin io.Reader, stdout, stderr io.Writer) e
 	}
 
 	path := statePath(c.StateDir)
-	existing, exists, err := loadState(path)
+	st, exists, err := loadState(path)
 	if err != nil {
 		return err
 	}
-	if exists && existing.AgentID != 0 && !e.Force {
+	if exists && st.AgentID != 0 && !e.Force {
 		return fmt.Errorf("state already populated at %s; pass --force to overwrite", path)
 	}
 
@@ -106,7 +107,7 @@ func (e *EnrollCmd) run(c *Context, stdin io.Reader, stdout, stderr io.Writer) e
 	}
 	state.APIKey = apiKey
 
-	// Persist before the handshake; a handshake failure now leaves a state file
+	// Persist before the handshake so a handshake failure leaves a state file
 	// the operator can recover from with `fleet-agent refresh`.
 	if err := saveState(path, state); err != nil {
 		return err
@@ -146,8 +147,10 @@ func validateServerURL(raw string, allowInsecure bool) error {
 }
 
 func isLoopbackHost(host string) bool {
-	switch host {
-	case "localhost", "127.0.0.1", "::1":
+	if host == "localhost" {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
 		return true
 	}
 	return false

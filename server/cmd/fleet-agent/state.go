@@ -73,8 +73,8 @@ func loadState(path string) (*State, bool, error) {
 	return &s, true, nil
 }
 
-// saveState writes atomically via a temp file in the same directory so a
-// crash mid-write cannot leave a half-formed state.yaml.
+// saveState writes via temp + rename so a crash mid-write cannot corrupt
+// state.yaml; the temp file lives in the same dir for same-filesystem rename.
 func saveState(path string, s *State) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {

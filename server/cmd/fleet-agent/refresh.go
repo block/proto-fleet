@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -13,6 +14,10 @@ import (
 type RefreshCmd struct{}
 
 func (r *RefreshCmd) Run(c *Context) error {
+	return r.run(c, os.Stdout)
+}
+
+func (r *RefreshCmd) run(c *Context, w io.Writer) error {
 	path := statePath(c.StateDir)
 	st, exists, err := loadState(path)
 	if err != nil {
@@ -44,9 +49,9 @@ func (r *RefreshCmd) Run(c *Context) error {
 		return err
 	}
 	if !st.SessionExpiresAt.IsZero() {
-		_, _ = fmt.Fprintf(os.Stdout, "refreshed session_expires_at=%s\n", st.SessionExpiresAt.Format(time.RFC3339))
+		_, _ = fmt.Fprintf(w, "refreshed session_expires_at=%s\n", st.SessionExpiresAt.Format(time.RFC3339))
 	} else {
-		_, _ = fmt.Fprintln(os.Stdout, "refreshed (server returned no expiry)")
+		_, _ = fmt.Fprintln(w, "refreshed (server returned no expiry)")
 	}
 	return nil
 }

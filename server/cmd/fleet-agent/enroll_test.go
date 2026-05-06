@@ -61,9 +61,10 @@ func TestEnrollCmd_PersistsStateBeforeHandshake(t *testing.T) {
 
 	// Arrange
 	dir := t.TempDir()
+	const pastedAPIKey = "wrong-key"
 	fake := &fakeAgentGateway{
 		expectedCode:   "code",
-		expectedAPIKey: "wrong-api-key-so-handshake-fails",
+		expectedAPIKey: "right-key",
 		agentID:        99,
 		challenge:      bytes.Repeat([]byte{0x01}, 32),
 	}
@@ -72,7 +73,7 @@ func TestEnrollCmd_PersistsStateBeforeHandshake(t *testing.T) {
 		ServerURL:              srv.URL,
 		Code:                   "code",
 		Name:                   "agent-99",
-		APIKey:                 "intentionally-wrong-key",
+		APIKey:                 pastedAPIKey,
 		AllowInsecureTransport: true,
 	}
 
@@ -85,55 +86,43 @@ func TestEnrollCmd_PersistsStateBeforeHandshake(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, exists, "state must persist after Register so the operator can recover via refresh")
 	assert.Equal(t, int64(99), loaded.AgentID)
-	assert.Equal(t, "intentionally-wrong-key", loaded.APIKey)
+	assert.Equal(t, pastedAPIKey, loaded.APIKey)
 	assert.Empty(t, loaded.SessionToken)
 }
 
-func TestEnrollCmd_RefusesPlainHTTPForRemoteHost(t *testing.T) {
+func TestValidateServerURL(t *testing.T) {
 	t.Parallel()
 
-	// Arrange
-	dir := t.TempDir()
-	cmd := &EnrollCmd{
-		ServerURL: "http://fleet.example.com",
-		Code:      "code",
-		APIKey:    "k",
+	cases := []struct {
+		name          string
+		url           string
+		allowInsecure bool
+		wantErr       string
+	}{
+		{name: "https accepted", url: "https://fleet.example.com", allowInsecure: false, wantErr: ""},
+		{name: "loopback http localhost", url: "http://localhost:4000", allowInsecure: false, wantErr: ""},
+		{name: "loopback http 127.0.0.1", url: "http://127.0.0.1:4000", allowInsecure: false, wantErr: ""},
+		{name: "loopback http 127.x.x.x", url: "http://127.5.6.7:4000", allowInsecure: false, wantErr: ""},
+		{name: "loopback http ipv6", url: "http://[::1]:4000", allowInsecure: false, wantErr: ""},
+		{name: "remote http rejected", url: "http://fleet.example.com", allowInsecure: false, wantErr: "https"},
+		{name: "remote http allowed via flag", url: "http://fleet.example.com", allowInsecure: true, wantErr: ""},
+		{name: "unknown scheme rejected", url: "ftp://fleet.example.com", allowInsecure: false, wantErr: "scheme"},
+		{name: "missing host rejected", url: "https://", allowInsecure: false, wantErr: "host"},
 	}
-
-	// Act
-	err := cmd.run(&Context{StateDir: dir}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
-
-	// Assert
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "https")
-}
-
-func TestEnrollCmd_AllowsLoopbackHTTP(t *testing.T) {
-	t.Parallel()
-
-	cases := []string{
-		"http://localhost:4000",
-		"http://127.0.0.1:4000",
-	}
-	for _, raw := range cases {
-		t.Run(raw, func(t *testing.T) {
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
 			// Act
-			err := validateServerURL(raw, false)
+			err := validateServerURL(tc.url, tc.allowInsecure)
 
 			// Assert
-			require.NoError(t, err)
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErr)
 		})
 	}
-}
-
-func TestValidateServerURL_AllowInsecureFlag(t *testing.T) {
-	t.Parallel()
-
-	// Act
-	err := validateServerURL("http://fleet.example.com", true)
-
-	// Assert
-	require.NoError(t, err)
 }
