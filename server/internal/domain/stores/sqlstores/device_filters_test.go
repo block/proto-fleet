@@ -761,23 +761,3 @@ func TestAppendFilterSQL_NumericAndCIDRWithExistingFilters_ArgContinuity(t *test
 	assert.Len(t, resultArgs, 5) // initial + model + 2 numeric + cidrs
 	assert.Equal(t, 6, resultArgNum)
 }
-
-func TestFilterRequiresTelemetry(t *testing.T) {
-	t.Run("true when numeric range present", func(t *testing.T) {
-		filter := &stores.MinerFilter{
-			NumericRanges: []stores.NumericRange{
-				{Field: stores.NumericFilterFieldHashrateTHs, Min: ptr(90.0)},
-			},
-		}
-		assert.True(t, filterRequiresTelemetry(filter))
-	})
-
-	t.Run("false when only non-telemetry filters", func(t *testing.T) {
-		filter := &stores.MinerFilter{ModelNames: []string{"S21 XP"}}
-		assert.False(t, filterRequiresTelemetry(filter))
-	})
-
-	t.Run("false on nil filter", func(t *testing.T) {
-		assert.False(t, filterRequiresTelemetry(nil))
-	})
-}

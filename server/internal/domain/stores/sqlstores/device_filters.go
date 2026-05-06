@@ -45,16 +45,6 @@ type minerFilterParams struct {
 	ipCIDRValues []string
 }
 
-// filterRequiresTelemetry reports whether any predicate in filter targets a
-// device_metrics column. When true, callers must build the latest_metrics CTE
-// and INNER-join it so missing telemetry naturally excludes the row.
-func filterRequiresTelemetry(filter *stores.MinerFilter) bool {
-	if filter == nil {
-		return false
-	}
-	return len(filter.NumericRanges) > 0
-}
-
 // buildMinerFilterParams converts a MinerFilter to SQL-ready parameters.
 func buildMinerFilterParams(filter *stores.MinerFilter) minerFilterParams {
 	var fp minerFilterParams
