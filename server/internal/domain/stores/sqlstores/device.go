@@ -485,9 +485,7 @@ func (s *SQLDeviceStore) buildModelGroupsQuerySQL(orgID int64, fp minerFilterPar
 	argNum := 2
 
 	filterNeedsTelemetry := len(fp.numericRanges) > 0
-	if filterNeedsTelemetry {
-		fmt.Fprintf(&sb, latestMetricsCTE+" ", "NULL")
-	}
+	appendTelemetryCTEPrefix(&sb, filterNeedsTelemetry, "NULL", false)
 
 	sb.WriteString(`SELECT discovered_device.model, discovered_device.manufacturer, COUNT(*)::int AS count`)
 	sb.WriteString(minerFromJoins)
@@ -1055,9 +1053,7 @@ func (s *SQLDeviceStore) buildCountQuerySQL(orgID int64, fp minerFilterParams) (
 	argNum := 2
 
 	filterNeedsTelemetry := len(fp.numericRanges) > 0
-	if filterNeedsTelemetry {
-		fmt.Fprintf(&sb, latestMetricsCTE+" ", "NULL")
-	}
+	appendTelemetryCTEPrefix(&sb, filterNeedsTelemetry, "NULL", false)
 
 	sb.WriteString(`SELECT COUNT(*)` + minerFromJoins)
 	if filterNeedsTelemetry {
@@ -1079,11 +1075,7 @@ func (s *SQLDeviceStore) buildStateCountsQuerySQL(orgID int64, fp minerFilterPar
 	argNum := 2
 
 	filterNeedsTelemetry := len(fp.numericRanges) > 0
-	if filterNeedsTelemetry {
-		fmt.Fprintf(&sb, latestMetricsCTE+", ", "NULL")
-	} else {
-		sb.WriteString("WITH ")
-	}
+	appendTelemetryCTEPrefix(&sb, filterNeedsTelemetry, "NULL", true)
 
 	sb.WriteString(`open_errors AS (
     SELECT DISTINCT device_id
@@ -1299,9 +1291,7 @@ func buildDeviceIdentifiersByOrgWithFilterQuerySQL(orgID int64, fp minerFilterPa
 	argNum := 2
 	filterNeedsTelemetry := len(fp.numericRanges) > 0
 
-	if filterNeedsTelemetry {
-		fmt.Fprintf(&sb, latestMetricsCTE+" ", "NULL")
-	}
+	appendTelemetryCTEPrefix(&sb, filterNeedsTelemetry, "NULL", false)
 	sb.WriteString(`SELECT device.device_identifier
 FROM device
 JOIN discovered_device ON device.discovered_device_id = discovered_device.id
@@ -1318,6 +1308,17 @@ WHERE device.deleted_at IS NULL
 
 	args, _ = appendFilterSQL(&sb, args, argNum, orgID, fp)
 	return sb.String(), args
+}
+
+func appendTelemetryCTEPrefix(sb *strings.Builder, includeLatestMetrics bool, metricExpr string, keepWithOpen bool) {
+	switch {
+	case includeLatestMetrics && keepWithOpen:
+		fmt.Fprintf(sb, latestMetricsCTE+", ", metricExpr)
+	case includeLatestMetrics:
+		fmt.Fprintf(sb, latestMetricsCTE+" ", metricExpr)
+	case keepWithOpen:
+		sb.WriteString("WITH ")
+	}
 }
 
 // GetMinerStateCountsByCollections returns miner state counts grouped by collection ID.
