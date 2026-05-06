@@ -8,6 +8,7 @@ import (
 	"time"
 
 	collectionpb "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
+	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
@@ -225,6 +226,36 @@ func TestIPCIDRFilter_MultipleCIDRsActAsOR(t *testing.T) {
 	assert.Equal(t, int64(2), total)
 }
 
+func TestIPCIDRFilter_IgnoresBlankStoredIPs(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	dbSvc := testContext.DatabaseService
+	db := testContext.ServiceProvider.DB
+	deviceStore := sqlstores.NewSQLDeviceStore(db)
+	ctx := t.Context()
+
+	user := dbSvc.CreateSuperAdminUser()
+	devValid := dbSvc.CreateDevice(user.OrganizationID, "proto")
+	devBlank := dbSvc.CreateDevice(user.OrganizationID, "proto")
+
+	setDeviceIP(t, db, devValid.DatabaseID, "192.168.1.50")
+	setDeviceIP(t, db, devBlank.DatabaseID, "")
+
+	filter := &stores.MinerFilter{
+		IPCIDRs: []netip.Prefix{netip.MustParsePrefix("192.168.1.0/24")},
+	}
+
+	rows, _, total, err := deviceStore.ListMinerStateSnapshots(ctx, user.OrganizationID, "", 100, filter, nil)
+	require.NoError(t, err)
+
+	ids := identifiers(rows)
+	assert.Equal(t, []string{devValid.ID}, ids, "blank stored IPs should be ignored, not fail the query")
+	assert.Equal(t, int64(1), total)
+}
+
 func TestNumericAndCIDRFilter_AndCorrectly(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping database integration test in short mode")
@@ -266,6 +297,93 @@ func TestNumericAndCIDRFilter_AndCorrectly(t *testing.T) {
 	assert.Equal(t, int64(1), total)
 }
 
+func TestGetDeviceIdentifiersByOrgWithFilter_NumericRange(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	dbSvc := testContext.DatabaseService
+	db := testContext.ServiceProvider.DB
+	deviceStore := sqlstores.NewSQLDeviceStore(db)
+	ctx := t.Context()
+
+	user := dbSvc.CreateSuperAdminUser()
+	devAbove := dbSvc.CreateDevice(user.OrganizationID, "proto")
+	devBelow := dbSvc.CreateDevice(user.OrganizationID, "proto")
+	pairDeviceForFilterTest(t, ctx, deviceStore, user.OrganizationID, devAbove.ID)
+	pairDeviceForFilterTest(t, ctx, deviceStore, user.OrganizationID, devBelow.ID)
+
+	now := time.Now().UTC()
+	insertMetric(t, db, devAbove.ID, now, 95e12)
+	insertMetric(t, db, devBelow.ID, now, 85e12)
+
+	threshold := 90.0
+	filter := &stores.MinerFilter{
+		NumericRanges: []stores.NumericRange{
+			{Field: stores.NumericFilterFieldHashrateTHs, Min: &threshold},
+		},
+	}
+
+	identifiers, err := deviceStore.GetDeviceIdentifiersByOrgWithFilter(ctx, user.OrganizationID, filter)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{devAbove.ID}, identifiers)
+}
+
+func TestCountMinersByState_NumericAndCIDRFiltersMatchList(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	dbSvc := testContext.DatabaseService
+	db := testContext.ServiceProvider.DB
+	deviceStore := sqlstores.NewSQLDeviceStore(db)
+	ctx := t.Context()
+
+	user := dbSvc.CreateSuperAdminUser()
+	devHashing := dbSvc.CreateDevice(user.OrganizationID, "proto")
+	devBroken := dbSvc.CreateDevice(user.OrganizationID, "proto")
+	devOutsideSubnet := dbSvc.CreateDevice(user.OrganizationID, "proto")
+	pairDeviceForFilterTest(t, ctx, deviceStore, user.OrganizationID, devHashing.ID)
+	pairDeviceForFilterTest(t, ctx, deviceStore, user.OrganizationID, devBroken.ID)
+	pairDeviceForFilterTest(t, ctx, deviceStore, user.OrganizationID, devOutsideSubnet.ID)
+
+	setDeviceIP(t, db, devHashing.DatabaseID, "192.168.1.10")
+	setDeviceIP(t, db, devBroken.DatabaseID, "192.168.1.20")
+	setDeviceIP(t, db, devOutsideSubnet.DatabaseID, "10.0.0.1")
+
+	now := time.Now().UTC()
+	insertMetric(t, db, devHashing.ID, now, 95e12)
+	insertMetric(t, db, devBroken.ID, now, 95e12)
+	insertMetric(t, db, devOutsideSubnet.ID, now, 95e12)
+
+	setDeviceStatus(t, db, devHashing.DatabaseID, sqlc.DeviceStatusEnumACTIVE)
+	setDeviceStatus(t, db, devBroken.DatabaseID, sqlc.DeviceStatusEnumERROR)
+	setDeviceStatus(t, db, devOutsideSubnet.DatabaseID, sqlc.DeviceStatusEnumACTIVE)
+
+	threshold := 90.0
+	filter := &stores.MinerFilter{
+		NumericRanges: []stores.NumericRange{
+			{Field: stores.NumericFilterFieldHashrateTHs, Min: &threshold},
+		},
+		IPCIDRs: []netip.Prefix{netip.MustParsePrefix("192.168.1.0/24")},
+	}
+
+	rows, _, total, err := deviceStore.ListMinerStateSnapshots(ctx, user.OrganizationID, "", 100, filter, nil)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{devHashing.ID, devBroken.ID}, identifiers(rows))
+	assert.Equal(t, int64(2), total)
+
+	counts, err := deviceStore.GetMinerStateCounts(ctx, user.OrganizationID, filter)
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), counts.HashingCount)
+	assert.Equal(t, int32(1), counts.BrokenCount)
+	assert.Equal(t, int32(0), counts.OfflineCount)
+	assert.Equal(t, int32(0), counts.SleepingCount)
+	assert.Equal(t, total, int64(counts.HashingCount+counts.BrokenCount))
+}
+
 // insertMetric inserts a single device_metrics row with a given hash rate
 // (raw H/s, e.g. 95e12 for 95 TH/s) at the supplied time. Other measurements
 // are left NULL.
@@ -305,6 +423,16 @@ func identifiers(rows []sqlc.ListMinerStateSnapshotsRow) []string {
 		out = append(out, r.DeviceIdentifier)
 	}
 	return out
+}
+
+func pairDeviceForFilterTest(t *testing.T, ctx context.Context, store *sqlstores.SQLDeviceStore, orgID int64, deviceIdentifier string) {
+	t.Helper()
+	require.NoError(t, store.UpsertDevicePairing(
+		ctx,
+		&pb.Device{DeviceIdentifier: deviceIdentifier},
+		orgID,
+		string(sqlc.PairingStatusEnumPAIRED),
+	))
 }
 
 // TestZoneFilter_ExcludesSoftDeletedRack proves that soft-deleting a rack

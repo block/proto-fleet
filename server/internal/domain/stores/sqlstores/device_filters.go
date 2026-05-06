@@ -313,7 +313,7 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 	if fp.ipCIDRsFilter.Valid {
 		fmt.Fprintf(sb,
 			" AND EXISTS (SELECT 1 FROM unnest($%d::cidr[]) c"+
-				" WHERE discovered_device.ip_address::inet <<= c)",
+				" WHERE NULLIF(discovered_device.ip_address, '')::inet <<= c)",
 			argNum)
 		args = append(args, pq.Array(fp.ipCIDRValues))
 		argNum++

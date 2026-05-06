@@ -346,6 +346,9 @@ func (s *SQLDeviceStore) GetAllPairedDeviceIdentifiers(ctx context.Context) ([]m
 // and mirror MinerStatus.tsx (auth-needed overrides sleeping).
 func (s *SQLDeviceStore) GetMinerStateCounts(ctx context.Context, orgID int64, filter *stores.MinerFilter) (*tm.MinerStateCounts, error) {
 	fp := buildMinerFilterParams(filter)
+	if len(fp.numericRanges) > 0 || fp.ipCIDRsFilter.Valid {
+		return s.executeStateCountsQuery(ctx, orgID, fp)
+	}
 
 	counts, err := s.getQueries(ctx).CountMinersByState(ctx, sqlc.CountMinersByStateParams{
 		OrgID:                   orgID,
@@ -1013,6 +1016,25 @@ func (s *SQLDeviceStore) executeListQuery(ctx context.Context, orgID int64, curs
 	return rows, nil
 }
 
+// executeStateCountsQuery returns miner state counts using the dynamic filter
+// builder. This path is required for filters that the static sqlc query cannot
+// express (numeric telemetry ranges, CIDR membership).
+func (s *SQLDeviceStore) executeStateCountsQuery(ctx context.Context, orgID int64, fp minerFilterParams) (*tm.MinerStateCounts, error) {
+	query, args := s.buildStateCountsQuerySQL(orgID, fp)
+
+	var offlineCount, sleepingCount, brokenCount, hashingCount int64
+	if err := s.conn.QueryRowContext(ctx, query, args...).Scan(&offlineCount, &sleepingCount, &brokenCount, &hashingCount); err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to count miners by state: %v", err)
+	}
+
+	return &tm.MinerStateCounts{
+		HashingCount:  int32(hashingCount),  //nolint:gosec // Miner counts bounded by fleet size (<millions)
+		BrokenCount:   int32(brokenCount),   //nolint:gosec // Miner counts bounded by fleet size (<millions)
+		OfflineCount:  int32(offlineCount),  //nolint:gosec // Miner counts bounded by fleet size (<millions)
+		SleepingCount: int32(sleepingCount), //nolint:gosec // Miner counts bounded by fleet size (<millions)
+	}, nil
+}
+
 // executeCountQuery returns the total count of miners matching fp by running
 // the dynamic builder. Used when filter shape can't be expressed in the static
 // sqlc count query (numeric ranges, CIDR membership).
@@ -1044,6 +1066,76 @@ func (s *SQLDeviceStore) buildCountQuerySQL(orgID int64, fp minerFilterParams) (
 	sb.WriteString(minerWhereClause)
 
 	args, _ = appendFilterSQL(&sb, args, argNum, orgID, fp)
+
+	return sb.String(), args
+}
+
+// buildStateCountsQuerySQL mirrors CountMinersByState's bucket logic while
+// routing predicate composition through appendFilterSQL so numeric/CIDR filters
+// stay aligned with the filtered list response.
+func (s *SQLDeviceStore) buildStateCountsQuerySQL(orgID int64, fp minerFilterParams) (string, []any) {
+	var sb strings.Builder
+	args := []any{orgID}
+	argNum := 2
+
+	filterNeedsTelemetry := len(fp.numericRanges) > 0
+	if filterNeedsTelemetry {
+		fmt.Fprintf(&sb, latestMetricsCTE+", ", "NULL")
+	} else {
+		sb.WriteString("WITH ")
+	}
+
+	sb.WriteString(`open_errors AS (
+    SELECT DISTINCT device_id
+    FROM errors
+    WHERE errors.org_id = $1
+      AND errors.closed_at IS NULL
+      AND errors.severity IN (1, 2, 3, 4)
+)
+SELECT
+    COALESCE(SUM(CASE
+        WHEN filtered.status = 'OFFLINE'
+             OR (filtered.status IS NULL AND filtered.pairing_status != 'AUTHENTICATION_NEEDED')
+        THEN 1 ELSE 0
+    END), 0)::bigint AS offline_count,
+    COALESCE(SUM(CASE
+        WHEN filtered.status IN ('MAINTENANCE', 'INACTIVE')
+             AND filtered.pairing_status != 'AUTHENTICATION_NEEDED'
+        THEN 1 ELSE 0
+    END), 0)::bigint AS sleeping_count,
+    COALESCE(SUM(CASE
+        WHEN filtered.status IS DISTINCT FROM 'OFFLINE'
+             AND NOT (filtered.status IS NULL AND filtered.pairing_status != 'AUTHENTICATION_NEEDED')
+             AND NOT (filtered.status IN ('MAINTENANCE', 'INACTIVE') AND filtered.pairing_status != 'AUTHENTICATION_NEEDED')
+             AND (filtered.status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
+                  OR filtered.pairing_status = 'AUTHENTICATION_NEEDED'
+                  OR filtered.has_open_error)
+        THEN 1 ELSE 0
+    END), 0)::bigint AS broken_count,
+    COALESCE(SUM(CASE
+        WHEN filtered.status = 'ACTIVE'
+             AND filtered.pairing_status != 'AUTHENTICATION_NEEDED'
+             AND NOT filtered.has_open_error
+        THEN 1 ELSE 0
+    END), 0)::bigint AS hashing_count
+FROM (
+    SELECT
+        device_status.status,
+        device_pairing.pairing_status,
+        open_errors.device_id IS NOT NULL AS has_open_error`)
+	sb.WriteString(minerFromJoins)
+	if filterNeedsTelemetry {
+		sb.WriteString(" " + minerTelemetryInnerJoin)
+	}
+	sb.WriteString(`
+LEFT JOIN open_errors ON device.id = open_errors.device_id`)
+	sb.WriteString(minerWhereClause)
+	sb.WriteString(`
+    AND device_pairing.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED')`)
+
+	args, _ = appendFilterSQL(&sb, args, argNum, orgID, fp)
+	sb.WriteString(`
+) filtered`)
 
 	return sb.String(), args
 }
@@ -1178,23 +1270,9 @@ func (s *SQLDeviceStore) GetDeviceIdentifiersByOrgWithFilter(ctx context.Context
 		fp.pairingStatusValues = []string{"PAIRED"}
 	}
 
-	var sb strings.Builder
-	args := []any{orgID}
-	argNum := 2
+	query, args := buildDeviceIdentifiersByOrgWithFilterQuerySQL(orgID, fp)
 
-	sb.WriteString(`SELECT device.device_identifier
-FROM device
-JOIN discovered_device ON device.discovered_device_id = discovered_device.id
-JOIN device_pairing ON device.id = device_pairing.device_id
-LEFT JOIN device_status ON device.id = device_status.device_id
-WHERE device.deleted_at IS NULL
-    AND device.org_id = $1
-    AND discovered_device.is_active = TRUE
-    AND discovered_device.deleted_at IS NULL`)
-
-	args, _ = appendFilterSQL(&sb, args, argNum, orgID, fp)
-
-	rows, err := s.conn.QueryContext(ctx, sb.String(), args...)
+	rows, err := s.conn.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to get filtered device identifiers for org %d: %v", orgID, err)
 	}
@@ -1213,6 +1291,33 @@ WHERE device.deleted_at IS NULL
 	}
 
 	return identifiers, nil
+}
+
+func buildDeviceIdentifiersByOrgWithFilterQuerySQL(orgID int64, fp minerFilterParams) (string, []any) {
+	var sb strings.Builder
+	args := []any{orgID}
+	argNum := 2
+	filterNeedsTelemetry := len(fp.numericRanges) > 0
+
+	if filterNeedsTelemetry {
+		fmt.Fprintf(&sb, latestMetricsCTE+" ", "NULL")
+	}
+	sb.WriteString(`SELECT device.device_identifier
+FROM device
+JOIN discovered_device ON device.discovered_device_id = discovered_device.id
+JOIN device_pairing ON device.id = device_pairing.device_id
+LEFT JOIN device_status ON device.id = device_status.device_id`)
+	if filterNeedsTelemetry {
+		sb.WriteString(" " + minerTelemetryInnerJoin)
+	}
+	sb.WriteString(`
+WHERE device.deleted_at IS NULL
+    AND device.org_id = $1
+    AND discovered_device.is_active = TRUE
+    AND discovered_device.deleted_at IS NULL`)
+
+	args, _ = appendFilterSQL(&sb, args, argNum, orgID, fp)
+	return sb.String(), args
 }
 
 // GetMinerStateCountsByCollections returns miner state counts grouped by collection ID.

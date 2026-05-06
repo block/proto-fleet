@@ -39,7 +39,9 @@ import ViewsBar from "@/protoFleet/features/fleetManagement/components/ViewsBar"
 import type { BatchOperation } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
 
 import {
+  encodeActiveFiltersToURL,
   encodeFilterToURL,
+  FILTER_URL_PARAM_KEYS,
   parseUrlToActiveFilters,
 } from "@/protoFleet/features/fleetManagement/utils/filterUrlParams";
 import { encodeSortToURL, parseSortFromURL } from "@/protoFleet/features/fleetManagement/utils/sortUrlParams";
@@ -595,26 +597,7 @@ const MinerList = ({
   );
   const activeCols = useMemo(() => buildActiveMinerColumns(columnPreferences), [columnPreferences]);
 
-  const hasActiveFilters = useMemo(() => {
-    if (
-      searchParams.has("status") ||
-      searchParams.has("issues") ||
-      searchParams.has("model") ||
-      searchParams.has("group") ||
-      searchParams.has("rack") ||
-      searchParams.has("firmware") ||
-      searchParams.has("zone") ||
-      searchParams.has("subnet")
-    ) {
-      return true;
-    }
-    // Numeric range filters use `<key>_min` / `<key>_max` URL params, one
-    // pair per telemetry field. Mirror the keys defined in
-    // telemetryFilterBounds so adding a new field auto-extends this check.
-    return (Object.keys(TELEMETRY_FILTER_BOUNDS) as TelemetryFilterKey[]).some(
-      (key) => searchParams.has(`${key}_min`) || searchParams.has(`${key}_max`),
-    );
-  }, [searchParams]);
+  const hasActiveFilters = useMemo(() => FILTER_URL_PARAM_KEYS.some((key) => searchParams.has(key)), [searchParams]);
   useEffect(() => {
     if (!sortColumnFromUrl || activeCols.includes(sortColumnFromUrl)) {
       return;
@@ -630,26 +613,13 @@ const MinerList = ({
   }, [activeCols, navigate, searchParams, sortColumnFromUrl]);
 
   const selectionFilterKey = useMemo(() => {
-    const params = new URLSearchParams();
-    ["status", "issues", "model", "firmware", "zone"].forEach((key) => {
-      searchParams
-        .getAll(key)
-        .sort()
-        .forEach((value) => params.append(key, value));
-    });
-    return params.toString();
-  }, [searchParams]);
+    return encodeActiveFiltersToURL(initialActiveFilters).toString();
+  }, [initialActiveFilters]);
   const selectionScopeKey = useMemo(() => `${selectionFilterKey}:${currentPage}`, [currentPage, selectionFilterKey]);
 
   const handleClearFilters = useCallback(() => {
     const nextSearchParams = new URLSearchParams(searchParams);
-    nextSearchParams.delete("status");
-    nextSearchParams.delete("issues");
-    nextSearchParams.delete("model");
-    nextSearchParams.delete("group");
-    nextSearchParams.delete("rack");
-    nextSearchParams.delete("firmware");
-    nextSearchParams.delete("zone");
+    FILTER_URL_PARAM_KEYS.forEach((key) => nextSearchParams.delete(key));
     nextSearchParams.delete(VIEW_URL_PARAM);
 
     const nextSearch = nextSearchParams.toString();

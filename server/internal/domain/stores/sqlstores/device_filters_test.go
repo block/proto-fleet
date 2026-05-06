@@ -714,7 +714,7 @@ func TestAppendFilterSQL_IPCIDRs_EmitsUnnestExists(t *testing.T) {
 
 	sql := sb.String()
 	assert.Contains(t, sql, "unnest($2::cidr[])")
-	assert.Contains(t, sql, "discovered_device.ip_address::inet <<=")
+	assert.Contains(t, sql, "NULLIF(discovered_device.ip_address, '')::inet <<=")
 	// Single param regardless of CIDR count.
 	assert.Len(t, resultArgs, 2)
 	assert.Equal(t, 3, resultArgNum)

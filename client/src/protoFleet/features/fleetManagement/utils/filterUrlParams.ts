@@ -29,6 +29,11 @@ const NUMERIC_KEYS: TelemetryFilterKey[] = ["hashrate", "efficiency", "power", "
 const numericMinParam = (key: TelemetryFilterKey) => `${key}_min`;
 const numericMaxParam = (key: TelemetryFilterKey) => `${key}_max`;
 
+export const FILTER_URL_PARAM_KEYS: readonly string[] = [
+  ...Object.values(URL_PARAMS),
+  ...NUMERIC_KEYS.flatMap((key) => [numericMinParam(key), numericMaxParam(key)]),
+];
+
 const numericKeyFromProtoField = (field: NumericField): TelemetryFilterKey | undefined => {
   switch (field) {
     case NumericField.HASHRATE_THS:
@@ -173,18 +178,7 @@ export function encodeFilterToURL(filter: MinerListFilter): URLSearchParams {
  * Parses URL search parameters into a MinerListFilter
  */
 export function parseFilterFromURL(params: URLSearchParams): MinerListFilter | undefined {
-  const hasAnyFilter =
-    [
-      URL_PARAMS.STATUS,
-      URL_PARAMS.ISSUES,
-      URL_PARAMS.MODEL,
-      URL_PARAMS.GROUP,
-      URL_PARAMS.RACK,
-      URL_PARAMS.FIRMWARE,
-      URL_PARAMS.ZONE,
-      URL_PARAMS.SUBNET,
-    ].some((key) => params.has(key)) ||
-    NUMERIC_KEYS.some((key) => params.has(numericMinParam(key)) || params.has(numericMaxParam(key)));
+  const hasAnyFilter = FILTER_URL_PARAM_KEYS.some((key) => params.has(key));
 
   if (!hasAnyFilter) {
     return undefined;
