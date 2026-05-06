@@ -404,6 +404,78 @@ type CommandOnDeviceLog struct {
 	MacAddress        sql.NullString
 }
 
+type CurtailmentEvent struct {
+	ID                      int64
+	EventUuid               uuid.UUID
+	OrgID                   int64
+	State                   string
+	Mode                    string
+	Strategy                string
+	Level                   string
+	Priority                string
+	LoopType                string
+	ScopeType               string
+	ScopeJsonb              json.RawMessage
+	ModeParamsJsonb         json.RawMessage
+	RestoreBatchSize        int32
+	RestoreBatchIntervalSec int32
+	EffectiveBatchSize      sql.NullInt32
+	MinCurtailedDurationSec int32
+	MaxDurationSeconds      sql.NullInt32
+	AllowUnbounded          bool
+	IncludeMaintenance      bool
+	ForceIncludeMaintenance bool
+	DecisionSnapshotJsonb   json.RawMessage
+	SourceActorType         string
+	SourceActorID           sql.NullString
+	ExternalSource          sql.NullString
+	ExternalReference       sql.NullString
+	IdempotencyKey          sql.NullString
+	SupersedesEventID       sql.NullInt64
+	Reason                  string
+	ScheduledStartAt        sql.NullTime
+	StartedAt               sql.NullTime
+	EndedAt                 sql.NullTime
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
+}
+
+type CurtailmentOrgConfig struct {
+	OrgID                 int64
+	MaxDurationDefaultSec int32
+	CandidateMinPowerW    int32
+	PostEventCooldownSec  int32
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+}
+
+type CurtailmentReconcilerHeartbeat struct {
+	ID                 int16
+	LastTickAt         time.Time
+	LastTickUuid       uuid.UUID
+	LastTickDurationMs sql.NullInt32
+	ActiveEventCount   int32
+}
+
+type CurtailmentTarget struct {
+	CurtailmentEventID     int64
+	DeviceIdentifier       string
+	TargetType             string
+	State                  string
+	DesiredState           string
+	BaselinePowerW         sql.NullString
+	AddedAt                time.Time
+	ReleasedAt             sql.NullTime
+	LastDispatchedAt       sql.NullTime
+	LastBatchUuid          sql.NullString
+	ObservedPowerW         sql.NullString
+	ObservedAt             sql.NullTime
+	ConfirmedAt            sql.NullTime
+	RetryCount             int32
+	LastError              sql.NullString
+	SelectorRationaleJsonb pqtype.NullRawMessage
+}
+
 type Device struct {
 	ID                       int64
 	DeviceIdentifier         string
