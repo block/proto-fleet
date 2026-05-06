@@ -410,12 +410,12 @@ export type NumericRangeFilter = Message<"fleetmanagement.v1.NumericRangeFilter"
   /**
    * @generated from field: google.protobuf.DoubleValue min = 2;
    */
-  min?: number;
+  min?: number | undefined;
 
   /**
    * @generated from field: google.protobuf.DoubleValue max = 3;
    */
-  max?: number;
+  max?: number | undefined;
 
   /**
    * @generated from field: bool min_inclusive = 4;
