@@ -56,13 +56,13 @@ CREATE TABLE curtailment_event (
 
     -- Restore controls. effective_batch_size is computed at restore start
     -- (max(restore_batch_size, ceil(0.01 * selected_target_count)) clamped
-    -- to [10, 100]); BE-2 lands the column, BE-4 populates it.
+    -- to [10, 100]); the column lands here, the restorer populates it.
     restore_batch_size          INT          NOT NULL,
     restore_batch_interval_sec  INT          NOT NULL,
     effective_batch_size        INT          NULL,
 
     -- Duration controls. allow_unbounded is the admin acknowledgement to
-    -- skip max_duration_default_sec normalization (see BE-1.x #173).
+    -- skip max_duration_default_sec normalization.
     min_curtailed_duration_sec  INT          NOT NULL DEFAULT 0,
     max_duration_seconds        INT          NULL,
     allow_unbounded             BOOLEAN      NOT NULL DEFAULT FALSE,

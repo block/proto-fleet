@@ -1,7 +1,6 @@
 // Package curtailment wires the v1 RPC surface. PreviewCurtailmentPlan is
-// implemented (BE-2); the remaining RPCs return Unimplemented and land in
-// follow-up tickets (BE-3 Start + reconciler, BE-4 Stop + restore, BE-5
-// read APIs + audit).
+// implemented; the remaining RPCs return Unimplemented and land in follow-up
+// work (Start + reconciler, Stop + restore, read APIs + audit).
 package curtailment
 
 import (

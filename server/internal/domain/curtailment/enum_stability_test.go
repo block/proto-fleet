@@ -9,12 +9,12 @@ import (
 )
 
 // TestCurtailmentEventStateNumericPins guards the AdminTerminateEventRequest
-// validator that landed in BE-1.x (#173): the proto file pins
-// `target_state` via `(buf.validate.field).enum.in: [6, 7]` — raw numeric
-// tags. If a future commit reorders CurtailmentEventState or inserts a new
-// state between RESTORING (3) and COMPLETED (4), the numeric pin silently
-// rejects valid CANCELLED requests or accepts the wrong state. This test
-// fails CI before that mismatch can ship.
+// validator: the proto file pins `target_state` via
+// `(buf.validate.field).enum.in: [6, 7]` — raw numeric tags. If a future
+// commit reorders CurtailmentEventState or inserts a new state between
+// RESTORING (3) and COMPLETED (4), the numeric pin silently rejects valid
+// CANCELLED requests or accepts the wrong state. This test fails CI before
+// that mismatch can ship.
 //
 // CANCELLED and FAILED are the only states AdminTerminateEvent should produce
 // (a non-terminal event whose restore did not actually run cannot be reported

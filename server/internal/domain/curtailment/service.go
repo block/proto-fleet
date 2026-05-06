@@ -11,8 +11,8 @@ import (
 
 // Scope expresses how a curtailment request expressed its target set. v1
 // supports whole-org and explicit device-list; device-set scope is deferred
-// (BE-2 acceptance lists it but the resolver lives outside the curtailment
-// domain — defer to a follow-up that wires DeviceSetStore).
+// because the resolver lives outside the curtailment domain (DeviceSetStore
+// wiring lands in a follow-up).
 type Scope struct {
 	Type              models.ScopeType
 	DeviceSetIDs      []string
@@ -65,8 +65,8 @@ func (s *Service) Preview(ctx context.Context, req PreviewRequest) (*Plan, error
 
 	// Effective candidate floor: per-org default, optionally overridden by
 	// the admin-gated request field. The handler is responsible for the
-	// admin role check (via requireAdminFromContext from BE-1.x); the
-	// service trusts that the override has cleared that gate.
+	// admin role check (via requireAdminFromContext); the service trusts
+	// that the override has cleared that gate.
 	minPowerW := orgConfig.CandidateMinPowerW
 	if req.CandidateMinPowerWOverride != nil {
 		minPowerW = *req.CandidateMinPowerWOverride
@@ -98,11 +98,10 @@ func (s *Service) Preview(ctx context.Context, req PreviewRequest) (*Plan, error
 	// Cross-org ownership guard for explicit device-list scope: the SQL
 	// already filters by org_id, so any device_identifier the caller listed
 	// that belongs to another org (or doesn't exist) is silently dropped.
-	// Without this check the caller sees a confusing InsufficientLoad
-	// instead of "you don't own these IDs". Per the BE-2 plan: "Explicit
-	// miner-list scope must validate org ownership before persistence or
-	// dispatch; do not rely on generic command include_devices resolution
-	// as the authorization boundary."
+	// Explicit miner-list scope must validate org ownership at this layer
+	// before any persistence or dispatch path consumes the result; without
+	// this check the caller sees a confusing InsufficientLoad instead of
+	// "you don't own these IDs."
 	if len(deviceFilter) > 0 {
 		if missing := missingDeviceIdentifiers(deviceFilter, candidates); len(missing) > 0 {
 			return nil, fleeterror.NewNotFoundErrorf(
@@ -111,14 +110,14 @@ func (s *Service) Preview(ctx context.Context, req PreviewRequest) (*Plan, error
 		}
 	}
 
-	// TODO(BE-3+): extend the capability gate. classifyCandidates already
-	// skips devices with no driver_name (defense-in-depth for a missing
+	// TODO: extend the capability gate. classifyCandidates already skips
+	// devices with no driver_name (defense-in-depth for a missing
 	// discovered_device row), but the full check — does the loaded plugin
 	// advertise curtail_full for this device's model? — needs the plugin
-	// registry that BE-3 wires up. Until then, devices with a known driver
-	// but an unsupported model can slip through; the candidate query already
-	// returns driver_name + model so the registry-driven check can layer on
-	// without a schema change.
+	// registry that is not yet wired in. Until then, devices with a known
+	// driver but an unsupported model can slip through; the candidate query
+	// already returns driver_name + model so the registry-driven check can
+	// layer on without a schema change.
 
 	eligible, preFiltered, summary := classifyCandidates(candidates, classifyOpts{
 		IncludeMaintenance: req.IncludeMaintenance && req.ForceIncludeMaintenance,
@@ -224,7 +223,7 @@ func classifyCandidates(cands []*models.Candidate, opts classifyOpts) ([]Candida
 		// don't know which plugin would handle the dispatch. Skipping here
 		// prevents the selector from picking a device whose Curtail call
 		// would have nowhere to land. The full plugin-registry-driven
-		// curtail_full check is BE-3+ work; this guard catches the
+		// curtail_full check is follow-up work; this guard catches the
 		// "discovered_device row missing" edge today.
 		if c.DriverName == nil || *c.DriverName == "" {
 			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipCurtailFullUnsupported})

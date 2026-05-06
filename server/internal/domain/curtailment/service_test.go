@@ -454,12 +454,12 @@ func TestService_Preview_OverrideTakesPrecedenceOverOrgDefault(t *testing.T) {
 
 // --- cross-tenant isolation ---
 
-// TestService_Preview_PassesCallerOrgIDToEveryStoreCall is the BE-2 acceptance
-// criterion: a Preview from org A must scope every store call to org A. A
-// regression that drops the org_id (e.g., a refactor that hard-codes orgID=1
-// in one query) would let org A see org B's devices — this test pins the
-// invariant by populating both orgs and asserting the caller's org_id is the
-// one that reaches each store method.
+// TestService_Preview_PassesCallerOrgIDToEveryStoreCall pins the cross-tenant
+// isolation invariant: a Preview from org A must scope every store call to
+// org A. A regression that drops the org_id (e.g., a refactor that hard-codes
+// orgID=1 in one query) would let org A see org B's devices — this test
+// populates both orgs and asserts the caller's org_id is the one that reaches
+// each store method.
 func TestService_Preview_PassesCallerOrgIDToEveryStoreCall(t *testing.T) {
 	t.Parallel()
 
@@ -559,12 +559,12 @@ func TestService_Preview_EmptyDeviceStatusSkipsAsStale(t *testing.T) {
 }
 
 // TestService_Preview_DeviceListScopeRejectsCrossOrgIdentifiers pins the
-// org-ownership boundary called out in the BE-2 plan: explicit miner-list
-// scope must validate org ownership before persistence or dispatch. The SQL
-// already filters by org_id, so a cross-org device_identifier would silently
-// drop and the caller would see a confusing InsufficientLoad. The service
-// layer guard converts that silent drop into an explicit NotFound listing
-// the unrecognized identifiers.
+// org-ownership boundary: explicit miner-list scope must validate org
+// ownership before persistence or dispatch. The SQL already filters by
+// org_id, so a cross-org device_identifier would silently drop and the
+// caller would see a confusing InsufficientLoad. The service layer guard
+// converts that silent drop into an explicit NotFound listing the
+// unrecognized identifiers.
 func TestService_Preview_DeviceListScopeRejectsCrossOrgIdentifiers(t *testing.T) {
 	t.Parallel()
 
@@ -626,7 +626,7 @@ func TestService_Preview_DeviceListScopeRejectsCrossOrgIdentifiers(t *testing.T)
 // LEFT JOIN to discovered_device, so the model field is *string == nil) is
 // skipped with SkipCurtailFullUnsupported rather than admitted into the
 // eligible set. The full capability check (does the loaded plugin advertise
-// curtail_full for this model?) lives in BE-3+; this guard catches the
+// curtail_full for this model?) is follow-up work; this guard catches the
 // "no plugin metadata at all" edge today and prevents the selector from
 // picking a device whose Curtail dispatch would have nowhere to land.
 func TestService_Preview_MissingDriverSkipsAsCurtailFullUnsupported(t *testing.T) {

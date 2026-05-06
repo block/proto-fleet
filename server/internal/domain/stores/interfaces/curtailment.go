@@ -23,14 +23,15 @@ type CurtailmentStore interface {
 	ListActiveCurtailedDevices(ctx context.Context, orgID int64) ([]string, error)
 	ListRecentlyResolvedCurtailedDevices(ctx context.Context, orgID int64, cooldownSec int32) ([]string, error)
 
-	// Event CRUD. BE-2 exposes the minimum needed for the Preview surface
-	// to verify schema constraints round-trip; BE-3+ will broaden the
-	// surface as Start / Update / Stop / read APIs land.
+	// Event CRUD. v1 exposes the minimum needed for the Preview surface to
+	// verify schema constraints round-trip; the surface broadens as
+	// Start / Update / Stop / read APIs land.
 	InsertEvent(ctx context.Context, params models.InsertEventParams) (*models.InsertEventResult, error)
 	GetEventByUUID(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error)
 
-	// Target CRUD. BE-3 will likely add a bulk-insert path; for now the
-	// per-row insert is enough for store tests to verify constraints.
+	// Target CRUD. A bulk-insert path will likely be added once Start
+	// dispatches commands; for now the per-row insert is enough for store
+	// tests to verify constraints.
 	InsertTarget(ctx context.Context, params models.InsertTargetParams) error
 	ListTargetsByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) ([]*models.Target, error)
 

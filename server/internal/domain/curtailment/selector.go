@@ -9,7 +9,7 @@ import (
 // SkipReason is the canonical reason vocabulary surfaced in
 // PreviewCurtailmentPlanResponse.skipped_candidates and stored in the
 // decision_snapshot at Start time. The strings are stable contract values —
-// downstream consumers (UI, BE-3 audit, BE-5 metrics) read them directly.
+// downstream consumers (UI, audit, metrics) read them directly.
 type SkipReason string
 
 const (
@@ -22,10 +22,11 @@ const (
 	SkipRebootRequired           SkipReason = "reboot_required"
 	SkipMaintenance              SkipReason = "maintenance"
 	SkipPairing                  SkipReason = "pairing"
-	// Reserved for BE-3+ capability gating: candidates whose loaded plugin
+	// Reserved for full capability gating: candidates whose loaded plugin
 	// or model does not advertise curtail_full are skipped with this reason.
 	// Kept in the SkipReason vocabulary so downstream consumers (UI, audit)
-	// can treat the value as stable contract before BE-3 wires the producer.
+	// can treat the value as stable contract before the registry-driven
+	// producer is wired in.
 	SkipCurtailFullUnsupported SkipReason = "curtail_full_unsupported"
 	SkipCooldown               SkipReason = "cooldown"
 	SkipActiveEvent            SkipReason = "active_event"

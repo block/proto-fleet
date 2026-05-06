@@ -428,8 +428,8 @@ func start(config *Config) error {
 	mux.Handle(minercommandv1connect.NewMinerCommandServiceHandler(command.NewHandler(commandSvc), li))
 	mux.Handle(poolsv1connect.NewPoolsServiceHandler(pools.NewHandler(poolsSvc), li))
 	mux.Handle(schedulev1connect.NewScheduleServiceHandler(scheduleHandler.NewHandler(scheduleSvc), li))
-	// Curtailment v1: PreviewCurtailmentPlan is implemented (BE-2);
-	// remaining RPCs return Unimplemented until follow-up tickets land.
+	// Curtailment v1: PreviewCurtailmentPlan is implemented; remaining
+	// RPCs return Unimplemented until follow-up work lands.
 	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(curtailmentHandler.NewHandler(curtailmentSvc), li))
 	mux.Handle(agentgatewayv1connect.NewAgentGatewayServiceHandler(agentgateway.NewHandler(), li))
 	mux.Handle(collectionv1connect.NewDeviceCollectionServiceHandler(collectionHandler.NewHandler(collectionSvc), li))

@@ -57,7 +57,7 @@ WHERE ce.org_id = sqlc.arg('org_id')
     AND ce.ended_at >= CURRENT_TIMESTAMP - (sqlc.arg('cooldown_sec')::int * INTERVAL '1 second');
 
 -- name: InsertCurtailmentEvent :one
--- Bulk insert path used by Start (BE-3+) and by store tests in BE-2. The full
+-- Bulk insert path used by Start dispatch and by store tests. The full
 -- column list mirrors the migration so callers cannot accidentally rely on
 -- DEFAULTs for values the API layer should be normalizing.
 INSERT INTO curtailment_event (
@@ -119,7 +119,7 @@ RETURNING id, event_uuid, created_at, updated_at;
 
 -- name: GetCurtailmentEventByUUID :one
 -- Org-scoped read; callers MUST pass the caller's org_id to prevent cross-tenant
--- snapshot exposure. Used by BE-2 store tests to verify migration constraints
+-- snapshot exposure. Used by store tests to verify migration constraints
 -- round-trip correctly.
 SELECT *
 FROM curtailment_event
@@ -127,8 +127,8 @@ WHERE event_uuid = sqlc.arg('event_uuid')
     AND org_id = sqlc.arg('org_id');
 
 -- name: InsertCurtailmentTarget :exec
--- Per-target row insert. BE-3 dispatch path inserts these in a single
--- transaction with the parent event row; BE-2 store tests use it to round-trip
+-- Per-target row insert. The Start dispatch path inserts these in a single
+-- transaction with the parent event row; store tests use it to round-trip
 -- schema constraints.
 INSERT INTO curtailment_target (
     curtailment_event_id,
@@ -149,7 +149,7 @@ INSERT INTO curtailment_target (
 );
 
 -- name: ListCurtailmentTargetsByEvent :many
--- Org-scoped via the join. Used by BE-2 store tests and by future Get/List
+-- Org-scoped via the join. Used by store tests and by future Get/List
 -- read paths that need to surface the per-event target rollup.
 SELECT ct.*
 FROM curtailment_target ct

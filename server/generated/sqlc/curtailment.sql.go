@@ -61,7 +61,7 @@ type GetCurtailmentEventByUUIDParams struct {
 }
 
 // Org-scoped read; callers MUST pass the caller's org_id to prevent cross-tenant
-// snapshot exposure. Used by BE-2 store tests to verify migration constraints
+// snapshot exposure. Used by store tests to verify migration constraints
 // round-trip correctly.
 func (q *Queries) GetCurtailmentEventByUUID(ctx context.Context, arg GetCurtailmentEventByUUIDParams) (CurtailmentEvent, error) {
 	row := q.queryRow(ctx, q.getCurtailmentEventByUUIDStmt, getCurtailmentEventByUUID, arg.EventUuid, arg.OrgID)
@@ -249,7 +249,7 @@ type InsertCurtailmentEventRow struct {
 	UpdatedAt time.Time
 }
 
-// Bulk insert path used by Start (BE-3+) and by store tests in BE-2. The full
+// Bulk insert path used by Start dispatch and by store tests. The full
 // column list mirrors the migration so callers cannot accidentally rely on
 // DEFAULTs for values the API layer should be normalizing.
 func (q *Queries) InsertCurtailmentEvent(ctx context.Context, arg InsertCurtailmentEventParams) (InsertCurtailmentEventRow, error) {
@@ -321,8 +321,8 @@ type InsertCurtailmentTargetParams struct {
 	SelectorRationaleJsonb pqtype.NullRawMessage
 }
 
-// Per-target row insert. BE-3 dispatch path inserts these in a single
-// transaction with the parent event row; BE-2 store tests use it to round-trip
+// Per-target row insert. The Start dispatch path inserts these in a single
+// transaction with the parent event row; store tests use it to round-trip
 // schema constraints.
 func (q *Queries) InsertCurtailmentTarget(ctx context.Context, arg InsertCurtailmentTargetParams) error {
 	_, err := q.exec(ctx, q.insertCurtailmentTargetStmt, insertCurtailmentTarget,
@@ -507,7 +507,7 @@ type ListCurtailmentTargetsByEventParams struct {
 	EventUuid uuid.UUID
 }
 
-// Org-scoped via the join. Used by BE-2 store tests and by future Get/List
+// Org-scoped via the join. Used by store tests and by future Get/List
 // read paths that need to surface the per-event target rollup.
 func (q *Queries) ListCurtailmentTargetsByEvent(ctx context.Context, arg ListCurtailmentTargetsByEventParams) ([]CurtailmentTarget, error) {
 	rows, err := q.query(ctx, q.listCurtailmentTargetsByEventStmt, listCurtailmentTargetsByEvent, arg.OrgID, arg.EventUuid)
