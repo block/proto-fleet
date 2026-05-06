@@ -72,7 +72,7 @@ type CurtailmentServiceClient interface {
 	// List historical events with cursor pagination.
 	ListCurtailmentEvents(context.Context, *connect.Request[v1.ListCurtailmentEventsRequest]) (*connect.Response[v1.ListCurtailmentEventsResponse], error)
 	// Admin recovery RPC: force a non-terminal event to a terminal state.
-	// Session-only, Admin role. Manual fallback for the dead-reconciler runbook.
+	// Session-only, Admin role.
 	AdminTerminateEvent(context.Context, *connect.Request[v1.AdminTerminateEventRequest]) (*connect.Response[v1.AdminTerminateEventResponse], error)
 }
 
@@ -185,7 +185,7 @@ type CurtailmentServiceHandler interface {
 	// List historical events with cursor pagination.
 	ListCurtailmentEvents(context.Context, *connect.Request[v1.ListCurtailmentEventsRequest]) (*connect.Response[v1.ListCurtailmentEventsResponse], error)
 	// Admin recovery RPC: force a non-terminal event to a terminal state.
-	// Session-only, Admin role. Manual fallback for the dead-reconciler runbook.
+	// Session-only, Admin role.
 	AdminTerminateEvent(context.Context, *connect.Request[v1.AdminTerminateEventRequest]) (*connect.Response[v1.AdminTerminateEventResponse], error)
 }
 

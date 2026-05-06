@@ -278,9 +278,10 @@ func TestHandler_AdminTerminateEventRoleGate(t *testing.T) {
 
 // buf.validate constraints on AdminTerminateEventRequest: event_uuid
 // min_len, target_state restricted to CANCELLED/FAILED, reason min_len.
-// Validator-passed requests reach the handler and surface CodeInternal from
-// session.GetInfo (no session in context); we accept that as "validator
-// passed". Role-gate behavior is covered by TestHandler_AdminTerminateEventRoleGate.
+// Validator-passed requests reach the handler and surface CodeUnauthenticated
+// from requireAdminFromContext (no session in context); we accept that as
+// "validator passed". Role-gate behavior is covered by
+// TestHandler_AdminTerminateEventRoleGate.
 func TestHandler_AdminTerminateEventValidation(t *testing.T) {
 	t.Parallel()
 
@@ -302,14 +303,14 @@ func TestHandler_AdminTerminateEventValidation(t *testing.T) {
 		{
 			"valid CANCELLED reaches handler",
 			func(*pb.AdminTerminateEventRequest) {},
-			connect.CodeInternal,
+			connect.CodeUnauthenticated,
 		},
 		{
 			"valid FAILED reaches handler",
 			func(r *pb.AdminTerminateEventRequest) {
 				r.TargetState = pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_FAILED
 			},
-			connect.CodeInternal,
+			connect.CodeUnauthenticated,
 		},
 		{
 			"empty event_uuid is rejected",
@@ -530,11 +531,10 @@ func TestHandler_AdminTerminateEventRejectsMissingSession(t *testing.T) {
 	_, err := h.AdminTerminateEvent(t.Context(), req)
 
 	require.Error(t, err)
-	// session.GetInfo returns an internal error when no Info is in context,
-	// matching the contract documented in domain/session/context.go.
+	// Missing session.Info is remapped to CodeUnauthenticated; see handler.go.
 	var fleetErr fleeterror.FleetError
 	require.ErrorAs(t, err, &fleetErr)
-	assert.Equal(t, connect.CodeInternal, fleetErr.GRPCCode)
+	assert.Equal(t, connect.CodeUnauthenticated, fleetErr.GRPCCode)
 }
 
 func newValidationTestClient(t *testing.T) curtailmentv1connect.CurtailmentServiceClient {

@@ -69,7 +69,9 @@ func (h *Handler) ListCurtailmentEvents(_ context.Context, _ *connect.Request[pb
 	return nil, errCurtailmentNotImplemented("ListCurtailmentEvents")
 }
 
-// AdminTerminateEvent forces a non-terminal event to a terminal state. Admin-only.
+// AdminTerminateEvent forces a non-terminal event to a terminal state.
+// Paired with SessionOnlyProcedures in handlers/interceptors/config.go;
+// neither check alone is sufficient.
 func (h *Handler) AdminTerminateEvent(ctx context.Context, _ *connect.Request[pb.AdminTerminateEventRequest]) (*connect.Response[pb.AdminTerminateEventResponse], error) {
 	if err := requireAdminFromContext(ctx, actionTerminateEvents); err != nil {
 		return nil, err
@@ -86,7 +88,9 @@ func errCurtailmentNotImplemented(rpc string) error {
 func requireAdminFromContext(ctx context.Context, action string) error {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
-		return err
+		// Remap "no session info" from Internal to Unauthenticated so the
+		// response code reflects "no identity" rather than "server bug".
+		return fleeterror.NewUnauthenticatedError("authentication required")
 	}
 	if info.Role != domainAuth.SuperAdminRoleName && info.Role != domainAuth.AdminRoleName {
 		return fleeterror.NewForbiddenErrorf("only admins can %s", action)

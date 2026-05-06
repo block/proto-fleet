@@ -33,7 +33,7 @@ service CurtailmentService {
         returns (ListCurtailmentEventsResponse);
 
     // Admin recovery RPC: force a non-terminal event to a terminal state.
-    // Session-only, Admin role. Manual fallback for the dead-reconciler runbook.
+    // Session-only, Admin role.
     rpc AdminTerminateEvent(AdminTerminateEventRequest)
         returns (AdminTerminateEventResponse);
 
@@ -342,7 +342,8 @@ message PreviewCurtailmentPlanRequest {
     bool force_include_maintenance = 25;
 
     // Admin-only override of the per-org `candidate_min_power_w` default.
-    optional uint32 candidate_min_power_w_override = 26;
+    // Upper bound is a sanity ceiling (10 MW per miner); zero means "use default" so it is excluded.
+    optional uint32 candidate_min_power_w_override = 26 [(buf.validate.field).uint32 = {gte: 1, lte: 10000000}];
 
     reserved 11 to 23;
 }
@@ -431,7 +432,8 @@ message StartCurtailmentRequest {
     bool force_include_maintenance = 25;
 
     // Admin-only override of the per-org `candidate_min_power_w` default.
-    optional uint32 candidate_min_power_w_override = 26;
+    // Upper bound is a sanity ceiling (10 MW per miner); zero means "use default" so it is excluded.
+    optional uint32 candidate_min_power_w_override = 26 [(buf.validate.field).uint32 = {gte: 1, lte: 10000000}];
 
     // Admin-only acknowledgement to opt out of `max_duration_default_sec`
     // normalization. Default false; otherwise `max_duration_seconds=0` is
@@ -470,7 +472,8 @@ message StopCurtailmentRequest {
 
     // Admin-only override of the adaptive batch size computed at restore
     // start. Takes precedence over any prior UpdateCurtailmentEvent value.
-    optional uint32 restore_batch_size_override = 2;
+    // Upper bound is a sanity ceiling; zero means "use default" so it is excluded.
+    optional uint32 restore_batch_size_override = 2 [(buf.validate.field).uint32 = {gte: 1, lte: 10000}];
 }
 
 message StopCurtailmentResponse {
@@ -518,6 +521,10 @@ message AdminTerminateEventRequest {
     }];
 
     string reason = 3 [(buf.validate.field).string.min_len = 1];
+
+    // Idempotency key, unique per (org, key) when non-empty. A re-issued call
+    // with the same key returns the original event without re-applying.
+    string idempotency_key = 4;
 }
 
 message AdminTerminateEventResponse {
