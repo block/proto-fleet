@@ -91,13 +91,18 @@ func translateScope(msg *pb.PreviewCurtailmentPlanRequest) (curtailment.Scope, e
 // per-device stats without a re-query; skipped candidates carry their
 // canonical reason from the SkipReason vocabulary.
 func translatePreviewResponse(plan *curtailment.Plan, req *pb.PreviewCurtailmentPlanRequest) *pb.PreviewCurtailmentPlanResponse {
+	// Derive the reason_selected label from the request's strategy so a
+	// future strategy enum addition forces this surface to be touched.
+	// Today only LEAST_EFFICIENT_FIRST exists; the helper resolves the
+	// UNSPECIFIED → LEAST_EFFICIENT_FIRST default identical to service.go.
+	reasonSelected := strategyReasonLabel(req.GetStrategy())
 	candidates := make([]*pb.CurtailmentCandidate, len(plan.Selected))
 	for i, c := range plan.Selected {
 		candidates[i] = &pb.CurtailmentCandidate{
 			DeviceIdentifier: c.DeviceIdentifier,
 			CurrentPowerW:    c.PowerW,
 			EfficiencyJh:     c.EfficiencyJH,
-			ReasonSelected:   "least_efficient_first",
+			ReasonSelected:   reasonSelected,
 		}
 	}
 	skipped := make([]*pb.SkippedCandidate, len(plan.Skipped))
@@ -128,6 +133,27 @@ func strategyName(s pb.CurtailmentStrategy) string {
 		return "LEAST_EFFICIENT_FIRST"
 	}
 	return s.String()
+}
+
+// strategyReasonLabel maps the request strategy to the per-candidate
+// reason_selected label echoed back to the UI. Adding a new strategy enum
+// requires a new case here so the response surface is forced to update in
+// lockstep with the selector's ranking implementation. v1 only implements
+// LEAST_EFFICIENT_FIRST; other strategies fall through to their proto name
+// because the service layer already rejects them as unsupported.
+func strategyReasonLabel(s pb.CurtailmentStrategy) string {
+	switch s {
+	case pb.CurtailmentStrategy_CURTAILMENT_STRATEGY_UNSPECIFIED,
+		pb.CurtailmentStrategy_CURTAILMENT_STRATEGY_LEAST_EFFICIENT_FIRST:
+		return "least_efficient_first"
+	case pb.CurtailmentStrategy_CURTAILMENT_STRATEGY_MOST_POWER_FIRST,
+		pb.CurtailmentStrategy_CURTAILMENT_STRATEGY_OLDEST_HARDWARE_FIRST,
+		pb.CurtailmentStrategy_CURTAILMENT_STRATEGY_UNSTABLE_MINERS_FIRST,
+		pb.CurtailmentStrategy_CURTAILMENT_STRATEGY_RACK_GRANULAR:
+		return s.String()
+	default:
+		return s.String()
+	}
 }
 
 func levelName(l pb.CurtailmentLevel) string {

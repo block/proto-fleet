@@ -114,8 +114,10 @@ func miner(id string, status, pairing string, powerW, hashRateHS float64) *model
 	t := time.Now()
 	pw := powerW
 	hr := hashRateHS
+	driver := "antminer"
 	return &models.Candidate{
 		DeviceIdentifier: id,
+		DriverName:       &driver,
 		DeviceStatus:     status,
 		PairingStatus:    pairing,
 		LatestMetricsAt:  &t,
@@ -132,8 +134,10 @@ func minerWithEff(id string, powerW, hashRateHS, effJH float64) *models.Candidat
 
 func staleMiner(id string) *models.Candidate {
 	// LatestMetricsAt nil → service treats as stale_telemetry.
+	driver := "antminer"
 	return &models.Candidate{
 		DeviceIdentifier: id,
+		DriverName:       &driver,
 		DeviceStatus:     "ACTIVE",
 		PairingStatus:    "PAIRED",
 	}
@@ -518,4 +522,185 @@ func TestService_Preview_InsufficientLoad_DetailCarriesExclusionCounts(t *testin
 	assert.Equal(t, 100.0, plan.InsufficientLoadDetail.RequestedKW)
 	assert.Equal(t, int32(2), plan.InsufficientLoadDetail.ExcludedOffline)
 	assert.Equal(t, int32(1500), plan.InsufficientLoadDetail.CandidateMinPowerW)
+}
+
+// TestService_Preview_EmptyDeviceStatusSkipsAsStale pins the COALESCE sentinel
+// behavior: a candidate row whose device_status is empty (no device_status
+// row joined; the sqlc query COALESCEs to empty string) must be skipped with
+// SkipStaleTelemetry rather than silently flowing into the eligible set.
+// Without the case "": arm in service.classifyCandidates, an unstatused
+// device would fall through to the dual-signal filter and could be picked
+// for curtailment — which is exactly the safety boundary the COALESCE was
+// added to defend.
+func TestService_Preview_EmptyDeviceStatusSkipsAsStale(t *testing.T) {
+	t.Parallel()
+
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	// Power and hash both well above the dual-signal floor — the only thing
+	// that should keep this miner out of the eligible set is the empty
+	// device_status sentinel.
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		miner("unstatused", "", "PAIRED", 5000, 1e12),
+	}
+
+	svc := NewService(store)
+	req := validRequest(orgID)
+	req.TargetKW = 1
+	plan, err := svc.Preview(t.Context(), req)
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+
+	assert.Empty(t, plan.Selected, "empty device_status must not become eligible")
+	require.Len(t, plan.Skipped, 1)
+	assert.Equal(t, "unstatused", plan.Skipped[0].DeviceIdentifier)
+	assert.Equal(t, SkipStaleTelemetry, plan.Skipped[0].Reason)
+}
+
+// TestService_Preview_DeviceListScopeRejectsCrossOrgIdentifiers pins the
+// org-ownership boundary called out in the BE-2 plan: explicit miner-list
+// scope must validate org ownership before persistence or dispatch. The SQL
+// already filters by org_id, so a cross-org device_identifier would silently
+// drop and the caller would see a confusing InsufficientLoad. The service
+// layer guard converts that silent drop into an explicit NotFound listing
+// the unrecognized identifiers.
+func TestService_Preview_DeviceListScopeRejectsCrossOrgIdentifiers(t *testing.T) {
+	t.Parallel()
+
+	const callerOrg = int64(101)
+	const otherOrg = int64(202)
+
+	build := func() *fakeStore {
+		store := newFakeStore()
+		store.orgConfigByOrg[callerOrg] = defaultOrgConfig(callerOrg)
+		store.orgConfigByOrg[otherOrg] = defaultOrgConfig(otherOrg)
+		store.candidatesByOrg[callerOrg] = []*models.Candidate{
+			minerWithEff("caller-only", 3000, 100, 40),
+		}
+		store.candidatesByOrg[otherOrg] = []*models.Candidate{
+			minerWithEff("other-only", 3000, 100, 40),
+		}
+		return store
+	}
+
+	t.Run("only cross-org id rejects with NotFound", func(t *testing.T) {
+		t.Parallel()
+		svc := NewService(build())
+		req := validRequest(callerOrg)
+		req.Scope = Scope{
+			Type:              models.ScopeTypeDeviceList,
+			DeviceIdentifiers: []string{"other-only"},
+		}
+		plan, err := svc.Preview(t.Context(), req)
+		require.Error(t, err)
+		assert.Nil(t, plan)
+		assert.True(t, fleeterror.IsNotFoundError(err),
+			"cross-org device_identifier must surface as NotFound, got %v", err)
+		assert.Contains(t, err.Error(), "other-only",
+			"error must name the unrecognized identifier")
+	})
+
+	t.Run("mixed valid + cross-org rejects with NotFound naming the missing id", func(t *testing.T) {
+		t.Parallel()
+		svc := NewService(build())
+		req := validRequest(callerOrg)
+		req.Scope = Scope{
+			Type:              models.ScopeTypeDeviceList,
+			DeviceIdentifiers: []string{"caller-only", "other-only"},
+		}
+		plan, err := svc.Preview(t.Context(), req)
+		require.Error(t, err)
+		assert.Nil(t, plan)
+		assert.True(t, fleeterror.IsNotFoundError(err),
+			"any cross-org id must surface as NotFound, got %v", err)
+		assert.Contains(t, err.Error(), "other-only",
+			"error must name the missing identifier even when other ids are valid")
+		assert.NotContains(t, err.Error(), "caller-only",
+			"error must not falsely list valid identifiers as missing")
+	})
+}
+
+// TestService_Preview_MissingDriverSkipsAsCurtailFullUnsupported pins the
+// partial capability gate: a candidate row with no driver_name (NULL on the
+// LEFT JOIN to discovered_device, so the model field is *string == nil) is
+// skipped with SkipCurtailFullUnsupported rather than admitted into the
+// eligible set. The full capability check (does the loaded plugin advertise
+// curtail_full for this model?) lives in BE-3+; this guard catches the
+// "no plugin metadata at all" edge today and prevents the selector from
+// picking a device whose Curtail dispatch would have nowhere to land.
+func TestService_Preview_MissingDriverSkipsAsCurtailFullUnsupported(t *testing.T) {
+	t.Parallel()
+
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+
+	// Construct a candidate that would otherwise be eligible — same shape as
+	// happy-path but with DriverName left nil (LEFT JOIN missed).
+	t1 := time.Now()
+	pw := 3000.0
+	hr := 1e12
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		{
+			DeviceIdentifier: "no-driver-meta",
+			DriverName:       nil, // missing discovered_device row
+			DeviceStatus:     "ACTIVE",
+			PairingStatus:    "PAIRED",
+			LatestMetricsAt:  &t1,
+			LatestPowerW:     &pw,
+			LatestHashRateHS: &hr,
+		},
+	}
+
+	svc := NewService(store)
+	req := validRequest(orgID)
+	req.TargetKW = 1
+	plan, err := svc.Preview(t.Context(), req)
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+
+	assert.Empty(t, plan.Selected, "a device with no driver metadata must not become eligible")
+	require.Len(t, plan.Skipped, 1)
+	assert.Equal(t, "no-driver-meta", plan.Skipped[0].DeviceIdentifier)
+	assert.Equal(t, SkipCurtailFullUnsupported, plan.Skipped[0].Reason)
+}
+
+// TestService_Preview_DualSignalCountersPropagateIntoInsufficientLoadDetail
+// pins the BuildPlan post-Select merge: dual-signal exclusions classified
+// inside selector.BuildPlan (below-threshold, dead-monitor, phantom-load)
+// must reach InsufficientLoadDetail so the operator sees per-reason counts,
+// not zeros. Without the merge block in selector.go, the rejection detail
+// would carry only the pre-selector summary's status/pairing/cooldown counts.
+func TestService_Preview_DualSignalCountersPropagateIntoInsufficientLoadDetail(t *testing.T) {
+	t.Parallel()
+
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID) // CandidateMinPowerW = 1500
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		// below-threshold AND no hash — SkipBelowThreshold.
+		miner("below-threshold-no-hash", "ACTIVE", "PAIRED", 100, 0),
+		// below-threshold WITH hash — SkipPowerTelemetryUnreliable (dead monitor).
+		miner("dead-monitor", "ACTIVE", "PAIRED", 100, 1e12),
+		// above-threshold WITH no hash — SkipPhantomLoadNoHash.
+		miner("phantom-load", "ACTIVE", "PAIRED", 5000, 0),
+	}
+
+	svc := NewService(store)
+	req := validRequest(orgID)
+	req.TargetKW = 100 // far above any reachable selection — forces InsufficientLoad
+	plan, err := svc.Preview(t.Context(), req)
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+
+	require.Equal(t, modes.OutcomeInsufficientLoad, plan.Outcome)
+	require.NotNil(t, plan.InsufficientLoadDetail)
+
+	assert.Equal(t, int32(1), plan.InsufficientLoadDetail.ExcludedBelowThreshold,
+		"below-threshold-no-hash candidate must increment ExcludedBelowThreshold")
+	assert.Equal(t, int32(1), plan.InsufficientLoadDetail.ExcludedDeadMonitor,
+		"below-threshold-with-hash candidate must increment ExcludedDeadMonitor")
+	assert.Equal(t, int32(1), plan.InsufficientLoadDetail.ExcludedPhantomLoad,
+		"above-threshold-no-hash candidate must increment ExcludedPhantomLoad")
 }

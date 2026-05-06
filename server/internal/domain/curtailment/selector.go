@@ -22,9 +22,13 @@ const (
 	SkipRebootRequired           SkipReason = "reboot_required"
 	SkipMaintenance              SkipReason = "maintenance"
 	SkipPairing                  SkipReason = "pairing"
-	SkipCurtailFullUnsupported   SkipReason = "curtail_full_unsupported"
-	SkipCooldown                 SkipReason = "cooldown"
-	SkipActiveEvent              SkipReason = "active_event"
+	// Reserved for BE-3+ capability gating: candidates whose loaded plugin
+	// or model does not advertise curtail_full are skipped with this reason.
+	// Kept in the SkipReason vocabulary so downstream consumers (UI, audit)
+	// can treat the value as stable contract before BE-3 wires the producer.
+	SkipCurtailFullUnsupported SkipReason = "curtail_full_unsupported"
+	SkipCooldown               SkipReason = "cooldown"
+	SkipActiveEvent            SkipReason = "active_event"
 )
 
 // CandidateInput is one device's pre-aggregated state at selection time:
@@ -109,6 +113,18 @@ func BuildPlan(
 	skipped := make([]SkippedDevice, 0, len(preFiltered)+len(inputs))
 	skipped = append(skipped, preFiltered...)
 
+	// Track dual-signal exclusion counts so the rejection branch's
+	// InsufficientLoadDetail surfaces "N miners excluded by below_threshold,
+	// M by phantom_load, K by power_telemetry_unreliable" — not just zeros.
+	// The mode produces the rejection detail; we merge these counts into
+	// it post-hoc so the mode interface stays oblivious to dual-signal
+	// classification.
+	var dualSignalCounts struct {
+		belowThreshold int32
+		phantomLoad    int32
+		deadMonitor    int32
+	}
+
 	eligible := make([]CandidateInput, 0, len(inputs))
 	for _, c := range inputs {
 		switch {
@@ -120,6 +136,7 @@ func BuildPlan(
 				DeviceIdentifier: c.DeviceIdentifier,
 				Reason:           SkipBelowThreshold,
 			})
+			dualSignalCounts.belowThreshold++
 		case c.PowerW < float64(candidateMinPowerW):
 			// Hashing but drawing too little power — unreliable power
 			// telemetry (broken sensor, etc.). Curtailing succeeds but
@@ -128,6 +145,7 @@ func BuildPlan(
 				DeviceIdentifier: c.DeviceIdentifier,
 				Reason:           SkipPowerTelemetryUnreliable,
 			})
+			dualSignalCounts.deadMonitor++
 		case c.HashRateHS <= 0:
 			// Drawing power but not hashing — phantom load. Curtailing
 			// records a fictional kW reduction with no real hashrate
@@ -136,6 +154,7 @@ func BuildPlan(
 				DeviceIdentifier: c.DeviceIdentifier,
 				Reason:           SkipPhantomLoadNoHash,
 			})
+			dualSignalCounts.phantomLoad++
 		default:
 			eligible = append(eligible, c)
 		}
@@ -172,6 +191,16 @@ func BuildPlan(
 	}
 
 	res := mode.Select(ranked)
+
+	// Merge dual-signal exclusion counts into the rejection detail so the
+	// caller sees the per-reason breakdown for skips that happened inside
+	// BuildPlan (the pre-selector summary covers status/pairing/cooldown,
+	// but the dual-signal pass runs here).
+	if res.InsufficientDetail != nil {
+		res.InsufficientDetail.ExcludedBelowThreshold += dualSignalCounts.belowThreshold
+		res.InsufficientDetail.ExcludedPhantomLoad += dualSignalCounts.phantomLoad
+		res.InsufficientDetail.ExcludedDeadMonitor += dualSignalCounts.deadMonitor
+	}
 
 	// Map the mode's selected list back to SelectedDevice carrying the
 	// snapshot stats the UI renders.

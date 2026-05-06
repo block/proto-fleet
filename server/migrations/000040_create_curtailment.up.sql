@@ -27,6 +27,7 @@ CREATE TRIGGER update_curtailment_org_config_updated_at
 
 INSERT INTO curtailment_org_config (org_id)
     SELECT id FROM organization
+    WHERE deleted_at IS NULL
     ON CONFLICT (org_id) DO NOTHING;
 
 -- Curtailment event: one row per Start request (or Preview persists nothing,

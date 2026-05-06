@@ -16,6 +16,38 @@ import (
 	"github.com/sqlc-dev/pqtype"
 )
 
+const ensureCurtailmentOrgConfig = `-- name: EnsureCurtailmentOrgConfig :one
+INSERT INTO curtailment_org_config (org_id)
+VALUES ($1)
+ON CONFLICT (org_id) DO UPDATE SET org_id = EXCLUDED.org_id
+RETURNING
+    org_id,
+    max_duration_default_sec,
+    candidate_min_power_w,
+    post_event_cooldown_sec,
+    created_at,
+    updated_at
+`
+
+// Idempotent backfill of the per-org config row. Required because the
+// 000040 migration only seeds existing orgs at deploy time; orgs created
+// afterwards have no row until something writes one. The DO UPDATE arm
+// is a no-op (re-asserts org_id) so the RETURNING clause always fires
+// and the caller can read the effective row in a single round trip.
+func (q *Queries) EnsureCurtailmentOrgConfig(ctx context.Context, orgID int64) (CurtailmentOrgConfig, error) {
+	row := q.queryRow(ctx, q.ensureCurtailmentOrgConfigStmt, ensureCurtailmentOrgConfig, orgID)
+	var i CurtailmentOrgConfig
+	err := row.Scan(
+		&i.OrgID,
+		&i.MaxDurationDefaultSec,
+		&i.CandidateMinPowerW,
+		&i.PostEventCooldownSec,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getCurtailmentEventByUUID = `-- name: GetCurtailmentEventByUUID :one
 SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at
 FROM curtailment_event
@@ -86,8 +118,9 @@ WHERE org_id = $1
 
 // Read at handler entry to resolve max_duration_default_sec normalization,
 // candidate_min_power_w default (when override is not set), and the cooldown
-// window for the selector. The migration seeds one row per existing org so
-// this is guaranteed to return a row for any valid org_id.
+// window for the selector. The migration seeds one row per existing org;
+// EnsureCurtailmentOrgConfig backfills any org created post-migration so this
+// read is guaranteed to return a row for any valid org_id.
 func (q *Queries) GetCurtailmentOrgConfig(ctx context.Context, orgID int64) (CurtailmentOrgConfig, error) {
 	row := q.queryRow(ctx, q.getCurtailmentOrgConfigStmt, getCurtailmentOrgConfig, orgID)
 	var i CurtailmentOrgConfig
@@ -358,6 +391,14 @@ latest_hourly AS (
         device_metrics_hourly.device_identifier,
         device_metrics_hourly.avg_efficiency
     FROM device_metrics_hourly
+    INNER JOIN device d3 ON device_metrics_hourly.device_identifier = d3.device_identifier
+        AND d3.deleted_at IS NULL
+        AND d3.org_id = $1
+    -- Bound the bucket scan: device_metrics_hourly is a continuous aggregate
+    -- with multi-day retention; we only need the latest non-empty hour per
+    -- device. 24h covers TimescaleDB end-offset and operator-timezone gaps
+    -- without dragging the planner across stale rollups.
+    WHERE device_metrics_hourly.bucket > NOW() - INTERVAL '24 hours'
     ORDER BY device_metrics_hourly.device_identifier, bucket DESC
 )
 SELECT
@@ -365,9 +406,12 @@ SELECT
     dd.driver_name,
     COALESCE(dd.model, '') AS model,
     -- device_status / pairing_status default to safe sentinels when the
-    -- joined row is missing. Service treats NULL device_status as
-    -- "unknown" (skip with stale reason); NULL pairing_status as UNPAIRED.
-    ds.status::text AS device_status,
+    -- joined row is missing. Empty-string device_status is the "unknown
+    -- status" signal the service treats as stale; NULL pairing_status is
+    -- normalized to UNPAIRED. The COALESCE on device_status is required
+    -- because sqlc generates a non-nullable string column and a NULL would
+    -- crash the row scan.
+    COALESCE(ds.status::text, ''::text)::text AS device_status,
     CASE WHEN dp.id IS NOT NULL THEN dp.pairing_status::text ELSE 'UNPAIRED' END AS pairing_status,
     lm.time            AS latest_metrics_at,
     lm.power_w         AS latest_power_w,

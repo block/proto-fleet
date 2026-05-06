@@ -30,11 +30,13 @@ func NewSQLCurtailmentStore(conn *sql.DB) *SQLCurtailmentStore {
 }
 
 func (s *SQLCurtailmentStore) GetOrgConfig(ctx context.Context, orgID int64) (*models.OrgConfig, error) {
-	row, err := s.GetQueries(ctx).GetCurtailmentOrgConfig(ctx, orgID)
+	// Ensure-then-read: the 000040 migration only seeded existing orgs at
+	// deploy time, so any tenant created later has no row. EnsureCurtailmentOrgConfig
+	// is an INSERT ... ON CONFLICT DO UPDATE upsert that always returns a
+	// row (with table-level DEFAULTs when newly inserted), so callers never
+	// see NotFound for a valid org_id.
+	row, err := s.GetQueries(ctx).EnsureCurtailmentOrgConfig(ctx, orgID)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fleeterror.NewNotFoundErrorf("curtailment org config not found for org %d", orgID)
-		}
 		return nil, fleeterror.NewInternalErrorf("failed to get curtailment org config: %v", err)
 	}
 	return &models.OrgConfig{

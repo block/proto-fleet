@@ -111,6 +111,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.deviceSetBelongsToOrgStmt, err = db.PrepareContext(ctx, deviceSetBelongsToOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query DeviceSetBelongsToOrg: %w", err)
 	}
+	if q.ensureCurtailmentOrgConfigStmt, err = db.PrepareContext(ctx, ensureCurtailmentOrgConfig); err != nil {
+		return nil, fmt.Errorf("error preparing query EnsureCurtailmentOrgConfig: %w", err)
+	}
 	if q.getActiveSchedulesStmt, err = db.PrepareContext(ctx, getActiveSchedules); err != nil {
 		return nil, fmt.Errorf("error preparing query GetActiveSchedules: %w", err)
 	}
@@ -841,6 +844,11 @@ func (q *Queries) Close() error {
 	if q.deviceSetBelongsToOrgStmt != nil {
 		if cerr := q.deviceSetBelongsToOrgStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing deviceSetBelongsToOrgStmt: %w", cerr)
+		}
+	}
+	if q.ensureCurtailmentOrgConfigStmt != nil {
+		if cerr := q.ensureCurtailmentOrgConfigStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing ensureCurtailmentOrgConfigStmt: %w", cerr)
 		}
 	}
 	if q.getActiveSchedulesStmt != nil {
@@ -1881,6 +1889,7 @@ type Queries struct {
 	deletePoolStmt                                      *sql.Stmt
 	deleteScheduleTargetsStmt                           *sql.Stmt
 	deviceSetBelongsToOrgStmt                           *sql.Stmt
+	ensureCurtailmentOrgConfigStmt                      *sql.Stmt
 	getActiveSchedulesStmt                              *sql.Stmt
 	getActiveUnpairedDiscoveredDevicesStmt              *sql.Stmt
 	getAllDeviceInfoForCapabilityCheckStmt              *sql.Stmt
@@ -2110,6 +2119,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		deletePoolStmt:                                      q.deletePoolStmt,
 		deleteScheduleTargetsStmt:                           q.deleteScheduleTargetsStmt,
 		deviceSetBelongsToOrgStmt:                           q.deviceSetBelongsToOrgStmt,
+		ensureCurtailmentOrgConfigStmt:                      q.ensureCurtailmentOrgConfigStmt,
 		getActiveSchedulesStmt:                              q.getActiveSchedulesStmt,
 		getActiveUnpairedDiscoveredDevicesStmt:              q.getActiveUnpairedDiscoveredDevicesStmt,
 		getAllDeviceInfoForCapabilityCheckStmt:              q.getAllDeviceInfoForCapabilityCheckStmt,

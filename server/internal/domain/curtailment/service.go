@@ -95,6 +95,31 @@ func (s *Service) Preview(ctx context.Context, req PreviewRequest) (*Plan, error
 		return nil, err
 	}
 
+	// Cross-org ownership guard for explicit device-list scope: the SQL
+	// already filters by org_id, so any device_identifier the caller listed
+	// that belongs to another org (or doesn't exist) is silently dropped.
+	// Without this check the caller sees a confusing InsufficientLoad
+	// instead of "you don't own these IDs". Per the BE-2 plan: "Explicit
+	// miner-list scope must validate org ownership before persistence or
+	// dispatch; do not rely on generic command include_devices resolution
+	// as the authorization boundary."
+	if len(deviceFilter) > 0 {
+		if missing := missingDeviceIdentifiers(deviceFilter, candidates); len(missing) > 0 {
+			return nil, fleeterror.NewNotFoundErrorf(
+				"device_identifiers not found in caller's org: %v", missing,
+			)
+		}
+	}
+
+	// TODO(BE-3+): extend the capability gate. classifyCandidates already
+	// skips devices with no driver_name (defense-in-depth for a missing
+	// discovered_device row), but the full check — does the loaded plugin
+	// advertise curtail_full for this device's model? — needs the plugin
+	// registry that BE-3 wires up. Until then, devices with a known driver
+	// but an unsupported model can slip through; the candidate query already
+	// returns driver_name + model so the registry-driven check can layer on
+	// without a schema change.
+
 	eligible, preFiltered, summary := classifyCandidates(candidates, classifyOpts{
 		IncludeMaintenance: req.IncludeMaintenance && req.ForceIncludeMaintenance,
 		ActiveEventDevices: activeSet,
@@ -123,6 +148,14 @@ func validatePreviewRequest(req PreviewRequest) error {
 	}
 	if req.ToleranceKW < 0 {
 		return fleeterror.NewInvalidArgumentErrorf("tolerance_kw must be >= 0, got %v", req.ToleranceKW)
+	}
+	// candidate_min_power_w_override = 0 effectively disables the dual-signal
+	// floor (every powered miner becomes a candidate). The proto declares the
+	// field uint32 with documented bounds [1, 10_000_000]; this guard is the
+	// service-level backstop for callers that bypass the proto validator
+	// (internal CLIs, tests, future non-Connect surfaces).
+	if req.CandidateMinPowerWOverride != nil && *req.CandidateMinPowerWOverride < 1 {
+		return fleeterror.NewInvalidArgumentErrorf("candidate_min_power_w_override must be >= 1, got %d", *req.CandidateMinPowerWOverride)
 	}
 	// Maintenance override pair is both-or-neither at the API boundary;
 	// the DB CHECK constraint is the defense-in-depth backstop at Start time.
@@ -186,7 +219,27 @@ func classifyCandidates(cands []*models.Candidate, opts classifyOpts) ([]Candida
 			summary.ExcludedPairing++
 			continue
 		}
+		// Partial capability gate (defense-in-depth, not a full check):
+		// a device with no driver metadata cannot be curtailed because we
+		// don't know which plugin would handle the dispatch. Skipping here
+		// prevents the selector from picking a device whose Curtail call
+		// would have nowhere to land. The full plugin-registry-driven
+		// curtail_full check is BE-3+ work; this guard catches the
+		// "discovered_device row missing" edge today.
+		if c.DriverName == nil || *c.DriverName == "" {
+			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipCurtailFullUnsupported})
+			summary.ExcludedCapabilityMiss++
+			continue
+		}
 		switch c.DeviceStatus {
+		case "":
+			// Empty string is the COALESCE sentinel for a missing
+			// device_status row (no status agent has reported yet, or the
+			// device is brand-new). Treat as stale: we cannot prove the
+			// device is curtail-safe without a recent status, and the
+			// reconciler would have nothing to verify against.
+			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipStaleTelemetry})
+			continue
 		case "UPDATING":
 			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipUpdating})
 			continue
@@ -227,6 +280,27 @@ func classifyCandidates(cands []*models.Candidate, opts classifyOpts) ([]Candida
 		})
 	}
 	return eligible, skipped, summary
+}
+
+// missingDeviceIdentifiers returns identifiers from `requested` that the org-
+// scoped candidate listing did not surface. An empty result means every
+// requested device belongs to the caller's org (or has been soft-deleted —
+// soft-deleted devices are out of scope by design).
+func missingDeviceIdentifiers(requested []string, candidates []*models.Candidate) []string {
+	if len(requested) == 0 {
+		return nil
+	}
+	have := make(map[string]struct{}, len(candidates))
+	for _, c := range candidates {
+		have[c.DeviceIdentifier] = struct{}{}
+	}
+	var missing []string
+	for _, id := range requested {
+		if _, ok := have[id]; !ok {
+			missing = append(missing, id)
+		}
+	}
+	return missing
 }
 
 func toStringSet(s []string) map[string]struct{} {
