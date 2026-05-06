@@ -167,7 +167,7 @@ func start(config *Config) error {
 	apiKeySvc := apikeyDomain.NewService(apiKeyStore, activitySvc)
 
 	agentEnrollmentStore := sqlstores.NewSQLAgentEnrollmentStore(conn)
-	agentEnrollmentSvc := agentenrollment.NewService(agentEnrollmentStore, apiKeySvc, transactor)
+	agentEnrollmentSvc := agentenrollment.NewService(agentEnrollmentStore, apiKeySvc, transactor, activitySvc)
 	agentAuthStore := sqlstores.NewSQLAgentAuthStore(conn)
 	agentAuthSvc := agentauth.NewService(agentAuthStore, agentEnrollmentStore, apiKeySvc)
 

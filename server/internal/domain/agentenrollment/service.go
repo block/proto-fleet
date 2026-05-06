@@ -6,10 +6,14 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"fmt"
 	"time"
 
+	"github.com/block/proto-fleet/server/internal/domain/activity"
+	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/apikey"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/session"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/infrastructure/cryptohash"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
@@ -64,13 +68,14 @@ type Store interface {
 }
 
 type Service struct {
-	store      Store
-	apiKeySvc  *apikey.Service
-	transactor stores.Transactor
+	store       Store
+	apiKeySvc   *apikey.Service
+	transactor  stores.Transactor
+	activitySvc *activity.Service
 }
 
-func NewService(store Store, apiKeySvc *apikey.Service, transactor stores.Transactor) *Service {
-	return &Service{store: store, apiKeySvc: apiKeySvc, transactor: transactor}
+func NewService(store Store, apiKeySvc *apikey.Service, transactor stores.Transactor, activitySvc *activity.Service) *Service {
+	return &Service{store: store, apiKeySvc: apiKeySvc, transactor: transactor, activitySvc: activitySvc}
 }
 
 // CreateCode mints an enrollment code. Plaintext is returned exactly once;
@@ -88,6 +93,7 @@ func (s *Service) CreateCode(ctx context.Context, userID, orgID int64, ttl time.
 	if _, err := s.store.CreatePendingEnrollment(ctx, hashCode(plaintext), orgID, userID, expiresAt); err != nil {
 		return "", time.Time{}, logInternal("create pending enrollment", clientErrCreateCode, err)
 	}
+	s.logActivity(ctx, "create_enrollment_code", fmt.Sprintf("Created agent enrollment code (expires %s)", expiresAt.Format(time.RFC3339)))
 	return plaintext, expiresAt, nil
 }
 
@@ -155,6 +161,7 @@ func (s *Service) Confirm(ctx context.Context, agentID, orgID int64) (string, ti
 	var (
 		plaintext string
 		expires   time.Time
+		agentName string
 	)
 	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
 		// Lock the agent row first so Confirm and RevokeAgent always acquire
@@ -203,6 +210,7 @@ func (s *Service) Confirm(ctx context.Context, agentID, orgID int64) (string, ti
 			return err
 		}
 		plaintext = key
+		agentName = agent.Name
 		if apiKey.ExpiresAt != nil {
 			expires = *apiKey.ExpiresAt
 		}
@@ -210,6 +218,7 @@ func (s *Service) Confirm(ctx context.Context, agentID, orgID int64) (string, ti
 	}); err != nil {
 		return "", time.Time{}, err
 	}
+	s.logActivity(ctx, "confirm_agent", fmt.Sprintf("Confirmed agent '%s' (id=%d)", agentName, agentID))
 	return plaintext, expires, nil
 }
 
@@ -222,10 +231,12 @@ func (s *Service) Confirm(ctx context.Context, agentID, orgID int64) (string, ti
 // to fail to resolve on the next call; challenge rows expire on their own
 // 30s TTL.
 func (s *Service) RevokeAgent(ctx context.Context, agentID, orgID int64) error {
-	return s.transactor.RunInTx(ctx, func(ctx context.Context) error {
+	var agentName string
+	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
 		// Lock-then-mutate the agent row first; matches Confirm's lock order
 		// (agent -> pending_enrollment) so the two flows can't deadlock.
-		if _, err := s.store.LockAgentByID(ctx, agentID, orgID); err != nil {
+		agent, err := s.store.LockAgentByID(ctx, agentID, orgID)
+		if err != nil {
 			if fleeterror.IsNotFoundError(err) {
 				return fleeterror.NewNotFoundError("agent not found")
 			}
@@ -244,8 +255,13 @@ func (s *Service) RevokeAgent(ctx context.Context, agentID, orgID int64) error {
 		if _, err := s.store.SoftDeleteAgent(ctx, agentID, orgID, now); err != nil {
 			return logInternal("soft delete agent", clientErrRevokeAgent, err)
 		}
+		agentName = agent.Name
 		return nil
-	})
+	}); err != nil {
+		return err
+	}
+	s.logActivity(ctx, "revoke_agent", fmt.Sprintf("Revoked agent '%s' (id=%d)", agentName, agentID))
+	return nil
 }
 
 func (s *Service) Cancel(ctx context.Context, enrollmentID, orgID int64) error {
@@ -302,4 +318,25 @@ func logInternal(op, clientMsg string, err error) error {
 		return err
 	}
 	return fleeterror.LogInternal(component, op, clientMsg, err)
+}
+
+// logActivity records an operator-driven enrollment event. No-ops when the
+// activity service is nil (e.g. integration tests) or when the call has no
+// session info on its context (e.g. background sweepers).
+func (s *Service) logActivity(ctx context.Context, eventType, description string) {
+	if s.activitySvc == nil {
+		return
+	}
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return
+	}
+	s.activitySvc.Log(ctx, activitymodels.Event{
+		Category:       activitymodels.CategoryAuth,
+		Type:           eventType,
+		Description:    description,
+		UserID:         &info.ExternalUserID,
+		Username:       &info.Username,
+		OrganizationID: &info.OrganizationID,
+	})
 }

@@ -36,7 +36,7 @@ func setupEnrollmentTest(t *testing.T) (*sql.DB, int64, int64, *agentenrollment.
 
 	transactor := sqlstores.NewSQLTransactor(db)
 	enrollmentStore := sqlstores.NewSQLAgentEnrollmentStore(db)
-	enrollmentSvc := agentenrollment.NewService(enrollmentStore, apiKeySvc, transactor)
+	enrollmentSvc := agentenrollment.NewService(enrollmentStore, apiKeySvc, transactor, nil)
 
 	authStore := sqlstores.NewSQLAgentAuthStore(db)
 	authSvc := agentauth.NewService(authStore, enrollmentStore, apiKeySvc)
