@@ -6,12 +6,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
-
-	"connectrpc.com/connect"
 )
 
-type RefreshCmd struct{}
+type RefreshCmd struct {
+	APIKey string `name:"api-key" env:"FLEET_AGENT_API_KEY" help:"api_key to use for the handshake; required when state has no api_key (e.g. recovering from an interrupted enroll), otherwise overrides the stored value"`
+}
 
 func (r *RefreshCmd) Run(c *Context) error {
 	return r.run(c, os.Stdout)
@@ -26,20 +27,28 @@ func (r *RefreshCmd) run(c *Context, w io.Writer) error {
 	if !exists {
 		return fmt.Errorf("no state at %s; run `fleet-agent enroll` first", path)
 	}
-	if st.APIKey == "" {
-		return errors.New("state has no api_key; re-enroll the agent")
-	}
 	if st.ServerURL == "" {
 		return errors.New("state has no server_url; re-enroll the agent")
 	}
+	if err := validateServerURL(st.ServerURL, st.AllowInsecureTransport); err != nil {
+		return err
+	}
+
+	if flagKey := strings.TrimSpace(r.APIKey); flagKey != "" {
+		st.APIKey = flagKey
+	}
+	if st.APIKey == "" {
+		return errors.New("state has no api_key; pass --api-key=<value> or re-enroll the agent")
+	}
+
 	client := newGatewayClient(st.ServerURL)
 	if err := runHandshake(context.Background(), client, st); err != nil {
-		if connect.CodeOf(err) == connect.CodeUnauthenticated {
+		if errors.Is(err, errAPIKeyRejected) {
 			st.APIKey = ""
 			st.SessionToken = ""
 			st.SessionExpiresAt = time.Time{}
 			if saveErr := saveState(path, st); saveErr != nil {
-				return fmt.Errorf("handshake unauthenticated; failed to clear local state: %w", saveErr)
+				return fmt.Errorf("api_key rejected; failed to clear local credentials: %w", saveErr)
 			}
 			return fmt.Errorf("api_key rejected; cleared local credentials, re-enroll the agent: %w", err)
 		}

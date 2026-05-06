@@ -13,6 +13,11 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/agentgateway/v1/agentgatewayv1connect"
 )
 
+// errAPIKeyRejected is returned when BeginAuthHandshake rejects the api_key
+// itself, distinguishing that case from CompleteAuthHandshake failures
+// (expired challenge, signature mismatch) that may not invalidate the key.
+var errAPIKeyRejected = errors.New("server rejected api_key")
+
 func runHandshake(ctx context.Context, c agentgatewayv1connect.AgentGatewayServiceClient, s *State) error {
 	priv, err := hex.DecodeString(s.IdentityPrivateKeyHex)
 	if err != nil {
@@ -34,6 +39,9 @@ func runHandshake(ctx context.Context, c agentgatewayv1connect.AgentGatewayServi
 		IdentityPubkey: pub,
 	}))
 	if err != nil {
+		if connect.CodeOf(err) == connect.CodeUnauthenticated {
+			return fmt.Errorf("%w: %w", errAPIKeyRejected, err)
+		}
 		return fmt.Errorf("begin handshake: %w", err)
 	}
 	challenge := begin.Msg.GetChallenge()

@@ -82,12 +82,21 @@ func (e *EnrollCmd) run(c *Context, stdin io.Reader, stdout, stderr io.Writer) e
 
 	state := &State{
 		ServerURL:                 e.ServerURL,
+		AllowInsecureTransport:    e.AllowInsecureTransport,
 		AgentID:                   resp.Msg.GetAgentId(),
 		IdentityFingerprint:       localFP,
 		IdentityPrivateKeyHex:     hex.EncodeToString(idPriv),
 		IdentityPublicKeyHex:      hex.EncodeToString(idPub),
 		MinerSigningPrivateKeyHex: hex.EncodeToString(mPriv),
 		MinerSigningPublicKeyHex:  hex.EncodeToString(mPub),
+	}
+
+	// Persist immediately: a Ctrl-C between here and the api_key paste would
+	// otherwise lose the freshly-generated keys while the server holds an
+	// orphaned agent row that can't be re-registered. Operator recovers with
+	// `fleet-agent refresh --api-key=<paste>`.
+	if err := saveState(path, state); err != nil {
+		return err
 	}
 
 	_, _ = fmt.Fprintf(stderr, "Agent registered (agent_id=%d, name=%q).\n", state.AgentID, name)
@@ -106,9 +115,6 @@ func (e *EnrollCmd) run(c *Context, stdin io.Reader, stdout, stderr io.Writer) e
 		return errors.New("empty api key")
 	}
 	state.APIKey = apiKey
-
-	// Persist before the handshake so a handshake failure leaves a state file
-	// the operator can recover from with `fleet-agent refresh`.
 	if err := saveState(path, state); err != nil {
 		return err
 	}

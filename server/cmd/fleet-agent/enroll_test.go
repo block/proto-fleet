@@ -52,8 +52,42 @@ func TestEnrollCmd_HappyPath_ApiKeyFlag(t *testing.T) {
 	assert.Len(t, loaded.IdentityFingerprint, 16)
 	assert.Equal(t, ed25519.PublicKeySize*2, len(loaded.IdentityPublicKeyHex))
 	assert.Equal(t, ed25519.PrivateKeySize*2, len(loaded.IdentityPrivateKeyHex))
+	assert.True(t, loaded.AllowInsecureTransport)
 	assert.True(t, fake.registered)
 	assert.True(t, fake.signatureVerified)
+}
+
+func TestEnrollCmd_PersistsStateImmediatelyAfterRegister(t *testing.T) {
+	t.Parallel()
+
+	// Arrange
+	dir := t.TempDir()
+	fake := &fakeAgentGateway{
+		expectedCode: "code",
+		agentID:      55,
+		challenge:    bytes.Repeat([]byte{0x02}, 32),
+	}
+	srv := newFakeServer(t, fake)
+	cmd := &EnrollCmd{
+		ServerURL:              srv.URL,
+		Code:                   "code",
+		Name:                   "agent-55",
+		AllowInsecureTransport: true,
+	}
+
+	// Act
+	err := cmd.run(&Context{StateDir: dir}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
+
+	// Assert
+	require.Error(t, err, "stdin returns no input; enroll should fail at the api_key read")
+	loaded, exists, err := loadState(filepath.Join(dir, "state.yaml"))
+	require.NoError(t, err)
+	require.True(t, exists, "state must persist immediately after Register so a Ctrl-C during paste does not orphan the agent")
+	assert.Equal(t, int64(55), loaded.AgentID)
+	assert.Empty(t, loaded.APIKey)
+	assert.Empty(t, loaded.SessionToken)
+	assert.Equal(t, ed25519.PrivateKeySize*2, len(loaded.IdentityPrivateKeyHex))
+	assert.True(t, loaded.AllowInsecureTransport)
 }
 
 func TestEnrollCmd_PersistsStateBeforeHandshake(t *testing.T) {
