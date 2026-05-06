@@ -36,6 +36,7 @@ import (
 	"golang.org/x/net/http2/h2c"
 
 	"github.com/block/proto-fleet/server/generated/grpc/activity/v1/activityv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/agentadmin/v1/agentadminv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/agentgateway/v1/agentgatewayv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/apikey/v1/apikeyv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
@@ -53,6 +54,8 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/schedule/v1/schedulev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/telemetry/v1/telemetryv1connect"
 	activityDomain "github.com/block/proto-fleet/server/internal/domain/activity"
+	"github.com/block/proto-fleet/server/internal/domain/agentauth"
+	"github.com/block/proto-fleet/server/internal/domain/agentenrollment"
 	apikeyDomain "github.com/block/proto-fleet/server/internal/domain/apikey"
 	authDomain "github.com/block/proto-fleet/server/internal/domain/auth"
 	collectionDomain "github.com/block/proto-fleet/server/internal/domain/collection"
@@ -71,6 +74,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/scheduler"
 	tokenDomain "github.com/block/proto-fleet/server/internal/domain/token"
 	activityHandler "github.com/block/proto-fleet/server/internal/handlers/activity"
+	"github.com/block/proto-fleet/server/internal/handlers/agentadmin"
 	"github.com/block/proto-fleet/server/internal/handlers/agentgateway"
 	apikeyHandler "github.com/block/proto-fleet/server/internal/handlers/apikey"
 	"github.com/block/proto-fleet/server/internal/handlers/auth"
@@ -162,6 +166,11 @@ func start(config *Config) error {
 	apiKeyStore := sqlstores.NewSQLApiKeyStore(conn)
 	apiKeySvc := apikeyDomain.NewService(apiKeyStore, activitySvc)
 
+	agentEnrollmentStore := sqlstores.NewSQLAgentEnrollmentStore(conn)
+	agentEnrollmentSvc := agentenrollment.NewService(agentEnrollmentStore, apiKeySvc, transactor)
+	agentAuthStore := sqlstores.NewSQLAgentAuthStore(conn)
+	agentAuthSvc := agentauth.NewService(agentAuthStore, agentEnrollmentStore, apiKeySvc)
+
 	tokenSvc, err := tokenDomain.NewService(config.Auth)
 	if err != nil {
 		return err
@@ -175,7 +184,7 @@ func start(config *Config) error {
 	authSvc := authDomain.NewService(userStore, userStore, transactor, tokenSvc, sessionSvc, encryptSvc, activitySvc)
 
 	// Start session cleanup goroutine
-	sessionCleanupCtx, sessionCleanupCancel := context.WithCancel(context.Background())
+	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
 	go func() {
 		ticker := time.NewTicker(sessionSvc.CleanupInterval())
 		defer ticker.Stop()
@@ -183,18 +192,27 @@ func start(config *Config) error {
 		for {
 			select {
 			case <-ticker.C:
-				deleted, err := sessionSvc.CleanupExpired(context.Background())
-				if err != nil {
+				if deleted, err := sessionSvc.CleanupExpired(cleanupCtx); err != nil {
 					slog.Error("failed to cleanup expired sessions", "error", err)
 				} else if deleted > 0 {
 					slog.Debug("cleaned up expired sessions", "count", deleted)
 				}
-			case <-sessionCleanupCtx.Done():
+				if swept, err := agentEnrollmentSvc.SweepExpired(cleanupCtx); err != nil {
+					slog.Error("failed to sweep expired agent enrollments", "error", err)
+				} else if swept > 0 {
+					slog.Debug("swept expired agent enrollments", "count", swept)
+				}
+				if challenges, sessions, err := agentAuthSvc.SweepExpired(cleanupCtx); err != nil {
+					slog.Error("failed to sweep expired agent auth state", "error", err)
+				} else if challenges > 0 || sessions > 0 {
+					slog.Debug("swept expired agent auth state", "challenges", challenges, "sessions", sessions)
+				}
+			case <-cleanupCtx.Done():
 				return
 			}
 		}
 	}()
-	defer sessionCleanupCancel()
+	defer cleanupCancel()
 
 	if err := config.Plugins.Validate(); err != nil {
 		return fmt.Errorf("invalid plugin configuration: %w", err)
@@ -386,7 +404,8 @@ func start(config *Config) error {
 		interceptors.NewErrorMappingInterceptor(),
 		interceptors.NewErrorStackTraceLoggingInterceptor(config.Log.Level),
 		interceptors.NewRequestLoggingInterceptor(config.Log.Level, interceptors.RedactedRequestProcedures, interceptors.RedactedResponseProcedures),
-		interceptors.NewAuthInterceptor(sessionSvc, userStore, userStore, apiKeySvc, interceptors.UnauthenticatedProcedures, interceptors.SessionOnlyProcedures),
+		interceptors.NewAgentAuthInterceptor(agentAuthSvc, interceptors.AgentAuthenticatedProcedures),
+		interceptors.NewAuthInterceptor(sessionSvc, userStore, userStore, apiKeySvc, interceptors.UnauthenticatedProcedures, interceptors.SessionOnlyProcedures, interceptors.AgentAuthenticatedProcedures),
 		validateInterceptor,
 	)
 
@@ -426,7 +445,8 @@ func start(config *Config) error {
 	mux.Handle(schedulev1connect.NewScheduleServiceHandler(scheduleHandler.NewHandler(scheduleSvc), li))
 	// Register v1 curtailment routes; the handler returns Unimplemented for now.
 	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(curtailmentHandler.NewHandler(), li))
-	mux.Handle(agentgatewayv1connect.NewAgentGatewayServiceHandler(agentgateway.NewHandler(), li))
+	mux.Handle(agentgatewayv1connect.NewAgentGatewayServiceHandler(agentgateway.NewHandler(agentEnrollmentSvc, agentAuthSvc), li))
+	mux.Handle(agentadminv1connect.NewAgentAdminServiceHandler(agentadmin.NewHandler(agentEnrollmentSvc), li))
 	mux.Handle(collectionv1connect.NewDeviceCollectionServiceHandler(collectionHandler.NewHandler(collectionSvc), li))
 	mux.Handle(device_setv1connect.NewDeviceSetServiceHandler(devicesetHandler.NewHandler(collectionSvc), li))
 	mux.Handle(telemetryv1connect.NewTelemetryServiceHandler(telemetryHandler.NewHandler(telemetryService), li))
