@@ -41,6 +41,23 @@ func statePath(dir string) string {
 	return filepath.Join(dir, "state.yaml")
 }
 
+// tightenStateDirPerms chmods the state directory to 0700 if any group/other
+// bits are set. os.MkdirAll skips chmod on existing dirs, so a pre-existing
+// 0755 dir would otherwise leave the credential file's enclosing path
+// world-listable.
+func tightenStateDirPerms(dir string) error {
+	info, err := os.Stat(dir)
+	if err != nil {
+		return fmt.Errorf("stat state dir: %w", err)
+	}
+	if info.Mode().Perm()&0o077 != 0 {
+		if err := os.Chmod(dir, 0o700); err != nil { //nolint:gosec // directory must keep owner-execute to be traversable
+			return fmt.Errorf("chmod state dir: %w", err)
+		}
+	}
+	return nil
+}
+
 func loadState(path string) (*State, bool, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -62,6 +79,9 @@ func saveState(path string, s *State) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create state dir: %w", err)
+	}
+	if err := tightenStateDirPerms(dir); err != nil {
+		return err
 	}
 	data, err := yaml.Marshal(s)
 	if err != nil {

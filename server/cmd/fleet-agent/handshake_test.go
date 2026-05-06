@@ -23,13 +23,29 @@ import (
 type fakeAgentGateway struct {
 	agentgatewayv1connect.UnimplementedAgentGatewayServiceHandler
 
+	expectedCode     string
 	expectedAPIKey   string
+	agentID          int64
 	identityPub      ed25519.PublicKey
 	challenge        []byte
 	sessionToken     string
 	sessionExpiresAt time.Time
 
+	registered        bool
 	signatureVerified bool
+}
+
+func (f *fakeAgentGateway) Register(_ context.Context, req *connect.Request[pb.RegisterRequest]) (*connect.Response[pb.RegisterResponse], error) {
+	if f.expectedCode != "" && req.Msg.GetEnrollmentToken() != f.expectedCode {
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("invalid enrollment_token"))
+	}
+	f.identityPub = ed25519.PublicKey(req.Msg.GetIdentityPubkey())
+	f.registered = true
+	return connect.NewResponse(&pb.RegisterResponse{
+		AgentId:             f.agentID,
+		EnrollmentStatus:    pb.EnrollmentStatus_ENROLLMENT_STATUS_PENDING,
+		IdentityFingerprint: identityFingerprint(req.Msg.GetIdentityPubkey()),
+	}), nil
 }
 
 func (f *fakeAgentGateway) BeginAuthHandshake(_ context.Context, req *connect.Request[pb.BeginAuthHandshakeRequest]) (*connect.Response[pb.BeginAuthHandshakeResponse], error) {
@@ -126,6 +142,57 @@ func TestRunHandshake_WrongAPIKey(t *testing.T) {
 	require.ErrorAs(t, err, &connErr)
 	assert.Equal(t, connect.CodeUnauthenticated, connErr.Code())
 	assert.Empty(t, state.SessionToken)
+}
+
+func TestRunHandshake_MalformedKeys(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		privHex string
+		pubHex  string
+		wantErr string
+	}{
+		{
+			name:    "non-hex private key",
+			privHex: "not-hex",
+			pubHex:  hex.EncodeToString(make([]byte, ed25519.PublicKeySize)),
+			wantErr: "decode identity private key",
+		},
+		{
+			name:    "non-hex public key",
+			privHex: hex.EncodeToString(make([]byte, ed25519.PrivateKeySize)),
+			pubHex:  "not-hex",
+			wantErr: "decode identity public key",
+		},
+		{
+			name:    "wrong-length private key",
+			privHex: hex.EncodeToString(make([]byte, 8)),
+			pubHex:  hex.EncodeToString(make([]byte, ed25519.PublicKeySize)),
+			wantErr: "private key has wrong length",
+		},
+		{
+			name:    "wrong-length public key",
+			privHex: hex.EncodeToString(make([]byte, ed25519.PrivateKeySize)),
+			pubHex:  hex.EncodeToString(make([]byte, 8)),
+			wantErr: "public key has wrong length",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Arrange
+			state := &State{IdentityPrivateKeyHex: tc.privHex, IdentityPublicKeyHex: tc.pubHex}
+
+			// Act
+			err := runHandshake(t.Context(), nil, state)
+
+			// Assert
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
 }
 
 func TestRunHandshake_BadSignature(t *testing.T) {

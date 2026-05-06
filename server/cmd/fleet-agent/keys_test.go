@@ -2,15 +2,16 @@ package main
 
 import (
 	"crypto/ed25519"
-	"crypto/sha256"
 	"encoding/hex"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/block/proto-fleet/server/internal/domain/agentenrollment"
 )
 
-func TestIdentityFingerprint_MatchesServerAlgorithm(t *testing.T) {
+func TestIdentityFingerprint_MatchesServer(t *testing.T) {
 	t.Parallel()
 
 	// Arrange
@@ -18,14 +19,12 @@ func TestIdentityFingerprint_MatchesServerAlgorithm(t *testing.T) {
 	for i := range pubkey {
 		pubkey[i] = byte(i)
 	}
-	sum := sha256.Sum256(pubkey)
-	expected := hex.EncodeToString(sum[:8])
 
 	// Act
 	got := identityFingerprint(pubkey)
 
 	// Assert
-	assert.Equal(t, expected, got)
+	assert.Equal(t, agentenrollment.IdentityFingerprint(pubkey), got)
 	assert.Len(t, got, 16)
 }
 

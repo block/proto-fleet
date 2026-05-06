@@ -49,6 +49,42 @@ func TestSaveLoadState_RoundTrip(t *testing.T) {
 	assert.True(t, loaded.SessionExpiresAt.Equal(expectedTime), "want %s, got %s", expectedTime, loaded.SessionExpiresAt)
 }
 
+func TestLoadState_MalformedYAML(t *testing.T) {
+	t.Parallel()
+
+	// Arrange
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("not: [valid: yaml"), 0o600))
+
+	// Act
+	st, exists, err := loadState(path)
+
+	// Assert
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse state")
+	assert.Nil(t, st)
+	assert.False(t, exists)
+}
+
+func TestSaveState_TightensExistingDirPerms(t *testing.T) {
+	t.Parallel()
+
+	// Arrange
+	dir := t.TempDir()
+	stateDir := filepath.Join(dir, "fleet-agent")
+	require.NoError(t, os.MkdirAll(stateDir, 0o755)) //nolint:gosec // the whole point of this test is to start with a too-permissive dir
+	path := filepath.Join(stateDir, "state.yaml")
+
+	// Act
+	require.NoError(t, saveState(path, &State{ServerURL: "x"}))
+
+	// Assert
+	info, err := os.Stat(stateDir)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o700), info.Mode().Perm())
+}
+
 func TestLoadState_MissingFile(t *testing.T) {
 	t.Parallel()
 
