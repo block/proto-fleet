@@ -341,4 +341,63 @@ test.describe("Groups", () => {
       await minersPage.validateNoMinerWithStatus("Rebooting");
     });
   });
+
+  test("Group overview actions menu manages power for selected rig miners", async ({
+    groupsPage,
+    minersPage,
+    page,
+  }) => {
+    const groupName = generateRandomText("automation");
+    let minerCount = 0;
+
+    await test.step("Create a rig-only group with two miners", async () => {
+      await groupsPage.clickAddGroupButton();
+      await groupsPage.inputGroupName(groupName);
+      await groupsPage.waitForModalListToLoad();
+      await groupsPage.filterModalType(PROTO_RIG_MODEL);
+      await groupsPage.waitForModalListToLoad();
+
+      minerCount = 2;
+      await groupsPage.selectMinersByIndex([0, 1]);
+      await groupsPage.clickSaveInModal();
+
+      await groupsPage.validateTextInToast(`Group "${groupName}" created`);
+      await groupsPage.validateSavedGroupVisible(groupName);
+      await groupsPage.validateSavedGroupMinerCount(groupName, minerCount);
+    });
+
+    await test.step("Open the group overview", async () => {
+      await groupsPage.openSavedGroupOverview(groupName);
+    });
+
+    const requestPromise = page.waitForRequest(/SetPowerTarget/);
+    const responsePromise = page.waitForResponse(/SetPowerTarget/);
+
+    await test.step("Use the overview actions menu to reduce power", async () => {
+      await groupsPage.openGroupOverviewActionsMenu();
+      await groupsPage.clickGroupOverviewManagePower();
+      await minersPage.clickReducePowerOption();
+      await minersPage.clickManagePowerConfirm();
+    });
+
+    await test.step("Validate manage power toasts", async () => {
+      await groupsPage.validateTextInToastGroup("Updating power settings");
+      await groupsPage.validateTextInToastGroup("Updated power settings");
+    });
+
+    await test.step("Validate the SetPowerTarget request targets the grouped miners", async () => {
+      const request = await requestPromise;
+      const response = await responsePromise;
+      const requestBody = request.postDataJSON();
+
+      test.expect(request.method()).toBe("POST");
+      test.expect(requestBody).toHaveProperty("performanceMode");
+      test.expect(requestBody.performanceMode).toBe("PERFORMANCE_MODE_EFFICIENCY");
+      test.expect(requestBody).toHaveProperty("deviceSelector");
+      test.expect(requestBody.deviceSelector).toHaveProperty("includeDevices");
+      test.expect(requestBody.deviceSelector.includeDevices).toHaveProperty("deviceIdentifiers");
+      test.expect(requestBody.deviceSelector.includeDevices.deviceIdentifiers).toHaveLength(minerCount);
+      test.expect(response.status()).toBe(200);
+    });
+  });
 });

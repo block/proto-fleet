@@ -74,6 +74,14 @@ export class GroupsPage extends BasePage {
     await this.validateModalIsOpen();
   }
 
+  async openSavedGroupOverview(groupName: string) {
+    const groupRow = this.getGroupRow(groupName);
+    await expect(groupRow).toBeVisible();
+    await groupRow.getByTestId("name").getByRole("link", { name: groupName, exact: true }).click();
+    await expect(this.page).toHaveURL(new RegExp(`/groups/${groupName}$`));
+    await this.validateTitle(groupName);
+  }
+
   async inputGroupName(groupName: string) {
     await this.page.locator(`//input[@id='group-name']`).fill(groupName);
   }
@@ -237,6 +245,16 @@ export class GroupsPage extends BasePage {
     const groupRow = this.getGroupRow(groupName);
     await expect(groupRow).toBeVisible();
     await groupRow.getByLabel("Device set actions").click();
+  }
+
+  async openGroupOverviewActionsMenu() {
+    await this.page.getByLabel("Device set actions").click();
+    await expect(this.page.getByTestId("group-actions-popover")).toBeVisible();
+  }
+
+  async clickGroupOverviewManagePower() {
+    await this.page.getByTestId("manage-power-popover-button").click();
+    await this.validateTitleInModal("Manage power");
   }
 
   async clickRebootGroupButton() {
