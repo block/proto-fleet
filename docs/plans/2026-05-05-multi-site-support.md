@@ -9,20 +9,28 @@ type: plan
 
 proto-fleet today assumes one install = one site. This plan adds sites as a
 first-class entity so a single install can manage miners across N physical
-locations, with a hierarchy of `site → building → rack → device`. The miner
-list, settings pages, pairing flow, and onboarding all become site-aware. An
-"All Sites" mode aggregates reads across sites; writes always target a single
-site explicitly.
+locations, with a hierarchy of `site → building → rack → device`. Sites are
+**optional**: an org can run without any sites and the app renders in a
+site-less form; sites become useful when an operator wants to organize
+miners by physical location. The miner list and settings pages become
+site-aware; the pairing flow stays unchanged in MVP and gains
+site-segmented discovery in Phase 2. An "All Sites" mode aggregates
+reads across sites; writes always target a single site explicitly when
+sites exist.
 
 ## Goals
 
 - Block mining-ops can manage 3+ sites from one install: name the sites,
-  reassign existing miners, pair new miners into the right site, filter and
-  navigate the UI scoped to a chosen site or aggregated across all sites.
+  organize them with buildings, assign miners to sites and buildings to
+  sites, filter and navigate the UI scoped to a chosen site or
+  aggregated across all sites.
 - Existing single-site installs upgrade with no data loss and no required
-  user action — they get a "Default Site" backfill and a dismissible banner.
-- Schema and APIs leave room for the future on-prem-agent workstream
-  (one agent per site) without building any of it now.
+  user action — the app continues to render in a site-less form until the
+  operator chooses to create sites.
+- The schema treats `site` as a first-class entity so the future
+  on-prem-agent workstream (one agent per site) has a natural
+  attachment point. We do not commit to its specific shape now and
+  add no agent-specific columns or tables in this plan.
 
 ## Non-goals
 
@@ -32,13 +40,15 @@ site explicitly.
 - Per-site config split for pools, security policies, firmware, schedules,
   team membership, API keys. These stay org-scoped in MVP. Sites carry
   network config (IP ranges for discovery), location/timezone/capacity,
-  optional power contract, and a list of buildings. Layout details (aisles,
-  racks per aisle, default rack settings) live on the building entity, not
-  the site.
+  optional power contract, and a list of buildings. Layout details
+  (aisles, racks per aisle, default rack settings) live on the building
+  entity, not the site.
 - Per-site historical reporting or retroactive site rewrites on existing
   log/snapshot rows.
 - Site-scoped discovery via on-prem agents. Out of scope for this plan;
   owned by the agent workstream.
+- Forcing site setup at onboarding. New orgs can pair miners and operate
+  without ever creating a site.
 
 ## User journeys
 
@@ -47,152 +57,253 @@ journey calls out the open design questions it raises.
 
 ### J1. Onboarding a new org
 
-A new org's first-run flow, after admin user + security setup:
+Onboarding does **not** prompt for site configuration. New orgs flow
+through today's existing onboarding (welcome → general settings →
+security → miner pairing → completion) unchanged. Pairing assigns
+miners to no site (`site_id IS NULL`); they sit in an "Unassigned"
+bucket until an operator creates sites later.
 
-1. **Name your sites.** Required step. User must create at least one site to
-   proceed. UI defaults to a single row pre-populated with "Site 1"; user
-   can add rows for additional sites. Per-row required fields:
-   - Site name
-   - Location (city, state)
-   - Timezone
-   - (Collapsible/optional) IP ranges to scan during discovery — one or
-     more CIDRs / IP-range strings, defaulting to the install's local
-     subnet. See J4 and §Backend.
-   Optional fields (power capacity, power contract, etc.) are deferred
-   to the post-onboarding settings page so the onboarding form stays
-   short for solo operators.
-2. **Configure pools.** Unchanged today. Pools remain org-scoped in MVP.
-3. **Pair miners.** Pairing UI requires a target site (see J4). If the org
-   has exactly one site, it's preselected. If multiple, user picks before
-   the discovery scan starts.
-
-Open questions:
-
-- Whether the network-config field should be a single multiline string
-  (newline-separated CIDRs/IPs) or a structured array. Working assumption
-  in this plan: multiline string, because it matches how operators
-  copy-paste IP ranges today and because the existing discovery code
-  already accepts a flat list.
+If and when the operator wants to organize by site, they navigate to
+`/settings/sites`, create sites, and use the bulk-assign action from the
+miner list.
 
 ### J2. Page-header app switcher (site picker)
 
-Every page in protoFleet sits behind a topbar control that selects either a
-specific site or "All Sites". This replaces the placeholder
-`LocationSelector` in `PageHeader.tsx`.
+When the org has at least one site, every page sits behind a topbar
+control that selects a specific site, "All Sites" (aggregate across all
+the user's sites), or "Unassigned" (miners with no site). This replaces
+the placeholder `LocationSelector` in `PageHeader.tsx`.
+
+When the org has **zero sites**, the topbar SitePicker is hidden — the
+app renders in site-less form. The miner list shows no site column.
+`/settings/sites` shows an empty state with a "Create site" CTA. The
+moment the operator creates their first site, the SitePicker appears,
+defaulting to that newly-created site (per the default-after-login
+rule below).
 
 - **Specific site selected** → all reads scoped to that site. All writes
   target that site without further prompting.
-- **"All Sites" selected** → reads aggregate across every site the user can
-  see (today: every site in their org). Writes that target a site (create
-  rack, add miners, etc.) require an explicit site picker inside the
-  action's UI. Writes that *don't* target a site (org-scoped settings,
-  pool config, etc.) are unaffected. Bulk operations (firmware update,
-  restart) across miners from multiple sites are allowed — the operation
+- **"All Sites" selected** → reads aggregate across every site the user
+  can see. Writes that target a site (create rack at building, etc.)
+  require an explicit site picker inside the action's UI.
+- **"Unassigned" selected** → reads scoped to miners/racks/buildings
+  with no site assignment. Useful for triage post-pairing or
+  post-upgrade. This option is the fastest path to surfacing
+  unassigned miners and racks for bulk handling — included in MVP
+  rather than left as a follow-up filter.
+- **Bulk operations** (firmware update, restart) across miners from
+  multiple sites are allowed when "All Sites" is active — the operation
   is per-miner, so cross-site batching is fine.
 
 **Persistence.** Active site selection is stored client-side in
 localStorage, keyed by username, mirroring the saved-views pattern at
-`client/src/shared/hooks/useLocalStorage.ts:3-45` and
-`savedViews.ts:96`. This avoids a `session.active_site_id` migration and
-the matching server-side resolution middleware. The server validates
-that any `site_id` sent with a request belongs to the user's org —
-that's the actual security boundary; "active site" itself is pure UX
+`client/src/shared/hooks/useLocalStorage.ts:3-45`. Server validates that
+any `site_id` sent with a request belongs to the user's org — that's
+the actual security boundary; "active site" itself is pure UX
 preference.
 
 **Default after first login.** "All Sites" if the user has access to
-more than one site; otherwise the single accessible site.
+more than one site; the single accessible site if exactly one;
+SitePicker hidden if none.
 
 ### J3. Site config (Settings → Sites)
 
-`/settings/sites` is the admin surface for sites.
+`/settings/sites` is the admin surface for sites and buildings.
 
-- **Specific site selected in topbar** → page shows the config for that
-  one site, in the section layout below.
-- **"All Sites" selected in topbar** → page shows every site, each
-  rendered as its own section (same layout), with a "Create site" CTA
-  at the top and a "Reassign miners" bulk action.
+**Empty state (org has zero sites).** Page renders a CTA: "Create your
+first site to organize miners by location." If the org also has
+unassigned buildings (e.g. zone-string promotion from upgrade — see
+J5), they appear in a separate section below the CTA so the operator
+can rename / edit them before assigning to a site.
 
-**Per-site section layout (both modes use this).**
+**Specific site selected in topbar.** Page shows the config for that
+one site, in the section layout below.
+
+**"All Sites" selected in topbar.** Page shows every site, each
+rendered as its own section (same layout), with a "Create site" CTA
+at the top and an "Unassigned buildings" section at the bottom
+listing buildings with no site. (Bulk reassignment of miners lives
+on the miner list — see J6 — not here.)
+
+In Phase 1 (no topbar yet), `/settings/sites` always renders in the
+"All Sites" layout when ≥1 site exists. The empty-state layout is
+unchanged.
+
+**Per-site section layout.**
 
 - Heading: site name (with edit affordance)
-- **Site details card** (half width): location, cooling mode, capacity.
-  Edit button → modal that updates site name, location, cooling mode,
-  capacity, timezone.
-- **Power contract card** (half width): ISO, utility, rate, contract end
-  date. Edit button → modal that updates ISO, utility, rate type, rate,
-  demand charge, transmission structure, power factor, contract start,
-  contract end. (Detailed enums in §Backend.)
+- **Site details card** (half width): location, capacity. Edit button
+  → modal that updates site name, location, capacity, timezone.
+- **Power contract card** (half width): ISO, utility, rate, contract
+  end date. Edit button → modal that updates ISO, utility, rate type,
+  rate, demand charge, transmission structure, power factor, contract
+  start, contract end.
 - **Buildings card** (full width): table of buildings with columns
-  for name, cooling, power, racks, kebab menu (view racks, view miners,
-  delete building). "Add building" CTA opens a modal.
+  for name, power, racks, kebab menu (view racks, view miners, assign
+  to another site, delete building). "Add building" CTA opens a
+  modal.
+
+**Unassigned buildings section** (rendered in "All Sites" mode and in
+the empty-state page): a table of buildings with no `site_id`,
+showing the same columns plus an "Assign to site" inline action.
+
+**Site create modal.** Mirrors today's rack-creation flow that lets
+the operator pick miners during create. The modal has two sections:
+
+1. Site details — name, location, timezone, capacity, optional
+   power contract.
+2. Optional "Assign miners" picker — multi-select over the org's
+   currently-unassigned miners, with the same selection ergonomics
+   as the bulk-assign modal in J6. Operator can skip and assign
+   later from the miner list.
+
+On save, the create + miner-assign happen in one transaction:
+the site row is inserted and `device.site_id` is updated for the
+picked miners. Cross-collection rule still applies — if any picked
+miner is in a rack whose building belongs to a *different* site,
+the entire create is rejected with the same per-device error
+detail. (In practice this is rare during create since the site
+itself is brand new.)
+
+Optionally extend with a "claim existing buildings" picker too;
+flagged as an open question.
+
+**Cross-site building moves** are allowed via the "Assign to another
+site" inline action in the buildings card kebab menu. The move
+rejects if any rack in the building contains a device whose
+`site_id` is set to a different site than the new target.
+
+**Site and building deletion — cascade-unassign with warn-first
+dialog.** Deletion is never blocked by attached entities. Instead,
+the UI reads attachment counts from the list response and presents a
+confirmation dialog before the destructive call:
+
+- *Site delete dialog:* "Deleting site 'X' will unassign **N
+  miners** and **M buildings**. They will move to the Unassigned
+  bucket. Continue?" Buttons: [Cancel] [Delete site].
+- *Building delete dialog:* "Deleting building 'Y' will unassign
+  **N racks**. They will move to the Unassigned bucket. Continue?"
+  Buttons: [Cancel] [Delete building].
+
+If counts are zero, the dialog still confirms but skips the
+unassignment language ("Are you sure you want to delete site 'X'?").
+
+On confirm, the server runs in one transaction:
+
+1. Soft-deletes the row (sets `deleted_at`).
+2. Sets `site_id = NULL` on every device pointing at the deleted
+   site, and `site_id = NULL` on every building pointing at the
+   deleted site. (Building delete: sets `building_id = NULL` on
+   every rack pointing at the deleted building.)
+3. Writes an activity-log row capturing the deletion + the
+   unassignment counts so audits can reconstruct the cascade.
 
 Open questions:
 
-- Building deletion semantics when racks exist. Working assumption:
-  same pattern as site deletion — 409 unless the building is empty
-  (no racks assigned). Last-building-in-site guard not enforced
-  (a site without buildings is valid; only sites must have ≥1 site
-  in the org).
-- Cross-site building moves: out of scope. A building belongs to one
-  site, full stop.
+- Whether the empty-state page should also show unassigned **miners**
+  (since the SitePicker provides "Unassigned" as a filter, the miner
+  list is the better home for that). Working answer: no, miner
+  triage stays on the miner list.
 
 ### J4. Add miners (Miner List → Add Miners)
 
-The discovery + pairing flow gains site-awareness.
+Pairing flow is **unchanged from today** in MVP. No site picker, no
+target-site modal step. Discovery uses today's request-supplied IP
+ranges (or mDNS link-local). Paired miners land with `site_id IS NULL`
+and the operator assigns them via the bulk-assign-to-site action on
+the miner list (see J6).
 
-- **Specific site selected in topbar** → "Add Miners" button uses that
-  site as the discovery + pairing target. Discovery uses the site's
-  configured IP ranges; paired miners are assigned to that site.
-- **"All Sites" selected in topbar** → "Add Miners" button first prompts
-  the user to pick a target site (a small modal step before the existing
-  discovery UI). Once chosen, the rest of the flow is identical. No
-  "unassigned" bucket; no per-discovered-miner site picker.
-- Discovery scope is governed by the chosen site's network config (CIDRs
-  / IP ranges). Falls back to today's behavior (the install's reachable
-  network) if a site has no network config set. mDNS / Bonjour discovery
-  is link-local and operates without site config.
+**Future (Phase 2):** discovery results are segmented by site network
+config — each discovered miner is grouped by which site's IP range
+caught it. Operator can drag-and-drop discovered miners between site
+buckets before clicking Pair, and miners pair directly into the
+operator-confirmed site. This is the eventual UX; MVP ships the
+flat unsegmented flow first to keep Phase 1 small.
 
-Open questions:
-
-- Whether to add an "All Sites" scan mode that fans out across every
-  site's configured IP ranges and segments findings by which site's
-  range each miner came from, auto-assigning at pair time. Lower
-  priority than the explicit-target flow above; tracked here so we
-  don't lose it.
-- Re-pair / move miner between sites: goes through the existing
-  reassignment flow on the miner list, not the discovery flow.
+**Site→miner mapping rule.** A miner's site is inferred from the
+site whose configured IP range caught it during discovery, not from
+the agent or transport that relayed it. This rule holds today
+(direct cloud scan) and in the future agent architecture (agent
+scans its local network and relays the results, but the site bucket
+is still chosen from the site's network config matching the miner's
+IP). Operators can override the inferred site at pair time
+(Phase 2 DnD) or after pairing (J6 bulk assign).
 
 ### J5. Upgrading an existing install
 
-Existing orgs running today's no-site proto-fleet upgrade seamlessly:
+Existing orgs upgrade with **no auto-created site** and **no required
+user action**. The migration:
 
-- Migration auto-creates a "Default Site" per org and backfills every
-  device, rack, and (newly elevated) building to it.
-- Existing zones (sub-rack string metadata today) become **buildings**
-  during the same migration: each unique zone string within an org's
-  Default Site becomes one building row; racks point at their new
-  building. Racks with `zone IS NULL` go into a per-site "Default
-  Building" row. Two racks with the same zone string become the same
-  building (operator can split later by editing).
-- On next SUPER_ADMIN login, a dismissible banner explains the change
-  and links to `/settings/sites` to rename the default site, split
-  into multiple sites, and reorganize buildings.
-- The migration deployment script blocks the upgrade if any pairing
-  or discovery job is in flight, to avoid mid-flight inconsistency.
+- Adds new tables (`site`, `building`) but populates no rows.
+- Adds nullable `site_id` to `device`, leaving every existing miner
+  with `site_id = NULL` (Unassigned).
+- Adds nullable `building_id` to `device_set_rack`. Promotes each
+  unique non-null `zone` string per org into a building row with
+  `site_id = NULL` (the building exists but is not yet assigned to a
+  site). Updates each rack's `building_id` to point at its new
+  building. Racks with `zone IS NULL` get `building_id = NULL`.
+- Leaves `device_set_rack.zone` column in place; dropped in Phase 2
+  after a writer audit confirms no callers remain.
+- Blocks the upgrade deployment if any pairing or discovery job is in
+  flight.
 
 **Migration banner UX.**
 
-- **When:** first SUPER_ADMIN login after upgrade ships.
+- **When:** first login after upgrade ships, for any user with
+  site-management access. Both ADMIN and SUPER_ADMIN can create
+  sites, so both see the banner.
 - **Where:** persistent banner at the top of every protoFleet page
   until dismissed.
-- **Copy (draft):** "proto-fleet now supports multiple sites. Your
-  existing miners are in 'Default Site'. Add more sites and reassign
-  miners as needed." Buttons: [Manage sites] [Dismiss].
+- **Copy (draft):** "Multi-site support is now available. Create
+  sites to organize miners by physical location. Your existing rack
+  zones are now editable as buildings — assign them to sites once
+  you've created them." Buttons: [Manage sites] [Dismiss].
 - **Persistence:** server-side via
-  `user_organization.migration_banner_dismissed_at`. localStorage was
-  considered but rejected — we don't want the banner to reappear in a
-  new browser, incognito window, or different device. Once the user
-  dismisses, the banner is gone forever for that user/org pair.
+  `user_organization.migration_banner_dismissed_at`. Server-side was
+  chosen over localStorage so the banner doesn't reappear in a new
+  browser, incognito window, or a different device. Each user
+  dismisses independently. Once dismissed, the banner is gone
+  forever for that user/org pair.
+
+After upgrade, an existing operator with N zones sees their org in
+site-less form: miner list shows no site column, `/settings/sites` is
+empty except for an "Unassigned buildings" section listing the N
+auto-promoted buildings. Creating a site and assigning buildings to
+it (and miners to it) is entirely opt-in.
+
+### J6. Assigning miners / racks / buildings to sites
+
+Once at least one site exists, three assignment flows surface:
+
+**Miners (bulk).** From the miner list:
+
+1. Filter or scroll to the target miners; multi-select rows.
+2. Bulk action menu → "Assign to site" opens a modal with a target
+   site picker.
+3. Server runs `ReassignDevicesToSite` as an all-or-nothing
+   transaction:
+   - Validates every selected device belongs to the user's org.
+   - For every device currently in a rack whose building is assigned
+     to a different site, rejects the entire batch with
+     `reason = "device_in_rack_at_other_site"` and per-device error
+     details. The operator unracks the offenders or assigns the
+     building to the same site, then retries.
+   - On success, updates `device.site_id` for the batch and writes
+     one activity-log row capturing user / source-site (or
+     "unassigned") / target-site / device-ids JSON.
+4. The bulk action is also the unassign action — the modal includes
+   "(Unassigned)" as a pickable target.
+
+**Buildings.** From `/settings/sites` (Unassigned buildings section
+or kebab menu on a per-site building row): "Assign to site" inline
+action. Single-building modal pickers a target site. Server enforces
+that no rack in the building contains a device assigned to a
+different site than the new target.
+
+**Racks.** Racks belong to one building (or none); racks aren't
+directly assigned to a site. Reassigning a rack from one building
+to another is a separate flow that lives on the rack edit modal
+(out of scope for this plan; current rack edit UI handles it).
 
 ## Backend updates
 
@@ -210,18 +321,21 @@ New entities and relationships introduced:
   - `timezone`
   - `power_capacity_mw` (nullable; optional)
   - `network_config` (text; newline-separated CIDRs/IPs for discovery
-    scan; optional, falls back to install's reachable network)
+    scan; optional)
   - **Power contract fields** (all nullable): `iso` (enum:
-    ERCOT, PJM, MISO, CAISO, SPP, NYISO, ISO-NE, NON_ISO), and when
+    ERCOT, PJM, MISO, CAISO, SPP, NYISO, ISO-NE, NON_ISO); when
     `iso = NON_ISO`, `balancing_authority` (enum: TVA, SOUTHERN_CO,
-    DUKE_CAROLINAS, DUKE_PROGRESS, BPA, PACIFICORP, SRP, ASSOC_ELECTRIC,
-    OTHER); `utility_operating_company` (string; see note below);
+    DUKE_CAROLINAS, DUKE_PROGRESS, BPA, PACIFICORP, SRP,
+    ASSOC_ELECTRIC, OTHER); `utility_operating_company` (string);
     `rate_type` (enum: FIXED, INDEX_LMP, PPA, TOU, TIERED, HYBRID);
     `rate_cents_per_kwh`, `demand_charge_cents_per_kwh`,
     `transmission_structure` (enum: 4CP, 5CP, NONE_BUNDLED),
     `power_factor` (enum: 0.85, 0.9, 0.95, 0.97, 1.0),
     `contract_start_date`, `contract_end_date`.
   - Standard timestamp columns + `deleted_at` for soft delete.
+
+  Cooling mode is **not** a site-level field. Miners already carry
+  cooling-mode settings; site-level cooling is redundant.
 
   **ISO note.** Independent System Operator (ISO) / Regional
   Transmission Organization (RTO) is the entity that runs the
@@ -235,69 +349,77 @@ New entities and relationships introduced:
 
   **Utility list note.** Utility is modeled as a free-text /
   long-list `utility_operating_company` rather than a hard-bound
-  enum. Reason: real utility operating companies span multiple ISOs
-  (Duke Indiana = MISO; Duke Carolinas = non-ISO; Entergy = MISO;
-  AEP = PJM and SPP), so any ISO→utility hard filter would be wrong.
-  The UI shows a suggested utility list filtered by chosen ISO with
-  a "show all" escape and a free-text fallback. Mismatches surface
-  as a soft warning, not a block. Initial suggestion list is in the
-  appendix at the bottom of this doc.
+  enum. Real utility operating companies span multiple ISOs (Duke
+  Indiana = MISO; Duke Carolinas = non-ISO; Entergy = MISO; AEP =
+  PJM and SPP), so any ISO→utility hard filter would be wrong. The
+  UI shows a suggested utility list filtered by chosen ISO with a
+  "show all" escape and a free-text fallback. Mismatches surface as
+  a soft warning, not a block. Initial suggestion list is in the
+  appendix.
 
 - **`building`** — replaces today's `device_set_rack.zone` string as a
-  first-class entity. Belongs to one site. Holds:
-  - `name` (unique within site)
+  first-class entity. Holds:
+  - `site_id` (**nullable** FK; a building may exist without an
+    assigned site, e.g. zone-promoted buildings from upgrade or
+    placeholder buildings created ahead of site assignment)
+  - `name` (unique within site when site is set; unique within org
+    when unassigned)
   - `power_kw` (capacity)
   - `overhead_kw` (non-miner load: cooling, lighting, etc.)
   - `aisles` (count)
   - `physical_rack_count` (physical racks present in the building,
     not the count of software-configured rack rows)
   - `racks_per_aisle`
-  - `cooling_mode` (enum: AIR, IMMERSION)
   - `default_rack_type` (FK to existing `rack_type` entity)
-  - `default_rack_order` (existing rack-order enum: BOTTOM_LEFT,
-    BOTTOM_RIGHT, TOP_LEFT, TOP_RIGHT)
+  - `default_rack_order` (existing rack-order enum)
 
-  The default-rack fields describe defaults applied when adding a new
-  rack to the building; pre-existing racks may not match these
+  Cooling mode is **not** a building-level field — miner-level
+  cooling settings already cover this.
+
+  The default-rack fields describe defaults applied when adding a
+  new rack to the building; pre-existing racks may not match these
   defaults, and that's allowed.
 
-- **`device.site_id`** — NOT NULL FK. Backfilled to org's "Default
-  Site" during migration. Cross-collection rule: if the device is
-  in a rack, `device.site_id` must equal the rack's building's
-  site at write time (pair, reassign).
+- **`device.site_id`** — **nullable** FK. Existing devices migrate
+  with `site_id = NULL`. New pairings default to `NULL`. Operator
+  assigns via bulk action.
 
-- **`device_set_rack.building_id`** — NOT NULL FK. Backfilled by
-  promoting each unique `zone` string per org into a building row,
-  then pointing racks at their building. Building's site is
-  inherited. The `zone` column may be dropped in a follow-up
-  migration after the writer audit completes.
+- **`device_set_rack.building_id`** — **nullable** FK. Backfilled by
+  promoting each unique non-null `zone` string per org into a
+  building row (with `site_id = NULL`), then pointing racks at their
+  building. Racks with `zone IS NULL` get `building_id = NULL`.
 
 - **`user_organization.migration_banner_dismissed_at`** — nullable
-  timestamp gating the upgrade banner. Per-user-per-org. See J5 for
-  UX rationale.
+  timestamp gating the upgrade banner. Per-user-per-org. See J5.
 
 Active-site selection is **not** stored in the database — it lives in
-client localStorage keyed by username (see J2). Server validates
-`site_id` belongs to the user's org on every site-scoped RPC.
+client localStorage keyed by username (see J2).
 
 The reserved `connection_kind` enum from the source design doc is
-**not** included. Rationale: the agent workstream will be the only
-write path in the future, and we can build for IP-range discovery now
-without committing to a discriminator the agent team hasn't designed
-yet. When the agent ships, the agent team adds whatever entities and
-discriminators they need.
+**not** included. The agent workstream will define whatever
+discriminator and agent-side schema it needs when it ships.
 
 Relationships after migration:
 
 ```
 site 1 ──< building 1 ──< device_set_rack 1 ──< device_set_membership >── device
-site 1 ──< device                              (direct FK; if device is in
-                                                a rack, its site_id must
-                                                equal the rack's building's
-                                                site)
+
+         (any FK above may be NULL: a building may have no site,
+          a rack may have no building, a device may have no site)
 ```
 
 Groups remain org-scoped (no `site_id`); they can span sites.
+
+**Cross-collection consistency rule.** A device's `site_id`, when
+set, must equal the site of its rack's building when that building's
+`site_id` is also set. Stated as a write-time check:
+
+- Pairing / bulk-assign: if device is in a rack whose building has a
+  site, the device's target site must match that site.
+- Building site-assignment: if the building contains racks with
+  devices whose `site_id` is set, those devices' sites must equal
+  the building's new target site.
+- Otherwise (any of the FKs are NULL): no constraint.
 
 ### Domain logic and APIs
 
@@ -305,29 +427,33 @@ New domain packages:
 
 - `server/internal/domain/sites/` — site CRUD, list, reassign-devices-
   to-site, network-config get/set, power-contract get/set. No
-  set-active-site RPC (active site is client-side).
-- `server/internal/domain/buildings/` — building CRUD scoped under a
-  site, including layout settings (aisles, racks per aisle, default
-  rack settings).
+  set-active-site RPC (active site is client-side). `ListSites`
+  returns `device_count` and `building_count` per site so the
+  delete-confirm dialog has its impact numbers without a separate
+  RPC. `DeleteSite` runs the soft-delete + cascade-unassign in one
+  transaction and writes an activity-log row that includes the
+  unassignment counts.
+- `server/internal/domain/buildings/` — building CRUD, list
+  (filterable by site or by "unassigned"), assign-to-site action,
+  layout settings. `ListBuildings` returns `rack_count` per
+  building for the delete-confirm dialog. `DeleteBuilding` runs the
+  soft-delete + cascade-unassign of racks in one transaction.
 
 Updated domain packages:
 
-- `pairing/` — Pair RPC accepts `site_id` from the request body
-  (no session middleware resolution). Discovery handler reads the
-  site's `network_config` to scope the scan; falls back to today's
-  request-supplied IP ranges and to mDNS link-local when absent.
-  In the future agent architecture, the agent will set `site_id`
-  implicitly via its identity at install time.
-- `device/` — list-devices query gains a `site_ids` filter (direct
-  FK, same shape as the existing `group_ids` / `rack_ids` filters).
-  The `MinerStateSnapshot` proto gains `site_id` and `site_label`;
-  every writer is updated.
-- `onboarding/` — adds a `SiteConfigured` gate (≥1 non-deleted site
-  in the org with location + timezone set). New "name your sites"
-  step before pool config.
-- `activity/` — every site CRUD, building CRUD, and reassignment
+- `pairing/` — unchanged in MVP. Pair RPC does not accept a `site_id`.
+  Discovery uses today's request-supplied IP ranges (and mDNS
+  link-local). Future Phase 2 work introduces site-segmented discovery.
+- `device/` — list-devices query gains a `site_ids` filter accepting
+  real site IDs and a sentinel "unassigned" value (direct FK,
+  same shape as the existing `group_ids` / `rack_ids` filters). The
+  `MinerStateSnapshot` proto gains `site_id` (nullable) and
+  `site_label`; every writer is updated.
+- `activity/` — every site CRUD, building CRUD, and device-reassign
   writes one log row capturing user, source/target site, device-ids
   JSON.
+- `onboarding/` — **no changes.** Site setup is not part of
+  onboarding.
 
 Existing domain APIs that continue to operate org-scoped (no per-site
 slicing in MVP): pools, schedules, errors, telemetry, queue, api_keys,
@@ -345,39 +471,13 @@ Multi-site preserves that model:
 
 | RPC | SUPER_ADMIN | ADMIN |
 |---|---|---|
-| `ListSites` | ✓ | ✓ |
+| `ListSites`, `ListBuildings` | ✓ | ✓ |
 | `CreateSite` / `UpdateSite` / `DeleteSite` | ✓ | ✓ |
-| `CreateBuilding` / `UpdateBuilding` / `DeleteBuilding` | ✓ | ✓ |
+| `CreateBuilding` / `UpdateBuilding` / `DeleteBuilding` / `AssignBuildingToSite` | ✓ | ✓ |
 | `ReassignDevicesToSite` | ✓ | ✓ |
-| `Pair` (with `site_id`) | ✓ | ✓ |
+| `Pair` | ✓ | ✓ |
 
 User management remains SUPER_ADMIN-only, unchanged from today.
-
-### Bulk reassignment — what the action does
-
-Use case: post-migration, an org has 500 miners auto-assigned to
-"Default Site". The operator creates Site B and Site C and needs to
-move ~200 miners to B and ~150 to C.
-
-Flow:
-
-1. From the miner list (any site context), the operator multi-selects
-   miners.
-2. Bulk action menu → "Reassign to site" opens a modal with a target
-   site picker.
-3. Server runs `ReassignDevicesToSite` as an all-or-nothing
-   transaction:
-   - Validates every selected device belongs to the user's org.
-   - For every device currently in a rack, validates the rack's
-     building's site equals the target site. If any device fails,
-     the entire batch is rejected with `reason = "device_in_rack_at_other_site"`
-     and per-device error details listing which devices need to be
-     unracked first.
-   - On success, updates `device.site_id` for the batch and writes
-     one activity-log row capturing user / source-site /
-     target-site / device-ids JSON.
-4. Modal surfaces the per-device errors (if any) so the operator
-   knows which racks to deal with before retrying.
 
 ## Frontend updates
 
@@ -386,40 +486,51 @@ names land in the technical plan.
 
 **New views:**
 
-- **Sites admin page** at `/settings/sites`. Renders one section per
-  site (site details card + power contract card + buildings card,
-  per J3). When the topbar is on a specific site, only that site's
-  section is shown. When "All Sites", every site is shown plus a
-  "Create site" CTA and a "Reassign miners" bulk action.
+- **Sites admin page** at `/settings/sites`. Renders an empty-state
+  CTA when the org has zero sites, with an "Unassigned buildings"
+  section below if any exist. Renders per-site sections (site
+  details + power contract + buildings) when ≥1 site exists, plus
+  an "Unassigned buildings" section at the bottom in "All Sites"
+  mode.
+- **Site create modal** — site details + power contract + optional
+  "Assign miners" picker (see J3).
 - **Site edit modal** (site details + power contract).
 - **Building edit modal** (name + capacity + layout + default rack
-  settings).
-- **Onboarding "Sites" step** — slotted between Security and Miners
-  in the onboarding flow. Multi-row form, requires ≥1 site with
-  name + location + timezone.
+  settings + assign-to-site dropdown).
 - **Topbar SitePicker** — replaces today's placeholder
-  `LocationSelector`. Shows current site name (or "All Sites") and
-  dropdown listing every site the user has access to plus an
-  "All Sites" entry. Selection persists to localStorage keyed by
-  username.
-- **"Choose target site" modal step** — presented before the existing
-  discovery UI in the Add Miners flow when "All Sites" is the active
-  context.
+  `LocationSelector`. Hidden when org has zero sites. Otherwise:
+  "All Sites" + each accessible site + "Unassigned" entry.
+  Selection persists to localStorage keyed by username.
+- **"Assign to site" bulk modal** — used from miner list bulk action.
+  Includes "(Unassigned)" as a target option.
 
 **Updated views:**
 
-- **Miner List** — new site column, new site filter chip, site-aware
-  saved views. The active-site selection applies on top of any
+- **Miner List** — new site column (rendered when org has ≥1 site;
+  hidden when site-less), new site filter chip with "Unassigned"
+  as a value alongside the actual sites, site-aware saved views.
+  Active-site selection from the topbar applies on top of any
   saved view's filters (intersection). The `zone` filter chip is
   renamed `building` once buildings ship.
-- **Add Miners flow** — discovery scope read from the chosen site's
-  network config; pair RPC sends the target `site_id`.
+- **Needs Attention status** — the existing built-in "Needs
+  Attention" saved view gains a new condition: when the org has
+  ≥1 site and a miner has `site_id IS NULL`, that miner is in
+  Needs Attention, parallel to today's "needs authentication"
+  condition. Org without sites: condition is inert (no false
+  positives in site-less mode).
+- **CompleteSetup module** — the existing TaskCards screen
+  (`client/src/protoFleet/features/onboarding/components/CompleteSetup.tsx`)
+  gains a new TaskCard "Assign miners to sites" alongside today's
+  "Authenticate miners" and "Configure pools" cards. The card
+  surfaces only when the org has ≥1 site and ≥1 unassigned miner;
+  click-through opens the miner list pre-filtered to "Unassigned"
+  with the bulk-assign action ready.
 - **Page header / app shell** — SitePicker mounted; pages read
   active site from localStorage and scope reads accordingly.
 - **Settings layout** — adds "Sites" entry to the settings nav.
-- **Migration banner** — global banner component shown on first
-  SUPER_ADMIN login post-upgrade; dismissed via the new
-  `migration_banner_dismissed_at` field.
+- **Migration banner** — global banner shown on first login
+  post-upgrade for any user with site-mgmt access; dismissed via
+  the new `migration_banner_dismissed_at` field.
 
 **Components / patterns reused:**
 
@@ -437,87 +548,92 @@ flag mechanism.
 
 ### Phase 1 — data layer + minimal admin (dogfood unblock)
 
-Goal: Block ops can name 3+ sites, organize them with buildings,
-reassign existing miners, see the site column and filter on the miner
-list, all from the settings page. No topbar, no onboarding rework
-yet.
+Goal: Block ops can create 3+ sites, organize them with buildings,
+assign existing miners to sites via bulk action, see the site column
+and filter on the miner list. No topbar yet, no banner yet, no
+discovery segmentation yet. App fully functional in site-less form
+for orgs that don't opt in.
 
 - Migrations: `site` (with location, timezone, network config,
-  power-contract columns, no `connection_kind`); `building` (with
-  layout columns); `device.site_id` NOT NULL FK with Default Site
-  backfill; `device_set_rack.building_id` NOT NULL FK with
-  zone-promotion backfill (each unique zone string per org becomes a
-  building under the Default Site; null zones go to a "Default
-  Building"); `user_organization.migration_banner_dismissed_at`.
-- `SiteService` proto + handlers: list, create, update, delete (soft,
-  with last-site and devices-present guards), reassign-devices.
-- `BuildingService` proto + handlers: list (under a site), create,
-  update, delete (soft, with racks-present guard).
-- `site_ids` filter on miner-list query; `site_id` + `site_label` on
+  power-contract columns); `building` (with nullable `site_id` and
+  layout columns); `device.site_id` nullable; `device_set_rack.building_id`
+  nullable with zone-promotion backfill (each unique non-null zone
+  string per org becomes a building with `site_id = NULL`; racks
+  point at their building);
+  `user_organization.migration_banner_dismissed_at`.
+- `SiteService` proto + handlers: list (returns device + building
+  counts), create, update, delete (soft, cascade-unassigns devices
+  and buildings; activity log captures impact); reassign-devices.
+- `BuildingService` proto + handlers: list (filterable by site or
+  "unassigned"; returns rack count), create, update, delete (soft,
+  cascade-unassigns racks), assign-to-site.
+- `site_ids` filter on miner-list query supporting site IDs and an
+  "unassigned" sentinel; `site_id` + `site_label` on
   `MinerStateSnapshot` with writer audit.
-- Pairing handler reads `site_id` from request body; falls back to
-  request-supplied IP ranges when site has no network config.
-- Cross-collection enforcement: pair / reassign rejects if the
-  device's target site doesn't equal its rack's building's site.
-- Minimal `/settings/sites` page rendering per-site sections (details
-  card + power contract card + buildings card) for both single-site
-  and "All Sites" modes. Inline edit modals.
-- Site column + site filter chip in Miner List. Bulk
-  "Reassign miners" action.
+- Cross-collection enforcement on bulk-assign and building
+  assign-to-site: rejects when device/building/site assignments
+  conflict.
+- `/settings/sites` page rendering empty state (zero sites) or the
+  "All Sites" layout (per-site sections + unassigned buildings
+  section). Inline edit modals. Site create modal with optional
+  "Assign miners" picker. The topbar-driven single-site rendering
+  mode lands in Phase 2 with the SitePicker.
+- Site column + site filter chip in Miner List (rendered only when
+  org has ≥1 site). Bulk "Assign to site" action.
+- "Needs Attention" saved view gains the unassigned-miner condition
+  (gated on org having ≥1 site so site-less orgs see no change).
+- CompleteSetup TaskCard "Assign miners to sites" (gated on org
+  having ≥1 site and ≥1 unassigned miner).
 - Activity-log rows on every site CRUD, building CRUD, and
   reassignment.
 
-Acceptance: Block ops walks through the full reorganize-3+-sites
-workflow in <30 minutes from `/settings/sites` alone, no engineer
-help.
+Acceptance: Block ops walks through the full create-3+-sites,
+assign-buildings, assign-miners workflow in <30 minutes from
+`/settings/sites` and the miner list, no engineer help. An org that
+ignores the feature continues operating site-less with no regressions.
 
-### Phase 2 — topbar, onboarding, upgrade banner
+### Phase 2 — topbar, banner, site-segmented discovery
 
-Goal: every page is site-aware, new orgs configure sites at first
-run, existing orgs see a one-time prompt.
+Goal: every page is site-aware, existing orgs see a one-time
+educational prompt, pairing flow gains site segmentation.
 
 - Topbar SitePicker replaces the `LocationSelector` placeholder.
-  localStorage-backed active-site selection.
-- "All Sites" mode wired through every list/read page (miner list,
-  errors, activity, dashboards, etc.). Reads aggregate; writes
-  prompt for site when ambiguous.
-- Onboarding "Name your sites" step + `SiteConfigured` gate (≥1
-  site with name + location + timezone).
+  localStorage-backed active-site selection. Hidden when org has
+  zero sites; otherwise renders "All Sites" + sites + "Unassigned".
+- "All Sites" / "Unassigned" modes wired through every list/read
+  page (miner list, errors, activity, dashboards, etc.).
 - Migration banner UI keyed off `migration_banner_dismissed_at`.
-- "Choose target site" modal step in Add Miners when "All Sites"
-  is active.
+- Discovery results segmented by site network config: each
+  discovered miner is grouped under the site whose IP range caught
+  it; operator can drag-and-drop between site buckets before
+  clicking Pair, and miners pair directly into the operator-
+  confirmed site.
 - Saved views: site filter included in the existing serialization;
   pre-existing saved views remain valid.
+- Drop the `device_set_rack.zone` column once a writer audit
+  confirms no callers remain (the column has been redundant since
+  Phase 1's `building_id` migration).
 - Polish: multi-select on bulk reassign, undo, batch progress.
 
-Acceptance: a new org completes onboarding with ≥1 named site
-before pairing any miner; an existing org sees the banner exactly
-once and can dismiss it.
+Acceptance: an existing org sees the banner exactly once and can
+dismiss it; pairing into a specific site works without a separate
+post-pair assignment step.
 
 ### Phase 3 — site energy statistics
 
 Goal: surface the energy data captured in the site config (power
 capacity, contract terms, demand charges, etc.) as dashboards and
-operational signals. Not blocking the multi-site basics, so deferred
-until the foundation is in place.
+operational signals. Not blocking the multi-site basics, so
+deferred until the foundation is in place. Scope detailed in a
+follow-on plan.
 
-Scope detailed in a follow-on plan; out of scope for this doc.
-
-### Phase 4 — agent handoff / cleanup
-
-Goal: align with the agent workstream and clean up deferred items.
-
-- Coordinate with the agent team on whatever discriminator and
-  agent-side schema they need; we add the columns/tables when they
-  commit to a shape. Site `network_config` may be removed at this
-  point if agents become the only data plane.
-- Audit per-site config candidates (pools especially) and decide
-  with mining ops whether any need to move from org-scoped to
-  site-scoped before the cloud transition.
-- Revisit the multi-install consolidation question (currently
-  punted) if any customer asks.
-- Drop the `device_set_rack.zone` column once writer audit confirms
-  no callers remain.
+No further phases planned. The agent workstream owns its own
+schema and discriminators; site `network_config` remains the
+canonical signal for "which miner belongs to which site" whether
+the data plane is direct-from-cloud or agent-relayed, so there is
+no multi-site work tied to the agent rollout. If mining ops later
+asks to split currently-org-scoped config (pools, schedules, etc.)
+per-site, that's a separate plan.
 
 ## Open questions to resolve in the technical plan
 
@@ -527,16 +643,25 @@ before they're locked.
 1. Final shape of the site `network_config` field: a multiline string
    of newline-separated CIDRs/IPs is the working assumption; confirm
    when wiring up the discovery handler.
-2. "All Sites" scan mode that fans out across every site's IP ranges
-   and segments findings by source range, auto-assigning at pair time.
-   Captured here so we don't lose it; lower priority than the
-   explicit-target flow.
+2. Behavior when a site-segmented discovery (Phase 2) finds a miner
+   reachable on a different site's IP range than the operator's drag-
+   and-drop choice: do we warn, block, or silently honor the operator?
+   Working answer: warn, honor.
 3. Whether to drop `device_set_rack.zone` in the same migration that
-   adds buildings, or in a Phase-4 follow-up after the writer audit.
-4. Building deletion edge cases (racks present, last-building-in-site
-   rules).
-5. Power-contract enum coverage gaps as customers onboard — e.g.
-   utility-list completeness for a region we haven't seen yet.
+   adds buildings (Phase 1) or wait for the Phase 2 writer audit.
+4. Building deletion confirmation dialog wording when racks are
+   present but those racks contain devices — call out the indirect
+   impact (devices stay site-assigned but lose their rack/building
+   linkage), or keep the dialog focused on rack count only.
+5. Power-contract enum coverage gaps as customers onboard — utility
+   list completeness for unfamiliar regions.
+6. Whether the "Unassigned buildings" section should also offer a
+   single-click "Create site from this building" shortcut for orgs
+   migrating from the zone-string world.
+7. Whether the site-create modal should also include a "Claim
+   existing buildings" picker (alongside the "Assign miners"
+   picker). Useful for orgs upgrading from the zone-string world
+   who want to bundle building assignment into site creation.
 
 ## Appendix — power contract enum suggestions
 
