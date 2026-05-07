@@ -64,6 +64,9 @@ func TestFixedKw_StrictZeroTolerance_RejectsEvenSlightUndershoot(t *testing.T) {
 
 	assert.Equal(t, OutcomeInsufficientLoad, r.Outcome)
 	assert.Empty(t, r.Selected)
+	// RealizedReductionW must equal the accumulated power of Selected;
+	// empty Selected → zero. Available pool lives in InsufficientDetail.
+	assert.Equal(t, 0.0, r.RealizedReductionW)
 	require.NotNil(t, r.InsufficientDetail)
 	assert.InDelta(t, 5.999, r.InsufficientDetail.AvailableKW, 0.001)
 	assert.Equal(t, 6.0, r.InsufficientDetail.RequestedKW)
@@ -96,6 +99,8 @@ func TestFixedKw_PositiveToleranceStillRejectsBeyondBand(t *testing.T) {
 	r := m.Select(cands(2000, 2000))
 
 	assert.Equal(t, OutcomeInsufficientLoad, r.Outcome)
+	assert.Empty(t, r.Selected)
+	assert.Equal(t, 0.0, r.RealizedReductionW)
 	require.NotNil(t, r.InsufficientDetail)
 	assert.InDelta(t, 4.0, r.InsufficientDetail.AvailableKW, 0.001)
 	assert.Equal(t, 0.5, r.InsufficientDetail.ToleranceKW)
@@ -111,6 +116,7 @@ func TestFixedKw_EmptyCandidateList(t *testing.T) {
 
 	assert.Equal(t, OutcomeInsufficientLoad, r.Outcome)
 	assert.Empty(t, r.Selected)
+	assert.Equal(t, 0.0, r.RealizedReductionW)
 	require.NotNil(t, r.InsufficientDetail)
 	assert.Equal(t, 0.0, r.InsufficientDetail.AvailableKW)
 }

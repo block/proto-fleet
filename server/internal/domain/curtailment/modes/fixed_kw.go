@@ -86,10 +86,17 @@ func (m *FixedKw) Select(ranked []Candidate) Result {
 	detail.AvailableKW = totalW / wPerKW
 	detail.RequestedKW = m.TargetKW
 	detail.ToleranceKW = m.ToleranceKW
+	// RealizedReductionW must equal the accumulated power of Selected (per
+	// the Result godoc). Empty Selected → zero; the available-pool number
+	// lives in detail.AvailableKW, which is the right home for it.
+	// Reporting totalW here would propagate as a non-zero
+	// EstimatedReductionKW with an empty Selected through BuildPlan and
+	// mislead any caller that consumes Plan without short-circuiting on
+	// InsufficientLoadDetail.
 	return Result{
 		Outcome:            OutcomeInsufficientLoad,
 		Selected:           nil,
-		RealizedReductionW: totalW,
+		RealizedReductionW: 0,
 		InsufficientDetail: &detail,
 	}
 }

@@ -546,6 +546,15 @@ func TestService_Preview_InsufficientLoad_DetailCarriesExclusionCounts(t *testin
 	assert.Equal(t, 100.0, plan.InsufficientLoadDetail.RequestedKW)
 	assert.Equal(t, int32(2), plan.InsufficientLoadDetail.ExcludedOffline)
 	assert.Equal(t, int32(1500), plan.InsufficientLoadDetail.CandidateMinPowerW)
+
+	// Plan-level fields must reflect the empty-Selected reality on the
+	// rejection branch: zero reduction, full eligible pool still on the
+	// floor. Pins the Result.RealizedReductionW=0 contract through
+	// BuildPlan so a future caller that consumes Plan without
+	// short-circuiting on InsufficientLoadDetail sees consistent numbers.
+	assert.Empty(t, plan.Selected)
+	assert.Equal(t, 0.0, plan.EstimatedReductionKW)
+	assert.InDelta(t, 3.0, plan.EstimatedRemainingPowerKW, 0.001)
 }
 
 // TestService_Preview_EmptyDeviceStatusSkipsAsStale pins the COALESCE sentinel
