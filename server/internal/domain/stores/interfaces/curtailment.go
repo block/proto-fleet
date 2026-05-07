@@ -31,6 +31,17 @@ type CurtailmentStore interface {
 	InsertTarget(ctx context.Context, params models.InsertTargetParams) error
 	ListTargetsByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) ([]*models.Target, error)
 
+	// InsertEventWithTargets writes the event row plus every per-target row
+	// in a single transaction. The store sets each target's
+	// CurtailmentEventID to the inserted event's id; callers leave that
+	// field zero. Callers must validate the params shape (non-empty
+	// targets, no duplicate device_identifiers) before invoking.
+	InsertEventWithTargets(
+		ctx context.Context,
+		event models.InsertEventParams,
+		targets []models.InsertTargetParams,
+	) (*models.InsertEventResult, error)
+
 	// Heartbeat singleton row used by liveness alerts.
 	GetHeartbeat(ctx context.Context) (*models.Heartbeat, error)
 

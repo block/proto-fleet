@@ -2,7 +2,10 @@ package curtailment
 
 import (
 	"context"
+	"encoding/json"
 	"math"
+
+	"github.com/google/uuid"
 
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/modes"
@@ -33,7 +36,44 @@ type PreviewRequest struct {
 	CandidateMinPowerWOverride *int32 // nil = use org default; admin-gated by handler
 }
 
-// Service orchestrates Preview through the config / scope / candidate / selector pipeline.
+// StartRequest is the service-level shape of a Start call. The selector inputs
+// are a superset of PreviewRequest; the additional fields configure the event
+// row that Preview never persists.
+type StartRequest struct {
+	PreviewRequest
+
+	// Reason is the operator-supplied audit string. Required (DB CHECK).
+	Reason string
+
+	// Operational controls. Zero values are passed through verbatim — the
+	// handler is responsible for normalizing 0 to the per-org default before
+	// the request reaches the service.
+	RestoreBatchSize        int32
+	RestoreBatchIntervalSec int32
+	MinCurtailedDurationSec int32
+
+	// MaxDurationSeconds is nil when AllowUnbounded=true; otherwise a finite
+	// cap. The handler resolves the org default for non-admin callers before
+	// reaching the service.
+	MaxDurationSeconds *int32
+	AllowUnbounded     bool
+
+	// Idempotency / external attribution. Empty-string maps to NULL at the
+	// store boundary so the partial-unique indexes only enforce uniqueness
+	// for set keys.
+	IdempotencyKey    *string
+	ExternalSource    *string
+	ExternalReference *string
+
+	// SourceActorType is the audit-attribution dimension. Derived by the
+	// handler from session.Info (auth method + Actor); the service avoids a
+	// session dependency by accepting the typed value directly.
+	SourceActorType models.SourceActorType
+	SourceActorID   *string
+}
+
+// Service orchestrates Preview / Start through the shared config / scope /
+// candidate / selector pipeline.
 type Service struct {
 	store interfaces.CurtailmentStore
 }
@@ -48,10 +88,70 @@ func (s *Service) Preview(ctx context.Context, req PreviewRequest) (*Plan, error
 	if err := validatePreviewRequest(req); err != nil {
 		return nil, err
 	}
-
-	deviceFilter, err := resolveScope(req.Scope)
+	plan, _, err := s.runSelector(ctx, req)
 	if err != nil {
 		return nil, err
+	}
+	return plan, nil
+}
+
+// Start runs the same selector pipeline as Preview and persists the resulting
+// event + targets when the plan is non-empty. The returned Plan carries the
+// new event UUID; on OutcomeInsufficientLoad nothing is written and the Plan
+// carries the rejection detail (mirrors Preview's contract).
+func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
+	if err := validateStartRequest(req); err != nil {
+		return nil, err
+	}
+
+	plan, minPowerW, err := s.runSelector(ctx, req.PreviewRequest)
+	if err != nil {
+		return nil, err
+	}
+
+	// Insufficient-load: don't persist. Caller short-circuits on
+	// plan.InsufficientLoadDetail and surfaces InvalidArgument, matching
+	// Preview's contract.
+	if plan.InsufficientLoadDetail != nil {
+		return plan, nil
+	}
+
+	if len(plan.Selected) == 0 {
+		// Defense-in-depth: a successful Outcome with zero Selected would
+		// produce an empty curtailment_event row. The validator + selector
+		// upstream already prevent this for FIXED_KW; reject explicitly so
+		// a future mode regression surfaces the real cause.
+		return nil, fleeterror.NewInvalidArgumentError("no targets selected")
+	}
+
+	// TODO: idempotency lookup. When req.IdempotencyKey is set we should
+	// short-circuit to the existing event_uuid. Today the partial unique
+	// index `uq_curtailment_event_idempotency` enforces uniqueness at the
+	// DB level, so a retry surfaces as Internal until the lookup query is
+	// added.
+
+	eventParams, targetParams, err := buildInsertParams(req, plan, minPowerW)
+	if err != nil {
+		return nil, err
+	}
+
+	result, err := s.store.InsertEventWithTargets(ctx, eventParams, targetParams)
+	if err != nil {
+		return nil, err
+	}
+
+	plan.EventUUID = &result.EventUUID
+	return plan, nil
+}
+
+// runSelector executes the org-config / scope / candidate / classify /
+// build-plan pipeline shared by Preview and Start. The minPowerW return is
+// the resolved candidate floor (after the admin-override) so callers that
+// persist can echo it into the decision snapshot without re-resolving.
+func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, int32, error) {
+	deviceFilter, err := resolveScope(req.Scope)
+	if err != nil {
+		return nil, 0, err
 	}
 	// Normalize empty-but-non-nil slice to nil; the candidate query's
 	// `IS NULL` check would otherwise match-nothing on an empty array.
@@ -61,7 +161,7 @@ func (s *Service) Preview(ctx context.Context, req PreviewRequest) (*Plan, error
 
 	orgConfig, err := s.store.GetOrgConfig(ctx, req.OrgID)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	// Effective candidate floor: per-org default, optionally overridden by
@@ -76,7 +176,7 @@ func (s *Service) Preview(ctx context.Context, req PreviewRequest) (*Plan, error
 
 	activeDevices, err := s.store.ListActiveCurtailedDevices(ctx, req.OrgID)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	activeSet := toStringSet(activeDevices)
 
@@ -84,14 +184,14 @@ func (s *Service) Preview(ctx context.Context, req PreviewRequest) (*Plan, error
 	if !bypassCooldown {
 		cd, err := s.store.ListRecentlyResolvedCurtailedDevices(ctx, req.OrgID, orgConfig.PostEventCooldownSec)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		cooldownSet = toStringSet(cd)
 	}
 
 	candidates, err := s.store.ListCandidates(ctx, req.OrgID, deviceFilter)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	// Org-ownership guard: cross-org ids are silently dropped by the SQL
@@ -99,7 +199,7 @@ func (s *Service) Preview(ctx context.Context, req PreviewRequest) (*Plan, error
 	// error instead of a misleading InsufficientLoad.
 	if len(deviceFilter) > 0 {
 		if missing := missingDeviceIdentifiers(deviceFilter, candidates); len(missing) > 0 {
-			return nil, fleeterror.NewNotFoundErrorf(
+			return nil, 0, fleeterror.NewNotFoundErrorf(
 				"device_identifiers not found in caller's org: %v", missing,
 			)
 		}
@@ -117,11 +217,64 @@ func (s *Service) Preview(ctx context.Context, req PreviewRequest) (*Plan, error
 
 	mode, err := modes.NewFixedKw(req.TargetKW, req.ToleranceKW, summary)
 	if err != nil {
-		return nil, fleeterror.NewInvalidArgumentErrorf("invalid FIXED_KW params: %v", err)
+		return nil, 0, fleeterror.NewInvalidArgumentErrorf("invalid FIXED_KW params: %v", err)
 	}
 
 	plan := BuildPlan(eligible, preFiltered, minPowerW, mode)
-	return &plan, nil
+	return &plan, minPowerW, nil
+}
+
+func validateStartRequest(req StartRequest) error {
+	if err := validatePreviewRequest(req.PreviewRequest); err != nil {
+		return err
+	}
+	if req.Reason == "" {
+		// reason is NOT NULL with a length(trim) > 0 CHECK at the DB level;
+		// reject early so the caller sees a clear error rather than a
+		// constraint violation through Internal.
+		return fleeterror.NewInvalidArgumentError("reason must be non-empty")
+	}
+	if req.RestoreBatchSize < 0 {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"restore_batch_size must be >= 0, got %d", req.RestoreBatchSize,
+		)
+	}
+	if req.RestoreBatchIntervalSec < 0 {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"restore_batch_interval_sec must be >= 0, got %d", req.RestoreBatchIntervalSec,
+		)
+	}
+	if req.MinCurtailedDurationSec < 0 {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"min_curtailed_duration_sec must be >= 0, got %d", req.MinCurtailedDurationSec,
+		)
+	}
+	// allow_unbounded and a finite max_duration_seconds are mutually
+	// exclusive: the bounded duration is meaningless once the operator
+	// has acknowledged opting out of the cap.
+	if req.AllowUnbounded && req.MaxDurationSeconds != nil {
+		return fleeterror.NewInvalidArgumentError(
+			"max_duration_seconds must be unset when allow_unbounded is true",
+		)
+	}
+	if !req.AllowUnbounded {
+		if req.MaxDurationSeconds == nil {
+			return fleeterror.NewInvalidArgumentError(
+				"max_duration_seconds must be set when allow_unbounded is false",
+			)
+		}
+		if *req.MaxDurationSeconds <= 0 {
+			return fleeterror.NewInvalidArgumentErrorf(
+				"max_duration_seconds must be > 0, got %d", *req.MaxDurationSeconds,
+			)
+		}
+	}
+	if req.SourceActorType == "" {
+		// source_actor_type is NOT NULL at the DB level; the handler must
+		// derive a concrete value from session.Info before reaching here.
+		return fleeterror.NewInvalidArgumentError("source_actor_type must be set")
+	}
+	return nil
 }
 
 func validatePreviewRequest(req PreviewRequest) error {
@@ -391,4 +544,143 @@ func isFiniteFloat(p *float64) bool {
 		return true
 	}
 	return !math.IsNaN(*p) && !math.IsInf(*p, 0)
+}
+
+// targetTypeMiner is the v1 curtailment_target.target_type value.
+const targetTypeMiner = "miner"
+
+// desiredStateCurtailed is the v1 curtailment_target.desired_state at Start.
+const desiredStateCurtailed = "curtailed"
+
+// buildInsertParams assembles the event + per-target params from a successful
+// selector plan. baseline_power_w is captured per device from the same
+// telemetry sample the selector ranked against; non-positive PowerW maps to
+// NULL (the dual-signal floor admits sub-watt loads, but a zero/negative
+// baseline would produce a misleading "100% reduction" report at restore).
+func buildInsertParams(req StartRequest, plan *Plan, minPowerW int32) (models.InsertEventParams, []models.InsertTargetParams, error) {
+	scopeJSON, err := marshalScopeJSON(req.Scope)
+	if err != nil {
+		return models.InsertEventParams{}, nil, err
+	}
+	modeParamsJSON, err := json.Marshal(map[string]float64{
+		"target_kw":    req.TargetKW,
+		"tolerance_kw": req.ToleranceKW,
+	})
+	if err != nil {
+		return models.InsertEventParams{}, nil, fleeterror.NewInternalErrorf(
+			"failed to encode mode_params: %v", err,
+		)
+	}
+	decisionJSON, err := marshalDecisionSnapshot(plan, minPowerW)
+	if err != nil {
+		return models.InsertEventParams{}, nil, err
+	}
+
+	event := models.InsertEventParams{
+		EventUUID:               uuid.New(),
+		OrgID:                   req.OrgID,
+		State:                   models.EventStatePending,
+		Mode:                    models.ModeFixedKw,
+		Strategy:                models.StrategyLeastEfficientFirst,
+		Level:                   models.LevelFull,
+		Priority:                req.Priority,
+		LoopType:                models.LoopTypeOpen,
+		ScopeType:               req.Scope.Type,
+		ScopeJSON:               scopeJSON,
+		ModeParamsJSON:          modeParamsJSON,
+		RestoreBatchSize:        req.RestoreBatchSize,
+		RestoreBatchIntervalSec: req.RestoreBatchIntervalSec,
+		MinCurtailedDurationSec: req.MinCurtailedDurationSec,
+		MaxDurationSeconds:      req.MaxDurationSeconds,
+		AllowUnbounded:          req.AllowUnbounded,
+		IncludeMaintenance:      req.IncludeMaintenance,
+		ForceIncludeMaintenance: req.ForceIncludeMaintenance,
+		DecisionSnapshotJSON:    decisionJSON,
+		SourceActorType:         req.SourceActorType,
+		SourceActorID:           req.SourceActorID,
+		ExternalSource:          req.ExternalSource,
+		ExternalReference:       req.ExternalReference,
+		IdempotencyKey:          req.IdempotencyKey,
+		Reason:                  req.Reason,
+	}
+	if event.Priority == "" {
+		// PriorityUnspecified at the proto layer is admitted as Normal in
+		// validation; persist the resolved value rather than the empty
+		// passthrough so audit reflects the intent.
+		event.Priority = models.PriorityNormal
+	}
+	if event.ScopeType == "" {
+		event.ScopeType = models.ScopeTypeWholeOrg
+	}
+
+	targets := make([]models.InsertTargetParams, len(plan.Selected))
+	for i, sel := range plan.Selected {
+		var baseline *float64
+		if sel.PowerW > 0 {
+			v := sel.PowerW
+			baseline = &v
+		}
+		targets[i] = models.InsertTargetParams{
+			DeviceIdentifier: sel.DeviceIdentifier,
+			TargetType:       targetTypeMiner,
+			State:            models.TargetStatePending,
+			DesiredState:     desiredStateCurtailed,
+			BaselinePowerW:   baseline,
+		}
+	}
+	return event, targets, nil
+}
+
+// marshalScopeJSON renders the request scope into the JSONB column shape.
+// Whole-org events store an empty object so the column stays NOT NULL.
+func marshalScopeJSON(s Scope) ([]byte, error) {
+	switch s.Type {
+	case models.ScopeTypeWholeOrg, "":
+		return []byte("{}"), nil
+	case models.ScopeTypeDeviceList:
+		b, err := json.Marshal(map[string][]string{
+			"device_identifiers": s.DeviceIdentifiers,
+		})
+		if err != nil {
+			return nil, fleeterror.NewInternalErrorf("failed to encode scope: %v", err)
+		}
+		return b, nil
+	case models.ScopeTypeDeviceSets:
+		b, err := json.Marshal(map[string][]string{
+			"device_set_ids": s.DeviceSetIDs,
+		})
+		if err != nil {
+			return nil, fleeterror.NewInternalErrorf("failed to encode scope: %v", err)
+		}
+		return b, nil
+	default:
+		return nil, fleeterror.NewInternalErrorf("unrecognized scope type: %q", s.Type)
+	}
+}
+
+// marshalDecisionSnapshot captures the selector outputs the audit / UI need
+// to reconstruct the Start decision after the fact (rejected counters,
+// realized vs. requested kW, the resolved candidate floor).
+func marshalDecisionSnapshot(plan *Plan, minPowerW int32) ([]byte, error) {
+	skipped := make([]map[string]string, len(plan.Skipped))
+	for i, s := range plan.Skipped {
+		skipped[i] = map[string]string{
+			"device_identifier": s.DeviceIdentifier,
+			"reason":            string(s.Reason),
+		}
+	}
+	snapshot := map[string]any{
+		"candidate_min_power_w":        minPowerW,
+		"estimated_reduction_kw":       plan.EstimatedReductionKW,
+		"estimated_remaining_power_kw": plan.EstimatedRemainingPowerKW,
+		"selected_count":               len(plan.Selected),
+		"skipped":                      skipped,
+	}
+	b, err := json.Marshal(snapshot)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf(
+			"failed to encode decision_snapshot: %v", err,
+		)
+	}
+	return b, nil
 }

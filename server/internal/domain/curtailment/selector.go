@@ -3,6 +3,8 @@ package curtailment
 import (
 	"sort"
 
+	"github.com/google/uuid"
+
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/modes"
 )
 
@@ -65,6 +67,9 @@ type Plan struct {
 	Outcome                   modes.Outcome
 	// InsufficientLoadDetail is set only on OutcomeInsufficientLoad.
 	InsufficientLoadDetail *modes.InsufficientLoadDetail
+	// EventUUID is populated by Service.Start after the event row is
+	// persisted; Preview leaves it nil.
+	EventUUID *uuid.UUID
 }
 
 // SelectedDevice is a candidate the mode picked, carrying the snapshot

@@ -78,7 +78,32 @@ func (h *Handler) StartCurtailment(ctx context.Context, req *connect.Request[pb.
 			return nil, err
 		}
 	}
-	return nil, errCurtailmentNotImplemented("StartCurtailment")
+	if h.service == nil {
+		return nil, errCurtailmentNotImplemented("StartCurtailment")
+	}
+
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, fleeterror.NewUnauthenticatedError("authentication required")
+	}
+
+	startReq, err := toStartRequest(req.Msg, info)
+	if err != nil {
+		return nil, err
+	}
+
+	plan, err := h.service.Start(ctx, startReq)
+	if err != nil {
+		return nil, err
+	}
+
+	if plan.InsufficientLoadDetail != nil {
+		// Mirror Preview: insufficient curtailable load is a request-shape
+		// failure with structured numbers, not a successful empty event.
+		return nil, toInsufficientLoadError(plan.InsufficientLoadDetail)
+	}
+
+	return connect.NewResponse(toStartResponse(plan, req.Msg)), nil
 }
 
 func (h *Handler) UpdateCurtailmentEvent(_ context.Context, _ *connect.Request[pb.UpdateCurtailmentEventRequest]) (*connect.Response[pb.UpdateCurtailmentEventResponse], error) {

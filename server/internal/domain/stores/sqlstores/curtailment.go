@@ -17,6 +17,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 )
 
 // pgErrCodeForeignKeyViolation is PostgreSQL's SQLSTATE for foreign_key_violation.
@@ -138,6 +139,80 @@ func (s *SQLCurtailmentStore) InsertEvent(ctx context.Context, params models.Ins
 		CreatedAt: row.CreatedAt,
 		UpdatedAt: row.UpdatedAt,
 	}, nil
+}
+
+// InsertEventWithTargets writes the event row plus every per-target row in a
+// single transaction so a partial Start cannot leave the event in `pending`
+// without its target set. Returns the inserted event's id / event_uuid /
+// timestamps from the event RETURNING clause.
+func (s *SQLCurtailmentStore) InsertEventWithTargets(
+	ctx context.Context,
+	event models.InsertEventParams,
+	targets []models.InsertTargetParams,
+) (*models.InsertEventResult, error) {
+	if len(targets) == 0 {
+		// Defense-in-depth: the service layer rejects empty plans before
+		// calling, but persisting an event without targets would leave the
+		// reconciler with nothing to dispatch against.
+		return nil, fleeterror.NewInvalidArgumentError(
+			"InsertEventWithTargets requires a non-empty targets slice",
+		)
+	}
+	return db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (*models.InsertEventResult, error) {
+		row, err := q.InsertCurtailmentEvent(ctx, sqlc.InsertCurtailmentEventParams{
+			EventUuid:               event.EventUUID,
+			OrgID:                   event.OrgID,
+			State:                   string(event.State),
+			Mode:                    string(event.Mode),
+			Strategy:                string(event.Strategy),
+			Level:                   string(event.Level),
+			Priority:                string(event.Priority),
+			LoopType:                string(event.LoopType),
+			ScopeType:               string(event.ScopeType),
+			ScopeJsonb:              event.ScopeJSON,
+			ModeParamsJsonb:         event.ModeParamsJSON,
+			RestoreBatchSize:        event.RestoreBatchSize,
+			RestoreBatchIntervalSec: event.RestoreBatchIntervalSec,
+			MinCurtailedDurationSec: event.MinCurtailedDurationSec,
+			MaxDurationSeconds:      ptrToNullInt32(event.MaxDurationSeconds),
+			AllowUnbounded:          event.AllowUnbounded,
+			IncludeMaintenance:      event.IncludeMaintenance,
+			ForceIncludeMaintenance: event.ForceIncludeMaintenance,
+			DecisionSnapshotJsonb:   event.DecisionSnapshotJSON,
+			SourceActorType:         string(event.SourceActorType),
+			SourceActorID:           ptrToNullString(event.SourceActorID),
+			ExternalSource:          ptrToNullString(event.ExternalSource),
+			ExternalReference:       ptrToNullString(event.ExternalReference),
+			IdempotencyKey:          ptrToNullString(event.IdempotencyKey),
+			Reason:                  event.Reason,
+			ScheduledStartAt:        ptrToNullTime(event.ScheduledStartAt),
+		})
+		if err != nil {
+			return nil, fleeterror.NewInternalErrorf("failed to insert curtailment event: %v", err)
+		}
+		for _, t := range targets {
+			err := q.InsertCurtailmentTarget(ctx, sqlc.InsertCurtailmentTargetParams{
+				CurtailmentEventID:     row.ID,
+				DeviceIdentifier:       t.DeviceIdentifier,
+				TargetType:             t.TargetType,
+				State:                  string(t.State),
+				DesiredState:           t.DesiredState,
+				BaselinePowerW:         ptrFloat64ToNullString(t.BaselinePowerW),
+				SelectorRationaleJsonb: rawMessageOrNullable(t.SelectorRationaleJSON),
+			})
+			if err != nil {
+				return nil, fleeterror.NewInternalErrorf(
+					"failed to insert curtailment target %s: %v", t.DeviceIdentifier, err,
+				)
+			}
+		}
+		return &models.InsertEventResult{
+			ID:        row.ID,
+			EventUUID: row.EventUuid,
+			CreatedAt: row.CreatedAt,
+			UpdatedAt: row.UpdatedAt,
+		}, nil
+	})
 }
 
 func (s *SQLCurtailmentStore) GetEventByUUID(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error) {
