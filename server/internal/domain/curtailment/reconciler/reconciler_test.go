@@ -26,12 +26,16 @@ type fakeStore struct {
 	targetsByEventID map[int64][]*models.Target
 	candidates       []*models.Candidate
 
-	listEventsErr error
+	listEventsErr      error
+	listEventsCalls    int
+	listEventsPanicErr string
 
 	updateEventCalls   int
 	updateEventLast    map[int64]models.EventState
 	updateTargetCalls  int
 	updateTargetParams map[string]interfaces.UpdateCurtailmentTargetStateParams
+
+	listTargetsByEventCalls int
 
 	heartbeatCalls        int
 	lastHeartbeatActive   int32
@@ -55,14 +59,8 @@ func (f *fakeStore) ListActiveCurtailedDevices(context.Context, int64) ([]string
 func (f *fakeStore) ListRecentlyResolvedCurtailedDevices(context.Context, int64, int32) ([]string, error) {
 	panic("ListRecentlyResolvedCurtailedDevices not exercised")
 }
-func (f *fakeStore) InsertEvent(context.Context, models.InsertEventParams) (*models.InsertEventResult, error) {
-	panic("InsertEvent not exercised")
-}
 func (f *fakeStore) GetEventByUUID(context.Context, int64, uuid.UUID) (*models.Event, error) {
 	panic("GetEventByUUID not exercised")
-}
-func (f *fakeStore) InsertTarget(context.Context, models.InsertTargetParams) error {
-	panic("InsertTarget not exercised")
 }
 func (f *fakeStore) InsertEventWithTargets(context.Context, models.InsertEventParams, []models.InsertTargetParams) (*models.InsertEventResult, error) {
 	panic("InsertEventWithTargets not exercised")
@@ -72,14 +70,13 @@ func (f *fakeStore) GetHeartbeat(context.Context) (*models.Heartbeat, error) {
 }
 
 func (f *fakeStore) ListTargetsByEvent(_ context.Context, _ int64, eventUUID uuid.UUID) ([]*models.Target, error) {
+	f.listTargetsByEventCalls++
 	for _, ev := range f.events {
 		if ev.EventUUID == eventUUID {
-			out := make([]*models.Target, 0, len(f.targetsByEventID[ev.ID]))
-			for _, t := range f.targetsByEventID[ev.ID] {
-				clone := *t
-				out = append(out, &clone)
-			}
-			return out, nil
+			// Return shared pointers so the reconciler's per-tick mutations
+			// are visible across phases (mirrors how the SQL store flow
+			// works once dispatchPending returns the in-memory slice).
+			return append([]*models.Target(nil), f.targetsByEventID[ev.ID]...), nil
 		}
 	}
 	return nil, nil
@@ -103,13 +100,16 @@ func (f *fakeStore) ListCandidates(_ context.Context, _ int64, deviceIdentifiers
 }
 
 func (f *fakeStore) ListNonTerminalEvents(context.Context) ([]*models.Event, error) {
+	f.listEventsCalls++
+	if f.listEventsPanicErr != "" {
+		panic(f.listEventsPanicErr)
+	}
 	if f.listEventsErr != nil {
 		return nil, f.listEventsErr
 	}
 	out := make([]*models.Event, 0, len(f.events))
 	for _, ev := range f.events {
-		clone := *ev
-		out = append(out, &clone)
+		out = append(out, ev)
 	}
 	return out, nil
 }
@@ -150,7 +150,14 @@ func (f *fakeStore) UpdateTargetState(_ context.Context, eventID int64, deviceId
 				t.RetryCount = *params.RetryCount
 			}
 			if params.LastError != nil {
-				t.LastError = params.LastError
+				// Empty-string maps to "clear the error" so callers can
+				// signal a successful redispatch without resorting to NULL
+				// over the wire.
+				if *params.LastError == "" {
+					t.LastError = nil
+				} else {
+					t.LastError = params.LastError
+				}
 			}
 		}
 	}
@@ -167,13 +174,14 @@ func (f *fakeStore) UpsertHeartbeat(_ context.Context, params interfaces.UpsertC
 // fakeDispatcher records Curtail / Uncurtail calls and returns the
 // configured outcome.
 type fakeDispatcher struct {
-	curtailErr       error
-	uncurtailErr     error
-	curtailCalls     int
-	curtailLastIDs   []string
-	curtailLastActor session.Actor
-	uncurtailCalls   int
-	uncurtailLastIDs []string
+	curtailErr            error
+	curtailResultOverride *command.CommandResult
+	uncurtailErr          error
+	curtailCalls          int
+	curtailLastIDs        []string
+	curtailLastActor      session.Actor
+	uncurtailCalls        int
+	uncurtailLastIDs      []string
 }
 
 func (f *fakeDispatcher) Curtail(ctx context.Context, selector *pb.DeviceSelector, _ sdk.CurtailLevel) (*command.CommandResult, error) {
@@ -184,6 +192,9 @@ func (f *fakeDispatcher) Curtail(ctx context.Context, selector *pb.DeviceSelecto
 	}
 	if f.curtailErr != nil {
 		return nil, f.curtailErr
+	}
+	if f.curtailResultOverride != nil {
+		return f.curtailResultOverride, nil
 	}
 	return &command.CommandResult{BatchIdentifier: "batch-curtail", DispatchedCount: len(f.curtailLastIDs), DispatchedDeviceIdentifiers: f.curtailLastIDs}, nil
 }
@@ -413,6 +424,298 @@ func TestReconciler_DispatchErrorMarksLastError(t *testing.T) {
 	assert.Equal(t, models.TargetStatePending, final.State, "dispatch error keeps target pending for retry")
 	require.NotNil(t, final.LastError)
 	assert.Contains(t, *final.LastError, "queue down")
+	assert.Equal(t, int32(1), final.RetryCount, "dispatch error bumps retry budget")
+}
+
+// TestReconciler_DispatchSkippedKeepsTargetPending: result.Skipped means the
+// command was filter-blocked and never enqueued; promoting to dispatched
+// would silently drop the work. Stay pending and surface the skip reason.
+func TestReconciler_DispatchSkippedKeepsTargetPending(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{
+		curtailResultOverride: &command.CommandResult{
+			BatchIdentifier: "",
+			DispatchedCount: 0,
+			Skipped: []command.SkippedDevice{{
+				DeviceIdentifier: "miner-1",
+				FilterName:       "schedule_conflict",
+				Reason:           "schedule 99 holds higher priority",
+			}},
+		},
+	}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-1", State: models.TargetStatePending},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	final := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStatePending, final.State, "filter-skipped target stays pending")
+	assert.Nil(t, final.LastDispatchedAt, "filter-skipped target must not record a dispatch timestamp")
+	require.NotNil(t, final.LastError)
+	assert.Contains(t, *final.LastError, "schedule 99")
+	assert.Equal(t, int32(1), final.RetryCount, "skip counts toward retry budget")
+}
+
+// TestReconciler_DispatchFailureExhaustionMarksRestoreFailedAndEventActive:
+// after MaxRetries dispatch failures the target moves to RestoreFailed; the
+// event then promotes to active because every other target has confirmed
+// (here: a single failing target → completed_with_failures).
+func TestReconciler_DispatchFailureExhaustionTransitionsTerminal(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{curtailErr: errors.New("queue down")}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-1", State: models.TargetStatePending},
+	}
+
+	r := newReconcilerForTest(store, disp)
+
+	// Tick 1 + 2: target stays pending with retry incremented.
+	r.runTick(context.Background())
+	assert.Equal(t, models.TargetStatePending, store.targetsByEventID[eventID][0].State)
+	assert.Equal(t, int32(1), store.targetsByEventID[eventID][0].RetryCount)
+
+	r.runTick(context.Background())
+	assert.Equal(t, models.TargetStatePending, store.targetsByEventID[eventID][0].State)
+	assert.Equal(t, int32(2), store.targetsByEventID[eventID][0].RetryCount)
+
+	// Tick 3 hits MaxRetries=3 and promotes the target to RestoreFailed; the
+	// event has no confirmed target so it transitions to completed_with_failures.
+	r.runTick(context.Background())
+	assert.Equal(t, models.TargetStateRestoreFailed, store.targetsByEventID[eventID][0].State)
+	assert.Equal(t, int32(3), store.targetsByEventID[eventID][0].RetryCount)
+	assert.Equal(t, models.EventStateCompletedWithFailures, store.updateEventLast[eventID])
+}
+
+// TestReconciler_PendingPromotesActiveWithMixedTerminalTargets: a confirmed
+// target plus a permanently failed target should let the event promote to
+// active; the failure does not block lifecycle progression.
+func TestReconciler_PendingPromotesActiveWithMixedTerminalTargets(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		// miner-1 already dispatched + telemetry shows curtailed → confirms.
+		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-1", State: models.TargetStateDispatched, BaselinePowerW: ptrFloat64(3000)},
+		// miner-2 was already exhausted → terminal failure on this tick.
+		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-2", State: models.TargetStateRestoreFailed, RetryCount: 3},
+	}
+	store.candidates = []*models.Candidate{
+		{DeviceIdentifier: "miner-1", LatestPowerW: ptrFloat64(50), LatestHashRateHS: ptrFloat64(0)},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	// miner-1 confirmed; miner-2 still terminal; event promoted to active
+	// despite the failed target.
+	assert.Equal(t, models.TargetStateConfirmed, store.targetsByEventID[eventID][0].State)
+	assert.Equal(t, models.TargetStateRestoreFailed, store.targetsByEventID[eventID][1].State)
+	assert.Equal(t, models.EventStateActive, store.updateEventLast[eventID])
+}
+
+// TestReconciler_PendingDoesNotPromoteWhilePartialBudgetRemains: a single
+// failing target with two retries left must not push the event into active
+// — the budget is still in flight.
+func TestReconciler_PendingDoesNotPromoteWhilePartialBudgetRemains(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{curtailErr: errors.New("queue down")}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-1", State: models.TargetStatePending},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	// Retry incremented, target still pending, event not promoted.
+	assert.Equal(t, models.TargetStatePending, store.targetsByEventID[eventID][0].State)
+	assert.Equal(t, int32(1), store.targetsByEventID[eventID][0].RetryCount)
+	_, promoted := store.updateEventLast[eventID]
+	assert.False(t, promoted, "event must not promote while retry budget remains")
+}
+
+// TestReconciler_DispatchedReConfirmsViaObserveActive: a target that drifted
+// then re-dispatched (Dispatched on an active event) should re-confirm in
+// the same flow once telemetry shows curtailment.
+func TestReconciler_DispatchedReConfirmsViaObserveActive(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStateActive},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		// On an active event, a dispatched target represents a
+		// drift→redispatch waiting on confirmation telemetry.
+		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-1", State: models.TargetStateDispatched, BaselinePowerW: ptrFloat64(3000), RetryCount: 1},
+	}
+	store.candidates = []*models.Candidate{
+		{DeviceIdentifier: "miner-1", LatestPowerW: ptrFloat64(50), LatestHashRateHS: ptrFloat64(0)},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	// No new dispatch; observeActive promotes back to confirmed and resets retry.
+	assert.Equal(t, 0, disp.curtailCalls)
+	final := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStateConfirmed, final.State)
+	assert.Equal(t, int32(0), final.RetryCount, "confirmation resets retry budget for the next drift cycle")
+}
+
+// TestReconciler_RetryBudgetResetsOnReConfirm: drift → confirm → drift →
+// confirm cycles must each get a fresh retry budget so a flapping miner is
+// not artificially terminated by carry-over attempts.
+func TestReconciler_RetryBudgetResetsOnReConfirm(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStateActive},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-1", State: models.TargetStateConfirmed, BaselinePowerW: ptrFloat64(3000)},
+	}
+	// Tick 1: drift power=2500 → drifted+redispatch.
+	store.candidates = []*models.Candidate{
+		{DeviceIdentifier: "miner-1", LatestPowerW: ptrFloat64(2500), LatestHashRateHS: ptrFloat64(100)},
+	}
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+	assert.Equal(t, int32(1), store.targetsByEventID[eventID][0].RetryCount)
+	assert.Equal(t, models.TargetStateDispatched, store.targetsByEventID[eventID][0].State)
+
+	// Tick 2: telemetry shows curtailed → reconfirm. Retry resets to 0.
+	store.candidates = []*models.Candidate{
+		{DeviceIdentifier: "miner-1", LatestPowerW: ptrFloat64(50), LatestHashRateHS: ptrFloat64(0)},
+	}
+	r.runTick(context.Background())
+	assert.Equal(t, models.TargetStateConfirmed, store.targetsByEventID[eventID][0].State)
+	assert.Equal(t, int32(0), store.targetsByEventID[eventID][0].RetryCount, "reconfirm clears retry budget")
+
+	// Tick 3: drift again — retry counts from 0 again, still has budget.
+	store.candidates = []*models.Candidate{
+		{DeviceIdentifier: "miner-1", LatestPowerW: ptrFloat64(2500), LatestHashRateHS: ptrFloat64(100)},
+	}
+	r.runTick(context.Background())
+	assert.Equal(t, int32(1), store.targetsByEventID[eventID][0].RetryCount)
+}
+
+// TestReconciler_SuccessfulDispatchClearsLastError: a dispatch success after
+// a prior failure must clear LastError so the UI does not surface a stale
+// transient error after the resolution succeeded.
+func TestReconciler_SuccessfulDispatchClearsLastError(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending},
+	}
+	prior := "prior queue error"
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-1", State: models.TargetStatePending, LastError: &prior},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	final := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStateDispatched, final.State)
+	if final.LastError != nil {
+		assert.Empty(t, *final.LastError, "successful dispatch must clear LastError")
+	}
+	// The store call should have been made with a non-nil empty pointer
+	// so the SQL UPDATE clears the column rather than leaving stale text.
+	params := store.updateTargetParams["miner-1"]
+	require.NotNil(t, params.LastError, "successful dispatch must explicitly clear LastError on the wire")
+	assert.Empty(t, *params.LastError)
+}
+
+// TestReconciler_ListTargetsByEventOnce: dispatchPending+confirmDispatched+
+// maybeMarkActive must share a single ListTargetsByEvent fetch per event
+// per tick instead of round-tripping three times.
+func TestReconciler_ListTargetsByEventOnce(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-1", State: models.TargetStatePending, BaselinePowerW: ptrFloat64(3000)},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, 1, store.listTargetsByEventCalls, "pending phases must share one ListTargetsByEvent per tick")
+}
+
+// TestReconciler_PanicInListEventsRecovers: ListNonTerminalEvents panicking
+// must not tear down the goroutine; the next tick still runs.
+func TestReconciler_PanicInListEventsRecovers(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	store.listEventsPanicErr = "synthetic db panic"
+	r := newReconcilerForTest(store, disp)
+
+	// safeTick is what the tick loop invokes; calling it here exercises the
+	// top-level recover() guard. A bare runTick would re-panic the test.
+	r.safeTick(context.Background())
+	assert.Equal(t, 1, store.listEventsCalls, "first tick saw the panicking call")
+
+	// Now drop the panic and run another tick — the loop should still be
+	// healthy.
+	store.listEventsPanicErr = ""
+	r.safeTick(context.Background())
+	assert.Equal(t, 2, store.listEventsCalls, "subsequent tick still runs after recover")
+}
+
+// TestReconciler_StartIdempotency: calling Start twice without an
+// intervening Stop must not fork a second goroutine.
+func TestReconciler_StartIdempotency(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+	r := New(Config{TickInterval: time.Hour, ShutdownDeadline: time.Second}, store, disp)
+
+	require.NoError(t, r.Start(context.Background()))
+	require.NoError(t, r.Start(context.Background()), "second Start is a no-op")
+	require.NoError(t, r.Stop())
+	// Second Stop is a no-op too; verify no panic / goroutine deadlock.
+	require.NoError(t, r.Stop())
 }
 
 // --- isCurtailedByPower unit tests ---
