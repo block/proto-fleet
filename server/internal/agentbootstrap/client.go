@@ -10,11 +10,9 @@ import (
 
 const httpClientTimeout = 30 * time.Second
 
-// errRedirectNotAllowed is returned by CheckRedirect to refuse any 30x
-// response from the server. Connect-RPC does not use redirects; a 307/308
-// would otherwise replay the POST body (containing the enrollment token,
-// api_key, or signature) to the redirect target, defeating the
-// non-loopback https requirement on a downgrade redirect.
+// Refusing every 30x stops a downgrade redirect from replaying the POST body
+// (enrollment token, api_key, signature) to a plaintext target; Connect-RPC
+// itself never expects redirects.
 var errRedirectNotAllowed = errors.New("redirects are not allowed for connect-rpc calls")
 
 func newGatewayHTTPClient() *http.Client {
@@ -26,8 +24,6 @@ func newGatewayHTTPClient() *http.Client {
 	}
 }
 
-// NewGatewayClient constructs a connect-rpc client with a fixed-timeout
-// http.Client that refuses every redirect.
 func NewGatewayClient(serverURL string) agentgatewayv1connect.AgentGatewayServiceClient {
 	return agentgatewayv1connect.NewAgentGatewayServiceClient(newGatewayHTTPClient(), serverURL)
 }

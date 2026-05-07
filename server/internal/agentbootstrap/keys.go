@@ -8,9 +8,8 @@ import (
 	"fmt"
 )
 
-// IdentityFingerprint must stay byte-for-byte equal to the server's
-// agentenrollment.IdentityFingerprint so visual comparison in the operator UI
-// works.
+// Must mirror server agentenrollment.IdentityFingerprint exactly so the
+// operator UI's visual fingerprint compare succeeds.
 func IdentityFingerprint(pubkey []byte) string {
 	h := sha256.Sum256(pubkey)
 	return hex.EncodeToString(h[:8])

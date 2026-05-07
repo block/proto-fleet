@@ -13,14 +13,12 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/agentgateway/v1"
 )
 
-// ErrRegisterRejected wraps a server-side AlreadyExists or FailedPrecondition
-// from Register. Callers can errors.Is to surface UX-specific recovery hints
-// (revoke prior agent, choose a unique name, request a fresh enrollment code).
+// Wraps server AlreadyExists / FailedPrecondition. Common causes: name
+// already registered, enrollment code used or expired.
 var ErrRegisterRejected = errors.New("server rejected register")
 
-// RegisterParams is the input to Register. Name is required; callers that
-// want to default it (CLI to os.Hostname(), web form to a chosen value) do
-// that themselves.
+// Name is required; the library does not default it (CLI defaults to
+// os.Hostname(), a web form picks its own).
 type RegisterParams struct {
 	ServerURL              string
 	Name                   string
@@ -28,18 +26,15 @@ type RegisterParams struct {
 	AllowInsecureTransport bool
 }
 
-// RegisterResult is the output of a successful Register: a partial State
-// (no api_key, no session_token) for the caller to persist. The
-// IdentityFingerprint to surface for human verification against the
-// operator UI lives on State.IdentityFingerprint.
+// State is partial: keys + agent_id + fingerprint, no api_key or session.
+// Caller persists, surfaces State.IdentityFingerprint for human verification,
+// then calls CompleteEnrollment.
 type RegisterResult struct {
 	State *State
 }
 
-// Register validates the URL, generates ed25519 keypairs, calls
-// AgentGatewayService.Register, verifies the server's returned fingerprint
-// matches the local one, and returns the partial state. Callers must
-// persist the returned State before continuing to CompleteEnrollment.
+// Callers MUST persist the returned State before calling CompleteEnrollment
+// so a Ctrl-C between them is recoverable.
 func Register(ctx context.Context, p RegisterParams) (*RegisterResult, error) {
 	if err := ValidateServerURL(p.ServerURL, p.AllowInsecureTransport); err != nil {
 		return nil, err
@@ -93,11 +88,9 @@ func Register(ctx context.Context, p RegisterParams) (*RegisterResult, error) {
 	return &RegisterResult{State: state}, nil
 }
 
-// CompleteEnrollment runs the handshake using the operator-supplied apiKey
-// and populates state.APIKey, state.SessionToken, and state.SessionExpiresAt
-// on success. The handshake is preceded by a fresh URL validation so a
-// stored ServerURL can't bypass the https-or-loopback policy. State is not
-// modified on failure; the caller may retry with a different apiKey.
+// Re-validates state.ServerURL so a tampered file can't bypass the
+// https-or-loopback policy. State is unchanged on failure; retry with a
+// different apiKey.
 func CompleteEnrollment(ctx context.Context, state *State, apiKey string) error {
 	if state == nil {
 		return errors.New("state is required")
@@ -123,12 +116,8 @@ func CompleteEnrollment(ctx context.Context, state *State, apiKey string) error 
 	return nil
 }
 
-// ValidateServerURL parses raw and rejects:
-//   - schemes other than http or https
-//   - empty hosts
-//   - http schemes for non-loopback hosts unless allowInsecure is set
-//
-// loopback covers localhost, the full 127/8 block, and IPv6 ::1.
+// Requires https unless the host is loopback (localhost, 127/8, ::1) or
+// allowInsecure is set.
 func ValidateServerURL(raw string, allowInsecure bool) error {
 	u, err := url.Parse(raw)
 	if err != nil {

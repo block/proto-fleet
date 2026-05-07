@@ -5,14 +5,9 @@ import (
 	"errors"
 )
 
-// Refresh re-validates the stored URL and runs the handshake, populating
-// state.SessionToken and state.SessionExpiresAt in place. Caller persists
-// state after success.
-//
-// Refresh does not mutate state on failure; the caller may safely retry or
-// surface the error without persisting. Auth failures (Unauthenticated)
-// from BeginAuth are wrapped with ErrAPIKeyRejected so callers can
-// distinguish revocation from other handshake failures.
+// Mutates SessionToken/SessionExpiresAt only on success. BeginAuth
+// Unauthenticated wraps ErrAPIKeyRejected so callers can distinguish
+// revocation from challenge or signature failures.
 func Refresh(ctx context.Context, state *State) error {
 	if state == nil {
 		return errors.New("state is required")

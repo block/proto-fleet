@@ -9,8 +9,8 @@ import (
 	"syscall"
 )
 
-// WithStateLock acquires an exclusive flock on <dir>/state.lock for fn,
-// so two concurrent refreshes can't clobber a newer state.yaml.
+// Serializes concurrent refreshes via flock on <dir>/state.lock so a slower
+// writer can't clobber a newer state.yaml.
 func WithStateLock(dir string, fn func() error) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create state dir: %w", err)
@@ -19,8 +19,8 @@ func WithStateLock(dir string, fn func() error) error {
 	if err != nil {
 		return fmt.Errorf("open state lock: %w", err)
 	}
-	// flock is released by the kernel on close; an explicit LOCK_UN would
-	// race with the deferred Close.
+	// Kernel releases flock on close; explicit LOCK_UN would race with the
+	// deferred Close.
 	defer func() { _ = f.Close() }()
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
 		return fmt.Errorf("acquire state lock: %w", err)
@@ -28,9 +28,9 @@ func WithStateLock(dir string, fn func() error) error {
 	return fn()
 }
 
-// syncDir fsyncs a directory so a preceding os.Rename inside it is durable
-// across a kernel/power-loss crash. POSIX-only; Windows handles do not
-// support FlushFileBuffers on directories.
+// fsyncs a directory so a preceding os.Rename is durable across a power
+// loss. POSIX only: Windows directory handles do not support
+// FlushFileBuffers.
 func syncDir(path string) error {
 	f, err := os.Open(path)
 	if err != nil {

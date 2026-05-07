@@ -10,8 +10,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// State is the persistent agent state. Callers load it via LoadState, mutate
-// it via Register/CompleteEnrollment/Refresh, and persist it via SaveState.
 type State struct {
 	ServerURL                 string    `yaml:"server_url"`
 	AllowInsecureTransport    bool      `yaml:"allow_insecure_transport,omitempty"`
@@ -26,8 +24,6 @@ type State struct {
 	SessionExpiresAt          time.Time `yaml:"session_expires_at,omitempty"`
 }
 
-// ResolveStateDir picks the state directory in this priority order:
-// caller-supplied override, $XDG_STATE_HOME/fleet-agent, ~/.local/state/fleet-agent.
 func ResolveStateDir(override string) (string, error) {
 	if override != "" {
 		return override, nil
@@ -46,8 +42,7 @@ func StatePath(dir string) string {
 	return filepath.Join(dir, "state.yaml")
 }
 
-// LoadState reads state.yaml. The bool reports whether the file exists; a
-// missing file is not an error (returns zero-valued *State and false).
+// A missing file is not an error: returns (zeroState, false, nil).
 func LoadState(path string) (*State, bool, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -63,9 +58,9 @@ func LoadState(path string) (*State, bool, error) {
 	return &s, true, nil
 }
 
-// SaveState writes via temp + fsync + rename + dir-fsync so a power-loss or
-// kernel crash cannot leave state.yaml truncated nor roll back a rename whose
-// page-cache update never reached disk.
+// Writes via temp + fsync + rename + dir-fsync so a power loss can't leave
+// state.yaml truncated nor roll back a rename whose page-cache update never
+// reached disk.
 func SaveState(path string, s *State) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -108,10 +103,8 @@ func SaveState(path string, s *State) error {
 	return nil
 }
 
-// tightenStateDirPerms chmods the state directory to 0700 if any group/other
-// bits are set. os.MkdirAll skips chmod on existing dirs, so a pre-existing
-// 0755 dir would otherwise leave the credential file's enclosing path
-// world-listable.
+// os.MkdirAll skips chmod on existing dirs, so a pre-existing 0755 dir would
+// otherwise leave the credential file's enclosing path world-listable.
 func tightenStateDirPerms(dir string) error {
 	info, err := os.Stat(dir)
 	if err != nil {
