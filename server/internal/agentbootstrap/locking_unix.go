@@ -10,8 +10,13 @@ import (
 )
 
 // Serializes concurrent refreshes via flock on <dir>/state.lock so a slower
-// writer can't clobber a newer state.yaml.
+// writer can't clobber a newer state.yaml. Refuses to follow a symlink at
+// the dir leaf so the lock can't land in an attacker-chosen location and
+// silently break serialization for the SaveState that follows.
 func WithStateLock(dir string, fn func() error) error {
+	if info, err := os.Lstat(dir); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("state dir %s is a symlink; refusing to take a lock through it", dir)
+	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create state dir: %w", err)
 	}
