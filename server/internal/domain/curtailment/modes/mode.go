@@ -43,6 +43,7 @@ type InsufficientLoadDetail struct {
 	ExcludedPhantomLoad    int32
 	ExcludedDeadMonitor    int32
 	ExcludedMaintenance    int32
+	ExcludedNonActionable  int32
 	ExcludedPairing        int32
 	ExcludedCooldown       int32
 	ExcludedCapabilityMiss int32

@@ -136,6 +136,13 @@ func validatePreviewRequest(req PreviewRequest) error {
 			"strategy %q is not supported in v1; only LEAST_EFFICIENT_FIRST", req.Strategy,
 		)
 	}
+	// v1 priorities: NORMAL (or empty/UNSPECIFIED) and EMERGENCY. HIGH is
+	// reserved in the proto but undesigned in v1 — reject explicitly.
+	if req.Priority != "" && req.Priority != "NORMAL" && req.Priority != "EMERGENCY" {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"priority %q is not supported in v1; use NORMAL or EMERGENCY", req.Priority,
+		)
+	}
 	// NaN / +/-Inf must be rejected explicitly because every comparison with
 	// NaN evaluates false, which would slip past the > 0 / >= 0 guards
 	// below and propagate through the running sum in FixedKw.
@@ -251,6 +258,13 @@ func classifyCandidates(cands []*models.Candidate, opts classifyOpts) ([]Candida
 			// since it's fleet load the system can't address.
 			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipUnreachableResidualLoad})
 			summary.ExcludedOffline++
+			continue
+		case "INACTIVE", "NEEDS_MINING_POOL":
+			// Non-actionable per the project's nonActionableStatuses set
+			// (sqlstores/device_query_fragments.go): the device isn't a
+			// curtailment candidate even when telemetry is fresh.
+			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipNonActionableStatus})
+			summary.ExcludedNonActionable++
 			continue
 		case "MAINTENANCE":
 			if !opts.IncludeMaintenance {

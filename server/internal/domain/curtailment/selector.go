@@ -21,6 +21,7 @@ const (
 	SkipUpdating                 SkipReason = "updating"
 	SkipRebootRequired           SkipReason = "reboot_required"
 	SkipMaintenance              SkipReason = "maintenance"
+	SkipNonActionableStatus      SkipReason = "non_actionable_status"
 	SkipPairing                  SkipReason = "pairing"
 	// Reserved for full capability gating: candidates whose loaded plugin
 	// or model does not advertise curtail_full are skipped with this reason.

@@ -160,13 +160,15 @@ func priorityName(p pb.CurtailmentPriority) string {
 	case pb.CurtailmentPriority_CURTAILMENT_PRIORITY_EMERGENCY:
 		return "EMERGENCY"
 	case pb.CurtailmentPriority_CURTAILMENT_PRIORITY_UNSPECIFIED,
-		pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL,
-		pb.CurtailmentPriority_CURTAILMENT_PRIORITY_HIGH:
-		// HIGH is reserved-but-undesigned in v1; proto validator rejects
-		// it before this runs. UNSPECIFIED and NORMAL both map to NORMAL.
+		pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL:
 		return "NORMAL"
+	case pb.CurtailmentPriority_CURTAILMENT_PRIORITY_HIGH:
+		// Preserve HIGH distinctly so the service-layer validator can
+		// reject it. Coercing it to "NORMAL" here would silently change
+		// caller intent and bypass the unsupported-priority guard.
+		return "HIGH"
 	default:
-		return "NORMAL"
+		return p.String()
 	}
 }
 
@@ -204,6 +206,7 @@ func formatExclusionCounters(d *modes.InsufficientLoadDetail) string {
 		{string(curtailment.SkipPowerTelemetryUnreliable), d.ExcludedDeadMonitor},
 		{string(curtailment.SkipUnreachableResidualLoad), d.ExcludedOffline},
 		{string(curtailment.SkipMaintenance), d.ExcludedMaintenance},
+		{string(curtailment.SkipNonActionableStatus), d.ExcludedNonActionable},
 		{string(curtailment.SkipPairing), d.ExcludedPairing},
 		{string(curtailment.SkipCooldown), d.ExcludedCooldown},
 		{string(curtailment.SkipActiveEvent), d.ExcludedActiveEvent},

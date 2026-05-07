@@ -212,6 +212,17 @@ func TestService_Preview_RejectsUnsupportedStrategy(t *testing.T) {
 	assert.Contains(t, err.Error(), "LEAST_EFFICIENT_FIRST")
 }
 
+func TestService_Preview_RejectsUnsupportedPriority(t *testing.T) {
+	t.Parallel()
+	svc := NewService(newFakeStore())
+	req := validRequest(1)
+	req.Priority = "HIGH"
+	_, err := svc.Preview(t.Context(), req)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "HIGH")
+	assert.Contains(t, err.Error(), "NORMAL or EMERGENCY")
+}
+
 func TestService_Preview_RejectsUnbalancedMaintenancePair(t *testing.T) {
 	t.Parallel()
 	svc := NewService(newFakeStore())
@@ -293,6 +304,8 @@ func TestService_Preview_FiltersByPairingDeviceStatusAndStaleness(t *testing.T) 
 		miner("updating", "UPDATING", "PAIRED", 3000, 100),
 		miner("rebooting", "REBOOT_REQUIRED", "PAIRED", 3000, 100),
 		miner("offline", "OFFLINE", "PAIRED", 3000, 100),
+		miner("inactive", "INACTIVE", "PAIRED", 3000, 100),
+		miner("needs-pool", "NEEDS_MINING_POOL", "PAIRED", 3000, 100),
 		miner("maintenance", "MAINTENANCE", "PAIRED", 3000, 100),
 		staleMiner("stale"),
 		minerWithEff("eligible", 3000, 100, 40),
@@ -317,6 +330,8 @@ func TestService_Preview_FiltersByPairingDeviceStatusAndStaleness(t *testing.T) 
 	assert.Equal(t, SkipUpdating, reasons["updating"])
 	assert.Equal(t, SkipRebootRequired, reasons["rebooting"])
 	assert.Equal(t, SkipUnreachableResidualLoad, reasons["offline"])
+	assert.Equal(t, SkipNonActionableStatus, reasons["inactive"])
+	assert.Equal(t, SkipNonActionableStatus, reasons["needs-pool"])
 	assert.Equal(t, SkipMaintenance, reasons["maintenance"])
 	assert.Equal(t, SkipStaleTelemetry, reasons["stale"])
 }
