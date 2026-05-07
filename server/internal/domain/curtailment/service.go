@@ -136,8 +136,7 @@ func validatePreviewRequest(req PreviewRequest) error {
 			"strategy %q is not supported in v1; only LEAST_EFFICIENT_FIRST", req.Strategy,
 		)
 	}
-	// v1 priorities: NORMAL (or empty/UNSPECIFIED) and EMERGENCY. HIGH is
-	// reserved in the proto but undesigned in v1 — reject explicitly.
+	// HIGH is proto-reserved but undesigned in v1; reject explicitly.
 	if req.Priority != "" && req.Priority != "NORMAL" && req.Priority != "EMERGENCY" {
 		return fleeterror.NewInvalidArgumentErrorf(
 			"priority %q is not supported in v1; use NORMAL or EMERGENCY", req.Priority,

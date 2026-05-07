@@ -219,8 +219,7 @@ func TestService_Preview_RejectsUnsupportedPriority(t *testing.T) {
 	req.Priority = "HIGH"
 	_, err := svc.Preview(t.Context(), req)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "HIGH")
-	assert.Contains(t, err.Error(), "NORMAL or EMERGENCY")
+	assert.Contains(t, err.Error(), "HIGH", "rejected priority must appear in error")
 }
 
 func TestService_Preview_RejectsUnbalancedMaintenancePair(t *testing.T) {

@@ -54,11 +54,7 @@ func (s *SQLCurtailmentStore) GetOrgConfig(ctx context.Context, orgID int64) (*m
 	// the Preview hot path stays off the WAL.
 	row, err := s.GetQueries(ctx).EnsureCurtailmentOrgConfig(ctx, orgID)
 	if errors.Is(err, sql.ErrNoRows) {
-		// Concurrent first-use race under READ COMMITTED: when two
-		// transactions see no row, one wins the INSERT and the loser's
-		// fallback SELECT may not see the just-committed row in its own
-		// snapshot. The retry runs in a fresh statement and finds the
-		// now-committed row.
+		// READ COMMITTED race: loser's snapshot may miss the winner's INSERT; retry.
 		row, err = s.GetQueries(ctx).EnsureCurtailmentOrgConfig(ctx, orgID)
 	}
 	if err != nil {

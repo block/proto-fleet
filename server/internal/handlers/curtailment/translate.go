@@ -163,9 +163,7 @@ func priorityName(p pb.CurtailmentPriority) string {
 		pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL:
 		return "NORMAL"
 	case pb.CurtailmentPriority_CURTAILMENT_PRIORITY_HIGH:
-		// Preserve HIGH distinctly so the service-layer validator can
-		// reject it. Coercing it to "NORMAL" here would silently change
-		// caller intent and bypass the unsupported-priority guard.
+		// Pass through so the service validator can reject it.
 		return "HIGH"
 	default:
 		return p.String()
