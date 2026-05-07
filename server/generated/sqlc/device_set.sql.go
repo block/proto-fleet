@@ -573,15 +573,24 @@ type GetRackInfoBatchParams struct {
 	DeviceSetIds []int64
 }
 
-func (q *Queries) GetRackInfoBatch(ctx context.Context, arg GetRackInfoBatchParams) ([]DeviceSetRack, error) {
+type GetRackInfoBatchRow struct {
+	DeviceSetID int64
+	Zone        sql.NullString
+	Rows        int32
+	Columns     int32
+	OrderIndex  int16
+	CoolingType int16
+}
+
+func (q *Queries) GetRackInfoBatch(ctx context.Context, arg GetRackInfoBatchParams) ([]GetRackInfoBatchRow, error) {
 	rows, err := q.query(ctx, q.getRackInfoBatchStmt, getRackInfoBatch, arg.OrgID, pq.Array(arg.DeviceSetIds))
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []DeviceSetRack
+	var items []GetRackInfoBatchRow
 	for rows.Next() {
-		var i DeviceSetRack
+		var i GetRackInfoBatchRow
 		if err := rows.Scan(
 			&i.DeviceSetID,
 			&i.Zone,

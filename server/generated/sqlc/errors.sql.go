@@ -249,7 +249,7 @@ func (q *Queries) GetDeviceIDByIdentifier(ctx context.Context, arg GetDeviceIDBy
 
 const getErrorByErrorID = `-- name: GetErrorByErrorID :one
 SELECT
-    e.id, e.error_id, e.org_id, e.miner_error, e.severity, e.summary, e.impact, e.cause_summary, e.recommended_action, e.first_seen_at, e.last_seen_at, e.closed_at, e.device_id, e.component_id, e.component_type, e.vendor_code, e.firmware, e.extra, e.created_at, e.updated_at,
+    e.id, e.error_id, e.org_id, e.miner_error, e.severity, e.summary, e.impact, e.cause_summary, e.recommended_action, e.first_seen_at, e.last_seen_at, e.closed_at, e.device_id, e.component_id, e.component_type, e.vendor_code, e.firmware, e.extra, e.created_at, e.updated_at, e.site_id,
     d.device_identifier
 FROM errors e
 JOIN device d ON e.device_id = d.id AND e.org_id = d.org_id AND d.deleted_at IS NULL
@@ -282,6 +282,7 @@ type GetErrorByErrorIDRow struct {
 	Extra             pqtype.NullRawMessage
 	CreatedAt         sql.NullTime
 	UpdatedAt         sql.NullTime
+	SiteID            sql.NullInt64
 	DeviceIdentifier  string
 }
 
@@ -310,13 +311,14 @@ func (q *Queries) GetErrorByErrorID(ctx context.Context, arg GetErrorByErrorIDPa
 		&i.Extra,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SiteID,
 		&i.DeviceIdentifier,
 	)
 	return i, err
 }
 
 const getErrorByID = `-- name: GetErrorByID :one
-SELECT id, error_id, org_id, miner_error, severity, summary, impact, cause_summary, recommended_action, first_seen_at, last_seen_at, closed_at, device_id, component_id, component_type, vendor_code, firmware, extra, created_at, updated_at FROM errors WHERE id = $1 AND org_id = $2
+SELECT id, error_id, org_id, miner_error, severity, summary, impact, cause_summary, recommended_action, first_seen_at, last_seen_at, closed_at, device_id, component_id, component_type, vendor_code, firmware, extra, created_at, updated_at, site_id FROM errors WHERE id = $1 AND org_id = $2
 `
 
 type GetErrorByIDParams struct {
@@ -349,12 +351,13 @@ func (q *Queries) GetErrorByID(ctx context.Context, arg GetErrorByIDParams) (Err
 		&i.Extra,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SiteID,
 	)
 	return i, err
 }
 
 const getOpenErrorByDedupKey = `-- name: GetOpenErrorByDedupKey :one
-SELECT id, error_id, org_id, miner_error, severity, summary, impact, cause_summary, recommended_action, first_seen_at, last_seen_at, closed_at, device_id, component_id, component_type, vendor_code, firmware, extra, created_at, updated_at FROM errors
+SELECT id, error_id, org_id, miner_error, severity, summary, impact, cause_summary, recommended_action, first_seen_at, last_seen_at, closed_at, device_id, component_id, component_type, vendor_code, firmware, extra, created_at, updated_at, site_id FROM errors
 WHERE org_id = $1
   AND device_id = $2
   AND miner_error = $3
@@ -405,6 +408,7 @@ func (q *Queries) GetOpenErrorByDedupKey(ctx context.Context, arg GetOpenErrorBy
 		&i.Extra,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SiteID,
 	)
 	return i, err
 }

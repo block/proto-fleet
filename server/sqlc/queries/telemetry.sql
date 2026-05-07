@@ -56,7 +56,8 @@ SELECT
     dm.chip_count,
     dm.chip_count_kind,
     dm.chip_frequency_mhz,
-    dm.health
+    dm.health,
+    dm.site_id
 FROM unnest(sqlc.arg('device_identifiers')::text[]) AS ids(device_identifier)
 CROSS JOIN LATERAL (
     SELECT *
@@ -91,7 +92,8 @@ SELECT DISTINCT ON (device_identifier)
     chip_count,
     chip_count_kind,
     chip_frequency_mhz,
-    health
+    health,
+    site_id
 FROM device_metrics
 WHERE time >= $1
 ORDER BY device_identifier, time DESC;
@@ -120,7 +122,8 @@ SELECT
     chip_count,
     chip_count_kind,
     chip_frequency_mhz,
-    health
+    health,
+    site_id
 FROM device_metrics
 WHERE device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
   AND time >= $1
@@ -154,7 +157,8 @@ SELECT
     chip_count,
     chip_count_kind,
     chip_frequency_mhz,
-    health
+    health,
+    site_id
 FROM device_metrics
 WHERE time >= $1
   AND time <= $2
