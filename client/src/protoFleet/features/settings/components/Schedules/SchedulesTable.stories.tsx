@@ -27,6 +27,8 @@ import type { ListAction, SortDirection } from "@/shared/components/List/types";
 const defaultActiveFilters: ActiveFilters = {
   buttonFilters: ["all"],
   dropdownFilters: {},
+  numericFilters: {},
+  textareaListFilters: {},
 };
 
 const createDemoSchedule = (schedule: Omit<ScheduleListItem, "rawSchedule">): ScheduleListItem => ({

@@ -35,7 +35,7 @@ import {
   summarizeFilters,
   summarizeSort,
 } from "@/protoFleet/features/fleetManagement/views/viewSummary";
-import { Edit, Ellipsis, Plus, Trash } from "@/shared/assets/icons";
+import { Checkmark, Edit, Ellipsis, Plus, Reboot, Trash } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import { variants } from "@/shared/components/Button";
 import Dialog from "@/shared/components/Dialog";
@@ -63,78 +63,155 @@ type BuiltInTabProps = {
   view: SavedView;
   isActive: boolean;
   isDirty: boolean;
+  /** Provided only when the tab is active+dirty so the kebab can offer Reset. */
+  onReset?: () => void;
 };
 
-const BuiltInTab = ({ view, isActive, isDirty }: BuiltInTabProps) => (
-  <TabStripItem
-    id={view.id}
-    testId={`views-bar-tab-${view.id}`}
-    label={view.name}
-    tone={isActive && isDirty ? "warning" : "default"}
-  />
+const BuiltInTabInner = ({ view, isActive, isDirty, onReset }: BuiltInTabProps) => {
+  const { triggerRef, setPopoverRenderMode } = usePopover();
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+
+  // Same portal treatment as UserTab so the popover escapes the strip's overflow-x-auto.
+  useEffect(() => {
+    setPopoverRenderMode("portal-scrolling");
+  }, [setPopoverRenderMode]);
+
+  useClickOutside({
+    ref: triggerRef,
+    onClickOutside: () => setIsMenuOpen(false),
+    ignoreSelectors: [".popover-content"],
+  });
+
+  const wrapperRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      triggerRef.current = node;
+    },
+    [triggerRef],
+  );
+
+  return (
+    <TabStripItem
+      id={view.id}
+      testId={`views-bar-tab-${view.id}`}
+      label={view.name}
+      tone={isActive && isDirty ? "warning" : "default"}
+      trailing={
+        onReset !== undefined ? (
+          <ViewKebab view={view} isOpen={isMenuOpen} setIsOpen={setIsMenuOpen} onReset={onReset} />
+        ) : undefined
+      }
+      wrapperRef={wrapperRef}
+    />
+  );
+};
+
+const BuiltInTab = (props: BuiltInTabProps) => (
+  <PopoverProvider>
+    <BuiltInTabInner {...props} />
+  </PopoverProvider>
 );
 
 type ViewKebabProps = {
   view: SavedView;
   isOpen: boolean;
   setIsOpen: (next: boolean | ((prev: boolean) => boolean)) => void;
-  onRename: (view: SavedView) => void;
-  onDelete: (view: SavedView) => void;
+  onRename?: (view: SavedView) => void;
+  onDelete?: (view: SavedView) => void;
+  /** Reset the dirtied view back to its saved searchParams. Omit to hide the row. */
+  onReset?: () => void;
+  /** Open the Update view modal. Omit to hide the row (e.g. on built-in views). */
+  onUpdate?: () => void;
 };
 
-const ViewKebab = ({ view, isOpen, setIsOpen, onRename, onDelete }: ViewKebabProps) => (
-  <>
-    <button
-      type="button"
-      onClick={(e) => {
-        e.stopPropagation();
-        setIsOpen((prev) => !prev);
-      }}
-      className="flex items-center justify-center px-1 pb-2 text-text-primary-70 outline-none hover:text-text-primary focus-visible:underline"
-      aria-label={`Actions for ${view.name}`}
-      aria-haspopup="menu"
-      data-testid={`views-bar-tab-${view.id}-kebab`}
-    >
-      <Ellipsis width={iconSizes.xSmall} />
-    </button>
-    {isOpen ? (
-      <Popover
-        className="!space-y-0 px-4 pt-2 pb-1"
-        position={positions["bottom right"]}
-        size={popoverSizes.small}
-        offset={8}
-        testId={`views-bar-tab-${view.id}-kebab-popover`}
-      >
-        <Row
-          className="text-emphasis-300"
-          testId={`views-bar-tab-${view.id}-rename-action`}
-          onClick={() => {
-            setIsOpen(false);
-            onRename(view);
-          }}
-          compact
-          divider
-          prefixIcon={<Edit width={iconSizes.small} className="text-text-primary-70" />}
-        >
-          Rename
-        </Row>
-        <Row
-          className="text-emphasis-300"
-          testId={`views-bar-tab-${view.id}-delete-action`}
-          onClick={() => {
-            setIsOpen(false);
-            onDelete(view);
-          }}
-          compact
-          divider={false}
-          prefixIcon={<Trash width={iconSizes.small} className="text-text-primary-70" />}
-        >
-          Delete
-        </Row>
-      </Popover>
-    ) : null}
-  </>
+type KebabRowProps = {
+  testId: string;
+  onClick: () => void;
+  icon: ReactNode;
+  label: string;
+};
+
+const KebabRow = ({ testId, onClick, icon, label }: KebabRowProps) => (
+  <div className="px-4">
+    <Row className="text-emphasis-300" testId={testId} onClick={onClick} compact divider={false} prefixIcon={icon}>
+      {label}
+    </Row>
+  </div>
 );
+
+const ViewKebab = ({ view, isOpen, setIsOpen, onRename, onDelete, onReset, onUpdate }: ViewKebabProps) => {
+  const close = () => setIsOpen(false);
+  return (
+    <>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setIsOpen((prev) => !prev);
+        }}
+        className="flex items-center justify-center px-1 pb-2 text-text-primary-70 outline-none hover:text-text-primary focus-visible:underline"
+        aria-label={`Actions for ${view.name}`}
+        aria-haspopup="menu"
+        data-testid={`views-bar-tab-${view.id}-kebab`}
+      >
+        <Ellipsis width={iconSizes.xSmall} />
+      </button>
+      {isOpen ? (
+        <Popover
+          className="!space-y-0 !rounded-2xl px-0 pt-2 pb-1"
+          position={positions["bottom right"]}
+          size={popoverSizes.small}
+          offset={8}
+          testId={`views-bar-tab-${view.id}-kebab-popover`}
+        >
+          {onReset ? (
+            <KebabRow
+              testId={`views-bar-tab-${view.id}-reset-action`}
+              onClick={() => {
+                close();
+                onReset();
+              }}
+              icon={<Reboot />}
+              label="Reset view"
+            />
+          ) : null}
+          {onUpdate ? (
+            <KebabRow
+              testId={`views-bar-tab-${view.id}-update-action`}
+              onClick={() => {
+                close();
+                onUpdate();
+              }}
+              icon={<Checkmark />}
+              label="Update view"
+            />
+          ) : null}
+          {onRename ? (
+            <KebabRow
+              testId={`views-bar-tab-${view.id}-rename-action`}
+              onClick={() => {
+                close();
+                onRename(view);
+              }}
+              icon={<Edit />}
+              label="Rename"
+            />
+          ) : null}
+          {onDelete ? (
+            <KebabRow
+              testId={`views-bar-tab-${view.id}-delete-action`}
+              onClick={() => {
+                close();
+                onDelete(view);
+              }}
+              icon={<Trash />}
+              label="Delete"
+            />
+          ) : null}
+        </Popover>
+      ) : null}
+    </>
+  );
+};
 
 type UserTabProps = {
   view: SavedView;
@@ -142,9 +219,13 @@ type UserTabProps = {
   isDirty: boolean;
   onRename: (view: SavedView) => void;
   onDelete: (view: SavedView) => void;
+  /** Provided only when the tab is active+dirty so the kebab can offer Reset. */
+  onReset?: () => void;
+  /** Provided only when the tab is active+dirty so the kebab can offer Update. */
+  onUpdate?: () => void;
 };
 
-const UserTabInner = ({ view, isActive, isDirty, onRename, onDelete }: UserTabProps) => {
+const UserTabInner = ({ view, isActive, isDirty, onRename, onDelete, onReset, onUpdate }: UserTabProps) => {
   const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({ id: view.id });
   const { triggerRef, setPopoverRenderMode } = usePopover();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -182,7 +263,15 @@ const UserTabInner = ({ view, isActive, isDirty, onRename, onDelete }: UserTabPr
       label={view.name}
       tone={isActive && isDirty ? "warning" : "default"}
       trailing={
-        <ViewKebab view={view} isOpen={isMenuOpen} setIsOpen={setIsMenuOpen} onRename={onRename} onDelete={onDelete} />
+        <ViewKebab
+          view={view}
+          isOpen={isMenuOpen}
+          setIsOpen={setIsMenuOpen}
+          onRename={onRename}
+          onDelete={onDelete}
+          onReset={onReset}
+          onUpdate={onUpdate}
+        />
       }
       wrapperRef={wrapperRef}
       wrapperStyle={{
@@ -327,6 +416,42 @@ const ViewsBar = ({ viewsState, availableGroups, availableRacks, className }: Vi
     setDeleteConfirm({ open: true, viewId: view.id, viewName: view.name });
   }, []);
 
+  // Snap the URL back to the active view's saved searchParams. For All miners
+  // we just clear the URL — its canonical state is "no filters / no sort".
+  const handleResetActiveView = useCallback(() => {
+    if (!activeView) return;
+    if (activeView.id === ALL_MINERS_VIEW_ID) {
+      navigate({ search: "" }, { replace: true });
+      return;
+    }
+    navigate(`?${buildUrlForView(activeView, searchParams)}`, { replace: true });
+  }, [activeView, navigate, searchParams]);
+
+  // Open the existing rename/update modal pre-filled with the saved + current
+  // diffs. Only valid for user-created views; built-ins use Reset only.
+  const handleOpenUpdateActiveView = useCallback(() => {
+    if (!activeView) return;
+    if (builtIns.some((view) => view.id === activeView.id)) return;
+    const savedFilters = summarizeFilters(new URLSearchParams(activeView.searchParams), {
+      availableGroups,
+      availableRacks,
+    });
+    const savedSort = summarizeSort(new URLSearchParams(activeView.searchParams));
+    setModal({
+      open: true,
+      mode: {
+        kind: "update",
+        viewId: activeView.id,
+        currentName: activeView.name,
+        savedFilters,
+        savedSort,
+      },
+      defaultName: activeView.name,
+      currentFilters: filterSummary,
+      currentSort: sortSummary,
+    });
+  }, [activeView, builtIns, availableGroups, availableRacks, filterSummary, sortSummary]);
+
   const handleConfirmDelete = useCallback(() => {
     if (!deleteConfirm.open) return;
     const idToDelete = deleteConfirm.viewId;
@@ -424,19 +549,33 @@ const ViewsBar = ({ viewsState, availableGroups, availableRacks, className }: Vi
           >
             <SortableContext items={userViews.map((view) => view.id)} strategy={horizontalListSortingStrategy}>
               <TabStrip activeId={activeViewId} onSelect={handleSelect} ariaLabel="Saved views">
-                {builtIns.map((view) => (
-                  <BuiltInTab key={view.id} view={view} isActive={view.id === activeViewId} isDirty={isDirty} />
-                ))}
-                {userViews.map((view) => (
-                  <UserTab
-                    key={view.id}
-                    view={view}
-                    isActive={view.id === activeViewId}
-                    isDirty={isDirty}
-                    onRename={handleOpenRename}
-                    onDelete={handleOpenDelete}
-                  />
-                ))}
+                {builtIns.map((view) => {
+                  const isActive = view.id === activeViewId;
+                  return (
+                    <BuiltInTab
+                      key={view.id}
+                      view={view}
+                      isActive={isActive}
+                      isDirty={isDirty}
+                      onReset={isActive && isDirty ? handleResetActiveView : undefined}
+                    />
+                  );
+                })}
+                {userViews.map((view) => {
+                  const isActive = view.id === activeViewId;
+                  return (
+                    <UserTab
+                      key={view.id}
+                      view={view}
+                      isActive={isActive}
+                      isDirty={isDirty}
+                      onRename={handleOpenRename}
+                      onDelete={handleOpenDelete}
+                      onReset={isActive && isDirty ? handleResetActiveView : undefined}
+                      onUpdate={isActive && isDirty ? handleOpenUpdateActiveView : undefined}
+                    />
+                  );
+                })}
                 <TabAction
                   text="New view"
                   onClick={handleOpenNew}

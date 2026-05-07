@@ -38,6 +38,17 @@ func (s apiKeyStoreStub) CreateApiKey(ctx context.Context, key *interfaces.ApiKe
 	return nil
 }
 
+func (s apiKeyStoreStub) CreateAgentApiKey(ctx context.Context, key *interfaces.ApiKey) error {
+	if s.createFn != nil {
+		return s.createFn(ctx, key)
+	}
+	return nil
+}
+
+func (s apiKeyStoreStub) RevokeApiKeysByAgentID(context.Context, int64, int64, time.Time) ([]string, error) {
+	return nil, nil
+}
+
 func (s apiKeyStoreStub) GetApiKeyByHash(ctx context.Context, keyHash string) (*interfaces.ApiKey, error) {
 	if s.getByHashFn != nil {
 		return s.getByHashFn(ctx, keyHash)

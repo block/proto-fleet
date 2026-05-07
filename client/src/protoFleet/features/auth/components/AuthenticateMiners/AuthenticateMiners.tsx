@@ -143,6 +143,8 @@ const AuthenticateMiners = ({
   const [activeFilters, setActiveFilters] = useState<ActiveFilters>({
     buttonFilters: [],
     dropdownFilters: {},
+    numericFilters: {},
+    textareaListFilters: {},
   });
 
   useEffect(() => {

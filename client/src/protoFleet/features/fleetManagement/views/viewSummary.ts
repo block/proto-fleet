@@ -1,4 +1,9 @@
 import type { DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
+import {
+  TELEMETRY_FILTER_BOUNDS,
+  type TelemetryFilterKey,
+} from "@/protoFleet/features/fleetManagement/utils/telemetryFilterBounds";
+import { formatNumericRangeCondition, formatTextareaListCondition } from "@/shared/utils/filterChipFormatting";
 
 const STATUS_LABELS: Record<string, string> = {
   hashing: "Hashing",
@@ -92,6 +97,37 @@ export const summarizeFilters = (
 
   const zoneValues = dedupedSorted(params, "zone");
   if (zoneValues.length) entries.push({ key: "zone", label: "Zone", values: zoneValues });
+
+  // Numeric range filters: render as a single value, e.g. "50 TH/s - 200 TH/s"
+  // or "≥ 50 TH/s". Mirrors the chip text so the summary reads the same way.
+  (Object.keys(TELEMETRY_FILTER_BOUNDS) as TelemetryFilterKey[]).forEach((key) => {
+    const bounds = TELEMETRY_FILTER_BOUNDS[key];
+    const minRaw = params.get(`${key}_min`);
+    const maxRaw = params.get(`${key}_max`);
+    const min = minRaw !== null && minRaw !== "" ? Number(minRaw) : undefined;
+    const max = maxRaw !== null && maxRaw !== "" ? Number(maxRaw) : undefined;
+    if ((min === undefined || !Number.isFinite(min)) && (max === undefined || !Number.isFinite(max))) return;
+    const summary = formatNumericRangeCondition(
+      {
+        min: Number.isFinite(min) ? min : undefined,
+        max: Number.isFinite(max) ? max : undefined,
+      },
+      bounds.unit,
+    );
+    if (!summary) return;
+    entries.push({ key, label: bounds.label, values: [summary] });
+  });
+
+  // Subnet (CIDR list) filter — single chip-style value, "N subnets" when more
+  // than one entry, the literal CIDR when exactly one.
+  const subnetValues = dedupedSorted(params, "subnet");
+  if (subnetValues.length) {
+    entries.push({
+      key: "subnet",
+      label: "Subnet",
+      values: [formatTextareaListCondition(subnetValues, { noun: "subnet" })],
+    });
+  }
 
   return entries;
 };

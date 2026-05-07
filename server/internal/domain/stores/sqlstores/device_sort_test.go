@@ -17,7 +17,7 @@ func TestGetSortExpression(t *testing.T) {
 		expected string
 	}{
 		{"name field", stores.SortFieldName, "TRIM(COALESCE(NULLIF(device.custom_name, ''), COALESCE(discovered_device.manufacturer, '') || ' ' || COALESCE(discovered_device.model, '')))"},
-		{"ip address field", stores.SortFieldIPAddress, "INET(COALESCE(NULLIF(discovered_device.ip_address, ''), '0.0.0.0'))"},
+		{"ip address field", stores.SortFieldIPAddress, "COALESCE(discovered_device.ip_address_inet, '0.0.0.0'::inet)"},
 		{"mac address field", stores.SortFieldMACAddress, "COALESCE(device.mac_address, '')"},
 		{"model field", stores.SortFieldModel, "discovered_device.model"},
 		{"hashrate field", stores.SortFieldHashrate, "latest_metrics.sort_value"},

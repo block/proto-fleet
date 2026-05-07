@@ -3,7 +3,9 @@ package sqlstores_test
 import (
 	"context"
 	"database/sql"
+	"net/netip"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -352,4 +354,128 @@ func TestGetMinerModelGroups_ExcludesInactiveAndSoftDeletedDiscoveredDevices(t *
 	assert.Equal(t, int32(1), groups[0].Count,
 		"inactive and soft-deleted discovered_device rows must be excluded")
 	assertModalInvariant(t, ctx, deviceStore, user.OrganizationID, nil)
+}
+
+// TestGetMinerModelGroups_NumericRangeFilter proves the model-group counts
+// honor numeric range predicates, holding the modal invariant against the
+// filtered list. Without dynamic plumbing, the static sqlc query would return
+// every paired device's model regardless of telemetry.
+func TestGetMinerModelGroups_NumericRangeFilter(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	tc := testutil.InitializeDBServiceInfrastructure(t)
+	dbSvc := tc.DatabaseService
+	db := tc.ServiceProvider.DB
+	deviceStore := sqlstores.NewSQLDeviceStore(db)
+	ctx := t.Context()
+
+	user := dbSvc.CreateSuperAdminUser()
+
+	above := dbSvc.CreateDevice(user.OrganizationID, "proto") // 95 TH/s
+	below := dbSvc.CreateDevice(user.OrganizationID, "proto") // 85 TH/s
+	stale := dbSvc.CreateDevice(user.OrganizationID, "proto") // 95 TH/s but 30 min ago
+	for _, d := range []string{above.ID, below.ID, stale.ID} {
+		pairDevice(t, ctx, deviceStore, user.OrganizationID, d)
+	}
+
+	now := time.Now().UTC()
+	insertMetric(t, db, above.ID, now, 95e12)
+	insertMetric(t, db, below.ID, now, 85e12)
+	insertMetric(t, db, stale.ID, now.Add(-30*time.Minute), 95e12)
+
+	threshold := 90.0
+	filter := &stores.MinerFilter{
+		NumericRanges: []stores.NumericRange{
+			{Field: stores.NumericFilterFieldHashrateTHs, Min: &threshold},
+		},
+	}
+
+	groups, err := deviceStore.GetMinerModelGroups(ctx, user.OrganizationID, filter)
+	require.NoError(t, err)
+	require.Len(t, groups, 1, "all three miners share the TestMiner model — single group expected")
+	assert.Equal(t, int32(1), groups[0].Count, "only the in-window miner above 90 TH/s should count")
+	assertModalInvariant(t, ctx, deviceStore, user.OrganizationID, filter)
+}
+
+// TestGetMinerModelGroups_IPCIDRFilter mirrors the numeric test for the IP
+// CIDR predicate, again holding the modal invariant.
+func TestGetMinerModelGroups_IPCIDRFilter(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	tc := testutil.InitializeDBServiceInfrastructure(t)
+	dbSvc := tc.DatabaseService
+	db := tc.ServiceProvider.DB
+	deviceStore := sqlstores.NewSQLDeviceStore(db)
+	ctx := t.Context()
+
+	user := dbSvc.CreateSuperAdminUser()
+
+	inRange := dbSvc.CreateDevice(user.OrganizationID, "proto")
+	outOfRange := dbSvc.CreateDevice(user.OrganizationID, "proto")
+	for _, d := range []string{inRange.ID, outOfRange.ID} {
+		pairDevice(t, ctx, deviceStore, user.OrganizationID, d)
+	}
+
+	setDeviceIP(t, db, inRange.DatabaseID, "192.168.1.50")
+	setDeviceIP(t, db, outOfRange.DatabaseID, "10.0.0.5")
+
+	filter := &stores.MinerFilter{
+		IPCIDRs: []netip.Prefix{netip.MustParsePrefix("192.168.1.0/24")},
+	}
+
+	groups, err := deviceStore.GetMinerModelGroups(ctx, user.OrganizationID, filter)
+	require.NoError(t, err)
+	require.Len(t, groups, 1)
+	assert.Equal(t, int32(1), groups[0].Count, "only the miner inside the CIDR should count")
+	assertModalInvariant(t, ctx, deviceStore, user.OrganizationID, filter)
+}
+
+// TestGetMinerModelGroups_NumericPlusCIDR proves AND semantics across the two
+// new filter kinds inside GetMinerModelGroups, matching the list query.
+func TestGetMinerModelGroups_NumericPlusCIDR(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	tc := testutil.InitializeDBServiceInfrastructure(t)
+	dbSvc := tc.DatabaseService
+	db := tc.ServiceProvider.DB
+	deviceStore := sqlstores.NewSQLDeviceStore(db)
+	ctx := t.Context()
+
+	user := dbSvc.CreateSuperAdminUser()
+
+	match := dbSvc.CreateDevice(user.OrganizationID, "proto")        // in subnet, fast
+	slowInSubnet := dbSvc.CreateDevice(user.OrganizationID, "proto") // in subnet, slow
+	fastOutside := dbSvc.CreateDevice(user.OrganizationID, "proto")  // outside subnet, fast
+	for _, d := range []string{match.ID, slowInSubnet.ID, fastOutside.ID} {
+		pairDevice(t, ctx, deviceStore, user.OrganizationID, d)
+	}
+
+	setDeviceIP(t, db, match.DatabaseID, "192.168.1.10")
+	setDeviceIP(t, db, slowInSubnet.DatabaseID, "192.168.1.20")
+	setDeviceIP(t, db, fastOutside.DatabaseID, "10.0.0.1")
+
+	now := time.Now().UTC()
+	insertMetric(t, db, match.ID, now, 95e12)
+	insertMetric(t, db, slowInSubnet.ID, now, 50e12)
+	insertMetric(t, db, fastOutside.ID, now, 95e12)
+
+	threshold := 90.0
+	filter := &stores.MinerFilter{
+		NumericRanges: []stores.NumericRange{
+			{Field: stores.NumericFilterFieldHashrateTHs, Min: &threshold},
+		},
+		IPCIDRs: []netip.Prefix{netip.MustParsePrefix("192.168.1.0/24")},
+	}
+
+	groups, err := deviceStore.GetMinerModelGroups(ctx, user.OrganizationID, filter)
+	require.NoError(t, err)
+	require.Len(t, groups, 1)
+	assert.Equal(t, int32(1), groups[0].Count, "only the miner satisfying both predicates should count")
+	assertModalInvariant(t, ctx, deviceStore, user.OrganizationID, filter)
 }

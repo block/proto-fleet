@@ -116,7 +116,7 @@ func (q *Queries) GetActiveUnpairedDiscoveredDevices(ctx context.Context, arg Ge
 }
 
 const getDiscoveredDeviceByDeviceIdentifier = `-- name: GetDiscoveredDeviceByDeviceIdentifier :one
-SELECT id, org_id, device_identifier, model, manufacturer, firmware_version, ip_address, port, url_scheme, discovery_metadata, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at, driver_name
+SELECT id, org_id, device_identifier, model, manufacturer, firmware_version, ip_address, port, url_scheme, discovery_metadata, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at, driver_name, ip_address_inet
 FROM discovered_device
 WHERE device_identifier = $1
     AND org_id = $2
@@ -150,12 +150,13 @@ func (q *Queries) GetDiscoveredDeviceByDeviceIdentifier(ctx context.Context, arg
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.DriverName,
+		&i.IpAddressInet,
 	)
 	return i, err
 }
 
 const getDiscoveredDeviceByID = `-- name: GetDiscoveredDeviceByID :one
-SELECT id, org_id, device_identifier, model, manufacturer, firmware_version, ip_address, port, url_scheme, discovery_metadata, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at, driver_name
+SELECT id, org_id, device_identifier, model, manufacturer, firmware_version, ip_address, port, url_scheme, discovery_metadata, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at, driver_name, ip_address_inet
 FROM discovered_device
 WHERE id = $1
     AND org_id = $2
@@ -189,12 +190,13 @@ func (q *Queries) GetDiscoveredDeviceByID(ctx context.Context, arg GetDiscovered
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.DriverName,
+		&i.IpAddressInet,
 	)
 	return i, err
 }
 
 const getDiscoveredDeviceByIPAndPort = `-- name: GetDiscoveredDeviceByIPAndPort :one
-SELECT id, org_id, device_identifier, model, manufacturer, firmware_version, ip_address, port, url_scheme, discovery_metadata, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at, driver_name
+SELECT id, org_id, device_identifier, model, manufacturer, firmware_version, ip_address, port, url_scheme, discovery_metadata, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at, driver_name, ip_address_inet
 FROM discovered_device
 WHERE org_id = $1
     AND ip_address = $2
@@ -230,6 +232,7 @@ func (q *Queries) GetDiscoveredDeviceByIPAndPort(ctx context.Context, arg GetDis
 		&i.UpdatedAt,
 		&i.DeletedAt,
 		&i.DriverName,
+		&i.IpAddressInet,
 	)
 	return i, err
 }

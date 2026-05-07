@@ -5,11 +5,9 @@ import { createPortal } from "react-dom";
 import { type DropdownOption } from "./DropdownFilter";
 import { NESTED_POPOVER_WIDTH, type NestedPopoverPosition } from "./useFilterDropdownPosition";
 import Checkbox from "@/shared/components/Checkbox";
-import Divider from "@/shared/components/Divider";
-
-// Padding (`p-6` = 24px) on the panel; subtract 2× from the inner scroll cap when the
-// outer is height-clipped so the inner area doesn't overflow the panel chrome.
-const PANEL_PADDING_TOTAL = 48;
+// Outer panel uses `pt-2 pb-1` (12px total); subtract from the inner scroll
+// cap when the outer is height-clipped so content doesn't bleed past chrome.
+const PANEL_PADDING_TOTAL = 12;
 
 type CheckboxOptionRowProps = {
   option: DropdownOption;
@@ -20,7 +18,7 @@ type CheckboxOptionRowProps = {
 export const CheckboxOptionRow = ({ option, checked, onToggle }: CheckboxOptionRowProps) => (
   <div
     className={clsx(
-      "flex cursor-pointer items-center rounded-xl p-3 text-left select-none",
+      "flex cursor-pointer items-center rounded-lg px-3 py-2 text-left select-none",
       "transition-[background-color] duration-200 ease-in-out",
       "text-text-primary hover:bg-core-primary-5",
     )}
@@ -61,7 +59,7 @@ const NestedSubmenu = ({
   return createPortal(
     <div
       ref={panelRef}
-      className="popover-content fixed z-50 space-y-4 rounded-3xl bg-surface-elevated-base/85 p-6 shadow-200 backdrop-blur-[7px]"
+      className="popover-content fixed z-50 space-y-0 rounded-2xl bg-surface-elevated-base/85 px-2 pt-2 pb-1 shadow-200 backdrop-blur-[7px]"
       style={{
         top: `${position?.top ?? 0}px`,
         left: `${position?.left ?? 0}px`,
@@ -83,11 +81,13 @@ const NestedSubmenu = ({
           position?.maxHeight !== undefined ? { maxHeight: `${position.maxHeight - PANEL_PADDING_TOTAL}px` } : undefined
         }
       >
-        {options.map((option, index) => (
-          <div key={option.id}>
-            <CheckboxOptionRow option={option} checked={selectedValues.includes(option.id)} onToggle={onToggleItem} />
-            {index < options.length - 1 ? <Divider className="px-0" /> : null}
-          </div>
+        {options.map((option) => (
+          <CheckboxOptionRow
+            key={option.id}
+            option={option}
+            checked={selectedValues.includes(option.id)}
+            onToggle={onToggleItem}
+          />
         ))}
       </div>
     </div>,

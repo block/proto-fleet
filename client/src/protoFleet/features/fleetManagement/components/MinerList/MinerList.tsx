@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import clsx from "clsx";
@@ -25,6 +25,7 @@ import {
   type MinerListFilter,
   MinerListFilterSchema,
   type MinerStateSnapshot,
+  NumericRangeFilterSchema,
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
@@ -35,14 +36,20 @@ import { AuthenticateMiners } from "@/protoFleet/features/auth/components/Authen
 import PoolSelectionPageWrapper from "@/protoFleet/features/fleetManagement/components/ActionBar/SettingsWidget/PoolSelectionPage";
 import MinerListActionBar from "@/protoFleet/features/fleetManagement/components/MinerList/MinerListActionBar";
 import ViewsBar from "@/protoFleet/features/fleetManagement/components/ViewsBar";
-import ViewActions from "@/protoFleet/features/fleetManagement/components/ViewsBar/ViewActions";
 import type { BatchOperation } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
 
 import {
+  encodeActiveFiltersToURL,
   encodeFilterToURL,
+  FILTER_URL_PARAM_KEYS,
   parseUrlToActiveFilters,
 } from "@/protoFleet/features/fleetManagement/utils/filterUrlParams";
 import { encodeSortToURL, parseSortFromURL } from "@/protoFleet/features/fleetManagement/utils/sortUrlParams";
+import {
+  protoFieldForTelemetryKey,
+  TELEMETRY_FILTER_BOUNDS,
+  type TelemetryFilterKey,
+} from "@/protoFleet/features/fleetManagement/utils/telemetryFilterBounds";
 import { VIEW_URL_PARAM } from "@/protoFleet/features/fleetManagement/views/savedViews";
 import useMinerViews from "@/protoFleet/features/fleetManagement/views/useMinerViews";
 import { useUsername } from "@/protoFleet/store";
@@ -52,10 +59,17 @@ import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import List from "@/shared/components/List";
 import { type SelectionMode } from "@/shared/components/List";
-import { ActiveFilters, type DropdownFilterItem, FilterItem } from "@/shared/components/List/Filters/types";
+import {
+  ActiveFilters,
+  type DropdownFilterItem,
+  FilterItem,
+  type NumericRangeFilterItem,
+  type TextareaListFilterItem,
+} from "@/shared/components/List/Filters/types";
 import { type SortDirection } from "@/shared/components/List/types";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { Breakpoint } from "@/shared/constants/breakpoints";
+import { normalizeCidrLine, validateCidrLine } from "@/shared/utils/filterValidation";
 
 type FleetCredentials = { username: string; password: string };
 
@@ -216,7 +230,6 @@ type ScopedMinerListBodyProps = {
   minerIds?: string[];
   onRefetchMiners?: () => void;
   onWorkerNameUpdated?: (deviceIdentifier: string, workerName: string) => void;
-  chipsRowTrailing?: ReactNode;
 };
 
 const ScopedMinerListBody = ({
@@ -255,7 +268,6 @@ const ScopedMinerListBody = ({
   minerIds: minerIdsProp,
   onRefetchMiners,
   onWorkerNameUpdated,
-  chipsRowTrailing,
 }: ScopedMinerListBodyProps) => {
   const [selectedMinerIds, setSelectedMinerIds] = useState<string[]>([]);
   const [selectionMode, setSelectionMode] = useState<SelectionMode>("none");
@@ -299,7 +311,6 @@ const ScopedMinerListBody = ({
         itemSelectable
         pageScopedSelection
         hasActiveFilters={hasActiveFilters}
-        chipsRowTrailing={chipsRowTrailing}
         headerControls={
           <div className="flex items-center gap-2">
             <Button
@@ -586,17 +597,7 @@ const MinerList = ({
   );
   const activeCols = useMemo(() => buildActiveMinerColumns(columnPreferences), [columnPreferences]);
 
-  const hasActiveFilters = useMemo(() => {
-    return (
-      searchParams.has("status") ||
-      searchParams.has("issues") ||
-      searchParams.has("model") ||
-      searchParams.has("group") ||
-      searchParams.has("rack") ||
-      searchParams.has("firmware") ||
-      searchParams.has("zone")
-    );
-  }, [searchParams]);
+  const hasActiveFilters = useMemo(() => FILTER_URL_PARAM_KEYS.some((key) => searchParams.has(key)), [searchParams]);
   useEffect(() => {
     if (!sortColumnFromUrl || activeCols.includes(sortColumnFromUrl)) {
       return;
@@ -612,26 +613,13 @@ const MinerList = ({
   }, [activeCols, navigate, searchParams, sortColumnFromUrl]);
 
   const selectionFilterKey = useMemo(() => {
-    const params = new URLSearchParams();
-    ["status", "issues", "model", "firmware", "zone"].forEach((key) => {
-      searchParams
-        .getAll(key)
-        .sort()
-        .forEach((value) => params.append(key, value));
-    });
-    return params.toString();
-  }, [searchParams]);
+    return encodeActiveFiltersToURL(initialActiveFilters).toString();
+  }, [initialActiveFilters]);
   const selectionScopeKey = useMemo(() => `${selectionFilterKey}:${currentPage}`, [currentPage, selectionFilterKey]);
 
   const handleClearFilters = useCallback(() => {
     const nextSearchParams = new URLSearchParams(searchParams);
-    nextSearchParams.delete("status");
-    nextSearchParams.delete("issues");
-    nextSearchParams.delete("model");
-    nextSearchParams.delete("group");
-    nextSearchParams.delete("rack");
-    nextSearchParams.delete("firmware");
-    nextSearchParams.delete("zone");
+    FILTER_URL_PARAM_KEYS.forEach((key) => nextSearchParams.delete(key));
     nextSearchParams.delete(VIEW_URL_PARAM);
 
     const nextSearch = nextSearchParams.toString();
@@ -745,6 +733,34 @@ const MinerList = ({
     [availableZones],
   );
 
+  const buildNumericFilter = useCallback(
+    (key: TelemetryFilterKey, value: string): NumericRangeFilterItem => ({
+      type: "numericRange",
+      title: TELEMETRY_FILTER_BOUNDS[key].label,
+      value,
+      bounds: TELEMETRY_FILTER_BOUNDS[key],
+    }),
+    [],
+  );
+
+  const hashrateFilter = useMemo(() => buildNumericFilter("hashrate", "hashrate"), [buildNumericFilter]);
+  const efficiencyFilter = useMemo(() => buildNumericFilter("efficiency", "efficiency"), [buildNumericFilter]);
+  const powerFilter = useMemo(() => buildNumericFilter("power", "power"), [buildNumericFilter]);
+  const temperatureFilter = useMemo(() => buildNumericFilter("temperature", "temperature"), [buildNumericFilter]);
+
+  const subnetFilter: TextareaListFilterItem = useMemo(
+    () => ({
+      type: "textareaList",
+      title: "Subnet",
+      value: "subnet",
+      validate: validateCidrLine,
+      normalize: normalizeCidrLine,
+      placeholder: "255.255.255.0/24\n255.255.0.0/16",
+      noun: "subnet",
+    }),
+    [],
+  );
+
   const filters = useMemo<FilterItem[]>(
     () => [
       {
@@ -752,10 +768,38 @@ const MinerList = ({
         title: "Add Filter",
         value: "filters-meta",
         prefixIcon: <Plus width="w-3" />,
-        children: [statusFilter, modelFilter, zonesFilter, racksFilter, groupsFilter, firmwareFilter, issuesFilter],
+        // Logical groupings — health / identity / collections / telemetry / network.
+        // showGroupDivider on the last row of each group draws a thick divider after it.
+        children: [
+          statusFilter,
+          { ...issuesFilter, showGroupDivider: true },
+          modelFilter,
+          { ...firmwareFilter, showGroupDivider: true },
+          racksFilter,
+          zonesFilter,
+          { ...groupsFilter, showGroupDivider: true },
+          hashrateFilter,
+          temperatureFilter,
+          efficiencyFilter,
+          { ...powerFilter, showGroupDivider: true },
+          subnetFilter,
+        ],
       },
     ],
-    [statusFilter, issuesFilter, modelFilter, groupsFilter, racksFilter, firmwareFilter, zonesFilter],
+    [
+      statusFilter,
+      issuesFilter,
+      modelFilter,
+      groupsFilter,
+      racksFilter,
+      firmwareFilter,
+      zonesFilter,
+      hashrateFilter,
+      efficiencyFilter,
+      powerFilter,
+      temperatureFilter,
+      subnetFilter,
+    ],
   );
 
   const handleServerFilter = useCallback(
@@ -834,6 +878,27 @@ const MinerList = ({
       const zoneFilters = filters.dropdownFilters.zone;
       if (zoneFilters && zoneFilters.length > 0) {
         minerFilter.zones.push(...zoneFilters);
+      }
+
+      // Numeric range filters — emit one entry per active bound, in display
+      // units. minInclusive/maxInclusive default to true (matches the UI).
+      Object.entries(filters.numericFilters).forEach(([key, value]) => {
+        if (value.min === undefined && value.max === undefined) return;
+        const protoField = protoFieldForTelemetryKey[key as TelemetryFilterKey];
+        if (protoField === undefined) return;
+        const range = create(NumericRangeFilterSchema, {
+          field: protoField,
+          minInclusive: true,
+          maxInclusive: true,
+        });
+        if (value.min !== undefined) range.min = value.min;
+        if (value.max !== undefined) range.max = value.max;
+        minerFilter.numericRanges.push(range);
+      });
+
+      const subnetCidrs = filters.textareaListFilters.subnet;
+      if (subnetCidrs && subnetCidrs.length > 0) {
+        minerFilter.ipCidrs.push(...subnetCidrs);
       }
 
       // Navigate with URL params instead of calling parent callback.
@@ -967,9 +1032,6 @@ const MinerList = ({
           minerIds={minerIds}
           onRefetchMiners={onRefetchMiners}
           onWorkerNameUpdated={onWorkerNameUpdated}
-          chipsRowTrailing={
-            <ViewActions viewsState={viewsState} availableGroups={availableGroups} availableRacks={availableRacks} />
-          }
         />
       )}
 

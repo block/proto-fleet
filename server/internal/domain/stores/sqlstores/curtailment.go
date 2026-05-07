@@ -46,7 +46,7 @@ func NewSQLCurtailmentStore(conn *sql.DB) *SQLCurtailmentStore {
 }
 
 func (s *SQLCurtailmentStore) GetOrgConfig(ctx context.Context, orgID int64) (*models.OrgConfig, error) {
-	// Ensure-then-read: the 000040 migration only seeded existing orgs at
+	// Ensure-then-read: the 000042 migration only seeded existing orgs at
 	// deploy time, so any tenant created later has no row.
 	// EnsureCurtailmentOrgConfig is an INSERT ... ON CONFLICT DO NOTHING
 	// with a fallback SELECT in a single CTE — the conflict path stays
@@ -316,14 +316,6 @@ func nullFloat64ToPtr(n sql.NullFloat64) *float64 {
 		return nil
 	}
 	v := n.Float64
-	return &v
-}
-
-func nullInt64ToPtr(n sql.NullInt64) *int64 {
-	if !n.Valid {
-		return nil
-	}
-	v := n.Int64
 	return &v
 }
 

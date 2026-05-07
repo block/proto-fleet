@@ -4,8 +4,8 @@ import { minimalMargin } from "@/shared/components/Popover/constants";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 
 export const POPOVER_VIEWPORT_PADDING = minimalMargin * 2;
-// Width budget for the nested side-anchored popover. Matches Popover's `popoverSizes.normal` (w-80 = 320px).
-export const NESTED_POPOVER_WIDTH = 320;
+// Width budget for the nested side-anchored popover. Matches Popover's `popoverSizes.small` (w-60 = 240px).
+export const NESTED_POPOVER_WIDTH = 240;
 export const NESTED_GAP = 2;
 // Soft floor used before the panel content is measured — keeps the first-pass position
 // reasonable while we wait for ResizeObserver to report the natural height.

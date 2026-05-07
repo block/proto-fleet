@@ -300,6 +300,10 @@ export const StatefulExample = () => {
       status: statusOptions.map((o) => o.id),
       type: typeOptions.map((o) => o.id),
     },
+
+    numericFilters: {},
+
+    textareaListFilters: {},
   });
 
   const filters: FilterItem[] = [

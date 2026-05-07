@@ -468,6 +468,8 @@ describe("List", () => {
         dropdownFilters: {
           valueRange: ["low"],
         },
+        numericFilters: {},
+        textareaListFilters: {},
       },
     };
 
@@ -481,6 +483,8 @@ describe("List", () => {
         initialActiveFilters={{
           buttonFilters: [defaultListFilter],
           dropdownFilters: {},
+          numericFilters: {},
+          textareaListFilters: {},
         }}
       />,
     );

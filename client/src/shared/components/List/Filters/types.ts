@@ -1,18 +1,28 @@
 import { type ReactNode } from "react";
 
 import { StatusCircleStatus } from "@/shared/components/StatusCircle/constants";
+import type { NumericRangeBounds, NumericRangeValue } from "@/shared/utils/filterValidation";
+
+export type { NumericRangeBounds, NumericRangeValue };
 
 export type DropdownOption = {
   id: string;
   label: string;
 };
 
-export type FilterType = "button" | "dropdown" | "nestedFilterDropdown";
+export type FilterType = "button" | "dropdown" | "nestedFilterDropdown" | "numericRange" | "textareaList";
 
 export type BaseFilterItem = {
   title: string;
   value: string;
   type: FilterType;
+  /**
+   * When true and rendered as a child of a `nestedFilterDropdown`, draws a
+   * thick divider AFTER this row so callers can visually group adjacent
+   * rows (e.g. "status / issues" then a divider, then "model / firmware").
+   * Mirrors `BulkAction.showGroupDivider`.
+   */
+  showGroupDivider?: boolean;
 };
 
 export type ButtonFilterItem = BaseFilterItem & {
@@ -33,22 +43,98 @@ export type DropdownFilterItem = BaseFilterItem & {
 };
 
 /**
+ * Numeric range filter — renders min/max inputs as a nested submenu row.
+ * `value` and `unit` are display units (TH/s, kW, J/TH, °C) so a filter input
+ * matches what the telemetry APIs emit. Inclusivity is hard-wired to inclusive
+ * for v1; the server already exposes flags if we ever want exclusive.
+ */
+export type NumericRangeFilterItem = BaseFilterItem & {
+  type: "numericRange";
+  bounds: NumericRangeBounds;
+};
+
+/**
+ * Free-form line-list filter (textarea, one entry per line). Domain-agnostic:
+ * callers pass per-line `validate` / optional `normalize` so the same shape
+ * powers Subnet today and could power MAC allowlists or worker-name filters
+ * later. `maxLines` defaults to 1024 to match the server cap.
+ */
+export type TextareaListFilterItem = BaseFilterItem & {
+  type: "textareaList";
+  validate: (line: string) => string | null;
+  normalize?: (line: string) => string;
+  placeholder?: string;
+  maxLines?: number;
+  /**
+   * Singular noun used in the chip summary when there are multiple entries
+   * (e.g. "subnet" → "3 subnets"). Falls back to "entries" when omitted.
+   */
+  noun?: string;
+};
+
+/**
  * A meta-dropdown trigger whose popover lists each child as a row that opens its
  * own nested submenu. Children share the same active-state keys as any standalone
  * `dropdown` items with matching `value`, so the two surfaces stay in sync.
  */
 export type NestedFilterDropdownItem = BaseFilterItem & {
   type: "nestedFilterDropdown";
-  children: DropdownFilterItem[];
+  children: NestedFilterChildItem[];
   // Optional icon rendered to the left of the trigger label. When provided the
   // trigger drops its chevron suffix so the icon-led action style ("+ Add Filter")
   // reads as a button instead of a select.
   prefixIcon?: ReactNode;
 };
 
+export type NestedFilterChildItem = DropdownFilterItem | NumericRangeFilterItem | TextareaListFilterItem;
+
 export type FilterItem = ButtonFilterItem | DropdownFilterItem | NestedFilterDropdownItem;
+
+/**
+ * Submenu category passed into `NestedDropdownFilter`. Discriminated by
+ * `kind` so each row can render its own submenu component (checkbox list,
+ * min/max inputs, textarea). Keeps the props strongly typed without a render
+ * prop.
+ */
+export type FilterCategoryBase = {
+  key: string;
+  label: string;
+  /** Mirrors `BaseFilterItem.showGroupDivider` — divider drawn after this row. */
+  showGroupDivider?: boolean;
+};
+
+export type CheckboxFilterCategory = FilterCategoryBase & {
+  kind: "checkbox";
+  options: DropdownOption[];
+  selectedValues: string[];
+};
+
+export type NumericRangeFilterCategory = FilterCategoryBase & {
+  kind: "numericRange";
+  bounds: NumericRangeBounds;
+  value: NumericRangeValue;
+};
+
+export type TextareaListFilterCategory = FilterCategoryBase & {
+  kind: "textareaList";
+  validate: (line: string) => string | null;
+  normalize?: (line: string) => string;
+  placeholder?: string;
+  maxLines?: number;
+  value: string[];
+};
+
+export type FilterCategory = CheckboxFilterCategory | NumericRangeFilterCategory | TextareaListFilterCategory;
 
 export type ActiveFilters = {
   buttonFilters: string[];
   dropdownFilters: Record<string, string[]>;
+  // Numeric range filters (hashrate, efficiency, power, temperature). Empty
+  // value (`{}`) means "no filter for this key" — the entry should be removed
+  // from the record entirely so iteration over Object.entries skips it.
+  numericFilters: Record<string, NumericRangeValue>;
+  // Free-form line-list filters (Subnet today, future MAC/serial/worker lists).
+  // Stored values are the post-normalize, post-dedup set the server should
+  // receive — never the raw textarea contents.
+  textareaListFilters: Record<string, string[]>;
 };

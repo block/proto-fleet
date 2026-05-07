@@ -6,7 +6,7 @@ import { variants } from "@/shared/components/Button";
 import { groupVariants } from "@/shared/components/ButtonGroup";
 import Checkbox from "@/shared/components/Checkbox";
 import Divider from "@/shared/components/Divider";
-import Popover from "@/shared/components/Popover";
+import Popover, { popoverSizes } from "@/shared/components/Popover";
 import { type Position } from "@/shared/constants";
 
 type DropdownFilterPopoverProps = {
@@ -45,6 +45,8 @@ const DropdownFilterPopover = ({
       testId="dropdown-filter-popover"
       position={position}
       offset={8}
+      size={popoverSizes.small}
+      className="!space-y-0 !rounded-2xl px-2 pt-2 pb-1"
       buttonGroupVariant={groupVariants.fill}
       buttons={
         withButtons
@@ -72,7 +74,7 @@ const DropdownFilterPopover = ({
           <>
             <div
               className={clsx(
-                "flex cursor-pointer items-center rounded-xl p-3 text-left select-none",
+                "flex cursor-pointer items-center rounded-lg px-3 py-2 text-left select-none",
                 "transition-[background-color] duration-200 ease-in-out",
                 "text-text-primary hover:bg-core-primary-5",
               )}
@@ -81,27 +83,25 @@ const DropdownFilterPopover = ({
               <div className="grow text-emphasis-300">Select all</div>
               <Checkbox className="shrink-0" checked={allSelected} partiallyChecked={partiallySelected} />
             </div>
-            <Divider className="px-0" />
+            <Divider className="my-1 px-0" dividerStyle="thick" />
           </>
         ) : null}
 
-        {options.map((item, index) => (
-          <div key={item.id}>
-            <div
-              className={clsx(
-                "flex cursor-pointer items-center rounded-xl p-3 text-left select-none",
-                "transition-[background-color] duration-200 ease-in-out",
-                "text-text-primary hover:bg-core-primary-5",
-              )}
-              onClick={() => handleToggleItem(item.id)}
-              data-testid={`filter-option-${item.id}`}
-            >
-              <div className="min-w-0 grow truncate text-emphasis-300" title={item.label}>
-                {item.label}
-              </div>
-              <Checkbox className="shrink-0" checked={displaySelectedItems.includes(item.id)} />
+        {options.map((item) => (
+          <div
+            key={item.id}
+            className={clsx(
+              "flex cursor-pointer items-center rounded-lg px-3 py-2 text-left select-none",
+              "transition-[background-color] duration-200 ease-in-out",
+              "text-text-primary hover:bg-core-primary-5",
+            )}
+            onClick={() => handleToggleItem(item.id)}
+            data-testid={`filter-option-${item.id}`}
+          >
+            <div className="min-w-0 grow truncate text-emphasis-300" title={item.label}>
+              {item.label}
             </div>
-            {index < options.length - 1 ? <Divider className="px-0" /> : null}
+            <Checkbox className="shrink-0" checked={displaySelectedItems.includes(item.id)} />
           </div>
         ))}
       </div>

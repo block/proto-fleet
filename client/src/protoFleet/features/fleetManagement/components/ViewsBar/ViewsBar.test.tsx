@@ -190,10 +190,33 @@ describe("ViewsBar", () => {
     expect(readPersistedRecord()).toBeNull();
   });
 
-  it("does not render dirty-state actions in the strip — those live in <ViewActions>", () => {
+  it("exposes Reset (only) in the kebab on a dirty active built-in view", async () => {
+    const user = userEvent.setup();
     renderViewsBar(["/?view=needs-attention&status=needs-attention&model=S21"]);
-    expect(screen.queryByTestId("views-bar-modified-actions")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("views-bar-reset-button")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("views-bar-update-button")).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId("views-bar-tab-needs-attention-kebab"));
+
+    expect(screen.getByTestId("views-bar-tab-needs-attention-reset-action")).toBeInTheDocument();
+    expect(screen.queryByTestId("views-bar-tab-needs-attention-update-action")).not.toBeInTheDocument();
+  });
+
+  it("hides the kebab entirely on a clean built-in view", () => {
+    renderViewsBar(["/?view=needs-attention&status=needs-attention"]);
+    expect(screen.queryByTestId("views-bar-tab-needs-attention-kebab")).not.toBeInTheDocument();
+  });
+
+  it("clicking Reset in the kebab snaps the URL back to the saved view", async () => {
+    const user = userEvent.setup();
+    const { currentSearch } = renderViewsBar(["/?view=needs-attention&status=needs-attention&model=S21"]);
+
+    await user.click(screen.getByTestId("views-bar-tab-needs-attention-kebab"));
+    await user.click(screen.getByTestId("views-bar-tab-needs-attention-reset-action"));
+
+    await waitFor(() => {
+      const params = new URLSearchParams(currentSearch());
+      expect(params.get("model")).toBeNull();
+      expect(params.get("status")).toBe("needs-attention");
+      expect(params.get(VIEW_URL_PARAM)).toBe("needs-attention");
+    });
   });
 });
