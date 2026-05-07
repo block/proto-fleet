@@ -10,8 +10,12 @@ ALTER TABLE activity_log
     ADD COLUMN site_id BIGINT NULL,
     ADD CONSTRAINT fk_activity_log_site FOREIGN KEY (site_id)
         REFERENCES site(id) ON DELETE SET NULL;
+-- Index shape mirrors the existing `idx_activity_log_org_created`
+-- (org, created_at DESC, id DESC) so site-filtered keyset pagination
+-- uses the same `(created_at, id) <` cursor in `activity.sql` without
+-- an extra sort.
 CREATE INDEX idx_activity_log_org_site_created
-    ON activity_log(organization_id, site_id, created_at DESC);
+    ON activity_log(organization_id, site_id, created_at DESC, id DESC);
 
 -- command_on_device_log: regular table, FK with ON DELETE SET NULL.
 ALTER TABLE command_on_device_log
@@ -34,12 +38,19 @@ CREATE INDEX idx_errors_org_site_last_seen
 -- intentionally avoid cross-table FKs to keep chunk maintenance cheap).
 ALTER TABLE miner_state_snapshots
     ADD COLUMN site_id BIGINT NULL;
+-- Partial index: pre-multi-site rows are NULL, and new rows stay NULL
+-- until writers start stamping `site_id`. A full index on a hypertable
+-- carries every chunk's NULL rows for no benefit; the partial index
+-- covers only the queryable subset. Add a separate `IS NULL` index
+-- only if the "(no site)" bucket needs efficient querying later.
 CREATE INDEX idx_miner_state_snapshots_org_site_time
-    ON miner_state_snapshots(org_id, site_id, time DESC);
+    ON miner_state_snapshots(org_id, site_id, time DESC)
+    WHERE site_id IS NOT NULL;
 
 -- device_metrics: TimescaleDB hypertable. No FK, same reasoning as
--- miner_state_snapshots.
+-- miner_state_snapshots; partial index for the same reason.
 ALTER TABLE device_metrics
     ADD COLUMN site_id BIGINT NULL;
 CREATE INDEX idx_device_metrics_site_time
-    ON device_metrics(site_id, time DESC);
+    ON device_metrics(site_id, time DESC)
+    WHERE site_id IS NOT NULL;

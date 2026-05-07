@@ -33,14 +33,15 @@ WHERE dsr.zone IS NOT NULL
 -- Point each rack at the building matching its zone.
 UPDATE device_set_rack dsr
 SET building_id = b.id
-FROM device_set ds, building b
+FROM device_set ds
+JOIN building b
+    ON b.org_id = ds.org_id
+   AND b.site_id IS NULL
+   AND b.deleted_at IS NULL
 WHERE dsr.device_set_id = ds.id
   AND dsr.zone IS NOT NULL
   AND dsr.zone <> ''
-  AND b.org_id = ds.org_id
-  AND b.name = dsr.zone
-  AND b.site_id IS NULL
-  AND b.deleted_at IS NULL;
+  AND b.name = dsr.zone;
 
 CREATE INDEX idx_device_set_rack_building
     ON device_set_rack(building_id);
