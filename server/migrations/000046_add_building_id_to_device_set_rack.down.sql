@@ -1,5 +1,3 @@
--- Auto-promoted building rows are intentionally preserved so re-applying
--- up does not double-insert (the up migration's NOT EXISTS guard).
 DROP INDEX IF EXISTS idx_device_set_rack_building;
 ALTER TABLE device_set_rack
     DROP CONSTRAINT IF EXISTS fk_device_set_rack_building,
