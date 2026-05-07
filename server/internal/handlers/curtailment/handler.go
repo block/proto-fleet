@@ -52,7 +52,7 @@ func (h *Handler) PreviewCurtailmentPlan(ctx context.Context, req *connect.Reque
 		return nil, fleeterror.NewUnauthenticatedError("authentication required")
 	}
 
-	previewReq, err := translatePreviewRequest(req.Msg, info.OrganizationID)
+	previewReq, err := toPreviewRequest(req.Msg, info.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -66,10 +66,10 @@ func (h *Handler) PreviewCurtailmentPlan(ctx context.Context, req *connect.Reque
 	// successful empty plan — return InvalidArgument with the structured
 	// numbers so the UI can render the diagnostic detail directly.
 	if plan.InsufficientLoadDetail != nil {
-		return nil, translateInsufficientLoad(plan.InsufficientLoadDetail)
+		return nil, toInsufficientLoadError(plan.InsufficientLoadDetail)
 	}
 
-	return connect.NewResponse(translatePreviewResponse(plan, req.Msg)), nil
+	return connect.NewResponse(toPreviewResponse(plan, req.Msg)), nil
 }
 
 func (h *Handler) StartCurtailment(ctx context.Context, req *connect.Request[pb.StartCurtailmentRequest]) (*connect.Response[pb.StartCurtailmentResponse], error) {

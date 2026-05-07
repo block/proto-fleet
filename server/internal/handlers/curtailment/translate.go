@@ -12,9 +12,9 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
-// translatePreviewRequest converts the proto request to a service PreviewRequest.
-func translatePreviewRequest(msg *pb.PreviewCurtailmentPlanRequest, orgID int64) (curtailment.PreviewRequest, error) {
-	scope, err := translateScope(msg)
+// toPreviewRequest converts the proto request to a service PreviewRequest.
+func toPreviewRequest(msg *pb.PreviewCurtailmentPlanRequest, orgID int64) (curtailment.PreviewRequest, error) {
+	scope, err := toScope(msg)
 	if err != nil {
 		return curtailment.PreviewRequest{}, err
 	}
@@ -40,7 +40,7 @@ func translatePreviewRequest(msg *pb.PreviewCurtailmentPlanRequest, orgID int64)
 	out := curtailment.PreviewRequest{
 		OrgID:                   orgID,
 		Scope:                   scope,
-		Mode:                    "FIXED_KW",
+		Mode:                    models.ModeFixedKw,
 		Strategy:                strategyName(msg.GetStrategy()),
 		Level:                   levelName(msg.GetLevel()),
 		Priority:                priorityName(msg.GetPriority()),
@@ -63,7 +63,7 @@ func translatePreviewRequest(msg *pb.PreviewCurtailmentPlanRequest, orgID int64)
 	return out, nil
 }
 
-func translateScope(msg *pb.PreviewCurtailmentPlanRequest) (curtailment.Scope, error) {
+func toScope(msg *pb.PreviewCurtailmentPlanRequest) (curtailment.Scope, error) {
 	switch s := msg.GetScope().(type) {
 	case *pb.PreviewCurtailmentPlanRequest_WholeOrg:
 		return curtailment.Scope{Type: models.ScopeTypeWholeOrg}, nil
@@ -84,8 +84,8 @@ func translateScope(msg *pb.PreviewCurtailmentPlanRequest) (curtailment.Scope, e
 	}
 }
 
-// translatePreviewResponse maps the service Plan to the proto response.
-func translatePreviewResponse(plan *curtailment.Plan, req *pb.PreviewCurtailmentPlanRequest) *pb.PreviewCurtailmentPlanResponse {
+// toPreviewResponse maps the service Plan to the proto response.
+func toPreviewResponse(plan *curtailment.Plan, req *pb.PreviewCurtailmentPlanRequest) *pb.PreviewCurtailmentPlanResponse {
 	// strategyReasonLabel forces a future strategy enum addition to touch
 	// this surface (compile-time exhaustive switch).
 	reasonSelected := strategyReasonLabel(req.GetStrategy())
@@ -120,11 +120,13 @@ func translatePreviewResponse(plan *curtailment.Plan, req *pb.PreviewCurtailment
 	return resp
 }
 
-func strategyName(s pb.CurtailmentStrategy) string {
+func strategyName(s pb.CurtailmentStrategy) models.Strategy {
 	if s == pb.CurtailmentStrategy_CURTAILMENT_STRATEGY_UNSPECIFIED {
-		return "LEAST_EFFICIENT_FIRST"
+		return models.StrategyLeastEfficientFirst
 	}
-	return s.String()
+	// Other proto values pass through verbatim so the service validator
+	// can reject them with a clear message naming the offending value.
+	return models.Strategy(s.String())
 }
 
 // strategyReasonLabel renders reason_selected for the response. Exhaustive
@@ -145,36 +147,38 @@ func strategyReasonLabel(s pb.CurtailmentStrategy) string {
 	}
 }
 
-func levelName(l pb.CurtailmentLevel) string {
-	// Service matches on "FULL" directly; UNSPECIFIED defaults to FULL,
+func levelName(l pb.CurtailmentLevel) models.Level {
+	// Service matches on LevelFull directly; UNSPECIFIED defaults to FULL,
 	// other values pass through their proto names so the service rejects them.
 	if l == pb.CurtailmentLevel_CURTAILMENT_LEVEL_UNSPECIFIED ||
 		l == pb.CurtailmentLevel_CURTAILMENT_LEVEL_FULL {
-		return "FULL"
+		return models.LevelFull
 	}
-	return l.String()
+	return models.Level(l.String())
 }
 
-func priorityName(p pb.CurtailmentPriority) string {
+func priorityName(p pb.CurtailmentPriority) models.Priority {
 	switch p {
 	case pb.CurtailmentPriority_CURTAILMENT_PRIORITY_EMERGENCY:
-		return "EMERGENCY"
+		return models.PriorityEmergency
 	case pb.CurtailmentPriority_CURTAILMENT_PRIORITY_UNSPECIFIED,
 		pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL:
-		return "NORMAL"
+		return models.PriorityNormal
 	case pb.CurtailmentPriority_CURTAILMENT_PRIORITY_HIGH:
 		// Pass through so the service validator can reject it.
-		return "HIGH"
+		return models.PriorityHigh
 	default:
-		return p.String()
+		// Future enum addition surfaces as a clear validator rejection
+		// rather than silent NORMAL coercion.
+		return models.Priority(p.String())
 	}
 }
 
-// translateInsufficientLoad returns InvalidArgument with the kW numbers
+// toInsufficientLoadError returns InvalidArgument with the kW numbers
 // and every non-zero exclusion counter (zero counters omitted; counter
 // order fixed at source for byte-stable output until Connect error-detail
 // propagation lands).
-func translateInsufficientLoad(detail *modes.InsufficientLoadDetail) error {
+func toInsufficientLoadError(detail *modes.InsufficientLoadDetail) error {
 	if detail == nil {
 		return fleeterror.NewInvalidArgumentError("insufficient curtailable load")
 	}

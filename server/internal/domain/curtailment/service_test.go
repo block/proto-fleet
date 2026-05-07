@@ -155,10 +155,10 @@ func validRequest(orgID int64) PreviewRequest {
 	return PreviewRequest{
 		OrgID:    orgID,
 		Scope:    Scope{Type: models.ScopeTypeWholeOrg},
-		Mode:     "FIXED_KW",
-		Strategy: "LEAST_EFFICIENT_FIRST",
-		Level:    "FULL",
-		Priority: "NORMAL",
+		Mode:     models.ModeFixedKw,
+		Strategy: models.StrategyLeastEfficientFirst,
+		Level:    models.LevelFull,
+		Priority: models.PriorityNormal,
 		TargetKW: 5,
 	}
 }
@@ -196,7 +196,7 @@ func TestService_Preview_RejectsUnsupportedMode(t *testing.T) {
 	t.Parallel()
 	svc := NewService(newFakeStore())
 	req := validRequest(1)
-	req.Mode = "FIXED_COUNT"
+	req.Mode = models.Mode("FIXED_COUNT")
 	_, err := svc.Preview(t.Context(), req)
 	require.Error(t, err)
 }
@@ -205,7 +205,7 @@ func TestService_Preview_RejectsUnsupportedStrategy(t *testing.T) {
 	t.Parallel()
 	svc := NewService(newFakeStore())
 	req := validRequest(1)
-	req.Strategy = "MOST_POWER_FIRST"
+	req.Strategy = models.Strategy("MOST_POWER_FIRST")
 	_, err := svc.Preview(t.Context(), req)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "MOST_POWER_FIRST")
@@ -216,7 +216,7 @@ func TestService_Preview_RejectsUnsupportedPriority(t *testing.T) {
 	t.Parallel()
 	svc := NewService(newFakeStore())
 	req := validRequest(1)
-	req.Priority = "HIGH"
+	req.Priority = models.PriorityHigh
 	_, err := svc.Preview(t.Context(), req)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "HIGH", "rejected priority must appear in error")
@@ -404,7 +404,7 @@ func TestService_Preview_EmergencyPriority_BypassesCooldown(t *testing.T) {
 
 	svc := NewService(store)
 	req := validRequest(orgID)
-	req.Priority = "EMERGENCY"
+	req.Priority = models.PriorityEmergency
 	req.TargetKW = 1
 	plan, err := svc.Preview(t.Context(), req)
 	require.NoError(t, err)

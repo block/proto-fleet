@@ -10,11 +10,11 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/modes"
 )
 
-// TestTranslateInsufficientLoad_IncludesAllNonZeroCounters pins the
+// TestToInsufficientLoadError_IncludesAllNonZeroCounters pins the
 // contract that every non-zero exclusion counter on InsufficientLoadDetail
 // surfaces in the formatted error message. Without this, callers can't
 // distinguish phantom-load vs dead-monitor vs below-threshold rejection.
-func TestTranslateInsufficientLoad_IncludesAllNonZeroCounters(t *testing.T) {
+func TestToInsufficientLoadError_IncludesAllNonZeroCounters(t *testing.T) {
 	t.Parallel()
 
 	detail := &modes.InsufficientLoadDetail{
@@ -29,7 +29,7 @@ func TestTranslateInsufficientLoad_IncludesAllNonZeroCounters(t *testing.T) {
 		// Other counters intentionally zero.
 	}
 
-	err := translateInsufficientLoad(detail)
+	err := toInsufficientLoadError(detail)
 	require.Error(t, err)
 	msg := err.Error()
 
@@ -60,11 +60,11 @@ func TestTranslateInsufficientLoad_IncludesAllNonZeroCounters(t *testing.T) {
 	}
 }
 
-// TestTranslateInsufficientLoad_FormatIsByteStable pins the format-string
+// TestToInsufficientLoadError_FormatIsByteStable pins the format-string
 // contract: identical input must produce byte-identical output. Future
 // callers (UI, automations) may regex-parse the message until Connect
 // error details land; an unstable format would break them silently.
-func TestTranslateInsufficientLoad_FormatIsByteStable(t *testing.T) {
+func TestToInsufficientLoadError_FormatIsByteStable(t *testing.T) {
 	t.Parallel()
 
 	detail := &modes.InsufficientLoadDetail{
@@ -77,10 +77,10 @@ func TestTranslateInsufficientLoad_FormatIsByteStable(t *testing.T) {
 		ExcludedBelowThreshold: 2,
 	}
 
-	first := translateInsufficientLoad(detail).Error()
+	first := toInsufficientLoadError(detail).Error()
 	for range 10 {
-		repeat := translateInsufficientLoad(detail).Error()
-		require.Equal(t, first, repeat, "translateInsufficientLoad must be byte-stable across calls")
+		repeat := toInsufficientLoadError(detail).Error()
+		require.Equal(t, first, repeat, "toInsufficientLoadError must be byte-stable across calls")
 	}
 
 	// Counter order in the message is fixed at source: below_candidate_min_power_w
@@ -95,11 +95,11 @@ func TestTranslateInsufficientLoad_FormatIsByteStable(t *testing.T) {
 	assert.Less(t, offlineIdx, maintIdx, "unreachable_residual_load must precede maintenance")
 }
 
-// TestTranslateInsufficientLoad_AllZeroCountersOmitsExcludedSection pins
+// TestToInsufficientLoadError_AllZeroCountersOmitsExcludedSection pins
 // the "no excluded section" branch: when every counter is zero, the
 // message reports the kW numbers only and omits the trailing "excluded:"
 // clause entirely.
-func TestTranslateInsufficientLoad_AllZeroCountersOmitsExcludedSection(t *testing.T) {
+func TestToInsufficientLoadError_AllZeroCountersOmitsExcludedSection(t *testing.T) {
 	t.Parallel()
 
 	detail := &modes.InsufficientLoadDetail{
@@ -109,7 +109,7 @@ func TestTranslateInsufficientLoad_AllZeroCountersOmitsExcludedSection(t *testin
 		CandidateMinPowerW: 1500,
 	}
 
-	err := translateInsufficientLoad(detail)
+	err := toInsufficientLoadError(detail)
 	require.Error(t, err)
 	msg := err.Error()
 
@@ -117,12 +117,12 @@ func TestTranslateInsufficientLoad_AllZeroCountersOmitsExcludedSection(t *testin
 	assert.NotContains(t, msg, "excluded:", "no excluded section when every counter is zero")
 }
 
-// TestTranslateInsufficientLoad_NilDetailFallsBackToBareMessage pins the
+// TestToInsufficientLoadError_NilDetailFallsBackToBareMessage pins the
 // safety branch: a nil detail returns a sensible bare message rather
 // than panicking on a pointer dereference.
-func TestTranslateInsufficientLoad_NilDetailFallsBackToBareMessage(t *testing.T) {
+func TestToInsufficientLoadError_NilDetailFallsBackToBareMessage(t *testing.T) {
 	t.Parallel()
-	err := translateInsufficientLoad(nil)
+	err := toInsufficientLoadError(nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "insufficient curtailable load")
 }

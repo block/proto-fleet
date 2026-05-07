@@ -84,16 +84,54 @@ const (
 	SourceActorScheduler SourceActorType = "scheduler"
 )
 
+// Mode is the curtailment dispatch mode. v1 implements FIXED_KW only;
+// further values are reserved at the proto layer and rejected by the
+// service validator until they are designed.
+type Mode string
+
+const (
+	ModeFixedKw Mode = "FIXED_KW"
+)
+
+// Strategy is the candidate-ranking strategy. v1 implements
+// LEAST_EFFICIENT_FIRST only; reserved values are rejected by the validator.
+type Strategy string
+
+const (
+	StrategyLeastEfficientFirst Strategy = "LEAST_EFFICIENT_FIRST"
+)
+
+// Level is the curtailment depth. v1 dispatches FULL only at the Fleet event
+// layer; EFFICIENCY is plumbed at the SDK/plugin layer for future Fleet use.
+type Level string
+
+const (
+	LevelFull Level = "FULL"
+)
+
+// Priority controls cooldown / hysteresis bypass. EMERGENCY skips
+// post_event_cooldown_sec and (on Stop) min_curtailed_duration_sec.
+// HIGH is proto-reserved but undesigned in v1; the service validator
+// rejects it explicitly so callers see a clear InvalidArgument instead
+// of silent NORMAL coercion.
+type Priority string
+
+const (
+	PriorityNormal    Priority = "NORMAL"
+	PriorityEmergency Priority = "EMERGENCY"
+	PriorityHigh      Priority = "HIGH"
+)
+
 // Event represents a `curtailment_event` row; JSON columns are raw bytes.
 type Event struct {
 	ID                      int64
 	EventUUID               uuid.UUID
 	OrgID                   int64
 	State                   EventState
-	Mode                    string
-	Strategy                string
-	Level                   string
-	Priority                string
+	Mode                    Mode
+	Strategy                Strategy
+	Level                   Level
+	Priority                Priority
 	LoopType                LoopType
 	ScopeType               ScopeType
 	ScopeJSON               []byte
@@ -127,10 +165,10 @@ type InsertEventParams struct {
 	EventUUID               uuid.UUID
 	OrgID                   int64
 	State                   EventState
-	Mode                    string
-	Strategy                string
-	Level                   string
-	Priority                string
+	Mode                    Mode
+	Strategy                Strategy
+	Level                   Level
+	Priority                Priority
 	LoopType                LoopType
 	ScopeType               ScopeType
 	ScopeJSON               []byte

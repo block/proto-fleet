@@ -22,10 +22,10 @@ type Scope struct {
 type PreviewRequest struct {
 	OrgID                      int64
 	Scope                      Scope
-	Mode                       string // v1: must be "FIXED_KW"
-	Strategy                   string // v1: default LEAST_EFFICIENT_FIRST
-	Level                      string // v1: must be "FULL"
-	Priority                   string // "NORMAL" or "EMERGENCY" (cooldown bypass)
+	Mode                       models.Mode     // v1: must be ModeFixedKw
+	Strategy                   models.Strategy // v1: default StrategyLeastEfficientFirst
+	Level                      models.Level    // v1: must be LevelFull
+	Priority                   models.Priority // PriorityNormal or PriorityEmergency (cooldown bypass)
 	TargetKW                   float64
 	ToleranceKW                float64
 	IncludeMaintenance         bool
@@ -72,7 +72,7 @@ func (s *Service) Preview(ctx context.Context, req PreviewRequest) (*Plan, error
 	}
 
 	// Cooldown bypass: EMERGENCY priority skips post_event_cooldown_sec.
-	bypassCooldown := req.Priority == "EMERGENCY"
+	bypassCooldown := req.Priority == models.PriorityEmergency
 
 	activeDevices, err := s.store.ListActiveCurtailedDevices(ctx, req.OrgID)
 	if err != nil {
@@ -125,19 +125,19 @@ func (s *Service) Preview(ctx context.Context, req PreviewRequest) (*Plan, error
 }
 
 func validatePreviewRequest(req PreviewRequest) error {
-	if req.Mode != "" && req.Mode != "FIXED_KW" {
+	if req.Mode != "" && req.Mode != models.ModeFixedKw {
 		return fleeterror.NewInvalidArgumentErrorf("mode %q is not supported in v1; only FIXED_KW", req.Mode)
 	}
-	if req.Level != "" && req.Level != "FULL" {
+	if req.Level != "" && req.Level != models.LevelFull {
 		return fleeterror.NewInvalidArgumentErrorf("level %q is not supported in v1; only FULL", req.Level)
 	}
-	if req.Strategy != "" && req.Strategy != "LEAST_EFFICIENT_FIRST" {
+	if req.Strategy != "" && req.Strategy != models.StrategyLeastEfficientFirst {
 		return fleeterror.NewInvalidArgumentErrorf(
 			"strategy %q is not supported in v1; only LEAST_EFFICIENT_FIRST", req.Strategy,
 		)
 	}
 	// HIGH is proto-reserved but undesigned in v1; reject explicitly.
-	if req.Priority != "" && req.Priority != "NORMAL" && req.Priority != "EMERGENCY" {
+	if req.Priority != "" && req.Priority != models.PriorityNormal && req.Priority != models.PriorityEmergency {
 		return fleeterror.NewInvalidArgumentErrorf(
 			"priority %q is not supported in v1; use NORMAL or EMERGENCY", req.Priority,
 		)
