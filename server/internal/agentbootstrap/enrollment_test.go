@@ -3,6 +3,7 @@ package agentbootstrap
 import (
 	"bytes"
 	"crypto/ed25519"
+	"encoding/hex"
 	"errors"
 	"testing"
 	"time"
@@ -167,6 +168,61 @@ func TestCompleteEnrollment_HappyPath(t *testing.T) {
 	assert.Equal(t, "session-after-complete", result.State.SessionToken)
 	assert.WithinDuration(t, expiresAt, result.State.SessionExpiresAt, time.Second)
 	assert.True(t, fake.signatureVerified)
+}
+
+func TestCompleteEnrollment_RejectsNonHTTPSWhenAllowInsecureUnset(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: a tampered or stale state file where ServerURL was downgraded
+	// to plaintext http for a non-loopback host. CompleteEnrollment must
+	// refuse before sending the api_key on the wire.
+	state := &State{
+		ServerURL:              "http://fleet.example.com",
+		AllowInsecureTransport: false,
+		IdentityPrivateKeyHex:  hex.EncodeToString(make([]byte, ed25519.PrivateKeySize)),
+		IdentityPublicKeyHex:   hex.EncodeToString(make([]byte, ed25519.PublicKeySize)),
+	}
+
+	// Act
+	err := CompleteEnrollment(t.Context(), state, "fleet_some_key")
+
+	// Assert
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "https")
+	assert.Empty(t, state.APIKey, "rejected URL must not leave api_key written into state")
+}
+
+func TestCompleteEnrollment_PreservesStateOnHandshakeFailure(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: valid URL, but the supplied api_key does not match what the
+	// fake expects, so BeginAuthHandshake will return Unauthenticated.
+	pub, priv, err := GenerateKeypair()
+	require.NoError(t, err)
+	fake := &fakeAgentGateway{
+		expectedAPIKey: "right-key",
+		identityPub:    pub,
+		challenge:      bytes.Repeat([]byte{0x10}, 32),
+	}
+	srv := newFakeServer(t, fake)
+	state := &State{
+		ServerURL:              srv.URL,
+		AllowInsecureTransport: true,
+		IdentityPrivateKeyHex:  hex.EncodeToString(priv),
+		IdentityPublicKeyHex:   hex.EncodeToString(pub),
+	}
+
+	// Act
+	err = CompleteEnrollment(t.Context(), state, "wrong-key")
+
+	// Assert
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrAPIKeyRejected)
+	// The rejected key must NOT be persisted into state; on retry, the
+	// caller can supply a different api_key without first re-zeroing it.
+	assert.Empty(t, state.APIKey)
+	assert.Empty(t, state.SessionToken)
+	assert.True(t, state.SessionExpiresAt.IsZero())
 }
 
 func TestCompleteEnrollment_RejectsEmptyInputs(t *testing.T) {

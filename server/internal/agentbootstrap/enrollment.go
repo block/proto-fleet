@@ -95,8 +95,11 @@ func Register(ctx context.Context, p RegisterParams) (*RegisterResult, error) {
 
 // CompleteEnrollment runs the handshake against the api_key the operator
 // pasted (after they verified the fingerprint in the operator UI),
-// populating state.SessionToken in place. Caller persists state after
-// success.
+// populating state.APIKey, state.SessionToken, and state.SessionExpiresAt
+// in place on success. State is left untouched on failure: a tampered or
+// stale state file's ServerURL is re-validated against the same
+// https-or-loopback policy Register applies, and the supplied apiKey is
+// only written back when the handshake actually completes.
 func CompleteEnrollment(ctx context.Context, state *State, apiKey string) error {
 	if state == nil {
 		return errors.New("state is required")
@@ -104,8 +107,22 @@ func CompleteEnrollment(ctx context.Context, state *State, apiKey string) error 
 	if apiKey == "" {
 		return errors.New("apiKey is required")
 	}
-	state.APIKey = apiKey
-	return RunHandshake(ctx, NewGatewayClient(state.ServerURL), state)
+	if state.ServerURL == "" {
+		return errors.New("state has no server_url")
+	}
+	if err := ValidateServerURL(state.ServerURL, state.AllowInsecureTransport); err != nil {
+		return err
+	}
+
+	attempt := *state
+	attempt.APIKey = apiKey
+	if err := RunHandshake(ctx, NewGatewayClient(state.ServerURL), &attempt); err != nil {
+		return err
+	}
+	state.APIKey = attempt.APIKey
+	state.SessionToken = attempt.SessionToken
+	state.SessionExpiresAt = attempt.SessionExpiresAt
+	return nil
 }
 
 // ValidateServerURL parses raw and rejects:
