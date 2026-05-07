@@ -3,6 +3,7 @@ package curtailment
 import (
 	"cmp"
 	"context"
+	"math"
 	"slices"
 	"testing"
 	"time"
@@ -602,6 +603,72 @@ func TestService_Preview_EmptyDeviceStatusSkipsAsStale(t *testing.T) {
 	require.Len(t, plan.Skipped, 1)
 	assert.Equal(t, "unstatused", plan.Skipped[0].DeviceIdentifier)
 	assert.Equal(t, SkipStaleTelemetry, plan.Skipped[0].Reason)
+}
+
+// TestService_Preview_NonFiniteTelemetrySkipsAsStale pins the safety guard
+// against NaN / +Inf / -Inf telemetry samples. device_metrics.power_w and
+// hash_rate_hs are DOUBLE PRECISION columns, which support IEEE 754 non-
+// finite values. Without the finite-number gate in classifyCandidates,
+// NaN comparisons return false in the dual-signal filter (admitting the
+// miner) and FixedKw's running sum becomes NaN; +Inf satisfies any target.
+// Both produce nonsense plans. The fix routes them to SkipStaleTelemetry
+// — same operational signal as a missing sample.
+func TestService_Preview_NonFiniteTelemetrySkipsAsStale(t *testing.T) {
+	t.Parallel()
+
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+
+	withPower := func(id string, power, hash float64) *models.Candidate {
+		c := miner(id, "ACTIVE", "PAIRED", power, hash)
+		// miner() already populated PowerW/HashRateHS from the args, but
+		// build helpers like miner() can't carry NaN/Inf cleanly because
+		// they take float64 values. Overwrite explicitly.
+		p, h := power, hash
+		c.LatestPowerW = &p
+		c.LatestHashRateHS = &h
+		eff := 40.0
+		c.AvgEfficiencyJH = &eff
+		return c
+	}
+
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		withPower("nan-power", math.NaN(), 1e12),
+		withPower("posinf-power", math.Inf(+1), 1e12),
+		withPower("neginf-power", math.Inf(-1), 1e12),
+		withPower("nan-hash", 5000, math.NaN()),
+		withPower("posinf-hash", 5000, math.Inf(+1)),
+		// One legitimate miner so the request can succeed; pins that
+		// the gate is precise (only non-finite candidates dropped).
+		minerWithEff("ok", 5000, 1e12, 40),
+	}
+
+	svc := NewService(store)
+	req := validRequest(orgID)
+	req.TargetKW = 1
+	plan, err := svc.Preview(t.Context(), req)
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+
+	// Only the legitimate miner is selected; the running sum is finite.
+	require.Len(t, plan.Selected, 1)
+	assert.Equal(t, "ok", plan.Selected[0].DeviceIdentifier)
+	assert.False(t, math.IsNaN(plan.EstimatedReductionKW),
+		"running sum must not be poisoned by NaN telemetry")
+	assert.False(t, math.IsInf(plan.EstimatedReductionKW, 0),
+		"running sum must not be poisoned by Inf telemetry")
+	assert.InDelta(t, 5.0, plan.EstimatedReductionKW, 0.001)
+
+	// All five non-finite candidates show up in Skipped with SkipStaleTelemetry.
+	skippedReasons := map[string]SkipReason{}
+	for _, s := range plan.Skipped {
+		skippedReasons[s.DeviceIdentifier] = s.Reason
+	}
+	for _, id := range []string{"nan-power", "posinf-power", "neginf-power", "nan-hash", "posinf-hash"} {
+		assert.Equal(t, SkipStaleTelemetry, skippedReasons[id],
+			"non-finite telemetry must skip as stale; %s did not", id)
+	}
 }
 
 // TestService_Preview_DeviceListScopeRejectsCrossOrgIdentifiers pins the

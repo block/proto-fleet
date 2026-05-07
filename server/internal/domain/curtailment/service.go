@@ -284,6 +284,19 @@ func classifyCandidates(cands []*models.Candidate, opts classifyOpts) ([]Candida
 			summary.ExcludedStale++
 			continue
 		}
+		// Non-finite telemetry samples (NaN / +Inf / -Inf) would slip
+		// past the downstream dual-signal filter — NaN comparisons
+		// always return false, so a miner with NaN power and a positive
+		// hash signal would be admitted. The mode then accumulates
+		// totalW += PowerW; one NaN poisons the running sum (Insufficient
+		// with NaN kW) and +Inf satisfies any target_kw on the first
+		// iteration ("successful" plan with +Inf realized). Treat
+		// non-finite samples as stale: bad sensor data, no usable signal.
+		if !isFiniteFloat(c.LatestPowerW) || !isFiniteFloat(c.LatestHashRateHS) {
+			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipStaleTelemetry})
+			summary.ExcludedStale++
+			continue
+		}
 		if _, cooled := opts.CooldownDevices[c.DeviceIdentifier]; cooled {
 			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipCooldown})
 			summary.ExcludedCooldown++
@@ -333,4 +346,15 @@ func derefFloat(p *float64) float64 {
 		return 0
 	}
 	return *p
+}
+
+// isFiniteFloat reports whether p is nil or points to a finite IEEE-754
+// value. Non-finite samples (NaN / +Inf / -Inf) are treated as missing,
+// not zero, so callers can route them through the stale-telemetry skip
+// path rather than letting them poison downstream arithmetic.
+func isFiniteFloat(p *float64) bool {
+	if p == nil {
+		return true
+	}
+	return !math.IsNaN(*p) && !math.IsInf(*p, 0)
 }
