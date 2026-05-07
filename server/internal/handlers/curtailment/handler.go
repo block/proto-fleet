@@ -30,6 +30,9 @@ type Handler struct {
 
 var _ curtailmentv1connect.CurtailmentServiceHandler = &Handler{}
 
+// NewHandler returns a curtailment Handler. Pass nil for the stub-only
+// path (Preview returns Unimplemented); pass a populated *Service to wire
+// the real implementation.
 func NewHandler(service *curtailment.Service) *Handler {
 	return &Handler{service: service}
 }
