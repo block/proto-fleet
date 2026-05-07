@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestEnrollCmd_HappyPath_ApiKeyFlag(t *testing.T) {
+func TestEnrollCmd_HappyPath(t *testing.T) {
 	t.Parallel()
 
 	// Arrange
@@ -29,15 +29,14 @@ func TestEnrollCmd_HappyPath_ApiKeyFlag(t *testing.T) {
 	srv := newFakeServer(t, fake)
 	cmd := &EnrollCmd{
 		ServerURL:              srv.URL,
-		Code:                   fake.expectedCode,
 		Name:                   "test-agent",
-		APIKey:                 fake.expectedAPIKey,
 		AllowInsecureTransport: true,
 	}
+	stdin := strings.NewReader(fake.expectedCode + "\n" + fake.expectedAPIKey + "\n")
 	var stdout, stderr bytes.Buffer
 
 	// Act
-	err := cmd.run(&Context{StateDir: dir}, strings.NewReader(""), &stdout, &stderr)
+	err := cmd.run(&Context{StateDir: dir}, stdin, &stdout, &stderr)
 
 	// Assert
 	require.NoError(t, err)
@@ -60,7 +59,9 @@ func TestEnrollCmd_HappyPath_ApiKeyFlag(t *testing.T) {
 func TestEnrollCmd_PersistsStateImmediatelyAfterRegister(t *testing.T) {
 	t.Parallel()
 
-	// Arrange
+	// Arrange: stdin only feeds the enrollment code, then EOFs. The api_key
+	// prompt must fail, but state.yaml must already hold the keys + agent_id
+	// so the operator can recover via `fleet-agent refresh`.
 	dir := t.TempDir()
 	fake := &fakeAgentGateway{
 		expectedCode: "code",
@@ -70,16 +71,15 @@ func TestEnrollCmd_PersistsStateImmediatelyAfterRegister(t *testing.T) {
 	srv := newFakeServer(t, fake)
 	cmd := &EnrollCmd{
 		ServerURL:              srv.URL,
-		Code:                   "code",
 		Name:                   "agent-55",
 		AllowInsecureTransport: true,
 	}
 
 	// Act
-	err := cmd.run(&Context{StateDir: dir}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
+	err := cmd.run(&Context{StateDir: dir}, strings.NewReader("code\n"), &bytes.Buffer{}, &bytes.Buffer{})
 
 	// Assert
-	require.Error(t, err, "stdin returns no input; enroll should fail at the api_key read")
+	require.Error(t, err, "second prompt has no input; enroll should fail at the api_key read")
 	loaded, exists, err := loadState(filepath.Join(dir, "state.yaml"))
 	require.NoError(t, err)
 	require.True(t, exists, "state must persist immediately after Register so a Ctrl-C during paste does not orphan the agent")
@@ -105,14 +105,12 @@ func TestEnrollCmd_PersistsStateBeforeHandshake(t *testing.T) {
 	srv := newFakeServer(t, fake)
 	cmd := &EnrollCmd{
 		ServerURL:              srv.URL,
-		Code:                   "code",
 		Name:                   "agent-99",
-		APIKey:                 pastedAPIKey,
 		AllowInsecureTransport: true,
 	}
 
 	// Act
-	err := cmd.run(&Context{StateDir: dir}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
+	err := cmd.run(&Context{StateDir: dir}, strings.NewReader("code\n"+pastedAPIKey+"\n"), &bytes.Buffer{}, &bytes.Buffer{})
 
 	// Assert
 	require.Error(t, err)
@@ -122,6 +120,28 @@ func TestEnrollCmd_PersistsStateBeforeHandshake(t *testing.T) {
 	assert.Equal(t, int64(99), loaded.AgentID)
 	assert.Equal(t, pastedAPIKey, loaded.APIKey)
 	assert.Empty(t, loaded.SessionToken)
+}
+
+func TestEnrollCmd_RejectsEmptyEnrollmentCode(t *testing.T) {
+	t.Parallel()
+
+	// Arrange
+	dir := t.TempDir()
+	srv := newFakeServer(t, &fakeAgentGateway{})
+	cmd := &EnrollCmd{
+		ServerURL:              srv.URL,
+		Name:                   "agent-empty-code",
+		AllowInsecureTransport: true,
+	}
+
+	// Act
+	err := cmd.run(&Context{StateDir: dir}, strings.NewReader("\n"), &bytes.Buffer{}, &bytes.Buffer{})
+
+	// Assert
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "empty enrollment code")
+	_, exists, _ := loadState(filepath.Join(dir, "state.yaml"))
+	assert.False(t, exists, "state must not be created when the enrollment code is empty")
 }
 
 func TestValidateServerURL(t *testing.T) {

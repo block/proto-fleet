@@ -20,9 +20,7 @@ import (
 
 type EnrollCmd struct {
 	ServerURL              string `required:"" help:"base URL of the fleet server, e.g. https://fleet.example.com"`
-	Code                   string `required:"" help:"one-time enrollment code from the operator UI"`
 	Name                   string `help:"agent name; defaults to os.Hostname() when empty"`
-	APIKey                 string `name:"api-key" env:"FLEET_AGENT_API_KEY" help:"api_key issued by the operator UI; reads from stdin if unset"`
 	Force                  bool   `help:"overwrite an existing populated state file"`
 	AllowInsecureTransport bool   `name:"allow-insecure-transport" help:"permit non-https server URLs for non-loopback hosts; testing only"`
 }
@@ -68,9 +66,18 @@ func (e *EnrollCmd) runLocked(c *Context, stdin io.Reader, stdout, stderr io.Wri
 		name = host
 	}
 
+	secrets := newSecretReader(stdin, stderr)
+	code, err := secrets.read("Paste the one-time enrollment code from the operator UI:\n> ")
+	if err != nil {
+		return fmt.Errorf("read enrollment code: %w", err)
+	}
+	if code == "" {
+		return errors.New("empty enrollment code")
+	}
+
 	client := newGatewayClient(e.ServerURL)
 	resp, err := client.Register(context.Background(), connect.NewRequest(&pb.RegisterRequest{
-		EnrollmentToken:    e.Code,
+		EnrollmentToken:    code,
 		Name:               name,
 		IdentityPubkey:     idPub,
 		MinerSigningPubkey: mPub,
@@ -98,7 +105,8 @@ func (e *EnrollCmd) runLocked(c *Context, stdin io.Reader, stdout, stderr io.Wri
 	}
 
 	// Persist before the api_key prompt so a Ctrl-C cannot orphan the
-	// server-side agent row; recovery is `refresh --api-key=<paste>`.
+	// server-side agent row; the operator can complete the enrollment by
+	// running `fleet-agent refresh` and entering the api_key when prompted.
 	if err := saveState(path, state); err != nil {
 		return err
 	}
@@ -107,16 +115,12 @@ func (e *EnrollCmd) runLocked(c *Context, stdin io.Reader, stdout, stderr io.Wri
 	_, _ = fmt.Fprintf(stderr, "Identity fingerprint: %s\n", localFP)
 	_, _ = fmt.Fprintf(stderr, "Compare this fingerprint against the value shown in the operator UI.\n")
 
-	apiKey := strings.TrimSpace(e.APIKey)
-	if apiKey == "" {
-		_, _ = fmt.Fprintf(stderr, "Once you confirm enrollment, the UI will display an api_key. Paste it here:\n> ")
-		apiKey, err = readAPIKeyMasked(stdin, stderr)
-		if err != nil {
-			return err
-		}
+	apiKey, err := secrets.read("Once you confirm enrollment, the UI will display an api_key. Paste it here:\n> ")
+	if err != nil {
+		return fmt.Errorf("read api_key: %w", err)
 	}
 	if apiKey == "" {
-		return errors.New("empty api key")
+		return errors.New("empty api_key")
 	}
 	state.APIKey = apiKey
 	if err := saveState(path, state); err != nil {
@@ -166,33 +170,45 @@ func isLoopbackHost(host string) bool {
 	return false
 }
 
-// readAPIKeyMasked uses term.ReadPassword when stdin is a TTY so the
-// pasted key does not echo into scrollback / tmux logs / screen
-// recordings. Piped input (scripted enrollment, tests) falls through to
-// scanner, where echo isn't applicable.
-func readAPIKeyMasked(stdin io.Reader, stderr io.Writer) (string, error) {
-	if f, ok := stdin.(*os.File); ok {
-		fd := int(f.Fd())
-		if term.IsTerminal(fd) {
-			b, err := term.ReadPassword(fd)
-			_, _ = fmt.Fprintln(stderr)
-			if err != nil {
-				return "", fmt.Errorf("read api key from terminal: %w", err)
-			}
-			return strings.TrimSpace(string(b)), nil
-		}
-	}
-	return readAPIKey(stdin)
+// secretReader serializes one or more secret prompts off a single stdin.
+// On a TTY the prompt is printed and term.ReadPassword reads without echo.
+// For piped/scripted input, a shared bufio.Scanner reads one line per
+// prompt, so callers can feed multiple secrets via one stdin stream
+// (e.g. `printf '%s\n%s\n' "$CODE" "$KEY" | fleet-agent enroll ...`).
+type secretReader struct {
+	stdin   io.Reader
+	stderr  io.Writer
+	scanner *bufio.Scanner
+	tty     *os.File
 }
 
-func readAPIKey(r io.Reader) (string, error) {
-	s := bufio.NewScanner(r)
-	s.Buffer(make([]byte, 0, 1024), 1024*1024)
-	if !s.Scan() {
-		if err := s.Err(); err != nil {
+func newSecretReader(stdin io.Reader, stderr io.Writer) *secretReader {
+	sr := &secretReader{stdin: stdin, stderr: stderr}
+	if f, ok := stdin.(*os.File); ok && term.IsTerminal(int(f.Fd())) {
+		sr.tty = f
+	}
+	return sr
+}
+
+func (sr *secretReader) read(prompt string) (string, error) {
+	_, _ = fmt.Fprint(sr.stderr, prompt)
+	if sr.tty != nil {
+		b, err := term.ReadPassword(int(sr.tty.Fd()))
+		_, _ = fmt.Fprintln(sr.stderr)
+		if err != nil {
+			return "", fmt.Errorf("read from terminal: %w", err)
+		}
+		return strings.TrimSpace(string(b)), nil
+	}
+	if sr.scanner == nil {
+		sr.scanner = bufio.NewScanner(sr.stdin)
+		sr.scanner.Buffer(make([]byte, 0, 1024), 1024*1024)
+	}
+	if !sr.scanner.Scan() {
+		if err := sr.scanner.Err(); err != nil {
 			return "", fmt.Errorf("scan stdin: %w", err)
 		}
 		return "", errors.New("no input on stdin")
 	}
-	return strings.TrimSpace(s.Text()), nil
+	return strings.TrimSpace(sr.scanner.Text()), nil
 }

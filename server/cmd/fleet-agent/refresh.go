@@ -6,25 +6,22 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 	"time"
 )
 
-type RefreshCmd struct {
-	APIKey string `name:"api-key" env:"FLEET_AGENT_API_KEY" help:"api_key to use for the handshake; required when state has no api_key (e.g. recovering from an interrupted enroll), otherwise overrides the stored value"`
-}
+type RefreshCmd struct{}
 
 func (r *RefreshCmd) Run(c *Context) error {
-	return r.run(c, os.Stdout)
+	return r.run(c, os.Stdin, os.Stdout, os.Stderr)
 }
 
-func (r *RefreshCmd) run(c *Context, w io.Writer) error {
+func (r *RefreshCmd) run(c *Context, stdin io.Reader, stdout, stderr io.Writer) error {
 	return withStateLock(c.StateDir, func() error {
-		return r.runLocked(c, w)
+		return r.runLocked(c, stdin, stdout, stderr)
 	})
 }
 
-func (r *RefreshCmd) runLocked(c *Context, w io.Writer) error {
+func (r *RefreshCmd) runLocked(c *Context, stdin io.Reader, stdout, stderr io.Writer) error {
 	path := statePath(c.StateDir)
 	st, exists, err := loadState(path)
 	if err != nil {
@@ -40,37 +37,33 @@ func (r *RefreshCmd) runLocked(c *Context, w io.Writer) error {
 		return err
 	}
 
-	storedKey := st.APIKey
-	overrideKey := strings.TrimSpace(r.APIKey)
-	overrideUsed := overrideKey != ""
-
-	attemptedKey := storedKey
-	if overrideUsed {
-		attemptedKey = overrideKey
+	if st.APIKey == "" {
+		secrets := newSecretReader(stdin, stderr)
+		apiKey, err := secrets.read("Paste the api_key issued for this agent:\n> ")
+		if err != nil {
+			return fmt.Errorf("read api_key: %w", err)
+		}
+		if apiKey == "" {
+			return errors.New("empty api_key; re-enroll the agent")
+		}
+		st.APIKey = apiKey
+		// Persist before the handshake so a transient handshake error
+		// does not force the operator to re-paste the key on retry.
+		if err := saveState(path, st); err != nil {
+			return err
+		}
 	}
-	if attemptedKey == "" {
-		return errors.New("state has no api_key; pass --api-key=<value> or re-enroll the agent")
-	}
-	st.APIKey = attemptedKey
 
 	if err := runHandshake(context.Background(), newGatewayClient(st.ServerURL), st); err != nil {
-		// Unauthenticated is ambiguous (revocation, identity mismatch,
-		// expired challenge, bad signature). Preserve local state on
-		// every failure; restore in-memory api_key so a future defensive
-		// saveState cannot persist a rejected override.
-		st.APIKey = storedKey
-		if overrideUsed && overrideKey != storedKey && errors.Is(err, errAPIKeyRejected) {
-			return fmt.Errorf("api_key override rejected; stored credentials preserved, retry without --api-key: %w", err)
-		}
 		return err
 	}
 	if err := saveState(path, st); err != nil {
 		return err
 	}
 	if !st.SessionExpiresAt.IsZero() {
-		_, _ = fmt.Fprintf(w, "refreshed session_expires_at=%s\n", st.SessionExpiresAt.Format(time.RFC3339))
+		_, _ = fmt.Fprintf(stdout, "refreshed session_expires_at=%s\n", st.SessionExpiresAt.Format(time.RFC3339))
 	} else {
-		_, _ = fmt.Fprintln(w, "refreshed (server returned no expiry)")
+		_, _ = fmt.Fprintln(stdout, "refreshed (server returned no expiry)")
 	}
 	return nil
 }

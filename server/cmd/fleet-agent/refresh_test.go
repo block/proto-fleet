@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"encoding/hex"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -39,10 +40,10 @@ func TestRefreshCmd_HappyPath(t *testing.T) {
 		APIKey:                 fake.expectedAPIKey,
 	}))
 	cmd := RefreshCmd{}
-	var w bytes.Buffer
+	var stdout bytes.Buffer
 
 	// Act
-	err = cmd.run(&Context{StateDir: dir}, &w)
+	err = cmd.run(&Context{StateDir: dir}, strings.NewReader(""), &stdout, &bytes.Buffer{})
 
 	// Assert
 	require.NoError(t, err)
@@ -52,10 +53,11 @@ func TestRefreshCmd_HappyPath(t *testing.T) {
 	assert.Equal(t, fake.expectedAPIKey, loaded.APIKey)
 }
 
-func TestRefreshCmd_CompletesPartialEnrollViaFlag(t *testing.T) {
+func TestRefreshCmd_CompletesPartialEnrollViaPrompt(t *testing.T) {
 	t.Parallel()
 
-	// Arrange
+	// Arrange: state has keys + agent_id but no api_key (simulating an
+	// interrupted enroll). Refresh prompts for the api_key on stdin.
 	dir := t.TempDir()
 	pub, priv, err := generateKeypair()
 	require.NoError(t, err)
@@ -76,10 +78,10 @@ func TestRefreshCmd_CompletesPartialEnrollViaFlag(t *testing.T) {
 		IdentityPrivateKeyHex:  hex.EncodeToString(priv),
 		IdentityPublicKeyHex:   hex.EncodeToString(pub),
 	}))
-	cmd := RefreshCmd{APIKey: pastedAPIKey}
+	cmd := RefreshCmd{}
 
 	// Act
-	err = cmd.run(&Context{StateDir: dir}, &bytes.Buffer{})
+	err = cmd.run(&Context{StateDir: dir}, strings.NewReader(pastedAPIKey+"\n"), &bytes.Buffer{}, &bytes.Buffer{})
 
 	// Assert
 	require.NoError(t, err)
@@ -89,7 +91,7 @@ func TestRefreshCmd_CompletesPartialEnrollViaFlag(t *testing.T) {
 	assert.Equal(t, "session-recovered", loaded.SessionToken)
 }
 
-func TestRefreshCmd_RequiresApiKey(t *testing.T) {
+func TestRefreshCmd_RejectsEmptyApiKeyAtPrompt(t *testing.T) {
 	t.Parallel()
 
 	// Arrange
@@ -104,11 +106,11 @@ func TestRefreshCmd_RequiresApiKey(t *testing.T) {
 	cmd := RefreshCmd{}
 
 	// Act
-	err := cmd.run(&Context{StateDir: dir}, &bytes.Buffer{})
+	err := cmd.run(&Context{StateDir: dir}, strings.NewReader("\n"), &bytes.Buffer{}, &bytes.Buffer{})
 
 	// Assert
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no api_key")
+	assert.Contains(t, err.Error(), "empty api_key")
 }
 
 func TestRefreshCmd_PreservesStateOnAPIKeyRejected(t *testing.T) {
@@ -139,7 +141,7 @@ func TestRefreshCmd_PreservesStateOnAPIKeyRejected(t *testing.T) {
 	cmd := RefreshCmd{}
 
 	// Act
-	err = cmd.run(&Context{StateDir: dir}, &bytes.Buffer{})
+	err = cmd.run(&Context{StateDir: dir}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
 
 	// Assert
 	require.Error(t, err)
@@ -184,7 +186,7 @@ func TestRefreshCmd_PreservesStateOnSignatureFailure(t *testing.T) {
 	cmd := RefreshCmd{}
 
 	// Act
-	err = cmd.run(&Context{StateDir: dir}, &bytes.Buffer{})
+	err = cmd.run(&Context{StateDir: dir}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
 
 	// Assert
 	require.Error(t, err)
@@ -192,46 +194,6 @@ func TestRefreshCmd_PreservesStateOnSignatureFailure(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "good-key", loaded.APIKey, "BeginAuth accepted the api_key; refresh must not wipe it on a CompleteAuth signature failure")
 	assert.Equal(t, "still-valid-session", loaded.SessionToken)
-	assert.WithinDuration(t, staleExpiry, loaded.SessionExpiresAt, time.Second)
-}
-
-func TestRefreshCmd_PreservesStoredKeyWhenOverrideRejected(t *testing.T) {
-	t.Parallel()
-
-	// Arrange
-	dir := t.TempDir()
-	pub, priv, err := generateKeypair()
-	require.NoError(t, err)
-	fake := &fakeAgentGateway{
-		expectedAPIKey: "good-stored-key",
-		identityPub:    pub,
-		challenge:      bytes.Repeat([]byte{0x77}, 32),
-	}
-	srv := newFakeServer(t, fake)
-	staleExpiry := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
-	require.NoError(t, saveState(filepath.Join(dir, "state.yaml"), &State{
-		ServerURL:              srv.URL,
-		AllowInsecureTransport: true,
-		AgentID:                11,
-		IdentityFingerprint:    "9999999999999999",
-		IdentityPrivateKeyHex:  hex.EncodeToString(priv),
-		IdentityPublicKeyHex:   hex.EncodeToString(pub),
-		APIKey:                 "good-stored-key",
-		SessionToken:           "still-valid",
-		SessionExpiresAt:       staleExpiry,
-	}))
-	cmd := RefreshCmd{APIKey: "bad-override-typo"}
-
-	// Act
-	err = cmd.run(&Context{StateDir: dir}, &bytes.Buffer{})
-
-	// Assert
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "override rejected")
-	loaded, _, err := loadState(filepath.Join(dir, "state.yaml"))
-	require.NoError(t, err)
-	assert.Equal(t, "good-stored-key", loaded.APIKey, "stored key must survive a rejected --api-key override")
-	assert.Equal(t, "still-valid", loaded.SessionToken)
 	assert.WithinDuration(t, staleExpiry, loaded.SessionExpiresAt, time.Second)
 }
 
@@ -268,7 +230,7 @@ func TestRefreshCmd_ConcurrentRefreshesSerialize(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			cmd := RefreshCmd{}
-			errs[i] = cmd.run(&Context{StateDir: dir}, &bytes.Buffer{})
+			errs[i] = cmd.run(&Context{StateDir: dir}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
 		}()
 	}
 
@@ -280,8 +242,6 @@ func TestRefreshCmd_ConcurrentRefreshesSerialize(t *testing.T) {
 	for _, e := range errs {
 		require.NoError(t, e)
 	}
-
-	// Assert
 	loaded, _, err := loadState(filepath.Join(dir, "state.yaml"))
 	require.NoError(t, err)
 	assert.Equal(t, "session-X", loaded.SessionToken)
@@ -305,7 +265,7 @@ func TestRefreshCmd_RejectsNonHTTPSWhenAllowInsecureUnset(t *testing.T) {
 	cmd := RefreshCmd{}
 
 	// Act
-	err := cmd.run(&Context{StateDir: dir}, &bytes.Buffer{})
+	err := cmd.run(&Context{StateDir: dir}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
 
 	// Assert
 	require.Error(t, err)
