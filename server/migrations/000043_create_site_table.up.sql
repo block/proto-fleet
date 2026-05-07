@@ -25,7 +25,12 @@ CREATE TABLE site (
     deleted_at        TIMESTAMPTZ NULL,
 
     CONSTRAINT fk_site_organization FOREIGN KEY (org_id)
-        REFERENCES organization(id) ON DELETE RESTRICT
+        REFERENCES organization(id) ON DELETE RESTRICT,
+    -- Composite-key target so child tables (building, device, history)
+    -- can FK on (site_id, org_id) and have Postgres reject any row whose
+    -- site belongs to a different org. Same pattern as
+    -- `device.uq_device_id_org_id` consumed by `agent_device`.
+    CONSTRAINT uq_site_id_org_id UNIQUE (id, org_id)
 );
 
 -- Site name is unique within an org for live rows; soft-deleted rows are

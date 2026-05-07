@@ -36,8 +36,13 @@ CREATE TABLE building (
 
     CONSTRAINT fk_building_organization FOREIGN KEY (org_id)
         REFERENCES organization(id) ON DELETE RESTRICT,
-    CONSTRAINT fk_building_site FOREIGN KEY (site_id)
-        REFERENCES site(id) ON DELETE RESTRICT,
+    -- Composite FK: a building's site MUST belong to the same org. Single-
+    -- column `(site_id) REFERENCES site(id)` would let a service-layer bug
+    -- persist a cross-tenant pointer; the composite target makes the
+    -- invariant a database guarantee. Matches `agent_device(device_id,
+    -- org_id) REFERENCES device(id, org_id)`.
+    CONSTRAINT fk_building_site FOREIGN KEY (site_id, org_id)
+        REFERENCES site(id, org_id) ON DELETE RESTRICT,
 
     CONSTRAINT ck_building_default_rack_dims
         CHECK (
