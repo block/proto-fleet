@@ -66,6 +66,12 @@ func TestRegister_TranslatesErrors(t *testing.T) {
 			wantSub:     "server rejected register",
 		},
 		{
+			name:        "unauthenticated (typoed/expired enrollment code) wraps ErrRegisterRejected",
+			registerErr: connect.NewError(connect.CodeUnauthenticated, errors.New("invalid enrollment code")),
+			wantTarget:  ErrRegisterRejected,
+			wantSub:     "server rejected register",
+		},
+		{
 			name:        "other code wraps with generic register: prefix",
 			registerErr: connect.NewError(connect.CodeInternal, errors.New("boom")),
 			wantSub:     "register:",

@@ -41,7 +41,7 @@ func (f *fakeAgentGateway) Register(_ context.Context, req *connect.Request[pb.R
 		return nil, f.registerError
 	}
 	if f.expectedCode != "" && req.Msg.GetEnrollmentToken() != f.expectedCode {
-		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("invalid enrollment_token"))
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("invalid enrollment code"))
 	}
 	f.identityPub = ed25519.PublicKey(req.Msg.GetIdentityPubkey())
 	f.registered = true

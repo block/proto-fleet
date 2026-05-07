@@ -13,8 +13,8 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/agentgateway/v1"
 )
 
-// Wraps server AlreadyExists / FailedPrecondition. Common causes: name
-// already registered, enrollment code used or expired.
+// Wraps server AlreadyExists / FailedPrecondition / Unauthenticated. Common
+// causes: name already registered, enrollment code typoed / used / expired.
 var ErrRegisterRejected = errors.New("server rejected register")
 
 // Name is required; the library does not default it (CLI defaults to
@@ -64,7 +64,7 @@ func Register(ctx context.Context, p RegisterParams) (*RegisterResult, error) {
 	}))
 	if err != nil {
 		code := connect.CodeOf(err)
-		if code == connect.CodeAlreadyExists || code == connect.CodeFailedPrecondition {
+		if code == connect.CodeAlreadyExists || code == connect.CodeFailedPrecondition || code == connect.CodeUnauthenticated {
 			return nil, fmt.Errorf("%w: %w", ErrRegisterRejected, err)
 		}
 		return nil, fmt.Errorf("register: %w", err)
