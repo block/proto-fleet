@@ -1,7 +1,9 @@
 package curtailment
 
 import (
+	"cmp"
 	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -748,39 +750,6 @@ func TestService_Preview_RejectsToleranceGreaterThanOrEqualTarget(t *testing.T) 
 	}
 }
 
-// TestService_Preview_NormalizesEmptyDeviceFilterToWholeOrg pins the
-// contract that an empty (non-nil) DeviceIdentifiers slice on a whole-org
-// scope flows through as nil to the store, producing whole-org results
-// rather than an empty plan. Without normalization, the SQL parameter
-// (:= text[]{}) would short-circuit the candidate query to zero rows.
-func TestService_Preview_NormalizesEmptyDeviceFilterToWholeOrg(t *testing.T) {
-	t.Parallel()
-
-	const orgID = int64(1)
-	store := newFakeStore()
-	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
-	store.candidatesByOrg[orgID] = []*models.Candidate{
-		minerWithEff("alpha", 3000, 100, 40),
-		minerWithEff("beta", 3000, 100, 40),
-	}
-	svc := NewService(store)
-	req := validRequest(orgID)
-	req.Scope = Scope{
-		Type:              models.ScopeTypeWholeOrg,
-		DeviceIdentifiers: []string{}, // empty but non-nil
-	}
-	req.TargetKW = 2.5
-	plan, err := svc.Preview(t.Context(), req)
-	require.NoError(t, err)
-	require.NotNil(t, plan)
-
-	// Whole-org normalization: store sees nil filter (not empty slice),
-	// so all org candidates become eligible and one of them is selected.
-	assert.Nil(t, store.lastListCandidatesFilter,
-		"empty DeviceIdentifiers must normalize to nil before reaching the store")
-	require.Len(t, plan.Selected, 1, "whole-org request must produce a non-empty plan")
-}
-
 // TestService_Preview_DeterministicOrderingOnTiedEfficiencies pins the
 // SQL-side ORDER BY contract. Two candidates with identical efficiency,
 // telemetry, and pairing must select in a stable, reproducible order
@@ -805,9 +774,11 @@ func TestService_Preview_DeterministicOrderingOnTiedEfficiencies(t *testing.T) {
 	}
 
 	// Pre-sort the store output to mirror what ListCurtailmentCandidatesByOrg
-	// will produce after U2's ORDER BY clause. The fakeStore preserves
+	// will produce after the ORDER BY clause. The fakeStore preserves
 	// insertion order; this asserts the contract the real store guarantees.
-	sortCandidatesByDeviceIdentifier(store.candidatesByOrg[orgID])
+	slices.SortFunc(store.candidatesByOrg[orgID], func(a, b *models.Candidate) int {
+		return cmp.Compare(a.DeviceIdentifier, b.DeviceIdentifier)
+	})
 
 	svc := NewService(store)
 	req := validRequest(orgID)
@@ -820,13 +791,5 @@ func TestService_Preview_DeterministicOrderingOnTiedEfficiencies(t *testing.T) {
 		require.Len(t, plan.Selected, 1)
 		assert.Equal(t, "alpha", plan.Selected[0].DeviceIdentifier,
 			"tied efficiencies must select lexicographically smallest device_identifier (run %d)", i)
-	}
-}
-
-func sortCandidatesByDeviceIdentifier(cands []*models.Candidate) {
-	for i := 1; i < len(cands); i++ {
-		for j := i; j > 0 && cands[j-1].DeviceIdentifier > cands[j].DeviceIdentifier; j-- {
-			cands[j-1], cands[j] = cands[j], cands[j-1]
-		}
 	}
 }

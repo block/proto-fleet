@@ -219,16 +219,19 @@ func formatExclusionCounters(d *modes.InsufficientLoadDetail) string {
 		name string
 		val  int32
 	}
+	// Counter names match the canonical SkipReason vocabulary surfaced on
+	// SkippedCandidate.reason in the success path, so agents that switch
+	// on skip reasons see one set of tokens across both surfaces.
 	all := []counter{
-		{"below_threshold", d.ExcludedBelowThreshold},
-		{"phantom_load", d.ExcludedPhantomLoad},
-		{"dead_monitor", d.ExcludedDeadMonitor},
-		{"offline", d.ExcludedOffline},
-		{"maintenance", d.ExcludedMaintenance},
-		{"pairing", d.ExcludedPairing},
-		{"cooldown", d.ExcludedCooldown},
-		{"active_event", d.ExcludedActiveEvent},
-		{"capability_miss", d.ExcludedCapabilityMiss},
+		{string(curtailment.SkipBelowThreshold), d.ExcludedBelowThreshold},
+		{string(curtailment.SkipPhantomLoadNoHash), d.ExcludedPhantomLoad},
+		{string(curtailment.SkipPowerTelemetryUnreliable), d.ExcludedDeadMonitor},
+		{string(curtailment.SkipUnreachableResidualLoad), d.ExcludedOffline},
+		{string(curtailment.SkipMaintenance), d.ExcludedMaintenance},
+		{string(curtailment.SkipPairing), d.ExcludedPairing},
+		{string(curtailment.SkipCooldown), d.ExcludedCooldown},
+		{string(curtailment.SkipActiveEvent), d.ExcludedActiveEvent},
+		{string(curtailment.SkipCurtailFullUnsupported), d.ExcludedCapabilityMiss},
 	}
 	var parts []string
 	for _, c := range all {

@@ -39,19 +39,22 @@ func TestTranslateInsufficientLoad_IncludesAllNonZeroCounters(t *testing.T) {
 	assert.Contains(t, msg, "tolerance 1.000 kW")
 	assert.Contains(t, msg, "candidate_min_power_w=1500W")
 
-	// Every non-zero counter appears with name=value.
+	// Every non-zero counter appears with name=value, using the canonical
+	// SkipReason vocabulary so agents see one set of tokens across both
+	// SkippedCandidate.reason (success path) and the InsufficientLoad
+	// message (failure path).
 	for _, want := range []string{
-		"below_threshold=2",
-		"phantom_load=3",
-		"dead_monitor=1",
-		"capability_miss=4",
+		"below_candidate_min_power_w=2",
+		"phantom_load_no_hash=3",
+		"power_telemetry_unreliable=1",
+		"curtail_full_unsupported=4",
 	} {
 		assert.Contains(t, msg, want, "non-zero counter %q must appear in message", want)
 	}
 
 	// Zero counters are suppressed.
 	for _, omit := range []string{
-		"offline=", "maintenance=", "pairing=", "cooldown=", "active_event=",
+		"unreachable_residual_load=", "maintenance=", "pairing=", "cooldown=", "active_event=",
 	} {
 		assert.NotContains(t, msg, omit, "zero counter %q must not appear", omit)
 	}
@@ -80,16 +83,16 @@ func TestTranslateInsufficientLoad_FormatIsByteStable(t *testing.T) {
 		require.Equal(t, first, repeat, "translateInsufficientLoad must be byte-stable across calls")
 	}
 
-	// Counter order in the message is fixed at source: below_threshold
-	// always precedes offline, offline always precedes maintenance, etc.
-	belowIdx := strings.Index(first, "below_threshold=")
-	offlineIdx := strings.Index(first, "offline=")
+	// Counter order in the message is fixed at source: below_candidate_min_power_w
+	// always precedes unreachable_residual_load, which always precedes maintenance.
+	belowIdx := strings.Index(first, "below_candidate_min_power_w=")
+	offlineIdx := strings.Index(first, "unreachable_residual_load=")
 	maintIdx := strings.Index(first, "maintenance=")
 	require.NotEqual(t, -1, belowIdx)
 	require.NotEqual(t, -1, offlineIdx)
 	require.NotEqual(t, -1, maintIdx)
-	assert.Less(t, belowIdx, offlineIdx, "below_threshold must precede offline in the formatted output")
-	assert.Less(t, offlineIdx, maintIdx, "offline must precede maintenance in the formatted output")
+	assert.Less(t, belowIdx, offlineIdx, "below_candidate_min_power_w must precede unreachable_residual_load")
+	assert.Less(t, offlineIdx, maintIdx, "unreachable_residual_load must precede maintenance")
 }
 
 // TestTranslateInsufficientLoad_AllZeroCountersOmitsExcludedSection pins

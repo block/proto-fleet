@@ -32,10 +32,11 @@ func NewSQLCurtailmentStore(conn *sql.DB) *SQLCurtailmentStore {
 
 func (s *SQLCurtailmentStore) GetOrgConfig(ctx context.Context, orgID int64) (*models.OrgConfig, error) {
 	// Ensure-then-read: the 000040 migration only seeded existing orgs at
-	// deploy time, so any tenant created later has no row. EnsureCurtailmentOrgConfig
-	// is an INSERT ... ON CONFLICT DO UPDATE upsert that always returns a
-	// row (with table-level DEFAULTs when newly inserted), so callers never
-	// see NotFound for a valid org_id.
+	// deploy time, so any tenant created later has no row.
+	// EnsureCurtailmentOrgConfig is an INSERT ... ON CONFLICT DO NOTHING
+	// with a fallback SELECT in a single CTE — the conflict path stays
+	// read-only so updated_at remains a real config-change signal and
+	// the Preview hot path stays off the WAL.
 	row, err := s.GetQueries(ctx).EnsureCurtailmentOrgConfig(ctx, orgID)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to get curtailment org config: %v", err)

@@ -2,6 +2,7 @@ package curtailment
 
 import (
 	"context"
+	"math"
 
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/modes"
@@ -139,6 +140,15 @@ func validatePreviewRequest(req PreviewRequest) error {
 	}
 	if req.Level != "" && req.Level != "FULL" {
 		return fleeterror.NewInvalidArgumentErrorf("level %q is not supported in v1; only FULL", req.Level)
+	}
+	// NaN / +/-Inf must be rejected explicitly because every comparison with
+	// NaN evaluates false, which would slip past the > 0 / >= 0 guards
+	// below and propagate through the running sum in FixedKw.
+	if math.IsNaN(req.TargetKW) || math.IsInf(req.TargetKW, 0) {
+		return fleeterror.NewInvalidArgumentErrorf("target_kw must be a finite number, got %v", req.TargetKW)
+	}
+	if math.IsNaN(req.ToleranceKW) || math.IsInf(req.ToleranceKW, 0) {
+		return fleeterror.NewInvalidArgumentErrorf("tolerance_kw must be a finite number, got %v", req.ToleranceKW)
 	}
 	if req.TargetKW <= 0 {
 		return fleeterror.NewInvalidArgumentErrorf("target_kw must be > 0, got %v", req.TargetKW)
