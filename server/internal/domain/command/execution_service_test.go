@@ -434,37 +434,40 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 	})
 
 	t.Run("Curtail rejects out-of-range level as FailedPrecondition", func(t *testing.T) {
-		ctrl := gomock.NewController(t)
-		defer ctrl.Finish()
+		// Both bounds of the level range — covers a `>` -> `>=` mutation on
+		// the upper arm and a `<` -> `<=` mutation on the lower arm.
+		for _, level := range []int32{0, 3} {
+			ctrl := gomock.NewController(t)
 
-		mockQueue := mocks.NewMockMessageQueue(ctrl)
-		mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
-		mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
+			mockQueue := mocks.NewMockMessageQueue(ctrl)
+			mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
+			mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
 
-		// Level=0 (Unspecified) is out of range; Curtail must NOT be called.
-		payload, err := json.Marshal(dto.CurtailPayload{Level: 0})
-		require.NoError(t, err)
+			payload, err := json.Marshal(dto.CurtailPayload{Level: level})
+			require.NoError(t, err)
 
-		message := queue.Message{
-			ID:          8,
-			CommandType: commandtype.Curtail,
-			DeviceID:    53,
-			Payload:     payload,
+			message := queue.Message{
+				ID:          8,
+				CommandType: commandtype.Curtail,
+				DeviceID:    53,
+				Payload:     payload,
+			}
+
+			mockMinerGetter.EXPECT().GetMiner(gomock.Any(), int64(53)).Return(mockMiner, nil)
+			// No mockMiner.EXPECT().Curtail(...) — bounds check must short-circuit.
+
+			svc := NewExecutionService(t.Context(), &Config{
+				MaxWorkers:             5,
+				MasterPollingInterval:  10 * time.Millisecond,
+				WorkerExecutionTimeout: 5 * time.Second,
+			}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
+
+			err = svc.executeCommandOnDevice(t.Context(), commandtype.Curtail, message)
+			require.Error(t, err, "level=%d", level)
+			assert.True(t, fleeterror.IsFailedPreconditionError(err), "level=%d: expected FailedPrecondition, got %v", level, err)
+			assert.Contains(t, err.Error(), "invalid curtail level", "level=%d", level)
+			ctrl.Finish()
 		}
-
-		mockMinerGetter.EXPECT().GetMiner(gomock.Any(), int64(53)).Return(mockMiner, nil)
-		// No mockMiner.EXPECT().Curtail(...) — bounds check must short-circuit.
-
-		svc := NewExecutionService(t.Context(), &Config{
-			MaxWorkers:             5,
-			MasterPollingInterval:  10 * time.Millisecond,
-			WorkerExecutionTimeout: 5 * time.Second,
-		}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
-
-		err = svc.executeCommandOnDevice(t.Context(), commandtype.Curtail, message)
-		require.Error(t, err)
-		assert.True(t, fleeterror.IsFailedPreconditionError(err), "expected FailedPrecondition, got %v", err)
-		assert.Contains(t, err.Error(), "invalid curtail level")
 	})
 
 	t.Run("Uncurtail dispatches with empty request", func(t *testing.T) {
