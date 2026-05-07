@@ -1,4 +1,4 @@
-package main
+package agentbootstrap
 
 import (
 	"errors"
@@ -10,6 +10,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// State is the persistent agent state. Callers load it via LoadState, mutate
+// it via Register/CompleteEnrollment/Refresh, and persist it via SaveState.
 type State struct {
 	ServerURL                 string    `yaml:"server_url"`
 	AllowInsecureTransport    bool      `yaml:"allow_insecure_transport,omitempty"`
@@ -24,7 +26,9 @@ type State struct {
 	SessionExpiresAt          time.Time `yaml:"session_expires_at,omitempty"`
 }
 
-func resolveStateDir(override string) (string, error) {
+// ResolveStateDir picks the state directory in this priority order:
+// caller-supplied override, $XDG_STATE_HOME/fleet-agent, ~/.local/state/fleet-agent.
+func ResolveStateDir(override string) (string, error) {
 	if override != "" {
 		return override, nil
 	}
@@ -38,28 +42,13 @@ func resolveStateDir(override string) (string, error) {
 	return filepath.Join(home, ".local", "state", "fleet-agent"), nil
 }
 
-func statePath(dir string) string {
+func StatePath(dir string) string {
 	return filepath.Join(dir, "state.yaml")
 }
 
-// tightenStateDirPerms chmods the state directory to 0700 if any group/other
-// bits are set. os.MkdirAll skips chmod on existing dirs, so a pre-existing
-// 0755 dir would otherwise leave the credential file's enclosing path
-// world-listable.
-func tightenStateDirPerms(dir string) error {
-	info, err := os.Stat(dir)
-	if err != nil {
-		return fmt.Errorf("stat state dir: %w", err)
-	}
-	if info.Mode().Perm()&0o077 != 0 {
-		if err := os.Chmod(dir, 0o700); err != nil { //nolint:gosec // directory must keep owner-execute to be traversable
-			return fmt.Errorf("chmod state dir: %w", err)
-		}
-	}
-	return nil
-}
-
-func loadState(path string) (*State, bool, error) {
+// LoadState reads state.yaml. The bool reports whether the file exists; a
+// missing file is not an error (returns zero-valued *State and false).
+func LoadState(path string) (*State, bool, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -74,11 +63,10 @@ func loadState(path string) (*State, bool, error) {
 	return &s, true, nil
 }
 
-// saveState writes via temp + fsync + rename + dir-fsync so a power-loss
-// or kernel crash cannot leave state.yaml truncated nor roll back a
-// rename whose page-cache update never reached disk. The temp file lives
-// in the same dir so the rename is atomic on the same filesystem.
-func saveState(path string, s *State) error {
+// SaveState writes via temp + fsync + rename + dir-fsync so a power-loss or
+// kernel crash cannot leave state.yaml truncated nor roll back a rename whose
+// page-cache update never reached disk.
+func SaveState(path string, s *State) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create state dir: %w", err)
@@ -116,6 +104,23 @@ func saveState(path string, s *State) error {
 	}
 	if err := syncDir(dir); err != nil {
 		return err
+	}
+	return nil
+}
+
+// tightenStateDirPerms chmods the state directory to 0700 if any group/other
+// bits are set. os.MkdirAll skips chmod on existing dirs, so a pre-existing
+// 0755 dir would otherwise leave the credential file's enclosing path
+// world-listable.
+func tightenStateDirPerms(dir string) error {
+	info, err := os.Stat(dir)
+	if err != nil {
+		return fmt.Errorf("stat state dir: %w", err)
+	}
+	if info.Mode().Perm()&0o077 != 0 {
+		if err := os.Chmod(dir, 0o700); err != nil { //nolint:gosec // directory must keep owner-execute to be traversable
+			return fmt.Errorf("chmod state dir: %w", err)
+		}
 	}
 	return nil
 }

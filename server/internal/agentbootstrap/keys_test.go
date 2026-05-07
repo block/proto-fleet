@@ -1,4 +1,4 @@
-package main
+package agentbootstrap
 
 import (
 	"crypto/ed25519"
@@ -21,7 +21,7 @@ func TestIdentityFingerprint_MatchesServer(t *testing.T) {
 	}
 
 	// Act
-	got := identityFingerprint(pubkey)
+	got := IdentityFingerprint(pubkey)
 
 	// Assert
 	assert.Equal(t, agentenrollment.IdentityFingerprint(pubkey), got)
@@ -35,7 +35,7 @@ func TestIdentityFingerprint_FormatIsLowercaseHex(t *testing.T) {
 	pubkey := []byte("any-bytes-the-function-must-still-format-cleanly")
 
 	// Act
-	got := identityFingerprint(pubkey)
+	got := IdentityFingerprint(pubkey)
 
 	// Assert
 	assert.Len(t, got, 16)
@@ -47,7 +47,7 @@ func TestGenerateKeypair_RoundTripsThroughSignVerify(t *testing.T) {
 	t.Parallel()
 
 	// Act
-	pub, priv, err := generateKeypair()
+	pub, priv, err := GenerateKeypair()
 
 	// Assert
 	require.NoError(t, err)

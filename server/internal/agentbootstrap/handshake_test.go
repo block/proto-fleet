@@ -1,4 +1,4 @@
-package main
+package agentbootstrap
 
 import (
 	"bytes"
@@ -48,7 +48,7 @@ func (f *fakeAgentGateway) Register(_ context.Context, req *connect.Request[pb.R
 	return connect.NewResponse(&pb.RegisterResponse{
 		AgentId:             f.agentID,
 		EnrollmentStatus:    pb.EnrollmentStatus_ENROLLMENT_STATUS_PENDING,
-		IdentityFingerprint: identityFingerprint(req.Msg.GetIdentityPubkey()),
+		IdentityFingerprint: IdentityFingerprint(req.Msg.GetIdentityPubkey()),
 	}), nil
 }
 
@@ -90,7 +90,7 @@ func TestRunHandshake_HappyPath(t *testing.T) {
 	t.Parallel()
 
 	// Arrange
-	pub, priv, err := generateKeypair()
+	pub, priv, err := GenerateKeypair()
 	require.NoError(t, err)
 	expiresAt := time.Now().Add(24 * time.Hour).UTC().Truncate(time.Second)
 	fake := &fakeAgentGateway{
@@ -106,10 +106,10 @@ func TestRunHandshake_HappyPath(t *testing.T) {
 		IdentityPrivateKeyHex: hex.EncodeToString(priv),
 		IdentityPublicKeyHex:  hex.EncodeToString(pub),
 	}
-	client := newGatewayClient(srv.URL)
+	client := NewGatewayClient(srv.URL)
 
 	// Act
-	err = runHandshake(t.Context(), client, state)
+	err = RunHandshake(t.Context(), client, state)
 
 	// Assert
 	require.NoError(t, err)
@@ -122,7 +122,7 @@ func TestRunHandshake_WrongAPIKey(t *testing.T) {
 	t.Parallel()
 
 	// Arrange
-	pub, priv, err := generateKeypair()
+	pub, priv, err := GenerateKeypair()
 	require.NoError(t, err)
 	fake := &fakeAgentGateway{
 		expectedAPIKey: "right-key",
@@ -135,13 +135,14 @@ func TestRunHandshake_WrongAPIKey(t *testing.T) {
 		IdentityPrivateKeyHex: hex.EncodeToString(priv),
 		IdentityPublicKeyHex:  hex.EncodeToString(pub),
 	}
-	client := newGatewayClient(srv.URL)
+	client := NewGatewayClient(srv.URL)
 
 	// Act
-	err = runHandshake(t.Context(), client, state)
+	err = RunHandshake(t.Context(), client, state)
 
 	// Assert
 	require.Error(t, err)
+	require.ErrorIs(t, err, ErrAPIKeyRejected)
 	var connErr *connect.Error
 	require.ErrorAs(t, err, &connErr)
 	assert.Equal(t, connect.CodeUnauthenticated, connErr.Code())
@@ -190,7 +191,7 @@ func TestRunHandshake_MalformedKeys(t *testing.T) {
 			state := &State{IdentityPrivateKeyHex: tc.privHex, IdentityPublicKeyHex: tc.pubHex}
 
 			// Act
-			err := runHandshake(t.Context(), nil, state)
+			err := RunHandshake(t.Context(), nil, state)
 
 			// Assert
 			require.Error(t, err)
@@ -203,9 +204,9 @@ func TestRunHandshake_BadSignature(t *testing.T) {
 	t.Parallel()
 
 	// Arrange
-	pub, _, err := generateKeypair()
+	pub, _, err := GenerateKeypair()
 	require.NoError(t, err)
-	_, otherPriv, err := generateKeypair()
+	_, otherPriv, err := GenerateKeypair()
 	require.NoError(t, err)
 	fake := &fakeAgentGateway{
 		expectedAPIKey: "k",
@@ -218,13 +219,14 @@ func TestRunHandshake_BadSignature(t *testing.T) {
 		IdentityPrivateKeyHex: hex.EncodeToString(otherPriv),
 		IdentityPublicKeyHex:  hex.EncodeToString(pub),
 	}
-	client := newGatewayClient(srv.URL)
+	client := NewGatewayClient(srv.URL)
 
 	// Act
-	err = runHandshake(t.Context(), client, state)
+	err = RunHandshake(t.Context(), client, state)
 
 	// Assert
 	require.Error(t, err)
+	assert.NotErrorIs(t, err, ErrAPIKeyRejected, "signature failure must not surface as api_key rejection")
 	var connErr *connect.Error
 	require.ErrorAs(t, err, &connErr)
 	assert.Equal(t, connect.CodeUnauthenticated, connErr.Code())

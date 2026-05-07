@@ -1,4 +1,4 @@
-package main
+package agentbootstrap
 
 import (
 	"os"
@@ -31,8 +31,8 @@ func TestSaveLoadState_RoundTrip(t *testing.T) {
 	}
 
 	// Act
-	require.NoError(t, saveState(path, original))
-	loaded, exists, err := loadState(path)
+	require.NoError(t, SaveState(path, original))
+	loaded, exists, err := LoadState(path)
 
 	// Assert
 	require.NoError(t, err)
@@ -49,7 +49,7 @@ func TestLoadState_MalformedYAML(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, []byte("not: [valid: yaml"), 0o600))
 
 	// Act
-	st, exists, err := loadState(path)
+	st, exists, err := LoadState(path)
 
 	// Assert
 	require.Error(t, err)
@@ -68,7 +68,7 @@ func TestSaveState_TightensExistingDirPerms(t *testing.T) {
 	path := filepath.Join(stateDir, "state.yaml")
 
 	// Act
-	require.NoError(t, saveState(path, &State{ServerURL: "x"}))
+	require.NoError(t, SaveState(path, &State{ServerURL: "x"}))
 
 	// Assert
 	info, err := os.Stat(stateDir)
@@ -83,7 +83,7 @@ func TestLoadState_MissingFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "missing", "state.yaml")
 
 	// Act
-	st, exists, err := loadState(path)
+	st, exists, err := LoadState(path)
 
 	// Assert
 	require.NoError(t, err)
@@ -99,7 +99,7 @@ func TestSaveState_Has0600Permissions(t *testing.T) {
 	path := filepath.Join(dir, "state.yaml")
 
 	// Act
-	require.NoError(t, saveState(path, &State{ServerURL: "x"}))
+	require.NoError(t, SaveState(path, &State{ServerURL: "x"}))
 
 	// Assert
 	info, err := os.Stat(path)
@@ -113,7 +113,7 @@ func TestResolveStateDir(t *testing.T) {
 		t.Setenv("XDG_STATE_HOME", "/tmp/xdg")
 
 		// Act
-		dir, err := resolveStateDir("/custom/dir")
+		dir, err := ResolveStateDir("/custom/dir")
 
 		// Assert
 		require.NoError(t, err)
@@ -125,7 +125,7 @@ func TestResolveStateDir(t *testing.T) {
 		t.Setenv("XDG_STATE_HOME", "/tmp/xdg")
 
 		// Act
-		dir, err := resolveStateDir("")
+		dir, err := ResolveStateDir("")
 
 		// Assert
 		require.NoError(t, err)
@@ -138,7 +138,7 @@ func TestResolveStateDir(t *testing.T) {
 		t.Setenv("HOME", "/tmp/home")
 
 		// Act
-		dir, err := resolveStateDir("")
+		dir, err := ResolveStateDir("")
 
 		// Assert
 		require.NoError(t, err)

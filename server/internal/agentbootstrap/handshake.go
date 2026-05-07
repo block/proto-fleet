@@ -1,4 +1,4 @@
-package main
+package agentbootstrap
 
 import (
 	"context"
@@ -13,7 +13,16 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/agentgateway/v1/agentgatewayv1connect"
 )
 
-func runHandshake(ctx context.Context, c agentgatewayv1connect.AgentGatewayServiceClient, s *State) error {
+// ErrAPIKeyRejected wraps the connect.CodeUnauthenticated response from
+// BeginAuthHandshake. Callers can errors.Is to distinguish api_key rejection
+// from other handshake failures (challenge expiry, signature mismatch).
+var ErrAPIKeyRejected = errors.New("server rejected api_key")
+
+// RunHandshake runs the BeginAuth/CompleteAuth pair against the supplied
+// client, signing the server's challenge with the state's identity private
+// key. On success it populates state.SessionToken and state.SessionExpiresAt
+// in place; on failure state is unchanged.
+func RunHandshake(ctx context.Context, c agentgatewayv1connect.AgentGatewayServiceClient, s *State) error {
 	priv, err := hex.DecodeString(s.IdentityPrivateKeyHex)
 	if err != nil {
 		return fmt.Errorf("decode identity private key: %w", err)
@@ -35,7 +44,7 @@ func runHandshake(ctx context.Context, c agentgatewayv1connect.AgentGatewayServi
 	}))
 	if err != nil {
 		if connect.CodeOf(err) == connect.CodeUnauthenticated {
-			return fmt.Errorf("server rejected api_key: %w", err)
+			return fmt.Errorf("%w: %w", ErrAPIKeyRejected, err)
 		}
 		return fmt.Errorf("begin handshake: %w", err)
 	}

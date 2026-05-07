@@ -1,6 +1,6 @@
 //go:build linux || darwin
 
-package main
+package agentbootstrap
 
 import (
 	"fmt"
@@ -9,9 +9,9 @@ import (
 	"syscall"
 )
 
-// withStateLock acquires an exclusive flock on <dir>/state.lock for fn,
+// WithStateLock acquires an exclusive flock on <dir>/state.lock for fn,
 // so two concurrent refreshes can't clobber a newer state.yaml.
-func withStateLock(dir string, fn func() error) error {
+func WithStateLock(dir string, fn func() error) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create state dir: %w", err)
 	}

@@ -1,4 +1,4 @@
-package main
+package agentbootstrap
 
 import (
 	"errors"
@@ -26,6 +26,8 @@ func newGatewayHTTPClient() *http.Client {
 	}
 }
 
-func newGatewayClient(serverURL string) agentgatewayv1connect.AgentGatewayServiceClient {
+// NewGatewayClient constructs a connect-rpc client with a fixed-timeout
+// http.Client that refuses every redirect.
+func NewGatewayClient(serverURL string) agentgatewayv1connect.AgentGatewayServiceClient {
 	return agentgatewayv1connect.NewAgentGatewayServiceClient(newGatewayHTTPClient(), serverURL)
 }

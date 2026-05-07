@@ -1,4 +1,4 @@
-package main
+package agentbootstrap
 
 import (
 	"net/http"
