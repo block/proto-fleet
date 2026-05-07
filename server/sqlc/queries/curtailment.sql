@@ -186,6 +186,55 @@ SELECT id, last_tick_at, last_tick_uuid, last_tick_duration_ms, active_event_cou
 FROM curtailment_reconciler_heartbeat
 WHERE id = 1;
 
+-- name: ListNonTerminalCurtailmentEvents :many
+-- System-scope (no org filter): the reconciler is a singleton process that
+-- drives every org's events from one tick. Order by id so per-tick processing
+-- is deterministic across runs.
+SELECT *
+FROM curtailment_event
+WHERE state IN ('pending', 'active', 'restoring')
+ORDER BY id;
+
+-- name: UpdateCurtailmentEventState :exec
+-- COALESCE keeps existing started_at/ended_at when the caller does not pass a
+-- new value; passing NULL via narg leaves the column unchanged. Once a
+-- timestamp is set callers should not blank it again, so the OR-NULL pattern
+-- is acceptable here.
+UPDATE curtailment_event
+SET state      = sqlc.arg('state'),
+    started_at = COALESCE(sqlc.narg('started_at'), started_at),
+    ended_at   = COALESCE(sqlc.narg('ended_at'),   ended_at)
+WHERE id = sqlc.arg('id');
+
+-- name: UpdateCurtailmentTargetState :exec
+-- Reconciler-side update: COALESCE preserves columns the caller does not
+-- supply so a partial update (e.g., only state + last_dispatched_at) does
+-- not clobber observed_power_w / confirmed_at populated by an earlier tick.
+-- retry_count is COALESCE-bumped only when the caller supplies it; the
+-- caller is expected to read-then-write within the tick.
+UPDATE curtailment_target
+SET state              = sqlc.arg('state'),
+    last_dispatched_at = COALESCE(sqlc.narg('last_dispatched_at'), last_dispatched_at),
+    last_batch_uuid    = COALESCE(sqlc.narg('last_batch_uuid'),    last_batch_uuid),
+    observed_power_w   = COALESCE(sqlc.narg('observed_power_w'),   observed_power_w),
+    observed_at        = COALESCE(sqlc.narg('observed_at'),        observed_at),
+    confirmed_at       = COALESCE(sqlc.narg('confirmed_at'),       confirmed_at),
+    retry_count        = COALESCE(sqlc.narg('retry_count'),        retry_count),
+    last_error         = COALESCE(sqlc.narg('last_error'),         last_error)
+WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
+  AND device_identifier    = sqlc.arg('device_identifier');
+
+-- name: UpsertCurtailmentReconcilerHeartbeat :exec
+-- Singleton row: id=1 is enforced by CHECK + PK. Migration seeds id=1, so the
+-- INSERT path only fires if an operator manually deletes the row.
+INSERT INTO curtailment_reconciler_heartbeat (id, last_tick_at, last_tick_uuid, last_tick_duration_ms, active_event_count)
+VALUES (1, sqlc.arg('last_tick_at'), sqlc.arg('last_tick_uuid'), sqlc.narg('last_tick_duration_ms'), sqlc.arg('active_event_count'))
+ON CONFLICT (id) DO UPDATE
+SET last_tick_at          = EXCLUDED.last_tick_at,
+    last_tick_uuid        = EXCLUDED.last_tick_uuid,
+    last_tick_duration_ms = EXCLUDED.last_tick_duration_ms,
+    active_event_count    = EXCLUDED.active_event_count;
+
 -- name: ListCurtailmentCandidatesByOrg :many
 -- Per-device state for the selector. Returns every in-scope device
 -- (unpaired / stale / unstatused included); the service layer applies

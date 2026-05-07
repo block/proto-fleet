@@ -2,15 +2,41 @@ package interfaces
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 )
 
+// UpdateCurtailmentTargetStateParams gathers the optional fields the
+// reconciler may patch when transitioning a target. Nil pointers leave the
+// underlying column unchanged via COALESCE in the SQL update.
+type UpdateCurtailmentTargetStateParams struct {
+	State            models.TargetState
+	LastDispatchedAt *time.Time
+	LastBatchUUID    *string
+	ObservedPowerW   *float64
+	ObservedAt       *time.Time
+	ConfirmedAt      *time.Time
+	RetryCount       *int32
+	LastError        *string
+}
+
+// UpsertCurtailmentHeartbeatParams describes the singleton liveness row the
+// reconciler upserts at the end of every successful tick.
+type UpsertCurtailmentHeartbeatParams struct {
+	LastTickAt         time.Time
+	LastTickUUID       uuid.UUID
+	LastTickDurationMS *int32
+	ActiveEventCount   int32
+}
+
 // CurtailmentStore is the persistence boundary for the curtailment domain.
 // All methods are org-scoped; cross-org reads must explicitly request a
 // broader scope (none exist in v1).
+//
+//nolint:interfacebloat // The curtailment store covers the full event/target/heartbeat lifecycle in one boundary; splitting it would force the service and reconciler to take 3+ store deps for code that is logically a single domain.
 type CurtailmentStore interface {
 	// Org config — read at handler entry to resolve max-duration default,
 	// candidate-power floor, and the cooldown window. Always returns a row
@@ -56,4 +82,25 @@ type CurtailmentStore interface {
 	// — the service layer interprets that as stale telemetry and emits the
 	// skip reason.
 	ListCandidates(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]*models.Candidate, error)
+
+	// ListNonTerminalEvents returns every pending/active/restoring event
+	// across all orgs. The reconciler is a singleton process so this
+	// method is intentionally not org-scoped; callers MUST NOT expose it
+	// through any RPC handler.
+	ListNonTerminalEvents(ctx context.Context) ([]*models.Event, error)
+
+	// UpdateEventState transitions an event row. startedAt/endedAt are
+	// optional — pass nil to leave the column unchanged. Setting either
+	// to a non-nil time when it was already set will overwrite it.
+	UpdateEventState(ctx context.Context, eventID int64, state models.EventState, startedAt *time.Time, endedAt *time.Time) error
+
+	// UpdateTargetState patches a curtailment_target row keyed by
+	// (eventID, deviceIdentifier). All non-state fields are optional;
+	// nil pointers preserve the existing column value via COALESCE.
+	UpdateTargetState(ctx context.Context, eventID int64, deviceIdentifier string, params UpdateCurtailmentTargetStateParams) error
+
+	// UpsertHeartbeat overwrites the singleton row with the latest tick
+	// metadata. Migration seeds the row at id=1; the upsert is robust
+	// against accidental deletion.
+	UpsertHeartbeat(ctx context.Context, params UpsertCurtailmentHeartbeatParams) error
 }

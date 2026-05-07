@@ -285,6 +285,60 @@ func (s *SQLCurtailmentStore) ListCandidates(ctx context.Context, orgID int64, d
 	return out, nil
 }
 
+func (s *SQLCurtailmentStore) ListNonTerminalEvents(ctx context.Context) ([]*models.Event, error) {
+	rows, err := s.GetQueries(ctx).ListNonTerminalCurtailmentEvents(ctx)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to list non-terminal curtailment events: %v", err)
+	}
+	out := make([]*models.Event, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, convertEventRow(row))
+	}
+	return out, nil
+}
+
+func (s *SQLCurtailmentStore) UpdateEventState(ctx context.Context, eventID int64, state models.EventState, startedAt *time.Time, endedAt *time.Time) error {
+	if err := s.GetQueries(ctx).UpdateCurtailmentEventState(ctx, sqlc.UpdateCurtailmentEventStateParams{
+		ID:        eventID,
+		State:     string(state),
+		StartedAt: ptrToNullTime(startedAt),
+		EndedAt:   ptrToNullTime(endedAt),
+	}); err != nil {
+		return fleeterror.NewInternalErrorf("failed to update curtailment event %d state: %v", eventID, err)
+	}
+	return nil
+}
+
+func (s *SQLCurtailmentStore) UpdateTargetState(ctx context.Context, eventID int64, deviceIdentifier string, params interfaces.UpdateCurtailmentTargetStateParams) error {
+	if err := s.GetQueries(ctx).UpdateCurtailmentTargetState(ctx, sqlc.UpdateCurtailmentTargetStateParams{
+		CurtailmentEventID: eventID,
+		DeviceIdentifier:   deviceIdentifier,
+		State:              string(params.State),
+		LastDispatchedAt:   ptrToNullTime(params.LastDispatchedAt),
+		LastBatchUuid:      ptrToNullString(params.LastBatchUUID),
+		ObservedPowerW:     ptrFloat64ToNullString(params.ObservedPowerW),
+		ObservedAt:         ptrToNullTime(params.ObservedAt),
+		ConfirmedAt:        ptrToNullTime(params.ConfirmedAt),
+		RetryCount:         ptrToNullInt32(params.RetryCount),
+		LastError:          ptrToNullString(params.LastError),
+	}); err != nil {
+		return fleeterror.NewInternalErrorf("failed to update curtailment target (%d, %s) state: %v", eventID, deviceIdentifier, err)
+	}
+	return nil
+}
+
+func (s *SQLCurtailmentStore) UpsertHeartbeat(ctx context.Context, params interfaces.UpsertCurtailmentHeartbeatParams) error {
+	if err := s.GetQueries(ctx).UpsertCurtailmentReconcilerHeartbeat(ctx, sqlc.UpsertCurtailmentReconcilerHeartbeatParams{
+		LastTickAt:         params.LastTickAt,
+		LastTickUuid:       params.LastTickUUID,
+		LastTickDurationMs: ptrToNullInt32(params.LastTickDurationMS),
+		ActiveEventCount:   params.ActiveEventCount,
+	}); err != nil {
+		return fleeterror.NewInternalErrorf("failed to upsert curtailment heartbeat: %v", err)
+	}
+	return nil
+}
+
 func (s *SQLCurtailmentStore) GetHeartbeat(ctx context.Context) (*models.Heartbeat, error) {
 	row, err := s.GetQueries(ctx).GetCurtailmentReconcilerHeartbeat(ctx)
 	if err != nil {

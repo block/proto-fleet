@@ -61,6 +61,7 @@ import (
 	collectionDomain "github.com/block/proto-fleet/server/internal/domain/collection"
 	commandDomain "github.com/block/proto-fleet/server/internal/domain/command"
 	curtailmentDomain "github.com/block/proto-fleet/server/internal/domain/curtailment"
+	curtailmentReconciler "github.com/block/proto-fleet/server/internal/domain/curtailment/reconciler"
 	"github.com/block/proto-fleet/server/internal/domain/deviceresolver"
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics"
 	fleetmanagementDomain "github.com/block/proto-fleet/server/internal/domain/fleetmanagement"
@@ -382,6 +383,11 @@ func start(config *Config) error {
 	// only ran inline inside the schedule processor, leaving manual
 	// SetPowerTarget calls free to race a running power-target schedule.
 	commandSvc.RegisterFilter(commandDomain.NewScheduleConflictFilter(scheduleStore))
+	// Curtailment-active filter blocks non-curtailment commands against
+	// devices currently locked in an event; the curtailment reconciler
+	// itself bypasses via session.ActorCurtailment so it can drive the
+	// devices it has locked.
+	commandSvc.RegisterFilter(commandDomain.NewCurtailmentActiveFilter(curtailmentStore))
 
 	scheduleProcessor := scheduleDomain.NewProcessor(scheduleStore, scheduleStore, collectionStore, commandSvc, activitySvc)
 	if err := scheduleProcessor.Start(context.Background()); err != nil {
@@ -390,6 +396,16 @@ func start(config *Config) error {
 	defer func() {
 		if err := scheduleProcessor.Stop(); err != nil {
 			slog.Error("failed to stop schedule processor", "error", err)
+		}
+	}()
+
+	curtailmentRec := curtailmentReconciler.New(curtailmentReconciler.Config{}, curtailmentStore, commandSvc)
+	if err := curtailmentRec.Start(context.Background()); err != nil {
+		return fmt.Errorf("failed to start curtailment reconciler: %w", err)
+	}
+	defer func() {
+		if err := curtailmentRec.Stop(); err != nil {
+			slog.Error("failed to stop curtailment reconciler", "error", err)
 		}
 	}()
 

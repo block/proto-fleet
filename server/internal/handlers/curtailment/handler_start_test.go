@@ -17,6 +17,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/modes"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
 // startStubStore implements interfaces.CurtailmentStore for handler-level
@@ -94,6 +95,22 @@ func (s *startStubStore) ListTargetsByEvent(context.Context, int64, uuid.UUID) (
 
 func (s *startStubStore) GetHeartbeat(context.Context) (*models.Heartbeat, error) {
 	panic("GetHeartbeat not exercised by handler Start tests")
+}
+
+func (s *startStubStore) ListNonTerminalEvents(context.Context) ([]*models.Event, error) {
+	panic("ListNonTerminalEvents not exercised by handler Start tests")
+}
+
+func (s *startStubStore) UpdateEventState(context.Context, int64, models.EventState, *time.Time, *time.Time) error {
+	panic("UpdateEventState not exercised by handler Start tests")
+}
+
+func (s *startStubStore) UpdateTargetState(context.Context, int64, string, interfaces.UpdateCurtailmentTargetStateParams) error {
+	panic("UpdateTargetState not exercised by handler Start tests")
+}
+
+func (s *startStubStore) UpsertHeartbeat(context.Context, interfaces.UpsertCurtailmentHeartbeatParams) error {
+	panic("UpsertHeartbeat not exercised by handler Start tests")
 }
 
 // finitePtr returns &v as a typed pointer; used for proto3 optional fields.

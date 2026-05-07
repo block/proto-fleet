@@ -15,6 +15,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/modes"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
 // fakeStore implements CurtailmentStore for Preview / Start tests; methods
@@ -117,6 +118,22 @@ func (f *fakeStore) ListTargetsByEvent(context.Context, int64, uuid.UUID) ([]*mo
 
 func (f *fakeStore) GetHeartbeat(context.Context) (*models.Heartbeat, error) {
 	panic("GetHeartbeat not exercised by Preview tests")
+}
+
+func (f *fakeStore) ListNonTerminalEvents(context.Context) ([]*models.Event, error) {
+	panic("ListNonTerminalEvents not exercised by Preview tests")
+}
+
+func (f *fakeStore) UpdateEventState(context.Context, int64, models.EventState, *time.Time, *time.Time) error {
+	panic("UpdateEventState not exercised by Preview tests")
+}
+
+func (f *fakeStore) UpdateTargetState(context.Context, int64, string, interfaces.UpdateCurtailmentTargetStateParams) error {
+	panic("UpdateTargetState not exercised by Preview tests")
+}
+
+func (f *fakeStore) UpsertHeartbeat(context.Context, interfaces.UpsertCurtailmentHeartbeatParams) error {
+	panic("UpsertHeartbeat not exercised by Preview tests")
 }
 
 // InsertEventWithTargets is exercised by Service.Start tests in

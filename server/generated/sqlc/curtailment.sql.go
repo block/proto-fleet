@@ -575,6 +575,73 @@ func (q *Queries) ListCurtailmentTargetsByEvent(ctx context.Context, arg ListCur
 	return items, nil
 }
 
+const listNonTerminalCurtailmentEvents = `-- name: ListNonTerminalCurtailmentEvents :many
+SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at
+FROM curtailment_event
+WHERE state IN ('pending', 'active', 'restoring')
+ORDER BY id
+`
+
+// System-scope (no org filter): the reconciler is a singleton process that
+// drives every org's events from one tick. Order by id so per-tick processing
+// is deterministic across runs.
+func (q *Queries) ListNonTerminalCurtailmentEvents(ctx context.Context) ([]CurtailmentEvent, error) {
+	rows, err := q.query(ctx, q.listNonTerminalCurtailmentEventsStmt, listNonTerminalCurtailmentEvents)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CurtailmentEvent
+	for rows.Next() {
+		var i CurtailmentEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.EventUuid,
+			&i.OrgID,
+			&i.State,
+			&i.Mode,
+			&i.Strategy,
+			&i.Level,
+			&i.Priority,
+			&i.LoopType,
+			&i.ScopeType,
+			&i.ScopeJsonb,
+			&i.ModeParamsJsonb,
+			&i.RestoreBatchSize,
+			&i.RestoreBatchIntervalSec,
+			&i.EffectiveBatchSize,
+			&i.MinCurtailedDurationSec,
+			&i.MaxDurationSeconds,
+			&i.AllowUnbounded,
+			&i.IncludeMaintenance,
+			&i.ForceIncludeMaintenance,
+			&i.DecisionSnapshotJsonb,
+			&i.SourceActorType,
+			&i.SourceActorID,
+			&i.ExternalSource,
+			&i.ExternalReference,
+			&i.IdempotencyKey,
+			&i.SupersedesEventID,
+			&i.Reason,
+			&i.ScheduledStartAt,
+			&i.StartedAt,
+			&i.EndedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRecentlyResolvedCurtailedDevicesByOrg = `-- name: ListRecentlyResolvedCurtailedDevicesByOrg :many
 SELECT DISTINCT ct.device_identifier
 FROM curtailment_target ct
@@ -613,4 +680,110 @@ func (q *Queries) ListRecentlyResolvedCurtailedDevicesByOrg(ctx context.Context,
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateCurtailmentEventState = `-- name: UpdateCurtailmentEventState :exec
+UPDATE curtailment_event
+SET state      = $1,
+    started_at = COALESCE($2, started_at),
+    ended_at   = COALESCE($3,   ended_at)
+WHERE id = $4
+`
+
+type UpdateCurtailmentEventStateParams struct {
+	State     string
+	StartedAt sql.NullTime
+	EndedAt   sql.NullTime
+	ID        int64
+}
+
+// COALESCE keeps existing started_at/ended_at when the caller does not pass a
+// new value; passing NULL via narg leaves the column unchanged. Once a
+// timestamp is set callers should not blank it again, so the OR-NULL pattern
+// is acceptable here.
+func (q *Queries) UpdateCurtailmentEventState(ctx context.Context, arg UpdateCurtailmentEventStateParams) error {
+	_, err := q.exec(ctx, q.updateCurtailmentEventStateStmt, updateCurtailmentEventState,
+		arg.State,
+		arg.StartedAt,
+		arg.EndedAt,
+		arg.ID,
+	)
+	return err
+}
+
+const updateCurtailmentTargetState = `-- name: UpdateCurtailmentTargetState :exec
+UPDATE curtailment_target
+SET state              = $1,
+    last_dispatched_at = COALESCE($2, last_dispatched_at),
+    last_batch_uuid    = COALESCE($3,    last_batch_uuid),
+    observed_power_w   = COALESCE($4,   observed_power_w),
+    observed_at        = COALESCE($5,        observed_at),
+    confirmed_at       = COALESCE($6,       confirmed_at),
+    retry_count        = COALESCE($7,        retry_count),
+    last_error         = COALESCE($8,         last_error)
+WHERE curtailment_event_id = $9
+  AND device_identifier    = $10
+`
+
+type UpdateCurtailmentTargetStateParams struct {
+	State              string
+	LastDispatchedAt   sql.NullTime
+	LastBatchUuid      sql.NullString
+	ObservedPowerW     sql.NullString
+	ObservedAt         sql.NullTime
+	ConfirmedAt        sql.NullTime
+	RetryCount         sql.NullInt32
+	LastError          sql.NullString
+	CurtailmentEventID int64
+	DeviceIdentifier   string
+}
+
+// Reconciler-side update: COALESCE preserves columns the caller does not
+// supply so a partial update (e.g., only state + last_dispatched_at) does
+// not clobber observed_power_w / confirmed_at populated by an earlier tick.
+// retry_count is COALESCE-bumped only when the caller supplies it; the
+// caller is expected to read-then-write within the tick.
+func (q *Queries) UpdateCurtailmentTargetState(ctx context.Context, arg UpdateCurtailmentTargetStateParams) error {
+	_, err := q.exec(ctx, q.updateCurtailmentTargetStateStmt, updateCurtailmentTargetState,
+		arg.State,
+		arg.LastDispatchedAt,
+		arg.LastBatchUuid,
+		arg.ObservedPowerW,
+		arg.ObservedAt,
+		arg.ConfirmedAt,
+		arg.RetryCount,
+		arg.LastError,
+		arg.CurtailmentEventID,
+		arg.DeviceIdentifier,
+	)
+	return err
+}
+
+const upsertCurtailmentReconcilerHeartbeat = `-- name: UpsertCurtailmentReconcilerHeartbeat :exec
+INSERT INTO curtailment_reconciler_heartbeat (id, last_tick_at, last_tick_uuid, last_tick_duration_ms, active_event_count)
+VALUES (1, $1, $2, $3, $4)
+ON CONFLICT (id) DO UPDATE
+SET last_tick_at          = EXCLUDED.last_tick_at,
+    last_tick_uuid        = EXCLUDED.last_tick_uuid,
+    last_tick_duration_ms = EXCLUDED.last_tick_duration_ms,
+    active_event_count    = EXCLUDED.active_event_count
+`
+
+type UpsertCurtailmentReconcilerHeartbeatParams struct {
+	LastTickAt         time.Time
+	LastTickUuid       uuid.UUID
+	LastTickDurationMs sql.NullInt32
+	ActiveEventCount   int32
+}
+
+// Singleton row: id=1 is enforced by CHECK + PK. Migration seeds id=1, so the
+// INSERT path only fires if an operator manually deletes the row.
+func (q *Queries) UpsertCurtailmentReconcilerHeartbeat(ctx context.Context, arg UpsertCurtailmentReconcilerHeartbeatParams) error {
+	_, err := q.exec(ctx, q.upsertCurtailmentReconcilerHeartbeatStmt, upsertCurtailmentReconcilerHeartbeat,
+		arg.LastTickAt,
+		arg.LastTickUuid,
+		arg.LastTickDurationMs,
+		arg.ActiveEventCount,
+	)
+	return err
 }
