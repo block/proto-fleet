@@ -35,7 +35,6 @@ type UpdateMinerPasswordPayload struct {
 }
 
 // CurtailPayload carries the curtailment level for a Curtail dispatch.
-// Level is an sdk.CurtailLevel value.
 type CurtailPayload struct {
 	Level int32 `json:"level"`
 }

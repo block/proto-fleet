@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -434,11 +435,12 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 		assert.Contains(t, err.Error(), "unmarshalling curtail payload")
 	})
 
-	t.Run("Curtail rejects out-of-range level as FailedPrecondition", func(t *testing.T) {
-		// Both bounds of the level range — covers a `>` -> `>=` mutation on
-		// the upper arm and a `<` -> `<=` mutation on the lower arm.
-		for _, level := range []int32{0, 3} {
+	// Both bounds of the level range — covers a `>` -> `>=` mutation on the
+	// upper arm and a `<` -> `<=` mutation on the lower arm.
+	for _, level := range []int32{0, 3} {
+		t.Run(fmt.Sprintf("Curtail rejects out-of-range level=%d as FailedPrecondition", level), func(t *testing.T) {
 			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
 
 			mockQueue := mocks.NewMockMessageQueue(ctrl)
 			mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
@@ -464,12 +466,11 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 			}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
 
 			err = svc.executeCommandOnDevice(t.Context(), commandtype.Curtail, message)
-			require.Error(t, err, "level=%d", level)
-			assert.True(t, fleeterror.IsFailedPreconditionError(err), "level=%d: expected FailedPrecondition, got %v", level, err)
-			assert.Contains(t, err.Error(), "invalid curtail level", "level=%d", level)
-			ctrl.Finish()
-		}
-	})
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsFailedPreconditionError(err), "expected FailedPrecondition, got %v", err)
+			assert.Contains(t, err.Error(), "invalid curtail level")
+		})
+	}
 
 	t.Run("Uncurtail dispatches with empty request", func(t *testing.T) {
 		ctrl := gomock.NewController(t)

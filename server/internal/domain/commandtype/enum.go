@@ -26,8 +26,7 @@ const (
 	Unpair
 	// UpdateMinerPassword represents a command to update miner web UI password
 	UpdateMinerPassword
-	// Curtail requests the device transition to a lower-power curtailment level
-	// (FULL or EFFICIENCY) per the supplied payload.
+	// Curtail transitions the device to the curtailment level in the payload.
 	Curtail
 	// Uncurtail restores the device to its pre-curtailment mining state.
 	Uncurtail
