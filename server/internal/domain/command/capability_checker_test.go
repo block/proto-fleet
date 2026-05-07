@@ -482,6 +482,8 @@ func TestRequiresCapabilityCheck(t *testing.T) {
 			pb.CommandType_COMMAND_TYPE_UPDATE_MINING_POOLS,
 			pb.CommandType_COMMAND_TYPE_DOWNLOAD_LOGS,
 			pb.CommandType_COMMAND_TYPE_FIRMWARE_UPDATE,
+			pb.CommandType_COMMAND_TYPE_CURTAIL,
+			pb.CommandType_COMMAND_TYPE_UNCURTAIL,
 		}
 
 		for _, cmdType := range knownTypes {
@@ -491,5 +493,11 @@ func TestRequiresCapabilityCheck(t *testing.T) {
 
 	t.Run("returns false for unspecified command type", func(t *testing.T) {
 		assert.False(t, RequiresCapabilityCheck(pb.CommandType_COMMAND_TYPE_UNSPECIFIED))
+	})
+
+	t.Run("Curtail and Uncurtail map to OR-relationship curtail capabilities", func(t *testing.T) {
+		want := []string{sdk.CapabilityCurtailFull, sdk.CapabilityCurtailEfficiency}
+		assert.Equal(t, want, GetRequiredCapabilities(pb.CommandType_COMMAND_TYPE_CURTAIL))
+		assert.Equal(t, want, GetRequiredCapabilities(pb.CommandType_COMMAND_TYPE_UNCURTAIL))
 	})
 }

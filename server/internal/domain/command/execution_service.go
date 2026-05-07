@@ -480,6 +480,14 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 				err = unpairErr
 			}
 		}
+	case commandtype.Curtail:
+		var p dto.CurtailPayload
+		if curtailExtractErr := json.Unmarshal(message.Payload, &p); curtailExtractErr != nil {
+			return fleeterror.NewInternalErrorf("error unmarshalling curtail payload: %v", curtailExtractErr)
+		}
+		err = minerInfo.Curtail(ctx, sdk.CurtailRequest{Level: sdk.CurtailLevel(p.Level)})
+	case commandtype.Uncurtail:
+		err = minerInfo.Uncurtail(ctx, sdk.UncurtailRequest{})
 	case commandtype.UpdateMinerPassword:
 		var p dto.UpdateMinerPasswordPayload
 		credExtractErr := json.Unmarshal(message.Payload, &p)

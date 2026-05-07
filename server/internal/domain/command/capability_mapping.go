@@ -19,6 +19,10 @@ var commandTypeCapabilityMap = map[pb.CommandType][]string{
 	pb.CommandType_COMMAND_TYPE_FIRMWARE_UPDATE:       {sdk.CapabilityManualUpload},
 	pb.CommandType_COMMAND_TYPE_SET_POWER_TARGET:      {sdk.CapabilityPowerModeEfficiency},
 	pb.CommandType_COMMAND_TYPE_UPDATE_MINER_PASSWORD: {sdk.CapabilityUpdateMinerPassword},
+	// Curtail/Uncurtail map to the same OR-relationship capability set:
+	// any advertised curtailment level satisfies the capability check.
+	pb.CommandType_COMMAND_TYPE_CURTAIL:   {sdk.CapabilityCurtailFull, sdk.CapabilityCurtailEfficiency},
+	pb.CommandType_COMMAND_TYPE_UNCURTAIL: {sdk.CapabilityCurtailFull, sdk.CapabilityCurtailEfficiency},
 }
 
 // GetRequiredCapabilities returns the SDK capability constants required for a command type.

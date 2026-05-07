@@ -34,6 +34,10 @@ type Actor string
 const (
 	// ActorScheduler marks sessions synthesized by the schedule processor.
 	ActorScheduler Actor = "scheduler"
+	// ActorCurtailment marks sessions synthesized by the curtailment reconciler
+	// when it dispatches Curtail/Uncurtail commands. Used by command preflight
+	// filters to bypass curtailment-active gating for self-originated traffic.
+	ActorCurtailment Actor = "curtailment"
 )
 
 // Source carries optional policy context for command preflight filters.
