@@ -7,10 +7,27 @@
 -- once a writer audit confirms no callers remain.
 -- See docs/plans/2026-05-05-multi-site-support-plan.md (J5).
 
+-- Denormalize `org_id` onto `device_set_rack` so the building FK can be
+-- composite-keyed against `building(id, org_id)` and Postgres rejects
+-- cross-tenant rack/building pointers at the DB layer. Pattern matches
+-- `device_set_membership.org_id`. Backfill from `device_set` first, then
+-- promote to NOT NULL.
+ALTER TABLE device_set_rack ADD COLUMN org_id BIGINT NULL;
+
+UPDATE device_set_rack dsr
+SET org_id = ds.org_id
+FROM device_set ds
+WHERE dsr.device_set_id = ds.id;
+
+ALTER TABLE device_set_rack
+    ALTER COLUMN org_id SET NOT NULL;
+
 ALTER TABLE device_set_rack
     ADD COLUMN building_id BIGINT NULL,
-    ADD CONSTRAINT fk_device_set_rack_building FOREIGN KEY (building_id)
-        REFERENCES building(id) ON DELETE SET NULL;
+    -- Composite FK with column-list SET NULL so building deletion only
+    -- nulls building_id, not the NOT NULL org_id.
+    ADD CONSTRAINT fk_device_set_rack_building FOREIGN KEY (building_id, org_id)
+        REFERENCES building(id, org_id) ON DELETE SET NULL (building_id);
 
 -- Promote each unique non-null zone per org into a building row. NOT EXISTS
 -- guard makes the insert idempotent so `up && down && up` round-trips

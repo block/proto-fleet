@@ -625,6 +625,7 @@ type DeviceSetRack struct {
 	Columns     int32
 	OrderIndex  int16
 	CoolingType int16
+	OrgID       int64
 	BuildingID  sql.NullInt64
 }
 

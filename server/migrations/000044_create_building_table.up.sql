@@ -8,7 +8,11 @@ CREATE TABLE building (
     id                        BIGSERIAL PRIMARY KEY,
     org_id                    BIGINT NOT NULL,
     site_id                   BIGINT NULL,
-    name                      VARCHAR(255) NOT NULL,
+    -- TEXT (not VARCHAR(255)) so the zone-promotion backfill in 000046
+    -- accepts any legacy `device_set_rack.zone` value verbatim. zone
+    -- itself is unbounded TEXT today; capping building.name would abort
+    -- the upgrade on any fleet with a verbose zone label.
+    name                      TEXT NOT NULL,
     description               TEXT,
 
     -- Capacity / layout
@@ -43,6 +47,10 @@ CREATE TABLE building (
     -- org_id) REFERENCES device(id, org_id)`.
     CONSTRAINT fk_building_site FOREIGN KEY (site_id, org_id)
         REFERENCES site(id, org_id) ON DELETE RESTRICT,
+    -- Composite-key target so device_set_rack can FK on
+    -- (building_id, org_id) and have Postgres reject any rack whose
+    -- building belongs to a different org.
+    CONSTRAINT uq_building_id_org_id UNIQUE (id, org_id),
 
     CONSTRAINT ck_building_default_rack_dims
         CHECK (
