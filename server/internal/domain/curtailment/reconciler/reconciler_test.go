@@ -317,9 +317,11 @@ func TestReconciler_DriftDetectionRetriesDispatch(t *testing.T) {
 	// Drifted target re-dispatched.
 	assert.Equal(t, 1, disp.curtailCalls)
 	// Target ends in dispatched state (after re-dispatch updates it from drifted).
+	// RetryCount stays at 0 because the redispatch succeeded — the budget is
+	// consumed on dispatch *failures*, not on drift detection.
 	final := store.targetsByEventID[eventID][0]
 	assert.Equal(t, models.TargetStateDispatched, final.State)
-	assert.Equal(t, int32(1), final.RetryCount)
+	assert.Equal(t, int32(0), final.RetryCount)
 }
 
 func TestReconciler_RetryExhaustionLeavesDrifted(t *testing.T) {
@@ -604,16 +606,16 @@ func TestReconciler_RetryBudgetResetsOnReConfirm(t *testing.T) {
 	store.targetsByEventID[eventID] = []*models.Target{
 		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-1", State: models.TargetStateConfirmed, BaselinePowerW: ptrFloat64(3000)},
 	}
-	// Tick 1: drift power=2500 → drifted+redispatch.
+	// Tick 1: drift power=2500 → drifted+redispatch (success keeps RetryCount=0).
 	store.candidates = []*models.Candidate{
 		{DeviceIdentifier: "miner-1", LatestPowerW: ptrFloat64(2500), LatestHashRateHS: ptrFloat64(100)},
 	}
 	r := newReconcilerForTest(store, disp)
 	r.runTick(context.Background())
-	assert.Equal(t, int32(1), store.targetsByEventID[eventID][0].RetryCount)
+	assert.Equal(t, int32(0), store.targetsByEventID[eventID][0].RetryCount)
 	assert.Equal(t, models.TargetStateDispatched, store.targetsByEventID[eventID][0].State)
 
-	// Tick 2: telemetry shows curtailed → reconfirm. Retry resets to 0.
+	// Tick 2: telemetry shows curtailed → reconfirm. Retry stays at 0.
 	store.candidates = []*models.Candidate{
 		{DeviceIdentifier: "miner-1", LatestPowerW: ptrFloat64(50), LatestHashRateHS: ptrFloat64(0)},
 	}
@@ -621,12 +623,100 @@ func TestReconciler_RetryBudgetResetsOnReConfirm(t *testing.T) {
 	assert.Equal(t, models.TargetStateConfirmed, store.targetsByEventID[eventID][0].State)
 	assert.Equal(t, int32(0), store.targetsByEventID[eventID][0].RetryCount, "reconfirm clears retry budget")
 
-	// Tick 3: drift again — retry counts from 0 again, still has budget.
+	// Tick 3: drift again — successful redispatch leaves RetryCount=0 again.
 	store.candidates = []*models.Candidate{
 		{DeviceIdentifier: "miner-1", LatestPowerW: ptrFloat64(2500), LatestHashRateHS: ptrFloat64(100)},
 	}
 	r.runTick(context.Background())
-	assert.Equal(t, int32(1), store.targetsByEventID[eventID][0].RetryCount)
+	assert.Equal(t, int32(0), store.targetsByEventID[eventID][0].RetryCount)
+	assert.Equal(t, models.TargetStateDispatched, store.targetsByEventID[eventID][0].State)
+}
+
+// TestReconciler_DriftFailedRedispatchConsumesOneBudgetPerAttempt: the retry
+// budget tracks dispatch attempts, not drift events. Three drift+fail cycles
+// must consume exactly MaxRetries=3 dispatch slots — not 6 — and the third
+// failure transitions the target to RestoreFailed.
+func TestReconciler_DriftFailedRedispatchConsumesOneBudgetPerAttempt(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{curtailErr: errors.New("queue down")}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStateActive},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-1", State: models.TargetStateConfirmed, BaselinePowerW: ptrFloat64(3000)},
+	}
+	// Telemetry stays drifted for every tick.
+	store.candidates = []*models.Candidate{
+		{DeviceIdentifier: "miner-1", LatestPowerW: ptrFloat64(2500), LatestHashRateHS: ptrFloat64(100)},
+	}
+
+	r := newReconcilerForTest(store, disp)
+
+	// Tick 1: confirmed → drifted, redispatch fails → RetryCount=1, state Drifted
+	// (not Pending: a Pending target on an active event is orphaned).
+	r.runTick(context.Background())
+	final := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStateDrifted, final.State, "non-terminal failure on active-event redispatch must stay Drifted, not flip to Pending")
+	assert.Equal(t, int32(1), final.RetryCount)
+
+	// Tick 2: drifted → redispatch fails → RetryCount=2, state Drifted.
+	r.runTick(context.Background())
+	final = store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStateDrifted, final.State)
+	assert.Equal(t, int32(2), final.RetryCount)
+
+	// Tick 3: drifted → redispatch fails → RetryCount=3 hits cap → RestoreFailed.
+	r.runTick(context.Background())
+	final = store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStateRestoreFailed, final.State)
+	assert.Equal(t, int32(3), final.RetryCount)
+
+	// Exactly 3 dispatch attempts — not 6. Each cycle consumes one budget slot,
+	// not two. (Old bug: checkDrift bumped retry, then recordDispatchFailure
+	// bumped again, halving the effective budget.)
+	assert.Equal(t, 3, disp.curtailCalls, "MaxRetries=3 should map to exactly 3 dispatch attempts")
+}
+
+// TestReconciler_DriftFailedRedispatchStaysDriftedNotPending: when an
+// active-event redispatch fails with budget remaining, the target must stay
+// Drifted so observeActive's Drifted arm picks it up next tick. Flipping to
+// Pending would orphan the target — observeActive's Pending case is a no-op.
+func TestReconciler_DriftFailedRedispatchStaysDriftedNotPending(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{curtailErr: errors.New("queue down")}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStateActive},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-1", State: models.TargetStateConfirmed, BaselinePowerW: ptrFloat64(3000)},
+	}
+	store.candidates = []*models.Candidate{
+		{DeviceIdentifier: "miner-1", LatestPowerW: ptrFloat64(2500), LatestHashRateHS: ptrFloat64(100)},
+	}
+
+	r := newReconcilerForTest(store, disp)
+
+	// Tick 1: drift detected, redispatch fails with 2 retries left.
+	r.runTick(context.Background())
+	final := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStateDrifted, final.State)
+	assert.Equal(t, int32(1), final.RetryCount)
+
+	// Tick 2: observeActive's Drifted arm must pick it up and re-dispatch.
+	// Switch to a successful dispatcher so the retry consumes a slot only on
+	// failure (this tick succeeds → RetryCount stays 1, state goes Dispatched).
+	disp.curtailErr = nil
+	r.runTick(context.Background())
+	final = store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStateDispatched, final.State, "Drifted target with budget must redispatch on the next tick")
+	assert.Equal(t, int32(1), final.RetryCount, "successful redispatch does not consume the budget")
+	assert.Equal(t, 2, disp.curtailCalls)
 }
 
 // TestReconciler_SuccessfulDispatchClearsLastError: a dispatch success after
