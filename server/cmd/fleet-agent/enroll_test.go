@@ -90,38 +90,6 @@ func TestEnrollCmd_PersistsStateImmediatelyAfterRegister(t *testing.T) {
 	assert.True(t, loaded.AllowInsecureTransport)
 }
 
-func TestEnrollCmd_PersistsStateBeforeHandshake(t *testing.T) {
-	t.Parallel()
-
-	// Arrange
-	dir := t.TempDir()
-	const pastedAPIKey = "wrong-key"
-	fake := &fakeAgentGateway{
-		expectedCode:   "code",
-		expectedAPIKey: "right-key",
-		agentID:        99,
-		challenge:      bytes.Repeat([]byte{0x01}, 32),
-	}
-	srv := newFakeServer(t, fake)
-	cmd := &EnrollCmd{
-		ServerURL:              srv.URL,
-		Name:                   "agent-99",
-		AllowInsecureTransport: true,
-	}
-
-	// Act
-	err := cmd.run(&Context{StateDir: dir}, strings.NewReader("code\n"+pastedAPIKey+"\n"), &bytes.Buffer{}, &bytes.Buffer{})
-
-	// Assert
-	require.Error(t, err)
-	loaded, exists, err := loadState(filepath.Join(dir, "state.yaml"))
-	require.NoError(t, err)
-	require.True(t, exists, "state must persist after Register so the operator can recover via refresh")
-	assert.Equal(t, int64(99), loaded.AgentID)
-	assert.Equal(t, pastedAPIKey, loaded.APIKey)
-	assert.Empty(t, loaded.SessionToken)
-}
-
 func TestEnrollCmd_RejectsEmptyEnrollmentCode(t *testing.T) {
 	t.Parallel()
 

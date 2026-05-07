@@ -123,10 +123,6 @@ func (e *EnrollCmd) runLocked(c *Context, stdin io.Reader, stdout, stderr io.Wri
 		return errors.New("empty api_key")
 	}
 	state.APIKey = apiKey
-	if err := saveState(path, state); err != nil {
-		return err
-	}
-
 	if err := runHandshake(context.Background(), client, state); err != nil {
 		return err
 	}
