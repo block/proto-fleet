@@ -43,8 +43,14 @@ sites exist.
   optional power contract, and a list of buildings. Layout details
   (aisles, racks per aisle, default rack settings) live on the building
   entity, not the site.
-- Per-site historical reporting or retroactive site rewrites on existing
-  log/snapshot rows.
+- Retroactive site attribution rewrites on log/snapshot rows that
+  predate multi-site. Site-aware history *is* supported (errors,
+  activity, telemetry, snapshots all capture `site_id` at write
+  time once Phase 1 ships), but existing rows stay site-NULL and
+  surface in a "(no site)" bucket. Site filters on those surfaces
+  use the row-stamped `site_id`, never the device's *current*
+  site, so history doesn't shift when a device is reassigned or a
+  site is renamed/deleted.
 - Site-scoped discovery via on-prem agents. Out of scope for this plan;
   owned by the agent workstream.
 - Forcing site setup at onboarding. New orgs can pair miners and operate
@@ -302,8 +308,60 @@ different site than the new target.
 
 **Racks.** Racks belong to one building (or none); racks aren't
 directly assigned to a site. Reassigning a rack from one building
-to another is a separate flow that lives on the rack edit modal
-(out of scope for this plan; current rack edit UI handles it).
+to another goes through the existing rack edit modal, but the
+multi-site cross-collection invariant **must** be enforced there
+in Phase 1 — not deferred. When a rack moves to a building under
+a different site, the move is rejected if any device in the rack
+has `site_id` pointing at a site other than the target. Rejection
+returns per-device error details so the operator can either
+unassign the conflicting devices first or use the bulk-assign
+action to move them along with the rack. The same check fires
+when a rack moves into the Unassigned bucket or out of it (any
+device with a non-NULL `site_id` that no longer matches its new
+context blocks the move).
+
+### J7. Foreman import — sitemap → site / building / rack
+
+Today's Foreman import (`server/internal/domain/foremanimport/`)
+flattens a Foreman sitemap (a tree of `SiteMapGroup` rows with
+parent pointers, with `SiteMapRack` rows attached to leaf groups)
+into a flat list of fleet groups + racks. With multi-site landing,
+the importer needs to map the tree onto `site → building → rack`
+instead.
+
+**Mapping rule (working assumption).**
+
+- Each **root** Foreman group (group with `parent_id IS NULL`)
+  becomes a fleet **site**.
+- Every **non-root** Foreman group — at any depth below the root —
+  becomes a fleet **building** under the corresponding site.
+  Multiple parent levels collapse to one building per Foreman
+  group; intermediate groups don't get their own intermediate
+  entity. Building name = Foreman group name.
+- Each Foreman rack becomes a fleet rack under the building
+  matching its parent group.
+- A miner's `site_id` is set to its rack's building's site at
+  import time, satisfying the cross-collection invariant.
+- Pre-existing fleet groups created from Foreman keep working;
+  no retroactive promotion to sites/buildings.
+
+**Open questions.**
+
+- Whether to expose the depth-collapsing rule to the operator
+  before import runs, or apply silently with a post-import summary
+  ("imported 3 sites, 12 buildings, 187 racks, 9402 miners").
+- Idempotency: re-importing from Foreman after a site is renamed
+  in fleet — does the importer rename back to Foreman's name, skip
+  the rename, or warn? Working assumption: skip the rename, log a
+  warning. Operators rename in fleet for a reason.
+- How to handle Foreman rack-only entries with no parent group
+  (today they go to a default group). Working assumption: those
+  miners land in the Unassigned bucket and the operator uses J6.
+
+**Phasing.** Foreman importer changes ship in **Phase 1** alongside
+the site/building schema, not deferred — the importer is a
+production write path and would otherwise create stale flat groups
+that operators then have to clean up by hand.
 
 ## Backend updates
 
@@ -321,7 +379,7 @@ New entities and relationships introduced:
   - `timezone`
   - `power_capacity_mw` (nullable; optional)
   - `network_config` (text; newline-separated CIDRs/IPs for discovery
-    scan; optional)
+    scan; optional) — see "Network config validation" below.
   - **Power contract fields** (all nullable): `iso` (enum:
     ERCOT, PJM, MISO, CAISO, SPP, NYISO, ISO-NE, NON_ISO); when
     `iso = NON_ISO`, `balancing_authority` (enum: TVA, SOUTHERN_CO,
@@ -330,8 +388,11 @@ New entities and relationships introduced:
     `rate_type` (enum: FIXED, INDEX_LMP, PPA, TOU, TIERED, HYBRID);
     `rate_cents_per_kwh`, `demand_charge_cents_per_kwh`,
     `transmission_structure` (enum: 4CP, 5CP, NONE_BUNDLED),
-    `power_factor` (enum: 0.85, 0.9, 0.95, 0.97, 1.0),
-    `contract_start_date`, `contract_end_date`.
+    `power_factor` (`NUMERIC(4,2)` with
+    `CHECK (power_factor IN (0.85, 0.9, 0.95, 0.97, 1.0))` —
+    Postgres enums can't carry decimal values, so this is a numeric
+    column with a check constraint; UI exposes the same five values
+    as a dropdown), `contract_start_date`, `contract_end_date`.
   - Standard timestamp columns + `deleted_at` for soft delete.
 
   Cooling mode is **not** a site-level field. Miners already carry
@@ -370,8 +431,16 @@ New entities and relationships introduced:
   - `physical_rack_count` (physical racks present in the building,
     not the count of software-configured rack rows)
   - `racks_per_aisle`
-  - `default_rack_type` (FK to existing `rack_type` entity)
-  - `default_rack_order` (existing rack-order enum)
+  - `default_rack_rows int`, `default_rack_columns int` —
+    mirrors today's `device_set_rack.rows` and
+    `device_set_rack.columns`. Rack "type" today is purely a
+    derived API concept (`ListRackTypes` does
+    `GROUP BY rows, columns`); no `rack_type` table exists to FK
+    to. Storing the two integers directly avoids inventing one.
+  - `default_rack_order_index` — points at the existing
+    `RackOrderIndex` enum (`BOTTOM_LEFT`, `TOP_LEFT`,
+    `BOTTOM_RIGHT`, `TOP_RIGHT` — see
+    `proto/device_set/v1/device_set.proto:105`).
 
   Cooling mode is **not** a building-level field — miner-level
   cooling settings already cover this.
@@ -391,6 +460,24 @@ New entities and relationships introduced:
 
 - **`user_organization.migration_banner_dismissed_at`** — nullable
   timestamp gating the upgrade banner. Per-user-per-org. See J5.
+  **Default value `CURRENT_TIMESTAMP` on the column definition** so
+  any `user_organization` row inserted *after* this migration is
+  born "already dismissed". Existing rows are explicitly left at
+  NULL by the migration, which is what triggers the banner — only
+  users that existed at upgrade time see it. Users newly added to
+  an upgraded org post-migration get the column default and don't
+  see the banner.
+
+- **History-bearing tables get a nullable `site_id` column** so
+  per-site filtering on Phase 2 dashboards uses the row-stamped
+  site, not the device's *current* site (which would rewrite
+  history on rename/reassign/delete). The column is added to:
+  `activity_log`, `miner_state_snapshots`,
+  `command_on_device_log`, the errors table, telemetry, and any
+  other history table that joins to `device`. Writers populate
+  from `device.site_id` at write time. Pre-multi-site rows stay
+  NULL and surface in a "(no site)" bucket on the relevant pages.
+  No retroactive backfill of historical rows.
 
 Active-site selection is **not** stored in the database — it lives in
 client localStorage keyed by username (see J2).
@@ -419,7 +506,35 @@ set, must equal the site of its rack's building when that building's
 - Building site-assignment: if the building contains racks with
   devices whose `site_id` is set, those devices' sites must equal
   the building's new target site.
+- **Rack edit / move**: if a rack is being moved to a different
+  building (and that building has a site), every device in the rack
+  whose `site_id` is set must already match the new site. This
+  closes the loophole where rack moves would otherwise let devices
+  drift to the wrong site because `device.site_id` is a direct FK
+  independent of the `rack → building → site` path. See Phase 1.
 - Otherwise (any of the FKs are NULL): no constraint.
+
+**Network config validation.** The site `network_config` field is
+stored as text but canonicalized + validated server-side at every
+write:
+
+- Each non-blank line must parse as a valid CIDR or IP address;
+  malformed entries reject the save with a per-line error.
+- Subnet mask cap: reject any CIDR broader than `/20` to prevent
+  inadvertent ranges that would scan tens of thousands of hosts.
+  (Operators with genuinely wider footprints can submit multiple
+  `/20`-or-narrower entries.)
+- Within-site overlap: reject duplicates and overlapping subnets
+  in the same site at save time.
+- Cross-site overlap (same org): warn at save time but do not
+  block — operators legitimately have label-overlap during DR or
+  migration. Discovery match precedence when one IP falls in
+  multiple sites' ranges: most-specific subnet wins; ties broken
+  by oldest `site_id` (deterministic and stable across restarts).
+- Server returns the canonicalized form on save (e.g.
+  `10.0.0.0/8`, not `10.0.0.0 / 8` or `10/8`); UI replaces the
+  textarea contents with the returned canonical text so the
+  operator sees what's actually stored.
 
 ### Domain logic and APIs
 
@@ -444,21 +559,44 @@ Updated domain packages:
 - `pairing/` — unchanged in MVP. Pair RPC does not accept a `site_id`.
   Discovery uses today's request-supplied IP ranges (and mDNS
   link-local). Future Phase 2 work introduces site-segmented discovery.
-- `device/` — list-devices query gains a `site_ids` filter accepting
-  real site IDs and a sentinel "unassigned" value (direct FK,
-  same shape as the existing `group_ids` / `rack_ids` filters). The
-  `MinerStateSnapshot` proto gains `site_id` (nullable) and
-  `site_label`; every writer is updated.
+- `device/` — list-devices query gains **two** filter fields rather
+  than overloading one with a state sentinel:
+  - `repeated int64 site_ids` — empty means "no site filter",
+    populated means "match any of these sites". Same shape as the
+    existing `group_ids` / `rack_ids` filters.
+  - `bool include_unassigned` — separate boolean controlling
+    whether `site_id IS NULL` rows are included. Allowed
+    combinations: only `site_ids` (specific sites), only
+    `include_unassigned` (Unassigned bucket alone), both (specific
+    sites *plus* Unassigned), neither (no site filter).
+
+  Splitting ID list and state sentinel keeps the filter clean
+  through proto generation, URL params, and saved-view JSON; a
+  single field carrying both numeric IDs and a magic
+  `"unassigned"` string would be fragile across all three
+  surfaces. The `MinerStateSnapshot` proto gains `site_id`
+  (nullable) and `site_label`; every writer is updated.
 - `activity/` — every site CRUD, building CRUD, and device-reassign
   writes one log row capturing user, source/target site, device-ids
-  JSON.
+  JSON. Activity rows themselves also gain a row-stamped `site_id`
+  (the activity's primary device's site at write time, when
+  applicable) so the activity feed can be filtered per-site.
+- `foremanimport/` — `mapper.go` rewritten to build site +
+  building + rack rows from Foreman's parent-pointer sitemap tree
+  per J7. Existing flat-group output path is removed — Foreman
+  imports into the new hierarchy directly.
+- All history-writing domain packages (`miner_state_snapshots`,
+  errors, telemetry, command-log, etc.) populate the row-stamped
+  `site_id` from `device.site_id` at insert time.
 - `onboarding/` — **no changes.** Site setup is not part of
   onboarding.
 
 Existing domain APIs that continue to operate org-scoped (no per-site
-slicing in MVP): pools, schedules, errors, telemetry, queue, api_keys,
-team, firmware. Listed explicitly so reviewers don't expect site
-filters that aren't there.
+slicing in MVP): pools, schedules, queue, api_keys, team, firmware.
+Listed explicitly so reviewers don't expect site filters that aren't
+there. Errors / activity / telemetry / snapshots *do* gain per-site
+filtering via the row-stamped `site_id`, but their config and
+ownership remain org-level.
 
 ### RBAC
 
@@ -567,12 +705,26 @@ for orgs that don't opt in.
 - `BuildingService` proto + handlers: list (filterable by site or
   "unassigned"; returns rack count), create, update, delete (soft,
   cascade-unassigns racks), assign-to-site.
-- `site_ids` filter on miner-list query supporting site IDs and an
-  "unassigned" sentinel; `site_id` + `site_label` on
-  `MinerStateSnapshot` with writer audit.
-- Cross-collection enforcement on bulk-assign and building
-  assign-to-site: rejects when device/building/site assignments
-  conflict.
+- `site_ids` (repeated int64) + `include_unassigned` (bool) filter
+  fields on miner-list query — split rather than overloaded.
+  `site_id` + `site_label` on `MinerStateSnapshot` with writer
+  audit.
+- Cross-collection enforcement on bulk-assign, building
+  assign-to-site, **and the existing rack edit/move flow**:
+  rejects when device/building/site assignments conflict. Rack
+  edit must land in Phase 1 to prevent miners drifting to the
+  wrong site via a rack move.
+- Server-side validation of site `network_config` (CIDR parse,
+  `/20` cap, within-site overlap rejection, cross-site overlap
+  warning, canonical-form round-trip).
+- Add nullable `site_id` to history-bearing tables
+  (`activity_log`, `miner_state_snapshots`,
+  `command_on_device_log`, errors, telemetry); writers populate
+  from `device.site_id` at write time. Existing rows stay NULL.
+- `user_organization.migration_banner_dismissed_at` defaults to
+  `CURRENT_TIMESTAMP` so post-migration user-org rows don't see
+  the banner; existing rows are explicitly left at NULL during
+  migration so they do.
 - `/settings/sites` page rendering empty state (zero sites) or the
   "All Sites" layout (per-site sections + unassigned buildings
   section). Inline edit modals. Site create modal with optional
@@ -584,6 +736,9 @@ for orgs that don't opt in.
   (gated on org having ≥1 site so site-less orgs see no change).
 - CompleteSetup TaskCard "Assign miners to sites" (gated on org
   having ≥1 site and ≥1 unassigned miner).
+- Foreman importer (`server/internal/domain/foremanimport/`)
+  rewritten to map the sitemap tree onto `site → building → rack`
+  per J7.
 - Activity-log rows on every site CRUD, building CRUD, and
   reassignment.
 
@@ -601,7 +756,11 @@ educational prompt, pairing flow gains site segmentation.
   localStorage-backed active-site selection. Hidden when org has
   zero sites; otherwise renders "All Sites" + sites + "Unassigned".
 - "All Sites" / "Unassigned" modes wired through every list/read
-  page (miner list, errors, activity, dashboards, etc.).
+  page (miner list, errors, activity, dashboards, etc.). Site
+  filter on errors / activity / telemetry / dashboards reads the
+  row-stamped `site_id` (added in Phase 1), not the device's
+  *current* `site_id`. Pre-multi-site rows surface in a "(no
+  site)" bucket and are excluded from specific-site filters.
 - Migration banner UI keyed off `migration_banner_dismissed_at`.
 - Discovery results segmented by site network config: each
   discovered miner is grouped under the site whose IP range caught
@@ -640,9 +799,9 @@ per-site, that's a separate plan.
 These are intentionally not answered here — they need code-level review
 before they're locked.
 
-1. Final shape of the site `network_config` field: a multiline string
-   of newline-separated CIDRs/IPs is the working assumption; confirm
-   when wiring up the discovery handler.
+1. The exact `/20` CIDR cap on `network_config` entries — calibrate
+   against real Block-ops site sizes before locking. (Validation
+   shape itself is locked above.)
 2. Behavior when a site-segmented discovery (Phase 2) finds a miner
    reachable on a different site's IP range than the operator's drag-
    and-drop choice: do we warn, block, or silently honor the operator?
