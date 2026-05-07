@@ -1,9 +1,3 @@
--- Multi-site support: `building` table (replaces today's `device_set_rack.zone`
--- string as a first-class entity). `site_id` is nullable so a building may
--- exist without an assigned site (zone-promoted buildings on upgrade,
--- placeholder buildings created ahead of site assignment).
--- See docs/plans/2026-05-05-multi-site-support-plan.md.
-
 CREATE TABLE building (
     id                        BIGSERIAL PRIMARY KEY,
     org_id                    BIGINT NOT NULL,
@@ -11,21 +5,15 @@ CREATE TABLE building (
     name                      VARCHAR(255) NOT NULL,
     description               TEXT,
 
-    -- Capacity / layout
     power_kw                  NUMERIC(10,3),
     overhead_kw               NUMERIC(10,3),
     aisles                    INT,
     physical_rack_count       INT,
     racks_per_aisle           INT,
 
-    -- Defaults applied when a new rack is added to the building. Pre-existing
-    -- racks may not match these defaults; that's allowed. Mirrors
-    -- `device_set_rack.rows` / `.columns` / `.order_index` shape so the
-    -- existing rack create/edit code paths can adopt them as defaults
-    -- without a type translation. `default_rack_order_index` carries the
-    -- same SMALLINT encoding as `device_set_rack.order_index` (proto
-    -- RackOrderIndex enum: BOTTOM_LEFT=1, TOP_LEFT=2, BOTTOM_RIGHT=3,
-    -- TOP_RIGHT=4; 0 = unspecified).
+    -- default_rack_order_index encodes the proto RackOrderIndex enum
+    -- (BOTTOM_LEFT=1, TOP_LEFT=2, BOTTOM_RIGHT=3, TOP_RIGHT=4; 0 =
+    -- unspecified) — same SMALLINT shape as device_set_rack.order_index.
     default_rack_rows         INT,
     default_rack_columns      INT,
     default_rack_order_index  SMALLINT NOT NULL DEFAULT 0,
@@ -36,16 +24,8 @@ CREATE TABLE building (
 
     CONSTRAINT fk_building_organization FOREIGN KEY (org_id)
         REFERENCES organization(id) ON DELETE RESTRICT,
-    -- Composite FK: a building's site MUST belong to the same org. Single-
-    -- column `(site_id) REFERENCES site(id)` would let a service-layer bug
-    -- persist a cross-tenant pointer; the composite target makes the
-    -- invariant a database guarantee. Matches `agent_device(device_id,
-    -- org_id) REFERENCES device(id, org_id)`.
     CONSTRAINT fk_building_site FOREIGN KEY (site_id, org_id)
         REFERENCES site(id, org_id) ON DELETE RESTRICT,
-    -- Composite-key target so device_set_rack can FK on
-    -- (building_id, org_id) and have Postgres reject any rack whose
-    -- building belongs to a different org.
     CONSTRAINT uq_building_id_org_id UNIQUE (id, org_id),
 
     CONSTRAINT ck_building_default_rack_dims
@@ -62,8 +42,8 @@ CREATE TABLE building (
         CHECK (racks_per_aisle IS NULL OR racks_per_aisle >= 0)
 );
 
--- Name is unique within site when site is set; unique within org when
--- unassigned. Two partial unique indexes match the two states.
+-- Two partial unique indexes: name unique within site when assigned,
+-- unique within org when unassigned.
 CREATE UNIQUE INDEX uk_building_site_name
     ON building(site_id, name)
     WHERE site_id IS NOT NULL AND deleted_at IS NULL;
