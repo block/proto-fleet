@@ -95,7 +95,7 @@ func TestRefresh_PreservesStateOnAPIKeyRejected(t *testing.T) {
 
 	// Assert
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrAPIKeyRejected)
+	assert.ErrorIs(t, err, ErrBeginAuthRejected)
 	// Refresh must not mutate the in-memory state on failure.
 	assert.Equal(t, "wrong-key", state.APIKey)
 	assert.Equal(t, "stale-session", state.SessionToken)
@@ -135,7 +135,7 @@ func TestRefresh_PreservesStateOnSignatureFailure(t *testing.T) {
 
 	// Assert
 	require.Error(t, err)
-	assert.NotErrorIs(t, err, ErrAPIKeyRejected, "BeginAuth accepted the api_key; CompleteAuth signature failure must not surface as api_key rejection")
+	assert.NotErrorIs(t, err, ErrBeginAuthRejected, "BeginAuth accepted the api_key; CompleteAuth signature failure must not surface as api_key rejection")
 	assert.Equal(t, "good-key", state.APIKey)
 	assert.Equal(t, "still-valid-session", state.SessionToken)
 	assert.Equal(t, staleExpiry, state.SessionExpiresAt)

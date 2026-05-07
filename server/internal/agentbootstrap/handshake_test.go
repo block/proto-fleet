@@ -86,6 +86,37 @@ func newFakeServer(t *testing.T, fake *fakeAgentGateway) *httptest.Server {
 	return srv
 }
 
+func TestRunHandshake_RejectsNilState(t *testing.T) {
+	t.Parallel()
+
+	// Act
+	err := RunHandshake(t.Context(), nil, nil)
+
+	// Assert
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "state is required")
+}
+
+func TestRunHandshake_RejectsNilClient(t *testing.T) {
+	t.Parallel()
+
+	// Arrange
+	pub, priv, err := GenerateKeypair()
+	require.NoError(t, err)
+	state := &State{
+		APIKey:                "k",
+		IdentityPrivateKeyHex: hex.EncodeToString(priv),
+		IdentityPublicKeyHex:  hex.EncodeToString(pub),
+	}
+
+	// Act
+	err = RunHandshake(t.Context(), nil, state)
+
+	// Assert
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "client is required")
+}
+
 func TestRunHandshake_HappyPath(t *testing.T) {
 	t.Parallel()
 
@@ -142,7 +173,7 @@ func TestRunHandshake_WrongAPIKey(t *testing.T) {
 
 	// Assert
 	require.Error(t, err)
-	require.ErrorIs(t, err, ErrAPIKeyRejected)
+	require.ErrorIs(t, err, ErrBeginAuthRejected)
 	var connErr *connect.Error
 	require.ErrorAs(t, err, &connErr)
 	assert.Equal(t, connect.CodeUnauthenticated, connErr.Code())
@@ -226,7 +257,7 @@ func TestRunHandshake_BadSignature(t *testing.T) {
 
 	// Assert
 	require.Error(t, err)
-	assert.NotErrorIs(t, err, ErrAPIKeyRejected, "signature failure must not surface as api_key rejection")
+	assert.NotErrorIs(t, err, ErrBeginAuthRejected, "signature failure must not surface as api_key rejection")
 	var connErr *connect.Error
 	require.ErrorAs(t, err, &connErr)
 	assert.Equal(t, connect.CodeUnauthenticated, connErr.Code())

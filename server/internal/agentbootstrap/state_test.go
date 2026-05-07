@@ -58,6 +58,26 @@ func TestLoadState_MalformedYAML(t *testing.T) {
 	assert.False(t, exists)
 }
 
+func TestSaveState_RejectsSymlinkStateDir(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: an attacker-controlled symlink at the state-dir leaf
+	// pointing at a different location. SaveState must refuse to follow
+	// it rather than write secrets through the link.
+	base := t.TempDir()
+	realDir := filepath.Join(base, "real")
+	require.NoError(t, os.MkdirAll(realDir, 0o700))
+	linkDir := filepath.Join(base, "link")
+	require.NoError(t, os.Symlink(realDir, linkDir))
+
+	// Act
+	err := SaveState(filepath.Join(linkDir, "state.yaml"), &State{ServerURL: "x"})
+
+	// Assert
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "symlink")
+}
+
 func TestSaveState_TightensExistingDirPerms(t *testing.T) {
 	t.Parallel()
 

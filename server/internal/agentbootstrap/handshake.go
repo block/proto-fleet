@@ -13,12 +13,17 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/agentgateway/v1/agentgatewayv1connect"
 )
 
-// Wraps Unauthenticated from BeginAuthHandshake only, distinct from
-// CompleteAuthHandshake auth failures (expired challenge, bad signature).
-var ErrAPIKeyRejected = errors.New("server rejected api_key")
+// Wraps Unauthenticated from BeginAuthHandshake. The server returns it for
+// api_key revocation, identity_pubkey mismatch, or any other auth failure
+// on that call; the library cannot distinguish the cause. Distinct from
+// CompleteAuthHandshake failures (expired challenge, bad signature).
+var ErrBeginAuthRejected = errors.New("BeginAuthHandshake rejected")
 
 // Mutates s.SessionToken and s.SessionExpiresAt only on success.
 func RunHandshake(ctx context.Context, c agentgatewayv1connect.AgentGatewayServiceClient, s *State) error {
+	if s == nil {
+		return errors.New("state is required")
+	}
 	priv, err := hex.DecodeString(s.IdentityPrivateKeyHex)
 	if err != nil {
 		return fmt.Errorf("decode identity private key: %w", err)
@@ -33,6 +38,9 @@ func RunHandshake(ctx context.Context, c agentgatewayv1connect.AgentGatewayServi
 	if len(pub) != ed25519.PublicKeySize {
 		return errors.New("identity public key has wrong length")
 	}
+	if c == nil {
+		return errors.New("client is required")
+	}
 
 	begin, err := c.BeginAuthHandshake(ctx, connect.NewRequest(&pb.BeginAuthHandshakeRequest{
 		ApiKey:         s.APIKey,
@@ -40,7 +48,7 @@ func RunHandshake(ctx context.Context, c agentgatewayv1connect.AgentGatewayServi
 	}))
 	if err != nil {
 		if connect.CodeOf(err) == connect.CodeUnauthenticated {
-			return fmt.Errorf("%w: %w", ErrAPIKeyRejected, err)
+			return fmt.Errorf("%w: %w", ErrBeginAuthRejected, err)
 		}
 		return fmt.Errorf("begin handshake: %w", err)
 	}

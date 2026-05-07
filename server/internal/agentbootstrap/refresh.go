@@ -6,8 +6,8 @@ import (
 )
 
 // Mutates SessionToken/SessionExpiresAt only on success. BeginAuth
-// Unauthenticated wraps ErrAPIKeyRejected so callers can distinguish
-// revocation from challenge or signature failures.
+// Unauthenticated wraps ErrBeginAuthRejected so callers can distinguish
+// it from CompleteAuth failures (expired challenge, bad signature).
 func Refresh(ctx context.Context, state *State) error {
 	if state == nil {
 		return errors.New("state is required")

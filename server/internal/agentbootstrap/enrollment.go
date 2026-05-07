@@ -129,6 +129,15 @@ func ValidateServerURL(raw string, allowInsecure bool) error {
 	if u.Host == "" {
 		return fmt.Errorf("server-url has no host")
 	}
+	if u.User != nil {
+		return fmt.Errorf("server-url must not contain userinfo")
+	}
+	if u.RawQuery != "" {
+		return fmt.Errorf("server-url must not contain a query string")
+	}
+	if u.Fragment != "" {
+		return fmt.Errorf("server-url must not contain a fragment")
+	}
 	if u.Scheme == "https" {
 		return nil
 	}

@@ -216,7 +216,7 @@ func TestCompleteEnrollment_PreservesStateOnHandshakeFailure(t *testing.T) {
 
 	// Assert
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrAPIKeyRejected)
+	assert.ErrorIs(t, err, ErrBeginAuthRejected)
 	// The rejected key must NOT be persisted into state; on retry, the
 	// caller can supply a different api_key without first re-zeroing it.
 	assert.Empty(t, state.APIKey)
@@ -256,6 +256,10 @@ func TestValidateServerURL(t *testing.T) {
 		{name: "remote http allowed via flag", url: "http://fleet.example.com", allowInsecure: true, wantErr: ""},
 		{name: "unknown scheme rejected", url: "ftp://fleet.example.com", allowInsecure: false, wantErr: "scheme"},
 		{name: "missing host rejected", url: "https://", allowInsecure: false, wantErr: "host"},
+		{name: "userinfo rejected", url: "https://fleet.example.com@attacker.example", allowInsecure: false, wantErr: "userinfo"},
+		{name: "userinfo with password rejected", url: "https://user:pass@attacker.example", allowInsecure: false, wantErr: "userinfo"},
+		{name: "query string rejected", url: "https://fleet.example.com?foo=bar", allowInsecure: false, wantErr: "query"},
+		{name: "fragment rejected", url: "https://fleet.example.com#frag", allowInsecure: false, wantErr: "fragment"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

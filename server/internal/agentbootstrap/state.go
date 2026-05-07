@@ -60,9 +60,13 @@ func LoadState(path string) (*State, bool, error) {
 
 // Writes via temp + fsync + rename + dir-fsync so a power loss can't leave
 // state.yaml truncated nor roll back a rename whose page-cache update never
-// reached disk.
+// reached disk. Refuses to follow a symlink at the state-dir leaf so an
+// attacker can't redirect credential writes via a hijacked path.
 func SaveState(path string, s *State) error {
 	dir := filepath.Dir(path)
+	if info, err := os.Lstat(dir); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("state dir %s is a symlink; refusing to write secrets through it", dir)
+	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create state dir: %w", err)
 	}
