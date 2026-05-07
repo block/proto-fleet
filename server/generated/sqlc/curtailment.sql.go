@@ -17,9 +17,15 @@ import (
 )
 
 const ensureCurtailmentOrgConfig = `-- name: EnsureCurtailmentOrgConfig :one
-WITH ins AS (
+WITH active AS (
+    SELECT id
+    FROM organization
+    WHERE id = $1
+        AND deleted_at IS NULL
+),
+ins AS (
     INSERT INTO curtailment_org_config (org_id)
-    VALUES ($1)
+    SELECT id FROM active
     ON CONFLICT (org_id) DO NOTHING
     RETURNING
         org_id,
@@ -39,15 +45,15 @@ SELECT
 FROM ins
 UNION ALL
 SELECT
-    org_id,
-    max_duration_default_sec,
-    candidate_min_power_w,
-    post_event_cooldown_sec,
-    created_at,
-    updated_at
-FROM curtailment_org_config
-WHERE org_id = $1
-    AND NOT EXISTS (SELECT 1 FROM ins)
+    c.org_id,
+    c.max_duration_default_sec,
+    c.candidate_min_power_w,
+    c.post_event_cooldown_sec,
+    c.created_at,
+    c.updated_at
+FROM curtailment_org_config c
+INNER JOIN active a ON a.id = c.org_id
+WHERE NOT EXISTS (SELECT 1 FROM ins)
 LIMIT 1
 `
 
@@ -63,6 +69,13 @@ type EnsureCurtailmentOrgConfigRow struct {
 // Idempotent read-only backfill: INSERT ... DO NOTHING keeps existing rows
 // untouched (preserves `updated_at` as a real config-change signal); the
 // fallback SELECT returns the row already on disk. Single round trip.
+//
+// Soft-deleted orgs (organization.deleted_at IS NOT NULL) MUST NOT receive
+// a fresh config row from the lazy backfill — the migration seed at deploy
+// time also excludes them, so the lazy path matches that intent. Both the
+// INSERT and the fallback SELECT join `active` (gated on deleted_at IS NULL),
+// so a deleted org returns zero rows and the caller maps sql.ErrNoRows to
+// NotFound (see mapOrgConfigError in sqlstores/curtailment.go).
 func (q *Queries) EnsureCurtailmentOrgConfig(ctx context.Context, orgID int64) (EnsureCurtailmentOrgConfigRow, error) {
 	row := q.queryRow(ctx, q.ensureCurtailmentOrgConfigStmt, ensureCurtailmentOrgConfig, orgID)
 	var i EnsureCurtailmentOrgConfigRow

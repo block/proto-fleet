@@ -208,6 +208,13 @@ func formatExclusionCounters(d *modes.InsufficientLoadDetail) string {
 		{string(curtailment.SkipPowerTelemetryUnreliable), d.ExcludedDeadMonitor},
 		{string(curtailment.SkipUnreachableResidualLoad), d.ExcludedOffline},
 		{string(curtailment.SkipMaintenance), d.ExcludedMaintenance},
+		// Transient-status / data-quality skips. Inserted after maintenance
+		// (preserves the byte-stable test's below→offline→maintenance order)
+		// and before pairing so the message groups status-driven exclusions
+		// together.
+		{string(curtailment.SkipUpdating), d.ExcludedUpdating},
+		{string(curtailment.SkipRebootRequired), d.ExcludedRebootRequired},
+		{string(curtailment.SkipStaleTelemetry), d.ExcludedStale},
 		{string(curtailment.SkipNonActionableStatus), d.ExcludedNonActionable},
 		{string(curtailment.SkipPairing), d.ExcludedPairing},
 		{string(curtailment.SkipCooldown), d.ExcludedCooldown},

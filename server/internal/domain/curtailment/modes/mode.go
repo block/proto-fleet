@@ -43,6 +43,14 @@ type InsufficientLoadDetail struct {
 	ExcludedPhantomLoad    int32
 	ExcludedDeadMonitor    int32
 	ExcludedMaintenance    int32
+	// ExcludedUpdating, ExcludedRebootRequired, ExcludedStale count the
+	// transient-status skip branches in the selector pre-filter so an
+	// insufficient-load response surfaces the real cause when a fleet-wide
+	// firmware rollout (UPDATING) or telemetry outage drops every miner
+	// out of eligibility.
+	ExcludedUpdating       int32
+	ExcludedRebootRequired int32
+	ExcludedStale          int32
 	ExcludedNonActionable  int32
 	ExcludedPairing        int32
 	ExcludedCooldown       int32

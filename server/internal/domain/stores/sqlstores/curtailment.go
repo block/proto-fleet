@@ -26,6 +26,13 @@ func mapOrgConfigError(err error, orgID int64) error {
 	if err == nil {
 		return nil
 	}
+	// EnsureCurtailmentOrgConfig gates both INSERT and fallback SELECT on
+	// organization.deleted_at IS NULL, so soft-deleted (and unknown) orgs
+	// produce sql.ErrNoRows rather than an FK violation. Map it to NotFound
+	// so deleted tenants cannot be revived by Preview read traffic.
+	if errors.Is(err, sql.ErrNoRows) {
+		return fleeterror.NewNotFoundErrorf("organization %d not found", orgID)
+	}
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == pgErrCodeForeignKeyViolation {
 		return fleeterror.NewNotFoundErrorf("organization %d not found", orgID)
@@ -51,10 +58,16 @@ func (s *SQLCurtailmentStore) GetOrgConfig(ctx context.Context, orgID int64) (*m
 	// EnsureCurtailmentOrgConfig is an INSERT ... ON CONFLICT DO NOTHING
 	// with a fallback SELECT in a single CTE — the conflict path stays
 	// read-only so updated_at remains a real config-change signal and
-	// the Preview hot path stays off the WAL.
+	// the Preview hot path stays off the WAL. Both branches join the
+	// `active` CTE (organization.deleted_at IS NULL), so soft-deleted /
+	// unknown orgs return sql.ErrNoRows.
 	row, err := s.GetQueries(ctx).EnsureCurtailmentOrgConfig(ctx, orgID)
 	if errors.Is(err, sql.ErrNoRows) {
-		// READ COMMITTED race: loser's snapshot may miss the winner's INSERT; retry.
+		// Two callers can hit ErrNoRows: (a) READ COMMITTED race where
+		// the loser's snapshot misses the winner's INSERT — a single
+		// retry resolves it once the winner commits; (b) soft-deleted
+		// or unknown org — the retry returns ErrNoRows again, which
+		// mapOrgConfigError converts to NotFound below.
 		row, err = s.GetQueries(ctx).EnsureCurtailmentOrgConfig(ctx, orgID)
 	}
 	if err != nil {

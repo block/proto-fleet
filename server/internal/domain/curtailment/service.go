@@ -245,12 +245,15 @@ func classifyCandidates(cands []*models.Candidate, opts classifyOpts) ([]Candida
 			// COALESCE sentinel for a missing device_status row: treat as
 			// stale, since we can't prove the device is curtail-safe.
 			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipStaleTelemetry})
+			summary.ExcludedStale++
 			continue
 		case "UPDATING":
 			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipUpdating})
+			summary.ExcludedUpdating++
 			continue
 		case "REBOOT_REQUIRED":
 			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipRebootRequired})
+			summary.ExcludedRebootRequired++
 			continue
 		case "OFFLINE":
 			// Unreachable residual load: counted in the rejection summary
@@ -274,7 +277,11 @@ func classifyCandidates(cands []*models.Candidate, opts classifyOpts) ([]Candida
 			// Admitted by override pair; fall through to freshness.
 		}
 		if c.LatestMetricsAt == nil {
+			// Same SkipStaleTelemetry reason as the empty-device_status
+			// sentinel above: both signal "no usable telemetry sample,"
+			// just from different sources. Both funnel into ExcludedStale.
 			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipStaleTelemetry})
+			summary.ExcludedStale++
 			continue
 		}
 		if _, cooled := opts.CooldownDevices[c.DeviceIdentifier]; cooled {

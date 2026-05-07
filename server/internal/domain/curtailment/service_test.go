@@ -526,12 +526,20 @@ func TestService_Preview_InsufficientLoad_DetailCarriesExclusionCounts(t *testin
 	store := newFakeStore()
 	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
 	store.candidatesByOrg[orgID] = []*models.Candidate{
-		// Only 3 kW available, target 100 kW → insufficient.
+		// Only 3 kW eligible, target 100 kW → insufficient.
 		minerWithEff("a", 1500, 100, 40),
 		minerWithEff("b", 1500, 100, 40),
-		// Plus a few skipped reasons that should appear in the summary.
+		// Plus skipped reasons that should appear in the summary so the
+		// operator sees the real cause when InsufficientLoad fires.
 		miner("offline-1", "OFFLINE", "PAIRED", 0, 0),
 		miner("offline-2", "OFFLINE", "PAIRED", 0, 0),
+		// Transient-status branches: UPDATING / REBOOT_REQUIRED / stale.
+		// Each must increment its dedicated counter — without that, a
+		// fleet-wide firmware rollout reports zero exclusions on Insufficient.
+		miner("updating-1", "UPDATING", "PAIRED", 0, 0),
+		miner("reboot-1", "REBOOT_REQUIRED", "PAIRED", 0, 0),
+		miner("empty-status", "", "PAIRED", 0, 0),
+		staleMiner("stale-metrics"),
 	}
 
 	svc := NewService(store)
@@ -545,6 +553,11 @@ func TestService_Preview_InsufficientLoad_DetailCarriesExclusionCounts(t *testin
 	assert.InDelta(t, 3.0, plan.InsufficientLoadDetail.AvailableKW, 0.001)
 	assert.Equal(t, 100.0, plan.InsufficientLoadDetail.RequestedKW)
 	assert.Equal(t, int32(2), plan.InsufficientLoadDetail.ExcludedOffline)
+	assert.Equal(t, int32(1), plan.InsufficientLoadDetail.ExcludedUpdating)
+	assert.Equal(t, int32(1), plan.InsufficientLoadDetail.ExcludedRebootRequired)
+	// Both stale paths (empty device_status sentinel and nil
+	// LatestMetricsAt) funnel into one ExcludedStale counter.
+	assert.Equal(t, int32(2), plan.InsufficientLoadDetail.ExcludedStale)
 	assert.Equal(t, int32(1500), plan.InsufficientLoadDetail.CandidateMinPowerW)
 
 	// Plan-level fields must reflect the empty-Selected reality on the

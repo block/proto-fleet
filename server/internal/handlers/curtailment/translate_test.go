@@ -25,6 +25,12 @@ func TestToInsufficientLoadError_IncludesAllNonZeroCounters(t *testing.T) {
 		ExcludedBelowThreshold: 2,
 		ExcludedPhantomLoad:    3,
 		ExcludedDeadMonitor:    1,
+		// Transient-status / data-quality counters: these were previously
+		// uncounted in classifyCandidates so the message reported zero
+		// exclusions during a fleet-wide firmware rollout. Pinned here.
+		ExcludedUpdating:       5,
+		ExcludedRebootRequired: 2,
+		ExcludedStale:          7,
 		ExcludedCapabilityMiss: 4,
 		// Other counters intentionally zero.
 	}
@@ -47,6 +53,9 @@ func TestToInsufficientLoadError_IncludesAllNonZeroCounters(t *testing.T) {
 		"below_candidate_min_power_w=2",
 		"phantom_load_no_hash=3",
 		"power_telemetry_unreliable=1",
+		"updating=5",
+		"reboot_required=2",
+		"stale_telemetry=7",
 		"curtail_full_unsupported=4",
 	} {
 		assert.Contains(t, msg, want, "non-zero counter %q must appear in message", want)
@@ -54,7 +63,7 @@ func TestToInsufficientLoadError_IncludesAllNonZeroCounters(t *testing.T) {
 
 	// Zero counters are suppressed.
 	for _, omit := range []string{
-		"unreachable_residual_load=", "maintenance=", "pairing=", "cooldown=", "active_event=",
+		"unreachable_residual_load=", "maintenance=", "pairing=", "cooldown=", "active_event=", "non_actionable_status=",
 	} {
 		assert.NotContains(t, msg, omit, "zero counter %q must not appear", omit)
 	}

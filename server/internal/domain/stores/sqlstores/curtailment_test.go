@@ -1,6 +1,7 @@
 package sqlstores
 
 import (
+	"database/sql"
 	"errors"
 	"testing"
 
@@ -22,6 +23,20 @@ func TestMapOrgConfigError(t *testing.T) {
 	t.Run("nil error returns nil", func(t *testing.T) {
 		t.Parallel()
 		assert.NoError(t, mapOrgConfigError(nil, orgID))
+	})
+
+	t.Run("ErrNoRows surfaces as NotFound", func(t *testing.T) {
+		t.Parallel()
+		// EnsureCurtailmentOrgConfig gates both branches on
+		// organization.deleted_at IS NULL, so soft-deleted (and
+		// unknown) orgs come through as ErrNoRows rather than an FK
+		// violation. Pin the mapping so deleted tenants surface as
+		// NotFound, not Internal.
+		got := mapOrgConfigError(sql.ErrNoRows, orgID)
+		require.Error(t, got)
+		assert.True(t, fleeterror.IsNotFoundError(got),
+			"ErrNoRows must surface as NotFound; got %v", got)
+		assert.Contains(t, got.Error(), "42", "error must echo the orgID")
 	})
 
 	t.Run("FK violation surfaces as NotFound", func(t *testing.T) {
