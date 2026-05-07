@@ -97,10 +97,8 @@ func (e *EnrollCmd) runLocked(c *Context, stdin io.Reader, stdout, stderr io.Wri
 		MinerSigningPublicKeyHex:  hex.EncodeToString(mPub),
 	}
 
-	// Persist immediately: a Ctrl-C between here and the api_key paste would
-	// otherwise lose the freshly-generated keys while the server holds an
-	// orphaned agent row that can't be re-registered. Operator recovers with
-	// `fleet-agent refresh --api-key=<paste>`.
+	// Persist before the api_key prompt so a Ctrl-C cannot orphan the
+	// server-side agent row; recovery is `refresh --api-key=<paste>`.
 	if err := saveState(path, state); err != nil {
 		return err
 	}

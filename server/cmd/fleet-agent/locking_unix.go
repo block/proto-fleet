@@ -9,10 +9,8 @@ import (
 	"syscall"
 )
 
-// withStateLock acquires an exclusive flock on <dir>/state.lock for the
-// duration of fn. enroll and refresh both wrap their full
-// load/handshake/save sequences in this lock so a slower writer cannot
-// clobber a newer state.yaml after both refreshes complete server-side.
+// withStateLock acquires an exclusive flock on <dir>/state.lock for fn,
+// so two concurrent refreshes can't clobber a newer state.yaml.
 func withStateLock(dir string, fn func() error) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create state dir: %w", err)

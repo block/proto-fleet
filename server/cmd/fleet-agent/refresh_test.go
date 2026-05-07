@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"encoding/hex"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -155,7 +156,8 @@ func TestRefreshCmd_PreservesStateOnAPIKeyRejected(t *testing.T) {
 func TestRefreshCmd_PreservesStateOnSignatureFailure(t *testing.T) {
 	t.Parallel()
 
-	// Arrange
+	// Arrange: state's public and private keys belong to different keypairs,
+	// so CompleteAuthHandshake's ed25519.Verify will fail.
 	dir := t.TempDir()
 	pub, _, err := generateKeypair()
 	require.NoError(t, err)
@@ -259,17 +261,24 @@ func TestRefreshCmd_ConcurrentRefreshesSerialize(t *testing.T) {
 	}))
 
 	const N = 5
-	errs := make(chan error, N)
-	for range N {
+	var wg sync.WaitGroup
+	errs := make([]error, N)
+	for i := range N {
+		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			cmd := RefreshCmd{}
-			errs <- cmd.run(&Context{StateDir: dir}, &bytes.Buffer{})
+			errs[i] = cmd.run(&Context{StateDir: dir}, &bytes.Buffer{})
 		}()
 	}
 
 	// Act
-	for range N {
-		require.NoError(t, <-errs)
+	wg.Wait()
+
+	// Assert (collected after all goroutines join so a require.NoError
+	// FailNow cannot leak still-running goroutines).
+	for _, e := range errs {
+		require.NoError(t, e)
 	}
 
 	// Assert

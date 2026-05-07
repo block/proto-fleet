@@ -54,15 +54,12 @@ func (r *RefreshCmd) runLocked(c *Context, w io.Writer) error {
 	st.APIKey = attemptedKey
 
 	if err := runHandshake(context.Background(), newGatewayClient(st.ServerURL), st); err != nil {
-		// Server-side Unauthenticated covers api_key revocation, identity
-		// pubkey mismatch, expired challenge, and signature failure;
-		// refresh cannot tell these apart from the response. Preserve
-		// local state on every failure mode and let the operator decide
-		// whether to re-enroll. Restore the in-memory api_key so a
-		// subsequent saveState (none on this path, but defensive) can't
-		// persist a rejected override.
+		// Unauthenticated is ambiguous (revocation, identity mismatch,
+		// expired challenge, bad signature). Preserve local state on
+		// every failure; restore in-memory api_key so a future defensive
+		// saveState cannot persist a rejected override.
 		st.APIKey = storedKey
-		if overrideUsed && overrideKey != storedKey {
+		if overrideUsed && overrideKey != storedKey && errors.Is(err, errAPIKeyRejected) {
 			return fmt.Errorf("api_key override rejected; stored credentials preserved, retry without --api-key: %w", err)
 		}
 		return err
