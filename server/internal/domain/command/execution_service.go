@@ -483,7 +483,10 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 	case commandtype.Curtail:
 		var p dto.CurtailPayload
 		if curtailExtractErr := json.Unmarshal(message.Payload, &p); curtailExtractErr != nil {
-			return fleeterror.NewInternalErrorf("error unmarshalling curtail payload: %v", curtailExtractErr)
+			// FailedPrecondition (not Internal) so a malformed payload is
+			// permanently failed on the first attempt rather than retrying
+			// MaxFailureRetries times against a deterministic input bug.
+			return fleeterror.NewFailedPreconditionErrorf("error unmarshalling curtail payload: %v", curtailExtractErr)
 		}
 		if p.Level < int32(sdk.CurtailLevelEfficiency) || p.Level > int32(sdk.CurtailLevelFull) {
 			return fleeterror.NewFailedPreconditionErrorf("invalid curtail level %d: must be %d (Efficiency) or %d (Full)", p.Level, sdk.CurtailLevelEfficiency, sdk.CurtailLevelFull)

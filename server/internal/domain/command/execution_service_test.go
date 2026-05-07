@@ -430,6 +430,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 
 		err := svc.executeCommandOnDevice(t.Context(), commandtype.Curtail, message)
 		require.Error(t, err)
+		assert.True(t, fleeterror.IsFailedPreconditionError(err), "expected FailedPrecondition, got %v", err)
 		assert.Contains(t, err.Error(), "unmarshalling curtail payload")
 	})
 
