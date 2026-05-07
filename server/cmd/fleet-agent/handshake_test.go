@@ -30,12 +30,16 @@ type fakeAgentGateway struct {
 	challenge        []byte
 	sessionToken     string
 	sessionExpiresAt time.Time
+	registerError    error
 
 	registered        bool
 	signatureVerified bool
 }
 
 func (f *fakeAgentGateway) Register(_ context.Context, req *connect.Request[pb.RegisterRequest]) (*connect.Response[pb.RegisterResponse], error) {
+	if f.registerError != nil {
+		return nil, f.registerError
+	}
 	if f.expectedCode != "" && req.Msg.GetEnrollmentToken() != f.expectedCode {
 		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("invalid enrollment_token"))
 	}

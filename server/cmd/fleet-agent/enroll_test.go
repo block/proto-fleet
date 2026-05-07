@@ -3,11 +3,13 @@ package main
 import (
 	"bytes"
 	"crypto/ed25519"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -110,6 +112,87 @@ func TestEnrollCmd_RejectsEmptyEnrollmentCode(t *testing.T) {
 	assert.Contains(t, err.Error(), "empty enrollment code")
 	_, exists, _ := loadState(filepath.Join(dir, "state.yaml"))
 	assert.False(t, exists, "state must not be created when the enrollment code is empty")
+}
+
+func TestEnrollCmd_TranslatesRegisterErrors(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name        string
+		registerErr error
+		wantSub     string
+		wantNotSub  string
+	}{
+		{
+			name:        "already_exists -> recovery hint",
+			registerErr: connect.NewError(connect.CodeAlreadyExists, errors.New("name in use")),
+			wantSub:     "revoke the prior agent",
+		},
+		{
+			name:        "failed_precondition -> recovery hint",
+			registerErr: connect.NewError(connect.CodeFailedPrecondition, errors.New("agent identity or name already in use")),
+			wantSub:     "revoke the prior agent",
+		},
+		{
+			name:        "other code -> generic register: prefix",
+			registerErr: connect.NewError(connect.CodeInternal, errors.New("boom")),
+			wantSub:     "register:",
+			wantNotSub:  "revoke the prior agent",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Arrange
+			dir := t.TempDir()
+			fake := &fakeAgentGateway{registerError: tc.registerErr}
+			srv := newFakeServer(t, fake)
+			cmd := &EnrollCmd{
+				ServerURL:              srv.URL,
+				Name:                   "agent-x",
+				AllowInsecureTransport: true,
+			}
+
+			// Act
+			err := cmd.run(&Context{StateDir: dir}, strings.NewReader("any-code\n"), &bytes.Buffer{}, &bytes.Buffer{})
+
+			// Assert
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantSub)
+			if tc.wantNotSub != "" {
+				assert.NotContains(t, err.Error(), tc.wantNotSub)
+			}
+		})
+	}
+}
+
+func TestEnrollCmd_PrintsForceWarningWhenStateIsPopulated(t *testing.T) {
+	t.Parallel()
+
+	// Arrange
+	dir := t.TempDir()
+	require.NoError(t, saveState(filepath.Join(dir, "state.yaml"), &State{AgentID: 42}))
+	fake := &fakeAgentGateway{
+		registerError: connect.NewError(connect.CodeFailedPrecondition, errors.New("name in use")),
+	}
+	srv := newFakeServer(t, fake)
+	cmd := &EnrollCmd{
+		ServerURL:              srv.URL,
+		Name:                   "the-agent",
+		Force:                  true,
+		AllowInsecureTransport: true,
+	}
+	var stderr bytes.Buffer
+
+	// Act
+	err := cmd.run(&Context{StateDir: dir}, strings.NewReader("any-code\n"), &bytes.Buffer{}, &stderr)
+
+	// Assert (Register fails by design; the warning must have fired before that)
+	require.Error(t, err)
+	assert.Contains(t, stderr.String(), "warning: --force")
+	assert.Contains(t, stderr.String(), "agent_id=42")
+	assert.Contains(t, stderr.String(), `"the-agent"`)
 }
 
 func TestValidateServerURL(t *testing.T) {

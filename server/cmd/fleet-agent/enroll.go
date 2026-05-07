@@ -66,6 +66,10 @@ func (e *EnrollCmd) runLocked(c *Context, stdin io.Reader, stdout, stderr io.Wri
 		name = host
 	}
 
+	if exists && st.AgentID != 0 && e.Force {
+		_, _ = fmt.Fprintf(stderr, "warning: --force discarded local state for agent_id=%d. If %q is still registered server-side, Register will fail; revoke the prior agent in the operator UI first or pass --name=<unique-value>.\n", st.AgentID, name)
+	}
+
 	secrets := newSecretReader(stdin, stderr)
 	code, err := secrets.read("Paste the one-time enrollment code from the operator UI:\n> ")
 	if err != nil {
@@ -83,8 +87,9 @@ func (e *EnrollCmd) runLocked(c *Context, stdin io.Reader, stdout, stderr io.Wri
 		MinerSigningPubkey: mPub,
 	}))
 	if err != nil {
-		if connect.CodeOf(err) == connect.CodeAlreadyExists {
-			return fmt.Errorf("agent name %q is already registered; pass --name=<unique-value> or revoke the prior agent server-side: %w", name, err)
+		code := connect.CodeOf(err)
+		if code == connect.CodeAlreadyExists || code == connect.CodeFailedPrecondition {
+			return fmt.Errorf("register rejected by server: %w\n  recovery: revoke the prior agent in the operator UI (then re-run with --force), or pass --name=<unique-value> to register as a new agent. If the enrollment code was already used or expired, request a fresh one from the operator UI", err)
 		}
 		return fmt.Errorf("register: %w", err)
 	}
