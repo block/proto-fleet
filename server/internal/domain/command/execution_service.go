@@ -485,6 +485,9 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 		if curtailExtractErr := json.Unmarshal(message.Payload, &p); curtailExtractErr != nil {
 			return fleeterror.NewInternalErrorf("error unmarshalling curtail payload: %v", curtailExtractErr)
 		}
+		if p.Level < int32(sdk.CurtailLevelEfficiency) || p.Level > int32(sdk.CurtailLevelFull) {
+			return fleeterror.NewFailedPreconditionErrorf("invalid curtail level %d: must be %d (Efficiency) or %d (Full)", p.Level, sdk.CurtailLevelEfficiency, sdk.CurtailLevelFull)
+		}
 		err = minerInfo.Curtail(ctx, sdk.CurtailRequest{Level: sdk.CurtailLevel(p.Level)})
 	case commandtype.Uncurtail:
 		err = minerInfo.Uncurtail(ctx, sdk.UncurtailRequest{})

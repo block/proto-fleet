@@ -145,8 +145,11 @@ func actorTypeFromSession(info *session.Info) activitymodels.ActorType {
 	if info == nil {
 		return ""
 	}
-	if info.Actor == session.ActorScheduler {
+	switch info.Actor {
+	case session.ActorScheduler:
 		return activitymodels.ActorScheduler
+	case session.ActorCurtailment:
+		return activitymodels.ActorCurtailment
 	}
 	return ""
 }
