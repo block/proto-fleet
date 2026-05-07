@@ -110,7 +110,7 @@ func TestRefreshCmd_RequiresApiKey(t *testing.T) {
 	assert.Contains(t, err.Error(), "no api_key")
 }
 
-func TestRefreshCmd_WipesStateOnAPIKeyRejected(t *testing.T) {
+func TestRefreshCmd_PreservesStateOnAPIKeyRejected(t *testing.T) {
 	t.Parallel()
 
 	// Arrange
@@ -123,6 +123,7 @@ func TestRefreshCmd_WipesStateOnAPIKeyRejected(t *testing.T) {
 		challenge:      bytes.Repeat([]byte{0x55}, 32),
 	}
 	srv := newFakeServer(t, fake)
+	staleExpiry := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
 	require.NoError(t, saveState(filepath.Join(dir, "state.yaml"), &State{
 		ServerURL:              srv.URL,
 		AllowInsecureTransport: true,
@@ -132,7 +133,7 @@ func TestRefreshCmd_WipesStateOnAPIKeyRejected(t *testing.T) {
 		IdentityPublicKeyHex:   hex.EncodeToString(pub),
 		APIKey:                 "wrong-key",
 		SessionToken:           "stale-session",
-		SessionExpiresAt:       time.Now().Add(time.Hour),
+		SessionExpiresAt:       staleExpiry,
 	}))
 	cmd := RefreshCmd{}
 
@@ -143,9 +144,12 @@ func TestRefreshCmd_WipesStateOnAPIKeyRejected(t *testing.T) {
 	require.Error(t, err)
 	loaded, _, err := loadState(filepath.Join(dir, "state.yaml"))
 	require.NoError(t, err)
-	assert.Empty(t, loaded.APIKey)
-	assert.Empty(t, loaded.SessionToken)
-	assert.True(t, loaded.SessionExpiresAt.IsZero())
+	// Unauthenticated is ambiguous (revocation vs identity mismatch vs
+	// proxy/transient); refresh must preserve local state and surface
+	// the error rather than self-destruct on a single failure.
+	assert.Equal(t, "wrong-key", loaded.APIKey)
+	assert.Equal(t, "stale-session", loaded.SessionToken)
+	assert.WithinDuration(t, staleExpiry, loaded.SessionExpiresAt, time.Second)
 }
 
 func TestRefreshCmd_PreservesStateOnSignatureFailure(t *testing.T) {

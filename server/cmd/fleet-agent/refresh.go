@@ -53,22 +53,17 @@ func (r *RefreshCmd) runLocked(c *Context, w io.Writer) error {
 	}
 	st.APIKey = attemptedKey
 
-	client := newGatewayClient(st.ServerURL)
-	if err := runHandshake(context.Background(), client, st); err != nil {
-		if errors.Is(err, errAPIKeyRejected) {
-			// If the rejected key was an override that differs from the
-			// stored key, the stored key may still be valid; preserve
-			// disk state and surface a clear error.
-			if overrideUsed && overrideKey != storedKey && storedKey != "" {
-				return fmt.Errorf("api_key override rejected; stored credentials preserved, retry without --api-key: %w", err)
-			}
-			st.APIKey = ""
-			st.SessionToken = ""
-			st.SessionExpiresAt = time.Time{}
-			if saveErr := saveState(path, st); saveErr != nil {
-				return fmt.Errorf("api_key rejected; failed to clear local credentials: %w", saveErr)
-			}
-			return fmt.Errorf("api_key rejected; cleared local credentials, re-enroll the agent: %w", err)
+	if err := runHandshake(context.Background(), newGatewayClient(st.ServerURL), st); err != nil {
+		// Server-side Unauthenticated covers api_key revocation, identity
+		// pubkey mismatch, expired challenge, and signature failure;
+		// refresh cannot tell these apart from the response. Preserve
+		// local state on every failure mode and let the operator decide
+		// whether to re-enroll. Restore the in-memory api_key so a
+		// subsequent saveState (none on this path, but defensive) can't
+		// persist a rejected override.
+		st.APIKey = storedKey
+		if overrideUsed && overrideKey != storedKey {
+			return fmt.Errorf("api_key override rejected; stored credentials preserved, retry without --api-key: %w", err)
 		}
 		return err
 	}

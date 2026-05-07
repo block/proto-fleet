@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"connectrpc.com/connect"
+	"golang.org/x/term"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/agentgateway/v1"
 )
@@ -111,7 +112,7 @@ func (e *EnrollCmd) runLocked(c *Context, stdin io.Reader, stdout, stderr io.Wri
 	apiKey := strings.TrimSpace(e.APIKey)
 	if apiKey == "" {
 		_, _ = fmt.Fprintf(stderr, "Once you confirm enrollment, the UI will display an api_key. Paste it here:\n> ")
-		apiKey, err = readAPIKey(stdin)
+		apiKey, err = readAPIKeyMasked(stdin, stderr)
 		if err != nil {
 			return err
 		}
@@ -165,6 +166,25 @@ func isLoopbackHost(host string) bool {
 		return true
 	}
 	return false
+}
+
+// readAPIKeyMasked uses term.ReadPassword when stdin is a TTY so the
+// pasted key does not echo into scrollback / tmux logs / screen
+// recordings. Piped input (scripted enrollment, tests) falls through to
+// scanner, where echo isn't applicable.
+func readAPIKeyMasked(stdin io.Reader, stderr io.Writer) (string, error) {
+	if f, ok := stdin.(*os.File); ok {
+		fd := int(f.Fd())
+		if term.IsTerminal(fd) {
+			b, err := term.ReadPassword(fd)
+			_, _ = fmt.Fprintln(stderr)
+			if err != nil {
+				return "", fmt.Errorf("read api key from terminal: %w", err)
+			}
+			return strings.TrimSpace(string(b)), nil
+		}
+	}
+	return readAPIKey(stdin)
 }
 
 func readAPIKey(r io.Reader) (string, error) {
