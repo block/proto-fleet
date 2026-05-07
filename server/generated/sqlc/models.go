@@ -876,12 +876,11 @@ type User struct {
 }
 
 type UserOrganization struct {
-	ID                         int64
-	UserID                     int64
-	OrganizationID             int64
-	RoleID                     int64
-	CreatedAt                  time.Time
-	UpdatedAt                  time.Time
-	DeletedAt                  sql.NullTime
-	MigrationBannerDismissedAt sql.NullTime
+	ID             int64
+	UserID         int64
+	OrganizationID int64
+	RoleID         int64
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	DeletedAt      sql.NullTime
 }

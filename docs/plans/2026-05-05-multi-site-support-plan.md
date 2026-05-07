@@ -253,23 +253,12 @@ user action**. The migration:
 - Blocks the upgrade deployment if any pairing or discovery job is in
   flight.
 
-**Migration banner UX.**
-
-- **When:** first login after upgrade ships, for any user with
-  site-management access. Both ADMIN and SUPER_ADMIN can create
-  sites, so both see the banner.
-- **Where:** persistent banner at the top of every protoFleet page
-  until dismissed.
-- **Copy (draft):** "Multi-site support is now available. Create
-  sites to organize miners by physical location. Your existing rack
-  zones are now editable as buildings — assign them to sites once
-  you've created them." Buttons: [Manage sites] [Dismiss].
-- **Persistence:** server-side via
-  `user_organization.migration_banner_dismissed_at`. Server-side was
-  chosen over localStorage so the banner doesn't reappear in a new
-  browser, incognito window, or a different device. Each user
-  dismisses independently. Once dismissed, the banner is gone
-  forever for that user/org pair.
+No migration banner ships with this rollout. The fleet doesn't yet
+have a user base large enough to warrant a one-time educational
+prompt; an upgraded operator discovers `/settings/sites` from the
+settings nav and the auto-promoted "Unassigned buildings" surface
+inside it. A coach-mark / onboarding nudge can be revisited later
+if real-world usage shows operators missing the feature.
 
 After upgrade, an existing operator with N zones sees their org in
 site-less form: miner list shows no site column, `/settings/sites` is
@@ -457,16 +446,6 @@ New entities and relationships introduced:
   promoting each unique non-null `zone` string per org into a
   building row (with `site_id = NULL`), then pointing racks at their
   building. Racks with `zone IS NULL` get `building_id = NULL`.
-
-- **`user_organization.migration_banner_dismissed_at`** — nullable
-  timestamp gating the upgrade banner. Per-user-per-org. See J5.
-  **Default value `CURRENT_TIMESTAMP` on the column definition** so
-  any `user_organization` row inserted *after* this migration is
-  born "already dismissed". Existing rows are explicitly left at
-  NULL by the migration, which is what triggers the banner — only
-  users that existed at upgrade time see it. Users newly added to
-  an upgraded org post-migration get the column default and don't
-  see the banner.
 
 - **History-bearing tables get a nullable `site_id` column** so
   per-site filtering on Phase 2 dashboards uses the row-stamped
@@ -666,9 +645,6 @@ names land in the technical plan.
 - **Page header / app shell** — SitePicker mounted; pages read
   active site from localStorage and scope reads accordingly.
 - **Settings layout** — adds "Sites" entry to the settings nav.
-- **Migration banner** — global banner shown on first login
-  post-upgrade for any user with site-mgmt access; dismissed via
-  the new `migration_banner_dismissed_at` field.
 
 **Components / patterns reused:**
 
@@ -688,17 +664,16 @@ flag mechanism.
 
 Goal: Block ops can create 3+ sites, organize them with buildings,
 assign existing miners to sites via bulk action, see the site column
-and filter on the miner list. No topbar yet, no banner yet, no
-discovery segmentation yet. App fully functional in site-less form
-for orgs that don't opt in.
+and filter on the miner list. No topbar yet, no discovery
+segmentation yet. App fully functional in site-less form for orgs
+that don't opt in.
 
 - Migrations: `site` (with location, timezone, network config,
   power-contract columns); `building` (with nullable `site_id` and
   layout columns); `device.site_id` nullable; `device_set_rack.building_id`
   nullable with zone-promotion backfill (each unique non-null zone
   string per org becomes a building with `site_id = NULL`; racks
-  point at their building);
-  `user_organization.migration_banner_dismissed_at`.
+  point at their building).
 - `SiteService` proto + handlers: list (returns device + building
   counts), create, update, delete (soft, cascade-unassigns devices
   and buildings; activity log captures impact); reassign-devices.
@@ -721,10 +696,6 @@ for orgs that don't opt in.
   (`activity_log`, `miner_state_snapshots`,
   `command_on_device_log`, errors, telemetry); writers populate
   from `device.site_id` at write time. Existing rows stay NULL.
-- `user_organization.migration_banner_dismissed_at` defaults to
-  `CURRENT_TIMESTAMP` so post-migration user-org rows don't see
-  the banner; existing rows are explicitly left at NULL during
-  migration so they do.
 - `/settings/sites` page rendering empty state (zero sites) or the
   "All Sites" layout (per-site sections + unassigned buildings
   section). Inline edit modals. Site create modal with optional
@@ -747,10 +718,9 @@ assign-buildings, assign-miners workflow in <30 minutes from
 `/settings/sites` and the miner list, no engineer help. An org that
 ignores the feature continues operating site-less with no regressions.
 
-### Phase 2 — topbar, banner, site-segmented discovery
+### Phase 2 — topbar and site-segmented discovery
 
-Goal: every page is site-aware, existing orgs see a one-time
-educational prompt, pairing flow gains site segmentation.
+Goal: every page is site-aware, pairing flow gains site segmentation.
 
 - Topbar SitePicker replaces the `LocationSelector` placeholder.
   localStorage-backed active-site selection. Hidden when org has
@@ -761,7 +731,6 @@ educational prompt, pairing flow gains site segmentation.
   row-stamped `site_id` (added in Phase 1), not the device's
   *current* `site_id`. Pre-multi-site rows surface in a "(no
   site)" bucket and are excluded from specific-site filters.
-- Migration banner UI keyed off `migration_banner_dismissed_at`.
 - Discovery results segmented by site network config: each
   discovered miner is grouped under the site whose IP range caught
   it; operator can drag-and-drop between site buckets before
@@ -774,8 +743,7 @@ educational prompt, pairing flow gains site segmentation.
   Phase 1's `building_id` migration).
 - Polish: multi-select on bulk reassign, undo, batch progress.
 
-Acceptance: an existing org sees the banner exactly once and can
-dismiss it; pairing into a specific site works without a separate
+Acceptance: pairing into a specific site works without a separate
 post-pair assignment step.
 
 ### Phase 3 — site energy statistics
