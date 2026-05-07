@@ -75,7 +75,7 @@ type SelectedDevice struct {
 	EfficiencyJH     float64
 }
 
-// BuildPlan runs the v1 selection pipeline (dual-signal filter, rank by
+// BuildPlan runs the selection pipeline (dual-signal filter, rank by
 // worst avg_efficiency first, hand off to the mode for the stop condition).
 // `preFiltered` carries upstream skips (status/pairing/cooldown/capability)
 // through to the Plan's Skipped list unchanged.

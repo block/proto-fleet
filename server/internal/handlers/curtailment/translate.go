@@ -22,7 +22,7 @@ func toPreviewRequest(msg *pb.PreviewCurtailmentPlanRequest, orgID int64) (curta
 	if msg.GetMode() != pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW &&
 		msg.GetMode() != pb.CurtailmentMode_CURTAILMENT_MODE_UNSPECIFIED {
 		return curtailment.PreviewRequest{}, fleeterror.NewInvalidArgumentErrorf(
-			"mode %s is not supported in v1; only FIXED_KW",
+			"mode %s is not supported; only FIXED_KW",
 			msg.GetMode().String(),
 		)
 	}

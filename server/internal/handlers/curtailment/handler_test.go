@@ -20,7 +20,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
 )
 
-// Non-admin-gated v1 routes are wired and return CodeUnimplemented when
+// Non-admin-gated routes are wired and return CodeUnimplemented when
 // called without override fields. AdminTerminateEvent's Unimplemented body
 // is covered by TestHandler_AdminTerminateEventRoleGate (admin/super-admin
 // subcases), since its admin-role gate fires before the body.

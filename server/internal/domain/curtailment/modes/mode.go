@@ -1,5 +1,5 @@
-// Package modes provides pluggable mode-specific selection (v1: FIXED_KW;
-// closed-loop modes plug into Mode without touching the selector).
+// Package modes provides pluggable mode-specific selection. Closed-loop
+// modes plug into Mode without touching the selector.
 package modes
 
 // Candidate is the per-device input handed to a mode after ranking.

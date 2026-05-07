@@ -1,4 +1,4 @@
-// Package curtailment wires the v1 RPC surface. PreviewCurtailmentPlan is
+// Package curtailment wires the RPC surface. PreviewCurtailmentPlan is
 // implemented; the remaining RPCs return Unimplemented and land in follow-up
 // work (Start + reconciler, Stop + restore, read APIs + audit).
 package curtailment
@@ -22,7 +22,7 @@ const (
 	actionTerminateEvents      = "terminate curtailment events"
 )
 
-// Handler implements the curtailment v1 RPC surface. service=nil keeps the
+// Handler implements the curtailment RPC surface. service=nil keeps the
 // stub-level tests' Unimplemented contract; populated wires the real impl.
 type Handler struct {
 	service *curtailment.Service
