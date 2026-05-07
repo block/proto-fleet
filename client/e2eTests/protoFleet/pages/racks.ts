@@ -6,6 +6,7 @@ import { ModalMinerSelectionList } from "./components/modalMinerSelectionList";
 export interface RackSelectorMiner {
   ipAddress: string;
   sortName: string;
+  model: string;
 }
 
 export class RacksPage extends BasePage {
@@ -95,7 +96,6 @@ export class RacksPage extends BasePage {
     await this.page.getByTestId("modal").getByTestId("filter-dropdown-Model").click();
     const popover = this.page.getByTestId("dropdown-filter-popover");
     await expect(popover).toBeVisible();
-    await expect(popover).toHaveCSS("opacity", "1");
     await this.clickDropdownFilterOption(popover, type);
     await popover.getByRole("button", { name: "Apply" }).click();
     await expect(popover).toBeHidden();
@@ -113,6 +113,7 @@ export class RacksPage extends BasePage {
       miners.push({
         ipAddress: await this.modalMinerList.getCellTextByIndex(i, "ipAddress"),
         sortName: await this.modalMinerList.getCellTextByIndex(i, "name"),
+        model: await this.modalMinerList.getCellTextByIndex(i, "type"),
       });
     }
 
@@ -126,6 +127,7 @@ export class RacksPage extends BasePage {
       miners.push({
         ipAddress: await this.modalMinerList.getCellTextByIndex(index, "ipAddress"),
         sortName: await this.modalMinerList.getCellTextByIndex(index, "name"),
+        model: await this.modalMinerList.getCellTextByIndex(index, "type"),
       });
     }
 

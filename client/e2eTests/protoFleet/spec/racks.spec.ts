@@ -428,8 +428,11 @@ test.describe("Racks", () => {
   test("Rack overview actions menu manages power for assigned rig miners", async ({ racksPage, minersPage, page }) => {
     let rackLabel = "";
     let selectedMiners: RackSelectorMiner[] = [];
+    let rackDeviceIdentifiers: string[] = [];
 
     await test.step("Create and save a new rack with two rig miners", async () => {
+      const saveRackRequestPromise = page.waitForRequest(/SaveRack/);
+
       await racksPage.clickAddRackButton();
       await racksPage.inputZone(AUTOMATION_ZONE);
 
@@ -443,9 +446,16 @@ test.describe("Racks", () => {
 
       selectedMiners = await addSelectableRigMinersToSlots(racksPage, 2, [1, 2]);
       test.expect(selectedMiners).toHaveLength(2);
+      test.expect(selectedMiners.every((miner) => miner.model === PROTO_RIG_MODEL)).toBe(true);
 
       await racksPage.clickSaveRack();
+
+      const saveRackRequest = await saveRackRequestPromise;
+      const saveRackRequestBody = saveRackRequest.postDataJSON();
+      rackDeviceIdentifiers = saveRackRequestBody.deviceSelector.deviceList.deviceIdentifiers;
+
       await racksPage.validateRackToast(rackLabel);
+      test.expect(rackDeviceIdentifiers).toHaveLength(2);
     });
 
     await test.step("Open the rack overview and validate assigned slots", async () => {
@@ -473,6 +483,9 @@ test.describe("Racks", () => {
       const request = await requestPromise;
       const response = await responsePromise;
       const requestBody = request.postDataJSON();
+      const targetedDeviceIdentifiers = requestBody.deviceSelector.includeDevices.deviceIdentifiers;
+      const sortedTargetedDeviceIdentifiers = [...targetedDeviceIdentifiers].sort();
+      const sortedRackDeviceIdentifiers = [...rackDeviceIdentifiers].sort();
 
       test.expect(request.method()).toBe("POST");
       test.expect(requestBody).toHaveProperty("performanceMode");
@@ -480,7 +493,7 @@ test.describe("Racks", () => {
       test.expect(requestBody).toHaveProperty("deviceSelector");
       test.expect(requestBody.deviceSelector).toHaveProperty("includeDevices");
       test.expect(requestBody.deviceSelector.includeDevices).toHaveProperty("deviceIdentifiers");
-      test.expect(requestBody.deviceSelector.includeDevices.deviceIdentifiers).toHaveLength(2);
+      test.expect(sortedTargetedDeviceIdentifiers).toEqual(sortedRackDeviceIdentifiers);
       test.expect(response.status()).toBe(200);
     });
   });
