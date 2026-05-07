@@ -29,11 +29,11 @@ type RegisterParams struct {
 }
 
 // RegisterResult is the output of a successful Register: a partial State
-// (no api_key, no session_token) for the caller to persist, and the
-// fingerprint to surface for human verification against the operator UI.
+// (no api_key, no session_token) for the caller to persist. The
+// IdentityFingerprint to surface for human verification against the
+// operator UI lives on State.IdentityFingerprint.
 type RegisterResult struct {
-	State               *State
-	IdentityFingerprint string
+	State *State
 }
 
 // Register validates the URL, generates ed25519 keypairs, calls
@@ -90,16 +90,14 @@ func Register(ctx context.Context, p RegisterParams) (*RegisterResult, error) {
 		MinerSigningPrivateKeyHex: hex.EncodeToString(mPriv),
 		MinerSigningPublicKeyHex:  hex.EncodeToString(mPub),
 	}
-	return &RegisterResult{State: state, IdentityFingerprint: localFP}, nil
+	return &RegisterResult{State: state}, nil
 }
 
-// CompleteEnrollment runs the handshake against the api_key the operator
-// pasted (after they verified the fingerprint in the operator UI),
-// populating state.APIKey, state.SessionToken, and state.SessionExpiresAt
-// in place on success. State is left untouched on failure: a tampered or
-// stale state file's ServerURL is re-validated against the same
-// https-or-loopback policy Register applies, and the supplied apiKey is
-// only written back when the handshake actually completes.
+// CompleteEnrollment runs the handshake using the operator-supplied apiKey
+// and populates state.APIKey, state.SessionToken, and state.SessionExpiresAt
+// on success. The handshake is preceded by a fresh URL validation so a
+// stored ServerURL can't bypass the https-or-loopback policy. State is not
+// modified on failure; the caller may retry with a different apiKey.
 func CompleteEnrollment(ctx context.Context, state *State, apiKey string) error {
 	if state == nil {
 		return errors.New("state is required")
@@ -158,8 +156,6 @@ func isLoopbackHost(host string) bool {
 	if host == "localhost" {
 		return true
 	}
-	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
-		return true
-	}
-	return false
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
