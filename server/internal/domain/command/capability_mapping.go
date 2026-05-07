@@ -19,9 +19,13 @@ var commandTypeCapabilityMap = map[pb.CommandType][]string{
 	pb.CommandType_COMMAND_TYPE_FIRMWARE_UPDATE:       {sdk.CapabilityManualUpload},
 	pb.CommandType_COMMAND_TYPE_SET_POWER_TARGET:      {sdk.CapabilityPowerModeEfficiency},
 	pb.CommandType_COMMAND_TYPE_UPDATE_MINER_PASSWORD: {sdk.CapabilityUpdateMinerPassword},
-	// Curtail/Uncurtail map to the same OR-relationship capability set:
-	// any advertised curtailment level satisfies the capability check.
-	pb.CommandType_COMMAND_TYPE_CURTAIL:   {sdk.CapabilityCurtailFull, sdk.CapabilityCurtailEfficiency},
+	// CURTAIL requires CapabilityCurtailFull because curtailment currently
+	// dispatches the FULL level only. A miner that advertises only
+	// CapabilityCurtailEfficiency cannot service a curtailment request, so
+	// CheckCommandCapabilities must report it as unsupported. UNCURTAIL keeps
+	// the OR-set because restore is level-independent — any device that
+	// advertises any curtail capability can be uncurtailed.
+	pb.CommandType_COMMAND_TYPE_CURTAIL:   {sdk.CapabilityCurtailFull},
 	pb.CommandType_COMMAND_TYPE_UNCURTAIL: {sdk.CapabilityCurtailFull, sdk.CapabilityCurtailEfficiency},
 }
 

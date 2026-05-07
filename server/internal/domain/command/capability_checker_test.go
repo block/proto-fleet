@@ -545,9 +545,14 @@ func TestRequiresCapabilityCheck(t *testing.T) {
 		assert.False(t, RequiresCapabilityCheck(pb.CommandType_COMMAND_TYPE_UNSPECIFIED))
 	})
 
-	t.Run("Curtail and Uncurtail map to OR-relationship curtail capabilities", func(t *testing.T) {
-		want := []string{sdk.CapabilityCurtailFull, sdk.CapabilityCurtailEfficiency}
-		assert.Equal(t, want, GetRequiredCapabilities(pb.CommandType_COMMAND_TYPE_CURTAIL))
-		assert.Equal(t, want, GetRequiredCapabilities(pb.CommandType_COMMAND_TYPE_UNCURTAIL))
+	t.Run("Curtail requires CapabilityCurtailFull only (FULL-level dispatch)", func(t *testing.T) {
+		assert.Equal(t, []string{sdk.CapabilityCurtailFull},
+			GetRequiredCapabilities(pb.CommandType_COMMAND_TYPE_CURTAIL))
+	})
+
+	t.Run("Uncurtail accepts either curtail capability (level-independent restore)", func(t *testing.T) {
+		assert.Equal(t,
+			[]string{sdk.CapabilityCurtailFull, sdk.CapabilityCurtailEfficiency},
+			GetRequiredCapabilities(pb.CommandType_COMMAND_TYPE_UNCURTAIL))
 	})
 }
