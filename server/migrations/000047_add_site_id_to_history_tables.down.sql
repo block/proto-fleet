@@ -12,7 +12,9 @@ ALTER TABLE errors
 DROP INDEX IF EXISTS idx_command_on_device_log_site;
 ALTER TABLE command_on_device_log
     DROP CONSTRAINT IF EXISTS fk_command_on_device_log_site,
-    DROP COLUMN IF EXISTS site_id;
+    DROP COLUMN IF EXISTS site_id,
+    DROP CONSTRAINT IF EXISTS fk_command_on_device_log_organization,
+    DROP COLUMN IF EXISTS org_id;
 
 DROP INDEX IF EXISTS idx_activity_log_org_site_created;
 ALTER TABLE activity_log

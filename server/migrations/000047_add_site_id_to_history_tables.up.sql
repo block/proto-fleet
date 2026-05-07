@@ -22,11 +22,27 @@ ALTER TABLE activity_log
 CREATE INDEX idx_activity_log_org_site_created
     ON activity_log(organization_id, site_id, created_at DESC, id DESC);
 
--- command_on_device_log: regular table, FK with ON DELETE SET NULL.
+-- command_on_device_log: denormalize `org_id` from `device` so the site
+-- FK can be composite-keyed and Postgres rejects any future writer that
+-- stamps `site_id` with a cross-tenant value. Same pattern as
+-- `device_set_rack.org_id`. Backfill from device first, then promote to
+-- NOT NULL and add the composite site FK with column-list SET NULL.
+ALTER TABLE command_on_device_log ADD COLUMN org_id BIGINT NULL;
+
+UPDATE command_on_device_log codl
+SET org_id = d.org_id
+FROM device d
+WHERE codl.device_id = d.id;
+
+ALTER TABLE command_on_device_log
+    ALTER COLUMN org_id SET NOT NULL,
+    ADD CONSTRAINT fk_command_on_device_log_organization FOREIGN KEY (org_id)
+        REFERENCES organization(id) ON DELETE RESTRICT;
+
 ALTER TABLE command_on_device_log
     ADD COLUMN site_id BIGINT NULL,
-    ADD CONSTRAINT fk_command_on_device_log_site FOREIGN KEY (site_id)
-        REFERENCES site(id) ON DELETE SET NULL;
+    ADD CONSTRAINT fk_command_on_device_log_site FOREIGN KEY (site_id, org_id)
+        REFERENCES site(id, org_id) ON DELETE SET NULL (site_id);
 CREATE INDEX idx_command_on_device_log_site
     ON command_on_device_log(site_id);
 

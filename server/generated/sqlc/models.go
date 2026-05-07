@@ -438,6 +438,7 @@ type CommandOnDeviceLog struct {
 	Model             sql.NullString
 	IpAddress         sql.NullString
 	MacAddress        sql.NullString
+	OrgID             int64
 	SiteID            sql.NullInt64
 }
 
