@@ -175,6 +175,56 @@ func TestHasAnyCapability(t *testing.T) {
 
 		assert.False(t, result)
 	})
+
+	t.Run("returns true when curtail full is supported", func(t *testing.T) {
+		commands := &capabilitiespb.CommandCapabilities{
+			CurtailFullSupported: true,
+		}
+
+		result := hasAnyCapability(commands, nil, []string{sdk.CapabilityCurtailFull})
+
+		assert.True(t, result)
+	})
+
+	t.Run("returns false when curtail full is not supported", func(t *testing.T) {
+		commands := &capabilitiespb.CommandCapabilities{
+			CurtailFullSupported: false,
+		}
+
+		result := hasAnyCapability(commands, nil, []string{sdk.CapabilityCurtailFull})
+
+		assert.False(t, result)
+	})
+
+	t.Run("returns true when curtail efficiency is supported", func(t *testing.T) {
+		commands := &capabilitiespb.CommandCapabilities{
+			CurtailEfficiencySupported: true,
+		}
+
+		result := hasAnyCapability(commands, nil, []string{sdk.CapabilityCurtailEfficiency})
+
+		assert.True(t, result)
+	})
+
+	t.Run("returns false when curtail efficiency is not supported", func(t *testing.T) {
+		commands := &capabilitiespb.CommandCapabilities{
+			CurtailEfficiencySupported: false,
+		}
+
+		result := hasAnyCapability(commands, nil, []string{sdk.CapabilityCurtailEfficiency})
+
+		assert.False(t, result)
+	})
+
+	t.Run("returns true when either curtail capability is supported (OR semantics)", func(t *testing.T) {
+		commands := &capabilitiespb.CommandCapabilities{
+			CurtailEfficiencySupported: true,
+		}
+
+		result := hasAnyCapability(commands, nil, []string{sdk.CapabilityCurtailFull, sdk.CapabilityCurtailEfficiency})
+
+		assert.True(t, result)
+	})
 }
 
 func TestCheckDeviceCapabilities(t *testing.T) {
