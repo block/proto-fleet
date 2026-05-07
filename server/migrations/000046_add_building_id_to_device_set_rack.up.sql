@@ -22,6 +22,21 @@ WHERE dsr.device_set_id = ds.id;
 ALTER TABLE device_set_rack
     ALTER COLUMN org_id SET NOT NULL;
 
+-- Composite-key target on device_set so device_set_rack can FK on
+-- (device_set_id, org_id) and Postgres rejects any rack whose
+-- denormalized org_id drifts from its parent device_set.org_id.
+-- Without this FK, a future writer that updates both
+-- device_set_rack.org_id and device_set_rack.building_id together
+-- could attach an org B rack to an org A device_set while satisfying
+-- the building FK. Same pattern as `site.uq_site_id_org_id` and
+-- `building.uq_building_id_org_id`.
+ALTER TABLE device_set
+    ADD CONSTRAINT uq_device_set_id_org_id UNIQUE (id, org_id);
+
+ALTER TABLE device_set_rack
+    ADD CONSTRAINT fk_device_set_rack_device_set_org FOREIGN KEY (device_set_id, org_id)
+        REFERENCES device_set(id, org_id);
+
 ALTER TABLE device_set_rack
     ADD COLUMN building_id BIGINT NULL,
     -- Composite FK with column-list SET NULL so building deletion only
