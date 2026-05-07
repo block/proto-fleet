@@ -289,6 +289,7 @@ WITH batch AS (
 ),
 dev AS (
     SELECT
+        d.org_id        AS org_id,
         d.custom_name   AS custom_name,
         dd.manufacturer AS manufacturer,
         dd.model        AS model,
@@ -304,6 +305,7 @@ INSERT INTO command_on_device_log (
    status,
    updated_at,
    error_info,
+   org_id,
    custom_name,
    manufacturer,
    model,
@@ -316,6 +318,7 @@ SELECT
   $2,
   $3,
   $5,
+  dev.org_id,
   dev.custom_name,
   dev.manufacturer,
   dev.model,
