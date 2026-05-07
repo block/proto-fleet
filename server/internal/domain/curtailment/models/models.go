@@ -57,7 +57,7 @@ const (
 )
 
 // LoopType distinguishes open-loop modes (frozen target set) from
-// closed-loop modes that re-evaluate desired targets each tick (v3+).
+// closed-loop modes that re-evaluate desired targets each tick.
 type LoopType string
 
 const (
@@ -84,16 +84,15 @@ const (
 	SourceActorScheduler SourceActorType = "scheduler"
 )
 
-// Mode is the curtailment dispatch mode. v1 implements FIXED_KW only;
-// further values are reserved at the proto layer and rejected by the
-// service validator until they are designed.
+// Mode is the curtailment dispatch mode. Currently FIXED_KW only;
+// reserved values are rejected by the service validator.
 type Mode string
 
 const (
 	ModeFixedKw Mode = "FIXED_KW"
 )
 
-// Strategy is the candidate-ranking strategy. v1 implements
+// Strategy is the candidate-ranking strategy. Currently
 // LEAST_EFFICIENT_FIRST only; reserved values are rejected by the validator.
 type Strategy string
 
@@ -101,19 +100,16 @@ const (
 	StrategyLeastEfficientFirst Strategy = "LEAST_EFFICIENT_FIRST"
 )
 
-// Level is the curtailment depth. v1 dispatches FULL only at the Fleet event
-// layer; EFFICIENCY is plumbed at the SDK/plugin layer for future Fleet use.
+// Level is the curtailment depth. The Fleet event layer dispatches FULL
+// only; EFFICIENCY is plumbed at the SDK/plugin layer.
 type Level string
 
 const (
 	LevelFull Level = "FULL"
 )
 
-// Priority controls cooldown / hysteresis bypass. EMERGENCY skips
-// post_event_cooldown_sec and (on Stop) min_curtailed_duration_sec.
-// HIGH is proto-reserved but undesigned in v1; the service validator
-// rejects it explicitly so callers see a clear InvalidArgument instead
-// of silent NORMAL coercion.
+// Priority controls cooldown / hysteresis bypass. EMERGENCY skips both;
+// HIGH is proto-reserved but rejected by the validator.
 type Priority string
 
 const (

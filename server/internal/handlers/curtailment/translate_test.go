@@ -81,9 +81,12 @@ func TestToInsufficientLoadError_FormatIsByteStable(t *testing.T) {
 		RequestedKW:            20.0,
 		ToleranceKW:            2.0,
 		CandidateMinPowerW:     1500,
+		ExcludedBelowThreshold: 2,
 		ExcludedOffline:        3,
 		ExcludedMaintenance:    1,
-		ExcludedBelowThreshold: 2,
+		ExcludedUpdating:       4,
+		ExcludedRebootRequired: 1,
+		ExcludedStale:          2,
 	}
 
 	first := toInsufficientLoadError(detail).Error()
@@ -92,16 +95,25 @@ func TestToInsufficientLoadError_FormatIsByteStable(t *testing.T) {
 		require.Equal(t, first, repeat, "toInsufficientLoadError must be byte-stable across calls")
 	}
 
-	// Counter order in the message is fixed at source: below_candidate_min_power_w
-	// always precedes unreachable_residual_load, which always precedes maintenance.
-	belowIdx := strings.Index(first, "below_candidate_min_power_w=")
-	offlineIdx := strings.Index(first, "unreachable_residual_load=")
-	maintIdx := strings.Index(first, "maintenance=")
-	require.NotEqual(t, -1, belowIdx)
-	require.NotEqual(t, -1, offlineIdx)
-	require.NotEqual(t, -1, maintIdx)
+	// Counter order is fixed at source. Each adjacent pair is asserted so
+	// reordering any entry in formatExclusionCounters fails the test.
+	indexOf := func(token string) int {
+		i := strings.Index(first, token)
+		require.NotEqual(t, -1, i, "expected %q in message", token)
+		return i
+	}
+	belowIdx := indexOf("below_candidate_min_power_w=")
+	offlineIdx := indexOf("unreachable_residual_load=")
+	maintIdx := indexOf("maintenance=")
+	updatingIdx := indexOf("updating=")
+	rebootIdx := indexOf("reboot_required=")
+	staleIdx := indexOf("stale_telemetry=")
+
 	assert.Less(t, belowIdx, offlineIdx, "below_candidate_min_power_w must precede unreachable_residual_load")
 	assert.Less(t, offlineIdx, maintIdx, "unreachable_residual_load must precede maintenance")
+	assert.Less(t, maintIdx, updatingIdx, "maintenance must precede updating")
+	assert.Less(t, updatingIdx, rebootIdx, "updating must precede reboot_required")
+	assert.Less(t, rebootIdx, staleIdx, "reboot_required must precede stale_telemetry")
 }
 
 // TestToInsufficientLoadError_AllZeroCountersOmitsExcludedSection pins

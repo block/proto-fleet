@@ -671,6 +671,62 @@ func TestService_Preview_NonFiniteTelemetrySkipsAsStale(t *testing.T) {
 	}
 }
 
+// TestService_Preview_NonFiniteAvgEfficiencyTreatedAsUnknown pins the
+// extension of the finite-number guard to AvgEfficiencyJH. NaN/Inf
+// efficiency would violate sort.SliceStable's transitivity contract in
+// BuildPlan (NaN comparisons return false), producing undefined ranking
+// across ties. Treating non-finite as unknown (nil) routes the device
+// through the existing rank-last path and preserves a deterministic plan.
+func TestService_Preview_NonFiniteAvgEfficiencyTreatedAsUnknown(t *testing.T) {
+	t.Parallel()
+
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+
+	// Helper builds a candidate whose telemetry is fully valid (finite
+	// power + hash) but whose avg_efficiency is non-finite.
+	withEfficiency := func(id string, eff float64) *models.Candidate {
+		c := miner(id, "ACTIVE", "PAIRED", 3000, 1e12)
+		e := eff
+		c.AvgEfficiencyJH = &e
+		return c
+	}
+
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("known-worst", 3000, 1e12, 50),
+		withEfficiency("nan-eff", math.NaN()),
+		withEfficiency("posinf-eff", math.Inf(+1)),
+		minerWithEff("known-best", 3000, 1e12, 20),
+	}
+
+	svc := NewService(store)
+	req := validRequest(orgID)
+	// 9 kW target requires picking 3 of 4 miners (3 kW each); ranking
+	// determines which 3. Worst-J/H first, unknowns last → known-worst,
+	// then known-best, then one of the non-finite ones (rank-last tied).
+	req.TargetKW = 9
+	plan, err := svc.Preview(t.Context(), req)
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+
+	// All four miners are eligible — non-finite avg_efficiency does NOT
+	// drop them from the candidate set (unlike non-finite power/hash).
+	// The running sum stays finite.
+	assert.False(t, math.IsNaN(plan.EstimatedReductionKW),
+		"running sum must not be poisoned by NaN avg_efficiency")
+	assert.False(t, math.IsInf(plan.EstimatedReductionKW, 0),
+		"running sum must not be poisoned by Inf avg_efficiency")
+
+	// Known-efficiency miners rank ahead of non-finite ones; first two
+	// selected are known-worst (50 J/H, worst) then known-best (20 J/H).
+	require.GreaterOrEqual(t, len(plan.Selected), 2)
+	assert.Equal(t, "known-worst", plan.Selected[0].DeviceIdentifier,
+		"worst known efficiency must rank first")
+	assert.Equal(t, "known-best", plan.Selected[1].DeviceIdentifier,
+		"second known efficiency must rank ahead of unknowns")
+}
+
 // TestService_Preview_DeviceListScopeRejectsCrossOrgIdentifiers pins the
 // org-ownership boundary: explicit miner-list scope must validate org
 // ownership before persistence or dispatch. The SQL already filters by

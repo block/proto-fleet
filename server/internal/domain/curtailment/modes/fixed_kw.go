@@ -2,7 +2,7 @@ package modes
 
 import "fmt"
 
-// FixedKw is the v1 open-loop mode: walk the ranked candidate list,
+// FixedKw is an open-loop mode: walk the ranked candidate list,
 // accumulating power_w until the target kilowatt reduction is met (or
 // declared unreachable). Pure logic — no I/O, no time, no shared state.
 type FixedKw struct {
@@ -86,13 +86,8 @@ func (m *FixedKw) Select(ranked []Candidate) Result {
 	detail.AvailableKW = totalW / wPerKW
 	detail.RequestedKW = m.TargetKW
 	detail.ToleranceKW = m.ToleranceKW
-	// RealizedReductionW must equal the accumulated power of Selected (per
-	// the Result godoc). Empty Selected → zero; the available-pool number
-	// lives in detail.AvailableKW, which is the right home for it.
-	// Reporting totalW here would propagate as a non-zero
-	// EstimatedReductionKW with an empty Selected through BuildPlan and
-	// mislead any caller that consumes Plan without short-circuiting on
-	// InsufficientLoadDetail.
+	// RealizedReductionW = 0 honors the Result godoc invariant (sum of
+	// Selected); available-pool lives in detail.AvailableKW.
 	return Result{
 		Outcome:            OutcomeInsufficientLoad,
 		Selected:           nil,

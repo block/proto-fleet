@@ -10,7 +10,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
-// Scope identifies the target set: whole-org or explicit device-list in v1;
+// Scope identifies the target set: whole-org or explicit device-list;
 // device-sets are deferred (resolver lives outside the curtailment domain).
 type Scope struct {
 	Type              models.ScopeType
@@ -22,9 +22,9 @@ type Scope struct {
 type PreviewRequest struct {
 	OrgID                      int64
 	Scope                      Scope
-	Mode                       models.Mode     // v1: must be ModeFixedKw
-	Strategy                   models.Strategy // v1: default StrategyLeastEfficientFirst
-	Level                      models.Level    // v1: must be LevelFull
+	Mode                       models.Mode     // must be ModeFixedKw
+	Strategy                   models.Strategy // default StrategyLeastEfficientFirst
+	Level                      models.Level    // must be LevelFull
 	Priority                   models.Priority // PriorityNormal or PriorityEmergency (cooldown bypass)
 	TargetKW                   float64
 	ToleranceKW                float64
@@ -126,20 +126,20 @@ func (s *Service) Preview(ctx context.Context, req PreviewRequest) (*Plan, error
 
 func validatePreviewRequest(req PreviewRequest) error {
 	if req.Mode != "" && req.Mode != models.ModeFixedKw {
-		return fleeterror.NewInvalidArgumentErrorf("mode %q is not supported in v1; only FIXED_KW", req.Mode)
+		return fleeterror.NewInvalidArgumentErrorf("mode %q is not supported; only FIXED_KW", req.Mode)
 	}
 	if req.Level != "" && req.Level != models.LevelFull {
-		return fleeterror.NewInvalidArgumentErrorf("level %q is not supported in v1; only FULL", req.Level)
+		return fleeterror.NewInvalidArgumentErrorf("level %q is not supported; only FULL", req.Level)
 	}
 	if req.Strategy != "" && req.Strategy != models.StrategyLeastEfficientFirst {
 		return fleeterror.NewInvalidArgumentErrorf(
-			"strategy %q is not supported in v1; only LEAST_EFFICIENT_FIRST", req.Strategy,
+			"strategy %q is not supported; only LEAST_EFFICIENT_FIRST", req.Strategy,
 		)
 	}
-	// HIGH is proto-reserved but undesigned in v1; reject explicitly.
+	// HIGH is proto-reserved but undesigned; reject explicitly.
 	if req.Priority != "" && req.Priority != models.PriorityNormal && req.Priority != models.PriorityEmergency {
 		return fleeterror.NewInvalidArgumentErrorf(
-			"priority %q is not supported in v1; use NORMAL or EMERGENCY", req.Priority,
+			"priority %q is not supported; use NORMAL or EMERGENCY", req.Priority,
 		)
 	}
 	// NaN / +/-Inf must be rejected explicitly because every comparison with
@@ -197,8 +197,8 @@ func resolveScope(s Scope) ([]string, error) {
 	case models.ScopeTypeDeviceSets:
 		// Deferred: device-set resolution requires DeviceSetStore wiring
 		// outside the curtailment domain. Whole-org and device-list cover
-		// the v1 critical paths.
-		return nil, fleeterror.NewUnimplementedErrorf("device-set scope is not implemented in v1; use whole_org or device_list")
+		// the critical paths.
+		return nil, fleeterror.NewUnimplementedErrorf("device-set scope is not implemented; use whole_org or device_list")
 	default:
 		return nil, fleeterror.NewInvalidArgumentErrorf("unrecognized scope type: %q", s.Type)
 	}
@@ -302,11 +302,18 @@ func classifyCandidates(cands []*models.Candidate, opts classifyOpts) ([]Candida
 			summary.ExcludedCooldown++
 			continue
 		}
+		// Non-finite avg_efficiency would violate sort.SliceStable's
+		// transitivity contract in BuildPlan (NaN comparisons return
+		// false). Treat as unknown — existing nil-handling ranks last.
+		avgEff := c.AvgEfficiencyJH
+		if !isFiniteFloat(avgEff) {
+			avgEff = nil
+		}
 		eligible = append(eligible, CandidateInput{
 			DeviceIdentifier: c.DeviceIdentifier,
 			PowerW:           derefFloat(c.LatestPowerW),
 			HashRateHS:       derefFloat(c.LatestHashRateHS),
-			AvgEfficiencyJH:  c.AvgEfficiencyJH,
+			AvgEfficiencyJH:  avgEff,
 		})
 	}
 	return eligible, skipped, summary
