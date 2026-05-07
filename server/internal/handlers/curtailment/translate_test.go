@@ -82,6 +82,8 @@ func TestToInsufficientLoadError_FormatIsByteStable(t *testing.T) {
 		ToleranceKW:            2.0,
 		CandidateMinPowerW:     1500,
 		ExcludedBelowThreshold: 2,
+		ExcludedPhantomLoad:    1,
+		ExcludedDeadMonitor:    1,
 		ExcludedOffline:        3,
 		ExcludedMaintenance:    1,
 		ExcludedUpdating:       4,
@@ -103,13 +105,17 @@ func TestToInsufficientLoadError_FormatIsByteStable(t *testing.T) {
 		return i
 	}
 	belowIdx := indexOf("below_candidate_min_power_w=")
+	phantomIdx := indexOf("phantom_load_no_hash=")
+	deadMonitorIdx := indexOf("power_telemetry_unreliable=")
 	offlineIdx := indexOf("unreachable_residual_load=")
 	maintIdx := indexOf("maintenance=")
 	updatingIdx := indexOf("updating=")
 	rebootIdx := indexOf("reboot_required=")
 	staleIdx := indexOf("stale_telemetry=")
 
-	assert.Less(t, belowIdx, offlineIdx, "below_candidate_min_power_w must precede unreachable_residual_load")
+	assert.Less(t, belowIdx, phantomIdx, "below_candidate_min_power_w must precede phantom_load_no_hash")
+	assert.Less(t, phantomIdx, deadMonitorIdx, "phantom_load_no_hash must precede power_telemetry_unreliable")
+	assert.Less(t, deadMonitorIdx, offlineIdx, "power_telemetry_unreliable must precede unreachable_residual_load")
 	assert.Less(t, offlineIdx, maintIdx, "unreachable_residual_load must precede maintenance")
 	assert.Less(t, maintIdx, updatingIdx, "maintenance must precede updating")
 	assert.Less(t, updatingIdx, rebootIdx, "updating must precede reboot_required")

@@ -167,13 +167,17 @@ func validatePreviewRequest(req PreviewRequest) error {
 			req.ToleranceKW, req.TargetKW,
 		)
 	}
-	// candidate_min_power_w_override = 0 effectively disables the dual-signal
-	// floor (every powered miner becomes a candidate). The proto declares the
-	// field uint32 with documented bounds [1, 10_000_000]; this guard is the
-	// service-level backstop for callers that bypass the proto validator
-	// (internal CLIs, tests, future non-Connect surfaces).
-	if req.CandidateMinPowerWOverride != nil && *req.CandidateMinPowerWOverride < 1 {
-		return fleeterror.NewInvalidArgumentErrorf("candidate_min_power_w_override must be >= 1, got %d", *req.CandidateMinPowerWOverride)
+	// candidate_min_power_w_override bounds [1, 10_000_000] are documented
+	// at the proto layer; this is the service-level backstop for callers
+	// that bypass proto validation (internal CLIs, tests, future non-Connect
+	// surfaces). Below 1 disables the dual-signal floor; above 10M is so far
+	// past any real miner's nameplate it indicates a typo or unit error.
+	if req.CandidateMinPowerWOverride != nil &&
+		(*req.CandidateMinPowerWOverride < 1 || *req.CandidateMinPowerWOverride > 10_000_000) {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"candidate_min_power_w_override must be in [1, 10_000_000], got %d",
+			*req.CandidateMinPowerWOverride,
+		)
 	}
 	// Maintenance override pair is both-or-neither at the API boundary;
 	// the DB CHECK constraint is the defense-in-depth backstop at Start time.
@@ -188,6 +192,15 @@ func validatePreviewRequest(req PreviewRequest) error {
 func resolveScope(s Scope) ([]string, error) {
 	switch s.Type {
 	case models.ScopeTypeWholeOrg, "":
+		// Empty Type is admitted as whole-org for backward compatibility
+		// with callers that omit the field. But device-id slices implicitly
+		// signal a different intent — admitting both silently widens the
+		// plan. Reject so the caller surfaces the type/payload mismatch.
+		if len(s.DeviceIdentifiers) > 0 || len(s.DeviceSetIDs) > 0 {
+			return nil, fleeterror.NewInvalidArgumentError(
+				"scope type must be set when device_identifiers or device_set_ids are provided",
+			)
+		}
 		return nil, nil
 	case models.ScopeTypeDeviceList:
 		if len(s.DeviceIdentifiers) == 0 {
