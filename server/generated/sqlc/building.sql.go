@@ -299,12 +299,10 @@ func (q *Queries) SoftDeleteBuilding(ctx context.Context, arg SoftDeleteBuilding
 }
 
 const unassignRacksFromBuilding = `-- name: UnassignRacksFromBuilding :execrows
-UPDATE device_set_rack dsr
+UPDATE device_set_rack
 SET building_id = NULL
-FROM device_set ds
-WHERE dsr.device_set_id = ds.id
-  AND ds.org_id = $1
-  AND dsr.building_id = $2
+WHERE org_id = $1
+  AND building_id = $2
 `
 
 type UnassignRacksFromBuildingParams struct {
@@ -313,7 +311,10 @@ type UnassignRacksFromBuildingParams struct {
 }
 
 // Sets device_set_rack.building_id = NULL for every rack pointing at the
-// given building. Org guard runs through the device_set join.
+// given building. Org guard reads `device_set_rack.org_id` directly
+// (denormalized from device_set in migration 000046, kept in lockstep
+// via the composite FK on `(device_set_id, org_id) → device_set(id,
+// org_id)`).
 func (q *Queries) UnassignRacksFromBuilding(ctx context.Context, arg UnassignRacksFromBuildingParams) (int64, error) {
 	result, err := q.exec(ctx, q.unassignRacksFromBuildingStmt, unassignRacksFromBuilding, arg.OrgID, arg.BuildingID)
 	if err != nil {

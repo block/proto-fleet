@@ -103,13 +103,14 @@ WHERE id = sqlc.arg('id')
 
 -- name: UnassignRacksFromBuilding :execrows
 -- Sets device_set_rack.building_id = NULL for every rack pointing at the
--- given building. Org guard runs through the device_set join.
-UPDATE device_set_rack dsr
+-- given building. Org guard reads `device_set_rack.org_id` directly
+-- (denormalized from device_set in migration 000046, kept in lockstep
+-- via the composite FK on `(device_set_id, org_id) → device_set(id,
+-- org_id)`).
+UPDATE device_set_rack
 SET building_id = NULL
-FROM device_set ds
-WHERE dsr.device_set_id = ds.id
-  AND ds.org_id = sqlc.arg('org_id')
-  AND dsr.building_id = sqlc.arg('building_id');
+WHERE org_id = sqlc.arg('org_id')
+  AND building_id = sqlc.arg('building_id');
 
 -- name: BuildingBelongsToOrg :one
 SELECT EXISTS(
