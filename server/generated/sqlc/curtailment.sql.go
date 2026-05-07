@@ -60,14 +60,9 @@ type EnsureCurtailmentOrgConfigRow struct {
 	UpdatedAt             time.Time
 }
 
-// Idempotent backfill of the per-org config row. Required because the
-// 000040 migration only seeds existing orgs at deploy time; orgs created
-// afterwards have no row until something writes one.
-//
-// The conflict path is a read, not a write: the INSERT uses DO NOTHING so
-// existing rows are not touched, and the fallback SELECT returns the row
-// already on disk. This preserves `updated_at` as a real config-change
-// signal and keeps Preview off the WAL on the hot path.
+// Idempotent read-only backfill: INSERT ... DO NOTHING keeps existing rows
+// untouched (preserves `updated_at` as a real config-change signal); the
+// fallback SELECT returns the row already on disk. Single round trip.
 func (q *Queries) EnsureCurtailmentOrgConfig(ctx context.Context, orgID int64) (EnsureCurtailmentOrgConfigRow, error) {
 	row := q.queryRow(ctx, q.ensureCurtailmentOrgConfigStmt, ensureCurtailmentOrgConfig, orgID)
 	var i EnsureCurtailmentOrgConfigRow
@@ -150,11 +145,9 @@ FROM curtailment_org_config
 WHERE org_id = $1
 `
 
-// Read at handler entry to resolve max_duration_default_sec normalization,
-// candidate_min_power_w default (when override is not set), and the cooldown
-// window for the selector. The migration seeds one row per existing org;
-// EnsureCurtailmentOrgConfig backfills any org created post-migration so this
-// read is guaranteed to return a row for any valid org_id.
+// Per-org tunables: max-duration default, candidate-power floor, cooldown
+// window. Existence guaranteed: migration seeds existing orgs;
+// EnsureCurtailmentOrgConfig backfills post-migration tenants.
 func (q *Queries) GetCurtailmentOrgConfig(ctx context.Context, orgID int64) (CurtailmentOrgConfig, error) {
 	row := q.queryRow(ctx, q.getCurtailmentOrgConfigStmt, getCurtailmentOrgConfig, orgID)
 	var i CurtailmentOrgConfig
@@ -283,9 +276,8 @@ type InsertCurtailmentEventRow struct {
 	UpdatedAt time.Time
 }
 
-// Bulk insert path used by Start dispatch and by store tests. The full
-// column list mirrors the migration so callers cannot accidentally rely on
-// DEFAULTs for values the API layer should be normalizing.
+// Full column list mirrors the migration so callers can't rely on DEFAULTs
+// for values the API layer should be normalizing.
 func (q *Queries) InsertCurtailmentEvent(ctx context.Context, arg InsertCurtailmentEventParams) (InsertCurtailmentEventRow, error) {
 	row := q.queryRow(ctx, q.insertCurtailmentEventStmt, insertCurtailmentEvent,
 		arg.EventUuid,
@@ -355,9 +347,7 @@ type InsertCurtailmentTargetParams struct {
 	SelectorRationaleJsonb pqtype.NullRawMessage
 }
 
-// Per-target row insert. The Start dispatch path inserts these in a single
-// transaction with the parent event row; store tests use it to round-trip
-// schema constraints.
+// Start dispatch inserts these in the event-row transaction.
 func (q *Queries) InsertCurtailmentTarget(ctx context.Context, arg InsertCurtailmentTargetParams) error {
 	_, err := q.exec(ctx, q.insertCurtailmentTargetStmt, insertCurtailmentTarget,
 		arg.CurtailmentEventID,
@@ -380,9 +370,8 @@ WHERE ce.org_id = $1
     AND ct.state NOT IN ('resolved', 'restore_failed', 'released')
 `
 
-// Devices currently locked in a non-terminal curtailment event. The selector
-// excludes these from the candidate set so a Preview cannot plan against a
-// device that another event already governs (per-device single-writer rule).
+// Devices locked in a non-terminal event; excluded from candidates to
+// enforce the per-device single-writer rule.
 func (q *Queries) ListActiveCurtailedDevicesByOrg(ctx context.Context, orgID int64) ([]string, error) {
 	rows, err := q.query(ctx, q.listActiveCurtailedDevicesByOrgStmt, listActiveCurtailedDevicesByOrg, orgID)
 	if err != nil {
@@ -428,10 +417,8 @@ latest_hourly AS (
     INNER JOIN device d3 ON device_metrics_hourly.device_identifier = d3.device_identifier
         AND d3.deleted_at IS NULL
         AND d3.org_id = $1
-    -- Bound the bucket scan: device_metrics_hourly is a continuous aggregate
-    -- with multi-day retention; we only need the latest non-empty hour per
-    -- device. 24h covers TimescaleDB end-offset and operator-timezone gaps
-    -- without dragging the planner across stale rollups.
+    -- 24h window covers TimescaleDB end-offset + operator-timezone gaps
+    -- without scanning multi-day retention.
     WHERE device_metrics_hourly.bucket > NOW() - INTERVAL '24 hours'
     ORDER BY device_metrics_hourly.device_identifier, bucket DESC
 )
@@ -439,12 +426,9 @@ SELECT
     d.device_identifier,
     dd.driver_name,
     COALESCE(dd.model, '') AS model,
-    -- device_status / pairing_status default to safe sentinels when the
-    -- joined row is missing. Empty-string device_status is the "unknown
-    -- status" signal the service treats as stale; NULL pairing_status is
-    -- normalized to UNPAIRED. The COALESCE on device_status is required
-    -- because sqlc generates a non-nullable string column and a NULL would
-    -- crash the row scan.
+    -- COALESCE required because sqlc generates a non-nullable string;
+    -- empty-string is the "unknown status" sentinel the service treats
+    -- as stale. NULL pairing_status normalizes to UNPAIRED below.
     COALESCE(ds.status::text, ''::text)::text AS device_status,
     CASE WHEN dp.id IS NOT NULL THEN dp.pairing_status::text ELSE 'UNPAIRED' END AS pairing_status,
     lm.time            AS latest_metrics_at,
@@ -483,21 +467,13 @@ type ListCurtailmentCandidatesByOrgRow struct {
 	AvgEfficiency    sql.NullFloat64
 }
 
-// Pulls per-device state for the selector's filter / rank pipeline. Returns
-// ALL devices in scope (org + optional device_identifiers narrow), including
-// unpaired / stale / unstatused — the service layer applies skip-reason
-// attribution in Go so the diagnostic detail (phantom_load vs stale vs
-// offline-residual etc.) lands in PreviewCurtailmentPlanResponse.skipped_candidates.
-//
-// LEFT JOIN on telemetry: a device with no recent samples returns NULL
-// power_w / hash_rate_hs, which the service interprets as stale. The 15-min
-// window matches the design doc's staleness boundary.
-//
-// device_identifiers narrow: pass NULL for whole-org scope; pass a non-empty
-// array for device-list scope (after org-ownership validation).
-// Stable order: the selector's stable sort preserves this ordering on
-// ties (equal or NULL avg_efficiency), so two Previews against the same
-// inputs produce the same selected list.
+// Per-device state for the selector. Returns every in-scope device
+// (unpaired / stale / unstatused included); the service layer applies
+// skip-reason attribution. LEFT JOIN telemetry: nil power/hash = stale
+// (15-min window). device_identifiers: nil for whole-org, non-empty
+// after org-ownership validation for device-list scope.
+// Stable order so the selector's stable sort produces the same plan
+// across calls when avg_efficiency ties or is NULL.
 func (q *Queries) ListCurtailmentCandidatesByOrg(ctx context.Context, arg ListCurtailmentCandidatesByOrgParams) ([]ListCurtailmentCandidatesByOrgRow, error) {
 	rows, err := q.query(ctx, q.listCurtailmentCandidatesByOrgStmt, listCurtailmentCandidatesByOrg, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
 	if err != nil {
@@ -545,8 +521,7 @@ type ListCurtailmentTargetsByEventParams struct {
 	EventUuid uuid.UUID
 }
 
-// Org-scoped via the join. Used by store tests and by future Get/List
-// read paths that need to surface the per-event target rollup.
+// Org-scoped via the join.
 func (q *Queries) ListCurtailmentTargetsByEvent(ctx context.Context, arg ListCurtailmentTargetsByEventParams) ([]CurtailmentTarget, error) {
 	rows, err := q.query(ctx, q.listCurtailmentTargetsByEventStmt, listCurtailmentTargetsByEvent, arg.OrgID, arg.EventUuid)
 	if err != nil {
@@ -602,11 +577,8 @@ type ListRecentlyResolvedCurtailedDevicesByOrgParams struct {
 	CooldownSec int32
 }
 
-// Devices whose targets reached a terminal state (resolved or restore_failed)
-// within `cooldown_sec`. The selector excludes these from the candidate set
-// unless priority=EMERGENCY (cooldown bypass is enforced in Go, not in SQL).
-// The window is computed as NOW() - cooldown_sec; Postgres handles the
-// interval arithmetic so the Go layer does not need to recompute it.
+// Targets that hit a terminal state within `cooldown_sec`. Selector
+// excludes these unless priority=EMERGENCY (Go-side bypass).
 func (q *Queries) ListRecentlyResolvedCurtailedDevicesByOrg(ctx context.Context, arg ListRecentlyResolvedCurtailedDevicesByOrgParams) ([]string, error) {
 	rows, err := q.query(ctx, q.listRecentlyResolvedCurtailedDevicesByOrgStmt, listRecentlyResolvedCurtailedDevicesByOrg, arg.OrgID, arg.CooldownSec)
 	if err != nil {

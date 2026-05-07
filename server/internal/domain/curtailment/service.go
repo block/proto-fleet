@@ -10,19 +10,15 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
-// Scope expresses how a curtailment request expressed its target set. v1
-// supports whole-org and explicit device-list; device-set scope is deferred
-// because the resolver lives outside the curtailment domain (DeviceSetStore
-// wiring lands in a follow-up).
+// Scope identifies the target set: whole-org or explicit device-list in v1;
+// device-sets are deferred (resolver lives outside the curtailment domain).
 type Scope struct {
 	Type              models.ScopeType
 	DeviceSetIDs      []string
 	DeviceIdentifiers []string
 }
 
-// PreviewRequest is the service-level shape of a Preview call. Decoupled
-// from proto types so tests can drive the service without constructing
-// PreviewCurtailmentPlanRequest messages.
+// PreviewRequest is the service-level shape of a Preview call.
 type PreviewRequest struct {
 	OrgID                      int64
 	Scope                      Scope
@@ -37,8 +33,7 @@ type PreviewRequest struct {
 	CandidateMinPowerWOverride *int32 // nil = use org default; admin-gated by handler
 }
 
-// Service orchestrates Preview: load org config, resolve scope, build the
-// candidate set with skip-reason attribution, hand to the selector + mode.
+// Service orchestrates Preview through the config / scope / candidate / selector pipeline.
 type Service struct {
 	store interfaces.CurtailmentStore
 }
@@ -58,11 +53,8 @@ func (s *Service) Preview(ctx context.Context, req PreviewRequest) (*Plan, error
 	if err != nil {
 		return nil, err
 	}
-	// Normalize empty-but-non-nil slice to nil so the store's whole-org path
-	// fires. The candidate query treats nil as "no narrow" and a non-nil
-	// empty array as "match nothing" (because it checks IS NULL on the
-	// parameter); collapsing the difference here means the store interface
-	// can document a single rule.
+	// Normalize empty-but-non-nil slice to nil; the candidate query's
+	// `IS NULL` check would otherwise match-nothing on an empty array.
 	if len(deviceFilter) == 0 {
 		deviceFilter = nil
 	}
@@ -73,9 +65,7 @@ func (s *Service) Preview(ctx context.Context, req PreviewRequest) (*Plan, error
 	}
 
 	// Effective candidate floor: per-org default, optionally overridden by
-	// the admin-gated request field. The handler is responsible for the
-	// admin role check (via requireAdminFromContext); the service trusts
-	// that the override has cleared that gate.
+	// the admin-gated request field. Handler enforces the admin role gate.
 	minPowerW := orgConfig.CandidateMinPowerW
 	if req.CandidateMinPowerWOverride != nil {
 		minPowerW = *req.CandidateMinPowerWOverride
@@ -141,10 +131,6 @@ func validatePreviewRequest(req PreviewRequest) error {
 	if req.Level != "" && req.Level != "FULL" {
 		return fleeterror.NewInvalidArgumentErrorf("level %q is not supported in v1; only FULL", req.Level)
 	}
-	// Strategy is plumbed through but the selector currently hard-codes
-	// LEAST_EFFICIENT_FIRST ranking. Reject any other value so a non-Connect
-	// caller that bypasses the proto validator can't silently get a plan
-	// whose actual ranking does not match the strategy they asked for.
 	if req.Strategy != "" && req.Strategy != "LEAST_EFFICIENT_FIRST" {
 		return fleeterror.NewInvalidArgumentErrorf(
 			"strategy %q is not supported in v1; only LEAST_EFFICIENT_FIRST", req.Strategy,
@@ -219,14 +205,9 @@ type classifyOpts struct {
 	CandidateMinPowerW int32
 }
 
-// classifyCandidates partitions the cross-table candidate rows into the
-// pre-selector skipped list (with skip-reason attribution) and the selector
-// inputs (devices that pass status / pairing / freshness / maintenance /
-// cooldown / active-event filters and are ready for the dual-signal pass).
-//
-// The summary InsufficientLoadDetail is incremented in lockstep with the
-// skips so the rejection branch can echo per-reason counts back to the
-// caller without a re-walk.
+// classifyCandidates partitions candidates into selector inputs and a
+// pre-selector skipped list with reasons; summary counts are incremented in
+// lockstep so the rejection branch can echo per-reason totals without a re-walk.
 func classifyCandidates(cands []*models.Candidate, opts classifyOpts) ([]CandidateInput, []SkippedDevice, modes.InsufficientLoadDetail) {
 	eligible := make([]CandidateInput, 0, len(cands))
 	skipped := make([]SkippedDevice, 0, len(cands))
@@ -245,13 +226,9 @@ func classifyCandidates(cands []*models.Candidate, opts classifyOpts) ([]Candida
 			summary.ExcludedPairing++
 			continue
 		}
-		// Partial capability gate (defense-in-depth, not a full check):
-		// a device with no driver metadata cannot be curtailed because we
-		// don't know which plugin would handle the dispatch. Skipping here
-		// prevents the selector from picking a device whose Curtail call
-		// would have nowhere to land. The full plugin-registry-driven
-		// curtail_full check is follow-up work; this guard catches the
-		// "discovered_device row missing" edge today.
+		// Partial capability gate: skip devices with no driver metadata so
+		// the selector can't pick a Curtail target with no plugin to dispatch.
+		// Full registry-driven curtail_full check is follow-up work.
 		if c.DriverName == nil || *c.DriverName == "" {
 			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipCurtailFullUnsupported})
 			summary.ExcludedCapabilityMiss++
@@ -259,11 +236,8 @@ func classifyCandidates(cands []*models.Candidate, opts classifyOpts) ([]Candida
 		}
 		switch c.DeviceStatus {
 		case "":
-			// Empty string is the COALESCE sentinel for a missing
-			// device_status row (no status agent has reported yet, or the
-			// device is brand-new). Treat as stale: we cannot prove the
-			// device is curtail-safe without a recent status, and the
-			// reconciler would have nothing to verify against.
+			// COALESCE sentinel for a missing device_status row: treat as
+			// stale, since we can't prove the device is curtail-safe.
 			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipStaleTelemetry})
 			continue
 		case "UPDATING":
@@ -273,10 +247,8 @@ func classifyCandidates(cands []*models.Candidate, opts classifyOpts) ([]Candida
 			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipRebootRequired})
 			continue
 		case "OFFLINE":
-			// "Unreachable residual load" — flagged in the skipped list so
-			// the UI can render the residual-power detail; counted in the
-			// rejection summary because it represents fleet load the
-			// system cannot address.
+			// Unreachable residual load: counted in the rejection summary
+			// since it's fleet load the system can't address.
 			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipUnreachableResidualLoad})
 			summary.ExcludedOffline++
 			continue
@@ -286,8 +258,7 @@ func classifyCandidates(cands []*models.Candidate, opts classifyOpts) ([]Candida
 				summary.ExcludedMaintenance++
 				continue
 			}
-			// Maintenance miner explicitly admitted by the override pair.
-			// Fall through to the freshness check.
+			// Admitted by override pair; fall through to freshness.
 		}
 		if c.LatestMetricsAt == nil {
 			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipStaleTelemetry})

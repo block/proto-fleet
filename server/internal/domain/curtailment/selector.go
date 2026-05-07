@@ -32,52 +32,42 @@ const (
 	SkipActiveEvent            SkipReason = "active_event"
 )
 
-// CandidateInput is one device's pre-aggregated state at selection time:
-// telemetry snapshot, lifecycle status, hourly efficiency for ranking. The
-// service layer assembles these from the relevant stores; the selector
-// applies filter / rank / mode purely against this input.
+// CandidateInput is one device's pre-aggregated state at selection time.
 type CandidateInput struct {
 	DeviceIdentifier string
-	// PowerW is the latest device_metrics.power_w sample. Used for both the
-	// dual-signal filter and the realized-kW accumulation.
+	// PowerW is the latest power_w sample; used by both the dual-signal
+	// filter and realized-kW accumulation.
 	PowerW float64
-	// HashRateHS is the latest device_metrics.hash_rate_hs sample. The
-	// dual-signal filter requires hash_rate > 0 to admit a candidate.
+	// HashRateHS is the latest hash_rate_hs sample; dual-signal filter
+	// requires > 0 to admit.
 	HashRateHS float64
-	// AvgEfficiencyJH is the device_metrics_hourly continuous-aggregate
-	// value (joules/hash) used for ranking. A nil pointer signals "unknown
-	// efficiency" — the selector ranks unknowns last so they are not
-	// silently treated as best-in-class via a COALESCE-to-zero artifact.
+	// AvgEfficiencyJH is the hourly j/h aggregate used for ranking. nil =
+	// unknown efficiency, ranked last (avoids COALESCE-to-zero artifact).
 	AvgEfficiencyJH *float64
 }
 
-// SkippedDevice carries a per-device exclusion record. The selector returns
-// these alongside the selected list so the Preview response can surface the
-// full diagnostic picture without a second query.
+// SkippedDevice is a per-device exclusion record returned alongside the
+// selected list so the Preview response carries the full diagnostic.
 type SkippedDevice struct {
 	DeviceIdentifier string
 	Reason           SkipReason
 }
 
-// Plan is the selector's output. The handler maps this to the proto response.
+// Plan is the selector's output; the handler maps it to the proto response.
 type Plan struct {
 	Selected             []SelectedDevice
 	Skipped              []SkippedDevice
 	EstimatedReductionKW float64
-	// EstimatedRemainingPowerKW is the total power_w of the not-selected
-	// portion of the candidate set (sum of unselected eligible candidates).
-	// Useful for the UI's "X kW selected, Y kW remaining" breakdown.
+	// EstimatedRemainingPowerKW is the unselected eligible power_w sum,
+	// for the UI's "X kW selected, Y kW remaining" breakdown.
 	EstimatedRemainingPowerKW float64
-	// Outcome echoes the mode's outcome so the handler can distinguish
-	// target-reached, undershoot-tolerated, and insufficient-load.
-	Outcome modes.Outcome
-	// InsufficientLoadDetail is set only when Outcome == OutcomeInsufficientLoad.
+	Outcome                   modes.Outcome
+	// InsufficientLoadDetail is set only on OutcomeInsufficientLoad.
 	InsufficientLoadDetail *modes.InsufficientLoadDetail
 }
 
-// SelectedDevice is a candidate the mode picked for curtailment. Carries
-// the same telemetry the selector ranked against so the handler can echo
-// per-device stats back to the caller without a re-query.
+// SelectedDevice is a candidate the mode picked, carrying the snapshot
+// stats the selector ranked against.
 type SelectedDevice struct {
 	DeviceIdentifier string
 	PowerW           float64
@@ -101,12 +91,8 @@ func BuildPlan(
 	skipped := make([]SkippedDevice, 0, len(preFiltered)+len(inputs))
 	skipped = append(skipped, preFiltered...)
 
-	// Track dual-signal exclusion counts so the rejection branch's
-	// InsufficientLoadDetail surfaces "N miners excluded by below_threshold,
-	// M by phantom_load, K by power_telemetry_unreliable" — not just zeros.
-	// The mode produces the rejection detail; we merge these counts into
-	// it post-hoc so the mode interface stays oblivious to dual-signal
-	// classification.
+	// Track dual-signal counts locally; merged into the mode's rejection
+	// detail post-Select so the mode interface stays oblivious.
 	var dualSignalCounts struct {
 		belowThreshold int32
 		phantomLoad    int32
@@ -126,18 +112,16 @@ func BuildPlan(
 			})
 			dualSignalCounts.belowThreshold++
 		case c.PowerW < float64(candidateMinPowerW):
-			// Hashing but drawing too little power — unreliable power
-			// telemetry (broken sensor, etc.). Curtailing succeeds but
-			// reconciler can't verify.
+			// Hashing but power reads near zero: dead/broken AC monitor.
+			// Curtailing succeeds but reconciler can't verify.
 			skipped = append(skipped, SkippedDevice{
 				DeviceIdentifier: c.DeviceIdentifier,
 				Reason:           SkipPowerTelemetryUnreliable,
 			})
 			dualSignalCounts.deadMonitor++
 		case c.HashRateHS <= 0:
-			// Drawing power but not hashing — phantom load. Curtailing
-			// records a fictional kW reduction with no real hashrate
-			// to lose.
+			// Drawing power but not hashing: phantom load — no real
+			// hashrate to lose, fictional kW reduction.
 			skipped = append(skipped, SkippedDevice{
 				DeviceIdentifier: c.DeviceIdentifier,
 				Reason:           SkipPhantomLoadNoHash,
@@ -148,9 +132,8 @@ func BuildPlan(
 		}
 	}
 
-	// Stable rank: known efficiency first (descending — worse first), then
-	// unknown efficiency at the bottom. Stable preserves input order for
-	// equal-efficiency miners so the plan is reproducible across calls.
+	// Stable worst-J/H-first rank; unknowns last; equal-efficiency input
+	// order preserved so plans are reproducible.
 	sort.SliceStable(eligible, func(i, j int) bool {
 		ei, ej := eligible[i].AvgEfficiencyJH, eligible[j].AvgEfficiencyJH
 		switch {
@@ -180,18 +163,14 @@ func BuildPlan(
 
 	res := mode.Select(ranked)
 
-	// Merge dual-signal exclusion counts into the rejection detail so the
-	// caller sees the per-reason breakdown for skips that happened inside
-	// BuildPlan (the pre-selector summary covers status/pairing/cooldown,
-	// but the dual-signal pass runs here).
+	// Merge dual-signal counts into the rejection detail; pre-selector
+	// summary covers status/pairing/cooldown, dual-signal pass runs here.
 	if res.InsufficientDetail != nil {
 		res.InsufficientDetail.ExcludedBelowThreshold += dualSignalCounts.belowThreshold
 		res.InsufficientDetail.ExcludedPhantomLoad += dualSignalCounts.phantomLoad
 		res.InsufficientDetail.ExcludedDeadMonitor += dualSignalCounts.deadMonitor
 	}
 
-	// Map the mode's selected list back to SelectedDevice carrying the
-	// snapshot stats the UI renders.
 	selected := make([]SelectedDevice, len(res.Selected))
 	for i, c := range res.Selected {
 		selected[i] = SelectedDevice{
@@ -201,7 +180,6 @@ func BuildPlan(
 		}
 	}
 
-	// Compute remaining power: total eligible minus the selected slice.
 	totalEligibleW := 0.0
 	for _, c := range ranked {
 		totalEligibleW += c.PowerW

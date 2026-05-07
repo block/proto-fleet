@@ -16,12 +16,9 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
-// fakeStore is a minimal CurtailmentStore stand-in for service tests. Only
-// the methods Preview actually uses are populated; the rest panic so a stray
-// call surfaces as an immediate test failure rather than a silent zero value.
+// fakeStore implements CurtailmentStore for Preview tests; methods Preview
+// doesn't exercise panic so a stray call fails loudly instead of zero-valuing.
 type fakeStore struct {
-	// Per-org data — keyed so cross-tenant tests can verify the service
-	// passes the caller's org_id through to every query.
 	orgConfigByOrg       map[int64]*models.OrgConfig
 	activeDevicesByOrg   map[int64][]string
 	cooldownDevicesByOrg map[int64][]string

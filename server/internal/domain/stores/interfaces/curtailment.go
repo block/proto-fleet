@@ -20,25 +20,18 @@ type CurtailmentStore interface {
 	// against organization).
 	GetOrgConfig(ctx context.Context, orgID int64) (*models.OrgConfig, error)
 
-	// Selector exclusion sets. Both return device identifiers for the
-	// caller's org, used to subtract from the candidate set.
+	// Selector exclusion sets: org-scoped device identifiers subtracted
+	// from the candidate set.
 	ListActiveCurtailedDevices(ctx context.Context, orgID int64) ([]string, error)
 	ListRecentlyResolvedCurtailedDevices(ctx context.Context, orgID int64, cooldownSec int32) ([]string, error)
 
-	// Event CRUD. v1 exposes the minimum needed for the Preview surface to
-	// verify schema constraints round-trip; the surface broadens as
-	// Start / Update / Stop / read APIs land.
 	InsertEvent(ctx context.Context, params models.InsertEventParams) (*models.InsertEventResult, error)
 	GetEventByUUID(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error)
 
-	// Target CRUD. A bulk-insert path will likely be added once Start
-	// dispatches commands; for now the per-row insert is enough for store
-	// tests to verify constraints.
 	InsertTarget(ctx context.Context, params models.InsertTargetParams) error
 	ListTargetsByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) ([]*models.Target, error)
 
-	// Heartbeat singleton — used by the alert predicate evaluator and by
-	// future reconciler liveness checks.
+	// Heartbeat singleton row used by liveness alerts.
 	GetHeartbeat(ctx context.Context) (*models.Heartbeat, error)
 
 	// ListCandidates returns per-device state for the selector's filter

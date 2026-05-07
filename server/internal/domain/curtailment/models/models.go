@@ -1,6 +1,5 @@
-// Package models defines the domain shapes the curtailment store boundary
-// returns, kept independent of sqlc-generated types so the rest of the
-// curtailment domain (selector, modes, handler) does not import generated code.
+// Package models defines the curtailment domain types, kept independent of
+// sqlc-generated types so the selector / modes / handler don't import them.
 package models
 
 import (
@@ -9,11 +8,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// OrgConfig holds the per-org tunables read at handler entry: the default
-// max-duration cap (used to normalize max_duration_seconds=0), the candidate
-// power floor (the per-org tier of the two-tier resolution; admin-supplied
-// override on the request takes precedence), and the cooldown window applied
-// by the selector to recently-resolved miners.
+// OrgConfig is the per-org tunable triple: max-duration default,
+// candidate-power floor, and cooldown window.
 type OrgConfig struct {
 	OrgID                 int64
 	MaxDurationDefaultSec int32
@@ -88,9 +84,7 @@ const (
 	SourceActorScheduler SourceActorType = "scheduler"
 )
 
-// Event mirrors a `curtailment_event` row at the domain boundary. Fields
-// whose values are JSON in the DB are exposed as raw bytes; callers that
-// need to deserialize them own the schema.
+// Event represents a `curtailment_event` row; JSON columns are raw bytes.
 type Event struct {
 	ID                      int64
 	EventUUID               uuid.UUID
@@ -127,9 +121,8 @@ type Event struct {
 	UpdatedAt               time.Time
 }
 
-// InsertEventParams captures the fields a caller must supply when inserting
-// a new event. Computed fields (id, created_at, updated_at, effective_batch_size)
-// are produced by the DB.
+// InsertEventParams is the caller-supplied fields; id / created_at /
+// updated_at / effective_batch_size come from the DB.
 type InsertEventParams struct {
 	EventUUID               uuid.UUID
 	OrgID                   int64

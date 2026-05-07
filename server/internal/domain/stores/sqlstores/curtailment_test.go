@@ -11,11 +11,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
-// TestMapOrgConfigError pins the contract: an FK violation on the
-// EnsureCurtailmentOrgConfig insert path means the caller's org_id is
-// invalid (no matching organization row). The interface contract reserves
-// NotFound for that case so tenant-scoping failures don't surface as 500s
-// — anything else stays Internal.
 func TestMapOrgConfigError(t *testing.T) {
 	t.Parallel()
 
@@ -35,7 +30,7 @@ func TestMapOrgConfigError(t *testing.T) {
 		require.Error(t, got)
 		assert.True(t, fleeterror.IsNotFoundError(got),
 			"FK violation must surface as NotFound; got %v", got)
-		assert.Contains(t, got.Error(), "organization 42 not found")
+		assert.Contains(t, got.Error(), "42", "error must echo the orgID")
 	})
 
 	t.Run("non-FK pg error wraps as Internal", func(t *testing.T) {

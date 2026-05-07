@@ -1,22 +1,18 @@
-// Package modes encapsulates the mode-specific selection logic that turns a
-// ranked candidate list into a plan. v1 ships FIXED_KW; closed-loop modes
-// (SITE_POWER_CAP, THERMAL_LIMIT, etc.) plug into the same Mode interface
-// without touching the selector or the reconciler tick body.
+// Package modes provides pluggable mode-specific selection (v1: FIXED_KW;
+// closed-loop modes plug into Mode without touching the selector).
 package modes
 
-// Candidate is the per-device input the selector hands to a mode after
-// ranking. power_w is the telemetry snapshot used both for accumulation and
-// (separately, by the selector) as the persisted baseline_power_w.
+// Candidate is the per-device input handed to a mode after ranking.
+// PowerW doubles as accumulation input and (via the selector) baseline_power_w.
 type Candidate struct {
 	DeviceIdentifier string
 	PowerW           float64
 	EfficiencyJH     float64
 }
 
-// Outcome categorizes the result of applying a mode to a ranked candidate
-// list. TargetReached and UndershootTolerated produce a non-empty Selected
-// list; InsufficientLoad produces an empty Selected list and a structured
-// detail the handler can surface to the caller.
+// Outcome categorizes a mode result. TargetReached and UndershootTolerated
+// produce a non-empty Selected; InsufficientLoad produces empty Selected
+// plus a structured detail.
 type Outcome int
 
 const (
@@ -34,10 +30,9 @@ const (
 	OutcomeInsufficientLoad
 )
 
-// InsufficientLoadDetail is what the handler echoes back to the caller when
-// a request fails for lack of curtailable load. Each field maps to a
-// diagnostic field in the structured Connect error detail so the UI can
-// render "max X kW available, requested Y kW; N miners excluded by ..." .
+// InsufficientLoadDetail carries the diagnostic numbers the handler echoes
+// back on the rejection branch (available/requested/tolerance kW, candidate
+// floor, per-reason exclusion counts).
 type InsufficientLoadDetail struct {
 	AvailableKW            float64
 	RequestedKW            float64
@@ -55,7 +50,7 @@ type InsufficientLoadDetail struct {
 }
 
 // Result is the mode's output. Selected is the chosen set in dispatch order;
-// RealizedReductionW is the accumulated power_w of Selected. When Outcome is
+// RealizedReductionW is the accumulated power_w of Selected. On
 // OutcomeInsufficientLoad, Selected is empty and InsufficientDetail is set.
 type Result struct {
 	Outcome            Outcome
@@ -64,12 +59,8 @@ type Result struct {
 	InsufficientDetail *InsufficientLoadDetail
 }
 
-// Mode applies mode-specific selection to a ranked candidate list. v1 has
-// one implementor (FixedKw); closed-loop modes will add their own.
+// Mode applies mode-specific selection to a ranked candidate list.
+// Implementations MUST be pure: no I/O, no time, no shared state.
 type Mode interface {
-	// Select walks ranked candidates and returns the chosen subset plus
-	// outcome. Implementations MUST be pure: no I/O, no time, no shared
-	// state. The selector handles candidate construction; the mode handles
-	// only the stop condition.
 	Select(ranked []Candidate) Result
 }

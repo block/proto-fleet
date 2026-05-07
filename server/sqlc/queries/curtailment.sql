@@ -1,9 +1,7 @@
 -- name: GetCurtailmentOrgConfig :one
--- Read at handler entry to resolve max_duration_default_sec normalization,
--- candidate_min_power_w default (when override is not set), and the cooldown
--- window for the selector. The migration seeds one row per existing org;
--- EnsureCurtailmentOrgConfig backfills any org created post-migration so this
--- read is guaranteed to return a row for any valid org_id.
+-- Per-org tunables: max-duration default, candidate-power floor, cooldown
+-- window. Existence guaranteed: migration seeds existing orgs;
+-- EnsureCurtailmentOrgConfig backfills post-migration tenants.
 SELECT
     org_id,
     max_duration_default_sec,
@@ -15,14 +13,9 @@ FROM curtailment_org_config
 WHERE org_id = sqlc.arg('org_id');
 
 -- name: EnsureCurtailmentOrgConfig :one
--- Idempotent backfill of the per-org config row. Required because the
--- 000040 migration only seeds existing orgs at deploy time; orgs created
--- afterwards have no row until something writes one.
---
--- The conflict path is a read, not a write: the INSERT uses DO NOTHING so
--- existing rows are not touched, and the fallback SELECT returns the row
--- already on disk. This preserves `updated_at` as a real config-change
--- signal and keeps Preview off the WAL on the hot path.
+-- Idempotent read-only backfill: INSERT ... DO NOTHING keeps existing rows
+-- untouched (preserves `updated_at` as a real config-change signal); the
+-- fallback SELECT returns the row already on disk. Single round trip.
 WITH ins AS (
     INSERT INTO curtailment_org_config (org_id)
     VALUES (sqlc.arg('org_id'))
@@ -57,9 +50,8 @@ WHERE org_id = sqlc.arg('org_id')
 LIMIT 1;
 
 -- name: ListActiveCurtailedDevicesByOrg :many
--- Devices currently locked in a non-terminal curtailment event. The selector
--- excludes these from the candidate set so a Preview cannot plan against a
--- device that another event already governs (per-device single-writer rule).
+-- Devices locked in a non-terminal event; excluded from candidates to
+-- enforce the per-device single-writer rule.
 SELECT DISTINCT ct.device_identifier
 FROM curtailment_target ct
 JOIN curtailment_event ce ON ce.id = ct.curtailment_event_id
@@ -68,11 +60,8 @@ WHERE ce.org_id = sqlc.arg('org_id')
     AND ct.state NOT IN ('resolved', 'restore_failed', 'released');
 
 -- name: ListRecentlyResolvedCurtailedDevicesByOrg :many
--- Devices whose targets reached a terminal state (resolved or restore_failed)
--- within `cooldown_sec`. The selector excludes these from the candidate set
--- unless priority=EMERGENCY (cooldown bypass is enforced in Go, not in SQL).
--- The window is computed as NOW() - cooldown_sec; Postgres handles the
--- interval arithmetic so the Go layer does not need to recompute it.
+-- Targets that hit a terminal state within `cooldown_sec`. Selector
+-- excludes these unless priority=EMERGENCY (Go-side bypass).
 SELECT DISTINCT ct.device_identifier
 FROM curtailment_target ct
 JOIN curtailment_event ce ON ce.id = ct.curtailment_event_id
@@ -82,9 +71,8 @@ WHERE ce.org_id = sqlc.arg('org_id')
     AND ce.ended_at >= CURRENT_TIMESTAMP - (sqlc.arg('cooldown_sec')::int * INTERVAL '1 second');
 
 -- name: InsertCurtailmentEvent :one
--- Bulk insert path used by Start dispatch and by store tests. The full
--- column list mirrors the migration so callers cannot accidentally rely on
--- DEFAULTs for values the API layer should be normalizing.
+-- Full column list mirrors the migration so callers can't rely on DEFAULTs
+-- for values the API layer should be normalizing.
 INSERT INTO curtailment_event (
     event_uuid,
     org_id,
@@ -152,9 +140,7 @@ WHERE event_uuid = sqlc.arg('event_uuid')
     AND org_id = sqlc.arg('org_id');
 
 -- name: InsertCurtailmentTarget :exec
--- Per-target row insert. The Start dispatch path inserts these in a single
--- transaction with the parent event row; store tests use it to round-trip
--- schema constraints.
+-- Start dispatch inserts these in the event-row transaction.
 INSERT INTO curtailment_target (
     curtailment_event_id,
     device_identifier,
@@ -174,8 +160,7 @@ INSERT INTO curtailment_target (
 );
 
 -- name: ListCurtailmentTargetsByEvent :many
--- Org-scoped via the join. Used by store tests and by future Get/List
--- read paths that need to surface the per-event target rollup.
+-- Org-scoped via the join.
 SELECT ct.*
 FROM curtailment_target ct
 JOIN curtailment_event ce ON ce.id = ct.curtailment_event_id
@@ -189,18 +174,11 @@ FROM curtailment_reconciler_heartbeat
 WHERE id = 1;
 
 -- name: ListCurtailmentCandidatesByOrg :many
--- Pulls per-device state for the selector's filter / rank pipeline. Returns
--- ALL devices in scope (org + optional device_identifiers narrow), including
--- unpaired / stale / unstatused — the service layer applies skip-reason
--- attribution in Go so the diagnostic detail (phantom_load vs stale vs
--- offline-residual etc.) lands in PreviewCurtailmentPlanResponse.skipped_candidates.
---
--- LEFT JOIN on telemetry: a device with no recent samples returns NULL
--- power_w / hash_rate_hs, which the service interprets as stale. The 15-min
--- window matches the design doc's staleness boundary.
---
--- device_identifiers narrow: pass NULL for whole-org scope; pass a non-empty
--- array for device-list scope (after org-ownership validation).
+-- Per-device state for the selector. Returns every in-scope device
+-- (unpaired / stale / unstatused included); the service layer applies
+-- skip-reason attribution. LEFT JOIN telemetry: nil power/hash = stale
+-- (15-min window). device_identifiers: nil for whole-org, non-empty
+-- after org-ownership validation for device-list scope.
 WITH latest_metrics AS (
     SELECT DISTINCT ON (device_metrics.device_identifier)
         device_metrics.device_identifier,
@@ -222,10 +200,8 @@ latest_hourly AS (
     INNER JOIN device d3 ON device_metrics_hourly.device_identifier = d3.device_identifier
         AND d3.deleted_at IS NULL
         AND d3.org_id = sqlc.arg('org_id')
-    -- Bound the bucket scan: device_metrics_hourly is a continuous aggregate
-    -- with multi-day retention; we only need the latest non-empty hour per
-    -- device. 24h covers TimescaleDB end-offset and operator-timezone gaps
-    -- without dragging the planner across stale rollups.
+    -- 24h window covers TimescaleDB end-offset + operator-timezone gaps
+    -- without scanning multi-day retention.
     WHERE device_metrics_hourly.bucket > NOW() - INTERVAL '24 hours'
     ORDER BY device_metrics_hourly.device_identifier, bucket DESC
 )
@@ -233,12 +209,9 @@ SELECT
     d.device_identifier,
     dd.driver_name,
     COALESCE(dd.model, '') AS model,
-    -- device_status / pairing_status default to safe sentinels when the
-    -- joined row is missing. Empty-string device_status is the "unknown
-    -- status" signal the service treats as stale; NULL pairing_status is
-    -- normalized to UNPAIRED. The COALESCE on device_status is required
-    -- because sqlc generates a non-nullable string column and a NULL would
-    -- crash the row scan.
+    -- COALESCE required because sqlc generates a non-nullable string;
+    -- empty-string is the "unknown status" sentinel the service treats
+    -- as stale. NULL pairing_status normalizes to UNPAIRED below.
     COALESCE(ds.status::text, ''::text)::text AS device_status,
     CASE WHEN dp.id IS NOT NULL THEN dp.pairing_status::text ELSE 'UNPAIRED' END AS pairing_status,
     lm.time            AS latest_metrics_at,
@@ -257,7 +230,6 @@ WHERE d.org_id = sqlc.arg('org_id')
         sqlc.narg('device_identifiers')::text[] IS NULL
         OR d.device_identifier = ANY(sqlc.narg('device_identifiers')::text[])
     )
--- Stable order: the selector's stable sort preserves this ordering on
--- ties (equal or NULL avg_efficiency), so two Previews against the same
--- inputs produce the same selected list.
+-- Stable order so the selector's stable sort produces the same plan
+-- across calls when avg_efficiency ties or is NULL.
 ORDER BY d.device_identifier;

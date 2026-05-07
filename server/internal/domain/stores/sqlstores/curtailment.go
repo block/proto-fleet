@@ -19,17 +19,9 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
-// pgErrCodeForeignKeyViolation is PostgreSQL's SQLSTATE for
-// foreign_key_violation. EnsureCurtailmentOrgConfig's INSERT can fail with
-// this code when the supplied org_id has no matching row in `organization`
-// (caller passed a stale/invalid tenant id); the interface contract reserves
-// NotFound for that case, so callers can distinguish "tenant doesn't exist"
-// from server-side errors.
+// pgErrCodeForeignKeyViolation is PostgreSQL's SQLSTATE for foreign_key_violation.
 const pgErrCodeForeignKeyViolation = "23503"
 
-// mapOrgConfigError maps an error from the curtailment_org_config upsert
-// path to the typed error the interface contract promises. FK violations on
-// org_id surface as NotFound; everything else wraps as Internal.
 func mapOrgConfigError(err error, orgID int64) error {
 	if err == nil {
 		return nil

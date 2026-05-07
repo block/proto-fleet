@@ -16,26 +16,20 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/session"
 )
 
-// Action verbs passed to requireAdminFromContext for error messages. Defining
-// them once prevents wording drift across the override call sites.
+// Action verbs for requireAdminFromContext error messages.
 const (
 	actionSupplyOverrideFields = "supply curtailment override fields"
 	actionTerminateEvents      = "terminate curtailment events"
 )
 
-// Handler implements the curtailment v1 RPC surface. The service field is
-// optional: when nil (used by the existing stub-level handler tests) Preview
-// returns Unimplemented; when populated (production wiring at fleetd
-// startup) Preview is the real implementation.
+// Handler implements the curtailment v1 RPC surface. service=nil keeps the
+// stub-level tests' Unimplemented contract; populated wires the real impl.
 type Handler struct {
 	service *curtailment.Service
 }
 
 var _ curtailmentv1connect.CurtailmentServiceHandler = &Handler{}
 
-// NewHandler constructs a curtailment handler. Pass nil for the service
-// when wiring stub-only tests; pass a populated *curtailment.Service for
-// production wiring.
 func NewHandler(service *curtailment.Service) *Handler {
 	return &Handler{service: service}
 }
@@ -115,7 +109,6 @@ func (h *Handler) AdminTerminateEvent(ctx context.Context, _ *connect.Request[pb
 	return nil, errCurtailmentNotImplemented("AdminTerminateEvent")
 }
 
-// errCurtailmentNotImplemented standardizes stub errors.
 func errCurtailmentNotImplemented(rpc string) error {
 	return fleeterror.NewUnimplementedErrorf("curtailment.%s is not implemented yet", rpc)
 }

@@ -12,10 +12,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
-// translatePreviewRequest converts the proto request into the service-level
-// PreviewRequest. Decoupling lets the service be testable without proto
-// dependencies; the translation is the only place proto types appear in the
-// curtailment-handler call path.
+// translatePreviewRequest converts the proto request to a service PreviewRequest.
 func translatePreviewRequest(msg *pb.PreviewCurtailmentPlanRequest, orgID int64) (curtailment.PreviewRequest, error) {
 	scope, err := translateScope(msg)
 	if err != nil {
@@ -53,9 +50,8 @@ func translatePreviewRequest(msg *pb.PreviewCurtailmentPlanRequest, orgID int64)
 		ForceIncludeMaintenance: msg.GetForceIncludeMaintenance(),
 	}
 	if override := msg.CandidateMinPowerWOverride; override != nil {
-		// Defense-in-depth bounds check: the proto validator caps the
-		// override well below int32's max, but if interceptor wiring is
-		// ever bypassed, reject loudly rather than wrap silently.
+		// Defense-in-depth: proto validator already caps below MaxInt32,
+		// but reject loudly if interceptor wiring is ever bypassed.
 		if *override > math.MaxInt32 {
 			return curtailment.PreviewRequest{}, fleeterror.NewInvalidArgumentErrorf(
 				"candidate_min_power_w_override exceeds int32 max: %d", *override,
@@ -88,15 +84,10 @@ func translateScope(msg *pb.PreviewCurtailmentPlanRequest) (curtailment.Scope, e
 	}
 }
 
-// translatePreviewResponse maps the service-level Plan to the proto response.
-// Selected candidates carry their telemetry snapshot so the UI can render
-// per-device stats without a re-query; skipped candidates carry their
-// canonical reason from the SkipReason vocabulary.
+// translatePreviewResponse maps the service Plan to the proto response.
 func translatePreviewResponse(plan *curtailment.Plan, req *pb.PreviewCurtailmentPlanRequest) *pb.PreviewCurtailmentPlanResponse {
-	// Derive the reason_selected label from the request's strategy so a
-	// future strategy enum addition forces this surface to be touched.
-	// Today only LEAST_EFFICIENT_FIRST exists; the helper resolves the
-	// UNSPECIFIED → LEAST_EFFICIENT_FIRST default identical to service.go.
+	// strategyReasonLabel forces a future strategy enum addition to touch
+	// this surface (compile-time exhaustive switch).
 	reasonSelected := strategyReasonLabel(req.GetStrategy())
 	candidates := make([]*pb.CurtailmentCandidate, len(plan.Selected))
 	for i, c := range plan.Selected {
@@ -121,9 +112,8 @@ func translatePreviewResponse(plan *curtailment.Plan, req *pb.PreviewCurtailment
 		Mode:                      pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
 		SkippedCandidates:         skipped,
 	}
-	// Echo back the FIXED_KW params so the UI can render the undershoot
-	// delta (target_kw - estimated_reduction_kw, clamped to 0) without
-	// re-fetching the request.
+	// Echo FIXED_KW params so the UI can render the undershoot delta
+	// without re-fetching the request.
 	if fk := req.GetFixedKw(); fk != nil {
 		resp.ModeParams = &pb.PreviewCurtailmentPlanResponse_FixedKw{FixedKw: fk}
 	}
@@ -137,12 +127,9 @@ func strategyName(s pb.CurtailmentStrategy) string {
 	return s.String()
 }
 
-// strategyReasonLabel maps the request strategy to the per-candidate
-// reason_selected label echoed back to the UI. Adding a new strategy enum
-// requires a new case here so the response surface is forced to update in
-// lockstep with the selector's ranking implementation. v1 only implements
-// LEAST_EFFICIENT_FIRST; other strategies fall through to their proto name
-// because the service layer already rejects them as unsupported.
+// strategyReasonLabel renders reason_selected for the response. Exhaustive
+// switch forces a future strategy enum addition to update this surface in
+// lockstep with the selector's ranking implementation.
 func strategyReasonLabel(s pb.CurtailmentStrategy) string {
 	switch s {
 	case pb.CurtailmentStrategy_CURTAILMENT_STRATEGY_UNSPECIFIED,
@@ -175,26 +162,18 @@ func priorityName(p pb.CurtailmentPriority) string {
 	case pb.CurtailmentPriority_CURTAILMENT_PRIORITY_UNSPECIFIED,
 		pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL,
 		pb.CurtailmentPriority_CURTAILMENT_PRIORITY_HIGH:
-		// HIGH is reserved-but-undesigned in v1; the proto validator
-		// rejects it before this function runs. UNSPECIFIED and NORMAL
-		// both map to NORMAL since the service treats absent priority as
-		// the default.
+		// HIGH is reserved-but-undesigned in v1; proto validator rejects
+		// it before this runs. UNSPECIFIED and NORMAL both map to NORMAL.
 		return "NORMAL"
 	default:
 		return "NORMAL"
 	}
 }
 
-// translateInsufficientLoad maps the OutcomeInsufficientLoad branch to a
-// fleeterror InvalidArgument with a structured detail message. Connect-RPC
-// error-detail propagation is a future enhancement; v1 returns the key
-// numbers in the message body so the UI can render them directly.
-//
-// Every non-zero exclusion counter is included so callers can distinguish
-// phantom-load vs dead-monitor vs below-threshold vs capability-miss without
-// regex-parsing a partial set. Zero counters are omitted to keep the message
-// tight; the per-counter order is fixed so the message is byte-stable for
-// the same input.
+// translateInsufficientLoad returns InvalidArgument with the kW numbers
+// and every non-zero exclusion counter (zero counters omitted; counter
+// order fixed at source for byte-stable output until Connect error-detail
+// propagation lands).
 func translateInsufficientLoad(detail *modes.InsufficientLoadDetail) error {
 	if detail == nil {
 		return fleeterror.NewInvalidArgumentError("insufficient curtailable load")
@@ -210,18 +189,15 @@ func translateInsufficientLoad(detail *modes.InsufficientLoadDetail) error {
 	return fleeterror.NewInvalidArgumentErrorf("%s; excluded: %s", header, exclusions)
 }
 
-// formatExclusionCounters renders the non-zero ExcludedX fields of an
-// InsufficientLoadDetail in a stable, human-readable order. Order is fixed
-// at the source-code level (not derived from a map) so two calls with the
-// same input produce byte-identical output.
+// formatExclusionCounters renders non-zero ExcludedX fields. Order is
+// source-fixed (not map-derived) so output is byte-stable. Names use the
+// canonical SkipReason vocabulary so the success-path SkippedCandidate.reason
+// and the failure-path counters share one set of tokens.
 func formatExclusionCounters(d *modes.InsufficientLoadDetail) string {
 	type counter struct {
 		name string
 		val  int32
 	}
-	// Counter names match the canonical SkipReason vocabulary surfaced on
-	// SkippedCandidate.reason in the success path, so agents that switch
-	// on skip reasons see one set of tokens across both surfaces.
 	all := []counter{
 		{string(curtailment.SkipBelowThreshold), d.ExcludedBelowThreshold},
 		{string(curtailment.SkipPhantomLoadNoHash), d.ExcludedPhantomLoad},
