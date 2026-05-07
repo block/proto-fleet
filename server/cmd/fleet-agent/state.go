@@ -74,8 +74,10 @@ func loadState(path string) (*State, bool, error) {
 	return &s, true, nil
 }
 
-// saveState writes via temp + rename so a crash mid-write cannot corrupt
-// state.yaml; the temp file lives in the same dir for same-filesystem rename.
+// saveState writes via temp + fsync + rename + dir-fsync so a power-loss
+// or kernel crash cannot leave state.yaml truncated nor roll back a
+// rename whose page-cache update never reached disk. The temp file lives
+// in the same dir so the rename is atomic on the same filesystem.
 func saveState(path string, s *State) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -102,11 +104,18 @@ func saveState(path string, s *State) error {
 		_ = tmp.Close()
 		return fmt.Errorf("write temp: %w", err)
 	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("sync temp: %w", err)
+	}
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("close temp: %w", err)
 	}
 	if err := os.Rename(tmpName, path); err != nil {
 		return fmt.Errorf("rename state: %w", err)
+	}
+	if err := syncDir(dir); err != nil {
+		return err
 	}
 	return nil
 }

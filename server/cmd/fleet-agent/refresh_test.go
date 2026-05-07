@@ -189,6 +189,92 @@ func TestRefreshCmd_PreservesStateOnSignatureFailure(t *testing.T) {
 	assert.WithinDuration(t, staleExpiry, loaded.SessionExpiresAt, time.Second)
 }
 
+func TestRefreshCmd_PreservesStoredKeyWhenOverrideRejected(t *testing.T) {
+	t.Parallel()
+
+	// Arrange
+	dir := t.TempDir()
+	pub, priv, err := generateKeypair()
+	require.NoError(t, err)
+	fake := &fakeAgentGateway{
+		expectedAPIKey: "good-stored-key",
+		identityPub:    pub,
+		challenge:      bytes.Repeat([]byte{0x77}, 32),
+	}
+	srv := newFakeServer(t, fake)
+	staleExpiry := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
+	require.NoError(t, saveState(filepath.Join(dir, "state.yaml"), &State{
+		ServerURL:              srv.URL,
+		AllowInsecureTransport: true,
+		AgentID:                11,
+		IdentityFingerprint:    "9999999999999999",
+		IdentityPrivateKeyHex:  hex.EncodeToString(priv),
+		IdentityPublicKeyHex:   hex.EncodeToString(pub),
+		APIKey:                 "good-stored-key",
+		SessionToken:           "still-valid",
+		SessionExpiresAt:       staleExpiry,
+	}))
+	cmd := RefreshCmd{APIKey: "bad-override-typo"}
+
+	// Act
+	err = cmd.run(&Context{StateDir: dir}, &bytes.Buffer{})
+
+	// Assert
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "override rejected")
+	loaded, _, err := loadState(filepath.Join(dir, "state.yaml"))
+	require.NoError(t, err)
+	assert.Equal(t, "good-stored-key", loaded.APIKey, "stored key must survive a rejected --api-key override")
+	assert.Equal(t, "still-valid", loaded.SessionToken)
+	assert.WithinDuration(t, staleExpiry, loaded.SessionExpiresAt, time.Second)
+}
+
+func TestRefreshCmd_ConcurrentRefreshesSerialize(t *testing.T) {
+	t.Parallel()
+
+	// Arrange
+	dir := t.TempDir()
+	pub, priv, err := generateKeypair()
+	require.NoError(t, err)
+	fake := &fakeAgentGateway{
+		expectedAPIKey:   "k",
+		identityPub:      pub,
+		challenge:        bytes.Repeat([]byte{0x88}, 32),
+		sessionToken:     "session-X",
+		sessionExpiresAt: time.Now().Add(24 * time.Hour).UTC(),
+	}
+	srv := newFakeServer(t, fake)
+	require.NoError(t, saveState(filepath.Join(dir, "state.yaml"), &State{
+		ServerURL:              srv.URL,
+		AllowInsecureTransport: true,
+		AgentID:                22,
+		IdentityFingerprint:    "aaaaaaaaaaaaaaaa",
+		IdentityPrivateKeyHex:  hex.EncodeToString(priv),
+		IdentityPublicKeyHex:   hex.EncodeToString(pub),
+		APIKey:                 "k",
+	}))
+
+	const N = 5
+	errs := make(chan error, N)
+	for range N {
+		go func() {
+			cmd := RefreshCmd{}
+			errs <- cmd.run(&Context{StateDir: dir}, &bytes.Buffer{})
+		}()
+	}
+
+	// Act
+	for range N {
+		require.NoError(t, <-errs)
+	}
+
+	// Assert
+	loaded, _, err := loadState(filepath.Join(dir, "state.yaml"))
+	require.NoError(t, err)
+	assert.Equal(t, "session-X", loaded.SessionToken)
+	assert.Equal(t, "k", loaded.APIKey)
+}
+
 func TestRefreshCmd_RejectsNonHTTPSWhenAllowInsecureUnset(t *testing.T) {
 	t.Parallel()
 

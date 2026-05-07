@@ -19,6 +19,12 @@ func (r *RefreshCmd) Run(c *Context) error {
 }
 
 func (r *RefreshCmd) run(c *Context, w io.Writer) error {
+	return withStateLock(c.StateDir, func() error {
+		return r.runLocked(c, w)
+	})
+}
+
+func (r *RefreshCmd) runLocked(c *Context, w io.Writer) error {
 	path := statePath(c.StateDir)
 	st, exists, err := loadState(path)
 	if err != nil {
@@ -34,16 +40,28 @@ func (r *RefreshCmd) run(c *Context, w io.Writer) error {
 		return err
 	}
 
-	if flagKey := strings.TrimSpace(r.APIKey); flagKey != "" {
-		st.APIKey = flagKey
+	storedKey := st.APIKey
+	overrideKey := strings.TrimSpace(r.APIKey)
+	overrideUsed := overrideKey != ""
+
+	attemptedKey := storedKey
+	if overrideUsed {
+		attemptedKey = overrideKey
 	}
-	if st.APIKey == "" {
+	if attemptedKey == "" {
 		return errors.New("state has no api_key; pass --api-key=<value> or re-enroll the agent")
 	}
+	st.APIKey = attemptedKey
 
 	client := newGatewayClient(st.ServerURL)
 	if err := runHandshake(context.Background(), client, st); err != nil {
 		if errors.Is(err, errAPIKeyRejected) {
+			// If the rejected key was an override that differs from the
+			// stored key, the stored key may still be valid; preserve
+			// disk state and surface a clear error.
+			if overrideUsed && overrideKey != storedKey && storedKey != "" {
+				return fmt.Errorf("api_key override rejected; stored credentials preserved, retry without --api-key: %w", err)
+			}
 			st.APIKey = ""
 			st.SessionToken = ""
 			st.SessionExpiresAt = time.Time{}

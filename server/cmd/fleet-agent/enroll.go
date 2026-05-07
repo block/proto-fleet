@@ -34,7 +34,12 @@ func (e *EnrollCmd) run(c *Context, stdin io.Reader, stdout, stderr io.Writer) e
 	if err := validateServerURL(e.ServerURL, e.AllowInsecureTransport); err != nil {
 		return err
 	}
+	return withStateLock(c.StateDir, func() error {
+		return e.runLocked(c, stdin, stdout, stderr)
+	})
+}
 
+func (e *EnrollCmd) runLocked(c *Context, stdin io.Reader, stdout, stderr io.Writer) error {
 	path := statePath(c.StateDir)
 	st, exists, err := loadState(path)
 	if err != nil {
