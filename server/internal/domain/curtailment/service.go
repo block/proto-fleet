@@ -224,6 +224,12 @@ func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, i
 	return &plan, minPowerW, nil
 }
 
+// startTextFieldMaxLen mirrors proto/curtailment/v1/curtailment.proto's
+// max_len bound on idempotency_key / reason / external_source /
+// external_reference. Service-level enforcement protects non-Connect
+// callers (internal CLIs, tests, future non-RPC entry points).
+const startTextFieldMaxLen = 256
+
 func validateStartRequest(req StartRequest) error {
 	if err := validatePreviewRequest(req.PreviewRequest); err != nil {
 		return err
@@ -233,6 +239,26 @@ func validateStartRequest(req StartRequest) error {
 		// reject early so the caller sees a clear error rather than a
 		// constraint violation through Internal.
 		return fleeterror.NewInvalidArgumentError("reason must be non-empty")
+	}
+	if len(req.Reason) > startTextFieldMaxLen {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"reason must be at most %d chars, got %d", startTextFieldMaxLen, len(req.Reason),
+		)
+	}
+	if req.IdempotencyKey != nil && len(*req.IdempotencyKey) > startTextFieldMaxLen {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"idempotency_key must be at most %d chars, got %d", startTextFieldMaxLen, len(*req.IdempotencyKey),
+		)
+	}
+	if req.ExternalSource != nil && len(*req.ExternalSource) > startTextFieldMaxLen {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"external_source must be at most %d chars, got %d", startTextFieldMaxLen, len(*req.ExternalSource),
+		)
+	}
+	if req.ExternalReference != nil && len(*req.ExternalReference) > startTextFieldMaxLen {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"external_reference must be at most %d chars, got %d", startTextFieldMaxLen, len(*req.ExternalReference),
+		)
 	}
 	if req.RestoreBatchSize < 0 {
 		return fleeterror.NewInvalidArgumentErrorf(

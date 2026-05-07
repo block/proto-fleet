@@ -111,6 +111,69 @@ func TestService_Start_RejectsMissingSourceActorType(t *testing.T) {
 	assert.Contains(t, err.Error(), "source_actor_type")
 }
 
+// TestService_Start_RejectsOversizedTextFields covers the service-level
+// backstop for callers that bypass proto validation (internal CLIs / tests
+// / future non-Connect surfaces). Each text field has the same 256-char
+// cap that the proto enforces.
+func TestService_Start_RejectsOversizedTextFields(t *testing.T) {
+	t.Parallel()
+	tooLong := func() string {
+		b := make([]byte, startTextFieldMaxLen+1)
+		for i := range b {
+			b[i] = 'a'
+		}
+		return string(b)
+	}()
+
+	cases := []struct {
+		name     string
+		mutate   func(*StartRequest)
+		contains string
+	}{
+		{
+			name:     "reason",
+			mutate:   func(r *StartRequest) { r.Reason = tooLong },
+			contains: "reason",
+		},
+		{
+			name: "idempotency_key",
+			mutate: func(r *StartRequest) {
+				v := tooLong
+				r.IdempotencyKey = &v
+			},
+			contains: "idempotency_key",
+		},
+		{
+			name: "external_source",
+			mutate: func(r *StartRequest) {
+				v := tooLong
+				r.ExternalSource = &v
+			},
+			contains: "external_source",
+		},
+		{
+			name: "external_reference",
+			mutate: func(r *StartRequest) {
+				v := tooLong
+				r.ExternalReference = &v
+			},
+			contains: "external_reference",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			svc := NewService(newFakeStore())
+			req := validStartRequest(1)
+			tc.mutate(&req)
+			_, err := svc.Start(t.Context(), req)
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsInvalidArgumentError(err))
+			assert.Contains(t, err.Error(), tc.contains)
+		})
+	}
+}
+
 // --- selector pipeline parity with Preview ---
 
 func TestService_Start_RunsSelectorWithDeviceListFilter(t *testing.T) {
