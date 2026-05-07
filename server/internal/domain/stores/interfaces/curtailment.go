@@ -51,10 +51,8 @@ type CurtailmentStore interface {
 	ListActiveCurtailedDevices(ctx context.Context, orgID int64) ([]string, error)
 	ListRecentlyResolvedCurtailedDevices(ctx context.Context, orgID int64, cooldownSec int32) ([]string, error)
 
-	InsertEvent(ctx context.Context, params models.InsertEventParams) (*models.InsertEventResult, error)
 	GetEventByUUID(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error)
 
-	InsertTarget(ctx context.Context, params models.InsertTargetParams) error
 	ListTargetsByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) ([]*models.Target, error)
 
 	// InsertEventWithTargets writes the event row plus every per-target row

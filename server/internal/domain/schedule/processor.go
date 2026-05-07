@@ -436,35 +436,33 @@ func (p *Processor) executeSchedule(ctx context.Context, scheduleID int64) {
 	}
 }
 
-// countConflictSkips ignores other command preflight filters; schedule activity
-// should only summarize schedule-priority conflicts.
-func countConflictSkips(result *command.CommandResult) int {
+// countSkipsByFilter counts how many skipped devices were attributed to
+// filterName. The activity log emits per-filter summaries so each cause
+// (schedule conflict, active curtailment, ...) gets its own log line.
+func countSkipsByFilter(result *command.CommandResult, filterName string) int {
 	if result == nil {
 		return 0
 	}
 	n := 0
 	for _, s := range result.Skipped {
-		if s.FilterName == command.ScheduleConflictFilterName {
+		if s.FilterName == filterName {
 			n++
 		}
 	}
 	return n
 }
 
+// countConflictSkips ignores other command preflight filters; schedule activity
+// should only summarize schedule-priority conflicts.
+func countConflictSkips(result *command.CommandResult) int {
+	return countSkipsByFilter(result, command.ScheduleConflictFilterName)
+}
+
 // countCurtailmentActiveSkips counts how many devices the curtailment-active
 // filter excluded from this dispatch — distinct from schedule conflicts so the
 // activity log can name the actual cause.
 func countCurtailmentActiveSkips(result *command.CommandResult) int {
-	if result == nil {
-		return 0
-	}
-	n := 0
-	for _, s := range result.Skipped {
-		if s.FilterName == command.CurtailmentActiveFilterName {
-			n++
-		}
-	}
-	return n
+	return countSkipsByFilter(result, command.CurtailmentActiveFilterName)
 }
 
 func (p *Processor) currentJobGeneration(scheduleID int64) (uint64, bool) {

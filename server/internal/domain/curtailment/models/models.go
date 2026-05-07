@@ -186,7 +186,7 @@ type InsertEventParams struct {
 	ScheduledStartAt        *time.Time
 }
 
-// InsertEventResult is what InsertEvent returns to the caller.
+// InsertEventResult is what InsertEventWithTargets returns to the caller.
 type InsertEventResult struct {
 	ID        int64
 	EventUUID uuid.UUID

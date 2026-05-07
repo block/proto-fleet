@@ -77,16 +77,8 @@ func (s *startStubStore) InsertEventWithTargets(
 
 // --- panic stubs for surface the handler-level tests don't reach ---
 
-func (s *startStubStore) InsertEvent(context.Context, models.InsertEventParams) (*models.InsertEventResult, error) {
-	panic("InsertEvent not exercised by handler Start tests")
-}
-
 func (s *startStubStore) GetEventByUUID(context.Context, int64, uuid.UUID) (*models.Event, error) {
 	panic("GetEventByUUID not exercised by handler Start tests")
-}
-
-func (s *startStubStore) InsertTarget(context.Context, models.InsertTargetParams) error {
-	panic("InsertTarget not exercised by handler Start tests")
 }
 
 func (s *startStubStore) ListTargetsByEvent(context.Context, int64, uuid.UUID) ([]*models.Target, error) {

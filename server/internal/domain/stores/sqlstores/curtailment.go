@@ -101,46 +101,6 @@ func (s *SQLCurtailmentStore) ListRecentlyResolvedCurtailedDevices(ctx context.C
 	return devices, nil
 }
 
-func (s *SQLCurtailmentStore) InsertEvent(ctx context.Context, params models.InsertEventParams) (*models.InsertEventResult, error) {
-	row, err := s.GetQueries(ctx).InsertCurtailmentEvent(ctx, sqlc.InsertCurtailmentEventParams{
-		EventUuid:               params.EventUUID,
-		OrgID:                   params.OrgID,
-		State:                   string(params.State),
-		Mode:                    string(params.Mode),
-		Strategy:                string(params.Strategy),
-		Level:                   string(params.Level),
-		Priority:                string(params.Priority),
-		LoopType:                string(params.LoopType),
-		ScopeType:               string(params.ScopeType),
-		ScopeJsonb:              params.ScopeJSON,
-		ModeParamsJsonb:         params.ModeParamsJSON,
-		RestoreBatchSize:        params.RestoreBatchSize,
-		RestoreBatchIntervalSec: params.RestoreBatchIntervalSec,
-		MinCurtailedDurationSec: params.MinCurtailedDurationSec,
-		MaxDurationSeconds:      ptrToNullInt32(params.MaxDurationSeconds),
-		AllowUnbounded:          params.AllowUnbounded,
-		IncludeMaintenance:      params.IncludeMaintenance,
-		ForceIncludeMaintenance: params.ForceIncludeMaintenance,
-		DecisionSnapshotJsonb:   params.DecisionSnapshotJSON,
-		SourceActorType:         string(params.SourceActorType),
-		SourceActorID:           ptrToNullString(params.SourceActorID),
-		ExternalSource:          ptrToNullString(params.ExternalSource),
-		ExternalReference:       ptrToNullString(params.ExternalReference),
-		IdempotencyKey:          ptrToNullString(params.IdempotencyKey),
-		Reason:                  params.Reason,
-		ScheduledStartAt:        ptrToNullTime(params.ScheduledStartAt),
-	})
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to insert curtailment event: %v", err)
-	}
-	return &models.InsertEventResult{
-		ID:        row.ID,
-		EventUUID: row.EventUuid,
-		CreatedAt: row.CreatedAt,
-		UpdatedAt: row.UpdatedAt,
-	}, nil
-}
-
 // InsertEventWithTargets writes the event row plus every per-target row in a
 // single transaction so a partial Start cannot leave the event in `pending`
 // without its target set. Returns the inserted event's id / event_uuid /
@@ -227,22 +187,6 @@ func (s *SQLCurtailmentStore) GetEventByUUID(ctx context.Context, orgID int64, e
 		return nil, fleeterror.NewInternalErrorf("failed to get curtailment event: %v", err)
 	}
 	return convertEventRow(row), nil
-}
-
-func (s *SQLCurtailmentStore) InsertTarget(ctx context.Context, params models.InsertTargetParams) error {
-	err := s.GetQueries(ctx).InsertCurtailmentTarget(ctx, sqlc.InsertCurtailmentTargetParams{
-		CurtailmentEventID:     params.CurtailmentEventID,
-		DeviceIdentifier:       params.DeviceIdentifier,
-		TargetType:             params.TargetType,
-		State:                  string(params.State),
-		DesiredState:           params.DesiredState,
-		BaselinePowerW:         ptrFloat64ToNullString(params.BaselinePowerW),
-		SelectorRationaleJsonb: rawMessageOrNullable(params.SelectorRationaleJSON),
-	})
-	if err != nil {
-		return fleeterror.NewInternalErrorf("failed to insert curtailment target: %v", err)
-	}
-	return nil
 }
 
 func (s *SQLCurtailmentStore) ListTargetsByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) ([]*models.Target, error) {

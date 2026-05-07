@@ -100,16 +100,8 @@ func (f *fakeStore) ListCandidates(_ context.Context, orgID int64, deviceIdentif
 
 // --- panic stubs for methods the service does not exercise ---
 
-func (f *fakeStore) InsertEvent(context.Context, models.InsertEventParams) (*models.InsertEventResult, error) {
-	panic("InsertEvent not exercised by Preview tests")
-}
-
 func (f *fakeStore) GetEventByUUID(context.Context, int64, uuid.UUID) (*models.Event, error) {
 	panic("GetEventByUUID not exercised by Preview tests")
-}
-
-func (f *fakeStore) InsertTarget(context.Context, models.InsertTargetParams) error {
-	panic("InsertTarget not exercised by Preview tests")
 }
 
 func (f *fakeStore) ListTargetsByEvent(context.Context, int64, uuid.UUID) ([]*models.Target, error) {
