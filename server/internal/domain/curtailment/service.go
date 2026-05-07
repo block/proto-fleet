@@ -141,6 +141,15 @@ func validatePreviewRequest(req PreviewRequest) error {
 	if req.Level != "" && req.Level != "FULL" {
 		return fleeterror.NewInvalidArgumentErrorf("level %q is not supported in v1; only FULL", req.Level)
 	}
+	// Strategy is plumbed through but the selector currently hard-codes
+	// LEAST_EFFICIENT_FIRST ranking. Reject any other value so a non-Connect
+	// caller that bypasses the proto validator can't silently get a plan
+	// whose actual ranking does not match the strategy they asked for.
+	if req.Strategy != "" && req.Strategy != "LEAST_EFFICIENT_FIRST" {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"strategy %q is not supported in v1; only LEAST_EFFICIENT_FIRST", req.Strategy,
+		)
+	}
 	// NaN / +/-Inf must be rejected explicitly because every comparison with
 	// NaN evaluates false, which would slip past the > 0 / >= 0 guards
 	// below and propagate through the running sum in FixedKw.

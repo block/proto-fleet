@@ -204,6 +204,17 @@ func TestService_Preview_RejectsUnsupportedMode(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestService_Preview_RejectsUnsupportedStrategy(t *testing.T) {
+	t.Parallel()
+	svc := NewService(newFakeStore())
+	req := validRequest(1)
+	req.Strategy = "MOST_POWER_FIRST"
+	_, err := svc.Preview(t.Context(), req)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "MOST_POWER_FIRST")
+	assert.Contains(t, err.Error(), "LEAST_EFFICIENT_FIRST")
+}
+
 func TestService_Preview_RejectsUnbalancedMaintenancePair(t *testing.T) {
 	t.Parallel()
 	svc := NewService(newFakeStore())

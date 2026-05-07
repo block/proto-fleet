@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/sqlc-dev/pqtype"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
@@ -17,6 +18,28 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
+
+// pgErrCodeForeignKeyViolation is PostgreSQL's SQLSTATE for
+// foreign_key_violation. EnsureCurtailmentOrgConfig's INSERT can fail with
+// this code when the supplied org_id has no matching row in `organization`
+// (caller passed a stale/invalid tenant id); the interface contract reserves
+// NotFound for that case, so callers can distinguish "tenant doesn't exist"
+// from server-side errors.
+const pgErrCodeForeignKeyViolation = "23503"
+
+// mapOrgConfigError maps an error from the curtailment_org_config upsert
+// path to the typed error the interface contract promises. FK violations on
+// org_id surface as NotFound; everything else wraps as Internal.
+func mapOrgConfigError(err error, orgID int64) error {
+	if err == nil {
+		return nil
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == pgErrCodeForeignKeyViolation {
+		return fleeterror.NewNotFoundErrorf("organization %d not found", orgID)
+	}
+	return fleeterror.NewInternalErrorf("failed to get curtailment org config: %v", err)
+}
 
 var _ interfaces.CurtailmentStore = &SQLCurtailmentStore{}
 
@@ -39,7 +62,7 @@ func (s *SQLCurtailmentStore) GetOrgConfig(ctx context.Context, orgID int64) (*m
 	// the Preview hot path stays off the WAL.
 	row, err := s.GetQueries(ctx).EnsureCurtailmentOrgConfig(ctx, orgID)
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to get curtailment org config: %v", err)
+		return nil, mapOrgConfigError(err, orgID)
 	}
 	return &models.OrgConfig{
 		OrgID:                 row.OrgID,
