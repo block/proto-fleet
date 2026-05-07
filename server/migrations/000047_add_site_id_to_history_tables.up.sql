@@ -5,11 +5,16 @@
 -- stay NULL and surface in a "(no site)" bucket on the relevant pages.
 -- See docs/plans/2026-05-05-multi-site-support-plan.md.
 
--- activity_log: regular table, FK with ON DELETE SET NULL.
+-- activity_log: composite FK against site(id, org_id) so a row stamped
+-- with org A's organization_id can never point at org B's site, even if
+-- a future writer skips service-layer validation. organization_id is
+-- nullable here (system events); MATCH SIMPLE means rows with NULL
+-- organization_id skip the FK check, matching today's behavior.
+-- ON DELETE SET NULL (site_id) so site deletion only nulls site_id.
 ALTER TABLE activity_log
     ADD COLUMN site_id BIGINT NULL,
-    ADD CONSTRAINT fk_activity_log_site FOREIGN KEY (site_id)
-        REFERENCES site(id) ON DELETE SET NULL;
+    ADD CONSTRAINT fk_activity_log_site FOREIGN KEY (site_id, organization_id)
+        REFERENCES site(id, org_id) ON DELETE SET NULL (site_id);
 -- Index shape mirrors the existing `idx_activity_log_org_created`
 -- (org, created_at DESC, id DESC) so site-filtered keyset pagination
 -- uses the same `(created_at, id) <` cursor in `activity.sql` without
@@ -25,11 +30,12 @@ ALTER TABLE command_on_device_log
 CREATE INDEX idx_command_on_device_log_site
     ON command_on_device_log(site_id);
 
--- errors: regular table, FK with ON DELETE SET NULL.
+-- errors: composite FK same as activity_log. errors.org_id is NOT NULL
+-- so the FK is enforced for every site-stamped row.
 ALTER TABLE errors
     ADD COLUMN site_id BIGINT NULL,
-    ADD CONSTRAINT fk_errors_site FOREIGN KEY (site_id)
-        REFERENCES site(id) ON DELETE SET NULL;
+    ADD CONSTRAINT fk_errors_site FOREIGN KEY (site_id, org_id)
+        REFERENCES site(id, org_id) ON DELETE SET NULL (site_id);
 CREATE INDEX idx_errors_org_site_last_seen
     ON errors(org_id, site_id, last_seen_at DESC);
 
