@@ -8,11 +8,7 @@ CREATE TABLE building (
     id                        BIGSERIAL PRIMARY KEY,
     org_id                    BIGINT NOT NULL,
     site_id                   BIGINT NULL,
-    -- TEXT (not VARCHAR(255)) so the zone-promotion backfill in 000046
-    -- accepts any legacy `device_set_rack.zone` value verbatim. zone
-    -- itself is unbounded TEXT today; capping building.name would abort
-    -- the upgrade on any fleet with a verbose zone label.
-    name                      TEXT NOT NULL,
+    name                      VARCHAR(255) NOT NULL,
     description               TEXT,
 
     -- Capacity / layout
