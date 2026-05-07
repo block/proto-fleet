@@ -206,11 +206,25 @@ func resolveScope(s Scope) ([]string, error) {
 		if len(s.DeviceIdentifiers) == 0 {
 			return nil, fleeterror.NewInvalidArgumentError("device_identifiers must be non-empty for device-list scope")
 		}
+		// Mutual exclusion: a populated DeviceSetIDs alongside DeviceList
+		// is silently ignored without this guard, breaking the oneof-style
+		// scope contract for non-Connect callers.
+		if len(s.DeviceSetIDs) > 0 {
+			return nil, fleeterror.NewInvalidArgumentError(
+				"device_set_ids must be empty when scope type is device_list",
+			)
+		}
 		return s.DeviceIdentifiers, nil
 	case models.ScopeTypeDeviceSets:
 		// Deferred: device-set resolution requires DeviceSetStore wiring
 		// outside the curtailment domain. Whole-org and device-list cover
-		// the critical paths.
+		// the critical paths. Symmetric mutual-exclusion guard for callers
+		// who set this Type with DeviceIdentifiers populated.
+		if len(s.DeviceIdentifiers) > 0 {
+			return nil, fleeterror.NewInvalidArgumentError(
+				"device_identifiers must be empty when scope type is device_sets",
+			)
+		}
 		return nil, fleeterror.NewUnimplementedErrorf("device-set scope is not implemented; use whole_org or device_list")
 	default:
 		return nil, fleeterror.NewInvalidArgumentErrorf("unrecognized scope type: %q", s.Type)

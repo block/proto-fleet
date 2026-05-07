@@ -291,6 +291,44 @@ func TestService_Preview_DeviceListScopeRequiresNonEmptyList(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestService_Preview_DeviceListScopeRejectsMixedPayload pins the
+// oneof-style scope contract: explicit ScopeTypeDeviceList with a
+// populated DeviceSetIDs slice must reject as InvalidArgument rather
+// than silently ignore the set IDs and execute a device-list plan.
+func TestService_Preview_DeviceListScopeRejectsMixedPayload(t *testing.T) {
+	t.Parallel()
+	svc := NewService(newFakeStore())
+	req := validRequest(1)
+	req.Scope = Scope{
+		Type:              models.ScopeTypeDeviceList,
+		DeviceIdentifiers: []string{"miner-a"},
+		DeviceSetIDs:      []string{"set-x"},
+	}
+	_, err := svc.Preview(t.Context(), req)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "device_set_ids")
+}
+
+// TestService_Preview_DeviceSetScopeRejectsMixedPayload mirrors the
+// device-list mutual-exclusion guard for the symmetric case: explicit
+// ScopeTypeDeviceSets with a populated DeviceIdentifiers slice. The
+// scope branch is itself unimplemented, but the mutual-exclusion check
+// must fire first so the caller sees the contract violation rather
+// than the unimplemented status.
+func TestService_Preview_DeviceSetScopeRejectsMixedPayload(t *testing.T) {
+	t.Parallel()
+	svc := NewService(newFakeStore())
+	req := validRequest(1)
+	req.Scope = Scope{
+		Type:              models.ScopeTypeDeviceSets,
+		DeviceSetIDs:      []string{"set-x"},
+		DeviceIdentifiers: []string{"miner-a"},
+	}
+	_, err := svc.Preview(t.Context(), req)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "device_identifiers")
+}
+
 // --- pre-selector filters ---
 
 func TestService_Preview_FiltersByPairingDeviceStatusAndStaleness(t *testing.T) {
