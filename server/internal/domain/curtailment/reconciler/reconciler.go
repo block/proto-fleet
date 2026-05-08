@@ -377,17 +377,26 @@ func (r *Reconciler) dispatchOneCurtail(ctx context.Context, ev *models.Event, t
 		r.recordDispatchFailure(ctx, ev, t, skipReason, nonTerminalFailureState)
 		return
 	}
+	// processCommand can return nil-error with empty BatchIdentifier when no
+	// device IDs resolved (e.g. miner unpaired or deleted between Start and
+	// reconcile). No batch was enqueued, so the target must NOT be marked
+	// dispatched — treat as a failed dispatch attempt that consumes a retry.
+	if result == nil || result.BatchIdentifier == "" {
+		const reason = "command produced no batch (no live devices to dispatch)"
+		slog.Warn("curtailment reconciler: dispatch produced empty batch",
+			"event_id", ev.ID, "device", t.DeviceIdentifier)
+		r.recordDispatchFailure(ctx, ev, t, reason, nonTerminalFailureState)
+		return
+	}
 
 	now := r.now()
 	emptyErr := ""
+	batchID := result.BatchIdentifier
 	params := interfaces.UpdateCurtailmentTargetStateParams{
 		State:            models.TargetStateDispatched,
 		LastDispatchedAt: &now,
 		LastError:        &emptyErr,
-	}
-	if result != nil && result.BatchIdentifier != "" {
-		batchID := result.BatchIdentifier
-		params.LastBatchUUID = &batchID
+		LastBatchUUID:    &batchID,
 	}
 	if err := r.store.UpdateTargetState(ctx, ev.ID, t.DeviceIdentifier, params); err != nil {
 		slog.Error("curtailment reconciler: target dispatch update failed",
@@ -399,9 +408,7 @@ func (r *Reconciler) dispatchOneCurtail(ctx context.Context, ev *models.Event, t
 	t.State = models.TargetStateDispatched
 	t.LastDispatchedAt = &now
 	t.LastError = nil
-	if params.LastBatchUUID != nil {
-		t.LastBatchUUID = params.LastBatchUUID
-	}
+	t.LastBatchUUID = &batchID
 }
 
 // recordDispatchFailure increments the target's retry counter and either
@@ -522,7 +529,7 @@ func (r *Reconciler) confirmOneDispatched(ctx context.Context, ev *models.Event,
 	if c == nil {
 		return
 	}
-	if !isCurtailedByPower(c.LatestPowerW, t.BaselinePowerW, c.LatestHashRateHS, r.cfg.DriftThresholdFactor) {
+	if !isPositivelyCurtailed(c.LatestPowerW, t.BaselinePowerW, c.LatestHashRateHS, r.cfg.DriftThresholdFactor) {
 		return
 	}
 	now := r.now()
@@ -665,6 +672,13 @@ func (r *Reconciler) maybeMarkActive(ctx context.Context, ev *models.Event, targ
 
 // reconcilerContext stamps a synthetic session.Info on the dispatch ctx so
 // command preflight (CurtailmentActiveFilter) recognizes our self-traffic.
+//
+// KNOWN GAP: UserID=0 will fail command_batch_log.created_by's FK to user(id)
+// in production deployments without a seeded system user. The proper fix is
+// a new migration that adds curtailment_event.created_by_user_id (capturing
+// the operator's session.Info.UserID at Start time) plus a reconciler read
+// to populate this field. Tracked as a follow-up commit; the migration is
+// kept separate so it lands focused for review.
 func reconcilerContext(parent context.Context, orgID int64) context.Context {
 	return authn.SetInfo(parent, &session.Info{
 		SessionID:      reconcilerActorName,
@@ -674,6 +688,27 @@ func reconcilerContext(parent context.Context, orgID int64) context.Context {
 		Username:       reconcilerActorName,
 		Actor:          session.ActorCurtailment,
 	})
+}
+
+// isPositivelyCurtailed returns true only when telemetry shows positive
+// evidence of curtailment. Used by the confirmation path so a target is
+// not promoted to `confirmed` based on absent or non-finite samples.
+// Drift detection uses isCurtailedByPower instead, which preserves
+// "still curtailed" on missing telemetry to avoid spurious redispatch.
+func isPositivelyCurtailed(latestPowerW *float64, baselinePowerW *float64, latestHashRateHS *float64, driftThresholdFactor float64) bool {
+	if latestPowerW == nil || !isFinite(*latestPowerW) {
+		return false
+	}
+	if baselinePowerW != nil && isFinite(*baselinePowerW) && *baselinePowerW > 0 {
+		threshold := *baselinePowerW * driftThresholdFactor
+		return *latestPowerW <= threshold
+	}
+	// Baseline missing: require finite hash_rate at or below zero as the
+	// only positive evidence of curtailment.
+	if latestHashRateHS == nil || !isFinite(*latestHashRateHS) {
+		return false
+	}
+	return *latestHashRateHS <= 0
 }
 
 // isCurtailedByPower decides whether a target is still curtailed using

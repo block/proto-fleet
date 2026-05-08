@@ -466,6 +466,36 @@ func TestReconciler_DispatchSkippedKeepsTargetPending(t *testing.T) {
 	assert.Equal(t, int32(1), final.RetryCount, "skip counts toward retry budget")
 }
 
+// TestReconciler_DispatchEmptyBatchKeepsTargetPending: a nil-error result
+// with an empty BatchIdentifier means processCommand resolved zero device
+// IDs (e.g. miner unpaired between Start and reconcile). No batch was
+// enqueued, so the target must NOT be marked dispatched.
+func TestReconciler_DispatchEmptyBatchKeepsTargetPending(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{
+		curtailResultOverride: &command.CommandResult{BatchIdentifier: "", DispatchedCount: 0},
+	}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-1", State: models.TargetStatePending},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	final := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStatePending, final.State, "empty-batch target stays pending")
+	assert.Nil(t, final.LastDispatchedAt, "empty-batch target must not record dispatch timestamp")
+	require.NotNil(t, final.LastError)
+	assert.Contains(t, *final.LastError, "no batch")
+	assert.Equal(t, int32(1), final.RetryCount, "empty batch counts toward retry budget")
+}
+
 // TestReconciler_DispatchFailureExhaustionMarksRestoreFailedAndEventActive:
 // after MaxRetries dispatch failures the target moves to RestoreFailed; the
 // event then promotes to active because every other target has confirmed
@@ -835,6 +865,33 @@ func TestIsCurtailedByPower_NonFinitePreservesCurtailed(t *testing.T) {
 	assert.True(t, isCurtailedByPower(&inf, &baseline, ptrFloat64(0), 0.5))
 	// nil power, NaN hash → preserve curtailed.
 	assert.True(t, isCurtailedByPower(nil, &baseline, &nan, 0.5))
+}
+
+// TestIsPositivelyCurtailed_RequiresEvidence pins the asymmetric default
+// for the confirm path: missing or non-finite telemetry returns false so
+// `dispatched` targets are NOT promoted to `confirmed` without evidence
+// the device actually went down.
+func TestIsPositivelyCurtailed_RequiresEvidence(t *testing.T) {
+	baseline := 3000.0
+	nan := math.NaN()
+	inf := math.Inf(1)
+
+	// Below threshold → confirmed.
+	assert.True(t, isPositivelyCurtailed(ptrFloat64(1000), &baseline, ptrFloat64(0), 0.5))
+	// Above threshold → not confirmed.
+	assert.False(t, isPositivelyCurtailed(ptrFloat64(2500), &baseline, ptrFloat64(0), 0.5))
+
+	// Missing power → not confirmed (asymmetric vs. drift detection).
+	assert.False(t, isPositivelyCurtailed(nil, &baseline, ptrFloat64(0), 0.5))
+	// Non-finite power → not confirmed.
+	assert.False(t, isPositivelyCurtailed(&nan, &baseline, ptrFloat64(0), 0.5))
+	assert.False(t, isPositivelyCurtailed(&inf, &baseline, ptrFloat64(0), 0.5))
+
+	// Baseline missing: dual-signal fallback requires finite zero-or-negative hash.
+	assert.True(t, isPositivelyCurtailed(ptrFloat64(1000), nil, ptrFloat64(0), 0.5))
+	assert.False(t, isPositivelyCurtailed(ptrFloat64(1000), nil, nil, 0.5), "no baseline + missing hash → no evidence")
+	assert.False(t, isPositivelyCurtailed(ptrFloat64(1000), nil, &nan, 0.5), "no baseline + non-finite hash → no evidence")
+	assert.False(t, isPositivelyCurtailed(ptrFloat64(1000), nil, ptrFloat64(100), 0.5), "no baseline + positive hash → drifted")
 }
 
 // panickyDispatcher proxies Curtail/Uncurtail and panics when panicOn() returns
