@@ -330,7 +330,7 @@ func (r *Reconciler) confirmDispatched(ctx context.Context, ev *models.Event, ta
 		if t.State != models.TargetStateDispatched {
 			continue
 		}
-		r.confirmOneDispatched(ctx, ev, t, candByID[t.DeviceIdentifier])
+		r.confirmOneDispatched(ctx, ev, t, candByID[t.DeviceIdentifier], models.TargetStateDispatched)
 	}
 }
 
@@ -503,7 +503,7 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 			// Re-entry path: a target that drifted then re-dispatched is
 			// waiting on confirmation telemetry. Run the same confirm logic
 			// the pending phase uses; on success the next tick checks drift.
-			r.confirmOneDispatched(cmdCtx, ev, t, candByID[t.DeviceIdentifier])
+			r.confirmOneDispatched(cmdCtx, ev, t, candByID[t.DeviceIdentifier], models.TargetStateDispatched)
 		case models.TargetStateDrifted:
 			// A drifted target whose retry budget is exhausted stays drifted;
 			// otherwise re-dispatch. The dispatch path bumps retry_count only
@@ -525,8 +525,14 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 // dispatchPending phase (via confirmDispatched) and on observeActive's
 // drift-then-redispatch re-entry. Promotes the target to confirmed when
 // telemetry shows curtailment; resets retry_count on confirmation.
-func (r *Reconciler) confirmOneDispatched(ctx context.Context, ev *models.Event, t *models.Target, c *models.Candidate) {
+//
+// nonTerminalState is where the target lands when the candidate row is
+// missing (device unpaired/deleted after dispatch). recordDispatchFailure
+// consumes a retry slot and routes to RestoreFailed at budget exhaustion,
+// so a vanished device cannot stall the event indefinitely.
+func (r *Reconciler) confirmOneDispatched(ctx context.Context, ev *models.Event, t *models.Target, c *models.Candidate, nonTerminalState models.TargetState) {
 	if c == nil {
+		r.recordDispatchFailure(ctx, ev, t, "candidate row missing (device unpaired or deleted)", nonTerminalState)
 		return
 	}
 	if !isPositivelyCurtailed(c.LatestPowerW, t.BaselinePowerW, c.LatestHashRateHS, r.cfg.DriftThresholdFactor) {
@@ -565,8 +571,7 @@ func (r *Reconciler) confirmOneDispatched(ctx context.Context, ev *models.Event,
 // dispatchOneCurtail's failure path, not here.
 func (r *Reconciler) checkDrift(ctx context.Context, ev *models.Event, t *models.Target, c *models.Candidate) {
 	if c == nil {
-		// No candidate row — device may have been unpaired or deleted from
-		// under us. Skip silently; metrics surface the gap.
+		r.recordDispatchFailure(ctx, ev, t, "candidate row missing (device unpaired or deleted)", models.TargetStateDrifted)
 		return
 	}
 	if !isCurtailedByPower(c.LatestPowerW, t.BaselinePowerW, c.LatestHashRateHS, r.cfg.DriftThresholdFactor) {

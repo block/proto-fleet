@@ -469,6 +469,65 @@ func TestReconciler_DispatchSkippedKeepsTargetPending(t *testing.T) {
 	assert.Equal(t, int32(1), final.RetryCount, "skip counts toward retry budget")
 }
 
+// TestReconciler_MissingCandidateDuringConfirmConsumesRetryBudget pins the
+// fix for the device-deleted-after-dispatch race: when ListCandidates
+// returns no row for a Dispatched target, confirmOneDispatched routes the
+// target through recordDispatchFailure (target stays Dispatched while the
+// retry budget consumes) instead of stalling the event indefinitely.
+func TestReconciler_MissingCandidateDuringConfirmConsumesRetryBudget(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "vanished", State: models.TargetStateDispatched, RetryCount: 0},
+	}
+	// store.candidates left empty: ListCandidates returns nothing for
+	// "vanished" → confirmOneDispatched takes the nil-candidate path.
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	final := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStateDispatched, final.State, "target stays dispatched while budget consumes")
+	assert.Equal(t, int32(1), final.RetryCount, "missing candidate consumes a retry")
+	require.NotNil(t, final.LastError)
+	assert.Contains(t, *final.LastError, "candidate row missing")
+}
+
+// TestReconciler_MissingCandidateDuringDriftConsumesRetryBudget mirrors
+// the confirm-side fix for the active-event drift path: if a Confirmed
+// target's candidate row vanishes, checkDrift records a dispatch failure
+// (target stays Drifted) so the budget consumes and the target eventually
+// hits RestoreFailed rather than the event stalling forever.
+func TestReconciler_MissingCandidateDuringDriftConsumesRetryBudget(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	now := time.Now()
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStateActive, StartedAt: &now},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "vanished", State: models.TargetStateConfirmed, BaselinePowerW: ptrFloat64(3000), RetryCount: 0},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	final := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStateDrifted, final.State, "missing candidate moves confirmed→drifted via failure record")
+	assert.Equal(t, int32(1), final.RetryCount, "missing candidate consumes a retry")
+	require.NotNil(t, final.LastError)
+	assert.Contains(t, *final.LastError, "candidate row missing")
+}
+
 // TestReconciler_DispatchEmptyBatchKeepsTargetPending: a nil-error result
 // with an empty BatchIdentifier means processCommand resolved zero device
 // IDs (e.g. miner unpaired between Start and reconcile). No batch was
@@ -767,6 +826,13 @@ func TestReconciler_SuccessfulDispatchClearsLastError(t *testing.T) {
 	prior := "prior queue error"
 	store.targetsByEventID[eventID] = []*models.Target{
 		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-1", State: models.TargetStatePending, LastError: &prior},
+	}
+	// Candidate row present but with no telemetry yet — confirmOneDispatched
+	// finds the row (no nil-candidate failure path) and returns early on
+	// !isPositivelyCurtailed, leaving the dispatch's clear-LastError write
+	// as the final state.
+	store.candidates = []*models.Candidate{
+		{DeviceIdentifier: "miner-1"},
 	}
 
 	r := newReconcilerForTest(store, disp)
