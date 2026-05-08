@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -270,6 +271,58 @@ func TestService_Start_EmptyPlanRejectsBeforePersistence(t *testing.T) {
 }
 
 // --- success path: persistence + baseline capture ---
+
+// TestService_Start_IdempotencyKeyShortCircuitsToExistingEvent pins the
+// retry-safe path: when (org_id, idempotency_key) already matches a
+// persisted event, Service.Start returns that event's shape rather than
+// running the selector + insert pipeline. Avoids surfacing the partial-
+// unique-index violation as Internal on legitimate client retries.
+func TestService_Start_IdempotencyKeyShortCircuitsToExistingEvent(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(42)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+
+	existingUUID := uuid.New()
+	maxDur := int32(3600)
+	idemKey := "operator-retry-1"
+	store.idempotencyHit = &models.Event{
+		ID:                 999,
+		EventUUID:          existingUUID,
+		OrgID:              orgID,
+		State:              models.EventStateActive,
+		MaxDurationSeconds: &maxDur,
+		IdempotencyKey:     &idemKey,
+	}
+	baseline := 4500.0
+	store.idempotencyTargets = []*models.Target{
+		{
+			CurtailmentEventID: 999,
+			DeviceIdentifier:   "miner-a",
+			State:              models.TargetStateConfirmed,
+			BaselinePowerW:     &baseline,
+		},
+	}
+
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.IdempotencyKey = &idemKey
+
+	plan, err := svc.Start(t.Context(), req)
+	require.NoError(t, err)
+	require.NotNil(t, plan.EventUUID)
+	assert.Equal(t, existingUUID, *plan.EventUUID, "must echo the existing event_uuid")
+	require.Len(t, plan.Selected, 1)
+	assert.Equal(t, "miner-a", plan.Selected[0].DeviceIdentifier)
+	assert.Equal(t, baseline, plan.Selected[0].PowerW)
+	require.NotNil(t, plan.EffectiveMaxDurationSeconds)
+	assert.Equal(t, maxDur, *plan.EffectiveMaxDurationSeconds)
+
+	// The selector pipeline must not run on the idempotent retry; no
+	// candidate fetch, no insert.
+	assert.Equal(t, 0, store.listCandidatesCalls, "selector must not run on idempotency hit")
+	assert.Equal(t, 0, store.insertEventCalls, "no insert on idempotency hit")
+}
 
 func TestService_Start_PersistsEventAndTargetsWithBaseline(t *testing.T) {
 	t.Parallel()

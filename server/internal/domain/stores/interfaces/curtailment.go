@@ -53,6 +53,14 @@ type CurtailmentStore interface {
 
 	GetEventByUUID(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error)
 
+	// GetEventByIdempotencyKey is the retry-safe path for Service.Start.
+	// Returns the previously-created event when (orgID, idempotencyKey)
+	// matches a persisted row, or NotFound when no match exists. Callers
+	// use this to short-circuit a duplicate idempotency_key into the
+	// original event's response shape rather than triggering the partial
+	// unique index violation at insert time.
+	GetEventByIdempotencyKey(ctx context.Context, orgID int64, idempotencyKey string) (*models.Event, error)
+
 	ListTargetsByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) ([]*models.Target, error)
 
 	// InsertEventWithTargets writes the event row plus every per-target row

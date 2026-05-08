@@ -29,6 +29,15 @@ type startStubStore struct {
 	orgConfig  *models.OrgConfig
 	candidates []*models.Candidate
 
+	// idempotencyHit is the event GetEventByIdempotencyKey returns when the
+	// requested key matches its IdempotencyKey field. Tests that exercise the
+	// retry-safe Start path stash a pre-existing event here so Service.Start
+	// short-circuits before the selector pipeline runs.
+	idempotencyHit *models.Event
+	// idempotencyTargets is the target list ListTargetsByEvent returns for
+	// idempotencyHit's event_uuid; populated alongside the hit row.
+	idempotencyTargets []*models.Target
+
 	// Captures.
 	lastEvent   models.InsertEventParams
 	lastTargets []models.InsertTargetParams
@@ -82,7 +91,23 @@ func (s *startStubStore) GetEventByUUID(context.Context, int64, uuid.UUID) (*mod
 	panic("GetEventByUUID not exercised by handler Start tests")
 }
 
-func (s *startStubStore) ListTargetsByEvent(context.Context, int64, uuid.UUID) ([]*models.Target, error) {
+// GetEventByIdempotencyKey returns NotFound by default; tests that exercise
+// the idempotent-retry path can stash a row in s.idempotencyHit to short-
+// circuit Service.Start before the selector pipeline runs.
+func (s *startStubStore) GetEventByIdempotencyKey(_ context.Context, _ int64, key string) (*models.Event, error) {
+	if s.idempotencyHit != nil && s.idempotencyHit.IdempotencyKey != nil && *s.idempotencyHit.IdempotencyKey == key {
+		return s.idempotencyHit, nil
+	}
+	return nil, fleeterror.NewNotFoundErrorf("no curtailment event with idempotency_key=%q", key)
+}
+
+// ListTargetsByEvent returns the stashed idempotencyTargets when the
+// requested event_uuid matches the idempotencyHit; otherwise panics so an
+// unexpected call is loud.
+func (s *startStubStore) ListTargetsByEvent(_ context.Context, _ int64, eventUUID uuid.UUID) ([]*models.Target, error) {
+	if s.idempotencyHit != nil && s.idempotencyHit.EventUUID == eventUUID {
+		return append([]*models.Target(nil), s.idempotencyTargets...), nil
+	}
 	panic("ListTargetsByEvent not exercised by handler Start tests")
 }
 

@@ -45,6 +45,12 @@ type fakeStore struct {
 	lastInsertEvent   models.InsertEventParams
 	lastInsertTargets []models.InsertTargetParams
 	nextEventID       int64
+
+	// idempotencyHit / idempotencyTargets back the GetEventByIdempotencyKey
+	// + ListTargetsByEvent stubs for tests that exercise the retry-safe
+	// Start path. Default behavior is NotFound / panic respectively.
+	idempotencyHit     *models.Event
+	idempotencyTargets []*models.Target
 }
 
 func newFakeStore() *fakeStore {
@@ -104,7 +110,17 @@ func (f *fakeStore) GetEventByUUID(context.Context, int64, uuid.UUID) (*models.E
 	panic("GetEventByUUID not exercised by Preview tests")
 }
 
-func (f *fakeStore) ListTargetsByEvent(context.Context, int64, uuid.UUID) ([]*models.Target, error) {
+func (f *fakeStore) GetEventByIdempotencyKey(_ context.Context, _ int64, key string) (*models.Event, error) {
+	if f.idempotencyHit != nil && f.idempotencyHit.IdempotencyKey != nil && *f.idempotencyHit.IdempotencyKey == key {
+		return f.idempotencyHit, nil
+	}
+	return nil, fleeterror.NewNotFoundErrorf("no curtailment event with idempotency_key=%q", key)
+}
+
+func (f *fakeStore) ListTargetsByEvent(_ context.Context, _ int64, eventUUID uuid.UUID) ([]*models.Target, error) {
+	if f.idempotencyHit != nil && f.idempotencyHit.EventUUID == eventUUID {
+		return append([]*models.Target(nil), f.idempotencyTargets...), nil
+	}
 	panic("ListTargetsByEvent not exercised by Preview tests")
 }
 

@@ -105,6 +105,19 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 		return nil, err
 	}
 
+	// Idempotency short-circuit: if the caller supplied a key that matches an
+	// existing event for this org, return that event's shape rather than
+	// running the selector + insert pipeline. The partial unique index
+	// uq_curtailment_event_idempotency would otherwise surface a duplicate
+	// retry as Internal at insert time. Skips when the key is missing.
+	if req.IdempotencyKey != nil && *req.IdempotencyKey != "" {
+		if existing, err := s.store.GetEventByIdempotencyKey(ctx, req.OrgID, *req.IdempotencyKey); err == nil {
+			return s.planFromExistingEvent(ctx, existing)
+		} else if !fleeterror.IsNotFoundError(err) {
+			return nil, err
+		}
+	}
+
 	plan, minPowerW, orgConfig, err := s.runSelector(ctx, req.PreviewRequest)
 	if err != nil {
 		return nil, err
@@ -139,12 +152,6 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 		req.MaxDurationSeconds = &v
 	}
 
-	// TODO: idempotency lookup. When req.IdempotencyKey is set we should
-	// short-circuit to the existing event_uuid. Today the partial unique
-	// index `uq_curtailment_event_idempotency` enforces uniqueness at the
-	// DB level, so a retry surfaces as Internal until the lookup query is
-	// added.
-
 	eventParams, targetParams, err := buildInsertParams(req, plan, minPowerW)
 	if err != nil {
 		return nil, err
@@ -157,6 +164,36 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 
 	plan.EventUUID = &result.EventUUID
 	plan.EffectiveMaxDurationSeconds = req.MaxDurationSeconds
+	return plan, nil
+}
+
+// planFromExistingEvent reconstructs a minimal Plan from a persisted
+// curtailment_event so the idempotent-retry path returns the same response
+// shape Start originally produced. Selected entries come from the persisted
+// targets; per-target Skipped reasons are not re-derived (the original
+// Plan.Skipped is in decision_snapshot_jsonb but parsing it for retries
+// would couple this path to the snapshot schema). Estimated kW values
+// stay zero on the retry shape; clients re-fetching the full event via
+// the read APIs see the persisted detail.
+func (s *Service) planFromExistingEvent(ctx context.Context, ev *models.Event) (*Plan, error) {
+	targets, err := s.store.ListTargetsByEvent(ctx, ev.OrgID, ev.EventUUID)
+	if err != nil {
+		return nil, err
+	}
+	plan := &Plan{
+		Selected:  make([]SelectedDevice, 0, len(targets)),
+		EventUUID: &ev.EventUUID,
+	}
+	if ev.MaxDurationSeconds != nil {
+		plan.EffectiveMaxDurationSeconds = ev.MaxDurationSeconds
+	}
+	for _, t := range targets {
+		sd := SelectedDevice{DeviceIdentifier: t.DeviceIdentifier}
+		if t.BaselinePowerW != nil {
+			sd.PowerW = *t.BaselinePowerW
+		}
+		plan.Selected = append(plan.Selected, sd)
+	}
 	return plan, nil
 }
 

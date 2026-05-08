@@ -192,6 +192,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getBatchStatusAndDeviceCountsStmt, err = db.PrepareContext(ctx, getBatchStatusAndDeviceCounts); err != nil {
 		return nil, fmt.Errorf("error preparing query GetBatchStatusAndDeviceCounts: %w", err)
 	}
+	if q.getCurtailmentEventByIdempotencyKeyStmt, err = db.PrepareContext(ctx, getCurtailmentEventByIdempotencyKey); err != nil {
+		return nil, fmt.Errorf("error preparing query GetCurtailmentEventByIdempotencyKey: %w", err)
+	}
 	if q.getCurtailmentEventByUUIDStmt, err = db.PrepareContext(ctx, getCurtailmentEventByUUID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetCurtailmentEventByUUID: %w", err)
 	}
@@ -1063,6 +1066,11 @@ func (q *Queries) Close() error {
 	if q.getBatchStatusAndDeviceCountsStmt != nil {
 		if cerr := q.getBatchStatusAndDeviceCountsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getBatchStatusAndDeviceCountsStmt: %w", cerr)
+		}
+	}
+	if q.getCurtailmentEventByIdempotencyKeyStmt != nil {
+		if cerr := q.getCurtailmentEventByIdempotencyKeyStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getCurtailmentEventByIdempotencyKeyStmt: %w", cerr)
 		}
 	}
 	if q.getCurtailmentEventByUUIDStmt != nil {
@@ -2140,6 +2148,7 @@ type Queries struct {
 	getBatchHeaderForOrgStmt                            *sql.Stmt
 	getBatchLogStmt                                     *sql.Stmt
 	getBatchStatusAndDeviceCountsStmt                   *sql.Stmt
+	getCurtailmentEventByIdempotencyKeyStmt             *sql.Stmt
 	getCurtailmentEventByUUIDStmt                       *sql.Stmt
 	getCurtailmentOrgConfigStmt                         *sql.Stmt
 	getCurtailmentReconcilerHeartbeatStmt               *sql.Stmt
@@ -2398,6 +2407,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getBatchHeaderForOrgStmt:                            q.getBatchHeaderForOrgStmt,
 		getBatchLogStmt:                                     q.getBatchLogStmt,
 		getBatchStatusAndDeviceCountsStmt:                   q.getBatchStatusAndDeviceCountsStmt,
+		getCurtailmentEventByIdempotencyKeyStmt:             q.getCurtailmentEventByIdempotencyKeyStmt,
 		getCurtailmentEventByUUIDStmt:                       q.getCurtailmentEventByUUIDStmt,
 		getCurtailmentOrgConfigStmt:                         q.getCurtailmentOrgConfigStmt,
 		getCurtailmentReconcilerHeartbeatStmt:               q.getCurtailmentReconcilerHeartbeatStmt,

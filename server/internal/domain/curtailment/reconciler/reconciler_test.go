@@ -62,6 +62,9 @@ func (f *fakeStore) ListRecentlyResolvedCurtailedDevices(context.Context, int64,
 func (f *fakeStore) GetEventByUUID(context.Context, int64, uuid.UUID) (*models.Event, error) {
 	panic("GetEventByUUID not exercised")
 }
+func (f *fakeStore) GetEventByIdempotencyKey(context.Context, int64, string) (*models.Event, error) {
+	panic("GetEventByIdempotencyKey not exercised")
+}
 func (f *fakeStore) InsertEventWithTargets(context.Context, models.InsertEventParams, []models.InsertTargetParams) (*models.InsertEventResult, error) {
 	panic("InsertEventWithTargets not exercised")
 }

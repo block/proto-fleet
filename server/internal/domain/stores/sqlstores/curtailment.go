@@ -189,6 +189,20 @@ func (s *SQLCurtailmentStore) GetEventByUUID(ctx context.Context, orgID int64, e
 	return convertEventRow(row), nil
 }
 
+func (s *SQLCurtailmentStore) GetEventByIdempotencyKey(ctx context.Context, orgID int64, idempotencyKey string) (*models.Event, error) {
+	row, err := s.GetQueries(ctx).GetCurtailmentEventByIdempotencyKey(ctx, sqlc.GetCurtailmentEventByIdempotencyKeyParams{
+		OrgID:          orgID,
+		IdempotencyKey: sql.NullString{String: idempotencyKey, Valid: true},
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fleeterror.NewNotFoundErrorf("no curtailment event with idempotency_key=%q", idempotencyKey)
+		}
+		return nil, fleeterror.NewInternalErrorf("failed to get curtailment event by idempotency_key: %v", err)
+	}
+	return convertEventRow(row), nil
+}
+
 func (s *SQLCurtailmentStore) ListTargetsByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) ([]*models.Target, error) {
 	rows, err := s.GetQueries(ctx).ListCurtailmentTargetsByEvent(ctx, sqlc.ListCurtailmentTargetsByEventParams{
 		OrgID:     orgID,

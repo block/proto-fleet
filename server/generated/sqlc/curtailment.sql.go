@@ -90,6 +90,65 @@ func (q *Queries) EnsureCurtailmentOrgConfig(ctx context.Context, orgID int64) (
 	return i, err
 }
 
+const getCurtailmentEventByIdempotencyKey = `-- name: GetCurtailmentEventByIdempotencyKey :one
+SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at
+FROM curtailment_event
+WHERE org_id = $1
+    AND idempotency_key = $2
+`
+
+type GetCurtailmentEventByIdempotencyKeyParams struct {
+	OrgID          int64
+	IdempotencyKey sql.NullString
+}
+
+// Org-scoped lookup that powers Service.Start's retry-safe path: a duplicate
+// (org_id, idempotency_key) returns the previously-created event so callers
+// get the same response shape on retry instead of an Internal mapped from a
+// partial-unique-index violation. The partial index
+// (uq_curtailment_event_idempotency) enforces uniqueness; this query is the
+// pre-insert check that turns the duplicate into idempotent behavior.
+func (q *Queries) GetCurtailmentEventByIdempotencyKey(ctx context.Context, arg GetCurtailmentEventByIdempotencyKeyParams) (CurtailmentEvent, error) {
+	row := q.queryRow(ctx, q.getCurtailmentEventByIdempotencyKeyStmt, getCurtailmentEventByIdempotencyKey, arg.OrgID, arg.IdempotencyKey)
+	var i CurtailmentEvent
+	err := row.Scan(
+		&i.ID,
+		&i.EventUuid,
+		&i.OrgID,
+		&i.State,
+		&i.Mode,
+		&i.Strategy,
+		&i.Level,
+		&i.Priority,
+		&i.LoopType,
+		&i.ScopeType,
+		&i.ScopeJsonb,
+		&i.ModeParamsJsonb,
+		&i.RestoreBatchSize,
+		&i.RestoreBatchIntervalSec,
+		&i.EffectiveBatchSize,
+		&i.MinCurtailedDurationSec,
+		&i.MaxDurationSeconds,
+		&i.AllowUnbounded,
+		&i.IncludeMaintenance,
+		&i.ForceIncludeMaintenance,
+		&i.DecisionSnapshotJsonb,
+		&i.SourceActorType,
+		&i.SourceActorID,
+		&i.ExternalSource,
+		&i.ExternalReference,
+		&i.IdempotencyKey,
+		&i.SupersedesEventID,
+		&i.Reason,
+		&i.ScheduledStartAt,
+		&i.StartedAt,
+		&i.EndedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getCurtailmentEventByUUID = `-- name: GetCurtailmentEventByUUID :one
 SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at
 FROM curtailment_event
