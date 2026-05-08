@@ -390,10 +390,9 @@ func setModeParamsFromPersisted(event *pb.CurtailmentEvent, ev *models.Event) {
 	event.ModeParams = &pb.CurtailmentEvent_FixedKw{FixedKw: fk}
 }
 
-// bumpRollup increments the rollup bucket matching a persisted target state.
-// Unknown states are silently dropped from the breakdown but still counted in
-// Total by the caller, so a future TargetState addition is visible as
-// total > sum-of-buckets rather than a panic.
+// bumpRollup increments the matching bucket on r. Unknown states fall through
+// silently — Total still counts them, so a future TargetState addition is
+// visible as total > sum-of-buckets rather than a panic.
 func bumpRollup(r *pb.CurtailmentTargetRollup, s models.TargetState) {
 	switch s {
 	case models.TargetStatePending:
@@ -479,22 +478,17 @@ func targetStateProto(s models.TargetState) pb.CurtailmentTargetState {
 }
 
 // desiredStateProto maps the persisted desired_state string onto its proto
-// enum. v1 only writes "curtailed"; the switch matches on it explicitly so a
-// future "active" string surfaces as ACTIVE rather than UNSPECIFIED.
+// enum. v1 only writes "curtailed"; unknown strings surface as UNSPECIFIED
+// so a future column-value addition is visible rather than silently coerced.
 func desiredStateProto(s string) pb.CurtailmentTargetDesiredState {
-	switch s {
-	case desiredStateCurtailedString:
+	if s == "curtailed" {
 		return pb.CurtailmentTargetDesiredState_CURTAILMENT_TARGET_DESIRED_STATE_CURTAILED
-	case desiredStateActiveString:
-		return pb.CurtailmentTargetDesiredState_CURTAILMENT_TARGET_DESIRED_STATE_ACTIVE
-	default:
-		return pb.CurtailmentTargetDesiredState_CURTAILMENT_TARGET_DESIRED_STATE_UNSPECIFIED
 	}
+	return pb.CurtailmentTargetDesiredState_CURTAILMENT_TARGET_DESIRED_STATE_UNSPECIFIED
 }
 
-// priorityProto is the inverse of priorityName: a persisted priority string
-// onto its proto enum. PriorityHigh round-trips for symmetry even though the
-// validator rejects it on Start.
+// priorityProto maps a persisted priority string onto its proto enum.
+// PriorityHigh round-trips even though the validator rejects it on Start.
 func priorityProto(p models.Priority) pb.CurtailmentPriority {
 	switch p {
 	case models.PriorityEmergency:
@@ -507,15 +501,6 @@ func priorityProto(p models.Priority) pb.CurtailmentPriority {
 		return pb.CurtailmentPriority_CURTAILMENT_PRIORITY_UNSPECIFIED
 	}
 }
-
-// desiredStateCurtailedString and desiredStateActiveString mirror the
-// service-layer constants (kept here so translate.go's response wiring can
-// switch over them without depending on the service package's unexported
-// names).
-const (
-	desiredStateCurtailedString = "curtailed"
-	desiredStateActiveString    = "active"
-)
 
 // lenToInt32Saturating clamps a slice length to int32 max for proto rollup
 // fields. Selector-produced target lists are bounded by candidate counts well

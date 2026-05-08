@@ -179,20 +179,12 @@ func (s *Service) planFromExistingEvent(ctx context.Context, ev *models.Event) (
 		return nil, err
 	}
 	plan := &Plan{
-		Selected:         make([]SelectedDevice, 0, len(targets)),
 		EventUUID:        &ev.EventUUID,
 		PersistedEvent:   ev,
 		PersistedTargets: targets,
 	}
 	if ev.MaxDurationSeconds != nil {
 		plan.EffectiveMaxDurationSeconds = ev.MaxDurationSeconds
-	}
-	for _, t := range targets {
-		sd := SelectedDevice{DeviceIdentifier: t.DeviceIdentifier}
-		if t.BaselinePowerW != nil {
-			sd.PowerW = *t.BaselinePowerW
-		}
-		plan.Selected = append(plan.Selected, sd)
 	}
 	return plan, nil
 }
