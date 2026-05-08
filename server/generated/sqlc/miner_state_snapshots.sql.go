@@ -94,10 +94,11 @@ func (q *Queries) GetMinerStateSnapshots(ctx context.Context, arg GetMinerStateS
 }
 
 const insertMinerStateSnapshot = `-- name: InsertMinerStateSnapshot :exec
-INSERT INTO miner_state_snapshots (time, org_id, device_identifier, state)
+INSERT INTO miner_state_snapshots (time, org_id, site_id, device_identifier, state)
 SELECT
     $1::timestamptz,
     d.org_id,
+    d.site_id,
     d.device_identifier,
     CASE
         WHEN ds.status = 'OFFLINE'

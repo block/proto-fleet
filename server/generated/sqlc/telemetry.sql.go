@@ -940,11 +940,13 @@ INSERT INTO device_metrics (
     chip_count,
     chip_count_kind,
     chip_frequency_mhz,
-    health
+    health,
+    site_id
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
     $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-    $21, $22, $23
+    $21, $22, $23,
+    (SELECT site_id FROM device WHERE device_identifier = $2 AND deleted_at IS NULL)
 ) ON CONFLICT (time, device_identifier) DO NOTHING
 `
 
@@ -976,6 +978,11 @@ type InsertDeviceMetricsParams struct {
 
 // Telemetry queries for device_metrics table and continuous aggregates
 // Note: All device identification uses device_identifier (TEXT), not device_id (BIGINT)
+// site_id is row-stamped from device.site_id (looked up by
+// device_identifier) so per-site telemetry filters use the row-stamped
+// site even after the device is reassigned. Inline sub-select rather
+// than a CTE+SELECT INSERT — ON CONFLICT on the device_metrics
+// hypertable PK requires VALUES-shape INSERT.
 func (q *Queries) InsertDeviceMetrics(ctx context.Context, arg InsertDeviceMetricsParams) error {
 	_, err := q.exec(ctx, q.insertDeviceMetricsStmt, insertDeviceMetrics,
 		arg.Time,

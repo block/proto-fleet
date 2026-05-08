@@ -6,10 +6,11 @@
 -- enum values). The read query sums only 0..3, so unknown rows don't
 -- contribute to any chart bucket — matching CountMinersByState, which also
 -- excludes non-ACTIVE/non-bucketed statuses from every count.
-INSERT INTO miner_state_snapshots (time, org_id, device_identifier, state)
+INSERT INTO miner_state_snapshots (time, org_id, site_id, device_identifier, state)
 SELECT
     sqlc.arg('time')::timestamptz,
     d.org_id,
+    d.site_id,
     d.device_identifier,
     CASE
         WHEN ds.status = 'OFFLINE'
