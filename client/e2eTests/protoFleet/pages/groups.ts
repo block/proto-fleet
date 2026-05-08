@@ -83,6 +83,22 @@ export class GroupsPage extends BasePage {
     await this.validateTitle(groupName);
   }
 
+  async openSavedGroupOverviewFromActionsMenu(groupName: string) {
+    const groupRow = this.getGroupRow(groupName);
+    const expectedPath = `/groups/${encodeURIComponent(groupName)}`;
+
+    await expect(groupRow).toBeVisible();
+    await groupRow.getByLabel("Device set actions").click();
+    await this.page.getByTestId("view-group-popover-button").click();
+    await expect(this.page).toHaveURL((url) => url.pathname === expectedPath);
+    await this.validateTitle(groupName);
+  }
+
+  async returnToGroupsListFromOverview() {
+    await this.page.getByLabel("Back to groups").click();
+    await this.waitForSavedGroupsListToLoad();
+  }
+
   async inputGroupName(groupName: string) {
     await this.page.locator(`//input[@id='group-name']`).fill(groupName);
   }

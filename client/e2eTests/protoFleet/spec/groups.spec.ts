@@ -342,6 +342,32 @@ test.describe("Groups", () => {
     });
   });
 
+  test("View group from the groups list actions menu", async ({ groupsPage }) => {
+    const groupName = generateRandomText("automation");
+    const minerCount = 2;
+
+    await test.step("Create a group with two miners", async () => {
+      await groupsPage.clickAddGroupButton();
+      await groupsPage.inputGroupName(groupName);
+      await groupsPage.waitForModalListToLoad();
+      await groupsPage.selectMinersByIndex([0, 1]);
+      await groupsPage.clickSaveInModal();
+
+      await groupsPage.validateTextInToast(`Group "${groupName}" created`);
+      await groupsPage.validateSavedGroupVisible(groupName);
+      await groupsPage.validateSavedGroupMinerCount(groupName, minerCount);
+    });
+
+    await test.step("Open the group overview from the row actions menu", async () => {
+      await groupsPage.openSavedGroupOverviewFromActionsMenu(groupName);
+    });
+
+    await test.step("Return to the groups list", async () => {
+      await groupsPage.returnToGroupsListFromOverview();
+      await groupsPage.validateSavedGroupVisible(groupName);
+    });
+  });
+
   test("Group overview actions menu manages power for selected rig miners", async ({
     groupsPage,
     minersPage,
