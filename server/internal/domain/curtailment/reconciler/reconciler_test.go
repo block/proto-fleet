@@ -62,9 +62,6 @@ func (f *fakeStore) ListRecentlyResolvedCurtailedDevices(context.Context, int64,
 func (f *fakeStore) GetEventByUUID(context.Context, int64, uuid.UUID) (*models.Event, error) {
 	panic("GetEventByUUID not exercised")
 }
-func (f *fakeStore) GetEventByIdempotencyKey(context.Context, int64, string) (*models.Event, error) {
-	panic("GetEventByIdempotencyKey not exercised")
-}
 func (f *fakeStore) InsertEventWithTargets(context.Context, models.InsertEventParams, []models.InsertTargetParams) (*models.InsertEventResult, error) {
 	panic("InsertEventWithTargets not exercised")
 }
@@ -907,60 +904,66 @@ func TestReconciler_StartIdempotency(t *testing.T) {
 	require.NoError(t, r.Stop())
 }
 
-// --- isCurtailedByPower unit tests ---
+// --- isCurtailed unit tests ---
+//
+// isCurtailed has a single shape with a requirePositiveEvidence bool:
+//   - false (drift detection): missing/non-finite samples preserve "curtailed"
+//     so a transient bad sensor reading does not trigger a redispatch storm.
+//   - true (confirmation): missing/non-finite samples return false so a target
+//     is not promoted to `confirmed` without positive evidence.
 
-func TestIsCurtailedByPower_BaselineRelativeThreshold(t *testing.T) {
+func TestIsCurtailed_DriftPath_BaselineRelativeThreshold(t *testing.T) {
 	baseline := 3000.0
 	// 1000 < baseline*0.5=1500 → curtailed
-	assert.True(t, isCurtailedByPower(ptrFloat64(1000), &baseline, ptrFloat64(0), 0.5))
+	assert.True(t, isCurtailed(ptrFloat64(1000), &baseline, ptrFloat64(0), 0.5, false))
 	// 2500 > 1500 → not curtailed
-	assert.False(t, isCurtailedByPower(ptrFloat64(2500), &baseline, ptrFloat64(100), 0.5))
+	assert.False(t, isCurtailed(ptrFloat64(2500), &baseline, ptrFloat64(100), 0.5, false))
 }
 
-func TestIsCurtailedByPower_DualSignalFallbackWithoutBaseline(t *testing.T) {
+func TestIsCurtailed_DriftPath_DualSignalFallbackWithoutBaseline(t *testing.T) {
 	// No baseline; positive hash → drifted.
-	assert.False(t, isCurtailedByPower(ptrFloat64(2500), nil, ptrFloat64(100), 0.5))
+	assert.False(t, isCurtailed(ptrFloat64(2500), nil, ptrFloat64(100), 0.5, false))
 	// No baseline; zero hash → curtailed.
-	assert.True(t, isCurtailedByPower(ptrFloat64(2500), nil, ptrFloat64(0), 0.5))
+	assert.True(t, isCurtailed(ptrFloat64(2500), nil, ptrFloat64(0), 0.5, false))
 }
 
-func TestIsCurtailedByPower_NonFinitePreservesCurtailed(t *testing.T) {
+func TestIsCurtailed_DriftPath_NonFinitePreservesCurtailed(t *testing.T) {
 	baseline := 3000.0
 	nan := math.NaN()
 	inf := math.Inf(1)
 	// NaN power → no signal → preserve curtailed.
-	assert.True(t, isCurtailedByPower(&nan, &baseline, ptrFloat64(0), 0.5))
+	assert.True(t, isCurtailed(&nan, &baseline, ptrFloat64(0), 0.5, false))
 	// +Inf power → no signal → preserve curtailed.
-	assert.True(t, isCurtailedByPower(&inf, &baseline, ptrFloat64(0), 0.5))
+	assert.True(t, isCurtailed(&inf, &baseline, ptrFloat64(0), 0.5, false))
 	// nil power, NaN hash → preserve curtailed.
-	assert.True(t, isCurtailedByPower(nil, &baseline, &nan, 0.5))
+	assert.True(t, isCurtailed(nil, &baseline, &nan, 0.5, false))
 }
 
-// TestIsPositivelyCurtailed_RequiresEvidence pins the asymmetric default
+// TestIsCurtailed_ConfirmPath_RequiresEvidence pins the asymmetric default
 // for the confirm path: missing or non-finite telemetry returns false so
 // `dispatched` targets are NOT promoted to `confirmed` without evidence
 // the device actually went down.
-func TestIsPositivelyCurtailed_RequiresEvidence(t *testing.T) {
+func TestIsCurtailed_ConfirmPath_RequiresEvidence(t *testing.T) {
 	baseline := 3000.0
 	nan := math.NaN()
 	inf := math.Inf(1)
 
 	// Below threshold → confirmed.
-	assert.True(t, isPositivelyCurtailed(ptrFloat64(1000), &baseline, ptrFloat64(0), 0.5))
+	assert.True(t, isCurtailed(ptrFloat64(1000), &baseline, ptrFloat64(0), 0.5, true))
 	// Above threshold → not confirmed.
-	assert.False(t, isPositivelyCurtailed(ptrFloat64(2500), &baseline, ptrFloat64(0), 0.5))
+	assert.False(t, isCurtailed(ptrFloat64(2500), &baseline, ptrFloat64(0), 0.5, true))
 
 	// Missing power → not confirmed (asymmetric vs. drift detection).
-	assert.False(t, isPositivelyCurtailed(nil, &baseline, ptrFloat64(0), 0.5))
+	assert.False(t, isCurtailed(nil, &baseline, ptrFloat64(0), 0.5, true))
 	// Non-finite power → not confirmed.
-	assert.False(t, isPositivelyCurtailed(&nan, &baseline, ptrFloat64(0), 0.5))
-	assert.False(t, isPositivelyCurtailed(&inf, &baseline, ptrFloat64(0), 0.5))
+	assert.False(t, isCurtailed(&nan, &baseline, ptrFloat64(0), 0.5, true))
+	assert.False(t, isCurtailed(&inf, &baseline, ptrFloat64(0), 0.5, true))
 
 	// Baseline missing: dual-signal fallback requires finite zero-or-negative hash.
-	assert.True(t, isPositivelyCurtailed(ptrFloat64(1000), nil, ptrFloat64(0), 0.5))
-	assert.False(t, isPositivelyCurtailed(ptrFloat64(1000), nil, nil, 0.5), "no baseline + missing hash → no evidence")
-	assert.False(t, isPositivelyCurtailed(ptrFloat64(1000), nil, &nan, 0.5), "no baseline + non-finite hash → no evidence")
-	assert.False(t, isPositivelyCurtailed(ptrFloat64(1000), nil, ptrFloat64(100), 0.5), "no baseline + positive hash → drifted")
+	assert.True(t, isCurtailed(ptrFloat64(1000), nil, ptrFloat64(0), 0.5, true))
+	assert.False(t, isCurtailed(ptrFloat64(1000), nil, nil, 0.5, true), "no baseline + missing hash → no evidence")
+	assert.False(t, isCurtailed(ptrFloat64(1000), nil, &nan, 0.5, true), "no baseline + non-finite hash → no evidence")
+	assert.False(t, isCurtailed(ptrFloat64(1000), nil, ptrFloat64(100), 0.5, true), "no baseline + positive hash → drifted")
 }
 
 // panickyDispatcher proxies Curtail/Uncurtail and panics when panicOn() returns

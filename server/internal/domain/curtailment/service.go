@@ -3,7 +3,6 @@ package curtailment
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"math"
 	"strings"
 
@@ -72,6 +71,11 @@ type StartRequest struct {
 	// session dependency by accepting the typed value directly.
 	SourceActorType models.SourceActorType
 	SourceActorID   *string
+
+	// CreatedByUserID is the operator's user.id, captured at handler entry.
+	// Persisted on curtailment_event so the reconciler can dispatch under a
+	// real user (command_batch_log.created_by has a NOT NULL FK to user.id).
+	CreatedByUserID int64
 }
 
 // Service orchestrates Preview / Start through the shared config / scope /
@@ -104,19 +108,6 @@ func (s *Service) Preview(ctx context.Context, req PreviewRequest) (*Plan, error
 func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 	if err := validateStartRequest(req); err != nil {
 		return nil, err
-	}
-
-	// Idempotency short-circuit: if the caller supplied a key that matches an
-	// existing event for this org, return that event's shape rather than
-	// running the selector + insert pipeline. The partial unique index
-	// uq_curtailment_event_idempotency would otherwise surface a duplicate
-	// retry as Internal at insert time. Skips when the key is missing.
-	if req.IdempotencyKey != nil && *req.IdempotencyKey != "" {
-		if existing, err := s.store.GetEventByIdempotencyKey(ctx, req.OrgID, *req.IdempotencyKey); err == nil {
-			return s.planFromExistingEvent(ctx, existing)
-		} else if !fleeterror.IsNotFoundError(err) {
-			return nil, err
-		}
 	}
 
 	plan, minPowerW, orgConfig, err := s.runSelector(ctx, req.PreviewRequest)
@@ -160,45 +151,11 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 
 	result, err := s.store.InsertEventWithTargets(ctx, eventParams, targetParams)
 	if err != nil {
-		// Race: two concurrent Starts with the same idempotency_key both
-		// missed the pre-read short-circuit; the loser hits the partial
-		// unique index. Re-read and return the winner's persisted shape so
-		// the loser sees an idempotent retry, not Internal.
-		if errors.Is(err, interfaces.ErrCurtailmentIdempotencyKeyConflict) &&
-			req.IdempotencyKey != nil && *req.IdempotencyKey != "" {
-			existing, getErr := s.store.GetEventByIdempotencyKey(ctx, req.OrgID, *req.IdempotencyKey)
-			if getErr != nil {
-				return nil, getErr
-			}
-			return s.planFromExistingEvent(ctx, existing)
-		}
 		return nil, err
 	}
 
 	plan.EventUUID = &result.EventUUID
 	plan.EffectiveMaxDurationSeconds = req.MaxDurationSeconds
-	return plan, nil
-}
-
-// planFromExistingEvent reconstructs a Plan from a persisted curtailment_event
-// so the idempotent-retry path returns a response that describes the
-// persisted state. Handlers read from PersistedEvent / PersistedTargets to
-// avoid mixing persisted UUID with the retry request's possibly-different
-// metadata. Plan.Skipped is left empty — the original is in
-// decision_snapshot_jsonb and clients fetch the full event via the read APIs.
-func (s *Service) planFromExistingEvent(ctx context.Context, ev *models.Event) (*Plan, error) {
-	targets, err := s.store.ListTargetsByEvent(ctx, ev.OrgID, ev.EventUUID)
-	if err != nil {
-		return nil, err
-	}
-	plan := &Plan{
-		EventUUID:        &ev.EventUUID,
-		PersistedEvent:   ev,
-		PersistedTargets: targets,
-	}
-	if ev.MaxDurationSeconds != nil {
-		plan.EffectiveMaxDurationSeconds = ev.MaxDurationSeconds
-	}
 	return plan, nil
 }
 
@@ -355,6 +312,11 @@ func validateStartRequest(req StartRequest) error {
 		// source_actor_type is NOT NULL at the DB level; the handler must
 		// derive a concrete value from session.Info before reaching here.
 		return fleeterror.NewInvalidArgumentError("source_actor_type must be set")
+	}
+	if req.CreatedByUserID <= 0 {
+		// created_by_user_id is NOT NULL FK on user.id; the handler must
+		// derive it from session.Info.UserID before reaching the service.
+		return fleeterror.NewInvalidArgumentError("created_by_user_id must be set")
 	}
 	return nil
 }
@@ -684,6 +646,7 @@ func buildInsertParams(req StartRequest, plan *Plan, minPowerW int32) (models.In
 		ExternalReference:       req.ExternalReference,
 		IdempotencyKey:          req.IdempotencyKey,
 		Reason:                  req.Reason,
+		CreatedByUserID:         req.CreatedByUserID,
 	}
 	if event.Priority == "" {
 		// PriorityUnspecified at the proto layer is admitted as Normal in

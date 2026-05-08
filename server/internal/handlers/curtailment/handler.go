@@ -24,17 +24,24 @@ const (
 
 // Handler implements the curtailment RPC surface. service=nil keeps the
 // stub-level tests' Unimplemented contract; populated wires the real impl.
+// startEnabled gates the operator-facing Start RPC: BE-3 ships the dispatch +
+// reconciler primitives behind this flag and BE-4 (Stop + restorer +
+// max_duration_seconds enforcement) flips the default. Without BE-4 an
+// operator could Start an event that has no Stop path, so production
+// deployments default to startEnabled=false until BE-4 is in place.
 type Handler struct {
-	service *curtailment.Service
+	service      *curtailment.Service
+	startEnabled bool
 }
 
 var _ curtailmentv1connect.CurtailmentServiceHandler = &Handler{}
 
 // NewHandler returns a curtailment Handler. Pass nil for the stub-only
 // path (Preview returns Unimplemented); pass a populated *Service to wire
-// the real implementation.
-func NewHandler(service *curtailment.Service) *Handler {
-	return &Handler{service: service}
+// the real implementation. startEnabled gates StartCurtailment; see the
+// Handler godoc for the BE-3/BE-4 coupling.
+func NewHandler(service *curtailment.Service, startEnabled bool) *Handler {
+	return &Handler{service: service, startEnabled: startEnabled}
 }
 
 func (h *Handler) PreviewCurtailmentPlan(ctx context.Context, req *connect.Request[pb.PreviewCurtailmentPlanRequest]) (*connect.Response[pb.PreviewCurtailmentPlanResponse], error) {
@@ -77,6 +84,12 @@ func (h *Handler) StartCurtailment(ctx context.Context, req *connect.Request[pb.
 		if err := requireAdminFromContext(ctx, actionSupplyOverrideFields); err != nil {
 			return nil, err
 		}
+	}
+	if !h.startEnabled {
+		// BE-3 ships dispatch + reconciler primitives but no Stop/restorer
+		// yet (BE-4). Until that lands operators must not be able to Start
+		// an event with no exit path.
+		return nil, errCurtailmentNotImplemented("StartCurtailment")
 	}
 	if h.service == nil {
 		return nil, errCurtailmentNotImplemented("StartCurtailment")

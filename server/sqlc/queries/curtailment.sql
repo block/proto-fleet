@@ -112,7 +112,8 @@ INSERT INTO curtailment_event (
     external_reference,
     idempotency_key,
     reason,
-    scheduled_start_at
+    scheduled_start_at,
+    created_by_user_id
 ) VALUES (
     sqlc.arg('event_uuid'),
     sqlc.arg('org_id'),
@@ -139,7 +140,8 @@ INSERT INTO curtailment_event (
     sqlc.narg('external_reference'),
     sqlc.narg('idempotency_key'),
     sqlc.arg('reason'),
-    sqlc.narg('scheduled_start_at')
+    sqlc.narg('scheduled_start_at'),
+    sqlc.arg('created_by_user_id')
 )
 RETURNING id, event_uuid, created_at, updated_at;
 
@@ -151,18 +153,6 @@ SELECT *
 FROM curtailment_event
 WHERE event_uuid = sqlc.arg('event_uuid')
     AND org_id = sqlc.arg('org_id');
-
--- name: GetCurtailmentEventByIdempotencyKey :one
--- Org-scoped lookup that powers Service.Start's retry-safe path: a duplicate
--- (org_id, idempotency_key) returns the previously-created event so callers
--- get the same response shape on retry instead of an Internal mapped from a
--- partial-unique-index violation. The partial index
--- (uq_curtailment_event_idempotency) enforces uniqueness; this query is the
--- pre-insert check that turns the duplicate into idempotent behavior.
-SELECT *
-FROM curtailment_event
-WHERE org_id = sqlc.arg('org_id')
-    AND idempotency_key = sqlc.arg('idempotency_key');
 
 -- name: InsertCurtailmentTarget :exec
 -- Start dispatch inserts these in the event-row transaction.

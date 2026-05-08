@@ -411,8 +411,8 @@ func (p *Processor) executeSchedule(ctx context.Context, scheduleID int64) {
 		return
 	}
 
-	conflictSkips := countConflictSkips(result)
-	curtailmentSkips := countCurtailmentActiveSkips(result)
+	conflictSkips := countSkipsByFilter(result, command.ScheduleConflictFilterName)
+	curtailmentSkips := countSkipsByFilter(result, command.CurtailmentActiveFilterName)
 	if conflictSkips > 0 {
 		p.logConflictSkip(ctx, sched, orgID, conflictSkips)
 	}
@@ -450,19 +450,6 @@ func countSkipsByFilter(result *command.CommandResult, filterName string) int {
 		}
 	}
 	return n
-}
-
-// countConflictSkips ignores other command preflight filters; schedule activity
-// should only summarize schedule-priority conflicts.
-func countConflictSkips(result *command.CommandResult) int {
-	return countSkipsByFilter(result, command.ScheduleConflictFilterName)
-}
-
-// countCurtailmentActiveSkips counts how many devices the curtailment-active
-// filter excluded from this dispatch — distinct from schedule conflicts so the
-// activity log can name the actual cause.
-func countCurtailmentActiveSkips(result *command.CommandResult) int {
-	return countSkipsByFilter(result, command.CurtailmentActiveFilterName)
 }
 
 func (p *Processor) currentJobGeneration(scheduleID int64) (uint64, bool) {
@@ -720,10 +707,10 @@ func (p *Processor) checkEndOfWindow(ctx context.Context) {
 				slog.Error("failed to dispatch revert command, will retry next cycle", "schedule_id", sched.Id, "error", err)
 				continue
 			}
-			if skipped := countConflictSkips(result); skipped > 0 {
+			if skipped := countSkipsByFilter(result, command.ScheduleConflictFilterName); skipped > 0 {
 				p.logConflictSkip(ctx, sched, sw.OrgID, skipped)
 			}
-			if skipped := countCurtailmentActiveSkips(result); skipped > 0 {
+			if skipped := countSkipsByFilter(result, command.CurtailmentActiveFilterName); skipped > 0 {
 				p.logCurtailmentActiveSkip(ctx, sched, sw.OrgID, skipped)
 			}
 		}

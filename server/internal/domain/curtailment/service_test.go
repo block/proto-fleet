@@ -45,21 +45,6 @@ type fakeStore struct {
 	lastInsertEvent   models.InsertEventParams
 	lastInsertTargets []models.InsertTargetParams
 	nextEventID       int64
-
-	// idempotencyHit / idempotencyTargets back the GetEventByIdempotencyKey
-	// + ListTargetsByEvent stubs for tests that exercise the retry-safe
-	// Start path. Default behavior is NotFound / panic respectively.
-	idempotencyHit     *models.Event
-	idempotencyTargets []*models.Target
-
-	// idempotencyRaceWinner / idempotencyRaceWinnerTargets simulate a
-	// concurrent Start that won the unique-index race: when
-	// InsertEventWithTargets is configured to return
-	// ErrCurtailmentIdempotencyKeyConflict, the fake atomically installs the
-	// winner into idempotencyHit/idempotencyTargets so the service's post-
-	// conflict re-read returns the winner's persisted shape.
-	idempotencyRaceWinner        *models.Event
-	idempotencyRaceWinnerTargets []*models.Target
 }
 
 func newFakeStore() *fakeStore {
@@ -119,17 +104,7 @@ func (f *fakeStore) GetEventByUUID(context.Context, int64, uuid.UUID) (*models.E
 	panic("GetEventByUUID not exercised by Preview tests")
 }
 
-func (f *fakeStore) GetEventByIdempotencyKey(_ context.Context, _ int64, key string) (*models.Event, error) {
-	if f.idempotencyHit != nil && f.idempotencyHit.IdempotencyKey != nil && *f.idempotencyHit.IdempotencyKey == key {
-		return f.idempotencyHit, nil
-	}
-	return nil, fleeterror.NewNotFoundErrorf("no curtailment event with idempotency_key=%q", key)
-}
-
-func (f *fakeStore) ListTargetsByEvent(_ context.Context, _ int64, eventUUID uuid.UUID) ([]*models.Target, error) {
-	if f.idempotencyHit != nil && f.idempotencyHit.EventUUID == eventUUID {
-		return append([]*models.Target(nil), f.idempotencyTargets...), nil
-	}
+func (f *fakeStore) ListTargetsByEvent(context.Context, int64, uuid.UUID) ([]*models.Target, error) {
 	panic("ListTargetsByEvent not exercised by Preview tests")
 }
 
@@ -166,10 +141,6 @@ func (f *fakeStore) InsertEventWithTargets(
 	f.lastInsertEvent = event
 	f.lastInsertTargets = append([]models.InsertTargetParams(nil), targets...)
 	if f.insertEventErr != nil {
-		if f.idempotencyRaceWinner != nil {
-			f.idempotencyHit = f.idempotencyRaceWinner
-			f.idempotencyTargets = f.idempotencyRaceWinnerTargets
-		}
 		return nil, f.insertEventErr
 	}
 	id := f.nextEventID

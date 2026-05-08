@@ -5,14 +5,12 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/modes"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
 // validStartRequest builds a valid StartRequest pointing at orgID. Callers
@@ -28,6 +26,7 @@ func validStartRequest(orgID int64) StartRequest {
 		MaxDurationSeconds:      &maxDur,
 		AllowUnbounded:          false,
 		SourceActorType:         models.SourceActorUser,
+		CreatedByUserID:         42,
 	}
 }
 
@@ -126,6 +125,27 @@ func TestService_Start_RejectsMissingSourceActorType(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 	assert.Contains(t, err.Error(), "source_actor_type")
+}
+
+// TestService_Start_RejectsMissingCreatedByUserID pins the service-level
+// backstop for the FK plumbing: a zero or negative UserID must never reach
+// the DB, where curtailment_event.created_by_user_id has a NOT NULL FK to
+// user.id. Without this guard, a misconfigured handler could surface the
+// FK violation as Internal at insert time instead of InvalidArgument here.
+func TestService_Start_RejectsMissingCreatedByUserID(t *testing.T) {
+	t.Parallel()
+	for _, uid := range []int64{0, -1} {
+		t.Run(fmt.Sprintf("user_id=%d", uid), func(t *testing.T) {
+			t.Parallel()
+			svc := NewService(newFakeStore())
+			req := validStartRequest(1)
+			req.CreatedByUserID = uid
+			_, err := svc.Start(t.Context(), req)
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsInvalidArgumentError(err))
+			assert.Contains(t, err.Error(), "created_by_user_id")
+		})
+	}
 }
 
 // TestService_Start_RejectsOversizedTextFields covers the service-level
@@ -273,127 +293,6 @@ func TestService_Start_EmptyPlanRejectsBeforePersistence(t *testing.T) {
 
 // --- success path: persistence + baseline capture ---
 
-// TestService_Start_IdempotencyKeyShortCircuitsToExistingEvent pins the
-// retry-safe path: when (org_id, idempotency_key) already matches a
-// persisted event, Service.Start returns that event's shape rather than
-// running the selector + insert pipeline. Avoids surfacing the partial-
-// unique-index violation as Internal on legitimate client retries.
-func TestService_Start_IdempotencyKeyShortCircuitsToExistingEvent(t *testing.T) {
-	t.Parallel()
-	const orgID = int64(42)
-	store := newFakeStore()
-	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
-
-	existingUUID := uuid.New()
-	maxDur := int32(3600)
-	idemKey := "operator-retry-1"
-	store.idempotencyHit = &models.Event{
-		ID:                 999,
-		EventUUID:          existingUUID,
-		OrgID:              orgID,
-		State:              models.EventStateActive,
-		MaxDurationSeconds: &maxDur,
-		IdempotencyKey:     &idemKey,
-	}
-	baseline := 4500.0
-	store.idempotencyTargets = []*models.Target{
-		{
-			CurtailmentEventID: 999,
-			DeviceIdentifier:   "miner-a",
-			State:              models.TargetStateConfirmed,
-			BaselinePowerW:     &baseline,
-		},
-	}
-
-	svc := NewService(store)
-	req := validStartRequest(orgID)
-	req.IdempotencyKey = &idemKey
-
-	plan, err := svc.Start(t.Context(), req)
-	require.NoError(t, err)
-	require.NotNil(t, plan.EventUUID)
-	assert.Equal(t, existingUUID, *plan.EventUUID, "must echo the existing event_uuid")
-	require.NotNil(t, plan.EffectiveMaxDurationSeconds)
-	assert.Equal(t, maxDur, *plan.EffectiveMaxDurationSeconds)
-	// Persisted handles are threaded so the handler can build the response
-	// from the stored event/targets rather than the retry request — protects
-	// against silently echoing drifted retry metadata back to the caller.
-	require.NotNil(t, plan.PersistedEvent, "persisted event must be threaded for retry response")
-	assert.Equal(t, existingUUID, plan.PersistedEvent.EventUUID)
-	assert.Equal(t, models.EventStateActive, plan.PersistedEvent.State)
-	require.Len(t, plan.PersistedTargets, 1)
-	assert.Equal(t, "miner-a", plan.PersistedTargets[0].DeviceIdentifier)
-	assert.Equal(t, baseline, *plan.PersistedTargets[0].BaselinePowerW)
-	assert.Equal(t, models.TargetStateConfirmed, plan.PersistedTargets[0].State)
-
-	// The selector pipeline must not run on the idempotent retry; no
-	// candidate fetch, no insert.
-	assert.Equal(t, 0, store.listCandidatesCalls, "selector must not run on idempotency hit")
-	assert.Equal(t, 0, store.insertEventCalls, "no insert on idempotency hit")
-}
-
-// TestService_Start_IdempotencyKeyInsertRaceRecoversAsRetry pins the
-// concurrency contract: when two Starts share an idempotency_key and both
-// miss the pre-read short-circuit, the loser hits the partial unique index
-// at insert time. The store surfaces ErrCurtailmentIdempotencyKeyConflict;
-// the service must re-read the winner's persisted event and return its
-// shape rather than bubbling the unique violation as Internal.
-func TestService_Start_IdempotencyKeyInsertRaceRecoversAsRetry(t *testing.T) {
-	t.Parallel()
-	const orgID = int64(42)
-	store := newFakeStore()
-	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
-	store.candidatesByOrg[orgID] = []*models.Candidate{
-		minerWithEff("worst", 6000, 100, 50),
-	}
-
-	winnerUUID := uuid.New()
-	maxDur := int32(7200)
-	idemKey := "racing-callers"
-	winner := &models.Event{
-		ID:                 555,
-		EventUUID:          winnerUUID,
-		OrgID:              orgID,
-		State:              models.EventStateActive,
-		MaxDurationSeconds: &maxDur,
-		IdempotencyKey:     &idemKey,
-	}
-	baseline := 6000.0
-	winnerTargets := []*models.Target{{
-		CurtailmentEventID: 555,
-		DeviceIdentifier:   "worst",
-		State:              models.TargetStatePending,
-		BaselinePowerW:     &baseline,
-	}}
-	// Pre-read miss + insert returns the conflict sentinel; the fake
-	// installs the winner into idempotencyHit so the service's recovery
-	// re-read picks it up. This mirrors the real DB race: pre-read sees no
-	// row, but by the time the loser's insert runs, the winner has
-	// committed and the unique index rejects.
-	store.insertEventErr = interfaces.ErrCurtailmentIdempotencyKeyConflict
-	store.idempotencyRaceWinner = winner
-	store.idempotencyRaceWinnerTargets = winnerTargets
-
-	svc := NewService(store)
-	req := validStartRequest(orgID)
-	req.IdempotencyKey = &idemKey
-
-	plan, err := svc.Start(t.Context(), req)
-	require.NoError(t, err, "insert-race must surface as idempotent retry, not error")
-	require.NotNil(t, plan)
-	require.NotNil(t, plan.EventUUID)
-	assert.Equal(t, winnerUUID, *plan.EventUUID, "loser must echo the winner's event_uuid")
-	require.NotNil(t, plan.PersistedEvent)
-	assert.Equal(t, winnerUUID, plan.PersistedEvent.EventUUID)
-	require.Len(t, plan.PersistedTargets, 1)
-	assert.Equal(t, "worst", plan.PersistedTargets[0].DeviceIdentifier)
-
-	// The selector pipeline ran (insert reached) but the recovery read used
-	// the winner's persisted shape rather than producing a new row.
-	assert.Equal(t, 1, store.insertEventCalls,
-		"InsertEventWithTargets must be attempted once before the conflict surfaces")
-}
-
 func TestService_Start_PersistsEventAndTargetsWithBaseline(t *testing.T) {
 	t.Parallel()
 	const orgID = int64(42)
@@ -429,6 +328,9 @@ func TestService_Start_PersistsEventAndTargetsWithBaseline(t *testing.T) {
 	assert.Equal(t, models.ScopeTypeWholeOrg, ev.ScopeType)
 	assert.Equal(t, "operator test", ev.Reason)
 	assert.Equal(t, models.SourceActorUser, ev.SourceActorType)
+	// CreatedByUserID flows from StartRequest into the event row;
+	// reconciler reads it back to satisfy command_batch_log.created_by FK.
+	assert.Equal(t, int64(42), ev.CreatedByUserID)
 	require.NotNil(t, ev.MaxDurationSeconds)
 	assert.Equal(t, int32(7200), *ev.MaxDurationSeconds)
 	assert.False(t, ev.AllowUnbounded)

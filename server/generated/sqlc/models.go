@@ -454,6 +454,7 @@ type CurtailmentEvent struct {
 	EndedAt                 sql.NullTime
 	CreatedAt               time.Time
 	UpdatedAt               time.Time
+	CreatedByUserID         int64
 }
 
 type CurtailmentOrgConfig struct {

@@ -29,15 +29,6 @@ type startStubStore struct {
 	orgConfig  *models.OrgConfig
 	candidates []*models.Candidate
 
-	// idempotencyHit is the event GetEventByIdempotencyKey returns when the
-	// requested key matches its IdempotencyKey field. Tests that exercise the
-	// retry-safe Start path stash a pre-existing event here so Service.Start
-	// short-circuits before the selector pipeline runs.
-	idempotencyHit *models.Event
-	// idempotencyTargets is the target list ListTargetsByEvent returns for
-	// idempotencyHit's event_uuid; populated alongside the hit row.
-	idempotencyTargets []*models.Target
-
 	// Captures.
 	lastEvent   models.InsertEventParams
 	lastTargets []models.InsertTargetParams
@@ -91,23 +82,7 @@ func (s *startStubStore) GetEventByUUID(context.Context, int64, uuid.UUID) (*mod
 	panic("GetEventByUUID not exercised by handler Start tests")
 }
 
-// GetEventByIdempotencyKey returns NotFound by default; tests that exercise
-// the idempotent-retry path can stash a row in s.idempotencyHit to short-
-// circuit Service.Start before the selector pipeline runs.
-func (s *startStubStore) GetEventByIdempotencyKey(_ context.Context, _ int64, key string) (*models.Event, error) {
-	if s.idempotencyHit != nil && s.idempotencyHit.IdempotencyKey != nil && *s.idempotencyHit.IdempotencyKey == key {
-		return s.idempotencyHit, nil
-	}
-	return nil, fleeterror.NewNotFoundErrorf("no curtailment event with idempotency_key=%q", key)
-}
-
-// ListTargetsByEvent returns the stashed idempotencyTargets when the
-// requested event_uuid matches the idempotencyHit; otherwise panics so an
-// unexpected call is loud.
-func (s *startStubStore) ListTargetsByEvent(_ context.Context, _ int64, eventUUID uuid.UUID) ([]*models.Target, error) {
-	if s.idempotencyHit != nil && s.idempotencyHit.EventUUID == eventUUID {
-		return append([]*models.Target(nil), s.idempotencyTargets...), nil
-	}
+func (s *startStubStore) ListTargetsByEvent(context.Context, int64, uuid.UUID) ([]*models.Target, error) {
 	panic("ListTargetsByEvent not exercised by handler Start tests")
 }
 
@@ -185,7 +160,7 @@ func TestHandler_StartCurtailment_HappyPath(t *testing.T) {
 		miner("worst", "ACTIVE", "PAIRED", 3000, 100, 50),
 		miner("mid", "ACTIVE", "PAIRED", 3000, 100, 35),
 	}
-	h := NewHandler(curtailment.NewService(store))
+	h := NewHandler(curtailment.NewService(store), true)
 
 	ctx := authn.SetInfo(t.Context(), &session.Info{
 		AuthMethod:     session.AuthMethodSession,
@@ -210,6 +185,10 @@ func TestHandler_StartCurtailment_HappyPath(t *testing.T) {
 	assert.Equal(t, models.SourceActorUser, store.lastEvent.SourceActorType)
 	require.NotNil(t, store.lastEvent.SourceActorID)
 	assert.Equal(t, "sess-abc", *store.lastEvent.SourceActorID)
+	// CreatedByUserID is the FK plumbing's load-bearing field: handler must
+	// thread session.Info.UserID into the persisted event so the reconciler
+	// dispatches under a real user.id (command_batch_log.created_by FK).
+	assert.Equal(t, int64(9), store.lastEvent.CreatedByUserID)
 
 	// Targets are echoed in pending state with baseline captured.
 	require.Len(t, ev.Targets, 2)
@@ -232,11 +211,12 @@ func TestHandler_StartCurtailment_APIKeyDerivesAPIKeyActor(t *testing.T) {
 	store.candidates = []*models.Candidate{
 		miner("a", "ACTIVE", "PAIRED", 6000, 100, 40),
 	}
-	h := NewHandler(curtailment.NewService(store))
+	h := NewHandler(curtailment.NewService(store), true)
 
 	ctx := authn.SetInfo(t.Context(), &session.Info{
 		AuthMethod:     session.AuthMethodAPIKey,
 		OrganizationID: 1,
+		UserID:         9,
 		Role:           "OPERATOR",
 		APIKeyID:       "key-77",
 	})
@@ -261,11 +241,12 @@ func TestHandler_StartCurtailment_InsufficientLoadSurfacesAsInvalidArgument(t *t
 	store.candidates = []*models.Candidate{
 		miner("only", "ACTIVE", "PAIRED", 1500, 100, 40),
 	}
-	h := NewHandler(curtailment.NewService(store))
+	h := NewHandler(curtailment.NewService(store), true)
 
 	ctx := authn.SetInfo(t.Context(), &session.Info{
 		AuthMethod:     session.AuthMethodSession,
 		OrganizationID: 1,
+		UserID:         9,
 		Role:           "OPERATOR",
 	})
 
@@ -284,6 +265,32 @@ func TestHandler_StartCurtailment_InsufficientLoadSurfacesAsInvalidArgument(t *t
 	assert.Empty(t, store.lastTargets)
 }
 
+// TestHandler_StartCurtailment_DisabledFlagReturnsUnimplemented pins the
+// BE-3/BE-4 coupling gate: with startEnabled=false the handler must return
+// Unimplemented even if the service is fully wired, because BE-4 has not
+// yet shipped Stop / restorer / max_duration_seconds enforcement.
+func TestHandler_StartCurtailment_DisabledFlagReturnsUnimplemented(t *testing.T) {
+	t.Parallel()
+
+	store := newStartStubStore()
+	h := NewHandler(curtailment.NewService(store), false)
+
+	ctx := authn.SetInfo(t.Context(), &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: 1,
+		UserID:         9,
+		Role:           "OPERATOR",
+	})
+
+	_, err := h.StartCurtailment(ctx, connect.NewRequest(validStartRequestBuilder()))
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeUnimplemented, fleetErr.GRPCCode)
+	// Service must not have been reached.
+	assert.Empty(t, store.lastTargets)
+}
+
 // TestHandler_StartCurtailment_RejectsMissingSession pins the auth gate:
 // without session.Info in context, Start must fail with Unauthenticated
 // (not crash on a nil-dereference of OrganizationID).
@@ -291,7 +298,7 @@ func TestHandler_StartCurtailment_RejectsMissingSession(t *testing.T) {
 	t.Parallel()
 
 	store := newStartStubStore()
-	h := NewHandler(curtailment.NewService(store))
+	h := NewHandler(curtailment.NewService(store), true)
 
 	_, err := h.StartCurtailment(t.Context(), connect.NewRequest(validStartRequestBuilder()))
 	require.Error(t, err)
@@ -311,11 +318,12 @@ func TestHandler_StartCurtailment_OverrideRoleGateBlocksNonAdmin(t *testing.T) {
 	store.candidates = []*models.Candidate{
 		miner("a", "ACTIVE", "PAIRED", 6000, 100, 40),
 	}
-	h := NewHandler(curtailment.NewService(store))
+	h := NewHandler(curtailment.NewService(store), true)
 
 	ctx := authn.SetInfo(t.Context(), &session.Info{
 		AuthMethod:     session.AuthMethodSession,
 		OrganizationID: 1,
+		UserID:         9,
 		Role:           "VIEWER",
 	})
 
@@ -342,11 +350,12 @@ func TestHandler_StartCurtailment_ZeroMaxDurationUsesOrgDefault(t *testing.T) {
 	store.candidates = []*models.Candidate{
 		miner("a", "ACTIVE", "PAIRED", 6000, 100, 40),
 	}
-	h := NewHandler(curtailment.NewService(store))
+	h := NewHandler(curtailment.NewService(store), true)
 
 	ctx := authn.SetInfo(t.Context(), &session.Info{
 		AuthMethod:     session.AuthMethodSession,
 		OrganizationID: 1,
+		UserID:         9,
 		Role:           "OPERATOR",
 		SessionID:      "sess-zero-dur",
 	})
@@ -370,11 +379,12 @@ func TestHandler_StartCurtailment_AllowUnboundedAdminPersistsNullDuration(t *tes
 	store.candidates = []*models.Candidate{
 		miner("a", "ACTIVE", "PAIRED", 6000, 100, 40),
 	}
-	h := NewHandler(curtailment.NewService(store))
+	h := NewHandler(curtailment.NewService(store), true)
 
 	ctx := authn.SetInfo(t.Context(), &session.Info{
 		AuthMethod:     session.AuthMethodSession,
 		OrganizationID: 1,
+		UserID:         9,
 		Role:           "ADMIN",
 	})
 
@@ -410,10 +420,11 @@ func TestHandler_StartCurtailment_RejectsUint32Overflow(t *testing.T) {
 		t.Run(tc.field, func(t *testing.T) {
 			t.Parallel()
 			store := newStartStubStore()
-			h := NewHandler(curtailment.NewService(store))
+			h := NewHandler(curtailment.NewService(store), true)
 			ctx := authn.SetInfo(t.Context(), &session.Info{
 				AuthMethod:     session.AuthMethodSession,
 				OrganizationID: 1,
+				UserID:         9,
 				Role:           "OPERATOR",
 				SessionID:      "sess",
 			})
@@ -438,11 +449,12 @@ func TestHandler_StartCurtailment_OutcomeMirrorsInsufficientLoadShapeOnZeroPool(
 
 	store := newStartStubStore()
 	store.candidates = nil
-	h := NewHandler(curtailment.NewService(store))
+	h := NewHandler(curtailment.NewService(store), true)
 
 	ctx := authn.SetInfo(t.Context(), &session.Info{
 		AuthMethod:     session.AuthMethodSession,
 		OrganizationID: 1,
+		UserID:         9,
 		Role:           "OPERATOR",
 	})
 
@@ -454,207 +466,6 @@ func TestHandler_StartCurtailment_OutcomeMirrorsInsufficientLoadShapeOnZeroPool(
 	// Reuse the modes.Outcome enum to anchor that this test path triggers
 	// InsufficientLoad and not the empty-Selected guard.
 	_ = modes.OutcomeInsufficientLoad
-}
-
-// TestHandler_StartCurtailment_IdempotentRetryReflectsPersistedState pins
-// the retry-consistency contract: when the same idempotency key matches an
-// existing event, the response describes the persisted row (state, priority,
-// reason, scope, mode params, target states), not whatever differing fields
-// the retry request carried. Protects against silently echoing drifted retry
-// metadata back to operators.
-func TestHandler_StartCurtailment_IdempotentRetryReflectsPersistedState(t *testing.T) {
-	t.Parallel()
-
-	const orgID = int64(42)
-	store := newStartStubStore()
-	store.orgConfig.OrgID = orgID
-
-	existingUUID := uuid.New()
-	maxDur := int32(7200)
-	idemKey := "operator-retry-1"
-	extSrc := "ops-runbook"
-	extRef := "OPS-99"
-	store.idempotencyHit = &models.Event{
-		ID:                      999,
-		EventUUID:               existingUUID,
-		OrgID:                   orgID,
-		State:                   models.EventStateActive,
-		Mode:                    models.ModeFixedKw,
-		Strategy:                models.StrategyLeastEfficientFirst,
-		Level:                   models.LevelFull,
-		Priority:                models.PriorityEmergency,
-		ScopeType:               models.ScopeTypeDeviceList,
-		ScopeJSON:               []byte(`{"device_identifiers":["miner-a","miner-b"]}`),
-		ModeParamsJSON:          []byte(`{"target_kw":12.5,"tolerance_kw":0.5}`),
-		RestoreBatchSize:        4,
-		RestoreBatchIntervalSec: 30,
-		MinCurtailedDurationSec: 120,
-		MaxDurationSeconds:      &maxDur,
-		IncludeMaintenance:      true,
-		Reason:                  "original operator reason",
-		ExternalSource:          &extSrc,
-		ExternalReference:       &extRef,
-		IdempotencyKey:          &idemKey,
-	}
-	baselineA := 4500.0
-	baselineB := 5200.0
-	observedA := 12.0
-	store.idempotencyTargets = []*models.Target{
-		{
-			CurtailmentEventID: 999,
-			DeviceIdentifier:   "miner-a",
-			TargetType:         "miner",
-			State:              models.TargetStateConfirmed,
-			DesiredState:       "curtailed",
-			BaselinePowerW:     &baselineA,
-			ObservedPowerW:     &observedA,
-			RetryCount:         0,
-		},
-		{
-			CurtailmentEventID: 999,
-			DeviceIdentifier:   "miner-b",
-			TargetType:         "miner",
-			State:              models.TargetStateDispatched,
-			DesiredState:       "curtailed",
-			BaselinePowerW:     &baselineB,
-			RetryCount:         1,
-		},
-	}
-
-	h := NewHandler(curtailment.NewService(store))
-	ctx := authn.SetInfo(t.Context(), &session.Info{
-		AuthMethod:     session.AuthMethodSession,
-		OrganizationID: orgID,
-		UserID:         9,
-		Role:           "OPERATOR",
-		SessionID:      "sess-retry",
-	})
-
-	// Retry request deliberately carries drifted metadata: different
-	// reason, scope shape, priority, batch sizing. None of these should
-	// surface in the response — the persisted event's values must win.
-	req := validStartRequestBuilder()
-	req.IdempotencyKey = "operator-retry-1"
-	req.Reason = "DRIFTED reason on retry"
-	req.Priority = pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL
-	req.RestoreBatchSize = 99
-	req.MinCurtailedDurationSec = 999
-	req.IncludeMaintenance = false
-	req.Scope = &pb.StartCurtailmentRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}}
-
-	resp, err := h.StartCurtailment(ctx, connect.NewRequest(req))
-	require.NoError(t, err)
-	require.NotNil(t, resp)
-	ev := resp.Msg.Event
-	require.NotNil(t, ev)
-
-	assert.Equal(t, existingUUID.String(), ev.EventUuid)
-	assert.Equal(t, pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_ACTIVE, ev.State,
-		"state must reflect persisted, not the PENDING default of fresh-Start")
-	assert.Equal(t, pb.CurtailmentPriority_CURTAILMENT_PRIORITY_EMERGENCY, ev.Priority,
-		"priority must come from persisted event, not the retry request")
-	assert.Equal(t, "original operator reason", ev.Reason,
-		"reason must come from persisted event, not the retry request")
-	assert.Equal(t, uint32(4), ev.RestoreBatchSize)
-	assert.Equal(t, uint32(30), ev.RestoreBatchIntervalSec)
-	assert.Equal(t, uint32(120), ev.MinCurtailedDurationSec)
-	assert.Equal(t, uint32(7200), ev.MaxDurationSeconds)
-	assert.True(t, ev.IncludeMaintenance, "include_maintenance must reflect persisted, not retry request")
-	assert.Equal(t, "ops-runbook", ev.ExternalSource)
-	assert.Equal(t, "OPS-99", ev.ExternalReference)
-	assert.Equal(t, "operator-retry-1", ev.IdempotencyKey)
-
-	// Scope is reconstructed from scope_jsonb, not the retry request's
-	// (different) WholeOrg variant.
-	deviceList := ev.GetDeviceIdentifiers()
-	require.NotNil(t, deviceList, "scope must reconstruct DeviceIdentifiers from scope_jsonb")
-	assert.Equal(t, []string{"miner-a", "miner-b"}, deviceList.DeviceIdentifiers)
-
-	fk := ev.GetFixedKw()
-	require.NotNil(t, fk, "mode params must reconstruct from mode_params_jsonb")
-	assert.InDelta(t, 12.5, fk.TargetKw, 0.001)
-	require.NotNil(t, fk.ToleranceKw, "non-zero tolerance must round-trip as a populated pointer")
-	assert.InDelta(t, 0.5, *fk.ToleranceKw, 0.001)
-
-	// Targets reflect their persisted states and per-target detail
-	// (observed_power_w, retry_count). Rollup aggregates across states.
-	require.Len(t, ev.Targets, 2)
-	assert.Equal(t, "miner-a", ev.Targets[0].DeviceIdentifier)
-	assert.Equal(t, pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_CONFIRMED, ev.Targets[0].State)
-	require.NotNil(t, ev.Targets[0].ObservedPowerW)
-	assert.InDelta(t, 12.0, *ev.Targets[0].ObservedPowerW, 0.001)
-	assert.Equal(t, "miner-b", ev.Targets[1].DeviceIdentifier)
-	assert.Equal(t, pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_DISPATCHED, ev.Targets[1].State)
-	assert.Equal(t, uint32(1), ev.Targets[1].RetryCount)
-
-	require.NotNil(t, ev.TargetRollup)
-	assert.Equal(t, int32(1), ev.TargetRollup.Confirmed)
-	assert.Equal(t, int32(1), ev.TargetRollup.Dispatched)
-	assert.Equal(t, int32(2), ev.TargetRollup.Total)
-	assert.Equal(t, int32(0), ev.TargetRollup.Pending,
-		"no targets are pending after retry; rollup must not echo len(targets) into Pending")
-}
-
-// TestHandler_StartCurtailment_IdempotentRetryAllowUnboundedReturnsZeroDuration
-// pins the retry response shape for an allow_unbounded persisted event.
-// Persisted MaxDurationSeconds is NULL on those rows, so plan
-// EffectiveMaxDurationSeconds is nil; the response surfaces 0 (proto
-// default) rather than panicking on a nil-request fallback or echoing the
-// retry request's drifted value.
-func TestHandler_StartCurtailment_IdempotentRetryAllowUnboundedReturnsZeroDuration(t *testing.T) {
-	t.Parallel()
-
-	const orgID = int64(42)
-	store := newStartStubStore()
-	store.orgConfig.OrgID = orgID
-
-	existingUUID := uuid.New()
-	idemKey := "operator-unbounded-retry"
-	store.idempotencyHit = &models.Event{
-		ID:                 7,
-		EventUUID:          existingUUID,
-		OrgID:              orgID,
-		State:              models.EventStateActive,
-		Mode:               models.ModeFixedKw,
-		Strategy:           models.StrategyLeastEfficientFirst,
-		Level:              models.LevelFull,
-		Priority:           models.PriorityNormal,
-		ScopeType:          models.ScopeTypeWholeOrg,
-		ScopeJSON:          []byte(`{}`),
-		ModeParamsJSON:     []byte(`{"target_kw":3,"tolerance_kw":0}`),
-		MaxDurationSeconds: nil,
-		AllowUnbounded:     true,
-		Reason:             "open-ended demand-response",
-		IdempotencyKey:     &idemKey,
-	}
-	store.idempotencyTargets = []*models.Target{
-		{CurtailmentEventID: 7, DeviceIdentifier: "miner-a", TargetType: "miner", State: models.TargetStatePending, DesiredState: "curtailed"},
-	}
-
-	h := NewHandler(curtailment.NewService(store))
-	ctx := authn.SetInfo(t.Context(), &session.Info{
-		AuthMethod:     session.AuthMethodSession,
-		OrganizationID: orgID,
-		UserID:         9,
-		Role:           "OPERATOR",
-		SessionID:      "sess-unbounded",
-	})
-
-	req := validStartRequestBuilder()
-	req.IdempotencyKey = idemKey
-	// Retry request carries a non-zero duration that must NOT leak into
-	// the response — the persisted event is allow_unbounded.
-	req.MaxDurationSeconds = 9999
-	req.AllowUnbounded = false
-
-	resp, err := h.StartCurtailment(ctx, connect.NewRequest(req))
-	require.NoError(t, err, "allow_unbounded retry must not panic on nil EffectiveMaxDurationSeconds")
-	require.NotNil(t, resp)
-	ev := resp.Msg.Event
-	require.NotNil(t, ev)
-	assert.Equal(t, existingUUID.String(), ev.EventUuid)
-	assert.Equal(t, uint32(0), ev.MaxDurationSeconds,
-		"persisted allow_unbounded event must surface as 0 max_duration_seconds, not the retry request's value")
 }
 
 // mustParseTime parses the RFC3339 input or panics; used in fixture builders.
