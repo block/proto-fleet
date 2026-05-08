@@ -289,7 +289,7 @@ func startResponseFromPersisted(plan *curtailment.Plan) *pb.StartCurtailmentResp
 		Strategy:                pb.CurtailmentStrategy_CURTAILMENT_STRATEGY_LEAST_EFFICIENT_FIRST,
 		Level:                   pb.CurtailmentLevel_CURTAILMENT_LEVEL_FULL,
 		Priority:                priorityProto(ev.Priority),
-		MaxDurationSeconds:      effectiveMaxDurationSeconds(plan, nil),
+		MaxDurationSeconds:      persistedMaxDurationSeconds(plan.EffectiveMaxDurationSeconds),
 		RestoreBatchSize:        int32ToUint32Saturating(ev.RestoreBatchSize),
 		RestoreBatchIntervalSec: int32ToUint32Saturating(ev.RestoreBatchIntervalSec),
 		MinCurtailedDurationSec: int32ToUint32Saturating(ev.MinCurtailedDurationSec),
@@ -519,13 +519,20 @@ func lenToInt32Saturating(n int) int32 {
 // where Plan does not carry a resolved value.
 func effectiveMaxDurationSeconds(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) uint32 {
 	if plan != nil && plan.EffectiveMaxDurationSeconds != nil {
-		v := *plan.EffectiveMaxDurationSeconds
-		if v < 0 {
-			return 0
-		}
-		return uint32(v) // #nosec G115 -- bounds-checked above
+		return persistedMaxDurationSeconds(plan.EffectiveMaxDurationSeconds)
 	}
 	return req.GetMaxDurationSeconds()
+}
+
+// persistedMaxDurationSeconds renders the persisted *int32 column as the
+// proto uint32. nil — the allow_unbounded shape — surfaces as 0, the proto
+// default; v1's CurtailmentEvent has no allow_unbounded field, so callers
+// disambiguate via the original request when needed.
+func persistedMaxDurationSeconds(v *int32) uint32 {
+	if v == nil || *v < 0 {
+		return 0
+	}
+	return uint32(*v) // #nosec G115 -- bounds-checked above
 }
 
 // resolvePriority normalizes UNSPECIFIED to NORMAL for response echoing;

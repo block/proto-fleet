@@ -595,6 +595,68 @@ func TestHandler_StartCurtailment_IdempotentRetryReflectsPersistedState(t *testi
 		"no targets are pending after retry; rollup must not echo len(targets) into Pending")
 }
 
+// TestHandler_StartCurtailment_IdempotentRetryAllowUnboundedReturnsZeroDuration
+// pins the retry response shape for an allow_unbounded persisted event.
+// Persisted MaxDurationSeconds is NULL on those rows, so plan
+// EffectiveMaxDurationSeconds is nil; the response surfaces 0 (proto
+// default) rather than panicking on a nil-request fallback or echoing the
+// retry request's drifted value.
+func TestHandler_StartCurtailment_IdempotentRetryAllowUnboundedReturnsZeroDuration(t *testing.T) {
+	t.Parallel()
+
+	const orgID = int64(42)
+	store := newStartStubStore()
+	store.orgConfig.OrgID = orgID
+
+	existingUUID := uuid.New()
+	idemKey := "operator-unbounded-retry"
+	store.idempotencyHit = &models.Event{
+		ID:                 7,
+		EventUUID:          existingUUID,
+		OrgID:              orgID,
+		State:              models.EventStateActive,
+		Mode:               models.ModeFixedKw,
+		Strategy:           models.StrategyLeastEfficientFirst,
+		Level:              models.LevelFull,
+		Priority:           models.PriorityNormal,
+		ScopeType:          models.ScopeTypeWholeOrg,
+		ScopeJSON:          []byte(`{}`),
+		ModeParamsJSON:     []byte(`{"target_kw":3,"tolerance_kw":0}`),
+		MaxDurationSeconds: nil,
+		AllowUnbounded:     true,
+		Reason:             "open-ended demand-response",
+		IdempotencyKey:     &idemKey,
+	}
+	store.idempotencyTargets = []*models.Target{
+		{CurtailmentEventID: 7, DeviceIdentifier: "miner-a", TargetType: "miner", State: models.TargetStatePending, DesiredState: "curtailed"},
+	}
+
+	h := NewHandler(curtailment.NewService(store))
+	ctx := authn.SetInfo(t.Context(), &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: orgID,
+		UserID:         9,
+		Role:           "OPERATOR",
+		SessionID:      "sess-unbounded",
+	})
+
+	req := validStartRequestBuilder()
+	req.IdempotencyKey = idemKey
+	// Retry request carries a non-zero duration that must NOT leak into
+	// the response — the persisted event is allow_unbounded.
+	req.MaxDurationSeconds = 9999
+	req.AllowUnbounded = false
+
+	resp, err := h.StartCurtailment(ctx, connect.NewRequest(req))
+	require.NoError(t, err, "allow_unbounded retry must not panic on nil EffectiveMaxDurationSeconds")
+	require.NotNil(t, resp)
+	ev := resp.Msg.Event
+	require.NotNil(t, ev)
+	assert.Equal(t, existingUUID.String(), ev.EventUuid)
+	assert.Equal(t, uint32(0), ev.MaxDurationSeconds,
+		"persisted allow_unbounded event must surface as 0 max_duration_seconds, not the retry request's value")
+}
+
 // mustParseTime parses the RFC3339 input or panics; used in fixture builders.
 func mustParseTime(s string) time.Time {
 	t, err := time.Parse(time.RFC3339, s)
