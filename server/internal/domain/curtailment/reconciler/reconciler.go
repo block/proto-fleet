@@ -673,12 +673,15 @@ func (r *Reconciler) maybeMarkActive(ctx context.Context, ev *models.Event, targ
 // reconcilerContext stamps a synthetic session.Info on the dispatch ctx so
 // command preflight (CurtailmentActiveFilter) recognizes our self-traffic.
 //
-// KNOWN GAP: UserID=0 will fail command_batch_log.created_by's FK to user(id)
-// in production deployments without a seeded system user. The proper fix is
-// a new migration that adds curtailment_event.created_by_user_id (capturing
-// the operator's session.Info.UserID at Start time) plus a reconciler read
-// to populate this field. Tracked as a follow-up commit; the migration is
-// kept separate so it lands focused for review.
+// KNOWN GAP — dispatch is broken in production until the migration below
+// lands. UserID=0 violates command_batch_log.created_by's FK to user(id)
+// in any deployment without a seeded user.id=0 row, so every reconciler
+// Curtail/Uncurtail attempt fails at saveCommandBatchLogToDB and the
+// target burns through MaxRetries → RestoreFailed. Fix needs a new
+// migration that adds curtailment_event.created_by_user_id (capturing
+// the operator's session.Info.UserID at Start time) plus a reconciler
+// read to populate this field per event. Tracked as a focused follow-up
+// commit; do not deploy the reconciler before the migration ships.
 func reconcilerContext(parent context.Context, orgID int64) context.Context {
 	return authn.SetInfo(parent, &session.Info{
 		SessionID:      reconcilerActorName,

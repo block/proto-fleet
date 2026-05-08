@@ -198,7 +198,7 @@ func toStartResponse(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) *p
 		Strategy:                pb.CurtailmentStrategy_CURTAILMENT_STRATEGY_LEAST_EFFICIENT_FIRST,
 		Level:                   pb.CurtailmentLevel_CURTAILMENT_LEVEL_FULL,
 		Priority:                resolvePriority(req.GetPriority()),
-		MaxDurationSeconds:      req.GetMaxDurationSeconds(),
+		MaxDurationSeconds:      effectiveMaxDurationSeconds(plan, req),
 		RestoreBatchSize:        req.GetRestoreBatchSize(),
 		RestoreBatchIntervalSec: req.GetRestoreBatchIntervalSec(),
 		MinCurtailedDurationSec: req.GetMinCurtailedDurationSec(),
@@ -260,6 +260,22 @@ func lenToInt32Saturating(n int) int32 {
 		return math.MaxInt32
 	}
 	return int32(n) // #nosec G115 -- bounds-checked above
+}
+
+// effectiveMaxDurationSeconds prefers the value Service.Start actually
+// persisted (after normalizing the "use org default" sentinel) so the
+// response reflects the persisted cap rather than echoing the request's
+// raw zero. Falls back to the request value on the Preview-style path
+// where Plan does not carry a resolved value.
+func effectiveMaxDurationSeconds(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) uint32 {
+	if plan != nil && plan.EffectiveMaxDurationSeconds != nil {
+		v := *plan.EffectiveMaxDurationSeconds
+		if v < 0 {
+			return 0
+		}
+		return uint32(v) // #nosec G115 -- bounds-checked above
+	}
+	return req.GetMaxDurationSeconds()
 }
 
 // resolvePriority normalizes UNSPECIFIED to NORMAL for response echoing;

@@ -70,6 +70,11 @@ type Plan struct {
 	// EventUUID is populated by Service.Start after the event row is
 	// persisted; Preview leaves it nil.
 	EventUUID *uuid.UUID
+	// EffectiveMaxDurationSeconds is the value Service.Start actually
+	// persisted after normalizing the "use org default" sentinel
+	// (req.MaxDurationSeconds=nil + !AllowUnbounded → org config default).
+	// nil when AllowUnbounded=true. Preview leaves this nil.
+	EffectiveMaxDurationSeconds *int32
 }
 
 // SelectedDevice is a candidate the mode picked, carrying the snapshot

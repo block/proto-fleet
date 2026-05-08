@@ -2,6 +2,7 @@ package curtailment
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -32,13 +33,21 @@ func validStartRequest(orgID int64) StartRequest {
 
 func TestService_Start_RejectsEmptyReason(t *testing.T) {
 	t.Parallel()
-	svc := NewService(newFakeStore())
-	req := validStartRequest(1)
-	req.Reason = ""
-	_, err := svc.Start(t.Context(), req)
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsInvalidArgumentError(err))
-	assert.Contains(t, err.Error(), "reason")
+	// Both the empty string and whitespace-only must be rejected at the
+	// service layer with InvalidArgument; the DB CHECK (length(trim) > 0)
+	// would otherwise surface as Internal for the whitespace case.
+	for _, reason := range []string{"", "   ", "\t\n"} {
+		t.Run(fmt.Sprintf("reason=%q", reason), func(t *testing.T) {
+			t.Parallel()
+			svc := NewService(newFakeStore())
+			req := validStartRequest(1)
+			req.Reason = reason
+			_, err := svc.Start(t.Context(), req)
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsInvalidArgumentError(err))
+			assert.Contains(t, err.Error(), "reason")
+		})
+	}
 }
 
 func TestService_Start_RejectsAllowUnboundedWithMaxDuration(t *testing.T) {

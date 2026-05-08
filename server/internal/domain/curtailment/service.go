@@ -126,8 +126,15 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 	}
 
 	// Normalize max_duration_seconds: nil + !AllowUnbounded means "use the
-	// org's configured default" per the request contract.
+	// org's configured default" per the request contract. Defense-in-depth:
+	// reject the resolved value if the org config row carries a non-positive
+	// default (data-quality issue); the API contract requires > 0.
 	if !req.AllowUnbounded && req.MaxDurationSeconds == nil {
+		if orgConfig.MaxDurationDefaultSec <= 0 {
+			return nil, fleeterror.NewInvalidArgumentErrorf(
+				"org's max_duration_default_sec must be > 0, got %d", orgConfig.MaxDurationDefaultSec,
+			)
+		}
 		v := orgConfig.MaxDurationDefaultSec
 		req.MaxDurationSeconds = &v
 	}
@@ -149,6 +156,7 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 	}
 
 	plan.EventUUID = &result.EventUUID
+	plan.EffectiveMaxDurationSeconds = req.MaxDurationSeconds
 	return plan, nil
 }
 
