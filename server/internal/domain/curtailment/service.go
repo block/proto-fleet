@@ -167,22 +167,22 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 	return plan, nil
 }
 
-// planFromExistingEvent reconstructs a minimal Plan from a persisted
-// curtailment_event so the idempotent-retry path returns the same response
-// shape Start originally produced. Selected entries come from the persisted
-// targets; per-target Skipped reasons are not re-derived (the original
-// Plan.Skipped is in decision_snapshot_jsonb but parsing it for retries
-// would couple this path to the snapshot schema). Estimated kW values
-// stay zero on the retry shape; clients re-fetching the full event via
-// the read APIs see the persisted detail.
+// planFromExistingEvent reconstructs a Plan from a persisted curtailment_event
+// so the idempotent-retry path returns a response that describes the
+// persisted state. Handlers read from PersistedEvent / PersistedTargets to
+// avoid mixing persisted UUID with the retry request's possibly-different
+// metadata. Plan.Skipped is left empty — the original is in
+// decision_snapshot_jsonb and clients fetch the full event via the read APIs.
 func (s *Service) planFromExistingEvent(ctx context.Context, ev *models.Event) (*Plan, error) {
 	targets, err := s.store.ListTargetsByEvent(ctx, ev.OrgID, ev.EventUUID)
 	if err != nil {
 		return nil, err
 	}
 	plan := &Plan{
-		Selected:  make([]SelectedDevice, 0, len(targets)),
-		EventUUID: &ev.EventUUID,
+		Selected:         make([]SelectedDevice, 0, len(targets)),
+		EventUUID:        &ev.EventUUID,
+		PersistedEvent:   ev,
+		PersistedTargets: targets,
 	}
 	if ev.MaxDurationSeconds != nil {
 		plan.EffectiveMaxDurationSeconds = ev.MaxDurationSeconds

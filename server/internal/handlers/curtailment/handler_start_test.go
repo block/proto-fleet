@@ -456,6 +456,145 @@ func TestHandler_StartCurtailment_OutcomeMirrorsInsufficientLoadShapeOnZeroPool(
 	_ = modes.OutcomeInsufficientLoad
 }
 
+// TestHandler_StartCurtailment_IdempotentRetryReflectsPersistedState pins
+// the retry-consistency contract: when the same idempotency key matches an
+// existing event, the response describes the persisted row (state, priority,
+// reason, scope, mode params, target states), not whatever differing fields
+// the retry request carried. Protects against silently echoing drifted retry
+// metadata back to operators.
+func TestHandler_StartCurtailment_IdempotentRetryReflectsPersistedState(t *testing.T) {
+	t.Parallel()
+
+	const orgID = int64(42)
+	store := newStartStubStore()
+	store.orgConfig.OrgID = orgID
+
+	existingUUID := uuid.New()
+	maxDur := int32(7200)
+	idemKey := "operator-retry-1"
+	extSrc := "ops-runbook"
+	extRef := "OPS-99"
+	store.idempotencyHit = &models.Event{
+		ID:                      999,
+		EventUUID:               existingUUID,
+		OrgID:                   orgID,
+		State:                   models.EventStateActive,
+		Mode:                    models.ModeFixedKw,
+		Strategy:                models.StrategyLeastEfficientFirst,
+		Level:                   models.LevelFull,
+		Priority:                models.PriorityEmergency,
+		ScopeType:               models.ScopeTypeDeviceList,
+		ScopeJSON:               []byte(`{"device_identifiers":["miner-a","miner-b"]}`),
+		ModeParamsJSON:          []byte(`{"target_kw":12.5,"tolerance_kw":0.5}`),
+		RestoreBatchSize:        4,
+		RestoreBatchIntervalSec: 30,
+		MinCurtailedDurationSec: 120,
+		MaxDurationSeconds:      &maxDur,
+		IncludeMaintenance:      true,
+		Reason:                  "original operator reason",
+		ExternalSource:          &extSrc,
+		ExternalReference:       &extRef,
+		IdempotencyKey:          &idemKey,
+	}
+	baselineA := 4500.0
+	baselineB := 5200.0
+	observedA := 12.0
+	store.idempotencyTargets = []*models.Target{
+		{
+			CurtailmentEventID: 999,
+			DeviceIdentifier:   "miner-a",
+			TargetType:         "miner",
+			State:              models.TargetStateConfirmed,
+			DesiredState:       "curtailed",
+			BaselinePowerW:     &baselineA,
+			ObservedPowerW:     &observedA,
+			RetryCount:         0,
+		},
+		{
+			CurtailmentEventID: 999,
+			DeviceIdentifier:   "miner-b",
+			TargetType:         "miner",
+			State:              models.TargetStateDispatched,
+			DesiredState:       "curtailed",
+			BaselinePowerW:     &baselineB,
+			RetryCount:         1,
+		},
+	}
+
+	h := NewHandler(curtailment.NewService(store))
+	ctx := authn.SetInfo(t.Context(), &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: orgID,
+		UserID:         9,
+		Role:           "OPERATOR",
+		SessionID:      "sess-retry",
+	})
+
+	// Retry request deliberately carries drifted metadata: different
+	// reason, scope shape, priority, batch sizing. None of these should
+	// surface in the response — the persisted event's values must win.
+	req := validStartRequestBuilder()
+	req.IdempotencyKey = "operator-retry-1"
+	req.Reason = "DRIFTED reason on retry"
+	req.Priority = pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL
+	req.RestoreBatchSize = 99
+	req.MinCurtailedDurationSec = 999
+	req.IncludeMaintenance = false
+	req.Scope = &pb.StartCurtailmentRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}}
+
+	resp, err := h.StartCurtailment(ctx, connect.NewRequest(req))
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	ev := resp.Msg.Event
+	require.NotNil(t, ev)
+
+	assert.Equal(t, existingUUID.String(), ev.EventUuid)
+	assert.Equal(t, pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_ACTIVE, ev.State,
+		"state must reflect persisted, not the PENDING default of fresh-Start")
+	assert.Equal(t, pb.CurtailmentPriority_CURTAILMENT_PRIORITY_EMERGENCY, ev.Priority,
+		"priority must come from persisted event, not the retry request")
+	assert.Equal(t, "original operator reason", ev.Reason,
+		"reason must come from persisted event, not the retry request")
+	assert.Equal(t, uint32(4), ev.RestoreBatchSize)
+	assert.Equal(t, uint32(30), ev.RestoreBatchIntervalSec)
+	assert.Equal(t, uint32(120), ev.MinCurtailedDurationSec)
+	assert.Equal(t, uint32(7200), ev.MaxDurationSeconds)
+	assert.True(t, ev.IncludeMaintenance, "include_maintenance must reflect persisted, not retry request")
+	assert.Equal(t, "ops-runbook", ev.ExternalSource)
+	assert.Equal(t, "OPS-99", ev.ExternalReference)
+	assert.Equal(t, "operator-retry-1", ev.IdempotencyKey)
+
+	// Scope is reconstructed from scope_jsonb, not the retry request's
+	// (different) WholeOrg variant.
+	deviceList := ev.GetDeviceIdentifiers()
+	require.NotNil(t, deviceList, "scope must reconstruct DeviceIdentifiers from scope_jsonb")
+	assert.Equal(t, []string{"miner-a", "miner-b"}, deviceList.DeviceIdentifiers)
+
+	fk := ev.GetFixedKw()
+	require.NotNil(t, fk, "mode params must reconstruct from mode_params_jsonb")
+	assert.InDelta(t, 12.5, fk.TargetKw, 0.001)
+	require.NotNil(t, fk.ToleranceKw, "non-zero tolerance must round-trip as a populated pointer")
+	assert.InDelta(t, 0.5, *fk.ToleranceKw, 0.001)
+
+	// Targets reflect their persisted states and per-target detail
+	// (observed_power_w, retry_count). Rollup aggregates across states.
+	require.Len(t, ev.Targets, 2)
+	assert.Equal(t, "miner-a", ev.Targets[0].DeviceIdentifier)
+	assert.Equal(t, pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_CONFIRMED, ev.Targets[0].State)
+	require.NotNil(t, ev.Targets[0].ObservedPowerW)
+	assert.InDelta(t, 12.0, *ev.Targets[0].ObservedPowerW, 0.001)
+	assert.Equal(t, "miner-b", ev.Targets[1].DeviceIdentifier)
+	assert.Equal(t, pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_DISPATCHED, ev.Targets[1].State)
+	assert.Equal(t, uint32(1), ev.Targets[1].RetryCount)
+
+	require.NotNil(t, ev.TargetRollup)
+	assert.Equal(t, int32(1), ev.TargetRollup.Confirmed)
+	assert.Equal(t, int32(1), ev.TargetRollup.Dispatched)
+	assert.Equal(t, int32(2), ev.TargetRollup.Total)
+	assert.Equal(t, int32(0), ev.TargetRollup.Pending,
+		"no targets are pending after retry; rollup must not echo len(targets) into Pending")
+}
+
 // mustParseTime parses the RFC3339 input or panics; used in fixture builders.
 func mustParseTime(s string) time.Time {
 	t, err := time.Parse(time.RFC3339, s)

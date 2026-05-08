@@ -5,6 +5,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/modes"
 )
 
@@ -75,6 +76,13 @@ type Plan struct {
 	// (req.MaxDurationSeconds=nil + !AllowUnbounded → org config default).
 	// nil when AllowUnbounded=true. Preview leaves this nil.
 	EffectiveMaxDurationSeconds *int32
+	// PersistedEvent and PersistedTargets carry the source-of-truth rows when
+	// the idempotency-key short-circuit returned an existing event. Handlers
+	// prefer these over the retry request's metadata so the response describes
+	// what's persisted, not whatever differing fields the caller resent. Both
+	// stay nil for fresh Start and Preview.
+	PersistedEvent   *models.Event
+	PersistedTargets []*models.Target
 }
 
 // SelectedDevice is a candidate the mode picked, carrying the snapshot

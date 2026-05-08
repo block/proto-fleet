@@ -1,6 +1,7 @@
 package curtailment
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"strings"
@@ -205,10 +206,16 @@ func toStartScope(msg *pb.StartCurtailmentRequest) (curtailment.Scope, error) {
 }
 
 // toStartResponse maps the service Plan + request into the
-// StartCurtailmentResponse, populating the CurtailmentEvent shape with the
-// values known at Start time. Per-state target rollups and started/ended
-// timestamps come from later reconciler ticks; left zero/nil here.
+// StartCurtailmentResponse. On the fresh-Start path the response describes
+// the request that was just persisted; on the idempotent-retry path the
+// service hands back a Plan carrying the persisted event + targets, and the
+// response is built from those so a caller reusing an idempotency key with
+// drifted metadata still sees the actually-stored values.
 func toStartResponse(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) *pb.StartCurtailmentResponse {
+	if plan.PersistedEvent != nil {
+		return startResponseFromPersisted(plan)
+	}
+
 	event := &pb.CurtailmentEvent{
 		State:                   pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_PENDING,
 		Mode:                    pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
@@ -229,8 +236,6 @@ func toStartResponse(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) *p
 	if plan.EventUUID != nil {
 		event.EventUuid = plan.EventUUID.String()
 	}
-	// Echo the original scope and mode params so callers don't need to
-	// re-fetch the request.
 	switch s := req.GetScope().(type) {
 	case *pb.StartCurtailmentRequest_WholeOrg:
 		event.Scope = &pb.CurtailmentEvent_WholeOrg{WholeOrg: s.WholeOrg}
@@ -243,8 +248,8 @@ func toStartResponse(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) *p
 		event.ModeParams = &pb.CurtailmentEvent_FixedKw{FixedKw: fk}
 	}
 
-	// Populate target rows from the persisted plan so callers see the
-	// pending target set without an extra round trip.
+	// Targets known at Start time are all PENDING; reconciler ticks update
+	// them in-place. The retry path uses the persisted target rows instead.
 	targets := make([]*pb.CurtailmentTarget, len(plan.Selected))
 	for i, sel := range plan.Selected {
 		t := &pb.CurtailmentTarget{
@@ -268,6 +273,249 @@ func toStartResponse(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) *p
 
 	return &pb.StartCurtailmentResponse{Event: event}
 }
+
+// startResponseFromPersisted builds the response purely from the event +
+// targets the service handed back from the idempotency short-circuit. The
+// retry's request fields are deliberately ignored: a caller reusing a key
+// with drifted metadata gets the persisted state, not their re-sent values.
+// Scope and mode params are reconstructed from the same JSON shapes
+// service.buildInsertParams wrote.
+func startResponseFromPersisted(plan *curtailment.Plan) *pb.StartCurtailmentResponse {
+	ev := plan.PersistedEvent
+	event := &pb.CurtailmentEvent{
+		EventUuid:               ev.EventUUID.String(),
+		State:                   eventStateProto(ev.State),
+		Mode:                    pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
+		Strategy:                pb.CurtailmentStrategy_CURTAILMENT_STRATEGY_LEAST_EFFICIENT_FIRST,
+		Level:                   pb.CurtailmentLevel_CURTAILMENT_LEVEL_FULL,
+		Priority:                priorityProto(ev.Priority),
+		MaxDurationSeconds:      effectiveMaxDurationSeconds(plan, nil),
+		RestoreBatchSize:        int32ToUint32Saturating(ev.RestoreBatchSize),
+		RestoreBatchIntervalSec: int32ToUint32Saturating(ev.RestoreBatchIntervalSec),
+		MinCurtailedDurationSec: int32ToUint32Saturating(ev.MinCurtailedDurationSec),
+		IncludeMaintenance:      ev.IncludeMaintenance,
+		ForceIncludeMaintenance: ev.ForceIncludeMaintenance,
+		Reason:                  ev.Reason,
+		ExternalSource:          stringDeref(ev.ExternalSource),
+		ExternalReference:       stringDeref(ev.ExternalReference),
+		IdempotencyKey:          stringDeref(ev.IdempotencyKey),
+	}
+	setScopeFromPersisted(event, ev)
+	setModeParamsFromPersisted(event, ev)
+
+	targets := make([]*pb.CurtailmentTarget, len(plan.PersistedTargets))
+	rollup := &pb.CurtailmentTargetRollup{}
+	for i, t := range plan.PersistedTargets {
+		pt := &pb.CurtailmentTarget{
+			DeviceIdentifier: t.DeviceIdentifier,
+			TargetType:       t.TargetType,
+			State:            targetStateProto(t.State),
+			DesiredState:     desiredStateProto(t.DesiredState),
+			RetryCount:       int32ToUint32Saturating(t.RetryCount),
+		}
+		if t.BaselinePowerW != nil {
+			v := *t.BaselinePowerW
+			pt.BaselinePowerW = &v
+		}
+		if t.ObservedPowerW != nil {
+			v := *t.ObservedPowerW
+			pt.ObservedPowerW = &v
+		}
+		if t.LastError != nil {
+			pt.LastError = *t.LastError
+		}
+		targets[i] = pt
+		bumpRollup(rollup, t.State)
+	}
+	rollup.Total = lenToInt32Saturating(len(targets))
+	event.Targets = targets
+	event.TargetRollup = rollup
+
+	return &pb.StartCurtailmentResponse{Event: event}
+}
+
+// setScopeFromPersisted unmarshals the scope_jsonb shape buildInsertParams
+// wrote back into the proto Scope oneof on event. Malformed JSON or unknown
+// scope types leave Scope unset rather than emitting a half-populated
+// message. The helper mutates event because the oneof wrapper interface is
+// unexported in the proto package.
+func setScopeFromPersisted(event *pb.CurtailmentEvent, ev *models.Event) {
+	switch ev.ScopeType {
+	case models.ScopeTypeWholeOrg, "":
+		event.Scope = &pb.CurtailmentEvent_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}}
+	case models.ScopeTypeDeviceList:
+		var v struct {
+			DeviceIdentifiers []string `json:"device_identifiers"`
+		}
+		if err := json.Unmarshal(ev.ScopeJSON, &v); err != nil {
+			return
+		}
+		event.Scope = &pb.CurtailmentEvent_DeviceIdentifiers{
+			DeviceIdentifiers: &pb.ScopeDeviceList{DeviceIdentifiers: v.DeviceIdentifiers},
+		}
+	case models.ScopeTypeDeviceSets:
+		var v struct {
+			DeviceSetIDs []string `json:"device_set_ids"`
+		}
+		if err := json.Unmarshal(ev.ScopeJSON, &v); err != nil {
+			return
+		}
+		event.Scope = &pb.CurtailmentEvent_DeviceSetIds{
+			DeviceSetIds: &pb.ScopeDeviceSets{DeviceSetIds: v.DeviceSetIDs},
+		}
+	}
+}
+
+// setModeParamsFromPersisted unmarshals the mode_params_jsonb shape
+// (target_kw + tolerance_kw scalars) into event's ModeParams oneof.
+// tolerance_kw=0 stays nil to match a fresh-Start response when the caller
+// never set a tolerance. Mutates event for the same unexported-oneof reason
+// as setScopeFromPersisted.
+func setModeParamsFromPersisted(event *pb.CurtailmentEvent, ev *models.Event) {
+	if len(ev.ModeParamsJSON) == 0 {
+		return
+	}
+	var v struct {
+		TargetKW    float64 `json:"target_kw"`
+		ToleranceKW float64 `json:"tolerance_kw"`
+	}
+	if err := json.Unmarshal(ev.ModeParamsJSON, &v); err != nil {
+		return
+	}
+	fk := &pb.FixedKwParams{TargetKw: v.TargetKW}
+	if v.ToleranceKW > 0 {
+		t := v.ToleranceKW
+		fk.ToleranceKw = &t
+	}
+	event.ModeParams = &pb.CurtailmentEvent_FixedKw{FixedKw: fk}
+}
+
+// bumpRollup increments the rollup bucket matching a persisted target state.
+// Unknown states are silently dropped from the breakdown but still counted in
+// Total by the caller, so a future TargetState addition is visible as
+// total > sum-of-buckets rather than a panic.
+func bumpRollup(r *pb.CurtailmentTargetRollup, s models.TargetState) {
+	switch s {
+	case models.TargetStatePending:
+		r.Pending++
+	case models.TargetStateDispatched:
+		r.Dispatched++
+	case models.TargetStateConfirmed:
+		r.Confirmed++
+	case models.TargetStateDrifted:
+		r.Drifted++
+	case models.TargetStateResolved:
+		r.Resolved++
+	case models.TargetStateReleased:
+		r.Released++
+	case models.TargetStateRestoreFailed:
+		r.RestoreFailed++
+	}
+}
+
+// stringDeref returns the empty string for nil pointers, matching the proto3
+// scalar default the request-driven path emits.
+func stringDeref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+// int32ToUint32Saturating clamps non-negative int32 to uint32 for proto rollup
+// and request-echo fields. Persisted values are validated >=0 at insert; the
+// floor here is defense-in-depth so a corrupt row can't underflow.
+func int32ToUint32Saturating(v int32) uint32 {
+	if v < 0 {
+		return 0
+	}
+	return uint32(v) // #nosec G115 -- bounds-checked above
+}
+
+// eventStateProto maps the persisted state string onto its proto enum.
+// Unknown states pass through as UNSPECIFIED so downstream readers see the
+// drift rather than receiving silently coerced PENDING.
+func eventStateProto(s models.EventState) pb.CurtailmentEventState {
+	switch s {
+	case models.EventStatePending:
+		return pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_PENDING
+	case models.EventStateActive:
+		return pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_ACTIVE
+	case models.EventStateRestoring:
+		return pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_RESTORING
+	case models.EventStateCompleted:
+		return pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_COMPLETED
+	case models.EventStateCompletedWithFailures:
+		return pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_COMPLETED_WITH_FAILURES
+	case models.EventStateCancelled:
+		return pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_CANCELLED
+	case models.EventStateFailed:
+		return pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_FAILED
+	default:
+		return pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_UNSPECIFIED
+	}
+}
+
+// targetStateProto mirrors eventStateProto for per-target state.
+func targetStateProto(s models.TargetState) pb.CurtailmentTargetState {
+	switch s {
+	case models.TargetStatePending:
+		return pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_PENDING
+	case models.TargetStateDispatched:
+		return pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_DISPATCHED
+	case models.TargetStateConfirmed:
+		return pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_CONFIRMED
+	case models.TargetStateDrifted:
+		return pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_DRIFTED
+	case models.TargetStateResolved:
+		return pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_RESOLVED
+	case models.TargetStateReleased:
+		return pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_RELEASED
+	case models.TargetStateRestoreFailed:
+		return pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_RESTORE_FAILED
+	default:
+		return pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_UNSPECIFIED
+	}
+}
+
+// desiredStateProto maps the persisted desired_state string onto its proto
+// enum. v1 only writes "curtailed"; the switch matches on it explicitly so a
+// future "active" string surfaces as ACTIVE rather than UNSPECIFIED.
+func desiredStateProto(s string) pb.CurtailmentTargetDesiredState {
+	switch s {
+	case desiredStateCurtailedString:
+		return pb.CurtailmentTargetDesiredState_CURTAILMENT_TARGET_DESIRED_STATE_CURTAILED
+	case desiredStateActiveString:
+		return pb.CurtailmentTargetDesiredState_CURTAILMENT_TARGET_DESIRED_STATE_ACTIVE
+	default:
+		return pb.CurtailmentTargetDesiredState_CURTAILMENT_TARGET_DESIRED_STATE_UNSPECIFIED
+	}
+}
+
+// priorityProto is the inverse of priorityName: a persisted priority string
+// onto its proto enum. PriorityHigh round-trips for symmetry even though the
+// validator rejects it on Start.
+func priorityProto(p models.Priority) pb.CurtailmentPriority {
+	switch p {
+	case models.PriorityEmergency:
+		return pb.CurtailmentPriority_CURTAILMENT_PRIORITY_EMERGENCY
+	case models.PriorityHigh:
+		return pb.CurtailmentPriority_CURTAILMENT_PRIORITY_HIGH
+	case models.PriorityNormal, "":
+		return pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL
+	default:
+		return pb.CurtailmentPriority_CURTAILMENT_PRIORITY_UNSPECIFIED
+	}
+}
+
+// desiredStateCurtailedString and desiredStateActiveString mirror the
+// service-layer constants (kept here so translate.go's response wiring can
+// switch over them without depending on the service package's unexported
+// names).
+const (
+	desiredStateCurtailedString = "curtailed"
+	desiredStateActiveString    = "active"
+)
 
 // lenToInt32Saturating clamps a slice length to int32 max for proto rollup
 // fields. Selector-produced target lists are bounded by candidate counts well

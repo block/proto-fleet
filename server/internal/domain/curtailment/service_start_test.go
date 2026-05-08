@@ -317,6 +317,15 @@ func TestService_Start_IdempotencyKeyShortCircuitsToExistingEvent(t *testing.T) 
 	assert.Equal(t, baseline, plan.Selected[0].PowerW)
 	require.NotNil(t, plan.EffectiveMaxDurationSeconds)
 	assert.Equal(t, maxDur, *plan.EffectiveMaxDurationSeconds)
+	// Persisted handles are threaded so the handler can build the response
+	// from the stored event/targets rather than the retry request — protects
+	// against silently echoing drifted retry metadata back to the caller.
+	require.NotNil(t, plan.PersistedEvent, "persisted event must be threaded for retry response")
+	assert.Equal(t, existingUUID, plan.PersistedEvent.EventUUID)
+	assert.Equal(t, models.EventStateActive, plan.PersistedEvent.State)
+	require.Len(t, plan.PersistedTargets, 1)
+	assert.Equal(t, "miner-a", plan.PersistedTargets[0].DeviceIdentifier)
+	assert.Equal(t, models.TargetStateConfirmed, plan.PersistedTargets[0].State)
 
 	// The selector pipeline must not run on the idempotent retry; no
 	// candidate fetch, no insert.
