@@ -68,15 +68,21 @@ func TestService_Start_AllowUnboundedRequiresNilMaxDuration(t *testing.T) {
 	require.NoError(t, err, "allow_unbounded + nil max_duration is the valid admin shape")
 }
 
-func TestService_Start_RejectsMissingMaxDuration(t *testing.T) {
+func TestService_Start_NilMaxDurationUsesOrgDefault(t *testing.T) {
 	t.Parallel()
-	svc := NewService(newFakeStore())
-	req := validStartRequest(1)
-	req.MaxDurationSeconds = nil
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("miner", 6000, 100, 40),
+	}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.MaxDurationSeconds = nil // sentinel: use org default
 	_, err := svc.Start(t.Context(), req)
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsInvalidArgumentError(err))
-	assert.Contains(t, err.Error(), "max_duration_seconds")
+	require.NoError(t, err)
+	require.NotNil(t, store.lastInsertEvent.MaxDurationSeconds)
+	assert.Equal(t, store.orgConfigByOrg[orgID].MaxDurationDefaultSec, *store.lastInsertEvent.MaxDurationSeconds)
 }
 
 func TestService_Start_RejectsZeroMaxDuration(t *testing.T) {

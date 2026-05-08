@@ -305,11 +305,11 @@ func TestHandler_StartCurtailment_OverrideRoleGateBlocksNonAdmin(t *testing.T) {
 	assert.Empty(t, store.lastTargets)
 }
 
-// TestHandler_StartCurtailment_UnboundedRequiresAdminAck verifies the
-// validator rejects a non-admin request with max_duration_seconds=0 and
-// allow_unbounded=false (the proto default). The handler must surface
-// InvalidArgument rather than persisting an event with the wrong shape.
-func TestHandler_StartCurtailment_UnboundedRequiresAdminAck(t *testing.T) {
+// TestHandler_StartCurtailment_ZeroMaxDurationUsesOrgDefault verifies the
+// "use org default" sentinel: max_duration_seconds=0 with allow_unbounded
+// false resolves to curtailment_org_config.max_duration_default_sec at
+// persistence time rather than rejecting the request.
+func TestHandler_StartCurtailment_ZeroMaxDurationUsesOrgDefault(t *testing.T) {
 	t.Parallel()
 
 	store := newStartStubStore()
@@ -322,16 +322,16 @@ func TestHandler_StartCurtailment_UnboundedRequiresAdminAck(t *testing.T) {
 		AuthMethod:     session.AuthMethodSession,
 		OrganizationID: 1,
 		Role:           "OPERATOR",
+		SessionID:      "sess-zero-dur",
 	})
 
 	req := validStartRequestBuilder()
-	req.MaxDurationSeconds = 0 // sentinel, but allow_unbounded is also false.
+	req.MaxDurationSeconds = 0 // sentinel: use org default.
 
 	_, err := h.StartCurtailment(ctx, connect.NewRequest(req))
-	require.Error(t, err)
-	var fleetErr fleeterror.FleetError
-	require.ErrorAs(t, err, &fleetErr)
-	assert.Equal(t, connect.CodeInvalidArgument, fleetErr.GRPCCode)
+	require.NoError(t, err)
+	require.NotNil(t, store.lastEvent.MaxDurationSeconds)
+	assert.Equal(t, store.orgConfig.MaxDurationDefaultSec, *store.lastEvent.MaxDurationSeconds)
 }
 
 // TestHandler_StartCurtailment_AllowUnboundedAdminPersistsNullDuration

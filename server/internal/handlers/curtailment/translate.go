@@ -150,19 +150,14 @@ func toStartRequest(msg *pb.StartCurtailmentRequest, info *session.Info) (curtai
 	}
 
 	if !out.AllowUnbounded {
-		// Resolve max_duration_seconds. Zero is the proto sentinel for "use
-		// per-org default"; we forward it untouched and let the service
-		// validator surface the absence as a clean InvalidArgument until
-		// per-org default lookup is wired into Start (Preview reads the
-		// org config but doesn't use the duration default).
-		raw := msg.GetMaxDurationSeconds()
-		if raw == 0 {
-			return curtailment.StartRequest{}, fleeterror.NewInvalidArgumentError(
-				"max_duration_seconds must be > 0 unless allow_unbounded is set",
-			)
+		// max_duration_seconds=0 is the proto sentinel for "use the org's
+		// configured default"; leave MaxDurationSeconds nil and let
+		// Service.Start normalize against curtailment_org_config. A non-zero
+		// value is forwarded as-is for the validator's >0 bound to enforce.
+		if raw := msg.GetMaxDurationSeconds(); raw > 0 {
+			v := uint32ToInt32Saturating(raw)
+			out.MaxDurationSeconds = &v
 		}
-		v := uint32ToInt32Saturating(raw)
-		out.MaxDurationSeconds = &v
 	}
 
 	return out, nil

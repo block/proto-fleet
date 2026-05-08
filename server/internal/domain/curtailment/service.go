@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"math"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -88,7 +89,7 @@ func (s *Service) Preview(ctx context.Context, req PreviewRequest) (*Plan, error
 	if err := validatePreviewRequest(req); err != nil {
 		return nil, err
 	}
-	plan, _, err := s.runSelector(ctx, req)
+	plan, _, _, err := s.runSelector(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -104,7 +105,7 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 		return nil, err
 	}
 
-	plan, minPowerW, err := s.runSelector(ctx, req.PreviewRequest)
+	plan, minPowerW, orgConfig, err := s.runSelector(ctx, req.PreviewRequest)
 	if err != nil {
 		return nil, err
 	}
@@ -122,6 +123,13 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 		// upstream already prevent this for FIXED_KW; reject explicitly so
 		// a future mode regression surfaces the real cause.
 		return nil, fleeterror.NewInvalidArgumentError("no targets selected")
+	}
+
+	// Normalize max_duration_seconds: nil + !AllowUnbounded means "use the
+	// org's configured default" per the request contract.
+	if !req.AllowUnbounded && req.MaxDurationSeconds == nil {
+		v := orgConfig.MaxDurationDefaultSec
+		req.MaxDurationSeconds = &v
 	}
 
 	// TODO: idempotency lookup. When req.IdempotencyKey is set we should
@@ -147,11 +155,13 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 // runSelector executes the org-config / scope / candidate / classify /
 // build-plan pipeline shared by Preview and Start. The minPowerW return is
 // the resolved candidate floor (after the admin-override) so callers that
-// persist can echo it into the decision snapshot without re-resolving.
-func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, int32, error) {
+// persist can echo it into the decision snapshot without re-resolving. The
+// OrgConfig is returned so Service.Start can normalize "use org default"
+// sentinels (e.g. max_duration_seconds=0) without a second DB read.
+func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, int32, *models.OrgConfig, error) {
 	deviceFilter, err := resolveScope(req.Scope)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
 	}
 	// Normalize empty-but-non-nil slice to nil; the candidate query's
 	// `IS NULL` check would otherwise match-nothing on an empty array.
@@ -161,7 +171,7 @@ func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, i
 
 	orgConfig, err := s.store.GetOrgConfig(ctx, req.OrgID)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
 	}
 
 	// Effective candidate floor: per-org default, optionally overridden by
@@ -176,7 +186,7 @@ func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, i
 
 	activeDevices, err := s.store.ListActiveCurtailedDevices(ctx, req.OrgID)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
 	}
 	activeSet := toStringSet(activeDevices)
 
@@ -184,14 +194,14 @@ func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, i
 	if !bypassCooldown {
 		cd, err := s.store.ListRecentlyResolvedCurtailedDevices(ctx, req.OrgID, orgConfig.PostEventCooldownSec)
 		if err != nil {
-			return nil, 0, err
+			return nil, 0, nil, err
 		}
 		cooldownSet = toStringSet(cd)
 	}
 
 	candidates, err := s.store.ListCandidates(ctx, req.OrgID, deviceFilter)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
 	}
 
 	// Org-ownership guard: cross-org ids are silently dropped by the SQL
@@ -199,7 +209,7 @@ func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, i
 	// error instead of a misleading InsufficientLoad.
 	if len(deviceFilter) > 0 {
 		if missing := missingDeviceIdentifiers(deviceFilter, candidates); len(missing) > 0 {
-			return nil, 0, fleeterror.NewNotFoundErrorf(
+			return nil, 0, nil, fleeterror.NewNotFoundErrorf(
 				"device_identifiers not found in caller's org: %v", missing,
 			)
 		}
@@ -217,11 +227,11 @@ func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, i
 
 	mode, err := modes.NewFixedKw(req.TargetKW, req.ToleranceKW, summary)
 	if err != nil {
-		return nil, 0, fleeterror.NewInvalidArgumentErrorf("invalid FIXED_KW params: %v", err)
+		return nil, 0, nil, fleeterror.NewInvalidArgumentErrorf("invalid FIXED_KW params: %v", err)
 	}
 
 	plan := BuildPlan(eligible, preFiltered, minPowerW, mode)
-	return &plan, minPowerW, nil
+	return &plan, minPowerW, orgConfig, nil
 }
 
 // startTextFieldMaxLen mirrors proto/curtailment/v1/curtailment.proto's
@@ -234,10 +244,10 @@ func validateStartRequest(req StartRequest) error {
 	if err := validatePreviewRequest(req.PreviewRequest); err != nil {
 		return err
 	}
-	if req.Reason == "" {
+	if strings.TrimSpace(req.Reason) == "" {
 		// reason is NOT NULL with a length(trim) > 0 CHECK at the DB level;
-		// reject early so the caller sees a clear error rather than a
-		// constraint violation through Internal.
+		// reject whitespace-only as well so the caller sees InvalidArgument
+		// rather than a constraint violation surfaced as Internal.
 		return fleeterror.NewInvalidArgumentError("reason must be non-empty")
 	}
 	if len(req.Reason) > startTextFieldMaxLen {
@@ -283,18 +293,14 @@ func validateStartRequest(req StartRequest) error {
 			"max_duration_seconds must be unset when allow_unbounded is true",
 		)
 	}
-	if !req.AllowUnbounded {
-		if req.MaxDurationSeconds == nil {
-			return fleeterror.NewInvalidArgumentError(
-				"max_duration_seconds must be set when allow_unbounded is false",
-			)
-		}
-		if *req.MaxDurationSeconds <= 0 {
-			return fleeterror.NewInvalidArgumentErrorf(
-				"max_duration_seconds must be > 0, got %d", *req.MaxDurationSeconds,
-			)
-		}
+	if !req.AllowUnbounded && req.MaxDurationSeconds != nil && *req.MaxDurationSeconds <= 0 {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"max_duration_seconds must be > 0, got %d", *req.MaxDurationSeconds,
+		)
 	}
+	// MaxDurationSeconds nil with !AllowUnbounded is the "use org default"
+	// sentinel; Service.Start normalizes against curtailment_org_config
+	// before persistence.
 	if req.SourceActorType == "" {
 		// source_actor_type is NOT NULL at the DB level; the handler must
 		// derive a concrete value from session.Info before reaching here.
