@@ -15,9 +15,12 @@ ALTER TABLE device_set_rack
 ALTER TABLE device_set
     ADD CONSTRAINT uq_device_set_id_org_id UNIQUE (id, org_id);
 
+-- ON DELETE CASCADE matches the single-column FK on device_set_id
+-- (added in migration 000012); the composite FK adds the org-matching
+-- invariant without changing cascade semantics.
 ALTER TABLE device_set_rack
     ADD CONSTRAINT fk_device_set_rack_device_set_org FOREIGN KEY (device_set_id, org_id)
-        REFERENCES device_set(id, org_id);
+        REFERENCES device_set(id, org_id) ON DELETE CASCADE;
 
 ALTER TABLE device_set_rack
     ADD COLUMN building_id BIGINT NULL,

@@ -117,16 +117,20 @@ SELECT
     COALESCE(b.building_count, 0)::bigint AS building_count
 FROM site s
 LEFT JOIN (
-    SELECT site_id, COUNT(*) AS device_count
+    SELECT device.site_id, COUNT(*) AS device_count
     FROM device
-    WHERE deleted_at IS NULL AND site_id IS NOT NULL
-    GROUP BY site_id
+    WHERE device.org_id = $1
+      AND device.deleted_at IS NULL
+      AND device.site_id IS NOT NULL
+    GROUP BY device.site_id
 ) d ON d.site_id = s.id
 LEFT JOIN (
-    SELECT site_id, COUNT(*) AS building_count
+    SELECT building.site_id, COUNT(*) AS building_count
     FROM building
-    WHERE deleted_at IS NULL AND site_id IS NOT NULL
-    GROUP BY site_id
+    WHERE building.org_id = $1
+      AND building.deleted_at IS NULL
+      AND building.site_id IS NOT NULL
+    GROUP BY building.site_id
 ) b ON b.site_id = s.id
 WHERE s.org_id = $1
   AND s.deleted_at IS NULL

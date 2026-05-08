@@ -450,6 +450,10 @@ type InsertErrorParams struct {
 
 // site_id is row-stamped from device.site_id at insert time so per-site
 // error history doesn't shift when the device is later reassigned.
+// Behavior note: a missing device $3 yields zero CTE rows and the :one
+// query returns sql.ErrNoRows rather than the FK-violation the prior
+// VALUES form raised. Caller wraps generically (fleeterror.New
+// InternalErrorf), so the surface is unchanged for present callers.
 func (q *Queries) InsertError(ctx context.Context, arg InsertErrorParams) (int64, error) {
 	row := q.queryRow(ctx, q.insertErrorStmt, insertError,
 		arg.ErrorID,

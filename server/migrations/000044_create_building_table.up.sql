@@ -34,6 +34,8 @@ CREATE TABLE building (
             OR (default_rack_rows IS NOT NULL AND default_rack_columns IS NOT NULL
                 AND default_rack_rows > 0 AND default_rack_columns > 0)
         ),
+    CONSTRAINT ck_building_default_rack_order_index
+        CHECK (default_rack_order_index BETWEEN 0 AND 4),
     CONSTRAINT ck_building_aisles_nonneg
         CHECK (aisles IS NULL OR aisles >= 0),
     CONSTRAINT ck_building_physical_rack_count_nonneg

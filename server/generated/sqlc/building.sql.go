@@ -106,8 +106,9 @@ type CreateBuildingParams struct {
 }
 
 // `site_id` is nullable. Name is unique per (site_id, name) when site_id
-// is non-null and per (org_id, name) when site_id is null; both partial
-// indexes surface collisions as unique-violations to the service layer.
+// is non-null; the partial index surfaces collisions to the service
+// layer. Unassigned buildings (site_id IS NULL) are not name-unique so
+// cascade-unassign on site delete cannot collide.
 func (q *Queries) CreateBuilding(ctx context.Context, arg CreateBuildingParams) (Building, error) {
 	row := q.queryRow(ctx, q.createBuildingStmt, createBuilding,
 		arg.OrgID,

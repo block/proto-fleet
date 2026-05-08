@@ -14,6 +14,10 @@ LIMIT 1;
 -- name: InsertError :one
 -- site_id is row-stamped from device.site_id at insert time so per-site
 -- error history doesn't shift when the device is later reassigned.
+-- Behavior note: a missing device $3 yields zero CTE rows and the :one
+-- query returns sql.ErrNoRows rather than the FK-violation the prior
+-- VALUES form raised. Caller wraps generically (fleeterror.New
+-- InternalErrorf), so the surface is unchanged for present callers.
 WITH dev AS (
     SELECT site_id FROM device WHERE id = $3
 )

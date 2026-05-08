@@ -369,19 +369,14 @@ New entities and relationships introduced:
   - `power_capacity_mw` (nullable; optional)
   - `network_config` (text; newline-separated CIDRs/IPs for discovery
     scan; optional) — see "Network config validation" below.
-  - **Power contract fields** (all nullable): `iso` (enum:
-    ERCOT, PJM, MISO, CAISO, SPP, NYISO, ISO-NE, NON_ISO); when
-    `iso = NON_ISO`, `balancing_authority` (enum: TVA, SOUTHERN_CO,
-    DUKE_CAROLINAS, DUKE_PROGRESS, BPA, PACIFICORP, SRP,
-    ASSOC_ELECTRIC, OTHER); `utility_operating_company` (string);
-    `rate_type` (enum: FIXED, INDEX_LMP, PPA, TOU, TIERED, HYBRID);
+  - **Power contract fields — DEFERRED.** The eventual shape (ISO /
+    balancing-authority / rate-type enums, utility operating company,
     `rate_cents_per_kwh`, `demand_charge_cents_per_kwh`,
-    `transmission_structure` (enum: 4CP, 5CP, NONE_BUNDLED),
-    `power_factor` (`NUMERIC(4,2)` with
-    `CHECK (power_factor IN (0.85, 0.9, 0.95, 0.97, 1.0))` —
-    Postgres enums can't carry decimal values, so this is a numeric
-    column with a check constraint; UI exposes the same five values
-    as a dropdown), `contract_start_date`, `contract_end_date`.
+    `transmission_structure`, `power_factor`, contract start/end
+    dates) is captured in the design history but did NOT ship in
+    issue #195. They land in a follow-up migration once the modeling
+    is locked in; until then the column set is just location +
+    timezone + capacity + network_config.
   - Standard timestamp columns + `deleted_at` for soft delete.
 
   Cooling mode is **not** a site-level field. Miners already carry
@@ -671,11 +666,11 @@ and filter on the miner list. No topbar yet, no discovery
 segmentation yet. App fully functional in site-less form for orgs
 that don't opt in.
 
-- Migrations: `site` (with location, timezone, network config,
-  power-contract columns); `building` (with nullable `site_id` and
-  layout columns); `device.site_id` nullable; `device_set_rack.building_id`
-  nullable, no auto-backfill from zones (operators opt into buildings
-  explicitly).
+- Migrations: `site` (location, timezone, network config; power-
+  contract columns deferred to a follow-up); `building` (nullable
+  `site_id` + layout columns); `device.site_id` nullable;
+  `device_set_rack.building_id` nullable, no auto-backfill from
+  zones (operators opt into buildings explicitly).
 - `SiteService` proto + handlers: list (returns device + building
   counts), create, update, delete (soft, cascade-unassigns devices
   and buildings; activity log captures impact); reassign-devices.
