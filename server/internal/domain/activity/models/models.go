@@ -91,6 +91,14 @@ type Event struct {
 	// partial unique index on (batch_id, event_type) for '%.completed'
 	// event types guarantees at most one completion row per batch.
 	BatchID *string
+
+	// SiteID is row-stamped at write time so per-site activity feeds
+	// don't shift when the device or scope is later reassigned. Callers
+	// emitting site-scoped events (site/building CRUD, device reassign,
+	// device-driven actions) populate it from the row's authoritative
+	// site at event time. Nil for org-scoped events that don't tie to
+	// a specific site.
+	SiteID *int64
 }
 
 // Filter defines query parameters for listing activity entries.
