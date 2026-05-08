@@ -355,12 +355,15 @@ func TestGetCommandBatchDeviceResults_HistoricalRowsOmitSnapshot(t *testing.T) {
 	seedBatchInState(t, conn, batchUUID, user.DatabaseID, user.OrganizationID, 1, sqlc.BatchStatusEnumFINISHED)
 
 	// Insert a codl row directly, bypassing UpsertCommandOnDeviceLog, so the
-	// snapshot columns stay NULL like a pre-migration row would.
+	// snapshot columns stay NULL like a pre-migration row would. org_id is
+	// NOT NULL after migration 000047 and pulled from the device row;
+	// site_id stays NULL to mirror the pre-multi-site shape.
 	ctx := context.Background()
 	_, err := conn.ExecContext(ctx, `
-		INSERT INTO command_on_device_log (command_batch_log_id, device_id, status, updated_at)
-		SELECT cbl.id, $2, 'SUCCESS', NOW()
-		FROM command_batch_log cbl WHERE cbl.uuid = $1`, batchUUID, dev.DatabaseID)
+		INSERT INTO command_on_device_log (command_batch_log_id, device_id, status, updated_at, org_id)
+		SELECT cbl.id, d.id, 'SUCCESS', NOW(), d.org_id
+		FROM command_batch_log cbl, device d
+		WHERE cbl.uuid = $1 AND d.id = $2`, batchUUID, dev.DatabaseID)
 	require.NoError(t, err)
 
 	svc := newResultsTestService(conn)

@@ -42,15 +42,15 @@ CREATE TABLE building (
         CHECK (racks_per_aisle IS NULL OR racks_per_aisle >= 0)
 );
 
--- Two partial unique indexes: name unique within site when assigned,
--- unique within org when unassigned.
+-- Name is unique within an assigned site. Unassigned buildings are not
+-- name-unique because cascade-unassign on site delete must always
+-- succeed — if the deleted site held "Aisle-1" and an unassigned
+-- "Aisle-1" already existed, a strict constraint would abort the
+-- transaction. The service layer surfaces collisions in the
+-- unassigned bucket as a UX warning instead.
 CREATE UNIQUE INDEX uk_building_site_name
     ON building(site_id, name)
     WHERE site_id IS NOT NULL AND deleted_at IS NULL;
-
-CREATE UNIQUE INDEX uk_building_org_name_unassigned
-    ON building(org_id, name)
-    WHERE site_id IS NULL AND deleted_at IS NULL;
 
 CREATE INDEX idx_building_org_deleted
     ON building(org_id, deleted_at);
