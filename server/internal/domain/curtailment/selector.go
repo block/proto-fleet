@@ -67,13 +67,11 @@ type Plan struct {
 	Outcome                   modes.Outcome
 	// InsufficientLoadDetail is set only on OutcomeInsufficientLoad.
 	InsufficientLoadDetail *modes.InsufficientLoadDetail
-	// EventUUID is populated by Service.Start after the event row is
-	// persisted; Preview leaves it nil.
+	// EventUUID is set by Service.Start after persisting; nil for Preview.
 	EventUUID *uuid.UUID
-	// EffectiveMaxDurationSeconds is the value Service.Start actually
-	// persisted after normalizing the "use org default" sentinel
-	// (req.MaxDurationSeconds=nil + !AllowUnbounded → org config default).
-	// nil when AllowUnbounded=true. Preview leaves this nil.
+	// EffectiveMaxDurationSeconds is the persisted cap after Service.Start
+	// resolves the "use org default" sentinel. nil when AllowUnbounded=true
+	// or for Preview.
 	EffectiveMaxDurationSeconds *int32
 }
 

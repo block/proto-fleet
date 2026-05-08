@@ -66,16 +66,10 @@ type EnsureCurtailmentOrgConfigRow struct {
 	UpdatedAt             time.Time
 }
 
-// Idempotent read-only backfill: INSERT ... DO NOTHING keeps existing rows
-// untouched (preserves `updated_at` as a real config-change signal); the
-// fallback SELECT returns the row already on disk. Single round trip.
-//
-// Soft-deleted orgs (organization.deleted_at IS NOT NULL) MUST NOT receive
-// a fresh config row from the lazy backfill — the migration seed at deploy
-// time also excludes them, so the lazy path matches that intent. Both the
-// INSERT and the fallback SELECT join `active` (gated on deleted_at IS NULL),
-// so a deleted org returns zero rows and the caller maps sql.ErrNoRows to
-// NotFound (see mapOrgConfigError in sqlstores/curtailment.go).
+// Idempotent backfill: INSERT ... DO NOTHING preserves updated_at as a
+// config-change signal; fallback SELECT returns the existing row. Both
+// branches join `active` (organization.deleted_at IS NULL) so soft-deleted
+// orgs return zero rows; caller maps to NotFound.
 func (q *Queries) EnsureCurtailmentOrgConfig(ctx context.Context, orgID int64) (EnsureCurtailmentOrgConfigRow, error) {
 	row := q.queryRow(ctx, q.ensureCurtailmentOrgConfigStmt, ensureCurtailmentOrgConfig, orgID)
 	var i EnsureCurtailmentOrgConfigRow
@@ -102,9 +96,7 @@ type GetCurtailmentEventByUUIDParams struct {
 	OrgID     int64
 }
 
-// Org-scoped read; callers MUST pass the caller's org_id to prevent cross-tenant
-// snapshot exposure. Used by store tests to verify migration constraints
-// round-trip correctly.
+// Org-scoped: callers MUST pass org_id to prevent cross-tenant exposure.
 func (q *Queries) GetCurtailmentEventByUUID(ctx context.Context, arg GetCurtailmentEventByUUIDParams) (CurtailmentEvent, error) {
 	row := q.queryRow(ctx, q.getCurtailmentEventByUUIDStmt, getCurtailmentEventByUUID, arg.EventUuid, arg.OrgID)
 	var i CurtailmentEvent
@@ -435,8 +427,7 @@ latest_hourly AS (
     INNER JOIN device d3 ON device_metrics_hourly.device_identifier = d3.device_identifier
         AND d3.deleted_at IS NULL
         AND d3.org_id = $1
-    -- 24h window covers TimescaleDB end-offset + operator-timezone gaps
-    -- without scanning multi-day retention.
+    -- 24h window covers TimescaleDB end-offset + operator-timezone gaps.
     WHERE device_metrics_hourly.bucket > NOW() - INTERVAL '24 hours'
     ORDER BY device_metrics_hourly.device_identifier, bucket DESC
 )
@@ -444,9 +435,9 @@ SELECT
     d.device_identifier,
     dd.driver_name,
     COALESCE(dd.model, '') AS model,
-    -- COALESCE required because sqlc generates a non-nullable string;
-    -- empty-string is the "unknown status" sentinel the service treats
-    -- as stale. NULL pairing_status normalizes to UNPAIRED below.
+    -- COALESCE: sqlc generates non-nullable string; empty-string is the
+    -- "unknown status" sentinel the service treats as stale. NULL
+    -- pairing_status normalizes to UNPAIRED below.
     COALESCE(ds.status::text, ''::text)::text AS device_status,
     CASE WHEN dp.id IS NOT NULL THEN dp.pairing_status::text ELSE 'UNPAIRED' END AS pairing_status,
     lm.time            AS latest_metrics_at,
@@ -486,12 +477,12 @@ type ListCurtailmentCandidatesByOrgRow struct {
 }
 
 // Per-device state for the selector. Returns every in-scope device
-// (unpaired / stale / unstatused included); the service layer applies
-// skip-reason attribution. LEFT JOIN telemetry: nil power/hash = stale
-// (15-min window). device_identifiers: nil for whole-org, non-empty
-// after org-ownership validation for device-list scope.
-// Stable order so the selector's stable sort produces the same plan
-// across calls when avg_efficiency ties or is NULL.
+// (unpaired/stale/unstatused included); service applies skip-reason
+// attribution. LEFT JOIN telemetry: nil power/hash means stale (15-min
+// window). device_identifiers: nil = whole-org; non-empty for device-list
+// scope (post org-ownership check).
+// Stable order: makes the selector's stable sort deterministic when
+// avg_efficiency ties or is NULL.
 func (q *Queries) ListCurtailmentCandidatesByOrg(ctx context.Context, arg ListCurtailmentCandidatesByOrgParams) ([]ListCurtailmentCandidatesByOrgRow, error) {
 	rows, err := q.query(ctx, q.listCurtailmentCandidatesByOrgStmt, listCurtailmentCandidatesByOrg, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
 	if err != nil {
@@ -587,9 +578,8 @@ WHERE state IN ('pending', 'active', 'restoring')
 ORDER BY id
 `
 
-// System-scope (no org filter): the reconciler is a singleton process that
-// drives every org's events from one tick. Order by id so per-tick processing
-// is deterministic across runs.
+// System-scope (no org filter); reconciler is a singleton driving all orgs.
+// Order by id keeps per-tick processing deterministic.
 func (q *Queries) ListNonTerminalCurtailmentEvents(ctx context.Context) ([]CurtailmentEvent, error) {
 	rows, err := q.query(ctx, q.listNonTerminalCurtailmentEventsStmt, listNonTerminalCurtailmentEvents)
 	if err != nil {
@@ -703,10 +693,8 @@ type UpdateCurtailmentEventStateParams struct {
 	ID        int64
 }
 
-// COALESCE keeps existing started_at/ended_at when the caller does not pass a
-// new value; passing NULL via narg leaves the column unchanged. Once a
-// timestamp is set callers should not blank it again, so the OR-NULL pattern
-// is acceptable here.
+// COALESCE: nil narg leaves started_at/ended_at unchanged. Timestamps are
+// write-once, so the OR-NULL pattern is fine.
 func (q *Queries) UpdateCurtailmentEventState(ctx context.Context, arg UpdateCurtailmentEventStateParams) error {
 	_, err := q.exec(ctx, q.updateCurtailmentEventStateStmt, updateCurtailmentEventState,
 		arg.State,
@@ -744,11 +732,9 @@ type UpdateCurtailmentTargetStateParams struct {
 	DeviceIdentifier   string
 }
 
-// Reconciler-side update: COALESCE preserves columns the caller does not
-// supply so a partial update (e.g., only state + last_dispatched_at) does
-// not clobber observed_power_w / confirmed_at populated by an earlier tick.
-// retry_count is COALESCE-bumped only when the caller supplies it; the
-// caller is expected to read-then-write within the tick.
+// Reconciler patch: COALESCE preserves un-supplied columns so partial
+// updates don't clobber values from earlier ticks. retry_count is
+// read-then-written inside the tick.
 func (q *Queries) UpdateCurtailmentTargetState(ctx context.Context, arg UpdateCurtailmentTargetStateParams) error {
 	_, err := q.exec(ctx, q.updateCurtailmentTargetStateStmt, updateCurtailmentTargetState,
 		arg.State,
@@ -782,8 +768,8 @@ type UpsertCurtailmentReconcilerHeartbeatParams struct {
 	ActiveEventCount   int32
 }
 
-// Singleton row: id=1 is enforced by CHECK + PK. Migration seeds id=1, so the
-// INSERT path only fires if an operator manually deletes the row.
+// Singleton row at id=1 (CHECK + PK enforce it). INSERT path only fires if
+// the seeded row is manually deleted.
 func (q *Queries) UpsertCurtailmentReconcilerHeartbeat(ctx context.Context, arg UpsertCurtailmentReconcilerHeartbeatParams) error {
 	_, err := q.exec(ctx, q.upsertCurtailmentReconcilerHeartbeatStmt, upsertCurtailmentReconcilerHeartbeat,
 		arg.LastTickAt,

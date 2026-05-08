@@ -1,12 +1,10 @@
--- Reconciler dispatches Curtail / Uncurtail through command.Service, which
--- writes command_batch_log.created_by (BIGINT NOT NULL FK -> "user".id). Until
--- this column lands the reconciler had no operator id to attribute dispatch
--- to, so the FK would reject every reconciler-issued command. Capturing the
--- session.Info.UserID at Start time lets the reconciler dispatch under the
--- operator who initiated the event.
+-- Captures the operator's user.id at Start so the reconciler can dispatch
+-- under it. command_batch_log.created_by has a NOT NULL FK to "user"(id);
+-- without this column the reconciler's Curtail/Uncurtail would FK-fail.
 --
--- BE-2 wires PreviewCurtailmentPlan only and writes no rows to
--- curtailment_event, so NOT NULL with no backfill is safe.
+-- NOT NULL without backfill is safe: PreviewCurtailmentPlan writes no rows
+-- to curtailment_event, so the table is empty in any environment that has
+-- only run earlier migrations.
 ALTER TABLE curtailment_event
     ADD COLUMN created_by_user_id BIGINT NOT NULL,
     ADD CONSTRAINT fk_curtailment_event_created_by

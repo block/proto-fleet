@@ -429,16 +429,15 @@ func (p *Processor) executeSchedule(ctx context.Context, scheduleID int64) {
 	}
 
 	p.updateAfterRunWithGeneration(ctx, sched, orgID, now, gen, hasGen)
-	// Fully filtered dispatches are already captured by per-filter skip
-	// activity (schedule_conflict_skip / schedule_skipped_due_to_curtailment).
+	// Fully-filtered dispatches are already logged via per-filter skip
+	// events (schedule_conflict_skip / schedule_skipped_due_to_curtailment).
 	if dispatched > 0 || (conflictSkips == 0 && curtailmentSkips == 0) {
 		p.logExecution(ctx, sched, orgID, dispatched)
 	}
 }
 
-// countSkipsByFilter counts how many skipped devices were attributed to
-// filterName. The activity log emits per-filter summaries so each cause
-// (schedule conflict, active curtailment, ...) gets its own log line.
+// countSkipsByFilter counts skipped devices attributed to filterName.
+// Activity emits per-filter summaries so each cause gets its own log line.
 func countSkipsByFilter(result *command.CommandResult, filterName string) int {
 	if result == nil {
 		return 0
@@ -823,9 +822,9 @@ func (p *Processor) logConflictSkip(ctx context.Context, sched *pb.Schedule, org
 	})
 }
 
-// logCurtailmentActiveSkip records devices skipped because they are part of an
-// active curtailment event. Distinct event_type so the activity feed can
-// surface curtailment-driven dropouts separately from schedule conflicts.
+// logCurtailmentActiveSkip records devices skipped by an active curtailment
+// event. Distinct event_type from schedule_conflict_skip so the activity
+// feed can attribute the cause.
 func (p *Processor) logCurtailmentActiveSkip(ctx context.Context, sched *pb.Schedule, orgID int64, skipped int) {
 	if p.activitySvc == nil {
 		return

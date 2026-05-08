@@ -27,10 +27,9 @@ func mapOrgConfigError(err error, orgID int64) error {
 	if err == nil {
 		return nil
 	}
-	// EnsureCurtailmentOrgConfig gates both INSERT and fallback SELECT on
-	// organization.deleted_at IS NULL, so soft-deleted (and unknown) orgs
-	// produce sql.ErrNoRows rather than an FK violation. Map it to NotFound
-	// so deleted tenants cannot be revived by Preview read traffic.
+	// EnsureCurtailmentOrgConfig gates both branches on
+	// organization.deleted_at IS NULL, so soft-deleted/unknown orgs return
+	// ErrNoRows. Map to NotFound so deleted tenants can't be revived.
 	if errors.Is(err, sql.ErrNoRows) {
 		return fleeterror.NewNotFoundErrorf("organization %d not found", orgID)
 	}
@@ -54,21 +53,14 @@ func NewSQLCurtailmentStore(conn *sql.DB) *SQLCurtailmentStore {
 }
 
 func (s *SQLCurtailmentStore) GetOrgConfig(ctx context.Context, orgID int64) (*models.OrgConfig, error) {
-	// Ensure-then-read: the 000042 migration only seeded existing orgs at
-	// deploy time, so any tenant created later has no row.
-	// EnsureCurtailmentOrgConfig is an INSERT ... ON CONFLICT DO NOTHING
-	// with a fallback SELECT in a single CTE — the conflict path stays
-	// read-only so updated_at remains a real config-change signal and
-	// the Preview hot path stays off the WAL. Both branches join the
-	// `active` CTE (organization.deleted_at IS NULL), so soft-deleted /
-	// unknown orgs return sql.ErrNoRows.
+	// Ensure-then-read: post-migration tenants don't have a seeded row.
+	// EnsureCurtailmentOrgConfig is INSERT ... ON CONFLICT DO NOTHING with
+	// a fallback SELECT in one CTE; both branches require the org to be
+	// active. ErrNoRows means soft-deleted/unknown OR a READ COMMITTED race
+	// (loser's snapshot missed the winner's INSERT) — retry resolves the
+	// race; if it's the deletion case, mapOrgConfigError returns NotFound.
 	row, err := s.GetQueries(ctx).EnsureCurtailmentOrgConfig(ctx, orgID)
 	if errors.Is(err, sql.ErrNoRows) {
-		// Two callers can hit ErrNoRows: (a) READ COMMITTED race where
-		// the loser's snapshot misses the winner's INSERT — a single
-		// retry resolves it once the winner commits; (b) soft-deleted
-		// or unknown org — the retry returns ErrNoRows again, which
-		// mapOrgConfigError converts to NotFound below.
 		row, err = s.GetQueries(ctx).EnsureCurtailmentOrgConfig(ctx, orgID)
 	}
 	if err != nil {
@@ -101,19 +93,15 @@ func (s *SQLCurtailmentStore) ListRecentlyResolvedCurtailedDevices(ctx context.C
 	return devices, nil
 }
 
-// InsertEventWithTargets writes the event row plus every per-target row in a
-// single transaction so a partial Start cannot leave the event in `pending`
-// without its target set. Returns the inserted event's id / event_uuid /
-// timestamps from the event RETURNING clause.
+// InsertEventWithTargets writes event + targets in one transaction so a
+// partial Start can't leave a pending event without its target set.
 func (s *SQLCurtailmentStore) InsertEventWithTargets(
 	ctx context.Context,
 	event models.InsertEventParams,
 	targets []models.InsertTargetParams,
 ) (*models.InsertEventResult, error) {
 	if len(targets) == 0 {
-		// Defense-in-depth: the service layer rejects empty plans before
-		// calling, but persisting an event without targets would leave the
-		// reconciler with nothing to dispatch against.
+		// Defense-in-depth; service rejects empty plans upstream.
 		return nil, fleeterror.NewInvalidArgumentError(
 			"InsertEventWithTargets requires a non-empty targets slice",
 		)
@@ -301,9 +289,8 @@ func (s *SQLCurtailmentStore) GetHeartbeat(ctx context.Context) (*models.Heartbe
 	}, nil
 }
 
-// convertEventRow maps a sqlc-generated event row to the domain Event type so
-// the rest of the curtailment domain (selector, modes, handler) does not
-// import sqlc-generated code.
+// convertEventRow maps a sqlc row to the domain Event so callers outside
+// the store don't import sqlc-generated code.
 func convertEventRow(row sqlc.CurtailmentEvent) *models.Event {
 	return &models.Event{
 		ID:                      row.ID,
@@ -343,9 +330,8 @@ func convertEventRow(row sqlc.CurtailmentEvent) *models.Event {
 	}
 }
 
-// convertTargetRow maps a sqlc-generated target row (which uses sql.NullString
-// for the NUMERIC baseline_power_w / observed_power_w columns) to the domain
-// Target type with explicit *float64.
+// convertTargetRow maps a sqlc target row (sql.NullString for NUMERIC
+// baseline_power_w / observed_power_w) to the domain Target with *float64.
 func convertTargetRow(row sqlc.CurtailmentTarget) *models.Target {
 	return &models.Target{
 		CurtailmentEventID:    row.CurtailmentEventID,

@@ -1858,9 +1858,7 @@ type StartCurtailmentRequest struct {
 	// normalization. Default false; otherwise `max_duration_seconds=0` is
 	// normalized to the per-org default at handler entry.
 	AllowUnbounded bool `protobuf:"varint,27,opt,name=allow_unbounded,json=allowUnbounded,proto3" json:"allow_unbounded,omitempty"`
-	// Idempotency and trigger attribution. max_len=256 mirrors the DB
-	// varchar(256) on these columns and the audit-string convention used
-	// elsewhere in the curtailment domain.
+	// Idempotency and trigger attribution. max_len=256 matches DB varchar.
 	IdempotencyKey    string `protobuf:"bytes,30,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"` // unique per (org, key) when non-empty
 	Reason            string `protobuf:"bytes,31,opt,name=reason,proto3" json:"reason,omitempty"`
 	ExternalSource    string `protobuf:"bytes,32,opt,name=external_source,json=externalSource,proto3" json:"external_source,omitempty"`          // webhook source name

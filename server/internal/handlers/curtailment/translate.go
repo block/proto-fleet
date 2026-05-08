@@ -85,8 +85,8 @@ func toScope(msg *pb.PreviewCurtailmentPlanRequest) (curtailment.Scope, error) {
 	}
 }
 
-// toStartRequest converts the proto StartCurtailmentRequest to a service
-// StartRequest, deriving source_actor_type from the authenticated session.
+// toStartRequest converts the proto request to a service StartRequest,
+// deriving source_actor_type and CreatedByUserID from session.Info.
 func toStartRequest(msg *pb.StartCurtailmentRequest, info *session.Info) (curtailment.StartRequest, error) {
 	scope, err := toStartScope(msg)
 	if err != nil {
@@ -124,8 +124,7 @@ func toStartRequest(msg *pb.StartCurtailmentRequest, info *session.Info) (curtai
 		ForceIncludeMaintenance: msg.GetForceIncludeMaintenance(),
 	}
 	if override := msg.CandidateMinPowerWOverride; override != nil {
-		// Proto validator caps below MaxInt32; defense-in-depth so non-Connect
-		// callers can't bypass the bound.
+		// Proto validator already bounds this; backstop for non-Connect callers.
 		if *override > math.MaxInt32 {
 			return curtailment.StartRequest{}, fleeterror.NewInvalidArgumentErrorf(
 				"candidate_min_power_w_override exceeds int32 max: %d", *override,
@@ -164,11 +163,9 @@ func toStartRequest(msg *pb.StartCurtailmentRequest, info *session.Info) (curtai
 	}
 
 	if !out.AllowUnbounded {
-		// max_duration_seconds=0 is the proto sentinel for "use the org's
-		// configured default"; leave MaxDurationSeconds nil and let
-		// Service.Start normalize against curtailment_org_config. Non-zero
-		// values are bounds-checked rather than silently saturated so a
-		// caller sending a wildly out-of-range value sees InvalidArgument.
+		// max_duration_seconds=0 is the "use org default" sentinel; leave
+		// nil so Service.Start resolves it. Non-zero values are
+		// bounds-checked rather than silently saturated.
 		if raw := msg.GetMaxDurationSeconds(); raw > 0 {
 			v, err := uint32ToInt32Strict("max_duration_seconds", raw)
 			if err != nil {
@@ -181,9 +178,8 @@ func toStartRequest(msg *pb.StartCurtailmentRequest, info *session.Info) (curtai
 	return out, nil
 }
 
-// toStartScope mirrors toScope (Preview) for the StartCurtailmentRequest
-// oneof. The two oneofs are structurally identical but typed separately by
-// protoc-gen-go, so we can't share the switch.
+// toStartScope mirrors toScope. The two oneofs are structurally identical
+// but typed separately by protoc-gen-go, so the switches can't merge.
 func toStartScope(msg *pb.StartCurtailmentRequest) (curtailment.Scope, error) {
 	switch s := msg.GetScope().(type) {
 	case *pb.StartCurtailmentRequest_WholeOrg:
@@ -206,9 +202,9 @@ func toStartScope(msg *pb.StartCurtailmentRequest) (curtailment.Scope, error) {
 }
 
 // toStartResponse maps the service Plan + request into the
-// StartCurtailmentResponse. The response describes the request that was just
-// persisted; idempotent retries are not implemented in BE-3 — duplicates
-// surface as Internal until the lookup query lands as a follow-up (BE-5).
+// StartCurtailmentResponse. Describes the request that was just persisted;
+// idempotent-retry lookup is a follow-up. Duplicate keys surface as Internal
+// until then.
 func toStartResponse(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) *pb.StartCurtailmentResponse {
 	event := &pb.CurtailmentEvent{
 		State:                   pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_PENDING,
@@ -242,8 +238,7 @@ func toStartResponse(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) *p
 		event.ModeParams = &pb.CurtailmentEvent_FixedKw{FixedKw: fk}
 	}
 
-	// Targets known at Start time are all PENDING; reconciler ticks update
-	// them in-place. The retry path uses the persisted target rows instead.
+	// All targets are PENDING at Start; reconciler updates them in-place.
 	targets := make([]*pb.CurtailmentTarget, len(plan.Selected))
 	for i, sel := range plan.Selected {
 		t := &pb.CurtailmentTarget{
@@ -269,8 +264,7 @@ func toStartResponse(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) *p
 }
 
 // lenToInt32Saturating clamps a slice length to int32 max for proto rollup
-// fields. Selector-produced target lists are bounded by candidate counts well
-// below MaxInt32; this is the static-analysis-friendly cast.
+// fields. Selector lists are well below MaxInt32; this is for static-analysis.
 func lenToInt32Saturating(n int) int32 {
 	if n > math.MaxInt32 {
 		return math.MaxInt32
@@ -278,12 +272,10 @@ func lenToInt32Saturating(n int) int32 {
 	return int32(n) // #nosec G115 -- bounds-checked above
 }
 
-// effectiveMaxDurationSeconds prefers the value Service.Start actually
-// persisted (after normalizing the "use org default" sentinel) so the
-// response reflects the persisted cap rather than echoing the request's
-// raw zero. Falls back to the request value on the Preview-style path
-// where Plan does not carry a resolved value. nil plan field — the
-// allow_unbounded shape — renders as 0 (proto default).
+// effectiveMaxDurationSeconds prefers the persisted value (Service.Start
+// resolves "use org default") so the response reflects the cap, not the
+// raw request zero. Falls back to the request when Plan has no resolved
+// value (Preview path); nil plan field — allow_unbounded — renders as 0.
 func effectiveMaxDurationSeconds(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) uint32 {
 	if plan == nil || plan.EffectiveMaxDurationSeconds == nil {
 		return req.GetMaxDurationSeconds()
@@ -304,10 +296,9 @@ func resolvePriority(p pb.CurtailmentPriority) pb.CurtailmentPriority {
 	return p
 }
 
-// uint32ToInt32Strict converts a proto-uint32 to int32, rejecting overflow
-// with InvalidArgument naming the field. Silent saturation at the
-// translation boundary breaks request/response accuracy for valid protobuf
-// inputs above MaxInt32, so callers see a clear error instead.
+// uint32ToInt32Strict converts proto uint32 → int32, rejecting overflow with
+// InvalidArgument. Silent saturation would mangle valid proto inputs above
+// MaxInt32; surface a clear error instead.
 func uint32ToInt32Strict(field string, v uint32) (int32, error) {
 	if v > math.MaxInt32 {
 		return 0, fleeterror.NewInvalidArgumentErrorf(
@@ -317,9 +308,8 @@ func uint32ToInt32Strict(field string, v uint32) (int32, error) {
 	return int32(v), nil // #nosec G115 -- bounds-checked above
 }
 
-// nonEmptyPtr returns nil for an empty proto3 string, &s otherwise. Used so
-// optional attribution fields land as SQL NULL rather than empty string and
-// satisfy the migration's `length > 0` CHECK constraints.
+// nonEmptyPtr returns nil for "", &s otherwise. Maps proto3 empty-string
+// to SQL NULL so the migration's `length > 0` CHECK constraints hold.
 func nonEmptyPtr(s string) *string {
 	if s == "" {
 		return nil
@@ -327,11 +317,9 @@ func nonEmptyPtr(s string) *string {
 	return &s
 }
 
-// deriveSourceActorType maps session.Info into the curtailment audit-actor
-// vocabulary. Scheduler-synthesized sessions take priority over the auth
-// method; otherwise session/api-key calls fan out to user / api_key
-// respectively. Webhook callers route through ActorScheduler-equivalents in
-// the schedule processor; direct webhook attribution lives in
+// deriveSourceActorType maps session.Info into the audit-actor vocabulary.
+// Scheduler-synthesized sessions win over auth method; otherwise
+// session/api-key route to user / api_key. Webhook attribution lives in
 // external_source / external_reference until a webhook auth surface lands.
 func deriveSourceActorType(info *session.Info) models.SourceActorType {
 	if info == nil {
@@ -346,10 +334,8 @@ func deriveSourceActorType(info *session.Info) models.SourceActorType {
 	return models.SourceActorUser
 }
 
-// deriveSourceActorID returns the credential identifier that pairs with the
-// SourceActorType for audit attribution. Empty session.Info or scheduler
-// sessions leave the column NULL — the scheduler is identified by its actor
-// type alone.
+// deriveSourceActorID pairs with SourceActorType for audit attribution.
+// nil session or scheduler → NULL (scheduler is identified by actor type).
 func deriveSourceActorID(info *session.Info) *string {
 	if info == nil || info.Actor == session.ActorScheduler {
 		return nil
@@ -363,8 +349,6 @@ func deriveSourceActorID(info *session.Info) *string {
 
 // toPreviewResponse maps the service Plan to the proto response.
 func toPreviewResponse(plan *curtailment.Plan, req *pb.PreviewCurtailmentPlanRequest) *pb.PreviewCurtailmentPlanResponse {
-	// strategyReasonLabel forces a future strategy enum addition to touch
-	// this surface (compile-time exhaustive switch).
 	reasonSelected := strategyReasonLabel(req.GetStrategy())
 	candidates := make([]*pb.CurtailmentCandidate, len(plan.Selected))
 	for i, c := range plan.Selected {
@@ -389,8 +373,7 @@ func toPreviewResponse(plan *curtailment.Plan, req *pb.PreviewCurtailmentPlanReq
 		Mode:                      pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW,
 		SkippedCandidates:         skipped,
 	}
-	// Echo FIXED_KW params so the UI can render the undershoot delta
-	// without re-fetching the request.
+	// Echo FIXED_KW params so the UI can render the undershoot delta.
 	if fk := req.GetFixedKw(); fk != nil {
 		resp.ModeParams = &pb.PreviewCurtailmentPlanResponse_FixedKw{FixedKw: fk}
 	}
@@ -401,15 +384,13 @@ func strategyName(s pb.CurtailmentStrategy) models.Strategy {
 	if s == pb.CurtailmentStrategy_CURTAILMENT_STRATEGY_UNSPECIFIED {
 		return models.StrategyLeastEfficientFirst
 	}
-	// Other proto values pass through verbatim so the service validator
-	// can reject them with a clear message naming the offending value.
+	// Pass other values through; service validator rejects them by name.
 	return models.Strategy(s.String())
 }
 
-// strategyReasonLabel renders reason_selected for the response. UNSPECIFIED
-// and LEAST_EFFICIENT_FIRST both render as the canonical lowercase form;
-// other strategy values pass through as their proto names (the service
-// validator rejects them upstream of this rendering).
+// strategyReasonLabel renders reason_selected. UNSPECIFIED and
+// LEAST_EFFICIENT_FIRST render as the canonical lowercase form; other values
+// pass through as their proto names (rejected upstream by the validator).
 func strategyReasonLabel(s pb.CurtailmentStrategy) string {
 	if s == pb.CurtailmentStrategy_CURTAILMENT_STRATEGY_UNSPECIFIED ||
 		s == pb.CurtailmentStrategy_CURTAILMENT_STRATEGY_LEAST_EFFICIENT_FIRST {
@@ -419,8 +400,8 @@ func strategyReasonLabel(s pb.CurtailmentStrategy) string {
 }
 
 func levelName(l pb.CurtailmentLevel) models.Level {
-	// Service matches on LevelFull directly; UNSPECIFIED defaults to FULL,
-	// other values pass through their proto names so the service rejects them.
+	// UNSPECIFIED defaults to FULL; other values pass through their proto
+	// names so the service validator can reject them.
 	if l == pb.CurtailmentLevel_CURTAILMENT_LEVEL_UNSPECIFIED ||
 		l == pb.CurtailmentLevel_CURTAILMENT_LEVEL_FULL {
 		return models.LevelFull
@@ -436,19 +417,17 @@ func priorityName(p pb.CurtailmentPriority) models.Priority {
 		pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL:
 		return models.PriorityNormal
 	case pb.CurtailmentPriority_CURTAILMENT_PRIORITY_HIGH:
-		// Pass through so the service validator can reject it.
+		// Pass through; service validator rejects it.
 		return models.PriorityHigh
 	default:
-		// Future enum addition surfaces as a clear validator rejection
-		// rather than silent NORMAL coercion.
+		// New enum values surface as a validator rejection, not silent NORMAL.
 		return models.Priority(p.String())
 	}
 }
 
-// toInsufficientLoadError returns InvalidArgument with the kW numbers
-// and every non-zero exclusion counter (zero counters omitted; counter
-// order fixed at source for byte-stable output until Connect error-detail
-// propagation lands).
+// toInsufficientLoadError returns InvalidArgument with kW numbers and
+// non-zero exclusion counters. Counter order is source-fixed for byte-stable
+// output until Connect error-detail propagation lands.
 func toInsufficientLoadError(detail *modes.InsufficientLoadDetail) error {
 	if detail == nil {
 		return fleeterror.NewInvalidArgumentError("insufficient curtailable load")
@@ -464,10 +443,9 @@ func toInsufficientLoadError(detail *modes.InsufficientLoadDetail) error {
 	return fleeterror.NewInvalidArgumentErrorf("%s; excluded: %s", header, exclusions)
 }
 
-// formatExclusionCounters renders non-zero ExcludedX fields. Order is
-// source-fixed (not map-derived) so output is byte-stable. Names use the
-// canonical SkipReason vocabulary so the success-path SkippedCandidate.reason
-// and the failure-path counters share one set of tokens.
+// formatExclusionCounters renders non-zero ExcludedX fields. Source-fixed
+// order keeps output byte-stable; names use the canonical SkipReason
+// vocabulary so success and failure paths share one token set.
 func formatExclusionCounters(d *modes.InsufficientLoadDetail) string {
 	type counter struct {
 		name string
@@ -479,10 +457,8 @@ func formatExclusionCounters(d *modes.InsufficientLoadDetail) string {
 		{string(curtailment.SkipPowerTelemetryUnreliable), d.ExcludedDeadMonitor},
 		{string(curtailment.SkipUnreachableResidualLoad), d.ExcludedOffline},
 		{string(curtailment.SkipMaintenance), d.ExcludedMaintenance},
-		// Transient-status / data-quality skips. Inserted after maintenance
-		// (preserves the byte-stable test's below→offline→maintenance order)
-		// and before pairing so the message groups status-driven exclusions
-		// together.
+		// Transient-status / data-quality skips, grouped between maintenance
+		// and pairing in the byte-stable order.
 		{string(curtailment.SkipUpdating), d.ExcludedUpdating},
 		{string(curtailment.SkipRebootRequired), d.ExcludedRebootRequired},
 		{string(curtailment.SkipStaleTelemetry), d.ExcludedStale},

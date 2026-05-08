@@ -383,10 +383,8 @@ func start(config *Config) error {
 	// only ran inline inside the schedule processor, leaving manual
 	// SetPowerTarget calls free to race a running power-target schedule.
 	commandSvc.RegisterFilter(commandDomain.NewScheduleConflictFilter(scheduleStore))
-	// Curtailment-active filter blocks non-curtailment commands against
-	// devices currently locked in an event; the curtailment reconciler
-	// itself bypasses via session.ActorCurtailment so it can drive the
-	// devices it has locked.
+	// CurtailmentActiveFilter blocks non-curtailment commands on locked
+	// devices; reconciler self-traffic bypasses via ActorCurtailment.
 	commandSvc.RegisterFilter(commandDomain.NewCurtailmentActiveFilter(curtailmentStore))
 
 	scheduleProcessor := scheduleDomain.NewProcessor(scheduleStore, scheduleStore, collectionStore, commandSvc, activitySvc)
@@ -463,10 +461,9 @@ func start(config *Config) error {
 	mux.Handle(minercommandv1connect.NewMinerCommandServiceHandler(command.NewHandler(commandSvc), li))
 	mux.Handle(poolsv1connect.NewPoolsServiceHandler(pools.NewHandler(poolsSvc), li))
 	mux.Handle(schedulev1connect.NewScheduleServiceHandler(scheduleHandler.NewHandler(scheduleSvc), li))
-	// Curtailment v1: PreviewCurtailmentPlan is implemented; StartCurtailment
-	// is plumbed but gated off until BE-4 ships Stop + restorer +
-	// max_duration_seconds enforcement; remaining RPCs return Unimplemented
-	// until follow-up work lands.
+	// PreviewCurtailmentPlan is wired; StartCurtailment is plumbed but gated
+	// off until Stop + restorer + max_duration_seconds enforcement land;
+	// remaining RPCs return Unimplemented.
 	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(curtailmentHandler.NewHandler(curtailmentSvc, false), li))
 	mux.Handle(agentgatewayv1connect.NewAgentGatewayServiceHandler(agentgateway.NewHandler(agentEnrollmentSvc, agentAuthSvc), li))
 	mux.Handle(agentadminv1connect.NewAgentAdminServiceHandler(agentadmin.NewHandler(agentEnrollmentSvc), li))

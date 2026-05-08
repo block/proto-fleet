@@ -8,25 +8,21 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/session"
 )
 
-// CurtailmentActiveFilterName tags Skipped entries produced by this filter so
-// the schedule processor (and operator audit) can tell curtailment-active
-// skips apart from schedule-priority conflicts.
+// CurtailmentActiveFilterName tags Skipped entries so the schedule processor
+// (and audit) can tell curtailment-active skips apart from priority conflicts.
 const CurtailmentActiveFilterName = "curtailment_active"
 
-// curtailmentActiveSkipReason is the operator-facing description on Skipped
-// entries.
 const curtailmentActiveSkipReason = "device is part of an active curtailment event"
 
-// CurtailmentActiveQuerier is the minimal store surface this filter needs.
-// interfaces.CurtailmentStore satisfies it directly without an adapter.
+// CurtailmentActiveQuerier is the minimal store surface this filter needs;
+// interfaces.CurtailmentStore satisfies it directly.
 type CurtailmentActiveQuerier interface {
 	ListActiveCurtailedDevices(ctx context.Context, orgID int64) ([]string, error)
 }
 
-// CurtailmentActiveFilter gates non-curtailment commands against the org's
-// currently-curtailed device set. Curtail/Uncurtail commands originating from
-// the curtailment reconciler (Actor == ActorCurtailment) bypass the gate so
-// the reconciler can drive the very devices it has locked.
+// CurtailmentActiveFilter blocks non-curtailment commands against the org's
+// currently-curtailed device set. Reconciler self-traffic
+// (Actor == ActorCurtailment) bypasses the gate.
 type CurtailmentActiveFilter struct {
 	querier CurtailmentActiveQuerier
 }
@@ -40,8 +36,7 @@ func (f *CurtailmentActiveFilter) Name() string {
 }
 
 func (f *CurtailmentActiveFilter) Apply(ctx context.Context, in CommandFilterInput) (CommandFilterOutput, error) {
-	// Reconciler self-bypass: a Curtail/Uncurtail command coming from the
-	// curtailment reconciler is the legitimate writer for any locked device.
+	// Reconciler self-bypass: only Curtail/Uncurtail under ActorCurtailment.
 	if in.Actor == session.ActorCurtailment &&
 		(in.CommandType == commandtype.Curtail || in.CommandType == commandtype.Uncurtail) {
 		return CommandFilterOutput{Kept: in.DeviceIdentifiers}, nil
@@ -54,7 +49,7 @@ func (f *CurtailmentActiveFilter) Apply(ctx context.Context, in CommandFilterInp
 	if err != nil {
 		return CommandFilterOutput{}, fmt.Errorf("failed to list active curtailed devices: %w", err)
 	}
-	// Fast path: the common case is no active events, so avoid building a set.
+	// Fast path: no active events.
 	if len(active) == 0 {
 		return CommandFilterOutput{Kept: in.DeviceIdentifiers}, nil
 	}

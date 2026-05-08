@@ -889,9 +889,7 @@ export type StartCurtailmentRequest = Message<"curtailment.v1.StartCurtailmentRe
   allowUnbounded: boolean;
 
   /**
-   * Idempotency and trigger attribution. max_len=256 mirrors the DB
-   * varchar(256) on these columns and the audit-string convention used
-   * elsewhere in the curtailment domain.
+   * Idempotency and trigger attribution. max_len=256 matches DB varchar.
    *
    * unique per (org, key) when non-empty
    *

@@ -441,9 +441,7 @@ message StartCurtailmentRequest {
     // normalized to the per-org default at handler entry.
     bool allow_unbounded = 27;
 
-    // Idempotency and trigger attribution. max_len=256 mirrors the DB
-    // varchar(256) on these columns and the audit-string convention used
-    // elsewhere in the curtailment domain.
+    // Idempotency and trigger attribution. max_len=256 matches DB varchar.
     string idempotency_key    = 30 [(buf.validate.field).string.max_len = 256];  // unique per (org, key) when non-empty
     string reason             = 31 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
     string external_source    = 32 [(buf.validate.field).string.max_len = 256];  // webhook source name

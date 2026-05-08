@@ -1,6 +1,6 @@
-// Package reconciler drives non-terminal curtailment events forward: it
-// dispatches Curtail commands for pending targets, watches telemetry for
-// drift on confirmed targets, and retries within a bounded budget.
+// Package reconciler drives non-terminal curtailment events: dispatches
+// Curtail commands for pending targets, watches telemetry for drift on
+// confirmed targets, and retries within a bounded budget.
 package reconciler
 
 import (
@@ -24,36 +24,27 @@ import (
 )
 
 const (
-	// reconcilerActorName is the synthetic principal used in dispatch ctx.
+	// reconcilerActorName tags the synthetic dispatch ctx so audit + filter
+	// bypass can recognize reconciler self-traffic.
 	reconcilerActorName = "curtailment-reconciler"
 
-	// defaultTickInterval matches the design doc's 30s reconciler cadence.
-	defaultTickInterval = 30 * time.Second
+	defaultTickInterval           = 30 * time.Second
+	defaultShutdownDeadline       = 10 * time.Second
+	defaultMaxRetries       int32 = 3
 
-	// defaultShutdownDeadline bounds Stop()'s wait for the in-flight tick.
-	defaultShutdownDeadline = 10 * time.Second
-
-	// defaultMaxRetries caps per-target re-dispatch attempts. Crossing the
-	// cap leaves the target in a terminal state (drifted at the budget
-	// boundary, or restore_failed when dispatch itself never landed).
-	defaultMaxRetries int32 = 3
-
-	// defaultDriftThresholdFactor: a confirmed target that reports
-	// power_w > baseline_power_w * factor is considered drifted (the
-	// miner has restored mining). 0.5 catches partial-restore as well as
-	// full-restore cases.
+	// defaultDriftThresholdFactor: power_w > baseline_power_w * factor is
+	// considered drifted. 0.5 catches partial- and full-restore.
 	defaultDriftThresholdFactor = 0.5
 )
 
-// CommandDispatcher is the subset of command.Service the reconciler needs.
-// The interface keeps unit tests free of the full command service graph.
+// CommandDispatcher is the subset of command.Service the reconciler needs;
+// keeps tests free of the full command-service graph.
 type CommandDispatcher interface {
 	Curtail(ctx context.Context, selector *pb.DeviceSelector, level sdk.CurtailLevel) (*command.CommandResult, error)
 	Uncurtail(ctx context.Context, selector *pb.DeviceSelector) (*command.CommandResult, error)
 }
 
-// Config carries the runtime tunables. Zero-valued fields fall back to the
-// defaults; fleetd may override them via its config layer.
+// Config carries runtime tunables. Zero-valued fields use defaults.
 type Config struct {
 	TickInterval         time.Duration
 	ShutdownDeadline     time.Duration
@@ -77,9 +68,9 @@ func (c Config) withDefaults() Config {
 	return c
 }
 
-// Reconciler is a singleton goroutine that ticks every config.TickInterval.
-// The tick is serial: it reads all non-terminal events, dispatches/observes
-// per event with per-event panic isolation, then upserts the heartbeat.
+// Reconciler is a singleton goroutine ticking every config.TickInterval.
+// Each tick reads non-terminal events, dispatches/observes per event with
+// per-event panic isolation, then upserts the heartbeat.
 type Reconciler struct {
 	cfg   Config
 	store interfaces.CurtailmentStore
@@ -94,9 +85,8 @@ type Reconciler struct {
 	running bool
 }
 
-// New builds a Reconciler with the given dependencies. nil store / dispatcher
-// is rejected at Start time, not here, so a misconfigured fleetd surfaces
-// during the lifecycle bring-up.
+// New builds a Reconciler. nil store/dispatcher is rejected at Start, not
+// here, so a misconfigured fleetd surfaces during lifecycle bring-up.
 func New(cfg Config, store interfaces.CurtailmentStore, cmd CommandDispatcher) *Reconciler {
 	return &Reconciler{
 		cfg:   cfg.withDefaults(),
@@ -106,9 +96,8 @@ func New(cfg Config, store interfaces.CurtailmentStore, cmd CommandDispatcher) *
 	}
 }
 
-// Start spins up the tick loop. Returns an error if dependencies are missing.
-// Repeat calls without an intervening Stop are no-ops so a misbehaving
-// lifecycle wiring cannot fork two reconcilers against the same store.
+// Start spins up the tick loop. Repeat Starts without an intervening Stop
+// are no-ops so misbehaving wiring cannot fork two reconcilers.
 func (r *Reconciler) Start(_ context.Context) error {
 	if r.store == nil {
 		return fmt.Errorf("curtailment reconciler: store is required")
@@ -136,20 +125,14 @@ func (r *Reconciler) Start(_ context.Context) error {
 }
 
 // Stop signals the tick loop to exit and waits up to ShutdownDeadline for
-// the in-flight tick to drain. Late ticks see workCtx canceled and bail out.
+// the in-flight tick to drain. running flips to false under the mutex
+// before wg.Wait so a concurrent second Stop is a no-op.
 //
-// running flips to false under the mutex *before* wg.Wait so a concurrent
-// second Stop sees `running == false` at the guard and returns immediately
-// instead of falling through to a duplicate wg.Wait.
-//
-// Known concurrency edge: a Start arriving in the window between the
-// mu.Unlock above and the goroutine's wg.Done can observe running=false,
-// install fresh stopCancel/workCancel, and add a second goroutine to the
-// same WaitGroup. Stop's wg.Wait would then return after only the first
-// goroutine drains, leaving the second live. fleetd's lifecycle calls
-// Start once at startup and Stop once at shutdown, so this is unreachable
-// in practice. Adding a `stopping` state guard is the fix if the lifecycle
-// ever grows a restart path.
+// Known edge: a Start arriving between mu.Unlock and the old goroutine's
+// wg.Done can install fresh cancel funcs and add a second goroutine to the
+// same WaitGroup, leaving it live after Stop returns. Unreachable in
+// fleetd today (Start/Stop each fire once); add a `stopping` state guard
+// if the lifecycle ever grows a restart path.
 func (r *Reconciler) Stop() error {
 	r.mu.Lock()
 	if !r.running {
@@ -192,9 +175,9 @@ func (r *Reconciler) tickLoop(stopCtx, workCtx context.Context) {
 	}
 }
 
-// safeTick wraps runTick in a defer/recover so a panic outside the per-event
-// loop (e.g. ListNonTerminalEvents, heartbeat upsert) does not tear down the
-// goroutine. The next tick continues normally.
+// safeTick recovers panics in tick-level infra (ListNonTerminalEvents,
+// heartbeat upsert) so the goroutine survives. Per-event isolation is
+// handled separately in processEvent.
 func (r *Reconciler) safeTick(ctx context.Context) {
 	defer func() {
 		if rec := recover(); rec != nil {
@@ -204,17 +187,15 @@ func (r *Reconciler) safeTick(ctx context.Context) {
 	r.runTick(ctx)
 }
 
-// runTick is one reconciliation pass. Errors at the per-event boundary are
-// logged and isolated; the heartbeat upsert happens regardless so a single
-// bad event cannot blind the liveness alert.
+// runTick is one reconciliation pass. Per-event errors are isolated; the
+// heartbeat upsert always fires so a bad event cannot blind liveness.
 func (r *Reconciler) runTick(ctx context.Context) {
 	tickStart := r.now()
 	tickUUID := uuid.New()
 	events, err := r.store.ListNonTerminalEvents(ctx)
 	if err != nil {
 		slog.Error("curtailment reconciler: failed to list non-terminal events", "error", err)
-		// Heartbeat still updates with active_event_count=0 so liveness alerts
-		// continue to fire-or-not based on tick freshness, not query health.
+		// Heartbeat advances on tick freshness, not query health.
 		r.upsertHeartbeat(ctx, tickStart, tickUUID, 0)
 		return
 	}
@@ -227,11 +208,9 @@ func (r *Reconciler) runTick(ctx context.Context) {
 }
 
 func (r *Reconciler) upsertHeartbeat(_ context.Context, tickStart time.Time, tickUUID uuid.UUID, activeCount int32) {
-	durationMS := int32(r.now().Sub(tickStart).Milliseconds()) //nolint:gosec // tick durations fit in int32 well past pathological cases
-	// Detach from workCtx so the shutdown-watchdog cancellation cannot drop
-	// the final heartbeat — liveness alerts must see the last completed tick
-	// even when the process is winding down. A short bound keeps a stuck DB
-	// from blocking shutdown.
+	durationMS := int32(r.now().Sub(tickStart).Milliseconds()) //nolint:gosec // tick durations fit in int32
+	// Detach from workCtx so shutdown-watchdog cancellation cannot drop the
+	// final heartbeat; the timeout bounds blocking on a stuck DB.
 	hbCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := r.store.UpsertHeartbeat(hbCtx, interfaces.UpsertCurtailmentHeartbeatParams{
@@ -244,11 +223,9 @@ func (r *Reconciler) upsertHeartbeat(_ context.Context, tickStart time.Time, tic
 	}
 }
 
-// processEvent dispatches per-state work for a single non-terminal event.
-// The defer/recover here is load-bearing for per-event isolation: a panic
-// in one event must not abort processing of the remaining events in the
-// same tick. safeTick's outer recover is a backstop for tick-level infra
-// (ListNonTerminalEvents, heartbeat upsert), not per-event isolation.
+// processEvent dispatches per-state work for one non-terminal event.
+// The defer/recover here is load-bearing: a panic in one event must not
+// abort processing of the rest of the tick.
 func (r *Reconciler) processEvent(ctx context.Context, ev *models.Event) {
 	defer func() {
 		if rec := recover(); rec != nil {
@@ -256,28 +233,23 @@ func (r *Reconciler) processEvent(ctx context.Context, ev *models.Event) {
 				"event_id", ev.ID, "event_uuid", ev.EventUUID, "panic", rec)
 		}
 	}()
-	switch ev.State { //nolint:exhaustive // Terminal states (completed/cancelled/failed/...) are filtered upstream by ListNonTerminalEvents; default arm logs if one slips through.
+	switch ev.State { //nolint:exhaustive // Terminal states are filtered upstream by ListNonTerminalEvents; default logs if one slips through.
 	case models.EventStatePending:
 		r.dispatchPending(ctx, ev)
 	case models.EventStateActive:
 		r.observeActive(ctx, ev)
 	case models.EventStateRestoring:
-		// The restorer owns the restoring path. Pending/active reconciliation
-		// does not write here; touching restoring rows would race it.
+		// Restorer owns this path; touching restoring rows would race it.
 	default:
 		slog.Warn("curtailment reconciler: unexpected event state",
 			"event_id", ev.ID, "state", ev.State)
 	}
 }
 
-// dispatchPending dispatches Curtail per pending target, then confirms any
-// dispatched targets whose telemetry already shows curtailment. The event
-// flips to `active` once every target has reached confirmed (or has been
-// terminally abandoned via the retry-budget exhaustion path).
-//
-// Targets are read once per event per tick; the three phases mutate the
-// in-memory slice so downstream phases see the latest local state without
-// a second ListTargetsByEvent round-trip.
+// dispatchPending dispatches Curtail per pending target, confirms any
+// already-dispatched targets via telemetry, then flips the event to active
+// once every target is confirmed or terminally failed. Targets are read
+// once per tick; phases mutate the in-memory slice in place.
 func (r *Reconciler) dispatchPending(ctx context.Context, ev *models.Event) {
 	targets, err := r.store.ListTargetsByEvent(ctx, ev.OrgID, ev.EventUUID)
 	if err != nil {
@@ -286,9 +258,8 @@ func (r *Reconciler) dispatchPending(ctx context.Context, ev *models.Event) {
 		return
 	}
 	if len(targets) == 0 {
-		// Service.Start rejects empty plans; an event with zero targets is a
-		// contract violation. Log and skip — manual operator intervention is
-		// the recovery path.
+		// Service.Start rejects empty plans, so a zero-target event is a
+		// contract violation; manual intervention is the only recovery.
 		slog.Error("curtailment reconciler: pending event has no targets",
 			"event_id", ev.ID, "event_uuid", ev.EventUUID)
 		return
@@ -302,18 +273,15 @@ func (r *Reconciler) dispatchPending(ctx context.Context, ev *models.Event) {
 		r.dispatchOneCurtail(cmdCtx, ev, t, models.TargetStatePending)
 	}
 
-	// Confirm any already-dispatched targets via the latest telemetry sample
-	// before deciding whether the event itself can flip to active.
+	// Confirm just-dispatched targets via current telemetry before deciding
+	// whether the event itself can flip to active.
 	r.confirmDispatched(ctx, ev, targets)
 	r.maybeMarkActive(ctx, ev, targets)
 }
 
-// confirmDispatched walks the event's targets and promotes dispatched →
-// confirmed when telemetry shows the device is curtailed. Pending and
-// drifted rows are unaffected here. Targets is the shared per-tick slice;
-// confirmation updates are mirrored back onto the slice. Per-target work
-// delegates to confirmOneDispatched so this loop and observeActive's
-// re-entry path share a single confirmation primitive.
+// confirmDispatched promotes Dispatched → Confirmed when telemetry shows
+// the device is curtailed. Per-target work delegates to confirmOneDispatched
+// so this and observeActive's re-entry path share one primitive.
 func (r *Reconciler) confirmDispatched(ctx context.Context, ev *models.Event, targets []*models.Target) {
 	deviceIDs := make([]string, 0, len(targets))
 	for _, t := range targets {
@@ -342,27 +310,16 @@ func (r *Reconciler) confirmDispatched(ctx context.Context, ev *models.Event, ta
 	}
 }
 
-// dispatchOneCurtail issues one Curtail command for a single target and
-// records the dispatch outcome on the row. nonTerminalFailureState is the
-// state the target should fall back to when the dispatch fails but retry
-// budget remains — pending callers pass TargetStatePending so the next
-// tick's dispatchPending picks it up; drifted callers pass TargetStateDrifted
-// so observeActive's drift arm picks it up.
+// dispatchOneCurtail issues one Curtail and records the outcome.
+// nonTerminalFailureState is where the target lands on a non-terminal
+// failure (pending → Pending; drifted → Drifted). Filter-skips and
+// empty-batch results are treated as failed dispatches so the work isn't
+// silently dropped. Success clears LastError.
 //
-// Filter-skip handling: when result.Skipped contains the target's identifier
-// the command never enqueued, so promoting to dispatched would drop the work
-// silently. Treat as a failed dispatch and surface the skip reason on the
-// row so the next tick can retry (or exhaust the budget).
-//
-// On success the row clears LastError so a transient miss does not shadow
-// the resolved state in the UI.
-//
-// Restart-safety gap: dispatch is enqueued before UpdateTargetState writes
-// the dispatched-state row. If the process crashes between the two, the
-// command is in-flight while the target stays pending and the next tick
-// will redispatch — a duplicate Curtail is safe (idempotent) but the audit
-// shows two batches. A two-phase target-state-then-dispatch design is
-// deferred to a follow-up commit.
+// Restart-safety gap: command is enqueued before the Dispatched-state
+// write; a crash between the two leaves the target Pending with an
+// in-flight batch. Next tick redispatches (Curtail is idempotent at the
+// device, but audit logs show two batches).
 func (r *Reconciler) dispatchOneCurtail(ctx context.Context, ev *models.Event, t *models.Target, nonTerminalFailureState models.TargetState) {
 	selector := &pb.DeviceSelector{
 		SelectionType: &pb.DeviceSelector_IncludeDevices{
@@ -385,10 +342,8 @@ func (r *Reconciler) dispatchOneCurtail(ctx context.Context, ev *models.Event, t
 		r.recordDispatchFailure(ctx, ev, t, skipReason, nonTerminalFailureState)
 		return
 	}
-	// processCommand can return nil-error with empty BatchIdentifier when no
-	// device IDs resolved (e.g. miner unpaired or deleted between Start and
-	// reconcile). No batch was enqueued, so the target must NOT be marked
-	// dispatched — treat as a failed dispatch attempt that consumes a retry.
+	// Empty BatchIdentifier means no device IDs resolved (miner unpaired
+	// or deleted post-Start). No batch enqueued; treat as a failed attempt.
 	if result == nil || result.BatchIdentifier == "" {
 		const reason = "command produced no batch (no live devices to dispatch)"
 		slog.Warn("curtailment reconciler: dispatch produced empty batch",
@@ -411,22 +366,16 @@ func (r *Reconciler) dispatchOneCurtail(ctx context.Context, ev *models.Event, t
 			"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
 		return
 	}
-	// Mutate the in-memory row so downstream phases in this same tick see the
-	// new state without a second ListTargetsByEvent fetch.
+	// Mirror to the in-memory row so this tick's downstream phases see it.
 	t.State = models.TargetStateDispatched
 	t.LastDispatchedAt = &now
 	t.LastError = nil
 	t.LastBatchUUID = &batchID
 }
 
-// recordDispatchFailure increments the target's retry counter and either
-// keeps it in nonTerminalFailureState (still has budget) or transitions it
-// to RestoreFailed once the budget is exhausted. The terminal transition
-// lets the event proceed to active even though this target never confirmed.
-//
-// Callers pass the state the target should fall back to on a non-terminal
-// failure: pending dispatches stay pending; drift redispatches stay drifted
-// so observeActive's drift arm picks them up next tick.
+// recordDispatchFailure bumps retry_count; keeps the target in
+// nonTerminalFailureState while budget remains, transitions to RestoreFailed
+// at exhaustion so the event can still proceed to active.
 func (r *Reconciler) recordDispatchFailure(ctx context.Context, ev *models.Event, t *models.Target, errMsg string, nonTerminalFailureState models.TargetState) {
 	newRetry := t.RetryCount + 1
 	state := nonTerminalFailureState
@@ -443,14 +392,14 @@ func (r *Reconciler) recordDispatchFailure(ctx context.Context, ev *models.Event
 			"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
 		return
 	}
-	// Mirror the persisted state on the in-memory row for the rest of the tick.
+	// Mirror to in-memory row for the rest of this tick.
 	t.State = state
 	t.RetryCount = newRetry
 	t.LastError = &errMsg
 }
 
-// skipReasonForDevice extracts the filter-skip reason for deviceID from a
-// CommandResult. Returns ("", false) when the device was not skipped.
+// skipReasonForDevice extracts the filter-skip reason for deviceID.
+// Returns ("", false) when the device was not skipped.
 func skipReasonForDevice(result *command.CommandResult, deviceID string) (string, bool) {
 	if result == nil {
 		return "", false
@@ -469,13 +418,9 @@ func skipReasonForDevice(result *command.CommandResult, deviceID string) (string
 	return "", false
 }
 
-// observeActive walks the event's targets, computing drift against the
-// latest telemetry sample and re-dispatching up to MaxRetries.
-//
-// Telemetry trade-off: ListCandidates pulls more columns than the drift
-// check needs (avg_efficiency, pairing status, ...). We accept that cost
-// for now to avoid a parallel sqlc query; the per-tick fanout is small
-// (a handful of events times a few hundred targets at the v1 cap).
+// observeActive checks drift on confirmed targets and re-dispatches drifted
+// targets up to MaxRetries. ListCandidates over-fetches columns the drift
+// check ignores; acceptable at the per-tick fanout scale.
 func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 	targets, err := r.store.ListTargetsByEvent(ctx, ev.OrgID, ev.EventUUID)
 	if err != nil {
@@ -508,40 +453,30 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 		case models.TargetStateConfirmed:
 			r.checkDrift(cmdCtx, ev, t, candByID[t.DeviceIdentifier])
 		case models.TargetStateDispatched:
-			// Re-entry path: a target that drifted then re-dispatched is
-			// waiting on confirmation telemetry. Run the same confirm logic
-			// the pending phase uses; on success the next tick checks drift.
+			// Re-entry: drifted-then-redispatched, waiting on confirmation.
 			r.confirmOneDispatched(cmdCtx, ev, t, candByID[t.DeviceIdentifier], models.TargetStateDispatched)
 		case models.TargetStateDrifted:
-			// Re-dispatch unless the retry budget is exhausted. The dispatch
-			// path bumps retry_count only on failure, so a successful
-			// redispatch consumes the same budget slot as the eventual
-			// confirmation. The `>= MaxRetries` check is a defensive backstop:
-			// recordDispatchFailure routes drifted-budget-exhausted targets to
-			// RestoreFailed at the boundary, so a TargetStateDrifted row with
-			// RetryCount>=MaxRetries should not occur in normal operation —
-			// only after a failed UpdateTargetState write.
+			// Re-dispatch unless the budget is exhausted. The `>= MaxRetries`
+			// check is a backstop: recordDispatchFailure routes
+			// budget-exhausted targets to RestoreFailed at the boundary, so a
+			// Drifted row with RetryCount>=MaxRetries only occurs after a
+			// failed UpdateTargetState write.
 			if t.RetryCount >= r.cfg.MaxRetries {
 				continue
 			}
 			r.dispatchOneCurtail(cmdCtx, ev, t, models.TargetStateDrifted)
 		case models.TargetStatePending, models.TargetStateResolved,
 			models.TargetStateReleased, models.TargetStateRestoreFailed:
-			// Pending: shouldn't appear on an active event, leave alone.
-			// Resolved / Released / RestoreFailed: terminal — restorer owns.
+			// Pending: shouldn't appear on active. Resolved/Released/RestoreFailed: terminal, restorer owns.
 		}
 	}
 }
 
-// confirmOneDispatched is the per-target confirm path used both in the
-// dispatchPending phase (via confirmDispatched) and on observeActive's
-// drift-then-redispatch re-entry. Promotes the target to confirmed when
-// telemetry shows curtailment; resets retry_count on confirmation.
-//
-// nonTerminalState is where the target lands when the candidate row is
-// missing (device unpaired/deleted after dispatch). recordDispatchFailure
-// consumes a retry slot and routes to RestoreFailed at budget exhaustion,
-// so a vanished device cannot stall the event indefinitely.
+// confirmOneDispatched promotes Dispatched → Confirmed when telemetry shows
+// curtailment, resetting retry_count. Used by both dispatchPending (via
+// confirmDispatched) and observeActive's redispatch re-entry. Missing
+// candidate row routes through recordDispatchFailure so a vanished device
+// can't stall the event.
 func (r *Reconciler) confirmOneDispatched(ctx context.Context, ev *models.Event, t *models.Target, c *models.Candidate, nonTerminalState models.TargetState) {
 	if c == nil {
 		r.recordDispatchFailure(ctx, ev, t, "candidate row missing (device unpaired or deleted)", nonTerminalState)
@@ -576,11 +511,9 @@ func (r *Reconciler) confirmOneDispatched(ctx context.Context, ev *models.Event,
 	}
 }
 
-// checkDrift evaluates a confirmed target against the latest telemetry. If
-// the device looks uncurtailed, transition to `drifted` and re-dispatch when
-// budget remains. Drift detection itself is just a state change; the retry
-// budget represents *dispatch attempts*, so the bump happens inside
-// dispatchOneCurtail's failure path, not here.
+// checkDrift evaluates a confirmed target against telemetry. Uncurtailed
+// → Drifted, re-dispatch if budget remains. retry_count tracks dispatch
+// attempts, so the bump lives in dispatchOneCurtail, not here.
 func (r *Reconciler) checkDrift(ctx context.Context, ev *models.Event, t *models.Target, c *models.Candidate) {
 	if c == nil {
 		r.recordDispatchFailure(ctx, ev, t, "candidate row missing (device unpaired or deleted)", models.TargetStateDrifted)
@@ -606,16 +539,14 @@ func (r *Reconciler) checkDrift(ctx context.Context, ev *models.Event, t *models
 		if params.ObservedPowerW != nil {
 			t.ObservedPowerW = params.ObservedPowerW
 		}
-		// Stay drifted (no re-dispatch) once the budget is exhausted; matches
-		// observeActive's drift arm so detection and re-entry agree.
+		// Budget exhausted: stay Drifted (matches observeActive's drift arm).
 		if t.RetryCount >= r.cfg.MaxRetries {
 			return
 		}
 		r.dispatchOneCurtail(ctx, ev, t, models.TargetStateDrifted)
 		return
 	}
-	// Still curtailed; refresh observed_power_w / observed_at as a
-	// continuously updated rolling read.
+	// Still curtailed: refresh observed_power_w / observed_at as a rolling read.
 	now := r.now()
 	params := interfaces.UpdateCurtailmentTargetStateParams{
 		State:      models.TargetStateConfirmed,
@@ -636,13 +567,9 @@ func (r *Reconciler) checkDrift(ctx context.Context, ev *models.Event, t *models
 	}
 }
 
-// maybeMarkActive flips the event from pending to active once every target
-// has reached a confirmed or terminal-failure state. Targets stuck in
-// dispatched / pending (still waiting for telemetry or retry budget) keep
-// the event in pending; the next tick re-evaluates after a fresh sample.
-//
-// When every target is in a terminal-failure state, transition the event to
-// completed_with_failures rather than letting it sit indefinitely.
+// maybeMarkActive flips Pending → Active once every target is Confirmed or
+// terminally failed. All-failed events skip past Active to
+// completed_with_failures so they can't sit indefinitely.
 func (r *Reconciler) maybeMarkActive(ctx context.Context, ev *models.Event, targets []*models.Target) {
 	confirmed, terminalFailures := 0, 0
 	for _, t := range targets {
@@ -653,20 +580,17 @@ func (r *Reconciler) maybeMarkActive(ctx context.Context, ev *models.Event, targ
 			terminalFailures++
 		case models.TargetStatePending, models.TargetStateDispatched,
 			models.TargetStateDrifted:
-			// Still in flight; hold the event in pending until the next tick.
+			// In flight; hold Pending for the next tick.
 			return
 		case models.TargetStateResolved, models.TargetStateReleased:
-			// Not reachable on a pending event, but list explicitly for
-			// exhaustiveness — a row in either state means the restorer
-			// already ran, which would be a contract violation here. Hold
-			// pending so a manual cleanup is the only escape.
+			// Unreachable on a pending event (restorer hasn't run yet); a row
+			// here is a contract violation. Hold Pending; manual cleanup only.
 			return
 		}
 	}
 	if confirmed == 0 && terminalFailures > 0 {
-		// Every target failed permanently; nothing curtailed, nothing to
-		// restore. Skip past active and land directly on the failure
-		// terminal so the event doesn't stay non-terminal forever.
+		// All-failed: nothing curtailed, nothing to restore. Skip Active
+		// and land on the failure terminal directly.
 		now := r.now()
 		slog.Warn("curtailment reconciler: pending event has all-terminal targets; marking completed_with_failures",
 			"event_id", ev.ID, "failed_target_count", terminalFailures)
@@ -687,10 +611,10 @@ func (r *Reconciler) maybeMarkActive(ctx context.Context, ev *models.Event, targ
 	}
 }
 
-// reconcilerContext stamps a synthetic session.Info on the dispatch ctx so
-// command preflight (CurtailmentActiveFilter) recognizes our self-traffic.
-// userID is the operator captured at Start time (curtailment_event.created_by_user_id);
-// it satisfies command_batch_log.created_by's NOT NULL FK to user(id).
+// reconcilerContext stamps synthetic session.Info on the dispatch ctx.
+// Actor=ActorCurtailment lets CurtailmentActiveFilter recognize self-traffic;
+// userID (from curtailment_event.created_by_user_id) satisfies
+// command_batch_log.created_by's NOT NULL FK to user(id).
 func reconcilerContext(parent context.Context, orgID int64, userID int64) context.Context {
 	return authn.SetInfo(parent, &session.Info{
 		SessionID:      reconcilerActorName,
@@ -702,25 +626,21 @@ func reconcilerContext(parent context.Context, orgID int64, userID int64) contex
 	})
 }
 
-// isCurtailed decides whether telemetry indicates the target is curtailed.
-// requirePositiveEvidence flips the missing-sample policy:
-//   - true (confirmation path): missing/non-finite power returns false outright
-//     so a `dispatched` target is not promoted to `confirmed` without
-//     positive evidence the device actually went down. Missing/non-finite
-//     hash also returns false when baseline is absent (no usable signal).
-//   - false (drift detection path): missing/non-finite samples preserve
-//     curtailed=true so a transient bad sensor reading does not trigger a
-//     redispatch storm.
+// isCurtailed decides whether telemetry shows the target is curtailed.
+// Power-vs-baseline ranks above hash_rate; missing baseline falls back to
+// hash_rate alone (positive hash = mining resumed).
 //
-// Power vs. baseline ranks above hash_rate; missing baseline falls back to
-// hash_rate alone (positive hash = mining resumed = not curtailed).
+// requirePositiveEvidence flips the missing-sample policy:
+//   - true (confirm path): missing/non-finite samples → false. A Dispatched
+//     target is not promoted to Confirmed without positive evidence.
+//   - false (drift path): missing/non-finite samples preserve curtailed=true
+//     so a flaky sensor doesn't trigger a redispatch storm.
 func isCurtailed(latestPowerW *float64, baselinePowerW *float64, latestHashRateHS *float64, driftThresholdFactor float64, requirePositiveEvidence bool) bool {
 	if latestPowerW == nil || !isFinite(*latestPowerW) {
 		if requirePositiveEvidence {
 			return false
 		}
-		// Drift path: fall back to hash. Zero-or-missing hash → still curtailed;
-		// positive hash → mining resumed.
+		// Drift path: zero/missing hash → still curtailed; positive hash → resumed.
 		if latestHashRateHS == nil || !isFinite(*latestHashRateHS) {
 			return true
 		}
@@ -730,10 +650,8 @@ func isCurtailed(latestPowerW *float64, baselinePowerW *float64, latestHashRateH
 		threshold := *baselinePowerW * driftThresholdFactor
 		return *latestPowerW <= threshold
 	}
-	// Baseline missing: dual-signal fallback uses hash_rate alone.
+	// Baseline missing: hash-only fallback.
 	if latestHashRateHS == nil || !isFinite(*latestHashRateHS) {
-		// Confirm path: no usable signal → no evidence. Drift path: preserve
-		// curtailed.
 		return !requirePositiveEvidence
 	}
 	return *latestHashRateHS <= 0

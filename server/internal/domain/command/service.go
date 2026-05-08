@@ -72,13 +72,13 @@ type Service struct {
 	activitySvc         *activity.Service
 
 	resolveDeviceIDsOverride func(context.Context, []string) ([]int64, error)
-	// Test hooks: when set, processCommand uses these instead of the real DB
-	// batch insert / status update routine. Production code never sets them.
+	// Test-only hooks; production never sets these. When set, processCommand
+	// uses them instead of the real DB batch insert / status-update goroutine.
 	saveCommandBatchLogOverride      func(ctx context.Context, userID, organizationID int64, command *Command, payloadBytes []byte, devicesCount int) (string, error)
 	startStatusUpdateRoutineOverride func(batchUUID string, finalizer onFinishedCallbackFunc)
 
-	// filters run in registration order before commands are enqueued. Registered
-	// at startup only; the slice is not mutex-protected.
+	// filters run in registration order. Registered at startup only;
+	// the slice is not mutex-protected.
 	filters []CommandFilter
 }
 
@@ -1322,9 +1322,9 @@ func (s *Service) Unpair(ctx context.Context, deviceSelector *pb.DeviceSelector)
 	return result, nil
 }
 
-// Curtail enqueues a curtailment command at the given level. Reconciler-origin
+// Curtail enqueues a curtailment command at the given level. Reconciler
 // callers must set session.Actor=ActorCurtailment so the curtailment-active
-// preflight filter bypasses self-blocking.
+// filter bypasses self-blocking.
 func (s *Service) Curtail(ctx context.Context, deviceSelector *pb.DeviceSelector, level sdk.CurtailLevel) (*CommandResult, error) {
 	payload := dto.CurtailPayload{Level: int32(level)}
 	result, err := s.processCommand(
