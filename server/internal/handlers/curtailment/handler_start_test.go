@@ -2,6 +2,7 @@ package curtailment
 
 import (
 	"context"
+	"math"
 	"testing"
 	"time"
 
@@ -360,6 +361,48 @@ func TestHandler_StartCurtailment_AllowUnboundedAdminPersistsNullDuration(t *tes
 	require.NoError(t, err)
 	assert.True(t, store.lastEvent.AllowUnbounded)
 	assert.Nil(t, store.lastEvent.MaxDurationSeconds)
+}
+
+// TestHandler_StartCurtailment_RejectsUint32Overflow pins the strict
+// overflow rejection on the four uint32 → int32 fields the translator
+// converts. A value above MaxInt32 must surface as InvalidArgument
+// naming the offending field rather than silently saturating.
+func TestHandler_StartCurtailment_RejectsUint32Overflow(t *testing.T) {
+	t.Parallel()
+
+	const overflow uint32 = math.MaxInt32 + 1
+
+	cases := []struct {
+		field string
+		mut   func(*pb.StartCurtailmentRequest)
+	}{
+		{"max_duration_seconds", func(r *pb.StartCurtailmentRequest) { r.MaxDurationSeconds = overflow }},
+		{"restore_batch_size", func(r *pb.StartCurtailmentRequest) { r.RestoreBatchSize = overflow }},
+		{"restore_batch_interval_sec", func(r *pb.StartCurtailmentRequest) { r.RestoreBatchIntervalSec = overflow }},
+		{"min_curtailed_duration_sec", func(r *pb.StartCurtailmentRequest) { r.MinCurtailedDurationSec = overflow }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.field, func(t *testing.T) {
+			t.Parallel()
+			store := newStartStubStore()
+			h := NewHandler(curtailment.NewService(store))
+			ctx := authn.SetInfo(t.Context(), &session.Info{
+				AuthMethod:     session.AuthMethodSession,
+				OrganizationID: 1,
+				Role:           "OPERATOR",
+				SessionID:      "sess",
+			})
+
+			req := validStartRequestBuilder()
+			tc.mut(req)
+			_, err := h.StartCurtailment(ctx, connect.NewRequest(req))
+			require.Error(t, err)
+			var fleetErr fleeterror.FleetError
+			require.ErrorAs(t, err, &fleetErr)
+			assert.Equal(t, connect.CodeInvalidArgument, fleetErr.GRPCCode)
+			assert.Contains(t, err.Error(), tc.field)
+		})
+	}
 }
 
 // TestHandler_StartCurtailment_OutcomeMirrorsInsufficientLoadShapeOnZeroPool

@@ -135,12 +135,25 @@ func toStartRequest(msg *pb.StartCurtailmentRequest, info *session.Info) (curtai
 		preview.CandidateMinPowerWOverride = &v
 	}
 
+	restoreBatchSize, err := uint32ToInt32Strict("restore_batch_size", msg.GetRestoreBatchSize())
+	if err != nil {
+		return curtailment.StartRequest{}, err
+	}
+	restoreBatchIntervalSec, err := uint32ToInt32Strict("restore_batch_interval_sec", msg.GetRestoreBatchIntervalSec())
+	if err != nil {
+		return curtailment.StartRequest{}, err
+	}
+	minCurtailedDurationSec, err := uint32ToInt32Strict("min_curtailed_duration_sec", msg.GetMinCurtailedDurationSec())
+	if err != nil {
+		return curtailment.StartRequest{}, err
+	}
+
 	out := curtailment.StartRequest{
 		PreviewRequest:          preview,
 		Reason:                  msg.GetReason(),
-		RestoreBatchSize:        uint32ToInt32Saturating(msg.GetRestoreBatchSize()),
-		RestoreBatchIntervalSec: uint32ToInt32Saturating(msg.GetRestoreBatchIntervalSec()),
-		MinCurtailedDurationSec: uint32ToInt32Saturating(msg.GetMinCurtailedDurationSec()),
+		RestoreBatchSize:        restoreBatchSize,
+		RestoreBatchIntervalSec: restoreBatchIntervalSec,
+		MinCurtailedDurationSec: minCurtailedDurationSec,
 		AllowUnbounded:          msg.GetAllowUnbounded(),
 		IdempotencyKey:          nonEmptyPtr(msg.GetIdempotencyKey()),
 		ExternalSource:          nonEmptyPtr(msg.GetExternalSource()),
@@ -152,10 +165,14 @@ func toStartRequest(msg *pb.StartCurtailmentRequest, info *session.Info) (curtai
 	if !out.AllowUnbounded {
 		// max_duration_seconds=0 is the proto sentinel for "use the org's
 		// configured default"; leave MaxDurationSeconds nil and let
-		// Service.Start normalize against curtailment_org_config. A non-zero
-		// value is forwarded as-is for the validator's >0 bound to enforce.
+		// Service.Start normalize against curtailment_org_config. Non-zero
+		// values are bounds-checked rather than silently saturated so a
+		// caller sending a wildly out-of-range value sees InvalidArgument.
 		if raw := msg.GetMaxDurationSeconds(); raw > 0 {
-			v := uint32ToInt32Saturating(raw)
+			v, err := uint32ToInt32Strict("max_duration_seconds", raw)
+			if err != nil {
+				return curtailment.StartRequest{}, err
+			}
 			out.MaxDurationSeconds = &v
 		}
 	}
@@ -293,15 +310,17 @@ func resolvePriority(p pb.CurtailmentPriority) pb.CurtailmentPriority {
 	}
 }
 
-// uint32ToInt32Saturating clamps a proto-uint32 to int32 max so the service
-// layer doesn't see an overflowed negative value. Proto validators cap
-// reachable inputs well below MaxInt32; this is the non-Connect-caller
-// backstop.
-func uint32ToInt32Saturating(v uint32) int32 {
+// uint32ToInt32Strict converts a proto-uint32 to int32, rejecting overflow
+// with InvalidArgument naming the field. Silent saturation at the
+// translation boundary breaks request/response accuracy for valid protobuf
+// inputs above MaxInt32, so callers see a clear error instead.
+func uint32ToInt32Strict(field string, v uint32) (int32, error) {
 	if v > math.MaxInt32 {
-		return math.MaxInt32
+		return 0, fleeterror.NewInvalidArgumentErrorf(
+			"%s exceeds int32 max: %d", field, v,
+		)
 	}
-	return int32(v) // #nosec G115 -- bounds-checked above
+	return int32(v), nil // #nosec G115 -- bounds-checked above
 }
 
 // nonEmptyPtr returns nil for an empty proto3 string, &s otherwise. Used so
