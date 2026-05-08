@@ -51,6 +51,15 @@ type fakeStore struct {
 	// Start path. Default behavior is NotFound / panic respectively.
 	idempotencyHit     *models.Event
 	idempotencyTargets []*models.Target
+
+	// idempotencyRaceWinner / idempotencyRaceWinnerTargets simulate a
+	// concurrent Start that won the unique-index race: when
+	// InsertEventWithTargets is configured to return
+	// ErrCurtailmentIdempotencyKeyConflict, the fake atomically installs the
+	// winner into idempotencyHit/idempotencyTargets so the service's post-
+	// conflict re-read returns the winner's persisted shape.
+	idempotencyRaceWinner        *models.Event
+	idempotencyRaceWinnerTargets []*models.Target
 }
 
 func newFakeStore() *fakeStore {
@@ -153,12 +162,16 @@ func (f *fakeStore) InsertEventWithTargets(
 	event models.InsertEventParams,
 	targets []models.InsertTargetParams,
 ) (*models.InsertEventResult, error) {
-	if f.insertEventErr != nil {
-		return nil, f.insertEventErr
-	}
 	f.insertEventCalls++
 	f.lastInsertEvent = event
 	f.lastInsertTargets = append([]models.InsertTargetParams(nil), targets...)
+	if f.insertEventErr != nil {
+		if f.idempotencyRaceWinner != nil {
+			f.idempotencyHit = f.idempotencyRaceWinner
+			f.idempotencyTargets = f.idempotencyRaceWinnerTargets
+		}
+		return nil, f.insertEventErr
+	}
 	id := f.nextEventID
 	f.nextEventID++
 	return &models.InsertEventResult{

@@ -3,6 +3,7 @@ package curtailment
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math"
 	"strings"
 
@@ -159,6 +160,18 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 
 	result, err := s.store.InsertEventWithTargets(ctx, eventParams, targetParams)
 	if err != nil {
+		// Race: two concurrent Starts with the same idempotency_key both
+		// missed the pre-read short-circuit; the loser hits the partial
+		// unique index. Re-read and return the winner's persisted shape so
+		// the loser sees an idempotent retry, not Internal.
+		if errors.Is(err, interfaces.ErrCurtailmentIdempotencyKeyConflict) &&
+			req.IdempotencyKey != nil && *req.IdempotencyKey != "" {
+			existing, getErr := s.store.GetEventByIdempotencyKey(ctx, req.OrgID, *req.IdempotencyKey)
+			if getErr != nil {
+				return nil, getErr
+			}
+			return s.planFromExistingEvent(ctx, existing)
+		}
 		return nil, err
 	}
 

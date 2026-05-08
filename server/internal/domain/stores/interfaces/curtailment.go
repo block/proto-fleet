@@ -2,12 +2,20 @@ package interfaces
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 )
+
+// ErrCurtailmentIdempotencyKeyConflict is returned by InsertEventWithTargets
+// when the partial unique index uq_curtailment_event_idempotency rejects the
+// insert. Two concurrent Start calls with the same key both miss the pre-read
+// short-circuit; one wins the insert, the other lands here. Callers retry by
+// re-reading via GetEventByIdempotencyKey instead of bubbling Internal.
+var ErrCurtailmentIdempotencyKeyConflict = errors.New("curtailment: idempotency_key conflict")
 
 // UpdateCurtailmentTargetStateParams gathers the optional fields the
 // reconciler may patch when transitioning a target. Nil pointers leave the

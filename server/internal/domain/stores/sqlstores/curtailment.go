@@ -23,6 +23,12 @@ import (
 // pgErrCodeForeignKeyViolation is PostgreSQL's SQLSTATE for foreign_key_violation.
 const pgErrCodeForeignKeyViolation = "23503"
 
+// curtailmentEventIdempotencyIndex is the partial unique index name from
+// migration 000042. Matched against pgErr.ConstraintName so we only swallow
+// races against this specific constraint, not every unique violation that
+// might surface from a future schema addition.
+const curtailmentEventIdempotencyIndex = "uq_curtailment_event_idempotency"
+
 func mapOrgConfigError(err error, orgID int64) error {
 	if err == nil {
 		return nil
@@ -148,6 +154,13 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 			ScheduledStartAt:        ptrToNullTime(event.ScheduledStartAt),
 		})
 		if err != nil {
+			if isCurtailmentIdempotencyConflict(err) {
+				// Race: another caller with the same (org_id, idempotency_key)
+				// won the insert. Surface a typed sentinel so the service
+				// layer re-reads via GetEventByIdempotencyKey instead of
+				// bubbling Internal.
+				return nil, interfaces.ErrCurtailmentIdempotencyKeyConflict
+			}
 			return nil, fleeterror.NewInternalErrorf("failed to insert curtailment event: %v", err)
 		}
 		for _, t := range targets {
@@ -377,6 +390,18 @@ func convertTargetRow(row sqlc.CurtailmentTarget) *models.Target {
 		LastError:             nullStringToPtr(row.LastError),
 		SelectorRationaleJSON: nullRawMessageToBytes(row.SelectorRationaleJsonb),
 	}
+}
+
+// isCurtailmentIdempotencyConflict reports whether err is the unique_violation
+// raised by uq_curtailment_event_idempotency. Constraint match is required so
+// a future unrelated unique index on curtailment_event cannot be silently
+// swallowed by this branch.
+func isCurtailmentIdempotencyConflict(err error) bool {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return false
+	}
+	return pgErr.Code == pgErrCodeUniqueViolation && pgErr.ConstraintName == curtailmentEventIdempotencyIndex
 }
 
 // --- conversion helpers (curtailment-scoped; lift to a shared file when a

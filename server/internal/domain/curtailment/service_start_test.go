@@ -12,6 +12,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/modes"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
 // validStartRequest builds a valid StartRequest pointing at orgID. Callers
@@ -329,6 +330,68 @@ func TestService_Start_IdempotencyKeyShortCircuitsToExistingEvent(t *testing.T) 
 	// candidate fetch, no insert.
 	assert.Equal(t, 0, store.listCandidatesCalls, "selector must not run on idempotency hit")
 	assert.Equal(t, 0, store.insertEventCalls, "no insert on idempotency hit")
+}
+
+// TestService_Start_IdempotencyKeyInsertRaceRecoversAsRetry pins the
+// concurrency contract: when two Starts share an idempotency_key and both
+// miss the pre-read short-circuit, the loser hits the partial unique index
+// at insert time. The store surfaces ErrCurtailmentIdempotencyKeyConflict;
+// the service must re-read the winner's persisted event and return its
+// shape rather than bubbling the unique violation as Internal.
+func TestService_Start_IdempotencyKeyInsertRaceRecoversAsRetry(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(42)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("worst", 6000, 100, 50),
+	}
+
+	winnerUUID := uuid.New()
+	maxDur := int32(7200)
+	idemKey := "racing-callers"
+	winner := &models.Event{
+		ID:                 555,
+		EventUUID:          winnerUUID,
+		OrgID:              orgID,
+		State:              models.EventStateActive,
+		MaxDurationSeconds: &maxDur,
+		IdempotencyKey:     &idemKey,
+	}
+	baseline := 6000.0
+	winnerTargets := []*models.Target{{
+		CurtailmentEventID: 555,
+		DeviceIdentifier:   "worst",
+		State:              models.TargetStatePending,
+		BaselinePowerW:     &baseline,
+	}}
+	// Pre-read miss + insert returns the conflict sentinel; the fake
+	// installs the winner into idempotencyHit so the service's recovery
+	// re-read picks it up. This mirrors the real DB race: pre-read sees no
+	// row, but by the time the loser's insert runs, the winner has
+	// committed and the unique index rejects.
+	store.insertEventErr = interfaces.ErrCurtailmentIdempotencyKeyConflict
+	store.idempotencyRaceWinner = winner
+	store.idempotencyRaceWinnerTargets = winnerTargets
+
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.IdempotencyKey = &idemKey
+
+	plan, err := svc.Start(t.Context(), req)
+	require.NoError(t, err, "insert-race must surface as idempotent retry, not error")
+	require.NotNil(t, plan)
+	require.NotNil(t, plan.EventUUID)
+	assert.Equal(t, winnerUUID, *plan.EventUUID, "loser must echo the winner's event_uuid")
+	require.NotNil(t, plan.PersistedEvent)
+	assert.Equal(t, winnerUUID, plan.PersistedEvent.EventUUID)
+	require.Len(t, plan.PersistedTargets, 1)
+	assert.Equal(t, "worst", plan.PersistedTargets[0].DeviceIdentifier)
+
+	// The selector pipeline ran (insert reached) but the recovery read used
+	// the winner's persisted shape rather than producing a new row.
+	assert.Equal(t, 1, store.insertEventCalls,
+		"InsertEventWithTargets must be attempted once before the conflict surfaces")
 }
 
 func TestService_Start_PersistsEventAndTargetsWithBaseline(t *testing.T) {
