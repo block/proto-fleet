@@ -7,24 +7,34 @@
 
 type RouteImporter = () => Promise<unknown>;
 
-const schedule = (cb: () => void): void => {
-  if (typeof window === "undefined") return;
+type CancelPrefetch = () => void;
+
+const NOOP_CANCEL: CancelPrefetch = () => undefined;
+
+const schedule = (cb: () => void): CancelPrefetch => {
+  if (typeof window === "undefined") return NOOP_CANCEL;
   if (typeof window.requestIdleCallback === "function") {
-    window.requestIdleCallback(cb, { timeout: 2000 });
-  } else {
-    // Safari < 16.4 path: defer past first paint without monopolising the
-    // main thread.
-    setTimeout(cb, 200);
+    const handle = window.requestIdleCallback(cb, { timeout: 2000 });
+    return () => window.cancelIdleCallback(handle);
   }
+  // Safari < 16.4 path. 500ms is a compromise: long enough to land past first
+  // paint on the older devices that hit this fallback (iPhones stuck on iOS
+  // < 16.4 can paint at 400-800ms under load), short enough that the warming
+  // win still pays off.
+  const handle = setTimeout(cb, 500);
+  return () => clearTimeout(handle);
 };
 
-export const prefetchRoutes = (importers: RouteImporter[]): void => {
-  schedule(() => {
+export const prefetchRoutes = (importers: RouteImporter[]): CancelPrefetch => {
+  return schedule(() => {
     for (const importer of importers) {
-      // Swallow errors: a prefetch failure shouldn't become an unhandled
-      // rejection. The real navigation re-invokes the import and surfaces
-      // any error through the Suspense/ErrorBoundary path.
-      importer().catch(() => undefined);
+      // Log rejections so a deploy that invalidates chunk hashes (and 404s
+      // every prefetch on every open tab) is visible in ops, not silent. The
+      // real navigation re-invokes the import and surfaces any error through
+      // the Suspense/ErrorBoundary path; this log is observability-only.
+      importer().catch((err) => {
+        console.error("[prefetchRoutes] chunk prefetch failed:", err);
+      });
     }
   });
 };

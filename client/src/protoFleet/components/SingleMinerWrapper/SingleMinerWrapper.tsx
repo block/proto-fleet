@@ -1,9 +1,8 @@
 import { ReactNode, useEffect } from "react";
 import { Link, useParams } from "react-router-dom";
+import { singleMinerRoutePrefetch } from "@/protoFleet/router";
 // eslint-disable-next-line no-restricted-imports -- Fleet shell hosts the protoOS single-miner experience
 import { MinerHostingProvider } from "@/protoOS/contexts/MinerHostingContext";
-// eslint-disable-next-line no-restricted-imports -- Fleet shell embeds the protoOS single-miner experience
-import { singleMinerRoutePrefetch } from "@/protoOS/router";
 import { DismissCircleDark } from "@/shared/assets/icons";
 import { prefetchRoutes } from "@/shared/utils/prefetchRoutes";
 
@@ -30,9 +29,9 @@ const SingleMinerWrapper = ({ children }: { children: ReactNode }) => {
   // Once the user is in /miners/:id/*, the sibling protoOS single-miner
   // chunks (KPI tabs, Logs, Diagnostics, per-miner Settings) are one click
   // away; warm them at idle so tab switches resolve without a Suspense flash.
-  useEffect(() => {
-    prefetchRoutes(singleMinerRoutePrefetch);
-  }, []);
+  // Returns the prefetch cancel handle so React cancels the pending idle
+  // callback on unmount (e.g. when the user exits back to /miners).
+  useEffect(() => prefetchRoutes(singleMinerRoutePrefetch), []);
 
   // Here we are just setting the base url to <vite_server>/:id,
   // which vite proxies to the actual miner api server.

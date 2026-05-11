@@ -19,6 +19,14 @@ export type CustomRouteObject = RouteObject & {
 // embeds these routes via singleMinerRoutes) stays slim until the user enters
 // /miners/:id/*. Factories are hoisted so prefetchRoutes() can call them again
 // at idle time to warm chunks before the user navigates.
+//
+// Adding a route is three coordinated edits:
+//   1. const importFoo = () => import("...");
+//   2. const Foo = lazy(importFoo);
+//   3. add `importFoo` to the relevant tier export (globalRoutePrefetch,
+//      settingsRoutePrefetch — singleMinerRoutePrefetch composes both).
+// Step 3 is not lint-enforced — a missed entry leaves the chunk un-warmed
+// without breaking the build.
 const importHashrate = () => import("@/protoOS/features/kpis/components/Hashrate");
 const importEfficiency = () => import("@/protoOS/features/kpis/components/Efficiency");
 const importPowerUsage = () => import("@/protoOS/features/kpis/components/PowerUsage");
@@ -82,21 +90,10 @@ export const settingsRoutePrefetch = [
 // Section tier for protoFleet, which embeds this router under /miners/:id/*.
 // SingleMinerWrapper triggers this on mount so the single-miner KPI tabs,
 // Logs, Diagnostics, and per-miner settings are warm by the time the user
-// clicks across them.
-export const singleMinerRoutePrefetch = [
-  importHashrate,
-  importEfficiency,
-  importPowerUsage,
-  importTemperature,
-  importDiagnosticView,
-  importLogs,
-  importHashboardTemperature,
-  importSettingsGeneral,
-  importSettingsAuthentication,
-  importSettingsMiningPools,
-  importSettingsHardware,
-  importSettingsCooling,
-];
+// clicks across them. Composes globalRoutePrefetch + settingsRoutePrefetch
+// (plus the per-hashboard temperature drill-in) so adding a route to either
+// upstream tier flows through automatically.
+export const singleMinerRoutePrefetch = [...globalRoutePrefetch, importHashboardTemperature, ...settingsRoutePrefetch];
 
 // Helper to create route objects with App wrapper
 interface CreateRouteOptions {

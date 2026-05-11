@@ -63,11 +63,9 @@ const App = ({ children, fullscreen }: AppProps) => {
   // ROUTE CHUNK PREFETCH
   // ============================================================================
   // Warm sidebar-destination chunks at idle so the first click on a top-level
-  // nav item resolves without a Suspense fallback. Vite dedupes the underlying
-  // chunk requests, so re-invocation on App remount is effectively free.
-  useEffect(() => {
-    prefetchRoutes(globalRoutePrefetch);
-  }, []);
+  // nav item resolves without a Suspense fallback. Returns the prefetch cancel
+  // handle so React cancels the pending idle callback on unmount.
+  useEffect(() => prefetchRoutes(globalRoutePrefetch), []);
 
   // ============================================================================
   // THEME APPLICATION

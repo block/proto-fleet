@@ -7,12 +7,26 @@ import SingleMinerWrapper from "./components/SingleMinerWrapper";
 import type { PageBackground } from "./hooks/usePageBackground";
 import { onboardingClient } from "@/protoFleet/api/clients";
 // eslint-disable-next-line no-restricted-imports -- Fleet shell embeds the protoOS single-miner experience
-import { routerConfig as singleMinerRoutes } from "@/protoOS/router";
+import { singleMinerRoutePrefetch, routerConfig as singleMinerRoutes } from "@/protoOS/router";
+
+// Re-export so SingleMinerWrapper can warm the protoOS single-miner chunks
+// without crossing the protoOS boundary directly. The boundary crossing is
+// already established for routerConfig above; consolidating both here keeps
+// the cross-app coupling to one file.
+export { singleMinerRoutePrefetch };
 
 // Route components are lazy-loaded so each route ships in its own chunk and
 // only what's needed for first paint is in the entry bundle. Factories are
 // hoisted so prefetchRoutes() can call them again at idle time to warm route
 // chunks before the user navigates.
+//
+// Adding a route is three coordinated edits:
+//   1. const importFoo = () => import("...");
+//   2. const Foo = lazy(importFoo);
+//   3. add `importFoo` to the relevant tier export (globalRoutePrefetch for
+//      sidebar destinations, settingsRoutePrefetch for /settings/* children).
+// Step 3 is not lint-enforced — a missed entry leaves the chunk un-warmed
+// without breaking the build.
 const importDashboard = () => import("@/protoFleet/features/dashboard/pages/Dashboard");
 const importMiners = () => import("./features/fleetManagement/components/Fleet");
 const importActivityPage = () => import("@/protoFleet/features/activity/pages/ActivityPage");
