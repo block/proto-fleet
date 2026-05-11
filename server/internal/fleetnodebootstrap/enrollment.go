@@ -26,7 +26,7 @@ type RegisterParams struct {
 	AllowInsecureTransport bool
 }
 
-// State is partial: keys + agent_id + fingerprint, no api_key or session.
+// State is partial: keys + fleet_node_id + fingerprint, no api_key or session.
 // Caller persists, surfaces State.IdentityFingerprint for human verification,
 // then calls CompleteEnrollment.
 type RegisterResult struct {

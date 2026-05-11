@@ -13,7 +13,7 @@ import (
 type State struct {
 	ServerURL                 string    `yaml:"server_url"`
 	AllowInsecureTransport    bool      `yaml:"allow_insecure_transport,omitempty"`
-	FleetNodeID               int64     `yaml:"agent_id"`
+	FleetNodeID               int64     `yaml:"fleet_node_id"`
 	IdentityFingerprint       string    `yaml:"identity_fingerprint"`
 	IdentityPrivateKeyHex     string    `yaml:"identity_private_key_hex"`
 	IdentityPublicKeyHex      string    `yaml:"identity_public_key_hex"`
@@ -29,13 +29,13 @@ func ResolveStateDir(override string) (string, error) {
 		return override, nil
 	}
 	if v := os.Getenv("XDG_STATE_HOME"); v != "" {
-		return filepath.Join(v, "fleet-agent"), nil
+		return filepath.Join(v, "fleetnode"), nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("resolve home dir: %w", err)
 	}
-	return filepath.Join(home, ".local", "state", "fleet-agent"), nil
+	return filepath.Join(home, ".local", "state", "fleetnode"), nil
 }
 
 func StatePath(dir string) string {

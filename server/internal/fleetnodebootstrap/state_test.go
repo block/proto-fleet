@@ -83,7 +83,7 @@ func TestSaveState_TightensExistingDirPerms(t *testing.T) {
 
 	// Arrange
 	dir := t.TempDir()
-	stateDir := filepath.Join(dir, "fleet-agent")
+	stateDir := filepath.Join(dir, "fleetnode")
 	require.NoError(t, os.MkdirAll(stateDir, 0o755)) //nolint:gosec // the whole point of this test is to start with a too-permissive dir
 	path := filepath.Join(stateDir, "state.yaml")
 
@@ -149,10 +149,10 @@ func TestResolveStateDir(t *testing.T) {
 
 		// Assert
 		require.NoError(t, err)
-		assert.Equal(t, "/tmp/xdg/fleet-agent", dir)
+		assert.Equal(t, "/tmp/xdg/fleetnode", dir)
 	})
 
-	t.Run("default falls back to home/.local/state/fleet-agent", func(t *testing.T) {
+	t.Run("default falls back to home/.local/state/fleetnode", func(t *testing.T) {
 		// Arrange
 		t.Setenv("XDG_STATE_HOME", "")
 		t.Setenv("HOME", "/tmp/home")
@@ -162,6 +162,6 @@ func TestResolveStateDir(t *testing.T) {
 
 		// Assert
 		require.NoError(t, err)
-		assert.Equal(t, "/tmp/home/.local/state/fleet-agent", dir)
+		assert.Equal(t, "/tmp/home/.local/state/fleetnode", dir)
 	})
 }
