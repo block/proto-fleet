@@ -167,10 +167,10 @@ func start(config *Config) error {
 	apiKeyStore := sqlstores.NewSQLApiKeyStore(conn)
 	apiKeySvc := apikeyDomain.NewService(apiKeyStore, activitySvc)
 
-	agentEnrollmentStore := sqlstores.NewSQLFleetNodeEnrollmentStore(conn)
-	agentEnrollmentSvc := fleetnodeenrollment.NewService(agentEnrollmentStore, apiKeySvc, transactor, activitySvc)
-	agentAuthStore := sqlstores.NewSQLFleetNodeAuthStore(conn)
-	agentAuthSvc := fleetnodeauth.NewService(agentAuthStore, agentEnrollmentStore, apiKeySvc)
+	fleetNodeEnrollmentStore := sqlstores.NewSQLFleetNodeEnrollmentStore(conn)
+	fleetNodeEnrollmentSvc := fleetnodeenrollment.NewService(fleetNodeEnrollmentStore, apiKeySvc, transactor, activitySvc)
+	fleetNodeAuthStore := sqlstores.NewSQLFleetNodeAuthStore(conn)
+	fleetNodeAuthSvc := fleetnodeauth.NewService(fleetNodeAuthStore, fleetNodeEnrollmentStore, apiKeySvc)
 
 	tokenSvc, err := tokenDomain.NewService(config.Auth)
 	if err != nil {
@@ -198,15 +198,15 @@ func start(config *Config) error {
 				} else if deleted > 0 {
 					slog.Debug("cleaned up expired sessions", "count", deleted)
 				}
-				if swept, err := agentEnrollmentSvc.SweepExpired(cleanupCtx); err != nil {
-					slog.Error("failed to sweep expired agent enrollments", "error", err)
+				if swept, err := fleetNodeEnrollmentSvc.SweepExpired(cleanupCtx); err != nil {
+					slog.Error("failed to sweep expired fleet node enrollments", "error", err)
 				} else if swept > 0 {
-					slog.Debug("swept expired agent enrollments", "count", swept)
+					slog.Debug("swept expired fleet node enrollments", "count", swept)
 				}
-				if challenges, sessions, err := agentAuthSvc.SweepExpired(cleanupCtx); err != nil {
-					slog.Error("failed to sweep expired agent auth state", "error", err)
+				if challenges, sessions, err := fleetNodeAuthSvc.SweepExpired(cleanupCtx); err != nil {
+					slog.Error("failed to sweep expired fleet node auth state", "error", err)
 				} else if challenges > 0 || sessions > 0 {
-					slog.Debug("swept expired agent auth state", "challenges", challenges, "sessions", sessions)
+					slog.Debug("swept expired fleet node auth state", "challenges", challenges, "sessions", sessions)
 				}
 			case <-cleanupCtx.Done():
 				return
@@ -408,8 +408,8 @@ func start(config *Config) error {
 		interceptors.NewErrorMappingInterceptor(),
 		interceptors.NewErrorStackTraceLoggingInterceptor(config.Log.Level),
 		interceptors.NewRequestLoggingInterceptor(config.Log.Level, interceptors.RedactedRequestProcedures, interceptors.RedactedResponseProcedures),
-		interceptors.NewFleetNodeAuthInterceptor(agentAuthSvc, interceptors.AgentAuthenticatedProcedures),
-		interceptors.NewAuthInterceptor(sessionSvc, userStore, userStore, apiKeySvc, interceptors.UnauthenticatedProcedures, interceptors.SessionOnlyProcedures, interceptors.AgentAuthenticatedProcedures),
+		interceptors.NewFleetNodeAuthInterceptor(fleetNodeAuthSvc, interceptors.FleetNodeAuthenticatedProcedures),
+		interceptors.NewAuthInterceptor(sessionSvc, userStore, userStore, apiKeySvc, interceptors.UnauthenticatedProcedures, interceptors.SessionOnlyProcedures, interceptors.FleetNodeAuthenticatedProcedures),
 		validateInterceptor,
 	)
 
@@ -450,8 +450,8 @@ func start(config *Config) error {
 	// Curtailment v1: PreviewCurtailmentPlan is implemented; remaining
 	// RPCs return Unimplemented until follow-up work lands.
 	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(curtailmentHandler.NewHandler(curtailmentSvc), li))
-	mux.Handle(fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(fleetnodegateway.NewHandler(agentEnrollmentSvc, agentAuthSvc), li))
-	mux.Handle(fleetnodeadminv1connect.NewFleetNodeAdminServiceHandler(fleetnodeadmin.NewHandler(agentEnrollmentSvc), li))
+	mux.Handle(fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(fleetnodegateway.NewHandler(fleetNodeEnrollmentSvc, fleetNodeAuthSvc), li))
+	mux.Handle(fleetnodeadminv1connect.NewFleetNodeAdminServiceHandler(fleetnodeadmin.NewHandler(fleetNodeEnrollmentSvc), li))
 	mux.Handle(collectionv1connect.NewDeviceCollectionServiceHandler(collectionHandler.NewHandler(collectionSvc), li))
 	mux.Handle(device_setv1connect.NewDeviceSetServiceHandler(devicesetHandler.NewHandler(collectionSvc), li))
 	mux.Handle(telemetryv1connect.NewTelemetryServiceHandler(telemetryHandler.NewHandler(telemetryService), li))

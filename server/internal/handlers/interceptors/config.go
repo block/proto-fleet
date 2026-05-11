@@ -89,11 +89,11 @@ var UnauthenticatedProcedures = []string{
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceCompleteAuthHandshakeProcedure,
 }
 
-// AgentAuthenticatedProcedures lists procedures gated by FleetNodeAuthInterceptor
+// FleetNodeAuthenticatedProcedures lists procedures gated by FleetNodeAuthInterceptor
 // (Authorization: Bearer <session_token>). The user-session AuthInterceptor
 // short-circuits these so the two interceptors don't fight over the same
 // procedure.
-var AgentAuthenticatedProcedures = []string{
+var FleetNodeAuthenticatedProcedures = []string{
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadTelemetryProcedure,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadEventsProcedure,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadHeartbeatProcedure,

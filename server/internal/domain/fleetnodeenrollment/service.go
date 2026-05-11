@@ -281,7 +281,7 @@ func (s *Service) Cancel(ctx context.Context, enrollmentID, orgID int64) error {
 func (s *Service) SweepExpired(ctx context.Context) (int64, error) {
 	now := time.Now().UTC()
 	// Soft-delete the agents first so the partial unique indexes on agent
-	// (uq_agent_identity_pubkey, uq_agent_org_name) free up before any retry
+	// (uq_fleet_node_identity_pubkey, uq_fleet_node_org_name) free up before any retry
 	// observes the EXPIRED enrollment row.
 	if _, err := s.store.SoftDeleteFleetNodesForExpiredEnrollments(ctx, now); err != nil {
 		return 0, logInternal("soft delete expired fleet nodes", clientErrCancel, err)
