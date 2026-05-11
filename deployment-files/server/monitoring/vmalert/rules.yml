@@ -1,0 +1,7 @@
+# vmalert user-rules file.
+# rewritten by proto-fleet
+
+groups:
+  - name: protofleet
+    interval: 30s
+    rules: []
