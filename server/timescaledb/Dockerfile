@@ -1,7 +1,7 @@
 # Proto Fleet Custom TimescaleDB Image
 #
 # A lightweight alternative to timescale/timescaledb-ha (~1.6 GB) that includes
-# PostgreSQL 18, TimescaleDB, timescaledb_toolkit, pgvector, and timescaledb-tune.
+# PostgreSQL 18, TimescaleDB, pgvector, and timescaledb-tune.
 #
 # What's excluded (and why this image is ~75% smaller):
 #   - Patroni + Python 3 (~120 MB) — HA cluster manager, not needed for single-node
@@ -15,7 +15,6 @@
 #
 # Base image choice: Ubuntu 24.04 (Noble)
 #   - Matches the HA image's base (glibc compatibility, same collation behavior)
-#   - Pre-compiled toolkit .deb packages available on packagecloud (Rust-compiled, no build step)
 #   - Multi-arch support: amd64 + arm64 packages available
 #
 # PGDATA path: /home/postgres/pgdata/data
@@ -74,13 +73,12 @@ RUN set -eux; \
         https://packagecloud.io/timescale/timescaledb/ubuntu/ $(lsb_release -cs) main" \
         > /etc/apt/sources.list.d/timescaledb.list; \
     \
-    # --- Install PostgreSQL + TimescaleDB + Toolkit + pgvector ---
+    # --- Install PostgreSQL + TimescaleDB + pgvector ---
     apt-get update; \
     apt-get install -y --no-install-recommends \
         postgresql-${PG_MAJOR} \
         postgresql-client-${PG_MAJOR} \
         timescaledb-2-postgresql-${PG_MAJOR} \
-        timescaledb-toolkit-postgresql-${PG_MAJOR} \
         postgresql-${PG_MAJOR}-pgvector; \
     \
     # --- Cleanup to minimize image size ---

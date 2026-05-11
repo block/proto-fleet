@@ -1,54 +1,29 @@
 # Custom TimescaleDB Docker Image
 
-A lightweight alternative to `timescale/timescaledb-ha` that includes only what Proto Fleet needs:
-PostgreSQL 18, TimescaleDB, timescaledb_toolkit, pgvector, and timescaledb-tune.
+A lightweight alternative to `timescale/timescaledb-ha` that includes only what
+Proto Fleet needs: PostgreSQL 18, TimescaleDB, pgvector, and timescaledb-tune.
 
 ## Size Comparison
 
-| Image | Content Size | Toolkit? | pgvector? | timescaledb-tune? |
-|---|---|---|---|---|
-| `timescale/timescaledb-ha:pg17-ts2.25` | **1.67 GB** | ✅ | ✅ | ✅ |
-| `timescale/timescaledb:2.25.1-pg18` (Alpine) | **169 MB** | ❌ | ✅ | ✅ |
-| `proto-fleet/timescaledb` (this image) | **~120 MB** | ✅ | ✅ | ✅ |
+| Image | Content Size | pgvector? | timescaledb-tune? |
+|---|---|---|---|
+| `timescale/timescaledb-ha:pg17-ts2.25` | **1.67 GB** | ✅ | ✅ |
+| `timescale/timescaledb:2.25.1-pg18` (Alpine) | **169 MB** | ✅ | ✅ |
+| `proto-fleet/timescaledb` (this image) | **~95 MB** | ✅ | ✅ |
 
-**93% smaller** than the HA image, and **29% smaller** than the standard Alpine
-image — while including the toolkit that Alpine can't support.
-
-## Comparison with the Standard Alpine Image
-
-The standard `timescale/timescaledb:2.25.1-pg18` is Alpine-based and includes
-timescaledb-tune, pgvector, and PL/Python3 (for PG < 18), but **cannot** include
-the timescaledb_toolkit extension (requires glibc; Alpine uses musl libc).
-
-| Feature | Alpine (`timescale/timescaledb`) | This Image |
-|---|---|---|
-| Base OS | Alpine (musl libc) | Ubuntu 24.04 (glibc) |
-| PostgreSQL | 18 | 18 |
-| TimescaleDB | ✅ | ✅ |
-| timescaledb_toolkit | ❌ (requires glibc) | ✅ |
-| pgvector | ✅ (built from source) | ✅ (pre-built PGDG package) |
-| timescaledb-tune | ✅ (built from source) | ✅ (built from source) |
-| PL/Python3 | ❌ (not available for PG18) | ❌ (not installed) |
-| timescaledb-parallel-copy | ✅ | ❌ (not needed) |
-| Auto-tune on first start | ✅ | ✅ |
-| Image size | ~169 MB | ~120 MB |
-
-The Alpine image builds both pgvector and TimescaleDB from source during the
-Docker build, resulting in a larger image. This image uses pre-compiled `.deb`
-packages from PGDG and Timescale's packagecloud repositories.
+Substantially smaller than the HA image, and smaller than the standard Alpine
+image because we install pre-compiled `.deb` packages rather than rebuilding
+pgvector and TimescaleDB from source.
 
 ## Why This Image Exists
 
-The only reason Proto Fleet used the `timescaledb-ha` image was to get the
-`timescaledb_toolkit` extension (required by migration 000006). The HA image
-bundles a large number of components for Kubernetes-based high availability that
-Proto Fleet does not use:
+The HA image bundles a large number of components for Kubernetes-based high
+availability that Proto Fleet does not use:
 
 | Component | ~Size | Purpose | Used by Proto Fleet? |
 |---|---|---|---|
 | PostgreSQL 17 + contrib | ~90 MB | Database server | ✅ Yes |
 | TimescaleDB | ~20 MB | Time-series extension | ✅ Yes |
-| timescaledb_toolkit | ~24 MB | Analytical hyperfunctions | ✅ Yes |
 | Patroni + Python 3 | ~120 MB | HA cluster manager + runtime | ❌ No |
 | PostGIS + GDAL/GEOS/PROJ | ~130 MB | Geospatial extensions | ❌ No |
 | LLVM/Clang JIT | ~80 MB | Query JIT compilation | ❌ No |
@@ -61,13 +36,10 @@ Proto Fleet does not use:
 ## What's Included
 
 - **Ubuntu 24.04** (Noble) base — matches the HA image's glibc for collation
-  compatibility. The toolkit extension is a Rust-compiled binary distributed as
-  a pre-compiled `.deb` package, and Ubuntu Noble is one of the supported targets.
+  compatibility with existing data.
 - **PostgreSQL 18** from the official PGDG apt repository — async I/O (up to 3×
   read perf), `uuidv7()`, virtual generated columns, faster `pg_upgrade`
 - **TimescaleDB 2.x** from Timescale's packagecloud apt repository
-- **timescaledb_toolkit** from the same repository — provides `time_weight()`,
-  `stats_agg()`, and other analytical hyperfunctions
 - **pgvector** from the PGDG apt repository — vector similarity search for
   embeddings and nearest-neighbor queries
 - **timescaledb-tune** — auto-tunes PostgreSQL configuration based on container
@@ -81,7 +53,6 @@ Proto Fleet does not use:
 |---|---|
 | PostgreSQL | 18.2 |
 | TimescaleDB | 2.25.1 |
-| timescaledb_toolkit | 1.22.0 |
 | pgvector | 0.8.1 |
 | timescaledb-tune | 0.18.1 |
 
@@ -145,10 +116,10 @@ without data migration.
 
 ## Architecture Support
 
-Pre-compiled packages for TimescaleDB, the toolkit, and pgvector are available
-for both `amd64` and `arm64` on Ubuntu Noble via the PGDG and Timescale
-packagecloud repositories. The timescaledb-tune binary is compiled from Go
-source during the Docker build, supporting any architecture Go targets.
+Pre-compiled packages for TimescaleDB and pgvector are available for both
+`amd64` and `arm64` on Ubuntu Noble via the PGDG and Timescale packagecloud
+repositories. The timescaledb-tune binary is compiled from Go source during
+the Docker build, supporting any architecture Go targets.
 
 ## Initialization Scripts
 
@@ -159,24 +130,10 @@ first start (before the main postgres process starts).
 
 ### Why Ubuntu instead of Alpine?
 
-The standard `timescale/timescaledb` image is Alpine-based (~168 MB) but the
-toolkit extension cannot be installed on Alpine — it requires glibc (Alpine uses
-musl libc) and pre-compiled packages are only published for Debian and Ubuntu.
-Building the toolkit from Rust source on Alpine is possible but adds significant
-build complexity and time.
+The standard `timescale/timescaledb` image is Alpine-based (~169 MB) but
+rebuilds pgvector and TimescaleDB from source during the Docker build. Using
+Ubuntu lets us install pre-compiled `.deb` packages from PGDG and Timescale's
+packagecloud repositories, resulting in a smaller image with faster builds.
 
-### Why not `postgres:17-bookworm` as the base?
-
-Toolkit packages are available for Debian Bookworm, so this would also work.
-Ubuntu was chosen because:
-1. The HA image is already Ubuntu-based, so this is a known-good environment
-2. Collation behavior matches what the existing data was created with
-3. Both options produce similar image sizes
-
-### Toolkit usage note
-
-As of this writing, the `timescaledb_toolkit` extension is created in migration
-000006 but no toolkit-specific functions (`time_weight`, `stats_agg`,
-`counter_agg`, etc.) are currently called in any SQL queries. The continuous
-aggregates only use standard TimescaleDB functions (`time_bucket`,
-`add_continuous_aggregate_policy`). The extension is included for future use.
+Ubuntu Noble also matches the glibc/collation environment of the previous HA
+image, so existing data volumes work without a collation rebuild.

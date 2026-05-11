@@ -24,8 +24,8 @@ services:
       - NET_RAW
 
   # TimescaleDB (PostgreSQL with time-series extension)
-  # Custom lightweight image (~123 MB) replacing timescale/timescaledb-ha (~1.67 GB)
-  # Includes PostgreSQL 18, TimescaleDB, and timescaledb_toolkit — without HA bloat
+  # Custom lightweight image replacing timescale/timescaledb-ha (~1.67 GB)
+  # Includes PostgreSQL 18, TimescaleDB, and pgvector — without HA bloat
   timescaledb:
     restart: always
     environment:
