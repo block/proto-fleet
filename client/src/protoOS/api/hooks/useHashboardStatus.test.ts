@@ -6,21 +6,15 @@ import { usePoll } from "@/shared/hooks/usePoll";
 
 const mockGetHashboardStatus = vi.fn();
 
-const {
-  mockGetHashboard,
-  mockAddHashboard,
-  mockGetAsic,
-  mockLinkAsicToHashboard,
-  mockBatchAddAsics,
-  mockSetState,
-} = vi.hoisted(() => ({
-  mockGetHashboard: vi.fn(),
-  mockAddHashboard: vi.fn(),
-  mockGetAsic: vi.fn(),
-  mockLinkAsicToHashboard: vi.fn(),
-  mockBatchAddAsics: vi.fn(),
-  mockSetState: vi.fn(),
-}));
+const { mockGetHashboard, mockAddHashboard, mockGetAsic, mockLinkAsicToHashboard, mockBatchAddAsics, mockSetState } =
+  vi.hoisted(() => ({
+    mockGetHashboard: vi.fn(),
+    mockAddHashboard: vi.fn(),
+    mockGetAsic: vi.fn(),
+    mockLinkAsicToHashboard: vi.fn(),
+    mockBatchAddAsics: vi.fn(),
+    mockSetState: vi.fn(),
+  }));
 
 vi.mock("@/protoOS/contexts/MinerHostingContext", () => ({
   useMinerHosting: vi.fn(),
