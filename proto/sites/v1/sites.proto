@@ -1,0 +1,191 @@
+syntax = "proto3";
+
+package sites.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+
+// SiteService is the admin surface for sites: physical locations that
+// group buildings, racks, and devices. Sites are optional; an org may
+// run with zero sites and the app renders site-less.
+service SiteService {
+    // ListSites returns every live site in the caller's org with
+    // attachment counts (device_count, building_count, rack_count) so
+    // the delete-confirm dialog can render impact numbers without a
+    // second round trip.
+    rpc ListSites(ListSitesRequest) returns (ListSitesResponse);
+
+    // CreateSite inserts a new site. Name must be unique within the
+    // org. network_config is parsed and canonicalized server-side;
+    // the response carries the canonical form.
+    rpc CreateSite(CreateSiteRequest) returns (CreateSiteResponse);
+
+    // UpdateSite mutates name + descriptive fields + network_config.
+    // Same canonicalization + validation as CreateSite.
+    rpc UpdateSite(UpdateSiteRequest) returns (UpdateSiteResponse);
+
+    // DeleteSite soft-deletes the site and, in the same transaction,
+    // cascades to its buildings (soft-delete) and racks (unassign).
+    // Cascade impact counts are returned so the UI can surface the
+    // result in a toast/activity row.
+    rpc DeleteSite(DeleteSiteRequest) returns (DeleteSiteResponse);
+
+    // ReassignDevicesToSite is an all-or-nothing bulk update of
+    // device.site_id. If any device is in a rack whose site_id differs
+    // from the target, the entire batch rejects with per-device error
+    // details and no row is touched. Omit target_site_id (or leave it
+    // unset) to move devices to the "Unassigned" bucket.
+    rpc ReassignDevicesToSite(ReassignDevicesToSiteRequest)
+        returns (ReassignDevicesToSiteResponse);
+
+    // AssignBuildingToSite moves a building to a different site
+    // (or to "Unassigned" when target_site_id is unset). The same
+    // transaction cascades site_id down to the building's racks and
+    // their devices. Returns the cascade counts.
+    rpc AssignBuildingToSite(AssignBuildingToSiteRequest)
+        returns (AssignBuildingToSiteResponse);
+}
+
+// Site is the read shape returned by Get/List/Create/Update RPCs.
+message Site {
+    int64 id = 1;
+    string name = 2;
+    string description = 3;
+    string location_city = 4;
+    string location_state = 5;
+    string timezone = 6;
+    // power_capacity_mw is 0 when unset; otherwise megawatts as a
+    // floating-point number.
+    double power_capacity_mw = 7;
+    // network_config is the canonicalized newline-separated CIDR
+    // list as stored. Empty when unset.
+    string network_config = 8;
+
+    google.protobuf.Timestamp created_at = 9;
+    google.protobuf.Timestamp updated_at = 10;
+}
+
+// SiteWithCounts pairs a Site with its attachment counts. Returned by
+// ListSites so the delete-confirm dialog has the impact numbers.
+message SiteWithCounts {
+    Site site = 1;
+    int64 device_count = 2;
+    int64 building_count = 3;
+    int64 rack_count = 4;
+}
+
+// ListSites
+
+message ListSitesRequest {}
+
+message ListSitesResponse {
+    repeated SiteWithCounts sites = 1;
+}
+
+// CreateSite
+
+message CreateSiteRequest {
+    string name = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    string description = 2 [(buf.validate.field).string.max_len = 4096];
+    string location_city = 3 [(buf.validate.field).string.max_len = 255];
+    string location_state = 4 [(buf.validate.field).string.max_len = 255];
+    string timezone = 5 [(buf.validate.field).string.max_len = 64];
+    // Megawatts; 0 = no capacity recorded.
+    double power_capacity_mw = 6 [(buf.validate.field).double.gte = 0];
+    // Newline-separated CIDR/IP entries. Server canonicalizes,
+    // applies the /20 broadest-mask cap, and rejects within-site
+    // overlaps with InvalidArgument; cross-site overlaps surface as
+    // a warning string in the response, not a block.
+    string network_config = 7 [(buf.validate.field).string.max_bytes = 16384];
+}
+
+message CreateSiteResponse {
+    Site site = 1;
+    // network_config_warnings carries cross-site overlap warnings or
+    // any other non-blocking validation note. UI shows them as a
+    // soft warning; presence does not indicate failure.
+    repeated string network_config_warnings = 2;
+}
+
+// UpdateSite
+
+message UpdateSiteRequest {
+    int64 id = 1 [(buf.validate.field).int64.gt = 0];
+    string name = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    string description = 3 [(buf.validate.field).string.max_len = 4096];
+    string location_city = 4 [(buf.validate.field).string.max_len = 255];
+    string location_state = 5 [(buf.validate.field).string.max_len = 255];
+    string timezone = 6 [(buf.validate.field).string.max_len = 64];
+    double power_capacity_mw = 7 [(buf.validate.field).double.gte = 0];
+    string network_config = 8 [(buf.validate.field).string.max_bytes = 16384];
+}
+
+message UpdateSiteResponse {
+    Site site = 1;
+    repeated string network_config_warnings = 2;
+}
+
+// DeleteSite
+
+message DeleteSiteRequest {
+    int64 id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message DeleteSiteResponse {
+    // Cascade impact counts from the same transaction.
+    int64 unassigned_device_count = 1;
+    int64 deleted_building_count  = 2;
+    int64 unassigned_rack_count   = 3;
+}
+
+// ReassignDevicesToSite
+
+message ReassignDevicesToSiteRequest {
+    // Unset = move to the "Unassigned" bucket.
+    optional int64 target_site_id = 1;
+    repeated string device_identifiers = 2 [(buf.validate.field).repeated = {
+        min_items: 1
+        max_items: 10000
+        items: {string: {min_len: 1, max_len: 256}}
+    }];
+}
+
+// PerDeviceConflictReason enumerates the reasons a device can be
+// rejected by ReassignDevicesToSite.
+enum PerDeviceConflictReason {
+    PER_DEVICE_CONFLICT_REASON_UNSPECIFIED                  = 0;
+    PER_DEVICE_CONFLICT_REASON_DEVICE_NOT_FOUND             = 1;
+    PER_DEVICE_CONFLICT_REASON_DEVICE_IN_RACK_AT_OTHER_SITE = 2;
+}
+
+// PerDeviceConflict carries the per-device error details surfaced
+// when ReassignDevicesToSite rejects. The whole batch is rejected;
+// no rows are mutated.
+message PerDeviceConflict {
+    string device_identifier = 1;
+    PerDeviceConflictReason reason = 2;
+    // When reason == DEVICE_IN_RACK_AT_OTHER_SITE: the site_id of the
+    // device's rack. 0 otherwise.
+    int64 conflicting_site_id = 3;
+}
+
+message ReassignDevicesToSiteResponse {
+    int64 reassigned_count = 1;
+    // Populated only on rejection. Empty on success.
+    repeated PerDeviceConflict conflicts = 2;
+}
+
+// AssignBuildingToSite
+
+message AssignBuildingToSiteRequest {
+    int64 building_id = 1 [(buf.validate.field).int64.gt = 0];
+    // Unset = move building to "Unassigned".
+    optional int64 target_site_id = 2;
+}
+
+message AssignBuildingToSiteResponse {
+    // Cascade impact: how many racks and devices were re-stamped with
+    // the new site_id in the same transaction.
+    int64 reassigned_rack_count   = 1;
+    int64 reassigned_device_count = 2;
+}

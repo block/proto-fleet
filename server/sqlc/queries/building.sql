@@ -53,7 +53,9 @@ LEFT JOIN (
     SELECT dsr.building_id, COUNT(*) AS rack_count
     FROM device_set_rack dsr
     JOIN device_set ds ON dsr.device_set_id = ds.id
-    WHERE ds.deleted_at IS NULL AND dsr.building_id IS NOT NULL
+    WHERE ds.deleted_at IS NULL
+      AND dsr.building_id IS NOT NULL
+      AND dsr.org_id = sqlc.arg('org_id')
     GROUP BY dsr.building_id
 ) r ON r.building_id = b.id
 WHERE b.org_id = sqlc.arg('org_id')
@@ -103,13 +105,14 @@ WHERE id = sqlc.arg('id')
   AND deleted_at IS NULL;
 
 -- name: UnassignRacksFromBuilding :execrows
--- Sets device_set_rack.building_id = NULL for every rack pointing at the
--- given building. Org guard reads `device_set_rack.org_id` directly
--- (denormalized from device_set in migration 000046, kept in lockstep
--- via the composite FK on `(device_set_id, org_id) → device_set(id,
--- org_id)`).
+-- Sets device_set_rack.building_id = NULL (and clears the free-form
+-- zone label) for every rack pointing at the given building. Org guard
+-- reads `device_set_rack.org_id` directly (denormalized from device_set
+-- in migration 000046, kept in lockstep via the composite FK on
+-- `(device_set_id, org_id) → device_set(id, org_id)`).
 UPDATE device_set_rack
-SET building_id = NULL
+SET building_id = NULL,
+    zone = NULL
 WHERE org_id = sqlc.arg('org_id')
   AND building_id = sqlc.arg('building_id');
 

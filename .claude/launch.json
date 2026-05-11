@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Proto Fleet Client",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev:protoFleet", "--", "--port", "5198"],
+      "port": 5198
+    }
+  ]
+}

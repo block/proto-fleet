@@ -628,6 +628,7 @@ type DeviceSetRack struct {
 	CoolingType int16
 	OrgID       int64
 	BuildingID  sql.NullInt64
+	SiteID      sql.NullInt64
 }
 
 type DeviceStatus struct {

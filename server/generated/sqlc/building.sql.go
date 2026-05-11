@@ -192,7 +192,9 @@ LEFT JOIN (
     SELECT dsr.building_id, COUNT(*) AS rack_count
     FROM device_set_rack dsr
     JOIN device_set ds ON dsr.device_set_id = ds.id
-    WHERE ds.deleted_at IS NULL AND dsr.building_id IS NOT NULL
+    WHERE ds.deleted_at IS NULL
+      AND dsr.building_id IS NOT NULL
+      AND dsr.org_id = $1
     GROUP BY dsr.building_id
 ) r ON r.building_id = b.id
 WHERE b.org_id = $1
@@ -301,7 +303,8 @@ func (q *Queries) SoftDeleteBuilding(ctx context.Context, arg SoftDeleteBuilding
 
 const unassignRacksFromBuilding = `-- name: UnassignRacksFromBuilding :execrows
 UPDATE device_set_rack
-SET building_id = NULL
+SET building_id = NULL,
+    zone = NULL
 WHERE org_id = $1
   AND building_id = $2
 `
@@ -311,11 +314,11 @@ type UnassignRacksFromBuildingParams struct {
 	BuildingID sql.NullInt64
 }
 
-// Sets device_set_rack.building_id = NULL for every rack pointing at the
-// given building. Org guard reads `device_set_rack.org_id` directly
-// (denormalized from device_set in migration 000046, kept in lockstep
-// via the composite FK on `(device_set_id, org_id) → device_set(id,
-// org_id)`).
+// Sets device_set_rack.building_id = NULL (and clears the free-form
+// zone label) for every rack pointing at the given building. Org guard
+// reads `device_set_rack.org_id` directly (denormalized from device_set
+// in migration 000046, kept in lockstep via the composite FK on
+// `(device_set_id, org_id) → device_set(id, org_id)`).
 func (q *Queries) UnassignRacksFromBuilding(ctx context.Context, arg UnassignRacksFromBuildingParams) (int64, error) {
 	result, err := q.exec(ctx, q.unassignRacksFromBuildingStmt, unassignRacksFromBuilding, arg.OrgID, arg.BuildingID)
 	if err != nil {

@@ -9,6 +9,8 @@ import (
 	"context"
 	"database/sql"
 	"time"
+
+	"github.com/lib/pq"
 )
 
 const createSite = `-- name: CreateSite :one
@@ -77,6 +79,59 @@ func (q *Queries) CreateSite(ctx context.Context, arg CreateSiteParams) (Site, e
 	return i, err
 }
 
+const findDeviceSiteConflicts = `-- name: FindDeviceSiteConflicts :many
+SELECT d.device_identifier, dsr.site_id::bigint AS conflicting_site_id
+FROM device d
+JOIN device_set_membership dsm
+    ON dsm.device_id = d.id
+   AND dsm.org_id = d.org_id
+   AND dsm.device_set_type = 'rack'
+JOIN device_set_rack dsr
+    ON dsr.device_set_id = dsm.device_set_id
+   AND dsr.org_id = d.org_id
+WHERE d.org_id = $1
+  AND d.device_identifier = ANY($2::text[])
+  AND d.deleted_at IS NULL
+  AND dsr.site_id IS NOT NULL
+`
+
+type FindDeviceSiteConflictsParams struct {
+	OrgID             int64
+	DeviceIdentifiers []string
+}
+
+type FindDeviceSiteConflictsRow struct {
+	DeviceIdentifier  string
+	ConflictingSiteID int64
+}
+
+// For every requested device, returns the site_id of its rack
+// (NULL when the rack has no site or the device has no rack).
+// Service layer compares against the target site to surface
+// per-device conflicts.
+func (q *Queries) FindDeviceSiteConflicts(ctx context.Context, arg FindDeviceSiteConflictsParams) ([]FindDeviceSiteConflictsRow, error) {
+	rows, err := q.query(ctx, q.findDeviceSiteConflictsStmt, findDeviceSiteConflicts, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FindDeviceSiteConflictsRow
+	for rows.Next() {
+		var i FindDeviceSiteConflictsRow
+		if err := rows.Scan(&i.DeviceIdentifier, &i.ConflictingSiteID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getSite = `-- name: GetSite :one
 SELECT id, org_id, name, description, location_city, location_state, timezone, power_capacity_mw, network_config, created_at, updated_at, deleted_at
 FROM site
@@ -110,11 +165,97 @@ func (q *Queries) GetSite(ctx context.Context, arg GetSiteParams) (Site, error) 
 	return i, err
 }
 
+const listExistingDeviceIdentifiers = `-- name: ListExistingDeviceIdentifiers :many
+SELECT device_identifier
+FROM device
+WHERE org_id = $1
+  AND device_identifier = ANY($2::text[])
+  AND deleted_at IS NULL
+`
+
+type ListExistingDeviceIdentifiersParams struct {
+	OrgID             int64
+	DeviceIdentifiers []string
+}
+
+// Filters the requested identifier list down to those that actually
+// exist as live devices in the org. Used to surface "device_not_found"
+// conflicts in ReassignDevicesToSite without an N+1 lookup.
+func (q *Queries) ListExistingDeviceIdentifiers(ctx context.Context, arg ListExistingDeviceIdentifiersParams) ([]string, error) {
+	rows, err := q.query(ctx, q.listExistingDeviceIdentifiersStmt, listExistingDeviceIdentifiers, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var device_identifier string
+		if err := rows.Scan(&device_identifier); err != nil {
+			return nil, err
+		}
+		items = append(items, device_identifier)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSiteNetworkConfigsForOverlap = `-- name: ListSiteNetworkConfigsForOverlap :many
+SELECT id, name, network_config
+FROM site
+WHERE org_id = $1
+  AND deleted_at IS NULL
+  AND id != $2
+`
+
+type ListSiteNetworkConfigsForOverlapParams struct {
+	OrgID     int64
+	ExcludeID int64
+}
+
+type ListSiteNetworkConfigsForOverlapRow struct {
+	ID            int64
+	Name          string
+	NetworkConfig sql.NullString
+}
+
+// Returns the (id, name, network_config) tuple for every live site in
+// the org excluding the given id (pass 0 for "no exclusion" when
+// creating). Used by the service layer to compute non-blocking
+// cross-site overlap warnings on save.
+func (q *Queries) ListSiteNetworkConfigsForOverlap(ctx context.Context, arg ListSiteNetworkConfigsForOverlapParams) ([]ListSiteNetworkConfigsForOverlapRow, error) {
+	rows, err := q.query(ctx, q.listSiteNetworkConfigsForOverlapStmt, listSiteNetworkConfigsForOverlap, arg.OrgID, arg.ExcludeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListSiteNetworkConfigsForOverlapRow
+	for rows.Next() {
+		var i ListSiteNetworkConfigsForOverlapRow
+		if err := rows.Scan(&i.ID, &i.Name, &i.NetworkConfig); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listSites = `-- name: ListSites :many
 SELECT
     s.id, s.org_id, s.name, s.description, s.location_city, s.location_state, s.timezone, s.power_capacity_mw, s.network_config, s.created_at, s.updated_at, s.deleted_at,
     COALESCE(d.device_count, 0)::bigint AS device_count,
-    COALESCE(b.building_count, 0)::bigint AS building_count
+    COALESCE(b.building_count, 0)::bigint AS building_count,
+    COALESCE(r.rack_count, 0)::bigint AS rack_count
 FROM site s
 LEFT JOIN (
     SELECT device.site_id, COUNT(*) AS device_count
@@ -132,6 +273,13 @@ LEFT JOIN (
       AND building.site_id IS NOT NULL
     GROUP BY building.site_id
 ) b ON b.site_id = s.id
+LEFT JOIN (
+    SELECT dsr.site_id, COUNT(*) AS rack_count
+    FROM device_set_rack dsr
+    WHERE dsr.org_id = $1
+      AND dsr.site_id IS NOT NULL
+    GROUP BY dsr.site_id
+) r ON r.site_id = s.id
 WHERE s.org_id = $1
   AND s.deleted_at IS NULL
 ORDER BY s.name
@@ -152,10 +300,11 @@ type ListSitesRow struct {
 	DeletedAt       sql.NullTime
 	DeviceCount     int64
 	BuildingCount   int64
+	RackCount       int64
 }
 
 // Returns each site with attachment counts so the delete-confirm dialog
-// can show "N miners, M buildings" without an extra round trip.
+// can show "N miners, M buildings, K racks" without an extra round trip.
 func (q *Queries) ListSites(ctx context.Context, orgID int64) ([]ListSitesRow, error) {
 	rows, err := q.query(ctx, q.listSitesStmt, listSites, orgID)
 	if err != nil {
@@ -180,6 +329,7 @@ func (q *Queries) ListSites(ctx context.Context, orgID int64) ([]ListSitesRow, e
 			&i.DeletedAt,
 			&i.DeviceCount,
 			&i.BuildingCount,
+			&i.RackCount,
 		); err != nil {
 			return nil, err
 		}
@@ -192,6 +342,130 @@ func (q *Queries) ListSites(ctx context.Context, orgID int64) ([]ListSitesRow, e
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockDevicesForReassign = `-- name: LockDevicesForReassign :many
+SELECT id FROM device
+WHERE org_id = $1
+  AND device_identifier = ANY($2::text[])
+  AND deleted_at IS NULL
+FOR UPDATE
+`
+
+type LockDevicesForReassignParams struct {
+	OrgID             int64
+	DeviceIdentifiers []string
+}
+
+// Takes a row lock on each device row for the duration of the
+// surrounding transaction so the conflict check and the UPDATE are
+// atomic against a concurrent reassign. Empty result means none of the
+// identifiers exist; the caller still wants the lock side-effect.
+func (q *Queries) LockDevicesForReassign(ctx context.Context, arg LockDevicesForReassignParams) ([]int64, error) {
+	rows, err := q.query(ctx, q.lockDevicesForReassignStmt, lockDevicesForReassign, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const reassignDevicesToSite = `-- name: ReassignDevicesToSite :execrows
+UPDATE device
+SET site_id = $1,
+    updated_at = CURRENT_TIMESTAMP
+WHERE org_id = $2
+  AND device_identifier = ANY($3::text[])
+  AND deleted_at IS NULL
+`
+
+type ReassignDevicesToSiteParams struct {
+	TargetSiteID      sql.NullInt64
+	OrgID             int64
+	DeviceIdentifiers []string
+}
+
+// Bulk update of device.site_id for the given identifiers within the
+// org. Caller is expected to have already validated that no device is
+// in a rack at a different site (see FindDeviceSiteConflicts).
+// target_site_id NULL = move to Unassigned.
+func (q *Queries) ReassignDevicesToSite(ctx context.Context, arg ReassignDevicesToSiteParams) (int64, error) {
+	result, err := q.exec(ctx, q.reassignDevicesToSiteStmt, reassignDevicesToSite, arg.TargetSiteID, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const reassignDevicesUnderBuilding = `-- name: ReassignDevicesUnderBuilding :execrows
+UPDATE device d
+SET site_id = $1,
+    updated_at = CURRENT_TIMESTAMP
+FROM device_set_membership dsm
+JOIN device_set_rack dsr
+    ON dsr.device_set_id = dsm.device_set_id
+   AND dsr.org_id = dsm.org_id
+WHERE d.id = dsm.device_id
+  AND d.org_id = dsm.org_id
+  AND dsm.device_set_type = 'rack'
+  AND d.org_id = $2
+  AND dsr.building_id = $3
+  AND d.deleted_at IS NULL
+`
+
+type ReassignDevicesUnderBuildingParams struct {
+	TargetSiteID sql.NullInt64
+	OrgID        int64
+	BuildingID   sql.NullInt64
+}
+
+// Sets device.site_id = $target for every device in any rack of the
+// given building. Caller wraps this in the same tx as the building
+// UPDATE.
+func (q *Queries) ReassignDevicesUnderBuilding(ctx context.Context, arg ReassignDevicesUnderBuildingParams) (int64, error) {
+	result, err := q.exec(ctx, q.reassignDevicesUnderBuildingStmt, reassignDevicesUnderBuilding, arg.TargetSiteID, arg.OrgID, arg.BuildingID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const reassignRacksUnderBuilding = `-- name: ReassignRacksUnderBuilding :execrows
+UPDATE device_set_rack
+SET site_id = $1
+WHERE org_id = $2
+  AND building_id = $3
+`
+
+type ReassignRacksUnderBuildingParams struct {
+	TargetSiteID sql.NullInt64
+	OrgID        int64
+	BuildingID   sql.NullInt64
+}
+
+// Sets rack.site_id = $target for every rack pointing at the given
+// building. Caller wraps this in the same tx as the building UPDATE so
+// the building/rack/device site_ids stay in lockstep.
+func (q *Queries) ReassignRacksUnderBuilding(ctx context.Context, arg ReassignRacksUnderBuildingParams) (int64, error) {
+	result, err := q.exec(ctx, q.reassignRacksUnderBuildingStmt, reassignRacksUnderBuilding, arg.TargetSiteID, arg.OrgID, arg.BuildingID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const siteBelongsToOrg = `-- name: SiteBelongsToOrg :one
@@ -215,6 +489,29 @@ func (q *Queries) SiteBelongsToOrg(ctx context.Context, arg SiteBelongsToOrgPara
 	return belongs, err
 }
 
+const softDeleteBuildingsBySite = `-- name: SoftDeleteBuildingsBySite :execrows
+UPDATE building
+SET deleted_at = CURRENT_TIMESTAMP
+WHERE org_id = $1
+  AND site_id = $2
+  AND deleted_at IS NULL
+`
+
+type SoftDeleteBuildingsBySiteParams struct {
+	OrgID  int64
+	SiteID sql.NullInt64
+}
+
+// Soft-deletes every live building under the given site. Caller wraps
+// this in the same tx as the SoftDeleteSite + cascade.
+func (q *Queries) SoftDeleteBuildingsBySite(ctx context.Context, arg SoftDeleteBuildingsBySiteParams) (int64, error) {
+	result, err := q.exec(ctx, q.softDeleteBuildingsBySiteStmt, softDeleteBuildingsBySite, arg.OrgID, arg.SiteID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const softDeleteSite = `-- name: SoftDeleteSite :execrows
 UPDATE site
 SET deleted_at = CURRENT_TIMESTAMP
@@ -228,34 +525,10 @@ type SoftDeleteSiteParams struct {
 	OrgID int64
 }
 
-// Caller is expected to also unassign attached devices and buildings in
-// the same transaction (cascade-unassign — see plan J3).
+// Caller is expected to also cascade-unassign attached devices/racks and
+// soft-delete buildings in the same transaction (cascade — see plan J3).
 func (q *Queries) SoftDeleteSite(ctx context.Context, arg SoftDeleteSiteParams) (int64, error) {
 	result, err := q.exec(ctx, q.softDeleteSiteStmt, softDeleteSite, arg.ID, arg.OrgID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
-const unassignBuildingsFromSite = `-- name: UnassignBuildingsFromSite :execrows
-UPDATE building
-SET site_id = NULL,
-    updated_at = CURRENT_TIMESTAMP
-WHERE org_id = $1
-  AND site_id = $2
-  AND deleted_at IS NULL
-`
-
-type UnassignBuildingsFromSiteParams struct {
-	OrgID  int64
-	SiteID sql.NullInt64
-}
-
-// Sets building.site_id = NULL for every live building pointing at the
-// given site within the org.
-func (q *Queries) UnassignBuildingsFromSite(ctx context.Context, arg UnassignBuildingsFromSiteParams) (int64, error) {
-	result, err := q.exec(ctx, q.unassignBuildingsFromSiteStmt, unassignBuildingsFromSite, arg.OrgID, arg.SiteID)
 	if err != nil {
 		return 0, err
 	}
@@ -281,6 +554,56 @@ type UnassignDevicesFromSiteParams struct {
 // "Unassigned" reassign target.
 func (q *Queries) UnassignDevicesFromSite(ctx context.Context, arg UnassignDevicesFromSiteParams) (int64, error) {
 	result, err := q.exec(ctx, q.unassignDevicesFromSiteStmt, unassignDevicesFromSite, arg.OrgID, arg.SiteID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const unassignRacksFromBuildingsBySite = `-- name: UnassignRacksFromBuildingsBySite :execrows
+UPDATE device_set_rack dsr
+SET building_id = NULL,
+    zone = NULL
+WHERE dsr.org_id = $1
+  AND dsr.building_id IN (
+      SELECT b.id FROM building b
+      WHERE b.org_id = $1
+        AND b.site_id = $2
+  )
+`
+
+type UnassignRacksFromBuildingsBySiteParams struct {
+	OrgID  int64
+	SiteID sql.NullInt64
+}
+
+// Clears rack→building linkage (and the zone label) for every rack
+// under any building of the given site. Run BEFORE buildings are
+// soft-deleted so the JOIN against building still resolves.
+func (q *Queries) UnassignRacksFromBuildingsBySite(ctx context.Context, arg UnassignRacksFromBuildingsBySiteParams) (int64, error) {
+	result, err := q.exec(ctx, q.unassignRacksFromBuildingsBySiteStmt, unassignRacksFromBuildingsBySite, arg.OrgID, arg.SiteID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const unassignRacksFromSite = `-- name: UnassignRacksFromSite :execrows
+UPDATE device_set_rack
+SET site_id = NULL
+WHERE org_id = $1
+  AND site_id = $2
+`
+
+type UnassignRacksFromSiteParams struct {
+	OrgID  int64
+	SiteID sql.NullInt64
+}
+
+// Sets device_set_rack.site_id = NULL for every rack pointing at the
+// given site (org-guarded by the denormalized rack.org_id).
+func (q *Queries) UnassignRacksFromSite(ctx context.Context, arg UnassignRacksFromSiteParams) (int64, error) {
+	result, err := q.exec(ctx, q.unassignRacksFromSiteStmt, unassignRacksFromSite, arg.OrgID, arg.SiteID)
 	if err != nil {
 		return 0, err
 	}

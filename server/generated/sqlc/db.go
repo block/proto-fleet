@@ -150,6 +150,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.ensureCurtailmentOrgConfigStmt, err = db.PrepareContext(ctx, ensureCurtailmentOrgConfig); err != nil {
 		return nil, fmt.Errorf("error preparing query EnsureCurtailmentOrgConfig: %w", err)
 	}
+	if q.findDeviceSiteConflictsStmt, err = db.PrepareContext(ctx, findDeviceSiteConflicts); err != nil {
+		return nil, fmt.Errorf("error preparing query FindDeviceSiteConflicts: %w", err)
+	}
 	if q.getActiveSchedulesStmt, err = db.PrepareContext(ctx, getActiveSchedules); err != nil {
 		return nil, fmt.Errorf("error preparing query GetActiveSchedules: %w", err)
 	}
@@ -528,6 +531,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listDeviceSetMembersPaginatedAfterStmt, err = db.PrepareContext(ctx, listDeviceSetMembersPaginatedAfter); err != nil {
 		return nil, fmt.Errorf("error preparing query ListDeviceSetMembersPaginatedAfter: %w", err)
 	}
+	if q.listExistingDeviceIdentifiersStmt, err = db.PrepareContext(ctx, listExistingDeviceIdentifiers); err != nil {
+		return nil, fmt.Errorf("error preparing query ListExistingDeviceIdentifiers: %w", err)
+	}
 	if q.listMinerStateSnapshotsStmt, err = db.PrepareContext(ctx, listMinerStateSnapshots); err != nil {
 		return nil, fmt.Errorf("error preparing query ListMinerStateSnapshots: %w", err)
 	}
@@ -555,6 +561,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listSchedulesStmt, err = db.PrepareContext(ctx, listSchedules); err != nil {
 		return nil, fmt.Errorf("error preparing query ListSchedules: %w", err)
 	}
+	if q.listSiteNetworkConfigsForOverlapStmt, err = db.PrepareContext(ctx, listSiteNetworkConfigsForOverlap); err != nil {
+		return nil, fmt.Errorf("error preparing query ListSiteNetworkConfigsForOverlap: %w", err)
+	}
 	if q.listSitesStmt, err = db.PrepareContext(ctx, listSites); err != nil {
 		return nil, fmt.Errorf("error preparing query ListSites: %w", err)
 	}
@@ -563,6 +572,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.lockAgentByIDStmt, err = db.PrepareContext(ctx, lockAgentByID); err != nil {
 		return nil, fmt.Errorf("error preparing query LockAgentByID: %w", err)
+	}
+	if q.lockDevicesForReassignStmt, err = db.PrepareContext(ctx, lockDevicesForReassign); err != nil {
+		return nil, fmt.Errorf("error preparing query LockDevicesForReassign: %w", err)
 	}
 	if q.lockSchedulePriorityStmt, err = db.PrepareContext(ctx, lockSchedulePriority); err != nil {
 		return nil, fmt.Errorf("error preparing query LockSchedulePriority: %w", err)
@@ -599,6 +611,15 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.reapStuckProcessingMessagesStmt, err = db.PrepareContext(ctx, reapStuckProcessingMessages); err != nil {
 		return nil, fmt.Errorf("error preparing query ReapStuckProcessingMessages: %w", err)
+	}
+	if q.reassignDevicesToSiteStmt, err = db.PrepareContext(ctx, reassignDevicesToSite); err != nil {
+		return nil, fmt.Errorf("error preparing query ReassignDevicesToSite: %w", err)
+	}
+	if q.reassignDevicesUnderBuildingStmt, err = db.PrepareContext(ctx, reassignDevicesUnderBuilding); err != nil {
+		return nil, fmt.Errorf("error preparing query ReassignDevicesUnderBuilding: %w", err)
+	}
+	if q.reassignRacksUnderBuildingStmt, err = db.PrepareContext(ctx, reassignRacksUnderBuilding); err != nil {
+		return nil, fmt.Errorf("error preparing query ReassignRacksUnderBuilding: %w", err)
 	}
 	if q.removeAllDevicesFromDeviceSetStmt, err = db.PrepareContext(ctx, removeAllDevicesFromDeviceSet); err != nil {
 		return nil, fmt.Errorf("error preparing query RemoveAllDevicesFromDeviceSet: %w", err)
@@ -648,6 +669,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.softDeleteBuildingStmt, err = db.PrepareContext(ctx, softDeleteBuilding); err != nil {
 		return nil, fmt.Errorf("error preparing query SoftDeleteBuilding: %w", err)
 	}
+	if q.softDeleteBuildingsBySiteStmt, err = db.PrepareContext(ctx, softDeleteBuildingsBySite); err != nil {
+		return nil, fmt.Errorf("error preparing query SoftDeleteBuildingsBySite: %w", err)
+	}
 	if q.softDeleteDeviceSetStmt, err = db.PrepareContext(ctx, softDeleteDeviceSet); err != nil {
 		return nil, fmt.Errorf("error preparing query SoftDeleteDeviceSet: %w", err)
 	}
@@ -690,14 +714,17 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.sweepExpiredEnrollmentsStmt, err = db.PrepareContext(ctx, sweepExpiredEnrollments); err != nil {
 		return nil, fmt.Errorf("error preparing query SweepExpiredEnrollments: %w", err)
 	}
-	if q.unassignBuildingsFromSiteStmt, err = db.PrepareContext(ctx, unassignBuildingsFromSite); err != nil {
-		return nil, fmt.Errorf("error preparing query UnassignBuildingsFromSite: %w", err)
-	}
 	if q.unassignDevicesFromSiteStmt, err = db.PrepareContext(ctx, unassignDevicesFromSite); err != nil {
 		return nil, fmt.Errorf("error preparing query UnassignDevicesFromSite: %w", err)
 	}
 	if q.unassignRacksFromBuildingStmt, err = db.PrepareContext(ctx, unassignRacksFromBuilding); err != nil {
 		return nil, fmt.Errorf("error preparing query UnassignRacksFromBuilding: %w", err)
+	}
+	if q.unassignRacksFromBuildingsBySiteStmt, err = db.PrepareContext(ctx, unassignRacksFromBuildingsBySite); err != nil {
+		return nil, fmt.Errorf("error preparing query UnassignRacksFromBuildingsBySite: %w", err)
+	}
+	if q.unassignRacksFromSiteStmt, err = db.PrepareContext(ctx, unassignRacksFromSite); err != nil {
+		return nil, fmt.Errorf("error preparing query UnassignRacksFromSite: %w", err)
 	}
 	if q.undeleteOrganizationStmt, err = db.PrepareContext(ctx, undeleteOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query UndeleteOrganization: %w", err)
@@ -1029,6 +1056,11 @@ func (q *Queries) Close() error {
 	if q.ensureCurtailmentOrgConfigStmt != nil {
 		if cerr := q.ensureCurtailmentOrgConfigStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing ensureCurtailmentOrgConfigStmt: %w", cerr)
+		}
+	}
+	if q.findDeviceSiteConflictsStmt != nil {
+		if cerr := q.findDeviceSiteConflictsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing findDeviceSiteConflictsStmt: %w", cerr)
 		}
 	}
 	if q.getActiveSchedulesStmt != nil {
@@ -1661,6 +1693,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listDeviceSetMembersPaginatedAfterStmt: %w", cerr)
 		}
 	}
+	if q.listExistingDeviceIdentifiersStmt != nil {
+		if cerr := q.listExistingDeviceIdentifiersStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listExistingDeviceIdentifiersStmt: %w", cerr)
+		}
+	}
 	if q.listMinerStateSnapshotsStmt != nil {
 		if cerr := q.listMinerStateSnapshotsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listMinerStateSnapshotsStmt: %w", cerr)
@@ -1706,6 +1743,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listSchedulesStmt: %w", cerr)
 		}
 	}
+	if q.listSiteNetworkConfigsForOverlapStmt != nil {
+		if cerr := q.listSiteNetworkConfigsForOverlapStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listSiteNetworkConfigsForOverlapStmt: %w", cerr)
+		}
+	}
 	if q.listSitesStmt != nil {
 		if cerr := q.listSitesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listSitesStmt: %w", cerr)
@@ -1719,6 +1761,11 @@ func (q *Queries) Close() error {
 	if q.lockAgentByIDStmt != nil {
 		if cerr := q.lockAgentByIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockAgentByIDStmt: %w", cerr)
+		}
+	}
+	if q.lockDevicesForReassignStmt != nil {
+		if cerr := q.lockDevicesForReassignStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockDevicesForReassignStmt: %w", cerr)
 		}
 	}
 	if q.lockSchedulePriorityStmt != nil {
@@ -1779,6 +1826,21 @@ func (q *Queries) Close() error {
 	if q.reapStuckProcessingMessagesStmt != nil {
 		if cerr := q.reapStuckProcessingMessagesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing reapStuckProcessingMessagesStmt: %w", cerr)
+		}
+	}
+	if q.reassignDevicesToSiteStmt != nil {
+		if cerr := q.reassignDevicesToSiteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing reassignDevicesToSiteStmt: %w", cerr)
+		}
+	}
+	if q.reassignDevicesUnderBuildingStmt != nil {
+		if cerr := q.reassignDevicesUnderBuildingStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing reassignDevicesUnderBuildingStmt: %w", cerr)
+		}
+	}
+	if q.reassignRacksUnderBuildingStmt != nil {
+		if cerr := q.reassignRacksUnderBuildingStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing reassignRacksUnderBuildingStmt: %w", cerr)
 		}
 	}
 	if q.removeAllDevicesFromDeviceSetStmt != nil {
@@ -1861,6 +1923,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing softDeleteBuildingStmt: %w", cerr)
 		}
 	}
+	if q.softDeleteBuildingsBySiteStmt != nil {
+		if cerr := q.softDeleteBuildingsBySiteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing softDeleteBuildingsBySiteStmt: %w", cerr)
+		}
+	}
 	if q.softDeleteDeviceSetStmt != nil {
 		if cerr := q.softDeleteDeviceSetStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing softDeleteDeviceSetStmt: %w", cerr)
@@ -1931,11 +1998,6 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing sweepExpiredEnrollmentsStmt: %w", cerr)
 		}
 	}
-	if q.unassignBuildingsFromSiteStmt != nil {
-		if cerr := q.unassignBuildingsFromSiteStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing unassignBuildingsFromSiteStmt: %w", cerr)
-		}
-	}
 	if q.unassignDevicesFromSiteStmt != nil {
 		if cerr := q.unassignDevicesFromSiteStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing unassignDevicesFromSiteStmt: %w", cerr)
@@ -1944,6 +2006,16 @@ func (q *Queries) Close() error {
 	if q.unassignRacksFromBuildingStmt != nil {
 		if cerr := q.unassignRacksFromBuildingStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing unassignRacksFromBuildingStmt: %w", cerr)
+		}
+	}
+	if q.unassignRacksFromBuildingsBySiteStmt != nil {
+		if cerr := q.unassignRacksFromBuildingsBySiteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing unassignRacksFromBuildingsBySiteStmt: %w", cerr)
+		}
+	}
+	if q.unassignRacksFromSiteStmt != nil {
+		if cerr := q.unassignRacksFromSiteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing unassignRacksFromSiteStmt: %w", cerr)
 		}
 	}
 	if q.undeleteOrganizationStmt != nil {
@@ -2222,6 +2294,7 @@ type Queries struct {
 	deleteScheduleTargetsStmt                           *sql.Stmt
 	deviceSetBelongsToOrgStmt                           *sql.Stmt
 	ensureCurtailmentOrgConfigStmt                      *sql.Stmt
+	findDeviceSiteConflictsStmt                         *sql.Stmt
 	getActiveSchedulesStmt                              *sql.Stmt
 	getActiveUnpairedDiscoveredDevicesStmt              *sql.Stmt
 	getAgentByIDStmt                                    *sql.Stmt
@@ -2348,6 +2421,7 @@ type Queries struct {
 	listCurtailmentTargetsByEventStmt                   *sql.Stmt
 	listDeviceSetMembersPaginatedStmt                   *sql.Stmt
 	listDeviceSetMembersPaginatedAfterStmt              *sql.Stmt
+	listExistingDeviceIdentifiersStmt                   *sql.Stmt
 	listMinerStateSnapshotsStmt                         *sql.Stmt
 	listOrganizationsStmt                               *sql.Stmt
 	listPoolsStmt                                       *sql.Stmt
@@ -2357,9 +2431,11 @@ type Queries struct {
 	listRolesStmt                                       *sql.Stmt
 	listScheduleIDStatusesStmt                          *sql.Stmt
 	listSchedulesStmt                                   *sql.Stmt
+	listSiteNetworkConfigsForOverlapStmt                *sql.Stmt
 	listSitesStmt                                       *sql.Stmt
 	listUsersForOrganizationStmt                        *sql.Stmt
 	lockAgentByIDStmt                                   *sql.Stmt
+	lockDevicesForReassignStmt                          *sql.Stmt
 	lockSchedulePriorityStmt                            *sql.Stmt
 	markCommandBatchFinishedStmt                        *sql.Stmt
 	markCommandBatchFinishedWithStartedAtStmt           *sql.Stmt
@@ -2372,6 +2448,9 @@ type Queries struct {
 	queryErrorsStmt                                     *sql.Stmt
 	reapStuckFirmwareUpdateMessagesStmt                 *sql.Stmt
 	reapStuckProcessingMessagesStmt                     *sql.Stmt
+	reassignDevicesToSiteStmt                           *sql.Stmt
+	reassignDevicesUnderBuildingStmt                    *sql.Stmt
+	reassignRacksUnderBuildingStmt                      *sql.Stmt
 	removeAllDevicesFromDeviceSetStmt                   *sql.Stmt
 	removeDevicesFromDeviceSetStmt                      *sql.Stmt
 	resumePausedScheduleStmt                            *sql.Stmt
@@ -2388,6 +2467,7 @@ type Queries struct {
 	softDeleteAgentStmt                                 *sql.Stmt
 	softDeleteAgentsForExpiredEnrollmentsStmt           *sql.Stmt
 	softDeleteBuildingStmt                              *sql.Stmt
+	softDeleteBuildingsBySiteStmt                       *sql.Stmt
 	softDeleteDeviceSetStmt                             *sql.Stmt
 	softDeleteDevicesStmt                               *sql.Stmt
 	softDeleteDiscoveredDeviceByIdentifierStmt          *sql.Stmt
@@ -2402,9 +2482,10 @@ type Queries struct {
 	sweepExpiredAgentAuthChallengesStmt                 *sql.Stmt
 	sweepExpiredAgentSessionsStmt                       *sql.Stmt
 	sweepExpiredEnrollmentsStmt                         *sql.Stmt
-	unassignBuildingsFromSiteStmt                       *sql.Stmt
 	unassignDevicesFromSiteStmt                         *sql.Stmt
 	unassignRacksFromBuildingStmt                       *sql.Stmt
+	unassignRacksFromBuildingsBySiteStmt                *sql.Stmt
+	unassignRacksFromSiteStmt                           *sql.Stmt
 	undeleteOrganizationStmt                            *sql.Stmt
 	undeleteRoleStmt                                    *sql.Stmt
 	updateApiKeyLastUsedStmt                            *sql.Stmt
@@ -2492,6 +2573,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		deleteScheduleTargetsStmt:                           q.deleteScheduleTargetsStmt,
 		deviceSetBelongsToOrgStmt:                           q.deviceSetBelongsToOrgStmt,
 		ensureCurtailmentOrgConfigStmt:                      q.ensureCurtailmentOrgConfigStmt,
+		findDeviceSiteConflictsStmt:                         q.findDeviceSiteConflictsStmt,
 		getActiveSchedulesStmt:                              q.getActiveSchedulesStmt,
 		getActiveUnpairedDiscoveredDevicesStmt:              q.getActiveUnpairedDiscoveredDevicesStmt,
 		getAgentByIDStmt:                                    q.getAgentByIDStmt,
@@ -2618,6 +2700,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listCurtailmentTargetsByEventStmt:                   q.listCurtailmentTargetsByEventStmt,
 		listDeviceSetMembersPaginatedStmt:                   q.listDeviceSetMembersPaginatedStmt,
 		listDeviceSetMembersPaginatedAfterStmt:              q.listDeviceSetMembersPaginatedAfterStmt,
+		listExistingDeviceIdentifiersStmt:                   q.listExistingDeviceIdentifiersStmt,
 		listMinerStateSnapshotsStmt:                         q.listMinerStateSnapshotsStmt,
 		listOrganizationsStmt:                               q.listOrganizationsStmt,
 		listPoolsStmt:                                       q.listPoolsStmt,
@@ -2627,9 +2710,11 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listRolesStmt:                                       q.listRolesStmt,
 		listScheduleIDStatusesStmt:                          q.listScheduleIDStatusesStmt,
 		listSchedulesStmt:                                   q.listSchedulesStmt,
+		listSiteNetworkConfigsForOverlapStmt:                q.listSiteNetworkConfigsForOverlapStmt,
 		listSitesStmt:                                       q.listSitesStmt,
 		listUsersForOrganizationStmt:                        q.listUsersForOrganizationStmt,
 		lockAgentByIDStmt:                                   q.lockAgentByIDStmt,
+		lockDevicesForReassignStmt:                          q.lockDevicesForReassignStmt,
 		lockSchedulePriorityStmt:                            q.lockSchedulePriorityStmt,
 		markCommandBatchFinishedStmt:                        q.markCommandBatchFinishedStmt,
 		markCommandBatchFinishedWithStartedAtStmt:           q.markCommandBatchFinishedWithStartedAtStmt,
@@ -2642,6 +2727,9 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		queryErrorsStmt:                                     q.queryErrorsStmt,
 		reapStuckFirmwareUpdateMessagesStmt:                 q.reapStuckFirmwareUpdateMessagesStmt,
 		reapStuckProcessingMessagesStmt:                     q.reapStuckProcessingMessagesStmt,
+		reassignDevicesToSiteStmt:                           q.reassignDevicesToSiteStmt,
+		reassignDevicesUnderBuildingStmt:                    q.reassignDevicesUnderBuildingStmt,
+		reassignRacksUnderBuildingStmt:                      q.reassignRacksUnderBuildingStmt,
 		removeAllDevicesFromDeviceSetStmt:                   q.removeAllDevicesFromDeviceSetStmt,
 		removeDevicesFromDeviceSetStmt:                      q.removeDevicesFromDeviceSetStmt,
 		resumePausedScheduleStmt:                            q.resumePausedScheduleStmt,
@@ -2658,6 +2746,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		softDeleteAgentStmt:                                 q.softDeleteAgentStmt,
 		softDeleteAgentsForExpiredEnrollmentsStmt:           q.softDeleteAgentsForExpiredEnrollmentsStmt,
 		softDeleteBuildingStmt:                              q.softDeleteBuildingStmt,
+		softDeleteBuildingsBySiteStmt:                       q.softDeleteBuildingsBySiteStmt,
 		softDeleteDeviceSetStmt:                             q.softDeleteDeviceSetStmt,
 		softDeleteDevicesStmt:                               q.softDeleteDevicesStmt,
 		softDeleteDiscoveredDeviceByIdentifierStmt:          q.softDeleteDiscoveredDeviceByIdentifierStmt,
@@ -2672,9 +2761,10 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		sweepExpiredAgentAuthChallengesStmt:                 q.sweepExpiredAgentAuthChallengesStmt,
 		sweepExpiredAgentSessionsStmt:                       q.sweepExpiredAgentSessionsStmt,
 		sweepExpiredEnrollmentsStmt:                         q.sweepExpiredEnrollmentsStmt,
-		unassignBuildingsFromSiteStmt:                       q.unassignBuildingsFromSiteStmt,
 		unassignDevicesFromSiteStmt:                         q.unassignDevicesFromSiteStmt,
 		unassignRacksFromBuildingStmt:                       q.unassignRacksFromBuildingStmt,
+		unassignRacksFromBuildingsBySiteStmt:                q.unassignRacksFromBuildingsBySiteStmt,
+		unassignRacksFromSiteStmt:                           q.unassignRacksFromSiteStmt,
 		undeleteOrganizationStmt:                            q.undeleteOrganizationStmt,
 		undeleteRoleStmt:                                    q.undeleteRoleStmt,
 		updateApiKeyLastUsedStmt:                            q.updateApiKeyLastUsedStmt,
