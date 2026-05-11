@@ -79,10 +79,10 @@ describe("useHashboardStatus", () => {
     expect(mockGetHashboardStatus).toHaveBeenCalledWith({ hbSn: "HB-1" }, expect.any(Object));
   });
 
-  // Regression for #207: when useTelemetry has already created an ASIC entry
-  // (with index but no row/column), useHashboardStatus must still patch row
-  // and column. Skipping that update left the ASIC grid unable to render rows
-  // because `getAsicsRows` filters out ASICs missing position data.
+  // When useTelemetry has already created an ASIC entry (with index but no
+  // row/column), useHashboardStatus must still patch row and column.
+  // Skipping that update left the ASIC grid unable to render rows because
+  // `getAsicsRows` filters out ASICs missing position data.
   test("merges row/column onto ASICs that already exist in the hardware store", async () => {
     mockGetHashboard.mockReturnValue(undefined);
     mockGetAsic.mockReturnValue({

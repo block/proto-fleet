@@ -97,7 +97,7 @@ const useHashboardStatus = ({ hashboardSerialNumbers, poll }: UseHashboardStatus
 
           // Always merge row/column onto the entry: useTelemetry may have created an
           // entry without positional data, and skipping the update here leaves the
-          // ASIC table unable to render rows (issue #207).
+          // ASIC table unable to render rows.
           asicsToAdd.push({
             ...existingAsic,
             id: asicId,
