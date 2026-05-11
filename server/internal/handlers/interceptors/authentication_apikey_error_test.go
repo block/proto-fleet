@@ -29,11 +29,11 @@ func (s interceptorAPIKeyStoreStub) CreateApiKey(context.Context, *interfaces.Ap
 	return nil
 }
 
-func (s interceptorAPIKeyStoreStub) CreateAgentApiKey(context.Context, *interfaces.ApiKey) error {
+func (s interceptorAPIKeyStoreStub) CreateFleetNodeApiKey(context.Context, *interfaces.ApiKey) error {
 	return nil
 }
 
-func (s interceptorAPIKeyStoreStub) RevokeApiKeysByAgentID(context.Context, int64, int64, time.Time) ([]string, error) {
+func (s interceptorAPIKeyStoreStub) RevokeApiKeysByFleetNodeID(context.Context, int64, int64, time.Time) ([]string, error) {
 	return nil, nil
 }
 

@@ -16,20 +16,24 @@ import type { Message } from "@bufbuild/protobuf";
 /**
  * Describes the file fleetnodeadmin/v1/fleetnodeadmin.proto.
  */
-export const file_fleetnodeadmin_v1_fleetnodeadmin: GenFile = /*@__PURE__*/
-  fileDesc("CiZmbGVldG5vZGVhZG1pbi92MS9mbGVldG5vZGVhZG1pbi5wcm90bxIRZmxlZXRub2RlYWRtaW4udjEiHQobQ3JlYXRlRW5yb2xsbWVudENvZGVSZXF1ZXN0IlwKHENyZWF0ZUVucm9sbG1lbnRDb2RlUmVzcG9uc2USDAoEY29kZRgBIAEoCRIuCgpleHBpcmVzX2F0GAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCIXChVMaXN0RmxlZXROb2Rlc1JlcXVlc3QiUgoWTGlzdEZsZWV0Tm9kZXNSZXNwb25zZRI4CgtmbGVldF9ub2RlcxgBIAMoCzIjLmZsZWV0bm9kZWFkbWluLnYxLkZsZWV0Tm9kZVN1bW1hcnkilgIKEEZsZWV0Tm9kZVN1bW1hcnkSFQoNZmxlZXRfbm9kZV9pZBgBIAEoAxIMCgRuYW1lGAIgASgJEkcKEWVucm9sbG1lbnRfc3RhdHVzGAMgASgOMiwuZmxlZXRub2RlYWRtaW4udjEuRmxlZXROb2RlRW5yb2xsbWVudFN0YXR1cxIcChRpZGVudGl0eV9maW5nZXJwcmludBgEIAEoCRIuCgpjcmVhdGVkX2F0GAUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBI1CgxsYXN0X3NlZW5fYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wSACIAQFCDwoNX2xhc3Rfc2Vlbl9hdCI5ChdDb25maXJtRmxlZXROb2RlUmVxdWVzdBIeCg1mbGVldF9ub2RlX2lkGAEgASgDQge6SAQiAiAAIm8KGENvbmZpcm1GbGVldE5vZGVSZXNwb25zZRIPCgdhcGlfa2V5GAEgASgJEjMKCmV4cGlyZXNfYXQYAiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wSACIAQFCDQoLX2V4cGlyZXNfYXQiOAoWUmV2b2tlRmxlZXROb2RlUmVxdWVzdBIeCg1mbGVldF9ub2RlX2lkGAEgASgDQge6SAQiAiAAIhkKF1Jldm9rZUZsZWV0Tm9kZVJlc3BvbnNlKoECChlGbGVldE5vZGVFbnJvbGxtZW50U3RhdHVzEiwKKEZMRUVUX05PREVfRU5ST0xMTUVOVF9TVEFUVVNfVU5TUEVDSUZJRUQQABIoCiRGTEVFVF9OT0RFX0VOUk9MTE1FTlRfU1RBVFVTX1BFTkRJTkcQARI2CjJGTEVFVF9OT0RFX0VOUk9MTE1FTlRfU1RBVFVTX0FXQUlUSU5HX0NPTkZJUk1BVElPThACEioKJkZMRUVUX05PREVfRU5ST0xMTUVOVF9TVEFUVVNfQ09ORklSTUVEEAMSKAokRkxFRVRfTk9ERV9FTlJPTExNRU5UX1NUQVRVU19SRVZPS0VEEAQyzgMKFUZsZWV0Tm9kZUFkbWluU2VydmljZRJ3ChRDcmVhdGVFbnJvbGxtZW50Q29kZRIuLmZsZWV0bm9kZWFkbWluLnYxLkNyZWF0ZUVucm9sbG1lbnRDb2RlUmVxdWVzdBovLmZsZWV0bm9kZWFkbWluLnYxLkNyZWF0ZUVucm9sbG1lbnRDb2RlUmVzcG9uc2USZQoOTGlzdEZsZWV0Tm9kZXMSKC5mbGVldG5vZGVhZG1pbi52MS5MaXN0RmxlZXROb2Rlc1JlcXVlc3QaKS5mbGVldG5vZGVhZG1pbi52MS5MaXN0RmxlZXROb2Rlc1Jlc3BvbnNlEmsKEENvbmZpcm1GbGVldE5vZGUSKi5mbGVldG5vZGVhZG1pbi52MS5Db25maXJtRmxlZXROb2RlUmVxdWVzdBorLmZsZWV0bm9kZWFkbWluLnYxLkNvbmZpcm1GbGVldE5vZGVSZXNwb25zZRJoCg9SZXZva2VGbGVldE5vZGUSKS5mbGVldG5vZGVhZG1pbi52MS5SZXZva2VGbGVldE5vZGVSZXF1ZXN0GiouZmxlZXRub2RlYWRtaW4udjEuUmV2b2tlRmxlZXROb2RlUmVzcG9uc2VC6AEKFWNvbS5mbGVldG5vZGVhZG1pbi52MUITRmxlZXRub2RlYWRtaW5Qcm90b1ABWlVnaXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9mbGVldG5vZGVhZG1pbi92MTtmbGVldG5vZGVhZG1pbnYxogIDRlhYqgIRRmxlZXRub2RlYWRtaW4uVjHKAhFGbGVldG5vZGVhZG1pblxWMeICHUZsZWV0bm9kZWFkbWluXFYxXEdQQk1ldGFkYXRh6gISRmxlZXRub2RlYWRtaW46OlYxYgZwcm90bzM", [file_buf_validate_validate, file_google_protobuf_timestamp]);
+export const file_fleetnodeadmin_v1_fleetnodeadmin: GenFile =
+  /*@__PURE__*/
+  fileDesc(
+    "CiZmbGVldG5vZGVhZG1pbi92MS9mbGVldG5vZGVhZG1pbi5wcm90bxIRZmxlZXRub2RlYWRtaW4udjEiHQobQ3JlYXRlRW5yb2xsbWVudENvZGVSZXF1ZXN0IlwKHENyZWF0ZUVucm9sbG1lbnRDb2RlUmVzcG9uc2USDAoEY29kZRgBIAEoCRIuCgpleHBpcmVzX2F0GAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCIXChVMaXN0RmxlZXROb2Rlc1JlcXVlc3QiUgoWTGlzdEZsZWV0Tm9kZXNSZXNwb25zZRI4CgtmbGVldF9ub2RlcxgBIAMoCzIjLmZsZWV0bm9kZWFkbWluLnYxLkZsZWV0Tm9kZVN1bW1hcnkilgIKEEZsZWV0Tm9kZVN1bW1hcnkSFQoNZmxlZXRfbm9kZV9pZBgBIAEoAxIMCgRuYW1lGAIgASgJEkcKEWVucm9sbG1lbnRfc3RhdHVzGAMgASgOMiwuZmxlZXRub2RlYWRtaW4udjEuRmxlZXROb2RlRW5yb2xsbWVudFN0YXR1cxIcChRpZGVudGl0eV9maW5nZXJwcmludBgEIAEoCRIuCgpjcmVhdGVkX2F0GAUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBI1CgxsYXN0X3NlZW5fYXQYBiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wSACIAQFCDwoNX2xhc3Rfc2Vlbl9hdCI5ChdDb25maXJtRmxlZXROb2RlUmVxdWVzdBIeCg1mbGVldF9ub2RlX2lkGAEgASgDQge6SAQiAiAAIm8KGENvbmZpcm1GbGVldE5vZGVSZXNwb25zZRIPCgdhcGlfa2V5GAEgASgJEjMKCmV4cGlyZXNfYXQYAiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wSACIAQFCDQoLX2V4cGlyZXNfYXQiOAoWUmV2b2tlRmxlZXROb2RlUmVxdWVzdBIeCg1mbGVldF9ub2RlX2lkGAEgASgDQge6SAQiAiAAIhkKF1Jldm9rZUZsZWV0Tm9kZVJlc3BvbnNlKoECChlGbGVldE5vZGVFbnJvbGxtZW50U3RhdHVzEiwKKEZMRUVUX05PREVfRU5ST0xMTUVOVF9TVEFUVVNfVU5TUEVDSUZJRUQQABIoCiRGTEVFVF9OT0RFX0VOUk9MTE1FTlRfU1RBVFVTX1BFTkRJTkcQARI2CjJGTEVFVF9OT0RFX0VOUk9MTE1FTlRfU1RBVFVTX0FXQUlUSU5HX0NPTkZJUk1BVElPThACEioKJkZMRUVUX05PREVfRU5ST0xMTUVOVF9TVEFUVVNfQ09ORklSTUVEEAMSKAokRkxFRVRfTk9ERV9FTlJPTExNRU5UX1NUQVRVU19SRVZPS0VEEAQyzgMKFUZsZWV0Tm9kZUFkbWluU2VydmljZRJ3ChRDcmVhdGVFbnJvbGxtZW50Q29kZRIuLmZsZWV0bm9kZWFkbWluLnYxLkNyZWF0ZUVucm9sbG1lbnRDb2RlUmVxdWVzdBovLmZsZWV0bm9kZWFkbWluLnYxLkNyZWF0ZUVucm9sbG1lbnRDb2RlUmVzcG9uc2USZQoOTGlzdEZsZWV0Tm9kZXMSKC5mbGVldG5vZGVhZG1pbi52MS5MaXN0RmxlZXROb2Rlc1JlcXVlc3QaKS5mbGVldG5vZGVhZG1pbi52MS5MaXN0RmxlZXROb2Rlc1Jlc3BvbnNlEmsKEENvbmZpcm1GbGVldE5vZGUSKi5mbGVldG5vZGVhZG1pbi52MS5Db25maXJtRmxlZXROb2RlUmVxdWVzdBorLmZsZWV0bm9kZWFkbWluLnYxLkNvbmZpcm1GbGVldE5vZGVSZXNwb25zZRJoCg9SZXZva2VGbGVldE5vZGUSKS5mbGVldG5vZGVhZG1pbi52MS5SZXZva2VGbGVldE5vZGVSZXF1ZXN0GiouZmxlZXRub2RlYWRtaW4udjEuUmV2b2tlRmxlZXROb2RlUmVzcG9uc2VC6AEKFWNvbS5mbGVldG5vZGVhZG1pbi52MUITRmxlZXRub2RlYWRtaW5Qcm90b1ABWlVnaXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9mbGVldG5vZGVhZG1pbi92MTtmbGVldG5vZGVhZG1pbnYxogIDRlhYqgIRRmxlZXRub2RlYWRtaW4uVjHKAhFGbGVldG5vZGVhZG1pblxWMeICHUZsZWV0bm9kZWFkbWluXFYxXEdQQk1ldGFkYXRh6gISRmxlZXRub2RlYWRtaW46OlYxYgZwcm90bzM",
+    [file_buf_validate_validate, file_google_protobuf_timestamp],
+  );
 
 /**
  * @generated from message fleetnodeadmin.v1.CreateEnrollmentCodeRequest
  */
-export type CreateEnrollmentCodeRequest = Message<"fleetnodeadmin.v1.CreateEnrollmentCodeRequest"> & {
-};
+export type CreateEnrollmentCodeRequest = Message<"fleetnodeadmin.v1.CreateEnrollmentCodeRequest"> & {};
 
 /**
  * Describes the message fleetnodeadmin.v1.CreateEnrollmentCodeRequest.
  * Use `create(CreateEnrollmentCodeRequestSchema)` to create a new message.
  */
-export const CreateEnrollmentCodeRequestSchema: GenMessage<CreateEnrollmentCodeRequest> = /*@__PURE__*/
+export const CreateEnrollmentCodeRequestSchema: GenMessage<CreateEnrollmentCodeRequest> =
+  /*@__PURE__*/
   messageDesc(file_fleetnodeadmin_v1_fleetnodeadmin, 0);
 
 /**
@@ -53,20 +57,21 @@ export type CreateEnrollmentCodeResponse = Message<"fleetnodeadmin.v1.CreateEnro
  * Describes the message fleetnodeadmin.v1.CreateEnrollmentCodeResponse.
  * Use `create(CreateEnrollmentCodeResponseSchema)` to create a new message.
  */
-export const CreateEnrollmentCodeResponseSchema: GenMessage<CreateEnrollmentCodeResponse> = /*@__PURE__*/
+export const CreateEnrollmentCodeResponseSchema: GenMessage<CreateEnrollmentCodeResponse> =
+  /*@__PURE__*/
   messageDesc(file_fleetnodeadmin_v1_fleetnodeadmin, 1);
 
 /**
  * @generated from message fleetnodeadmin.v1.ListFleetNodesRequest
  */
-export type ListFleetNodesRequest = Message<"fleetnodeadmin.v1.ListFleetNodesRequest"> & {
-};
+export type ListFleetNodesRequest = Message<"fleetnodeadmin.v1.ListFleetNodesRequest"> & {};
 
 /**
  * Describes the message fleetnodeadmin.v1.ListFleetNodesRequest.
  * Use `create(ListFleetNodesRequestSchema)` to create a new message.
  */
-export const ListFleetNodesRequestSchema: GenMessage<ListFleetNodesRequest> = /*@__PURE__*/
+export const ListFleetNodesRequestSchema: GenMessage<ListFleetNodesRequest> =
+  /*@__PURE__*/
   messageDesc(file_fleetnodeadmin_v1_fleetnodeadmin, 2);
 
 /**
@@ -83,7 +88,8 @@ export type ListFleetNodesResponse = Message<"fleetnodeadmin.v1.ListFleetNodesRe
  * Describes the message fleetnodeadmin.v1.ListFleetNodesResponse.
  * Use `create(ListFleetNodesResponseSchema)` to create a new message.
  */
-export const ListFleetNodesResponseSchema: GenMessage<ListFleetNodesResponse> = /*@__PURE__*/
+export const ListFleetNodesResponseSchema: GenMessage<ListFleetNodesResponse> =
+  /*@__PURE__*/
   messageDesc(file_fleetnodeadmin_v1_fleetnodeadmin, 3);
 
 /**
@@ -125,7 +131,8 @@ export type FleetNodeSummary = Message<"fleetnodeadmin.v1.FleetNodeSummary"> & {
  * Describes the message fleetnodeadmin.v1.FleetNodeSummary.
  * Use `create(FleetNodeSummarySchema)` to create a new message.
  */
-export const FleetNodeSummarySchema: GenMessage<FleetNodeSummary> = /*@__PURE__*/
+export const FleetNodeSummarySchema: GenMessage<FleetNodeSummary> =
+  /*@__PURE__*/
   messageDesc(file_fleetnodeadmin_v1_fleetnodeadmin, 4);
 
 /**
@@ -142,7 +149,8 @@ export type ConfirmFleetNodeRequest = Message<"fleetnodeadmin.v1.ConfirmFleetNod
  * Describes the message fleetnodeadmin.v1.ConfirmFleetNodeRequest.
  * Use `create(ConfirmFleetNodeRequestSchema)` to create a new message.
  */
-export const ConfirmFleetNodeRequestSchema: GenMessage<ConfirmFleetNodeRequest> = /*@__PURE__*/
+export const ConfirmFleetNodeRequestSchema: GenMessage<ConfirmFleetNodeRequest> =
+  /*@__PURE__*/
   messageDesc(file_fleetnodeadmin_v1_fleetnodeadmin, 5);
 
 /**
@@ -166,7 +174,8 @@ export type ConfirmFleetNodeResponse = Message<"fleetnodeadmin.v1.ConfirmFleetNo
  * Describes the message fleetnodeadmin.v1.ConfirmFleetNodeResponse.
  * Use `create(ConfirmFleetNodeResponseSchema)` to create a new message.
  */
-export const ConfirmFleetNodeResponseSchema: GenMessage<ConfirmFleetNodeResponse> = /*@__PURE__*/
+export const ConfirmFleetNodeResponseSchema: GenMessage<ConfirmFleetNodeResponse> =
+  /*@__PURE__*/
   messageDesc(file_fleetnodeadmin_v1_fleetnodeadmin, 6);
 
 /**
@@ -183,20 +192,21 @@ export type RevokeFleetNodeRequest = Message<"fleetnodeadmin.v1.RevokeFleetNodeR
  * Describes the message fleetnodeadmin.v1.RevokeFleetNodeRequest.
  * Use `create(RevokeFleetNodeRequestSchema)` to create a new message.
  */
-export const RevokeFleetNodeRequestSchema: GenMessage<RevokeFleetNodeRequest> = /*@__PURE__*/
+export const RevokeFleetNodeRequestSchema: GenMessage<RevokeFleetNodeRequest> =
+  /*@__PURE__*/
   messageDesc(file_fleetnodeadmin_v1_fleetnodeadmin, 7);
 
 /**
  * @generated from message fleetnodeadmin.v1.RevokeFleetNodeResponse
  */
-export type RevokeFleetNodeResponse = Message<"fleetnodeadmin.v1.RevokeFleetNodeResponse"> & {
-};
+export type RevokeFleetNodeResponse = Message<"fleetnodeadmin.v1.RevokeFleetNodeResponse"> & {};
 
 /**
  * Describes the message fleetnodeadmin.v1.RevokeFleetNodeResponse.
  * Use `create(RevokeFleetNodeResponseSchema)` to create a new message.
  */
-export const RevokeFleetNodeResponseSchema: GenMessage<RevokeFleetNodeResponse> = /*@__PURE__*/
+export const RevokeFleetNodeResponseSchema: GenMessage<RevokeFleetNodeResponse> =
+  /*@__PURE__*/
   messageDesc(file_fleetnodeadmin_v1_fleetnodeadmin, 8);
 
 /**
@@ -232,7 +242,8 @@ export enum FleetNodeEnrollmentStatus {
 /**
  * Describes the enum fleetnodeadmin.v1.FleetNodeEnrollmentStatus.
  */
-export const FleetNodeEnrollmentStatusSchema: GenEnum<FleetNodeEnrollmentStatus> = /*@__PURE__*/
+export const FleetNodeEnrollmentStatusSchema: GenEnum<FleetNodeEnrollmentStatus> =
+  /*@__PURE__*/
   enumDesc(file_fleetnodeadmin_v1_fleetnodeadmin, 0);
 
 /**
@@ -246,7 +257,7 @@ export const FleetNodeAdminService: GenService<{
     methodKind: "unary";
     input: typeof CreateEnrollmentCodeRequestSchema;
     output: typeof CreateEnrollmentCodeResponseSchema;
-  },
+  };
   /**
    * @generated from rpc fleetnodeadmin.v1.FleetNodeAdminService.ListFleetNodes
    */
@@ -254,7 +265,7 @@ export const FleetNodeAdminService: GenService<{
     methodKind: "unary";
     input: typeof ListFleetNodesRequestSchema;
     output: typeof ListFleetNodesResponseSchema;
-  },
+  };
   /**
    * @generated from rpc fleetnodeadmin.v1.FleetNodeAdminService.ConfirmFleetNode
    */
@@ -262,7 +273,7 @@ export const FleetNodeAdminService: GenService<{
     methodKind: "unary";
     input: typeof ConfirmFleetNodeRequestSchema;
     output: typeof ConfirmFleetNodeResponseSchema;
-  },
+  };
   /**
    * @generated from rpc fleetnodeadmin.v1.FleetNodeAdminService.RevokeFleetNode
    */
@@ -270,7 +281,5 @@ export const FleetNodeAdminService: GenService<{
     methodKind: "unary";
     input: typeof RevokeFleetNodeRequestSchema;
     output: typeof RevokeFleetNodeResponseSchema;
-  },
-}> = /*@__PURE__*/
-  serviceDesc(file_fleetnodeadmin_v1_fleetnodeadmin, 0);
-
+  };
+}> = /*@__PURE__*/ serviceDesc(file_fleetnodeadmin_v1_fleetnodeadmin, 0);

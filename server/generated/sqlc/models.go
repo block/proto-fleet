@@ -342,41 +342,6 @@ type ActivityLog struct {
 	SiteID         sql.NullInt64
 }
 
-type Agent struct {
-	ID                 int64
-	OrgID              int64
-	Name               string
-	IdentityPubkey     []byte
-	MinerSigningPubkey []byte
-	EnrollmentStatus   string
-	LastSeenAt         sql.NullTime
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
-	DeletedAt          sql.NullTime
-}
-
-type AgentAuthChallenge struct {
-	Challenge []byte
-	AgentID   int64
-	ExpiresAt time.Time
-	CreatedAt time.Time
-}
-
-type AgentDevice struct {
-	AgentID    int64
-	DeviceID   int64
-	OrgID      int64
-	AssignedAt time.Time
-	AssignedBy sql.NullInt64
-}
-
-type AgentSession struct {
-	TokenHash string
-	AgentID   int64
-	ExpiresAt time.Time
-	CreatedAt time.Time
-}
-
 type ApiKey struct {
 	ID             int64
 	KeyID          string
@@ -389,7 +354,7 @@ type ApiKey struct {
 	ExpiresAt      sql.NullTime
 	RevokedAt      sql.NullTime
 	LastUsedAt     sql.NullTime
-	AgentID        sql.NullInt64
+	FleetNodeID    sql.NullInt64
 	SubjectKind    string
 }
 
@@ -724,6 +689,41 @@ type Error struct {
 	SiteID            sql.NullInt64
 }
 
+type FleetNode struct {
+	ID                 int64
+	OrgID              int64
+	Name               string
+	IdentityPubkey     []byte
+	MinerSigningPubkey []byte
+	EnrollmentStatus   string
+	LastSeenAt         sql.NullTime
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	DeletedAt          sql.NullTime
+}
+
+type FleetNodeAuthChallenge struct {
+	Challenge   []byte
+	FleetNodeID int64
+	ExpiresAt   time.Time
+	CreatedAt   time.Time
+}
+
+type FleetNodeDevice struct {
+	FleetNodeID int64
+	DeviceID    int64
+	OrgID       int64
+	AssignedAt  time.Time
+	AssignedBy  sql.NullInt64
+}
+
+type FleetNodeSession struct {
+	TokenHash   string
+	FleetNodeID int64
+	ExpiresAt   time.Time
+	CreatedAt   time.Time
+}
+
 type MinerCredential struct {
 	ID          int64
 	DeviceID    int64
@@ -752,15 +752,15 @@ type Organization struct {
 }
 
 type PendingEnrollment struct {
-	ID         int64
-	CodeHash   string
-	OrgID      int64
-	CreatedBy  int64
-	AgentID    sql.NullInt64
-	Status     string
-	ExpiresAt  time.Time
-	ConsumedAt sql.NullTime
-	CreatedAt  time.Time
+	ID          int64
+	CodeHash    string
+	OrgID       int64
+	CreatedBy   int64
+	FleetNodeID sql.NullInt64
+	Status      string
+	ExpiresAt   time.Time
+	ConsumedAt  sql.NullTime
+	CreatedAt   time.Time
 }
 
 type Pool struct {

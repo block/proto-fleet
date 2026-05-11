@@ -2,9 +2,9 @@
 INSERT INTO api_key (key_id, name, prefix, key_hash, user_id, organization_id, subject_kind, created_at, expires_at)
 VALUES ($1, $2, $3, $4, $5, $6, 'user', $7, $8);
 
--- name: CreateAgentApiKey :exec
-INSERT INTO api_key (key_id, name, prefix, key_hash, agent_id, organization_id, subject_kind, created_at, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6, 'agent', $7, $8);
+-- name: CreateFleetNodeApiKey :exec
+INSERT INTO api_key (key_id, name, prefix, key_hash, fleet_node_id, organization_id, subject_kind, created_at, expires_at)
+VALUES ($1, $2, $3, $4, $5, $6, 'fleet_node', $7, $8);
 
 -- name: GetApiKeyByHash :one
 SELECT ak.*, COALESCE(u.username, '')::text AS created_by_username
@@ -31,10 +31,10 @@ UPDATE api_key
 SET revoked_at = $1
 WHERE key_id = $2 AND organization_id = $3 AND revoked_at IS NULL;
 
--- name: RevokeApiKeysByAgentID :many
+-- name: RevokeApiKeysByFleetNodeID :many
 UPDATE api_key
 SET revoked_at = $1
-WHERE agent_id = $2 AND organization_id = $3 AND revoked_at IS NULL
+WHERE fleet_node_id = $2 AND organization_id = $3 AND revoked_at IS NULL
 RETURNING key_id;
 
 -- name: UpdateApiKeyLastUsed :exec

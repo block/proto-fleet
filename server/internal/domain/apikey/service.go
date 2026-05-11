@@ -120,11 +120,11 @@ func (s *Service) tryCreate(ctx context.Context, userID, orgID int64, name strin
 	return fullKey, apiKey, nil
 }
 
-// CreateAgent issues an api_key bound to an agent. Single-attempt: a prefix
+// CreateFleetNode issues an api_key bound to an agent. Single-attempt: a prefix
 // collision on (prefix, organization_id) is surfaced as FailedPrecondition.
 // Confirm calls this from inside a TX, where Postgres aborts on the first
 // unique violation, so a retry loop here would silently fail anyway.
-func (s *Service) CreateAgent(ctx context.Context, agentID, orgID int64, name string, expiresAt *time.Time) (string, *interfaces.ApiKey, error) {
+func (s *Service) CreateFleetNode(ctx context.Context, agentID, orgID int64, name string, expiresAt *time.Time) (string, *interfaces.ApiKey, error) {
 	if expiresAt != nil && !expiresAt.After(time.Now().UTC()) {
 		return "", nil, fleeterror.NewInvalidArgumentError("expiration date must be in the future")
 	}
@@ -160,14 +160,14 @@ func (s *Service) tryCreateAgent(ctx context.Context, agentID, orgID int64, name
 		Name:           name,
 		Prefix:         prefix,
 		KeyHash:        keyHash,
-		SubjectKind:    interfaces.ApiKeySubjectKindAgent,
+		SubjectKind:    interfaces.ApiKeySubjectKindFleetNode,
 		FleetNodeID:    &agentID,
 		OrganizationID: orgID,
 		CreatedAt:      now,
 		ExpiresAt:      expiresAt,
 	}
 
-	if err := s.store.CreateAgentApiKey(ctx, apiKey); err != nil {
+	if err := s.store.CreateFleetNodeApiKey(ctx, apiKey); err != nil {
 		return "", nil, err
 	}
 
@@ -187,7 +187,7 @@ func (s *Service) List(ctx context.Context, orgID int64) ([]interfaces.ApiKey, e
 // Evicts lastUsedCache entries for the revoked keys so the debounce map
 // can't grow unboundedly across agent re-enrollments.
 func (s *Service) RevokeForAgent(ctx context.Context, agentID, orgID int64) (int64, error) {
-	keyIDs, err := s.store.RevokeApiKeysByAgentID(ctx, agentID, orgID, time.Now().UTC())
+	keyIDs, err := s.store.RevokeApiKeysByFleetNodeID(ctx, agentID, orgID, time.Now().UTC())
 	if err != nil {
 		return 0, logInternalError("failed to revoke agent api keys", revokeAPIKeyClientError, err, "agent_id", agentID, "org_id", orgID)
 	}

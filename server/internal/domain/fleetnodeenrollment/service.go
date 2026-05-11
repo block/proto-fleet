@@ -38,28 +38,28 @@ const (
 type PendingEnrollmentStore interface {
 	CreatePendingEnrollment(ctx context.Context, codeHash string, orgID, createdBy int64, expiresAt time.Time) (*PendingEnrollment, error)
 	GetPendingEnrollmentByCodeHash(ctx context.Context, codeHash string) (*PendingEnrollment, error)
-	GetPendingEnrollmentByAgent(ctx context.Context, agentID, orgID int64) (*PendingEnrollment, error)
-	BindEnrollmentToAgent(ctx context.Context, enrollmentID, agentID int64) (int64, error)
+	GetPendingEnrollmentByFleetNode(ctx context.Context, agentID, orgID int64) (*PendingEnrollment, error)
+	BindEnrollmentToFleetNode(ctx context.Context, enrollmentID, agentID int64) (int64, error)
 	ConfirmEnrollment(ctx context.Context, enrollmentID int64, consumedAt time.Time) (int64, error)
 	CancelPendingEnrollment(ctx context.Context, enrollmentID, orgID int64, consumedAt time.Time) (int64, error)
-	CancelEnrollmentForAgent(ctx context.Context, agentID, orgID int64, consumedAt time.Time) (int64, error)
+	CancelEnrollmentForFleetNode(ctx context.Context, agentID, orgID int64, consumedAt time.Time) (int64, error)
 	SweepExpiredEnrollments(ctx context.Context, now time.Time) (int64, error)
 }
 
 type AgentStore interface {
-	CreateAgent(ctx context.Context, orgID int64, name string, identityPubkey, minerSigningPubkey []byte) (*FleetNode, error)
-	GetAgentByID(ctx context.Context, agentID, orgID int64) (*FleetNode, error)
-	GetAgentByIDUnscoped(ctx context.Context, agentID int64) (*FleetNode, error)
-	// LockAgentByID is GetAgentByID with SELECT ... FOR UPDATE. Both Confirm
+	CreateFleetNode(ctx context.Context, orgID int64, name string, identityPubkey, minerSigningPubkey []byte) (*FleetNode, error)
+	GetFleetNodeByID(ctx context.Context, agentID, orgID int64) (*FleetNode, error)
+	GetFleetNodeByIDUnscoped(ctx context.Context, agentID int64) (*FleetNode, error)
+	// LockFleetNodeByID is GetFleetNodeByID with SELECT ... FOR UPDATE. Both Confirm
 	// and RevokeFleetNode call this at the start of their TX so they take the
 	// agent-row lock in the same order; without it, Confirm's
 	// pending_enrollment-then-agent UPDATE order vs RevokeFleetNode's reverse
 	// order races into deadlocks.
-	LockAgentByID(ctx context.Context, agentID, orgID int64) (*FleetNode, error)
-	ListAgentsForOrganization(ctx context.Context, orgID int64) ([]FleetNodeListing, error)
-	SetAgentEnrollmentStatus(ctx context.Context, status FleetNodeStatus, agentID, orgID int64) (int64, error)
-	SoftDeleteAgent(ctx context.Context, agentID, orgID int64, deletedAt time.Time) (int64, error)
-	SoftDeleteAgentsForExpiredEnrollments(ctx context.Context, now time.Time) (int64, error)
+	LockFleetNodeByID(ctx context.Context, agentID, orgID int64) (*FleetNode, error)
+	ListFleetNodesForOrganization(ctx context.Context, orgID int64) ([]FleetNodeListing, error)
+	SetFleetNodeEnrollmentStatus(ctx context.Context, status FleetNodeStatus, agentID, orgID int64) (int64, error)
+	SoftDeleteFleetNode(ctx context.Context, agentID, orgID int64, deletedAt time.Time) (int64, error)
+	SoftDeleteFleetNodesForExpiredEnrollments(ctx context.Context, now time.Time) (int64, error)
 }
 
 type Store interface {
@@ -127,7 +127,7 @@ func (s *Service) RegisterFleetNode(ctx context.Context, plaintextCode, name str
 		if err != nil {
 			return err
 		}
-		agent, err = s.store.CreateAgent(ctx, pe.OrgID, name, identityPubkey, minerSigningPubkey)
+		agent, err = s.store.CreateFleetNode(ctx, pe.OrgID, name, identityPubkey, minerSigningPubkey)
 		if err != nil {
 			// Concurrent Register calls with the same identity_pubkey or
 			// (org_id, name) lose on the partial unique indexes; surface as
@@ -137,7 +137,7 @@ func (s *Service) RegisterFleetNode(ctx context.Context, plaintextCode, name str
 			}
 			return logInternal("create agent", clientErrRegisterAgent, err)
 		}
-		bound, err := s.store.BindEnrollmentToAgent(ctx, pe.ID, agent.ID)
+		bound, err := s.store.BindEnrollmentToFleetNode(ctx, pe.ID, agent.ID)
 		if err != nil {
 			return logInternal("bind enrollment", clientErrRegisterAgent, err)
 		}
@@ -166,7 +166,7 @@ func (s *Service) Confirm(ctx context.Context, agentID, orgID int64) (string, ti
 	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
 		// Lock the agent row first so Confirm and RevokeFleetNode always acquire
 		// row locks in the same order (agent -> pending_enrollment).
-		agent, err := s.store.LockAgentByID(ctx, agentID, orgID)
+		agent, err := s.store.LockFleetNodeByID(ctx, agentID, orgID)
 		if err != nil {
 			if fleeterror.IsNotFoundError(err) {
 				return fleeterror.NewNotFoundError("agent not found")
@@ -176,7 +176,7 @@ func (s *Service) Confirm(ctx context.Context, agentID, orgID int64) (string, ti
 		if agent.EnrollmentStatus == FleetNodeStatusRevoked {
 			return fleeterror.NewFailedPreconditionError("agent is revoked; cannot confirm")
 		}
-		pe, err := s.store.GetPendingEnrollmentByAgent(ctx, agentID, orgID)
+		pe, err := s.store.GetPendingEnrollmentByFleetNode(ctx, agentID, orgID)
 		if err != nil {
 			if fleeterror.IsNotFoundError(err) {
 				return fleeterror.NewFailedPreconditionError("no enrollment awaiting confirmation for agent")
@@ -194,18 +194,18 @@ func (s *Service) Confirm(ctx context.Context, agentID, orgID int64) (string, ti
 		if rows == 0 {
 			return fleeterror.NewFailedPreconditionError("enrollment state changed; refresh and retry")
 		}
-		// SetAgentEnrollmentStatus filters by deleted_at IS NULL, so a
+		// SetFleetNodeEnrollmentStatus filters by deleted_at IS NULL, so a
 		// concurrent RevokeFleetNode that soft-deleted the agent between the
 		// initial read above and this update will affect zero rows. Reject
 		// instead of minting an api_key for a revoked agent.
-		statusRows, err := s.store.SetAgentEnrollmentStatus(ctx, FleetNodeStatusConfirmed, agentID, orgID)
+		statusRows, err := s.store.SetFleetNodeEnrollmentStatus(ctx, FleetNodeStatusConfirmed, agentID, orgID)
 		if err != nil {
 			return logInternal("update agent status", clientErrConfirmAgent, err)
 		}
 		if statusRows == 0 {
 			return fleeterror.NewFailedPreconditionError("agent state changed; refresh and retry")
 		}
-		key, apiKey, err := s.apiKeySvc.CreateAgent(ctx, agentID, orgID, agentApiKeyLabel, nil)
+		key, apiKey, err := s.apiKeySvc.CreateFleetNode(ctx, agentID, orgID, agentApiKeyLabel, nil)
 		if err != nil {
 			return err
 		}
@@ -235,7 +235,7 @@ func (s *Service) RevokeFleetNode(ctx context.Context, agentID, orgID int64) err
 	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
 		// Lock-then-mutate the agent row first; matches Confirm's lock order
 		// (agent -> pending_enrollment) so the two flows can't deadlock.
-		agent, err := s.store.LockAgentByID(ctx, agentID, orgID)
+		agent, err := s.store.LockFleetNodeByID(ctx, agentID, orgID)
 		if err != nil {
 			if fleeterror.IsNotFoundError(err) {
 				return fleeterror.NewNotFoundError("agent not found")
@@ -243,16 +243,16 @@ func (s *Service) RevokeFleetNode(ctx context.Context, agentID, orgID int64) err
 			return logInternal("agent lock", clientErrRevokeAgent, err)
 		}
 		now := time.Now().UTC()
-		if _, err := s.store.SetAgentEnrollmentStatus(ctx, FleetNodeStatusRevoked, agentID, orgID); err != nil {
+		if _, err := s.store.SetFleetNodeEnrollmentStatus(ctx, FleetNodeStatusRevoked, agentID, orgID); err != nil {
 			return logInternal("set agent revoked", clientErrRevokeAgent, err)
 		}
-		if _, err := s.store.CancelEnrollmentForAgent(ctx, agentID, orgID, now); err != nil {
+		if _, err := s.store.CancelEnrollmentForFleetNode(ctx, agentID, orgID, now); err != nil {
 			return logInternal("cancel pending enrollment", clientErrRevokeAgent, err)
 		}
 		if _, err := s.apiKeySvc.RevokeForAgent(ctx, agentID, orgID); err != nil {
 			return err
 		}
-		if _, err := s.store.SoftDeleteAgent(ctx, agentID, orgID, now); err != nil {
+		if _, err := s.store.SoftDeleteFleetNode(ctx, agentID, orgID, now); err != nil {
 			return logInternal("soft delete agent", clientErrRevokeAgent, err)
 		}
 		agentName = agent.Name
@@ -283,14 +283,14 @@ func (s *Service) SweepExpired(ctx context.Context) (int64, error) {
 	// Soft-delete the agents first so the partial unique indexes on agent
 	// (uq_agent_identity_pubkey, uq_agent_org_name) free up before any retry
 	// observes the EXPIRED enrollment row.
-	if _, err := s.store.SoftDeleteAgentsForExpiredEnrollments(ctx, now); err != nil {
+	if _, err := s.store.SoftDeleteFleetNodesForExpiredEnrollments(ctx, now); err != nil {
 		return 0, logInternal("soft delete expired agents", clientErrCancel, err)
 	}
 	return s.store.SweepExpiredEnrollments(ctx, now)
 }
 
 func (s *Service) ListFleetNodes(ctx context.Context, orgID int64) ([]FleetNodeListing, error) {
-	agents, err := s.store.ListAgentsForOrganization(ctx, orgID)
+	agents, err := s.store.ListFleetNodesForOrganization(ctx, orgID)
 	if err != nil {
 		return nil, logInternal("list agents", clientErrListAgents, err)
 	}

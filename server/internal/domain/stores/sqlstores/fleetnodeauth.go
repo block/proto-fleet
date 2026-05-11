@@ -25,16 +25,16 @@ func (s *SQLFleetNodeAuthStore) q(ctx context.Context) *sqlc.Queries {
 	return s.GetQueries(ctx)
 }
 
-func (s *SQLFleetNodeAuthStore) UpsertChallenge(ctx context.Context, challenge []byte, agentID int64, expiresAt time.Time) error {
-	return s.q(ctx).UpsertAgentAuthChallenge(ctx, sqlc.UpsertAgentAuthChallengeParams{
-		Challenge: challenge,
-		AgentID:   agentID,
-		ExpiresAt: expiresAt,
+func (s *SQLFleetNodeAuthStore) UpsertChallenge(ctx context.Context, challenge []byte, fleetNodeID int64, expiresAt time.Time) error {
+	return s.q(ctx).UpsertFleetNodeAuthChallenge(ctx, sqlc.UpsertFleetNodeAuthChallengeParams{
+		Challenge:   challenge,
+		FleetNodeID: fleetNodeID,
+		ExpiresAt:   expiresAt,
 	})
 }
 
 func (s *SQLFleetNodeAuthStore) ConsumeChallenge(ctx context.Context, challenge []byte, now time.Time) (int64, error) {
-	row, err := s.q(ctx).ConsumeAgentAuthChallenge(ctx, sqlc.ConsumeAgentAuthChallengeParams{
+	row, err := s.q(ctx).ConsumeFleetNodeAuthChallenge(ctx, sqlc.ConsumeFleetNodeAuthChallengeParams{
 		Challenge: challenge,
 		ExpiresAt: now,
 	})
@@ -44,23 +44,23 @@ func (s *SQLFleetNodeAuthStore) ConsumeChallenge(ctx context.Context, challenge 
 		}
 		return 0, err
 	}
-	return row.AgentID, nil
+	return row.FleetNodeID, nil
 }
 
 func (s *SQLFleetNodeAuthStore) SweepExpiredChallenges(ctx context.Context, now time.Time) (int64, error) {
-	return s.q(ctx).SweepExpiredAgentAuthChallenges(ctx, now)
+	return s.q(ctx).SweepExpiredFleetNodeAuthChallenges(ctx, now)
 }
 
-func (s *SQLFleetNodeAuthStore) UpsertSession(ctx context.Context, tokenHash string, agentID int64, expiresAt time.Time) error {
-	return s.q(ctx).UpsertAgentSession(ctx, sqlc.UpsertAgentSessionParams{
-		TokenHash: tokenHash,
-		AgentID:   agentID,
-		ExpiresAt: expiresAt,
+func (s *SQLFleetNodeAuthStore) UpsertSession(ctx context.Context, tokenHash string, fleetNodeID int64, expiresAt time.Time) error {
+	return s.q(ctx).UpsertFleetNodeSession(ctx, sqlc.UpsertFleetNodeSessionParams{
+		TokenHash:   tokenHash,
+		FleetNodeID: fleetNodeID,
+		ExpiresAt:   expiresAt,
 	})
 }
 
-func (s *SQLFleetNodeAuthStore) GetSessionAgent(ctx context.Context, tokenHash string, now time.Time) (*fleetnodeauth.ResolvedFleetNode, error) {
-	row, err := s.q(ctx).GetAgentSessionByTokenHash(ctx, sqlc.GetAgentSessionByTokenHashParams{
+func (s *SQLFleetNodeAuthStore) GetSessionFleetNode(ctx context.Context, tokenHash string, now time.Time) (*fleetnodeauth.ResolvedFleetNode, error) {
+	row, err := s.q(ctx).GetFleetNodeSessionByTokenHash(ctx, sqlc.GetFleetNodeSessionByTokenHashParams{
 		TokenHash: tokenHash,
 		ExpiresAt: now,
 	})
@@ -71,7 +71,7 @@ func (s *SQLFleetNodeAuthStore) GetSessionAgent(ctx context.Context, tokenHash s
 		return nil, err
 	}
 	return &fleetnodeauth.ResolvedFleetNode{
-		FleetNodeID:    row.AgentID,
+		FleetNodeID:    row.FleetNodeID,
 		OrgID:          row.OrgID,
 		Name:           row.Name,
 		IdentityPubkey: row.IdentityPubkey,
@@ -79,5 +79,5 @@ func (s *SQLFleetNodeAuthStore) GetSessionAgent(ctx context.Context, tokenHash s
 }
 
 func (s *SQLFleetNodeAuthStore) SweepExpiredSessions(ctx context.Context, now time.Time) (int64, error) {
-	return s.q(ctx).SweepExpiredAgentSessions(ctx, now)
+	return s.q(ctx).SweepExpiredFleetNodeSessions(ctx, now)
 }

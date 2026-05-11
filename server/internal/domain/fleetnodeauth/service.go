@@ -25,16 +25,16 @@ const (
 )
 
 type Store interface {
-	UpsertChallenge(ctx context.Context, challenge []byte, agentID int64, expiresAt time.Time) error
-	ConsumeChallenge(ctx context.Context, challenge []byte, now time.Time) (agentID int64, err error)
+	UpsertChallenge(ctx context.Context, challenge []byte, fleetNodeID int64, expiresAt time.Time) error
+	ConsumeChallenge(ctx context.Context, challenge []byte, now time.Time) (fleetNodeID int64, err error)
 	SweepExpiredChallenges(ctx context.Context, now time.Time) (int64, error)
 
-	UpsertSession(ctx context.Context, tokenHash string, agentID int64, expiresAt time.Time) error
-	GetSessionAgent(ctx context.Context, tokenHash string, now time.Time) (*ResolvedFleetNode, error)
+	UpsertSession(ctx context.Context, tokenHash string, fleetNodeID int64, expiresAt time.Time) error
+	GetSessionFleetNode(ctx context.Context, tokenHash string, now time.Time) (*ResolvedFleetNode, error)
 	SweepExpiredSessions(ctx context.Context, now time.Time) (int64, error)
 }
 
-// ResolvedFleetNode is the join of an agent_session and its agent row.
+// ResolvedFleetNode is the join of a fleet_node_session and its fleet_node row.
 type ResolvedFleetNode struct {
 	FleetNodeID    int64
 	OrgID          int64
@@ -65,11 +65,11 @@ func (s *Service) BeginHandshake(ctx context.Context, apiKeyPlaintext string, id
 	if err != nil {
 		return nil, time.Time{}, err
 	}
-	agentID, ok := apiKey.AsAgent()
+	agentID, ok := apiKey.AsFleetNode()
 	if !ok {
 		return nil, time.Time{}, fleeterror.NewUnauthenticatedError("invalid api key")
 	}
-	agent, err := s.enrollmentStore.GetAgentByID(ctx, agentID, apiKey.OrganizationID)
+	agent, err := s.enrollmentStore.GetFleetNodeByID(ctx, agentID, apiKey.OrganizationID)
 	if err != nil {
 		if fleeterror.IsNotFoundError(err) {
 			return nil, time.Time{}, fleeterror.NewUnauthenticatedError("invalid api key")
@@ -113,7 +113,7 @@ func (s *Service) CompleteHandshake(ctx context.Context, challenge, signature []
 		return "", time.Time{}, logInternal("consume challenge", clientErrAuth, err)
 	}
 
-	agent, err := s.enrollmentStore.GetAgentByIDUnscoped(ctx, agentID)
+	agent, err := s.enrollmentStore.GetFleetNodeByIDUnscoped(ctx, agentID)
 	if err != nil {
 		if fleeterror.IsNotFoundError(err) {
 			return "", time.Time{}, fleeterror.NewUnauthenticatedError("agent not found")
@@ -140,7 +140,7 @@ func (s *Service) CompleteHandshake(ctx context.Context, challenge, signature []
 }
 
 func (s *Service) ResolveSession(ctx context.Context, sessionTokenPlaintext string) (*ResolvedFleetNode, error) {
-	row, err := s.store.GetSessionAgent(ctx, hashToken(sessionTokenPlaintext), time.Now().UTC())
+	row, err := s.store.GetSessionFleetNode(ctx, hashToken(sessionTokenPlaintext), time.Now().UTC())
 	if err != nil {
 		if fleeterror.IsNotFoundError(err) {
 			return nil, fleeterror.NewUnauthenticatedError("invalid session token")

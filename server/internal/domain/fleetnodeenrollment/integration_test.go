@@ -247,8 +247,8 @@ func TestConcurrentBeginHandshakesYieldOneChallenge(t *testing.T) {
 
 	// Assert
 	var count int
-	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM agent_auth_challenge WHERE agent_id = $1`, agent.ID).Scan(&count))
-	require.Equal(t, 1, count, "concurrent BeginHandshakes for one agent must leave exactly one challenge row")
+	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM fleet_node_auth_challenge WHERE fleet_node_id = $1`, agent.ID).Scan(&count))
+	require.Equal(t, 1, count, "concurrent BeginHandshakes for one fleet node must leave exactly one challenge row")
 }
 
 func TestRevokeBeforeConfirmCannotBeResurrected(t *testing.T) {
@@ -306,8 +306,8 @@ func TestConcurrentCompleteHandshakesYieldOneSession(t *testing.T) {
 
 	// Assert
 	var count int
-	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM agent_session WHERE agent_id = $1`, agent.ID).Scan(&count))
-	require.Equal(t, 1, count, "concurrent CompleteHandshakes for one agent must leave exactly one session row")
+	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM fleet_node_session WHERE fleet_node_id = $1`, agent.ID).Scan(&count))
+	require.Equal(t, 1, count, "concurrent CompleteHandshakes for one fleet node must leave exactly one session row")
 }
 
 func TestCompleteHandshakeRaceWithRevokeReturnsUnauthenticated(t *testing.T) {
@@ -340,8 +340,8 @@ func TestConfirmRejectsAgentRevokedMidConfirm(t *testing.T) {
 	code, _, _ := enrollment.CreateCode(ctx, userID, orgID, time.Hour)
 	agent, _, _ := enrollment.RegisterFleetNode(ctx, code, "agent-1", pubKey, signing)
 	// Simulate a concurrent RevokeFleetNode that lands between Confirm's reads
-	// and its SetAgentEnrollmentStatus update.
-	_, err := db.Exec(`UPDATE agent SET deleted_at = $1 WHERE id = $2`, time.Now().UTC(), agent.ID)
+	// and its SetFleetNodeEnrollmentStatus update.
+	_, err := db.Exec(`UPDATE fleet_node SET deleted_at = $1 WHERE id = $2`, time.Now().UTC(), agent.ID)
 	require.NoError(t, err)
 
 	// Act
@@ -350,8 +350,8 @@ func TestConfirmRejectsAgentRevokedMidConfirm(t *testing.T) {
 	// Assert
 	require.Error(t, confirmErr, "Confirm must reject when the agent is soft-deleted")
 	var apiKeyCount int
-	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM api_key WHERE agent_id = $1`, agent.ID).Scan(&apiKeyCount))
-	require.Equal(t, 0, apiKeyCount, "no api_key must be issued for a revoked/deleted agent")
+	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM api_key WHERE fleet_node_id = $1`, agent.ID).Scan(&apiKeyCount))
+	require.Equal(t, 0, apiKeyCount, "no api_key must be issued for a revoked/deleted fleet node")
 }
 
 func TestRegisterAgentDuplicateIdentityIsPrecondition(t *testing.T) {

@@ -12,8 +12,12 @@ import type { Message } from "@bufbuild/protobuf";
 /**
  * Describes the file schedule/v1/schedule.proto.
  */
-export const file_schedule_v1_schedule: GenFile = /*@__PURE__*/
-  fileDesc("ChpzY2hlZHVsZS92MS9zY2hlZHVsZS5wcm90bxILc2NoZWR1bGUudjEiPwoRUG93ZXJUYXJnZXRDb25maWcSKgoEbW9kZRgBIAEoDjIcLnNjaGVkdWxlLnYxLlBvd2VyVGFyZ2V0TW9kZSLJAQoSU2NoZWR1bGVSZWN1cnJlbmNlEjMKCWZyZXF1ZW5jeRgBIAEoDjIgLnNjaGVkdWxlLnYxLlJlY3VycmVuY2VGcmVxdWVuY3kSGQoIaW50ZXJ2YWwYAiABKAVCB7pIBBoCCAESLAoMZGF5c19vZl93ZWVrGAMgAygOMhYuc2NoZWR1bGUudjEuRGF5T2ZXZWVrEiQKDGRheV9vZl9tb250aBgEIAEoBUIJukgGGgQYHygBSACIAQFCDwoNX2RheV9vZl9tb250aCJuCg5TY2hlZHVsZVRhcmdldBJACgt0YXJnZXRfdHlwZRgBIAEoDjIfLnNjaGVkdWxlLnYxLlNjaGVkdWxlVGFyZ2V0VHlwZUIKukgHggEEEAEgABIaCgl0YXJnZXRfaWQYAiABKAlCB7pIBHICEAEixQUKCFNjaGVkdWxlEgoKAmlkGAEgASgDEgwKBG5hbWUYAiABKAkSKwoGYWN0aW9uGAMgASgOMhsuc2NoZWR1bGUudjEuU2NoZWR1bGVBY3Rpb24SNQoNYWN0aW9uX2NvbmZpZxgEIAEoCzIeLnNjaGVkdWxlLnYxLlBvd2VyVGFyZ2V0Q29uZmlnEjAKDXNjaGVkdWxlX3R5cGUYBSABKA4yGS5zY2hlZHVsZS52MS5TY2hlZHVsZVR5cGUSMwoKcmVjdXJyZW5jZRgGIAEoCzIfLnNjaGVkdWxlLnYxLlNjaGVkdWxlUmVjdXJyZW5jZRISCgpzdGFydF9kYXRlGAcgASgJEhIKCnN0YXJ0X3RpbWUYCCABKAkSEAoIZW5kX3RpbWUYCSABKAkSEAoIZW5kX2RhdGUYCyABKAkSEAoIdGltZXpvbmUYDSABKAkSKwoGc3RhdHVzGA4gASgOMhsuc2NoZWR1bGUudjEuU2NoZWR1bGVTdGF0dXMSEAoIcHJpb3JpdHkYDyABKAUSEgoKY3JlYXRlZF9ieRgRIAEoAxIuCgpjcmVhdGVkX2F0GBIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgp1cGRhdGVkX2F0GBMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIvCgtsYXN0X3J1bl9hdBgUIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLwoLbmV4dF9ydW5fYXQYFSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEiwKB3RhcmdldHMYFyADKAsyGy5zY2hlZHVsZS52MS5TY2hlZHVsZVRhcmdldBIbChNjcmVhdGVkX2J5X3VzZXJuYW1lGBggASgJSgQIChALSgQIDBANSgQIEBARSgQIFhAXIoQBChRMaXN0U2NoZWR1bGVzUmVxdWVzdBI1CgZzdGF0dXMYASABKA4yGy5zY2hlZHVsZS52MS5TY2hlZHVsZVN0YXR1c0IIukgFggECEAESNQoGYWN0aW9uGAIgASgOMhsuc2NoZWR1bGUudjEuU2NoZWR1bGVBY3Rpb25CCLpIBYIBAhABIkEKFUxpc3RTY2hlZHVsZXNSZXNwb25zZRIoCglzY2hlZHVsZXMYASADKAsyFS5zY2hlZHVsZS52MS5TY2hlZHVsZSLaBAoVQ3JlYXRlU2NoZWR1bGVSZXF1ZXN0EhoKBG5hbWUYASABKAlCDLpICcgBAXIEEAEYZBI3CgZhY3Rpb24YAiABKA4yGy5zY2hlZHVsZS52MS5TY2hlZHVsZUFjdGlvbkIKukgHggEEEAEgABI1Cg1hY3Rpb25fY29uZmlnGAMgASgLMh4uc2NoZWR1bGUudjEuUG93ZXJUYXJnZXRDb25maWcSPAoNc2NoZWR1bGVfdHlwZRgEIAEoDjIZLnNjaGVkdWxlLnYxLlNjaGVkdWxlVHlwZUIKukgHggEEEAEgABIzCgpyZWN1cnJlbmNlGAUgASgLMh8uc2NoZWR1bGUudjEuU2NoZWR1bGVSZWN1cnJlbmNlEj0KCnN0YXJ0X2RhdGUYBiABKAlCKbpIJsgBAXIhMhxeWzAtOV17NH0tWzAtOV17Mn0tWzAtOV17Mn0kmAEKEjQKCnN0YXJ0X3RpbWUYByABKAlCILpIHcgBAXIYMhNeWzAtOV17Mn06WzAtOV17Mn0kmAEFEjIKCGVuZF90aW1lGAggASgJQiC6SB3YAQFyGDITXlswLTldezJ9OlswLTldezJ9JJgBBRI7CghlbmRfZGF0ZRgKIAEoCUIpukgm2AEBciEyHF5bMC05XXs0fS1bMC05XXsyfS1bMC05XXsyfSSYAQoSHAoIdGltZXpvbmUYDCABKAlCCrpIB8gBAXICEAESLAoHdGFyZ2V0cxgOIAMoCzIbLnNjaGVkdWxlLnYxLlNjaGVkdWxlVGFyZ2V0SgQICRAKSgQICxAMSgQIDRAOIkEKFkNyZWF0ZVNjaGVkdWxlUmVzcG9uc2USJwoIc2NoZWR1bGUYASABKAsyFS5zY2hlZHVsZS52MS5TY2hlZHVsZSL4BAoVVXBkYXRlU2NoZWR1bGVSZXF1ZXN0EhwKC3NjaGVkdWxlX2lkGAEgASgDQge6SAQiAiAAEhoKBG5hbWUYAiABKAlCDLpICcgBAXIEEAEYZBI3CgZhY3Rpb24YAyABKA4yGy5zY2hlZHVsZS52MS5TY2hlZHVsZUFjdGlvbkIKukgHggEEEAEgABI1Cg1hY3Rpb25fY29uZmlnGAQgASgLMh4uc2NoZWR1bGUudjEuUG93ZXJUYXJnZXRDb25maWcSPAoNc2NoZWR1bGVfdHlwZRgFIAEoDjIZLnNjaGVkdWxlLnYxLlNjaGVkdWxlVHlwZUIKukgHggEEEAEgABIzCgpyZWN1cnJlbmNlGAYgASgLMh8uc2NoZWR1bGUudjEuU2NoZWR1bGVSZWN1cnJlbmNlEj0KCnN0YXJ0X2RhdGUYByABKAlCKbpIJsgBAXIhMhxeWzAtOV17NH0tWzAtOV17Mn0tWzAtOV17Mn0kmAEKEjQKCnN0YXJ0X3RpbWUYCCABKAlCILpIHcgBAXIYMhNeWzAtOV17Mn06WzAtOV17Mn0kmAEFEjIKCGVuZF90aW1lGAkgASgJQiC6SB3YAQFyGDITXlswLTldezJ9OlswLTldezJ9JJgBBRI7CghlbmRfZGF0ZRgLIAEoCUIpukgm2AEBciEyHF5bMC05XXs0fS1bMC05XXsyfS1bMC05XXsyfSSYAQoSHAoIdGltZXpvbmUYDSABKAlCCrpIB8gBAXICEAESLAoHdGFyZ2V0cxgPIAMoCzIbLnNjaGVkdWxlLnYxLlNjaGVkdWxlVGFyZ2V0SgQIChALSgQIDBANSgQIDhAPIkEKFlVwZGF0ZVNjaGVkdWxlUmVzcG9uc2USJwoIc2NoZWR1bGUYASABKAsyFS5zY2hlZHVsZS52MS5TY2hlZHVsZSI1ChVEZWxldGVTY2hlZHVsZVJlcXVlc3QSHAoLc2NoZWR1bGVfaWQYASABKANCB7pIBCICIAAiGAoWRGVsZXRlU2NoZWR1bGVSZXNwb25zZSI0ChRQYXVzZVNjaGVkdWxlUmVxdWVzdBIcCgtzY2hlZHVsZV9pZBgBIAEoA0IHukgEIgIgACJAChVQYXVzZVNjaGVkdWxlUmVzcG9uc2USJwoIc2NoZWR1bGUYASABKAsyFS5zY2hlZHVsZS52MS5TY2hlZHVsZSI1ChVSZXN1bWVTY2hlZHVsZVJlcXVlc3QSHAoLc2NoZWR1bGVfaWQYASABKANCB7pIBCICIAAiQQoWUmVzdW1lU2NoZWR1bGVSZXNwb25zZRInCghzY2hlZHVsZRgBIAEoCzIVLnNjaGVkdWxlLnYxLlNjaGVkdWxlIkEKF1Jlb3JkZXJTY2hlZHVsZXNSZXF1ZXN0EiYKDHNjaGVkdWxlX2lkcxgBIAMoA0IQukgNkgEKCAEYASIEIgIgACIaChhSZW9yZGVyU2NoZWR1bGVzUmVzcG9uc2UqpQEKDlNjaGVkdWxlU3RhdHVzEh8KG1NDSEVEVUxFX1NUQVRVU19VTlNQRUNJRklFRBAAEhoKFlNDSEVEVUxFX1NUQVRVU19BQ1RJVkUQARIaChZTQ0hFRFVMRV9TVEFUVVNfUEFVU0VEEAISGwoXU0NIRURVTEVfU1RBVFVTX1JVTk5JTkcQAxIdChlTQ0hFRFVMRV9TVEFUVVNfQ09NUExFVEVEEAQqjgEKDlNjaGVkdWxlQWN0aW9uEh8KG1NDSEVEVUxFX0FDVElPTl9VTlNQRUNJRklFRBAAEiQKIFNDSEVEVUxFX0FDVElPTl9TRVRfUE9XRVJfVEFSR0VUEAESGgoWU0NIRURVTEVfQUNUSU9OX1JFQk9PVBACEhkKFVNDSEVEVUxFX0FDVElPTl9TTEVFUBADKmYKDFNjaGVkdWxlVHlwZRIdChlTQ0hFRFVMRV9UWVBFX1VOU1BFQ0lGSUVEEAASGgoWU0NIRURVTEVfVFlQRV9PTkVfVElNRRABEhsKF1NDSEVEVUxFX1RZUEVfUkVDVVJSSU5HEAIqngEKE1JlY3VycmVuY2VGcmVxdWVuY3kSJAogUkVDVVJSRU5DRV9GUkVRVUVOQ1lfVU5TUEVDSUZJRUQQABIeChpSRUNVUlJFTkNFX0ZSRVFVRU5DWV9EQUlMWRABEh8KG1JFQ1VSUkVOQ0VfRlJFUVVFTkNZX1dFRUtMWRACEiAKHFJFQ1VSUkVOQ0VfRlJFUVVFTkNZX01PTlRITFkQAypuCg9Qb3dlclRhcmdldE1vZGUSIQodUE9XRVJfVEFSR0VUX01PREVfVU5TUEVDSUZJRUQQABIdChlQT1dFUl9UQVJHRVRfTU9ERV9ERUZBVUxUEAESGQoVUE9XRVJfVEFSR0VUX01PREVfTUFYEAIq2AEKCURheU9mV2VlaxIbChdEQVlfT0ZfV0VFS19VTlNQRUNJRklFRBAAEhYKEkRBWV9PRl9XRUVLX1NVTkRBWRABEhYKEkRBWV9PRl9XRUVLX01PTkRBWRACEhcKE0RBWV9PRl9XRUVLX1RVRVNEQVkQAxIZChVEQVlfT0ZfV0VFS19XRURORVNEQVkQBBIYChREQVlfT0ZfV0VFS19USFVSU0RBWRAFEhYKEkRBWV9PRl9XRUVLX0ZSSURBWRAGEhgKFERBWV9PRl9XRUVLX1NBVFVSREFZEAcqmQEKElNjaGVkdWxlVGFyZ2V0VHlwZRIkCiBTQ0hFRFVMRV9UQVJHRVRfVFlQRV9VTlNQRUNJRklFRBAAEh0KGVNDSEVEVUxFX1RBUkdFVF9UWVBFX1JBQ0sQARIeChpTQ0hFRFVMRV9UQVJHRVRfVFlQRV9NSU5FUhACEh4KGlNDSEVEVUxFX1RBUkdFVF9UWVBFX0dST1VQEAMyjgUKD1NjaGVkdWxlU2VydmljZRJWCg1MaXN0U2NoZWR1bGVzEiEuc2NoZWR1bGUudjEuTGlzdFNjaGVkdWxlc1JlcXVlc3QaIi5zY2hlZHVsZS52MS5MaXN0U2NoZWR1bGVzUmVzcG9uc2USWQoOQ3JlYXRlU2NoZWR1bGUSIi5zY2hlZHVsZS52MS5DcmVhdGVTY2hlZHVsZVJlcXVlc3QaIy5zY2hlZHVsZS52MS5DcmVhdGVTY2hlZHVsZVJlc3BvbnNlElkKDlVwZGF0ZVNjaGVkdWxlEiIuc2NoZWR1bGUudjEuVXBkYXRlU2NoZWR1bGVSZXF1ZXN0GiMuc2NoZWR1bGUudjEuVXBkYXRlU2NoZWR1bGVSZXNwb25zZRJZCg5EZWxldGVTY2hlZHVsZRIiLnNjaGVkdWxlLnYxLkRlbGV0ZVNjaGVkdWxlUmVxdWVzdBojLnNjaGVkdWxlLnYxLkRlbGV0ZVNjaGVkdWxlUmVzcG9uc2USVgoNUGF1c2VTY2hlZHVsZRIhLnNjaGVkdWxlLnYxLlBhdXNlU2NoZWR1bGVSZXF1ZXN0GiIuc2NoZWR1bGUudjEuUGF1c2VTY2hlZHVsZVJlc3BvbnNlElkKDlJlc3VtZVNjaGVkdWxlEiIuc2NoZWR1bGUudjEuUmVzdW1lU2NoZWR1bGVSZXF1ZXN0GiMuc2NoZWR1bGUudjEuUmVzdW1lU2NoZWR1bGVSZXNwb25zZRJfChBSZW9yZGVyU2NoZWR1bGVzEiQuc2NoZWR1bGUudjEuUmVvcmRlclNjaGVkdWxlc1JlcXVlc3QaJS5zY2hlZHVsZS52MS5SZW9yZGVyU2NoZWR1bGVzUmVzcG9uc2VCuAEKD2NvbS5zY2hlZHVsZS52MUINU2NoZWR1bGVQcm90b1ABWklnaXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9zY2hlZHVsZS92MTtzY2hlZHVsZXYxogIDU1hYqgILU2NoZWR1bGUuVjHKAgtTY2hlZHVsZVxWMeICF1NjaGVkdWxlXFYxXEdQQk1ldGFkYXRh6gIMU2NoZWR1bGU6OlYxYgZwcm90bzM", [file_google_protobuf_timestamp, file_buf_validate_validate]);
+export const file_schedule_v1_schedule: GenFile =
+  /*@__PURE__*/
+  fileDesc(
+    "ChpzY2hlZHVsZS92MS9zY2hlZHVsZS5wcm90bxILc2NoZWR1bGUudjEiPwoRUG93ZXJUYXJnZXRDb25maWcSKgoEbW9kZRgBIAEoDjIcLnNjaGVkdWxlLnYxLlBvd2VyVGFyZ2V0TW9kZSLJAQoSU2NoZWR1bGVSZWN1cnJlbmNlEjMKCWZyZXF1ZW5jeRgBIAEoDjIgLnNjaGVkdWxlLnYxLlJlY3VycmVuY2VGcmVxdWVuY3kSGQoIaW50ZXJ2YWwYAiABKAVCB7pIBBoCCAESLAoMZGF5c19vZl93ZWVrGAMgAygOMhYuc2NoZWR1bGUudjEuRGF5T2ZXZWVrEiQKDGRheV9vZl9tb250aBgEIAEoBUIJukgGGgQYHygBSACIAQFCDwoNX2RheV9vZl9tb250aCJuCg5TY2hlZHVsZVRhcmdldBJACgt0YXJnZXRfdHlwZRgBIAEoDjIfLnNjaGVkdWxlLnYxLlNjaGVkdWxlVGFyZ2V0VHlwZUIKukgHggEEEAEgABIaCgl0YXJnZXRfaWQYAiABKAlCB7pIBHICEAEixQUKCFNjaGVkdWxlEgoKAmlkGAEgASgDEgwKBG5hbWUYAiABKAkSKwoGYWN0aW9uGAMgASgOMhsuc2NoZWR1bGUudjEuU2NoZWR1bGVBY3Rpb24SNQoNYWN0aW9uX2NvbmZpZxgEIAEoCzIeLnNjaGVkdWxlLnYxLlBvd2VyVGFyZ2V0Q29uZmlnEjAKDXNjaGVkdWxlX3R5cGUYBSABKA4yGS5zY2hlZHVsZS52MS5TY2hlZHVsZVR5cGUSMwoKcmVjdXJyZW5jZRgGIAEoCzIfLnNjaGVkdWxlLnYxLlNjaGVkdWxlUmVjdXJyZW5jZRISCgpzdGFydF9kYXRlGAcgASgJEhIKCnN0YXJ0X3RpbWUYCCABKAkSEAoIZW5kX3RpbWUYCSABKAkSEAoIZW5kX2RhdGUYCyABKAkSEAoIdGltZXpvbmUYDSABKAkSKwoGc3RhdHVzGA4gASgOMhsuc2NoZWR1bGUudjEuU2NoZWR1bGVTdGF0dXMSEAoIcHJpb3JpdHkYDyABKAUSEgoKY3JlYXRlZF9ieRgRIAEoAxIuCgpjcmVhdGVkX2F0GBIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgp1cGRhdGVkX2F0GBMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIvCgtsYXN0X3J1bl9hdBgUIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLwoLbmV4dF9ydW5fYXQYFSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEiwKB3RhcmdldHMYFyADKAsyGy5zY2hlZHVsZS52MS5TY2hlZHVsZVRhcmdldBIbChNjcmVhdGVkX2J5X3VzZXJuYW1lGBggASgJSgQIChALSgQIDBANSgQIEBARSgQIFhAXIoQBChRMaXN0U2NoZWR1bGVzUmVxdWVzdBI1CgZzdGF0dXMYASABKA4yGy5zY2hlZHVsZS52MS5TY2hlZHVsZVN0YXR1c0IIukgFggECEAESNQoGYWN0aW9uGAIgASgOMhsuc2NoZWR1bGUudjEuU2NoZWR1bGVBY3Rpb25CCLpIBYIBAhABIkEKFUxpc3RTY2hlZHVsZXNSZXNwb25zZRIoCglzY2hlZHVsZXMYASADKAsyFS5zY2hlZHVsZS52MS5TY2hlZHVsZSLaBAoVQ3JlYXRlU2NoZWR1bGVSZXF1ZXN0EhoKBG5hbWUYASABKAlCDLpICcgBAXIEEAEYZBI3CgZhY3Rpb24YAiABKA4yGy5zY2hlZHVsZS52MS5TY2hlZHVsZUFjdGlvbkIKukgHggEEEAEgABI1Cg1hY3Rpb25fY29uZmlnGAMgASgLMh4uc2NoZWR1bGUudjEuUG93ZXJUYXJnZXRDb25maWcSPAoNc2NoZWR1bGVfdHlwZRgEIAEoDjIZLnNjaGVkdWxlLnYxLlNjaGVkdWxlVHlwZUIKukgHggEEEAEgABIzCgpyZWN1cnJlbmNlGAUgASgLMh8uc2NoZWR1bGUudjEuU2NoZWR1bGVSZWN1cnJlbmNlEj0KCnN0YXJ0X2RhdGUYBiABKAlCKbpIJsgBAXIhMhxeWzAtOV17NH0tWzAtOV17Mn0tWzAtOV17Mn0kmAEKEjQKCnN0YXJ0X3RpbWUYByABKAlCILpIHcgBAXIYMhNeWzAtOV17Mn06WzAtOV17Mn0kmAEFEjIKCGVuZF90aW1lGAggASgJQiC6SB3YAQFyGDITXlswLTldezJ9OlswLTldezJ9JJgBBRI7CghlbmRfZGF0ZRgKIAEoCUIpukgm2AEBciEyHF5bMC05XXs0fS1bMC05XXsyfS1bMC05XXsyfSSYAQoSHAoIdGltZXpvbmUYDCABKAlCCrpIB8gBAXICEAESLAoHdGFyZ2V0cxgOIAMoCzIbLnNjaGVkdWxlLnYxLlNjaGVkdWxlVGFyZ2V0SgQICRAKSgQICxAMSgQIDRAOIkEKFkNyZWF0ZVNjaGVkdWxlUmVzcG9uc2USJwoIc2NoZWR1bGUYASABKAsyFS5zY2hlZHVsZS52MS5TY2hlZHVsZSL4BAoVVXBkYXRlU2NoZWR1bGVSZXF1ZXN0EhwKC3NjaGVkdWxlX2lkGAEgASgDQge6SAQiAiAAEhoKBG5hbWUYAiABKAlCDLpICcgBAXIEEAEYZBI3CgZhY3Rpb24YAyABKA4yGy5zY2hlZHVsZS52MS5TY2hlZHVsZUFjdGlvbkIKukgHggEEEAEgABI1Cg1hY3Rpb25fY29uZmlnGAQgASgLMh4uc2NoZWR1bGUudjEuUG93ZXJUYXJnZXRDb25maWcSPAoNc2NoZWR1bGVfdHlwZRgFIAEoDjIZLnNjaGVkdWxlLnYxLlNjaGVkdWxlVHlwZUIKukgHggEEEAEgABIzCgpyZWN1cnJlbmNlGAYgASgLMh8uc2NoZWR1bGUudjEuU2NoZWR1bGVSZWN1cnJlbmNlEj0KCnN0YXJ0X2RhdGUYByABKAlCKbpIJsgBAXIhMhxeWzAtOV17NH0tWzAtOV17Mn0tWzAtOV17Mn0kmAEKEjQKCnN0YXJ0X3RpbWUYCCABKAlCILpIHcgBAXIYMhNeWzAtOV17Mn06WzAtOV17Mn0kmAEFEjIKCGVuZF90aW1lGAkgASgJQiC6SB3YAQFyGDITXlswLTldezJ9OlswLTldezJ9JJgBBRI7CghlbmRfZGF0ZRgLIAEoCUIpukgm2AEBciEyHF5bMC05XXs0fS1bMC05XXsyfS1bMC05XXsyfSSYAQoSHAoIdGltZXpvbmUYDSABKAlCCrpIB8gBAXICEAESLAoHdGFyZ2V0cxgPIAMoCzIbLnNjaGVkdWxlLnYxLlNjaGVkdWxlVGFyZ2V0SgQIChALSgQIDBANSgQIDhAPIkEKFlVwZGF0ZVNjaGVkdWxlUmVzcG9uc2USJwoIc2NoZWR1bGUYASABKAsyFS5zY2hlZHVsZS52MS5TY2hlZHVsZSI1ChVEZWxldGVTY2hlZHVsZVJlcXVlc3QSHAoLc2NoZWR1bGVfaWQYASABKANCB7pIBCICIAAiGAoWRGVsZXRlU2NoZWR1bGVSZXNwb25zZSI0ChRQYXVzZVNjaGVkdWxlUmVxdWVzdBIcCgtzY2hlZHVsZV9pZBgBIAEoA0IHukgEIgIgACJAChVQYXVzZVNjaGVkdWxlUmVzcG9uc2USJwoIc2NoZWR1bGUYASABKAsyFS5zY2hlZHVsZS52MS5TY2hlZHVsZSI1ChVSZXN1bWVTY2hlZHVsZVJlcXVlc3QSHAoLc2NoZWR1bGVfaWQYASABKANCB7pIBCICIAAiQQoWUmVzdW1lU2NoZWR1bGVSZXNwb25zZRInCghzY2hlZHVsZRgBIAEoCzIVLnNjaGVkdWxlLnYxLlNjaGVkdWxlIkEKF1Jlb3JkZXJTY2hlZHVsZXNSZXF1ZXN0EiYKDHNjaGVkdWxlX2lkcxgBIAMoA0IQukgNkgEKCAEYASIEIgIgACIaChhSZW9yZGVyU2NoZWR1bGVzUmVzcG9uc2UqpQEKDlNjaGVkdWxlU3RhdHVzEh8KG1NDSEVEVUxFX1NUQVRVU19VTlNQRUNJRklFRBAAEhoKFlNDSEVEVUxFX1NUQVRVU19BQ1RJVkUQARIaChZTQ0hFRFVMRV9TVEFUVVNfUEFVU0VEEAISGwoXU0NIRURVTEVfU1RBVFVTX1JVTk5JTkcQAxIdChlTQ0hFRFVMRV9TVEFUVVNfQ09NUExFVEVEEAQqjgEKDlNjaGVkdWxlQWN0aW9uEh8KG1NDSEVEVUxFX0FDVElPTl9VTlNQRUNJRklFRBAAEiQKIFNDSEVEVUxFX0FDVElPTl9TRVRfUE9XRVJfVEFSR0VUEAESGgoWU0NIRURVTEVfQUNUSU9OX1JFQk9PVBACEhkKFVNDSEVEVUxFX0FDVElPTl9TTEVFUBADKmYKDFNjaGVkdWxlVHlwZRIdChlTQ0hFRFVMRV9UWVBFX1VOU1BFQ0lGSUVEEAASGgoWU0NIRURVTEVfVFlQRV9PTkVfVElNRRABEhsKF1NDSEVEVUxFX1RZUEVfUkVDVVJSSU5HEAIqngEKE1JlY3VycmVuY2VGcmVxdWVuY3kSJAogUkVDVVJSRU5DRV9GUkVRVUVOQ1lfVU5TUEVDSUZJRUQQABIeChpSRUNVUlJFTkNFX0ZSRVFVRU5DWV9EQUlMWRABEh8KG1JFQ1VSUkVOQ0VfRlJFUVVFTkNZX1dFRUtMWRACEiAKHFJFQ1VSUkVOQ0VfRlJFUVVFTkNZX01PTlRITFkQAypuCg9Qb3dlclRhcmdldE1vZGUSIQodUE9XRVJfVEFSR0VUX01PREVfVU5TUEVDSUZJRUQQABIdChlQT1dFUl9UQVJHRVRfTU9ERV9ERUZBVUxUEAESGQoVUE9XRVJfVEFSR0VUX01PREVfTUFYEAIq2AEKCURheU9mV2VlaxIbChdEQVlfT0ZfV0VFS19VTlNQRUNJRklFRBAAEhYKEkRBWV9PRl9XRUVLX1NVTkRBWRABEhYKEkRBWV9PRl9XRUVLX01PTkRBWRACEhcKE0RBWV9PRl9XRUVLX1RVRVNEQVkQAxIZChVEQVlfT0ZfV0VFS19XRURORVNEQVkQBBIYChREQVlfT0ZfV0VFS19USFVSU0RBWRAFEhYKEkRBWV9PRl9XRUVLX0ZSSURBWRAGEhgKFERBWV9PRl9XRUVLX1NBVFVSREFZEAcqmQEKElNjaGVkdWxlVGFyZ2V0VHlwZRIkCiBTQ0hFRFVMRV9UQVJHRVRfVFlQRV9VTlNQRUNJRklFRBAAEh0KGVNDSEVEVUxFX1RBUkdFVF9UWVBFX1JBQ0sQARIeChpTQ0hFRFVMRV9UQVJHRVRfVFlQRV9NSU5FUhACEh4KGlNDSEVEVUxFX1RBUkdFVF9UWVBFX0dST1VQEAMyjgUKD1NjaGVkdWxlU2VydmljZRJWCg1MaXN0U2NoZWR1bGVzEiEuc2NoZWR1bGUudjEuTGlzdFNjaGVkdWxlc1JlcXVlc3QaIi5zY2hlZHVsZS52MS5MaXN0U2NoZWR1bGVzUmVzcG9uc2USWQoOQ3JlYXRlU2NoZWR1bGUSIi5zY2hlZHVsZS52MS5DcmVhdGVTY2hlZHVsZVJlcXVlc3QaIy5zY2hlZHVsZS52MS5DcmVhdGVTY2hlZHVsZVJlc3BvbnNlElkKDlVwZGF0ZVNjaGVkdWxlEiIuc2NoZWR1bGUudjEuVXBkYXRlU2NoZWR1bGVSZXF1ZXN0GiMuc2NoZWR1bGUudjEuVXBkYXRlU2NoZWR1bGVSZXNwb25zZRJZCg5EZWxldGVTY2hlZHVsZRIiLnNjaGVkdWxlLnYxLkRlbGV0ZVNjaGVkdWxlUmVxdWVzdBojLnNjaGVkdWxlLnYxLkRlbGV0ZVNjaGVkdWxlUmVzcG9uc2USVgoNUGF1c2VTY2hlZHVsZRIhLnNjaGVkdWxlLnYxLlBhdXNlU2NoZWR1bGVSZXF1ZXN0GiIuc2NoZWR1bGUudjEuUGF1c2VTY2hlZHVsZVJlc3BvbnNlElkKDlJlc3VtZVNjaGVkdWxlEiIuc2NoZWR1bGUudjEuUmVzdW1lU2NoZWR1bGVSZXF1ZXN0GiMuc2NoZWR1bGUudjEuUmVzdW1lU2NoZWR1bGVSZXNwb25zZRJfChBSZW9yZGVyU2NoZWR1bGVzEiQuc2NoZWR1bGUudjEuUmVvcmRlclNjaGVkdWxlc1JlcXVlc3QaJS5zY2hlZHVsZS52MS5SZW9yZGVyU2NoZWR1bGVzUmVzcG9uc2VCuAEKD2NvbS5zY2hlZHVsZS52MUINU2NoZWR1bGVQcm90b1ABWklnaXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9zY2hlZHVsZS92MTtzY2hlZHVsZXYxogIDU1hYqgILU2NoZWR1bGUuVjHKAgtTY2hlZHVsZVxWMeICF1NjaGVkdWxlXFYxXEdQQk1ldGFkYXRh6gIMU2NoZWR1bGU6OlYxYgZwcm90bzM",
+    [file_google_protobuf_timestamp, file_buf_validate_validate],
+  );
 
 /**
  * Configuration for the power target action
@@ -31,7 +35,8 @@ export type PowerTargetConfig = Message<"schedule.v1.PowerTargetConfig"> & {
  * Describes the message schedule.v1.PowerTargetConfig.
  * Use `create(PowerTargetConfigSchema)` to create a new message.
  */
-export const PowerTargetConfigSchema: GenMessage<PowerTargetConfig> = /*@__PURE__*/
+export const PowerTargetConfigSchema: GenMessage<PowerTargetConfig> =
+  /*@__PURE__*/
   messageDesc(file_schedule_v1_schedule, 0);
 
 /**
@@ -74,7 +79,8 @@ export type ScheduleRecurrence = Message<"schedule.v1.ScheduleRecurrence"> & {
  * Describes the message schedule.v1.ScheduleRecurrence.
  * Use `create(ScheduleRecurrenceSchema)` to create a new message.
  */
-export const ScheduleRecurrenceSchema: GenMessage<ScheduleRecurrence> = /*@__PURE__*/
+export const ScheduleRecurrenceSchema: GenMessage<ScheduleRecurrence> =
+  /*@__PURE__*/
   messageDesc(file_schedule_v1_schedule, 1);
 
 /**
@@ -102,8 +108,7 @@ export type ScheduleTarget = Message<"schedule.v1.ScheduleTarget"> & {
  * Describes the message schedule.v1.ScheduleTarget.
  * Use `create(ScheduleTargetSchema)` to create a new message.
  */
-export const ScheduleTargetSchema: GenMessage<ScheduleTarget> = /*@__PURE__*/
-  messageDesc(file_schedule_v1_schedule, 2);
+export const ScheduleTargetSchema: GenMessage<ScheduleTarget> = /*@__PURE__*/ messageDesc(file_schedule_v1_schedule, 2);
 
 /**
  * Full schedule entity
@@ -216,8 +221,7 @@ export type Schedule = Message<"schedule.v1.Schedule"> & {
  * Describes the message schedule.v1.Schedule.
  * Use `create(ScheduleSchema)` to create a new message.
  */
-export const ScheduleSchema: GenMessage<Schedule> = /*@__PURE__*/
-  messageDesc(file_schedule_v1_schedule, 3);
+export const ScheduleSchema: GenMessage<Schedule> = /*@__PURE__*/ messageDesc(file_schedule_v1_schedule, 3);
 
 /**
  * @generated from message schedule.v1.ListSchedulesRequest
@@ -242,7 +246,8 @@ export type ListSchedulesRequest = Message<"schedule.v1.ListSchedulesRequest"> &
  * Describes the message schedule.v1.ListSchedulesRequest.
  * Use `create(ListSchedulesRequestSchema)` to create a new message.
  */
-export const ListSchedulesRequestSchema: GenMessage<ListSchedulesRequest> = /*@__PURE__*/
+export const ListSchedulesRequestSchema: GenMessage<ListSchedulesRequest> =
+  /*@__PURE__*/
   messageDesc(file_schedule_v1_schedule, 4);
 
 /**
@@ -259,7 +264,8 @@ export type ListSchedulesResponse = Message<"schedule.v1.ListSchedulesResponse">
  * Describes the message schedule.v1.ListSchedulesResponse.
  * Use `create(ListSchedulesResponseSchema)` to create a new message.
  */
-export const ListSchedulesResponseSchema: GenMessage<ListSchedulesResponse> = /*@__PURE__*/
+export const ListSchedulesResponseSchema: GenMessage<ListSchedulesResponse> =
+  /*@__PURE__*/
   messageDesc(file_schedule_v1_schedule, 5);
 
 /**
@@ -348,7 +354,8 @@ export type CreateScheduleRequest = Message<"schedule.v1.CreateScheduleRequest">
  * Describes the message schedule.v1.CreateScheduleRequest.
  * Use `create(CreateScheduleRequestSchema)` to create a new message.
  */
-export const CreateScheduleRequestSchema: GenMessage<CreateScheduleRequest> = /*@__PURE__*/
+export const CreateScheduleRequestSchema: GenMessage<CreateScheduleRequest> =
+  /*@__PURE__*/
   messageDesc(file_schedule_v1_schedule, 6);
 
 /**
@@ -365,7 +372,8 @@ export type CreateScheduleResponse = Message<"schedule.v1.CreateScheduleResponse
  * Describes the message schedule.v1.CreateScheduleResponse.
  * Use `create(CreateScheduleResponseSchema)` to create a new message.
  */
-export const CreateScheduleResponseSchema: GenMessage<CreateScheduleResponse> = /*@__PURE__*/
+export const CreateScheduleResponseSchema: GenMessage<CreateScheduleResponse> =
+  /*@__PURE__*/
   messageDesc(file_schedule_v1_schedule, 7);
 
 /**
@@ -461,7 +469,8 @@ export type UpdateScheduleRequest = Message<"schedule.v1.UpdateScheduleRequest">
  * Describes the message schedule.v1.UpdateScheduleRequest.
  * Use `create(UpdateScheduleRequestSchema)` to create a new message.
  */
-export const UpdateScheduleRequestSchema: GenMessage<UpdateScheduleRequest> = /*@__PURE__*/
+export const UpdateScheduleRequestSchema: GenMessage<UpdateScheduleRequest> =
+  /*@__PURE__*/
   messageDesc(file_schedule_v1_schedule, 8);
 
 /**
@@ -478,7 +487,8 @@ export type UpdateScheduleResponse = Message<"schedule.v1.UpdateScheduleResponse
  * Describes the message schedule.v1.UpdateScheduleResponse.
  * Use `create(UpdateScheduleResponseSchema)` to create a new message.
  */
-export const UpdateScheduleResponseSchema: GenMessage<UpdateScheduleResponse> = /*@__PURE__*/
+export const UpdateScheduleResponseSchema: GenMessage<UpdateScheduleResponse> =
+  /*@__PURE__*/
   messageDesc(file_schedule_v1_schedule, 9);
 
 /**
@@ -495,20 +505,21 @@ export type DeleteScheduleRequest = Message<"schedule.v1.DeleteScheduleRequest">
  * Describes the message schedule.v1.DeleteScheduleRequest.
  * Use `create(DeleteScheduleRequestSchema)` to create a new message.
  */
-export const DeleteScheduleRequestSchema: GenMessage<DeleteScheduleRequest> = /*@__PURE__*/
+export const DeleteScheduleRequestSchema: GenMessage<DeleteScheduleRequest> =
+  /*@__PURE__*/
   messageDesc(file_schedule_v1_schedule, 10);
 
 /**
  * @generated from message schedule.v1.DeleteScheduleResponse
  */
-export type DeleteScheduleResponse = Message<"schedule.v1.DeleteScheduleResponse"> & {
-};
+export type DeleteScheduleResponse = Message<"schedule.v1.DeleteScheduleResponse"> & {};
 
 /**
  * Describes the message schedule.v1.DeleteScheduleResponse.
  * Use `create(DeleteScheduleResponseSchema)` to create a new message.
  */
-export const DeleteScheduleResponseSchema: GenMessage<DeleteScheduleResponse> = /*@__PURE__*/
+export const DeleteScheduleResponseSchema: GenMessage<DeleteScheduleResponse> =
+  /*@__PURE__*/
   messageDesc(file_schedule_v1_schedule, 11);
 
 /**
@@ -525,7 +536,8 @@ export type PauseScheduleRequest = Message<"schedule.v1.PauseScheduleRequest"> &
  * Describes the message schedule.v1.PauseScheduleRequest.
  * Use `create(PauseScheduleRequestSchema)` to create a new message.
  */
-export const PauseScheduleRequestSchema: GenMessage<PauseScheduleRequest> = /*@__PURE__*/
+export const PauseScheduleRequestSchema: GenMessage<PauseScheduleRequest> =
+  /*@__PURE__*/
   messageDesc(file_schedule_v1_schedule, 12);
 
 /**
@@ -542,7 +554,8 @@ export type PauseScheduleResponse = Message<"schedule.v1.PauseScheduleResponse">
  * Describes the message schedule.v1.PauseScheduleResponse.
  * Use `create(PauseScheduleResponseSchema)` to create a new message.
  */
-export const PauseScheduleResponseSchema: GenMessage<PauseScheduleResponse> = /*@__PURE__*/
+export const PauseScheduleResponseSchema: GenMessage<PauseScheduleResponse> =
+  /*@__PURE__*/
   messageDesc(file_schedule_v1_schedule, 13);
 
 /**
@@ -559,7 +572,8 @@ export type ResumeScheduleRequest = Message<"schedule.v1.ResumeScheduleRequest">
  * Describes the message schedule.v1.ResumeScheduleRequest.
  * Use `create(ResumeScheduleRequestSchema)` to create a new message.
  */
-export const ResumeScheduleRequestSchema: GenMessage<ResumeScheduleRequest> = /*@__PURE__*/
+export const ResumeScheduleRequestSchema: GenMessage<ResumeScheduleRequest> =
+  /*@__PURE__*/
   messageDesc(file_schedule_v1_schedule, 14);
 
 /**
@@ -576,7 +590,8 @@ export type ResumeScheduleResponse = Message<"schedule.v1.ResumeScheduleResponse
  * Describes the message schedule.v1.ResumeScheduleResponse.
  * Use `create(ResumeScheduleResponseSchema)` to create a new message.
  */
-export const ResumeScheduleResponseSchema: GenMessage<ResumeScheduleResponse> = /*@__PURE__*/
+export const ResumeScheduleResponseSchema: GenMessage<ResumeScheduleResponse> =
+  /*@__PURE__*/
   messageDesc(file_schedule_v1_schedule, 15);
 
 /**
@@ -595,20 +610,21 @@ export type ReorderSchedulesRequest = Message<"schedule.v1.ReorderSchedulesReque
  * Describes the message schedule.v1.ReorderSchedulesRequest.
  * Use `create(ReorderSchedulesRequestSchema)` to create a new message.
  */
-export const ReorderSchedulesRequestSchema: GenMessage<ReorderSchedulesRequest> = /*@__PURE__*/
+export const ReorderSchedulesRequestSchema: GenMessage<ReorderSchedulesRequest> =
+  /*@__PURE__*/
   messageDesc(file_schedule_v1_schedule, 16);
 
 /**
  * @generated from message schedule.v1.ReorderSchedulesResponse
  */
-export type ReorderSchedulesResponse = Message<"schedule.v1.ReorderSchedulesResponse"> & {
-};
+export type ReorderSchedulesResponse = Message<"schedule.v1.ReorderSchedulesResponse"> & {};
 
 /**
  * Describes the message schedule.v1.ReorderSchedulesResponse.
  * Use `create(ReorderSchedulesResponseSchema)` to create a new message.
  */
-export const ReorderSchedulesResponseSchema: GenMessage<ReorderSchedulesResponse> = /*@__PURE__*/
+export const ReorderSchedulesResponseSchema: GenMessage<ReorderSchedulesResponse> =
+  /*@__PURE__*/
   messageDesc(file_schedule_v1_schedule, 17);
 
 /**
@@ -644,8 +660,7 @@ export enum ScheduleStatus {
 /**
  * Describes the enum schedule.v1.ScheduleStatus.
  */
-export const ScheduleStatusSchema: GenEnum<ScheduleStatus> = /*@__PURE__*/
-  enumDesc(file_schedule_v1_schedule, 0);
+export const ScheduleStatusSchema: GenEnum<ScheduleStatus> = /*@__PURE__*/ enumDesc(file_schedule_v1_schedule, 0);
 
 /**
  * @generated from enum schedule.v1.ScheduleAction
@@ -675,8 +690,7 @@ export enum ScheduleAction {
 /**
  * Describes the enum schedule.v1.ScheduleAction.
  */
-export const ScheduleActionSchema: GenEnum<ScheduleAction> = /*@__PURE__*/
-  enumDesc(file_schedule_v1_schedule, 1);
+export const ScheduleActionSchema: GenEnum<ScheduleAction> = /*@__PURE__*/ enumDesc(file_schedule_v1_schedule, 1);
 
 /**
  * @generated from enum schedule.v1.ScheduleType
@@ -701,8 +715,7 @@ export enum ScheduleType {
 /**
  * Describes the enum schedule.v1.ScheduleType.
  */
-export const ScheduleTypeSchema: GenEnum<ScheduleType> = /*@__PURE__*/
-  enumDesc(file_schedule_v1_schedule, 2);
+export const ScheduleTypeSchema: GenEnum<ScheduleType> = /*@__PURE__*/ enumDesc(file_schedule_v1_schedule, 2);
 
 /**
  * @generated from enum schedule.v1.RecurrenceFrequency
@@ -732,7 +745,8 @@ export enum RecurrenceFrequency {
 /**
  * Describes the enum schedule.v1.RecurrenceFrequency.
  */
-export const RecurrenceFrequencySchema: GenEnum<RecurrenceFrequency> = /*@__PURE__*/
+export const RecurrenceFrequencySchema: GenEnum<RecurrenceFrequency> =
+  /*@__PURE__*/
   enumDesc(file_schedule_v1_schedule, 3);
 
 /**
@@ -760,8 +774,7 @@ export enum PowerTargetMode {
 /**
  * Describes the enum schedule.v1.PowerTargetMode.
  */
-export const PowerTargetModeSchema: GenEnum<PowerTargetMode> = /*@__PURE__*/
-  enumDesc(file_schedule_v1_schedule, 4);
+export const PowerTargetModeSchema: GenEnum<PowerTargetMode> = /*@__PURE__*/ enumDesc(file_schedule_v1_schedule, 4);
 
 /**
  * Day of week for weekly recurrence
@@ -813,8 +826,7 @@ export enum DayOfWeek {
 /**
  * Describes the enum schedule.v1.DayOfWeek.
  */
-export const DayOfWeekSchema: GenEnum<DayOfWeek> = /*@__PURE__*/
-  enumDesc(file_schedule_v1_schedule, 5);
+export const DayOfWeekSchema: GenEnum<DayOfWeek> = /*@__PURE__*/ enumDesc(file_schedule_v1_schedule, 5);
 
 /**
  * Target type for a schedule
@@ -846,7 +858,8 @@ export enum ScheduleTargetType {
 /**
  * Describes the enum schedule.v1.ScheduleTargetType.
  */
-export const ScheduleTargetTypeSchema: GenEnum<ScheduleTargetType> = /*@__PURE__*/
+export const ScheduleTargetTypeSchema: GenEnum<ScheduleTargetType> =
+  /*@__PURE__*/
   enumDesc(file_schedule_v1_schedule, 6);
 
 /**
@@ -865,7 +878,7 @@ export const ScheduleService: GenService<{
     methodKind: "unary";
     input: typeof ListSchedulesRequestSchema;
     output: typeof ListSchedulesResponseSchema;
-  },
+  };
   /**
    * Creates a new schedule
    *
@@ -875,7 +888,7 @@ export const ScheduleService: GenService<{
     methodKind: "unary";
     input: typeof CreateScheduleRequestSchema;
     output: typeof CreateScheduleResponseSchema;
-  },
+  };
   /**
    * Updates an existing schedule
    *
@@ -885,7 +898,7 @@ export const ScheduleService: GenService<{
     methodKind: "unary";
     input: typeof UpdateScheduleRequestSchema;
     output: typeof UpdateScheduleResponseSchema;
-  },
+  };
   /**
    * Soft-deletes a schedule
    *
@@ -895,7 +908,7 @@ export const ScheduleService: GenService<{
     methodKind: "unary";
     input: typeof DeleteScheduleRequestSchema;
     output: typeof DeleteScheduleResponseSchema;
-  },
+  };
   /**
    * Pauses an active schedule
    *
@@ -905,7 +918,7 @@ export const ScheduleService: GenService<{
     methodKind: "unary";
     input: typeof PauseScheduleRequestSchema;
     output: typeof PauseScheduleResponseSchema;
-  },
+  };
   /**
    * Resumes a paused schedule
    *
@@ -915,7 +928,7 @@ export const ScheduleService: GenService<{
     methodKind: "unary";
     input: typeof ResumeScheduleRequestSchema;
     output: typeof ResumeScheduleResponseSchema;
-  },
+  };
   /**
    * Batch-updates schedule priorities based on ordered list of IDs
    *
@@ -925,7 +938,5 @@ export const ScheduleService: GenService<{
     methodKind: "unary";
     input: typeof ReorderSchedulesRequestSchema;
     output: typeof ReorderSchedulesResponseSchema;
-  },
-}> = /*@__PURE__*/
-  serviceDesc(file_schedule_v1_schedule, 0);
-
+  };
+}> = /*@__PURE__*/ serviceDesc(file_schedule_v1_schedule, 0);
