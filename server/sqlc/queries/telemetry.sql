@@ -2,6 +2,15 @@
 -- Note: All device identification uses device_identifier (TEXT), not device_id (BIGINT)
 
 -- name: InsertDeviceMetrics :exec
+-- site_id is row-stamped from device.site_id (looked up by
+-- device_identifier) so per-site telemetry filters use the row-stamped
+-- site even after the device is reassigned. Inline sub-select rather
+-- than a CTE+SELECT INSERT — ON CONFLICT on the device_metrics
+-- hypertable PK requires VALUES-shape INSERT. The sub-select does NOT
+-- filter by deleted_at: telemetry from a soft-deleted device is still
+-- legitimate per-site history, matching InsertError /
+-- InsertMinerStateSnapshot which also stamp from the device row
+-- regardless of soft-delete state.
 INSERT INTO device_metrics (
     time,
     device_identifier,
@@ -25,11 +34,13 @@ INSERT INTO device_metrics (
     chip_count,
     chip_count_kind,
     chip_frequency_mhz,
-    health
+    health,
+    site_id
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
     $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-    $21, $22, $23
+    $21, $22, $23,
+    (SELECT site_id FROM device WHERE device_identifier = $2)
 ) ON CONFLICT (time, device_identifier) DO NOTHING;
 
 -- name: GetLatestDeviceMetrics :many
@@ -56,7 +67,8 @@ SELECT
     dm.chip_count,
     dm.chip_count_kind,
     dm.chip_frequency_mhz,
-    dm.health
+    dm.health,
+    dm.site_id
 FROM unnest(sqlc.arg('device_identifiers')::text[]) AS ids(device_identifier)
 CROSS JOIN LATERAL (
     SELECT *
@@ -91,7 +103,8 @@ SELECT DISTINCT ON (device_identifier)
     chip_count,
     chip_count_kind,
     chip_frequency_mhz,
-    health
+    health,
+    site_id
 FROM device_metrics
 WHERE time >= $1
 ORDER BY device_identifier, time DESC;
@@ -120,7 +133,8 @@ SELECT
     chip_count,
     chip_count_kind,
     chip_frequency_mhz,
-    health
+    health,
+    site_id
 FROM device_metrics
 WHERE device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
   AND time >= $1
@@ -154,7 +168,8 @@ SELECT
     chip_count,
     chip_count_kind,
     chip_frequency_mhz,
-    health
+    health,
+    site_id
 FROM device_metrics
 WHERE time >= $1
   AND time <= $2

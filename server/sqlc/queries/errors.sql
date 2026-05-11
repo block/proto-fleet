@@ -12,12 +12,23 @@ WHERE org_id = $1
 LIMIT 1;
 
 -- name: InsertError :one
--- Inserts a new error record with all fields.
+-- site_id is row-stamped from device.site_id at insert time so per-site
+-- error history doesn't shift when the device is later reassigned.
+-- Behavior note: a missing device $3 yields zero CTE rows and the :one
+-- query returns sql.ErrNoRows rather than the FK-violation the prior
+-- VALUES form raised. Caller wraps generically (fleeterror.New
+-- InternalErrorf), so the surface is unchanged for present callers.
+WITH dev AS (
+    SELECT site_id FROM device WHERE id = $3
+)
 INSERT INTO errors (
     error_id, org_id, device_id, miner_error, severity, summary, impact,
     cause_summary, recommended_action, first_seen_at, last_seen_at,
-    component_id, component_type, vendor_code, firmware, extra, closed_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+    component_id, component_type, vendor_code, firmware, extra, closed_at,
+    site_id
+)
+SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, dev.site_id
+FROM dev
 RETURNING id;
 
 -- name: UpdateOpenError :exec

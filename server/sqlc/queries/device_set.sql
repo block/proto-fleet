@@ -4,10 +4,15 @@ VALUES ($1, $2, $3, $4)
 RETURNING id, org_id, type, label, description, created_at, updated_at;
 
 -- name: CreateRackExtension :exec
-INSERT INTO device_set_rack (device_set_id, zone, rows, columns, order_index, cooling_type)
-SELECT $1, $2, $3, $4, $5, $6
-FROM device_set
-WHERE id = $1 AND org_id = $7 AND deleted_at IS NULL;
+-- org_id is denormalized onto device_set_rack (see migration 000046) so
+-- the building FK can be composite-keyed. The SELECT pulls it from
+-- device_set so the rack inherits the parent's org_id; caller's $7 must
+-- match (otherwise the WHERE filters the row out and INSERT inserts 0
+-- rows). Aliases qualify column refs since both tables now have org_id.
+INSERT INTO device_set_rack (device_set_id, org_id, zone, rows, columns, order_index, cooling_type)
+SELECT ds.id, ds.org_id, sqlc.arg('zone'), sqlc.arg('rows'), sqlc.arg('columns'), sqlc.arg('order_index'), sqlc.arg('cooling_type')
+FROM device_set ds
+WHERE ds.id = sqlc.arg('device_set_id') AND ds.org_id = sqlc.arg('org_id') AND ds.deleted_at IS NULL;
 
 -- name: GetDeviceSet :one
 SELECT ds.id, ds.type, ds.label, ds.description, ds.created_at, ds.updated_at,
@@ -42,7 +47,7 @@ WHERE id = $3 AND org_id = $4 AND deleted_at IS NULL;
 UPDATE device_set_rack
 SET zone = $1, rows = $2, columns = $3, order_index = $4, cooling_type = $5
 WHERE device_set_id = $6
-  AND EXISTS (SELECT 1 FROM device_set WHERE id = $6 AND org_id = $7 AND deleted_at IS NULL);
+  AND EXISTS (SELECT 1 FROM device_set ds WHERE ds.id = $6 AND ds.org_id = $7 AND ds.deleted_at IS NULL);
 
 -- name: SoftDeleteDeviceSet :execrows
 UPDATE device_set

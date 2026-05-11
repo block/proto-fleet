@@ -106,30 +106,35 @@ func (q *Queries) CreateDeviceSet(ctx context.Context, arg CreateDeviceSetParams
 }
 
 const createRackExtension = `-- name: CreateRackExtension :exec
-INSERT INTO device_set_rack (device_set_id, zone, rows, columns, order_index, cooling_type)
-SELECT $1, $2, $3, $4, $5, $6
-FROM device_set
-WHERE id = $1 AND org_id = $7 AND deleted_at IS NULL
+INSERT INTO device_set_rack (device_set_id, org_id, zone, rows, columns, order_index, cooling_type)
+SELECT ds.id, ds.org_id, $1, $2, $3, $4, $5
+FROM device_set ds
+WHERE ds.id = $6 AND ds.org_id = $7 AND ds.deleted_at IS NULL
 `
 
 type CreateRackExtensionParams struct {
-	DeviceSetID int64
 	Zone        sql.NullString
 	Rows        int32
 	Columns     int32
 	OrderIndex  int16
 	CoolingType int16
+	DeviceSetID int64
 	OrgID       int64
 }
 
+// org_id is denormalized onto device_set_rack (see migration 000046) so
+// the building FK can be composite-keyed. The SELECT pulls it from
+// device_set so the rack inherits the parent's org_id; caller's $7 must
+// match (otherwise the WHERE filters the row out and INSERT inserts 0
+// rows). Aliases qualify column refs since both tables now have org_id.
 func (q *Queries) CreateRackExtension(ctx context.Context, arg CreateRackExtensionParams) error {
 	_, err := q.exec(ctx, q.createRackExtensionStmt, createRackExtension,
-		arg.DeviceSetID,
 		arg.Zone,
 		arg.Rows,
 		arg.Columns,
 		arg.OrderIndex,
 		arg.CoolingType,
+		arg.DeviceSetID,
 		arg.OrgID,
 	)
 	return err
@@ -573,15 +578,24 @@ type GetRackInfoBatchParams struct {
 	DeviceSetIds []int64
 }
 
-func (q *Queries) GetRackInfoBatch(ctx context.Context, arg GetRackInfoBatchParams) ([]DeviceSetRack, error) {
+type GetRackInfoBatchRow struct {
+	DeviceSetID int64
+	Zone        sql.NullString
+	Rows        int32
+	Columns     int32
+	OrderIndex  int16
+	CoolingType int16
+}
+
+func (q *Queries) GetRackInfoBatch(ctx context.Context, arg GetRackInfoBatchParams) ([]GetRackInfoBatchRow, error) {
 	rows, err := q.query(ctx, q.getRackInfoBatchStmt, getRackInfoBatch, arg.OrgID, pq.Array(arg.DeviceSetIds))
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []DeviceSetRack
+	var items []GetRackInfoBatchRow
 	for rows.Next() {
-		var i DeviceSetRack
+		var i GetRackInfoBatchRow
 		if err := rows.Scan(
 			&i.DeviceSetID,
 			&i.Zone,
@@ -985,7 +999,7 @@ const updateRackInfo = `-- name: UpdateRackInfo :exec
 UPDATE device_set_rack
 SET zone = $1, rows = $2, columns = $3, order_index = $4, cooling_type = $5
 WHERE device_set_id = $6
-  AND EXISTS (SELECT 1 FROM device_set WHERE id = $6 AND org_id = $7 AND deleted_at IS NULL)
+  AND EXISTS (SELECT 1 FROM device_set ds WHERE ds.id = $6 AND ds.org_id = $7 AND ds.deleted_at IS NULL)
 `
 
 type UpdateRackInfoParams struct {

@@ -67,6 +67,7 @@ func (s *SQLActivityStore) Insert(ctx context.Context, event *models.Event) erro
 		OrganizationID: nullInt64FromPtr(event.OrganizationID),
 		Metadata:       metadata,
 		BatchID:        nullStringFromPtr(event.BatchID),
+		SiteID:         nullInt64FromPtr(event.SiteID),
 	})
 	if err != nil && isCompletedBatchDuplicate(event, err) {
 		// A concurrent finalizer retry already wrote this completion row;

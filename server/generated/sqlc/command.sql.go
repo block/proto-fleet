@@ -289,6 +289,8 @@ WITH batch AS (
 ),
 dev AS (
     SELECT
+        d.org_id        AS org_id,
+        d.site_id       AS site_id,
         d.custom_name   AS custom_name,
         dd.manufacturer AS manufacturer,
         dd.model        AS model,
@@ -304,6 +306,8 @@ INSERT INTO command_on_device_log (
    status,
    updated_at,
    error_info,
+   org_id,
+   site_id,
    custom_name,
    manufacturer,
    model,
@@ -316,6 +320,8 @@ SELECT
   $2,
   $3,
   $5,
+  dev.org_id,
+  dev.site_id,
   dev.custom_name,
   dev.manufacturer,
   dev.model,
@@ -340,12 +346,15 @@ type UpsertCommandOnDeviceLogParams struct {
 // error_info is NULL for SUCCESS rows; for FAILED rows it is either the worker
 // error string (truncated by the caller) or the reaper reason.
 //
-// custom_name/manufacturer/model/ip_address/mac_address are captured from
-// device + discovered_device at command-completion time (the first terminal
-// write) and deliberately left untouched by the ON CONFLICT branch, so
-// retries and the reaper never overwrite the first-write values. The read
-// path composes the display name via fleetmanagement.ComposeDeviceName so
-// this query stays free of any rendering rules.
+// custom_name/manufacturer/model/ip_address/mac_address/site_id are
+// captured from device + discovered_device at command-completion time
+// (the first terminal write) and deliberately left untouched by the ON
+// CONFLICT branch, so retries and the reaper never overwrite the
+// first-write values. site_id specifically anchors the row to the
+// device's site at completion time so per-site command history doesn't
+// shift when the device is later reassigned. The read path composes the
+// display name via fleetmanagement.ComposeDeviceName so this query
+// stays free of any rendering rules.
 // batch × dev is a deliberate cross-join: both CTEs must return exactly one
 // row for the INSERT to write. fk_command_on_device_log_device guarantees
 // device $1 exists, and device.discovered_device_id is NOT NULL, so dev

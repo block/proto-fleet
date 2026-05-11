@@ -7,9 +7,10 @@ INSERT INTO activity_log (
     result, error_message,
     scope_type, scope_label, scope_count,
     actor_type, user_id, username,
-    organization_id, metadata, batch_id
+    organization_id, metadata, batch_id,
+    site_id
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
 );
 
 -- name: ListActivityLogs :many

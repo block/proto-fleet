@@ -163,7 +163,8 @@ SELECT
     chip_count,
     chip_count_kind,
     chip_frequency_mhz,
-    health
+    health,
+    site_id
 FROM device_metrics
 WHERE time >= $1
   AND time <= $2
@@ -212,6 +213,7 @@ func (q *Queries) GetAllDeviceMetricsTimeSeries(ctx context.Context, arg GetAllD
 			&i.ChipCountKind,
 			&i.ChipFrequencyMhz,
 			&i.Health,
+			&i.SiteID,
 		); err != nil {
 			return nil, err
 		}
@@ -522,7 +524,8 @@ SELECT
     chip_count,
     chip_count_kind,
     chip_frequency_mhz,
-    health
+    health,
+    site_id
 FROM device_metrics
 WHERE device_identifier = ANY($3::text[])
   AND time >= $1
@@ -576,6 +579,7 @@ func (q *Queries) GetDeviceMetricsTimeSeries(ctx context.Context, arg GetDeviceM
 			&i.ChipCountKind,
 			&i.ChipFrequencyMhz,
 			&i.Health,
+			&i.SiteID,
 		); err != nil {
 			return nil, err
 		}
@@ -766,7 +770,8 @@ SELECT DISTINCT ON (device_identifier)
     chip_count,
     chip_count_kind,
     chip_frequency_mhz,
-    health
+    health,
+    site_id
 FROM device_metrics
 WHERE time >= $1
 ORDER BY device_identifier, time DESC
@@ -805,6 +810,7 @@ func (q *Queries) GetLatestAllDeviceMetrics(ctx context.Context, argTime time.Ti
 			&i.ChipCountKind,
 			&i.ChipFrequencyMhz,
 			&i.Health,
+			&i.SiteID,
 		); err != nil {
 			return nil, err
 		}
@@ -843,10 +849,11 @@ SELECT
     dm.chip_count,
     dm.chip_count_kind,
     dm.chip_frequency_mhz,
-    dm.health
+    dm.health,
+    dm.site_id
 FROM unnest($2::text[]) AS ids(device_identifier)
 CROSS JOIN LATERAL (
-    SELECT time, device_identifier, hash_rate_hs, hash_rate_hs_kind, temp_c, temp_c_kind, fan_rpm, fan_rpm_kind, power_w, power_w_kind, efficiency_jh, efficiency_jh_kind, voltage_v, voltage_v_kind, current_a, current_a_kind, inlet_temp_c, outlet_temp_c, ambient_temp_c, chip_count, chip_count_kind, chip_frequency_mhz, health
+    SELECT time, device_identifier, hash_rate_hs, hash_rate_hs_kind, temp_c, temp_c_kind, fan_rpm, fan_rpm_kind, power_w, power_w_kind, efficiency_jh, efficiency_jh_kind, voltage_v, voltage_v_kind, current_a, current_a_kind, inlet_temp_c, outlet_temp_c, ambient_temp_c, chip_count, chip_count_kind, chip_frequency_mhz, health, site_id
     FROM device_metrics
     WHERE device_metrics.device_identifier = ids.device_identifier
       AND device_metrics.time >= $1
@@ -893,6 +900,7 @@ func (q *Queries) GetLatestDeviceMetrics(ctx context.Context, arg GetLatestDevic
 			&i.ChipCountKind,
 			&i.ChipFrequencyMhz,
 			&i.Health,
+			&i.SiteID,
 		); err != nil {
 			return nil, err
 		}
@@ -932,11 +940,13 @@ INSERT INTO device_metrics (
     chip_count,
     chip_count_kind,
     chip_frequency_mhz,
-    health
+    health,
+    site_id
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
     $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-    $21, $22, $23
+    $21, $22, $23,
+    (SELECT site_id FROM device WHERE device_identifier = $2)
 ) ON CONFLICT (time, device_identifier) DO NOTHING
 `
 
@@ -968,6 +978,15 @@ type InsertDeviceMetricsParams struct {
 
 // Telemetry queries for device_metrics table and continuous aggregates
 // Note: All device identification uses device_identifier (TEXT), not device_id (BIGINT)
+// site_id is row-stamped from device.site_id (looked up by
+// device_identifier) so per-site telemetry filters use the row-stamped
+// site even after the device is reassigned. Inline sub-select rather
+// than a CTE+SELECT INSERT — ON CONFLICT on the device_metrics
+// hypertable PK requires VALUES-shape INSERT. The sub-select does NOT
+// filter by deleted_at: telemetry from a soft-deleted device is still
+// legitimate per-site history, matching InsertError /
+// InsertMinerStateSnapshot which also stamp from the device row
+// regardless of soft-delete state.
 func (q *Queries) InsertDeviceMetrics(ctx context.Context, arg InsertDeviceMetricsParams) error {
 	_, err := q.exec(ctx, q.insertDeviceMetricsStmt, insertDeviceMetrics,
 		arg.Time,
