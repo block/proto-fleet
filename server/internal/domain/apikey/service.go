@@ -120,25 +120,26 @@ func (s *Service) tryCreate(ctx context.Context, userID, orgID int64, name strin
 	return fullKey, apiKey, nil
 }
 
-// CreateFleetNode issues an api_key bound to an agent. Single-attempt: a prefix
-// collision on (prefix, organization_id) is surfaced as FailedPrecondition.
-// Confirm calls this from inside a TX, where Postgres aborts on the first
-// unique violation, so a retry loop here would silently fail anyway.
-func (s *Service) CreateFleetNode(ctx context.Context, agentID, orgID int64, name string, expiresAt *time.Time) (string, *interfaces.ApiKey, error) {
+// CreateFleetNode issues an api_key bound to a fleet node. Single-attempt: a
+// prefix collision on (prefix, organization_id) is surfaced as
+// FailedPrecondition. Confirm calls this from inside a TX, where Postgres
+// aborts on the first unique violation, so a retry loop here would silently
+// fail anyway.
+func (s *Service) CreateFleetNode(ctx context.Context, fleetNodeID, orgID int64, name string, expiresAt *time.Time) (string, *interfaces.ApiKey, error) {
 	if expiresAt != nil && !expiresAt.After(time.Now().UTC()) {
 		return "", nil, fleeterror.NewInvalidArgumentError("expiration date must be in the future")
 	}
-	fullKey, apiKey, err := s.tryCreateAgent(ctx, agentID, orgID, name, expiresAt)
+	fullKey, apiKey, err := s.tryCreateFleetNode(ctx, fleetNodeID, orgID, name, expiresAt)
 	if err == nil {
 		return fullKey, apiKey, nil
 	}
 	if db.IsUniqueViolationError(err) {
-		return "", nil, fleeterror.NewFailedPreconditionError("api key prefix collision; retry agent enrollment")
+		return "", nil, fleeterror.NewFailedPreconditionError("api key prefix collision; retry fleet node enrollment")
 	}
-	return "", nil, logInternalError("agent api key creation failed", createAPIKeyClientError, err)
+	return "", nil, logInternalError("fleet node api key creation failed", createAPIKeyClientError, err)
 }
 
-func (s *Service) tryCreateAgent(ctx context.Context, agentID, orgID int64, name string, expiresAt *time.Time) (string, *interfaces.ApiKey, error) {
+func (s *Service) tryCreateFleetNode(ctx context.Context, fleetNodeID, orgID int64, name string, expiresAt *time.Time) (string, *interfaces.ApiKey, error) {
 	prefixBytes := make([]byte, prefixRandomBytes)
 	if _, err := rand.Read(prefixBytes); err != nil {
 		return "", nil, fmt.Errorf("failed to generate api key prefix: %w", err)
@@ -161,7 +162,7 @@ func (s *Service) tryCreateAgent(ctx context.Context, agentID, orgID int64, name
 		Prefix:         prefix,
 		KeyHash:        keyHash,
 		SubjectKind:    interfaces.ApiKeySubjectKindFleetNode,
-		FleetNodeID:    &agentID,
+		FleetNodeID:    &fleetNodeID,
 		OrganizationID: orgID,
 		CreatedAt:      now,
 		ExpiresAt:      expiresAt,
@@ -185,11 +186,11 @@ func (s *Service) List(ctx context.Context, orgID int64) ([]interfaces.ApiKey, e
 }
 
 // Evicts lastUsedCache entries for the revoked keys so the debounce map
-// can't grow unboundedly across agent re-enrollments.
-func (s *Service) RevokeForAgent(ctx context.Context, agentID, orgID int64) (int64, error) {
-	keyIDs, err := s.store.RevokeApiKeysByFleetNodeID(ctx, agentID, orgID, time.Now().UTC())
+// can't grow unboundedly across fleet node re-enrollments.
+func (s *Service) RevokeForFleetNode(ctx context.Context, fleetNodeID, orgID int64) (int64, error) {
+	keyIDs, err := s.store.RevokeApiKeysByFleetNodeID(ctx, fleetNodeID, orgID, time.Now().UTC())
 	if err != nil {
-		return 0, logInternalError("failed to revoke agent api keys", revokeAPIKeyClientError, err, "agent_id", agentID, "org_id", orgID)
+		return 0, logInternalError("failed to revoke fleet node api keys", revokeAPIKeyClientError, err, "fleet_node_id", fleetNodeID, "org_id", orgID)
 	}
 	for _, keyID := range keyIDs {
 		s.lastUsedCache.Delete(keyID)

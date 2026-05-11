@@ -20,8 +20,8 @@ const (
 	defaultChallengeTTL = 30 * time.Second
 	defaultSessionTTL   = 24 * time.Hour
 
-	clientErrAuth = "agent authentication failed"
-	component     = "agent auth"
+	clientErrAuth = "fleet node authentication failed"
+	component     = "fleet node auth"
 )
 
 type Store interface {
@@ -74,10 +74,10 @@ func (s *Service) BeginHandshake(ctx context.Context, apiKeyPlaintext string, id
 		if fleeterror.IsNotFoundError(err) {
 			return nil, time.Time{}, fleeterror.NewUnauthenticatedError("invalid api key")
 		}
-		return nil, time.Time{}, logInternal("agent lookup", clientErrAuth, err)
+		return nil, time.Time{}, logInternal("fleet node lookup", clientErrAuth, err)
 	}
 	if agent.EnrollmentStatus != fleetnodeenrollment.FleetNodeStatusConfirmed {
-		return nil, time.Time{}, fleeterror.NewFailedPreconditionError("agent enrollment not confirmed")
+		return nil, time.Time{}, fleeterror.NewFailedPreconditionError("fleet node enrollment not confirmed")
 	}
 	// Constant-time compare on the supplied vs enrolled identity pubkey: the
 	// supplied bytes come straight off the wire and a timing side-channel here
@@ -116,9 +116,9 @@ func (s *Service) CompleteHandshake(ctx context.Context, challenge, signature []
 	agent, err := s.enrollmentStore.GetFleetNodeByIDUnscoped(ctx, agentID)
 	if err != nil {
 		if fleeterror.IsNotFoundError(err) {
-			return "", time.Time{}, fleeterror.NewUnauthenticatedError("agent not found")
+			return "", time.Time{}, fleeterror.NewUnauthenticatedError("fleet node not found")
 		}
-		return "", time.Time{}, logInternal("agent lookup", clientErrAuth, err)
+		return "", time.Time{}, logInternal("fleet node lookup", clientErrAuth, err)
 	}
 	if !ed25519.Verify(agent.IdentityPubkey, challenge, signature) {
 		return "", time.Time{}, fleeterror.NewUnauthenticatedError("signature verification failed")

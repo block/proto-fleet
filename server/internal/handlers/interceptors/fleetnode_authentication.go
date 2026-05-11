@@ -74,8 +74,8 @@ func (i *FleetNodeAuthInterceptor) authenticate(ctx context.Context, authHeader 
 		if errors.As(err, &fe) {
 			return ctx, err
 		}
-		slog.Error("agent auth: session lookup failed", "error", err)
-		return ctx, fleeterror.NewInternalError("agent authentication failed")
+		slog.Error("fleet node auth: session lookup failed", "error", err)
+		return ctx, fleeterror.NewInternalError("fleet node authentication failed")
 	}
 	return authn.SetInfo(ctx, &fleetnodeauth.Subject{
 		FleetNodeID:         resolved.FleetNodeID,

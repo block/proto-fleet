@@ -20,19 +20,19 @@ import (
 )
 
 const (
-	codeRandomBytes  = 32
-	defaultCodeTTL   = 1 * time.Hour
-	agentApiKeyLabel = "FleetNode enrollment" //nolint:gosec // label, not a credential
+	codeRandomBytes      = 32
+	defaultCodeTTL       = 1 * time.Hour
+	fleetNodeApiKeyLabel = "FleetNode enrollment" //nolint:gosec // label, not a credential
 
-	clientErrCreateCode    = "failed to create enrollment code"
-	clientErrResolveCode   = "enrollment lookup failed"
-	clientErrRegisterAgent = "agent registration failed"
-	clientErrConfirmAgent  = "agent confirmation failed"
-	clientErrCancel        = "enrollment cancellation failed"
-	clientErrListAgents    = "failed to list agents"
-	clientErrRevokeAgent   = "agent revocation failed"
+	clientErrCreateCode        = "failed to create enrollment code"
+	clientErrResolveCode       = "enrollment lookup failed"
+	clientErrRegisterFleetNode = "fleet node registration failed"
+	clientErrConfirmFleetNode  = "fleet node confirmation failed"
+	clientErrCancel            = "enrollment cancellation failed"
+	clientErrListFleetNodes    = "failed to list fleet nodes"
+	clientErrRevokeFleetNode   = "fleet node revocation failed"
 
-	component = "agent enrollment"
+	component = "fleet node enrollment"
 )
 
 type PendingEnrollmentStore interface {
@@ -93,7 +93,7 @@ func (s *Service) CreateCode(ctx context.Context, userID, orgID int64, ttl time.
 	if _, err := s.store.CreatePendingEnrollment(ctx, hashCode(plaintext), orgID, userID, expiresAt); err != nil {
 		return "", time.Time{}, logInternal("create pending enrollment", clientErrCreateCode, err)
 	}
-	s.logActivity(ctx, "create_enrollment_code", fmt.Sprintf("Created agent enrollment code (expires %s)", expiresAt.Format(time.RFC3339)))
+	s.logActivity(ctx, "create_enrollment_code", fmt.Sprintf("Created fleet node enrollment code (expires %s)", expiresAt.Format(time.RFC3339)))
 	return plaintext, expiresAt, nil
 }
 
@@ -133,13 +133,13 @@ func (s *Service) RegisterFleetNode(ctx context.Context, plaintextCode, name str
 			// (org_id, name) lose on the partial unique indexes; surface as
 			// a precondition failure instead of a 500.
 			if db.IsUniqueViolationError(err) {
-				return fleeterror.NewFailedPreconditionError("agent identity or name already in use")
+				return fleeterror.NewFailedPreconditionError("fleet node identity or name already in use")
 			}
-			return logInternal("create agent", clientErrRegisterAgent, err)
+			return logInternal("create fleet node", clientErrRegisterFleetNode, err)
 		}
 		bound, err := s.store.BindEnrollmentToFleetNode(ctx, pe.ID, agent.ID)
 		if err != nil {
-			return logInternal("bind enrollment", clientErrRegisterAgent, err)
+			return logInternal("bind enrollment", clientErrRegisterFleetNode, err)
 		}
 		if bound == 0 {
 			return fleeterror.NewFailedPreconditionError("enrollment code already consumed")
@@ -169,19 +169,19 @@ func (s *Service) Confirm(ctx context.Context, agentID, orgID int64) (string, ti
 		agent, err := s.store.LockFleetNodeByID(ctx, agentID, orgID)
 		if err != nil {
 			if fleeterror.IsNotFoundError(err) {
-				return fleeterror.NewNotFoundError("agent not found")
+				return fleeterror.NewNotFoundError("fleet node not found")
 			}
-			return logInternal("agent lock", clientErrConfirmAgent, err)
+			return logInternal("fleet node lock", clientErrConfirmFleetNode, err)
 		}
 		if agent.EnrollmentStatus == FleetNodeStatusRevoked {
-			return fleeterror.NewFailedPreconditionError("agent is revoked; cannot confirm")
+			return fleeterror.NewFailedPreconditionError("fleet node is revoked; cannot confirm")
 		}
 		pe, err := s.store.GetPendingEnrollmentByFleetNode(ctx, agentID, orgID)
 		if err != nil {
 			if fleeterror.IsNotFoundError(err) {
-				return fleeterror.NewFailedPreconditionError("no enrollment awaiting confirmation for agent")
+				return fleeterror.NewFailedPreconditionError("no enrollment awaiting confirmation for fleet node")
 			}
-			return logInternal("lookup pending enrollment", clientErrConfirmAgent, err)
+			return logInternal("lookup pending enrollment", clientErrConfirmFleetNode, err)
 		}
 		if !pe.ExpiresAt.After(time.Now().UTC()) {
 			return fleeterror.NewFailedPreconditionError("enrollment expired")
@@ -189,7 +189,7 @@ func (s *Service) Confirm(ctx context.Context, agentID, orgID int64) (string, ti
 		now := time.Now().UTC()
 		rows, err := s.store.ConfirmEnrollment(ctx, pe.ID, now)
 		if err != nil {
-			return logInternal("confirm enrollment", clientErrConfirmAgent, err)
+			return logInternal("confirm enrollment", clientErrConfirmFleetNode, err)
 		}
 		if rows == 0 {
 			return fleeterror.NewFailedPreconditionError("enrollment state changed; refresh and retry")
@@ -200,12 +200,12 @@ func (s *Service) Confirm(ctx context.Context, agentID, orgID int64) (string, ti
 		// instead of minting an api_key for a revoked agent.
 		statusRows, err := s.store.SetFleetNodeEnrollmentStatus(ctx, FleetNodeStatusConfirmed, agentID, orgID)
 		if err != nil {
-			return logInternal("update agent status", clientErrConfirmAgent, err)
+			return logInternal("update fleet node status", clientErrConfirmFleetNode, err)
 		}
 		if statusRows == 0 {
-			return fleeterror.NewFailedPreconditionError("agent state changed; refresh and retry")
+			return fleeterror.NewFailedPreconditionError("fleet node state changed; refresh and retry")
 		}
-		key, apiKey, err := s.apiKeySvc.CreateFleetNode(ctx, agentID, orgID, agentApiKeyLabel, nil)
+		key, apiKey, err := s.apiKeySvc.CreateFleetNode(ctx, agentID, orgID, fleetNodeApiKeyLabel, nil)
 		if err != nil {
 			return err
 		}
@@ -218,7 +218,7 @@ func (s *Service) Confirm(ctx context.Context, agentID, orgID int64) (string, ti
 	}); err != nil {
 		return "", time.Time{}, err
 	}
-	s.logActivity(ctx, "confirm_agent", fmt.Sprintf("Confirmed agent '%s' (id=%d)", agentName, agentID))
+	s.logActivity(ctx, "confirm_fleet_node", fmt.Sprintf("Confirmed fleet node '%s' (id=%d)", agentName, agentID))
 	return plaintext, expires, nil
 }
 
@@ -238,29 +238,29 @@ func (s *Service) RevokeFleetNode(ctx context.Context, agentID, orgID int64) err
 		agent, err := s.store.LockFleetNodeByID(ctx, agentID, orgID)
 		if err != nil {
 			if fleeterror.IsNotFoundError(err) {
-				return fleeterror.NewNotFoundError("agent not found")
+				return fleeterror.NewNotFoundError("fleet node not found")
 			}
-			return logInternal("agent lock", clientErrRevokeAgent, err)
+			return logInternal("fleet node lock", clientErrRevokeFleetNode, err)
 		}
 		now := time.Now().UTC()
 		if _, err := s.store.SetFleetNodeEnrollmentStatus(ctx, FleetNodeStatusRevoked, agentID, orgID); err != nil {
-			return logInternal("set agent revoked", clientErrRevokeAgent, err)
+			return logInternal("set fleet node revoked", clientErrRevokeFleetNode, err)
 		}
 		if _, err := s.store.CancelEnrollmentForFleetNode(ctx, agentID, orgID, now); err != nil {
-			return logInternal("cancel pending enrollment", clientErrRevokeAgent, err)
+			return logInternal("cancel pending enrollment", clientErrRevokeFleetNode, err)
 		}
-		if _, err := s.apiKeySvc.RevokeForAgent(ctx, agentID, orgID); err != nil {
+		if _, err := s.apiKeySvc.RevokeForFleetNode(ctx, agentID, orgID); err != nil {
 			return err
 		}
 		if _, err := s.store.SoftDeleteFleetNode(ctx, agentID, orgID, now); err != nil {
-			return logInternal("soft delete agent", clientErrRevokeAgent, err)
+			return logInternal("soft delete fleet node", clientErrRevokeFleetNode, err)
 		}
 		agentName = agent.Name
 		return nil
 	}); err != nil {
 		return err
 	}
-	s.logActivity(ctx, "revoke_agent", fmt.Sprintf("Revoked agent '%s' (id=%d)", agentName, agentID))
+	s.logActivity(ctx, "revoke_fleet_node", fmt.Sprintf("Revoked fleet node '%s' (id=%d)", agentName, agentID))
 	return nil
 }
 
@@ -284,7 +284,7 @@ func (s *Service) SweepExpired(ctx context.Context) (int64, error) {
 	// (uq_agent_identity_pubkey, uq_agent_org_name) free up before any retry
 	// observes the EXPIRED enrollment row.
 	if _, err := s.store.SoftDeleteFleetNodesForExpiredEnrollments(ctx, now); err != nil {
-		return 0, logInternal("soft delete expired agents", clientErrCancel, err)
+		return 0, logInternal("soft delete expired fleet nodes", clientErrCancel, err)
 	}
 	return s.store.SweepExpiredEnrollments(ctx, now)
 }
@@ -292,7 +292,7 @@ func (s *Service) SweepExpired(ctx context.Context) (int64, error) {
 func (s *Service) ListFleetNodes(ctx context.Context, orgID int64) ([]FleetNodeListing, error) {
 	agents, err := s.store.ListFleetNodesForOrganization(ctx, orgID)
 	if err != nil {
-		return nil, logInternal("list agents", clientErrListAgents, err)
+		return nil, logInternal("list fleet nodes", clientErrListFleetNodes, err)
 	}
 	return agents, nil
 }
