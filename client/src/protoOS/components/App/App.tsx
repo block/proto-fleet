@@ -18,6 +18,7 @@ import { getNoPoolsCalloutState } from "@/protoOS/components/NoPoolsCallout/util
 import { WarnWakeDialog } from "@/protoOS/components/Power";
 import LoginModal from "@/protoOS/features/auth/components/LoginModal";
 import { isAuthRequiredPath } from "@/protoOS/routeAuth";
+import { globalRoutePrefetch } from "@/protoOS/router";
 import {
   useDefaultPasswordActive,
   useOnboarded,
@@ -48,6 +49,7 @@ import { BootingUp } from "@/shared/components/Setup";
 import { useApplyTheme } from "@/shared/features/preferences";
 import { pushToast, STATUSES as TOAST_STATUSES, Toaster } from "@/shared/features/toaster";
 import { useNavigate } from "@/shared/hooks/useNavigate";
+import { prefetchRoutes } from "@/shared/utils/prefetchRoutes";
 
 interface AppProps {
   children?: ReactNode;
@@ -75,6 +77,13 @@ const App = ({
 
   // Apply theme effects on mount
   useApplyTheme({ theme, deviceTheme, setDeviceTheme });
+
+  // Warm sidebar-destination chunks at idle so the first click on a top-level
+  // nav item resolves without a Suspense fallback. Vite dedupes the underlying
+  // chunk requests, so re-invocation on App remount is effectively free.
+  useEffect(() => {
+    prefetchRoutes(globalRoutePrefetch);
+  }, []);
 
   const navigate = useNavigate();
   const location = useLocation();

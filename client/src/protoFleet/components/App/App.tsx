@@ -4,7 +4,7 @@ import clsx from "clsx";
 
 import { onboardingClient } from "@/protoFleet/api/clients";
 import AppLayout from "@/protoFleet/components/AppLayout";
-import { requiresAuth } from "@/protoFleet/router";
+import { globalRoutePrefetch, requiresAuth } from "@/protoFleet/router";
 import { useCheckAuthentication, useIsActionBarVisible } from "@/protoFleet/store";
 import { useDeviceTheme, useSetDeviceTheme, useTheme } from "@/protoFleet/store";
 import { redirectFromFleetDown } from "@/protoFleet/utils/fleetDownRedirect";
@@ -13,6 +13,7 @@ import ProgressCircular from "@/shared/components/ProgressCircular";
 import { useApplyTheme } from "@/shared/features/preferences";
 import { Toaster } from "@/shared/features/toaster";
 import { isBackendDownError } from "@/shared/utils/backendHealth";
+import { prefetchRoutes } from "@/shared/utils/prefetchRoutes";
 
 interface AppProps {
   children?: ReactNode;
@@ -56,6 +57,16 @@ const App = ({ children, fullscreen }: AppProps) => {
     return () => {
       isMounted = false;
     };
+  }, []);
+
+  // ============================================================================
+  // ROUTE CHUNK PREFETCH
+  // ============================================================================
+  // Warm sidebar-destination chunks at idle so the first click on a top-level
+  // nav item resolves without a Suspense fallback. Vite dedupes the underlying
+  // chunk requests, so re-invocation on App remount is effectively free.
+  useEffect(() => {
+    prefetchRoutes(globalRoutePrefetch);
   }, []);
 
   // ============================================================================

@@ -10,29 +10,78 @@ import { onboardingClient } from "@/protoFleet/api/clients";
 import { routerConfig as singleMinerRoutes } from "@/protoOS/router";
 
 // Route components are lazy-loaded so each route ships in its own chunk and
-// only what's needed for first paint is in the entry bundle.
-const Dashboard = lazy(() => import("@/protoFleet/features/dashboard/pages/Dashboard"));
-const Miners = lazy(() => import("./features/fleetManagement/components/Fleet"));
-const ActivityPage = lazy(() => import("@/protoFleet/features/activity/pages/ActivityPage"));
-const GroupsPage = lazy(() => import("@/protoFleet/features/groupManagement/pages/GroupsPage"));
-const GroupOverviewPage = lazy(() => import("@/protoFleet/features/groupManagement/pages/GroupOverviewPage"));
-const RacksPage = lazy(() => import("@/protoFleet/features/rackManagement/pages/RacksPage"));
-const RackOverviewPage = lazy(() => import("@/protoFleet/features/rackManagement/pages/RackOverviewPage"));
-const Auth = lazy(() => import("@/protoFleet/features/auth/pages/Auth"));
-const UpdatePassword = lazy(() => import("@/protoFleet/features/auth/pages/UpdatePassword"));
-const WelcomePage = lazy(() => import("@/protoFleet/features/onboarding/components/Welcome"));
-const MinersPage = lazy(() => import("@/protoFleet/features/onboarding/components/Miners"));
-const SecurityPage = lazy(() => import("@/protoFleet/features/onboarding/components/Security"));
-const OnboardingSettingsPage = lazy(() => import("@/protoFleet/features/onboarding/components/Settings"));
-const SettingsLayout = lazy(() => import("@/protoFleet/features/settings/components/SettingsLayout"));
-const SettingsGeneral = lazy(() => import("@/protoFleet/features/settings/components/General"));
-const SettingsAuth = lazy(() => import("@/protoFleet/features/settings/components/Auth"));
-const SettingsMiningPools = lazy(() => import("@/protoFleet/features/settings/components/MiningPools"));
-const SettingsTeam = lazy(() => import("@/protoFleet/features/settings/components/Team"));
-const SettingsFirmware = lazy(() => import("@/protoFleet/features/settings/components/Firmware"));
-const SettingsSchedules = lazy(() => import("@/protoFleet/features/settings/components/Schedules/SchedulesPage"));
-const SettingsApiKeys = lazy(() => import("@/protoFleet/features/settings/components/ApiKeys"));
-const FleetDown = lazy(() => import("@/protoFleet/components/FleetDown/FleetDown"));
+// only what's needed for first paint is in the entry bundle. Factories are
+// hoisted so prefetchRoutes() can call them again at idle time to warm route
+// chunks before the user navigates.
+const importDashboard = () => import("@/protoFleet/features/dashboard/pages/Dashboard");
+const importMiners = () => import("./features/fleetManagement/components/Fleet");
+const importActivityPage = () => import("@/protoFleet/features/activity/pages/ActivityPage");
+const importGroupsPage = () => import("@/protoFleet/features/groupManagement/pages/GroupsPage");
+const importGroupOverviewPage = () => import("@/protoFleet/features/groupManagement/pages/GroupOverviewPage");
+const importRacksPage = () => import("@/protoFleet/features/rackManagement/pages/RacksPage");
+const importRackOverviewPage = () => import("@/protoFleet/features/rackManagement/pages/RackOverviewPage");
+const importAuth = () => import("@/protoFleet/features/auth/pages/Auth");
+const importUpdatePassword = () => import("@/protoFleet/features/auth/pages/UpdatePassword");
+const importWelcomePage = () => import("@/protoFleet/features/onboarding/components/Welcome");
+const importMinersPage = () => import("@/protoFleet/features/onboarding/components/Miners");
+const importSecurityPage = () => import("@/protoFleet/features/onboarding/components/Security");
+const importOnboardingSettingsPage = () => import("@/protoFleet/features/onboarding/components/Settings");
+const importSettingsLayout = () => import("@/protoFleet/features/settings/components/SettingsLayout");
+const importSettingsGeneral = () => import("@/protoFleet/features/settings/components/General");
+const importSettingsAuth = () => import("@/protoFleet/features/settings/components/Auth");
+const importSettingsMiningPools = () => import("@/protoFleet/features/settings/components/MiningPools");
+const importSettingsTeam = () => import("@/protoFleet/features/settings/components/Team");
+const importSettingsFirmware = () => import("@/protoFleet/features/settings/components/Firmware");
+const importSettingsSchedules = () => import("@/protoFleet/features/settings/components/Schedules/SchedulesPage");
+const importSettingsApiKeys = () => import("@/protoFleet/features/settings/components/ApiKeys");
+const importFleetDown = () => import("@/protoFleet/components/FleetDown/FleetDown");
+
+const Dashboard = lazy(importDashboard);
+const Miners = lazy(importMiners);
+const ActivityPage = lazy(importActivityPage);
+const GroupsPage = lazy(importGroupsPage);
+const GroupOverviewPage = lazy(importGroupOverviewPage);
+const RacksPage = lazy(importRacksPage);
+const RackOverviewPage = lazy(importRackOverviewPage);
+const Auth = lazy(importAuth);
+const UpdatePassword = lazy(importUpdatePassword);
+const WelcomePage = lazy(importWelcomePage);
+const MinersPage = lazy(importMinersPage);
+const SecurityPage = lazy(importSecurityPage);
+const OnboardingSettingsPage = lazy(importOnboardingSettingsPage);
+const SettingsLayout = lazy(importSettingsLayout);
+const SettingsGeneral = lazy(importSettingsGeneral);
+const SettingsAuth = lazy(importSettingsAuth);
+const SettingsMiningPools = lazy(importSettingsMiningPools);
+const SettingsTeam = lazy(importSettingsTeam);
+const SettingsFirmware = lazy(importSettingsFirmware);
+const SettingsSchedules = lazy(importSettingsSchedules);
+const SettingsApiKeys = lazy(importSettingsApiKeys);
+const FleetDown = lazy(importFleetDown);
+
+// Sidebar destinations + the default settings sub-route. App.tsx triggers this
+// at idle after first paint so a click on any nav item resolves without a
+// Suspense fallback.
+export const globalRoutePrefetch = [
+  importDashboard,
+  importMiners,
+  importGroupsPage,
+  importRacksPage,
+  importActivityPage,
+  importSettingsLayout,
+  importSettingsGeneral,
+];
+
+// Settings sub-routes; SettingsLayout triggers this on mount so the rest of
+// the tab strip is warm by the time the user clicks across.
+export const settingsRoutePrefetch = [
+  importSettingsAuth,
+  importSettingsMiningPools,
+  importSettingsTeam,
+  importSettingsFirmware,
+  importSettingsSchedules,
+  importSettingsApiKeys,
+];
 
 // Helper to check if an admin user has been created
 const checkFleetInitStatus = async (): Promise<boolean> => {

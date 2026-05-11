@@ -17,25 +17,86 @@ export type CustomRouteObject = RouteObject & {
 
 // Route components are lazy so each pulls a separate chunk and protoFleet (which
 // embeds these routes via singleMinerRoutes) stays slim until the user enters
-// /miners/:id/*.
-const Hashrate = lazy(() => import("@/protoOS/features/kpis/components/Hashrate"));
-const Efficiency = lazy(() => import("@/protoOS/features/kpis/components/Efficiency"));
-const PowerUsage = lazy(() => import("@/protoOS/features/kpis/components/PowerUsage"));
-const Temperature = lazy(() => import("@/protoOS/features/kpis/components/Temperature"));
-const HashboardTemperature = lazy(() => import("@/protoOS/features/diagnostic/components/HashboardTemperature"));
-const DiagnosticView = lazy(() => import("@/protoOS/features/diagnostic/components/DiagnosticView/DiagnosticView"));
-const Logs = lazy(() => import("@/protoOS/pages/MinerLogs"));
-const Onboarding = lazy(() => import("@/protoOS/features/onboarding/components/Onboarding"));
-const OnboardingWelcome = lazy(() => import("@/protoOS/features/onboarding/components/Welcome"));
-const OnboardingVerify = lazy(() => import("@/protoOS/features/onboarding/components/Verify"));
-const OnboardingNetwork = lazy(() => import("@/protoOS/features/onboarding/components/Network"));
-const OnboardingAuthentication = lazy(() => import("@/protoOS/features/onboarding/components/Authentication"));
-const OnboardingMiningPool = lazy(() => import("@/protoOS/features/onboarding/components/MiningPool"));
-const SettingsAuthentication = lazy(() => import("@/protoOS/features/settings/components/Authentication"));
-const SettingsGeneral = lazy(() => import("@/protoOS/features/settings/components/General"));
-const SettingsMiningPools = lazy(() => import("@/protoOS/features/settings/components/MiningPools"));
-const SettingsHardware = lazy(() => import("@/protoOS/features/settings/components/Hardware"));
-const SettingsCooling = lazy(() => import("@/protoOS/features/settings/components/Cooling"));
+// /miners/:id/*. Factories are hoisted so prefetchRoutes() can call them again
+// at idle time to warm chunks before the user navigates.
+const importHashrate = () => import("@/protoOS/features/kpis/components/Hashrate");
+const importEfficiency = () => import("@/protoOS/features/kpis/components/Efficiency");
+const importPowerUsage = () => import("@/protoOS/features/kpis/components/PowerUsage");
+const importTemperature = () => import("@/protoOS/features/kpis/components/Temperature");
+const importHashboardTemperature = () => import("@/protoOS/features/diagnostic/components/HashboardTemperature");
+const importDiagnosticView = () => import("@/protoOS/features/diagnostic/components/DiagnosticView/DiagnosticView");
+const importLogs = () => import("@/protoOS/pages/MinerLogs");
+const importOnboarding = () => import("@/protoOS/features/onboarding/components/Onboarding");
+const importOnboardingWelcome = () => import("@/protoOS/features/onboarding/components/Welcome");
+const importOnboardingVerify = () => import("@/protoOS/features/onboarding/components/Verify");
+const importOnboardingNetwork = () => import("@/protoOS/features/onboarding/components/Network");
+const importOnboardingAuthentication = () => import("@/protoOS/features/onboarding/components/Authentication");
+const importOnboardingMiningPool = () => import("@/protoOS/features/onboarding/components/MiningPool");
+const importSettingsAuthentication = () => import("@/protoOS/features/settings/components/Authentication");
+const importSettingsGeneral = () => import("@/protoOS/features/settings/components/General");
+const importSettingsMiningPools = () => import("@/protoOS/features/settings/components/MiningPools");
+const importSettingsHardware = () => import("@/protoOS/features/settings/components/Hardware");
+const importSettingsCooling = () => import("@/protoOS/features/settings/components/Cooling");
+
+const Hashrate = lazy(importHashrate);
+const Efficiency = lazy(importEfficiency);
+const PowerUsage = lazy(importPowerUsage);
+const Temperature = lazy(importTemperature);
+const HashboardTemperature = lazy(importHashboardTemperature);
+const DiagnosticView = lazy(importDiagnosticView);
+const Logs = lazy(importLogs);
+const Onboarding = lazy(importOnboarding);
+const OnboardingWelcome = lazy(importOnboardingWelcome);
+const OnboardingVerify = lazy(importOnboardingVerify);
+const OnboardingNetwork = lazy(importOnboardingNetwork);
+const OnboardingAuthentication = lazy(importOnboardingAuthentication);
+const OnboardingMiningPool = lazy(importOnboardingMiningPool);
+const SettingsAuthentication = lazy(importSettingsAuthentication);
+const SettingsGeneral = lazy(importSettingsGeneral);
+const SettingsMiningPools = lazy(importSettingsMiningPools);
+const SettingsHardware = lazy(importSettingsHardware);
+const SettingsCooling = lazy(importSettingsCooling);
+
+// Top-level destinations reachable from the protoOS sidebar plus the KPI tab
+// strip siblings of the default landing route. protoOS App.tsx triggers this
+// at idle after first paint.
+export const globalRoutePrefetch = [
+  importHashrate,
+  importEfficiency,
+  importPowerUsage,
+  importTemperature,
+  importDiagnosticView,
+  importLogs,
+  importSettingsGeneral,
+];
+
+// Settings sub-routes; SettingsContentLayout triggers this on mount so the
+// tab strip is warm by the time the user clicks across.
+export const settingsRoutePrefetch = [
+  importSettingsAuthentication,
+  importSettingsMiningPools,
+  importSettingsHardware,
+  importSettingsCooling,
+];
+
+// Section tier for protoFleet, which embeds this router under /miners/:id/*.
+// SingleMinerWrapper triggers this on mount so the single-miner KPI tabs,
+// Logs, Diagnostics, and per-miner settings are warm by the time the user
+// clicks across them.
+export const singleMinerRoutePrefetch = [
+  importHashrate,
+  importEfficiency,
+  importPowerUsage,
+  importTemperature,
+  importDiagnosticView,
+  importLogs,
+  importHashboardTemperature,
+  importSettingsGeneral,
+  importSettingsAuthentication,
+  importSettingsMiningPools,
+  importSettingsHardware,
+  importSettingsCooling,
+];
 
 // Helper to create route objects with App wrapper
 interface CreateRouteOptions {
