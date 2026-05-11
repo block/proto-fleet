@@ -8,32 +8,32 @@ import (
 	"connectrpc.com/authn"
 	"connectrpc.com/connect"
 
-	"github.com/block/proto-fleet/server/internal/domain/agentauth"
-	"github.com/block/proto-fleet/server/internal/domain/agentenrollment"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnodeauth"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnodeenrollment"
 )
 
-type AgentAuthInterceptor struct {
-	auth         *agentauth.Service
+type FleetNodeAuthInterceptor struct {
+	auth         *fleetnodeauth.Service
 	procedureSet map[string]struct{}
 }
 
-var _ connect.Interceptor = &AgentAuthInterceptor{}
+var _ connect.Interceptor = &FleetNodeAuthInterceptor{}
 
-func NewAgentAuthInterceptor(auth *agentauth.Service, procedures []string) *AgentAuthInterceptor {
+func NewFleetNodeAuthInterceptor(auth *fleetnodeauth.Service, procedures []string) *FleetNodeAuthInterceptor {
 	set := make(map[string]struct{}, len(procedures))
 	for _, p := range procedures {
 		set[p] = struct{}{}
 	}
-	return &AgentAuthInterceptor{auth: auth, procedureSet: set}
+	return &FleetNodeAuthInterceptor{auth: auth, procedureSet: set}
 }
 
-func (i *AgentAuthInterceptor) appliesTo(procedure string) bool {
+func (i *FleetNodeAuthInterceptor) appliesTo(procedure string) bool {
 	_, ok := i.procedureSet[procedure]
 	return ok
 }
 
-func (i *AgentAuthInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
+func (i *FleetNodeAuthInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
 	return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
 		if !i.appliesTo(req.Spec().Procedure) {
 			return next(ctx, req)
@@ -46,11 +46,11 @@ func (i *AgentAuthInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFu
 	}
 }
 
-func (i *AgentAuthInterceptor) WrapStreamingClient(next connect.StreamingClientFunc) connect.StreamingClientFunc {
+func (i *FleetNodeAuthInterceptor) WrapStreamingClient(next connect.StreamingClientFunc) connect.StreamingClientFunc {
 	return next
 }
 
-func (i *AgentAuthInterceptor) WrapStreamingHandler(next connect.StreamingHandlerFunc) connect.StreamingHandlerFunc {
+func (i *FleetNodeAuthInterceptor) WrapStreamingHandler(next connect.StreamingHandlerFunc) connect.StreamingHandlerFunc {
 	return func(ctx context.Context, conn connect.StreamingHandlerConn) error {
 		if !i.appliesTo(conn.Spec().Procedure) {
 			return next(ctx, conn)
@@ -63,7 +63,7 @@ func (i *AgentAuthInterceptor) WrapStreamingHandler(next connect.StreamingHandle
 	}
 }
 
-func (i *AgentAuthInterceptor) authenticate(ctx context.Context, authHeader string) (context.Context, error) {
+func (i *FleetNodeAuthInterceptor) authenticate(ctx context.Context, authHeader string) (context.Context, error) {
 	rawToken, ok := parseBearerToken(authHeader)
 	if !ok {
 		return ctx, fleeterror.NewUnauthenticatedError("invalid Authorization header format, expected: Bearer <session_token>")
@@ -77,10 +77,10 @@ func (i *AgentAuthInterceptor) authenticate(ctx context.Context, authHeader stri
 		slog.Error("agent auth: session lookup failed", "error", err)
 		return ctx, fleeterror.NewInternalError("agent authentication failed")
 	}
-	return authn.SetInfo(ctx, &agentauth.Subject{
-		AgentID:             resolved.AgentID,
+	return authn.SetInfo(ctx, &fleetnodeauth.Subject{
+		FleetNodeID:         resolved.FleetNodeID,
 		OrgID:               resolved.OrgID,
 		Name:                resolved.Name,
-		IdentityFingerprint: agentenrollment.IdentityFingerprint(resolved.IdentityPubkey),
+		IdentityFingerprint: fleetnodeenrollment.IdentityFingerprint(resolved.IdentityPubkey),
 	}), nil
 }

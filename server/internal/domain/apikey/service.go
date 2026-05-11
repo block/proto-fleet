@@ -161,7 +161,7 @@ func (s *Service) tryCreateAgent(ctx context.Context, agentID, orgID int64, name
 		Prefix:         prefix,
 		KeyHash:        keyHash,
 		SubjectKind:    interfaces.ApiKeySubjectKindAgent,
-		AgentID:        &agentID,
+		FleetNodeID:    &agentID,
 		OrganizationID: orgID,
 		CreatedAt:      now,
 		ExpiresAt:      expiresAt,

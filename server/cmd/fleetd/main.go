@@ -54,8 +54,6 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/schedule/v1/schedulev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/telemetry/v1/telemetryv1connect"
 	activityDomain "github.com/block/proto-fleet/server/internal/domain/activity"
-	"github.com/block/proto-fleet/server/internal/domain/agentauth"
-	"github.com/block/proto-fleet/server/internal/domain/agentenrollment"
 	apikeyDomain "github.com/block/proto-fleet/server/internal/domain/apikey"
 	authDomain "github.com/block/proto-fleet/server/internal/domain/auth"
 	collectionDomain "github.com/block/proto-fleet/server/internal/domain/collection"
@@ -64,6 +62,8 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/deviceresolver"
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics"
 	fleetmanagementDomain "github.com/block/proto-fleet/server/internal/domain/fleetmanagement"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnodeauth"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnodeenrollment"
 	"github.com/block/proto-fleet/server/internal/domain/fleetoptions"
 	foremanImportDomain "github.com/block/proto-fleet/server/internal/domain/foremanimport"
 	onboardingDomain "github.com/block/proto-fleet/server/internal/domain/onboarding"
@@ -75,8 +75,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/scheduler"
 	tokenDomain "github.com/block/proto-fleet/server/internal/domain/token"
 	activityHandler "github.com/block/proto-fleet/server/internal/handlers/activity"
-	"github.com/block/proto-fleet/server/internal/handlers/agentadmin"
-	"github.com/block/proto-fleet/server/internal/handlers/agentgateway"
 	apikeyHandler "github.com/block/proto-fleet/server/internal/handlers/apikey"
 	"github.com/block/proto-fleet/server/internal/handlers/auth"
 	collectionHandler "github.com/block/proto-fleet/server/internal/handlers/collection"
@@ -86,6 +84,8 @@ import (
 	errorqueryHandler "github.com/block/proto-fleet/server/internal/handlers/errorquery"
 	firmwareHandler "github.com/block/proto-fleet/server/internal/handlers/firmware"
 	"github.com/block/proto-fleet/server/internal/handlers/fleetmanagement"
+	"github.com/block/proto-fleet/server/internal/handlers/fleetnodeadmin"
+	"github.com/block/proto-fleet/server/internal/handlers/fleetnodegateway"
 	foremanImportHandler "github.com/block/proto-fleet/server/internal/handlers/foremanimport"
 	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
@@ -167,10 +167,10 @@ func start(config *Config) error {
 	apiKeyStore := sqlstores.NewSQLApiKeyStore(conn)
 	apiKeySvc := apikeyDomain.NewService(apiKeyStore, activitySvc)
 
-	agentEnrollmentStore := sqlstores.NewSQLAgentEnrollmentStore(conn)
-	agentEnrollmentSvc := agentenrollment.NewService(agentEnrollmentStore, apiKeySvc, transactor, activitySvc)
-	agentAuthStore := sqlstores.NewSQLAgentAuthStore(conn)
-	agentAuthSvc := agentauth.NewService(agentAuthStore, agentEnrollmentStore, apiKeySvc)
+	agentEnrollmentStore := sqlstores.NewSQLFleetNodeEnrollmentStore(conn)
+	agentEnrollmentSvc := fleetnodeenrollment.NewService(agentEnrollmentStore, apiKeySvc, transactor, activitySvc)
+	agentAuthStore := sqlstores.NewSQLFleetNodeAuthStore(conn)
+	agentAuthSvc := fleetnodeauth.NewService(agentAuthStore, agentEnrollmentStore, apiKeySvc)
 
 	tokenSvc, err := tokenDomain.NewService(config.Auth)
 	if err != nil {
@@ -408,7 +408,7 @@ func start(config *Config) error {
 		interceptors.NewErrorMappingInterceptor(),
 		interceptors.NewErrorStackTraceLoggingInterceptor(config.Log.Level),
 		interceptors.NewRequestLoggingInterceptor(config.Log.Level, interceptors.RedactedRequestProcedures, interceptors.RedactedResponseProcedures),
-		interceptors.NewAgentAuthInterceptor(agentAuthSvc, interceptors.AgentAuthenticatedProcedures),
+		interceptors.NewFleetNodeAuthInterceptor(agentAuthSvc, interceptors.AgentAuthenticatedProcedures),
 		interceptors.NewAuthInterceptor(sessionSvc, userStore, userStore, apiKeySvc, interceptors.UnauthenticatedProcedures, interceptors.SessionOnlyProcedures, interceptors.AgentAuthenticatedProcedures),
 		validateInterceptor,
 	)
@@ -450,8 +450,8 @@ func start(config *Config) error {
 	// Curtailment v1: PreviewCurtailmentPlan is implemented; remaining
 	// RPCs return Unimplemented until follow-up work lands.
 	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(curtailmentHandler.NewHandler(curtailmentSvc), li))
-	mux.Handle(fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(agentgateway.NewHandler(agentEnrollmentSvc, agentAuthSvc), li))
-	mux.Handle(fleetnodeadminv1connect.NewFleetNodeAdminServiceHandler(agentadmin.NewHandler(agentEnrollmentSvc), li))
+	mux.Handle(fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(fleetnodegateway.NewHandler(agentEnrollmentSvc, agentAuthSvc), li))
+	mux.Handle(fleetnodeadminv1connect.NewFleetNodeAdminServiceHandler(fleetnodeadmin.NewHandler(agentEnrollmentSvc), li))
 	mux.Handle(collectionv1connect.NewDeviceCollectionServiceHandler(collectionHandler.NewHandler(collectionSvc), li))
 	mux.Handle(device_setv1connect.NewDeviceSetServiceHandler(devicesetHandler.NewHandler(collectionSvc), li))
 	mux.Handle(telemetryv1connect.NewTelemetryServiceHandler(telemetryHandler.NewHandler(telemetryService), li))

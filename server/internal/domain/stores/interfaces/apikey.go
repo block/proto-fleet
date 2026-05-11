@@ -13,7 +13,7 @@ const (
 )
 
 // ApiKey is the persisted form of an API key. Exactly one of UserID or
-// AgentID is populated, matching SubjectKind; consumers should branch via
+// FleetNodeID is populated, matching SubjectKind; consumers should branch via
 // AsUser / AsAgent rather than nil-checking the pointer fields.
 type ApiKey struct {
 	ID                int64
@@ -23,7 +23,7 @@ type ApiKey struct {
 	KeyHash           string
 	SubjectKind       ApiKeySubjectKind
 	UserID            *int64
-	AgentID           *int64
+	FleetNodeID       *int64
 	OrganizationID    int64
 	CreatedAt         time.Time
 	ExpiresAt         *time.Time
@@ -42,8 +42,8 @@ func (k *ApiKey) AsUser() (int64, bool) {
 }
 
 func (k *ApiKey) AsAgent() (int64, bool) {
-	if k.SubjectKind == ApiKeySubjectKindAgent && k.AgentID != nil {
-		return *k.AgentID, true
+	if k.SubjectKind == ApiKeySubjectKindAgent && k.FleetNodeID != nil {
+		return *k.FleetNodeID, true
 	}
 	return 0, false
 }

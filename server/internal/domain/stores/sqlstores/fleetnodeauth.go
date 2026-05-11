@@ -7,25 +7,25 @@ import (
 	"time"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
-	"github.com/block/proto-fleet/server/internal/domain/agentauth"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnodeauth"
 )
 
-var _ agentauth.Store = &SQLAgentAuthStore{}
+var _ fleetnodeauth.Store = &SQLFleetNodeAuthStore{}
 
-type SQLAgentAuthStore struct {
+type SQLFleetNodeAuthStore struct {
 	SQLConnectionManager
 }
 
-func NewSQLAgentAuthStore(conn *sql.DB) *SQLAgentAuthStore {
-	return &SQLAgentAuthStore{SQLConnectionManager: NewSQLConnectionManager(conn)}
+func NewSQLFleetNodeAuthStore(conn *sql.DB) *SQLFleetNodeAuthStore {
+	return &SQLFleetNodeAuthStore{SQLConnectionManager: NewSQLConnectionManager(conn)}
 }
 
-func (s *SQLAgentAuthStore) q(ctx context.Context) *sqlc.Queries {
+func (s *SQLFleetNodeAuthStore) q(ctx context.Context) *sqlc.Queries {
 	return s.GetQueries(ctx)
 }
 
-func (s *SQLAgentAuthStore) UpsertChallenge(ctx context.Context, challenge []byte, agentID int64, expiresAt time.Time) error {
+func (s *SQLFleetNodeAuthStore) UpsertChallenge(ctx context.Context, challenge []byte, agentID int64, expiresAt time.Time) error {
 	return s.q(ctx).UpsertAgentAuthChallenge(ctx, sqlc.UpsertAgentAuthChallengeParams{
 		Challenge: challenge,
 		AgentID:   agentID,
@@ -33,7 +33,7 @@ func (s *SQLAgentAuthStore) UpsertChallenge(ctx context.Context, challenge []byt
 	})
 }
 
-func (s *SQLAgentAuthStore) ConsumeChallenge(ctx context.Context, challenge []byte, now time.Time) (int64, error) {
+func (s *SQLFleetNodeAuthStore) ConsumeChallenge(ctx context.Context, challenge []byte, now time.Time) (int64, error) {
 	row, err := s.q(ctx).ConsumeAgentAuthChallenge(ctx, sqlc.ConsumeAgentAuthChallengeParams{
 		Challenge: challenge,
 		ExpiresAt: now,
@@ -47,11 +47,11 @@ func (s *SQLAgentAuthStore) ConsumeChallenge(ctx context.Context, challenge []by
 	return row.AgentID, nil
 }
 
-func (s *SQLAgentAuthStore) SweepExpiredChallenges(ctx context.Context, now time.Time) (int64, error) {
+func (s *SQLFleetNodeAuthStore) SweepExpiredChallenges(ctx context.Context, now time.Time) (int64, error) {
 	return s.q(ctx).SweepExpiredAgentAuthChallenges(ctx, now)
 }
 
-func (s *SQLAgentAuthStore) UpsertSession(ctx context.Context, tokenHash string, agentID int64, expiresAt time.Time) error {
+func (s *SQLFleetNodeAuthStore) UpsertSession(ctx context.Context, tokenHash string, agentID int64, expiresAt time.Time) error {
 	return s.q(ctx).UpsertAgentSession(ctx, sqlc.UpsertAgentSessionParams{
 		TokenHash: tokenHash,
 		AgentID:   agentID,
@@ -59,7 +59,7 @@ func (s *SQLAgentAuthStore) UpsertSession(ctx context.Context, tokenHash string,
 	})
 }
 
-func (s *SQLAgentAuthStore) GetSessionAgent(ctx context.Context, tokenHash string, now time.Time) (*agentauth.ResolvedAgent, error) {
+func (s *SQLFleetNodeAuthStore) GetSessionAgent(ctx context.Context, tokenHash string, now time.Time) (*fleetnodeauth.ResolvedFleetNode, error) {
 	row, err := s.q(ctx).GetAgentSessionByTokenHash(ctx, sqlc.GetAgentSessionByTokenHashParams{
 		TokenHash: tokenHash,
 		ExpiresAt: now,
@@ -70,14 +70,14 @@ func (s *SQLAgentAuthStore) GetSessionAgent(ctx context.Context, tokenHash strin
 		}
 		return nil, err
 	}
-	return &agentauth.ResolvedAgent{
-		AgentID:        row.AgentID,
+	return &fleetnodeauth.ResolvedFleetNode{
+		FleetNodeID:    row.AgentID,
 		OrgID:          row.OrgID,
 		Name:           row.Name,
 		IdentityPubkey: row.IdentityPubkey,
 	}, nil
 }
 
-func (s *SQLAgentAuthStore) SweepExpiredSessions(ctx context.Context, now time.Time) (int64, error) {
+func (s *SQLFleetNodeAuthStore) SweepExpiredSessions(ctx context.Context, now time.Time) (int64, error) {
 	return s.q(ctx).SweepExpiredAgentSessions(ctx, now)
 }

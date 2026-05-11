@@ -1,4 +1,4 @@
-package agentbootstrap
+package fleetnodebootstrap
 
 import (
 	"crypto/ed25519"
@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/block/proto-fleet/server/internal/domain/agentenrollment"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnodeenrollment"
 )
 
 func TestIdentityFingerprint_MatchesServer(t *testing.T) {
@@ -24,7 +24,7 @@ func TestIdentityFingerprint_MatchesServer(t *testing.T) {
 	got := IdentityFingerprint(pubkey)
 
 	// Assert
-	assert.Equal(t, agentenrollment.IdentityFingerprint(pubkey), got)
+	assert.Equal(t, fleetnodeenrollment.IdentityFingerprint(pubkey), got)
 	assert.Len(t, got, 16)
 }
 

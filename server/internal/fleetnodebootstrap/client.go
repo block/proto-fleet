@@ -1,4 +1,4 @@
-package agentbootstrap
+package fleetnodebootstrap
 
 import (
 	"errors"

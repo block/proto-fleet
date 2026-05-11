@@ -1,4 +1,4 @@
-package agentgateway
+package fleetnodegateway
 
 import (
 	"context"
@@ -8,32 +8,32 @@ import (
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
-	"github.com/block/proto-fleet/server/internal/domain/agentauth"
-	"github.com/block/proto-fleet/server/internal/domain/agentenrollment"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnodeauth"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnodeenrollment"
 )
 
 type Handler struct {
 	fleetnodegatewayv1connect.UnimplementedFleetNodeGatewayServiceHandler
 
-	enrollment *agentenrollment.Service
-	auth       *agentauth.Service
+	enrollment *fleetnodeenrollment.Service
+	auth       *fleetnodeauth.Service
 }
 
 var _ fleetnodegatewayv1connect.FleetNodeGatewayServiceHandler = &Handler{}
 
-func NewHandler(enrollment *agentenrollment.Service, auth *agentauth.Service) *Handler {
+func NewHandler(enrollment *fleetnodeenrollment.Service, auth *fleetnodeauth.Service) *Handler {
 	return &Handler{enrollment: enrollment, auth: auth}
 }
 
 func (h *Handler) Register(ctx context.Context, req *connect.Request[pb.RegisterRequest]) (*connect.Response[pb.RegisterResponse], error) {
-	agent, _, err := h.enrollment.RegisterAgent(ctx, req.Msg.GetEnrollmentToken(), req.Msg.GetName(), req.Msg.GetIdentityPubkey(), req.Msg.GetMinerSigningPubkey())
+	agent, _, err := h.enrollment.RegisterFleetNode(ctx, req.Msg.GetEnrollmentToken(), req.Msg.GetName(), req.Msg.GetIdentityPubkey(), req.Msg.GetMinerSigningPubkey())
 	if err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(&pb.RegisterResponse{
 		FleetNodeId:         agent.ID,
 		EnrollmentStatus:    pb.EnrollmentStatus_ENROLLMENT_STATUS_PENDING,
-		IdentityFingerprint: agentenrollment.IdentityFingerprint(agent.IdentityPubkey),
+		IdentityFingerprint: fleetnodeenrollment.IdentityFingerprint(agent.IdentityPubkey),
 	}), nil
 }
 

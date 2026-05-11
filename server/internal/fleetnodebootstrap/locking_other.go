@@ -1,6 +1,6 @@
 //go:build !linux && !darwin
 
-package agentbootstrap
+package fleetnodebootstrap
 
 // No-ops: package is supported on Linux and macOS only; concurrent refresh
 // can race state.yaml here and SaveState is not crash-durable.

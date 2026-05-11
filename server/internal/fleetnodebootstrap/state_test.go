@@ -1,4 +1,4 @@
-package agentbootstrap
+package fleetnodebootstrap
 
 import (
 	"os"
@@ -19,7 +19,7 @@ func TestSaveLoadState_RoundTrip(t *testing.T) {
 	expectedTime := time.Date(2026, 5, 7, 12, 34, 56, 0, time.UTC)
 	original := &State{
 		ServerURL:                 "http://localhost:4000",
-		AgentID:                   42,
+		FleetNodeID:               42,
 		IdentityFingerprint:       "a1b2c3d4e5f60718",
 		IdentityPrivateKeyHex:     "aabbccdd",
 		IdentityPublicKeyHex:      "1122334455",

@@ -1,4 +1,4 @@
-package agentenrollment
+package fleetnodeenrollment
 
 import "time"
 
@@ -12,33 +12,33 @@ const (
 	StatusCancelled            Status = "CANCELLED"
 )
 
-type AgentStatus string
+type FleetNodeStatus string
 
 const (
-	AgentStatusPending   AgentStatus = "PENDING"
-	AgentStatusConfirmed AgentStatus = "CONFIRMED"
-	AgentStatusRevoked   AgentStatus = "REVOKED"
+	FleetNodeStatusPending   FleetNodeStatus = "PENDING"
+	FleetNodeStatusConfirmed FleetNodeStatus = "CONFIRMED"
+	FleetNodeStatusRevoked   FleetNodeStatus = "REVOKED"
 )
 
 type PendingEnrollment struct {
-	ID         int64
-	CodeHash   string
-	OrgID      int64
-	CreatedBy  int64
-	AgentID    *int64
-	Status     Status
-	ExpiresAt  time.Time
-	ConsumedAt *time.Time
-	CreatedAt  time.Time
+	ID          int64
+	CodeHash    string
+	OrgID       int64
+	CreatedBy   int64
+	FleetNodeID *int64
+	Status      Status
+	ExpiresAt   time.Time
+	ConsumedAt  *time.Time
+	CreatedAt   time.Time
 }
 
-type Agent struct {
+type FleetNode struct {
 	ID                 int64
 	OrgID              int64
 	Name               string
 	IdentityPubkey     []byte
 	MinerSigningPubkey []byte
-	EnrollmentStatus   AgentStatus
+	EnrollmentStatus   FleetNodeStatus
 	LastSeenAt         *time.Time
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
@@ -46,7 +46,7 @@ type Agent struct {
 
 // AWAITING_CONFIRMATION lives on pending_enrollment.status, not on
 // agent.enrollment_status, so operator listings need both fields.
-type AgentListing struct {
-	Agent
+type FleetNodeListing struct {
+	FleetNode
 	PendingEnrollmentStatus Status
 }

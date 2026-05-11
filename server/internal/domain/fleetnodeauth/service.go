@@ -1,4 +1,4 @@
-package agentauth
+package fleetnodeauth
 
 import (
 	"context"
@@ -8,9 +8,9 @@ import (
 	"encoding/base64"
 	"time"
 
-	"github.com/block/proto-fleet/server/internal/domain/agentenrollment"
 	"github.com/block/proto-fleet/server/internal/domain/apikey"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnodeenrollment"
 	"github.com/block/proto-fleet/server/internal/infrastructure/cryptohash"
 )
 
@@ -30,13 +30,13 @@ type Store interface {
 	SweepExpiredChallenges(ctx context.Context, now time.Time) (int64, error)
 
 	UpsertSession(ctx context.Context, tokenHash string, agentID int64, expiresAt time.Time) error
-	GetSessionAgent(ctx context.Context, tokenHash string, now time.Time) (*ResolvedAgent, error)
+	GetSessionAgent(ctx context.Context, tokenHash string, now time.Time) (*ResolvedFleetNode, error)
 	SweepExpiredSessions(ctx context.Context, now time.Time) (int64, error)
 }
 
-// ResolvedAgent is the join of an agent_session and its agent row.
-type ResolvedAgent struct {
-	AgentID        int64
+// ResolvedFleetNode is the join of an agent_session and its agent row.
+type ResolvedFleetNode struct {
+	FleetNodeID    int64
 	OrgID          int64
 	Name           string
 	IdentityPubkey []byte
@@ -44,13 +44,13 @@ type ResolvedAgent struct {
 
 type Service struct {
 	store           Store
-	enrollmentStore agentenrollment.Store
+	enrollmentStore fleetnodeenrollment.Store
 	apiKeySvc       *apikey.Service
 	challengeTTL    time.Duration
 	sessionTTL      time.Duration
 }
 
-func NewService(store Store, enrollmentStore agentenrollment.Store, apiKeySvc *apikey.Service) *Service {
+func NewService(store Store, enrollmentStore fleetnodeenrollment.Store, apiKeySvc *apikey.Service) *Service {
 	return &Service{
 		store:           store,
 		enrollmentStore: enrollmentStore,
@@ -76,7 +76,7 @@ func (s *Service) BeginHandshake(ctx context.Context, apiKeyPlaintext string, id
 		}
 		return nil, time.Time{}, logInternal("agent lookup", clientErrAuth, err)
 	}
-	if agent.EnrollmentStatus != agentenrollment.AgentStatusConfirmed {
+	if agent.EnrollmentStatus != fleetnodeenrollment.FleetNodeStatusConfirmed {
 		return nil, time.Time{}, fleeterror.NewFailedPreconditionError("agent enrollment not confirmed")
 	}
 	// Constant-time compare on the supplied vs enrolled identity pubkey: the
@@ -139,7 +139,7 @@ func (s *Service) CompleteHandshake(ctx context.Context, challenge, signature []
 	return plaintext, expiresAt, nil
 }
 
-func (s *Service) ResolveSession(ctx context.Context, sessionTokenPlaintext string) (*ResolvedAgent, error) {
+func (s *Service) ResolveSession(ctx context.Context, sessionTokenPlaintext string) (*ResolvedFleetNode, error) {
 	row, err := s.store.GetSessionAgent(ctx, hashToken(sessionTokenPlaintext), time.Now().UTC())
 	if err != nil {
 		if fleeterror.IsNotFoundError(err) {

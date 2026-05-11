@@ -1,6 +1,6 @@
 //go:build linux || darwin
 
-package agentbootstrap
+package fleetnodebootstrap
 
 import (
 	"fmt"

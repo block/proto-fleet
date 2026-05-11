@@ -1,4 +1,4 @@
-package agentbootstrap
+package fleetnodebootstrap
 
 import (
 	"errors"
@@ -13,7 +13,7 @@ import (
 type State struct {
 	ServerURL                 string    `yaml:"server_url"`
 	AllowInsecureTransport    bool      `yaml:"allow_insecure_transport,omitempty"`
-	AgentID                   int64     `yaml:"agent_id"`
+	FleetNodeID               int64     `yaml:"agent_id"`
 	IdentityFingerprint       string    `yaml:"identity_fingerprint"`
 	IdentityPrivateKeyHex     string    `yaml:"identity_private_key_hex"`
 	IdentityPublicKeyHex      string    `yaml:"identity_public_key_hex"`

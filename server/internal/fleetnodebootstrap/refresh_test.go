@@ -1,4 +1,4 @@
-package agentbootstrap
+package fleetnodebootstrap
 
 import (
 	"bytes"
@@ -29,7 +29,7 @@ func TestRefresh_HappyPath(t *testing.T) {
 	state := &State{
 		ServerURL:              srv.URL,
 		AllowInsecureTransport: true,
-		AgentID:                42,
+		FleetNodeID:            42,
 		IdentityFingerprint:    "abcdef0123456789",
 		IdentityPrivateKeyHex:  hex.EncodeToString(priv),
 		IdentityPublicKeyHex:   hex.EncodeToString(pub),
@@ -51,7 +51,7 @@ func TestRefresh_RequiresAPIKey(t *testing.T) {
 	// Arrange
 	state := &State{
 		ServerURL:             "https://fleet.example.com",
-		AgentID:               1,
+		FleetNodeID:           1,
 		IdentityFingerprint:   "0000000000000000",
 		IdentityPrivateKeyHex: hex.EncodeToString(make([]byte, ed25519.PrivateKeySize)),
 		IdentityPublicKeyHex:  hex.EncodeToString(make([]byte, ed25519.PublicKeySize)),
@@ -81,7 +81,7 @@ func TestRefresh_PreservesStateOnAPIKeyRejected(t *testing.T) {
 	state := &State{
 		ServerURL:              srv.URL,
 		AllowInsecureTransport: true,
-		AgentID:                7,
+		FleetNodeID:            7,
 		IdentityFingerprint:    "abc0000000000000",
 		IdentityPrivateKeyHex:  hex.EncodeToString(priv),
 		IdentityPublicKeyHex:   hex.EncodeToString(pub),
@@ -121,7 +121,7 @@ func TestRefresh_PreservesStateOnSignatureFailure(t *testing.T) {
 	state := &State{
 		ServerURL:              srv.URL,
 		AllowInsecureTransport: true,
-		AgentID:                9,
+		FleetNodeID:            9,
 		IdentityFingerprint:    "def0000000000000",
 		IdentityPrivateKeyHex:  hex.EncodeToString(otherPriv),
 		IdentityPublicKeyHex:   hex.EncodeToString(pub),
@@ -148,7 +148,7 @@ func TestRefresh_RejectsNonHTTPS(t *testing.T) {
 	state := &State{
 		ServerURL:              "http://fleet.example.com",
 		AllowInsecureTransport: false,
-		AgentID:                3,
+		FleetNodeID:            3,
 		IdentityFingerprint:    "1111111111111111",
 		IdentityPrivateKeyHex:  hex.EncodeToString(make([]byte, ed25519.PrivateKeySize)),
 		IdentityPublicKeyHex:   hex.EncodeToString(make([]byte, ed25519.PublicKeySize)),

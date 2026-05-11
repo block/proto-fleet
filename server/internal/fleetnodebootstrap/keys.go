@@ -1,4 +1,4 @@
-package agentbootstrap
+package fleetnodebootstrap
 
 import (
 	"crypto/ed25519"
@@ -8,7 +8,7 @@ import (
 	"fmt"
 )
 
-// Must mirror server agentenrollment.IdentityFingerprint exactly so the
+// Must mirror server fleetnodeenrollment.IdentityFingerprint exactly so the
 // operator UI's visual fingerprint compare succeeds.
 func IdentityFingerprint(pubkey []byte) string {
 	h := sha256.Sum256(pubkey)

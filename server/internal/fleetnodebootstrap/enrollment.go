@@ -1,4 +1,4 @@
-package agentbootstrap
+package fleetnodebootstrap
 
 import (
 	"context"
@@ -78,7 +78,7 @@ func Register(ctx context.Context, p RegisterParams) (*RegisterResult, error) {
 	state := &State{
 		ServerURL:                 p.ServerURL,
 		AllowInsecureTransport:    p.AllowInsecureTransport,
-		AgentID:                   resp.Msg.GetFleetNodeId(),
+		FleetNodeID:               resp.Msg.GetFleetNodeId(),
 		IdentityFingerprint:       localFP,
 		IdentityPrivateKeyHex:     hex.EncodeToString(idPriv),
 		IdentityPublicKeyHex:      hex.EncodeToString(idPub),

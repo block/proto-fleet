@@ -1,4 +1,4 @@
-package agentbootstrap
+package fleetnodebootstrap
 
 import (
 	"bytes"
@@ -34,7 +34,7 @@ func TestRegister_HappyPath(t *testing.T) {
 	// Assert
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	assert.Equal(t, int64(77), result.State.AgentID)
+	assert.Equal(t, int64(77), result.State.FleetNodeID)
 	assert.Len(t, result.State.IdentityFingerprint, 16)
 	assert.Equal(t, ed25519.PublicKeySize*2, len(result.State.IdentityPublicKeyHex))
 	assert.Equal(t, ed25519.PrivateKeySize*2, len(result.State.IdentityPrivateKeyHex))
