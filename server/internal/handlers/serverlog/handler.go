@@ -71,7 +71,7 @@ func (h *Handler) ListServerLogs(
 }
 
 func requireAdmin(info *session.Info) error {
-	if info.Role != domainAuth.SuperAdminRoleName {
+	if info.Role != domainAuth.AdminRoleName && info.Role != domainAuth.SuperAdminRoleName {
 		return fleeterror.NewForbiddenError("only super admins can view server logs")
 	}
 	return nil
