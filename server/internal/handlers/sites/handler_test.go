@@ -193,7 +193,10 @@ func TestHandler_DeleteSite_surfacesCascadeCounts(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler(t)
 
-	// Cascade: 5 store calls, all returning non-zero counts.
+	// Cascade: 6 store calls, all returning non-zero counts (the
+	// LockSiteForWrite at the top of the tx is part of the TOCTOU fix
+	// vs concurrent DeleteSite).
+	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), int64(11)).Return(nil)
 	h.siteStore.EXPECT().UnassignRacksFromBuildingsBySite(gomock.Any(), int64(7), int64(11)).Return(int64(0), nil)
 	h.siteStore.EXPECT().SoftDeleteBuildingsBySite(gomock.Any(), int64(7), int64(11)).Return(int64(2), nil)
 	h.siteStore.EXPECT().UnassignRacksFromSite(gomock.Any(), int64(7), int64(11)).Return(int64(4), nil)
@@ -215,7 +218,7 @@ func TestHandler_ReassignDevicesToSite_success(t *testing.T) {
 	idents := []string{"d1", "d2"}
 
 	h.siteStore.EXPECT().LockDevicesForReassign(gomock.Any(), int64(7), idents).Return(nil)
-	h.siteStore.EXPECT().SiteBelongsToOrg(gomock.Any(), int64(7), target).Return(true, nil)
+	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), target).Return(nil)
 	h.siteStore.EXPECT().ListExistingDeviceIdentifiers(gomock.Any(), int64(7), idents).Return(idents, nil)
 	h.siteStore.EXPECT().FindDeviceSiteConflicts(gomock.Any(), int64(7), idents).Return(map[string]int64{}, nil)
 	h.siteStore.EXPECT().ReassignDevicesToSite(gomock.Any(), int64(7), gomock.AssignableToTypeOf(ptrInt64(0)), idents).Return(int64(2), nil)
@@ -238,7 +241,7 @@ func TestHandler_ReassignDevicesToSite_conflictsReturnTypedReason(t *testing.T) 
 	conflictingSite := int64(30)
 
 	h.siteStore.EXPECT().LockDevicesForReassign(gomock.Any(), int64(7), idents).Return(nil)
-	h.siteStore.EXPECT().SiteBelongsToOrg(gomock.Any(), int64(7), target).Return(true, nil)
+	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), target).Return(nil)
 	h.siteStore.EXPECT().ListExistingDeviceIdentifiers(gomock.Any(), int64(7), idents).Return(idents, nil)
 	h.siteStore.EXPECT().FindDeviceSiteConflicts(gomock.Any(), int64(7), idents).Return(map[string]int64{
 		"d1": conflictingSite,
@@ -264,7 +267,7 @@ func TestHandler_AssignBuildingToSite_surfacesCascadeCounts(t *testing.T) {
 
 	target := int64(20)
 
-	h.siteStore.EXPECT().SiteBelongsToOrg(gomock.Any(), int64(7), target).Return(true, nil)
+	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), target).Return(nil)
 	h.siteStore.EXPECT().AssignBuildingToSite(gomock.Any(), int64(7), int64(50), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(1), nil)
 	h.siteStore.EXPECT().ReassignRacksUnderBuilding(gomock.Any(), int64(7), int64(50), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(3), nil)
 	h.siteStore.EXPECT().ReassignDevicesUnderBuilding(gomock.Any(), int64(7), int64(50), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(15), nil)

@@ -166,6 +166,16 @@ func (s *SQLSiteStore) SiteBelongsToOrg(ctx context.Context, orgID, id int64) (b
 	return belongs, nil
 }
 
+func (s *SQLSiteStore) LockSiteForWrite(ctx context.Context, orgID, siteID int64) error {
+	if _, err := s.GetQueries(ctx).LockSiteForWrite(ctx, sqlc.LockSiteForWriteParams{ID: siteID, OrgID: orgID}); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fleeterror.NewNotFoundErrorf("site %d not found", siteID)
+		}
+		return fleeterror.NewInternalErrorf("failed to lock site for write: %v", err)
+	}
+	return nil
+}
+
 func (s *SQLSiteStore) LockDevicesForReassign(ctx context.Context, orgID int64, deviceIdentifiers []string) error {
 	if _, err := s.GetQueries(ctx).LockDevicesForReassign(ctx, sqlc.LockDevicesForReassignParams{
 		OrgID:             orgID,

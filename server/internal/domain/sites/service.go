@@ -6,10 +6,10 @@ package sites
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/netip"
+	"sort"
 	"strings"
 
 	"github.com/block/proto-fleet/server/internal/domain/activity"
@@ -184,6 +184,12 @@ func (s *Service) ListSites(ctx context.Context, orgID int64) ([]models.SiteWith
 func (s *Service) DeleteSite(ctx context.Context, orgID, id int64) (*models.DeleteSiteResult, error) {
 	var out models.DeleteSiteResult
 	err := s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
+		// 0. Lock the site row first so two concurrent DeleteSite calls
+		// can't both cascade. If the row is already soft-deleted/gone,
+		// LockSiteForWrite returns NotFound and we bail.
+		if err := s.store.LockSiteForWrite(txCtx, orgID, id); err != nil {
+			return err
+		}
 		// 1. Clear rack→building linkage + zone for racks under any
 		// building of this site, BEFORE the buildings disappear.
 		if _, err := s.store.UnassignRacksFromBuildingsBySite(txCtx, orgID, id); err != nil {
@@ -247,11 +253,6 @@ func (s *Service) DeleteSite(ctx context.Context, orgID, id int64) (*models.Dele
 	return &out, nil
 }
 
-// errReassignConflicts is a sentinel returned from inside the
-// RunInTx closure when a conflict surfaces. The outer call catches it
-// and turns it into a successful return with non-empty conflicts.
-var errReassignConflicts = errors.New("reassign devices to site: per-device conflicts")
-
 // ReassignDevicesToSite enforces the cross-collection invariant and,
 // on success, bulk-updates device.site_id for every identifier in one
 // transaction. Per the plan, the entire batch rejects if *any* device
@@ -275,12 +276,8 @@ func (s *Service) ReassignDevicesToSite(ctx context.Context, params models.Reass
 			return err
 		}
 		if targetSiteID != nil && *targetSiteID > 0 {
-			belongs, err := s.store.SiteBelongsToOrg(txCtx, params.OrgID, *targetSiteID)
-			if err != nil {
+			if err := s.store.LockSiteForWrite(txCtx, params.OrgID, *targetSiteID); err != nil {
 				return err
-			}
-			if !belongs {
-				return fleeterror.NewNotFoundErrorf("site %d not found", *targetSiteID)
 			}
 		}
 		conflicts, err := s.computeReassignConflicts(txCtx, params.OrgID, targetSiteID, identifiers)
@@ -288,8 +285,12 @@ func (s *Service) ReassignDevicesToSite(ctx context.Context, params models.Reass
 			return err
 		}
 		if len(conflicts) > 0 {
+			// Don't return a sentinel error — SQLTransactor wraps non-
+			// FleetError errors as Internal, which would surface as a
+			// 500 in prod. Stash conflicts and commit the lock+reads
+			// tx without writes.
 			txConflicts = conflicts
-			return errReassignConflicts
+			return nil
 		}
 		n, txErr := s.store.ReassignDevicesToSite(txCtx, params.OrgID, targetSiteID, identifiers)
 		if txErr != nil {
@@ -299,10 +300,10 @@ func (s *Service) ReassignDevicesToSite(ctx context.Context, params models.Reass
 		return nil
 	})
 	if err != nil {
-		if errors.Is(err, errReassignConflicts) {
-			return 0, txConflicts, nil
-		}
 		return 0, nil, err
+	}
+	if len(txConflicts) > 0 {
+		return 0, txConflicts, nil
 	}
 
 	// Only fire when the write happened (no conflicts; rowsAffected
@@ -339,21 +340,19 @@ func (s *Service) ReassignDevicesToSite(ctx context.Context, params models.Reass
 // the building's racks and their devices in one transaction. Returns
 // the cascade counts.
 func (s *Service) AssignBuildingToSite(ctx context.Context, params models.AssignBuildingToSiteParams) (*models.AssignBuildingToSiteResult, error) {
-	if params.TargetSiteID != nil && *params.TargetSiteID > 0 {
-		belongs, err := s.store.SiteBelongsToOrg(ctx, params.OrgID, *params.TargetSiteID)
-		if err != nil {
-			return nil, err
-		}
-		if !belongs {
-			return nil, fleeterror.NewNotFoundErrorf("site %d not found", *params.TargetSiteID)
-		}
-	}
-
 	var (
 		rackCount   int64
 		deviceCount int64
 	)
 	err := s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
+		// Lock target site (if any) inside the tx so a concurrent
+		// DeleteSite can't soft-delete it between the check and the
+		// cascade writes. target=nil/0 (Unassigned) needs no lock.
+		if params.TargetSiteID != nil && *params.TargetSiteID > 0 {
+			if err := s.store.LockSiteForWrite(txCtx, params.OrgID, *params.TargetSiteID); err != nil {
+				return err
+			}
+		}
 		rowsAffected, err := s.store.AssignBuildingToSite(txCtx, params.OrgID, params.BuildingID, params.TargetSiteID)
 		if err != nil {
 			return err
@@ -442,6 +441,12 @@ func (s *Service) computeReassignConflicts(ctx context.Context, orgID int64, tar
 			ConflictingSiteID: siteID,
 		})
 	}
+	// Deterministic order — siteByDevice is a map, so the
+	// rack-conflict branch above would otherwise emit conflicts
+	// in random order, which makes API responses non-reproducible.
+	sort.Slice(conflicts, func(i, j int) bool {
+		return conflicts[i].DeviceIdentifier < conflicts[j].DeviceIdentifier
+	})
 	return conflicts, nil
 }
 

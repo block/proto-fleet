@@ -579,6 +579,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.lockSchedulePriorityStmt, err = db.PrepareContext(ctx, lockSchedulePriority); err != nil {
 		return nil, fmt.Errorf("error preparing query LockSchedulePriority: %w", err)
 	}
+	if q.lockSiteForWriteStmt, err = db.PrepareContext(ctx, lockSiteForWrite); err != nil {
+		return nil, fmt.Errorf("error preparing query LockSiteForWrite: %w", err)
+	}
 	if q.markCommandBatchFinishedStmt, err = db.PrepareContext(ctx, markCommandBatchFinished); err != nil {
 		return nil, fmt.Errorf("error preparing query MarkCommandBatchFinished: %w", err)
 	}
@@ -1773,6 +1776,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockSchedulePriorityStmt: %w", cerr)
 		}
 	}
+	if q.lockSiteForWriteStmt != nil {
+		if cerr := q.lockSiteForWriteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockSiteForWriteStmt: %w", cerr)
+		}
+	}
 	if q.markCommandBatchFinishedStmt != nil {
 		if cerr := q.markCommandBatchFinishedStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing markCommandBatchFinishedStmt: %w", cerr)
@@ -2437,6 +2445,7 @@ type Queries struct {
 	lockAgentByIDStmt                                   *sql.Stmt
 	lockDevicesForReassignStmt                          *sql.Stmt
 	lockSchedulePriorityStmt                            *sql.Stmt
+	lockSiteForWriteStmt                                *sql.Stmt
 	markCommandBatchFinishedStmt                        *sql.Stmt
 	markCommandBatchFinishedWithStartedAtStmt           *sql.Stmt
 	markCommandBatchProcessingStmt                      *sql.Stmt
@@ -2716,6 +2725,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockAgentByIDStmt:                                   q.lockAgentByIDStmt,
 		lockDevicesForReassignStmt:                          q.lockDevicesForReassignStmt,
 		lockSchedulePriorityStmt:                            q.lockSchedulePriorityStmt,
+		lockSiteForWriteStmt:                                q.lockSiteForWriteStmt,
 		markCommandBatchFinishedStmt:                        q.markCommandBatchFinishedStmt,
 		markCommandBatchFinishedWithStartedAtStmt:           q.markCommandBatchFinishedWithStartedAtStmt,
 		markCommandBatchProcessingStmt:                      q.markCommandBatchProcessingStmt,

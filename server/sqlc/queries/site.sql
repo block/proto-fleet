@@ -58,8 +58,10 @@ LEFT JOIN (
 LEFT JOIN (
     SELECT dsr.site_id, COUNT(*) AS rack_count
     FROM device_set_rack dsr
+    JOIN device_set ds ON ds.id = dsr.device_set_id
     WHERE dsr.org_id = sqlc.arg('org_id')
       AND dsr.site_id IS NOT NULL
+      AND ds.deleted_at IS NULL
     GROUP BY dsr.site_id
 ) r ON r.site_id = s.id
 WHERE s.org_id = sqlc.arg('org_id')
@@ -138,6 +140,16 @@ SELECT EXISTS(
       AND org_id = sqlc.arg('org_id')
       AND deleted_at IS NULL
 ) AS belongs;
+
+-- name: LockSiteForWrite :one
+-- Row-locks the site so concurrent DeleteSite can't soft-delete it
+-- between the existence check and the cascade write. Returns the
+-- site id when alive; sql.ErrNoRows when soft-deleted or missing.
+SELECT id FROM site
+WHERE id = sqlc.arg('id')
+  AND org_id = sqlc.arg('org_id')
+  AND deleted_at IS NULL
+FOR UPDATE;
 
 -- name: ReassignDevicesToSite :execrows
 -- Bulk update of device.site_id for the given identifiers within the

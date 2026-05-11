@@ -57,6 +57,14 @@ type SiteStore interface {
 	// id exists in the org.
 	SiteBelongsToOrg(ctx context.Context, orgID, id int64) (bool, error)
 
+	// LockSiteForWrite takes a row-lock on the site row for the
+	// duration of the surrounding transaction, returning NotFound when
+	// the site is missing or already soft-deleted. Callers that depend
+	// on the target site being alive between the existence check and
+	// a cascade write must use this instead of SiteBelongsToOrg to
+	// avoid a TOCTOU vs concurrent DeleteSite.
+	LockSiteForWrite(ctx context.Context, orgID, siteID int64) error
+
 	// LockDevicesForReassign takes a row-lock on every matching live
 	// device for the duration of the surrounding transaction so the
 	// conflict check + UPDATE in ReassignDevicesToSite are atomic

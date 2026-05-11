@@ -276,8 +276,10 @@ LEFT JOIN (
 LEFT JOIN (
     SELECT dsr.site_id, COUNT(*) AS rack_count
     FROM device_set_rack dsr
+    JOIN device_set ds ON ds.id = dsr.device_set_id
     WHERE dsr.org_id = $1
       AND dsr.site_id IS NOT NULL
+      AND ds.deleted_at IS NULL
     GROUP BY dsr.site_id
 ) r ON r.site_id = s.id
 WHERE s.org_id = $1
@@ -382,6 +384,29 @@ func (q *Queries) LockDevicesForReassign(ctx context.Context, arg LockDevicesFor
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockSiteForWrite = `-- name: LockSiteForWrite :one
+SELECT id FROM site
+WHERE id = $1
+  AND org_id = $2
+  AND deleted_at IS NULL
+FOR UPDATE
+`
+
+type LockSiteForWriteParams struct {
+	ID    int64
+	OrgID int64
+}
+
+// Row-locks the site so concurrent DeleteSite can't soft-delete it
+// between the existence check and the cascade write. Returns the
+// site id when alive; sql.ErrNoRows when soft-deleted or missing.
+func (q *Queries) LockSiteForWrite(ctx context.Context, arg LockSiteForWriteParams) (int64, error) {
+	row := q.queryRow(ctx, q.lockSiteForWriteStmt, lockSiteForWrite, arg.ID, arg.OrgID)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const reassignDevicesToSite = `-- name: ReassignDevicesToSite :execrows

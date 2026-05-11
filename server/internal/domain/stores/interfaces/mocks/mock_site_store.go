@@ -160,6 +160,20 @@ func (mr *MockSiteStoreMockRecorder) LockDevicesForReassign(ctx, orgID, deviceId
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockDevicesForReassign", reflect.TypeOf((*MockSiteStore)(nil).LockDevicesForReassign), ctx, orgID, deviceIdentifiers)
 }
 
+// LockSiteForWrite mocks base method.
+func (m *MockSiteStore) LockSiteForWrite(ctx context.Context, orgID, siteID int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockSiteForWrite", ctx, orgID, siteID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// LockSiteForWrite indicates an expected call of LockSiteForWrite.
+func (mr *MockSiteStoreMockRecorder) LockSiteForWrite(ctx, orgID, siteID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockSiteForWrite", reflect.TypeOf((*MockSiteStore)(nil).LockSiteForWrite), ctx, orgID, siteID)
+}
+
 // ReassignDevicesToSite mocks base method.
 func (m *MockSiteStore) ReassignDevicesToSite(ctx context.Context, orgID int64, targetSiteID *int64, deviceIdentifiers []string) (int64, error) {
 	m.ctrl.T.Helper()

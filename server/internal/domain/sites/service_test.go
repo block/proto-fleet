@@ -9,6 +9,7 @@ import (
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/sites/models"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 )
 
@@ -41,6 +42,54 @@ func (f *fakeTransactor) RunInTxWithResult(ctx context.Context, fn func(context.
 	return fn(context.WithValue(ctx, sentinelKey, sentinelValue))
 }
 
+// wrappingFakeTransactor mirrors production SQLTransactor: a non-
+// FleetError returned by the closure gets wrapped as Internal. Used to
+// pin the regression in Fix #1 — a sentinel returned from the closure
+// would survive fakeTransactor (returned unchanged) but get rewritten
+// in prod, masking the conflict-vs-Internal-error bug.
+type wrappingFakeTransactor struct {
+	calls int
+}
+
+func (f *wrappingFakeTransactor) RunInTx(ctx context.Context, fn func(context.Context) error) error {
+	f.calls++
+	err := fn(context.WithValue(ctx, sentinelKey, sentinelValue))
+	if err == nil {
+		return nil
+	}
+	var fe fleeterror.FleetError
+	if errors.As(err, &fe) {
+		return fe
+	}
+	return fleeterror.NewInternalErrorf("tx: %v", err)
+}
+
+func (f *wrappingFakeTransactor) RunInTxWithResult(ctx context.Context, fn func(context.Context) (any, error)) (any, error) {
+	f.calls++
+	v, err := fn(context.WithValue(ctx, sentinelKey, sentinelValue))
+	if err == nil {
+		return v, nil
+	}
+	var fe fleeterror.FleetError
+	if errors.As(err, &fe) {
+		return v, fe
+	}
+	return v, fleeterror.NewInternalErrorf("tx: %v", err)
+}
+
+// transactorFactory is the table-driven setup that lets the same case
+// run against both the eager fake and the production-shaped wrapping
+// fake.
+type transactorFactory struct {
+	name string
+	make func() interfaces.Transactor
+}
+
+var transactorFactories = []transactorFactory{
+	{name: "fake", make: func() interfaces.Transactor { return &fakeTransactor{} }},
+	{name: "wrapping", make: func() interfaces.Transactor { return &wrappingFakeTransactor{} }},
+}
+
 // inTxCtx matches a context that carries the sentinel set by
 // fakeTransactor — i.e. the call happened inside the transaction.
 var inTxCtx = gomock.Cond(func(x any) bool {
@@ -63,6 +112,7 @@ func TestDeleteSite_cascadeInOneTransaction(t *testing.T) {
 	svc := NewService(store, tx, nil)
 
 	gomock.InOrder(
+		store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, int64(11)).Return(nil),
 		store.EXPECT().UnassignRacksFromBuildingsBySite(inTxCtx, testOrgID, int64(11)).Return(int64(7), nil),
 		store.EXPECT().SoftDeleteBuildingsBySite(inTxCtx, testOrgID, int64(11)).Return(int64(2), nil),
 		store.EXPECT().UnassignRacksFromSite(inTxCtx, testOrgID, int64(11)).Return(int64(4), nil),
@@ -88,8 +138,11 @@ func TestDeleteSite_notFoundWhenSoftDeleteAffectsZeroRows(t *testing.T) {
 	tx := &fakeTransactor{}
 	svc := NewService(store, tx, nil)
 
-	// Cascade steps still run; the SoftDeleteSite at the end returns 0.
-	// All 5 calls happen inside RunInTx, so we assert with inTxCtx.
+	// LockSiteForWrite succeeds (row exists at start of tx) but the
+	// final SoftDeleteSite affects 0 rows because nothing matched the
+	// org filter (or the test is asserting the affects-zero defensive
+	// branch). All 6 calls happen inside RunInTx.
+	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, int64(99)).Return(nil)
 	store.EXPECT().UnassignRacksFromBuildingsBySite(inTxCtx, testOrgID, int64(99)).Return(int64(0), nil)
 	store.EXPECT().SoftDeleteBuildingsBySite(inTxCtx, testOrgID, int64(99)).Return(int64(0), nil)
 	store.EXPECT().UnassignRacksFromSite(inTxCtx, testOrgID, int64(99)).Return(int64(0), nil)
@@ -103,51 +156,56 @@ func TestDeleteSite_notFoundWhenSoftDeleteAffectsZeroRows(t *testing.T) {
 }
 
 func TestReassignDevicesToSite_rejectsCrossCollectionConflict(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	store := mocks.NewMockSiteStore(ctrl)
-	tx := &fakeTransactor{}
-	svc := NewService(store, tx, nil)
+	// Table-driven across both transactors: the production-shaped
+	// wrapping transactor pins Fix #1 (a sentinel error would get
+	// wrapped as Internal in prod, breaking the conflict path).
+	for _, tf := range transactorFactories {
+		t.Run(tf.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			store := mocks.NewMockSiteStore(ctrl)
+			tx := tf.make()
+			svc := NewService(store, tx, nil)
 
-	identifiers := []string{"d1", "d2"}
-	target := int64(20)
-	conflictingSite := int64(30)
+			identifiers := []string{"d1", "d2"}
+			target := int64(20)
+			conflictingSite := int64(30)
 
-	// All four store calls happen inside RunInTx; the TOCTOU fix moved
-	// the SiteBelongsToOrg check into the tx alongside the row lock.
-	store.EXPECT().LockDevicesForReassign(inTxCtx, testOrgID, identifiers).Return(nil)
-	store.EXPECT().SiteBelongsToOrg(inTxCtx, testOrgID, target).Return(true, nil)
-	store.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return(identifiers, nil)
-	store.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{
-		"d1": conflictingSite,
-	}, nil)
-	// No update call — entire batch rejected.
+			// All four store calls happen inside RunInTx; the TOCTOU fix moved
+			// the site-alive check into the tx alongside the row lock and
+			// switched SiteBelongsToOrg → LockSiteForWrite to defend against
+			// concurrent DeleteSite.
+			store.EXPECT().LockDevicesForReassign(inTxCtx, testOrgID, identifiers).Return(nil)
+			store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, target).Return(nil)
+			store.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return(identifiers, nil)
+			store.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{
+				"d1": conflictingSite,
+			}, nil)
+			// No update call — entire batch rejected.
 
-	count, conflicts, err := svc.ReassignDevicesToSite(context.Background(), models.ReassignDevicesToSiteParams{
-		OrgID:             testOrgID,
-		TargetSiteID:      &target,
-		DeviceIdentifiers: identifiers,
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if count != 0 {
-		t.Fatalf("expected zero rows on rejection, got %d", count)
-	}
-	if len(conflicts) != 1 {
-		t.Fatalf("expected one conflict, got %d", len(conflicts))
-	}
-	if conflicts[0].DeviceIdentifier != "d1" {
-		t.Fatalf("conflict on wrong device: %s", conflicts[0].DeviceIdentifier)
-	}
-	if conflicts[0].Reason != models.ReasonDeviceInRackAtOtherSite {
-		t.Fatalf("wrong reason: %v", conflicts[0].Reason)
-	}
-	if conflicts[0].ConflictingSiteID != conflictingSite {
-		t.Fatalf("wrong conflicting site: %d", conflicts[0].ConflictingSiteID)
-	}
-	// Tx still ran (lock + checks). Conflict path returns via sentinel error.
-	if tx.calls != 1 {
-		t.Fatalf("expected exactly one tx run, got %d", tx.calls)
+			count, conflicts, err := svc.ReassignDevicesToSite(context.Background(), models.ReassignDevicesToSiteParams{
+				OrgID:             testOrgID,
+				TargetSiteID:      &target,
+				DeviceIdentifiers: identifiers,
+			})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if count != 0 {
+				t.Fatalf("expected zero rows on rejection, got %d", count)
+			}
+			if len(conflicts) != 1 {
+				t.Fatalf("expected one conflict, got %d", len(conflicts))
+			}
+			if conflicts[0].DeviceIdentifier != "d1" {
+				t.Fatalf("conflict on wrong device: %s", conflicts[0].DeviceIdentifier)
+			}
+			if conflicts[0].Reason != models.ReasonDeviceInRackAtOtherSite {
+				t.Fatalf("wrong reason: %v", conflicts[0].Reason)
+			}
+			if conflicts[0].ConflictingSiteID != conflictingSite {
+				t.Fatalf("wrong conflicting site: %d", conflicts[0].ConflictingSiteID)
+			}
+		})
 	}
 }
 
@@ -162,7 +220,7 @@ func TestReassignDevicesToSite_reportsMissingDevices(t *testing.T) {
 
 	// Same in-tx set as the rejection path.
 	store.EXPECT().LockDevicesForReassign(inTxCtx, testOrgID, identifiers).Return(nil)
-	store.EXPECT().SiteBelongsToOrg(inTxCtx, testOrgID, target).Return(true, nil)
+	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, target).Return(nil)
 	store.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return([]string{"d1"}, nil)
 	store.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{}, nil)
 
@@ -193,7 +251,7 @@ func TestReassignDevicesToSite_writesOnSuccess(t *testing.T) {
 
 	// All five store calls fire inside RunInTx.
 	store.EXPECT().LockDevicesForReassign(inTxCtx, testOrgID, identifiers).Return(nil)
-	store.EXPECT().SiteBelongsToOrg(inTxCtx, testOrgID, target).Return(true, nil)
+	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, target).Return(nil)
 	store.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return(identifiers, nil)
 	store.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{}, nil)
 	store.EXPECT().ReassignDevicesToSite(inTxCtx, testOrgID, gomock.AssignableToTypeOf(ptrInt64(0)), identifiers).Return(int64(2), nil)
@@ -225,7 +283,7 @@ func TestReassignDevicesToSite_unassignedTargetSkipsBelongsCheck(t *testing.T) {
 
 	identifiers := []string{"d1"}
 
-	// Skip SiteBelongsToOrg when target == nil (Unassigned). The
+	// Skip LockSiteForWrite when target == nil (Unassigned). The
 	// remaining four calls all run inside the tx.
 	store.EXPECT().LockDevicesForReassign(inTxCtx, testOrgID, identifiers).Return(nil)
 	store.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return(identifiers, nil)
@@ -253,7 +311,7 @@ func TestReassignDevicesToSite_targetMatchesCurrentRackSiteIsNotAConflict(t *tes
 
 	// All five calls happen inside the tx.
 	store.EXPECT().LockDevicesForReassign(inTxCtx, testOrgID, identifiers).Return(nil)
-	store.EXPECT().SiteBelongsToOrg(inTxCtx, testOrgID, target).Return(true, nil)
+	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, target).Return(nil)
 	store.EXPECT().ListExistingDeviceIdentifiers(inTxCtx, testOrgID, identifiers).Return(identifiers, nil)
 	store.EXPECT().FindDeviceSiteConflicts(inTxCtx, testOrgID, identifiers).Return(map[string]int64{
 		"d1": target,
@@ -280,9 +338,10 @@ func TestAssignBuildingToSite_cascadeOnSuccess(t *testing.T) {
 	svc := NewService(store, tx, nil)
 
 	target := int64(20)
-	// SiteBelongsToOrg runs BEFORE RunInTx (precondition check); the
-	// remaining three writes live inside the tx and assert with inTxCtx.
-	store.EXPECT().SiteBelongsToOrg(gomock.Any(), testOrgID, target).Return(true, nil)
+	// The TOCTOU fix moved the site-alive check inside the tx and
+	// upgraded it to LockSiteForWrite so concurrent DeleteSite can't
+	// soft-delete the target between the check and the cascade writes.
+	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, target).Return(nil)
 	store.EXPECT().AssignBuildingToSite(inTxCtx, testOrgID, int64(50), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(1), nil)
 	store.EXPECT().ReassignRacksUnderBuilding(inTxCtx, testOrgID, int64(50), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(3), nil)
 	store.EXPECT().ReassignDevicesUnderBuilding(inTxCtx, testOrgID, int64(50), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(15), nil)
@@ -307,9 +366,8 @@ func TestAssignBuildingToSite_notFoundWhenBuildingMissing(t *testing.T) {
 	svc := NewService(store, tx, nil)
 
 	target := int64(20)
-	// Pre-tx precondition check uses gomock.Any(); the not-found path
-	// happens inside the tx so we use inTxCtx for the write call.
-	store.EXPECT().SiteBelongsToOrg(gomock.Any(), testOrgID, target).Return(true, nil)
+	// Both calls now live inside the tx after the TOCTOU fix.
+	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, target).Return(nil)
 	store.EXPECT().AssignBuildingToSite(inTxCtx, testOrgID, int64(50), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(0), nil)
 
 	_, err := svc.AssignBuildingToSite(context.Background(), models.AssignBuildingToSiteParams{

@@ -83,7 +83,7 @@ message BuildingWithCounts {
 // shape is allowed; unset = all buildings in the org.
 message ListBuildingsRequest {
     oneof site_filter {
-        int64 site_id = 1;
+        int64 site_id = 1 [(buf.validate.field).int64.gt = 0];
         bool  unassigned_only = 2;
     }
 }
@@ -95,8 +95,8 @@ message ListBuildingsResponse {
 // CreateBuilding
 
 message CreateBuildingRequest {
-    // Unset = create unassigned.
-    optional int64 site_id = 1;
+    // Unset = create unassigned. When present, must be > 0.
+    optional int64 site_id = 1 [(buf.validate.field).int64.gt = 0];
     string name = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
     string description = 3 [(buf.validate.field).string.max_len = 4096];
 
