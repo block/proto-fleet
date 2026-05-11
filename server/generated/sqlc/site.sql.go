@@ -346,6 +346,70 @@ func (q *Queries) ListSites(ctx context.Context, orgID int64) ([]ListSitesRow, e
 	return items, nil
 }
 
+const lockBuildingForWrite = `-- name: LockBuildingForWrite :one
+SELECT id FROM building
+WHERE id = $1
+  AND org_id = $2
+  AND deleted_at IS NULL
+FOR UPDATE
+`
+
+type LockBuildingForWriteParams struct {
+	ID    int64
+	OrgID int64
+}
+
+// Row-locks a specific building so concurrent mutations (DeleteSite,
+// AssignBuildingToSite, DeleteBuilding) serialize. Returns the building
+// id when alive; sql.ErrNoRows when soft-deleted or missing.
+func (q *Queries) LockBuildingForWrite(ctx context.Context, arg LockBuildingForWriteParams) (int64, error) {
+	row := q.queryRow(ctx, q.lockBuildingForWriteStmt, lockBuildingForWrite, arg.ID, arg.OrgID)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const lockBuildingsBySiteForWrite = `-- name: LockBuildingsBySiteForWrite :many
+SELECT id FROM building
+WHERE org_id = $1
+  AND site_id = $2
+  AND deleted_at IS NULL
+FOR UPDATE
+`
+
+type LockBuildingsBySiteForWriteParams struct {
+	OrgID  int64
+	SiteID sql.NullInt64
+}
+
+// Row-locks every live building under the given site so DeleteSite's
+// cascade can rewrite their racks without a concurrent
+// AssignBuildingToSite slipping a building out from under it. Returns
+// the locked ids (result is informational; the FOR UPDATE side-effect
+// is what matters).
+func (q *Queries) LockBuildingsBySiteForWrite(ctx context.Context, arg LockBuildingsBySiteForWriteParams) ([]int64, error) {
+	rows, err := q.query(ctx, q.lockBuildingsBySiteForWriteStmt, lockBuildingsBySiteForWrite, arg.OrgID, arg.SiteID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockDevicesForReassign = `-- name: LockDevicesForReassign :many
 SELECT id FROM device
 WHERE org_id = $1

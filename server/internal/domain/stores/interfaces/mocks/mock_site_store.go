@@ -146,6 +146,34 @@ func (mr *MockSiteStoreMockRecorder) ListSites(ctx, orgID any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListSites", reflect.TypeOf((*MockSiteStore)(nil).ListSites), ctx, orgID)
 }
 
+// LockBuildingForWrite mocks base method.
+func (m *MockSiteStore) LockBuildingForWrite(ctx context.Context, orgID, buildingID int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockBuildingForWrite", ctx, orgID, buildingID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// LockBuildingForWrite indicates an expected call of LockBuildingForWrite.
+func (mr *MockSiteStoreMockRecorder) LockBuildingForWrite(ctx, orgID, buildingID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockBuildingForWrite", reflect.TypeOf((*MockSiteStore)(nil).LockBuildingForWrite), ctx, orgID, buildingID)
+}
+
+// LockBuildingsBySiteForWrite mocks base method.
+func (m *MockSiteStore) LockBuildingsBySiteForWrite(ctx context.Context, orgID, siteID int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockBuildingsBySiteForWrite", ctx, orgID, siteID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// LockBuildingsBySiteForWrite indicates an expected call of LockBuildingsBySiteForWrite.
+func (mr *MockSiteStoreMockRecorder) LockBuildingsBySiteForWrite(ctx, orgID, siteID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockBuildingsBySiteForWrite", reflect.TypeOf((*MockSiteStore)(nil).LockBuildingsBySiteForWrite), ctx, orgID, siteID)
+}
+
 // LockDevicesForReassign mocks base method.
 func (m *MockSiteStore) LockDevicesForReassign(ctx context.Context, orgID int64, deviceIdentifiers []string) error {
 	m.ctrl.T.Helper()

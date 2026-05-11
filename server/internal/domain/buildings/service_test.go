@@ -92,7 +92,12 @@ func TestCreateBuilding_rejectsUnknownSiteID(t *testing.T) {
 	tx := &fakeTransactor{}
 	svc := NewService(store, siteStore, tx, nil)
 
-	siteStore.EXPECT().SiteBelongsToOrg(gomock.Any(), testOrgID, int64(123)).Return(false, nil)
+	// The race-fix wraps CreateBuilding in a tx and replaces the
+	// SiteBelongsToOrg pre-check with LockSiteForWrite. When the site is
+	// missing/already soft-deleted, LockSiteForWrite returns NotFound and
+	// the insert never runs.
+	siteStore.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, int64(123)).
+		Return(fleeterror.NewNotFoundErrorf("site %d not found", 123))
 
 	_, err := svc.CreateBuilding(context.Background(), models.CreateParams{
 		OrgID:                 testOrgID,
@@ -112,8 +117,9 @@ func TestCreateBuilding_unassignedSkipsSiteCheck(t *testing.T) {
 	tx := &fakeTransactor{}
 	svc := NewService(store, siteStore, tx, nil)
 
-	// SiteBelongsToOrg must not be invoked when SiteID is nil.
-	store.EXPECT().CreateBuilding(gomock.Any(), gomock.Any()).Return(&models.Building{ID: 1, Name: "Aisle-1"}, nil)
+	// LockSiteForWrite must not be invoked when SiteID is nil. The insert
+	// still runs inside the tx (inTxCtx asserts that).
+	store.EXPECT().CreateBuilding(inTxCtx, gomock.Any()).Return(&models.Building{ID: 1, Name: "Aisle-1"}, nil)
 
 	_, err := svc.CreateBuilding(context.Background(), models.CreateParams{
 		OrgID:                 testOrgID,
@@ -123,6 +129,40 @@ func TestCreateBuilding_unassignedSkipsSiteCheck(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if tx.calls != 1 {
+		t.Fatalf("expected one tx run, got %d", tx.calls)
+	}
+}
+
+func TestCreateBuilding_withSiteLocksAndPersists(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	store := mocks.NewMockBuildingStore(ctrl)
+	siteStore := mocks.NewMockSiteStore(ctrl)
+	tx := &fakeTransactor{}
+	svc := NewService(store, siteStore, tx, nil)
+
+	// Site→insert ordering inside the tx, both with inTxCtx.
+	gomock.InOrder(
+		siteStore.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, int64(42)).Return(nil),
+		store.EXPECT().CreateBuilding(inTxCtx, gomock.AssignableToTypeOf(models.CreateParams{})).
+			Return(&models.Building{ID: 9, Name: "Aisle-9", SiteID: ptrInt64(42)}, nil),
+	)
+
+	b, err := svc.CreateBuilding(context.Background(), models.CreateParams{
+		OrgID:                 testOrgID,
+		SiteID:                ptrInt64(42),
+		Name:                  "Aisle-9",
+		DefaultRackOrderIndex: models.RackOrderIndexBottomLeft,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if b == nil || b.ID != 9 {
+		t.Fatalf("unexpected building: %+v", b)
+	}
+	if tx.calls != 1 {
+		t.Fatalf("expected one tx run, got %d", tx.calls)
 	}
 }
 

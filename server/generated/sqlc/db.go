@@ -573,6 +573,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.lockAgentByIDStmt, err = db.PrepareContext(ctx, lockAgentByID); err != nil {
 		return nil, fmt.Errorf("error preparing query LockAgentByID: %w", err)
 	}
+	if q.lockBuildingForWriteStmt, err = db.PrepareContext(ctx, lockBuildingForWrite); err != nil {
+		return nil, fmt.Errorf("error preparing query LockBuildingForWrite: %w", err)
+	}
+	if q.lockBuildingsBySiteForWriteStmt, err = db.PrepareContext(ctx, lockBuildingsBySiteForWrite); err != nil {
+		return nil, fmt.Errorf("error preparing query LockBuildingsBySiteForWrite: %w", err)
+	}
 	if q.lockDevicesForReassignStmt, err = db.PrepareContext(ctx, lockDevicesForReassign); err != nil {
 		return nil, fmt.Errorf("error preparing query LockDevicesForReassign: %w", err)
 	}
@@ -1766,6 +1772,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockAgentByIDStmt: %w", cerr)
 		}
 	}
+	if q.lockBuildingForWriteStmt != nil {
+		if cerr := q.lockBuildingForWriteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockBuildingForWriteStmt: %w", cerr)
+		}
+	}
+	if q.lockBuildingsBySiteForWriteStmt != nil {
+		if cerr := q.lockBuildingsBySiteForWriteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockBuildingsBySiteForWriteStmt: %w", cerr)
+		}
+	}
 	if q.lockDevicesForReassignStmt != nil {
 		if cerr := q.lockDevicesForReassignStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockDevicesForReassignStmt: %w", cerr)
@@ -2443,6 +2459,8 @@ type Queries struct {
 	listSitesStmt                                       *sql.Stmt
 	listUsersForOrganizationStmt                        *sql.Stmt
 	lockAgentByIDStmt                                   *sql.Stmt
+	lockBuildingForWriteStmt                            *sql.Stmt
+	lockBuildingsBySiteForWriteStmt                     *sql.Stmt
 	lockDevicesForReassignStmt                          *sql.Stmt
 	lockSchedulePriorityStmt                            *sql.Stmt
 	lockSiteForWriteStmt                                *sql.Stmt
@@ -2723,6 +2741,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listSitesStmt:                                       q.listSitesStmt,
 		listUsersForOrganizationStmt:                        q.listUsersForOrganizationStmt,
 		lockAgentByIDStmt:                                   q.lockAgentByIDStmt,
+		lockBuildingForWriteStmt:                            q.lockBuildingForWriteStmt,
+		lockBuildingsBySiteForWriteStmt:                     q.lockBuildingsBySiteForWriteStmt,
 		lockDevicesForReassignStmt:                          q.lockDevicesForReassignStmt,
 		lockSchedulePriorityStmt:                            q.lockSchedulePriorityStmt,
 		lockSiteForWriteStmt:                                q.lockSiteForWriteStmt,

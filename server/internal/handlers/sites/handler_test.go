@@ -193,10 +193,12 @@ func TestHandler_DeleteSite_surfacesCascadeCounts(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler(t)
 
-	// Cascade: 6 store calls, all returning non-zero counts (the
-	// LockSiteForWrite at the top of the tx is part of the TOCTOU fix
-	// vs concurrent DeleteSite).
+	// Cascade: 7 store calls, all returning non-zero counts (the
+	// LockSiteForWrite + LockBuildingsBySiteForWrite at the top of the
+	// tx are part of the TOCTOU fix vs concurrent DeleteSite/
+	// AssignBuildingToSite).
 	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), int64(11)).Return(nil)
+	h.siteStore.EXPECT().LockBuildingsBySiteForWrite(gomock.Any(), int64(7), int64(11)).Return(nil)
 	h.siteStore.EXPECT().UnassignRacksFromBuildingsBySite(gomock.Any(), int64(7), int64(11)).Return(int64(0), nil)
 	h.siteStore.EXPECT().SoftDeleteBuildingsBySite(gomock.Any(), int64(7), int64(11)).Return(int64(2), nil)
 	h.siteStore.EXPECT().UnassignRacksFromSite(gomock.Any(), int64(7), int64(11)).Return(int64(4), nil)
@@ -268,6 +270,7 @@ func TestHandler_AssignBuildingToSite_surfacesCascadeCounts(t *testing.T) {
 	target := int64(20)
 
 	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), target).Return(nil)
+	h.siteStore.EXPECT().LockBuildingForWrite(gomock.Any(), int64(7), int64(50)).Return(nil)
 	h.siteStore.EXPECT().AssignBuildingToSite(gomock.Any(), int64(7), int64(50), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(1), nil)
 	h.siteStore.EXPECT().ReassignRacksUnderBuilding(gomock.Any(), int64(7), int64(50), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(3), nil)
 	h.siteStore.EXPECT().ReassignDevicesUnderBuilding(gomock.Any(), int64(7), int64(50), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(15), nil)
@@ -285,8 +288,10 @@ func TestHandler_AssignBuildingToSite_targetUnsetCascadesToUnassigned(t *testing
 	t.Parallel()
 	h := newTestHandler(t)
 
-	// target_site_id unset → service skips SiteBelongsToOrg and passes
-	// a nil targetSiteID through the cascade.
+	// target_site_id unset → service skips LockSiteForWrite (no target
+	// site to lock) but still locks the building before the cascade,
+	// then passes a nil targetSiteID through.
+	h.siteStore.EXPECT().LockBuildingForWrite(gomock.Any(), int64(7), int64(50)).Return(nil)
 	h.siteStore.EXPECT().AssignBuildingToSite(gomock.Any(), int64(7), int64(50), gomock.Nil()).Return(int64(1), nil)
 	h.siteStore.EXPECT().ReassignRacksUnderBuilding(gomock.Any(), int64(7), int64(50), gomock.Nil()).Return(int64(0), nil)
 	h.siteStore.EXPECT().ReassignDevicesUnderBuilding(gomock.Any(), int64(7), int64(50), gomock.Nil()).Return(int64(0), nil)

@@ -176,6 +176,28 @@ func (s *SQLSiteStore) LockSiteForWrite(ctx context.Context, orgID, siteID int64
 	return nil
 }
 
+func (s *SQLSiteStore) LockBuildingForWrite(ctx context.Context, orgID, buildingID int64) error {
+	if _, err := s.GetQueries(ctx).LockBuildingForWrite(ctx, sqlc.LockBuildingForWriteParams{ID: buildingID, OrgID: orgID}); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fleeterror.NewNotFoundErrorf("building %d not found", buildingID)
+		}
+		return fleeterror.NewInternalErrorf("failed to lock building for write: %v", err)
+	}
+	return nil
+}
+
+func (s *SQLSiteStore) LockBuildingsBySiteForWrite(ctx context.Context, orgID, siteID int64) error {
+	// Empty result is not an error — no live building under the site means
+	// no row to lock and no conflict to serialize against.
+	if _, err := s.GetQueries(ctx).LockBuildingsBySiteForWrite(ctx, sqlc.LockBuildingsBySiteForWriteParams{
+		OrgID:  orgID,
+		SiteID: zeroToNullInt64(siteID),
+	}); err != nil {
+		return fleeterror.NewInternalErrorf("failed to lock buildings by site for write: %v", err)
+	}
+	return nil
+}
+
 func (s *SQLSiteStore) LockDevicesForReassign(ctx context.Context, orgID int64, deviceIdentifiers []string) error {
 	if _, err := s.GetQueries(ctx).LockDevicesForReassign(ctx, sqlc.LockDevicesForReassignParams{
 		OrgID:             orgID,

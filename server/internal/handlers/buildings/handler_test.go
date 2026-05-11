@@ -188,8 +188,12 @@ func TestHandler_CreateBuilding_rejectsUnknownSite(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler(t)
 
-	// Site existence is checked pre-create; here we return false.
-	h.siteStore.EXPECT().SiteBelongsToOrg(gomock.Any(), int64(7), int64(123)).Return(false, nil)
+	// Site existence is now checked via LockSiteForWrite inside the tx so
+	// a concurrent DeleteSite can't soft-delete the parent between the
+	// check and the insert. The lock returns NotFound when the site is
+	// missing/already soft-deleted.
+	h.siteStore.EXPECT().LockSiteForWrite(gomock.Any(), int64(7), int64(123)).
+		Return(fleeterror.NewNotFoundErrorf("site %d not found", 123))
 
 	siteID := int64(123)
 	_, err := h.handler.CreateBuilding(adminCtx(t, 7), connect.NewRequest(&pb.CreateBuildingRequest{

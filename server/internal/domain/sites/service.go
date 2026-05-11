@@ -190,6 +190,13 @@ func (s *Service) DeleteSite(ctx context.Context, orgID, id int64) (*models.Dele
 		if err := s.store.LockSiteForWrite(txCtx, orgID, id); err != nil {
 			return err
 		}
+		// 0b. Lock every live building under this site so a concurrent
+		// AssignBuildingToSite can't move one out from under the
+		// rack-clear step below. Site-first-then-buildings lock order
+		// matches AssignBuildingToSite to avoid deadlock.
+		if err := s.store.LockBuildingsBySiteForWrite(txCtx, orgID, id); err != nil {
+			return err
+		}
 		// 1. Clear rack→building linkage + zone for racks under any
 		// building of this site, BEFORE the buildings disappear.
 		if _, err := s.store.UnassignRacksFromBuildingsBySite(txCtx, orgID, id); err != nil {
@@ -348,10 +355,18 @@ func (s *Service) AssignBuildingToSite(ctx context.Context, params models.Assign
 		// Lock target site (if any) inside the tx so a concurrent
 		// DeleteSite can't soft-delete it between the check and the
 		// cascade writes. target=nil/0 (Unassigned) needs no lock.
+		// Site-first-then-building lock order matches DeleteSite to
+		// avoid deadlock.
 		if params.TargetSiteID != nil && *params.TargetSiteID > 0 {
 			if err := s.store.LockSiteForWrite(txCtx, params.OrgID, *params.TargetSiteID); err != nil {
 				return err
 			}
+		}
+		// Lock the building so a concurrent DeleteSite that owns the
+		// source site can't clear this building's racks while we
+		// reassign them. Same site→building lock order DeleteSite uses.
+		if err := s.store.LockBuildingForWrite(txCtx, params.OrgID, params.BuildingID); err != nil {
+			return err
 		}
 		rowsAffected, err := s.store.AssignBuildingToSite(txCtx, params.OrgID, params.BuildingID, params.TargetSiteID)
 		if err != nil {

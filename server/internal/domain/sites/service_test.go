@@ -113,6 +113,11 @@ func TestDeleteSite_cascadeInOneTransaction(t *testing.T) {
 
 	gomock.InOrder(
 		store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, int64(11)).Return(nil),
+		// Lock every building under the site after the site lock — site→
+		// building lock order matches AssignBuildingToSite to prevent
+		// deadlock and to keep a concurrent move from slipping a building
+		// out of the cascade.
+		store.EXPECT().LockBuildingsBySiteForWrite(inTxCtx, testOrgID, int64(11)).Return(nil),
 		store.EXPECT().UnassignRacksFromBuildingsBySite(inTxCtx, testOrgID, int64(11)).Return(int64(7), nil),
 		store.EXPECT().SoftDeleteBuildingsBySite(inTxCtx, testOrgID, int64(11)).Return(int64(2), nil),
 		store.EXPECT().UnassignRacksFromSite(inTxCtx, testOrgID, int64(11)).Return(int64(4), nil),
@@ -141,8 +146,9 @@ func TestDeleteSite_notFoundWhenSoftDeleteAffectsZeroRows(t *testing.T) {
 	// LockSiteForWrite succeeds (row exists at start of tx) but the
 	// final SoftDeleteSite affects 0 rows because nothing matched the
 	// org filter (or the test is asserting the affects-zero defensive
-	// branch). All 6 calls happen inside RunInTx.
+	// branch). All 7 calls happen inside RunInTx.
 	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, int64(99)).Return(nil)
+	store.EXPECT().LockBuildingsBySiteForWrite(inTxCtx, testOrgID, int64(99)).Return(nil)
 	store.EXPECT().UnassignRacksFromBuildingsBySite(inTxCtx, testOrgID, int64(99)).Return(int64(0), nil)
 	store.EXPECT().SoftDeleteBuildingsBySite(inTxCtx, testOrgID, int64(99)).Return(int64(0), nil)
 	store.EXPECT().UnassignRacksFromSite(inTxCtx, testOrgID, int64(99)).Return(int64(0), nil)
@@ -341,7 +347,10 @@ func TestAssignBuildingToSite_cascadeOnSuccess(t *testing.T) {
 	// The TOCTOU fix moved the site-alive check inside the tx and
 	// upgraded it to LockSiteForWrite so concurrent DeleteSite can't
 	// soft-delete the target between the check and the cascade writes.
+	// LockBuildingForWrite serializes against DeleteSite's
+	// LockBuildingsBySiteForWrite for the source-site race.
 	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, target).Return(nil)
+	store.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, int64(50)).Return(nil)
 	store.EXPECT().AssignBuildingToSite(inTxCtx, testOrgID, int64(50), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(1), nil)
 	store.EXPECT().ReassignRacksUnderBuilding(inTxCtx, testOrgID, int64(50), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(3), nil)
 	store.EXPECT().ReassignDevicesUnderBuilding(inTxCtx, testOrgID, int64(50), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(15), nil)
@@ -366,9 +375,13 @@ func TestAssignBuildingToSite_notFoundWhenBuildingMissing(t *testing.T) {
 	svc := NewService(store, tx, nil)
 
 	target := int64(20)
-	// Both calls now live inside the tx after the TOCTOU fix.
+	// Both calls now live inside the tx after the TOCTOU fix. With the
+	// site→building lock order in place, LockBuildingForWrite is the
+	// gate that returns NotFound when the building is missing — no
+	// AssignBuildingToSite call should follow.
 	store.EXPECT().LockSiteForWrite(inTxCtx, testOrgID, target).Return(nil)
-	store.EXPECT().AssignBuildingToSite(inTxCtx, testOrgID, int64(50), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(0), nil)
+	store.EXPECT().LockBuildingForWrite(inTxCtx, testOrgID, int64(50)).
+		Return(fleeterror.NewNotFoundErrorf("building %d not found", 50))
 
 	_, err := svc.AssignBuildingToSite(context.Background(), models.AssignBuildingToSiteParams{
 		OrgID:        testOrgID,

@@ -65,6 +65,16 @@ type SiteStore interface {
 	// avoid a TOCTOU vs concurrent DeleteSite.
 	LockSiteForWrite(ctx context.Context, orgID, siteID int64) error
 
+	// LockBuildingForWrite row-locks the building for the duration of the
+	// surrounding transaction. Returns NotFound when the building is
+	// already soft-deleted.
+	LockBuildingForWrite(ctx context.Context, orgID, buildingID int64) error
+
+	// LockBuildingsBySiteForWrite row-locks every live building under
+	// the given site so DeleteSite's cascade serializes against any
+	// concurrent AssignBuildingToSite touching one of those buildings.
+	LockBuildingsBySiteForWrite(ctx context.Context, orgID, siteID int64) error
+
 	// LockDevicesForReassign takes a row-lock on every matching live
 	// device for the duration of the surrounding transaction so the
 	// conflict check + UPDATE in ReassignDevicesToSite are atomic

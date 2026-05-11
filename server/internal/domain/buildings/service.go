@@ -85,20 +85,32 @@ func (s *Service) CreateBuilding(ctx context.Context, params models.CreateParams
 	if !params.DefaultRackOrderIndex.Valid() {
 		return nil, fleeterror.NewInvalidArgumentError("invalid default_rack_order_index")
 	}
-	if params.SiteID != nil && *params.SiteID > 0 {
-		belongs, err := s.siteStore.SiteBelongsToOrg(ctx, params.OrgID, *params.SiteID)
+
+	var b *models.Building
+	err := s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
+		// Lock the parent site row when specified so a concurrent
+		// DeleteSite can't soft-delete it between the live-site check
+		// and the building insert. LockSiteForWrite returns NotFound
+		// when the site is missing/already soft-deleted, which we
+		// surface directly.
+		if params.SiteID != nil && *params.SiteID > 0 {
+			if err := s.siteStore.LockSiteForWrite(txCtx, params.OrgID, *params.SiteID); err != nil {
+				return err
+			}
+		}
+		created, err := s.store.CreateBuilding(txCtx, params)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		if !belongs {
-			return nil, fleeterror.NewNotFoundErrorf("site %d not found", *params.SiteID)
-		}
-	}
-	b, err := s.store.CreateBuilding(ctx, params)
+		b = created
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
 
+	// Activity log fires AFTER tx commits — RunInTx may retry the closure
+	// on serialization failures, so an in-closure Log would duplicate.
 	orgID := params.OrgID
 	event := activitymodels.Event{
 		Category:       activitymodels.CategoryFleetManagement,

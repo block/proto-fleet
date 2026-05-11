@@ -151,6 +151,28 @@ WHERE id = sqlc.arg('id')
   AND deleted_at IS NULL
 FOR UPDATE;
 
+-- name: LockBuildingForWrite :one
+-- Row-locks a specific building so concurrent mutations (DeleteSite,
+-- AssignBuildingToSite, DeleteBuilding) serialize. Returns the building
+-- id when alive; sql.ErrNoRows when soft-deleted or missing.
+SELECT id FROM building
+WHERE id = sqlc.arg('id')
+  AND org_id = sqlc.arg('org_id')
+  AND deleted_at IS NULL
+FOR UPDATE;
+
+-- name: LockBuildingsBySiteForWrite :many
+-- Row-locks every live building under the given site so DeleteSite's
+-- cascade can rewrite their racks without a concurrent
+-- AssignBuildingToSite slipping a building out from under it. Returns
+-- the locked ids (result is informational; the FOR UPDATE side-effect
+-- is what matters).
+SELECT id FROM building
+WHERE org_id = sqlc.arg('org_id')
+  AND site_id = sqlc.arg('site_id')
+  AND deleted_at IS NULL
+FOR UPDATE;
+
 -- name: ReassignDevicesToSite :execrows
 -- Bulk update of device.site_id for the given identifiers within the
 -- org. Caller is expected to have already validated that no device is
