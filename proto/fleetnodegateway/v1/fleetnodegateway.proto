@@ -1,16 +1,16 @@
 syntax = "proto3";
 
-// Wire protocol between an on-prem fleet-agent and a cloud fleetd --mode=server.
-// All streams are agent-initiated; post-handshake RPCs carry the session token
+// Wire protocol between an on-prem fleet node and a cloud fleetd --mode=server.
+// All streams are node-initiated; post-handshake RPCs carry the session token
 // in `Authorization: Bearer <session_token>` metadata, and server handlers
-// derive the effective agent identity from that token rather than any body
-// field. See docs/rfcs/0001-agent-server-split.md.
-package agentgateway.v1;
+// derive the effective fleet-node identity from that token rather than any
+// body field. See docs/rfcs/0001-agent-server-split.md.
+package fleetnodegateway.v1;
 
 import "buf/validate/validate.proto";
 import "google/protobuf/timestamp.proto";
 
-service AgentGatewayService {
+service FleetNodeGatewayService {
     rpc Register(RegisterRequest) returns (RegisterResponse);
     rpc BeginAuthHandshake(BeginAuthHandshakeRequest) returns (BeginAuthHandshakeResponse);
     rpc CompleteAuthHandshake(CompleteAuthHandshakeRequest) returns (CompleteAuthHandshakeResponse);
@@ -28,7 +28,7 @@ enum EnrollmentStatus {
 }
 
 message RegisterRequest {
-    // Single-use, org-scoped token issued by an operator; pins the agent's tenant.
+    // Single-use, org-scoped token issued by an operator; pins the fleet node's tenant.
     string enrollment_token     = 1 [(buf.validate.field).string = {min_len: 20, max_len: 512}];
     string name                 = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
     bytes  identity_pubkey      = 3 [(buf.validate.field).bytes.len = 32];
@@ -36,7 +36,7 @@ message RegisterRequest {
 }
 
 message RegisterResponse {
-    int64 agent_id = 1;
+    int64 fleet_node_id = 1;
     EnrollmentStatus enrollment_status = 2;
     string identity_fingerprint = 3;
 }

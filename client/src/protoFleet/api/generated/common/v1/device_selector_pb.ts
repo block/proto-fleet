@@ -9,11 +9,8 @@ import type { Message } from "@bufbuild/protobuf";
 /**
  * Describes the file common/v1/device_selector.proto.
  */
-export const file_common_v1_device_selector: GenFile =
-  /*@__PURE__*/
-  fileDesc(
-    "Ch9jb21tb24vdjEvZGV2aWNlX3NlbGVjdG9yLnByb3RvEgljb21tb24udjEicQoORGV2aWNlU2VsZWN0b3ISNgoLZGV2aWNlX2xpc3QYASABKAsyHy5jb21tb24udjEuRGV2aWNlSWRlbnRpZmllckxpc3RIABIVCgthbGxfZGV2aWNlcxgCIAEoCEgAQhAKDnNlbGVjdGlvbl90eXBlIjIKFERldmljZUlkZW50aWZpZXJMaXN0EhoKEmRldmljZV9pZGVudGlmaWVycxgBIAMoCUKwAQoNY29tLmNvbW1vbi52MUITRGV2aWNlU2VsZWN0b3JQcm90b1ABWkVnaXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9jb21tb24vdjE7Y29tbW9udjGiAgNDWFiqAglDb21tb24uVjHKAglDb21tb25cVjHiAhVDb21tb25cVjFcR1BCTWV0YWRhdGHqAgpDb21tb246OlYxYgZwcm90bzM",
-  );
+export const file_common_v1_device_selector: GenFile = /*@__PURE__*/
+  fileDesc("Ch9jb21tb24vdjEvZGV2aWNlX3NlbGVjdG9yLnByb3RvEgljb21tb24udjEicQoORGV2aWNlU2VsZWN0b3ISNgoLZGV2aWNlX2xpc3QYASABKAsyHy5jb21tb24udjEuRGV2aWNlSWRlbnRpZmllckxpc3RIABIVCgthbGxfZGV2aWNlcxgCIAEoCEgAQhAKDnNlbGVjdGlvbl90eXBlIjIKFERldmljZUlkZW50aWZpZXJMaXN0EhoKEmRldmljZV9pZGVudGlmaWVycxgBIAMoCUKwAQoNY29tLmNvbW1vbi52MUITRGV2aWNlU2VsZWN0b3JQcm90b1ABWkVnaXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9jb21tb24vdjE7Y29tbW9udjGiAgNDWFiqAglDb21tb24uVjHKAglDb21tb25cVjHiAhVDb21tb25cVjFcR1BCTWV0YWRhdGHqAgpDb21tb246OlYxYgZwcm90bzM");
 
 /**
  * Selects devices for cross-service operations.
@@ -26,34 +23,30 @@ export type DeviceSelector = Message<"common.v1.DeviceSelector"> & {
   /**
    * @generated from oneof common.v1.DeviceSelector.selection_type
    */
-  selectionType:
-    | {
-        /**
-         * Select specific devices by their identifiers
-         *
-         * @generated from field: common.v1.DeviceIdentifierList device_list = 1;
-         */
-        value: DeviceIdentifierList;
-        case: "deviceList";
-      }
-    | {
-        /**
-         * Select all paired devices in the organization
-         *
-         * @generated from field: bool all_devices = 2;
-         */
-        value: boolean;
-        case: "allDevices";
-      }
-    | { case: undefined; value?: undefined };
+  selectionType: {
+    /**
+     * Select specific devices by their identifiers
+     *
+     * @generated from field: common.v1.DeviceIdentifierList device_list = 1;
+     */
+    value: DeviceIdentifierList;
+    case: "deviceList";
+  } | {
+    /**
+     * Select all paired devices in the organization
+     *
+     * @generated from field: bool all_devices = 2;
+     */
+    value: boolean;
+    case: "allDevices";
+  } | { case: undefined; value?: undefined };
 };
 
 /**
  * Describes the message common.v1.DeviceSelector.
  * Use `create(DeviceSelectorSchema)` to create a new message.
  */
-export const DeviceSelectorSchema: GenMessage<DeviceSelector> =
-  /*@__PURE__*/
+export const DeviceSelectorSchema: GenMessage<DeviceSelector> = /*@__PURE__*/
   messageDesc(file_common_v1_device_selector, 0);
 
 /**
@@ -72,6 +65,6 @@ export type DeviceIdentifierList = Message<"common.v1.DeviceIdentifierList"> & {
  * Describes the message common.v1.DeviceIdentifierList.
  * Use `create(DeviceIdentifierListSchema)` to create a new message.
  */
-export const DeviceIdentifierListSchema: GenMessage<DeviceIdentifierList> =
-  /*@__PURE__*/
+export const DeviceIdentifierListSchema: GenMessage<DeviceIdentifierList> = /*@__PURE__*/
   messageDesc(file_common_v1_device_selector, 1);
+

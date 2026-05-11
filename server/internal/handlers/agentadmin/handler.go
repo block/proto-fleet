@@ -6,8 +6,8 @@ import (
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	pb "github.com/block/proto-fleet/server/generated/grpc/agentadmin/v1"
-	"github.com/block/proto-fleet/server/generated/grpc/agentadmin/v1/agentadminv1connect"
+	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1"
+	"github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1/fleetnodeadminv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/agentenrollment"
 	domainAuth "github.com/block/proto-fleet/server/internal/domain/auth"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -15,12 +15,12 @@ import (
 )
 
 type Handler struct {
-	agentadminv1connect.UnimplementedAgentAdminServiceHandler
+	fleetnodeadminv1connect.UnimplementedFleetNodeAdminServiceHandler
 
 	enrollment *agentenrollment.Service
 }
 
-var _ agentadminv1connect.AgentAdminServiceHandler = &Handler{}
+var _ fleetnodeadminv1connect.FleetNodeAdminServiceHandler = &Handler{}
 
 func NewHandler(enrollment *agentenrollment.Service) *Handler {
 	return &Handler{enrollment: enrollment}
@@ -41,7 +41,7 @@ func (h *Handler) CreateEnrollmentCode(ctx context.Context, _ *connect.Request[p
 	}), nil
 }
 
-func (h *Handler) ListAgents(ctx context.Context, _ *connect.Request[pb.ListAgentsRequest]) (*connect.Response[pb.ListAgentsResponse], error) {
+func (h *Handler) ListFleetNodes(ctx context.Context, _ *connect.Request[pb.ListFleetNodesRequest]) (*connect.Response[pb.ListFleetNodesResponse], error) {
 	info, err := h.requireAdminSession(ctx)
 	if err != nil {
 		return nil, err
@@ -50,10 +50,10 @@ func (h *Handler) ListAgents(ctx context.Context, _ *connect.Request[pb.ListAgen
 	if err != nil {
 		return nil, err
 	}
-	resp := &pb.ListAgentsResponse{Agents: make([]*pb.AgentSummary, 0, len(agents))}
+	resp := &pb.ListFleetNodesResponse{FleetNodes: make([]*pb.FleetNodeSummary, 0, len(agents))}
 	for _, a := range agents {
-		summary := &pb.AgentSummary{
-			AgentId:             a.ID,
+		summary := &pb.FleetNodeSummary{
+			FleetNodeId:         a.ID,
 			Name:                a.Name,
 			EnrollmentStatus:    deriveDisplayStatus(a),
 			IdentityFingerprint: agentenrollment.IdentityFingerprint(a.IdentityPubkey),
@@ -62,36 +62,36 @@ func (h *Handler) ListAgents(ctx context.Context, _ *connect.Request[pb.ListAgen
 		if a.LastSeenAt != nil {
 			summary.LastSeenAt = timestamppb.New(*a.LastSeenAt)
 		}
-		resp.Agents = append(resp.Agents, summary)
+		resp.FleetNodes = append(resp.FleetNodes, summary)
 	}
 	return connect.NewResponse(resp), nil
 }
 
-func (h *Handler) ConfirmAgent(ctx context.Context, req *connect.Request[pb.ConfirmAgentRequest]) (*connect.Response[pb.ConfirmAgentResponse], error) {
+func (h *Handler) ConfirmFleetNode(ctx context.Context, req *connect.Request[pb.ConfirmFleetNodeRequest]) (*connect.Response[pb.ConfirmFleetNodeResponse], error) {
 	info, err := h.requireAdminSession(ctx)
 	if err != nil {
 		return nil, err
 	}
-	apiKey, expiresAt, err := h.enrollment.Confirm(ctx, req.Msg.GetAgentId(), info.OrganizationID)
+	apiKey, expiresAt, err := h.enrollment.Confirm(ctx, req.Msg.GetFleetNodeId(), info.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
-	resp := &pb.ConfirmAgentResponse{ApiKey: apiKey}
+	resp := &pb.ConfirmFleetNodeResponse{ApiKey: apiKey}
 	if !expiresAt.IsZero() {
 		resp.ExpiresAt = timestamppb.New(expiresAt)
 	}
 	return connect.NewResponse(resp), nil
 }
 
-func (h *Handler) RevokeAgent(ctx context.Context, req *connect.Request[pb.RevokeAgentRequest]) (*connect.Response[pb.RevokeAgentResponse], error) {
+func (h *Handler) RevokeFleetNode(ctx context.Context, req *connect.Request[pb.RevokeFleetNodeRequest]) (*connect.Response[pb.RevokeFleetNodeResponse], error) {
 	info, err := h.requireAdminSession(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if err := h.enrollment.RevokeAgent(ctx, req.Msg.GetAgentId(), info.OrganizationID); err != nil {
+	if err := h.enrollment.RevokeAgent(ctx, req.Msg.GetFleetNodeId(), info.OrganizationID); err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(&pb.RevokeAgentResponse{}), nil
+	return connect.NewResponse(&pb.RevokeFleetNodeResponse{}), nil
 }
 
 func (h *Handler) requireAdminSession(ctx context.Context) (*session.Info, error) {
@@ -107,17 +107,17 @@ func (h *Handler) requireAdminSession(ctx context.Context) (*session.Info, error
 
 // AWAITING_CONFIRMATION lives only on pending_enrollment, so a PENDING agent
 // whose pending row is AWAITING_CONFIRMATION surfaces as such instead.
-func deriveDisplayStatus(a agentenrollment.AgentListing) pb.AgentEnrollmentStatus {
+func deriveDisplayStatus(a agentenrollment.AgentListing) pb.FleetNodeEnrollmentStatus {
 	switch a.EnrollmentStatus {
 	case agentenrollment.AgentStatusPending:
 		if a.PendingEnrollmentStatus == agentenrollment.StatusAwaitingConfirmation {
-			return pb.AgentEnrollmentStatus_AGENT_ENROLLMENT_STATUS_AWAITING_CONFIRMATION
+			return pb.FleetNodeEnrollmentStatus_FLEET_NODE_ENROLLMENT_STATUS_AWAITING_CONFIRMATION
 		}
-		return pb.AgentEnrollmentStatus_AGENT_ENROLLMENT_STATUS_PENDING
+		return pb.FleetNodeEnrollmentStatus_FLEET_NODE_ENROLLMENT_STATUS_PENDING
 	case agentenrollment.AgentStatusConfirmed:
-		return pb.AgentEnrollmentStatus_AGENT_ENROLLMENT_STATUS_CONFIRMED
+		return pb.FleetNodeEnrollmentStatus_FLEET_NODE_ENROLLMENT_STATUS_CONFIRMED
 	case agentenrollment.AgentStatusRevoked:
-		return pb.AgentEnrollmentStatus_AGENT_ENROLLMENT_STATUS_REVOKED
+		return pb.FleetNodeEnrollmentStatus_FLEET_NODE_ENROLLMENT_STATUS_REVOKED
 	}
-	return pb.AgentEnrollmentStatus_AGENT_ENROLLMENT_STATUS_UNSPECIFIED
+	return pb.FleetNodeEnrollmentStatus_FLEET_NODE_ENROLLMENT_STATUS_UNSPECIFIED
 }

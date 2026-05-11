@@ -6,20 +6,20 @@ import (
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	pb "github.com/block/proto-fleet/server/generated/grpc/agentgateway/v1"
-	"github.com/block/proto-fleet/server/generated/grpc/agentgateway/v1/agentgatewayv1connect"
+	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/agentauth"
 	"github.com/block/proto-fleet/server/internal/domain/agentenrollment"
 )
 
 type Handler struct {
-	agentgatewayv1connect.UnimplementedAgentGatewayServiceHandler
+	fleetnodegatewayv1connect.UnimplementedFleetNodeGatewayServiceHandler
 
 	enrollment *agentenrollment.Service
 	auth       *agentauth.Service
 }
 
-var _ agentgatewayv1connect.AgentGatewayServiceHandler = &Handler{}
+var _ fleetnodegatewayv1connect.FleetNodeGatewayServiceHandler = &Handler{}
 
 func NewHandler(enrollment *agentenrollment.Service, auth *agentauth.Service) *Handler {
 	return &Handler{enrollment: enrollment, auth: auth}
@@ -31,7 +31,7 @@ func (h *Handler) Register(ctx context.Context, req *connect.Request[pb.Register
 		return nil, err
 	}
 	return connect.NewResponse(&pb.RegisterResponse{
-		AgentId:             agent.ID,
+		FleetNodeId:         agent.ID,
 		EnrollmentStatus:    pb.EnrollmentStatus_ENROLLMENT_STATUS_PENDING,
 		IdentityFingerprint: agentenrollment.IdentityFingerprint(agent.IdentityPubkey),
 	}), nil

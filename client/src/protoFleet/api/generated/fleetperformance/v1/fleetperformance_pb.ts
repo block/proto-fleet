@@ -13,12 +13,8 @@ import type { Message } from "@bufbuild/protobuf";
 /**
  * Describes the file fleetperformance/v1/fleetperformance.proto.
  */
-export const file_fleetperformance_v1_fleetperformance: GenFile =
-  /*@__PURE__*/
-  fileDesc(
-    "CipmbGVldHBlcmZvcm1hbmNlL3YxL2ZsZWV0cGVyZm9ybWFuY2UucHJvdG8SE2ZsZWV0cGVyZm9ybWFuY2UudjEiHAoaR2V0RmxlZXRQZXJmb3JtYW5jZVJlcXVlc3QiXwobR2V0RmxlZXRQZXJmb3JtYW5jZVJlc3BvbnNlEkAKEWZsZWV0X3BlcmZvcm1hbmNlGAEgASgLMiUuZmxlZXRwZXJmb3JtYW5jZS52MS5GbGVldFBlcmZvcm1hbmNlIrcCChBGbGVldFBlcmZvcm1hbmNlEjQKCG92ZXJ2aWV3GAEgASgLMiIuZmxlZXRwZXJmb3JtYW5jZS52MS5GbGVldE92ZXJ2aWV3EjkKCGhhc2hyYXRlGAIgASgLMicuZmxlZXRwZXJmb3JtYW5jZS52MS5QZXJmb3JtYW5jZU1ldHJpY3MSOwoKZWZmaWNpZW5jeRgDIAEoCzInLmZsZWV0cGVyZm9ybWFuY2UudjEuUGVyZm9ybWFuY2VNZXRyaWNzEjwKC3Bvd2VyX3VzYWdlGAQgASgLMicuZmxlZXRwZXJmb3JtYW5jZS52MS5QZXJmb3JtYW5jZU1ldHJpY3MSNwoGdXB0aW1lGAUgASgLMicuZmxlZXRwZXJmb3JtYW5jZS52MS5QZXJmb3JtYW5jZU1ldHJpY3MiUQoNRmxlZXRPdmVydmlldxIPCgdvZmZsaW5lGAEgASgFEhAKCGluYWN0aXZlGAIgASgFEg4KBmFjdGl2ZRgDIAEoBRINCgV0b3RhbBgEIAEoBSJkChJQZXJmb3JtYW5jZU1ldHJpY3MSKAoFc3RhdHMYASADKAsyGS5mbGVldHBlcmZvcm1hbmNlLnYxLlN0YXQSJAoEZGF0YRgCIAMoCzIWLmNvbW1vbi52MS5NZWFzdXJlbWVudCKDAQoEU3RhdBINCgVsYWJlbBgBIAEoCRIZCg9mb3JtYXR0ZWRfdmFsdWUYAiABKAlIABIzChFtZWFzdXJlbWVudF92YWx1ZRgDIAEoCzIWLmNvbW1vbi52MS5NZWFzdXJlbWVudEgAEhMKC2Rlc2NyaXB0aW9uGAQgASgJQgcKBXZhbHVlIkAKGlN0cmVhbUZsZWV0T3ZlcnZpZXdSZXF1ZXN0EiIKGmhlYXJ0YmVhdF9pbnRlcnZhbF9zZWNvbmRzGAEgASgFIskBChtTdHJlYW1GbGVldE92ZXJ2aWV3UmVzcG9uc2USLQoJdGltZXN0YW1wGAEgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBI8CghvdmVydmlldxgCIAEoCzIoLmZsZWV0cGVyZm9ybWFuY2UudjEuRmxlZXRPdmVydmlld1VwZGF0ZUgAEjMKCWhlYXJ0YmVhdBgDIAEoCzIeLmZsZWV0cGVyZm9ybWFuY2UudjEuSGVhcnRiZWF0SABCCAoGdXBkYXRlIksKE0ZsZWV0T3ZlcnZpZXdVcGRhdGUSNAoIb3ZlcnZpZXcYASABKAsyIi5mbGVldHBlcmZvcm1hbmNlLnYxLkZsZWV0T3ZlcnZpZXcivAEKH1N0cmVhbVBlcmZvcm1hbmNlTWV0cmljc1JlcXVlc3QSQAoMbWV0cmljX3R5cGVzGAEgAygOMiouZmxlZXRwZXJmb3JtYW5jZS52MS5QZXJmb3JtYW5jZU1ldHJpY1R5cGUSFQoNaW5jbHVkZV9zdGF0cxgCIAEoCBIcChRpbmNsdWRlX21lYXN1cmVtZW50cxgDIAEoCBIiChpoZWFydGJlYXRfaW50ZXJ2YWxfc2Vjb25kcxgEIAEoBSLQAQogU3RyZWFtUGVyZm9ybWFuY2VNZXRyaWNzUmVzcG9uc2USLQoJdGltZXN0YW1wGAEgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBI+CgZtZXRyaWMYAiABKAsyLC5mbGVldHBlcmZvcm1hbmNlLnYxLlBlcmZvcm1hbmNlTWV0cmljVXBkYXRlSAASMwoJaGVhcnRiZWF0GAMgASgLMh4uZmxlZXRwZXJmb3JtYW5jZS52MS5IZWFydGJlYXRIAEIICgZ1cGRhdGUi2wEKF1BlcmZvcm1hbmNlTWV0cmljVXBkYXRlEj8KC21ldHJpY190eXBlGAEgASgOMiouZmxlZXRwZXJmb3JtYW5jZS52MS5QZXJmb3JtYW5jZU1ldHJpY1R5cGUSMQoFc3RhdHMYAiABKAsyIC5mbGVldHBlcmZvcm1hbmNlLnYxLlN0YXRzVXBkYXRlSAASPQoLbWVhc3VyZW1lbnQYAyABKAsyJi5mbGVldHBlcmZvcm1hbmNlLnYxLk1lYXN1cmVtZW50VXBkYXRlSABCDQoLdXBkYXRlX3R5cGUiNwoLU3RhdHNVcGRhdGUSKAoFc3RhdHMYASADKAsyGS5mbGVldHBlcmZvcm1hbmNlLnYxLlN0YXQiQAoRTWVhc3VyZW1lbnRVcGRhdGUSKwoLbWVhc3VyZW1lbnQYASABKAsyFi5jb21tb24udjEuTWVhc3VyZW1lbnQiCwoJSGVhcnRiZWF0KtsBChVQZXJmb3JtYW5jZU1ldHJpY1R5cGUSJwojUEVSRk9STUFOQ0VfTUVUUklDX1RZUEVfVU5TUEVDSUZJRUQQABIkCiBQRVJGT1JNQU5DRV9NRVRSSUNfVFlQRV9IQVNIUkFURRABEiYKIlBFUkZPUk1BTkNFX01FVFJJQ19UWVBFX0VGRklDSUVOQ1kQAhInCiNQRVJGT1JNQU5DRV9NRVRSSUNfVFlQRV9QT1dFUl9VU0FHRRADEiIKHlBFUkZPUk1BTkNFX01FVFJJQ19UWVBFX1VQVElNRRAEMpsDChdGbGVldFBlcmZvcm1hbmNlU2VydmljZRJ4ChNHZXRGbGVldFBlcmZvcm1hbmNlEi8uZmxlZXRwZXJmb3JtYW5jZS52MS5HZXRGbGVldFBlcmZvcm1hbmNlUmVxdWVzdBowLmZsZWV0cGVyZm9ybWFuY2UudjEuR2V0RmxlZXRQZXJmb3JtYW5jZVJlc3BvbnNlEnoKE1N0cmVhbUZsZWV0T3ZlcnZpZXcSLy5mbGVldHBlcmZvcm1hbmNlLnYxLlN0cmVhbUZsZWV0T3ZlcnZpZXdSZXF1ZXN0GjAuZmxlZXRwZXJmb3JtYW5jZS52MS5TdHJlYW1GbGVldE92ZXJ2aWV3UmVzcG9uc2UwARKJAQoYU3RyZWFtUGVyZm9ybWFuY2VNZXRyaWNzEjQuZmxlZXRwZXJmb3JtYW5jZS52MS5TdHJlYW1QZXJmb3JtYW5jZU1ldHJpY3NSZXF1ZXN0GjUuZmxlZXRwZXJmb3JtYW5jZS52MS5TdHJlYW1QZXJmb3JtYW5jZU1ldHJpY3NSZXNwb25zZTABQvgBChdjb20uZmxlZXRwZXJmb3JtYW5jZS52MUIVRmxlZXRwZXJmb3JtYW5jZVByb3RvUAFaWWdpdGh1Yi5jb20vYmxvY2svcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL2ZsZWV0cGVyZm9ybWFuY2UvdjE7ZmxlZXRwZXJmb3JtYW5jZXYxogIDRlhYqgITRmxlZXRwZXJmb3JtYW5jZS5WMcoCE0ZsZWV0cGVyZm9ybWFuY2VcVjHiAh9GbGVldHBlcmZvcm1hbmNlXFYxXEdQQk1ldGFkYXRh6gIURmxlZXRwZXJmb3JtYW5jZTo6VjFiBnByb3RvMw",
-    [file_google_protobuf_timestamp, file_common_v1_measurement],
-  );
+export const file_fleetperformance_v1_fleetperformance: GenFile = /*@__PURE__*/
+  fileDesc("CipmbGVldHBlcmZvcm1hbmNlL3YxL2ZsZWV0cGVyZm9ybWFuY2UucHJvdG8SE2ZsZWV0cGVyZm9ybWFuY2UudjEiHAoaR2V0RmxlZXRQZXJmb3JtYW5jZVJlcXVlc3QiXwobR2V0RmxlZXRQZXJmb3JtYW5jZVJlc3BvbnNlEkAKEWZsZWV0X3BlcmZvcm1hbmNlGAEgASgLMiUuZmxlZXRwZXJmb3JtYW5jZS52MS5GbGVldFBlcmZvcm1hbmNlIrcCChBGbGVldFBlcmZvcm1hbmNlEjQKCG92ZXJ2aWV3GAEgASgLMiIuZmxlZXRwZXJmb3JtYW5jZS52MS5GbGVldE92ZXJ2aWV3EjkKCGhhc2hyYXRlGAIgASgLMicuZmxlZXRwZXJmb3JtYW5jZS52MS5QZXJmb3JtYW5jZU1ldHJpY3MSOwoKZWZmaWNpZW5jeRgDIAEoCzInLmZsZWV0cGVyZm9ybWFuY2UudjEuUGVyZm9ybWFuY2VNZXRyaWNzEjwKC3Bvd2VyX3VzYWdlGAQgASgLMicuZmxlZXRwZXJmb3JtYW5jZS52MS5QZXJmb3JtYW5jZU1ldHJpY3MSNwoGdXB0aW1lGAUgASgLMicuZmxlZXRwZXJmb3JtYW5jZS52MS5QZXJmb3JtYW5jZU1ldHJpY3MiUQoNRmxlZXRPdmVydmlldxIPCgdvZmZsaW5lGAEgASgFEhAKCGluYWN0aXZlGAIgASgFEg4KBmFjdGl2ZRgDIAEoBRINCgV0b3RhbBgEIAEoBSJkChJQZXJmb3JtYW5jZU1ldHJpY3MSKAoFc3RhdHMYASADKAsyGS5mbGVldHBlcmZvcm1hbmNlLnYxLlN0YXQSJAoEZGF0YRgCIAMoCzIWLmNvbW1vbi52MS5NZWFzdXJlbWVudCKDAQoEU3RhdBINCgVsYWJlbBgBIAEoCRIZCg9mb3JtYXR0ZWRfdmFsdWUYAiABKAlIABIzChFtZWFzdXJlbWVudF92YWx1ZRgDIAEoCzIWLmNvbW1vbi52MS5NZWFzdXJlbWVudEgAEhMKC2Rlc2NyaXB0aW9uGAQgASgJQgcKBXZhbHVlIkAKGlN0cmVhbUZsZWV0T3ZlcnZpZXdSZXF1ZXN0EiIKGmhlYXJ0YmVhdF9pbnRlcnZhbF9zZWNvbmRzGAEgASgFIskBChtTdHJlYW1GbGVldE92ZXJ2aWV3UmVzcG9uc2USLQoJdGltZXN0YW1wGAEgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBI8CghvdmVydmlldxgCIAEoCzIoLmZsZWV0cGVyZm9ybWFuY2UudjEuRmxlZXRPdmVydmlld1VwZGF0ZUgAEjMKCWhlYXJ0YmVhdBgDIAEoCzIeLmZsZWV0cGVyZm9ybWFuY2UudjEuSGVhcnRiZWF0SABCCAoGdXBkYXRlIksKE0ZsZWV0T3ZlcnZpZXdVcGRhdGUSNAoIb3ZlcnZpZXcYASABKAsyIi5mbGVldHBlcmZvcm1hbmNlLnYxLkZsZWV0T3ZlcnZpZXcivAEKH1N0cmVhbVBlcmZvcm1hbmNlTWV0cmljc1JlcXVlc3QSQAoMbWV0cmljX3R5cGVzGAEgAygOMiouZmxlZXRwZXJmb3JtYW5jZS52MS5QZXJmb3JtYW5jZU1ldHJpY1R5cGUSFQoNaW5jbHVkZV9zdGF0cxgCIAEoCBIcChRpbmNsdWRlX21lYXN1cmVtZW50cxgDIAEoCBIiChpoZWFydGJlYXRfaW50ZXJ2YWxfc2Vjb25kcxgEIAEoBSLQAQogU3RyZWFtUGVyZm9ybWFuY2VNZXRyaWNzUmVzcG9uc2USLQoJdGltZXN0YW1wGAEgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBI+CgZtZXRyaWMYAiABKAsyLC5mbGVldHBlcmZvcm1hbmNlLnYxLlBlcmZvcm1hbmNlTWV0cmljVXBkYXRlSAASMwoJaGVhcnRiZWF0GAMgASgLMh4uZmxlZXRwZXJmb3JtYW5jZS52MS5IZWFydGJlYXRIAEIICgZ1cGRhdGUi2wEKF1BlcmZvcm1hbmNlTWV0cmljVXBkYXRlEj8KC21ldHJpY190eXBlGAEgASgOMiouZmxlZXRwZXJmb3JtYW5jZS52MS5QZXJmb3JtYW5jZU1ldHJpY1R5cGUSMQoFc3RhdHMYAiABKAsyIC5mbGVldHBlcmZvcm1hbmNlLnYxLlN0YXRzVXBkYXRlSAASPQoLbWVhc3VyZW1lbnQYAyABKAsyJi5mbGVldHBlcmZvcm1hbmNlLnYxLk1lYXN1cmVtZW50VXBkYXRlSABCDQoLdXBkYXRlX3R5cGUiNwoLU3RhdHNVcGRhdGUSKAoFc3RhdHMYASADKAsyGS5mbGVldHBlcmZvcm1hbmNlLnYxLlN0YXQiQAoRTWVhc3VyZW1lbnRVcGRhdGUSKwoLbWVhc3VyZW1lbnQYASABKAsyFi5jb21tb24udjEuTWVhc3VyZW1lbnQiCwoJSGVhcnRiZWF0KtsBChVQZXJmb3JtYW5jZU1ldHJpY1R5cGUSJwojUEVSRk9STUFOQ0VfTUVUUklDX1RZUEVfVU5TUEVDSUZJRUQQABIkCiBQRVJGT1JNQU5DRV9NRVRSSUNfVFlQRV9IQVNIUkFURRABEiYKIlBFUkZPUk1BTkNFX01FVFJJQ19UWVBFX0VGRklDSUVOQ1kQAhInCiNQRVJGT1JNQU5DRV9NRVRSSUNfVFlQRV9QT1dFUl9VU0FHRRADEiIKHlBFUkZPUk1BTkNFX01FVFJJQ19UWVBFX1VQVElNRRAEMpsDChdGbGVldFBlcmZvcm1hbmNlU2VydmljZRJ4ChNHZXRGbGVldFBlcmZvcm1hbmNlEi8uZmxlZXRwZXJmb3JtYW5jZS52MS5HZXRGbGVldFBlcmZvcm1hbmNlUmVxdWVzdBowLmZsZWV0cGVyZm9ybWFuY2UudjEuR2V0RmxlZXRQZXJmb3JtYW5jZVJlc3BvbnNlEnoKE1N0cmVhbUZsZWV0T3ZlcnZpZXcSLy5mbGVldHBlcmZvcm1hbmNlLnYxLlN0cmVhbUZsZWV0T3ZlcnZpZXdSZXF1ZXN0GjAuZmxlZXRwZXJmb3JtYW5jZS52MS5TdHJlYW1GbGVldE92ZXJ2aWV3UmVzcG9uc2UwARKJAQoYU3RyZWFtUGVyZm9ybWFuY2VNZXRyaWNzEjQuZmxlZXRwZXJmb3JtYW5jZS52MS5TdHJlYW1QZXJmb3JtYW5jZU1ldHJpY3NSZXF1ZXN0GjUuZmxlZXRwZXJmb3JtYW5jZS52MS5TdHJlYW1QZXJmb3JtYW5jZU1ldHJpY3NSZXNwb25zZTABQvgBChdjb20uZmxlZXRwZXJmb3JtYW5jZS52MUIVRmxlZXRwZXJmb3JtYW5jZVByb3RvUAFaWWdpdGh1Yi5jb20vYmxvY2svcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL2ZsZWV0cGVyZm9ybWFuY2UvdjE7ZmxlZXRwZXJmb3JtYW5jZXYxogIDRlhYqgITRmxlZXRwZXJmb3JtYW5jZS5WMcoCE0ZsZWV0cGVyZm9ybWFuY2VcVjHiAh9GbGVldHBlcmZvcm1hbmNlXFYxXEdQQk1ldGFkYXRh6gIURmxlZXRwZXJmb3JtYW5jZTo6VjFiBnByb3RvMw", [file_google_protobuf_timestamp, file_common_v1_measurement]);
 
 /**
  * Request to retrieve fleet performance metrics
@@ -27,14 +23,14 @@ export const file_fleetperformance_v1_fleetperformance: GenFile =
  *
  * @generated from message fleetperformance.v1.GetFleetPerformanceRequest
  */
-export type GetFleetPerformanceRequest = Message<"fleetperformance.v1.GetFleetPerformanceRequest"> & {};
+export type GetFleetPerformanceRequest = Message<"fleetperformance.v1.GetFleetPerformanceRequest"> & {
+};
 
 /**
  * Describes the message fleetperformance.v1.GetFleetPerformanceRequest.
  * Use `create(GetFleetPerformanceRequestSchema)` to create a new message.
  */
-export const GetFleetPerformanceRequestSchema: GenMessage<GetFleetPerformanceRequest> =
-  /*@__PURE__*/
+export const GetFleetPerformanceRequestSchema: GenMessage<GetFleetPerformanceRequest> = /*@__PURE__*/
   messageDesc(file_fleetperformance_v1_fleetperformance, 0);
 
 /**
@@ -55,8 +51,7 @@ export type GetFleetPerformanceResponse = Message<"fleetperformance.v1.GetFleetP
  * Describes the message fleetperformance.v1.GetFleetPerformanceResponse.
  * Use `create(GetFleetPerformanceResponseSchema)` to create a new message.
  */
-export const GetFleetPerformanceResponseSchema: GenMessage<GetFleetPerformanceResponse> =
-  /*@__PURE__*/
+export const GetFleetPerformanceResponseSchema: GenMessage<GetFleetPerformanceResponse> = /*@__PURE__*/
   messageDesc(file_fleetperformance_v1_fleetperformance, 1);
 
 /**
@@ -105,8 +100,7 @@ export type FleetPerformance = Message<"fleetperformance.v1.FleetPerformance"> &
  * Describes the message fleetperformance.v1.FleetPerformance.
  * Use `create(FleetPerformanceSchema)` to create a new message.
  */
-export const FleetPerformanceSchema: GenMessage<FleetPerformance> =
-  /*@__PURE__*/
+export const FleetPerformanceSchema: GenMessage<FleetPerformance> = /*@__PURE__*/
   messageDesc(file_fleetperformance_v1_fleetperformance, 2);
 
 /**
@@ -148,8 +142,7 @@ export type FleetOverview = Message<"fleetperformance.v1.FleetOverview"> & {
  * Describes the message fleetperformance.v1.FleetOverview.
  * Use `create(FleetOverviewSchema)` to create a new message.
  */
-export const FleetOverviewSchema: GenMessage<FleetOverview> =
-  /*@__PURE__*/
+export const FleetOverviewSchema: GenMessage<FleetOverview> = /*@__PURE__*/
   messageDesc(file_fleetperformance_v1_fleetperformance, 3);
 
 /**
@@ -177,8 +170,7 @@ export type PerformanceMetrics = Message<"fleetperformance.v1.PerformanceMetrics
  * Describes the message fleetperformance.v1.PerformanceMetrics.
  * Use `create(PerformanceMetricsSchema)` to create a new message.
  */
-export const PerformanceMetricsSchema: GenMessage<PerformanceMetrics> =
-  /*@__PURE__*/
+export const PerformanceMetricsSchema: GenMessage<PerformanceMetrics> = /*@__PURE__*/
   messageDesc(file_fleetperformance_v1_fleetperformance, 4);
 
 /**
@@ -199,26 +191,23 @@ export type Stat = Message<"fleetperformance.v1.Stat"> & {
    *
    * @generated from oneof fleetperformance.v1.Stat.value
    */
-  value:
-    | {
-        /**
-         * Formatted value as a string (e.g., "125.5 TH/s", "98.2%")
-         *
-         * @generated from field: string formatted_value = 2;
-         */
-        value: string;
-        case: "formattedValue";
-      }
-    | {
-        /**
-         * Structured measurement with timestamp, value, and unit
-         *
-         * @generated from field: common.v1.Measurement measurement_value = 3;
-         */
-        value: Measurement;
-        case: "measurementValue";
-      }
-    | { case: undefined; value?: undefined };
+  value: {
+    /**
+     * Formatted value as a string (e.g., "125.5 TH/s", "98.2%")
+     *
+     * @generated from field: string formatted_value = 2;
+     */
+    value: string;
+    case: "formattedValue";
+  } | {
+    /**
+     * Structured measurement with timestamp, value, and unit
+     *
+     * @generated from field: common.v1.Measurement measurement_value = 3;
+     */
+    value: Measurement;
+    case: "measurementValue";
+  } | { case: undefined; value?: undefined };
 
   /**
    * Detailed description of what this statistic represents
@@ -232,7 +221,8 @@ export type Stat = Message<"fleetperformance.v1.Stat"> & {
  * Describes the message fleetperformance.v1.Stat.
  * Use `create(StatSchema)` to create a new message.
  */
-export const StatSchema: GenMessage<Stat> = /*@__PURE__*/ messageDesc(file_fleetperformance_v1_fleetperformance, 5);
+export const StatSchema: GenMessage<Stat> = /*@__PURE__*/
+  messageDesc(file_fleetperformance_v1_fleetperformance, 5);
 
 /**
  * Request to stream fleet overview updates
@@ -253,8 +243,7 @@ export type StreamFleetOverviewRequest = Message<"fleetperformance.v1.StreamFlee
  * Describes the message fleetperformance.v1.StreamFleetOverviewRequest.
  * Use `create(StreamFleetOverviewRequestSchema)` to create a new message.
  */
-export const StreamFleetOverviewRequestSchema: GenMessage<StreamFleetOverviewRequest> =
-  /*@__PURE__*/
+export const StreamFleetOverviewRequestSchema: GenMessage<StreamFleetOverviewRequest> = /*@__PURE__*/
   messageDesc(file_fleetperformance_v1_fleetperformance, 6);
 
 /**
@@ -275,34 +264,30 @@ export type StreamFleetOverviewResponse = Message<"fleetperformance.v1.StreamFle
    *
    * @generated from oneof fleetperformance.v1.StreamFleetOverviewResponse.update
    */
-  update:
-    | {
-        /**
-         * Fleet overview status update
-         *
-         * @generated from field: fleetperformance.v1.FleetOverviewUpdate overview = 2;
-         */
-        value: FleetOverviewUpdate;
-        case: "overview";
-      }
-    | {
-        /**
-         * Heartbeat to keep connection alive (no data)
-         *
-         * @generated from field: fleetperformance.v1.Heartbeat heartbeat = 3;
-         */
-        value: Heartbeat;
-        case: "heartbeat";
-      }
-    | { case: undefined; value?: undefined };
+  update: {
+    /**
+     * Fleet overview status update
+     *
+     * @generated from field: fleetperformance.v1.FleetOverviewUpdate overview = 2;
+     */
+    value: FleetOverviewUpdate;
+    case: "overview";
+  } | {
+    /**
+     * Heartbeat to keep connection alive (no data)
+     *
+     * @generated from field: fleetperformance.v1.Heartbeat heartbeat = 3;
+     */
+    value: Heartbeat;
+    case: "heartbeat";
+  } | { case: undefined; value?: undefined };
 };
 
 /**
  * Describes the message fleetperformance.v1.StreamFleetOverviewResponse.
  * Use `create(StreamFleetOverviewResponseSchema)` to create a new message.
  */
-export const StreamFleetOverviewResponseSchema: GenMessage<StreamFleetOverviewResponse> =
-  /*@__PURE__*/
+export const StreamFleetOverviewResponseSchema: GenMessage<StreamFleetOverviewResponse> = /*@__PURE__*/
   messageDesc(file_fleetperformance_v1_fleetperformance, 7);
 
 /**
@@ -323,8 +308,7 @@ export type FleetOverviewUpdate = Message<"fleetperformance.v1.FleetOverviewUpda
  * Describes the message fleetperformance.v1.FleetOverviewUpdate.
  * Use `create(FleetOverviewUpdateSchema)` to create a new message.
  */
-export const FleetOverviewUpdateSchema: GenMessage<FleetOverviewUpdate> =
-  /*@__PURE__*/
+export const FleetOverviewUpdateSchema: GenMessage<FleetOverviewUpdate> = /*@__PURE__*/
   messageDesc(file_fleetperformance_v1_fleetperformance, 8);
 
 /**
@@ -370,8 +354,7 @@ export type StreamPerformanceMetricsRequest = Message<"fleetperformance.v1.Strea
  * Describes the message fleetperformance.v1.StreamPerformanceMetricsRequest.
  * Use `create(StreamPerformanceMetricsRequestSchema)` to create a new message.
  */
-export const StreamPerformanceMetricsRequestSchema: GenMessage<StreamPerformanceMetricsRequest> =
-  /*@__PURE__*/
+export const StreamPerformanceMetricsRequestSchema: GenMessage<StreamPerformanceMetricsRequest> = /*@__PURE__*/
   messageDesc(file_fleetperformance_v1_fleetperformance, 9);
 
 /**
@@ -392,34 +375,30 @@ export type StreamPerformanceMetricsResponse = Message<"fleetperformance.v1.Stre
    *
    * @generated from oneof fleetperformance.v1.StreamPerformanceMetricsResponse.update
    */
-  update:
-    | {
-        /**
-         * Performance metric update
-         *
-         * @generated from field: fleetperformance.v1.PerformanceMetricUpdate metric = 2;
-         */
-        value: PerformanceMetricUpdate;
-        case: "metric";
-      }
-    | {
-        /**
-         * Heartbeat to keep connection alive (no data)
-         *
-         * @generated from field: fleetperformance.v1.Heartbeat heartbeat = 3;
-         */
-        value: Heartbeat;
-        case: "heartbeat";
-      }
-    | { case: undefined; value?: undefined };
+  update: {
+    /**
+     * Performance metric update
+     *
+     * @generated from field: fleetperformance.v1.PerformanceMetricUpdate metric = 2;
+     */
+    value: PerformanceMetricUpdate;
+    case: "metric";
+  } | {
+    /**
+     * Heartbeat to keep connection alive (no data)
+     *
+     * @generated from field: fleetperformance.v1.Heartbeat heartbeat = 3;
+     */
+    value: Heartbeat;
+    case: "heartbeat";
+  } | { case: undefined; value?: undefined };
 };
 
 /**
  * Describes the message fleetperformance.v1.StreamPerformanceMetricsResponse.
  * Use `create(StreamPerformanceMetricsResponseSchema)` to create a new message.
  */
-export const StreamPerformanceMetricsResponseSchema: GenMessage<StreamPerformanceMetricsResponse> =
-  /*@__PURE__*/
+export const StreamPerformanceMetricsResponseSchema: GenMessage<StreamPerformanceMetricsResponse> = /*@__PURE__*/
   messageDesc(file_fleetperformance_v1_fleetperformance, 10);
 
 /**
@@ -440,34 +419,30 @@ export type PerformanceMetricUpdate = Message<"fleetperformance.v1.PerformanceMe
    *
    * @generated from oneof fleetperformance.v1.PerformanceMetricUpdate.update_type
    */
-  updateType:
-    | {
-        /**
-         * Updated statistical summary
-         *
-         * @generated from field: fleetperformance.v1.StatsUpdate stats = 2;
-         */
-        value: StatsUpdate;
-        case: "stats";
-      }
-    | {
-        /**
-         * New measurement data point
-         *
-         * @generated from field: fleetperformance.v1.MeasurementUpdate measurement = 3;
-         */
-        value: MeasurementUpdate;
-        case: "measurement";
-      }
-    | { case: undefined; value?: undefined };
+  updateType: {
+    /**
+     * Updated statistical summary
+     *
+     * @generated from field: fleetperformance.v1.StatsUpdate stats = 2;
+     */
+    value: StatsUpdate;
+    case: "stats";
+  } | {
+    /**
+     * New measurement data point
+     *
+     * @generated from field: fleetperformance.v1.MeasurementUpdate measurement = 3;
+     */
+    value: MeasurementUpdate;
+    case: "measurement";
+  } | { case: undefined; value?: undefined };
 };
 
 /**
  * Describes the message fleetperformance.v1.PerformanceMetricUpdate.
  * Use `create(PerformanceMetricUpdateSchema)` to create a new message.
  */
-export const PerformanceMetricUpdateSchema: GenMessage<PerformanceMetricUpdate> =
-  /*@__PURE__*/
+export const PerformanceMetricUpdateSchema: GenMessage<PerformanceMetricUpdate> = /*@__PURE__*/
   messageDesc(file_fleetperformance_v1_fleetperformance, 11);
 
 /**
@@ -488,8 +463,7 @@ export type StatsUpdate = Message<"fleetperformance.v1.StatsUpdate"> & {
  * Describes the message fleetperformance.v1.StatsUpdate.
  * Use `create(StatsUpdateSchema)` to create a new message.
  */
-export const StatsUpdateSchema: GenMessage<StatsUpdate> =
-  /*@__PURE__*/
+export const StatsUpdateSchema: GenMessage<StatsUpdate> = /*@__PURE__*/
   messageDesc(file_fleetperformance_v1_fleetperformance, 12);
 
 /**
@@ -510,8 +484,7 @@ export type MeasurementUpdate = Message<"fleetperformance.v1.MeasurementUpdate">
  * Describes the message fleetperformance.v1.MeasurementUpdate.
  * Use `create(MeasurementUpdateSchema)` to create a new message.
  */
-export const MeasurementUpdateSchema: GenMessage<MeasurementUpdate> =
-  /*@__PURE__*/
+export const MeasurementUpdateSchema: GenMessage<MeasurementUpdate> = /*@__PURE__*/
   messageDesc(file_fleetperformance_v1_fleetperformance, 13);
 
 /**
@@ -521,14 +494,14 @@ export const MeasurementUpdateSchema: GenMessage<MeasurementUpdate> =
  *
  * @generated from message fleetperformance.v1.Heartbeat
  */
-export type Heartbeat = Message<"fleetperformance.v1.Heartbeat"> & {};
+export type Heartbeat = Message<"fleetperformance.v1.Heartbeat"> & {
+};
 
 /**
  * Describes the message fleetperformance.v1.Heartbeat.
  * Use `create(HeartbeatSchema)` to create a new message.
  */
-export const HeartbeatSchema: GenMessage<Heartbeat> =
-  /*@__PURE__*/
+export const HeartbeatSchema: GenMessage<Heartbeat> = /*@__PURE__*/
   messageDesc(file_fleetperformance_v1_fleetperformance, 14);
 
 /**
@@ -576,8 +549,7 @@ export enum PerformanceMetricType {
 /**
  * Describes the enum fleetperformance.v1.PerformanceMetricType.
  */
-export const PerformanceMetricTypeSchema: GenEnum<PerformanceMetricType> =
-  /*@__PURE__*/
+export const PerformanceMetricTypeSchema: GenEnum<PerformanceMetricType> = /*@__PURE__*/
   enumDesc(file_fleetperformance_v1_fleetperformance, 0);
 
 /**
@@ -596,7 +568,7 @@ export const FleetPerformanceService: GenService<{
     methodKind: "unary";
     input: typeof GetFleetPerformanceRequestSchema;
     output: typeof GetFleetPerformanceResponseSchema;
-  };
+  },
   /**
    * StreamFleetOverview provides real-time updates for fleet overview statistics
    * Returns a continuous stream of fleet status distribution changes
@@ -607,7 +579,7 @@ export const FleetPerformanceService: GenService<{
     methodKind: "server_streaming";
     input: typeof StreamFleetOverviewRequestSchema;
     output: typeof StreamFleetOverviewResponseSchema;
-  };
+  },
   /**
    * StreamPerformanceMetrics provides real-time updates for specific performance metrics
    * Returns a continuous stream of metric updates for subscribed performance types
@@ -618,5 +590,7 @@ export const FleetPerformanceService: GenService<{
     methodKind: "server_streaming";
     input: typeof StreamPerformanceMetricsRequestSchema;
     output: typeof StreamPerformanceMetricsResponseSchema;
-  };
-}> = /*@__PURE__*/ serviceDesc(file_fleetperformance_v1_fleetperformance, 0);
+  },
+}> = /*@__PURE__*/
+  serviceDesc(file_fleetperformance_v1_fleetperformance, 0);
+

@@ -9,8 +9,8 @@ import (
 
 	"connectrpc.com/connect"
 
-	pb "github.com/block/proto-fleet/server/generated/grpc/agentgateway/v1"
-	"github.com/block/proto-fleet/server/generated/grpc/agentgateway/v1/agentgatewayv1connect"
+	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 )
 
 // Wraps Unauthenticated from BeginAuthHandshake. The server returns it for
@@ -20,7 +20,7 @@ import (
 var ErrBeginAuthRejected = errors.New("BeginAuthHandshake rejected")
 
 // Mutates s.SessionToken and s.SessionExpiresAt only on success.
-func RunHandshake(ctx context.Context, c agentgatewayv1connect.AgentGatewayServiceClient, s *State) error {
+func RunHandshake(ctx context.Context, c fleetnodegatewayv1connect.FleetNodeGatewayServiceClient, s *State) error {
 	if s == nil {
 		return errors.New("state is required")
 	}

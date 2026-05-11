@@ -16,12 +16,12 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	pb "github.com/block/proto-fleet/server/generated/grpc/agentgateway/v1"
-	"github.com/block/proto-fleet/server/generated/grpc/agentgateway/v1/agentgatewayv1connect"
+	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 )
 
 type fakeAgentGateway struct {
-	agentgatewayv1connect.UnimplementedAgentGatewayServiceHandler
+	fleetnodegatewayv1connect.UnimplementedFleetNodeGatewayServiceHandler
 
 	expectedCode     string
 	expectedAPIKey   string
@@ -46,7 +46,7 @@ func (f *fakeAgentGateway) Register(_ context.Context, req *connect.Request[pb.R
 	f.identityPub = ed25519.PublicKey(req.Msg.GetIdentityPubkey())
 	f.registered = true
 	return connect.NewResponse(&pb.RegisterResponse{
-		AgentId:             f.agentID,
+		FleetNodeId:         f.agentID,
 		EnrollmentStatus:    pb.EnrollmentStatus_ENROLLMENT_STATUS_PENDING,
 		IdentityFingerprint: IdentityFingerprint(req.Msg.GetIdentityPubkey()),
 	}), nil
@@ -79,7 +79,7 @@ func (f *fakeAgentGateway) CompleteAuthHandshake(_ context.Context, req *connect
 func newFakeServer(t *testing.T, fake *fakeAgentGateway) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
-	path, h := agentgatewayv1connect.NewAgentGatewayServiceHandler(fake)
+	path, h := fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(fake)
 	mux.Handle(path, h)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)

@@ -12,12 +12,8 @@ import type { JsonObject, Message } from "@bufbuild/protobuf";
 /**
  * Describes the file activity/v1/activity.proto.
  */
-export const file_activity_v1_activity: GenFile =
-  /*@__PURE__*/
-  fileDesc(
-    "ChphY3Rpdml0eS92MS9hY3Rpdml0eS5wcm90bxILYWN0aXZpdHkudjEi8gMKDUFjdGl2aXR5RW50cnkSEAoIZXZlbnRfaWQYASABKAkSFgoOZXZlbnRfY2F0ZWdvcnkYAiABKAkSEgoKZXZlbnRfdHlwZRgDIAEoCRITCgtkZXNjcmlwdGlvbhgEIAEoCRIXCgpzY29wZV90eXBlGAUgASgJSACIAQESGAoLc2NvcGVfbGFiZWwYBiABKAlIAYgBARITCgtzY29wZV9jb3VudBgHIAEoBRISCgphY3Rvcl90eXBlGAggASgJEhQKB3VzZXJfaWQYCSABKAlIAogBARIVCgh1c2VybmFtZRgKIAEoCUgDiAEBEi4KCmNyZWF0ZWRfYXQYCyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCG1ldGFkYXRhGAwgASgLMhcuZ29vZ2xlLnByb3RvYnVmLlN0cnVjdEgEiAEBEg4KBnJlc3VsdBgNIAEoCRIaCg1lcnJvcl9tZXNzYWdlGA4gASgJSAWIAQESFQoIYmF0Y2hfaWQYDyABKAlIBogBAUINCgtfc2NvcGVfdHlwZUIOCgxfc2NvcGVfbGFiZWxCCgoIX3VzZXJfaWRCCwoJX3VzZXJuYW1lQgsKCV9tZXRhZGF0YUIQCg5fZXJyb3JfbWVzc2FnZUILCglfYmF0Y2hfaWQi2QEKDkFjdGl2aXR5RmlsdGVyEhgKEGV2ZW50X2NhdGVnb3JpZXMYASADKAkSEwoLZXZlbnRfdHlwZXMYAiADKAkSEAoIdXNlcl9pZHMYAyADKAkSLgoKc3RhcnRfdGltZRgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLAoIZW5kX3RpbWUYBSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhMKC3NlYXJjaF90ZXh0GAYgASgJEhMKC3Njb3BlX3R5cGVzGAcgAygJInYKFUxpc3RBY3Rpdml0aWVzUmVxdWVzdBIrCgZmaWx0ZXIYASABKAsyGy5hY3Rpdml0eS52MS5BY3Rpdml0eUZpbHRlchIcCglwYWdlX3NpemUYAiABKAVCCbpIBhoEGGQoARISCgpwYWdlX3Rva2VuGAMgASgJInYKFkxpc3RBY3Rpdml0aWVzUmVzcG9uc2USLgoKYWN0aXZpdGllcxgBIAMoCzIaLmFjdGl2aXR5LnYxLkFjdGl2aXR5RW50cnkSFwoPbmV4dF9wYWdlX3Rva2VuGAIgASgJEhMKC3RvdGFsX2NvdW50GAMgASgFIkYKF0V4cG9ydEFjdGl2aXRpZXNSZXF1ZXN0EisKBmZpbHRlchgBIAEoCzIbLmFjdGl2aXR5LnYxLkFjdGl2aXR5RmlsdGVyIikKGEV4cG9ydEFjdGl2aXRpZXNSZXNwb25zZRINCgVjaHVuaxgBIAEoDCIiCiBMaXN0QWN0aXZpdHlGaWx0ZXJPcHRpb25zUmVxdWVzdCKTAQohTGlzdEFjdGl2aXR5RmlsdGVyT3B0aW9uc1Jlc3BvbnNlEjEKC2V2ZW50X3R5cGVzGAEgAygLMhwuYWN0aXZpdHkudjEuRXZlbnRUeXBlT3B0aW9uEhMKC3Njb3BlX3R5cGVzGAIgAygJEiYKBXVzZXJzGAMgAygLMhcuYWN0aXZpdHkudjEuVXNlck9wdGlvbiI9Cg9FdmVudFR5cGVPcHRpb24SEgoKZXZlbnRfdHlwZRgBIAEoCRIWCg5ldmVudF9jYXRlZ29yeRgCIAEoCSIvCgpVc2VyT3B0aW9uEg8KB3VzZXJfaWQYASABKAkSEAoIdXNlcm5hbWUYAiABKAkyywIKD0FjdGl2aXR5U2VydmljZRJZCg5MaXN0QWN0aXZpdGllcxIiLmFjdGl2aXR5LnYxLkxpc3RBY3Rpdml0aWVzUmVxdWVzdBojLmFjdGl2aXR5LnYxLkxpc3RBY3Rpdml0aWVzUmVzcG9uc2USYQoQRXhwb3J0QWN0aXZpdGllcxIkLmFjdGl2aXR5LnYxLkV4cG9ydEFjdGl2aXRpZXNSZXF1ZXN0GiUuYWN0aXZpdHkudjEuRXhwb3J0QWN0aXZpdGllc1Jlc3BvbnNlMAESegoZTGlzdEFjdGl2aXR5RmlsdGVyT3B0aW9ucxItLmFjdGl2aXR5LnYxLkxpc3RBY3Rpdml0eUZpbHRlck9wdGlvbnNSZXF1ZXN0Gi4uYWN0aXZpdHkudjEuTGlzdEFjdGl2aXR5RmlsdGVyT3B0aW9uc1Jlc3BvbnNlQrgBCg9jb20uYWN0aXZpdHkudjFCDUFjdGl2aXR5UHJvdG9QAVpJZ2l0aHViLmNvbS9ibG9jay9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvYWN0aXZpdHkvdjE7YWN0aXZpdHl2MaICA0FYWKoCC0FjdGl2aXR5LlYxygILQWN0aXZpdHlcVjHiAhdBY3Rpdml0eVxWMVxHUEJNZXRhZGF0YeoCDEFjdGl2aXR5OjpWMWIGcHJvdG8z",
-    [file_google_protobuf_timestamp, file_google_protobuf_struct, file_buf_validate_validate],
-  );
+export const file_activity_v1_activity: GenFile = /*@__PURE__*/
+  fileDesc("ChphY3Rpdml0eS92MS9hY3Rpdml0eS5wcm90bxILYWN0aXZpdHkudjEi8gMKDUFjdGl2aXR5RW50cnkSEAoIZXZlbnRfaWQYASABKAkSFgoOZXZlbnRfY2F0ZWdvcnkYAiABKAkSEgoKZXZlbnRfdHlwZRgDIAEoCRITCgtkZXNjcmlwdGlvbhgEIAEoCRIXCgpzY29wZV90eXBlGAUgASgJSACIAQESGAoLc2NvcGVfbGFiZWwYBiABKAlIAYgBARITCgtzY29wZV9jb3VudBgHIAEoBRISCgphY3Rvcl90eXBlGAggASgJEhQKB3VzZXJfaWQYCSABKAlIAogBARIVCgh1c2VybmFtZRgKIAEoCUgDiAEBEi4KCmNyZWF0ZWRfYXQYCyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEi4KCG1ldGFkYXRhGAwgASgLMhcuZ29vZ2xlLnByb3RvYnVmLlN0cnVjdEgEiAEBEg4KBnJlc3VsdBgNIAEoCRIaCg1lcnJvcl9tZXNzYWdlGA4gASgJSAWIAQESFQoIYmF0Y2hfaWQYDyABKAlIBogBAUINCgtfc2NvcGVfdHlwZUIOCgxfc2NvcGVfbGFiZWxCCgoIX3VzZXJfaWRCCwoJX3VzZXJuYW1lQgsKCV9tZXRhZGF0YUIQCg5fZXJyb3JfbWVzc2FnZUILCglfYmF0Y2hfaWQi2QEKDkFjdGl2aXR5RmlsdGVyEhgKEGV2ZW50X2NhdGVnb3JpZXMYASADKAkSEwoLZXZlbnRfdHlwZXMYAiADKAkSEAoIdXNlcl9pZHMYAyADKAkSLgoKc3RhcnRfdGltZRgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLAoIZW5kX3RpbWUYBSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhMKC3NlYXJjaF90ZXh0GAYgASgJEhMKC3Njb3BlX3R5cGVzGAcgAygJInYKFUxpc3RBY3Rpdml0aWVzUmVxdWVzdBIrCgZmaWx0ZXIYASABKAsyGy5hY3Rpdml0eS52MS5BY3Rpdml0eUZpbHRlchIcCglwYWdlX3NpemUYAiABKAVCCbpIBhoEGGQoARISCgpwYWdlX3Rva2VuGAMgASgJInYKFkxpc3RBY3Rpdml0aWVzUmVzcG9uc2USLgoKYWN0aXZpdGllcxgBIAMoCzIaLmFjdGl2aXR5LnYxLkFjdGl2aXR5RW50cnkSFwoPbmV4dF9wYWdlX3Rva2VuGAIgASgJEhMKC3RvdGFsX2NvdW50GAMgASgFIkYKF0V4cG9ydEFjdGl2aXRpZXNSZXF1ZXN0EisKBmZpbHRlchgBIAEoCzIbLmFjdGl2aXR5LnYxLkFjdGl2aXR5RmlsdGVyIikKGEV4cG9ydEFjdGl2aXRpZXNSZXNwb25zZRINCgVjaHVuaxgBIAEoDCIiCiBMaXN0QWN0aXZpdHlGaWx0ZXJPcHRpb25zUmVxdWVzdCKTAQohTGlzdEFjdGl2aXR5RmlsdGVyT3B0aW9uc1Jlc3BvbnNlEjEKC2V2ZW50X3R5cGVzGAEgAygLMhwuYWN0aXZpdHkudjEuRXZlbnRUeXBlT3B0aW9uEhMKC3Njb3BlX3R5cGVzGAIgAygJEiYKBXVzZXJzGAMgAygLMhcuYWN0aXZpdHkudjEuVXNlck9wdGlvbiI9Cg9FdmVudFR5cGVPcHRpb24SEgoKZXZlbnRfdHlwZRgBIAEoCRIWCg5ldmVudF9jYXRlZ29yeRgCIAEoCSIvCgpVc2VyT3B0aW9uEg8KB3VzZXJfaWQYASABKAkSEAoIdXNlcm5hbWUYAiABKAkyywIKD0FjdGl2aXR5U2VydmljZRJZCg5MaXN0QWN0aXZpdGllcxIiLmFjdGl2aXR5LnYxLkxpc3RBY3Rpdml0aWVzUmVxdWVzdBojLmFjdGl2aXR5LnYxLkxpc3RBY3Rpdml0aWVzUmVzcG9uc2USYQoQRXhwb3J0QWN0aXZpdGllcxIkLmFjdGl2aXR5LnYxLkV4cG9ydEFjdGl2aXRpZXNSZXF1ZXN0GiUuYWN0aXZpdHkudjEuRXhwb3J0QWN0aXZpdGllc1Jlc3BvbnNlMAESegoZTGlzdEFjdGl2aXR5RmlsdGVyT3B0aW9ucxItLmFjdGl2aXR5LnYxLkxpc3RBY3Rpdml0eUZpbHRlck9wdGlvbnNSZXF1ZXN0Gi4uYWN0aXZpdHkudjEuTGlzdEFjdGl2aXR5RmlsdGVyT3B0aW9uc1Jlc3BvbnNlQrgBCg9jb20uYWN0aXZpdHkudjFCDUFjdGl2aXR5UHJvdG9QAVpJZ2l0aHViLmNvbS9ibG9jay9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvYWN0aXZpdHkvdjE7YWN0aXZpdHl2MaICA0FYWKoCC0FjdGl2aXR5LlYxygILQWN0aXZpdHlcVjHiAhdBY3Rpdml0eVxWMVxHUEJNZXRhZGF0YeoCDEFjdGl2aXR5OjpWMWIGcHJvdG8z", [file_google_protobuf_timestamp, file_google_protobuf_struct, file_buf_validate_validate]);
 
 /**
  * A single recorded activity event
@@ -136,7 +132,8 @@ export type ActivityEntry = Message<"activity.v1.ActivityEntry"> & {
  * Describes the message activity.v1.ActivityEntry.
  * Use `create(ActivityEntrySchema)` to create a new message.
  */
-export const ActivityEntrySchema: GenMessage<ActivityEntry> = /*@__PURE__*/ messageDesc(file_activity_v1_activity, 0);
+export const ActivityEntrySchema: GenMessage<ActivityEntry> = /*@__PURE__*/
+  messageDesc(file_activity_v1_activity, 0);
 
 /**
  * Criteria for filtering activity entries
@@ -198,7 +195,8 @@ export type ActivityFilter = Message<"activity.v1.ActivityFilter"> & {
  * Describes the message activity.v1.ActivityFilter.
  * Use `create(ActivityFilterSchema)` to create a new message.
  */
-export const ActivityFilterSchema: GenMessage<ActivityFilter> = /*@__PURE__*/ messageDesc(file_activity_v1_activity, 1);
+export const ActivityFilterSchema: GenMessage<ActivityFilter> = /*@__PURE__*/
+  messageDesc(file_activity_v1_activity, 1);
 
 /**
  * Request for listing activities with pagination
@@ -232,8 +230,7 @@ export type ListActivitiesRequest = Message<"activity.v1.ListActivitiesRequest">
  * Describes the message activity.v1.ListActivitiesRequest.
  * Use `create(ListActivitiesRequestSchema)` to create a new message.
  */
-export const ListActivitiesRequestSchema: GenMessage<ListActivitiesRequest> =
-  /*@__PURE__*/
+export const ListActivitiesRequestSchema: GenMessage<ListActivitiesRequest> = /*@__PURE__*/
   messageDesc(file_activity_v1_activity, 2);
 
 /**
@@ -268,8 +265,7 @@ export type ListActivitiesResponse = Message<"activity.v1.ListActivitiesResponse
  * Describes the message activity.v1.ListActivitiesResponse.
  * Use `create(ListActivitiesResponseSchema)` to create a new message.
  */
-export const ListActivitiesResponseSchema: GenMessage<ListActivitiesResponse> =
-  /*@__PURE__*/
+export const ListActivitiesResponseSchema: GenMessage<ListActivitiesResponse> = /*@__PURE__*/
   messageDesc(file_activity_v1_activity, 3);
 
 /**
@@ -290,8 +286,7 @@ export type ExportActivitiesRequest = Message<"activity.v1.ExportActivitiesReque
  * Describes the message activity.v1.ExportActivitiesRequest.
  * Use `create(ExportActivitiesRequestSchema)` to create a new message.
  */
-export const ExportActivitiesRequestSchema: GenMessage<ExportActivitiesRequest> =
-  /*@__PURE__*/
+export const ExportActivitiesRequestSchema: GenMessage<ExportActivitiesRequest> = /*@__PURE__*/
   messageDesc(file_activity_v1_activity, 4);
 
 /**
@@ -312,8 +307,7 @@ export type ExportActivitiesResponse = Message<"activity.v1.ExportActivitiesResp
  * Describes the message activity.v1.ExportActivitiesResponse.
  * Use `create(ExportActivitiesResponseSchema)` to create a new message.
  */
-export const ExportActivitiesResponseSchema: GenMessage<ExportActivitiesResponse> =
-  /*@__PURE__*/
+export const ExportActivitiesResponseSchema: GenMessage<ExportActivitiesResponse> = /*@__PURE__*/
   messageDesc(file_activity_v1_activity, 5);
 
 /**
@@ -321,14 +315,14 @@ export const ExportActivitiesResponseSchema: GenMessage<ExportActivitiesResponse
  *
  * @generated from message activity.v1.ListActivityFilterOptionsRequest
  */
-export type ListActivityFilterOptionsRequest = Message<"activity.v1.ListActivityFilterOptionsRequest"> & {};
+export type ListActivityFilterOptionsRequest = Message<"activity.v1.ListActivityFilterOptionsRequest"> & {
+};
 
 /**
  * Describes the message activity.v1.ListActivityFilterOptionsRequest.
  * Use `create(ListActivityFilterOptionsRequestSchema)` to create a new message.
  */
-export const ListActivityFilterOptionsRequestSchema: GenMessage<ListActivityFilterOptionsRequest> =
-  /*@__PURE__*/
+export const ListActivityFilterOptionsRequestSchema: GenMessage<ListActivityFilterOptionsRequest> = /*@__PURE__*/
   messageDesc(file_activity_v1_activity, 6);
 
 /**
@@ -363,8 +357,7 @@ export type ListActivityFilterOptionsResponse = Message<"activity.v1.ListActivit
  * Describes the message activity.v1.ListActivityFilterOptionsResponse.
  * Use `create(ListActivityFilterOptionsResponseSchema)` to create a new message.
  */
-export const ListActivityFilterOptionsResponseSchema: GenMessage<ListActivityFilterOptionsResponse> =
-  /*@__PURE__*/
+export const ListActivityFilterOptionsResponseSchema: GenMessage<ListActivityFilterOptionsResponse> = /*@__PURE__*/
   messageDesc(file_activity_v1_activity, 7);
 
 /**
@@ -392,8 +385,7 @@ export type EventTypeOption = Message<"activity.v1.EventTypeOption"> & {
  * Describes the message activity.v1.EventTypeOption.
  * Use `create(EventTypeOptionSchema)` to create a new message.
  */
-export const EventTypeOptionSchema: GenMessage<EventTypeOption> =
-  /*@__PURE__*/
+export const EventTypeOptionSchema: GenMessage<EventTypeOption> = /*@__PURE__*/
   messageDesc(file_activity_v1_activity, 8);
 
 /**
@@ -421,7 +413,8 @@ export type UserOption = Message<"activity.v1.UserOption"> & {
  * Describes the message activity.v1.UserOption.
  * Use `create(UserOptionSchema)` to create a new message.
  */
-export const UserOptionSchema: GenMessage<UserOption> = /*@__PURE__*/ messageDesc(file_activity_v1_activity, 9);
+export const UserOptionSchema: GenMessage<UserOption> = /*@__PURE__*/
+  messageDesc(file_activity_v1_activity, 9);
 
 /**
  * ActivityService provides APIs for querying and exporting activity events
@@ -439,7 +432,7 @@ export const ActivityService: GenService<{
     methodKind: "unary";
     input: typeof ListActivitiesRequestSchema;
     output: typeof ListActivitiesResponseSchema;
-  };
+  },
   /**
    * Streams activity entries as serialized export data (CSV)
    *
@@ -449,7 +442,7 @@ export const ActivityService: GenService<{
     methodKind: "server_streaming";
     input: typeof ExportActivitiesRequestSchema;
     output: typeof ExportActivitiesResponseSchema;
-  };
+  },
   /**
    * Returns available values for activity filters (event types, scope types, users)
    *
@@ -459,5 +452,7 @@ export const ActivityService: GenService<{
     methodKind: "unary";
     input: typeof ListActivityFilterOptionsRequestSchema;
     output: typeof ListActivityFilterOptionsResponseSchema;
-  };
-}> = /*@__PURE__*/ serviceDesc(file_activity_v1_activity, 0);
+  },
+}> = /*@__PURE__*/
+  serviceDesc(file_activity_v1_activity, 0);
+

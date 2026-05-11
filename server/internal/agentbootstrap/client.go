@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/block/proto-fleet/server/generated/grpc/agentgateway/v1/agentgatewayv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 )
 
 const httpClientTimeout = 30 * time.Second
@@ -24,6 +24,6 @@ func newGatewayHTTPClient() *http.Client {
 	}
 }
 
-func NewGatewayClient(serverURL string) agentgatewayv1connect.AgentGatewayServiceClient {
-	return agentgatewayv1connect.NewAgentGatewayServiceClient(newGatewayHTTPClient(), serverURL)
+func NewGatewayClient(serverURL string) fleetnodegatewayv1connect.FleetNodeGatewayServiceClient {
+	return fleetnodegatewayv1connect.NewFleetNodeGatewayServiceClient(newGatewayHTTPClient(), serverURL)
 }

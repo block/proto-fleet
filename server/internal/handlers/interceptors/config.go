@@ -1,12 +1,12 @@
 package interceptors
 
 import (
-	"github.com/block/proto-fleet/server/generated/grpc/agentadmin/v1/agentadminv1connect"
-	"github.com/block/proto-fleet/server/generated/grpc/agentgateway/v1/agentgatewayv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/apikey/v1/apikeyv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/curtailment/v1/curtailmentv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1/fleetnodeadminv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
@@ -22,10 +22,10 @@ var RedactedRequestProcedures = []string{
 	onboardingv1connect.OnboardingServiceCreateAdminLoginProcedure,
 	minercommandv1connect.MinerCommandServiceUpdateMiningPoolsProcedure,
 	minercommandv1connect.MinerCommandServiceUpdateMinerPasswordProcedure,
-	agentgatewayv1connect.AgentGatewayServiceRegisterProcedure,
-	agentgatewayv1connect.AgentGatewayServiceBeginAuthHandshakeProcedure,
-	agentgatewayv1connect.AgentGatewayServiceCompleteAuthHandshakeProcedure,
-	agentgatewayv1connect.AgentGatewayServiceUploadHeartbeatProcedure,
+	fleetnodegatewayv1connect.FleetNodeGatewayServiceRegisterProcedure,
+	fleetnodegatewayv1connect.FleetNodeGatewayServiceBeginAuthHandshakeProcedure,
+	fleetnodegatewayv1connect.FleetNodeGatewayServiceCompleteAuthHandshakeProcedure,
+	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadHeartbeatProcedure,
 }
 
 // RedactedResponseProcedures lists procedures whose responses contain secrets
@@ -34,10 +34,10 @@ var RedactedResponseProcedures = []string{
 	apikeyv1connect.ApiKeyServiceCreateApiKeyProcedure,
 	authv1connect.AuthServiceCreateUserProcedure,
 	authv1connect.AuthServiceResetUserPasswordProcedure,
-	agentgatewayv1connect.AgentGatewayServiceBeginAuthHandshakeProcedure,
-	agentgatewayv1connect.AgentGatewayServiceCompleteAuthHandshakeProcedure,
-	agentadminv1connect.AgentAdminServiceCreateEnrollmentCodeProcedure,
-	agentadminv1connect.AgentAdminServiceConfirmAgentProcedure,
+	fleetnodegatewayv1connect.FleetNodeGatewayServiceBeginAuthHandshakeProcedure,
+	fleetnodegatewayv1connect.FleetNodeGatewayServiceCompleteAuthHandshakeProcedure,
+	fleetnodeadminv1connect.FleetNodeAdminServiceCreateEnrollmentCodeProcedure,
+	fleetnodeadminv1connect.FleetNodeAdminServiceConfirmFleetNodeProcedure,
 }
 
 // SessionOnlyProcedures lists procedures that require session-cookie auth and
@@ -61,14 +61,14 @@ var SessionOnlyProcedures = []string{
 	authv1connect.AuthServiceResetUserPasswordProcedure,
 	authv1connect.AuthServiceDeactivateUserProcedure,
 	authv1connect.AuthServiceVerifyCredentialsProcedure,
-	// AgentAdminService mints credentials (enrollment codes, agent api_keys)
+	// FleetNodeAdminService mints credentials (enrollment codes, agent api_keys)
 	// and exposes operator-only fleet metadata. Restrict to interactive
 	// browser sessions so a leaked user api_key cannot bootstrap rogue
 	// agents.
-	agentadminv1connect.AgentAdminServiceCreateEnrollmentCodeProcedure,
-	agentadminv1connect.AgentAdminServiceListAgentsProcedure,
-	agentadminv1connect.AgentAdminServiceConfirmAgentProcedure,
-	agentadminv1connect.AgentAdminServiceRevokeAgentProcedure,
+	fleetnodeadminv1connect.FleetNodeAdminServiceCreateEnrollmentCodeProcedure,
+	fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodesProcedure,
+	fleetnodeadminv1connect.FleetNodeAdminServiceConfirmFleetNodeProcedure,
+	fleetnodeadminv1connect.FleetNodeAdminServiceRevokeFleetNodeProcedure,
 	// AdminTerminateEvent forces a non-terminal event to a terminal state and
 	// is session-only. Paired with handler-side requireAdminFromContext in
 	// handlers/curtailment/handler.go; neither check alone is sufficient.
@@ -84,9 +84,9 @@ var UnauthenticatedProcedures = []string{
 	onboardingv1connect.OnboardingServiceGetFleetInitStatusProcedure,
 	// Bootstrap RPCs: the agent has no session_token yet. Register validates
 	// an enrollment_token in the body; the handshake validates an api_key.
-	agentgatewayv1connect.AgentGatewayServiceRegisterProcedure,
-	agentgatewayv1connect.AgentGatewayServiceBeginAuthHandshakeProcedure,
-	agentgatewayv1connect.AgentGatewayServiceCompleteAuthHandshakeProcedure,
+	fleetnodegatewayv1connect.FleetNodeGatewayServiceRegisterProcedure,
+	fleetnodegatewayv1connect.FleetNodeGatewayServiceBeginAuthHandshakeProcedure,
+	fleetnodegatewayv1connect.FleetNodeGatewayServiceCompleteAuthHandshakeProcedure,
 }
 
 // AgentAuthenticatedProcedures lists procedures gated by AgentAuthInterceptor
@@ -94,10 +94,10 @@ var UnauthenticatedProcedures = []string{
 // short-circuits these so the two interceptors don't fight over the same
 // procedure.
 var AgentAuthenticatedProcedures = []string{
-	agentgatewayv1connect.AgentGatewayServiceUploadTelemetryProcedure,
-	agentgatewayv1connect.AgentGatewayServiceUploadEventsProcedure,
-	agentgatewayv1connect.AgentGatewayServiceUploadHeartbeatProcedure,
-	agentgatewayv1connect.AgentGatewayServiceControlStreamProcedure,
+	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadTelemetryProcedure,
+	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadEventsProcedure,
+	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadHeartbeatProcedure,
+	fleetnodegatewayv1connect.FleetNodeGatewayServiceControlStreamProcedure,
 }
 
 // SensitiveBodyProcedures lists RPCs whose request/response bodies must not be
@@ -110,7 +110,7 @@ var SensitiveBodyProcedures = map[string]bool{
 	authv1connect.AuthServiceAuthenticateProcedure:                            true,
 	authv1connect.AuthServiceVerifyCredentialsProcedure:                       true,
 	fleetmanagementv1connect.FleetManagementServiceUpdateWorkerNamesProcedure: true,
-	agentgatewayv1connect.AgentGatewayServiceControlStreamProcedure:           true,
-	agentgatewayv1connect.AgentGatewayServiceUploadTelemetryProcedure:         true,
-	agentgatewayv1connect.AgentGatewayServiceUploadEventsProcedure:            true,
+	fleetnodegatewayv1connect.FleetNodeGatewayServiceControlStreamProcedure:   true,
+	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadTelemetryProcedure: true,
+	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadEventsProcedure:    true,
 }
