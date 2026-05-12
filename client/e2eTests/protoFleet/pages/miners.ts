@@ -60,6 +60,24 @@ export class MinersPage extends BasePage {
     return popover;
   }
 
+  private async openNumericRangeFilterModal(categoryKey: string) {
+    const popover = await this.openAddFilterPopover();
+    await popover.getByTestId(`nested-dropdown-filter-row-${categoryKey}`).click();
+
+    const modal = this.page.getByTestId(`numeric-range-modal-${categoryKey}`);
+    await expect(modal).toBeVisible();
+    return modal;
+  }
+
+  private async openTextareaListFilterModal(categoryKey: string) {
+    const popover = await this.openAddFilterPopover();
+    await popover.getByTestId(`nested-dropdown-filter-row-${categoryKey}`).click();
+
+    const modal = this.page.getByTestId(`textarea-list-modal-${categoryKey}`);
+    await expect(modal).toBeVisible();
+    return modal;
+  }
+
   private async dismissAddFilterPopover() {
     const popover = this.page.getByTestId("nested-dropdown-filter-popover");
     if (this.isMobile) {
@@ -113,6 +131,27 @@ export class MinersPage extends BasePage {
   async filterRigMiners() {
     await this.filterMinersByModel(PROTO_RIG_MODEL);
     await this.waitForAntminersToDisappear();
+  }
+
+  async applyPowerFilter(min: number | undefined, max: number | undefined) {
+    const modal = await this.openNumericRangeFilterModal("power");
+
+    const minInput = modal.getByTestId("numeric-range-power-min");
+    const maxInput = modal.getByTestId("numeric-range-power-max");
+
+    await minInput.fill(min === undefined ? "" : String(min));
+    await maxInput.fill(max === undefined ? "" : String(max));
+
+    await modal.getByRole("button", { name: "Apply", exact: true }).click();
+    await expect(modal).toBeHidden();
+  }
+
+  async applySubnetFilter(values: string[]) {
+    const modal = await this.openTextareaListFilterModal("subnet");
+
+    await modal.getByTestId("textarea-list-subnet").fill(values.join("\n"));
+    await modal.getByRole("button", { name: "Apply", exact: true }).click();
+    await expect(modal).toBeHidden();
   }
 
   async filterAllMinersExceptRig() {
@@ -884,6 +923,10 @@ export class MinersPage extends BasePage {
     await expect(activeFilterButton).toBeVisible();
   }
 
+  async validateActiveFilterSummary(filterValue: string, expectedSummary: string) {
+    await expect(this.page.getByTestId(`active-filter-${filterValue}-edit`)).toHaveText(expectedSummary);
+  }
+
   async validateActiveFilterNotVisible(filterLabel: string) {
     const activeFilterButton = this.page.locator('button[data-testid^="active-filter-"][data-testid$="-edit"]', {
       hasText: filterLabel,
@@ -893,6 +936,10 @@ export class MinersPage extends BasePage {
 
   async clickClearAllFilters() {
     await this.page.getByRole("button", { name: "Clear all filters", exact: true }).click();
+  }
+
+  async clearActiveFilter(filterValue: string) {
+    await this.page.getByTestId(`active-filter-${filterValue}-clear`).click();
   }
 
   async validateNoResultsEmptyState() {
@@ -978,6 +1025,64 @@ export class MinersPage extends BasePage {
 
   async clickGetStarted() {
     await this.clickButton("Get started");
+  }
+
+  async clickNewSavedViewButton() {
+    await this.page.getByTestId("views-bar-new-view-button").click();
+  }
+
+  async validateViewModalOpened(title: "New view" | "Update view") {
+    const modal = this.page.getByTestId("view-modal");
+    await expect(modal).toBeVisible();
+    await expect(modal).toContainText(title);
+  }
+
+  async inputViewName(name: string) {
+    await this.page.locator("#view-name").fill(name);
+  }
+
+  async saveNewView() {
+    await this.page.getByTestId("view-modal").getByRole("button", { name: "Save", exact: true }).click();
+    await expect(this.page.getByTestId("view-modal")).toBeHidden();
+  }
+
+  async updateSavedView() {
+    await this.page.getByTestId("view-modal").getByRole("button", { name: "Update", exact: true }).click();
+    await expect(this.page.getByTestId("view-modal")).toBeHidden();
+  }
+
+  private getViewTab(viewName: string) {
+    return this.page
+      .getByTestId("views-bar")
+      .locator('[data-testid^="views-bar-tab-"]')
+      .filter({ has: this.page.getByRole("button", { name: viewName, exact: true }) })
+      .first();
+  }
+
+  async validateViewTabVisible(viewName: string) {
+    await expect(this.getViewTab(viewName)).toBeVisible();
+  }
+
+  async validateViewTabActive(viewName: string) {
+    await expect(this.getViewTab(viewName)).toHaveAttribute("data-active", "true");
+  }
+
+  async clickViewTab(viewName: string) {
+    await this.getViewTab(viewName).getByRole("button", { name: viewName, exact: true }).click();
+  }
+
+  async openViewTabKebab(viewName: string) {
+    await this.getViewTab(viewName).getByLabel(`Actions for ${viewName}`, { exact: true }).click();
+  }
+
+  async clickResetViewAction(viewName: string) {
+    await this.openViewTabKebab(viewName);
+    await this.page.getByText("Reset view", { exact: true }).click();
+  }
+
+  async clickUpdateViewAction(viewName: string) {
+    await this.openViewTabKebab(viewName);
+    await this.page.getByText("Update view", { exact: true }).click();
   }
 
   async clickMinerElementByTestId(ipAddress: string, testId: string) {
