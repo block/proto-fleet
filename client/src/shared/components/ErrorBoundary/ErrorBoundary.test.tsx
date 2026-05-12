@@ -1,7 +1,9 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ErrorBoundary } from "./ErrorBoundary";
+
+const CHUNK_RELOAD_SESSION_KEY = "proto-fleet:chunk-reload-attempted";
 
 // Component that throws an error for testing
 const ThrowError = ({ shouldThrow = false }: { shouldThrow?: boolean }) => {
@@ -9,6 +11,16 @@ const ThrowError = ({ shouldThrow = false }: { shouldThrow?: boolean }) => {
     throw new Error("Test error message");
   }
   return <div>Normal content</div>;
+};
+
+const ThrowChunkError = ({ message }: { message: string }) => {
+  const err = new Error(message);
+  err.name = "ChunkLoadError";
+  throw err;
+};
+
+const ThrowDynamicImportError = ({ message }: { message: string }) => {
+  throw new Error(message);
 };
 
 // Custom fallback component for testing
@@ -113,5 +125,84 @@ describe("ErrorBoundary", () => {
 
     expect(screen.getByText("Something went wrong")).toBeInTheDocument();
     expect(screen.getByText("String error")).toBeInTheDocument();
+  });
+
+  describe("chunk-load failure recovery", () => {
+    let reloadSpy: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      window.sessionStorage.removeItem(CHUNK_RELOAD_SESSION_KEY);
+      reloadSpy = vi.fn();
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        value: { ...window.location, reload: reloadSpy },
+      });
+    });
+
+    afterEach(() => {
+      window.sessionStorage.removeItem(CHUNK_RELOAD_SESSION_KEY);
+    });
+
+    it("reloads the page when a ChunkLoadError is caught", () => {
+      render(
+        <ErrorBoundary>
+          <ThrowChunkError message="Loading chunk 42 failed." />
+        </ErrorBoundary>,
+      );
+
+      expect(reloadSpy).toHaveBeenCalledTimes(1);
+      expect(window.sessionStorage.getItem(CHUNK_RELOAD_SESSION_KEY)).toBe("1");
+    });
+
+    it("reloads on a Vite 'Failed to fetch dynamically imported module' error", () => {
+      render(
+        <ErrorBoundary>
+          <ThrowDynamicImportError message="Failed to fetch dynamically imported module: /assets/Foo-abc123.js" />
+        </ErrorBoundary>,
+      );
+
+      expect(reloadSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not reload a second time within the same session", () => {
+      window.sessionStorage.setItem(CHUNK_RELOAD_SESSION_KEY, "1");
+
+      render(
+        <ErrorBoundary>
+          <ThrowChunkError message="Loading chunk 42 failed." />
+        </ErrorBoundary>,
+      );
+
+      expect(reloadSpy).not.toHaveBeenCalled();
+      expect(screen.getByText("Something went wrong")).toBeInTheDocument();
+    });
+
+    it("clears the chunk-reload guard when the user retries via the fallback", () => {
+      window.sessionStorage.setItem(CHUNK_RELOAD_SESSION_KEY, "1");
+
+      // Use a non-chunk error to isolate the resetError path: the boundary
+      // shows its fallback without triggering the reload guard, so the
+      // sessionStorage clear from a Retry click is directly observable.
+      render(
+        <ErrorBoundary>
+          <ThrowError shouldThrow={true} />
+        </ErrorBoundary>,
+      );
+
+      fireEvent.click(screen.getByText("Retry"));
+
+      expect(window.sessionStorage.getItem(CHUNK_RELOAD_SESSION_KEY)).toBeNull();
+    });
+
+    it("does not reload for unrelated errors", () => {
+      render(
+        <ErrorBoundary>
+          <ThrowError shouldThrow={true} />
+        </ErrorBoundary>,
+      );
+
+      expect(reloadSpy).not.toHaveBeenCalled();
+      expect(window.sessionStorage.getItem(CHUNK_RELOAD_SESSION_KEY)).toBeNull();
+    });
   });
 });
