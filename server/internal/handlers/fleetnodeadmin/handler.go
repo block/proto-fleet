@@ -46,21 +46,21 @@ func (h *Handler) ListFleetNodes(ctx context.Context, _ *connect.Request[pb.List
 	if err != nil {
 		return nil, err
 	}
-	agents, err := h.enrollment.ListFleetNodes(ctx, info.OrganizationID)
+	fleetNodes, err := h.enrollment.ListFleetNodes(ctx, info.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
-	resp := &pb.ListFleetNodesResponse{FleetNodes: make([]*pb.FleetNodeSummary, 0, len(agents))}
-	for _, a := range agents {
+	resp := &pb.ListFleetNodesResponse{FleetNodes: make([]*pb.FleetNodeSummary, 0, len(fleetNodes))}
+	for _, n := range fleetNodes {
 		summary := &pb.FleetNodeSummary{
-			FleetNodeId:         a.ID,
-			Name:                a.Name,
-			EnrollmentStatus:    deriveDisplayStatus(a),
-			IdentityFingerprint: fleetnodeenrollment.IdentityFingerprint(a.IdentityPubkey),
-			CreatedAt:           timestamppb.New(a.CreatedAt),
+			FleetNodeId:         n.ID,
+			Name:                n.Name,
+			EnrollmentStatus:    deriveDisplayStatus(n),
+			IdentityFingerprint: fleetnodeenrollment.IdentityFingerprint(n.IdentityPubkey),
+			CreatedAt:           timestamppb.New(n.CreatedAt),
 		}
-		if a.LastSeenAt != nil {
-			summary.LastSeenAt = timestamppb.New(*a.LastSeenAt)
+		if n.LastSeenAt != nil {
+			summary.LastSeenAt = timestamppb.New(*n.LastSeenAt)
 		}
 		resp.FleetNodes = append(resp.FleetNodes, summary)
 	}
@@ -100,17 +100,17 @@ func (h *Handler) requireAdminSession(ctx context.Context) (*session.Info, error
 		return nil, err
 	}
 	if info.Role != domainAuth.SuperAdminRoleName && info.Role != domainAuth.AdminRoleName {
-		return nil, fleeterror.NewForbiddenError("only admins can manage agents")
+		return nil, fleeterror.NewForbiddenError("only admins can manage fleet nodes")
 	}
 	return info, nil
 }
 
-// AWAITING_CONFIRMATION lives only on pending_enrollment, so a PENDING agent
-// whose pending row is AWAITING_CONFIRMATION surfaces as such instead.
-func deriveDisplayStatus(a fleetnodeenrollment.FleetNodeListing) pb.FleetNodeEnrollmentStatus {
-	switch a.EnrollmentStatus {
+// AWAITING_CONFIRMATION lives only on pending_enrollment, so a PENDING fleet
+// node whose pending row is AWAITING_CONFIRMATION surfaces as such instead.
+func deriveDisplayStatus(n fleetnodeenrollment.FleetNodeListing) pb.FleetNodeEnrollmentStatus {
+	switch n.EnrollmentStatus {
 	case fleetnodeenrollment.FleetNodeStatusPending:
-		if a.PendingEnrollmentStatus == fleetnodeenrollment.StatusAwaitingConfirmation {
+		if n.PendingEnrollmentStatus == fleetnodeenrollment.StatusAwaitingConfirmation {
 			return pb.FleetNodeEnrollmentStatus_FLEET_NODE_ENROLLMENT_STATUS_AWAITING_CONFIRMATION
 		}
 		return pb.FleetNodeEnrollmentStatus_FLEET_NODE_ENROLLMENT_STATUS_PENDING

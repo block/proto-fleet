@@ -91,8 +91,8 @@ func (s *Service) BeginHandshake(ctx context.Context, apiKeyPlaintext string, id
 		return nil, time.Time{}, logInternal("generate challenge", clientErrAuth, err)
 	}
 	expiresAt := time.Now().UTC().Add(s.challengeTTL)
-	// UpsertChallenge atomically replaces any prior row for this agent (one
-	// challenge per agent enforced by uq_fleet_node_auth_challenge_fleet_node_id), so
+	// UpsertChallenge atomically replaces any prior row for this fleet node (one
+	// challenge per fleet node enforced by uq_fleet_node_auth_challenge_fleet_node_id), so
 	// concurrent BeginHandshakes can't leave multiple valid challenges.
 	if err := s.store.UpsertChallenge(ctx, challenge, agent.ID, expiresAt); err != nil {
 		return nil, time.Time{}, logInternal("store challenge", clientErrAuth, err)
@@ -130,8 +130,8 @@ func (s *Service) CompleteHandshake(ctx context.Context, challenge, signature []
 	}
 	plaintext := base64.RawURLEncoding.EncodeToString(tokenBytes)
 	expiresAt := now.Add(s.sessionTTL)
-	// UpsertSession atomically replaces any prior session for this agent
-	// (one session per agent enforced by uq_fleet_node_session_fleet_node_id), so
+	// UpsertSession atomically replaces any prior session for this fleet node
+	// (one session per fleet node enforced by uq_fleet_node_session_fleet_node_id), so
 	// re-authentication rotates the bearer token instead of accumulating.
 	if err := s.store.UpsertSession(ctx, hashToken(plaintext), agentID, expiresAt); err != nil {
 		return "", time.Time{}, logInternal("store session", clientErrAuth, err)

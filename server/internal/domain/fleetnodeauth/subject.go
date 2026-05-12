@@ -8,7 +8,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
-// Subject is the agent identity placed on ctx by FleetNodeAuthInterceptor.
+// Subject is the fleet node identity placed on ctx by FleetNodeAuthInterceptor.
 type Subject struct {
 	FleetNodeID         int64
 	OrgID               int64
@@ -20,7 +20,7 @@ func GetSubject(ctx context.Context) (*Subject, error) {
 	sub, ok := authn.GetInfo(ctx).(*Subject)
 	if !ok {
 		return nil, fleeterror.NewInternalError(
-			"context does not have agent subject; route is not under FleetNodeAuthInterceptor",
+			"context does not have fleet node subject; route is not under FleetNodeAuthInterceptor",
 		)
 	}
 	return sub, nil

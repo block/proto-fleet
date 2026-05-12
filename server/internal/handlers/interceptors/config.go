@@ -61,10 +61,10 @@ var SessionOnlyProcedures = []string{
 	authv1connect.AuthServiceResetUserPasswordProcedure,
 	authv1connect.AuthServiceDeactivateUserProcedure,
 	authv1connect.AuthServiceVerifyCredentialsProcedure,
-	// FleetNodeAdminService mints credentials (enrollment codes, agent api_keys)
-	// and exposes operator-only fleet metadata. Restrict to interactive
-	// browser sessions so a leaked user api_key cannot bootstrap rogue
-	// agents.
+	// FleetNodeAdminService mints credentials (enrollment codes, fleet node
+	// api_keys) and exposes operator-only fleet metadata. Restrict to
+	// interactive browser sessions so a leaked user api_key cannot bootstrap
+	// rogue fleet nodes.
 	fleetnodeadminv1connect.FleetNodeAdminServiceCreateEnrollmentCodeProcedure,
 	fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodesProcedure,
 	fleetnodeadminv1connect.FleetNodeAdminServiceConfirmFleetNodeProcedure,
@@ -82,8 +82,9 @@ var UnauthenticatedProcedures = []string{
 	authv1connect.AuthServiceAuthenticateProcedure,
 	onboardingv1connect.OnboardingServiceCreateAdminLoginProcedure,
 	onboardingv1connect.OnboardingServiceGetFleetInitStatusProcedure,
-	// Bootstrap RPCs: the agent has no session_token yet. Register validates
-	// an enrollment_token in the body; the handshake validates an api_key.
+	// Bootstrap RPCs: the fleet node has no session_token yet. Register
+	// validates an enrollment_token in the body; the handshake validates an
+	// api_key.
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceRegisterProcedure,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceBeginAuthHandshakeProcedure,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceCompleteAuthHandshakeProcedure,
