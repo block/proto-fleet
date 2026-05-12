@@ -56,19 +56,26 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo): void {
+    // React's componentDidCatch type says Error, but the runtime passes
+    // the raw thrown value — `throw null` / `throw "string"` reach here
+    // unnormalized. getDerivedStateFromError normalizes for state;
+    // mirror that here so downstream code (isChunkLoadError, onError)
+    // can rely on .name / .message access.
+    const normalized = error instanceof Error ? error : new Error(String(error));
+
     // Log the error to console in development
     if (import.meta.env.DEV) {
-      console.error("ErrorBoundary caught an error:", error, errorInfo);
+      console.error("ErrorBoundary caught an error:", normalized, errorInfo);
     }
 
     // Call the onError callback if provided
-    this.props.onError?.(error, errorInfo);
+    this.props.onError?.(normalized, errorInfo);
 
     // Increment the counter and refresh until MAX, then the fallback
     // is sticky. resetError deliberately leaves the counter intact —
     // clearing it would let Retry bypass the cap when the CDN stays
     // broken.
-    if (!isChunkLoadError(error) || typeof window === "undefined") return;
+    if (!isChunkLoadError(normalized) || typeof window === "undefined") return;
 
     // sessionStorage can throw in private-mode Safari or sandboxed
     // iframes. Without persistent state we can't cap reloads, and

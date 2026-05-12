@@ -125,6 +125,34 @@ describe("ErrorBoundary", () => {
     expect(screen.getByText("String error")).toBeInTheDocument();
   });
 
+  it("renders the fallback when a descendant throws null", () => {
+    const NullThrower = () => {
+      throw null;
+    };
+
+    render(
+      <ErrorBoundary>
+        <NullThrower />
+      </ErrorBoundary>,
+    );
+
+    expect(screen.getByText("Something went wrong")).toBeInTheDocument();
+  });
+
+  it("renders the fallback when a descendant throws undefined", () => {
+    const UndefinedThrower = () => {
+      throw undefined;
+    };
+
+    render(
+      <ErrorBoundary>
+        <UndefinedThrower />
+      </ErrorBoundary>,
+    );
+
+    expect(screen.getByText("Something went wrong")).toBeInTheDocument();
+  });
+
   describe("chunk-load failure recovery", () => {
     let reloadSpy: ReturnType<typeof vi.fn>;
 
