@@ -78,11 +78,6 @@ const App = ({
   // Apply theme effects on mount
   useApplyTheme({ theme, deviceTheme, setDeviceTheme });
 
-  // Warm sidebar-destination chunks at idle so the first click on a top-level
-  // nav item resolves without a Suspense fallback. Returns the prefetch cancel
-  // handle so React cancels the pending idle callback on unmount.
-  useEffect(() => prefetchRoutes(globalRoutePrefetch), []);
-
   const navigate = useNavigate();
   const location = useLocation();
   const { pathname } = useMemo(() => location, [location]);
@@ -251,6 +246,16 @@ const App = ({
   // ============================================================================
   const isWebServerRunning = useIsWebServerRunning();
   const isMiningDriverRunning = useIsMiningDriverRunning();
+
+  // Warm sidebar-destination chunks at idle, but only once the device has
+  // passed the boot wall — kicking off chunk fetches in parallel with the
+  // system-status polling that runs during BootingUp contends for bandwidth
+  // on miner hardware. The explicit return keeps the cancel-on-unmount
+  // contract robust to a future block-body refactor.
+  useEffect(() => {
+    if (!isWebServerRunning || !isMiningDriverRunning) return;
+    return prefetchRoutes(globalRoutePrefetch);
+  }, [isWebServerRunning, isMiningDriverRunning]);
 
   // ============================================================================
   // FIRMWARE UPDATE AUTO-REFRESH AFTER REBOOT
