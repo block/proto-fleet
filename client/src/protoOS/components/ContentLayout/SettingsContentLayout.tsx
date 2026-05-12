@@ -4,11 +4,11 @@ import { settingsRoutePrefetch } from "@/protoOS/router";
 import { prefetchRoutes } from "@/shared/utils/prefetchRoutes";
 
 const SettingsContentLayout = ({ children }: ContentLayoutProps) => {
-  // Once the user is in /settings/*, the sibling tab chunks are one click
-  // away; warm them at idle so tab switches resolve without a Suspense flash.
-  // Returns the prefetch cancel handle so React cancels the pending idle
-  // callback on unmount.
-  useEffect(() => prefetchRoutes(settingsRoutePrefetch), []);
+  // Warm sibling /settings/* tab chunks at idle. The explicit return keeps
+  // the cancel-on-unmount contract robust to a future block-body refactor.
+  useEffect(() => {
+    return prefetchRoutes(settingsRoutePrefetch);
+  }, []);
 
   return (
     <div className="m-6 flex justify-center laptop:m-14">

@@ -8,6 +8,7 @@ import type { PageBackground } from "./hooks/usePageBackground";
 import { onboardingClient } from "@/protoFleet/api/clients";
 // eslint-disable-next-line no-restricted-imports -- Fleet shell embeds the protoOS single-miner experience
 import { singleMinerRoutePrefetch, routerConfig as singleMinerRoutes } from "@/protoOS/router";
+import type { RouteImporter } from "@/shared/utils/prefetchRoutes";
 
 // Re-export so SingleMinerWrapper can warm the protoOS single-miner chunks
 // without crossing the protoOS boundary directly. The boundary crossing is
@@ -76,7 +77,7 @@ const FleetDown = lazy(importFleetDown);
 // Sidebar destinations + the default settings sub-route. App.tsx triggers this
 // at idle after first paint so a click on any nav item resolves without a
 // Suspense fallback.
-export const globalRoutePrefetch = [
+export const globalRoutePrefetch: readonly RouteImporter[] = [
   importDashboard,
   importMiners,
   importGroupsPage,
@@ -88,7 +89,7 @@ export const globalRoutePrefetch = [
 
 // Settings sub-routes; SettingsLayout triggers this on mount so the rest of
 // the tab strip is warm by the time the user clicks across.
-export const settingsRoutePrefetch = [
+export const settingsRoutePrefetch: readonly RouteImporter[] = [
   importSettingsAuth,
   importSettingsMiningPools,
   importSettingsTeam,

@@ -5,7 +5,7 @@
 // the same import factory, so calling prefetchRoutes() more than once with
 // overlapping importers is safe and effectively free.
 
-type RouteImporter = () => Promise<unknown>;
+export type RouteImporter = () => Promise<unknown>;
 
 type CancelPrefetch = () => void;
 
@@ -25,13 +25,14 @@ const schedule = (cb: () => void): CancelPrefetch => {
   return () => clearTimeout(handle);
 };
 
-export const prefetchRoutes = (importers: RouteImporter[]): CancelPrefetch => {
+export const prefetchRoutes = (importers: readonly RouteImporter[]): CancelPrefetch => {
   return schedule(() => {
     for (const importer of importers) {
       // Log rejections so a deploy that invalidates chunk hashes (and 404s
       // every prefetch on every open tab) is visible in ops, not silent. The
-      // real navigation re-invokes the import and surfaces any error through
-      // the Suspense/ErrorBoundary path; this log is observability-only.
+      // ESM module registry caches rejected dynamic imports, so React.lazy's
+      // later call returns the same rejection — recovery happens in the
+      // ErrorBoundary's chunk-failure reload path, not via the import itself.
       importer().catch((err) => {
         console.error("[prefetchRoutes] chunk prefetch failed:", err);
       });

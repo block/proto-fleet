@@ -29,9 +29,11 @@ const SingleMinerWrapper = ({ children }: { children: ReactNode }) => {
   // Once the user is in /miners/:id/*, the sibling protoOS single-miner
   // chunks (KPI tabs, Logs, Diagnostics, per-miner Settings) are one click
   // away; warm them at idle so tab switches resolve without a Suspense flash.
-  // Returns the prefetch cancel handle so React cancels the pending idle
-  // callback on unmount (e.g. when the user exits back to /miners).
-  useEffect(() => prefetchRoutes(singleMinerRoutePrefetch), []);
+  // The explicit return keeps the cancel-on-unmount contract robust to a
+  // future block-body refactor.
+  useEffect(() => {
+    return prefetchRoutes(singleMinerRoutePrefetch);
+  }, []);
 
   // Here we are just setting the base url to <vite_server>/:id,
   // which vite proxies to the actual miner api server.

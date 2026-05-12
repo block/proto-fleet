@@ -8,6 +8,7 @@ import SettingsContentLayout from "@/protoOS/components/ContentLayout/SettingsCo
 import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
 import KpiLayout from "@/protoOS/features/kpis/components/KpiLayout";
 import { settingsRouteMetadata } from "@/protoOS/routeAuth";
+import type { RouteImporter } from "@/shared/utils/prefetchRoutes";
 
 // Custom route type with requiresAuth property
 export type CustomRouteObject = RouteObject & {
@@ -68,7 +69,7 @@ const SettingsCooling = lazy(importSettingsCooling);
 // Top-level destinations reachable from the protoOS sidebar plus the KPI tab
 // strip siblings of the default landing route. protoOS App.tsx triggers this
 // at idle after first paint.
-export const globalRoutePrefetch = [
+export const globalRoutePrefetch: readonly RouteImporter[] = [
   importHashrate,
   importEfficiency,
   importPowerUsage,
@@ -80,7 +81,7 @@ export const globalRoutePrefetch = [
 
 // Settings sub-routes; SettingsContentLayout triggers this on mount so the
 // tab strip is warm by the time the user clicks across.
-export const settingsRoutePrefetch = [
+export const settingsRoutePrefetch: readonly RouteImporter[] = [
   importSettingsAuthentication,
   importSettingsMiningPools,
   importSettingsHardware,
@@ -93,7 +94,11 @@ export const settingsRoutePrefetch = [
 // clicks across them. Composes globalRoutePrefetch + settingsRoutePrefetch
 // (plus the per-hashboard temperature drill-in) so adding a route to either
 // upstream tier flows through automatically.
-export const singleMinerRoutePrefetch = [...globalRoutePrefetch, importHashboardTemperature, ...settingsRoutePrefetch];
+export const singleMinerRoutePrefetch: readonly RouteImporter[] = [
+  ...globalRoutePrefetch,
+  importHashboardTemperature,
+  ...settingsRoutePrefetch,
+];
 
 // Helper to create route objects with App wrapper
 interface CreateRouteOptions {

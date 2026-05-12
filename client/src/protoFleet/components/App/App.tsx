@@ -63,9 +63,11 @@ const App = ({ children, fullscreen }: AppProps) => {
   // ROUTE CHUNK PREFETCH
   // ============================================================================
   // Warm sidebar-destination chunks at idle so the first click on a top-level
-  // nav item resolves without a Suspense fallback. Returns the prefetch cancel
-  // handle so React cancels the pending idle callback on unmount.
-  useEffect(() => prefetchRoutes(globalRoutePrefetch), []);
+  // nav item resolves without a Suspense fallback. The explicit return keeps
+  // the cancel-on-unmount contract robust to a future block-body refactor.
+  useEffect(() => {
+    return prefetchRoutes(globalRoutePrefetch);
+  }, []);
 
   // ============================================================================
   // THEME APPLICATION
