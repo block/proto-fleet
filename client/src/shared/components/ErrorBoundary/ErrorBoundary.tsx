@@ -33,7 +33,9 @@ const isChunkLoadError = (error: Error): boolean => {
   return (
     /Loading (CSS )?chunk \d+ failed/i.test(message) ||
     /Failed to fetch dynamically imported module/i.test(message) ||
-    /error loading dynamically imported module/i.test(message)
+    /error loading dynamically imported module/i.test(message) ||
+    /Importing a module script failed/i.test(message) ||
+    /Unable to preload CSS/i.test(message)
   );
 };
 

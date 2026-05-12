@@ -192,6 +192,26 @@ describe("ErrorBoundary", () => {
       expect(reloadSpy).toHaveBeenCalledTimes(1);
     });
 
+    it("reloads on a Safari/WebKit 'Importing a module script failed' error", () => {
+      render(
+        <ErrorBoundary>
+          <ThrowDynamicImportError message="Importing a module script failed." />
+        </ErrorBoundary>,
+      );
+
+      expect(reloadSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("reloads on a Vite 'Unable to preload CSS' error", () => {
+      render(
+        <ErrorBoundary>
+          <ThrowDynamicImportError message="Unable to preload CSS for /assets/Foo-abc123.css" />
+        </ErrorBoundary>,
+      );
+
+      expect(reloadSpy).toHaveBeenCalledTimes(1);
+    });
+
     it("stops reloading once the per-session counter reaches CHUNK_RELOAD_MAX", () => {
       window.sessionStorage.setItem(CHUNK_RELOAD_COUNTER_KEY, String(CHUNK_RELOAD_MAX));
 
