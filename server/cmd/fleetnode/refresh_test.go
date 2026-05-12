@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"encoding/hex"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -54,13 +56,12 @@ func TestRefreshCmd_HappyPath(t *testing.T) {
 	assert.Contains(t, stdout.String(), "refreshed session_expires_at=")
 }
 
-func TestRefreshCmd_PromptsForApiKeyAndSavesBeforeHandshake(t *testing.T) {
+func TestRefreshCmd_PromptsForApiKeyAndPersistsOnSuccess(t *testing.T) {
 	t.Parallel()
 
 	// Arrange: state has keys + fleet_node_id but no api_key (simulating an
 	// interrupted enroll). Refresh prompts for the api_key on stdin and
-	// must persist it before the handshake so a transient handshake error
-	// does not force the operator to re-paste.
+	// persists it only after a successful handshake.
 	dir := t.TempDir()
 	pub, priv, err := fleetnodebootstrap.GenerateKeypair()
 	require.NoError(t, err)
@@ -149,12 +150,51 @@ func TestRefreshCmd_PreservesStateOnBeginAuthRejection(t *testing.T) {
 
 	// Assert
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "server rejected BeginAuthHandshake")
+	assert.ErrorIs(t, err, fleetnodebootstrap.ErrBeginAuthRejected)
 	assert.Contains(t, err.Error(), "Local credentials are preserved")
+	assert.NotContains(t, err.Error(), "invalid api_key", "the server-side message must not leak through; the CLI gives generic guidance for all Unauthenticated causes")
 	loaded, _, _ := fleetnodebootstrap.LoadState(fleetnodebootstrap.StatePath(dir))
 	assert.Equal(t, initial.APIKey, loaded.APIKey)
 	assert.Equal(t, initial.IdentityPrivateKeyHex, loaded.IdentityPrivateKeyHex)
 	assert.Equal(t, int64(7), loaded.FleetNodeID)
+}
+
+func TestRefreshCmd_DoesNotPersistWrongPastedApiKey(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: state has no api_key (partial enroll). Operator pastes the
+	// wrong key at the prompt; BeginAuth rejects it. The wrong key must NOT
+	// land on disk — otherwise the next refresh would skip the prompt and
+	// silently retry the bad key, leaving the operator with no CLI path to
+	// replace it. (Codex PR #221 finding: refresh.go:48.)
+	dir := t.TempDir()
+	pub, priv, err := fleetnodebootstrap.GenerateKeypair()
+	require.NoError(t, err)
+	fake := &fakeFleetNodeGateway{
+		expectedAPIKey: "the-correct-key",
+		identityPub:    pub,
+		challenge:      bytes.Repeat([]byte{0x88}, 32),
+	}
+	srv := newFakeServer(t, fake)
+	require.NoError(t, fleetnodebootstrap.SaveState(fleetnodebootstrap.StatePath(dir), &fleetnodebootstrap.State{
+		ServerURL:              srv.URL,
+		AllowInsecureTransport: true,
+		FleetNodeID:            123,
+		IdentityFingerprint:    "feedface00112233",
+		IdentityPrivateKeyHex:  hex.EncodeToString(priv),
+		IdentityPublicKeyHex:   hex.EncodeToString(pub),
+	}))
+	cmd := RefreshCmd{}
+
+	// Act
+	err = cmd.run(&Context{StateDir: dir}, strings.NewReader("the-wrong-key\n"), &bytes.Buffer{}, &bytes.Buffer{})
+
+	// Assert
+	require.Error(t, err)
+	assert.ErrorIs(t, err, fleetnodebootstrap.ErrBeginAuthRejected)
+	loaded, _, _ := fleetnodebootstrap.LoadState(fleetnodebootstrap.StatePath(dir))
+	assert.Empty(t, loaded.APIKey, "wrong api_key must not be persisted; the next refresh must prompt again")
+	assert.Equal(t, int64(123), loaded.FleetNodeID, "keys + fleet_node_id are preserved so the operator can retry")
 }
 
 func TestRefreshCmd_FailsWhenNoState(t *testing.T) {
@@ -170,4 +210,25 @@ func TestRefreshCmd_FailsWhenNoState(t *testing.T) {
 	// Assert
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "fleetnode enroll")
+}
+
+func TestRefreshCmd_DoesNotTouchStateDirWhenNeverEnrolled(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: point at a state dir that does not exist. The "no state"
+	// bailout must happen before any side-effecting filesystem operation
+	// (no state.lock, no MkdirAll, no chmod). (Copilot PR #221 finding:
+	// refresh.go:24.)
+	parent := t.TempDir()
+	stateDir := filepath.Join(parent, "never-existed")
+	cmd := RefreshCmd{}
+
+	// Act
+	err := cmd.run(&Context{StateDir: stateDir}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
+
+	// Assert
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "fleetnode enroll")
+	_, statErr := os.Stat(stateDir)
+	assert.True(t, os.IsNotExist(statErr), "state dir must not be created when refresh bails out on missing state")
 }

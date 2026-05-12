@@ -97,7 +97,7 @@ func (e *EnrollCmd) runLocked(c *Context, stdin io.Reader, stdout, stderr io.Wri
 
 	if err := fleetnodebootstrap.CompleteEnrollment(context.Background(), state, apiKey); err != nil {
 		if errors.Is(err, fleetnodebootstrap.ErrBeginAuthRejected) {
-			return fmt.Errorf("server rejected BeginAuthHandshake: %w\n  the server returns Unauthenticated for any of: revoked api_key, identity_pubkey mismatch, expired challenge, or server clock drift. Verify the api_key matches the one minted in the UI, then retry with `fleetnode refresh`; local credentials are preserved", err)
+			return fmt.Errorf("%w. The server returns Unauthenticated for any of: revoked api_key, identity_pubkey mismatch, expired challenge, or server clock drift. Verify the api_key matches the one minted in the UI, then retry with `fleetnode refresh`; local credentials are preserved", fleetnodebootstrap.ErrBeginAuthRejected)
 		}
 		return fmt.Errorf("complete enrollment: %w", err)
 	}

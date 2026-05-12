@@ -120,8 +120,9 @@ func TestEnrollCmd_PreservesPartialStateOnBeginAuthRejection(t *testing.T) {
 
 	// Assert
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "server rejected BeginAuthHandshake")
+	assert.ErrorIs(t, err, fleetnodebootstrap.ErrBeginAuthRejected)
 	assert.Contains(t, err.Error(), "revoked api_key, identity_pubkey mismatch")
+	assert.NotContains(t, err.Error(), "invalid api_key", "the server-side message must not leak through; the CLI gives generic guidance for all Unauthenticated causes")
 	loaded, exists, _ := fleetnodebootstrap.LoadState(fleetnodebootstrap.StatePath(dir))
 	require.True(t, exists)
 	assert.Equal(t, int64(99), loaded.FleetNodeID)
