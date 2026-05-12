@@ -120,7 +120,7 @@ The split adds two binaries with independent update cadences. The deployment sto
 
 ### Combined mode
 
-Combined-mode updates remain operator-driven (`docker compose pull && up -d`), identical to today.
+Combined-mode updates remain operator-driven, identical to today.
 
 ## Host observability
 
