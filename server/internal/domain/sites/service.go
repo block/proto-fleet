@@ -15,7 +15,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/sites/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
@@ -46,42 +45,10 @@ type Service struct {
 
 // NewService wires a SiteStore, Transactor, and the activity Service
 // used for fire-and-forget audit logs. activitySvc may be nil in tests
-// or in environments where activity logging is disabled; all
-// logActivity calls nil-check before firing.
+// or in environments where activity logging is disabled; activity.Log
+// is nil-receiver-safe.
 func NewService(store interfaces.SiteStore, transactor interfaces.Transactor, activitySvc *activity.Service) *Service {
 	return &Service{store: store, transactor: transactor, activitySvc: activitySvc}
-}
-
-// logActivity is the nil-safe fire-and-forget wrapper. Audit failures
-// must not fail user RPCs, so we use Service.Log (not LogStrict).
-func (s *Service) logActivity(ctx context.Context, event activitymodels.Event) {
-	if s.activitySvc == nil {
-		return
-	}
-	s.activitySvc.Log(ctx, event)
-}
-
-// stampActor populates the per-user fields on an activity event from
-// session.Info when present. The activity service warns on a nil
-// OrganizationID for non-auth categories, so we always set it from the
-// session even if the service-side caller already populated it.
-func stampActor(ctx context.Context, e *activitymodels.Event) {
-	info, err := session.GetInfo(ctx)
-	if err != nil || info == nil {
-		return
-	}
-	if e.UserID == nil && info.ExternalUserID != "" {
-		uid := info.ExternalUserID
-		e.UserID = &uid
-	}
-	if e.Username == nil && info.Username != "" {
-		uname := info.Username
-		e.Username = &uname
-	}
-	if e.OrganizationID == nil && info.OrganizationID != 0 {
-		oid := info.OrganizationID
-		e.OrganizationID = &oid
-	}
 }
 
 // CreateResult is the output of CreateSite, carrying both the saved
@@ -123,8 +90,8 @@ func (s *Service) CreateSite(ctx context.Context, params models.CreateSiteParams
 			"site_name": site.Name,
 		},
 	}
-	stampActor(ctx, &event)
-	s.logActivity(ctx, event)
+	activity.StampActor(ctx, &event)
+	s.activitySvc.Log(ctx, event)
 
 	return &CreateResult{Site: site, NetworkConfigWarnings: warnings}, nil
 }
@@ -167,8 +134,8 @@ func (s *Service) UpdateSite(ctx context.Context, params models.UpdateSiteParams
 			"site_name": site.Name,
 		},
 	}
-	stampActor(ctx, &event)
-	s.logActivity(ctx, event)
+	activity.StampActor(ctx, &event)
+	s.activitySvc.Log(ctx, event)
 
 	return &UpdateResult{Site: site, NetworkConfigWarnings: warnings}, nil
 }
@@ -254,8 +221,8 @@ func (s *Service) DeleteSite(ctx context.Context, orgID, id int64) (*models.Dele
 			"unassigned_device_count": out.UnassignedDeviceCount,
 		},
 	}
-	stampActor(ctx, &event)
-	s.logActivity(ctx, event)
+	activity.StampActor(ctx, &event)
+	s.activitySvc.Log(ctx, event)
 
 	return &out, nil
 }
@@ -336,8 +303,8 @@ func (s *Service) ReassignDevicesToSite(ctx context.Context, params models.Reass
 				"device_identifiers": idents,
 			},
 		}
-		stampActor(ctx, &event)
-		s.logActivity(ctx, event)
+		activity.StampActor(ctx, &event)
+		s.activitySvc.Log(ctx, event)
 	}
 	return rowsAffected, nil, nil
 }
@@ -407,8 +374,8 @@ func (s *Service) AssignBuildingToSite(ctx context.Context, params models.Assign
 			"reassigned_device_count": deviceCount,
 		},
 	}
-	stampActor(ctx, &event)
-	s.logActivity(ctx, event)
+	activity.StampActor(ctx, &event)
+	s.activitySvc.Log(ctx, event)
 
 	return &models.AssignBuildingToSiteResult{
 		ReassignedRackCount:   rackCount,

@@ -12,7 +12,6 @@ import (
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/buildings/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
@@ -46,36 +45,6 @@ func NewService(
 		siteStore:   siteStore,
 		transactor:  transactor,
 		activitySvc: activitySvc,
-	}
-}
-
-// logActivity is the nil-safe fire-and-forget wrapper. Audit failures
-// must not fail user RPCs, so we use Service.Log (not LogStrict).
-func (s *Service) logActivity(ctx context.Context, event activitymodels.Event) {
-	if s.activitySvc == nil {
-		return
-	}
-	s.activitySvc.Log(ctx, event)
-}
-
-// stampActor populates the per-user fields on an activity event from
-// session.Info when present.
-func stampActor(ctx context.Context, e *activitymodels.Event) {
-	info, err := session.GetInfo(ctx)
-	if err != nil || info == nil {
-		return
-	}
-	if e.UserID == nil && info.ExternalUserID != "" {
-		uid := info.ExternalUserID
-		e.UserID = &uid
-	}
-	if e.Username == nil && info.Username != "" {
-		uname := info.Username
-		e.Username = &uname
-	}
-	if e.OrganizationID == nil && info.OrganizationID != 0 {
-		oid := info.OrganizationID
-		e.OrganizationID = &oid
 	}
 }
 
@@ -124,8 +93,8 @@ func (s *Service) CreateBuilding(ctx context.Context, params models.CreateParams
 			"site_id":       b.SiteID,
 		},
 	}
-	stampActor(ctx, &event)
-	s.logActivity(ctx, event)
+	activity.StampActor(ctx, &event)
+	s.activitySvc.Log(ctx, event)
 
 	return b, nil
 }
@@ -168,8 +137,8 @@ func (s *Service) UpdateBuilding(ctx context.Context, params models.UpdateParams
 			"building_name": b.Name,
 		},
 	}
-	stampActor(ctx, &event)
-	s.logActivity(ctx, event)
+	activity.StampActor(ctx, &event)
+	s.activitySvc.Log(ctx, event)
 
 	return b, nil
 }
@@ -213,8 +182,8 @@ func (s *Service) DeleteBuilding(ctx context.Context, orgID, id int64) (*models.
 			"unassigned_rack_count": out.UnassignedRackCount,
 		},
 	}
-	stampActor(ctx, &event)
-	s.logActivity(ctx, event)
+	activity.StampActor(ctx, &event)
+	s.activitySvc.Log(ctx, event)
 
 	return &out, nil
 }
