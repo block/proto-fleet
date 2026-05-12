@@ -4,7 +4,7 @@ import { secondaryNavItems } from "@/protoFleet/config/navItems";
 import { settingsRoutePrefetch } from "@/protoFleet/routePrefetch";
 import { prefetchRoutes } from "@/shared/utils/prefetchRoutes";
 
-const HomeLayout = ({ children }: { children?: ReactNode }) => {
+const SettingsLayout = ({ children }: { children?: ReactNode }) => {
   // Warm sibling /settings/* tab chunks at idle.
   useEffect(() => {
     return prefetchRoutes(settingsRoutePrefetch);
@@ -20,4 +20,4 @@ const HomeLayout = ({ children }: { children?: ReactNode }) => {
   );
 };
 
-export default HomeLayout;
+export default SettingsLayout;
