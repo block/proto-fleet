@@ -44,6 +44,7 @@ function entryToStructured(entry: LogEntry): StructuredLogEntry {
 const ServerLogsPage = () => {
   const [logsData, setLogsData] = useState<LogsData>();
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   const sinceIdRef = useRef<bigint>(0n);
 
@@ -70,9 +71,11 @@ const ServerLogsPage = () => {
   const fetchMaxLogs = useCallback(async (): Promise<LogsData | undefined> => {
     try {
       const result = await fetchLogs(MAX_LIMIT, 0n);
+      setExportError(null);
       return result.data;
     } catch (err) {
       console.error("Failed to fetch server logs for export", err);
+      setExportError(err instanceof Error ? err.message : String(err));
       return undefined;
     }
   }, [fetchLogs]);
@@ -111,6 +114,16 @@ const ServerLogsPage = () => {
           title="Couldn't load server logs"
           subtitle={fetchError}
           testId="server-logs-error"
+        />
+      ) : null}
+      {exportError ? (
+        <Callout
+          className="mx-4 mb-3 laptop:mx-6"
+          intent="danger"
+          prefixIcon={<Alert />}
+          title="Couldn't export server logs"
+          subtitle={exportError}
+          testId="server-logs-export-error"
         />
       ) : null}
       <Logs logsData={logsData} fetchMaxLogs={fetchMaxLogs} downloadFilename="server-logs" />
