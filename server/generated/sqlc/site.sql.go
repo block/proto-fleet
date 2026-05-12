@@ -86,6 +86,9 @@ JOIN device_set_membership dsm
     ON dsm.device_id = d.id
    AND dsm.org_id = d.org_id
    AND dsm.device_set_type = 'rack'
+JOIN device_set ds
+    ON ds.id = dsm.device_set_id
+   AND ds.deleted_at IS NULL
 JOIN device_set_rack dsr
     ON dsr.device_set_id = dsm.device_set_id
    AND dsr.org_id = d.org_id
@@ -105,8 +108,12 @@ type FindDeviceSiteConflictsRow struct {
 	ConflictingSiteID int64
 }
 
-// For every requested device, returns the site_id of its rack
-// (NULL when the rack has no site or the device has no rack).
+// For every requested device, returns the site_id of its live rack
+// (NULL when the rack has no site or the device has no rack). The
+// JOIN on device_set with deleted_at IS NULL skips memberships that
+// point at soft-deleted rack collections so a stale rack can't trigger
+// a false conflict rejection (rack/building list queries already
+// filter the same way).
 // Service layer compares against the target site to surface
 // per-device conflicts.
 func (q *Queries) FindDeviceSiteConflicts(ctx context.Context, arg FindDeviceSiteConflictsParams) ([]FindDeviceSiteConflictsRow, error) {
@@ -505,6 +512,9 @@ UPDATE device d
 SET site_id = $1,
     updated_at = CURRENT_TIMESTAMP
 FROM device_set_membership dsm
+JOIN device_set ds
+    ON ds.id = dsm.device_set_id
+   AND ds.deleted_at IS NULL
 JOIN device_set_rack dsr
     ON dsr.device_set_id = dsm.device_set_id
    AND dsr.org_id = dsm.org_id
@@ -522,9 +532,11 @@ type ReassignDevicesUnderBuildingParams struct {
 	BuildingID   sql.NullInt64
 }
 
-// Sets device.site_id = $target for every device in any rack of the
-// given building. Caller wraps this in the same tx as the building
-// UPDATE.
+// Sets device.site_id = $target for every device in any live rack of
+// the given building. Caller wraps this in the same tx as the building
+// UPDATE. The JOIN on device_set with deleted_at IS NULL skips
+// soft-deleted rack collections so a stale membership can't rewrite
+// live devices through a rack users no longer see.
 func (q *Queries) ReassignDevicesUnderBuilding(ctx context.Context, arg ReassignDevicesUnderBuildingParams) (int64, error) {
 	result, err := q.exec(ctx, q.reassignDevicesUnderBuildingStmt, reassignDevicesUnderBuilding, arg.TargetSiteID, arg.OrgID, arg.BuildingID)
 	if err != nil {
@@ -534,10 +546,15 @@ func (q *Queries) ReassignDevicesUnderBuilding(ctx context.Context, arg Reassign
 }
 
 const reassignRacksUnderBuilding = `-- name: ReassignRacksUnderBuilding :execrows
-UPDATE device_set_rack
+UPDATE device_set_rack dsr
 SET site_id = $1
-WHERE org_id = $2
-  AND building_id = $3
+WHERE dsr.org_id = $2
+  AND dsr.building_id = $3
+  AND EXISTS (
+      SELECT 1 FROM device_set ds
+      WHERE ds.id = dsr.device_set_id
+        AND ds.deleted_at IS NULL
+  )
 `
 
 type ReassignRacksUnderBuildingParams struct {
@@ -546,9 +563,11 @@ type ReassignRacksUnderBuildingParams struct {
 	BuildingID   sql.NullInt64
 }
 
-// Sets rack.site_id = $target for every rack pointing at the given
-// building. Caller wraps this in the same tx as the building UPDATE so
-// the building/rack/device site_ids stay in lockstep.
+// Sets rack.site_id = $target for every live rack pointing at the
+// given building. Caller wraps this in the same tx as the building
+// UPDATE so the building/rack/device site_ids stay in lockstep. The
+// EXISTS subquery on device_set skips soft-deleted rack collections,
+// matching the list/cascade filters elsewhere.
 func (q *Queries) ReassignRacksUnderBuilding(ctx context.Context, arg ReassignRacksUnderBuildingParams) (int64, error) {
 	result, err := q.exec(ctx, q.reassignRacksUnderBuildingStmt, reassignRacksUnderBuilding, arg.TargetSiteID, arg.OrgID, arg.BuildingID)
 	if err != nil {

@@ -211,8 +211,12 @@ WHERE org_id = sqlc.arg('org_id')
 FOR UPDATE;
 
 -- name: FindDeviceSiteConflicts :many
--- For every requested device, returns the site_id of its rack
--- (NULL when the rack has no site or the device has no rack).
+-- For every requested device, returns the site_id of its live rack
+-- (NULL when the rack has no site or the device has no rack). The
+-- JOIN on device_set with deleted_at IS NULL skips memberships that
+-- point at soft-deleted rack collections so a stale rack can't trigger
+-- a false conflict rejection (rack/building list queries already
+-- filter the same way).
 -- Service layer compares against the target site to surface
 -- per-device conflicts.
 SELECT d.device_identifier, dsr.site_id::bigint AS conflicting_site_id
@@ -221,6 +225,9 @@ JOIN device_set_membership dsm
     ON dsm.device_id = d.id
    AND dsm.org_id = d.org_id
    AND dsm.device_set_type = 'rack'
+JOIN device_set ds
+    ON ds.id = dsm.device_set_id
+   AND ds.deleted_at IS NULL
 JOIN device_set_rack dsr
     ON dsr.device_set_id = dsm.device_set_id
    AND dsr.org_id = d.org_id
@@ -251,22 +258,34 @@ WHERE org_id = sqlc.arg('org_id')
   AND id != sqlc.arg('exclude_id');
 
 -- name: ReassignRacksUnderBuilding :execrows
--- Sets rack.site_id = $target for every rack pointing at the given
--- building. Caller wraps this in the same tx as the building UPDATE so
--- the building/rack/device site_ids stay in lockstep.
-UPDATE device_set_rack
+-- Sets rack.site_id = $target for every live rack pointing at the
+-- given building. Caller wraps this in the same tx as the building
+-- UPDATE so the building/rack/device site_ids stay in lockstep. The
+-- EXISTS subquery on device_set skips soft-deleted rack collections,
+-- matching the list/cascade filters elsewhere.
+UPDATE device_set_rack dsr
 SET site_id = sqlc.narg('target_site_id')
-WHERE org_id = sqlc.arg('org_id')
-  AND building_id = sqlc.arg('building_id');
+WHERE dsr.org_id = sqlc.arg('org_id')
+  AND dsr.building_id = sqlc.arg('building_id')
+  AND EXISTS (
+      SELECT 1 FROM device_set ds
+      WHERE ds.id = dsr.device_set_id
+        AND ds.deleted_at IS NULL
+  );
 
 -- name: ReassignDevicesUnderBuilding :execrows
--- Sets device.site_id = $target for every device in any rack of the
--- given building. Caller wraps this in the same tx as the building
--- UPDATE.
+-- Sets device.site_id = $target for every device in any live rack of
+-- the given building. Caller wraps this in the same tx as the building
+-- UPDATE. The JOIN on device_set with deleted_at IS NULL skips
+-- soft-deleted rack collections so a stale membership can't rewrite
+-- live devices through a rack users no longer see.
 UPDATE device d
 SET site_id = sqlc.narg('target_site_id'),
     updated_at = CURRENT_TIMESTAMP
 FROM device_set_membership dsm
+JOIN device_set ds
+    ON ds.id = dsm.device_set_id
+   AND ds.deleted_at IS NULL
 JOIN device_set_rack dsr
     ON dsr.device_set_id = dsm.device_set_id
    AND dsr.org_id = dsm.org_id
