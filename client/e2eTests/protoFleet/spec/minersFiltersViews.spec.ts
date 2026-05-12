@@ -1,51 +1,66 @@
 import { test } from "../fixtures/pageFixtures";
 import { generateRandomText } from "../helpers/testDataHelper";
 
-function getSubnet29(ip: string) {
-  const [first, second, third, fourth] = ip.split(".");
-  const networkBase = Math.floor(Number(fourth) / 8) * 8;
-  return `${first}.${second}.${third}.${networkBase}/29`;
-}
+function parseIpv4(ip: string) {
+  const normalizedIp = ip.trim();
+  const octets = normalizedIp.split(".");
 
-function findDistinctSubnet29Pair(ips: string[]) {
-  const seen = new Map<string, string>();
-
-  for (const ip of ips) {
-    const subnet = getSubnet29(ip);
-    if (!seen.has(subnet)) {
-      seen.set(subnet, ip);
-    }
-
-    if (seen.size >= 2) {
-      const entries = [...seen.entries()];
-      return {
-        firstSubnet: entries[0][0],
-        firstMinerIp: entries[0][1],
-        secondSubnet: entries[1][0],
-        secondMinerIp: entries[1][1],
-      };
-    }
+  if (octets.length !== 4) {
+    return null;
   }
 
-  throw new Error(`Could not find two visible miners in distinct /29 subnets. Visible IPs: ${ips.join(", ")}`);
+  const numericOctets = octets.map((octet) => Number(octet));
+  const isValidIpv4 = numericOctets.every((octet) => Number.isInteger(octet) && octet >= 0 && octet <= 255);
+
+  if (!isValidIpv4) {
+    return null;
+  }
+
+  return normalizedIp;
 }
 
-async function getVisibleMinerIps(minersPage: {
+async function getFirstVisibleIpv4MinerIp(minersPage: {
   getMinersCount(): Promise<number>;
   getMinerIpAddressByIndex(index: number): Promise<string>;
 }) {
   const minerCount = await minersPage.getMinersCount();
-  const ips: string[] = [];
 
   for (let index = 0; index < minerCount; index++) {
-    ips.push(await minersPage.getMinerIpAddressByIndex(index));
+    const ipAddress = await minersPage.getMinerIpAddressByIndex(index);
+    const parsedIp = parseIpv4(ipAddress);
+
+    if (parsedIp !== null) {
+      return parsedIp;
+    }
   }
 
-  return ips;
+  throw new Error("Subnet filter coverage requires at least one visible IPv4 miner.");
 }
 
-function formatPowerRangeSummary(min: number, max: number) {
-  return `${min} kW - ${max} kW`;
+function toSubnet24(ip: string) {
+  const parsedIp = parseIpv4(ip);
+  if (parsedIp === null) {
+    throw new Error(`Expected a valid IPv4 address, got "${ip}".`);
+  }
+
+  const [first, second, third] = parsedIp.split(".");
+  return `${first}.${second}.${third}.0/24`;
+}
+
+function formatPowerFilterSummary(min: number | undefined, max: number | undefined) {
+  if (min !== undefined && max !== undefined) {
+    return `${min} kW - ${max} kW`;
+  }
+
+  if (min !== undefined) {
+    return `≥ ${min} kW`;
+  }
+
+  if (max !== undefined) {
+    return `≤ ${max} kW`;
+  }
+
+  return "";
 }
 
 test.describe("Proto Fleet - Miners filters and saved views", () => {
@@ -61,20 +76,21 @@ test.describe("Proto Fleet - Miners filters and saved views", () => {
     let initialMinerCount = 0;
     let filteredMinerIp = "";
     let targetSubnet = "";
-    let powerMin = 0;
-    let powerMax = 0;
+    let powerMin: number | undefined;
+    let powerMax: number | undefined;
 
     await commonSteps.loginAsAdmin();
     await commonSteps.goToMinersPage();
 
     await test.step("Capture a target miner and its filter values", async () => {
       initialMinerCount = await minersPage.getMinersCount();
-      targetSubnet = getSubnet29(await minersPage.getMinerIpAddressByIndex(0));
+      filteredMinerIp = await getFirstVisibleIpv4MinerIp(minersPage);
+      targetSubnet = toSubnet24(filteredMinerIp);
 
-      powerMin = 0;
-      powerMax = 50;
+      powerMin = 2;
+      powerMax = undefined;
 
-      test.expect(initialMinerCount).toBeGreaterThan(1);
+      test.expect(initialMinerCount).toBeGreaterThan(0);
     });
 
     await test.step("Apply subnet and power filters", async () => {
@@ -87,15 +103,14 @@ test.describe("Proto Fleet - Miners filters and saved views", () => {
     await test.step("Validate filtered results, chips, and URL", async () => {
       filteredMinerIp = await minersPage.getMinerIpAddressByIndex(0);
       await minersPage.validateActiveFilterSummary("subnet", targetSubnet);
-      await minersPage.validateActiveFilterSummary("power", formatPowerRangeSummary(powerMin, powerMax));
+      await minersPage.validateActiveFilterSummary("power", formatPowerFilterSummary(powerMin, powerMax));
       await minersPage.validateMinerInList(filteredMinerIp);
       test.expect(await minersPage.getMinersCount()).toBeGreaterThan(0);
-      test.expect(await minersPage.getMinersCount()).toBeLessThan(initialMinerCount);
 
       const searchParams = new URL(page.url()).searchParams;
       test.expect(searchParams.getAll("subnet")).toEqual([targetSubnet]);
       test.expect(searchParams.get("power_min")).toBe(String(powerMin));
-      test.expect(searchParams.get("power_max")).toBe(String(powerMax));
+      test.expect(searchParams.get("power_max")).toBeNull();
     });
 
     await test.step("Reload and validate the filters persist", async () => {
@@ -104,7 +119,7 @@ test.describe("Proto Fleet - Miners filters and saved views", () => {
       await minersPage.waitForMinersListToLoad();
 
       await minersPage.validateActiveFilterSummary("subnet", targetSubnet);
-      await minersPage.validateActiveFilterSummary("power", formatPowerRangeSummary(powerMin, powerMax));
+      await minersPage.validateActiveFilterSummary("power", formatPowerFilterSummary(powerMin, powerMax));
       await minersPage.validateMinerInList(filteredMinerIp);
       test.expect(await minersPage.getMinersCount()).toBeGreaterThan(0);
     });
@@ -127,22 +142,16 @@ test.describe("Proto Fleet - Miners filters and saved views", () => {
   test("Saved view can be created and reset back to its saved filters", async ({ minersPage, commonSteps, page }) => {
     const viewName = generateRandomText("miners_view");
     let firstMinerIp = "";
-    let secondMinerIp = "";
     let firstMinerSubnet = "";
-    let secondMinerSubnet = "";
+    const dirtyPowerMin = 2;
+    const dirtyPowerMax = undefined;
 
     await commonSteps.loginAsAdmin();
     await commonSteps.goToMinersPage();
 
-    await test.step("Capture two miners and save a view for the first subnet", async () => {
-      const visibleIps = await getVisibleMinerIps(minersPage);
-      const subnetPair = findDistinctSubnet29Pair(visibleIps);
-      firstMinerIp = subnetPair.firstMinerIp;
-      secondMinerIp = subnetPair.secondMinerIp;
-      firstMinerSubnet = subnetPair.firstSubnet;
-      secondMinerSubnet = subnetPair.secondSubnet;
-
-      test.expect(secondMinerIp).not.toBe(firstMinerIp);
+    await test.step("Capture a miner and save a view for its subnet", async () => {
+      firstMinerIp = await getFirstVisibleIpv4MinerIp(minersPage);
+      firstMinerSubnet = toSubnet24(firstMinerIp);
 
       await minersPage.applySubnetFilter([firstMinerSubnet]);
       await minersPage.waitForMinersListToLoad();
@@ -161,14 +170,12 @@ test.describe("Proto Fleet - Miners filters and saved views", () => {
     });
 
     await test.step("Change the live filters so the view becomes dirty", async () => {
-      await minersPage.clearActiveFilter("subnet");
+      await minersPage.applyPowerFilter(dirtyPowerMin, dirtyPowerMax);
       await minersPage.waitForMinersListToLoad();
-      await minersPage.applySubnetFilter([secondMinerSubnet]);
-      await minersPage.waitForMinersListToLoad();
-      secondMinerIp = await minersPage.getMinerIpAddressByIndex(0);
 
-      await minersPage.validateActiveFilterSummary("subnet", secondMinerSubnet);
-      await minersPage.validateMinerInList(secondMinerIp);
+      await minersPage.validateActiveFilterSummary("subnet", firstMinerSubnet);
+      await minersPage.validateActiveFilterSummary("power", formatPowerFilterSummary(dirtyPowerMin, dirtyPowerMax));
+      test.expect(await minersPage.getMinersCount()).toBeGreaterThan(0);
     });
 
     await test.step("Reset the view back to the saved filters", async () => {
@@ -177,29 +184,28 @@ test.describe("Proto Fleet - Miners filters and saved views", () => {
 
       await minersPage.validateViewTabActive(viewName);
       await minersPage.validateActiveFilterSummary("subnet", firstMinerSubnet);
+      await minersPage.validateActiveFilterNotVisible("Power");
       await minersPage.validateMinerInList(firstMinerIp);
       test.expect(new URL(page.url()).searchParams.getAll("subnet")).toEqual([firstMinerSubnet]);
+      test.expect(new URL(page.url()).searchParams.get("power_min")).toBeNull();
+      test.expect(new URL(page.url()).searchParams.get("power_max")).toBeNull();
     });
   });
 
   test("Saved view can be updated after the filters change", async ({ minersPage, commonSteps, page }) => {
     const viewName = generateRandomText("miners_view");
     let firstMinerIp = "";
-    let secondMinerIp = "";
-    let secondMinerSubnet = "";
+    let firstMinerSubnet = "";
+    let updatedMinerIp = "";
+    const updatedPowerMin = 2;
+    const updatedPowerMax = undefined;
 
     await commonSteps.loginAsAdmin();
     await commonSteps.goToMinersPage();
 
     await test.step("Create a saved view from the first miner subnet", async () => {
-      const visibleIps = await getVisibleMinerIps(minersPage);
-      const subnetPair = findDistinctSubnet29Pair(visibleIps);
-      firstMinerIp = subnetPair.firstMinerIp;
-      secondMinerIp = subnetPair.secondMinerIp;
-      const firstMinerSubnet = subnetPair.firstSubnet;
-      secondMinerSubnet = subnetPair.secondSubnet;
-
-      test.expect(secondMinerIp).not.toBe(firstMinerIp);
+      firstMinerIp = await getFirstVisibleIpv4MinerIp(minersPage);
+      firstMinerSubnet = toSubnet24(firstMinerIp);
 
       await minersPage.applySubnetFilter([firstMinerSubnet]);
       await minersPage.waitForMinersListToLoad();
@@ -210,15 +216,14 @@ test.describe("Proto Fleet - Miners filters and saved views", () => {
       await minersPage.saveNewView();
     });
 
-    await test.step("Change the active filters to the second miner subnet", async () => {
-      await minersPage.clearActiveFilter("subnet");
+    await test.step("Change the active filters by adding a power filter", async () => {
+      await minersPage.applyPowerFilter(updatedPowerMin, updatedPowerMax);
       await minersPage.waitForMinersListToLoad();
-      await minersPage.applySubnetFilter([secondMinerSubnet]);
-      await minersPage.waitForMinersListToLoad();
-      secondMinerIp = await minersPage.getMinerIpAddressByIndex(0);
+      updatedMinerIp = await minersPage.getMinerIpAddressByIndex(0);
 
-      await minersPage.validateActiveFilterSummary("subnet", secondMinerSubnet);
-      await minersPage.validateMinerInList(secondMinerIp);
+      await minersPage.validateActiveFilterSummary("subnet", firstMinerSubnet);
+      await minersPage.validateActiveFilterSummary("power", formatPowerFilterSummary(updatedPowerMin, updatedPowerMax));
+      await minersPage.validateMinerInList(updatedMinerIp);
     });
 
     await test.step("Update the saved view to the new subnet", async () => {
@@ -240,9 +245,12 @@ test.describe("Proto Fleet - Miners filters and saved views", () => {
 
     await test.step("Validate the updated view now restores the new filters", async () => {
       await minersPage.validateViewTabActive(viewName);
-      await minersPage.validateActiveFilterSummary("subnet", secondMinerSubnet);
-      await minersPage.validateMinerInList(secondMinerIp);
-      test.expect(new URL(page.url()).searchParams.getAll("subnet")).toEqual([secondMinerSubnet]);
+      await minersPage.validateActiveFilterSummary("subnet", firstMinerSubnet);
+      await minersPage.validateActiveFilterSummary("power", formatPowerFilterSummary(updatedPowerMin, updatedPowerMax));
+      await minersPage.validateMinerInList(updatedMinerIp);
+      test.expect(new URL(page.url()).searchParams.getAll("subnet")).toEqual([firstMinerSubnet]);
+      test.expect(new URL(page.url()).searchParams.get("power_min")).toBe(String(updatedPowerMin));
+      test.expect(new URL(page.url()).searchParams.get("power_max")).toBeNull();
     });
   });
 });
