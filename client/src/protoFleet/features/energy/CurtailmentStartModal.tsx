@@ -290,6 +290,15 @@ function ReductionProgressBar({ value, max }: { value: number; max: number }) {
 }
 
 function PreviewPaneMessage({ children, icon, emptyState = false }: PreviewPaneMessageProps) {
+  function renderContent(className: string): ReactNode {
+    return (
+      <div className={className}>
+        {icon}
+        <div>{children}</div>
+      </div>
+    );
+  }
+
   if (emptyState) {
     return (
       <div className="flex min-h-40 flex-1 items-center justify-center rounded-[24px] bg-surface-overlay px-6 py-10 text-center text-300 text-text-primary-70 laptop:px-16">
@@ -304,13 +313,6 @@ function PreviewPaneMessage({ children, icon, emptyState = false }: PreviewPaneM
   const desktopClassName = icon
     ? "flex max-w-[420px] gap-2 text-300 text-text-primary-70"
     : "max-w-[420px] text-300 text-text-primary-70";
-
-  const renderContent = (className: string) => (
-    <div className={className}>
-      {icon}
-      <div>{children}</div>
-    </div>
-  );
 
   return (
     <>
@@ -408,18 +410,6 @@ function getPreviewScopeSummary(values: CurtailmentFormValues): string {
   }
 }
 
-function getInitialCurtailmentFormValues({
-  initialValues,
-}: {
-  initialValues?: CurtailmentFormValues;
-}): CurtailmentFormValues {
-  if (initialValues) {
-    return initialValues;
-  }
-
-  return defaultCurtailmentFormValues;
-}
-
 function getSelectedDeviceSetIds(values: CurtailmentFormValues, scopeId: DeviceSetScopeId): string[] {
   if (values.scopeType !== "deviceSet" || values.scopeId !== scopeId) {
     return [];
@@ -444,11 +434,7 @@ function CurtailmentStartModal({
   onStarted,
   initialValues,
 }: CurtailmentStartModalProps) {
-  const [values, setValues] = useState<CurtailmentFormValues>(() =>
-    getInitialCurtailmentFormValues({
-      initialValues,
-    }),
-  );
+  const [values, setValues] = useState<CurtailmentFormValues>(() => initialValues ?? defaultCurtailmentFormValues);
   const [preview, setPreview] = useState<CurtailmentPlanPreview>();
   const [previewError, setPreviewError] = useState<string>();
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
@@ -517,14 +503,9 @@ function CurtailmentStartModal({
       })
     : undefined;
 
-  const updateFormValues = (updater: (current: CurtailmentFormValues) => CurtailmentFormValues) => {
-    const nextValues = updater(values);
-    setValues(nextValues);
-  };
-
   const setFormValue = <Key extends keyof CurtailmentFormValues>(key: Key, value: CurtailmentFormValues[Key]) => {
     setTouchedFields((current) => ({ ...current, [key]: true }));
-    updateFormValues((current) => ({ ...current, [key]: value }));
+    setValues((current) => ({ ...current, [key]: value }));
   };
 
   const shouldShowError = (field: keyof CurtailmentFormValues): boolean =>
@@ -536,7 +517,7 @@ function CurtailmentStartModal({
   const handleDeviceSetSelection = (deviceSetIds: string[], scopeId: DeviceSetScopeId) => {
     const hasSelectedDeviceSets = deviceSetIds.length > 0;
 
-    updateFormValues((current) => ({
+    setValues((current) => ({
       ...current,
       scopeType: hasSelectedDeviceSets ? "deviceSet" : "wholeOrg",
       scopeId: hasSelectedDeviceSets ? scopeId : "whole-org",
@@ -548,7 +529,7 @@ function CurtailmentStartModal({
   const handleMinerSelection = (deviceIdentifiers: string[]) => {
     const hasSelectedMiners = deviceIdentifiers.length > 0;
 
-    updateFormValues((current) => ({
+    setValues((current) => ({
       ...current,
       scopeType: hasSelectedMiners ? "explicitMiners" : "wholeOrg",
       scopeId: hasSelectedMiners ? undefined : "whole-org",
@@ -741,7 +722,7 @@ function CurtailmentStartModal({
                     return;
                   }
 
-                  updateFormValues((current) => ({
+                  setValues((current) => ({
                     ...current,
                     includeMaintenance: false,
                     forceIncludeMaintenance: false,
@@ -777,7 +758,7 @@ function CurtailmentStartModal({
           {
             text: "Force include",
             onClick: () => {
-              updateFormValues((current) => ({
+              setValues((current) => ({
                 ...current,
                 includeMaintenance: true,
                 forceIncludeMaintenance: true,

@@ -9,15 +9,40 @@ import {
   mockPreview,
   storybookCurtailmentFormValues,
 } from "@/protoFleet/features/energy/fixtures";
+import type { CurtailmentFormValues, CurtailmentPlanPreview } from "@/protoFleet/features/energy/types";
 
 vi.mock("@/shared/components/PageOverlay", () => ({
   __esModule: true,
   default: ({ children }: { children: ReactNode }) => createElement("div", null, children),
 }));
 
+interface RenderCurtailmentStartModalOptions {
+  onDismiss?: () => void;
+  onPreviewCurtailmentPlan?: (values: CurtailmentFormValues) => Promise<CurtailmentPlanPreview>;
+  onStartCurtailment?: (values: CurtailmentFormValues) => Promise<unknown>;
+  initialValues?: CurtailmentFormValues;
+}
+
 beforeEach(() => {
   localStorage.clear();
 });
+
+function renderCurtailmentStartModal({
+  onDismiss = vi.fn(),
+  onPreviewCurtailmentPlan = vi.fn().mockResolvedValue(mockPreview),
+  onStartCurtailment = vi.fn().mockResolvedValue(undefined),
+  initialValues,
+}: RenderCurtailmentStartModalOptions = {}): ReturnType<typeof render> {
+  return render(
+    createElement(CurtailmentStartModal, {
+      open: true,
+      onDismiss,
+      onPreviewCurtailmentPlan,
+      onStartCurtailment,
+      initialValues,
+    }),
+  );
+}
 
 describe("CurtailmentStartModal helpers", () => {
   it("estimates total restore duration from selected candidates and restore controls", () => {
@@ -47,25 +72,19 @@ describe("CurtailmentStartModal helpers", () => {
 
 describe("CurtailmentStartModal", () => {
   it("prepopulates plans from initial values", () => {
-    render(
-      createElement(CurtailmentStartModal, {
-        open: true,
-        onDismiss: vi.fn(),
-        onPreviewCurtailmentPlan: vi.fn().mockResolvedValue(mockPreview),
-        onStartCurtailment: vi.fn().mockResolvedValue(undefined),
-        initialValues: {
-          ...defaultCurtailmentFormValues,
-          targetKw: "125",
-          toleranceKw: "8",
-          priority: "emergency",
-          minCurtailedDurationSec: "300",
-          maxDurationSec: "1800",
-          restoreBatchSize: "15",
-          restoreBatchIntervalSec: "90",
-          reason: "Grid peak event",
-        },
-      }),
-    );
+    renderCurtailmentStartModal({
+      initialValues: {
+        ...defaultCurtailmentFormValues,
+        targetKw: "125",
+        toleranceKw: "8",
+        priority: "emergency",
+        minCurtailedDurationSec: "300",
+        maxDurationSec: "1800",
+        restoreBatchSize: "15",
+        restoreBatchIntervalSec: "90",
+        reason: "Grid peak event",
+      },
+    });
 
     expect(screen.getByLabelText("Target reduction")).toHaveValue(125);
     expect(screen.getByLabelText("Tolerance")).toHaveValue(8);
@@ -78,14 +97,7 @@ describe("CurtailmentStartModal", () => {
   });
 
   it("updates field values locally", () => {
-    render(
-      createElement(CurtailmentStartModal, {
-        open: true,
-        onDismiss: vi.fn(),
-        onPreviewCurtailmentPlan: vi.fn().mockResolvedValue(mockPreview),
-        onStartCurtailment: vi.fn().mockResolvedValue(undefined),
-      }),
-    );
+    renderCurtailmentStartModal();
 
     fireEvent.change(screen.getByLabelText("Target reduction"), { target: { value: "70" } });
     fireEvent.change(screen.getByLabelText("Restore interval"), { target: { value: "45" } });
@@ -95,27 +107,13 @@ describe("CurtailmentStartModal", () => {
   });
 
   it("shows the empty preview prompt before the plan is configured", () => {
-    render(
-      createElement(CurtailmentStartModal, {
-        open: true,
-        onDismiss: vi.fn(),
-        onPreviewCurtailmentPlan: vi.fn().mockResolvedValue(undefined),
-        onStartCurtailment: vi.fn().mockResolvedValue(undefined),
-      }),
-    );
+    renderCurtailmentStartModal();
 
     expect(screen.getAllByText("Configure your curtailment to see a preview.").length).toBeGreaterThan(0);
   });
 
   it("does not show required field errors before interaction", async () => {
-    render(
-      createElement(CurtailmentStartModal, {
-        open: true,
-        onDismiss: vi.fn(),
-        onPreviewCurtailmentPlan: vi.fn().mockResolvedValue(undefined),
-        onStartCurtailment: vi.fn().mockResolvedValue(undefined),
-      }),
-    );
+    renderCurtailmentStartModal();
 
     expect(screen.queryByText("Required")).not.toBeInTheDocument();
     expect(screen.queryByText("Reason is required")).not.toBeInTheDocument();
@@ -127,19 +125,14 @@ describe("CurtailmentStartModal", () => {
   });
 
   it("shows the summary preview", async () => {
-    render(
-      createElement(CurtailmentStartModal, {
-        open: true,
-        onDismiss: vi.fn(),
-        onPreviewCurtailmentPlan: vi.fn().mockResolvedValue({
-          ...mockPreview,
-          selectedCandidateCount: 19,
-          eligibleCandidateCount: 58,
-        }),
-        onStartCurtailment: vi.fn().mockResolvedValue(undefined),
-        initialValues: storybookCurtailmentFormValues,
+    renderCurtailmentStartModal({
+      onPreviewCurtailmentPlan: vi.fn().mockResolvedValue({
+        ...mockPreview,
+        selectedCandidateCount: 19,
+        eligibleCandidateCount: 58,
       }),
-    );
+      initialValues: storybookCurtailmentFormValues,
+    });
 
     await waitFor(() => expect(screen.getByText("Target reduction")).toBeInTheDocument());
 
@@ -151,15 +144,10 @@ describe("CurtailmentStartModal", () => {
   it("confirms maintenance inclusion before submitting", async () => {
     const onStartCurtailment = vi.fn().mockResolvedValue(undefined);
 
-    render(
-      createElement(CurtailmentStartModal, {
-        open: true,
-        onDismiss: vi.fn(),
-        onPreviewCurtailmentPlan: vi.fn().mockResolvedValue(mockPreview),
-        onStartCurtailment,
-        initialValues: storybookCurtailmentFormValues,
-      }),
-    );
+    renderCurtailmentStartModal({
+      onStartCurtailment,
+      initialValues: storybookCurtailmentFormValues,
+    });
 
     fireEvent.click(screen.getByText("Include miners in maintenance"));
 
