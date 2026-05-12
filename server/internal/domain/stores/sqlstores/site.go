@@ -253,6 +253,13 @@ func (s *SQLSiteStore) AssignBuildingToSite(ctx context.Context, orgID, building
 		OrgID:  orgID,
 	})
 	if err != nil {
+		// uk_building_site_name (partial unique on site_id + name) rejects
+		// a move when the target site already has a live building with the
+		// same name. Mirror Create/UpdateBuilding's mapping so the operator
+		// gets an actionable AlreadyExists rather than a 500.
+		if isUniqueViolation(err) {
+			return 0, fleeterror.NewPlainError("a building with this name already exists in the target site", connect.CodeAlreadyExists).WithCallerStackTrace()
+		}
 		return 0, fleeterror.NewInternalErrorf("failed to assign building to site: %v", err)
 	}
 	return rowsAffected, nil
