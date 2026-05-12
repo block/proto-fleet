@@ -76,14 +76,14 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
     // the lesser evil.
     let count: number;
     try {
+      for (const legacy of LEGACY_RELOAD_KEYS) {
+        window.sessionStorage.removeItem(legacy);
+      }
       const raw = window.sessionStorage.getItem(CHUNK_RELOAD_COUNTER_KEY);
       const parsed = parseInt(raw ?? "", 10);
       count = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
       if (count >= CHUNK_RELOAD_MAX) return;
       window.sessionStorage.setItem(CHUNK_RELOAD_COUNTER_KEY, String(count + 1));
-      for (const legacy of LEGACY_RELOAD_KEYS) {
-        window.sessionStorage.removeItem(legacy);
-      }
     } catch {
       return;
     }

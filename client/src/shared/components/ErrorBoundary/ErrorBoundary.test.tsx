@@ -338,6 +338,22 @@ describe("ErrorBoundary", () => {
       expect(window.sessionStorage.getItem("proto-fleet:chunk-reload-count")).toBeNull();
     });
 
+    it("removes legacy reload-tracker keys even when the counter is already at MAX", () => {
+      window.sessionStorage.setItem(CHUNK_RELOAD_COUNTER_KEY, String(CHUNK_RELOAD_MAX));
+      window.sessionStorage.setItem("proto-fleet:chunk-reload-attempted", "1");
+      window.sessionStorage.setItem("proto-fleet:chunk-reload-count", "1");
+
+      render(
+        <ErrorBoundary>
+          <ThrowChunkError message="Loading chunk 42 failed." />
+        </ErrorBoundary>,
+      );
+
+      expect(reloadSpy).not.toHaveBeenCalled();
+      expect(window.sessionStorage.getItem("proto-fleet:chunk-reload-attempted")).toBeNull();
+      expect(window.sessionStorage.getItem("proto-fleet:chunk-reload-count")).toBeNull();
+    });
+
     it("clamps a negative counter value to zero", () => {
       window.sessionStorage.setItem(CHUNK_RELOAD_COUNTER_KEY, "-1");
 
