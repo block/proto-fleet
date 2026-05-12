@@ -82,9 +82,7 @@ const ServerLogsPage = () => {
       try {
         const result = await fetchLogs(POLL_LIMIT, sinceIdRef.current);
         setFetchError(null);
-        if (result.latestId > sinceIdRef.current) {
-          sinceIdRef.current = result.latestId;
-        }
+        sinceIdRef.current = result.latestId;
         setLogsData(result.data);
       } catch (err) {
         console.error("Failed to fetch server logs", err);
