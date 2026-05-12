@@ -13,15 +13,20 @@ export interface ErrorBoundaryState {
   error?: Error;
 }
 
-// sessionStorage flag so a stale-deploy reload cannot loop if the new
-// chunks have not yet propagated to the CDN edge.
-const CHUNK_RELOAD_SESSION_KEY = "proto-fleet:chunk-reload-attempted";
+// Counter-based reload guard: cap chunk-load-driven reloads at MAX per
+// session so a persistently broken CDN can't trap the user in an
+// unbounded reload loop. sessionStorage persists across same-tab reloads,
+// so the counter survives the page refresh and stops escalating after
+// MAX attempts. Once exhausted, the boundary renders the fallback until
+// the user closes the tab or manually refreshes.
+export const CHUNK_RELOAD_COUNTER_KEY = "proto-fleet:chunk-reload-count";
+export const CHUNK_RELOAD_MAX = 2;
 
 // React.lazy throws via the ESM module loader, which caches rejected
 // dynamic imports — once a chunk URL 404s, every subsequent import() for
 // the same specifier returns the cached rejection. Detect those error
 // shapes (Vite native ESM, webpack-style, dynamic-module fetch failures)
-// and reload once per session to pick up the new chunk hashes.
+// and reload to pick up the new chunk hashes.
 const isChunkLoadError = (error: Error): boolean => {
   if (error.name === "ChunkLoadError") return true;
   const message = error.message || "";
@@ -55,20 +60,28 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
     // Call the onError callback if provided
     this.props.onError?.(error, errorInfo);
 
-    // Chunk-load failure recovery: reload once to refresh the module
-    // registry. Any subsequent chunk failure in the same session falls
-    // through to the normal fallback so the user can recover manually.
-    if (isChunkLoadError(error) && typeof window !== "undefined") {
-      try {
-        if (window.sessionStorage.getItem(CHUNK_RELOAD_SESSION_KEY)) return;
-        window.sessionStorage.setItem(CHUNK_RELOAD_SESSION_KEY, "1");
-      } catch {
-        // sessionStorage can throw in private-mode Safari or sandboxed
-        // iframes; fall through to the normal fallback in that case.
-        return;
-      }
-      window.location.reload();
+    // Chunk-load failure recovery. Increment the per-session reload
+    // counter and refresh until MAX is reached; after that the fallback
+    // is sticky and the user can manually F5 / close the tab. The
+    // counter is deliberately not cleared by `resetError` — letting the
+    // user re-trigger the reload via Retry would defeat the cap when the
+    // CDN stays broken across the auto-reload.
+    if (!isChunkLoadError(error) || typeof window === "undefined") return;
+
+    // sessionStorage can throw in private-mode Safari or sandboxed
+    // iframes. Without persistent state we cannot cap the reload count,
+    // and reloading-anyway turns every chunk error into an infinite
+    // refresh loop in exactly those contexts — leaving the user wedged
+    // on the fallback is the lesser evil.
+    let count: number;
+    try {
+      count = Number(window.sessionStorage.getItem(CHUNK_RELOAD_COUNTER_KEY)) || 0;
+      if (count >= CHUNK_RELOAD_MAX) return;
+      window.sessionStorage.setItem(CHUNK_RELOAD_COUNTER_KEY, String(count + 1));
+    } catch {
+      return;
     }
+    window.location.reload();
   }
 
   componentDidUpdate(prevProps: ErrorBoundaryProps, prevState: ErrorBoundaryState): void {
@@ -79,15 +92,6 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
   }
 
   resetError = (): void => {
-    // Clear the chunk-reload guard so a fresh user-initiated retry after
-    // an auto-reload attempt can trigger another reload if needed.
-    if (typeof window !== "undefined") {
-      try {
-        window.sessionStorage.removeItem(CHUNK_RELOAD_SESSION_KEY);
-      } catch {
-        // ignored — same private-mode edge case as the reload path
-      }
-    }
     this.setState({ hasError: false, error: undefined });
   };
 

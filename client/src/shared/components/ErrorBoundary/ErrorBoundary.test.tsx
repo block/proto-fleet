@@ -1,9 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ErrorBoundary } from "./ErrorBoundary";
-
-const CHUNK_RELOAD_SESSION_KEY = "proto-fleet:chunk-reload-attempted";
+import { CHUNK_RELOAD_COUNTER_KEY, CHUNK_RELOAD_MAX, ErrorBoundary } from "./ErrorBoundary";
 
 // Component that throws an error for testing
 const ThrowError = ({ shouldThrow = false }: { shouldThrow?: boolean }) => {
@@ -131,7 +129,7 @@ describe("ErrorBoundary", () => {
     let reloadSpy: ReturnType<typeof vi.fn>;
 
     beforeEach(() => {
-      window.sessionStorage.removeItem(CHUNK_RELOAD_SESSION_KEY);
+      window.sessionStorage.removeItem(CHUNK_RELOAD_COUNTER_KEY);
       reloadSpy = vi.fn();
       Object.defineProperty(window, "location", {
         configurable: true,
@@ -140,7 +138,7 @@ describe("ErrorBoundary", () => {
     });
 
     afterEach(() => {
-      window.sessionStorage.removeItem(CHUNK_RELOAD_SESSION_KEY);
+      window.sessionStorage.removeItem(CHUNK_RELOAD_COUNTER_KEY);
     });
 
     it("reloads the page when a ChunkLoadError is caught", () => {
@@ -151,7 +149,27 @@ describe("ErrorBoundary", () => {
       );
 
       expect(reloadSpy).toHaveBeenCalledTimes(1);
-      expect(window.sessionStorage.getItem(CHUNK_RELOAD_SESSION_KEY)).toBe("1");
+      expect(window.sessionStorage.getItem(CHUNK_RELOAD_COUNTER_KEY)).toBe("1");
+    });
+
+    it("reloads on a webpack-style 'Loading chunk N failed' error with no err.name override", () => {
+      render(
+        <ErrorBoundary>
+          <ThrowDynamicImportError message="Loading chunk 5 failed." />
+        </ErrorBoundary>,
+      );
+
+      expect(reloadSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("reloads on a webpack-style 'Loading CSS chunk N failed' error", () => {
+      render(
+        <ErrorBoundary>
+          <ThrowDynamicImportError message="Loading CSS chunk 3 failed." />
+        </ErrorBoundary>,
+      );
+
+      expect(reloadSpy).toHaveBeenCalledTimes(1);
     });
 
     it("reloads on a Vite 'Failed to fetch dynamically imported module' error", () => {
@@ -164,8 +182,18 @@ describe("ErrorBoundary", () => {
       expect(reloadSpy).toHaveBeenCalledTimes(1);
     });
 
-    it("does not reload a second time within the same session", () => {
-      window.sessionStorage.setItem(CHUNK_RELOAD_SESSION_KEY, "1");
+    it("reloads on an 'error loading dynamically imported module' error", () => {
+      render(
+        <ErrorBoundary>
+          <ThrowDynamicImportError message="error loading dynamically imported module: /assets/Bar-def456.js" />
+        </ErrorBoundary>,
+      );
+
+      expect(reloadSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("stops reloading once the per-session counter reaches CHUNK_RELOAD_MAX", () => {
+      window.sessionStorage.setItem(CHUNK_RELOAD_COUNTER_KEY, String(CHUNK_RELOAD_MAX));
 
       render(
         <ErrorBoundary>
@@ -175,14 +203,14 @@ describe("ErrorBoundary", () => {
 
       expect(reloadSpy).not.toHaveBeenCalled();
       expect(screen.getByText("Something went wrong")).toBeInTheDocument();
+      expect(window.sessionStorage.getItem(CHUNK_RELOAD_COUNTER_KEY)).toBe(String(CHUNK_RELOAD_MAX));
     });
 
-    it("clears the chunk-reload guard when the user retries via the fallback", () => {
-      window.sessionStorage.setItem(CHUNK_RELOAD_SESSION_KEY, "1");
+    it("Retry click does not reset the chunk-reload counter (bounded-loop guarantee)", () => {
+      window.sessionStorage.setItem(CHUNK_RELOAD_COUNTER_KEY, String(CHUNK_RELOAD_MAX));
 
-      // Use a non-chunk error to isolate the resetError path: the boundary
-      // shows its fallback without triggering the reload guard, so the
-      // sessionStorage clear from a Retry click is directly observable.
+      // Non-chunk error so the fallback renders without re-triggering the
+      // reload path; the assertion is purely about resetError's contract.
       render(
         <ErrorBoundary>
           <ThrowError shouldThrow={true} />
@@ -191,7 +219,30 @@ describe("ErrorBoundary", () => {
 
       fireEvent.click(screen.getByText("Retry"));
 
-      expect(window.sessionStorage.getItem(CHUNK_RELOAD_SESSION_KEY)).toBeNull();
+      expect(window.sessionStorage.getItem(CHUNK_RELOAD_COUNTER_KEY)).toBe(String(CHUNK_RELOAD_MAX));
+    });
+
+    it("Retry on a still-failing chunk does not exceed the reload cap", () => {
+      // Simulate state right at the cap: an auto-reload already happened
+      // and the CDN is still broken. User clicks Retry; the child throws
+      // the cached rejection again. Counter must hold the line.
+      window.sessionStorage.setItem(CHUNK_RELOAD_COUNTER_KEY, String(CHUNK_RELOAD_MAX));
+
+      render(
+        <ErrorBoundary>
+          <ThrowChunkError message="Loading chunk 42 failed." />
+        </ErrorBoundary>,
+      );
+
+      // First render: fallback (counter at MAX, no reload).
+      expect(reloadSpy).not.toHaveBeenCalled();
+
+      fireEvent.click(screen.getByText("Retry"));
+
+      // After Retry the child re-throws but the counter is still at MAX,
+      // so no additional reload fires.
+      expect(reloadSpy).not.toHaveBeenCalled();
+      expect(window.sessionStorage.getItem(CHUNK_RELOAD_COUNTER_KEY)).toBe(String(CHUNK_RELOAD_MAX));
     });
 
     it("does not reload for unrelated errors", () => {
@@ -202,7 +253,7 @@ describe("ErrorBoundary", () => {
       );
 
       expect(reloadSpy).not.toHaveBeenCalled();
-      expect(window.sessionStorage.getItem(CHUNK_RELOAD_SESSION_KEY)).toBeNull();
+      expect(window.sessionStorage.getItem(CHUNK_RELOAD_COUNTER_KEY)).toBeNull();
     });
   });
 });
