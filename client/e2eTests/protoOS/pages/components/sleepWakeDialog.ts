@@ -2,6 +2,12 @@ import { expect } from "@playwright/test";
 import { BasePage } from "../base";
 
 export class SleepWakeDialogsComponent extends BasePage {
+  async validateEnteringSleepDialogVisible() {
+    const dialog = this.page.getByTestId("entering-sleep-dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText("Entering sleep mode");
+  }
+
   async clickEnterSleepMode() {
     const dialog = this.page.getByTestId("warn-sleep-dialog");
     await dialog.getByRole("button", { name: "Enter sleep mode" }).click();
@@ -9,8 +15,7 @@ export class SleepWakeDialogsComponent extends BasePage {
 
   async validateEnteringSleepDialog() {
     const dialog = this.page.getByTestId("entering-sleep-dialog");
-    await expect(dialog).toBeVisible();
-    await expect(dialog).toContainText("Entering sleep mode");
+    await this.validateEnteringSleepDialogVisible();
     await expect(dialog).toBeHidden();
   }
 
