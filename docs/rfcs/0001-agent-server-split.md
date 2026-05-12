@@ -109,7 +109,7 @@ The split adds two binaries with independent update cadences. The deployment sto
 
 ### Server rolling deploys
 
-- Graceful drain: a draining replica sends `ControlGoaway` (new oneof in `agentgateway.proto`); nodes reconnect to a healthy replica with jittered exponential backoff.
+- Graceful drain: a draining replica sends `ControlGoaway` (to be added as a new oneof in `proto/fleetnodegateway/v1/fleetnodegateway.proto`); nodes reconnect to a healthy replica with jittered exponential backoff.
 - Schema migrations are forward-only and additive-only: add → backfill → cut over → drop, with the destructive step landing in a later release. Never rename or drop a column in the same release that consumes it.
 
 ### Fleet node updates
