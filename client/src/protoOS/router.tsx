@@ -16,18 +16,16 @@ export type CustomRouteObject = RouteObject & {
   children?: CustomRouteObject[];
 };
 
-// Route components are lazy so each pulls a separate chunk and protoFleet (which
-// embeds these routes via singleMinerRoutes) stays slim until the user enters
-// /miners/:id/*. Factories are hoisted so prefetchRoutes() can call them again
-// at idle time to warm chunks before the user navigates.
+// Route components are lazy so each ships in its own chunk and
+// protoFleet (which embeds these via singleMinerRoutes) stays slim
+// until the user enters /miners/:id/*. Factories are hoisted so
+// prefetchRoutes() can call them at idle.
 //
-// Adding a route is three coordinated edits:
-//   1. const importFoo = () => import("...");
-//   2. const Foo = lazy(importFoo);
-//   3. add `importFoo` to the relevant tier export (globalRoutePrefetch,
-//      settingsRoutePrefetch — singleMinerRoutePrefetch composes both).
-// Step 3 is not lint-enforced — a missed entry leaves the chunk un-warmed
-// without breaking the build.
+// To add a route: define the factory const, wrap it with lazy(), and
+// add the factory to the relevant tier export (globalRoutePrefetch or
+// settingsRoutePrefetch — singleMinerRoutePrefetch composes both).
+// Step 3 isn't lint-enforced — a missed entry leaves the chunk
+// un-warmed without breaking the build.
 const importHashrate = () => import("@/protoOS/features/kpis/components/Hashrate");
 const importEfficiency = () => import("@/protoOS/features/kpis/components/Efficiency");
 const importPowerUsage = () => import("@/protoOS/features/kpis/components/PowerUsage");
@@ -66,9 +64,9 @@ const SettingsMiningPools = lazy(importSettingsMiningPools);
 const SettingsHardware = lazy(importSettingsHardware);
 const SettingsCooling = lazy(importSettingsCooling);
 
-// Top-level destinations reachable from the protoOS sidebar plus the KPI tab
-// strip siblings of the default landing route. protoOS App.tsx triggers this
-// at idle after first paint.
+// Top-level destinations reachable from the protoOS sidebar plus the
+// KPI tab-strip siblings of the default landing route. App.tsx
+// triggers this at idle.
 export const globalRoutePrefetch: readonly RouteImporter[] = [
   importHashrate,
   importEfficiency,
@@ -88,12 +86,10 @@ export const settingsRoutePrefetch: readonly RouteImporter[] = [
   importSettingsCooling,
 ];
 
-// Section tier for protoFleet, which embeds this router under /miners/:id/*.
-// SingleMinerWrapper triggers this on mount so the single-miner KPI tabs,
-// Logs, Diagnostics, and per-miner settings are warm by the time the user
-// clicks across them. Composes globalRoutePrefetch + settingsRoutePrefetch
-// (plus the per-hashboard temperature drill-in) so adding a route to either
-// upstream tier flows through automatically.
+// Section tier for protoFleet — embeds this router under /miners/:id/*.
+// SingleMinerWrapper triggers this on mount so KPI tabs, Logs,
+// Diagnostics, and per-miner Settings are warm. Composes global +
+// settings tiers so new entries flow through automatically.
 export const singleMinerRoutePrefetch: readonly RouteImporter[] = [
   ...globalRoutePrefetch,
   importHashboardTemperature,

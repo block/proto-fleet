@@ -5,8 +5,7 @@ import { settingsRoutePrefetch } from "@/protoFleet/router";
 import { prefetchRoutes } from "@/shared/utils/prefetchRoutes";
 
 const HomeLayout = ({ children }: { children?: ReactNode }) => {
-  // Warm sibling /settings/* tab chunks at idle; cancel on unmount so a
-  // pending idle callback does not fire after the user leaves settings.
+  // Warm sibling /settings/* tab chunks at idle.
   useEffect(() => {
     return prefetchRoutes(settingsRoutePrefetch);
   }, []);

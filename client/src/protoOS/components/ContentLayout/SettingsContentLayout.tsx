@@ -4,8 +4,7 @@ import { settingsRoutePrefetch } from "@/protoOS/router";
 import { prefetchRoutes } from "@/shared/utils/prefetchRoutes";
 
 const SettingsContentLayout = ({ children }: ContentLayoutProps) => {
-  // Warm sibling /settings/* tab chunks at idle. The explicit return keeps
-  // the cancel-on-unmount contract robust to a future block-body refactor.
+  // Warm sibling /settings/* tab chunks at idle.
   useEffect(() => {
     return prefetchRoutes(settingsRoutePrefetch);
   }, []);

@@ -26,11 +26,9 @@ const SingleMinerWrapper = ({ children }: { children: ReactNode }) => {
   const safeId = safePathSegment(rawId || "");
   const displayId = rawId || "";
 
-  // Once the user is in /miners/:id/*, the sibling protoOS single-miner
-  // chunks (KPI tabs, Logs, Diagnostics, per-miner Settings) are one click
-  // away; warm them at idle so tab switches resolve without a Suspense flash.
-  // The explicit return keeps the cancel-on-unmount contract robust to a
-  // future block-body refactor.
+  // Once the user is in /miners/:id/*, sibling protoOS chunks (KPI
+  // tabs, Logs, Diagnostics, per-miner Settings) are one click away;
+  // warm them at idle so tab switches have no Suspense flash.
   useEffect(() => {
     return prefetchRoutes(singleMinerRoutePrefetch);
   }, []);

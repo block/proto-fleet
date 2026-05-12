@@ -1,9 +1,9 @@
-// Schedule lazy-route imports at browser idle time so each route's chunk is
-// warmed in the HTTP cache before the user navigates to it. React.lazy reuses
-// the in-flight or resolved promise, so a navigation that hits a prefetched
-// route resolves without a Suspense fallback. The bundler dedupes calls to
-// the same import factory, so calling prefetchRoutes() more than once with
-// overlapping importers is safe and effectively free.
+// Schedule lazy-route imports at idle so chunks warm before the user
+// navigates. React.lazy reuses the in-flight or resolved promise, so a
+// prefetched route renders without a Suspense fallback; bundler dedup
+// makes overlapping calls free. Returns a CancelPrefetch — React
+// consumers should `return prefetchRoutes(...)` from useEffect to
+// cancel the pending idle callback on unmount.
 
 export type RouteImporter = () => Promise<unknown>;
 
@@ -17,10 +17,9 @@ const schedule = (cb: () => void): CancelPrefetch => {
     const handle = window.requestIdleCallback(cb, { timeout: 2000 });
     return () => window.cancelIdleCallback(handle);
   }
-  // Safari < 16.4 path. 500ms is a compromise: long enough to land past first
-  // paint on the older devices that hit this fallback (iPhones stuck on iOS
-  // < 16.4 can paint at 400-800ms under load), short enough that the warming
-  // win still pays off.
+  // Safari < 16.4 fallback. 500ms balances landing past first paint
+  // (iOS < 16.4 phones can paint at 400-800ms under load) against
+  // keeping the warming win.
   const handle = setTimeout(cb, 500);
   return () => clearTimeout(handle);
 };
@@ -28,11 +27,10 @@ const schedule = (cb: () => void): CancelPrefetch => {
 export const prefetchRoutes = (importers: readonly RouteImporter[]): CancelPrefetch => {
   return schedule(() => {
     for (const importer of importers) {
-      // Log rejections so a deploy that invalidates chunk hashes (and 404s
-      // every prefetch on every open tab) is visible in ops, not silent. The
-      // ESM module registry caches rejected dynamic imports, so React.lazy's
-      // later call returns the same rejection — recovery happens in the
-      // ErrorBoundary's chunk-failure reload path, not via the import itself.
+      // Log rejections so a stale-deploy 404 wave is visible in ops,
+      // not silent. ESM caches the rejected promise, so recovery
+      // happens in ErrorBoundary's chunk-failure reload path — not
+      // via the import itself.
       importer().catch((err) => {
         console.error("[prefetchRoutes] chunk prefetch failed:", err);
       });

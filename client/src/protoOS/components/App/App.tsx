@@ -247,15 +247,11 @@ const App = ({
   const isWebServerRunning = useIsWebServerRunning();
   const isMiningDriverRunning = useIsMiningDriverRunning();
 
-  // Warm sidebar-destination chunks at idle, gated on the device having
-  // passed the boot wall — kicking off chunk fetches in parallel with
-  // the system-status polling that runs during BootingUp contends for
-  // bandwidth on miner hardware. The effect re-fires on every flag
-  // transition (e.g., a firmware-update reboot flips both flags off then
-  // on again); the cleanup cancels any pending idle callback and the
-  // ESM module registry dedupes the underlying import() calls, so the
-  // re-schedule is harmless. The explicit return keeps the
-  // cancel-on-unmount contract robust to a future block-body refactor.
+  // Warm sidebar destinations at idle once the device passes the boot
+  // wall — running prefetch parallel with bootup polling contends for
+  // bandwidth on miner hardware. Cleanup cancels the idle handle on
+  // flag flicker (e.g., firmware-update reboot); ESM dedup covers the
+  // re-schedule.
   useEffect(() => {
     if (!isWebServerRunning || !isMiningDriverRunning) return;
     return prefetchRoutes(globalRoutePrefetch);

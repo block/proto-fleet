@@ -14,25 +14,21 @@ export interface ErrorBoundaryState {
   error?: Error;
 }
 
-// Build-scoped reload guard: cap chunk-load-driven reloads at MAX per
-// session per build. Including the build commit in the key prevents
-// counts from previous builds from draining the recovery budget for the
-// currently-loaded build — long-lived Fleet dashboards can span multiple
-// deploys, and without scoping the counter accumulates across them and
-// silently stops auto-recovering after CHUNK_RELOAD_MAX total reloads.
+// Build-scoped reload cap. Long-lived Fleet dashboards span deploys,
+// so keying the counter by build commit means counts from prior
+// builds don't drain the current build's recovery budget.
 export const CHUNK_RELOAD_COUNTER_KEY = `proto-fleet:chunk-reload-count:${buildVersionInfo.commit}`;
 export const CHUNK_RELOAD_MAX = 2;
 
 // Orphan keys from earlier implementations (boolean flag, unscoped
-// counter). Cleared on the first chunk-error path so DevTools storage
-// does not accumulate stale entries across deploys.
+// counter). Removed idempotently on every chunk-error path so a tab
+// that survived past deploys doesn't keep stale entries.
 const LEGACY_RELOAD_KEYS = ["proto-fleet:chunk-reload-attempted", "proto-fleet:chunk-reload-count"];
 
-// React.lazy throws via the ESM module loader, which caches rejected
-// dynamic imports — once a chunk URL 404s, every subsequent import() for
-// the same specifier returns the cached rejection. Detect those error
-// shapes (Vite native ESM, webpack-style, dynamic-module fetch failures)
-// and reload to pick up the new chunk hashes.
+// ESM caches rejected dynamic imports — once a chunk URL 404s,
+// React.lazy keeps returning the cached rejection. Detect the
+// chunk-load error shapes (Vite, webpack, native ESM) so the reload
+// path can pick up new hashes.
 const isChunkLoadError = (error: Error): boolean => {
   if (error.name === "ChunkLoadError") return true;
   const message = error.message || "";
@@ -68,19 +64,16 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
     // Call the onError callback if provided
     this.props.onError?.(error, errorInfo);
 
-    // Chunk-load failure recovery. Increment the per-session reload
-    // counter and refresh until MAX is reached; after that the fallback
-    // is sticky and the user can manually F5 / close the tab. The
-    // counter is deliberately not cleared by `resetError` — letting the
-    // user re-trigger the reload via Retry would defeat the cap when the
-    // CDN stays broken across the auto-reload.
+    // Increment the counter and refresh until MAX, then the fallback
+    // is sticky. resetError deliberately leaves the counter intact —
+    // clearing it would let Retry bypass the cap when the CDN stays
+    // broken.
     if (!isChunkLoadError(error) || typeof window === "undefined") return;
 
     // sessionStorage can throw in private-mode Safari or sandboxed
-    // iframes. Without persistent state we cannot cap the reload count,
-    // and reloading-anyway turns every chunk error into an infinite
-    // refresh loop in exactly those contexts — leaving the user wedged
-    // on the fallback is the lesser evil.
+    // iframes. Without persistent state we can't cap reloads, and
+    // reload-anyway is an infinite loop — wedged on the fallback is
+    // the lesser evil.
     let count: number;
     try {
       const raw = window.sessionStorage.getItem(CHUNK_RELOAD_COUNTER_KEY);

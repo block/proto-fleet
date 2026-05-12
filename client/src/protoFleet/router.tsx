@@ -10,24 +10,18 @@ import { onboardingClient } from "@/protoFleet/api/clients";
 import { singleMinerRoutePrefetch, routerConfig as singleMinerRoutes } from "@/protoOS/router";
 import type { RouteImporter } from "@/shared/utils/prefetchRoutes";
 
-// Re-export so SingleMinerWrapper can warm the protoOS single-miner chunks
-// without crossing the protoOS boundary directly. The boundary crossing is
-// already established for routerConfig above; consolidating both here keeps
-// the cross-app coupling to one file.
+// Re-exported so SingleMinerWrapper imports from this file rather
+// than crossing the protoOS boundary directly — consolidates the
+// cross-app coupling to one place.
 export { singleMinerRoutePrefetch };
 
-// Route components are lazy-loaded so each route ships in its own chunk and
-// only what's needed for first paint is in the entry bundle. Factories are
-// hoisted so prefetchRoutes() can call them again at idle time to warm route
-// chunks before the user navigates.
+// Route components are lazy so each ships in its own chunk; factories
+// are hoisted so prefetchRoutes() can call them at idle.
 //
-// Adding a route is three coordinated edits:
-//   1. const importFoo = () => import("...");
-//   2. const Foo = lazy(importFoo);
-//   3. add `importFoo` to the relevant tier export (globalRoutePrefetch for
-//      sidebar destinations, settingsRoutePrefetch for /settings/* children).
-// Step 3 is not lint-enforced — a missed entry leaves the chunk un-warmed
-// without breaking the build.
+// To add a route: define the factory const, wrap it with lazy(), and
+// add the factory to the relevant tier export (globalRoutePrefetch or
+// settingsRoutePrefetch). Step 3 isn't lint-enforced — a missed entry
+// leaves the chunk un-warmed without breaking the build.
 const importDashboard = () => import("@/protoFleet/features/dashboard/pages/Dashboard");
 const importMiners = () => import("./features/fleetManagement/components/Fleet");
 const importActivityPage = () => import("@/protoFleet/features/activity/pages/ActivityPage");
@@ -74,9 +68,8 @@ const SettingsSchedules = lazy(importSettingsSchedules);
 const SettingsApiKeys = lazy(importSettingsApiKeys);
 const FleetDown = lazy(importFleetDown);
 
-// Sidebar destinations + the default settings sub-route. App.tsx triggers this
-// at idle after first paint so a click on any nav item resolves without a
-// Suspense fallback.
+// Sidebar destinations + the default settings sub-route. App.tsx
+// triggers this at idle so the first nav click has no Suspense flash.
 export const globalRoutePrefetch: readonly RouteImporter[] = [
   importDashboard,
   importMiners,
