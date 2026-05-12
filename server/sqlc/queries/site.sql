@@ -112,17 +112,26 @@ WHERE org_id = sqlc.arg('org_id')
   AND deleted_at IS NULL;
 
 -- name: UnassignRacksFromSite :execrows
--- Sets device_set_rack.site_id = NULL for every rack pointing at the
--- given site (org-guarded by the denormalized rack.org_id).
-UPDATE device_set_rack
+-- Sets device_set_rack.site_id = NULL for every live rack pointing at
+-- the given site (org-guarded by the denormalized rack.org_id; the
+-- EXISTS subquery skips racks whose parent device_set is soft-deleted
+-- so the count returned to the UI matches ListSites.rack_count).
+UPDATE device_set_rack dsr
 SET site_id = NULL
-WHERE org_id = sqlc.arg('org_id')
-  AND site_id = sqlc.arg('site_id');
+WHERE dsr.org_id = sqlc.arg('org_id')
+  AND dsr.site_id = sqlc.arg('site_id')
+  AND EXISTS (
+      SELECT 1 FROM device_set ds
+      WHERE ds.id = dsr.device_set_id
+        AND ds.deleted_at IS NULL
+  );
 
 -- name: UnassignRacksFromBuildingsBySite :execrows
--- Clears rack→building linkage (and the zone label) for every rack
--- under any building of the given site. Run BEFORE buildings are
--- soft-deleted so the JOIN against building still resolves.
+-- Clears rack→building linkage (and the zone label) for every live
+-- rack under any building of the given site. Run BEFORE buildings are
+-- soft-deleted so the JOIN against building still resolves. The
+-- EXISTS subquery on device_set skips soft-deleted rack collections,
+-- matching ListBuildings.rack_count's filter.
 UPDATE device_set_rack dsr
 SET building_id = NULL,
     zone = NULL
@@ -131,6 +140,11 @@ WHERE dsr.org_id = sqlc.arg('org_id')
       SELECT b.id FROM building b
       WHERE b.org_id = sqlc.arg('org_id')
         AND b.site_id = sqlc.arg('site_id')
+  )
+  AND EXISTS (
+      SELECT 1 FROM device_set ds
+      WHERE ds.id = dsr.device_set_id
+        AND ds.deleted_at IS NULL
   );
 
 -- name: SiteBelongsToOrg :one

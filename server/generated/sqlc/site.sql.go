@@ -659,6 +659,11 @@ WHERE dsr.org_id = $1
       WHERE b.org_id = $1
         AND b.site_id = $2
   )
+  AND EXISTS (
+      SELECT 1 FROM device_set ds
+      WHERE ds.id = dsr.device_set_id
+        AND ds.deleted_at IS NULL
+  )
 `
 
 type UnassignRacksFromBuildingsBySiteParams struct {
@@ -666,9 +671,11 @@ type UnassignRacksFromBuildingsBySiteParams struct {
 	SiteID sql.NullInt64
 }
 
-// Clears rack→building linkage (and the zone label) for every rack
-// under any building of the given site. Run BEFORE buildings are
-// soft-deleted so the JOIN against building still resolves.
+// Clears rack→building linkage (and the zone label) for every live
+// rack under any building of the given site. Run BEFORE buildings are
+// soft-deleted so the JOIN against building still resolves. The
+// EXISTS subquery on device_set skips soft-deleted rack collections,
+// matching ListBuildings.rack_count's filter.
 func (q *Queries) UnassignRacksFromBuildingsBySite(ctx context.Context, arg UnassignRacksFromBuildingsBySiteParams) (int64, error) {
 	result, err := q.exec(ctx, q.unassignRacksFromBuildingsBySiteStmt, unassignRacksFromBuildingsBySite, arg.OrgID, arg.SiteID)
 	if err != nil {
@@ -678,10 +685,15 @@ func (q *Queries) UnassignRacksFromBuildingsBySite(ctx context.Context, arg Unas
 }
 
 const unassignRacksFromSite = `-- name: UnassignRacksFromSite :execrows
-UPDATE device_set_rack
+UPDATE device_set_rack dsr
 SET site_id = NULL
-WHERE org_id = $1
-  AND site_id = $2
+WHERE dsr.org_id = $1
+  AND dsr.site_id = $2
+  AND EXISTS (
+      SELECT 1 FROM device_set ds
+      WHERE ds.id = dsr.device_set_id
+        AND ds.deleted_at IS NULL
+  )
 `
 
 type UnassignRacksFromSiteParams struct {
@@ -689,8 +701,10 @@ type UnassignRacksFromSiteParams struct {
 	SiteID sql.NullInt64
 }
 
-// Sets device_set_rack.site_id = NULL for every rack pointing at the
-// given site (org-guarded by the denormalized rack.org_id).
+// Sets device_set_rack.site_id = NULL for every live rack pointing at
+// the given site (org-guarded by the denormalized rack.org_id; the
+// EXISTS subquery skips racks whose parent device_set is soft-deleted
+// so the count returned to the UI matches ListSites.rack_count).
 func (q *Queries) UnassignRacksFromSite(ctx context.Context, arg UnassignRacksFromSiteParams) (int64, error) {
 	result, err := q.exec(ctx, q.unassignRacksFromSiteStmt, unassignRacksFromSite, arg.OrgID, arg.SiteID)
 	if err != nil {

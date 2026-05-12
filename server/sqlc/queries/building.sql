@@ -106,15 +106,22 @@ WHERE id = sqlc.arg('id')
 
 -- name: UnassignRacksFromBuilding :execrows
 -- Sets device_set_rack.building_id = NULL (and clears the free-form
--- zone label) for every rack pointing at the given building. Org guard
--- reads `device_set_rack.org_id` directly (denormalized from device_set
--- in migration 000046, kept in lockstep via the composite FK on
--- `(device_set_id, org_id) → device_set(id, org_id)`).
-UPDATE device_set_rack
+-- zone label) for every live rack pointing at the given building. Org
+-- guard reads `device_set_rack.org_id` directly (denormalized from
+-- device_set in migration 000046, kept in lockstep via the composite
+-- FK on `(device_set_id, org_id) → device_set(id, org_id)`). The
+-- EXISTS subquery on device_set skips soft-deleted rack collections so
+-- the cascade count matches ListBuildings.rack_count's filter.
+UPDATE device_set_rack dsr
 SET building_id = NULL,
     zone = NULL
-WHERE org_id = sqlc.arg('org_id')
-  AND building_id = sqlc.arg('building_id');
+WHERE dsr.org_id = sqlc.arg('org_id')
+  AND dsr.building_id = sqlc.arg('building_id')
+  AND EXISTS (
+      SELECT 1 FROM device_set ds
+      WHERE ds.id = dsr.device_set_id
+        AND ds.deleted_at IS NULL
+  );
 
 -- name: BuildingBelongsToOrg :one
 SELECT EXISTS(
