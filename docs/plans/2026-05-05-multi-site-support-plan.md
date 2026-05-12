@@ -30,9 +30,9 @@ sites exist.
   user action — the app continues to render in a site-less form until the
   operator chooses to create sites.
 - The schema treats `site` as a first-class entity so the future
-  on-prem-agent workstream (one agent per site) has a natural
+  on-prem-fleet node workstream (one fleet node per site) has a natural
   attachment point. We do not commit to its specific shape now and
-  add no agent-specific columns or tables in this plan.
+  add no fleet-node-specific columns or tables in this plan.
 
 ## Non-goals
 
@@ -53,8 +53,8 @@ sites exist.
   use the row-stamped `site_id`, never the device's *current*
   site, so history doesn't shift when a device is reassigned or a
   site is renamed/deleted.
-- Site-scoped discovery via on-prem agents. Out of scope for this plan;
-  owned by the agent workstream.
+- Site-scoped discovery via on-prem fleet nodes. Out of scope for this plan;
+  owned by the fleet node workstream.
 - Forcing site setup at onboarding. New orgs can pair miners and operate
   without ever creating a site.
 - A first-class `zone` entity, zone CRUD UI, or a `building.zones[]`
@@ -297,8 +297,8 @@ flat unsegmented flow first to keep Phase 1 small.
 
 **Site→miner mapping rule.** A miner's site is inferred from the
 site whose configured IP range caught it during discovery, not from
-the agent or transport that relayed it. This rule holds today
-(direct cloud scan) and in the future agent architecture (agent
+the fleet node or transport that relayed it. This rule holds today
+(direct cloud scan) and in the future fleet node architecture (fleet node
 scans its local network and relays the results, but the site bucket
 is still chosen from the site's network config matching the miner's
 IP). Operators can override the inferred site at pair time
@@ -544,8 +544,8 @@ Active-site selection is **not** stored in the database — it lives in
 client localStorage keyed by username (see J2).
 
 The reserved `connection_kind` enum from the source design doc is
-**not** included. The agent workstream will define whatever
-discriminator and agent-side schema it needs when it ships.
+**not** included. The fleet node workstream will define whatever
+discriminator and fleet-node-side schema it needs when it ships.
 
 Relationships after migration:
 
@@ -860,11 +860,11 @@ operational signals. Not blocking the multi-site basics, so
 deferred until the foundation is in place. Scope detailed in a
 follow-on plan.
 
-No further phases planned. The agent workstream owns its own
+No further phases planned. The fleet node workstream owns its own
 schema and discriminators; site `network_config` remains the
 canonical signal for "which miner belongs to which site" whether
-the data plane is direct-from-cloud or agent-relayed, so there is
-no multi-site work tied to the agent rollout. If mining ops later
+the data plane is direct-from-cloud or fleet-node-relayed, so there is
+no multi-site work tied to the fleet node rollout. If mining ops later
 asks to split currently-org-scoped config (pools, schedules, etc.)
 per-site, that's a separate plan.
 

@@ -36,14 +36,14 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.assignBuildingToSiteStmt, err = db.PrepareContext(ctx, assignBuildingToSite); err != nil {
 		return nil, fmt.Errorf("error preparing query AssignBuildingToSite: %w", err)
 	}
-	if q.bindEnrollmentToAgentStmt, err = db.PrepareContext(ctx, bindEnrollmentToAgent); err != nil {
-		return nil, fmt.Errorf("error preparing query BindEnrollmentToAgent: %w", err)
+	if q.bindEnrollmentToFleetNodeStmt, err = db.PrepareContext(ctx, bindEnrollmentToFleetNode); err != nil {
+		return nil, fmt.Errorf("error preparing query BindEnrollmentToFleetNode: %w", err)
 	}
 	if q.buildingBelongsToOrgStmt, err = db.PrepareContext(ctx, buildingBelongsToOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query BuildingBelongsToOrg: %w", err)
 	}
-	if q.cancelEnrollmentForAgentStmt, err = db.PrepareContext(ctx, cancelEnrollmentForAgent); err != nil {
-		return nil, fmt.Errorf("error preparing query CancelEnrollmentForAgent: %w", err)
+	if q.cancelEnrollmentForFleetNodeStmt, err = db.PrepareContext(ctx, cancelEnrollmentForFleetNode); err != nil {
+		return nil, fmt.Errorf("error preparing query CancelEnrollmentForFleetNode: %w", err)
 	}
 	if q.cancelPendingEnrollmentStmt, err = db.PrepareContext(ctx, cancelPendingEnrollment); err != nil {
 		return nil, fmt.Errorf("error preparing query CancelPendingEnrollment: %w", err)
@@ -60,8 +60,8 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.confirmEnrollmentStmt, err = db.PrepareContext(ctx, confirmEnrollment); err != nil {
 		return nil, fmt.Errorf("error preparing query ConfirmEnrollment: %w", err)
 	}
-	if q.consumeAgentAuthChallengeStmt, err = db.PrepareContext(ctx, consumeAgentAuthChallenge); err != nil {
-		return nil, fmt.Errorf("error preparing query ConsumeAgentAuthChallenge: %w", err)
+	if q.consumeFleetNodeAuthChallengeStmt, err = db.PrepareContext(ctx, consumeFleetNodeAuthChallenge); err != nil {
+		return nil, fmt.Errorf("error preparing query ConsumeFleetNodeAuthChallenge: %w", err)
 	}
 	if q.countActiveUnpairedDiscoveredDevicesStmt, err = db.PrepareContext(ctx, countActiveUnpairedDiscoveredDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query CountActiveUnpairedDiscoveredDevices: %w", err)
@@ -81,12 +81,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.countMinersByStateStmt, err = db.PrepareContext(ctx, countMinersByState); err != nil {
 		return nil, fmt.Errorf("error preparing query CountMinersByState: %w", err)
 	}
-	if q.createAgentStmt, err = db.PrepareContext(ctx, createAgent); err != nil {
-		return nil, fmt.Errorf("error preparing query CreateAgent: %w", err)
-	}
-	if q.createAgentApiKeyStmt, err = db.PrepareContext(ctx, createAgentApiKey); err != nil {
-		return nil, fmt.Errorf("error preparing query CreateAgentApiKey: %w", err)
-	}
 	if q.createApiKeyStmt, err = db.PrepareContext(ctx, createApiKey); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateApiKey: %w", err)
 	}
@@ -98,6 +92,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.createDeviceSetStmt, err = db.PrepareContext(ctx, createDeviceSet); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateDeviceSet: %w", err)
+	}
+	if q.createFleetNodeStmt, err = db.PrepareContext(ctx, createFleetNode); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateFleetNode: %w", err)
+	}
+	if q.createFleetNodeApiKeyStmt, err = db.PrepareContext(ctx, createFleetNodeApiKey); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateFleetNodeApiKey: %w", err)
 	}
 	if q.createOrganizationStmt, err = db.PrepareContext(ctx, createOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateOrganization: %w", err)
@@ -158,15 +158,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getActiveUnpairedDiscoveredDevicesStmt, err = db.PrepareContext(ctx, getActiveUnpairedDiscoveredDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query GetActiveUnpairedDiscoveredDevices: %w", err)
-	}
-	if q.getAgentByIDStmt, err = db.PrepareContext(ctx, getAgentByID); err != nil {
-		return nil, fmt.Errorf("error preparing query GetAgentByID: %w", err)
-	}
-	if q.getAgentByIDUnscopedStmt, err = db.PrepareContext(ctx, getAgentByIDUnscoped); err != nil {
-		return nil, fmt.Errorf("error preparing query GetAgentByIDUnscoped: %w", err)
-	}
-	if q.getAgentSessionByTokenHashStmt, err = db.PrepareContext(ctx, getAgentSessionByTokenHash); err != nil {
-		return nil, fmt.Errorf("error preparing query GetAgentSessionByTokenHash: %w", err)
 	}
 	if q.getAllDeviceInfoForCapabilityCheckStmt, err = db.PrepareContext(ctx, getAllDeviceInfoForCapabilityCheck); err != nil {
 		return nil, fmt.Errorf("error preparing query GetAllDeviceInfoForCapabilityCheck: %w", err)
@@ -330,6 +321,15 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getFilteredDeviceIdsStmt, err = db.PrepareContext(ctx, getFilteredDeviceIds); err != nil {
 		return nil, fmt.Errorf("error preparing query GetFilteredDeviceIds: %w", err)
 	}
+	if q.getFleetNodeByIDStmt, err = db.PrepareContext(ctx, getFleetNodeByID); err != nil {
+		return nil, fmt.Errorf("error preparing query GetFleetNodeByID: %w", err)
+	}
+	if q.getFleetNodeByIDUnscopedStmt, err = db.PrepareContext(ctx, getFleetNodeByIDUnscoped); err != nil {
+		return nil, fmt.Errorf("error preparing query GetFleetNodeByIDUnscoped: %w", err)
+	}
+	if q.getFleetNodeSessionByTokenHashStmt, err = db.PrepareContext(ctx, getFleetNodeSessionByTokenHash); err != nil {
+		return nil, fmt.Errorf("error preparing query GetFleetNodeSessionByTokenHash: %w", err)
+	}
 	if q.getGroupLabelsForDevicesStmt, err = db.PrepareContext(ctx, getGroupLabelsForDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query GetGroupLabelsForDevices: %w", err)
 	}
@@ -390,11 +390,11 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getPairedDevicesIdsStmt, err = db.PrepareContext(ctx, getPairedDevicesIds); err != nil {
 		return nil, fmt.Errorf("error preparing query GetPairedDevicesIds: %w", err)
 	}
-	if q.getPendingEnrollmentByAgentStmt, err = db.PrepareContext(ctx, getPendingEnrollmentByAgent); err != nil {
-		return nil, fmt.Errorf("error preparing query GetPendingEnrollmentByAgent: %w", err)
-	}
 	if q.getPendingEnrollmentByCodeHashStmt, err = db.PrepareContext(ctx, getPendingEnrollmentByCodeHash); err != nil {
 		return nil, fmt.Errorf("error preparing query GetPendingEnrollmentByCodeHash: %w", err)
+	}
+	if q.getPendingEnrollmentByFleetNodeStmt, err = db.PrepareContext(ctx, getPendingEnrollmentByFleetNode); err != nil {
+		return nil, fmt.Errorf("error preparing query GetPendingEnrollmentByFleetNode: %w", err)
 	}
 	if q.getPoolStmt, err = db.PrepareContext(ctx, getPool); err != nil {
 		return nil, fmt.Errorf("error preparing query GetPool: %w", err)
@@ -507,9 +507,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listActivityLogsStmt, err = db.PrepareContext(ctx, listActivityLogs); err != nil {
 		return nil, fmt.Errorf("error preparing query ListActivityLogs: %w", err)
 	}
-	if q.listAgentsForOrganizationStmt, err = db.PrepareContext(ctx, listAgentsForOrganization); err != nil {
-		return nil, fmt.Errorf("error preparing query ListAgentsForOrganization: %w", err)
-	}
 	if q.listApiKeysByOrganizationStmt, err = db.PrepareContext(ctx, listApiKeysByOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query ListApiKeysByOrganization: %w", err)
 	}
@@ -533,6 +530,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.listExistingDeviceIdentifiersStmt, err = db.PrepareContext(ctx, listExistingDeviceIdentifiers); err != nil {
 		return nil, fmt.Errorf("error preparing query ListExistingDeviceIdentifiers: %w", err)
+	}
+	if q.listFleetNodesForOrganizationStmt, err = db.PrepareContext(ctx, listFleetNodesForOrganization); err != nil {
+		return nil, fmt.Errorf("error preparing query ListFleetNodesForOrganization: %w", err)
 	}
 	if q.listMinerStateSnapshotsStmt, err = db.PrepareContext(ctx, listMinerStateSnapshots); err != nil {
 		return nil, fmt.Errorf("error preparing query ListMinerStateSnapshots: %w", err)
@@ -570,9 +570,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listUsersForOrganizationStmt, err = db.PrepareContext(ctx, listUsersForOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query ListUsersForOrganization: %w", err)
 	}
-	if q.lockAgentByIDStmt, err = db.PrepareContext(ctx, lockAgentByID); err != nil {
-		return nil, fmt.Errorf("error preparing query LockAgentByID: %w", err)
-	}
 	if q.lockBuildingForWriteStmt, err = db.PrepareContext(ctx, lockBuildingForWrite); err != nil {
 		return nil, fmt.Errorf("error preparing query LockBuildingForWrite: %w", err)
 	}
@@ -581,6 +578,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.lockDevicesForReassignStmt, err = db.PrepareContext(ctx, lockDevicesForReassign); err != nil {
 		return nil, fmt.Errorf("error preparing query LockDevicesForReassign: %w", err)
+	}
+	if q.lockFleetNodeByIDStmt, err = db.PrepareContext(ctx, lockFleetNodeByID); err != nil {
+		return nil, fmt.Errorf("error preparing query LockFleetNodeByID: %w", err)
 	}
 	if q.lockSchedulePriorityStmt, err = db.PrepareContext(ctx, lockSchedulePriority); err != nil {
 		return nil, fmt.Errorf("error preparing query LockSchedulePriority: %w", err)
@@ -648,14 +648,14 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.revokeApiKeyStmt, err = db.PrepareContext(ctx, revokeApiKey); err != nil {
 		return nil, fmt.Errorf("error preparing query RevokeApiKey: %w", err)
 	}
-	if q.revokeApiKeysByAgentIDStmt, err = db.PrepareContext(ctx, revokeApiKeysByAgentID); err != nil {
-		return nil, fmt.Errorf("error preparing query RevokeApiKeysByAgentID: %w", err)
+	if q.revokeApiKeysByFleetNodeIDStmt, err = db.PrepareContext(ctx, revokeApiKeysByFleetNodeID); err != nil {
+		return nil, fmt.Errorf("error preparing query RevokeApiKeysByFleetNodeID: %w", err)
 	}
 	if q.revokeSessionStmt, err = db.PrepareContext(ctx, revokeSession); err != nil {
 		return nil, fmt.Errorf("error preparing query RevokeSession: %w", err)
 	}
-	if q.setAgentEnrollmentStatusStmt, err = db.PrepareContext(ctx, setAgentEnrollmentStatus); err != nil {
-		return nil, fmt.Errorf("error preparing query SetAgentEnrollmentStatus: %w", err)
+	if q.setFleetNodeEnrollmentStatusStmt, err = db.PrepareContext(ctx, setFleetNodeEnrollmentStatus); err != nil {
+		return nil, fmt.Errorf("error preparing query SetFleetNodeEnrollmentStatus: %w", err)
 	}
 	if q.setRackSlotPositionStmt, err = db.PrepareContext(ctx, setRackSlotPosition); err != nil {
 		return nil, fmt.Errorf("error preparing query SetRackSlotPosition: %w", err)
@@ -668,12 +668,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.siteBelongsToOrgStmt, err = db.PrepareContext(ctx, siteBelongsToOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query SiteBelongsToOrg: %w", err)
-	}
-	if q.softDeleteAgentStmt, err = db.PrepareContext(ctx, softDeleteAgent); err != nil {
-		return nil, fmt.Errorf("error preparing query SoftDeleteAgent: %w", err)
-	}
-	if q.softDeleteAgentsForExpiredEnrollmentsStmt, err = db.PrepareContext(ctx, softDeleteAgentsForExpiredEnrollments); err != nil {
-		return nil, fmt.Errorf("error preparing query SoftDeleteAgentsForExpiredEnrollments: %w", err)
 	}
 	if q.softDeleteBuildingStmt, err = db.PrepareContext(ctx, softDeleteBuilding); err != nil {
 		return nil, fmt.Errorf("error preparing query SoftDeleteBuilding: %w", err)
@@ -692,6 +686,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.softDeleteDiscoveredDevicesForDeletedDevicesStmt, err = db.PrepareContext(ctx, softDeleteDiscoveredDevicesForDeletedDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query SoftDeleteDiscoveredDevicesForDeletedDevices: %w", err)
+	}
+	if q.softDeleteFleetNodeStmt, err = db.PrepareContext(ctx, softDeleteFleetNode); err != nil {
+		return nil, fmt.Errorf("error preparing query SoftDeleteFleetNode: %w", err)
+	}
+	if q.softDeleteFleetNodesForExpiredEnrollmentsStmt, err = db.PrepareContext(ctx, softDeleteFleetNodesForExpiredEnrollments); err != nil {
+		return nil, fmt.Errorf("error preparing query SoftDeleteFleetNodesForExpiredEnrollments: %w", err)
 	}
 	if q.softDeleteOrganizationStmt, err = db.PrepareContext(ctx, softDeleteOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query SoftDeleteOrganization: %w", err)
@@ -714,14 +714,14 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.softDeleteUserFromOrganizationStmt, err = db.PrepareContext(ctx, softDeleteUserFromOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query SoftDeleteUserFromOrganization: %w", err)
 	}
-	if q.sweepExpiredAgentAuthChallengesStmt, err = db.PrepareContext(ctx, sweepExpiredAgentAuthChallenges); err != nil {
-		return nil, fmt.Errorf("error preparing query SweepExpiredAgentAuthChallenges: %w", err)
-	}
-	if q.sweepExpiredAgentSessionsStmt, err = db.PrepareContext(ctx, sweepExpiredAgentSessions); err != nil {
-		return nil, fmt.Errorf("error preparing query SweepExpiredAgentSessions: %w", err)
-	}
 	if q.sweepExpiredEnrollmentsStmt, err = db.PrepareContext(ctx, sweepExpiredEnrollments); err != nil {
 		return nil, fmt.Errorf("error preparing query SweepExpiredEnrollments: %w", err)
+	}
+	if q.sweepExpiredFleetNodeAuthChallengesStmt, err = db.PrepareContext(ctx, sweepExpiredFleetNodeAuthChallenges); err != nil {
+		return nil, fmt.Errorf("error preparing query SweepExpiredFleetNodeAuthChallenges: %w", err)
+	}
+	if q.sweepExpiredFleetNodeSessionsStmt, err = db.PrepareContext(ctx, sweepExpiredFleetNodeSessions); err != nil {
+		return nil, fmt.Errorf("error preparing query SweepExpiredFleetNodeSessions: %w", err)
 	}
 	if q.unassignDevicesFromSiteStmt, err = db.PrepareContext(ctx, unassignDevicesFromSite); err != nil {
 		return nil, fmt.Errorf("error preparing query UnassignDevicesFromSite: %w", err)
@@ -828,12 +828,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.updateUserUsernameStmt, err = db.PrepareContext(ctx, updateUserUsername); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateUserUsername: %w", err)
 	}
-	if q.upsertAgentAuthChallengeStmt, err = db.PrepareContext(ctx, upsertAgentAuthChallenge); err != nil {
-		return nil, fmt.Errorf("error preparing query UpsertAgentAuthChallenge: %w", err)
-	}
-	if q.upsertAgentSessionStmt, err = db.PrepareContext(ctx, upsertAgentSession); err != nil {
-		return nil, fmt.Errorf("error preparing query UpsertAgentSession: %w", err)
-	}
 	if q.upsertCommandOnDeviceLogStmt, err = db.PrepareContext(ctx, upsertCommandOnDeviceLog); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertCommandOnDeviceLog: %w", err)
 	}
@@ -845,6 +839,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.upsertDiscoveredDeviceStmt, err = db.PrepareContext(ctx, upsertDiscoveredDevice); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertDiscoveredDevice: %w", err)
+	}
+	if q.upsertFleetNodeAuthChallengeStmt, err = db.PrepareContext(ctx, upsertFleetNodeAuthChallenge); err != nil {
+		return nil, fmt.Errorf("error preparing query UpsertFleetNodeAuthChallenge: %w", err)
+	}
+	if q.upsertFleetNodeSessionStmt, err = db.PrepareContext(ctx, upsertFleetNodeSession); err != nil {
+		return nil, fmt.Errorf("error preparing query UpsertFleetNodeSession: %w", err)
 	}
 	if q.upsertMinerCredentialsStmt, err = db.PrepareContext(ctx, upsertMinerCredentials); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertMinerCredentials: %w", err)
@@ -877,9 +877,9 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing assignBuildingToSiteStmt: %w", cerr)
 		}
 	}
-	if q.bindEnrollmentToAgentStmt != nil {
-		if cerr := q.bindEnrollmentToAgentStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing bindEnrollmentToAgentStmt: %w", cerr)
+	if q.bindEnrollmentToFleetNodeStmt != nil {
+		if cerr := q.bindEnrollmentToFleetNodeStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing bindEnrollmentToFleetNodeStmt: %w", cerr)
 		}
 	}
 	if q.buildingBelongsToOrgStmt != nil {
@@ -887,9 +887,9 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing buildingBelongsToOrgStmt: %w", cerr)
 		}
 	}
-	if q.cancelEnrollmentForAgentStmt != nil {
-		if cerr := q.cancelEnrollmentForAgentStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing cancelEnrollmentForAgentStmt: %w", cerr)
+	if q.cancelEnrollmentForFleetNodeStmt != nil {
+		if cerr := q.cancelEnrollmentForFleetNodeStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing cancelEnrollmentForFleetNodeStmt: %w", cerr)
 		}
 	}
 	if q.cancelPendingEnrollmentStmt != nil {
@@ -917,9 +917,9 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing confirmEnrollmentStmt: %w", cerr)
 		}
 	}
-	if q.consumeAgentAuthChallengeStmt != nil {
-		if cerr := q.consumeAgentAuthChallengeStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing consumeAgentAuthChallengeStmt: %w", cerr)
+	if q.consumeFleetNodeAuthChallengeStmt != nil {
+		if cerr := q.consumeFleetNodeAuthChallengeStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing consumeFleetNodeAuthChallengeStmt: %w", cerr)
 		}
 	}
 	if q.countActiveUnpairedDiscoveredDevicesStmt != nil {
@@ -952,16 +952,6 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing countMinersByStateStmt: %w", cerr)
 		}
 	}
-	if q.createAgentStmt != nil {
-		if cerr := q.createAgentStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing createAgentStmt: %w", cerr)
-		}
-	}
-	if q.createAgentApiKeyStmt != nil {
-		if cerr := q.createAgentApiKeyStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing createAgentApiKeyStmt: %w", cerr)
-		}
-	}
 	if q.createApiKeyStmt != nil {
 		if cerr := q.createApiKeyStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createApiKeyStmt: %w", cerr)
@@ -980,6 +970,16 @@ func (q *Queries) Close() error {
 	if q.createDeviceSetStmt != nil {
 		if cerr := q.createDeviceSetStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createDeviceSetStmt: %w", cerr)
+		}
+	}
+	if q.createFleetNodeStmt != nil {
+		if cerr := q.createFleetNodeStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createFleetNodeStmt: %w", cerr)
+		}
+	}
+	if q.createFleetNodeApiKeyStmt != nil {
+		if cerr := q.createFleetNodeApiKeyStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createFleetNodeApiKeyStmt: %w", cerr)
 		}
 	}
 	if q.createOrganizationStmt != nil {
@@ -1080,21 +1080,6 @@ func (q *Queries) Close() error {
 	if q.getActiveUnpairedDiscoveredDevicesStmt != nil {
 		if cerr := q.getActiveUnpairedDiscoveredDevicesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getActiveUnpairedDiscoveredDevicesStmt: %w", cerr)
-		}
-	}
-	if q.getAgentByIDStmt != nil {
-		if cerr := q.getAgentByIDStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing getAgentByIDStmt: %w", cerr)
-		}
-	}
-	if q.getAgentByIDUnscopedStmt != nil {
-		if cerr := q.getAgentByIDUnscopedStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing getAgentByIDUnscopedStmt: %w", cerr)
-		}
-	}
-	if q.getAgentSessionByTokenHashStmt != nil {
-		if cerr := q.getAgentSessionByTokenHashStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing getAgentSessionByTokenHashStmt: %w", cerr)
 		}
 	}
 	if q.getAllDeviceInfoForCapabilityCheckStmt != nil {
@@ -1367,6 +1352,21 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getFilteredDeviceIdsStmt: %w", cerr)
 		}
 	}
+	if q.getFleetNodeByIDStmt != nil {
+		if cerr := q.getFleetNodeByIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getFleetNodeByIDStmt: %w", cerr)
+		}
+	}
+	if q.getFleetNodeByIDUnscopedStmt != nil {
+		if cerr := q.getFleetNodeByIDUnscopedStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getFleetNodeByIDUnscopedStmt: %w", cerr)
+		}
+	}
+	if q.getFleetNodeSessionByTokenHashStmt != nil {
+		if cerr := q.getFleetNodeSessionByTokenHashStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getFleetNodeSessionByTokenHashStmt: %w", cerr)
+		}
+	}
 	if q.getGroupLabelsForDevicesStmt != nil {
 		if cerr := q.getGroupLabelsForDevicesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getGroupLabelsForDevicesStmt: %w", cerr)
@@ -1467,14 +1467,14 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getPairedDevicesIdsStmt: %w", cerr)
 		}
 	}
-	if q.getPendingEnrollmentByAgentStmt != nil {
-		if cerr := q.getPendingEnrollmentByAgentStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing getPendingEnrollmentByAgentStmt: %w", cerr)
-		}
-	}
 	if q.getPendingEnrollmentByCodeHashStmt != nil {
 		if cerr := q.getPendingEnrollmentByCodeHashStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getPendingEnrollmentByCodeHashStmt: %w", cerr)
+		}
+	}
+	if q.getPendingEnrollmentByFleetNodeStmt != nil {
+		if cerr := q.getPendingEnrollmentByFleetNodeStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getPendingEnrollmentByFleetNodeStmt: %w", cerr)
 		}
 	}
 	if q.getPoolStmt != nil {
@@ -1662,11 +1662,6 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listActivityLogsStmt: %w", cerr)
 		}
 	}
-	if q.listAgentsForOrganizationStmt != nil {
-		if cerr := q.listAgentsForOrganizationStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing listAgentsForOrganizationStmt: %w", cerr)
-		}
-	}
 	if q.listApiKeysByOrganizationStmt != nil {
 		if cerr := q.listApiKeysByOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listApiKeysByOrganizationStmt: %w", cerr)
@@ -1705,6 +1700,11 @@ func (q *Queries) Close() error {
 	if q.listExistingDeviceIdentifiersStmt != nil {
 		if cerr := q.listExistingDeviceIdentifiersStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listExistingDeviceIdentifiersStmt: %w", cerr)
+		}
+	}
+	if q.listFleetNodesForOrganizationStmt != nil {
+		if cerr := q.listFleetNodesForOrganizationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listFleetNodesForOrganizationStmt: %w", cerr)
 		}
 	}
 	if q.listMinerStateSnapshotsStmt != nil {
@@ -1767,11 +1767,6 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listUsersForOrganizationStmt: %w", cerr)
 		}
 	}
-	if q.lockAgentByIDStmt != nil {
-		if cerr := q.lockAgentByIDStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing lockAgentByIDStmt: %w", cerr)
-		}
-	}
 	if q.lockBuildingForWriteStmt != nil {
 		if cerr := q.lockBuildingForWriteStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockBuildingForWriteStmt: %w", cerr)
@@ -1785,6 +1780,11 @@ func (q *Queries) Close() error {
 	if q.lockDevicesForReassignStmt != nil {
 		if cerr := q.lockDevicesForReassignStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockDevicesForReassignStmt: %w", cerr)
+		}
+	}
+	if q.lockFleetNodeByIDStmt != nil {
+		if cerr := q.lockFleetNodeByIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockFleetNodeByIDStmt: %w", cerr)
 		}
 	}
 	if q.lockSchedulePriorityStmt != nil {
@@ -1897,9 +1897,9 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing revokeApiKeyStmt: %w", cerr)
 		}
 	}
-	if q.revokeApiKeysByAgentIDStmt != nil {
-		if cerr := q.revokeApiKeysByAgentIDStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing revokeApiKeysByAgentIDStmt: %w", cerr)
+	if q.revokeApiKeysByFleetNodeIDStmt != nil {
+		if cerr := q.revokeApiKeysByFleetNodeIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing revokeApiKeysByFleetNodeIDStmt: %w", cerr)
 		}
 	}
 	if q.revokeSessionStmt != nil {
@@ -1907,9 +1907,9 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing revokeSessionStmt: %w", cerr)
 		}
 	}
-	if q.setAgentEnrollmentStatusStmt != nil {
-		if cerr := q.setAgentEnrollmentStatusStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing setAgentEnrollmentStatusStmt: %w", cerr)
+	if q.setFleetNodeEnrollmentStatusStmt != nil {
+		if cerr := q.setFleetNodeEnrollmentStatusStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing setFleetNodeEnrollmentStatusStmt: %w", cerr)
 		}
 	}
 	if q.setRackSlotPositionStmt != nil {
@@ -1930,16 +1930,6 @@ func (q *Queries) Close() error {
 	if q.siteBelongsToOrgStmt != nil {
 		if cerr := q.siteBelongsToOrgStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing siteBelongsToOrgStmt: %w", cerr)
-		}
-	}
-	if q.softDeleteAgentStmt != nil {
-		if cerr := q.softDeleteAgentStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing softDeleteAgentStmt: %w", cerr)
-		}
-	}
-	if q.softDeleteAgentsForExpiredEnrollmentsStmt != nil {
-		if cerr := q.softDeleteAgentsForExpiredEnrollmentsStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing softDeleteAgentsForExpiredEnrollmentsStmt: %w", cerr)
 		}
 	}
 	if q.softDeleteBuildingStmt != nil {
@@ -1970,6 +1960,16 @@ func (q *Queries) Close() error {
 	if q.softDeleteDiscoveredDevicesForDeletedDevicesStmt != nil {
 		if cerr := q.softDeleteDiscoveredDevicesForDeletedDevicesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing softDeleteDiscoveredDevicesForDeletedDevicesStmt: %w", cerr)
+		}
+	}
+	if q.softDeleteFleetNodeStmt != nil {
+		if cerr := q.softDeleteFleetNodeStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing softDeleteFleetNodeStmt: %w", cerr)
+		}
+	}
+	if q.softDeleteFleetNodesForExpiredEnrollmentsStmt != nil {
+		if cerr := q.softDeleteFleetNodesForExpiredEnrollmentsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing softDeleteFleetNodesForExpiredEnrollmentsStmt: %w", cerr)
 		}
 	}
 	if q.softDeleteOrganizationStmt != nil {
@@ -2007,19 +2007,19 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing softDeleteUserFromOrganizationStmt: %w", cerr)
 		}
 	}
-	if q.sweepExpiredAgentAuthChallengesStmt != nil {
-		if cerr := q.sweepExpiredAgentAuthChallengesStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing sweepExpiredAgentAuthChallengesStmt: %w", cerr)
-		}
-	}
-	if q.sweepExpiredAgentSessionsStmt != nil {
-		if cerr := q.sweepExpiredAgentSessionsStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing sweepExpiredAgentSessionsStmt: %w", cerr)
-		}
-	}
 	if q.sweepExpiredEnrollmentsStmt != nil {
 		if cerr := q.sweepExpiredEnrollmentsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing sweepExpiredEnrollmentsStmt: %w", cerr)
+		}
+	}
+	if q.sweepExpiredFleetNodeAuthChallengesStmt != nil {
+		if cerr := q.sweepExpiredFleetNodeAuthChallengesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing sweepExpiredFleetNodeAuthChallengesStmt: %w", cerr)
+		}
+	}
+	if q.sweepExpiredFleetNodeSessionsStmt != nil {
+		if cerr := q.sweepExpiredFleetNodeSessionsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing sweepExpiredFleetNodeSessionsStmt: %w", cerr)
 		}
 	}
 	if q.unassignDevicesFromSiteStmt != nil {
@@ -2197,16 +2197,6 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing updateUserUsernameStmt: %w", cerr)
 		}
 	}
-	if q.upsertAgentAuthChallengeStmt != nil {
-		if cerr := q.upsertAgentAuthChallengeStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing upsertAgentAuthChallengeStmt: %w", cerr)
-		}
-	}
-	if q.upsertAgentSessionStmt != nil {
-		if cerr := q.upsertAgentSessionStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing upsertAgentSessionStmt: %w", cerr)
-		}
-	}
 	if q.upsertCommandOnDeviceLogStmt != nil {
 		if cerr := q.upsertCommandOnDeviceLogStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing upsertCommandOnDeviceLogStmt: %w", cerr)
@@ -2225,6 +2215,16 @@ func (q *Queries) Close() error {
 	if q.upsertDiscoveredDeviceStmt != nil {
 		if cerr := q.upsertDiscoveredDeviceStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing upsertDiscoveredDeviceStmt: %w", cerr)
+		}
+	}
+	if q.upsertFleetNodeAuthChallengeStmt != nil {
+		if cerr := q.upsertFleetNodeAuthChallengeStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing upsertFleetNodeAuthChallengeStmt: %w", cerr)
+		}
+	}
+	if q.upsertFleetNodeSessionStmt != nil {
+		if cerr := q.upsertFleetNodeSessionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing upsertFleetNodeSessionStmt: %w", cerr)
 		}
 	}
 	if q.upsertMinerCredentialsStmt != nil {
@@ -2280,27 +2280,27 @@ type Queries struct {
 	adminResetUserPasswordStmt                          *sql.Stmt
 	allDevicesBelongToOrgStmt                           *sql.Stmt
 	assignBuildingToSiteStmt                            *sql.Stmt
-	bindEnrollmentToAgentStmt                           *sql.Stmt
+	bindEnrollmentToFleetNodeStmt                       *sql.Stmt
 	buildingBelongsToOrgStmt                            *sql.Stmt
-	cancelEnrollmentForAgentStmt                        *sql.Stmt
+	cancelEnrollmentForFleetNodeStmt                    *sql.Stmt
 	cancelPendingEnrollmentStmt                         *sql.Stmt
 	claimMessageForProcessingStmt                       *sql.Stmt
 	clearRackSlotPositionStmt                           *sql.Stmt
 	closeStaleErrorsStmt                                *sql.Stmt
 	confirmEnrollmentStmt                               *sql.Stmt
-	consumeAgentAuthChallengeStmt                       *sql.Stmt
+	consumeFleetNodeAuthChallengeStmt                   *sql.Stmt
 	countActiveUnpairedDiscoveredDevicesStmt            *sql.Stmt
 	countActivityLogsStmt                               *sql.Stmt
 	countComponentsWithErrorsStmt                       *sql.Stmt
 	countDevicesWithErrorsStmt                          *sql.Stmt
 	countErrorsStmt                                     *sql.Stmt
 	countMinersByStateStmt                              *sql.Stmt
-	createAgentStmt                                     *sql.Stmt
-	createAgentApiKeyStmt                               *sql.Stmt
 	createApiKeyStmt                                    *sql.Stmt
 	createBuildingStmt                                  *sql.Stmt
 	createCommandBatchLogStmt                           *sql.Stmt
 	createDeviceSetStmt                                 *sql.Stmt
+	createFleetNodeStmt                                 *sql.Stmt
+	createFleetNodeApiKeyStmt                           *sql.Stmt
 	createOrganizationStmt                              *sql.Stmt
 	createPendingEnrollmentStmt                         *sql.Stmt
 	createPoolStmt                                      *sql.Stmt
@@ -2321,9 +2321,6 @@ type Queries struct {
 	findDeviceSiteConflictsStmt                         *sql.Stmt
 	getActiveSchedulesStmt                              *sql.Stmt
 	getActiveUnpairedDiscoveredDevicesStmt              *sql.Stmt
-	getAgentByIDStmt                                    *sql.Stmt
-	getAgentByIDUnscopedStmt                            *sql.Stmt
-	getAgentSessionByTokenHashStmt                      *sql.Stmt
 	getAllDeviceInfoForCapabilityCheckStmt              *sql.Stmt
 	getAllDeviceMetricsDailyAggregatesStmt              *sql.Stmt
 	getAllDeviceMetricsHourlyAggregatesStmt             *sql.Stmt
@@ -2378,6 +2375,9 @@ type Queries struct {
 	getErrorByIDStmt                                    *sql.Stmt
 	getFilteredDeviceIdentifiersStmt                    *sql.Stmt
 	getFilteredDeviceIdsStmt                            *sql.Stmt
+	getFleetNodeByIDStmt                                *sql.Stmt
+	getFleetNodeByIDUnscopedStmt                        *sql.Stmt
+	getFleetNodeSessionByTokenHashStmt                  *sql.Stmt
 	getGroupLabelsForDevicesStmt                        *sql.Stmt
 	getKnownSubnetsStmt                                 *sql.Stmt
 	getLatestAllDeviceMetricsStmt                       *sql.Stmt
@@ -2398,8 +2398,8 @@ type Queries struct {
 	getPairedDeviceBySerialNumberStmt                   *sql.Stmt
 	getPairedDevicesByMACAddressesStmt                  *sql.Stmt
 	getPairedDevicesIdsStmt                             *sql.Stmt
-	getPendingEnrollmentByAgentStmt                     *sql.Stmt
 	getPendingEnrollmentByCodeHashStmt                  *sql.Stmt
+	getPendingEnrollmentByFleetNodeStmt                 *sql.Stmt
 	getPoolStmt                                         *sql.Stmt
 	getRackDetailsForDevicesStmt                        *sql.Stmt
 	getRackInfoStmt                                     *sql.Stmt
@@ -2437,7 +2437,6 @@ type Queries struct {
 	isBatchProcessingStmt                               *sql.Stmt
 	listActiveCurtailedDevicesByOrgStmt                 *sql.Stmt
 	listActivityLogsStmt                                *sql.Stmt
-	listAgentsForOrganizationStmt                       *sql.Stmt
 	listApiKeysByOrganizationStmt                       *sql.Stmt
 	listBatchDeviceResultsStmt                          *sql.Stmt
 	listBuildingsByOrgStmt                              *sql.Stmt
@@ -2446,6 +2445,7 @@ type Queries struct {
 	listDeviceSetMembersPaginatedStmt                   *sql.Stmt
 	listDeviceSetMembersPaginatedAfterStmt              *sql.Stmt
 	listExistingDeviceIdentifiersStmt                   *sql.Stmt
+	listFleetNodesForOrganizationStmt                   *sql.Stmt
 	listMinerStateSnapshotsStmt                         *sql.Stmt
 	listOrganizationsStmt                               *sql.Stmt
 	listPoolsStmt                                       *sql.Stmt
@@ -2458,10 +2458,10 @@ type Queries struct {
 	listSiteNetworkConfigsForOverlapStmt                *sql.Stmt
 	listSitesStmt                                       *sql.Stmt
 	listUsersForOrganizationStmt                        *sql.Stmt
-	lockAgentByIDStmt                                   *sql.Stmt
 	lockBuildingForWriteStmt                            *sql.Stmt
 	lockBuildingsBySiteForWriteStmt                     *sql.Stmt
 	lockDevicesForReassignStmt                          *sql.Stmt
+	lockFleetNodeByIDStmt                               *sql.Stmt
 	lockSchedulePriorityStmt                            *sql.Stmt
 	lockSiteForWriteStmt                                *sql.Stmt
 	markCommandBatchFinishedStmt                        *sql.Stmt
@@ -2484,21 +2484,21 @@ type Queries struct {
 	revertScheduleToActiveStmt                          *sql.Stmt
 	revokeAllSessionsByUserIDStmt                       *sql.Stmt
 	revokeApiKeyStmt                                    *sql.Stmt
-	revokeApiKeysByAgentIDStmt                          *sql.Stmt
+	revokeApiKeysByFleetNodeIDStmt                      *sql.Stmt
 	revokeSessionStmt                                   *sql.Stmt
-	setAgentEnrollmentStatusStmt                        *sql.Stmt
+	setFleetNodeEnrollmentStatusStmt                    *sql.Stmt
 	setRackSlotPositionStmt                             *sql.Stmt
 	setSchedulePrioritiesStmt                           *sql.Stmt
 	setScheduleRunningStmt                              *sql.Stmt
 	siteBelongsToOrgStmt                                *sql.Stmt
-	softDeleteAgentStmt                                 *sql.Stmt
-	softDeleteAgentsForExpiredEnrollmentsStmt           *sql.Stmt
 	softDeleteBuildingStmt                              *sql.Stmt
 	softDeleteBuildingsBySiteStmt                       *sql.Stmt
 	softDeleteDeviceSetStmt                             *sql.Stmt
 	softDeleteDevicesStmt                               *sql.Stmt
 	softDeleteDiscoveredDeviceByIdentifierStmt          *sql.Stmt
 	softDeleteDiscoveredDevicesForDeletedDevicesStmt    *sql.Stmt
+	softDeleteFleetNodeStmt                             *sql.Stmt
+	softDeleteFleetNodesForExpiredEnrollmentsStmt       *sql.Stmt
 	softDeleteOrganizationStmt                          *sql.Stmt
 	softDeletePoolStmt                                  *sql.Stmt
 	softDeleteRoleStmt                                  *sql.Stmt
@@ -2506,9 +2506,9 @@ type Queries struct {
 	softDeleteSiteStmt                                  *sql.Stmt
 	softDeleteUserStmt                                  *sql.Stmt
 	softDeleteUserFromOrganizationStmt                  *sql.Stmt
-	sweepExpiredAgentAuthChallengesStmt                 *sql.Stmt
-	sweepExpiredAgentSessionsStmt                       *sql.Stmt
 	sweepExpiredEnrollmentsStmt                         *sql.Stmt
+	sweepExpiredFleetNodeAuthChallengesStmt             *sql.Stmt
+	sweepExpiredFleetNodeSessionsStmt                   *sql.Stmt
 	unassignDevicesFromSiteStmt                         *sql.Stmt
 	unassignRacksFromBuildingStmt                       *sql.Stmt
 	unassignRacksFromBuildingsBySiteStmt                *sql.Stmt
@@ -2544,12 +2544,12 @@ type Queries struct {
 	updateUserPasswordAndFlagStmt                       *sql.Stmt
 	updateUserRoleStmt                                  *sql.Stmt
 	updateUserUsernameStmt                              *sql.Stmt
-	upsertAgentAuthChallengeStmt                        *sql.Stmt
-	upsertAgentSessionStmt                              *sql.Stmt
 	upsertCommandOnDeviceLogStmt                        *sql.Stmt
 	upsertDevicePairingStmt                             *sql.Stmt
 	upsertDeviceStatusStmt                              *sql.Stmt
 	upsertDiscoveredDeviceStmt                          *sql.Stmt
+	upsertFleetNodeAuthChallengeStmt                    *sql.Stmt
+	upsertFleetNodeSessionStmt                          *sql.Stmt
 	upsertMinerCredentialsStmt                          *sql.Stmt
 	upsertRoleStmt                                      *sql.Stmt
 }
@@ -2562,27 +2562,27 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		adminResetUserPasswordStmt:                          q.adminResetUserPasswordStmt,
 		allDevicesBelongToOrgStmt:                           q.allDevicesBelongToOrgStmt,
 		assignBuildingToSiteStmt:                            q.assignBuildingToSiteStmt,
-		bindEnrollmentToAgentStmt:                           q.bindEnrollmentToAgentStmt,
+		bindEnrollmentToFleetNodeStmt:                       q.bindEnrollmentToFleetNodeStmt,
 		buildingBelongsToOrgStmt:                            q.buildingBelongsToOrgStmt,
-		cancelEnrollmentForAgentStmt:                        q.cancelEnrollmentForAgentStmt,
+		cancelEnrollmentForFleetNodeStmt:                    q.cancelEnrollmentForFleetNodeStmt,
 		cancelPendingEnrollmentStmt:                         q.cancelPendingEnrollmentStmt,
 		claimMessageForProcessingStmt:                       q.claimMessageForProcessingStmt,
 		clearRackSlotPositionStmt:                           q.clearRackSlotPositionStmt,
 		closeStaleErrorsStmt:                                q.closeStaleErrorsStmt,
 		confirmEnrollmentStmt:                               q.confirmEnrollmentStmt,
-		consumeAgentAuthChallengeStmt:                       q.consumeAgentAuthChallengeStmt,
+		consumeFleetNodeAuthChallengeStmt:                   q.consumeFleetNodeAuthChallengeStmt,
 		countActiveUnpairedDiscoveredDevicesStmt:            q.countActiveUnpairedDiscoveredDevicesStmt,
 		countActivityLogsStmt:                               q.countActivityLogsStmt,
 		countComponentsWithErrorsStmt:                       q.countComponentsWithErrorsStmt,
 		countDevicesWithErrorsStmt:                          q.countDevicesWithErrorsStmt,
 		countErrorsStmt:                                     q.countErrorsStmt,
 		countMinersByStateStmt:                              q.countMinersByStateStmt,
-		createAgentStmt:                                     q.createAgentStmt,
-		createAgentApiKeyStmt:                               q.createAgentApiKeyStmt,
 		createApiKeyStmt:                                    q.createApiKeyStmt,
 		createBuildingStmt:                                  q.createBuildingStmt,
 		createCommandBatchLogStmt:                           q.createCommandBatchLogStmt,
 		createDeviceSetStmt:                                 q.createDeviceSetStmt,
+		createFleetNodeStmt:                                 q.createFleetNodeStmt,
+		createFleetNodeApiKeyStmt:                           q.createFleetNodeApiKeyStmt,
 		createOrganizationStmt:                              q.createOrganizationStmt,
 		createPendingEnrollmentStmt:                         q.createPendingEnrollmentStmt,
 		createPoolStmt:                                      q.createPoolStmt,
@@ -2603,9 +2603,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		findDeviceSiteConflictsStmt:                         q.findDeviceSiteConflictsStmt,
 		getActiveSchedulesStmt:                              q.getActiveSchedulesStmt,
 		getActiveUnpairedDiscoveredDevicesStmt:              q.getActiveUnpairedDiscoveredDevicesStmt,
-		getAgentByIDStmt:                                    q.getAgentByIDStmt,
-		getAgentByIDUnscopedStmt:                            q.getAgentByIDUnscopedStmt,
-		getAgentSessionByTokenHashStmt:                      q.getAgentSessionByTokenHashStmt,
 		getAllDeviceInfoForCapabilityCheckStmt:              q.getAllDeviceInfoForCapabilityCheckStmt,
 		getAllDeviceMetricsDailyAggregatesStmt:              q.getAllDeviceMetricsDailyAggregatesStmt,
 		getAllDeviceMetricsHourlyAggregatesStmt:             q.getAllDeviceMetricsHourlyAggregatesStmt,
@@ -2660,6 +2657,9 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getErrorByIDStmt:                                    q.getErrorByIDStmt,
 		getFilteredDeviceIdentifiersStmt:                    q.getFilteredDeviceIdentifiersStmt,
 		getFilteredDeviceIdsStmt:                            q.getFilteredDeviceIdsStmt,
+		getFleetNodeByIDStmt:                                q.getFleetNodeByIDStmt,
+		getFleetNodeByIDUnscopedStmt:                        q.getFleetNodeByIDUnscopedStmt,
+		getFleetNodeSessionByTokenHashStmt:                  q.getFleetNodeSessionByTokenHashStmt,
 		getGroupLabelsForDevicesStmt:                        q.getGroupLabelsForDevicesStmt,
 		getKnownSubnetsStmt:                                 q.getKnownSubnetsStmt,
 		getLatestAllDeviceMetricsStmt:                       q.getLatestAllDeviceMetricsStmt,
@@ -2680,8 +2680,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getPairedDeviceBySerialNumberStmt:                   q.getPairedDeviceBySerialNumberStmt,
 		getPairedDevicesByMACAddressesStmt:                  q.getPairedDevicesByMACAddressesStmt,
 		getPairedDevicesIdsStmt:                             q.getPairedDevicesIdsStmt,
-		getPendingEnrollmentByAgentStmt:                     q.getPendingEnrollmentByAgentStmt,
 		getPendingEnrollmentByCodeHashStmt:                  q.getPendingEnrollmentByCodeHashStmt,
+		getPendingEnrollmentByFleetNodeStmt:                 q.getPendingEnrollmentByFleetNodeStmt,
 		getPoolStmt:                                         q.getPoolStmt,
 		getRackDetailsForDevicesStmt:                        q.getRackDetailsForDevicesStmt,
 		getRackInfoStmt:                                     q.getRackInfoStmt,
@@ -2719,7 +2719,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		isBatchProcessingStmt:                               q.isBatchProcessingStmt,
 		listActiveCurtailedDevicesByOrgStmt:                 q.listActiveCurtailedDevicesByOrgStmt,
 		listActivityLogsStmt:                                q.listActivityLogsStmt,
-		listAgentsForOrganizationStmt:                       q.listAgentsForOrganizationStmt,
 		listApiKeysByOrganizationStmt:                       q.listApiKeysByOrganizationStmt,
 		listBatchDeviceResultsStmt:                          q.listBatchDeviceResultsStmt,
 		listBuildingsByOrgStmt:                              q.listBuildingsByOrgStmt,
@@ -2728,6 +2727,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listDeviceSetMembersPaginatedStmt:                   q.listDeviceSetMembersPaginatedStmt,
 		listDeviceSetMembersPaginatedAfterStmt:              q.listDeviceSetMembersPaginatedAfterStmt,
 		listExistingDeviceIdentifiersStmt:                   q.listExistingDeviceIdentifiersStmt,
+		listFleetNodesForOrganizationStmt:                   q.listFleetNodesForOrganizationStmt,
 		listMinerStateSnapshotsStmt:                         q.listMinerStateSnapshotsStmt,
 		listOrganizationsStmt:                               q.listOrganizationsStmt,
 		listPoolsStmt:                                       q.listPoolsStmt,
@@ -2740,10 +2740,10 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listSiteNetworkConfigsForOverlapStmt:                q.listSiteNetworkConfigsForOverlapStmt,
 		listSitesStmt:                                       q.listSitesStmt,
 		listUsersForOrganizationStmt:                        q.listUsersForOrganizationStmt,
-		lockAgentByIDStmt:                                   q.lockAgentByIDStmt,
 		lockBuildingForWriteStmt:                            q.lockBuildingForWriteStmt,
 		lockBuildingsBySiteForWriteStmt:                     q.lockBuildingsBySiteForWriteStmt,
 		lockDevicesForReassignStmt:                          q.lockDevicesForReassignStmt,
+		lockFleetNodeByIDStmt:                               q.lockFleetNodeByIDStmt,
 		lockSchedulePriorityStmt:                            q.lockSchedulePriorityStmt,
 		lockSiteForWriteStmt:                                q.lockSiteForWriteStmt,
 		markCommandBatchFinishedStmt:                        q.markCommandBatchFinishedStmt,
@@ -2766,21 +2766,21 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		revertScheduleToActiveStmt:                          q.revertScheduleToActiveStmt,
 		revokeAllSessionsByUserIDStmt:                       q.revokeAllSessionsByUserIDStmt,
 		revokeApiKeyStmt:                                    q.revokeApiKeyStmt,
-		revokeApiKeysByAgentIDStmt:                          q.revokeApiKeysByAgentIDStmt,
+		revokeApiKeysByFleetNodeIDStmt:                      q.revokeApiKeysByFleetNodeIDStmt,
 		revokeSessionStmt:                                   q.revokeSessionStmt,
-		setAgentEnrollmentStatusStmt:                        q.setAgentEnrollmentStatusStmt,
+		setFleetNodeEnrollmentStatusStmt:                    q.setFleetNodeEnrollmentStatusStmt,
 		setRackSlotPositionStmt:                             q.setRackSlotPositionStmt,
 		setSchedulePrioritiesStmt:                           q.setSchedulePrioritiesStmt,
 		setScheduleRunningStmt:                              q.setScheduleRunningStmt,
 		siteBelongsToOrgStmt:                                q.siteBelongsToOrgStmt,
-		softDeleteAgentStmt:                                 q.softDeleteAgentStmt,
-		softDeleteAgentsForExpiredEnrollmentsStmt:           q.softDeleteAgentsForExpiredEnrollmentsStmt,
 		softDeleteBuildingStmt:                              q.softDeleteBuildingStmt,
 		softDeleteBuildingsBySiteStmt:                       q.softDeleteBuildingsBySiteStmt,
 		softDeleteDeviceSetStmt:                             q.softDeleteDeviceSetStmt,
 		softDeleteDevicesStmt:                               q.softDeleteDevicesStmt,
 		softDeleteDiscoveredDeviceByIdentifierStmt:          q.softDeleteDiscoveredDeviceByIdentifierStmt,
 		softDeleteDiscoveredDevicesForDeletedDevicesStmt:    q.softDeleteDiscoveredDevicesForDeletedDevicesStmt,
+		softDeleteFleetNodeStmt:                             q.softDeleteFleetNodeStmt,
+		softDeleteFleetNodesForExpiredEnrollmentsStmt:       q.softDeleteFleetNodesForExpiredEnrollmentsStmt,
 		softDeleteOrganizationStmt:                          q.softDeleteOrganizationStmt,
 		softDeletePoolStmt:                                  q.softDeletePoolStmt,
 		softDeleteRoleStmt:                                  q.softDeleteRoleStmt,
@@ -2788,9 +2788,9 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		softDeleteSiteStmt:                                  q.softDeleteSiteStmt,
 		softDeleteUserStmt:                                  q.softDeleteUserStmt,
 		softDeleteUserFromOrganizationStmt:                  q.softDeleteUserFromOrganizationStmt,
-		sweepExpiredAgentAuthChallengesStmt:                 q.sweepExpiredAgentAuthChallengesStmt,
-		sweepExpiredAgentSessionsStmt:                       q.sweepExpiredAgentSessionsStmt,
 		sweepExpiredEnrollmentsStmt:                         q.sweepExpiredEnrollmentsStmt,
+		sweepExpiredFleetNodeAuthChallengesStmt:             q.sweepExpiredFleetNodeAuthChallengesStmt,
+		sweepExpiredFleetNodeSessionsStmt:                   q.sweepExpiredFleetNodeSessionsStmt,
 		unassignDevicesFromSiteStmt:                         q.unassignDevicesFromSiteStmt,
 		unassignRacksFromBuildingStmt:                       q.unassignRacksFromBuildingStmt,
 		unassignRacksFromBuildingsBySiteStmt:                q.unassignRacksFromBuildingsBySiteStmt,
@@ -2826,12 +2826,12 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		updateUserPasswordAndFlagStmt:                       q.updateUserPasswordAndFlagStmt,
 		updateUserRoleStmt:                                  q.updateUserRoleStmt,
 		updateUserUsernameStmt:                              q.updateUserUsernameStmt,
-		upsertAgentAuthChallengeStmt:                        q.upsertAgentAuthChallengeStmt,
-		upsertAgentSessionStmt:                              q.upsertAgentSessionStmt,
 		upsertCommandOnDeviceLogStmt:                        q.upsertCommandOnDeviceLogStmt,
 		upsertDevicePairingStmt:                             q.upsertDevicePairingStmt,
 		upsertDeviceStatusStmt:                              q.upsertDeviceStatusStmt,
 		upsertDiscoveredDeviceStmt:                          q.upsertDiscoveredDeviceStmt,
+		upsertFleetNodeAuthChallengeStmt:                    q.upsertFleetNodeAuthChallengeStmt,
+		upsertFleetNodeSessionStmt:                          q.upsertFleetNodeSessionStmt,
 		upsertMinerCredentialsStmt:                          q.upsertMinerCredentialsStmt,
 		upsertRoleStmt:                                      q.upsertRoleStmt,
 	}

@@ -45,16 +45,16 @@ func (s *SQLApiKeyStore) CreateApiKey(ctx context.Context, key *interfaces.ApiKe
 	})
 }
 
-func (s *SQLApiKeyStore) CreateAgentApiKey(ctx context.Context, key *interfaces.ApiKey) error {
-	if key.AgentID == nil {
-		return fleeterror.NewInvalidArgumentError("agent api key requires agent_id")
+func (s *SQLApiKeyStore) CreateFleetNodeApiKey(ctx context.Context, key *interfaces.ApiKey) error {
+	if key.FleetNodeID == nil {
+		return fleeterror.NewInvalidArgumentError("fleet node api key requires fleet_node_id")
 	}
-	return s.getQueries(ctx).CreateAgentApiKey(ctx, sqlc.CreateAgentApiKeyParams{
+	return s.getQueries(ctx).CreateFleetNodeApiKey(ctx, sqlc.CreateFleetNodeApiKeyParams{
 		KeyID:          key.KeyID,
 		Name:           key.Name,
 		Prefix:         key.Prefix,
 		KeyHash:        key.KeyHash,
-		AgentID:        sql.NullInt64{Int64: *key.AgentID, Valid: true},
+		FleetNodeID:    sql.NullInt64{Int64: *key.FleetNodeID, Valid: true},
 		OrganizationID: key.OrganizationID,
 		CreatedAt:      key.CreatedAt,
 		ExpiresAt:      timePtrToNullTime(key.ExpiresAt),
@@ -78,7 +78,7 @@ func (s *SQLApiKeyStore) GetApiKeyByHash(ctx context.Context, keyHash string) (*
 		KeyHash:           row.KeyHash,
 		SubjectKind:       interfaces.ApiKeySubjectKind(row.SubjectKind),
 		UserID:            nullInt64ToPtr(row.UserID),
-		AgentID:           nullInt64ToPtr(row.AgentID),
+		FleetNodeID:       nullInt64ToPtr(row.FleetNodeID),
 		OrganizationID:    row.OrganizationID,
 		CreatedAt:         row.CreatedAt,
 		ExpiresAt:         nullTimeToPtr(row.ExpiresAt),
@@ -89,8 +89,8 @@ func (s *SQLApiKeyStore) GetApiKeyByHash(ctx context.Context, keyHash string) (*
 }
 
 // ListApiKeysByOrganization returns non-revoked user-owned keys for the org.
-// Agent-owned keys are intentionally excluded; agents are listed via the
-// agentadmin service.
+// FleetNode-owned keys are intentionally excluded; fleet nodes are listed via
+// the fleetnodeadmin service.
 func (s *SQLApiKeyStore) ListApiKeysByOrganization(ctx context.Context, orgID int64) ([]interfaces.ApiKey, error) {
 	rows, err := s.getQueries(ctx).ListApiKeysByOrganization(ctx, orgID)
 	if err != nil {
@@ -125,10 +125,10 @@ func (s *SQLApiKeyStore) RevokeApiKey(ctx context.Context, keyID string, orgID i
 	})
 }
 
-func (s *SQLApiKeyStore) RevokeApiKeysByAgentID(ctx context.Context, agentID, orgID int64, revokedAt time.Time) ([]string, error) {
-	return s.getQueries(ctx).RevokeApiKeysByAgentID(ctx, sqlc.RevokeApiKeysByAgentIDParams{
+func (s *SQLApiKeyStore) RevokeApiKeysByFleetNodeID(ctx context.Context, fleetNodeID, orgID int64, revokedAt time.Time) ([]string, error) {
+	return s.getQueries(ctx).RevokeApiKeysByFleetNodeID(ctx, sqlc.RevokeApiKeysByFleetNodeIDParams{
 		RevokedAt:      sql.NullTime{Time: revokedAt, Valid: true},
-		AgentID:        sql.NullInt64{Int64: agentID, Valid: true},
+		FleetNodeID:    sql.NullInt64{Int64: fleetNodeID, Valid: true},
 		OrganizationID: orgID,
 	})
 }

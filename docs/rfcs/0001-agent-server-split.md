@@ -1,9 +1,16 @@
-# RFC 0001: Agent + cloud-server split
+# RFC 0001: Fleet node + cloud-server split
 
 - **Status**: draft
 - **Author(s)**: Ankit Goswami (@ankitgoswami)
 - **Created**: 2026-04-30
 - **Last updated**: 2026-05-04
+
+> **Note (2026-05-06):** After this RFC was written the on-prem binary
+> was renamed from "agent" to "fleet node" so the system noun does not
+> collide with "AI agent" elsewhere in the product. The body below
+> preserves the original "agent" vocabulary as historical context; the
+> code, schema, protocol, and operator-facing surface use "fleet node"
+> everywhere.
 
 ## Summary
 
