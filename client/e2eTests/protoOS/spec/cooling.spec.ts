@@ -67,7 +67,8 @@ test.describe("Cooling settings", () => {
     });
   });
 
-  test("Switching to immersion requires confirmation and enters sleep flow", async ({
+  test("Switching between immersion and air cooling works as a single round-trip flow", async ({
+    page,
     coolingPage,
     sleepWakeDialogsComponent,
   }) => {
@@ -84,20 +85,6 @@ test.describe("Cooling settings", () => {
     });
 
     await test.step("Validate immersion transition feedback", async () => {
-      await sleepWakeDialogsComponent.validateEnteringSleepDialogVisible();
-    });
-  });
-
-  test("Switching back to air cooled succeeds after immersion mode", async ({
-    page,
-    coolingPage,
-    sleepWakeDialogsComponent,
-  }) => {
-    await test.step("Enter immersion mode and sleep", async () => {
-      await coolingPage.clickImmersionCooledOption();
-      await coolingPage.validateImmersionCoolingModalOpen();
-      await coolingPage.clickEnterSleepModeInModal();
-      await coolingPage.validateCoolingModeUpdatedTo("immersion cooled");
       await sleepWakeDialogsComponent.validateEnteringSleepDialogVisible();
     });
 
