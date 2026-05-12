@@ -1,6 +1,6 @@
 import { useCallback } from "react";
-import { downloadLogs as downloadLogsUtil, formatLogsToCSV } from "../../pages/MinerLogs/utility";
 import { useSystemLogs } from "./useSystemLogs";
+import { downloadLogs as downloadLogsUtil, formatLogsToCSV } from "@/shared/components/Logs/utility";
 import { getFileName } from "@/shared/utils/utility";
 
 export const useDownloadLogs = () => {

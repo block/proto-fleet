@@ -53,6 +53,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pools/v1/poolsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/schedule/v1/schedulev1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/serverlog/v1/serverlogv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/sites/v1/sitesv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/telemetry/v1/telemetryv1connect"
 	activityDomain "github.com/block/proto-fleet/server/internal/domain/activity"
@@ -99,6 +100,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/handlers/pairing"
 	"github.com/block/proto-fleet/server/internal/handlers/pools"
 	scheduleHandler "github.com/block/proto-fleet/server/internal/handlers/schedule"
+	serverlogHandler "github.com/block/proto-fleet/server/internal/handlers/serverlog"
 	sitesHandler "github.com/block/proto-fleet/server/internal/handlers/sites"
 	telemetryHandler "github.com/block/proto-fleet/server/internal/handlers/telemetry"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
@@ -480,6 +482,7 @@ func start(config *Config) error {
 	mux.Handle(foremanimportv1connect.NewForemanImportServiceHandler(foremanImportHandler.NewHandler(foremanImportSvc), li))
 	mux.Handle(activityv1connect.NewActivityServiceHandler(activityHandler.NewHandler(activitySvc), li))
 	mux.Handle(apikeyv1connect.NewApiKeyServiceHandler(apikeyHandler.NewHandler(apiKeySvc), li))
+	mux.Handle(serverlogv1connect.NewServerLogServiceHandler(serverlogHandler.NewHandler(logging.DefaultBuffer()), li))
 
 	if config.HTTP.PprofAddr != "" {
 		ln, err := net.Listen("tcp", config.HTTP.PprofAddr)
