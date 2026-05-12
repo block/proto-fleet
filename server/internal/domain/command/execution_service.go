@@ -61,6 +61,7 @@ type ExecutionService struct {
 	deviceStore       stores.DeviceStore
 	telemetryListener TelemetryListener
 	filesService      *files.Service
+	metricsEmitter    MetricsEmitter
 
 	workerSemaphore chan struct{}
 
@@ -92,9 +93,18 @@ func NewExecutionService(ctx context.Context, config *Config, conn *sql.DB, mess
 		deviceStore:           deviceStore,
 		telemetryListener:     telemetryListener,
 		filesService:          filesService,
+		metricsEmitter:        NoCommandMetrics(),
 		workerSemaphore:       make(chan struct{}, config.MaxWorkers),
 		queueProcessorRunning: false,
 	}
+}
+
+func (es *ExecutionService) WithMetricsEmitter(emitter MetricsEmitter) *ExecutionService {
+	if emitter == nil {
+		emitter = NoCommandMetrics()
+	}
+	es.metricsEmitter = emitter
+	return es
 }
 
 // Start starts the queue processor thread if it is not already running.
@@ -302,6 +312,8 @@ func upsertCommandOnDeviceStatus(workerError error) sqlc.DeviceCommandStatusEnum
 func (es *ExecutionService) workerProcessCommand(ctx context.Context, message queue.Message) {
 	// Step 1: Execute the command (pure execution, no queue status side-effects).
 	workerError := es.executeCommandOnDevice(ctx, message.CommandType, message)
+
+	emitTerminalCommand(ctx, es.metricsEmitter, message.CommandType, workerError)
 
 	// Step 2: Atomically update queue status AND write device log in a single transaction.
 	// If the queue row is no longer PROCESSING (reaped), the transaction commits

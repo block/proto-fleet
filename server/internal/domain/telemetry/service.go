@@ -200,6 +200,7 @@ type TelemetryService struct {
 	minerManager       CachedMinerGetter
 	deviceStore        stores.DeviceStore
 	errorPoller        ErrorPoller
+	metricsObserver    *metricsObserver
 	mux                sync.Mutex
 	// tasks queues devices for full telemetry collection (metrics, telemetry, and status).
 	// Buffer sized to ConcurrencyLimit to ensure at least one queued task per worker.
@@ -244,7 +245,13 @@ func NewTelemetryService(config Config, telemetryDataStore TelemetryDataStore, m
 		statusResults:      make(chan statusResult, resultsChannelBuffer),
 		metricsResults:     make(chan metricsResult, resultsChannelBuffer),
 		lookBackDuration:   -1 * (config.StalenessThreshold - config.FetchInterval),
+		metricsObserver:    newMetricsObserver(NoMetrics()),
 	}
+}
+
+func (s *TelemetryService) WithMetricsEmitter(emitter MetricsEmitter) *TelemetryService {
+	s.metricsObserver = newMetricsObserver(emitter)
+	return s
 }
 
 func (s *TelemetryService) AddDevices(ctx context.Context, deviceID ...models.DeviceIdentifier) error {
@@ -266,6 +273,7 @@ func (s *TelemetryService) RemoveDevices(ctx context.Context, deviceIDs ...model
 		s.devicesForStatusPolling.Delete(id)
 		s.lastKnownStatuses.Delete(id)
 		s.lastKnownFirmware.Delete(id)
+		s.metricsObserver.onDeviceRemoved(ctx, id)
 	}
 	return s.updateScheduler.RemoveDevices(ctx, deviceIDs...)
 }
@@ -535,6 +543,12 @@ func (s *TelemetryService) processDevice(ctx context.Context, device models.Devi
 	// Telemetry failure doesn't block status/error polling - we still want to track online state.
 	// When metrics succeed, status is derived from the health field — no second RPC needed.
 	metricsStatus, hasMetricsStatus, telemetryErr := s.GetTelemetryFromDevice(ctx, device)
+	s.metricsObserver.onPollResult(
+		ctx,
+		orgForDevice(ctx, s.minerManager, device.ID),
+		device.ID,
+		telemetryErr == nil,
+	)
 	if telemetryErr != nil {
 		slog.Warn("failed to get telemetry from device", "deviceID", device.ID, "error", telemetryErr)
 
@@ -724,6 +738,14 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context) {
 					return true
 				})
 			}
+
+			s.metricsObserver.onDeviceStatus(
+				flushCtx,
+				orgForDevice(flushCtx, s.minerManager, u.DeviceIdentifier),
+				driverForDevice(flushCtx, s.minerManager, u.DeviceIdentifier),
+				u.DeviceIdentifier,
+				u.Status,
+			)
 		}
 
 		clear(pendingUpdates)
@@ -963,6 +985,13 @@ func (s *TelemetryService) metricsWriterRoutine(ctx context.Context) {
 			return
 		case result := <-s.metricsResults:
 			pending = append(pending, result.metrics)
+			deviceID := models.DeviceIdentifier(result.metrics.DeviceIdentifier)
+			s.metricsObserver.onDeviceMetrics(
+				ctx,
+				orgForDevice(ctx, s.minerManager, deviceID),
+				driverForDevice(ctx, s.minerManager, deviceID),
+				result.metrics,
+			)
 			if len(pending) >= maxMetricsBatchSize {
 				flush(ctx)
 			}

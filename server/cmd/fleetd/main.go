@@ -32,6 +32,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	fleet_telemetry "github.com/block/proto-fleet/server/internal/infrastructure/fleet-telemetry"
 	"github.com/block/proto-fleet/server/internal/infrastructure/logging"
+	"github.com/block/proto-fleet/server/internal/infrastructure/metrics"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 
@@ -158,6 +159,18 @@ func start(config *Config) error {
 		defer cancel()
 		if err := shutdownTracer(shutdownCtx); err != nil {
 			slog.Error("Failed to shutdown tracer", "error", err)
+		}
+	}()
+
+	metricsProvider, err := metrics.Setup(context.Background(), version, config.Metrics)
+	if err != nil {
+		return fmt.Errorf("setup metrics provider: %w", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+		if err := metricsProvider.Shutdown(shutdownCtx); err != nil {
+			slog.Error("Failed to shutdown metrics provider", "error", err)
 		}
 	}()
 
@@ -305,6 +318,7 @@ func start(config *Config) error {
 		deviceStore,
 		diagnosticsService,
 	)
+	telemetryService.WithMetricsEmitter(metricsProvider)
 	if err := telemetryService.Start(context.Background()); err != nil {
 		slog.Error("failed to start telemetry service", "error", err)
 		return fmt.Errorf("failed to start telemetry service: %w", err)
@@ -374,6 +388,7 @@ func start(config *Config) error {
 	}()
 
 	executionService := commandDomain.NewExecutionService(executionServiceCtx, &config.Command, conn, dbMessageQueue, encryptSvc, tokenSvc, minerService, deviceStore, telemetryService, filesService)
+	executionService.WithMetricsEmitter(metricsProvider)
 	err = executionService.Start(executionServiceCtx)
 	if err != nil {
 		slog.Error("failed to start command execution service", "error", err)

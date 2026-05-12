@@ -1,0 +1,159 @@
+// The metric contract is intentionally minimal and frozen — every metric name,
+// label key, and unit listed here is part of the public surface that users'
+// PromQL rules and Grafana dashboards depend on.
+package metrics
+
+import "slices"
+
+// Namespace is the prefix every ProtoFleet metric must carry. The PromQL
+// subset compiler rejects vector selectors whose metric name does not start
+// with this prefix; that prevents user rules from reading anything outside
+// our contract surface.
+const Namespace = "fleet_"
+
+// Metric names
+const (
+	// MetricDeviceOnline is a per-device gauge: 1 when the device is reachable
+	// and reporting telemetry, 0 when the telemetry pipeline has marked it
+	// unreachable. The series stops being emitted when the device is removed
+	// from the fleet — default rules guard for that case with
+	// absent_over_time(fleet_device_online[10m]).
+	MetricDeviceOnline = "fleet_device_online"
+
+	// MetricDeviceHashrateTerahash is the device's currently observed hashrate
+	// expressed in terahash per second.
+	MetricDeviceHashrateTerahash = "fleet_device_hashrate_terahash"
+
+	// MetricDeviceHashrateExpectedTerahash is the device's nameplate / expected
+	// hashrate in terahash per second. The Hashrate template compares observed
+	// against expected to produce the "below expected by X%" signal.
+	MetricDeviceHashrateExpectedTerahash = "fleet_device_hashrate_expected_terahash"
+
+	// MetricDeviceTemperatureMaxCelsius is the maximum temperature reading
+	// observed across the device's sensors of a given kind, expressed in
+	// degrees Celsius. The sensor_kind label distinguishes board, chip,
+	// inlet, outlet, ambient, etc.
+	MetricDeviceTemperatureMaxCelsius = "fleet_device_temperature_max_celsius"
+
+	// MetricDeviceTemperatureAvgCelsius is the average temperature across the
+	// device's sensors of a given kind. Same labels as the _max counterpart.
+	MetricDeviceTemperatureAvgCelsius = "fleet_device_temperature_avg_celsius"
+
+	// MetricDevicePoolConnected is a per-device gauge: 1 when the device is
+	// connected to its primary mining pool, 0 otherwise.
+	MetricDevicePoolConnected = "fleet_device_pool_connected"
+
+	// MetricCommandTotal is a counter incremented every time a dispatched
+	// command reaches a terminal state. Labelled with kind (the command type)
+	// and result (success or failure — see ResultSuccess / ResultFailure).
+	MetricCommandTotal = "fleet_command_total"
+
+	// MetricTelemetryPollTotal is a counter incremented for every telemetry
+	// poll attempt against a device. Labelled with result (success or
+	// failure — see ResultSuccess / ResultFailure).
+	MetricTelemetryPollTotal = "fleet_telemetry_poll_total"
+)
+
+// Label keys. User-authored PromQL may aggregate by any of these.
+const (
+	// LabelOrganizationID identifies the owning organisation. The PromQL
+	// compiler injects organization_id="<caller-org>" into every vector.
+	LabelOrganizationID = "organization_id"
+
+	// LabelDeviceID is the stable device identifier.
+	LabelDeviceID = "device_id"
+
+	// LabelDeviceGroup is the collection / group name a device belongs to.
+	// Optional; only populated for devices that are members of a group.
+	LabelDeviceGroup = "device_group"
+
+	// LabelDriver is the plugin driver name (e.g. proto, antminer, asicrs,
+	// virtual). Useful for filtering rules to a single driver family.
+	LabelDriver = "driver"
+
+	// LabelSensorKind narrows a temperature reading to a specific sensor
+	// family. Allowed values: board, chip, inlet, outlet, ambient, hotspot.
+	LabelSensorKind = "sensor_kind"
+
+	// LabelKind is the command type label on fleet_command_total (e.g.
+	// reboot, start_mining, stop_mining, set_power_target).
+	LabelKind = "kind"
+
+	// LabelResult is the success/failure outcome label on counters.
+	// Constrained to ResultSuccess or ResultFailure.
+	LabelResult = "result"
+)
+
+// Result values.
+const (
+	ResultSuccess = "success"
+	ResultFailure = "failure"
+)
+
+// Sensor kinds.
+const (
+	SensorKindBoard   = "board"
+	SensorKindChip    = "chip"
+	SensorKindInlet   = "inlet"
+	SensorKindOutlet  = "outlet"
+	SensorKindAmbient = "ambient"
+	SensorKindHotspot = "hotspot"
+)
+
+// AllMetricNames is the canonical list of metric names emitted by ProtoFleet.
+var AllMetricNames = []string{
+	MetricDeviceOnline,
+	MetricDeviceHashrateTerahash,
+	MetricDeviceHashrateExpectedTerahash,
+	MetricDeviceTemperatureMaxCelsius,
+	MetricDeviceTemperatureAvgCelsius,
+	MetricDevicePoolConnected,
+	MetricCommandTotal,
+	MetricTelemetryPollTotal,
+}
+
+// AllLabelKeys is the canonical list of label keys ProtoFleet attaches to its metrics.
+var AllLabelKeys = []string{
+	LabelOrganizationID,
+	LabelDeviceID,
+	LabelDeviceGroup,
+	LabelDriver,
+	LabelSensorKind,
+	LabelKind,
+	LabelResult,
+}
+
+// AllResults is the closed set of values for the result label.
+var AllResults = []string{ResultSuccess, ResultFailure}
+
+// AllSensorKinds is the closed set of values for the sensor_kind label.
+var AllSensorKinds = []string{
+	SensorKindBoard,
+	SensorKindChip,
+	SensorKindInlet,
+	SensorKindOutlet,
+	SensorKindAmbient,
+	SensorKindHotspot,
+}
+
+// IsKnownMetric reports whether name appears in AllMetricNames.
+// Used by the rule compiler and by tests.
+func IsKnownMetric(name string) bool {
+	return slices.Contains(AllMetricNames, name)
+}
+
+// IsKnownLabel reports whether key is one of the allowlisted label keys.
+func IsKnownLabel(key string) bool {
+	return slices.Contains(AllLabelKeys, key)
+}
+
+// IsKnownResult reports whether v is a permitted value for the result label.
+func IsKnownResult(v string) bool {
+	return slices.Contains(AllResults, v)
+}
+
+// IsKnownSensorKind reports whether v is a permitted value for the
+// sensor_kind label.
+func IsKnownSensorKind(v string) bool {
+	return slices.Contains(AllSensorKinds, v)
+}
