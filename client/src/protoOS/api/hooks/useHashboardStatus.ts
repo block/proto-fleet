@@ -95,15 +95,18 @@ const useHashboardStatus = ({ hashboardSerialNumbers, poll }: UseHashboardStatus
           const asicId = getAsicId(hashboardSerialNumber, asic.index);
           const existingAsic = useMinerStore.getState().hardware.getAsic(asicId);
 
-          if (!existingAsic) {
-            const asicInfo = {
-              id: asicId,
-              hashboardSerial: hashboardSerialNumber,
-              row: asic.row,
-              column: asic.column,
-            };
+          // Always merge row/column onto the entry: useTelemetry may have created an
+          // entry without positional data, and skipping the update here leaves the
+          // ASIC table unable to render rows.
+          asicsToAdd.push({
+            ...existingAsic,
+            id: asicId,
+            hashboardSerial: hashboardSerialNumber,
+            row: asic.row,
+            column: asic.column,
+          });
 
-            asicsToAdd.push(asicInfo);
+          if (!existingAsic) {
             useMinerStore.getState().hardware.linkAsicToHashboard(asicId, hashboardSerialNumber);
           }
 
