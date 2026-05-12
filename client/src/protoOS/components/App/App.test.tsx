@@ -36,6 +36,7 @@ const mocks = vi.hoisted(() => ({
   reloadSystemInfo: vi.fn(),
   fetchMiningStatus: vi.fn(),
   startMining: vi.fn(),
+  prefetchRoutes: vi.fn(),
 }));
 
 vi.mock(import("react-router-dom"), async (importOriginal) => {
@@ -163,6 +164,10 @@ vi.mock("@/shared/hooks/useNavigate", () => ({
   useNavigate: () => mocks.navigate,
 }));
 
+vi.mock("@/shared/utils/prefetchRoutes", () => ({
+  prefetchRoutes: (...args: unknown[]) => mocks.prefetchRoutes(...args),
+}));
+
 describe("App auth gating", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -192,6 +197,7 @@ describe("App auth gating", () => {
     mocks.useShowLoginModal.mockReturnValue(false);
     mocks.useTheme.mockReturnValue("light");
     mocks.useWakeDialog.mockReturnValue({ show: false, onClose: vi.fn(), onConfirm: vi.fn() });
+    mocks.prefetchRoutes.mockReturnValue(vi.fn());
   });
 
   it.each([
@@ -338,5 +344,58 @@ describe("App auth gating", () => {
     const callout = screen.getByTestId("no-pools-callout");
     expect(callout).toBeInTheDocument();
     expect(callout).toHaveAttribute("data-pools-configured", "true");
+  });
+
+  describe("route prefetch boot gate", () => {
+    it("does not call prefetchRoutes while isWebServerRunning is false", () => {
+      mocks.useIsWebServerRunning.mockReturnValue(false);
+
+      render(<App title="App" />);
+
+      expect(mocks.prefetchRoutes).not.toHaveBeenCalled();
+    });
+
+    it("does not call prefetchRoutes while isMiningDriverRunning is false", () => {
+      mocks.useIsMiningDriverRunning.mockReturnValue(false);
+
+      render(<App title="App" />);
+
+      expect(mocks.prefetchRoutes).not.toHaveBeenCalled();
+    });
+
+    it("calls prefetchRoutes once both flags are true", () => {
+      // Defaults set both flags to true in the outer beforeEach, so this
+      // is the happy-path post-boot mount.
+      render(<App title="App" />);
+
+      expect(mocks.prefetchRoutes).toHaveBeenCalledTimes(1);
+    });
+
+    it("schedules prefetch once flags transition from false to true", () => {
+      mocks.useIsWebServerRunning.mockReturnValue(false);
+
+      const { rerender } = render(<App title="App" />);
+
+      expect(mocks.prefetchRoutes).not.toHaveBeenCalled();
+
+      mocks.useIsWebServerRunning.mockReturnValue(true);
+      rerender(<App title="App" />);
+
+      expect(mocks.prefetchRoutes).toHaveBeenCalledTimes(1);
+    });
+
+    it("cancels the pending idle callback when a boot flag flips back to false", () => {
+      const cancel = vi.fn();
+      mocks.prefetchRoutes.mockReturnValue(cancel);
+
+      const { rerender } = render(<App title="App" />);
+
+      expect(mocks.prefetchRoutes).toHaveBeenCalledTimes(1);
+
+      mocks.useIsMiningDriverRunning.mockReturnValue(false);
+      rerender(<App title="App" />);
+
+      expect(cancel).toHaveBeenCalledTimes(1);
+    });
   });
 });
