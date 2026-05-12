@@ -245,14 +245,20 @@ func (s *Service) ReassignDevicesToSite(ctx context.Context, params models.Reass
 		targetSiteID = params.TargetSiteID
 	)
 	err := s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
-		// Row-lock first so the conflict check sees a stable snapshot.
-		if err := s.store.LockDevicesForReassign(txCtx, params.OrgID, identifiers); err != nil {
-			return err
-		}
+		// Lock the target site BEFORE the device rows so this flow uses
+		// the same site→device order as AssignBuildingToSite and
+		// DeleteSite. Inverting the order can deadlock when a concurrent
+		// AssignBuildingToSite into the same target holds the site lock
+		// and waits on a device row this tx already locked.
+		// target=nil/0 (Unassigned) needs no site lock.
 		if targetSiteID != nil && *targetSiteID > 0 {
 			if err := s.store.LockSiteForWrite(txCtx, params.OrgID, *targetSiteID); err != nil {
 				return err
 			}
+		}
+		// Row-lock the devices so the conflict check sees a stable snapshot.
+		if err := s.store.LockDevicesForReassign(txCtx, params.OrgID, identifiers); err != nil {
+			return err
 		}
 		conflicts, err := s.computeReassignConflicts(txCtx, params.OrgID, targetSiteID, identifiers)
 		if err != nil {
