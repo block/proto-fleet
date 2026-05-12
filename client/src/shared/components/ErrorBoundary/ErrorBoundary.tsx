@@ -1,5 +1,6 @@
 import * as React from "react";
 import { DefaultErrorFallback } from "./DefaultErrorFallback";
+import { buildVersionInfo } from "@/shared/utils/version";
 
 export interface ErrorBoundaryProps {
   children: React.ReactNode;
@@ -13,14 +14,19 @@ export interface ErrorBoundaryState {
   error?: Error;
 }
 
-// Counter-based reload guard: cap chunk-load-driven reloads at MAX per
-// session so a persistently broken CDN can't trap the user in an
-// unbounded reload loop. sessionStorage persists across same-tab reloads,
-// so the counter survives the page refresh and stops escalating after
-// MAX attempts. Once exhausted, the boundary renders the fallback until
-// the user closes the tab or manually refreshes.
-export const CHUNK_RELOAD_COUNTER_KEY = "proto-fleet:chunk-reload-count";
+// Build-scoped reload guard: cap chunk-load-driven reloads at MAX per
+// session per build. Including the build commit in the key prevents
+// counts from previous builds from draining the recovery budget for the
+// currently-loaded build — long-lived Fleet dashboards can span multiple
+// deploys, and without scoping the counter accumulates across them and
+// silently stops auto-recovering after CHUNK_RELOAD_MAX total reloads.
+export const CHUNK_RELOAD_COUNTER_KEY = `proto-fleet:chunk-reload-count:${buildVersionInfo.commit}`;
 export const CHUNK_RELOAD_MAX = 2;
+
+// Orphan keys from earlier implementations (boolean flag, unscoped
+// counter). Cleared on the first chunk-error path so DevTools storage
+// does not accumulate stale entries across deploys.
+const LEGACY_RELOAD_KEYS = ["proto-fleet:chunk-reload-attempted", "proto-fleet:chunk-reload-count"];
 
 // React.lazy throws via the ESM module loader, which caches rejected
 // dynamic imports — once a chunk URL 404s, every subsequent import() for
@@ -77,9 +83,14 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
     // on the fallback is the lesser evil.
     let count: number;
     try {
-      count = Number(window.sessionStorage.getItem(CHUNK_RELOAD_COUNTER_KEY)) || 0;
+      const raw = window.sessionStorage.getItem(CHUNK_RELOAD_COUNTER_KEY);
+      const parsed = parseInt(raw ?? "", 10);
+      count = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
       if (count >= CHUNK_RELOAD_MAX) return;
       window.sessionStorage.setItem(CHUNK_RELOAD_COUNTER_KEY, String(count + 1));
+      for (const legacy of LEGACY_RELOAD_KEYS) {
+        window.sessionStorage.removeItem(legacy);
+      }
     } catch {
       return;
     }
