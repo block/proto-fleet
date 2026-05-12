@@ -82,7 +82,7 @@ type SnapshotResult struct {
 
 func (b *Buffer) Snapshot(opts SnapshotOptions) SnapshotResult {
 	records := b.cache.Values()
-	res := SnapshotResult{Size: len(records)}
+	res := SnapshotResult{Size: len(records), LatestID: opts.SinceID}
 	search := strings.ToLower(opts.Search)
 
 	sort.SliceStable(records, func(i, j int) bool { return records[i].ID < records[j].ID })
