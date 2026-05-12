@@ -88,18 +88,20 @@ func (b *Buffer) Snapshot(opts SnapshotOptions) SnapshotResult {
 	sort.SliceStable(records, func(i, j int) bool { return records[i].ID < records[j].ID })
 
 	for _, rec := range records {
-		afterId := rec.ID > opts.SinceID
-		onLevel := rec.Level >= opts.MinLevel
-		matches := search == "" || strings.Contains(strings.ToLower(rec.Message), search)
-
-		if !afterId || !onLevel || !matches {
-			continue
-		}
 		if opts.Limit > 0 && len(res.Records) == opts.Limit {
 			res.Truncated = true
 			break
 		}
+		if rec.ID <= opts.SinceID {
+			continue
+		}
 		res.LatestID = rec.ID
+
+		onLevel := rec.Level >= opts.MinLevel
+		matches := search == "" || strings.Contains(strings.ToLower(rec.Message), search)
+		if !onLevel || !matches {
+			continue
+		}
 		res.Records = append(res.Records, rec)
 	}
 	return res
