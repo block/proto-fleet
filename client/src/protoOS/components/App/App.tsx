@@ -18,7 +18,7 @@ import { getNoPoolsCalloutState } from "@/protoOS/components/NoPoolsCallout/util
 import { WarnWakeDialog } from "@/protoOS/components/Power";
 import LoginModal from "@/protoOS/features/auth/components/LoginModal";
 import { isAuthRequiredPath } from "@/protoOS/routeAuth";
-import { globalRoutePrefetch } from "@/protoOS/router";
+import { globalRoutePrefetch } from "@/protoOS/routePrefetch";
 import {
   useDefaultPasswordActive,
   useOnboarded,

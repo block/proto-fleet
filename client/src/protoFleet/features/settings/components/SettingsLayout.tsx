@@ -1,7 +1,7 @@
 import { ReactNode, useEffect } from "react";
 import SecondaryNavigation from "@/protoFleet/components/SecondaryNavigation";
 import { secondaryNavItems } from "@/protoFleet/config/navItems";
-import { settingsRoutePrefetch } from "@/protoFleet/router";
+import { settingsRoutePrefetch } from "@/protoFleet/routePrefetch";
 import { prefetchRoutes } from "@/shared/utils/prefetchRoutes";
 
 const HomeLayout = ({ children }: { children?: ReactNode }) => {

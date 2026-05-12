@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
-import { settingsRoutePrefetch } from "@/protoOS/router";
+import { settingsRoutePrefetch } from "@/protoOS/routePrefetch";
 import { prefetchRoutes } from "@/shared/utils/prefetchRoutes";
 
 const SettingsContentLayout = ({ children }: ContentLayoutProps) => {

@@ -5,45 +5,37 @@ import { createBrowserRouter, LoaderFunction, Outlet, redirect } from "react-rou
 import App from "./components/App";
 import SingleMinerWrapper from "./components/SingleMinerWrapper";
 import type { PageBackground } from "./hooks/usePageBackground";
+import {
+  importActivityPage,
+  importAuth,
+  importDashboard,
+  importFleetDown,
+  importGroupOverviewPage,
+  importGroupsPage,
+  importMiners,
+  importMinersPage,
+  importOnboardingSettingsPage,
+  importRackOverviewPage,
+  importRacksPage,
+  importSecurityPage,
+  importSettingsApiKeys,
+  importSettingsAuth,
+  importSettingsFirmware,
+  importSettingsGeneral,
+  importSettingsLayout,
+  importSettingsMiningPools,
+  importSettingsSchedules,
+  importSettingsTeam,
+  importUpdatePassword,
+  importWelcomePage,
+} from "./routePrefetch";
 import { onboardingClient } from "@/protoFleet/api/clients";
 // eslint-disable-next-line no-restricted-imports -- Fleet shell embeds the protoOS single-miner experience
-import { singleMinerRoutePrefetch, routerConfig as singleMinerRoutes } from "@/protoOS/router";
-import type { RouteImporter } from "@/shared/utils/prefetchRoutes";
+import { routerConfig as singleMinerRoutes } from "@/protoOS/router";
 
-// Re-exported so SingleMinerWrapper imports from this file rather
-// than crossing the protoOS boundary directly — consolidates the
-// cross-app coupling to one place.
-export { singleMinerRoutePrefetch };
-
-// Route components are lazy so each ships in its own chunk; factories
-// are hoisted so prefetchRoutes() can call them at idle.
-//
-// To add a route: define the factory const, wrap it with lazy(), and
-// add the factory to the relevant tier export (globalRoutePrefetch or
-// settingsRoutePrefetch). Step 3 isn't lint-enforced — a missed entry
-// leaves the chunk un-warmed without breaking the build.
-const importDashboard = () => import("@/protoFleet/features/dashboard/pages/Dashboard");
-const importMiners = () => import("./features/fleetManagement/components/Fleet");
-const importActivityPage = () => import("@/protoFleet/features/activity/pages/ActivityPage");
-const importGroupsPage = () => import("@/protoFleet/features/groupManagement/pages/GroupsPage");
-const importGroupOverviewPage = () => import("@/protoFleet/features/groupManagement/pages/GroupOverviewPage");
-const importRacksPage = () => import("@/protoFleet/features/rackManagement/pages/RacksPage");
-const importRackOverviewPage = () => import("@/protoFleet/features/rackManagement/pages/RackOverviewPage");
-const importAuth = () => import("@/protoFleet/features/auth/pages/Auth");
-const importUpdatePassword = () => import("@/protoFleet/features/auth/pages/UpdatePassword");
-const importWelcomePage = () => import("@/protoFleet/features/onboarding/components/Welcome");
-const importMinersPage = () => import("@/protoFleet/features/onboarding/components/Miners");
-const importSecurityPage = () => import("@/protoFleet/features/onboarding/components/Security");
-const importOnboardingSettingsPage = () => import("@/protoFleet/features/onboarding/components/Settings");
-const importSettingsLayout = () => import("@/protoFleet/features/settings/components/SettingsLayout");
-const importSettingsGeneral = () => import("@/protoFleet/features/settings/components/General");
-const importSettingsAuth = () => import("@/protoFleet/features/settings/components/Auth");
-const importSettingsMiningPools = () => import("@/protoFleet/features/settings/components/MiningPools");
-const importSettingsTeam = () => import("@/protoFleet/features/settings/components/Team");
-const importSettingsFirmware = () => import("@/protoFleet/features/settings/components/Firmware");
-const importSettingsSchedules = () => import("@/protoFleet/features/settings/components/Schedules/SchedulesPage");
-const importSettingsApiKeys = () => import("@/protoFleet/features/settings/components/ApiKeys");
-const importFleetDown = () => import("@/protoFleet/components/FleetDown/FleetDown");
+// Route import factories and prefetch tier arrays live in
+// `routePrefetch.ts` so consumers can import the tiers without a cycle
+// through this file. Auth metadata for the router lives in `routeAuth.ts`.
 
 const Dashboard = lazy(importDashboard);
 const Miners = lazy(importMiners);
@@ -67,29 +59,6 @@ const SettingsFirmware = lazy(importSettingsFirmware);
 const SettingsSchedules = lazy(importSettingsSchedules);
 const SettingsApiKeys = lazy(importSettingsApiKeys);
 const FleetDown = lazy(importFleetDown);
-
-// Sidebar destinations + the default settings sub-route. App.tsx
-// triggers this at idle so the first nav click has no Suspense flash.
-export const globalRoutePrefetch: readonly RouteImporter[] = [
-  importDashboard,
-  importMiners,
-  importGroupsPage,
-  importRacksPage,
-  importActivityPage,
-  importSettingsLayout,
-  importSettingsGeneral,
-];
-
-// Settings sub-routes; SettingsLayout triggers this on mount so the rest of
-// the tab strip is warm by the time the user clicks across.
-export const settingsRoutePrefetch: readonly RouteImporter[] = [
-  importSettingsAuth,
-  importSettingsMiningPools,
-  importSettingsTeam,
-  importSettingsFirmware,
-  importSettingsSchedules,
-  importSettingsApiKeys,
-];
 
 // Helper to check if an admin user has been created
 const checkFleetInitStatus = async (): Promise<boolean> => {
@@ -148,17 +117,6 @@ const wrappedMinerRoutes = singleMinerRoutes.map((route) => {
     element: wrappedElement,
   };
 });
-
-/**
- * Auth configuration - which routes require authentication
- */
-export const requiresAuth: Record<string, boolean> = {
-  "/auth": false,
-  "/welcome": false,
-  "/update-password": true, // Requires auth but is a special intermediate step
-  "/fleet-down": false, // Error page doesn't require auth
-  // All other routes require auth by default
-};
 
 /**
  * Router configuration - defines actual route tree with React elements

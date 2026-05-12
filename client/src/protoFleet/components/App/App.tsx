@@ -4,7 +4,8 @@ import clsx from "clsx";
 
 import { onboardingClient } from "@/protoFleet/api/clients";
 import AppLayout from "@/protoFleet/components/AppLayout";
-import { globalRoutePrefetch, requiresAuth } from "@/protoFleet/router";
+import { requiresAuth } from "@/protoFleet/routeAuth";
+import { globalRoutePrefetch } from "@/protoFleet/routePrefetch";
 import { useCheckAuthentication, useIsActionBarVisible } from "@/protoFleet/store";
 import { useDeviceTheme, useSetDeviceTheme, useTheme } from "@/protoFleet/store";
 import { redirectFromFleetDown } from "@/protoFleet/utils/fleetDownRedirect";

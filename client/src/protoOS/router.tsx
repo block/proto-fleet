@@ -2,13 +2,32 @@
 import { ComponentType, lazy, ReactNode } from "react";
 import { createBrowserRouter, Outlet, redirect, RouteObject } from "react-router-dom";
 
+import {
+  importDiagnosticView,
+  importEfficiency,
+  importHashboardTemperature,
+  importHashrate,
+  importLogs,
+  importOnboarding,
+  importOnboardingAuthentication,
+  importOnboardingMiningPool,
+  importOnboardingNetwork,
+  importOnboardingVerify,
+  importOnboardingWelcome,
+  importPowerUsage,
+  importSettingsAuthentication,
+  importSettingsCooling,
+  importSettingsGeneral,
+  importSettingsHardware,
+  importSettingsMiningPools,
+  importTemperature,
+} from "./routePrefetch";
 import App from "@/protoOS/components/App";
 import FullScreenContentLayout from "@/protoOS/components/ContentLayout/FullScreenContentLayout";
 import SettingsContentLayout from "@/protoOS/components/ContentLayout/SettingsContentLayout";
 import { ContentLayoutProps } from "@/protoOS/components/ContentLayout/types";
 import KpiLayout from "@/protoOS/features/kpis/components/KpiLayout";
 import { settingsRouteMetadata } from "@/protoOS/routeAuth";
-import type { RouteImporter } from "@/shared/utils/prefetchRoutes";
 
 // Custom route type with requiresAuth property
 export type CustomRouteObject = RouteObject & {
@@ -16,34 +35,8 @@ export type CustomRouteObject = RouteObject & {
   children?: CustomRouteObject[];
 };
 
-// Route components are lazy so each ships in its own chunk and
-// protoFleet (which embeds these via singleMinerRoutes) stays slim
-// until the user enters /miners/:id/*. Factories are hoisted so
-// prefetchRoutes() can call them at idle.
-//
-// To add a route: define the factory const, wrap it with lazy(), and
-// add the factory to the relevant tier export (globalRoutePrefetch or
-// settingsRoutePrefetch — singleMinerRoutePrefetch composes both).
-// Step 3 isn't lint-enforced — a missed entry leaves the chunk
-// un-warmed without breaking the build.
-const importHashrate = () => import("@/protoOS/features/kpis/components/Hashrate");
-const importEfficiency = () => import("@/protoOS/features/kpis/components/Efficiency");
-const importPowerUsage = () => import("@/protoOS/features/kpis/components/PowerUsage");
-const importTemperature = () => import("@/protoOS/features/kpis/components/Temperature");
-const importHashboardTemperature = () => import("@/protoOS/features/diagnostic/components/HashboardTemperature");
-const importDiagnosticView = () => import("@/protoOS/features/diagnostic/components/DiagnosticView/DiagnosticView");
-const importLogs = () => import("@/protoOS/pages/MinerLogs");
-const importOnboarding = () => import("@/protoOS/features/onboarding/components/Onboarding");
-const importOnboardingWelcome = () => import("@/protoOS/features/onboarding/components/Welcome");
-const importOnboardingVerify = () => import("@/protoOS/features/onboarding/components/Verify");
-const importOnboardingNetwork = () => import("@/protoOS/features/onboarding/components/Network");
-const importOnboardingAuthentication = () => import("@/protoOS/features/onboarding/components/Authentication");
-const importOnboardingMiningPool = () => import("@/protoOS/features/onboarding/components/MiningPool");
-const importSettingsAuthentication = () => import("@/protoOS/features/settings/components/Authentication");
-const importSettingsGeneral = () => import("@/protoOS/features/settings/components/General");
-const importSettingsMiningPools = () => import("@/protoOS/features/settings/components/MiningPools");
-const importSettingsHardware = () => import("@/protoOS/features/settings/components/Hardware");
-const importSettingsCooling = () => import("@/protoOS/features/settings/components/Cooling");
+// Route import factories live in `routePrefetch.ts` so consumers can
+// import the tier arrays from there without a cycle through this file.
 
 const Hashrate = lazy(importHashrate);
 const Efficiency = lazy(importEfficiency);
@@ -63,38 +56,6 @@ const SettingsGeneral = lazy(importSettingsGeneral);
 const SettingsMiningPools = lazy(importSettingsMiningPools);
 const SettingsHardware = lazy(importSettingsHardware);
 const SettingsCooling = lazy(importSettingsCooling);
-
-// Top-level destinations reachable from the protoOS sidebar plus the
-// KPI tab-strip siblings of the default landing route. App.tsx
-// triggers this at idle.
-export const globalRoutePrefetch: readonly RouteImporter[] = [
-  importHashrate,
-  importEfficiency,
-  importPowerUsage,
-  importTemperature,
-  importDiagnosticView,
-  importLogs,
-  importSettingsGeneral,
-];
-
-// Settings sub-routes; SettingsContentLayout triggers this on mount so the
-// tab strip is warm by the time the user clicks across.
-export const settingsRoutePrefetch: readonly RouteImporter[] = [
-  importSettingsAuthentication,
-  importSettingsMiningPools,
-  importSettingsHardware,
-  importSettingsCooling,
-];
-
-// Section tier for protoFleet — embeds this router under /miners/:id/*.
-// SingleMinerWrapper triggers this on mount so KPI tabs, Logs,
-// Diagnostics, and per-miner Settings are warm. Composes global +
-// settings tiers so new entries flow through automatically.
-export const singleMinerRoutePrefetch: readonly RouteImporter[] = [
-  ...globalRoutePrefetch,
-  importHashboardTemperature,
-  ...settingsRoutePrefetch,
-];
 
 // Helper to create route objects with App wrapper
 interface CreateRouteOptions {
