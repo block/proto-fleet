@@ -84,7 +84,7 @@ Multi-replica server HA is a separate body of work and is out of v1 scope. v1 sh
 
 ### Fleet node HA
 
-- Multiple fleet nodes per site are supported. Each node owns a disjoint subset of the site's devices via the operator-confirmed `node_device` ownership map (e.g., one node per container, rack, or LAN segment); loss of one node is isolated to its own devices, and sibling nodes at the same site keep operating.
+- Multiple fleet nodes per site are supported. Each node owns a disjoint subset of the site's devices via the operator-confirmed `fleet_node_device` ownership map (e.g., one node per container, rack, or LAN segment); loss of one node is isolated to its own devices, and sibling nodes at the same site keep operating.
 - Recovery for a lost node is operator-confirmed re-pair of its devices onto a sibling or replacement node.
 - Warm-standby pairings ship in Phase 6: two nodes share ownership of the same devices via an operator-confirmed pair declaration, the cloud grants an active lease to one half of the pair, and the standby takes over automatically when the active node's heartbeat lapses.
 
