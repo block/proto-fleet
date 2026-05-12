@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/netutil"
 )
 
 // MaxBroadestPrefixBitsV4 is the upper bound on IPv4 subnet sizes
@@ -49,7 +50,7 @@ func CanonicalizeNetworkConfig(raw string) (CanonicalizeNetworkConfigResult, err
 		if entry == "" {
 			continue
 		}
-		prefix, perr := parseNetworkEntry(entry)
+		prefix, perr := netutil.ParseCIDROrIP(entry)
 		if perr != nil {
 			return CanonicalizeNetworkConfigResult{}, fleeterror.NewInvalidArgumentErrorf(
 				"network_config line %d (%q): %s", i+1, entry, perr.Error(),
@@ -90,27 +91,6 @@ func CanonicalizeNetworkConfig(raw string) (CanonicalizeNetworkConfigResult, err
 		Canonical: canonicalText(prefixes),
 		Prefixes:  prefixes,
 	}, nil
-}
-
-// parseNetworkEntry accepts either a CIDR ("10.0.0.0/24") or a bare
-// IP ("10.0.0.5", treated as /32 or /128).
-func parseNetworkEntry(entry string) (netip.Prefix, error) {
-	if strings.Contains(entry, "/") {
-		p, err := netip.ParsePrefix(entry)
-		if err != nil {
-			return netip.Prefix{}, fmt.Errorf("invalid CIDR")
-		}
-		return p.Masked(), nil
-	}
-	addr, err := netip.ParseAddr(entry)
-	if err != nil {
-		return netip.Prefix{}, fmt.Errorf("invalid IP address")
-	}
-	bits := 32
-	if addr.Is6() {
-		bits = 128
-	}
-	return netip.PrefixFrom(addr, bits), nil
 }
 
 // OverlapPair captures the two prefixes that triggered an overlap
