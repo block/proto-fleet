@@ -2,52 +2,63 @@ import { expect } from "@playwright/test";
 import { BasePage } from "./base";
 
 export class CoolingPage extends BasePage {
-  private airCoolingHeading() {
-    return this.page.getByRole("heading", { name: "Air cooled", exact: true });
+  private airCoolingOption() {
+    return this.page.getByTestId("cooling-option-air");
   }
 
-  private immersionCoolingHeading() {
-    return this.page.getByRole("heading", { name: "Immersion cooled", exact: true });
+  private immersionCoolingOption() {
+    return this.page.getByTestId("cooling-option-immersion");
   }
 
   private airCoolingRadio() {
-    return this.page.getByRole("radio").first();
+    return this.airCoolingOption().locator('input[type="radio"]');
   }
 
   private immersionCoolingRadio() {
-    return this.page.getByRole("radio").nth(1);
+    return this.immersionCoolingOption().locator('input[type="radio"]');
   }
 
   private coolingInfoModal() {
     return this.page.getByTestId("modal");
   }
 
+  async waitForCoolingOptions() {
+    await expect(this.airCoolingOption()).toBeVisible();
+    await expect(this.immersionCoolingOption()).toBeVisible();
+  }
+
   async validateAirCooledSelected() {
+    await this.waitForCoolingOptions();
     await expect(this.airCoolingRadio()).toBeChecked();
   }
 
   async validateImmersionCooledSelected() {
+    await this.waitForCoolingOptions();
     await expect(this.immersionCoolingRadio()).toBeChecked();
   }
 
   async isAirCooledSelected() {
+    await this.waitForCoolingOptions();
     return this.airCoolingRadio().isChecked();
   }
 
   async isImmersionCooledSelected() {
+    await this.waitForCoolingOptions();
     return this.immersionCoolingRadio().isChecked();
   }
 
   async clickAirCooledOption() {
-    await this.airCoolingHeading().click();
+    await this.waitForCoolingOptions();
+    await this.airCoolingOption().click();
   }
 
   async clickImmersionCooledOption() {
-    await this.immersionCoolingHeading().click();
+    await this.waitForCoolingOptions();
+    await this.immersionCoolingOption().click();
   }
 
   async clickLearnMoreButton() {
-    await this.page.getByRole("button", { name: "Learn more" }).click();
+    await this.page.getByTestId("cooling-learn-more-button").click();
   }
 
   async validateImmersionCoolingModalOpen() {
