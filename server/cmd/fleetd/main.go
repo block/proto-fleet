@@ -36,15 +36,16 @@ import (
 	"golang.org/x/net/http2/h2c"
 
 	"github.com/block/proto-fleet/server/generated/grpc/activity/v1/activityv1connect"
-	"github.com/block/proto-fleet/server/generated/grpc/agentadmin/v1/agentadminv1connect"
-	"github.com/block/proto-fleet/server/generated/grpc/agentgateway/v1/agentgatewayv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/apikey/v1/apikeyv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/buildings/v1/buildingsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/collection/v1/collectionv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/curtailment/v1/curtailmentv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/device_set/v1/device_setv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/errors/v1/errorsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1/fleetnodeadminv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
@@ -52,33 +53,36 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pools/v1/poolsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/schedule/v1/schedulev1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/serverlog/v1/serverlogv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/sites/v1/sitesv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/telemetry/v1/telemetryv1connect"
 	activityDomain "github.com/block/proto-fleet/server/internal/domain/activity"
-	"github.com/block/proto-fleet/server/internal/domain/agentauth"
-	"github.com/block/proto-fleet/server/internal/domain/agentenrollment"
 	apikeyDomain "github.com/block/proto-fleet/server/internal/domain/apikey"
 	authDomain "github.com/block/proto-fleet/server/internal/domain/auth"
+	buildingsDomain "github.com/block/proto-fleet/server/internal/domain/buildings"
 	collectionDomain "github.com/block/proto-fleet/server/internal/domain/collection"
 	commandDomain "github.com/block/proto-fleet/server/internal/domain/command"
 	curtailmentDomain "github.com/block/proto-fleet/server/internal/domain/curtailment"
 	"github.com/block/proto-fleet/server/internal/domain/deviceresolver"
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics"
 	fleetmanagementDomain "github.com/block/proto-fleet/server/internal/domain/fleetmanagement"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnodeauth"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnodeenrollment"
 	"github.com/block/proto-fleet/server/internal/domain/fleetoptions"
 	foremanImportDomain "github.com/block/proto-fleet/server/internal/domain/foremanimport"
 	onboardingDomain "github.com/block/proto-fleet/server/internal/domain/onboarding"
 	pairingDomain "github.com/block/proto-fleet/server/internal/domain/pairing"
 	poolsDomain "github.com/block/proto-fleet/server/internal/domain/pools"
 	scheduleDomain "github.com/block/proto-fleet/server/internal/domain/schedule"
+	sitesDomain "github.com/block/proto-fleet/server/internal/domain/sites"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/domain/telemetry"
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/scheduler"
 	tokenDomain "github.com/block/proto-fleet/server/internal/domain/token"
 	activityHandler "github.com/block/proto-fleet/server/internal/handlers/activity"
-	"github.com/block/proto-fleet/server/internal/handlers/agentadmin"
-	"github.com/block/proto-fleet/server/internal/handlers/agentgateway"
 	apikeyHandler "github.com/block/proto-fleet/server/internal/handlers/apikey"
 	"github.com/block/proto-fleet/server/internal/handlers/auth"
+	buildingsHandler "github.com/block/proto-fleet/server/internal/handlers/buildings"
 	collectionHandler "github.com/block/proto-fleet/server/internal/handlers/collection"
 	"github.com/block/proto-fleet/server/internal/handlers/command"
 	curtailmentHandler "github.com/block/proto-fleet/server/internal/handlers/curtailment"
@@ -86,6 +90,8 @@ import (
 	errorqueryHandler "github.com/block/proto-fleet/server/internal/handlers/errorquery"
 	firmwareHandler "github.com/block/proto-fleet/server/internal/handlers/firmware"
 	"github.com/block/proto-fleet/server/internal/handlers/fleetmanagement"
+	"github.com/block/proto-fleet/server/internal/handlers/fleetnodeadmin"
+	"github.com/block/proto-fleet/server/internal/handlers/fleetnodegateway"
 	foremanImportHandler "github.com/block/proto-fleet/server/internal/handlers/foremanimport"
 	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
@@ -94,6 +100,8 @@ import (
 	"github.com/block/proto-fleet/server/internal/handlers/pairing"
 	"github.com/block/proto-fleet/server/internal/handlers/pools"
 	scheduleHandler "github.com/block/proto-fleet/server/internal/handlers/schedule"
+	serverlogHandler "github.com/block/proto-fleet/server/internal/handlers/serverlog"
+	sitesHandler "github.com/block/proto-fleet/server/internal/handlers/sites"
 	telemetryHandler "github.com/block/proto-fleet/server/internal/handlers/telemetry"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/block/proto-fleet/server/internal/infrastructure/server"
@@ -125,10 +133,18 @@ func main() {
 	}
 }
 
+// reflectEnabledServices lists the gRPC services exposed via the
+// reflection endpoint. Policy: every authenticated service is
+// reflected so SDK + tooling can discover them. The auth interceptor
+// chain is the security boundary; reflection itself just exposes
+// service shape (no business data), so the inclusion list is "all
+// services" rather than a curated subset.
 var reflectEnabledServices = []string{
 	pairingv1connect.PairingServiceName,
 	telemetryv1connect.TelemetryServiceName,
-	agentgatewayv1connect.AgentGatewayServiceName,
+	fleetnodegatewayv1connect.FleetNodeGatewayServiceName,
+	sitesv1connect.SiteServiceName,
+	buildingsv1connect.BuildingServiceName,
 }
 
 func start(config *Config) error {
@@ -167,10 +183,10 @@ func start(config *Config) error {
 	apiKeyStore := sqlstores.NewSQLApiKeyStore(conn)
 	apiKeySvc := apikeyDomain.NewService(apiKeyStore, activitySvc)
 
-	agentEnrollmentStore := sqlstores.NewSQLAgentEnrollmentStore(conn)
-	agentEnrollmentSvc := agentenrollment.NewService(agentEnrollmentStore, apiKeySvc, transactor, activitySvc)
-	agentAuthStore := sqlstores.NewSQLAgentAuthStore(conn)
-	agentAuthSvc := agentauth.NewService(agentAuthStore, agentEnrollmentStore, apiKeySvc)
+	fleetNodeEnrollmentStore := sqlstores.NewSQLFleetNodeEnrollmentStore(conn)
+	fleetNodeEnrollmentSvc := fleetnodeenrollment.NewService(fleetNodeEnrollmentStore, apiKeySvc, transactor, activitySvc)
+	fleetNodeAuthStore := sqlstores.NewSQLFleetNodeAuthStore(conn)
+	fleetNodeAuthSvc := fleetnodeauth.NewService(fleetNodeAuthStore, fleetNodeEnrollmentStore, apiKeySvc)
 
 	tokenSvc, err := tokenDomain.NewService(config.Auth)
 	if err != nil {
@@ -198,15 +214,15 @@ func start(config *Config) error {
 				} else if deleted > 0 {
 					slog.Debug("cleaned up expired sessions", "count", deleted)
 				}
-				if swept, err := agentEnrollmentSvc.SweepExpired(cleanupCtx); err != nil {
-					slog.Error("failed to sweep expired agent enrollments", "error", err)
+				if swept, err := fleetNodeEnrollmentSvc.SweepExpired(cleanupCtx); err != nil {
+					slog.Error("failed to sweep expired fleet node enrollments", "error", err)
 				} else if swept > 0 {
-					slog.Debug("swept expired agent enrollments", "count", swept)
+					slog.Debug("swept expired fleet node enrollments", "count", swept)
 				}
-				if challenges, sessions, err := agentAuthSvc.SweepExpired(cleanupCtx); err != nil {
-					slog.Error("failed to sweep expired agent auth state", "error", err)
+				if challenges, sessions, err := fleetNodeAuthSvc.SweepExpired(cleanupCtx); err != nil {
+					slog.Error("failed to sweep expired fleet node auth state", "error", err)
 				} else if challenges > 0 || sessions > 0 {
-					slog.Debug("swept expired agent auth state", "challenges", challenges, "sessions", sessions)
+					slog.Debug("swept expired fleet node auth state", "challenges", challenges, "sessions", sessions)
 				}
 			case <-cleanupCtx.Done():
 				return
@@ -376,6 +392,11 @@ func start(config *Config) error {
 	curtailmentStore := sqlstores.NewSQLCurtailmentStore(conn)
 	curtailmentSvc := curtailmentDomain.NewService(curtailmentStore)
 
+	siteStore := sqlstores.NewSQLSiteStore(conn)
+	buildingStore := sqlstores.NewSQLBuildingStore(conn)
+	sitesSvc := sitesDomain.NewService(siteStore, transactor, activitySvc)
+	buildingsSvc := buildingsDomain.NewService(buildingStore, siteStore, transactor, activitySvc)
+
 	// Register the schedule-conflict preflight filter on commandSvc so every
 	// caller (manual API, schedule processor, future curtailment reconciler)
 	// sees the same priority/manual-fallback semantics. Pre-pre-work this
@@ -408,8 +429,8 @@ func start(config *Config) error {
 		interceptors.NewErrorMappingInterceptor(),
 		interceptors.NewErrorStackTraceLoggingInterceptor(config.Log.Level),
 		interceptors.NewRequestLoggingInterceptor(config.Log.Level, interceptors.RedactedRequestProcedures, interceptors.RedactedResponseProcedures),
-		interceptors.NewAgentAuthInterceptor(agentAuthSvc, interceptors.AgentAuthenticatedProcedures),
-		interceptors.NewAuthInterceptor(sessionSvc, userStore, userStore, apiKeySvc, interceptors.UnauthenticatedProcedures, interceptors.SessionOnlyProcedures, interceptors.AgentAuthenticatedProcedures),
+		interceptors.NewFleetNodeAuthInterceptor(fleetNodeAuthSvc, interceptors.FleetNodeAuthenticatedProcedures),
+		interceptors.NewAuthInterceptor(sessionSvc, userStore, userStore, apiKeySvc, interceptors.UnauthenticatedProcedures, interceptors.SessionOnlyProcedures, interceptors.FleetNodeAuthenticatedProcedures),
 		validateInterceptor,
 	)
 
@@ -450,8 +471,10 @@ func start(config *Config) error {
 	// Curtailment v1: PreviewCurtailmentPlan is implemented; remaining
 	// RPCs return Unimplemented until follow-up work lands.
 	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(curtailmentHandler.NewHandler(curtailmentSvc), li))
-	mux.Handle(agentgatewayv1connect.NewAgentGatewayServiceHandler(agentgateway.NewHandler(agentEnrollmentSvc, agentAuthSvc), li))
-	mux.Handle(agentadminv1connect.NewAgentAdminServiceHandler(agentadmin.NewHandler(agentEnrollmentSvc), li))
+	mux.Handle(sitesv1connect.NewSiteServiceHandler(sitesHandler.NewHandler(sitesSvc), li))
+	mux.Handle(buildingsv1connect.NewBuildingServiceHandler(buildingsHandler.NewHandler(buildingsSvc), li))
+	mux.Handle(fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(fleetnodegateway.NewHandler(fleetNodeEnrollmentSvc, fleetNodeAuthSvc), li))
+	mux.Handle(fleetnodeadminv1connect.NewFleetNodeAdminServiceHandler(fleetnodeadmin.NewHandler(fleetNodeEnrollmentSvc), li))
 	mux.Handle(collectionv1connect.NewDeviceCollectionServiceHandler(collectionHandler.NewHandler(collectionSvc), li))
 	mux.Handle(device_setv1connect.NewDeviceSetServiceHandler(devicesetHandler.NewHandler(collectionSvc), li))
 	mux.Handle(telemetryv1connect.NewTelemetryServiceHandler(telemetryHandler.NewHandler(telemetryService), li))
@@ -459,6 +482,7 @@ func start(config *Config) error {
 	mux.Handle(foremanimportv1connect.NewForemanImportServiceHandler(foremanImportHandler.NewHandler(foremanImportSvc), li))
 	mux.Handle(activityv1connect.NewActivityServiceHandler(activityHandler.NewHandler(activitySvc), li))
 	mux.Handle(apikeyv1connect.NewApiKeyServiceHandler(apikeyHandler.NewHandler(apiKeySvc), li))
+	mux.Handle(serverlogv1connect.NewServerLogServiceHandler(serverlogHandler.NewHandler(logging.DefaultBuffer()), li))
 
 	if config.HTTP.PprofAddr != "" {
 		ln, err := net.Listen("tcp", config.HTTP.PprofAddr)

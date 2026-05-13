@@ -8,6 +8,7 @@ server/influx_config/.env
 .claude/settings.local.json
 .claude/**/*.local.json
 .claude/worktrees/
+.claude/launch.json
 .gstack/
 .mcp.json
 lefthook-local.yml

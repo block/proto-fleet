@@ -18,6 +18,7 @@ import {
   importRackOverviewPage,
   importRacksPage,
   importSecurityPage,
+  importServerLogsPage,
   importSettingsApiKeys,
   importSettingsAuth,
   importSettingsFirmware,
@@ -40,6 +41,7 @@ import { routerConfig as singleMinerRoutes } from "@/protoOS/router";
 const Dashboard = lazy(importDashboard);
 const Miners = lazy(importMiners);
 const ActivityPage = lazy(importActivityPage);
+const ServerLogsPage = lazy(importServerLogsPage);
 const GroupsPage = lazy(importGroupsPage);
 const GroupOverviewPage = lazy(importGroupOverviewPage);
 const RacksPage = lazy(importRacksPage);
@@ -190,6 +192,12 @@ const router = createBrowserRouter([
     "/settings/api-keys",
     <SettingsLayout>
       <SettingsApiKeys />
+    </SettingsLayout>,
+  ),
+  createRoute(
+    "/settings/server-logs",
+    <SettingsLayout>
+      <ServerLogsPage />
     </SettingsLayout>,
   ),
 
