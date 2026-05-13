@@ -80,7 +80,14 @@ func (e *EnrollCmd) runLocked(c *Context, stdin io.Reader, stdout, stderr io.Wri
 	// server-side fleet_node row; the operator can complete the enrollment
 	// by running `fleetnode refresh` and entering the api_key when prompted.
 	if err := fleetnodebootstrap.SaveState(path, state); err != nil {
-		return err
+		return fmt.Errorf(
+			"save state after Register: %w\n"+
+				"  recovery: a fleet_node row was created server-side "+
+				"(fleet_node_id=%d, name=%q) but no local credentials were persisted. "+
+				"Revoke that fleet node in the operator UI before retrying "+
+				"`fleetnode enroll`, or pass `--name=<unique-value>` to register as a new fleet node",
+			err, state.FleetNodeID, name,
+		)
 	}
 
 	_, _ = fmt.Fprintf(stderr, "Fleet node registered (fleet_node_id=%d, name=%q).\n", state.FleetNodeID, name)
@@ -102,7 +109,14 @@ func (e *EnrollCmd) runLocked(c *Context, stdin io.Reader, stdout, stderr io.Wri
 		return fmt.Errorf("complete enrollment: %w", err)
 	}
 	if err := fleetnodebootstrap.SaveState(path, state); err != nil {
-		return err
+		return fmt.Errorf(
+			"save state after CompleteEnrollment: %w\n"+
+				"  recovery: enrollment succeeded server-side "+
+				"(fleet_node_id=%d, name=%q) and an api_key was issued, "+
+				"but no local credentials were persisted. Revoke that fleet node "+
+				"in the operator UI and re-enroll; the issued api_key cannot be recovered",
+			err, state.FleetNodeID, name,
+		)
 	}
 	_, _ = fmt.Fprintf(stdout, "enrolled fleet_node_id=%d fingerprint=%s state=%s\n", state.FleetNodeID, state.IdentityFingerprint, path)
 	return nil
