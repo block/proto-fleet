@@ -88,9 +88,18 @@ func (r *RunCmd) runLocked(c *Context, logger *slog.Logger) error {
 	if !exists || st.FleetNodeID == 0 || st.APIKey == "" {
 		return fmt.Errorf("state at %s became invalid between checks; re-run after `fleetnode enroll`", path)
 	}
+	// Validate on every entry, not just on the refresh path, so a tampered
+	// state cannot redirect bearer heartbeats to a plaintext non-loopback
+	// URL when the existing session_token is still fresh.
+	if err := fleetnodebootstrap.ValidateServerURL(st.ServerURL, st.AllowInsecureTransport); err != nil {
+		return err
+	}
+
+	ctx, stop := signal.NotifyContext(r.parentCtx, r.signals...)
+	defer stop()
 
 	if r.sessionNeedsRefresh(st) {
-		if err := r.refreshAndSave(context.Background(), st, path, logger); err != nil {
+		if err := r.refreshAndSave(ctx, st, path, logger); err != nil {
 			if errors.Is(err, fleetnodebootstrap.ErrBeginAuthRejected) {
 				return fmt.Errorf("%w. The server returns Unauthenticated for any of: revoked api_key, identity_pubkey mismatch, expired challenge, or server clock drift. Verify the api_key matches the one minted in the UI and retry; local credentials are preserved", fleetnodebootstrap.ErrBeginAuthRejected)
 			}
@@ -99,9 +108,6 @@ func (r *RunCmd) runLocked(c *Context, logger *slog.Logger) error {
 	}
 
 	client := r.clientFactory(st.ServerURL, func() string { return st.SessionToken })
-
-	ctx, stop := signal.NotifyContext(r.parentCtx, r.signals...)
-	defer stop()
 
 	logger.Info("daemon started",
 		"fleet_node_id", st.FleetNodeID,
@@ -172,7 +178,7 @@ func (r *RunCmd) tick(ctx context.Context, client gatewayClient, st *fleetnodebo
 		logger.Error("heartbeat failed", "fleet_node_id", st.FleetNodeID, "err", err)
 		return
 	}
-	logger.Debug("heartbeat sent", "fleet_node_id", st.FleetNodeID)
+	logger.Info("heartbeat sent", "fleet_node_id", st.FleetNodeID)
 }
 
 func (r *RunCmd) sendHeartbeat(ctx context.Context, client gatewayClient) error {

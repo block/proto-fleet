@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/hex"
 	"os"
 	"path/filepath"
@@ -63,7 +64,7 @@ func (s *stubGatewayClient) snapshot() (int, []string) {
 
 func freshState(t *testing.T, dir string, sessionExpiresAt time.Time) *fleetnodebootstrap.State {
 	t.Helper()
-	pub, priv, err := ed25519.GenerateKey(nil)
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
 	st := &fleetnodebootstrap.State{
 		ServerURL:              "http://127.0.0.1:0",
@@ -117,7 +118,7 @@ func TestRunCmd_RefreshesNearExpirySession(t *testing.T) {
 
 	// Arrange
 	dir := t.TempDir()
-	pub, _, err := ed25519.GenerateKey(nil)
+	pub, _, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
 	fake := &fakeFleetNodeGateway{
 		expectedAPIKey:   "fleet_known_key",
@@ -128,7 +129,7 @@ func TestRunCmd_RefreshesNearExpirySession(t *testing.T) {
 	}
 	srv := newFakeServer(t, fake)
 
-	pubKey, priv, err := ed25519.GenerateKey(nil)
+	pubKey, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
 	fake.identityPub = pubKey
 	st := &fleetnodebootstrap.State{
@@ -172,7 +173,7 @@ func TestRunCmd_RefreshesOnUnauthenticatedResponse(t *testing.T) {
 
 	// Arrange
 	dir := t.TempDir()
-	pubKey, priv, err := ed25519.GenerateKey(nil)
+	pubKey, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
 	fake := &fakeFleetNodeGateway{
 		expectedAPIKey:       "fleet_known_key",
@@ -246,7 +247,7 @@ func TestRunCmd_FailsWhenApiKeyIsMissing(t *testing.T) {
 
 	// Arrange
 	dir := t.TempDir()
-	pubKey, priv, err := ed25519.GenerateKey(nil)
+	pubKey, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
 	require.NoError(t, fleetnodebootstrap.SaveState(fleetnodebootstrap.StatePath(dir), &fleetnodebootstrap.State{
 		ServerURL:              "http://127.0.0.1:1",
@@ -271,7 +272,7 @@ func TestRunCmd_BailsOutWhenInitialRefreshHitsBeginAuthRejected(t *testing.T) {
 
 	// Arrange
 	dir := t.TempDir()
-	pubKey, priv, err := ed25519.GenerateKey(nil)
+	pubKey, priv, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
 	fake := &fakeFleetNodeGateway{
 		expectedAPIKey:   "the-real-key",
@@ -300,4 +301,40 @@ func TestRunCmd_BailsOutWhenInitialRefreshHitsBeginAuthRejected(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, fleetnodebootstrap.ErrBeginAuthRejected)
 	assert.Contains(t, err.Error(), "local credentials are preserved")
+}
+
+func TestRunCmd_ValidatesServerURLBeforeBuildingClient(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: state has a fresh session_token but an http:// non-loopback
+	// server_url and AllowInsecureTransport=false. The daemon must refuse
+	// to start before any heartbeat would leak the bearer to plaintext.
+	dir := t.TempDir()
+	pubKey, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	require.NoError(t, fleetnodebootstrap.SaveState(fleetnodebootstrap.StatePath(dir), &fleetnodebootstrap.State{
+		ServerURL:              "http://fleet.example.com",
+		AllowInsecureTransport: false,
+		FleetNodeID:            42,
+		IdentityFingerprint:    "0011223344556677",
+		IdentityPrivateKeyHex:  hex.EncodeToString(priv),
+		IdentityPublicKeyHex:   hex.EncodeToString(pubKey),
+		APIKey:                 "fleet_known_key",
+		SessionToken:           "session-still-fresh",
+		SessionExpiresAt:       time.Now().Add(24 * time.Hour),
+	}))
+	stub := &stubGatewayClient{}
+	cmd := &RunCmd{
+		HeartbeatInterval: time.Second,
+		clientFactory:     func(_ string, _ func() string) gatewayClient { return stub },
+	}
+
+	// Act
+	err = cmd.run(&Context{StateDir: dir}, &bytes.Buffer{})
+
+	// Assert
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "https")
+	calls, _ := stub.snapshot()
+	assert.Equal(t, 0, calls, "no heartbeat must be sent when server URL fails validation")
 }
