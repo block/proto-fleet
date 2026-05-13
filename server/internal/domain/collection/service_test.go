@@ -237,6 +237,10 @@ func TestService_DeleteCollection_NotFoundWhenZeroRows(t *testing.T) {
 	// Arrange
 	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, testCollectionID).
 		Return(&pb.DeviceCollection{Id: testCollectionID, Label: "gone", Type: pb.CollectionType_COLLECTION_TYPE_GROUP}, nil)
+	// In-tx type re-read decides whether the site cascade runs; group
+	// targets skip cascade.
+	mockStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, testCollectionID).
+		Return(pb.CollectionType_COLLECTION_TYPE_GROUP, nil)
 	mockStore.EXPECT().RemoveAllDevicesFromCollection(gomock.Any(), testOrgID, testCollectionID).
 		Return(int64(0), nil)
 	mockStore.EXPECT().SoftDeleteCollection(gomock.Any(), testOrgID, testCollectionID).
@@ -478,6 +482,8 @@ func TestService_UpdateCollection_WithDeviceSelectorReplacesMembers(t *testing.T
 
 	newLabel := "Updated Group"
 	mockStore.EXPECT().UpdateCollection(gomock.Any(), testOrgID, testCollectionID, &newLabel, (*string)(nil)).Return(nil)
+	// Group target: no rack lock + no cascade (groups are cross-site).
+	mockStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, testCollectionID).Return(pb.CollectionType_COLLECTION_TYPE_GROUP, nil)
 	mockStore.EXPECT().RemoveAllDevicesFromCollection(gomock.Any(), testOrgID, testCollectionID).Return(int64(3), nil)
 	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, testCollectionID, deviceIDs).Return(int64(2), nil)
 	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, testCollectionID).
@@ -516,6 +522,7 @@ func TestService_UpdateCollection_WithEmptyDeviceSelectorRemovesAllMembers(t *te
 	)
 
 	mockStore.EXPECT().UpdateCollection(gomock.Any(), testOrgID, testCollectionID, (*string)(nil), (*string)(nil)).Return(nil)
+	mockStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, testCollectionID).Return(pb.CollectionType_COLLECTION_TYPE_GROUP, nil)
 	mockStore.EXPECT().RemoveAllDevicesFromCollection(gomock.Any(), testOrgID, testCollectionID).Return(int64(5), nil)
 	// AddDevicesToCollection should NOT be called since deviceIdentifiers is empty
 	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, testCollectionID).
@@ -988,6 +995,11 @@ func TestService_SaveRack_CreateNewRack(t *testing.T) {
 		Return(nil)
 	mockStore.EXPECT().RemoveAllDevicesFromCollection(gomock.Any(), testOrgID, int64(10)).Return(int64(0), nil)
 	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, int64(10), deviceIDs).Return(int64(2), nil)
+	// Cascade always queries priors + runs CascadeRackDeviceSites
+	// after AddDevices; target site is nil (no site stamped) so the
+	// cascade is a no-op but the calls still happen.
+	mockStore.EXPECT().GetDeviceSiteIDsByMembership(gomock.Any(), int64(10), testOrgID).Return(map[string]*int64{}, nil)
+	mockStore.EXPECT().CascadeRackDeviceSites(gomock.Any(), int64(10), testOrgID, gomock.Nil()).Return(int64(0), nil)
 	mockStore.EXPECT().GetRackSlots(gomock.Any(), int64(10), testOrgID).Return(nil, nil)
 	mockStore.EXPECT().SetRackSlotPosition(gomock.Any(), int64(10), "device-1", int32(0), int32(0), testOrgID).Return(nil)
 	mockStore.EXPECT().SetRackSlotPosition(gomock.Any(), int64(10), "device-2", int32(0), int32(1), testOrgID).Return(nil)
@@ -1037,6 +1049,11 @@ func TestService_SaveRack_UpdateExistingRack(t *testing.T) {
 	mockStore.EXPECT().UpdateRackPlacement(gomock.Any(), collectionID, testOrgID, gomock.Nil(), gomock.Nil(), "Building A").Return(nil)
 	mockStore.EXPECT().RemoveAllDevicesFromCollection(gomock.Any(), testOrgID, collectionID).Return(int64(2), nil)
 	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, collectionID, deviceIDs).Return(int64(1), nil)
+	// Post-add cascade always queries priors + invokes
+	// CascadeRackDeviceSites. Target is nil (no site stamped) so the
+	// cascade is a no-op; mock returns 0 affected.
+	mockStore.EXPECT().GetDeviceSiteIDsByMembership(gomock.Any(), collectionID, testOrgID).Return(map[string]*int64{}, nil)
+	mockStore.EXPECT().CascadeRackDeviceSites(gomock.Any(), collectionID, testOrgID, gomock.Nil()).Return(int64(0), nil)
 	mockStore.EXPECT().GetRackSlots(gomock.Any(), collectionID, testOrgID).Return([]*pb.RackSlot{
 		{DeviceIdentifier: "old-device", Position: &pb.RackSlotPosition{Row: 0, Column: 0}},
 	}, nil)
@@ -1437,6 +1454,8 @@ func TestActivityLogging_DeleteCollectionLogsEvent(t *testing.T) {
 
 	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, testCollectionID).
 		Return(&pb.DeviceCollection{Id: testCollectionID, Label: "Doomed Group", Type: pb.CollectionType_COLLECTION_TYPE_GROUP}, nil)
+	mockStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, testCollectionID).
+		Return(pb.CollectionType_COLLECTION_TYPE_GROUP, nil)
 	mockStore.EXPECT().RemoveAllDevicesFromCollection(gomock.Any(), testOrgID, testCollectionID).
 		Return(int64(3), nil)
 	mockStore.EXPECT().SoftDeleteCollection(gomock.Any(), testOrgID, testCollectionID).
@@ -1481,7 +1500,11 @@ func TestService_SaveRack_MoveBetweenBuildingsCascadesSite(t *testing.T) {
 	// site → building → rack → devices to match SiteService writers.
 	mockStore.EXPECT().CollectionBelongsToOrg(gomock.Any(), collectionID, testOrgID).Return(true, nil)
 	mockStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, collectionID).Return(pb.CollectionType_COLLECTION_TYPE_RACK, nil)
-	mockStore.EXPECT().GetBuildingSite(gomock.Any(), testOrgID, newBuilding).Return(&newSiteID, nil)
+	// resolveAndLockRackPlacement peeks building→site, locks site, locks
+	// building, then re-reads building→site under the lock to detect
+	// concurrent AssignBuildingToSite. Both reads return the same value
+	// here, so the tx proceeds without abort/retry.
+	mockStore.EXPECT().GetBuildingSite(gomock.Any(), testOrgID, newBuilding).Return(&newSiteID, nil).Times(2)
 	mockSiteStore.EXPECT().LockSiteForWrite(gomock.Any(), testOrgID, newSiteID).Return(nil)
 	mockSiteStore.EXPECT().LockBuildingForWrite(gomock.Any(), testOrgID, newBuilding).Return(nil)
 	mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), collectionID, testOrgID).
@@ -1492,15 +1515,15 @@ func TestService_SaveRack_MoveBetweenBuildingsCascadesSite(t *testing.T) {
 	// boundary; both UpdateRackInfo and UpdateRackPlacement write "".
 	mockStore.EXPECT().UpdateRackInfo(gomock.Any(), collectionID, "", int32(4), int32(8), int32(pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT), int32(pb.RackCoolingType_RACK_COOLING_TYPE_AIR), testOrgID).Return(nil)
 	mockStore.EXPECT().UpdateRackPlacement(gomock.Any(), collectionID, testOrgID, gomock.Eq(&newSiteID), gomock.Eq(&newBuilding), "").Return(nil)
-	// Site changed (7 → 8): capture per-device priors then cascade.
-	mockStore.EXPECT().GetDeviceSiteIDsByMembership(gomock.Any(), collectionID, testOrgID).
-		Return(map[string]*int64{"device-1": priorSite}, nil)
-	mockStore.EXPECT().CascadeRackDeviceSites(gomock.Any(), collectionID, testOrgID, gomock.Eq(&newSiteID)).Return(int64(1), nil)
 
 	mockStore.EXPECT().RemoveAllDevicesFromCollection(gomock.Any(), testOrgID, collectionID).Return(int64(1), nil)
 	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, collectionID, deviceIDs).Return(int64(1), nil)
-	// Post-add cascade ensures freshly-added members align with the rack's site.
-	mockStore.EXPECT().CascadeRackDeviceSites(gomock.Any(), collectionID, testOrgID, gomock.Eq(&newSiteID)).Return(int64(0), nil)
+	// Single cascade after membership replace: captures per-device
+	// priors on the FINAL member set, then rewrites differing devices.
+	// device-1 was at priorSite (7); rack now stamped with newSiteID (8).
+	mockStore.EXPECT().GetDeviceSiteIDsByMembership(gomock.Any(), collectionID, testOrgID).
+		Return(map[string]*int64{"device-1": priorSite}, nil)
+	mockStore.EXPECT().CascadeRackDeviceSites(gomock.Any(), collectionID, testOrgID, gomock.Eq(&newSiteID)).Return(int64(1), nil)
 	mockStore.EXPECT().GetRackSlots(gomock.Any(), collectionID, testOrgID).Return(nil, nil)
 	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, collectionID).
 		Return(&pb.DeviceCollection{Id: collectionID, Label: "Rack A", Type: pb.CollectionType_COLLECTION_TYPE_RACK, DeviceCount: 1}, nil)

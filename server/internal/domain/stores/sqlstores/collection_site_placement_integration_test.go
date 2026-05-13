@@ -212,7 +212,10 @@ func TestCascadeAddedDeviceSites_RewritesOnlyDiffering(t *testing.T) {
 
 	n, err := collectionStore.CascadeAddedDeviceSites(ctx, orgID, rack.Id, deviceIDs)
 	require.NoError(t, err)
-	assert.Equal(t, int64(1), n, "device 1 differs (site B -> site A); device 0 was unassigned -> site A")
+	// IS DISTINCT FROM treats NULL as distinct from any value, so the
+	// unassigned device (NULL ≠ A) AND the site-B device (B ≠ A) both
+	// qualify for the rewrite.
+	assert.Equal(t, int64(2), n, "both differing devices rewritten: unassigned and site-B → site-A")
 }
 
 // TestGetBuildingSite verifies the lookup returns the building's site_id

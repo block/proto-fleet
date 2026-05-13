@@ -346,7 +346,13 @@ func (s *SQLDeviceStore) GetAllPairedDeviceIdentifiers(ctx context.Context) ([]m
 // and mirror MinerStatus.tsx (auth-needed overrides sleeping).
 func (s *SQLDeviceStore) GetMinerStateCounts(ctx context.Context, orgID int64, filter *stores.MinerFilter) (*tm.MinerStateCounts, error) {
 	fp := buildMinerFilterParams(filter)
-	if len(fp.numericRanges) > 0 || fp.ipCIDRsFilter.Valid {
+	// Route through the dynamic state-counts builder whenever any
+	// filter the static sqlc CountMinersByState query doesn't accept is
+	// active. Site filters (site_ids / include_unassigned) join this
+	// list alongside numeric ranges + CIDRs in PR C; otherwise the
+	// dashboard widget would report org-wide state counts while
+	// filtered rows are site-scoped.
+	if len(fp.numericRanges) > 0 || fp.ipCIDRsFilter.Valid || fp.siteIDsFilter.Valid || fp.includeUnassigned {
 		return s.executeStateCountsQuery(ctx, orgID, fp)
 	}
 
@@ -415,7 +421,12 @@ func (s *SQLDeviceStore) GetMinerModelGroups(ctx context.Context, orgID int64, f
 	// builder when those filters are active so the bulk-action modal counts
 	// stay aligned with the filtered list; planner-friendly static path for
 	// every other call.
-	if filter != nil && (len(filter.NumericRanges) > 0 || len(filter.IPCIDRs) > 0) {
+	// Route through the dynamic model-groups builder whenever any
+	// filter the static sqlc GetMinerModelGroups query doesn't accept
+	// is active. Numeric ranges + CIDRs were the original triggers;
+	// site filters (site_ids / include_unassigned) join the list in
+	// PR C so a site-filtered modal sees the right model counts.
+	if filter != nil && (len(filter.NumericRanges) > 0 || len(filter.IPCIDRs) > 0 || len(filter.SiteIDs) > 0 || filter.IncludeUnassigned) {
 		return s.executeModelGroupsDynamicQuery(ctx, orgID, filter)
 	}
 
@@ -920,7 +931,14 @@ func (s *SQLDeviceStore) ListMinerStateSnapshots(ctx context.Context, orgID int6
 	// whenever those filters are active; fall back to sqlc otherwise to keep
 	// the planner-friendly path for existing callers.
 	var total int64
-	if len(fp.numericRanges) > 0 || fp.ipCIDRsFilter.Valid {
+	// Route through the dynamic count builder whenever any filter the
+	// static sqlc count query doesn't accept is active. Numeric ranges
+	// + CIDRs are the original gating filters; site_ids and
+	// include_unassigned are added in PR C — without this gate the
+	// static GetTotalMinerStateSnapshots returns an unfiltered total
+	// while the list query returns the filtered rows, breaking
+	// pagination and dashboard counts.
+	if len(fp.numericRanges) > 0 || fp.ipCIDRsFilter.Valid || fp.siteIDsFilter.Valid || fp.includeUnassigned {
 		total, err = s.executeCountQuery(ctx, orgID, fp)
 		if err != nil {
 			return nil, "", 0, err

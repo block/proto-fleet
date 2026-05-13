@@ -51,22 +51,38 @@ FROM building
 WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL;
 
 -- name: UnassignDeviceSitesByRack :execrows
--- Clears device.site_id (sets to NULL) for every paired member of a
--- rack. Called by DeleteCollection in the same transaction as the rack
--- soft-delete so devices don't keep pointing at a site they entered via
--- the deleted rack. Mirrors AssignBuildingToSite(target=NULL) cascade
--- semantics: the device lands in the Unassigned bucket, the operator
--- can explicitly reassign later.
+-- Clears device.site_id (sets to NULL) for paired members of a rack
+-- whose site_id matches the rack's stamped site. Called by
+-- DeleteCollection in the same transaction as the rack soft-delete so
+-- devices don't keep pointing at a site they entered via the deleted
+-- rack. Mirrors AssignBuildingToSite(target=NULL) cascade semantics:
+-- the device lands in the Unassigned bucket, the operator can
+-- explicitly reassign later.
+--
+-- Restrictions:
+--   * If the rack has no stamped site (device_set_rack.site_id IS
+--     NULL) this UPDATE is a no-op — the rack made no implicit site
+--     claim, so there's nothing to undo. A device directly assigned
+--     to a site via ReassignDevicesToSite keeps its direct
+--     assignment.
+--   * Only devices whose current site_id matches the rack's site_id
+--     are cleared. Devices that diverged from the rack's site (a
+--     state that shouldn't exist under the cross-collection
+--     invariant, but might via Foreman import or migration backfill)
+--     are left alone — clearing them could destroy a direct
+--     assignment the operator made through some other path.
 UPDATE device d
 SET site_id = NULL,
     updated_at = CURRENT_TIMESTAMP
 FROM device_set_membership dsm
+JOIN device_set_rack dsr ON dsr.device_set_id = dsm.device_set_id AND dsr.org_id = dsm.org_id
 WHERE dsm.device_set_id = $1
   AND dsm.org_id = $2
   AND dsm.device_set_type = 'rack'
   AND dsm.device_id = d.id
   AND d.deleted_at IS NULL
-  AND d.site_id IS NOT NULL;
+  AND dsr.site_id IS NOT NULL
+  AND d.site_id IS NOT DISTINCT FROM dsr.site_id;
 
 -- name: CascadeRackDeviceSites :execrows
 -- Rewrites device.site_id to the rack's new site for every paired

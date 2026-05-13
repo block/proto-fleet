@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"math"
 
+	"connectrpc.com/connect"
+
 	pb "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
@@ -21,6 +23,15 @@ const (
 	defaultPageSize  int32 = 50
 	maxPageSize      int32 = 1000
 	maxRackDimension int32 = 12
+	// maxCascadeAuditEntries caps the per-device cascade audit array
+	// stored on activity_log.metadata. A bulk add/move can touch
+	// thousands of devices; storing one JSON entry per affected device
+	// inflates the activity row to dangerous sizes (latency, planner
+	// pressure, potential row-size limits). When the affected set
+	// exceeds this cap the metadata records `truncated: true` plus
+	// `total_affected: <N>` so consumers see the real count without
+	// the full per-device list.
+	maxCascadeAuditEntries = 100
 )
 
 const (
@@ -125,27 +136,44 @@ func (s *Service) resolveAndLockRackPlacement(ctx context.Context, orgID int64, 
 
 	if rackInfo.BuildingId != nil {
 		bID := *rackInfo.BuildingId
-		// Site lock first so the canonical site -> building -> rack ->
-		// devices order holds end-to-end. GetBuildingSite reads the
-		// building's site under the building lock that follows.
-		bsID, err := s.collectionStore.GetBuildingSite(ctx, orgID, bID)
+		// Peek the building's site WITHOUT a lock so we can acquire the
+		// site lock first per canonical site -> building order. The peek
+		// can race with a concurrent AssignBuildingToSite, so we re-read
+		// the building's site UNDER the building lock below and abort on
+		// mismatch — the WithTransaction retry loop reruns the closure
+		// with fresh state.
+		peekedSiteID, err := s.collectionStore.GetBuildingSite(ctx, orgID, bID)
 		if err != nil {
 			return nil, nil, err
 		}
-		if rackInfo.SiteId != nil && (bsID == nil || *bsID != *rackInfo.SiteId) {
+		if rackInfo.SiteId != nil && (peekedSiteID == nil || *peekedSiteID != *rackInfo.SiteId) {
 			return nil, nil, fleeterror.NewInvalidArgumentErrorf(
 				"rack site_id %d does not match building %d site", *rackInfo.SiteId, bID)
 		}
-		if bsID != nil {
-			if err := s.siteStore.LockSiteForWrite(ctx, orgID, *bsID); err != nil {
+		if peekedSiteID != nil {
+			if err := s.siteStore.LockSiteForWrite(ctx, orgID, *peekedSiteID); err != nil {
 				return nil, nil, err
 			}
 		}
 		if err := s.siteStore.LockBuildingForWrite(ctx, orgID, bID); err != nil {
 			return nil, nil, err
 		}
+		// Re-read building.site_id under the building lock. If it
+		// changed between the peek and the lock acquisition (a
+		// concurrent AssignBuildingToSite committed in between), abort
+		// with Aborted so the tx retries; the next attempt sees the new
+		// site and locks it correctly per the canonical order.
+		lockedSiteID, err := s.collectionStore.GetBuildingSite(ctx, orgID, bID)
+		if err != nil {
+			return nil, nil, err
+		}
+		if !int64PtrEqual(peekedSiteID, lockedSiteID) {
+			return nil, nil, fleeterror.NewPlainError(
+				"building site changed concurrently; tx will retry",
+				connect.CodeAborted)
+		}
 		buildingID = &bID
-		siteID = bsID
+		siteID = lockedSiteID
 		return siteID, buildingID, nil
 	}
 
@@ -367,15 +395,41 @@ func (s *Service) UpdateCollection(ctx context.Context, req *pb.UpdateCollection
 
 		// Replace membership atomically if device_selector was provided.
 		if hasDeviceSelector {
-			_, err = s.collectionStore.RemoveAllDevicesFromCollection(ctx, info.OrganizationID, req.CollectionId)
+			// Lock rack placement BEFORE the cascade so the site_id we
+			// read is stable for the duration of this tx. No-op for
+			// group-type collections (rack lock isn't needed when there
+			// is no site invariant to enforce).
+			collType, err := s.collectionStore.GetCollectionType(ctx, info.OrganizationID, req.CollectionId)
 			if err != nil {
 				return nil, err
 			}
-
-			if len(deviceIdentifiers) > 0 {
-				_, err = s.collectionStore.AddDevicesToCollection(ctx, info.OrganizationID, req.CollectionId, deviceIdentifiers)
+			var rackSiteID *int64
+			isRack := collType == pb.CollectionType_COLLECTION_TYPE_RACK
+			if isRack {
+				placement, err := s.collectionStore.LockRackPlacementForWrite(ctx, req.CollectionId, info.OrganizationID)
 				if err != nil {
 					return nil, err
+				}
+				rackSiteID = placement.SiteID
+			}
+			if _, err := s.collectionStore.RemoveAllDevicesFromCollection(ctx, info.OrganizationID, req.CollectionId); err != nil {
+				return nil, err
+			}
+			if len(deviceIdentifiers) > 0 {
+				if _, err := s.collectionStore.AddDevicesToCollection(ctx, info.OrganizationID, req.CollectionId, deviceIdentifiers); err != nil {
+					return nil, err
+				}
+				// Cascade rack site onto the freshly-replaced membership
+				// so every member's device.site_id matches the rack
+				// (including NULL when the rack has no site stamped).
+				// CascadeRackDeviceSites uses IS DISTINCT FROM, so it's
+				// a no-op for devices already aligned. Same path
+				// AddDevicesToCollection / SaveRack use — closes the
+				// invariant gap on this third write path.
+				if isRack {
+					if _, err := s.collectionStore.CascadeRackDeviceSites(ctx, req.CollectionId, info.OrganizationID, rackSiteID); err != nil {
+						return nil, err
+					}
 				}
 			}
 		}
@@ -429,10 +483,25 @@ func (s *Service) DeleteCollection(ctx context.Context, req *pb.DeleteCollection
 		return nil, err
 	}
 
+	// Prefetch the collection out-of-tx for the activity log description
+	// only — its result MUST NOT decide whether the in-tx site cascade
+	// runs (a transient prefetch error would otherwise skip the
+	// device.site_id cleanup while still soft-deleting the rack). The
+	// in-tx flow re-reads the collection type via GetCollectionType to
+	// make the cascade decision under correct locking semantics.
 	collection, prefetchErr := s.collectionStore.GetCollection(ctx, info.OrganizationID, req.CollectionId)
 
 	var siteUnassignedCount int64
 	err = s.transactor.RunInTx(ctx, func(ctx context.Context) error {
+		// Re-read the collection type inside the tx so the cascade
+		// decision doesn't rely on the out-of-tx prefetch. Plan
+		// §"Cross-collection consistency rule": rack-type collections
+		// cascade-null device.site_id on delete; group-type collections
+		// don't stamp device.site_id and skip the cascade entirely.
+		collType, err := s.collectionStore.GetCollectionType(ctx, info.OrganizationID, req.CollectionId)
+		if err != nil {
+			return err
+		}
 		// For rack-type collections, null device.site_id for every paired
 		// member before dropping membership. Devices that entered a site
 		// via this rack should not keep pointing at the site after the
@@ -441,8 +510,8 @@ func (s *Service) DeleteCollection(ctx context.Context, req *pb.DeleteCollection
 		// AssignBuildingToSite(target=NULL) cascade semantics.
 		// No-op when the collection is a group (groups are org-scoped
 		// and never stamp device.site_id) or when the rack has no
-		// members / no site stamped.
-		if prefetchErr == nil && collection.Type == pb.CollectionType_COLLECTION_TYPE_RACK {
+		// stamped site_id (handled by the SQL guard).
+		if collType == pb.CollectionType_COLLECTION_TYPE_RACK {
 			n, err := s.collectionStore.UnassignDeviceSitesByRack(ctx, req.CollectionId, info.OrganizationID)
 			if err != nil {
 				return err
@@ -467,6 +536,9 @@ func (s *Service) DeleteCollection(ctx context.Context, req *pb.DeleteCollection
 		return nil, err
 	}
 
+	// Activity-log description uses the out-of-tx prefetch (label +
+	// scope), which is best-effort. The tx-internal cascade above does
+	// not depend on it.
 	if prefetchErr == nil {
 		scopeType := collectionScopeType(collection.Type)
 		label := collection.Label
@@ -651,8 +723,20 @@ func (s *Service) AddDevicesToCollection(ctx context.Context, req *pb.AddDevices
 		// can list them out. The activity log fires AFTER the tx commits
 		// (PR B convention) because the WithTransaction retry loop would
 		// otherwise duplicate the row on serialization-failure retries.
-		priors := make([]map[string]any, 0, len(txResult.conflicts))
-		for _, c := range txResult.conflicts {
+		//
+		// Bound the per-device list at maxCascadeAuditEntries to keep
+		// the activity_log JSON payload bounded — a bulk add of
+		// thousands of devices would otherwise inflate the row size.
+		total := len(txResult.conflicts)
+		capacity := total
+		if capacity > maxCascadeAuditEntries {
+			capacity = maxCascadeAuditEntries
+		}
+		priors := make([]map[string]any, 0, capacity)
+		for i, c := range txResult.conflicts {
+			if i >= maxCascadeAuditEntries {
+				break
+			}
 			row := map[string]any{
 				"device_identifier": c.DeviceIdentifier,
 				"target_site_id":    c.TargetSiteID,
@@ -662,12 +746,17 @@ func (s *Service) AddDevicesToCollection(ctx context.Context, req *pb.AddDevices
 			}
 			priors = append(priors, row)
 		}
-		addEvent.Metadata = map[string]any{
+		meta := map[string]any{
 			"site_cascade":          true,
 			"final_site_id":         txResult.finalSiteID,
 			"site_reassigned_count": txResult.cascadeCount,
 			"device_site_changes":   priors,
+			"total_affected":        total,
 		}
+		if total > maxCascadeAuditEntries {
+			meta["truncated"] = true
+		}
+		addEvent.Metadata = meta
 	}
 	s.logActivity(ctx, addEvent)
 
@@ -1130,8 +1219,11 @@ type saveRackResult struct {
 	siteReassignedCount int64
 	// deviceSiteChanges captures the per-device prior site_id for every
 	// rack member whose site_id was rewritten by the cascade. One entry
-	// per rewritten device, suitable for activity_log.metadata.
+	// per rewritten device, suitable for activity_log.metadata. Capped
+	// at maxCascadeAuditEntries; totalAffected carries the un-truncated
+	// count so the audit row records the real cascade scope.
 	deviceSiteChanges []map[string]any
+	totalAffected     int
 }
 
 // SaveRack atomically creates or updates a rack with its membership and
@@ -1176,13 +1268,11 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest) (*pb.Sa
 
 	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
 		var (
-			collectionID      int64
-			finalSiteID       *int64
-			finalBuildingID   *int64
-			finalZone         string
-			cascadeApplied    bool
-			cascadeCount      int64
-			deviceSiteChanges []map[string]any
+			collectionID    int64
+			finalSiteID     *int64
+			finalBuildingID *int64
+			finalZone       string
+			siteChanged     bool
 		)
 
 		if isUpdate {
@@ -1194,9 +1284,7 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest) (*pb.Sa
 			finalSiteID = res.finalSiteID
 			finalBuildingID = res.finalBuildingID
 			finalZone = res.finalZone
-			cascadeApplied = res.cascadeApplied
-			cascadeCount = res.cascadeCount
-			deviceSiteChanges = res.deviceSiteChanges
+			siteChanged = res.siteChanged
 		} else {
 			res, err := s.saveRackCreate(ctx, info, req, rackInfo)
 			if err != nil {
@@ -1206,17 +1294,27 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest) (*pb.Sa
 			finalSiteID = res.finalSiteID
 			finalBuildingID = res.finalBuildingID
 			finalZone = res.finalZone
+			// On the create path every member is "newly added", so the
+			// cascade in replaceRackMembershipAndSlots aligns them with
+			// the rack's site. The "siteChanged" semantic doesn't apply
+			// (no prior state) — record the cascade as applied if a
+			// stamped site is being applied to anyone.
+			siteChanged = finalSiteID != nil
 		}
 
 		// Membership + slot replacement is identical for create and
-		// update. Newly-added members get a follow-up cascade so they
-		// align with the rack's site_id even when the site didn't
-		// change in the update path.
-		postAddCount, err := s.replaceRackMembershipAndSlots(ctx, info.OrganizationID, collectionID, deviceIdentifiers, req.SlotAssignments, finalSiteID)
+		// update. The cascade runs here so it touches the FINAL member
+		// set only — devices being removed by membership replace keep
+		// their previous site_id, and devices being added get aligned
+		// to the rack's site (or nulled when the rack is unassigned).
+		cascade, err := s.replaceRackMembershipAndSlots(ctx, info.OrganizationID, collectionID, deviceIdentifiers, req.SlotAssignments, finalSiteID)
 		if err != nil {
 			return nil, err
 		}
-		cascadeCount += postAddCount
+		cascadeApplied := siteChanged || cascade.cascadeCount > 0
+		cascadeCount := cascade.cascadeCount
+		deviceSiteChanges := cascade.deviceSiteChanges
+		totalAffected := cascade.totalAffected
 
 		// Fetch the final collection state.
 		collection, err := s.collectionStore.GetCollection(ctx, info.OrganizationID, collectionID)
@@ -1236,6 +1334,7 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest) (*pb.Sa
 			finalSiteID:         finalSiteID,
 			siteReassignedCount: cascadeCount,
 			deviceSiteChanges:   deviceSiteChanges,
+			totalAffected:       totalAffected,
 		}, nil
 	})
 	if err != nil {
@@ -1279,6 +1378,12 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest) (*pb.Sa
 		if len(txResult.deviceSiteChanges) > 0 {
 			meta["device_site_changes"] = txResult.deviceSiteChanges
 		}
+		if txResult.totalAffected > 0 {
+			meta["total_affected"] = txResult.totalAffected
+			if txResult.totalAffected > maxCascadeAuditEntries {
+				meta["truncated"] = true
+			}
+		}
 		saveEvent.Metadata = meta
 	}
 	s.logActivity(ctx, saveEvent)
@@ -1297,6 +1402,18 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest) (*pb.Sa
 func validateSaveRackRequest(req *pb.SaveRackRequest, rackInfo *pb.RackInfo) error {
 	if rackInfo == nil {
 		return fleeterror.NewInvalidArgumentError("rack_info is required")
+	}
+	// Normalize explicit zero IDs to nil up front so validation rules
+	// that key off "building set" / "site set" agree with the
+	// downstream resolveAndLockRackPlacement convention (mirrors
+	// AssignBuildingToSite's target=nil / target=0 equivalence). Without
+	// this step, a client using building_id=0 to mean "unassigned"
+	// would hit the zone-required check below.
+	if rackInfo.SiteId != nil && *rackInfo.SiteId == 0 {
+		rackInfo.SiteId = nil
+	}
+	if rackInfo.BuildingId != nil && *rackInfo.BuildingId == 0 {
+		rackInfo.BuildingId = nil
 	}
 	// Zone is required when the rack lives inside a building (zones are
 	// the sub-building organizer). For direct-under-site or fully
@@ -1397,14 +1514,15 @@ func (s *Service) saveRackCreate(ctx context.Context, info *session.Info, req *p
 }
 
 // saveRackUpdatePathResult holds the outputs of the SaveRack update branch.
+// siteChanged signals that the rack's site moved between current and new;
+// the cascade itself + per-device prior capture happen in
+// replaceRackMembershipAndSlots so they reflect the final member set.
 type saveRackUpdatePathResult struct {
-	collectionID      int64
-	finalSiteID       *int64
-	finalBuildingID   *int64
-	finalZone         string
-	cascadeApplied    bool
-	cascadeCount      int64
-	deviceSiteChanges []map[string]any
+	collectionID    int64
+	finalSiteID     *int64
+	finalBuildingID *int64
+	finalZone       string
+	siteChanged     bool
 }
 
 // saveRackUpdate runs the SaveRack update branch: validate ownership,
@@ -1470,90 +1588,95 @@ func (s *Service) saveRackUpdate(ctx context.Context, info *session.Info, req *p
 		return nil, err
 	}
 
-	// Cascade the rack's new site_id onto current members only when the
-	// site actually changed. Capture per-device priors first so the
-	// audit log reflects the exact reassignment. Run BEFORE the
-	// membership-replace step in the caller — devices that will be
-	// removed by the membership replacement intentionally keep their
-	// previous site_id (the invariant only enforces while a device is
-	// in a rack; once removed, it's no longer subject to the rule).
+	// Mark whether the rack's site changed; the cascade itself runs
+	// after membership replacement (see replaceRackMembershipAndSlots)
+	// so it only touches devices that REMAIN in the rack. Cascading
+	// before the membership replace would rewrite devices the operator
+	// is removing in this same call, leaving them orphaned at the new
+	// site with no rack. Capturing per-device priors also has to wait
+	// until after membership replace so they reflect the final-member
+	// set (stayers + new additions), not the pre-replace set.
 	out := &saveRackUpdatePathResult{
 		collectionID:    collectionID,
 		finalSiteID:     newSiteID,
 		finalBuildingID: newBuildingID,
 		finalZone:       finalZone,
+		siteChanged:     !int64PtrEqual(current.SiteID, newSiteID),
 	}
-	if !int64PtrEqual(current.SiteID, newSiteID) {
-		out.cascadeApplied = true
-		priors, err := s.collectionStore.GetDeviceSiteIDsByMembership(ctx, collectionID, info.OrganizationID)
-		if err != nil {
-			return nil, err
-		}
-		// Note: priors at this point are the *current* members of the
-		// rack BEFORE the membership replace. That's the right scope:
-		// they're the devices whose site_id is about to be rewritten
-		// by CascadeRackDeviceSites.
-		_, ok := newSiteID, false
-		_ = ok // (suppress; targetSiteID may be nil)
-		out.deviceSiteChanges = buildDeviceSiteChanges(priors, newSiteID)
-		// CascadeRackDeviceSites uses IS DISTINCT FROM, so it handles
-		// NULL <-> value transitions and is a no-op for devices already
-		// at the target site.
-		n, err := s.collectionStore.CascadeRackDeviceSites(ctx, collectionID, info.OrganizationID, newSiteID)
-		if err != nil {
-			return nil, err
-		}
-		out.cascadeCount = n
-	}
-
 	return out, nil
 }
 
+// rackCascadeOutcome holds the per-call cascade results: number of
+// device rows rewritten, per-device prior site_ids for the activity
+// audit, and the total affected count (which may exceed
+// len(deviceSiteChanges) when the audit list was truncated).
+type rackCascadeOutcome struct {
+	cascadeCount      int64
+	deviceSiteChanges []map[string]any
+	totalAffected     int
+}
+
 // replaceRackMembershipAndSlots removes existing membership + slot
-// positions and writes the new set. When finalSiteID is non-nil it also
-// runs CascadeRackDeviceSites against the freshly-added members so
-// devices added with a different prior site_id align with the rack's
-// site in the same transaction. Returns the cascade row count so the
-// caller can fold it into the activity-log totals.
-func (s *Service) replaceRackMembershipAndSlots(ctx context.Context, orgID, collectionID int64, deviceIdentifiers []string, slotAssignments []*pb.RackSlot, finalSiteID *int64) (int64, error) {
+// positions and writes the new set. Runs the rack site cascade AFTER the
+// membership replace so:
+//   - Devices being removed from the rack keep their previous site_id
+//     (the invariant only enforces while a device is in a rack).
+//   - Per-device priors captured for the audit reflect the final member
+//     set (stayers + new additions), not the pre-replace set.
+//
+// Cascade fires unconditionally when membership is non-empty so that:
+//   - A rack moved to fully-unassigned (finalSiteID == nil) still nulls
+//     newly-added members' site_id (CascadeRackDeviceSites uses IS
+//     DISTINCT FROM, which accepts NULL as a distinct target).
+//   - A rack with no site stamped is still a no-op (cascade matches no
+//     rows because every member already aligns with NULL).
+//
+// Returns the cascade outcome so the caller can fold it into the
+// activity-log totals + response.
+func (s *Service) replaceRackMembershipAndSlots(ctx context.Context, orgID, collectionID int64, deviceIdentifiers []string, slotAssignments []*pb.RackSlot, finalSiteID *int64) (rackCascadeOutcome, error) {
+	var out rackCascadeOutcome
 	if _, err := s.collectionStore.RemoveAllDevicesFromCollection(ctx, orgID, collectionID); err != nil {
-		return 0, err
+		return out, err
 	}
 
-	var postAddCount int64
 	if len(deviceIdentifiers) > 0 {
 		if _, err := s.collectionStore.AddDevicesToCollection(ctx, orgID, collectionID, deviceIdentifiers); err != nil {
-			return 0, err
+			return out, err
 		}
-		// Freshly-added members must agree with the rack's site_id.
-		// No-op when the rack has no site stamped.
-		if finalSiteID != nil {
-			n, err := s.collectionStore.CascadeRackDeviceSites(ctx, collectionID, orgID, finalSiteID)
-			if err != nil {
-				return 0, err
-			}
-			postAddCount = n
+		// Capture per-device priors AFTER membership replace so the
+		// audit reflects the final member set. Cascade rewrites only
+		// devices whose current site_id differs from finalSiteID
+		// (IS DISTINCT FROM); the audit lists only those.
+		priors, err := s.collectionStore.GetDeviceSiteIDsByMembership(ctx, collectionID, orgID)
+		if err != nil {
+			return out, err
 		}
+		out.deviceSiteChanges, out.totalAffected = buildDeviceSiteChanges(priors, finalSiteID)
+		n, err := s.collectionStore.CascadeRackDeviceSites(ctx, collectionID, orgID, finalSiteID)
+		if err != nil {
+			return out, err
+		}
+		out.cascadeCount = n
 	}
 
 	// Clear all existing slot positions, then set the new ones. Slot
 	// row count is bounded by rack dimensions (max 12x12 = 144).
 	existingSlots, err := s.collectionStore.GetRackSlots(ctx, collectionID, orgID)
 	if err != nil {
-		return 0, err
+		return out, err
 	}
 	for _, slot := range existingSlots {
 		if err := s.collectionStore.ClearRackSlotPosition(ctx, collectionID, slot.DeviceIdentifier, orgID); err != nil {
-			return 0, err
+			return out, err
 		}
 	}
 	for _, slot := range slotAssignments {
 		if err := s.collectionStore.SetRackSlotPosition(ctx, collectionID, slot.DeviceIdentifier, slot.Position.Row, slot.Position.Column, orgID); err != nil {
-			return 0, err
+			return out, err
 		}
 	}
 
-	return postAddCount, nil
+	return out, nil
 }
 
 // buildDeviceSiteChanges turns the pre-cascade prior-site map into the
@@ -1562,11 +1685,18 @@ func (s *Service) replaceRackMembershipAndSlots(ctx context.Context, orgID, coll
 // are omitted (the cascade UPDATE skips them via IS DISTINCT FROM, and
 // the audit log shouldn't list no-op changes). Mirrors the shape used by
 // AddDevicesToCollection's cascade audit so consumers can parse both
-// uniformly.
-func buildDeviceSiteChanges(priors map[string]*int64, target *int64) []map[string]any {
-	changes := make([]map[string]any, 0, len(priors))
+// uniformly. The returned slice is capped at maxCascadeAuditEntries so
+// a multi-thousand-device cascade does not blow up the activity_log
+// JSON payload; the caller annotates the metadata with total_affected
+// + truncated when applicable.
+func buildDeviceSiteChanges(priors map[string]*int64, target *int64) (changes []map[string]any, totalAffected int) {
+	changes = make([]map[string]any, 0, len(priors))
 	for deviceIdentifier, prior := range priors {
 		if int64PtrEqual(prior, target) {
+			continue
+		}
+		totalAffected++
+		if len(changes) >= maxCascadeAuditEntries {
 			continue
 		}
 		row := map[string]any{
@@ -1580,5 +1710,5 @@ func buildDeviceSiteChanges(priors map[string]*int64, target *int64) []map[strin
 		}
 		changes = append(changes, row)
 	}
-	return changes
+	return changes, totalAffected
 }
