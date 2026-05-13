@@ -532,11 +532,6 @@ if [ ! -f "$COMPOSE_FILE" ]; then
     exit 1
 fi
 
-# Refresh COMPOSE_FILES and announce the choice to the operator. The
-# --enable-beta-notifications CLI flag (off by default) controls whether the
-# notifications overlay is layered on. When the flag is set the overlay must
-# exist; otherwise we proceed without it.
-refresh_compose_files
 if [ "$ENABLE_BETA_NOTIFICATIONS" = "true" ]; then
     if [ ! -f "$COMPOSE_NOTIFICATIONS_FILE" ]; then
         echo "Error: --enable-beta-notifications was passed but $COMPOSE_NOTIFICATIONS_FILE is missing."

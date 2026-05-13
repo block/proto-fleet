@@ -107,7 +107,7 @@ services:
       - "4318" # OTLP HTTP ingest
     restart: unless-stopped
     networks:
-      - fleet-network
+      - monitoring
 
   victoria-metrics:
     image: victoriametrics/victoria-metrics:v1.107.0

@@ -15,8 +15,6 @@ services:
     volumes:
       - ../deployment-files/server/monitoring/vmalert:/etc/protofleet/monitoring/vmalert:rw
       - ../deployment-files/server/monitoring/alertmanager:/etc/protofleet/monitoring/alertmanager:rw
-    networks:
-      - monitoring
 
   otel-collector:
     extends:
@@ -29,8 +27,6 @@ services:
     ports:
       - "127.0.0.1:4317:4317"
       - "127.0.0.1:4318:4318"
-    networks:
-      - monitoring
 
   jaeger:
     extends:
@@ -43,8 +39,6 @@ services:
     extends:
       file: ./docker-compose.base.yaml
       service: victoria-metrics
-    networks:
-      - monitoring
     ports:
       - "127.0.0.1:8428:8428"
 
@@ -55,8 +49,6 @@ services:
     volumes:
       - ../deployment-files/server/monitoring/vmalert/rules.yml:/etc/vmalert/rules.yml:rw
       - ../deployment-files/server/monitoring/vmalert/rules.d:/etc/vmalert/rules.d:ro
-    networks:
-      - monitoring
     ports:
       - "127.0.0.1:8880:8880"
 
@@ -66,11 +58,13 @@ services:
       service: alertmanager
     volumes:
       - ../deployment-files/server/monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:rw
-    networks:
-      - monitoring
     ports:
       - "127.0.0.1:9093:9093"
 
 volumes:
   victoria-metrics-data:
   alertmanager-data:
+
+networks:
+  monitoring:
+    driver: bridge
