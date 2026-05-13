@@ -62,6 +62,10 @@ These are the rules that recur in code review and that contributors most often m
 7. **Server: prepared statements only.** All DB access goes through sqlc.
 8. **Go workspace.** Run `go work sync` after touching dependencies in any
    module under `server/` or `plugin/`.
+9. **Client routes use idle-time prefetch.** Adding a route requires
+   coordinated edits across `routePrefetch.ts` (factory plus tier) and
+   `router.tsx` (`lazy()` wrapper). See the top-of-file runbook in either
+   app's `routePrefetch.ts`.
 
 ## Git workflow
 
