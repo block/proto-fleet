@@ -95,8 +95,9 @@ func (h *Handler) AddDevicesToDeviceSet(ctx context.Context, r *connect.Request[
 		return nil, err
 	}
 	return connect.NewResponse(&dspb.AddDevicesToDeviceSetResponse{
-		DeviceSetId: result.CollectionId,
-		AddedCount:  result.AddedCount,
+		DeviceSetId:         result.CollectionId,
+		AddedCount:          result.AddedCount,
+		SiteReassignedCount: result.SiteReassignedCount,
 	}), nil
 }
 
@@ -242,7 +243,8 @@ func (h *Handler) SaveRack(ctx context.Context, r *connect.Request[dspb.SaveRack
 		return nil, err
 	}
 	return connect.NewResponse(&dspb.SaveRackResponse{
-		DeviceSet:     toDeviceSet(result.Collection),
-		AssignedCount: result.AssignedCount,
+		DeviceSet:           toDeviceSet(result.Collection),
+		AssignedCount:       result.AssignedCount,
+		SiteReassignedCount: result.SiteReassignedCount,
 	}), nil
 }

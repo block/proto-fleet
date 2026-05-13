@@ -124,12 +124,22 @@ message RackInfo {
     int32 rows = 1 [(buf.validate.field).int32.gt = 0];
     // Number of columns in the rack grid
     int32 columns = 2 [(buf.validate.field).int32.gt = 0];
-    // Physical zone description (e.g. building, room, area)
-    string zone = 3 [(buf.validate.field).string.min_len = 1];
+    // Sub-building zone label (e.g. "Room 2", "East Wall"). Required when
+    // building_id is set; cleared (empty) automatically when the rack
+    // crosses a building boundary or moves to direct-under-site placement.
+    string zone = 3 [(buf.validate.field).string.max_len = 100];
     // Order index defining where numbering starts
     RackOrderIndex order_index = 4;
     // Cooling type for this rack
     RackCoolingType cooling_type = 5;
+    // Site this rack is assigned to. When building_id is set, the server
+    // derives site_id from the building and rejects mismatched callers.
+    // Unset means the rack is fully unassigned.
+    optional int64 site_id = 6;
+    // Building this rack belongs to (within site_id). Unset means the
+    // rack is directly attached to its site, or unassigned when site_id
+    // is also unset.
+    optional int64 building_id = 7;
 }
 
 // Group-specific metadata for group-type collections
@@ -295,7 +305,15 @@ message ListCollectionsResponse {
     int32 total_count = 3;
 }
 
-// Request to add devices to a collection
+// Request to add devices to a collection.
+//
+// Site cascade side effect: when the target collection is a rack with a
+// stamped site_id, the server rewrites device.site_id to match the rack's
+// site_id for every added device whose current site differs, in the same
+// transaction as the membership insert. Group targets are exempt — groups
+// are org-scoped and may span sites by design. The cascaded device count
+// is returned in AddDevicesToCollectionResponse.site_reassigned_count and
+// per-device prior site_ids are captured in the activity-log row.
 message AddDevicesToCollectionRequest {
     // ID of the collection to add devices to
     int64 collection_id = 1 [(buf.validate.field).int64.gt = 0];
@@ -312,6 +330,11 @@ message AddDevicesToCollectionResponse {
     // Number of devices successfully added
     // May be less than requested if some devices were already members
     int32 added_count = 2;
+
+    // Number of devices whose site_id was rewritten by the implicit
+    // rack-add cascade. Zero for group targets, for racks without a
+    // stamped site_id, or when every added device already matched.
+    int32 site_reassigned_count = 3;
 }
 
 // Request to remove devices from a collection
@@ -518,6 +541,14 @@ message ListRackTypesResponse {
 }
 
 // Request to atomically create or update a rack with membership and slot assignments.
+//
+// Site cascade side effect: when rack_info.site_id (or the site derived
+// from rack_info.building_id) differs from the rack's current site, the
+// server rewrites device.site_id for every paired rack member to match
+// the rack's new site in the same transaction. Devices added by
+// device_selector also receive the rack's site_id. The cascaded device
+// count is returned in SaveRackResponse.site_reassigned_count and the
+// per-device prior site_ids are captured in the activity-log row.
 message SaveRackRequest {
     // ID of an existing rack to update. Omit to create a new rack.
     optional int64 collection_id = 1 [(buf.validate.field) = {
@@ -551,4 +582,9 @@ message SaveRackResponse {
 
     // Number of slot positions assigned
     int32 assigned_count = 2;
+
+    // Number of devices whose site_id was rewritten by the implicit
+    // rack-edit/move cascade. Zero when the rack had no site stamped, or
+    // when no rack member had a site_id different from the rack's.
+    int32 site_reassigned_count = 3;
 }

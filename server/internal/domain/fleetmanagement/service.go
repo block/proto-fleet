@@ -427,6 +427,12 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 			DriverName:       row.DriverName,
 		}
 
+		if row.SiteID.Valid {
+			id := row.SiteID.Int64
+			snapshot.SiteId = &id
+			snapshot.SiteLabel = row.SiteLabel
+		}
+
 		if row.Model.Valid {
 			snapshot.Model = row.Model.String
 		}
@@ -756,6 +762,21 @@ func parseFilter(pbFilter *pb.MinerListFilter) (*interfaces.MinerFilter, error) 
 		}
 		filter.IPCIDRs = prefixes
 	}
+
+	if len(pbFilter.SiteIds) > 0 {
+		if len(pbFilter.SiteIds) > maxFreeFormFilterValues {
+			return nil, fleeterror.NewInvalidArgumentErrorf(
+				"site_ids exceeds maximum of %d values", maxFreeFormFilterValues)
+		}
+		for i, id := range pbFilter.SiteIds {
+			if id <= 0 {
+				return nil, fleeterror.NewInvalidArgumentErrorf(
+					"site_ids[%d] must be positive", i)
+			}
+		}
+		filter.SiteIDs = pbFilter.SiteIds
+	}
+	filter.IncludeUnassigned = pbFilter.IncludeUnassigned
 
 	return filter, nil
 }

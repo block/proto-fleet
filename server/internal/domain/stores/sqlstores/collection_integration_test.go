@@ -383,7 +383,9 @@ func TestCollectionStore_GetRackDetailsForDevices(t *testing.T) {
 
 	rack, err := store.CreateCollection(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_RACK, "Floor 1", "")
 	require.NoError(t, err)
-	err = store.CreateRackExtension(ctx, rack.Id, "Floor 1", 12, 12, 2, 0, orgID)
+	err = store.CreateRackExtension(ctx, sqlstoresinterfaces.CreateRackExtensionParams{
+		OrgID: orgID, CollectionID: rack.Id, Rows: 12, Columns: 12, OrderIndex: 2, Zone: "Floor 1",
+	})
 	require.NoError(t, err)
 	_, err = store.AddDevicesToCollection(ctx, orgID, rack.Id, deviceIDs)
 	require.NoError(t, err)
@@ -413,7 +415,9 @@ func TestCollectionStore_GetRackDetailsForDevices_LeavesPositionBlankForUnspecif
 
 	rack, err := store.CreateCollection(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_RACK, "Floor 1", "")
 	require.NoError(t, err)
-	err = store.CreateRackExtension(ctx, rack.Id, "Floor 1", 12, 12, 0, 0, orgID)
+	err = store.CreateRackExtension(ctx, sqlstoresinterfaces.CreateRackExtensionParams{
+		OrgID: orgID, CollectionID: rack.Id, Rows: 12, Columns: 12, Zone: "Floor 1",
+	})
 	require.NoError(t, err)
 	_, err = store.AddDevicesToCollection(ctx, orgID, rack.Id, deviceIDs)
 	require.NoError(t, err)
@@ -510,7 +514,9 @@ func TestCollectionStore_RackSlotPositions(t *testing.T) {
 	// Arrange - create rack with devices
 	rack, err := store.CreateCollection(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_RACK, "Rack", "")
 	require.NoError(t, err)
-	err = store.CreateRackExtension(ctx, rack.Id, "Floor 1", 4, 8, 0, 0, orgID)
+	err = store.CreateRackExtension(ctx, sqlstoresinterfaces.CreateRackExtensionParams{
+		OrgID: orgID, CollectionID: rack.Id, Rows: 4, Columns: 8, Zone: "Floor 1",
+	})
 	require.NoError(t, err)
 	_, err = store.AddDevicesToCollection(ctx, orgID, rack.Id, deviceIDs)
 	require.NoError(t, err)
@@ -553,7 +559,9 @@ func TestCollectionStore_ListCollectionMembers_IncludesSlotPositions(t *testing.
 	// Arrange - rack with one device positioned
 	rack, err := store.CreateCollection(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_RACK, "Rack", "")
 	require.NoError(t, err)
-	err = store.CreateRackExtension(ctx, rack.Id, "", 4, 8, 0, 0, orgID)
+	err = store.CreateRackExtension(ctx, sqlstoresinterfaces.CreateRackExtensionParams{
+		OrgID: orgID, CollectionID: rack.Id, Rows: 4, Columns: 8,
+	})
 	require.NoError(t, err)
 	_, err = store.AddDevicesToCollection(ctx, orgID, rack.Id, deviceIDs)
 	require.NoError(t, err)

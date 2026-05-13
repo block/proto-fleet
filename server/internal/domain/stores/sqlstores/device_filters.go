@@ -34,6 +34,14 @@ type minerFilterParams struct {
 	firmwareVersionValues     []string
 	zonesFilter               sql.NullString
 	zoneValues                []string
+	// siteIDsFilter / includeUnassigned drive the site filter combos.
+	// siteIDsFilter alone → match listed sites only.
+	// includeUnassigned alone → match site_id IS NULL only.
+	// Both → OR of listed sites with site_id IS NULL.
+	// Neither → no site filter applied.
+	siteIDsFilter     sql.NullString
+	siteIDValues      []int64
+	includeUnassigned bool
 	// numericRanges drives both the WHERE predicates emitted by
 	// appendFilterSQL and the CTE/JOIN gating in buildListQuerySQL: when
 	// non-empty, latest_metrics is INNER-joined and OFFLINE miners are
@@ -127,6 +135,15 @@ func buildMinerFilterParams(filter *stores.MinerFilter) minerFilterParams {
 		fp.zonesFilter = sql.NullString{Valid: true}
 		fp.zoneValues = filter.Zones
 	}
+
+	// Site filter — split site_ids and include_unassigned so the filter
+	// shape stays clean through proto generation, URL params, and saved
+	// views. See plan §"device/" filter notes.
+	if len(filter.SiteIDs) > 0 {
+		fp.siteIDsFilter = sql.NullString{Valid: true}
+		fp.siteIDValues = filter.SiteIDs
+	}
+	fp.includeUnassigned = filter.IncludeUnassigned
 
 	// Numeric range filters (telemetry predicates).
 	if len(filter.NumericRanges) > 0 {
@@ -306,6 +323,27 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 			argNum)
 		args = append(args, pq.Array(fp.ipCIDRValues))
 		argNum++
+	}
+
+	// Site filter: OR of (site_id IN listed sites) and (site_id IS NULL when
+	// include_unassigned). Either or both may be set; nothing emitted when
+	// both are empty (no site filter).
+	if fp.siteIDsFilter.Valid || fp.includeUnassigned {
+		sb.WriteString(" AND (")
+		first := true
+		if fp.siteIDsFilter.Valid {
+			fmt.Fprintf(sb, "device.site_id = ANY($%d::bigint[])", argNum)
+			args = append(args, pq.Array(fp.siteIDValues))
+			argNum++
+			first = false
+		}
+		if fp.includeUnassigned {
+			if !first {
+				sb.WriteString(" OR ")
+			}
+			sb.WriteString("device.site_id IS NULL")
+		}
+		sb.WriteString(")")
 	}
 
 	if fp.zonesFilter.Valid {

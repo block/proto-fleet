@@ -74,6 +74,40 @@ func TestParseFilter_NewFiltersCombineWithExisting(t *testing.T) {
 	assert.Equal(t, []int64{42}, filter.RackIDs)
 }
 
+// TestParseFilter_SiteIDs covers the multi-site filter split: site_ids
+// is a repeated list (OR logic) and include_unassigned is an independent
+// bool. Plan §"device/" filter notes — the four allowed combos are
+// (none), site_ids only, include_unassigned only, both.
+func TestParseFilter_SiteIDs(t *testing.T) {
+	t.Run("specific sites", func(t *testing.T) {
+		filter, err := parseFilter(&pb.MinerListFilter{SiteIds: []int64{1, 2}})
+		require.NoError(t, err)
+		assert.Equal(t, []int64{1, 2}, filter.SiteIDs)
+		assert.False(t, filter.IncludeUnassigned)
+	})
+	t.Run("unassigned only", func(t *testing.T) {
+		filter, err := parseFilter(&pb.MinerListFilter{IncludeUnassigned: true})
+		require.NoError(t, err)
+		assert.Nil(t, filter.SiteIDs)
+		assert.True(t, filter.IncludeUnassigned)
+	})
+	t.Run("specific sites plus unassigned", func(t *testing.T) {
+		filter, err := parseFilter(&pb.MinerListFilter{
+			SiteIds:           []int64{1, 2},
+			IncludeUnassigned: true,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, []int64{1, 2}, filter.SiteIDs)
+		assert.True(t, filter.IncludeUnassigned)
+	})
+	t.Run("no site filter", func(t *testing.T) {
+		filter, err := parseFilter(&pb.MinerListFilter{})
+		require.NoError(t, err)
+		assert.Nil(t, filter.SiteIDs)
+		assert.False(t, filter.IncludeUnassigned)
+	})
+}
+
 func TestParseFilter_FreeFormZoneWithSpecialChars(t *testing.T) {
 	// Zone is free-form text. Server passes it through unchanged; URL/value
 	// encoding is the client's responsibility.
@@ -112,6 +146,38 @@ func TestParseFilter_Zones_RejectsOversizedArray(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "zones")
+}
+
+func TestParseFilter_SiteIDs_RejectsOversizedArray(t *testing.T) {
+	values := make([]int64, maxFreeFormFilterValues+1)
+	for i := range values {
+		values[i] = int64(i + 1)
+	}
+	pbFilter := &pb.MinerListFilter{SiteIds: values}
+
+	_, err := parseFilter(pbFilter)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "site_ids")
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+}
+
+func TestParseFilter_SiteIDs_RejectsZeroAndNegative(t *testing.T) {
+	cases := []struct {
+		name string
+		ids  []int64
+	}{
+		{name: "zero", ids: []int64{1, 0, 3}},
+		{name: "negative", ids: []int64{-5}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := parseFilter(&pb.MinerListFilter{SiteIds: tc.ids})
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "site_ids")
+			assert.True(t, fleeterror.IsInvalidArgumentError(err))
+		})
+	}
 }
 
 func TestParseFilter_FirmwareVersions_AcceptsMaxSizedArray(t *testing.T) {

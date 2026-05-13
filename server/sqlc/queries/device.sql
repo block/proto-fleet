@@ -498,11 +498,14 @@ SELECT
     dd.id as cursor_id,
     COALESCE(d.id, 0) as device_id,
     dd.driver_name,
-    d.custom_name
+    d.custom_name,
+    d.site_id,
+    COALESCE(s.name, '') as site_label
 FROM discovered_device dd
 LEFT JOIN device d ON dd.id = d.discovered_device_id
 LEFT JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ds ON d.id = ds.device_id
+LEFT JOIN site s ON s.id = d.site_id
 WHERE FALSE;
 
 -- name: GetDevicePropertiesForRename :many

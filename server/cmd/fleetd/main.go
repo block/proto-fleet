@@ -415,7 +415,7 @@ func start(config *Config) error {
 	}()
 
 	deviceResolver := deviceresolver.New(deviceStore)
-	collectionSvc := collectionDomain.NewService(collectionStore, deviceStore, transactor, deviceResolver.Resolve, telemetryService, activitySvc)
+	collectionSvc := collectionDomain.NewService(collectionStore, deviceStore, siteStore, transactor, deviceResolver.Resolve, telemetryService, activitySvc)
 	foremanImportSvc := foremanImportDomain.NewService(poolsSvc, collectionSvc, deviceStore)
 
 	middlewares := []server.Middleware{

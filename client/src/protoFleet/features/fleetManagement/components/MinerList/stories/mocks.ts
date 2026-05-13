@@ -62,6 +62,7 @@ export const miners: MinerStateSnapshot[] = [
     groupLabels: [],
     rackLabel: "",
     rackPosition: "",
+    siteLabel: "",
   },
   {
     $typeName: "fleetmanagement.v1.MinerStateSnapshot",
@@ -118,6 +119,7 @@ export const miners: MinerStateSnapshot[] = [
     groupLabels: [],
     rackLabel: "",
     rackPosition: "",
+    siteLabel: "",
   },
   {
     $typeName: "fleetmanagement.v1.MinerStateSnapshot",
@@ -174,6 +176,7 @@ export const miners: MinerStateSnapshot[] = [
     groupLabels: [],
     rackLabel: "",
     rackPosition: "",
+    siteLabel: "",
   },
   {
     $typeName: "fleetmanagement.v1.MinerStateSnapshot",
@@ -230,5 +233,6 @@ export const miners: MinerStateSnapshot[] = [
     groupLabels: [],
     rackLabel: "",
     rackPosition: "",
+    siteLabel: "",
   },
 ];

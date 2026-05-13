@@ -31,6 +31,8 @@ func newStubActivityService(ctrl *gomock.Controller) *activity.Service {
 	return activity.NewService(mockActivityStore)
 }
 
+func int64Ptr(v int64) *int64 { return &v }
+
 // mockDeviceQueryer implements DeviceQueryer for tests.
 type mockDeviceQueryer struct {
 	devicesByFilter         map[int64][]string // collectionID -> device identifiers
@@ -88,7 +90,7 @@ func newTestService(t *testing.T) (*Service, *mocks.MockCollectionStore, *mocks.
 		return nil, nil
 	}
 
-	svc := NewService(mockStore, &mockDeviceQueryer{}, mockTransactor, noopResolver, nil, newStubActivityService(ctrl))
+	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, mockTransactor, noopResolver, nil, newStubActivityService(ctrl))
 	return svc, mockStore, mockTransactor
 }
 
@@ -141,7 +143,7 @@ func TestService_CreateCollection_RackCreatesExtension(t *testing.T) {
 	rackInfo := &pb.RackInfo{Rows: 4, Columns: 8, Zone: loc, OrderIndex: pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT, CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR}
 	mockStore.EXPECT().CreateCollection(gomock.Any(), testOrgID, pb.CollectionType_COLLECTION_TYPE_RACK, "Rack A", "").
 		Return(&pb.DeviceCollection{Id: 10, Label: "Rack A", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil)
-	mockStore.EXPECT().CreateRackExtension(gomock.Any(), int64(10), "Building A", int32(4), int32(8), int32(pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT), int32(pb.RackCoolingType_RACK_COOLING_TYPE_AIR), testOrgID).
+	mockStore.EXPECT().CreateRackExtension(gomock.Any(), gomock.Any()).
 		Return(nil)
 
 	// Act
@@ -265,7 +267,7 @@ func TestService_AddDevicesToCollection_NotFoundWhenNotOwnedByOrg(t *testing.T) 
 	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
 		return []string{"device-1"}, nil
 	}
-	svc := NewService(mockStore, &mockDeviceQueryer{}, mockTransactor, resolver, nil, newStubActivityService(ctrl))
+	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, mockTransactor, resolver, nil, newStubActivityService(ctrl))
 
 	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, testCollectionID).
 		Return(nil, fleeterror.NewNotFoundErrorf("collection not found"))
@@ -368,7 +370,7 @@ func TestService_AddDevicesToCollection_ResolverError(t *testing.T) {
 	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
 		return nil, fleeterror.NewForbiddenError("access denied")
 	}
-	svc := NewService(mockStore, &mockDeviceQueryer{}, mockTransactor, resolver, nil, newStubActivityService(ctrl))
+	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, mockTransactor, resolver, nil, newStubActivityService(ctrl))
 
 	// Act
 	_, err := svc.AddDevicesToCollection(ctx, &pb.AddDevicesToCollectionRequest{
@@ -396,7 +398,7 @@ func TestService_CreateCollection_WithDeviceSelectorAddsDevicesAtomically(t *tes
 	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
 		return deviceIDs, nil
 	}
-	svc := NewService(mockStore, &mockDeviceQueryer{}, mockTransactor, resolver, nil, newStubActivityService(ctrl))
+	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, mockTransactor, resolver, nil, newStubActivityService(ctrl))
 
 	mockTransactor.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, fn func(context.Context) (any, error)) (any, error) {
@@ -438,7 +440,7 @@ func TestService_CreateCollection_WithDeviceSelectorResolverError(t *testing.T) 
 	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
 		return nil, fleeterror.NewForbiddenError("device not owned by org")
 	}
-	svc := NewService(mockStore, &mockDeviceQueryer{}, mockTransactor, resolver, nil, newStubActivityService(ctrl))
+	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, mockTransactor, resolver, nil, newStubActivityService(ctrl))
 
 	// Act
 	_, err := svc.CreateCollection(ctx, &pb.CreateCollectionRequest{
@@ -466,7 +468,7 @@ func TestService_UpdateCollection_WithDeviceSelectorReplacesMembers(t *testing.T
 	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
 		return deviceIDs, nil
 	}
-	svc := NewService(mockStore, &mockDeviceQueryer{}, mockTransactor, resolver, nil, newStubActivityService(ctrl))
+	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, mockTransactor, resolver, nil, newStubActivityService(ctrl))
 
 	mockTransactor.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, fn func(context.Context) (any, error)) (any, error) {
@@ -505,7 +507,7 @@ func TestService_UpdateCollection_WithEmptyDeviceSelectorRemovesAllMembers(t *te
 	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
 		return []string{}, nil
 	}
-	svc := NewService(mockStore, &mockDeviceQueryer{}, mockTransactor, resolver, nil, newStubActivityService(ctrl))
+	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, mockTransactor, resolver, nil, newStubActivityService(ctrl))
 
 	mockTransactor.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, fn func(context.Context) (any, error)) (any, error) {
@@ -575,7 +577,7 @@ func newTestServiceWithTelemetry(t *testing.T, telemetry TelemetryCollector, dev
 	noopResolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
 		return nil, nil
 	}
-	svc := NewService(mockStore, deviceQ, mockTransactor, noopResolver, telemetry, newStubActivityService(ctrl))
+	svc := NewService(mockStore, deviceQ, nil, mockTransactor, noopResolver, telemetry, newStubActivityService(ctrl))
 	return svc, mockStore
 }
 
@@ -870,7 +872,7 @@ func TestService_CreateCollection_WithAllDevicesSelector(t *testing.T) {
 		}
 		return nil, nil
 	}
-	svc := NewService(mockStore, &mockDeviceQueryer{}, mockTransactor, resolver, nil, newStubActivityService(ctrl))
+	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, mockTransactor, resolver, nil, newStubActivityService(ctrl))
 
 	mockTransactor.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, fn func(context.Context) (any, error)) (any, error) {
@@ -920,8 +922,55 @@ func newTestServiceWithResolver(t *testing.T, resolver DeviceIdentifierResolver)
 	mockTransactor.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, fn func(context.Context) (any, error)) (any, error) { return fn(ctx) },
 	).AnyTimes()
-	svc := NewService(mockStore, &mockDeviceQueryer{}, mockTransactor, resolver, nil, newStubActivityService(ctrl))
+	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, mockTransactor, resolver, nil, newStubActivityService(ctrl))
 	return svc, mockStore, mockTransactor
+}
+
+// newTestServiceWithSites wires a MockSiteStore so cascade flows that
+// require site/building locking can be exercised.
+func newTestServiceWithSites(t *testing.T, resolver DeviceIdentifierResolver) (*Service, *mocks.MockCollectionStore, *mocks.MockSiteStore) {
+	t.Helper()
+	ctrl := gomock.NewController(t)
+	mockStore := mocks.NewMockCollectionStore(ctrl)
+	mockSiteStore := mocks.NewMockSiteStore(ctrl)
+	mockTransactor := mocks.NewMockTransactor(ctrl)
+	mockTransactor.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, fn func(context.Context) error) error { return fn(ctx) },
+	).AnyTimes()
+	mockTransactor.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, fn func(context.Context) (any, error)) (any, error) { return fn(ctx) },
+	).AnyTimes()
+	svc := NewService(mockStore, &mockDeviceQueryer{}, mockSiteStore, mockTransactor, resolver, nil, newStubActivityService(ctrl))
+	return svc, mockStore, mockSiteStore
+}
+
+// newTestServiceWithSitesRecordingActivity wires a MockSiteStore PLUS a
+// recording activity service so cascade tests can assert the activity-log
+// event shape (Type, SiteID, Metadata keys). Returns the captured events
+// slice — callers assert against its final state after the RPC returns.
+func newTestServiceWithSitesRecordingActivity(t *testing.T, resolver DeviceIdentifierResolver) (*Service, *mocks.MockCollectionStore, *mocks.MockSiteStore, *[]activitymodels.Event) {
+	t.Helper()
+	ctrl := gomock.NewController(t)
+	mockStore := mocks.NewMockCollectionStore(ctrl)
+	mockSiteStore := mocks.NewMockSiteStore(ctrl)
+	mockTransactor := mocks.NewMockTransactor(ctrl)
+	mockActivityStore := mocks.NewMockActivityStore(ctrl)
+
+	captured := []activitymodels.Event{}
+	mockActivityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, event *activitymodels.Event) error {
+			captured = append(captured, *event)
+			return nil
+		}).AnyTimes()
+
+	mockTransactor.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, fn func(context.Context) error) error { return fn(ctx) },
+	).AnyTimes()
+	mockTransactor.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, fn func(context.Context) (any, error)) (any, error) { return fn(ctx) },
+	).AnyTimes()
+	svc := NewService(mockStore, &mockDeviceQueryer{}, mockSiteStore, mockTransactor, resolver, nil, activity.NewService(mockActivityStore))
+	return svc, mockStore, mockSiteStore, &captured
 }
 
 func TestService_SaveRack_CreateNewRack(t *testing.T) {
@@ -935,7 +984,7 @@ func TestService_SaveRack_CreateNewRack(t *testing.T) {
 	// Arrange
 	mockStore.EXPECT().CreateCollection(gomock.Any(), testOrgID, pb.CollectionType_COLLECTION_TYPE_RACK, "Rack A", "").
 		Return(&pb.DeviceCollection{Id: 10, Label: "Rack A", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil)
-	mockStore.EXPECT().CreateRackExtension(gomock.Any(), int64(10), "Building A", int32(4), int32(8), int32(pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT), int32(pb.RackCoolingType_RACK_COOLING_TYPE_AIR), testOrgID).
+	mockStore.EXPECT().CreateRackExtension(gomock.Any(), gomock.Any()).
 		Return(nil)
 	mockStore.EXPECT().RemoveAllDevicesFromCollection(gomock.Any(), testOrgID, int64(10)).Return(int64(0), nil)
 	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, int64(10), deviceIDs).Return(int64(2), nil)
@@ -981,8 +1030,11 @@ func TestService_SaveRack_UpdateExistingRack(t *testing.T) {
 	// Arrange
 	mockStore.EXPECT().CollectionBelongsToOrg(gomock.Any(), collectionID, testOrgID).Return(true, nil)
 	mockStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, collectionID).Return(pb.CollectionType_COLLECTION_TYPE_RACK, nil)
+	mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), collectionID, testOrgID).
+		Return(interfaces.RackPlacement{}, nil)
 	mockStore.EXPECT().UpdateCollection(gomock.Any(), testOrgID, collectionID, gomock.Any(), (*string)(nil)).Return(nil)
 	mockStore.EXPECT().UpdateRackInfo(gomock.Any(), collectionID, "Building A", int32(4), int32(8), int32(pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT), int32(pb.RackCoolingType_RACK_COOLING_TYPE_AIR), testOrgID).Return(nil)
+	mockStore.EXPECT().UpdateRackPlacement(gomock.Any(), collectionID, testOrgID, gomock.Nil(), gomock.Nil(), "Building A").Return(nil)
 	mockStore.EXPECT().RemoveAllDevicesFromCollection(gomock.Any(), testOrgID, collectionID).Return(int64(2), nil)
 	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, collectionID, deviceIDs).Return(int64(1), nil)
 	mockStore.EXPECT().GetRackSlots(gomock.Any(), collectionID, testOrgID).Return([]*pb.RackSlot{
@@ -1029,12 +1081,14 @@ func TestService_SaveRack_ValidationErrors(t *testing.T) {
 			want: "rack_info is required",
 		},
 		{
-			name: "missing zone",
+			// Zone is now only required when the rack belongs to a building;
+			// direct-under-site racks (building_id nil) may have empty zone.
+			name: "missing zone with building set",
 			req: &pb.SaveRackRequest{
 				Label:    "Rack",
-				RackInfo: &pb.RackInfo{Rows: 4, Columns: 8, OrderIndex: pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT, CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR},
+				RackInfo: &pb.RackInfo{Rows: 4, Columns: 8, OrderIndex: pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT, CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR, BuildingId: int64Ptr(7)},
 			},
-			want: "zone is required",
+			want: "zone is required when the rack belongs to a building",
 		},
 		{
 			name: "rows too large",
@@ -1201,7 +1255,7 @@ func TestService_SaveRack_StoreErrorRollsBack(t *testing.T) {
 	// Arrange - create succeeds but AddDevices fails
 	mockStore.EXPECT().CreateCollection(gomock.Any(), testOrgID, pb.CollectionType_COLLECTION_TYPE_RACK, "Rack", "").
 		Return(&pb.DeviceCollection{Id: 10, Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil)
-	mockStore.EXPECT().CreateRackExtension(gomock.Any(), int64(10), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), testOrgID).
+	mockStore.EXPECT().CreateRackExtension(gomock.Any(), gomock.Any()).
 		Return(nil)
 	mockStore.EXPECT().RemoveAllDevicesFromCollection(gomock.Any(), testOrgID, int64(10)).Return(int64(0), nil)
 	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, int64(10), deviceIDs).
@@ -1237,7 +1291,7 @@ func TestService_SaveRack_CreateWithNoDevices(t *testing.T) {
 
 	mockStore.EXPECT().CreateCollection(gomock.Any(), testOrgID, pb.CollectionType_COLLECTION_TYPE_RACK, "Empty Rack", "").
 		Return(&pb.DeviceCollection{Id: 20, Label: "Empty Rack", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil)
-	mockStore.EXPECT().CreateRackExtension(gomock.Any(), int64(20), "Building A", int32(4), int32(8), int32(pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT), int32(pb.RackCoolingType_RACK_COOLING_TYPE_AIR), testOrgID).
+	mockStore.EXPECT().CreateRackExtension(gomock.Any(), gomock.Any()).
 		Return(nil)
 	mockStore.EXPECT().RemoveAllDevicesFromCollection(gomock.Any(), testOrgID, int64(20)).Return(int64(0), nil)
 	// AddDevicesToCollection should NOT be called since deviceIdentifiers is empty
@@ -1274,8 +1328,11 @@ func TestService_SaveRack_UpdateRemoveAllMiners(t *testing.T) {
 
 	mockStore.EXPECT().CollectionBelongsToOrg(gomock.Any(), collectionID, testOrgID).Return(true, nil)
 	mockStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, collectionID).Return(pb.CollectionType_COLLECTION_TYPE_RACK, nil)
+	mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), collectionID, testOrgID).
+		Return(interfaces.RackPlacement{}, nil)
 	mockStore.EXPECT().UpdateCollection(gomock.Any(), testOrgID, collectionID, gomock.Any(), (*string)(nil)).Return(nil)
 	mockStore.EXPECT().UpdateRackInfo(gomock.Any(), collectionID, "Building A", int32(4), int32(8), int32(pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT), int32(pb.RackCoolingType_RACK_COOLING_TYPE_AIR), testOrgID).Return(nil)
+	mockStore.EXPECT().UpdateRackPlacement(gomock.Any(), collectionID, testOrgID, gomock.Nil(), gomock.Nil(), "Building A").Return(nil)
 	mockStore.EXPECT().RemoveAllDevicesFromCollection(gomock.Any(), testOrgID, collectionID).Return(int64(5), nil)
 	mockStore.EXPECT().GetRackSlots(gomock.Any(), collectionID, testOrgID).Return(nil, nil)
 	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, collectionID).
@@ -1318,7 +1375,7 @@ func newTestServiceWithActivityAssertions(t *testing.T) (*Service, *mocks.MockCo
 	}
 
 	activitySvc := activity.NewService(mockActivityStore)
-	svc := NewService(mockStore, &mockDeviceQueryer{}, mockTransactor, noopResolver, nil, activitySvc)
+	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, mockTransactor, noopResolver, nil, activitySvc)
 	return svc, mockStore, mockActivityStore
 }
 
@@ -1352,8 +1409,7 @@ func TestActivityLogging_CreateRackLogsRackScopeType(t *testing.T) {
 
 	mockStore.EXPECT().CreateCollection(gomock.Any(), testOrgID, pb.CollectionType_COLLECTION_TYPE_RACK, "Rack A", "").
 		Return(&pb.DeviceCollection{Id: 10, Label: "Rack A", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil)
-	mockStore.EXPECT().CreateRackExtension(gomock.Any(), int64(10), "Building A", int32(4), int32(8),
-		int32(pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT), int32(pb.RackCoolingType_RACK_COOLING_TYPE_AIR), testOrgID).
+	mockStore.EXPECT().CreateRackExtension(gomock.Any(), gomock.Any()).
 		Return(nil)
 
 	mockActivityStore.EXPECT().Insert(gomock.Any(), gomock.Any()).
@@ -1399,4 +1455,275 @@ func TestActivityLogging_DeleteCollectionLogsEvent(t *testing.T) {
 
 	_, err := svc.DeleteCollection(ctx, &pb.DeleteCollectionRequest{CollectionId: testCollectionID})
 	require.NoError(t, err)
+}
+
+// TestService_SaveRack_MoveBetweenBuildingsCascadesSite asserts the rack
+// edit/move cascade: when a rack moves to a building whose site differs
+// from the current placement, the rack's site_id is rewritten and every
+// descendant device.site_id is cascaded to match (plan §"Rack edit / move"
+// + issue #220).
+func TestService_SaveRack_MoveBetweenBuildingsCascadesSite(t *testing.T) {
+	deviceIDs := []string{"device-1"}
+	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
+		return deviceIDs, nil
+	}
+	svc, mockStore, mockSiteStore, captured := newTestServiceWithSitesRecordingActivity(t, resolver)
+	ctx := testCtx(t)
+
+	collectionID := int64(42)
+	priorSite := int64Ptr(7)
+	priorBuilding := int64Ptr(70)
+	newBuilding := int64(80)
+	newSiteID := int64(8)
+
+	// Canonical lock order: collection ownership → type → resolve placement
+	// (site → building) → rack lock. SaveRack now follows
+	// site → building → rack → devices to match SiteService writers.
+	mockStore.EXPECT().CollectionBelongsToOrg(gomock.Any(), collectionID, testOrgID).Return(true, nil)
+	mockStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, collectionID).Return(pb.CollectionType_COLLECTION_TYPE_RACK, nil)
+	mockStore.EXPECT().GetBuildingSite(gomock.Any(), testOrgID, newBuilding).Return(&newSiteID, nil)
+	mockSiteStore.EXPECT().LockSiteForWrite(gomock.Any(), testOrgID, newSiteID).Return(nil)
+	mockSiteStore.EXPECT().LockBuildingForWrite(gomock.Any(), testOrgID, newBuilding).Return(nil)
+	mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), collectionID, testOrgID).
+		Return(interfaces.RackPlacement{SiteID: priorSite, BuildingID: priorBuilding, Zone: "Old Zone"}, nil)
+
+	mockStore.EXPECT().UpdateCollection(gomock.Any(), testOrgID, collectionID, gomock.Any(), (*string)(nil)).Return(nil)
+	// Zone is cleared by the cascade because the rack crossed a building
+	// boundary; both UpdateRackInfo and UpdateRackPlacement write "".
+	mockStore.EXPECT().UpdateRackInfo(gomock.Any(), collectionID, "", int32(4), int32(8), int32(pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT), int32(pb.RackCoolingType_RACK_COOLING_TYPE_AIR), testOrgID).Return(nil)
+	mockStore.EXPECT().UpdateRackPlacement(gomock.Any(), collectionID, testOrgID, gomock.Eq(&newSiteID), gomock.Eq(&newBuilding), "").Return(nil)
+	// Site changed (7 → 8): capture per-device priors then cascade.
+	mockStore.EXPECT().GetDeviceSiteIDsByMembership(gomock.Any(), collectionID, testOrgID).
+		Return(map[string]*int64{"device-1": priorSite}, nil)
+	mockStore.EXPECT().CascadeRackDeviceSites(gomock.Any(), collectionID, testOrgID, gomock.Eq(&newSiteID)).Return(int64(1), nil)
+
+	mockStore.EXPECT().RemoveAllDevicesFromCollection(gomock.Any(), testOrgID, collectionID).Return(int64(1), nil)
+	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, collectionID, deviceIDs).Return(int64(1), nil)
+	// Post-add cascade ensures freshly-added members align with the rack's site.
+	mockStore.EXPECT().CascadeRackDeviceSites(gomock.Any(), collectionID, testOrgID, gomock.Eq(&newSiteID)).Return(int64(0), nil)
+	mockStore.EXPECT().GetRackSlots(gomock.Any(), collectionID, testOrgID).Return(nil, nil)
+	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, collectionID).
+		Return(&pb.DeviceCollection{Id: collectionID, Label: "Rack A", Type: pb.CollectionType_COLLECTION_TYPE_RACK, DeviceCount: 1}, nil)
+
+	rackInfo := &pb.RackInfo{
+		Rows:        4,
+		Columns:     8,
+		Zone:        "Old Zone",
+		OrderIndex:  pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT,
+		CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR,
+		BuildingId:  &newBuilding,
+	}
+	resp, err := svc.SaveRack(ctx, &pb.SaveRackRequest{
+		CollectionId: &collectionID,
+		Label:        "Rack A",
+		RackInfo:     rackInfo,
+		DeviceSelector: &commonpb.DeviceSelector{
+			SelectionType: &commonpb.DeviceSelector_DeviceList{
+				DeviceList: &commonpb.DeviceIdentifierList{DeviceIdentifiers: deviceIDs},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.NotNil(t, resp.Collection.GetRackInfo())
+	assert.Equal(t, "", resp.Collection.GetRackInfo().Zone, "zone should be cleared when crossing buildings")
+	require.NotNil(t, resp.Collection.GetRackInfo().SiteId)
+	assert.Equal(t, newSiteID, *resp.Collection.GetRackInfo().SiteId)
+	require.NotNil(t, resp.Collection.GetRackInfo().BuildingId)
+	assert.Equal(t, newBuilding, *resp.Collection.GetRackInfo().BuildingId)
+
+	// Assert cascade metadata on the activity-log event so the audit
+	// trail reflects the implicit device-site reassignment.
+	require.Len(t, *captured, 1, "expected exactly one save_rack activity event")
+	event := (*captured)[0]
+	assert.Equal(t, "save_rack", event.Type)
+	require.NotNil(t, event.SiteID, "activity event must carry final site_id")
+	assert.Equal(t, newSiteID, *event.SiteID)
+	require.NotNil(t, event.Metadata, "cascade events must populate metadata")
+	assert.Equal(t, true, event.Metadata["site_cascade"])
+	assert.Equal(t, int64(1), event.Metadata["site_reassigned_count"])
+	changes, ok := event.Metadata["device_site_changes"].([]map[string]any)
+	require.True(t, ok, "device_site_changes must be present")
+	require.Len(t, changes, 1)
+	assert.Equal(t, "device-1", changes[0]["device_identifier"])
+	assert.Equal(t, int64(7), changes[0]["prior_site_id"])
+	assert.Equal(t, newSiteID, changes[0]["target_site_id"])
+
+	// SiteReassignedCount mirrors the cascade row count on the response.
+	assert.Equal(t, int32(1), resp.SiteReassignedCount)
+}
+
+// TestService_SaveRack_MoveToDirectUnderSite covers the variant where a
+// rack is moved out of any building and attached directly to a site.
+// Zone is still cleared (building boundary crossed) and the site lock
+// is taken without a building lock.
+func TestService_SaveRack_MoveToDirectUnderSite(t *testing.T) {
+	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
+		return nil, nil
+	}
+	svc, mockStore, mockSiteStore := newTestServiceWithSites(t, resolver)
+	ctx := testCtx(t)
+
+	collectionID := int64(42)
+	priorSite := int64Ptr(7)
+	priorBuilding := int64Ptr(70)
+	newSite := int64(7) // Same site, just direct attach (no building).
+
+	mockStore.EXPECT().CollectionBelongsToOrg(gomock.Any(), collectionID, testOrgID).Return(true, nil)
+	mockStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, collectionID).Return(pb.CollectionType_COLLECTION_TYPE_RACK, nil)
+	mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), collectionID, testOrgID).
+		Return(interfaces.RackPlacement{SiteID: priorSite, BuildingID: priorBuilding, Zone: "Some Zone"}, nil)
+	mockSiteStore.EXPECT().LockSiteForWrite(gomock.Any(), testOrgID, newSite).Return(nil)
+
+	mockStore.EXPECT().UpdateCollection(gomock.Any(), testOrgID, collectionID, gomock.Any(), (*string)(nil)).Return(nil)
+	mockStore.EXPECT().UpdateRackInfo(gomock.Any(), collectionID, "", int32(4), int32(8), int32(pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT), int32(pb.RackCoolingType_RACK_COOLING_TYPE_AIR), testOrgID).Return(nil)
+	mockStore.EXPECT().UpdateRackPlacement(gomock.Any(), collectionID, testOrgID, gomock.Eq(&newSite), gomock.Nil(), "").Return(nil)
+	// Site identical (7 -> 7) so no cascade.
+	mockStore.EXPECT().RemoveAllDevicesFromCollection(gomock.Any(), testOrgID, collectionID).Return(int64(0), nil)
+	mockStore.EXPECT().GetRackSlots(gomock.Any(), collectionID, testOrgID).Return(nil, nil)
+	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, collectionID).
+		Return(&pb.DeviceCollection{Id: collectionID, Label: "Rack A", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil)
+
+	rackInfo := &pb.RackInfo{
+		Rows:        4,
+		Columns:     8,
+		Zone:        "Some Zone",
+		OrderIndex:  pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT,
+		CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR,
+		SiteId:      &newSite,
+	}
+	resp, err := svc.SaveRack(ctx, &pb.SaveRackRequest{
+		CollectionId: &collectionID,
+		Label:        "Rack A",
+		RackInfo:     rackInfo,
+		DeviceSelector: &commonpb.DeviceSelector{
+			SelectionType: &commonpb.DeviceSelector_DeviceList{
+				DeviceList: &commonpb.DeviceIdentifierList{DeviceIdentifiers: []string{}},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, resp.Collection.GetRackInfo())
+	assert.Equal(t, "", resp.Collection.GetRackInfo().Zone)
+	require.NotNil(t, resp.Collection.GetRackInfo().SiteId)
+	assert.Equal(t, newSite, *resp.Collection.GetRackInfo().SiteId)
+	assert.Nil(t, resp.Collection.GetRackInfo().BuildingId)
+}
+
+// TestService_AddDevicesToCollection_CascadesRackSite covers the
+// AddDevicesToDeviceSet cascade flow (issue #220): when devices are
+// added to a rack that has a site stamped, every paired device whose
+// current site_id differs is rewritten to the rack's site_id in the
+// same transaction. Group targets remain org-scoped.
+func TestService_AddDevicesToCollection_CascadesRackSite(t *testing.T) {
+	deviceIDs := []string{"device-1", "device-2"}
+	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
+		return deviceIDs, nil
+	}
+	svc, mockStore, _, captured := newTestServiceWithSitesRecordingActivity(t, resolver)
+	ctx := testCtx(t)
+
+	collectionID := int64(42)
+	rackSite := int64(7)
+	priorSite := int64(11)
+
+	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, collectionID).
+		Return(&pb.DeviceCollection{Id: collectionID, Label: "Rack A", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil)
+	mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), collectionID, testOrgID).
+		Return(interfaces.RackPlacement{SiteID: &rackSite}, nil)
+	mockStore.EXPECT().GetAddedDeviceSiteConflicts(gomock.Any(), testOrgID, collectionID, deviceIDs).
+		Return([]interfaces.AddedDeviceSiteConflict{
+			{DeviceIdentifier: "device-1", PriorSiteID: &priorSite, TargetSiteID: rackSite},
+		}, nil)
+	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, collectionID, deviceIDs).Return(int64(2), nil)
+	mockStore.EXPECT().CascadeAddedDeviceSites(gomock.Any(), testOrgID, collectionID, deviceIDs).Return(int64(1), nil)
+
+	resp, err := svc.AddDevicesToCollection(ctx, &pb.AddDevicesToCollectionRequest{
+		CollectionId: collectionID,
+		DeviceSelector: &commonpb.DeviceSelector{
+			SelectionType: &commonpb.DeviceSelector_DeviceList{
+				DeviceList: &commonpb.DeviceIdentifierList{DeviceIdentifiers: deviceIDs},
+			},
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int32(2), resp.AddedCount)
+	assert.Equal(t, int32(1), resp.SiteReassignedCount, "response carries the cascade row count")
+
+	// Assert cascade metadata on the activity event.
+	require.Len(t, *captured, 1)
+	event := (*captured)[0]
+	assert.Equal(t, "add_devices", event.Type)
+	require.NotNil(t, event.SiteID)
+	assert.Equal(t, rackSite, *event.SiteID)
+	require.NotNil(t, event.Metadata)
+	assert.Equal(t, true, event.Metadata["site_cascade"])
+	assert.Equal(t, int64(1), event.Metadata["site_reassigned_count"])
+	priors, ok := event.Metadata["device_site_changes"].([]map[string]any)
+	require.True(t, ok)
+	require.Len(t, priors, 1)
+	assert.Equal(t, "device-1", priors[0]["device_identifier"])
+	assert.Equal(t, priorSite, priors[0]["prior_site_id"])
+	assert.Equal(t, rackSite, priors[0]["target_site_id"])
+}
+
+// TestService_AddDevicesToCollection_GroupTargetSkipsCascade asserts
+// the cascade exemption for groups: plan §"Cross-collection consistency
+// rule" — groups are org-scoped and may span sites by design.
+func TestService_AddDevicesToCollection_GroupTargetSkipsCascade(t *testing.T) {
+	deviceIDs := []string{"device-1"}
+	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
+		return deviceIDs, nil
+	}
+	svc, mockStore, _ := newTestServiceWithSites(t, resolver)
+	ctx := testCtx(t)
+
+	collectionID := int64(43)
+	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, collectionID).
+		Return(&pb.DeviceCollection{Id: collectionID, Label: "G1", Type: pb.CollectionType_COLLECTION_TYPE_GROUP}, nil)
+	// No LockRackPlacementForWrite, no LockSiteForWrite, no cascade
+	// expectations — groups skip the rack-site invariant entirely.
+	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, collectionID, deviceIDs).Return(int64(1), nil)
+
+	resp, err := svc.AddDevicesToCollection(ctx, &pb.AddDevicesToCollectionRequest{
+		CollectionId: collectionID,
+		DeviceSelector: &commonpb.DeviceSelector{
+			SelectionType: &commonpb.DeviceSelector_DeviceList{
+				DeviceList: &commonpb.DeviceIdentifierList{DeviceIdentifiers: deviceIDs},
+			},
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), resp.AddedCount)
+}
+
+// TestService_AddDevicesToCollection_RackWithoutSiteSkipsCascade asserts
+// that adding devices to a rack whose site_id is NULL still inserts the
+// membership but does not run the cascade — there is no site to enforce.
+func TestService_AddDevicesToCollection_RackWithoutSiteSkipsCascade(t *testing.T) {
+	deviceIDs := []string{"device-1"}
+	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
+		return deviceIDs, nil
+	}
+	svc, mockStore, _ := newTestServiceWithSites(t, resolver)
+	ctx := testCtx(t)
+
+	collectionID := int64(44)
+	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, collectionID).
+		Return(&pb.DeviceCollection{Id: collectionID, Label: "Site-less Rack", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil)
+	mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), collectionID, testOrgID).
+		Return(interfaces.RackPlacement{}, nil) // no site stamped
+	// No GetAddedDeviceSiteConflicts, no CascadeAddedDeviceSites.
+	mockStore.EXPECT().AddDevicesToCollection(gomock.Any(), testOrgID, collectionID, deviceIDs).Return(int64(1), nil)
+
+	resp, err := svc.AddDevicesToCollection(ctx, &pb.AddDevicesToCollectionRequest{
+		CollectionId: collectionID,
+		DeviceSelector: &commonpb.DeviceSelector{
+			SelectionType: &commonpb.DeviceSelector_DeviceList{
+				DeviceList: &commonpb.DeviceIdentifierList{DeviceIdentifiers: deviceIDs},
+			},
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), resp.AddedCount)
 }
