@@ -3,7 +3,10 @@
 // PromQL rules and Grafana dashboards depend on.
 package metrics
 
-import "slices"
+import (
+	"slices"
+	"strconv"
+)
 
 // Namespace is the prefix every ProtoFleet metric must carry. The PromQL
 // subset compiler rejects vector selectors whose metric name does not start
@@ -156,4 +159,11 @@ func IsKnownResult(v string) bool {
 // sensor_kind label.
 func IsKnownSensorKind(v string) bool {
 	return slices.Contains(AllSensorKinds, v)
+}
+
+func OrgIDToLabel(orgID int64) string {
+	if orgID == 0 {
+		return ""
+	}
+	return strconv.FormatInt(orgID, 10)
 }

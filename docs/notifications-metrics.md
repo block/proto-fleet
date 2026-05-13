@@ -14,7 +14,7 @@ All ProtoFleet metric names start with the `fleet_` prefix.
 
 | Metric | Type | Unit | Labels | Description |
 | --- | --- | --- | --- | --- |
-| `fleet_device_online` | gauge (0/1) | `1` | `organization_id`, `device_id`, `device_group?`, `driver?` | 1 when the device is reachable and reporting telemetry, 0 when the telemetry pipeline has marked it unreachable. The series stops being emitted when the device is removed from the fleet — default rules guard with `absent_over_time(fleet_device_online[10m])`. |
+| `fleet_device_online` | gauge (0/1) | `1` | `organization_id`, `device_id`, `device_group?`, `driver?` | 1 when the device is reachable and reporting telemetry, 0 when the telemetry pipeline has marked it unreachable. The series stops being emitted when the device is removed from the fleet (see the staleness contract below for the caveats this implies for offline alerts). |
 | `fleet_device_hashrate_terahash` | gauge | `Th/s` | `organization_id`, `device_id`, `device_group?`, `driver?` | Observed hashrate of the device. |
 | `fleet_device_hashrate_expected_terahash` | gauge | `Th/s` | `organization_id`, `device_id`, `device_group?`, `driver?` | Expected (nameplate) hashrate of the device. The Hashrate template compares observed against expected. |
 | `fleet_device_temperature_max_celsius` | gauge | `Cel` | `organization_id`, `device_id`, `device_group?`, `driver?`, `sensor_kind` | Maximum temperature observed across the device's sensors of the given kind. |
@@ -55,8 +55,11 @@ The contract is:
    (`MinerStatusOffline`, connection error), the subscriber writes
    `fleet_device_online=0` with the same labels.
 3. When a device is removed from the fleet, the subscriber stops emitting
-   the series entirely. Default rules include
-   `absent_over_time(fleet_device_online[10m])` so a series that vanishes
-   without first hitting zero still produces an Offline alert.
+   the series entirely.
+
+The default `DeviceOffline` alert fires on `fleet_device_online == 0`. It
+does **not** alert on a single device's series vanishing while the rest of
+the fleet keeps reporting: `absent_over_time` operates on the whole
+selector and can't recover a per-device label in that case.
 
 The only path that emits this metric is `Provider.EmitDeviceOnline`.

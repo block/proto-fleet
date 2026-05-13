@@ -406,6 +406,8 @@ func TestTelemetryService_DataStoreInteraction(t *testing.T) {
 				mockMinerGetter.EXPECT().
 					GetMinerFromDeviceIdentifier(gomock.Any(), scenario.device.ID).
 					Return(mockMiner, nil)
+				mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+				mockMiner.EXPECT().GetDriverName().Return("").AnyTimes()
 
 				// Setup GetDeviceMetrics expectation
 				if scenario.deviceMetrics != nil {
@@ -441,7 +443,7 @@ func TestTelemetryService_DataStoreInteraction(t *testing.T) {
 			}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
 
 			for _, scenario := range test.devicesScenario {
-				_, _, err := service.GetTelemetryFromDevice(t.Context(), scenario.device)
+				_, _, _, err := service.GetTelemetryFromDevice(t.Context(), scenario.device)
 				// Only discovery errors and scheduler errors bubble up to caller
 				// StoreDeviceMetrics errors are logged but don't fail the operation
 				if scenario.hasDiscoveryError || scenario.hasSchedulerError {
@@ -1832,9 +1834,10 @@ func TestProcessDevice_NonBlockingSend_DropsUpdateWhenChannelFull(t *testing.T) 
 	mockMinerGetter.EXPECT().
 		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(mockMiner, nil).
-		Times(3) // Telemetry, metricsObserver.onPollResult (orgForDevice), and error polling
+		Times(2) // Telemetry and error polling.
 
 	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetDriverName().Return("").AnyTimes()
 
 	mockMiner.EXPECT().
 		GetDeviceMetrics(gomock.Any()).
@@ -1913,14 +1916,15 @@ func TestProcessDevice_HealthHealthyInactive_CallsGetDeviceStatus(t *testing.T) 
 	deviceID := models.DeviceIdentifier("inactive-device")
 	device := models.Device{ID: deviceID, LastUpdatedAt: time.Now().Add(-1 * time.Minute)}
 
-	// Telemetry fetch (fetchTelemetryFromMiner), metricsObserver.onPollResult (orgForDevice),
+	// Telemetry fetch (fetchTelemetryFromMiner),
 	// status fetch (fetchStatusFromMiner), and error polling each call GetMinerFromDeviceIdentifier.
 	mockMinerGetter.EXPECT().
 		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(mockMiner, nil).
-		Times(4)
+		Times(3)
 
 	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetDriverName().Return("").AnyTimes()
 
 	mockMiner.EXPECT().
 		GetDeviceMetrics(gomock.Any()).
@@ -1996,15 +2000,16 @@ func TestProcessDevice_HealthHealthyActive_SkipsGetDeviceStatus(t *testing.T) {
 	deviceID := models.DeviceIdentifier("active-device")
 	device := models.Device{ID: deviceID, LastUpdatedAt: time.Now().Add(-1 * time.Minute)}
 
-	// Telemetry fetch, metricsObserver.onPollResult (orgForDevice), and error polling
-	// each call GetMinerFromDeviceIdentifier — three calls total.
+	// Telemetry fetch and error polling
+	// each call GetMinerFromDeviceIdentifier — two calls total.
 	// GetDeviceStatus must NOT be called when hasMetricsStatus == true.
 	mockMinerGetter.EXPECT().
 		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(mockMiner, nil).
-		Times(3)
+		Times(2)
 
 	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetDriverName().Return("").AnyTimes()
 
 	mockMiner.EXPECT().
 		GetDeviceMetrics(gomock.Any()).
@@ -2081,14 +2086,15 @@ func TestProcessDevice_MetricsFail_CallsGetDeviceStatus(t *testing.T) {
 	deviceID := models.DeviceIdentifier("metrics-fail-device")
 	device := models.Device{ID: deviceID, LastUpdatedAt: time.Now().Add(-1 * time.Minute)}
 
-	// Telemetry fetch, metricsObserver.onPollResult (orgForDevice), status fetch, and
-	// error polling each call GetMinerFromDeviceIdentifier.
+	// Telemetry fetch, status fetch, and error polling each
+	// call GetMinerFromDeviceIdentifier — three calls total.
 	mockMinerGetter.EXPECT().
 		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(mockMiner, nil).
-		Times(4)
+		Times(3)
 
 	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetDriverName().Return("").AnyTimes()
 
 	mockMiner.EXPECT().
 		GetDeviceMetrics(gomock.Any()).

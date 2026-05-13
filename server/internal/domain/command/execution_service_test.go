@@ -247,6 +247,8 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 			GetMiner(gomock.Any(), int64(42)).
 			Return(mockMiner, nil)
 
+		mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+
 		mockMiner.EXPECT().
 			Reboot(gomock.Any()).
 			Return(fleeterror.NewUnimplementedError("reboot not supported"))
@@ -258,7 +260,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 		}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
 
 		// Act
-		err := svc.executeCommandOnDevice(t.Context(), commandtype.Reboot, message)
+		_, err := svc.executeCommandOnDevice(t.Context(), commandtype.Reboot, message)
 
 		// Assert
 		require.Error(t, err)
@@ -284,6 +286,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 		mockMinerGetter.EXPECT().
 			GetMiner(gomock.Any(), int64(43)).
 			Return(mockMiner, nil)
+		mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
 
 		mockMiner.EXPECT().
 			Reboot(gomock.Any()).
@@ -296,7 +299,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 		}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
 
 		// Act
-		err := svc.executeCommandOnDevice(t.Context(), commandtype.Reboot, message)
+		_, err := svc.executeCommandOnDevice(t.Context(), commandtype.Reboot, message)
 
 		// Assert
 		require.Error(t, err)
@@ -322,6 +325,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 		mockMinerGetter.EXPECT().
 			GetMiner(gomock.Any(), int64(44)).
 			Return(mockMiner, nil)
+		mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
 
 		mockMiner.EXPECT().
 			Reboot(gomock.Any()).
@@ -334,7 +338,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 		}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
 
 		// Act
-		err := svc.executeCommandOnDevice(t.Context(), commandtype.Reboot, message)
+		_, err := svc.executeCommandOnDevice(t.Context(), commandtype.Reboot, message)
 
 		// Assert
 		assert.NoError(t, err)
@@ -366,7 +370,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 		}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
 
 		// Act
-		err := svc.executeCommandOnDevice(t.Context(), commandtype.Reboot, message)
+		_, err := svc.executeCommandOnDevice(t.Context(), commandtype.Reboot, message)
 
 		// Assert
 		require.Error(t, err)
@@ -574,7 +578,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_UsesStoredWorkerName(t *testin
 		WorkerExecutionTimeout: 5 * time.Second,
 	}, nil, nil, nil, nil, mockMinerGetter, mockDeviceStore, nil, nil)
 
-	err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
+	_, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
 	require.NoError(t, err)
 }
 
@@ -646,7 +650,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_UsesStoredWorkerNameAfterLooku
 		WorkerExecutionTimeout: 5 * time.Second,
 	}, nil, nil, nil, nil, mockMinerGetter, mockDeviceStore, nil, nil)
 
-	err = svc.executeCommandOnDevice(commandCtx, commandtype.UpdateMiningPools, message)
+	_, err = svc.executeCommandOnDevice(commandCtx, commandtype.UpdateMiningPools, message)
 	require.NoError(t, err)
 }
 
@@ -684,6 +688,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_PrefersCurrentPrimaryPoolWorke
 	mockMinerGetter.EXPECT().
 		GetMiner(gomock.Any(), int64(47)).
 		Return(mockMiner, nil)
+	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
 
 	mockMiner.EXPECT().
 		GetMiningPools(gomock.Any()).
@@ -715,7 +720,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_PrefersCurrentPrimaryPoolWorke
 		WorkerExecutionTimeout: 5 * time.Second,
 	}, nil, nil, nil, nil, mockMinerGetter, nil, nil, nil)
 
-	err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
+	_, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
 	require.NoError(t, err)
 }
 
@@ -777,7 +782,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_FallsBackToStoredMacAddress(t 
 		WorkerExecutionTimeout: 5 * time.Second,
 	}, nil, nil, nil, nil, mockMinerGetter, mockDeviceStore, nil, nil)
 
-	err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
+	_, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
 	require.NoError(t, err)
 }
 
@@ -844,7 +849,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_LeavesUsernameUnchangedWhenWor
 		WorkerExecutionTimeout: 5 * time.Second,
 	}, nil, nil, nil, nil, mockMinerGetter, mockDeviceStore, nil, nil)
 
-	err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
+	_, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
 	require.NoError(t, err)
 }
 
@@ -875,6 +880,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_LeavesRawPoolUsernamesUnchange
 	mockMinerGetter.EXPECT().
 		GetMiner(gomock.Any(), int64(43)).
 		Return(mockMiner, nil)
+	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
 
 	mockMiner.EXPECT().
 		UpdateMiningPools(gomock.Any(), gomock.AssignableToTypeOf(dto.UpdateMiningPoolsPayload{})).
@@ -889,7 +895,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_LeavesRawPoolUsernamesUnchange
 		WorkerExecutionTimeout: 5 * time.Second,
 	}, nil, nil, nil, nil, mockMinerGetter, nil, nil, nil)
 
-	err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
+	_, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
 	require.NoError(t, err)
 }
 
@@ -922,6 +928,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_PreservesLegacyDottedFleetUser
 	mockMinerGetter.EXPECT().
 		GetMiner(gomock.Any(), int64(44)).
 		Return(mockMiner, nil)
+	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
 
 	mockMiner.EXPECT().
 		UpdateMiningPools(gomock.Any(), gomock.AssignableToTypeOf(dto.UpdateMiningPoolsPayload{})).
@@ -936,7 +943,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_PreservesLegacyDottedFleetUser
 		WorkerExecutionTimeout: 5 * time.Second,
 	}, nil, nil, nil, nil, mockMinerGetter, mockDeviceStore, nil, nil)
 
-	err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
+	_, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
 	require.NoError(t, err)
 }
 
@@ -996,7 +1003,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReappliesCurrentPoolsWithStore
 		WorkerExecutionTimeout: 5 * time.Second,
 	}, nil, nil, nil, nil, mockMinerGetter, mockDeviceStore, nil, nil)
 
-	err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
+	_, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
 	require.NoError(t, err)
 }
 
@@ -1025,6 +1032,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyUsesDesiredWorkerNameFr
 	mockMinerGetter.EXPECT().
 		GetMiner(gomock.Any(), int64(149)).
 		Return(mockMiner, nil)
+	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
 
 	mockMiner.EXPECT().
 		GetMiningPools(gomock.Any()).
@@ -1049,7 +1057,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyUsesDesiredWorkerNameFr
 		WorkerExecutionTimeout: 5 * time.Second,
 	}, nil, nil, nil, nil, mockMinerGetter, mockDeviceStore, nil, nil)
 
-	err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
+	_, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
 	require.NoError(t, err)
 }
 
@@ -1104,7 +1112,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyAppendsStoredWorkerName
 		WorkerExecutionTimeout: 5 * time.Second,
 	}, nil, nil, nil, nil, mockMinerGetter, mockDeviceStore, nil, nil)
 
-	err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
+	_, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
 	require.NoError(t, err)
 }
 
@@ -1158,7 +1166,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyReplacesEntireDottedWor
 		WorkerExecutionTimeout: 5 * time.Second,
 	}, nil, nil, nil, nil, mockMinerGetter, mockDeviceStore, nil, nil)
 
-	err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
+	_, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
 	require.NoError(t, err)
 }
 
@@ -1218,7 +1226,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyNormalizesAllPoolsToSto
 		WorkerExecutionTimeout: 5 * time.Second,
 	}, nil, nil, nil, nil, mockMinerGetter, mockDeviceStore, nil, nil)
 
-	err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
+	_, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
 	require.NoError(t, err)
 }
 
@@ -1247,6 +1255,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_PersistsWorkerNameWhenNoCurren
 	mockMinerGetter.EXPECT().
 		GetMiner(gomock.Any(), int64(51)).
 		Return(mockMiner, nil)
+	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
 	mockMiner.EXPECT().
 		GetMiningPools(gomock.Any()).
 		Return(nil, nil)
@@ -1261,7 +1270,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_PersistsWorkerNameWhenNoCurren
 		WorkerExecutionTimeout: 5 * time.Second,
 	}, nil, nil, nil, nil, mockMinerGetter, mockDeviceStore, nil, nil)
 
-	err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
+	_, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
 	require.NoError(t, err)
 }
 

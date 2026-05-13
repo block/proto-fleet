@@ -15,6 +15,8 @@ services:
     volumes:
       - ../deployment-files/server/monitoring/vmalert:/etc/protofleet/monitoring/vmalert:rw
       - ../deployment-files/server/monitoring/alertmanager:/etc/protofleet/monitoring/alertmanager:rw
+    networks:
+      - monitoring
 
   otel-collector:
     extends:

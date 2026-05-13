@@ -6,7 +6,6 @@ package telemetry
 import (
 	"context"
 	"log/slog"
-	"strconv"
 
 	mm "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
@@ -59,7 +58,7 @@ func (o *metricsObserver) onDeviceMetrics(ctx context.Context, orgID int64, driv
 		return
 	}
 	labels := metrics.DeviceLabels{
-		OrganizationID: orgIDToLabel(orgID),
+		OrganizationID: metrics.OrgIDToLabel(orgID),
 		DeviceID:       dm.DeviceIdentifier,
 		Driver:         driver,
 	}
@@ -91,7 +90,7 @@ func (o *metricsObserver) onDeviceStatus(ctx context.Context, orgID int64, drive
 		return
 	}
 	labels := metrics.DeviceLabels{
-		OrganizationID: orgIDToLabel(orgID),
+		OrganizationID: metrics.OrgIDToLabel(orgID),
 		DeviceID:       string(deviceID),
 		Driver:         driver,
 	}
@@ -113,18 +112,10 @@ func (o *metricsObserver) onPollResult(ctx context.Context, orgID int64, deviceI
 		result = metrics.ResultFailure
 	}
 	o.emitter.EmitTelemetryPoll(ctx, metrics.TelemetryPollLabels{
-		OrganizationID: orgIDToLabel(orgID),
+		OrganizationID: metrics.OrgIDToLabel(orgID),
 		DeviceID:       string(deviceID),
 		Result:         result,
 	})
-}
-
-// orgId to string, omit invalid ids.
-func orgIDToLabel(orgID int64) string {
-	if orgID == 0 {
-		return ""
-	}
-	return strconv.FormatInt(orgID, 10)
 }
 
 // isOnlineStatus reports whether a MinerStatus should map to fleet_device_online=1.

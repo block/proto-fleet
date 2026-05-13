@@ -269,9 +269,9 @@ func TestObserverHandlesAllKnownDriversInFixture(t *testing.T) {
 
 // asserts that orgIDToLabel returns an empty string for an unknown org rather than "0"
 func TestOrgIDLabelDropsZero(t *testing.T) {
-	require.Equal(t, "", orgIDToLabel(0))
-	require.Equal(t, "1", orgIDToLabel(1))
-	require.Equal(t, "9999", orgIDToLabel(9999))
+	require.Equal(t, "", metrics.OrgIDToLabel(0))
+	require.Equal(t, "1", metrics.OrgIDToLabel(1))
+	require.Equal(t, "9999", metrics.OrgIDToLabel(9999))
 }
 
 // protects the spelling table from drift

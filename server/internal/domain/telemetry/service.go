@@ -178,8 +178,10 @@ type deviceResult struct {
 	metricsErr error
 	// status and hasStatus are set when metricsErr == nil.
 	// hasStatus is false for HealthHealthyInactive; see healthStatusToMinerStatus.
-	status    mm.MinerStatus
-	hasStatus bool
+	status     mm.MinerStatus
+	hasStatus  bool
+	orgID      int64
+	driverName string
 }
 
 // statusResult represents a status update result from a worker.
@@ -542,10 +544,10 @@ func (s *TelemetryService) worker(ctx context.Context) {
 func (s *TelemetryService) processDevice(ctx context.Context, device models.Device) {
 	// Telemetry failure doesn't block status/error polling - we still want to track online state.
 	// When metrics succeed, status is derived from the health field — no second RPC needed.
-	metricsStatus, hasMetricsStatus, telemetryErr := s.GetTelemetryFromDevice(ctx, device)
+	metricsStatus, hasMetricsStatus, orgID, telemetryErr := s.GetTelemetryFromDevice(ctx, device)
 	s.metricsObserver.onPollResult(
 		ctx,
-		orgForDevice(ctx, s.minerManager, device.ID),
+		orgID,
 		device.ID,
 		telemetryErr == nil,
 	)
@@ -851,7 +853,11 @@ func (s *TelemetryService) fetchTelemetryFromMiner(ctx context.Context, device m
 		return nil, err
 	}
 
-	result := &deviceResult{device: device}
+	result := &deviceResult{
+		device:     device,
+		orgID:      miner.GetOrgID(),
+		driverName: miner.GetDriverName(),
+	}
 	result.metrics, result.metricsErr = miner.GetDeviceMetrics(ctx)
 	if result.metricsErr == nil {
 		result.status, result.hasStatus = healthStatusToMinerStatus(result.metrics.Health)
@@ -907,15 +913,15 @@ func (s *TelemetryService) fetchStatusFromMiner(ctx context.Context, deviceID mo
 }
 
 // GetTelemetryFromDevice fetches telemetry data from a device and stores it.
-// Returns the derived MinerStatus and whether it is unambiguous.
+// Returns the derived MinerStatus, whether it is unambiguous, the resolved org ID and any error.
 // The bool is false when the health status is ambiguous; see healthStatusToMinerStatus.
-func (s *TelemetryService) GetTelemetryFromDevice(ctx context.Context, device models.Device) (mm.MinerStatus, bool, error) {
+func (s *TelemetryService) GetTelemetryFromDevice(ctx context.Context, device models.Device) (mm.MinerStatus, bool, int64, error) {
 	fetchCtx, cancel := context.WithTimeout(ctx, s.config.MetricTimeout)
 	defer cancel()
 
 	result, err := s.fetchTelemetryFromMiner(fetchCtx, device)
 	if err != nil {
-		return mm.MinerStatusUnknown, false, fmt.Errorf("failed to get miner from device ID %s: %w", device.ID, err)
+		return mm.MinerStatusUnknown, false, 0, fmt.Errorf("failed to get miner from device ID %s: %w", device.ID, err)
 	}
 
 	if result.metricsErr == nil {
@@ -925,7 +931,7 @@ func (s *TelemetryService) GetTelemetryFromDevice(ctx context.Context, device mo
 		select {
 		case s.metricsResults <- metricsResult{metrics: result.metrics}:
 		case <-ctx.Done():
-			return mm.MinerStatusUnknown, false, fmt.Errorf("context cancelled enqueueing metrics for device %s: %w", device.ID, ctx.Err())
+			return mm.MinerStatusUnknown, false, result.orgID, fmt.Errorf("context cancelled enqueueing metrics for device %s: %w", device.ID, ctx.Err())
 		}
 
 		s.persistFirmwareVersionIfChanged(ctx, device.ID, result.metrics.FirmwareVersion)
@@ -935,9 +941,9 @@ func (s *TelemetryService) GetTelemetryFromDevice(ctx context.Context, device mo
 		ID:            device.ID,
 		LastUpdatedAt: time.Now(),
 	}); err != nil {
-		return mm.MinerStatusUnknown, false, fmt.Errorf("failed to update device last updated time for device %s: %w", device.ID, err)
+		return mm.MinerStatusUnknown, false, result.orgID, fmt.Errorf("failed to update device last updated time for device %s: %w", device.ID, err)
 	}
-	return result.status, result.hasStatus, nil
+	return result.status, result.hasStatus, result.orgID, nil
 }
 func (s *TelemetryService) metricsWriterRoutine(ctx context.Context) {
 	flushInterval := s.config.StatusFlushInterval

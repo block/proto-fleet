@@ -5,15 +5,22 @@ groups:
     interval: 30s
     rules:
       - alert: DeviceOffline
-        # Fires when EITHER the gauge has been explicitly zero for five
-        # minutes OR the series has vanished entirely for ten minutes.
-        # The two windows differ on purpose: 5m for the explicit-zero
-        # case (we know the device is down), 10m for the missing-series
-        # case (we are inferring an outage from the absence of data).
-        expr: |
-          (max_over_time(fleet_device_online[5m]) == 0)
-          or
-          (absent_over_time(fleet_device_online[10m]) == 1)
+        # Fires when the gauge has been explicitly zero for five minutes.
+        # This only covers the case where the telemetry pipeline is still
+        # emitting fleet_device_online for the device and reports it as 0.
+        #
+        # NOTE: This rule does NOT catch the case where a single device's
+        # series vanishes entirely (per-device emitter regression or the
+        # device being removed from the polling set while others keep
+        # reporting). `absent_over_time(fleet_device_online[...])`
+        # operates on the whole selector and only fires when every
+        # `fleet_device_online` series has disappeared, so it cannot
+        # recover `device_id` for the per-device case. Detecting per-
+        # device disappearance reliably requires either an independent
+        # offline emitter that walks every paired device, or a
+        # per-device `fleet_device_last_seen_seconds` timestamp compared
+        # against `time()`.
+        expr: fleet_device_online == 0
         for: 5m
         labels:
           severity: warning
@@ -22,11 +29,8 @@ groups:
         annotations:
           summary: "Device {{ $labels.device_id }} is offline"
           description: |
-            Device {{ $labels.device_id }} has been unreachable for at
-            least five minutes. This rule fires both when the telemetry
-            pipeline writes fleet_device_online=0 explicitly and when
-            the series vanishes entirely (device removed or pipeline
-            stopped emitting).
+            Device {{ $labels.device_id }} has been reporting
+            fleet_device_online=0 for at least five minutes.
 
       - alert: DeviceTemperatureHigh
         # Default temperature ceiling: per-device max temperature above
@@ -65,10 +69,19 @@ groups:
         # auth problem affecting many devices at once. Fires when the
         # failure rate over the last ten minutes exceeds the success
         # rate.
+        #
+        # The success side is zero-filled via `or on(organization_id)
+        # (... * 0)` so a complete org-wide outage (failures present but
+        # no success samples in the window) still produces a sample to
+        # compare against, instead of being dropped by vector matching.
         expr: |
           sum by (organization_id) (rate(fleet_telemetry_poll_total{result="failure"}[10m]))
             >
-          sum by (organization_id) (rate(fleet_telemetry_poll_total{result="success"}[10m]))
+          (
+            sum by (organization_id) (rate(fleet_telemetry_poll_total{result="success"}[10m]))
+            or
+            (sum by (organization_id) (rate(fleet_telemetry_poll_total{result="failure"}[10m])) * 0)
+          )
         for: 10m
         labels:
           severity: warning
