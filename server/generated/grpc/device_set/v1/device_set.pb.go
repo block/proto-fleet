@@ -407,13 +407,25 @@ type RackInfo struct {
 	OrderIndex RackOrderIndex `protobuf:"varint,4,opt,name=order_index,json=orderIndex,proto3,enum=device_set.v1.RackOrderIndex" json:"order_index,omitempty"`
 	// Cooling type for this rack
 	CoolingType RackCoolingType `protobuf:"varint,5,opt,name=cooling_type,json=coolingType,proto3,enum=device_set.v1.RackCoolingType" json:"cooling_type,omitempty"`
-	// Site this rack is assigned to. When building_id is set, the server
-	// derives site_id from the building and rejects mismatched callers.
-	// Unset means the rack is fully unassigned.
+	// Site this rack is assigned to.
+	//
+	// Semantics:
+	//   - When building_id is set, the server derives site_id from the
+	//     parent building's site_id (which may itself be NULL when the
+	//     building is not yet assigned to a site) and rejects callers
+	//     passing a mismatched value. Clients should leave site_id unset
+	//     in this case and read the derived value back from the
+	//     response.
+	//   - When building_id is unset, site_id may be set directly to
+	//     place the rack under a site with no building.
+	//   - Unset on BOTH site_id and building_id means the rack has no
+	//     placement (fully unassigned). Unset on site_id alone does NOT
+	//     imply no placement — the rack may still be building-assigned
+	//     while the parent building has no site stamped.
 	SiteId *int64 `protobuf:"varint,6,opt,name=site_id,json=siteId,proto3,oneof" json:"site_id,omitempty"`
 	// Building this rack belongs to (within site_id). Unset means the
-	// rack is directly attached to its site, or unassigned when site_id
-	// is also unset.
+	// rack is directly attached to its site (when site_id is set), or
+	// fully unassigned (when site_id is also unset).
 	BuildingId    *int64 `protobuf:"varint,7,opt,name=building_id,json=buildingId,proto3,oneof" json:"building_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

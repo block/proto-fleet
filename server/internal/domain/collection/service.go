@@ -200,6 +200,16 @@ func int64PtrEqual(a, b *int64) bool {
 type createCollectionResult struct {
 	collection *pb.DeviceCollection
 	addedCount int64
+	// Cascade audit fields populated when a site-stamped rack is
+	// created with an initial device_selector. Mirrors the shape used
+	// by SaveRack / AddDevicesToCollection so the activity log records
+	// implicit device-site reassignments uniformly across the three
+	// rack write paths. Empty/zero for groups and for site-less rack
+	// creates.
+	finalSiteID          *int64
+	cascadeCount         int64
+	deviceSiteChanges    []map[string]any
+	cascadeTotalAffected int
 }
 
 // CreateCollection creates a new collection, optionally adding devices atomically.
@@ -289,7 +299,12 @@ func (s *Service) CreateCollection(ctx context.Context, req *pb.CreateCollection
 		}
 
 		// Add devices to the collection if device_selector was provided.
-		var addedCount int64
+		var (
+			addedCount        int64
+			cascadeCount      int64
+			deviceSiteChanges []map[string]any
+			totalAffected     int
+		)
 		if len(deviceIdentifiers) > 0 {
 			addedCount, err = s.collectionStore.AddDevicesToCollection(ctx, info.OrganizationID, collection.Id, deviceIdentifiers)
 			if err != nil {
@@ -299,18 +314,34 @@ func (s *Service) CreateCollection(ctx context.Context, req *pb.CreateCollection
 			// #nosec G115 -- addedCount bounded by request size which is limited by gRPC message size
 			collection.DeviceCount = int32(addedCount)
 
-			// New rack with a site stamped: cascade rack.site_id to every
-			// added device whose current site differs. CascadeRackDeviceSites
+			// New rack with a site stamped: capture priors + cascade
+			// rack.site_id onto every added device. CascadeRackDeviceSites
 			// is a no-op when the rack has no site_id, so this also covers
-			// group creation and site-less rack creation.
+			// group creation and site-less rack creation. Per-device
+			// priors are captured for the activity-log audit, matching
+			// the shape SaveRack / AddDevicesToCollection produce.
 			if req.Type == pb.CollectionType_COLLECTION_TYPE_RACK && siteID != nil {
-				if _, err := s.collectionStore.CascadeRackDeviceSites(ctx, collection.Id, info.OrganizationID, siteID); err != nil {
+				priors, err := s.collectionStore.GetDeviceSiteIDsByMembership(ctx, collection.Id, info.OrganizationID)
+				if err != nil {
 					return nil, err
 				}
+				deviceSiteChanges, totalAffected = buildDeviceSiteChanges(priors, siteID)
+				n, err := s.collectionStore.CascadeRackDeviceSites(ctx, collection.Id, info.OrganizationID, siteID)
+				if err != nil {
+					return nil, err
+				}
+				cascadeCount = n
 			}
 		}
 
-		return &createCollectionResult{collection: collection, addedCount: addedCount}, nil
+		return &createCollectionResult{
+			collection:           collection,
+			addedCount:           addedCount,
+			finalSiteID:          siteID,
+			cascadeCount:         cascadeCount,
+			deviceSiteChanges:    deviceSiteChanges,
+			cascadeTotalAffected: totalAffected,
+		}, nil
 	})
 	if err != nil {
 		return nil, err
@@ -322,7 +353,7 @@ func (s *Service) CreateCollection(ctx context.Context, req *pb.CreateCollection
 	}
 
 	scopeType := collectionScopeType(req.Type)
-	s.logActivity(ctx, activitymodels.Event{
+	createEvent := activitymodels.Event{
 		Category:       activitymodels.CategoryCollection,
 		Type:           "create_collection",
 		Description:    fmt.Sprintf("Create %s: %s", scopeType, req.Label),
@@ -331,7 +362,30 @@ func (s *Service) CreateCollection(ctx context.Context, req *pb.CreateCollection
 		UserID:         &info.ExternalUserID,
 		Username:       &info.Username,
 		OrganizationID: &info.OrganizationID,
-	})
+		SiteID:         txResult.finalSiteID,
+	}
+	if txResult.cascadeCount > 0 || txResult.cascadeTotalAffected > 0 {
+		// Site-stamped rack created with an initial device_selector
+		// implicitly rewrote some device.site_id values. Mirror the
+		// audit shape SaveRack / AddDevicesToCollection produce so
+		// downstream consumers parse all three paths uniformly.
+		meta := map[string]any{
+			"site_cascade":          true,
+			"final_site_id":         txResult.finalSiteID,
+			"site_reassigned_count": txResult.cascadeCount,
+		}
+		if len(txResult.deviceSiteChanges) > 0 {
+			meta["device_site_changes"] = txResult.deviceSiteChanges
+		}
+		if txResult.cascadeTotalAffected > 0 {
+			meta["total_affected"] = txResult.cascadeTotalAffected
+			if txResult.cascadeTotalAffected > maxCascadeAuditEntries {
+				meta["truncated"] = true
+			}
+		}
+		createEvent.Metadata = meta
+	}
+	s.logActivity(ctx, createEvent)
 
 	// #nosec G115 -- addedCount bounded by request size which is limited by gRPC message size
 	return &pb.CreateCollectionResponse{Collection: txResult.collection, AddedCount: int32(txResult.addedCount)}, nil

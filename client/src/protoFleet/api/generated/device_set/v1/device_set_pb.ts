@@ -159,9 +159,21 @@ export type RackInfo = Message<"device_set.v1.RackInfo"> & {
   coolingType: RackCoolingType;
 
   /**
-   * Site this rack is assigned to. When building_id is set, the server
-   * derives site_id from the building and rejects mismatched callers.
-   * Unset means the rack is fully unassigned.
+   * Site this rack is assigned to.
+   *
+   * Semantics:
+   *   * When building_id is set, the server derives site_id from the
+   *     parent building's site_id (which may itself be NULL when the
+   *     building is not yet assigned to a site) and rejects callers
+   *     passing a mismatched value. Clients should leave site_id unset
+   *     in this case and read the derived value back from the
+   *     response.
+   *   * When building_id is unset, site_id may be set directly to
+   *     place the rack under a site with no building.
+   *   * Unset on BOTH site_id and building_id means the rack has no
+   *     placement (fully unassigned). Unset on site_id alone does NOT
+   *     imply no placement — the rack may still be building-assigned
+   *     while the parent building has no site stamped.
    *
    * @generated from field: optional int64 site_id = 6;
    */
@@ -169,8 +181,8 @@ export type RackInfo = Message<"device_set.v1.RackInfo"> & {
 
   /**
    * Building this rack belongs to (within site_id). Unset means the
-   * rack is directly attached to its site, or unassigned when site_id
-   * is also unset.
+   * rack is directly attached to its site (when site_id is set), or
+   * fully unassigned (when site_id is also unset).
    *
    * @generated from field: optional int64 building_id = 7;
    */
