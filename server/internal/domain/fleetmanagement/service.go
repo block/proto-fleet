@@ -23,6 +23,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/miner"
 	minerInterfaces "github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	mm "github.com/block/proto-fleet/server/internal/domain/miner/models"
+	"github.com/block/proto-fleet/server/internal/domain/netutil"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	telemetryModels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
@@ -821,32 +822,15 @@ func convertNumericField(f pb.NumericField) (interfaces.NumericFilterField, erro
 	return 0, fmt.Errorf("unsupported field %v", f)
 }
 
-// parseCIDR accepts both bare IPs (treated as /32 or /128) and prefixes,
-// then normalizes to the network address (Masked) so DB comparisons are
-// canonical and equality tests in unit tests are deterministic.
+// parseCIDR wraps netutil.ParseCIDROrIP with the ip_cidrs[idx] error
+// context expected by FleetManagement filter callers.
 func parseCIDR(idx int, raw string) (netip.Prefix, error) {
-	if raw == "" {
-		return netip.Prefix{}, fleeterror.NewInvalidArgumentErrorf(
-			"ip_cidrs[%d] is empty", idx)
-	}
-	if !strings.Contains(raw, "/") {
-		addr, err := netip.ParseAddr(raw)
-		if err != nil {
-			return netip.Prefix{}, fleeterror.NewInvalidArgumentErrorf(
-				"ip_cidrs[%d]: %v", idx, err)
-		}
-		raw = fmt.Sprintf("%s/%d", addr.String(), addr.BitLen())
-	}
-	prefix, err := netip.ParsePrefix(raw)
+	prefix, err := netutil.ParseCIDROrIP(raw)
 	if err != nil {
 		return netip.Prefix{}, fleeterror.NewInvalidArgumentErrorf(
 			"ip_cidrs[%d]: %v", idx, err)
 	}
-	if !prefix.IsValid() {
-		return netip.Prefix{}, fleeterror.NewInvalidArgumentErrorf(
-			"ip_cidrs[%d]: invalid prefix", idx)
-	}
-	return prefix.Masked(), nil
+	return prefix, nil
 }
 
 // maxFreeFormFilterValues caps the size of free-form repeated-string filter

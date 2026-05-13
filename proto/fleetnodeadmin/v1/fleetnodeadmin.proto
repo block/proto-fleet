@@ -1,0 +1,63 @@
+syntax = "proto3";
+
+// Operator-facing administration of fleet nodes. Authenticated via the
+// existing user-session/api-key flow; org_id is resolved from the caller's
+// session. Distinct from fleetnodegateway.v1, which is the node-facing wire.
+package fleetnodeadmin.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+
+service FleetNodeAdminService {
+    rpc CreateEnrollmentCode(CreateEnrollmentCodeRequest) returns (CreateEnrollmentCodeResponse);
+    rpc ListFleetNodes(ListFleetNodesRequest) returns (ListFleetNodesResponse);
+    rpc ConfirmFleetNode(ConfirmFleetNodeRequest) returns (ConfirmFleetNodeResponse);
+    rpc RevokeFleetNode(RevokeFleetNodeRequest) returns (RevokeFleetNodeResponse);
+}
+
+enum FleetNodeEnrollmentStatus {
+    FLEET_NODE_ENROLLMENT_STATUS_UNSPECIFIED            = 0;
+    FLEET_NODE_ENROLLMENT_STATUS_PENDING                = 1;
+    FLEET_NODE_ENROLLMENT_STATUS_AWAITING_CONFIRMATION  = 2;
+    FLEET_NODE_ENROLLMENT_STATUS_CONFIRMED              = 3;
+    FLEET_NODE_ENROLLMENT_STATUS_REVOKED                = 4;
+}
+
+message CreateEnrollmentCodeRequest {}
+
+message CreateEnrollmentCodeResponse {
+    // Plaintext code. Returned exactly once and never re-fetchable.
+    string code = 1;
+    google.protobuf.Timestamp expires_at = 2;
+}
+
+message ListFleetNodesRequest {}
+
+message ListFleetNodesResponse {
+    repeated FleetNodeSummary fleet_nodes = 1;
+}
+
+message FleetNodeSummary {
+    int64 fleet_node_id = 1;
+    string name = 2;
+    FleetNodeEnrollmentStatus enrollment_status = 3;
+    string identity_fingerprint = 4;
+    google.protobuf.Timestamp created_at = 5;
+    optional google.protobuf.Timestamp last_seen_at = 6;
+}
+
+message ConfirmFleetNodeRequest {
+    int64 fleet_node_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message ConfirmFleetNodeResponse {
+    // Plaintext api_key for the fleet node. Returned exactly once.
+    string api_key = 1;
+    optional google.protobuf.Timestamp expires_at = 2;
+}
+
+message RevokeFleetNodeRequest {
+    int64 fleet_node_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message RevokeFleetNodeResponse {}

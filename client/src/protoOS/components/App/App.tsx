@@ -18,6 +18,7 @@ import { getNoPoolsCalloutState } from "@/protoOS/components/NoPoolsCallout/util
 import { WarnWakeDialog } from "@/protoOS/components/Power";
 import LoginModal from "@/protoOS/features/auth/components/LoginModal";
 import { isAuthRequiredPath } from "@/protoOS/routeAuth";
+import { globalRoutePrefetch } from "@/protoOS/routePrefetch";
 import {
   useDefaultPasswordActive,
   useOnboarded,
@@ -48,6 +49,7 @@ import { BootingUp } from "@/shared/components/Setup";
 import { useApplyTheme } from "@/shared/features/preferences";
 import { pushToast, STATUSES as TOAST_STATUSES, Toaster } from "@/shared/features/toaster";
 import { useNavigate } from "@/shared/hooks/useNavigate";
+import { prefetchRoutes } from "@/shared/utils/prefetchRoutes";
 
 interface AppProps {
   children?: ReactNode;
@@ -244,6 +246,16 @@ const App = ({
   // ============================================================================
   const isWebServerRunning = useIsWebServerRunning();
   const isMiningDriverRunning = useIsMiningDriverRunning();
+
+  // Warm sidebar destinations at idle once the device passes the boot
+  // wall — running prefetch parallel with bootup polling contends for
+  // bandwidth on miner hardware. Cleanup cancels the idle handle on
+  // flag flicker (e.g., firmware-update reboot); ESM dedup covers the
+  // re-schedule.
+  useEffect(() => {
+    if (!isWebServerRunning || !isMiningDriverRunning) return;
+    return prefetchRoutes(globalRoutePrefetch);
+  }, [isWebServerRunning, isMiningDriverRunning]);
 
   // ============================================================================
   // FIRMWARE UPDATE AUTO-REFRESH AFTER REBOOT

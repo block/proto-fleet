@@ -2,6 +2,26 @@
 import { ComponentType, lazy, ReactNode } from "react";
 import { createBrowserRouter, Outlet, redirect, RouteObject } from "react-router-dom";
 
+import {
+  importDiagnosticView,
+  importEfficiency,
+  importHashboardTemperature,
+  importHashrate,
+  importLogs,
+  importOnboarding,
+  importOnboardingAuthentication,
+  importOnboardingMiningPool,
+  importOnboardingNetwork,
+  importOnboardingVerify,
+  importOnboardingWelcome,
+  importPowerUsage,
+  importSettingsAuthentication,
+  importSettingsCooling,
+  importSettingsGeneral,
+  importSettingsHardware,
+  importSettingsMiningPools,
+  importTemperature,
+} from "./routePrefetch";
 import App from "@/protoOS/components/App";
 import FullScreenContentLayout from "@/protoOS/components/ContentLayout/FullScreenContentLayout";
 import SettingsContentLayout from "@/protoOS/components/ContentLayout/SettingsContentLayout";
@@ -15,27 +35,27 @@ export type CustomRouteObject = RouteObject & {
   children?: CustomRouteObject[];
 };
 
-// Route components are lazy so each pulls a separate chunk and protoFleet (which
-// embeds these routes via singleMinerRoutes) stays slim until the user enters
-// /miners/:id/*.
-const Hashrate = lazy(() => import("@/protoOS/features/kpis/components/Hashrate"));
-const Efficiency = lazy(() => import("@/protoOS/features/kpis/components/Efficiency"));
-const PowerUsage = lazy(() => import("@/protoOS/features/kpis/components/PowerUsage"));
-const Temperature = lazy(() => import("@/protoOS/features/kpis/components/Temperature"));
-const HashboardTemperature = lazy(() => import("@/protoOS/features/diagnostic/components/HashboardTemperature"));
-const DiagnosticView = lazy(() => import("@/protoOS/features/diagnostic/components/DiagnosticView/DiagnosticView"));
-const Logs = lazy(() => import("@/protoOS/pages/MinerLogs"));
-const Onboarding = lazy(() => import("@/protoOS/features/onboarding/components/Onboarding"));
-const OnboardingWelcome = lazy(() => import("@/protoOS/features/onboarding/components/Welcome"));
-const OnboardingVerify = lazy(() => import("@/protoOS/features/onboarding/components/Verify"));
-const OnboardingNetwork = lazy(() => import("@/protoOS/features/onboarding/components/Network"));
-const OnboardingAuthentication = lazy(() => import("@/protoOS/features/onboarding/components/Authentication"));
-const OnboardingMiningPool = lazy(() => import("@/protoOS/features/onboarding/components/MiningPool"));
-const SettingsAuthentication = lazy(() => import("@/protoOS/features/settings/components/Authentication"));
-const SettingsGeneral = lazy(() => import("@/protoOS/features/settings/components/General"));
-const SettingsMiningPools = lazy(() => import("@/protoOS/features/settings/components/MiningPools"));
-const SettingsHardware = lazy(() => import("@/protoOS/features/settings/components/Hardware"));
-const SettingsCooling = lazy(() => import("@/protoOS/features/settings/components/Cooling"));
+// Route import factories live in `routePrefetch.ts` so consumers can
+// import the tier arrays from there without a cycle through this file.
+
+const Hashrate = lazy(importHashrate);
+const Efficiency = lazy(importEfficiency);
+const PowerUsage = lazy(importPowerUsage);
+const Temperature = lazy(importTemperature);
+const HashboardTemperature = lazy(importHashboardTemperature);
+const DiagnosticView = lazy(importDiagnosticView);
+const Logs = lazy(importLogs);
+const Onboarding = lazy(importOnboarding);
+const OnboardingWelcome = lazy(importOnboardingWelcome);
+const OnboardingVerify = lazy(importOnboardingVerify);
+const OnboardingNetwork = lazy(importOnboardingNetwork);
+const OnboardingAuthentication = lazy(importOnboardingAuthentication);
+const OnboardingMiningPool = lazy(importOnboardingMiningPool);
+const SettingsAuthentication = lazy(importSettingsAuthentication);
+const SettingsGeneral = lazy(importSettingsGeneral);
+const SettingsMiningPools = lazy(importSettingsMiningPools);
+const SettingsHardware = lazy(importSettingsHardware);
+const SettingsCooling = lazy(importSettingsCooling);
 
 // Helper to create route objects with App wrapper
 interface CreateRouteOptions {

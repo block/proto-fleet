@@ -1,0 +1,104 @@
+syntax = "proto3";
+
+package serverlog.v1;
+
+import "google/protobuf/timestamp.proto";
+import "buf/validate/validate.proto";
+
+option go_package = "github.com/block/proto-fleet/server/generated/grpc/serverlog/v1;serverlogv1";
+
+// Severity level of a log record. Mirrors the levels emitted by slog.
+enum LogLevel {
+  LOG_LEVEL_UNSPECIFIED = 0;
+  LOG_LEVEL_DEBUG = 1;
+  LOG_LEVEL_INFO = 2;
+  LOG_LEVEL_WARN = 3;
+  LOG_LEVEL_ERROR = 4;
+}
+
+// LogAttr is a single structured attribute attached to a log record.
+//
+// Values are pre-rendered to strings on the server so the client doesn't
+// need to handle arbitrary protobuf Any/Struct types just to display them.
+message LogAttr {
+  string key = 1;
+  string value = 2;
+}
+
+// LogEntry is one captured log record from the server's slog output.
+message LogEntry {
+  // Monotonic id assigned by the server-side ring buffer. Strictly
+  // increasing for the lifetime of the process; resets on restart.
+  uint64 id = 1;
+
+  // When the record was emitted.
+  google.protobuf.Timestamp time = 2;
+
+  // Severity.
+  LogLevel level = 3;
+
+  // The free-text message body (slog's first positional argument).
+  string message = 4;
+
+  // Structured attributes attached to the record.
+  repeated LogAttr attrs = 5;
+
+  // Source location ("file:line") if recorded by the slog handler.
+  string source = 6;
+}
+
+// ListServerLogsRequest is the filter used by ListServerLogs.
+message ListServerLogsRequest {
+  // Minimum severity to include. UNSPECIFIED means "all".
+  LogLevel min_level = 1;
+
+  // Case-insensitive substring match against the message body.
+  string search_text = 2;
+
+  // If set, only entries with id strictly greater than this are returned.
+  // Used by clients tailing the log to fetch only new records since the
+  // last poll. Prefer this over a timestamp when tailing — ids are
+  // monotonic and unaffected by clock skew or duplicate timestamps.
+  uint64 since_id = 3;
+
+  // Maximum number of entries to return. Server clamps to buffer capacity.
+  // Zero means "default" (currently 500).
+  int32 limit = 4 [(buf.validate.field).int32 = {gte: 0, lte: 5000}];
+}
+
+// ListServerLogsResponse is returned from ListServerLogs.
+message ListServerLogsResponse {
+  // Matching entries, oldest first.
+  repeated LogEntry entries = 1;
+
+  // Cursor that clients pass back as `since_id` on the next poll.
+  //
+  // When `truncated` is false, this is the id of the most recent entry
+  // currently buffered (regardless of whether it matched the filter), so
+  // the cursor advances past entries the client filtered out.
+  //
+  // When `truncated` is true, this is capped so it does NOT advance past
+  // any matching entry that was clipped by `limit`. A follow-up poll with
+  // `since_id = latest_id` is guaranteed to return the matches that did
+  // not fit, oldest first, rather than silently skipping them.
+  uint64 latest_id = 2;
+
+  // Number of entries currently in the ring buffer (regardless of filter).
+  int32 buffer_size = 3;
+
+  // True if the response was truncated by limit and more matching
+  // entries exist beyond the returned set.
+  bool truncated = 4;
+}
+
+// ServerLogService exposes recent server-side log records emitted by slog.
+//
+// The records come from an in-memory ring buffer; they are not persisted
+// across restarts. Intended for live debugging by operators, not auditing
+// (use ActivityService for audit-grade history).
+service ServerLogService {
+  // ListServerLogs returns the matching entries currently in the buffer.
+  rpc ListServerLogs(ListServerLogsRequest) returns (ListServerLogsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+}

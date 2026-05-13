@@ -353,29 +353,9 @@ func convertTargetRow(row sqlc.CurtailmentTarget) *models.Target {
 	}
 }
 
-// --- conversion helpers (curtailment-scoped; lift to a shared file when a
-// second store needs the same shapes) ---
-
-func ptrToNullString(p *string) sql.NullString {
-	if p == nil {
-		return sql.NullString{}
-	}
-	return sql.NullString{String: *p, Valid: true}
-}
-
-func ptrToNullInt32(p *int32) sql.NullInt32 {
-	if p == nil {
-		return sql.NullInt32{}
-	}
-	return sql.NullInt32{Int32: *p, Valid: true}
-}
-
-func ptrToNullTime(p *time.Time) sql.NullTime {
-	if p == nil {
-		return sql.NullTime{}
-	}
-	return sql.NullTime{Time: *p, Valid: true}
-}
+// --- curtailment-specific conversion helpers ---
+// (generic helpers moved to helpers.go so site/building/curtailment
+// stores share one canonical implementation)
 
 func nullInt32ToPtr(n sql.NullInt32) *int32 {
 	if !n.Valid {

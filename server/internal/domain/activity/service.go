@@ -8,8 +8,35 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/block/proto-fleet/server/internal/domain/activity/models"
+	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
+
+// StampActor populates an event's actor fields (UserID, Username,
+// OrganizationID) from session.Info on the context when those fields
+// are unset. The activity service warns on a nil OrganizationID for
+// non-auth categories, so every domain caller wants this stamp before
+// Log. Returns silently when no session is present (e.g. background
+// jobs); callers should set ActorType = models.ActorSystem in that
+// case before calling Log.
+func StampActor(ctx context.Context, e *models.Event) {
+	info, err := session.GetInfo(ctx)
+	if err != nil || info == nil {
+		return
+	}
+	if e.UserID == nil && info.ExternalUserID != "" {
+		uid := info.ExternalUserID
+		e.UserID = &uid
+	}
+	if e.Username == nil && info.Username != "" {
+		uname := info.Username
+		e.Username = &uname
+	}
+	if e.OrganizationID == nil && info.OrganizationID != 0 {
+		oid := info.OrganizationID
+		e.OrganizationID = &oid
+	}
+}
 
 type Service struct {
 	store interfaces.ActivityStore
@@ -23,9 +50,16 @@ func NewService(store interfaces.ActivityStore) *Service {
 // logged but never propagated. Callers that need to see persistence errors
 // (e.g. the command finalizer's retry loop) should use LogStrict instead.
 //
+// Safe to call on a nil receiver: tests and environments where activity
+// logging is disabled wire activitySvc as nil, so domain callers can
+// skip ad-hoc guard wrappers.
+//
 // Events with a nil OrganizationID (e.g. auth failures for unknown users)
 // are persisted but won't surface in the org-scoped read queries.
 func (s *Service) Log(ctx context.Context, event models.Event) {
+	if s == nil {
+		return
+	}
 	if err := s.LogStrict(ctx, event); err != nil {
 		slog.Error("failed to insert activity log", "error", err, "event_type", event.Type)
 	}

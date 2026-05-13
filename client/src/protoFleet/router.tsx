@@ -5,34 +5,62 @@ import { createBrowserRouter, LoaderFunction, Outlet, redirect } from "react-rou
 import App from "./components/App";
 import SingleMinerWrapper from "./components/SingleMinerWrapper";
 import type { PageBackground } from "./hooks/usePageBackground";
+import {
+  importActivityPage,
+  importAuth,
+  importDashboard,
+  importFleetDown,
+  importGroupOverviewPage,
+  importGroupsPage,
+  importMiners,
+  importMinersPage,
+  importOnboardingSettingsPage,
+  importRackOverviewPage,
+  importRacksPage,
+  importSecurityPage,
+  importServerLogsPage,
+  importSettingsApiKeys,
+  importSettingsAuth,
+  importSettingsFirmware,
+  importSettingsGeneral,
+  importSettingsLayout,
+  importSettingsMiningPools,
+  importSettingsSchedules,
+  importSettingsTeam,
+  importUpdatePassword,
+  importWelcomePage,
+} from "./routePrefetch";
 import { onboardingClient } from "@/protoFleet/api/clients";
 // eslint-disable-next-line no-restricted-imports -- Fleet shell embeds the protoOS single-miner experience
 import { routerConfig as singleMinerRoutes } from "@/protoOS/router";
 
-// Route components are lazy-loaded so each route ships in its own chunk and
-// only what's needed for first paint is in the entry bundle.
-const Dashboard = lazy(() => import("@/protoFleet/features/dashboard/pages/Dashboard"));
-const Miners = lazy(() => import("./features/fleetManagement/components/Fleet"));
-const ActivityPage = lazy(() => import("@/protoFleet/features/activity/pages/ActivityPage"));
-const GroupsPage = lazy(() => import("@/protoFleet/features/groupManagement/pages/GroupsPage"));
-const GroupOverviewPage = lazy(() => import("@/protoFleet/features/groupManagement/pages/GroupOverviewPage"));
-const RacksPage = lazy(() => import("@/protoFleet/features/rackManagement/pages/RacksPage"));
-const RackOverviewPage = lazy(() => import("@/protoFleet/features/rackManagement/pages/RackOverviewPage"));
-const Auth = lazy(() => import("@/protoFleet/features/auth/pages/Auth"));
-const UpdatePassword = lazy(() => import("@/protoFleet/features/auth/pages/UpdatePassword"));
-const WelcomePage = lazy(() => import("@/protoFleet/features/onboarding/components/Welcome"));
-const MinersPage = lazy(() => import("@/protoFleet/features/onboarding/components/Miners"));
-const SecurityPage = lazy(() => import("@/protoFleet/features/onboarding/components/Security"));
-const OnboardingSettingsPage = lazy(() => import("@/protoFleet/features/onboarding/components/Settings"));
-const SettingsLayout = lazy(() => import("@/protoFleet/features/settings/components/SettingsLayout"));
-const SettingsGeneral = lazy(() => import("@/protoFleet/features/settings/components/General"));
-const SettingsAuth = lazy(() => import("@/protoFleet/features/settings/components/Auth"));
-const SettingsMiningPools = lazy(() => import("@/protoFleet/features/settings/components/MiningPools"));
-const SettingsTeam = lazy(() => import("@/protoFleet/features/settings/components/Team"));
-const SettingsFirmware = lazy(() => import("@/protoFleet/features/settings/components/Firmware"));
-const SettingsSchedules = lazy(() => import("@/protoFleet/features/settings/components/Schedules/SchedulesPage"));
-const SettingsApiKeys = lazy(() => import("@/protoFleet/features/settings/components/ApiKeys"));
-const FleetDown = lazy(() => import("@/protoFleet/components/FleetDown/FleetDown"));
+// Route import factories and prefetch tier arrays live in
+// `routePrefetch.ts` so consumers can import the tiers without a cycle
+// through this file. Auth metadata for the router lives in `routeAuth.ts`.
+
+const Dashboard = lazy(importDashboard);
+const Miners = lazy(importMiners);
+const ActivityPage = lazy(importActivityPage);
+const ServerLogsPage = lazy(importServerLogsPage);
+const GroupsPage = lazy(importGroupsPage);
+const GroupOverviewPage = lazy(importGroupOverviewPage);
+const RacksPage = lazy(importRacksPage);
+const RackOverviewPage = lazy(importRackOverviewPage);
+const Auth = lazy(importAuth);
+const UpdatePassword = lazy(importUpdatePassword);
+const WelcomePage = lazy(importWelcomePage);
+const MinersPage = lazy(importMinersPage);
+const SecurityPage = lazy(importSecurityPage);
+const OnboardingSettingsPage = lazy(importOnboardingSettingsPage);
+const SettingsLayout = lazy(importSettingsLayout);
+const SettingsGeneral = lazy(importSettingsGeneral);
+const SettingsAuth = lazy(importSettingsAuth);
+const SettingsMiningPools = lazy(importSettingsMiningPools);
+const SettingsTeam = lazy(importSettingsTeam);
+const SettingsFirmware = lazy(importSettingsFirmware);
+const SettingsSchedules = lazy(importSettingsSchedules);
+const SettingsApiKeys = lazy(importSettingsApiKeys);
+const FleetDown = lazy(importFleetDown);
 
 // Helper to check if an admin user has been created
 const checkFleetInitStatus = async (): Promise<boolean> => {
@@ -91,17 +119,6 @@ const wrappedMinerRoutes = singleMinerRoutes.map((route) => {
     element: wrappedElement,
   };
 });
-
-/**
- * Auth configuration - which routes require authentication
- */
-export const requiresAuth: Record<string, boolean> = {
-  "/auth": false,
-  "/welcome": false,
-  "/update-password": true, // Requires auth but is a special intermediate step
-  "/fleet-down": false, // Error page doesn't require auth
-  // All other routes require auth by default
-};
 
 /**
  * Router configuration - defines actual route tree with React elements
@@ -175,6 +192,12 @@ const router = createBrowserRouter([
     "/settings/api-keys",
     <SettingsLayout>
       <SettingsApiKeys />
+    </SettingsLayout>,
+  ),
+  createRoute(
+    "/settings/server-logs",
+    <SettingsLayout>
+      <ServerLogsPage />
     </SettingsLayout>,
   ),
 

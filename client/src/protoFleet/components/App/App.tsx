@@ -4,7 +4,8 @@ import clsx from "clsx";
 
 import { onboardingClient } from "@/protoFleet/api/clients";
 import AppLayout from "@/protoFleet/components/AppLayout";
-import { requiresAuth } from "@/protoFleet/router";
+import { requiresAuth } from "@/protoFleet/routeAuth";
+import { globalRoutePrefetch } from "@/protoFleet/routePrefetch";
 import { useCheckAuthentication, useIsActionBarVisible } from "@/protoFleet/store";
 import { useDeviceTheme, useSetDeviceTheme, useTheme } from "@/protoFleet/store";
 import { redirectFromFleetDown } from "@/protoFleet/utils/fleetDownRedirect";
@@ -13,6 +14,7 @@ import ProgressCircular from "@/shared/components/ProgressCircular";
 import { useApplyTheme } from "@/shared/features/preferences";
 import { Toaster } from "@/shared/features/toaster";
 import { isBackendDownError } from "@/shared/utils/backendHealth";
+import { prefetchRoutes } from "@/shared/utils/prefetchRoutes";
 
 interface AppProps {
   children?: ReactNode;
@@ -56,6 +58,15 @@ const App = ({ children, fullscreen }: AppProps) => {
     return () => {
       isMounted = false;
     };
+  }, []);
+
+  // ============================================================================
+  // ROUTE CHUNK PREFETCH
+  // ============================================================================
+  // Warm sidebar-destination chunks at idle so the first nav click
+  // resolves without a Suspense fallback.
+  useEffect(() => {
+    return prefetchRoutes(globalRoutePrefetch);
   }, []);
 
   // ============================================================================

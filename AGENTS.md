@@ -95,6 +95,19 @@ implementing → completed | cancelled`) and `type:`. When status flips to
 
 Use `/plan <title>` to scaffold a new doc with the right template.
 
+## Solution docs (institutional learnings)
+
+Documented bugs, fixes, conventions, and architectural learnings live under
+`docs/solutions/`, organized by category (`build-errors/`, `database-issues/`,
+`best-practices/`, etc.). Each file has YAML frontmatter with `module`,
+`problem_type`, `component`, `tags`, and other searchable fields.
+
+**Search before implementing.** Before starting work in a documented area
+(debugging an error, making a design decision, touching a fragile subsystem),
+grep `docs/solutions/` for prior learnings by frontmatter (`module:`, `tags:`,
+`problem_type:`). The knowledge store only compounds value when agents find
+it. Use `/ce-compound` to capture new learnings after a fix lands.
+
 ## Common cross-component workflows
 
 These map directly to sections in [CONTRIBUTING.md](./CONTRIBUTING.md):

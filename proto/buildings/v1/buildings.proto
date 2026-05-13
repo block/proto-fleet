@@ -1,0 +1,163 @@
+syntax = "proto3";
+
+package buildings.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+
+// BuildingService is the admin surface for buildings: per-building
+// config (capacity, layout defaults) under a site (or unassigned).
+// Buildings coexist with the free-form `device_set_rack.zone` string;
+// operators opt into buildings explicitly per the multi-site plan.
+service BuildingService {
+    // ListBuildings returns every live building in the org with its
+    // rack_count. site_filter selects buildings under a specific
+    // site (when site_id > 0), the unassigned bucket (when
+    // unassigned_only is true), or all buildings in the org
+    // (default).
+    rpc ListBuildings(ListBuildingsRequest) returns (ListBuildingsResponse);
+
+    // CreateBuilding inserts a new building. Name must be unique
+    // within the assigned site (when site_id is set); unassigned
+    // buildings are not name-unique so cascade-unassign on site
+    // delete cannot collide.
+    rpc CreateBuilding(CreateBuildingRequest) returns (CreateBuildingResponse);
+
+    // UpdateBuilding mutates name, description, capacity, layout
+    // defaults. Site assignment is *not* changed by UpdateBuilding —
+    // use AssignBuildingToSite (SiteService) for that, since it has
+    // cross-collection enforcement.
+    rpc UpdateBuilding(UpdateBuildingRequest) returns (UpdateBuildingResponse);
+
+    // DeleteBuilding soft-deletes the building and, in the same
+    // transaction, sets device_set_rack.building_id = NULL on every
+    // rack pointing at it. Devices keep their existing site_id.
+    rpc DeleteBuilding(DeleteBuildingRequest) returns (DeleteBuildingResponse);
+}
+
+// RackOrderIndex mirrors device_set/v1's enum. We re-declare it here
+// rather than depend on device_set so the buildings module owns its
+// own slot of the proto registry.
+enum RackOrderIndex {
+    RACK_ORDER_INDEX_UNSPECIFIED  = 0;
+    RACK_ORDER_INDEX_BOTTOM_LEFT  = 1;
+    RACK_ORDER_INDEX_TOP_LEFT     = 2;
+    RACK_ORDER_INDEX_BOTTOM_RIGHT = 3;
+    RACK_ORDER_INDEX_TOP_RIGHT    = 4;
+}
+
+// Building is the read shape returned by Get/List/Create/Update.
+message Building {
+    int64 id = 1;
+    // Unset when unassigned (site_id IS NULL in the database).
+    optional int64 site_id = 2;
+    string name = 3;
+    string description = 4;
+
+    // power_kw / overhead_kw are kilowatts; 0 = unset.
+    double power_kw = 5;
+    double overhead_kw = 6;
+
+    // Layout defaults; 0 means "not set".
+    int32 aisles = 7;
+    int32 physical_rack_count = 8;
+    int32 racks_per_aisle = 9;
+    int32 default_rack_rows = 10;
+    int32 default_rack_columns = 11;
+    RackOrderIndex default_rack_order_index = 12;
+
+    google.protobuf.Timestamp created_at = 13;
+    google.protobuf.Timestamp updated_at = 14;
+}
+
+// BuildingWithCounts pairs a Building with its rack_count for the
+// list/delete-confirm flows.
+message BuildingWithCounts {
+    Building building = 1;
+    int64 rack_count = 2;
+}
+
+// ListBuildings
+
+// SiteFilter selects which buildings to return. Exactly one filter
+// shape is allowed; unset = all buildings in the org.
+message ListBuildingsRequest {
+    oneof site_filter {
+        int64 site_id = 1 [(buf.validate.field).int64.gt = 0];
+        bool  unassigned_only = 2;
+    }
+}
+
+message ListBuildingsResponse {
+    repeated BuildingWithCounts buildings = 1;
+}
+
+// CreateBuilding
+
+message CreateBuildingRequest {
+    // Unset = create unassigned. When present, must be > 0.
+    optional int64 site_id = 1 [(buf.validate.field).int64.gt = 0];
+    string name = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    string description = 3 [(buf.validate.field).string.max_len = 4096];
+
+    double power_kw = 4 [(buf.validate.field).double.gte = 0];
+    double overhead_kw = 5 [(buf.validate.field).double.gte = 0];
+
+    int32 aisles = 6 [(buf.validate.field).int32.gte = 0];
+    int32 physical_rack_count = 7 [(buf.validate.field).int32.gte = 0];
+    int32 racks_per_aisle = 8 [(buf.validate.field).int32.gte = 0];
+    int32 default_rack_rows = 9 [(buf.validate.field).int32.gte = 0];
+    int32 default_rack_columns = 10 [(buf.validate.field).int32.gte = 0];
+    RackOrderIndex default_rack_order_index = 11 [(buf.validate.field).enum.defined_only = true];
+
+    // default_rack_rows and default_rack_columns must be set
+    // together: either both 0 (no defaults) or both > 0.
+    option (buf.validate.message).cel = {
+        id: "default_rack_dims_paired"
+        message: "default_rack_rows and default_rack_columns must both be 0 or both > 0"
+        expression: "(this.default_rack_rows == 0) == (this.default_rack_columns == 0)"
+    };
+}
+
+message CreateBuildingResponse {
+    Building building = 1;
+}
+
+// UpdateBuilding
+
+message UpdateBuildingRequest {
+    int64 id = 1 [(buf.validate.field).int64.gt = 0];
+
+    string name = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    string description = 3 [(buf.validate.field).string.max_len = 4096];
+
+    double power_kw = 4 [(buf.validate.field).double.gte = 0];
+    double overhead_kw = 5 [(buf.validate.field).double.gte = 0];
+
+    int32 aisles = 6 [(buf.validate.field).int32.gte = 0];
+    int32 physical_rack_count = 7 [(buf.validate.field).int32.gte = 0];
+    int32 racks_per_aisle = 8 [(buf.validate.field).int32.gte = 0];
+    int32 default_rack_rows = 9 [(buf.validate.field).int32.gte = 0];
+    int32 default_rack_columns = 10 [(buf.validate.field).int32.gte = 0];
+    RackOrderIndex default_rack_order_index = 11 [(buf.validate.field).enum.defined_only = true];
+
+    option (buf.validate.message).cel = {
+        id: "default_rack_dims_paired"
+        message: "default_rack_rows and default_rack_columns must both be 0 or both > 0"
+        expression: "(this.default_rack_rows == 0) == (this.default_rack_columns == 0)"
+    };
+}
+
+message UpdateBuildingResponse {
+    Building building = 1;
+}
+
+// DeleteBuilding
+
+message DeleteBuildingRequest {
+    int64 id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message DeleteBuildingResponse {
+    int64 unassigned_rack_count = 1;
+}

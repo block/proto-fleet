@@ -9,7 +9,9 @@ type: plan
 
 proto-fleet today assumes one install = one site. This plan adds sites as a
 first-class entity so a single install can manage miners across N physical
-locations, with a hierarchy of `site → building → rack → device`. Sites are
+locations, with an operator-facing hierarchy of
+`site → building → zone → rack → device`. In Phase 1, `zone` is a
+building-scoped label stored on the rack, not its own table. Sites are
 **optional**: an org can run without any sites and the app renders in a
 site-less form; sites become useful when an operator wants to organize
 miners by physical location. The miner list and settings pages become
@@ -28,9 +30,9 @@ sites exist.
   user action — the app continues to render in a site-less form until the
   operator chooses to create sites.
 - The schema treats `site` as a first-class entity so the future
-  on-prem-agent workstream (one agent per site) has a natural
+  on-prem-fleet node workstream (one fleet node per site) has a natural
   attachment point. We do not commit to its specific shape now and
-  add no agent-specific columns or tables in this plan.
+  add no fleet-node-specific columns or tables in this plan.
 
 ## Non-goals
 
@@ -51,10 +53,73 @@ sites exist.
   use the row-stamped `site_id`, never the device's *current*
   site, so history doesn't shift when a device is reassigned or a
   site is renamed/deleted.
-- Site-scoped discovery via on-prem agents. Out of scope for this plan;
-  owned by the agent workstream.
+- Site-scoped discovery via on-prem fleet nodes. Out of scope for this plan;
+  owned by the fleet node workstream.
 - Forcing site setup at onboarding. New orgs can pair miners and operate
   without ever creating a site.
+- A first-class `zone` entity, zone CRUD UI, or a `building.zones[]`
+  persisted array in this phase. Zones stay lightweight and rack-owned
+  until there is evidence we need stronger lifecycle management.
+
+## Hierarchy and portability model
+
+This section locks the semantics that the rest of the plan assumes.
+
+**Operator-facing hierarchy**
+
+- `site` → top-level physical location.
+- `building` → physical structure or major subdivision within a site.
+- `zone` → flexible sub-building grouping such as "Room 2" or
+  "East Wall".
+- `rack` → physical rack/container that can belong either to a
+  building or directly to a site.
+- `device` → miner that can belong either to a rack or directly to a
+  site.
+
+**Storage model**
+
+- **Site** is a first-class table.
+- **Building** is a first-class table with `site_id`. The FK stays
+  nullable in storage so delete/unassign flows and site-less upgrades
+  remain possible, but the normal operator mental model is still that a
+  building belongs to a site.
+- **Zone** is **not** its own entity in Phase 1. It is a
+  building-scoped string on `device_set_rack.zone`. To list all zones in
+  a building, the server scans that building's racks and returns the
+  distinct non-empty zone strings. We intentionally do **not** add a
+  `building.zones[]` array or a rack `zone_id` FK in this phase, because
+  that would create an extra mutable namespace to reconcile on every rack
+  move without yet buying enough product value.
+- **Rack** stores `site_id` (nullable), `building_id` (nullable), and
+  `zone` (string). A rack may belong directly to a site without a
+  building. When `building_id` is set, `rack.site_id` must match the
+  parent building's `site_id`.
+- **Device** stores `site_id` directly and may belong to a rack via the
+  existing rack membership path. A device may belong directly to a site
+  without a rack. Device does **not** store a direct `building_id`;
+  building context is derived from the rack when present.
+- **Groups** remain many-to-many and cross-site by design.
+
+**Portability and reassignment**
+
+- Every reassignment that can affect descendants uses a warn-first
+  confirmation dialog and commits in one transaction.
+- Reassigning a **building** to a different site updates
+  `building.site_id` and cascades the new site to every descendant rack
+  and device under that building. Racks stay attached to the building;
+  zone labels are preserved because they are scoped to the building, not
+  to the site.
+- Reassigning a **rack** to a different building, or unassigning it from
+  a building, updates the rack's `building_id` and/or `site_id` and
+  cascades site changes to every descendant device. A rack may be moved
+  directly under a site with no building, or into / out of a building
+  under that same site. When a rack crosses a building boundary, its
+  `zone` is cleared as part of the same transaction, because zone names
+  are building-scoped and should not be silently carried into a
+  different building's namespace.
+- Reassigning a **device** directly to a site is allowed only when it
+  does not contradict its current rack context. If the device is in a
+  rack, the target `device.site_id` must match that rack's `site_id`.
 
 ## User journeys
 
@@ -166,18 +231,19 @@ the operator pick miners during create. The modal has two sections:
 On save, the create + miner-assign happen in one transaction:
 the site row is inserted and `device.site_id` is updated for the
 picked miners. Cross-collection rule still applies — if any picked
-miner is in a rack whose building belongs to a *different* site,
-the entire create is rejected with the same per-device error
-detail. (In practice this is rare during create since the site
-itself is brand new.)
+miner is in a rack already assigned to a *different* site, the
+entire create is rejected with the same per-device error detail.
+(In practice this is rare during create since the site itself is
+brand new.)
 
 Optionally extend with a "claim existing buildings" picker too;
 flagged as an open question.
 
 **Cross-site building moves** are allowed via the "Assign to another
-site" inline action in the buildings card kebab menu. The move
-rejects if any rack in the building contains a device whose
-`site_id` is set to a different site than the new target.
+site" inline action in the buildings card kebab menu. The confirmation
+dialog explicitly warns that every rack stays under the building and
+that every descendant rack and device will have its `site_id` moved to
+the new site in the same transaction.
 
 **Site and building deletion — cascade-unassign with warn-first
 dialog.** Deletion is never blocked by attached entities. Instead,
@@ -185,10 +251,11 @@ the UI reads attachment counts from the list response and presents a
 confirmation dialog before the destructive call:
 
 - *Site delete dialog:* "Deleting site 'X' will unassign **N
-  miners** and **M buildings**. They will move to the Unassigned
-  bucket. Continue?" Buttons: [Cancel] [Delete site].
+  miners**, **M racks**, and **P buildings**. They will move to the
+  Unassigned bucket. Continue?" Buttons: [Cancel] [Delete site].
 - *Building delete dialog:* "Deleting building 'Y' will unassign
-  **N racks**. They will move to the Unassigned bucket. Continue?"
+  **N racks** from this building and clear their zone labels. They
+  will remain directly assigned to their current site. Continue?"
   Buttons: [Cancel] [Delete building].
 
 If counts are zero, the dialog still confirms but skips the
@@ -198,9 +265,11 @@ On confirm, the server runs in one transaction:
 
 1. Soft-deletes the row (sets `deleted_at`).
 2. Sets `site_id = NULL` on every device pointing at the deleted
-   site, and `site_id = NULL` on every building pointing at the
-   deleted site. (Building delete: sets `building_id = NULL` on
-   every rack pointing at the deleted building.)
+   site, every rack pointing at the deleted site, and every building
+   pointing at the deleted site. (Building delete: sets
+   `building_id = NULL` and clears `zone` on every rack pointing at
+   the deleted building, while leaving those racks directly assigned
+   to their existing `site_id`.)
 3. Writes an activity-log row capturing the deletion + the
    unassignment counts so audits can reconstruct the cascade.
 
@@ -228,8 +297,8 @@ flat unsegmented flow first to keep Phase 1 small.
 
 **Site→miner mapping rule.** A miner's site is inferred from the
 site whose configured IP range caught it during discovery, not from
-the agent or transport that relayed it. This rule holds today
-(direct cloud scan) and in the future agent architecture (agent
+the fleet node or transport that relayed it. This rule holds today
+(direct cloud scan) and in the future fleet node architecture (fleet node
 scans its local network and relays the results, but the site bucket
 is still chosen from the site's network config matching the miner's
 IP). Operators can override the inferred site at pair time
@@ -243,15 +312,18 @@ user action**. The migration:
 - Adds new tables (`site`, `building`) but populates no rows.
 - Adds nullable `site_id` to `device`, leaving every existing miner
   with `site_id = NULL` (Unassigned).
+- Adds nullable `site_id` to `device_set_rack`, leaving every existing
+  rack with `site_id = NULL` (Unassigned) until the operator assigns it
+  directly to a site or through a building.
 - Adds nullable `building_id` to `device_set_rack`. Existing racks
   keep `building_id = NULL` and continue to surface their `zone`
   string in the UI. Buildings are not auto-promoted from zones —
-  zone may continue to coexist with building as a free-form label,
-  and operators opt into buildings explicitly when they want
-  per-building config (capacity, layout defaults, site assignment).
-- Leaves `device_set_rack.zone` column in place; the writer audit
-  for dropping it is deferred until the building/zone coexistence
-  story is settled.
+  zone continues to coexist with building as the flexible
+  sub-building label, and operators opt into buildings explicitly
+  when they want per-building config (capacity, layout defaults,
+  site assignment).
+- Leaves `device_set_rack.zone` column in place as the Phase 1 zone
+  implementation; there is no planned drop in this plan.
 - Blocks the upgrade deployment if any pairing or discovery job is in
   flight.
 
@@ -278,11 +350,11 @@ Once at least one site exists, three assignment flows surface:
 3. Server runs `ReassignDevicesToSite` as an all-or-nothing
    transaction:
    - Validates every selected device belongs to the user's org.
-   - For every device currently in a rack whose building is assigned
-     to a different site, rejects the entire batch with
+   - For every device currently in a rack whose rack `site_id` is
+     assigned to a different site, rejects the entire batch with
      `reason = "device_in_rack_at_other_site"` and per-device error
      details. The operator unracks the offenders or assigns the
-     building to the same site, then retries.
+     rack to the same site, then retries.
    - On success, updates `device.site_id` for the batch and writes
      one activity-log row capturing user / source-site (or
      "unassigned") / target-site / device-ids JSON.
@@ -291,23 +363,22 @@ Once at least one site exists, three assignment flows surface:
 
 **Buildings.** From `/settings/sites` (Unassigned buildings section
 or kebab menu on a per-site building row): "Assign to site" inline
-action. Single-building modal pickers a target site. Server enforces
-that no rack in the building contains a device assigned to a
-different site than the new target.
+action. Single-building modal picks a target site and shows the
+descendant rack/device counts that will move with it. On confirm, the
+server updates `building.site_id` and cascades the new `site_id` to
+every rack and device under that building in one transaction.
 
-**Racks.** Racks belong to one building (or none); racks aren't
-directly assigned to a site. Reassigning a rack from one building
-to another goes through the existing rack edit modal, but the
-multi-site cross-collection invariant **must** be enforced there
-in Phase 1 — not deferred. When a rack moves to a building under
-a different site, the move is rejected if any device in the rack
-has `site_id` pointing at a site other than the target. Rejection
-returns per-device error details so the operator can either
-unassign the conflicting devices first or use the bulk-assign
-action to move them along with the rack. The same check fires
-when a rack moves into the Unassigned bucket or out of it (any
-device with a non-NULL `site_id` that no longer matches its new
-context blocks the move).
+**Racks.** Racks may belong directly to a site or to a building within
+a site. Reassigning a rack from one building to another, from direct
+site placement into a building, from a building back to direct site
+placement, or from one site to another goes through the existing rack
+edit modal. In Phase 1, that flow becomes a transactional cascade:
+moving the rack updates `site_id` and/or `building_id`, updates every
+device in the rack to the rack's new `site_id` (or `NULL` if the rack
+is being fully unassigned), and clears `zone` when the rack crosses a
+building boundary. The confirmation dialog must call out both the
+device site reassignment and the zone clearing so the operator knows
+the downstream impact before confirming.
 
 ### J7. Foreman import — sitemap → site / building / rack
 
@@ -328,9 +399,11 @@ instead.
   group; intermediate groups don't get their own intermediate
   entity. Building name = Foreman group name.
 - Each Foreman rack becomes a fleet rack under the building
-  matching its parent group.
-- A miner's `site_id` is set to its rack's building's site at
-  import time, satisfying the cross-collection invariant.
+  matching its parent group. If a Foreman rack sits directly under a
+  root group, it becomes a rack directly under that site with no
+  building.
+- A miner's `site_id` is set to its rack's `site_id` at import time,
+  satisfying the cross-collection invariant.
 - Pre-existing fleet groups created from Foreman keep working;
   no retroactive promotion to sites/buildings.
 
@@ -345,7 +418,8 @@ instead.
   warning. Operators rename in fleet for a reason.
 - How to handle Foreman rack-only entries with no parent group
   (today they go to a default group). Working assumption: those
-  miners land in the Unassigned bucket and the operator uses J6.
+  racks and miners land in the Unassigned bucket and the operator
+  uses J6.
 
 **Phasing.** Foreman importer changes ship in **Phase 1** alongside
 the site/building schema, not deferred — the importer is a
@@ -404,7 +478,7 @@ New entities and relationships introduced:
 
 - **`building`** — first-class entity for per-building config
   (capacity, layout defaults, site assignment). Coexists with the
-  free-form `device_set_rack.zone` string; operators opt into
+  building-scoped `device_set_rack.zone` string; operators opt into
   buildings rather than having zones auto-promoted on upgrade.
   Holds:
   - `site_id` (**nullable** FK; a building may exist without an
@@ -440,10 +514,20 @@ New entities and relationships introduced:
   with `site_id = NULL`. New pairings default to `NULL`. Operator
   assigns via bulk action.
 
+- **`device_set_rack.site_id`** — **nullable** FK. Existing racks
+  migrate with `site_id = NULL`. A rack may be assigned directly to a
+  site even when `building_id` is NULL. When `building_id` is set,
+  `rack.site_id` must match the parent building's `site_id`.
+
 - **`device_set_rack.building_id`** — **nullable** FK. No automatic
   backfill from `zone` strings; operators opt into buildings
-  explicitly via the rack edit modal or bulk assign. `zone` and
-  `building_id` coexist for now.
+  explicitly via the rack edit modal or bulk assign. A rack may have a
+  building only when it is also assigned to that building's site.
+
+- **`device_set_rack.zone`** — retained as the Phase 1 zone model.
+  Free-form string, interpreted within the scope of a building.
+  Crossing a building boundary clears it so the rack can be assigned
+  a new zone explicitly in its new building.
 
 - **History-bearing tables get a nullable `site_id` column** so
   per-site filtering on Phase 2 dashboards uses the row-stamped
@@ -460,35 +544,42 @@ Active-site selection is **not** stored in the database — it lives in
 client localStorage keyed by username (see J2).
 
 The reserved `connection_kind` enum from the source design doc is
-**not** included. The agent workstream will define whatever
-discriminator and agent-side schema it needs when it ships.
+**not** included. The fleet node workstream will define whatever
+discriminator and fleet-node-side schema it needs when it ships.
 
 Relationships after migration:
 
 ```
-site 1 ──< building 1 ──< device_set_rack 1 ──< device_set_membership >── device
+site 1 ──< building 1 ──< rack(zone: string) 1 ──< membership >── device
+   └────────────────────< rack
+   └──────────────────────────────────────────────────────────────< device
 
-         (any FK above may be NULL: a building may have no site,
-          a rack may have no building, a device may have no site)
+         (a building may have no site, a rack may have no building,
+          a rack may belong directly to a site, and a device may
+          belong directly to a site)
 ```
 
 Groups remain org-scoped (no `site_id`); they can span sites.
 
-**Cross-collection consistency rule.** A device's `site_id`, when
-set, must equal the site of its rack's building when that building's
-`site_id` is also set. Stated as a write-time check:
+**Cross-collection consistency rule.** Site assignment is explicit on
+devices and racks, but those FKs must agree with any parent context.
+Stated as write-time checks:
 
-- Pairing / bulk-assign: if device is in a rack whose building has a
-  site, the device's target site must match that site.
-- Building site-assignment: if the building contains racks with
-  devices whose `site_id` is set, those devices' sites must equal
-  the building's new target site.
-- **Rack edit / move**: if a rack is being moved to a different
-  building (and that building has a site), every device in the rack
-  whose `site_id` is set must already match the new site. This
-  closes the loophole where rack moves would otherwise let devices
-  drift to the wrong site because `device.site_id` is a direct FK
-  independent of the `rack → building → site` path. See Phase 1.
+- Pairing / bulk-assign: if a device is in a rack whose `site_id` is
+  set, the device's target site must match that rack site.
+- Building site-assignment: the move updates the building's
+  `site_id` and rewrites every descendant rack and device `site_id`
+  to the new site (or `NULL` when moving the building to Unassigned)
+  in the same transaction.
+- **Rack edit / move**: moving a rack to a different building
+  rewrites the rack's `site_id` and every descendant device's
+  `site_id` to the target site (or `NULL` when the rack becomes fully
+  unassigned) in the same transaction, and clears `zone` if the rack
+  crossed a building boundary. This closes the loophole where rack
+  moves would otherwise let devices drift to the wrong site because
+  `device.site_id` is a direct FK independent of the rack context.
+- A rack may be directly assigned to a site with `building_id = NULL`.
+  A device may be directly assigned to a site without any rack.
 - Otherwise (any of the FKs are NULL): no constraint.
 
 **Network config validation.** The site `network_config` field is
@@ -520,16 +611,21 @@ New domain packages:
 - `server/internal/domain/sites/` — site CRUD, list, reassign-devices-
   to-site, network-config get/set, power-contract get/set. No
   set-active-site RPC (active site is client-side). `ListSites`
-  returns `device_count` and `building_count` per site so the
-  delete-confirm dialog has its impact numbers without a separate
-  RPC. `DeleteSite` runs the soft-delete + cascade-unassign in one
-  transaction and writes an activity-log row that includes the
-  unassignment counts.
+  returns `device_count`, `rack_count`, and `building_count` per site
+  so the delete-confirm dialog has its impact numbers without a
+  separate RPC. `AssignBuildingToSite` lives here because it owns the
+  site-level cascade: building move + descendant rack/device site
+  rewrite in one transaction. `DeleteSite` runs the soft-delete +
+  cascade-unassign in one transaction and writes an activity-log row
+  that includes the unassignment counts.
 - `server/internal/domain/buildings/` — building CRUD, list
-  (filterable by site or by "unassigned"), assign-to-site action,
-  layout settings. `ListBuildings` returns `rack_count` per
+  (filterable by site or by "unassigned"), layout settings.
+  `ListBuildings` returns `rack_count` per
   building for the delete-confirm dialog. `DeleteBuilding` runs the
-  soft-delete + cascade-unassign of racks in one transaction.
+  soft-delete + cascade-unassign of racks in one transaction and
+  clears their `zone` strings because the building-scoped namespace
+  is gone, but leaves those racks directly assigned to their existing
+  `site_id`.
 
 Updated domain packages:
 
@@ -558,6 +654,9 @@ Updated domain packages:
   JSON. Activity rows themselves also gain a row-stamped `site_id`
   (the activity's primary device's site at write time, when
   applicable) so the activity feed can be filtered per-site.
+- `rack/` — rack edit/move flow is updated so site/building changes
+  rewrite `rack.site_id`, cascade device site rewrites, and clear
+  `zone` as described above.
 - `foremanimport/` — `mapper.go` rewritten to build site +
   building + rack rows from Foreman's parent-pointer sitemap tree
   per J7. Existing flat-group output path is removed — Foreman
@@ -605,13 +704,15 @@ names land in the technical plan.
   CTA when the org has zero sites, with an "Unassigned buildings"
   section below if any exist. Renders per-site sections (site
   details + power contract + buildings) when ≥1 site exists, plus
-  an "Unassigned buildings" section at the bottom in "All Sites"
-  mode.
+  support for racks that live directly under a site without a
+  building, and an "Unassigned buildings" section at the bottom in
+  "All Sites" mode.
 - **Site create modal** — site details + power contract + optional
   "Assign miners" picker (see J3).
 - **Site edit modal** (site details + power contract).
 - **Building edit modal** (name + capacity + layout + default rack
-  settings + assign-to-site dropdown).
+  settings + assign-to-site dropdown). Cross-site building moves
+  surface the descendant device count in the confirmation dialog.
 - **Topbar SitePicker** — replaces today's placeholder
   `LocationSelector`. Hidden when org has zero sites. Otherwise:
   "All Sites" + each accessible site + "Unassigned" entry.
@@ -625,8 +726,10 @@ names land in the technical plan.
   hidden when site-less), new site filter chip with "Unassigned"
   as a value alongside the actual sites, site-aware saved views.
   Active-site selection from the topbar applies on top of any
-  saved view's filters (intersection). The `zone` filter chip is
-  renamed `building` once buildings ship.
+  saved view's filters (intersection). The miner list gains a
+  **building** filter while the existing **zone** filter remains as
+  the sub-building organizer within a building, and racks may appear
+  with a site but no building.
 - **Needs Attention status** — the existing built-in "Needs
   Attention" saved view gains a new condition: when the org has
   ≥1 site and a miner has `site_id IS NULL`, that miner is in
@@ -669,23 +772,28 @@ that don't opt in.
 - Migrations: `site` (location, timezone, network config; power-
   contract columns deferred to a follow-up); `building` (nullable
   `site_id` + layout columns); `device.site_id` nullable;
-  `device_set_rack.building_id` nullable, no auto-backfill from
-  zones (operators opt into buildings explicitly).
+  `device_set_rack.site_id` nullable; `device_set_rack.building_id`
+  nullable, no auto-backfill from zones (operators opt into
+  buildings explicitly); `zone` stays on the rack as the Phase 1
+  building-scoped sub-organization field.
 - `SiteService` proto + handlers: list (returns device + building
-  counts), create, update, delete (soft, cascade-unassigns devices
-  and buildings; activity log captures impact); reassign-devices.
+  + rack counts), create, update, delete (soft, cascade-unassigns
+  devices, racks, and buildings; activity log captures impact);
+  reassign-devices; assign-building-to-site with descendant rack and
+  device cascade.
 - `BuildingService` proto + handlers: list (filterable by site or
   "unassigned"; returns rack count), create, update, delete (soft,
-  cascade-unassigns racks), assign-to-site.
+  cascade-unassigns racks and clears their zones).
 - `site_ids` (repeated int64) + `include_unassigned` (bool) filter
   fields on miner-list query — split rather than overloaded.
   `site_id` + `site_label` on `MinerStateSnapshot` with writer
   audit.
-- Cross-collection enforcement on bulk-assign, building
-  assign-to-site, **and the existing rack edit/move flow**:
-  rejects when device/building/site assignments conflict. Rack
-  edit must land in Phase 1 to prevent miners drifting to the
-  wrong site via a rack move.
+- Cross-collection enforcement on direct device assignment, plus
+  transactional descendant cascades on building assign-to-site and
+  **the existing rack edit/move flow**. Rack edit must land in
+  Phase 1 so miners cannot drift to the wrong site via a rack move,
+  and cross-building moves must clear the rack's zone as part of
+  the same transaction.
 - Server-side validation of site `network_config` (CIDR parse,
   `/20` cap, within-site overlap rejection, cross-site overlap
   warning, canonical-form round-trip).
@@ -735,9 +843,10 @@ Goal: every page is site-aware, pairing flow gains site segmentation.
   confirmed site.
 - Saved views: site filter included in the existing serialization;
   pre-existing saved views remain valid.
-- Drop the `device_set_rack.zone` column once a writer audit
-  confirms no callers remain (the column has been redundant since
-  Phase 1's `building_id` migration).
+- Evaluate whether zones need promotion beyond the Phase 1 rack-owned
+  string model (for example: dedicated zone picker UX, caching of
+  distinct zones per building, or a first-class entity). No zone
+  schema change is planned by default in Phase 2.
 - Polish: multi-select on bulk reassign, undo, batch progress.
 
 Acceptance: pairing into a specific site works without a separate
@@ -751,11 +860,11 @@ operational signals. Not blocking the multi-site basics, so
 deferred until the foundation is in place. Scope detailed in a
 follow-on plan.
 
-No further phases planned. The agent workstream owns its own
+No further phases planned. The fleet node workstream owns its own
 schema and discriminators; site `network_config` remains the
 canonical signal for "which miner belongs to which site" whether
-the data plane is direct-from-cloud or agent-relayed, so there is
-no multi-site work tied to the agent rollout. If mining ops later
+the data plane is direct-from-cloud or fleet-node-relayed, so there is
+no multi-site work tied to the fleet node rollout. If mining ops later
 asks to split currently-org-scoped config (pools, schedules, etc.)
 per-site, that's a separate plan.
 
@@ -771,8 +880,10 @@ before they're locked.
    reachable on a different site's IP range than the operator's drag-
    and-drop choice: do we warn, block, or silently honor the operator?
    Working answer: warn, honor.
-3. Whether to drop `device_set_rack.zone` in the same migration that
-   adds buildings (Phase 1) or wait for the Phase 2 writer audit.
+3. Whether a rack moved into a different building should always have its
+   `zone` cleared, or whether the UI should offer a "preserve when the
+   target building already has the same zone label" shortcut. Working
+   answer for MVP: always clear.
 4. Building deletion confirmation dialog wording when racks are
    present but those racks contain devices — call out the indirect
    impact (devices stay site-assigned but lose their rack/building
@@ -785,11 +896,10 @@ before they're locked.
    existing buildings" picker (alongside the "Assign miners"
    picker), useful for operators who built up unassigned buildings
    before creating their first site.
-8. Whether `building` and `device_set_rack.zone` will coexist
-   long-term, or whether buildings eventually subsume zones with
-   an opt-in "convert zone to building" action. Influences
-   whether the `zone` column drops at all and how the miner-list
-   filter chip evolves.
+8. Whether `zone` should eventually graduate from the Phase 1
+   rack-owned string into something stronger (cached distinct values,
+   first-class entity, or explicit per-building managed list), or
+   remain lightweight indefinitely.
 
 ## Appendix — power contract enum suggestions
 
