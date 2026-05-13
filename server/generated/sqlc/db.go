@@ -774,6 +774,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.updateDiscoveredDeviceFirmwareVersionStmt, err = db.PrepareContext(ctx, updateDiscoveredDeviceFirmwareVersion); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateDiscoveredDeviceFirmwareVersion: %w", err)
 	}
+	if q.updateFleetNodeLastSeenAtStmt, err = db.PrepareContext(ctx, updateFleetNodeLastSeenAt); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateFleetNodeLastSeenAt: %w", err)
+	}
 	if q.updateLastLoginStmt, err = db.PrepareContext(ctx, updateLastLogin); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateLastLogin: %w", err)
 	}
@@ -2107,6 +2110,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing updateDiscoveredDeviceFirmwareVersionStmt: %w", cerr)
 		}
 	}
+	if q.updateFleetNodeLastSeenAtStmt != nil {
+		if cerr := q.updateFleetNodeLastSeenAtStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateFleetNodeLastSeenAtStmt: %w", cerr)
+		}
+	}
 	if q.updateLastLoginStmt != nil {
 		if cerr := q.updateLastLoginStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing updateLastLoginStmt: %w", cerr)
@@ -2526,6 +2534,7 @@ type Queries struct {
 	updateDeviceWorkerNameStmt                          *sql.Stmt
 	updateDeviceWorkerNamePoolSyncStatusByIDStmt        *sql.Stmt
 	updateDiscoveredDeviceFirmwareVersionStmt           *sql.Stmt
+	updateFleetNodeLastSeenAtStmt                       *sql.Stmt
 	updateLastLoginStmt                                 *sql.Stmt
 	updateMessageAfterFailureStmt                       *sql.Stmt
 	updateMessagePermanentlyFailedStmt                  *sql.Stmt
@@ -2808,6 +2817,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		updateDeviceWorkerNameStmt:                          q.updateDeviceWorkerNameStmt,
 		updateDeviceWorkerNamePoolSyncStatusByIDStmt:        q.updateDeviceWorkerNamePoolSyncStatusByIDStmt,
 		updateDiscoveredDeviceFirmwareVersionStmt:           q.updateDiscoveredDeviceFirmwareVersionStmt,
+		updateFleetNodeLastSeenAtStmt:                       q.updateFleetNodeLastSeenAtStmt,
 		updateLastLoginStmt:                                 q.updateLastLoginStmt,
 		updateMessageAfterFailureStmt:                       q.updateMessageAfterFailureStmt,
 		updateMessagePermanentlyFailedStmt:                  q.updateMessagePermanentlyFailedStmt,
