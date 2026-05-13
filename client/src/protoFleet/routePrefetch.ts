@@ -5,12 +5,11 @@
 // those same component files to build the route tree.
 //
 // To add a route: define the factory const here, add it to the
-// relevant tier export below, and add a lazy() wrapper in router.tsx
-// for the routerConfig entry. The tier addition isn't lint-enforced —
-// a missed entry leaves the chunk un-warmed without breaking the build.
+// relevant tier export below, and add a lazy() wrapper in router.tsx's
+// route tree. The tier addition isn't lint-enforced — a missed entry
+// leaves the chunk un-warmed without breaking the build.
 
-// eslint-disable-next-line no-restricted-imports -- Fleet shell embeds the protoOS single-miner experience
-import { singleMinerRoutePrefetch } from "@/protoOS/routePrefetch";
+import { singleMinerRoutePrefetch } from "@/protoOS/routePrefetch"; // eslint-disable-line no-restricted-imports -- Fleet shell embeds the protoOS single-miner experience
 import type { RouteImporter } from "@/shared/utils/prefetchRoutes";
 
 export { singleMinerRoutePrefetch };
