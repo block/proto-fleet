@@ -645,15 +645,6 @@ function CurtailmentStartModal({
 
             <Section title="Safety and restore">
               <div className="grid gap-3">
-                <TextField
-                  id="curtailment-reason"
-                  label="Reason"
-                  value={values.reason}
-                  placeholder="Label"
-                  onChange={(value) => setFormValue("reason", value)}
-                  error={reasonError}
-                />
-
                 <div className="grid gap-3 tablet:grid-cols-2">
                   <NumberField
                     id="curtailment-min-duration"
@@ -690,6 +681,15 @@ function CurtailmentStartModal({
                     Estimated time to restore {formatPreviewRestoreEstimate(restoreEstimate)}
                   </div>
                 ) : null}
+
+                <TextField
+                  id="curtailment-reason"
+                  label="Reason"
+                  value={values.reason}
+                  placeholder="Label"
+                  onChange={(value) => setFormValue("reason", value)}
+                  error={reasonError}
+                />
               </div>
             </Section>
 
