@@ -20,7 +20,6 @@ type Story = StoryObj<typeof CurtailmentStartModal>;
 type ModalStoryProps = {
   initialValues?: Partial<CurtailmentFormValues>;
   preview?: CurtailmentPlanPreview;
-  previewError?: string;
 };
 
 const configuredValues: Partial<CurtailmentFormValues> = {
@@ -57,14 +56,4 @@ export const Empty: Story = {
 export const WithPreview: Story = {
   name: "With preview",
   render: () => <ModalStory initialValues={configuredValues} preview={preview} />,
-};
-
-export const PreviewError: Story = {
-  name: "Preview error",
-  render: () => (
-    <ModalStory
-      initialValues={configuredValues}
-      previewError="Preview is unavailable until a valid target reduction is entered."
-    />
-  ),
 };
