@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"context"
+	"math"
 	"sync"
 	"testing"
 
@@ -134,28 +135,27 @@ func TestObserverAggregatesPerSensorKindMaxAvg(t *testing.T) {
 	require.InDelta(t, 72.0, board.avgC, 1e-9)
 }
 
-// Critical / unknown health is treated as disconnected.
-func TestObserverEmitsPoolConnectedFromHealth(t *testing.T) {
-	cases := []struct {
-		health modelsV2.HealthStatus
-		want   bool
-	}{
-		{modelsV2.HealthHealthyActive, true},
-		{modelsV2.HealthWarning, true},
-		{modelsV2.HealthHealthyInactive, false},
-		{modelsV2.HealthCritical, false},
-		{modelsV2.HealthUnknown, false},
+// The observer must not infer pool connectivity from overall device health.
+// fleet_device_pool_connected is reserved until plugins surface an explicit
+// pool-state signal; emitting it from health produced false positives for
+// intentionally inactive devices and missed real pool disconnects.
+func TestObserverDoesNotEmitPoolGaugeFromHealth(t *testing.T) {
+	healths := []modelsV2.HealthStatus{
+		modelsV2.HealthHealthyActive,
+		modelsV2.HealthWarning,
+		modelsV2.HealthHealthyInactive,
+		modelsV2.HealthCritical,
+		modelsV2.HealthUnknown,
 	}
 
-	for _, tc := range cases {
+	for _, h := range healths {
 		rec := &recordingEmitter{}
 		obs := newMetricsObserver(rec)
 		obs.onDeviceMetrics(context.Background(), 1, "virtual", "v-1", modelsV2.DeviceMetrics{
 			DeviceIdentifier: "v-1",
-			Health:           tc.health,
+			Health:           h,
 		})
-		require.Len(t, rec.pool, 1, "health=%v", tc.health)
-		require.Equal(t, tc.want, rec.pool[0].connected, "health=%v", tc.health)
+		require.Empty(t, rec.pool, "pool gauge must not be emitted, health=%v", h)
 	}
 }
 
@@ -262,7 +262,7 @@ func TestObserverHandlesAllKnownDriversInFixture(t *testing.T) {
 			obs.onDeviceMetrics(context.Background(), 1, tc.driver, models.DeviceIdentifier(tc.dm.DeviceIdentifier), tc.dm)
 
 			require.GreaterOrEqual(t, len(rec.hashrate), 1, "hashrate gauge required")
-			require.GreaterOrEqual(t, len(rec.pool), 1, "pool gauge required")
+			require.Empty(t, rec.pool, "pool gauge must not be emitted until plugins surface real pool state")
 			require.Equal(t, tc.driver, rec.hashrate[0].labels.Driver)
 		})
 	}
@@ -327,6 +327,159 @@ func TestObserverAllowsEmptyPluginDeviceID(t *testing.T) {
 
 	require.Len(t, rec.hashrate, 1)
 	require.Equal(t, "v-1", rec.hashrate[0].labels.DeviceID, "label must come from trusted requested ID")
+}
+
+// A buggy or hostile plugin returning huge component arrays must not be able
+// to tie up the metrics writer. The aggregator caps iteration at a fixed
+// upper bound per component kind.
+func TestAggregateTemperaturesTruncatesUnboundedComponentArrays(t *testing.T) {
+	const huge = 10_000
+
+	hashBoards := make([]modelsV2.HashBoardMetrics, huge)
+	for i := range hashBoards {
+		hashBoards[i] = modelsV2.HashBoardMetrics{TempC: metricVal(70)}
+	}
+	// Also stuff one hashboard with absurdly many ASICs.
+	manyASICs := make([]modelsV2.ASICMetrics, huge)
+	for i := range manyASICs {
+		manyASICs[i] = modelsV2.ASICMetrics{TempC: metricVal(75)}
+	}
+	hashBoards[0].ASICs = manyASICs
+
+	psus := make([]modelsV2.PSUMetrics, huge)
+	for i := range psus {
+		psus[i] = modelsV2.PSUMetrics{HotSpotTempC: metricVal(60)}
+	}
+	fans := make([]modelsV2.FanMetrics, huge)
+	for i := range fans {
+		fans[i] = modelsV2.FanMetrics{TempC: metricVal(30)}
+	}
+	sensors := make([]modelsV2.SensorMetrics, huge)
+	for i := range sensors {
+		sensors[i] = modelsV2.SensorMetrics{Type: "ambient", Value: metricVal(25)}
+	}
+
+	dm := modelsV2.DeviceMetrics{
+		DeviceIdentifier: "hostile-1",
+		HashBoards:       hashBoards,
+		PSUMetrics:       psus,
+		FanMetrics:       fans,
+		SensorMetrics:    sensors,
+	}
+
+	rec := &recordingEmitter{}
+	obs := newMetricsObserver(rec)
+	obs.onDeviceMetrics(context.Background(), 1, "virtual", "hostile-1", dm)
+
+	// The exact aggregate counts depend on the caps; what matters is the
+	// aggregator returns within bounded work — bounded by the per-kind caps
+	// rather than the size of the input arrays. We assert "at most one
+	// emission per sensor kind", which is the contract the rest of the
+	// pipeline relies on.
+	byKind := map[string]int{}
+	for _, e := range rec.temperature {
+		byKind[e.kind]++
+	}
+	for kind, n := range byKind {
+		require.Equal(t, 1, n, "expected exactly one aggregate per kind, got %d for kind=%s", n, kind)
+	}
+	// And the produced max values come from real samples (70/75/60/25),
+	// not from runaway iteration.
+	for _, e := range rec.temperature {
+		require.GreaterOrEqual(t, e.maxC, 25.0)
+		require.LessOrEqual(t, e.maxC, 100.0)
+	}
+}
+
+// Plugins reporting NaN / +Inf / -Inf temperature samples must have those
+// samples dropped rather than poisoning the aggregate.
+func TestAggregateTemperaturesDropsNonFiniteSamples(t *testing.T) {
+	dm := modelsV2.DeviceMetrics{
+		DeviceIdentifier: "bad-1",
+		HashBoards: []modelsV2.HashBoardMetrics{{
+			TempC: metricVal(math.NaN()),
+			ASICs: []modelsV2.ASICMetrics{
+				{TempC: metricVal(math.Inf(1))},
+				{TempC: metricVal(math.Inf(-1))},
+				{TempC: metricVal(70)}, // the one good reading
+			},
+		}},
+	}
+
+	rec := &recordingEmitter{}
+	obs := newMetricsObserver(rec)
+	obs.onDeviceMetrics(context.Background(), 1, "virtual", "bad-1", dm)
+
+	byKind := map[string]temperatureEvent{}
+	for _, e := range rec.temperature {
+		byKind[e.kind] = e
+	}
+	_, hasBoard := byKind[metrics.SensorKindBoard]
+	require.False(t, hasBoard, "NaN board temp must not produce an emission")
+
+	chip, hasChip := byKind[metrics.SensorKindChip]
+	require.True(t, hasChip, "the one finite chip temp must still produce an emission")
+	require.InDelta(t, 70.0, chip.maxC, 1e-9)
+	require.InDelta(t, 70.0, chip.avgC, 1e-9)
+}
+
+// Readings outside the plausibility window (e.g. a stuck sensor reporting
+// 9999 °C) must be dropped so they don't trigger spurious temperature
+// alerts.
+func TestAggregateTemperaturesClampsOutOfRangeReadings(t *testing.T) {
+	dm := modelsV2.DeviceMetrics{
+		DeviceIdentifier: "stuck-1",
+		HashBoards: []modelsV2.HashBoardMetrics{{
+			ASICs: []modelsV2.ASICMetrics{
+				{TempC: metricVal(9999)},  // implausible
+				{TempC: metricVal(-1000)}, // implausible
+				{TempC: metricVal(82)},    // good
+				{TempC: metricVal(80)},    // good
+			},
+		}},
+	}
+
+	rec := &recordingEmitter{}
+	obs := newMetricsObserver(rec)
+	obs.onDeviceMetrics(context.Background(), 1, "virtual", "stuck-1", dm)
+
+	require.Len(t, rec.temperature, 1)
+	require.Equal(t, metrics.SensorKindChip, rec.temperature[0].kind)
+	require.InDelta(t, 82.0, rec.temperature[0].maxC, 1e-9)
+	require.InDelta(t, 81.0, rec.temperature[0].avgC, 1e-9) // (82+80)/2
+}
+
+// Non-finite hashrates must be dropped before they reach the emitter.
+func TestObserverDropsNonFiniteHashrate(t *testing.T) {
+	cases := []float64{math.NaN(), math.Inf(1), math.Inf(-1), -1}
+	for _, v := range cases {
+		rec := &recordingEmitter{}
+		obs := newMetricsObserver(rec)
+		obs.onDeviceMetrics(context.Background(), 1, "virtual", "v-1", modelsV2.DeviceMetrics{
+			DeviceIdentifier: "v-1",
+			HashrateHS:       metricVal(v),
+		})
+		require.Empty(t, rec.hashrate, "hashrate=%v must be dropped", v)
+	}
+}
+
+// A non-finite nameplate must not block emission of a valid observed
+// hashrate — expectedTHs falls through as zero so the Hashrate template
+// degrades gracefully.
+func TestObserverEmitsObservedWhenNameplateIsNonFinite(t *testing.T) {
+	bogus := math.NaN()
+	rec := &recordingEmitter{}
+	obs := newMetricsObserver(rec)
+	obs.onDeviceMetrics(context.Background(), 1, "virtual", "v-1", modelsV2.DeviceMetrics{
+		DeviceIdentifier: "v-1",
+		HashrateHS: &modelsV2.MetricValue{
+			Value:    110e12,
+			MetaData: &modelsV2.MetricValueMetaData{Max: &bogus},
+		},
+	})
+	require.Len(t, rec.hashrate, 1)
+	require.InDelta(t, 110.0, rec.hashrate[0].observedTHs, 1e-9)
+	require.InDelta(t, 0.0, rec.hashrate[0].expectedTHs, 1e-9)
 }
 
 // NoMetrics emitter must not panic on any call.

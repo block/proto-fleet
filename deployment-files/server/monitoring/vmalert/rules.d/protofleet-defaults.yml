@@ -48,21 +48,16 @@ groups:
             Maximum sensor temperature for device {{ $labels.device_id }}
             has been above 90 °C for at least ten minutes.
 
-      - alert: DevicePoolDisconnected
-        # The pool gauge is set to 0 when the device's primary mining
-        # pool connection drops. Fires after fifteen minutes of sustained
-        # disconnect to absorb pool-side blips.
-        expr: fleet_device_pool_connected == 0
-        for: 15m
-        labels:
-          severity: warning
-          rule_group: protofleet-defaults
-          template: pool
-        annotations:
-          summary: "Device {{ $labels.device_id }} pool disconnected"
-          description: |
-            Device {{ $labels.device_id }} has not reported pool
-            connectivity for fifteen minutes.
+      # NOTE: A default DevicePoolDisconnected alert used to live here, fed by
+      # fleet_device_pool_connected. It was removed because the gauge was
+      # derived from overall device health rather than from an explicit pool
+      # connectivity signal — meaning real pool disconnects / hijacks could go
+      # unnoticed while intentionally inactive devices fired noisy alerts. The
+      # metric remains reserved in the contract; a replacement default alert
+      # will land once plugins surface explicit pool state (e.g. comparing
+      # GetMiningPools against the configured pool URL/worker). Operators who
+      # need pool monitoring today should author a custom rule scoped to the
+      # signal they trust.
 
       - alert: TelemetryPollFailureRateHigh
         # Sustained telemetry poll failures usually mean a network or

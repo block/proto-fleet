@@ -6,6 +6,7 @@ package telemetry
 import (
 	"context"
 	"log/slog"
+	"math"
 
 	mm "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
@@ -40,6 +41,27 @@ func NoMetrics() MetricsEmitter { return nopMetricsEmitter{} }
 
 const hertzPerTerahertz = 1e12
 
+// Defensive caps for plugin-supplied component arrays. Real devices have at
+// most a handful of each component kind. Anything well above realistic limits
+// is most likely a buggy or hostile plugin: we truncate before aggregation
+// rather than letting a single device tie up the metrics writer.
+const (
+	maxHashBoardsPerDevice = 64
+	maxASICsPerHashBoard   = 256
+	maxPSUsPerDevice       = 16
+	maxFansPerDevice       = 64
+	maxSensorsPerDevice    = 256
+)
+
+// Plausibility window for temperature samples, in degrees Celsius. Readings
+// outside this range are almost certainly a buggy plugin or a stuck/faulted
+// sensor and are dropped rather than poisoning the aggregate (and any alerts
+// derived from it).
+const (
+	minPlausibleTempC = -50.0
+	maxPlausibleTempC = 200.0
+)
+
 type metricsObserver struct {
 	emitter MetricsEmitter
 }
@@ -72,24 +94,39 @@ func (o *metricsObserver) onDeviceMetrics(ctx context.Context, orgID int64, driv
 	}
 
 	if dm.HashrateHS != nil {
-		observedTHs := dm.HashrateHS.Value / hertzPerTerahertz
-		expectedTHs := 0.0
+		observedHS := dm.HashrateHS.Value
+		var nameplateHS *float64
 		if dm.HashrateHS.MetaData != nil && dm.HashrateHS.MetaData.Max != nil {
 			// Some plugins report the nameplate as the Max in the
 			// MetaData window. This matches what the existing
 			// dashboard surfaces.
-			expectedTHs = *dm.HashrateHS.MetaData.Max / hertzPerTerahertz
+			nameplateHS = dm.HashrateHS.MetaData.Max
 		}
-		o.emitter.EmitDeviceHashrate(ctx, labels, observedTHs, expectedTHs)
+		if observed, expected, ok := sanitizeHashrate(observedHS, nameplateHS, string(deviceID), driver); ok {
+			o.emitter.EmitDeviceHashrate(ctx, labels, observed, expected)
+		}
 	}
 
-	// Temperature aggregation per sensor kind.
-	for _, agg := range aggregateTemperatures(dm) {
+	// Temperature aggregation per sensor kind. The aggregator caps how many
+	// plugin-supplied components it walks and drops non-finite / implausible
+	// readings so a single device cannot poison the gauges.
+	for _, agg := range aggregateTemperatures(dm, string(deviceID), driver) {
 		o.emitter.EmitDeviceTemperature(ctx, labels, agg.kind, agg.maxC, agg.avgC)
 	}
 
-	// Pool connected
-	o.emitter.EmitDevicePoolConnected(ctx, labels, isConnected(dm.Health))
+	// fleet_device_pool_connected is intentionally not emitted here.
+	//
+	// Until plugins surface an explicit "connected to configured pool" signal
+	// — e.g. via a dedicated field on DeviceMetrics or a comparison of
+	// GetMiningPools against the configured pool URL / worker — there is no
+	// reliable way to derive pool connectivity from the data on dm. Sourcing
+	// it from overall device health, as an earlier version of this file did,
+	// produced false positives for intentionally inactive devices and missed
+	// real pool disconnects / hijacks when the rest of the device was
+	// healthy. The metric remains in the contract so user-authored rules and
+	// dashboards keep compiling; the default DevicePoolDisconnected alert
+	// has been removed from protofleet-defaults.yml until a correct emission
+	// path lands.
 }
 
 // onDeviceStatus is called from the status writer every time the cached device status is updated.
@@ -143,16 +180,6 @@ func isOnlineStatus(status mm.MinerStatus) bool {
 	return false
 }
 
-func isConnected(health modelsV2.HealthStatus) bool {
-	switch health {
-	case modelsV2.HealthHealthyActive, modelsV2.HealthWarning:
-		return true
-	case modelsV2.HealthUnknown, modelsV2.HealthHealthyInactive, modelsV2.HealthCritical:
-		return false
-	}
-	return false
-}
-
 // temperatureAggregate is the per-sensor-kind result of walking a DeviceMetrics value.
 type temperatureAggregate struct {
 	kind string
@@ -160,8 +187,37 @@ type temperatureAggregate struct {
 	avgC float64
 }
 
-// aggregateTemperatures collapses every sensor reading on the device into a (kind, max, avg) tuple.
-func aggregateTemperatures(dm modelsV2.DeviceMetrics) []temperatureAggregate {
+// aggStats records bounded summaries of samples / components dropped by a
+// single aggregation pass. It's only used to emit one warn log per pass so a
+// runaway plugin can't drown the logger.
+type aggStats struct {
+	truncatedHashBoards int
+	truncatedASICs      int
+	truncatedPSUs       int
+	truncatedFans       int
+	truncatedSensors    int
+	droppedNonFinite    int
+	droppedOutOfRange   int
+	droppedUnknownKind  int
+}
+
+func (s aggStats) any() bool {
+	return s.truncatedHashBoards+s.truncatedASICs+s.truncatedPSUs+s.truncatedFans+s.truncatedSensors+
+		s.droppedNonFinite+s.droppedOutOfRange+s.droppedUnknownKind > 0
+}
+
+func capLen(have, maxLen int) (n, truncated int) {
+	if have <= maxLen {
+		return have, 0
+	}
+	return maxLen, have - maxLen
+}
+
+// aggregateTemperatures collapses every sensor reading on the device into a
+// (kind, max, avg) tuple. It is hardened against buggy or hostile plugins:
+// component arrays are walked up to a fixed cap, and non-finite or
+// out-of-range readings are dropped rather than poisoning the aggregate.
+func aggregateTemperatures(dm modelsV2.DeviceMetrics, deviceID, driver string) []temperatureAggregate {
 	type accum struct {
 		count int
 		sum   float64
@@ -169,8 +225,23 @@ func aggregateTemperatures(dm modelsV2.DeviceMetrics) []temperatureAggregate {
 		set   bool
 	}
 	accs := map[string]*accum{}
+	stats := aggStats{}
 	add := func(kind string, c float64) {
 		if !metrics.IsKnownSensorKind(kind) {
+			// kind == "" is the dominant case for the generic sensors path
+			// (sensorKindFromType returned ""). Don't count those as drops:
+			// they're filtered, not implausible.
+			if kind != "" {
+				stats.droppedUnknownKind++
+			}
+			return
+		}
+		if math.IsNaN(c) || math.IsInf(c, 0) {
+			stats.droppedNonFinite++
+			return
+		}
+		if c < minPlausibleTempC || c > maxPlausibleTempC {
+			stats.droppedOutOfRange++
 			return
 		}
 		a, ok := accs[kind]
@@ -187,7 +258,10 @@ func aggregateTemperatures(dm modelsV2.DeviceMetrics) []temperatureAggregate {
 	}
 
 	// Hashboard-level board + chip + inlet/outlet temperatures.
-	for _, hb := range dm.HashBoards {
+	hbN, hbTrunc := capLen(len(dm.HashBoards), maxHashBoardsPerDevice)
+	stats.truncatedHashBoards = hbTrunc
+	for i := range hbN {
+		hb := dm.HashBoards[i]
 		if hb.TempC != nil {
 			add(metrics.SensorKindBoard, hb.TempC.Value)
 		}
@@ -200,7 +274,10 @@ func aggregateTemperatures(dm modelsV2.DeviceMetrics) []temperatureAggregate {
 		if hb.AmbientTempC != nil {
 			add(metrics.SensorKindAmbient, hb.AmbientTempC.Value)
 		}
-		for _, asic := range hb.ASICs {
+		asicN, asicTrunc := capLen(len(hb.ASICs), maxASICsPerHashBoard)
+		stats.truncatedASICs += asicTrunc
+		for j := range asicN {
+			asic := hb.ASICs[j]
 			if asic.TempC != nil {
 				add(metrics.SensorKindChip, asic.TempC.Value)
 			}
@@ -208,21 +285,30 @@ func aggregateTemperatures(dm modelsV2.DeviceMetrics) []temperatureAggregate {
 	}
 
 	// PSU hot-spot.
-	for _, psu := range dm.PSUMetrics {
+	psuN, psuTrunc := capLen(len(dm.PSUMetrics), maxPSUsPerDevice)
+	stats.truncatedPSUs = psuTrunc
+	for i := range psuN {
+		psu := dm.PSUMetrics[i]
 		if psu.HotSpotTempC != nil {
 			add(metrics.SensorKindHotspot, psu.HotSpotTempC.Value)
 		}
 	}
 
 	// Fan-mounted ambient sensors.
-	for _, fan := range dm.FanMetrics {
+	fanN, fanTrunc := capLen(len(dm.FanMetrics), maxFansPerDevice)
+	stats.truncatedFans = fanTrunc
+	for i := range fanN {
+		fan := dm.FanMetrics[i]
 		if fan.TempC != nil {
 			add(metrics.SensorKindAmbient, fan.TempC.Value)
 		}
 	}
 
 	// Generic sensors keyed by their declared Type.
-	for _, sm := range dm.SensorMetrics {
+	sensorN, sensorTrunc := capLen(len(dm.SensorMetrics), maxSensorsPerDevice)
+	stats.truncatedSensors = sensorTrunc
+	for i := range sensorN {
+		sm := dm.SensorMetrics[i]
 		if sm.Value == nil {
 			continue
 		}
@@ -232,6 +318,24 @@ func aggregateTemperatures(dm modelsV2.DeviceMetrics) []temperatureAggregate {
 	// If the device only reports an aggregated TempC, use it as the board-kind reading.
 	if len(accs) == 0 && dm.TempC != nil {
 		add(metrics.SensorKindBoard, dm.TempC.Value)
+	}
+
+	if stats.any() {
+		// One bounded summary line per aggregation pass. Drop counts are
+		// integers; we deliberately do not log per-sample detail so a buggy
+		// plugin can't amplify itself through the logger.
+		slog.Warn("metricsObserver: dropped plugin-supplied telemetry samples",
+			"device_id", deviceID,
+			"driver", driver,
+			"truncated_hash_boards", stats.truncatedHashBoards,
+			"truncated_asics", stats.truncatedASICs,
+			"truncated_psus", stats.truncatedPSUs,
+			"truncated_fans", stats.truncatedFans,
+			"truncated_sensors", stats.truncatedSensors,
+			"dropped_non_finite", stats.droppedNonFinite,
+			"dropped_out_of_range", stats.droppedOutOfRange,
+			"dropped_unknown_kind", stats.droppedUnknownKind,
+		)
 	}
 
 	out := make([]temperatureAggregate, 0, len(accs))
@@ -246,6 +350,36 @@ func aggregateTemperatures(dm modelsV2.DeviceMetrics) []temperatureAggregate {
 		})
 	}
 	return out
+}
+
+// sanitizeHashrate validates plugin-supplied hashrate values before they reach
+// the metrics emitter. NaN / Inf and negative values are dropped (with a
+// single bounded log line) so a buggy plugin cannot poison the hashrate
+// gauges or any rules built on top of them.
+func sanitizeHashrate(observedHS float64, nameplateHS *float64, deviceID, driver string) (observedTHs, expectedTHs float64, ok bool) {
+	if math.IsNaN(observedHS) || math.IsInf(observedHS, 0) || observedHS < 0 {
+		slog.Warn("metricsObserver: dropping non-finite or negative observed hashrate",
+			"device_id", deviceID,
+			"driver", driver,
+		)
+		return 0, 0, false
+	}
+	observedTHs = observedHS / hertzPerTerahertz
+	expectedTHs = 0.0
+	if nameplateHS != nil {
+		v := *nameplateHS
+		if math.IsNaN(v) || math.IsInf(v, 0) || v < 0 {
+			slog.Warn("metricsObserver: dropping non-finite or negative nameplate hashrate",
+				"device_id", deviceID,
+				"driver", driver,
+			)
+			// Fall through with expectedTHs left at 0 — the observed reading
+			// is still useful even if the nameplate is bogus.
+		} else {
+			expectedTHs = v / hertzPerTerahertz
+		}
+	}
+	return observedTHs, expectedTHs, true
 }
 
 // sensorKindFromType maps a generic sensor's free-form Type field to a contract sensor_kind.
