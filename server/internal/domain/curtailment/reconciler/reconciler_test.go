@@ -171,6 +171,10 @@ func (f *fakeStore) UpsertHeartbeat(_ context.Context, params interfaces.UpsertC
 	return nil
 }
 
+func (f *fakeStore) BeginRestoreTransition(context.Context, int64, uuid.UUID, int32) (*models.Event, error) {
+	panic("BeginRestoreTransition not exercised by reconciler tests")
+}
+
 // fakeDispatcher records Curtail / Uncurtail calls and returns the
 // configured outcome.
 type fakeDispatcher struct {
