@@ -731,7 +731,6 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context) {
 			if currentStatuses != nil {
 				if currentStatus, ok := currentStatuses[deviceID]; ok {
 					if currentStatus == mm.MinerStatusUpdating || currentStatus == mm.MinerStatusRebootRequired {
-						delete(pendingUpdates, deviceID)
 						continue
 					}
 				}
@@ -742,44 +741,44 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context) {
 			})
 		}
 
-		if len(statusUpdates) == 0 {
-			clear(pendingUpdates)
-			return
-		}
-
 		// Write new statuses to DB in a single bulk INSERT.
 		// Each row is ~100 bytes. With maxStatusBatchSize=500, batches are ~50KB.
-		if err := s.deviceStore.UpsertDeviceStatuses(flushCtx, statusUpdates); err != nil {
-			slog.Error("status upsert failed", "count", len(statusUpdates), "error", err)
-			clear(pendingUpdates)
-			return
+		upsertOK := true
+		if len(statusUpdates) > 0 {
+			if err := s.deviceStore.UpsertDeviceStatuses(flushCtx, statusUpdates); err != nil {
+				slog.Error("status upsert failed", "count", len(statusUpdates), "error", err)
+				upsertOK = false
+			}
 		}
 
-		// Broadcast status changes using in-memory state for change detection.
-		for _, u := range statusUpdates {
-			oldStatus, hadOldStatus := s.lastKnownStatuses.Load(u.DeviceIdentifier)
-			oldStatusTyped, validType := oldStatus.(mm.MinerStatus)
-			statusChanged := !hadOldStatus || !validType || oldStatusTyped != u.Status
+		if upsertOK {
+			// Broadcast status changes using in-memory state for change detection.
+			for _, u := range statusUpdates {
+				oldStatus, hadOldStatus := s.lastKnownStatuses.Load(u.DeviceIdentifier)
+				oldStatusTyped, validType := oldStatus.(mm.MinerStatus)
+				statusChanged := !hadOldStatus || !validType || oldStatusTyped != u.Status
 
-			if statusChanged {
-				// Store BEFORE broadcasting to ensure in-memory state is current
-				// before any broadcast handlers execute.
-				s.lastKnownStatuses.Store(u.DeviceIdentifier, u.Status)
-				s.broadcasters.Range(func(_, value any) bool {
-					if broadcaster, ok := value.(*TelemetryBroadcaster); ok {
-						broadcaster.PublishStatusChange(u.DeviceIdentifier, u.Status)
-					}
-					return true
-				})
+				if statusChanged {
+					// Store BEFORE broadcasting to ensure in-memory state is current
+					// before any broadcast handlers execute.
+					s.lastKnownStatuses.Store(u.DeviceIdentifier, u.Status)
+					s.broadcasters.Range(func(_, value any) bool {
+						if broadcaster, ok := value.(*TelemetryBroadcaster); ok {
+							broadcaster.PublishStatusChange(u.DeviceIdentifier, u.Status)
+						}
+						return true
+					})
+				}
 			}
+		}
 
-			pending := pendingUpdates[u.DeviceIdentifier]
+		for deviceID, pending := range pendingUpdates {
 			s.metricsObserver.onDeviceStatus(
 				flushCtx,
 				pending.orgID,
 				pending.driverName,
-				u.DeviceIdentifier,
-				u.Status,
+				deviceID,
+				pending.status,
 			)
 		}
 

@@ -1523,6 +1523,126 @@ func TestStatusWriterRoutine_FlushUsesWorkerSuppliedLabels(t *testing.T) {
 	require.False(t, devB.online, "MinerStatusOffline should map to online=false")
 }
 
+// When the current DB status is UPDATING / REBOOT_REQUIRED, the writer must
+// still call onDeviceStatus for the pending sample so that an unreachable
+// miner keeps emitting fleet_device_online=0 through a stuck firmware update
+// and the default offline alert is not silenced.
+func TestStatusWriterRoutine_FirmwareUpdateGuardDoesNotSuppressOnlineMetric(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+
+	updatingDevice := models.DeviceIdentifier("dev-updating")
+	rebootDevice := models.DeviceIdentifier("dev-reboot-required")
+	healthyDevice := models.DeviceIdentifier("dev-healthy")
+
+	// Each pending device has a different DB-side current status. UPDATING and
+	// REBOOT_REQUIRED are guarded — they must NOT appear in the upsert batch.
+	mockDeviceStore.EXPECT().
+		GetDeviceStatusForDeviceIdentifiers(gomock.Any(), gomock.Any()).
+		Return(map[models.DeviceIdentifier]mm.MinerStatus{
+			updatingDevice: mm.MinerStatusUpdating,
+			rebootDevice:   mm.MinerStatusRebootRequired,
+			healthyDevice:  mm.MinerStatusActive,
+		}, nil).
+		AnyTimes()
+
+	// The upsert must receive ONLY the healthy device. Capturing the batch
+	// here verifies the firmware-update guard still suppresses the DB write
+	// (we only want to fix the metric emission, not weaken the guard).
+	mockDeviceStore.EXPECT().
+		UpsertDeviceStatuses(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, updates []stores.DeviceStatusUpdate) error {
+			require.Len(t, updates, 1, "firmware-guarded devices must not land in the DB upsert")
+			assert.Equal(t, healthyDevice, updates[0].DeviceIdentifier)
+			return nil
+		}).
+		AnyTimes()
+
+	rec := &recordingEmitter{}
+
+	// Long StatusFlushInterval so we control flushing via context cancel —
+	// otherwise a ticker firing mid-send would split the three samples across
+	// multiple flushes and the upsert-batch assertion above would race.
+	service := NewTelemetryService(Config{
+		StalenessThreshold:  1 * time.Minute,
+		FetchInterval:       10 * time.Second,
+		ConcurrencyLimit:    5,
+		StatusFlushInterval: 10 * time.Second,
+	}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl)).WithMetricsEmitter(rec)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() {
+		service.statusWriterRoutine(ctx)
+		close(done)
+	}()
+
+	// The unreachable miner whose DB row is UPDATING — the case the default
+	// offline alert exists to catch.
+	service.statusResults <- statusResult{
+		deviceIdentifier: updatingDevice,
+		status:           mm.MinerStatusOffline,
+		orgID:            42,
+		driverName:       "proto",
+	}
+	// A device whose DB row is REBOOT_REQUIRED but is now back online —
+	// fleet_device_online must follow the polled value, not the stuck DB row.
+	service.statusResults <- statusResult{
+		deviceIdentifier: rebootDevice,
+		status:           mm.MinerStatusActive,
+		orgID:            42,
+		driverName:       "proto",
+	}
+	// Control device that is not firmware-guarded; verifies the unguarded
+	// path still works alongside the guarded ones in the same flush.
+	service.statusResults <- statusResult{
+		deviceIdentifier: healthyDevice,
+		status:           mm.MinerStatusActive,
+		orgID:            42,
+		driverName:       "antminer",
+	}
+
+	// Give the writer goroutine time to drain statusResults into pendingUpdates
+	// before we trigger the final flush via cancel().
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("statusWriterRoutine did not finish after context cancel")
+	}
+
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+
+	byDevice := map[string]onlineEvent{}
+	for _, ev := range rec.online {
+		byDevice[ev.labels.DeviceID] = ev
+	}
+
+	updatingEv, ok := byDevice[string(updatingDevice)]
+	require.True(t, ok, "fleet_device_online must be emitted for an UPDATING device that is now Offline")
+	assert.False(t, updatingEv.online,
+		"MinerStatusOffline must surface as online=false even when DB row is UPDATING")
+	assert.Equal(t, "42", updatingEv.labels.OrganizationID)
+	assert.Equal(t, "proto", updatingEv.labels.Driver)
+
+	rebootEv, ok := byDevice[string(rebootDevice)]
+	require.True(t, ok, "fleet_device_online must be emitted for a REBOOT_REQUIRED device whose poll succeeded")
+	assert.True(t, rebootEv.online,
+		"MinerStatusActive must surface as online=true even when DB row is REBOOT_REQUIRED")
+
+	healthyEv, ok := byDevice[string(healthyDevice)]
+	require.True(t, ok, "non-firmware-guarded device must still emit")
+	assert.True(t, healthyEv.online)
+}
+
 // Tests for metricsWriterRoutine batch operations
 
 func TestMetricsWriterRoutine_FlushesOnInterval(t *testing.T) {
