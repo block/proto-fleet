@@ -178,6 +178,14 @@ func (s *SQLFleetNodeEnrollmentStore) SoftDeleteFleetNodesForExpiredEnrollments(
 	return s.q(ctx).SoftDeleteFleetNodesForExpiredEnrollments(ctx, sql.NullTime{Time: now, Valid: true})
 }
 
+func (s *SQLFleetNodeEnrollmentStore) UpdateLastSeen(ctx context.Context, fleetNodeID, orgID int64, now time.Time) (int64, error) {
+	return s.q(ctx).UpdateFleetNodeLastSeenAt(ctx, sqlc.UpdateFleetNodeLastSeenAtParams{
+		LastSeenAt: sql.NullTime{Time: now, Valid: true},
+		ID:         fleetNodeID,
+		OrgID:      orgID,
+	})
+}
+
 func rowToPending(row sqlc.PendingEnrollment) *fleetnodeenrollment.PendingEnrollment {
 	return &fleetnodeenrollment.PendingEnrollment{
 		ID:          row.ID,

@@ -17,6 +17,7 @@ type CLI struct {
 	Enroll  EnrollCmd  `cmd:"" help:"register this fleet node with a fleet server"`
 	Status  StatusCmd  `cmd:"" help:"print local fleet node state"`
 	Refresh RefreshCmd `cmd:"" help:"renew the session token using the stored api_key"`
+	Run     RunCmd     `cmd:"" help:"run as a long-running daemon; maintain session and post heartbeats"`
 }
 
 func main() {

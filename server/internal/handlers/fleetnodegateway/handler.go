@@ -2,6 +2,7 @@ package fleetnodegateway
 
 import (
 	"context"
+	"time"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -56,5 +57,19 @@ func (h *Handler) CompleteAuthHandshake(ctx context.Context, req *connect.Reques
 	return connect.NewResponse(&pb.CompleteAuthHandshakeResponse{
 		SessionToken: token,
 		ExpiresAt:    timestamppb.New(expiresAt),
+	}), nil
+}
+
+func (h *Handler) UploadHeartbeat(ctx context.Context, _ *connect.Request[pb.UploadHeartbeatRequest]) (*connect.Response[pb.UploadHeartbeatResponse], error) {
+	subject, err := fleetnodeauth.GetSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().UTC()
+	if err := h.enrollment.UpdateLastSeen(ctx, subject.FleetNodeID, subject.OrgID, now); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.UploadHeartbeatResponse{
+		ReceivedAt: timestamppb.New(now),
 	}), nil
 }
