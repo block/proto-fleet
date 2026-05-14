@@ -89,7 +89,7 @@ func (o *metricsObserver) onDeviceMetrics(ctx context.Context, orgID int64, driv
 	}
 
 	// Pool connected
-	o.emitter.EmitDevicePoolConnected(ctx, labels, isLikelyPoolConnected(dm.Health))
+	o.emitter.EmitDevicePoolConnected(ctx, labels, isConnected(dm.Health))
 }
 
 // onDeviceStatus is called from the status writer every time the cached device status is updated.
@@ -143,8 +143,7 @@ func isOnlineStatus(status mm.MinerStatus) bool {
 	return false
 }
 
-// isLikelyPoolConnected approximates pool connectivity from the device health status.
-func isLikelyPoolConnected(health modelsV2.HealthStatus) bool {
+func isConnected(health modelsV2.HealthStatus) bool {
 	switch health {
 	case modelsV2.HealthHealthyActive, modelsV2.HealthWarning:
 		return true
