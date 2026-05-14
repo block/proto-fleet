@@ -502,13 +502,16 @@ func (s *Service) UpdateCollection(ctx context.Context, req *pb.UpdateCollection
 					return nil, err
 				}
 				// Cascade rack site onto the freshly-replaced membership
-				// so every member's device.site_id matches the rack
-				// (including NULL when the rack has no site stamped).
-				// CascadeRackDeviceSites uses IS DISTINCT FROM, so it's
-				// a no-op for devices already aligned. Same path
-				// AddDevicesToCollection / SaveRack use — closes the
-				// invariant gap on this third write path.
-				if isRack {
+				// ONLY when the rack has a stamped site. A site-less
+				// rack makes no implicit claim on its members'
+				// device.site_id, so cascading to NULL here would
+				// silently wipe direct ReassignDevicesToSite
+				// assignments — matches the contract that
+				// AddDevicesToCollection uses (skip cascade when
+				// finalSiteID is nil). CascadeRackDeviceSites uses IS
+				// DISTINCT FROM, so when the rack DOES have a site
+				// stamped it's a no-op for devices already aligned.
+				if isRack && rackSiteID != nil {
 					if _, err := s.collectionStore.CascadeRackDeviceSites(ctx, req.CollectionId, info.OrganizationID, rackSiteID); err != nil {
 						return nil, err
 					}
