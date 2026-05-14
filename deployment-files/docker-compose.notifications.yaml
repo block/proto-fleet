@@ -1,0 +1,98 @@
+services:
+  fleet-api:
+    environment:
+      FLEET_TELEMETRY_ENABLED: "${FLEET_TELEMETRY_ENABLED:-true}"
+      FLEET_NOTIFICATIONS_ENABLED: "${FLEET_NOTIFICATIONS_ENABLED:-true}"
+    depends_on:
+      otel-collector:
+        # service_started, not service_healthy: the contrib image is
+        # distroless and cannot run an in-container HTTP probe.
+        condition: service_started
+      victoria-metrics:
+        condition: service_healthy
+      vmalert:
+        condition: service_healthy
+      alertmanager:
+        condition: service_healthy
+    extra_hosts:
+      - "otel-collector:127.0.0.1"
+      - "victoria-metrics:127.0.0.1"
+      - "vmalert:127.0.0.1"
+      - "alertmanager:127.0.0.1"
+    volumes:
+      - ./server/monitoring/vmalert:/etc/protofleet/monitoring/vmalert:rw
+      - ./server/monitoring/alertmanager:/etc/protofleet/monitoring/alertmanager:rw
+
+  otel-collector:
+    extends:
+      file: ./server/docker-compose.base.yaml
+      service: otel-collector
+    volumes:
+      - ./server/monitoring/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+        compress: "true"
+
+  victoria-metrics:
+    extends:
+      file: ./server/docker-compose.base.yaml
+      service: victoria-metrics
+    # No host port binding: vmalert and otel-collector both reach VM by
+    # service name on the `monitoring` bridge network. fleet-api never
+    # queries VM directly — it goes through vmalert (Issue 22).
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+        compress: "true"
+
+  vmalert:
+    extends:
+      file: ./server/docker-compose.base.yaml
+      service: vmalert
+    volumes:
+      - ./server/monitoring/vmalert/rules.yml:/etc/vmalert/rules.yml:rw
+      - ./server/monitoring/vmalert/rules.d:/etc/vmalert/rules.d:ro
+    ports:
+      - "127.0.0.1:8880:8880"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+        compress: "true"
+
+  alertmanager:
+    extends:
+      file: ./server/docker-compose.base.yaml
+      service: alertmanager
+    volumes:
+      - ./server/monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:rw
+    ports:
+      - "127.0.0.1:9093:9093"
+    # alertmanager's `__protofleet_internal` receiver POSTs to
+    # http://fleet-api:4000/internal/alertmanager-webhook. fleet-api uses
+    # host networking, so we route via the docker host gateway.
+    extra_hosts:
+      - "fleet-api:host-gateway"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+        compress: "true"
+
+volumes:
+  victoria-metrics-data:
+  alertmanager-data:
+
+networks:
+  monitoring:
+    driver: bridge

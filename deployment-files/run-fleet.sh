@@ -6,7 +6,52 @@
 
 PROJECT_ROOT="$(pwd)"
 COMPOSE_FILE="$PROJECT_ROOT/docker-compose.yaml"
+COMPOSE_NOTIFICATIONS_FILE="$PROJECT_ROOT/docker-compose.notifications.yaml"
 ENV_FILE="$PROJECT_ROOT/.env"
+
+ENABLE_BETA_NOTIFICATIONS=false
+
+usage() {
+    cat <<'EOF'
+Usage: run-fleet.sh [options]
+
+Options:
+  --enable-beta-notifications   Layer in the beta notifications sidecar stack
+                                (otel-collector, victoria-metrics, vmalert,
+                                alertmanager). Off by default.
+  -h, --help                    Show this help and exit.
+EOF
+}
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --enable-beta-notifications)
+            ENABLE_BETA_NOTIFICATIONS=true
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            echo "Error: unknown argument: $1" >&2
+            usage >&2
+            exit 1
+            ;;
+    esac
+done
+
+refresh_compose_files() {
+    COMPOSE_FILES=(-f "$COMPOSE_FILE")
+    if [ "$ENABLE_BETA_NOTIFICATIONS" = "true" ] && [ -f "$COMPOSE_NOTIFICATIONS_FILE" ]; then
+        COMPOSE_FILES+=(-f "$COMPOSE_NOTIFICATIONS_FILE")
+    fi
+}
+refresh_compose_files
 SSL_DIR="$PROJECT_ROOT/ssl"
 SSL_CERT="$SSL_DIR/cert.pem"
 SSL_KEY="$SSL_DIR/key.pem"
@@ -352,7 +397,7 @@ prompt_store_reinit() {
     read -p "   Remove & reinitialize this volume now? ALL DATA WILL BE LOST (y/N): " answer
     if [[ $answer =~ ^[Yy]$ ]]; then
       echo "   Shutting down containers…"
-      docker compose -f "$COMPOSE_FILE" down
+      docker compose "${COMPOSE_FILES[@]}" down --remove-orphans
       echo "   Removing volume $vol…"
       docker volume rm "$vol"
       echo "   Volume removed; new credentials will apply next startup."
@@ -487,6 +532,16 @@ if [ ! -f "$COMPOSE_FILE" ]; then
     exit 1
 fi
 
+if [ "$ENABLE_BETA_NOTIFICATIONS" = "true" ]; then
+    if [ ! -f "$COMPOSE_NOTIFICATIONS_FILE" ]; then
+        echo "Error: --enable-beta-notifications was passed but $COMPOSE_NOTIFICATIONS_FILE is missing."
+        exit 1
+    fi
+    echo "Notifications stack: enabled (otel-collector, victoria-metrics, vmalert, alertmanager)"
+else
+    echo "Notifications stack: disabled (pass --enable-beta-notifications to turn on the beta notifications sidecars)"
+fi
+
 # ----------------------------------------------------------------------------
 # SSL/TLS Configuration
 # ----------------------------------------------------------------------------
@@ -574,7 +629,7 @@ fi
 # ----------------------------------------------------------------------------
 
 echo "Pulling latest Docker images..."
-docker compose -f "$COMPOSE_FILE" pull
+docker compose "${COMPOSE_FILES[@]}" pull
 
 # Load pre-built TimescaleDB image if available (built in CI for the target architecture)
 TSDB_IMAGE="$PROJECT_ROOT/images/timescaledb.tar.gz"
@@ -592,22 +647,22 @@ else
 fi
 
 # Build Docker images (fleet-api and fleet-client only; TimescaleDB uses pre-built image)
-docker compose -f "$COMPOSE_FILE" build --no-cache || { echo "Error: Build failed. Exiting."; exit 1; }
+docker compose "${COMPOSE_FILES[@]}" build --no-cache || { echo "Error: Build failed. Exiting."; exit 1; }
 
 # ----------------------------------------------------------------------------
 # Service Management
 # ----------------------------------------------------------------------------
 
 echo "Stopping any running services..."
-docker compose -f "$COMPOSE_FILE" down
+docker compose "${COMPOSE_FILES[@]}" down --remove-orphans
 
 echo "Starting services..."
 # --wait blocks until every service is running (or healthy, when a healthcheck is defined).
 # Without it, `up -d` can exit 0 while containers stay in Created (e.g. port conflicts under
 # host networking), producing a false "Proto Fleet is now running!" banner.
-if ! docker compose -f "$COMPOSE_FILE" up -d --wait --wait-timeout 300; then
+if ! docker compose "${COMPOSE_FILES[@]}" up --remove-orphans -d --wait --wait-timeout 300; then
     echo "Error: services failed to reach running state."
-    echo "Check logs with: docker compose -f \"$COMPOSE_FILE\" logs"
+    echo "Check logs with: docker compose ${COMPOSE_FILES[*]} logs"
     exit 1
 fi
 

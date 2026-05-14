@@ -19,7 +19,7 @@ lefthook-local.yml
 
 # Binary files
 server/cmd/fleetd/fleetd
-server/fleet-agent
+server/fleetnode
 server/fake-antminer/fake-antminer
 server/fake-proto-rig/fake-proto-rig
 server/miner-debug-cli

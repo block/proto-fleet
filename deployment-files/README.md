@@ -90,3 +90,45 @@ The script will auto-detect existing certificates and use HTTPS mode automatical
 - Certificate file: `ssl/cert.pem` (PEM format)
 - Private key file: `ssl/key.pem` (PEM format, unencrypted)
 - For LAN access, ensure the certificate includes the server's IP address(es) in the Subject Alternative Names (SANs)
+
+## Notifications
+
+The deployment runs four additional containers that together form the alerting pipeline:
+
+| Service             | Image (pinned)                                       | Purpose                                                                        |
+| ------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `otel-collector`    | `otel/opentelemetry-collector-contrib:0.150.1`       | Receives OTLP from `fleet-api` and forwards metrics to VictoriaMetrics.        |
+| `victoria-metrics`  | `victoriametrics/victoria-metrics:v1.107.0`          | Stores metrics. 30-day retention by default. Persistent volume.                |
+| `vmalert`           | `victoriametrics/vmalert:v1.107.0`                   | Evaluates alert rules against VictoriaMetrics, fires to Alertmanager.          |
+| `alertmanager`      | `prom/alertmanager:v0.27.0`                          | Routes firing alerts to channels (email/webhook). Persistent volume.           |
+
+### Network topology
+
+All four sidecars run on a private docker bridge network called `monitoring`.
+Operators running tools on the box can hit `127.0.0.1:8880` (vmalert),
+`127.0.0.1:9093` (Alertmanager), and `127.0.0.1:4317`/`4318` (OTLP collector) —
+these endpoints are not exposed beyond loopback.
+VictoriaMetrics itself is reachable only from inside the `monitoring` network.
+
+### Enabling the notifications stack
+
+The notifications sidecars are a beta feature and are **off by default**. The
+four sidecars live in a separate compose file,
+`docker-compose.notifications.yaml`, that `run-fleet.sh` layers in via a
+second `-f` flag when the `--enable-beta-notifications` flag is passed. To
+run a fleet with the beta notifications stack:
+
+```bash
+./run-fleet.sh --enable-beta-notifications
+```
+
+### Configuration files
+
+The configs live under `deployment-files/server/monitoring/`:
+
+- `otel-collector.yaml` — read-only OTLP receiver + VictoriaMetrics exporter.
+- `vmalert/rules.yml` — user-rendered rule file (rewritten by ProtoFleet).
+- `vmalert/rules.d/*.yml` — built-in rule groups (e.g. `protofleet-self.yml`)
+  that ship with the deployment and are not mutated by the reload pipeline.
+- `alertmanager/alertmanager.yml` — receivers and routes (rewritten by
+  ProtoFleet).

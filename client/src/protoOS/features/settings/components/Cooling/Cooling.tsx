@@ -188,6 +188,7 @@ const Cooling = () => {
       <div className="mb-10 flex flex-col gap-4">
         <SelectRow
           id={COOLING_MODES.air}
+          data-testid="cooling-option-air"
           isSelected={isSelected(coolingMode, userSelectedCoolingMode, pending, COOLING_MODES.air)}
           onChange={(id) => handleChange(id)}
           divider={false}
@@ -208,6 +209,7 @@ const Cooling = () => {
         <div className="flex flex-col gap-3">
           <SelectRow
             id={COOLING_MODES.immersion}
+            data-testid="cooling-option-immersion"
             isSelected={isSelected(coolingMode, userSelectedCoolingMode, pending, COOLING_MODES.immersion)}
             onChange={(id) => handleChange(id)}
             divider={false}
@@ -227,6 +229,7 @@ const Cooling = () => {
           />
           <div className="text-200 text-text-primary-70">
             <Button
+              testId="cooling-learn-more-button"
               className="inline"
               textColor="text-text-emphasis"
               variant="textOnly"

@@ -43,13 +43,9 @@ services:
       PLUGINS_DIR: "/app/plugins"
       PLUGINS_ENABLED: "true"
       PROTO_MINER_PORT: "8080"
-      FLEET_TELEMETRY_ENABLED: "true"
-      FLEET_TELEMETRY_ENDPOINT: "http://otel-collector:4318"
     depends_on:
       timescaledb:
         condition: service_healthy
-      otel-collector:
-        condition: service_started
     volumes:
       - ./plugins:/app/plugins:ro
     restart: unless-stopped
@@ -101,33 +97,6 @@ services:
       timeout: 3s
       retries: 5
       start_period: 5s
-
-  otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.150.1
-    command: [ "--config", "/etc/otelcol-contrib/config.yaml" ]
-    ports:
-      - "127.0.0.1:4317:4317" # OTLP gRPC
-      - "127.0.0.1:4318:4318" # OTLP HTTP
-    depends_on:
-      - jaeger
-    volumes:
-      - ./otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml
-    restart: unless-stopped
-    networks:
-      - fleet-network
-
-  jaeger:
-    image: jaegertracing/all-in-one:1.76.0
-    ports:
-      - "127.0.0.1:16686:16686" # UI
-    environment:
-      COLLECTOR_OTLP_ENABLED: "true"
-    expose:
-      - "4317"
-      - "4318"
-    restart: unless-stopped
-    networks:
-      - fleet-network
 
   # Development-specific services
   fake-proto-rig:
@@ -356,7 +325,6 @@ services:
       - NET_RAW
 volumes:
   timescaledb-data:
-
 
 networks:
   fleet-network:

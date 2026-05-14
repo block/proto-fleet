@@ -1,0 +1,70 @@
+services:
+  fleet-api:
+    environment:
+      FLEET_TELEMETRY_ENABLED: "${FLEET_TELEMETRY_ENABLED:-true}"
+      FLEET_NOTIFICATIONS_ENABLED: "${FLEET_NOTIFICATIONS_ENABLED:-true}"
+    depends_on:
+      otel-collector:
+        condition: service_started
+      victoria-metrics:
+        condition: service_healthy
+      vmalert:
+        condition: service_healthy
+      alertmanager:
+        condition: service_healthy
+    volumes:
+      - ../deployment-files/server/monitoring/vmalert:/etc/protofleet/monitoring/vmalert:rw
+      - ../deployment-files/server/monitoring/alertmanager:/etc/protofleet/monitoring/alertmanager:rw
+
+  otel-collector:
+    extends:
+      file: ./docker-compose.base.yaml
+      service: otel-collector
+    depends_on:
+      - jaeger
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"
+
+  jaeger:
+    extends:
+      file: ./docker-compose.base.yaml
+      service: jaeger
+    ports:
+      - "127.0.0.1:16686:16686" # UI
+
+  victoria-metrics:
+    extends:
+      file: ./docker-compose.base.yaml
+      service: victoria-metrics
+    ports:
+      - "127.0.0.1:8428:8428"
+
+  vmalert:
+    extends:
+      file: ./docker-compose.base.yaml
+      service: vmalert
+    volumes:
+      - ../deployment-files/server/monitoring/vmalert/rules.yml:/etc/vmalert/rules.yml:rw
+      - ../deployment-files/server/monitoring/vmalert/rules.d:/etc/vmalert/rules.d:ro
+    ports:
+      - "127.0.0.1:8880:8880"
+
+  alertmanager:
+    extends:
+      file: ./docker-compose.base.yaml
+      service: alertmanager
+    volumes:
+      - ../deployment-files/server/monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:rw
+    ports:
+      - "127.0.0.1:9093:9093"
+
+volumes:
+  victoria-metrics-data:
+  alertmanager-data:
+
+networks:
+  monitoring:
+    driver: bridge

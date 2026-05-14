@@ -1,0 +1,29 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  group_by: ["alertname", "organization_id", "device_id"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 1h
+  receiver: "null"
+  routes:
+    - matchers:
+        - rule_group="protofleet-self"
+      receiver: __protofleet_internal
+      continue: true
+
+receivers:
+  # Placeholder until overwritten
+  - name: "null"
+
+  # Internal receiver: fleet-api receives alerts here and projects them into the activity log.
+  # NOTE: fleet route not yet implemented
+  - name: __protofleet_internal
+    webhook_configs:
+      - url: http://fleet-api:4000/internal/alertmanager-webhook
+        send_resolved: true
+
+inhibit_rules: []
+
+templates: []

@@ -59,11 +59,7 @@ services:
       POSTGRES_PASSWORD: "${DB_PASSWORD}"
     restart: always
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "psql -U ${DB_USERNAME:-fleet} -d ${DB_NAME:-fleet} -c 'SELECT 1' > /dev/null 2>&1",
-        ]
+      test: [ "CMD-SHELL", "psql -U ${DB_USERNAME:-fleet} -d ${DB_NAME:-fleet} -c 'SELECT 1' > /dev/null 2>&1" ]
       interval: 10s
       timeout: 10s
       retries: 18

@@ -441,6 +441,8 @@ jobs:
           cp deployment-files/client/nginx.https.conf deployment/client/
           cp deployment-files/server/Dockerfile deployment/server/
           cp deployment-files/docker-compose.yaml deployment/
+          cp deployment-files/docker-compose.notifications.yaml deployment/
+          cp -a deployment-files/server/monitoring deployment/server/
           cp server/docker-compose.base.yaml deployment/server/
           cp deployment-files/run-fleet.sh deployment/
           cp deployment-files/uninstall.sh deployment/

@@ -170,6 +170,11 @@ update-go-deps:
 
 # --- Packaging ---
 
+# build the fleetnode operator CLI (writes to server/fleetnode)
+[working-directory: 'server']
+build-fleetnode:
+  go build -o ./fleetnode ./cmd/fleetnode
+
 # build Windows installer
 [working-directory: 'deployment-files/windows']
 build-windows-installer:
