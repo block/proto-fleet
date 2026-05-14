@@ -7,16 +7,15 @@
 package device_setv1
 
 import (
-	reflect "reflect"
-	sync "sync"
-	unsafe "unsafe"
-
 	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	v1 "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	v11 "github.com/block/proto-fleet/server/generated/grpc/errors/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
+	reflect "reflect"
+	sync "sync"
+	unsafe "unsafe"
 )
 
 const (
@@ -410,9 +409,13 @@ type RackInfo struct {
 	// Site this rack is assigned to. When building_id is set, the server
 	// derives site_id from the parent building; clients should leave it
 	// unset and read the derived value from the response.
+	//
+	// SaveRack update: leaving both site_id and building_id unset
+	// preserves the current placement. Send an explicit 0 to unassign.
 	SiteId *int64 `protobuf:"varint,6,opt,name=site_id,json=siteId,proto3,oneof" json:"site_id,omitempty"`
 	// Building this rack belongs to. Unset = directly under site_id (or
-	// fully unassigned when site_id is also unset).
+	// fully unassigned when site_id is also unset). On SaveRack update,
+	// unset preserves the current building; send 0 to unassign.
 	BuildingId    *int64 `protobuf:"varint,7,opt,name=building_id,json=buildingId,proto3,oneof" json:"building_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

@@ -7,16 +7,15 @@
 package collectionv1
 
 import (
-	reflect "reflect"
-	sync "sync"
-	unsafe "unsafe"
-
 	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	v1 "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	v11 "github.com/block/proto-fleet/server/generated/grpc/errors/v1"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
+	reflect "reflect"
+	sync "sync"
+	unsafe "unsafe"
 )
 
 const (
@@ -407,25 +406,16 @@ type RackInfo struct {
 	OrderIndex RackOrderIndex `protobuf:"varint,4,opt,name=order_index,json=orderIndex,proto3,enum=collection.v1.RackOrderIndex" json:"order_index,omitempty"`
 	// Cooling type for this rack
 	CoolingType RackCoolingType `protobuf:"varint,5,opt,name=cooling_type,json=coolingType,proto3,enum=collection.v1.RackCoolingType" json:"cooling_type,omitempty"`
-	// Site this rack is assigned to.
+	// Site this rack is assigned to. When building_id is set, the server
+	// derives site_id from the parent building; clients should leave it
+	// unset and read the derived value from the response.
 	//
-	// Semantics:
-	//   - When building_id is set, the server derives site_id from the
-	//     parent building's site_id (which may itself be NULL when the
-	//     building is not yet assigned to a site) and rejects callers
-	//     passing a mismatched value. Clients should leave site_id unset
-	//     in this case and read the derived value back from the
-	//     response.
-	//   - When building_id is unset, site_id may be set directly to
-	//     place the rack under a site with no building.
-	//   - Unset on BOTH site_id and building_id means the rack has no
-	//     placement (fully unassigned). Unset on site_id alone does NOT
-	//     imply no placement — the rack may still be building-assigned
-	//     while the parent building has no site stamped.
+	// SaveRack update: leaving both site_id and building_id unset
+	// preserves the current placement. Send an explicit 0 to unassign.
 	SiteId *int64 `protobuf:"varint,6,opt,name=site_id,json=siteId,proto3,oneof" json:"site_id,omitempty"`
-	// Building this rack belongs to (within site_id). Unset means the
-	// rack is directly attached to its site (when site_id is set), or
-	// fully unassigned (when site_id is also unset).
+	// Building this rack belongs to. Unset = directly under site_id (or
+	// fully unassigned when site_id is also unset). On SaveRack update,
+	// unset preserves the current building; send 0 to unassign.
 	BuildingId    *int64 `protobuf:"varint,7,opt,name=building_id,json=buildingId,proto3,oneof" json:"building_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1417,13 +1407,9 @@ func (x *ListCollectionsResponse) GetTotalCount() int32 {
 
 // Request to add devices to a collection.
 //
-// Site cascade side effect: when the target collection is a rack with a
-// stamped site_id, the server rewrites device.site_id to match the rack's
-// site_id for every added device whose current site differs, in the same
-// transaction as the membership insert. Group targets are exempt — groups
-// are org-scoped and may span sites by design. The cascaded device count
-// is returned in AddDevicesToCollectionResponse.site_reassigned_count and
-// per-device prior site_ids are captured in the activity-log row.
+// When the target is a site-stamped rack, the server rewrites
+// device.site_id to match the rack for every added device. The affected
+// count is returned in site_reassigned_count. Groups are exempt.
 type AddDevicesToCollectionRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// ID of the collection to add devices to
@@ -1486,9 +1472,7 @@ type AddDevicesToCollectionResponse struct {
 	// Number of devices successfully added
 	// May be less than requested if some devices were already members
 	AddedCount int32 `protobuf:"varint,2,opt,name=added_count,json=addedCount,proto3" json:"added_count,omitempty"`
-	// Number of devices whose site_id was rewritten by the implicit
-	// rack-add cascade. Zero for group targets, for racks without a
-	// stamped site_id, or when every added device already matched.
+	// Number of devices whose site_id was rewritten by the cascade.
 	SiteReassignedCount int32 `protobuf:"varint,3,opt,name=site_reassigned_count,json=siteReassignedCount,proto3" json:"site_reassigned_count,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
@@ -2826,13 +2810,9 @@ func (x *ListRackTypesResponse) GetRackTypes() []*RackType {
 
 // Request to atomically create or update a rack with membership and slot assignments.
 //
-// Site cascade side effect: when rack_info.site_id (or the site derived
-// from rack_info.building_id) differs from the rack's current site, the
-// server rewrites device.site_id for every paired rack member to match
-// the rack's new site in the same transaction. Devices added by
-// device_selector also receive the rack's site_id. The cascaded device
-// count is returned in SaveRackResponse.site_reassigned_count and the
-// per-device prior site_ids are captured in the activity-log row.
+// When the rack's site_id changes (directly or via building_id), the
+// server rewrites device.site_id for every member to match. The affected
+// count is returned in site_reassigned_count.
 type SaveRackRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// ID of an existing rack to update. Omit to create a new rack.
@@ -2924,9 +2904,7 @@ type SaveRackResponse struct {
 	Collection *DeviceCollection `protobuf:"bytes,1,opt,name=collection,proto3" json:"collection,omitempty"`
 	// Number of slot positions assigned
 	AssignedCount int32 `protobuf:"varint,2,opt,name=assigned_count,json=assignedCount,proto3" json:"assigned_count,omitempty"`
-	// Number of devices whose site_id was rewritten by the implicit
-	// rack-edit/move cascade. Zero when the rack had no site stamped, or
-	// when no rack member had a site_id different from the rack's.
+	// Number of devices whose site_id was rewritten by the cascade.
 	SiteReassignedCount int32 `protobuf:"varint,3,opt,name=site_reassigned_count,json=siteReassignedCount,proto3" json:"site_reassigned_count,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache

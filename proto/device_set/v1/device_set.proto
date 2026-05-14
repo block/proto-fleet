@@ -134,9 +134,13 @@ message RackInfo {
     // Site this rack is assigned to. When building_id is set, the server
     // derives site_id from the parent building; clients should leave it
     // unset and read the derived value from the response.
+    //
+    // SaveRack update: leaving both site_id and building_id unset
+    // preserves the current placement. Send an explicit 0 to unassign.
     optional int64 site_id = 6;
     // Building this rack belongs to. Unset = directly under site_id (or
-    // fully unassigned when site_id is also unset).
+    // fully unassigned when site_id is also unset). On SaveRack update,
+    // unset preserves the current building; send 0 to unassign.
     optional int64 building_id = 7;
 }
 
