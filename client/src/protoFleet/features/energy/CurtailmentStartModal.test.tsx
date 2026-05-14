@@ -66,6 +66,7 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getAllByText("Curtail 18 miners across the fleet immediately")).toHaveLength(2);
     expect(screen.getAllByText("60.2 kW of 60.0 kW")).toHaveLength(2);
     expect(screen.getAllByText("~2 minutes")).toHaveLength(2);
+    expect(screen.getByText("Estimated time to restore ~2 minutes")).toBeInTheDocument();
 
     rerender(
       <CurtailmentStartModal

@@ -306,6 +306,10 @@ function CurtailmentStartModalContent({
                 />
               </div>
 
+              {preview ? (
+                <div className="text-200 text-text-primary-50">Estimated time to restore {preview.restoreEstimate}</div>
+              ) : null}
+
               <Field
                 id="curtailment-reason"
                 label="Reason"
