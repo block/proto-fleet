@@ -1392,7 +1392,7 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest) (*pb.Sa
 		// set only — devices being removed by membership replace keep
 		// their previous site_id, and devices being added get aligned
 		// to the rack's site (or nulled when the rack is unassigned).
-		cascade, err := s.replaceRackMembershipAndSlots(ctx, info.OrganizationID, collectionID, deviceIdentifiers, req.SlotAssignments, finalSiteID)
+		cascade, err := s.replaceRackMembershipAndSlots(ctx, info.OrganizationID, collectionID, deviceIdentifiers, req.SlotAssignments, finalSiteID, siteChanged)
 		if err != nil {
 			return nil, err
 		}
@@ -1734,30 +1734,45 @@ type rackCascadeOutcome struct {
 //
 // Returns the cascade outcome so the caller can fold it into the
 // activity-log totals + response.
-func (s *Service) replaceRackMembershipAndSlots(ctx context.Context, orgID, collectionID int64, deviceIdentifiers []string, slotAssignments []*pb.RackSlot, finalSiteID *int64) (rackCascadeOutcome, error) {
+func (s *Service) replaceRackMembershipAndSlots(ctx context.Context, orgID, collectionID int64, deviceIdentifiers []string, slotAssignments []*pb.RackSlot, finalSiteID *int64, siteChanged bool) (rackCascadeOutcome, error) {
 	var out rackCascadeOutcome
 	if _, err := s.collectionStore.RemoveAllDevicesFromCollection(ctx, orgID, collectionID); err != nil {
 		return out, err
 	}
 
+	// Cascade fires when EITHER:
+	//   * the rack has a stamped site_id — final members must align to it
+	//     (a normal rack edit / slot save on a site-stamped rack), OR
+	//   * the rack's site_id JUST transitioned (siteChanged) — even to
+	//     NULL, the stayers + new members must follow the rack to NULL.
+	//
+	// Both conditions false → the rack was already site-less and stayed
+	// site-less. A cascade with finalSiteID == nil under IS DISTINCT FROM
+	// would silently NULL any direct device.site_id assignments
+	// (ReassignDevicesToSite, other-rack legacy state), which is wrong:
+	// a site-less rack makes no implicit claim on member sites.
+	cascadeFires := finalSiteID != nil || siteChanged
+
 	if len(deviceIdentifiers) > 0 {
 		if _, err := s.collectionStore.AddDevicesToCollection(ctx, orgID, collectionID, deviceIdentifiers); err != nil {
 			return out, err
 		}
-		// Capture per-device priors AFTER membership replace so the
-		// audit reflects the final member set. Cascade rewrites only
-		// devices whose current site_id differs from finalSiteID
-		// (IS DISTINCT FROM); the audit lists only those.
-		priors, err := s.collectionStore.GetDeviceSiteIDsByMembership(ctx, collectionID, orgID)
-		if err != nil {
-			return out, err
+		if cascadeFires {
+			// Capture per-device priors AFTER membership replace so the
+			// audit reflects the final member set. Cascade rewrites only
+			// devices whose current site_id differs from finalSiteID
+			// (IS DISTINCT FROM); the audit lists only those.
+			priors, err := s.collectionStore.GetDeviceSiteIDsByMembership(ctx, collectionID, orgID)
+			if err != nil {
+				return out, err
+			}
+			out.deviceSiteChanges, out.totalAffected = buildDeviceSiteChanges(priors, finalSiteID)
+			n, err := s.collectionStore.CascadeRackDeviceSites(ctx, collectionID, orgID, finalSiteID)
+			if err != nil {
+				return out, err
+			}
+			out.cascadeCount = n
 		}
-		out.deviceSiteChanges, out.totalAffected = buildDeviceSiteChanges(priors, finalSiteID)
-		n, err := s.collectionStore.CascadeRackDeviceSites(ctx, collectionID, orgID, finalSiteID)
-		if err != nil {
-			return out, err
-		}
-		out.cascadeCount = n
 	}
 
 	// Clear all existing slot positions, then set the new ones. Slot
