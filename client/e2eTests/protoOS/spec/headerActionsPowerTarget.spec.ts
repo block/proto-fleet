@@ -1,5 +1,6 @@
 import type { APIRequestContext, Page } from "@playwright/test";
 import { test } from "../fixtures/pageFixtures";
+import type { MiningTarget, MiningTargetResponse } from "@/protoOS/api/generatedApi";
 
 function chooseCustomPowerTargetWatts({
   currentTargetWatts,
@@ -34,6 +35,7 @@ function chooseCustomPowerTargetWatts({
       candidate >= minTargetWatts &&
       candidate <= maxTargetWatts &&
       candidate !== currentTargetWatts &&
+      candidate !== minTargetWatts &&
       candidate !== defaultTargetWatts &&
       candidate !== maxTargetWatts,
   );
@@ -139,19 +141,37 @@ async function getMiningTargetState(request: APIRequestContext, getAccessToken: 
 
   test.expect(response.status()).toBe(200);
 
-  const responseBody = (await response.json()) as {
-    default_power_target_watts?: number;
-    power_target_min_watts?: number;
-    power_target_max_watts?: number;
-    power_target_watts?: number;
-  };
+  const responseBody = (await response.json()) as MiningTargetResponse;
 
   return {
     defaultTargetWatts: responseBody.default_power_target_watts,
     minTargetWatts: responseBody.power_target_min_watts,
     maxTargetWatts: responseBody.power_target_max_watts,
     currentTargetWatts: responseBody.power_target_watts,
+    performanceMode: responseBody.performance_mode,
   };
+}
+
+async function restoreMiningTargetState({
+  request,
+  accessToken,
+  miningTargetState,
+}: {
+  request: APIRequestContext;
+  accessToken: string;
+  miningTargetState: { currentTargetWatts?: number; performanceMode?: MiningTarget["performance_mode"] };
+}) {
+  const response = await request.put("/api/v1/mining/target", {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+    data: {
+      performance_mode: miningTargetState.performanceMode,
+      power_target_watts: miningTargetState.currentTargetWatts,
+    } satisfies MiningTarget,
+  });
+
+  test.expect(response.status()).toBe(200);
 }
 
 test.describe("ProtoOS header actions and power target", () => {
@@ -201,36 +221,46 @@ test.describe("ProtoOS header actions and power target", () => {
   });
 
   test("Power target custom value applies and persists after reload", async ({ headerComponent, page, request }) => {
-    const miningTargetState = await getMiningTargetState(request, () => getAuthAccessToken(page));
+    const accessToken = await getAuthAccessToken(page);
+    const miningTargetState = await getMiningTargetState(request, () => Promise.resolve(accessToken));
     const customTargetWatts = chooseCustomPowerTargetWatts(miningTargetState);
     const customTargetKw = customTargetWatts / 1000;
-    const requestPromise = page.waitForRequest(
-      (request) => request.method() === "PUT" && request.url().includes("/api/v1/mining/target"),
-    );
-    const responsePromise = page.waitForResponse(
-      (response) => response.request().method() === "PUT" && response.url().includes("/api/v1/mining/target"),
-    );
 
-    await test.step("Apply a custom power target", async () => {
-      await headerComponent.openPowerTargetPopover();
-      await headerComponent.clickCustomPowerTargetMode();
-      await headerComponent.inputCustomPowerTargetKw(customTargetKw);
-      await headerComponent.clickApplyPowerTarget();
-    });
+    try {
+      const requestPromise = page.waitForRequest(
+        (request) => request.method() === "PUT" && request.url().includes("/api/v1/mining/target"),
+      );
+      const responsePromise = page.waitForResponse(
+        (response) => response.request().method() === "PUT" && response.url().includes("/api/v1/mining/target"),
+      );
 
-    await test.step("Validate the update request and widget text", async () => {
-      const request = await requestPromise;
-      const response = await responsePromise;
-      const requestBody = request.postDataJSON();
+      await test.step("Apply a custom power target", async () => {
+        await headerComponent.openPowerTargetPopover();
+        await headerComponent.clickCustomPowerTargetMode();
+        await headerComponent.inputCustomPowerTargetKw(customTargetKw);
+        await headerComponent.clickApplyPowerTarget();
+      });
 
-      test.expect(requestBody.power_target_watts).toBe(customTargetWatts);
-      test.expect(response.status()).toBe(200);
-      await headerComponent.validatePowerTargetWidgetText(formatPowerTargetWidgetText(customTargetWatts));
-    });
+      await test.step("Validate the update request and widget text", async () => {
+        const request = await requestPromise;
+        const response = await responsePromise;
+        const requestBody = request.postDataJSON();
 
-    await test.step("Reload and validate the custom target persists", async () => {
-      await page.reload();
-      await headerComponent.validatePowerTargetWidgetText(formatPowerTargetWidgetText(customTargetWatts));
-    });
+        test.expect(requestBody.power_target_watts).toBe(customTargetWatts);
+        test.expect(response.status()).toBe(200);
+        await headerComponent.validatePowerTargetWidgetText(formatPowerTargetWidgetText(customTargetWatts));
+      });
+
+      await test.step("Reload and validate the custom target persists", async () => {
+        await page.reload();
+        await headerComponent.validatePowerTargetWidgetText(formatPowerTargetWidgetText(customTargetWatts));
+      });
+    } finally {
+      await restoreMiningTargetState({
+        request,
+        accessToken,
+        miningTargetState,
+      });
+    }
   });
 });
