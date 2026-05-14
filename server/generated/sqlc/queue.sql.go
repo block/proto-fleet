@@ -65,8 +65,11 @@ func (q *Queries) CreateQueueMessage(ctx context.Context, arg CreateQueueMessage
 }
 
 const getMessagesToProcess = `-- name: GetMessagesToProcess :many
-SELECT m.id, m.command_batch_log_uuid, m.device_id, m.command_type, m.status, m.retry_count, m.error_info, m.payload, m.created_at, m.updated_at
+SELECT m.id, m.command_batch_log_uuid, m.device_id, m.command_type, m.status,
+       m.retry_count, m.error_info, m.payload, m.created_at, m.updated_at,
+       d.org_id
 FROM queue_message m
+JOIN device d ON m.device_id = d.id
 WHERE m.status = 'PENDING'
   AND m.retry_count < $1
   AND NOT EXISTS (
@@ -85,15 +88,29 @@ type GetMessagesToProcessParams struct {
 	Limit      int32
 }
 
-func (q *Queries) GetMessagesToProcess(ctx context.Context, arg GetMessagesToProcessParams) ([]QueueMessage, error) {
+type GetMessagesToProcessRow struct {
+	ID                  int64
+	CommandBatchLogUuid string
+	DeviceID            int64
+	CommandType         string
+	Status              QueueStatusEnum
+	RetryCount          int32
+	ErrorInfo           sql.NullString
+	Payload             pqtype.NullRawMessage
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	OrgID               int64
+}
+
+func (q *Queries) GetMessagesToProcess(ctx context.Context, arg GetMessagesToProcessParams) ([]GetMessagesToProcessRow, error) {
 	rows, err := q.query(ctx, q.getMessagesToProcessStmt, getMessagesToProcess, arg.RetryCount, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []QueueMessage
+	var items []GetMessagesToProcessRow
 	for rows.Next() {
-		var i QueueMessage
+		var i GetMessagesToProcessRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.CommandBatchLogUuid,
@@ -105,6 +122,7 @@ func (q *Queries) GetMessagesToProcess(ctx context.Context, arg GetMessagesToPro
 			&i.Payload,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.OrgID,
 		); err != nil {
 			return nil, err
 		}

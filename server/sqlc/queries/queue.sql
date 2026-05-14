@@ -50,8 +50,11 @@ WHERE id = $1
   AND status = 'PENDING';
 
 -- name: GetMessagesToProcess :many
-SELECT m.*
+SELECT m.id, m.command_batch_log_uuid, m.device_id, m.command_type, m.status,
+       m.retry_count, m.error_info, m.payload, m.created_at, m.updated_at,
+       d.org_id
 FROM queue_message m
+JOIN device d ON m.device_id = d.id
 WHERE m.status = 'PENDING'
   AND m.retry_count < $1
   AND NOT EXISTS (

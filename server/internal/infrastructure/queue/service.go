@@ -84,6 +84,7 @@ func (d DatabaseMessageQueue) Dequeue(ctx context.Context) ([]Message, error) {
 				DeviceID:     dbMsg.DeviceID,
 				Payload:      dbMsg.Payload.RawMessage,
 				RetryCount:   dbMsg.RetryCount,
+				OrgID:        dbMsg.OrgID,
 			})
 		}
 

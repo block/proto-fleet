@@ -400,6 +400,10 @@ func TestTelemetryService_DataStoreInteraction(t *testing.T) {
 					mockMinerGetter.EXPECT().
 						GetMinerFromDeviceIdentifier(gomock.Any(), scenario.device.ID).
 						Return(nil, errors.New("discovery error"))
+					mockDeviceStore.EXPECT().
+						GetDeviceOrgAndDriver(gomock.Any(), scenario.device.ID).
+						Return(int64(0), "", nil).
+						AnyTimes()
 					continue
 				}
 				mockMiner := minerMocks.NewMockMiner(ctrl)
@@ -2702,6 +2706,85 @@ func TestStatusPollingRoutine_MixedDevices(t *testing.T) {
 	assert.Contains(t, enqueued, failedCachedActive, "failed device must not be skipped even if cached ACTIVE")
 	assert.NotContains(t, enqueued, inFlightDevice, "in-flight device should be skipped")
 	assert.Contains(t, enqueued, unseenDevice, "unseen device should be polled")
+}
+
+// TestFetchStatusFromMiner_ConnectionErrorResolvesOrgFromDeviceStore confirms
+// that when miner construction itself fails with a connection error (no handle
+// returned), the offline status carries the trusted (org_id, driver_name)
+// resolved from the device store. Without this fallback, fleet_device_online
+// for unreachable devices would be emitted without organization_id and miss
+// org-scoped alert routing.
+func TestFetchStatusFromMiner_ConnectionErrorResolvesOrgFromDeviceStore(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+
+	deviceID := models.DeviceIdentifier("offline-constructor-fail")
+	connErr := fleeterror.NewConnectionError(string(deviceID), errors.New("dial tcp: i/o timeout"))
+
+	mockMinerGetter.EXPECT().
+		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
+		Return(nil, connErr)
+
+	mockDeviceStore.EXPECT().
+		GetDeviceOrgAndDriver(gomock.Any(), deviceID).
+		Return(int64(42), "antminer", nil)
+
+	service := NewTelemetryService(Config{
+		StalenessThreshold: 1 * time.Minute,
+		FetchInterval:      10 * time.Second,
+		ConcurrencyLimit:   5,
+	}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+
+	status, orgID, driverName, err := service.fetchStatusFromMiner(t.Context(), deviceID)
+
+	require.NoError(t, err)
+	assert.Equal(t, mm.MinerStatusOffline, status)
+	assert.Equal(t, int64(42), orgID, "trusted org_id from device store must label the offline sample")
+	assert.Equal(t, "antminer", driverName, "trusted driver_name from device store must label the offline sample")
+}
+
+// TestFetchStatusFromMiner_ConnectionErrorWithMissingDeviceRowDowngradesGracefully
+// covers the rare case where the trusted device store also can't resolve the
+// device (e.g., row was deleted concurrently). The offline status is still
+// emitted; the metric just ends up unscoped at org=0/"" — which matches the
+// pre-fix behavior for every connection-error device.
+func TestFetchStatusFromMiner_ConnectionErrorWithMissingDeviceRowDowngradesGracefully(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+
+	deviceID := models.DeviceIdentifier("offline-gone")
+	connErr := fleeterror.NewConnectionError(string(deviceID), errors.New("connection refused"))
+
+	mockMinerGetter.EXPECT().
+		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
+		Return(nil, connErr)
+
+	mockDeviceStore.EXPECT().
+		GetDeviceOrgAndDriver(gomock.Any(), deviceID).
+		Return(int64(0), "", fleeterror.NewNotFoundErrorf("device not found: %s", deviceID))
+
+	service := NewTelemetryService(Config{
+		StalenessThreshold: 1 * time.Minute,
+		FetchInterval:      10 * time.Second,
+		ConcurrencyLimit:   5,
+	}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+
+	status, orgID, driverName, err := service.fetchStatusFromMiner(t.Context(), deviceID)
+
+	require.NoError(t, err)
+	assert.Equal(t, mm.MinerStatusOffline, status)
+	assert.Zero(t, orgID)
+	assert.Empty(t, driverName)
 }
 
 // Tests for fetchStatusFromMiner auth error → InvalidateMiner

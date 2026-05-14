@@ -923,13 +923,14 @@ func healthStatusToMinerStatus(health modelsV2.HealthStatus) (mm.MinerStatus, bo
 }
 
 // fetchStatusFromMiner gets the status from a miner device.
-// Connection errors are treated as a valid "offline" state and return (MinerStatusOffline, 0, "", nil).
+// Connection errors are treated as a valid "offline" state and return (MinerStatusOffline, orgID, driver, nil).
 // Only non-connection errors (e.g., authentication failures) return an error.
 func (s *TelemetryService) fetchStatusFromMiner(ctx context.Context, deviceID models.DeviceIdentifier) (mm.MinerStatus, int64, string, error) {
 	miner, err := s.minerManager.GetMinerFromDeviceIdentifier(ctx, deviceID)
 	if err != nil {
 		if fleeterror.IsConnectionError(err) {
-			return mm.MinerStatusOffline, 0, "", nil
+			orgID, driverName := s.resolveTrustedDeviceMetadata(ctx, deviceID)
+			return mm.MinerStatusOffline, orgID, driverName, nil
 		}
 		if fleeterror.IsAuthenticationError(err) {
 			s.minerManager.InvalidateMiner(deviceID)
@@ -950,6 +951,19 @@ func (s *TelemetryService) fetchStatusFromMiner(ctx context.Context, deviceID mo
 	return status, orgID, driverName, nil
 }
 
+// resolveTrustedDeviceMetadata reads (org_id, driver_name) from the device store.
+// Errors are logged at debug and silently downgrade to (0, "") — the caller is already on a
+// degraded path and a missing fallback should not propagate further.
+func (s *TelemetryService) resolveTrustedDeviceMetadata(ctx context.Context, deviceID models.DeviceIdentifier) (int64, string) {
+	orgID, driverName, err := s.deviceStore.GetDeviceOrgAndDriver(ctx, deviceID)
+	if err != nil {
+		slog.Debug("failed to resolve trusted org/driver for device",
+			"device_id", deviceID, "error", err)
+		return 0, ""
+	}
+	return orgID, driverName
+}
+
 // GetTelemetryFromDevice fetches telemetry data from a device and stores it.
 // Returns the derived MinerStatus, whether it is unambiguous, the resolved org ID,
 // the driver name, whether the underlying metrics fetch (miner.GetDeviceMetrics)
@@ -961,7 +975,8 @@ func (s *TelemetryService) GetTelemetryFromDevice(ctx context.Context, device mo
 
 	result, err := s.fetchTelemetryFromMiner(fetchCtx, device)
 	if err != nil {
-		return mm.MinerStatusUnknown, false, 0, "", false, fmt.Errorf("failed to get miner from device ID %s: %w", device.ID, err)
+		orgID, driverName := s.resolveTrustedDeviceMetadata(ctx, device.ID)
+		return mm.MinerStatusUnknown, false, orgID, driverName, false, fmt.Errorf("failed to get miner from device ID %s: %w", device.ID, err)
 	}
 
 	pollSuccess := result.metricsErr == nil

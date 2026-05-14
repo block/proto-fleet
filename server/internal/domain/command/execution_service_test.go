@@ -344,7 +344,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 		assert.NoError(t, err)
 	})
 
-	t.Run("GetMiner failure returns error", func(t *testing.T) {
+	t.Run("GetMiner failure returns error and falls back to message OrgID", func(t *testing.T) {
 		// Arrange
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
@@ -357,6 +357,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 			BatchLogUUID: "batch-101",
 			CommandType:  commandtype.Reboot,
 			DeviceID:     45,
+			OrgID:        77,
 		}
 
 		mockMinerGetter.EXPECT().
@@ -370,11 +371,12 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 		}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
 
 		// Act
-		_, err := svc.executeCommandOnDevice(t.Context(), commandtype.Reboot, message)
+		orgID, err := svc.executeCommandOnDevice(t.Context(), commandtype.Reboot, message)
 
 		// Assert
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "error getting miner connection info")
+		assert.Equal(t, int64(77), orgID, "executeCommandOnDevice should return message.OrgID when miner construction fails")
 	})
 
 	t.Run("Curtail dispatches with payload-derived level", func(t *testing.T) {

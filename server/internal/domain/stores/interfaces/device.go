@@ -137,6 +137,7 @@ type DeviceStore interface {
 	GetTotalPairedDevices(ctx context.Context, orgID int64, filter *MinerFilter) (int64, error)
 	GetTotalDevicesPendingAuth(ctx context.Context, orgID int64) (int64, error)
 	GetAllPairedDeviceIdentifiers(ctx context.Context) ([]models.DeviceIdentifier, error)
+	GetDeviceOrgAndDriver(ctx context.Context, deviceIdentifier models.DeviceIdentifier) (int64, string, error)
 	GetMinerStateCounts(ctx context.Context, orgID int64, filter *MinerFilter) (*tm.MinerStateCounts, error)
 	GetAvailableModels(ctx context.Context, orgID int64) ([]string, error)
 	GetAvailableFirmwareVersions(ctx context.Context, orgID int64) ([]string, error)

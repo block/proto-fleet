@@ -341,6 +341,17 @@ func (s *SQLDeviceStore) GetAllPairedDeviceIdentifiers(ctx context.Context) ([]m
 	return deviceIDs, nil
 }
 
+// GetDeviceOrgAndDriver returns the trusted (org_id, driver_name) for a paired device.
+func (s *SQLDeviceStore) GetDeviceOrgAndDriver(ctx context.Context, deviceIdentifier models.DeviceIdentifier) (int64, string, error) {
+	row, err := s.GetQueries(ctx).GetDeviceWithCredentialsAndIPByDeviceIdentifier(ctx, string(deviceIdentifier))
+	if err != nil {
+		return 0, "", handleQueryError(err,
+			fmt.Sprintf("device not found with identifier=%s", deviceIdentifier),
+			fmt.Sprintf("failed to resolve org/driver for device identifier=%s", deviceIdentifier))
+	}
+	return row.OrgID, row.DriverName, nil
+}
+
 // GetMinerStateCounts returns counts of miners by operational state.
 // Bucket rules live in CountMinersByState in server/sqlc/queries/device.sql
 // and mirror MinerStatus.tsx (auth-needed overrides sleeping).

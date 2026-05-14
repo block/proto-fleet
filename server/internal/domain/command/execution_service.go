@@ -440,13 +440,12 @@ func (es *ExecutionService) markQueueMessageStatus(ctx context.Context, q *sqlc.
 }
 
 // executeCommandOnDevice runs the command and returns the resolved owning org
-// id (0 if the miner lookup failed before metadata could be read) along with
-// the execution error (if any). It does NOT mark queue message status — the
-// caller is responsible for that.
+// id along with the execution error (if any). It does NOT mark queue message
+// status — the caller is responsible for that.
 func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandType commandtype.Type, message queue.Message) (int64, error) {
 	minerInfo, err := es.minerService.GetMiner(ctx, message.DeviceID)
 	if err != nil {
-		return 0, fleeterror.NewInternalErrorf("error getting miner connection info for deviceID: %d, %v", message.DeviceID, err)
+		return message.OrgID, fleeterror.NewInternalErrorf("error getting miner connection info for deviceID: %d, %v", message.DeviceID, err)
 	}
 	orgID := minerInfo.GetOrgID()
 
