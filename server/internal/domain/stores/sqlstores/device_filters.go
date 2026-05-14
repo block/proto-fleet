@@ -34,11 +34,7 @@ type minerFilterParams struct {
 	firmwareVersionValues     []string
 	zonesFilter               sql.NullString
 	zoneValues                []string
-	// siteIDsFilter / includeUnassigned drive the site filter combos.
-	// siteIDsFilter alone → match listed sites only.
-	// includeUnassigned alone → match site_id IS NULL only.
-	// Both → OR of listed sites with site_id IS NULL.
-	// Neither → no site filter applied.
+	// Site filter: site_ids OR (site_id IS NULL when includeUnassigned).
 	siteIDsFilter     sql.NullString
 	siteIDValues      []int64
 	includeUnassigned bool
@@ -136,9 +132,6 @@ func buildMinerFilterParams(filter *stores.MinerFilter) minerFilterParams {
 		fp.zoneValues = filter.Zones
 	}
 
-	// Site filter — split site_ids and include_unassigned so the filter
-	// shape stays clean through proto generation, URL params, and saved
-	// views. See plan §"device/" filter notes.
 	if len(filter.SiteIDs) > 0 {
 		fp.siteIDsFilter = sql.NullString{Valid: true}
 		fp.siteIDValues = filter.SiteIDs
@@ -325,9 +318,6 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 		argNum++
 	}
 
-	// Site filter: OR of (site_id IN listed sites) and (site_id IS NULL when
-	// include_unassigned). Either or both may be set; nothing emitted when
-	// both are empty (no site filter).
 	if fp.siteIDsFilter.Valid || fp.includeUnassigned {
 		sb.WriteString(" AND (")
 		first := true

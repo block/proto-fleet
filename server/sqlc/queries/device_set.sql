@@ -4,14 +4,9 @@ VALUES ($1, $2, $3, $4)
 RETURNING id, org_id, type, label, description, created_at, updated_at;
 
 -- name: CreateRackExtension :exec
--- org_id is denormalized onto device_set_rack (see migration 000046) so
--- the building FK can be composite-keyed. The SELECT pulls it from
--- device_set so the rack inherits the parent's org_id; caller's $7 must
--- match (otherwise the WHERE filters the row out and INSERT inserts 0
--- rows). Aliases qualify column refs since both tables now have org_id.
--- site_id / building_id are nullable: caller passes the resolved
--- placement (with building.site_id == rack.site_id when building_id is
--- set), or both NULL for unassigned racks.
+-- org_id is denormalized onto device_set_rack so the building FK can be
+-- composite-keyed; inherit it from device_set so the caller's org_id
+-- must match. site_id / building_id are NULL for unassigned racks.
 INSERT INTO device_set_rack (device_set_id, org_id, zone, rows, columns, order_index, cooling_type, site_id, building_id)
 SELECT ds.id, ds.org_id, sqlc.arg('zone'), sqlc.arg('rows'), sqlc.arg('columns'), sqlc.arg('order_index'), sqlc.arg('cooling_type'), sqlc.narg('site_id')::bigint, sqlc.narg('building_id')::bigint
 FROM device_set ds
@@ -32,10 +27,8 @@ JOIN device_set ds ON dsr.device_set_id = ds.id
 WHERE dsr.device_set_id = $1 AND ds.org_id = $2 AND ds.deleted_at IS NULL;
 
 -- name: LockRackPlacementForWrite :one
--- Acquires a row-level write lock on the device_set + rack rows for a
--- rack-edit transaction and returns the rack's current placement +
--- zone. Lock order matches building/site -> device_set -> device_set_rack
--- to keep the cascade tx deadlock-free.
+-- Locks device_set + rack rows FOR UPDATE and returns current placement.
+-- Must run after the site/building locks (canonical lock order).
 SELECT dsr.site_id, dsr.building_id, dsr.zone
 FROM device_set_rack dsr
 JOIN device_set ds ON dsr.device_set_id = ds.id
@@ -43,34 +36,15 @@ WHERE dsr.device_set_id = $1 AND ds.org_id = $2 AND ds.deleted_at IS NULL
 FOR UPDATE;
 
 -- name: GetBuildingSite :one
--- Returns the building's parent site_id so callers can derive a rack's
--- effective site when only building_id is supplied. Soft-deleted
--- buildings are excluded — they cannot accept new rack assignments.
+-- Returns the building's parent site_id, excluding soft-deleted rows.
 SELECT site_id
 FROM building
 WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL;
 
 -- name: UnassignDeviceSitesByRack :execrows
--- Clears device.site_id (sets to NULL) for paired members of a rack
--- whose site_id matches the rack's stamped site. Called by
--- DeleteCollection in the same transaction as the rack soft-delete so
--- devices don't keep pointing at a site they entered via the deleted
--- rack. Mirrors AssignBuildingToSite(target=NULL) cascade semantics:
--- the device lands in the Unassigned bucket, the operator can
--- explicitly reassign later.
---
--- Restrictions:
---   * If the rack has no stamped site (device_set_rack.site_id IS
---     NULL) this UPDATE is a no-op — the rack made no implicit site
---     claim, so there's nothing to undo. A device directly assigned
---     to a site via ReassignDevicesToSite keeps its direct
---     assignment.
---   * Only devices whose current site_id matches the rack's site_id
---     are cleared. Devices that diverged from the rack's site (a
---     state that shouldn't exist under the cross-collection
---     invariant, but might via Foreman import or migration backfill)
---     are left alone — clearing them could destroy a direct
---     assignment the operator made through some other path.
+-- Nulls device.site_id for paired rack members whose site_id matches
+-- the rack's stamped site. No-op when the rack has no site; preserves
+-- direct assignments where device.site_id has diverged from the rack.
 UPDATE device d
 SET site_id = NULL,
     updated_at = CURRENT_TIMESTAMP
@@ -85,11 +59,8 @@ WHERE dsm.device_set_id = $1
   AND d.site_id IS NOT DISTINCT FROM dsr.site_id;
 
 -- name: CascadeRackDeviceSites :execrows
--- Rewrites device.site_id to the rack's new site for every paired
--- device that is currently a member of the rack. Used by the rack
--- edit/move cascade so descendant devices follow their rack across
--- building / site boundaries. NULL is a valid target_site_id (rack
--- moves to fully unassigned).
+-- Rewrites device.site_id to target_site_id for every paired member of
+-- the rack. NULL target unassigns. IS DISTINCT FROM skips no-op rows.
 UPDATE device d
 SET site_id = sqlc.narg('target_site_id')::bigint,
     updated_at = CURRENT_TIMESTAMP
@@ -102,9 +73,8 @@ WHERE dsm.device_set_id = $1
   AND d.site_id IS DISTINCT FROM sqlc.narg('target_site_id')::bigint;
 
 -- name: GetDeviceSiteIDsByMembership :many
--- Returns the device_identifier + current site_id for every device that
--- belongs to the rack. Used by the cascade flow to capture each
--- device's prior site in the activity-log metadata before we rewrite.
+-- Returns device_identifier + current site_id for every rack member;
+-- used to capture prior sites in the cascade activity-log metadata.
 SELECT d.device_identifier, d.site_id
 FROM device_set_membership dsm
 JOIN device d ON dsm.device_id = d.id
@@ -135,11 +105,8 @@ WHERE device_set_id = $6
   AND EXISTS (SELECT 1 FROM device_set ds WHERE ds.id = $6 AND ds.org_id = $7 AND ds.deleted_at IS NULL);
 
 -- name: UpdateRackPlacement :exec
--- Sets the rack's site_id, building_id, and zone together so the rack
--- edit/move cascade can update placement atomically with the descendant
--- device site rewrite. NULL values are accepted for site_id and
--- building_id (fully-unassigned racks); zone is cleared by the caller
--- via an empty string when the rack crosses a building boundary.
+-- Sets the rack's site_id, building_id, and zone atomically. NULL
+-- values unassign placement; caller clears zone via empty string.
 UPDATE device_set_rack
 SET site_id = sqlc.narg('site_id')::bigint,
     building_id = sqlc.narg('building_id')::bigint,
@@ -180,11 +147,8 @@ WHERE d.device_identifier = ANY(@device_identifiers::text[])
 ON CONFLICT (device_set_id, device_id) DO NOTHING;
 
 -- name: GetAddedDeviceSiteConflicts :many
--- Returns prior site_id for devices being added to a rack whose current
--- site_id differs from the target rack's site_id. Issued before the
--- cascade UPDATE so callers can stamp the prior site on the activity-log
--- row. Returns the empty set for group targets (rack.site_id IS NULL)
--- or when no devices need rewriting.
+-- Returns prior + target site_id for devices being added to a rack
+-- where they differ. Empty for racks without a stamped site.
 SELECT d.device_identifier, d.site_id AS prior_site_id, dsr.site_id AS target_site_id
 FROM device d
 JOIN device_set ds ON ds.id = $2 AND ds.org_id = $1 AND ds.deleted_at IS NULL
@@ -197,11 +161,8 @@ WHERE d.device_identifier = ANY(@device_identifiers::text[])
   AND d.site_id IS DISTINCT FROM dsr.site_id;
 
 -- name: CascadeAddedDeviceSites :execrows
--- Rewrites device.site_id to the rack's site for every paired device
--- in the supplied identifier list whose current site differs from the
--- rack's site_id. Executes as a no-op when the rack has no site or
--- when the target is a group set (ds.type != 'rack'). Mirrors the
--- cascade semantics of AssignBuildingToSite for the add-to-rack path.
+-- Rewrites device.site_id to rack.site_id for added rack members
+-- whose current site differs. No-op for groups or site-less racks.
 UPDATE device d
 SET site_id = dsr.site_id,
     updated_at = CURRENT_TIMESTAMP

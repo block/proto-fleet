@@ -46,16 +46,10 @@ const minerSelectColumns = `SELECT
 // minerFromJoins contains the FROM clause and LEFT JOINs for miner state queries.
 // Parameter: $1 = org_id (used in device join condition)
 //
-// site join invariant: the site LEFT JOIN filters site.deleted_at IS NULL,
-// so a soft-deleted site row produces a missed match. Combined with PR B's
-// DeleteSite step 4 (UnassignDevicesFromSite — sets every dependent
-// device.site_id to NULL inside the same tx as the site soft-delete) and
-// every cascade write path's LockSiteForWrite (returns NotFound for
-// soft-deleted sites, blocking new writes), no live device.site_id can
-// reference a soft-deleted site. The miss is therefore unreachable in
-// practice today. New writers of device.site_id must preserve this
-// invariant (lock site row, abort on soft-deleted) or rerun the cascade.
-// Verified by TestDeleteSite_ClearsAllDeviceSitePointers (sqlstores).
+// The site LEFT JOIN filters site.deleted_at IS NULL. DeleteSite null-stamps
+// dependent device.site_id rows in the same tx, and LockSiteForWrite rejects
+// soft-deleted sites — so a live device.site_id pointing at a soft-deleted
+// site is unreachable. Writers of device.site_id must preserve this.
 const minerFromJoins = `
 FROM discovered_device
 LEFT JOIN device ON discovered_device.id = device.discovered_device_id

@@ -63,11 +63,8 @@ type CascadeAddedDeviceSitesParams struct {
 	DeviceIdentifiers []string
 }
 
-// Rewrites device.site_id to the rack's site for every paired device
-// in the supplied identifier list whose current site differs from the
-// rack's site_id. Executes as a no-op when the rack has no site or
-// when the target is a group set (ds.type != 'rack'). Mirrors the
-// cascade semantics of AssignBuildingToSite for the add-to-rack path.
+// Rewrites device.site_id to rack.site_id for added rack members
+// whose current site differs. No-op for groups or site-less racks.
 func (q *Queries) CascadeAddedDeviceSites(ctx context.Context, arg CascadeAddedDeviceSitesParams) (int64, error) {
 	result, err := q.exec(ctx, q.cascadeAddedDeviceSitesStmt, cascadeAddedDeviceSites, arg.OrgID, arg.ID, pq.Array(arg.DeviceIdentifiers))
 	if err != nil {
@@ -95,11 +92,8 @@ type CascadeRackDeviceSitesParams struct {
 	TargetSiteID sql.NullInt64
 }
 
-// Rewrites device.site_id to the rack's new site for every paired
-// device that is currently a member of the rack. Used by the rack
-// edit/move cascade so descendant devices follow their rack across
-// building / site boundaries. NULL is a valid target_site_id (rack
-// moves to fully unassigned).
+// Rewrites device.site_id to target_site_id for every paired member of
+// the rack. NULL target unassigns. IS DISTINCT FROM skips no-op rows.
 func (q *Queries) CascadeRackDeviceSites(ctx context.Context, arg CascadeRackDeviceSitesParams) (int64, error) {
 	result, err := q.exec(ctx, q.cascadeRackDeviceSitesStmt, cascadeRackDeviceSites, arg.DeviceSetID, arg.OrgID, arg.TargetSiteID)
 	if err != nil {
@@ -192,14 +186,9 @@ type CreateRackExtensionParams struct {
 	OrgID       int64
 }
 
-// org_id is denormalized onto device_set_rack (see migration 000046) so
-// the building FK can be composite-keyed. The SELECT pulls it from
-// device_set so the rack inherits the parent's org_id; caller's $7 must
-// match (otherwise the WHERE filters the row out and INSERT inserts 0
-// rows). Aliases qualify column refs since both tables now have org_id.
-// site_id / building_id are nullable: caller passes the resolved
-// placement (with building.site_id == rack.site_id when building_id is
-// set), or both NULL for unassigned racks.
+// org_id is denormalized onto device_set_rack so the building FK can be
+// composite-keyed; inherit it from device_set so the caller's org_id
+// must match. site_id / building_id are NULL for unassigned racks.
 func (q *Queries) CreateRackExtension(ctx context.Context, arg CreateRackExtensionParams) error {
 	_, err := q.exec(ctx, q.createRackExtensionStmt, createRackExtension,
 		arg.Zone,
@@ -259,11 +248,8 @@ type GetAddedDeviceSiteConflictsRow struct {
 	TargetSiteID     sql.NullInt64
 }
 
-// Returns prior site_id for devices being added to a rack whose current
-// site_id differs from the target rack's site_id. Issued before the
-// cascade UPDATE so callers can stamp the prior site on the activity-log
-// row. Returns the empty set for group targets (rack.site_id IS NULL)
-// or when no devices need rewriting.
+// Returns prior + target site_id for devices being added to a rack
+// where they differ. Empty for racks without a stamped site.
 func (q *Queries) GetAddedDeviceSiteConflicts(ctx context.Context, arg GetAddedDeviceSiteConflictsParams) ([]GetAddedDeviceSiteConflictsRow, error) {
 	rows, err := q.query(ctx, q.getAddedDeviceSiteConflictsStmt, getAddedDeviceSiteConflicts, arg.OrgID, arg.ID, pq.Array(arg.DeviceIdentifiers))
 	if err != nil {
@@ -298,9 +284,7 @@ type GetBuildingSiteParams struct {
 	OrgID int64
 }
 
-// Returns the building's parent site_id so callers can derive a rack's
-// effective site when only building_id is supplied. Soft-deleted
-// buildings are excluded — they cannot accept new rack assignments.
+// Returns the building's parent site_id, excluding soft-deleted rows.
 func (q *Queries) GetBuildingSite(ctx context.Context, arg GetBuildingSiteParams) (sql.NullInt64, error) {
 	row := q.queryRow(ctx, q.getBuildingSiteStmt, getBuildingSite, arg.ID, arg.OrgID)
 	var site_id sql.NullInt64
@@ -576,9 +560,8 @@ type GetDeviceSiteIDsByMembershipRow struct {
 	SiteID           sql.NullInt64
 }
 
-// Returns the device_identifier + current site_id for every device that
-// belongs to the rack. Used by the cascade flow to capture each
-// device's prior site in the activity-log metadata before we rewrite.
+// Returns device_identifier + current site_id for every rack member;
+// used to capture prior sites in the cascade activity-log metadata.
 func (q *Queries) GetDeviceSiteIDsByMembership(ctx context.Context, arg GetDeviceSiteIDsByMembershipParams) ([]GetDeviceSiteIDsByMembershipRow, error) {
 	rows, err := q.query(ctx, q.getDeviceSiteIDsByMembershipStmt, getDeviceSiteIDsByMembership, arg.DeviceSetID, arg.OrgID)
 	if err != nil {
@@ -1069,10 +1052,8 @@ type LockRackPlacementForWriteRow struct {
 	Zone       sql.NullString
 }
 
-// Acquires a row-level write lock on the device_set + rack rows for a
-// rack-edit transaction and returns the rack's current placement +
-// zone. Lock order matches building/site -> device_set -> device_set_rack
-// to keep the cascade tx deadlock-free.
+// Locks device_set + rack rows FOR UPDATE and returns current placement.
+// Must run after the site/building locks (canonical lock order).
 func (q *Queries) LockRackPlacementForWrite(ctx context.Context, arg LockRackPlacementForWriteParams) (LockRackPlacementForWriteRow, error) {
 	row := q.queryRow(ctx, q.lockRackPlacementForWriteStmt, lockRackPlacementForWrite, arg.DeviceSetID, arg.OrgID)
 	var i LockRackPlacementForWriteRow
@@ -1191,26 +1172,9 @@ type UnassignDeviceSitesByRackParams struct {
 	OrgID       int64
 }
 
-// Clears device.site_id (sets to NULL) for paired members of a rack
-// whose site_id matches the rack's stamped site. Called by
-// DeleteCollection in the same transaction as the rack soft-delete so
-// devices don't keep pointing at a site they entered via the deleted
-// rack. Mirrors AssignBuildingToSite(target=NULL) cascade semantics:
-// the device lands in the Unassigned bucket, the operator can
-// explicitly reassign later.
-//
-// Restrictions:
-//   - If the rack has no stamped site (device_set_rack.site_id IS
-//     NULL) this UPDATE is a no-op — the rack made no implicit site
-//     claim, so there's nothing to undo. A device directly assigned
-//     to a site via ReassignDevicesToSite keeps its direct
-//     assignment.
-//   - Only devices whose current site_id matches the rack's site_id
-//     are cleared. Devices that diverged from the rack's site (a
-//     state that shouldn't exist under the cross-collection
-//     invariant, but might via Foreman import or migration backfill)
-//     are left alone — clearing them could destroy a direct
-//     assignment the operator made through some other path.
+// Nulls device.site_id for paired rack members whose site_id matches
+// the rack's stamped site. No-op when the rack has no site; preserves
+// direct assignments where device.site_id has diverged from the rack.
 func (q *Queries) UnassignDeviceSitesByRack(ctx context.Context, arg UnassignDeviceSitesByRackParams) (int64, error) {
 	result, err := q.exec(ctx, q.unassignDeviceSitesByRackStmt, unassignDeviceSitesByRack, arg.DeviceSetID, arg.OrgID)
 	if err != nil {
@@ -1328,11 +1292,8 @@ type UpdateRackPlacementParams struct {
 	OrgID       int64
 }
 
-// Sets the rack's site_id, building_id, and zone together so the rack
-// edit/move cascade can update placement atomically with the descendant
-// device site rewrite. NULL values are accepted for site_id and
-// building_id (fully-unassigned racks); zone is cleared by the caller
-// via an empty string when the rack crosses a building boundary.
+// Sets the rack's site_id, building_id, and zone atomically. NULL
+// values unassign placement; caller clears zone via empty string.
 func (q *Queries) UpdateRackPlacement(ctx context.Context, arg UpdateRackPlacementParams) error {
 	_, err := q.exec(ctx, q.updateRackPlacementStmt, updateRackPlacement,
 		arg.SiteID,
