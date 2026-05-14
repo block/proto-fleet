@@ -162,17 +162,18 @@ func toStartRequest(msg *pb.StartCurtailmentRequest, info *session.Info) (curtai
 		CreatedByUserID:         info.UserID,
 	}
 
-	if !out.AllowUnbounded {
-		// max_duration_seconds=0 is the "use org default" sentinel; leave
-		// nil so Service.Start resolves it. Non-zero values are
-		// bounds-checked rather than silently saturated.
-		if raw := msg.GetMaxDurationSeconds(); raw > 0 {
-			v, err := uint32ToInt32Strict("max_duration_seconds", raw)
-			if err != nil {
-				return curtailment.StartRequest{}, err
-			}
-			out.MaxDurationSeconds = &v
+	// max_duration_seconds=0 is the "use org default" sentinel when
+	// allow_unbounded=false, and "no cap" when allow_unbounded=true. Both
+	// leave MaxDurationSeconds nil. Non-zero values are parsed regardless
+	// of allow_unbounded so the service-level mutual-exclusion check can
+	// fire (a non-zero cap with allow_unbounded=true is a behavioral
+	// mismatch the operator must see, not a silent drop).
+	if raw := msg.GetMaxDurationSeconds(); raw > 0 {
+		v, err := uint32ToInt32Strict("max_duration_seconds", raw)
+		if err != nil {
+			return curtailment.StartRequest{}, err
 		}
+		out.MaxDurationSeconds = &v
 	}
 
 	return out, nil

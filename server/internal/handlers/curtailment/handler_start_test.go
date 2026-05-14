@@ -398,6 +398,39 @@ func TestHandler_StartCurtailment_AllowUnboundedAdminPersistsNullDuration(t *tes
 	assert.Nil(t, store.lastEvent.MaxDurationSeconds)
 }
 
+// TestHandler_StartCurtailment_RejectsAllowUnboundedWithMaxDuration
+// confirms the proto surface surfaces the service-level mutual-exclusion
+// check: allow_unbounded=true with a non-zero max_duration_seconds must
+// fail with InvalidArgument rather than silently dropping the cap.
+func TestHandler_StartCurtailment_RejectsAllowUnboundedWithMaxDuration(t *testing.T) {
+	t.Parallel()
+
+	store := newStartStubStore()
+	store.candidates = []*models.Candidate{
+		miner("a", "ACTIVE", "PAIRED", 6000, 100, 40),
+	}
+	h := NewHandler(curtailment.NewService(store), true)
+
+	ctx := authn.SetInfo(t.Context(), &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: 1,
+		UserID:         9,
+		Role:           "ADMIN",
+	})
+
+	req := validStartRequestBuilder()
+	req.AllowUnbounded = true
+	req.MaxDurationSeconds = 7200
+
+	_, err := h.StartCurtailment(ctx, connect.NewRequest(req))
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeInvalidArgument, fleetErr.GRPCCode)
+	assert.Contains(t, err.Error(), "max_duration_seconds")
+	assert.Zero(t, store.lastEvent.OrgID, "conflicting request must not reach persistence")
+}
+
 // TestHandler_StartCurtailment_RejectsUint32Overflow pins the strict
 // overflow rejection on the four uint32 → int32 fields the translator
 // converts. A value above MaxInt32 must surface as InvalidArgument
