@@ -119,14 +119,18 @@ func (r *RunCmd) runLocked(c *Context, logger *slog.Logger) error {
 	ticker := time.NewTicker(r.HeartbeatInterval)
 	defer ticker.Stop()
 
-	r.tick(ctx, client, st, path, logger)
+	if err := r.tick(ctx, client, st, path, logger); err != nil {
+		return err
+	}
 	for {
 		select {
 		case <-ctx.Done():
 			logger.Info("daemon shutting down", "fleet_node_id", st.FleetNodeID)
 			return nil
 		case <-ticker.C:
-			r.tick(ctx, client, st, path, logger)
+			if err := r.tick(ctx, client, st, path, logger); err != nil {
+				return err
+			}
 		}
 	}
 }
@@ -153,32 +157,53 @@ func (r *RunCmd) refreshAndSave(ctx context.Context, st *fleetnodebootstrap.Stat
 	return nil
 }
 
-func (r *RunCmd) tick(ctx context.Context, client gatewayClient, st *fleetnodebootstrap.State, path string, logger *slog.Logger) {
+// tick runs one heartbeat cycle. A non-nil return signals a permanent
+// condition (server-side credential revoked or fleet_node deleted) that
+// the operator must resolve by re-enrolling; the daemon exits instead of
+// looping forever. Transient errors are logged and tick returns nil so
+// the next tick can retry.
+func (r *RunCmd) tick(ctx context.Context, client gatewayClient, st *fleetnodebootstrap.State, path string, logger *slog.Logger) error {
 	if r.sessionNeedsRefresh(st) {
 		if err := r.refreshAndSave(ctx, st, path, logger); err != nil {
+			if errors.Is(err, fleetnodebootstrap.ErrBeginAuthRejected) {
+				return fmt.Errorf("%w. The server returns Unauthenticated for any of: revoked api_key, identity_pubkey mismatch, expired challenge, or server clock drift. Exiting; re-enroll once the operator-side cause is resolved", fleetnodebootstrap.ErrBeginAuthRejected)
+			}
 			logger.Error("session refresh failed; will retry on next tick", "fleet_node_id", st.FleetNodeID, "err", err)
-			return
+			return nil
 		}
 	}
 
-	if err := r.sendHeartbeat(ctx, client); err != nil {
-		if connect.CodeOf(err) == connect.CodeUnauthenticated {
-			logger.Warn("heartbeat rejected as Unauthenticated; refreshing session and retrying", "fleet_node_id", st.FleetNodeID, "err", err)
-			if refreshErr := r.refreshAndSave(ctx, st, path, logger); refreshErr != nil {
-				logger.Error("post-Unauthenticated refresh failed; will retry on next tick", "fleet_node_id", st.FleetNodeID, "err", refreshErr)
-				return
-			}
-			if retryErr := r.sendHeartbeat(ctx, client); retryErr != nil {
-				logger.Error("heartbeat retry after refresh failed", "fleet_node_id", st.FleetNodeID, "err", retryErr)
-				return
-			}
-			logger.Info("heartbeat sent after refresh", "fleet_node_id", st.FleetNodeID)
-			return
-		}
-		logger.Error("heartbeat failed", "fleet_node_id", st.FleetNodeID, "err", err)
-		return
+	err := r.sendHeartbeat(ctx, client)
+	if err == nil {
+		logger.Info("heartbeat sent", "fleet_node_id", st.FleetNodeID)
+		return nil
 	}
-	logger.Info("heartbeat sent", "fleet_node_id", st.FleetNodeID)
+	if code := connect.CodeOf(err); code == connect.CodeNotFound {
+		return fmt.Errorf("fleet_node not found server-side (revoked or deleted); exiting, re-enroll on this host: %w", err)
+	}
+	if connect.CodeOf(err) != connect.CodeUnauthenticated {
+		logger.Error("heartbeat failed", "fleet_node_id", st.FleetNodeID, "err", err)
+		return nil
+	}
+
+	logger.Warn("heartbeat rejected as Unauthenticated; refreshing session and retrying", "fleet_node_id", st.FleetNodeID, "err", err)
+	if refreshErr := r.refreshAndSave(ctx, st, path, logger); refreshErr != nil {
+		if errors.Is(refreshErr, fleetnodebootstrap.ErrBeginAuthRejected) {
+			return fmt.Errorf("%w. The server returns Unauthenticated for any of: revoked api_key, identity_pubkey mismatch, expired challenge, or server clock drift. Exiting; re-enroll once the operator-side cause is resolved", fleetnodebootstrap.ErrBeginAuthRejected)
+		}
+		logger.Error("post-Unauthenticated refresh failed; will retry on next tick", "fleet_node_id", st.FleetNodeID, "err", refreshErr)
+		return nil
+	}
+	retryErr := r.sendHeartbeat(ctx, client)
+	if retryErr == nil {
+		logger.Info("heartbeat sent after refresh", "fleet_node_id", st.FleetNodeID)
+		return nil
+	}
+	if code := connect.CodeOf(retryErr); code == connect.CodeNotFound {
+		return fmt.Errorf("fleet_node not found server-side (revoked or deleted); exiting, re-enroll on this host: %w", retryErr)
+	}
+	logger.Error("heartbeat retry after refresh failed", "fleet_node_id", st.FleetNodeID, "err", retryErr)
+	return nil
 }
 
 func (r *RunCmd) sendHeartbeat(ctx context.Context, client gatewayClient) error {

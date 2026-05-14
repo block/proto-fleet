@@ -3,6 +3,7 @@ package fleetnodebootstrap
 import (
 	"context"
 	"errors"
+	"net/http"
 
 	"connectrpc.com/connect"
 
@@ -41,30 +42,37 @@ func (b *bearerAuth) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
 
 func (b *bearerAuth) WrapStreamingClient(next connect.StreamingClientFunc) connect.StreamingClientFunc {
 	return func(ctx context.Context, spec connect.Spec) connect.StreamingClientConn {
-		conn := next(ctx, spec)
 		token := b.tokenSource()
 		if token == "" {
 			return &failingStreamingClientConn{
-				StreamingClientConn: conn,
-				err:                 connect.NewError(connect.CodeUnauthenticated, errors.New("no session token available")),
+				spec: spec,
+				err:  connect.NewError(connect.CodeUnauthenticated, errors.New("no session token available")),
 			}
 		}
+		conn := next(ctx, spec)
 		conn.RequestHeader().Set("Authorization", "Bearer "+token)
 		return conn
 	}
 }
 
-// failingStreamingClientConn wraps a real conn but forces Send/Receive to
-// surface a fixed error. Used by WrapStreamingClient when the token source
-// returns empty so streaming callers fail fast like the unary path,
-// instead of opening an unauthenticated stream that errors later.
+// failingStreamingClientConn is a stub StreamingClientConn that surfaces
+// the configured error from every operation that could open or progress
+// the underlying HTTP request. The real conn is never constructed, so a
+// stream open with no session token does not hit the network at all.
 type failingStreamingClientConn struct {
-	connect.StreamingClientConn
-	err error
+	spec connect.Spec
+	err  error
 }
 
-func (c *failingStreamingClientConn) Send(any) error    { return c.err }
-func (c *failingStreamingClientConn) Receive(any) error { return c.err }
+func (c *failingStreamingClientConn) Spec() connect.Spec           { return c.spec }
+func (c *failingStreamingClientConn) Peer() connect.Peer           { return connect.Peer{} }
+func (c *failingStreamingClientConn) Send(any) error               { return c.err }
+func (c *failingStreamingClientConn) RequestHeader() http.Header   { return http.Header{} }
+func (c *failingStreamingClientConn) CloseRequest() error          { return c.err }
+func (c *failingStreamingClientConn) Receive(any) error            { return c.err }
+func (c *failingStreamingClientConn) ResponseHeader() http.Header  { return http.Header{} }
+func (c *failingStreamingClientConn) ResponseTrailer() http.Header { return http.Header{} }
+func (c *failingStreamingClientConn) CloseResponse() error         { return c.err }
 
 func (b *bearerAuth) WrapStreamingHandler(next connect.StreamingHandlerFunc) connect.StreamingHandlerFunc {
 	return next

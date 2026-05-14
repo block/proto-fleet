@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
 	"sync"
@@ -337,4 +338,82 @@ func TestRunCmd_ValidatesServerURLBeforeBuildingClient(t *testing.T) {
 	assert.Contains(t, err.Error(), "https")
 	calls, _ := stub.snapshot()
 	assert.Equal(t, 0, calls, "no heartbeat must be sent when server URL fails validation")
+}
+
+func TestRunCmd_ExitsOnCodeNotFoundHeartbeat(t *testing.T) {
+	t.Parallel()
+
+	// Arrange
+	dir := t.TempDir()
+	freshState(t, dir, time.Now().Add(24*time.Hour))
+	stub := &stubGatewayClient{
+		responder: func(int) error {
+			return connect.NewError(connect.CodeNotFound, errors.New("fleet node not found"))
+		},
+	}
+	cmd := &RunCmd{
+		HeartbeatInterval: 5 * time.Millisecond,
+		clientFactory:     func(_ string, _ func() string) gatewayClient { return stub },
+	}
+
+	// Act
+	done := make(chan error, 1)
+	go func() { done <- cmd.run(&Context{StateDir: dir}, &bytes.Buffer{}) }()
+
+	// Assert
+	select {
+	case err := <-done:
+		require.Error(t, err)
+		assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
+		assert.Contains(t, err.Error(), "re-enroll")
+	case <-time.After(2 * time.Second):
+		t.Fatal("daemon did not exit within 2s after server returned CodeNotFound")
+	}
+}
+
+func TestRunCmd_ExitsWhenTickRefreshHitsBeginAuthRejected(t *testing.T) {
+	t.Parallel()
+
+	// Arrange: heartbeat returns Unauthenticated which forces a tick
+	// refresh; the fake's expectedAPIKey is wrong, so the refresh
+	// BeginAuthHandshake also returns Unauthenticated -> ErrBeginAuthRejected.
+	// The daemon must exit instead of looping forever.
+	dir := t.TempDir()
+	pubKey, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	fake := &fakeFleetNodeGateway{
+		expectedAPIKey:       "the-key-that-was-revoked",
+		identityPub:          pubKey,
+		challenge:            bytes.Repeat([]byte{0x99}, 32),
+		sessionToken:         "never-issued",
+		sessionExpiresAt:     time.Now().Add(24 * time.Hour),
+		expectedSessionToken: "different-from-state",
+	}
+	srv := newFakeServer(t, fake)
+	require.NoError(t, fleetnodebootstrap.SaveState(fleetnodebootstrap.StatePath(dir), &fleetnodebootstrap.State{
+		ServerURL:              srv.URL,
+		AllowInsecureTransport: true,
+		FleetNodeID:            42,
+		IdentityFingerprint:    "0011223344556677",
+		IdentityPrivateKeyHex:  hex.EncodeToString(priv),
+		IdentityPublicKeyHex:   hex.EncodeToString(pubKey),
+		APIKey:                 "fleet_known_key",
+		SessionToken:           "stale-session",
+		SessionExpiresAt:       time.Now().Add(24 * time.Hour),
+	}))
+	cmd := &RunCmd{HeartbeatInterval: 5 * time.Millisecond}
+
+	// Act
+	done := make(chan error, 1)
+	go func() { done <- cmd.run(&Context{StateDir: dir}, &bytes.Buffer{}) }()
+
+	// Assert
+	select {
+	case err := <-done:
+		require.Error(t, err)
+		assert.ErrorIs(t, err, fleetnodebootstrap.ErrBeginAuthRejected)
+		assert.Contains(t, err.Error(), "Exiting")
+	case <-time.After(3 * time.Second):
+		t.Fatal("daemon did not exit within 3s after tick refresh hit ErrBeginAuthRejected")
+	}
 }
