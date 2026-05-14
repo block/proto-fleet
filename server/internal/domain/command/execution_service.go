@@ -162,15 +162,16 @@ func (es *ExecutionService) startStuckMessageReaper(ctx context.Context) {
 				continue
 			}
 			reapCtx, reapCancel := context.WithTimeout(ctx, dbWriteTimeout)
-			count, fwDeviceIDs, err := es.reapStuckMessages(reapCtx)
+			reaped, fwDeviceIDs, err := es.reapStuckMessages(reapCtx)
 			reapCancel()
 			if err != nil {
 				slog.Error("stuck message reaper error", "error", err)
 				continue
 			}
-			if count > 0 {
-				slog.Warn("stuck message reaper moved messages to FAILED", "count", count)
+			if len(reaped) > 0 {
+				slog.Warn("stuck message reaper moved messages to FAILED", "count", len(reaped))
 			}
+			es.emitReapedCommandMetrics(ctx, reaped)
 			for _, deviceID := range fwDeviceIDs {
 				es.clearFirmwareUpdateStatus(ctx, deviceID)
 			}
@@ -178,14 +179,19 @@ func (es *ExecutionService) startStuckMessageReaper(ctx context.Context) {
 	}
 }
 
+type reapedCommand struct {
+	orgID       int64
+	commandType string
+}
+
 // reapStuckMessages atomically marks stuck PROCESSING messages as FAILED and
 // writes the corresponding audit log entries in a single transaction.
 // Firmware update messages use a longer cutoff since they include install polling.
-// Returns the total count of reaped messages and the device IDs from reaped
+// Returns the reaped commands' metric metadata and the device IDs from reaped
 // firmware update messages (so callers can clean up stuck device statuses).
-func (es *ExecutionService) reapStuckMessages(ctx context.Context) (int, []int64, error) {
+func (es *ExecutionService) reapStuckMessages(ctx context.Context) ([]reapedCommand, []int64, error) {
 	cutoff := time.Now().Add(-es.config.StuckMessageTimeout)
-	var count int
+	var reapedCmds []reapedCommand
 	var fwDeviceIDs []int64
 	err := db.WithTransactionNoResult(ctx, es.conn, func(q *sqlc.Queries) error {
 		reaped, err := q.ReapStuckProcessingMessages(ctx, sqlc.ReapStuckProcessingMessagesParams{
@@ -205,7 +211,7 @@ func (es *ExecutionService) reapStuckMessages(ctx context.Context) (int, []int64
 			return err
 		}
 
-		count = len(reaped) + len(fwReaped)
+		reapedCmds = make([]reapedCommand, 0, len(reaped)+len(fwReaped))
 		for _, msg := range reaped {
 			if err := q.UpsertCommandOnDeviceLog(ctx, sqlc.UpsertCommandOnDeviceLogParams{
 				Uuid:      msg.CommandBatchLogUuid,
@@ -216,6 +222,7 @@ func (es *ExecutionService) reapStuckMessages(ctx context.Context) (int, []int64
 			}); err != nil {
 				return err
 			}
+			reapedCmds = append(reapedCmds, reapedCommand{orgID: msg.OrgID, commandType: msg.CommandType})
 		}
 		for _, msg := range fwReaped {
 			if err := q.UpsertCommandOnDeviceLog(ctx, sqlc.UpsertCommandOnDeviceLogParams{
@@ -227,11 +234,30 @@ func (es *ExecutionService) reapStuckMessages(ctx context.Context) (int, []int64
 			}); err != nil {
 				return err
 			}
+			reapedCmds = append(reapedCmds, reapedCommand{orgID: msg.OrgID, commandType: msg.CommandType})
 			fwDeviceIDs = append(fwDeviceIDs, msg.DeviceID)
 		}
 		return nil
 	})
-	return count, fwDeviceIDs, err
+	return reapedCmds, fwDeviceIDs, err
+}
+
+var errReapedStuck = errors.New("reaped: stuck in PROCESSING beyond timeout")
+
+// records a result="failure" sample for each reaped command.
+func (es *ExecutionService) emitReapedCommandMetrics(ctx context.Context, reaped []reapedCommand) {
+	if len(reaped) == 0 || es.metricsEmitter == nil {
+		return
+	}
+	for _, r := range reaped {
+		kind, err := commandtype.FromString(r.commandType)
+		if err != nil {
+			slog.Warn("skipping reaped command metric: unknown command_type",
+				"command_type", r.commandType, "error", err)
+			continue
+		}
+		emitTerminalCommand(ctx, es.metricsEmitter, r.orgID, kind, errReapedStuck)
+	}
 }
 
 func (es *ExecutionService) dequeueWithRetry(ctx context.Context) ([]queue.Message, error) {

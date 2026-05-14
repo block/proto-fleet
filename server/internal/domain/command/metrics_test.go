@@ -81,3 +81,57 @@ func TestNoCommandMetricsIsSafeToCall(t *testing.T) {
 	emitTerminalCommand(context.Background(), NoCommandMetrics(), int64(42), commandtype.Reboot, nil)
 	emitTerminalCommand(context.Background(), nil, int64(42), commandtype.Reboot, nil)
 }
+
+// TestEmitReapedCommandMetricsEmitsFailurePerRow verifies the reaper path
+// produces a result="failure" fleet_command_total sample per reaped row.
+func TestEmitReapedCommandMetricsEmitsFailurePerRow(t *testing.T) {
+	rec := &recordingCommandEmitter{}
+	es := &ExecutionService{metricsEmitter: rec}
+
+	es.emitReapedCommandMetrics(context.Background(), []reapedCommand{
+		{orgID: 11, commandType: "Reboot"},
+		{orgID: 22, commandType: "FirmwareUpdate"},
+		{orgID: 0, commandType: "SetPowerTarget"},
+	})
+
+	require.Len(t, rec.events, 3)
+	for i, ev := range rec.events {
+		require.Equal(t, metrics.ResultFailure, ev.Result,
+			"reaper must emit result=failure (event %d)", i)
+	}
+	require.Equal(t, "reboot", rec.events[0].Kind)
+	require.Equal(t, "11", rec.events[0].OrganizationID)
+	require.Equal(t, "firmware_update", rec.events[1].Kind)
+	require.Equal(t, "22", rec.events[1].OrganizationID)
+	require.Equal(t, "set_power_target", rec.events[2].Kind)
+	require.Empty(t, rec.events[2].OrganizationID,
+		"org id 0 must not surface as a literal label")
+}
+
+// TestEmitReapedCommandMetricsSkipsUnknownType ensures a future code version
+// sending a command_type the binary doesn't know about doesn't crash the reaper.
+func TestEmitReapedCommandMetricsSkipsUnknownType(t *testing.T) {
+	rec := &recordingCommandEmitter{}
+	es := &ExecutionService{metricsEmitter: rec}
+
+	es.emitReapedCommandMetrics(context.Background(), []reapedCommand{
+		{orgID: 1, commandType: "Reboot"},
+		{orgID: 2, commandType: "NotARealCommand"},
+	})
+
+	require.Len(t, rec.events, 1)
+	require.Equal(t, "reboot", rec.events[0].Kind)
+}
+
+// an ExecutionService that never had a metrics emitter installed must still tolerate the reaper running.
+func TestEmitReapedCommandMetricsNilEmitterIsSafe(t *testing.T) {
+	es := &ExecutionService{metricsEmitter: nil}
+	es.emitReapedCommandMetrics(context.Background(), []reapedCommand{
+		{orgID: 1, commandType: "Reboot"},
+	})
+
+	esNop := &ExecutionService{metricsEmitter: NoCommandMetrics()}
+	esNop.emitReapedCommandMetrics(context.Background(), []reapedCommand{
+		{orgID: 1, commandType: "Reboot"},
+	})
+}

@@ -167,10 +167,12 @@ UPDATE queue_message
 SET status = 'FAILED'::queue_status_enum,
     error_info = 'reaped: firmware update stuck in PROCESSING beyond timeout',
     updated_at = CURRENT_TIMESTAMP
-FROM stuck
+FROM stuck, device
 WHERE queue_message.id = stuck.id
   AND queue_message.status = 'PROCESSING'
-RETURNING queue_message.id, queue_message.device_id, queue_message.command_batch_log_uuid, queue_message.error_info
+  AND queue_message.device_id = device.id
+RETURNING queue_message.id, queue_message.device_id, queue_message.command_batch_log_uuid,
+    queue_message.error_info, queue_message.command_type, device.org_id
 `
 
 type ReapStuckFirmwareUpdateMessagesParams struct {
@@ -183,6 +185,8 @@ type ReapStuckFirmwareUpdateMessagesRow struct {
 	DeviceID            int64
 	CommandBatchLogUuid string
 	ErrorInfo           sql.NullString
+	CommandType         string
+	OrgID               int64
 }
 
 func (q *Queries) ReapStuckFirmwareUpdateMessages(ctx context.Context, arg ReapStuckFirmwareUpdateMessagesParams) ([]ReapStuckFirmwareUpdateMessagesRow, error) {
@@ -199,6 +203,8 @@ func (q *Queries) ReapStuckFirmwareUpdateMessages(ctx context.Context, arg ReapS
 			&i.DeviceID,
 			&i.CommandBatchLogUuid,
 			&i.ErrorInfo,
+			&i.CommandType,
+			&i.OrgID,
 		); err != nil {
 			return nil, err
 		}
@@ -225,10 +231,12 @@ UPDATE queue_message
 SET status = 'FAILED'::queue_status_enum,
     error_info = 'reaped: stuck in PROCESSING beyond timeout',
     updated_at = CURRENT_TIMESTAMP
-FROM stuck
+FROM stuck, device
 WHERE queue_message.id = stuck.id
   AND queue_message.status = 'PROCESSING'
-RETURNING queue_message.id, queue_message.device_id, queue_message.command_batch_log_uuid, queue_message.error_info
+  AND queue_message.device_id = device.id
+RETURNING queue_message.id, queue_message.device_id, queue_message.command_batch_log_uuid,
+    queue_message.error_info, queue_message.command_type, device.org_id
 `
 
 type ReapStuckProcessingMessagesParams struct {
@@ -241,6 +249,8 @@ type ReapStuckProcessingMessagesRow struct {
 	DeviceID            int64
 	CommandBatchLogUuid string
 	ErrorInfo           sql.NullString
+	CommandType         string
+	OrgID               int64
 }
 
 func (q *Queries) ReapStuckProcessingMessages(ctx context.Context, arg ReapStuckProcessingMessagesParams) ([]ReapStuckProcessingMessagesRow, error) {
@@ -257,6 +267,8 @@ func (q *Queries) ReapStuckProcessingMessages(ctx context.Context, arg ReapStuck
 			&i.DeviceID,
 			&i.CommandBatchLogUuid,
 			&i.ErrorInfo,
+			&i.CommandType,
+			&i.OrgID,
 		); err != nil {
 			return nil, err
 		}
