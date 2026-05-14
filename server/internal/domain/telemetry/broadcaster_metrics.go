@@ -269,31 +269,3 @@ func sensorKindFromType(t string) string {
 		return ""
 	}
 }
-
-// driverForDevice returns the driver name for the given deviceID by asking the miner manager.
-func driverForDevice(ctx context.Context, mg MinerGetter, deviceID models.DeviceIdentifier) string {
-	if mg == nil {
-		return ""
-	}
-	miner, err := mg.GetMinerFromDeviceIdentifier(ctx, deviceID)
-	if err != nil {
-		slog.Debug("metricsObserver: failed to resolve driver for device",
-			"device_id", deviceID, "error", err)
-		return ""
-	}
-	return miner.GetDriverName()
-}
-
-// orgForDevice returns the org id for the given deviceID by asking the miner manager.
-func orgForDevice(ctx context.Context, mg MinerGetter, deviceID models.DeviceIdentifier) int64 {
-	if mg == nil {
-		return 0
-	}
-	miner, err := mg.GetMinerFromDeviceIdentifier(ctx, deviceID)
-	if err != nil {
-		slog.Debug("metricsObserver: failed to resolve org for device",
-			"device_id", deviceID, "error", err)
-		return 0
-	}
-	return miner.GetOrgID()
-}

@@ -84,7 +84,6 @@ func TestSetupExportsContractMetrics(t *testing.T) {
 	cfg := Config{
 		Enabled:  true,
 		Endpoint: endpoint,
-		Insecure: true,
 		Interval: 200 * time.Millisecond,
 	}
 

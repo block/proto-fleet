@@ -443,7 +443,7 @@ func TestTelemetryService_DataStoreInteraction(t *testing.T) {
 			}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
 
 			for _, scenario := range test.devicesScenario {
-				_, _, _, _, err := service.GetTelemetryFromDevice(t.Context(), scenario.device)
+				_, _, _, _, _, err := service.GetTelemetryFromDevice(t.Context(), scenario.device)
 				// Only discovery errors and scheduler errors bubble up to caller
 				// StoreDeviceMetrics errors are logged but don't fail the operation
 				if scenario.hasDiscoveryError || scenario.hasSchedulerError {
@@ -1433,6 +1433,92 @@ func TestStatusWriterRoutine_FlushesOnContextCancel(t *testing.T) {
 	}
 }
 
+// the writer must emit fleet_device_online using the org/driver labels the worker attached to statusResult,
+// and it must NOT call back into the miner manager from the flush loop.
+func TestStatusWriterRoutine_FlushUsesWorkerSuppliedLabels(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+
+	mockDeviceStore.EXPECT().
+		GetDeviceStatusForDeviceIdentifiers(gomock.Any(), gomock.Any()).
+		Return(map[models.DeviceIdentifier]mm.MinerStatus{}, nil).
+		AnyTimes()
+	mockDeviceStore.EXPECT().
+		UpsertDeviceStatuses(gomock.Any(), gomock.Any()).
+		Return(nil).
+		AnyTimes()
+
+	// Crucial assertion: the flush loop must NEVER consult the miner manager
+	// for org/driver labels. The .Times(0) fails the test if a regression
+	// brings back the per-device miner lookups.
+	mockMinerGetter.EXPECT().
+		GetMinerFromDeviceIdentifier(gomock.Any(), gomock.Any()).
+		Times(0)
+
+	rec := &recordingEmitter{}
+
+	service := NewTelemetryService(Config{
+		StalenessThreshold:  1 * time.Minute,
+		FetchInterval:       10 * time.Second,
+		ConcurrencyLimit:    5,
+		StatusFlushInterval: 50 * time.Millisecond,
+	}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl)).WithMetricsEmitter(rec)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	go service.statusWriterRoutine(ctx)
+
+	service.statusResults <- statusResult{
+		deviceIdentifier: models.DeviceIdentifier("dev-A"),
+		status:           mm.MinerStatusActive,
+		orgID:            42,
+		driverName:       "proto",
+	}
+	service.statusResults <- statusResult{
+		deviceIdentifier: models.DeviceIdentifier("dev-B"),
+		status:           mm.MinerStatusOffline,
+		orgID:            99,
+		driverName:       "antminer",
+	}
+
+	require.Eventually(t, func() bool {
+		rec.mu.Lock()
+		defer rec.mu.Unlock()
+		return len(rec.online) >= 2
+	}, time.Second, 10*time.Millisecond, "writer routine should emit fleet_device_online for both devices")
+
+	cancel()
+	time.Sleep(50 * time.Millisecond)
+
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+
+	byDevice := map[string]onlineEvent{}
+	for _, ev := range rec.online {
+		byDevice[ev.labels.DeviceID] = ev
+	}
+
+	devA, ok := byDevice["dev-A"]
+	require.True(t, ok, "expected an onDeviceStatus event for dev-A")
+	require.Equal(t, "42", devA.labels.OrganizationID,
+		"flush must use the worker-supplied org id label")
+	require.Equal(t, "proto", devA.labels.Driver,
+		"flush must use the worker-supplied driver label")
+	require.True(t, devA.online, "MinerStatusActive should map to online=true")
+
+	devB, ok := byDevice["dev-B"]
+	require.True(t, ok, "expected an onDeviceStatus event for dev-B")
+	require.Equal(t, "99", devB.labels.OrganizationID)
+	require.Equal(t, "antminer", devB.labels.Driver)
+	require.False(t, devB.online, "MinerStatusOffline should map to online=false")
+}
+
 // Tests for metricsWriterRoutine batch operations
 
 func TestMetricsWriterRoutine_FlushesOnInterval(t *testing.T) {
@@ -1667,6 +1753,9 @@ func TestProcessStatusOnly_RecoversFailedDevice(t *testing.T) {
 		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(mockMiner, nil)
 
+	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetDriverName().Return("").AnyTimes()
+
 	mockMiner.EXPECT().
 		GetDeviceStatus(gomock.Any()).
 		Return(mm.MinerStatusActive, nil)
@@ -1727,6 +1816,9 @@ func TestProcessStatusOnly_DoesNotRecoverNonFailedDevice(t *testing.T) {
 		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(mockMiner, nil)
 
+	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetDriverName().Return("").AnyTimes()
+
 	mockMiner.EXPECT().
 		GetDeviceStatus(gomock.Any()).
 		Return(mm.MinerStatusActive, nil)
@@ -1778,6 +1870,9 @@ func TestProcessStatusOnly_ConnectionError_SetsStatusOffline(t *testing.T) {
 	mockMinerGetter.EXPECT().
 		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(mockMiner, nil)
+
+	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetDriverName().Return("").AnyTimes()
 
 	mockMiner.EXPECT().
 		GetDeviceStatus(gomock.Any()).
@@ -2671,6 +2766,9 @@ func TestFetchStatusFromMiner_AuthErrorFromGetDeviceStatus_InvalidatesMinerCache
 		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(mockMiner, nil)
 
+	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetDriverName().Return("").AnyTimes()
+
 	// GetDeviceStatus returns an auth error (e.g., token rotated)
 	mockMiner.EXPECT().
 		GetDeviceStatus(gomock.Any()).
@@ -2717,6 +2815,9 @@ func TestProcessStatusOnly_ForbiddenError_UpdatesPairingStatus(t *testing.T) {
 		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(mockMiner, nil)
 
+	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetDriverName().Return("").AnyTimes()
+
 	mockMiner.EXPECT().
 		GetDeviceStatus(gomock.Any()).
 		Return(mm.MinerStatusUnknown, forbiddenErr)
@@ -2753,6 +2854,9 @@ func TestProcessStatusOnly_GenericForbiddenDoesNotUpdatePairingStatus(t *testing
 	mockMinerGetter.EXPECT().
 		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(mockMiner, nil)
+
+	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetDriverName().Return("").AnyTimes()
 
 	mockMiner.EXPECT().
 		GetDeviceStatus(gomock.Any()).
