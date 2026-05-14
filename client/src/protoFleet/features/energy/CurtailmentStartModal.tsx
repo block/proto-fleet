@@ -1,7 +1,12 @@
 import { type ReactElement, type ReactNode, useState } from "react";
 
 import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
-import { Alert, ChevronDown } from "@/shared/assets/icons";
+import GroupSelectionModal from "@/protoFleet/features/settings/components/Schedules/GroupSelectionModal";
+import MinerSelectionModal from "@/protoFleet/features/settings/components/Schedules/MinerSelectionModal";
+import RackSelectionModal from "@/protoFleet/features/settings/components/Schedules/RackSelectionModal";
+import TargetSelectButton from "@/protoFleet/features/settings/components/Schedules/TargetSelectButton";
+import { getTargetButtonLabel } from "@/protoFleet/features/settings/components/Schedules/targetSelectButtonLabels";
+import { Alert } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Checkbox from "@/shared/components/Checkbox";
 import Dialog, { DialogIcon } from "@/shared/components/Dialog";
@@ -9,8 +14,13 @@ import Input from "@/shared/components/Input";
 import Select from "@/shared/components/Select";
 
 export type CurtailmentPriority = "normal" | "emergency";
+export type CurtailmentScopeType = "wholeOrg" | "deviceSet" | "explicitMiners";
 
 export interface CurtailmentFormValues {
+  scopeType: CurtailmentScopeType;
+  scopeId?: string;
+  deviceSetIds: string[];
+  deviceIdentifiers: string[];
   targetKw: string;
   toleranceKw: string;
   priority: CurtailmentPriority;
@@ -58,7 +68,13 @@ interface SectionProps {
   children: ReactNode;
 }
 
+type DeviceSetScopeId = "racks" | "groups";
+
 const defaultValues: CurtailmentFormValues = {
+  scopeType: "wholeOrg",
+  scopeId: "whole-org",
+  deviceSetIds: [],
+  deviceIdentifiers: [],
   targetKw: "",
   toleranceKw: "",
   priority: "normal",
@@ -105,32 +121,6 @@ function Section({ title, children }: SectionProps): ReactElement {
       <div className="text-emphasis-300 text-text-primary">{title}</div>
       {children}
     </section>
-  );
-}
-
-function TargetButton({
-  label,
-  value,
-  disabled = false,
-}: {
-  label: string;
-  value: string;
-  disabled?: boolean;
-}): ReactElement {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      className={`relative flex h-14 w-full items-center justify-between rounded-lg border border-border-5 bg-surface-base px-4 text-left outline-hidden ${
-        disabled ? "cursor-not-allowed opacity-60" : ""
-      }`}
-    >
-      <div className="flex min-w-0 flex-col pt-[18px]">
-        <span className="absolute top-[7px] text-200 text-text-primary-50">{label}</span>
-        <div className="truncate text-300 text-text-primary-50">{value}</div>
-      </div>
-      <ChevronDown width="w-3" className="shrink-0 text-text-primary-70" />
-    </button>
   );
 }
 
@@ -204,6 +194,22 @@ function PreviewPane({
   );
 }
 
+function getSelectedDeviceSetIds(values: CurtailmentFormValues, scopeId: DeviceSetScopeId): string[] {
+  if (values.scopeType !== "deviceSet" || values.scopeId !== scopeId) {
+    return [];
+  }
+
+  return values.deviceSetIds;
+}
+
+function getSelectedMinerIds(values: CurtailmentFormValues): string[] {
+  if (values.scopeType !== "explicitMiners") {
+    return [];
+  }
+
+  return values.deviceIdentifiers;
+}
+
 function CurtailmentStartModalContent({
   open,
   onDismiss,
@@ -216,9 +222,42 @@ function CurtailmentStartModalContent({
 }: CurtailmentStartModalProps): ReactElement {
   const [values, setValues] = useState<CurtailmentFormValues>(() => getInitialValues(initialValues));
   const [showMaintenanceConfirmation, setShowMaintenanceConfirmation] = useState(false);
+  const [showRackSelectionModal, setShowRackSelectionModal] = useState(false);
+  const [showGroupSelectionModal, setShowGroupSelectionModal] = useState(false);
+  const [showMinerSelectionModal, setShowMinerSelectionModal] = useState(false);
   const updateValue = <Key extends keyof CurtailmentFormValues>(key: Key, value: CurtailmentFormValues[Key]) =>
     setValues((current) => ({ ...current, [key]: value }));
+  const updateValues = (updater: (current: CurtailmentFormValues) => CurtailmentFormValues) => setValues(updater);
+  const selectedTargets = {
+    racks: getSelectedDeviceSetIds(values, "racks"),
+    groups: getSelectedDeviceSetIds(values, "groups"),
+    miners: getSelectedMinerIds(values),
+  };
   const previewPane = <PreviewPane preview={preview} previewError={previewError} />;
+
+  const handleDeviceSetSelection = (deviceSetIds: string[], scopeId: DeviceSetScopeId) => {
+    const hasSelectedDeviceSets = deviceSetIds.length > 0;
+
+    updateValues((current) => ({
+      ...current,
+      scopeType: hasSelectedDeviceSets ? "deviceSet" : "wholeOrg",
+      scopeId: hasSelectedDeviceSets ? scopeId : "whole-org",
+      deviceSetIds,
+      deviceIdentifiers: [],
+    }));
+  };
+
+  const handleMinerSelection = (deviceIdentifiers: string[]) => {
+    const hasSelectedMiners = deviceIdentifiers.length > 0;
+
+    updateValues((current) => ({
+      ...current,
+      scopeType: hasSelectedMiners ? "explicitMiners" : "wholeOrg",
+      scopeId: hasSelectedMiners ? undefined : "whole-org",
+      deviceSetIds: [],
+      deviceIdentifiers,
+    }));
+  };
 
   return (
     <>
@@ -328,9 +367,21 @@ function CurtailmentStartModalContent({
 
             <Section title="Apply to">
               <div className="grid gap-4 tablet:grid-cols-3">
-                <TargetButton label="Racks" value="Select" disabled />
-                <TargetButton label="Groups" value="Select" disabled />
-                <TargetButton label="Miners" value="Select" disabled />
+                <TargetSelectButton
+                  label="Racks"
+                  value={getTargetButtonLabel(selectedTargets.racks.length, "rack")}
+                  onClick={() => setShowRackSelectionModal(true)}
+                />
+                <TargetSelectButton
+                  label="Groups"
+                  value={getTargetButtonLabel(selectedTargets.groups.length, "group")}
+                  onClick={() => setShowGroupSelectionModal(true)}
+                />
+                <TargetSelectButton
+                  label="Miners"
+                  value={getTargetButtonLabel(selectedTargets.miners.length, "miner")}
+                  onClick={() => setShowMinerSelectionModal(true)}
+                />
               </div>
             </Section>
 
@@ -386,6 +437,40 @@ function CurtailmentStartModalContent({
           This will run Curtail on miners that are currently flagged for maintenance work.
         </div>
       </Dialog>
+
+      {showRackSelectionModal ? (
+        <RackSelectionModal
+          open={showRackSelectionModal}
+          selectedRackIds={selectedTargets.racks}
+          onDismiss={() => setShowRackSelectionModal(false)}
+          onSave={(rackIds) => {
+            handleDeviceSetSelection(rackIds, "racks");
+            setShowRackSelectionModal(false);
+          }}
+        />
+      ) : null}
+      {showGroupSelectionModal ? (
+        <GroupSelectionModal
+          open={showGroupSelectionModal}
+          selectedGroupIds={selectedTargets.groups}
+          onDismiss={() => setShowGroupSelectionModal(false)}
+          onSave={(groupIds) => {
+            handleDeviceSetSelection(groupIds, "groups");
+            setShowGroupSelectionModal(false);
+          }}
+        />
+      ) : null}
+      {showMinerSelectionModal ? (
+        <MinerSelectionModal
+          open={showMinerSelectionModal}
+          selectedMinerIds={selectedTargets.miners}
+          onDismiss={() => setShowMinerSelectionModal(false)}
+          onSave={(minerIds) => {
+            handleMinerSelection(minerIds);
+            setShowMinerSelectionModal(false);
+          }}
+        />
+      ) : null}
     </>
   );
 }

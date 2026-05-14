@@ -21,6 +21,39 @@ vi.mock("@/protoFleet/components/FullScreenTwoPaneModal", () => ({
   ),
 }));
 
+vi.mock("@/protoFleet/features/settings/components/Schedules/RackSelectionModal", () => ({
+  default: ({ open, onSave }: { open: boolean; onSave: (rackIds: string[]) => void }) =>
+    open ? (
+      <div role="dialog" aria-label="Rack selection">
+        <button type="button" onClick={() => onSave(["rack-1", "rack-2"])}>
+          Save racks
+        </button>
+      </div>
+    ) : null,
+}));
+
+vi.mock("@/protoFleet/features/settings/components/Schedules/GroupSelectionModal", () => ({
+  default: ({ open, onSave }: { open: boolean; onSave: (groupIds: string[]) => void }) =>
+    open ? (
+      <div role="dialog" aria-label="Group selection">
+        <button type="button" onClick={() => onSave(["group-1"])}>
+          Save groups
+        </button>
+      </div>
+    ) : null,
+}));
+
+vi.mock("@/protoFleet/features/settings/components/Schedules/MinerSelectionModal", () => ({
+  default: ({ open, onSave }: { open: boolean; onSave: (minerIds: string[]) => void }) =>
+    open ? (
+      <div role="dialog" aria-label="Miner selection">
+        <button type="button" onClick={() => onSave(["miner-1", "miner-2", "miner-3"])}>
+          Save miners
+        </button>
+      </div>
+    ) : null,
+}));
+
 const configuredValues: Partial<CurtailmentFormValues> = {
   targetKw: "60",
   minDurationSec: "300",
@@ -58,14 +91,14 @@ const getMaintenanceCheckbox = (): HTMLInputElement => {
 };
 
 describe("CurtailmentStartModal", () => {
-  it("renders the empty state and disables target selectors until selection wiring is present", () => {
+  it("renders the empty state and target selectors", () => {
     renderModal();
 
     expect(screen.getByRole("dialog", { name: "Plan a curtailment" })).toBeInTheDocument();
     expect(screen.getAllByText("Configure your curtailment to see a preview.")).toHaveLength(2);
-    expect(screen.getByRole("button", { name: /Racks\s+Select/ })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /Groups\s+Select/ })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Racks\s+Select/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /Groups\s+Select/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeEnabled();
   });
 
   it("renders preview and preview error states", () => {
@@ -130,6 +163,54 @@ describe("CurtailmentStartModal", () => {
 
     await user.click(screen.getByRole("button", { name: "Start curtailment" }));
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ includeMaintenance: true }));
+  });
+
+  it("opens target selectors and submits the selected target scope", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal();
+
+    await user.click(screen.getByRole("button", { name: /Racks\s+Select/ }));
+    expect(screen.getByRole("dialog", { name: "Rack selection" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Save racks" }));
+    expect(screen.getByRole("button", { name: /Racks\s+2 racks/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Start curtailment" }));
+    expect(onSubmit).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        scopeType: "deviceSet",
+        scopeId: "racks",
+        deviceSetIds: ["rack-1", "rack-2"],
+        deviceIdentifiers: [],
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: /Groups\s+Select/ }));
+    await user.click(screen.getByRole("button", { name: "Save groups" }));
+    expect(screen.getByRole("button", { name: /Groups\s+1 group/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Start curtailment" }));
+    expect(onSubmit).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        scopeType: "deviceSet",
+        scopeId: "groups",
+        deviceSetIds: ["group-1"],
+        deviceIdentifiers: [],
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: /Miners\s+Select/ }));
+    await user.click(screen.getByRole("button", { name: "Save miners" }));
+    expect(screen.getByRole("button", { name: /Miners\s+3 miners/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Start curtailment" }));
+    expect(onSubmit).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        scopeType: "explicitMiners",
+        scopeId: undefined,
+        deviceSetIds: [],
+        deviceIdentifiers: ["miner-1", "miner-2", "miner-3"],
+      }),
+    );
   });
 
   it("resets form values when reopened with new initial values", async () => {
