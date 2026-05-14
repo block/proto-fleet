@@ -3,13 +3,19 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 
+import type { FullScreenTwoPaneModalProps } from "@/protoFleet/components/FullScreenTwoPaneModal";
 import CurtailmentStartModal, {
   type CurtailmentFormValues,
   type CurtailmentPlanPreview,
 } from "@/protoFleet/features/energy/CurtailmentStartModal";
 
+type MockFullScreenTwoPaneModalProps = Pick<
+  FullScreenTwoPaneModalProps,
+  "title" | "isBusy" | "buttons" | "abovePanes" | "primaryPane" | "secondaryPane"
+>;
+
 vi.mock("@/protoFleet/components/FullScreenTwoPaneModal", () => ({
-  default: ({ title, isBusy, buttons, abovePanes, primaryPane, secondaryPane }: any) => (
+  default: ({ title, isBusy, buttons, abovePanes, primaryPane, secondaryPane }: MockFullScreenTwoPaneModalProps) => (
     <div role="dialog" aria-label={title} data-busy={isBusy ? "true" : "false"}>
       <button type="button" disabled={Boolean(buttons?.[0]?.loading)} onClick={buttons?.[0]?.onClick}>
         {buttons?.[0]?.text}

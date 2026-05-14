@@ -1,6 +1,6 @@
 import clsx from "clsx";
 
-import { targetSelectPlaceholderLabel } from "@/protoFleet/features/settings/components/Schedules/targetSelectButtonLabels";
+import { targetSelectPlaceholderLabel } from "./targetSelectButtonLabels";
 import { ChevronDown } from "@/shared/assets/icons";
 
 interface TargetSelectButtonProps {

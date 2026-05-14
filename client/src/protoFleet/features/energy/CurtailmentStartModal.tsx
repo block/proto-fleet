@@ -1,11 +1,10 @@
 import { type ReactElement, type ReactNode, useState } from "react";
 
 import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
+import TargetSelectButton, { getTargetButtonLabel } from "@/protoFleet/components/TargetSelectButton";
 import GroupSelectionModal from "@/protoFleet/features/settings/components/Schedules/GroupSelectionModal";
 import MinerSelectionModal from "@/protoFleet/features/settings/components/Schedules/MinerSelectionModal";
 import RackSelectionModal from "@/protoFleet/features/settings/components/Schedules/RackSelectionModal";
-import TargetSelectButton from "@/protoFleet/features/settings/components/Schedules/TargetSelectButton";
-import { getTargetButtonLabel } from "@/protoFleet/features/settings/components/Schedules/targetSelectButtonLabels";
 import { Alert } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Checkbox from "@/shared/components/Checkbox";
@@ -90,6 +89,9 @@ const priorityOptions: Array<{ value: CurtailmentPriority; label: string }> = [
   { value: "normal", label: "Normal" },
   { value: "emergency", label: "Emergency" },
 ];
+
+const isCurtailmentPriority = (value: string): value is CurtailmentPriority =>
+  priorityOptions.some((option) => option.value === value);
 
 const getInitialValues = (initialValues?: Partial<CurtailmentFormValues>): CurtailmentFormValues => ({
   ...defaultValues,
@@ -211,7 +213,6 @@ function getSelectedMinerIds(values: CurtailmentFormValues): string[] {
 }
 
 function CurtailmentStartModalContent({
-  open,
   onDismiss,
   onSubmit,
   initialValues,
@@ -262,7 +263,7 @@ function CurtailmentStartModalContent({
   return (
     <>
       <FullScreenTwoPaneModal
-        open={open}
+        open
         title="Plan a curtailment"
         closeAriaLabel="Close curtailment planner"
         onDismiss={onDismiss}
@@ -306,7 +307,11 @@ function CurtailmentStartModalContent({
                   className="max-w-[274px]"
                   options={priorityOptions}
                   error={errors?.priority}
-                  onChange={(value) => updateValue("priority", value as CurtailmentPriority)}
+                  onChange={(value) => {
+                    if (isCurtailmentPriority(value)) {
+                      updateValue("priority", value);
+                    }
+                  }}
                 />
               </div>
             </Section>
