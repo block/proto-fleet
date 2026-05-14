@@ -164,7 +164,7 @@ func TestHandler_StartCurtailment_HappyPath(t *testing.T) {
 		miner("worst", "ACTIVE", "PAIRED", 3000, 100, 50),
 		miner("mid", "ACTIVE", "PAIRED", 3000, 100, 35),
 	}
-	h := NewHandler(curtailment.NewService(store), true)
+	h := NewHandler(curtailment.NewService(store))
 
 	ctx := authn.SetInfo(t.Context(), &session.Info{
 		AuthMethod:     session.AuthMethodSession,
@@ -215,7 +215,7 @@ func TestHandler_StartCurtailment_APIKeyDerivesAPIKeyActor(t *testing.T) {
 	store.candidates = []*models.Candidate{
 		miner("a", "ACTIVE", "PAIRED", 6000, 100, 40),
 	}
-	h := NewHandler(curtailment.NewService(store), true)
+	h := NewHandler(curtailment.NewService(store))
 
 	ctx := authn.SetInfo(t.Context(), &session.Info{
 		AuthMethod:     session.AuthMethodAPIKey,
@@ -245,7 +245,7 @@ func TestHandler_StartCurtailment_InsufficientLoadSurfacesAsInvalidArgument(t *t
 	store.candidates = []*models.Candidate{
 		miner("only", "ACTIVE", "PAIRED", 1500, 100, 40),
 	}
-	h := NewHandler(curtailment.NewService(store), true)
+	h := NewHandler(curtailment.NewService(store))
 
 	ctx := authn.SetInfo(t.Context(), &session.Info{
 		AuthMethod:     session.AuthMethodSession,
@@ -269,32 +269,6 @@ func TestHandler_StartCurtailment_InsufficientLoadSurfacesAsInvalidArgument(t *t
 	assert.Empty(t, store.lastTargets)
 }
 
-// TestHandler_StartCurtailment_DisabledFlagReturnsUnimplemented pins the
-// BE-3/BE-4 coupling gate: with startEnabled=false the handler must return
-// Unimplemented even if the service is fully wired, because BE-4 has not
-// yet shipped Stop / restorer / max_duration_seconds enforcement.
-func TestHandler_StartCurtailment_DisabledFlagReturnsUnimplemented(t *testing.T) {
-	t.Parallel()
-
-	store := newStartStubStore()
-	h := NewHandler(curtailment.NewService(store), false)
-
-	ctx := authn.SetInfo(t.Context(), &session.Info{
-		AuthMethod:     session.AuthMethodSession,
-		OrganizationID: 1,
-		UserID:         9,
-		Role:           "OPERATOR",
-	})
-
-	_, err := h.StartCurtailment(ctx, connect.NewRequest(validStartRequestBuilder()))
-	require.Error(t, err)
-	var fleetErr fleeterror.FleetError
-	require.ErrorAs(t, err, &fleetErr)
-	assert.Equal(t, connect.CodeUnimplemented, fleetErr.GRPCCode)
-	// Service must not have been reached.
-	assert.Empty(t, store.lastTargets)
-}
-
 // TestHandler_StartCurtailment_RejectsMissingSession pins the auth gate:
 // without session.Info in context, Start must fail with Unauthenticated
 // (not crash on a nil-dereference of OrganizationID).
@@ -302,7 +276,7 @@ func TestHandler_StartCurtailment_RejectsMissingSession(t *testing.T) {
 	t.Parallel()
 
 	store := newStartStubStore()
-	h := NewHandler(curtailment.NewService(store), true)
+	h := NewHandler(curtailment.NewService(store))
 
 	_, err := h.StartCurtailment(t.Context(), connect.NewRequest(validStartRequestBuilder()))
 	require.Error(t, err)
@@ -322,7 +296,7 @@ func TestHandler_StartCurtailment_OverrideRoleGateBlocksNonAdmin(t *testing.T) {
 	store.candidates = []*models.Candidate{
 		miner("a", "ACTIVE", "PAIRED", 6000, 100, 40),
 	}
-	h := NewHandler(curtailment.NewService(store), true)
+	h := NewHandler(curtailment.NewService(store))
 
 	ctx := authn.SetInfo(t.Context(), &session.Info{
 		AuthMethod:     session.AuthMethodSession,
@@ -354,7 +328,7 @@ func TestHandler_StartCurtailment_ZeroMaxDurationUsesOrgDefault(t *testing.T) {
 	store.candidates = []*models.Candidate{
 		miner("a", "ACTIVE", "PAIRED", 6000, 100, 40),
 	}
-	h := NewHandler(curtailment.NewService(store), true)
+	h := NewHandler(curtailment.NewService(store))
 
 	ctx := authn.SetInfo(t.Context(), &session.Info{
 		AuthMethod:     session.AuthMethodSession,
@@ -383,7 +357,7 @@ func TestHandler_StartCurtailment_AllowUnboundedAdminPersistsNullDuration(t *tes
 	store.candidates = []*models.Candidate{
 		miner("a", "ACTIVE", "PAIRED", 6000, 100, 40),
 	}
-	h := NewHandler(curtailment.NewService(store), true)
+	h := NewHandler(curtailment.NewService(store))
 
 	ctx := authn.SetInfo(t.Context(), &session.Info{
 		AuthMethod:     session.AuthMethodSession,
@@ -413,7 +387,7 @@ func TestHandler_StartCurtailment_RejectsAllowUnboundedWithMaxDuration(t *testin
 	store.candidates = []*models.Candidate{
 		miner("a", "ACTIVE", "PAIRED", 6000, 100, 40),
 	}
-	h := NewHandler(curtailment.NewService(store), true)
+	h := NewHandler(curtailment.NewService(store))
 
 	ctx := authn.SetInfo(t.Context(), &session.Info{
 		AuthMethod:     session.AuthMethodSession,
@@ -457,7 +431,7 @@ func TestHandler_StartCurtailment_RejectsUint32Overflow(t *testing.T) {
 		t.Run(tc.field, func(t *testing.T) {
 			t.Parallel()
 			store := newStartStubStore()
-			h := NewHandler(curtailment.NewService(store), true)
+			h := NewHandler(curtailment.NewService(store))
 			ctx := authn.SetInfo(t.Context(), &session.Info{
 				AuthMethod:     session.AuthMethodSession,
 				OrganizationID: 1,
@@ -486,7 +460,7 @@ func TestHandler_StartCurtailment_OutcomeMirrorsInsufficientLoadShapeOnZeroPool(
 
 	store := newStartStubStore()
 	store.candidates = nil
-	h := NewHandler(curtailment.NewService(store), true)
+	h := NewHandler(curtailment.NewService(store))
 
 	ctx := authn.SetInfo(t.Context(), &session.Info{
 		AuthMethod:     session.AuthMethodSession,

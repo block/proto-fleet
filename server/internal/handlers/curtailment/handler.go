@@ -24,17 +24,14 @@ const (
 
 // Handler implements the curtailment RPC surface. service=nil keeps every
 // RPC at Unimplemented (test stubs); a populated *Service wires the impl.
-// startEnabled additionally gates StartCurtailment until Stop + restorer
-// land, so an operator can't Start an event that has no exit path.
 type Handler struct {
-	service      *curtailment.Service
-	startEnabled bool
+	service *curtailment.Service
 }
 
 var _ curtailmentv1connect.CurtailmentServiceHandler = &Handler{}
 
-func NewHandler(service *curtailment.Service, startEnabled bool) *Handler {
-	return &Handler{service: service, startEnabled: startEnabled}
+func NewHandler(service *curtailment.Service) *Handler {
+	return &Handler{service: service}
 }
 
 func (h *Handler) PreviewCurtailmentPlan(ctx context.Context, req *connect.Request[pb.PreviewCurtailmentPlanRequest]) (*connect.Response[pb.PreviewCurtailmentPlanResponse], error) {
@@ -76,11 +73,6 @@ func (h *Handler) StartCurtailment(ctx context.Context, req *connect.Request[pb.
 		if err := requireAdminFromContext(ctx, actionSupplyOverrideFields); err != nil {
 			return nil, err
 		}
-	}
-	if !h.startEnabled {
-		// Gated until Stop + restorer ship; an Active event has no
-		// operator-facing exit path otherwise.
-		return nil, errCurtailmentNotImplemented("StartCurtailment")
 	}
 	if h.service == nil {
 		return nil, errCurtailmentNotImplemented("StartCurtailment")

@@ -482,10 +482,11 @@ func start(config *Config) error {
 	mux.Handle(minercommandv1connect.NewMinerCommandServiceHandler(command.NewHandler(commandSvc), li))
 	mux.Handle(poolsv1connect.NewPoolsServiceHandler(pools.NewHandler(poolsSvc), li))
 	mux.Handle(schedulev1connect.NewScheduleServiceHandler(scheduleHandler.NewHandler(scheduleSvc), li))
-	// PreviewCurtailmentPlan is wired; StartCurtailment is plumbed but gated
-	// off until Stop + restorer + max_duration_seconds enforcement land;
-	// remaining RPCs return Unimplemented.
-	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(curtailmentHandler.NewHandler(curtailmentSvc, false), li))
+	// Preview, Start, and Stop are wired; reconciler drives non-terminal events
+	// to terminal (including max_duration_seconds-based forced restore).
+	// UpdateCurtailmentEvent, GetActiveCurtailment, and ListCurtailmentEvents
+	// return Unimplemented pending the read APIs ticket.
+	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(curtailmentHandler.NewHandler(curtailmentSvc), li))
 	mux.Handle(sitesv1connect.NewSiteServiceHandler(sitesHandler.NewHandler(sitesSvc), li))
 	mux.Handle(buildingsv1connect.NewBuildingServiceHandler(buildingsHandler.NewHandler(buildingsSvc), li))
 	mux.Handle(fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(fleetnodegateway.NewHandler(fleetNodeEnrollmentSvc, fleetNodeAuthSvc), li))
