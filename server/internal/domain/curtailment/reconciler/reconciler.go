@@ -689,9 +689,9 @@ func (r *Reconciler) enforceMaxDuration(ctx context.Context, ev *models.Event, t
 	if ev.StartedAt == nil {
 		return false
 	}
-	cap := time.Duration(*ev.MaxDurationSeconds) * time.Second
+	maxDur := time.Duration(*ev.MaxDurationSeconds) * time.Second
 	elapsed := r.now().Sub(*ev.StartedAt)
-	if elapsed < cap {
+	if elapsed < maxDur {
 		return false
 	}
 
@@ -700,7 +700,8 @@ func (r *Reconciler) enforceMaxDuration(ctx context.Context, ev *models.Event, t
 		switch t.State {
 		case models.TargetStateResolved, models.TargetStateRestoreFailed, models.TargetStateReleased:
 			continue
-		default:
+		case models.TargetStatePending, models.TargetStateDispatched,
+			models.TargetStateConfirmed, models.TargetStateDrifted:
 			nonTerminal++
 		}
 	}

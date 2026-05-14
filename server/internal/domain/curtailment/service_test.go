@@ -45,6 +45,20 @@ type fakeStore struct {
 	lastInsertEvent   models.InsertEventParams
 	lastInsertTargets []models.InsertTargetParams
 	nextEventID       int64
+
+	// Stop-path fakes. eventsByUUID feeds GetEventByUUID;
+	// targetsByEventUUID feeds ListTargetsByEvent;
+	// beginRestoreErr / beginRestoreResult / beginRestoreLastBatchSize give
+	// Service.Stop tests control over BeginRestoreTransition outcomes.
+	eventsByUUID            map[uuid.UUID]*models.Event
+	targetsByEventUUID      map[uuid.UUID][]*models.Target
+	beginRestoreErr         error
+	beginRestoreResult      *models.Event
+	beginRestoreCalls       int
+	beginRestoreLastBatch   int32
+	beginRestoreLastEventID uuid.UUID
+	getEventByUUIDLastOrg   int64
+	listTargetsLastOrg      int64
 }
 
 func newFakeStore() *fakeStore {
@@ -53,6 +67,8 @@ func newFakeStore() *fakeStore {
 		activeDevicesByOrg:   map[int64][]string{},
 		cooldownDevicesByOrg: map[int64][]string{},
 		candidatesByOrg:      map[int64][]*models.Candidate{},
+		eventsByUUID:         map[uuid.UUID]*models.Event{},
+		targetsByEventUUID:   map[uuid.UUID][]*models.Target{},
 		nextEventID:          1,
 	}
 }
@@ -98,38 +114,63 @@ func (f *fakeStore) ListCandidates(_ context.Context, orgID int64, deviceIdentif
 	return out, nil
 }
 
-// --- panic stubs for methods the service does not exercise ---
+// --- panic stubs for methods Preview / Start do not exercise; Stop tests
+// configure the maps above so the GetEventByUUID / ListTargetsByEvent /
+// BeginRestoreTransition path is real-faked rather than panicking.
 
-func (f *fakeStore) GetEventByUUID(context.Context, int64, uuid.UUID) (*models.Event, error) {
-	panic("GetEventByUUID not exercised by Preview tests")
+func (f *fakeStore) GetEventByUUID(_ context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error) {
+	f.getEventByUUIDLastOrg = orgID
+	ev, ok := f.eventsByUUID[eventUUID]
+	if !ok {
+		return nil, fleeterror.NewNotFoundErrorf("curtailment event not found: %s", eventUUID)
+	}
+	return ev, nil
 }
 
-func (f *fakeStore) ListTargetsByEvent(context.Context, int64, uuid.UUID) ([]*models.Target, error) {
-	panic("ListTargetsByEvent not exercised by Preview tests")
+func (f *fakeStore) ListTargetsByEvent(_ context.Context, orgID int64, eventUUID uuid.UUID) ([]*models.Target, error) {
+	f.listTargetsLastOrg = orgID
+	return append([]*models.Target(nil), f.targetsByEventUUID[eventUUID]...), nil
 }
 
 func (f *fakeStore) GetHeartbeat(context.Context) (*models.Heartbeat, error) {
-	panic("GetHeartbeat not exercised by Preview tests")
+	panic("GetHeartbeat not exercised by Preview/Start/Stop tests")
 }
 
 func (f *fakeStore) ListNonTerminalEvents(context.Context) ([]*models.Event, error) {
-	panic("ListNonTerminalEvents not exercised by Preview tests")
+	panic("ListNonTerminalEvents not exercised by Preview/Start/Stop tests")
 }
 
 func (f *fakeStore) UpdateEventState(context.Context, int64, models.EventState, *time.Time, *time.Time) error {
-	panic("UpdateEventState not exercised by Preview tests")
+	panic("UpdateEventState not exercised by Preview/Start/Stop tests")
 }
 
 func (f *fakeStore) UpdateTargetState(context.Context, int64, string, interfaces.UpdateCurtailmentTargetStateParams) error {
-	panic("UpdateTargetState not exercised by Preview tests")
+	panic("UpdateTargetState not exercised by Preview/Start/Stop tests")
 }
 
 func (f *fakeStore) UpsertHeartbeat(context.Context, interfaces.UpsertCurtailmentHeartbeatParams) error {
-	panic("UpsertHeartbeat not exercised by Preview tests")
+	panic("UpsertHeartbeat not exercised by Preview/Start/Stop tests")
 }
 
-func (f *fakeStore) BeginRestoreTransition(context.Context, int64, uuid.UUID, int32) (*models.Event, error) {
-	panic("BeginRestoreTransition not exercised by Preview/Start tests")
+func (f *fakeStore) BeginRestoreTransition(_ context.Context, _ int64, eventUUID uuid.UUID, effectiveBatchSize int32) (*models.Event, error) {
+	f.beginRestoreCalls++
+	f.beginRestoreLastBatch = effectiveBatchSize
+	f.beginRestoreLastEventID = eventUUID
+	if f.beginRestoreErr != nil {
+		return nil, f.beginRestoreErr
+	}
+	if f.beginRestoreResult != nil {
+		return f.beginRestoreResult, nil
+	}
+	// Default: mutate the seeded event copy so the test sees a 'restoring' echo.
+	ev, ok := f.eventsByUUID[eventUUID]
+	if !ok {
+		return nil, fleeterror.NewNotFoundErrorf("curtailment event not found: %s", eventUUID)
+	}
+	updated := *ev
+	updated.State = models.EventStateRestoring
+	updated.EffectiveBatchSize = &effectiveBatchSize
+	return &updated, nil
 }
 
 // InsertEventWithTargets is exercised by Service.Start tests in

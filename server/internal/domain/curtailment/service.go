@@ -714,8 +714,17 @@ func (s *Service) Stop(ctx context.Context, req StopRequest) (*models.Event, err
 	}
 	nonTerminal := countNonTerminalTargets(targets)
 
+	// nonTerminal is bounded by the per-event target count which is itself
+	// bounded by the fleet size (well under MaxInt32 at any realistic scale);
+	// saturate defensively to keep gosec happy.
+	var nonTerminal32 int32
+	if nonTerminal > math.MaxInt32 {
+		nonTerminal32 = math.MaxInt32
+	} else {
+		nonTerminal32 = int32(nonTerminal) // #nosec G115 -- bounded above
+	}
 	effectiveBatchSize := ComputeEffectiveBatchSize(
-		event.RestoreBatchSize, int32(nonTerminal), req.RestoreBatchSizeOverride,
+		event.RestoreBatchSize, nonTerminal32, req.RestoreBatchSizeOverride,
 	)
 
 	return s.store.BeginRestoreTransition(ctx, req.OrgID, req.EventUUID, effectiveBatchSize)
@@ -808,7 +817,8 @@ func countNonTerminalTargets(targets []*models.Target) int {
 		switch t.State {
 		case models.TargetStateResolved, models.TargetStateRestoreFailed, models.TargetStateReleased:
 			continue
-		default:
+		case models.TargetStatePending, models.TargetStateDispatched,
+			models.TargetStateConfirmed, models.TargetStateDrifted:
 			n++
 		}
 	}
