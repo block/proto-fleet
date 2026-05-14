@@ -1,5 +1,5 @@
 import type { ComponentProps } from "react";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 
@@ -47,6 +47,14 @@ const renderModal = (props: Partial<ComponentProps<typeof CurtailmentStartModal>
     onSubmit,
     ...render(<CurtailmentStartModal open onDismiss={onDismiss} onSubmit={onSubmit} {...props} />),
   };
+};
+
+const getMaintenanceCheckbox = (): HTMLInputElement => {
+  const checkbox = screen.getByText("Include miners in maintenance").closest("label")?.querySelector("input");
+  if (!checkbox) {
+    throw new Error("Maintenance checkbox was not rendered");
+  }
+  return checkbox;
 };
 
 describe("CurtailmentStartModal", () => {
@@ -97,6 +105,31 @@ describe("CurtailmentStartModal", () => {
       }),
     );
     expect(onDismiss).not.toHaveBeenCalled();
+  });
+
+  it("requires confirmation before including maintenance miners", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal();
+
+    await user.click(screen.getByText("Include miners in maintenance"));
+
+    expect(screen.getByText("Force include maintenance miners?")).toBeInTheDocument();
+    expect(
+      screen.getByText("This will run Curtail on miners that are currently flagged for maintenance work."),
+    ).toBeInTheDocument();
+    expect(getMaintenanceCheckbox()).not.toBeChecked();
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByText("Force include maintenance miners?")).not.toBeInTheDocument());
+    expect(getMaintenanceCheckbox()).not.toBeChecked();
+
+    await user.click(screen.getByText("Include miners in maintenance"));
+    await user.click(screen.getByRole("button", { name: "Force include" }));
+    await waitFor(() => expect(screen.queryByText("Force include maintenance miners?")).not.toBeInTheDocument());
+    expect(getMaintenanceCheckbox()).toBeChecked();
+
+    await user.click(screen.getByRole("button", { name: "Start curtailment" }));
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ includeMaintenance: true }));
   });
 
   it("resets form values when reopened with new initial values", async () => {

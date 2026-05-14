@@ -4,6 +4,7 @@ import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneMod
 import { Alert, ChevronDown } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Checkbox from "@/shared/components/Checkbox";
+import Dialog, { DialogIcon } from "@/shared/components/Dialog";
 import Input from "@/shared/components/Input";
 import Select from "@/shared/components/Select";
 
@@ -214,136 +215,178 @@ function CurtailmentStartModalContent({
   isSubmitting = false,
 }: CurtailmentStartModalProps): ReactElement {
   const [values, setValues] = useState<CurtailmentFormValues>(() => getInitialValues(initialValues));
+  const [showMaintenanceConfirmation, setShowMaintenanceConfirmation] = useState(false);
   const updateValue = <Key extends keyof CurtailmentFormValues>(key: Key, value: CurtailmentFormValues[Key]) =>
     setValues((current) => ({ ...current, [key]: value }));
   const previewPane = <PreviewPane preview={preview} previewError={previewError} />;
 
   return (
-    <FullScreenTwoPaneModal
-      open={open}
-      title="Plan a curtailment"
-      closeAriaLabel="Close curtailment planner"
-      onDismiss={onDismiss}
-      isBusy={isSubmitting}
-      buttons={[
-        {
-          text: "Start curtailment",
-          variant: variants.primary,
-          onClick: () => onSubmit(values),
-          loading: isSubmitting,
-        },
-      ]}
-      abovePanes={<div className="px-6 pb-6 laptop:hidden">{previewPane}</div>}
-      primaryPane={
-        <section className="flex flex-col gap-10 pr-6 pb-6 laptop:pr-10 laptop:pb-10">
-          <Section title="Details">
-            <div className="grid gap-3">
-              <div className="grid gap-3 tablet:grid-cols-2">
-                <Field
-                  id="curtailment-target-kw"
-                  label="Target reduction"
-                  value={values.targetKw}
-                  units="kW"
-                  error={errors?.targetKw}
-                  onChange={(value) => updateValue("targetKw", value)}
-                />
-                <Field
-                  id="curtailment-tolerance-kw"
-                  label="Tolerance"
-                  value={values.toleranceKw}
-                  units="kW"
-                  error={errors?.toleranceKw}
-                  onChange={(value) => updateValue("toleranceKw", value)}
-                />
-              </div>
+    <>
+      <FullScreenTwoPaneModal
+        open={open}
+        title="Plan a curtailment"
+        closeAriaLabel="Close curtailment planner"
+        onDismiss={onDismiss}
+        isBusy={isSubmitting}
+        buttons={[
+          {
+            text: "Start curtailment",
+            variant: variants.primary,
+            onClick: () => onSubmit(values),
+            loading: isSubmitting,
+          },
+        ]}
+        abovePanes={<div className="px-6 pb-6 laptop:hidden">{previewPane}</div>}
+        primaryPane={
+          <section className="flex flex-col gap-10 pr-6 pb-6 laptop:pr-10 laptop:pb-10">
+            <Section title="Details">
+              <div className="grid gap-3">
+                <div className="grid gap-3 tablet:grid-cols-2">
+                  <Field
+                    id="curtailment-target-kw"
+                    label="Target reduction"
+                    value={values.targetKw}
+                    units="kW"
+                    error={errors?.targetKw}
+                    onChange={(value) => updateValue("targetKw", value)}
+                  />
+                  <Field
+                    id="curtailment-tolerance-kw"
+                    label="Tolerance"
+                    value={values.toleranceKw}
+                    units="kW"
+                    error={errors?.toleranceKw}
+                    onChange={(value) => updateValue("toleranceKw", value)}
+                  />
+                </div>
 
-              <Select
-                id="curtailment-priority"
-                label="Priority"
-                value={values.priority}
-                className="max-w-[274px]"
-                options={priorityOptions}
-                error={errors?.priority}
-                onChange={(value) => updateValue("priority", value as CurtailmentPriority)}
-              />
-            </div>
-          </Section>
-
-          <Section title="Safety and restore">
-            <div className="grid gap-3">
-              <div className="grid gap-3 tablet:grid-cols-2">
-                <Field
-                  id="curtailment-min-duration"
-                  label="Min duration"
-                  value={values.minDurationSec}
-                  units="sec"
-                  error={errors?.minDurationSec}
-                  onChange={(value) => updateValue("minDurationSec", value)}
-                />
-                <Field
-                  id="curtailment-max-duration"
-                  label="Max duration"
-                  value={values.maxDurationSec}
-                  units="sec"
-                  error={errors?.maxDurationSec}
-                  onChange={(value) => updateValue("maxDurationSec", value)}
-                />
-                <Field
-                  id="curtailment-batch-size"
-                  label="Restore batch size"
-                  value={values.restoreBatchSize}
-                  units="miners"
-                  error={errors?.restoreBatchSize}
-                  onChange={(value) => updateValue("restoreBatchSize", value)}
-                />
-                <Field
-                  id="curtailment-batch-interval"
-                  label="Restore interval"
-                  value={values.restoreIntervalSec}
-                  units="sec"
-                  error={errors?.restoreIntervalSec}
-                  onChange={(value) => updateValue("restoreIntervalSec", value)}
+                <Select
+                  id="curtailment-priority"
+                  label="Priority"
+                  value={values.priority}
+                  className="max-w-[274px]"
+                  options={priorityOptions}
+                  error={errors?.priority}
+                  onChange={(value) => updateValue("priority", value as CurtailmentPriority)}
                 />
               </div>
+            </Section>
 
-              {preview ? (
-                <div className="text-200 text-text-primary-50">Estimated time to restore {preview.restoreEstimate}</div>
-              ) : null}
+            <Section title="Safety and restore">
+              <div className="grid gap-3">
+                <div className="grid gap-3 tablet:grid-cols-2">
+                  <Field
+                    id="curtailment-min-duration"
+                    label="Min duration"
+                    value={values.minDurationSec}
+                    units="sec"
+                    error={errors?.minDurationSec}
+                    onChange={(value) => updateValue("minDurationSec", value)}
+                  />
+                  <Field
+                    id="curtailment-max-duration"
+                    label="Max duration"
+                    value={values.maxDurationSec}
+                    units="sec"
+                    error={errors?.maxDurationSec}
+                    onChange={(value) => updateValue("maxDurationSec", value)}
+                  />
+                  <Field
+                    id="curtailment-batch-size"
+                    label="Restore batch size"
+                    value={values.restoreBatchSize}
+                    units="miners"
+                    error={errors?.restoreBatchSize}
+                    onChange={(value) => updateValue("restoreBatchSize", value)}
+                  />
+                  <Field
+                    id="curtailment-batch-interval"
+                    label="Restore interval"
+                    value={values.restoreIntervalSec}
+                    units="sec"
+                    error={errors?.restoreIntervalSec}
+                    onChange={(value) => updateValue("restoreIntervalSec", value)}
+                  />
+                </div>
 
-              <Field
-                id="curtailment-reason"
-                label="Reason"
-                value={values.reason}
-                type="text"
-                error={errors?.reason}
-                onChange={(value) => updateValue("reason", value)}
+                {preview ? (
+                  <div className="text-200 text-text-primary-50">
+                    Estimated time to restore {preview.restoreEstimate}
+                  </div>
+                ) : null}
+
+                <Field
+                  id="curtailment-reason"
+                  label="Reason"
+                  value={values.reason}
+                  type="text"
+                  error={errors?.reason}
+                  onChange={(value) => updateValue("reason", value)}
+                />
+              </div>
+            </Section>
+
+            <Section title="Apply to">
+              <div className="grid gap-4 tablet:grid-cols-3">
+                <TargetButton label="Racks" value="Select" disabled />
+                <TargetButton label="Groups" value="Select" disabled />
+                <TargetButton label="Miners" value="Select" disabled />
+              </div>
+            </Section>
+
+            <label className="flex cursor-pointer items-start gap-3 text-left">
+              <Checkbox
+                checked={values.includeMaintenance}
+                onChange={(event) => {
+                  if (event.currentTarget.checked) {
+                    setShowMaintenanceConfirmation(true);
+                    return;
+                  }
+
+                  updateValue("includeMaintenance", false);
+                }}
               />
-            </div>
-          </Section>
-
-          <Section title="Apply to">
-            <div className="grid gap-4 tablet:grid-cols-3">
-              <TargetButton label="Racks" value="Select" disabled />
-              <TargetButton label="Groups" value="Select" disabled />
-              <TargetButton label="Miners" value="Select" disabled />
-            </div>
-          </Section>
-
-          <label className="flex cursor-pointer items-start gap-3 text-left">
-            <Checkbox
-              checked={values.includeMaintenance}
-              onChange={(event) => updateValue("includeMaintenance", event.currentTarget.checked)}
-            />
-            <span>
-              <span className="block text-300 text-text-primary">Include miners in maintenance</span>
-              <span className="block text-200 text-text-primary-70">Requires explicit force acknowledgement</span>
-            </span>
-          </label>
-        </section>
-      }
-      secondaryPane={previewPane}
-      secondaryPaneClassName="!hidden !bg-transparent laptop:!flex laptop:!pl-0 laptop:!rounded-[24px]"
-    />
+              <span>
+                <span className="block text-300 text-text-primary">Include miners in maintenance</span>
+                <span className="block text-200 text-text-primary-70">Requires explicit force acknowledgement</span>
+              </span>
+            </label>
+          </section>
+        }
+        secondaryPane={previewPane}
+        secondaryPaneClassName="!hidden !bg-transparent laptop:!flex laptop:!pl-0 laptop:!rounded-[24px]"
+      />
+      <Dialog
+        open={showMaintenanceConfirmation}
+        title="Force include maintenance miners?"
+        testId="curtailment-maintenance-confirmation"
+        onDismiss={() => setShowMaintenanceConfirmation(false)}
+        icon={
+          <DialogIcon intent="warning">
+            <Alert />
+          </DialogIcon>
+        }
+        buttons={[
+          {
+            text: "Cancel",
+            onClick: () => setShowMaintenanceConfirmation(false),
+            variant: variants.secondary,
+          },
+          {
+            text: "Force include",
+            onClick: () => {
+              updateValue("includeMaintenance", true);
+              setShowMaintenanceConfirmation(false);
+            },
+            variant: variants.danger,
+          },
+        ]}
+      >
+        <div className="text-300 text-text-primary-70">
+          This will run Curtail on miners that are currently flagged for maintenance work.
+        </div>
+      </Dialog>
+    </>
   );
 }
 
