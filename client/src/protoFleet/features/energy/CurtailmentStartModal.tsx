@@ -1,25 +1,63 @@
 import { type ReactNode, useEffect, useState } from "react";
+import clsx from "clsx";
 
 import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
-import { formatKw, priorityLabels } from "@/protoFleet/features/energy/curtailmentFormatters";
-import { getRestoreEstimate, type RestoreEstimate } from "@/protoFleet/features/energy/curtailmentPreviewHelpers";
-import { defaultCurtailmentFormValues } from "@/protoFleet/features/energy/fixtures";
-import type {
-  CurtailmentFormValues,
-  CurtailmentPlanPreview,
-  CurtailmentPriority,
-} from "@/protoFleet/features/energy/types";
 import GroupSelectionModal from "@/protoFleet/features/settings/components/Schedules/GroupSelectionModal";
 import MinerSelectionModal from "@/protoFleet/features/settings/components/Schedules/MinerSelectionModal";
 import RackSelectionModal from "@/protoFleet/features/settings/components/Schedules/RackSelectionModal";
-import TargetSelectButton from "@/protoFleet/features/settings/components/Schedules/TargetSelectButton";
-import { getTargetButtonLabel } from "@/protoFleet/features/settings/components/Schedules/targetSelectButtonLabels";
-import { Alert } from "@/shared/assets/icons";
+import { Alert, ChevronDown } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Checkbox from "@/shared/components/Checkbox";
 import Dialog, { DialogIcon } from "@/shared/components/Dialog";
 import Select from "@/shared/components/Select";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
+
+export type CurtailmentMode = "fixedKw";
+export type CurtailmentPriority = "normal" | "emergency";
+export type CurtailmentScopeType = "wholeOrg" | "deviceSet" | "explicitMiners";
+
+export interface CurtailmentCandidate {
+  deviceIdentifier: string;
+  currentPowerW: number;
+  efficiencyJth: number;
+  reasonSelected: string;
+}
+
+export interface CurtailmentSkippedCandidate {
+  deviceIdentifier: string;
+  reason: string;
+  currentPowerW?: number;
+}
+
+export interface CurtailmentPlanPreview {
+  mode: CurtailmentMode;
+  targetKw: number;
+  toleranceKw?: number;
+  estimatedReductionKw: number;
+  estimatedRemainingPowerKw: number;
+  preEventPowerKw: number;
+  selectedCandidateCount: number;
+  eligibleCandidateCount: number;
+  selectedCandidates: CurtailmentCandidate[];
+  skippedCandidates: CurtailmentSkippedCandidate[];
+}
+
+export interface CurtailmentFormValues {
+  scopeType: CurtailmentScopeType;
+  scopeId?: string;
+  deviceSetIds: string[];
+  deviceIdentifiers: string[];
+  targetKw: string;
+  toleranceKw: string;
+  priority: CurtailmentPriority;
+  minCurtailedDurationSec: string;
+  maxDurationSec: string;
+  restoreBatchSize: string;
+  restoreBatchIntervalSec: string;
+  includeMaintenance: boolean;
+  forceIncludeMaintenance: boolean;
+  reason: string;
+}
 
 interface CurtailmentStartModalProps {
   open: boolean;
@@ -45,8 +83,6 @@ interface NumberFieldProps {
   units?: string;
   error?: string;
   onChange: (value: string) => void;
-  placeholder?: string;
-  suffixIcon?: ReactNode;
 }
 
 interface TextFieldProps {
@@ -86,10 +122,46 @@ interface SubmitCurtailmentOptions {
   errorMessage: string;
 }
 
+interface RestoreEstimate {
+  batchCount: number;
+  totalSeconds: number;
+}
+
+interface TargetSelectButtonProps {
+  label: string;
+  value: string;
+  onClick: () => void;
+}
+
 const inputFrameClassName =
   "flex min-h-14 w-full items-center gap-2 rounded-xl border border-border-5 bg-surface-base px-4 py-1";
 const sectionTitleClassName = "text-emphasis-300 text-text-primary";
 const sectionBodyClassName = "grid gap-3";
+const priorityLabels: Record<CurtailmentPriority, string> = {
+  normal: "Normal",
+  emergency: "Emergency",
+};
+const priorityOptions = [
+  { value: "normal", label: priorityLabels.normal },
+  { value: "emergency", label: priorityLabels.emergency },
+];
+const targetSelectPlaceholderLabel = "Select";
+const defaultCurtailmentFormValues: CurtailmentFormValues = {
+  scopeType: "wholeOrg",
+  scopeId: "whole-org",
+  deviceSetIds: [],
+  deviceIdentifiers: [],
+  targetKw: "",
+  toleranceKw: "",
+  priority: "normal",
+  minCurtailedDurationSec: "",
+  maxDurationSec: "",
+  restoreBatchSize: "",
+  restoreBatchIntervalSec: "",
+  includeMaintenance: false,
+  forceIncludeMaintenance: false,
+  reason: "",
+};
 
 type OptionalWholeNumberField =
   | "minCurtailedDurationSec"
@@ -125,7 +197,19 @@ function Section({ title, children }: SectionProps) {
   );
 }
 
-function NumberField({ id, label, value, units, error, onChange, placeholder, suffixIcon }: NumberFieldProps) {
+function FieldError({ id, error }: { id: string; error?: string }) {
+  if (!error) {
+    return null;
+  }
+
+  return (
+    <span id={`${id}-error`} className="mt-2 block text-200 text-intent-critical-fill">
+      {error}
+    </span>
+  );
+}
+
+function NumberField({ id, label, value, units, error, onChange }: NumberFieldProps) {
   const hasValue = value.trim().length > 0;
 
   return (
@@ -140,7 +224,7 @@ function NumberField({ id, label, value, units, error, onChange, placeholder, su
               className="no-spinner min-w-0 bg-transparent text-300 text-text-primary outline-hidden placeholder:text-text-primary-50"
               style={hasValue ? { width: `${Math.max(value.length, 1) + 0.5}ch` } : undefined}
               value={value}
-              placeholder={placeholder ?? label}
+              placeholder={label}
               onChange={(event) => onChange(event.currentTarget.value)}
               aria-label={label}
               aria-invalid={!!error || undefined}
@@ -150,13 +234,8 @@ function NumberField({ id, label, value, units, error, onChange, placeholder, su
             {units && hasValue ? <span className="shrink-0 text-300 text-text-primary">{units}</span> : null}
           </span>
         </span>
-        {suffixIcon}
       </span>
-      {error ? (
-        <span id={`${id}-error`} className="mt-2 block text-200 text-intent-critical-fill">
-          {error}
-        </span>
-      ) : null}
+      <FieldError id={id} error={error} />
     </label>
   );
 }
@@ -183,11 +262,7 @@ function TextField({ id, label, value, error, onChange, placeholder }: TextField
           />
         </span>
       </span>
-      {error ? (
-        <span id={`${id}-error`} className="mt-2 block text-200 text-intent-critical-fill">
-          {error}
-        </span>
-      ) : null}
+      <FieldError id={id} error={error} />
     </label>
   );
 }
@@ -199,12 +274,29 @@ function SelectField({ id, label, value, onChange }: SelectFieldProps) {
       label={label}
       value={value}
       className="max-w-[274px]"
-      options={[
-        { value: "normal", label: priorityLabels.normal },
-        { value: "emergency", label: priorityLabels.emergency },
-      ]}
+      options={priorityOptions}
       onChange={(nextValue) => onChange(nextValue as CurtailmentPriority)}
     />
+  );
+}
+
+function TargetSelectButton({ label, value, onClick }: TargetSelectButtonProps) {
+  const isPlaceholder = value === targetSelectPlaceholderLabel;
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="relative flex h-14 w-full items-center justify-between rounded-lg border border-border-5 bg-surface-base pr-4 pl-4 text-left outline-hidden"
+    >
+      <div className="flex min-w-0 flex-col pt-[18px]">
+        <span className="absolute top-[7px] text-200 text-text-primary-50">{label}</span>
+        <div className={clsx("truncate text-300", isPlaceholder ? "text-text-primary-50" : "text-text-primary")}>
+          {value}
+        </div>
+      </div>
+      <ChevronDown width="w-3" className="shrink-0 text-text-primary-70" />
+    </button>
   );
 }
 
@@ -257,6 +349,35 @@ function validateCurtailmentForm(
   return undefined;
 }
 
+function parsePositiveInteger(value: string): number | undefined {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function getRestoreEstimate({
+  selectedCandidateCount,
+  restoreBatchSize,
+  restoreBatchIntervalSec,
+}: {
+  selectedCandidateCount: number;
+  restoreBatchSize: string;
+  restoreBatchIntervalSec: string;
+}): RestoreEstimate | undefined {
+  const batchSize = parsePositiveInteger(restoreBatchSize);
+  const intervalSec = parsePositiveInteger(restoreBatchIntervalSec);
+
+  if (batchSize === undefined || intervalSec === undefined || selectedCandidateCount <= 0) {
+    return undefined;
+  }
+
+  const batchCount = Math.ceil(selectedCandidateCount / batchSize);
+
+  return {
+    batchCount,
+    totalSeconds: Math.max(batchCount - 1, 0) * intervalSec,
+  };
+}
+
 function formatKwValue(value: number): string {
   return value.toLocaleString(undefined, {
     maximumFractionDigits: 1,
@@ -276,6 +397,22 @@ function formatPreviewRestoreEstimate(estimate?: RestoreEstimate): string {
   const minutes = Math.max(Math.round(estimate.totalSeconds / 60), 1);
 
   return `~${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
+}
+
+function formatKw(value: number, fractionDigits = 1): string {
+  return `${value.toLocaleString(undefined, {
+    maximumFractionDigits: fractionDigits,
+    minimumFractionDigits: fractionDigits,
+  })} kW`;
+}
+
+function getTargetButtonLabel(count: number, singular: string): string {
+  if (count === 0) {
+    return targetSelectPlaceholderLabel;
+  }
+
+  const noun = count === 1 ? singular : `${singular}s`;
+  return `${count} ${noun}`;
 }
 
 function ReductionProgressBar({ value, max }: { value: number; max: number }) {
