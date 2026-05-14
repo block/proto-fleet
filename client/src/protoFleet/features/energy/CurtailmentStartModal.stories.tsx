@@ -7,7 +7,7 @@ import CurtailmentStartModal, {
 } from "@/protoFleet/features/energy/CurtailmentStartModal";
 
 const meta: Meta<typeof CurtailmentStartModal> = {
-  title: "Proto Fleet/Energy",
+  title: "Proto Fleet/Energy/Plan Curtailment Modal",
   component: CurtailmentStartModal,
   parameters: {
     layout: "fullscreen",
@@ -18,72 +18,52 @@ export default meta;
 
 type Story = StoryObj<typeof CurtailmentStartModal>;
 
-const defaultCurtailmentFormValues: CurtailmentFormValues = {
-  scopeType: "wholeOrg",
-  scopeId: "whole-org",
-  deviceSetIds: [],
-  deviceIdentifiers: [],
-  targetKw: "",
-  toleranceKw: "",
-  priority: "normal",
-  minCurtailedDurationSec: "",
-  maxDurationSec: "",
-  restoreBatchSize: "",
-  restoreBatchIntervalSec: "",
-  includeMaintenance: false,
-  forceIncludeMaintenance: false,
-  reason: "",
-};
-
-const storybookCurtailmentFormValues: CurtailmentFormValues = {
-  ...defaultCurtailmentFormValues,
+const configuredValues: Partial<CurtailmentFormValues> = {
   targetKw: "60",
-  minCurtailedDurationSec: "300",
+  minDurationSec: "300",
   maxDurationSec: "3600",
   restoreBatchSize: "10",
-  restoreBatchIntervalSec: "120",
+  restoreIntervalSec: "120",
   reason: "Grid peak - ERCOT 4CP signal",
 };
 
-const mockPreview: CurtailmentPlanPreview = {
-  mode: "fixedKw",
+const preview: CurtailmentPlanPreview = {
+  selectedMinerCount: 18,
   targetKw: 60,
   estimatedReductionKw: 60.2,
-  estimatedRemainingPowerKw: 131.7,
-  preEventPowerKw: 191.9,
-  selectedCandidateCount: 18,
-  eligibleCandidateCount: 57,
-  selectedCandidates: [
-    { deviceIdentifier: "rig-b12-012", currentPowerW: 3351, efficiencyJth: 21.5, reasonSelected: "High J/TH" },
-    { deviceIdentifier: "rig-b13-004", currentPowerW: 3383, efficiencyJth: 21.5, reasonSelected: "High J/TH" },
-    { deviceIdentifier: "rig-c04-007", currentPowerW: 3380, efficiencyJth: 21.5, reasonSelected: "High J/TH" },
-    { deviceIdentifier: "rig-c04-004", currentPowerW: 3389, efficiencyJth: 21.2, reasonSelected: "High J/TH" },
-    { deviceIdentifier: "rig-b12-018", currentPowerW: 3294, efficiencyJth: 20.8, reasonSelected: "Underperformer" },
-  ],
-  skippedCandidates: [
-    { deviceIdentifier: "rig-b12-007", reason: "unreachable_residual_load", currentPowerW: 340 },
-    { deviceIdentifier: "rig-b12-013", reason: "updating", currentPowerW: 3476 },
-    { deviceIdentifier: "rig-c04-013", reason: "unreachable_residual_load" },
-  ],
+  restoreEstimate: "~2 minutes",
+  scopeLabel: "across the fleet",
 };
 
-function ModalStory(): ReactElement {
+function ModalStory(props: {
+  initialValues?: Partial<CurtailmentFormValues>;
+  preview?: CurtailmentPlanPreview;
+  previewError?: string;
+}): ReactElement {
   const [open, setOpen] = useState(true);
 
   return (
     <div className="min-h-screen bg-surface-base">
-      <CurtailmentStartModal
-        open={open}
-        onDismiss={() => setOpen(false)}
-        onPreviewCurtailmentPlan={async () => mockPreview}
-        onStartCurtailment={async () => undefined}
-        initialValues={{ ...storybookCurtailmentFormValues, reason: "" }}
-      />
+      <CurtailmentStartModal open={open} onDismiss={() => setOpen(false)} {...props} />
     </div>
   );
 }
 
-export const PlanCurtailmentModal: Story = {
-  name: "Plan curtailment modal",
+export const Empty: Story = {
   render: () => <ModalStory />,
+};
+
+export const WithPreview: Story = {
+  name: "With preview",
+  render: () => <ModalStory initialValues={configuredValues} preview={preview} />,
+};
+
+export const PreviewError: Story = {
+  name: "Preview error",
+  render: () => (
+    <ModalStory
+      initialValues={configuredValues}
+      previewError="Preview is unavailable until a valid target reduction is entered."
+    />
+  ),
 };
