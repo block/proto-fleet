@@ -159,30 +159,21 @@ export type RackInfo = Message<"device_set.v1.RackInfo"> & {
   coolingType: RackCoolingType;
 
   /**
-   * Site this rack is assigned to.
+   * Site this rack is assigned to. When building_id is set, the server
+   * derives site_id from the parent building; clients should leave it
+   * unset and read the derived value from the response.
    *
-   * Semantics:
-   *   * When building_id is set, the server derives site_id from the
-   *     parent building's site_id (which may itself be NULL when the
-   *     building is not yet assigned to a site) and rejects callers
-   *     passing a mismatched value. Clients should leave site_id unset
-   *     in this case and read the derived value back from the
-   *     response.
-   *   * When building_id is unset, site_id may be set directly to
-   *     place the rack under a site with no building.
-   *   * Unset on BOTH site_id and building_id means the rack has no
-   *     placement (fully unassigned). Unset on site_id alone does NOT
-   *     imply no placement — the rack may still be building-assigned
-   *     while the parent building has no site stamped.
+   * SaveRack update: leaving both site_id and building_id unset
+   * preserves the current placement. Send an explicit 0 to unassign.
    *
    * @generated from field: optional int64 site_id = 6;
    */
   siteId?: bigint | undefined;
 
   /**
-   * Building this rack belongs to (within site_id). Unset means the
-   * rack is directly attached to its site (when site_id is set), or
-   * fully unassigned (when site_id is also unset).
+   * Building this rack belongs to. Unset = directly under site_id (or
+   * fully unassigned when site_id is also unset). On SaveRack update,
+   * unset preserves the current building; send 0 to unassign.
    *
    * @generated from field: optional int64 building_id = 7;
    */
@@ -670,13 +661,9 @@ export const ListDeviceSetsResponseSchema: GenMessage<ListDeviceSetsResponse> =
 /**
  * Request to add devices to a device set.
  *
- * Site cascade side effect: when the target device set is a rack with a
- * stamped site_id, the server rewrites device.site_id to match the rack's
- * site_id for every added device whose current site differs, in the same
- * transaction as the membership insert. Group targets are exempt — groups
- * are org-scoped and may span sites by design. The cascaded device count
- * is returned in AddDevicesToDeviceSetResponse.site_reassigned_count and
- * per-device prior site_ids are captured in the activity-log row.
+ * When the target is a site-stamped rack, the server rewrites
+ * device.site_id to match the rack for every added device. The affected
+ * count is returned in site_reassigned_count. Groups are exempt.
  *
  * @generated from message device_set.v1.AddDevicesToDeviceSetRequest
  */
@@ -726,9 +713,7 @@ export type AddDevicesToDeviceSetResponse = Message<"device_set.v1.AddDevicesToD
   addedCount: number;
 
   /**
-   * Number of devices whose site_id was rewritten by the implicit
-   * rack-add cascade. Zero for group targets, for racks without a
-   * stamped site_id, or when every added device already matched.
+   * Number of devices whose site_id was rewritten by the cascade.
    *
    * @generated from field: int32 site_reassigned_count = 3;
    */
@@ -1426,13 +1411,9 @@ export const ListRackTypesResponseSchema: GenMessage<ListRackTypesResponse> =
 /**
  * Request to atomically create or update a rack with membership and slot assignments.
  *
- * Site cascade side effect: when rack_info.site_id (or the site derived
- * from rack_info.building_id) differs from the rack's current site, the
- * server rewrites device.site_id for every paired rack member to match
- * the rack's new site in the same transaction. Devices added by
- * device_selector also receive the rack's site_id. The cascaded device
- * count is returned in SaveRackResponse.site_reassigned_count and the
- * per-device prior site_ids are captured in the activity-log row.
+ * When the rack's site_id changes (directly or via building_id), the
+ * server rewrites device.site_id for every member to match. The affected
+ * count is returned in site_reassigned_count.
  *
  * @generated from message device_set.v1.SaveRackRequest
  */
@@ -1505,9 +1486,7 @@ export type SaveRackResponse = Message<"device_set.v1.SaveRackResponse"> & {
   assignedCount: number;
 
   /**
-   * Number of devices whose site_id was rewritten by the implicit
-   * rack-edit/move cascade. Zero when the rack had no site stamped, or
-   * when no rack member had a site_id different from the rack's.
+   * Number of devices whose site_id was rewritten by the cascade.
    *
    * @generated from field: int32 site_reassigned_count = 3;
    */
