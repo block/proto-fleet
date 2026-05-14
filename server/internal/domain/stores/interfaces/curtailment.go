@@ -84,4 +84,17 @@ type CurtailmentStore interface {
 	// UpsertHeartbeat overwrites the singleton row at id=1. Migration seeds
 	// the row; upsert is robust against accidental deletion.
 	UpsertHeartbeat(ctx context.Context, params UpsertCurtailmentHeartbeatParams) error
+
+	// BeginRestoreTransition flips a non-terminal event from pending/active to
+	// restoring, stamps effective_batch_size, and resets every non-terminal
+	// target (desired_state='active', state='pending', cleared phase-local
+	// cursors) in one transaction. Idempotent: an already-restoring event
+	// returns the current row without writing. Terminal events return
+	// FailedPrecondition; cross-org lookups return NotFound.
+	BeginRestoreTransition(
+		ctx context.Context,
+		orgID int64,
+		eventUUID uuid.UUID,
+		effectiveBatchSize int32,
+	) (*models.Event, error)
 }

@@ -43,6 +43,15 @@ func (s EventState) IsTerminal() bool {
 	return false
 }
 
+// DesiredState values for `curtailment_target.desired_state`. The active
+// phase requests "curtailed"; Stop flips non-terminal targets to "active"
+// (restore phase). Plain strings rather than a typed alias to match the
+// existing column shape; constants give callers a single source of truth.
+const (
+	DesiredStateCurtailed = "curtailed"
+	DesiredStateActive    = "active"
+)
+
 // TargetState is a typed wrapper for `curtailment_target.state`.
 type TargetState string
 

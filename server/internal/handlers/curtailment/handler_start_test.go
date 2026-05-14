@@ -106,6 +106,10 @@ func (s *startStubStore) UpsertHeartbeat(context.Context, interfaces.UpsertCurta
 	panic("UpsertHeartbeat not exercised by handler Start tests")
 }
 
+func (s *startStubStore) BeginRestoreTransition(context.Context, int64, uuid.UUID, int32) (*models.Event, error) {
+	panic("BeginRestoreTransition not exercised by handler Start tests")
+}
+
 // finitePtr returns &v as a typed pointer; used for proto3 optional fields.
 func finitePtr[T any](v T) *T { return &v }
 

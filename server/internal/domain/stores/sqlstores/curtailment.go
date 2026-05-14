@@ -272,6 +272,70 @@ func (s *SQLCurtailmentStore) UpsertHeartbeat(ctx context.Context, params interf
 	return nil
 }
 
+// BeginRestoreTransition runs the event-state flip + target reset in one tx.
+// The state-guard inside BeginCurtailmentRestoration's WHERE clause makes the
+// UPDATE return zero rows for any state other than pending/active; this store
+// pre-reads the event to map that into a typed error (FailedPrecondition vs
+// idempotent no-op) rather than burying state semantics in a row-count check.
+func (s *SQLCurtailmentStore) BeginRestoreTransition(
+	ctx context.Context,
+	orgID int64,
+	eventUUID uuid.UUID,
+	effectiveBatchSize int32,
+) (*models.Event, error) {
+	return db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (*models.Event, error) {
+		current, err := q.GetCurtailmentEventByUUID(ctx, sqlc.GetCurtailmentEventByUUIDParams{
+			EventUuid: eventUUID,
+			OrgID:     orgID,
+		})
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fleeterror.NewNotFoundErrorf("curtailment event not found: %s", eventUUID)
+		}
+		if err != nil {
+			return nil, fleeterror.NewInternalErrorf("failed to get curtailment event: %v", err)
+		}
+
+		state := models.EventState(current.State)
+		if state == models.EventStateRestoring {
+			// Idempotent re-Stop: leave effective_batch_size and targets alone
+			// (the first Stop's sizing wins).
+			return convertEventRow(current), nil
+		}
+		if state.IsTerminal() {
+			return nil, fleeterror.NewFailedPreconditionErrorf(
+				"cannot stop curtailment event %s in terminal state %q",
+				eventUUID, current.State,
+			)
+		}
+
+		updated, err := q.BeginCurtailmentRestoration(ctx, sqlc.BeginCurtailmentRestorationParams{
+			ID:                 current.ID,
+			EffectiveBatchSize: sql.NullInt32{Int32: effectiveBatchSize, Valid: true},
+		})
+		if errors.Is(err, sql.ErrNoRows) {
+			// Concurrent transition between pre-read and update: re-read so the
+			// caller sees the current row (likely restoring already).
+			latest, getErr := q.GetCurtailmentEventByUUID(ctx, sqlc.GetCurtailmentEventByUUIDParams{
+				EventUuid: eventUUID,
+				OrgID:     orgID,
+			})
+			if getErr != nil {
+				return nil, fleeterror.NewInternalErrorf("failed to re-read curtailment event after concurrent state change: %v", getErr)
+			}
+			return convertEventRow(latest), nil
+		}
+		if err != nil {
+			return nil, fleeterror.NewInternalErrorf("failed to begin curtailment restoration: %v", err)
+		}
+
+		if err := q.ResetCurtailmentTargetsForRestore(ctx, current.ID); err != nil {
+			return nil, fleeterror.NewInternalErrorf("failed to reset curtailment targets for restore: %v", err)
+		}
+
+		return convertEventRow(updated), nil
+	})
+}
+
 func (s *SQLCurtailmentStore) GetHeartbeat(ctx context.Context) (*models.Heartbeat, error) {
 	row, err := s.GetQueries(ctx).GetCurtailmentReconcilerHeartbeat(ctx)
 	if err != nil {

@@ -197,6 +197,37 @@ SET state      = sqlc.arg('state'),
     ended_at   = COALESCE(sqlc.narg('ended_at'),   ended_at)
 WHERE id = sqlc.arg('id');
 
+-- name: BeginCurtailmentRestoration :one
+-- Stop's event-side write: flips state to 'restoring' and stamps
+-- effective_batch_size from the adaptive sizing formula. RETURNING shape
+-- mirrors GetCurtailmentEventByUUID so the caller can echo the persisted
+-- event. The WHERE state-guard makes the operation idempotent against
+-- already-restoring/terminal events; the caller distinguishes "row updated"
+-- from "no-op" via the row count.
+UPDATE curtailment_event
+SET state                = 'restoring',
+    effective_batch_size = sqlc.arg('effective_batch_size')
+WHERE id = sqlc.arg('id')
+  AND state IN ('pending', 'active')
+RETURNING *;
+
+-- name: ResetCurtailmentTargetsForRestore :exec
+-- Stop's target-side write inside the same tx as BeginCurtailmentRestoration.
+-- Non-terminal targets flip to desired_state='active' (restore phase) and
+-- their phase-local cursors reset so the restorer has an unambiguous queue
+-- after a fleetd restart. Terminal states are untouched (resolved /
+-- restore_failed / released keep their meaning across the phase change).
+UPDATE curtailment_target
+SET desired_state      = 'active',
+    state              = 'pending',
+    retry_count        = 0,
+    last_dispatched_at = NULL,
+    last_batch_uuid    = NULL,
+    confirmed_at       = NULL,
+    last_error         = NULL
+WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
+  AND state NOT IN ('resolved', 'restore_failed', 'released');
+
 -- name: UpdateCurtailmentTargetState :exec
 -- Reconciler patch: COALESCE preserves un-supplied columns so partial
 -- updates don't clobber values from earlier ticks. retry_count is

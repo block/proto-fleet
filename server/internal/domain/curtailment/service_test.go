@@ -128,6 +128,10 @@ func (f *fakeStore) UpsertHeartbeat(context.Context, interfaces.UpsertCurtailmen
 	panic("UpsertHeartbeat not exercised by Preview tests")
 }
 
+func (f *fakeStore) BeginRestoreTransition(context.Context, int64, uuid.UUID, int32) (*models.Event, error) {
+	panic("BeginRestoreTransition not exercised by Preview/Start tests")
+}
+
 // InsertEventWithTargets is exercised by Service.Start tests in
 // service_start_test.go; Preview never invokes it. Default behavior records
 // the call so Start tests can assert against captured params; Preview tests

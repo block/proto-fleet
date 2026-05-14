@@ -119,7 +119,26 @@ func (h *Handler) StopCurtailment(ctx context.Context, req *connect.Request[pb.S
 			return nil, err
 		}
 	}
-	return nil, errCurtailmentNotImplemented("StopCurtailment")
+	if h.service == nil {
+		return nil, errCurtailmentNotImplemented("StopCurtailment")
+	}
+
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, fleeterror.NewUnauthenticatedError("authentication required")
+	}
+
+	stopReq, err := toStopRequest(req.Msg, info.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+
+	event, err := h.service.Stop(ctx, stopReq)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(toStopResponse(event)), nil
 }
 
 func (h *Handler) GetActiveCurtailment(_ context.Context, _ *connect.Request[pb.GetActiveCurtailmentRequest]) (*connect.Response[pb.GetActiveCurtailmentResponse], error) {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -545,7 +546,10 @@ func isFiniteFloat(p *float64) bool {
 
 // curtailment_target column values written at Start.
 const targetTypeMiner = "miner"
-const desiredStateCurtailed = "curtailed"
+
+// Use models.DesiredStateCurtailed / models.DesiredStateActive at the
+// boundary; this alias keeps the local call-site terse.
+const desiredStateCurtailed = models.DesiredStateCurtailed
 
 // buildInsertParams assembles event + per-target params from a successful
 // plan. baseline_power_w comes from the telemetry snapshot the selector
@@ -650,6 +654,165 @@ func marshalScopeJSON(s Scope) ([]byte, error) {
 	default:
 		return nil, fleeterror.NewInternalErrorf("unrecognized scope type: %q", s.Type)
 	}
+}
+
+// StopRequest is the service-level shape of a Stop call. The handler maps
+// it from `StopCurtailmentRequest` after deriving OrgID from session.Info
+// and gating `RestoreBatchSizeOverride` on Admin role.
+type StopRequest struct {
+	OrgID                    int64
+	EventUUID                uuid.UUID
+	RestoreBatchSizeOverride *int32 // nil = use adaptive sizing; admin-gated upstream
+}
+
+// Adaptive batch-sizing constants. The [10, 100] band is the inrush /
+// thermal protection envelope: small enough to avoid simultaneous restarts
+// at any plausible fleet size, large enough to keep restore time bounded
+// for 5–10K-miner events. `restoreBatchSizeOverrideUpperBound` is the
+// service-level backstop for the per-request admin override; the proto's
+// own [1, 200] bound is the externally-enforced ceiling.
+const (
+	minBatchSizeFloor                  int32 = 10
+	maxBatchSizeCeiling                int32 = 100
+	restoreBatchSizeOverrideUpperBound int32 = 200
+)
+
+// Stop transitions a non-terminal event to `restoring`, stamps
+// effective_batch_size from the adaptive formula (or the operator override),
+// and flips every non-terminal target to (desired_state='active',
+// state='pending'). Idempotent re-Stop returns the current event without
+// writing. Terminal events return FailedPrecondition.
+func (s *Service) Stop(ctx context.Context, req StopRequest) (*models.Event, error) {
+	if err := validateStopRequest(req); err != nil {
+		return nil, err
+	}
+
+	event, err := s.store.GetEventByUUID(ctx, req.OrgID, req.EventUUID)
+	if err != nil {
+		return nil, err
+	}
+
+	if event.State.IsTerminal() {
+		return nil, fleeterror.NewFailedPreconditionErrorf(
+			"cannot stop curtailment event %s in terminal state %q",
+			event.EventUUID, event.State,
+		)
+	}
+	if event.State == models.EventStateRestoring {
+		// Idempotent re-Stop: a second call after the first transitioned the
+		// event returns the persisted row without changing effective_batch_size.
+		return event, nil
+	}
+
+	if err := checkMinCurtailedDurationGate(event, time.Now()); err != nil {
+		return nil, err
+	}
+
+	targets, err := s.store.ListTargetsByEvent(ctx, req.OrgID, req.EventUUID)
+	if err != nil {
+		return nil, err
+	}
+	nonTerminal := countNonTerminalTargets(targets)
+
+	effectiveBatchSize := ComputeEffectiveBatchSize(
+		event.RestoreBatchSize, int32(nonTerminal), req.RestoreBatchSizeOverride,
+	)
+
+	return s.store.BeginRestoreTransition(ctx, req.OrgID, req.EventUUID, effectiveBatchSize)
+}
+
+func validateStopRequest(req StopRequest) error {
+	if req.OrgID <= 0 {
+		return fleeterror.NewInvalidArgumentError("org_id must be set")
+	}
+	if req.EventUUID == uuid.Nil {
+		return fleeterror.NewInvalidArgumentError("event_uuid must be set")
+	}
+	if req.RestoreBatchSizeOverride != nil {
+		v := *req.RestoreBatchSizeOverride
+		if v < 1 || v > restoreBatchSizeOverrideUpperBound {
+			return fleeterror.NewInvalidArgumentErrorf(
+				"restore_batch_size_override must be in [1, %d], got %d",
+				restoreBatchSizeOverrideUpperBound, v,
+			)
+		}
+	}
+	return nil
+}
+
+// checkMinCurtailedDurationGate enforces `min_curtailed_duration_sec` on
+// active events. Pending events haven't curtailed anything yet, so the
+// hysteresis gate doesn't apply. EMERGENCY priority on the event bypasses.
+func checkMinCurtailedDurationGate(event *models.Event, now time.Time) error {
+	if event.Priority == models.PriorityEmergency {
+		return nil
+	}
+	if event.State != models.EventStateActive {
+		return nil
+	}
+	if event.MinCurtailedDurationSec <= 0 || event.StartedAt == nil {
+		return nil
+	}
+	elapsed := now.Sub(*event.StartedAt)
+	required := time.Duration(event.MinCurtailedDurationSec) * time.Second
+	if elapsed >= required {
+		return nil
+	}
+	return fleeterror.NewFailedPreconditionErrorf(
+		"min_curtailed_duration_sec not elapsed: %ds of %ds; an EMERGENCY-priority event would bypass this gate",
+		int64(elapsed.Seconds()), event.MinCurtailedDurationSec,
+	)
+}
+
+// ComputeEffectiveBatchSize implements BE-4 adaptive batch sizing:
+//
+//	effective = max(restore_batch_size, ceil(0.01 × non_terminal_count))
+//	            clamped to [minBatchSizeFloor, maxBatchSizeCeiling]
+//
+// `override` (admin-gated) takes precedence over the formula entirely;
+// validateStopRequest bounds it. The clamp protects against inrush/thermal
+// shock; the override is the explicit operator escape hatch.
+//
+// Exported because the reconciler reuses the same formula when
+// max_duration_seconds elapses on an active event (no operator request →
+// no override). Single source of truth for the [10, 100] inrush envelope.
+func ComputeEffectiveBatchSize(restoreBatchSize, nonTerminalCount int32, override *int32) int32 {
+	if override != nil {
+		return *override
+	}
+	base := restoreBatchSize
+	if base < 0 {
+		base = 0
+	}
+	if nonTerminalCount > 0 {
+		onePercent := int32(math.Ceil(float64(nonTerminalCount) * 0.01))
+		if onePercent > base {
+			base = onePercent
+		}
+	}
+	if base < minBatchSizeFloor {
+		base = minBatchSizeFloor
+	}
+	if base > maxBatchSizeCeiling {
+		base = maxBatchSizeCeiling
+	}
+	return base
+}
+
+// countNonTerminalTargets is the target count fed into the adaptive sizing
+// formula. Terminal targets (resolved / restore_failed / released) are not
+// restored, so they shouldn't influence batch sizing.
+func countNonTerminalTargets(targets []*models.Target) int {
+	n := 0
+	for _, t := range targets {
+		switch t.State {
+		case models.TargetStateResolved, models.TargetStateRestoreFailed, models.TargetStateReleased:
+			continue
+		default:
+			n++
+		}
+	}
+	return n
 }
 
 // marshalDecisionSnapshot captures the selector outputs (rejection counters,

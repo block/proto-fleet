@@ -5,6 +5,9 @@ import (
 	"math"
 	"strings"
 
+	"github.com/google/uuid"
+	"google.golang.org/protobuf/types/known/timestamppb"
+
 	pb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
@@ -476,4 +479,149 @@ func formatExclusionCounters(d *modes.InsufficientLoadDetail) string {
 		}
 	}
 	return strings.Join(parts, ", ")
+}
+
+// toStopRequest converts the proto request to a service StopRequest. OrgID
+// comes from session.Info; restore_batch_size_override is admin-gated at the
+// handler entry and clamped to int32 here defensively before the proto cap
+// changes land.
+func toStopRequest(msg *pb.StopCurtailmentRequest, orgID int64) (curtailment.StopRequest, error) {
+	eventUUID, err := uuid.Parse(msg.GetEventUuid())
+	if err != nil {
+		return curtailment.StopRequest{}, fleeterror.NewInvalidArgumentErrorf(
+			"event_uuid must be a valid UUID: %v", err,
+		)
+	}
+	out := curtailment.StopRequest{
+		OrgID:     orgID,
+		EventUUID: eventUUID,
+	}
+	if override := msg.RestoreBatchSizeOverride; override != nil {
+		if *override > math.MaxInt32 {
+			return curtailment.StopRequest{}, fleeterror.NewInvalidArgumentErrorf(
+				"restore_batch_size_override exceeds int32 max: %d", *override,
+			)
+		}
+		v := int32(*override) // #nosec G115 -- bounds-checked above
+		out.RestoreBatchSizeOverride = &v
+	}
+	return out, nil
+}
+
+// toStopResponse builds the Stop response from the persisted event row. The
+// response echoes the event so the operator can confirm the transition
+// without a follow-up read; rich rollup detail is BE-5 territory and arrives
+// via GetActiveCurtailment polling.
+func toStopResponse(event *models.Event) *pb.StopCurtailmentResponse {
+	return &pb.StopCurtailmentResponse{Event: toEventProto(event)}
+}
+
+// toEventProto maps a persisted event row to the wire CurtailmentEvent. Scope
+// and mode_params are stored as JSONB and not reconstructed here — that lands
+// with the read APIs (BE-5) where the trimmed-snapshot story is settled.
+// Target rollup is omitted for the same reason; callers that need fresh state
+// poll GetActiveCurtailment.
+func toEventProto(event *models.Event) *pb.CurtailmentEvent {
+	out := &pb.CurtailmentEvent{
+		EventUuid: event.EventUUID.String(),
+		State:     eventStateProto(event.State),
+		Mode:      modeProto(event.Mode),
+		Strategy:  strategyProto(event.Strategy),
+		Level:     levelProto(event.Level),
+		Priority:  priorityProto(event.Priority),
+		// Restore controls + duration controls echo the persisted row;
+		// effective_batch_size has no proto field yet (BE-5 surface).
+		RestoreBatchSize:        uint32Saturating(event.RestoreBatchSize),
+		RestoreBatchIntervalSec: uint32Saturating(event.RestoreBatchIntervalSec),
+		MinCurtailedDurationSec: uint32Saturating(event.MinCurtailedDurationSec),
+		IncludeMaintenance:      event.IncludeMaintenance,
+		ForceIncludeMaintenance: event.ForceIncludeMaintenance,
+		Reason:                  event.Reason,
+	}
+	if event.MaxDurationSeconds != nil {
+		out.MaxDurationSeconds = uint32Saturating(*event.MaxDurationSeconds)
+	}
+	if event.ExternalSource != nil {
+		out.ExternalSource = *event.ExternalSource
+	}
+	if event.ExternalReference != nil {
+		out.ExternalReference = *event.ExternalReference
+	}
+	if event.IdempotencyKey != nil {
+		out.IdempotencyKey = *event.IdempotencyKey
+	}
+	if event.ScheduledStartAt != nil {
+		out.ScheduledStartAt = timestamppb.New(*event.ScheduledStartAt)
+	}
+	if event.StartedAt != nil {
+		out.StartedAt = timestamppb.New(*event.StartedAt)
+	}
+	if event.EndedAt != nil {
+		out.EndedAt = timestamppb.New(*event.EndedAt)
+	}
+	out.CreatedAt = timestamppb.New(event.CreatedAt)
+	out.UpdatedAt = timestamppb.New(event.UpdatedAt)
+	return out
+}
+
+// uint32Saturating clamps a non-negative int32 to uint32, surfacing negative
+// values as 0. Defensive; the source columns are >= 0 by DB CHECK.
+func uint32Saturating(v int32) uint32 {
+	if v < 0 {
+		return 0
+	}
+	return uint32(v) // #nosec G115 -- bounds-checked above
+}
+
+func eventStateProto(s models.EventState) pb.CurtailmentEventState {
+	switch s {
+	case models.EventStatePending:
+		return pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_PENDING
+	case models.EventStateActive:
+		return pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_ACTIVE
+	case models.EventStateRestoring:
+		return pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_RESTORING
+	case models.EventStateCompleted:
+		return pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_COMPLETED
+	case models.EventStateCompletedWithFailures:
+		return pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_COMPLETED_WITH_FAILURES
+	case models.EventStateCancelled:
+		return pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_CANCELLED
+	case models.EventStateFailed:
+		return pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_FAILED
+	}
+	return pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_UNSPECIFIED
+}
+
+func modeProto(m models.Mode) pb.CurtailmentMode {
+	if m == models.ModeFixedKw {
+		return pb.CurtailmentMode_CURTAILMENT_MODE_FIXED_KW
+	}
+	return pb.CurtailmentMode_CURTAILMENT_MODE_UNSPECIFIED
+}
+
+func strategyProto(s models.Strategy) pb.CurtailmentStrategy {
+	if s == models.StrategyLeastEfficientFirst {
+		return pb.CurtailmentStrategy_CURTAILMENT_STRATEGY_LEAST_EFFICIENT_FIRST
+	}
+	return pb.CurtailmentStrategy_CURTAILMENT_STRATEGY_UNSPECIFIED
+}
+
+func levelProto(l models.Level) pb.CurtailmentLevel {
+	if l == models.LevelFull {
+		return pb.CurtailmentLevel_CURTAILMENT_LEVEL_FULL
+	}
+	return pb.CurtailmentLevel_CURTAILMENT_LEVEL_UNSPECIFIED
+}
+
+func priorityProto(p models.Priority) pb.CurtailmentPriority {
+	switch p {
+	case models.PriorityNormal:
+		return pb.CurtailmentPriority_CURTAILMENT_PRIORITY_NORMAL
+	case models.PriorityHigh:
+		return pb.CurtailmentPriority_CURTAILMENT_PRIORITY_HIGH
+	case models.PriorityEmergency:
+		return pb.CurtailmentPriority_CURTAILMENT_PRIORITY_EMERGENCY
+	}
+	return pb.CurtailmentPriority_CURTAILMENT_PRIORITY_UNSPECIFIED
 }
