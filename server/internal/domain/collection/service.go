@@ -495,6 +495,12 @@ func (s *Service) DeleteCollection(ctx context.Context, req *pb.DeleteCollection
 			return err
 		}
 		if collType == pb.CollectionType_COLLECTION_TYPE_RACK {
+			// Lock the rack FOR UPDATE so concurrent AddDevicesToCollection
+			// / SaveRack can't slip a new member or cascade in between our
+			// unassign + membership-drop + soft-delete steps.
+			if _, err := s.collectionStore.LockRackPlacementForWrite(ctx, req.CollectionId, info.OrganizationID); err != nil {
+				return err
+			}
 			n, err := s.collectionStore.UnassignDeviceSitesByRack(ctx, req.CollectionId, info.OrganizationID)
 			if err != nil {
 				return err

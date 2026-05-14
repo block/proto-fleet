@@ -230,6 +230,35 @@ func TestService_CreateCollection_RackRejectsUnspecifiedCoolingType(t *testing.T
 	assert.Contains(t, err.Error(), "cooling_type")
 }
 
+// TestService_DeleteCollection_LocksRackBeforeCascade guards against a
+// race where a concurrent AddDevicesToCollection slips between the
+// delete path's unassign and soft-delete steps. The lock must fire
+// BEFORE UnassignDeviceSitesByRack so callers that share the rack lock
+// (AddDevicesToCollection, SaveRack) serialize against deletion.
+func TestService_DeleteCollection_LocksRackBeforeCascade(t *testing.T) {
+	svc, mockStore, _ := newTestService(t)
+	ctx := testCtx(t)
+
+	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, testCollectionID).
+		Return(&pb.DeviceCollection{Id: testCollectionID, Label: "rack-1", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil)
+	mockStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, testCollectionID).
+		Return(pb.CollectionType_COLLECTION_TYPE_RACK, nil)
+
+	gomock.InOrder(
+		mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), testCollectionID, testOrgID).
+			Return(interfaces.RackPlacement{}, nil),
+		mockStore.EXPECT().UnassignDeviceSitesByRack(gomock.Any(), testCollectionID, testOrgID).
+			Return(int64(0), nil),
+		mockStore.EXPECT().RemoveAllDevicesFromCollection(gomock.Any(), testOrgID, testCollectionID).
+			Return(int64(0), nil),
+		mockStore.EXPECT().SoftDeleteCollection(gomock.Any(), testOrgID, testCollectionID).
+			Return(int64(1), nil),
+	)
+
+	_, err := svc.DeleteCollection(ctx, &pb.DeleteCollectionRequest{CollectionId: testCollectionID})
+	require.NoError(t, err)
+}
+
 func TestService_DeleteCollection_NotFoundWhenZeroRows(t *testing.T) {
 	svc, mockStore, _ := newTestService(t)
 	ctx := testCtx(t)
