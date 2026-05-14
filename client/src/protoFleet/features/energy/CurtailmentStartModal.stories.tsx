@@ -6,17 +6,22 @@ import CurtailmentStartModal, {
   type CurtailmentPlanPreview,
 } from "@/protoFleet/features/energy/CurtailmentStartModal";
 
-const meta: Meta<typeof CurtailmentStartModal> = {
+const meta = {
   title: "Proto Fleet/Energy/Plan Curtailment Modal",
   component: CurtailmentStartModal,
   parameters: {
     layout: "fullscreen",
   },
-};
+} satisfies Meta<typeof CurtailmentStartModal>;
 
 export default meta;
 
 type Story = StoryObj<typeof CurtailmentStartModal>;
+type ModalStoryProps = {
+  initialValues?: Partial<CurtailmentFormValues>;
+  preview?: CurtailmentPlanPreview;
+  previewError?: string;
+};
 
 const configuredValues: Partial<CurtailmentFormValues> = {
   targetKw: "60",
@@ -35,16 +40,12 @@ const preview: CurtailmentPlanPreview = {
   scopeLabel: "across the fleet",
 };
 
-function ModalStory(props: {
-  initialValues?: Partial<CurtailmentFormValues>;
-  preview?: CurtailmentPlanPreview;
-  previewError?: string;
-}): ReactElement {
+function ModalStory(props: ModalStoryProps): ReactElement {
   const [open, setOpen] = useState(true);
 
   return (
     <div className="min-h-screen bg-surface-base">
-      <CurtailmentStartModal open={open} onDismiss={() => setOpen(false)} {...props} />
+      <CurtailmentStartModal open={open} onDismiss={() => setOpen(false)} onSubmit={() => setOpen(false)} {...props} />
     </div>
   );
 }
