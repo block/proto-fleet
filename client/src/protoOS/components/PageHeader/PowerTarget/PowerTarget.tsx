@@ -112,6 +112,7 @@ const PowerTarget = () => {
   return (
     <div ref={widgetRef} className="relative">
       <WidgetWrapper
+        testId="power-target-widget"
         onClick={() => {
           setShowPopover(true);
         }}

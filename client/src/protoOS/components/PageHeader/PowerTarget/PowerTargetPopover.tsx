@@ -105,7 +105,11 @@ const PowerTargetPopover = ({ onDismiss, onUpdateStart }: PowerTargetPopoverProp
   }, [pending, selectedPerformanceMode, selectedPowerTargetMode, calculatePowerTargetWattage, onUpdateStart]);
 
   return (
-    <Popover position={positions["bottom left"]} className="flex w-80 flex-col gap-4 !space-y-1 p-6">
+    <Popover
+      position={positions["bottom left"]}
+      className="flex w-80 flex-col gap-4 !space-y-1 p-6"
+      testId="power-target-popover"
+    >
       <div className="flex flex-col gap-1">
         <h2 className="text-heading-100 text-text-primary">Power target</h2>
         <p className="text-300 text-text-primary-70">Set a power target for the miner.</p>
@@ -127,6 +131,7 @@ const PowerTargetPopover = ({ onDismiss, onUpdateStart }: PowerTargetPopoverProp
           },
           {
             id: powerTargetModes.custom,
+            "data-testid": "power-target-mode-custom",
             isSelected: selectedPowerTargetMode === powerTargetModes.custom,
             text: "Custom",
           },
@@ -148,6 +153,7 @@ const PowerTargetPopover = ({ onDismiss, onUpdateStart }: PowerTargetPopoverProp
             onChange={onChange}
             units={"kW"}
             disabled={pending}
+            testId="power-target-input"
           />
           <p className={clsx("text-200", error ? "text-intent-critical-fill" : "text-text-primary-70")}>
             {error ||

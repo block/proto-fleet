@@ -20,4 +20,42 @@ export class HeaderComponent extends BasePage {
     const header = this.page.getByTestId("page-header");
     await expect(header.getByRole("button", { name: status })).toBeVisible();
   }
+
+  async openGlobalActionsMenu() {
+    await this.page.getByTestId("global-actions-widget").click();
+    await expect(this.page.getByTestId("global-actions-popover")).toBeVisible();
+  }
+
+  async clickBlinkLeds() {
+    await this.page.getByTestId("global-action-blink-leds").click();
+  }
+
+  async clickDownloadLogs() {
+    await this.page.getByTestId("global-action-download-logs").click();
+  }
+
+  async validateGlobalActionsMenuClosed() {
+    await expect(this.page.getByTestId("global-actions-popover")).toHaveCount(0);
+  }
+
+  async openPowerTargetPopover() {
+    await this.page.getByTestId("power-target-widget").click();
+    await expect(this.page.getByTestId("power-target-popover")).toBeVisible();
+  }
+
+  async clickCustomPowerTargetMode() {
+    await this.page.getByTestId("power-target-mode-custom").click();
+  }
+
+  async inputCustomPowerTargetKw(valueKw: number) {
+    await this.page.getByTestId("power-target-input").fill(String(valueKw));
+  }
+
+  async clickApplyPowerTarget() {
+    await this.page.getByTestId("power-target-apply-button").click();
+  }
+
+  async validatePowerTargetWidgetText(expectedText: string) {
+    await expect(this.page.getByTestId("power-target-widget")).toContainText(expectedText);
+  }
 }
