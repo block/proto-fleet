@@ -15,10 +15,23 @@ import (
 // request without rebuilding the client.
 func NewAuthenticatedGatewayClient(serverURL string, tokenSource func() string) fleetnodegatewayv1connect.FleetNodeGatewayServiceClient {
 	return fleetnodegatewayv1connect.NewFleetNodeGatewayServiceClient(
-		newGatewayHTTPClient(),
+		newStreamingGatewayHTTPClient(),
 		serverURL,
 		connect.WithInterceptors(bearerInterceptor(tokenSource)),
 	)
+}
+
+// http.Client.Timeout covers the entire request lifecycle including the
+// response body, so a non-zero value would forcibly tear down long-lived
+// streaming RPCs (ControlStream, UploadTelemetry, UploadEvents). Callers
+// apply per-call deadlines via context.WithTimeout for unary calls and
+// rely on context cancellation + connection health for streaming.
+func newStreamingGatewayHTTPClient() *http.Client {
+	return &http.Client{
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return errRedirectNotAllowed
+		},
+	}
 }
 
 func bearerInterceptor(tokenSource func() string) connect.Interceptor {

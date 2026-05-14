@@ -22,6 +22,7 @@ import (
 const (
 	defaultHeartbeatInterval = 30 * time.Second
 	sessionRefreshLeeway     = 1 * time.Hour
+	heartbeatRequestTimeout  = 30 * time.Second
 )
 
 type RunCmd struct {
@@ -206,7 +207,13 @@ func (r *RunCmd) tick(ctx context.Context, client gatewayClient, st *fleetnodebo
 	return nil
 }
 
+// Per-call deadline so a single hung heartbeat doesn't pin the daemon
+// loop until shutdown. The authenticated gateway client has no
+// http.Client.Timeout (that would forcibly tear down future streaming
+// RPCs); unary callers attach their own deadlines via context.
 func (r *RunCmd) sendHeartbeat(ctx context.Context, client gatewayClient) error {
+	ctx, cancel := context.WithTimeout(ctx, heartbeatRequestTimeout)
+	defer cancel()
 	_, err := client.UploadHeartbeat(ctx, connect.NewRequest(&pb.UploadHeartbeatRequest{
 		SentAt: timestamppb.New(r.now()),
 	}))

@@ -85,3 +85,17 @@ func TestAuthenticatedClient_RejectsEmptyToken(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
 }
+
+func TestStreamingGatewayHTTPClient_HasNoTopLevelTimeout(t *testing.T) {
+	t.Parallel()
+
+	// Act
+	c := newStreamingGatewayHTTPClient()
+
+	// Assert: a non-zero http.Client.Timeout would forcibly tear down
+	// long-lived streaming RPCs (ControlStream, UploadTelemetry,
+	// UploadEvents). Per-call deadlines are applied via context instead.
+	assert.Equal(t, time.Duration(0), c.Timeout, "authenticated client must not set http.Client.Timeout; streaming RPCs would be cut off")
+	require.NotNil(t, c.CheckRedirect, "redirect rejection must remain")
+	assert.Error(t, c.CheckRedirect(nil, nil), "CheckRedirect must refuse all redirects")
+}
