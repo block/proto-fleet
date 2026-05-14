@@ -22,8 +22,6 @@ services:
     volumes:
       - ./server/monitoring/vmalert:/etc/protofleet/monitoring/vmalert:rw
       - ./server/monitoring/alertmanager:/etc/protofleet/monitoring/alertmanager:rw
-    networks:
-      - monitoring
 
   otel-collector:
     extends:

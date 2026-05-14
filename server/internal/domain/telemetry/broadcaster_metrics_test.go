@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	mm "github.com/block/proto-fleet/server/internal/domain/miner/models"
+	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
 	"github.com/block/proto-fleet/server/internal/infrastructure/metrics"
 )
@@ -81,7 +82,7 @@ func TestObserverEmitsHashrateInTerahash(t *testing.T) {
 	rec := &recordingEmitter{}
 	obs := newMetricsObserver(rec)
 
-	obs.onDeviceMetrics(context.Background(), 7, "antminer", modelsV2.DeviceMetrics{
+	obs.onDeviceMetrics(context.Background(), 7, "antminer", "ant-1", modelsV2.DeviceMetrics{
 		DeviceIdentifier: "ant-1",
 		HashrateHS:       metricVal(110e12), // 110 TH/s
 		Health:           modelsV2.HealthHealthyActive,
@@ -111,7 +112,7 @@ func TestObserverAggregatesPerSensorKindMaxAvg(t *testing.T) {
 		},
 	}
 
-	obs.onDeviceMetrics(context.Background(), 1, "proto", modelsV2.DeviceMetrics{
+	obs.onDeviceMetrics(context.Background(), 1, "proto", "proto-1", modelsV2.DeviceMetrics{
 		DeviceIdentifier: "proto-1",
 		HashBoards:       []modelsV2.HashBoardMetrics{hb},
 		Health:           modelsV2.HealthHealthyActive,
@@ -149,7 +150,7 @@ func TestObserverEmitsPoolConnectedFromHealth(t *testing.T) {
 	for _, tc := range cases {
 		rec := &recordingEmitter{}
 		obs := newMetricsObserver(rec)
-		obs.onDeviceMetrics(context.Background(), 1, "virtual", modelsV2.DeviceMetrics{
+		obs.onDeviceMetrics(context.Background(), 1, "virtual", "v-1", modelsV2.DeviceMetrics{
 			DeviceIdentifier: "v-1",
 			Health:           tc.health,
 		})
@@ -190,7 +191,7 @@ func TestObserverPollResultIsClosedEnum(t *testing.T) {
 func TestObserverFallsBackToAggregatedTempWhenNoComponents(t *testing.T) {
 	rec := &recordingEmitter{}
 	obs := newMetricsObserver(rec)
-	obs.onDeviceMetrics(context.Background(), 1, "antminer", modelsV2.DeviceMetrics{
+	obs.onDeviceMetrics(context.Background(), 1, "antminer", "ant-2", modelsV2.DeviceMetrics{
 		DeviceIdentifier: "ant-2",
 		TempC:            metricVal(68.5),
 		Health:           modelsV2.HealthHealthyActive,
@@ -258,7 +259,7 @@ func TestObserverHandlesAllKnownDriversInFixture(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := &recordingEmitter{}
 			obs := newMetricsObserver(rec)
-			obs.onDeviceMetrics(context.Background(), 1, tc.driver, tc.dm)
+			obs.onDeviceMetrics(context.Background(), 1, tc.driver, models.DeviceIdentifier(tc.dm.DeviceIdentifier), tc.dm)
 
 			require.GreaterOrEqual(t, len(rec.hashrate), 1, "hashrate gauge required")
 			require.GreaterOrEqual(t, len(rec.pool), 1, "pool gauge required")
@@ -294,11 +295,45 @@ func TestSensorKindFromTypeAcceptsCommonAliases(t *testing.T) {
 	require.Equal(t, "", sensorKindFromType("nonsense"))
 }
 
+// A plugin that reports a different DeviceIdentifier than the one we asked
+// it to poll must not be able to forge time series for another device.
+func TestObserverDropsSampleWithMismatchedPluginDeviceID(t *testing.T) {
+	rec := &recordingEmitter{}
+	obs := newMetricsObserver(rec)
+
+	obs.onDeviceMetrics(context.Background(), 1, "antminer", "ant-1", modelsV2.DeviceMetrics{
+		DeviceIdentifier: "ant-spoofed",
+		HashrateHS:       metricVal(110e12),
+		TempC:            metricVal(70),
+		Health:           modelsV2.HealthHealthyActive,
+	})
+
+	require.Empty(t, rec.hashrate, "hashrate must not be emitted on mismatch")
+	require.Empty(t, rec.temperature, "temperature must not be emitted on mismatch")
+	require.Empty(t, rec.pool, "pool gauge must not be emitted on mismatch")
+}
+
+// Plugins that don't populate DeviceIdentifier should still produce metrics,
+// labelled with the trusted requested device ID.
+func TestObserverAllowsEmptyPluginDeviceID(t *testing.T) {
+	rec := &recordingEmitter{}
+	obs := newMetricsObserver(rec)
+
+	obs.onDeviceMetrics(context.Background(), 1, "virtual", "v-1", modelsV2.DeviceMetrics{
+		// DeviceIdentifier intentionally omitted.
+		HashrateHS: metricVal(50e12),
+		Health:     modelsV2.HealthHealthyActive,
+	})
+
+	require.Len(t, rec.hashrate, 1)
+	require.Equal(t, "v-1", rec.hashrate[0].labels.DeviceID, "label must come from trusted requested ID")
+}
+
 // NoMetrics emitter must not panic on any call.
 func TestObserverHandlesNilEmitter(t *testing.T) {
 	obs := newMetricsObserver(nil) // installs NoMetrics()
 	require.NotNil(t, obs)
-	obs.onDeviceMetrics(context.Background(), 1, "virtual", modelsV2.DeviceMetrics{
+	obs.onDeviceMetrics(context.Background(), 1, "virtual", "v-1", modelsV2.DeviceMetrics{
 		DeviceIdentifier: "v-1",
 		HashrateHS:       metricVal(50e12),
 		Health:           modelsV2.HealthHealthyActive,

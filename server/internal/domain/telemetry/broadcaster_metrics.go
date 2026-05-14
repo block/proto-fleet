@@ -53,13 +53,21 @@ func newMetricsObserver(emitter MetricsEmitter) *metricsObserver {
 
 // onDeviceMetrics is called by the metrics writer pathway every time a device returns a successful telemetry sample.
 // The aggregation for sensor kinds happens here, per-board / per-chip detail collapses to _max and _avg.
-func (o *metricsObserver) onDeviceMetrics(ctx context.Context, orgID int64, driver string, dm modelsV2.DeviceMetrics) {
+func (o *metricsObserver) onDeviceMetrics(ctx context.Context, orgID int64, driver string, deviceID models.DeviceIdentifier, dm modelsV2.DeviceMetrics) {
 	if o == nil {
+		return
+	}
+	if dm.DeviceIdentifier != "" && dm.DeviceIdentifier != string(deviceID) {
+		slog.Warn("metricsObserver: dropping telemetry sample with mismatched device identifier",
+			"requested_device_id", deviceID,
+			"reported_device_id", dm.DeviceIdentifier,
+			"driver", driver,
+		)
 		return
 	}
 	labels := metrics.DeviceLabels{
 		OrganizationID: metrics.OrgIDToLabel(orgID),
-		DeviceID:       dm.DeviceIdentifier,
+		DeviceID:       string(deviceID),
 		Driver:         driver,
 	}
 

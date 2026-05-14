@@ -21,7 +21,7 @@ import (
 const ServiceName = "protofleet-fleet-api"
 
 type Config struct {
-	Enabled    bool          `help:"Enable OpenTelemetry metrics export" default:"true" env:"ENABLED"`
+	Enabled    bool          `help:"Enable OpenTelemetry metrics export" default:"false" env:"ENABLED"`
 	Endpoint   string        `help:"OTLP gRPC endpoint for metrics" default:"http://otel-collector:4317" env:"EXPORTER_OTLP_ENDPOINT"`
 	Insecure   bool          `help:"Skip TLS for the OTLP gRPC exporter" default:"false" env:"EXPORTER_OTLP_INSECURE"`
 	Interval   time.Duration `help:"Periodic export interval for metrics" default:"15s" env:"EXPORTER_INTERVAL"`

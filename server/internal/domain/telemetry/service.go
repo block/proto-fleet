@@ -192,7 +192,10 @@ type statusResult struct {
 
 // metricsResult holds device metrics queued by a worker for batch DB writes.
 type metricsResult struct {
-	metrics modelsV2.DeviceMetrics
+	deviceID   models.DeviceIdentifier
+	orgID      int64
+	driverName string
+	metrics    modelsV2.DeviceMetrics
 }
 
 type TelemetryService struct {
@@ -929,7 +932,12 @@ func (s *TelemetryService) GetTelemetryFromDevice(ctx context.Context, device mo
 		// prevent enqueueing metrics we already fetched. Only give up if the service
 		// itself is shutting down (ctx cancelled by the root context).
 		select {
-		case s.metricsResults <- metricsResult{metrics: result.metrics}:
+		case s.metricsResults <- metricsResult{
+			deviceID:   device.ID,
+			orgID:      result.orgID,
+			driverName: result.driverName,
+			metrics:    result.metrics,
+		}:
 		case <-ctx.Done():
 			return mm.MinerStatusUnknown, false, result.orgID, fmt.Errorf("context cancelled enqueueing metrics for device %s: %w", device.ID, ctx.Err())
 		}
@@ -991,11 +999,13 @@ func (s *TelemetryService) metricsWriterRoutine(ctx context.Context) {
 			return
 		case result := <-s.metricsResults:
 			pending = append(pending, result.metrics)
-			deviceID := models.DeviceIdentifier(result.metrics.DeviceIdentifier)
+			// Use the trusted scheduler/miner-manager metadata captured at poll time.
+			// Do NOT derive these from result.metrics, which the plugin controls.
 			s.metricsObserver.onDeviceMetrics(
 				ctx,
-				orgForDevice(ctx, s.minerManager, deviceID),
-				driverForDevice(ctx, s.minerManager, deviceID),
+				result.orgID,
+				result.driverName,
+				result.deviceID,
 				result.metrics,
 			)
 			if len(pending) >= maxMetricsBatchSize {
