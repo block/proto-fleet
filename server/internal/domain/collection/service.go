@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"math"
 
-	"connectrpc.com/connect"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
@@ -17,6 +17,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
+	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 )
 
 const (
@@ -109,46 +110,61 @@ func collectionScopeType(collType pb.CollectionType) string {
 // so the rack-edit cascade tx serializes against SiteService writers
 // (AssignBuildingToSite, DeleteSite) without deadlocking. When
 // building_id is set the server derives site_id from the building and
-// rejects a client-supplied site_id that disagrees. Explicit zero IDs
-// are normalized to nil to match the AssignBuildingToSite convention
-// (target=nil or target=0 both mean "Unassigned"). When both ids are
-// nil the rack is treated as fully unassigned. Must be called from
-// inside a transaction, BEFORE the rack row itself is locked.
+// rejects a client-supplied site_id that disagrees.
+//
+// Placement intent semantics (proto3 optional fields):
+//   - Both site_id AND building_id unset (nil) → "no placement intent"
+//     (caller should preserve current placement on UPDATE; create
+//     paths treat this as fully unassigned).
+//   - Either id set to 0 → "explicit unassign" — server treats as
+//     no placement, no locks acquired.
+//   - id set to N > 0 → "assign to N".
+//
+// Must be called from inside a transaction, BEFORE the rack row itself
+// is locked. On the update path, caller should branch on the
+// "no placement intent" case BEFORE calling this helper; on the create
+// path nil→unassigned is the correct default.
 func (s *Service) resolveAndLockRackPlacement(ctx context.Context, orgID int64, rackInfo *pb.RackInfo) (siteID, buildingID *int64, err error) {
 	if rackInfo == nil {
 		return nil, nil, nil
 	}
-	// Normalize explicit zero IDs to nil so a misformed RackInfo with
-	// SiteId=&0 / BuildingId=&0 doesn't fall through to LockSiteForWrite(0)
-	// and surface a misleading "site 0 not found" error.
-	if rackInfo.SiteId != nil && *rackInfo.SiteId == 0 {
-		rackInfo.SiteId = nil
+	// Treat explicit zero IDs as "unassign" — same semantics as nil for
+	// the resolver, but distinguishable from nil up at the caller via
+	// effectiveSiteID / effectiveBuildingID below. AssignBuildingToSite
+	// uses the same target=0 / target=nil convention.
+	effectiveSiteID := rackInfo.SiteId
+	if effectiveSiteID != nil && *effectiveSiteID == 0 {
+		effectiveSiteID = nil
 	}
-	if rackInfo.BuildingId != nil && *rackInfo.BuildingId == 0 {
-		rackInfo.BuildingId = nil
+	effectiveBuildingID := rackInfo.BuildingId
+	if effectiveBuildingID != nil && *effectiveBuildingID == 0 {
+		effectiveBuildingID = nil
 	}
-	if rackInfo.SiteId == nil && rackInfo.BuildingId == nil {
+	if effectiveSiteID == nil && effectiveBuildingID == nil {
 		return nil, nil, nil
 	}
 	if s.siteStore == nil {
 		return nil, nil, fleeterror.NewFailedPreconditionError("site assignment unavailable: site service not configured")
 	}
 
-	if rackInfo.BuildingId != nil {
-		bID := *rackInfo.BuildingId
+	if effectiveBuildingID != nil {
+		bID := *effectiveBuildingID
 		// Peek the building's site WITHOUT a lock so we can acquire the
 		// site lock first per canonical site -> building order. The peek
 		// can race with a concurrent AssignBuildingToSite, so we re-read
-		// the building's site UNDER the building lock below and abort on
-		// mismatch — the WithTransaction retry loop reruns the closure
-		// with fresh state.
+		// the building's site UNDER the building lock below and signal
+		// a retry via a synthetic Postgres serialization-failure error
+		// on mismatch — db.WithTransaction's retry loop reruns the
+		// closure with fresh state. A fleeterror with CodeAborted would
+		// NOT be retried (IsRetryablePostgresError only recognizes
+		// pgconn.PgError with SQLSTATE 40001/40P01).
 		peekedSiteID, err := s.collectionStore.GetBuildingSite(ctx, orgID, bID)
 		if err != nil {
 			return nil, nil, err
 		}
-		if rackInfo.SiteId != nil && (peekedSiteID == nil || *peekedSiteID != *rackInfo.SiteId) {
+		if effectiveSiteID != nil && (peekedSiteID == nil || *peekedSiteID != *effectiveSiteID) {
 			return nil, nil, fleeterror.NewInvalidArgumentErrorf(
-				"rack site_id %d does not match building %d site", *rackInfo.SiteId, bID)
+				"rack site_id %d does not match building %d site", *effectiveSiteID, bID)
 		}
 		if peekedSiteID != nil {
 			if err := s.siteStore.LockSiteForWrite(ctx, orgID, *peekedSiteID); err != nil {
@@ -160,17 +176,19 @@ func (s *Service) resolveAndLockRackPlacement(ctx context.Context, orgID int64, 
 		}
 		// Re-read building.site_id under the building lock. If it
 		// changed between the peek and the lock acquisition (a
-		// concurrent AssignBuildingToSite committed in between), abort
-		// with Aborted so the tx retries; the next attempt sees the new
-		// site and locks it correctly per the canonical order.
+		// concurrent AssignBuildingToSite committed in between), emit a
+		// synthetic pgconn.PgError with code 40001 so WithTransaction
+		// retries the closure; the next attempt sees the new site and
+		// locks it correctly per the canonical order.
 		lockedSiteID, err := s.collectionStore.GetBuildingSite(ctx, orgID, bID)
 		if err != nil {
 			return nil, nil, err
 		}
 		if !int64PtrEqual(peekedSiteID, lockedSiteID) {
-			return nil, nil, fleeterror.NewPlainError(
-				"building site changed concurrently; tx will retry",
-				connect.CodeAborted)
+			return nil, nil, &pgconn.PgError{
+				Code:    db.PGSerializationFailure,
+				Message: fmt.Sprintf("building %d site changed during rack placement resolution; retrying", bID),
+			}
 		}
 		buildingID = &bID
 		siteID = lockedSiteID
@@ -178,12 +196,22 @@ func (s *Service) resolveAndLockRackPlacement(ctx context.Context, orgID int64, 
 	}
 
 	// site_id only — direct-under-site rack with no building.
-	sID := *rackInfo.SiteId
+	sID := *effectiveSiteID
 	if err := s.siteStore.LockSiteForWrite(ctx, orgID, sID); err != nil {
 		return nil, nil, err
 	}
 	siteID = &sID
 	return siteID, buildingID, nil
+}
+
+// rackPlacementOmitted reports whether the caller left both site_id and
+// building_id unset (nil) in the request — the "no placement intent"
+// signal that update paths should treat as "preserve current". Explicit
+// zero IDs (the "unassign" signal) are NOT omitted; they fall through
+// to resolveAndLockRackPlacement which returns (nil, nil, nil) and the
+// update path then writes NULL placement.
+func rackPlacementOmitted(rackInfo *pb.RackInfo) bool {
+	return rackInfo != nil && rackInfo.SiteId == nil && rackInfo.BuildingId == nil
 }
 
 func int64PtrEqual(a, b *int64) bool {
@@ -1457,22 +1485,15 @@ func validateSaveRackRequest(req *pb.SaveRackRequest, rackInfo *pb.RackInfo) err
 	if rackInfo == nil {
 		return fleeterror.NewInvalidArgumentError("rack_info is required")
 	}
-	// Normalize explicit zero IDs to nil up front so validation rules
-	// that key off "building set" / "site set" agree with the
-	// downstream resolveAndLockRackPlacement convention (mirrors
-	// AssignBuildingToSite's target=nil / target=0 equivalence). Without
-	// this step, a client using building_id=0 to mean "unassigned"
-	// would hit the zone-required check below.
-	if rackInfo.SiteId != nil && *rackInfo.SiteId == 0 {
-		rackInfo.SiteId = nil
-	}
-	if rackInfo.BuildingId != nil && *rackInfo.BuildingId == 0 {
-		rackInfo.BuildingId = nil
-	}
-	// Zone is required when the rack lives inside a building (zones are
-	// the sub-building organizer). For direct-under-site or fully
-	// unassigned racks, zone may be empty.
-	if rackInfo.BuildingId != nil && rackInfo.GetZone() == "" {
+	// Zone is required when the rack lives inside a non-zero building
+	// (zones are the sub-building organizer). Treat building_id=0 the
+	// same as nil for this check — both signal "no building" per the
+	// AssignBuildingToSite zero-as-unassign convention. Do NOT mutate
+	// rackInfo.BuildingId here: downstream code uses nil-vs-&0 to
+	// distinguish "preserve current placement" from "explicit unassign"
+	// on the update path.
+	buildingPresent := rackInfo.BuildingId != nil && *rackInfo.BuildingId != 0
+	if buildingPresent && rackInfo.GetZone() == "" {
 		return fleeterror.NewInvalidArgumentError("zone is required when the rack belongs to a building")
 	}
 	if rackInfo.Rows < 1 || rackInfo.Rows > maxRackDimension {
@@ -1603,17 +1624,38 @@ func (s *Service) saveRackUpdate(ctx context.Context, info *session.Info, req *p
 		return nil, fleeterror.NewInvalidArgumentErrorf("collection %d is not a rack", collectionID)
 	}
 
-	// Canonical lock order: site/building first via
-	// resolveAndLockRackPlacement, then the rack row via
-	// LockRackPlacementForWrite. Reverse ordering would deadlock with
-	// SiteService writers that lock site -> building -> rack-descendants.
-	newSiteID, newBuildingID, err := s.resolveAndLockRackPlacement(ctx, info.OrganizationID, rackInfo)
-	if err != nil {
-		return nil, err
-	}
-	current, err := s.collectionStore.LockRackPlacementForWrite(ctx, collectionID, info.OrganizationID)
-	if err != nil {
-		return nil, err
+	var (
+		current       interfaces.RackPlacement
+		newSiteID     *int64
+		newBuildingID *int64
+	)
+	if rackPlacementOmitted(rackInfo) {
+		// "No placement intent" — preserve current. Site/building locks
+		// are unnecessary (we're not changing placement and the cascade
+		// is a no-op). The rack lock alone serializes against concurrent
+		// rack edits. Legacy clients that don't send site_id/building_id
+		// (today's rack-edit modal) take this branch, so a routine slot
+		// save no longer destroys the rack's site assignment.
+		current, err = s.collectionStore.LockRackPlacementForWrite(ctx, collectionID, info.OrganizationID)
+		if err != nil {
+			return nil, err
+		}
+		newSiteID = current.SiteID
+		newBuildingID = current.BuildingID
+	} else {
+		// Caller signaled placement intent (a value or an explicit
+		// zero/unassign). Resolve placement FIRST so site/building
+		// locks come before the rack lock — the canonical site -> building
+		// -> rack order required to serialize against SiteService
+		// writers without deadlocking.
+		newSiteID, newBuildingID, err = s.resolveAndLockRackPlacement(ctx, info.OrganizationID, rackInfo)
+		if err != nil {
+			return nil, err
+		}
+		current, err = s.collectionStore.LockRackPlacementForWrite(ctx, collectionID, info.OrganizationID)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Zone clears only when the building changes between two buildings
@@ -1622,6 +1664,8 @@ func (s *Service) saveRackUpdate(ctx context.Context, info *session.Info, req *p
 	// shouldn't be carried into another. When entering a building from
 	// no-building (current nil -> new non-nil), the operator's supplied
 	// zone is honored — there's no prior building scope to leak from.
+	// When placement is being preserved, the current zone is also
+	// preserved (rackInfo.GetZone() carries it from the request).
 	finalZone := rackInfo.GetZone()
 	leavingBuilding := current.BuildingID != nil && newBuildingID == nil
 	crossingBuildings := current.BuildingID != nil && newBuildingID != nil && !int64PtrEqual(current.BuildingID, newBuildingID)

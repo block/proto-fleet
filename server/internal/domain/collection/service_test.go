@@ -1633,6 +1633,71 @@ func TestService_SaveRack_MoveToDirectUnderSite(t *testing.T) {
 	assert.Nil(t, resp.Collection.GetRackInfo().BuildingId)
 }
 
+// TestService_SaveRack_OmittedPlacementPreservesCurrent covers the
+// "legacy save" path: a client that doesn't send site_id / building_id
+// (e.g., today's rack-edit modal saving a slot reassignment) must NOT
+// have its rack's site silently wiped. We verify the rack lock fires,
+// site/building locks are SKIPPED, and UpdateRackPlacement writes the
+// existing site_id back idempotently.
+func TestService_SaveRack_OmittedPlacementPreservesCurrent(t *testing.T) {
+	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
+		return nil, nil
+	}
+	svc, mockStore, mockSiteStore := newTestServiceWithSites(t, resolver)
+	ctx := testCtx(t)
+
+	collectionID := int64(42)
+	existingSite := int64(7)
+	existingBuilding := int64(70)
+
+	mockStore.EXPECT().CollectionBelongsToOrg(gomock.Any(), collectionID, testOrgID).Return(true, nil)
+	mockStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, collectionID).Return(pb.CollectionType_COLLECTION_TYPE_RACK, nil)
+	// Preserve branch: ONLY the rack lock fires. Site/building locks
+	// are NOT expected — the test will fail loudly via the mock
+	// controller if SaveRack reaches into mockSiteStore.
+	mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), collectionID, testOrgID).
+		Return(interfaces.RackPlacement{SiteID: &existingSite, BuildingID: &existingBuilding, Zone: "Old Zone"}, nil)
+
+	mockStore.EXPECT().UpdateCollection(gomock.Any(), testOrgID, collectionID, gomock.Any(), (*string)(nil)).Return(nil)
+	mockStore.EXPECT().UpdateRackInfo(gomock.Any(), collectionID, "Old Zone", int32(4), int32(8), int32(pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT), int32(pb.RackCoolingType_RACK_COOLING_TYPE_AIR), testOrgID).Return(nil)
+	// UpdateRackPlacement writes the current values back (idempotent).
+	mockStore.EXPECT().UpdateRackPlacement(gomock.Any(), collectionID, testOrgID, gomock.Eq(&existingSite), gomock.Eq(&existingBuilding), "Old Zone").Return(nil)
+
+	mockStore.EXPECT().RemoveAllDevicesFromCollection(gomock.Any(), testOrgID, collectionID).Return(int64(0), nil)
+	mockStore.EXPECT().GetRackSlots(gomock.Any(), collectionID, testOrgID).Return(nil, nil)
+	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, collectionID).
+		Return(&pb.DeviceCollection{Id: collectionID, Label: "Rack", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil)
+
+	// Legacy RackInfo: no SiteId, no BuildingId, just layout fields.
+	rackInfo := &pb.RackInfo{
+		Rows:        4,
+		Columns:     8,
+		Zone:        "Old Zone",
+		OrderIndex:  pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT,
+		CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR,
+	}
+	resp, err := svc.SaveRack(ctx, &pb.SaveRackRequest{
+		CollectionId: &collectionID,
+		Label:        "Rack",
+		RackInfo:     rackInfo,
+		DeviceSelector: &commonpb.DeviceSelector{
+			SelectionType: &commonpb.DeviceSelector_DeviceList{
+				DeviceList: &commonpb.DeviceIdentifierList{DeviceIdentifiers: []string{}},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, resp.Collection.GetRackInfo())
+	require.NotNil(t, resp.Collection.GetRackInfo().SiteId)
+	assert.Equal(t, existingSite, *resp.Collection.GetRackInfo().SiteId, "site_id preserved across legacy save")
+	require.NotNil(t, resp.Collection.GetRackInfo().BuildingId)
+	assert.Equal(t, existingBuilding, *resp.Collection.GetRackInfo().BuildingId, "building_id preserved across legacy save")
+	assert.Equal(t, "Old Zone", resp.Collection.GetRackInfo().Zone)
+
+	// Suppress unused warning — site store assertion is via no-call.
+	_ = mockSiteStore
+}
+
 // TestService_AddDevicesToCollection_CascadesRackSite covers the
 // AddDevicesToDeviceSet cascade flow (issue #220): when devices are
 // added to a rack that has a site stamped, every paired device whose
