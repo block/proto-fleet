@@ -1694,6 +1694,59 @@ func TestService_SaveRack_OmittedPlacementPreservesCurrent(t *testing.T) {
 	_ = mockSiteStore
 }
 
+// TestService_SaveRack_OmittedPlacementPreservesZone guards the
+// building-zone invariant: when a legacy client sends an omitted
+// placement with an empty zone for a rack that's currently in a
+// building, the persisted zone must come from the current placement,
+// not the empty request field.
+func TestService_SaveRack_OmittedPlacementPreservesZone(t *testing.T) {
+	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
+		return nil, nil
+	}
+	svc, mockStore, mockSiteStore := newTestServiceWithSites(t, resolver)
+	ctx := testCtx(t)
+
+	collectionID := int64(43)
+	existingSite := int64(7)
+	existingBuilding := int64(70)
+
+	mockStore.EXPECT().CollectionBelongsToOrg(gomock.Any(), collectionID, testOrgID).Return(true, nil)
+	mockStore.EXPECT().GetCollectionType(gomock.Any(), testOrgID, collectionID).Return(pb.CollectionType_COLLECTION_TYPE_RACK, nil)
+	mockStore.EXPECT().LockRackPlacementForWrite(gomock.Any(), collectionID, testOrgID).
+		Return(interfaces.RackPlacement{SiteID: &existingSite, BuildingID: &existingBuilding, Zone: "Floor 1"}, nil)
+
+	mockStore.EXPECT().UpdateCollection(gomock.Any(), testOrgID, collectionID, gomock.Any(), (*string)(nil)).Return(nil)
+	mockStore.EXPECT().UpdateRackInfo(gomock.Any(), collectionID, "Floor 1", int32(4), int32(8), int32(pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT), int32(pb.RackCoolingType_RACK_COOLING_TYPE_AIR), testOrgID).Return(nil)
+	mockStore.EXPECT().UpdateRackPlacement(gomock.Any(), collectionID, testOrgID, gomock.Eq(&existingSite), gomock.Eq(&existingBuilding), "Floor 1").Return(nil)
+
+	mockStore.EXPECT().RemoveAllDevicesFromCollection(gomock.Any(), testOrgID, collectionID).Return(int64(0), nil)
+	mockStore.EXPECT().GetRackSlots(gomock.Any(), collectionID, testOrgID).Return(nil, nil)
+	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, collectionID).
+		Return(&pb.DeviceCollection{Id: collectionID, Label: "Rack", Type: pb.CollectionType_COLLECTION_TYPE_RACK}, nil)
+
+	// Legacy update: no SiteId, no BuildingId, AND empty zone.
+	resp, err := svc.SaveRack(ctx, &pb.SaveRackRequest{
+		CollectionId: &collectionID,
+		Label:        "Rack",
+		RackInfo: &pb.RackInfo{
+			Rows:        4,
+			Columns:     8,
+			Zone:        "",
+			OrderIndex:  pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT,
+			CoolingType: pb.RackCoolingType_RACK_COOLING_TYPE_AIR,
+		},
+		DeviceSelector: &commonpb.DeviceSelector{
+			SelectionType: &commonpb.DeviceSelector_DeviceList{
+				DeviceList: &commonpb.DeviceIdentifierList{DeviceIdentifiers: []string{}},
+			},
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "Floor 1", resp.Collection.GetRackInfo().Zone, "zone preserved when placement omitted on a building-bound rack")
+
+	_ = mockSiteStore
+}
+
 // TestService_AddDevicesToCollection_CascadesRackSite covers the
 // AddDevicesToDeviceSet cascade flow (issue #220): when devices are
 // added to a rack that has a site stamped, every paired device whose

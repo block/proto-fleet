@@ -1489,13 +1489,18 @@ func (s *Service) saveRackUpdate(ctx context.Context, info *session.Info, req *p
 		}
 	}
 
-	// Zone is building-scoped, so clear it when leaving or crossing
-	// buildings. When entering from no-building, honor the supplied zone.
+	// Zone is building-scoped: clear it when leaving or crossing buildings,
+	// and preserve the current zone when the caller omitted it but the rack
+	// stays in a building (legacy clients don't send zone — validation only
+	// requires it when the request itself sets a non-zero building_id).
 	finalZone := rackInfo.GetZone()
 	leavingBuilding := current.BuildingID != nil && newBuildingID == nil
 	crossingBuildings := current.BuildingID != nil && newBuildingID != nil && !int64PtrEqual(current.BuildingID, newBuildingID)
-	if leavingBuilding || crossingBuildings {
+	switch {
+	case leavingBuilding || crossingBuildings:
 		finalZone = ""
+	case finalZone == "" && newBuildingID != nil:
+		finalZone = current.Zone
 	}
 
 	err = s.collectionStore.UpdateCollection(ctx, info.OrganizationID, collectionID, &req.Label, nil)
