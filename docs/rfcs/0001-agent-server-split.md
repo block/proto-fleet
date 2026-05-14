@@ -1,6 +1,6 @@
 # RFC 0001: Fleet node + cloud-server split
 
-- **Status**: draft
+- **Status**: accepted
 - **Author(s)**: Ankit Goswami (@ankitgoswami)
 - **Created**: 2026-04-30
 - **Last updated**: 2026-05-12
