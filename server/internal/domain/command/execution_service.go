@@ -313,20 +313,24 @@ func (es *ExecutionService) workerProcessCommand(ctx context.Context, message qu
 	// Step 1: Execute the command (pure execution, no queue status side-effects).
 	orgID, workerError := es.executeCommandOnDevice(ctx, message.CommandType, message)
 
-	emitTerminalCommand(ctx, es.metricsEmitter, orgID, message.CommandType, workerError)
-
 	// Step 2: Atomically update queue status AND write device log in a single transaction.
 	// If the queue row is no longer PROCESSING (reaped), the transaction commits
 	// as a no-op and neither the queue status nor the device log is modified.
 	dbCtx, dbCancel := context.WithTimeout(context.WithoutCancel(ctx), dbWriteTimeout)
 	defer dbCancel()
 
+	var (
+		queueUpdated  bool
+		queueTerminal bool
+	)
 	txErr := db.WithTransactionNoResult(dbCtx, es.conn, func(q *sqlc.Queries) error {
 		// First: transition queue_message status (detects staleness via rowsAffected).
-		updated, err := es.markQueueMessageStatus(dbCtx, q, message.ID, workerError)
+		updated, terminal, err := es.markQueueMessageStatus(dbCtx, q, message, workerError)
 		if err != nil {
 			return err
 		}
+		queueUpdated = updated
+		queueTerminal = terminal
 		if !updated {
 			slog.Warn("skipping audit log for stale message",
 				"message_id", message.ID, "device_id", message.DeviceID)
@@ -352,41 +356,61 @@ func (es *ExecutionService) workerProcessCommand(ctx context.Context, message qu
 	if txErr != nil {
 		slog.Error("error in post-execution transaction",
 			"message_id", message.ID, "error", txErr)
+		return
+	}
+
+	// Only emit fleet_command_total for terminal outcomes (SUCCESS / FAILED) that
+	// actually landed: retries leaving the row PENDING and stale/reaped messages
+	// are not terminal command results.
+	if queueUpdated && queueTerminal {
+		emitTerminalCommand(ctx, es.metricsEmitter, orgID, message.CommandType, workerError)
 	}
 }
 
 // markQueueMessageStatus transitions the queue_message to its next state within an
-// existing transaction. Returns (true, nil) on success, (false, nil) when the row
-// is no longer PROCESSING (stale/reaped), or (false, err) on DB error.
-func (es *ExecutionService) markQueueMessageStatus(ctx context.Context, q *sqlc.Queries, messageID int64, workerError error) (bool, error) {
-	var result sql.Result
-	var err error
+// existing transaction. Returns (updated, terminal, err) where:
+//   - updated is true when rowsAffected > 0 (the row was still PROCESSING),
+//   - terminal is true when the resulting queue status is SUCCESS or FAILED
+//
+// (false, _, nil) means the row is no longer PROCESSING (stale/reaped)
+func (es *ExecutionService) markQueueMessageStatus(ctx context.Context, q *sqlc.Queries, message queue.Message, workerError error) (bool, bool, error) {
+	var (
+		result   sql.Result
+		err      error
+		terminal bool
+	)
 
 	switch {
 	case workerError == nil:
 		result, err = q.UpdateMessageStatus(ctx, sqlc.UpdateMessageStatusParams{
-			ID:     messageID,
+			ID:     message.ID,
 			Status: sqlc.QueueStatusEnumSUCCESS,
 		})
+		terminal = true
 	case fleeterror.IsUnimplementedError(workerError),
 		fleeterror.IsFailedPreconditionError(workerError):
 		result, err = q.UpdateMessagePermanentlyFailed(ctx, sqlc.UpdateMessagePermanentlyFailedParams{
-			ID:        messageID,
+			ID:        message.ID,
 			ErrorInfo: sql.NullString{String: workerError.Error(), Valid: true},
 		})
+		terminal = true
 	default:
+		maxRetries := es.messageQueue.MaxFailureRetries()
 		result, err = q.UpdateMessageAfterFailure(ctx, sqlc.UpdateMessageAfterFailureParams{
-			ID:         messageID,
-			RetryCount: es.messageQueue.MaxFailureRetries(),
+			ID:         message.ID,
+			RetryCount: maxRetries,
 			ErrorInfo:  sql.NullString{String: workerError.Error(), Valid: true},
 		})
+		// Mirrors the SQL CASE: retry_count + 1 >= maxRetries leaves the row FAILED
+		// (terminal); otherwise it goes back to PENDING for another attempt.
+		terminal = message.RetryCount+1 >= maxRetries
 	}
 
 	if err != nil {
-		return false, fleeterror.NewInternalErrorf("failed to update queue message status: %v", err)
+		return false, false, fleeterror.NewInternalErrorf("failed to update queue message status: %v", err)
 	}
 	rowsAffected, _ := result.RowsAffected()
-	return rowsAffected > 0, nil
+	return rowsAffected > 0, terminal, nil
 }
 
 // executeCommandOnDevice runs the command and returns the resolved owning org

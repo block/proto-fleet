@@ -52,7 +52,7 @@ groups:
         # The pool gauge is set to 0 when the device's primary mining
         # pool connection drops. Fires after fifteen minutes of sustained
         # disconnect to absorb pool-side blips.
-        expr: max_over_time(fleet_device_pool_connected[15m]) == 0
+        expr: fleet_device_pool_connected == 0
         for: 15m
         labels:
           severity: warning

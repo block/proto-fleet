@@ -443,7 +443,7 @@ func TestTelemetryService_DataStoreInteraction(t *testing.T) {
 			}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
 
 			for _, scenario := range test.devicesScenario {
-				_, _, _, err := service.GetTelemetryFromDevice(t.Context(), scenario.device)
+				_, _, _, _, err := service.GetTelemetryFromDevice(t.Context(), scenario.device)
 				// Only discovery errors and scheduler errors bubble up to caller
 				// StoreDeviceMetrics errors are logged but don't fail the operation
 				if scenario.hasDiscoveryError || scenario.hasSchedulerError {

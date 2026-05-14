@@ -2,7 +2,7 @@ services:
   fleet-api:
     environment:
       FLEET_TELEMETRY_ENABLED: "${FLEET_TELEMETRY_ENABLED:-true}"
-      FLEET_NOTIFICATIONS_ENABLED: "${FLEET_NOTIFICATIONS_ENABLED:-true}"
+      FLEET_METRICS_ENABLED: "${FLEET_METRICS_ENABLED:-true}"
     depends_on:
       otel-collector:
         condition: service_started
