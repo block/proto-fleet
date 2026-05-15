@@ -211,34 +211,23 @@ test.describe("Firmware updates", () => {
     const startingVersion = await generalPage.getFirmwareVersion();
     let installedVersion = "";
 
-    await test.step("Upload a firmware bundle and validate the staged install state", async () => {
+    await test.step("Upload a firmware bundle and validate the install starts", async () => {
       await uploadFirmwareBundle(request, authAccessToken);
 
-      const downloadedState = await waitForFirmwareStatus(request, "downloaded");
-      installedVersion = downloadedState.newVersion ?? "";
+      const installingState = await waitForFirmwareStatus(request, "installing");
+      installedVersion = installingState.newVersion ?? "";
 
       expect(installedVersion).not.toBe("");
       expect(installedVersion).not.toBe(startingVersion);
 
       await generalPage.reloadPage();
       await generalPage.validateTitle("General");
-      await headerComponent.validateFirmwareStatusWidgetText(/Ready to install/);
-      await headerComponent.openFirmwareStatusModal();
-      await headerComponent.validateFirmwareStatusModalTitle("Ready to install");
-      await headerComponent.validateFirmwareStatusModalVersionLabel("Current Version:", startingVersion);
-      await headerComponent.validateFirmwareStatusModalVersionLabel("New Version:", installedVersion);
+      await headerComponent.validateFirmwareStatusWidgetText(/Installing/);
     });
 
-    await test.step("Install the uploaded firmware and wait for reboot-required state", async () => {
-      await headerComponent.clickFirmwareStatusModalInstallButton();
-
-      await waitForFirmwareStatus(request, "installing");
-
-      await generalPage.reloadPage();
-      await generalPage.validateTitle("General");
-      await headerComponent.validateFirmwareStatusWidgetText(/Installing/);
-
-      await waitForFirmwareStatus(request, "installed");
+    await test.step("Wait for reboot-required state after the upload-driven install", async () => {
+      const installedState = await waitForFirmwareStatus(request, "installed");
+      installedVersion = installedState.newVersion ?? installedVersion;
 
       await generalPage.reloadPage();
       await generalPage.validateTitle("General");

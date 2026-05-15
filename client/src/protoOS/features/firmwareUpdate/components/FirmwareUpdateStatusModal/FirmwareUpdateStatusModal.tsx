@@ -10,7 +10,6 @@ interface FirmwareUpdateStatusModalProps {
   updateStatus?: UpdateStatus;
   onReboot?: () => void;
   onUpdate?: () => void;
-  onContinue?: () => void;
   onDismiss?: () => void;
   rebootPending?: boolean;
   updatePending?: boolean;
@@ -26,7 +25,6 @@ type StatusConfig = {
     onUpdate?: () => void;
     onDismiss?: () => void;
     onReboot?: () => void;
-    onContinue?: () => void;
     updatePending?: boolean;
     rebootPending?: boolean;
   }) => ButtonProps[] | undefined;
@@ -64,7 +62,6 @@ const UPDATE_STATUS_CONFIG: Record<string, StatusConfig> = {
       {
         text: "Install",
         variant: "primary",
-        testId: "firmware-status-modal-install-button",
         loading: updatePending,
         onClick: onUpdate,
       },
@@ -90,7 +87,7 @@ const UPDATE_STATUS_CONFIG: Record<string, StatusConfig> = {
     title: "Ready to install",
     icon: <SettingsSolid />,
     statusIndicator: "downloaded",
-    getButtons: ({ onDismiss, onContinue }) => [
+    getButtons: ({ onDismiss }) => [
       {
         text: "Dismiss",
         variant: "secondary",
@@ -99,8 +96,6 @@ const UPDATE_STATUS_CONFIG: Record<string, StatusConfig> = {
       {
         text: "Install",
         variant: "primary",
-        testId: "firmware-status-modal-install-button",
-        onClick: onContinue,
       },
     ],
   },
@@ -192,7 +187,6 @@ const UPDATE_STATUS_CONFIG: Record<string, StatusConfig> = {
 const FirmwareUpdateStatusModal = ({
   updateStatus,
   onReboot,
-  onContinue,
   onUpdate,
   onDismiss,
   rebootPending,
@@ -221,7 +215,6 @@ const FirmwareUpdateStatusModal = ({
         onUpdate,
         onDismiss,
         onReboot,
-        onContinue,
         updatePending,
         rebootPending,
       })}

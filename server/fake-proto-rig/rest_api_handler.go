@@ -1531,7 +1531,10 @@ func (h *RESTApiHandler) startFirmwareDownloadLifecycle() {
 
 		h.state.mu.Lock()
 		if h.state.Rebooting {
+			h.state.FWUpdateStatus = "current"
+			h.state.FWNewVersion = ""
 			h.state.mu.Unlock()
+			log.Printf("[FAKE-RIG] Firmware update aborted during reboot")
 			return
 		}
 		h.state.FWUpdateStatus = "downloaded"
@@ -1540,13 +1543,18 @@ func (h *RESTApiHandler) startFirmwareDownloadLifecycle() {
 	}()
 }
 
-func (h *RESTApiHandler) startFirmwareInstallLifecycle() {
+func (h *RESTApiHandler) startFirmwareInstallLifecycle(fromDownloaded bool) {
 	go func() {
-		time.Sleep(1 * time.Second)
+		if fromDownloaded {
+			time.Sleep(1 * time.Second)
+		}
 
 		h.state.mu.Lock()
 		if h.state.Rebooting {
+			h.state.FWUpdateStatus = "current"
+			h.state.FWNewVersion = ""
 			h.state.mu.Unlock()
+			log.Printf("[FAKE-RIG] Firmware update aborted during reboot")
 			return
 		}
 		h.state.FWUpdateStatus = "installing"
@@ -1557,7 +1565,10 @@ func (h *RESTApiHandler) startFirmwareInstallLifecycle() {
 
 		h.state.mu.Lock()
 		if h.state.Rebooting {
+			h.state.FWUpdateStatus = "current"
+			h.state.FWNewVersion = ""
 			h.state.mu.Unlock()
+			log.Printf("[FAKE-RIG] Firmware update aborted during reboot")
 			return
 		}
 		h.state.FWUpdateStatus = "installed"
@@ -1570,6 +1581,11 @@ func (h *RESTApiHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
 		h.state.mu.Lock()
+		if h.state.Rebooting {
+			h.state.mu.Unlock()
+			h.writeJSON(w, http.StatusServiceUnavailable, MessageResponse{Message: "System reboot is in progress."})
+			return
+		}
 		switch h.state.FWUpdateStatus {
 		case "downloading", "installing", "installed":
 			h.state.mu.Unlock()
@@ -1595,9 +1611,10 @@ func (h *RESTApiHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		h.state.mu.Unlock()
 
 		if installFromDownloaded {
-			h.startFirmwareInstallLifecycle()
+			h.startFirmwareInstallLifecycle(true)
 		} else {
 			h.startFirmwareDownloadLifecycle()
+			h.startFirmwareInstallLifecycle(false)
 		}
 		h.writeJSON(w, http.StatusAccepted, MessageResponse{Message: "Update started"})
 	case http.MethodPut:
@@ -1609,12 +1626,17 @@ func (h *RESTApiHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 
 		h.state.mu.Lock()
+		if h.state.Rebooting {
+			h.state.mu.Unlock()
+			h.writeJSON(w, http.StatusServiceUnavailable, MessageResponse{Message: "System reboot is in progress."})
+			return
+		}
 		// Reject re-uploads whenever an update is pending (downloaded/installing)
 		// OR has already completed install and is awaiting reboot. Treating
 		// "installed" as in-progress prevents a second upload from clobbering
 		// FWUpdateStatus/FWNewVersion and causing handleReboot to skip promotion.
 		switch h.state.FWUpdateStatus {
-		case "downloaded", "installing", "installed":
+		case "downloading", "downloaded", "installing", "installed":
 			h.state.mu.Unlock()
 			h.writeJSON(w, http.StatusConflict, MessageResponse{Message: "System update is already in progress."})
 			return
@@ -1623,7 +1645,7 @@ func (h *RESTApiHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		if currentVersion == "" {
 			currentVersion = defaultFirmwareVersion
 		}
-		h.state.FWUpdateStatus = "downloaded"
+		h.state.FWUpdateStatus = "downloading"
 		h.state.FWNewVersion = nextFirmwareVersion(currentVersion)
 		h.state.mu.Unlock()
 
@@ -1639,6 +1661,8 @@ func (h *RESTApiHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		defer file.Close()
 
 		log.Printf("Firmware upload received: filename=%s, size=%d", header.Filename, header.Size)
+		h.startFirmwareDownloadLifecycle()
+		h.startFirmwareInstallLifecycle(false)
 
 		h.writeJSON(w, http.StatusOK, MessageResponse{Message: "Firmware uploaded successfully"})
 	default:

@@ -178,7 +178,7 @@ type MinerState struct {
 	LocateActive bool
 
 	// Firmware update simulation
-	FWUpdateStatus    string // "current", "downloaded", "installing", "installed"
+	FWUpdateStatus    string // "current", "downloading", "downloaded", "installing", "installed"
 	FWCurrentVersion  string // running firmware version; initialized to defaultFirmwareVersion
 	FWNewVersion      string // staged version after a successful upload; promoted to current on reboot
 	FWPreviousVersion string // set after reboot following a firmware update

@@ -50,7 +50,9 @@ export class GeneralPage extends BasePage {
   }
 
   async getFirmwareVersion() {
-    return this.page.getByTestId("firmware-version-value").innerText();
+    const firmwareVersion = this.page.getByTestId("firmware-version-value");
+    await expect.poll(async () => (await firmwareVersion.innerText()).trim()).not.toBe("");
+    return (await firmwareVersion.innerText()).trim();
   }
 
   async validateFirmwareVersion(expected: string | RegExp) {

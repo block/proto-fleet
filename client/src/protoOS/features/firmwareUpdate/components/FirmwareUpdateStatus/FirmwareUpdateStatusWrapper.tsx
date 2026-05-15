@@ -80,7 +80,6 @@ const FirmwareUpdateStatusWrapper = () => {
       loading={pending}
       rebootPending={rebootPending}
       onReboot={handleReboot}
-      onContinue={handleUpdate}
       onUpdate={handleUpdate}
       updatePending={updatePending}
     />

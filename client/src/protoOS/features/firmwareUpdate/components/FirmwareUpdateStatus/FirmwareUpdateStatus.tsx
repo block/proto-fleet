@@ -14,7 +14,6 @@ interface FirmwareUpdateStatusProps {
   updatePending?: boolean;
   onReboot?: () => void;
   onUpdate?: () => void;
-  onContinue?: () => void;
 }
 
 const FirmwareUpdateStatus = ({
@@ -25,7 +24,6 @@ const FirmwareUpdateStatus = ({
   updatePending = false,
   onReboot,
   onUpdate,
-  onContinue,
 }: FirmwareUpdateStatusProps) => {
   const [showModal, setShowModal] = useState(false);
   const firmwareStatusMessage = useMemo(() => {
@@ -52,7 +50,6 @@ const FirmwareUpdateStatus = ({
         rebootPending={rebootPending}
         onDismiss={() => setShowModal(false)}
         onUpdate={onUpdate}
-        onContinue={onContinue}
         updatePending={updatePending}
       />
     </div>

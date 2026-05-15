@@ -1924,7 +1924,7 @@ func TestHandleUpdate_PutWhileInstalled_RejectsAndPreservesStagedVersion(t *test
 	}
 }
 
-func TestHandleUpdate_PutStagesDownloadedStatusWithoutInstalling(t *testing.T) {
+func TestHandleUpdate_PutProgressesToInstalled(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
 	h := NewRESTApiHandler(state)
 
@@ -1950,32 +1950,31 @@ func TestHandleUpdate_PutStagesDownloadedStatusWithoutInstalling(t *testing.T) {
 		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
 	}
 
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		info := getSystemInfo(t, h)
+		swUpdate, ok := info["sw_update_status"].(map[string]any)
+		if !ok {
+			t.Fatalf("expected sw_update_status object, got: %v", info["sw_update_status"])
+		}
+
+		if got := swUpdate["new_version"]; got != defaultNextFirmwareVersion {
+			t.Fatalf("expected new_version %q after upload, got %v", defaultNextFirmwareVersion, got)
+		}
+
+		if swUpdate["status"] == "installed" {
+			return
+		}
+
+		time.Sleep(200 * time.Millisecond)
+	}
+
 	info := getSystemInfo(t, h)
 	swUpdate, ok := info["sw_update_status"].(map[string]any)
 	if !ok {
 		t.Fatalf("expected sw_update_status object, got: %v", info["sw_update_status"])
 	}
-
-	if got := swUpdate["status"]; got != "downloaded" {
-		t.Fatalf("expected status %q after upload, got %v", "downloaded", got)
-	}
-	if got := swUpdate["message"]; got != "Ready to install" {
-		t.Fatalf("expected message %q after upload, got %v", "Ready to install", got)
-	}
-	if got := swUpdate["new_version"]; got != defaultNextFirmwareVersion {
-		t.Fatalf("expected new_version %q after upload, got %v", defaultNextFirmwareVersion, got)
-	}
-
-	time.Sleep(1500 * time.Millisecond)
-
-	info = getSystemInfo(t, h)
-	swUpdate, ok = info["sw_update_status"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected sw_update_status object, got: %v", info["sw_update_status"])
-	}
-	if got := swUpdate["status"]; got != "downloaded" {
-		t.Fatalf("expected upload to remain staged at %q, got %v", "downloaded", got)
-	}
+	t.Fatalf("expected uploaded firmware to reach %q, got %v", "installed", swUpdate["status"])
 }
 
 func TestHandleUpdate_PostFromDownloadedInstallsUpdate(t *testing.T) {
@@ -2010,4 +2009,36 @@ func TestHandleUpdate_PostFromDownloadedInstallsUpdate(t *testing.T) {
 	gotStatus := state.FWUpdateStatus
 	state.mu.RUnlock()
 	t.Fatalf("expected firmware status to reach %q, got %q", "installed", gotStatus)
+}
+
+func TestHandleUpdate_PutWhileDownloading_Rejects(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.mu.Lock()
+	state.FWUpdateStatus = "downloading"
+	state.FWNewVersion = defaultNextFirmwareVersion
+	state.mu.Unlock()
+
+	h := NewRESTApiHandler(state)
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", "protoos-update.swu")
+	if err != nil {
+		t.Fatalf("failed to create multipart file: %v", err)
+	}
+	if _, err := part.Write([]byte("fake firmware bundle")); err != nil {
+		t.Fatalf("failed to write multipart file: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("failed to close multipart writer: %v", err)
+	}
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/system/update", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	h.handleUpdate(rr, req)
+
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusConflict, rr.Code, rr.Body.String())
+	}
 }
