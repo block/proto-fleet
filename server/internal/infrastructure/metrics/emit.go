@@ -64,9 +64,7 @@ func (p *Provider) EmitDeviceHashrate(ctx context.Context, labels DeviceLabels, 
 	}
 	attrs := metric.WithAttributes(labels.toAttrs()...)
 	p.insts.deviceHashrateTerahash.Record(ctx, observedTHs, attrs)
-	if expectedTHs > 0 {
-		p.insts.deviceHashrateExpectedTerahz.Record(ctx, expectedTHs, attrs)
-	}
+	p.insts.deviceHashrateExpectedTerahz.Record(ctx, expectedTHs, attrs)
 }
 
 // EmitDeviceTemperature records max+avg gauges for one sensor kind.
