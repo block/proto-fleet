@@ -1033,6 +1033,17 @@ func (s *TelemetryService) metricsWriterRoutine(ctx context.Context) {
 		pending = pending[:0]
 	}
 
+	forwardMetrics := func(result metricsResult) {
+		pending = append(pending, result.metrics)
+		s.metricsObserver.onDeviceMetrics(
+			ctx,
+			result.orgID,
+			result.driverName,
+			result.deviceID,
+			result.metrics,
+		)
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -1040,7 +1051,7 @@ func (s *TelemetryService) metricsWriterRoutine(ctx context.Context) {
 			for {
 				select {
 				case result := <-s.metricsResults:
-					pending = append(pending, result.metrics)
+					forwardMetrics(result)
 				default:
 					goto done
 				}
@@ -1051,16 +1062,7 @@ func (s *TelemetryService) metricsWriterRoutine(ctx context.Context) {
 			cancel()
 			return
 		case result := <-s.metricsResults:
-			pending = append(pending, result.metrics)
-			// Use the trusted scheduler/miner-manager metadata captured at poll time.
-			// Do NOT derive these from result.metrics, which the plugin controls.
-			s.metricsObserver.onDeviceMetrics(
-				ctx,
-				result.orgID,
-				result.driverName,
-				result.deviceID,
-				result.metrics,
-			)
+			forwardMetrics(result)
 			if len(pending) >= maxMetricsBatchSize {
 				flush(ctx)
 			}
