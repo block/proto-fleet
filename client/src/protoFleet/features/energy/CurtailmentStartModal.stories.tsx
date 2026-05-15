@@ -46,6 +46,11 @@ const preview: CurtailmentPlanPreview = {
   scopeLabel: "across the fleet",
 };
 
+const percentageReductionPreview: CurtailmentPlanPreview = {
+  ...preview,
+  targetKw: 30,
+};
+
 function ModalStory(props: ModalStoryProps): ReactElement {
   const [open, setOpen] = useState(true);
 
@@ -67,5 +72,5 @@ export const WithPreview: Story = {
 
 export const PercentageReductionPreview: Story = {
   name: "Percentage reduction preview",
-  render: () => <ModalStory initialValues={percentageReductionValues} preview={preview} />,
+  render: () => <ModalStory initialValues={percentageReductionValues} preview={percentageReductionPreview} />,
 };

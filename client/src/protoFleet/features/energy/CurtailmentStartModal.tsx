@@ -39,6 +39,23 @@ export interface CurtailmentFormValues {
   includeMaintenance: boolean;
 }
 
+export type CurtailmentSubmitValues = Pick<
+  CurtailmentFormValues,
+  | "scopeType"
+  | "scopeId"
+  | "deviceSetIds"
+  | "deviceIdentifiers"
+  | "targetKw"
+  | "toleranceKw"
+  | "priority"
+  | "minDurationSec"
+  | "maxDurationSec"
+  | "restoreBatchSize"
+  | "restoreIntervalSec"
+  | "reason"
+  | "includeMaintenance"
+>;
+
 export interface CurtailmentPlanPreview {
   selectedMinerCount: number;
   targetKw: number;
@@ -53,7 +70,7 @@ export type CurtailmentFormErrors = Partial<Record<keyof CurtailmentFormValues, 
 interface CurtailmentStartModalProps {
   open: boolean;
   onDismiss: () => void;
-  onSubmit: (values: CurtailmentFormValues) => void;
+  onSubmit: (values: CurtailmentSubmitValues) => void;
   initialValues?: Partial<CurtailmentFormValues>;
   errors?: CurtailmentFormErrors;
   preview?: CurtailmentPlanPreview;
@@ -84,7 +101,6 @@ interface ReductionProgressBarProps {
 interface PreviewPaneProps {
   preview?: CurtailmentPlanPreview;
   previewError?: string;
-  values: CurtailmentFormValues;
 }
 
 interface TypedSelectOption<Value extends string> extends SelectOption {
@@ -137,6 +153,11 @@ const minerSelectionStrategyOptions: Array<TypedSelectOption<MinerSelectionStrat
   { value: "oldestMinersFirst", label: "Oldest miners first" },
   { value: "lowestHashrateFirst", label: "Lowest hashrate first" },
   { value: "roundRobin", label: "Round robin" },
+];
+
+const priorityOptions: Array<TypedSelectOption<CurtailmentPriority>> = [
+  { value: "normal", label: "Normal" },
+  { value: "emergency", label: "Emergency" },
 ];
 
 function getInitialValues(initialValues?: Partial<CurtailmentFormValues>): CurtailmentFormValues {
@@ -203,30 +224,8 @@ function formatKw(value: number): string {
   })} kW`;
 }
 
-function parseTargetValue(value: string): number | undefined {
-  const numericValue = Number(value);
-
-  return Number.isFinite(numericValue) ? numericValue : undefined;
-}
-
 function clampPercentage(value: number): number {
   return Math.min(Math.max(value, 0), 100);
-}
-
-function getTargetUsageKw(preview: CurtailmentPlanPreview, values: CurtailmentFormValues): number {
-  const targetValue = parseTargetValue(values.targetKw);
-
-  if (targetValue === undefined) {
-    return preview.targetKw;
-  }
-
-  if (values.curtailmentMode === "percentageReduction") {
-    const remainingPercentage = 100 - clampPercentage(targetValue);
-
-    return preview.currentUsageKw * (remainingPercentage / 100);
-  }
-
-  return targetValue;
 }
 
 function ReductionProgressBar({ value, max }: ReductionProgressBarProps): ReactElement {
@@ -240,7 +239,7 @@ function ReductionProgressBar({ value, max }: ReductionProgressBarProps): ReactE
   );
 }
 
-function PreviewPane({ preview, previewError, values }: PreviewPaneProps): ReactElement {
+function PreviewPane({ preview, previewError }: PreviewPaneProps): ReactElement {
   if (previewError) {
     return (
       <div className="flex min-h-40 flex-1 items-center justify-center rounded-[24px] bg-surface-overlay px-6 py-10 text-300 text-text-primary-70 laptop:px-16">
@@ -260,8 +259,6 @@ function PreviewPane({ preview, previewError, values }: PreviewPaneProps): React
     );
   }
 
-  const targetUsageKw = getTargetUsageKw(preview, values);
-
   return (
     <div className="flex min-h-[360px] flex-1 items-center justify-center rounded-[24px] bg-surface-overlay px-8 py-12 laptop:min-h-0 laptop:px-16 laptop:py-6">
       <div className="flex w-full max-w-[520px] flex-col gap-10">
@@ -273,10 +270,10 @@ function PreviewPane({ preview, previewError, values }: PreviewPaneProps): React
           <div>
             <div className="text-emphasis-200 text-text-primary-70">Target value</div>
             <div className="text-heading-300 text-text-primary">
-              {formatKw(targetUsageKw)} of {formatKw(preview.currentUsageKw)}
+              {formatKw(preview.targetKw)} of {formatKw(preview.currentUsageKw)}
             </div>
           </div>
-          <ReductionProgressBar value={targetUsageKw} max={preview.currentUsageKw} />
+          <ReductionProgressBar value={preview.targetKw} max={preview.currentUsageKw} />
         </div>
 
         <div className="grid gap-6">
@@ -311,6 +308,28 @@ function getSelectedMinerIds(values: CurtailmentFormValues): string[] {
   return values.deviceIdentifiers;
 }
 
+function canSubmitWithCurrentMapping(values: CurtailmentFormValues): boolean {
+  return values.curtailmentMode === "fixedKwTarget" && values.minerSelectionStrategy === "worstMinersFirst";
+}
+
+function getSubmitValues(values: CurtailmentFormValues): CurtailmentSubmitValues {
+  return {
+    scopeType: values.scopeType,
+    scopeId: values.scopeId,
+    deviceSetIds: values.deviceSetIds,
+    deviceIdentifiers: values.deviceIdentifiers,
+    targetKw: values.targetKw,
+    toleranceKw: values.toleranceKw,
+    priority: values.priority,
+    minDurationSec: values.minDurationSec,
+    maxDurationSec: values.maxDurationSec,
+    restoreBatchSize: values.restoreBatchSize,
+    restoreIntervalSec: values.restoreIntervalSec,
+    reason: values.reason,
+    includeMaintenance: values.includeMaintenance,
+  };
+}
+
 function CurtailmentStartModalContent({
   onDismiss,
   onSubmit,
@@ -333,7 +352,8 @@ function CurtailmentStartModalContent({
     groups: getSelectedDeviceSetIds(values, "groups"),
     miners: getSelectedMinerIds(values),
   };
-  const previewPane = <PreviewPane preview={preview} previewError={previewError} values={values} />;
+  const previewPane = <PreviewPane preview={preview} previewError={previewError} />;
+  const supportsCurrentSubmitMapping = canSubmitWithCurrentMapping(values);
 
   const handleDeviceSetSelection = (deviceSetIds: string[], scopeId: DeviceSetScopeId) => {
     const hasSelectedDeviceSets = deviceSetIds.length > 0;
@@ -371,7 +391,8 @@ function CurtailmentStartModalContent({
           {
             text: "Start curtailment",
             variant: variants.primary,
-            onClick: () => onSubmit(values),
+            onClick: () => onSubmit(getSubmitValues(values)),
+            disabled: !supportsCurrentSubmitMapping,
             loading: isSubmitting,
           },
         ]}
@@ -440,6 +461,47 @@ function CurtailmentStartModalContent({
                     value={values.curtailIntervalSec}
                     error={errors?.curtailIntervalSec}
                     onChange={(value) => updateValue("curtailIntervalSec", value)}
+                  />
+                </div>
+              </div>
+            </Section>
+
+            <Section title="Safety">
+              <div className="grid gap-3">
+                <div className="grid gap-3 tablet:grid-cols-2">
+                  <TypedSelect
+                    id="curtailment-priority"
+                    label="Priority"
+                    value={values.priority}
+                    options={priorityOptions}
+                    error={errors?.priority}
+                    onChange={(value) => updateValue("priority", value)}
+                  />
+                  <Field
+                    id="curtailment-tolerance-kw"
+                    label="Tolerance"
+                    value={values.toleranceKw}
+                    units="kW"
+                    error={errors?.toleranceKw}
+                    onChange={(value) => updateValue("toleranceKw", value)}
+                  />
+                </div>
+                <div className="grid gap-3 tablet:grid-cols-2">
+                  <Field
+                    id="curtailment-min-duration"
+                    label="Min duration"
+                    value={values.minDurationSec}
+                    units="sec"
+                    error={errors?.minDurationSec}
+                    onChange={(value) => updateValue("minDurationSec", value)}
+                  />
+                  <Field
+                    id="curtailment-max-duration"
+                    label="Max duration"
+                    value={values.maxDurationSec}
+                    units="sec"
+                    error={errors?.maxDurationSec}
+                    onChange={(value) => updateValue("maxDurationSec", value)}
                   />
                 </div>
               </div>
