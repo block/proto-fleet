@@ -7,7 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/docker/docker/api/types/build"
+	"github.com/moby/moby/api/types/build"
+	"github.com/moby/moby/client"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -36,7 +37,7 @@ func TestProtoPluginIntegration(t *testing.T) {
 		FromDockerfile: testcontainers.FromDockerfile{
 			Context:    "../../..",
 			Dockerfile: "server/fake-proto-rig/Dockerfile",
-			BuildOptionsModifier: func(opts *build.ImageBuildOptions) {
+			BuildOptionsModifier: func(opts *client.ImageBuildOptions) {
 				opts.Version = build.BuilderBuildKit
 			},
 		},
@@ -70,7 +71,7 @@ func TestProtoPluginIntegration(t *testing.T) {
 	waitForMinerReady(ctx, t, host, mappedPort.Port())
 
 	// Create driver
-	d, err := driver.New(mappedPort.Int())
+	d, err := driver.New(int(mappedPort.Num()))
 	require.NoError(t, err)
 
 	t.Run("Driver Handshake", func(t *testing.T) {
