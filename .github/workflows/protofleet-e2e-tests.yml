@@ -185,10 +185,12 @@ jobs:
 
       - name: Set artifact name
         id: artifact
+        env:
+          MATRIX_SPEC: ${{ matrix.spec }}
         run: |
           # Sanitize spec name for use in artifact names
-          SPEC_NAME=$(echo "${{ matrix.spec }}" | sed 's/\.spec\.ts$//' | sed 's/[^a-zA-Z0-9]/-/g')
-          echo "spec_name=${SPEC_NAME}" >> $GITHUB_OUTPUT
+          SPEC_NAME=$(echo "$MATRIX_SPEC" | sed 's/\.spec\.ts$//' | sed 's/[^a-zA-Z0-9]/-/g')
+          echo "spec_name=${SPEC_NAME}" >> "$GITHUB_OUTPUT"
 
       - name: Setup Hermit
         uses: ./.github/actions/hermit-setup
@@ -265,16 +267,19 @@ jobs:
         working-directory: client/e2eTests/protoFleet
         env:
           CI: true
+          MATRIX_PROJECT: ${{ matrix.project }}
+          MATRIX_SPEC: ${{ matrix.spec }}
+          SPEC_NAME: ${{ steps.artifact.outputs.spec_name }}
         run: |
           rm -rf blob-report playwright-report test-results
           mkdir -p blob-report
 
-          # The viewport-matched setup project (setup-${{ matrix.project }}:
-          # onboarding + pools + auth storageState) runs automatically before
+          # The viewport-matched setup project (setup-$MATRIX_PROJECT):
+          # onboarding + pools + auth storageState runs automatically before
           # the target via project `dependencies`.
-          PLAYWRIGHT_BLOB_OUTPUT_FILE="blob-report/${{ matrix.project }}-${{ steps.artifact.outputs.spec_name }}.zip" \
+          PLAYWRIGHT_BLOB_OUTPUT_FILE="blob-report/${MATRIX_PROJECT}-${SPEC_NAME}.zip" \
           PWTEST_BLOB_DO_NOT_REMOVE=1 \
-          npx playwright test --project=${{ matrix.project }} --reporter=blob "spec/${{ matrix.spec }}"
+          npx playwright test --project="$MATRIX_PROJECT" --reporter=blob "spec/$MATRIX_SPEC"
 
           echo "Blob reports created:"
           find blob-report -maxdepth 2 -type f -print | sort || true
