@@ -18,7 +18,7 @@ echo "Starting ProtoFleet client..."
 echo "Client PID: $CLIENT_PID"
 
 function start_server() {
-  if [[ -n "${FLEET_NOTIFICATIONS_ENABLED:-}" ]]; then
+  if [[ "${ENABLE_BETA_NOTIFICATIONS:-}" = "true" ]]; then
     just dev-notifs
   else
     just dev
