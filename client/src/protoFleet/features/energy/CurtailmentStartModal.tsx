@@ -10,19 +10,27 @@ import { variants } from "@/shared/components/Button";
 import Checkbox from "@/shared/components/Checkbox";
 import Dialog, { DialogIcon } from "@/shared/components/Dialog";
 import Input from "@/shared/components/Input";
-import Select from "@/shared/components/Select";
+import Select, { type SelectOption } from "@/shared/components/Select";
 
 export type CurtailmentPriority = "normal" | "emergency";
 export type CurtailmentScopeType = "wholeOrg" | "deviceSet" | "explicitMiners";
+export type ResponseProfileId = "customPlan";
+export type CurtailmentMode = "percentageReduction" | "fixedKwTarget";
+export type MinerSelectionStrategy = "worstMinersFirst" | "oldestMinersFirst" | "lowestHashrateFirst" | "roundRobin";
 
 export interface CurtailmentFormValues {
   scopeType: CurtailmentScopeType;
   scopeId?: string;
   deviceSetIds: string[];
   deviceIdentifiers: string[];
+  responseProfileId: ResponseProfileId;
+  curtailmentMode: CurtailmentMode;
+  minerSelectionStrategy: MinerSelectionStrategy;
   targetKw: string;
   toleranceKw: string;
   priority: CurtailmentPriority;
+  curtailBatchSize: string;
+  curtailIntervalSec: string;
   minDurationSec: string;
   maxDurationSec: string;
   restoreBatchSize: string;
@@ -34,7 +42,8 @@ export interface CurtailmentFormValues {
 export interface CurtailmentPlanPreview {
   selectedMinerCount: number;
   targetKw: number;
-  estimatedReductionKw: number;
+  currentUsageKw: number;
+  curtailEstimate: string;
   restoreEstimate: string;
   scopeLabel: string;
 }
@@ -67,6 +76,30 @@ interface SectionProps {
   children: ReactNode;
 }
 
+interface ReductionProgressBarProps {
+  value: number;
+  max: number;
+}
+
+interface PreviewPaneProps {
+  preview?: CurtailmentPlanPreview;
+  previewError?: string;
+  values: CurtailmentFormValues;
+}
+
+interface TypedSelectOption<Value extends string> extends SelectOption {
+  value: Value;
+}
+
+interface TypedSelectProps<Value extends string> {
+  id: string;
+  label: string;
+  value: Value;
+  options: Array<TypedSelectOption<Value>>;
+  error?: string;
+  onChange: (value: Value) => void;
+}
+
 type DeviceSetScopeId = "racks" | "groups";
 
 const defaultValues: CurtailmentFormValues = {
@@ -74,9 +107,14 @@ const defaultValues: CurtailmentFormValues = {
   scopeId: "whole-org",
   deviceSetIds: [],
   deviceIdentifiers: [],
+  responseProfileId: "customPlan",
+  curtailmentMode: "fixedKwTarget",
+  minerSelectionStrategy: "worstMinersFirst",
   targetKw: "",
   toleranceKw: "",
   priority: "normal",
+  curtailBatchSize: "",
+  curtailIntervalSec: "",
   minDurationSec: "",
   maxDurationSec: "",
   restoreBatchSize: "",
@@ -85,42 +123,74 @@ const defaultValues: CurtailmentFormValues = {
   includeMaintenance: false,
 };
 
-const priorityOptions: Array<{ value: CurtailmentPriority; label: string }> = [
-  { value: "normal", label: "Normal" },
-  { value: "emergency", label: "Emergency" },
+const responseProfileOptions: Array<TypedSelectOption<ResponseProfileId>> = [
+  { value: "customPlan", label: "Custom plan" },
 ];
 
-const isCurtailmentPriority = (value: string): value is CurtailmentPriority =>
-  priorityOptions.some((option) => option.value === value);
+const curtailmentModeOptions: Array<TypedSelectOption<CurtailmentMode>> = [
+  { value: "percentageReduction", label: "Percentage reduction" },
+  { value: "fixedKwTarget", label: "Fixed kW target" },
+];
 
-const getInitialValues = (initialValues?: Partial<CurtailmentFormValues>): CurtailmentFormValues => ({
-  ...defaultValues,
-  ...initialValues,
-});
+const minerSelectionStrategyOptions: Array<TypedSelectOption<MinerSelectionStrategy>> = [
+  { value: "worstMinersFirst", label: "Worst miners first" },
+  { value: "oldestMinersFirst", label: "Oldest miners first" },
+  { value: "lowestHashrateFirst", label: "Lowest hashrate first" },
+  { value: "roundRobin", label: "Round robin" },
+];
 
-const getInitialValuesKey = (initialValues?: Partial<CurtailmentFormValues>): string =>
-  Object.entries(getInitialValues(initialValues))
+function getInitialValues(initialValues?: Partial<CurtailmentFormValues>): CurtailmentFormValues {
+  return {
+    ...defaultValues,
+    ...initialValues,
+  };
+}
+
+function getInitialValuesKey(initialValues?: Partial<CurtailmentFormValues>): string {
+  return Object.entries(getInitialValues(initialValues))
     .map(([key, value]) => `${key}:${String(value)}`)
     .join("|");
+}
+
+function isSelectOptionValue<Value extends string>(
+  options: Array<TypedSelectOption<Value>>,
+  value: string,
+): value is Value {
+  return options.some((option) => option.value === value);
+}
 
 function Field({ id, label, value, units, type = "number", error, onChange }: FieldProps): ReactElement {
+  return <Input id={id} label={label} initValue={value} units={units} type={type} error={error} onChange={onChange} />;
+}
+
+function TypedSelect<Value extends string>({
+  id,
+  label,
+  value,
+  options,
+  error,
+  onChange,
+}: TypedSelectProps<Value>): ReactElement {
   return (
-    <Input
+    <Select
       id={id}
       label={label}
-      initValue={value}
-      units={units}
-      type={type}
+      value={value}
+      options={options}
       error={error}
-      onChange={(nextValue) => onChange(nextValue)}
+      onChange={(nextValue) => {
+        if (isSelectOptionValue(options, nextValue)) {
+          onChange(nextValue);
+        }
+      }}
     />
   );
 }
 
 function Section({ title, children }: SectionProps): ReactElement {
   return (
-    <section className="grid gap-3">
-      <div className="text-emphasis-300 text-text-primary">{title}</div>
+    <section className="grid gap-6">
+      <h2 className="text-heading-200 text-text-primary">{title}</h2>
       {children}
     </section>
   );
@@ -133,8 +203,34 @@ function formatKw(value: number): string {
   })} kW`;
 }
 
-function ReductionProgressBar({ value, max }: { value: number; max: number }): ReactElement {
-  const reductionPercentage = max > 0 ? Math.min(Math.max((value / max) * 100, 0), 100) : 0;
+function parseTargetValue(value: string): number | undefined {
+  const numericValue = Number(value);
+
+  return Number.isFinite(numericValue) ? numericValue : undefined;
+}
+
+function clampPercentage(value: number): number {
+  return Math.min(Math.max(value, 0), 100);
+}
+
+function getTargetUsageKw(preview: CurtailmentPlanPreview, values: CurtailmentFormValues): number {
+  const targetValue = parseTargetValue(values.targetKw);
+
+  if (targetValue === undefined) {
+    return preview.targetKw;
+  }
+
+  if (values.curtailmentMode === "percentageReduction") {
+    const remainingPercentage = 100 - clampPercentage(targetValue);
+
+    return preview.currentUsageKw * (remainingPercentage / 100);
+  }
+
+  return targetValue;
+}
+
+function ReductionProgressBar({ value, max }: ReductionProgressBarProps): ReactElement {
+  const reductionPercentage = max > 0 ? clampPercentage((value / max) * 100) : 0;
 
   return (
     <div className="flex h-3 w-full gap-1 overflow-hidden">
@@ -144,13 +240,7 @@ function ReductionProgressBar({ value, max }: { value: number; max: number }): R
   );
 }
 
-function PreviewPane({
-  preview,
-  previewError,
-}: {
-  preview?: CurtailmentPlanPreview;
-  previewError?: string;
-}): ReactElement {
+function PreviewPane({ preview, previewError, values }: PreviewPaneProps): ReactElement {
   if (previewError) {
     return (
       <div className="flex min-h-40 flex-1 items-center justify-center rounded-[24px] bg-surface-overlay px-6 py-10 text-300 text-text-primary-70 laptop:px-16">
@@ -170,6 +260,8 @@ function PreviewPane({
     );
   }
 
+  const targetUsageKw = getTargetUsageKw(preview, values);
+
   return (
     <div className="flex min-h-[360px] flex-1 items-center justify-center rounded-[24px] bg-surface-overlay px-8 py-12 laptop:min-h-0 laptop:px-16 laptop:py-6">
       <div className="flex w-full max-w-[520px] flex-col gap-10">
@@ -179,17 +271,24 @@ function PreviewPane({
 
         <div className="grid gap-3">
           <div>
-            <div className="text-emphasis-200 text-text-primary-70">Target reduction</div>
+            <div className="text-emphasis-200 text-text-primary-70">Target value</div>
             <div className="text-heading-300 text-text-primary">
-              {formatKw(preview.estimatedReductionKw)} of {formatKw(preview.targetKw)}
+              {formatKw(targetUsageKw)} of {formatKw(preview.currentUsageKw)}
             </div>
           </div>
-          <ReductionProgressBar value={preview.estimatedReductionKw} max={preview.targetKw} />
+          <ReductionProgressBar value={targetUsageKw} max={preview.currentUsageKw} />
         </div>
 
-        <div>
-          <div className="text-emphasis-200 text-text-primary-70">Time to restore</div>
-          <div className="text-heading-300 text-text-primary">{preview.restoreEstimate}</div>
+        <div className="grid gap-6">
+          <div>
+            <div className="text-emphasis-200 text-text-primary-70">Time to curtail</div>
+            <div className="text-heading-300 text-text-primary">{preview.curtailEstimate}</div>
+          </div>
+
+          <div>
+            <div className="text-emphasis-200 text-text-primary-70">Time to restore</div>
+            <div className="text-heading-300 text-text-primary">{preview.restoreEstimate}</div>
+          </div>
         </div>
       </div>
     </div>
@@ -234,7 +333,7 @@ function CurtailmentStartModalContent({
     groups: getSelectedDeviceSetIds(values, "groups"),
     miners: getSelectedMinerIds(values),
   };
-  const previewPane = <PreviewPane preview={preview} previewError={previewError} />;
+  const previewPane = <PreviewPane preview={preview} previewError={previewError} values={values} />;
 
   const handleDeviceSetSelection = (deviceSetIds: string[], scopeId: DeviceSetScopeId) => {
     const hasSelectedDeviceSets = deviceSetIds.length > 0;
@@ -278,87 +377,17 @@ function CurtailmentStartModalContent({
         ]}
         abovePanes={<div className="px-6 pb-6 laptop:hidden">{previewPane}</div>}
         primaryPane={
-          <section className="flex flex-col gap-10 pr-6 pb-6 laptop:pr-10 laptop:pb-10">
-            <Section title="Details">
+          <section className="flex flex-col gap-12 pr-6 pb-6 laptop:pr-10 laptop:pb-10">
+            <Section title="Response profile">
               <div className="grid gap-3">
-                <div className="grid gap-3 tablet:grid-cols-2">
-                  <Field
-                    id="curtailment-target-kw"
-                    label="Target reduction"
-                    value={values.targetKw}
-                    units="kW"
-                    error={errors?.targetKw}
-                    onChange={(value) => updateValue("targetKw", value)}
-                  />
-                  <Field
-                    id="curtailment-tolerance-kw"
-                    label="Tolerance"
-                    value={values.toleranceKw}
-                    units="kW"
-                    error={errors?.toleranceKw}
-                    onChange={(value) => updateValue("toleranceKw", value)}
-                  />
-                </div>
-
-                <Select
-                  id="curtailment-priority"
-                  label="Priority"
-                  value={values.priority}
-                  className="max-w-[274px]"
-                  options={priorityOptions}
-                  error={errors?.priority}
-                  onChange={(value) => {
-                    if (isCurtailmentPriority(value)) {
-                      updateValue("priority", value);
-                    }
-                  }}
+                <TypedSelect
+                  id="curtailment-response-profile"
+                  label="Profile"
+                  value={values.responseProfileId}
+                  options={responseProfileOptions}
+                  error={errors?.responseProfileId}
+                  onChange={(value) => updateValue("responseProfileId", value)}
                 />
-              </div>
-            </Section>
-
-            <Section title="Safety and restore">
-              <div className="grid gap-3">
-                <div className="grid gap-3 tablet:grid-cols-2">
-                  <Field
-                    id="curtailment-min-duration"
-                    label="Min duration"
-                    value={values.minDurationSec}
-                    units="sec"
-                    error={errors?.minDurationSec}
-                    onChange={(value) => updateValue("minDurationSec", value)}
-                  />
-                  <Field
-                    id="curtailment-max-duration"
-                    label="Max duration"
-                    value={values.maxDurationSec}
-                    units="sec"
-                    error={errors?.maxDurationSec}
-                    onChange={(value) => updateValue("maxDurationSec", value)}
-                  />
-                  <Field
-                    id="curtailment-batch-size"
-                    label="Restore batch size"
-                    value={values.restoreBatchSize}
-                    units="miners"
-                    error={errors?.restoreBatchSize}
-                    onChange={(value) => updateValue("restoreBatchSize", value)}
-                  />
-                  <Field
-                    id="curtailment-batch-interval"
-                    label="Restore interval"
-                    value={values.restoreIntervalSec}
-                    units="sec"
-                    error={errors?.restoreIntervalSec}
-                    onChange={(value) => updateValue("restoreIntervalSec", value)}
-                  />
-                </div>
-
-                {preview ? (
-                  <div className="text-200 text-text-primary-50">
-                    Estimated time to restore {preview.restoreEstimate}
-                  </div>
-                ) : null}
-
                 <Field
                   id="curtailment-reason"
                   label="Reason"
@@ -366,6 +395,71 @@ function CurtailmentStartModalContent({
                   type="text"
                   error={errors?.reason}
                   onChange={(value) => updateValue("reason", value)}
+                />
+              </div>
+            </Section>
+
+            <Section title="Curtail behavior">
+              <div className="grid gap-3">
+                <div className="grid gap-3 tablet:grid-cols-2">
+                  <TypedSelect
+                    id="curtailment-mode"
+                    label="Curtailment mode"
+                    value={values.curtailmentMode}
+                    options={curtailmentModeOptions}
+                    error={errors?.curtailmentMode}
+                    onChange={(value) => updateValue("curtailmentMode", value)}
+                  />
+                  <Field
+                    id="curtailment-target-kw"
+                    label="Target value"
+                    value={values.targetKw}
+                    error={errors?.targetKw}
+                    onChange={(value) => updateValue("targetKw", value)}
+                  />
+                </div>
+                <TypedSelect
+                  id="curtailment-miner-selection-strategy"
+                  label="Miner selection strategy"
+                  value={values.minerSelectionStrategy}
+                  options={minerSelectionStrategyOptions}
+                  error={errors?.minerSelectionStrategy}
+                  onChange={(value) => updateValue("minerSelectionStrategy", value)}
+                />
+                <div className="grid gap-3 tablet:grid-cols-2">
+                  <Field
+                    id="curtailment-batch-size"
+                    label="Batch size (miners)"
+                    value={values.curtailBatchSize}
+                    error={errors?.curtailBatchSize}
+                    onChange={(value) => updateValue("curtailBatchSize", value)}
+                  />
+                  <Field
+                    id="curtailment-batch-interval"
+                    label="Batch interval (sec)"
+                    value={values.curtailIntervalSec}
+                    error={errors?.curtailIntervalSec}
+                    onChange={(value) => updateValue("curtailIntervalSec", value)}
+                  />
+                </div>
+              </div>
+            </Section>
+
+            <Section title="Restore behavior">
+              <div className="grid gap-3 tablet:grid-cols-2">
+                <Field
+                  id="curtailment-restore-batch-size"
+                  label="Batch size (miners)"
+                  value={values.restoreBatchSize}
+                  error={errors?.restoreBatchSize}
+                  onChange={(value) => updateValue("restoreBatchSize", value)}
+                />
+                <Field
+                  id="curtailment-restore-batch-interval"
+                  label="Batch interval (sec)"
+                  value={values.restoreIntervalSec}
+                  error={errors?.restoreIntervalSec}
+                  onChange={(value) => updateValue("restoreIntervalSec", value)}
                 />
               </div>
             </Section>
