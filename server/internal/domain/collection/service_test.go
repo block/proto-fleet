@@ -90,7 +90,7 @@ func newTestService(t *testing.T) (*Service, *mocks.MockCollectionStore, *mocks.
 		return nil, nil
 	}
 
-	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, mockTransactor, noopResolver, nil, newStubActivityService(ctrl))
+	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, nil, mockTransactor, noopResolver, nil, newStubActivityService(ctrl))
 	return svc, mockStore, mockTransactor
 }
 
@@ -300,7 +300,7 @@ func TestService_AddDevicesToCollection_NotFoundWhenNotOwnedByOrg(t *testing.T) 
 	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
 		return []string{"device-1"}, nil
 	}
-	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, mockTransactor, resolver, nil, newStubActivityService(ctrl))
+	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, nil, mockTransactor, resolver, nil, newStubActivityService(ctrl))
 
 	mockStore.EXPECT().GetCollection(gomock.Any(), testOrgID, testCollectionID).
 		Return(nil, fleeterror.NewNotFoundErrorf("collection not found"))
@@ -403,7 +403,7 @@ func TestService_AddDevicesToCollection_ResolverError(t *testing.T) {
 	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
 		return nil, fleeterror.NewForbiddenError("access denied")
 	}
-	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, mockTransactor, resolver, nil, newStubActivityService(ctrl))
+	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, nil, mockTransactor, resolver, nil, newStubActivityService(ctrl))
 
 	// Act
 	_, err := svc.AddDevicesToCollection(ctx, &pb.AddDevicesToCollectionRequest{
@@ -431,7 +431,7 @@ func TestService_CreateCollection_WithDeviceSelectorAddsDevicesAtomically(t *tes
 	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
 		return deviceIDs, nil
 	}
-	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, mockTransactor, resolver, nil, newStubActivityService(ctrl))
+	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, nil, mockTransactor, resolver, nil, newStubActivityService(ctrl))
 
 	mockTransactor.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, fn func(context.Context) (any, error)) (any, error) {
@@ -473,7 +473,7 @@ func TestService_CreateCollection_WithDeviceSelectorResolverError(t *testing.T) 
 	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
 		return nil, fleeterror.NewForbiddenError("device not owned by org")
 	}
-	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, mockTransactor, resolver, nil, newStubActivityService(ctrl))
+	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, nil, mockTransactor, resolver, nil, newStubActivityService(ctrl))
 
 	// Act
 	_, err := svc.CreateCollection(ctx, &pb.CreateCollectionRequest{
@@ -501,7 +501,7 @@ func TestService_UpdateCollection_WithDeviceSelectorReplacesMembers(t *testing.T
 	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
 		return deviceIDs, nil
 	}
-	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, mockTransactor, resolver, nil, newStubActivityService(ctrl))
+	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, nil, mockTransactor, resolver, nil, newStubActivityService(ctrl))
 
 	mockTransactor.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, fn func(context.Context) (any, error)) (any, error) {
@@ -542,7 +542,7 @@ func TestService_UpdateCollection_WithEmptyDeviceSelectorRemovesAllMembers(t *te
 	resolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
 		return []string{}, nil
 	}
-	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, mockTransactor, resolver, nil, newStubActivityService(ctrl))
+	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, nil, mockTransactor, resolver, nil, newStubActivityService(ctrl))
 
 	mockTransactor.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, fn func(context.Context) (any, error)) (any, error) {
@@ -613,7 +613,7 @@ func newTestServiceWithTelemetry(t *testing.T, telemetry TelemetryCollector, dev
 	noopResolver := func(_ context.Context, _ *commonpb.DeviceSelector, _ int64) ([]string, error) {
 		return nil, nil
 	}
-	svc := NewService(mockStore, deviceQ, nil, mockTransactor, noopResolver, telemetry, newStubActivityService(ctrl))
+	svc := NewService(mockStore, deviceQ, nil, nil, mockTransactor, noopResolver, telemetry, newStubActivityService(ctrl))
 	return svc, mockStore
 }
 
@@ -908,7 +908,7 @@ func TestService_CreateCollection_WithAllDevicesSelector(t *testing.T) {
 		}
 		return nil, nil
 	}
-	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, mockTransactor, resolver, nil, newStubActivityService(ctrl))
+	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, nil, mockTransactor, resolver, nil, newStubActivityService(ctrl))
 
 	mockTransactor.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, fn func(context.Context) (any, error)) (any, error) {
@@ -958,7 +958,7 @@ func newTestServiceWithResolver(t *testing.T, resolver DeviceIdentifierResolver)
 	mockTransactor.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, fn func(context.Context) (any, error)) (any, error) { return fn(ctx) },
 	).AnyTimes()
-	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, mockTransactor, resolver, nil, newStubActivityService(ctrl))
+	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, nil, mockTransactor, resolver, nil, newStubActivityService(ctrl))
 	return svc, mockStore, mockTransactor
 }
 
@@ -976,7 +976,7 @@ func newTestServiceWithSites(t *testing.T, resolver DeviceIdentifierResolver) (*
 	mockTransactor.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, fn func(context.Context) (any, error)) (any, error) { return fn(ctx) },
 	).AnyTimes()
-	svc := NewService(mockStore, &mockDeviceQueryer{}, mockSiteStore, mockTransactor, resolver, nil, newStubActivityService(ctrl))
+	svc := NewService(mockStore, &mockDeviceQueryer{}, mockSiteStore, nil, mockTransactor, resolver, nil, newStubActivityService(ctrl))
 	return svc, mockStore, mockSiteStore
 }
 
@@ -1005,7 +1005,7 @@ func newTestServiceWithSitesRecordingActivity(t *testing.T, resolver DeviceIdent
 	mockTransactor.EXPECT().RunInTxWithResult(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, fn func(context.Context) (any, error)) (any, error) { return fn(ctx) },
 	).AnyTimes()
-	svc := NewService(mockStore, &mockDeviceQueryer{}, mockSiteStore, mockTransactor, resolver, nil, activity.NewService(mockActivityStore))
+	svc := NewService(mockStore, &mockDeviceQueryer{}, mockSiteStore, nil, mockTransactor, resolver, nil, activity.NewService(mockActivityStore))
 	return svc, mockStore, mockSiteStore, &captured
 }
 
@@ -1417,7 +1417,7 @@ func newTestServiceWithActivityAssertions(t *testing.T) (*Service, *mocks.MockCo
 	}
 
 	activitySvc := activity.NewService(mockActivityStore)
-	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, mockTransactor, noopResolver, nil, activitySvc)
+	svc := NewService(mockStore, &mockDeviceQueryer{}, nil, nil, mockTransactor, noopResolver, nil, activitySvc)
 	return svc, mockStore, mockActivityStore
 }
 

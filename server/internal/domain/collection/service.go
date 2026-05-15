@@ -55,6 +55,7 @@ type Service struct {
 	collectionStore          interfaces.CollectionStore
 	deviceQueryer            DeviceQueryer
 	siteStore                interfaces.SiteStore
+	buildingStore            interfaces.BuildingStore
 	transactor               interfaces.Transactor
 	resolveDeviceIdentifiers DeviceIdentifierResolver
 	telemetry                TelemetryCollector
@@ -62,11 +63,13 @@ type Service struct {
 }
 
 // NewService creates a new collection service. A nil siteStore disables
-// rack site/building placement.
+// rack site/building placement. A nil buildingStore disables the
+// cross-org check on building_ids / zone_keys filters.
 func NewService(
 	collectionStore interfaces.CollectionStore,
 	deviceQueryer DeviceQueryer,
 	siteStore interfaces.SiteStore,
+	buildingStore interfaces.BuildingStore,
 	transactor interfaces.Transactor,
 	resolveDeviceIdentifiers DeviceIdentifierResolver,
 	telemetry TelemetryCollector,
@@ -76,6 +79,7 @@ func NewService(
 		collectionStore:          collectionStore,
 		deviceQueryer:            deviceQueryer,
 		siteStore:                siteStore,
+		buildingStore:            buildingStore,
 		transactor:               transactor,
 		resolveDeviceIdentifiers: resolveDeviceIdentifiers,
 		telemetry:                telemetry,
@@ -559,6 +563,102 @@ func validatePageSize(pageSize int32) int32 {
 	return pageSize
 }
 
+// ListCollectionsParams is the domain-level input for listing collections.
+// Used by the device_set.v1 handler so it can pass the new filter shape
+// (building_ids, include_no_building, zone_keys) without round-tripping
+// through the deprecated collection.v1 proto request type.
+type ListCollectionsParams struct {
+	Type       pb.CollectionType
+	PageSize   int32
+	PageToken  string
+	Sort       *interfaces.SortConfig
+	Filter     *interfaces.DeviceSetFilter
+}
+
+// ListCollectionsDomain is the domain-level entry point for the
+// collection list. Validates the rack-only filter constraints, runs
+// the cross-org building check, and delegates to the store. The
+// proto-shaped ListCollections wraps this.
+func (s *Service) ListCollectionsDomain(ctx context.Context, params ListCollectionsParams) (*pb.ListCollectionsResponse, error) {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	pageSize := validatePageSize(params.PageSize)
+
+	isZoneSort := params.Sort != nil && params.Sort.Field == interfaces.SortFieldLocation
+	if isZoneSort && params.Type != pb.CollectionType_COLLECTION_TYPE_RACK {
+		return nil, fleeterror.NewInvalidArgumentErrorf("zone sort is only supported for rack collections")
+	}
+	if params.Filter != nil && params.Type != pb.CollectionType_COLLECTION_TYPE_RACK {
+		if len(params.Filter.BuildingIDs) > 0 || params.Filter.IncludeNoBuilding || len(params.Filter.ZoneKeys) > 0 {
+			return nil, fleeterror.NewInvalidArgumentErrorf("building / zone filters are only supported for rack collections")
+		}
+	}
+
+	if err := s.validateFilterBuildings(ctx, info.OrganizationID, params.Filter); err != nil {
+		return nil, err
+	}
+
+	collections, nextPageToken, totalCount, err := s.collectionStore.ListCollections(ctx, info.OrganizationID, params.Type, pageSize, params.PageToken, params.Sort, params.Filter)
+	if err != nil {
+		return nil, err
+	}
+
+	return &pb.ListCollectionsResponse{Collections: collections, NextPageToken: nextPageToken, TotalCount: totalCount}, nil
+}
+
+// validateFilterBuildings enforces the same cross-org check as the
+// fleetmanagement parseFilter path. Explicit building IDs (from
+// BuildingIDs and from scoped zone_keys with building_id > 0) must
+// reference live buildings in the caller's org. Wildcard zone_keys
+// (building_id == 0) skip the check; the SQL layer's org_id predicate
+// handles isolation. Error message is generic so the IDs can't be
+// enumerated by probing.
+func (s *Service) validateFilterBuildings(ctx context.Context, orgID int64, filter *interfaces.DeviceSetFilter) error {
+	if filter == nil {
+		return nil
+	}
+	requested := make(map[int64]struct{})
+	for _, id := range filter.BuildingIDs {
+		if id <= 0 {
+			return fleeterror.NewInvalidArgumentErrorf("building_ids must contain only positive IDs")
+		}
+		requested[id] = struct{}{}
+	}
+	for _, zk := range filter.ZoneKeys {
+		if zk.BuildingID < 0 {
+			return fleeterror.NewInvalidArgumentErrorf("zone_keys.building_id must be non-negative")
+		}
+		if zk.Zone == "" {
+			return fleeterror.NewInvalidArgumentErrorf("zone_keys.zone must be non-empty")
+		}
+		if zk.BuildingID > 0 {
+			requested[zk.BuildingID] = struct{}{}
+		}
+	}
+	if len(requested) == 0 {
+		return nil
+	}
+	if s.buildingStore == nil {
+		return fleeterror.NewInternalErrorf("ListCollectionsDomain: buildingStore is required for building_ids/zone_keys validation")
+	}
+	ids := make([]int64, 0, len(requested))
+	for id := range requested {
+		ids = append(ids, id)
+	}
+	found, err := s.buildingStore.BuildingsByIDs(ctx, orgID, ids)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to validate building ownership: %v", err)
+	}
+	if len(found) < len(requested) {
+		return fleeterror.NewInvalidArgumentError(
+			"one or more building_ids reference buildings outside the caller's org")
+	}
+	return nil
+}
+
 // ListCollections returns a paginated list of collections for the organization.
 func (s *Service) ListCollections(ctx context.Context, req *pb.ListCollectionsRequest) (*pb.ListCollectionsResponse, error) {
 	info, err := session.GetInfo(ctx)
@@ -581,13 +681,18 @@ func (s *Service) ListCollections(ctx context.Context, req *pb.ListCollectionsRe
 		errorComponentTypes[i] = int32(ct)
 	}
 
-	// Validate that zone filter and zone sort are only used with rack collections
+	// Validate that zone sort is only used with rack collections.
+	// (Zone filter validation moved to the per-request filter below.)
 	isZoneSort := sort != nil && sort.Field == interfaces.SortFieldLocation
-	if (len(req.Zones) > 0 || isZoneSort) && req.Type != pb.CollectionType_COLLECTION_TYPE_RACK {
-		return nil, fleeterror.NewInvalidArgumentErrorf("zone filter and sort are only supported for rack collections")
+	if isZoneSort && req.Type != pb.CollectionType_COLLECTION_TYPE_RACK {
+		return nil, fleeterror.NewInvalidArgumentErrorf("zone sort is only supported for rack collections")
 	}
 
-	collections, nextPageToken, totalCount, err := s.collectionStore.ListCollections(ctx, info.OrganizationID, req.Type, pageSize, req.PageToken, sort, errorComponentTypes, req.Zones)
+	filter := &interfaces.DeviceSetFilter{
+		ErrorComponentTypes: errorComponentTypes,
+	}
+
+	collections, nextPageToken, totalCount, err := s.collectionStore.ListCollections(ctx, info.OrganizationID, req.Type, pageSize, req.PageToken, sort, filter)
 	if err != nil {
 		return nil, err
 	}

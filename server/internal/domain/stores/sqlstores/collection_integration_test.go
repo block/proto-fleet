@@ -255,17 +255,17 @@ func TestCollectionStore_ListCollections_FiltersByType(t *testing.T) {
 	require.NoError(t, err)
 
 	// Act + Assert - filter by group
-	groups, _, _, err := store.ListCollections(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_GROUP, 100, "", nil, nil, nil)
+	groups, _, _, err := store.ListCollections(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_GROUP, 100, "", nil, nil)
 	require.NoError(t, err)
 	assert.Len(t, groups, 2)
 
 	// Act + Assert - filter by rack
-	racks, _, _, err := store.ListCollections(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_RACK, 100, "", nil, nil, nil)
+	racks, _, _, err := store.ListCollections(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_RACK, 100, "", nil, nil)
 	require.NoError(t, err)
 	assert.Len(t, racks, 1)
 
 	// Act + Assert - unspecified returns all
-	all, _, _, err := store.ListCollections(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_UNSPECIFIED, 100, "", nil, nil, nil)
+	all, _, _, err := store.ListCollections(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_UNSPECIFIED, 100, "", nil, nil)
 	require.NoError(t, err)
 	assert.Len(t, all, 3)
 }
@@ -288,7 +288,7 @@ func TestCollectionStore_ListCollections_ExcludesSoftDeleted(t *testing.T) {
 	require.NoError(t, err)
 
 	// Act
-	collections, _, _, err := store.ListCollections(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_UNSPECIFIED, 100, "", nil, nil, nil)
+	collections, _, _, err := store.ListCollections(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_UNSPECIFIED, 100, "", nil, nil)
 
 	// Assert
 	require.NoError(t, err)
@@ -610,7 +610,7 @@ func TestCollectionStore_ListCollections_Pagination(t *testing.T) {
 	}
 
 	// Act - page 1 (size 2)
-	page1, token1, _, err := store.ListCollections(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_UNSPECIFIED, 2, "", nil, nil, nil)
+	page1, token1, _, err := store.ListCollections(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_UNSPECIFIED, 2, "", nil, nil)
 
 	// Assert
 	require.NoError(t, err)
@@ -620,7 +620,7 @@ func TestCollectionStore_ListCollections_Pagination(t *testing.T) {
 	assert.NotEmpty(t, token1)
 
 	// Act - page 2
-	page2, token2, _, err := store.ListCollections(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_UNSPECIFIED, 2, token1, nil, nil, nil)
+	page2, token2, _, err := store.ListCollections(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_UNSPECIFIED, 2, token1, nil, nil)
 
 	// Assert
 	require.NoError(t, err)
@@ -630,7 +630,7 @@ func TestCollectionStore_ListCollections_Pagination(t *testing.T) {
 	assert.NotEmpty(t, token2)
 
 	// Act - page 3 (last page, 1 item)
-	page3, token3, _, err := store.ListCollections(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_UNSPECIFIED, 2, token2, nil, nil, nil)
+	page3, token3, _, err := store.ListCollections(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_UNSPECIFIED, 2, token2, nil, nil)
 
 	// Assert
 	require.NoError(t, err)
@@ -659,19 +659,19 @@ func TestCollectionStore_ListCollections_PaginationWithTypeFilter(t *testing.T) 
 	require.NoError(t, err)
 
 	// Act - page through groups with page size 1
-	page1, token1, _, err := store.ListCollections(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_GROUP, 1, "", nil, nil, nil)
+	page1, token1, _, err := store.ListCollections(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_GROUP, 1, "", nil, nil)
 	require.NoError(t, err)
 	require.Len(t, page1, 1)
 	assert.Equal(t, "Group A", page1[0].Label)
 	assert.NotEmpty(t, token1)
 
-	page2, token2, _, err := store.ListCollections(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_GROUP, 1, token1, nil, nil, nil)
+	page2, token2, _, err := store.ListCollections(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_GROUP, 1, token1, nil, nil)
 	require.NoError(t, err)
 	require.Len(t, page2, 1)
 	assert.Equal(t, "Group B", page2[0].Label)
 	assert.NotEmpty(t, token2)
 
-	page3, token3, _, err := store.ListCollections(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_GROUP, 1, token2, nil, nil, nil)
+	page3, token3, _, err := store.ListCollections(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_GROUP, 1, token2, nil, nil)
 	require.NoError(t, err)
 	require.Len(t, page3, 1)
 	assert.Equal(t, "Group C", page3[0].Label)
@@ -717,14 +717,14 @@ func TestCollectionStore_ListCollections_SortsByIssueCount(t *testing.T) {
 		Direction: sqlstoresinterfaces.SortDirectionDesc,
 	}
 
-	page1, token, _, err := store.ListCollections(ctx, adminUser.OrganizationID, pb.CollectionType_COLLECTION_TYPE_GROUP, 2, "", sort, nil, nil)
+	page1, token, _, err := store.ListCollections(ctx, adminUser.OrganizationID, pb.CollectionType_COLLECTION_TYPE_GROUP, 2, "", sort, nil)
 	require.NoError(t, err)
 	require.Len(t, page1, 2)
 	assert.Equal(t, "Three Issues", page1[0].Label)
 	assert.Equal(t, "One Issue", page1[1].Label)
 	assert.NotEmpty(t, token)
 
-	page2, token, _, err := store.ListCollections(ctx, adminUser.OrganizationID, pb.CollectionType_COLLECTION_TYPE_GROUP, 2, token, sort, nil, nil)
+	page2, token, _, err := store.ListCollections(ctx, adminUser.OrganizationID, pb.CollectionType_COLLECTION_TYPE_GROUP, 2, token, sort, nil)
 	require.NoError(t, err)
 	require.Len(t, page2, 1)
 	assert.Equal(t, "No Issues", page2[0].Label)

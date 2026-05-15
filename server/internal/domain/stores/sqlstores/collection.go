@@ -337,7 +337,7 @@ func (s *SQLCollectionStore) SoftDeleteCollection(ctx context.Context, orgID int
 	})
 }
 
-func (s *SQLCollectionStore) ListCollections(ctx context.Context, orgID int64, collectionType pb.CollectionType, pageSize int32, pageToken string, sort *interfaces.SortConfig, errorComponentTypes []int32, zones []string) ([]*pb.DeviceCollection, string, int32, error) {
+func (s *SQLCollectionStore) ListCollections(ctx context.Context, orgID int64, collectionType pb.CollectionType, pageSize int32, pageToken string, sort *interfaces.SortConfig, filter *interfaces.DeviceSetFilter) ([]*pb.DeviceCollection, string, int32, error) {
 	cursor, err := decodeCollectionCursor(pageToken)
 	if err != nil {
 		return nil, "", 0, err
@@ -355,14 +355,14 @@ func (s *SQLCollectionStore) ListCollections(ctx context.Context, orgID int64, c
 
 	// Count total
 	var totalCount int32
-	countQuery, countArgs := buildCollectionCountQuery(orgID, collectionType, errorComponentTypes, zones)
+	countQuery, countArgs := buildCollectionCountQuery(orgID, collectionType, filter)
 	if err := s.conn.QueryRowContext(ctx, countQuery, countArgs...).Scan(&totalCount); err != nil {
 		return nil, "", 0, fleeterror.NewInternalErrorf("failed to count collections: %v", err)
 	}
 
 	// Build list query
 	fetchLimit := pageSize + 1
-	query, args := buildCollectionListQuery(orgID, collectionType, cursor, sortField, sortDir, fetchLimit, errorComponentTypes, zones)
+	query, args := buildCollectionListQuery(orgID, collectionType, cursor, sortField, sortDir, fetchLimit, filter)
 
 	sqlRows, err := s.conn.QueryContext(ctx, query, args...)
 	if err != nil {

@@ -54,6 +54,17 @@ type ZoneRefRow struct {
 	Zone          string
 }
 
+// DeviceSetFilter is the rack-list / collection-list filter input.
+// Mirrors the MinerFilter shape but joined directly on
+// device_set_rack — no device membership traversal needed since the
+// list query already returns one row per rack.
+type DeviceSetFilter struct {
+	ErrorComponentTypes []int32   // OR across types; surfaces racks with any device having an open error of those types
+	BuildingIDs         []int64   // OR across buildings. Only valid for RACK collections; ignored for GROUP.
+	IncludeNoBuilding   bool      // Include racks where dsr.building_id IS NULL. OR'd with BuildingIDs.
+	ZoneKeys            []ZoneKey // (building_id, zone) pairs. BuildingID == 0 is the wildcard sentinel.
+}
+
 // CollectionStore provides database operations for device collections (groups and racks).
 //
 //nolint:interfacebloat // complete CRUD for collections with membership management
@@ -123,8 +134,10 @@ type CollectionStore interface {
 	// ListCollections returns paginated collections for an organization.
 	// If collectionType is UNSPECIFIED, returns all types.
 	// Sort controls ordering; nil defaults to name ascending.
+	// filter may be nil; ZoneKeys / BuildingIDs / IncludeNoBuilding are
+	// applied only when collectionType is RACK.
 	// Returns the collections, a next page token (empty if no more results), and the total count.
-	ListCollections(ctx context.Context, orgID int64, collectionType pb.CollectionType, pageSize int32, pageToken string, sort *SortConfig, errorComponentTypes []int32, zones []string) ([]*pb.DeviceCollection, string, int32, error)
+	ListCollections(ctx context.Context, orgID int64, collectionType pb.CollectionType, pageSize int32, pageToken string, sort *SortConfig, filter *DeviceSetFilter) ([]*pb.DeviceCollection, string, int32, error)
 
 	// CollectionBelongsToOrg checks if a collection exists and belongs to the organization.
 	CollectionBelongsToOrg(ctx context.Context, collectionID int64, orgID int64) (bool, error)

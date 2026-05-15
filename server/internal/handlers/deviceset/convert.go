@@ -3,6 +3,8 @@ package deviceset
 import (
 	collectionpb "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
 	dspb "github.com/block/proto-fleet/server/generated/grpc/device_set/v1"
+	"github.com/block/proto-fleet/server/internal/domain/collection"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
 // --- DeviceSetType <-> CollectionType ---
@@ -220,11 +222,10 @@ func toCollectionUpdateReq(r *dspb.UpdateDeviceSetRequest) *collectionpb.UpdateC
 }
 
 func toCollectionListReq(r *dspb.ListDeviceSetsRequest) *collectionpb.ListCollectionsRequest {
-	// TODO(#229): translate r.BuildingIds / r.IncludeNoBuilding / r.ZoneKeys
-	// once the collection store grows a DeviceSetFilter-shaped ListCollections
-	// path. Until then, the device_set rack list intentionally does not
-	// apply zone or building filters — operators see the unfiltered rack
-	// list and the FilterChip is a no-op. Tracked in plan §FE migration.
+	// Legacy collection.v1 path — still used by callers that go through
+	// the deprecated proto service. Drops the new device_set-only
+	// filter fields; device_set callers use toListCollectionsParams
+	// (the domain-shaped path) so they can plumb them.
 	req := &collectionpb.ListCollectionsRequest{
 		Type:                toCollectionType(r.Type),
 		PageSize:            r.PageSize,
@@ -233,6 +234,52 @@ func toCollectionListReq(r *dspb.ListDeviceSetsRequest) *collectionpb.ListCollec
 		ErrorComponentTypes: r.ErrorComponentTypes,
 	}
 	return req
+}
+
+// toListCollectionsParams translates a device_set.v1 list request into
+// the domain-shaped params consumed by collection.Service.
+// ListCollectionsDomain. Threads the new building_ids /
+// include_no_building / zone_keys fields, which the deprecated
+// collection.v1 proto cannot carry.
+func toListCollectionsParams(r *dspb.ListDeviceSetsRequest) (collection.ListCollectionsParams, error) {
+	errorComponentTypes := make([]int32, len(r.ErrorComponentTypes))
+	for i, ct := range r.ErrorComponentTypes {
+		errorComponentTypes[i] = int32(ct)
+	}
+
+	var sort *interfaces.SortConfig
+	if r.Sort != nil {
+		sort = &interfaces.SortConfig{
+			Field:     interfaces.SortField(r.Sort.Field),
+			Direction: interfaces.SortDirection(r.Sort.Direction),
+		}
+	}
+
+	zoneKeys := make([]interfaces.ZoneKey, 0, len(r.ZoneKeys))
+	for _, zk := range r.ZoneKeys {
+		if zk == nil {
+			continue
+		}
+		zoneKeys = append(zoneKeys, interfaces.ZoneKey{
+			BuildingID: zk.BuildingId,
+			Zone:       zk.Zone,
+		})
+	}
+
+	filter := &interfaces.DeviceSetFilter{
+		ErrorComponentTypes: errorComponentTypes,
+		BuildingIDs:         r.BuildingIds,
+		IncludeNoBuilding:   r.IncludeNoBuilding,
+		ZoneKeys:            zoneKeys,
+	}
+
+	return collection.ListCollectionsParams{
+		Type:      toCollectionType(r.Type),
+		PageSize:  r.PageSize,
+		PageToken: r.PageToken,
+		Sort:      sort,
+		Filter:    filter,
+	}, nil
 }
 
 func toCollectionSaveRackReq(r *dspb.SaveRackRequest) *collectionpb.SaveRackRequest {

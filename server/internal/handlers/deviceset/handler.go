@@ -71,8 +71,11 @@ func (h *Handler) DeleteDeviceSet(ctx context.Context, r *connect.Request[dspb.D
 }
 
 func (h *Handler) ListDeviceSets(ctx context.Context, r *connect.Request[dspb.ListDeviceSetsRequest]) (*connect.Response[dspb.ListDeviceSetsResponse], error) {
-	req := toCollectionListReq(r.Msg)
-	result, err := h.svc.ListCollections(ctx, req)
+	params, err := toListCollectionsParams(r.Msg)
+	if err != nil {
+		return nil, err
+	}
+	result, err := h.svc.ListCollectionsDomain(ctx, params)
 	if err != nil {
 		return nil, err
 	}
