@@ -2,6 +2,7 @@
 /* eslint-disable react-hooks/rules-of-hooks */
 import { test as base } from "@playwright/test";
 import { CommonSteps } from "../helpers/commonSteps";
+import { FirmwareHelper } from "../helpers/firmwareHelper";
 import { AuthenticationPage } from "../pages/authentication";
 import { HeaderComponent } from "../pages/components/header";
 import { NavigationComponent } from "../pages/components/navigation";
@@ -26,6 +27,7 @@ type PageFixtures = {
   generalPage: GeneralPage;
   hardwarePage: HardwarePage;
   coolingPage: CoolingPage;
+  firmwareHelper: FirmwareHelper;
   commonSteps: CommonSteps;
   navigationComponent: NavigationComponent;
   headerComponent: HeaderComponent;
@@ -60,6 +62,9 @@ export const test = base.extend<PageFixtures>({
   },
   coolingPage: async ({ page, isMobile }, use) => {
     await use(new CoolingPage(page, isMobile));
+  },
+  firmwareHelper: async ({ page, request }, use) => {
+    await use(new FirmwareHelper(page, request));
   },
   navigationComponent: async ({ page, isMobile }, use) => {
     await use(new NavigationComponent(page, isMobile));
