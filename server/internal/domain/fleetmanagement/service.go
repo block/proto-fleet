@@ -113,6 +113,7 @@ type Service struct {
 	poolStore             interfaces.PoolStore
 	errorStore            interfaces.ErrorStore
 	collectionStore       interfaces.CollectionStore
+	buildingStore         interfaces.BuildingStore
 	workerNamePoolService WorkerNamePoolReapplyService
 	deviceResolver        *deviceresolver.Resolver
 	activitySvc           *activity.Service
@@ -142,6 +143,7 @@ func NewService(
 	poolStore interfaces.PoolStore,
 	errorStore interfaces.ErrorStore,
 	collectionStore interfaces.CollectionStore,
+	buildingStore interfaces.BuildingStore,
 	workerNamePoolService WorkerNamePoolReapplyService,
 	activitySvc *activity.Service,
 ) *Service {
@@ -154,6 +156,7 @@ func NewService(
 		poolStore:             poolStore,
 		errorStore:            errorStore,
 		collectionStore:       collectionStore,
+		buildingStore:         buildingStore,
 		workerNamePoolService: workerNamePoolService,
 		activitySvc:           activitySvc,
 		deviceResolver:        deviceresolver.New(deviceStore),
@@ -272,7 +275,7 @@ func (s *Service) GetMinerModelGroups(ctx context.Context, req *pb.GetMinerModel
 		return nil, err
 	}
 
-	filter, err := parseFilter(req.Filter)
+	filter, err := parseFilter(ctx, info.OrganizationID, req.Filter, s.buildingStore)
 	if err != nil {
 		// parseFilter returns FleetError values (InvalidArgument for oversized
 		// free-form arrays, Internal for unsupported enum values). Pass through
@@ -307,7 +310,7 @@ func (s *Service) buildSnapshot(
 	filterProto *pb.MinerListFilter,
 	sortConfig *interfaces.SortConfig,
 ) (*pb.ListMinerStateSnapshotsResponse, error) {
-	filter, err := parseFilter(filterProto)
+	filter, err := parseFilter(ctx, orgID, filterProto, s.buildingStore)
 	if err != nil {
 		// Pass FleetError through unchanged; see GetMinerModelGroups for rationale.
 		return nil, err
@@ -652,7 +655,12 @@ func shouldIncludeStateCounts(pairingStatuses []pb.PairingStatus) bool {
 	return false
 }
 
-func parseFilter(pbFilter *pb.MinerListFilter) (*interfaces.MinerFilter, error) {
+func parseFilter(
+	ctx context.Context,
+	orgID int64,
+	pbFilter *pb.MinerListFilter,
+	buildingStore interfaces.BuildingStore,
+) (*interfaces.MinerFilter, error) {
 	filter := &interfaces.MinerFilter{
 		PairingStatuses: []pb.PairingStatus{},
 	}
@@ -723,12 +731,57 @@ func parseFilter(pbFilter *pb.MinerListFilter) (*interfaces.MinerFilter, error) 
 		filter.FirmwareVersions = pbFilter.FirmwareVersions
 	}
 
-	if len(pbFilter.Zones) > 0 {
-		if len(pbFilter.Zones) > maxFreeFormFilterValues {
+	// zones (field 10) reserved — see MinerListFilter.zone_keys.
+
+	if len(pbFilter.BuildingIds) > 0 {
+		if len(pbFilter.BuildingIds) > maxFreeFormFilterValues {
 			return nil, fleeterror.NewInvalidArgumentErrorf(
-				"zones exceeds maximum of %d values", maxFreeFormFilterValues)
+				"building_ids exceeds maximum of %d values", maxFreeFormFilterValues)
 		}
-		filter.Zones = pbFilter.Zones
+		for i, id := range pbFilter.BuildingIds {
+			if id <= 0 {
+				return nil, fleeterror.NewInvalidArgumentErrorf(
+					"building_ids[%d] must be positive", i)
+			}
+		}
+		filter.BuildingIDs = pbFilter.BuildingIds
+	}
+	filter.IncludeNoBuilding = pbFilter.IncludeNoBuilding
+
+	if len(pbFilter.ZoneKeys) > 0 {
+		if len(pbFilter.ZoneKeys) > maxFreeFormFilterValues {
+			return nil, fleeterror.NewInvalidArgumentErrorf(
+				"zone_keys exceeds maximum of %d values", maxFreeFormFilterValues)
+		}
+		filter.ZoneKeys = make([]interfaces.ZoneKey, 0, len(pbFilter.ZoneKeys))
+		for i, zk := range pbFilter.ZoneKeys {
+			if zk == nil {
+				return nil, fleeterror.NewInvalidArgumentErrorf(
+					"zone_keys[%d] is nil", i)
+			}
+			if zk.BuildingId < 0 {
+				return nil, fleeterror.NewInvalidArgumentErrorf(
+					"zone_keys[%d].building_id must be non-negative", i)
+			}
+			if zk.Zone == "" {
+				return nil, fleeterror.NewInvalidArgumentErrorf(
+					"zone_keys[%d].zone must be non-empty", i)
+			}
+			filter.ZoneKeys = append(filter.ZoneKeys, interfaces.ZoneKey{
+				BuildingID: zk.BuildingId,
+				Zone:       zk.Zone,
+			})
+		}
+	}
+	filter.IncludeNoRack = pbFilter.IncludeNoRack
+
+	// Cross-org check for explicit building IDs (building_ids + scoped
+	// zone_keys.building_id > 0). Wildcards (building_id == 0) skip the
+	// check — there is no specific building to validate. The SQL
+	// builder's org_id predicate is the single-layer defense for the
+	// wildcard path; see device_filters_orgid_audit_test.go.
+	if err := validateExplicitBuildingIDs(ctx, orgID, filter, buildingStore); err != nil {
+		return nil, err
 	}
 
 	if len(pbFilter.NumericRanges) > 0 {
@@ -779,6 +832,62 @@ func parseFilter(pbFilter *pb.MinerListFilter) (*interfaces.MinerFilter, error) 
 	filter.IncludeUnassigned = pbFilter.IncludeUnassigned
 
 	return filter, nil
+}
+
+// validateExplicitBuildingIDs rejects requests that reference buildings
+// outside the caller's org. Wildcard zone_keys entries (building_id == 0)
+// are skipped — they have no specific building to check, and the SQL
+// builder's org_id predicate enforces tenant boundaries at query time.
+//
+// The rejection message is intentionally generic: echoing the offending
+// IDs would let a hostile caller enumerate building IDs across orgs by
+// probing.
+func validateExplicitBuildingIDs(
+	ctx context.Context,
+	orgID int64,
+	filter *interfaces.MinerFilter,
+	buildingStore interfaces.BuildingStore,
+) error {
+	requested := make(map[int64]struct{})
+	for _, id := range filter.BuildingIDs {
+		requested[id] = struct{}{}
+	}
+	for _, zk := range filter.ZoneKeys {
+		if zk.BuildingID > 0 {
+			requested[zk.BuildingID] = struct{}{}
+		}
+	}
+	if len(requested) == 0 {
+		return nil
+	}
+	if buildingStore == nil {
+		// Defensive: a nil store at runtime would let cross-org IDs
+		// through silently. Treat as a server misconfiguration.
+		return fleeterror.NewInternalErrorf("parseFilter: buildingStore is required for building_ids/zone_keys validation")
+	}
+
+	ids := make([]int64, 0, len(requested))
+	for id := range requested {
+		ids = append(ids, id)
+	}
+	found, err := buildingStore.BuildingsByIDs(ctx, orgID, ids)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to validate building ownership: %v", err)
+	}
+
+	if len(found) < len(requested) {
+		// Audit signal for security monitoring. Do not include the
+		// rejected IDs themselves — they may reference another org's
+		// internal identifiers.
+		slog.WarnContext(ctx, "cross_org_filter_probe",
+			"event", "cross_org_filter_probe",
+			"org_id", orgID,
+			"rejected_count", len(requested)-len(found),
+		)
+		return fleeterror.NewInvalidArgumentError(
+			"one or more building_ids reference buildings outside the caller's org")
+	}
+	return nil
 }
 
 func parseNumericRange(idx int, r *pb.NumericRangeFilter) (interfaces.NumericRange, error) {
@@ -1125,7 +1234,7 @@ func (s *Service) ResolveDeviceIdentifiers(ctx context.Context, selector *pb.Dev
 		return s.deviceResolver.ResolveExplicitDevices(ctx, sel.IncludeDevices, orgID)
 
 	case *pb.DeviceSelector_AllDevices:
-		filter, err := parseFilter(sel.AllDevices)
+		filter, err := parseFilter(ctx, orgID, sel.AllDevices, s.buildingStore)
 		if err != nil {
 			return nil, err
 		}

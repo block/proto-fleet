@@ -388,6 +388,21 @@ func (mr *MockCollectionStoreMockRecorder) ListRackTypes(ctx, orgID any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRackTypes", reflect.TypeOf((*MockCollectionStore)(nil).ListRackTypes), ctx, orgID)
 }
 
+// ListRackZoneRefs mocks base method.
+func (m *MockCollectionStore) ListRackZoneRefs(ctx context.Context, orgID int64) ([]interfaces.ZoneRefRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListRackZoneRefs", ctx, orgID)
+	ret0, _ := ret[0].([]interfaces.ZoneRefRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListRackZoneRefs indicates an expected call of ListRackZoneRefs.
+func (mr *MockCollectionStoreMockRecorder) ListRackZoneRefs(ctx, orgID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRackZoneRefs", reflect.TypeOf((*MockCollectionStore)(nil).ListRackZoneRefs), ctx, orgID)
+}
+
 // ListRackZones mocks base method.
 func (m *MockCollectionStore) ListRackZones(ctx context.Context, orgID int64) ([]string, error) {
 	m.ctrl.T.Helper()

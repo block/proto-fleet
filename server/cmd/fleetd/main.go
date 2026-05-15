@@ -381,7 +381,12 @@ func start(config *Config) error {
 	statusService := commandDomain.NewStatusService(conn, dbMessageQueue)
 	commandSvc := commandDomain.NewService(&config.Command, conn, executionService, dbMessageQueue, statusService, encryptSvc, filesService, deviceStore, userStore, authSvc, telemetryService, pluginService, activitySvc)
 	commandSvc.SetPluginCapabilitiesProvider(pluginService)
-	fleetMgmtSvc := fleetmanagementDomain.NewService(deviceStore, discoveredDeviceStore, telemetryService, minerService, pluginService, poolStore, errorStore, collectionStore, commandSvc, activitySvc)
+	// buildingStore is constructed below alongside siteStore; both are
+	// needed for the parseFilter cross-org check on building_ids and
+	// zone_keys. Hoist the construction so fleetMgmtSvc can depend on it.
+	siteStore := sqlstores.NewSQLSiteStore(conn)
+	buildingStore := sqlstores.NewSQLBuildingStore(conn)
+	fleetMgmtSvc := fleetmanagementDomain.NewService(deviceStore, discoveredDeviceStore, telemetryService, minerService, pluginService, poolStore, errorStore, collectionStore, buildingStore, commandSvc, activitySvc)
 	fleetMgmtSvc.WithOptionsCache(fleetOptionsCache)
 	defer fleetMgmtSvc.WaitForPendingClearAuthKeys(shutdownTimeout)
 	onboardingSvc := onboardingDomain.NewService(deviceStore, poolStore, userStore)
@@ -392,8 +397,6 @@ func start(config *Config) error {
 	curtailmentStore := sqlstores.NewSQLCurtailmentStore(conn)
 	curtailmentSvc := curtailmentDomain.NewService(curtailmentStore)
 
-	siteStore := sqlstores.NewSQLSiteStore(conn)
-	buildingStore := sqlstores.NewSQLBuildingStore(conn)
 	sitesSvc := sitesDomain.NewService(siteStore, transactor, activitySvc)
 	buildingsSvc := buildingsDomain.NewService(buildingStore, siteStore, transactor, activitySvc)
 

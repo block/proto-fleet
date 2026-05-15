@@ -42,6 +42,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.buildingBelongsToOrgStmt, err = db.PrepareContext(ctx, buildingBelongsToOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query BuildingBelongsToOrg: %w", err)
 	}
+	if q.buildingsByIDsStmt, err = db.PrepareContext(ctx, buildingsByIDs); err != nil {
+		return nil, fmt.Errorf("error preparing query BuildingsByIDs: %w", err)
+	}
 	if q.cancelEnrollmentForFleetNodeStmt, err = db.PrepareContext(ctx, cancelEnrollmentForFleetNode); err != nil {
 		return nil, fmt.Errorf("error preparing query CancelEnrollmentForFleetNode: %w", err)
 	}
@@ -561,6 +564,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listRackTypesStmt, err = db.PrepareContext(ctx, listRackTypes); err != nil {
 		return nil, fmt.Errorf("error preparing query ListRackTypes: %w", err)
 	}
+	if q.listRackZoneRefsStmt, err = db.PrepareContext(ctx, listRackZoneRefs); err != nil {
+		return nil, fmt.Errorf("error preparing query ListRackZoneRefs: %w", err)
+	}
 	if q.listRackZonesStmt, err = db.PrepareContext(ctx, listRackZones); err != nil {
 		return nil, fmt.Errorf("error preparing query ListRackZones: %w", err)
 	}
@@ -912,6 +918,11 @@ func (q *Queries) Close() error {
 	if q.buildingBelongsToOrgStmt != nil {
 		if cerr := q.buildingBelongsToOrgStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing buildingBelongsToOrgStmt: %w", cerr)
+		}
+	}
+	if q.buildingsByIDsStmt != nil {
+		if cerr := q.buildingsByIDsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing buildingsByIDsStmt: %w", cerr)
 		}
 	}
 	if q.cancelEnrollmentForFleetNodeStmt != nil {
@@ -1779,6 +1790,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listRackTypesStmt: %w", cerr)
 		}
 	}
+	if q.listRackZoneRefsStmt != nil {
+		if cerr := q.listRackZoneRefsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listRackZoneRefsStmt: %w", cerr)
+		}
+	}
 	if q.listRackZonesStmt != nil {
 		if cerr := q.listRackZonesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listRackZonesStmt: %w", cerr)
@@ -2354,6 +2370,7 @@ type Queries struct {
 	assignBuildingToSiteStmt                            *sql.Stmt
 	bindEnrollmentToFleetNodeStmt                       *sql.Stmt
 	buildingBelongsToOrgStmt                            *sql.Stmt
+	buildingsByIDsStmt                                  *sql.Stmt
 	cancelEnrollmentForFleetNodeStmt                    *sql.Stmt
 	cancelPendingEnrollmentStmt                         *sql.Stmt
 	cascadeAddedDeviceSitesStmt                         *sql.Stmt
@@ -2527,6 +2544,7 @@ type Queries struct {
 	listOrganizationsStmt                               *sql.Stmt
 	listPoolsStmt                                       *sql.Stmt
 	listRackTypesStmt                                   *sql.Stmt
+	listRackZoneRefsStmt                                *sql.Stmt
 	listRackZonesStmt                                   *sql.Stmt
 	listRecentlyResolvedCurtailedDevicesByOrgStmt       *sql.Stmt
 	listRolesStmt                                       *sql.Stmt
@@ -2645,6 +2663,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		assignBuildingToSiteStmt:                            q.assignBuildingToSiteStmt,
 		bindEnrollmentToFleetNodeStmt:                       q.bindEnrollmentToFleetNodeStmt,
 		buildingBelongsToOrgStmt:                            q.buildingBelongsToOrgStmt,
+		buildingsByIDsStmt:                                  q.buildingsByIDsStmt,
 		cancelEnrollmentForFleetNodeStmt:                    q.cancelEnrollmentForFleetNodeStmt,
 		cancelPendingEnrollmentStmt:                         q.cancelPendingEnrollmentStmt,
 		cascadeAddedDeviceSitesStmt:                         q.cascadeAddedDeviceSitesStmt,
@@ -2818,6 +2837,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listOrganizationsStmt:                               q.listOrganizationsStmt,
 		listPoolsStmt:                                       q.listPoolsStmt,
 		listRackTypesStmt:                                   q.listRackTypesStmt,
+		listRackZoneRefsStmt:                                q.listRackZoneRefsStmt,
 		listRackZonesStmt:                                   q.listRackZonesStmt,
 		listRecentlyResolvedCurtailedDevicesByOrgStmt:       q.listRecentlyResolvedCurtailedDevicesByOrgStmt,
 		listRolesStmt:                                       q.listRolesStmt,

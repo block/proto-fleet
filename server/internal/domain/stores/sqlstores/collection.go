@@ -814,6 +814,28 @@ func (s *SQLCollectionStore) ListRackZones(ctx context.Context, orgID int64) ([]
 	return zones, nil
 }
 
+func (s *SQLCollectionStore) ListRackZoneRefs(ctx context.Context, orgID int64) ([]interfaces.ZoneRefRow, error) {
+	rows, err := s.GetQueries(ctx).ListRackZoneRefs(ctx, orgID)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to list rack zone refs: %v", err)
+	}
+	refs := make([]interfaces.ZoneRefRow, 0, len(rows))
+	for _, row := range rows {
+		zone := ""
+		if row.Zone.Valid {
+			zone = row.Zone.String
+		}
+		refs = append(refs, interfaces.ZoneRefRow{
+			BuildingID:    row.BuildingID,
+			BuildingLabel: row.BuildingLabel,
+			SiteID:        row.SiteID,
+			SiteLabel:     row.SiteLabel,
+			Zone:          zone,
+		})
+	}
+	return refs, nil
+}
+
 func (s *SQLCollectionStore) ListRackTypes(ctx context.Context, orgID int64) ([]*pb.RackType, error) {
 	rows, err := s.GetQueries(ctx).ListRackTypes(ctx, orgID)
 	if err != nil {

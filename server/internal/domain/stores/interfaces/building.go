@@ -43,4 +43,11 @@ type BuildingStore interface {
 	// BuildingBelongsToOrg returns true when a live building with
 	// the given id exists in the org.
 	BuildingBelongsToOrg(ctx context.Context, orgID, id int64) (bool, error)
+
+	// BuildingsByIDs returns the subset of the requested IDs that
+	// correspond to live buildings in the org. Caller diffs against
+	// the requested set to detect cross-org or missing IDs. Used by
+	// parseFilter to bulk-validate building_ids and zone_keys
+	// references in one round trip.
+	BuildingsByIDs(ctx context.Context, orgID int64, ids []int64) ([]int64, error)
 }

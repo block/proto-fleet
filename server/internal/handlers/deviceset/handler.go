@@ -5,6 +5,7 @@ import (
 
 	"connectrpc.com/connect"
 	collectionpb "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	dspb "github.com/block/proto-fleet/server/generated/grpc/device_set/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/device_set/v1/device_setv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/collection"
@@ -209,12 +210,22 @@ func (h *Handler) GetDeviceSetStats(ctx context.Context, r *connect.Request[dspb
 }
 
 func (h *Handler) ListRackZones(ctx context.Context, r *connect.Request[dspb.ListRackZonesRequest]) (*connect.Response[dspb.ListRackZonesResponse], error) {
-	result, err := h.svc.ListRackZones(ctx, &collectionpb.ListRackZonesRequest{})
+	refs, err := h.svc.ListRackZoneRefs(ctx)
 	if err != nil {
 		return nil, err
 	}
+	zones := make([]*commonpb.ZoneRef, len(refs))
+	for i, ref := range refs {
+		zones[i] = &commonpb.ZoneRef{
+			BuildingId:    ref.BuildingID,
+			BuildingLabel: ref.BuildingLabel,
+			SiteId:        ref.SiteID,
+			SiteLabel:     ref.SiteLabel,
+			Zone:          ref.Zone,
+		}
+	}
 	return connect.NewResponse(&dspb.ListRackZonesResponse{
-		Zones: result.Zones,
+		Zones: zones,
 	}), nil
 }
 

@@ -336,6 +336,27 @@ WHERE ds.org_id = $1
   AND dsr.zone != ''
 ORDER BY dsr.zone;
 
+-- name: ListRackZoneRefs :many
+-- Returns all distinct (building_id, zone) pairs across the org's racks
+-- with denormalized building and site names for dropdown rendering.
+-- Racks with building_id IS NULL surface with building_id = 0 and
+-- empty building / site labels.
+SELECT DISTINCT
+    COALESCE(dsr.building_id, 0)::bigint AS building_id,
+    COALESCE(b.name, '')                 AS building_label,
+    COALESCE(b.site_id, 0)::bigint       AS site_id,
+    COALESCE(s.name, '')                 AS site_label,
+    dsr.zone
+FROM device_set_rack dsr
+JOIN device_set ds ON dsr.device_set_id = ds.id
+LEFT JOIN building b ON b.id = dsr.building_id AND b.org_id = $1 AND b.deleted_at IS NULL
+LEFT JOIN site s     ON s.id = b.site_id      AND s.org_id = $1 AND s.deleted_at IS NULL
+WHERE ds.org_id = $1
+  AND ds.deleted_at IS NULL
+  AND dsr.zone IS NOT NULL
+  AND dsr.zone != ''
+ORDER BY site_label, building_label, dsr.zone;
+
 -- name: ListRackTypes :many
 SELECT dsr.rows, dsr.columns, COUNT(*)::int AS rack_count
 FROM device_set_rack dsr

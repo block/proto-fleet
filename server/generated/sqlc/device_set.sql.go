@@ -999,6 +999,65 @@ func (q *Queries) ListRackTypes(ctx context.Context, orgID int64) ([]ListRackTyp
 	return items, nil
 }
 
+const listRackZoneRefs = `-- name: ListRackZoneRefs :many
+SELECT DISTINCT
+    COALESCE(dsr.building_id, 0)::bigint AS building_id,
+    COALESCE(b.name, '')                 AS building_label,
+    COALESCE(b.site_id, 0)::bigint       AS site_id,
+    COALESCE(s.name, '')                 AS site_label,
+    dsr.zone
+FROM device_set_rack dsr
+JOIN device_set ds ON dsr.device_set_id = ds.id
+LEFT JOIN building b ON b.id = dsr.building_id AND b.org_id = $1 AND b.deleted_at IS NULL
+LEFT JOIN site s     ON s.id = b.site_id      AND s.org_id = $1 AND s.deleted_at IS NULL
+WHERE ds.org_id = $1
+  AND ds.deleted_at IS NULL
+  AND dsr.zone IS NOT NULL
+  AND dsr.zone != ''
+ORDER BY site_label, building_label, dsr.zone
+`
+
+type ListRackZoneRefsRow struct {
+	BuildingID    int64
+	BuildingLabel string
+	SiteID        int64
+	SiteLabel     string
+	Zone          sql.NullString
+}
+
+// Returns all distinct (building_id, zone) pairs across the org's racks
+// with denormalized building and site names for dropdown rendering.
+// Racks with building_id IS NULL surface with building_id = 0 and
+// empty building / site labels.
+func (q *Queries) ListRackZoneRefs(ctx context.Context, orgID int64) ([]ListRackZoneRefsRow, error) {
+	rows, err := q.query(ctx, q.listRackZoneRefsStmt, listRackZoneRefs, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListRackZoneRefsRow
+	for rows.Next() {
+		var i ListRackZoneRefsRow
+		if err := rows.Scan(
+			&i.BuildingID,
+			&i.BuildingLabel,
+			&i.SiteID,
+			&i.SiteLabel,
+			&i.Zone,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRackZones = `-- name: ListRackZones :many
 SELECT DISTINCT dsr.zone
 FROM device_set_rack dsr

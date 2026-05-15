@@ -43,6 +43,17 @@ type CreateRackExtensionParams struct {
 	BuildingID   *int64
 }
 
+// ZoneRefRow is the domain shape returned by ListRackZoneRefs. Maps to
+// common.v1.ZoneRef on the wire. BuildingID == 0 indicates a rack with
+// NULL building_id (legacy / Phase 1 uncategorized).
+type ZoneRefRow struct {
+	BuildingID    int64
+	BuildingLabel string
+	SiteID        int64
+	SiteLabel     string
+	Zone          string
+}
+
 // CollectionStore provides database operations for device collections (groups and racks).
 //
 //nolint:interfacebloat // complete CRUD for collections with membership management
@@ -167,7 +178,17 @@ type CollectionStore interface {
 	GetRackSlotStatuses(ctx context.Context, orgID int64, collectionIDs []int64) (map[int64][]*pb.RackSlotStatus, error)
 
 	// ListRackZones returns all distinct non-empty rack zones for an organization.
+	//
+	// Deprecated: returns org-wide flat zone strings that collapse zones with
+	// the same label across buildings. New callers should use
+	// ListRackZoneRefs which returns (building_id, zone) tuples with
+	// denormalized building + site labels.
 	ListRackZones(ctx context.Context, orgID int64) ([]string, error)
+
+	// ListRackZoneRefs returns all distinct (building_id, zone) pairs across
+	// the org's racks, with denormalized building and site labels for cheap
+	// dropdown rendering. Sorted by site_label, then building_label, then zone.
+	ListRackZoneRefs(ctx context.Context, orgID int64) ([]ZoneRefRow, error)
 
 	// ListRackTypes returns all distinct rack types (row/column combinations) for an organization.
 	ListRackTypes(ctx context.Context, orgID int64) ([]*pb.RackType, error)

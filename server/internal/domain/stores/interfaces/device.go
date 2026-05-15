@@ -44,6 +44,16 @@ type NumericRange struct {
 
 //go:generate go run go.uber.org/mock/mockgen -source=device.go -destination=mocks/mock_device_store.go -package=mocks DeviceStore
 
+// ZoneKey is the building-scoped zone identifier used by zone filters.
+// BuildingID == 0 is a wildcard that matches the zone label across all
+// buildings; BuildingID > 0 scopes the match to that one building. The
+// wildcard is transitional — clients with a building picker should
+// always emit BuildingID > 0.
+type ZoneKey struct {
+	BuildingID int64
+	Zone       string
+}
+
 type MinerFilter struct {
 	PairingStatuses     []fm.PairingStatus // Changed from single value to slice
 	DeviceStatusFilter  []mm.MinerStatus
@@ -53,11 +63,14 @@ type MinerFilter struct {
 	RackIDs             []int64                           // Filter by rack membership (OR logic: match any rack)
 	DeviceIdentifiers   []string                          // Filter by specific device identifiers (e.g., for group-scoped queries)
 	FirmwareVersions    []string                          // Filter by firmware version strings (OR logic)
-	Zones               []string                          // Filter by rack zones (OR logic). Excludes miners not assigned to any rack.
 	NumericRanges       []NumericRange                    // Range predicates on telemetry. Multiple entries AND'd; presence triggers an INNER JOIN to latest_metrics and excludes OFFLINE miners.
 	IPCIDRs             []netip.Prefix                    // CIDR membership filter (OR logic across entries). Already normalized via Prefix.Masked().
 	SiteIDs             []int64                           // Filter by site (OR logic). Combined with IncludeUnassigned, OR also includes site_id IS NULL rows.
 	IncludeUnassigned   bool                              // When true, include devices with site_id IS NULL. Independent of SiteIDs; alone selects only the Unassigned bucket.
+	BuildingIDs         []int64                           // Filter by building (OR logic). Joins rack → building_id. Combined with IncludeNoBuilding OR also includes rack rows with NULL building_id.
+	IncludeNoBuilding   bool                              // When true, include devices whose rack has building_id IS NULL. Does NOT include devices with no rack at all (see IncludeNoRack).
+	ZoneKeys            []ZoneKey                         // Filter by (building_id, zone) pairs. BuildingID == 0 wildcards across buildings. Excludes miners not in any rack.
+	IncludeNoRack       bool                              // When true, include devices with no rack membership at all. Distinct from IncludeNoBuilding.
 }
 
 // MinerStateCounts holds fleet health state counts for a collection.

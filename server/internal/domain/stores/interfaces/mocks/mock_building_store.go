@@ -56,6 +56,21 @@ func (mr *MockBuildingStoreMockRecorder) BuildingBelongsToOrg(ctx, orgID, id any
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BuildingBelongsToOrg", reflect.TypeOf((*MockBuildingStore)(nil).BuildingBelongsToOrg), ctx, orgID, id)
 }
 
+// BuildingsByIDs mocks base method.
+func (m *MockBuildingStore) BuildingsByIDs(ctx context.Context, orgID int64, ids []int64) ([]int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "BuildingsByIDs", ctx, orgID, ids)
+	ret0, _ := ret[0].([]int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// BuildingsByIDs indicates an expected call of BuildingsByIDs.
+func (mr *MockBuildingStoreMockRecorder) BuildingsByIDs(ctx, orgID, ids any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BuildingsByIDs", reflect.TypeOf((*MockBuildingStore)(nil).BuildingsByIDs), ctx, orgID, ids)
+}
+
 // CreateBuilding mocks base method.
 func (m *MockBuildingStore) CreateBuilding(ctx context.Context, params models.CreateParams) (*models.Building, error) {
 	m.ctrl.T.Helper()

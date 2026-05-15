@@ -130,3 +130,13 @@ SELECT EXISTS(
       AND org_id = sqlc.arg('org_id')
       AND deleted_at IS NULL
 ) AS belongs;
+
+-- name: BuildingsByIDs :many
+-- Returns the subset of requested IDs that correspond to live
+-- buildings in the org. Caller diffs against the requested set
+-- to detect cross-org or missing IDs.
+SELECT id
+FROM building
+WHERE org_id = $1
+  AND deleted_at IS NULL
+  AND id = ANY(@ids::bigint[]);

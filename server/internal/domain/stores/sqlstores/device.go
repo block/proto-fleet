@@ -349,7 +349,8 @@ func (s *SQLDeviceStore) GetMinerStateCounts(ctx context.Context, orgID int64, f
 	// Use the dynamic builder when filters the static sqlc query can't
 	// express are active (numeric ranges, CIDRs, site filters); otherwise
 	// the dashboard counts would diverge from the filtered list.
-	if len(fp.numericRanges) > 0 || fp.ipCIDRsFilter.Valid || fp.siteIDsFilter.Valid || fp.includeUnassigned {
+	if len(fp.numericRanges) > 0 || fp.ipCIDRsFilter.Valid || fp.siteIDsFilter.Valid || fp.includeUnassigned ||
+		fp.buildingIDsFilter.Valid || fp.includeNoBuilding || fp.zoneKeysFilter.Valid || fp.includeNoRack {
 		return s.executeStateCountsQuery(ctx, orgID, fp)
 	}
 
@@ -369,8 +370,6 @@ func (s *SQLDeviceStore) GetMinerStateCounts(ctx context.Context, orgID int64, f
 		RackIDValues:            fp.rackIDValues,
 		FirmwareVersionsFilter:  fp.firmwareVersionsFilter,
 		FirmwareVersionValues:   fp.firmwareVersionValues,
-		ZonesFilter:             fp.zonesFilter,
-		ZoneValues:              fp.zoneValues,
 	})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to count miners by state: %v", err)
@@ -416,7 +415,7 @@ func (s *SQLDeviceStore) GetMinerModelGroups(ctx context.Context, orgID int64, f
 	// Static sqlc query can't express numeric ranges, CIDR membership, or
 	// site filters; use the dynamic builder when any are active so the
 	// bulk-action modal counts match the filtered list.
-	if filter != nil && (len(filter.NumericRanges) > 0 || len(filter.IPCIDRs) > 0 || len(filter.SiteIDs) > 0 || filter.IncludeUnassigned) {
+	if filter != nil && (len(filter.NumericRanges) > 0 || len(filter.IPCIDRs) > 0 || len(filter.SiteIDs) > 0 || filter.IncludeUnassigned || len(filter.BuildingIDs) > 0 || filter.IncludeNoBuilding || len(filter.ZoneKeys) > 0 || filter.IncludeNoRack) {
 		return s.executeModelGroupsDynamicQuery(ctx, orgID, filter)
 	}
 
@@ -428,8 +427,6 @@ func (s *SQLDeviceStore) GetMinerModelGroups(ctx context.Context, orgID int64, f
 		StatusFilter:   fp.statusFilter,
 		FirmwareFilter: fp.firmwareFilter,
 		FirmwareValues: fp.firmwareValues,
-		ZoneFilter:     fp.zoneFilter,
-		ZoneValues:     fp.zoneValues,
 	})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to get miner model groups: %v", err)
@@ -519,8 +516,6 @@ type modelGroupFilterParams struct {
 	modelFilter    sql.NullString
 	firmwareFilter sql.NullString
 	firmwareValues []string
-	zoneFilter     sql.NullString
-	zoneValues     []string
 }
 
 // csvNullString joins values with commas. An empty input produces an unset
@@ -550,10 +545,6 @@ func buildFilterParams(filter *stores.MinerFilter) modelGroupFilterParams {
 	if len(filter.FirmwareVersions) > 0 {
 		fp.firmwareFilter = sql.NullString{Valid: true}
 		fp.firmwareValues = filter.FirmwareVersions
-	}
-	if len(filter.Zones) > 0 {
-		fp.zoneFilter = sql.NullString{Valid: true}
-		fp.zoneValues = filter.Zones
 	}
 
 	return fp
@@ -919,7 +910,8 @@ func (s *SQLDeviceStore) ListMinerStateSnapshots(ctx context.Context, orgID int6
 	// sqlc query can't express (numeric ranges, CIDRs, site filters) are
 	// active; otherwise the total diverges from the listed rows.
 	var total int64
-	if len(fp.numericRanges) > 0 || fp.ipCIDRsFilter.Valid || fp.siteIDsFilter.Valid || fp.includeUnassigned {
+	if len(fp.numericRanges) > 0 || fp.ipCIDRsFilter.Valid || fp.siteIDsFilter.Valid || fp.includeUnassigned ||
+		fp.buildingIDsFilter.Valid || fp.includeNoBuilding || fp.zoneKeysFilter.Valid || fp.includeNoRack {
 		total, err = s.executeCountQuery(ctx, orgID, fp)
 		if err != nil {
 			return nil, "", 0, err
@@ -943,8 +935,6 @@ func (s *SQLDeviceStore) ListMinerStateSnapshots(ctx context.Context, orgID int6
 			RackIDValues:              fp.rackIDValues,
 			FirmwareVersionsFilter:    fp.firmwareVersionsFilter,
 			FirmwareVersionValues:     fp.firmwareVersionValues,
-			ZonesFilter:               fp.zonesFilter,
-			ZoneValues:                fp.zoneValues,
 		})
 		if err != nil {
 			return nil, "", 0, fleeterror.NewInternalErrorf("failed to get total count: %v", err)

@@ -308,20 +308,11 @@ WHERE d.deleted_at IS NULL
   AND (
       sqlc.narg('firmware_versions_filter')::text IS NULL
       OR dd.firmware_version = ANY(sqlc.arg('firmware_version_values')::text[])
-  )
-  -- Zone filter (excludes soft-deleted racks)
-  AND (
-      sqlc.narg('zones_filter')::text IS NULL
-      OR EXISTS (
-          SELECT 1 FROM device_set_membership dsm
-          JOIN device_set ds_zone ON ds_zone.id = dsm.device_set_id AND ds_zone.deleted_at IS NULL
-          JOIN device_set_rack dsr ON dsr.device_set_id = dsm.device_set_id
-          WHERE dsm.device_id = d.id
-            AND dsm.org_id = sqlc.arg('org_id')
-            AND dsm.device_set_type = 'rack'
-            AND dsr.zone = ANY(sqlc.arg('zone_values')::text[])
-      )
   );
+-- Zone / building filters are not handled by this static query.
+-- When the caller's filter includes BuildingIDs, IncludeNoBuilding,
+-- ZoneKeys, or IncludeNoRack, the Go store routes to the dynamic
+-- query builder (see device_filters.go) so counts match the list.
 
 -- name: UpsertDeviceStatus :exec
 INSERT INTO device_status (
@@ -392,20 +383,8 @@ WHERE dp.pairing_status = 'PAIRED'
       sqlc.narg('firmware_filter')::text IS NULL
       OR dd.firmware_version = ANY(sqlc.arg('firmware_values')::text[])
   )
-  -- Zone filter (excludes soft-deleted racks). Uses array values for the same
-  -- comma-safety reason as firmware above.
-  AND (
-      sqlc.narg('zone_filter')::text IS NULL
-      OR EXISTS (
-          SELECT 1 FROM device_set_membership dsm
-          JOIN device_set ds_zone ON ds_zone.id = dsm.device_set_id AND ds_zone.deleted_at IS NULL
-          JOIN device_set_rack dsr ON dsr.device_set_id = dsm.device_set_id
-          WHERE dsm.device_id = d.id
-            AND dsm.org_id = @org_id
-            AND dsm.device_set_type = 'rack'
-            AND dsr.zone = ANY(sqlc.arg('zone_values')::text[])
-      )
-  )
+-- Zone / building filters are not handled by this static query;
+-- callers with those filters route to executeModelGroupsDynamicQuery.
 GROUP BY dd.model, dd.manufacturer
 ORDER BY dd.manufacturer, dd.model;
 
@@ -665,20 +644,10 @@ WHERE dd.org_id = sqlc.arg('org_id')
     AND (
         sqlc.narg('firmware_versions_filter')::text IS NULL
         OR dd.firmware_version = ANY(sqlc.arg('firmware_version_values')::text[])
-    )
-    -- Zone filter (excludes soft-deleted racks)
-    AND (
-        sqlc.narg('zones_filter')::text IS NULL
-        OR EXISTS (
-            SELECT 1 FROM device_set_membership dsm
-            JOIN device_set ds_zone ON ds_zone.id = dsm.device_set_id AND ds_zone.deleted_at IS NULL
-            JOIN device_set_rack dsr ON dsr.device_set_id = dsm.device_set_id
-            WHERE dsm.device_id = d.id
-              AND dsm.org_id = sqlc.arg('org_id')
-              AND dsm.device_set_type = 'rack'
-              AND dsr.zone = ANY(sqlc.arg('zone_values')::text[])
-        )
     );
+-- Zone / building filters are not handled by this static query;
+-- callers with those filters must route through the dynamic builder
+-- (device_filters.go).
 
 -- name: GetFilteredDeviceIds :many
 -- Returns device IDs filtered by pairing status and optional device status.

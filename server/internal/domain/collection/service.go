@@ -1159,6 +1159,11 @@ func (s *Service) ListRackTypes(ctx context.Context, _ *pb.ListRackTypesRequest)
 }
 
 // ListRackZones returns all distinct rack zones for the organization.
+//
+// Deprecated: this RPC still backs the legacy collection.v1 surface; new
+// callers (notably device_set.v1.ListRackZones) use ListRackZoneRefs to
+// receive (building_id, zone) tuples with denormalized labels. See
+// docs/plans/2026-05-14-229-miner-zone-building-filter.md.
 func (s *Service) ListRackZones(ctx context.Context, _ *pb.ListRackZonesRequest) (*pb.ListRackZonesResponse, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
@@ -1171,6 +1176,18 @@ func (s *Service) ListRackZones(ctx context.Context, _ *pb.ListRackZonesRequest)
 	}
 
 	return &pb.ListRackZonesResponse{Zones: zones}, nil
+}
+
+// ListRackZoneRefs returns all distinct (building_id, zone) pairs in
+// the org with denormalized building and site labels. Backs
+// device_set.v1.ListRackZones, bypassing the deprecated collection.v1
+// flat-string shape.
+func (s *Service) ListRackZoneRefs(ctx context.Context) ([]interfaces.ZoneRefRow, error) {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return s.collectionStore.ListRackZoneRefs(ctx, info.OrganizationID)
 }
 
 // saveRackResult holds the result of the SaveRack transaction.

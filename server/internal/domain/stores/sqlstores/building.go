@@ -145,6 +145,20 @@ func (s *SQLBuildingStore) BuildingBelongsToOrg(ctx context.Context, orgID, id i
 	return belongs, nil
 }
 
+func (s *SQLBuildingStore) BuildingsByIDs(ctx context.Context, orgID int64, ids []int64) ([]int64, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	rows, err := s.GetQueries(ctx).BuildingsByIDs(ctx, sqlc.BuildingsByIDsParams{
+		OrgID: orgID,
+		Ids:   ids,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to look up buildings by ID: %v", err)
+	}
+	return rows, nil
+}
+
 func buildingFromRow(row sqlc.Building) models.Building {
 	return models.Building{
 		ID:                    row.ID,

@@ -220,13 +220,17 @@ func toCollectionUpdateReq(r *dspb.UpdateDeviceSetRequest) *collectionpb.UpdateC
 }
 
 func toCollectionListReq(r *dspb.ListDeviceSetsRequest) *collectionpb.ListCollectionsRequest {
+	// TODO(#229): translate r.BuildingIds / r.IncludeNoBuilding / r.ZoneKeys
+	// once the collection store grows a DeviceSetFilter-shaped ListCollections
+	// path. Until then, the device_set rack list intentionally does not
+	// apply zone or building filters — operators see the unfiltered rack
+	// list and the FilterChip is a no-op. Tracked in plan §FE migration.
 	req := &collectionpb.ListCollectionsRequest{
 		Type:                toCollectionType(r.Type),
 		PageSize:            r.PageSize,
 		PageToken:           r.PageToken,
 		Sort:                r.Sort,
 		ErrorComponentTypes: r.ErrorComponentTypes,
-		Zones:               r.Zones,
 	}
 	return req
 }
