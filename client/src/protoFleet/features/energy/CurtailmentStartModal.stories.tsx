@@ -66,7 +66,7 @@ export const Empty: Story = {
 };
 
 export const WithPreview: Story = {
-  name: "With preview",
+  name: "Fixed kW target preview",
   render: () => <ModalStory initialValues={configuredValues} preview={preview} />,
 };
 

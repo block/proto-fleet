@@ -177,12 +177,18 @@ describe("CurtailmentStartModal", () => {
   it("submits the current form values without dismissing the modal", async () => {
     const user = userEvent.setup();
     const { onDismiss, onSubmit } = renderModal();
-    const targetInput = screen.getByLabelText("Target value");
+    const targetInput = screen.getByLabelText("Target reduction");
+    const [curtailBatchSizeInput, restoreBatchSizeInput] = screen.getAllByLabelText("Batch size (miners)");
+    const [curtailIntervalInput, restoreIntervalInput] = screen.getAllByLabelText("Batch interval (sec)");
 
     await user.type(targetInput, "75");
+    await user.type(curtailBatchSizeInput, "8");
+    await user.type(curtailIntervalInput, "60");
     await user.type(screen.getByLabelText("Tolerance"), "5");
     await user.type(screen.getByLabelText("Min duration"), "300");
     await user.type(screen.getByLabelText("Max duration"), "3600");
+    await user.type(restoreBatchSizeInput, "10");
+    await user.type(restoreIntervalInput, "120");
     await user.type(screen.getByLabelText("Reason"), "Grid response");
     await user.click(screen.getByRole("button", { name: "Start curtailment" }));
 
@@ -194,14 +200,18 @@ describe("CurtailmentStartModal", () => {
       maxDurationSec: "3600",
       reason: "Grid response",
       priority: "normal",
+      responseProfileId: "customPlan",
+      curtailmentMode: "fixedKwTarget",
+      minerSelectionStrategy: "worstMinersFirst",
+      curtailBatchSize: "8",
+      curtailIntervalSec: "60",
+      restoreBatchSize: "10",
+      restoreIntervalSec: "120",
     });
-    expect(submittedValues).not.toHaveProperty("responseProfileId");
-    expect(submittedValues).not.toHaveProperty("curtailmentMode");
-    expect(submittedValues).not.toHaveProperty("minerSelectionStrategy");
     expect(onDismiss).not.toHaveBeenCalled();
   });
 
-  it("updates design-only dropdown values without submitting unsupported mappings", async () => {
+  it("submits selected curtailment mode and miner strategy values", async () => {
     const user = userEvent.setup();
     const { onSubmit } = renderModal();
     const startButton = screen.getByRole("button", { name: "Start curtailment" });
@@ -220,10 +230,15 @@ describe("CurtailmentStartModal", () => {
 
     expect(screen.getByText("Percentage reduction")).toBeInTheDocument();
     expect(screen.getByText("Round robin")).toBeInTheDocument();
-    expect(startButton).toBeDisabled();
+    expect(startButton).toBeEnabled();
 
     await user.click(startButton);
-    expect(onSubmit).not.toHaveBeenCalled();
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        curtailmentMode: "percentageReduction",
+        minerSelectionStrategy: "roundRobin",
+      }),
+    );
   });
 
   it("requires confirmation before including maintenance miners", async () => {
@@ -312,7 +327,7 @@ describe("CurtailmentStartModal", () => {
       />,
     );
 
-    const targetInput = screen.getByLabelText("Target value");
+    const targetInput = screen.getByLabelText("Target reduction");
     await user.clear(targetInput);
     await user.type(targetInput, "99");
     expect(targetInput).toHaveValue(99);
@@ -334,7 +349,7 @@ describe("CurtailmentStartModal", () => {
       />,
     );
 
-    const updatedTargetInput = screen.getByLabelText("Target value");
+    const updatedTargetInput = screen.getByLabelText("Target reduction");
     expect(updatedTargetInput).toHaveValue(25);
     expect(screen.getByLabelText("Reason")).toHaveValue("Updated reason");
   });
@@ -348,7 +363,7 @@ describe("CurtailmentStartModal", () => {
       },
     });
 
-    const targetInput = screen.getByLabelText("Target value");
+    const targetInput = screen.getByLabelText("Target reduction");
     expect(targetInput).toHaveAttribute("aria-invalid", "true");
     expect(targetInput).toHaveAttribute("aria-describedby", "curtailment-target-kw-error");
     expect(screen.getByText("Required")).toBeInTheDocument();

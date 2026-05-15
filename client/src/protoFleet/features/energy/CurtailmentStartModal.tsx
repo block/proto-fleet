@@ -39,22 +39,7 @@ export interface CurtailmentFormValues {
   includeMaintenance: boolean;
 }
 
-export type CurtailmentSubmitValues = Pick<
-  CurtailmentFormValues,
-  | "scopeType"
-  | "scopeId"
-  | "deviceSetIds"
-  | "deviceIdentifiers"
-  | "targetKw"
-  | "toleranceKw"
-  | "priority"
-  | "minDurationSec"
-  | "maxDurationSec"
-  | "restoreBatchSize"
-  | "restoreIntervalSec"
-  | "reason"
-  | "includeMaintenance"
->;
+export type CurtailmentSubmitValues = CurtailmentFormValues;
 
 export interface CurtailmentPlanPreview {
   selectedMinerCount: number;
@@ -210,8 +195,8 @@ function TypedSelect<Value extends string>({
 
 function Section({ title, children }: SectionProps): ReactElement {
   return (
-    <section className="grid gap-6">
-      <h2 className="text-heading-200 text-text-primary">{title}</h2>
+    <section className="grid gap-3">
+      <div className="text-emphasis-300 text-text-primary">{title}</div>
       {children}
     </section>
   );
@@ -268,7 +253,7 @@ function PreviewPane({ preview, previewError }: PreviewPaneProps): ReactElement 
 
         <div className="grid gap-3">
           <div>
-            <div className="text-emphasis-200 text-text-primary-70">Target value</div>
+            <div className="text-emphasis-200 text-text-primary-70">Target reduction</div>
             <div className="text-heading-300 text-text-primary">
               {formatKw(preview.targetKw)} of {formatKw(preview.currentUsageKw)}
             </div>
@@ -308,28 +293,6 @@ function getSelectedMinerIds(values: CurtailmentFormValues): string[] {
   return values.deviceIdentifiers;
 }
 
-function canSubmitWithCurrentMapping(values: CurtailmentFormValues): boolean {
-  return values.curtailmentMode === "fixedKwTarget" && values.minerSelectionStrategy === "worstMinersFirst";
-}
-
-function getSubmitValues(values: CurtailmentFormValues): CurtailmentSubmitValues {
-  return {
-    scopeType: values.scopeType,
-    scopeId: values.scopeId,
-    deviceSetIds: values.deviceSetIds,
-    deviceIdentifiers: values.deviceIdentifiers,
-    targetKw: values.targetKw,
-    toleranceKw: values.toleranceKw,
-    priority: values.priority,
-    minDurationSec: values.minDurationSec,
-    maxDurationSec: values.maxDurationSec,
-    restoreBatchSize: values.restoreBatchSize,
-    restoreIntervalSec: values.restoreIntervalSec,
-    reason: values.reason,
-    includeMaintenance: values.includeMaintenance,
-  };
-}
-
 function CurtailmentStartModalContent({
   onDismiss,
   onSubmit,
@@ -353,7 +316,6 @@ function CurtailmentStartModalContent({
     miners: getSelectedMinerIds(values),
   };
   const previewPane = <PreviewPane preview={preview} previewError={previewError} />;
-  const supportsCurrentSubmitMapping = canSubmitWithCurrentMapping(values);
 
   const handleDeviceSetSelection = (deviceSetIds: string[], scopeId: DeviceSetScopeId) => {
     const hasSelectedDeviceSets = deviceSetIds.length > 0;
@@ -391,8 +353,7 @@ function CurtailmentStartModalContent({
           {
             text: "Start curtailment",
             variant: variants.primary,
-            onClick: () => onSubmit(getSubmitValues(values)),
-            disabled: !supportsCurrentSubmitMapping,
+            onClick: () => onSubmit(values),
             loading: isSubmitting,
           },
         ]}
@@ -433,7 +394,7 @@ function CurtailmentStartModalContent({
                   />
                   <Field
                     id="curtailment-target-kw"
-                    label="Target value"
+                    label="Target reduction"
                     value={values.targetKw}
                     error={errors?.targetKw}
                     onChange={(value) => updateValue("targetKw", value)}
