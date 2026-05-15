@@ -6,6 +6,7 @@ import "google/protobuf/timestamp.proto";
 import "buf/validate/validate.proto";
 import "common/v1/device_selector.proto";
 import "common/v1/sort.proto";
+import "common/v1/zone.proto";
 import "errors/v1/errors.proto";
 
 // Service for managing device sets (groups and racks)
@@ -290,9 +291,23 @@ message ListDeviceSetsRequest {
     // matching any of the specified component types are returned.
     repeated errors.v1.ComponentType error_component_types = 5;
 
-    // Filter by rack zones. Only valid when type is RACK.
-    // When non-empty, only racks in any of the specified zones are returned.
-    repeated string zones = 6;
+    // Reserved: legacy org-wide zone filter replaced by zone_keys = 9.
+    // Zone names are unique only within a building, so the flat string
+    // shape collapsed cross-building zones with the same label.
+    reserved 6;
+    reserved "zones";
+
+    // Filter racks by building. Only valid when type is RACK.
+    repeated int64 building_ids = 7;
+
+    // When true, racks with building_id IS NULL are included. Only
+    // valid when type is RACK.
+    bool include_no_building = 8;
+
+    // Filter by zone keys. Only valid when type is RACK. Each entry
+    // is a (building_id, zone) pair; building_id=0 matches any
+    // building.
+    repeated common.v1.ZoneKey zone_keys = 9;
 }
 
 // Response containing device sets
@@ -511,10 +526,15 @@ message RackSlotStatus {
 // Request to list all distinct rack zones for the organization
 message ListRackZonesRequest {}
 
-// Response containing all distinct rack zones
+// Response containing all distinct rack zones in the organization,
+// each tagged with the building and site it belongs to so callers
+// can distinguish zones with the same name in different buildings.
 message ListRackZonesResponse {
-    // Distinct zone strings across all racks, sorted alphabetically
-    repeated string zones = 1;
+    // All distinct (building_id, zone) pairs across the org's racks,
+    // sorted by site_label, then building_label, then zone. ZoneRef
+    // carries denormalized building and site names for cheap
+    // dropdown rendering.
+    repeated common.v1.ZoneRef zones = 1;
 }
 
 // Request to list all distinct rack types for the organization
