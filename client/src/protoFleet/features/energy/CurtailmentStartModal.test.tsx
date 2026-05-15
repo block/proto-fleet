@@ -189,6 +189,11 @@ describe("CurtailmentStartModal", () => {
     await user.type(screen.getByLabelText("Reason"), "Grid response");
     await user.click(screen.getByRole("button", { name: "Start curtailment" }));
 
+    expect(screen.getByText("Force include maintenance miners?")).toBeInTheDocument();
+    expect(onSubmit).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Force include" }));
+
     const submittedValues = onSubmit.mock.calls[0]?.[0] as Record<string, unknown>;
     expect(submittedValues).toMatchObject({
       targetKw: "75",
@@ -209,7 +214,7 @@ describe("CurtailmentStartModal", () => {
 
   it("only exposes curtailment options supported by the current API", async () => {
     const user = userEvent.setup();
-    const { onSubmit } = renderModal();
+    const { onSubmit } = renderModal({ initialValues: { includeMaintenance: false } });
     const startButton = screen.getByRole("button", { name: "Start curtailment" });
     const restoreSelectLayoutMock = mockVisibleSelectLayout();
 
@@ -279,7 +284,7 @@ describe("CurtailmentStartModal", () => {
 
   it("opens target selectors and submits the selected target scope", async () => {
     const user = userEvent.setup();
-    const { onSubmit } = renderModal();
+    const { onSubmit } = renderModal({ initialValues: { includeMaintenance: false } });
 
     await user.click(screen.getByRole("button", { name: /Racks\s+Select/ }));
     expect(screen.getByRole("dialog", { name: "Rack selection" })).toBeInTheDocument();

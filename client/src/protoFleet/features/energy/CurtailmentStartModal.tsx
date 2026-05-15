@@ -297,6 +297,8 @@ function CurtailmentStartModalContent({
 }: CurtailmentStartModalProps): ReactElement {
   const [values, setValues] = useState<CurtailmentFormValues>(() => getInitialValues(initialValues));
   const [showMaintenanceConfirmation, setShowMaintenanceConfirmation] = useState(false);
+  const [maintenanceInclusionConfirmed, setMaintenanceInclusionConfirmed] = useState(false);
+  const [submitAfterMaintenanceConfirmation, setSubmitAfterMaintenanceConfirmation] = useState(false);
   const [showRackSelectionModal, setShowRackSelectionModal] = useState(false);
   const [showGroupSelectionModal, setShowGroupSelectionModal] = useState(false);
   const [showMinerSelectionModal, setShowMinerSelectionModal] = useState(false);
@@ -334,6 +336,34 @@ function CurtailmentStartModalContent({
     }));
   };
 
+  const closeMaintenanceConfirmation = () => {
+    setSubmitAfterMaintenanceConfirmation(false);
+    setShowMaintenanceConfirmation(false);
+  };
+
+  const handleSubmit = () => {
+    if (values.includeMaintenance && !maintenanceInclusionConfirmed) {
+      setSubmitAfterMaintenanceConfirmation(true);
+      setShowMaintenanceConfirmation(true);
+      return;
+    }
+
+    onSubmit(values);
+  };
+
+  const confirmMaintenanceInclusion = () => {
+    const nextValues = { ...values, includeMaintenance: true };
+
+    setMaintenanceInclusionConfirmed(true);
+    setValues(nextValues);
+    setShowMaintenanceConfirmation(false);
+
+    if (submitAfterMaintenanceConfirmation) {
+      setSubmitAfterMaintenanceConfirmation(false);
+      onSubmit(nextValues);
+    }
+  };
+
   return (
     <>
       <FullScreenTwoPaneModal
@@ -346,7 +376,7 @@ function CurtailmentStartModalContent({
           {
             text: "Start curtailment",
             variant: variants.primary,
-            onClick: () => onSubmit(values),
+            onClick: handleSubmit,
             loading: isSubmitting,
           },
         ]}
@@ -449,10 +479,12 @@ function CurtailmentStartModalContent({
                 checked={values.includeMaintenance}
                 onChange={(event) => {
                   if (event.currentTarget.checked) {
+                    setSubmitAfterMaintenanceConfirmation(false);
                     setShowMaintenanceConfirmation(true);
                     return;
                   }
 
+                  setMaintenanceInclusionConfirmed(false);
                   updateValue("includeMaintenance", false);
                 }}
               />
@@ -469,7 +501,7 @@ function CurtailmentStartModalContent({
         open={showMaintenanceConfirmation}
         title="Force include maintenance miners?"
         testId="curtailment-maintenance-confirmation"
-        onDismiss={() => setShowMaintenanceConfirmation(false)}
+        onDismiss={closeMaintenanceConfirmation}
         icon={
           <DialogIcon intent="warning">
             <Alert />
@@ -478,15 +510,12 @@ function CurtailmentStartModalContent({
         buttons={[
           {
             text: "Cancel",
-            onClick: () => setShowMaintenanceConfirmation(false),
+            onClick: closeMaintenanceConfirmation,
             variant: variants.secondary,
           },
           {
             text: "Force include",
-            onClick: () => {
-              updateValue("includeMaintenance", true);
-              setShowMaintenanceConfirmation(false);
-            },
+            onClick: confirmMaintenanceInclusion,
             variant: variants.danger,
           },
         ]}
