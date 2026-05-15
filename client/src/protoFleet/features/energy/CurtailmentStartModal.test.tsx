@@ -202,6 +202,7 @@ describe("CurtailmentStartModal", () => {
       minerSelectionStrategy: "leastEfficientFirst",
       restoreBatchSize: "10",
       restoreIntervalSec: "120",
+      includeMaintenance: true,
     });
     expect(onDismiss).not.toHaveBeenCalled();
   });
@@ -243,9 +244,17 @@ describe("CurtailmentStartModal", () => {
     );
   });
 
-  it("requires confirmation before including maintenance miners", async () => {
+  it("includes maintenance miners by default and confirms re-inclusion", async () => {
     const user = userEvent.setup();
     const { onSubmit } = renderModal();
+
+    expect(getMaintenanceCheckbox()).toBeChecked();
+    expect(screen.queryByText("Requires explicit force acknowledgement")).not.toBeInTheDocument();
+
+    await user.click(screen.getByText("Include miners in maintenance"));
+
+    expect(getMaintenanceCheckbox()).not.toBeChecked();
+    expect(screen.queryByText("Force include maintenance miners?")).not.toBeInTheDocument();
 
     await user.click(screen.getByText("Include miners in maintenance"));
 

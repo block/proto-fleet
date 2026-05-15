@@ -117,7 +117,7 @@ const defaultValues: CurtailmentFormValues = {
   restoreBatchSize: "",
   restoreIntervalSec: "",
   reason: "",
-  includeMaintenance: false,
+  includeMaintenance: true,
 };
 
 const responseProfileOptions: Array<TypedSelectOption<ResponseProfileId>> = [
@@ -458,7 +458,6 @@ function CurtailmentStartModalContent({
               />
               <span>
                 <span className="block text-300 text-text-primary">Include miners in maintenance</span>
-                <span className="block text-200 text-text-primary-70">Requires explicit force acknowledgement</span>
               </span>
             </label>
           </section>
