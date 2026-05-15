@@ -148,13 +148,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_connect_error_maps_to_device_unavailable() {
-        // Arrange — bind a port then drop the listener so nothing is listening
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        drop(listener);
+        // Arrange — the `.invalid` TLD is reserved by RFC 6761 and never resolves.
+        // `no_proxy()` bypasses any ambient HTTP(S)_PROXY env that might
+        // otherwise route the request to a proxy and return a real response.
+        let client = reqwest::Client::builder().no_proxy().build().unwrap();
+        let url = "http://does-not-exist.invalid/";
 
         // Act
-        let err = reqwest::get(format!("http://{addr}")).await.unwrap_err();
+        let err = client.get(url).send().await.unwrap_err();
         let plugin_err = map_reqwest_error(err, DEVICE_ID);
 
         // Assert
