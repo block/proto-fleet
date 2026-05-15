@@ -132,7 +132,9 @@ const General = () => {
         <h3 className="mb-2 text-heading-100">Firmware</h3>
         <Row className="flex justify-between">
           <h4 className="text-emphasis-300">Version</h4>
-          <div className="text-300">{systemInfo?.os?.version || <SkeletonBar className="w-20" />}</div>
+          <div className="text-300" data-testid="firmware-version-value">
+            {systemInfo?.os?.version || <SkeletonBar className="w-20" />}
+          </div>
         </Row>
         <div className="mt-6 flex justify-center">
           <CheckForUpdate />

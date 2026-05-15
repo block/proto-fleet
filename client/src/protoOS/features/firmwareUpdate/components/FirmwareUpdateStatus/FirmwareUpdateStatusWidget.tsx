@@ -37,6 +37,7 @@ const FirmwareUpdateStatusWidget = ({
   return (
     <WidgetWrapper
       onClick={loading ? undefined : onClick}
+      testId="firmware-status-widget"
       className={clsx({
         "hover:cursor-progress": loading,
       })}

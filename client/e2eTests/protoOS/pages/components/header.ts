@@ -58,4 +58,29 @@ export class HeaderComponent extends BasePage {
   async validatePowerTargetWidgetText(expectedText: string) {
     await expect(this.page.getByTestId("power-target-widget")).toContainText(expectedText);
   }
+
+  async validateFirmwareStatusWidgetText(expectedText: string | RegExp) {
+    await expect(this.page.getByTestId("firmware-status-widget")).toHaveText(expectedText);
+  }
+
+  async validateFirmwareStatusWidgetHidden() {
+    await expect(this.page.getByTestId("firmware-status-widget")).toBeHidden();
+  }
+
+  async openFirmwareStatusModal() {
+    await this.page.getByTestId("firmware-status-widget").click();
+    await expect(this.page.getByTestId("firmware-status-modal")).toBeVisible();
+  }
+
+  async validateFirmwareStatusModalTitle(expectedTitle: string) {
+    await expect(this.page.getByTestId("firmware-status-modal")).toContainText(expectedTitle);
+  }
+
+  async validateFirmwareStatusModalVersionLabel(label: "Current Version:" | "New Version:", expectedValue: string) {
+    await expect(this.page.getByTestId("firmware-status-modal").getByText(`${label} ${expectedValue}`)).toBeVisible();
+  }
+
+  async clickFirmwareStatusModalRebootButton() {
+    await this.page.getByTestId("firmware-status-modal-reboot-button").click();
+  }
 }

@@ -64,6 +64,7 @@ const UPDATE_STATUS_CONFIG: Record<string, StatusConfig> = {
       {
         text: "Install",
         variant: "primary",
+        testId: "firmware-status-modal-install-button",
         loading: updatePending,
         onClick: onUpdate,
       },
@@ -98,6 +99,7 @@ const UPDATE_STATUS_CONFIG: Record<string, StatusConfig> = {
       {
         text: "Install",
         variant: "primary",
+        testId: "firmware-status-modal-install-button",
         onClick: onContinue,
       },
     ],
@@ -126,6 +128,7 @@ const UPDATE_STATUS_CONFIG: Record<string, StatusConfig> = {
       {
         text: "Reboot now",
         variant: "primary",
+        testId: "firmware-status-modal-reboot-button",
         loading: rebootPending,
         onClick: onReboot,
       },
@@ -211,6 +214,7 @@ const FirmwareUpdateStatusModal = ({
   return (
     <Dialog
       open={open}
+      testId="firmware-status-modal"
       icon={statusConfig.icon ?? <ProgressCircular indeterminate className="text-core-accent-fill" />}
       title={statusConfig.title}
       buttons={statusConfig.getButtons({

@@ -49,6 +49,26 @@ export class GeneralPage extends BasePage {
     await this.page.getByTestId("theme-button").click();
   }
 
+  async getFirmwareVersion() {
+    return this.page.getByTestId("firmware-version-value").innerText();
+  }
+
+  async validateFirmwareVersion(expected: string | RegExp) {
+    await expect(this.page.getByTestId("firmware-version-value")).toHaveText(expected);
+  }
+
+  async validateCheckForUpdatesButtonVisible() {
+    await expect(this.page.getByTestId("check-for-updates-button")).toBeVisible();
+  }
+
+  async clickCheckForUpdatesButton() {
+    await this.page.getByTestId("check-for-updates-button").click();
+  }
+
+  async validateInlineFirmwareStatus(expected: string | RegExp) {
+    await expect(this.page.getByTestId("firmware-update-inline-status")).toHaveText(expected);
+  }
+
   async clickTemperatureButton() {
     await this.page.locator('[data-testid="temperature-button"]').click();
   }

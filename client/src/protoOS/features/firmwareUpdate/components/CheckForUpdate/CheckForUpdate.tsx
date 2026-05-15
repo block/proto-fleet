@@ -29,6 +29,7 @@ const CheckForUpdate = () => {
       {installing || updateStatus?.status === "available" || updateStatus?.status === "installed" ? (
         <Header
           title={statusLabelFromUpdateStatus(updateStatus, true)}
+          testId="firmware-update-inline-status"
           description={updateStatus?.message}
           icon={<SettingsSolid />}
           titleSize="text-emphasis-300"
@@ -58,7 +59,13 @@ const CheckForUpdate = () => {
           ]}
         />
       ) : (
-        <Button variant="secondary" size="compact" loading={systemInfoPending} onClick={() => checkForUpdates()}>
+        <Button
+          variant="secondary"
+          size="compact"
+          loading={systemInfoPending}
+          testId="check-for-updates-button"
+          onClick={() => checkForUpdates()}
+        >
           Check for updates
         </Button>
       )}

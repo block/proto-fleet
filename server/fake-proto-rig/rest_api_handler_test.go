@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -1920,4 +1922,92 @@ func TestHandleUpdate_PutWhileInstalled_RejectsAndPreservesStagedVersion(t *test
 	if got := swUpdate["previous_version"]; got != defaultFirmwareVersion {
 		t.Fatalf("expected previous_version %q after promotion, got %v", defaultFirmwareVersion, got)
 	}
+}
+
+func TestHandleUpdate_PutStagesDownloadedStatusWithoutInstalling(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	h := NewRESTApiHandler(state)
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", "protoos-update.swu")
+	if err != nil {
+		t.Fatalf("failed to create multipart file: %v", err)
+	}
+	if _, err := part.Write([]byte("fake firmware bundle")); err != nil {
+		t.Fatalf("failed to write multipart file: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("failed to close multipart writer: %v", err)
+	}
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/system/update", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	h.handleUpdate(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+
+	info := getSystemInfo(t, h)
+	swUpdate, ok := info["sw_update_status"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected sw_update_status object, got: %v", info["sw_update_status"])
+	}
+
+	if got := swUpdate["status"]; got != "downloaded" {
+		t.Fatalf("expected status %q after upload, got %v", "downloaded", got)
+	}
+	if got := swUpdate["message"]; got != "Ready to install" {
+		t.Fatalf("expected message %q after upload, got %v", "Ready to install", got)
+	}
+	if got := swUpdate["new_version"]; got != defaultNextFirmwareVersion {
+		t.Fatalf("expected new_version %q after upload, got %v", defaultNextFirmwareVersion, got)
+	}
+
+	time.Sleep(1500 * time.Millisecond)
+
+	info = getSystemInfo(t, h)
+	swUpdate, ok = info["sw_update_status"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected sw_update_status object, got: %v", info["sw_update_status"])
+	}
+	if got := swUpdate["status"]; got != "downloaded" {
+		t.Fatalf("expected upload to remain staged at %q, got %v", "downloaded", got)
+	}
+}
+
+func TestHandleUpdate_PostFromDownloadedInstallsUpdate(t *testing.T) {
+	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
+	state.mu.Lock()
+	state.FWUpdateStatus = "downloaded"
+	state.FWNewVersion = defaultNextFirmwareVersion
+	state.mu.Unlock()
+
+	h := NewRESTApiHandler(state)
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/system/update", nil)
+	h.handleUpdate(rr, req)
+
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("expected %d, got %d; body=%s", http.StatusAccepted, rr.Code, rr.Body.String())
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		state.mu.RLock()
+		status := state.FWUpdateStatus
+		state.mu.RUnlock()
+		if status == "installed" {
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	state.mu.RLock()
+	gotStatus := state.FWUpdateStatus
+	state.mu.RUnlock()
+	t.Fatalf("expected firmware status to reach %q, got %q", "installed", gotStatus)
 }
