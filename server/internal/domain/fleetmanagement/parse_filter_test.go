@@ -7,10 +7,10 @@ import (
 	"net/netip"
 	"testing"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
-	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/wrapperspb"

@@ -568,11 +568,11 @@ func validatePageSize(pageSize int32) int32 {
 // (building_ids, include_no_building, zone_keys) without round-tripping
 // through the deprecated collection.v1 proto request type.
 type ListCollectionsParams struct {
-	Type       pb.CollectionType
-	PageSize   int32
-	PageToken  string
-	Sort       *interfaces.SortConfig
-	Filter     *interfaces.DeviceSetFilter
+	Type      pb.CollectionType
+	PageSize  int32
+	PageToken string
+	Sort      *interfaces.SortConfig
+	Filter    *interfaces.DeviceSetFilter
 }
 
 // ListCollectionsDomain is the domain-level entry point for the

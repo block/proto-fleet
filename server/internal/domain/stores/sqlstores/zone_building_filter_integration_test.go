@@ -28,14 +28,14 @@ import (
 //
 // Returns IDs the callers need to assert against.
 type zoneFixture struct {
-	orgID      int64
-	siteID     int64
-	buildingA  int64
-	buildingB  int64
-	devsInB1   []string // 2 devices in B1 / "Room 2"
-	devsInB2   []string // 2 devices in B2 / "Room 2"
-	devNoBldg  string   // 1 device in a rack with NULL building_id
-	devNoRack  string   // 1 device with no rack membership
+	orgID     int64
+	siteID    int64
+	buildingA int64
+	buildingB int64
+	devsInB1  []string // 2 devices in B1 / "Room 2"
+	devsInB2  []string // 2 devices in B2 / "Room 2"
+	devNoBldg string   // 1 device in a rack with NULL building_id
+	devNoRack string   // 1 device with no rack membership
 }
 
 func buildZoneFixture(t *testing.T, ctx context.Context, tc *testutil.TestContext) zoneFixture {
@@ -82,7 +82,7 @@ func buildZoneFixture(t *testing.T, ctx context.Context, tc *testutil.TestContex
 
 	addDevices := func(rackID int64, count int) []string {
 		ids := make([]string, 0, count)
-		for i := 0; i < count; i++ {
+		for range count {
 			d := dbSvc.CreateDevice(orgID, "proto")
 			pairDeviceLocal(d.ID)
 			ids = append(ids, d.ID)

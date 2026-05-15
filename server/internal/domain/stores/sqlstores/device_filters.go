@@ -46,10 +46,10 @@ type minerFilterParams struct {
 	// Zone keys: scoped tuples emit an UNNEST + tuple-IN branch;
 	// wildcards (building_id == 0) emit a zone = ANY branch. Either
 	// branch can be empty.
-	zoneKeysFilter      sql.NullString
-	scopedBuildingIDs   []int64
-	scopedZones         []string
-	wildcardZones       []string
+	zoneKeysFilter    sql.NullString
+	scopedBuildingIDs []int64
+	scopedZones       []string
+	wildcardZones     []string
 	// numericRanges drives both the WHERE predicates emitted by
 	// appendFilterSQL and the CTE/JOIN gating in buildListQuerySQL: when
 	// non-empty, latest_metrics is INNER-joined and OFFLINE miners are
