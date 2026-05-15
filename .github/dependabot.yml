@@ -11,7 +11,7 @@ updates:
       default-days: 7
 
   - package-ecosystem: npm
-    directory: client
+    directory: /client
     schedule:
       interval: monthly
     cooldown:
