@@ -65,9 +65,7 @@ vi.mock("@/protoFleet/features/settings/components/Schedules/MinerSelectionModal
 }));
 
 const configuredValues: Partial<CurtailmentFormValues> = {
-  targetKw: "45",
-  curtailBatchSize: "8",
-  curtailIntervalSec: "60",
+  targetKw: "40",
   restoreBatchSize: "10",
   restoreIntervalSec: "120",
   reason: "Grid peak - ERCOT 4CP signal",
@@ -75,8 +73,8 @@ const configuredValues: Partial<CurtailmentFormValues> = {
 
 const preview: CurtailmentPlanPreview = {
   selectedMinerCount: 18,
-  targetKw: 45,
-  currentUsageKw: 60,
+  targetKw: 40,
+  estimatedReductionKw: 45,
   curtailEstimate: "~2 minutes",
   restoreEstimate: "~2 minutes",
   scopeLabel: "across the fleet",
@@ -126,10 +124,10 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByText("Response profile")).toBeInTheDocument();
     expect(screen.getByText("Custom plan")).toBeInTheDocument();
     expect(screen.getByText("Curtail behavior")).toBeInTheDocument();
-    expect(screen.getByText("Fixed kW target")).toBeInTheDocument();
-    expect(screen.getByText("Worst miners first")).toBeInTheDocument();
-    expect(screen.getByText("Safety")).toBeInTheDocument();
-    expect(screen.getByText("Normal")).toBeInTheDocument();
+    expect(screen.getByText("Fixed kW reduction")).toBeInTheDocument();
+    expect(screen.getByText("Least efficient first")).toBeInTheDocument();
+    expect(screen.queryByText("Safety")).not.toBeInTheDocument();
+    expect(screen.queryByText("Normal")).not.toBeInTheDocument();
     expect(screen.getByText("Restore behavior")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Racks\s+Select/ })).toBeEnabled();
     expect(screen.getByRole("button", { name: /Groups\s+Select/ })).toBeEnabled();
@@ -140,7 +138,8 @@ describe("CurtailmentStartModal", () => {
     const { rerender } = renderModal({ initialValues: configuredValues, preview });
 
     expect(screen.getAllByText("Curtail 18 miners across the fleet immediately")).toHaveLength(2);
-    expect(screen.getAllByText("45.0 kW of 60.0 kW")).toHaveLength(2);
+    expect(screen.getAllByText("Target reduction")).toHaveLength(3);
+    expect(screen.getAllByText("45.0 kW of 40.0 kW")).toHaveLength(2);
     expect(screen.queryByText("Estimated time to restore ~2 minutes")).not.toBeInTheDocument();
 
     const secondaryPane = within(screen.getByTestId("secondary-pane"));
@@ -161,32 +160,30 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getAllByText("Preview is unavailable until a valid target reduction is entered.")).toHaveLength(2);
   });
 
-  it("renders preview values from the preview snapshot", () => {
+  it("renders estimated reduction against the requested reduction", () => {
     renderModal({
       initialValues: {
         ...configuredValues,
-        curtailmentMode: "percentageReduction",
-        targetKw: "50",
+        targetKw: "40",
       },
-      preview,
+      preview: {
+        ...preview,
+        targetKw: 40,
+        estimatedReductionKw: 48,
+      },
     });
 
-    expect(screen.getAllByText("45.0 kW of 60.0 kW")).toHaveLength(2);
+    expect(screen.getAllByText("48.0 kW of 40.0 kW")).toHaveLength(2);
   });
 
   it("submits the current form values without dismissing the modal", async () => {
     const user = userEvent.setup();
     const { onDismiss, onSubmit } = renderModal();
     const targetInput = screen.getByLabelText("Target reduction");
-    const [curtailBatchSizeInput, restoreBatchSizeInput] = screen.getAllByLabelText("Batch size (miners)");
-    const [curtailIntervalInput, restoreIntervalInput] = screen.getAllByLabelText("Batch interval (sec)");
+    const restoreBatchSizeInput = screen.getByLabelText("Batch size (miners)");
+    const restoreIntervalInput = screen.getByLabelText("Batch interval (sec)");
 
     await user.type(targetInput, "75");
-    await user.type(curtailBatchSizeInput, "8");
-    await user.type(curtailIntervalInput, "60");
-    await user.type(screen.getByLabelText("Tolerance"), "5");
-    await user.type(screen.getByLabelText("Min duration"), "300");
-    await user.type(screen.getByLabelText("Max duration"), "3600");
     await user.type(restoreBatchSizeInput, "10");
     await user.type(restoreIntervalInput, "120");
     await user.type(screen.getByLabelText("Reason"), "Grid response");
@@ -195,23 +192,21 @@ describe("CurtailmentStartModal", () => {
     const submittedValues = onSubmit.mock.calls[0]?.[0] as Record<string, unknown>;
     expect(submittedValues).toMatchObject({
       targetKw: "75",
-      toleranceKw: "5",
-      minDurationSec: "300",
-      maxDurationSec: "3600",
+      toleranceKw: "",
+      minDurationSec: "",
+      maxDurationSec: "",
       reason: "Grid response",
       priority: "normal",
       responseProfileId: "customPlan",
-      curtailmentMode: "fixedKwTarget",
-      minerSelectionStrategy: "worstMinersFirst",
-      curtailBatchSize: "8",
-      curtailIntervalSec: "60",
+      curtailmentMode: "fixedKwReduction",
+      minerSelectionStrategy: "leastEfficientFirst",
       restoreBatchSize: "10",
       restoreIntervalSec: "120",
     });
     expect(onDismiss).not.toHaveBeenCalled();
   });
 
-  it("submits selected curtailment mode and miner strategy values", async () => {
+  it("only exposes curtailment options supported by the current API", async () => {
     const user = userEvent.setup();
     const { onSubmit } = renderModal();
     const startButton = screen.getByRole("button", { name: "Start curtailment" });
@@ -221,22 +216,29 @@ describe("CurtailmentStartModal", () => {
 
     try {
       await user.click(screen.getByRole("button", { name: "Curtailment mode" }));
-      await user.click(await screen.findByRole("option", { name: "Percentage reduction" }));
+      const fixedReductionOption = await screen.findByRole("option", { name: "Fixed kW reduction" });
+      expect(screen.queryByRole("option", { name: "Percentage reduction" })).not.toBeInTheDocument();
+      await user.click(fixedReductionOption);
+
       await user.click(screen.getByRole("button", { name: "Miner selection strategy" }));
-      await user.click(await screen.findByRole("option", { name: "Round robin" }));
+      const leastEfficientOption = await screen.findByRole("option", { name: "Least efficient first" });
+      expect(screen.queryByRole("option", { name: "Round robin" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("option", { name: "Oldest miners first" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("option", { name: "Lowest hashrate first" })).not.toBeInTheDocument();
+      await user.click(leastEfficientOption);
     } finally {
       restoreSelectLayoutMock();
     }
 
-    expect(screen.getByText("Percentage reduction")).toBeInTheDocument();
-    expect(screen.getByText("Round robin")).toBeInTheDocument();
+    expect(screen.getByText("Fixed kW reduction")).toBeInTheDocument();
+    expect(screen.getByText("Least efficient first")).toBeInTheDocument();
     expect(startButton).toBeEnabled();
 
     await user.click(startButton);
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
-        curtailmentMode: "percentageReduction",
-        minerSelectionStrategy: "roundRobin",
+        curtailmentMode: "fixedKwReduction",
+        minerSelectionStrategy: "leastEfficientFirst",
       }),
     );
   });
@@ -358,7 +360,6 @@ describe("CurtailmentStartModal", () => {
     renderModal({
       errors: {
         targetKw: "Required",
-        minDurationSec: "Minimum duration is required",
         reason: "Reason is required",
       },
     });
@@ -367,8 +368,6 @@ describe("CurtailmentStartModal", () => {
     expect(targetInput).toHaveAttribute("aria-invalid", "true");
     expect(targetInput).toHaveAttribute("aria-describedby", "curtailment-target-kw-error");
     expect(screen.getByText("Required")).toBeInTheDocument();
-    expect(screen.getByLabelText("Min duration")).toHaveAttribute("aria-invalid", "true");
-    expect(screen.getByText("Minimum duration is required")).toBeInTheDocument();
     expect(screen.getByLabelText("Reason")).toHaveAttribute("aria-invalid", "true");
     expect(screen.getByText("Reason is required")).toBeInTheDocument();
   });

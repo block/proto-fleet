@@ -10,13 +10,13 @@ import { variants } from "@/shared/components/Button";
 import Checkbox from "@/shared/components/Checkbox";
 import Dialog, { DialogIcon } from "@/shared/components/Dialog";
 import Input from "@/shared/components/Input";
-import Select, { type SelectOption } from "@/shared/components/Select";
+import Select, { type SelectOption, type SelectProps } from "@/shared/components/Select";
 
 export type CurtailmentPriority = "normal" | "emergency";
 export type CurtailmentScopeType = "wholeOrg" | "deviceSet" | "explicitMiners";
 export type ResponseProfileId = "customPlan";
-export type CurtailmentMode = "percentageReduction" | "fixedKwTarget";
-export type MinerSelectionStrategy = "worstMinersFirst" | "oldestMinersFirst" | "lowestHashrateFirst" | "roundRobin";
+export type CurtailmentMode = "fixedKwReduction";
+export type MinerSelectionStrategy = "leastEfficientFirst";
 
 export interface CurtailmentFormValues {
   scopeType: CurtailmentScopeType;
@@ -29,8 +29,6 @@ export interface CurtailmentFormValues {
   targetKw: string;
   toleranceKw: string;
   priority: CurtailmentPriority;
-  curtailBatchSize: string;
-  curtailIntervalSec: string;
   minDurationSec: string;
   maxDurationSec: string;
   restoreBatchSize: string;
@@ -44,7 +42,7 @@ export type CurtailmentSubmitValues = CurtailmentFormValues;
 export interface CurtailmentPlanPreview {
   selectedMinerCount: number;
   targetKw: number;
-  currentUsageKw: number;
+  estimatedReductionKw: number;
   curtailEstimate: string;
   restoreEstimate: string;
   scopeLabel: string;
@@ -92,7 +90,7 @@ interface TypedSelectOption<Value extends string> extends SelectOption {
   value: Value;
 }
 
-interface TypedSelectProps<Value extends string> {
+interface TypedSelectProps<Value extends string> extends Pick<SelectProps, "className" | "disabled" | "testId"> {
   id: string;
   label: string;
   value: Value;
@@ -109,13 +107,11 @@ const defaultValues: CurtailmentFormValues = {
   deviceSetIds: [],
   deviceIdentifiers: [],
   responseProfileId: "customPlan",
-  curtailmentMode: "fixedKwTarget",
-  minerSelectionStrategy: "worstMinersFirst",
+  curtailmentMode: "fixedKwReduction",
+  minerSelectionStrategy: "leastEfficientFirst",
   targetKw: "",
   toleranceKw: "",
   priority: "normal",
-  curtailBatchSize: "",
-  curtailIntervalSec: "",
   minDurationSec: "",
   maxDurationSec: "",
   restoreBatchSize: "",
@@ -129,20 +125,11 @@ const responseProfileOptions: Array<TypedSelectOption<ResponseProfileId>> = [
 ];
 
 const curtailmentModeOptions: Array<TypedSelectOption<CurtailmentMode>> = [
-  { value: "percentageReduction", label: "Percentage reduction" },
-  { value: "fixedKwTarget", label: "Fixed kW target" },
+  { value: "fixedKwReduction", label: "Fixed kW reduction" },
 ];
 
 const minerSelectionStrategyOptions: Array<TypedSelectOption<MinerSelectionStrategy>> = [
-  { value: "worstMinersFirst", label: "Worst miners first" },
-  { value: "oldestMinersFirst", label: "Oldest miners first" },
-  { value: "lowestHashrateFirst", label: "Lowest hashrate first" },
-  { value: "roundRobin", label: "Round robin" },
-];
-
-const priorityOptions: Array<TypedSelectOption<CurtailmentPriority>> = [
-  { value: "normal", label: "Normal" },
-  { value: "emergency", label: "Emergency" },
+  { value: "leastEfficientFirst", label: "Least efficient first" },
 ];
 
 function getInitialValues(initialValues?: Partial<CurtailmentFormValues>): CurtailmentFormValues {
@@ -175,6 +162,9 @@ function TypedSelect<Value extends string>({
   value,
   options,
   error,
+  className,
+  disabled,
+  testId,
   onChange,
 }: TypedSelectProps<Value>): ReactElement {
   return (
@@ -184,6 +174,9 @@ function TypedSelect<Value extends string>({
       value={value}
       options={options}
       error={error}
+      className={className}
+      disabled={disabled}
+      testId={testId}
       onChange={(nextValue) => {
         if (isSelectOptionValue(options, nextValue)) {
           onChange(nextValue);
@@ -255,10 +248,10 @@ function PreviewPane({ preview, previewError }: PreviewPaneProps): ReactElement 
           <div>
             <div className="text-emphasis-200 text-text-primary-70">Target reduction</div>
             <div className="text-heading-300 text-text-primary">
-              {formatKw(preview.targetKw)} of {formatKw(preview.currentUsageKw)}
+              {formatKw(preview.estimatedReductionKw)} of {formatKw(preview.targetKw)}
             </div>
           </div>
-          <ReductionProgressBar value={preview.targetKw} max={preview.currentUsageKw} />
+          <ReductionProgressBar value={preview.estimatedReductionKw} max={preview.targetKw} />
         </div>
 
         <div className="grid gap-6">
@@ -396,6 +389,7 @@ function CurtailmentStartModalContent({
                     id="curtailment-target-kw"
                     label="Target reduction"
                     value={values.targetKw}
+                    units="kW"
                     error={errors?.targetKw}
                     onChange={(value) => updateValue("targetKw", value)}
                   />
@@ -408,63 +402,6 @@ function CurtailmentStartModalContent({
                   error={errors?.minerSelectionStrategy}
                   onChange={(value) => updateValue("minerSelectionStrategy", value)}
                 />
-                <div className="grid gap-3 tablet:grid-cols-2">
-                  <Field
-                    id="curtailment-batch-size"
-                    label="Batch size (miners)"
-                    value={values.curtailBatchSize}
-                    error={errors?.curtailBatchSize}
-                    onChange={(value) => updateValue("curtailBatchSize", value)}
-                  />
-                  <Field
-                    id="curtailment-batch-interval"
-                    label="Batch interval (sec)"
-                    value={values.curtailIntervalSec}
-                    error={errors?.curtailIntervalSec}
-                    onChange={(value) => updateValue("curtailIntervalSec", value)}
-                  />
-                </div>
-              </div>
-            </Section>
-
-            <Section title="Safety">
-              <div className="grid gap-3">
-                <div className="grid gap-3 tablet:grid-cols-2">
-                  <TypedSelect
-                    id="curtailment-priority"
-                    label="Priority"
-                    value={values.priority}
-                    options={priorityOptions}
-                    error={errors?.priority}
-                    onChange={(value) => updateValue("priority", value)}
-                  />
-                  <Field
-                    id="curtailment-tolerance-kw"
-                    label="Tolerance"
-                    value={values.toleranceKw}
-                    units="kW"
-                    error={errors?.toleranceKw}
-                    onChange={(value) => updateValue("toleranceKw", value)}
-                  />
-                </div>
-                <div className="grid gap-3 tablet:grid-cols-2">
-                  <Field
-                    id="curtailment-min-duration"
-                    label="Min duration"
-                    value={values.minDurationSec}
-                    units="sec"
-                    error={errors?.minDurationSec}
-                    onChange={(value) => updateValue("minDurationSec", value)}
-                  />
-                  <Field
-                    id="curtailment-max-duration"
-                    label="Max duration"
-                    value={values.maxDurationSec}
-                    units="sec"
-                    error={errors?.maxDurationSec}
-                    onChange={(value) => updateValue("maxDurationSec", value)}
-                  />
-                </div>
               </div>
             </Section>
 
