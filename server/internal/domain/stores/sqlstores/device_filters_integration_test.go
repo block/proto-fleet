@@ -60,7 +60,12 @@ func TestZoneFilter_CrossOrgIsolation(t *testing.T) {
 	_, err = collectionStore.AddDevicesToCollection(ctx, userB.OrganizationID, rackB.Id, []string{devB.ID})
 	require.NoError(t, err)
 
-	filter := &stores.MinerFilter{Zones: []string{sharedZone}}
+	// Wildcard zone_keys: org-wide match by zone label. The SQL builder's
+	// dcm.org_id = $orgID clause is the single-layer defense — see
+	// device_filters.go single-layer-defense comment.
+	filter := &stores.MinerFilter{
+		ZoneKeys: []stores.ZoneKey{{BuildingID: 0, Zone: sharedZone}},
+	}
 
 	// Org A should see only its device, never org B's.
 	rowsA, _, totalA, err := deviceStore.ListMinerStateSnapshots(ctx, userA.OrganizationID, "", 100, filter, nil)
@@ -465,7 +470,9 @@ func TestZoneFilter_ExcludesSoftDeletedRack(t *testing.T) {
 	_, err = collectionStore.AddDevicesToCollection(ctx, user.OrganizationID, rack.Id, []string{dev.ID})
 	require.NoError(t, err)
 
-	filter := &stores.MinerFilter{Zones: []string{"doomed-zone"}}
+	filter := &stores.MinerFilter{
+		ZoneKeys: []stores.ZoneKey{{BuildingID: 0, Zone: "doomed-zone"}},
+	}
 
 	// Sanity check: device shows up before deletion.
 	rows, _, total, err := deviceStore.ListMinerStateSnapshots(ctx, user.OrganizationID, "", 100, filter, nil)

@@ -676,6 +676,7 @@ func TestService_ListMinerStateSnapshots_ShouldPopulateCapabilitiesForPairedDevi
 		poolStore,
 		errorStore,
 		collectionStore,
+		sqlstores.NewSQLBuildingStore(testContext.ServiceProvider.DB),
 		nil,
 		activitySvc,
 	)
@@ -793,6 +794,7 @@ func TestService_ListMinerStateSnapshots_ShouldPopulateCapabilitiesForUnpairedDe
 		poolStore,
 		errorStore,
 		collectionStore,
+		sqlstores.NewSQLBuildingStore(testContext.ServiceProvider.DB),
 		nil,
 		activitySvc,
 	)
@@ -875,6 +877,7 @@ func TestService_ListMinerStateSnapshots_ShouldCacheCapabilities(t *testing.T) {
 		poolStore,
 		errorStore,
 		collectionStore,
+		sqlstores.NewSQLBuildingStore(testContext.ServiceProvider.DB),
 		nil,
 		activitySvc,
 	)

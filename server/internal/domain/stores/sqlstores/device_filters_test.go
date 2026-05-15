@@ -499,28 +499,80 @@ func TestBuildMinerFilterParams_FirmwareVersions(t *testing.T) {
 	assert.Equal(t, []string{"v3.5.1", "v3.5.2"}, params.firmwareVersionValues)
 }
 
-func TestBuildMinerFilterParams_Zones(t *testing.T) {
+func TestBuildMinerFilterParams_ZoneKeys_AllScoped(t *testing.T) {
 	filter := &stores.MinerFilter{
-		Zones: []string{"building-a", "building-b"},
+		ZoneKeys: []stores.ZoneKey{
+			{BuildingID: 7, Zone: "Room 2"},
+			{BuildingID: 9, Zone: "Room 2"},
+		},
 	}
 
 	params := buildMinerFilterParams(filter)
 
-	assert.True(t, params.zonesFilter.Valid)
-	assert.Equal(t, []string{"building-a", "building-b"}, params.zoneValues)
+	assert.True(t, params.zoneKeysFilter.Valid)
+	assert.Equal(t, []int64{7, 9}, params.scopedBuildingIDs)
+	assert.Equal(t, []string{"Room 2", "Room 2"}, params.scopedZones)
+	assert.Empty(t, params.wildcardZones)
+}
+
+func TestBuildMinerFilterParams_ZoneKeys_AllWildcard(t *testing.T) {
+	filter := &stores.MinerFilter{
+		ZoneKeys: []stores.ZoneKey{
+			{BuildingID: 0, Zone: "Room 2"},
+			{BuildingID: 0, Zone: "Cold Aisle"},
+		},
+	}
+
+	params := buildMinerFilterParams(filter)
+
+	assert.True(t, params.zoneKeysFilter.Valid)
+	assert.Empty(t, params.scopedBuildingIDs)
+	assert.Empty(t, params.scopedZones)
+	assert.Equal(t, []string{"Room 2", "Cold Aisle"}, params.wildcardZones)
+}
+
+func TestBuildMinerFilterParams_ZoneKeys_Mixed(t *testing.T) {
+	filter := &stores.MinerFilter{
+		ZoneKeys: []stores.ZoneKey{
+			{BuildingID: 7, Zone: "Room 2"},
+			{BuildingID: 0, Zone: "Wildcard Zone"},
+		},
+	}
+
+	params := buildMinerFilterParams(filter)
+
+	assert.True(t, params.zoneKeysFilter.Valid)
+	assert.Equal(t, []int64{7}, params.scopedBuildingIDs)
+	assert.Equal(t, []string{"Room 2"}, params.scopedZones)
+	assert.Equal(t, []string{"Wildcard Zone"}, params.wildcardZones)
+}
+
+func TestBuildMinerFilterParams_BuildingIDs(t *testing.T) {
+	filter := &stores.MinerFilter{
+		BuildingIDs:       []int64{7, 9},
+		IncludeNoBuilding: true,
+		IncludeNoRack:     true,
+	}
+
+	params := buildMinerFilterParams(filter)
+
+	assert.True(t, params.buildingIDsFilter.Valid)
+	assert.Equal(t, []int64{7, 9}, params.buildingIDValues)
+	assert.True(t, params.includeNoBuilding)
+	assert.True(t, params.includeNoRack)
 }
 
 func TestBuildMinerFilterParams_FirmwareAndZones_Empty(t *testing.T) {
 	// Empty slices should leave the filter unset (valid=false).
 	filter := &stores.MinerFilter{
 		FirmwareVersions: []string{},
-		Zones:            []string{},
+		ZoneKeys:         []stores.ZoneKey{},
 	}
 
 	params := buildMinerFilterParams(filter)
 
 	assert.False(t, params.firmwareVersionsFilter.Valid)
-	assert.False(t, params.zonesFilter.Valid)
+	assert.False(t, params.zoneKeysFilter.Valid)
 }
 
 func TestAppendFilterSQL_FirmwareVersionsOnly(t *testing.T) {
@@ -541,84 +593,177 @@ func TestAppendFilterSQL_FirmwareVersionsOnly(t *testing.T) {
 	assert.Equal(t, 3, resultArgNum)
 }
 
-func TestAppendFilterSQL_ZonesOnly(t *testing.T) {
+func TestAppendFilterSQL_ZoneKeys_WildcardOnly(t *testing.T) {
 	var sb strings.Builder
 	args := []any{"initial"}
 	argNum := 2
 	fp := minerFilterParams{
-		zonesFilter: validNullString(),
-		zoneValues:  []string{"building-a"},
+		zoneKeysFilter: validNullString(),
+		wildcardZones:  []string{"Room 2"},
 	}
 	orgID := int64(42)
 
-	resultArgs, resultArgNum := appendFilterSQL(&sb, args, argNum, orgID, fp)
+	resultArgs, _ := appendFilterSQL(&sb, args, argNum, orgID, fp)
 
 	sql := sb.String()
 	assert.Contains(t, sql, "device_set_membership dcm")
-	assert.Contains(t, sql, "JOIN device_set ds ON ds.id = dcm.device_set_id")
-	assert.Contains(t, sql, "JOIN device_set_rack dsr ON dsr.device_set_id = dcm.device_set_id")
-	assert.Contains(t, sql, "device_set_type = 'rack'")
 	assert.Contains(t, sql, "dsr.zone = ANY($3::text[])")
-	assert.Contains(t, sql, "dcm.org_id = $2")
-	assert.Len(t, resultArgs, 3) // initial + orgID + zone values
-	assert.Equal(t, 4, resultArgNum)
+	assert.Contains(t, sql, "dcm.org_id = $2",
+		"single-layer org defense: every zone_keys EXISTS must carry dcm.org_id")
+	assert.NotContains(t, sql, "UNNEST",
+		"wildcard-only path should not emit the scoped UNNEST branch")
+	assert.Len(t, resultArgs, 3)
 }
 
-// TestAppendFilterSQL_ZonesExcludeSoftDeletedRacks guards against the bug
-// where the zone EXISTS subquery would still match miners whose rack has been
-// soft-deleted. Soft delete sets device_set.deleted_at but leaves the
-// membership and rack-extension rows in place, so the subquery must include
-// the device_set join and the deleted_at IS NULL predicate.
-func TestAppendFilterSQL_ZonesExcludeSoftDeletedRacks(t *testing.T) {
-	var sb strings.Builder
-	args := []any{"initial"}
-	fp := minerFilterParams{
-		zonesFilter: validNullString(),
-		zoneValues:  []string{"building-a"},
-	}
-
-	appendFilterSQL(&sb, args, 2, 42, fp)
-
-	sql := sb.String()
-	assert.Contains(t, sql, "JOIN device_set ds ON ds.id = dcm.device_set_id",
-		"zone subquery must join device_set to access the soft-delete column")
-	assert.Contains(t, sql, "ds.deleted_at IS NULL",
-		"zone subquery must exclude soft-deleted racks")
-}
-
-func TestAppendFilterSQL_FirmwareAndZones_ProducesAND(t *testing.T) {
+func TestAppendFilterSQL_ZoneKeys_ScopedOnly(t *testing.T) {
 	var sb strings.Builder
 	args := []any{"initial"}
 	argNum := 2
 	fp := minerFilterParams{
-		firmwareVersionsFilter: validNullString(),
-		firmwareVersionValues:  []string{"v3.5.1"},
-		zonesFilter:            validNullString(),
-		zoneValues:             []string{"building-a"},
+		zoneKeysFilter:    validNullString(),
+		scopedBuildingIDs: []int64{7, 9},
+		scopedZones:       []string{"Room 2", "Room 2"},
 	}
 	orgID := int64(42)
 
-	resultArgs, resultArgNum := appendFilterSQL(&sb, args, argNum, orgID, fp)
+	resultArgs, _ := appendFilterSQL(&sb, args, argNum, orgID, fp)
 
 	sql := sb.String()
-	assert.Contains(t, sql, "discovered_device.firmware_version")
-	assert.Contains(t, sql, "dsr.zone")
-	// Two AND clauses, no OR between firmware and zones.
-	assert.GreaterOrEqual(t, strings.Count(sql, " AND "), 2)
-	// 3 new args: firmware values + orgID + zone values.
-	assert.Len(t, resultArgs, 4) // initial + firmware + orgID + zones
-	assert.Equal(t, 5, resultArgNum)
+	assert.Contains(t, sql, "(dsr.building_id, dsr.zone) IN (")
+	assert.Contains(t, sql, "UNNEST($3::bigint[], $4::text[])")
+	assert.Contains(t, sql, "dcm.org_id = $2",
+		"single-layer org defense: every zone_keys EXISTS must carry dcm.org_id")
+	assert.NotContains(t, sql, "dsr.zone = ANY(",
+		"scoped-only path should not emit the wildcard ANY branch")
+	assert.Len(t, resultArgs, 4) // initial + orgID + buildingIDs + zones
+}
+
+func TestAppendFilterSQL_ZoneKeys_MixedScopedAndWildcard(t *testing.T) {
+	var sb strings.Builder
+	args := []any{"initial"}
+	argNum := 2
+	fp := minerFilterParams{
+		zoneKeysFilter:    validNullString(),
+		scopedBuildingIDs: []int64{7},
+		scopedZones:       []string{"Room 2"},
+		wildcardZones:     []string{"Cold Aisle"},
+	}
+	orgID := int64(42)
+
+	resultArgs, _ := appendFilterSQL(&sb, args, argNum, orgID, fp)
+
+	sql := sb.String()
+	// Both branches present, OR'd inside one EXISTS so org_id only fires once.
+	assert.Contains(t, sql, "(dsr.building_id, dsr.zone) IN (")
+	assert.Contains(t, sql, "dsr.zone = ANY(")
+	assert.Contains(t, sql, " OR ")
+	assert.Contains(t, sql, "dcm.org_id = $2")
+	assert.Equal(t, 1, strings.Count(sql, "dcm.org_id"),
+		"both branches share one EXISTS so org_id appears exactly once")
+	assert.Len(t, resultArgs, 5) // initial + orgID + buildingIDs + scopedZones + wildcardZones
+}
+
+func TestAppendFilterSQL_BuildingIDsOnly(t *testing.T) {
+	var sb strings.Builder
+	args := []any{"initial"}
+	argNum := 2
+	fp := minerFilterParams{
+		buildingIDsFilter: validNullString(),
+		buildingIDValues:  []int64{7, 9},
+	}
+	orgID := int64(42)
+
+	resultArgs, _ := appendFilterSQL(&sb, args, argNum, orgID, fp)
+
+	sql := sb.String()
+	assert.Contains(t, sql, "dsr.building_id = ANY($3::bigint[])")
+	assert.Contains(t, sql, "dcm.org_id = $2")
+	assert.Len(t, resultArgs, 3) // initial + orgID + buildingIDs
+}
+
+func TestAppendFilterSQL_IncludeNoBuilding_Alone(t *testing.T) {
+	var sb strings.Builder
+	fp := minerFilterParams{includeNoBuilding: true}
+
+	appendFilterSQL(&sb, []any{"initial"}, 2, 42, fp)
+
+	sql := sb.String()
+	assert.Contains(t, sql, "dsr.building_id IS NULL")
+	assert.Contains(t, sql, "dcm.org_id = $2")
+}
+
+func TestAppendFilterSQL_IncludeNoRack_Alone(t *testing.T) {
+	var sb strings.Builder
+	fp := minerFilterParams{includeNoRack: true}
+
+	appendFilterSQL(&sb, []any{"initial"}, 2, 42, fp)
+
+	sql := sb.String()
+	assert.Contains(t, sql, "NOT EXISTS")
+	assert.Contains(t, sql, "device_set_type = 'rack'")
+	assert.Contains(t, sql, "dcm.org_id = $2")
+}
+
+func TestAppendFilterSQL_BuildingFiltersORTogether(t *testing.T) {
+	// building_ids + include_no_building + include_no_rack should be OR'd
+	// inside one outer AND so devices in any of the three populations match.
+	var sb strings.Builder
+	fp := minerFilterParams{
+		buildingIDsFilter: validNullString(),
+		buildingIDValues:  []int64{7},
+		includeNoBuilding: true,
+		includeNoRack:     true,
+	}
+
+	appendFilterSQL(&sb, []any{"initial"}, 2, 42, fp)
+
+	sql := sb.String()
+	assert.Contains(t, sql, "dsr.building_id = ANY")
+	assert.Contains(t, sql, "dsr.building_id IS NULL")
+	assert.Contains(t, sql, "NOT EXISTS")
+	assert.GreaterOrEqual(t, strings.Count(sql, " OR "), 2)
+}
+
+// TestAppendFilterSQL_ZoneKeys_OrgIDDefenseInDepth guards against the
+// regression mode flagged by finding 2: a refactor that drops the
+// dcm.org_id clause from the wildcard branch would silently expose
+// cross-org data. The wildcard branch skips the parseFilter cross-org
+// check so the SQL clause is the only defense.
+func TestAppendFilterSQL_ZoneKeys_OrgIDDefenseInDepth(t *testing.T) {
+	wildcardFP := minerFilterParams{
+		zoneKeysFilter: validNullString(),
+		wildcardZones:  []string{"Room 2"},
+	}
+	scopedFP := minerFilterParams{
+		zoneKeysFilter:    validNullString(),
+		scopedBuildingIDs: []int64{7},
+		scopedZones:       []string{"Room 2"},
+	}
+	for name, fp := range map[string]minerFilterParams{"wildcard": wildcardFP, "scoped": scopedFP} {
+		t.Run(name, func(t *testing.T) {
+			var sb strings.Builder
+			appendFilterSQL(&sb, []any{}, 1, 42, fp)
+			assert.Contains(t, sb.String(), "dcm.org_id = $1",
+				"%s branch must include dcm.org_id — single-layer defense", name)
+		})
+	}
 }
 
 func TestAppendFilterSQL_NewFilters_NoRawSliceArgs(t *testing.T) {
-	// Both new filter args must be pq.Array-wrapped, not raw slices.
+	// Every slice-shaped arg must be pq.Array-wrapped so Postgres receives a
+	// proper array literal. A raw Go slice as a query arg means the driver
+	// silently fails or sends the wrong shape.
 	var sb strings.Builder
 	args := []any{"initial_org_id"}
 	fp := minerFilterParams{
 		firmwareVersionsFilter: validNullString(),
 		firmwareVersionValues:  []string{"v3.5.1"},
-		zonesFilter:            validNullString(),
-		zoneValues:             []string{"building-a"},
+		zoneKeysFilter:         validNullString(),
+		scopedBuildingIDs:      []int64{7},
+		scopedZones:            []string{"Room 2"},
+		wildcardZones:          []string{"Cold Aisle"},
+		buildingIDsFilter:      validNullString(),
+		buildingIDValues:       []int64{7, 9},
 	}
 
 	resultArgs, _ := appendFilterSQL(&sb, args, 2, 1, fp)
