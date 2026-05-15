@@ -123,9 +123,21 @@ This section locks the semantics that the rest of the plan assumes.
   building, the wire-level zone filter on miner / rack lists uses
   `repeated ZoneKey { int64 building_id; string zone; }` rather than
   `repeated string`. Two racks with zone "Room 2" in different
-  buildings stay distinguishable. When zone becomes an entity, this
-  filter migrates to `repeated int64 zone_ids` — same migration cost
-  whether we picked composite-key now or not.
+  buildings stay distinguishable. `building_id = 0` is a
+  transitional sentinel inside `ZoneKey` meaning "match this zone
+  label across all buildings" — it covers today's
+  no-buildings-in-UI dropdown (which sends only wildcards). Once
+  the buildings UI ships and zones can only exist on racks inside
+  a building, well-formed clients have no reason to emit wildcards
+  anymore. The sentinel survives because removing it would be a
+  breaking proto change for a marginal cleanup win — harmless dead
+  surface area, not a permanent feature. When zone eventually
+  becomes an entity, this filter migrates to `repeated int64
+  zone_ids` — same migration cost whether we picked composite-key
+  now or not.
+
+  See `docs/plans/2026-05-14-229-miner-zone-building-filter.md`
+  for the full Phase 1 filter plan.
 - **Rack** stores `site_id` (nullable), `building_id` (nullable), and
   `zone` (string). A rack may belong directly to a site without a
   building. When `building_id` is set, `rack.site_id` must match the
