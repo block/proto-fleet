@@ -1,6 +1,6 @@
 name: Pull Request
 
-on: pull_request_target # zizmor: ignore[dangerous-triggers] needed for actions/labeler to write on fork PRs; this workflow does not check out the PR head
+on: pull_request_target # zizmor: ignore[dangerous-triggers] labeler needs fork-PR write access; workflow never checks out PR head
 
 permissions:
   contents: read
