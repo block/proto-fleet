@@ -80,14 +80,26 @@ const RacksPage = () => {
   const setRacksViewMode = useFleetStore((s) => s.ui.setRacksViewMode);
   const temperatureUnit = useFleetStore((s) => s.ui.temperatureUnit);
 
-  // Fetch all rack zones once on mount
+  // Fetch all rack zones once on mount. ListRackZones now returns
+  // composite ZoneRef[] (one entry per (building_id, zone) pair).
+  // The rack-list dropdown still shows zone labels only (no building
+  // picker until Phase 2), so dedup by zone string. The
+  // wildcard-sentinel filter shim in useDeviceSetListState preserves
+  // the legacy org-wide behavior for selections from this dedupd set.
   const zonesRequestId = useRef(0);
   const fetchZones = useCallback(() => {
     const requestId = ++zonesRequestId.current;
     listRackZones({
-      onSuccess: (zones) => {
+      onSuccess: (refs) => {
         if (requestId !== zonesRequestId.current) return;
-        setAllZones(zones.map((z) => ({ id: z, label: z })));
+        const seen = new Set<string>();
+        const deduped: { id: string; label: string }[] = [];
+        for (const ref of refs) {
+          if (!ref.zone || seen.has(ref.zone)) continue;
+          seen.add(ref.zone);
+          deduped.push({ id: ref.zone, label: ref.zone });
+        }
+        setAllZones(deduped);
       },
     });
   }, [listRackZones]);

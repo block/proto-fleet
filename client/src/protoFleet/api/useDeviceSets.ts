@@ -8,6 +8,7 @@ import {
   DeviceSelectorSchema,
 } from "@/protoFleet/api/generated/common/v1/device_selector_pb";
 import { type SortConfig } from "@/protoFleet/api/generated/common/v1/sort_pb";
+import { type ZoneKey, type ZoneRef } from "@/protoFleet/api/generated/common/v1/zone_pb";
 import {
   type DeviceSet,
   type DeviceSetStats,
@@ -55,7 +56,13 @@ interface ListDeviceSetsProps {
   pageToken?: string;
   sort?: SortConfig;
   errorComponentTypes?: number[];
-  zones?: string[];
+  // Zone filter for racks. Each ZoneKey is a (building_id, zone) pair;
+  // building_id=0 is the wildcard sentinel that matches a zone label
+  // across all buildings — matches the legacy "any building" behavior
+  // until the building picker UI ships in Phase 2.
+  zoneKeys?: ZoneKey[];
+  buildingIds?: bigint[];
+  includeNoBuilding?: boolean;
   onSuccess?: (deviceSets: DeviceSet[], nextPageToken: string, totalCount: number) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
@@ -98,7 +105,7 @@ interface CreateRackProps {
 }
 
 interface ListRackZonesProps {
-  onSuccess?: (zones: string[]) => void;
+  onSuccess?: (zones: ZoneRef[]) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
 }
@@ -347,7 +354,9 @@ const useDeviceSets = () => {
       pageToken,
       sort,
       errorComponentTypes,
-      zones,
+      zoneKeys,
+      buildingIds,
+      includeNoBuilding,
       onSuccess,
       onError,
       onFinally,
@@ -360,7 +369,9 @@ const useDeviceSets = () => {
             pageToken: pageToken ?? "",
             sort,
             errorComponentTypes: errorComponentTypes ?? [],
-            zones: zones ?? [],
+            zoneKeys: zoneKeys ?? [],
+            buildingIds: buildingIds ?? [],
+            includeNoBuilding: includeNoBuilding ?? false,
           });
           onSuccess?.(response.deviceSets, response.nextPageToken, response.totalCount);
         } else {
@@ -374,7 +385,9 @@ const useDeviceSets = () => {
               pageSize: 1000,
               pageToken: nextToken,
               sort,
-              zones: zones ?? [],
+              zoneKeys: zoneKeys ?? [],
+              buildingIds: buildingIds ?? [],
+              includeNoBuilding: includeNoBuilding ?? false,
             });
             all.push(...response.deviceSets);
             nextToken = response.nextPageToken;

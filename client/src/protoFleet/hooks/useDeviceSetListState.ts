@@ -7,6 +7,7 @@ import {
   SortConfigSchema,
   SortField,
 } from "@/protoFleet/api/generated/common/v1/sort_pb";
+import { ZoneKeySchema } from "@/protoFleet/api/generated/common/v1/zone_pb";
 import type { DeviceSet, DeviceSetStats } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import type { ListDeviceSetsProps } from "@/protoFleet/api/useDeviceSets";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
@@ -42,6 +43,10 @@ export function useDeviceSetListState(
   listFn: ListFn,
   pageSize: number,
   getErrorComponentTypes?: () => number[],
+  // Returns zone labels selected in the dropdown. The hook translates
+  // them to wildcard ZoneKeys (building_id=0) before calling listFn.
+  // The dropdown stays label-only until Phase 2 ships the building
+  // picker; once that lands, getZoneKeys becomes the entry point.
   getZones?: () => string[],
 ) {
   const { getDeviceSetStats } = useDeviceSets();
@@ -93,12 +98,14 @@ export function useDeviceSetListState(
       const requestId = ++listRequestId.current;
       setIsLoading(true);
       setError(null);
+      const zoneLabels = getZones?.() ?? [];
+      const zoneKeys = zoneLabels.map((zone) => create(ZoneKeySchema, { buildingId: 0n, zone }));
       listFn({
         pageSize,
         pageToken,
         sort: sortRef.current,
         errorComponentTypes: getErrorComponentTypes?.() ?? [],
-        zones: getZones?.() ?? [],
+        zoneKeys,
         onSuccess: (items, nextPageToken, total) => {
           if (requestId !== listRequestId.current) return;
           if (total > 0) setHasEverLoaded(true);

@@ -7,6 +7,7 @@ import {
   FLEET_VISIBLE_PAIRING_STATUSES,
   isFleetSelectablePairingStatus,
 } from "./fleetVisiblePairingFilter";
+import { ZoneKeySchema } from "@/protoFleet/api/generated/common/v1/zone_pb";
 import {
   type MinerListFilter,
   MinerListFilterSchema,
@@ -67,12 +68,14 @@ describe("applyFleetSelectablePairingStatuses", () => {
   it("copies firmware and zone filters through so bulk actions respect them", () => {
     const filter: MinerListFilter = create(MinerListFilterSchema, {
       firmwareVersions: ["v3.5.1"],
-      zones: ["Austin, Building 1"],
+      zoneKeys: [create(ZoneKeySchema, { buildingId: 0n, zone: "Austin, Building 1" })],
     });
 
     const result = applyFleetSelectablePairingStatuses(filter);
     expect(result.firmwareVersions).toEqual(["v3.5.1"]);
-    expect(result.zones).toEqual(["Austin, Building 1"]);
+    expect(result.zoneKeys).toHaveLength(1);
+    expect(result.zoneKeys[0].buildingId).toBe(0n);
+    expect(result.zoneKeys[0].zone).toBe("Austin, Building 1");
   });
 });
 

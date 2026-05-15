@@ -112,11 +112,20 @@ const RackSettingsModal = ({
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const zoneInputRef = useRef<HTMLInputElement>(null) as RefObject<HTMLInputElement>;
 
-  // Fetch data on mount
+  // Fetch data on mount. ListRackZones returns composite ZoneRef[] now.
+  // Until Phase 2 ships per-building zone scoping in the modal, the
+  // autocomplete dedups to a flat zone-label list (existing behavior).
   useEffect(() => {
     listRackZones({
-      onSuccess: (zones) => {
-        setZoneSuggestions(zones);
+      onSuccess: (refs) => {
+        const seen = new Set<string>();
+        const labels: string[] = [];
+        for (const ref of refs) {
+          if (!ref.zone || seen.has(ref.zone)) continue;
+          seen.add(ref.zone);
+          labels.push(ref.zone);
+        }
+        setZoneSuggestions(labels);
         setHighlightedIndex(-1);
       },
       onFinally: () => setZonesLoaded(true),

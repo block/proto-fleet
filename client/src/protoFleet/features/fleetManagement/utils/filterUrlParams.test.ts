@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { encodeFilterToURL, parseFilterFromURL, parseUrlToActiveFilters } from "./filterUrlParams";
+import { ZoneKeySchema } from "@/protoFleet/api/generated/common/v1/zone_pb";
 import {
   MinerListFilterSchema,
   NumericField,
@@ -322,21 +323,25 @@ describe("filterUrlParams", () => {
     });
   });
 
-  describe("zones", () => {
-    it("encodes zones as repeated URL params", () => {
+  describe("zone keys", () => {
+    it("encodes zoneKeys as repeated URL params with `${buildingId}|${zone}` shape", () => {
       const filter = create(MinerListFilterSchema, {
-        zones: ["building-b", "Austin, Building 1"],
+        zoneKeys: [
+          create(ZoneKeySchema, { buildingId: 0n, zone: "building-b" }),
+          create(ZoneKeySchema, { buildingId: 7n, zone: "Austin, Building 1" }),
+        ],
       });
 
       const params = encodeFilterToURL(filter);
 
-      // sorted on encode for stable output
-      expect(params.getAll("zone")).toEqual(["Austin, Building 1", "building-b"]);
+      // Sorted on encode for stable output. Wildcard sentinel (0|...) sorts
+      // before scoped entries (7|...).
+      expect(params.getAll("zone")).toEqual(["0|building-b", "7|Austin, Building 1"]);
     });
 
     it("round-trips a zone whose name contains a comma and spaces", () => {
       const filter = create(MinerListFilterSchema, {
-        zones: ["Austin, Building 1"],
+        zoneKeys: [create(ZoneKeySchema, { buildingId: 0n, zone: "Austin, Building 1" })],
       });
 
       const params = encodeFilterToURL(filter);
@@ -344,19 +349,28 @@ describe("filterUrlParams", () => {
       // so we verify the encoding survives serialization.
       const reparsed = parseFilterFromURL(new URLSearchParams(params.toString()));
 
-      expect(reparsed?.zones).toEqual(["Austin, Building 1"]);
+      expect(reparsed?.zoneKeys).toHaveLength(1);
+      expect(reparsed?.zoneKeys[0].buildingId).toBe(0n);
+      expect(reparsed?.zoneKeys[0].zone).toBe("Austin, Building 1");
     });
 
-    it("does not split a zone name on its embedded comma", () => {
+    it("translates a legacy bare-zone URL param to a wildcard ZoneKey", () => {
       const params = new URLSearchParams();
       params.append("zone", "Austin, Building 1");
 
-      expect(parseFilterFromURL(params)?.zones).toEqual(["Austin, Building 1"]);
+      const parsed = parseFilterFromURL(params);
+      expect(parsed?.zoneKeys).toHaveLength(1);
+      expect(parsed?.zoneKeys[0].buildingId).toBe(0n);
+      expect(parsed?.zoneKeys[0].zone).toBe("Austin, Building 1");
     });
 
-    it("surfaces zones in ActiveFilters", () => {
-      const params = new URLSearchParams("zone=Austin%2C%20Building%201&zone=building-b");
+    it("surfaces zone labels in ActiveFilters", () => {
+      const params = new URLSearchParams("zone=0%7CAustin%2C%20Building%201&zone=0%7Cbuilding-b");
 
+      // ActiveFilters still surfaces zone labels as string[] (dropdown UI
+      // shape) — building_id is dropped at the surface because the dropdown
+      // doesn't render it yet. Once Phase 2 ships, this expectation will
+      // include the composite shape.
       expect(parseUrlToActiveFilters(params).dropdownFilters.zone).toEqual(["Austin, Building 1", "building-b"]);
     });
 
