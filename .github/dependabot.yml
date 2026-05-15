@@ -5,11 +5,10 @@ updates:
     directory: /
     schedule:
       interval: monthly
+    # github-actions and docker ecosystems do not track semver, so only
+    # default-days is supported on their cooldown blocks.
     cooldown:
       default-days: 3
-      semver-major-days: 7
-      semver-minor-days: 3
-      semver-patch-days: 1
 
   - package-ecosystem: npm
     directory: client
@@ -36,9 +35,6 @@ updates:
       interval: monthly
     cooldown:
       default-days: 3
-      semver-major-days: 7
-      semver-minor-days: 3
-      semver-patch-days: 1
 
   - package-ecosystem: gomod
     directories:
