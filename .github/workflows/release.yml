@@ -89,25 +89,29 @@ jobs:
         run: find /tmp/release-assets -type f | sort
 
       - name: Create draft release and upload assets
-        id: create_release
-        # zizmor: ignore[superfluous-actions] SHA-pinned action handles draft + multi-file uploads cleanly
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
-        with:
-          draft: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          generate_release_notes: true
-          files: |
-            /tmp/release-assets/bundles/proto-fleet-${{ github.ref_name }}-*.tar.gz
-            /tmp/release-assets/windows/installer.exe
-            /tmp/release-assets/windows/uninstall.exe
-            /tmp/release-assets/server/proto-fleet-server-${{ github.ref_name }}-*.tar.gz
-            /tmp/release-assets/client/proto-fleet-client-${{ github.ref_name }}.tar.gz
-            /tmp/release-assets/proto-os/proto-os-${{ github.ref_name }}.tar.gz
-            /tmp/release-assets/proto-os/proto-os_${{ github.ref_name }}.ipk
-            ./deployment-files/install.sh
-            ./deployment-files/uninstall.sh
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          shopt -s failglob
+          extra_args=()
+          if [[ "$TAG_NAME" == *-* ]]; then
+            extra_args+=(--prerelease)
+          fi
+          gh release create "$TAG_NAME" \
+            --draft \
+            --generate-notes \
+            "${extra_args[@]}" \
+            /tmp/release-assets/bundles/proto-fleet-"$TAG_NAME"-*.tar.gz \
+            /tmp/release-assets/windows/installer.exe \
+            /tmp/release-assets/windows/uninstall.exe \
+            /tmp/release-assets/server/proto-fleet-server-"$TAG_NAME"-*.tar.gz \
+            /tmp/release-assets/client/proto-fleet-client-"$TAG_NAME".tar.gz \
+            /tmp/release-assets/proto-os/proto-os-"$TAG_NAME".tar.gz \
+            /tmp/release-assets/proto-os/proto-os_"$TAG_NAME".ipk \
+            ./deployment-files/install.sh \
+            ./deployment-files/uninstall.sh
 
       - name: Publish release
         env:
