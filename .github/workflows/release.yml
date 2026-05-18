@@ -115,6 +115,13 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s failglob
+          if gh release view "$TAG_NAME" --json id >/dev/null 2>&1; then
+            echo "::error::Release for $TAG_NAME already exists; refusing to overwrite. Delete it manually before re-running (see #254 for the recovery-design discussion)."
+            exit 1
+          fi
+          # Trap is armed only after the existence check so a rerun that hits an
+          # existing release exits before the trap can delete a release we did
+          # not create in this run.
           trap 'gh release delete "$TAG_NAME" --yes 2>/dev/null || true' ERR
           extra_args=()
           if [[ "$TAG_NAME" == *-* ]]; then
