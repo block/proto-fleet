@@ -427,6 +427,12 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 	// building. Branches OR'd inside one EXISTS so org_id is enforced
 	// once. See device_filters_orgid_audit_test.go for the
 	// single-layer-defense audit on the wildcard path.
+	//
+	// The OR'd predicate body is shared with the rack-list filter
+	// (collection_sort.go) via appendZoneKeyPredicate. Caller emits
+	// the EXISTS framing + dcm/ds/dsr joins + org_id clause and the
+	// helper fills the (dsr.building_id, dsr.zone) tuple / dsr.zone
+	// = ANY branches.
 	if fp.zoneKeysFilter.Valid {
 		fmt.Fprintf(sb,
 			" AND EXISTS (SELECT 1 FROM device_set_membership dcm"+
@@ -441,26 +447,14 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 		args = append(args, orgID)
 		argNum++
 
-		first := true
-		if len(fp.scopedBuildingIDs) > 0 {
-			fmt.Fprintf(sb,
-				"(dsr.building_id, dsr.zone) IN ("+
-					"SELECT b, z FROM UNNEST($%d::bigint[], $%d::text[]) AS t(b, z))",
-				argNum, argNum+1)
-			args = append(args, pq.Array(fp.scopedBuildingIDs), pq.Array(fp.scopedZones))
-			argNum += 2
-			first = false
+		keys := make([]stores.ZoneKey, 0, len(fp.scopedBuildingIDs)+len(fp.wildcardZones))
+		for i, b := range fp.scopedBuildingIDs {
+			keys = append(keys, stores.ZoneKey{BuildingID: b, Zone: fp.scopedZones[i]})
 		}
-		if len(fp.wildcardZones) > 0 {
-			if !first {
-				sb.WriteString(" OR ")
-			}
-			fmt.Fprintf(sb,
-				"dsr.zone = ANY($%d::text[])",
-				argNum)
-			args = append(args, pq.Array(fp.wildcardZones))
-			argNum++
+		for _, z := range fp.wildcardZones {
+			keys = append(keys, stores.ZoneKey{BuildingID: 0, Zone: z})
 		}
+		args, argNum = appendZoneKeyPredicate(sb, args, argNum, "dsr", keys)
 		sb.WriteString("))")
 	}
 

@@ -266,6 +266,28 @@ func TestListRackZoneRefs_ExcludesSoftDeletedRacks(t *testing.T) {
 	assert.Equal(t, "Live Zone", refs[0].Zone, "soft-deleted rack must not surface in zone refs")
 }
 
+// TestListRackZoneRefs_EmptyOrg covers an org with no racks at all.
+// The dropdown rendering needs an empty slice (not nil, not an error)
+// so the UI shows an empty state cleanly. This was a regression risk
+// when the store originally short-circuited on len==0.
+func TestListRackZoneRefs_EmptyOrg(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+	tc := testutil.InitializeDBServiceInfrastructure(t)
+	ctx := t.Context()
+	dbSvc := tc.DatabaseService
+	db := tc.ServiceProvider.DB
+	collectionStore := sqlstores.NewSQLCollectionStore(db)
+
+	user := dbSvc.CreateSuperAdminUser()
+	orgID := user.OrganizationID
+
+	refs, err := collectionStore.ListRackZoneRefs(ctx, orgID)
+	require.NoError(t, err)
+	assert.Empty(t, refs, "org with no racks must return empty zone refs")
+}
+
 func zoneRefKey(r stores.ZoneRefRow) string {
 	return zoneRefKeyOf(r.BuildingID, r.Zone)
 }

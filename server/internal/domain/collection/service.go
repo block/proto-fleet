@@ -3,7 +3,6 @@ package collection
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"math"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -610,64 +609,16 @@ func (s *Service) ListCollectionsDomain(ctx context.Context, params ListCollecti
 	return &pb.ListCollectionsResponse{Collections: collections, NextPageToken: nextPageToken, TotalCount: totalCount}, nil
 }
 
-// validateFilterBuildings enforces the same cross-org check as the
-// fleetmanagement parseFilter path. Explicit building IDs (from
-// BuildingIDs and from scoped zone_keys with building_id > 0) must
-// reference live buildings in the caller's org. Wildcard zone_keys
-// (building_id == 0) skip the check; the SQL layer's org_id predicate
-// handles isolation. Error message is generic so the IDs can't be
-// enumerated by probing.
+// validateFilterBuildings wraps the shared
+// interfaces.ValidateFilterBuildings helper. Kept as a method for
+// brevity at the call site; logic lives in
+// interfaces/filtervalidation.go so the fleetmanagement and
+// collection paths can't drift.
 func (s *Service) validateFilterBuildings(ctx context.Context, orgID int64, filter *interfaces.DeviceSetFilter) error {
 	if filter == nil {
 		return nil
 	}
-	requested := make(map[int64]struct{})
-	for _, id := range filter.BuildingIDs {
-		if id <= 0 {
-			return fleeterror.NewInvalidArgumentErrorf("building_ids must contain only positive IDs")
-		}
-		requested[id] = struct{}{}
-	}
-	for _, zk := range filter.ZoneKeys {
-		if zk.BuildingID < 0 {
-			return fleeterror.NewInvalidArgumentErrorf("zone_keys.building_id must be non-negative")
-		}
-		if zk.Zone == "" {
-			return fleeterror.NewInvalidArgumentErrorf("zone_keys.zone must be non-empty")
-		}
-		if zk.BuildingID > 0 {
-			requested[zk.BuildingID] = struct{}{}
-		}
-	}
-	if len(requested) == 0 {
-		return nil
-	}
-	if s.buildingStore == nil {
-		return fleeterror.NewInternalErrorf("ListCollectionsDomain: buildingStore is required for building_ids/zone_keys validation")
-	}
-	ids := make([]int64, 0, len(requested))
-	for id := range requested {
-		ids = append(ids, id)
-	}
-	found, err := s.buildingStore.BuildingsByIDs(ctx, orgID, ids)
-	if err != nil {
-		return fleeterror.NewInternalErrorf("failed to validate building ownership: %v", err)
-	}
-	if len(found) < len(requested) {
-		// Audit signal for security monitoring. Mirrors the
-		// fleetmanagement.parseFilter cross-org-probe log so probes
-		// via device_set.v1 are visible to the same dashboards. Do
-		// not include the rejected IDs themselves — they may
-		// reference another org's internal identifiers.
-		slog.WarnContext(ctx, "cross_org_filter_probe",
-			"event", "cross_org_filter_probe",
-			"org_id", orgID,
-			"rejected_count", len(requested)-len(found),
-		)
-		return fleeterror.NewInvalidArgumentError(
-			"one or more building_ids reference buildings outside the caller's org")
-	}
-	return nil
+	return interfaces.ValidateFilterBuildings(ctx, orgID, filter.BuildingIDs, filter.ZoneKeys, s.buildingStore)
 }
 
 // ListCollections returns a paginated list of collections for the organization.

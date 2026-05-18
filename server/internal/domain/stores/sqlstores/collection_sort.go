@@ -160,36 +160,8 @@ func appendDeviceSetRackFilterSQL(sb *strings.Builder, args []any, argNum int, f
 	}
 
 	if len(filter.ZoneKeys) > 0 {
-		var scopedBuildingIDs []int64
-		var scopedZones []string
-		var wildcardZones []string
-		for _, zk := range filter.ZoneKeys {
-			if zk.BuildingID == 0 {
-				wildcardZones = append(wildcardZones, zk.Zone)
-			} else {
-				scopedBuildingIDs = append(scopedBuildingIDs, zk.BuildingID)
-				scopedZones = append(scopedZones, zk.Zone)
-			}
-		}
 		sb.WriteString(" AND (")
-		first := true
-		if len(scopedBuildingIDs) > 0 {
-			sb.WriteString(fmt.Sprintf(
-				"(dcr.building_id, dcr.zone) IN ("+
-					"SELECT b, z FROM UNNEST($%d::bigint[], $%d::text[]) AS t(b, z))",
-				argNum, argNum+1))
-			args = append(args, pq.Array(scopedBuildingIDs), pq.Array(scopedZones))
-			argNum += 2
-			first = false
-		}
-		if len(wildcardZones) > 0 {
-			if !first {
-				sb.WriteString(" OR ")
-			}
-			sb.WriteString(fmt.Sprintf("dcr.zone = ANY($%d::text[])", argNum))
-			args = append(args, pq.Array(wildcardZones))
-			argNum++
-		}
+		args, argNum = appendZoneKeyPredicate(sb, args, argNum, "dcr", filter.ZoneKeys)
 		sb.WriteString(")")
 	}
 

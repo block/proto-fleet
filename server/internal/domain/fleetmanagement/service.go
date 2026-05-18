@@ -802,8 +802,10 @@ func parseFilter(
 	// zone_keys.building_id > 0). Wildcards (building_id == 0) skip the
 	// check — there is no specific building to validate. The SQL
 	// builder's org_id predicate is the single-layer defense for the
-	// wildcard path; see device_filters_orgid_audit_test.go.
-	if err := validateExplicitBuildingIDs(ctx, orgID, filter, buildingStore); err != nil {
+	// wildcard path; see device_filters_orgid_audit_test.go. Shared
+	// helper lives in interfaces/filtervalidation.go so the
+	// fleetmanagement and collection paths can't drift.
+	if err := interfaces.ValidateFilterBuildings(ctx, orgID, filter.BuildingIDs, filter.ZoneKeys, buildingStore); err != nil {
 		return nil, err
 	}
 
@@ -855,62 +857,6 @@ func parseFilter(
 	filter.IncludeUnassigned = pbFilter.IncludeUnassigned
 
 	return filter, nil
-}
-
-// validateExplicitBuildingIDs rejects requests that reference buildings
-// outside the caller's org. Wildcard zone_keys entries (building_id == 0)
-// are skipped — they have no specific building to check, and the SQL
-// builder's org_id predicate enforces tenant boundaries at query time.
-//
-// The rejection message is intentionally generic: echoing the offending
-// IDs would let a hostile caller enumerate building IDs across orgs by
-// probing.
-func validateExplicitBuildingIDs(
-	ctx context.Context,
-	orgID int64,
-	filter *interfaces.MinerFilter,
-	buildingStore interfaces.BuildingStore,
-) error {
-	requested := make(map[int64]struct{})
-	for _, id := range filter.BuildingIDs {
-		requested[id] = struct{}{}
-	}
-	for _, zk := range filter.ZoneKeys {
-		if zk.BuildingID > 0 {
-			requested[zk.BuildingID] = struct{}{}
-		}
-	}
-	if len(requested) == 0 {
-		return nil
-	}
-	if buildingStore == nil {
-		// Defensive: a nil store at runtime would let cross-org IDs
-		// through silently. Treat as a server misconfiguration.
-		return fleeterror.NewInternalErrorf("parseFilter: buildingStore is required for building_ids/zone_keys validation")
-	}
-
-	ids := make([]int64, 0, len(requested))
-	for id := range requested {
-		ids = append(ids, id)
-	}
-	found, err := buildingStore.BuildingsByIDs(ctx, orgID, ids)
-	if err != nil {
-		return fleeterror.NewInternalErrorf("failed to validate building ownership: %v", err)
-	}
-
-	if len(found) < len(requested) {
-		// Audit signal for security monitoring. Do not include the
-		// rejected IDs themselves — they may reference another org's
-		// internal identifiers.
-		slog.WarnContext(ctx, "cross_org_filter_probe",
-			"event", "cross_org_filter_probe",
-			"org_id", orgID,
-			"rejected_count", len(requested)-len(found),
-		)
-		return fleeterror.NewInvalidArgumentError(
-			"one or more building_ids reference buildings outside the caller's org")
-	}
-	return nil
 }
 
 func parseNumericRange(idx int, r *pb.NumericRangeFilter) (interfaces.NumericRange, error) {
