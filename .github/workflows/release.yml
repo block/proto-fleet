@@ -107,9 +107,7 @@ jobs:
             ./deployment-files/install.sh
             ./deployment-files/uninstall.sh
           )
-          # Probe for draft state and refuse to clobber a published release so
-          # this workflow never silently mutates assets a human (or a prior
-          # run) already published.
+          # Refuse to clobber a non-draft release — published assets are immutable from this workflow.
           existing_draft_state=$(gh release view "$TAG_NAME" --json isDraft --jq .isDraft 2>/dev/null || echo "missing")
           case "$existing_draft_state" in
             true)
