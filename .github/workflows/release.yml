@@ -88,28 +88,52 @@ jobs:
       - name: List all release assets
         run: find /tmp/release-assets -type f | sort
 
-      - name: Create draft release and upload assets
-        id: create_release
-        # zizmor: ignore[superfluous-actions] SHA-pinned action handles draft + multi-file uploads cleanly
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
-        with:
-          draft: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          generate_release_notes: true
-          files: |
-            /tmp/release-assets/bundles/proto-fleet-${{ github.ref_name }}-*.tar.gz
+      - name: Create or refresh draft release and upload assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.ref_name }}
+          IS_PRERELEASE: ${{ contains(github.ref_name, '-') }}
+        run: |
+          set -euo pipefail
+          shopt -s failglob
+          files=(
+            /tmp/release-assets/bundles/proto-fleet-"$TAG_NAME"-*.tar.gz
             /tmp/release-assets/windows/installer.exe
             /tmp/release-assets/windows/uninstall.exe
-            /tmp/release-assets/server/proto-fleet-server-${{ github.ref_name }}-*.tar.gz
-            /tmp/release-assets/client/proto-fleet-client-${{ github.ref_name }}.tar.gz
-            /tmp/release-assets/proto-os/proto-os-${{ github.ref_name }}.tar.gz
-            /tmp/release-assets/proto-os/proto-os_${{ github.ref_name }}.ipk
+            /tmp/release-assets/server/proto-fleet-server-"$TAG_NAME"-*.tar.gz
+            /tmp/release-assets/client/proto-fleet-client-"$TAG_NAME".tar.gz
+            /tmp/release-assets/proto-os/proto-os-"$TAG_NAME".tar.gz
+            /tmp/release-assets/proto-os/proto-os_"$TAG_NAME".ipk
             ./deployment-files/install.sh
             ./deployment-files/uninstall.sh
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          )
+          # Refuse to clobber a non-draft release — published assets are immutable from this workflow.
+          existing_draft_state=$(gh release view "$TAG_NAME" --json isDraft --jq .isDraft 2>/dev/null || echo "missing")
+          case "$existing_draft_state" in
+            true)
+              echo "Draft release for $TAG_NAME exists; refreshing assets via upload --clobber."
+              gh release upload "$TAG_NAME" --clobber "${files[@]}"
+              ;;
+            false)
+              echo "::error::Release for $TAG_NAME is already published; refusing to overwrite. Delete it manually before re-running, or bump the tag."
+              exit 1
+              ;;
+            *)
+              echo "Creating new draft release for $TAG_NAME."
+              extra_args=()
+              if [[ "$IS_PRERELEASE" == 'true' ]]; then
+                extra_args+=(--prerelease)
+              fi
+              gh release create "$TAG_NAME" \
+                --draft \
+                --generate-notes \
+                "${extra_args[@]}" \
+                "${files[@]}"
+              ;;
+          esac
 
       - name: Publish release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "${{ github.ref_name }}" --draft=false
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: gh release edit "$TAG_NAME" --draft=false
