@@ -46,6 +46,20 @@ async function getInstallingState(uploadState: UploadState, firmwareHelper: Firm
   return firmwareHelper.waitForStatus("installing");
 }
 
+async function validateInstallingState(
+  installingState: Awaited<ReturnType<FirmwareHelper["getState"]>>,
+  generalPage: GeneralPage,
+  headerComponent: HeaderComponent,
+) {
+  if (installingState.status === "installed") {
+    return;
+  }
+
+  await generalPage.reloadPage();
+  await generalPage.validateTitle("General");
+  await headerComponent.validateFirmwareStatusWidgetText(/Installing/);
+}
+
 test.describe("Firmware updates", () => {
   test.beforeEach(async ({ page, commonSteps, firmwareHelper }) => {
     await page.goto("/");
@@ -114,14 +128,7 @@ test.describe("Firmware updates", () => {
     await test.step("Wait for the install to enter the installing state", async () => {
       const installingState = await getInstallingState(uploadState, firmwareHelper);
       installedVersion = installingState.newVersion ?? installedVersion;
-
-      if (installingState.status === "installed") {
-        return;
-      }
-
-      await generalPage.reloadPage();
-      await generalPage.validateTitle("General");
-      await headerComponent.validateFirmwareStatusWidgetText(/Installing/);
+      await validateInstallingState(installingState, generalPage, headerComponent);
     });
 
     await test.step("Wait for reboot-required state after the upload-driven install", async () => {
