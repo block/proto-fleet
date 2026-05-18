@@ -162,19 +162,21 @@ func TestBuildingIDs_CrossOrgIsolation(t *testing.T) {
 	assert.Equal(t, int64(0), totalB, "orgB filtering by orgA's building must see nothing")
 	assert.NotContains(t, gotB, fx.devARacked)
 
-	// Own-org sanity: each side sees its own racked device.
-	assertOrgIsolation(t, ctx, deviceStore, fx,
-		&stores.MinerFilter{BuildingIDs: []int64{fx.buildingA}},
-		fx.devARacked, fx.devBRacked, fx.devBRacked, fx.devARacked,
-	)
-	// We can't easily run both sides with the same filter spec because
-	// each side's BuildingIDs differs; the call above proves orgA on
-	// orgA's building, then for orgB on orgB's building:
-	gotB2, totalB2 := listDevices(t, ctx, deviceStore, fx.orgB, &stores.MinerFilter{
+	// Own-org sanity: each side sees its own racked device when
+	// filtering by its own building. `assertOrgIsolation` applies one
+	// filter to both orgs, which doesn't work here — the filter value
+	// itself (BuildingIDs) is org-specific. Inline both sides.
+	gotAOwn, totalAOwn := listDevices(t, ctx, deviceStore, fx.orgA, &stores.MinerFilter{
+		BuildingIDs: []int64{fx.buildingA},
+	})
+	assert.Equal(t, int64(1), totalAOwn)
+	assert.Contains(t, gotAOwn, fx.devARacked)
+
+	gotBOwn, totalBOwn := listDevices(t, ctx, deviceStore, fx.orgB, &stores.MinerFilter{
 		BuildingIDs: []int64{fx.buildingB},
 	})
-	assert.Equal(t, int64(1), totalB2)
-	assert.Contains(t, gotB2, fx.devBRacked)
+	assert.Equal(t, int64(1), totalBOwn)
+	assert.Contains(t, gotBOwn, fx.devBRacked)
 }
 
 // TestIncludeNoBuilding_CrossOrgIsolation: the IS NULL branch must
