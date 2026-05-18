@@ -92,6 +92,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG_NAME: ${{ github.ref_name }}
+          IS_PRERELEASE: ${{ contains(github.ref_name, '-') }}
         run: |
           set -euo pipefail
           shopt -s failglob
@@ -106,21 +107,32 @@ jobs:
             ./deployment-files/install.sh
             ./deployment-files/uninstall.sh
           )
-          if gh release view "$TAG_NAME" --json id >/dev/null 2>&1; then
-            echo "Release for $TAG_NAME exists; refreshing assets via upload --clobber."
-            gh release upload "$TAG_NAME" --clobber "${files[@]}"
-          else
-            echo "Creating new draft release for $TAG_NAME."
-            extra_args=()
-            if [[ "$TAG_NAME" == *-* ]]; then
-              extra_args+=(--prerelease)
-            fi
-            gh release create "$TAG_NAME" \
-              --draft \
-              --generate-notes \
-              "${extra_args[@]}" \
-              "${files[@]}"
-          fi
+          # Probe for draft state and refuse to clobber a published release so
+          # this workflow never silently mutates assets a human (or a prior
+          # run) already published.
+          existing_draft_state=$(gh release view "$TAG_NAME" --json isDraft --jq .isDraft 2>/dev/null || echo "missing")
+          case "$existing_draft_state" in
+            true)
+              echo "Draft release for $TAG_NAME exists; refreshing assets via upload --clobber."
+              gh release upload "$TAG_NAME" --clobber "${files[@]}"
+              ;;
+            false)
+              echo "::error::Release for $TAG_NAME is already published; refusing to overwrite. Delete it manually before re-running, or bump the tag."
+              exit 1
+              ;;
+            *)
+              echo "Creating new draft release for $TAG_NAME."
+              extra_args=()
+              if [[ "$IS_PRERELEASE" == 'true' ]]; then
+                extra_args+=(--prerelease)
+              fi
+              gh release create "$TAG_NAME" \
+                --draft \
+                --generate-notes \
+                "${extra_args[@]}" \
+                "${files[@]}"
+              ;;
+          esac
 
       - name: Publish release
         env:
