@@ -97,7 +97,7 @@ func TestValidateFilterBuildings_CrossOrgEmitsAuditLog(t *testing.T) {
 	assert.Equal(t, slog.LevelWarn, rec.Level)
 	assert.Equal(t, "cross_org_filter_probe", rec.Message)
 	attrs := attrsByKey(rec)
-	assert.Equal(t, "cross_org_filter_probe", attrs["event"])
+	assert.NotContains(t, attrs, "event", "event key is redundant with the log message")
 	assert.Equal(t, int64(42), attrs["org_id"])
 	assert.Equal(t, int64(1), attrs["rejected_count"])
 }
@@ -123,7 +123,7 @@ func TestValidateFilterBuildings_CrossOrgZoneKey_EmitsAuditLog(t *testing.T) {
 	rec := handler.records[0]
 	assert.Equal(t, "cross_org_filter_probe", rec.Message)
 	attrs := attrsByKey(rec)
-	assert.Equal(t, "cross_org_filter_probe", attrs["event"])
+	assert.NotContains(t, attrs, "event", "event key is redundant with the log message")
 	assert.Equal(t, int64(42), attrs["org_id"])
 	assert.Equal(t, int64(1), attrs["rejected_count"])
 }

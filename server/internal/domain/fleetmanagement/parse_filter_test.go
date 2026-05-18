@@ -301,6 +301,56 @@ func TestParseFilter_BuildingIDs_RejectsOversizedArray(t *testing.T) {
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
 }
 
+// TestParseFilter_IncludeNoRackPlusZoneKeysRejected covers the
+// combinatorial bug surfaced in PR #249 review: the zone_keys EXISTS
+// predicate requires a rack-membership row, so include_no_rack silently
+// drops every unracked device the caller asked to include. parseFilter
+// rejects the combination explicitly instead.
+func TestParseFilter_IncludeNoRackPlusZoneKeysRejected(t *testing.T) {
+	cases := []struct {
+		name   string
+		filter *pb.MinerListFilter
+	}{
+		{
+			name: "with zone_keys",
+			filter: &pb.MinerListFilter{
+				IncludeNoRack: true,
+				ZoneKeys:      []*commonpb.ZoneKey{{BuildingId: 0, Zone: "Room 2"}},
+			},
+		},
+		{
+			name: "with legacy zones shim",
+			filter: &pb.MinerListFilter{
+				IncludeNoRack: true,
+				Zones:         []string{"Room 2"}, //nolint:staticcheck // SA1019 — testing the deprecated path
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := callParseFilter(t, tc.filter)
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsInvalidArgumentError(err))
+			assert.Contains(t, err.Error(), "include_no_rack")
+		})
+	}
+}
+
+// TestParseFilter_LegacyZones_RejectsEmpty covers the empty-zone bug
+// surfaced in PR #249 review: empty strings used to silently drop and
+// effectively un-filter the result. parseFilter now rejects them for
+// parity with the zone_keys.zone non-empty rule.
+func TestParseFilter_LegacyZones_RejectsEmpty(t *testing.T) {
+	pbFilter := &pb.MinerListFilter{
+		Zones: []string{""}, //nolint:staticcheck // SA1019 — testing the deprecated path
+	}
+
+	_, err := callParseFilter(t, pbFilter)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "zones[0]")
+}
+
 func TestParseFilter_IncludeNoBuildingAndIncludeNoRack(t *testing.T) {
 	pbFilter := &pb.MinerListFilter{
 		IncludeNoBuilding: true,

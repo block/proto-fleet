@@ -267,9 +267,10 @@ func toListCollectionsParams(r *dspb.ListDeviceSetsRequest) (collection.ListColl
 	}
 
 	zoneKeys := make([]interfaces.ZoneKey, 0, len(r.ZoneKeys)+len(r.Zones)) //nolint:staticcheck // SA1019 — intentional translation of deprecated field
-	for _, zk := range r.ZoneKeys {
+	for i, zk := range r.ZoneKeys {
 		if zk == nil {
-			continue
+			return collection.ListCollectionsParams{}, fleeterror.NewInvalidArgumentErrorf(
+				"zone_keys[%d] is nil", i)
 		}
 		zoneKeys = append(zoneKeys, interfaces.ZoneKey{
 			BuildingID: zk.BuildingId,
@@ -278,10 +279,13 @@ func toListCollectionsParams(r *dspb.ListDeviceSetsRequest) (collection.ListColl
 	}
 	// Legacy `zones` field (deprecated): translate to wildcard ZoneKeys
 	// so older clients keep working. New callers should emit zone_keys
-	// directly with explicit building_id.
-	for _, z := range r.Zones { //nolint:staticcheck // SA1019 — see comment above
+	// directly with explicit building_id. Empty entries are rejected for
+	// parity with the zone_keys.zone non-empty rule in
+	// interfaces.ValidateFilterBuildings.
+	for i, z := range r.Zones { //nolint:staticcheck // SA1019 — see comment above
 		if z == "" {
-			continue
+			return collection.ListCollectionsParams{}, fleeterror.NewInvalidArgumentErrorf(
+				"zones[%d] must be non-empty", i)
 		}
 		zoneKeys = append(zoneKeys, interfaces.ZoneKey{BuildingID: 0, Zone: z})
 	}

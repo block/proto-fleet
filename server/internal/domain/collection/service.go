@@ -27,6 +27,11 @@ const (
 	// maxCascadeAuditEntries bounds the per-device cascade audit list in
 	// activity_log.metadata; overflow is signaled via the truncated flag.
 	maxCascadeAuditEntries = 100
+	// maxDeviceSetFilterValues caps the size of free-form repeated filter
+	// arrays in the legacy collection.v1 list path. Mirrors the cap in
+	// fleetmanagement.parseFilter and the handler-level cap in
+	// deviceset.convert so all three surfaces stay aligned.
+	maxDeviceSetFilterValues = 1024
 )
 
 const (
@@ -643,15 +648,32 @@ func (s *Service) ListCollections(ctx context.Context, req *pb.ListCollectionsRe
 		errorComponentTypes[i] = int32(ct)
 	}
 
-	// Validate that zone sort is only used with rack collections.
-	// (Zone filter validation moved to the per-request filter below.)
+	// Zone sort + zone filter are rack-only. The legacy `zones` field is
+	// preserved here as a transitional shim — translate to wildcard
+	// ZoneKey entries so existing collection.v1 callers keep working
+	// until the wire contract retires (#255).
 	isZoneSort := sort != nil && sort.Field == interfaces.SortFieldLocation
 	if isZoneSort && req.Type != pb.CollectionType_COLLECTION_TYPE_RACK {
 		return nil, fleeterror.NewInvalidArgumentErrorf("zone sort is only supported for rack collections")
 	}
+	if len(req.Zones) > 0 && req.Type != pb.CollectionType_COLLECTION_TYPE_RACK {
+		return nil, fleeterror.NewInvalidArgumentErrorf("zone filter is only supported for rack collections")
+	}
+	if len(req.Zones) > maxDeviceSetFilterValues {
+		return nil, fleeterror.NewInvalidArgumentErrorf(
+			"zones exceeds maximum of %d values", maxDeviceSetFilterValues)
+	}
+	zoneKeys := make([]interfaces.ZoneKey, 0, len(req.Zones))
+	for i, z := range req.Zones {
+		if z == "" {
+			return nil, fleeterror.NewInvalidArgumentErrorf("zones[%d] must be non-empty", i)
+		}
+		zoneKeys = append(zoneKeys, interfaces.ZoneKey{BuildingID: 0, Zone: z})
+	}
 
 	filter := &interfaces.DeviceSetFilter{
 		ErrorComponentTypes: errorComponentTypes,
+		ZoneKeys:            zoneKeys,
 	}
 
 	collections, nextPageToken, totalCount, err := s.collectionStore.ListCollections(ctx, info.OrganizationID, req.Type, pageSize, req.PageToken, sort, filter)

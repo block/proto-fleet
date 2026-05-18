@@ -207,6 +207,41 @@ func TestListDeviceSets_OversizedZoneKeys(t *testing.T) {
 	assert.Contains(t, err.Error(), "zone_keys")
 }
 
+// TestListDeviceSets_NilZoneKeyRejected confirms convert.go fails fast
+// on a nil zone_keys entry instead of silently dropping it. Parity
+// with fleetmanagement.parseFilter — silently dropping a nil zk would
+// turn a malformed request into a broader query.
+func TestListDeviceSets_NilZoneKeyRejected(t *testing.T) {
+	h := newTestHandler(t)
+
+	req := connect.NewRequest(&dspb.ListDeviceSetsRequest{
+		Type:     dspb.DeviceSetType_DEVICE_SET_TYPE_RACK,
+		ZoneKeys: []*commonpb.ZoneKey{nil},
+	})
+
+	_, err := h.handler.ListDeviceSets(testCtx(t), req)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "zone_keys[0]")
+}
+
+// TestListDeviceSets_EmptyLegacyZoneRejected parallels the
+// zone_keys.zone non-empty rule. Empty legacy zones used to silently
+// widen the result set — now they fail fast.
+func TestListDeviceSets_EmptyLegacyZoneRejected(t *testing.T) {
+	h := newTestHandler(t)
+
+	req := connect.NewRequest(&dspb.ListDeviceSetsRequest{
+		Type:  dspb.DeviceSetType_DEVICE_SET_TYPE_RACK,
+		Zones: []string{""},
+	})
+
+	_, err := h.handler.ListDeviceSets(testCtx(t), req)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "zones[0]")
+}
+
 // TestListDeviceSets_CrossOrgRejected covers the security path: a
 // building_id outside the caller's org must be rejected without
 // echoing the rejected ID in the error message.

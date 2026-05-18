@@ -68,7 +68,6 @@ func ValidateFilterBuildings(
 		// rejected IDs themselves — they may reference another org's
 		// internal identifiers.
 		slog.WarnContext(ctx, "cross_org_filter_probe",
-			"event", "cross_org_filter_probe",
 			"org_id", orgID,
 			"rejected_count", len(requested)-len(found),
 		)
