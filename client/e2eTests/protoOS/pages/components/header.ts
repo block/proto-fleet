@@ -80,6 +80,10 @@ export class HeaderComponent extends BasePage {
     await expect(this.page.getByTestId("firmware-status-modal").getByText(`${label} ${expectedValue}`)).toBeVisible();
   }
 
+  async clickFirmwareStatusModalInstallButton() {
+    await this.page.getByTestId("firmware-status-modal").getByRole("button", { name: "Install" }).click();
+  }
+
   async clickFirmwareStatusModalRebootButton() {
     await this.page.getByTestId("firmware-status-modal-reboot-button").click();
   }

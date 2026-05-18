@@ -87,7 +87,7 @@ const UPDATE_STATUS_CONFIG: Record<string, StatusConfig> = {
     title: "Ready to install",
     icon: <SettingsSolid />,
     statusIndicator: "downloaded",
-    getButtons: ({ onDismiss }) => [
+    getButtons: ({ onUpdate, onDismiss, updatePending }) => [
       {
         text: "Dismiss",
         variant: "secondary",
@@ -96,6 +96,8 @@ const UPDATE_STATUS_CONFIG: Record<string, StatusConfig> = {
       {
         text: "Install",
         variant: "primary",
+        loading: updatePending,
+        onClick: onUpdate,
       },
     ],
   },
