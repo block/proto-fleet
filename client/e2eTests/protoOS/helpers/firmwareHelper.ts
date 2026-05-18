@@ -107,6 +107,32 @@ export class FirmwareHelper {
     );
   }
 
+  async waitForAnyStatus(expectedStatuses: string[], timeoutMs: number = FIRMWARE_STATUS_TIMEOUT_MS) {
+    const deadline = Date.now() + timeoutMs;
+    let lastState: FirmwareState | null = null;
+    let lastError: unknown = null;
+
+    while (Date.now() < deadline) {
+      try {
+        lastState = await this.getState();
+        if (expectedStatuses.includes(lastState.status)) {
+          return lastState;
+        }
+        lastError = null;
+      } catch (error: unknown) {
+        lastError = error;
+      }
+
+      await sleep(FIRMWARE_STATUS_POLL_INTERVAL_MS);
+    }
+
+    throw new Error(
+      `Timed out waiting for firmware status in [${expectedStatuses.join(", ")}]. Last state: ${JSON.stringify(lastState)}. Last error: ${
+        lastError instanceof Error ? lastError.message : String(lastError)
+      }`,
+    );
+  }
+
   async uploadBundle() {
     if (!this.authAccessToken) {
       throw new Error("Firmware helper is missing an auth access token");
@@ -163,7 +189,7 @@ export class FirmwareHelper {
       case "current":
         return;
       case "downloading":
-        await this.waitForStatus("downloaded");
+        await this.waitForAnyStatus(["downloaded", "installing", "installed", "current"]);
         return this.ensureCurrentState();
       case "downloaded":
         await this.startInstall();

@@ -1,4 +1,40 @@
 import { expect, test } from "../fixtures/pageFixtures";
+import { FirmwareHelper } from "../helpers/firmwareHelper";
+import { HeaderComponent } from "../pages/components/header";
+import { GeneralPage } from "../pages/general";
+
+type UploadState = "downloaded" | "installing";
+
+async function handleUploadedFirmwareState(
+  uploadState: UploadState,
+  headerComponent: HeaderComponent,
+  generalPage: GeneralPage,
+  startingVersion: string,
+  installedVersion: string,
+) {
+  await generalPage.reloadPage();
+  await generalPage.validateTitle("General");
+
+  if (uploadState === "downloaded") {
+    await headerComponent.validateFirmwareStatusWidgetText(/Ready to install/);
+    await headerComponent.openFirmwareStatusModal();
+    await headerComponent.validateFirmwareStatusModalTitle("Ready to install");
+    await headerComponent.validateFirmwareStatusModalVersionLabel("Current Version:", startingVersion);
+    await headerComponent.validateFirmwareStatusModalVersionLabel("New Version:", installedVersion);
+    await headerComponent.clickFirmwareStatusModalInstallButton();
+    return;
+  }
+
+  await headerComponent.validateFirmwareStatusWidgetText(/Installing/);
+}
+
+async function getInstallingState(uploadState: UploadState, firmwareHelper: FirmwareHelper) {
+  if (uploadState === "installing") {
+    return firmwareHelper.getState();
+  }
+
+  return firmwareHelper.waitForStatus("installing");
+}
 
 test.describe("Firmware updates", () => {
   test.beforeEach(async ({ page, commonSteps, firmwareHelper }) => {
@@ -50,29 +86,23 @@ test.describe("Firmware updates", () => {
   }) => {
     const startingVersion = await generalPage.getFirmwareVersion();
     let installedVersion = "";
+    let uploadState: UploadState = "installing";
 
-    await test.step("Upload a firmware bundle and validate it is ready to install", async () => {
+    await test.step("Upload a firmware bundle and validate the update becomes actionable", async () => {
       await firmwareHelper.uploadBundle();
 
-      const downloadedState = await firmwareHelper.waitForStatus("downloaded");
-      installedVersion = downloadedState.newVersion ?? "";
+      const stateAfterUpload = await firmwareHelper.waitForAnyStatus(["downloaded", "installing"]);
+      uploadState = stateAfterUpload.status as UploadState;
+      installedVersion = stateAfterUpload.newVersion ?? "";
 
       expect(installedVersion).not.toBe("");
       expect(installedVersion).not.toBe(startingVersion);
 
-      await generalPage.reloadPage();
-      await generalPage.validateTitle("General");
-      await headerComponent.validateFirmwareStatusWidgetText(/Ready to install/);
-      await headerComponent.openFirmwareStatusModal();
-      await headerComponent.validateFirmwareStatusModalTitle("Ready to install");
-      await headerComponent.validateFirmwareStatusModalVersionLabel("Current Version:", startingVersion);
-      await headerComponent.validateFirmwareStatusModalVersionLabel("New Version:", installedVersion);
+      await handleUploadedFirmwareState(uploadState, headerComponent, generalPage, startingVersion, installedVersion);
     });
 
-    await test.step("Start the install from the firmware status modal", async () => {
-      await headerComponent.clickFirmwareStatusModalInstallButton();
-
-      const installingState = await firmwareHelper.waitForStatus("installing");
+    await test.step("Wait for the install to enter the installing state", async () => {
+      const installingState = await getInstallingState(uploadState, firmwareHelper);
       installedVersion = installingState.newVersion ?? installedVersion;
 
       await generalPage.reloadPage();

@@ -1692,7 +1692,7 @@ func (h *RESTApiHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		defer file.Close()
 
 		log.Printf("Firmware upload received: filename=%s, size=%d", header.Filename, header.Size)
-		h.startFirmwareDownloadLifecycle()
+		h.startFirmwareOTALifecycle()
 
 		h.writeJSON(w, http.StatusOK, MessageResponse{Message: "Firmware uploaded successfully"})
 	default:
