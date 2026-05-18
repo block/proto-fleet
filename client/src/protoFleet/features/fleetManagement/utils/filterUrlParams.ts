@@ -1,7 +1,6 @@
 import { create } from "@bufbuild/protobuf";
 import { componentIssues, deviceStatusFilterStates } from "../components/MinerList/constants";
 import { protoFieldForTelemetryKey, type TelemetryFilterKey } from "./telemetryFilterBounds";
-import { ZoneKeySchema } from "@/protoFleet/api/generated/common/v1/zone_pb";
 import { ComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import {
   DeviceStatus,
@@ -157,14 +156,8 @@ export function encodeFilterToURL(filter: MinerListFilter): URLSearchParams {
     setMulti(params, URL_PARAMS.FIRMWARE, [...filter.firmwareVersions].sort());
   }
 
-  // ZoneKeys serialize as `zone` URL params with an embedded `building_id`
-  // sentinel: `${building_id}|${zone}`. building_id=0 is the wildcard
-  // sentinel that preserves today's "match across all buildings"
-  // behavior. Legacy bookmarks that send a bare zone string still parse
-  // — see parseFilterFromURL below.
-  if (filter.zoneKeys.length > 0) {
-    const encoded = filter.zoneKeys.map((zk) => `${zk.buildingId.toString()}|${zk.zone}`).sort();
-    setMulti(params, URL_PARAMS.ZONE, encoded);
+  if (filter.zones.length > 0) {
+    setMulti(params, URL_PARAMS.ZONE, [...filter.zones].sort());
   }
 
   filter.numericRanges.forEach((range) => {
@@ -255,24 +248,8 @@ export function parseFilterFromURL(params: URLSearchParams): MinerListFilter | u
     if (value) filter.firmwareVersions.push(value);
   });
 
-  // Two URL shapes for zone params:
-  //  1. Composite `${building_id}|${zone}` (current shape).
-  //  2. Legacy bare zone string (pre-#229 bookmarks). Translate to a
-  //     wildcard ZoneKey {building_id: 0, zone}, which preserves the
-  //     org-wide "match by zone label" semantics those bookmarks
-  //     expected. See docs/plans/2026-05-14-229-miner-zone-building-filter.md.
   getMulti(params, URL_PARAMS.ZONE).forEach((value) => {
-    if (!value) return;
-    const sep = value.indexOf("|");
-    if (sep < 0) {
-      filter.zoneKeys.push(create(ZoneKeySchema, { buildingId: 0n, zone: value }));
-      return;
-    }
-    const idStr = value.slice(0, sep).trim();
-    const zone = value.slice(sep + 1);
-    if (!zone) return;
-    if (!/^\d+$/.test(idStr)) return;
-    filter.zoneKeys.push(create(ZoneKeySchema, { buildingId: BigInt(idStr), zone }));
+    if (value) filter.zones.push(value);
   });
 
   NUMERIC_KEYS.forEach((key) => {
@@ -367,21 +344,9 @@ export function parseUrlToActiveFilters(params: URLSearchParams): ActiveFilters 
     activeFilters.dropdownFilters.firmware = Array.from(new Set(firmwareValues));
   }
 
-  // Zone URL params are `${buildingId}|${zone}` composite, with legacy
-  // bare-zone fallback. The dropdown still surfaces zone labels only
-  // (no building picker in this PR), so strip the building_id half
-  // before exposing to ActiveFilters.
-  const zoneRaw = getMulti(params, URL_PARAMS.ZONE).filter((v) => v !== "");
-  if (zoneRaw.length > 0) {
-    const labels: string[] = [];
-    for (const raw of zoneRaw) {
-      const sep = raw.indexOf("|");
-      const label = sep < 0 ? raw : raw.slice(sep + 1);
-      if (label) labels.push(label);
-    }
-    if (labels.length > 0) {
-      activeFilters.dropdownFilters.zone = Array.from(new Set(labels));
-    }
+  const zoneValues = getMulti(params, URL_PARAMS.ZONE).filter((v) => v !== "");
+  if (zoneValues.length > 0) {
+    activeFilters.dropdownFilters.zone = Array.from(new Set(zoneValues));
   }
 
   return activeFilters;

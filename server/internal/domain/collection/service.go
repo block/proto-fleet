@@ -3,6 +3,7 @@ package collection
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"math"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -653,6 +654,16 @@ func (s *Service) validateFilterBuildings(ctx context.Context, orgID int64, filt
 		return fleeterror.NewInternalErrorf("failed to validate building ownership: %v", err)
 	}
 	if len(found) < len(requested) {
+		// Audit signal for security monitoring. Mirrors the
+		// fleetmanagement.parseFilter cross-org-probe log so probes
+		// via device_set.v1 are visible to the same dashboards. Do
+		// not include the rejected IDs themselves — they may
+		// reference another org's internal identifiers.
+		slog.WarnContext(ctx, "cross_org_filter_probe",
+			"event", "cross_org_filter_probe",
+			"org_id", orgID,
+			"rejected_count", len(requested)-len(found),
+		)
 		return fleeterror.NewInvalidArgumentError(
 			"one or more building_ids reference buildings outside the caller's org")
 	}
@@ -1268,7 +1279,7 @@ func (s *Service) ListRackTypes(ctx context.Context, _ *pb.ListRackTypesRequest)
 // Deprecated: this RPC still backs the legacy collection.v1 surface; new
 // callers (notably device_set.v1.ListRackZones) use ListRackZoneRefs to
 // receive (building_id, zone) tuples with denormalized labels. See
-// docs/plans/2026-05-14-229-miner-zone-building-filter.md.
+// docs/plans/2026-05-14-229-miner-zone-building-filter-plan.md.
 func (s *Service) ListRackZones(ctx context.Context, _ *pb.ListRackZonesRequest) (*pb.ListRackZonesResponse, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {

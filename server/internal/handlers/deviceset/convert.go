@@ -4,6 +4,7 @@ import (
 	collectionpb "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
 	dspb "github.com/block/proto-fleet/server/generated/grpc/device_set/v1"
 	"github.com/block/proto-fleet/server/internal/domain/collection"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
@@ -221,27 +222,37 @@ func toCollectionUpdateReq(r *dspb.UpdateDeviceSetRequest) *collectionpb.UpdateC
 	return req
 }
 
-func toCollectionListReq(r *dspb.ListDeviceSetsRequest) *collectionpb.ListCollectionsRequest {
-	// Legacy collection.v1 path — still used by callers that go through
-	// the deprecated proto service. Drops the new device_set-only
-	// filter fields; device_set callers use toListCollectionsParams
-	// (the domain-shaped path) so they can plumb them.
-	req := &collectionpb.ListCollectionsRequest{
-		Type:                toCollectionType(r.Type),
-		PageSize:            r.PageSize,
-		PageToken:           r.PageToken,
-		Sort:                r.Sort,
-		ErrorComponentTypes: r.ErrorComponentTypes,
-	}
-	return req
-}
+// maxDeviceSetFilterValues caps the size of free-form repeated filter
+// arrays (building_ids, zone_keys, error_component_types). Mirrors the
+// fleetmanagement.parseFilter cap. Hardcoded here because the
+// constant lives in another package; the value is asserted to match
+// in the convert tests.
+const maxDeviceSetFilterValues = 1024
 
 // toListCollectionsParams translates a device_set.v1 list request into
 // the domain-shaped params consumed by collection.Service.
 // ListCollectionsDomain. Threads the new building_ids /
 // include_no_building / zone_keys fields, which the deprecated
-// collection.v1 proto cannot carry.
+// collection.v1 proto cannot carry. Caps each repeated filter array
+// at maxDeviceSetFilterValues to match the miner-list path.
 func toListCollectionsParams(r *dspb.ListDeviceSetsRequest) (collection.ListCollectionsParams, error) {
+	if len(r.BuildingIds) > maxDeviceSetFilterValues {
+		return collection.ListCollectionsParams{}, fleeterror.NewInvalidArgumentErrorf(
+			"building_ids exceeds maximum of %d values", maxDeviceSetFilterValues)
+	}
+	if len(r.ZoneKeys) > maxDeviceSetFilterValues {
+		return collection.ListCollectionsParams{}, fleeterror.NewInvalidArgumentErrorf(
+			"zone_keys exceeds maximum of %d values", maxDeviceSetFilterValues)
+	}
+	if len(r.ErrorComponentTypes) > maxDeviceSetFilterValues {
+		return collection.ListCollectionsParams{}, fleeterror.NewInvalidArgumentErrorf(
+			"error_component_types exceeds maximum of %d values", maxDeviceSetFilterValues)
+	}
+	if len(r.Zones) > maxDeviceSetFilterValues { //nolint:staticcheck // SA1019 — bound the deprecated field too
+		return collection.ListCollectionsParams{}, fleeterror.NewInvalidArgumentErrorf(
+			"zones exceeds maximum of %d values", maxDeviceSetFilterValues)
+	}
+
 	errorComponentTypes := make([]int32, len(r.ErrorComponentTypes))
 	for i, ct := range r.ErrorComponentTypes {
 		errorComponentTypes[i] = int32(ct)
@@ -255,7 +266,7 @@ func toListCollectionsParams(r *dspb.ListDeviceSetsRequest) (collection.ListColl
 		}
 	}
 
-	zoneKeys := make([]interfaces.ZoneKey, 0, len(r.ZoneKeys))
+	zoneKeys := make([]interfaces.ZoneKey, 0, len(r.ZoneKeys)+len(r.Zones)) //nolint:staticcheck // SA1019 — intentional translation of deprecated field
 	for _, zk := range r.ZoneKeys {
 		if zk == nil {
 			continue
@@ -264,6 +275,15 @@ func toListCollectionsParams(r *dspb.ListDeviceSetsRequest) (collection.ListColl
 			BuildingID: zk.BuildingId,
 			Zone:       zk.Zone,
 		})
+	}
+	// Legacy `zones` field (deprecated): translate to wildcard ZoneKeys
+	// so older clients keep working. New callers should emit zone_keys
+	// directly with explicit building_id.
+	for _, z := range r.Zones { //nolint:staticcheck // SA1019 — see comment above
+		if z == "" {
+			continue
+		}
+		zoneKeys = append(zoneKeys, interfaces.ZoneKey{BuildingID: 0, Zone: z})
 	}
 
 	filter := &interfaces.DeviceSetFilter{

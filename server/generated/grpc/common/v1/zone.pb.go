@@ -33,7 +33,7 @@ const (
 // the match is scoped to that one building. The wildcard is
 // transitional: once the buildings UI ships and every zone the operator
 // can see carries a real building_id, well-formed clients have no reason
-// to emit a wildcard. See docs/plans/2026-05-14-229-miner-zone-building-filter.md.
+// to emit a wildcard. See docs/plans/2026-05-14-229-miner-zone-building-filter-plan.md.
 type ZoneKey struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Building this zone belongs to, or 0 for "any building".

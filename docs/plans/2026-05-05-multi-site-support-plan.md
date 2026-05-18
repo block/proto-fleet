@@ -136,7 +136,7 @@ This section locks the semantics that the rest of the plan assumes.
   zone_ids` — same migration cost whether we picked composite-key
   now or not.
 
-  See `docs/plans/2026-05-14-229-miner-zone-building-filter.md`
+  See `docs/plans/2026-05-14-229-miner-zone-building-filter-plan.md`
   for the full Phase 1 filter plan.
 - **Rack** stores `site_id` (nullable), `building_id` (nullable), and
   `zone` (string). A rack may belong directly to a site without a

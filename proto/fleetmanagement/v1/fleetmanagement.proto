@@ -281,11 +281,13 @@ message MinerListFilter {
   // When combined with other filters, uses AND logic (device must match both filters).
   repeated string firmware_versions = 9;
 
-  // Reserved: legacy org-wide zone filter replaced by zone_keys = 17.
-  // Zone names are unique only within a building, so the flat string
-  // shape collapsed cross-building zones with the same label.
-  reserved 10;
-  reserved "zones";
+  // Deprecated: legacy org-wide zone filter. Use zone_keys (field 17)
+  // with explicit building_id when callers want building-scoped
+  // matching. The server translates non-empty `zones` into wildcard
+  // ZoneKeys (building_id = 0) for backward compatibility. Will be
+  // removed when no live client emits the field — tracked alongside
+  // the Phase 2 building-picker UI cutover.
+  repeated string zones = 10 [deprecated = true];
 
   // Numeric range conditions on telemetry. Multiple entries are AND'd, and
   // multiple entries on the same field compose a tighter range

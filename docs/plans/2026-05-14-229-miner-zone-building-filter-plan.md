@@ -34,10 +34,14 @@ This plan adds:
 5. Validation: `maxFreeFormFilterValues` cap on the new arrays;
    reject `building_id < 0` and blank `zone`; reject explicit
    `building_id > 0` not in the caller's org with `INVALID_ARGUMENT`.
-6. Old flat `zones: repeated string` field is **dropped entirely**.
-   Field numbers `10` (miner) and `6` (rack) are reserved in this PR.
-   The FE migrates in the same series via the wildcard sentinel — no
-   server-side deprecated alias, no follow-up cleanup issue.
+6. Old flat `zones: repeated string` field on `MinerListFilter` (10)
+   and `ListDeviceSetsRequest` (6) stays in the proto as
+   `[deprecated = true]`. The server translates non-empty `zones`
+   into wildcard ZoneKeys (`building_id = 0`) so older clients keep
+   working without a coordinated FE migration. New callers should
+   emit `zone_keys` directly with explicit `building_id`. A follow-up
+   issue tracks reserving the field numbers once telemetry confirms
+   no live client emits the field.
 
 Storage stays put. No DB migration. No `zone` entity. See the
 multi-site plan §Storage model "Forward look" callout for when zone
@@ -59,11 +63,15 @@ picker UI is a Phase 2 follow-up.
 - A single dropdown data source (`ListRackZones`) returning composite
   zones with enough context for the UI to render
   `Site — Building — Zone` without an extra round trip.
-- Today's no-buildings-in-UI dropdown keeps working unchanged in
-  behavior — it sends `{building_id: 0, zone: ...}` and gets org-wide
-  zone matching (current shape).
-- Clean wire contract from day one: no deprecated fields, no
-  follow-up "remove the old shape" cleanup.
+- Today's no-buildings-in-UI dropdown keeps working unchanged — the
+  FE still emits `zones: [string]`; the server translates to
+  wildcard ZoneKeys for backward compat. Phase 2's building-picker
+  UI ships the FE migration to `zone_keys` directly.
+- Deferred FE migration: this PR is server-only on the wire. The
+  legacy `zones` field stays in the proto with `[deprecated = true]`
+  so existing clients work unchanged. Removal of the deprecated
+  field is tracked as a follow-up issue gated on telemetry that no
+  live client emits it.
 
 ## Non-goals
 

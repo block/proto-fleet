@@ -33,10 +33,7 @@ const applyAllowedPairingStatuses = (
     groupIds: filter?.groupIds ?? [],
     rackIds: filter?.rackIds ?? [],
     firmwareVersions: filter?.firmwareVersions ?? [],
-    zoneKeys: filter?.zoneKeys ?? [],
-    buildingIds: filter?.buildingIds ?? [],
-    includeNoBuilding: filter?.includeNoBuilding ?? false,
-    includeNoRack: filter?.includeNoRack ?? false,
+    zones: filter?.zones ?? [],
   });
 };
 

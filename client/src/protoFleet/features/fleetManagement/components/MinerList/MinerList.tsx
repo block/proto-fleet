@@ -18,7 +18,6 @@ import { getColumnForSortField, getDefaultSortDirection, SORTABLE_COLUMNS } from
 import { type DeviceListItem } from "./types";
 import useMinerTableColumnPreferences from "./useMinerTableColumnPreferences";
 import type { SortConfig } from "@/protoFleet/api/generated/common/v1/sort_pb";
-import { ZoneKeySchema } from "@/protoFleet/api/generated/common/v1/zone_pb";
 import type { DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { ComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import type { ErrorMessage } from "@/protoFleet/api/generated/errors/v1/errors_pb";
@@ -876,17 +875,9 @@ const MinerList = ({
         minerFilter.firmwareVersions.push(...firmwareFilters);
       }
 
-      // Zone filter: dropdown still shows zone labels (no building picker
-      // until Phase 2 buildings UI), so selections translate to wildcard
-      // ZoneKeys with building_id=0 — matches the legacy org-wide
-      // "match by zone label" semantics. When the building picker ships,
-      // this construction switches to a real building_id from the
-      // ZoneRef option.
       const zoneFilters = filters.dropdownFilters.zone;
       if (zoneFilters && zoneFilters.length > 0) {
-        zoneFilters.forEach((zone) => {
-          minerFilter.zoneKeys.push(create(ZoneKeySchema, { buildingId: 0n, zone }));
-        });
+        minerFilter.zones.push(...zoneFilters);
       }
 
       // Numeric range filters — emit one entry per active bound, in display

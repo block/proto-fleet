@@ -213,6 +213,16 @@ func (h *Handler) GetDeviceSetStats(ctx context.Context, r *connect.Request[dspb
 }
 
 func (h *Handler) ListRackZones(ctx context.Context, r *connect.Request[dspb.ListRackZonesRequest]) (*connect.Response[dspb.ListRackZonesResponse], error) {
+	result, err := h.svc.ListRackZones(ctx, &collectionpb.ListRackZonesRequest{})
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&dspb.ListRackZonesResponse{
+		Zones: result.Zones,
+	}), nil
+}
+
+func (h *Handler) ListRackZoneRefs(ctx context.Context, r *connect.Request[dspb.ListRackZoneRefsRequest]) (*connect.Response[dspb.ListRackZoneRefsResponse], error) {
 	refs, err := h.svc.ListRackZoneRefs(ctx)
 	if err != nil {
 		return nil, err
@@ -227,7 +237,7 @@ func (h *Handler) ListRackZones(ctx context.Context, r *connect.Request[dspb.Lis
 			Zone:          ref.Zone,
 		}
 	}
-	return connect.NewResponse(&dspb.ListRackZonesResponse{
+	return connect.NewResponse(&dspb.ListRackZoneRefsResponse{
 		Zones: zones,
 	}), nil
 }

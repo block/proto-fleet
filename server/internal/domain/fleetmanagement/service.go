@@ -731,7 +731,23 @@ func parseFilter(
 		filter.FirmwareVersions = pbFilter.FirmwareVersions
 	}
 
-	// zones (field 10) reserved — see MinerListFilter.zone_keys.
+	// Legacy `zones` field (deprecated, field 10): translate to wildcard
+	// ZoneKeys so older clients keep working. New callers should emit
+	// zone_keys directly with explicit building_id. Validated under the
+	// same cap as zone_keys to keep request bounded.
+	legacyZoneKeys := make([]interfaces.ZoneKey, 0, len(pbFilter.Zones)) //nolint:staticcheck // SA1019 — intentional translation of deprecated field
+	if len(pbFilter.Zones) > 0 {                                         //nolint:staticcheck // SA1019 — see comment above
+		if len(pbFilter.Zones) > maxFreeFormFilterValues { //nolint:staticcheck // SA1019
+			return nil, fleeterror.NewInvalidArgumentErrorf(
+				"zones exceeds maximum of %d values", maxFreeFormFilterValues)
+		}
+		for _, z := range pbFilter.Zones { //nolint:staticcheck // SA1019
+			if z == "" {
+				continue
+			}
+			legacyZoneKeys = append(legacyZoneKeys, interfaces.ZoneKey{BuildingID: 0, Zone: z})
+		}
+	}
 
 	if len(pbFilter.BuildingIds) > 0 {
 		if len(pbFilter.BuildingIds) > maxFreeFormFilterValues {
@@ -774,6 +790,13 @@ func parseFilter(
 		}
 	}
 	filter.IncludeNoRack = pbFilter.IncludeNoRack
+
+	// Append legacy `zones` translations after zone_keys validation so
+	// older clients sending `zones: ["A"]` get the same wildcard match
+	// they had pre-#229. New callers should emit zone_keys directly.
+	if len(legacyZoneKeys) > 0 {
+		filter.ZoneKeys = append(filter.ZoneKeys, legacyZoneKeys...)
+	}
 
 	// Cross-org check for explicit building IDs (building_ids + scoped
 	// zone_keys.building_id > 0). Wildcards (building_id == 0) skip the
