@@ -1924,7 +1924,7 @@ func TestHandleUpdate_PutWhileInstalled_RejectsAndPreservesStagedVersion(t *test
 	}
 }
 
-func TestHandleUpdate_PutProgressesToInstalled(t *testing.T) {
+func TestHandleUpdate_PutStagesFirmwareAsDownloaded(t *testing.T) {
 	state := NewMinerState("SN12345678", "00:11:22:33:44:55")
 	h := NewRESTApiHandler(state)
 
@@ -1950,7 +1950,7 @@ func TestHandleUpdate_PutProgressesToInstalled(t *testing.T) {
 		t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
 	}
 
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		info := getSystemInfo(t, h)
 		swUpdate, ok := info["sw_update_status"].(map[string]any)
@@ -1962,7 +1962,7 @@ func TestHandleUpdate_PutProgressesToInstalled(t *testing.T) {
 			t.Fatalf("expected new_version %q after upload, got %v", defaultNextFirmwareVersion, got)
 		}
 
-		if swUpdate["status"] == "installed" {
+		if swUpdate["status"] == "downloaded" {
 			return
 		}
 
@@ -1974,7 +1974,7 @@ func TestHandleUpdate_PutProgressesToInstalled(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected sw_update_status object, got: %v", info["sw_update_status"])
 	}
-	t.Fatalf("expected uploaded firmware to reach %q, got %v", "installed", swUpdate["status"])
+	t.Fatalf("expected uploaded firmware to reach %q, got %v", "downloaded", swUpdate["status"])
 }
 
 func TestHandleUpdate_PostFromDownloadedInstallsUpdate(t *testing.T) {

@@ -1543,6 +1543,38 @@ func (h *RESTApiHandler) startFirmwareDownloadLifecycle() {
 	}()
 }
 
+func (h *RESTApiHandler) startFirmwareOTALifecycle() {
+	go func() {
+		time.Sleep(1 * time.Second)
+
+		h.state.mu.Lock()
+		if h.state.Rebooting {
+			h.state.FWUpdateStatus = "current"
+			h.state.FWNewVersion = ""
+			h.state.mu.Unlock()
+			log.Printf("[FAKE-RIG] Firmware update aborted during reboot")
+			return
+		}
+		h.state.FWUpdateStatus = "installing"
+		h.state.mu.Unlock()
+		log.Printf("[FAKE-RIG] Firmware update status: installing")
+
+		time.Sleep(2 * time.Second)
+
+		h.state.mu.Lock()
+		if h.state.Rebooting {
+			h.state.FWUpdateStatus = "current"
+			h.state.FWNewVersion = ""
+			h.state.mu.Unlock()
+			log.Printf("[FAKE-RIG] Firmware update aborted during reboot")
+			return
+		}
+		h.state.FWUpdateStatus = "installed"
+		h.state.mu.Unlock()
+		log.Printf("[FAKE-RIG] Firmware update status: installed (reboot required)")
+	}()
+}
+
 func (h *RESTApiHandler) startFirmwareInstallLifecycle(fromDownloaded bool) {
 	go func() {
 		if fromDownloaded {
@@ -1613,8 +1645,7 @@ func (h *RESTApiHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		if installFromDownloaded {
 			h.startFirmwareInstallLifecycle(true)
 		} else {
-			h.startFirmwareDownloadLifecycle()
-			h.startFirmwareInstallLifecycle(false)
+			h.startFirmwareOTALifecycle()
 		}
 		h.writeJSON(w, http.StatusAccepted, MessageResponse{Message: "Update started"})
 	case http.MethodPut:
@@ -1662,7 +1693,6 @@ func (h *RESTApiHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 
 		log.Printf("Firmware upload received: filename=%s, size=%d", header.Filename, header.Size)
 		h.startFirmwareDownloadLifecycle()
-		h.startFirmwareInstallLifecycle(false)
 
 		h.writeJSON(w, http.StatusOK, MessageResponse{Message: "Firmware uploaded successfully"})
 	default:
