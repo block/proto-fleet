@@ -156,7 +156,7 @@ export class FirmwareHelper {
     expect(response.status()).toBe(202);
   }
 
-  async ensureCurrentState() {
+  async ensureCurrentState(): Promise<void> {
     const state = await this.getState();
 
     switch (state.status) {
