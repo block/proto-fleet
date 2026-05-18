@@ -7,6 +7,7 @@ type FirmwareState = {
   previousVersion: string | null;
 };
 
+const FAKE_PROTO_RIG_SERIAL_PREFIX = "PROTO-SIM-";
 const FIRMWARE_STATUS_TIMEOUT_MS = 20_000;
 const FIRMWARE_STATUS_POLL_INTERVAL_MS = 250;
 
@@ -16,6 +17,7 @@ function sleep(ms: number) {
 
 export class FirmwareHelper {
   private authAccessToken = "";
+  private hasValidatedDummyUploadTarget = false;
 
   constructor(
     private page: Page,
@@ -133,10 +135,41 @@ export class FirmwareHelper {
     );
   }
 
+  private async assertSafeDummyUploadTarget() {
+    if (this.hasValidatedDummyUploadTarget) {
+      return;
+    }
+
+    const response = await this.request.get("/api/v1/system");
+    expect(response.ok()).toBeTruthy();
+
+    const data = (await response.json()) as {
+      "system-info": {
+        cb_sn?: string;
+        product_name?: string;
+        manufacturer?: string;
+        model?: string;
+      };
+    };
+
+    const systemInfo = data["system-info"];
+    const serialNumber = systemInfo.cb_sn ?? "";
+
+    if (!serialNumber.startsWith(FAKE_PROTO_RIG_SERIAL_PREFIX)) {
+      throw new Error(
+        `Refusing to upload a dummy firmware bundle to non-simulator target "${serialNumber || "unknown"}" (${systemInfo.manufacturer ?? "unknown"} ${systemInfo.product_name ?? systemInfo.model ?? "unknown"}).`,
+      );
+    }
+
+    this.hasValidatedDummyUploadTarget = true;
+  }
+
   async uploadBundle() {
     if (!this.authAccessToken) {
       throw new Error("Firmware helper is missing an auth access token");
     }
+
+    await this.assertSafeDummyUploadTarget();
 
     const response = await this.request.put("/api/v1/system/update", {
       headers: {
