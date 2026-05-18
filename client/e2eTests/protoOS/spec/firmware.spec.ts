@@ -3,7 +3,7 @@ import { FirmwareHelper } from "../helpers/firmwareHelper";
 import { HeaderComponent } from "../pages/components/header";
 import { GeneralPage } from "../pages/general";
 
-type UploadState = "downloaded" | "installing";
+type UploadState = "downloaded" | "installing" | "installed";
 
 async function handleUploadedFirmwareState(
   uploadState: UploadState,
@@ -25,10 +25,20 @@ async function handleUploadedFirmwareState(
     return;
   }
 
-  await headerComponent.validateFirmwareStatusWidgetText(/Installing/);
+  if (uploadState === "installing") {
+    await headerComponent.validateFirmwareStatusWidgetText(/Installing/);
+    return;
+  }
+
+  await generalPage.validateInlineFirmwareStatus(/Reboot required/);
+  await headerComponent.validateFirmwareStatusWidgetText(/Reboot required/);
 }
 
 async function getInstallingState(uploadState: UploadState, firmwareHelper: FirmwareHelper) {
+  if (uploadState === "installed") {
+    return firmwareHelper.getState();
+  }
+
   if (uploadState === "installing") {
     return firmwareHelper.getState();
   }
@@ -91,7 +101,7 @@ test.describe("Firmware updates", () => {
     await test.step("Upload a firmware bundle and validate the update becomes actionable", async () => {
       await firmwareHelper.uploadBundle();
 
-      const stateAfterUpload = await firmwareHelper.waitForAnyStatus(["downloaded", "installing"]);
+      const stateAfterUpload = await firmwareHelper.waitForAnyStatus(["downloaded", "installing", "installed"]);
       uploadState = stateAfterUpload.status as UploadState;
       installedVersion = stateAfterUpload.newVersion ?? "";
 
@@ -104,6 +114,10 @@ test.describe("Firmware updates", () => {
     await test.step("Wait for the install to enter the installing state", async () => {
       const installingState = await getInstallingState(uploadState, firmwareHelper);
       installedVersion = installingState.newVersion ?? installedVersion;
+
+      if (installingState.status === "installed") {
+        return;
+      }
 
       await generalPage.reloadPage();
       await generalPage.validateTitle("General");
