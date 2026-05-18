@@ -7,12 +7,20 @@ package fleetnodeadmin.v1;
 
 import "buf/validate/validate.proto";
 import "google/protobuf/timestamp.proto";
+import "pairing/v1/pairing.proto";
 
 service FleetNodeAdminService {
     rpc CreateEnrollmentCode(CreateEnrollmentCodeRequest) returns (CreateEnrollmentCodeResponse);
     rpc ListFleetNodes(ListFleetNodesRequest) returns (ListFleetNodesResponse);
     rpc ConfirmFleetNode(ConfirmFleetNodeRequest) returns (ConfirmFleetNodeResponse);
     rpc RevokeFleetNode(RevokeFleetNodeRequest) returns (RevokeFleetNodeResponse);
+    rpc PairDeviceToFleetNode(PairDeviceToFleetNodeRequest) returns (PairDeviceToFleetNodeResponse);
+    rpc UnpairDevice(UnpairDeviceRequest) returns (UnpairDeviceResponse);
+    rpc ListFleetNodeDevices(ListFleetNodeDevicesRequest) returns (ListFleetNodeDevicesResponse);
+    // Operator-initiated discovery on a specific fleet node. Server
+    // proxies the request to the agent over ControlStream and forwards
+    // results back to the operator as they arrive.
+    rpc DiscoverOnFleetNode(DiscoverOnFleetNodeRequest) returns (stream pairing.v1.DiscoverResponse);
 }
 
 enum FleetNodeEnrollmentStatus {
@@ -61,3 +69,44 @@ message RevokeFleetNodeRequest {
 }
 
 message RevokeFleetNodeResponse {}
+
+message PairDeviceToFleetNodeRequest {
+    int64 fleet_node_id = 1 [(buf.validate.field).int64.gt = 0];
+    int64 device_id     = 2 [(buf.validate.field).int64.gt = 0];
+}
+
+message PairDeviceToFleetNodeResponse {}
+
+message UnpairDeviceRequest {
+    int64 device_id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message UnpairDeviceResponse {}
+
+message ListFleetNodeDevicesRequest {
+    // Optional. When > 0, restrict to devices paired to this fleet node.
+    int64 fleet_node_id = 1;
+}
+
+message ListFleetNodeDevicesResponse {
+    repeated FleetNodeDeviceSummary pairs = 1;
+}
+
+message FleetNodeDeviceSummary {
+    int64 fleet_node_id = 1;
+    int64 device_id = 2;
+    string device_identifier = 3;
+    string device_type = 4;
+    google.protobuf.Timestamp assigned_at = 5;
+    optional int64 assigned_by = 6;
+}
+
+message DiscoverOnFleetNodeRequest {
+    int64 fleet_node_id = 1 [(buf.validate.field).int64.gt = 0];
+    // Reuses the existing pairing.PairingService.Discover request
+    // shape so the operator UX is uniform between combined-mode
+    // (server-local scan) and remote-agent (server proxies to agent)
+    // discovery. Only IPListMode is supported for v1; CIDR/IPRange
+    // expansion happens server-side before dispatching to the agent.
+    pairing.v1.DiscoverRequest request = 2 [(buf.validate.field).required = true];
+}

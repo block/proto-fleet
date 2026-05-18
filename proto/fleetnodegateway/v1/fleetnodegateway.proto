@@ -17,6 +17,7 @@ service FleetNodeGatewayService {
     rpc UploadTelemetry(stream UploadTelemetryRequest) returns (UploadTelemetryResponse);
     rpc UploadEvents(stream UploadEventsRequest) returns (UploadEventsResponse);
     rpc UploadHeartbeat(UploadHeartbeatRequest) returns (UploadHeartbeatResponse);
+    rpc ReportDiscoveredDevices(ReportDiscoveredDevicesRequest) returns (ReportDiscoveredDevicesResponse);
     rpc ControlStream(stream ControlStreamRequest) returns (stream ControlStreamResponse);
 }
 
@@ -85,6 +86,32 @@ message UploadHeartbeatRequest {
 
 message UploadHeartbeatResponse {
     google.protobuf.Timestamp received_at = 1;
+}
+
+message ReportDiscoveredDevicesRequest {
+    repeated DiscoveredDeviceReport devices = 1
+        [(buf.validate.field).repeated.max_items = 1024];
+    // Optional: when the report is the result of a server-issued
+    // ControlCommand, echo back its command_id so the gateway handler
+    // can forward this batch to the operator stream waiting on the
+    // matching DiscoverOnFleetNode admin RPC. Empty for any future
+    // unsolicited reporting path.
+    string command_id = 2 [(buf.validate.field).string.max_len = 128];
+}
+
+message DiscoveredDeviceReport {
+    string device_identifier = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    string ip_address        = 2 [(buf.validate.field).string = {min_len: 1, max_len: 45}];
+    string port              = 3 [(buf.validate.field).string = {min_len: 1, max_len: 10}];
+    string url_scheme        = 4 [(buf.validate.field).string = {min_len: 1, max_len: 10}];
+    string type              = 5 [(buf.validate.field).string = {min_len: 1, max_len: 50}];
+    string model             = 6 [(buf.validate.field).string.max_len = 255];
+    string manufacturer      = 7 [(buf.validate.field).string.max_len = 255];
+    string firmware_version  = 8 [(buf.validate.field).string.max_len = 255];
+}
+
+message ReportDiscoveredDevicesResponse {
+    int64 accepted_count = 1;
 }
 
 message ControlStreamRequest {
