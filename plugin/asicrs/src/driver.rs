@@ -990,7 +990,7 @@ mod tests {
 
     /// Build a minimal PluginConfig from a YAML snippet for use in tests.
     fn config_from_yaml(yaml: &str) -> PluginConfig {
-        serde_yml::from_str(yaml).expect("invalid test config YAML")
+        serde_yaml_ng::from_str(yaml).expect("invalid test config YAML")
     }
 
     fn make_request(

@@ -86,6 +86,6 @@ pub fn load_config() -> Result<PluginConfig> {
     let contents = std::fs::read_to_string(&path)
         .with_context(|| format!("Failed to read {}", path.display()))?;
     let config: PluginConfig =
-        serde_yml::from_str(&contents).with_context(|| "Failed to parse config.yaml")?;
+        serde_yaml_ng::from_str(&contents).with_context(|| "Failed to parse config.yaml")?;
     Ok(config)
 }
