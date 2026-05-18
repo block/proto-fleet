@@ -4,18 +4,30 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Synthetic tag for a dry-run release (must contain a hyphen, e.g. v0.0.0-dryrun.1)"
+        required: true
+        type: string
+      dry_run:
+        description: "Skip the final publish step so no public release is created"
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: write
   pull-requests: read
+
+env:
+  TAG_NAME: ${{ inputs.tag_name || github.ref_name }}
 
 jobs:
   validate-tag:
     runs-on: ubuntu-latest
     steps:
       - name: Validate tag format
-        env:
-          TAG_NAME: ${{ github.ref_name }}
         run: |
           if [[ ! "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9._-]+)?$ ]]; then
             echo "::error::Tag '$TAG_NAME' does not match expected format (e.g., v1.2.3 or v1.2.3-rc.1)"
@@ -23,14 +35,23 @@ jobs:
           fi
           echo "Tag '$TAG_NAME' is valid"
 
+      - name: Reject stable tags from workflow_dispatch
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          if [[ "$TAG_NAME" != *-* ]]; then
+            echo "::error::workflow_dispatch only supports prerelease-style tags (must contain a hyphen). Got '$TAG_NAME'."
+            exit 1
+          fi
+          echo "Dispatched tag '$TAG_NAME' is a prerelease — OK"
+
       - name: Require full releases to be on main
-        if: ${{ !contains(github.ref_name, '-') }}
+        if: ${{ !contains(env.TAG_NAME, '-') }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           AHEAD_BY=$(gh api "repos/${{ github.repository }}/compare/main...${{ github.sha }}" --jq '.ahead_by')
           if [[ "$AHEAD_BY" -ne 0 ]]; then
-            echo "::error::Full releases are only allowed from commits on the main branch. Tag '${{ github.ref_name }}' points to a commit not on main."
+            echo "::error::Full releases are only allowed from commits on the main branch. Tag '$TAG_NAME' points to a commit not on main."
             exit 1
           fi
           echo "Full release tag is on main — OK"
@@ -40,10 +61,10 @@ jobs:
     needs: [validate-tag]
     uses: ./.github/workflows/proto-fleet-artifact-build.yml
     with:
-      version: ${{ github.ref_name }}
+      version: ${{ inputs.tag_name || github.ref_name }}
       retention_days: 1
       channel: release
-      is_prerelease: ${{ contains(github.ref_name, '-') }}
+      is_prerelease: ${{ contains(inputs.tag_name || github.ref_name, '-') }}
     secrets: inherit
 
   publish-proto-fleet:
@@ -91,10 +112,10 @@ jobs:
       - name: Create draft release and upload assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           shopt -s failglob
+          trap 'gh release delete "$TAG_NAME" --yes 2>/dev/null || true' ERR
           extra_args=()
           if [[ "$TAG_NAME" == *-* ]]; then
             extra_args+=(--prerelease)
@@ -114,6 +135,7 @@ jobs:
             ./deployment-files/uninstall.sh
 
       - name: Publish release
+        if: github.event_name == 'push' || !inputs.dry_run
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "${{ github.ref_name }}" --draft=false
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "$TAG_NAME" --draft=false
