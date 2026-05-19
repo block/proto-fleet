@@ -46,7 +46,7 @@ func (n *NetworkScanner) ScanSubnetForDevices(
 	)
 
 	// Generate all IPs in the subnet
-	ips, err := generateIPsFromCIDR(subnet)
+	ips, err := GenerateIPsFromCIDR(subnet)
 	if err != nil {
 		n.logger.Error("Failed to generate IPs from CIDR",
 			"subnet", subnet,

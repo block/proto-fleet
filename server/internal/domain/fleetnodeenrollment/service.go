@@ -326,6 +326,17 @@ func (s *Service) ListFleetNodes(ctx context.Context, orgID int64) ([]FleetNodeL
 	return agents, nil
 }
 
+func (s *Service) GetFleetNodeByID(ctx context.Context, fleetNodeID, orgID int64) (*FleetNode, error) {
+	agent, err := s.store.GetFleetNodeByID(ctx, fleetNodeID, orgID)
+	if err != nil {
+		if fleeterror.IsNotFoundError(err) {
+			return nil, err
+		}
+		return nil, logInternal("get fleet node", clientErrListFleetNodes, err)
+	}
+	return agent, nil
+}
+
 // IdentityFingerprint is the short hex form the operator visually compares to
 // the value the fleet node prints locally on first run. 16 hex chars = 64 bits of
 // SHA-256, enough to reject a substituted-pubkey attack with a brief glance.

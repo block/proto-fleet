@@ -99,9 +99,9 @@ func TestGenerateIPsFromCIDR(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ips, err := generateIPsFromCIDR(tt.cidr)
+			ips, err := GenerateIPsFromCIDR(tt.cidr)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("generateIPsFromCIDR() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("GenerateIPsFromCIDR() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 
@@ -110,7 +110,7 @@ func TestGenerateIPsFromCIDR(t *testing.T) {
 			}
 
 			if len(ips) != tt.wantCount {
-				t.Errorf("generateIPsFromCIDR() got %d IPs, want %d", len(ips), tt.wantCount)
+				t.Errorf("GenerateIPsFromCIDR() got %d IPs, want %d", len(ips), tt.wantCount)
 			}
 
 			// Create a map for quick lookup
@@ -122,14 +122,14 @@ func TestGenerateIPsFromCIDR(t *testing.T) {
 			// Check IPs that should be in the result
 			for _, checkIP := range tt.shouldContain {
 				if !ipMap[checkIP] {
-					t.Errorf("generateIPsFromCIDR() missing expected IP %s", checkIP)
+					t.Errorf("GenerateIPsFromCIDR() missing expected IP %s", checkIP)
 				}
 			}
 
 			// Check IPs that should NOT be in the result
 			for _, excludedIP := range tt.shouldNotContain {
 				if ipMap[excludedIP] {
-					t.Errorf("generateIPsFromCIDR() should not contain %s (network or gateway address)", excludedIP)
+					t.Errorf("GenerateIPsFromCIDR() should not contain %s (network or gateway address)", excludedIP)
 				}
 			}
 		})

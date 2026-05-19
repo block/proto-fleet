@@ -14,9 +14,9 @@ func parseCIDR(cidr string) (*net.IPNet, error) {
 	return ipNet, nil
 }
 
-// generateIPsFromCIDR generates all valid host IPs from a CIDR notation
+// GenerateIPsFromCIDR generates all valid host IPs from a CIDR notation
 // It excludes network address, gateway, and broadcast address
-func generateIPsFromCIDR(cidr string) ([]string, error) {
+func GenerateIPsFromCIDR(cidr string) ([]string, error) {
 	ipNet, err := parseCIDR(cidr)
 	if err != nil {
 		return nil, err

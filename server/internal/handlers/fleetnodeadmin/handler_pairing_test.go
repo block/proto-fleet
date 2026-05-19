@@ -18,6 +18,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/apikey"
 	domainAuth "github.com/block/proto-fleet/server/internal/domain/auth"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnodecontrol"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnodeenrollment"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnodepairing"
 	"github.com/block/proto-fleet/server/internal/domain/session"
@@ -31,6 +32,7 @@ type pairingHarness struct {
 	db         *sql.DB
 	orgID      int64
 	enrollment *fleetnodeenrollment.Service
+	registry   *fleetnodecontrol.Registry
 }
 
 func newPairingHarness(t *testing.T) *pairingHarness {
@@ -53,11 +55,13 @@ func newPairingHarness(t *testing.T) *pairingHarness {
 	pairingStore := sqlstores.NewSQLFleetNodePairingStore(db)
 	pairingSvc := fleetnodepairing.NewService(pairingStore, enrollmentStore, transactor)
 
+	registry := fleetnodecontrol.NewRegistry()
 	return &pairingHarness{
-		handler:    fleetnodeadmin.NewHandler(enrollmentSvc, pairingSvc),
+		handler:    fleetnodeadmin.NewHandler(enrollmentSvc, pairingSvc, registry),
 		db:         db,
 		orgID:      1,
 		enrollment: enrollmentSvc,
+		registry:   registry,
 	}
 }
 

@@ -1,8 +1,10 @@
 package fleetnodegateway_test
 
 import (
+	"context"
 	"database/sql"
 	"testing"
+	"time"
 
 	"connectrpc.com/authn"
 	"connectrpc.com/connect"
@@ -56,6 +58,43 @@ func TestReportDiscoveredDevices_PersistsAttribution(t *testing.T) {
 	var rowCount int
 	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM discovered_device WHERE org_id = 1 AND device_identifier IN ('discovered-1','discovered-2')`).Scan(&rowCount))
 	assert.Equal(t, 2, rowCount)
+}
+
+func TestReportDiscoveredDevices_PublishesBatchToInFlightCommand(t *testing.T) {
+	// Arrange
+	h := newControlHarness(t)
+	subject := &fleetnodeauth.Subject{FleetNodeID: h.fleetNodeID, OrgID: 1, Name: "agent-correlation"}
+
+	stream, err := h.registry.Register(h.fleetNodeID)
+	require.NoError(t, err)
+	defer stream.Unregister()
+	events, cleanup, err := h.registry.Send(context.Background(), h.fleetNodeID, &pb.ControlCommand{CommandId: "operator-cmd"})
+	require.NoError(t, err)
+	defer cleanup()
+	<-stream.Outgoing
+
+	ctx := authn.SetInfo(context.Background(), subject)
+
+	// Act
+	resp, err := h.handler.ReportDiscoveredDevices(ctx, connect.NewRequest(&pb.ReportDiscoveredDevicesRequest{
+		CommandId: "operator-cmd",
+		Devices: []*pb.DiscoveredDeviceReport{
+			{DeviceIdentifier: "corr-1", IpAddress: "10.0.0.50", Port: "4028", UrlScheme: "http", DriverName: "virtual"},
+		},
+	}))
+
+	// Assert
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), resp.Msg.GetAcceptedCount())
+	select {
+	case ev, ok := <-events:
+		require.True(t, ok)
+		require.NotNil(t, ev.Batch)
+		require.Len(t, ev.Batch.GetDevices(), 1)
+		assert.Equal(t, "corr-1", ev.Batch.GetDevices()[0].GetDeviceIdentifier())
+	case <-time.After(time.Second):
+		t.Fatal("expected batch on events channel")
+	}
 }
 
 func TestReportDiscoveredDevices_RejectsMissingSubject(t *testing.T) {

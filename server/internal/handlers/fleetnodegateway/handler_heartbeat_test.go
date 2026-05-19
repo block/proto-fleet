@@ -16,6 +16,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/apikey"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnodeauth"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnodecontrol"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnodeenrollment"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnodepairing"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
@@ -54,7 +55,7 @@ func newHeartbeatHandler(t *testing.T) (*fleetnodegateway.Handler, *sql.DB, int6
 	pairingStore := sqlstores.NewSQLFleetNodePairingStore(db)
 	pairingSvc := fleetnodepairing.NewService(pairingStore, enrollmentStore, transactor)
 
-	return fleetnodegateway.NewHandler(enrollmentSvc, authSvc, pairingSvc), db, agent.ID
+	return fleetnodegateway.NewHandler(enrollmentSvc, authSvc, pairingSvc, fleetnodecontrol.NewRegistry()), db, agent.ID
 }
 
 func TestUploadHeartbeat_AdvancesLastSeen(t *testing.T) {
