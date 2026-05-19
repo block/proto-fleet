@@ -4,7 +4,7 @@ import { useBuildings } from "@/protoFleet/api/buildings";
 import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
-import { ChevronRight, Ellipsis } from "@/shared/assets/icons";
+import { ChevronDown, Ellipsis } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 
@@ -51,7 +51,9 @@ const SiteSettingsSingleView = ({ site, knownSiteIds }: SiteSettingsSingleViewPr
             variant={variants.secondary}
             size={sizes.compact}
             text="All sites"
-            prefixIcon={<ChevronRight className="rotate-180" />}
+            // ChevronDown rotated -90° (counter-clockwise) points left,
+            // standing in for a ChevronLeft icon we don't ship separately.
+            prefixIcon={<ChevronDown className="-rotate-90" />}
             onClick={() => setActiveSite({ kind: "all" })}
             testId="site-settings-back-to-all"
           />

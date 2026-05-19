@@ -11,7 +11,6 @@ import C1Chip from "./C1Chip";
 import Calendar from "./Calendar";
 import Checkmark from "./Checkmark";
 import ChevronDown from "./ChevronDown";
-import ChevronRight from "./ChevronRight";
 import ChevronUpDown from "./ChevronUpDown";
 import Circle from "./Circle";
 import ConcentricCircles from "./ConcentricCircles";
@@ -97,7 +96,6 @@ export {
   Calendar,
   Checkmark,
   ChevronDown,
-  ChevronRight,
   ChevronUpDown,
   Circle,
   ConcentricCircles,
