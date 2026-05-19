@@ -369,12 +369,6 @@ export type DiscoverOnFleetNodeRequest = Message<"fleetnodeadmin.v1.DiscoverOnFl
   fleetNodeId: bigint;
 
   /**
-   * IPListMode and IPRangeMode are supported (server expands ranges
-   * to an IP list before dispatch). NmapMode is supported via the
-   * nmap binary bundled in the fleetnode release. MDNSMode is
-   * rejected with FailedPrecondition (multicast UDP doesn't reach
-   * agents reliably).
-   *
    * @generated from field: pairing.v1.DiscoverRequest request = 2;
    */
   request?: DiscoverRequest | undefined;
