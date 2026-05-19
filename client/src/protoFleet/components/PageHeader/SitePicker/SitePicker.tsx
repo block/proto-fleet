@@ -38,7 +38,7 @@ const SitePicker = ({ sites }: SitePickerProps) => {
     return <SkeletonBar className="w-24" />;
   }
 
-  // Zero sites: hide the picker. Master plan J2 spec.
+  // Zero sites: hide the picker.
   if (sites.length === 0) {
     return null;
   }
