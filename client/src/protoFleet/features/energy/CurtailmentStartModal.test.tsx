@@ -75,7 +75,6 @@ const preview: CurtailmentPlanPreview = {
   selectedMinerCount: 18,
   targetKw: 40,
   estimatedReductionKw: 45,
-  curtailEstimate: "~2 minutes",
   restoreEstimate: "~2 minutes",
   scopeLabel: "across the fleet",
 };
@@ -143,9 +142,9 @@ describe("CurtailmentStartModal", () => {
     expect(screen.queryByText("Estimated time to restore ~2 minutes")).not.toBeInTheDocument();
 
     const secondaryPane = within(screen.getByTestId("secondary-pane"));
-    expect(secondaryPane.getByText("Time to curtail")).toBeInTheDocument();
+    expect(secondaryPane.queryByText("Time to curtail")).not.toBeInTheDocument();
     expect(secondaryPane.getByText("Time to restore")).toBeInTheDocument();
-    expect(secondaryPane.getAllByText("~2 minutes")).toHaveLength(2);
+    expect(secondaryPane.getAllByText("~2 minutes")).toHaveLength(1);
 
     rerender(
       <CurtailmentStartModal

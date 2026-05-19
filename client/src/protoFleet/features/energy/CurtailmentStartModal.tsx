@@ -43,7 +43,6 @@ export interface CurtailmentPlanPreview {
   selectedMinerCount: number;
   targetKw: number;
   estimatedReductionKw: number;
-  curtailEstimate: string;
   restoreEstimate: string;
   scopeLabel: string;
 }
@@ -255,11 +254,6 @@ function PreviewPane({ preview, previewError }: PreviewPaneProps): ReactElement 
         </div>
 
         <div className="grid gap-6">
-          <div>
-            <div className="text-emphasis-200 text-text-primary-70">Time to curtail</div>
-            <div className="text-heading-300 text-text-primary">{preview.curtailEstimate}</div>
-          </div>
-
           <div>
             <div className="text-emphasis-200 text-text-primary-70">Time to restore</div>
             <div className="text-heading-300 text-text-primary">{preview.restoreEstimate}</div>
