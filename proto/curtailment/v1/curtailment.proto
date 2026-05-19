@@ -423,7 +423,8 @@ message StartCurtailmentRequest {
 
     // Operational controls.
     uint32 max_duration_seconds       = 20;  // 0 = no cap
-    uint32 restore_batch_size         = 21;  // 0 = server default
+    // 0 = server default; lte matches StopCurtailmentRequest.restore_batch_size_override.
+    uint32 restore_batch_size         = 21 [(buf.validate.field).uint32 = {lte: 10000}];
     uint32 restore_batch_interval_sec = 22;  // 0 = server default
     uint32 min_curtailed_duration_sec = 23;
 
@@ -440,11 +441,11 @@ message StartCurtailmentRequest {
     // normalized to the per-org default at handler entry.
     bool allow_unbounded = 27;
 
-    // Idempotency and trigger attribution.
-    string idempotency_key    = 30;  // unique per (org, key) when non-empty
-    string reason             = 31 [(buf.validate.field).string.min_len = 1];
-    string external_source    = 32;  // webhook source name (v2)
-    string external_reference = 33;  // upstream event ID (v2)
+    // Idempotency and trigger attribution. max_len=256 matches DB varchar.
+    string idempotency_key    = 30 [(buf.validate.field).string.max_len = 256];  // unique per (org, key) when non-empty
+    string reason             = 31 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+    string external_source    = 32 [(buf.validate.field).string.max_len = 256];  // webhook source name
+    string external_reference = 33 [(buf.validate.field).string.max_len = 256];  // upstream event ID
 }
 
 message StartCurtailmentResponse {

@@ -49,6 +49,18 @@ const (
 	// FleetNodeAdminServiceRevokeFleetNodeProcedure is the fully-qualified name of the
 	// FleetNodeAdminService's RevokeFleetNode RPC.
 	FleetNodeAdminServiceRevokeFleetNodeProcedure = "/fleetnodeadmin.v1.FleetNodeAdminService/RevokeFleetNode"
+	// FleetNodeAdminServicePairDeviceToFleetNodeProcedure is the fully-qualified name of the
+	// FleetNodeAdminService's PairDeviceToFleetNode RPC.
+	FleetNodeAdminServicePairDeviceToFleetNodeProcedure = "/fleetnodeadmin.v1.FleetNodeAdminService/PairDeviceToFleetNode"
+	// FleetNodeAdminServiceUnpairDeviceProcedure is the fully-qualified name of the
+	// FleetNodeAdminService's UnpairDevice RPC.
+	FleetNodeAdminServiceUnpairDeviceProcedure = "/fleetnodeadmin.v1.FleetNodeAdminService/UnpairDevice"
+	// FleetNodeAdminServiceListFleetNodeDevicesProcedure is the fully-qualified name of the
+	// FleetNodeAdminService's ListFleetNodeDevices RPC.
+	FleetNodeAdminServiceListFleetNodeDevicesProcedure = "/fleetnodeadmin.v1.FleetNodeAdminService/ListFleetNodeDevices"
+	// FleetNodeAdminServiceDiscoverOnFleetNodeProcedure is the fully-qualified name of the
+	// FleetNodeAdminService's DiscoverOnFleetNode RPC.
+	FleetNodeAdminServiceDiscoverOnFleetNodeProcedure = "/fleetnodeadmin.v1.FleetNodeAdminService/DiscoverOnFleetNode"
 )
 
 // FleetNodeAdminServiceClient is a client for the fleetnodeadmin.v1.FleetNodeAdminService service.
@@ -57,6 +69,10 @@ type FleetNodeAdminServiceClient interface {
 	ListFleetNodes(context.Context, *connect.Request[v1.ListFleetNodesRequest]) (*connect.Response[v1.ListFleetNodesResponse], error)
 	ConfirmFleetNode(context.Context, *connect.Request[v1.ConfirmFleetNodeRequest]) (*connect.Response[v1.ConfirmFleetNodeResponse], error)
 	RevokeFleetNode(context.Context, *connect.Request[v1.RevokeFleetNodeRequest]) (*connect.Response[v1.RevokeFleetNodeResponse], error)
+	PairDeviceToFleetNode(context.Context, *connect.Request[v1.PairDeviceToFleetNodeRequest]) (*connect.Response[v1.PairDeviceToFleetNodeResponse], error)
+	UnpairDevice(context.Context, *connect.Request[v1.UnpairDeviceRequest]) (*connect.Response[v1.UnpairDeviceResponse], error)
+	ListFleetNodeDevices(context.Context, *connect.Request[v1.ListFleetNodeDevicesRequest]) (*connect.Response[v1.ListFleetNodeDevicesResponse], error)
+	DiscoverOnFleetNode(context.Context, *connect.Request[v1.DiscoverOnFleetNodeRequest]) (*connect.ServerStreamForClient[v1.DiscoverOnFleetNodeResponse], error)
 }
 
 // NewFleetNodeAdminServiceClient constructs a client for the
@@ -89,15 +105,39 @@ func NewFleetNodeAdminServiceClient(httpClient connect.HTTPClient, baseURL strin
 			baseURL+FleetNodeAdminServiceRevokeFleetNodeProcedure,
 			opts...,
 		),
+		pairDeviceToFleetNode: connect.NewClient[v1.PairDeviceToFleetNodeRequest, v1.PairDeviceToFleetNodeResponse](
+			httpClient,
+			baseURL+FleetNodeAdminServicePairDeviceToFleetNodeProcedure,
+			opts...,
+		),
+		unpairDevice: connect.NewClient[v1.UnpairDeviceRequest, v1.UnpairDeviceResponse](
+			httpClient,
+			baseURL+FleetNodeAdminServiceUnpairDeviceProcedure,
+			opts...,
+		),
+		listFleetNodeDevices: connect.NewClient[v1.ListFleetNodeDevicesRequest, v1.ListFleetNodeDevicesResponse](
+			httpClient,
+			baseURL+FleetNodeAdminServiceListFleetNodeDevicesProcedure,
+			opts...,
+		),
+		discoverOnFleetNode: connect.NewClient[v1.DiscoverOnFleetNodeRequest, v1.DiscoverOnFleetNodeResponse](
+			httpClient,
+			baseURL+FleetNodeAdminServiceDiscoverOnFleetNodeProcedure,
+			opts...,
+		),
 	}
 }
 
 // fleetNodeAdminServiceClient implements FleetNodeAdminServiceClient.
 type fleetNodeAdminServiceClient struct {
-	createEnrollmentCode *connect.Client[v1.CreateEnrollmentCodeRequest, v1.CreateEnrollmentCodeResponse]
-	listFleetNodes       *connect.Client[v1.ListFleetNodesRequest, v1.ListFleetNodesResponse]
-	confirmFleetNode     *connect.Client[v1.ConfirmFleetNodeRequest, v1.ConfirmFleetNodeResponse]
-	revokeFleetNode      *connect.Client[v1.RevokeFleetNodeRequest, v1.RevokeFleetNodeResponse]
+	createEnrollmentCode  *connect.Client[v1.CreateEnrollmentCodeRequest, v1.CreateEnrollmentCodeResponse]
+	listFleetNodes        *connect.Client[v1.ListFleetNodesRequest, v1.ListFleetNodesResponse]
+	confirmFleetNode      *connect.Client[v1.ConfirmFleetNodeRequest, v1.ConfirmFleetNodeResponse]
+	revokeFleetNode       *connect.Client[v1.RevokeFleetNodeRequest, v1.RevokeFleetNodeResponse]
+	pairDeviceToFleetNode *connect.Client[v1.PairDeviceToFleetNodeRequest, v1.PairDeviceToFleetNodeResponse]
+	unpairDevice          *connect.Client[v1.UnpairDeviceRequest, v1.UnpairDeviceResponse]
+	listFleetNodeDevices  *connect.Client[v1.ListFleetNodeDevicesRequest, v1.ListFleetNodeDevicesResponse]
+	discoverOnFleetNode   *connect.Client[v1.DiscoverOnFleetNodeRequest, v1.DiscoverOnFleetNodeResponse]
 }
 
 // CreateEnrollmentCode calls fleetnodeadmin.v1.FleetNodeAdminService.CreateEnrollmentCode.
@@ -120,6 +160,26 @@ func (c *fleetNodeAdminServiceClient) RevokeFleetNode(ctx context.Context, req *
 	return c.revokeFleetNode.CallUnary(ctx, req)
 }
 
+// PairDeviceToFleetNode calls fleetnodeadmin.v1.FleetNodeAdminService.PairDeviceToFleetNode.
+func (c *fleetNodeAdminServiceClient) PairDeviceToFleetNode(ctx context.Context, req *connect.Request[v1.PairDeviceToFleetNodeRequest]) (*connect.Response[v1.PairDeviceToFleetNodeResponse], error) {
+	return c.pairDeviceToFleetNode.CallUnary(ctx, req)
+}
+
+// UnpairDevice calls fleetnodeadmin.v1.FleetNodeAdminService.UnpairDevice.
+func (c *fleetNodeAdminServiceClient) UnpairDevice(ctx context.Context, req *connect.Request[v1.UnpairDeviceRequest]) (*connect.Response[v1.UnpairDeviceResponse], error) {
+	return c.unpairDevice.CallUnary(ctx, req)
+}
+
+// ListFleetNodeDevices calls fleetnodeadmin.v1.FleetNodeAdminService.ListFleetNodeDevices.
+func (c *fleetNodeAdminServiceClient) ListFleetNodeDevices(ctx context.Context, req *connect.Request[v1.ListFleetNodeDevicesRequest]) (*connect.Response[v1.ListFleetNodeDevicesResponse], error) {
+	return c.listFleetNodeDevices.CallUnary(ctx, req)
+}
+
+// DiscoverOnFleetNode calls fleetnodeadmin.v1.FleetNodeAdminService.DiscoverOnFleetNode.
+func (c *fleetNodeAdminServiceClient) DiscoverOnFleetNode(ctx context.Context, req *connect.Request[v1.DiscoverOnFleetNodeRequest]) (*connect.ServerStreamForClient[v1.DiscoverOnFleetNodeResponse], error) {
+	return c.discoverOnFleetNode.CallServerStream(ctx, req)
+}
+
 // FleetNodeAdminServiceHandler is an implementation of the fleetnodeadmin.v1.FleetNodeAdminService
 // service.
 type FleetNodeAdminServiceHandler interface {
@@ -127,6 +187,10 @@ type FleetNodeAdminServiceHandler interface {
 	ListFleetNodes(context.Context, *connect.Request[v1.ListFleetNodesRequest]) (*connect.Response[v1.ListFleetNodesResponse], error)
 	ConfirmFleetNode(context.Context, *connect.Request[v1.ConfirmFleetNodeRequest]) (*connect.Response[v1.ConfirmFleetNodeResponse], error)
 	RevokeFleetNode(context.Context, *connect.Request[v1.RevokeFleetNodeRequest]) (*connect.Response[v1.RevokeFleetNodeResponse], error)
+	PairDeviceToFleetNode(context.Context, *connect.Request[v1.PairDeviceToFleetNodeRequest]) (*connect.Response[v1.PairDeviceToFleetNodeResponse], error)
+	UnpairDevice(context.Context, *connect.Request[v1.UnpairDeviceRequest]) (*connect.Response[v1.UnpairDeviceResponse], error)
+	ListFleetNodeDevices(context.Context, *connect.Request[v1.ListFleetNodeDevicesRequest]) (*connect.Response[v1.ListFleetNodeDevicesResponse], error)
+	DiscoverOnFleetNode(context.Context, *connect.Request[v1.DiscoverOnFleetNodeRequest], *connect.ServerStream[v1.DiscoverOnFleetNodeResponse]) error
 }
 
 // NewFleetNodeAdminServiceHandler builds an HTTP handler from the service implementation. It
@@ -155,6 +219,26 @@ func NewFleetNodeAdminServiceHandler(svc FleetNodeAdminServiceHandler, opts ...c
 		svc.RevokeFleetNode,
 		opts...,
 	)
+	fleetNodeAdminServicePairDeviceToFleetNodeHandler := connect.NewUnaryHandler(
+		FleetNodeAdminServicePairDeviceToFleetNodeProcedure,
+		svc.PairDeviceToFleetNode,
+		opts...,
+	)
+	fleetNodeAdminServiceUnpairDeviceHandler := connect.NewUnaryHandler(
+		FleetNodeAdminServiceUnpairDeviceProcedure,
+		svc.UnpairDevice,
+		opts...,
+	)
+	fleetNodeAdminServiceListFleetNodeDevicesHandler := connect.NewUnaryHandler(
+		FleetNodeAdminServiceListFleetNodeDevicesProcedure,
+		svc.ListFleetNodeDevices,
+		opts...,
+	)
+	fleetNodeAdminServiceDiscoverOnFleetNodeHandler := connect.NewServerStreamHandler(
+		FleetNodeAdminServiceDiscoverOnFleetNodeProcedure,
+		svc.DiscoverOnFleetNode,
+		opts...,
+	)
 	return "/fleetnodeadmin.v1.FleetNodeAdminService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case FleetNodeAdminServiceCreateEnrollmentCodeProcedure:
@@ -165,6 +249,14 @@ func NewFleetNodeAdminServiceHandler(svc FleetNodeAdminServiceHandler, opts ...c
 			fleetNodeAdminServiceConfirmFleetNodeHandler.ServeHTTP(w, r)
 		case FleetNodeAdminServiceRevokeFleetNodeProcedure:
 			fleetNodeAdminServiceRevokeFleetNodeHandler.ServeHTTP(w, r)
+		case FleetNodeAdminServicePairDeviceToFleetNodeProcedure:
+			fleetNodeAdminServicePairDeviceToFleetNodeHandler.ServeHTTP(w, r)
+		case FleetNodeAdminServiceUnpairDeviceProcedure:
+			fleetNodeAdminServiceUnpairDeviceHandler.ServeHTTP(w, r)
+		case FleetNodeAdminServiceListFleetNodeDevicesProcedure:
+			fleetNodeAdminServiceListFleetNodeDevicesHandler.ServeHTTP(w, r)
+		case FleetNodeAdminServiceDiscoverOnFleetNodeProcedure:
+			fleetNodeAdminServiceDiscoverOnFleetNodeHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -188,4 +280,20 @@ func (UnimplementedFleetNodeAdminServiceHandler) ConfirmFleetNode(context.Contex
 
 func (UnimplementedFleetNodeAdminServiceHandler) RevokeFleetNode(context.Context, *connect.Request[v1.RevokeFleetNodeRequest]) (*connect.Response[v1.RevokeFleetNodeResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetnodeadmin.v1.FleetNodeAdminService.RevokeFleetNode is not implemented"))
+}
+
+func (UnimplementedFleetNodeAdminServiceHandler) PairDeviceToFleetNode(context.Context, *connect.Request[v1.PairDeviceToFleetNodeRequest]) (*connect.Response[v1.PairDeviceToFleetNodeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetnodeadmin.v1.FleetNodeAdminService.PairDeviceToFleetNode is not implemented"))
+}
+
+func (UnimplementedFleetNodeAdminServiceHandler) UnpairDevice(context.Context, *connect.Request[v1.UnpairDeviceRequest]) (*connect.Response[v1.UnpairDeviceResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetnodeadmin.v1.FleetNodeAdminService.UnpairDevice is not implemented"))
+}
+
+func (UnimplementedFleetNodeAdminServiceHandler) ListFleetNodeDevices(context.Context, *connect.Request[v1.ListFleetNodeDevicesRequest]) (*connect.Response[v1.ListFleetNodeDevicesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetnodeadmin.v1.FleetNodeAdminService.ListFleetNodeDevices is not implemented"))
+}
+
+func (UnimplementedFleetNodeAdminServiceHandler) DiscoverOnFleetNode(context.Context, *connect.Request[v1.DiscoverOnFleetNodeRequest], *connect.ServerStream[v1.DiscoverOnFleetNodeResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("fleetnodeadmin.v1.FleetNodeAdminService.DiscoverOnFleetNode is not implemented"))
 }

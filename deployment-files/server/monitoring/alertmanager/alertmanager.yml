@@ -9,7 +9,7 @@ route:
   receiver: "null"
   routes:
     - matchers:
-        - rule_group="protofleet-self"
+        - rule_group="proto-fleet-self"
       receiver: __protofleet_internal
       continue: true
 

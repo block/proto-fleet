@@ -17,6 +17,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 	fleet_telemetry "github.com/block/proto-fleet/server/internal/infrastructure/fleet-telemetry"
 	"github.com/block/proto-fleet/server/internal/infrastructure/logging"
+	"github.com/block/proto-fleet/server/internal/infrastructure/metrics"
 	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
 	"github.com/block/proto-fleet/server/internal/infrastructure/timescaledb"
 )
@@ -47,4 +48,5 @@ type Config struct {
 	Diagnostics    diagnostics.Config     `embed:"" prefix:"diagnostics-" envprefix:"DIAGNOSTICS_"`
 	Files          files.Config           `embed:"" prefix:"files-" envprefix:"FILES_"`
 	FleetTelemetry fleet_telemetry.Config `embed:"" prefix:"fleet-telemetry-" envprefix:"FLEET_TELEMETRY_"`
+	Metrics        metrics.Config         `embed:"" prefix:"metrics-" envprefix:"FLEET_METRICS_"`
 }

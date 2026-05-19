@@ -65,8 +65,11 @@ func (q *Queries) CreateQueueMessage(ctx context.Context, arg CreateQueueMessage
 }
 
 const getMessagesToProcess = `-- name: GetMessagesToProcess :many
-SELECT m.id, m.command_batch_log_uuid, m.device_id, m.command_type, m.status, m.retry_count, m.error_info, m.payload, m.created_at, m.updated_at
+SELECT m.id, m.command_batch_log_uuid, m.device_id, m.command_type, m.status,
+       m.retry_count, m.error_info, m.payload, m.created_at, m.updated_at,
+       d.org_id
 FROM queue_message m
+JOIN device d ON m.device_id = d.id
 WHERE m.status = 'PENDING'
   AND m.retry_count < $1
   AND NOT EXISTS (
@@ -85,15 +88,29 @@ type GetMessagesToProcessParams struct {
 	Limit      int32
 }
 
-func (q *Queries) GetMessagesToProcess(ctx context.Context, arg GetMessagesToProcessParams) ([]QueueMessage, error) {
+type GetMessagesToProcessRow struct {
+	ID                  int64
+	CommandBatchLogUuid string
+	DeviceID            int64
+	CommandType         string
+	Status              QueueStatusEnum
+	RetryCount          int32
+	ErrorInfo           sql.NullString
+	Payload             pqtype.NullRawMessage
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+	OrgID               int64
+}
+
+func (q *Queries) GetMessagesToProcess(ctx context.Context, arg GetMessagesToProcessParams) ([]GetMessagesToProcessRow, error) {
 	rows, err := q.query(ctx, q.getMessagesToProcessStmt, getMessagesToProcess, arg.RetryCount, arg.Limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []QueueMessage
+	var items []GetMessagesToProcessRow
 	for rows.Next() {
-		var i QueueMessage
+		var i GetMessagesToProcessRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.CommandBatchLogUuid,
@@ -105,6 +122,7 @@ func (q *Queries) GetMessagesToProcess(ctx context.Context, arg GetMessagesToPro
 			&i.Payload,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.OrgID,
 		); err != nil {
 			return nil, err
 		}
@@ -167,10 +185,12 @@ UPDATE queue_message
 SET status = 'FAILED'::queue_status_enum,
     error_info = 'reaped: firmware update stuck in PROCESSING beyond timeout',
     updated_at = CURRENT_TIMESTAMP
-FROM stuck
+FROM stuck, device
 WHERE queue_message.id = stuck.id
   AND queue_message.status = 'PROCESSING'
-RETURNING queue_message.id, queue_message.device_id, queue_message.command_batch_log_uuid, queue_message.error_info
+  AND queue_message.device_id = device.id
+RETURNING queue_message.id, queue_message.device_id, queue_message.command_batch_log_uuid,
+    queue_message.error_info, queue_message.command_type, device.org_id
 `
 
 type ReapStuckFirmwareUpdateMessagesParams struct {
@@ -183,6 +203,8 @@ type ReapStuckFirmwareUpdateMessagesRow struct {
 	DeviceID            int64
 	CommandBatchLogUuid string
 	ErrorInfo           sql.NullString
+	CommandType         string
+	OrgID               int64
 }
 
 func (q *Queries) ReapStuckFirmwareUpdateMessages(ctx context.Context, arg ReapStuckFirmwareUpdateMessagesParams) ([]ReapStuckFirmwareUpdateMessagesRow, error) {
@@ -199,6 +221,8 @@ func (q *Queries) ReapStuckFirmwareUpdateMessages(ctx context.Context, arg ReapS
 			&i.DeviceID,
 			&i.CommandBatchLogUuid,
 			&i.ErrorInfo,
+			&i.CommandType,
+			&i.OrgID,
 		); err != nil {
 			return nil, err
 		}
@@ -225,10 +249,12 @@ UPDATE queue_message
 SET status = 'FAILED'::queue_status_enum,
     error_info = 'reaped: stuck in PROCESSING beyond timeout',
     updated_at = CURRENT_TIMESTAMP
-FROM stuck
+FROM stuck, device
 WHERE queue_message.id = stuck.id
   AND queue_message.status = 'PROCESSING'
-RETURNING queue_message.id, queue_message.device_id, queue_message.command_batch_log_uuid, queue_message.error_info
+  AND queue_message.device_id = device.id
+RETURNING queue_message.id, queue_message.device_id, queue_message.command_batch_log_uuid,
+    queue_message.error_info, queue_message.command_type, device.org_id
 `
 
 type ReapStuckProcessingMessagesParams struct {
@@ -241,6 +267,8 @@ type ReapStuckProcessingMessagesRow struct {
 	DeviceID            int64
 	CommandBatchLogUuid string
 	ErrorInfo           sql.NullString
+	CommandType         string
+	OrgID               int64
 }
 
 func (q *Queries) ReapStuckProcessingMessages(ctx context.Context, arg ReapStuckProcessingMessagesParams) ([]ReapStuckProcessingMessagesRow, error) {
@@ -257,6 +285,8 @@ func (q *Queries) ReapStuckProcessingMessages(ctx context.Context, arg ReapStuck
 			&i.DeviceID,
 			&i.CommandBatchLogUuid,
 			&i.ErrorInfo,
+			&i.CommandType,
+			&i.OrgID,
 		); err != nil {
 			return nil, err
 		}

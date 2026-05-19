@@ -21,9 +21,10 @@ const (
 type ActorType string
 
 const (
-	ActorUser      ActorType = "user"
-	ActorSystem    ActorType = "system"
-	ActorScheduler ActorType = "scheduler"
+	ActorUser        ActorType = "user"
+	ActorSystem      ActorType = "system"
+	ActorScheduler   ActorType = "scheduler"
+	ActorCurtailment ActorType = "curtailment"
 )
 
 type ResultType string
@@ -45,7 +46,7 @@ func (c EventCategory) Valid() bool {
 
 func (a ActorType) Valid() bool {
 	switch a {
-	case ActorUser, ActorSystem, ActorScheduler:
+	case ActorUser, ActorSystem, ActorScheduler, ActorCurtailment:
 		return true
 	}
 	return false

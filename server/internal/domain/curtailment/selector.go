@@ -3,6 +3,8 @@ package curtailment
 import (
 	"sort"
 
+	"github.com/google/uuid"
+
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/modes"
 )
 
@@ -65,6 +67,12 @@ type Plan struct {
 	Outcome                   modes.Outcome
 	// InsufficientLoadDetail is set only on OutcomeInsufficientLoad.
 	InsufficientLoadDetail *modes.InsufficientLoadDetail
+	// EventUUID is set by Service.Start after persisting; nil for Preview.
+	EventUUID *uuid.UUID
+	// EffectiveMaxDurationSeconds is the persisted cap after Service.Start
+	// resolves the "use org default" sentinel. nil when AllowUnbounded=true
+	// or for Preview.
+	EffectiveMaxDurationSeconds *int32
 }
 
 // SelectedDevice is a candidate the mode picked, carrying the snapshot

@@ -2,7 +2,11 @@ package curtailment
 
 import (
 	"context"
+	"encoding/json"
 	"math"
+	"strings"
+
+	"github.com/google/uuid"
 
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/modes"
@@ -33,7 +37,43 @@ type PreviewRequest struct {
 	CandidateMinPowerWOverride *int32 // nil = use org default; admin-gated by handler
 }
 
-// Service orchestrates Preview through the config / scope / candidate / selector pipeline.
+// StartRequest is the service-level shape of a Start call. Adds event-row
+// fields (audit + operational controls) on top of PreviewRequest's
+// selector inputs.
+type StartRequest struct {
+	PreviewRequest
+
+	// Reason: operator-supplied audit string. Required (DB CHECK).
+	Reason string
+
+	// Zero values pass through verbatim; handler normalizes to org defaults.
+	RestoreBatchSize        int32
+	RestoreBatchIntervalSec int32
+	MinCurtailedDurationSec int32
+
+	// MaxDurationSeconds: nil when AllowUnbounded=true, else a finite cap.
+	MaxDurationSeconds *int32
+	AllowUnbounded     bool
+
+	// External attribution. Empty-string normalizes to NULL at the store
+	// boundary so partial-unique indexes only enforce uniqueness for set keys.
+	IdempotencyKey    *string
+	ExternalSource    *string
+	ExternalReference *string
+
+	// SourceActorType / SourceActorID: audit attribution. Handler derives
+	// from session.Info; service stays session-free.
+	SourceActorType models.SourceActorType
+	SourceActorID   *string
+
+	// CreatedByUserID: operator's user.id captured at handler entry.
+	// Persisted on the event so reconciler dispatches under a real user
+	// (command_batch_log.created_by has a NOT NULL FK to user.id).
+	CreatedByUserID int64
+}
+
+// Service orchestrates Preview / Start through the shared config / scope /
+// candidate / selector pipeline.
 type Service struct {
 	store interfaces.CurtailmentStore
 }
@@ -48,35 +88,98 @@ func (s *Service) Preview(ctx context.Context, req PreviewRequest) (*Plan, error
 	if err := validatePreviewRequest(req); err != nil {
 		return nil, err
 	}
-
-	deviceFilter, err := resolveScope(req.Scope)
+	plan, _, _, err := s.runSelector(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	// Normalize empty-but-non-nil slice to nil; the candidate query's
-	// `IS NULL` check would otherwise match-nothing on an empty array.
+	return plan, nil
+}
+
+// Start runs Preview's selector pipeline and persists the event + targets.
+// On OutcomeInsufficientLoad nothing is written; the Plan carries the
+// rejection detail (mirrors Preview).
+func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
+	if err := validateStartRequest(req); err != nil {
+		return nil, err
+	}
+
+	plan, minPowerW, orgConfig, err := s.runSelector(ctx, req.PreviewRequest)
+	if err != nil {
+		return nil, err
+	}
+
+	// Insufficient-load: don't persist; caller surfaces InvalidArgument
+	// from plan.InsufficientLoadDetail (matches Preview).
+	if plan.InsufficientLoadDetail != nil {
+		return plan, nil
+	}
+
+	if len(plan.Selected) == 0 {
+		// Defense-in-depth against a future mode regression. FIXED_KW's
+		// validator + selector already prevent this.
+		return nil, fleeterror.NewInvalidArgumentError("no targets selected")
+	}
+
+	// max_duration_seconds=nil + !AllowUnbounded means "use org default".
+	// Reject a non-positive org default (data-quality issue).
+	if !req.AllowUnbounded && req.MaxDurationSeconds == nil {
+		if orgConfig.MaxDurationDefaultSec <= 0 {
+			return nil, fleeterror.NewInvalidArgumentErrorf(
+				"org's max_duration_default_sec must be > 0, got %d", orgConfig.MaxDurationDefaultSec,
+			)
+		}
+		v := orgConfig.MaxDurationDefaultSec
+		req.MaxDurationSeconds = &v
+	}
+
+	eventParams, targetParams, err := buildInsertParams(req, plan, minPowerW)
+	if err != nil {
+		return nil, err
+	}
+
+	result, err := s.store.InsertEventWithTargets(ctx, eventParams, targetParams)
+	if err != nil {
+		return nil, err
+	}
+
+	plan.EventUUID = &result.EventUUID
+	plan.EffectiveMaxDurationSeconds = req.MaxDurationSeconds
+	return plan, nil
+}
+
+// runSelector executes the org-config + scope + candidate + classify +
+// build-plan pipeline shared by Preview and Start. Returns the resolved
+// candidate floor (so persisters can echo it into the decision snapshot)
+// and the OrgConfig (so Start can resolve max_duration_seconds=0 without a
+// second DB read).
+func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, int32, *models.OrgConfig, error) {
+	deviceFilter, err := resolveScope(req.Scope)
+	if err != nil {
+		return nil, 0, nil, err
+	}
+	// Empty-but-non-nil would match nothing under the query's `IS NULL` check.
 	if len(deviceFilter) == 0 {
 		deviceFilter = nil
 	}
 
 	orgConfig, err := s.store.GetOrgConfig(ctx, req.OrgID)
 	if err != nil {
-		return nil, err
+		return nil, 0, nil, err
 	}
 
-	// Effective candidate floor: per-org default, optionally overridden by
-	// the admin-gated request field. Handler enforces the admin role gate.
+	// Effective candidate floor: per-org default, admin-overridable.
+	// Handler enforces the admin role gate.
 	minPowerW := orgConfig.CandidateMinPowerW
 	if req.CandidateMinPowerWOverride != nil {
 		minPowerW = *req.CandidateMinPowerWOverride
 	}
 
-	// Cooldown bypass: EMERGENCY priority skips post_event_cooldown_sec.
+	// EMERGENCY skips post_event_cooldown_sec.
 	bypassCooldown := req.Priority == models.PriorityEmergency
 
 	activeDevices, err := s.store.ListActiveCurtailedDevices(ctx, req.OrgID)
 	if err != nil {
-		return nil, err
+		return nil, 0, nil, err
 	}
 	activeSet := toStringSet(activeDevices)
 
@@ -84,22 +187,21 @@ func (s *Service) Preview(ctx context.Context, req PreviewRequest) (*Plan, error
 	if !bypassCooldown {
 		cd, err := s.store.ListRecentlyResolvedCurtailedDevices(ctx, req.OrgID, orgConfig.PostEventCooldownSec)
 		if err != nil {
-			return nil, err
+			return nil, 0, nil, err
 		}
 		cooldownSet = toStringSet(cd)
 	}
 
 	candidates, err := s.store.ListCandidates(ctx, req.OrgID, deviceFilter)
 	if err != nil {
-		return nil, err
+		return nil, 0, nil, err
 	}
 
-	// Org-ownership guard: cross-org ids are silently dropped by the SQL
-	// org_id filter; surface them as NotFound so the caller sees the real
-	// error instead of a misleading InsufficientLoad.
+	// Cross-org ids are silently dropped by the SQL org_id filter; surface
+	// them as NotFound rather than masquerading as InsufficientLoad.
 	if len(deviceFilter) > 0 {
 		if missing := missingDeviceIdentifiers(deviceFilter, candidates); len(missing) > 0 {
-			return nil, fleeterror.NewNotFoundErrorf(
+			return nil, 0, nil, fleeterror.NewNotFoundErrorf(
 				"device_identifiers not found in caller's org: %v", missing,
 			)
 		}
@@ -117,11 +219,84 @@ func (s *Service) Preview(ctx context.Context, req PreviewRequest) (*Plan, error
 
 	mode, err := modes.NewFixedKw(req.TargetKW, req.ToleranceKW, summary)
 	if err != nil {
-		return nil, fleeterror.NewInvalidArgumentErrorf("invalid FIXED_KW params: %v", err)
+		return nil, 0, nil, fleeterror.NewInvalidArgumentErrorf("invalid FIXED_KW params: %v", err)
 	}
 
 	plan := BuildPlan(eligible, preFiltered, minPowerW, mode)
-	return &plan, nil
+	return &plan, minPowerW, orgConfig, nil
+}
+
+// startTextFieldMaxLen mirrors the proto max_len for idempotency_key /
+// reason / external_source / external_reference. Service-level backstop
+// for non-Connect callers (CLIs, tests, future non-RPC entry points).
+const startTextFieldMaxLen = 256
+
+func validateStartRequest(req StartRequest) error {
+	if err := validatePreviewRequest(req.PreviewRequest); err != nil {
+		return err
+	}
+	if strings.TrimSpace(req.Reason) == "" {
+		// DB CHECK enforces length(trim) > 0; reject here so callers see
+		// InvalidArgument instead of Internal from the constraint.
+		return fleeterror.NewInvalidArgumentError("reason must be non-empty")
+	}
+	if len(req.Reason) > startTextFieldMaxLen {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"reason must be at most %d chars, got %d", startTextFieldMaxLen, len(req.Reason),
+		)
+	}
+	if req.IdempotencyKey != nil && len(*req.IdempotencyKey) > startTextFieldMaxLen {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"idempotency_key must be at most %d chars, got %d", startTextFieldMaxLen, len(*req.IdempotencyKey),
+		)
+	}
+	if req.ExternalSource != nil && len(*req.ExternalSource) > startTextFieldMaxLen {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"external_source must be at most %d chars, got %d", startTextFieldMaxLen, len(*req.ExternalSource),
+		)
+	}
+	if req.ExternalReference != nil && len(*req.ExternalReference) > startTextFieldMaxLen {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"external_reference must be at most %d chars, got %d", startTextFieldMaxLen, len(*req.ExternalReference),
+		)
+	}
+	if req.RestoreBatchSize < 0 {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"restore_batch_size must be >= 0, got %d", req.RestoreBatchSize,
+		)
+	}
+	if req.RestoreBatchIntervalSec < 0 {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"restore_batch_interval_sec must be >= 0, got %d", req.RestoreBatchIntervalSec,
+		)
+	}
+	if req.MinCurtailedDurationSec < 0 {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"min_curtailed_duration_sec must be >= 0, got %d", req.MinCurtailedDurationSec,
+		)
+	}
+	// allow_unbounded + finite max_duration are mutually exclusive.
+	if req.AllowUnbounded && req.MaxDurationSeconds != nil {
+		return fleeterror.NewInvalidArgumentError(
+			"max_duration_seconds must be unset when allow_unbounded is true",
+		)
+	}
+	if !req.AllowUnbounded && req.MaxDurationSeconds != nil && *req.MaxDurationSeconds <= 0 {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"max_duration_seconds must be > 0, got %d", *req.MaxDurationSeconds,
+		)
+	}
+	// MaxDurationSeconds=nil + !AllowUnbounded is the "use org default"
+	// sentinel; Service.Start resolves it before persistence.
+	if req.SourceActorType == "" {
+		// NOT NULL at the DB; handler derives from session.Info.
+		return fleeterror.NewInvalidArgumentError("source_actor_type must be set")
+	}
+	if req.CreatedByUserID <= 0 {
+		// NOT NULL FK to user.id; handler derives from session.Info.UserID.
+		return fleeterror.NewInvalidArgumentError("created_by_user_id must be set")
+	}
+	return nil
 }
 
 func validatePreviewRequest(req PreviewRequest) error {
@@ -136,15 +311,14 @@ func validatePreviewRequest(req PreviewRequest) error {
 			"strategy %q is not supported; only LEAST_EFFICIENT_FIRST", req.Strategy,
 		)
 	}
-	// HIGH is proto-reserved but undesigned; reject explicitly.
+	// HIGH is proto-reserved but unimplemented; reject explicitly.
 	if req.Priority != "" && req.Priority != models.PriorityNormal && req.Priority != models.PriorityEmergency {
 		return fleeterror.NewInvalidArgumentErrorf(
 			"priority %q is not supported; use NORMAL or EMERGENCY", req.Priority,
 		)
 	}
-	// NaN / +/-Inf must be rejected explicitly because every comparison with
-	// NaN evaluates false, which would slip past the > 0 / >= 0 guards
-	// below and propagate through the running sum in FixedKw.
+	// NaN/+/-Inf comparisons evaluate false, slipping past the > 0/>= 0
+	// guards below and poisoning FixedKw's running sum.
 	if math.IsNaN(req.TargetKW) || math.IsInf(req.TargetKW, 0) {
 		return fleeterror.NewInvalidArgumentErrorf("target_kw must be a finite number, got %v", req.TargetKW)
 	}
@@ -158,20 +332,16 @@ func validatePreviewRequest(req PreviewRequest) error {
 		return fleeterror.NewInvalidArgumentErrorf("tolerance_kw must be >= 0, got %v", req.ToleranceKW)
 	}
 	// tolerance_kw >= target_kw makes the undershoot branch trivially pass
-	// even when the candidate sum is zero, producing an empty plan that
-	// looks like a successful preview. Reject so the caller sees the real
-	// reason (insufficient load) rather than a no-op selection.
+	// at zero candidate sum, producing a misleading empty "successful" plan.
 	if req.ToleranceKW >= req.TargetKW {
 		return fleeterror.NewInvalidArgumentErrorf(
 			"tolerance_kw must be < target_kw, got tolerance=%v target=%v",
 			req.ToleranceKW, req.TargetKW,
 		)
 	}
-	// candidate_min_power_w_override bounds [1, 10_000_000] are documented
-	// at the proto layer; this is the service-level backstop for callers
-	// that bypass proto validation (internal CLIs, tests, future non-Connect
-	// surfaces). Below 1 disables the dual-signal floor; above 10M is so far
-	// past any real miner's nameplate it indicates a typo or unit error.
+	// candidate_min_power_w_override [1, 10_000_000] bounds documented at
+	// proto. Below 1 disables the dual-signal floor; above 10M is a unit
+	// error. Service-level backstop for non-Connect callers.
 	if req.CandidateMinPowerWOverride != nil &&
 		(*req.CandidateMinPowerWOverride < 1 || *req.CandidateMinPowerWOverride > 10_000_000) {
 		return fleeterror.NewInvalidArgumentErrorf(
@@ -179,8 +349,7 @@ func validatePreviewRequest(req PreviewRequest) error {
 			*req.CandidateMinPowerWOverride,
 		)
 	}
-	// Maintenance override pair is both-or-neither at the API boundary;
-	// the DB CHECK constraint is the defense-in-depth backstop at Start time.
+	// Maintenance override pair is both-or-neither (DB CHECK is the backstop).
 	if req.IncludeMaintenance != req.ForceIncludeMaintenance {
 		return fleeterror.NewInvalidArgumentError(
 			"include_maintenance and force_include_maintenance must be set together",
@@ -192,10 +361,8 @@ func validatePreviewRequest(req PreviewRequest) error {
 func resolveScope(s Scope) ([]string, error) {
 	switch s.Type {
 	case models.ScopeTypeWholeOrg, "":
-		// Empty Type is admitted as whole-org for backward compatibility
-		// with callers that omit the field. But device-id slices implicitly
-		// signal a different intent — admitting both silently widens the
-		// plan. Reject so the caller surfaces the type/payload mismatch.
+		// Empty Type defaults to whole-org, but device IDs alongside it
+		// signal mismatched intent — reject rather than silently widening.
 		if len(s.DeviceIdentifiers) > 0 || len(s.DeviceSetIDs) > 0 {
 			return nil, fleeterror.NewInvalidArgumentError(
 				"scope type must be set when device_identifiers or device_set_ids are provided",
@@ -206,9 +373,8 @@ func resolveScope(s Scope) ([]string, error) {
 		if len(s.DeviceIdentifiers) == 0 {
 			return nil, fleeterror.NewInvalidArgumentError("device_identifiers must be non-empty for device-list scope")
 		}
-		// Mutual exclusion: a populated DeviceSetIDs alongside DeviceList
-		// is silently ignored without this guard, breaking the oneof-style
-		// scope contract for non-Connect callers.
+		// Mutual exclusion: enforce the oneof-style scope contract for
+		// non-Connect callers; otherwise DeviceSetIDs would be silently dropped.
 		if len(s.DeviceSetIDs) > 0 {
 			return nil, fleeterror.NewInvalidArgumentError(
 				"device_set_ids must be empty when scope type is device_list",
@@ -238,9 +404,9 @@ type classifyOpts struct {
 	CandidateMinPowerW int32
 }
 
-// classifyCandidates partitions candidates into selector inputs and a
-// pre-selector skipped list with reasons; summary counts are incremented in
-// lockstep so the rejection branch can echo per-reason totals without a re-walk.
+// classifyCandidates partitions candidates into selector inputs vs. a
+// pre-filter skipped list with reasons; summary counts increment in lockstep
+// so insufficient-load can echo per-reason totals without re-walking.
 func classifyCandidates(cands []*models.Candidate, opts classifyOpts) ([]CandidateInput, []SkippedDevice, modes.InsufficientLoadDetail) {
 	eligible := make([]CandidateInput, 0, len(cands))
 	skipped := make([]SkippedDevice, 0, len(cands))
@@ -259,9 +425,8 @@ func classifyCandidates(cands []*models.Candidate, opts classifyOpts) ([]Candida
 			summary.ExcludedPairing++
 			continue
 		}
-		// Partial capability gate: skip devices with no driver metadata so
-		// the selector can't pick a Curtail target with no plugin to dispatch.
-		// Full registry-driven curtail_full check is follow-up work.
+		// Partial capability gate: a device with no driver can't be
+		// dispatched. Registry-driven curtail_full check is follow-up work.
 		if c.DriverName == nil || *c.DriverName == "" {
 			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipCurtailFullUnsupported})
 			summary.ExcludedCapabilityMiss++
@@ -269,8 +434,7 @@ func classifyCandidates(cands []*models.Candidate, opts classifyOpts) ([]Candida
 		}
 		switch c.DeviceStatus {
 		case "":
-			// COALESCE sentinel for a missing device_status row: treat as
-			// stale, since we can't prove the device is curtail-safe.
+			// Missing device_status (COALESCE sentinel): not provably curtail-safe.
 			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipStaleTelemetry})
 			summary.ExcludedStale++
 			continue
@@ -283,15 +447,12 @@ func classifyCandidates(cands []*models.Candidate, opts classifyOpts) ([]Candida
 			summary.ExcludedRebootRequired++
 			continue
 		case "OFFLINE":
-			// Unreachable residual load: counted in the rejection summary
-			// since it's fleet load the system can't address.
+			// Fleet load the system can't address; counted as residual.
 			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipUnreachableResidualLoad})
 			summary.ExcludedOffline++
 			continue
 		case "INACTIVE", "NEEDS_MINING_POOL":
-			// Non-actionable per the project's nonActionableStatuses set
-			// (sqlstores/device_query_fragments.go): the device isn't a
-			// curtailment candidate even when telemetry is fresh.
+			// Non-actionable per nonActionableStatuses (sqlstores/device_query_fragments.go).
 			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipNonActionableStatus})
 			summary.ExcludedNonActionable++
 			continue
@@ -301,24 +462,17 @@ func classifyCandidates(cands []*models.Candidate, opts classifyOpts) ([]Candida
 				summary.ExcludedMaintenance++
 				continue
 			}
-			// Admitted by override pair; fall through to freshness.
+			// Admitted via override pair; fall through to freshness check.
 		}
 		if c.LatestMetricsAt == nil {
-			// Same SkipStaleTelemetry reason as the empty-device_status
-			// sentinel above: both signal "no usable telemetry sample,"
-			// just from different sources. Both funnel into ExcludedStale.
+			// No usable telemetry sample (same bucket as empty device_status).
 			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipStaleTelemetry})
 			summary.ExcludedStale++
 			continue
 		}
-		// Non-finite telemetry samples (NaN / +Inf / -Inf) would slip
-		// past the downstream dual-signal filter — NaN comparisons
-		// always return false, so a miner with NaN power and a positive
-		// hash signal would be admitted. The mode then accumulates
-		// totalW += PowerW; one NaN poisons the running sum (Insufficient
-		// with NaN kW) and +Inf satisfies any target_kw on the first
-		// iteration ("successful" plan with +Inf realized). Treat
-		// non-finite samples as stale: bad sensor data, no usable signal.
+		// Non-finite telemetry would slip past the dual-signal filter:
+		// NaN comparisons always false, +Inf satisfies any target_kw on
+		// the first iteration. Treat as stale.
 		if !isFiniteFloat(c.LatestPowerW) || !isFiniteFloat(c.LatestHashRateHS) {
 			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipStaleTelemetry})
 			summary.ExcludedStale++
@@ -329,9 +483,8 @@ func classifyCandidates(cands []*models.Candidate, opts classifyOpts) ([]Candida
 			summary.ExcludedCooldown++
 			continue
 		}
-		// Non-finite avg_efficiency would violate sort.SliceStable's
-		// transitivity contract in BuildPlan (NaN comparisons return
-		// false). Treat as unknown — existing nil-handling ranks last.
+		// Non-finite avg_efficiency violates sort.SliceStable's transitivity
+		// contract; treat as unknown so the nil-handling ranks it last.
 		avgEff := c.AvgEfficiencyJH
 		if !isFiniteFloat(avgEff) {
 			avgEff = nil
@@ -346,10 +499,8 @@ func classifyCandidates(cands []*models.Candidate, opts classifyOpts) ([]Candida
 	return eligible, skipped, summary
 }
 
-// missingDeviceIdentifiers returns identifiers from `requested` that the org-
-// scoped candidate listing did not surface. An empty result means every
-// requested device belongs to the caller's org (or has been soft-deleted —
-// soft-deleted devices are out of scope by design).
+// missingDeviceIdentifiers returns requested IDs the org-scoped listing
+// did not surface (cross-org or soft-deleted; both are out of scope).
 func missingDeviceIdentifiers(requested []string, candidates []*models.Candidate) []string {
 	if len(requested) == 0 {
 		return nil
@@ -382,13 +533,148 @@ func derefFloat(p *float64) float64 {
 	return *p
 }
 
-// isFiniteFloat reports whether p is nil or points to a finite IEEE-754
-// value. Non-finite samples (NaN / +Inf / -Inf) are treated as missing,
-// not zero, so callers can route them through the stale-telemetry skip
-// path rather than letting them poison downstream arithmetic.
+// isFiniteFloat: nil → true; otherwise checks the pointee. Non-finite
+// samples are treated as missing so they route to the stale-telemetry
+// skip path instead of poisoning downstream arithmetic.
 func isFiniteFloat(p *float64) bool {
 	if p == nil {
 		return true
 	}
 	return !math.IsNaN(*p) && !math.IsInf(*p, 0)
+}
+
+// curtailment_target column values written at Start.
+const targetTypeMiner = "miner"
+const desiredStateCurtailed = "curtailed"
+
+// buildInsertParams assembles event + per-target params from a successful
+// plan. baseline_power_w comes from the telemetry snapshot the selector
+// ranked against; non-positive PowerW maps to NULL (a zero baseline would
+// produce a misleading "100% reduction" report at restore).
+func buildInsertParams(req StartRequest, plan *Plan, minPowerW int32) (models.InsertEventParams, []models.InsertTargetParams, error) {
+	scopeJSON, err := marshalScopeJSON(req.Scope)
+	if err != nil {
+		return models.InsertEventParams{}, nil, err
+	}
+	modeParamsJSON, err := json.Marshal(map[string]float64{
+		"target_kw":    req.TargetKW,
+		"tolerance_kw": req.ToleranceKW,
+	})
+	if err != nil {
+		return models.InsertEventParams{}, nil, fleeterror.NewInternalErrorf(
+			"failed to encode mode_params: %v", err,
+		)
+	}
+	decisionJSON, err := marshalDecisionSnapshot(plan, minPowerW)
+	if err != nil {
+		return models.InsertEventParams{}, nil, err
+	}
+
+	event := models.InsertEventParams{
+		EventUUID:               uuid.New(),
+		OrgID:                   req.OrgID,
+		State:                   models.EventStatePending,
+		Mode:                    models.ModeFixedKw,
+		Strategy:                models.StrategyLeastEfficientFirst,
+		Level:                   models.LevelFull,
+		Priority:                req.Priority,
+		LoopType:                models.LoopTypeOpen,
+		ScopeType:               req.Scope.Type,
+		ScopeJSON:               scopeJSON,
+		ModeParamsJSON:          modeParamsJSON,
+		RestoreBatchSize:        req.RestoreBatchSize,
+		RestoreBatchIntervalSec: req.RestoreBatchIntervalSec,
+		MinCurtailedDurationSec: req.MinCurtailedDurationSec,
+		MaxDurationSeconds:      req.MaxDurationSeconds,
+		AllowUnbounded:          req.AllowUnbounded,
+		IncludeMaintenance:      req.IncludeMaintenance,
+		ForceIncludeMaintenance: req.ForceIncludeMaintenance,
+		DecisionSnapshotJSON:    decisionJSON,
+		SourceActorType:         req.SourceActorType,
+		SourceActorID:           req.SourceActorID,
+		ExternalSource:          req.ExternalSource,
+		ExternalReference:       req.ExternalReference,
+		IdempotencyKey:          req.IdempotencyKey,
+		Reason:                  req.Reason,
+		CreatedByUserID:         req.CreatedByUserID,
+	}
+	if event.Priority == "" {
+		// Validation admits PriorityUnspecified as Normal; persist the
+		// resolved value so audit reflects intent.
+		event.Priority = models.PriorityNormal
+	}
+	if event.ScopeType == "" {
+		event.ScopeType = models.ScopeTypeWholeOrg
+	}
+
+	targets := make([]models.InsertTargetParams, len(plan.Selected))
+	for i, sel := range plan.Selected {
+		var baseline *float64
+		if sel.PowerW > 0 {
+			v := sel.PowerW
+			baseline = &v
+		}
+		targets[i] = models.InsertTargetParams{
+			DeviceIdentifier: sel.DeviceIdentifier,
+			TargetType:       targetTypeMiner,
+			State:            models.TargetStatePending,
+			DesiredState:     desiredStateCurtailed,
+			BaselinePowerW:   baseline,
+		}
+	}
+	return event, targets, nil
+}
+
+// marshalScopeJSON renders the request scope as the JSONB column value.
+// Whole-org stores `{}` (NOT NULL).
+func marshalScopeJSON(s Scope) ([]byte, error) {
+	switch s.Type {
+	case models.ScopeTypeWholeOrg, "":
+		return []byte("{}"), nil
+	case models.ScopeTypeDeviceList:
+		b, err := json.Marshal(map[string][]string{
+			"device_identifiers": s.DeviceIdentifiers,
+		})
+		if err != nil {
+			return nil, fleeterror.NewInternalErrorf("failed to encode scope: %v", err)
+		}
+		return b, nil
+	case models.ScopeTypeDeviceSets:
+		b, err := json.Marshal(map[string][]string{
+			"device_set_ids": s.DeviceSetIDs,
+		})
+		if err != nil {
+			return nil, fleeterror.NewInternalErrorf("failed to encode scope: %v", err)
+		}
+		return b, nil
+	default:
+		return nil, fleeterror.NewInternalErrorf("unrecognized scope type: %q", s.Type)
+	}
+}
+
+// marshalDecisionSnapshot captures the selector outputs (rejection counters,
+// realized vs. requested kW, resolved candidate floor) audit/UI need to
+// reconstruct the decision.
+func marshalDecisionSnapshot(plan *Plan, minPowerW int32) ([]byte, error) {
+	skipped := make([]map[string]string, len(plan.Skipped))
+	for i, s := range plan.Skipped {
+		skipped[i] = map[string]string{
+			"device_identifier": s.DeviceIdentifier,
+			"reason":            string(s.Reason),
+		}
+	}
+	snapshot := map[string]any{
+		"candidate_min_power_w":        minPowerW,
+		"estimated_reduction_kw":       plan.EstimatedReductionKW,
+		"estimated_remaining_power_kw": plan.EstimatedRemainingPowerKW,
+		"selected_count":               len(plan.Selected),
+		"skipped":                      skipped,
+	}
+	b, err := json.Marshal(snapshot)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf(
+			"failed to encode decision_snapshot: %v", err,
+		)
+	}
+	return b, nil
 }

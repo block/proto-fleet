@@ -32,12 +32,24 @@ type minerFilterParams struct {
 	rackIDValues              []int64
 	firmwareVersionsFilter    sql.NullString
 	firmwareVersionValues     []string
-	zonesFilter               sql.NullString
-	zoneValues                []string
 	// Site filter: site_ids OR (site_id IS NULL when includeUnassigned).
 	siteIDsFilter     sql.NullString
 	siteIDValues      []int64
 	includeUnassigned bool
+	// Building filter: building_ids OR (rack.building_id IS NULL when
+	// includeNoBuilding). includeNoRack widens to devices with no rack
+	// membership at all.
+	buildingIDsFilter sql.NullString
+	buildingIDValues  []int64
+	includeNoBuilding bool
+	includeNoRack     bool
+	// Zone keys: scoped tuples emit an UNNEST + tuple-IN branch;
+	// wildcards (building_id == 0) emit a zone = ANY branch. Either
+	// branch can be empty.
+	zoneKeysFilter    sql.NullString
+	scopedBuildingIDs []int64
+	scopedZones       []string
+	wildcardZones     []string
 	// numericRanges drives both the WHERE predicates emitted by
 	// appendFilterSQL and the CTE/JOIN gating in buildListQuerySQL: when
 	// non-empty, latest_metrics is INNER-joined and OFFLINE miners are
@@ -126,17 +138,30 @@ func buildMinerFilterParams(filter *stores.MinerFilter) minerFilterParams {
 		fp.firmwareVersionValues = filter.FirmwareVersions
 	}
 
-	// Zone filter
-	if len(filter.Zones) > 0 {
-		fp.zonesFilter = sql.NullString{Valid: true}
-		fp.zoneValues = filter.Zones
-	}
-
 	if len(filter.SiteIDs) > 0 {
 		fp.siteIDsFilter = sql.NullString{Valid: true}
 		fp.siteIDValues = filter.SiteIDs
 	}
 	fp.includeUnassigned = filter.IncludeUnassigned
+
+	if len(filter.BuildingIDs) > 0 {
+		fp.buildingIDsFilter = sql.NullString{Valid: true}
+		fp.buildingIDValues = filter.BuildingIDs
+	}
+	fp.includeNoBuilding = filter.IncludeNoBuilding
+	fp.includeNoRack = filter.IncludeNoRack
+
+	if len(filter.ZoneKeys) > 0 {
+		fp.zoneKeysFilter = sql.NullString{Valid: true}
+		for _, zk := range filter.ZoneKeys {
+			if zk.BuildingID == 0 {
+				fp.wildcardZones = append(fp.wildcardZones, zk.Zone)
+			} else {
+				fp.scopedBuildingIDs = append(fp.scopedBuildingIDs, zk.BuildingID)
+				fp.scopedZones = append(fp.scopedZones, zk.Zone)
+			}
+		}
+	}
 
 	// Numeric range filters (telemetry predicates).
 	if len(filter.NumericRanges) > 0 {
@@ -336,12 +361,79 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 		sb.WriteString(")")
 	}
 
-	if fp.zonesFilter.Valid {
-		// Match miners assigned to any non-deleted rack whose zone is in the value
-		// list. Org scoping is enforced via device_set_membership.org_id; the join
-		// to device_set carries the soft-delete check (rack delete sets
-		// device_set.deleted_at, but membership/rack-extension rows persist), and
-		// the join to device_set_rack pulls the zone for value comparison.
+	// Building filter: building_ids and include_no_building are OR'd
+	// together at the top level. Each branch emits its own EXISTS
+	// subquery so the predicate composes cleanly with other filters.
+	// include_no_rack is OR'd on top to widen to devices with no rack
+	// membership row at all. Every emitted predicate carries the
+	// dcm.org_id = $orgID clause — see
+	// device_filters_orgid_audit_test.go.
+	if fp.buildingIDsFilter.Valid || fp.includeNoBuilding || fp.includeNoRack {
+		sb.WriteString(" AND (")
+		first := true
+		if fp.buildingIDsFilter.Valid {
+			fmt.Fprintf(sb,
+				"EXISTS (SELECT 1 FROM device_set_membership dcm"+
+					" JOIN device_set ds ON ds.id = dcm.device_set_id"+
+					" JOIN device_set_rack dsr ON dsr.device_set_id = dcm.device_set_id"+
+					" WHERE dcm.device_id = device.id"+
+					" AND dcm.org_id = $%d"+
+					" AND dcm.device_set_type = 'rack'"+
+					" AND ds.deleted_at IS NULL"+
+					" AND dsr.building_id = ANY($%d::bigint[]))",
+				argNum, argNum+1)
+			args = append(args, orgID, pq.Array(fp.buildingIDValues))
+			argNum += 2
+			first = false
+		}
+		if fp.includeNoBuilding {
+			if !first {
+				sb.WriteString(" OR ")
+			}
+			fmt.Fprintf(sb,
+				"EXISTS (SELECT 1 FROM device_set_membership dcm"+
+					" JOIN device_set ds ON ds.id = dcm.device_set_id"+
+					" JOIN device_set_rack dsr ON dsr.device_set_id = dcm.device_set_id"+
+					" WHERE dcm.device_id = device.id"+
+					" AND dcm.org_id = $%d"+
+					" AND dcm.device_set_type = 'rack'"+
+					" AND ds.deleted_at IS NULL"+
+					" AND dsr.building_id IS NULL)",
+				argNum)
+			args = append(args, orgID)
+			argNum++
+			first = false
+		}
+		if fp.includeNoRack {
+			if !first {
+				sb.WriteString(" OR ")
+			}
+			fmt.Fprintf(sb,
+				"NOT EXISTS (SELECT 1 FROM device_set_membership dcm"+
+					" JOIN device_set ds ON ds.id = dcm.device_set_id"+
+					" WHERE dcm.device_id = device.id"+
+					" AND dcm.org_id = $%d"+
+					" AND dcm.device_set_type = 'rack'"+
+					" AND ds.deleted_at IS NULL)",
+				argNum)
+			args = append(args, orgID)
+			argNum++
+		}
+		sb.WriteString(")")
+	}
+
+	// Zone keys: scoped (building_id > 0) tuples join via UNNEST + tuple
+	// IN; wildcards (building_id == 0) match zone label across any
+	// building. Branches OR'd inside one EXISTS so org_id is enforced
+	// once. See device_filters_orgid_audit_test.go for the
+	// single-layer-defense audit on the wildcard path.
+	//
+	// The OR'd predicate body is shared with the rack-list filter
+	// (collection_sort.go) via appendZoneKeyPredicate. Caller emits
+	// the EXISTS framing + dcm/ds/dsr joins + org_id clause and the
+	// helper fills the (dsr.building_id, dsr.zone) tuple / dsr.zone
+	// = ANY branches.
+	if fp.zoneKeysFilter.Valid {
 		fmt.Fprintf(sb,
 			" AND EXISTS (SELECT 1 FROM device_set_membership dcm"+
 				" JOIN device_set ds ON ds.id = dcm.device_set_id"+
@@ -350,10 +442,20 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 				" AND dcm.org_id = $%d"+
 				" AND dcm.device_set_type = 'rack'"+
 				" AND ds.deleted_at IS NULL"+
-				" AND dsr.zone = ANY($%d::text[]))",
-			argNum, argNum+1)
-		args = append(args, orgID, pq.Array(fp.zoneValues))
-		argNum += 2
+				" AND (",
+			argNum)
+		args = append(args, orgID)
+		argNum++
+
+		keys := make([]stores.ZoneKey, 0, len(fp.scopedBuildingIDs)+len(fp.wildcardZones))
+		for i, b := range fp.scopedBuildingIDs {
+			keys = append(keys, stores.ZoneKey{BuildingID: b, Zone: fp.scopedZones[i]})
+		}
+		for _, z := range fp.wildcardZones {
+			keys = append(keys, stores.ZoneKey{BuildingID: 0, Zone: z})
+		}
+		args, argNum = appendZoneKeyPredicate(sb, args, argNum, "dsr", keys)
+		sb.WriteString("))")
 	}
 
 	return args, argNum

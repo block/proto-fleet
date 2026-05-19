@@ -770,6 +770,39 @@ func TestExecuteSchedule_FullyConflictFilteredSkipsExecutionActivity(t *testing.
 	assert.Equal(t, 0, countActivityType(activityStore, "schedule_executed"))
 }
 
+func TestExecuteSchedule_FullyCurtailmentSkippedEmitsCurtailmentActivity(t *testing.T) {
+	now := time.Date(2026, 4, 1, 10, 0, 0, 0, time.UTC)
+	p, procStore, targetStore, _, cmdSvc := newTestProcessor(t, now)
+	activityStore := withRecordingActivity(p)
+
+	sched := &pb.Schedule{
+		Id:           1,
+		Name:         "power",
+		Action:       pb.ScheduleAction_SCHEDULE_ACTION_SET_POWER_TARGET,
+		ScheduleType: pb.ScheduleType_SCHEDULE_TYPE_ONE_TIME,
+		StartDate:    "2026-04-01",
+		StartTime:    "10:00",
+		Timezone:     "UTC",
+		CreatedBy:    42,
+	}
+
+	procStore.EXPECT().SetScheduleRunning(gomock.Any(), int64(1)).Return(int64(1), nil)
+	procStore.EXPECT().GetScheduleByID(gomock.Any(), int64(1)).Return(&interfaces.ScheduleWithOrg{Schedule: sched, OrgID: 1}, nil)
+	targetStore.EXPECT().GetScheduleTargets(gomock.Any(), int64(1), int64(1)).Return([]*pb.ScheduleTarget{
+		{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER, TargetId: "miner-1"},
+	}, nil)
+	cmdSvc.EXPECT().SetPowerTarget(gomock.Any(), gomock.Any(), revertPerformanceMode).Return(&commanddomain.CommandResult{
+		Skipped: []commanddomain.SkippedDevice{{DeviceIdentifier: "miner-1", FilterName: commanddomain.CurtailmentActiveFilterName}},
+	}, nil)
+	procStore.EXPECT().UpdateScheduleAfterRun(gomock.Any(), int64(1), gomock.Any(), gomock.Nil(), statusCompleted).Return(nil)
+
+	p.executeSchedule(context.Background(), 1)
+
+	assert.Equal(t, 1, countActivityType(activityStore, "schedule_skipped_due_to_curtailment"))
+	assert.Equal(t, 0, countActivityType(activityStore, "schedule_executed"))
+	assert.Equal(t, 0, countActivityType(activityStore, "schedule_conflict_skip"))
+}
+
 func TestExecuteSchedule_NonConflictZeroDispatchLogsExecution(t *testing.T) {
 	now := time.Date(2026, 4, 1, 10, 0, 0, 0, time.UTC)
 	p, procStore, targetStore, _, cmdSvc := newTestProcessor(t, now)

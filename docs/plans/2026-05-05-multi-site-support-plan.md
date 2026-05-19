@@ -126,6 +126,54 @@ This section locks the semantics that the rest of the plan assumes.
   `building.zones[]` array or a rack `zone_id` FK in this phase, because
   that would create an extra mutable namespace to reconcile on every rack
   move without yet buying enough product value.
+
+  **Forward look — promoting zone to a first-class entity.** Phase 1 is
+  a deliberate one-way *soft* door: zone-as-rack-string is fine for
+  filtering, grouping, and dashboards, but a `zone` table (with
+  `id`, `org_id`, `building_id`, `label`, plus future attributes)
+  becomes the right shape when any of these triggers hit:
+
+  1. Zone needs to carry its own data — color, floor-map coordinates
+     or polygon, capacity (`max_kw`, `max_racks`), zone-level cooling
+     defaults, environmental setpoints, ACLs, tags, or notes. Phase 1
+     can attach none of these.
+  2. Non-rack equipment (PDUs, cameras, environmental sensors) needs
+     zone membership. Today device → zone is only reachable via rack.
+  3. Renames across many racks become a hot operation. Today a rename
+     is an N-row `UPDATE device_set_rack`; an entity model makes it
+     one row.
+  4. Operators need to pre-provision empty zones (a zone exists with
+     no racks yet). Phase 1 cannot represent this — a zone exists only
+     because some rack uses the label.
+
+  **Migration path when those triggers fire** is bounded and
+  mechanical: backfill `INSERT INTO zone (building_id, label, org_id)
+  SELECT DISTINCT building_id, zone, org_id FROM device_set_rack`,
+  add `device_set_rack.zone_id BIGINT REFERENCES zone(id)`, dual-write
+  for one release, drop the denorm string. The wire-level cost is the
+  same shape as the `(building_id, zone)` composite-key work in Phase
+  1 (a breaking proto rename on filter fields), so the schema decision
+  is not a wire-level one-way door either.
+
+  **Filter contract today.** Because zones are unique only within a
+  building, the wire-level zone filter on miner / rack lists uses
+  `repeated ZoneKey { int64 building_id; string zone; }` rather than
+  `repeated string`. Two racks with zone "Room 2" in different
+  buildings stay distinguishable. `building_id = 0` is a
+  transitional sentinel inside `ZoneKey` meaning "match this zone
+  label across all buildings" — it covers today's
+  no-buildings-in-UI dropdown (which sends only wildcards). Once
+  the buildings UI ships and zones can only exist on racks inside
+  a building, well-formed clients have no reason to emit wildcards
+  anymore. The sentinel survives because removing it would be a
+  breaking proto change for a marginal cleanup win — harmless dead
+  surface area, not a permanent feature. When zone eventually
+  becomes an entity, this filter migrates to `repeated int64
+  zone_ids` — same migration cost whether we picked composite-key
+  now or not.
+
+  See `docs/plans/2026-05-14-229-miner-zone-building-filter-plan.md`
+  for the full Phase 1 filter plan.
 - **Rack** stores `site_id` (nullable), `building_id` (nullable), and
   `zone` (string). A rack may belong directly to a site without a
   building. When `building_id` is set, `rack.site_id` must match the
@@ -1302,9 +1350,13 @@ before they're locked.
    diagnostics section at all, or replaces it with an empty-state
    message.
 10. Whether `zone` should eventually graduate from the Phase 1
-    rack-owned string into something stronger (cached distinct
-    values, first-class entity, or explicit per-building managed
-    list), or remain lightweight indefinitely.
+    rack-owned string into a first-class entity. Working answer:
+    stay rack-owned until one of the documented triggers fires —
+    zone-level attributes (color, coordinates, capacity, cooling
+    defaults, setpoints, ACLs), non-rack equipment in a zone,
+    pre-provisioning empty zones, or rename-as-hot-path. See the
+    "Forward look" callout in the Storage model section for the
+    migration shape.
 
 ## Appendix — power contract enum suggestions
 

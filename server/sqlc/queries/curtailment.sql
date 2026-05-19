@@ -13,16 +13,10 @@ FROM curtailment_org_config
 WHERE org_id = sqlc.arg('org_id');
 
 -- name: EnsureCurtailmentOrgConfig :one
--- Idempotent read-only backfill: INSERT ... DO NOTHING keeps existing rows
--- untouched (preserves `updated_at` as a real config-change signal); the
--- fallback SELECT returns the row already on disk. Single round trip.
---
--- Soft-deleted orgs (organization.deleted_at IS NOT NULL) MUST NOT receive
--- a fresh config row from the lazy backfill — the migration seed at deploy
--- time also excludes them, so the lazy path matches that intent. Both the
--- INSERT and the fallback SELECT join `active` (gated on deleted_at IS NULL),
--- so a deleted org returns zero rows and the caller maps sql.ErrNoRows to
--- NotFound (see mapOrgConfigError in sqlstores/curtailment.go).
+-- Idempotent backfill: INSERT ... DO NOTHING preserves updated_at as a
+-- config-change signal; fallback SELECT returns the existing row. Both
+-- branches join `active` (organization.deleted_at IS NULL) so soft-deleted
+-- orgs return zero rows; caller maps to NotFound.
 WITH active AS (
     SELECT id
     FROM organization
@@ -112,7 +106,8 @@ INSERT INTO curtailment_event (
     external_reference,
     idempotency_key,
     reason,
-    scheduled_start_at
+    scheduled_start_at,
+    created_by_user_id
 ) VALUES (
     sqlc.arg('event_uuid'),
     sqlc.arg('org_id'),
@@ -139,14 +134,13 @@ INSERT INTO curtailment_event (
     sqlc.narg('external_reference'),
     sqlc.narg('idempotency_key'),
     sqlc.arg('reason'),
-    sqlc.narg('scheduled_start_at')
+    sqlc.narg('scheduled_start_at'),
+    sqlc.arg('created_by_user_id')
 )
 RETURNING id, event_uuid, created_at, updated_at;
 
 -- name: GetCurtailmentEventByUUID :one
--- Org-scoped read; callers MUST pass the caller's org_id to prevent cross-tenant
--- snapshot exposure. Used by store tests to verify migration constraints
--- round-trip correctly.
+-- Org-scoped: callers MUST pass org_id to prevent cross-tenant exposure.
 SELECT *
 FROM curtailment_event
 WHERE event_uuid = sqlc.arg('event_uuid')
@@ -186,12 +180,56 @@ SELECT id, last_tick_at, last_tick_uuid, last_tick_duration_ms, active_event_cou
 FROM curtailment_reconciler_heartbeat
 WHERE id = 1;
 
+-- name: ListNonTerminalCurtailmentEvents :many
+-- System-scope (no org filter); reconciler is a singleton driving all orgs.
+-- Order by id keeps per-tick processing deterministic.
+SELECT *
+FROM curtailment_event
+WHERE state IN ('pending', 'active', 'restoring')
+ORDER BY id;
+
+-- name: UpdateCurtailmentEventState :exec
+-- COALESCE: nil narg leaves started_at/ended_at unchanged. Timestamps are
+-- write-once, so the OR-NULL pattern is fine.
+UPDATE curtailment_event
+SET state      = sqlc.arg('state'),
+    started_at = COALESCE(sqlc.narg('started_at'), started_at),
+    ended_at   = COALESCE(sqlc.narg('ended_at'),   ended_at)
+WHERE id = sqlc.arg('id');
+
+-- name: UpdateCurtailmentTargetState :exec
+-- Reconciler patch: COALESCE preserves un-supplied columns so partial
+-- updates don't clobber values from earlier ticks. retry_count is
+-- read-then-written inside the tick.
+UPDATE curtailment_target
+SET state              = sqlc.arg('state'),
+    last_dispatched_at = COALESCE(sqlc.narg('last_dispatched_at'), last_dispatched_at),
+    last_batch_uuid    = COALESCE(sqlc.narg('last_batch_uuid'),    last_batch_uuid),
+    observed_power_w   = COALESCE(sqlc.narg('observed_power_w'),   observed_power_w),
+    observed_at        = COALESCE(sqlc.narg('observed_at'),        observed_at),
+    confirmed_at       = COALESCE(sqlc.narg('confirmed_at'),       confirmed_at),
+    retry_count        = COALESCE(sqlc.narg('retry_count'),        retry_count),
+    last_error         = COALESCE(sqlc.narg('last_error'),         last_error)
+WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
+  AND device_identifier    = sqlc.arg('device_identifier');
+
+-- name: UpsertCurtailmentReconcilerHeartbeat :exec
+-- Singleton row at id=1 (CHECK + PK enforce it). INSERT path only fires if
+-- the seeded row is manually deleted.
+INSERT INTO curtailment_reconciler_heartbeat (id, last_tick_at, last_tick_uuid, last_tick_duration_ms, active_event_count)
+VALUES (1, sqlc.arg('last_tick_at'), sqlc.arg('last_tick_uuid'), sqlc.narg('last_tick_duration_ms'), sqlc.arg('active_event_count'))
+ON CONFLICT (id) DO UPDATE
+SET last_tick_at          = EXCLUDED.last_tick_at,
+    last_tick_uuid        = EXCLUDED.last_tick_uuid,
+    last_tick_duration_ms = EXCLUDED.last_tick_duration_ms,
+    active_event_count    = EXCLUDED.active_event_count;
+
 -- name: ListCurtailmentCandidatesByOrg :many
 -- Per-device state for the selector. Returns every in-scope device
--- (unpaired / stale / unstatused included); the service layer applies
--- skip-reason attribution. LEFT JOIN telemetry: nil power/hash = stale
--- (15-min window). device_identifiers: nil for whole-org, non-empty
--- after org-ownership validation for device-list scope.
+-- (unpaired/stale/unstatused included); service applies skip-reason
+-- attribution. LEFT JOIN telemetry: nil power/hash means stale (15-min
+-- window). device_identifiers: nil = whole-org; non-empty for device-list
+-- scope (post org-ownership check).
 WITH latest_metrics AS (
     SELECT DISTINCT ON (device_metrics.device_identifier)
         device_metrics.device_identifier,
@@ -213,8 +251,7 @@ latest_hourly AS (
     INNER JOIN device d3 ON device_metrics_hourly.device_identifier = d3.device_identifier
         AND d3.deleted_at IS NULL
         AND d3.org_id = sqlc.arg('org_id')
-    -- 24h window covers TimescaleDB end-offset + operator-timezone gaps
-    -- without scanning multi-day retention.
+    -- 24h window covers TimescaleDB end-offset + operator-timezone gaps.
     WHERE device_metrics_hourly.bucket > NOW() - INTERVAL '24 hours'
     ORDER BY device_metrics_hourly.device_identifier, bucket DESC
 )
@@ -222,9 +259,9 @@ SELECT
     d.device_identifier,
     dd.driver_name,
     COALESCE(dd.model, '') AS model,
-    -- COALESCE required because sqlc generates a non-nullable string;
-    -- empty-string is the "unknown status" sentinel the service treats
-    -- as stale. NULL pairing_status normalizes to UNPAIRED below.
+    -- COALESCE: sqlc generates non-nullable string; empty-string is the
+    -- "unknown status" sentinel the service treats as stale. NULL
+    -- pairing_status normalizes to UNPAIRED below.
     COALESCE(ds.status::text, ''::text)::text AS device_status,
     CASE WHEN dp.id IS NOT NULL THEN dp.pairing_status::text ELSE 'UNPAIRED' END AS pairing_status,
     lm.time            AS latest_metrics_at,
@@ -243,6 +280,6 @@ WHERE d.org_id = sqlc.arg('org_id')
         sqlc.narg('device_identifiers')::text[] IS NULL
         OR d.device_identifier = ANY(sqlc.narg('device_identifiers')::text[])
     )
--- Stable order so the selector's stable sort produces the same plan
--- across calls when avg_efficiency ties or is NULL.
+-- Stable order: makes the selector's stable sort deterministic when
+-- avg_efficiency ties or is NULL.
 ORDER BY d.device_identifier;

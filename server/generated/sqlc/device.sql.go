@@ -154,19 +154,6 @@ WHERE d.deleted_at IS NULL
       $14::text IS NULL
       OR dd.firmware_version = ANY($15::text[])
   )
-  -- Zone filter (excludes soft-deleted racks)
-  AND (
-      $16::text IS NULL
-      OR EXISTS (
-          SELECT 1 FROM device_set_membership dsm
-          JOIN device_set ds_zone ON ds_zone.id = dsm.device_set_id AND ds_zone.deleted_at IS NULL
-          JOIN device_set_rack dsr ON dsr.device_set_id = dsm.device_set_id
-          WHERE dsm.device_id = d.id
-            AND dsm.org_id = $1
-            AND dsm.device_set_type = 'rack'
-            AND dsr.zone = ANY($17::text[])
-      )
-  )
 `
 
 type CountMinersByStateParams struct {
@@ -185,8 +172,6 @@ type CountMinersByStateParams struct {
 	RackIDValues            []int64
 	FirmwareVersionsFilter  sql.NullString
 	FirmwareVersionValues   []string
-	ZonesFilter             sql.NullString
-	ZoneValues              []string
 }
 
 type CountMinersByStateRow struct {
@@ -229,8 +214,6 @@ func (q *Queries) CountMinersByState(ctx context.Context, arg CountMinersByState
 		pq.Array(arg.RackIDValues),
 		arg.FirmwareVersionsFilter,
 		pq.Array(arg.FirmwareVersionValues),
-		arg.ZonesFilter,
-		pq.Array(arg.ZoneValues),
 	)
 	var i CountMinersByStateRow
 	err := row.Scan(
@@ -953,6 +936,7 @@ func (q *Queries) GetFilteredDeviceIdentifiers(ctx context.Context, arg GetFilte
 }
 
 const getFilteredDeviceIds = `-- name: GetFilteredDeviceIds :many
+
 SELECT
     d.id as device_id
 FROM device d
@@ -976,6 +960,9 @@ type GetFilteredDeviceIdsParams struct {
 	ManufacturerFilter sql.NullString
 }
 
+// Zone / building filters are not handled by this static query;
+// callers with those filters must route through the dynamic builder
+// (device_filters.go).
 // Returns device IDs filtered by pairing status and optional device status.
 // Used for bulk command operations.
 func (q *Queries) GetFilteredDeviceIds(ctx context.Context, arg GetFilteredDeviceIdsParams) ([]int64, error) {
@@ -1079,20 +1066,6 @@ WHERE dp.pairing_status = 'PAIRED'
       $4::text IS NULL
       OR dd.firmware_version = ANY($5::text[])
   )
-  -- Zone filter (excludes soft-deleted racks). Uses array values for the same
-  -- comma-safety reason as firmware above.
-  AND (
-      $6::text IS NULL
-      OR EXISTS (
-          SELECT 1 FROM device_set_membership dsm
-          JOIN device_set ds_zone ON ds_zone.id = dsm.device_set_id AND ds_zone.deleted_at IS NULL
-          JOIN device_set_rack dsr ON dsr.device_set_id = dsm.device_set_id
-          WHERE dsm.device_id = d.id
-            AND dsm.org_id = $1
-            AND dsm.device_set_type = 'rack'
-            AND dsr.zone = ANY($7::text[])
-      )
-  )
 GROUP BY dd.model, dd.manufacturer
 ORDER BY dd.manufacturer, dd.model
 `
@@ -1103,8 +1076,6 @@ type GetMinerModelGroupsParams struct {
 	StatusFilter   sql.NullString
 	FirmwareFilter sql.NullString
 	FirmwareValues []string
-	ZoneFilter     sql.NullString
-	ZoneValues     []string
 }
 
 type GetMinerModelGroupsRow struct {
@@ -1113,6 +1084,8 @@ type GetMinerModelGroupsRow struct {
 	Count        int32
 }
 
+// Zone / building filters are not handled by this static query;
+// callers with those filters route to executeModelGroupsDynamicQuery.
 func (q *Queries) GetMinerModelGroups(ctx context.Context, arg GetMinerModelGroupsParams) ([]GetMinerModelGroupsRow, error) {
 	rows, err := q.query(ctx, q.getMinerModelGroupsStmt, getMinerModelGroups,
 		arg.OrgID,
@@ -1120,8 +1093,6 @@ func (q *Queries) GetMinerModelGroups(ctx context.Context, arg GetMinerModelGrou
 		arg.StatusFilter,
 		arg.FirmwareFilter,
 		pq.Array(arg.FirmwareValues),
-		arg.ZoneFilter,
-		pq.Array(arg.ZoneValues),
 	)
 	if err != nil {
 		return nil, err
@@ -1532,19 +1503,6 @@ WHERE dd.org_id = $1
         $16::text IS NULL
         OR dd.firmware_version = ANY($17::text[])
     )
-    -- Zone filter (excludes soft-deleted racks)
-    AND (
-        $18::text IS NULL
-        OR EXISTS (
-            SELECT 1 FROM device_set_membership dsm
-            JOIN device_set ds_zone ON ds_zone.id = dsm.device_set_id AND ds_zone.deleted_at IS NULL
-            JOIN device_set_rack dsr ON dsr.device_set_id = dsm.device_set_id
-            WHERE dsm.device_id = d.id
-              AND dsm.org_id = $1
-              AND dsm.device_set_type = 'rack'
-              AND dsr.zone = ANY($19::text[])
-        )
-    )
 `
 
 type GetTotalMinerStateSnapshotsParams struct {
@@ -1565,8 +1523,6 @@ type GetTotalMinerStateSnapshotsParams struct {
 	RackIDValues              []int64
 	FirmwareVersionsFilter    sql.NullString
 	FirmwareVersionValues     []string
-	ZonesFilter               sql.NullString
-	ZoneValues                []string
 }
 
 // Unified query that supports all filters including component error filtering
@@ -1590,8 +1546,6 @@ func (q *Queries) GetTotalMinerStateSnapshots(ctx context.Context, arg GetTotalM
 		pq.Array(arg.RackIDValues),
 		arg.FirmwareVersionsFilter,
 		pq.Array(arg.FirmwareVersionValues),
-		arg.ZonesFilter,
-		pq.Array(arg.ZoneValues),
 	)
 	var total int64
 	err := row.Scan(&total)
@@ -1952,6 +1906,7 @@ func (q *Queries) UpsertDevicePairing(ctx context.Context, arg UpsertDevicePairi
 }
 
 const upsertDeviceStatus = `-- name: UpsertDeviceStatus :exec
+
 INSERT INTO device_status (
     device_id,
     status,
@@ -1976,6 +1931,10 @@ type UpsertDeviceStatusParams struct {
 	StatusDetails   sql.NullString
 }
 
+// Zone / building filters are not handled by this static query.
+// When the caller's filter includes BuildingIDs, IncludeNoBuilding,
+// ZoneKeys, or IncludeNoRack, the Go store routes to the dynamic
+// query builder (see device_filters.go) so counts match the list.
 func (q *Queries) UpsertDeviceStatus(ctx context.Context, arg UpsertDeviceStatusParams) error {
 	_, err := q.exec(ctx, q.upsertDeviceStatusStmt, upsertDeviceStatus,
 		arg.DeviceID,

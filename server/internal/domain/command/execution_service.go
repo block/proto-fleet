@@ -61,6 +61,7 @@ type ExecutionService struct {
 	deviceStore       stores.DeviceStore
 	telemetryListener TelemetryListener
 	filesService      *files.Service
+	metricsEmitter    MetricsEmitter
 
 	workerSemaphore chan struct{}
 
@@ -92,9 +93,18 @@ func NewExecutionService(ctx context.Context, config *Config, conn *sql.DB, mess
 		deviceStore:           deviceStore,
 		telemetryListener:     telemetryListener,
 		filesService:          filesService,
+		metricsEmitter:        NoCommandMetrics(),
 		workerSemaphore:       make(chan struct{}, config.MaxWorkers),
 		queueProcessorRunning: false,
 	}
+}
+
+func (es *ExecutionService) WithMetricsEmitter(emitter MetricsEmitter) *ExecutionService {
+	if emitter == nil {
+		emitter = NoCommandMetrics()
+	}
+	es.metricsEmitter = emitter
+	return es
 }
 
 // Start starts the queue processor thread if it is not already running.
@@ -152,15 +162,16 @@ func (es *ExecutionService) startStuckMessageReaper(ctx context.Context) {
 				continue
 			}
 			reapCtx, reapCancel := context.WithTimeout(ctx, dbWriteTimeout)
-			count, fwDeviceIDs, err := es.reapStuckMessages(reapCtx)
+			reaped, fwDeviceIDs, err := es.reapStuckMessages(reapCtx)
 			reapCancel()
 			if err != nil {
 				slog.Error("stuck message reaper error", "error", err)
 				continue
 			}
-			if count > 0 {
-				slog.Warn("stuck message reaper moved messages to FAILED", "count", count)
+			if len(reaped) > 0 {
+				slog.Warn("stuck message reaper moved messages to FAILED", "count", len(reaped))
 			}
+			es.emitReapedCommandMetrics(ctx, reaped)
 			for _, deviceID := range fwDeviceIDs {
 				es.clearFirmwareUpdateStatus(ctx, deviceID)
 			}
@@ -168,14 +179,19 @@ func (es *ExecutionService) startStuckMessageReaper(ctx context.Context) {
 	}
 }
 
+type reapedCommand struct {
+	orgID       int64
+	commandType string
+}
+
 // reapStuckMessages atomically marks stuck PROCESSING messages as FAILED and
 // writes the corresponding audit log entries in a single transaction.
 // Firmware update messages use a longer cutoff since they include install polling.
-// Returns the total count of reaped messages and the device IDs from reaped
+// Returns the reaped commands' metric metadata and the device IDs from reaped
 // firmware update messages (so callers can clean up stuck device statuses).
-func (es *ExecutionService) reapStuckMessages(ctx context.Context) (int, []int64, error) {
+func (es *ExecutionService) reapStuckMessages(ctx context.Context) ([]reapedCommand, []int64, error) {
 	cutoff := time.Now().Add(-es.config.StuckMessageTimeout)
-	var count int
+	var reapedCmds []reapedCommand
 	var fwDeviceIDs []int64
 	err := db.WithTransactionNoResult(ctx, es.conn, func(q *sqlc.Queries) error {
 		reaped, err := q.ReapStuckProcessingMessages(ctx, sqlc.ReapStuckProcessingMessagesParams{
@@ -195,7 +211,7 @@ func (es *ExecutionService) reapStuckMessages(ctx context.Context) (int, []int64
 			return err
 		}
 
-		count = len(reaped) + len(fwReaped)
+		reapedCmds = make([]reapedCommand, 0, len(reaped)+len(fwReaped))
 		for _, msg := range reaped {
 			if err := q.UpsertCommandOnDeviceLog(ctx, sqlc.UpsertCommandOnDeviceLogParams{
 				Uuid:      msg.CommandBatchLogUuid,
@@ -206,6 +222,7 @@ func (es *ExecutionService) reapStuckMessages(ctx context.Context) (int, []int64
 			}); err != nil {
 				return err
 			}
+			reapedCmds = append(reapedCmds, reapedCommand{orgID: msg.OrgID, commandType: msg.CommandType})
 		}
 		for _, msg := range fwReaped {
 			if err := q.UpsertCommandOnDeviceLog(ctx, sqlc.UpsertCommandOnDeviceLogParams{
@@ -217,11 +234,30 @@ func (es *ExecutionService) reapStuckMessages(ctx context.Context) (int, []int64
 			}); err != nil {
 				return err
 			}
+			reapedCmds = append(reapedCmds, reapedCommand{orgID: msg.OrgID, commandType: msg.CommandType})
 			fwDeviceIDs = append(fwDeviceIDs, msg.DeviceID)
 		}
 		return nil
 	})
-	return count, fwDeviceIDs, err
+	return reapedCmds, fwDeviceIDs, err
+}
+
+var errReapedStuck = errors.New("reaped: stuck in PROCESSING beyond timeout")
+
+// records a result="failure" sample for each reaped command.
+func (es *ExecutionService) emitReapedCommandMetrics(ctx context.Context, reaped []reapedCommand) {
+	if len(reaped) == 0 || es.metricsEmitter == nil {
+		return
+	}
+	for _, r := range reaped {
+		kind, err := commandtype.FromString(r.commandType)
+		if err != nil {
+			slog.Warn("skipping reaped command metric: unknown command_type",
+				"command_type", r.commandType, "error", err)
+			continue
+		}
+		emitTerminalCommand(ctx, es.metricsEmitter, r.orgID, kind, errReapedStuck)
+	}
 }
 
 func (es *ExecutionService) dequeueWithRetry(ctx context.Context) ([]queue.Message, error) {
@@ -301,7 +337,7 @@ func upsertCommandOnDeviceStatus(workerError error) sqlc.DeviceCommandStatusEnum
 
 func (es *ExecutionService) workerProcessCommand(ctx context.Context, message queue.Message) {
 	// Step 1: Execute the command (pure execution, no queue status side-effects).
-	workerError := es.executeCommandOnDevice(ctx, message.CommandType, message)
+	orgID, workerError := es.executeCommandOnDevice(ctx, message.CommandType, message)
 
 	// Step 2: Atomically update queue status AND write device log in a single transaction.
 	// If the queue row is no longer PROCESSING (reaped), the transaction commits
@@ -309,12 +345,18 @@ func (es *ExecutionService) workerProcessCommand(ctx context.Context, message qu
 	dbCtx, dbCancel := context.WithTimeout(context.WithoutCancel(ctx), dbWriteTimeout)
 	defer dbCancel()
 
+	var (
+		queueUpdated  bool
+		queueTerminal bool
+	)
 	txErr := db.WithTransactionNoResult(dbCtx, es.conn, func(q *sqlc.Queries) error {
 		// First: transition queue_message status (detects staleness via rowsAffected).
-		updated, err := es.markQueueMessageStatus(dbCtx, q, message.ID, workerError)
+		updated, terminal, err := es.markQueueMessageStatus(dbCtx, q, message, workerError)
 		if err != nil {
 			return err
 		}
+		queueUpdated = updated
+		queueTerminal = terminal
 		if !updated {
 			slog.Warn("skipping audit log for stale message",
 				"message_id", message.ID, "device_id", message.DeviceID)
@@ -340,50 +382,72 @@ func (es *ExecutionService) workerProcessCommand(ctx context.Context, message qu
 	if txErr != nil {
 		slog.Error("error in post-execution transaction",
 			"message_id", message.ID, "error", txErr)
+		return
+	}
+
+	// Only emit fleet_command_total for terminal outcomes (SUCCESS / FAILED) that
+	// actually landed: retries leaving the row PENDING and stale/reaped messages
+	// are not terminal command results.
+	if queueUpdated && queueTerminal {
+		emitTerminalCommand(ctx, es.metricsEmitter, orgID, message.CommandType, workerError)
 	}
 }
 
 // markQueueMessageStatus transitions the queue_message to its next state within an
-// existing transaction. Returns (true, nil) on success, (false, nil) when the row
-// is no longer PROCESSING (stale/reaped), or (false, err) on DB error.
-func (es *ExecutionService) markQueueMessageStatus(ctx context.Context, q *sqlc.Queries, messageID int64, workerError error) (bool, error) {
-	var result sql.Result
-	var err error
+// existing transaction. Returns (updated, terminal, err) where:
+//   - updated is true when rowsAffected > 0 (the row was still PROCESSING),
+//   - terminal is true when the resulting queue status is SUCCESS or FAILED
+//
+// (false, _, nil) means the row is no longer PROCESSING (stale/reaped)
+func (es *ExecutionService) markQueueMessageStatus(ctx context.Context, q *sqlc.Queries, message queue.Message, workerError error) (bool, bool, error) {
+	var (
+		result   sql.Result
+		err      error
+		terminal bool
+	)
 
 	switch {
 	case workerError == nil:
 		result, err = q.UpdateMessageStatus(ctx, sqlc.UpdateMessageStatusParams{
-			ID:     messageID,
+			ID:     message.ID,
 			Status: sqlc.QueueStatusEnumSUCCESS,
 		})
+		terminal = true
 	case fleeterror.IsUnimplementedError(workerError),
 		fleeterror.IsFailedPreconditionError(workerError):
 		result, err = q.UpdateMessagePermanentlyFailed(ctx, sqlc.UpdateMessagePermanentlyFailedParams{
-			ID:        messageID,
+			ID:        message.ID,
 			ErrorInfo: sql.NullString{String: workerError.Error(), Valid: true},
 		})
+		terminal = true
 	default:
+		maxRetries := es.messageQueue.MaxFailureRetries()
 		result, err = q.UpdateMessageAfterFailure(ctx, sqlc.UpdateMessageAfterFailureParams{
-			ID:         messageID,
-			RetryCount: es.messageQueue.MaxFailureRetries(),
+			ID:         message.ID,
+			RetryCount: maxRetries,
 			ErrorInfo:  sql.NullString{String: workerError.Error(), Valid: true},
 		})
+		// Mirrors the SQL CASE: retry_count + 1 >= maxRetries leaves the row FAILED
+		// (terminal); otherwise it goes back to PENDING for another attempt.
+		terminal = message.RetryCount+1 >= maxRetries
 	}
 
 	if err != nil {
-		return false, fleeterror.NewInternalErrorf("failed to update queue message status: %v", err)
+		return false, false, fleeterror.NewInternalErrorf("failed to update queue message status: %v", err)
 	}
 	rowsAffected, _ := result.RowsAffected()
-	return rowsAffected > 0, nil
+	return rowsAffected > 0, terminal, nil
 }
 
-// executeCommandOnDevice runs the command and returns the execution error (if any).
-// It does NOT mark queue message status — the caller is responsible for that.
-func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandType commandtype.Type, message queue.Message) error {
+// executeCommandOnDevice runs the command and returns the resolved owning org
+// id along with the execution error (if any). It does NOT mark queue message
+// status — the caller is responsible for that.
+func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandType commandtype.Type, message queue.Message) (int64, error) {
 	minerInfo, err := es.minerService.GetMiner(ctx, message.DeviceID)
 	if err != nil {
-		return fleeterror.NewInternalErrorf("error getting miner connection info for deviceID: %d, %v", message.DeviceID, err)
+		return message.OrgID, fleeterror.NewInternalErrorf("error getting miner connection info for deviceID: %d, %v", message.DeviceID, err)
 	}
+	orgID := minerInfo.GetOrgID()
 
 	switch commandType {
 	case commandtype.Reboot:
@@ -399,21 +463,21 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 		var p dto.CoolingModePayload
 		coolingExtractErr := json.Unmarshal(message.Payload, &p)
 		if coolingExtractErr != nil {
-			return fleeterror.NewInternalErrorf("error unmarshalling command payload: %v", coolingExtractErr)
+			return orgID, fleeterror.NewInternalErrorf("error unmarshalling command payload: %v", coolingExtractErr)
 		}
 		err = minerInfo.SetCoolingMode(ctx, p)
 	case commandtype.SetPowerTarget:
 		var p dto.PowerTargetPayload
 		powerExtractErr := json.Unmarshal(message.Payload, &p)
 		if powerExtractErr != nil {
-			return fleeterror.NewInternalErrorf("error unmarshalling command payload: %v", powerExtractErr)
+			return orgID, fleeterror.NewInternalErrorf("error unmarshalling command payload: %v", powerExtractErr)
 		}
 		err = minerInfo.SetPowerTarget(ctx, p)
 	case commandtype.UpdateMiningPools:
 		var p dto.UpdateMiningPoolsPayload
 		updateExtractErr := json.Unmarshal(message.Payload, &p)
 		if updateExtractErr != nil {
-			return fleeterror.NewInternalErrorf("error unmarshalling command payload: %v", updateExtractErr)
+			return orgID, fleeterror.NewInternalErrorf("error unmarshalling command payload: %v", updateExtractErr)
 		}
 		var workerNameToPersist string
 		if p.ReapplyCurrentPoolsWithStoredWorkerName {
@@ -424,9 +488,9 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 			}
 			if !shouldUpdate {
 				if workerNameToPersist == "" {
-					return nil
+					return orgID, nil
 				}
-				return es.persistWorkerNameAfterPoolUpdate(ctx, message.DeviceID, minerInfo.GetID(), workerNameToPersist)
+				return orgID, es.persistWorkerNameAfterPoolUpdate(ctx, message.DeviceID, minerInfo.GetID(), workerNameToPersist)
 			}
 		} else {
 			p, err = es.applyMinerNameToPoolUsernames(ctx, minerInfo, p)
@@ -480,11 +544,24 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 				err = unpairErr
 			}
 		}
+	case commandtype.Curtail:
+		var p dto.CurtailPayload
+		if curtailExtractErr := json.Unmarshal(message.Payload, &p); curtailExtractErr != nil {
+			// FailedPrecondition fails permanently on the first attempt;
+			// Internal would burn MaxFailureRetries on a deterministic bug.
+			return orgID, fleeterror.NewFailedPreconditionErrorf("error unmarshalling curtail payload: %v", curtailExtractErr)
+		}
+		if p.Level < int32(sdk.CurtailLevelEfficiency) || p.Level > int32(sdk.CurtailLevelFull) {
+			return orgID, fleeterror.NewFailedPreconditionErrorf("invalid curtail level %d: must be %d (Efficiency) or %d (Full)", p.Level, sdk.CurtailLevelEfficiency, sdk.CurtailLevelFull)
+		}
+		err = minerInfo.Curtail(ctx, sdk.CurtailRequest{Level: sdk.CurtailLevel(p.Level)})
+	case commandtype.Uncurtail:
+		err = minerInfo.Uncurtail(ctx, sdk.UncurtailRequest{})
 	case commandtype.UpdateMinerPassword:
 		var p dto.UpdateMinerPasswordPayload
 		credExtractErr := json.Unmarshal(message.Payload, &p)
 		if credExtractErr != nil {
-			return fleeterror.NewInternalErrorf("error unmarshalling command payload: %v", credExtractErr)
+			return orgID, fleeterror.NewInternalErrorf("error unmarshalling command payload: %v", credExtractErr)
 		}
 
 		// Update device via plugin
@@ -506,7 +583,7 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 		// Evict so the next lookup re-reads updated credentials from DB.
 		es.minerService.InvalidateMiner(minerInfo.GetID())
 	default:
-		return fleeterror.NewInternalErrorf("unsupported command type: %v", commandType)
+		return orgID, fleeterror.NewInternalErrorf("unsupported command type: %v", commandType)
 	}
 
 	if err != nil {
@@ -515,7 +592,7 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 		}
 		slog.Error("command execution failed", "command", commandType, "device_id", message.DeviceID, "batch_uuid", message.BatchLogUUID, "error", err)
 	}
-	return err
+	return orgID, err
 }
 
 func (es *ExecutionService) applyMinerNameToPoolUsernames(

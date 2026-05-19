@@ -151,6 +151,7 @@ type Event struct {
 	ScheduledStartAt        *time.Time
 	StartedAt               *time.Time
 	EndedAt                 *time.Time
+	CreatedByUserID         int64
 	CreatedAt               time.Time
 	UpdatedAt               time.Time
 }
@@ -184,9 +185,10 @@ type InsertEventParams struct {
 	IdempotencyKey          *string
 	Reason                  string
 	ScheduledStartAt        *time.Time
+	CreatedByUserID         int64
 }
 
-// InsertEventResult is what InsertEvent returns to the caller.
+// InsertEventResult is what InsertEventWithTargets returns to the caller.
 type InsertEventResult struct {
 	ID        int64
 	EventUUID uuid.UUID

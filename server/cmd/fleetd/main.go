@@ -32,6 +32,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	fleet_telemetry "github.com/block/proto-fleet/server/internal/infrastructure/fleet-telemetry"
 	"github.com/block/proto-fleet/server/internal/infrastructure/logging"
+	"github.com/block/proto-fleet/server/internal/infrastructure/metrics"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 
@@ -63,6 +64,7 @@ import (
 	collectionDomain "github.com/block/proto-fleet/server/internal/domain/collection"
 	commandDomain "github.com/block/proto-fleet/server/internal/domain/command"
 	curtailmentDomain "github.com/block/proto-fleet/server/internal/domain/curtailment"
+	curtailmentReconciler "github.com/block/proto-fleet/server/internal/domain/curtailment/reconciler"
 	"github.com/block/proto-fleet/server/internal/domain/deviceresolver"
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics"
 	fleetmanagementDomain "github.com/block/proto-fleet/server/internal/domain/fleetmanagement"
@@ -157,6 +159,18 @@ func start(config *Config) error {
 		defer cancel()
 		if err := shutdownTracer(shutdownCtx); err != nil {
 			slog.Error("Failed to shutdown tracer", "error", err)
+		}
+	}()
+
+	metricsProvider, err := metrics.Setup(context.Background(), version, config.Metrics)
+	if err != nil {
+		return fmt.Errorf("setup metrics provider: %w", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancel()
+		if err := metricsProvider.Shutdown(shutdownCtx); err != nil {
+			slog.Error("Failed to shutdown metrics provider", "error", err)
 		}
 	}()
 
@@ -304,6 +318,7 @@ func start(config *Config) error {
 		deviceStore,
 		diagnosticsService,
 	)
+	telemetryService.WithMetricsEmitter(metricsProvider)
 	if err := telemetryService.Start(context.Background()); err != nil {
 		slog.Error("failed to start telemetry service", "error", err)
 		return fmt.Errorf("failed to start telemetry service: %w", err)
@@ -373,6 +388,7 @@ func start(config *Config) error {
 	}()
 
 	executionService := commandDomain.NewExecutionService(executionServiceCtx, &config.Command, conn, dbMessageQueue, encryptSvc, tokenSvc, minerService, deviceStore, telemetryService, filesService)
+	executionService.WithMetricsEmitter(metricsProvider)
 	err = executionService.Start(executionServiceCtx)
 	if err != nil {
 		slog.Error("failed to start command execution service", "error", err)
@@ -381,7 +397,12 @@ func start(config *Config) error {
 	statusService := commandDomain.NewStatusService(conn, dbMessageQueue)
 	commandSvc := commandDomain.NewService(&config.Command, conn, executionService, dbMessageQueue, statusService, encryptSvc, filesService, deviceStore, userStore, authSvc, telemetryService, pluginService, activitySvc)
 	commandSvc.SetPluginCapabilitiesProvider(pluginService)
-	fleetMgmtSvc := fleetmanagementDomain.NewService(deviceStore, discoveredDeviceStore, telemetryService, minerService, pluginService, poolStore, errorStore, collectionStore, commandSvc, activitySvc)
+	// buildingStore is constructed below alongside siteStore; both are
+	// needed for the parseFilter cross-org check on building_ids and
+	// zone_keys. Hoist the construction so fleetMgmtSvc can depend on it.
+	siteStore := sqlstores.NewSQLSiteStore(conn)
+	buildingStore := sqlstores.NewSQLBuildingStore(conn)
+	fleetMgmtSvc := fleetmanagementDomain.NewService(deviceStore, discoveredDeviceStore, telemetryService, minerService, pluginService, poolStore, errorStore, collectionStore, buildingStore, commandSvc, activitySvc)
 	fleetMgmtSvc.WithOptionsCache(fleetOptionsCache)
 	defer fleetMgmtSvc.WaitForPendingClearAuthKeys(shutdownTimeout)
 	onboardingSvc := onboardingDomain.NewService(deviceStore, poolStore, userStore)
@@ -392,8 +413,6 @@ func start(config *Config) error {
 	curtailmentStore := sqlstores.NewSQLCurtailmentStore(conn)
 	curtailmentSvc := curtailmentDomain.NewService(curtailmentStore)
 
-	siteStore := sqlstores.NewSQLSiteStore(conn)
-	buildingStore := sqlstores.NewSQLBuildingStore(conn)
 	sitesSvc := sitesDomain.NewService(siteStore, transactor, activitySvc)
 	buildingsSvc := buildingsDomain.NewService(buildingStore, siteStore, transactor, activitySvc)
 
@@ -403,6 +422,9 @@ func start(config *Config) error {
 	// only ran inline inside the schedule processor, leaving manual
 	// SetPowerTarget calls free to race a running power-target schedule.
 	commandSvc.RegisterFilter(commandDomain.NewScheduleConflictFilter(scheduleStore))
+	// CurtailmentActiveFilter blocks non-curtailment commands on locked
+	// devices; reconciler self-traffic bypasses via ActorCurtailment.
+	commandSvc.RegisterFilter(commandDomain.NewCurtailmentActiveFilter(curtailmentStore))
 
 	scheduleProcessor := scheduleDomain.NewProcessor(scheduleStore, scheduleStore, collectionStore, commandSvc, activitySvc)
 	if err := scheduleProcessor.Start(context.Background()); err != nil {
@@ -414,8 +436,18 @@ func start(config *Config) error {
 		}
 	}()
 
+	curtailmentRec := curtailmentReconciler.New(curtailmentReconciler.Config{}, curtailmentStore, commandSvc)
+	if err := curtailmentRec.Start(context.Background()); err != nil {
+		return fmt.Errorf("failed to start curtailment reconciler: %w", err)
+	}
+	defer func() {
+		if err := curtailmentRec.Stop(); err != nil {
+			slog.Error("failed to stop curtailment reconciler", "error", err)
+		}
+	}()
+
 	deviceResolver := deviceresolver.New(deviceStore)
-	collectionSvc := collectionDomain.NewService(collectionStore, deviceStore, siteStore, transactor, deviceResolver.Resolve, telemetryService, activitySvc)
+	collectionSvc := collectionDomain.NewService(collectionStore, deviceStore, siteStore, buildingStore, transactor, deviceResolver.Resolve, telemetryService, activitySvc)
 	foremanImportSvc := foremanImportDomain.NewService(poolsSvc, collectionSvc, deviceStore)
 
 	middlewares := []server.Middleware{
@@ -468,9 +500,10 @@ func start(config *Config) error {
 	mux.Handle(minercommandv1connect.NewMinerCommandServiceHandler(command.NewHandler(commandSvc), li))
 	mux.Handle(poolsv1connect.NewPoolsServiceHandler(pools.NewHandler(poolsSvc), li))
 	mux.Handle(schedulev1connect.NewScheduleServiceHandler(scheduleHandler.NewHandler(scheduleSvc), li))
-	// Curtailment v1: PreviewCurtailmentPlan is implemented; remaining
-	// RPCs return Unimplemented until follow-up work lands.
-	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(curtailmentHandler.NewHandler(curtailmentSvc), li))
+	// PreviewCurtailmentPlan is wired; StartCurtailment is plumbed but gated
+	// off until Stop + restorer + max_duration_seconds enforcement land;
+	// remaining RPCs return Unimplemented.
+	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(curtailmentHandler.NewHandler(curtailmentSvc, false), li))
 	mux.Handle(sitesv1connect.NewSiteServiceHandler(sitesHandler.NewHandler(sitesSvc), li))
 	mux.Handle(buildingsv1connect.NewBuildingServiceHandler(buildingsHandler.NewHandler(buildingsSvc), li))
 	mux.Handle(fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(fleetnodegateway.NewHandler(fleetNodeEnrollmentSvc, fleetNodeAuthSvc), li))

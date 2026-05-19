@@ -175,6 +175,56 @@ func TestHasAnyCapability(t *testing.T) {
 
 		assert.False(t, result)
 	})
+
+	t.Run("returns true when curtail full is supported", func(t *testing.T) {
+		commands := &capabilitiespb.CommandCapabilities{
+			CurtailFullSupported: true,
+		}
+
+		result := hasAnyCapability(commands, nil, []string{sdk.CapabilityCurtailFull})
+
+		assert.True(t, result)
+	})
+
+	t.Run("returns false when curtail full is not supported", func(t *testing.T) {
+		commands := &capabilitiespb.CommandCapabilities{
+			CurtailFullSupported: false,
+		}
+
+		result := hasAnyCapability(commands, nil, []string{sdk.CapabilityCurtailFull})
+
+		assert.False(t, result)
+	})
+
+	t.Run("returns true when curtail efficiency is supported", func(t *testing.T) {
+		commands := &capabilitiespb.CommandCapabilities{
+			CurtailEfficiencySupported: true,
+		}
+
+		result := hasAnyCapability(commands, nil, []string{sdk.CapabilityCurtailEfficiency})
+
+		assert.True(t, result)
+	})
+
+	t.Run("returns false when curtail efficiency is not supported", func(t *testing.T) {
+		commands := &capabilitiespb.CommandCapabilities{
+			CurtailEfficiencySupported: false,
+		}
+
+		result := hasAnyCapability(commands, nil, []string{sdk.CapabilityCurtailEfficiency})
+
+		assert.False(t, result)
+	})
+
+	t.Run("returns true when either curtail capability is supported (OR semantics)", func(t *testing.T) {
+		commands := &capabilitiespb.CommandCapabilities{
+			CurtailEfficiencySupported: true,
+		}
+
+		result := hasAnyCapability(commands, nil, []string{sdk.CapabilityCurtailFull, sdk.CapabilityCurtailEfficiency})
+
+		assert.True(t, result)
+	})
 }
 
 func TestCheckDeviceCapabilities(t *testing.T) {
@@ -482,6 +532,8 @@ func TestRequiresCapabilityCheck(t *testing.T) {
 			pb.CommandType_COMMAND_TYPE_UPDATE_MINING_POOLS,
 			pb.CommandType_COMMAND_TYPE_DOWNLOAD_LOGS,
 			pb.CommandType_COMMAND_TYPE_FIRMWARE_UPDATE,
+			pb.CommandType_COMMAND_TYPE_CURTAIL,
+			pb.CommandType_COMMAND_TYPE_UNCURTAIL,
 		}
 
 		for _, cmdType := range knownTypes {
@@ -491,5 +543,16 @@ func TestRequiresCapabilityCheck(t *testing.T) {
 
 	t.Run("returns false for unspecified command type", func(t *testing.T) {
 		assert.False(t, RequiresCapabilityCheck(pb.CommandType_COMMAND_TYPE_UNSPECIFIED))
+	})
+
+	t.Run("Curtail requires CapabilityCurtailFull only (FULL-level dispatch)", func(t *testing.T) {
+		assert.Equal(t, []string{sdk.CapabilityCurtailFull},
+			GetRequiredCapabilities(pb.CommandType_COMMAND_TYPE_CURTAIL))
+	})
+
+	t.Run("Uncurtail accepts either curtail capability (level-independent restore)", func(t *testing.T) {
+		assert.Equal(t,
+			[]string{sdk.CapabilityCurtailFull, sdk.CapabilityCurtailEfficiency},
+			GetRequiredCapabilities(pb.CommandType_COMMAND_TYPE_UNCURTAIL))
 	})
 }

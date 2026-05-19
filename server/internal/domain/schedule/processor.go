@@ -411,9 +411,13 @@ func (p *Processor) executeSchedule(ctx context.Context, scheduleID int64) {
 		return
 	}
 
-	conflictSkips := countConflictSkips(result)
+	conflictSkips := countSkipsByFilter(result, command.ScheduleConflictFilterName)
+	curtailmentSkips := countSkipsByFilter(result, command.CurtailmentActiveFilterName)
 	if conflictSkips > 0 {
 		p.logConflictSkip(ctx, sched, orgID, conflictSkips)
+	}
+	if curtailmentSkips > 0 {
+		p.logCurtailmentActiveSkip(ctx, sched, orgID, curtailmentSkips)
 	}
 
 	dispatched := 0
@@ -425,21 +429,22 @@ func (p *Processor) executeSchedule(ctx context.Context, scheduleID int64) {
 	}
 
 	p.updateAfterRunWithGeneration(ctx, sched, orgID, now, gen, hasGen)
-	// Fully filtered dispatches are already captured by schedule_conflict_skip.
-	if dispatched > 0 || conflictSkips == 0 {
+	// Fully-filtered dispatches are already logged via per-filter skip
+	// events (schedule_conflict_skip / schedule_skipped_due_to_curtailment).
+	if dispatched > 0 || (conflictSkips == 0 && curtailmentSkips == 0) {
 		p.logExecution(ctx, sched, orgID, dispatched)
 	}
 }
 
-// countConflictSkips ignores other command preflight filters; schedule activity
-// should only summarize schedule-priority conflicts.
-func countConflictSkips(result *command.CommandResult) int {
+// countSkipsByFilter counts skipped devices attributed to filterName.
+// Activity emits per-filter summaries so each cause gets its own log line.
+func countSkipsByFilter(result *command.CommandResult, filterName string) int {
 	if result == nil {
 		return 0
 	}
 	n := 0
 	for _, s := range result.Skipped {
-		if s.FilterName == command.ScheduleConflictFilterName {
+		if s.FilterName == filterName {
 			n++
 		}
 	}
@@ -701,8 +706,11 @@ func (p *Processor) checkEndOfWindow(ctx context.Context) {
 				slog.Error("failed to dispatch revert command, will retry next cycle", "schedule_id", sched.Id, "error", err)
 				continue
 			}
-			if skipped := countConflictSkips(result); skipped > 0 {
+			if skipped := countSkipsByFilter(result, command.ScheduleConflictFilterName); skipped > 0 {
 				p.logConflictSkip(ctx, sched, sw.OrgID, skipped)
+			}
+			if skipped := countSkipsByFilter(result, command.CurtailmentActiveFilterName); skipped > 0 {
+				p.logCurtailmentActiveSkip(ctx, sched, sw.OrgID, skipped)
 			}
 		}
 
@@ -807,6 +815,25 @@ func (p *Processor) logConflictSkip(ctx context.Context, sched *pb.Schedule, org
 		Category:       activitymodels.CategorySchedule,
 		Type:           "schedule_conflict_skip",
 		Description:    fmt.Sprintf("Schedule %q skipped %d miners overridden by higher-priority schedule", sched.Name, skipped),
+		ActorType:      activitymodels.ActorScheduler,
+		UserID:         &actor,
+		Username:       &actor,
+		OrganizationID: &orgID,
+	})
+}
+
+// logCurtailmentActiveSkip records devices skipped by an active curtailment
+// event. Distinct event_type from schedule_conflict_skip so the activity
+// feed can attribute the cause.
+func (p *Processor) logCurtailmentActiveSkip(ctx context.Context, sched *pb.Schedule, orgID int64, skipped int) {
+	if p.activitySvc == nil {
+		return
+	}
+	actor := schedulerActorName
+	p.activitySvc.Log(ctx, activitymodels.Event{
+		Category:       activitymodels.CategorySchedule,
+		Type:           "schedule_skipped_due_to_curtailment",
+		Description:    fmt.Sprintf("Schedule %q skipped %d miners locked by an active curtailment event", sched.Name, skipped),
 		ActorType:      activitymodels.ActorScheduler,
 		UserID:         &actor,
 		Username:       &actor,

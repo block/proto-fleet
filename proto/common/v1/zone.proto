@@ -1,0 +1,49 @@
+syntax = "proto3";
+
+package common.v1;
+
+import "buf/validate/validate.proto";
+
+// A building-scoped zone identifier. Two ZoneKeys with the same `zone`
+// label but different `building_id` refer to physically different zones
+// — zone labels are unique only within a building, not org-wide.
+//
+// `building_id = 0` is a sentinel meaning "match this zone label across
+// all buildings in the caller's org." This is the shape clients send
+// when they have no building picker (today's UI). When `building_id > 0`,
+// the match is scoped to that one building. The wildcard is
+// transitional: once the buildings UI ships and every zone the operator
+// can see carries a real building_id, well-formed clients have no reason
+// to emit a wildcard. See docs/plans/2026-05-14-229-miner-zone-building-filter-plan.md.
+message ZoneKey {
+  // Building this zone belongs to, or 0 for "any building".
+  int64 building_id = 1 [(buf.validate.field).int64.gte = 0];
+
+  // Zone label within the building. Non-empty; max 100 chars.
+  string zone = 2 [(buf.validate.field).string = {min_len: 1, max_len: 100}];
+}
+
+// Denormalized zone reference returned by ListRackZones. Carries enough
+// context for a UI to render `Site — Building — Zone` labels without a
+// second round trip.
+message ZoneRef {
+  // Building this zone belongs to. Zero when the rack has
+  // building_id IS NULL (legacy / Phase 1 uncategorized racks).
+  int64 building_id = 1;
+
+  // Denormalized building name for cheap rendering. Empty when
+  // building_id == 0. Sourced from `building.name` at query time.
+  string building_label = 2;
+
+  // Building's parent site. Zero when the building has no site
+  // (Phase 1 allows site-less buildings) or when building_id == 0.
+  int64 site_id = 3;
+
+  // Denormalized site name. Empty when site_id == 0. Sourced from
+  // `site.name` at query time. Matches the existing denormalization
+  // pattern on Device.site_label.
+  string site_label = 4;
+
+  // Zone label within the building.
+  string zone = 5;
+}

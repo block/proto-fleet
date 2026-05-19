@@ -22,19 +22,19 @@ const (
 	actionTerminateEvents      = "terminate curtailment events"
 )
 
-// Handler implements the curtailment RPC surface. service=nil keeps the
-// stub-level tests' Unimplemented contract; populated wires the real impl.
+// Handler implements the curtailment RPC surface. service=nil keeps every
+// RPC at Unimplemented (test stubs); a populated *Service wires the impl.
+// startEnabled additionally gates StartCurtailment until Stop + restorer
+// land, so an operator can't Start an event that has no exit path.
 type Handler struct {
-	service *curtailment.Service
+	service      *curtailment.Service
+	startEnabled bool
 }
 
 var _ curtailmentv1connect.CurtailmentServiceHandler = &Handler{}
 
-// NewHandler returns a curtailment Handler. Pass nil for the stub-only
-// path (Preview returns Unimplemented); pass a populated *Service to wire
-// the real implementation.
-func NewHandler(service *curtailment.Service) *Handler {
-	return &Handler{service: service}
+func NewHandler(service *curtailment.Service, startEnabled bool) *Handler {
+	return &Handler{service: service, startEnabled: startEnabled}
 }
 
 func (h *Handler) PreviewCurtailmentPlan(ctx context.Context, req *connect.Request[pb.PreviewCurtailmentPlanRequest]) (*connect.Response[pb.PreviewCurtailmentPlanResponse], error) {
@@ -62,9 +62,8 @@ func (h *Handler) PreviewCurtailmentPlan(ctx context.Context, req *connect.Reque
 		return nil, err
 	}
 
-	// Insufficient curtailable load is a request-shape failure, not a
-	// successful empty plan — return InvalidArgument with the structured
-	// numbers so the UI can render the diagnostic detail directly.
+	// Insufficient load is a request-shape failure, not a successful
+	// empty plan; surface as InvalidArgument with structured detail.
 	if plan.InsufficientLoadDetail != nil {
 		return nil, toInsufficientLoadError(plan.InsufficientLoadDetail)
 	}
@@ -78,7 +77,36 @@ func (h *Handler) StartCurtailment(ctx context.Context, req *connect.Request[pb.
 			return nil, err
 		}
 	}
-	return nil, errCurtailmentNotImplemented("StartCurtailment")
+	if !h.startEnabled {
+		// Gated until Stop + restorer ship; an Active event has no
+		// operator-facing exit path otherwise.
+		return nil, errCurtailmentNotImplemented("StartCurtailment")
+	}
+	if h.service == nil {
+		return nil, errCurtailmentNotImplemented("StartCurtailment")
+	}
+
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, fleeterror.NewUnauthenticatedError("authentication required")
+	}
+
+	startReq, err := toStartRequest(req.Msg, info)
+	if err != nil {
+		return nil, err
+	}
+
+	plan, err := h.service.Start(ctx, startReq)
+	if err != nil {
+		return nil, err
+	}
+
+	if plan.InsufficientLoadDetail != nil {
+		// Mirror Preview: surface as InvalidArgument with structured detail.
+		return nil, toInsufficientLoadError(plan.InsufficientLoadDetail)
+	}
+
+	return connect.NewResponse(toStartResponse(plan, req.Msg)), nil
 }
 
 func (h *Handler) UpdateCurtailmentEvent(_ context.Context, _ *connect.Request[pb.UpdateCurtailmentEventRequest]) (*connect.Response[pb.UpdateCurtailmentEventResponse], error) {
@@ -102,9 +130,8 @@ func (h *Handler) ListCurtailmentEvents(_ context.Context, _ *connect.Request[pb
 	return nil, errCurtailmentNotImplemented("ListCurtailmentEvents")
 }
 
-// AdminTerminateEvent forces a non-terminal event to a terminal state.
-// Paired with SessionOnlyProcedures in handlers/interceptors/config.go;
-// neither check alone is sufficient.
+// AdminTerminateEvent forces a non-terminal event to terminal. Paired with
+// SessionOnlyProcedures (interceptors/config.go); neither alone is enough.
 func (h *Handler) AdminTerminateEvent(ctx context.Context, _ *connect.Request[pb.AdminTerminateEventRequest]) (*connect.Response[pb.AdminTerminateEventResponse], error) {
 	if err := requireAdminFromContext(ctx, actionTerminateEvents); err != nil {
 		return nil, err
@@ -120,8 +147,7 @@ func errCurtailmentNotImplemented(rpc string) error {
 func requireAdminFromContext(ctx context.Context, action string) error {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
-		// Remap "no session info" from Internal to Unauthenticated so the
-		// response code reflects "no identity" rather than "server bug".
+		// Remap missing session from Internal to Unauthenticated.
 		return fleeterror.NewUnauthenticatedError("authentication required")
 	}
 	if info.Role != domainAuth.SuperAdminRoleName && info.Role != domainAuth.AdminRoleName {

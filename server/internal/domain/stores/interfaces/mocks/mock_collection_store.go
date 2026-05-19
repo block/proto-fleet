@@ -357,9 +357,9 @@ func (mr *MockCollectionStoreMockRecorder) ListCollectionMembers(ctx, orgID, col
 }
 
 // ListCollections mocks base method.
-func (m *MockCollectionStore) ListCollections(ctx context.Context, orgID int64, collectionType collectionv1.CollectionType, pageSize int32, pageToken string, sort *interfaces.SortConfig, errorComponentTypes []int32, zones []string) ([]*collectionv1.DeviceCollection, string, int32, error) {
+func (m *MockCollectionStore) ListCollections(ctx context.Context, orgID int64, collectionType collectionv1.CollectionType, pageSize int32, pageToken string, sort *interfaces.SortConfig, filter *interfaces.DeviceSetFilter) ([]*collectionv1.DeviceCollection, string, int32, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListCollections", ctx, orgID, collectionType, pageSize, pageToken, sort, errorComponentTypes, zones)
+	ret := m.ctrl.Call(m, "ListCollections", ctx, orgID, collectionType, pageSize, pageToken, sort, filter)
 	ret0, _ := ret[0].([]*collectionv1.DeviceCollection)
 	ret1, _ := ret[1].(string)
 	ret2, _ := ret[2].(int32)
@@ -368,9 +368,9 @@ func (m *MockCollectionStore) ListCollections(ctx context.Context, orgID int64, 
 }
 
 // ListCollections indicates an expected call of ListCollections.
-func (mr *MockCollectionStoreMockRecorder) ListCollections(ctx, orgID, collectionType, pageSize, pageToken, sort, errorComponentTypes, zones any) *gomock.Call {
+func (mr *MockCollectionStoreMockRecorder) ListCollections(ctx, orgID, collectionType, pageSize, pageToken, sort, filter any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListCollections", reflect.TypeOf((*MockCollectionStore)(nil).ListCollections), ctx, orgID, collectionType, pageSize, pageToken, sort, errorComponentTypes, zones)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListCollections", reflect.TypeOf((*MockCollectionStore)(nil).ListCollections), ctx, orgID, collectionType, pageSize, pageToken, sort, filter)
 }
 
 // ListRackTypes mocks base method.
@@ -386,6 +386,21 @@ func (m *MockCollectionStore) ListRackTypes(ctx context.Context, orgID int64) ([
 func (mr *MockCollectionStoreMockRecorder) ListRackTypes(ctx, orgID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRackTypes", reflect.TypeOf((*MockCollectionStore)(nil).ListRackTypes), ctx, orgID)
+}
+
+// ListRackZoneRefs mocks base method.
+func (m *MockCollectionStore) ListRackZoneRefs(ctx context.Context, orgID int64) ([]interfaces.ZoneRefRow, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListRackZoneRefs", ctx, orgID)
+	ret0, _ := ret[0].([]interfaces.ZoneRefRow)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListRackZoneRefs indicates an expected call of ListRackZoneRefs.
+func (mr *MockCollectionStoreMockRecorder) ListRackZoneRefs(ctx, orgID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListRackZoneRefs", reflect.TypeOf((*MockCollectionStore)(nil).ListRackZoneRefs), ctx, orgID)
 }
 
 // ListRackZones mocks base method.

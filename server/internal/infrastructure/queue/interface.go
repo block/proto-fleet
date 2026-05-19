@@ -17,6 +17,8 @@ type Message struct {
 	CommandType  commandtype.Type
 	DeviceID     int64
 	Payload      []byte
+	RetryCount   int32
+	OrgID        int64
 }
 
 //go:generate go run go.uber.org/mock/mockgen -source=interface.go -destination=mocks/mock_message_queue.go -package=mocks MessageQueue

@@ -11,6 +11,7 @@ import "capabilities/v1/capabilities.proto";
 import "errors/v1/errors.proto";
 import "common/v1/device_selector.proto";
 import "common/v1/sort.proto";
+import "common/v1/zone.proto";
 import "buf/validate/validate.proto";
 
 // Service for managing fleet-wide settings and configurations
@@ -280,11 +281,13 @@ message MinerListFilter {
   // When combined with other filters, uses AND logic (device must match both filters).
   repeated string firmware_versions = 9;
 
-  // Filter by rack zones (acts as OR condition)
-  // Returns miners assigned to a rack whose zone matches any of the specified values.
-  // Miners not assigned to any rack are excluded by this filter.
-  // When combined with other filters, uses AND logic (device must match both filters).
-  repeated string zones = 10;
+  // Deprecated: legacy org-wide zone filter. Use zone_keys (field 17)
+  // with explicit building_id when callers want building-scoped
+  // matching. The server translates non-empty `zones` into wildcard
+  // ZoneKeys (building_id = 0) for backward compatibility. Will be
+  // removed when no live client emits the field — tracked alongside
+  // the Phase 2 building-picker UI cutover.
+  repeated string zones = 10 [deprecated = true];
 
   // Numeric range conditions on telemetry. Multiple entries are AND'd, and
   // multiple entries on the same field compose a tighter range
@@ -309,6 +312,32 @@ message MinerListFilter {
   // Independent of site_ids — set only this to filter the Unassigned
   // bucket alone; set both to combine specific sites with Unassigned.
   bool include_unassigned = 14;
+
+  // Filter by building IDs. Returns miners assigned (via rack
+  // membership) to ANY of the specified buildings. When combined with
+  // include_no_building, miners whose rack has building_id IS NULL are
+  // also included. Miners with no rack membership are surfaced via
+  // include_no_rack, not this field.
+  repeated int64 building_ids = 15;
+
+  // When true, miners whose rack has building_id IS NULL are included.
+  // This is the "racked but no building assignment" bucket. Independent
+  // of building_ids — set only this to filter that bucket alone; set
+  // both to combine specific buildings with racked-but-unassigned.
+  // For miners with no rack at all, see include_no_rack.
+  bool include_no_building = 16;
+
+  // Filter by zone keys (acts as OR condition across entries). Each
+  // entry is a (building_id, zone) pair; building_id=0 matches any
+  // building. Miners not in a rack are excluded by this filter. When
+  // combined with other filters, uses AND logic.
+  repeated common.v1.ZoneKey zone_keys = 17;
+
+  // When true, miners with no rack membership at all are included.
+  // Distinct from include_no_building, which surfaces racked miners
+  // without a building. Use this to triage unracked / newly-paired
+  // devices.
+  bool include_no_rack = 18;
 }
 
 // Telemetry field selector for numeric range filters. Values are interpreted

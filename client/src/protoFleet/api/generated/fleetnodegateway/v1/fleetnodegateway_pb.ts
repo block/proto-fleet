@@ -21,7 +21,7 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_fleetnodegateway_v1_fleetnodegateway: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "CipmbGVldG5vZGVnYXRld2F5L3YxL2ZsZWV0bm9kZWdhdGV3YXkucHJvdG8SE2ZsZWV0bm9kZWdhdGV3YXkudjEimgEKD1JlZ2lzdGVyUmVxdWVzdBIkChBlbnJvbGxtZW50X3Rva2VuGAEgASgJQgq6SAdyBRAUGIAEEhgKBG5hbWUYAiABKAlCCrpIB3IFEAEY/wESIAoPaWRlbnRpdHlfcHVia2V5GAMgASgMQge6SAR6AmggEiUKFG1pbmVyX3NpZ25pbmdfcHVia2V5GAQgASgMQge6SAR6AmggIokBChBSZWdpc3RlclJlc3BvbnNlEhUKDWZsZWV0X25vZGVfaWQYASABKAMSQAoRZW5yb2xsbWVudF9zdGF0dXMYAiABKA4yJS5mbGVldG5vZGVnYXRld2F5LnYxLkVucm9sbG1lbnRTdGF0dXMSHAoUaWRlbnRpdHlfZmluZ2VycHJpbnQYAyABKAkiWgoZQmVnaW5BdXRoSGFuZHNoYWtlUmVxdWVzdBIbCgdhcGlfa2V5GAEgASgJQgq6SAdyBRAUGIAEEiAKD2lkZW50aXR5X3B1YmtleRgCIAEoDEIHukgEegJoICJfChpCZWdpbkF1dGhIYW5kc2hha2VSZXNwb25zZRIRCgljaGFsbGVuZ2UYASABKAwSLgoKZXhwaXJlc19hdBgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiWAocQ29tcGxldGVBdXRoSGFuZHNoYWtlUmVxdWVzdBIcCgljaGFsbGVuZ2UYASABKAxCCbpIBnoEEBAYQBIaCglzaWduYXR1cmUYAiABKAxCB7pIBHoCaEAiZgodQ29tcGxldGVBdXRoSGFuZHNoYWtlUmVzcG9uc2USFQoNc2Vzc2lvbl90b2tlbhgBIAEoCRIuCgpleHBpcmVzX2F0GAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCJtChZVcGxvYWRUZWxlbWV0cnlSZXF1ZXN0EhoKB3BheWxvYWQYASABKAxCCbpIBnoEGICAQBI3CgtjYXB0dXJlZF9hdBgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBCBrpIA8gBASIxChdVcGxvYWRUZWxlbWV0cnlSZXNwb25zZRIWCg5hY2NlcHRlZF9jb3VudBgBIAEoAyJqChNVcGxvYWRFdmVudHNSZXF1ZXN0EhoKB3BheWxvYWQYASABKAxCCbpIBnoEGICAQBI3CgtjYXB0dXJlZF9hdBgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBCBrpIA8gBASIuChRVcGxvYWRFdmVudHNSZXNwb25zZRIWCg5hY2NlcHRlZF9jb3VudBgBIAEoAyJNChZVcGxvYWRIZWFydGJlYXRSZXF1ZXN0EjMKB3NlbnRfYXQYASABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wQga6SAPIAQEiSgoXVXBsb2FkSGVhcnRiZWF0UmVzcG9uc2USLwoLcmVjZWl2ZWRfYXQYASABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIokBChRDb250cm9sU3RyZWFtUmVxdWVzdBIyCgVoZWxsbxgBIAEoCzIhLmZsZWV0bm9kZWdhdGV3YXkudjEuQ29udHJvbEhlbGxvSAASLgoDYWNrGAIgASgLMh8uZmxlZXRub2RlZ2F0ZXdheS52MS5Db250cm9sQWNrSABCDQoEa2luZBIFukgCCAEimAEKFUNvbnRyb2xTdHJlYW1SZXNwb25zZRI4CghhY2NlcHRlZBgBIAEoCzIkLmZsZWV0bm9kZWdhdGV3YXkudjEuQ29udHJvbEFjY2VwdGVkSAASNgoHY29tbWFuZBgCIAEoCzIjLmZsZWV0bm9kZWdhdGV3YXkudjEuQ29udHJvbENvbW1hbmRIAEINCgRraW5kEgW6SAIIASIOCgxDb250cm9sSGVsbG8iQgoPQ29udHJvbEFjY2VwdGVkEi8KC3NlcnZlcl90aW1lGAEgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCJMCg5Db250cm9sQ29tbWFuZBIeCgpjb21tYW5kX2lkGAEgASgJQgq6SAdyBRABGIABEhoKB3BheWxvYWQYAiABKAxCCbpIBnoEGICAQCJgCgpDb250cm9sQWNrEh4KCmNvbW1hbmRfaWQYASABKAlCCrpIB3IFEAEYgAESEQoJc3VjY2VlZGVkGAIgASgIEh8KDWVycm9yX21lc3NhZ2UYAyABKAlCCLpIBXIDGIAgKpQBChBFbnJvbGxtZW50U3RhdHVzEiEKHUVOUk9MTE1FTlRfU1RBVFVTX1VOU1BFQ0lGSUVEEAASHQoZRU5ST0xMTUVOVF9TVEFUVVNfUEVORElORxABEh8KG0VOUk9MTE1FTlRfU1RBVFVTX0NPTkZJUk1FRBACEh0KGUVOUk9MTE1FTlRfU1RBVFVTX1JFVk9LRUQQAzKaBgoXRmxlZXROb2RlR2F0ZXdheVNlcnZpY2USVwoIUmVnaXN0ZXISJC5mbGVldG5vZGVnYXRld2F5LnYxLlJlZ2lzdGVyUmVxdWVzdBolLmZsZWV0bm9kZWdhdGV3YXkudjEuUmVnaXN0ZXJSZXNwb25zZRJ1ChJCZWdpbkF1dGhIYW5kc2hha2USLi5mbGVldG5vZGVnYXRld2F5LnYxLkJlZ2luQXV0aEhhbmRzaGFrZVJlcXVlc3QaLy5mbGVldG5vZGVnYXRld2F5LnYxLkJlZ2luQXV0aEhhbmRzaGFrZVJlc3BvbnNlEn4KFUNvbXBsZXRlQXV0aEhhbmRzaGFrZRIxLmZsZWV0bm9kZWdhdGV3YXkudjEuQ29tcGxldGVBdXRoSGFuZHNoYWtlUmVxdWVzdBoyLmZsZWV0bm9kZWdhdGV3YXkudjEuQ29tcGxldGVBdXRoSGFuZHNoYWtlUmVzcG9uc2USbgoPVXBsb2FkVGVsZW1ldHJ5EisuZmxlZXRub2RlZ2F0ZXdheS52MS5VcGxvYWRUZWxlbWV0cnlSZXF1ZXN0GiwuZmxlZXRub2RlZ2F0ZXdheS52MS5VcGxvYWRUZWxlbWV0cnlSZXNwb25zZSgBEmUKDFVwbG9hZEV2ZW50cxIoLmZsZWV0bm9kZWdhdGV3YXkudjEuVXBsb2FkRXZlbnRzUmVxdWVzdBopLmZsZWV0bm9kZWdhdGV3YXkudjEuVXBsb2FkRXZlbnRzUmVzcG9uc2UoARJsCg9VcGxvYWRIZWFydGJlYXQSKy5mbGVldG5vZGVnYXRld2F5LnYxLlVwbG9hZEhlYXJ0YmVhdFJlcXVlc3QaLC5mbGVldG5vZGVnYXRld2F5LnYxLlVwbG9hZEhlYXJ0YmVhdFJlc3BvbnNlEmoKDUNvbnRyb2xTdHJlYW0SKS5mbGVldG5vZGVnYXRld2F5LnYxLkNvbnRyb2xTdHJlYW1SZXF1ZXN0GiouZmxlZXRub2RlZ2F0ZXdheS52MS5Db250cm9sU3RyZWFtUmVzcG9uc2UoATABQvgBChdjb20uZmxlZXRub2RlZ2F0ZXdheS52MUIVRmxlZXRub2RlZ2F0ZXdheVByb3RvUAFaWWdpdGh1Yi5jb20vYmxvY2svcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL2ZsZWV0bm9kZWdhdGV3YXkvdjE7ZmxlZXRub2RlZ2F0ZXdheXYxogIDRlhYqgITRmxlZXRub2RlZ2F0ZXdheS5WMcoCE0ZsZWV0bm9kZWdhdGV3YXlcVjHiAh9GbGVldG5vZGVnYXRld2F5XFYxXEdQQk1ldGFkYXRh6gIURmxlZXRub2RlZ2F0ZXdheTo6VjFiBnByb3RvMw",
+    "CipmbGVldG5vZGVnYXRld2F5L3YxL2ZsZWV0bm9kZWdhdGV3YXkucHJvdG8SE2ZsZWV0bm9kZWdhdGV3YXkudjEimgEKD1JlZ2lzdGVyUmVxdWVzdBIkChBlbnJvbGxtZW50X3Rva2VuGAEgASgJQgq6SAdyBRAUGIAEEhgKBG5hbWUYAiABKAlCCrpIB3IFEAEY/wESIAoPaWRlbnRpdHlfcHVia2V5GAMgASgMQge6SAR6AmggEiUKFG1pbmVyX3NpZ25pbmdfcHVia2V5GAQgASgMQge6SAR6AmggIokBChBSZWdpc3RlclJlc3BvbnNlEhUKDWZsZWV0X25vZGVfaWQYASABKAMSQAoRZW5yb2xsbWVudF9zdGF0dXMYAiABKA4yJS5mbGVldG5vZGVnYXRld2F5LnYxLkVucm9sbG1lbnRTdGF0dXMSHAoUaWRlbnRpdHlfZmluZ2VycHJpbnQYAyABKAkiWgoZQmVnaW5BdXRoSGFuZHNoYWtlUmVxdWVzdBIbCgdhcGlfa2V5GAEgASgJQgq6SAdyBRAUGIAEEiAKD2lkZW50aXR5X3B1YmtleRgCIAEoDEIHukgEegJoICJfChpCZWdpbkF1dGhIYW5kc2hha2VSZXNwb25zZRIRCgljaGFsbGVuZ2UYASABKAwSLgoKZXhwaXJlc19hdBgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXAiWAocQ29tcGxldGVBdXRoSGFuZHNoYWtlUmVxdWVzdBIcCgljaGFsbGVuZ2UYASABKAxCCbpIBnoEEBAYQBIaCglzaWduYXR1cmUYAiABKAxCB7pIBHoCaEAiZgodQ29tcGxldGVBdXRoSGFuZHNoYWtlUmVzcG9uc2USFQoNc2Vzc2lvbl90b2tlbhgBIAEoCRIuCgpleHBpcmVzX2F0GAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCJtChZVcGxvYWRUZWxlbWV0cnlSZXF1ZXN0EhoKB3BheWxvYWQYASABKAxCCbpIBnoEGICAQBI3CgtjYXB0dXJlZF9hdBgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBCBrpIA8gBASIxChdVcGxvYWRUZWxlbWV0cnlSZXNwb25zZRIWCg5hY2NlcHRlZF9jb3VudBgBIAEoAyJqChNVcGxvYWRFdmVudHNSZXF1ZXN0EhoKB3BheWxvYWQYASABKAxCCbpIBnoEGICAQBI3CgtjYXB0dXJlZF9hdBgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBCBrpIA8gBASIuChRVcGxvYWRFdmVudHNSZXNwb25zZRIWCg5hY2NlcHRlZF9jb3VudBgBIAEoAyJNChZVcGxvYWRIZWFydGJlYXRSZXF1ZXN0EjMKB3NlbnRfYXQYASABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wQga6SAPIAQEiSgoXVXBsb2FkSGVhcnRiZWF0UmVzcG9uc2USLwoLcmVjZWl2ZWRfYXQYASABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIokBCh5SZXBvcnREaXNjb3ZlcmVkRGV2aWNlc1JlcXVlc3QSRwoHZGV2aWNlcxgBIAMoCzIrLmZsZWV0bm9kZWdhdGV3YXkudjEuRGlzY292ZXJlZERldmljZVJlcG9ydEIJukgGkgEDEIAIEh4KCmNvbW1hbmRfaWQYAiABKAlCCrpIB3IFEAEYgAEijgMKFkRpc2NvdmVyZWREZXZpY2VSZXBvcnQSJQoRZGV2aWNlX2lkZW50aWZpZXIYASABKAlCCrpIB3IFEAEY/wESHwoKaXBfYWRkcmVzcxgCIAEoCUILukgIcgYQARgtcAEShgEKBHBvcnQYAyABKAlCeLpIdboBbAoKcG9ydC5yYW5nZRIpcG9ydCBtdXN0IGJlIGEgZGVjaW1hbCBudW1iZXIgaW4gMS4uNjU1MzUaM3RoaXMubWF0Y2hlcygnXlsxLTldWzAtOV0qJCcpICYmIGludCh0aGlzKSA8PSA2NTUzNXIEEAEYBRImCgp1cmxfc2NoZW1lGAQgASgJQhK6SA9yDVIEaHR0cFIFaHR0cHMSHgoLZHJpdmVyX25hbWUYBSABKAlCCbpIBnIEEAEYMhIXCgVtb2RlbBgGIAEoCUIIukgFcgMY/wESHgoMbWFudWZhY3R1cmVyGAcgASgJQgi6SAVyAxj/ARIiChBmaXJtd2FyZV92ZXJzaW9uGAggASgJQgi6SAVyAxj/ASI5Ch9SZXBvcnREaXNjb3ZlcmVkRGV2aWNlc1Jlc3BvbnNlEhYKDmFjY2VwdGVkX2NvdW50GAEgASgDIokBChRDb250cm9sU3RyZWFtUmVxdWVzdBIyCgVoZWxsbxgBIAEoCzIhLmZsZWV0bm9kZWdhdGV3YXkudjEuQ29udHJvbEhlbGxvSAASLgoDYWNrGAIgASgLMh8uZmxlZXRub2RlZ2F0ZXdheS52MS5Db250cm9sQWNrSABCDQoEa2luZBIFukgCCAEimAEKFUNvbnRyb2xTdHJlYW1SZXNwb25zZRI4CghhY2NlcHRlZBgBIAEoCzIkLmZsZWV0bm9kZWdhdGV3YXkudjEuQ29udHJvbEFjY2VwdGVkSAASNgoHY29tbWFuZBgCIAEoCzIjLmZsZWV0bm9kZWdhdGV3YXkudjEuQ29udHJvbENvbW1hbmRIAEINCgRraW5kEgW6SAIIASIOCgxDb250cm9sSGVsbG8iQgoPQ29udHJvbEFjY2VwdGVkEi8KC3NlcnZlcl90aW1lGAEgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCJMCg5Db250cm9sQ29tbWFuZBIeCgpjb21tYW5kX2lkGAEgASgJQgq6SAdyBRABGIABEhoKB3BheWxvYWQYAiABKAxCCbpIBnoEGICAQCJgCgpDb250cm9sQWNrEh4KCmNvbW1hbmRfaWQYASABKAlCCrpIB3IFEAEYgAESEQoJc3VjY2VlZGVkGAIgASgIEh8KDWVycm9yX21lc3NhZ2UYAyABKAlCCLpIBXIDGIAgKpQBChBFbnJvbGxtZW50U3RhdHVzEiEKHUVOUk9MTE1FTlRfU1RBVFVTX1VOU1BFQ0lGSUVEEAASHQoZRU5ST0xMTUVOVF9TVEFUVVNfUEVORElORxABEh8KG0VOUk9MTE1FTlRfU1RBVFVTX0NPTkZJUk1FRBACEh0KGUVOUk9MTE1FTlRfU1RBVFVTX1JFVk9LRUQQAzKhBwoXRmxlZXROb2RlR2F0ZXdheVNlcnZpY2USVwoIUmVnaXN0ZXISJC5mbGVldG5vZGVnYXRld2F5LnYxLlJlZ2lzdGVyUmVxdWVzdBolLmZsZWV0bm9kZWdhdGV3YXkudjEuUmVnaXN0ZXJSZXNwb25zZRJ1ChJCZWdpbkF1dGhIYW5kc2hha2USLi5mbGVldG5vZGVnYXRld2F5LnYxLkJlZ2luQXV0aEhhbmRzaGFrZVJlcXVlc3QaLy5mbGVldG5vZGVnYXRld2F5LnYxLkJlZ2luQXV0aEhhbmRzaGFrZVJlc3BvbnNlEn4KFUNvbXBsZXRlQXV0aEhhbmRzaGFrZRIxLmZsZWV0bm9kZWdhdGV3YXkudjEuQ29tcGxldGVBdXRoSGFuZHNoYWtlUmVxdWVzdBoyLmZsZWV0bm9kZWdhdGV3YXkudjEuQ29tcGxldGVBdXRoSGFuZHNoYWtlUmVzcG9uc2USbgoPVXBsb2FkVGVsZW1ldHJ5EisuZmxlZXRub2RlZ2F0ZXdheS52MS5VcGxvYWRUZWxlbWV0cnlSZXF1ZXN0GiwuZmxlZXRub2RlZ2F0ZXdheS52MS5VcGxvYWRUZWxlbWV0cnlSZXNwb25zZSgBEmUKDFVwbG9hZEV2ZW50cxIoLmZsZWV0bm9kZWdhdGV3YXkudjEuVXBsb2FkRXZlbnRzUmVxdWVzdBopLmZsZWV0bm9kZWdhdGV3YXkudjEuVXBsb2FkRXZlbnRzUmVzcG9uc2UoARJsCg9VcGxvYWRIZWFydGJlYXQSKy5mbGVldG5vZGVnYXRld2F5LnYxLlVwbG9hZEhlYXJ0YmVhdFJlcXVlc3QaLC5mbGVldG5vZGVnYXRld2F5LnYxLlVwbG9hZEhlYXJ0YmVhdFJlc3BvbnNlEoQBChdSZXBvcnREaXNjb3ZlcmVkRGV2aWNlcxIzLmZsZWV0bm9kZWdhdGV3YXkudjEuUmVwb3J0RGlzY292ZXJlZERldmljZXNSZXF1ZXN0GjQuZmxlZXRub2RlZ2F0ZXdheS52MS5SZXBvcnREaXNjb3ZlcmVkRGV2aWNlc1Jlc3BvbnNlEmoKDUNvbnRyb2xTdHJlYW0SKS5mbGVldG5vZGVnYXRld2F5LnYxLkNvbnRyb2xTdHJlYW1SZXF1ZXN0GiouZmxlZXRub2RlZ2F0ZXdheS52MS5Db250cm9sU3RyZWFtUmVzcG9uc2UoATABQvgBChdjb20uZmxlZXRub2RlZ2F0ZXdheS52MUIVRmxlZXRub2RlZ2F0ZXdheVByb3RvUAFaWWdpdGh1Yi5jb20vYmxvY2svcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL2ZsZWV0bm9kZWdhdGV3YXkvdjE7ZmxlZXRub2RlZ2F0ZXdheXYxogIDRlhYqgITRmxlZXRub2RlZ2F0ZXdheS5WMcoCE0ZsZWV0bm9kZWdhdGV3YXlcVjHiAh9GbGVldG5vZGVnYXRld2F5XFYxXEdQQk1ldGFkYXRh6gIURmxlZXRub2RlZ2F0ZXdheTo6VjFiBnByb3RvMw",
     [file_buf_validate_validate, file_google_protobuf_timestamp],
   );
 
@@ -299,6 +299,105 @@ export const UploadHeartbeatResponseSchema: GenMessage<UploadHeartbeatResponse> 
   messageDesc(file_fleetnodegateway_v1_fleetnodegateway, 11);
 
 /**
+ * @generated from message fleetnodegateway.v1.ReportDiscoveredDevicesRequest
+ */
+export type ReportDiscoveredDevicesRequest = Message<"fleetnodegateway.v1.ReportDiscoveredDevicesRequest"> & {
+  /**
+   * @generated from field: repeated fleetnodegateway.v1.DiscoveredDeviceReport devices = 1;
+   */
+  devices: DiscoveredDeviceReport[];
+
+  /**
+   * Echoes the command_id of the ControlCommand that scheduled the
+   * scan. Required: the gateway only accepts reports in response to
+   * a server-issued command and uses this to route the batch to the
+   * operator stream waiting on DiscoverOnFleetNode.
+   *
+   * @generated from field: string command_id = 2;
+   */
+  commandId: string;
+};
+
+/**
+ * Describes the message fleetnodegateway.v1.ReportDiscoveredDevicesRequest.
+ * Use `create(ReportDiscoveredDevicesRequestSchema)` to create a new message.
+ */
+export const ReportDiscoveredDevicesRequestSchema: GenMessage<ReportDiscoveredDevicesRequest> =
+  /*@__PURE__*/
+  messageDesc(file_fleetnodegateway_v1_fleetnodegateway, 12);
+
+/**
+ * @generated from message fleetnodegateway.v1.DiscoveredDeviceReport
+ */
+export type DiscoveredDeviceReport = Message<"fleetnodegateway.v1.DiscoveredDeviceReport"> & {
+  /**
+   * @generated from field: string device_identifier = 1;
+   */
+  deviceIdentifier: string;
+
+  /**
+   * @generated from field: string ip_address = 2;
+   */
+  ipAddress: string;
+
+  /**
+   * @generated from field: string port = 3;
+   */
+  port: string;
+
+  /**
+   * @generated from field: string url_scheme = 4;
+   */
+  urlScheme: string;
+
+  /**
+   * @generated from field: string driver_name = 5;
+   */
+  driverName: string;
+
+  /**
+   * @generated from field: string model = 6;
+   */
+  model: string;
+
+  /**
+   * @generated from field: string manufacturer = 7;
+   */
+  manufacturer: string;
+
+  /**
+   * @generated from field: string firmware_version = 8;
+   */
+  firmwareVersion: string;
+};
+
+/**
+ * Describes the message fleetnodegateway.v1.DiscoveredDeviceReport.
+ * Use `create(DiscoveredDeviceReportSchema)` to create a new message.
+ */
+export const DiscoveredDeviceReportSchema: GenMessage<DiscoveredDeviceReport> =
+  /*@__PURE__*/
+  messageDesc(file_fleetnodegateway_v1_fleetnodegateway, 13);
+
+/**
+ * @generated from message fleetnodegateway.v1.ReportDiscoveredDevicesResponse
+ */
+export type ReportDiscoveredDevicesResponse = Message<"fleetnodegateway.v1.ReportDiscoveredDevicesResponse"> & {
+  /**
+   * @generated from field: int64 accepted_count = 1;
+   */
+  acceptedCount: bigint;
+};
+
+/**
+ * Describes the message fleetnodegateway.v1.ReportDiscoveredDevicesResponse.
+ * Use `create(ReportDiscoveredDevicesResponseSchema)` to create a new message.
+ */
+export const ReportDiscoveredDevicesResponseSchema: GenMessage<ReportDiscoveredDevicesResponse> =
+  /*@__PURE__*/
+  messageDesc(file_fleetnodegateway_v1_fleetnodegateway, 14);
+
+/**
  * @generated from message fleetnodegateway.v1.ControlStreamRequest
  */
 export type ControlStreamRequest = Message<"fleetnodegateway.v1.ControlStreamRequest"> & {
@@ -329,7 +428,7 @@ export type ControlStreamRequest = Message<"fleetnodegateway.v1.ControlStreamReq
  */
 export const ControlStreamRequestSchema: GenMessage<ControlStreamRequest> =
   /*@__PURE__*/
-  messageDesc(file_fleetnodegateway_v1_fleetnodegateway, 12);
+  messageDesc(file_fleetnodegateway_v1_fleetnodegateway, 15);
 
 /**
  * @generated from message fleetnodegateway.v1.ControlStreamResponse
@@ -362,7 +461,7 @@ export type ControlStreamResponse = Message<"fleetnodegateway.v1.ControlStreamRe
  */
 export const ControlStreamResponseSchema: GenMessage<ControlStreamResponse> =
   /*@__PURE__*/
-  messageDesc(file_fleetnodegateway_v1_fleetnodegateway, 13);
+  messageDesc(file_fleetnodegateway_v1_fleetnodegateway, 16);
 
 /**
  * @generated from message fleetnodegateway.v1.ControlHello
@@ -375,7 +474,7 @@ export type ControlHello = Message<"fleetnodegateway.v1.ControlHello"> & {};
  */
 export const ControlHelloSchema: GenMessage<ControlHello> =
   /*@__PURE__*/
-  messageDesc(file_fleetnodegateway_v1_fleetnodegateway, 14);
+  messageDesc(file_fleetnodegateway_v1_fleetnodegateway, 17);
 
 /**
  * @generated from message fleetnodegateway.v1.ControlAccepted
@@ -393,7 +492,7 @@ export type ControlAccepted = Message<"fleetnodegateway.v1.ControlAccepted"> & {
  */
 export const ControlAcceptedSchema: GenMessage<ControlAccepted> =
   /*@__PURE__*/
-  messageDesc(file_fleetnodegateway_v1_fleetnodegateway, 15);
+  messageDesc(file_fleetnodegateway_v1_fleetnodegateway, 18);
 
 /**
  * @generated from message fleetnodegateway.v1.ControlCommand
@@ -416,7 +515,7 @@ export type ControlCommand = Message<"fleetnodegateway.v1.ControlCommand"> & {
  */
 export const ControlCommandSchema: GenMessage<ControlCommand> =
   /*@__PURE__*/
-  messageDesc(file_fleetnodegateway_v1_fleetnodegateway, 16);
+  messageDesc(file_fleetnodegateway_v1_fleetnodegateway, 19);
 
 /**
  * @generated from message fleetnodegateway.v1.ControlAck
@@ -444,7 +543,7 @@ export type ControlAck = Message<"fleetnodegateway.v1.ControlAck"> & {
  */
 export const ControlAckSchema: GenMessage<ControlAck> =
   /*@__PURE__*/
-  messageDesc(file_fleetnodegateway_v1_fleetnodegateway, 17);
+  messageDesc(file_fleetnodegateway_v1_fleetnodegateway, 20);
 
 /**
  * @generated from enum fleetnodegateway.v1.EnrollmentStatus
@@ -529,6 +628,14 @@ export const FleetNodeGatewayService: GenService<{
     methodKind: "unary";
     input: typeof UploadHeartbeatRequestSchema;
     output: typeof UploadHeartbeatResponseSchema;
+  };
+  /**
+   * @generated from rpc fleetnodegateway.v1.FleetNodeGatewayService.ReportDiscoveredDevices
+   */
+  reportDiscoveredDevices: {
+    methodKind: "unary";
+    input: typeof ReportDiscoveredDevicesRequestSchema;
+    output: typeof ReportDiscoveredDevicesResponseSchema;
   };
   /**
    * @generated from rpc fleetnodegateway.v1.FleetNodeGatewayService.ControlStream

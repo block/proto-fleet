@@ -72,9 +72,13 @@ type Service struct {
 	activitySvc         *activity.Service
 
 	resolveDeviceIDsOverride func(context.Context, []string) ([]int64, error)
+	// Test-only hooks; production never sets these. When set, processCommand
+	// uses them instead of the real DB batch insert / status-update goroutine.
+	saveCommandBatchLogOverride      func(ctx context.Context, userID, organizationID int64, command *Command, payloadBytes []byte, devicesCount int) (string, error)
+	startStatusUpdateRoutineOverride func(batchUUID string, finalizer onFinishedCallbackFunc)
 
-	// filters run in registration order before commands are enqueued. Registered
-	// at startup only; the slice is not mutex-protected.
+	// filters run in registration order. Registered at startup only;
+	// the slice is not mutex-protected.
 	filters []CommandFilter
 }
 
@@ -145,8 +149,11 @@ func actorTypeFromSession(info *session.Info) activitymodels.ActorType {
 	if info == nil {
 		return ""
 	}
-	if info.Actor == session.ActorScheduler {
+	switch info.Actor {
+	case session.ActorScheduler:
 		return activitymodels.ActorScheduler
+	case session.ActorCurtailment:
+		return activitymodels.ActorCurtailment
 	}
 	return ""
 }
@@ -182,6 +189,10 @@ func activityEventType(t commandtype.Type) string {
 		return "unpair"
 	case commandtype.UpdateMinerPassword:
 		return "update_miner_password"
+	case commandtype.Curtail:
+		return "curtail"
+	case commandtype.Uncurtail:
+		return "uncurtail"
 	default:
 		return t.String()
 	}
@@ -400,6 +411,9 @@ func (s *Service) buildActivityCompletedCallback(ctx context.Context, batchID, e
 }
 
 func (s *Service) saveCommandBatchLogToDB(ctx context.Context, userID, organizationID int64, command *Command, payloadBytes []byte, devicesCount int) (string, error) {
+	if s.saveCommandBatchLogOverride != nil {
+		return s.saveCommandBatchLogOverride(ctx, userID, organizationID, command, payloadBytes, devicesCount)
+	}
 	if organizationID <= 0 {
 		return "", fleeterror.NewInternalErrorf("cannot create command batch: session missing organization_id")
 	}
@@ -465,6 +479,10 @@ func (s *Service) statusUpdateIsFinishedBranch(ctx context.Context, commandBatch
 type onFinishedCallbackFunc func() error
 
 func (s *Service) initializeStatusUpdateRoutine(commandBatchLogUUID string, onFinishedCallback onFinishedCallbackFunc) {
+	if s.startStatusUpdateRoutineOverride != nil {
+		s.startStatusUpdateRoutineOverride(commandBatchLogUUID, onFinishedCallback)
+		return
+	}
 	go func() {
 		// TODO maybe integrate this with the execution service master thread ctx in the future
 		ctx := context.Background()
@@ -1301,6 +1319,35 @@ func (s *Service) Unpair(ctx context.Context, deviceSelector *pb.DeviceSelector)
 		return nil, err
 	}
 	s.finalizeDispatch(ctx, result, "unpair", "Unpair")
+	return result, nil
+}
+
+// Curtail enqueues a curtailment command at the given level. Reconciler
+// callers must set session.Actor=ActorCurtailment so the curtailment-active
+// filter bypasses self-blocking.
+func (s *Service) Curtail(ctx context.Context, deviceSelector *pb.DeviceSelector, level sdk.CurtailLevel) (*CommandResult, error) {
+	payload := dto.CurtailPayload{Level: int32(level)}
+	result, err := s.processCommand(
+		ctx,
+		&Command{commandType: commandtype.Curtail, deviceSelector: deviceSelector, payload: payload},
+	)
+	if err != nil {
+		return nil, err
+	}
+	s.finalizeDispatch(ctx, result, "curtail", "Curtail")
+	return result, nil
+}
+
+// Uncurtail restores a device to its pre-curtailment mining state.
+func (s *Service) Uncurtail(ctx context.Context, deviceSelector *pb.DeviceSelector) (*CommandResult, error) {
+	result, err := s.processCommand(
+		ctx,
+		&Command{commandType: commandtype.Uncurtail, deviceSelector: deviceSelector, payload: nil},
+	)
+	if err != nil {
+		return nil, err
+	}
+	s.finalizeDispatch(ctx, result, "uncurtail", "Uncurtail")
 	return result, nil
 }
 

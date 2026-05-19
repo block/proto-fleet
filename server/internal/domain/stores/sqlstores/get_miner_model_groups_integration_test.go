@@ -193,21 +193,32 @@ func TestGetMinerModelGroups_ZoneFilter(t *testing.T) {
 	_, err = collectionStore.AddDevicesToCollection(ctx, user.OrganizationID, rackB.Id, []string{inZoneB.ID})
 	require.NoError(t, err)
 
-	singleZone := &stores.MinerFilter{Zones: []string{"zone-a"}}
+	// Wildcard zone_keys (building_id=0) preserve the org-wide zone-by-label
+	// semantics this test originally asserted under the legacy Zones field.
+	singleZone := &stores.MinerFilter{
+		ZoneKeys: []stores.ZoneKey{{BuildingID: 0, Zone: "zone-a"}},
+	}
 	groups, err := deviceStore.GetMinerModelGroups(ctx, user.OrganizationID, singleZone)
 	require.NoError(t, err)
 	require.Len(t, groups, 1)
 	assert.Equal(t, int32(1), groups[0].Count, "zone=zone-a should match only the device in rack A")
 	assertModalInvariant(t, ctx, deviceStore, user.OrganizationID, singleZone)
 
-	multiZone := &stores.MinerFilter{Zones: []string{"zone-a", "zone-b"}}
+	multiZone := &stores.MinerFilter{
+		ZoneKeys: []stores.ZoneKey{
+			{BuildingID: 0, Zone: "zone-a"},
+			{BuildingID: 0, Zone: "zone-b"},
+		},
+	}
 	groups, err = deviceStore.GetMinerModelGroups(ctx, user.OrganizationID, multiZone)
 	require.NoError(t, err)
 	require.Len(t, groups, 1)
 	assert.Equal(t, int32(2), groups[0].Count, "noZone is unassigned, so zone filter must exclude it")
 	assertModalInvariant(t, ctx, deviceStore, user.OrganizationID, multiZone)
 
-	missingZone := &stores.MinerFilter{Zones: []string{"missing-zone"}}
+	missingZone := &stores.MinerFilter{
+		ZoneKeys: []stores.ZoneKey{{BuildingID: 0, Zone: "missing-zone"}},
+	}
 	groups, err = deviceStore.GetMinerModelGroups(ctx, user.OrganizationID, missingZone)
 	require.NoError(t, err)
 	assert.Empty(t, groups)
@@ -242,7 +253,9 @@ func TestGetMinerModelGroups_ZoneWithComma(t *testing.T) {
 	_, err = collectionStore.AddDevicesToCollection(ctx, user.OrganizationID, rack.Id, []string{dev.ID})
 	require.NoError(t, err)
 
-	commaFilter := &stores.MinerFilter{Zones: []string{zone}}
+	commaFilter := &stores.MinerFilter{
+		ZoneKeys: []stores.ZoneKey{{BuildingID: 0, Zone: zone}},
+	}
 	groups, err := deviceStore.GetMinerModelGroups(ctx, user.OrganizationID, commaFilter)
 	require.NoError(t, err)
 	require.Len(t, groups, 1)
@@ -312,7 +325,7 @@ func TestGetMinerModelGroups_FirmwareAndZoneFilters(t *testing.T) {
 	// Firmware=v1 + Zone=zone-a → only s21a (S21 XP, count=1); M60 drops out.
 	filter := &stores.MinerFilter{
 		FirmwareVersions: []string{"v1"},
-		Zones:            []string{"zone-a"},
+		ZoneKeys:         []stores.ZoneKey{{BuildingID: 0, Zone: "zone-a"}},
 	}
 	groups, err := deviceStore.GetMinerModelGroups(ctx, user.OrganizationID, filter)
 	require.NoError(t, err)

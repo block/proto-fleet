@@ -294,6 +294,8 @@ enum CommandType {
   COMMAND_TYPE_FIRMWARE_UPDATE = 8;
   COMMAND_TYPE_SET_POWER_TARGET = 9;
   COMMAND_TYPE_UPDATE_MINER_PASSWORD = 10;
+  COMMAND_TYPE_CURTAIL = 11;
+  COMMAND_TYPE_UNCURTAIL = 12;
 }
 
 // Request to check command capabilities for selected devices

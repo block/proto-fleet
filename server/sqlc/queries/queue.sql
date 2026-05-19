@@ -50,8 +50,11 @@ WHERE id = $1
   AND status = 'PENDING';
 
 -- name: GetMessagesToProcess :many
-SELECT m.*
+SELECT m.id, m.command_batch_log_uuid, m.device_id, m.command_type, m.status,
+       m.retry_count, m.error_info, m.payload, m.created_at, m.updated_at,
+       d.org_id
 FROM queue_message m
+JOIN device d ON m.device_id = d.id
 WHERE m.status = 'PENDING'
   AND m.retry_count < $1
   AND NOT EXISTS (
@@ -76,10 +79,12 @@ UPDATE queue_message
 SET status = 'FAILED'::queue_status_enum,
     error_info = 'reaped: stuck in PROCESSING beyond timeout',
     updated_at = CURRENT_TIMESTAMP
-FROM stuck
+FROM stuck, device
 WHERE queue_message.id = stuck.id
   AND queue_message.status = 'PROCESSING'
-RETURNING queue_message.id, queue_message.device_id, queue_message.command_batch_log_uuid, queue_message.error_info;
+  AND queue_message.device_id = device.id
+RETURNING queue_message.id, queue_message.device_id, queue_message.command_batch_log_uuid,
+    queue_message.error_info, queue_message.command_type, device.org_id;
 
 -- name: ReapStuckFirmwareUpdateMessages :many
 WITH stuck AS (
@@ -93,10 +98,12 @@ UPDATE queue_message
 SET status = 'FAILED'::queue_status_enum,
     error_info = 'reaped: firmware update stuck in PROCESSING beyond timeout',
     updated_at = CURRENT_TIMESTAMP
-FROM stuck
+FROM stuck, device
 WHERE queue_message.id = stuck.id
   AND queue_message.status = 'PROCESSING'
-RETURNING queue_message.id, queue_message.device_id, queue_message.command_batch_log_uuid, queue_message.error_info;
+  AND queue_message.device_id = device.id
+RETURNING queue_message.id, queue_message.device_id, queue_message.command_batch_log_uuid,
+    queue_message.error_info, queue_message.command_type, device.org_id;
 
 -- name: IsBatchFinished :one
 SELECT

@@ -55,7 +55,7 @@ type SchedulePriorityStore interface {
 
 //go:generate go run go.uber.org/mock/mockgen -source=schedule.go -destination=mocks/mock_schedule_store.go -package=mocks ScheduleProcessorStore ScheduleTargetStore
 
-// ScheduleProcessorStore defines store methods used exclusively by the schedule processor (BE-3).
+// ScheduleProcessorStore defines store methods used exclusively by the schedule processor.
 // Cross-org queries return ScheduleWithOrg to provide the org_id that the proto
 // Schedule message omits. Org-scoped queries return plain *pb.Schedule.
 type ScheduleProcessorStore interface {

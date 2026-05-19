@@ -71,6 +71,10 @@ var SessionOnlyProcedures = []string{
 	fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodesProcedure,
 	fleetnodeadminv1connect.FleetNodeAdminServiceConfirmFleetNodeProcedure,
 	fleetnodeadminv1connect.FleetNodeAdminServiceRevokeFleetNodeProcedure,
+	fleetnodeadminv1connect.FleetNodeAdminServicePairDeviceToFleetNodeProcedure,
+	fleetnodeadminv1connect.FleetNodeAdminServiceUnpairDeviceProcedure,
+	fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodeDevicesProcedure,
+	fleetnodeadminv1connect.FleetNodeAdminServiceDiscoverOnFleetNodeProcedure,
 	// AdminTerminateEvent forces a non-terminal event to a terminal state and
 	// is session-only. Paired with handler-side requireAdminFromContext in
 	// handlers/curtailment/handler.go; neither check alone is sufficient.
@@ -102,6 +106,7 @@ var FleetNodeAuthenticatedProcedures = []string{
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadEventsProcedure,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadHeartbeatProcedure,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceControlStreamProcedure,
+	fleetnodegatewayv1connect.FleetNodeGatewayServiceReportDiscoveredDevicesProcedure,
 }
 
 // SensitiveBodyProcedures lists RPCs whose request/response bodies must not be
@@ -109,12 +114,14 @@ var FleetNodeAuthenticatedProcedures = []string{
 // For streaming RPCs, this also suppresses individual message bodies in
 // loggingStreamingHandlerConn.
 var SensitiveBodyProcedures = map[string]bool{
-	foremanimportv1connect.ForemanImportServiceImportFromForemanProcedure:     true,
-	foremanimportv1connect.ForemanImportServiceCompleteImportProcedure:        true,
-	authv1connect.AuthServiceAuthenticateProcedure:                            true,
-	authv1connect.AuthServiceVerifyCredentialsProcedure:                       true,
-	fleetmanagementv1connect.FleetManagementServiceUpdateWorkerNamesProcedure: true,
-	fleetnodegatewayv1connect.FleetNodeGatewayServiceControlStreamProcedure:   true,
-	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadTelemetryProcedure: true,
-	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadEventsProcedure:    true,
+	foremanimportv1connect.ForemanImportServiceImportFromForemanProcedure:             true,
+	foremanimportv1connect.ForemanImportServiceCompleteImportProcedure:                true,
+	authv1connect.AuthServiceAuthenticateProcedure:                                    true,
+	authv1connect.AuthServiceVerifyCredentialsProcedure:                               true,
+	fleetmanagementv1connect.FleetManagementServiceUpdateWorkerNamesProcedure:         true,
+	fleetnodegatewayv1connect.FleetNodeGatewayServiceControlStreamProcedure:           true,
+	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadTelemetryProcedure:         true,
+	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadEventsProcedure:            true,
+	fleetnodegatewayv1connect.FleetNodeGatewayServiceReportDiscoveredDevicesProcedure: true,
+	fleetnodeadminv1connect.FleetNodeAdminServiceDiscoverOnFleetNodeProcedure:         true,
 }

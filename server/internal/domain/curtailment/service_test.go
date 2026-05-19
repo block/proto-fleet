@@ -15,10 +15,12 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/modes"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
-// fakeStore implements CurtailmentStore for Preview tests; methods Preview
-// doesn't exercise panic so a stray call fails loudly instead of zero-valuing.
+// fakeStore implements CurtailmentStore for Preview / Start tests; methods
+// neither flow exercises panic so a stray call fails loudly instead of
+// zero-valuing.
 type fakeStore struct {
 	orgConfigByOrg       map[int64]*models.OrgConfig
 	activeDevicesByOrg   map[int64][]string
@@ -34,6 +36,15 @@ type fakeStore struct {
 	lastCooldownSec          int32
 	activeDevicesCalls       int
 	lastActiveDevicesOrgID   int64
+
+	// InsertEventWithTargets state. nextEventID is the synthetic id sequence
+	// returned to the service so plan.EventUUID is populated; Start tests
+	// inspect lastInsertEvent / lastInsertTargets to pin the persisted shape.
+	insertEventErr    error
+	insertEventCalls  int
+	lastInsertEvent   models.InsertEventParams
+	lastInsertTargets []models.InsertTargetParams
+	nextEventID       int64
 }
 
 func newFakeStore() *fakeStore {
@@ -42,6 +53,7 @@ func newFakeStore() *fakeStore {
 		activeDevicesByOrg:   map[int64][]string{},
 		cooldownDevicesByOrg: map[int64][]string{},
 		candidatesByOrg:      map[int64][]*models.Candidate{},
+		nextEventID:          1,
 	}
 }
 
@@ -88,16 +100,8 @@ func (f *fakeStore) ListCandidates(_ context.Context, orgID int64, deviceIdentif
 
 // --- panic stubs for methods the service does not exercise ---
 
-func (f *fakeStore) InsertEvent(context.Context, models.InsertEventParams) (*models.InsertEventResult, error) {
-	panic("InsertEvent not exercised by Preview tests")
-}
-
 func (f *fakeStore) GetEventByUUID(context.Context, int64, uuid.UUID) (*models.Event, error) {
 	panic("GetEventByUUID not exercised by Preview tests")
-}
-
-func (f *fakeStore) InsertTarget(context.Context, models.InsertTargetParams) error {
-	panic("InsertTarget not exercised by Preview tests")
 }
 
 func (f *fakeStore) ListTargetsByEvent(context.Context, int64, uuid.UUID) ([]*models.Target, error) {
@@ -106,6 +110,45 @@ func (f *fakeStore) ListTargetsByEvent(context.Context, int64, uuid.UUID) ([]*mo
 
 func (f *fakeStore) GetHeartbeat(context.Context) (*models.Heartbeat, error) {
 	panic("GetHeartbeat not exercised by Preview tests")
+}
+
+func (f *fakeStore) ListNonTerminalEvents(context.Context) ([]*models.Event, error) {
+	panic("ListNonTerminalEvents not exercised by Preview tests")
+}
+
+func (f *fakeStore) UpdateEventState(context.Context, int64, models.EventState, *time.Time, *time.Time) error {
+	panic("UpdateEventState not exercised by Preview tests")
+}
+
+func (f *fakeStore) UpdateTargetState(context.Context, int64, string, interfaces.UpdateCurtailmentTargetStateParams) error {
+	panic("UpdateTargetState not exercised by Preview tests")
+}
+
+func (f *fakeStore) UpsertHeartbeat(context.Context, interfaces.UpsertCurtailmentHeartbeatParams) error {
+	panic("UpsertHeartbeat not exercised by Preview tests")
+}
+
+// InsertEventWithTargets is exercised by Service.Start tests in
+// service_start_test.go; Preview never invokes it. Default behavior records
+// the call so Start tests can assert against captured params; Preview tests
+// don't reach this path.
+func (f *fakeStore) InsertEventWithTargets(
+	_ context.Context,
+	event models.InsertEventParams,
+	targets []models.InsertTargetParams,
+) (*models.InsertEventResult, error) {
+	f.insertEventCalls++
+	f.lastInsertEvent = event
+	f.lastInsertTargets = append([]models.InsertTargetParams(nil), targets...)
+	if f.insertEventErr != nil {
+		return nil, f.insertEventErr
+	}
+	id := f.nextEventID
+	f.nextEventID++
+	return &models.InsertEventResult{
+		ID:        id,
+		EventUUID: event.EventUUID,
+	}, nil
 }
 
 // --- helpers ---

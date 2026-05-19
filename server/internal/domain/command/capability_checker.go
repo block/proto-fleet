@@ -264,6 +264,14 @@ func hasAnyCapability(commands *capabilitiespb.CommandCapabilities, firmware *ca
 			if commands.UpdateMinerPasswordSupported {
 				return true
 			}
+		case sdk.CapabilityCurtailFull:
+			if commands.CurtailFullSupported {
+				return true
+			}
+		case sdk.CapabilityCurtailEfficiency:
+			if commands.CurtailEfficiencySupported {
+				return true
+			}
 		}
 	}
 	return false

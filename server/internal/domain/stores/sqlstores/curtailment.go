@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log/slog"
 	"strconv"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -16,6 +17,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 )
 
 // pgErrCodeForeignKeyViolation is PostgreSQL's SQLSTATE for foreign_key_violation.
@@ -25,10 +27,9 @@ func mapOrgConfigError(err error, orgID int64) error {
 	if err == nil {
 		return nil
 	}
-	// EnsureCurtailmentOrgConfig gates both INSERT and fallback SELECT on
-	// organization.deleted_at IS NULL, so soft-deleted (and unknown) orgs
-	// produce sql.ErrNoRows rather than an FK violation. Map it to NotFound
-	// so deleted tenants cannot be revived by Preview read traffic.
+	// EnsureCurtailmentOrgConfig gates both branches on
+	// organization.deleted_at IS NULL, so soft-deleted/unknown orgs return
+	// ErrNoRows. Map to NotFound so deleted tenants can't be revived.
 	if errors.Is(err, sql.ErrNoRows) {
 		return fleeterror.NewNotFoundErrorf("organization %d not found", orgID)
 	}
@@ -52,21 +53,14 @@ func NewSQLCurtailmentStore(conn *sql.DB) *SQLCurtailmentStore {
 }
 
 func (s *SQLCurtailmentStore) GetOrgConfig(ctx context.Context, orgID int64) (*models.OrgConfig, error) {
-	// Ensure-then-read: the 000042 migration only seeded existing orgs at
-	// deploy time, so any tenant created later has no row.
-	// EnsureCurtailmentOrgConfig is an INSERT ... ON CONFLICT DO NOTHING
-	// with a fallback SELECT in a single CTE — the conflict path stays
-	// read-only so updated_at remains a real config-change signal and
-	// the Preview hot path stays off the WAL. Both branches join the
-	// `active` CTE (organization.deleted_at IS NULL), so soft-deleted /
-	// unknown orgs return sql.ErrNoRows.
+	// Ensure-then-read: post-migration tenants don't have a seeded row.
+	// EnsureCurtailmentOrgConfig is INSERT ... ON CONFLICT DO NOTHING with
+	// a fallback SELECT in one CTE; both branches require the org to be
+	// active. ErrNoRows means soft-deleted/unknown OR a READ COMMITTED race
+	// (loser's snapshot missed the winner's INSERT) — retry resolves the
+	// race; if it's the deletion case, mapOrgConfigError returns NotFound.
 	row, err := s.GetQueries(ctx).EnsureCurtailmentOrgConfig(ctx, orgID)
 	if errors.Is(err, sql.ErrNoRows) {
-		// Two callers can hit ErrNoRows: (a) READ COMMITTED race where
-		// the loser's snapshot misses the winner's INSERT — a single
-		// retry resolves it once the winner commits; (b) soft-deleted
-		// or unknown org — the retry returns ErrNoRows again, which
-		// mapOrgConfigError converts to NotFound below.
 		row, err = s.GetQueries(ctx).EnsureCurtailmentOrgConfig(ctx, orgID)
 	}
 	if err != nil {
@@ -99,44 +93,75 @@ func (s *SQLCurtailmentStore) ListRecentlyResolvedCurtailedDevices(ctx context.C
 	return devices, nil
 }
 
-func (s *SQLCurtailmentStore) InsertEvent(ctx context.Context, params models.InsertEventParams) (*models.InsertEventResult, error) {
-	row, err := s.GetQueries(ctx).InsertCurtailmentEvent(ctx, sqlc.InsertCurtailmentEventParams{
-		EventUuid:               params.EventUUID,
-		OrgID:                   params.OrgID,
-		State:                   string(params.State),
-		Mode:                    string(params.Mode),
-		Strategy:                string(params.Strategy),
-		Level:                   string(params.Level),
-		Priority:                string(params.Priority),
-		LoopType:                string(params.LoopType),
-		ScopeType:               string(params.ScopeType),
-		ScopeJsonb:              params.ScopeJSON,
-		ModeParamsJsonb:         params.ModeParamsJSON,
-		RestoreBatchSize:        params.RestoreBatchSize,
-		RestoreBatchIntervalSec: params.RestoreBatchIntervalSec,
-		MinCurtailedDurationSec: params.MinCurtailedDurationSec,
-		MaxDurationSeconds:      ptrToNullInt32(params.MaxDurationSeconds),
-		AllowUnbounded:          params.AllowUnbounded,
-		IncludeMaintenance:      params.IncludeMaintenance,
-		ForceIncludeMaintenance: params.ForceIncludeMaintenance,
-		DecisionSnapshotJsonb:   params.DecisionSnapshotJSON,
-		SourceActorType:         string(params.SourceActorType),
-		SourceActorID:           ptrToNullString(params.SourceActorID),
-		ExternalSource:          ptrToNullString(params.ExternalSource),
-		ExternalReference:       ptrToNullString(params.ExternalReference),
-		IdempotencyKey:          ptrToNullString(params.IdempotencyKey),
-		Reason:                  params.Reason,
-		ScheduledStartAt:        ptrToNullTime(params.ScheduledStartAt),
-	})
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to insert curtailment event: %v", err)
+// InsertEventWithTargets writes event + targets in one transaction so a
+// partial Start can't leave a pending event without its target set.
+func (s *SQLCurtailmentStore) InsertEventWithTargets(
+	ctx context.Context,
+	event models.InsertEventParams,
+	targets []models.InsertTargetParams,
+) (*models.InsertEventResult, error) {
+	if len(targets) == 0 {
+		// Defense-in-depth; service rejects empty plans upstream.
+		return nil, fleeterror.NewInvalidArgumentError(
+			"InsertEventWithTargets requires a non-empty targets slice",
+		)
 	}
-	return &models.InsertEventResult{
-		ID:        row.ID,
-		EventUUID: row.EventUuid,
-		CreatedAt: row.CreatedAt,
-		UpdatedAt: row.UpdatedAt,
-	}, nil
+	return db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (*models.InsertEventResult, error) {
+		row, err := q.InsertCurtailmentEvent(ctx, sqlc.InsertCurtailmentEventParams{
+			EventUuid:               event.EventUUID,
+			OrgID:                   event.OrgID,
+			State:                   string(event.State),
+			Mode:                    string(event.Mode),
+			Strategy:                string(event.Strategy),
+			Level:                   string(event.Level),
+			Priority:                string(event.Priority),
+			LoopType:                string(event.LoopType),
+			ScopeType:               string(event.ScopeType),
+			ScopeJsonb:              event.ScopeJSON,
+			ModeParamsJsonb:         event.ModeParamsJSON,
+			RestoreBatchSize:        event.RestoreBatchSize,
+			RestoreBatchIntervalSec: event.RestoreBatchIntervalSec,
+			MinCurtailedDurationSec: event.MinCurtailedDurationSec,
+			MaxDurationSeconds:      ptrToNullInt32(event.MaxDurationSeconds),
+			AllowUnbounded:          event.AllowUnbounded,
+			IncludeMaintenance:      event.IncludeMaintenance,
+			ForceIncludeMaintenance: event.ForceIncludeMaintenance,
+			DecisionSnapshotJsonb:   event.DecisionSnapshotJSON,
+			SourceActorType:         string(event.SourceActorType),
+			SourceActorID:           ptrToNullString(event.SourceActorID),
+			ExternalSource:          ptrToNullString(event.ExternalSource),
+			ExternalReference:       ptrToNullString(event.ExternalReference),
+			IdempotencyKey:          ptrToNullString(event.IdempotencyKey),
+			Reason:                  event.Reason,
+			ScheduledStartAt:        ptrToNullTime(event.ScheduledStartAt),
+			CreatedByUserID:         event.CreatedByUserID,
+		})
+		if err != nil {
+			return nil, fleeterror.NewInternalErrorf("failed to insert curtailment event: %v", err)
+		}
+		for _, t := range targets {
+			err := q.InsertCurtailmentTarget(ctx, sqlc.InsertCurtailmentTargetParams{
+				CurtailmentEventID:     row.ID,
+				DeviceIdentifier:       t.DeviceIdentifier,
+				TargetType:             t.TargetType,
+				State:                  string(t.State),
+				DesiredState:           t.DesiredState,
+				BaselinePowerW:         ptrFloat64ToNullString(t.BaselinePowerW),
+				SelectorRationaleJsonb: rawMessageOrNullable(t.SelectorRationaleJSON),
+			})
+			if err != nil {
+				return nil, fleeterror.NewInternalErrorf(
+					"failed to insert curtailment target %s: %v", t.DeviceIdentifier, err,
+				)
+			}
+		}
+		return &models.InsertEventResult{
+			ID:        row.ID,
+			EventUUID: row.EventUuid,
+			CreatedAt: row.CreatedAt,
+			UpdatedAt: row.UpdatedAt,
+		}, nil
+	})
 }
 
 func (s *SQLCurtailmentStore) GetEventByUUID(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error) {
@@ -151,22 +176,6 @@ func (s *SQLCurtailmentStore) GetEventByUUID(ctx context.Context, orgID int64, e
 		return nil, fleeterror.NewInternalErrorf("failed to get curtailment event: %v", err)
 	}
 	return convertEventRow(row), nil
-}
-
-func (s *SQLCurtailmentStore) InsertTarget(ctx context.Context, params models.InsertTargetParams) error {
-	err := s.GetQueries(ctx).InsertCurtailmentTarget(ctx, sqlc.InsertCurtailmentTargetParams{
-		CurtailmentEventID:     params.CurtailmentEventID,
-		DeviceIdentifier:       params.DeviceIdentifier,
-		TargetType:             params.TargetType,
-		State:                  string(params.State),
-		DesiredState:           params.DesiredState,
-		BaselinePowerW:         ptrFloat64ToNullString(params.BaselinePowerW),
-		SelectorRationaleJsonb: rawMessageOrNullable(params.SelectorRationaleJSON),
-	})
-	if err != nil {
-		return fleeterror.NewInternalErrorf("failed to insert curtailment target: %v", err)
-	}
-	return nil
 }
 
 func (s *SQLCurtailmentStore) ListTargetsByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) ([]*models.Target, error) {
@@ -209,6 +218,60 @@ func (s *SQLCurtailmentStore) ListCandidates(ctx context.Context, orgID int64, d
 	return out, nil
 }
 
+func (s *SQLCurtailmentStore) ListNonTerminalEvents(ctx context.Context) ([]*models.Event, error) {
+	rows, err := s.GetQueries(ctx).ListNonTerminalCurtailmentEvents(ctx)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to list non-terminal curtailment events: %v", err)
+	}
+	out := make([]*models.Event, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, convertEventRow(row))
+	}
+	return out, nil
+}
+
+func (s *SQLCurtailmentStore) UpdateEventState(ctx context.Context, eventID int64, state models.EventState, startedAt *time.Time, endedAt *time.Time) error {
+	if err := s.GetQueries(ctx).UpdateCurtailmentEventState(ctx, sqlc.UpdateCurtailmentEventStateParams{
+		ID:        eventID,
+		State:     string(state),
+		StartedAt: ptrToNullTime(startedAt),
+		EndedAt:   ptrToNullTime(endedAt),
+	}); err != nil {
+		return fleeterror.NewInternalErrorf("failed to update curtailment event %d state: %v", eventID, err)
+	}
+	return nil
+}
+
+func (s *SQLCurtailmentStore) UpdateTargetState(ctx context.Context, eventID int64, deviceIdentifier string, params interfaces.UpdateCurtailmentTargetStateParams) error {
+	if err := s.GetQueries(ctx).UpdateCurtailmentTargetState(ctx, sqlc.UpdateCurtailmentTargetStateParams{
+		CurtailmentEventID: eventID,
+		DeviceIdentifier:   deviceIdentifier,
+		State:              string(params.State),
+		LastDispatchedAt:   ptrToNullTime(params.LastDispatchedAt),
+		LastBatchUuid:      ptrToNullString(params.LastBatchUUID),
+		ObservedPowerW:     ptrFloat64ToNullString(params.ObservedPowerW),
+		ObservedAt:         ptrToNullTime(params.ObservedAt),
+		ConfirmedAt:        ptrToNullTime(params.ConfirmedAt),
+		RetryCount:         ptrToNullInt32(params.RetryCount),
+		LastError:          ptrToNullString(params.LastError),
+	}); err != nil {
+		return fleeterror.NewInternalErrorf("failed to update curtailment target (%d, %s) state: %v", eventID, deviceIdentifier, err)
+	}
+	return nil
+}
+
+func (s *SQLCurtailmentStore) UpsertHeartbeat(ctx context.Context, params interfaces.UpsertCurtailmentHeartbeatParams) error {
+	if err := s.GetQueries(ctx).UpsertCurtailmentReconcilerHeartbeat(ctx, sqlc.UpsertCurtailmentReconcilerHeartbeatParams{
+		LastTickAt:         params.LastTickAt,
+		LastTickUuid:       params.LastTickUUID,
+		LastTickDurationMs: ptrToNullInt32(params.LastTickDurationMS),
+		ActiveEventCount:   params.ActiveEventCount,
+	}); err != nil {
+		return fleeterror.NewInternalErrorf("failed to upsert curtailment heartbeat: %v", err)
+	}
+	return nil
+}
+
 func (s *SQLCurtailmentStore) GetHeartbeat(ctx context.Context) (*models.Heartbeat, error) {
 	row, err := s.GetQueries(ctx).GetCurtailmentReconcilerHeartbeat(ctx)
 	if err != nil {
@@ -226,9 +289,8 @@ func (s *SQLCurtailmentStore) GetHeartbeat(ctx context.Context) (*models.Heartbe
 	}, nil
 }
 
-// convertEventRow maps a sqlc-generated event row to the domain Event type so
-// the rest of the curtailment domain (selector, modes, handler) does not
-// import sqlc-generated code.
+// convertEventRow maps a sqlc row to the domain Event so callers outside
+// the store don't import sqlc-generated code.
 func convertEventRow(row sqlc.CurtailmentEvent) *models.Event {
 	return &models.Event{
 		ID:                      row.ID,
@@ -262,14 +324,14 @@ func convertEventRow(row sqlc.CurtailmentEvent) *models.Event {
 		ScheduledStartAt:        nullTimeToPtr(row.ScheduledStartAt),
 		StartedAt:               nullTimeToPtr(row.StartedAt),
 		EndedAt:                 nullTimeToPtr(row.EndedAt),
+		CreatedByUserID:         row.CreatedByUserID,
 		CreatedAt:               row.CreatedAt,
 		UpdatedAt:               row.UpdatedAt,
 	}
 }
 
-// convertTargetRow maps a sqlc-generated target row (which uses sql.NullString
-// for the NUMERIC baseline_power_w / observed_power_w columns) to the domain
-// Target type with explicit *float64.
+// convertTargetRow maps a sqlc target row (sql.NullString for NUMERIC
+// baseline_power_w / observed_power_w) to the domain Target with *float64.
 func convertTargetRow(row sqlc.CurtailmentTarget) *models.Target {
 	return &models.Target{
 		CurtailmentEventID:    row.CurtailmentEventID,

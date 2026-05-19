@@ -66,16 +66,10 @@ type EnsureCurtailmentOrgConfigRow struct {
 	UpdatedAt             time.Time
 }
 
-// Idempotent read-only backfill: INSERT ... DO NOTHING keeps existing rows
-// untouched (preserves `updated_at` as a real config-change signal); the
-// fallback SELECT returns the row already on disk. Single round trip.
-//
-// Soft-deleted orgs (organization.deleted_at IS NOT NULL) MUST NOT receive
-// a fresh config row from the lazy backfill — the migration seed at deploy
-// time also excludes them, so the lazy path matches that intent. Both the
-// INSERT and the fallback SELECT join `active` (gated on deleted_at IS NULL),
-// so a deleted org returns zero rows and the caller maps sql.ErrNoRows to
-// NotFound (see mapOrgConfigError in sqlstores/curtailment.go).
+// Idempotent backfill: INSERT ... DO NOTHING preserves updated_at as a
+// config-change signal; fallback SELECT returns the existing row. Both
+// branches join `active` (organization.deleted_at IS NULL) so soft-deleted
+// orgs return zero rows; caller maps to NotFound.
 func (q *Queries) EnsureCurtailmentOrgConfig(ctx context.Context, orgID int64) (EnsureCurtailmentOrgConfigRow, error) {
 	row := q.queryRow(ctx, q.ensureCurtailmentOrgConfigStmt, ensureCurtailmentOrgConfig, orgID)
 	var i EnsureCurtailmentOrgConfigRow
@@ -91,7 +85,7 @@ func (q *Queries) EnsureCurtailmentOrgConfig(ctx context.Context, orgID int64) (
 }
 
 const getCurtailmentEventByUUID = `-- name: GetCurtailmentEventByUUID :one
-SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at
+SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id
 FROM curtailment_event
 WHERE event_uuid = $1
     AND org_id = $2
@@ -102,9 +96,7 @@ type GetCurtailmentEventByUUIDParams struct {
 	OrgID     int64
 }
 
-// Org-scoped read; callers MUST pass the caller's org_id to prevent cross-tenant
-// snapshot exposure. Used by store tests to verify migration constraints
-// round-trip correctly.
+// Org-scoped: callers MUST pass org_id to prevent cross-tenant exposure.
 func (q *Queries) GetCurtailmentEventByUUID(ctx context.Context, arg GetCurtailmentEventByUUIDParams) (CurtailmentEvent, error) {
 	row := q.queryRow(ctx, q.getCurtailmentEventByUUIDStmt, getCurtailmentEventByUUID, arg.EventUuid, arg.OrgID)
 	var i CurtailmentEvent
@@ -142,6 +134,7 @@ func (q *Queries) GetCurtailmentEventByUUID(ctx context.Context, arg GetCurtailm
 		&i.EndedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CreatedByUserID,
 	)
 	return i, err
 }
@@ -221,7 +214,8 @@ INSERT INTO curtailment_event (
     external_reference,
     idempotency_key,
     reason,
-    scheduled_start_at
+    scheduled_start_at,
+    created_by_user_id
 ) VALUES (
     $1,
     $2,
@@ -248,7 +242,8 @@ INSERT INTO curtailment_event (
     $23,
     $24,
     $25,
-    $26
+    $26,
+    $27
 )
 RETURNING id, event_uuid, created_at, updated_at
 `
@@ -280,6 +275,7 @@ type InsertCurtailmentEventParams struct {
 	IdempotencyKey          sql.NullString
 	Reason                  string
 	ScheduledStartAt        sql.NullTime
+	CreatedByUserID         int64
 }
 
 type InsertCurtailmentEventRow struct {
@@ -319,6 +315,7 @@ func (q *Queries) InsertCurtailmentEvent(ctx context.Context, arg InsertCurtailm
 		arg.IdempotencyKey,
 		arg.Reason,
 		arg.ScheduledStartAt,
+		arg.CreatedByUserID,
 	)
 	var i InsertCurtailmentEventRow
 	err := row.Scan(
@@ -430,8 +427,7 @@ latest_hourly AS (
     INNER JOIN device d3 ON device_metrics_hourly.device_identifier = d3.device_identifier
         AND d3.deleted_at IS NULL
         AND d3.org_id = $1
-    -- 24h window covers TimescaleDB end-offset + operator-timezone gaps
-    -- without scanning multi-day retention.
+    -- 24h window covers TimescaleDB end-offset + operator-timezone gaps.
     WHERE device_metrics_hourly.bucket > NOW() - INTERVAL '24 hours'
     ORDER BY device_metrics_hourly.device_identifier, bucket DESC
 )
@@ -439,9 +435,9 @@ SELECT
     d.device_identifier,
     dd.driver_name,
     COALESCE(dd.model, '') AS model,
-    -- COALESCE required because sqlc generates a non-nullable string;
-    -- empty-string is the "unknown status" sentinel the service treats
-    -- as stale. NULL pairing_status normalizes to UNPAIRED below.
+    -- COALESCE: sqlc generates non-nullable string; empty-string is the
+    -- "unknown status" sentinel the service treats as stale. NULL
+    -- pairing_status normalizes to UNPAIRED below.
     COALESCE(ds.status::text, ''::text)::text AS device_status,
     CASE WHEN dp.id IS NOT NULL THEN dp.pairing_status::text ELSE 'UNPAIRED' END AS pairing_status,
     lm.time            AS latest_metrics_at,
@@ -481,12 +477,12 @@ type ListCurtailmentCandidatesByOrgRow struct {
 }
 
 // Per-device state for the selector. Returns every in-scope device
-// (unpaired / stale / unstatused included); the service layer applies
-// skip-reason attribution. LEFT JOIN telemetry: nil power/hash = stale
-// (15-min window). device_identifiers: nil for whole-org, non-empty
-// after org-ownership validation for device-list scope.
-// Stable order so the selector's stable sort produces the same plan
-// across calls when avg_efficiency ties or is NULL.
+// (unpaired/stale/unstatused included); service applies skip-reason
+// attribution. LEFT JOIN telemetry: nil power/hash means stale (15-min
+// window). device_identifiers: nil = whole-org; non-empty for device-list
+// scope (post org-ownership check).
+// Stable order: makes the selector's stable sort deterministic when
+// avg_efficiency ties or is NULL.
 func (q *Queries) ListCurtailmentCandidatesByOrg(ctx context.Context, arg ListCurtailmentCandidatesByOrgParams) ([]ListCurtailmentCandidatesByOrgRow, error) {
 	rows, err := q.query(ctx, q.listCurtailmentCandidatesByOrgStmt, listCurtailmentCandidatesByOrg, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
 	if err != nil {
@@ -575,6 +571,73 @@ func (q *Queries) ListCurtailmentTargetsByEvent(ctx context.Context, arg ListCur
 	return items, nil
 }
 
+const listNonTerminalCurtailmentEvents = `-- name: ListNonTerminalCurtailmentEvents :many
+SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id
+FROM curtailment_event
+WHERE state IN ('pending', 'active', 'restoring')
+ORDER BY id
+`
+
+// System-scope (no org filter); reconciler is a singleton driving all orgs.
+// Order by id keeps per-tick processing deterministic.
+func (q *Queries) ListNonTerminalCurtailmentEvents(ctx context.Context) ([]CurtailmentEvent, error) {
+	rows, err := q.query(ctx, q.listNonTerminalCurtailmentEventsStmt, listNonTerminalCurtailmentEvents)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CurtailmentEvent
+	for rows.Next() {
+		var i CurtailmentEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.EventUuid,
+			&i.OrgID,
+			&i.State,
+			&i.Mode,
+			&i.Strategy,
+			&i.Level,
+			&i.Priority,
+			&i.LoopType,
+			&i.ScopeType,
+			&i.ScopeJsonb,
+			&i.ModeParamsJsonb,
+			&i.RestoreBatchSize,
+			&i.RestoreBatchIntervalSec,
+			&i.EffectiveBatchSize,
+			&i.MinCurtailedDurationSec,
+			&i.MaxDurationSeconds,
+			&i.AllowUnbounded,
+			&i.IncludeMaintenance,
+			&i.ForceIncludeMaintenance,
+			&i.DecisionSnapshotJsonb,
+			&i.SourceActorType,
+			&i.SourceActorID,
+			&i.ExternalSource,
+			&i.ExternalReference,
+			&i.IdempotencyKey,
+			&i.SupersedesEventID,
+			&i.Reason,
+			&i.ScheduledStartAt,
+			&i.StartedAt,
+			&i.EndedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CreatedByUserID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRecentlyResolvedCurtailedDevicesByOrg = `-- name: ListRecentlyResolvedCurtailedDevicesByOrg :many
 SELECT DISTINCT ct.device_identifier
 FROM curtailment_target ct
@@ -613,4 +676,106 @@ func (q *Queries) ListRecentlyResolvedCurtailedDevicesByOrg(ctx context.Context,
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateCurtailmentEventState = `-- name: UpdateCurtailmentEventState :exec
+UPDATE curtailment_event
+SET state      = $1,
+    started_at = COALESCE($2, started_at),
+    ended_at   = COALESCE($3,   ended_at)
+WHERE id = $4
+`
+
+type UpdateCurtailmentEventStateParams struct {
+	State     string
+	StartedAt sql.NullTime
+	EndedAt   sql.NullTime
+	ID        int64
+}
+
+// COALESCE: nil narg leaves started_at/ended_at unchanged. Timestamps are
+// write-once, so the OR-NULL pattern is fine.
+func (q *Queries) UpdateCurtailmentEventState(ctx context.Context, arg UpdateCurtailmentEventStateParams) error {
+	_, err := q.exec(ctx, q.updateCurtailmentEventStateStmt, updateCurtailmentEventState,
+		arg.State,
+		arg.StartedAt,
+		arg.EndedAt,
+		arg.ID,
+	)
+	return err
+}
+
+const updateCurtailmentTargetState = `-- name: UpdateCurtailmentTargetState :exec
+UPDATE curtailment_target
+SET state              = $1,
+    last_dispatched_at = COALESCE($2, last_dispatched_at),
+    last_batch_uuid    = COALESCE($3,    last_batch_uuid),
+    observed_power_w   = COALESCE($4,   observed_power_w),
+    observed_at        = COALESCE($5,        observed_at),
+    confirmed_at       = COALESCE($6,       confirmed_at),
+    retry_count        = COALESCE($7,        retry_count),
+    last_error         = COALESCE($8,         last_error)
+WHERE curtailment_event_id = $9
+  AND device_identifier    = $10
+`
+
+type UpdateCurtailmentTargetStateParams struct {
+	State              string
+	LastDispatchedAt   sql.NullTime
+	LastBatchUuid      sql.NullString
+	ObservedPowerW     sql.NullString
+	ObservedAt         sql.NullTime
+	ConfirmedAt        sql.NullTime
+	RetryCount         sql.NullInt32
+	LastError          sql.NullString
+	CurtailmentEventID int64
+	DeviceIdentifier   string
+}
+
+// Reconciler patch: COALESCE preserves un-supplied columns so partial
+// updates don't clobber values from earlier ticks. retry_count is
+// read-then-written inside the tick.
+func (q *Queries) UpdateCurtailmentTargetState(ctx context.Context, arg UpdateCurtailmentTargetStateParams) error {
+	_, err := q.exec(ctx, q.updateCurtailmentTargetStateStmt, updateCurtailmentTargetState,
+		arg.State,
+		arg.LastDispatchedAt,
+		arg.LastBatchUuid,
+		arg.ObservedPowerW,
+		arg.ObservedAt,
+		arg.ConfirmedAt,
+		arg.RetryCount,
+		arg.LastError,
+		arg.CurtailmentEventID,
+		arg.DeviceIdentifier,
+	)
+	return err
+}
+
+const upsertCurtailmentReconcilerHeartbeat = `-- name: UpsertCurtailmentReconcilerHeartbeat :exec
+INSERT INTO curtailment_reconciler_heartbeat (id, last_tick_at, last_tick_uuid, last_tick_duration_ms, active_event_count)
+VALUES (1, $1, $2, $3, $4)
+ON CONFLICT (id) DO UPDATE
+SET last_tick_at          = EXCLUDED.last_tick_at,
+    last_tick_uuid        = EXCLUDED.last_tick_uuid,
+    last_tick_duration_ms = EXCLUDED.last_tick_duration_ms,
+    active_event_count    = EXCLUDED.active_event_count
+`
+
+type UpsertCurtailmentReconcilerHeartbeatParams struct {
+	LastTickAt         time.Time
+	LastTickUuid       uuid.UUID
+	LastTickDurationMs sql.NullInt32
+	ActiveEventCount   int32
+}
+
+// Singleton row at id=1 (CHECK + PK enforce it). INSERT path only fires if
+// the seeded row is manually deleted.
+func (q *Queries) UpsertCurtailmentReconcilerHeartbeat(ctx context.Context, arg UpsertCurtailmentReconcilerHeartbeatParams) error {
+	_, err := q.exec(ctx, q.upsertCurtailmentReconcilerHeartbeatStmt, upsertCurtailmentReconcilerHeartbeat,
+		arg.LastTickAt,
+		arg.LastTickUuid,
+		arg.LastTickDurationMs,
+		arg.ActiveEventCount,
+	)
+	return err
 }

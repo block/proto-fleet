@@ -138,6 +138,22 @@ func (mr *MockDeviceStoreMockRecorder) GetDeviceIdentifiersByOrgWithFilter(ctx, 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceIdentifiersByOrgWithFilter", reflect.TypeOf((*MockDeviceStore)(nil).GetDeviceIdentifiersByOrgWithFilter), ctx, orgID, filter)
 }
 
+// GetDeviceOrgAndDriver mocks base method.
+func (m *MockDeviceStore) GetDeviceOrgAndDriver(ctx context.Context, deviceIdentifier models1.DeviceIdentifier) (int64, string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDeviceOrgAndDriver", ctx, deviceIdentifier)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(string)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// GetDeviceOrgAndDriver indicates an expected call of GetDeviceOrgAndDriver.
+func (mr *MockDeviceStoreMockRecorder) GetDeviceOrgAndDriver(ctx, deviceIdentifier any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceOrgAndDriver", reflect.TypeOf((*MockDeviceStore)(nil).GetDeviceOrgAndDriver), ctx, deviceIdentifier)
+}
+
 // GetDevicePropertiesForRename mocks base method.
 func (m *MockDeviceStore) GetDevicePropertiesForRename(ctx context.Context, orgID int64, deviceIdentifiers []string, includeTelemetry bool) ([]interfaces.DeviceRenameProperties, error) {
 	m.ctrl.T.Helper()

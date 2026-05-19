@@ -43,6 +43,28 @@ type CreateRackExtensionParams struct {
 	BuildingID   *int64
 }
 
+// ZoneRefRow is the domain shape returned by ListRackZoneRefs. Maps to
+// common.v1.ZoneRef on the wire. BuildingID == 0 indicates a rack with
+// NULL building_id (legacy / Phase 1 uncategorized).
+type ZoneRefRow struct {
+	BuildingID    int64
+	BuildingLabel string
+	SiteID        int64
+	SiteLabel     string
+	Zone          string
+}
+
+// DeviceSetFilter is the rack-list / collection-list filter input.
+// Mirrors the MinerFilter shape but joined directly on
+// device_set_rack — no device membership traversal needed since the
+// list query already returns one row per rack.
+type DeviceSetFilter struct {
+	ErrorComponentTypes []int32   // OR across types; surfaces racks with any device having an open error of those types
+	BuildingIDs         []int64   // OR across buildings. Only valid for RACK collections; ignored for GROUP.
+	IncludeNoBuilding   bool      // Include racks where dsr.building_id IS NULL. OR'd with BuildingIDs.
+	ZoneKeys            []ZoneKey // (building_id, zone) pairs. BuildingID == 0 is the wildcard sentinel.
+}
+
 // CollectionStore provides database operations for device collections (groups and racks).
 //
 //nolint:interfacebloat // complete CRUD for collections with membership management
@@ -112,8 +134,10 @@ type CollectionStore interface {
 	// ListCollections returns paginated collections for an organization.
 	// If collectionType is UNSPECIFIED, returns all types.
 	// Sort controls ordering; nil defaults to name ascending.
+	// filter may be nil; ZoneKeys / BuildingIDs / IncludeNoBuilding are
+	// applied only when collectionType is RACK.
 	// Returns the collections, a next page token (empty if no more results), and the total count.
-	ListCollections(ctx context.Context, orgID int64, collectionType pb.CollectionType, pageSize int32, pageToken string, sort *SortConfig, errorComponentTypes []int32, zones []string) ([]*pb.DeviceCollection, string, int32, error)
+	ListCollections(ctx context.Context, orgID int64, collectionType pb.CollectionType, pageSize int32, pageToken string, sort *SortConfig, filter *DeviceSetFilter) ([]*pb.DeviceCollection, string, int32, error)
 
 	// CollectionBelongsToOrg checks if a collection exists and belongs to the organization.
 	CollectionBelongsToOrg(ctx context.Context, collectionID int64, orgID int64) (bool, error)
@@ -167,7 +191,17 @@ type CollectionStore interface {
 	GetRackSlotStatuses(ctx context.Context, orgID int64, collectionIDs []int64) (map[int64][]*pb.RackSlotStatus, error)
 
 	// ListRackZones returns all distinct non-empty rack zones for an organization.
+	//
+	// Deprecated: returns org-wide flat zone strings that collapse zones with
+	// the same label across buildings. New callers should use
+	// ListRackZoneRefs which returns (building_id, zone) tuples with
+	// denormalized building + site labels.
 	ListRackZones(ctx context.Context, orgID int64) ([]string, error)
+
+	// ListRackZoneRefs returns all distinct (building_id, zone) pairs across
+	// the org's racks, with denormalized building and site labels for cheap
+	// dropdown rendering. Sorted by site_label, then building_label, then zone.
+	ListRackZoneRefs(ctx context.Context, orgID int64) ([]ZoneRefRow, error)
 
 	// ListRackTypes returns all distinct rack types (row/column combinations) for an organization.
 	ListRackTypes(ctx context.Context, orgID int64) ([]*pb.RackType, error)

@@ -1,5 +1,5 @@
 groups:
-  - name: protofleet-self
+  - name: proto-fleet-self
     interval: 30s
     rules:
       - alert: OTelCollectorDown
@@ -7,11 +7,11 @@ groups:
         # series is emitted by victoria-metrics itself for every OTLP source
         # it has seen recently; absent_over_time fires when the collector
         # has stopped writing for 5 minutes.
-        expr: absent_over_time(vm_app_uptime_seconds{job="protofleet-fleet-api"}[5m]) == 1
+        expr: absent_over_time(vm_app_uptime_seconds{job="proto-fleet-api"}[5m]) == 1
         for: 5m
         labels:
           severity: critical
-          rule_group: protofleet-self
+          rule_group: proto-fleet-self
           component: otel-collector
         annotations:
           summary: "OpenTelemetry Collector has stopped ingesting from fleet-api"
@@ -19,7 +19,7 @@ groups:
             No metric samples have arrived from the fleet-api OTLP source for
             5 minutes. Either the collector is down or the connection from
             fleet-api to the collector is broken. The fleet may still be
-            healthy, but ProtoFleet cannot tell — alerts will not fire.
+            healthy, but Proto Fleet cannot tell — alerts will not fire.
 
       - alert: VMAlertEvaluationStalled
         # vmalert reports its own last-evaluation timestamp. If it stops
@@ -28,7 +28,7 @@ groups:
         for: 5m
         labels:
           severity: critical
-          rule_group: protofleet-self
+          rule_group: proto-fleet-self
           component: vmalert
         annotations:
           summary: "vmalert rule evaluation has stalled"
@@ -43,7 +43,7 @@ groups:
         for: 5m
         labels:
           severity: critical
-          rule_group: protofleet-self
+          rule_group: proto-fleet-self
           component: alertmanager
         annotations:
           summary: "vmalert cannot deliver alerts to Alertmanager"
@@ -56,7 +56,7 @@ groups:
         # so an operator can wire a single high-priority channel (PagerDuty
         # etc.) just to this alert and catch any monitoring outage.
         expr: |
-          (absent_over_time(vm_app_uptime_seconds{job="protofleet-fleet-api"}[5m]) == 1)
+          (absent_over_time(vm_app_uptime_seconds{job="proto-fleet-api"}[5m]) == 1)
           or
           ((time() - max(vmalert_alerting_rules_last_evaluation_timestamp_seconds)) > 120)
           or
@@ -64,10 +64,10 @@ groups:
         for: 5m
         labels:
           severity: critical
-          rule_group: protofleet-self
+          rule_group: proto-fleet-self
           component: monitoring-stack
         annotations:
-          summary: "ProtoFleet monitoring stack is degraded"
+          summary: "Proto Fleet monitoring stack is degraded"
           description: |
             One or more components of the monitoring pipeline (otel-collector,
             vmalert, alertmanager) are unhealthy. The fleet may appear quiet

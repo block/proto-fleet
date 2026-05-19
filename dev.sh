@@ -17,8 +17,16 @@ echo "Starting ProtoFleet client..."
 ) & CLIENT_PID=$!
 echo "Client PID: $CLIENT_PID"
 
+function start_server() {
+  if [[ "${ENABLE_BETA_NOTIFICATIONS:-}" = "true" ]]; then
+    just dev-notifs
+  else
+    just dev
+  fi
+}
+
 echo "Starting server..."
-(cd server && just dev) & SERVER_PID=$!
+(cd server && start_server) & SERVER_PID=$!
 echo "Server PID: $SERVER_PID"
 
 echo "Both processes started. Press Ctrl+C to stop both processes"

@@ -9,6 +9,8 @@ import (
 	"context"
 	"database/sql"
 	"time"
+
+	"github.com/lib/pq"
 )
 
 const assignBuildingToSite = `-- name: AssignBuildingToSite :execrows
@@ -57,6 +59,45 @@ func (q *Queries) BuildingBelongsToOrg(ctx context.Context, arg BuildingBelongsT
 	var belongs bool
 	err := row.Scan(&belongs)
 	return belongs, err
+}
+
+const buildingsByIDs = `-- name: BuildingsByIDs :many
+SELECT id
+FROM building
+WHERE org_id = $1
+  AND deleted_at IS NULL
+  AND id = ANY($2::bigint[])
+`
+
+type BuildingsByIDsParams struct {
+	OrgID int64
+	Ids   []int64
+}
+
+// Returns the subset of requested IDs that correspond to live
+// buildings in the org. Caller diffs against the requested set
+// to detect cross-org or missing IDs.
+func (q *Queries) BuildingsByIDs(ctx context.Context, arg BuildingsByIDsParams) ([]int64, error) {
+	rows, err := q.query(ctx, q.buildingsByIDsStmt, buildingsByIDs, arg.OrgID, pq.Array(arg.Ids))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const createBuilding = `-- name: CreateBuilding :one

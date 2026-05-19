@@ -2,7 +2,7 @@ services:
   fleet-api:
     environment:
       FLEET_TELEMETRY_ENABLED: "${FLEET_TELEMETRY_ENABLED:-true}"
-      FLEET_NOTIFICATIONS_ENABLED: "${FLEET_NOTIFICATIONS_ENABLED:-true}"
+      FLEET_METRICS_ENABLED: "${FLEET_METRICS_ENABLED:-true}"
     depends_on:
       otel-collector:
         # service_started, not service_healthy: the contrib image is
@@ -20,8 +20,8 @@ services:
       - "vmalert:127.0.0.1"
       - "alertmanager:127.0.0.1"
     volumes:
-      - ./server/monitoring/vmalert:/etc/protofleet/monitoring/vmalert:rw
-      - ./server/monitoring/alertmanager:/etc/protofleet/monitoring/alertmanager:rw
+      - ./server/monitoring/vmalert:/etc/proto-fleet/monitoring/vmalert:rw
+      - ./server/monitoring/alertmanager:/etc/proto-fleet/monitoring/alertmanager:rw
 
   otel-collector:
     extends:

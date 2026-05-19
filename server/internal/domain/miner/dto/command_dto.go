@@ -33,3 +33,8 @@ type UpdateMinerPasswordPayload struct {
 	NewPassword     string `json:"new_password"`
 	CurrentPassword string `json:"current_password"`
 }
+
+// CurtailPayload carries the curtailment level for a Curtail dispatch.
+type CurtailPayload struct {
+	Level int32 `json:"level"`
+}

@@ -113,6 +113,7 @@ type Service struct {
 	poolStore             interfaces.PoolStore
 	errorStore            interfaces.ErrorStore
 	collectionStore       interfaces.CollectionStore
+	buildingStore         interfaces.BuildingStore
 	workerNamePoolService WorkerNamePoolReapplyService
 	deviceResolver        *deviceresolver.Resolver
 	activitySvc           *activity.Service
@@ -142,6 +143,7 @@ func NewService(
 	poolStore interfaces.PoolStore,
 	errorStore interfaces.ErrorStore,
 	collectionStore interfaces.CollectionStore,
+	buildingStore interfaces.BuildingStore,
 	workerNamePoolService WorkerNamePoolReapplyService,
 	activitySvc *activity.Service,
 ) *Service {
@@ -154,6 +156,7 @@ func NewService(
 		poolStore:             poolStore,
 		errorStore:            errorStore,
 		collectionStore:       collectionStore,
+		buildingStore:         buildingStore,
 		workerNamePoolService: workerNamePoolService,
 		activitySvc:           activitySvc,
 		deviceResolver:        deviceresolver.New(deviceStore),
@@ -272,7 +275,7 @@ func (s *Service) GetMinerModelGroups(ctx context.Context, req *pb.GetMinerModel
 		return nil, err
 	}
 
-	filter, err := parseFilter(req.Filter)
+	filter, err := parseFilter(ctx, info.OrganizationID, req.Filter, s.buildingStore)
 	if err != nil {
 		// parseFilter returns FleetError values (InvalidArgument for oversized
 		// free-form arrays, Internal for unsupported enum values). Pass through
@@ -307,7 +310,7 @@ func (s *Service) buildSnapshot(
 	filterProto *pb.MinerListFilter,
 	sortConfig *interfaces.SortConfig,
 ) (*pb.ListMinerStateSnapshotsResponse, error) {
-	filter, err := parseFilter(filterProto)
+	filter, err := parseFilter(ctx, orgID, filterProto, s.buildingStore)
 	if err != nil {
 		// Pass FleetError through unchanged; see GetMinerModelGroups for rationale.
 		return nil, err
@@ -652,7 +655,12 @@ func shouldIncludeStateCounts(pairingStatuses []pb.PairingStatus) bool {
 	return false
 }
 
-func parseFilter(pbFilter *pb.MinerListFilter) (*interfaces.MinerFilter, error) {
+func parseFilter(
+	ctx context.Context,
+	orgID int64,
+	pbFilter *pb.MinerListFilter,
+	buildingStore interfaces.BuildingStore,
+) (*interfaces.MinerFilter, error) {
 	filter := &interfaces.MinerFilter{
 		PairingStatuses: []pb.PairingStatus{},
 	}
@@ -723,12 +731,93 @@ func parseFilter(pbFilter *pb.MinerListFilter) (*interfaces.MinerFilter, error) 
 		filter.FirmwareVersions = pbFilter.FirmwareVersions
 	}
 
-	if len(pbFilter.Zones) > 0 {
-		if len(pbFilter.Zones) > maxFreeFormFilterValues {
+	// Legacy `zones` field (deprecated, field 10): translate to wildcard
+	// ZoneKeys so older clients keep working. New callers should emit
+	// zone_keys directly with explicit building_id. Validated under the
+	// same cap and non-empty rule as zone_keys.
+	legacyZoneKeys := make([]interfaces.ZoneKey, 0, len(pbFilter.Zones)) //nolint:staticcheck // SA1019 — intentional translation of deprecated field
+	if len(pbFilter.Zones) > 0 {                                         //nolint:staticcheck // SA1019 — see comment above
+		if len(pbFilter.Zones) > maxFreeFormFilterValues { //nolint:staticcheck // SA1019
 			return nil, fleeterror.NewInvalidArgumentErrorf(
 				"zones exceeds maximum of %d values", maxFreeFormFilterValues)
 		}
-		filter.Zones = pbFilter.Zones
+		for i, z := range pbFilter.Zones { //nolint:staticcheck // SA1019
+			if z == "" {
+				return nil, fleeterror.NewInvalidArgumentErrorf(
+					"zones[%d] must be non-empty", i)
+			}
+			legacyZoneKeys = append(legacyZoneKeys, interfaces.ZoneKey{BuildingID: 0, Zone: z})
+		}
+	}
+
+	if len(pbFilter.BuildingIds) > 0 {
+		if len(pbFilter.BuildingIds) > maxFreeFormFilterValues {
+			return nil, fleeterror.NewInvalidArgumentErrorf(
+				"building_ids exceeds maximum of %d values", maxFreeFormFilterValues)
+		}
+		for i, id := range pbFilter.BuildingIds {
+			if id <= 0 {
+				return nil, fleeterror.NewInvalidArgumentErrorf(
+					"building_ids[%d] must be positive", i)
+			}
+		}
+		filter.BuildingIDs = pbFilter.BuildingIds
+	}
+	filter.IncludeNoBuilding = pbFilter.IncludeNoBuilding
+
+	if len(pbFilter.ZoneKeys) > 0 {
+		if len(pbFilter.ZoneKeys) > maxFreeFormFilterValues {
+			return nil, fleeterror.NewInvalidArgumentErrorf(
+				"zone_keys exceeds maximum of %d values", maxFreeFormFilterValues)
+		}
+		filter.ZoneKeys = make([]interfaces.ZoneKey, 0, len(pbFilter.ZoneKeys))
+		for i, zk := range pbFilter.ZoneKeys {
+			if zk == nil {
+				return nil, fleeterror.NewInvalidArgumentErrorf(
+					"zone_keys[%d] is nil", i)
+			}
+			if zk.BuildingId < 0 {
+				return nil, fleeterror.NewInvalidArgumentErrorf(
+					"zone_keys[%d].building_id must be non-negative", i)
+			}
+			if zk.Zone == "" {
+				return nil, fleeterror.NewInvalidArgumentErrorf(
+					"zone_keys[%d].zone must be non-empty", i)
+			}
+			filter.ZoneKeys = append(filter.ZoneKeys, interfaces.ZoneKey{
+				BuildingID: zk.BuildingId,
+				Zone:       zk.Zone,
+			})
+		}
+	}
+	filter.IncludeNoRack = pbFilter.IncludeNoRack
+
+	// Append legacy `zones` translations after zone_keys validation so
+	// older clients sending `zones: ["A"]` get the same wildcard match
+	// they had pre-#229. New callers should emit zone_keys directly.
+	if len(legacyZoneKeys) > 0 {
+		filter.ZoneKeys = append(filter.ZoneKeys, legacyZoneKeys...)
+	}
+
+	// include_no_rack widens results to devices with no rack membership,
+	// but the zone_keys predicate requires a rack membership row — the
+	// combination silently drops every unracked device the caller asked
+	// to include. Reject explicitly so the contradiction surfaces as
+	// InvalidArgument instead of a misleading empty-or-narrowed result.
+	if filter.IncludeNoRack && len(filter.ZoneKeys) > 0 {
+		return nil, fleeterror.NewInvalidArgumentErrorf(
+			"include_no_rack cannot be combined with zone_keys (or legacy zones)")
+	}
+
+	// Cross-org check for explicit building IDs (building_ids + scoped
+	// zone_keys.building_id > 0). Wildcards (building_id == 0) skip the
+	// check — there is no specific building to validate. The SQL
+	// builder's org_id predicate is the single-layer defense for the
+	// wildcard path; see device_filters_orgid_audit_test.go. Shared
+	// helper lives in interfaces/filtervalidation.go so the
+	// fleetmanagement and collection paths can't drift.
+	if err := interfaces.ValidateFilterBuildings(ctx, orgID, filter.BuildingIDs, filter.ZoneKeys, buildingStore); err != nil {
+		return nil, err
 	}
 
 	if len(pbFilter.NumericRanges) > 0 {
@@ -1125,7 +1214,7 @@ func (s *Service) ResolveDeviceIdentifiers(ctx context.Context, selector *pb.Dev
 		return s.deviceResolver.ResolveExplicitDevices(ctx, sel.IncludeDevices, orgID)
 
 	case *pb.DeviceSelector_AllDevices:
-		filter, err := parseFilter(sel.AllDevices)
+		filter, err := parseFilter(ctx, orgID, sel.AllDevices, s.buildingStore)
 		if err != nil {
 			return nil, err
 		}

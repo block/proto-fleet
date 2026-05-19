@@ -47,7 +47,7 @@ func (s *Service) ExportMinerListCsv(ctx context.Context, req *pb.ExportMinerLis
 		return err
 	}
 
-	filter, err := parseFilter(req.Filter)
+	filter, err := parseFilter(ctx, info.OrganizationID, req.Filter, s.buildingStore)
 	if err != nil {
 		// Pass FleetError through unchanged so InvalidArgument doesn't become a 500.
 		return err

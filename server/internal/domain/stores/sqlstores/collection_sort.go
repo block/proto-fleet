@@ -74,14 +74,24 @@ func resolveCollectionSort(sort *stores.SortConfig) (field, dir string) {
 }
 
 // buildCollectionCountQuery returns the SQL and args for counting collections.
-func buildCollectionCountQuery(orgID int64, collectionType pb.CollectionType, errorComponentTypes []int32, zones []string) (string, []any) {
+func buildCollectionCountQuery(orgID int64, collectionType pb.CollectionType, filter *stores.DeviceSetFilter) (string, []any) {
 	var sb strings.Builder
 	args := []any{orgID}
 	argNum := 2
 
-	sb.WriteString("SELECT COUNT(*)::int FROM device_set dc")
+	// Building / zone predicates need the rack-extension join even for the
+	// count query. We join unconditionally for RACK collections so the
+	// predicates below can reference dcr.* without checking which filter
+	// triggered the join.
+	needsRackJoin := false
+	if filter != nil && collectionType == pb.CollectionType_COLLECTION_TYPE_RACK {
+		needsRackJoin = len(filter.BuildingIDs) > 0 ||
+			filter.IncludeNoBuilding ||
+			len(filter.ZoneKeys) > 0
+	}
 
-	if len(zones) > 0 {
+	sb.WriteString("SELECT COUNT(*)::int FROM device_set dc")
+	if needsRackJoin {
 		sb.WriteString(" LEFT JOIN device_set_rack dcr ON dcr.device_set_id = dc.id")
 	}
 
@@ -94,12 +104,14 @@ func buildCollectionCountQuery(orgID int64, collectionType pb.CollectionType, er
 		argNum++
 	}
 
-	if len(zones) > 0 {
-		sb.WriteString(fmt.Sprintf(" AND dcr.zone = ANY($%d::text[])", argNum))
-		args = append(args, pq.Array(zones))
-		argNum++
+	if filter != nil && collectionType == pb.CollectionType_COLLECTION_TYPE_RACK {
+		args, argNum = appendDeviceSetRackFilterSQL(&sb, args, argNum, filter)
 	}
 
+	var errorComponentTypes []int32
+	if filter != nil {
+		errorComponentTypes = filter.ErrorComponentTypes
+	}
 	if len(errorComponentTypes) > 0 {
 		sb.WriteString(fmt.Sprintf(` AND EXISTS (
 			SELECT 1 FROM device_set_membership dcm_err
@@ -120,9 +132,45 @@ func buildCollectionCountQuery(orgID int64, collectionType pb.CollectionType, er
 	return sb.String(), args
 }
 
+// appendDeviceSetRackFilterSQL emits the rack-list-only predicates:
+// building_ids, include_no_building, and zone_keys (scoped + wildcard
+// partition). All predicates reference dcr.* and assume the caller has
+// already joined device_set_rack as dcr. Org isolation is enforced by
+// the outer query's dc.org_id = $1 clause.
+func appendDeviceSetRackFilterSQL(sb *strings.Builder, args []any, argNum int, filter *stores.DeviceSetFilter) ([]any, int) {
+	// Building filters (building_ids OR include_no_building) wrapped in
+	// one OR group so an empty BuildingIDs + true IncludeNoBuilding only
+	// emits one branch.
+	if len(filter.BuildingIDs) > 0 || filter.IncludeNoBuilding {
+		sb.WriteString(" AND (")
+		first := true
+		if len(filter.BuildingIDs) > 0 {
+			sb.WriteString(fmt.Sprintf("dcr.building_id = ANY($%d::bigint[])", argNum))
+			args = append(args, pq.Array(filter.BuildingIDs))
+			argNum++
+			first = false
+		}
+		if filter.IncludeNoBuilding {
+			if !first {
+				sb.WriteString(" OR ")
+			}
+			sb.WriteString("dcr.building_id IS NULL")
+		}
+		sb.WriteString(")")
+	}
+
+	if len(filter.ZoneKeys) > 0 {
+		sb.WriteString(" AND (")
+		args, argNum = appendZoneKeyPredicate(sb, args, argNum, "dcr", filter.ZoneKeys)
+		sb.WriteString(")")
+	}
+
+	return args, argNum
+}
+
 // buildCollectionListQuery generates a dynamic SQL query for listing collections
 // with sort and cursor-based keyset pagination.
-func buildCollectionListQuery(orgID int64, collectionType pb.CollectionType, cursor *collectionCursor, sortField, sortDir string, limit int32, errorComponentTypes []int32, zones []string) (string, []any) {
+func buildCollectionListQuery(orgID int64, collectionType pb.CollectionType, cursor *collectionCursor, sortField, sortDir string, limit int32, filter *stores.DeviceSetFilter) (string, []any) {
 	var sb strings.Builder
 	args := []any{orgID}
 	argNum := 2
@@ -154,11 +202,14 @@ WHERE dc.org_id = $1 AND dc.deleted_at IS NULL`)
 		argNum++
 	}
 
-	// Zone filter
-	if len(zones) > 0 {
-		sb.WriteString(fmt.Sprintf(" AND dcr.zone = ANY($%d::text[])", argNum))
-		args = append(args, pq.Array(zones))
-		argNum++
+	// Building / zone filters apply only to RACK-typed collections.
+	if filter != nil && collectionType == pb.CollectionType_COLLECTION_TYPE_RACK {
+		args, argNum = appendDeviceSetRackFilterSQL(&sb, args, argNum, filter)
+	}
+
+	var errorComponentTypes []int32
+	if filter != nil {
+		errorComponentTypes = filter.ErrorComponentTypes
 	}
 
 	// Error component types filter — matches the device/error criteria used by stats

@@ -6,6 +6,7 @@ import "google/protobuf/timestamp.proto";
 import "buf/validate/validate.proto";
 import "common/v1/device_selector.proto";
 import "common/v1/sort.proto";
+import "common/v1/zone.proto";
 import "errors/v1/errors.proto";
 
 // Service for managing device sets (groups and racks)
@@ -50,8 +51,16 @@ service DeviceSetService {
     // Returns aggregated telemetry stats for a list of device sets
     rpc GetDeviceSetStats(GetDeviceSetStatsRequest) returns (GetDeviceSetStatsResponse);
 
-    // Returns all distinct rack zones for the organization
+    // Returns all distinct rack zone strings for the organization
+    // (org-wide, flat). For building-scoped zones use
+    // ListRackZoneRefs below.
     rpc ListRackZones(ListRackZonesRequest) returns (ListRackZonesResponse);
+
+    // Returns all distinct (building_id, zone) tuples for the
+    // organization with denormalized building + site labels.
+    // Use this to feed a building-aware zone dropdown that
+    // distinguishes "Room 2" in different buildings.
+    rpc ListRackZoneRefs(ListRackZoneRefsRequest) returns (ListRackZoneRefsResponse);
 
     // Returns all distinct rack types (row/column combinations) for the organization
     rpc ListRackTypes(ListRackTypesRequest) returns (ListRackTypesResponse);
@@ -290,9 +299,35 @@ message ListDeviceSetsRequest {
     // matching any of the specified component types are returned.
     repeated errors.v1.ComponentType error_component_types = 5;
 
-    // Filter by rack zones. Only valid when type is RACK.
-    // When non-empty, only racks in any of the specified zones are returned.
-    repeated string zones = 6;
+    // Deprecated: legacy org-wide zone filter. Use zone_keys (field 9)
+    // with explicit building_id for building-scoped matching. The
+    // server translates non-empty `zones` into wildcard ZoneKeys
+    // (building_id = 0) for backward compatibility. Will be removed
+    // with the Phase 2 building-picker UI cutover.
+    repeated string zones = 6 [deprecated = true];
+
+    // Filter racks by building (acts as OR condition across IDs).
+    // Returns racks assigned to ANY of the specified buildings. When
+    // combined with include_no_building, racks with building_id IS
+    // NULL are also included. When combined with other filters, uses
+    // AND logic. Only valid when type is RACK; otherwise returns
+    // INVALID_ARGUMENT.
+    repeated int64 building_ids = 7;
+
+    // When true, racks with building_id IS NULL are included.
+    // Independent of building_ids — set only this to filter the
+    // racked-but-no-building bucket alone; set both to combine
+    // specific buildings with the no-building bucket. Only valid when
+    // type is RACK; otherwise returns INVALID_ARGUMENT.
+    bool include_no_building = 8;
+
+    // Filter by zone keys (acts as OR condition across entries). Each
+    // entry is a (building_id, zone) pair; building_id=0 matches the
+    // zone label across all buildings (wildcard sentinel), otherwise
+    // scopes the match to one building. When combined with other
+    // filters, uses AND logic. Only valid when type is RACK; otherwise
+    // returns INVALID_ARGUMENT.
+    repeated common.v1.ZoneKey zone_keys = 9;
 }
 
 // Response containing device sets
@@ -511,10 +546,26 @@ message RackSlotStatus {
 // Request to list all distinct rack zones for the organization
 message ListRackZonesRequest {}
 
-// Response containing all distinct rack zones
+// Response containing all distinct rack zones in the organization,
+// each tagged with the building and site it belongs to so callers
+// can distinguish zones with the same name in different buildings.
 message ListRackZonesResponse {
-    // Distinct zone strings across all racks, sorted alphabetically
+    // Distinct zone strings across all racks, sorted alphabetically.
+    // Building-scoped variant is exposed via ListRackZoneRefs below.
     repeated string zones = 1;
+}
+
+// Request to list all distinct (building_id, zone) tuples for the org.
+// Pair the response with ListBuildings to build a Site → Building →
+// Zone dropdown.
+message ListRackZoneRefsRequest {}
+
+// Response containing all distinct (building_id, zone) pairs in the
+// org's racks, with denormalized building and site labels for cheap
+// dropdown rendering. Sorted by site_label, then building_label,
+// then zone.
+message ListRackZoneRefsResponse {
+    repeated common.v1.ZoneRef zones = 1;
 }
 
 // Request to list all distinct rack types for the organization

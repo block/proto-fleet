@@ -76,6 +76,9 @@ const (
 	// DeviceSetServiceListRackZonesProcedure is the fully-qualified name of the DeviceSetService's
 	// ListRackZones RPC.
 	DeviceSetServiceListRackZonesProcedure = "/device_set.v1.DeviceSetService/ListRackZones"
+	// DeviceSetServiceListRackZoneRefsProcedure is the fully-qualified name of the DeviceSetService's
+	// ListRackZoneRefs RPC.
+	DeviceSetServiceListRackZoneRefsProcedure = "/device_set.v1.DeviceSetService/ListRackZoneRefs"
 	// DeviceSetServiceListRackTypesProcedure is the fully-qualified name of the DeviceSetService's
 	// ListRackTypes RPC.
 	DeviceSetServiceListRackTypesProcedure = "/device_set.v1.DeviceSetService/ListRackTypes"
@@ -112,8 +115,15 @@ type DeviceSetServiceClient interface {
 	GetRackSlots(context.Context, *connect.Request[v1.GetRackSlotsRequest]) (*connect.Response[v1.GetRackSlotsResponse], error)
 	// Returns aggregated telemetry stats for a list of device sets
 	GetDeviceSetStats(context.Context, *connect.Request[v1.GetDeviceSetStatsRequest]) (*connect.Response[v1.GetDeviceSetStatsResponse], error)
-	// Returns all distinct rack zones for the organization
+	// Returns all distinct rack zone strings for the organization
+	// (org-wide, flat). For building-scoped zones use
+	// ListRackZoneRefs below.
 	ListRackZones(context.Context, *connect.Request[v1.ListRackZonesRequest]) (*connect.Response[v1.ListRackZonesResponse], error)
+	// Returns all distinct (building_id, zone) tuples for the
+	// organization with denormalized building + site labels.
+	// Use this to feed a building-aware zone dropdown that
+	// distinguishes "Room 2" in different buildings.
+	ListRackZoneRefs(context.Context, *connect.Request[v1.ListRackZoneRefsRequest]) (*connect.Response[v1.ListRackZoneRefsResponse], error)
 	// Returns all distinct rack types (row/column combinations) for the organization
 	ListRackTypes(context.Context, *connect.Request[v1.ListRackTypesRequest]) (*connect.Response[v1.ListRackTypesResponse], error)
 	// Atomically creates or updates a rack with its membership and slot assignments.
@@ -201,6 +211,11 @@ func NewDeviceSetServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			baseURL+DeviceSetServiceListRackZonesProcedure,
 			opts...,
 		),
+		listRackZoneRefs: connect.NewClient[v1.ListRackZoneRefsRequest, v1.ListRackZoneRefsResponse](
+			httpClient,
+			baseURL+DeviceSetServiceListRackZoneRefsProcedure,
+			opts...,
+		),
 		listRackTypes: connect.NewClient[v1.ListRackTypesRequest, v1.ListRackTypesResponse](
 			httpClient,
 			baseURL+DeviceSetServiceListRackTypesProcedure,
@@ -230,6 +245,7 @@ type deviceSetServiceClient struct {
 	getRackSlots               *connect.Client[v1.GetRackSlotsRequest, v1.GetRackSlotsResponse]
 	getDeviceSetStats          *connect.Client[v1.GetDeviceSetStatsRequest, v1.GetDeviceSetStatsResponse]
 	listRackZones              *connect.Client[v1.ListRackZonesRequest, v1.ListRackZonesResponse]
+	listRackZoneRefs           *connect.Client[v1.ListRackZoneRefsRequest, v1.ListRackZoneRefsResponse]
 	listRackTypes              *connect.Client[v1.ListRackTypesRequest, v1.ListRackTypesResponse]
 	saveRack                   *connect.Client[v1.SaveRackRequest, v1.SaveRackResponse]
 }
@@ -304,6 +320,11 @@ func (c *deviceSetServiceClient) ListRackZones(ctx context.Context, req *connect
 	return c.listRackZones.CallUnary(ctx, req)
 }
 
+// ListRackZoneRefs calls device_set.v1.DeviceSetService.ListRackZoneRefs.
+func (c *deviceSetServiceClient) ListRackZoneRefs(ctx context.Context, req *connect.Request[v1.ListRackZoneRefsRequest]) (*connect.Response[v1.ListRackZoneRefsResponse], error) {
+	return c.listRackZoneRefs.CallUnary(ctx, req)
+}
+
 // ListRackTypes calls device_set.v1.DeviceSetService.ListRackTypes.
 func (c *deviceSetServiceClient) ListRackTypes(ctx context.Context, req *connect.Request[v1.ListRackTypesRequest]) (*connect.Response[v1.ListRackTypesResponse], error) {
 	return c.listRackTypes.CallUnary(ctx, req)
@@ -342,8 +363,15 @@ type DeviceSetServiceHandler interface {
 	GetRackSlots(context.Context, *connect.Request[v1.GetRackSlotsRequest]) (*connect.Response[v1.GetRackSlotsResponse], error)
 	// Returns aggregated telemetry stats for a list of device sets
 	GetDeviceSetStats(context.Context, *connect.Request[v1.GetDeviceSetStatsRequest]) (*connect.Response[v1.GetDeviceSetStatsResponse], error)
-	// Returns all distinct rack zones for the organization
+	// Returns all distinct rack zone strings for the organization
+	// (org-wide, flat). For building-scoped zones use
+	// ListRackZoneRefs below.
 	ListRackZones(context.Context, *connect.Request[v1.ListRackZonesRequest]) (*connect.Response[v1.ListRackZonesResponse], error)
+	// Returns all distinct (building_id, zone) tuples for the
+	// organization with denormalized building + site labels.
+	// Use this to feed a building-aware zone dropdown that
+	// distinguishes "Room 2" in different buildings.
+	ListRackZoneRefs(context.Context, *connect.Request[v1.ListRackZoneRefsRequest]) (*connect.Response[v1.ListRackZoneRefsResponse], error)
 	// Returns all distinct rack types (row/column combinations) for the organization
 	ListRackTypes(context.Context, *connect.Request[v1.ListRackTypesRequest]) (*connect.Response[v1.ListRackTypesResponse], error)
 	// Atomically creates or updates a rack with its membership and slot assignments.
@@ -427,6 +455,11 @@ func NewDeviceSetServiceHandler(svc DeviceSetServiceHandler, opts ...connect.Han
 		svc.ListRackZones,
 		opts...,
 	)
+	deviceSetServiceListRackZoneRefsHandler := connect.NewUnaryHandler(
+		DeviceSetServiceListRackZoneRefsProcedure,
+		svc.ListRackZoneRefs,
+		opts...,
+	)
 	deviceSetServiceListRackTypesHandler := connect.NewUnaryHandler(
 		DeviceSetServiceListRackTypesProcedure,
 		svc.ListRackTypes,
@@ -467,6 +500,8 @@ func NewDeviceSetServiceHandler(svc DeviceSetServiceHandler, opts ...connect.Han
 			deviceSetServiceGetDeviceSetStatsHandler.ServeHTTP(w, r)
 		case DeviceSetServiceListRackZonesProcedure:
 			deviceSetServiceListRackZonesHandler.ServeHTTP(w, r)
+		case DeviceSetServiceListRackZoneRefsProcedure:
+			deviceSetServiceListRackZoneRefsHandler.ServeHTTP(w, r)
 		case DeviceSetServiceListRackTypesProcedure:
 			deviceSetServiceListRackTypesHandler.ServeHTTP(w, r)
 		case DeviceSetServiceSaveRackProcedure:
@@ -534,6 +569,10 @@ func (UnimplementedDeviceSetServiceHandler) GetDeviceSetStats(context.Context, *
 
 func (UnimplementedDeviceSetServiceHandler) ListRackZones(context.Context, *connect.Request[v1.ListRackZonesRequest]) (*connect.Response[v1.ListRackZonesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("device_set.v1.DeviceSetService.ListRackZones is not implemented"))
+}
+
+func (UnimplementedDeviceSetServiceHandler) ListRackZoneRefs(context.Context, *connect.Request[v1.ListRackZoneRefsRequest]) (*connect.Response[v1.ListRackZoneRefsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("device_set.v1.DeviceSetService.ListRackZoneRefs is not implemented"))
 }
 
 func (UnimplementedDeviceSetServiceHandler) ListRackTypes(context.Context, *connect.Request[v1.ListRackTypesRequest]) (*connect.Response[v1.ListRackTypesResponse], error) {

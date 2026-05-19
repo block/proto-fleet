@@ -8,7 +8,8 @@ import (
 
 type Type int
 
-// don't forget to declare GetMinerCommandFunc for a new Type
+// don't forget to add a dispatch arm in command/execution_service.go
+// executeCommandOnDevice for any new Type.
 const (
 	// StartMining represents a command to begin mining operations
 	StartMining Type = iota
@@ -25,6 +26,10 @@ const (
 	Unpair
 	// UpdateMinerPassword represents a command to update miner web UI password
 	UpdateMinerPassword
+	// Curtail transitions the device to the curtailment level in the payload.
+	Curtail
+	// Uncurtail restores the device to its pre-curtailment mining state.
+	Uncurtail
 )
 
 func (t *Type) String() string {
@@ -51,6 +56,10 @@ func (t *Type) String() string {
 		return "Unpair"
 	case UpdateMinerPassword:
 		return "UpdateMinerPassword"
+	case Curtail:
+		return "Curtail"
+	case Uncurtail:
+		return "Uncurtail"
 
 	default:
 		return "Undefined"
@@ -81,6 +90,10 @@ func FromString(s string) (Type, error) {
 		return Unpair, nil
 	case "UpdateMinerPassword":
 		return UpdateMinerPassword, nil
+	case "Curtail":
+		return Curtail, nil
+	case "Uncurtail":
+		return Uncurtail, nil
 
 	default:
 		return Type(-1), fleeterror.NewInternalErrorf("invalid command type: %s", s)

@@ -400,12 +400,18 @@ func TestTelemetryService_DataStoreInteraction(t *testing.T) {
 					mockMinerGetter.EXPECT().
 						GetMinerFromDeviceIdentifier(gomock.Any(), scenario.device.ID).
 						Return(nil, errors.New("discovery error"))
+					mockDeviceStore.EXPECT().
+						GetDeviceOrgAndDriver(gomock.Any(), scenario.device.ID).
+						Return(int64(0), "", nil).
+						AnyTimes()
 					continue
 				}
 				mockMiner := minerMocks.NewMockMiner(ctrl)
 				mockMinerGetter.EXPECT().
 					GetMinerFromDeviceIdentifier(gomock.Any(), scenario.device.ID).
 					Return(mockMiner, nil)
+				mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+				mockMiner.EXPECT().GetDriverName().Return("").AnyTimes()
 
 				// Setup GetDeviceMetrics expectation
 				if scenario.deviceMetrics != nil {
@@ -441,7 +447,7 @@ func TestTelemetryService_DataStoreInteraction(t *testing.T) {
 			}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
 
 			for _, scenario := range test.devicesScenario {
-				_, _, err := service.GetTelemetryFromDevice(t.Context(), scenario.device)
+				_, _, _, _, _, err := service.GetTelemetryFromDevice(t.Context(), scenario.device)
 				// Only discovery errors and scheduler errors bubble up to caller
 				// StoreDeviceMetrics errors are logged but don't fail the operation
 				if scenario.hasDiscoveryError || scenario.hasSchedulerError {
@@ -453,6 +459,124 @@ func TestTelemetryService_DataStoreInteraction(t *testing.T) {
 		})
 	}
 
+}
+
+// A plugin that returns a DeviceMetrics whose DeviceIdentifier does not match
+// the trusted device ID supplied to the poll is the same trust boundary the
+// rest of this file enforces around health, hashrate, and temperature.
+func TestGetTelemetryFromDevice_DropsMismatchedDeviceIdentifier(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+	mockMiner := minerMocks.NewMockMiner(ctrl)
+
+	trustedID := models.DeviceIdentifier("trusted-device-1")
+	device := models.Device{ID: trustedID, LastUpdatedAt: time.Now().Add(-5 * time.Minute)}
+
+	mockMinerGetter.EXPECT().
+		GetMinerFromDeviceIdentifier(gomock.Any(), trustedID).
+		Return(mockMiner, nil)
+	mockMiner.EXPECT().GetOrgID().Return(int64(42)).AnyTimes()
+	mockMiner.EXPECT().GetDriverName().Return("virtual").AnyTimes()
+
+	// Plugin returns a sample stamped with another device's identifier.
+	mockMiner.EXPECT().
+		GetDeviceMetrics(gomock.Any()).
+		Return(modelsV2.DeviceMetrics{
+			DeviceIdentifier: "victim-device",
+			Health:           modelsV2.HealthHealthyActive,
+			Timestamp:        time.Now(),
+		}, nil)
+
+	// AddDevices and StoreDeviceMetrics MUST NOT be called on this path.
+	// We register no expectation; the gomock controller fails the test if
+	// either method is invoked because the mocks are strict.
+
+	service := NewTelemetryService(Config{
+		StalenessThreshold: 1 * time.Minute,
+		FetchInterval:      10 * time.Second,
+		ConcurrencyLimit:   5,
+	}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+
+	status, hasStatus, orgID, driverName, pollSuccess, err := service.GetTelemetryFromDevice(t.Context(), device)
+
+	require.Error(t, err, "mismatched plugin identifier must surface as a telemetryErr so processDevice triggers AddFailedDevices")
+	assert.Contains(t, err.Error(), "mismatched device identifier")
+	assert.Equal(t, mm.MinerStatusUnknown, status, "tainted health-derived status must not be returned")
+	assert.False(t, hasStatus, "tainted health-derived status must not be returned")
+	assert.False(t, pollSuccess, "the poll must not be counted as successful")
+	assert.Equal(t, int64(42), orgID, "the trusted miner-resolved orgID must still be returned for poll-failure accounting")
+	assert.Equal(t, "virtual", driverName)
+
+	// metricsResults must not have received the tainted sample. The channel
+	// is buffered, so a non-blocking receive proves nothing was enqueued.
+	select {
+	case got := <-service.metricsResults:
+		t.Fatalf("forged telemetry sample was enqueued for persistence: %+v", got)
+	default:
+	}
+}
+
+// A plugin that returns a DeviceMetrics with an empty DeviceIdentifier — i.e.
+// non-authoritative rather than forged — must have the trusted poll target
+// stamped onto the sample before it leaves GetTelemetryFromDevice.
+func TestGetTelemetryFromDevice_NormalizesEmptyDeviceIdentifier(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+	mockMiner := minerMocks.NewMockMiner(ctrl)
+
+	trustedID := models.DeviceIdentifier("trusted-device-7")
+	device := models.Device{ID: trustedID, LastUpdatedAt: time.Now().Add(-5 * time.Minute)}
+
+	mockMinerGetter.EXPECT().
+		GetMinerFromDeviceIdentifier(gomock.Any(), trustedID).
+		Return(mockMiner, nil)
+	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetDriverName().Return("").AnyTimes()
+
+	// Plugin reports metrics but leaves DeviceIdentifier blank.
+	mockMiner.EXPECT().
+		GetDeviceMetrics(gomock.Any()).
+		Return(modelsV2.DeviceMetrics{
+			Health:    modelsV2.HealthHealthyActive,
+			Timestamp: time.Now(),
+		}, nil)
+
+	mockScheduler.EXPECT().
+		AddDevices(gomock.Any(), gomock.Any()).
+		Do(func(_ context.Context, devices ...models.Device) {
+			require.Len(t, devices, 1)
+			assert.Equal(t, trustedID, devices[0].ID)
+		}).Return(nil).Times(1)
+
+	service := NewTelemetryService(Config{
+		StalenessThreshold: 1 * time.Minute,
+		FetchInterval:      10 * time.Second,
+		ConcurrencyLimit:   5,
+	}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+
+	_, _, _, _, pollSuccess, err := service.GetTelemetryFromDevice(t.Context(), device)
+	require.NoError(t, err, "empty plugin identifier is non-authoritative and must be normalized, not rejected")
+	assert.True(t, pollSuccess)
+
+	// Drain the enqueued metricsResult and verify the trusted ID was stamped on.
+	select {
+	case got := <-service.metricsResults:
+		assert.Equal(t, trustedID, got.deviceID)
+		assert.Equal(t, string(trustedID), got.metrics.DeviceIdentifier,
+			"empty plugin identifier must be overwritten with the trusted poll target so persistence and OTel agree on the device")
+	case <-time.After(time.Second):
+		t.Fatal("expected a metricsResult to be enqueued for the normalized sample")
+	}
 }
 
 func TestTelemetryService_Integration(t *testing.T) {
@@ -1266,6 +1390,11 @@ func TestStatusWriterRoutine_BatchFlushesOnInterval(t *testing.T) {
 
 	deviceID := models.DeviceIdentifier("test-device-1")
 
+	mockMinerGetter.EXPECT().
+		GetMinerFromDeviceIdentifier(gomock.Any(), gomock.Any()).
+		Return(nil, errors.New("metrics observer stub")).
+		AnyTimes()
+
 	mockDeviceStore.EXPECT().
 		GetDeviceStatusForDeviceIdentifiers(gomock.Any(), gomock.Any()).
 		Return(map[models.DeviceIdentifier]mm.MinerStatus{}, nil).
@@ -1318,6 +1447,11 @@ func TestStatusWriterRoutine_BroadcastsStatusChanges(t *testing.T) {
 
 	deviceID := models.DeviceIdentifier("test-device-1")
 
+	mockMinerGetter.EXPECT().
+		GetMinerFromDeviceIdentifier(gomock.Any(), gomock.Any()).
+		Return(nil, errors.New("metrics observer stub")).
+		AnyTimes()
+
 	mockDeviceStore.EXPECT().
 		GetDeviceStatusForDeviceIdentifiers(gomock.Any(), gomock.Any()).
 		Return(map[models.DeviceIdentifier]mm.MinerStatus{}, nil).
@@ -1368,6 +1502,11 @@ func TestStatusWriterRoutine_FlushesOnContextCancel(t *testing.T) {
 
 	deviceID := models.DeviceIdentifier("test-device-1")
 
+	mockMinerGetter.EXPECT().
+		GetMinerFromDeviceIdentifier(gomock.Any(), gomock.Any()).
+		Return(nil, errors.New("metrics observer stub")).
+		AnyTimes()
+
 	mockDeviceStore.EXPECT().
 		GetDeviceStatusForDeviceIdentifiers(gomock.Any(), gomock.Any()).
 		Return(map[models.DeviceIdentifier]mm.MinerStatus{}, nil).
@@ -1416,6 +1555,212 @@ func TestStatusWriterRoutine_FlushesOnContextCancel(t *testing.T) {
 	}
 }
 
+// the writer must emit fleet_device_online using the org/driver labels the worker attached to statusResult,
+// and it must NOT call back into the miner manager from the flush loop.
+func TestStatusWriterRoutine_FlushUsesWorkerSuppliedLabels(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+
+	mockDeviceStore.EXPECT().
+		GetDeviceStatusForDeviceIdentifiers(gomock.Any(), gomock.Any()).
+		Return(map[models.DeviceIdentifier]mm.MinerStatus{}, nil).
+		AnyTimes()
+	mockDeviceStore.EXPECT().
+		UpsertDeviceStatuses(gomock.Any(), gomock.Any()).
+		Return(nil).
+		AnyTimes()
+
+	// Crucial assertion: the flush loop must NEVER consult the miner manager
+	// for org/driver labels. The .Times(0) fails the test if a regression
+	// brings back the per-device miner lookups.
+	mockMinerGetter.EXPECT().
+		GetMinerFromDeviceIdentifier(gomock.Any(), gomock.Any()).
+		Times(0)
+
+	rec := &recordingEmitter{}
+
+	service := NewTelemetryService(Config{
+		StalenessThreshold:  1 * time.Minute,
+		FetchInterval:       10 * time.Second,
+		ConcurrencyLimit:    5,
+		StatusFlushInterval: 50 * time.Millisecond,
+	}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl)).WithMetricsEmitter(rec)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	go service.statusWriterRoutine(ctx)
+
+	service.statusResults <- statusResult{
+		deviceIdentifier: models.DeviceIdentifier("dev-A"),
+		status:           mm.MinerStatusActive,
+		orgID:            42,
+		driverName:       "proto",
+	}
+	service.statusResults <- statusResult{
+		deviceIdentifier: models.DeviceIdentifier("dev-B"),
+		status:           mm.MinerStatusOffline,
+		orgID:            99,
+		driverName:       "antminer",
+	}
+
+	require.Eventually(t, func() bool {
+		rec.mu.Lock()
+		defer rec.mu.Unlock()
+		return len(rec.online) >= 2
+	}, time.Second, 10*time.Millisecond, "writer routine should emit fleet_device_online for both devices")
+
+	cancel()
+	time.Sleep(50 * time.Millisecond)
+
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+
+	byDevice := map[string]onlineEvent{}
+	for _, ev := range rec.online {
+		byDevice[ev.labels.DeviceID] = ev
+	}
+
+	devA, ok := byDevice["dev-A"]
+	require.True(t, ok, "expected an onDeviceStatus event for dev-A")
+	require.Equal(t, "42", devA.labels.OrganizationID,
+		"flush must use the worker-supplied org id label")
+	require.Equal(t, "proto", devA.labels.Driver,
+		"flush must use the worker-supplied driver label")
+	require.True(t, devA.online, "MinerStatusActive should map to online=true")
+
+	devB, ok := byDevice["dev-B"]
+	require.True(t, ok, "expected an onDeviceStatus event for dev-B")
+	require.Equal(t, "99", devB.labels.OrganizationID)
+	require.Equal(t, "antminer", devB.labels.Driver)
+	require.False(t, devB.online, "MinerStatusOffline should map to online=false")
+}
+
+// When the current DB status is UPDATING / REBOOT_REQUIRED, the writer must
+// still call onDeviceStatus for the pending sample so that an unreachable
+// miner keeps emitting fleet_device_online=0 through a stuck firmware update
+// and the default offline alert is not silenced.
+func TestStatusWriterRoutine_FirmwareUpdateGuardDoesNotSuppressOnlineMetric(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+
+	updatingDevice := models.DeviceIdentifier("dev-updating")
+	rebootDevice := models.DeviceIdentifier("dev-reboot-required")
+	healthyDevice := models.DeviceIdentifier("dev-healthy")
+
+	// Each pending device has a different DB-side current status. UPDATING and
+	// REBOOT_REQUIRED are guarded — they must NOT appear in the upsert batch.
+	mockDeviceStore.EXPECT().
+		GetDeviceStatusForDeviceIdentifiers(gomock.Any(), gomock.Any()).
+		Return(map[models.DeviceIdentifier]mm.MinerStatus{
+			updatingDevice: mm.MinerStatusUpdating,
+			rebootDevice:   mm.MinerStatusRebootRequired,
+			healthyDevice:  mm.MinerStatusActive,
+		}, nil).
+		AnyTimes()
+
+	// The upsert must receive ONLY the healthy device. Capturing the batch
+	// here verifies the firmware-update guard still suppresses the DB write
+	// (we only want to fix the metric emission, not weaken the guard).
+	mockDeviceStore.EXPECT().
+		UpsertDeviceStatuses(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, updates []stores.DeviceStatusUpdate) error {
+			require.Len(t, updates, 1, "firmware-guarded devices must not land in the DB upsert")
+			assert.Equal(t, healthyDevice, updates[0].DeviceIdentifier)
+			return nil
+		}).
+		AnyTimes()
+
+	rec := &recordingEmitter{}
+
+	// Long StatusFlushInterval so we control flushing via context cancel —
+	// otherwise a ticker firing mid-send would split the three samples across
+	// multiple flushes and the upsert-batch assertion above would race.
+	service := NewTelemetryService(Config{
+		StalenessThreshold:  1 * time.Minute,
+		FetchInterval:       10 * time.Second,
+		ConcurrencyLimit:    5,
+		StatusFlushInterval: 10 * time.Second,
+	}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl)).WithMetricsEmitter(rec)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() {
+		service.statusWriterRoutine(ctx)
+		close(done)
+	}()
+
+	// The unreachable miner whose DB row is UPDATING — the case the default
+	// offline alert exists to catch.
+	service.statusResults <- statusResult{
+		deviceIdentifier: updatingDevice,
+		status:           mm.MinerStatusOffline,
+		orgID:            42,
+		driverName:       "proto",
+	}
+	// A device whose DB row is REBOOT_REQUIRED but is now back online —
+	// fleet_device_online must follow the polled value, not the stuck DB row.
+	service.statusResults <- statusResult{
+		deviceIdentifier: rebootDevice,
+		status:           mm.MinerStatusActive,
+		orgID:            42,
+		driverName:       "proto",
+	}
+	// Control device that is not firmware-guarded; verifies the unguarded
+	// path still works alongside the guarded ones in the same flush.
+	service.statusResults <- statusResult{
+		deviceIdentifier: healthyDevice,
+		status:           mm.MinerStatusActive,
+		orgID:            42,
+		driverName:       "antminer",
+	}
+
+	// Give the writer goroutine time to drain statusResults into pendingUpdates
+	// before we trigger the final flush via cancel().
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("statusWriterRoutine did not finish after context cancel")
+	}
+
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+
+	byDevice := map[string]onlineEvent{}
+	for _, ev := range rec.online {
+		byDevice[ev.labels.DeviceID] = ev
+	}
+
+	updatingEv, ok := byDevice[string(updatingDevice)]
+	require.True(t, ok, "fleet_device_online must be emitted for an UPDATING device that is now Offline")
+	assert.False(t, updatingEv.online,
+		"MinerStatusOffline must surface as online=false even when DB row is UPDATING")
+	assert.Equal(t, "42", updatingEv.labels.OrganizationID)
+	assert.Equal(t, "proto", updatingEv.labels.Driver)
+
+	rebootEv, ok := byDevice[string(rebootDevice)]
+	require.True(t, ok, "fleet_device_online must be emitted for a REBOOT_REQUIRED device whose poll succeeded")
+	assert.True(t, rebootEv.online,
+		"MinerStatusActive must surface as online=true even when DB row is REBOOT_REQUIRED")
+
+	healthyEv, ok := byDevice[string(healthyDevice)]
+	require.True(t, ok, "non-firmware-guarded device must still emit")
+	assert.True(t, healthyEv.online)
+}
+
 // Tests for metricsWriterRoutine batch operations
 
 func TestMetricsWriterRoutine_FlushesOnInterval(t *testing.T) {
@@ -1429,6 +1774,11 @@ func TestMetricsWriterRoutine_FlushesOnInterval(t *testing.T) {
 	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
 	metric := modelsV2.DeviceMetrics{DeviceIdentifier: "test-device-1"}
+
+	mockMinerGetter.EXPECT().
+		GetMinerFromDeviceIdentifier(gomock.Any(), gomock.Any()).
+		Return(nil, errors.New("metrics observer stub")).
+		AnyTimes()
 
 	mockDataStore.EXPECT().
 		StoreDeviceMetrics(gomock.Any(), metric).
@@ -1468,6 +1818,11 @@ func TestMetricsWriterRoutine_FlushesOnContextCancel(t *testing.T) {
 	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
 
 	metric := modelsV2.DeviceMetrics{DeviceIdentifier: "test-device-1"}
+
+	mockMinerGetter.EXPECT().
+		GetMinerFromDeviceIdentifier(gomock.Any(), gomock.Any()).
+		Return(nil, errors.New("metrics observer stub")).
+		AnyTimes()
 
 	mockDataStore.EXPECT().
 		StoreDeviceMetrics(gomock.Any(), metric).
@@ -1517,6 +1872,11 @@ func TestMetricsWriterRoutine_DrainsChannelOnContextCancel(t *testing.T) {
 
 	metric1 := modelsV2.DeviceMetrics{DeviceIdentifier: "test-device-1"}
 	metric2 := modelsV2.DeviceMetrics{DeviceIdentifier: "test-device-2"}
+
+	mockMinerGetter.EXPECT().
+		GetMinerFromDeviceIdentifier(gomock.Any(), gomock.Any()).
+		Return(nil, errors.New("metrics observer stub")).
+		AnyTimes()
 
 	// Expect a single batch write containing both metrics
 	mockDataStore.EXPECT().
@@ -1570,6 +1930,11 @@ func TestMetricsWriterRoutine_RetriesIndividuallyOnBatchError(t *testing.T) {
 	metric1 := modelsV2.DeviceMetrics{DeviceIdentifier: "test-device-1"}
 	metric2 := modelsV2.DeviceMetrics{DeviceIdentifier: "test-device-2"}
 	batchErr := errors.New("batch write failed")
+
+	mockMinerGetter.EXPECT().
+		GetMinerFromDeviceIdentifier(gomock.Any(), gomock.Any()).
+		Return(nil, errors.New("metrics observer stub")).
+		AnyTimes()
 
 	// Batch call fails
 	mockDataStore.EXPECT().
@@ -1629,6 +1994,9 @@ func TestProcessStatusOnly_RecoversFailedDevice(t *testing.T) {
 	mockMinerGetter.EXPECT().
 		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(mockMiner, nil)
+
+	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetDriverName().Return("").AnyTimes()
 
 	mockMiner.EXPECT().
 		GetDeviceStatus(gomock.Any()).
@@ -1690,6 +2058,9 @@ func TestProcessStatusOnly_DoesNotRecoverNonFailedDevice(t *testing.T) {
 		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(mockMiner, nil)
 
+	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetDriverName().Return("").AnyTimes()
+
 	mockMiner.EXPECT().
 		GetDeviceStatus(gomock.Any()).
 		Return(mm.MinerStatusActive, nil)
@@ -1741,6 +2112,9 @@ func TestProcessStatusOnly_ConnectionError_SetsStatusOffline(t *testing.T) {
 	mockMinerGetter.EXPECT().
 		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(mockMiner, nil)
+
+	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetDriverName().Return("").AnyTimes()
 
 	mockMiner.EXPECT().
 		GetDeviceStatus(gomock.Any()).
@@ -1797,7 +2171,10 @@ func TestProcessDevice_NonBlockingSend_DropsUpdateWhenChannelFull(t *testing.T) 
 	mockMinerGetter.EXPECT().
 		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(mockMiner, nil).
-		Times(2) // Telemetry and error polling (status derived from metrics health, no extra RPC)
+		Times(2) // Telemetry and error polling.
+
+	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetDriverName().Return("").AnyTimes()
 
 	mockMiner.EXPECT().
 		GetDeviceMetrics(gomock.Any()).
@@ -1876,12 +2253,15 @@ func TestProcessDevice_HealthHealthyInactive_CallsGetDeviceStatus(t *testing.T) 
 	deviceID := models.DeviceIdentifier("inactive-device")
 	device := models.Device{ID: deviceID, LastUpdatedAt: time.Now().Add(-1 * time.Minute)}
 
-	// Telemetry fetch (fetchTelemetryFromMiner) and error polling each call GetMinerFromDeviceIdentifier.
-	// Status fetch (fetchStatusFromMiner) also calls it, so three calls total.
+	// Telemetry fetch (fetchTelemetryFromMiner),
+	// status fetch (fetchStatusFromMiner), and error polling each call GetMinerFromDeviceIdentifier.
 	mockMinerGetter.EXPECT().
 		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(mockMiner, nil).
 		Times(3)
+
+	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetDriverName().Return("").AnyTimes()
 
 	mockMiner.EXPECT().
 		GetDeviceMetrics(gomock.Any()).
@@ -1957,12 +2337,16 @@ func TestProcessDevice_HealthHealthyActive_SkipsGetDeviceStatus(t *testing.T) {
 	deviceID := models.DeviceIdentifier("active-device")
 	device := models.Device{ID: deviceID, LastUpdatedAt: time.Now().Add(-1 * time.Minute)}
 
-	// Telemetry fetch and error polling each call GetMinerFromDeviceIdentifier — two calls total.
+	// Telemetry fetch and error polling
+	// each call GetMinerFromDeviceIdentifier — two calls total.
 	// GetDeviceStatus must NOT be called when hasMetricsStatus == true.
 	mockMinerGetter.EXPECT().
 		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(mockMiner, nil).
 		Times(2)
+
+	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetDriverName().Return("").AnyTimes()
 
 	mockMiner.EXPECT().
 		GetDeviceMetrics(gomock.Any()).
@@ -2039,11 +2423,15 @@ func TestProcessDevice_MetricsFail_CallsGetDeviceStatus(t *testing.T) {
 	deviceID := models.DeviceIdentifier("metrics-fail-device")
 	device := models.Device{ID: deviceID, LastUpdatedAt: time.Now().Add(-1 * time.Minute)}
 
-	// Telemetry fetch, status fetch, and error polling each call GetMinerFromDeviceIdentifier.
+	// Telemetry fetch, status fetch, and error polling each
+	// call GetMinerFromDeviceIdentifier — three calls total.
 	mockMinerGetter.EXPECT().
 		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(mockMiner, nil).
 		Times(3)
+
+	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetDriverName().Return("").AnyTimes()
 
 	mockMiner.EXPECT().
 		GetDeviceMetrics(gomock.Any()).
@@ -2558,6 +2946,85 @@ func TestStatusPollingRoutine_MixedDevices(t *testing.T) {
 	assert.Contains(t, enqueued, unseenDevice, "unseen device should be polled")
 }
 
+// TestFetchStatusFromMiner_ConnectionErrorResolvesOrgFromDeviceStore confirms
+// that when miner construction itself fails with a connection error (no handle
+// returned), the offline status carries the trusted (org_id, driver_name)
+// resolved from the device store. Without this fallback, fleet_device_online
+// for unreachable devices would be emitted without organization_id and miss
+// org-scoped alert routing.
+func TestFetchStatusFromMiner_ConnectionErrorResolvesOrgFromDeviceStore(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+
+	deviceID := models.DeviceIdentifier("offline-constructor-fail")
+	connErr := fleeterror.NewConnectionError(string(deviceID), errors.New("dial tcp: i/o timeout"))
+
+	mockMinerGetter.EXPECT().
+		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
+		Return(nil, connErr)
+
+	mockDeviceStore.EXPECT().
+		GetDeviceOrgAndDriver(gomock.Any(), deviceID).
+		Return(int64(42), "antminer", nil)
+
+	service := NewTelemetryService(Config{
+		StalenessThreshold: 1 * time.Minute,
+		FetchInterval:      10 * time.Second,
+		ConcurrencyLimit:   5,
+	}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+
+	status, orgID, driverName, err := service.fetchStatusFromMiner(t.Context(), deviceID)
+
+	require.NoError(t, err)
+	assert.Equal(t, mm.MinerStatusOffline, status)
+	assert.Equal(t, int64(42), orgID, "trusted org_id from device store must label the offline sample")
+	assert.Equal(t, "antminer", driverName, "trusted driver_name from device store must label the offline sample")
+}
+
+// TestFetchStatusFromMiner_ConnectionErrorWithMissingDeviceRowDowngradesGracefully
+// covers the rare case where the trusted device store also can't resolve the
+// device (e.g., row was deleted concurrently). The offline status is still
+// emitted; the metric just ends up unscoped at org=0/"" — which matches the
+// pre-fix behavior for every connection-error device.
+func TestFetchStatusFromMiner_ConnectionErrorWithMissingDeviceRowDowngradesGracefully(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+
+	deviceID := models.DeviceIdentifier("offline-gone")
+	connErr := fleeterror.NewConnectionError(string(deviceID), errors.New("connection refused"))
+
+	mockMinerGetter.EXPECT().
+		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
+		Return(nil, connErr)
+
+	mockDeviceStore.EXPECT().
+		GetDeviceOrgAndDriver(gomock.Any(), deviceID).
+		Return(int64(0), "", fleeterror.NewNotFoundErrorf("device not found: %s", deviceID))
+
+	service := NewTelemetryService(Config{
+		StalenessThreshold: 1 * time.Minute,
+		FetchInterval:      10 * time.Second,
+		ConcurrencyLimit:   5,
+	}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+
+	status, orgID, driverName, err := service.fetchStatusFromMiner(t.Context(), deviceID)
+
+	require.NoError(t, err)
+	assert.Equal(t, mm.MinerStatusOffline, status)
+	assert.Zero(t, orgID)
+	assert.Empty(t, driverName)
+}
+
 // Tests for fetchStatusFromMiner auth error → InvalidateMiner
 
 func TestFetchStatusFromMiner_AuthErrorFromGetMinerFromDeviceIdentifier_InvalidatesMinerCache(t *testing.T) {
@@ -2620,6 +3087,9 @@ func TestFetchStatusFromMiner_AuthErrorFromGetDeviceStatus_InvalidatesMinerCache
 		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(mockMiner, nil)
 
+	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetDriverName().Return("").AnyTimes()
+
 	// GetDeviceStatus returns an auth error (e.g., token rotated)
 	mockMiner.EXPECT().
 		GetDeviceStatus(gomock.Any()).
@@ -2666,6 +3136,9 @@ func TestProcessStatusOnly_ForbiddenError_UpdatesPairingStatus(t *testing.T) {
 		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(mockMiner, nil)
 
+	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetDriverName().Return("").AnyTimes()
+
 	mockMiner.EXPECT().
 		GetDeviceStatus(gomock.Any()).
 		Return(mm.MinerStatusUnknown, forbiddenErr)
@@ -2702,6 +3175,9 @@ func TestProcessStatusOnly_GenericForbiddenDoesNotUpdatePairingStatus(t *testing
 	mockMinerGetter.EXPECT().
 		GetMinerFromDeviceIdentifier(gomock.Any(), deviceID).
 		Return(mockMiner, nil)
+
+	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetDriverName().Return("").AnyTimes()
 
 	mockMiner.EXPECT().
 		GetDeviceStatus(gomock.Any()).

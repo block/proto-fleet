@@ -27,6 +27,11 @@ const (
 	// maxCascadeAuditEntries bounds the per-device cascade audit list in
 	// activity_log.metadata; overflow is signaled via the truncated flag.
 	maxCascadeAuditEntries = 100
+	// maxDeviceSetFilterValues caps the size of free-form repeated filter
+	// arrays in the legacy collection.v1 list path. Mirrors the cap in
+	// fleetmanagement.parseFilter and the handler-level cap in
+	// deviceset.convert so all three surfaces stay aligned.
+	maxDeviceSetFilterValues = 1024
 )
 
 const (
@@ -55,6 +60,7 @@ type Service struct {
 	collectionStore          interfaces.CollectionStore
 	deviceQueryer            DeviceQueryer
 	siteStore                interfaces.SiteStore
+	buildingStore            interfaces.BuildingStore
 	transactor               interfaces.Transactor
 	resolveDeviceIdentifiers DeviceIdentifierResolver
 	telemetry                TelemetryCollector
@@ -62,11 +68,13 @@ type Service struct {
 }
 
 // NewService creates a new collection service. A nil siteStore disables
-// rack site/building placement.
+// rack site/building placement. A nil buildingStore disables the
+// cross-org check on building_ids / zone_keys filters.
 func NewService(
 	collectionStore interfaces.CollectionStore,
 	deviceQueryer DeviceQueryer,
 	siteStore interfaces.SiteStore,
+	buildingStore interfaces.BuildingStore,
 	transactor interfaces.Transactor,
 	resolveDeviceIdentifiers DeviceIdentifierResolver,
 	telemetry TelemetryCollector,
@@ -76,6 +84,7 @@ func NewService(
 		collectionStore:          collectionStore,
 		deviceQueryer:            deviceQueryer,
 		siteStore:                siteStore,
+		buildingStore:            buildingStore,
 		transactor:               transactor,
 		resolveDeviceIdentifiers: resolveDeviceIdentifiers,
 		telemetry:                telemetry,
@@ -559,6 +568,64 @@ func validatePageSize(pageSize int32) int32 {
 	return pageSize
 }
 
+// ListCollectionsParams is the domain-level input for listing collections.
+// Used by the device_set.v1 handler so it can pass the new filter shape
+// (building_ids, include_no_building, zone_keys) without round-tripping
+// through the deprecated collection.v1 proto request type.
+type ListCollectionsParams struct {
+	Type      pb.CollectionType
+	PageSize  int32
+	PageToken string
+	Sort      *interfaces.SortConfig
+	Filter    *interfaces.DeviceSetFilter
+}
+
+// ListCollectionsDomain is the domain-level entry point for the
+// collection list. Validates the rack-only filter constraints, runs
+// the cross-org building check, and delegates to the store. The
+// proto-shaped ListCollections wraps this.
+func (s *Service) ListCollectionsDomain(ctx context.Context, params ListCollectionsParams) (*pb.ListCollectionsResponse, error) {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	pageSize := validatePageSize(params.PageSize)
+
+	isZoneSort := params.Sort != nil && params.Sort.Field == interfaces.SortFieldLocation
+	if isZoneSort && params.Type != pb.CollectionType_COLLECTION_TYPE_RACK {
+		return nil, fleeterror.NewInvalidArgumentErrorf("zone sort is only supported for rack collections")
+	}
+	if params.Filter != nil && params.Type != pb.CollectionType_COLLECTION_TYPE_RACK {
+		if len(params.Filter.BuildingIDs) > 0 || params.Filter.IncludeNoBuilding || len(params.Filter.ZoneKeys) > 0 {
+			return nil, fleeterror.NewInvalidArgumentErrorf("building / zone filters are only supported for rack collections")
+		}
+	}
+
+	if err := s.validateFilterBuildings(ctx, info.OrganizationID, params.Filter); err != nil {
+		return nil, err
+	}
+
+	collections, nextPageToken, totalCount, err := s.collectionStore.ListCollections(ctx, info.OrganizationID, params.Type, pageSize, params.PageToken, params.Sort, params.Filter)
+	if err != nil {
+		return nil, err
+	}
+
+	return &pb.ListCollectionsResponse{Collections: collections, NextPageToken: nextPageToken, TotalCount: totalCount}, nil
+}
+
+// validateFilterBuildings wraps the shared
+// interfaces.ValidateFilterBuildings helper. Kept as a method for
+// brevity at the call site; logic lives in
+// interfaces/filtervalidation.go so the fleetmanagement and
+// collection paths can't drift.
+func (s *Service) validateFilterBuildings(ctx context.Context, orgID int64, filter *interfaces.DeviceSetFilter) error {
+	if filter == nil {
+		return nil
+	}
+	return interfaces.ValidateFilterBuildings(ctx, orgID, filter.BuildingIDs, filter.ZoneKeys, s.buildingStore)
+}
+
 // ListCollections returns a paginated list of collections for the organization.
 func (s *Service) ListCollections(ctx context.Context, req *pb.ListCollectionsRequest) (*pb.ListCollectionsResponse, error) {
 	info, err := session.GetInfo(ctx)
@@ -581,13 +648,35 @@ func (s *Service) ListCollections(ctx context.Context, req *pb.ListCollectionsRe
 		errorComponentTypes[i] = int32(ct)
 	}
 
-	// Validate that zone filter and zone sort are only used with rack collections
+	// Zone sort + zone filter are rack-only. The legacy `zones` field is
+	// preserved here as a transitional shim — translate to wildcard
+	// ZoneKey entries so existing collection.v1 callers keep working
+	// until the wire contract retires (#255).
 	isZoneSort := sort != nil && sort.Field == interfaces.SortFieldLocation
-	if (len(req.Zones) > 0 || isZoneSort) && req.Type != pb.CollectionType_COLLECTION_TYPE_RACK {
-		return nil, fleeterror.NewInvalidArgumentErrorf("zone filter and sort are only supported for rack collections")
+	if isZoneSort && req.Type != pb.CollectionType_COLLECTION_TYPE_RACK {
+		return nil, fleeterror.NewInvalidArgumentErrorf("zone sort is only supported for rack collections")
+	}
+	if len(req.Zones) > 0 && req.Type != pb.CollectionType_COLLECTION_TYPE_RACK {
+		return nil, fleeterror.NewInvalidArgumentErrorf("zone filter is only supported for rack collections")
+	}
+	if len(req.Zones) > maxDeviceSetFilterValues {
+		return nil, fleeterror.NewInvalidArgumentErrorf(
+			"zones exceeds maximum of %d values", maxDeviceSetFilterValues)
+	}
+	zoneKeys := make([]interfaces.ZoneKey, 0, len(req.Zones))
+	for i, z := range req.Zones {
+		if z == "" {
+			return nil, fleeterror.NewInvalidArgumentErrorf("zones[%d] must be non-empty", i)
+		}
+		zoneKeys = append(zoneKeys, interfaces.ZoneKey{BuildingID: 0, Zone: z})
 	}
 
-	collections, nextPageToken, totalCount, err := s.collectionStore.ListCollections(ctx, info.OrganizationID, req.Type, pageSize, req.PageToken, sort, errorComponentTypes, req.Zones)
+	filter := &interfaces.DeviceSetFilter{
+		ErrorComponentTypes: errorComponentTypes,
+		ZoneKeys:            zoneKeys,
+	}
+
+	collections, nextPageToken, totalCount, err := s.collectionStore.ListCollections(ctx, info.OrganizationID, req.Type, pageSize, req.PageToken, sort, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -1159,6 +1248,11 @@ func (s *Service) ListRackTypes(ctx context.Context, _ *pb.ListRackTypesRequest)
 }
 
 // ListRackZones returns all distinct rack zones for the organization.
+//
+// Deprecated: this RPC still backs the legacy collection.v1 surface; new
+// callers (notably device_set.v1.ListRackZones) use ListRackZoneRefs to
+// receive (building_id, zone) tuples with denormalized labels. See
+// docs/plans/2026-05-14-229-miner-zone-building-filter-plan.md.
 func (s *Service) ListRackZones(ctx context.Context, _ *pb.ListRackZonesRequest) (*pb.ListRackZonesResponse, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
@@ -1171,6 +1265,18 @@ func (s *Service) ListRackZones(ctx context.Context, _ *pb.ListRackZonesRequest)
 	}
 
 	return &pb.ListRackZonesResponse{Zones: zones}, nil
+}
+
+// ListRackZoneRefs returns all distinct (building_id, zone) pairs in
+// the org with denormalized building and site labels. Backs
+// device_set.v1.ListRackZones, bypassing the deprecated collection.v1
+// flat-string shape.
+func (s *Service) ListRackZoneRefs(ctx context.Context) ([]interfaces.ZoneRefRow, error) {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return s.collectionStore.ListRackZoneRefs(ctx, info.OrganizationID)
 }
 
 // saveRackResult holds the result of the SaveRack transaction.

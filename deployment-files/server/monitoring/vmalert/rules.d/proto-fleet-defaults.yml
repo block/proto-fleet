@@ -1,0 +1,90 @@
+# proto-fleet-defaults: bootstrap rules shipped on first run.
+
+groups:
+  - name: proto-fleet-defaults
+    interval: 30s
+    rules:
+      - alert: DeviceOffline
+        # Fires when the gauge has been explicitly zero for five minutes.
+        # This only covers the case where the telemetry pipeline is still
+        # emitting fleet_device_online for the device and reports it as 0.
+        #
+        # NOTE: This rule does NOT catch the case where a single device's
+        # series vanishes entirely (per-device emitter regression or the
+        # device being removed from the polling set while others keep
+        # reporting). `absent_over_time(fleet_device_online[...])`
+        # operates on the whole selector and only fires when every
+        # `fleet_device_online` series has disappeared, so it cannot
+        # recover `device_id` for the per-device case. Detecting per-
+        # device disappearance reliably requires either an independent
+        # offline emitter that walks every paired device, or a
+        # per-device `fleet_device_last_seen_seconds` timestamp compared
+        # against `time()`.
+        expr: fleet_device_online == 0
+        for: 5m
+        labels:
+          severity: warning
+          rule_group: proto-fleet-defaults
+          template: offline
+        annotations:
+          summary: "Device {{ $labels.device_id }} is offline"
+          description: |
+            Device {{ $labels.device_id }} has been reporting
+            fleet_device_online=0 for at least five minutes.
+
+      - alert: DeviceTemperatureHigh
+        # Default temperature ceiling: per-device max temperature above
+        # 90 °C for ten minutes. Operators tune this per-org via the
+        # Temperature template once Issue 16 lands.
+        expr: max by (organization_id, device_id) (fleet_device_temperature_max_celsius) > 90
+        for: 10m
+        labels:
+          severity: warning
+          rule_group: proto-fleet-defaults
+          template: temperature
+        annotations:
+          summary: "Device {{ $labels.device_id }} is running hot"
+          description: |
+            Maximum sensor temperature for device {{ $labels.device_id }}
+            has been above 90 °C for at least ten minutes.
+
+      # NOTE: A default DevicePoolDisconnected alert used to live here, fed by
+      # fleet_device_pool_connected. It was removed because the gauge was
+      # derived from overall device health rather than from an explicit pool
+      # connectivity signal — meaning real pool disconnects / hijacks could go
+      # unnoticed while intentionally inactive devices fired noisy alerts. The
+      # metric remains reserved in the contract; a replacement default alert
+      # will land once plugins surface explicit pool state (e.g. comparing
+      # GetMiningPools against the configured pool URL/worker). Operators who
+      # need pool monitoring today should author a custom rule scoped to the
+      # signal they trust.
+
+      - alert: TelemetryPollFailureRateHigh
+        # Sustained telemetry poll failures usually mean a network or
+        # auth problem affecting many devices at once. Fires when the
+        # failure rate over the last ten minutes exceeds the success
+        # rate.
+        #
+        # The success side is zero-filled via `or on(organization_id)
+        # (... * 0)` so a complete org-wide outage (failures present but
+        # no success samples in the window) still produces a sample to
+        # compare against, instead of being dropped by vector matching.
+        expr: |
+          sum by (organization_id) (rate(fleet_telemetry_poll_total{result="failure"}[10m]))
+            >
+          (
+            sum by (organization_id) (rate(fleet_telemetry_poll_total{result="success"}[10m]))
+            or
+            (sum by (organization_id) (rate(fleet_telemetry_poll_total{result="failure"}[10m])) * 0)
+          )
+        for: 10m
+        labels:
+          severity: warning
+          rule_group: proto-fleet-defaults
+          template: telemetry-poll
+        annotations:
+          summary: "Telemetry polling is failing for organization {{ $labels.organization_id }}"
+          description: |
+            More telemetry polls are failing than succeeding for the
+            last ten minutes. This typically indicates a fleet-wide
+            connectivity or credential problem.

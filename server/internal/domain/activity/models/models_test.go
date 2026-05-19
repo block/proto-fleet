@@ -43,6 +43,7 @@ func TestActorTypeValid(t *testing.T) {
 		{ActorUser, true},
 		{ActorSystem, true},
 		{ActorScheduler, true},
+		{ActorCurtailment, true},
 		{ActorType(""), false},
 		{ActorType("unknown"), false},
 	}
