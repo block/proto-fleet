@@ -12,7 +12,6 @@ import (
 	context "context"
 	errors "errors"
 	v1 "github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1"
-	v11 "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	http "net/http"
 	strings "strings"
 )
@@ -75,7 +74,7 @@ type FleetNodeAdminServiceClient interface {
 	// Operator-initiated discovery on a specific fleet node. Server
 	// proxies the request to the agent over ControlStream and forwards
 	// results back to the operator as they arrive.
-	DiscoverOnFleetNode(context.Context, *connect.Request[v1.DiscoverOnFleetNodeRequest]) (*connect.ServerStreamForClient[v11.DiscoverResponse], error)
+	DiscoverOnFleetNode(context.Context, *connect.Request[v1.DiscoverOnFleetNodeRequest]) (*connect.ServerStreamForClient[v1.DiscoverOnFleetNodeResponse], error)
 }
 
 // NewFleetNodeAdminServiceClient constructs a client for the
@@ -123,7 +122,7 @@ func NewFleetNodeAdminServiceClient(httpClient connect.HTTPClient, baseURL strin
 			baseURL+FleetNodeAdminServiceListFleetNodeDevicesProcedure,
 			opts...,
 		),
-		discoverOnFleetNode: connect.NewClient[v1.DiscoverOnFleetNodeRequest, v11.DiscoverResponse](
+		discoverOnFleetNode: connect.NewClient[v1.DiscoverOnFleetNodeRequest, v1.DiscoverOnFleetNodeResponse](
 			httpClient,
 			baseURL+FleetNodeAdminServiceDiscoverOnFleetNodeProcedure,
 			opts...,
@@ -140,7 +139,7 @@ type fleetNodeAdminServiceClient struct {
 	pairDeviceToFleetNode *connect.Client[v1.PairDeviceToFleetNodeRequest, v1.PairDeviceToFleetNodeResponse]
 	unpairDevice          *connect.Client[v1.UnpairDeviceRequest, v1.UnpairDeviceResponse]
 	listFleetNodeDevices  *connect.Client[v1.ListFleetNodeDevicesRequest, v1.ListFleetNodeDevicesResponse]
-	discoverOnFleetNode   *connect.Client[v1.DiscoverOnFleetNodeRequest, v11.DiscoverResponse]
+	discoverOnFleetNode   *connect.Client[v1.DiscoverOnFleetNodeRequest, v1.DiscoverOnFleetNodeResponse]
 }
 
 // CreateEnrollmentCode calls fleetnodeadmin.v1.FleetNodeAdminService.CreateEnrollmentCode.
@@ -179,7 +178,7 @@ func (c *fleetNodeAdminServiceClient) ListFleetNodeDevices(ctx context.Context, 
 }
 
 // DiscoverOnFleetNode calls fleetnodeadmin.v1.FleetNodeAdminService.DiscoverOnFleetNode.
-func (c *fleetNodeAdminServiceClient) DiscoverOnFleetNode(ctx context.Context, req *connect.Request[v1.DiscoverOnFleetNodeRequest]) (*connect.ServerStreamForClient[v11.DiscoverResponse], error) {
+func (c *fleetNodeAdminServiceClient) DiscoverOnFleetNode(ctx context.Context, req *connect.Request[v1.DiscoverOnFleetNodeRequest]) (*connect.ServerStreamForClient[v1.DiscoverOnFleetNodeResponse], error) {
 	return c.discoverOnFleetNode.CallServerStream(ctx, req)
 }
 
@@ -196,7 +195,7 @@ type FleetNodeAdminServiceHandler interface {
 	// Operator-initiated discovery on a specific fleet node. Server
 	// proxies the request to the agent over ControlStream and forwards
 	// results back to the operator as they arrive.
-	DiscoverOnFleetNode(context.Context, *connect.Request[v1.DiscoverOnFleetNodeRequest], *connect.ServerStream[v11.DiscoverResponse]) error
+	DiscoverOnFleetNode(context.Context, *connect.Request[v1.DiscoverOnFleetNodeRequest], *connect.ServerStream[v1.DiscoverOnFleetNodeResponse]) error
 }
 
 // NewFleetNodeAdminServiceHandler builds an HTTP handler from the service implementation. It
@@ -300,6 +299,6 @@ func (UnimplementedFleetNodeAdminServiceHandler) ListFleetNodeDevices(context.Co
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetnodeadmin.v1.FleetNodeAdminService.ListFleetNodeDevices is not implemented"))
 }
 
-func (UnimplementedFleetNodeAdminServiceHandler) DiscoverOnFleetNode(context.Context, *connect.Request[v1.DiscoverOnFleetNodeRequest], *connect.ServerStream[v11.DiscoverResponse]) error {
+func (UnimplementedFleetNodeAdminServiceHandler) DiscoverOnFleetNode(context.Context, *connect.Request[v1.DiscoverOnFleetNodeRequest], *connect.ServerStream[v1.DiscoverOnFleetNodeResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("fleetnodeadmin.v1.FleetNodeAdminService.DiscoverOnFleetNode is not implemented"))
 }

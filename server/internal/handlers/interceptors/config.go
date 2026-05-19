@@ -71,6 +71,10 @@ var SessionOnlyProcedures = []string{
 	fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodesProcedure,
 	fleetnodeadminv1connect.FleetNodeAdminServiceConfirmFleetNodeProcedure,
 	fleetnodeadminv1connect.FleetNodeAdminServiceRevokeFleetNodeProcedure,
+	fleetnodeadminv1connect.FleetNodeAdminServicePairDeviceToFleetNodeProcedure,
+	fleetnodeadminv1connect.FleetNodeAdminServiceUnpairDeviceProcedure,
+	fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodeDevicesProcedure,
+	fleetnodeadminv1connect.FleetNodeAdminServiceDiscoverOnFleetNodeProcedure,
 	// AdminTerminateEvent forces a non-terminal event to a terminal state and
 	// is session-only. Paired with handler-side requireAdminFromContext in
 	// handlers/curtailment/handler.go; neither check alone is sufficient.
@@ -102,6 +106,7 @@ var FleetNodeAuthenticatedProcedures = []string{
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadEventsProcedure,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadHeartbeatProcedure,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceControlStreamProcedure,
+	fleetnodegatewayv1connect.FleetNodeGatewayServiceReportDiscoveredDevicesProcedure,
 }
 
 // SensitiveBodyProcedures lists RPCs whose request/response bodies must not be
