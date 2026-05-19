@@ -186,6 +186,20 @@ func (s *SQLFleetNodeEnrollmentStore) UpdateLastSeen(ctx context.Context, fleetN
 	})
 }
 
+func (s *SQLFleetNodeEnrollmentStore) DeletePairingsForFleetNode(ctx context.Context, fleetNodeID, orgID int64) (int64, error) {
+	return s.q(ctx).DeletePairingsForFleetNode(ctx, sqlc.DeletePairingsForFleetNodeParams{
+		FleetNodeID: fleetNodeID,
+		OrgID:       orgID,
+	})
+}
+
+func (s *SQLFleetNodeEnrollmentStore) ClearAttributionForFleetNode(ctx context.Context, fleetNodeID, orgID int64) (int64, error) {
+	return s.q(ctx).ClearAttributionForFleetNode(ctx, sqlc.ClearAttributionForFleetNodeParams{
+		DiscoveredByFleetNodeID: sql.NullInt64{Int64: fleetNodeID, Valid: true},
+		OrgID:                   orgID,
+	})
+}
+
 func rowToPending(row sqlc.PendingEnrollment) *fleetnodeenrollment.PendingEnrollment {
 	return &fleetnodeenrollment.PendingEnrollment{
 		ID:          row.ID,

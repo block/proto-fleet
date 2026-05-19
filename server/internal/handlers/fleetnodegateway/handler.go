@@ -11,6 +11,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnodeauth"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnodeenrollment"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnodepairing"
 )
 
 type Handler struct {
@@ -18,12 +19,13 @@ type Handler struct {
 
 	enrollment *fleetnodeenrollment.Service
 	auth       *fleetnodeauth.Service
+	pairing    *fleetnodepairing.Service
 }
 
 var _ fleetnodegatewayv1connect.FleetNodeGatewayServiceHandler = &Handler{}
 
-func NewHandler(enrollment *fleetnodeenrollment.Service, auth *fleetnodeauth.Service) *Handler {
-	return &Handler{enrollment: enrollment, auth: auth}
+func NewHandler(enrollment *fleetnodeenrollment.Service, auth *fleetnodeauth.Service, pairing *fleetnodepairing.Service) *Handler {
+	return &Handler{enrollment: enrollment, auth: auth, pairing: pairing}
 }
 
 func (h *Handler) Register(ctx context.Context, req *connect.Request[pb.RegisterRequest]) (*connect.Response[pb.RegisterResponse], error) {
@@ -71,5 +73,33 @@ func (h *Handler) UploadHeartbeat(ctx context.Context, _ *connect.Request[pb.Upl
 	}
 	return connect.NewResponse(&pb.UploadHeartbeatResponse{
 		ReceivedAt: timestamppb.New(now),
+	}), nil
+}
+
+func (h *Handler) ReportDiscoveredDevices(ctx context.Context, req *connect.Request[pb.ReportDiscoveredDevicesRequest]) (*connect.Response[pb.ReportDiscoveredDevicesResponse], error) {
+	subject, err := fleetnodeauth.GetSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	in := req.Msg.GetDevices()
+	reports := make([]fleetnodepairing.DiscoveredDeviceReport, 0, len(in))
+	for _, d := range in {
+		reports = append(reports, fleetnodepairing.DiscoveredDeviceReport{
+			DeviceIdentifier: d.GetDeviceIdentifier(),
+			IPAddress:        d.GetIpAddress(),
+			Port:             d.GetPort(),
+			URLScheme:        d.GetUrlScheme(),
+			DriverName:       d.GetDriverName(),
+			Model:            d.GetModel(),
+			Manufacturer:     d.GetManufacturer(),
+			FirmwareVersion:  d.GetFirmwareVersion(),
+		})
+	}
+	accepted, _, err := h.pairing.UpsertDiscoveredDevices(ctx, subject.FleetNodeID, subject.OrgID, reports)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.ReportDiscoveredDevicesResponse{
+		AcceptedCount: accepted,
 	}), nil
 }

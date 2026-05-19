@@ -20,6 +20,9 @@ type DiscoveredDevice struct {
 	OrgID           int64
 	FirstDiscovered time.Time
 	LastSeen        time.Time
+	// Non-nil when an agent reported the row; server-local pairing
+	// must not dial these IPs.
+	DiscoveredByFleetNodeID *int64
 }
 
 // GetDeviceOrgIdentifier returns the device organization identifier

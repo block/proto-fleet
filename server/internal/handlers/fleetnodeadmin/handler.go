@@ -11,6 +11,7 @@ import (
 	domainAuth "github.com/block/proto-fleet/server/internal/domain/auth"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnodeenrollment"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnodepairing"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 )
 
@@ -18,12 +19,13 @@ type Handler struct {
 	fleetnodeadminv1connect.UnimplementedFleetNodeAdminServiceHandler
 
 	enrollment *fleetnodeenrollment.Service
+	pairing    *fleetnodepairing.Service
 }
 
 var _ fleetnodeadminv1connect.FleetNodeAdminServiceHandler = &Handler{}
 
-func NewHandler(enrollment *fleetnodeenrollment.Service) *Handler {
-	return &Handler{enrollment: enrollment}
+func NewHandler(enrollment *fleetnodeenrollment.Service, pairing *fleetnodepairing.Service) *Handler {
+	return &Handler{enrollment: enrollment, pairing: pairing}
 }
 
 func (h *Handler) CreateEnrollmentCode(ctx context.Context, _ *connect.Request[pb.CreateEnrollmentCodeRequest]) (*connect.Response[pb.CreateEnrollmentCodeResponse], error) {
@@ -92,6 +94,60 @@ func (h *Handler) RevokeFleetNode(ctx context.Context, req *connect.Request[pb.R
 		return nil, err
 	}
 	return connect.NewResponse(&pb.RevokeFleetNodeResponse{}), nil
+}
+
+func (h *Handler) PairDeviceToFleetNode(ctx context.Context, req *connect.Request[pb.PairDeviceToFleetNodeRequest]) (*connect.Response[pb.PairDeviceToFleetNodeResponse], error) {
+	info, err := h.requireAdminSession(ctx)
+	if err != nil {
+		return nil, err
+	}
+	assignedBy := info.UserID
+	if err := h.pairing.PairDevice(ctx, req.Msg.GetFleetNodeId(), req.Msg.GetDeviceId(), info.OrganizationID, &assignedBy); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.PairDeviceToFleetNodeResponse{}), nil
+}
+
+func (h *Handler) UnpairDevice(ctx context.Context, req *connect.Request[pb.UnpairDeviceRequest]) (*connect.Response[pb.UnpairDeviceResponse], error) {
+	info, err := h.requireAdminSession(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := h.pairing.UnpairDevice(ctx, req.Msg.GetDeviceId(), info.OrganizationID); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.UnpairDeviceResponse{}), nil
+}
+
+func (h *Handler) ListFleetNodeDevices(ctx context.Context, req *connect.Request[pb.ListFleetNodeDevicesRequest]) (*connect.Response[pb.ListFleetNodeDevicesResponse], error) {
+	info, err := h.requireAdminSession(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var pairs []fleetnodepairing.FleetNodeDevice
+	if fleetNodeID := req.Msg.GetFleetNodeId(); fleetNodeID > 0 {
+		pairs, err = h.pairing.ListDevicesForFleetNode(ctx, fleetNodeID, info.OrganizationID)
+	} else {
+		pairs, err = h.pairing.ListPairs(ctx, info.OrganizationID)
+	}
+	if err != nil {
+		return nil, err
+	}
+	resp := &pb.ListFleetNodeDevicesResponse{Pairs: make([]*pb.FleetNodeDeviceSummary, 0, len(pairs))}
+	for _, p := range pairs {
+		summary := &pb.FleetNodeDeviceSummary{
+			FleetNodeId:      p.FleetNodeID,
+			DeviceId:         p.DeviceID,
+			DeviceIdentifier: p.DeviceIdentifier,
+			DeviceType:       p.DeviceType,
+			AssignedAt:       timestamppb.New(p.AssignedAt),
+		}
+		if p.AssignedBy != nil {
+			summary.AssignedBy = p.AssignedBy
+		}
+		resp.Pairs = append(resp.Pairs, summary)
+	}
+	return connect.NewResponse(resp), nil
 }
 
 func (h *Handler) requireAdminSession(ctx context.Context) (*session.Info, error) {

@@ -64,9 +64,15 @@ type AgentStore interface {
 	UpdateLastSeen(ctx context.Context, fleetNodeID, orgID int64, now time.Time) (int64, error)
 }
 
+type RevocationCleanupStore interface {
+	DeletePairingsForFleetNode(ctx context.Context, fleetNodeID, orgID int64) (int64, error)
+	ClearAttributionForFleetNode(ctx context.Context, fleetNodeID, orgID int64) (int64, error)
+}
+
 type Store interface {
 	PendingEnrollmentStore
 	AgentStore
+	RevocationCleanupStore
 }
 
 type Service struct {
@@ -253,6 +259,12 @@ func (s *Service) RevokeFleetNode(ctx context.Context, agentID, orgID int64) err
 		}
 		if _, err := s.apiKeySvc.RevokeForFleetNode(ctx, agentID, orgID); err != nil {
 			return err
+		}
+		if _, err := s.store.DeletePairingsForFleetNode(ctx, agentID, orgID); err != nil {
+			return logInternal("delete pairings for fleet node", clientErrRevokeFleetNode, err)
+		}
+		if _, err := s.store.ClearAttributionForFleetNode(ctx, agentID, orgID); err != nil {
+			return logInternal("clear discovery attribution for fleet node", clientErrRevokeFleetNode, err)
 		}
 		if _, err := s.store.SoftDeleteFleetNode(ctx, agentID, orgID, now); err != nil {
 			return logInternal("soft delete fleet node", clientErrRevokeFleetNode, err)
