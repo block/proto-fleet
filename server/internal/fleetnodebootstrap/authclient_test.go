@@ -11,6 +11,8 @@ import (
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
@@ -47,7 +49,8 @@ func TestAuthenticatedClient_AttachesBearerHeaderPerCall(t *testing.T) {
 	mux := http.NewServeMux()
 	path, h := fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(fake)
 	mux.Handle(path, h)
-	srv := httptest.NewServer(mux)
+	srv := httptest.NewUnstartedServer(h2c.NewHandler(mux, &http2.Server{}))
+	srv.Start()
 	t.Cleanup(srv.Close)
 
 	var token string
@@ -72,7 +75,8 @@ func TestAuthenticatedClient_RejectsEmptyToken(t *testing.T) {
 	t.Parallel()
 
 	// Arrange
-	srv := httptest.NewServer(http.NewServeMux())
+	srv := httptest.NewUnstartedServer(h2c.NewHandler(http.NewServeMux(), &http2.Server{}))
+	srv.Start()
 	t.Cleanup(srv.Close)
 	client := NewAuthenticatedGatewayClient(srv.URL, func() string { return "" })
 

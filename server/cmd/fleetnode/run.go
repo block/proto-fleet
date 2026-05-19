@@ -305,8 +305,12 @@ func (r *RunCmd) tick(ctx context.Context, client gatewayClient, st *fleetnodebo
 	return nil
 }
 
+const heartbeatTimeout = 30 * time.Second
+
 func (r *RunCmd) sendHeartbeat(ctx context.Context, client gatewayClient) error {
-	_, err := client.UploadHeartbeat(ctx, connect.NewRequest(&pb.UploadHeartbeatRequest{
+	callCtx, cancel := context.WithTimeout(ctx, heartbeatTimeout)
+	defer cancel()
+	_, err := client.UploadHeartbeat(callCtx, connect.NewRequest(&pb.UploadHeartbeatRequest{
 		SentAt: timestamppb.New(r.now()),
 	}))
 	return err
