@@ -162,9 +162,9 @@ func (h *Handler) ListFleetNodeDevices(ctx context.Context, req *connect.Request
 
 // DiscoverOnFleetNode forwards an operator-initiated discovery to a confirmed
 // fleet node over its open ControlStream. IPRange is expanded server-side into
-// an IPList so the agent only ever runs IPList probes. MDNS is rejected: the
-// agent doesn't run an mDNS listener. Nmap is rejected today and will be
-// allowed once the agent ships with a bundled nmap binary.
+// an IPList so the agent only ever runs IPList probes for that mode. Nmap is
+// forwarded unchanged for the agent to execute via its bundled nmap binary.
+// MDNS is rejected: the agent doesn't run an mDNS listener.
 func (h *Handler) DiscoverOnFleetNode(ctx context.Context, req *connect.Request[pb.DiscoverOnFleetNodeRequest], stream *connect.ServerStream[pb.DiscoverOnFleetNodeResponse]) error {
 	info, err := h.requireAdminSession(ctx)
 	if err != nil {
@@ -245,7 +245,8 @@ func newCommandID() (string, error) {
 }
 
 // normalizeDiscoverRequest returns the request the agent will see: IPList
-// passes through, IPRange is expanded into IPList, MDNS/Nmap are rejected.
+// passes through, IPRange is expanded into IPList, Nmap passes through for
+// the agent's bundled nmap binary to execute, MDNS is rejected.
 func normalizeDiscoverRequest(in *pairingpb.DiscoverRequest) (*pairingpb.DiscoverRequest, error) {
 	switch m := in.GetMode().(type) {
 	case *pairingpb.DiscoverRequest_IpList:
@@ -266,10 +267,13 @@ func normalizeDiscoverRequest(in *pairingpb.DiscoverRequest) (*pairingpb.Discove
 				},
 			},
 		}, nil
+	case *pairingpb.DiscoverRequest_Nmap:
+		if m.Nmap == nil || m.Nmap.GetTarget() == "" {
+			return nil, fleeterror.NewInvalidArgumentError("nmap.target must not be empty")
+		}
+		return in, nil
 	case *pairingpb.DiscoverRequest_Mdns:
 		return nil, fleeterror.NewInvalidArgumentError("mdns discovery is not supported on fleet nodes")
-	case *pairingpb.DiscoverRequest_Nmap:
-		return nil, fleeterror.NewInvalidArgumentError("nmap discovery on fleet nodes is not yet supported")
 	default:
 		return nil, fleeterror.NewInvalidArgumentError("discover request mode is required")
 	}

@@ -133,6 +133,77 @@ func TestDiscoverOnFleetNode_RejectsMDNSMode(t *testing.T) {
 	assert.Equal(t, connect.CodeInvalidArgument, connErr.Code())
 }
 
+func TestDiscoverOnFleetNode_NmapModePassesThrough(t *testing.T) {
+	// Arrange
+	h := newPairingHarness(t)
+	fleetNodeID := h.createFleetNode(t, "admin-discover-nmap")
+	stream, err := h.registry.Register(fleetNodeID)
+	require.NoError(t, err)
+	defer stream.Unregister()
+
+	client := startAdminServer(t, h)
+
+	gotTarget := make(chan string, 1)
+	go func() {
+		select {
+		case cmd, ok := <-stream.Outgoing:
+			if !ok {
+				return
+			}
+			var req pairingpb.DiscoverRequest
+			require.NoError(t, proto.Unmarshal(cmd.GetPayload(), &req))
+			gotTarget <- req.GetNmap().GetTarget()
+			stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Succeeded: true})
+		case <-time.After(2 * time.Second):
+			t.Errorf("timed out waiting for command")
+		}
+	}()
+
+	// Act
+	resp, err := client.DiscoverOnFleetNode(context.Background(), connect.NewRequest(&pb.DiscoverOnFleetNodeRequest{
+		FleetNodeId: fleetNodeID,
+		Request: &pairingpb.DiscoverRequest{
+			Mode: &pairingpb.DiscoverRequest_Nmap{Nmap: &pairingpb.NmapModeRequest{Target: "10.0.0.0/28", Ports: []string{"4028"}}},
+		},
+	}))
+	require.NoError(t, err)
+	for resp.Receive() {
+	}
+	require.NoError(t, resp.Err())
+
+	// Assert
+	select {
+	case target := <-gotTarget:
+		assert.Equal(t, "10.0.0.0/28", target)
+	case <-time.After(2 * time.Second):
+		t.Fatal("agent never received Nmap command")
+	}
+}
+
+func TestDiscoverOnFleetNode_NmapModeRejectsEmptyTarget(t *testing.T) {
+	// Arrange
+	h := newPairingHarness(t)
+	fleetNodeID := h.createFleetNode(t, "admin-discover-nmap-empty")
+	client := startAdminServer(t, h)
+
+	// Act
+	resp, err := client.DiscoverOnFleetNode(context.Background(), connect.NewRequest(&pb.DiscoverOnFleetNodeRequest{
+		FleetNodeId: fleetNodeID,
+		Request: &pairingpb.DiscoverRequest{
+			Mode: &pairingpb.DiscoverRequest_Nmap{Nmap: &pairingpb.NmapModeRequest{}},
+		},
+	}))
+	require.NoError(t, err)
+	for resp.Receive() {
+		t.Fatal("expected no batches before error")
+	}
+
+	// Assert
+	var connErr *connect.Error
+	require.True(t, errors.As(resp.Err(), &connErr))
+	assert.Equal(t, connect.CodeInvalidArgument, connErr.Code())
+}
+
 func TestDiscoverOnFleetNode_ExpandsIPRangeIntoIPList(t *testing.T) {
 	// Arrange
 	h := newPairingHarness(t)
