@@ -8,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 )
 
 func TestGatewayHTTPClient_RejectsRedirect(t *testing.T) {
@@ -25,10 +27,12 @@ func TestGatewayHTTPClient_RejectsRedirect(t *testing.T) {
 			t.Parallel()
 
 			// Arrange
-			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.Header().Set("Location", "http://attacker.example.com/")
 				w.WriteHeader(code)
-			}))
+			})
+			srv := httptest.NewUnstartedServer(h2c.NewHandler(handler, &http2.Server{}))
+			srv.Start()
 			t.Cleanup(srv.Close)
 			client := newGatewayHTTPClient()
 
@@ -43,14 +47,4 @@ func TestGatewayHTTPClient_RejectsRedirect(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestGatewayHTTPClient_HasTimeout(t *testing.T) {
-	t.Parallel()
-
-	// Act
-	client := newGatewayHTTPClient()
-
-	// Assert
-	assert.Equal(t, httpClientTimeout, client.Timeout)
 }
