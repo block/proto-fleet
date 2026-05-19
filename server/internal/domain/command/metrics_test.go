@@ -65,6 +65,8 @@ func TestCommandKindLabelCoversEveryCommandType(t *testing.T) {
 		commandtype.FirmwareUpdate,
 		commandtype.Unpair,
 		commandtype.UpdateMinerPassword,
+		commandtype.Curtail,
+		commandtype.Uncurtail,
 	}
 	seen := make(map[string]struct{}, len(allTypes))
 	for _, cmd := range allTypes {

@@ -397,6 +397,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 			Payload:     payload,
 		}
 
+		mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
 		mockMinerGetter.EXPECT().GetMiner(gomock.Any(), int64(50)).Return(mockMiner, nil)
 		mockMiner.EXPECT().
 			Curtail(gomock.Any(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull}).
@@ -408,7 +409,8 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 			WorkerExecutionTimeout: 5 * time.Second,
 		}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
 
-		require.NoError(t, svc.executeCommandOnDevice(t.Context(), commandtype.Curtail, message))
+		_, err = svc.executeCommandOnDevice(t.Context(), commandtype.Curtail, message)
+		require.NoError(t, err)
 	})
 
 	t.Run("Curtail surfaces unmarshal failure", func(t *testing.T) {
@@ -426,6 +428,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 			Payload:     []byte("not-json"),
 		}
 
+		mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
 		mockMinerGetter.EXPECT().GetMiner(gomock.Any(), int64(51)).Return(mockMiner, nil)
 		// Curtail must NOT be called when payload unmarshal fails.
 
@@ -435,7 +438,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 			WorkerExecutionTimeout: 5 * time.Second,
 		}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
 
-		err := svc.executeCommandOnDevice(t.Context(), commandtype.Curtail, message)
+		_, err := svc.executeCommandOnDevice(t.Context(), commandtype.Curtail, message)
 		require.Error(t, err)
 		assert.True(t, fleeterror.IsFailedPreconditionError(err), "expected FailedPrecondition, got %v", err)
 		assert.Contains(t, err.Error(), "unmarshalling curtail payload")
@@ -462,6 +465,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 				Payload:     payload,
 			}
 
+			mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
 			mockMinerGetter.EXPECT().GetMiner(gomock.Any(), int64(53)).Return(mockMiner, nil)
 			// No mockMiner.EXPECT().Curtail(...) — bounds check must short-circuit.
 
@@ -471,7 +475,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 				WorkerExecutionTimeout: 5 * time.Second,
 			}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
 
-			err = svc.executeCommandOnDevice(t.Context(), commandtype.Curtail, message)
+			_, err = svc.executeCommandOnDevice(t.Context(), commandtype.Curtail, message)
 			require.Error(t, err)
 			assert.True(t, fleeterror.IsFailedPreconditionError(err), "expected FailedPrecondition, got %v", err)
 			assert.Contains(t, err.Error(), "invalid curtail level")
@@ -492,6 +496,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 			DeviceID:    52,
 		}
 
+		mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
 		mockMinerGetter.EXPECT().GetMiner(gomock.Any(), int64(52)).Return(mockMiner, nil)
 		mockMiner.EXPECT().
 			Uncurtail(gomock.Any(), sdk.UncurtailRequest{}).
@@ -503,7 +508,8 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 			WorkerExecutionTimeout: 5 * time.Second,
 		}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
 
-		require.NoError(t, svc.executeCommandOnDevice(t.Context(), commandtype.Uncurtail, message))
+		_, err := svc.executeCommandOnDevice(t.Context(), commandtype.Uncurtail, message)
+		require.NoError(t, err)
 	})
 }
 
