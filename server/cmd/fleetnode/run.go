@@ -70,19 +70,20 @@ func (r *RunCmd) run(c *Context, stderr io.Writer) error {
 		r.parentCtx = context.Background()
 	}
 
-	// Resolve --plugins-dir (or the binary-adjacent default) before touching
-	// disk state so misconfiguration fails fast. The plugin manager execs
-	// anything in the resolved directory, so any non-owner write capability
-	// at that path is RCE-equivalent.
+	// Resolve --plugins-dir and --nmap-path before touching disk state so
+	// misconfiguration fails fast. The plugin manager execs anything in the
+	// resolved plugins dir, so any non-owner write capability there is
+	// RCE-equivalent.
+	exeDir := executableDir()
 	var resolvedPluginsDir string
 	if r.discoverer == nil {
-		resolved, resolveErr := resolvePluginsDir(r.PluginsDir, executableDir())
+		resolved, resolveErr := resolvePluginsDir(r.PluginsDir, exeDir)
 		if resolveErr != nil {
 			return resolveErr
 		}
 		resolvedPluginsDir = resolved
 	}
-	resolvedNmapPath, err := resolveNmapPath(r.NmapPath, executableDir())
+	resolvedNmapPath, err := resolveNmapPath(r.NmapPath, exeDir)
 	if err != nil {
 		return err
 	}

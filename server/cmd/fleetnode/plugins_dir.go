@@ -6,20 +6,12 @@ import (
 	"path/filepath"
 )
 
-// resolvePluginsDir picks the plugins directory the control loop should use.
-//
-// Explicit flag: must be an absolute path; perms are enforced.
-// No flag:       look for <exeDir>/plugins. Missing dir means "no control
-//
-//	loop, heartbeat only" so operators get a heartbeat-only
-//	daemon out of the box. A present but unsafe dir is a hard
-//	error — silently downgrading would hide misconfiguration
-//	that an operator who shipped plugins probably wants to know
-//	about.
-//
-// Any returned non-empty path has passed checkPluginsDirPerms: the plugin
-// manager execs everything in this directory as the agent's user, so any
-// non-owner write capability is RCE-equivalent.
+// resolvePluginsDir returns the plugins directory or "" when no usable
+// directory exists. A missing binary-adjacent default is silent (heartbeat
+// only); a present but unsafe default is a hard error so the operator who
+// shipped plugins learns about it. Any returned non-empty path has passed
+// checkPluginsDirPerms — the plugin manager execs everything in this
+// directory, so non-owner write capability there is RCE-equivalent.
 func resolvePluginsDir(flag, exeDir string) (string, error) {
 	if flag != "" {
 		if !filepath.IsAbs(flag) {
@@ -50,8 +42,6 @@ func resolvePluginsDir(flag, exeDir string) (string, error) {
 	return candidate, nil
 }
 
-// executableDir returns the directory containing the running binary, or ""
-// if os.Executable fails (e.g. on platforms where it isn't supported).
 func executableDir() string {
 	exe, err := os.Executable()
 	if err != nil {

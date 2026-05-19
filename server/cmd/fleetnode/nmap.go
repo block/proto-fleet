@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/Ullaakut/nmap/v3"
@@ -25,15 +24,10 @@ const (
 	nmapDefaultBinaryName = "nmap"
 )
 
-// resolveNmapPath picks the nmap binary path.
-//
-// Explicit flag: must be an absolute path that points at an executable file.
-// No flag:       prefer <exeDir>/nmap (bundled-with-installer layout) when
-//
-//	it exists and is executable; otherwise return "nmap" so the
-//	Ullaakut library + exec.LookPath resolve it from PATH at
-//	scan time. Returning a name (not a path) here is the same
-//	contract the underlying library uses internally.
+// resolveNmapPath returns either an absolute path (explicit flag or
+// binary-adjacent default) or the bare name "nmap" so Ullaakut's exec.LookPath
+// resolves from PATH at scan time. Bare name is a deliberate contract with the
+// library, not an oversight.
 func resolveNmapPath(flag, exeDir string) (string, error) {
 	if flag != "" {
 		if !filepath.IsAbs(flag) {
@@ -67,9 +61,6 @@ func checkExecutableFile(path string) error {
 	return nil
 }
 
-// runNmapDiscovery executes an nmap scan against the request's target and
-// ports, then runs the plugin Probe on every open host:port the scan
-// reports. Returns reports the caller streams via ReportDiscoveredDevices.
 func (r *RunCmd) runNmapDiscovery(ctx context.Context, req *pairingpb.NmapModeRequest, logger *slog.Logger) ([]*pb.DiscoveredDeviceReport, error) {
 	target := strings.TrimSpace(req.GetTarget())
 	if target == "" {
@@ -109,8 +100,7 @@ func (r *RunCmd) runNmapDiscovery(ctx context.Context, req *pairingpb.NmapModeRe
 		return nil, nil
 	}
 
-	type hostPort struct{ ip, port string }
-	var open []hostPort
+	var open []endpoint
 	for _, host := range result.Hosts {
 		var ip string
 		for _, a := range host.Addresses {
@@ -123,48 +113,12 @@ func (r *RunCmd) runNmapDiscovery(ctx context.Context, req *pairingpb.NmapModeRe
 			continue
 		}
 		for _, p := range host.Ports {
-			if p.Status() == "open" {
-				open = append(open, hostPort{ip: ip, port: fmt.Sprintf("%d", p.ID)})
+			if p.Status() == nmap.Open {
+				open = append(open, endpoint{ip: ip, port: fmt.Sprintf("%d", p.ID)})
 			}
 		}
 	}
 	logger.Info("nmap scan complete", "open_endpoints", len(open))
 
-	// Probe each open endpoint via the plugin manager. Mirror runProbes'
-	// concurrency model so a flood of open hosts can't fork the plugin
-	// manager into the ground.
-	var (
-		mu  sync.Mutex
-		out []*pb.DiscoveredDeviceReport
-		wg  sync.WaitGroup
-	)
-	sem := make(chan struct{}, nmapProbeConcurrency)
-	for _, hp := range open {
-		select {
-		case sem <- struct{}{}:
-		case <-ctx.Done():
-			wg.Wait()
-			return out, nil
-		}
-		wg.Add(1)
-		go func(ip, port string) {
-			defer wg.Done()
-			defer func() { <-sem }()
-			probeCtx, cancel := context.WithTimeout(ctx, perProbeTimeout)
-			defer cancel()
-			report, err := r.discoverer.Probe(probeCtx, ip, port)
-			if err != nil {
-				logger.Debug("nmap follow-up probe failed", "ip", ip, "port", port, "err", err)
-				return
-			}
-			if report == nil || report.GetDeviceIdentifier() == "" {
-				return
-			}
-			mu.Lock()
-			out = append(out, report)
-			mu.Unlock()
-		}(hp.ip, hp.port)
-	}
-	wg.Wait()
-	return out, nil
+	return fanOutProbes(ctx, open, nmapProbeConcurrency, r.discoverer.Probe, logger), nil
 }
