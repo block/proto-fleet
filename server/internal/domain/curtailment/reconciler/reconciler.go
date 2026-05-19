@@ -444,10 +444,6 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 		return
 	}
 
-	// Max-duration enforcement runs before drift detection so a cap that
-	// elapsed mid-tick doesn't waste a drift redispatch on a target the
-	// event is about to release. Returns true when the event transitioned;
-	// next tick will pick it up as restoring.
 	if r.enforceMaxDuration(ctx, ev, targets) {
 		return
 	}
@@ -852,6 +848,10 @@ func (r *Reconciler) maybeCompleteRestoring(ctx context.Context, ev *models.Even
 		case models.TargetStatePending, models.TargetStateDispatched,
 			models.TargetStateDrifted, models.TargetStateConfirmed:
 			// Not yet terminal.
+			return false
+		default:
+			// Unknown state from a future schema addition: stay non-terminal
+			// rather than completing the event prematurely.
 			return false
 		}
 	}

@@ -48,18 +48,15 @@ type fakeStore struct {
 
 	// Stop-path fakes. eventsByUUID feeds GetEventByUUID;
 	// targetsByEventUUID feeds ListTargetsByEvent;
-	// beginRestoreErr / beginRestoreResult / beginRestoreLastBatchSize give
-	// Service.Stop tests control over BeginRestoreTransition outcomes.
+	// beginRestoreErr / beginRestoreLastBatch give Service.Stop tests control
+	// over BeginRestoreTransition outcomes.
 	eventsByUUID            map[uuid.UUID]*models.Event
 	targetsByEventUUID      map[uuid.UUID][]*models.Target
 	listTargetsErr          error
 	beginRestoreErr         error
-	beginRestoreResult      *models.Event
 	beginRestoreCalls       int
 	beginRestoreLastBatch   int32
 	beginRestoreLastEventID uuid.UUID
-	getEventByUUIDLastOrg   int64
-	listTargetsLastOrg      int64
 }
 
 func newFakeStore() *fakeStore {
@@ -119,8 +116,7 @@ func (f *fakeStore) ListCandidates(_ context.Context, orgID int64, deviceIdentif
 // configure the maps above so the GetEventByUUID / ListTargetsByEvent /
 // BeginRestoreTransition path is real-faked rather than panicking.
 
-func (f *fakeStore) GetEventByUUID(_ context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error) {
-	f.getEventByUUIDLastOrg = orgID
+func (f *fakeStore) GetEventByUUID(_ context.Context, _ int64, eventUUID uuid.UUID) (*models.Event, error) {
 	ev, ok := f.eventsByUUID[eventUUID]
 	if !ok {
 		return nil, fleeterror.NewNotFoundErrorf("curtailment event not found: %s", eventUUID)
@@ -128,8 +124,7 @@ func (f *fakeStore) GetEventByUUID(_ context.Context, orgID int64, eventUUID uui
 	return ev, nil
 }
 
-func (f *fakeStore) ListTargetsByEvent(_ context.Context, orgID int64, eventUUID uuid.UUID) ([]*models.Target, error) {
-	f.listTargetsLastOrg = orgID
+func (f *fakeStore) ListTargetsByEvent(_ context.Context, _ int64, eventUUID uuid.UUID) ([]*models.Target, error) {
 	if f.listTargetsErr != nil {
 		return nil, f.listTargetsErr
 	}
@@ -162,9 +157,6 @@ func (f *fakeStore) BeginRestoreTransition(_ context.Context, _ int64, eventUUID
 	f.beginRestoreLastEventID = eventUUID
 	if f.beginRestoreErr != nil {
 		return nil, f.beginRestoreErr
-	}
-	if f.beginRestoreResult != nil {
-		return f.beginRestoreResult, nil
 	}
 	// Default: mutate the seeded event copy so the test sees a 'restoring' echo.
 	ev, ok := f.eventsByUUID[eventUUID]
