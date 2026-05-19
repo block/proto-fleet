@@ -253,6 +253,34 @@ func TestDiscoverOnFleetNode_ExpandsIPRangeIntoIPList(t *testing.T) {
 	}
 }
 
+func TestDiscoverOnFleetNode_RejectsUnconfirmedFleetNode(t *testing.T) {
+	// Arrange
+	h := newPairingHarness(t)
+	fleetNodeID := h.createFleetNode(t, "admin-discover-revoked")
+	_, err := h.db.Exec(`UPDATE fleet_node SET enrollment_status = 'REVOKED' WHERE id = $1`, fleetNodeID)
+	require.NoError(t, err)
+	client := startAdminServer(t, h)
+
+	// Act
+	resp, err := client.DiscoverOnFleetNode(context.Background(), connect.NewRequest(&pb.DiscoverOnFleetNodeRequest{
+		FleetNodeId: fleetNodeID,
+		Request: &pairingpb.DiscoverRequest{
+			Mode: &pairingpb.DiscoverRequest_IpList{
+				IpList: &pairingpb.IPListModeRequest{IpAddresses: []string{"10.0.0.5"}},
+			},
+		},
+	}))
+	require.NoError(t, err)
+	for resp.Receive() {
+		t.Fatal("expected no batches before error")
+	}
+
+	// Assert
+	var connErr *connect.Error
+	require.True(t, errors.As(resp.Err(), &connErr))
+	assert.Equal(t, connect.CodeFailedPrecondition, connErr.Code())
+}
+
 func TestDiscoverOnFleetNode_RequiresAdminSession(t *testing.T) {
 	// Arrange
 	h := newPairingHarness(t)

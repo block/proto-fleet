@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
@@ -106,23 +105,11 @@ func (h *Handler) ReportDiscoveredDevices(ctx context.Context, req *connect.Requ
 	if err != nil {
 		return nil, err
 	}
-	// Forward this batch to the operator stream waiting on the
-	// matching DiscoverOnFleetNode command. Persisted rows above are
-	// the source of truth; this just wakes the operator UI.
 	commandID := req.Msg.GetCommandId()
 	if h.registry != nil && commandID != "" && accepted > 0 {
 		batch := &pairingpb.DiscoverResponse{Devices: make([]*pairingpb.Device, 0, len(in))}
 		for _, d := range in {
-			batch.Devices = append(batch.Devices, &pairingpb.Device{
-				DeviceIdentifier: d.GetDeviceIdentifier(),
-				IpAddress:        d.GetIpAddress(),
-				Port:             d.GetPort(),
-				UrlScheme:        d.GetUrlScheme(),
-				DriverName:       d.GetDriverName(),
-				Model:            d.GetModel(),
-				Manufacturer:     d.GetManufacturer(),
-				FirmwareVersion:  d.GetFirmwareVersion(),
-			})
+			batch.Devices = append(batch.Devices, toPairingDevice(d))
 		}
 		h.registry.PublishBatch(subject.FleetNodeID, commandID, batch)
 	}
@@ -131,12 +118,19 @@ func (h *Handler) ReportDiscoveredDevices(ctx context.Context, req *connect.Requ
 	}), nil
 }
 
-// ControlStream is the bidi RPC the agent opens after enrollment is
-// CONFIRMED. The agent sends a Hello, the server sends an Accepted,
-// then the server pushes ControlCommand messages and the agent
-// replies with ControlAcks. The handler routes Acks to the
-// fleetnodecontrol.Registry, which the admin RPC DiscoverOnFleetNode
-// reads from to forward results to the operator.
+func toPairingDevice(d *pb.DiscoveredDeviceReport) *pairingpb.Device {
+	return &pairingpb.Device{
+		DeviceIdentifier: d.GetDeviceIdentifier(),
+		IpAddress:        d.GetIpAddress(),
+		Port:             d.GetPort(),
+		UrlScheme:        d.GetUrlScheme(),
+		DriverName:       d.GetDriverName(),
+		Model:            d.GetModel(),
+		Manufacturer:     d.GetManufacturer(),
+		FirmwareVersion:  d.GetFirmwareVersion(),
+	}
+}
+
 func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[pb.ControlStreamRequest, pb.ControlStreamResponse]) error {
 	subject, err := fleetnodeauth.GetSubject(ctx)
 	if err != nil {
@@ -146,7 +140,6 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 		return fleeterror.NewInternalErrorf("control stream registry not configured")
 	}
 
-	// First message must be Hello.
 	first, err := stream.Receive()
 	if err != nil {
 		return fleeterror.NewInvalidArgumentErrorf("control stream closed before hello: %v", err)
@@ -167,8 +160,9 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 		return fleeterror.NewInternalErrorf("send accepted: %v", sendErr)
 	}
 
-	// Pump incoming Acks on a side goroutine so the main loop can
-	// also dispatch outgoing commands without blocking on Receive.
+	// Side-goroutine bridges blocking stream.Receive into a select so the
+	// main loop can also dispatch outgoing commands. The goroutine exits
+	// when connect-go closes the stream on handler return.
 	type recvResult struct {
 		msg *pb.ControlStreamRequest
 		err error
@@ -205,19 +199,6 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 			if ack := r.msg.GetAck(); ack != nil {
 				regHandle.PublishAck(ack)
 			}
-			// Stray Hellos after the first are ignored.
 		}
 	}
-}
-
-// MarshalDiscoverRequest is a thin helper exposed for the admin
-// handler so it can encode the operator's pairing.v1.DiscoverRequest
-// into ControlCommand.payload without depending on protobuf import
-// gymnastics at the call site.
-func MarshalDiscoverRequest(req *pairingpb.DiscoverRequest) ([]byte, error) {
-	b, err := proto.Marshal(req)
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("marshal discover request: %v", err)
-	}
-	return b, nil
 }

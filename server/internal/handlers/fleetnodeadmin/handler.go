@@ -9,6 +9,7 @@ import (
 	"net"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1"
@@ -21,7 +22,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleetnodeenrollment"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnodepairing"
 	"github.com/block/proto-fleet/server/internal/domain/session"
-	"github.com/block/proto-fleet/server/internal/handlers/fleetnodegateway"
 )
 
 type Handler struct {
@@ -160,11 +160,6 @@ func (h *Handler) ListFleetNodeDevices(ctx context.Context, req *connect.Request
 	return connect.NewResponse(resp), nil
 }
 
-// DiscoverOnFleetNode forwards an operator-initiated discovery to a confirmed
-// fleet node over its open ControlStream. IPRange is expanded server-side into
-// an IPList so the agent only ever runs IPList probes for that mode. Nmap is
-// forwarded unchanged for the agent to execute via its bundled nmap binary.
-// MDNS is rejected: the agent doesn't run an mDNS listener.
 func (h *Handler) DiscoverOnFleetNode(ctx context.Context, req *connect.Request[pb.DiscoverOnFleetNodeRequest], stream *connect.ServerStream[pb.DiscoverOnFleetNodeResponse]) error {
 	info, err := h.requireAdminSession(ctx)
 	if err != nil {
@@ -196,7 +191,7 @@ func (h *Handler) DiscoverOnFleetNode(ctx context.Context, req *connect.Request[
 	if err != nil {
 		return fleeterror.NewInternalErrorf("generate command_id: %v", err)
 	}
-	payload, err := fleetnodegateway.MarshalDiscoverRequest(normalized)
+	payload, err := proto.Marshal(normalized)
 	if err != nil {
 		return fleeterror.NewInternalErrorf("marshal discover payload: %v", err)
 	}
@@ -244,9 +239,6 @@ func newCommandID() (string, error) {
 	return hex.EncodeToString(b[:]), nil
 }
 
-// normalizeDiscoverRequest returns the request the agent will see: IPList
-// passes through, IPRange is expanded into IPList, Nmap passes through for
-// the agent's bundled nmap binary to execute, MDNS is rejected.
 func normalizeDiscoverRequest(in *pairingpb.DiscoverRequest) (*pairingpb.DiscoverRequest, error) {
 	switch m := in.GetMode().(type) {
 	case *pairingpb.DiscoverRequest_IpList:
@@ -279,8 +271,8 @@ func normalizeDiscoverRequest(in *pairingpb.DiscoverRequest) (*pairingpb.Discove
 	}
 }
 
-// expandIPv4Range materializes start..end (inclusive) into a flat IP list.
-// Capped at 4096 addresses to keep the marshalled ControlCommand payload bounded.
+// Cap on the marshalled ControlCommand payload so a slow operator can't
+// queue an arbitrarily large scan against a single fleet node.
 const maxExpandedIPs = 4096
 
 func expandIPv4Range(startStr, endStr string) ([]string, error) {
