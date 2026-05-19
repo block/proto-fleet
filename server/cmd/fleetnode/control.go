@@ -110,28 +110,38 @@ func (r *RunCmd) handleCommand(ctx context.Context, client gatewayClient, stream
 		r.sendAck(stream, commandID, false, fmt.Sprintf("decode payload: %v", err), logger)
 		return
 	}
-	list := req.GetIpList()
-	if list == nil {
-		r.sendAck(stream, commandID, false, "only IPList mode is supported on the fleet node agent", logger)
+
+	reports, err := r.discoverForCommand(ctx, &req, logger)
+	if err != nil {
+		r.sendAck(stream, commandID, false, err.Error(), logger)
 		return
 	}
-
-	ips := list.GetIpAddresses()
-	ports := list.GetPorts()
-	if len(ports) == 0 {
-		ports = r.discoverer.DefaultDiscoveryPorts(ctx)
-	}
-	if len(ips) == 0 || len(ports) == 0 {
-		r.sendAck(stream, commandID, false, "ip_addresses and ports must both be non-empty", logger)
-		return
-	}
-
-	reports := r.runProbes(ctx, ips, ports, logger)
 	if err := r.streamReports(ctx, client, commandID, reports, logger, fleetNodeID); err != nil {
 		r.sendAck(stream, commandID, false, err.Error(), logger)
 		return
 	}
 	r.sendAck(stream, commandID, true, "", logger)
+}
+
+func (r *RunCmd) discoverForCommand(ctx context.Context, req *pairingpb.DiscoverRequest, logger *slog.Logger) ([]*pb.DiscoveredDeviceReport, error) {
+	switch m := req.GetMode().(type) {
+	case *pairingpb.DiscoverRequest_IpList:
+		ips := m.IpList.GetIpAddresses()
+		ports := m.IpList.GetPorts()
+		if len(ports) == 0 {
+			ports = r.discoverer.DefaultDiscoveryPorts(ctx)
+		}
+		if len(ips) == 0 || len(ports) == 0 {
+			return nil, fmt.Errorf("ip_addresses and ports must both be non-empty")
+		}
+		return r.runProbes(ctx, ips, ports, logger), nil
+	case *pairingpb.DiscoverRequest_Nmap:
+		return r.runNmapDiscovery(ctx, m.Nmap, logger)
+	case *pairingpb.DiscoverRequest_Mdns:
+		return nil, fmt.Errorf("mdns mode is not supported on the fleet node agent")
+	default:
+		return nil, fmt.Errorf("discover request mode is required")
+	}
 }
 
 func (r *RunCmd) runProbes(ctx context.Context, ips, ports []string, logger *slog.Logger) []*pb.DiscoveredDeviceReport {

@@ -70,7 +70,7 @@ func TestControlLoop_RunsProbesAndReports(t *testing.T) {
 	assert.Equal(t, commandID, fake.reportsCopy()[0].GetCommandId())
 }
 
-func TestControlLoop_RejectsNonIPListMode(t *testing.T) {
+func TestControlLoop_RejectsMDNSMode(t *testing.T) {
 	// Arrange
 	cmd := &RunCmd{discoverer: &stubDiscoverer{}}
 	state := &fleetnodebootstrap.State{FleetNodeID: 7}
@@ -97,7 +97,7 @@ func TestControlLoop_RejectsNonIPListMode(t *testing.T) {
 	acks := fake.acksCopy()
 	require.Len(t, acks, 1)
 	assert.False(t, acks[0].GetSucceeded())
-	assert.Contains(t, acks[0].GetErrorMessage(), "IPList")
+	assert.Contains(t, acks[0].GetErrorMessage(), "mdns")
 	assert.Empty(t, fake.reportsCopy())
 }
 
