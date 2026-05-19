@@ -1,7 +1,12 @@
+import { useEffect, useState } from "react";
 import clsx from "clsx";
 import LocationSelector from "./LocationSelector";
 import SchedulePill from "./SchedulePill";
+import SitePicker from "./SitePicker";
 import type { UseSchedulePillDataResult } from "./useSchedulePillData";
+import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import { useSites } from "@/protoFleet/api/sites";
+import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
 import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
 import { Pause } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -51,6 +56,21 @@ const PageHeader = ({ isMenuOpen, openMenu, schedulePillData }: PageHeaderProps)
   const [dismissedSetup, setDismissedSetup] = useReactiveLocalStorage<boolean>("completeSetupDismissed");
   const hasDismissedSetup = Boolean(dismissedSetup);
 
+  // Multi-site: the SitePicker replaces today's LocationSelector when the
+  // feature flag is on. Sites are fetched once on mount and held here so the
+  // picker doesn't re-fire ListSites on every route change. `undefined`
+  // means "still loading" (the picker renders a skeleton); `[]` means "no
+  // sites" (the picker hides itself).
+  const { listSites } = useSites();
+  const [sites, setSites] = useState<SiteWithCounts[] | undefined>(MULTI_SITE_ENABLED ? undefined : []);
+  useEffect(() => {
+    if (!MULTI_SITE_ENABLED) return;
+    void listSites({
+      onSuccess: setSites,
+      onError: () => setSites([]),
+    });
+  }, [listSites]);
+
   const handleCompleteSetup = () => {
     setDismissedSetup(false);
   };
@@ -76,7 +96,7 @@ const PageHeader = ({ isMenuOpen, openMenu, schedulePillData }: PageHeaderProps)
                 testId="navigation-menu-button"
               />
             ) : null}
-            <LocationSelector />
+            {MULTI_SITE_ENABLED ? <SitePicker sites={sites} /> : <LocationSelector />}
           </div>
           {!isPhone && headerWidgetEnabled ? <HeaderWidgets {...headerWidgetsProps} /> : null}
         </div>

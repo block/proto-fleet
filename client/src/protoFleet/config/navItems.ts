@@ -1,6 +1,7 @@
 import { type ReactNode } from "react";
 
-import { Activity, Fleet, Groups, Home, IconProps, Racks, Settings } from "@/shared/assets/icons";
+import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
+import { Activity, Fleet, Groups, Home, IconProps, Racks, Settings, Site } from "@/shared/assets/icons";
 
 export interface NavItem {
   path: string;
@@ -22,6 +23,15 @@ export const primaryNavItems: NavItem[] = [
     label: "Home",
     icon: Home,
   },
+  ...(MULTI_SITE_ENABLED
+    ? [
+        {
+          path: "/sites",
+          label: "Sites",
+          icon: Site,
+        },
+      ]
+    : []),
   {
     path: "/miners",
     label: "Miners",
@@ -87,6 +97,15 @@ export const secondaryNavItems: SecondaryNavItem[] = [
     parent: "/settings",
     allowedRoles: ["SUPER_ADMIN", "ADMIN"],
   },
+  ...(MULTI_SITE_ENABLED
+    ? [
+        {
+          path: "/settings/sites",
+          label: "Sites",
+          parent: "/settings",
+        },
+      ]
+    : []),
   {
     path: "/settings/server-logs",
     label: "Server Logs",
