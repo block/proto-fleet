@@ -23,9 +23,7 @@ type ModalStoryProps = {
 };
 
 const configuredValues: Partial<CurtailmentFormValues> = {
-  targetKw: "60",
-  minDurationSec: "300",
-  maxDurationSec: "3600",
+  targetKw: "40",
   restoreBatchSize: "10",
   restoreIntervalSec: "120",
   reason: "Grid peak - ERCOT 4CP signal",
@@ -33,8 +31,8 @@ const configuredValues: Partial<CurtailmentFormValues> = {
 
 const preview: CurtailmentPlanPreview = {
   selectedMinerCount: 18,
-  targetKw: 60,
-  estimatedReductionKw: 60.2,
+  targetKw: 40,
+  estimatedReductionKw: 45,
   restoreEstimate: "~2 minutes",
   scopeLabel: "across the fleet",
 };
@@ -54,6 +52,6 @@ export const Empty: Story = {
 };
 
 export const WithPreview: Story = {
-  name: "With preview",
+  name: "Fixed kW reduction preview",
   render: () => <ModalStory initialValues={configuredValues} preview={preview} />,
 };
