@@ -204,6 +204,12 @@ WHERE id = sqlc.arg('id');
 -- event. The WHERE state-guard makes the operation idempotent against
 -- already-restoring/terminal events; the caller distinguishes "row updated"
 -- from "no-op" via the row count.
+--
+-- Atomicity model: concurrent Stop calls rely on the WHERE-clause state guard
+-- and the partial-unique-index on (org_id, state) for active events to keep
+-- only one winner. The store's ErrNoRows re-read path may surface a terminal
+-- state if the event has already transitioned past restoring; callers must
+-- handle that.
 UPDATE curtailment_event
 SET state                = 'restoring',
     effective_batch_size = sqlc.arg('effective_batch_size')

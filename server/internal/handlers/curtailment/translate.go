@@ -483,8 +483,8 @@ func formatExclusionCounters(d *modes.InsufficientLoadDetail) string {
 
 // toStopRequest converts the proto request to a service StopRequest. OrgID
 // comes from session.Info; restore_batch_size_override is admin-gated at the
-// handler entry and clamped to int32 here defensively before the proto cap
-// changes land.
+// handler entry. The MaxInt32 check is a Connect-layer backstop; the proto's
+// lte:200 bound is the primary enforcement.
 func toStopRequest(msg *pb.StopCurtailmentRequest, orgID int64) (curtailment.StopRequest, error) {
 	eventUUID, err := uuid.Parse(msg.GetEventUuid())
 	if err != nil {
@@ -508,19 +508,15 @@ func toStopRequest(msg *pb.StopCurtailmentRequest, orgID int64) (curtailment.Sto
 	return out, nil
 }
 
-// toStopResponse builds the Stop response from the persisted event row. The
-// response echoes the event so the operator can confirm the transition
-// without a follow-up read; rich rollup detail is BE-5 territory and arrives
-// via GetActiveCurtailment polling.
+// toStopResponse builds the Stop response from the persisted event row.
+// Rich rollup detail arrives via GetActiveCurtailment polling.
 func toStopResponse(event *models.Event) *pb.StopCurtailmentResponse {
 	return &pb.StopCurtailmentResponse{Event: toEventProto(event)}
 }
 
-// toEventProto maps a persisted event row to the wire CurtailmentEvent. Scope
-// and mode_params are stored as JSONB and not reconstructed here — that lands
-// with the read APIs (BE-5) where the trimmed-snapshot story is settled.
-// Target rollup is omitted for the same reason; callers that need fresh state
-// poll GetActiveCurtailment.
+// toEventProto maps a persisted event row to the wire CurtailmentEvent. Scope,
+// mode_params, target rollup, and effective_batch_size echo land with the read
+// APIs where the trimmed-snapshot shape is settled.
 func toEventProto(event *models.Event) *pb.CurtailmentEvent {
 	out := &pb.CurtailmentEvent{
 		EventUuid: event.EventUUID.String(),
@@ -529,8 +525,7 @@ func toEventProto(event *models.Event) *pb.CurtailmentEvent {
 		Strategy:  strategyProto(event.Strategy),
 		Level:     levelProto(event.Level),
 		Priority:  priorityProto(event.Priority),
-		// Restore controls + duration controls echo the persisted row;
-		// effective_batch_size has no proto field yet (BE-5 surface).
+		// Restore + duration controls echo the persisted row.
 		RestoreBatchSize:        uint32Saturating(event.RestoreBatchSize),
 		RestoreBatchIntervalSec: uint32Saturating(event.RestoreBatchIntervalSec),
 		MinCurtailedDurationSec: uint32Saturating(event.MinCurtailedDurationSec),

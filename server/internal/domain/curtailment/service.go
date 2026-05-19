@@ -547,10 +547,6 @@ func isFiniteFloat(p *float64) bool {
 // curtailment_target column values written at Start.
 const targetTypeMiner = "miner"
 
-// Use models.DesiredStateCurtailed / models.DesiredStateActive at the
-// boundary; this alias keeps the local call-site terse.
-const desiredStateCurtailed = models.DesiredStateCurtailed
-
 // buildInsertParams assembles event + per-target params from a successful
 // plan. baseline_power_w comes from the telemetry snapshot the selector
 // ranked against; non-positive PowerW maps to NULL (a zero baseline would
@@ -622,7 +618,7 @@ func buildInsertParams(req StartRequest, plan *Plan, minPowerW int32) (models.In
 			DeviceIdentifier: sel.DeviceIdentifier,
 			TargetType:       targetTypeMiner,
 			State:            models.TargetStatePending,
-			DesiredState:     desiredStateCurtailed,
+			DesiredState:     models.DesiredStateCurtailed,
 			BaselinePowerW:   baseline,
 		}
 	}
@@ -665,12 +661,8 @@ type StopRequest struct {
 	RestoreBatchSizeOverride *int32 // nil = use adaptive sizing; admin-gated upstream
 }
 
-// Adaptive batch-sizing constants. The [10, 100] band is the inrush /
-// thermal protection envelope: small enough to avoid simultaneous restarts
-// at any plausible fleet size, large enough to keep restore time bounded
-// for 5–10K-miner events. `restoreBatchSizeOverrideUpperBound` is the
-// service-level backstop for the per-request admin override; the proto's
-// own [1, 200] bound is the externally-enforced ceiling.
+// Adaptive batch-sizing constants. [10, 100] is the inrush envelope; the
+// admin override accepts [1, 200] (proto enforces the ceiling).
 const (
 	minBatchSizeFloor                  int32 = 10
 	maxBatchSizeCeiling                int32 = 100
@@ -692,6 +684,8 @@ func (s *Service) Stop(ctx context.Context, req StopRequest) (*models.Event, err
 		return nil, err
 	}
 
+	// Fast-path TOCTOU read for caller-facing latency. BeginRestoreTransition
+	// is the authoritative atomic enforcement under the WHERE state-guard.
 	if event.State.IsTerminal() {
 		return nil, fleeterror.NewFailedPreconditionErrorf(
 			"cannot stop curtailment event %s in terminal state %q",
@@ -712,7 +706,7 @@ func (s *Service) Stop(ctx context.Context, req StopRequest) (*models.Event, err
 	if err != nil {
 		return nil, err
 	}
-	nonTerminal := countNonTerminalTargets(targets)
+	nonTerminal := models.CountNonTerminalTargets(targets)
 
 	// nonTerminal is bounded by the per-event target count which is itself
 	// bounded by the fleet size (well under MaxInt32 at any realistic scale);
@@ -773,18 +767,8 @@ func checkMinCurtailedDurationGate(event *models.Event, now time.Time) error {
 	)
 }
 
-// ComputeEffectiveBatchSize implements BE-4 adaptive batch sizing:
-//
-//	effective = max(restore_batch_size, ceil(0.01 × non_terminal_count))
-//	            clamped to [minBatchSizeFloor, maxBatchSizeCeiling]
-//
-// `override` (admin-gated) takes precedence over the formula entirely;
-// validateStopRequest bounds it. The clamp protects against inrush/thermal
-// shock; the override is the explicit operator escape hatch.
-//
-// Exported because the reconciler reuses the same formula when
-// max_duration_seconds elapses on an active event (no operator request →
-// no override). Single source of truth for the [10, 100] inrush envelope.
+// ComputeEffectiveBatchSize returns max(restore_batch_size, ceil(0.01 × non_terminal_count))
+// clamped to [minBatchSizeFloor, maxBatchSizeCeiling]; override short-circuits the formula.
 func ComputeEffectiveBatchSize(restoreBatchSize, nonTerminalCount int32, override *int32) int32 {
 	if override != nil {
 		return *override
@@ -806,23 +790,6 @@ func ComputeEffectiveBatchSize(restoreBatchSize, nonTerminalCount int32, overrid
 		base = maxBatchSizeCeiling
 	}
 	return base
-}
-
-// countNonTerminalTargets is the target count fed into the adaptive sizing
-// formula. Terminal targets (resolved / restore_failed / released) are not
-// restored, so they shouldn't influence batch sizing.
-func countNonTerminalTargets(targets []*models.Target) int {
-	n := 0
-	for _, t := range targets {
-		switch t.State {
-		case models.TargetStateResolved, models.TargetStateRestoreFailed, models.TargetStateReleased:
-			continue
-		case models.TargetStatePending, models.TargetStateDispatched,
-			models.TargetStateConfirmed, models.TargetStateDrifted:
-			n++
-		}
-	}
-	return n
 }
 
 // marshalDecisionSnapshot captures the selector outputs (rejection counters,

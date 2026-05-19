@@ -841,7 +841,8 @@ export type StartCurtailmentRequest = Message<"curtailment.v1.StartCurtailmentRe
   maxDurationSeconds: number;
 
   /**
-   * 0 = server default; lte matches StopCurtailmentRequest.restore_batch_size_override.
+   * 0 = server default. Persisted as the per-event preferred batch size;
+   * the adaptive [10, 100] envelope is applied by the server at restore time.
    *
    * @generated from field: uint32 restore_batch_size = 21;
    */

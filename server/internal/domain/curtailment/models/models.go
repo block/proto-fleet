@@ -238,6 +238,23 @@ type InsertTargetParams struct {
 	SelectorRationaleJSON []byte
 }
 
+// CountNonTerminalTargets returns the count of targets that are not in a
+// terminal state. Terminal targets (resolved / restore_failed / released) are
+// not restored, so they shouldn't influence batch sizing.
+func CountNonTerminalTargets(targets []*Target) int {
+	n := 0
+	for _, t := range targets {
+		switch t.State {
+		case TargetStateResolved, TargetStateRestoreFailed, TargetStateReleased:
+			continue
+		case TargetStatePending, TargetStateDispatched,
+			TargetStateConfirmed, TargetStateDrifted:
+			n++
+		}
+	}
+	return n
+}
+
 // Heartbeat mirrors the singleton liveness row.
 type Heartbeat struct {
 	ID                 int16

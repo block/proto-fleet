@@ -36,6 +36,10 @@ const (
 	// defaultDriftThresholdFactor: power_w > baseline_power_w * factor is
 	// considered drifted. 0.5 catches partial- and full-restore.
 	defaultDriftThresholdFactor = 0.5
+
+	// defaultRestoreDispatchTimeoutSec: 10× tick interval. Restore-phase
+	// targets whose telemetry never resumes get aged out via the retry budget.
+	defaultRestoreDispatchTimeoutSec = 300
 )
 
 // CommandDispatcher is the subset of command.Service the reconciler needs;
@@ -51,6 +55,10 @@ type Config struct {
 	ShutdownDeadline     time.Duration
 	MaxRetries           int32
 	DriftThresholdFactor float64
+	// RestoreDispatchTimeoutSec ages out restore-phase targets stuck in
+	// Dispatched with no confirming telemetry. Hitting the timeout burns a
+	// retry slot via recordDispatchFailure so the event cannot stall forever.
+	RestoreDispatchTimeoutSec int
 }
 
 func (c Config) withDefaults() Config {
@@ -65,6 +73,9 @@ func (c Config) withDefaults() Config {
 	}
 	if c.DriftThresholdFactor <= 0 {
 		c.DriftThresholdFactor = defaultDriftThresholdFactor
+	}
+	if c.RestoreDispatchTimeoutSec <= 0 {
+		c.RestoreDispatchTimeoutSec = defaultRestoreDispatchTimeoutSec
 	}
 	return c
 }
@@ -671,17 +682,9 @@ func isFinite(v float64) bool {
 }
 
 // enforceMaxDuration transitions an active event to restoring when the
-// max_duration_seconds cap elapses since started_at. Returns true when the
-// event was transitioned (or already was, mid-call) so the caller skips
-// further active-phase work this tick.
-//
-// This closes the BE-3 stuck-Dispatched gap at the event boundary: a target
-// that landed in Dispatched and never produced positive telemetry sits
-// there indefinitely under drift detection alone; max_duration_seconds
-// expiry forces the event to restore regardless.
-//
-// AllowUnbounded events and events without started_at (still pending)
-// short-circuit out.
+// max_duration_seconds cap elapses since started_at. Returns true so the
+// caller skips further active-phase work this tick. AllowUnbounded events
+// and events without started_at short-circuit out.
 func (r *Reconciler) enforceMaxDuration(ctx context.Context, ev *models.Event, targets []*models.Target) bool {
 	if ev.AllowUnbounded || ev.MaxDurationSeconds == nil || *ev.MaxDurationSeconds <= 0 {
 		return false
@@ -695,16 +698,8 @@ func (r *Reconciler) enforceMaxDuration(ctx context.Context, ev *models.Event, t
 		return false
 	}
 
-	nonTerminal := int32(0)
-	for _, t := range targets {
-		switch t.State {
-		case models.TargetStateResolved, models.TargetStateRestoreFailed, models.TargetStateReleased:
-			continue
-		case models.TargetStatePending, models.TargetStateDispatched,
-			models.TargetStateConfirmed, models.TargetStateDrifted:
-			nonTerminal++
-		}
-	}
+	nonTerminalCount := models.CountNonTerminalTargets(targets)
+	nonTerminal := int32(nonTerminalCount) //nolint:gosec // bounded by per-event target count
 	effectiveBatchSize := curtailment.ComputeEffectiveBatchSize(ev.RestoreBatchSize, nonTerminal, nil)
 
 	if _, err := r.store.BeginRestoreTransition(ctx, ev.OrgID, ev.EventUUID, effectiveBatchSize); err != nil {
@@ -808,6 +803,16 @@ func (r *Reconciler) confirmOneRestore(ctx context.Context, ev *models.Event, t 
 		return
 	}
 	if !isRestored(c.LatestPowerW, t.BaselinePowerW, c.LatestHashRateHS, r.cfg.DriftThresholdFactor) {
+		// Age out Dispatched targets whose telemetry never confirms. Without
+		// this guard a stale candidate row pins the event in restoring forever.
+		if t.LastDispatchedAt != nil && r.cfg.RestoreDispatchTimeoutSec > 0 {
+			timeout := time.Duration(r.cfg.RestoreDispatchTimeoutSec) * time.Second
+			if r.now().Sub(*t.LastDispatchedAt) > timeout {
+				r.recordDispatchFailure(ctx, ev, t,
+					"restore telemetry timeout",
+					models.TargetStatePending)
+			}
+		}
 		return
 	}
 	now := r.now()
@@ -872,7 +877,8 @@ func (r *Reconciler) maybeCompleteRestoring(ctx context.Context, ev *models.Even
 // already serializes against any in-flight Curtail enqueued before Stop;
 // this gate covers same-phase restore-batch overlap.
 func (r *Reconciler) maybeClaimRestoreBatch(ctx context.Context, ev *models.Event, targets []*models.Target) {
-	// Gate 1: no prior batch in flight.
+	// Gate 1: no prior batch in flight. Drifted is unreachable today
+	// (restore-phase failures route to Pending), kept for forward-compat.
 	for _, t := range targets {
 		if t.DesiredState != models.DesiredStateActive {
 			continue
@@ -896,6 +902,7 @@ func (r *Reconciler) maybeClaimRestoreBatch(ctx context.Context, ev *models.Even
 			if t.DesiredState != models.DesiredStateActive {
 				continue
 			}
+			// Terminal targets retain LastDispatchedAt and serve as the spacing reference.
 			if t.LastDispatchedAt == nil {
 				continue
 			}
@@ -939,8 +946,7 @@ func (r *Reconciler) maybeClaimRestoreBatch(ctx context.Context, ev *models.Even
 // batch, then per-device commits state transitions based on the kept/skipped
 // split. A bulk dispatch error rolls every claim target through retry; a
 // device-level filter-skip records a failure for that device only. Restart
-// safety: command goes out before the Dispatched-state write, matching the
-// BE-3 Curtail pattern.
+// safety mirrors Curtail: command goes out before the Dispatched-state write.
 func (r *Reconciler) dispatchRestoreBatch(ctx context.Context, ev *models.Event, claim []*models.Target) {
 	deviceIDs := make([]string, 0, len(claim))
 	for _, t := range claim {
@@ -1023,6 +1029,10 @@ func (r *Reconciler) dispatchRestoreBatch(ctx context.Context, ev *models.Event,
 // power-or-hash evidence to promote Dispatched → Resolved. Missing/non-finite
 // samples return false so a flaky sensor doesn't trigger a premature
 // resolved transition.
+//
+// Threshold asymmetry vs isCurtailed: strict > vs <= leaves a no-progress
+// band at exactly baseline×factor where the target is neither curtailed nor
+// restored — telemetry must move off that boundary to advance.
 func isRestored(latestPowerW *float64, baselinePowerW *float64, latestHashRateHS *float64, restoreThresholdFactor float64) bool {
 	if latestPowerW != nil && isFinite(*latestPowerW) {
 		if baselinePowerW != nil && isFinite(*baselinePowerW) && *baselinePowerW > 0 {

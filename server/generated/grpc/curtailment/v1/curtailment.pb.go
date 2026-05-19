@@ -1844,7 +1844,8 @@ type StartCurtailmentRequest struct {
 	ModeParams isStartCurtailmentRequest_ModeParams `protobuf_oneof:"mode_params"`
 	// Operational controls.
 	MaxDurationSeconds uint32 `protobuf:"varint,20,opt,name=max_duration_seconds,json=maxDurationSeconds,proto3" json:"max_duration_seconds,omitempty"` // 0 = no cap
-	// 0 = server default; lte matches StopCurtailmentRequest.restore_batch_size_override.
+	// 0 = server default. Persisted as the per-event preferred batch size;
+	// the adaptive [10, 100] envelope is applied by the server at restore time.
 	RestoreBatchSize        uint32 `protobuf:"varint,21,opt,name=restore_batch_size,json=restoreBatchSize,proto3" json:"restore_batch_size,omitempty"`
 	RestoreBatchIntervalSec uint32 `protobuf:"varint,22,opt,name=restore_batch_interval_sec,json=restoreBatchIntervalSec,proto3" json:"restore_batch_interval_sec,omitempty"` // 0 = server default
 	MinCurtailedDurationSec uint32 `protobuf:"varint,23,opt,name=min_curtailed_duration_sec,json=minCurtailedDurationSec,proto3" json:"min_curtailed_duration_sec,omitempty"`
