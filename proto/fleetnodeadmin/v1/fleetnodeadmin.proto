@@ -100,8 +100,11 @@ message FleetNodeDeviceSummary {
 
 message DiscoverOnFleetNodeRequest {
     int64 fleet_node_id = 1 [(buf.validate.field).int64.gt = 0];
-    // Only IPListMode is accepted by the handler; other modes are
-    // rejected with FailedPrecondition.
+    // IPListMode and IPRangeMode are supported (server expands ranges
+    // to an IP list before dispatch). NmapMode is supported via the
+    // nmap binary bundled in the fleetnode release. MDNSMode is
+    // rejected with FailedPrecondition (multicast UDP doesn't reach
+    // agents reliably).
     pairing.v1.DiscoverRequest request = 2 [(buf.validate.field).required = true];
 }
 

@@ -858,8 +858,11 @@ func (x *FleetNodeDeviceSummary) GetAssignedBy() int64 {
 type DiscoverOnFleetNodeRequest struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
 	FleetNodeId int64                  `protobuf:"varint,1,opt,name=fleet_node_id,json=fleetNodeId,proto3" json:"fleet_node_id,omitempty"`
-	// Only IPListMode is accepted by the handler; other modes are
-	// rejected with FailedPrecondition.
+	// IPListMode and IPRangeMode are supported (server expands ranges
+	// to an IP list before dispatch). NmapMode is supported via the
+	// nmap binary bundled in the fleetnode release. MDNSMode is
+	// rejected with FailedPrecondition (multicast UDP doesn't reach
+	// agents reliably).
 	Request       *v1.DiscoverRequest `protobuf:"bytes,2,opt,name=request,proto3" json:"request,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
