@@ -201,14 +201,15 @@ func (f *fakeStore) BeginRestoreTransition(_ context.Context, _ int64, eventUUID
 // fakeDispatcher records Curtail / Uncurtail calls and returns the
 // configured outcome.
 type fakeDispatcher struct {
-	curtailErr            error
-	curtailResultOverride *command.CommandResult
-	uncurtailErr          error
-	curtailCalls          int
-	curtailLastIDs        []string
-	curtailLastActor      session.Actor
-	uncurtailCalls        int
-	uncurtailLastIDs      []string
+	curtailErr              error
+	curtailResultOverride   *command.CommandResult
+	uncurtailErr            error
+	uncurtailResultOverride *command.CommandResult
+	curtailCalls            int
+	curtailLastIDs          []string
+	curtailLastActor        session.Actor
+	uncurtailCalls          int
+	uncurtailLastIDs        []string
 }
 
 func (f *fakeDispatcher) Curtail(ctx context.Context, selector *pb.DeviceSelector, _ sdk.CurtailLevel) (*command.CommandResult, error) {
@@ -231,6 +232,9 @@ func (f *fakeDispatcher) Uncurtail(_ context.Context, selector *pb.DeviceSelecto
 	f.uncurtailLastIDs = identifiersFromSelector(selector)
 	if f.uncurtailErr != nil {
 		return nil, f.uncurtailErr
+	}
+	if f.uncurtailResultOverride != nil {
+		return f.uncurtailResultOverride, nil
 	}
 	return &command.CommandResult{BatchIdentifier: "batch-uncurtail", DispatchedCount: len(f.uncurtailLastIDs)}, nil
 }

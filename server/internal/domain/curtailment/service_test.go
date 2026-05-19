@@ -52,6 +52,7 @@ type fakeStore struct {
 	// Service.Stop tests control over BeginRestoreTransition outcomes.
 	eventsByUUID            map[uuid.UUID]*models.Event
 	targetsByEventUUID      map[uuid.UUID][]*models.Target
+	listTargetsErr          error
 	beginRestoreErr         error
 	beginRestoreResult      *models.Event
 	beginRestoreCalls       int
@@ -129,6 +130,9 @@ func (f *fakeStore) GetEventByUUID(_ context.Context, orgID int64, eventUUID uui
 
 func (f *fakeStore) ListTargetsByEvent(_ context.Context, orgID int64, eventUUID uuid.UUID) ([]*models.Target, error) {
 	f.listTargetsLastOrg = orgID
+	if f.listTargetsErr != nil {
+		return nil, f.listTargetsErr
+	}
 	return append([]*models.Target(nil), f.targetsByEventUUID[eventUUID]...), nil
 }
 

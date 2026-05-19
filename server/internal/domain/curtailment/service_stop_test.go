@@ -52,6 +52,18 @@ func newStopFixture(t *testing.T, mutate func(ev *models.Event)) *stopFixture {
 	return &stopFixture{store: store, svc: NewService(store), event: ev}
 }
 
+func TestService_Stop_ReturnsNotFoundForUnknownUUID(t *testing.T) {
+	t.Parallel()
+	f := newStopFixture(t, nil)
+
+	_, err := f.svc.Stop(t.Context(), StopRequest{OrgID: 1, EventUUID: uuid.New()})
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, "not_found", fleetErr.GRPCCode.String())
+	assert.Equal(t, 0, f.store.beginRestoreCalls)
+}
+
 func TestService_Stop_HappyPath(t *testing.T) {
 	t.Parallel()
 	f := newStopFixture(t, nil)
@@ -112,6 +124,7 @@ func TestService_Stop_MinDurationGateBlocksNormalPriority(t *testing.T) {
 	require.Error(t, err)
 	var fleetErr fleeterror.FleetError
 	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, "failed_precondition", fleetErr.GRPCCode.String())
 	assert.Contains(t, fleetErr.DebugMessage, "min_curtailed_duration_sec not elapsed")
 	assert.Equal(t, 0, f.store.beginRestoreCalls)
 }
@@ -219,6 +232,18 @@ func TestService_Stop_PropagatesStoreError(t *testing.T) {
 	_, err := f.svc.Stop(t.Context(), StopRequest{OrgID: 1, EventUUID: f.event.EventUUID})
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "db boom")
+}
+
+func TestService_Stop_PropagatesListTargetsError(t *testing.T) {
+	t.Parallel()
+	f := newStopFixture(t, nil)
+	f.store.listTargetsErr = errors.New("targets read failed")
+
+	_, err := f.svc.Stop(t.Context(), StopRequest{OrgID: 1, EventUUID: f.event.EventUUID})
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "targets read failed")
+	assert.Equal(t, 0, f.store.beginRestoreCalls,
+		"a list-targets failure must short-circuit before BeginRestoreTransition")
 }
 
 func TestComputeEffectiveBatchSize(t *testing.T) {

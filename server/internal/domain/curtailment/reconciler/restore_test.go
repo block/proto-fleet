@@ -2,6 +2,7 @@ package reconciler
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/block/proto-fleet/server/internal/domain/command"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 )
 
@@ -112,6 +114,48 @@ func TestReconciler_EnforceMaxDuration_AllowUnboundedSkipsCap(t *testing.T) {
 		"AllowUnbounded events must never trigger forced restore")
 }
 
+// TestReconciler_EnforceMaxDuration_BeginRestoreErrorLeavesEventUnchanged
+// pins the BeginRestoreTransition failure path: the event state stays Active
+// (no in-memory mutation), the transition call counter still records the
+// attempt, and drift detection runs on the same tick since enforceMaxDuration
+// returns false on error.
+func TestReconciler_EnforceMaxDuration_BeginRestoreErrorLeavesEventUnchanged(t *testing.T) {
+	store := newFakeStore()
+	store.beginRestoreErr = errors.New("db boom")
+	disp := &fakeDispatcher{}
+
+	r := newReconcilerForTest(store, disp)
+	startedAt := r.now().Add(-2 * time.Hour)
+	maxDur := int32(3600)
+	eventID := int64(70)
+	ev := &models.Event{
+		ID:                 eventID,
+		EventUUID:          uuid.New(),
+		OrgID:              1,
+		State:              models.EventStateActive,
+		StartedAt:          &startedAt,
+		MaxDurationSeconds: &maxDur,
+		RestoreBatchSize:   10,
+	}
+	store.events = []*models.Event{ev}
+	// Confirmed target with drifted telemetry so we can witness drift
+	// dispatch still firing after enforceMaxDuration returns false.
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "m1", State: models.TargetStateConfirmed, DesiredState: models.DesiredStateCurtailed, BaselinePowerW: ptrFloat64(3000)},
+	}
+	store.candidates = []*models.Candidate{
+		{DeviceIdentifier: "m1", LatestPowerW: ptrFloat64(2500), LatestHashRateHS: ptrFloat64(100)},
+	}
+
+	r.runTick(context.Background())
+
+	assert.Equal(t, 1, store.beginRestoreCalls, "BeginRestoreTransition is attempted exactly once even on error")
+	assert.Equal(t, models.EventStateActive, ev.State,
+		"event state must not flip when BeginRestoreTransition errors")
+	assert.Equal(t, 1, disp.curtailCalls,
+		"drift dispatch must still run on the same tick when enforceMaxDuration returns false")
+}
+
 func TestReconciler_EnforceMaxDuration_NilStartedAtSkips(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
@@ -165,6 +209,14 @@ func TestReconciler_Restoring_ClaimDispatchesUncurtailBatch(t *testing.T) {
 	// Both targets transition to dispatched.
 	assert.Equal(t, models.TargetStateDispatched, store.targetsByEventID[eventID][0].State)
 	assert.Equal(t, models.TargetStateDispatched, store.targetsByEventID[eventID][1].State)
+	// Both targets must share the same LastBatchUUID — one Uncurtail call →
+	// one batch identifier on every kept target.
+	require.NotNil(t, store.targetsByEventID[eventID][0].LastBatchUUID)
+	require.NotNil(t, store.targetsByEventID[eventID][1].LastBatchUUID)
+	assert.Equal(t,
+		*store.targetsByEventID[eventID][0].LastBatchUUID,
+		*store.targetsByEventID[eventID][1].LastBatchUUID,
+		"batched Uncurtail targets must share a single batch_uuid")
 }
 
 func TestReconciler_Restoring_InFlightGateBlocksClaim(t *testing.T) {
@@ -306,6 +358,216 @@ func TestReconciler_Restoring_ConfirmsDispatchedTargetWithTelemetry(t *testing.T
 	assert.Equal(t, models.EventStateCompleted, store.updateEventLast[eventID])
 }
 
+// TestReconciler_Restoring_UncurtailErrorKeepsBatchPending pins
+// dispatchRestoreBatch's bulk-error path: a dispatcher error rolls every
+// batch target's retry count, leaves them Pending with LastError set, and
+// emits no per-device Dispatched writes.
+func TestReconciler_Restoring_UncurtailErrorKeepsBatchPending(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{uncurtailErr: errors.New("queue down")}
+
+	r := newReconcilerForTest(store, disp)
+	effBatch := int32(2)
+	eventID := int64(80)
+	store.events = []*models.Event{{
+		ID:                      eventID,
+		EventUUID:               uuid.New(),
+		OrgID:                   1,
+		State:                   models.EventStateRestoring,
+		EffectiveBatchSize:      &effBatch,
+		RestoreBatchIntervalSec: 0,
+	}}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "m1", State: models.TargetStatePending, DesiredState: models.DesiredStateActive},
+		{CurtailmentEventID: eventID, DeviceIdentifier: "m2", State: models.TargetStatePending, DesiredState: models.DesiredStateActive},
+	}
+
+	r.runTick(context.Background())
+
+	for i, deviceID := range []string{"m1", "m2"} {
+		final := store.targetsByEventID[eventID][i]
+		assert.Equal(t, models.TargetStatePending, final.State, "%s stays Pending on bulk error", deviceID)
+		assert.Equal(t, int32(1), final.RetryCount, "%s retry count bumped", deviceID)
+		require.NotNil(t, final.LastError, "%s LastError must be set", deviceID)
+		assert.Contains(t, *final.LastError, "queue down")
+	}
+}
+
+// TestReconciler_Restoring_EmptyBatchIdentifierKeepsBatchPending pins
+// dispatchRestoreBatch's empty-result path: an Uncurtail returning nil error
+// but an empty BatchIdentifier means the command produced no batch (all
+// devices unpaired/deleted post-Stop). Every batch target should burn retry
+// budget and surface the no-batch reason.
+func TestReconciler_Restoring_EmptyBatchIdentifierKeepsBatchPending(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{
+		uncurtailResultOverride: &command.CommandResult{BatchIdentifier: "", DispatchedCount: 0},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	effBatch := int32(2)
+	eventID := int64(81)
+	store.events = []*models.Event{{
+		ID:                      eventID,
+		EventUUID:               uuid.New(),
+		OrgID:                   1,
+		State:                   models.EventStateRestoring,
+		EffectiveBatchSize:      &effBatch,
+		RestoreBatchIntervalSec: 0,
+	}}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "m1", State: models.TargetStatePending, DesiredState: models.DesiredStateActive},
+		{CurtailmentEventID: eventID, DeviceIdentifier: "m2", State: models.TargetStatePending, DesiredState: models.DesiredStateActive},
+	}
+
+	r.runTick(context.Background())
+
+	for i, deviceID := range []string{"m1", "m2"} {
+		final := store.targetsByEventID[eventID][i]
+		assert.Equal(t, models.TargetStatePending, final.State, "%s stays Pending on empty batch", deviceID)
+		assert.Equal(t, int32(1), final.RetryCount, "%s retry count bumped", deviceID)
+		require.NotNil(t, final.LastError, "%s LastError must be set", deviceID)
+		assert.Contains(t, *final.LastError, "no batch")
+	}
+}
+
+// TestReconciler_Restoring_PerDeviceFilterSkipsTargetStaysPending pins
+// dispatchRestoreBatch's per-device filter-skip path: an Uncurtail returning
+// one Skipped entry must move the kept device to Dispatched and leave the
+// skipped device Pending with retry consumed (mirrors
+// TestReconciler_DispatchSkippedKeepsTargetPending for the restore phase).
+func TestReconciler_Restoring_PerDeviceFilterSkipsTargetStaysPending(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{
+		uncurtailResultOverride: &command.CommandResult{
+			BatchIdentifier: "batch-uncurtail",
+			DispatchedCount: 1,
+			Skipped: []command.SkippedDevice{{
+				DeviceIdentifier: "m2",
+				FilterName:       "schedule_conflict",
+				Reason:           "schedule 99 holds higher priority",
+			}},
+		},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	effBatch := int32(2)
+	eventID := int64(82)
+	store.events = []*models.Event{{
+		ID:                      eventID,
+		EventUUID:               uuid.New(),
+		OrgID:                   1,
+		State:                   models.EventStateRestoring,
+		EffectiveBatchSize:      &effBatch,
+		RestoreBatchIntervalSec: 0,
+	}}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "m1", State: models.TargetStatePending, DesiredState: models.DesiredStateActive},
+		{CurtailmentEventID: eventID, DeviceIdentifier: "m2", State: models.TargetStatePending, DesiredState: models.DesiredStateActive},
+	}
+
+	r.runTick(context.Background())
+
+	kept := store.targetsByEventID[eventID][0]
+	skipped := store.targetsByEventID[eventID][1]
+	assert.Equal(t, models.TargetStateDispatched, kept.State, "kept device must move to Dispatched")
+	assert.Equal(t, models.TargetStatePending, skipped.State, "filter-skipped device must stay Pending")
+	assert.Equal(t, int32(1), skipped.RetryCount, "filter-skipped device must burn one retry")
+	require.NotNil(t, skipped.LastError)
+	assert.Contains(t, *skipped.LastError, "schedule 99")
+}
+
+// TestReconciler_Restoring_DispatchedAgesOutToRestoreFailed pins the restore
+// telemetry-timeout: a Dispatched target whose telemetry never resumes and
+// whose retry budget is already at the cap transitions to RestoreFailed via
+// recordDispatchFailure; the event then completes with failures.
+func TestReconciler_Restoring_DispatchedAgesOutToRestoreFailed(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	r := newReconcilerForTest(store, disp)
+	// Dispatched 10 minutes ago — well past the 5-minute default timeout.
+	lastDispatch := r.now().Add(-10 * time.Minute)
+	eventID := int64(60)
+	store.events = []*models.Event{{
+		ID:        eventID,
+		EventUUID: uuid.New(),
+		OrgID:     1,
+		State:     models.EventStateRestoring,
+	}}
+	// RetryCount=2 (MaxRetries=3): one more failure tips into RestoreFailed.
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "m1",
+			State:              models.TargetStateDispatched,
+			DesiredState:       models.DesiredStateActive,
+			BaselinePowerW:     ptrFloat64(3000),
+			LastDispatchedAt:   &lastDispatch,
+			RetryCount:         2,
+		},
+	}
+	// Candidate row exists but power telemetry stays low → isRestored=false.
+	store.candidates = []*models.Candidate{
+		{DeviceIdentifier: "m1", LatestPowerW: ptrFloat64(50), LatestHashRateHS: ptrFloat64(0)},
+	}
+
+	r.runTick(context.Background())
+
+	final := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStateRestoreFailed, final.State,
+		"stale Dispatched + exhausted retry must transition to RestoreFailed")
+	assert.Equal(t, int32(3), final.RetryCount)
+	require.NotNil(t, final.LastError)
+	assert.Contains(t, *final.LastError, "restore telemetry timeout")
+	assert.Equal(t, models.EventStateCompletedWithFailures, store.updateEventLast[eventID],
+		"all-terminal restoring event must complete with failures")
+	assert.Equal(t, 0, disp.uncurtailCalls,
+		"a target that hit RestoreFailed must not be re-dispatched")
+}
+
+// TestReconciler_Restoring_DispatchedWithinTimeoutDoesNotFail pins the
+// happy-path: a Dispatched target whose telemetry is missing but whose
+// last_dispatched_at is still within the timeout window stays Dispatched and
+// does not consume retry budget.
+func TestReconciler_Restoring_DispatchedWithinTimeoutDoesNotFail(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	r := newReconcilerForTest(store, disp)
+	// Dispatched 1 minute ago — well under the 5-minute default timeout.
+	lastDispatch := r.now().Add(-1 * time.Minute)
+	eventID := int64(61)
+	store.events = []*models.Event{{
+		ID:        eventID,
+		EventUUID: uuid.New(),
+		OrgID:     1,
+		State:     models.EventStateRestoring,
+	}}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "m1",
+			State:              models.TargetStateDispatched,
+			DesiredState:       models.DesiredStateActive,
+			BaselinePowerW:     ptrFloat64(3000),
+			LastDispatchedAt:   &lastDispatch,
+		},
+	}
+	store.candidates = []*models.Candidate{
+		{DeviceIdentifier: "m1", LatestPowerW: ptrFloat64(50), LatestHashRateHS: ptrFloat64(0)},
+	}
+
+	r.runTick(context.Background())
+
+	final := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStateDispatched, final.State,
+		"within-window Dispatched target must stay Dispatched")
+	assert.Equal(t, int32(0), final.RetryCount,
+		"within-window timeout check must not consume retry budget")
+	assert.Nil(t, final.LastError)
+}
+
 // --- isRestored predicate ---
 
 func TestIsRestored(t *testing.T) {
@@ -325,6 +587,7 @@ func TestIsRestored(t *testing.T) {
 		{"baseline_nil_zero_hash_not_restored", ptrFloat64(2000), nil, ptrFloat64(0), 0.5, false},
 		{"no_telemetry_not_restored", nil, ptrFloat64(3000), nil, 0.5, false},
 		{"baseline_zero_falls_back_to_hash", ptrFloat64(2000), ptrFloat64(0), ptrFloat64(100), 0.5, true},
+		{"power_present_baseline_nil_hash_nil_not_restored", ptrFloat64(2000), nil, nil, 0.5, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
