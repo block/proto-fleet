@@ -172,10 +172,25 @@ update-go-deps:
 
 # --- Packaging ---
 
-# build the fleetnode operator CLI (writes to server/fleetnode)
+# Build the fleetnode operator CLI and stage plugins/nmap next to it so the
+# binary-adjacent defaults in `fleetnode run` resolve without extra flags.
+# server/plugins/ is already adjacent (populated by `just build-plugins`); this
+# recipe additionally symlinks ./nmap from PATH for the agent's NmapMode path.
 [working-directory: 'server']
 build-fleetnode:
+  #!/usr/bin/env bash
+  set -euo pipefail
   go build -o ./fleetnode ./cmd/fleetnode
+  if [ ! -d ./plugins ] || [ -z "$(ls -A ./plugins 2>/dev/null)" ]; then
+    echo "note: server/plugins/ is empty; run 'just build-plugins' so the agent's control loop has probes to run"
+  fi
+  if NMAP=$(command -v nmap 2>/dev/null); then
+    ln -sfn "$NMAP" ./nmap
+    echo "linked ./nmap -> $NMAP"
+  else
+    rm -f ./nmap
+    echo "note: nmap not on PATH; install it (brew install nmap / apt-get install nmap) or pass --nmap-path at runtime"
+  fi
 
 # build Windows installer
 [working-directory: 'deployment-files/windows']
