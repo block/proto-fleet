@@ -20,6 +20,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 
 	"github.com/block/proto-fleet/server/internal/handlers/health"
+	"github.com/block/proto-fleet/server/internal/handlers/promqlshim"
 
 	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
 	"github.com/block/proto-fleet/server/internal/infrastructure/timescaledb"
@@ -162,7 +163,12 @@ func start(config *Config) error {
 		}
 	}()
 
-	metricsProvider, err := metrics.Setup(context.Background(), version, config.Metrics)
+	conn, err := db.ConnectAndMigrate(&config.DB)
+	if err != nil {
+		return err
+	}
+
+	metricsProvider, err := metrics.Setup(context.Background(), version, config.Metrics, conn)
 	if err != nil {
 		return fmt.Errorf("setup metrics provider: %w", err)
 	}
@@ -173,11 +179,6 @@ func start(config *Config) error {
 			slog.Error("Failed to shutdown metrics provider", "error", err)
 		}
 	}()
-
-	conn, err := db.ConnectAndMigrate(&config.DB)
-	if err != nil {
-		return err
-	}
 
 	transactor := sqlstores.NewSQLTransactor(conn)
 
@@ -466,6 +467,11 @@ func start(config *Config) error {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/health", health.NewHandler())
+
+	shim := promqlshim.New(conn)
+	mux.Handle("/internal/promql/api/v1/query", shim)
+	mux.Handle("/internal/promql/api/v1/query_range", shim)
+	mux.Handle("/internal/vmalert/rules.yml", shim)
 	mux.Handle("/api/v1/firmware/upload", firmwareHandler.NewUploadHandler(filesService, sessionSvc, userStore, filesService.MaxFirmwareFileSize()))
 	mux.Handle("/api/v1/firmware/check", firmwareHandler.NewCheckHandler(filesService, sessionSvc, userStore))
 	mux.Handle("GET /api/v1/firmware/config", firmwareHandler.NewConfigHandler(filesService, sessionSvc, userStore, config.Files))

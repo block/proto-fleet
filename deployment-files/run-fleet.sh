@@ -16,9 +16,9 @@ usage() {
 Usage: run-fleet.sh [options]
 
 Options:
-  --enable-beta-notifications   Layer in the beta notifications sidecar stack
-                                (otel-collector, victoria-metrics, vmalert,
-                                alertmanager). Off by default.
+  --enable-beta-notifications   Layer in the beta notifications stack:
+                                vmalert + Alertmanager sidecars.
+                                Off by default.
   -h, --help                    Show this help and exit.
 EOF
 }
@@ -537,7 +537,7 @@ if [ "$ENABLE_BETA_NOTIFICATIONS" = "true" ]; then
         echo "Error: --enable-beta-notifications was passed but $COMPOSE_NOTIFICATIONS_FILE is missing."
         exit 1
     fi
-    echo "Notifications stack: enabled (otel-collector, victoria-metrics, vmalert, alertmanager)"
+    echo "Notifications stack: enabled (vmalert + alertmanager, metrics in TimescaleDB)"
 else
     echo "Notifications stack: disabled (pass --enable-beta-notifications to turn on the beta notifications sidecars)"
 fi

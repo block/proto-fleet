@@ -80,8 +80,8 @@ func TestValidateLabelKey(t *testing.T) {
 
 // guards against unknown Results
 func TestUnknownResultIsRejected(t *testing.T) {
-	p := newDisabledProvider(Config{})
-	require.NotNil(t, p.insts)
+	p, err := Setup(context.Background(), "test", Config{Enabled: false}, nil)
+	require.NoError(t, err)
 	// These must not panic — the slog.Error is the user-visible.
 	p.EmitCommand(context.Background(), CommandLabels{Kind: "reboot", Result: "weird"})
 	p.EmitTelemetryPoll(context.Background(), TelemetryPollLabels{Result: "weird"})
