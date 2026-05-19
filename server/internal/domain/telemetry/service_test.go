@@ -461,6 +461,124 @@ func TestTelemetryService_DataStoreInteraction(t *testing.T) {
 
 }
 
+// A plugin that returns a DeviceMetrics whose DeviceIdentifier does not match
+// the trusted device ID supplied to the poll is the same trust boundary the
+// rest of this file enforces around health, hashrate, and temperature.
+func TestGetTelemetryFromDevice_DropsMismatchedDeviceIdentifier(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+	mockMiner := minerMocks.NewMockMiner(ctrl)
+
+	trustedID := models.DeviceIdentifier("trusted-device-1")
+	device := models.Device{ID: trustedID, LastUpdatedAt: time.Now().Add(-5 * time.Minute)}
+
+	mockMinerGetter.EXPECT().
+		GetMinerFromDeviceIdentifier(gomock.Any(), trustedID).
+		Return(mockMiner, nil)
+	mockMiner.EXPECT().GetOrgID().Return(int64(42)).AnyTimes()
+	mockMiner.EXPECT().GetDriverName().Return("virtual").AnyTimes()
+
+	// Plugin returns a sample stamped with another device's identifier.
+	mockMiner.EXPECT().
+		GetDeviceMetrics(gomock.Any()).
+		Return(modelsV2.DeviceMetrics{
+			DeviceIdentifier: "victim-device",
+			Health:           modelsV2.HealthHealthyActive,
+			Timestamp:        time.Now(),
+		}, nil)
+
+	// AddDevices and StoreDeviceMetrics MUST NOT be called on this path.
+	// We register no expectation; the gomock controller fails the test if
+	// either method is invoked because the mocks are strict.
+
+	service := NewTelemetryService(Config{
+		StalenessThreshold: 1 * time.Minute,
+		FetchInterval:      10 * time.Second,
+		ConcurrencyLimit:   5,
+	}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+
+	status, hasStatus, orgID, driverName, pollSuccess, err := service.GetTelemetryFromDevice(t.Context(), device)
+
+	require.Error(t, err, "mismatched plugin identifier must surface as a telemetryErr so processDevice triggers AddFailedDevices")
+	assert.Contains(t, err.Error(), "mismatched device identifier")
+	assert.Equal(t, mm.MinerStatusUnknown, status, "tainted health-derived status must not be returned")
+	assert.False(t, hasStatus, "tainted health-derived status must not be returned")
+	assert.False(t, pollSuccess, "the poll must not be counted as successful")
+	assert.Equal(t, int64(42), orgID, "the trusted miner-resolved orgID must still be returned for poll-failure accounting")
+	assert.Equal(t, "virtual", driverName)
+
+	// metricsResults must not have received the tainted sample. The channel
+	// is buffered, so a non-blocking receive proves nothing was enqueued.
+	select {
+	case got := <-service.metricsResults:
+		t.Fatalf("forged telemetry sample was enqueued for persistence: %+v", got)
+	default:
+	}
+}
+
+// A plugin that returns a DeviceMetrics with an empty DeviceIdentifier — i.e.
+// non-authoritative rather than forged — must have the trusted poll target
+// stamped onto the sample before it leaves GetTelemetryFromDevice.
+func TestGetTelemetryFromDevice_NormalizesEmptyDeviceIdentifier(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)
+	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
+	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
+	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+	mockMiner := minerMocks.NewMockMiner(ctrl)
+
+	trustedID := models.DeviceIdentifier("trusted-device-7")
+	device := models.Device{ID: trustedID, LastUpdatedAt: time.Now().Add(-5 * time.Minute)}
+
+	mockMinerGetter.EXPECT().
+		GetMinerFromDeviceIdentifier(gomock.Any(), trustedID).
+		Return(mockMiner, nil)
+	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+	mockMiner.EXPECT().GetDriverName().Return("").AnyTimes()
+
+	// Plugin reports metrics but leaves DeviceIdentifier blank.
+	mockMiner.EXPECT().
+		GetDeviceMetrics(gomock.Any()).
+		Return(modelsV2.DeviceMetrics{
+			Health:    modelsV2.HealthHealthyActive,
+			Timestamp: time.Now(),
+		}, nil)
+
+	mockScheduler.EXPECT().
+		AddDevices(gomock.Any(), gomock.Any()).
+		Do(func(_ context.Context, devices ...models.Device) {
+			require.Len(t, devices, 1)
+			assert.Equal(t, trustedID, devices[0].ID)
+		}).Return(nil).Times(1)
+
+	service := NewTelemetryService(Config{
+		StalenessThreshold: 1 * time.Minute,
+		FetchInterval:      10 * time.Second,
+		ConcurrencyLimit:   5,
+	}, mockDataStore, mockMinerGetter, mockScheduler, mockDeviceStore, mock.NewMockErrorPoller(ctrl))
+
+	_, _, _, _, pollSuccess, err := service.GetTelemetryFromDevice(t.Context(), device)
+	require.NoError(t, err, "empty plugin identifier is non-authoritative and must be normalized, not rejected")
+	assert.True(t, pollSuccess)
+
+	// Drain the enqueued metricsResult and verify the trusted ID was stamped on.
+	select {
+	case got := <-service.metricsResults:
+		assert.Equal(t, trustedID, got.deviceID)
+		assert.Equal(t, string(trustedID), got.metrics.DeviceIdentifier,
+			"empty plugin identifier must be overwritten with the trusted poll target so persistence and OTel agree on the device")
+	case <-time.After(time.Second):
+		t.Fatal("expected a metricsResult to be enqueued for the normalized sample")
+	}
+}
+
 func TestTelemetryService_Integration(t *testing.T) {
 	t.Run("error handling in scheduler operations", func(t *testing.T) {
 		ctrl := gomock.NewController(t)

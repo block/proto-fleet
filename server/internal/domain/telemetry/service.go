@@ -896,6 +896,16 @@ func (s *TelemetryService) fetchTelemetryFromMiner(ctx context.Context, device m
 	}
 	result.metrics, result.metricsErr = miner.GetDeviceMetrics(ctx)
 	if result.metricsErr == nil {
+		trustedID := string(device.ID)
+		if result.metrics.DeviceIdentifier != "" && result.metrics.DeviceIdentifier != trustedID {
+			slog.Warn("dropping telemetry sample with plugin-reported device identifier that does not match trusted ID",
+				"requested_device_id", trustedID,
+				"reported_device_id", result.metrics.DeviceIdentifier,
+				"driver", result.driverName,
+			)
+			return result, fmt.Errorf("plugin returned mismatched device identifier %q for device %s", result.metrics.DeviceIdentifier, device.ID)
+		}
+		result.metrics.DeviceIdentifier = trustedID
 		result.status, result.hasStatus = healthStatusToMinerStatus(result.metrics.Health)
 	}
 	return result, nil
@@ -974,8 +984,14 @@ func (s *TelemetryService) GetTelemetryFromDevice(ctx context.Context, device mo
 
 	result, err := s.fetchTelemetryFromMiner(fetchCtx, device)
 	if err != nil {
-		orgID, driverName := s.resolveTrustedDeviceMetadata(ctx, device.ID)
-		return mm.MinerStatusUnknown, false, orgID, driverName, false, fmt.Errorf("failed to get miner from device ID %s: %w", device.ID, err)
+		var orgID int64
+		var driverName string
+		if result != nil {
+			orgID, driverName = result.orgID, result.driverName
+		} else {
+			orgID, driverName = s.resolveTrustedDeviceMetadata(ctx, device.ID)
+		}
+		return mm.MinerStatusUnknown, false, orgID, driverName, false, fmt.Errorf("failed to fetch telemetry from device ID %s: %w", device.ID, err)
 	}
 
 	pollSuccess := result.metricsErr == nil
