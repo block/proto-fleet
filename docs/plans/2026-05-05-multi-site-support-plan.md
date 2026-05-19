@@ -202,17 +202,23 @@ URL can navigate directly, which keeps dogfood + QA paths open
 without adding route-guard logic. Removing the flag is a one-line
 config change once we're ready to expose the feature to operators.
 
-**Route-scoped picker rendering in Phase 1a.** The SitePicker
-mounts in `PageHeader` only on the new routes (`/sites`,
-`/settings/sites`, `/buildings/:id`). Existing routes (`/miners`,
-`/racks`, dashboards, etc.) keep today's `LocationSelector`
-placeholder during Phase 1a, because their data queries do not yet
-honor `site_id` and a globally-mounted picker would look broken
-when the operator selects a site and the miner list ignores it.
-Phase 1b expands the picker globally as miner-list and rack-list
-gain site scoping (see Phasing). Active-site state is still
-persisted in localStorage in 1a so the selection survives across
-routes that do honor it.
+**Global picker mount in Phase 1a, transitional consumption.**
+The SitePicker replaces today's `LocationSelector` in `PageHeader`
+globally from Phase 1a — it is visible on every protoFleet route
+including `/miners`, `/racks`, and the dashboards. The three new
+routes (`/sites`, `/settings/sites`, `/buildings/:id`) consume the
+selection immediately. Existing routes do **not** yet read the
+active site in 1a; their data queries continue to render org-wide
+results regardless of the picker's state. This is a documented
+transitional UX captured in the issue and PR description: the
+picker looks the same everywhere, but only the new pages react to
+it. Phase 1b (#202) closes the gap for miner-list and rack-list;
+history-bearing pages join in Phase 2. We chose the global mount
+over route-scoping because the route-scoped variant adds matching
+logic to `PageHeader`, splits state behavior across the app, and
+breaks selection continuity when an operator navigates from
+`/buildings/:id` to `/racks?building_id=...` — exactly the moment
+they'd want context to follow them.
 
 - **Specific site selected** → all reads scoped to that site. All writes
   target that site without further prompting.
@@ -990,15 +996,15 @@ flag-off state is a strict subset of the flag-on state.
   Phase 1a ships header + placeholder blocks; Phase 1b lands metric
   components, the rack grid + rack-state derivation, and the
   performance charts.
-- **Topbar SitePicker** — Phase 1a mounts the picker in
-  `PageHeader` **only when the active route is `/sites`,
-  `/settings/sites`, or `/buildings/:id`**; other routes keep
-  today's `LocationSelector` placeholder. Phase 1b replaces the
-  placeholder everywhere as miner-list and rack-list gain site
-  scoping. Hidden when org has zero sites. Otherwise: "All Sites"
+- **Topbar SitePicker** — Phase 1a replaces today's
+  `LocationSelector` placeholder in `PageHeader` globally on every
+  protoFleet route. The three new routes consume the selection
+  immediately; existing routes (`/miners`, `/racks`, dashboards)
+  leave the picker informational until Phase 1b wires their
+  queries. Hidden when org has zero sites. Otherwise: "All Sites"
   + each accessible site + "Unassigned" entry. Selection persists
-  to localStorage keyed by username so it survives navigation
-  across the routes that honor it.
+  to localStorage keyed by username so it survives navigation and
+  reload.
 
 **Modals (Phase 1a, shared across `/sites` and `/settings/sites`).**
 
@@ -1033,12 +1039,13 @@ flag-off state is a strict subset of the flag-on state.
   `site_id IS NULL` condition, gated on org having ≥1 site.
 - **CompleteSetup module** (Phase 1b, tracks #200) — "Assign miners
   to sites" TaskCard, gated identically.
-- **Page header / app shell** — Phase 1a mounts SitePicker on the
-  new routes only (see SitePicker bullet above). The new pages read
-  active site from localStorage and scope reads accordingly.
-  Phase 1b expands the picker globally and wires the existing miner
-  list + rack list to consume the active site (rack list BE filter
-  is a Phase 1b deliverable).
+- **Page header / app shell** — Phase 1a replaces the
+  `LocationSelector` placeholder with the SitePicker on every
+  route. The new pages read active site from localStorage and
+  scope reads accordingly; existing pages render the picker but
+  don't yet consume the selection. Phase 1b wires the existing
+  miner list + rack list to consume the active site (rack list
+  BE filter is a Phase 1b deliverable).
 - **Primary sidenav** (Phase 1a) — adds "Sites" entry pointing at
   `/sites`, wrapped in the Vite feature flag.
 - **Settings layout** (Phase 1a) — adds "Sites" entry to the
@@ -1094,13 +1101,15 @@ Work in this phase consolidates into three sequential PRs:
   page is a shell — header / button row only, with FPO placeholder
   blocks where Phase 1b will land metric components, BuildingCards,
   diagnostics, and the performance section.
-- Topbar SitePicker — mounted in `PageHeader` **only on the new
-  routes** (`/sites`, `/settings/sites`, `/buildings/:id`).
-  Existing routes (`/miners`, `/racks`, dashboards) keep today's
-  `LocationSelector` placeholder until Phase 1b. Hidden when org
-  has zero sites; renders "All Sites" + each accessible site +
+- Topbar SitePicker — replaces today's `LocationSelector`
+  placeholder in `PageHeader` globally; visible on every
+  protoFleet route from Phase 1a. The three new routes consume
+  the selection immediately; existing routes (`/miners`,
+  `/racks`, dashboards) leave the picker informational until
+  Phase 1b (#202) wires their queries. Hidden when org has zero
+  sites; renders "All Sites" + each accessible site +
   "Unassigned" otherwise. localStorage-keyed by username so the
-  selection persists across the routes that honor it.
+  selection persists across navigation and reload.
 - Primary sidenav "Sites" button → `/sites`, feature-flagged.
 - Settings subnav "Sites" entry → `/settings/sites`,
   feature-flagged with the same flag.
@@ -1184,13 +1193,15 @@ backend follow-ups land here where they unblock visible product.
   selection from localStorage and passes it into the query.
   Optional rack-list site filter chip + site column on the rack
   table track as part of the same enrichment work.
-- **Global SitePicker rollout.** With miner-list and rack-list
-  scoping in place, the SitePicker moves out of the new-route-only
-  mount into the global `PageHeader`, replacing the
-  `LocationSelector` placeholder on every page. History-bearing
-  pages (errors, activity, telemetry, dashboards) still ignore the
-  selection until Phase 2 — note this on the picker tooltip or in
-  release notes so operators don't expect filtered history.
+- **SitePicker consumption rollout.** With miner-list and
+  rack-list scoping in place, both pages start reading the active
+  site from localStorage and pass it through to their list
+  queries. The SitePicker was already mounted globally in Phase
+  1a; this work removes the transitional gap noted in the picker
+  tooltip / release notes. History-bearing pages (errors,
+  activity, telemetry, dashboards) still ignore the selection
+  until Phase 2 — tooltip / release-note guidance updates to
+  reflect the new scope.
 - "Needs Attention" gains the `site_id IS NULL` condition (was
   #200).
 - CompleteSetup "Assign miners to sites" TaskCard (was #200).
