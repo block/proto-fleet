@@ -172,25 +172,25 @@ update-go-deps:
 
 # --- Packaging ---
 
-# Build the fleetnode operator CLI and stage plugins/nmap next to it so the
-# binary-adjacent defaults in `fleetnode run` resolve without extra flags.
-# server/plugins/ is already adjacent (populated by `just build-plugins`); this
-# recipe additionally symlinks ./nmap from PATH for the agent's NmapMode path.
-[working-directory: 'server']
-build-fleetnode:
+# Build the fleetnode operator CLI into server/.fleetnode/ along with native
+# plugins and an nmap symlink so the binary-adjacent defaults in
+# `fleetnode run` resolve without flags. Kept separate from server/plugins/
+# because `just dev` puts cross-compiled Linux/arm64 plugins there for the
+# Docker server, and the native agent can't exec ELF binaries.
+build-fleetnode: (_build-go-plugins-native "server/.fleetnode/plugins")
   #!/usr/bin/env bash
   set -euo pipefail
-  go build -o ./fleetnode ./cmd/fleetnode
-  if [ ! -d ./plugins ] || [ -z "$(ls -A ./plugins 2>/dev/null)" ]; then
-    echo "note: server/plugins/ is empty; run 'just build-plugins' so the agent's control loop has probes to run"
-  fi
+  cd server
+  mkdir -p ./.fleetnode
+  go build -o ./.fleetnode/fleetnode ./cmd/fleetnode
   if NMAP=$(command -v nmap 2>/dev/null); then
-    ln -sfn "$NMAP" ./nmap
-    echo "linked ./nmap -> $NMAP"
+    ln -sfn "$NMAP" ./.fleetnode/nmap
+    echo "linked server/.fleetnode/nmap -> $NMAP"
   else
-    rm -f ./nmap
+    rm -f ./.fleetnode/nmap
     echo "note: nmap not on PATH; install it (brew install nmap / apt-get install nmap) or pass --nmap-path at runtime"
   fi
+  echo "agent staged at server/.fleetnode/fleetnode"
 
 # build Windows installer
 [working-directory: 'deployment-files/windows']
