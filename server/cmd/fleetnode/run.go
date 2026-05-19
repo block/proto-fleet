@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
@@ -26,15 +28,22 @@ const (
 
 type RunCmd struct {
 	HeartbeatInterval time.Duration `name:"heartbeat-interval" default:"30s" help:"interval between UploadHeartbeat calls"`
+	PluginsDir        string        `name:"plugins-dir" help:"absolute path to the discovery plugins directory; required when the agent should execute server-issued discovery commands"`
 
 	now           func() time.Time                                                `kong:"-"`
 	clientFactory func(serverURL string, tokenSource func() string) gatewayClient `kong:"-"`
 	signals       []os.Signal                                                     `kong:"-"`
 	parentCtx     context.Context                                                 `kong:"-"` //nolint:containedctx // test seam for daemon shutdown without OS signals
+	discoverer    discoverer                                                      `kong:"-"`
+
+	// Guards st.SessionToken: refreshAndSave writes; tokenSource reads.
+	stateMu sync.Mutex `kong:"-"`
 }
 
 type gatewayClient interface {
 	UploadHeartbeat(ctx context.Context, req *connect.Request[pb.UploadHeartbeatRequest]) (*connect.Response[pb.UploadHeartbeatResponse], error)
+	ReportDiscoveredDevices(ctx context.Context, req *connect.Request[pb.ReportDiscoveredDevicesRequest]) (*connect.Response[pb.ReportDiscoveredDevicesResponse], error)
+	ControlStream(ctx context.Context) *connect.BidiStreamForClient[pb.ControlStreamRequest, pb.ControlStreamResponse]
 }
 
 func (r *RunCmd) Run(c *Context) error {
@@ -60,6 +69,15 @@ func (r *RunCmd) run(c *Context, stderr io.Writer) error {
 		r.parentCtx = context.Background()
 	}
 
+	// CLI-flag validation runs before any disk/state work so misconfiguration
+	// fails fast. The plugin manager execs anything in PluginsDir, so a
+	// relative path would resolve against the daemon's CWD and let a writable
+	// launch directory host arbitrary code as the agent user.
+	controlWanted := r.discoverer == nil && r.PluginsDir != ""
+	if controlWanted && !filepath.IsAbs(r.PluginsDir) {
+		return fmt.Errorf("--plugins-dir must be an absolute path, got %q", r.PluginsDir)
+	}
+
 	path := fleetnodebootstrap.StatePath(c.StateDir)
 	st, exists, err := fleetnodebootstrap.LoadState(path)
 	if err != nil {
@@ -70,6 +88,15 @@ func (r *RunCmd) run(c *Context, stderr io.Writer) error {
 	}
 	if st.APIKey == "" {
 		return fmt.Errorf("state at %s has no api_key; complete enrollment via `fleetnode refresh` before running the daemon", path)
+	}
+
+	if controlWanted {
+		disc, cleanup, bootstrapErr := newPluginDiscoverer(r.PluginsDir)
+		if bootstrapErr != nil {
+			return fmt.Errorf("bootstrap discovery plugins: %w", bootstrapErr)
+		}
+		defer cleanup()
+		r.discoverer = disc
 	}
 
 	logger := slog.New(slog.NewTextHandler(stderr, nil))
@@ -107,25 +134,70 @@ func (r *RunCmd) runLocked(c *Context, logger *slog.Logger) error {
 		}
 	}
 
-	client := r.clientFactory(st.ServerURL, func() string { return st.SessionToken })
+	tokenSource := func() string {
+		r.stateMu.Lock()
+		defer r.stateMu.Unlock()
+		return st.SessionToken
+	}
+	client := r.clientFactory(st.ServerURL, tokenSource)
+
+	controlEnabled := r.discoverer != nil
 
 	logger.Info("daemon started",
 		"fleet_node_id", st.FleetNodeID,
 		"server_url", st.ServerURL,
 		"heartbeat_interval", r.HeartbeatInterval.String(),
+		"control_loop_enabled", controlEnabled,
 		"session_expires_at", st.SessionExpiresAt.Format(time.RFC3339),
 	)
-
-	ticker := time.NewTicker(r.HeartbeatInterval)
-	defer ticker.Stop()
 
 	if err := r.tick(ctx, client, st, path, logger); err != nil {
 		return err
 	}
+
+	loopCtx, cancelLoops := context.WithCancel(ctx)
+	defer cancelLoops()
+
+	errCh := make(chan error, 2)
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := r.runHeartbeatLoop(loopCtx, client, st, path, logger); err != nil {
+			errCh <- err
+			cancelLoops()
+		}
+	}()
+
+	if controlEnabled {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := r.runControlLoop(loopCtx, client, st, logger); err != nil {
+				errCh <- err
+				cancelLoops()
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		if err != nil {
+			return err
+		}
+	}
+	logger.Info("daemon shutting down", "fleet_node_id", st.FleetNodeID)
+	return nil
+}
+
+func (r *RunCmd) runHeartbeatLoop(ctx context.Context, client gatewayClient, st *fleetnodebootstrap.State, path string, logger *slog.Logger) error {
+	ticker := time.NewTicker(r.HeartbeatInterval)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
-			logger.Info("daemon shutting down", "fleet_node_id", st.FleetNodeID)
 			return nil
 		case <-ticker.C:
 			if err := r.tick(ctx, client, st, path, logger); err != nil {
@@ -147,9 +219,16 @@ func (r *RunCmd) sessionNeedsRefresh(st *fleetnodebootstrap.State) bool {
 
 func (r *RunCmd) refreshAndSave(ctx context.Context, st *fleetnodebootstrap.State, path string, logger *slog.Logger) error {
 	logger.Info("refreshing session", "fleet_node_id", st.FleetNodeID, "session_expires_at", st.SessionExpiresAt.Format(time.RFC3339))
-	if err := fleetnodebootstrap.Refresh(ctx, st); err != nil {
+	// Handshake against a shallow copy so the 2-RPC network call doesn't hold
+	// stateMu and stall the control loop's token reads.
+	next := *st
+	if err := fleetnodebootstrap.Refresh(ctx, &next); err != nil {
 		return err
 	}
+	r.stateMu.Lock()
+	st.SessionToken = next.SessionToken
+	st.SessionExpiresAt = next.SessionExpiresAt
+	r.stateMu.Unlock()
 	if err := fleetnodebootstrap.SaveState(path, st); err != nil {
 		return fmt.Errorf("save state after refresh: %w", err)
 	}
