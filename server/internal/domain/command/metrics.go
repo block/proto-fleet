@@ -42,6 +42,10 @@ func commandKindLabel(t commandtype.Type) string {
 		return "unpair"
 	case commandtype.UpdateMinerPassword:
 		return "update_miner_password"
+	case commandtype.Curtail:
+		return "curtail"
+	case commandtype.Uncurtail:
+		return "uncurtail"
 	default:
 		return strings.ToLower((&t).String())
 	}
