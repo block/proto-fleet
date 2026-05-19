@@ -66,12 +66,6 @@ const SiteSettingsSingleView = ({ site, knownSiteIds }: SiteSettingsSingleViewPr
             testId="site-settings-manage"
           />
         </div>
-        {/*
-          Sub-page title uses heading-200 (20px) rather than the all-sites
-          heading-300 (28px) — the SitePicker selection already places this
-          surface one nav level below, so the page title should read as a
-          contextual heading rather than competing with the topbar.
-        */}
         <Header title={site.site?.name ?? "(unnamed)"} titleSize="text-heading-200" description={addressLine || "—"} />
       </div>
 
