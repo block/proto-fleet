@@ -34,6 +34,10 @@ type minerFilterParams struct {
 	firmwareVersionValues     []string
 	zonesFilter               sql.NullString
 	zoneValues                []string
+	// Site filter: site_ids OR (site_id IS NULL when includeUnassigned).
+	siteIDsFilter     sql.NullString
+	siteIDValues      []int64
+	includeUnassigned bool
 	// numericRanges drives both the WHERE predicates emitted by
 	// appendFilterSQL and the CTE/JOIN gating in buildListQuerySQL: when
 	// non-empty, latest_metrics is INNER-joined and OFFLINE miners are
@@ -127,6 +131,12 @@ func buildMinerFilterParams(filter *stores.MinerFilter) minerFilterParams {
 		fp.zonesFilter = sql.NullString{Valid: true}
 		fp.zoneValues = filter.Zones
 	}
+
+	if len(filter.SiteIDs) > 0 {
+		fp.siteIDsFilter = sql.NullString{Valid: true}
+		fp.siteIDValues = filter.SiteIDs
+	}
+	fp.includeUnassigned = filter.IncludeUnassigned
 
 	// Numeric range filters (telemetry predicates).
 	if len(filter.NumericRanges) > 0 {
@@ -306,6 +316,24 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 			argNum)
 		args = append(args, pq.Array(fp.ipCIDRValues))
 		argNum++
+	}
+
+	if fp.siteIDsFilter.Valid || fp.includeUnassigned {
+		sb.WriteString(" AND (")
+		first := true
+		if fp.siteIDsFilter.Valid {
+			fmt.Fprintf(sb, "device.site_id = ANY($%d::bigint[])", argNum)
+			args = append(args, pq.Array(fp.siteIDValues))
+			argNum++
+			first = false
+		}
+		if fp.includeUnassigned {
+			if !first {
+				sb.WriteString(" OR ")
+			}
+			sb.WriteString("device.site_id IS NULL")
+		}
+		sb.WriteString(")")
 	}
 
 	if fp.zonesFilter.Valid {

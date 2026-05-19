@@ -28,6 +28,7 @@ const SelectRowList = ({ className, onChange, selectRows, type }: SelectRowListP
               subtext={selectRow.subtext}
               text={selectRow.text}
               sideText={selectRow.sideText}
+              data-testid={selectRow["data-testid"]}
               disabled={selectRow.disabled}
               isSelected={selectRow.isSelected}
               onChange={handleChange}

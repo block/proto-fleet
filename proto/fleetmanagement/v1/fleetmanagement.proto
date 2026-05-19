@@ -148,6 +148,14 @@ message MinerStateSnapshot {
   // Rack slot position formatted using the rack numbering origin (for example "01").
   // Empty if the device is not assigned to a numbered rack slot.
   string rack_position = 24;
+
+  // Site this device is assigned to, if any. Unset when the device is in
+  // the Unassigned bucket or the org has no sites configured.
+  optional int64 site_id = 25;
+
+  // Human-readable label of the site this device is assigned to.
+  // Empty if site_id is unset.
+  string site_label = 26;
 }
 
 // Removed MinerComponentStatus and ComponentStatus - now using error-based filtering
@@ -290,6 +298,17 @@ message MinerListFilter {
   // are treated as /32 (IPv4) or /128 (IPv6). Non-canonical CIDRs such as
   // "192.168.1.5/24" are normalized to their network ("192.168.1.0/24").
   repeated string ip_cidrs = 12;
+
+  // Filter by site IDs. Returns miners assigned to ANY of the specified
+  // sites (acts as OR condition). When combined with include_unassigned,
+  // miners with site_id IS NULL are also included.
+  // When combined with other filters, uses AND logic.
+  repeated int64 site_ids = 13;
+
+  // When true, miners with site_id IS NULL are included in the result.
+  // Independent of site_ids — set only this to filter the Unassigned
+  // bucket alone; set both to combine specific sites with Unassigned.
+  bool include_unassigned = 14;
 }
 
 // Telemetry field selector for numeric range filters. Values are interpreted

@@ -6,6 +6,7 @@ import { SelectType, selectTypes } from "@/shared/constants";
 
 export interface SelectRowProps {
   className?: string;
+  "data-testid"?: string;
   disabled?: boolean;
   isSelected: boolean;
   onChange: (isSelected: boolean) => void;
@@ -18,6 +19,7 @@ export interface SelectRowProps {
 
 const SelectRow = ({
   className,
+  "data-testid": dataTestId,
   disabled,
   isSelected,
   onChange,
@@ -39,6 +41,7 @@ const SelectRow = ({
 
   return (
     <button
+      data-testid={dataTestId}
       className={clsx(
         "flex w-full items-center justify-between py-3 text-left select-none",
         "transition-[background-color] duration-200 ease-in-out",

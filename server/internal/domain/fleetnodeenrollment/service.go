@@ -31,6 +31,7 @@ const (
 	clientErrCancel            = "enrollment cancellation failed"
 	clientErrListFleetNodes    = "failed to list fleet nodes"
 	clientErrRevokeFleetNode   = "fleet node revocation failed"
+	clientErrUpdateLastSeen    = "heartbeat update failed"
 
 	component = "fleet node enrollment"
 )
@@ -60,6 +61,7 @@ type AgentStore interface {
 	SetFleetNodeEnrollmentStatus(ctx context.Context, status FleetNodeStatus, agentID, orgID int64) (int64, error)
 	SoftDeleteFleetNode(ctx context.Context, agentID, orgID int64, deletedAt time.Time) (int64, error)
 	SoftDeleteFleetNodesForExpiredEnrollments(ctx context.Context, now time.Time) (int64, error)
+	UpdateLastSeen(ctx context.Context, fleetNodeID, orgID int64, now time.Time) (int64, error)
 }
 
 type Store interface {
@@ -261,6 +263,21 @@ func (s *Service) RevokeFleetNode(ctx context.Context, agentID, orgID int64) err
 		return err
 	}
 	s.logActivity(ctx, "revoke_fleet_node", fmt.Sprintf("Revoked fleet node '%s' (id=%d)", agentName, agentID))
+	return nil
+}
+
+// UpdateLastSeen advances last_seen_at on the fleet_node row. 0 rows
+// affected means the fleet_node was soft-deleted (or scoped to a different
+// org) between the auth interceptor's session lookup and now; surface
+// NotFound so the daemon's session resolver fails on its next refresh.
+func (s *Service) UpdateLastSeen(ctx context.Context, fleetNodeID, orgID int64, now time.Time) error {
+	rows, err := s.store.UpdateLastSeen(ctx, fleetNodeID, orgID, now)
+	if err != nil {
+		return logInternal("update last_seen_at", clientErrUpdateLastSeen, err)
+	}
+	if rows == 0 {
+		return fleeterror.NewNotFoundError("fleet node not found")
+	}
 	return nil
 }
 

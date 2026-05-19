@@ -37,6 +37,7 @@ export const GlobalActionsWidget = ({ onBlinkLEDs, onDownloadLogs }: GlobalActio
         onClick={() => setIsOpen((prev) => !prev)}
         className="w-[28px] p-0 text-text-primary"
         isOpen={isOpen}
+        testId="global-actions-widget"
         ariaLabel="Global actions"
         ariaHasPopup="menu"
         ariaExpanded={isOpen}

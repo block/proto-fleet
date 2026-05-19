@@ -578,6 +578,17 @@ Stated as write-time checks:
   crossed a building boundary. This closes the loophole where rack
   moves would otherwise let devices drift to the wrong site because
   `device.site_id` is a direct FK independent of the rack context.
+- **Add devices to rack** (`AddDevicesToDeviceSet` with
+  `device_set_type = 'rack'`): when the target rack has
+  `site_id IS NOT NULL`, cascade the rack's `site_id` onto every
+  added device whose current `site_id` differs, in the same
+  transaction as the membership insert. The rack wins because the
+  operator explicitly picked it; the prior device `site_id` is
+  captured in the activity-log row so the implicit reassignment is
+  auditable. The client shows a confirmation dialog summarizing the
+  device-site reassignment counts before the call fires. Targets of
+  `device_set_type = 'group'` are exempt — groups are org-scoped and
+  may span sites by design.
 - A rack may be directly assigned to a site with `building_id = NULL`.
   A device may be directly assigned to a site without any rack.
 - Otherwise (any of the FKs are NULL): no constraint.
@@ -789,11 +800,15 @@ that don't opt in.
   `site_id` + `site_label` on `MinerStateSnapshot` with writer
   audit.
 - Cross-collection enforcement on direct device assignment, plus
-  transactional descendant cascades on building assign-to-site and
-  **the existing rack edit/move flow**. Rack edit must land in
+  transactional descendant cascades on building assign-to-site,
+  **the existing rack edit/move flow**, and the
+  `AddDevicesToDeviceSet` rack-add flow. Rack edit must land in
   Phase 1 so miners cannot drift to the wrong site via a rack move,
   and cross-building moves must clear the rack's zone as part of
-  the same transaction.
+  the same transaction. `AddDevicesToDeviceSet` cascades the rack's
+  `site_id` onto added devices (when the target is a rack with
+  `site_id IS NOT NULL`) and records the prior device site in the
+  activity log; group-target adds are exempt.
 - Server-side validation of site `network_config` (CIDR parse,
   `/20` cap, within-site overlap rejection, cross-site overlap
   warning, canonical-form round-trip).

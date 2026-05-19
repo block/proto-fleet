@@ -46,13 +46,17 @@ func TestZoneFilter_CrossOrgIsolation(t *testing.T) {
 	// org's device to its own rack.
 	rackA, err := collectionStore.CreateCollection(ctx, userA.OrganizationID, collectionpb.CollectionType_COLLECTION_TYPE_RACK, "Rack A", "")
 	require.NoError(t, err)
-	require.NoError(t, collectionStore.CreateRackExtension(ctx, rackA.Id, sharedZone, 4, 8, 0, 0, userA.OrganizationID))
+	require.NoError(t, collectionStore.CreateRackExtension(ctx, stores.CreateRackExtensionParams{
+		OrgID: userA.OrganizationID, CollectionID: rackA.Id, Rows: 4, Columns: 8, Zone: sharedZone,
+	}))
 	_, err = collectionStore.AddDevicesToCollection(ctx, userA.OrganizationID, rackA.Id, []string{devA.ID})
 	require.NoError(t, err)
 
 	rackB, err := collectionStore.CreateCollection(ctx, userB.OrganizationID, collectionpb.CollectionType_COLLECTION_TYPE_RACK, "Rack B", "")
 	require.NoError(t, err)
-	require.NoError(t, collectionStore.CreateRackExtension(ctx, rackB.Id, sharedZone, 4, 8, 0, 0, userB.OrganizationID))
+	require.NoError(t, collectionStore.CreateRackExtension(ctx, stores.CreateRackExtensionParams{
+		OrgID: userB.OrganizationID, CollectionID: rackB.Id, Rows: 4, Columns: 8, Zone: sharedZone,
+	}))
 	_, err = collectionStore.AddDevicesToCollection(ctx, userB.OrganizationID, rackB.Id, []string{devB.ID})
 	require.NoError(t, err)
 
@@ -455,7 +459,9 @@ func TestZoneFilter_ExcludesSoftDeletedRack(t *testing.T) {
 
 	rack, err := collectionStore.CreateCollection(ctx, user.OrganizationID, collectionpb.CollectionType_COLLECTION_TYPE_RACK, "Doomed Rack", "")
 	require.NoError(t, err)
-	require.NoError(t, collectionStore.CreateRackExtension(ctx, rack.Id, "doomed-zone", 4, 8, 0, 0, user.OrganizationID))
+	require.NoError(t, collectionStore.CreateRackExtension(ctx, stores.CreateRackExtensionParams{
+		OrgID: user.OrganizationID, CollectionID: rack.Id, Rows: 4, Columns: 8, Zone: "doomed-zone",
+	}))
 	_, err = collectionStore.AddDevicesToCollection(ctx, user.OrganizationID, rack.Id, []string{dev.ID})
 	require.NoError(t, err)
 

@@ -13,6 +13,36 @@ type DeviceRackDetails struct {
 	Position string
 }
 
+// RackPlacement captures the rack's current site/building/zone assignment.
+// All three may be NULL/empty (fully-unassigned rack).
+type RackPlacement struct {
+	SiteID     *int64
+	BuildingID *int64
+	Zone       string
+}
+
+// AddedDeviceSiteConflict reports a device whose current site_id differs
+// from the rack it's being added to, captured for the cascade audit.
+type AddedDeviceSiteConflict struct {
+	DeviceIdentifier string
+	PriorSiteID      *int64
+	TargetSiteID     int64
+}
+
+// CreateRackExtensionParams captures the inputs for inserting a rack
+// extension row. SiteID / BuildingID may be nil for unassigned racks.
+type CreateRackExtensionParams struct {
+	OrgID        int64
+	CollectionID int64
+	Rows         int32
+	Columns      int32
+	OrderIndex   int32
+	CoolingType  int32
+	Zone         string
+	SiteID       *int64
+	BuildingID   *int64
+}
+
 // CollectionStore provides database operations for device collections (groups and racks).
 //
 //nolint:interfacebloat // complete CRUD for collections with membership management
@@ -20,9 +50,9 @@ type CollectionStore interface {
 	// CreateCollection creates a new collection and returns it with device_count = 0.
 	CreateCollection(ctx context.Context, orgID int64, collectionType pb.CollectionType, label, description string) (*pb.DeviceCollection, error)
 
-	// CreateRackExtension creates the rack extension record with dimensions.
+	// CreateRackExtension creates the rack extension record with dimensions and placement.
 	// Must be called after CreateCollection for rack-type collections.
-	CreateRackExtension(ctx context.Context, collectionID int64, zone string, rows, columns int32, orderIndex, coolingType int32, orgID int64) error
+	CreateRackExtension(ctx context.Context, params CreateRackExtensionParams) error
 
 	// GetCollection retrieves a collection by ID with its device count.
 	GetCollection(ctx context.Context, orgID int64, collectionID int64) (*pb.DeviceCollection, error)
@@ -35,8 +65,45 @@ type CollectionStore interface {
 	// Only non-nil values are updated.
 	UpdateCollection(ctx context.Context, orgID int64, collectionID int64, label, description *string) error
 
-	// UpdateRackInfo updates rack-specific info.
+	// UpdateRackInfo updates rack layout (rows, columns, zone, etc.).
+	// Use UpdateRackPlacement to change site_id / building_id.
 	UpdateRackInfo(ctx context.Context, collectionID int64, zone string, rows, columns int32, orderIndex, coolingType int32, orgID int64) error
+
+	// LockRackPlacementForWrite locks the rack row FOR UPDATE and returns
+	// the current placement. Returns NotFound for missing or soft-deleted
+	// racks.
+	LockRackPlacementForWrite(ctx context.Context, collectionID, orgID int64) (RackPlacement, error)
+
+	// UpdateRackPlacement sets the rack's site_id, building_id, and zone
+	// atomically.
+	UpdateRackPlacement(ctx context.Context, collectionID, orgID int64, siteID, buildingID *int64, zone string) error
+
+	// UnassignDeviceSitesByRack nulls device.site_id for paired rack
+	// members that match the rack's stamped site. No-op when the rack
+	// has no site or no members.
+	UnassignDeviceSitesByRack(ctx context.Context, collectionID, orgID int64) (int64, error)
+
+	// CascadeRackDeviceSites rewrites device.site_id to targetSiteID for
+	// rack members where the value differs. Returns the affected count.
+	CascadeRackDeviceSites(ctx context.Context, collectionID, orgID int64, targetSiteID *int64) (int64, error)
+
+	// GetDeviceSiteIDsByMembership returns device_identifier + current
+	// site_id for every rack member.
+	GetDeviceSiteIDsByMembership(ctx context.Context, collectionID, orgID int64) (map[string]*int64, error)
+
+	// GetBuildingSite returns the building's parent site_id; NotFound
+	// for missing or soft-deleted buildings.
+	GetBuildingSite(ctx context.Context, orgID, buildingID int64) (*int64, error)
+
+	// GetAddedDeviceSiteConflicts returns prior + target site_id for
+	// devices whose current site differs from the target rack. Empty for
+	// groups or site-less racks.
+	GetAddedDeviceSiteConflicts(ctx context.Context, orgID, deviceSetID int64, deviceIdentifiers []string) ([]AddedDeviceSiteConflict, error)
+
+	// CascadeAddedDeviceSites rewrites device.site_id to rack.site_id
+	// for the supplied devices where the value differs. No-op for groups
+	// or site-less racks.
+	CascadeAddedDeviceSites(ctx context.Context, orgID, deviceSetID int64, deviceIdentifiers []string) (int64, error)
 
 	// SoftDeleteCollection marks a collection as deleted.
 	// Returns the number of rows affected (0 if not found).

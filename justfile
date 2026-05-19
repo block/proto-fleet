@@ -153,16 +153,18 @@ test-e2e-protoos-wip: (_e2e "protoOS" "--headed" "--grep" "@wip" "--project=desk
 update-go-deps:
   #!/usr/bin/env bash
   set -euo pipefail
+  # -t includes modules needed to build tests; without it, deps imported only
+  # from *_test.go files are skipped (e.g. testcontainers-go in plugin/proto).
   echo "Updating server dependencies..."
-  (cd server && go get -u ./... && go mod tidy)
+  (cd server && go get -u -t ./... && go mod tidy)
   echo "Updating plugin/proto dependencies..."
-  (cd plugin/proto && go get -u ./... && go mod tidy)
+  (cd plugin/proto && go get -u -t ./... && go mod tidy)
   echo "Updating plugin/antminer dependencies..."
-  (cd plugin/antminer && go get -u ./... && go mod tidy)
+  (cd plugin/antminer && go get -u -t ./... && go mod tidy)
   echo "Updating plugin/virtual dependencies..."
-  (cd plugin/virtual && go get -u ./... && go mod tidy)
+  (cd plugin/virtual && go get -u -t ./... && go mod tidy)
   echo "Updating server/fake-proto-rig dependencies..."
-  (cd server/fake-proto-rig && go get -u ./... && go mod tidy)
+  (cd server/fake-proto-rig && go get -u -t ./... && go mod tidy)
   echo "Syncing Go workspace..."
   go work sync
   mkdir -p .cache/go-work-sync && touch .cache/go-work-sync/stamp

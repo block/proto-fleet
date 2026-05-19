@@ -56,6 +56,8 @@ type MinerFilter struct {
 	Zones               []string                          // Filter by rack zones (OR logic). Excludes miners not assigned to any rack.
 	NumericRanges       []NumericRange                    // Range predicates on telemetry. Multiple entries AND'd; presence triggers an INNER JOIN to latest_metrics and excludes OFFLINE miners.
 	IPCIDRs             []netip.Prefix                    // CIDR membership filter (OR logic across entries). Already normalized via Prefix.Masked().
+	SiteIDs             []int64                           // Filter by site (OR logic). Combined with IncludeUnassigned, OR also includes site_id IS NULL rows.
+	IncludeUnassigned   bool                              // When true, include devices with site_id IS NULL. Independent of SiteIDs; alone selects only the Unassigned bucket.
 }
 
 // MinerStateCounts holds fleet health state counts for a collection.

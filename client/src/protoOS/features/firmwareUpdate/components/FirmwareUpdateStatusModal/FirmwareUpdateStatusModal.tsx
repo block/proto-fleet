@@ -10,7 +10,6 @@ interface FirmwareUpdateStatusModalProps {
   updateStatus?: UpdateStatus;
   onReboot?: () => void;
   onUpdate?: () => void;
-  onContinue?: () => void;
   onDismiss?: () => void;
   rebootPending?: boolean;
   updatePending?: boolean;
@@ -26,7 +25,6 @@ type StatusConfig = {
     onUpdate?: () => void;
     onDismiss?: () => void;
     onReboot?: () => void;
-    onContinue?: () => void;
     updatePending?: boolean;
     rebootPending?: boolean;
   }) => ButtonProps[] | undefined;
@@ -89,7 +87,7 @@ const UPDATE_STATUS_CONFIG: Record<string, StatusConfig> = {
     title: "Ready to install",
     icon: <SettingsSolid />,
     statusIndicator: "downloaded",
-    getButtons: ({ onDismiss, onContinue }) => [
+    getButtons: ({ onUpdate, onDismiss, updatePending }) => [
       {
         text: "Dismiss",
         variant: "secondary",
@@ -98,7 +96,8 @@ const UPDATE_STATUS_CONFIG: Record<string, StatusConfig> = {
       {
         text: "Install",
         variant: "primary",
-        onClick: onContinue,
+        loading: updatePending,
+        onClick: onUpdate,
       },
     ],
   },
@@ -126,6 +125,7 @@ const UPDATE_STATUS_CONFIG: Record<string, StatusConfig> = {
       {
         text: "Reboot now",
         variant: "primary",
+        testId: "firmware-status-modal-reboot-button",
         loading: rebootPending,
         onClick: onReboot,
       },
@@ -189,7 +189,6 @@ const UPDATE_STATUS_CONFIG: Record<string, StatusConfig> = {
 const FirmwareUpdateStatusModal = ({
   updateStatus,
   onReboot,
-  onContinue,
   onUpdate,
   onDismiss,
   rebootPending,
@@ -211,13 +210,13 @@ const FirmwareUpdateStatusModal = ({
   return (
     <Dialog
       open={open}
+      testId="firmware-status-modal"
       icon={statusConfig.icon ?? <ProgressCircular indeterminate className="text-core-accent-fill" />}
       title={statusConfig.title}
       buttons={statusConfig.getButtons({
         onUpdate,
         onDismiss,
         onReboot,
-        onContinue,
         updatePending,
         rebootPending,
       })}

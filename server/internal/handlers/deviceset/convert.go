@@ -69,6 +69,8 @@ func toDeviceSetRackInfo(ri *collectionpb.RackInfo) *dspb.RackInfo {
 		Zone:        ri.Zone,
 		OrderIndex:  dspb.RackOrderIndex(ri.OrderIndex),
 		CoolingType: dspb.RackCoolingType(ri.CoolingType),
+		SiteId:      ri.SiteId,
+		BuildingId:  ri.BuildingId,
 	}
 }
 
@@ -82,6 +84,8 @@ func toCollectionRackInfo(ri *dspb.RackInfo) *collectionpb.RackInfo {
 		Zone:        ri.Zone,
 		OrderIndex:  collectionpb.RackOrderIndex(ri.OrderIndex),
 		CoolingType: collectionpb.RackCoolingType(ri.CoolingType),
+		SiteId:      ri.SiteId,
+		BuildingId:  ri.BuildingId,
 	}
 }
 

@@ -482,3 +482,23 @@ func (q *Queries) SweepExpiredEnrollments(ctx context.Context, expiresAt time.Ti
 	}
 	return result.RowsAffected()
 }
+
+const updateFleetNodeLastSeenAt = `-- name: UpdateFleetNodeLastSeenAt :execrows
+UPDATE fleet_node
+SET last_seen_at = $1
+WHERE id = $2 AND org_id = $3 AND deleted_at IS NULL
+`
+
+type UpdateFleetNodeLastSeenAtParams struct {
+	LastSeenAt sql.NullTime
+	ID         int64
+	OrgID      int64
+}
+
+func (q *Queries) UpdateFleetNodeLastSeenAt(ctx context.Context, arg UpdateFleetNodeLastSeenAtParams) (int64, error) {
+	result, err := q.exec(ctx, q.updateFleetNodeLastSeenAtStmt, updateFleetNodeLastSeenAt, arg.LastSeenAt, arg.ID, arg.OrgID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}

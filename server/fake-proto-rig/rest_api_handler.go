@@ -142,6 +142,60 @@ type UpdateStatus struct {
 	ReleaseNotes    *string `json:"release_notes,omitempty"`
 }
 
+func nextFirmwareVersion(currentVersion string) string {
+	parts := strings.Split(currentVersion, ".")
+	if len(parts) != 3 {
+		return defaultNextFirmwareVersion
+	}
+
+	major, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return defaultNextFirmwareVersion
+	}
+
+	minor, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return defaultNextFirmwareVersion
+	}
+
+	patch, err := strconv.Atoi(parts[2])
+	if err != nil {
+		return defaultNextFirmwareVersion
+	}
+
+	return fmt.Sprintf("%d.%d.%d", major, minor, patch+1)
+}
+
+func buildSystemUpdateStatus(status, currentVersion, previousVersion, newVersion string) UpdateStatus {
+	updateStatus := UpdateStatus{
+		Status:          status,
+		CurrentVersion:  currentVersion,
+		PreviousVersion: previousVersion,
+		NewVersion:      newVersion,
+	}
+
+	switch status {
+	case "downloaded":
+		message := "Ready to install"
+		updateStatus.Message = &message
+	case "installing":
+		message := "Installing update"
+		progress := 75
+		updateStatus.Message = &message
+		updateStatus.Progress = &progress
+	case "installed":
+		message := "Reboot required"
+		updateStatus.Message = &message
+	}
+
+	if newVersion != "" {
+		releaseNotes := "Bug fixes and performance improvements"
+		updateStatus.ReleaseNotes = &releaseNotes
+	}
+
+	return updateStatus
+}
+
 // SystemStatuses contains system onboarding status
 type SystemStatuses struct {
 	Onboarded             bool `json:"onboarded"`
@@ -1306,6 +1360,7 @@ func (h *RESTApiHandler) handleSystem(w http.ResponseWriter, r *http.Request) {
 	fwStatus := h.state.FWUpdateStatus
 	fwCurrentVersion := h.state.FWCurrentVersion
 	fwPreviousVersion := h.state.FWPreviousVersion
+	fwNewVersion := h.state.FWNewVersion
 	h.state.mu.RUnlock()
 	if fwStatus == "" {
 		fwStatus = "current"
@@ -1330,11 +1385,7 @@ func (h *RESTApiHandler) handleSystem(w http.ResponseWriter, r *http.Request) {
 				GitHash:  "abc123def456",
 				Hostname: h.state.Hostname,
 			},
-			SWUpdateState: UpdateStatus{
-				Status:          fwStatus,
-				CurrentVersion:  fwCurrentVersion,
-				PreviousVersion: fwPreviousVersion,
-			},
+			SWUpdateState: buildSystemUpdateStatus(fwStatus, fwCurrentVersion, fwPreviousVersion, fwNewVersion),
 			MiningDriverSW: &SWInfo{
 				Name:    "mcdd",
 				Version: fwCurrentVersion,
@@ -1474,10 +1525,128 @@ func (h *RESTApiHandler) handleLogs(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *RESTApiHandler) startFirmwareDownloadLifecycle() {
+	go func() {
+		time.Sleep(1 * time.Second)
+
+		h.state.mu.Lock()
+		if h.state.Rebooting {
+			h.state.FWUpdateStatus = "current"
+			h.state.FWNewVersion = ""
+			h.state.mu.Unlock()
+			log.Printf("[FAKE-RIG] Firmware update aborted during reboot")
+			return
+		}
+		h.state.FWUpdateStatus = "downloaded"
+		h.state.mu.Unlock()
+		log.Printf("[FAKE-RIG] Firmware update status: downloaded")
+	}()
+}
+
+func (h *RESTApiHandler) startFirmwareOTALifecycle() {
+	go func() {
+		time.Sleep(1 * time.Second)
+
+		h.state.mu.Lock()
+		if h.state.Rebooting {
+			h.state.FWUpdateStatus = "current"
+			h.state.FWNewVersion = ""
+			h.state.mu.Unlock()
+			log.Printf("[FAKE-RIG] Firmware update aborted during reboot")
+			return
+		}
+		h.state.FWUpdateStatus = "installing"
+		h.state.mu.Unlock()
+		log.Printf("[FAKE-RIG] Firmware update status: installing")
+
+		time.Sleep(2 * time.Second)
+
+		h.state.mu.Lock()
+		if h.state.Rebooting {
+			h.state.FWUpdateStatus = "current"
+			h.state.FWNewVersion = ""
+			h.state.mu.Unlock()
+			log.Printf("[FAKE-RIG] Firmware update aborted during reboot")
+			return
+		}
+		h.state.FWUpdateStatus = "installed"
+		h.state.mu.Unlock()
+		log.Printf("[FAKE-RIG] Firmware update status: installed (reboot required)")
+	}()
+}
+
+func (h *RESTApiHandler) startFirmwareInstallLifecycle(fromDownloaded bool) {
+	go func() {
+		if fromDownloaded {
+			time.Sleep(1 * time.Second)
+		}
+
+		h.state.mu.Lock()
+		if h.state.Rebooting {
+			h.state.FWUpdateStatus = "current"
+			h.state.FWNewVersion = ""
+			h.state.mu.Unlock()
+			log.Printf("[FAKE-RIG] Firmware update aborted during reboot")
+			return
+		}
+		h.state.FWUpdateStatus = "installing"
+		h.state.mu.Unlock()
+		log.Printf("[FAKE-RIG] Firmware update status: installing")
+
+		time.Sleep(2 * time.Second)
+
+		h.state.mu.Lock()
+		if h.state.Rebooting {
+			h.state.FWUpdateStatus = "current"
+			h.state.FWNewVersion = ""
+			h.state.mu.Unlock()
+			log.Printf("[FAKE-RIG] Firmware update aborted during reboot")
+			return
+		}
+		h.state.FWUpdateStatus = "installed"
+		h.state.mu.Unlock()
+		log.Printf("[FAKE-RIG] Firmware update status: installed (reboot required)")
+	}()
+}
+
 func (h *RESTApiHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
-		// OTA update (no file upload)
+		h.state.mu.Lock()
+		if h.state.Rebooting {
+			h.state.mu.Unlock()
+			h.writeJSON(w, http.StatusServiceUnavailable, MessageResponse{Message: "System reboot is in progress."})
+			return
+		}
+		switch h.state.FWUpdateStatus {
+		case "downloading", "installing", "installed":
+			h.state.mu.Unlock()
+			h.writeJSON(w, http.StatusConflict, MessageResponse{Message: "System update is already in progress."})
+			return
+		}
+
+		currentVersion := h.state.FWCurrentVersion
+		if currentVersion == "" {
+			currentVersion = defaultFirmwareVersion
+		}
+
+		if h.state.FWNewVersion == "" {
+			h.state.FWNewVersion = nextFirmwareVersion(currentVersion)
+		}
+
+		installFromDownloaded := h.state.FWUpdateStatus == "downloaded"
+		if installFromDownloaded {
+			h.state.FWUpdateStatus = "installing"
+		} else {
+			h.state.FWUpdateStatus = "downloading"
+		}
+		h.state.mu.Unlock()
+
+		if installFromDownloaded {
+			h.startFirmwareInstallLifecycle(true)
+		} else {
+			h.startFirmwareOTALifecycle()
+		}
 		h.writeJSON(w, http.StatusAccepted, MessageResponse{Message: "Update started"})
 	case http.MethodPut:
 		// File-based firmware upload (multipart/form-data)
@@ -1488,18 +1657,27 @@ func (h *RESTApiHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 
 		h.state.mu.Lock()
+		if h.state.Rebooting {
+			h.state.mu.Unlock()
+			h.writeJSON(w, http.StatusServiceUnavailable, MessageResponse{Message: "System reboot is in progress."})
+			return
+		}
 		// Reject re-uploads whenever an update is pending (downloaded/installing)
 		// OR has already completed install and is awaiting reboot. Treating
 		// "installed" as in-progress prevents a second upload from clobbering
 		// FWUpdateStatus/FWNewVersion and causing handleReboot to skip promotion.
 		switch h.state.FWUpdateStatus {
-		case "downloaded", "installing", "installed":
+		case "downloading", "downloaded", "installing", "installed":
 			h.state.mu.Unlock()
 			h.writeJSON(w, http.StatusConflict, MessageResponse{Message: "System update is already in progress."})
 			return
 		}
-		h.state.FWUpdateStatus = "downloaded"
-		h.state.FWNewVersion = defaultNextFirmwareVersion
+		currentVersion := h.state.FWCurrentVersion
+		if currentVersion == "" {
+			currentVersion = defaultFirmwareVersion
+		}
+		h.state.FWUpdateStatus = "downloading"
+		h.state.FWNewVersion = nextFirmwareVersion(currentVersion)
 		h.state.mu.Unlock()
 
 		file, header, err := r.FormFile("file")
@@ -1514,33 +1692,7 @@ func (h *RESTApiHandler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		defer file.Close()
 
 		log.Printf("Firmware upload received: filename=%s, size=%d", header.Filename, header.Size)
-
-		// Simulate async install lifecycle: installing → installed
-		// Timings are longer than Fleet's 10s poll interval so each phase is observable.
-		// Each step checks Rebooting to abort if a reboot arrived mid-install.
-		go func() {
-			time.Sleep(5 * time.Second)
-
-			h.state.mu.Lock()
-			if h.state.Rebooting {
-				h.state.mu.Unlock()
-				return
-			}
-			h.state.FWUpdateStatus = "installing"
-			h.state.mu.Unlock()
-			log.Printf("[FAKE-RIG] Firmware update status: installing (will take ~55s)")
-
-			time.Sleep(55 * time.Second)
-
-			h.state.mu.Lock()
-			if h.state.Rebooting {
-				h.state.mu.Unlock()
-				return
-			}
-			h.state.FWUpdateStatus = "installed"
-			h.state.mu.Unlock()
-			log.Printf("[FAKE-RIG] Firmware update status: installed (reboot required)")
-		}()
+		h.startFirmwareOTALifecycle()
 
 		h.writeJSON(w, http.StatusOK, MessageResponse{Message: "Firmware uploaded successfully"})
 	default:

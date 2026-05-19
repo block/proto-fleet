@@ -39,17 +39,27 @@ const minerSelectColumns = `SELECT
     discovered_device.id as cursor_id,
     COALESCE(device.id, 0) as device_id,
     discovered_device.driver_name,
-    device.custom_name`
+    device.custom_name,
+    device.site_id,
+    COALESCE(site.name, '') as site_label`
 
 // minerFromJoins contains the FROM clause and LEFT JOINs for miner state queries.
 // Parameter: $1 = org_id (used in device join condition)
+//
+// The site LEFT JOIN filters site.deleted_at IS NULL. DeleteSite null-stamps
+// dependent device.site_id rows in the same tx, and LockSiteForWrite rejects
+// soft-deleted sites — so a live device.site_id pointing at a soft-deleted
+// site is unreachable. Writers of device.site_id must preserve this.
 const minerFromJoins = `
 FROM discovered_device
 LEFT JOIN device ON discovered_device.id = device.discovered_device_id
     AND device.deleted_at IS NULL
     AND device.org_id = $1
 LEFT JOIN device_pairing ON device.id = device_pairing.device_id
-LEFT JOIN device_status ON device.id = device_status.device_id`
+LEFT JOIN device_status ON device.id = device_status.device_id
+LEFT JOIN site ON site.id = device.site_id
+    AND site.org_id = $1
+    AND site.deleted_at IS NULL`
 
 // minerWhereClause constrains results to the org's active, non-deleted devices.
 // Parameter: $1 = org_id

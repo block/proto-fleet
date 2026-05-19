@@ -123,12 +123,25 @@ message RackInfo {
     int32 rows = 1 [(buf.validate.field).int32.gt = 0];
     // Number of columns in the rack grid
     int32 columns = 2 [(buf.validate.field).int32.gt = 0];
-    // Physical zone description (e.g. building, room, area)
-    string zone = 3 [(buf.validate.field).string.min_len = 1];
+    // Sub-building zone label (e.g. "Room 2", "East Wall"). Required when
+    // building_id is set; cleared (empty) automatically when the rack
+    // crosses a building boundary or moves to direct-under-site placement.
+    string zone = 3 [(buf.validate.field).string.max_len = 100];
     // Order index defining where numbering starts
     RackOrderIndex order_index = 4;
     // Cooling type for this rack
     RackCoolingType cooling_type = 5;
+    // Site this rack is assigned to. When building_id is set, the server
+    // derives site_id from the parent building; clients should leave it
+    // unset and read the derived value from the response.
+    //
+    // SaveRack update: leaving both site_id and building_id unset
+    // preserves the current placement. Send an explicit 0 to unassign.
+    optional int64 site_id = 6;
+    // Building this rack belongs to. Unset = directly under site_id (or
+    // fully unassigned when site_id is also unset). On SaveRack update,
+    // unset preserves the current building; send 0 to unassign.
+    optional int64 building_id = 7;
 }
 
 // Group-specific metadata for group-type device sets
@@ -294,7 +307,11 @@ message ListDeviceSetsResponse {
     int32 total_count = 3;
 }
 
-// Request to add devices to a device set
+// Request to add devices to a device set.
+//
+// When the target is a site-stamped rack, the server rewrites
+// device.site_id to match the rack for every added device. The affected
+// count is returned in site_reassigned_count. Groups are exempt.
 message AddDevicesToDeviceSetRequest {
     // ID of the device set to add devices to
     int64 device_set_id = 1 [(buf.validate.field).int64.gt = 0];
@@ -311,6 +328,9 @@ message AddDevicesToDeviceSetResponse {
     // Number of devices successfully added
     // May be less than requested if some devices were already members
     int32 added_count = 2;
+
+    // Number of devices whose site_id was rewritten by the cascade.
+    int32 site_reassigned_count = 3;
 }
 
 // Request to remove devices from a device set
@@ -517,6 +537,10 @@ message ListRackTypesResponse {
 }
 
 // Request to atomically create or update a rack with membership and slot assignments.
+//
+// When the rack's site_id changes (directly or via building_id), the
+// server rewrites device.site_id for every member to match. The affected
+// count is returned in site_reassigned_count.
 message SaveRackRequest {
     // ID of an existing rack to update. Omit to create a new rack.
     optional int64 device_set_id = 1 [(buf.validate.field) = {
@@ -550,4 +574,7 @@ message SaveRackResponse {
 
     // Number of slot positions assigned
     int32 assigned_count = 2;
+
+    // Number of devices whose site_id was rewritten by the cascade.
+    int32 site_reassigned_count = 3;
 }

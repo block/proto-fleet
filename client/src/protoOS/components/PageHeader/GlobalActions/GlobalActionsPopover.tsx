@@ -15,6 +15,7 @@ interface MenuItem {
   icon: ComponentType<IconProps>;
   label: string;
   onClick: () => void;
+  testId: string;
 }
 
 export const GlobalActionsPopover = ({ onBlinkLEDs, onDownloadLogs }: GlobalActionsPopoverProps) => {
@@ -23,11 +24,13 @@ export const GlobalActionsPopover = ({ onBlinkLEDs, onDownloadLogs }: GlobalActi
       icon: LEDIndicator,
       label: "Blink LEDs",
       onClick: onBlinkLEDs,
+      testId: "global-action-blink-leds",
     },
     {
       icon: Terminal,
       label: "Download logs",
       onClick: onDownloadLogs,
+      testId: "global-action-download-logs",
     },
   ];
 
@@ -39,12 +42,13 @@ export const GlobalActionsPopover = ({ onBlinkLEDs, onDownloadLogs }: GlobalActi
       offset={8}
       testId="global-actions-popover"
     >
-      {menuItems.map(({ icon: Icon, label, onClick }) => (
+      {menuItems.map(({ icon: Icon, label, onClick, testId }) => (
         <Row
           key={label}
           className="text-emphasis-300"
           prefixIcon={<Icon width={iconSizes.small} />}
           onClick={onClick}
+          testId={testId}
           compact
           divider
         >

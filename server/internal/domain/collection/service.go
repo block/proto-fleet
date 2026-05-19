@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/jackc/pgx/v5/pgconn"
+
 	pb "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
@@ -15,12 +17,16 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
+	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 )
 
 const (
 	defaultPageSize  int32 = 50
 	maxPageSize      int32 = 1000
 	maxRackDimension int32 = 12
+	// maxCascadeAuditEntries bounds the per-device cascade audit list in
+	// activity_log.metadata; overflow is signaled via the truncated flag.
+	maxCascadeAuditEntries = 100
 )
 
 const (
@@ -48,16 +54,19 @@ type DeviceIdentifierResolver func(ctx context.Context, selector *commonpb.Devic
 type Service struct {
 	collectionStore          interfaces.CollectionStore
 	deviceQueryer            DeviceQueryer
+	siteStore                interfaces.SiteStore
 	transactor               interfaces.Transactor
 	resolveDeviceIdentifiers DeviceIdentifierResolver
 	telemetry                TelemetryCollector
 	activitySvc              *activity.Service
 }
 
-// NewService creates a new collection service.
+// NewService creates a new collection service. A nil siteStore disables
+// rack site/building placement.
 func NewService(
 	collectionStore interfaces.CollectionStore,
 	deviceQueryer DeviceQueryer,
+	siteStore interfaces.SiteStore,
 	transactor interfaces.Transactor,
 	resolveDeviceIdentifiers DeviceIdentifierResolver,
 	telemetry TelemetryCollector,
@@ -66,6 +75,7 @@ func NewService(
 	return &Service{
 		collectionStore:          collectionStore,
 		deviceQueryer:            deviceQueryer,
+		siteStore:                siteStore,
 		transactor:               transactor,
 		resolveDeviceIdentifiers: resolveDeviceIdentifiers,
 		telemetry:                telemetry,
@@ -86,10 +96,99 @@ func collectionScopeType(collType pb.CollectionType) string {
 	return "group"
 }
 
+// resolveAndLockRackPlacement derives the authoritative site for the rack
+// and locks the relevant rows in site -> building order. Building_id, when
+// set, dictates site_id; a disagreeing client site_id is rejected.
+// Placement encoding: both nil = no intent, *id == 0 = explicit unassign,
+// *id > 0 = assign. Must run in-tx, before the rack row is locked.
+func (s *Service) resolveAndLockRackPlacement(ctx context.Context, orgID int64, rackInfo *pb.RackInfo) (siteID, buildingID *int64, err error) {
+	if rackInfo == nil {
+		return nil, nil, nil
+	}
+	effectiveSiteID := rackInfo.SiteId
+	if effectiveSiteID != nil && *effectiveSiteID == 0 {
+		effectiveSiteID = nil
+	}
+	effectiveBuildingID := rackInfo.BuildingId
+	if effectiveBuildingID != nil && *effectiveBuildingID == 0 {
+		effectiveBuildingID = nil
+	}
+	if effectiveSiteID == nil && effectiveBuildingID == nil {
+		return nil, nil, nil
+	}
+	if s.siteStore == nil {
+		return nil, nil, fleeterror.NewFailedPreconditionError("site assignment unavailable: site service not configured")
+	}
+
+	if effectiveBuildingID != nil {
+		bID := *effectiveBuildingID
+		// Peek before locking so we can acquire site first (canonical
+		// lock order); re-read under the building lock and retry on mismatch.
+		peekedSiteID, err := s.collectionStore.GetBuildingSite(ctx, orgID, bID)
+		if err != nil {
+			return nil, nil, err
+		}
+		if effectiveSiteID != nil && (peekedSiteID == nil || *peekedSiteID != *effectiveSiteID) {
+			return nil, nil, fleeterror.NewInvalidArgumentErrorf(
+				"rack site_id %d does not match building %d site", *effectiveSiteID, bID)
+		}
+		if peekedSiteID != nil {
+			if err := s.siteStore.LockSiteForWrite(ctx, orgID, *peekedSiteID); err != nil {
+				return nil, nil, err
+			}
+		}
+		if err := s.siteStore.LockBuildingForWrite(ctx, orgID, bID); err != nil {
+			return nil, nil, err
+		}
+		lockedSiteID, err := s.collectionStore.GetBuildingSite(ctx, orgID, bID)
+		if err != nil {
+			return nil, nil, err
+		}
+		if !int64PtrEqual(peekedSiteID, lockedSiteID) {
+			// Synthetic serialization failure so WithTransaction retries.
+			return nil, nil, &pgconn.PgError{
+				Code:    db.PGSerializationFailure,
+				Message: fmt.Sprintf("building %d site changed during rack placement resolution; retrying", bID),
+			}
+		}
+		buildingID = &bID
+		siteID = lockedSiteID
+		return siteID, buildingID, nil
+	}
+
+	sID := *effectiveSiteID
+	if err := s.siteStore.LockSiteForWrite(ctx, orgID, sID); err != nil {
+		return nil, nil, err
+	}
+	siteID = &sID
+	return siteID, buildingID, nil
+}
+
+// rackPlacementOmitted reports whether the caller omitted placement intent
+// (both ids nil). Explicit zero (unassign) returns false.
+func rackPlacementOmitted(rackInfo *pb.RackInfo) bool {
+	return rackInfo != nil && rackInfo.SiteId == nil && rackInfo.BuildingId == nil
+}
+
+func int64PtrEqual(a, b *int64) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}
+
 // createCollectionResult holds the result of the CreateCollection transaction.
 type createCollectionResult struct {
 	collection *pb.DeviceCollection
 	addedCount int64
+	// Cascade audit; set only for site-stamped racks with devices.
+	finalSiteID          *int64
+	cascadeCount         int64
+	deviceSiteChanges    []map[string]any
+	cascadeTotalAffected int
 }
 
 // CreateCollection creates a new collection, optionally adding devices atomically.
@@ -103,6 +202,7 @@ func (s *Service) CreateCollection(ctx context.Context, req *pb.CreateCollection
 	if req.Type == pb.CollectionType_COLLECTION_TYPE_RACK && rackInfo == nil {
 		return nil, fleeterror.NewInvalidArgumentError("rack_info is required for rack collections")
 	}
+	// TODO(#226): align with SaveRack's conditional zone rule once site/building UI lands.
 	if req.Type == pb.CollectionType_COLLECTION_TYPE_RACK && rackInfo != nil && rackInfo.GetZone() == "" {
 		return nil, fleeterror.NewInvalidArgumentError("zone is required for rack collections")
 	}
@@ -127,7 +227,6 @@ func (s *Service) CreateCollection(ctx context.Context, req *pb.CreateCollection
 		}
 	}
 
-	// Resolve device identifiers outside the transaction if device_selector is provided.
 	var deviceIdentifiers []string
 	if req.DeviceSelector != nil {
 		deviceIdentifiers, err = s.resolveDeviceIdentifiers(ctx, req.DeviceSelector, info.OrganizationID)
@@ -137,32 +236,76 @@ func (s *Service) CreateCollection(ctx context.Context, req *pb.CreateCollection
 	}
 
 	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
+		var siteID, buildingID *int64
+		if req.Type == pb.CollectionType_COLLECTION_TYPE_RACK {
+			var err error
+			siteID, buildingID, err = s.resolveAndLockRackPlacement(ctx, info.OrganizationID, rackInfo)
+			if err != nil {
+				return nil, err
+			}
+		}
+
 		collection, err := s.collectionStore.CreateCollection(ctx, info.OrganizationID, req.Type, req.Label, req.Description)
 		if err != nil {
 			return nil, err
 		}
 
 		if req.Type == pb.CollectionType_COLLECTION_TYPE_RACK {
-			err = s.collectionStore.CreateRackExtension(ctx, collection.Id, rackInfo.GetZone(), rackInfo.Rows, rackInfo.Columns, int32(rackInfo.OrderIndex), int32(rackInfo.CoolingType), info.OrganizationID)
+			err = s.collectionStore.CreateRackExtension(ctx, interfaces.CreateRackExtensionParams{
+				OrgID:        info.OrganizationID,
+				CollectionID: collection.Id,
+				Rows:         rackInfo.Rows,
+				Columns:      rackInfo.Columns,
+				OrderIndex:   int32(rackInfo.OrderIndex),
+				CoolingType:  int32(rackInfo.CoolingType),
+				Zone:         rackInfo.GetZone(),
+				SiteID:       siteID,
+				BuildingID:   buildingID,
+			})
 			if err != nil {
 				return nil, err
 			}
+			rackInfo.SiteId = siteID
+			rackInfo.BuildingId = buildingID
 			collection.TypeDetails = &pb.DeviceCollection_RackInfo{RackInfo: rackInfo}
 		}
 
-		// Add devices to the collection if device_selector was provided.
-		var addedCount int64
+		var (
+			addedCount        int64
+			cascadeCount      int64
+			deviceSiteChanges []map[string]any
+			totalAffected     int
+		)
 		if len(deviceIdentifiers) > 0 {
 			addedCount, err = s.collectionStore.AddDevicesToCollection(ctx, info.OrganizationID, collection.Id, deviceIdentifiers)
 			if err != nil {
 				return nil, err
 			}
-			// Update device count to reflect added devices.
 			// #nosec G115 -- addedCount bounded by request size which is limited by gRPC message size
 			collection.DeviceCount = int32(addedCount)
+
+			if req.Type == pb.CollectionType_COLLECTION_TYPE_RACK && siteID != nil {
+				priors, err := s.collectionStore.GetDeviceSiteIDsByMembership(ctx, collection.Id, info.OrganizationID)
+				if err != nil {
+					return nil, err
+				}
+				deviceSiteChanges, totalAffected = buildDeviceSiteChanges(priors, siteID)
+				n, err := s.collectionStore.CascadeRackDeviceSites(ctx, collection.Id, info.OrganizationID, siteID)
+				if err != nil {
+					return nil, err
+				}
+				cascadeCount = n
+			}
 		}
 
-		return &createCollectionResult{collection: collection, addedCount: addedCount}, nil
+		return &createCollectionResult{
+			collection:           collection,
+			addedCount:           addedCount,
+			finalSiteID:          siteID,
+			cascadeCount:         cascadeCount,
+			deviceSiteChanges:    deviceSiteChanges,
+			cascadeTotalAffected: totalAffected,
+		}, nil
 	})
 	if err != nil {
 		return nil, err
@@ -174,7 +317,7 @@ func (s *Service) CreateCollection(ctx context.Context, req *pb.CreateCollection
 	}
 
 	scopeType := collectionScopeType(req.Type)
-	s.logActivity(ctx, activitymodels.Event{
+	createEvent := activitymodels.Event{
 		Category:       activitymodels.CategoryCollection,
 		Type:           "create_collection",
 		Description:    fmt.Sprintf("Create %s: %s", scopeType, req.Label),
@@ -183,7 +326,26 @@ func (s *Service) CreateCollection(ctx context.Context, req *pb.CreateCollection
 		UserID:         &info.ExternalUserID,
 		Username:       &info.Username,
 		OrganizationID: &info.OrganizationID,
-	})
+		SiteID:         txResult.finalSiteID,
+	}
+	if txResult.cascadeCount > 0 || txResult.cascadeTotalAffected > 0 {
+		meta := map[string]any{
+			"site_cascade":          true,
+			"final_site_id":         txResult.finalSiteID,
+			"site_reassigned_count": txResult.cascadeCount,
+		}
+		if len(txResult.deviceSiteChanges) > 0 {
+			meta["device_site_changes"] = txResult.deviceSiteChanges
+		}
+		if txResult.cascadeTotalAffected > 0 {
+			meta["total_affected"] = txResult.cascadeTotalAffected
+			if txResult.cascadeTotalAffected > maxCascadeAuditEntries {
+				meta["truncated"] = true
+			}
+		}
+		createEvent.Metadata = meta
+	}
+	s.logActivity(ctx, createEvent)
 
 	// #nosec G115 -- addedCount bounded by request size which is limited by gRPC message size
 	return &pb.CreateCollectionResponse{Collection: txResult.collection, AddedCount: int32(txResult.addedCount)}, nil
@@ -221,7 +383,6 @@ func (s *Service) UpdateCollection(ctx context.Context, req *pb.UpdateCollection
 		return nil, err
 	}
 
-	// Resolve device identifiers outside the transaction if device_selector is provided.
 	var deviceIdentifiers []string
 	hasDeviceSelector := req.DeviceSelector != nil
 	if hasDeviceSelector {
@@ -245,17 +406,32 @@ func (s *Service) UpdateCollection(ctx context.Context, req *pb.UpdateCollection
 			return nil, err
 		}
 
-		// Replace membership atomically if device_selector was provided.
 		if hasDeviceSelector {
-			_, err = s.collectionStore.RemoveAllDevicesFromCollection(ctx, info.OrganizationID, req.CollectionId)
+			collType, err := s.collectionStore.GetCollectionType(ctx, info.OrganizationID, req.CollectionId)
 			if err != nil {
 				return nil, err
 			}
-
-			if len(deviceIdentifiers) > 0 {
-				_, err = s.collectionStore.AddDevicesToCollection(ctx, info.OrganizationID, req.CollectionId, deviceIdentifiers)
+			var rackSiteID *int64
+			isRack := collType == pb.CollectionType_COLLECTION_TYPE_RACK
+			if isRack {
+				placement, err := s.collectionStore.LockRackPlacementForWrite(ctx, req.CollectionId, info.OrganizationID)
 				if err != nil {
 					return nil, err
+				}
+				rackSiteID = placement.SiteID
+			}
+			if _, err := s.collectionStore.RemoveAllDevicesFromCollection(ctx, info.OrganizationID, req.CollectionId); err != nil {
+				return nil, err
+			}
+			if len(deviceIdentifiers) > 0 {
+				if _, err := s.collectionStore.AddDevicesToCollection(ctx, info.OrganizationID, req.CollectionId, deviceIdentifiers); err != nil {
+					return nil, err
+				}
+				// Skip when site-less: cascading NULL would wipe direct assignments.
+				if isRack && rackSiteID != nil {
+					if _, err := s.collectionStore.CascadeRackDeviceSites(ctx, req.CollectionId, info.OrganizationID, rackSiteID); err != nil {
+						return nil, err
+					}
 				}
 			}
 		}
@@ -309,11 +485,30 @@ func (s *Service) DeleteCollection(ctx context.Context, req *pb.DeleteCollection
 		return nil, err
 	}
 
+	// Best-effort prefetch for the activity log; cascade re-reads in-tx.
 	collection, prefetchErr := s.collectionStore.GetCollection(ctx, info.OrganizationID, req.CollectionId)
 
+	var siteUnassignedCount int64
 	err = s.transactor.RunInTx(ctx, func(ctx context.Context) error {
-		// Remove memberships first so the idx_one_rack_per_device unique index
-		// doesn't prevent the device from being added to another rack after soft-delete.
+		collType, err := s.collectionStore.GetCollectionType(ctx, info.OrganizationID, req.CollectionId)
+		if err != nil {
+			return err
+		}
+		if collType == pb.CollectionType_COLLECTION_TYPE_RACK {
+			// Lock the rack FOR UPDATE so concurrent AddDevicesToCollection
+			// / SaveRack can't slip a new member or cascade in between our
+			// unassign + membership-drop + soft-delete steps.
+			if _, err := s.collectionStore.LockRackPlacementForWrite(ctx, req.CollectionId, info.OrganizationID); err != nil {
+				return err
+			}
+			n, err := s.collectionStore.UnassignDeviceSitesByRack(ctx, req.CollectionId, info.OrganizationID)
+			if err != nil {
+				return err
+			}
+			siteUnassignedCount = n
+		}
+		// Drop membership before soft-delete so idx_one_rack_per_device
+		// allows re-adding devices to another rack.
 		if _, err := s.collectionStore.RemoveAllDevicesFromCollection(ctx, info.OrganizationID, req.CollectionId); err != nil {
 			return err
 		}
@@ -333,7 +528,7 @@ func (s *Service) DeleteCollection(ctx context.Context, req *pb.DeleteCollection
 	if prefetchErr == nil {
 		scopeType := collectionScopeType(collection.Type)
 		label := collection.Label
-		s.logActivity(ctx, activitymodels.Event{
+		event := activitymodels.Event{
 			Category:       activitymodels.CategoryCollection,
 			Type:           "delete_collection",
 			Description:    fmt.Sprintf("Delete %s: %s", scopeType, label),
@@ -342,7 +537,13 @@ func (s *Service) DeleteCollection(ctx context.Context, req *pb.DeleteCollection
 			UserID:         &info.ExternalUserID,
 			Username:       &info.Username,
 			OrganizationID: &info.OrganizationID,
-		})
+		}
+		if siteUnassignedCount > 0 {
+			event.Metadata = map[string]any{
+				"site_unassigned_count": siteUnassignedCount,
+			}
+		}
+		s.logActivity(ctx, event)
 	}
 
 	return &pb.DeleteCollectionResponse{}, nil
@@ -395,8 +596,11 @@ func (s *Service) ListCollections(ctx context.Context, req *pb.ListCollectionsRe
 }
 
 type membershipChangeResult struct {
-	collection *pb.DeviceCollection
-	count      int64
+	collection   *pb.DeviceCollection
+	count        int64
+	conflicts    []interfaces.AddedDeviceSiteConflict
+	finalSiteID  *int64
+	cascadeCount int64
 }
 
 // AddDevicesToCollection adds devices to a collection.
@@ -417,12 +621,49 @@ func (s *Service) AddDevicesToCollection(ctx context.Context, req *pb.AddDevices
 			return nil, err
 		}
 
+		// Lock rack FOR UPDATE so the cascade reads rack.site_id under a
+		// write lock that serializes against SiteService writers. Skip the
+		// site lock — that would invert canonical lock order and deadlock
+		// against concurrent site moves. Groups skip lock and cascade.
+		var (
+			conflicts    []interfaces.AddedDeviceSiteConflict
+			finalSiteID  *int64
+			cascadeCount int64
+		)
+		if coll.Type == pb.CollectionType_COLLECTION_TYPE_RACK {
+			placement, err := s.collectionStore.LockRackPlacementForWrite(ctx, req.CollectionId, info.OrganizationID)
+			if err != nil {
+				return nil, err
+			}
+			finalSiteID = placement.SiteID
+			if placement.SiteID != nil {
+				conflicts, err = s.collectionStore.GetAddedDeviceSiteConflicts(ctx, info.OrganizationID, req.CollectionId, deviceIdentifiers)
+				if err != nil {
+					return nil, err
+				}
+			}
+		}
+
 		addedCount, err := s.collectionStore.AddDevicesToCollection(ctx, info.OrganizationID, req.CollectionId, deviceIdentifiers)
 		if err != nil {
 			return nil, err
 		}
 
-		return &membershipChangeResult{collection: coll, count: addedCount}, nil
+		if coll.Type == pb.CollectionType_COLLECTION_TYPE_RACK && finalSiteID != nil {
+			n, err := s.collectionStore.CascadeAddedDeviceSites(ctx, info.OrganizationID, req.CollectionId, deviceIdentifiers)
+			if err != nil {
+				return nil, err
+			}
+			cascadeCount = n
+		}
+
+		return &membershipChangeResult{
+			collection:   coll,
+			count:        addedCount,
+			conflicts:    conflicts,
+			finalSiteID:  finalSiteID,
+			cascadeCount: cascadeCount,
+		}, nil
 	})
 	if err != nil {
 		return nil, err
@@ -436,7 +677,7 @@ func (s *Service) AddDevicesToCollection(ctx context.Context, req *pb.AddDevices
 	addedCountInt := int(txResult.count)
 	scopeType := collectionScopeType(txResult.collection.Type)
 	label := txResult.collection.Label
-	s.logActivity(ctx, activitymodels.Event{
+	addEvent := activitymodels.Event{
 		Category:       activitymodels.CategoryCollection,
 		Type:           "add_devices",
 		Description:    fmt.Sprintf("Add devices to %s: %s", scopeType, label),
@@ -446,10 +687,49 @@ func (s *Service) AddDevicesToCollection(ctx context.Context, req *pb.AddDevices
 		UserID:         &info.ExternalUserID,
 		Username:       &info.Username,
 		OrganizationID: &info.OrganizationID,
-	})
+		SiteID:         txResult.finalSiteID,
+	}
+	if len(txResult.conflicts) > 0 {
+		total := len(txResult.conflicts)
+		capacity := total
+		if capacity > maxCascadeAuditEntries {
+			capacity = maxCascadeAuditEntries
+		}
+		priors := make([]map[string]any, 0, capacity)
+		for i, c := range txResult.conflicts {
+			if i >= maxCascadeAuditEntries {
+				break
+			}
+			row := map[string]any{
+				"device_identifier": c.DeviceIdentifier,
+				"target_site_id":    c.TargetSiteID,
+			}
+			if c.PriorSiteID != nil {
+				row["prior_site_id"] = *c.PriorSiteID
+			}
+			priors = append(priors, row)
+		}
+		meta := map[string]any{
+			"site_cascade":          true,
+			"final_site_id":         txResult.finalSiteID,
+			"site_reassigned_count": txResult.cascadeCount,
+			"device_site_changes":   priors,
+			"total_affected":        total,
+		}
+		if total > maxCascadeAuditEntries {
+			meta["truncated"] = true
+		}
+		addEvent.Metadata = meta
+	}
+	s.logActivity(ctx, addEvent)
 
 	// #nosec G115 -- addedCount is bounded by request size which is limited by gRPC message size
-	return &pb.AddDevicesToCollectionResponse{CollectionId: req.CollectionId, AddedCount: int32(txResult.count)}, nil
+	return &pb.AddDevicesToCollectionResponse{
+		CollectionId: req.CollectionId,
+		AddedCount:   int32(txResult.count),
+		// #nosec G115 -- cascadeCount bounded by added member count
+		SiteReassignedCount: int32(txResult.cascadeCount),
+	}, nil
 }
 
 // RemoveDevicesFromCollection removes devices from a collection.
@@ -895,11 +1175,20 @@ func (s *Service) ListRackZones(ctx context.Context, _ *pb.ListRackZonesRequest)
 
 // saveRackResult holds the result of the SaveRack transaction.
 type saveRackResult struct {
-	collection    *pb.DeviceCollection
-	assignedCount int32
+	collection          *pb.DeviceCollection
+	assignedCount       int32
+	cascadeApplied      bool
+	finalSiteID         *int64
+	siteReassignedCount int64
+	// Per-device prior site_id for cascade-rewritten members, capped at
+	// maxCascadeAuditEntries; totalAffected holds the un-truncated count.
+	deviceSiteChanges []map[string]any
+	totalAffected     int
 }
 
-// SaveRack atomically creates or updates a rack with its membership and slot assignments.
+// SaveRack atomically creates or updates a rack with its membership and slot
+// assignments. Lock order is the canonical site -> building -> rack -> devices.
+// On site change, the cascade rewrites descendant device.site_id.
 func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest) (*pb.SaveRackResponse, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
@@ -907,57 +1196,14 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest) (*pb.Sa
 	}
 
 	rackInfo := req.GetRackInfo()
-	if rackInfo == nil {
-		return nil, fleeterror.NewInvalidArgumentError("rack_info is required")
-	}
-	if rackInfo.GetZone() == "" {
-		return nil, fleeterror.NewInvalidArgumentError("zone is required for rack collections")
-	}
-	if rackInfo.Rows < 1 || rackInfo.Rows > maxRackDimension {
-		return nil, fleeterror.NewInvalidArgumentErrorf("rows must be between 1 and %d", maxRackDimension)
-	}
-	if rackInfo.Columns < 1 || rackInfo.Columns > maxRackDimension {
-		return nil, fleeterror.NewInvalidArgumentErrorf("columns must be between 1 and %d", maxRackDimension)
-	}
-	if rackInfo.OrderIndex == pb.RackOrderIndex_RACK_ORDER_INDEX_UNSPECIFIED {
-		return nil, fleeterror.NewInvalidArgumentError("order_index is required for rack collections")
-	}
-	if _, ok := pb.RackOrderIndex_name[int32(rackInfo.OrderIndex)]; !ok {
-		return nil, fleeterror.NewInvalidArgumentError("invalid order_index value")
-	}
-	if rackInfo.CoolingType == pb.RackCoolingType_RACK_COOLING_TYPE_UNSPECIFIED {
-		return nil, fleeterror.NewInvalidArgumentError("cooling_type is required for rack collections")
-	}
-	if _, ok := pb.RackCoolingType_name[int32(rackInfo.CoolingType)]; !ok {
-		return nil, fleeterror.NewInvalidArgumentError("invalid cooling_type value")
+	if err := validateSaveRackRequest(req, rackInfo); err != nil {
+		return nil, err
 	}
 
-	// Validate slot assignments are within rack bounds.
-	for _, slot := range req.SlotAssignments {
-		if slot.Position == nil {
-			return nil, fleeterror.NewInvalidArgumentError("slot assignment must have a position")
-		}
-		if slot.Position.Row < 0 || slot.Position.Row >= rackInfo.Rows {
-			return nil, fleeterror.NewInvalidArgumentErrorf("slot row %d is out of bounds (rack has %d rows)", slot.Position.Row, rackInfo.Rows)
-		}
-		if slot.Position.Column < 0 || slot.Position.Column >= rackInfo.Columns {
-			return nil, fleeterror.NewInvalidArgumentErrorf("slot column %d is out of bounds (rack has %d columns)", slot.Position.Column, rackInfo.Columns)
-		}
-	}
-
-	// Resolve device identifiers outside the transaction.
-	// An empty device list is valid for SaveRack (removes all members).
-	var deviceIdentifiers []string
-	if req.DeviceSelector != nil {
-		if dl, ok := req.DeviceSelector.SelectionType.(*commonpb.DeviceSelector_DeviceList); ok && (dl.DeviceList == nil || len(dl.DeviceList.DeviceIdentifiers) == 0) {
-			// Empty device list — no members to add, skip resolver.
-			deviceIdentifiers = nil
-		} else {
-			deviceIdentifiers, err = s.resolveDeviceIdentifiers(ctx, req.DeviceSelector, info.OrganizationID)
-			if err != nil {
-				return nil, err
-			}
-		}
+	// Empty device list is valid; it removes all members.
+	deviceIdentifiers, err := s.resolveSaveRackDevices(ctx, req, info.OrganizationID)
+	if err != nil {
+		return nil, err
 	}
 
 	// Build a set of resolved device IDs for slot assignment validation.
@@ -974,96 +1220,69 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest) (*pb.Sa
 	isUpdate := req.CollectionId != nil
 
 	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
-		var collectionID int64
+		var (
+			collectionID    int64
+			finalSiteID     *int64
+			finalBuildingID *int64
+			finalZone       string
+			siteChanged     bool
+		)
 
 		if isUpdate {
-			collectionID = *req.CollectionId
-
-			// Verify the collection exists and belongs to the org.
-			belongs, err := s.collectionStore.CollectionBelongsToOrg(ctx, collectionID, info.OrganizationID)
+			res, err := s.saveRackUpdate(ctx, info, req, rackInfo)
 			if err != nil {
 				return nil, err
 			}
-			if !belongs {
-				return nil, fleeterror.NewNotFoundErrorf("collection not found: %d", collectionID)
-			}
-
-			// Verify the collection is a rack (not a group).
-			collectionType, err := s.collectionStore.GetCollectionType(ctx, info.OrganizationID, collectionID)
-			if err != nil {
-				return nil, err
-			}
-			if collectionType != pb.CollectionType_COLLECTION_TYPE_RACK {
-				return nil, fleeterror.NewInvalidArgumentErrorf("collection %d is not a rack", collectionID)
-			}
-
-			// Update collection metadata.
-			err = s.collectionStore.UpdateCollection(ctx, info.OrganizationID, collectionID, &req.Label, nil)
-			if err != nil {
-				return nil, err
-			}
-
-			// Update rack-specific info.
-			err = s.collectionStore.UpdateRackInfo(ctx, collectionID, rackInfo.GetZone(), rackInfo.Rows, rackInfo.Columns, int32(rackInfo.OrderIndex), int32(rackInfo.CoolingType), info.OrganizationID)
-			if err != nil {
-				return nil, err
-			}
+			collectionID = res.collectionID
+			finalSiteID = res.finalSiteID
+			finalBuildingID = res.finalBuildingID
+			finalZone = res.finalZone
+			siteChanged = res.siteChanged
 		} else {
-			// Create new rack.
-			collection, err := s.collectionStore.CreateCollection(ctx, info.OrganizationID, pb.CollectionType_COLLECTION_TYPE_RACK, req.Label, "")
+			res, err := s.saveRackCreate(ctx, info, req, rackInfo)
 			if err != nil {
 				return nil, err
 			}
-			collectionID = collection.Id
-
-			err = s.collectionStore.CreateRackExtension(ctx, collectionID, rackInfo.GetZone(), rackInfo.Rows, rackInfo.Columns, int32(rackInfo.OrderIndex), int32(rackInfo.CoolingType), info.OrganizationID)
-			if err != nil {
-				return nil, err
-			}
+			collectionID = res.collectionID
+			finalSiteID = res.finalSiteID
+			finalBuildingID = res.finalBuildingID
+			finalZone = res.finalZone
+			// Create path: every member is new, so cascade aligns them
+			// with the rack's site when one is stamped.
+			siteChanged = finalSiteID != nil
 		}
 
-		// Replace membership: remove all existing, then add the new set.
-		_, err := s.collectionStore.RemoveAllDevicesFromCollection(ctx, info.OrganizationID, collectionID)
+		// Cascade runs after membership replace so it touches only the
+		// final member set; removed devices keep their prior site_id.
+		cascade, err := s.replaceRackMembershipAndSlots(ctx, info.OrganizationID, collectionID, deviceIdentifiers, req.SlotAssignments, finalSiteID, siteChanged)
 		if err != nil {
 			return nil, err
 		}
-
-		if len(deviceIdentifiers) > 0 {
-			_, err = s.collectionStore.AddDevicesToCollection(ctx, info.OrganizationID, collectionID, deviceIdentifiers)
-			if err != nil {
-				return nil, err
-			}
-		}
-
-		// Clear all existing slot positions.
-		existingSlots, err := s.collectionStore.GetRackSlots(ctx, collectionID, info.OrganizationID)
-		if err != nil {
-			return nil, err
-		}
-		for _, slot := range existingSlots {
-			err = s.collectionStore.ClearRackSlotPosition(ctx, collectionID, slot.DeviceIdentifier, info.OrganizationID)
-			if err != nil {
-				return nil, err
-			}
-		}
-
-		// Set new slot positions.
-		for _, slot := range req.SlotAssignments {
-			err = s.collectionStore.SetRackSlotPosition(ctx, collectionID, slot.DeviceIdentifier, slot.Position.Row, slot.Position.Column, info.OrganizationID)
-			if err != nil {
-				return nil, err
-			}
-		}
+		cascadeApplied := siteChanged || cascade.cascadeCount > 0
+		cascadeCount := cascade.cascadeCount
+		deviceSiteChanges := cascade.deviceSiteChanges
+		totalAffected := cascade.totalAffected
 
 		// Fetch the final collection state.
 		collection, err := s.collectionStore.GetCollection(ctx, info.OrganizationID, collectionID)
 		if err != nil {
 			return nil, err
 		}
+		rackInfo.SiteId = finalSiteID
+		rackInfo.BuildingId = finalBuildingID
+		rackInfo.Zone = finalZone
 		collection.TypeDetails = &pb.DeviceCollection_RackInfo{RackInfo: rackInfo}
 
 		// #nosec G115 -- slot count bounded by rack dimensions (max 12x12 = 144)
-		return &saveRackResult{collection: collection, assignedCount: int32(len(req.SlotAssignments))}, nil
+		return &saveRackResult{
+			collection:          collection,
+			assignedCount:       int32(len(req.SlotAssignments)),
+			cascadeApplied:      cascadeApplied,
+			finalSiteID:         finalSiteID,
+			siteReassignedCount: cascadeCount,
+			deviceSiteChanges:   deviceSiteChanges,
+			totalAffected:       totalAffected,
+		}, nil
 	})
 	if err != nil {
 		return nil, err
@@ -1076,7 +1295,7 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest) (*pb.Sa
 
 	scopeType := "rack"
 	deviceCount := len(deviceIdentifiers)
-	s.logActivity(ctx, activitymodels.Event{
+	saveEvent := activitymodels.Event{
 		Category:       activitymodels.CategoryCollection,
 		Type:           "save_rack",
 		Description:    fmt.Sprintf("Save rack: %s", req.Label),
@@ -1086,7 +1305,315 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest) (*pb.Sa
 		UserID:         &info.ExternalUserID,
 		Username:       &info.Username,
 		OrganizationID: &info.OrganizationID,
-	})
+		SiteID:         txResult.finalSiteID,
+	}
+	if txResult.cascadeApplied || txResult.siteReassignedCount > 0 {
+		meta := map[string]any{
+			"site_cascade":          true,
+			"final_site_id":         txResult.finalSiteID,
+			"site_reassigned_count": txResult.siteReassignedCount,
+		}
+		if len(txResult.deviceSiteChanges) > 0 {
+			meta["device_site_changes"] = txResult.deviceSiteChanges
+		}
+		if txResult.totalAffected > 0 {
+			meta["total_affected"] = txResult.totalAffected
+			if txResult.totalAffected > maxCascadeAuditEntries {
+				meta["truncated"] = true
+			}
+		}
+		saveEvent.Metadata = meta
+	}
+	s.logActivity(ctx, saveEvent)
 
-	return &pb.SaveRackResponse{Collection: txResult.collection, AssignedCount: txResult.assignedCount}, nil
+	return &pb.SaveRackResponse{
+		Collection:    txResult.collection,
+		AssignedCount: txResult.assignedCount,
+		// #nosec G115 -- cascadeCount bounded by rack member count (~144)
+		SiteReassignedCount: int32(txResult.siteReassignedCount),
+	}, nil
+}
+
+// validateSaveRackRequest enforces SaveRack input contract: rack_info
+// shape, slot bounds, and zone-required-when-building-set.
+func validateSaveRackRequest(req *pb.SaveRackRequest, rackInfo *pb.RackInfo) error {
+	if rackInfo == nil {
+		return fleeterror.NewInvalidArgumentError("rack_info is required")
+	}
+	// Building_id=0 means "no building" (zero-as-unassign convention).
+	// Don't mutate rackInfo.BuildingId — nil-vs-&0 distinguishes
+	// "preserve placement" from "explicit unassign" downstream.
+	buildingPresent := rackInfo.BuildingId != nil && *rackInfo.BuildingId != 0
+	if buildingPresent && rackInfo.GetZone() == "" {
+		return fleeterror.NewInvalidArgumentError("zone is required when the rack belongs to a building")
+	}
+	if rackInfo.Rows < 1 || rackInfo.Rows > maxRackDimension {
+		return fleeterror.NewInvalidArgumentErrorf("rows must be between 1 and %d", maxRackDimension)
+	}
+	if rackInfo.Columns < 1 || rackInfo.Columns > maxRackDimension {
+		return fleeterror.NewInvalidArgumentErrorf("columns must be between 1 and %d", maxRackDimension)
+	}
+	if rackInfo.OrderIndex == pb.RackOrderIndex_RACK_ORDER_INDEX_UNSPECIFIED {
+		return fleeterror.NewInvalidArgumentError("order_index is required for rack collections")
+	}
+	if _, ok := pb.RackOrderIndex_name[int32(rackInfo.OrderIndex)]; !ok {
+		return fleeterror.NewInvalidArgumentError("invalid order_index value")
+	}
+	if rackInfo.CoolingType == pb.RackCoolingType_RACK_COOLING_TYPE_UNSPECIFIED {
+		return fleeterror.NewInvalidArgumentError("cooling_type is required for rack collections")
+	}
+	if _, ok := pb.RackCoolingType_name[int32(rackInfo.CoolingType)]; !ok {
+		return fleeterror.NewInvalidArgumentError("invalid cooling_type value")
+	}
+	for _, slot := range req.SlotAssignments {
+		if slot.Position == nil {
+			return fleeterror.NewInvalidArgumentError("slot assignment must have a position")
+		}
+		if slot.Position.Row < 0 || slot.Position.Row >= rackInfo.Rows {
+			return fleeterror.NewInvalidArgumentErrorf("slot row %d is out of bounds (rack has %d rows)", slot.Position.Row, rackInfo.Rows)
+		}
+		if slot.Position.Column < 0 || slot.Position.Column >= rackInfo.Columns {
+			return fleeterror.NewInvalidArgumentErrorf("slot column %d is out of bounds (rack has %d columns)", slot.Position.Column, rackInfo.Columns)
+		}
+	}
+	return nil
+}
+
+// resolveSaveRackDevices resolves device_selector to identifiers; an
+// empty DeviceList is valid and removes all members.
+func (s *Service) resolveSaveRackDevices(ctx context.Context, req *pb.SaveRackRequest, orgID int64) ([]string, error) {
+	if req.DeviceSelector == nil {
+		return nil, nil
+	}
+	if dl, ok := req.DeviceSelector.SelectionType.(*commonpb.DeviceSelector_DeviceList); ok && (dl.DeviceList == nil || len(dl.DeviceList.DeviceIdentifiers) == 0) {
+		return nil, nil
+	}
+	return s.resolveDeviceIdentifiers(ctx, req.DeviceSelector, orgID)
+}
+
+// saveRackCreatePathResult holds the outputs of the SaveRack create branch.
+type saveRackCreatePathResult struct {
+	collectionID    int64
+	finalSiteID     *int64
+	finalBuildingID *int64
+	finalZone       string
+}
+
+// saveRackCreate runs the SaveRack create branch in-tx: resolve placement,
+// then insert device_set + device_set_rack rows.
+func (s *Service) saveRackCreate(ctx context.Context, info *session.Info, req *pb.SaveRackRequest, rackInfo *pb.RackInfo) (*saveRackCreatePathResult, error) {
+	newSiteID, newBuildingID, err := s.resolveAndLockRackPlacement(ctx, info.OrganizationID, rackInfo)
+	if err != nil {
+		return nil, err
+	}
+
+	collection, err := s.collectionStore.CreateCollection(ctx, info.OrganizationID, pb.CollectionType_COLLECTION_TYPE_RACK, req.Label, "")
+	if err != nil {
+		return nil, err
+	}
+
+	finalZone := rackInfo.GetZone()
+	err = s.collectionStore.CreateRackExtension(ctx, interfaces.CreateRackExtensionParams{
+		OrgID:        info.OrganizationID,
+		CollectionID: collection.Id,
+		Rows:         rackInfo.Rows,
+		Columns:      rackInfo.Columns,
+		OrderIndex:   int32(rackInfo.OrderIndex),
+		CoolingType:  int32(rackInfo.CoolingType),
+		Zone:         finalZone,
+		SiteID:       newSiteID,
+		BuildingID:   newBuildingID,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &saveRackCreatePathResult{
+		collectionID:    collection.Id,
+		finalSiteID:     newSiteID,
+		finalBuildingID: newBuildingID,
+		finalZone:       finalZone,
+	}, nil
+}
+
+// saveRackUpdatePathResult holds the outputs of the SaveRack update branch.
+// siteChanged signals the rack moved; cascade + prior capture run in
+// replaceRackMembershipAndSlots against the final member set.
+type saveRackUpdatePathResult struct {
+	collectionID    int64
+	finalSiteID     *int64
+	finalBuildingID *int64
+	finalZone       string
+	siteChanged     bool
+}
+
+// saveRackUpdate runs the SaveRack update branch: validate ownership,
+// lock site/building/rack in canonical order, derive the final zone,
+// persist placement, and flag siteChanged for the downstream cascade.
+func (s *Service) saveRackUpdate(ctx context.Context, info *session.Info, req *pb.SaveRackRequest, rackInfo *pb.RackInfo) (*saveRackUpdatePathResult, error) {
+	collectionID := *req.CollectionId
+
+	belongs, err := s.collectionStore.CollectionBelongsToOrg(ctx, collectionID, info.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	if !belongs {
+		return nil, fleeterror.NewNotFoundErrorf("collection not found: %d", collectionID)
+	}
+	collectionType, err := s.collectionStore.GetCollectionType(ctx, info.OrganizationID, collectionID)
+	if err != nil {
+		return nil, err
+	}
+	if collectionType != pb.CollectionType_COLLECTION_TYPE_RACK {
+		return nil, fleeterror.NewInvalidArgumentErrorf("collection %d is not a rack", collectionID)
+	}
+
+	var (
+		current       interfaces.RackPlacement
+		newSiteID     *int64
+		newBuildingID *int64
+	)
+	if rackPlacementOmitted(rackInfo) {
+		// Preserve current placement; skip site/building locks since the
+		// rack lock alone serializes the no-op cascade.
+		current, err = s.collectionStore.LockRackPlacementForWrite(ctx, collectionID, info.OrganizationID)
+		if err != nil {
+			return nil, err
+		}
+		newSiteID = current.SiteID
+		newBuildingID = current.BuildingID
+	} else {
+		// Placement intent supplied; resolve and lock site/building
+		// before the rack lock (canonical order).
+		newSiteID, newBuildingID, err = s.resolveAndLockRackPlacement(ctx, info.OrganizationID, rackInfo)
+		if err != nil {
+			return nil, err
+		}
+		current, err = s.collectionStore.LockRackPlacementForWrite(ctx, collectionID, info.OrganizationID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Zone is building-scoped: clear it when leaving or crossing buildings,
+	// and preserve the current zone when the caller omitted it but the rack
+	// stays in a building (legacy clients don't send zone — validation only
+	// requires it when the request itself sets a non-zero building_id).
+	finalZone := rackInfo.GetZone()
+	leavingBuilding := current.BuildingID != nil && newBuildingID == nil
+	crossingBuildings := current.BuildingID != nil && newBuildingID != nil && !int64PtrEqual(current.BuildingID, newBuildingID)
+	switch {
+	case leavingBuilding || crossingBuildings:
+		finalZone = ""
+	case finalZone == "" && newBuildingID != nil:
+		finalZone = current.Zone
+	}
+
+	err = s.collectionStore.UpdateCollection(ctx, info.OrganizationID, collectionID, &req.Label, nil)
+	if err != nil {
+		return nil, err
+	}
+	err = s.collectionStore.UpdateRackInfo(ctx, collectionID, finalZone, rackInfo.Rows, rackInfo.Columns, int32(rackInfo.OrderIndex), int32(rackInfo.CoolingType), info.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	err = s.collectionStore.UpdateRackPlacement(ctx, collectionID, info.OrganizationID, newSiteID, newBuildingID, finalZone)
+	if err != nil {
+		return nil, err
+	}
+
+	out := &saveRackUpdatePathResult{
+		collectionID:    collectionID,
+		finalSiteID:     newSiteID,
+		finalBuildingID: newBuildingID,
+		finalZone:       finalZone,
+		siteChanged:     !int64PtrEqual(current.SiteID, newSiteID),
+	}
+	return out, nil
+}
+
+// rackCascadeOutcome holds per-call cascade results; totalAffected may
+// exceed len(deviceSiteChanges) when the audit list was truncated.
+type rackCascadeOutcome struct {
+	cascadeCount      int64
+	deviceSiteChanges []map[string]any
+	totalAffected     int
+}
+
+// replaceRackMembershipAndSlots removes existing membership + slots and
+// writes the new set. Cascade runs AFTER membership replace so removed
+// devices keep their prior site_id and the per-device priors captured
+// here reflect the final member set.
+func (s *Service) replaceRackMembershipAndSlots(ctx context.Context, orgID, collectionID int64, deviceIdentifiers []string, slotAssignments []*pb.RackSlot, finalSiteID *int64, siteChanged bool) (rackCascadeOutcome, error) {
+	var out rackCascadeOutcome
+	if _, err := s.collectionStore.RemoveAllDevicesFromCollection(ctx, orgID, collectionID); err != nil {
+		return out, err
+	}
+
+	// Cascade fires when the rack has a stamped site OR its site just
+	// transitioned. Both false means the rack stayed site-less; cascading
+	// NULL there would clobber direct device.site_id assignments.
+	cascadeFires := finalSiteID != nil || siteChanged
+
+	if len(deviceIdentifiers) > 0 {
+		if _, err := s.collectionStore.AddDevicesToCollection(ctx, orgID, collectionID, deviceIdentifiers); err != nil {
+			return out, err
+		}
+		if cascadeFires {
+			priors, err := s.collectionStore.GetDeviceSiteIDsByMembership(ctx, collectionID, orgID)
+			if err != nil {
+				return out, err
+			}
+			out.deviceSiteChanges, out.totalAffected = buildDeviceSiteChanges(priors, finalSiteID)
+			n, err := s.collectionStore.CascadeRackDeviceSites(ctx, collectionID, orgID, finalSiteID)
+			if err != nil {
+				return out, err
+			}
+			out.cascadeCount = n
+		}
+	}
+
+	existingSlots, err := s.collectionStore.GetRackSlots(ctx, collectionID, orgID)
+	if err != nil {
+		return out, err
+	}
+	for _, slot := range existingSlots {
+		if err := s.collectionStore.ClearRackSlotPosition(ctx, collectionID, slot.DeviceIdentifier, orgID); err != nil {
+			return out, err
+		}
+	}
+	for _, slot := range slotAssignments {
+		if err := s.collectionStore.SetRackSlotPosition(ctx, collectionID, slot.DeviceIdentifier, slot.Position.Row, slot.Position.Column, orgID); err != nil {
+			return out, err
+		}
+	}
+
+	return out, nil
+}
+
+// buildDeviceSiteChanges produces the activity-log metadata: one entry
+// per device whose prior site_id differs from target, capped at
+// maxCascadeAuditEntries. Devices already at target are omitted.
+func buildDeviceSiteChanges(priors map[string]*int64, target *int64) (changes []map[string]any, totalAffected int) {
+	changes = make([]map[string]any, 0, len(priors))
+	for deviceIdentifier, prior := range priors {
+		if int64PtrEqual(prior, target) {
+			continue
+		}
+		totalAffected++
+		if len(changes) >= maxCascadeAuditEntries {
+			continue
+		}
+		row := map[string]any{
+			"device_identifier": deviceIdentifier,
+		}
+		if prior != nil {
+			row["prior_site_id"] = *prior
+		}
+		if target != nil {
+			row["target_site_id"] = *target
+		}
+		changes = append(changes, row)
+	}
+	return changes, totalAffected
 }

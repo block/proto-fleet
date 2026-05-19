@@ -5,11 +5,19 @@ updates:
     directory: /
     schedule:
       interval: monthly
+    # github-actions and docker ecosystems do not track semver, so only
+    # default-days is supported on their cooldown blocks.
+    cooldown:
+      default-days: 7
 
   - package-ecosystem: npm
-    directory: client
+    directory: /client
     schedule:
       interval: monthly
+    cooldown:
+      default-days: 7
+      semver-major-days: 14
+      semver-patch-days: 3
     groups:
       node-dependencies:
         applies-to: version-updates
@@ -24,3 +32,48 @@ updates:
     directory: /
     schedule:
       interval: monthly
+    cooldown:
+      default-days: 7
+
+  - package-ecosystem: gomod
+    directories:
+      - /server
+      - /server/fake-antminer
+      - /server/fake-proto-rig
+      - /plugin/proto
+      - /plugin/antminer
+      - /plugin/virtual
+      - /tests/plugin-contract
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7
+      semver-major-days: 14
+      semver-patch-days: 3
+    groups:
+      go-dependencies:
+        applies-to: version-updates
+        patterns:
+          - "*"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: cargo
+    directories:
+      - /sdk/rust/proto-fleet-plugin
+      - /plugin/asicrs
+    schedule:
+      interval: monthly
+    cooldown:
+      default-days: 7
+      semver-major-days: 14
+      semver-patch-days: 3
+    groups:
+      rust-dependencies:
+        applies-to: version-updates
+        patterns:
+          - "*"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]

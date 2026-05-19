@@ -325,6 +325,93 @@ func TestAppendFilterSQL_RackIDsOnly(t *testing.T) {
 	assert.Equal(t, 4, resultArgNum)
 }
 
+// TestBuildMinerFilterParams_SiteFilter exercises the four allowed combos
+// of site_ids + include_unassigned (plan §"device/" filter notes).
+func TestBuildMinerFilterParams_SiteFilter(t *testing.T) {
+	t.Run("specific sites only", func(t *testing.T) {
+		fp := buildMinerFilterParams(&stores.MinerFilter{SiteIDs: []int64{1, 2}})
+		assert.True(t, fp.siteIDsFilter.Valid)
+		assert.Equal(t, []int64{1, 2}, fp.siteIDValues)
+		assert.False(t, fp.includeUnassigned)
+	})
+	t.Run("unassigned only", func(t *testing.T) {
+		fp := buildMinerFilterParams(&stores.MinerFilter{IncludeUnassigned: true})
+		assert.False(t, fp.siteIDsFilter.Valid)
+		assert.True(t, fp.includeUnassigned)
+	})
+	t.Run("sites plus unassigned", func(t *testing.T) {
+		fp := buildMinerFilterParams(&stores.MinerFilter{SiteIDs: []int64{3}, IncludeUnassigned: true})
+		assert.True(t, fp.siteIDsFilter.Valid)
+		assert.True(t, fp.includeUnassigned)
+	})
+}
+
+// TestAppendFilterSQL_SiteIDsOnly emits a single AND predicate matching
+// device.site_id against the supplied list and binds the array argument
+// as a bigint[].
+func TestAppendFilterSQL_SiteIDsOnly(t *testing.T) {
+	var sb strings.Builder
+	args := []any{"initial"}
+	argNum := 2
+	fp := minerFilterParams{
+		siteIDsFilter: validNullString(),
+		siteIDValues:  []int64{7, 11},
+	}
+	resultArgs, resultArgNum := appendFilterSQL(&sb, args, argNum, 1, fp)
+	sql := sb.String()
+	assert.Contains(t, sql, "device.site_id = ANY($2::bigint[])")
+	assert.NotContains(t, sql, "IS NULL")
+	assert.Len(t, resultArgs, 2)
+	assert.Equal(t, 3, resultArgNum)
+}
+
+// TestAppendFilterSQL_IncludeUnassignedOnly emits a single AND predicate
+// matching device.site_id IS NULL with no array argument bound.
+func TestAppendFilterSQL_IncludeUnassignedOnly(t *testing.T) {
+	var sb strings.Builder
+	args := []any{"initial"}
+	argNum := 2
+	fp := minerFilterParams{includeUnassigned: true}
+	resultArgs, resultArgNum := appendFilterSQL(&sb, args, argNum, 1, fp)
+	sql := sb.String()
+	assert.Contains(t, sql, "device.site_id IS NULL")
+	assert.NotContains(t, sql, "= ANY(")
+	assert.Len(t, resultArgs, 1)
+	assert.Equal(t, 2, resultArgNum)
+}
+
+// TestAppendFilterSQL_SiteIDsAndUnassigned joins the two with OR inside
+// the outer AND so callers get the "specific sites plus Unassigned" set.
+func TestAppendFilterSQL_SiteIDsAndUnassigned(t *testing.T) {
+	var sb strings.Builder
+	args := []any{"initial"}
+	argNum := 2
+	fp := minerFilterParams{
+		siteIDsFilter:     validNullString(),
+		siteIDValues:      []int64{3},
+		includeUnassigned: true,
+	}
+	resultArgs, resultArgNum := appendFilterSQL(&sb, args, argNum, 1, fp)
+	sql := sb.String()
+	assert.Contains(t, sql, "device.site_id = ANY($2::bigint[])")
+	assert.Contains(t, sql, "device.site_id IS NULL")
+	assert.Contains(t, sql, " OR ")
+	assert.Len(t, resultArgs, 2)
+	assert.Equal(t, 3, resultArgNum)
+}
+
+// TestAppendFilterSQL_NoSiteFilter emits no site predicate when both
+// the list and the flag are empty.
+func TestAppendFilterSQL_NoSiteFilter(t *testing.T) {
+	var sb strings.Builder
+	args := []any{"initial"}
+	argNum := 2
+	fp := minerFilterParams{}
+	_, _ = appendFilterSQL(&sb, args, argNum, 1, fp)
+	sql := sb.String()
+	assert.NotContains(t, sql, "device.site_id")
+}
+
 func TestAppendFilterSQL_GroupAndRackIDs_ProducesAND(t *testing.T) {
 	// Both group and rack filters should produce separate AND clauses (not OR)
 	var sb strings.Builder

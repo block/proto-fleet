@@ -102,3 +102,8 @@ WHERE a.id = pe.fleet_node_id
   AND a.deleted_at IS NULL
   AND pe.status IN ('PENDING', 'AWAITING_CONFIRMATION')
   AND pe.expires_at < $1;
+
+-- name: UpdateFleetNodeLastSeenAt :execrows
+UPDATE fleet_node
+SET last_seen_at = $1
+WHERE id = $2 AND org_id = $3 AND deleted_at IS NULL;

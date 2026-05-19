@@ -5,6 +5,7 @@ import (
 
 	collectionpb "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
+	sitesmodels "github.com/block/proto-fleet/server/internal/domain/sites/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/testutil"
 	"github.com/stretchr/testify/assert"
@@ -226,4 +227,61 @@ func TestService_ListMinerStateSnapshots_ShouldPopulateRackLabel(t *testing.T) {
 
 	assert.Equal(t, "Floor 1", rackByDevice[deviceIDs[0]])
 	assert.Empty(t, rackByDevice[deviceIDs[1]], "device not in a rack should have empty rack label")
+}
+
+// TestService_ListMinerStateSnapshots_ShouldPopulateSiteIDAndLabel
+// closes issue #197's acceptance criteria: "Integration test asserts a
+// snapshot written after device site-assignment carries the right
+// site_id." Creates a site, reassigns devices to it via the SiteStore
+// bulk path, and verifies the snapshot response carries SiteId +
+// SiteLabel without a second round-trip.
+func TestService_ListMinerStateSnapshots_ShouldPopulateSiteIDAndLabel(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+	orgID := testUser.OrganizationID
+
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(orgID, 2, "https://172.17.0.1:80")
+
+	siteStore := sqlstores.NewSQLSiteStore(testContext.ServiceProvider.DB)
+	site, err := siteStore.CreateSite(t.Context(), sitesmodels.CreateSiteParams{
+		OrgID: orgID,
+		Name:  "Austin",
+	})
+	require.NoError(t, err)
+
+	// Reassign only device 0 to the site; device 1 stays unassigned.
+	_, err = siteStore.ReassignDevicesToSite(t.Context(), orgID, &site.ID, deviceIDs[:1])
+	require.NoError(t, err)
+
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, orgID)
+	service := testContext.ServiceProvider.FleetManagementService
+
+	resp, err := service.ListMinerStateSnapshots(ctx, &pb.ListMinerStateSnapshotsRequest{
+		PageSize: 10,
+		Filter: &pb.MinerListFilter{
+			PairingStatuses: []pb.PairingStatus{pb.PairingStatus_PAIRING_STATUS_PAIRED},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, resp.Miners, 2)
+
+	byDevice := make(map[string]*pb.MinerStateSnapshot, len(resp.Miners))
+	for _, m := range resp.Miners {
+		byDevice[m.DeviceIdentifier] = m
+	}
+
+	assigned := byDevice[deviceIDs[0]]
+	require.NotNil(t, assigned)
+	require.NotNil(t, assigned.SiteId, "assigned device must surface site_id")
+	assert.Equal(t, site.ID, *assigned.SiteId)
+	assert.Equal(t, "Austin", assigned.SiteLabel)
+
+	unassigned := byDevice[deviceIDs[1]]
+	require.NotNil(t, unassigned)
+	assert.Nil(t, unassigned.SiteId, "unassigned device must have nil site_id")
+	assert.Empty(t, unassigned.SiteLabel, "unassigned device must have empty site_label")
 }

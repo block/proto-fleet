@@ -58,15 +58,17 @@ func (s *SQLCollectionStore) CreateCollection(ctx context.Context, orgID int64, 
 	}, nil
 }
 
-func (s *SQLCollectionStore) CreateRackExtension(ctx context.Context, collectionID int64, zone string, rows, columns int32, orderIndex, coolingType int32, orgID int64) error {
+func (s *SQLCollectionStore) CreateRackExtension(ctx context.Context, params interfaces.CreateRackExtensionParams) error {
 	err := s.GetQueries(ctx).CreateRackExtension(ctx, sqlc.CreateRackExtensionParams{
-		DeviceSetID: collectionID,
-		Zone:        toNullString(zone),
-		Rows:        rows,
-		Columns:     columns,
-		OrderIndex:  safeInt32ToInt16(orderIndex),
-		CoolingType: safeInt32ToInt16(coolingType),
-		OrgID:       orgID,
+		DeviceSetID: params.CollectionID,
+		Zone:        toNullString(params.Zone),
+		Rows:        params.Rows,
+		Columns:     params.Columns,
+		OrderIndex:  safeInt32ToInt16(params.OrderIndex),
+		CoolingType: safeInt32ToInt16(params.CoolingType),
+		OrgID:       params.OrgID,
+		SiteID:      ptrToNullInt64(params.SiteID),
+		BuildingID:  ptrToNullInt64(params.BuildingID),
 	})
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to create rack extension: %v", err)
@@ -106,6 +108,8 @@ func (s *SQLCollectionStore) GetRackInfo(ctx context.Context, collectionID int64
 		Columns:     row.Columns,
 		OrderIndex:  pb.RackOrderIndex(row.OrderIndex),
 		CoolingType: pb.RackCoolingType(row.CoolingType),
+		SiteId:      nullInt64ToPtr(row.SiteID),
+		BuildingId:  nullInt64ToPtr(row.BuildingID),
 	}
 	if row.Zone.Valid {
 		rackInfo.Zone = row.Zone.String
@@ -129,7 +133,14 @@ func (s *SQLCollectionStore) getRackInfoBatch(ctx context.Context, orgID int64, 
 
 	result := make(map[int64]*pb.RackInfo, len(collectionIDs))
 	for _, row := range rows {
-		ri := &pb.RackInfo{Rows: row.Rows, Columns: row.Columns, OrderIndex: pb.RackOrderIndex(row.OrderIndex), CoolingType: pb.RackCoolingType(row.CoolingType)}
+		ri := &pb.RackInfo{
+			Rows:        row.Rows,
+			Columns:     row.Columns,
+			OrderIndex:  pb.RackOrderIndex(row.OrderIndex),
+			CoolingType: pb.RackCoolingType(row.CoolingType),
+			SiteId:      nullInt64ToPtr(row.SiteID),
+			BuildingId:  nullInt64ToPtr(row.BuildingID),
+		}
 		if row.Zone.Valid {
 			ri.Zone = row.Zone.String
 		}
@@ -189,6 +200,134 @@ func (s *SQLCollectionStore) UpdateRackInfo(ctx context.Context, collectionID in
 		return fleeterror.NewInternalErrorf("failed to update rack info: %v", err)
 	}
 	return nil
+}
+
+func (s *SQLCollectionStore) LockRackPlacementForWrite(ctx context.Context, collectionID, orgID int64) (interfaces.RackPlacement, error) {
+	row, err := s.GetQueries(ctx).LockRackPlacementForWrite(ctx, sqlc.LockRackPlacementForWriteParams{
+		DeviceSetID: collectionID,
+		OrgID:       orgID,
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return interfaces.RackPlacement{}, fleeterror.NewNotFoundErrorf("rack %d not found", collectionID)
+		}
+		return interfaces.RackPlacement{}, fleeterror.NewInternalErrorf("failed to lock rack placement: %v", err)
+	}
+	placement := interfaces.RackPlacement{
+		SiteID:     nullInt64ToPtr(row.SiteID),
+		BuildingID: nullInt64ToPtr(row.BuildingID),
+	}
+	if row.Zone.Valid {
+		placement.Zone = row.Zone.String
+	}
+	return placement, nil
+}
+
+func (s *SQLCollectionStore) UpdateRackPlacement(ctx context.Context, collectionID, orgID int64, siteID, buildingID *int64, zone string) error {
+	err := s.GetQueries(ctx).UpdateRackPlacement(ctx, sqlc.UpdateRackPlacementParams{
+		SiteID:      ptrToNullInt64(siteID),
+		BuildingID:  ptrToNullInt64(buildingID),
+		Zone:        toNullString(zone),
+		DeviceSetID: collectionID,
+		OrgID:       orgID,
+	})
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to update rack placement: %v", err)
+	}
+	return nil
+}
+
+func (s *SQLCollectionStore) UnassignDeviceSitesByRack(ctx context.Context, collectionID, orgID int64) (int64, error) {
+	n, err := s.GetQueries(ctx).UnassignDeviceSitesByRack(ctx, sqlc.UnassignDeviceSitesByRackParams{
+		DeviceSetID: collectionID,
+		OrgID:       orgID,
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to unassign device sites by rack: %v", err)
+	}
+	return n, nil
+}
+
+func (s *SQLCollectionStore) CascadeRackDeviceSites(ctx context.Context, collectionID, orgID int64, targetSiteID *int64) (int64, error) {
+	n, err := s.GetQueries(ctx).CascadeRackDeviceSites(ctx, sqlc.CascadeRackDeviceSitesParams{
+		DeviceSetID:  collectionID,
+		OrgID:        orgID,
+		TargetSiteID: ptrToNullInt64(targetSiteID),
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to cascade rack device sites: %v", err)
+	}
+	return n, nil
+}
+
+func (s *SQLCollectionStore) GetDeviceSiteIDsByMembership(ctx context.Context, collectionID, orgID int64) (map[string]*int64, error) {
+	rows, err := s.GetQueries(ctx).GetDeviceSiteIDsByMembership(ctx, sqlc.GetDeviceSiteIDsByMembershipParams{
+		DeviceSetID: collectionID,
+		OrgID:       orgID,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to load device sites for rack members: %v", err)
+	}
+	out := make(map[string]*int64, len(rows))
+	for _, row := range rows {
+		out[row.DeviceIdentifier] = nullInt64ToPtr(row.SiteID)
+	}
+	return out, nil
+}
+
+func (s *SQLCollectionStore) GetBuildingSite(ctx context.Context, orgID, buildingID int64) (*int64, error) {
+	siteID, err := s.GetQueries(ctx).GetBuildingSite(ctx, sqlc.GetBuildingSiteParams{
+		ID:    buildingID,
+		OrgID: orgID,
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fleeterror.NewNotFoundErrorf("building %d not found", buildingID)
+		}
+		return nil, fleeterror.NewInternalErrorf("failed to look up building site: %v", err)
+	}
+	return nullInt64ToPtr(siteID), nil
+}
+
+func (s *SQLCollectionStore) GetAddedDeviceSiteConflicts(ctx context.Context, orgID, deviceSetID int64, deviceIdentifiers []string) ([]interfaces.AddedDeviceSiteConflict, error) {
+	if len(deviceIdentifiers) == 0 {
+		return nil, nil
+	}
+	rows, err := s.GetQueries(ctx).GetAddedDeviceSiteConflicts(ctx, sqlc.GetAddedDeviceSiteConflictsParams{
+		OrgID:             orgID,
+		ID:                deviceSetID,
+		DeviceIdentifiers: deviceIdentifiers,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to load added-device site conflicts: %v", err)
+	}
+	out := make([]interfaces.AddedDeviceSiteConflict, 0, len(rows))
+	for _, row := range rows {
+		if !row.TargetSiteID.Valid {
+			continue
+		}
+		out = append(out, interfaces.AddedDeviceSiteConflict{
+			DeviceIdentifier: row.DeviceIdentifier,
+			PriorSiteID:      nullInt64ToPtr(row.PriorSiteID),
+			TargetSiteID:     row.TargetSiteID.Int64,
+		})
+	}
+	return out, nil
+}
+
+func (s *SQLCollectionStore) CascadeAddedDeviceSites(ctx context.Context, orgID, deviceSetID int64, deviceIdentifiers []string) (int64, error) {
+	if len(deviceIdentifiers) == 0 {
+		return 0, nil
+	}
+	n, err := s.GetQueries(ctx).CascadeAddedDeviceSites(ctx, sqlc.CascadeAddedDeviceSitesParams{
+		OrgID:             orgID,
+		ID:                deviceSetID,
+		DeviceIdentifiers: deviceIdentifiers,
+	})
+	if err != nil {
+		return 0, fleeterror.NewInternalErrorf("failed to cascade added-device sites: %v", err)
+	}
+	return n, nil
 }
 
 func (s *SQLCollectionStore) SoftDeleteCollection(ctx context.Context, orgID int64, collectionID int64) (int64, error) {

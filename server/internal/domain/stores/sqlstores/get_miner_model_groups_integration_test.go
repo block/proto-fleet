@@ -179,13 +179,17 @@ func TestGetMinerModelGroups_ZoneFilter(t *testing.T) {
 
 	rackA, err := collectionStore.CreateCollection(ctx, user.OrganizationID, collectionpb.CollectionType_COLLECTION_TYPE_RACK, "Rack A", "")
 	require.NoError(t, err)
-	require.NoError(t, collectionStore.CreateRackExtension(ctx, rackA.Id, "zone-a", 4, 8, 0, 0, user.OrganizationID))
+	require.NoError(t, collectionStore.CreateRackExtension(ctx, stores.CreateRackExtensionParams{
+		OrgID: user.OrganizationID, CollectionID: rackA.Id, Rows: 4, Columns: 8, Zone: "zone-a",
+	}))
 	_, err = collectionStore.AddDevicesToCollection(ctx, user.OrganizationID, rackA.Id, []string{inZoneA.ID})
 	require.NoError(t, err)
 
 	rackB, err := collectionStore.CreateCollection(ctx, user.OrganizationID, collectionpb.CollectionType_COLLECTION_TYPE_RACK, "Rack B", "")
 	require.NoError(t, err)
-	require.NoError(t, collectionStore.CreateRackExtension(ctx, rackB.Id, "zone-b", 4, 8, 0, 0, user.OrganizationID))
+	require.NoError(t, collectionStore.CreateRackExtension(ctx, stores.CreateRackExtensionParams{
+		OrgID: user.OrganizationID, CollectionID: rackB.Id, Rows: 4, Columns: 8, Zone: "zone-b",
+	}))
 	_, err = collectionStore.AddDevicesToCollection(ctx, user.OrganizationID, rackB.Id, []string{inZoneB.ID})
 	require.NoError(t, err)
 
@@ -232,7 +236,9 @@ func TestGetMinerModelGroups_ZoneWithComma(t *testing.T) {
 	const zone = "Austin, Building 1"
 	rack, err := collectionStore.CreateCollection(ctx, user.OrganizationID, collectionpb.CollectionType_COLLECTION_TYPE_RACK, "Rack", "")
 	require.NoError(t, err)
-	require.NoError(t, collectionStore.CreateRackExtension(ctx, rack.Id, zone, 4, 8, 0, 0, user.OrganizationID))
+	require.NoError(t, collectionStore.CreateRackExtension(ctx, stores.CreateRackExtensionParams{
+		OrgID: user.OrganizationID, CollectionID: rack.Id, Rows: 4, Columns: 8, Zone: zone,
+	}))
 	_, err = collectionStore.AddDevicesToCollection(ctx, user.OrganizationID, rack.Id, []string{dev.ID})
 	require.NoError(t, err)
 
@@ -289,13 +295,17 @@ func TestGetMinerModelGroups_FirmwareAndZoneFilters(t *testing.T) {
 	// Zones: s21a + s21b in zone-a, m60a + m60b in zone-b.
 	rackA, err := collectionStore.CreateCollection(ctx, user.OrganizationID, collectionpb.CollectionType_COLLECTION_TYPE_RACK, "Rack A", "")
 	require.NoError(t, err)
-	require.NoError(t, collectionStore.CreateRackExtension(ctx, rackA.Id, "zone-a", 4, 8, 0, 0, user.OrganizationID))
+	require.NoError(t, collectionStore.CreateRackExtension(ctx, stores.CreateRackExtensionParams{
+		OrgID: user.OrganizationID, CollectionID: rackA.Id, Rows: 4, Columns: 8, Zone: "zone-a",
+	}))
 	_, err = collectionStore.AddDevicesToCollection(ctx, user.OrganizationID, rackA.Id, []string{s21a.ID, s21b.ID})
 	require.NoError(t, err)
 
 	rackB, err := collectionStore.CreateCollection(ctx, user.OrganizationID, collectionpb.CollectionType_COLLECTION_TYPE_RACK, "Rack B", "")
 	require.NoError(t, err)
-	require.NoError(t, collectionStore.CreateRackExtension(ctx, rackB.Id, "zone-b", 4, 8, 0, 0, user.OrganizationID))
+	require.NoError(t, collectionStore.CreateRackExtension(ctx, stores.CreateRackExtensionParams{
+		OrgID: user.OrganizationID, CollectionID: rackB.Id, Rows: 4, Columns: 8, Zone: "zone-b",
+	}))
 	_, err = collectionStore.AddDevicesToCollection(ctx, user.OrganizationID, rackB.Id, []string{m60a.ID, m60b.ID})
 	require.NoError(t, err)
 
