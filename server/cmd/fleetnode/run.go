@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
@@ -28,13 +27,15 @@ const (
 
 type RunCmd struct {
 	HeartbeatInterval time.Duration `name:"heartbeat-interval" default:"30s" help:"interval between UploadHeartbeat calls"`
-	PluginsDir        string        `name:"plugins-dir" help:"absolute path to the discovery plugins directory; required when the agent should execute server-issued discovery commands"`
+	PluginsDir        string        `name:"plugins-dir" help:"absolute path to the discovery plugins directory; defaults to <dir-of-binary>/plugins. If the resolved directory is missing the control loop stays off (heartbeat only)."`
+	NmapPath          string        `name:"nmap-path" help:"absolute path to the nmap binary; defaults to <dir-of-binary>/nmap when present, otherwise to 'nmap' on PATH at scan time"`
 
 	now           func() time.Time                                                `kong:"-"`
 	clientFactory func(serverURL string, tokenSource func() string) gatewayClient `kong:"-"`
 	signals       []os.Signal                                                     `kong:"-"`
 	parentCtx     context.Context                                                 `kong:"-"` //nolint:containedctx // test seam for daemon shutdown without OS signals
 	discoverer    discoverer                                                      `kong:"-"`
+	nmapPath      string                                                          `kong:"-"`
 
 	// Guards st.SessionToken: refreshAndSave writes; tokenSource reads.
 	stateMu sync.Mutex `kong:"-"`
@@ -69,14 +70,23 @@ func (r *RunCmd) run(c *Context, stderr io.Writer) error {
 		r.parentCtx = context.Background()
 	}
 
-	// CLI-flag validation runs before any disk/state work so misconfiguration
-	// fails fast. The plugin manager execs anything in PluginsDir, so a
-	// relative path would resolve against the daemon's CWD and let a writable
-	// launch directory host arbitrary code as the agent user.
-	controlWanted := r.discoverer == nil && r.PluginsDir != ""
-	if controlWanted && !filepath.IsAbs(r.PluginsDir) {
-		return fmt.Errorf("--plugins-dir must be an absolute path, got %q", r.PluginsDir)
+	// Resolve --plugins-dir (or the binary-adjacent default) before touching
+	// disk state so misconfiguration fails fast. The plugin manager execs
+	// anything in the resolved directory, so any non-owner write capability
+	// at that path is RCE-equivalent.
+	var resolvedPluginsDir string
+	if r.discoverer == nil {
+		resolved, resolveErr := resolvePluginsDir(r.PluginsDir, executableDir())
+		if resolveErr != nil {
+			return resolveErr
+		}
+		resolvedPluginsDir = resolved
 	}
+	resolvedNmapPath, err := resolveNmapPath(r.NmapPath, executableDir())
+	if err != nil {
+		return err
+	}
+	r.nmapPath = resolvedNmapPath
 
 	path := fleetnodebootstrap.StatePath(c.StateDir)
 	st, exists, err := fleetnodebootstrap.LoadState(path)
@@ -90,8 +100,8 @@ func (r *RunCmd) run(c *Context, stderr io.Writer) error {
 		return fmt.Errorf("state at %s has no api_key; complete enrollment via `fleetnode refresh` before running the daemon", path)
 	}
 
-	if controlWanted {
-		disc, cleanup, bootstrapErr := newPluginDiscoverer(r.PluginsDir)
+	if resolvedPluginsDir != "" {
+		disc, cleanup, bootstrapErr := newPluginDiscoverer(resolvedPluginsDir)
 		if bootstrapErr != nil {
 			return fmt.Errorf("bootstrap discovery plugins: %w", bootstrapErr)
 		}
@@ -100,6 +110,15 @@ func (r *RunCmd) run(c *Context, stderr io.Writer) error {
 	}
 
 	logger := slog.New(slog.NewTextHandler(stderr, nil))
+	if resolvedPluginsDir != "" {
+		source := "binary-adjacent"
+		if r.PluginsDir != "" {
+			source = "flag"
+		}
+		logger.Info("plugins dir resolved", "plugins_dir", resolvedPluginsDir, "source", source)
+	} else if r.PluginsDir == "" {
+		logger.Info("no plugins dir found adjacent to binary; control loop disabled (heartbeat only)")
+	}
 
 	return fleetnodebootstrap.WithStateLock(c.StateDir, func() error {
 		return r.runLocked(c, logger)
