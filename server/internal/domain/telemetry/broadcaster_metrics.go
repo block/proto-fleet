@@ -125,7 +125,7 @@ func (o *metricsObserver) onDeviceMetrics(ctx context.Context, orgID int64, driv
 	// real pool disconnects / hijacks when the rest of the device was
 	// healthy. The metric remains in the contract so user-authored rules and
 	// dashboards keep compiling; the default DevicePoolDisconnected alert
-	// has been removed from protofleet-defaults.yml until a correct emission
+	// has been removed from proto-fleet-defaults.yml until a correct emission
 	// path lands.
 }
 

@@ -127,8 +127,8 @@ run a fleet with the beta notifications stack:
 The configs live under `deployment-files/server/monitoring/`:
 
 - `otel-collector.yaml` — read-only OTLP receiver + VictoriaMetrics exporter.
-- `vmalert/rules.yml` — user-rendered rule file (rewritten by ProtoFleet).
-- `vmalert/rules.d/*.yml` — built-in rule groups (e.g. `protofleet-self.yml`)
+- `vmalert/rules.yml` — user-rendered rule file (rewritten by Proto Fleet).
+- `vmalert/rules.d/*.yml` — built-in rule groups (e.g. `proto-fleet-self.yml`)
   that ship with the deployment and are not mutated by the reload pipeline.
 - `alertmanager/alertmanager.yml` — receivers and routes (rewritten by
-  ProtoFleet).
+  Proto Fleet).

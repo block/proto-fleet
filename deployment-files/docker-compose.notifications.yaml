@@ -20,8 +20,8 @@ services:
       - "vmalert:127.0.0.1"
       - "alertmanager:127.0.0.1"
     volumes:
-      - ./server/monitoring/vmalert:/etc/protofleet/monitoring/vmalert:rw
-      - ./server/monitoring/alertmanager:/etc/protofleet/monitoring/alertmanager:rw
+      - ./server/monitoring/vmalert:/etc/proto-fleet/monitoring/vmalert:rw
+      - ./server/monitoring/alertmanager:/etc/proto-fleet/monitoring/alertmanager:rw
 
   otel-collector:
     extends:

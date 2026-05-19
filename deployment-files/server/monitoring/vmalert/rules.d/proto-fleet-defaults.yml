@@ -1,7 +1,7 @@
-# protofleet-defaults: bootstrap rules shipped on first run.
+# proto-fleet-defaults: bootstrap rules shipped on first run.
 
 groups:
-  - name: protofleet-defaults
+  - name: proto-fleet-defaults
     interval: 30s
     rules:
       - alert: DeviceOffline
@@ -24,7 +24,7 @@ groups:
         for: 5m
         labels:
           severity: warning
-          rule_group: protofleet-defaults
+          rule_group: proto-fleet-defaults
           template: offline
         annotations:
           summary: "Device {{ $labels.device_id }} is offline"
@@ -40,7 +40,7 @@ groups:
         for: 10m
         labels:
           severity: warning
-          rule_group: protofleet-defaults
+          rule_group: proto-fleet-defaults
           template: temperature
         annotations:
           summary: "Device {{ $labels.device_id }} is running hot"
@@ -80,7 +80,7 @@ groups:
         for: 10m
         labels:
           severity: warning
-          rule_group: protofleet-defaults
+          rule_group: proto-fleet-defaults
           template: telemetry-poll
         annotations:
           summary: "Telemetry polling is failing for organization {{ $labels.organization_id }}"

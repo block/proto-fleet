@@ -8,7 +8,7 @@ import (
 	"strconv"
 )
 
-// Namespace is the prefix every ProtoFleet metric must carry. The PromQL
+// Namespace is the prefix every Proto Fleet metric must carry. The PromQL
 // subset compiler rejects vector selectors whose metric name does not start
 // with this prefix; that prevents user rules from reading anything outside
 // our contract surface.
@@ -103,7 +103,7 @@ const (
 	SensorKindHotspot = "hotspot"
 )
 
-// AllMetricNames is the canonical list of metric names emitted by ProtoFleet.
+// AllMetricNames is the canonical list of metric names emitted by Proto Fleet.
 var AllMetricNames = []string{
 	MetricDeviceOnline,
 	MetricDeviceHashrateTerahash,
@@ -115,7 +115,7 @@ var AllMetricNames = []string{
 	MetricTelemetryPollTotal,
 }
 
-// AllLabelKeys is the canonical list of label keys ProtoFleet attaches to its metrics.
+// AllLabelKeys is the canonical list of label keys Proto Fleet attaches to its metrics.
 var AllLabelKeys = []string{
 	LabelOrganizationID,
 	LabelDeviceID,

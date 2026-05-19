@@ -18,7 +18,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 )
 
-const ServiceName = "protofleet-fleet-api"
+const ServiceName = "proto-fleet-api"
 
 type Config struct {
 	Enabled    bool          `help:"Enable OpenTelemetry metrics export" default:"false" env:"ENABLED"`

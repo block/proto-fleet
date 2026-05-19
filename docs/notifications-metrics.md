@@ -1,6 +1,6 @@
-# ProtoFleet notifications metric contract
+# Proto Fleet notifications metric contract
 
-This document is the canonical contract for every metric ProtoFleet
+This document is the canonical contract for every metric Proto Fleet
 emits as part of the notifications stack.
 
 The Go-side source of truth is
@@ -8,7 +8,7 @@ The Go-side source of truth is
 
 ## Namespace
 
-All ProtoFleet metric names start with the `fleet_` prefix.
+All Proto Fleet metric names start with the `fleet_` prefix.
 
 ## Metrics
 

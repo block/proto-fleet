@@ -13,8 +13,8 @@ services:
       alertmanager:
         condition: service_healthy
     volumes:
-      - ../deployment-files/server/monitoring/vmalert:/etc/protofleet/monitoring/vmalert:rw
-      - ../deployment-files/server/monitoring/alertmanager:/etc/protofleet/monitoring/alertmanager:rw
+      - ../deployment-files/server/monitoring/vmalert:/etc/proto-fleet/monitoring/vmalert:rw
+      - ../deployment-files/server/monitoring/alertmanager:/etc/proto-fleet/monitoring/alertmanager:rw
     networks:
       - monitoring
 
