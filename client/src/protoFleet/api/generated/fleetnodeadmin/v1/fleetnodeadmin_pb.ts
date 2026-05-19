@@ -283,9 +283,7 @@ export const UnpairDeviceResponseSchema: GenMessage<UnpairDeviceResponse> =
  */
 export type ListFleetNodeDevicesRequest = Message<"fleetnodeadmin.v1.ListFleetNodeDevicesRequest"> & {
   /**
-   * Optional. 0 means "no filter"; > 0 restricts to devices paired
-   * to that fleet node. Negative values are rejected at the API
-   * boundary so they can't be confused with the unfiltered case.
+   * 0 = no filter; > 0 restricts to that fleet node's pairings.
    *
    * @generated from field: int64 fleet_node_id = 1;
    */
@@ -371,12 +369,8 @@ export type DiscoverOnFleetNodeRequest = Message<"fleetnodeadmin.v1.DiscoverOnFl
   fleetNodeId: bigint;
 
   /**
-   * Reuses the existing pairing.PairingService.Discover request
-   * shape so the operator UX is uniform between combined-mode
-   * (server-local scan) and remote-agent (server proxies to agent)
-   * discovery. Only IPListMode is supported for v1; other modes
-   * (IPRange, MDNS, Nmap) are rejected by the handler. CIDR/IPRange
-   * expansion happens server-side before dispatching to the agent.
+   * Only IPListMode is accepted by the handler; other modes are
+   * rejected with FailedPrecondition.
    *
    * @generated from field: pairing.v1.DiscoverRequest request = 2;
    */
@@ -392,10 +386,6 @@ export const DiscoverOnFleetNodeRequestSchema: GenMessage<DiscoverOnFleetNodeReq
   messageDesc(file_fleetnodeadmin_v1_fleetnodeadmin, 16);
 
 /**
- * Thin wrapper around pairing.v1.DiscoverResponse so the proto linter's
- * RPC_RESPONSE_UNIQUE rule is satisfied; the existing combined-mode
- * pairing.PairingService.Discover already uses DiscoverResponse.
- *
  * @generated from message fleetnodeadmin.v1.DiscoverOnFleetNodeResponse
  */
 export type DiscoverOnFleetNodeResponse = Message<"fleetnodeadmin.v1.DiscoverOnFleetNodeResponse"> & {
@@ -511,10 +501,6 @@ export const FleetNodeAdminService: GenService<{
     output: typeof ListFleetNodeDevicesResponseSchema;
   };
   /**
-   * Operator-initiated discovery on a specific fleet node. Server
-   * proxies the request to the agent over ControlStream and forwards
-   * results back to the operator as they arrive.
-   *
    * @generated from rpc fleetnodeadmin.v1.FleetNodeAdminService.DiscoverOnFleetNode
    */
   discoverOnFleetNode: {

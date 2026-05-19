@@ -72,9 +72,6 @@ type FleetNodeAdminServiceClient interface {
 	PairDeviceToFleetNode(context.Context, *connect.Request[v1.PairDeviceToFleetNodeRequest]) (*connect.Response[v1.PairDeviceToFleetNodeResponse], error)
 	UnpairDevice(context.Context, *connect.Request[v1.UnpairDeviceRequest]) (*connect.Response[v1.UnpairDeviceResponse], error)
 	ListFleetNodeDevices(context.Context, *connect.Request[v1.ListFleetNodeDevicesRequest]) (*connect.Response[v1.ListFleetNodeDevicesResponse], error)
-	// Operator-initiated discovery on a specific fleet node. Server
-	// proxies the request to the agent over ControlStream and forwards
-	// results back to the operator as they arrive.
 	DiscoverOnFleetNode(context.Context, *connect.Request[v1.DiscoverOnFleetNodeRequest]) (*connect.ServerStreamForClient[v1.DiscoverOnFleetNodeResponse], error)
 }
 
@@ -193,9 +190,6 @@ type FleetNodeAdminServiceHandler interface {
 	PairDeviceToFleetNode(context.Context, *connect.Request[v1.PairDeviceToFleetNodeRequest]) (*connect.Response[v1.PairDeviceToFleetNodeResponse], error)
 	UnpairDevice(context.Context, *connect.Request[v1.UnpairDeviceRequest]) (*connect.Response[v1.UnpairDeviceResponse], error)
 	ListFleetNodeDevices(context.Context, *connect.Request[v1.ListFleetNodeDevicesRequest]) (*connect.Response[v1.ListFleetNodeDevicesResponse], error)
-	// Operator-initiated discovery on a specific fleet node. Server
-	// proxies the request to the agent over ControlStream and forwards
-	// results back to the operator as they arrive.
 	DiscoverOnFleetNode(context.Context, *connect.Request[v1.DiscoverOnFleetNodeRequest], *connect.ServerStream[v1.DiscoverOnFleetNodeResponse]) error
 }
 

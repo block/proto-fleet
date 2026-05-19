@@ -684,9 +684,7 @@ func (*UnpairDeviceResponse) Descriptor() ([]byte, []int) {
 
 type ListFleetNodeDevicesRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Optional. 0 means "no filter"; > 0 restricts to devices paired
-	// to that fleet node. Negative values are rejected at the API
-	// boundary so they can't be confused with the unfiltered case.
+	// 0 = no filter; > 0 restricts to that fleet node's pairings.
 	FleetNodeId   int64 `protobuf:"varint,1,opt,name=fleet_node_id,json=fleetNodeId,proto3" json:"fleet_node_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -860,12 +858,8 @@ func (x *FleetNodeDeviceSummary) GetAssignedBy() int64 {
 type DiscoverOnFleetNodeRequest struct {
 	state       protoimpl.MessageState `protogen:"open.v1"`
 	FleetNodeId int64                  `protobuf:"varint,1,opt,name=fleet_node_id,json=fleetNodeId,proto3" json:"fleet_node_id,omitempty"`
-	// Reuses the existing pairing.PairingService.Discover request
-	// shape so the operator UX is uniform between combined-mode
-	// (server-local scan) and remote-agent (server proxies to agent)
-	// discovery. Only IPListMode is supported for v1; other modes
-	// (IPRange, MDNS, Nmap) are rejected by the handler. CIDR/IPRange
-	// expansion happens server-side before dispatching to the agent.
+	// Only IPListMode is accepted by the handler; other modes are
+	// rejected with FailedPrecondition.
 	Request       *v1.DiscoverRequest `protobuf:"bytes,2,opt,name=request,proto3" json:"request,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -915,9 +909,6 @@ func (x *DiscoverOnFleetNodeRequest) GetRequest() *v1.DiscoverRequest {
 	return nil
 }
 
-// Thin wrapper around pairing.v1.DiscoverResponse so the proto linter's
-// RPC_RESPONSE_UNIQUE rule is satisfied; the existing combined-mode
-// pairing.PairingService.Discover already uses DiscoverResponse.
 type DiscoverOnFleetNodeResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Response      *v1.DiscoverResponse   `protobuf:"bytes,1,opt,name=response,proto3" json:"response,omitempty"`

@@ -114,12 +114,14 @@ var FleetNodeAuthenticatedProcedures = []string{
 // For streaming RPCs, this also suppresses individual message bodies in
 // loggingStreamingHandlerConn.
 var SensitiveBodyProcedures = map[string]bool{
-	foremanimportv1connect.ForemanImportServiceImportFromForemanProcedure:     true,
-	foremanimportv1connect.ForemanImportServiceCompleteImportProcedure:        true,
-	authv1connect.AuthServiceAuthenticateProcedure:                            true,
-	authv1connect.AuthServiceVerifyCredentialsProcedure:                       true,
-	fleetmanagementv1connect.FleetManagementServiceUpdateWorkerNamesProcedure: true,
-	fleetnodegatewayv1connect.FleetNodeGatewayServiceControlStreamProcedure:   true,
-	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadTelemetryProcedure: true,
-	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadEventsProcedure:    true,
+	foremanimportv1connect.ForemanImportServiceImportFromForemanProcedure:             true,
+	foremanimportv1connect.ForemanImportServiceCompleteImportProcedure:                true,
+	authv1connect.AuthServiceAuthenticateProcedure:                                    true,
+	authv1connect.AuthServiceVerifyCredentialsProcedure:                               true,
+	fleetmanagementv1connect.FleetManagementServiceUpdateWorkerNamesProcedure:         true,
+	fleetnodegatewayv1connect.FleetNodeGatewayServiceControlStreamProcedure:           true,
+	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadTelemetryProcedure:         true,
+	fleetnodegatewayv1connect.FleetNodeGatewayServiceUploadEventsProcedure:            true,
+	fleetnodegatewayv1connect.FleetNodeGatewayServiceReportDiscoveredDevicesProcedure: true,
+	fleetnodeadminv1connect.FleetNodeAdminServiceDiscoverOnFleetNodeProcedure:         true,
 }

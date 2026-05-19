@@ -91,23 +91,29 @@ message UploadHeartbeatResponse {
 message ReportDiscoveredDevicesRequest {
     repeated DiscoveredDeviceReport devices = 1
         [(buf.validate.field).repeated.max_items = 1024];
-    // Optional: when the report is the result of a server-issued
-    // ControlCommand, echo back its command_id so the gateway handler
-    // can forward this batch to the operator stream waiting on the
-    // matching DiscoverOnFleetNode admin RPC. Empty for any future
-    // unsolicited reporting path.
-    string command_id = 2 [(buf.validate.field).string.max_len = 128];
+    // Echoes the command_id of the ControlCommand that scheduled the
+    // scan. Required: the gateway only accepts reports in response to
+    // a server-issued command and uses this to route the batch to the
+    // operator stream waiting on DiscoverOnFleetNode.
+    string command_id = 2 [(buf.validate.field).string = {min_len: 1, max_len: 128}];
 }
 
 message DiscoveredDeviceReport {
     string device_identifier = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
-    string ip_address        = 2 [(buf.validate.field).string = {min_len: 1, max_len: 45}];
-    string port              = 3 [(buf.validate.field).string = {min_len: 1, max_len: 10}];
-    string url_scheme        = 4 [(buf.validate.field).string = {min_len: 1, max_len: 10}];
-    string type              = 5 [(buf.validate.field).string = {min_len: 1, max_len: 50}];
-    string model             = 6 [(buf.validate.field).string.max_len = 255];
-    string manufacturer      = 7 [(buf.validate.field).string.max_len = 255];
-    string firmware_version  = 8 [(buf.validate.field).string.max_len = 255];
+    string ip_address        = 2 [(buf.validate.field).string = {min_len: 1, max_len: 45, ip: true}];
+    string port              = 3 [
+        (buf.validate.field).string = {min_len: 1, max_len: 5},
+        (buf.validate.field).cel = {
+            id: "port.range",
+            message: "port must be a decimal number in 1..65535",
+            expression: "this.matches('^[1-9][0-9]*$') && int(this) <= 65535"
+        }
+    ];
+    string url_scheme       = 4 [(buf.validate.field).string = {in: ["http", "https"]}];
+    string driver_name      = 5 [(buf.validate.field).string = {min_len: 1, max_len: 50}];
+    string model            = 6 [(buf.validate.field).string.max_len = 255];
+    string manufacturer     = 7 [(buf.validate.field).string.max_len = 255];
+    string firmware_version = 8 [(buf.validate.field).string.max_len = 255];
 }
 
 message ReportDiscoveredDevicesResponse {
