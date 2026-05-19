@@ -6,6 +6,46 @@ emits as part of the notifications stack.
 The Go-side source of truth is
 [`server/internal/infrastructure/metrics/contract.go`](../server/internal/infrastructure/metrics/contract.go).
 
+## Storage
+
+Notification metrics are stored in the same TimescaleDB instance the rest of
+the fleet uses. The hypertables are defined in
+[`migrations/000050_create_notification_metrics.up.sql`](../server/migrations/000050_create_notification_metrics.up.sql):
+
+- `notification_device_metrics` — per-device gauges (`online`,
+  `hashrate_ths`, `hashrate_expected_ths`, `pool_connected`).
+- `notification_device_temperature` — per-`sensor_kind` max/avg temperature
+  samples.
+- `notification_command_events` — one row per terminal command outcome.
+- `notification_telemetry_poll_events` — one row per telemetry poll attempt.
+
+## Evaluation
+
+vmalert is the scheduler and `for:` debouncer; running it externally is
+what catches fleet-api errors (if the shim stops answering, vmalert's
+built-in `DatasourceUnavailable` alert fires). Evaluation itself runs in
+fleet-api: vmalert polls a narrow PromQL endpoint at
+`/internal/promql/api/v1/query`, which accepts only the canonical
+`fleet_alert{rule_id="…"}` selector and dispatches by `rule_id` to one of
+the hard-coded SQL statements in
+[`handlers/promqlshim/queries.go`](../server/internal/handlers/promqlshim/queries.go).
+
+The rule definitions themselves are Go data in
+[`handlers/promqlshim/rules.go`](../server/internal/handlers/promqlshim/rules.go).
+vmalert pulls a generated YAML stub from
+`/internal/vmalert/rules.yml` (rendered from `BuiltinRules()`) — that stub
+is the thin layer mapping each `rule_id` to its canonical selector,
+nothing more.
+
+On every poll the shim:
+
+1. Parses the selector — anything other than the canonical form is
+   rejected at the door.
+2. Optionally honours the `organization_id` matcher; if absent, the
+   `active orgs` SQL gives every org with recent activity.
+3. Runs the rule's hard-coded SQL per active org and returns one
+   Prometheus instant-vector sample per firing scope.
+
 ## Namespace
 
 All Proto Fleet metric names start with the `fleet_` prefix.

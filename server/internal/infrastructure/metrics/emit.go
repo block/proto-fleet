@@ -4,9 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/metric"
+	"strconv"
+	"time"
 )
 
 // DeviceLabels is the canonical label set for per-device gauges.
@@ -29,73 +28,112 @@ type TelemetryPollLabels struct {
 	Result         string
 }
 
-func (l DeviceLabels) toAttrs(extra ...attribute.KeyValue) []attribute.KeyValue {
-	attrs := make([]attribute.KeyValue, 0, 4+len(extra))
-	if l.OrganizationID != "" {
-		attrs = append(attrs, attribute.String(LabelOrganizationID, l.OrganizationID))
+func parseOrgID(value, ctxHint string) (int64, bool) {
+	if value == "" {
+		return 0, true
 	}
-	if l.DeviceID != "" {
-		attrs = append(attrs, attribute.String(LabelDeviceID, l.DeviceID))
+	v, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		slog.Error("metrics: non-integer organization_id, dropping sample",
+			"value", value, "context", ctxHint, "error", err)
+		return 0, false
 	}
-	if l.DeviceGroup != "" {
-		attrs = append(attrs, attribute.String(LabelDeviceGroup, l.DeviceGroup))
-	}
-	if l.Driver != "" {
-		attrs = append(attrs, attribute.String(LabelDriver, l.Driver))
-	}
-	attrs = append(attrs, extra...)
-	return attrs
+	return v, true
 }
 
 func (p *Provider) EmitDeviceOnline(ctx context.Context, labels DeviceLabels, online bool) {
-	if p == nil || p.insts == nil {
+	if p == nil || !p.enabled {
 		return
 	}
-	val := int64(0)
-	if online {
-		val = 1
+	orgID, ok := parseOrgID(labels.OrganizationID, labels.DeviceID)
+	if !ok {
+		return
 	}
-	p.insts.deviceOnline.Record(ctx, val, metric.WithAttributes(labels.toAttrs()...))
+	v := online
+	p.enqueue(sample{
+		kind:        sampleKindDevice,
+		time:        time.Now().UTC(),
+		orgID:       orgID,
+		deviceID:    labels.DeviceID,
+		deviceGroup: labels.DeviceGroup,
+		driver:      labels.Driver,
+		online:      &v,
+	})
 }
 
 func (p *Provider) EmitDeviceHashrate(ctx context.Context, labels DeviceLabels, observedTHs, expectedTHs float64) {
-	if p == nil || p.insts == nil {
+	if p == nil || !p.enabled {
 		return
 	}
-	attrs := metric.WithAttributes(labels.toAttrs()...)
-	p.insts.deviceHashrateTerahash.Record(ctx, observedTHs, attrs)
-	p.insts.deviceHashrateExpectedTerahz.Record(ctx, expectedTHs, attrs)
+	orgID, ok := parseOrgID(labels.OrganizationID, labels.DeviceID)
+	if !ok {
+		return
+	}
+	obs := observedTHs
+	exp := expectedTHs
+	p.enqueue(sample{
+		kind:                sampleKindDevice,
+		time:                time.Now().UTC(),
+		orgID:               orgID,
+		deviceID:            labels.DeviceID,
+		deviceGroup:         labels.DeviceGroup,
+		driver:              labels.Driver,
+		hashrateTHs:         &obs,
+		hashrateExpectedTHs: &exp,
+	})
 }
 
-// EmitDeviceTemperature records max+avg gauges for one sensor kind.
+// EmitDeviceTemperature records the per-sensor-kind temperature row.
 func (p *Provider) EmitDeviceTemperature(ctx context.Context, labels DeviceLabels, sensorKind string, maxC, avgC float64) {
-	if p == nil || p.insts == nil {
+	if p == nil || !p.enabled {
 		return
 	}
 	if !IsKnownSensorKind(sensorKind) {
 		slog.Error("metrics: unknown sensor_kind, dropping temperature emit", "sensor_kind", sensorKind)
 		return
 	}
-	attrs := metric.WithAttributes(labels.toAttrs(attribute.String(LabelSensorKind, sensorKind))...)
-	p.insts.deviceTemperatureMax.Record(ctx, maxC, attrs)
-	p.insts.deviceTemperatureAvg.Record(ctx, avgC, attrs)
+	orgID, ok := parseOrgID(labels.OrganizationID, labels.DeviceID)
+	if !ok {
+		return
+	}
+	p.enqueue(sample{
+		kind:            sampleKindTemperature,
+		time:            time.Now().UTC(),
+		orgID:           orgID,
+		deviceID:        labels.DeviceID,
+		deviceGroup:     labels.DeviceGroup,
+		driver:          labels.Driver,
+		sensorKind:      sensorKind,
+		temperatureMaxC: maxC,
+		temperatureAvgC: avgC,
+		temperatureHasV: true,
+	})
 }
 
 // EmitDevicePoolConnected records the fleet_device_pool_connected gauge.
 func (p *Provider) EmitDevicePoolConnected(ctx context.Context, labels DeviceLabels, connected bool) {
-	if p == nil || p.insts == nil {
+	if p == nil || !p.enabled {
 		return
 	}
-	val := int64(0)
-	if connected {
-		val = 1
+	orgID, ok := parseOrgID(labels.OrganizationID, labels.DeviceID)
+	if !ok {
+		return
 	}
-	p.insts.devicePoolConnected.Record(ctx, val, metric.WithAttributes(labels.toAttrs()...))
+	v := connected
+	p.enqueue(sample{
+		kind:          sampleKindDevice,
+		time:          time.Now().UTC(),
+		orgID:         orgID,
+		deviceID:      labels.DeviceID,
+		deviceGroup:   labels.DeviceGroup,
+		driver:        labels.Driver,
+		poolConnected: &v,
+	})
 }
 
 // EmitCommand increments fleet_command_total.
 func (p *Provider) EmitCommand(ctx context.Context, labels CommandLabels) {
-	if p == nil || p.insts == nil {
+	if p == nil || !p.enabled {
 		return
 	}
 	if !IsKnownResult(labels.Result) {
@@ -103,19 +141,22 @@ func (p *Provider) EmitCommand(ctx context.Context, labels CommandLabels) {
 			"result", labels.Result, "kind", labels.Kind)
 		return
 	}
-	attrs := []attribute.KeyValue{
-		attribute.String(LabelKind, labels.Kind),
-		attribute.String(LabelResult, labels.Result),
+	orgID, ok := parseOrgID(labels.OrganizationID, labels.Kind)
+	if !ok {
+		return
 	}
-	if labels.OrganizationID != "" {
-		attrs = append(attrs, attribute.String(LabelOrganizationID, labels.OrganizationID))
-	}
-	p.insts.commandTotal.Add(ctx, 1, metric.WithAttributes(attrs...))
+	p.enqueue(sample{
+		kind:        sampleKindCommand,
+		time:        time.Now().UTC(),
+		orgID:       orgID,
+		commandKind: labels.Kind,
+		result:      labels.Result,
+	})
 }
 
 // EmitTelemetryPoll increments fleet_telemetry_poll_total.
 func (p *Provider) EmitTelemetryPoll(ctx context.Context, labels TelemetryPollLabels) {
-	if p == nil || p.insts == nil {
+	if p == nil || !p.enabled {
 		return
 	}
 	if !IsKnownResult(labels.Result) {
@@ -123,16 +164,17 @@ func (p *Provider) EmitTelemetryPoll(ctx context.Context, labels TelemetryPollLa
 			"result", labels.Result)
 		return
 	}
-	attrs := []attribute.KeyValue{
-		attribute.String(LabelResult, labels.Result),
+	orgID, ok := parseOrgID(labels.OrganizationID, labels.DeviceID)
+	if !ok {
+		return
 	}
-	if labels.OrganizationID != "" {
-		attrs = append(attrs, attribute.String(LabelOrganizationID, labels.OrganizationID))
-	}
-	if labels.DeviceID != "" {
-		attrs = append(attrs, attribute.String(LabelDeviceID, labels.DeviceID))
-	}
-	p.insts.telemetryPollTotal.Add(ctx, 1, metric.WithAttributes(attrs...))
+	p.enqueue(sample{
+		kind:     sampleKindTelemetryPoll,
+		time:     time.Now().UTC(),
+		orgID:    orgID,
+		deviceID: labels.DeviceID,
+		result:   labels.Result,
+	})
 }
 
 func validateLabelKey(key string) error {

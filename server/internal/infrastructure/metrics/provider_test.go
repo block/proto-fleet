@@ -2,98 +2,83 @@ package metrics
 
 import (
 	"context"
-	"net"
+	"database/sql"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
-	collectormetricpb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
-	"google.golang.org/grpc"
 )
 
-type fakeOTLPMetricsServer struct {
-	collectormetricpb.UnimplementedMetricsServiceServer
-
+// fakeDB captures every ExecContext call so the test can assert what the
+// writer pushed into TimescaleDB. The earlier provider test used a fake OTLP
+// receiver here; the TimescaleDB shim does not run a network endpoint, so we
+// substitute the *sql.DB interface directly.
+type fakeDB struct {
 	mu       sync.Mutex
-	requests []*collectormetricpb.ExportMetricsServiceRequest
+	queries  []string
+	argsByQ  [][]any
 	received chan struct{}
 }
 
-func newFakeOTLPMetricsServer() *fakeOTLPMetricsServer {
-	return &fakeOTLPMetricsServer{
-		received: make(chan struct{}, 1),
-	}
+func newFakeDB() *fakeDB {
+	return &fakeDB{received: make(chan struct{}, 1)}
 }
 
-func (s *fakeOTLPMetricsServer) Export(_ context.Context, req *collectormetricpb.ExportMetricsServiceRequest) (*collectormetricpb.ExportMetricsServiceResponse, error) {
-	s.mu.Lock()
-	s.requests = append(s.requests, req)
-	s.mu.Unlock()
+func (f *fakeDB) ExecContext(_ context.Context, query string, args ...any) (sql.Result, error) {
+	f.mu.Lock()
+	f.queries = append(f.queries, query)
+	f.argsByQ = append(f.argsByQ, args)
+	f.mu.Unlock()
 	select {
-	case s.received <- struct{}{}:
+	case f.received <- struct{}{}:
 	default:
 	}
-	return &collectormetricpb.ExportMetricsServiceResponse{}, nil
+	return nopResult{}, nil
 }
 
-func (s *fakeOTLPMetricsServer) names() []string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	var names []string
-	for _, req := range s.requests {
-		for _, rm := range req.GetResourceMetrics() {
-			for _, sm := range rm.GetScopeMetrics() {
-				for _, m := range sm.GetMetrics() {
-					names = append(names, m.GetName())
-				}
-			}
+func (f *fakeDB) tables() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]string, 0, len(f.queries))
+	for _, q := range f.queries {
+		// queries are of the form "INSERT INTO <table> ..."
+		const prefix = "INSERT INTO "
+		if !strings.HasPrefix(q, prefix) {
+			continue
+		}
+		rest := q[len(prefix):]
+		if idx := strings.IndexByte(rest, ' '); idx > 0 {
+			out = append(out, rest[:idx])
 		}
 	}
-	return names
+	return out
 }
 
-// startFakeServer brings up the receiver on a random port and returns the endpoint URL.
-func startFakeServer(t *testing.T) (*fakeOTLPMetricsServer, string, func()) {
-	t.Helper()
+type nopResult struct{}
 
-	lis, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
+func (nopResult) LastInsertId() (int64, error) { return 0, nil }
+func (nopResult) RowsAffected() (int64, error) { return 0, nil }
 
-	srv := grpc.NewServer()
-	fake := newFakeOTLPMetricsServer()
-	collectormetricpb.RegisterMetricsServiceServer(srv, fake)
-
-	go func() { _ = srv.Serve(lis) }()
-
-	endpoint := "http://" + lis.Addr().String()
-	cleanup := func() {
-		srv.GracefulStop()
-		_ = lis.Close()
-	}
-	return fake, endpoint, cleanup
-}
-
-func TestSetupExportsContractMetrics(t *testing.T) {
-	fake, endpoint, stop := startFakeServer(t)
-	defer stop()
-
+func TestSetupWritesContractRowsToTimescaleDB(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
+	fake := newFakeDB()
 	cfg := Config{
-		Enabled:  true,
-		Endpoint: endpoint,
-		Interval: 200 * time.Millisecond,
+		Enabled:       true,
+		FlushInterval: 100 * time.Millisecond,
+		BufferSize:    64,
+		BatchSize:     32,
 	}
-
-	provider, err := Setup(ctx, "test", cfg)
+	provider, err := Setup(ctx, "test", cfg, fake)
 	require.NoError(t, err)
 	require.True(t, provider.Enabled())
 
 	labels := DeviceLabels{
-		OrganizationID: "org-1",
-		DeviceID:       "device-1",
+		OrganizationID: "1",
+		DeviceID:       "42",
 		DeviceGroup:    "group-a",
 		Driver:         "virtual",
 	}
@@ -113,28 +98,23 @@ func TestSetupExportsContractMetrics(t *testing.T) {
 		Result:         ResultSuccess,
 	})
 
-	// Wait for the periodic reader to push at least once.
+	// Wait for the writer to flush at least once.
 	select {
 	case <-fake.received:
 	case <-time.After(5 * time.Second):
-		t.Fatal("OTLP receiver never received an export")
+		t.Fatal("writer never executed a query")
 	}
 
 	require.NoError(t, provider.Shutdown(ctx))
 
-	got := fake.names()
-	want := []string{
-		MetricDeviceOnline,
-		MetricDeviceHashrateTerahash,
-		MetricDeviceHashrateExpectedTerahash,
-		MetricDeviceTemperatureMaxCelsius,
-		MetricDeviceTemperatureAvgCelsius,
-		MetricDevicePoolConnected,
-		MetricCommandTotal,
-		MetricTelemetryPollTotal,
-	}
-	for _, name := range want {
-		require.Contains(t, got, name, "expected metric %q in OTLP export", name)
+	tables := fake.tables()
+	for _, want := range []string{
+		"notification_device_metrics",
+		"notification_device_temperature",
+		"notification_command_events",
+		"notification_telemetry_poll_events",
+	} {
+		require.Contains(t, tables, want, "expected an INSERT into %q", want)
 	}
 }
 
@@ -143,12 +123,12 @@ func TestSetupDisabledIsNoOp(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	provider, err := Setup(ctx, "test", Config{Enabled: false})
+	provider, err := Setup(ctx, "test", Config{Enabled: false}, nil)
 	require.NoError(t, err)
 	require.False(t, provider.Enabled())
 
 	// These must not panic and must not block.
-	labels := DeviceLabels{OrganizationID: "org-1", DeviceID: "device-1"}
+	labels := DeviceLabels{OrganizationID: "1", DeviceID: "42"}
 	provider.EmitDeviceOnline(ctx, labels, false)
 	provider.EmitDeviceHashrate(ctx, labels, 0, 0)
 	provider.EmitDeviceTemperature(ctx, labels, SensorKindBoard, 0, 0)
@@ -157,4 +137,12 @@ func TestSetupDisabledIsNoOp(t *testing.T) {
 	provider.EmitTelemetryPoll(ctx, TelemetryPollLabels{Result: ResultSuccess})
 
 	require.NoError(t, provider.Shutdown(ctx))
+}
+
+// guards against a nil DB when metrics are enabled — the writer cannot run
+// without a real connection, so the constructor must refuse rather than
+// silently dropping rows at flush time.
+func TestSetupEnabledRequiresDB(t *testing.T) {
+	_, err := Setup(context.Background(), "test", Config{Enabled: true}, nil)
+	require.Error(t, err)
 }
