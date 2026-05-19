@@ -702,7 +702,9 @@ func (r *Reconciler) enforceMaxDuration(ctx context.Context, ev *models.Event, t
 		slog.Error("curtailment reconciler: max_duration→restoring transition failed",
 			"event_id", ev.ID, "max_duration_seconds", *ev.MaxDurationSeconds,
 			"elapsed_seconds", int64(elapsed.Seconds()), "error", err)
-		return false
+		// Skip drift dispatch this tick: cap has elapsed, so re-curtailing now
+		// would extend the event past max_duration_seconds. Next tick retries.
+		return true
 	}
 	slog.Info("curtailment reconciler: max_duration elapsed → forced restore",
 		"event_id", ev.ID, "event_uuid", ev.EventUUID,

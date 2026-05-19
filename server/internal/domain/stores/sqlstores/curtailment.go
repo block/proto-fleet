@@ -313,8 +313,9 @@ func (s *SQLCurtailmentStore) BeginRestoreTransition(
 			EffectiveBatchSize: sql.NullInt32{Int32: effectiveBatchSize, Valid: true},
 		})
 		if errors.Is(err, sql.ErrNoRows) {
-			// Concurrent transition between pre-read and update: re-read so the
-			// caller sees the current row (likely restoring already).
+			// Concurrent transition between pre-read and update: re-read and
+			// route by the latest state so terminal races don't silently echo
+			// success.
 			latest, getErr := q.GetCurtailmentEventByUUID(ctx, sqlc.GetCurtailmentEventByUUIDParams{
 				EventUuid: eventUUID,
 				OrgID:     orgID,
@@ -322,7 +323,20 @@ func (s *SQLCurtailmentStore) BeginRestoreTransition(
 			if getErr != nil {
 				return nil, fleeterror.NewInternalErrorf("failed to re-read curtailment event after concurrent state change: %v", getErr)
 			}
-			return convertEventRow(latest), nil
+			latestState := models.EventState(latest.State)
+			if latestState.IsTerminal() {
+				return nil, fleeterror.NewFailedPreconditionErrorf(
+					"cannot stop curtailment event %s in terminal state %q",
+					eventUUID, latest.State,
+				)
+			}
+			if latestState == models.EventStateRestoring {
+				// Idempotent re-Stop: first call's sizing wins.
+				return convertEventRow(latest), nil
+			}
+			return nil, fleeterror.NewInternalErrorf(
+				"unexpected event state after concurrent transition: %q", latest.State,
+			)
 		}
 		if err != nil {
 			return nil, fleeterror.NewInternalErrorf("failed to begin curtailment restoration: %v", err)

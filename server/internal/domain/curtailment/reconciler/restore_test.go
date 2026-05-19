@@ -114,12 +114,13 @@ func TestReconciler_EnforceMaxDuration_AllowUnboundedSkipsCap(t *testing.T) {
 		"AllowUnbounded events must never trigger forced restore")
 }
 
-// TestReconciler_EnforceMaxDuration_BeginRestoreErrorLeavesEventUnchanged
-// pins the BeginRestoreTransition failure path: the event state stays Active
-// (no in-memory mutation), the transition call counter still records the
-// attempt, and drift detection runs on the same tick since enforceMaxDuration
-// returns false on error.
-func TestReconciler_EnforceMaxDuration_BeginRestoreErrorLeavesEventUnchanged(t *testing.T) {
+// TestReconciler_EnforceMaxDuration_BeginRestoreErrorSkipsDriftDispatch pins
+// the BeginRestoreTransition failure path: the event state stays Active (no
+// in-memory mutation), the transition call counter records the attempt, and
+// drift detection is skipped this tick — re-curtailing past max_duration
+// would extend curtailment past the contracted ceiling. The next tick
+// retries the transition.
+func TestReconciler_EnforceMaxDuration_BeginRestoreErrorSkipsDriftDispatch(t *testing.T) {
 	store := newFakeStore()
 	store.beginRestoreErr = errors.New("db boom")
 	disp := &fakeDispatcher{}
@@ -138,8 +139,9 @@ func TestReconciler_EnforceMaxDuration_BeginRestoreErrorLeavesEventUnchanged(t *
 		RestoreBatchSize:   10,
 	}
 	store.events = []*models.Event{ev}
-	// Confirmed target with drifted telemetry so we can witness drift
-	// dispatch still firing after enforceMaxDuration returns false.
+	// Confirmed target with drifted telemetry: drift dispatch WOULD fire if
+	// enforceMaxDuration fell through on error. The fix returns true on error
+	// so observeActive skips drift; the assertion below pins that.
 	store.targetsByEventID[eventID] = []*models.Target{
 		{CurtailmentEventID: eventID, DeviceIdentifier: "m1", State: models.TargetStateConfirmed, DesiredState: models.DesiredStateCurtailed, BaselinePowerW: ptrFloat64(3000)},
 	}
@@ -152,8 +154,8 @@ func TestReconciler_EnforceMaxDuration_BeginRestoreErrorLeavesEventUnchanged(t *
 	assert.Equal(t, 1, store.beginRestoreCalls, "BeginRestoreTransition is attempted exactly once even on error")
 	assert.Equal(t, models.EventStateActive, ev.State,
 		"event state must not flip when BeginRestoreTransition errors")
-	assert.Equal(t, 1, disp.curtailCalls,
-		"drift dispatch must still run on the same tick when enforceMaxDuration returns false")
+	assert.Equal(t, 0, disp.curtailCalls,
+		"drift dispatch must NOT run when max_duration elapsed and the transition failed; re-curtailing would extend past the cap")
 }
 
 func TestReconciler_EnforceMaxDuration_NilStartedAtSkips(t *testing.T) {
@@ -328,6 +330,34 @@ func TestReconciler_Restoring_MixedResolvedAndFailedCompletesWithFailures(t *tes
 
 	assert.Equal(t, models.EventStateCompletedWithFailures, store.updateEventLast[eventID],
 		"a single failure must route the terminal transition to COMPLETED_WITH_FAILURES")
+}
+
+// TestReconciler_Restoring_UnknownTargetStateKeepsEventNonTerminal pins
+// maybeCompleteRestoring's default arm: a target with a TargetState value
+// not covered by the explicit cases must NOT complete the event. A future
+// schema-added state then has to ship its handling alongside its first use,
+// rather than silently being treated as terminal.
+func TestReconciler_Restoring_UnknownTargetStateKeepsEventNonTerminal(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	r := newReconcilerForTest(store, disp)
+	eventID := int64(42)
+	store.events = []*models.Event{{
+		ID:        eventID,
+		EventUUID: uuid.New(),
+		OrgID:     1,
+		State:     models.EventStateRestoring,
+	}}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "m1", State: models.TargetState("future_state"), DesiredState: models.DesiredStateActive},
+	}
+
+	r.runTick(context.Background())
+
+	_, called := store.updateEventLast[eventID]
+	assert.False(t, called,
+		"unknown target state must keep the event non-terminal; UpdateEventState must not fire")
 }
 
 func TestReconciler_Restoring_ConfirmsDispatchedTargetWithTelemetry(t *testing.T) {
