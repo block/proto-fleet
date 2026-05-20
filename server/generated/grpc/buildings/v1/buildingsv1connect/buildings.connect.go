@@ -37,6 +37,9 @@ const (
 	// BuildingServiceListBuildingsProcedure is the fully-qualified name of the BuildingService's
 	// ListBuildings RPC.
 	BuildingServiceListBuildingsProcedure = "/buildings.v1.BuildingService/ListBuildings"
+	// BuildingServiceGetBuildingProcedure is the fully-qualified name of the BuildingService's
+	// GetBuilding RPC.
+	BuildingServiceGetBuildingProcedure = "/buildings.v1.BuildingService/GetBuilding"
 	// BuildingServiceCreateBuildingProcedure is the fully-qualified name of the BuildingService's
 	// CreateBuilding RPC.
 	BuildingServiceCreateBuildingProcedure = "/buildings.v1.BuildingService/CreateBuilding"
@@ -56,6 +59,9 @@ type BuildingServiceClient interface {
 	// unassigned_only is true), or all buildings in the org
 	// (default).
 	ListBuildings(context.Context, *connect.Request[v1.ListBuildingsRequest]) (*connect.Response[v1.ListBuildingsResponse], error)
+	// GetBuilding returns a single building by id. Returns NotFound if the
+	// building does not exist or belongs to another org.
+	GetBuilding(context.Context, *connect.Request[v1.GetBuildingRequest]) (*connect.Response[v1.GetBuildingResponse], error)
 	// CreateBuilding inserts a new building. Name must be unique
 	// within the assigned site (when site_id is set); unassigned
 	// buildings are not name-unique so cascade-unassign on site
@@ -87,6 +93,11 @@ func NewBuildingServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			baseURL+BuildingServiceListBuildingsProcedure,
 			opts...,
 		),
+		getBuilding: connect.NewClient[v1.GetBuildingRequest, v1.GetBuildingResponse](
+			httpClient,
+			baseURL+BuildingServiceGetBuildingProcedure,
+			opts...,
+		),
 		createBuilding: connect.NewClient[v1.CreateBuildingRequest, v1.CreateBuildingResponse](
 			httpClient,
 			baseURL+BuildingServiceCreateBuildingProcedure,
@@ -108,6 +119,7 @@ func NewBuildingServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 // buildingServiceClient implements BuildingServiceClient.
 type buildingServiceClient struct {
 	listBuildings  *connect.Client[v1.ListBuildingsRequest, v1.ListBuildingsResponse]
+	getBuilding    *connect.Client[v1.GetBuildingRequest, v1.GetBuildingResponse]
 	createBuilding *connect.Client[v1.CreateBuildingRequest, v1.CreateBuildingResponse]
 	updateBuilding *connect.Client[v1.UpdateBuildingRequest, v1.UpdateBuildingResponse]
 	deleteBuilding *connect.Client[v1.DeleteBuildingRequest, v1.DeleteBuildingResponse]
@@ -116,6 +128,11 @@ type buildingServiceClient struct {
 // ListBuildings calls buildings.v1.BuildingService.ListBuildings.
 func (c *buildingServiceClient) ListBuildings(ctx context.Context, req *connect.Request[v1.ListBuildingsRequest]) (*connect.Response[v1.ListBuildingsResponse], error) {
 	return c.listBuildings.CallUnary(ctx, req)
+}
+
+// GetBuilding calls buildings.v1.BuildingService.GetBuilding.
+func (c *buildingServiceClient) GetBuilding(ctx context.Context, req *connect.Request[v1.GetBuildingRequest]) (*connect.Response[v1.GetBuildingResponse], error) {
+	return c.getBuilding.CallUnary(ctx, req)
 }
 
 // CreateBuilding calls buildings.v1.BuildingService.CreateBuilding.
@@ -141,6 +158,9 @@ type BuildingServiceHandler interface {
 	// unassigned_only is true), or all buildings in the org
 	// (default).
 	ListBuildings(context.Context, *connect.Request[v1.ListBuildingsRequest]) (*connect.Response[v1.ListBuildingsResponse], error)
+	// GetBuilding returns a single building by id. Returns NotFound if the
+	// building does not exist or belongs to another org.
+	GetBuilding(context.Context, *connect.Request[v1.GetBuildingRequest]) (*connect.Response[v1.GetBuildingResponse], error)
 	// CreateBuilding inserts a new building. Name must be unique
 	// within the assigned site (when site_id is set); unassigned
 	// buildings are not name-unique so cascade-unassign on site
@@ -168,6 +188,11 @@ func NewBuildingServiceHandler(svc BuildingServiceHandler, opts ...connect.Handl
 		svc.ListBuildings,
 		opts...,
 	)
+	buildingServiceGetBuildingHandler := connect.NewUnaryHandler(
+		BuildingServiceGetBuildingProcedure,
+		svc.GetBuilding,
+		opts...,
+	)
 	buildingServiceCreateBuildingHandler := connect.NewUnaryHandler(
 		BuildingServiceCreateBuildingProcedure,
 		svc.CreateBuilding,
@@ -187,6 +212,8 @@ func NewBuildingServiceHandler(svc BuildingServiceHandler, opts ...connect.Handl
 		switch r.URL.Path {
 		case BuildingServiceListBuildingsProcedure:
 			buildingServiceListBuildingsHandler.ServeHTTP(w, r)
+		case BuildingServiceGetBuildingProcedure:
+			buildingServiceGetBuildingHandler.ServeHTTP(w, r)
 		case BuildingServiceCreateBuildingProcedure:
 			buildingServiceCreateBuildingHandler.ServeHTTP(w, r)
 		case BuildingServiceUpdateBuildingProcedure:
@@ -204,6 +231,10 @@ type UnimplementedBuildingServiceHandler struct{}
 
 func (UnimplementedBuildingServiceHandler) ListBuildings(context.Context, *connect.Request[v1.ListBuildingsRequest]) (*connect.Response[v1.ListBuildingsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("buildings.v1.BuildingService.ListBuildings is not implemented"))
+}
+
+func (UnimplementedBuildingServiceHandler) GetBuilding(context.Context, *connect.Request[v1.GetBuildingRequest]) (*connect.Response[v1.GetBuildingResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("buildings.v1.BuildingService.GetBuilding is not implemented"))
 }
 
 func (UnimplementedBuildingServiceHandler) CreateBuilding(context.Context, *connect.Request[v1.CreateBuildingRequest]) (*connect.Response[v1.CreateBuildingResponse], error) {

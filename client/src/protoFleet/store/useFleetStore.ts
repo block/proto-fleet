@@ -5,6 +5,7 @@ import { type AuthSlice, createAuthSlice } from "./slices/authSlice";
 import { type BatchSlice, createBatchSlice } from "./slices/batchSlice";
 import { createOnboardingSlice, type OnboardingSlice } from "./slices/onboardingSlice";
 import { createUISlice, type UISlice } from "./slices/uiSlice";
+import { isActiveSite } from "./types/activeSite";
 import {
   bulkRenameModes,
   normalizeBulkRenamePreferences,
@@ -31,7 +32,13 @@ type PersistedFleetState = {
   auth: Pick<AuthSlice, "sessionExpiry" | "isAuthenticated" | "username" | "role">;
   ui: Pick<
     UISlice,
-    "theme" | "temperatureUnit" | "duration" | "bulkRenamePreferences" | "bulkWorkerNamePreferences" | "racksViewMode"
+    | "theme"
+    | "temperatureUnit"
+    | "duration"
+    | "bulkRenamePreferences"
+    | "bulkWorkerNamePreferences"
+    | "racksViewMode"
+    | "activeSite"
   >;
 };
 
@@ -99,6 +106,7 @@ const createMultiKeyStorage = (): PersistStorage<PersistedFleetState> => {
                 bulkRenamePreferences: state.ui.bulkRenamePreferences,
                 bulkWorkerNamePreferences: state.ui.bulkWorkerNamePreferences,
                 racksViewMode: state.ui.racksViewMode,
+                activeSite: state.ui.activeSite,
               },
             },
             version: value.version,
@@ -145,6 +153,7 @@ export const useFleetStore = create<FleetStore>()(
               bulkRenamePreferences: state.ui.bulkRenamePreferences,
               bulkWorkerNamePreferences: state.ui.bulkWorkerNamePreferences,
               racksViewMode: state.ui.racksViewMode,
+              activeSite: state.ui.activeSite,
             },
           }),
           merge: (persistedState, currentState) => {
@@ -176,6 +185,9 @@ export const useFleetStore = create<FleetStore>()(
                   persisted?.ui?.bulkWorkerNamePreferences ?? currentState.ui.bulkWorkerNamePreferences,
                   bulkRenameModes.worker,
                 ),
+                activeSite: isActiveSite(persisted?.ui?.activeSite)
+                  ? persisted.ui.activeSite
+                  : currentState.ui.activeSite,
               },
             };
           },

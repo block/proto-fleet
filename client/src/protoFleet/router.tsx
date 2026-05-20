@@ -8,6 +8,7 @@ import type { PageBackground } from "./hooks/usePageBackground";
 import {
   importActivityPage,
   importAuth,
+  importBuildingPage,
   importDashboard,
   importFleetDown,
   importGroupOverviewPage,
@@ -26,7 +27,9 @@ import {
   importSettingsLayout,
   importSettingsMiningPools,
   importSettingsSchedules,
+  importSettingsSitesPage,
   importSettingsTeam,
+  importSitesPage,
   importUpdatePassword,
   importWelcomePage,
 } from "./routePrefetch";
@@ -60,6 +63,9 @@ const SettingsTeam = lazy(importSettingsTeam);
 const SettingsFirmware = lazy(importSettingsFirmware);
 const SettingsSchedules = lazy(importSettingsSchedules);
 const SettingsApiKeys = lazy(importSettingsApiKeys);
+const SitesPage = lazy(importSitesPage);
+const SettingsSitesPage = lazy(importSettingsSitesPage);
+const BuildingPage = lazy(importBuildingPage);
 const FleetDown = lazy(importFleetDown);
 
 // Helper to check if an admin user has been created
@@ -138,6 +144,11 @@ const router = createBrowserRouter([
   createRoute("/racks", <RacksPage />),
   createRoute("/racks/:rackId", <RackOverviewPage />, { bg: "surface-5" }),
 
+  // Sites + buildings (multi-site; nav entries flag-gated, routes
+  // unguarded so direct URL access works during dogfood)
+  createRoute("/sites", <SitesPage />),
+  createRoute("/buildings/:id", <BuildingPage />, { bg: "surface-5" }),
+
   // Activity
   createRoute("/activity", <ActivityPage />),
 
@@ -198,6 +209,12 @@ const router = createBrowserRouter([
     "/settings/server-logs",
     <SettingsLayout>
       <ServerLogsPage />
+    </SettingsLayout>,
+  ),
+  createRoute(
+    "/settings/sites",
+    <SettingsLayout>
+      <SettingsSitesPage />
     </SettingsLayout>,
   ),
 
