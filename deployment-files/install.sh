@@ -45,7 +45,12 @@ probe_install_dir_with() {
   if [ "$install_dir" = "$mount_path" ]; then
     return 1
   fi
-  [ -z "$install_dir" ] && install_dir="/"
+  # Reject install_dir="/" — a mount source like /deployment/<x> would
+  # otherwise propose installing into / itself. No supported layout puts
+  # ProtoFleet directly at the filesystem root.
+  if [ -z "$install_dir" ] || [ "$install_dir" = "/" ]; then
+    return 1
+  fi
 
   # Validate the recovered dir actually houses a ProtoFleet install by
   # checking for the bundled docker-compose.yaml marker. This guards against
@@ -110,6 +115,10 @@ detect_previous_install() {
     fi
     return 1
   fi
+
+  # No sudo binary -> nothing to probe; skip to avoid leaking
+  # "sudo: command not found" to user stderr on minimal hosts.
+  command -v sudo >/dev/null 2>&1 || return 1
 
   # The sudo fallback is only meaningful when sudo can run docker without
   # prompting. An earlier `sudo -n true` gate was too strict — sudoers configs
@@ -325,6 +334,11 @@ get_default_install_dir() {
       echo "$sudo_home/proto-fleet"
       return
     fi
+    # SUDO_USER set but resolution failed — warn so the operator knows the
+    # default below is /root, not their home. Direct >&2 because this
+    # function's stdout is captured by the `$(...)` caller.
+    echo "⚠️  SUDO_USER='$SUDO_USER' set but home lookup returned empty;" >&2
+    echo "    default install dir will fall back to \$HOME ($HOME/proto-fleet)." >&2
   fi
 
   echo "$HOME/proto-fleet"

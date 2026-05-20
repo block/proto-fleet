@@ -95,9 +95,25 @@ assert_safe_removal_path() {
   fi
   resolved="${resolved%/}"
 
-  local blocked_paths=("/" "/home" "/usr" "/etc" "/var" "/opt" "/root" "/tmp" "/bin" "/sbin" "/lib" "/sys" "/dev" "/proc" "/boot" "/run" "/mnt" "/srv" "/media")
-  for blocked in "${blocked_paths[@]}"; do
+  # Two-tier blocklist:
+  #   - exact_blocked  — paths whose SUBPATHS can legitimately host installs
+  #                       (e.g., /home/<user>/proto-fleet, /opt/proto-fleet).
+  #                       Only the top-level dir itself is refused.
+  #   - subtree_blocked — system paths where no install should ever live;
+  #                        rm -rf anywhere under here is dangerous.
+  # Without the subtree arm, a misrouted PREVIOUS_INSTALL_DIR resolving
+  # to e.g. /etc/foo or /sys/x would slip past and let rm -rf damage
+  # system-owned space.
+  local exact_blocked=("/" "/home" "/Users" "/root" "/opt" "/usr" "/var" "/tmp" "/srv" "/mnt" "/media")
+  local subtree_blocked=("/etc" "/bin" "/sbin" "/lib" "/lib64" "/sys" "/dev" "/proc" "/boot" "/run")
+  for blocked in "${exact_blocked[@]}"; do
     if [[ "$resolved" == "$blocked" ]]; then
+      print_error "Refusing to remove dangerous path: $resolved"
+      exit 1
+    fi
+  done
+  for blocked in "${subtree_blocked[@]}"; do
+    if [[ "$resolved" == "$blocked" || "$resolved" == "$blocked"/* ]]; then
       print_error "Refusing to remove dangerous path: $resolved"
       exit 1
     fi
@@ -140,6 +156,13 @@ get_default_install_dir() {
       echo "$sudo_home/proto-fleet"
       return
     fi
+    # SUDO_USER is set but resolution failed (deleted account, NSS hiccup,
+    # missing getent). Surface this on stderr so the operator knows the
+    # default below is /root, not their home — otherwise the silent
+    # degradation looks like the SUDO_USER branch never ran. Direct >&2
+    # because this function's stdout is captured by the `$(...)` caller.
+    echo "[WARN] SUDO_USER='$SUDO_USER' set but home lookup returned empty;" >&2
+    echo "[WARN]   default install dir will fall back to \$HOME ($HOME/proto-fleet)." >&2
   fi
 
   echo "$HOME/proto-fleet"
@@ -186,7 +209,10 @@ probe_install_dir_with() {
   if [[ "$install_dir" == "$mount_path" ]]; then
     return 1
   fi
-  [[ -z "$install_dir" ]] && install_dir="/"
+  # Reject install_dir="/" — a mount source like /deployment/<x> would
+  # otherwise propose deleting /deployment as the install root. No
+  # supported install layout ever puts ProtoFleet directly at /.
+  [[ -z "$install_dir" || "$install_dir" == "/" ]] && return 1
 
   # Marker check at the same privilege level. Empty stderr on non-zero
   # exit means the marker is genuinely missing; non-empty stderr means
@@ -231,6 +257,10 @@ detect_previous_install() {
     fi
     return 1
   fi
+
+  # No sudo binary -> nothing to probe; skip to avoid leaking
+  # "sudo: command not found" to user stderr on minimal hosts.
+  command -v sudo >/dev/null 2>&1 || return 1
 
   # Probe sudo's view of docker directly and inspect stderr to distinguish
   # "sudo refused (needs password)" from "sudo ran but found no install".
