@@ -122,7 +122,11 @@ passed. To run a fleet with the beta notifications stack:
 
 On the first run with notifications enabled, `run-fleet.sh` rotates the
 Grafana admin password and writes it into `.env` as
-`GRAFANA_ADMIN_PASSWORD`.
+`GRAFANA_ADMIN_PASSWORD`. It also creates a dedicated read-only
+PostgreSQL role for Grafana (`grafana_ro` by default) with `SELECT`
+only on `notification_metric_sample`, and persists those credentials
+to `.env` as `GRAFANA_DB_USERNAME` / `GRAFANA_DB_PASSWORD`. Grafana
+authenticates as this role rather than the broader fleet-api app role.
 
 ### Configuration files
 
@@ -132,7 +136,8 @@ The configs live under `deployment-files/server/monitoring/grafana/`:
   sign-up off, no upstream phone-home.
 - `provisioning/datasources/timescaledb.yaml` — datasource pointed at
   the shared TimescaleDB instance. Credentials come from
-  `DB_USERNAME`/`DB_PASSWORD` injected by docker-compose.
+  `GRAFANA_DB_USERNAME`/`GRAFANA_DB_PASSWORD` injected by
+  docker-compose (set up by `run-fleet.sh`).
 - `provisioning/alerting/proto-fleet-rules.yaml` — bundled alert rules
   (offline / high temperature / telemetry-poll failures / metric ingest
   stalled). These mirror the rules that previously lived in vmalert.

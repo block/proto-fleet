@@ -1,8 +1,9 @@
 # TimescaleDB datasource — Grafana queries notification_metric_sample
 # directly to evaluate the alert rules below. Connection credentials
-# come from environment variables Grafana picks up at startup; the
-# docker-compose stanza pipes the same DB_USERNAME / DB_PASSWORD pair
-# that fleet-api uses, so there is exactly one source of truth.
+# come from environment variables Grafana picks up at startup. We use
+# GRAFANA_DB_* (not DB_*) so the credentials are deliberately distinct
+# from fleet-api's app role: Grafana logs in as grafana_ro, which has
+# SELECT only on notification_metric_sample.
 apiVersion: 1
 
 datasources:
@@ -15,11 +16,11 @@ datasources:
     # extra_hosts for the host-networked fleet-api container, but
     # Grafana itself runs on the monitoring bridge.
     url: timescaledb:5432
-    user: ${DB_USERNAME}
+    user: ${GRAFANA_DB_USERNAME}
     secureJsonData:
-      password: ${DB_PASSWORD}
+      password: ${GRAFANA_DB_PASSWORD}
     jsonData:
-      database: ${DB_NAME}
+      database: ${GRAFANA_DB_NAME}
       sslmode: disable
       postgresVersion: 1800
       timescaledb: true

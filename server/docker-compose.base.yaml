@@ -118,9 +118,9 @@ services:
         condition: service_healthy
     environment:
       # Picked up by provisioning/datasources/timescaledb.yaml.
-      DB_NAME: "fleet"
-      DB_USERNAME: "fleet"
-      DB_PASSWORD: "fleet"
+      GRAFANA_DB_NAME: "${DB_NAME:-fleet}"
+      GRAFANA_DB_USERNAME: "${GRAFANA_DB_USERNAME:-grafana_ro}"
+      GRAFANA_DB_PASSWORD: "${GRAFANA_DB_PASSWORD}"
       # Default password rotated on first run via run-fleet.sh.
       GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:-admin}"
       GF_PATHS_PROVISIONING: "/etc/grafana/provisioning"

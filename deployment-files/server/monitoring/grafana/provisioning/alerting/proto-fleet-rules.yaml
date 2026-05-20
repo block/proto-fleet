@@ -177,13 +177,12 @@ groups:
                     coalesce(extract(epoch from now() - max(time))::float8, 1e9) AS staleness_seconds
                 FROM notification_metric_sample
                 WHERE time > NOW() - INTERVAL '1 hour'
-                HAVING coalesce(extract(epoch from now() - max(time))::float8, 1e9) > 300
           - refId: B
             datasourceUid: __expr__
             model:
               refId: B
               type: math
-              expression: $A
+              expression: $A > 300
         noDataState: Alerting
         execErrState: Alerting
         for: 5m
