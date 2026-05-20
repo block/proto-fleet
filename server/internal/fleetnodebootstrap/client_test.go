@@ -2,12 +2,13 @@ package fleetnodebootstrap
 
 import (
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/block/proto-fleet/server/internal/testutil"
 )
 
 func TestGatewayHTTPClient_RejectsRedirect(t *testing.T) {
@@ -25,11 +26,10 @@ func TestGatewayHTTPClient_RejectsRedirect(t *testing.T) {
 			t.Parallel()
 
 			// Arrange
-			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			srv := testutil.NewH2CServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.Header().Set("Location", "http://attacker.example.com/")
 				w.WriteHeader(code)
 			}))
-			t.Cleanup(srv.Close)
 			client := newGatewayHTTPClient()
 
 			// Act
@@ -43,14 +43,4 @@ func TestGatewayHTTPClient_RejectsRedirect(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestGatewayHTTPClient_HasTimeout(t *testing.T) {
-	t.Parallel()
-
-	// Act
-	client := newGatewayHTTPClient()
-
-	// Assert
-	assert.Equal(t, httpClientTimeout, client.Timeout)
 }

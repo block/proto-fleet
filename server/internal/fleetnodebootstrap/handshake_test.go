@@ -18,6 +18,7 @@ import (
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
+	"github.com/block/proto-fleet/server/internal/testutil"
 )
 
 type fakeAgentGateway struct {
@@ -81,9 +82,7 @@ func newFakeServer(t *testing.T, fake *fakeAgentGateway) *httptest.Server {
 	mux := http.NewServeMux()
 	path, h := fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(fake)
 	mux.Handle(path, h)
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
-	return srv
+	return testutil.NewH2CServer(t, mux)
 }
 
 func TestRunHandshake_RejectsNilState(t *testing.T) {

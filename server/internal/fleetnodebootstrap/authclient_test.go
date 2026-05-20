@@ -3,7 +3,6 @@ package fleetnodebootstrap
 import (
 	"context"
 	"net/http"
-	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
@@ -15,6 +14,7 @@ import (
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
+	"github.com/block/proto-fleet/server/internal/testutil"
 )
 
 type captureGateway struct {
@@ -47,8 +47,7 @@ func TestAuthenticatedClient_AttachesBearerHeaderPerCall(t *testing.T) {
 	mux := http.NewServeMux()
 	path, h := fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(fake)
 	mux.Handle(path, h)
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
+	srv := testutil.NewH2CServer(t, mux)
 
 	var token string
 	client := NewAuthenticatedGatewayClient(srv.URL, func() string { return token })
@@ -72,8 +71,7 @@ func TestAuthenticatedClient_RejectsEmptyToken(t *testing.T) {
 	t.Parallel()
 
 	// Arrange
-	srv := httptest.NewServer(http.NewServeMux())
-	t.Cleanup(srv.Close)
+	srv := testutil.NewH2CServer(t, http.NewServeMux())
 	client := NewAuthenticatedGatewayClient(srv.URL, func() string { return "" })
 
 	// Act

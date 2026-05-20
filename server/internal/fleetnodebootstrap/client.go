@@ -1,25 +1,34 @@
 package fleetnodebootstrap
 
 import (
+	"context"
+	"crypto/tls"
 	"errors"
+	"net"
 	"net/http"
-	"time"
+
+	"golang.org/x/net/http2"
 
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 )
 
-const httpClientTimeout = 30 * time.Second
-
-// Refusing every 30x stops a downgrade redirect from replaying the POST body
-// (enrollment token, api_key, signature) to a plaintext target; Connect-RPC
-// itself never expects redirects.
+// Refusing 3xx stops a downgrade redirect from replaying the signed POST
+// body (enrollment token, api_key, signature) to an attacker-chosen target.
 var errRedirectNotAllowed = errors.New("redirects are not allowed for connect-rpc calls")
 
+// Timeout is intentionally unset -- it would cap long-lived bidi streams.
+// Callers wrap individual RPCs in per-call context deadlines instead.
 func newGatewayHTTPClient() *http.Client {
 	return &http.Client{
-		Timeout: httpClientTimeout,
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 			return errRedirectNotAllowed
+		},
+		Transport: &http2.Transport{
+			AllowHTTP: true,
+			DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
+				var d net.Dialer
+				return d.DialContext(ctx, network, addr)
+			},
 		},
 	}
 }
