@@ -108,6 +108,21 @@ describe("CurtailmentHistory", () => {
     expect(within(modal).getByText("Not started yet")).toBeInTheDocument();
   });
 
+  it("opens row details from an empty actions cell", async () => {
+    const user = userEvent.setup();
+    render(<CurtailmentHistory events={mockCurtailmentHistoryEvents} />);
+
+    const completedRow = screen.getByTestId("curtailment-history-row-curt-1039");
+    const actionsCell = completedRow.querySelector("td:last-child");
+
+    expect(actionsCell).not.toBeNull();
+
+    await user.click(actionsCell as HTMLElement);
+
+    const modal = screen.getByTestId("modal");
+    expect(within(modal).getByText("Grid peak call")).toBeInTheDocument();
+  });
+
   it("opens the summary modal from row click and stops active events from the action button", async () => {
     const user = userEvent.setup();
     const onStopActiveEvent = vi.fn();

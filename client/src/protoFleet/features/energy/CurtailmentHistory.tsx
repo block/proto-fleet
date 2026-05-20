@@ -414,7 +414,7 @@ function CurtailmentHistoryRow({
         </div>
         <div className="text-200 text-text-primary-50">{getHistoryStatusDetail(event)}</div>
       </td>
-      <td className="py-4 align-top" data-no-row-click>
+      <td className="py-4 align-top" data-no-row-click={canStop ? "true" : undefined}>
         <div className="flex justify-end gap-2">
           {canStop ? (
             <Button
