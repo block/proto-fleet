@@ -12,19 +12,11 @@ import (
 	"syscall"
 )
 
-// reapOrphanedPlugins kills any plugin-binary process whose executable lives
-// in pluginsDir. The reaper runs before newPluginDiscoverer, so at this
-// point the current agent has not yet spawned anything; every match is
-// leftover from a prior run that didn't shut down cleanly (SIGKILL, panic,
-// OOM, or the brief window between parent-death and kernel reparenting).
-//
-// An earlier version restricted reaping to processes whose ppid was 1, but
-// that missed real strays whose parent zombie had not yet been collected,
-// and contributed nothing because two concurrent agents on the same
-// pluginsDir is already impossible (state.lock contention).
-//
-// Best-effort: silently skips on any error so a missing `ps` binary or
-// permission failure never blocks normal startup.
+// reapOrphanedPlugins kills any plugin-binary process under pluginsDir.
+// Runs before newPluginDiscoverer and under the state lock, so any match is
+// leftover from a prior crash; concurrent agents are already excluded by
+// state.lock contention. Best-effort: a missing/broken ps never blocks
+// startup.
 func reapOrphanedPlugins(pluginsDir string, logger *slog.Logger) {
 	abs, err := filepath.EvalSymlinks(pluginsDir)
 	if err != nil {

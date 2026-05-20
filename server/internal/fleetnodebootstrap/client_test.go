@@ -2,14 +2,13 @@ package fleetnodebootstrap
 
 import (
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
+
+	"github.com/block/proto-fleet/server/internal/testutil"
 )
 
 func TestGatewayHTTPClient_RejectsRedirect(t *testing.T) {
@@ -27,13 +26,10 @@ func TestGatewayHTTPClient_RejectsRedirect(t *testing.T) {
 			t.Parallel()
 
 			// Arrange
-			handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			srv := testutil.NewH2CServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.Header().Set("Location", "http://attacker.example.com/")
 				w.WriteHeader(code)
-			})
-			srv := httptest.NewUnstartedServer(h2c.NewHandler(handler, &http2.Server{}))
-			srv.Start()
-			t.Cleanup(srv.Close)
+			}))
 			client := newGatewayHTTPClient()
 
 			// Act

@@ -17,12 +17,8 @@ import (
 // itself never expects redirects.
 var errRedirectNotAllowed = errors.New("redirects are not allowed for connect-rpc calls")
 
-// newGatewayHTTPClient returns a client speaking HTTP/2. The gateway's
-// ControlStream is a bidi RPC, which the standard HTTP/1.1 transport can't
-// carry. The h2c (plaintext HTTP/2) pattern below mirrors what the server's
-// h2c.NewHandler accepts; production HTTPS support is a follow-up. Timeout
-// is omitted on purpose -- it would cap long-lived streams; callers wrap
-// individual RPCs in per-call context deadlines.
+// http.Client.Timeout is omitted on purpose -- it would cap long-lived
+// streams. Callers wrap individual RPCs in per-call context deadlines.
 func newGatewayHTTPClient() *http.Client {
 	return &http.Client{
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {

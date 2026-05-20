@@ -79,11 +79,16 @@ func (r *RunCmd) runControlLoop(ctx context.Context, client gatewayClient, st *f
 
 func (r *RunCmd) runControlSession(ctx context.Context, client gatewayClient, st *fleetnodebootstrap.State, logger *slog.Logger) error {
 	stream := client.ControlStream(ctx)
-	// The bidi response body is read via http2.pipe whose Read is parked in
-	// sync.Cond.Wait, which is not ctx-aware. Without this watcher, a
-	// stream.Receive() in the loop below will block past parent ctx
-	// cancellation (Ctrl+C never returns the daemon). Force-closing the
-	// stream broadcasts the cond and unblocks Receive with an error.
+	// http2.pipe.Read parks in sync.Cond.Wait, which isn't ctx-aware -- a
+	// stream.Receive() in the loop below blocks past parent ctx cancellation
+	// (Ctrl+C never returns the daemon). The watcher goroutine closes the
+	// stream when ctx fires, which broadcasts the cond and unblocks Receive.
+	//
+	// Defer order matters here: defers run LIFO, so the stream-close defer
+	// (registered first) runs last. That gives close(done) (registered
+	// second, runs first) a chance to retire the watcher on the quiet path
+	// before the close defer fires, avoiding a redundant close race.
+	defer func() { _ = stream.CloseRequest(); _ = stream.CloseResponse() }()
 	done := make(chan struct{})
 	defer close(done)
 	go func() {
@@ -94,7 +99,6 @@ func (r *RunCmd) runControlSession(ctx context.Context, client gatewayClient, st
 		case <-done:
 		}
 	}()
-	defer func() { _ = stream.CloseRequest(); _ = stream.CloseResponse() }()
 
 	if err := stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{}}}); err != nil {
 		return fmt.Errorf("send hello: %w", err)
