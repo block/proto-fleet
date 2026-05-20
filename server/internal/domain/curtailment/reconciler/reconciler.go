@@ -201,10 +201,14 @@ func (r *Reconciler) safeTick(ctx context.Context) {
 
 // runTick is one reconciliation pass. Per-event errors are isolated; the
 // heartbeat upsert always fires so a bad event cannot blind liveness.
+// The per-tick deadline bounds a stuck DB so the heartbeat goroutine
+// keeps reporting liveness rather than waiting on a hung query.
 func (r *Reconciler) runTick(ctx context.Context) {
 	tickStart := r.now()
 	tickUUID := uuid.New()
-	events, err := r.store.ListNonTerminalEvents(ctx)
+	tickCtx, cancel := context.WithTimeout(ctx, 2*r.cfg.TickInterval)
+	defer cancel()
+	events, err := r.store.ListNonTerminalEvents(tickCtx)
 	if err != nil {
 		slog.Error("curtailment reconciler: failed to list non-terminal events", "error", err)
 		// Heartbeat advances on tick freshness, not query health.
@@ -213,7 +217,7 @@ func (r *Reconciler) runTick(ctx context.Context) {
 	}
 
 	for _, ev := range events {
-		r.processEvent(ctx, ev)
+		r.processEvent(tickCtx, ev)
 	}
 
 	r.upsertHeartbeat(ctx, tickStart, tickUUID, int32(len(events))) //nolint:gosec // bounded by org event count
@@ -948,7 +952,11 @@ func (r *Reconciler) maybeClaimRestoreBatch(ctx context.Context, ev *models.Even
 // batch, then per-device commits state transitions based on the kept/skipped
 // split. A bulk dispatch error rolls every claim target through retry; a
 // device-level filter-skip records a failure for that device only. Restart
-// safety mirrors Curtail: command goes out before the Dispatched-state write.
+// safety mirrors Curtail: command goes out before the Dispatched-state write,
+// so a crash or per-target UpdateTargetState failure leaves the target
+// Pending and next tick redispatches. Uncurtail is device-idempotent
+// (per-device FIFO absorbs Curtail-then-Uncurtail), but audit lineage may
+// show duplicate batches.
 func (r *Reconciler) dispatchRestoreBatch(ctx context.Context, ev *models.Event, claim []*models.Target) {
 	deviceIDs := make([]string, 0, len(claim))
 	for _, t := range claim {
