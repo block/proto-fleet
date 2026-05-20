@@ -1,11 +1,13 @@
 import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import clsx from "clsx";
 
 import { type ActiveSite, useActiveSite } from "./useActiveSite";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import { buildKnownSiteIds } from "@/protoFleet/api/sites";
 import { ChevronDown } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
-import { variants } from "@/shared/components/Button";
+import Button, { sizes, variants } from "@/shared/components/Button";
 import Modal from "@/shared/components/Modal";
 import Radio from "@/shared/components/Radio";
 import SkeletonBar from "@/shared/components/SkeletonBar";
@@ -15,21 +17,39 @@ const UNASSIGNED_LABEL = "Unassigned";
 
 interface SitePickerProps {
   // Sites known to the caller. `undefined` indicates "still loading"; `[]`
-  // indicates "no sites" and hides the picker entirely.
+  // indicates "no sites" — hidden entirely unless `error` is set, in which
+  // case the retry affordance is shown.
   sites: SiteWithCounts[] | undefined;
+  // Most recent ListSites error message. When non-null with `sites=[]`, the
+  // picker renders an inline "Sites unavailable" affordance with a retry
+  // button instead of hiding.
+  error?: string | null;
+  // Caller-supplied retry handler — typically the same function PageHeader
+  // uses to do the initial fetch.
+  onRetry?: () => void;
 }
 
 // Phase 1: the picker is mounted globally in PageHeader, but only the new
 // multi-site routes (/sites, /settings/sites, /buildings/:id) consume the
 // selection. Existing pages (/miners, /racks, dashboards) render the picker
 // but ignore the value until #202 wires their queries.
-const SitePicker = ({ sites }: SitePickerProps) => {
+const SitePicker = ({ sites, error, onRetry }: SitePickerProps) => {
   const [isOpen, setIsOpen] = useState(false);
+  const navigate = useNavigate();
 
-  const knownSiteIds = useMemo(() => {
-    if (!sites) return new Set<string>();
-    return new Set(sites.map((s) => (s.site?.id ?? 0n).toString()).filter((id) => id !== "0"));
-  }, [sites]);
+  const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
+
+  const orderedSites = useMemo(
+    () =>
+      sites
+        ? [...sites].sort((a, b) => {
+            const an = a.site?.name ?? "";
+            const bn = b.site?.name ?? "";
+            return an.localeCompare(bn);
+          })
+        : [],
+    [sites],
+  );
 
   const { activeSite, setActiveSite } = useActiveSite({ knownSiteIds });
 
@@ -38,16 +58,29 @@ const SitePicker = ({ sites }: SitePickerProps) => {
     return <SkeletonBar className="w-24" />;
   }
 
-  // Zero sites: hide the picker.
+  // Zero sites + error: surface the failure with a retry. ListSites failures
+  // shouldn't silently swallow the picker entirely.
+  if (sites.length === 0 && error != null) {
+    return (
+      <div className="flex items-center gap-2 text-300 text-text-primary-70" data-testid="site-picker-error">
+        <span>Sites unavailable</span>
+        {onRetry ? (
+          <Button
+            variant={variants.secondary}
+            size={sizes.compact}
+            text="Retry"
+            onClick={onRetry}
+            testId="site-picker-retry"
+          />
+        ) : null}
+      </div>
+    );
+  }
+
+  // Zero sites (no error): hide the picker.
   if (sites.length === 0) {
     return null;
   }
-
-  const orderedSites = [...sites].sort((a, b) => {
-    const an = a.site?.name ?? "";
-    const bn = b.site?.name ?? "";
-    return an.localeCompare(bn);
-  });
 
   const currentLabel = (() => {
     switch (activeSite.kind) {
@@ -58,6 +91,14 @@ const SitePicker = ({ sites }: SitePickerProps) => {
       case "site": {
         const match = orderedSites.find((s) => (s.site?.id ?? 0n).toString() === activeSite.id);
         return match?.site?.name ?? ALL_SITES_LABEL;
+      }
+      default: {
+        // Exhaustiveness guard: a new ActiveSite variant added without updating
+        // this switch produces a TypeScript build error here rather than a
+        // silent undefined label at runtime.
+        const _exhaustive: never = activeSite;
+        void _exhaustive;
+        return ALL_SITES_LABEL;
       }
     }
   })();
@@ -104,9 +145,7 @@ const SitePicker = ({ sites }: SitePickerProps) => {
             // management rather than carrying its own actions.
             onClick: () => {
               setIsOpen(false);
-              if (typeof window !== "undefined") {
-                window.location.assign("/settings/sites");
-              }
+              navigate("/settings/sites");
             },
             testId: "site-picker-manage-sites",
           },

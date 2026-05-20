@@ -10,20 +10,16 @@ import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1
 
 interface BuildingCardProps {
   building: BuildingWithCounts;
-  // /buildings/:id needs a parent site_id to call ListBuildings until a
-  // GetBuilding RPC exists. Pass it down from the SiteOverviewSection so the
-  // card can build the link.
-  siteId: bigint;
 }
 
-const BuildingCard = ({ building, siteId }: BuildingCardProps) => {
+const BuildingCard = ({ building }: BuildingCardProps) => {
   const id = (building.building?.id ?? 0n).toString();
   const label = building.building?.name ?? "(unnamed building)";
   const rackCount = building.rackCount.toString();
 
   return (
     <Link
-      to={`/buildings/${id}?site=${siteId.toString()}`}
+      to={`/buildings/${id}`}
       className="hover:bg-surface-base-hover block rounded-xl border border-border-5 bg-surface-base p-4"
       data-testid={`building-card-${id}`}
     >

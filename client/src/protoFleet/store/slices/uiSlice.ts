@@ -1,4 +1,5 @@
 import type { StateCreator } from "zustand";
+import { type ActiveSite, DEFAULT_ACTIVE_SITE } from "../types/activeSite";
 import type { FleetStore } from "../useFleetStore";
 import {
   bulkRenameModes,
@@ -23,6 +24,7 @@ export interface UISlice {
   bulkWorkerNamePreferences: BulkRenamePreferences;
   racksViewMode: RacksViewMode;
   isActionBarVisible: boolean;
+  activeSite: ActiveSite;
 
   // Actions
   setTheme: (theme: Theme) => void;
@@ -33,6 +35,7 @@ export interface UISlice {
   setBulkWorkerNamePreferences: (preferences: BulkRenamePreferences) => void;
   setRacksViewMode: (mode: RacksViewMode) => void;
   setActionBarVisible: (visible: boolean) => void;
+  setActiveSite: (next: ActiveSite) => void;
 }
 
 // =============================================================================
@@ -49,6 +52,7 @@ export const createUISlice: StateCreator<FleetStore, [["zustand/immer", never]],
   bulkWorkerNamePreferences: createDefaultBulkRenamePreferences(bulkRenameModes.worker),
   racksViewMode: "grid",
   isActionBarVisible: false,
+  activeSite: DEFAULT_ACTIVE_SITE,
 
   // Actions
   setTheme: (theme) =>
@@ -89,5 +93,10 @@ export const createUISlice: StateCreator<FleetStore, [["zustand/immer", never]],
   setActionBarVisible: (visible) =>
     set((state) => {
       state.ui.isActionBarVisible = visible;
+    }),
+
+  setActiveSite: (next) =>
+    set((state) => {
+      state.ui.activeSite = next;
     }),
 });

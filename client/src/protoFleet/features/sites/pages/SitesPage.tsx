@@ -3,9 +3,12 @@ import { useEffect, useMemo, useState } from "react";
 import SiteOverviewSection from "../components/SiteOverviewSection";
 import SitesEmptyState from "../components/SitesEmptyState";
 import SitesPageHeader from "../components/SitesPageHeader";
+import { useBuildings } from "@/protoFleet/api/buildings";
+import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
-import { useSites } from "@/protoFleet/api/sites";
+import { buildKnownSiteIds, useSites } from "@/protoFleet/api/sites";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
+import PlaceholderBlock from "@/shared/components/PlaceholderBlock";
 
 // `/sites` operational overview. Phase 1a renders the scaffolding — header,
 // per-site sections with placeholder metrics + FPO BuildingCards, and the
@@ -13,21 +16,51 @@ import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 // land in #263.
 const SitesPage = () => {
   const { listSites } = useSites();
+  const { listAllBuildings } = useBuildings();
   const [sites, setSites] = useState<SiteWithCounts[] | undefined>(undefined);
+  const [buildings, setBuildings] = useState<BuildingWithCounts[] | undefined>(undefined);
 
   useEffect(() => {
+    const controller = new AbortController();
     void listSites({
+      signal: controller.signal,
       onSuccess: setSites,
       onError: () => setSites([]),
     });
+    return () => controller.abort();
   }, [listSites]);
 
-  const knownSiteIds = useMemo(() => {
-    if (!sites) return new Set<string>();
-    return new Set(sites.map((s) => (s.site?.id ?? 0n).toString()).filter((id) => id !== "0"));
-  }, [sites]);
+  // One ListBuildings call at the page level, then we bucket the rows by
+  // siteId client-side so each SiteOverviewSection can render synchronously
+  // from props. Avoids the N+1 per-section ListBuildings concurrency that
+  // the earlier scaffold had.
+  useEffect(() => {
+    const controller = new AbortController();
+    void listAllBuildings({
+      signal: controller.signal,
+      onSuccess: setBuildings,
+      onError: () => setBuildings([]),
+    });
+    return () => controller.abort();
+  }, [listAllBuildings]);
+
+  const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
 
   const { activeSite } = useActiveSite({ knownSiteIds });
+
+  const buildingsBySite = useMemo(() => {
+    const grouped = new Map<string, BuildingWithCounts[]>();
+    if (!buildings) return grouped;
+    for (const b of buildings) {
+      const siteId = b.building?.siteId;
+      if (siteId === undefined) continue;
+      const key = siteId.toString();
+      const existing = grouped.get(key);
+      if (existing) existing.push(b);
+      else grouped.set(key, [b]);
+    }
+    return grouped;
+  }, [buildings]);
 
   const visibleSites = useMemo(() => {
     if (!sites) return [];
@@ -35,9 +68,8 @@ const SitesPage = () => {
     if (activeSite.kind === "site") {
       return sites.filter((s) => (s.site?.id ?? 0n).toString() === activeSite.id);
     }
-    // "Unassigned" — /sites is a site-scoped surface, so there is nothing
-    // to render here. The CTA to manage unassigned miners lives on the
-    // miner list (Phase 1b).
+    // "Unassigned" is handled outside this list — see the dedicated branch
+    // below. Return [] here so the "no matches" path isn't triggered.
     return [];
   }, [sites, activeSite]);
 
@@ -55,15 +87,27 @@ const SitesPage = () => {
       <SitesPageHeader headline="Sites" subheadline="Manage your sites, buildings, and rack infrastructure." />
       {sites.length === 0 ? (
         <SitesEmptyState />
+      ) : activeSite.kind === "unassigned" ? (
+        // "Unassigned" filters miners, not sites — there is no site-scoped
+        // surface to render here. Stand a placeholder in for now so reviewers
+        // see the affordance until #273 lands the real miner-filter view.
+        <PlaceholderBlock label='"Unassigned" filters miners, not sites. See #273.' className="h-32" />
       ) : visibleSites.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border-5 p-6 text-center text-300 text-text-primary-70">
           No sites match the current selection.
         </div>
       ) : (
         <div className="flex flex-col gap-6">
-          {visibleSites.map((site) => (
-            <SiteOverviewSection key={(site.site?.id ?? 0n).toString()} site={site} />
-          ))}
+          {visibleSites.map((site) => {
+            const siteId = (site.site?.id ?? 0n).toString();
+            return (
+              <SiteOverviewSection
+                key={siteId}
+                site={site}
+                buildings={buildingsBySite.get(siteId) ?? (buildings === undefined ? undefined : [])}
+              />
+            );
+          })}
         </div>
       )}
     </div>

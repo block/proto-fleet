@@ -30,11 +30,14 @@ const SiteSettingsSingleView = ({ site, knownSiteIds }: SiteSettingsSingleViewPr
 
   useEffect(() => {
     if (siteId === 0n) return;
+    const controller = new AbortController();
     void listBuildingsBySite({
       siteId,
+      signal: controller.signal,
       onSuccess: setBuildings,
       onError: () => setBuildings([]),
     });
+    return () => controller.abort();
   }, [listBuildingsBySite, siteId]);
 
   const displayBuildings = siteId === 0n ? [] : buildings;

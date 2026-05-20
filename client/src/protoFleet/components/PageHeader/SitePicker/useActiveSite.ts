@@ -1,21 +1,14 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useEffect, useMemo } from "react";
 
-import { useUsername } from "@/protoFleet/store";
-import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
+import { type ActiveSite, DEFAULT_ACTIVE_SITE } from "@/protoFleet/store/types/activeSite";
+import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 
-// Discriminated union for the picker's current selection. Site IDs come back
-// from the proto as bigint, but bigint isn't JSON-serializable; we store the
-// decimal string form and convert at the boundary.
-export type ActiveSite = { kind: "all" } | { kind: "site"; id: string } | { kind: "unassigned" };
-
-const DEFAULT_ACTIVE_SITE: ActiveSite = { kind: "all" };
-
-const storageKey = (username: string) => `multiSite.activeSite:${username}`;
+export type { ActiveSite } from "@/protoFleet/store/types/activeSite";
 
 interface UseActiveSiteOptions {
   // Set of known site IDs from the latest ListSites response (as decimal
   // strings). When the stored selection points at an ID not in this set,
-  // the hook falls back to { kind: "all" } and overwrites storage.
+  // the hook falls back to { kind: "all" } and overwrites the store.
   knownSiteIds: Set<string>;
 }
 
@@ -24,14 +17,13 @@ interface UseActiveSiteResult {
   setActiveSite: (next: ActiveSite) => void;
 }
 
+// Thin wrapper around the Zustand UI slice. Persistence (org-wide, matching
+// `duration` and other UI prefs) is handled by useFleetStore's persist
+// middleware — this hook only adds the "selection points at a deleted site"
+// validation effect.
 const useActiveSite = ({ knownSiteIds }: UseActiveSiteOptions): UseActiveSiteResult => {
-  const username = useUsername();
-  // Username may be empty during the first render before auth resolves. We
-  // still call the storage hook unconditionally to keep hook order stable;
-  // an empty username produces a transient key that never persists meaningful
-  // state.
-  const key = username ? storageKey(username) : "multiSite.activeSite:__anonymous";
-  const [stored, setStored] = useReactiveLocalStorage<ActiveSite>(key, DEFAULT_ACTIVE_SITE);
+  const stored = useFleetStore((state) => state.ui.activeSite);
+  const setStored = useFleetStore((state) => state.ui.setActiveSite);
 
   // If the stored selection points at a site that no longer exists (deleted,
   // reassigned, or the user lost access), reset to "all" once the known set
@@ -51,14 +43,7 @@ const useActiveSite = ({ knownSiteIds }: UseActiveSiteOptions): UseActiveSiteRes
     return stored;
   }, [stored, knownSiteIds]);
 
-  const setActiveSite = useCallback(
-    (next: ActiveSite) => {
-      setStored(next);
-    },
-    [setStored],
-  );
-
-  return { activeSite, setActiveSite };
+  return { activeSite, setActiveSite: setStored };
 };
 
 export { useActiveSite };

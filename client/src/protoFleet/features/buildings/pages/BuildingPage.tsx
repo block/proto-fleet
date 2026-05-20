@@ -1,53 +1,42 @@
-import { useEffect, useState } from "react";
-import { useParams, useSearchParams } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useParams } from "react-router-dom";
 
 import BuildingPageHeader from "../components/BuildingPageHeader";
 import { useBuildings } from "@/protoFleet/api/buildings";
-import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
-import PlaceholderBlock from "@/protoFleet/features/sites/components/PlaceholderBlock";
+import { type Building } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import { parseBigIntId } from "@/protoFleet/api/sites";
 import Header from "@/shared/components/Header";
+import PlaceholderBlock from "@/shared/components/PlaceholderBlock";
 
 // `/buildings/:id` page shell. The header + action buttons are real; the
 // metrics row, diagnostics section, and performance section are placeholders
-// pending #264. BuildingService has no GetBuilding RPC yet, so the page
-// reads `?site=<id>` from the query string and locates the building via
-// ListBuildings against the parent site. Without a site param we render
-// an empty state with guidance — a follow-up should add GetBuilding so
-// the page works on a bare URL.
+// pending #264. Building data comes from the GetBuilding RPC keyed by the
+// URL `:id` segment — no parent site_id required.
 const BuildingPage = () => {
   const { id } = useParams<{ id: string }>();
-  const [searchParams] = useSearchParams();
-  const siteParam = searchParams.get("site");
-  const { listBuildingsBySite } = useBuildings();
-  const [building, setBuilding] = useState<BuildingWithCounts | null | undefined>(undefined);
+  const { getBuilding } = useBuildings();
 
-  // Parse the parent site id from the query param. A missing or malformed
-  // value short-circuits the load below and the render falls through to the
-  // "not found" empty state.
-  const parsedSiteId: bigint | null = (() => {
-    if (!siteParam) return null;
-    try {
-      return BigInt(siteParam);
-    } catch {
-      return null;
-    }
-  })();
+  const buildingId = useMemo(() => parseBigIntId(id), [id]);
+
+  // Pair the in-flight building id with the response so rapid navigation
+  // (back/forward between two building URLs) doesn't render the older
+  // response against the newer URL while the new request is in flight.
+  const [response, setResponse] = useState<{ id: bigint; building: Building | null } | undefined>(undefined);
 
   useEffect(() => {
-    if (!id || parsedSiteId === null) return;
-    void listBuildingsBySite({
-      siteId: parsedSiteId,
-      onSuccess: (rows) => {
-        const match = rows.find((r) => (r.building?.id ?? 0n).toString() === id);
-        setBuilding(match ?? null);
-      },
-      onError: () => setBuilding(null),
+    if (buildingId === null) return;
+    const controller = new AbortController();
+    void getBuilding({
+      id: buildingId,
+      signal: controller.signal,
+      onSuccess: (b) => setResponse({ id: buildingId, building: b ?? null }),
+      onError: () => setResponse({ id: buildingId, building: null }),
     });
-  }, [listBuildingsBySite, id, parsedSiteId]);
+    return () => controller.abort();
+  }, [getBuilding, buildingId]);
 
-  // When the URL is missing or malformed, fall through to "not found" without
-  // ever entering the loading state.
-  const effectiveBuilding = !id || parsedSiteId === null ? null : building;
+  const effectiveBuilding =
+    buildingId === null ? null : response && response.id === buildingId ? response.building : undefined;
 
   if (effectiveBuilding === undefined) {
     return (
@@ -57,23 +46,24 @@ const BuildingPage = () => {
     );
   }
 
-  if (!effectiveBuilding || !id) {
+  if (!effectiveBuilding) {
     return (
       <div className="flex flex-col gap-6 p-10 phone:p-6" data-testid="building-page-not-found">
         <Header title="Building not found" titleSize="text-heading-300" />
         <p className="text-300 text-text-primary-70">
-          Either the building has been deleted, or this URL is missing the parent <code>?site=&lt;id&gt;</code> query
-          parameter. Navigate from <code>/sites</code> to reach a building.
+          Either the building has been deleted or the URL is invalid. Return to <Link to="/sites">/sites</Link> to find
+          your building.
         </p>
       </div>
     );
   }
 
-  const label = effectiveBuilding.building?.name ?? "(unnamed building)";
+  const label = effectiveBuilding.name || "(unnamed building)";
+  const idForHeader = effectiveBuilding.id.toString();
 
   return (
     <div className="flex flex-col gap-6 p-10 phone:p-6" data-testid="building-page">
-      <BuildingPageHeader label={label} buildingId={id} />
+      <BuildingPageHeader label={label} buildingId={idForHeader} />
       <PlaceholderBlock label="Metrics row (Hashrate, Power, Efficiency, Miners online) — #264" className="h-20" />
       <PlaceholderBlock label="Diagnostics (rack grid + health) — #264" className="h-64" />
       <PlaceholderBlock label="Performance — #264" className="h-64" />

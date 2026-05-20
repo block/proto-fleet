@@ -5,7 +5,7 @@ import SitesEmptyState from "../components/SitesEmptyState";
 import SiteSettingsSingleView from "../components/SiteSettingsSingleView";
 import SitesPageHeader from "../components/SitesPageHeader";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
-import { useSites } from "@/protoFleet/api/sites";
+import { buildKnownSiteIds, useSites } from "@/protoFleet/api/sites";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 
 // `/settings/sites` config surface. Same data fetch shape as SitesPage; the
@@ -17,16 +17,16 @@ const SettingsSitesPage = () => {
   const [sites, setSites] = useState<SiteWithCounts[] | undefined>(undefined);
 
   useEffect(() => {
+    const controller = new AbortController();
     void listSites({
+      signal: controller.signal,
       onSuccess: setSites,
       onError: () => setSites([]),
     });
+    return () => controller.abort();
   }, [listSites]);
 
-  const knownSiteIds = useMemo(() => {
-    if (!sites) return new Set<string>();
-    return new Set(sites.map((s) => (s.site?.id ?? 0n).toString()).filter((id) => id !== "0"));
-  }, [sites]);
+  const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
 
   const { activeSite } = useActiveSite({ knownSiteIds });
 

@@ -1,4 +1,7 @@
+import { useMemo } from "react";
+
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import { buildKnownSiteIds } from "@/protoFleet/api/sites";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 
 interface SitesAllTableProps {
@@ -15,10 +18,13 @@ interface SitesAllTableProps {
 // row dividers, no outer card container, three-column CSS grid. Column
 // widths use repeat(3, 1fr) to match the prototype's even split.
 const SitesAllTable = ({ sites }: SitesAllTableProps) => {
-  const knownSiteIds = new Set(sites.map((s) => (s.site?.id ?? 0n).toString()).filter((id) => id !== "0"));
+  const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
   const { setActiveSite } = useActiveSite({ knownSiteIds });
 
-  const ordered = [...sites].sort((a, b) => (a.site?.name ?? "").localeCompare(b.site?.name ?? ""));
+  const ordered = useMemo(
+    () => [...sites].sort((a, b) => (a.site?.name ?? "").localeCompare(b.site?.name ?? "")),
+    [sites],
+  );
 
   return (
     <div className="flex flex-col" data-testid="sites-all-table">
