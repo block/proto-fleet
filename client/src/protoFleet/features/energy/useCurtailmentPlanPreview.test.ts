@@ -218,6 +218,32 @@ describe("useCurtailmentPlanPreview", () => {
     expect(mockPreviewCurtailmentPlan).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps the previous preview visible while a valid refresh is debounced", async () => {
+    mockPreviewCurtailmentPlan.mockResolvedValueOnce(previewResponse());
+
+    const { result, rerender } = renderHook(
+      ({ values, debounceMs }) =>
+        useCurtailmentPlanPreview({
+          open: true,
+          values,
+          debounceMs,
+        }),
+      {
+        initialProps: { values: baseValues, debounceMs: 0 },
+      },
+    );
+
+    await waitFor(() => {
+      expect(result.current.preview).toBeDefined();
+    });
+
+    rerender({ values: { ...baseValues, targetKw: "50" }, debounceMs: 1000 });
+
+    expect(result.current.preview).toBeDefined();
+    expect(result.current.isPreviewLoading).toBe(false);
+    expect(mockPreviewCurtailmentPlan).toHaveBeenCalledTimes(1);
+  });
+
   it("aborts in-flight previews when the request changes", async () => {
     mockPreviewCurtailmentPlan.mockReturnValue(new Promise(() => {}));
 

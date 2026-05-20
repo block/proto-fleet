@@ -368,12 +368,10 @@ export function useCurtailmentPlanPreview({
   }
 
   const hasCurrentPreviewState = requestState !== undefined && state.requestKey === requestState.requestKey;
+  const renderableResponse = requestState !== undefined ? state.response : undefined;
 
   return {
-    preview:
-      hasCurrentPreviewState && state.response !== undefined
-        ? toCurtailmentPlanPreview(state.response, values)
-        : undefined,
+    preview: renderableResponse !== undefined ? toCurtailmentPlanPreview(renderableResponse, values) : undefined,
     previewError: hasCurrentPreviewState ? state.previewError : undefined,
     isPreviewLoading: hasCurrentPreviewState ? state.isPreviewLoading : false,
   };
