@@ -37,17 +37,24 @@ type nodeStream struct {
 type Stream struct {
 	r           *Registry
 	fleetNodeID int64
+	ns          *nodeStream
 	Outgoing    <-chan *gatewaypb.ControlCommand
 }
 
-// Register reserves a slot for fleetNodeID. A second concurrent connection
-// from the same node (e.g. agent reconnect before the server noticed the
-// old stream died) returns FailedPrecondition so the agent backs off.
+// Register installs a stream for fleetNodeID with newest-wins semantics: if a
+// prior stream is already registered (typical when an agent reconnects before
+// the server's HTTP/2 transport notices the old peer died) it is evicted by
+// closing its outgoing channel + every in-flight command channel. The old
+// handler's main loop wakes, returns, and its deferred Unregister becomes a
+// no-op via pointer-equality on the map entry.
 func (r *Registry) Register(fleetNodeID int64) (*Stream, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if _, exists := r.streams[fleetNodeID]; exists {
-		return nil, fleeterror.NewFailedPreconditionError("fleet node already has an active control stream")
+	if old, exists := r.streams[fleetNodeID]; exists {
+		close(old.outgoing)
+		for _, ch := range old.commands {
+			close(ch)
+		}
 	}
 	outgoing := make(chan *gatewaypb.ControlCommand, 1)
 	ns := &nodeStream{
@@ -55,16 +62,17 @@ func (r *Registry) Register(fleetNodeID int64) (*Stream, error) {
 		commands: make(map[string]chan CommandEvent),
 	}
 	r.streams[fleetNodeID] = ns
-	return &Stream{r: r, fleetNodeID: fleetNodeID, Outgoing: outgoing}, nil
+	return &Stream{r: r, fleetNodeID: fleetNodeID, ns: ns, Outgoing: outgoing}, nil
 }
 
 // Unregister closes all in-flight command channels so blocked dispatchers
-// wake up and fail their operator streams instead of hanging.
+// wake up and fail their operator streams instead of hanging. No-op if the
+// stream has already been evicted (newest-wins replacement).
 func (s *Stream) Unregister() {
 	s.r.mu.Lock()
 	defer s.r.mu.Unlock()
 	ns, ok := s.r.streams[s.fleetNodeID]
-	if !ok {
+	if !ok || ns != s.ns {
 		return
 	}
 	for _, ch := range ns.commands {
@@ -74,7 +82,21 @@ func (s *Stream) Unregister() {
 }
 
 func (s *Stream) PublishAck(ack *gatewaypb.ControlAck) {
-	s.r.publish(s.fleetNodeID, ack.GetCommandId(), CommandEvent{Ack: ack})
+	s.r.mu.Lock()
+	ns := s.r.streams[s.fleetNodeID]
+	if ns == nil || ns != s.ns {
+		s.r.mu.Unlock()
+		return
+	}
+	ch := ns.commands[ack.GetCommandId()]
+	s.r.mu.Unlock()
+	if ch == nil {
+		return
+	}
+	select {
+	case ch <- CommandEvent{Ack: ack}:
+	default:
+	}
 }
 
 // ErrNoActiveStream is returned by Send when the target fleet_node has

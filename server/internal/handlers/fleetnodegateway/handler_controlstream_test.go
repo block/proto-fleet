@@ -114,7 +114,7 @@ func TestControlStream_DispatchesCommandAndRoutesAck(t *testing.T) {
 	}
 }
 
-func TestControlStream_RejectsSecondStreamForSameNode(t *testing.T) {
+func TestControlStream_SecondStreamEvictsFirst(t *testing.T) {
 	// Arrange
 	h := newControlHarness(t)
 	client := startControlServer(t, h)
@@ -128,17 +128,19 @@ func TestControlStream_RejectsSecondStreamForSameNode(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, first.GetAccepted())
 
-	// Act
+	// Act: second stream for the same node
 	s2 := client.ControlStream(ctx)
 	t.Cleanup(func() { _ = s2.CloseRequest(); _ = s2.CloseResponse() })
 	require.NoError(t, s2.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{}}}))
-	_, err = s2.Receive()
+	secondAccepted, err := s2.Receive()
 
-	// Assert
-	require.Error(t, err)
-	var connErr *connect.Error
-	require.ErrorAs(t, err, &connErr)
-	assert.Equal(t, connect.CodeFailedPrecondition, connErr.Code())
+	// Assert: second is accepted (newest-wins)
+	require.NoError(t, err)
+	require.NotNil(t, secondAccepted.GetAccepted())
+
+	// Assert: first stream sees its session end (server closed it)
+	_, recvErr := s1.Receive()
+	require.Error(t, recvErr)
 }
 
 func TestControlStream_RequiresHelloFirst(t *testing.T) {

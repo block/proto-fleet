@@ -14,19 +14,41 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
-func TestRegistry_DuplicateRegisterRejected(t *testing.T) {
+func TestRegistry_ReRegisterEvictsPriorStream(t *testing.T) {
 	// Arrange
 	r := NewRegistry()
 	first, err := r.Register(7)
 	require.NoError(t, err)
-	defer first.Unregister()
+	events, _, err := r.Send(context.Background(), 7, &gatewaypb.ControlCommand{CommandId: "in-flight"})
+	require.NoError(t, err)
+	<-first.Outgoing
 
 	// Act
-	_, err = r.Register(7)
+	second, err := r.Register(7)
+	require.NoError(t, err)
+	defer second.Unregister()
 
-	// Assert
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	// Assert: prior stream's outgoing closed
+	select {
+	case _, ok := <-first.Outgoing:
+		assert.False(t, ok, "prior outgoing channel should be closed after re-register")
+	case <-time.After(time.Second):
+		t.Fatal("prior outgoing channel not closed within 1s")
+	}
+
+	// Assert: prior in-flight command channel closed
+	select {
+	case _, ok := <-events:
+		assert.False(t, ok, "prior in-flight command channel should be closed after re-register")
+	case <-time.After(time.Second):
+		t.Fatal("prior in-flight events channel not closed within 1s")
+	}
+
+	// Assert: prior Unregister is a safe no-op (doesn't clobber new stream)
+	first.Unregister()
+	// New stream still works.
+	_, _, err = r.Send(context.Background(), 7, &gatewaypb.ControlCommand{CommandId: "after-evict"})
+	require.NoError(t, err)
 }
 
 func TestRegistry_SendWithoutStreamReturnsErrNoActiveStream(t *testing.T) {
