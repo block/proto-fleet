@@ -92,9 +92,39 @@ func checkExecutableFile(path string) error {
 	return nil
 }
 
-func (r *RunCmd) runNmapDiscovery(ctx context.Context, req *pairingpb.NmapModeRequest, logger *slog.Logger) ([]*pb.DiscoveredDeviceReport, error) {
+// detectIPv6Target mirrors pairing.validateNmapTargets: literal IPv6
+// addresses and IPv6-only hostname resolutions need -6; IPv6 CIDR is
+// rejected because nmap subnet scans don't make sense for 2^64 hosts.
+func detectIPv6Target(ctx context.Context, target string) (useIPv6 bool, err error) {
+	if _, ipNet, cerr := net.ParseCIDR(target); cerr == nil {
+		if _, bits := ipNet.Mask.Size(); bits == 128 {
+			return false, errors.New("IPv6 CIDR is not supported; use IpList for IPv6 devices")
+		}
+		return false, nil
+	}
+	if ip := net.ParseIP(target); ip != nil {
+		return ip.To4() == nil, nil
+	}
+	addrs, lookupErr := net.DefaultResolver.LookupIPAddr(ctx, target)
+	if lookupErr != nil || len(addrs) == 0 {
+		// Fall through so nmap can try to resolve; matches pairing-service behavior.
+		return false, nil //nolint:nilerr
+	}
+	for _, a := range addrs {
+		if a.IP.To4() != nil {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+func (r *RunCmd) buildNmapOptions(ctx context.Context, req *pairingpb.NmapModeRequest) ([]nmap.Option, error) {
 	target := strings.TrimSpace(req.GetTarget())
 	if err := validateNmapTarget(target); err != nil {
+		return nil, err
+	}
+	useIPv6, err := detectIPv6Target(ctx, target)
+	if err != nil {
 		return nil, err
 	}
 	ports := req.GetPorts()
@@ -104,10 +134,6 @@ func (r *RunCmd) runNmapDiscovery(ctx context.Context, req *pairingpb.NmapModeRe
 	if len(ports) == 0 {
 		return nil, errors.New("no ports to scan; pass ports or load discovery plugins")
 	}
-
-	scanCtx, cancel := context.WithTimeout(ctx, nmapScanTimeout)
-	defer cancel()
-
 	opts := []nmap.Option{
 		nmap.WithBinaryPath(r.nmapPath),
 		nmap.WithTargets(target),
@@ -119,6 +145,21 @@ func (r *RunCmd) runNmapDiscovery(ctx context.Context, req *pairingpb.NmapModeRe
 		nmap.WithHostTimeout(time.Duration(nmapHostTimeoutMs) * time.Millisecond),
 		nmap.WithMinRTTTimeout(time.Duration(nmapMinRTTMs) * time.Millisecond),
 	}
+	if useIPv6 {
+		opts = append(opts, nmap.WithIPv6Scanning())
+	}
+	return opts, nil
+}
+
+func (r *RunCmd) runNmapDiscovery(ctx context.Context, req *pairingpb.NmapModeRequest, logger *slog.Logger) ([]*pb.DiscoveredDeviceReport, error) {
+	opts, err := r.buildNmapOptions(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	scanCtx, cancel := context.WithTimeout(ctx, nmapScanTimeout)
+	defer cancel()
+
 	scanner, err := nmap.NewScanner(scanCtx, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("create nmap scanner: %w", err)

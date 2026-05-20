@@ -26,6 +26,9 @@ func resolvePluginsDir(exeDir string) (string, error) {
 	if err := checkPluginsDirPerms(candidate); err != nil {
 		return "", err
 	}
+	if err := validatePluginFiles(candidate); err != nil {
+		return "", err
+	}
 	return candidate, nil
 }
 

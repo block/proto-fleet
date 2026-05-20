@@ -74,3 +74,94 @@ func TestResolvePluginsDir_Default_FileAtCandidateIgnored(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, got)
 }
+
+func newPluginsDir(t *testing.T) (exeDir, plugins string) {
+	t.Helper()
+	exeDir = t.TempDir()
+	plugins = filepath.Join(exeDir, "plugins")
+	require.NoError(t, os.Mkdir(plugins, 0o755)) //nolint:gosec // test fixture
+	return exeDir, plugins
+}
+
+func TestValidatePluginFiles_AcceptsOwnedAndTightExecutable(t *testing.T) {
+	// Arrange
+	_, plugins := newPluginsDir(t)
+	require.NoError(t, os.WriteFile(filepath.Join(plugins, "x"), []byte("#!/bin/sh\n"), 0o755))
+
+	// Act
+	err := validatePluginFiles(plugins)
+
+	// Assert
+	require.NoError(t, err)
+}
+
+func TestValidatePluginFiles_RejectsSymlink(t *testing.T) {
+	// Arrange
+	_, plugins := newPluginsDir(t)
+	target := filepath.Join(t.TempDir(), "elsewhere")
+	require.NoError(t, os.WriteFile(target, []byte("#!/bin/sh\n"), 0o755))
+	require.NoError(t, os.Symlink(target, filepath.Join(plugins, "x")))
+
+	// Act
+	err := validatePluginFiles(plugins)
+
+	// Assert
+	require.Error(t, err)
+	assert.Contains(t, strings.ToLower(err.Error()), "symlink")
+}
+
+func TestValidatePluginFiles_RejectsWorldWritableExecutable(t *testing.T) {
+	// Arrange
+	_, plugins := newPluginsDir(t)
+	path := filepath.Join(plugins, "x")
+	require.NoError(t, os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755))
+	require.NoError(t, os.Chmod(path, 0o777)) //nolint:gosec // test exercises the reject path
+
+	// Act
+	err := validatePluginFiles(plugins)
+
+	// Assert
+	require.Error(t, err)
+	assert.Contains(t, strings.ToLower(err.Error()), "writable")
+}
+
+func TestValidatePluginFiles_IgnoresNonExecutableFiles(t *testing.T) {
+	// Arrange
+	_, plugins := newPluginsDir(t)
+	require.NoError(t, os.WriteFile(filepath.Join(plugins, "README.md"), []byte("docs"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(plugins, "x"), []byte("#!/bin/sh\n"), 0o755))
+
+	// Act
+	err := validatePluginFiles(plugins)
+
+	// Assert
+	require.NoError(t, err)
+}
+
+func TestValidatePluginFiles_IgnoresSubdirectories(t *testing.T) {
+	// Arrange
+	_, plugins := newPluginsDir(t)
+	require.NoError(t, os.Mkdir(filepath.Join(plugins, "data"), 0o755)) //nolint:gosec // test fixture
+	require.NoError(t, os.WriteFile(filepath.Join(plugins, "x"), []byte("#!/bin/sh\n"), 0o755))
+
+	// Act
+	err := validatePluginFiles(plugins)
+
+	// Assert
+	require.NoError(t, err)
+}
+
+func TestResolvePluginsDir_Default_BadFileBlocksResolution(t *testing.T) {
+	// Arrange
+	exeDir, plugins := newPluginsDir(t)
+	bad := filepath.Join(plugins, "evil")
+	require.NoError(t, os.WriteFile(bad, []byte("#!/bin/sh\n"), 0o755))
+	require.NoError(t, os.Chmod(bad, 0o777)) //nolint:gosec // test exercises the reject path
+
+	// Act
+	_, err := resolvePluginsDir(exeDir)
+
+	// Assert
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "evil")
+}

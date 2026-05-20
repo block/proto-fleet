@@ -59,12 +59,14 @@ func Register(ctx context.Context, p RegisterParams) (*RegisterResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	resp, err := client.Register(ctx, connect.NewRequest(&pb.RegisterRequest{
+	callCtx, cancel := withHandshakeTimeout(ctx)
+	resp, err := client.Register(callCtx, connect.NewRequest(&pb.RegisterRequest{
 		EnrollmentToken:    p.Code,
 		Name:               p.Name,
 		IdentityPubkey:     idPub,
 		MinerSigningPubkey: mPub,
 	}))
+	cancel()
 	if err != nil {
 		code := connect.CodeOf(err)
 		if code == connect.CodeAlreadyExists || code == connect.CodeFailedPrecondition || code == connect.CodeUnauthenticated {

@@ -29,7 +29,10 @@ const (
 	perProbeTimeout        = 3 * time.Second
 	probeConcurrency       = 32
 	discoveryReportTimeout = 30 * time.Second
-	maxDevicesPerReport    = 1024 // server enforces max_items=1024
+	maxDevicesPerReport    = 1024             // server enforces max_items=1024
+	maxIPsPerCommand       = 1024             // mirrors pairing-service safety bar
+	maxPortsPerIP          = 10               // mirrors pairing.MaxPortsPerIP
+	commandTimeout         = 10 * time.Minute // mirrors pairing default discovery timeout
 )
 
 type discoverer interface {
@@ -128,12 +131,15 @@ func (r *RunCmd) handleCommand(ctx context.Context, client gatewayClient, stream
 		return
 	}
 
-	reports, err := r.discoverForCommand(ctx, &req, logger)
+	cmdCtx, cancel := context.WithTimeout(ctx, commandTimeout)
+	defer cancel()
+
+	reports, err := r.discoverForCommand(cmdCtx, &req, logger)
 	if err != nil {
 		r.sendAck(stream, commandID, false, err.Error(), logger)
 		return
 	}
-	if err := r.streamReports(ctx, client, commandID, reports, logger); err != nil {
+	if err := r.streamReports(cmdCtx, client, commandID, reports, logger); err != nil {
 		r.sendAck(stream, commandID, false, err.Error(), logger)
 		return
 	}
@@ -151,6 +157,12 @@ func (r *RunCmd) discoverForCommand(ctx context.Context, req *pairingpb.Discover
 		if len(ips) == 0 || len(ports) == 0 {
 			return nil, fmt.Errorf("ip_addresses and ports must both be non-empty")
 		}
+		if len(ips) > maxIPsPerCommand {
+			return nil, fmt.Errorf("too many ip_addresses: %d exceeds the limit of %d", len(ips), maxIPsPerCommand)
+		}
+		if len(ports) > maxPortsPerIP {
+			return nil, fmt.Errorf("too many ports: %d exceeds the limit of %d", len(ports), maxPortsPerIP)
+		}
 		endpoints := make([]endpoint, 0, len(ips)*len(ports))
 		for _, ip := range ips {
 			for _, port := range ports {
@@ -159,6 +171,9 @@ func (r *RunCmd) discoverForCommand(ctx context.Context, req *pairingpb.Discover
 		}
 		return fanOutProbes(ctx, endpoints, probeConcurrency, r.discoverer.Probe, logger), nil
 	case *pairingpb.DiscoverRequest_Nmap:
+		if ports := m.Nmap.GetPorts(); len(ports) > maxPortsPerIP {
+			return nil, fmt.Errorf("too many ports: %d exceeds the limit of %d", len(ports), maxPortsPerIP)
+		}
 		return r.runNmapDiscovery(ctx, m.Nmap, logger)
 	case *pairingpb.DiscoverRequest_Mdns:
 		return nil, fmt.Errorf("mdns mode is not supported on the fleet node agent")

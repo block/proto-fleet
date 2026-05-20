@@ -97,6 +97,75 @@ func TestControlLoop_RejectsMDNSMode(t *testing.T) {
 	assert.Empty(t, fake.reportsCopy())
 }
 
+func TestControlLoop_RejectsTooManyIPs(t *testing.T) {
+	// Arrange
+	cmd := &RunCmd{discoverer: &stubDiscoverer{}}
+	state := &fleetnodebootstrap.State{FleetNodeID: 7}
+
+	tooMany := make([]string, maxIPsPerCommand+1)
+	for i := range tooMany {
+		tooMany[i] = fmt.Sprintf("10.0.%d.%d", i/256, i%256)
+	}
+	fake := &controlFakeGateway{}
+	fake.queue(mustMarshal(t, &pairingpb.DiscoverRequest{
+		Mode: &pairingpb.DiscoverRequest_IpList{
+			IpList: &pairingpb.IPListModeRequest{IpAddresses: tooMany, Ports: []string{"4028"}},
+		},
+	}))
+	client := newControlClient(t, fake)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Act
+	done := make(chan error, 1)
+	go func() { done <- cmd.runControlLoop(ctx, client, state, discardLogger(t)) }()
+	require.Eventually(t, func() bool { return fake.ackCount() > 0 }, 3*time.Second, 20*time.Millisecond)
+	cancel()
+	<-done
+
+	// Assert
+	acks := fake.acksCopy()
+	require.Len(t, acks, 1)
+	assert.False(t, acks[0].GetSucceeded())
+	assert.Contains(t, acks[0].GetErrorMessage(), "too many ip_addresses")
+	assert.Empty(t, fake.reportsCopy())
+}
+
+func TestControlLoop_RejectsTooManyPorts(t *testing.T) {
+	// Arrange
+	cmd := &RunCmd{discoverer: &stubDiscoverer{}}
+	state := &fleetnodebootstrap.State{FleetNodeID: 7}
+
+	ports := make([]string, maxPortsPerIP+1)
+	for i := range ports {
+		ports[i] = fmt.Sprintf("%d", 4000+i)
+	}
+	fake := &controlFakeGateway{}
+	fake.queue(mustMarshal(t, &pairingpb.DiscoverRequest{
+		Mode: &pairingpb.DiscoverRequest_IpList{
+			IpList: &pairingpb.IPListModeRequest{IpAddresses: []string{"10.0.0.1"}, Ports: ports},
+		},
+	}))
+	client := newControlClient(t, fake)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Act
+	done := make(chan error, 1)
+	go func() { done <- cmd.runControlLoop(ctx, client, state, discardLogger(t)) }()
+	require.Eventually(t, func() bool { return fake.ackCount() > 0 }, 3*time.Second, 20*time.Millisecond)
+	cancel()
+	<-done
+
+	// Assert
+	acks := fake.acksCopy()
+	require.Len(t, acks, 1)
+	assert.False(t, acks[0].GetSucceeded())
+	assert.Contains(t, acks[0].GetErrorMessage(), "too many ports")
+}
+
 func TestControlLoop_ReconnectsAfterStreamEOF(t *testing.T) {
 	// Arrange
 	cmd := &RunCmd{discoverer: &stubDiscoverer{}}

@@ -3,12 +3,15 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 )
 
 func TestResolveNmapPath_Default_BinaryAdjacent(t *testing.T) {
@@ -101,4 +104,66 @@ func TestValidateNmapTarget(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDetectIPv6Target(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name     string
+		input    string
+		wantIPv6 bool
+		wantErr  bool
+	}{
+		{name: "ipv4 literal", input: "10.0.0.1", wantIPv6: false},
+		{name: "ipv6 literal", input: "2001:db8::1", wantIPv6: true},
+		{name: "ipv4 cidr", input: "10.0.0.0/24", wantIPv6: false},
+		{name: "ipv6 cidr rejected", input: "2001:db8::/32", wantErr: true},
+		{name: "unresolvable hostname falls through to v4", input: "no-such-host.invalid", wantIPv6: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Act
+			got, err := detectIPv6Target(context.Background(), tc.input)
+
+			// Assert
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantIPv6, got)
+		})
+	}
+}
+
+func TestBuildNmapOptions_AddsIPv6Scanning(t *testing.T) {
+	// Arrange
+	r := &RunCmd{nmapPath: "/usr/bin/nmap", discoverer: &stubDiscoverer{}}
+	v4 := &pairingpb.NmapModeRequest{Target: "10.0.0.1", Ports: []string{"4028"}}
+	v6 := &pairingpb.NmapModeRequest{Target: "2001:db8::1", Ports: []string{"4028"}}
+
+	// Act
+	v4Opts, err := r.buildNmapOptions(context.Background(), v4)
+	require.NoError(t, err)
+	v6Opts, err := r.buildNmapOptions(context.Background(), v6)
+	require.NoError(t, err)
+
+	// Assert
+	assert.Equal(t, len(v4Opts)+1, len(v6Opts), "IPv6 target should add exactly one option (WithIPv6Scanning)")
+}
+
+func TestBuildNmapOptions_RejectsIPv6CIDR(t *testing.T) {
+	// Arrange
+	r := &RunCmd{nmapPath: "/usr/bin/nmap", discoverer: &stubDiscoverer{}}
+	req := &pairingpb.NmapModeRequest{Target: "2001:db8::/32", Ports: []string{"4028"}}
+
+	// Act
+	_, err := r.buildNmapOptions(context.Background(), req)
+
+	// Assert
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "IPv6 CIDR")
 }
