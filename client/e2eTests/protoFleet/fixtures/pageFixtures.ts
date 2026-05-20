@@ -12,6 +12,7 @@ import { HomePage } from "../pages/home";
 import { MinersPage } from "../pages/miners";
 import { NewPoolModalPage } from "../pages/newPoolModal";
 import { RacksPage } from "../pages/racks";
+import { ServerLogsPage } from "../pages/serverLogs";
 import { SettingsPage } from "../pages/settings";
 import { SettingsApiKeysPage } from "../pages/settingsApiKeys";
 import { SettingsFirmwarePage } from "../pages/settingsFirmware";
@@ -27,6 +28,7 @@ type PageFixtures = {
   minersPage: MinersPage;
   groupsPage: GroupsPage;
   racksPage: RacksPage;
+  serverLogsPage: ServerLogsPage;
   addMinersPage: AddMinersPage;
   settingsPage: SettingsPage;
   settingsFirmwarePage: SettingsFirmwarePage;
@@ -59,6 +61,9 @@ export const test = base.extend<PageFixtures>({
   },
   racksPage: async ({ page, isMobile }, use) => {
     await use(new RacksPage(page, isMobile));
+  },
+  serverLogsPage: async ({ page, isMobile }, use) => {
+    await use(new ServerLogsPage(page, isMobile));
   },
   addMinersPage: async ({ page, isMobile }, use) => {
     await use(new AddMinersPage(page, isMobile));
