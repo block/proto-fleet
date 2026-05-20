@@ -58,6 +58,26 @@ describe("CurtailmentHistory", () => {
     expect(getRenderedRows()).toHaveLength(mockCurtailmentHistoryEvents.length);
   });
 
+  it("renders high-priority events with singular miner counts", async () => {
+    const user = userEvent.setup();
+    const highPriorityEvent = {
+      ...mockCurtailmentHistoryEvents[0],
+      id: "curt-single-miner",
+      priority: "high" as const,
+      selectedMiners: 1,
+    };
+
+    render(<CurtailmentHistory events={[highPriorityEvent]} />);
+
+    expect(screen.getByText("1 miner")).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("curtailment-history-row-curt-single-miner"));
+
+    const modal = screen.getByTestId("modal");
+    expect(within(modal).getByText("Type")).toBeInTheDocument();
+    expect(within(modal).getByText("High")).toBeInTheDocument();
+  });
+
   it("opens the summary modal from row click and stops active events from the action button", async () => {
     const user = userEvent.setup();
     const onStopActiveEvent = vi.fn();

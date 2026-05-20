@@ -10,7 +10,7 @@ import DropdownFilter from "@/shared/components/List/Filters/DropdownFilter";
 import FilterChip from "@/shared/components/List/Filters/FilterChip";
 import Modal, { sizes as modalSizes } from "@/shared/components/Modal";
 
-export type CurtailmentPriority = "normal" | "emergency";
+export type CurtailmentPriority = "normal" | "high" | "emergency";
 
 const curtailmentEventStates = [
   "pending",
@@ -95,6 +95,7 @@ const eventStateLabels: Record<CurtailmentEventState, string> = {
 
 const priorityLabels: Record<CurtailmentPriority, string> = {
   normal: "Normal",
+  high: "High",
   emergency: "Emergency",
 };
 
@@ -179,7 +180,7 @@ function formatTargetVsActual(event: Pick<CurtailmentHistoryEvent, "targetKw" | 
 }
 
 function formatMinerCount(minerCount: number): string {
-  return `${minerCount.toLocaleString()} miners`;
+  return `${minerCount.toLocaleString()} ${minerCount === 1 ? "miner" : "miners"}`;
 }
 
 function getHistoryStatusDetail(event: CurtailmentHistoryEvent): string {
@@ -347,7 +348,6 @@ function CurtailmentHistoryRow({
     <tr
       className="cursor-pointer border-b border-border-5 transition-colors last:border-0 hover:bg-core-primary-5"
       tabIndex={0}
-      role="button"
       aria-label={`View curtailment ${event.reason}`}
       onClick={handleRowClick}
       onKeyDown={handleRowKeyDown}
