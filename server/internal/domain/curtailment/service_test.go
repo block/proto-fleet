@@ -52,6 +52,8 @@ type fakeStore struct {
 	// over BeginRestoreTransition outcomes.
 	eventsByUUID            map[uuid.UUID]*models.Event
 	targetsByEventUUID      map[uuid.UUID][]*models.Target
+	activeEvent             *models.Event
+	activeEventErr          error
 	listTargetsErr          error
 	beginRestoreErr         error
 	beginRestoreCalls       int
@@ -122,6 +124,13 @@ func (f *fakeStore) GetEventByUUID(_ context.Context, _ int64, eventUUID uuid.UU
 		return nil, fleeterror.NewNotFoundErrorf("curtailment event not found: %s", eventUUID)
 	}
 	return ev, nil
+}
+
+func (f *fakeStore) GetActiveEvent(_ context.Context, _ int64) (*models.Event, error) {
+	if f.activeEventErr != nil {
+		return nil, f.activeEventErr
+	}
+	return f.activeEvent, nil
 }
 
 func (f *fakeStore) ListTargetsByEvent(_ context.Context, _ int64, eventUUID uuid.UUID) ([]*models.Target, error) {

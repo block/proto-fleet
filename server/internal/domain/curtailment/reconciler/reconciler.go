@@ -201,14 +201,14 @@ func (r *Reconciler) safeTick(ctx context.Context) {
 
 // runTick is one reconciliation pass. Per-event errors are isolated; the
 // heartbeat upsert always fires so a bad event cannot blind liveness.
-// The per-tick deadline bounds a stuck DB so the heartbeat goroutine
-// keeps reporting liveness rather than waiting on a hung query.
+// List and per-event deadlines bound stuck DB/command work without letting
+// one slow event spend the context budget for every later event in the tick.
 func (r *Reconciler) runTick(ctx context.Context) {
 	tickStart := r.now()
 	tickUUID := uuid.New()
-	tickCtx, cancel := context.WithTimeout(ctx, 2*r.cfg.TickInterval)
-	defer cancel()
-	events, err := r.store.ListNonTerminalEvents(tickCtx)
+	listCtx, cancel := context.WithTimeout(ctx, 2*r.cfg.TickInterval)
+	events, err := r.store.ListNonTerminalEvents(listCtx)
+	cancel()
 	if err != nil {
 		slog.Error("curtailment reconciler: failed to list non-terminal events", "error", err)
 		// Heartbeat advances on tick freshness, not query health.
@@ -217,7 +217,9 @@ func (r *Reconciler) runTick(ctx context.Context) {
 	}
 
 	for _, ev := range events {
-		r.processEvent(tickCtx, ev)
+		eventCtx, eventCancel := context.WithTimeout(ctx, 2*r.cfg.TickInterval)
+		r.processEvent(eventCtx, ev)
+		eventCancel()
 	}
 
 	r.upsertHeartbeat(ctx, tickStart, tickUUID, int32(len(events))) //nolint:gosec // bounded by org event count
@@ -949,10 +951,10 @@ func (r *Reconciler) maybeClaimRestoreBatch(ctx context.Context, ev *models.Even
 }
 
 // dispatchRestoreBatch fires one Uncurtail call covering all devices in the
-// batch, then per-device commits state transitions based on the kept/skipped
-// split. A bulk dispatch error rolls every claim target through retry; a
-// device-level filter-skip records a failure for that device only. Restart
-// safety mirrors Curtail: command goes out before the Dispatched-state write,
+// batch, then per-device commits state transitions based on the
+// dispatched/skipped split. A bulk dispatch error rolls every claim target
+// through retry; a device-level filter-skip records a failure for that device.
+// Restart safety mirrors Curtail: command goes out before the Dispatched-state write,
 // so a crash or per-target UpdateTargetState failure leaves the target
 // Pending and next tick redispatches. Uncurtail is device-idempotent
 // (per-device FIFO absorbs Curtail-then-Uncurtail), but audit lineage may
@@ -1005,6 +1007,10 @@ func (r *Reconciler) dispatchRestoreBatch(ctx context.Context, ev *models.Event,
 		}
 		skippedSet[s.DeviceIdentifier] = reason
 	}
+	dispatchedSet := make(map[string]struct{}, len(result.DispatchedDeviceIdentifiers))
+	for _, deviceID := range result.DispatchedDeviceIdentifiers {
+		dispatchedSet[deviceID] = struct{}{}
+	}
 
 	now := r.now()
 	batchID := result.BatchIdentifier
@@ -1012,6 +1018,13 @@ func (r *Reconciler) dispatchRestoreBatch(ctx context.Context, ev *models.Event,
 		if reason, skipped := skippedSet[t.DeviceIdentifier]; skipped {
 			slog.Warn("curtailment reconciler: restore device filter-skipped",
 				"event_id", ev.ID, "device", t.DeviceIdentifier, "reason", reason)
+			r.recordDispatchFailure(ctx, ev, t, reason, models.TargetStatePending)
+			continue
+		}
+		if _, dispatched := dispatchedSet[t.DeviceIdentifier]; !dispatched {
+			const reason = "uncurtail command did not enqueue device"
+			slog.Warn("curtailment reconciler: restore device not dispatched",
+				"event_id", ev.ID, "device", t.DeviceIdentifier)
 			r.recordDispatchFailure(ctx, ev, t, reason, models.TargetStatePending)
 			continue
 		}

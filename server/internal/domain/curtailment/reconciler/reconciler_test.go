@@ -29,6 +29,8 @@ type fakeStore struct {
 	listEventsErr      error
 	listEventsCalls    int
 	listEventsPanicErr string
+	listTargetsHook    func(context.Context, uuid.UUID)
+	listTargetsCtxErr  map[uuid.UUID]error
 
 	updateEventCalls   int
 	updateEventLast    map[int64]models.EventState
@@ -53,6 +55,7 @@ func newFakeStore() *fakeStore {
 		targetsByEventID:   map[int64][]*models.Target{},
 		updateEventLast:    map[int64]models.EventState{},
 		updateTargetParams: map[string]interfaces.UpdateCurtailmentTargetStateParams{},
+		listTargetsCtxErr:  map[uuid.UUID]error{},
 	}
 }
 
@@ -68,6 +71,9 @@ func (f *fakeStore) ListRecentlyResolvedCurtailedDevices(context.Context, int64,
 func (f *fakeStore) GetEventByUUID(context.Context, int64, uuid.UUID) (*models.Event, error) {
 	panic("GetEventByUUID not exercised")
 }
+func (f *fakeStore) GetActiveEvent(context.Context, int64) (*models.Event, error) {
+	panic("GetActiveEvent not exercised")
+}
 func (f *fakeStore) InsertEventWithTargets(context.Context, models.InsertEventParams, []models.InsertTargetParams) (*models.InsertEventResult, error) {
 	panic("InsertEventWithTargets not exercised")
 }
@@ -75,8 +81,12 @@ func (f *fakeStore) GetHeartbeat(context.Context) (*models.Heartbeat, error) {
 	panic("GetHeartbeat not exercised")
 }
 
-func (f *fakeStore) ListTargetsByEvent(_ context.Context, _ int64, eventUUID uuid.UUID) ([]*models.Target, error) {
+func (f *fakeStore) ListTargetsByEvent(ctx context.Context, _ int64, eventUUID uuid.UUID) ([]*models.Target, error) {
 	f.listTargetsByEventCalls++
+	if f.listTargetsHook != nil {
+		f.listTargetsHook(ctx, eventUUID)
+	}
+	f.listTargetsCtxErr[eventUUID] = ctx.Err()
 	for _, ev := range f.events {
 		if ev.EventUUID == eventUUID {
 			// Return shared pointers so the reconciler's per-tick mutations
@@ -236,7 +246,7 @@ func (f *fakeDispatcher) Uncurtail(_ context.Context, selector *pb.DeviceSelecto
 	if f.uncurtailResultOverride != nil {
 		return f.uncurtailResultOverride, nil
 	}
-	return &command.CommandResult{BatchIdentifier: "batch-uncurtail", DispatchedCount: len(f.uncurtailLastIDs)}, nil
+	return &command.CommandResult{BatchIdentifier: "batch-uncurtail", DispatchedCount: len(f.uncurtailLastIDs), DispatchedDeviceIdentifiers: f.uncurtailLastIDs}, nil
 }
 
 func identifiersFromSelector(selector *pb.DeviceSelector) []string {
@@ -435,6 +445,30 @@ func TestReconciler_HeartbeatStillFiresOnListEventsError(t *testing.T) {
 
 	assert.Equal(t, 1, store.heartbeatCalls)
 	assert.Equal(t, int32(0), store.lastHeartbeatActive)
+}
+
+func TestReconciler_RunTickUsesFreshContextPerEvent(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+	firstUUID := uuid.New()
+	secondUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: 1, EventUUID: firstUUID, OrgID: 1, State: models.EventStateActive},
+		{ID: 2, EventUUID: secondUUID, OrgID: 1, State: models.EventStateActive},
+	}
+	store.listTargetsHook = func(ctx context.Context, eventUUID uuid.UUID) {
+		if eventUUID == firstUUID {
+			<-ctx.Done()
+		}
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.cfg.TickInterval = 5 * time.Millisecond
+	r.runTick(context.Background())
+
+	assert.ErrorIs(t, store.listTargetsCtxErr[firstUUID], context.DeadlineExceeded)
+	assert.NoError(t, store.listTargetsCtxErr[secondUUID],
+		"later events must not inherit an expired context from earlier events")
 }
 
 func TestReconciler_DispatchErrorMarksLastError(t *testing.T) {

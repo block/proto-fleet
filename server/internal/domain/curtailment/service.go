@@ -148,6 +148,13 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 	return plan, nil
 }
 
+func (s *Service) GetActive(ctx context.Context, orgID int64) (*models.Event, error) {
+	if orgID <= 0 {
+		return nil, fleeterror.NewInvalidArgumentError("org_id must be set")
+	}
+	return s.store.GetActiveEvent(ctx, orgID)
+}
+
 // runSelector executes the org-config + scope + candidate + classify +
 // build-plan pipeline shared by Preview and Start. Returns the resolved
 // candidate floor (so persisters can echo it into the decision snapshot)

@@ -146,6 +146,58 @@ func (q *Queries) EnsureCurtailmentOrgConfig(ctx context.Context, orgID int64) (
 	return i, err
 }
 
+const getActiveCurtailmentEvent = `-- name: GetActiveCurtailmentEvent :one
+SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id
+FROM curtailment_event
+WHERE org_id = $1
+    AND state IN ('pending', 'active', 'restoring')
+ORDER BY id DESC
+LIMIT 1
+`
+
+// Org-scoped recovery path for pending/active/restoring events.
+func (q *Queries) GetActiveCurtailmentEvent(ctx context.Context, orgID int64) (CurtailmentEvent, error) {
+	row := q.queryRow(ctx, q.getActiveCurtailmentEventStmt, getActiveCurtailmentEvent, orgID)
+	var i CurtailmentEvent
+	err := row.Scan(
+		&i.ID,
+		&i.EventUuid,
+		&i.OrgID,
+		&i.State,
+		&i.Mode,
+		&i.Strategy,
+		&i.Level,
+		&i.Priority,
+		&i.LoopType,
+		&i.ScopeType,
+		&i.ScopeJsonb,
+		&i.ModeParamsJsonb,
+		&i.RestoreBatchSize,
+		&i.RestoreBatchIntervalSec,
+		&i.EffectiveBatchSize,
+		&i.MinCurtailedDurationSec,
+		&i.MaxDurationSeconds,
+		&i.AllowUnbounded,
+		&i.IncludeMaintenance,
+		&i.ForceIncludeMaintenance,
+		&i.DecisionSnapshotJsonb,
+		&i.SourceActorType,
+		&i.SourceActorID,
+		&i.ExternalSource,
+		&i.ExternalReference,
+		&i.IdempotencyKey,
+		&i.SupersedesEventID,
+		&i.Reason,
+		&i.ScheduledStartAt,
+		&i.StartedAt,
+		&i.EndedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CreatedByUserID,
+	)
+	return i, err
+}
+
 const getCurtailmentEventByUUID = `-- name: GetCurtailmentEventByUUID :one
 SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id
 FROM curtailment_event
@@ -799,7 +851,10 @@ SET state              = $1,
     observed_at        = COALESCE($5,        observed_at),
     confirmed_at       = COALESCE($6,       confirmed_at),
     retry_count        = COALESCE($7,        retry_count),
-    last_error         = COALESCE($8,         last_error)
+    last_error         = CASE
+        WHEN $8::text IS NULL THEN last_error
+        ELSE NULLIF($8::text, '')
+    END
 WHERE curtailment_event_id = $9
   AND device_identifier    = $10
 `
@@ -819,7 +874,8 @@ type UpdateCurtailmentTargetStateParams struct {
 
 // Reconciler patch: COALESCE preserves un-supplied columns so partial
 // updates don't clobber values from earlier ticks. retry_count is
-// read-then-written inside the tick.
+// read-then-written inside the tick. An empty last_error string is an
+// explicit clear signal from successful redispatch paths and maps to SQL NULL.
 func (q *Queries) UpdateCurtailmentTargetState(ctx context.Context, arg UpdateCurtailmentTargetStateParams) error {
 	_, err := q.exec(ctx, q.updateCurtailmentTargetStateStmt, updateCurtailmentTargetState,
 		arg.State,

@@ -470,8 +470,9 @@ func TestReconciler_Restoring_PerDeviceFilterSkipsTargetStaysPending(t *testing.
 	store := newFakeStore()
 	disp := &fakeDispatcher{
 		uncurtailResultOverride: &command.CommandResult{
-			BatchIdentifier: "batch-uncurtail",
-			DispatchedCount: 1,
+			BatchIdentifier:             "batch-uncurtail",
+			DispatchedCount:             1,
+			DispatchedDeviceIdentifiers: []string{"m1"},
 			Skipped: []command.SkippedDevice{{
 				DeviceIdentifier: "m2",
 				FilterName:       "schedule_conflict",
@@ -505,6 +506,44 @@ func TestReconciler_Restoring_PerDeviceFilterSkipsTargetStaysPending(t *testing.
 	assert.Equal(t, int32(1), skipped.RetryCount, "filter-skipped device must burn one retry")
 	require.NotNil(t, skipped.LastError)
 	assert.Contains(t, *skipped.LastError, "schedule 99")
+}
+
+func TestReconciler_Restoring_NotEnqueuedTargetStaysPending(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{
+		uncurtailResultOverride: &command.CommandResult{
+			BatchIdentifier:             "batch-uncurtail",
+			DispatchedCount:             1,
+			DispatchedDeviceIdentifiers: []string{"m1"},
+		},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	effBatch := int32(2)
+	eventID := int64(83)
+	store.events = []*models.Event{{
+		ID:                      eventID,
+		EventUUID:               uuid.New(),
+		OrgID:                   1,
+		State:                   models.EventStateRestoring,
+		EffectiveBatchSize:      &effBatch,
+		RestoreBatchIntervalSec: 0,
+	}}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "m1", State: models.TargetStatePending, DesiredState: models.DesiredStateActive},
+		{CurtailmentEventID: eventID, DeviceIdentifier: "m2", State: models.TargetStatePending, DesiredState: models.DesiredStateActive},
+	}
+
+	r.runTick(context.Background())
+
+	dispatched := store.targetsByEventID[eventID][0]
+	notEnqueued := store.targetsByEventID[eventID][1]
+	assert.Equal(t, models.TargetStateDispatched, dispatched.State)
+	assert.Equal(t, models.TargetStatePending, notEnqueued.State,
+		"target missing from DispatchedDeviceIdentifiers must not block the in-flight gate")
+	assert.Equal(t, int32(1), notEnqueued.RetryCount)
+	require.NotNil(t, notEnqueued.LastError)
+	assert.Contains(t, *notEnqueued.LastError, "did not enqueue")
 }
 
 // TestReconciler_Restoring_DispatchedAgesOutToRestoreFailed pins the restore

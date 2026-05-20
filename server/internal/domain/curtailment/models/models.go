@@ -250,6 +250,8 @@ func CountNonTerminalTargets(targets []*Target) int {
 		case TargetStatePending, TargetStateDispatched,
 			TargetStateConfirmed, TargetStateDrifted:
 			n++
+		default:
+			n++
 		}
 	}
 	return n

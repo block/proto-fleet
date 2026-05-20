@@ -26,6 +26,8 @@ type stopStubStore struct {
 	event   *models.Event
 	targets []*models.Target
 
+	activeEvent        *models.Event
+	getActiveErr       error
 	getEventErr        error
 	listTargetsErr     error
 	beginRestoreErr    error
@@ -53,6 +55,12 @@ func (s *stopStubStore) GetEventByUUID(_ context.Context, _ int64, _ uuid.UUID) 
 		return nil, s.getEventErr
 	}
 	return s.event, nil
+}
+func (s *stopStubStore) GetActiveEvent(_ context.Context, _ int64) (*models.Event, error) {
+	if s.getActiveErr != nil {
+		return nil, s.getActiveErr
+	}
+	return s.activeEvent, nil
 }
 func (s *stopStubStore) ListTargetsByEvent(context.Context, int64, uuid.UUID) ([]*models.Target, error) {
 	if s.listTargetsErr != nil {

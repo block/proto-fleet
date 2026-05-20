@@ -146,6 +146,15 @@ FROM curtailment_event
 WHERE event_uuid = sqlc.arg('event_uuid')
     AND org_id = sqlc.arg('org_id');
 
+-- name: GetActiveCurtailmentEvent :one
+-- Org-scoped recovery path for pending/active/restoring events.
+SELECT *
+FROM curtailment_event
+WHERE org_id = sqlc.arg('org_id')
+    AND state IN ('pending', 'active', 'restoring')
+ORDER BY id DESC
+LIMIT 1;
+
 -- name: InsertCurtailmentTarget :exec
 -- Start dispatch inserts these in the event-row transaction.
 INSERT INTO curtailment_target (
@@ -231,7 +240,8 @@ WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
 -- name: UpdateCurtailmentTargetState :exec
 -- Reconciler patch: COALESCE preserves un-supplied columns so partial
 -- updates don't clobber values from earlier ticks. retry_count is
--- read-then-written inside the tick.
+-- read-then-written inside the tick. An empty last_error string is an
+-- explicit clear signal from successful redispatch paths and maps to SQL NULL.
 UPDATE curtailment_target
 SET state              = sqlc.arg('state'),
     last_dispatched_at = COALESCE(sqlc.narg('last_dispatched_at'), last_dispatched_at),
@@ -240,7 +250,10 @@ SET state              = sqlc.arg('state'),
     observed_at        = COALESCE(sqlc.narg('observed_at'),        observed_at),
     confirmed_at       = COALESCE(sqlc.narg('confirmed_at'),       confirmed_at),
     retry_count        = COALESCE(sqlc.narg('retry_count'),        retry_count),
-    last_error         = COALESCE(sqlc.narg('last_error'),         last_error)
+    last_error         = CASE
+        WHEN sqlc.narg('last_error')::text IS NULL THEN last_error
+        ELSE NULLIF(sqlc.narg('last_error')::text, '')
+    END
 WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
   AND device_identifier    = sqlc.arg('device_identifier');
 
