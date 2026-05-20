@@ -1,6 +1,7 @@
 import type { ComponentProps } from "react";
+import type { RenderResult } from "@testing-library/react";
 import { render, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 
 import type { FullScreenTwoPaneModalProps } from "@/protoFleet/components/FullScreenTwoPaneModal";
@@ -13,6 +14,19 @@ type MockFullScreenTwoPaneModalProps = Pick<
   FullScreenTwoPaneModalProps,
   "title" | "isBusy" | "buttons" | "abovePanes" | "primaryPane" | "secondaryPane"
 >;
+
+interface RenderModalResult extends RenderResult {
+  onDismiss: ReturnType<typeof vi.fn>;
+  onSubmit: ReturnType<typeof vi.fn>;
+}
+
+const { mockUseCurtailmentPlanPreview } = vi.hoisted(() => ({
+  mockUseCurtailmentPlanPreview: vi.fn(),
+}));
+
+vi.mock("@/protoFleet/features/energy/useCurtailmentPlanPreview", () => ({
+  useCurtailmentPlanPreview: mockUseCurtailmentPlanPreview,
+}));
 
 vi.mock("@/protoFleet/components/FullScreenTwoPaneModal", () => ({
   default: ({ title, isBusy, buttons, abovePanes, primaryPane, secondaryPane }: MockFullScreenTwoPaneModalProps) => (
@@ -79,7 +93,7 @@ const preview: CurtailmentPlanPreview = {
   scopeLabel: "across the fleet",
 };
 
-const renderModal = (props: Partial<ComponentProps<typeof CurtailmentStartModal>> = {}) => {
+function renderModal(props: Partial<ComponentProps<typeof CurtailmentStartModal>> = {}): RenderModalResult {
   const onDismiss = vi.fn();
   const onSubmit = vi.fn();
 
@@ -88,15 +102,15 @@ const renderModal = (props: Partial<ComponentProps<typeof CurtailmentStartModal>
     onSubmit,
     ...render(<CurtailmentStartModal open onDismiss={onDismiss} onSubmit={onSubmit} {...props} />),
   };
-};
+}
 
-const getMaintenanceCheckbox = (): HTMLInputElement => {
+function getMaintenanceCheckbox(): HTMLInputElement {
   const checkbox = screen.getByText("Include miners in maintenance").closest("label")?.querySelector("input");
   if (!checkbox) {
     throw new Error("Maintenance checkbox was not rendered");
   }
   return checkbox;
-};
+}
 
 function mockVisibleSelectLayout(): () => void {
   const getBoundingClientRectSpy = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
@@ -115,6 +129,14 @@ function mockVisibleSelectLayout(): () => void {
 }
 
 describe("CurtailmentStartModal", () => {
+  beforeEach(() => {
+    mockUseCurtailmentPlanPreview.mockReturnValue({
+      preview: undefined,
+      previewError: undefined,
+      isPreviewLoading: false,
+    });
+  });
+
   it("renders the empty state and target selectors", () => {
     renderModal();
 
@@ -131,6 +153,19 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByRole("button", { name: /Racks\s+Select/ })).toBeEnabled();
     expect(screen.getByRole("button", { name: /Groups\s+Select/ })).toBeEnabled();
     expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeEnabled();
+  });
+
+  it("renders the API preview when preview props are not controlled", () => {
+    mockUseCurtailmentPlanPreview.mockReturnValue({
+      preview,
+      previewError: undefined,
+      isPreviewLoading: false,
+    });
+
+    renderModal({ initialValues: configuredValues });
+
+    expect(screen.getAllByText("Curtail 18 miners across the fleet immediately")).toHaveLength(2);
+    expect(screen.getAllByText("45.0 kW of 40.0 kW")).toHaveLength(2);
   });
 
   it("renders preview and preview error states", () => {

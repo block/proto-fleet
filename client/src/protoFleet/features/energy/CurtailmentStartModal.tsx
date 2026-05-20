@@ -2,6 +2,16 @@ import { type ReactElement, type ReactNode, useState } from "react";
 
 import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
 import TargetSelectButton, { getTargetButtonLabel } from "@/protoFleet/components/TargetSelectButton";
+import type {
+  CurtailmentFormErrors,
+  CurtailmentFormValues,
+  CurtailmentMode,
+  CurtailmentPlanPreview,
+  CurtailmentSubmitValues,
+  MinerSelectionStrategy,
+  ResponseProfileId,
+} from "@/protoFleet/features/energy/curtailmentTypes";
+import { useCurtailmentPlanPreview } from "@/protoFleet/features/energy/useCurtailmentPlanPreview";
 import GroupSelectionModal from "@/protoFleet/features/settings/components/Schedules/GroupSelectionModal";
 import MinerSelectionModal from "@/protoFleet/features/settings/components/Schedules/MinerSelectionModal";
 import RackSelectionModal from "@/protoFleet/features/settings/components/Schedules/RackSelectionModal";
@@ -10,44 +20,20 @@ import { variants } from "@/shared/components/Button";
 import Checkbox from "@/shared/components/Checkbox";
 import Dialog, { DialogIcon } from "@/shared/components/Dialog";
 import Input from "@/shared/components/Input";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 import Select, { type SelectOption, type SelectProps } from "@/shared/components/Select";
 
-export type CurtailmentPriority = "normal" | "emergency";
-export type CurtailmentScopeType = "wholeOrg" | "deviceSet" | "explicitMiners";
-export type ResponseProfileId = "customPlan";
-export type CurtailmentMode = "fixedKwReduction";
-export type MinerSelectionStrategy = "leastEfficientFirst";
-
-export interface CurtailmentFormValues {
-  scopeType: CurtailmentScopeType;
-  scopeId?: string;
-  deviceSetIds: string[];
-  deviceIdentifiers: string[];
-  responseProfileId: ResponseProfileId;
-  curtailmentMode: CurtailmentMode;
-  minerSelectionStrategy: MinerSelectionStrategy;
-  targetKw: string;
-  toleranceKw: string;
-  priority: CurtailmentPriority;
-  minDurationSec: string;
-  maxDurationSec: string;
-  restoreBatchSize: string;
-  restoreIntervalSec: string;
-  reason: string;
-  includeMaintenance: boolean;
-}
-
-export type CurtailmentSubmitValues = CurtailmentFormValues;
-
-export interface CurtailmentPlanPreview {
-  selectedMinerCount: number;
-  targetKw: number;
-  estimatedReductionKw: number;
-  restoreEstimate: string;
-  scopeLabel: string;
-}
-
-export type CurtailmentFormErrors = Partial<Record<keyof CurtailmentFormValues, string>>;
+export type {
+  CurtailmentFormErrors,
+  CurtailmentFormValues,
+  CurtailmentMode,
+  CurtailmentPlanPreview,
+  CurtailmentPriority,
+  CurtailmentScopeType,
+  CurtailmentSubmitValues,
+  MinerSelectionStrategy,
+  ResponseProfileId,
+} from "@/protoFleet/features/energy/curtailmentTypes";
 
 interface CurtailmentStartModalProps {
   open: boolean;
@@ -83,6 +69,7 @@ interface ReductionProgressBarProps {
 interface PreviewPaneProps {
   preview?: CurtailmentPlanPreview;
   previewError?: string;
+  isPreviewLoading?: boolean;
 }
 
 interface TypedSelectOption<Value extends string> extends SelectOption {
@@ -216,7 +203,7 @@ function ReductionProgressBar({ value, max }: ReductionProgressBarProps): ReactE
   );
 }
 
-function PreviewPane({ preview, previewError }: PreviewPaneProps): ReactElement {
+function PreviewPane({ preview, previewError, isPreviewLoading = false }: PreviewPaneProps): ReactElement {
   if (previewError) {
     return (
       <div className="flex min-h-40 flex-1 items-center justify-center rounded-[24px] bg-surface-overlay px-6 py-10 text-300 text-text-primary-70 laptop:px-16">
@@ -224,6 +211,18 @@ function PreviewPane({ preview, previewError }: PreviewPaneProps): ReactElement 
           <Alert className="mt-0.5 shrink-0 text-text-primary-50" width="w-4" />
           <div>{previewError}</div>
         </div>
+      </div>
+    );
+  }
+
+  if (isPreviewLoading) {
+    return (
+      <div
+        className="flex min-h-40 flex-1 items-center justify-center rounded-[24px] bg-surface-overlay px-6 py-10 text-text-primary-70 laptop:px-16"
+        role="status"
+        aria-label="Loading curtailment preview"
+      >
+        <ProgressCircular indeterminate dataTestId="curtailment-preview-loading" />
       </div>
     );
   }
@@ -253,11 +252,9 @@ function PreviewPane({ preview, previewError }: PreviewPaneProps): ReactElement 
           <ReductionProgressBar value={preview.estimatedReductionKw} max={preview.targetKw} />
         </div>
 
-        <div className="grid gap-6">
-          <div>
-            <div className="text-emphasis-200 text-text-primary-70">Time to restore</div>
-            <div className="text-heading-300 text-text-primary">{preview.restoreEstimate}</div>
-          </div>
+        <div>
+          <div className="text-emphasis-200 text-text-primary-70">Time to restore</div>
+          <div className="text-heading-300 text-text-primary">{preview.restoreEstimate}</div>
         </div>
       </div>
     </div>
@@ -281,6 +278,7 @@ function getSelectedMinerIds(values: CurtailmentFormValues): string[] {
 }
 
 function CurtailmentStartModalContent({
+  open,
   onDismiss,
   onSubmit,
   initialValues,
@@ -299,12 +297,21 @@ function CurtailmentStartModalContent({
   const updateValue = <Key extends keyof CurtailmentFormValues>(key: Key, value: CurtailmentFormValues[Key]) =>
     setValues((current) => ({ ...current, [key]: value }));
   const updateValues = (updater: (current: CurtailmentFormValues) => CurtailmentFormValues) => setValues(updater);
+  const hasControlledPreview = preview !== undefined || previewError !== undefined;
+  const apiPreview = useCurtailmentPlanPreview({
+    open,
+    values,
+    disabled: hasControlledPreview,
+  });
+  const previewState: PreviewPaneProps = hasControlledPreview
+    ? { preview, previewError, isPreviewLoading: false }
+    : apiPreview;
   const selectedTargets = {
     racks: getSelectedDeviceSetIds(values, "racks"),
     groups: getSelectedDeviceSetIds(values, "groups"),
     miners: getSelectedMinerIds(values),
   };
-  const previewPane = <PreviewPane preview={preview} previewError={previewError} />;
+  const previewPane = <PreviewPane {...previewState} />;
 
   const handleDeviceSetSelection = (deviceSetIds: string[], scopeId: DeviceSetScopeId) => {
     const hasSelectedDeviceSets = deviceSetIds.length > 0;
@@ -361,7 +368,7 @@ function CurtailmentStartModalContent({
   return (
     <>
       <FullScreenTwoPaneModal
-        open
+        open={open}
         title="Plan a curtailment"
         closeAriaLabel="Close curtailment planner"
         onDismiss={onDismiss}
