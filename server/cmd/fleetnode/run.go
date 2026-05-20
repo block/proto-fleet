@@ -48,10 +48,6 @@ type gatewayClient interface {
 }
 
 func (r *RunCmd) Run(c *Context) error {
-	// Stdout (not stderr) so logs are visible in IDE terminal panels and
-	// shells that filter or buffer FD 2. CLI daemons (caddy, prometheus,
-	// vault) follow the same convention; redirect with `2>&1` and standard
-	// shell tools still work.
 	return r.run(c, os.Stdout)
 }
 

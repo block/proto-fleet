@@ -46,11 +46,9 @@ func WithStateLock(dir string, fn func() error) error {
 		}
 		return fmt.Errorf("acquire state lock: %w", err)
 	}
-	if err := writeLockOwnerPID(f); err != nil {
-		// Non-fatal: future contention diagnostics will be less specific,
-		// but the lock itself is held and fn can proceed.
-		_ = err
-	}
+	// Best-effort: a failed write leaves the lockfile empty, which only
+	// degrades the next contention error to the "unknown holder" form.
+	_ = writeLockOwnerPID(f)
 	return fn()
 }
 

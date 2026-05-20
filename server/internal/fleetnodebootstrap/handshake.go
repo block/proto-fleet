@@ -45,12 +45,12 @@ func RunHandshake(ctx context.Context, c fleetnodegatewayv1connect.FleetNodeGate
 		return errors.New("client is required")
 	}
 
-	beginCtx, cancelBegin := context.WithTimeout(ctx, handshakeStepTimeout)
+	beginCtx, cancel := withHandshakeTimeout(ctx)
 	begin, err := c.BeginAuthHandshake(beginCtx, connect.NewRequest(&pb.BeginAuthHandshakeRequest{
 		ApiKey:         s.APIKey,
 		IdentityPubkey: pub,
 	}))
-	cancelBegin()
+	cancel()
 	if err != nil {
 		if connect.CodeOf(err) == connect.CodeUnauthenticated {
 			return fmt.Errorf("%w: %w", ErrBeginAuthRejected, err)
@@ -60,12 +60,12 @@ func RunHandshake(ctx context.Context, c fleetnodegatewayv1connect.FleetNodeGate
 	challenge := begin.Msg.GetChallenge()
 	signature := ed25519.Sign(ed25519.PrivateKey(priv), challenge)
 
-	completeCtx, cancelComplete := context.WithTimeout(ctx, handshakeStepTimeout)
+	completeCtx, cancel := withHandshakeTimeout(ctx)
 	complete, err := c.CompleteAuthHandshake(completeCtx, connect.NewRequest(&pb.CompleteAuthHandshakeRequest{
 		Challenge: challenge,
 		Signature: signature,
 	}))
-	cancelComplete()
+	cancel()
 	if err != nil {
 		return fmt.Errorf("complete handshake: %w", err)
 	}
@@ -75,4 +75,8 @@ func RunHandshake(ctx context.Context, c fleetnodegatewayv1connect.FleetNodeGate
 		s.SessionExpiresAt = exp.AsTime()
 	}
 	return nil
+}
+
+func withHandshakeTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, handshakeStepTimeout)
 }

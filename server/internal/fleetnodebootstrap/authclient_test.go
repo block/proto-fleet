@@ -3,7 +3,6 @@ package fleetnodebootstrap
 import (
 	"context"
 	"net/http"
-	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
@@ -11,12 +10,11 @@ import (
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
+	"github.com/block/proto-fleet/server/internal/testutil"
 )
 
 type captureGateway struct {
@@ -49,9 +47,7 @@ func TestAuthenticatedClient_AttachesBearerHeaderPerCall(t *testing.T) {
 	mux := http.NewServeMux()
 	path, h := fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(fake)
 	mux.Handle(path, h)
-	srv := httptest.NewUnstartedServer(h2c.NewHandler(mux, &http2.Server{}))
-	srv.Start()
-	t.Cleanup(srv.Close)
+	srv := testutil.NewH2CServer(t, mux)
 
 	var token string
 	client := NewAuthenticatedGatewayClient(srv.URL, func() string { return token })
@@ -75,9 +71,7 @@ func TestAuthenticatedClient_RejectsEmptyToken(t *testing.T) {
 	t.Parallel()
 
 	// Arrange
-	srv := httptest.NewUnstartedServer(h2c.NewHandler(http.NewServeMux(), &http2.Server{}))
-	srv.Start()
-	t.Cleanup(srv.Close)
+	srv := testutil.NewH2CServer(t, http.NewServeMux())
 	client := NewAuthenticatedGatewayClient(srv.URL, func() string { return "" })
 
 	// Act
