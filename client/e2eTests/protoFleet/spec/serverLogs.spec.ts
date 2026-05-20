@@ -1,13 +1,13 @@
 import { create, fromJsonString, toJsonString } from "@bufbuild/protobuf";
 import { TimestampSchema } from "@bufbuild/protobuf/wkt";
 import { type Route } from "@playwright/test";
+import { expect, test } from "../fixtures/pageFixtures";
 import {
   ListServerLogsRequestSchema,
   ListServerLogsResponseSchema,
   LogEntrySchema,
   LogLevel,
 } from "@/protoFleet/api/generated/serverlog/v1/serverlog_pb";
-import { expect, test } from "../fixtures/pageFixtures";
 
 const serverLogsRpcPattern = /ServerLogService\/ListServerLogs/;
 const loadErrorMessage = "Polling failed for test";
