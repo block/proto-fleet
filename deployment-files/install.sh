@@ -118,6 +118,8 @@ detect_previous_install() {
   # distinguish "sudo refused (needs password)" from "sudo ran but found
   # no install". Only the refused case sets SUDO_BLOCKED; the rest fall
   # through to the actual probe.
+  # `2>&1 >/dev/null` captures stderr only (redirect order matters: dup
+  # stderr to current stdout first, then point stdout at /dev/null).
   local sudo_probe_err
   sudo_probe_err=$(sudo -n docker version --format 'x' 2>&1 >/dev/null || true)
   # Anchor each pattern on `sudo:` so docker stderr that happens to mention
@@ -315,10 +317,8 @@ get_default_install_dir() {
   fi
 
   if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
-    # `|| true` so a missing `getent` (e.g., on a non-glibc Linux) or a
-    # failing NSS lookup doesn't trip `set -e` before we reach the $HOME
-    # fallback below. `pipefail` would otherwise propagate the inner
-    # failure through `local sudo_home=$(...)` and abort the script.
+    # `|| true` neutralizes set -e / pipefail so a missing getent or failed
+    # NSS lookup falls through to $HOME instead of aborting.
     local sudo_home
     sudo_home=$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6 || true)
     if [ -n "$sudo_home" ]; then
@@ -340,10 +340,8 @@ DEFAULT_INSTALL_DIR=$(get_default_install_dir)
 # would orphan the root-owned containers and likely leave the user with two
 # competing stacks. (Process substitution + sudo is a footgun, so tell them
 # the pipe form that actually works.)
-# Shell-escape VERSION before embedding it in any copy-pasteable command
-# line we suggest to the user. `printf '%q'` produces a string that is safe
-# to re-paste into bash even if VERSION contains spaces or metachars (which
-# can happen if the user passed garbage as the version argument).
+# Shell-escape VERSION so the suggested copy-paste commands below stay safe
+# even when the user-supplied version arg contains spaces or metachars.
 QUOTED_VERSION=$(printf '%q' "${VERSION}")
 
 if [ "${PREVIOUS_INSTALL_NEEDS_SUDO:-0}" = "1" ] && [ "$(id -u)" -ne 0 ]; then
