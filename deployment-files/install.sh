@@ -56,16 +56,23 @@ probe_install_dir_with() {
   # root-owned install path may be unreadable to the invoking shell, so an
   # unprivileged `[ -f ]` would falsely report missing.
   #
-  # When the elevated marker check itself fails (sudoers may permit `sudo
-  # docker` but not `sudo test`, or the install layout doesn't match), fall
-  # back conservatively: docker already confirmed a name-matching container
-  # at this path, so accept the discovery rather than silently miss the
-  # privilege-mismatch case this whole detection flow exists to handle.
+  # When the elevated check exits non-zero, distinguish two cases via stderr:
+  #   - empty stderr  -> `test -f` ran and the marker is genuinely missing
+  #                       (test is silent on plain misses) -> treat as miss.
+  #   - non-empty     -> sudo refused (sudoers permits docker but not test,
+  #                       missing askpass, etc.) -> accept the discovery
+  #                       conservatively, since docker already confirmed a
+  #                       name-matching container at this path and we'd
+  #                       rather trip the privilege-mismatch guard than
+  #                       silently miss the install.
   local marker="${install_dir%/}/${DEPLOYMENT_DIR}/docker-compose.yaml"
   if [ "${#privilege[@]}" -eq 0 ]; then
     [ -f "$marker" ] || return 1
   else
-    ${privilege[@]+"${privilege[@]}"} test -f "$marker" 2>/dev/null || true
+    local test_err
+    if ! test_err=$(${privilege[@]+"${privilege[@]}"} test -f "$marker" 2>&1); then
+      [ -z "$test_err" ] && return 1
+    fi
   fi
   echo "$install_dir"
 }
@@ -113,8 +120,10 @@ detect_previous_install() {
   # through to the actual probe.
   local sudo_probe_err
   sudo_probe_err=$(sudo -n docker version --format 'x' 2>&1 >/dev/null || true)
+  # Anchor each pattern on `sudo:` so docker stderr that happens to mention
+  # "password" / "terminal" / "tty" can't false-positive into SUDO_BLOCKED.
   case "$sudo_probe_err" in
-    *"password is required"*|*"a terminal is required"*|*"sudo:"*"may not run"*|*"no tty present"*)
+    *"sudo: a password is required"*|*"sudo: a terminal is required"*|*"sudo:"*"may not run"*|*"sudo: no tty present"*)
       PREVIOUS_INSTALL_SUDO_BLOCKED=1
       return 1
       ;;
@@ -371,15 +380,18 @@ else
   SUGGESTED_DIR="$DEFAULT_INSTALL_DIR"
   echo "📌 No previous installation detected."
   echo "   Suggested installation location: ${SUGGESTED_DIR}"
-  # When sudo would have prompted for a password, we couldn't probe the root
-  # daemon at all — a "not detected" result might just mean we couldn't ask.
-  # Surface that explicitly so the user can re-run as root if appropriate.
-  if [ "${PREVIOUS_INSTALL_SUDO_BLOCKED:-0}" = "1" ]; then
-    echo ""
-    echo "   (Note: sudo required a password, so we couldn't check whether a"
-    echo "    root-managed fleet install exists. If one might, re-run as root:"
-    echo "      curl -fsSL https://fleet.proto.xyz/install.sh | sudo bash -s -- ${QUOTED_VERSION})"
-  fi
+fi
+
+# When sudo would have prompted for a password, we couldn't probe the root
+# daemon at all — a parallel root-managed install would otherwise stay
+# invisible. Print this whenever the sudo probe was blocked, even if the
+# on-disk fallback found an unprivileged install (the two installs could
+# coexist on the same host).
+if [ "${PREVIOUS_INSTALL_SUDO_BLOCKED:-0}" = "1" ]; then
+  echo ""
+  echo "   (Note: sudo required a password, so we couldn't check whether a"
+  echo "    root-managed fleet install also exists. If one might, re-run as root:"
+  echo "      curl -fsSL https://fleet.proto.xyz/install.sh | sudo bash -s -- ${QUOTED_VERSION})"
 fi
 
 read -p "   Use this location? (Y/n): " use_suggested
