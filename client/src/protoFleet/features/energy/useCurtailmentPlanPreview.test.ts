@@ -219,7 +219,7 @@ describe("useCurtailmentPlanPreview", () => {
   });
 
   it("keeps the previous preview visible with its request labels while a valid refresh is debounced", async () => {
-    mockPreviewCurtailmentPlan.mockResolvedValueOnce(previewResponse());
+    mockPreviewCurtailmentPlan.mockResolvedValueOnce(previewResponse()).mockReturnValueOnce(new Promise(() => {}));
 
     const { result, rerender } = renderHook(
       ({ values, debounceMs }) =>
@@ -245,7 +245,11 @@ describe("useCurtailmentPlanPreview", () => {
         deviceIdentifiers: ["miner-99"],
         targetKw: "50",
       },
-      debounceMs: 1000,
+      debounceMs: 1,
+    });
+
+    await waitFor(() => {
+      expect(result.current.isPreviewLoading).toBe(true);
     });
 
     expect(result.current.preview).toEqual(
@@ -255,8 +259,7 @@ describe("useCurtailmentPlanPreview", () => {
         targetKw: 40,
       }),
     );
-    expect(result.current.isPreviewLoading).toBe(false);
-    expect(mockPreviewCurtailmentPlan).toHaveBeenCalledTimes(1);
+    expect(mockPreviewCurtailmentPlan).toHaveBeenCalledTimes(2);
   });
 
   it("aborts in-flight previews when the request changes", async () => {

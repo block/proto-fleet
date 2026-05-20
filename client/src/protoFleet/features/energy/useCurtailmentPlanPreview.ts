@@ -43,6 +43,7 @@ interface CurtailmentPlanPreviewResult {
 
 interface CurtailmentPlanPreviewState {
   response?: PreviewCurtailmentPlanResponse;
+  responseRequestKey?: string;
   responseRequestValues?: CurtailmentPlanPreviewRequestValues;
   previewError?: string;
   isPreviewLoading: boolean;
@@ -57,6 +58,7 @@ const emptyPreviewResult: CurtailmentPlanPreviewResult = {
 
 const emptyPreviewState: CurtailmentPlanPreviewState = {
   response: undefined,
+  responseRequestKey: undefined,
   responseRequestValues: undefined,
   previewError: undefined,
   isPreviewLoading: false,
@@ -330,6 +332,7 @@ export function useCurtailmentPlanPreview({
 
           setState({
             response,
+            responseRequestKey: requestState.requestKey,
             responseRequestValues: cloneRequestValues(requestValues),
             previewError: undefined,
             isPreviewLoading: false,
@@ -350,6 +353,7 @@ export function useCurtailmentPlanPreview({
 
               setState({
                 response: undefined,
+                responseRequestKey: undefined,
                 responseRequestValues: undefined,
                 previewError: getErrorMessage(err, "Preview is unavailable."),
                 isPreviewLoading: false,
@@ -381,8 +385,9 @@ export function useCurtailmentPlanPreview({
 
   const hasCurrentPreviewState = requestState !== undefined && state.requestKey === requestState.requestKey;
   const renderableResponse = requestState !== undefined ? state.response : undefined;
+  const hasCurrentResponse = requestState !== undefined && state.responseRequestKey === requestState.requestKey;
   const previewValues =
-    hasCurrentPreviewState || state.responseRequestValues === undefined
+    hasCurrentResponse || state.responseRequestValues === undefined
       ? values
       : { ...values, ...state.responseRequestValues };
 
