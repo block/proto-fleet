@@ -13,15 +13,11 @@ import (
 	"syscall"
 )
 
-// Serializes concurrent refreshes via flock on <dir>/state.lock so a slower
-// writer can't clobber a newer state.yaml. Refuses to follow a symlink at
-// the dir leaf so the lock can't land in an attacker-chosen location and
-// silently break serialization for the SaveState that follows.
-//
-// Acquires with LOCK_NB so a held lock fails fast with a useful error
-// instead of blocking the caller forever. On contention, reads the current
-// holder's PID (recorded inside the lock) and tells the operator who to
-// stop, distinguishing a live process from a stale lockfile.
+// WithStateLock serializes refreshes via flock on <dir>/state.lock. Lstat
+// rejects symlink leaves so an attacker can't redirect the lock to a path
+// they control and break serialization of the following SaveState. LOCK_NB
+// fails fast with a useful error (naming the recorded holder pid) instead
+// of blocking forever.
 func WithStateLock(dir string, fn func() error) error {
 	if info, err := os.Lstat(dir); err == nil && info.Mode()&os.ModeSymlink != 0 {
 		return fmt.Errorf("state dir %s is a symlink; refusing to take a lock through it", dir)
@@ -37,8 +33,7 @@ func WithStateLock(dir string, fn func() error) error {
 	if err != nil {
 		return fmt.Errorf("open state lock: %w", err)
 	}
-	// Kernel releases flock on close; explicit LOCK_UN would race with the
-	// deferred Close.
+	// Closing f releases the flock; explicit LOCK_UN would race the defer.
 	defer func() { _ = f.Close() }()
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		if errors.Is(err, syscall.EWOULDBLOCK) {
@@ -46,9 +41,7 @@ func WithStateLock(dir string, fn func() error) error {
 		}
 		return fmt.Errorf("acquire state lock: %w", err)
 	}
-	// Best-effort: a failed write leaves the lockfile empty, which only
-	// degrades the next contention error to the "unknown holder" form.
-	_ = writeLockOwnerPID(f)
+	_ = writeLockOwnerPID(f) // best-effort; failure only degrades the next contention error.
 	return fn()
 }
 
@@ -70,9 +63,7 @@ func contendedLockError(lockPath string, f *os.File) error {
 		if processAlive(pid) {
 			return fmt.Errorf("state lock %s held by fleetnode pid=%d; stop it (kill %d) or use a different --state-dir", lockPath, pid, pid)
 		}
-		// Owner is dead but the kernel hasn't released the flock yet,
-		// usually because a subprocess inherited the FD. Operator
-		// intervention is still required.
+		// Dead owner + held lock means a subprocess inherited the FD.
 		return fmt.Errorf("state lock %s contended; recorded owner pid=%d is not running but the lock is still held (likely a subprocess inherited the FD); kill any lingering fleetnode children or use a different --state-dir", lockPath, pid)
 	}
 	return fmt.Errorf("state lock %s held by an unknown process; check `pgrep -lf fleetnode` and stop it, or use a different --state-dir", lockPath)
@@ -95,17 +86,12 @@ func readLockOwnerPID(f *os.File) (int, bool) {
 
 func processAlive(pid int) bool {
 	err := syscall.Kill(pid, 0)
-	if err == nil {
-		return true
-	}
-	// EPERM means the process exists but we don't have permission to
-	// signal it (different uid); still "alive" for our purposes.
-	return errors.Is(err, syscall.EPERM)
+	// EPERM means alive but different uid -- still "alive" for our purposes.
+	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
-// fsyncs a directory so a preceding os.Rename is durable across a power
-// loss. POSIX only: Windows directory handles do not support
-// FlushFileBuffers.
+// syncDir fsyncs a directory so a preceding os.Rename survives a power loss.
+// POSIX only; Windows directory handles don't support FlushFileBuffers.
 func syncDir(path string) error {
 	f, err := os.Open(path)
 	if err != nil {

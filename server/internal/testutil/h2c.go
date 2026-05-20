@@ -12,8 +12,8 @@ import (
 	"golang.org/x/net/http2/h2c"
 )
 
-// NewH2CServer wraps h in an h2c handler and starts an httptest server.
-// Required for Connect-RPC bidi streams, which can't run over HTTP/1.1.
+// NewH2CServer is HTTP/2-over-cleartext; required for Connect-RPC bidi
+// streams, which can't run over HTTP/1.1.
 func NewH2CServer(t *testing.T, h http.Handler) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewUnstartedServer(h2c.NewHandler(h, &http2.Server{}))
@@ -22,8 +22,6 @@ func NewH2CServer(t *testing.T, h http.Handler) *httptest.Server {
 	return srv
 }
 
-// NewH2CClient returns an http.Client speaking plaintext HTTP/2 (h2c). Used
-// to talk to servers from NewH2CServer.
 func NewH2CClient() *http.Client {
 	return &http.Client{
 		Transport: &http2.Transport{

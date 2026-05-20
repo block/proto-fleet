@@ -6,12 +6,11 @@ import (
 	"path/filepath"
 )
 
-// resolvePluginsDir returns the plugins directory or "" when no usable
-// directory exists. A missing binary-adjacent default is silent (heartbeat
-// only); a present but unsafe default is a hard error so the operator who
-// shipped plugins learns about it. Any returned non-empty path has passed
-// checkPluginsDirPerms — the plugin manager execs everything in this
-// directory, so non-owner write capability there is RCE-equivalent.
+// resolvePluginsDir returns "" when the binary-adjacent default is missing
+// (silent heartbeat-only mode); a present-but-unsafe default is a hard
+// error so a shipped plugins dir doesn't get silently downgraded. The
+// plugin manager execs everything in the returned path, so non-owner write
+// capability there is RCE-equivalent (checkPluginsDirPerms enforces).
 func resolvePluginsDir(flag, exeDir string) (string, error) {
 	if flag != "" {
 		if !filepath.IsAbs(flag) {
