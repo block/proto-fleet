@@ -16,7 +16,15 @@ probe_install_dir_with() {
   mount_path=$($docker_cmd inspect --format '{{range .Mounts}}{{if eq .Destination "/var/lib/fleet/start"}}{{.Source}}{{end}}{{end}}' "$container_id" 2>/dev/null || true)
   [ -z "$mount_path" ] && return 1
 
-  echo "$mount_path" | sed "s|/${DEPLOYMENT_DIR}.*$||"
+  # Strip the trailing /deployment/... segment to recover the install dir.
+  # If the mount source begins with /${DEPLOYMENT_DIR} (install root was /),
+  # the sed yields an empty string — treat that as a miss rather than echoing
+  # an empty dir, so the caller doesn't record a bogus 0-length install path
+  # and skip the sudo / on-disk fallbacks.
+  local install_dir
+  install_dir=$(echo "$mount_path" | sed "s|/${DEPLOYMENT_DIR}.*$||")
+  [ -z "$install_dir" ] && return 1
+  echo "$install_dir"
 }
 
 # Determines the installation directory by detecting previous installations.
@@ -246,7 +254,7 @@ fi
 
 # Marker check: docker-compose.yaml ships in every install tarball, so its
 # presence inside a 'deployment/' directory is a strong positive signal that
-# this really is a Proto Fleet install (and not some unrelated 'deployment/'
+# this really is a ProtoFleet install (and not some unrelated 'deployment/'
 # tree the user happened to create).
 if [ -z "${PREVIOUS_INSTALL_DIR:-}" ] \
   && [ -d "${DEFAULT_INSTALL_DIR}/${DEPLOYMENT_DIR}" ] \
