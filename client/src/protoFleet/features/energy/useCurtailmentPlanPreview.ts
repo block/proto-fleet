@@ -1,12 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 
 import { curtailmentClient } from "@/protoFleet/api/clients";
 import {
-  CurtailmentMode as ApiCurtailmentMode,
-  CurtailmentPriority as ApiCurtailmentPriority,
-  CurtailmentLevel,
-  CurtailmentStrategy,
+  CurtailmentMode,
+  CurtailmentPriority,
   FixedKwParamsSchema,
   type PreviewCurtailmentPlanRequest,
   PreviewCurtailmentPlanRequestSchema,
@@ -16,7 +14,7 @@ import {
   ScopeWholeOrgSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
-import type { CurtailmentFormValues, CurtailmentPlanPreview } from "@/protoFleet/features/energy/curtailmentTypes";
+import type { CurtailmentFormValues, CurtailmentPlanPreview } from "@/protoFleet/features/energy/CurtailmentStartModal";
 import { useAuthErrors } from "@/protoFleet/store";
 
 interface UseCurtailmentPlanPreviewOptions {
@@ -30,6 +28,7 @@ interface CurtailmentPlanPreviewState {
   preview?: CurtailmentPlanPreview;
   previewError?: string;
   isPreviewLoading: boolean;
+  requestKey?: string;
 }
 
 const emptyPreviewState: CurtailmentPlanPreviewState = {
@@ -38,80 +37,62 @@ const emptyPreviewState: CurtailmentPlanPreviewState = {
   isPreviewLoading: false,
 };
 
-const serverDefaultMaxDurationLabel = "server default";
-
-interface PreviewStateWithRequestKey extends CurtailmentPlanPreviewState {
-  requestKey?: string;
-}
-
-function parseNumber(value: string): number | undefined {
-  if (value.trim() === "") {
+function parseNumber(value: string, isValid: (value: number) => boolean): number | undefined {
+  const trimmed = value.trim();
+  if (trimmed === "") {
     return undefined;
   }
 
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : undefined;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) && isValid(parsed) ? parsed : undefined;
 }
 
 function parsePositiveNumber(value: string): number | undefined {
-  const parsed = parseNumber(value);
-  return parsed !== undefined && parsed > 0 ? parsed : undefined;
+  return parseNumber(value, (parsed) => parsed > 0);
 }
 
 function parseNonNegativeNumber(value: string): number | undefined {
-  const parsed = parseNumber(value);
-  return parsed !== undefined && parsed >= 0 ? parsed : undefined;
+  return parseNumber(value, (parsed) => parsed >= 0);
 }
 
 function parsePositiveInteger(value: string): number | undefined {
-  const parsed = parsePositiveNumber(value);
-  if (parsed === undefined || !Number.isInteger(parsed)) {
-    return undefined;
-  }
-
-  return parsed;
+  return parseNumber(value, (parsed) => parsed > 0 && Number.isInteger(parsed));
 }
 
 function parseNonNegativeInteger(value: string): number | undefined {
-  const parsed = parseNonNegativeNumber(value);
-  if (parsed === undefined || !Number.isInteger(parsed)) {
-    return undefined;
-  }
-
-  return parsed;
+  return parseNumber(value, (parsed) => parsed >= 0 && Number.isInteger(parsed));
 }
 
-function toApiPriority(priority: CurtailmentFormValues["priority"]): ApiCurtailmentPriority {
-  return priority === "emergency" ? ApiCurtailmentPriority.EMERGENCY : ApiCurtailmentPriority.NORMAL;
+function toApiPriority(priority: CurtailmentFormValues["priority"]): CurtailmentPriority {
+  return priority === "emergency" ? CurtailmentPriority.EMERGENCY : CurtailmentPriority.NORMAL;
 }
 
 function buildScope(values: CurtailmentFormValues): PreviewCurtailmentPlanRequest["scope"] | undefined {
-  if (values.scopeType === "wholeOrg") {
-    return {
-      case: "wholeOrg",
-      value: create(ScopeWholeOrgSchema, {}),
-    };
+  switch (values.scopeType) {
+    case "wholeOrg":
+      return {
+        case: "wholeOrg",
+        value: create(ScopeWholeOrgSchema, {}),
+      };
+    case "deviceSet":
+      return values.deviceSetIds.length > 0
+        ? {
+            case: "deviceSetIds",
+            value: create(ScopeDeviceSetsSchema, {
+              deviceSetIds: values.deviceSetIds,
+            }),
+          }
+        : undefined;
+    case "explicitMiners":
+      return values.deviceIdentifiers.length > 0
+        ? {
+            case: "deviceIdentifiers",
+            value: create(ScopeDeviceListSchema, {
+              deviceIdentifiers: values.deviceIdentifiers,
+            }),
+          }
+        : undefined;
   }
-
-  if (values.scopeType === "deviceSet" && values.deviceSetIds.length > 0) {
-    return {
-      case: "deviceSetIds",
-      value: create(ScopeDeviceSetsSchema, {
-        deviceSetIds: values.deviceSetIds,
-      }),
-    };
-  }
-
-  if (values.scopeType === "explicitMiners" && values.deviceIdentifiers.length > 0) {
-    return {
-      case: "deviceIdentifiers",
-      value: create(ScopeDeviceListSchema, {
-        deviceIdentifiers: values.deviceIdentifiers,
-      }),
-    };
-  }
-
-  return undefined;
 }
 
 export function buildPreviewCurtailmentPlanRequest(
@@ -124,19 +105,15 @@ export function buildPreviewCurtailmentPlanRequest(
     return undefined;
   }
 
-  const toleranceKw = parseNonNegativeNumber(values.toleranceKw);
-
   return create(PreviewCurtailmentPlanRequestSchema, {
     scope,
-    mode: ApiCurtailmentMode.FIXED_KW,
-    strategy: CurtailmentStrategy.LEAST_EFFICIENT_FIRST,
-    level: CurtailmentLevel.FULL,
+    mode: CurtailmentMode.FIXED_KW,
     priority: toApiPriority(values.priority),
     modeParams: {
       case: "fixedKw",
       value: create(FixedKwParamsSchema, {
         targetKw,
-        toleranceKw,
+        toleranceKw: parseNonNegativeNumber(values.toleranceKw),
       }),
     },
     includeMaintenance: values.includeMaintenance,
@@ -171,35 +148,56 @@ function formatScopeLabel(values: CurtailmentFormValues): string {
   }
 }
 
-function formatDurationEstimate(seconds: number): string {
+function formatDurationEstimate(seconds: number, approximate = true): string {
   if (seconds <= 0) {
     return "Immediately";
   }
 
+  const prefix = approximate ? "~" : "";
+
   if (seconds < 60) {
-    return `~${pluralize(seconds, "second")}`;
+    return `${prefix}${pluralize(seconds, "second")}`;
   }
 
   const minutes = Math.ceil(seconds / 60);
   if (minutes < 60) {
-    return `~${pluralize(minutes, "minute")}`;
+    return `${prefix}${pluralize(minutes, "minute")}`;
   }
 
   const hours = Math.floor(minutes / 60);
   const remainingMinutes = minutes % 60;
 
   if (remainingMinutes === 0) {
-    return `~${pluralize(hours, "hour")}`;
+    return `${prefix}${pluralize(hours, "hour")}`;
   }
 
-  return `~${pluralize(hours, "hour")} ${pluralize(remainingMinutes, "minute")}`;
+  return `${prefix}${pluralize(hours, "hour")} ${pluralize(remainingMinutes, "minute")}`;
 }
 
-function formatConfiguredDuration(seconds: number): string {
-  return formatDurationEstimate(seconds).replace(/^~/, "");
+function estimateCurtailDuration(values: CurtailmentFormValues): string {
+  const minDurationSec = parseNonNegativeInteger(values.minDurationSec);
+  const maxDurationSec = parseNonNegativeInteger(values.maxDurationSec);
+  const hasMinDuration = minDurationSec !== undefined && minDurationSec > 0;
+  const hasMaxDuration = maxDurationSec !== undefined && maxDurationSec > 0;
+
+  if (hasMinDuration && hasMaxDuration) {
+    return minDurationSec === maxDurationSec
+      ? formatDurationEstimate(minDurationSec, false)
+      : `${formatDurationEstimate(minDurationSec, false)} - ${formatDurationEstimate(maxDurationSec, false)}`;
+  }
+
+  if (hasMinDuration) {
+    return `${formatDurationEstimate(minDurationSec, false)} - server default`;
+  }
+
+  if (hasMaxDuration) {
+    return `Up to ${formatDurationEstimate(maxDurationSec, false)}`;
+  }
+
+  return "Server default";
 }
 
-export function estimateRestoreDuration(values: CurtailmentFormValues, selectedMinerCount: number): string {
+function estimateRestoreDuration(values: CurtailmentFormValues, selectedMinerCount: number): string {
   const restoreBatchSize = parsePositiveInteger(values.restoreBatchSize);
   const restoreIntervalSec = parsePositiveInteger(values.restoreIntervalSec);
 
@@ -211,65 +209,20 @@ export function estimateRestoreDuration(values: CurtailmentFormValues, selectedM
   return formatDurationEstimate(Math.max(restoreBatchCount - 1, 0) * restoreIntervalSec);
 }
 
-export function estimateCurtailDuration(values: CurtailmentFormValues): string {
-  const minDurationSec = parseNonNegativeInteger(values.minDurationSec);
-  const maxDurationSec = parseNonNegativeInteger(values.maxDurationSec);
-  const hasMinDuration = minDurationSec !== undefined && minDurationSec > 0;
-  const hasMaxDuration = maxDurationSec !== undefined && maxDurationSec > 0;
-
-  if (hasMinDuration && hasMaxDuration) {
-    if (minDurationSec === maxDurationSec) {
-      return formatConfiguredDuration(minDurationSec);
-    }
-
-    return `${formatConfiguredDuration(minDurationSec)} - ${formatConfiguredDuration(maxDurationSec)}`;
-  }
-
-  if (hasMinDuration) {
-    return `${formatConfiguredDuration(minDurationSec)} - ${serverDefaultMaxDurationLabel}`;
-  }
-
-  if (hasMaxDuration) {
-    return `Up to ${formatConfiguredDuration(maxDurationSec)}`;
-  }
-
-  return "Server default";
-}
-
-export function toCurtailmentPlanPreview(
+function toCurtailmentPlanPreview(
   response: PreviewCurtailmentPlanResponse,
   values: CurtailmentFormValues,
 ): CurtailmentPlanPreview {
   const fixedKw = response.modeParams.case === "fixedKw" ? response.modeParams.value : undefined;
-  const targetKw = fixedKw?.targetKw ?? parsePositiveNumber(values.targetKw) ?? 0;
 
   return {
     selectedMinerCount: response.candidates.length,
-    targetKw,
+    targetKw: fixedKw?.targetKw ?? parsePositiveNumber(values.targetKw) ?? 0,
     estimatedReductionKw: response.estimatedReductionKw,
     curtailEstimate: estimateCurtailDuration(values),
     restoreEstimate: estimateRestoreDuration(values, response.candidates.length),
     scopeLabel: formatScopeLabel(values),
   };
-}
-
-function getValuesKey(values: CurtailmentFormValues): string {
-  return [
-    values.scopeType,
-    values.scopeId ?? "",
-    values.deviceSetIds.join(","),
-    values.deviceIdentifiers.join(","),
-    values.curtailmentMode,
-    values.minerSelectionStrategy,
-    values.targetKw,
-    values.toleranceKw,
-    values.priority,
-    values.minDurationSec,
-    values.maxDurationSec,
-    values.restoreBatchSize,
-    values.restoreIntervalSec,
-    String(values.includeMaintenance),
-  ].join("|");
 }
 
 export function useCurtailmentPlanPreview({
@@ -279,22 +232,20 @@ export function useCurtailmentPlanPreview({
   debounceMs = 300,
 }: UseCurtailmentPlanPreviewOptions): CurtailmentPlanPreviewState {
   const { handleAuthErrors } = useAuthErrors();
-  const [state, setState] = useState<PreviewStateWithRequestKey>(emptyPreviewState);
-  const latestRequestId = useRef(0);
-  const valuesKey = useMemo(() => getValuesKey(values), [values]);
+  const [state, setState] = useState<CurtailmentPlanPreviewState>(emptyPreviewState);
+  const valuesKey = useMemo(() => JSON.stringify(values), [values]);
   const request = useMemo(() => buildPreviewCurtailmentPlanRequest(values), [values]);
-  const canPreview = open && !disabled && request !== undefined;
 
   useEffect(() => {
-    if (!canPreview) {
-      latestRequestId.current += 1;
+    if (!open || disabled) {
       return;
     }
 
-    const requestId = latestRequestId.current + 1;
-    latestRequestId.current = requestId;
-    const isCurrentRequest = () => latestRequestId.current === requestId;
+    if (!request) {
+      return;
+    }
 
+    let isActive = true;
     const timeoutId = setTimeout(() => {
       setState((current) => ({
         ...current,
@@ -306,7 +257,7 @@ export function useCurtailmentPlanPreview({
       void curtailmentClient
         .previewCurtailmentPlan(request)
         .then((response) => {
-          if (!isCurrentRequest()) {
+          if (!isActive) {
             return;
           }
 
@@ -318,14 +269,14 @@ export function useCurtailmentPlanPreview({
           });
         })
         .catch((error) => {
-          if (!isCurrentRequest()) {
+          if (!isActive) {
             return;
           }
 
           handleAuthErrors({
             error,
             onError: (err) => {
-              if (!isCurrentRequest()) {
+              if (!isActive) {
                 return;
               }
 
@@ -340,8 +291,11 @@ export function useCurtailmentPlanPreview({
         });
     }, debounceMs);
 
-    return () => clearTimeout(timeoutId);
-  }, [canPreview, debounceMs, handleAuthErrors, request, values, valuesKey]);
+    return () => {
+      isActive = false;
+      clearTimeout(timeoutId);
+    };
+  }, [debounceMs, disabled, handleAuthErrors, open, request, values, valuesKey]);
 
   if (!open || disabled) {
     return emptyPreviewState;
@@ -350,6 +304,6 @@ export function useCurtailmentPlanPreview({
   return {
     preview: state.preview,
     previewError: state.requestKey === valuesKey ? state.previewError : undefined,
-    isPreviewLoading: state.isPreviewLoading,
+    isPreviewLoading: state.requestKey === valuesKey ? state.isPreviewLoading : false,
   };
 }

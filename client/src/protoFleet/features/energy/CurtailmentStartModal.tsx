@@ -2,15 +2,6 @@ import { type ReactElement, type ReactNode, useState } from "react";
 
 import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
 import TargetSelectButton, { getTargetButtonLabel } from "@/protoFleet/components/TargetSelectButton";
-import type {
-  CurtailmentFormErrors,
-  CurtailmentFormValues,
-  CurtailmentMode,
-  CurtailmentPlanPreview,
-  CurtailmentSubmitValues,
-  MinerSelectionStrategy,
-  ResponseProfileId,
-} from "@/protoFleet/features/energy/curtailmentTypes";
 import { useCurtailmentPlanPreview } from "@/protoFleet/features/energy/useCurtailmentPlanPreview";
 import GroupSelectionModal from "@/protoFleet/features/settings/components/Schedules/GroupSelectionModal";
 import MinerSelectionModal from "@/protoFleet/features/settings/components/Schedules/MinerSelectionModal";
@@ -23,17 +14,43 @@ import Input from "@/shared/components/Input";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import Select, { type SelectOption, type SelectProps } from "@/shared/components/Select";
 
-export type {
-  CurtailmentFormErrors,
-  CurtailmentFormValues,
-  CurtailmentMode,
-  CurtailmentPlanPreview,
-  CurtailmentPriority,
-  CurtailmentScopeType,
-  CurtailmentSubmitValues,
-  MinerSelectionStrategy,
-  ResponseProfileId,
-} from "@/protoFleet/features/energy/curtailmentTypes";
+export type CurtailmentPriority = "normal" | "emergency";
+export type CurtailmentScopeType = "wholeOrg" | "deviceSet" | "explicitMiners";
+export type ResponseProfileId = "customPlan";
+export type CurtailmentMode = "fixedKwReduction";
+export type MinerSelectionStrategy = "leastEfficientFirst";
+
+export interface CurtailmentFormValues {
+  scopeType: CurtailmentScopeType;
+  scopeId?: string;
+  deviceSetIds: string[];
+  deviceIdentifiers: string[];
+  responseProfileId: ResponseProfileId;
+  curtailmentMode: CurtailmentMode;
+  minerSelectionStrategy: MinerSelectionStrategy;
+  targetKw: string;
+  toleranceKw: string;
+  priority: CurtailmentPriority;
+  minDurationSec: string;
+  maxDurationSec: string;
+  restoreBatchSize: string;
+  restoreIntervalSec: string;
+  reason: string;
+  includeMaintenance: boolean;
+}
+
+export type CurtailmentSubmitValues = CurtailmentFormValues;
+
+export interface CurtailmentPlanPreview {
+  selectedMinerCount: number;
+  targetKw: number;
+  estimatedReductionKw: number;
+  curtailEstimate: string;
+  restoreEstimate: string;
+  scopeLabel: string;
+}
+
+export type CurtailmentFormErrors = Partial<Record<keyof CurtailmentFormValues, string>>;
 
 interface CurtailmentStartModalProps {
   open: boolean;
@@ -204,39 +221,6 @@ function ReductionProgressBar({ value, max }: ReductionProgressBarProps): ReactE
 }
 
 function PreviewPane({ preview, previewError, isPreviewLoading = false }: PreviewPaneProps): ReactElement {
-  if (preview) {
-    return (
-      <div className="flex min-h-[360px] flex-1 items-center justify-center rounded-[24px] bg-surface-overlay px-8 py-12 laptop:min-h-0 laptop:px-16 laptop:py-6">
-        <div className="flex w-full max-w-[520px] flex-col gap-10">
-          <div className="text-heading-300 text-text-primary">
-            Curtail {preview.selectedMinerCount} miners {preview.scopeLabel}
-          </div>
-
-          <div className="grid gap-3">
-            <div>
-              <div className="text-emphasis-200 text-text-primary-70">Target reduction</div>
-              <div className="text-heading-300 text-text-primary">
-                {formatKw(preview.estimatedReductionKw)} of {formatKw(preview.targetKw)}
-              </div>
-            </div>
-            <ReductionProgressBar value={preview.estimatedReductionKw} max={preview.targetKw} />
-          </div>
-
-          <div className="grid gap-6">
-            <div>
-              <div className="text-emphasis-200 text-text-primary-70">Time to curtail</div>
-              <div className="text-heading-300 text-text-primary">{preview.curtailEstimate}</div>
-            </div>
-            <div>
-              <div className="text-emphasis-200 text-text-primary-70">Time to restore</div>
-              <div className="text-heading-300 text-text-primary">{preview.restoreEstimate}</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   if (previewError) {
     return (
       <div className="flex min-h-40 flex-1 items-center justify-center rounded-[24px] bg-surface-overlay px-6 py-10 text-300 text-text-primary-70 laptop:px-16">
@@ -248,21 +232,54 @@ function PreviewPane({ preview, previewError, isPreviewLoading = false }: Previe
     );
   }
 
-  if (isPreviewLoading) {
+  if (!preview) {
+    if (isPreviewLoading) {
+      return (
+        <div
+          className="flex min-h-40 flex-1 items-center justify-center rounded-[24px] bg-surface-overlay px-6 py-10 text-text-primary-70 laptop:px-16"
+          role="status"
+          aria-label="Loading curtailment preview"
+        >
+          <ProgressCircular indeterminate dataTestId="curtailment-preview-loading" />
+        </div>
+      );
+    }
+
     return (
-      <div
-        className="flex min-h-40 flex-1 items-center justify-center rounded-[24px] bg-surface-overlay px-6 py-10 text-text-primary-70 laptop:px-16"
-        role="status"
-        aria-label="Loading curtailment preview"
-      >
-        <ProgressCircular indeterminate dataTestId="curtailment-preview-loading" />
+      <div className="flex min-h-40 flex-1 items-center justify-center rounded-[24px] bg-surface-overlay px-6 py-10 text-center text-300 text-text-primary-70 laptop:px-16">
+        Configure your curtailment to see a preview.
       </div>
     );
   }
 
   return (
-    <div className="flex min-h-40 flex-1 items-center justify-center rounded-[24px] bg-surface-overlay px-6 py-10 text-center text-300 text-text-primary-70 laptop:px-16">
-      Configure your curtailment to see a preview.
+    <div className="flex min-h-[360px] flex-1 items-center justify-center rounded-[24px] bg-surface-overlay px-8 py-12 laptop:min-h-0 laptop:px-16 laptop:py-6">
+      <div className="flex w-full max-w-[520px] flex-col gap-10">
+        <div className="text-heading-300 text-text-primary">
+          Curtail {preview.selectedMinerCount} miners {preview.scopeLabel} immediately
+        </div>
+
+        <div className="grid gap-3">
+          <div>
+            <div className="text-emphasis-200 text-text-primary-70">Target reduction</div>
+            <div className="text-heading-300 text-text-primary">
+              {formatKw(preview.estimatedReductionKw)} of {formatKw(preview.targetKw)}
+            </div>
+          </div>
+          <ReductionProgressBar value={preview.estimatedReductionKw} max={preview.targetKw} />
+        </div>
+
+        <div className="grid gap-6">
+          <div>
+            <div className="text-emphasis-200 text-text-primary-70">Time to curtail</div>
+            <div className="text-heading-300 text-text-primary">{preview.curtailEstimate}</div>
+          </div>
+          <div>
+            <div className="text-emphasis-200 text-text-primary-70">Time to restore</div>
+            <div className="text-heading-300 text-text-primary">{preview.restoreEstimate}</div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

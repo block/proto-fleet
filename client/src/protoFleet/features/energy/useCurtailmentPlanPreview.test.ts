@@ -1,4 +1,4 @@
-import { renderHook, type RenderHookResult, waitFor } from "@testing-library/react";
+import { renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
@@ -7,14 +7,11 @@ import {
   CurtailmentCandidateSchema,
   CurtailmentMode,
   FixedKwParamsSchema,
-  type PreviewCurtailmentPlanResponse,
   PreviewCurtailmentPlanResponseSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
-import type { CurtailmentFormValues } from "@/protoFleet/features/energy/curtailmentTypes";
+import type { CurtailmentFormValues } from "@/protoFleet/features/energy/CurtailmentStartModal";
 import {
   buildPreviewCurtailmentPlanRequest,
-  estimateCurtailDuration,
-  estimateRestoreDuration,
   useCurtailmentPlanPreview,
 } from "@/protoFleet/features/energy/useCurtailmentPlanPreview";
 
@@ -46,26 +43,19 @@ const baseValues: CurtailmentFormValues = {
   targetKw: "40",
   toleranceKw: "",
   priority: "normal",
-  minDurationSec: "",
-  maxDurationSec: "",
+  minDurationSec: "300",
+  maxDurationSec: "1800",
   restoreBatchSize: "10",
   restoreIntervalSec: "120",
   reason: "Grid peak",
   includeMaintenance: true,
 };
 
-interface PreviewHookRenderProps {
-  values?: CurtailmentFormValues;
-  disabled?: boolean;
-}
-
-function previewResponse(): PreviewCurtailmentPlanResponse {
+function previewResponse(candidateCount = 3) {
   return create(PreviewCurtailmentPlanResponseSchema, {
-    candidates: [
-      create(CurtailmentCandidateSchema, { deviceIdentifier: "miner-1" }),
-      create(CurtailmentCandidateSchema, { deviceIdentifier: "miner-2" }),
-      create(CurtailmentCandidateSchema, { deviceIdentifier: "miner-3" }),
-    ],
+    candidates: Array.from({ length: candidateCount }, (_, index) =>
+      create(CurtailmentCandidateSchema, { deviceIdentifier: `miner-${index + 1}` }),
+    ),
     estimatedReductionKw: 45,
     mode: CurtailmentMode.FIXED_KW,
     modeParams: {
@@ -75,20 +65,13 @@ function previewResponse(): PreviewCurtailmentPlanResponse {
   });
 }
 
-function renderPreviewHook(
-  initialProps: PreviewHookRenderProps = {},
-): RenderHookResult<ReturnType<typeof useCurtailmentPlanPreview>, PreviewHookRenderProps> {
-  return renderHook(
-    ({ values = baseValues, disabled }: PreviewHookRenderProps) =>
-      useCurtailmentPlanPreview({
-        open: true,
-        values,
-        disabled,
-        debounceMs: 0,
-      }),
-    {
-      initialProps,
-    },
+function renderPreviewHook(values: CurtailmentFormValues = baseValues) {
+  return renderHook(() =>
+    useCurtailmentPlanPreview({
+      open: true,
+      values,
+      debounceMs: 0,
+    }),
   );
 }
 
@@ -100,22 +83,19 @@ describe("useCurtailmentPlanPreview", () => {
     );
   });
 
-  it("builds a supported fixed-kW whole-fleet preview request", () => {
-    const request = buildPreviewCurtailmentPlanRequest(baseValues);
-
-    expect(request?.scope.case).toBe("wholeOrg");
-    expect(request?.mode).toBe(CurtailmentMode.FIXED_KW);
-    expect(request?.modeParams.case).toBe("fixedKw");
-    if (request?.modeParams.case !== "fixedKw") {
+  it("builds supported fixed-kW preview requests", () => {
+    const wholeFleetRequest = buildPreviewCurtailmentPlanRequest(baseValues);
+    expect(wholeFleetRequest?.scope.case).toBe("wholeOrg");
+    expect(wholeFleetRequest?.mode).toBe(CurtailmentMode.FIXED_KW);
+    expect(wholeFleetRequest?.modeParams.case).toBe("fixedKw");
+    if (wholeFleetRequest?.modeParams.case !== "fixedKw") {
       throw new Error("Expected fixedKw mode params");
     }
-    expect(request.modeParams.value.targetKw).toBe(40);
-    expect(request?.includeMaintenance).toBe(true);
-    expect(request?.forceIncludeMaintenance).toBe(true);
-  });
+    expect(wholeFleetRequest.modeParams.value.targetKw).toBe(40);
+    expect(wholeFleetRequest?.includeMaintenance).toBe(true);
+    expect(wholeFleetRequest?.forceIncludeMaintenance).toBe(true);
 
-  it("builds device-set and maintenance opt-out fields", () => {
-    const request = buildPreviewCurtailmentPlanRequest({
+    const deviceSetRequest = buildPreviewCurtailmentPlanRequest({
       ...baseValues,
       scopeType: "deviceSet",
       scopeId: "groups",
@@ -123,35 +103,21 @@ describe("useCurtailmentPlanPreview", () => {
       includeMaintenance: false,
     });
 
-    expect(request?.scope.case).toBe("deviceSetIds");
-    if (request?.scope.case !== "deviceSetIds") {
+    expect(deviceSetRequest?.scope.case).toBe("deviceSetIds");
+    if (deviceSetRequest?.scope.case !== "deviceSetIds") {
       throw new Error("Expected deviceSetIds scope");
     }
-    expect(request.scope.value.deviceSetIds).toEqual(["group-1", "group-2"]);
-    expect(request?.includeMaintenance).toBe(false);
-    expect(request?.forceIncludeMaintenance).toBe(false);
+    expect(deviceSetRequest.scope.value.deviceSetIds).toEqual(["group-1", "group-2"]);
+    expect(deviceSetRequest.includeMaintenance).toBe(false);
+    expect(deviceSetRequest.forceIncludeMaintenance).toBe(false);
   });
 
-  it("does not build a request until the target is valid", () => {
+  it("does not build a request until target and scope are valid", () => {
     expect(buildPreviewCurtailmentPlanRequest({ ...baseValues, targetKw: "" })).toBeUndefined();
     expect(buildPreviewCurtailmentPlanRequest({ ...baseValues, targetKw: "0" })).toBeUndefined();
-  });
-
-  it("derives restore estimate from selected miners and restore controls", () => {
-    expect(estimateRestoreDuration(baseValues, 18)).toBe("~2 minutes");
-    expect(estimateRestoreDuration({ ...baseValues, restoreBatchSize: "", restoreIntervalSec: "" }, 18)).toBe(
-      "Server default",
-    );
-    expect(estimateRestoreDuration({ ...baseValues, restoreBatchSize: "1.5" }, 18)).toBe("Server default");
-  });
-
-  it("derives curtail estimate from min and max duration controls", () => {
-    expect(estimateCurtailDuration(baseValues)).toBe("Server default");
-    expect(estimateCurtailDuration({ ...baseValues, minDurationSec: "300", maxDurationSec: "1800" })).toBe(
-      "5 minutes - 30 minutes",
-    );
-    expect(estimateCurtailDuration({ ...baseValues, minDurationSec: "300" })).toBe("5 minutes - server default");
-    expect(estimateCurtailDuration({ ...baseValues, maxDurationSec: "1800" })).toBe("Up to 30 minutes");
+    expect(
+      buildPreviewCurtailmentPlanRequest({ ...baseValues, scopeType: "deviceSet", deviceSetIds: [] }),
+    ).toBeUndefined();
   });
 
   it("fetches and maps a preview response", async () => {
@@ -165,7 +131,7 @@ describe("useCurtailmentPlanPreview", () => {
           selectedMinerCount: 3,
           targetKw: 40,
           estimatedReductionKw: 45,
-          curtailEstimate: "Server default",
+          curtailEstimate: "5 minutes - 30 minutes",
           restoreEstimate: "Immediately",
           scopeLabel: "across the fleet",
         }),
@@ -180,52 +146,6 @@ describe("useCurtailmentPlanPreview", () => {
     );
   });
 
-  it("keeps the current preview visible while new values are loading", async () => {
-    mockPreviewCurtailmentPlan.mockResolvedValueOnce(previewResponse());
-
-    const { result, rerender } = renderPreviewHook();
-
-    await waitFor(() => {
-      expect(result.current.preview).toEqual(
-        expect.objectContaining({
-          targetKw: 40,
-          estimatedReductionKw: 45,
-        }),
-      );
-    });
-
-    const currentPreview = result.current.preview;
-    mockPreviewCurtailmentPlan.mockReturnValueOnce(new Promise(() => {}));
-
-    rerender({ values: { ...baseValues, targetKw: "50" } });
-
-    expect(result.current.preview).toBe(currentPreview);
-
-    await waitFor(() => {
-      expect(mockPreviewCurtailmentPlan).toHaveBeenCalledTimes(2);
-    });
-
-    expect(result.current.preview).toBe(currentPreview);
-    expect(result.current.isPreviewLoading).toBe(true);
-  });
-
-  it("keeps the current preview visible while values are temporarily invalid", async () => {
-    mockPreviewCurtailmentPlan.mockResolvedValueOnce(previewResponse());
-
-    const { result, rerender } = renderPreviewHook();
-
-    await waitFor(() => {
-      expect(result.current.preview).toBeDefined();
-    });
-
-    const currentPreview = result.current.preview;
-
-    rerender({ values: { ...baseValues, targetKw: "" } });
-
-    expect(result.current.preview).toBe(currentPreview);
-    expect(mockPreviewCurtailmentPlan).toHaveBeenCalledTimes(1);
-  });
-
   it("surfaces API errors through previewError", async () => {
     mockPreviewCurtailmentPlan.mockRejectedValueOnce(
       new ConnectError("insufficient curtailable load", Code.InvalidArgument),
@@ -237,23 +157,5 @@ describe("useCurtailmentPlanPreview", () => {
       expect(result.current.previewError).toBe("insufficient curtailable load");
     });
     expect(mockHandleAuthErrors).toHaveBeenCalledTimes(1);
-  });
-
-  it("clears stale preview state when previewing is disabled", async () => {
-    mockPreviewCurtailmentPlan.mockResolvedValueOnce(previewResponse());
-
-    const { result, rerender } = renderPreviewHook();
-
-    await waitFor(() => {
-      expect(result.current.preview).toBeDefined();
-    });
-
-    rerender({ disabled: true });
-
-    expect(result.current).toEqual({
-      preview: undefined,
-      previewError: undefined,
-      isPreviewLoading: false,
-    });
   });
 });
