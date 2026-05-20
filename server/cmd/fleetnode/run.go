@@ -106,15 +106,6 @@ func (r *RunCmd) run(c *Context, stderr io.Writer) error {
 
 	logger := slog.New(slog.NewTextHandler(stderr, nil))
 	if resolvedPluginsDir != "" {
-		reapOrphanedPlugins(resolvedPluginsDir, logger)
-		disc, cleanup, bootstrapErr := newPluginDiscoverer(resolvedPluginsDir)
-		if bootstrapErr != nil {
-			return fmt.Errorf("bootstrap discovery plugins: %w", bootstrapErr)
-		}
-		defer cleanup()
-		r.discoverer = disc
-	}
-	if resolvedPluginsDir != "" {
 		source := "binary-adjacent"
 		if r.PluginsDir != "" {
 			source = "flag"
@@ -124,7 +115,20 @@ func (r *RunCmd) run(c *Context, stderr io.Writer) error {
 		logger.Info("no plugins dir found adjacent to binary; control loop disabled (heartbeat only)")
 	}
 
+	// Plugin reap + spawn happens INSIDE the state lock so a second
+	// concurrent agent (errored out on lock contention) can't kill our
+	// plugin children before we finish startup.
+	logger.Info("acquiring state lock", "state_dir", c.StateDir)
 	return fleetnodebootstrap.WithStateLock(c.StateDir, func() error {
+		if resolvedPluginsDir != "" {
+			reapOrphanedPlugins(resolvedPluginsDir, logger)
+			disc, cleanup, bootstrapErr := newPluginDiscoverer(resolvedPluginsDir)
+			if bootstrapErr != nil {
+				return fmt.Errorf("bootstrap discovery plugins: %w", bootstrapErr)
+			}
+			defer cleanup()
+			r.discoverer = disc
+		}
 		return r.runLocked(c, logger)
 	})
 }
