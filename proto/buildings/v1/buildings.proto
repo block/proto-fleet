@@ -17,6 +17,10 @@ service BuildingService {
     // (default).
     rpc ListBuildings(ListBuildingsRequest) returns (ListBuildingsResponse);
 
+    // GetBuilding returns a single building by id. Returns NotFound if the
+    // building does not exist or belongs to another org.
+    rpc GetBuilding(GetBuildingRequest) returns (GetBuildingResponse);
+
     // CreateBuilding inserts a new building. Name must be unique
     // within the assigned site (when site_id is set); unassigned
     // buildings are not name-unique so cascade-unassign on site
@@ -90,6 +94,16 @@ message ListBuildingsRequest {
 
 message ListBuildingsResponse {
     repeated BuildingWithCounts buildings = 1;
+}
+
+// GetBuilding
+
+message GetBuildingRequest {
+    int64 id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+message GetBuildingResponse {
+    Building building = 1;
 }
 
 // CreateBuilding

@@ -207,6 +207,53 @@ func TestHandler_CreateBuilding_rejectsUnknownSite(t *testing.T) {
 	assert.Equal(t, connect.CodeNotFound, fleetErr.GRPCCode)
 }
 
+func TestHandler_GetBuilding_happy(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+
+	h.buildingStore.EXPECT().GetBuilding(gomock.Any(), int64(7), int64(42)).
+		Return(&models.Building{ID: 42, Name: "Hangar"}, nil)
+
+	resp, err := h.handler.GetBuilding(adminCtx(t, 7), connect.NewRequest(&pb.GetBuildingRequest{Id: 42}))
+	require.NoError(t, err)
+	assert.Equal(t, int64(42), resp.Msg.GetBuilding().GetId())
+	assert.Equal(t, "Hangar", resp.Msg.GetBuilding().GetName())
+}
+
+func TestHandler_GetBuilding_notFound(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+
+	h.buildingStore.EXPECT().GetBuilding(gomock.Any(), int64(7), int64(999)).
+		Return(nil, fleeterror.NewNotFoundErrorf("building %d not found", 999))
+
+	_, err := h.handler.GetBuilding(adminCtx(t, 7), connect.NewRequest(&pb.GetBuildingRequest{Id: 999}))
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeNotFound, fleetErr.GRPCCode)
+}
+
+// Cross-org access is indistinguishable from missing at the store layer —
+// the SQL query filters by orgID, so a building in another org surfaces
+// as ErrNoRows → NotFound. We assert NotFound (NOT PermissionDenied) to
+// avoid leaking existence across orgs.
+func TestHandler_GetBuilding_crossOrgIsNotFound(t *testing.T) {
+	t.Parallel()
+	h := newTestHandler(t)
+
+	// Caller is org 7; the building (id 42) lives in org 9. The store
+	// scopes by (orgID, id) so it returns NotFound for org 7.
+	h.buildingStore.EXPECT().GetBuilding(gomock.Any(), int64(7), int64(42)).
+		Return(nil, fleeterror.NewNotFoundErrorf("building %d not found", 42))
+
+	_, err := h.handler.GetBuilding(adminCtx(t, 7), connect.NewRequest(&pb.GetBuildingRequest{Id: 42}))
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeNotFound, fleetErr.GRPCCode)
+}
+
 func TestHandler_UpdateBuilding_happy(t *testing.T) {
 	t.Parallel()
 	h := newTestHandler(t)
