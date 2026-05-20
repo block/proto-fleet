@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { useBuildings } from "@/protoFleet/api/buildings";
 import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
@@ -27,18 +27,30 @@ const SiteSettingsSingleView = ({ site, knownSiteIds }: SiteSettingsSingleViewPr
   const siteId = site.site?.id ?? 0n;
   const { listBuildingsBySite } = useBuildings();
   const [buildings, setBuildings] = useState<BuildingWithCounts[] | undefined>(undefined);
+  const [buildingsError, setBuildingsError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (siteId === 0n) return;
+  // Track buildings + buildingsError separately so transient failures don't
+  // collapse into the "No buildings in this site yet." empty-state and look
+  // like the site is empty when the request actually failed.
+  const fetchBuildings = useCallback(() => {
+    if (siteId === 0n) return undefined;
     const controller = new AbortController();
     void listBuildingsBySite({
       siteId,
       signal: controller.signal,
-      onSuccess: setBuildings,
-      onError: () => setBuildings([]),
+      onSuccess: (rows) => {
+        setBuildings(rows);
+        setBuildingsError(null);
+      },
+      onError: (msg) => {
+        setBuildingsError(msg);
+        setBuildings([]);
+      },
     });
     return () => controller.abort();
   }, [listBuildingsBySite, siteId]);
+
+  useEffect(() => fetchBuildings(), [fetchBuildings]);
 
   const displayBuildings = siteId === 0n ? [] : buildings;
 
@@ -101,7 +113,21 @@ const SiteSettingsSingleView = ({ site, knownSiteIds }: SiteSettingsSingleViewPr
             testId="site-settings-add-building"
           />
         </div>
-        {displayBuildings === undefined ? (
+        {buildingsError ? (
+          <div
+            className="flex items-center justify-between gap-3 rounded-xl border border-border-5 p-4"
+            data-testid="site-settings-buildings-error"
+          >
+            <span className="text-300 text-text-primary-70">Couldn&apos;t load buildings: {buildingsError}</span>
+            <Button
+              variant={variants.secondary}
+              size={sizes.compact}
+              text="Retry"
+              onClick={fetchBuildings}
+              testId="site-settings-buildings-retry"
+            />
+          </div>
+        ) : displayBuildings === undefined ? (
           <div className="text-300 text-text-primary-50">Loading…</div>
         ) : displayBuildings.length === 0 ? (
           <div className="text-300 text-text-primary-50">No buildings in this site yet.</div>

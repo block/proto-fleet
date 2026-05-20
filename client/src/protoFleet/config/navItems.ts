@@ -7,6 +7,7 @@ export interface NavItem {
   path: string;
   label: string;
   icon?: (i: IconProps) => ReactNode;
+  allowedRoles?: string[];
 }
 
 export interface SecondaryNavItem {
@@ -29,6 +30,10 @@ export const primaryNavItems: NavItem[] = [
           path: "/sites",
           label: "Sites",
           icon: Site,
+          // Backing RPCs (ListSites, ListBuildings, GetBuilding) are
+          // admin-gated server-side. Mirror the gating client-side so
+          // VIEWER doesn't land on a page that's guaranteed to fail.
+          allowedRoles: ["SUPER_ADMIN", "ADMIN"],
         },
       ]
     : []),
