@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import BuildingPageHeader from "../components/BuildingPageHeader";
@@ -34,9 +34,17 @@ const BuildingPage = () => {
   // response against the newer URL while the new request is in flight.
   const [response, setResponse] = useState<{ id: bigint; outcome: FetchOutcome } | undefined>(undefined);
 
+  // Hold the latest in-flight AbortController in a ref so retries (and rapid
+  // re-mounts) abort the previous request before issuing a new one. Without
+  // this, two retry clicks would race and the later result could be
+  // overwritten by the earlier one resolving last.
+  const inflightControllerRef = useRef<AbortController | null>(null);
+
   const fetchBuilding = useCallback(
     (targetId: bigint) => {
+      inflightControllerRef.current?.abort();
       const controller = new AbortController();
+      inflightControllerRef.current = controller;
       void getBuilding({
         id: targetId,
         signal: controller.signal,

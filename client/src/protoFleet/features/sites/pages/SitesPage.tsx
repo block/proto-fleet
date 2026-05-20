@@ -22,6 +22,7 @@ const SitesPage = () => {
   const [sites, setSites] = useState<SiteWithCounts[] | undefined>(undefined);
   const [sitesError, setSitesError] = useState<string | null>(null);
   const [buildings, setBuildings] = useState<BuildingWithCounts[] | undefined>(undefined);
+  const [buildingsError, setBuildingsError] = useState<string | null>(null);
 
   // Track sites + sitesError separately so transient failures (network,
   // PermissionDenied for non-admins) don't collapse into "no sites yet"
@@ -47,16 +48,25 @@ const SitesPage = () => {
   // One ListBuildings call at the page level, then we bucket the rows by
   // siteId client-side so each SiteOverviewSection can render synchronously
   // from props. Avoids the N+1 per-section ListBuildings concurrency that
-  // the earlier scaffold had.
-  useEffect(() => {
+  // the earlier scaffold had. Track buildingsError separately so failures
+  // don't collapse every site into "No buildings in this site yet."
+  const fetchBuildings = useCallback(() => {
     const controller = new AbortController();
     void listAllBuildings({
       signal: controller.signal,
-      onSuccess: setBuildings,
-      onError: () => setBuildings([]),
+      onSuccess: (rows) => {
+        setBuildings(rows);
+        setBuildingsError(null);
+      },
+      onError: (msg) => {
+        setBuildingsError(msg);
+        setBuildings([]);
+      },
     });
     return () => controller.abort();
   }, [listAllBuildings]);
+
+  useEffect(() => fetchBuildings(), [fetchBuildings]);
 
   const knownSiteIds = useMemo(() => buildKnownSiteIds(sites), [sites]);
 
@@ -134,6 +144,21 @@ const SitesPage = () => {
         </div>
       ) : (
         <div className="flex flex-col gap-6">
+          {buildingsError ? (
+            <div
+              className="flex items-center justify-between rounded-xl border border-border-5 p-4"
+              data-testid="sites-page-buildings-error"
+            >
+              <span className="text-300 text-text-primary-70">Couldn&apos;t load buildings: {buildingsError}</span>
+              <Button
+                variant={variants.secondary}
+                size={sizes.compact}
+                text="Retry"
+                onClick={fetchBuildings}
+                testId="sites-page-buildings-retry"
+              />
+            </div>
+          ) : null}
           {visibleSites.map((site) => {
             const siteId = (site.site?.id ?? 0n).toString();
             return (

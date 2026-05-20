@@ -103,6 +103,11 @@ export const secondaryNavItems: SecondaryNavItem[] = [
           path: "/settings/sites",
           label: "Sites",
           parent: "/settings",
+          // Site/building CRUD is admin-gated server-side; matching the
+          // role restriction on adjacent admin-only entries (API Keys,
+          // Server Logs) prevents VIEWER from landing on the page and
+          // hitting PermissionDenied on every RPC.
+          allowedRoles: ["SUPER_ADMIN", "ADMIN"],
         },
       ]
     : []),

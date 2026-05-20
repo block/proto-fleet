@@ -45,30 +45,41 @@ type PersistedFleetState = {
 const createMultiKeyStorage = (): PersistStorage<PersistedFleetState> => {
   const AUTH_KEY = "proto-fleet-auth";
   const UI_KEY = "proto-ui-preferences";
+  // ActiveSite lives in its own protoFleet-scoped key so that protoOS's
+  // useMinerStore (which writes to UI_KEY without an `activeSite` field in
+  // its partialize) doesn't strip it from the shared UI blob whenever the
+  // user touches both apps from the same origin.
+  const MULTI_SITE_KEY = "proto-fleet-multi-site";
 
   return {
     getItem: (): StorageValue<PersistedFleetState> | null => {
-      // Load from both keys
+      // Load from all three keys
       const authData = localStorage.getItem(AUTH_KEY);
       const uiData = localStorage.getItem(UI_KEY);
+      const multiSiteData = localStorage.getItem(MULTI_SITE_KEY);
 
       const auth = authData ? JSON.parse(authData) : null;
       const ui = uiData ? JSON.parse(uiData) : null;
+      const multiSite = multiSiteData ? JSON.parse(multiSiteData) : null;
 
-      if (!auth && !ui) return null;
+      if (!auth && !ui && !multiSite) return null;
 
       // Reconstruct Date objects from stored ISO strings
       if (auth?.state?.auth?.sessionExpiry) {
         auth.state.auth.sessionExpiry = new Date(auth.state.auth.sessionExpiry);
       }
 
-      // Combine the data
+      // Combine the data. MultiSite's ui fields layer on top of the shared
+      // UI blob so the fleet-scoped activeSite survives even when protoOS
+      // overwrites UI_KEY without it.
+      const baseUi = ui?.state?.ui ?? {};
+      const multiSiteUi = multiSite?.state?.ui ?? {};
       return {
         state: {
           ...(auth?.state || {}),
-          ...(ui?.state || {}),
+          ui: { ...baseUi, ...multiSiteUi },
         },
-        version: auth?.version || ui?.version || 0,
+        version: auth?.version || ui?.version || multiSite?.version || 0,
       } as StorageValue<PersistedFleetState>;
     },
 
@@ -93,7 +104,7 @@ const createMultiKeyStorage = (): PersistStorage<PersistedFleetState> => {
         );
       }
 
-      // Save UI preferences separately
+      // Save shared UI preferences (collides cleanly with protoOS partialize).
       if (state.ui) {
         localStorage.setItem(
           UI_KEY,
@@ -106,6 +117,21 @@ const createMultiKeyStorage = (): PersistStorage<PersistedFleetState> => {
                 bulkRenamePreferences: state.ui.bulkRenamePreferences,
                 bulkWorkerNamePreferences: state.ui.bulkWorkerNamePreferences,
                 racksViewMode: state.ui.racksViewMode,
+              },
+            },
+            version: value.version,
+          }),
+        );
+      }
+
+      // Save protoFleet-only UI state to its own key so protoOS can't
+      // strip it from the shared blob.
+      if (state.ui) {
+        localStorage.setItem(
+          MULTI_SITE_KEY,
+          JSON.stringify({
+            state: {
+              ui: {
                 activeSite: state.ui.activeSite,
               },
             },
@@ -118,6 +144,7 @@ const createMultiKeyStorage = (): PersistStorage<PersistedFleetState> => {
     removeItem: (): void => {
       localStorage.removeItem(AUTH_KEY);
       localStorage.removeItem(UI_KEY);
+      localStorage.removeItem(MULTI_SITE_KEY);
     },
   };
 };
