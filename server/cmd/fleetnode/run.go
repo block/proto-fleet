@@ -64,7 +64,10 @@ func (r *RunCmd) run(c *Context, stderr io.Writer) error {
 		}
 	}
 	if len(r.signals) == 0 {
-		r.signals = []os.Signal{syscall.SIGINT, syscall.SIGTERM}
+		// SIGHUP catches the terminal-close case so plugin children get the
+		// same orderly shutdown as Ctrl+C; without it the parent dies
+		// uncaught and leaves orphaned plugin processes behind.
+		r.signals = []os.Signal{syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP}
 	}
 	if r.parentCtx == nil {
 		r.parentCtx = context.Background()
@@ -101,7 +104,9 @@ func (r *RunCmd) run(c *Context, stderr io.Writer) error {
 		return fmt.Errorf("state at %s has no api_key; complete enrollment via `fleetnode refresh` before running the daemon", path)
 	}
 
+	logger := slog.New(slog.NewTextHandler(stderr, nil))
 	if resolvedPluginsDir != "" {
+		reapOrphanedPlugins(resolvedPluginsDir, logger)
 		disc, cleanup, bootstrapErr := newPluginDiscoverer(resolvedPluginsDir)
 		if bootstrapErr != nil {
 			return fmt.Errorf("bootstrap discovery plugins: %w", bootstrapErr)
@@ -109,8 +114,6 @@ func (r *RunCmd) run(c *Context, stderr io.Writer) error {
 		defer cleanup()
 		r.discoverer = disc
 	}
-
-	logger := slog.New(slog.NewTextHandler(stderr, nil))
 	if resolvedPluginsDir != "" {
 		source := "binary-adjacent"
 		if r.PluginsDir != "" {
