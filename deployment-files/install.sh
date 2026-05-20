@@ -33,7 +33,15 @@ probe_install_dir_with() {
   #   - No /deployment/<...> segment present  -> mount path unchanged -> miss.
   #   - Mount path is /deployment/<...>       -> install root is "/"; expand
   #                                              empty to "/" before returning.
+  # `${var%/deployment/*}` requires at least one character after /deployment;
+  # a mount source that ends exactly at /deployment (no trailing subpath)
+  # wouldn't match, leaving install_dir == mount_path and tripping the miss
+  # branch below. Try the trailing-segment form first; if the mount source
+  # ends exactly at /deployment, fall back to stripping the bare suffix.
   local install_dir="${mount_path%/${DEPLOYMENT_DIR}/*}"
+  if [ "$install_dir" = "$mount_path" ]; then
+    install_dir="${mount_path%/${DEPLOYMENT_DIR}}"
+  fi
   if [ "$install_dir" = "$mount_path" ]; then
     return 1
   fi
@@ -298,8 +306,12 @@ get_default_install_dir() {
   fi
 
   if [ "$(id -u)" -eq 0 ] && [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
+    # `|| true` so a missing `getent` (e.g., on a non-glibc Linux) or a
+    # failing NSS lookup doesn't trip `set -e` before we reach the $HOME
+    # fallback below. `pipefail` would otherwise propagate the inner
+    # failure through `local sudo_home=$(...)` and abort the script.
     local sudo_home
-    sudo_home=$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6)
+    sudo_home=$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6 || true)
     if [ -n "$sudo_home" ]; then
       echo "$sudo_home/proto-fleet"
       return
