@@ -79,6 +79,21 @@ func (r *RunCmd) runControlLoop(ctx context.Context, client gatewayClient, st *f
 
 func (r *RunCmd) runControlSession(ctx context.Context, client gatewayClient, st *fleetnodebootstrap.State, logger *slog.Logger) error {
 	stream := client.ControlStream(ctx)
+	// The bidi response body is read via http2.pipe whose Read is parked in
+	// sync.Cond.Wait, which is not ctx-aware. Without this watcher, a
+	// stream.Receive() in the loop below will block past parent ctx
+	// cancellation (Ctrl+C never returns the daemon). Force-closing the
+	// stream broadcasts the cond and unblocks Receive with an error.
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = stream.CloseRequest()
+			_ = stream.CloseResponse()
+		case <-done:
+		}
+	}()
 	defer func() { _ = stream.CloseRequest(); _ = stream.CloseResponse() }()
 
 	if err := stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{}}}); err != nil {
@@ -242,12 +257,16 @@ func newPluginDiscoverer(pluginsDir string) (*pluginDiscoverer, func(), error) {
 	if !filepath.IsAbs(pluginsDir) {
 		return nil, func() {}, fmt.Errorf("--plugins-dir must be an absolute path, got %q", pluginsDir)
 	}
+	// The plugin manager's Shutdown waits the full grace period regardless
+	// of whether the plugin already exited, so we keep it tight for
+	// interactive dev. A real stuck plugin still gets killed; we just don't
+	// wait around for clean ones.
 	manager := plugins.NewManager(&plugins.Config{
 		Enabled:                    true,
 		PluginsDir:                 pluginsDir,
 		MaxStartupTimeSeconds:      30,
 		ShutdownTimeoutSeconds:     10,
-		ShutdownGracePeriodSeconds: 5,
+		ShutdownGracePeriodSeconds: 2,
 		LogLevel:                   "info",
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
