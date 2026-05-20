@@ -447,7 +447,7 @@ func TestReconciler_HeartbeatStillFiresOnListEventsError(t *testing.T) {
 	assert.Equal(t, int32(0), store.lastHeartbeatActive)
 }
 
-func TestReconciler_RunTickUsesFreshContextPerEvent(t *testing.T) {
+func TestReconciler_RunTickStopsWhenTickBudgetExpires(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
 	firstUUID := uuid.New()
@@ -467,8 +467,9 @@ func TestReconciler_RunTickUsesFreshContextPerEvent(t *testing.T) {
 	r.runTick(context.Background())
 
 	assert.ErrorIs(t, store.listTargetsCtxErr[firstUUID], context.DeadlineExceeded)
-	assert.NoError(t, store.listTargetsCtxErr[secondUUID],
-		"later events must not inherit an expired context from earlier events")
+	_, processedSecond := store.listTargetsCtxErr[secondUUID]
+	assert.False(t, processedSecond,
+		"later events must wait for the next tick after the tick-scoped budget expires")
 }
 
 func TestReconciler_DispatchErrorMarksLastError(t *testing.T) {

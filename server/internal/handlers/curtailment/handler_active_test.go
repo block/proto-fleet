@@ -32,6 +32,11 @@ func TestHandler_GetActiveCurtailment_ReturnsActiveEvent(t *testing.T) {
 	require.NotNil(t, resp.Msg.Event)
 	assert.Equal(t, store.event.EventUUID.String(), resp.Msg.Event.EventUuid)
 	assert.Equal(t, pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_ACTIVE, resp.Msg.Event.State)
+	require.Len(t, resp.Msg.Event.Targets, 2)
+	assert.Equal(t, pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_CONFIRMED, resp.Msg.Event.Targets[0].State)
+	assert.Equal(t, pb.CurtailmentTargetDesiredState_CURTAILMENT_TARGET_DESIRED_STATE_CURTAILED, resp.Msg.Event.Targets[0].DesiredState)
+	assert.Equal(t, int32(2), resp.Msg.Event.TargetRollup.Confirmed)
+	assert.Equal(t, int32(2), resp.Msg.Event.TargetRollup.Total)
 }
 
 func TestHandler_GetActiveCurtailment_ReturnsEmptyWhenNoActiveEvent(t *testing.T) {

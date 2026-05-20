@@ -206,9 +206,9 @@ func (r *Reconciler) safeTick(ctx context.Context) {
 func (r *Reconciler) runTick(ctx context.Context) {
 	tickStart := r.now()
 	tickUUID := uuid.New()
-	listCtx, cancel := context.WithTimeout(ctx, 2*r.cfg.TickInterval)
-	events, err := r.store.ListNonTerminalEvents(listCtx)
-	cancel()
+	tickCtx, cancel := context.WithTimeout(ctx, 2*r.cfg.TickInterval)
+	defer cancel()
+	events, err := r.store.ListNonTerminalEvents(tickCtx)
 	if err != nil {
 		slog.Error("curtailment reconciler: failed to list non-terminal events", "error", err)
 		// Heartbeat advances on tick freshness, not query health.
@@ -217,7 +217,10 @@ func (r *Reconciler) runTick(ctx context.Context) {
 	}
 
 	for _, ev := range events {
-		eventCtx, eventCancel := context.WithTimeout(ctx, 2*r.cfg.TickInterval)
+		if tickCtx.Err() != nil {
+			break
+		}
+		eventCtx, eventCancel := context.WithTimeout(tickCtx, 2*r.cfg.TickInterval)
 		r.processEvent(eventCtx, ev)
 		eventCancel()
 	}

@@ -129,8 +129,12 @@ func (h *Handler) StopCurtailment(ctx context.Context, req *connect.Request[pb.S
 	if err != nil {
 		return nil, err
 	}
+	targets, err := h.service.ListTargetsByEvent(ctx, info.OrganizationID, event.EventUUID)
+	if err != nil {
+		return nil, err
+	}
 
-	return connect.NewResponse(toStopResponse(event)), nil
+	return connect.NewResponse(toStopResponse(event, targets)), nil
 }
 
 func (h *Handler) GetActiveCurtailment(ctx context.Context, _ *connect.Request[pb.GetActiveCurtailmentRequest]) (*connect.Response[pb.GetActiveCurtailmentResponse], error) {
@@ -141,13 +145,13 @@ func (h *Handler) GetActiveCurtailment(ctx context.Context, _ *connect.Request[p
 	if err != nil {
 		return nil, fleeterror.NewUnauthenticatedError("authentication required")
 	}
-	event, err := h.service.GetActive(ctx, info.OrganizationID)
+	event, targets, err := h.service.GetActiveWithTargets(ctx, info.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
 	resp := &pb.GetActiveCurtailmentResponse{}
 	if event != nil {
-		resp.Event = toEventProto(event)
+		resp.Event = toEventProtoWithTargets(event, targets)
 	}
 	return connect.NewResponse(resp), nil
 }
@@ -176,8 +180,13 @@ func requireAdminFromContext(ctx context.Context, action string) error {
 		// Remap missing session from Internal to Unauthenticated.
 		return fleeterror.NewUnauthenticatedError("authentication required")
 	}
-	if info.Role != domainAuth.SuperAdminRoleName && info.Role != domainAuth.AdminRoleName {
+	if !canUseAdminControls(info) {
 		return fleeterror.NewForbiddenErrorf("only admins can %s", action)
 	}
 	return nil
+}
+
+func canUseAdminControls(info *session.Info) bool {
+	return info != nil &&
+		(info.Role == domainAuth.SuperAdminRoleName || info.Role == domainAuth.AdminRoleName)
 }

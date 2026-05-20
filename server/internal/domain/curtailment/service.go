@@ -53,8 +53,9 @@ type StartRequest struct {
 	MinCurtailedDurationSec int32
 
 	// MaxDurationSeconds: nil when AllowUnbounded=true, else a finite cap.
-	MaxDurationSeconds *int32
-	AllowUnbounded     bool
+	MaxDurationSeconds  *int32
+	AllowUnbounded      bool
+	CanUseAdminControls bool
 
 	// External attribution. Empty-string normalizes to NULL at the store
 	// boundary so partial-unique indexes only enforce uniqueness for set keys.
@@ -132,6 +133,37 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 		v := orgConfig.MaxDurationDefaultSec
 		req.MaxDurationSeconds = &v
 	}
+	if req.MaxDurationSeconds != nil {
+		if *req.MaxDurationSeconds > maxFiniteDurationSeconds {
+			return nil, fleeterror.NewInvalidArgumentErrorf(
+				"max_duration_seconds must be <= %d, got %d",
+				maxFiniteDurationSeconds, *req.MaxDurationSeconds,
+			)
+		}
+		if orgConfig.MaxDurationDefaultSec > 0 &&
+			*req.MaxDurationSeconds > orgConfig.MaxDurationDefaultSec &&
+			!req.CanUseAdminControls {
+			return nil, fleeterror.NewForbiddenErrorf(
+				"only admins can set max_duration_seconds above org default %d",
+				orgConfig.MaxDurationDefaultSec,
+			)
+		}
+	}
+	if req.RestoreBatchIntervalSec == 0 {
+		req.RestoreBatchIntervalSec = defaultRestoreBatchIntervalSec
+	}
+	if req.RestoreBatchIntervalSec > restoreBatchIntervalUpperBoundSec {
+		return nil, fleeterror.NewInvalidArgumentErrorf(
+			"restore_batch_interval_sec must be <= %d, got %d",
+			restoreBatchIntervalUpperBoundSec, req.RestoreBatchIntervalSec,
+		)
+	}
+	if req.RestoreBatchIntervalSec > nonAdminRestoreBatchIntervalMax && !req.CanUseAdminControls {
+		return nil, fleeterror.NewForbiddenErrorf(
+			"only admins can set restore_batch_interval_sec above %d",
+			nonAdminRestoreBatchIntervalMax,
+		)
+	}
 
 	eventParams, targetParams, err := buildInsertParams(req, plan, minPowerW)
 	if err != nil {
@@ -145,6 +177,7 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 
 	plan.EventUUID = &result.EventUUID
 	plan.EffectiveMaxDurationSeconds = req.MaxDurationSeconds
+	plan.EffectiveRestoreBatchIntervalSec = req.RestoreBatchIntervalSec
 	return plan, nil
 }
 
@@ -153,6 +186,28 @@ func (s *Service) GetActive(ctx context.Context, orgID int64) (*models.Event, er
 		return nil, fleeterror.NewInvalidArgumentError("org_id must be set")
 	}
 	return s.store.GetActiveEvent(ctx, orgID)
+}
+
+func (s *Service) GetActiveWithTargets(ctx context.Context, orgID int64) (*models.Event, []*models.Target, error) {
+	event, err := s.GetActive(ctx, orgID)
+	if err != nil || event == nil {
+		return event, nil, err
+	}
+	targets, err := s.store.ListTargetsByEvent(ctx, orgID, event.EventUUID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return event, targets, nil
+}
+
+func (s *Service) ListTargetsByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) ([]*models.Target, error) {
+	if orgID <= 0 {
+		return nil, fleeterror.NewInvalidArgumentError("org_id must be set")
+	}
+	if eventUUID == uuid.Nil {
+		return nil, fleeterror.NewInvalidArgumentError("event_uuid must be set")
+	}
+	return s.store.ListTargetsByEvent(ctx, orgID, eventUUID)
 }
 
 // runSelector executes the org-config + scope + candidate + classify +
@@ -234,10 +289,17 @@ func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, i
 	return &plan, minPowerW, orgConfig, nil
 }
 
-// startTextFieldMaxLen mirrors the proto max_len for idempotency_key /
-// reason / external_source / external_reference. Service-level backstop
-// for non-Connect callers (CLIs, tests, future non-RPC entry points).
-const startTextFieldMaxLen = 256
+const (
+	// startTextFieldMaxLen mirrors the proto max_len for idempotency_key /
+	// reason / external_source / external_reference. Service-level backstop
+	// for non-Connect callers (CLIs, tests, future non-RPC entry points).
+	startTextFieldMaxLen = 256
+
+	maxFiniteDurationSeconds          int32 = 7 * 24 * 60 * 60
+	defaultRestoreBatchIntervalSec    int32 = 30
+	nonAdminRestoreBatchIntervalMax   int32 = 5 * 60
+	restoreBatchIntervalUpperBoundSec int32 = 60 * 60
+)
 
 func validateStartRequest(req StartRequest) error {
 	if err := validatePreviewRequest(req.PreviewRequest); err != nil {
@@ -289,6 +351,12 @@ func validateStartRequest(req StartRequest) error {
 			"max_duration_seconds must be unset when allow_unbounded is true",
 		)
 	}
+	if req.AllowUnbounded && !req.CanUseAdminControls {
+		return fleeterror.NewForbiddenError("only admins can set allow_unbounded")
+	}
+	if req.CandidateMinPowerWOverride != nil && !req.CanUseAdminControls {
+		return fleeterror.NewForbiddenError("only admins can set candidate_min_power_w_override")
+	}
 	if !req.AllowUnbounded && req.MaxDurationSeconds != nil && *req.MaxDurationSeconds <= 0 {
 		return fleeterror.NewInvalidArgumentErrorf(
 			"max_duration_seconds must be > 0, got %d", *req.MaxDurationSeconds,
@@ -296,6 +364,18 @@ func validateStartRequest(req StartRequest) error {
 	}
 	// MaxDurationSeconds=nil + !AllowUnbounded is the "use org default"
 	// sentinel; Service.Start resolves it before persistence.
+	if req.MaxDurationSeconds != nil && *req.MaxDurationSeconds > maxFiniteDurationSeconds {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"max_duration_seconds must be <= %d, got %d",
+			maxFiniteDurationSeconds, *req.MaxDurationSeconds,
+		)
+	}
+	if req.RestoreBatchIntervalSec > restoreBatchIntervalUpperBoundSec {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"restore_batch_interval_sec must be <= %d, got %d",
+			restoreBatchIntervalUpperBoundSec, req.RestoreBatchIntervalSec,
+		)
+	}
 	if req.SourceActorType == "" {
 		// NOT NULL at the DB; handler derives from session.Info.
 		return fleeterror.NewInvalidArgumentError("source_actor_type must be set")

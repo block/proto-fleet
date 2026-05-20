@@ -1,11 +1,13 @@
 package curtailment
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"strings"
 
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
@@ -163,6 +165,7 @@ func toStartRequest(msg *pb.StartCurtailmentRequest, info *session.Info) (curtai
 		SourceActorType:         deriveSourceActorType(info),
 		SourceActorID:           deriveSourceActorID(info),
 		CreatedByUserID:         info.UserID,
+		CanUseAdminControls:     canUseAdminControls(info),
 	}
 
 	// max_duration_seconds=0 is the "use org default" sentinel when
@@ -218,7 +221,7 @@ func toStartResponse(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) *p
 		Priority:                resolvePriority(req.GetPriority()),
 		MaxDurationSeconds:      effectiveMaxDurationSeconds(plan, req),
 		RestoreBatchSize:        req.GetRestoreBatchSize(),
-		RestoreBatchIntervalSec: req.GetRestoreBatchIntervalSec(),
+		RestoreBatchIntervalSec: effectiveRestoreBatchIntervalSec(plan, req),
 		MinCurtailedDurationSec: req.GetMinCurtailedDurationSec(),
 		IncludeMaintenance:      req.GetIncludeMaintenance(),
 		ForceIncludeMaintenance: req.GetForceIncludeMaintenance(),
@@ -265,6 +268,13 @@ func toStartResponse(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) *p
 	}
 
 	return &pb.StartCurtailmentResponse{Event: event}
+}
+
+func effectiveRestoreBatchIntervalSec(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) uint32 {
+	if plan == nil || plan.EffectiveRestoreBatchIntervalSec <= 0 {
+		return req.GetRestoreBatchIntervalSec()
+	}
+	return uint32Saturating(plan.EffectiveRestoreBatchIntervalSec)
 }
 
 // lenToInt32Saturating clamps a slice length to int32 max for proto rollup
@@ -508,15 +518,15 @@ func toStopRequest(msg *pb.StopCurtailmentRequest, orgID int64) (curtailment.Sto
 	return out, nil
 }
 
-// toStopResponse builds the Stop response from the persisted event row.
-// Rich rollup detail arrives via GetActiveCurtailment polling.
-func toStopResponse(event *models.Event) *pb.StopCurtailmentResponse {
-	return &pb.StopCurtailmentResponse{Event: toEventProto(event)}
+// toStopResponse builds the Stop response from the persisted event row and
+// current target rows after the restoration transition.
+func toStopResponse(event *models.Event, targets []*models.Target) *pb.StopCurtailmentResponse {
+	return &pb.StopCurtailmentResponse{Event: toEventProtoWithTargets(event, targets)}
 }
 
-// toEventProto maps a persisted event row to the wire CurtailmentEvent.
-// Scope, mode_params, target rollup, and decision_snapshot echo land with
-// the read APIs where the trimmed-snapshot shape is settled.
+// toEventProto maps persisted event metadata to the wire CurtailmentEvent.
+// Call toEventProtoWithTargets for read APIs that also need scope, mode
+// params, decision snapshot, and target progress.
 func toEventProto(event *models.Event) *pb.CurtailmentEvent {
 	out := &pb.CurtailmentEvent{
 		EventUuid: event.EventUUID.String(),
@@ -563,6 +573,143 @@ func toEventProto(event *models.Event) *pb.CurtailmentEvent {
 	return out
 }
 
+func toEventProtoWithTargets(event *models.Event, targets []*models.Target) *pb.CurtailmentEvent {
+	out := toEventProto(event)
+	populateEventScope(out, event)
+	populateEventModeParams(out, event)
+	populateEventDecisionSnapshot(out, event)
+	populateEventTargets(out, targets)
+	return out
+}
+
+func populateEventScope(out *pb.CurtailmentEvent, event *models.Event) {
+	switch event.ScopeType {
+	case models.ScopeTypeWholeOrg, "":
+		out.Scope = &pb.CurtailmentEvent_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}}
+	case models.ScopeTypeDeviceList:
+		var payload struct {
+			DeviceIdentifiers []string `json:"device_identifiers"`
+		}
+		if err := json.Unmarshal(event.ScopeJSON, &payload); err == nil {
+			out.Scope = &pb.CurtailmentEvent_DeviceIdentifiers{
+				DeviceIdentifiers: &pb.ScopeDeviceList{DeviceIdentifiers: payload.DeviceIdentifiers},
+			}
+		}
+	case models.ScopeTypeDeviceSets:
+		var payload struct {
+			DeviceSetIDs []string `json:"device_set_ids"`
+		}
+		if err := json.Unmarshal(event.ScopeJSON, &payload); err == nil {
+			out.Scope = &pb.CurtailmentEvent_DeviceSetIds{
+				DeviceSetIds: &pb.ScopeDeviceSets{DeviceSetIds: payload.DeviceSetIDs},
+			}
+		}
+	}
+}
+
+func populateEventModeParams(out *pb.CurtailmentEvent, event *models.Event) {
+	if event.Mode != models.ModeFixedKw {
+		return
+	}
+	var payload struct {
+		TargetKW    float64 `json:"target_kw"`
+		ToleranceKW float64 `json:"tolerance_kw"`
+	}
+	if err := json.Unmarshal(event.ModeParamsJSON, &payload); err != nil {
+		return
+	}
+	out.ModeParams = &pb.CurtailmentEvent_FixedKw{
+		FixedKw: &pb.FixedKwParams{
+			TargetKw: payload.TargetKW,
+		},
+	}
+	if payload.ToleranceKW > 0 {
+		out.GetFixedKw().ToleranceKw = &payload.ToleranceKW
+	}
+}
+
+func populateEventDecisionSnapshot(out *pb.CurtailmentEvent, event *models.Event) {
+	if len(event.DecisionSnapshotJSON) == 0 {
+		return
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(event.DecisionSnapshotJSON, &payload); err != nil {
+		return
+	}
+	s, err := structpb.NewStruct(payload)
+	if err != nil {
+		return
+	}
+	out.DecisionSnapshot = s
+}
+
+func populateEventTargets(out *pb.CurtailmentEvent, targets []*models.Target) {
+	out.Targets = make([]*pb.CurtailmentTarget, 0, len(targets))
+	rollup := &pb.CurtailmentTargetRollup{}
+	for _, target := range targets {
+		out.Targets = append(out.Targets, toTargetProto(target))
+		switch target.State {
+		case models.TargetStatePending:
+			rollup.Pending++
+		case models.TargetStateDispatched:
+			rollup.Dispatched++
+		case models.TargetStateConfirmed:
+			rollup.Confirmed++
+		case models.TargetStateDrifted:
+			rollup.Drifted++
+		case models.TargetStateResolved:
+			rollup.Resolved++
+		case models.TargetStateReleased:
+			rollup.Released++
+		case models.TargetStateRestoreFailed:
+			rollup.RestoreFailed++
+		}
+	}
+	rollup.Total = lenToInt32Saturating(len(targets))
+	out.TargetRollup = rollup
+}
+
+func toTargetProto(target *models.Target) *pb.CurtailmentTarget {
+	out := &pb.CurtailmentTarget{
+		DeviceIdentifier: target.DeviceIdentifier,
+		TargetType:       target.TargetType,
+		State:            targetStateProto(target.State),
+		DesiredState:     desiredStateProto(target.DesiredState),
+		RetryCount:       uint32Saturating(target.RetryCount),
+	}
+	if out.TargetType == "" {
+		out.TargetType = "miner"
+	}
+	if target.BaselinePowerW != nil {
+		out.BaselinePowerW = target.BaselinePowerW
+	}
+	if target.ObservedPowerW != nil {
+		out.ObservedPowerW = target.ObservedPowerW
+	}
+	if !target.AddedAt.IsZero() {
+		out.AddedAt = timestamppb.New(target.AddedAt)
+	}
+	if target.ReleasedAt != nil {
+		out.ReleasedAt = timestamppb.New(*target.ReleasedAt)
+	}
+	if target.LastDispatchedAt != nil {
+		out.LastDispatchedAt = timestamppb.New(*target.LastDispatchedAt)
+	}
+	if target.LastBatchUUID != nil {
+		out.LastBatchUuid = *target.LastBatchUUID
+	}
+	if target.ObservedAt != nil {
+		out.ObservedAt = timestamppb.New(*target.ObservedAt)
+	}
+	if target.ConfirmedAt != nil {
+		out.ConfirmedAt = timestamppb.New(*target.ConfirmedAt)
+	}
+	if target.LastError != nil {
+		out.LastError = *target.LastError
+	}
+	return out
+}
+
 // uint32Saturating clamps a non-negative int32 to uint32, surfacing negative
 // values as 0. Defensive; the source columns are >= 0 by DB CHECK.
 func uint32Saturating(v int32) uint32 {
@@ -590,6 +737,36 @@ func eventStateProto(s models.EventState) pb.CurtailmentEventState {
 		return pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_FAILED
 	}
 	return pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_UNSPECIFIED
+}
+
+func targetStateProto(s models.TargetState) pb.CurtailmentTargetState {
+	switch s {
+	case models.TargetStatePending:
+		return pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_PENDING
+	case models.TargetStateDispatched:
+		return pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_DISPATCHED
+	case models.TargetStateConfirmed:
+		return pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_CONFIRMED
+	case models.TargetStateDrifted:
+		return pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_DRIFTED
+	case models.TargetStateResolved:
+		return pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_RESOLVED
+	case models.TargetStateReleased:
+		return pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_RELEASED
+	case models.TargetStateRestoreFailed:
+		return pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_RESTORE_FAILED
+	}
+	return pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_UNSPECIFIED
+}
+
+func desiredStateProto(s string) pb.CurtailmentTargetDesiredState {
+	switch s {
+	case models.DesiredStateCurtailed:
+		return pb.CurtailmentTargetDesiredState_CURTAILMENT_TARGET_DESIRED_STATE_CURTAILED
+	case models.DesiredStateActive:
+		return pb.CurtailmentTargetDesiredState_CURTAILMENT_TARGET_DESIRED_STATE_ACTIVE
+	}
+	return pb.CurtailmentTargetDesiredState_CURTAILMENT_TARGET_DESIRED_STATE_UNSPECIFIED
 }
 
 func modeProto(m models.Mode) pb.CurtailmentMode {

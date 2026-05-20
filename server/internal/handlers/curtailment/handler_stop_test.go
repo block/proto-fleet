@@ -78,6 +78,10 @@ func (s *stopStubStore) BeginRestoreTransition(_ context.Context, _ int64, event
 	updated.State = models.EventStateRestoring
 	updated.EffectiveBatchSize = &batchSize
 	updated.EventUUID = eventUUID
+	for _, target := range s.targets {
+		target.State = models.TargetStatePending
+		target.DesiredState = models.DesiredStateActive
+	}
 	return &updated, nil
 }
 func (s *stopStubStore) GetHeartbeat(context.Context) (*models.Heartbeat, error) {
@@ -141,6 +145,11 @@ func TestHandler_StopCurtailment_HappyPath(t *testing.T) {
 	require.NotNil(t, resp.Msg.Event)
 	assert.Equal(t, pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_RESTORING, resp.Msg.Event.State)
 	assert.Equal(t, store.event.EventUUID.String(), resp.Msg.Event.EventUuid)
+	require.Len(t, resp.Msg.Event.Targets, 2)
+	assert.Equal(t, pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_PENDING, resp.Msg.Event.Targets[0].State)
+	assert.Equal(t, pb.CurtailmentTargetDesiredState_CURTAILMENT_TARGET_DESIRED_STATE_ACTIVE, resp.Msg.Event.Targets[0].DesiredState)
+	assert.Equal(t, int32(2), resp.Msg.Event.TargetRollup.Pending)
+	assert.Equal(t, int32(2), resp.Msg.Event.TargetRollup.Total)
 	assert.Equal(t, 1, store.beginRestoreCalls)
 	assert.Equal(t, int32(10), store.beginRestoreLastBS)
 }
