@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"sync"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
+	"github.com/block/proto-fleet/server/internal/domain/netutil"
 	"github.com/block/proto-fleet/server/internal/domain/plugins"
 	"github.com/block/proto-fleet/server/internal/fleetnodebootstrap"
 	"github.com/block/proto-fleet/server/internal/infrastructure/id"
@@ -163,8 +165,20 @@ func (r *RunCmd) discoverForCommand(ctx context.Context, req *pairingpb.Discover
 		if len(ports) > maxPortsPerIP {
 			return nil, fmt.Errorf("too many ports: %d exceeds the limit of %d", len(ports), maxPortsPerIP)
 		}
-		endpoints := make([]endpoint, 0, len(ips)*len(ports))
-		for _, ip := range ips {
+		normalized := make([]string, 0, len(ips))
+		for _, raw := range ips {
+			n, err := netutil.NormalizeIPListEntry(ctx, raw, net.DefaultResolver)
+			if err != nil {
+				logger.Debug("skipping ipList entry", "input", raw, "err", err)
+				continue
+			}
+			normalized = append(normalized, n)
+		}
+		if len(normalized) == 0 {
+			return nil, fmt.Errorf("no usable ip_addresses after normalization (scoped/link-local IPv6 and unresolvable hostnames are skipped)")
+		}
+		endpoints := make([]endpoint, 0, len(normalized)*len(ports))
+		for _, ip := range normalized {
 			for _, port := range ports {
 				endpoints = append(endpoints, endpoint{ip: ip, port: port})
 			}

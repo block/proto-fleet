@@ -97,6 +97,83 @@ func TestControlLoop_RejectsMDNSMode(t *testing.T) {
 	assert.Empty(t, fake.reportsCopy())
 }
 
+func TestControlLoop_NormalizesIPListEntries(t *testing.T) {
+	// Arrange: scoped IPv6 + link-local IPv6 should be skipped; canonical
+	// IPv6 spelling should be preserved and probed.
+	disc := &stubDiscoverer{
+		probes: map[string]*pb.DiscoveredDeviceReport{
+			"2001:db8::1|4028": {DeviceIdentifier: "auto:v6", IpAddress: "2001:db8::1", Port: "4028", UrlScheme: "http"},
+		},
+	}
+	cmd := &RunCmd{discoverer: disc}
+	state := &fleetnodebootstrap.State{FleetNodeID: 7}
+
+	fake := &controlFakeGateway{}
+	fake.queue(mustMarshal(t, &pairingpb.DiscoverRequest{
+		Mode: &pairingpb.DiscoverRequest_IpList{
+			IpList: &pairingpb.IPListModeRequest{
+				IpAddresses: []string{"fe80::1%eth0", "fe80::1", "2001:0DB8::1"},
+				Ports:       []string{"4028"},
+			},
+		},
+	}))
+	client := newControlClient(t, fake)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Act
+	done := make(chan error, 1)
+	go func() { done <- cmd.runControlLoop(ctx, client, state, discardLogger(t)) }()
+	require.Eventually(t, func() bool { return fake.ackCount() > 0 }, 3*time.Second, 20*time.Millisecond)
+	cancel()
+	<-done
+
+	// Assert
+	acks := fake.acksCopy()
+	require.Len(t, acks, 1)
+	assert.True(t, acks[0].GetSucceeded(), "ack=%+v", acks[0])
+	reports := fake.reportsCopy()
+	require.Len(t, reports, 1)
+	require.Len(t, reports[0].GetDevices(), 1)
+	assert.Equal(t, "2001:db8::1", reports[0].GetDevices()[0].GetIpAddress())
+}
+
+func TestControlLoop_RejectsAllUnusableIPs(t *testing.T) {
+	// Arrange: every entry is unusable; agent must ack failure rather than
+	// silently returning zero reports.
+	cmd := &RunCmd{discoverer: &stubDiscoverer{}}
+	state := &fleetnodebootstrap.State{FleetNodeID: 7}
+
+	fake := &controlFakeGateway{}
+	fake.queue(mustMarshal(t, &pairingpb.DiscoverRequest{
+		Mode: &pairingpb.DiscoverRequest_IpList{
+			IpList: &pairingpb.IPListModeRequest{
+				IpAddresses: []string{"fe80::1%eth0", "fe80::1"},
+				Ports:       []string{"4028"},
+			},
+		},
+	}))
+	client := newControlClient(t, fake)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Act
+	done := make(chan error, 1)
+	go func() { done <- cmd.runControlLoop(ctx, client, state, discardLogger(t)) }()
+	require.Eventually(t, func() bool { return fake.ackCount() > 0 }, 3*time.Second, 20*time.Millisecond)
+	cancel()
+	<-done
+
+	// Assert
+	acks := fake.acksCopy()
+	require.Len(t, acks, 1)
+	assert.False(t, acks[0].GetSucceeded())
+	assert.Contains(t, acks[0].GetErrorMessage(), "no usable ip_addresses")
+	assert.Empty(t, fake.reportsCopy())
+}
+
 func TestControlLoop_RejectsTooManyIPs(t *testing.T) {
 	// Arrange
 	cmd := &RunCmd{discoverer: &stubDiscoverer{}}

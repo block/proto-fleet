@@ -19,6 +19,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/minerdiscovery"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
+	"github.com/block/proto-fleet/server/internal/domain/netutil"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	tmodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
@@ -801,54 +802,12 @@ func (s *Service) DiscoverWithIPList(ctx context.Context, r *pb.IPListModeReques
 					defer wg.Done()
 					defer func() { <-semaphore }()
 
-					// Reject scoped IPv6 literals (%zone) — the connection
-					// stack does not propagate interface scope.
-					if strings.Contains(ipAddr, "%") {
-						slog.Debug("rejecting scoped IPv6 address", "input", ipAddr)
+					normalized, err := netutil.NormalizeIPListEntry(timeoutCtx, ipAddr, net.DefaultResolver)
+					if err != nil {
+						slog.Debug("skipping ipList entry", "input", ipAddr, "err", err)
 						return
 					}
-					if parsedIP := net.ParseIP(ipAddr); parsedIP != nil {
-						// Reject link-local IPv6 — requires interface scope for
-						// TCP connections, consistent with mDNS and hostname paths.
-						if parsedIP.To4() == nil && parsedIP.IsLinkLocalUnicast() {
-							slog.Debug("rejecting link-local IPv6 address", "input", ipAddr)
-							return
-						}
-						// Normalize to canonical form so dedupe and storage
-						// treat equivalent spellings (e.g. 2001:0DB8::1 vs
-						// 2001:db8::1) as the same address.
-						ipAddr = parsedIP.String()
-					} else {
-						var resolver net.Resolver
-						addrs, err := resolver.LookupIPAddr(timeoutCtx, ipAddr)
-						if err != nil {
-							slog.Debug("hostname resolution failed, skipping entry", "input", ipAddr, "error", err)
-							return
-						}
-						var resolvedIPv4, resolvedIPv6 string
-						for _, addr := range addrs {
-							if addr.IP.To4() != nil {
-								resolvedIPv4 = addr.IP.String()
-								break // IPv4 is preferred; no need to look further
-							} else if resolvedIPv6 == "" && !addr.IP.IsLinkLocalUnicast() {
-								// Skip link-local IPv6 (fe80::) because net.IP.String()
-								// does not preserve the interface scope (%eth0) required
-								// for TCP connections.
-								resolvedIPv6 = addr.IP.String()
-							}
-						}
-						resolved := resolvedIPv4
-						if resolved == "" {
-							resolved = resolvedIPv6
-						}
-						if resolved == "" {
-							slog.Debug("hostname resolved but no address found, skipping entry", "input", ipAddr)
-							return
-						}
-						ipAddr = resolved
-					}
-
-					s.discoverAllPortsForIP(timeoutCtx, ipAddr, ports, rawResultChan)
+					s.discoverAllPortsForIP(timeoutCtx, normalized, ports, rawResultChan)
 				}(ip)
 			}
 		}
