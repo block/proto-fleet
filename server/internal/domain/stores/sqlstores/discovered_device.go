@@ -222,6 +222,11 @@ func (s *SQLDiscoveredDeviceStore) SoftDelete(ctx context.Context, doi discovery
 
 // toDiscoveredDevice converts a sqlc DiscoveredDevice to a domain DiscoveredDevice
 func toDiscoveredDevice(dbDevice sqlc.DiscoveredDevice) *discoverymodels.DiscoveredDevice {
+	var attribution *int64
+	if dbDevice.DiscoveredByFleetNodeID.Valid {
+		v := dbDevice.DiscoveredByFleetNodeID.Int64
+		attribution = &v
+	}
 	return &discoverymodels.DiscoveredDevice{
 		Device: pb.Device{
 			DeviceIdentifier: dbDevice.DeviceIdentifier,
@@ -233,9 +238,10 @@ func toDiscoveredDevice(dbDevice sqlc.DiscoveredDevice) *discoverymodels.Discove
 			UrlScheme:        dbDevice.UrlScheme,
 			DriverName:       dbDevice.DriverName,
 		},
-		IsActive:        dbDevice.IsActive,
-		OrgID:           dbDevice.OrgID,
-		FirstDiscovered: dbDevice.FirstDiscovered.Time,
-		LastSeen:        dbDevice.LastSeen.Time,
+		IsActive:                dbDevice.IsActive,
+		OrgID:                   dbDevice.OrgID,
+		FirstDiscovered:         dbDevice.FirstDiscovered.Time,
+		LastSeen:                dbDevice.LastSeen.Time,
+		DiscoveredByFleetNodeID: attribution,
 	}
 }

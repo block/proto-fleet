@@ -2,6 +2,8 @@ package fleetnodegateway
 
 import (
 	"context"
+	"errors"
+	"io"
 	"time"
 
 	"connectrpc.com/connect"
@@ -9,8 +11,12 @@ import (
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
+	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnodeauth"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnodecontrol"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnodeenrollment"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnodepairing"
 )
 
 type Handler struct {
@@ -18,12 +24,14 @@ type Handler struct {
 
 	enrollment *fleetnodeenrollment.Service
 	auth       *fleetnodeauth.Service
+	pairing    *fleetnodepairing.Service
+	registry   *fleetnodecontrol.Registry
 }
 
 var _ fleetnodegatewayv1connect.FleetNodeGatewayServiceHandler = &Handler{}
 
-func NewHandler(enrollment *fleetnodeenrollment.Service, auth *fleetnodeauth.Service) *Handler {
-	return &Handler{enrollment: enrollment, auth: auth}
+func NewHandler(enrollment *fleetnodeenrollment.Service, auth *fleetnodeauth.Service, pairing *fleetnodepairing.Service, registry *fleetnodecontrol.Registry) *Handler {
+	return &Handler{enrollment: enrollment, auth: auth, pairing: pairing, registry: registry}
 }
 
 func (h *Handler) Register(ctx context.Context, req *connect.Request[pb.RegisterRequest]) (*connect.Response[pb.RegisterResponse], error) {
@@ -72,4 +80,125 @@ func (h *Handler) UploadHeartbeat(ctx context.Context, _ *connect.Request[pb.Upl
 	return connect.NewResponse(&pb.UploadHeartbeatResponse{
 		ReceivedAt: timestamppb.New(now),
 	}), nil
+}
+
+func (h *Handler) ReportDiscoveredDevices(ctx context.Context, req *connect.Request[pb.ReportDiscoveredDevicesRequest]) (*connect.Response[pb.ReportDiscoveredDevicesResponse], error) {
+	subject, err := fleetnodeauth.GetSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	in := req.Msg.GetDevices()
+	reports := make([]fleetnodepairing.DiscoveredDeviceReport, 0, len(in))
+	for _, d := range in {
+		reports = append(reports, fleetnodepairing.DiscoveredDeviceReport{
+			DeviceIdentifier: d.GetDeviceIdentifier(),
+			IPAddress:        d.GetIpAddress(),
+			Port:             d.GetPort(),
+			URLScheme:        d.GetUrlScheme(),
+			DriverName:       d.GetDriverName(),
+			Model:            d.GetModel(),
+			Manufacturer:     d.GetManufacturer(),
+			FirmwareVersion:  d.GetFirmwareVersion(),
+		})
+	}
+	accepted, _, err := h.pairing.UpsertDiscoveredDevices(ctx, subject.FleetNodeID, subject.OrgID, reports)
+	if err != nil {
+		return nil, err
+	}
+	commandID := req.Msg.GetCommandId()
+	if h.registry != nil && commandID != "" && accepted > 0 {
+		batch := &pairingpb.DiscoverResponse{Devices: make([]*pairingpb.Device, 0, len(in))}
+		for _, d := range in {
+			batch.Devices = append(batch.Devices, toPairingDevice(d))
+		}
+		h.registry.PublishBatch(subject.FleetNodeID, commandID, batch)
+	}
+	return connect.NewResponse(&pb.ReportDiscoveredDevicesResponse{
+		AcceptedCount: accepted,
+	}), nil
+}
+
+func toPairingDevice(d *pb.DiscoveredDeviceReport) *pairingpb.Device {
+	return &pairingpb.Device{
+		DeviceIdentifier: d.GetDeviceIdentifier(),
+		IpAddress:        d.GetIpAddress(),
+		Port:             d.GetPort(),
+		UrlScheme:        d.GetUrlScheme(),
+		DriverName:       d.GetDriverName(),
+		Model:            d.GetModel(),
+		Manufacturer:     d.GetManufacturer(),
+		FirmwareVersion:  d.GetFirmwareVersion(),
+	}
+}
+
+func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[pb.ControlStreamRequest, pb.ControlStreamResponse]) error {
+	subject, err := fleetnodeauth.GetSubject(ctx)
+	if err != nil {
+		return err
+	}
+	if h.registry == nil {
+		return fleeterror.NewInternalErrorf("control stream registry not configured")
+	}
+
+	first, err := stream.Receive()
+	if err != nil {
+		return fleeterror.NewInvalidArgumentErrorf("control stream closed before hello: %v", err)
+	}
+	if first.GetHello() == nil {
+		return fleeterror.NewInvalidArgumentError("first ControlStreamRequest must be Hello")
+	}
+
+	regHandle, regErr := h.registry.Register(subject.FleetNodeID)
+	if regErr != nil {
+		return regErr
+	}
+	defer regHandle.Unregister()
+
+	if sendErr := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Accepted{
+		Accepted: &pb.ControlAccepted{ServerTime: timestamppb.New(time.Now().UTC())},
+	}}); sendErr != nil {
+		return fleeterror.NewInternalErrorf("send accepted: %v", sendErr)
+	}
+
+	// Side-goroutine bridges blocking stream.Receive into a select so the
+	// main loop can also dispatch outgoing commands. The goroutine exits
+	// when connect-go closes the stream on handler return.
+	type recvResult struct {
+		msg *pb.ControlStreamRequest
+		err error
+	}
+	incoming := make(chan recvResult, 1)
+	go func() {
+		for {
+			msg, err := stream.Receive()
+			incoming <- recvResult{msg: msg, err: err}
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case cmd, ok := <-regHandle.Outgoing:
+			if !ok {
+				return nil
+			}
+			if sendErr := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Command{Command: cmd}}); sendErr != nil {
+				return fleeterror.NewInternalErrorf("send command: %v", sendErr)
+			}
+		case r := <-incoming:
+			if r.err != nil {
+				if errors.Is(r.err, io.EOF) {
+					return nil
+				}
+				return fleeterror.NewInternalErrorf("control stream recv: %v", r.err)
+			}
+			if ack := r.msg.GetAck(); ack != nil {
+				regHandle.PublishAck(ack)
+			}
+		}
+	}
 }

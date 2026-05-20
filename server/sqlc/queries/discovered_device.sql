@@ -62,6 +62,8 @@ ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
 RETURNING id;
 
 -- name: GetActiveUnpairedDiscoveredDevices :many
+-- Excludes remote-fleet-node-reported rows: server-local pairing
+-- dials these IPs, agent-reported rows route via PairDeviceToFleetNode.
 SELECT dd.id, dd.org_id, dd.device_identifier, dd.model, dd.manufacturer,
        dd.firmware_version, dd.ip_address, dd.port, dd.url_scheme, dd.discovery_metadata,
        dd.first_discovered, dd.last_seen, dd.is_active,
@@ -73,6 +75,7 @@ WHERE dd.org_id = $1
     AND dd.is_active = TRUE
     AND dd.deleted_at IS NULL
     AND d.id IS NULL
+    AND dd.discovered_by_fleet_node_id IS NULL
     AND (
         -- If cursor provided, filter by it, otherwise return all
         COALESCE(sqlc.narg('cursor_id'), 0) = 0
@@ -88,7 +91,8 @@ LEFT JOIN device d ON dd.id = d.discovered_device_id AND d.deleted_at IS NULL
 WHERE dd.org_id = $1
     AND dd.is_active = TRUE
     AND dd.deleted_at IS NULL
-    AND d.id IS NULL;
+    AND d.id IS NULL
+    AND dd.discovered_by_fleet_node_id IS NULL;
 
 -- name: SoftDeleteDiscoveredDeviceByIdentifier :exec
 -- Soft-deletes a discovered_device record. Used to clean up orphaned records

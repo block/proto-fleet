@@ -1286,6 +1286,16 @@ func (s *Service) PairDevices(ctx context.Context, r *pb.PairRequest) (*pb.PairR
 			OrgID:            info.OrganizationID,
 		})
 		if ddErr == nil {
+			// Cloud pairing dials the IP via plugin RPC; remote-origin
+			// rows must route through PairDeviceToFleetNode instead.
+			if dd.DiscoveredByFleetNodeID != nil {
+				slog.Warn("refusing to pair remote-fleet-node-reported device via cloud pairing; use PairDeviceToFleetNode",
+					"device_identifier", id,
+					"fleet_node_id", *dd.DiscoveredByFleetNodeID,
+				)
+				failedIDs = append(failedIDs, id)
+				continue
+			}
 			endpoint := dd.IpAddress + ":" + dd.Port
 			if _, ok := seenEndpoints[endpoint]; ok {
 				slog.Warn("skipping duplicate physical device (same IP:port) in PairDevices request",
