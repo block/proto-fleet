@@ -1,6 +1,7 @@
 import type { ComponentProps } from "react";
+import type { RenderResult } from "@testing-library/react";
 import { render, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 
 import type { FullScreenTwoPaneModalProps } from "@/protoFleet/components/FullScreenTwoPaneModal";
@@ -13,6 +14,23 @@ type MockFullScreenTwoPaneModalProps = Pick<
   FullScreenTwoPaneModalProps,
   "title" | "isBusy" | "buttons" | "abovePanes" | "primaryPane" | "secondaryPane"
 >;
+
+interface RenderModalResult extends RenderResult {
+  onDismiss: ReturnType<typeof vi.fn>;
+  onSubmit: ReturnType<typeof vi.fn>;
+}
+
+const { mockUseCurtailmentPlanPreview } = vi.hoisted(() => ({
+  mockUseCurtailmentPlanPreview: vi.fn(),
+}));
+
+vi.mock("@/protoFleet/features/energy/useCurtailmentPlanPreview", () => ({
+  getUnsupportedDeviceSetPreviewError: (values: CurtailmentFormValues) =>
+    values.scopeType === "deviceSet" && values.deviceSetIds.length > 0
+      ? "Rack and group curtailment previews are not supported yet. Select specific miners or the whole fleet to preview and start this curtailment."
+      : undefined,
+  useCurtailmentPlanPreview: mockUseCurtailmentPlanPreview,
+}));
 
 vi.mock("@/protoFleet/components/FullScreenTwoPaneModal", () => ({
   default: ({ title, isBusy, buttons, abovePanes, primaryPane, secondaryPane }: MockFullScreenTwoPaneModalProps) => (
@@ -75,11 +93,12 @@ const preview: CurtailmentPlanPreview = {
   selectedMinerCount: 18,
   targetKw: 40,
   estimatedReductionKw: 45,
+  curtailEstimate: "5 minutes - 30 minutes",
   restoreEstimate: "~2 minutes",
   scopeLabel: "across the fleet",
 };
 
-const renderModal = (props: Partial<ComponentProps<typeof CurtailmentStartModal>> = {}) => {
+function renderModal(props: Partial<ComponentProps<typeof CurtailmentStartModal>> = {}): RenderModalResult {
   const onDismiss = vi.fn();
   const onSubmit = vi.fn();
 
@@ -88,15 +107,15 @@ const renderModal = (props: Partial<ComponentProps<typeof CurtailmentStartModal>
     onSubmit,
     ...render(<CurtailmentStartModal open onDismiss={onDismiss} onSubmit={onSubmit} {...props} />),
   };
-};
+}
 
-const getMaintenanceCheckbox = (): HTMLInputElement => {
+function getMaintenanceCheckbox(): HTMLInputElement {
   const checkbox = screen.getByText("Include miners in maintenance").closest("label")?.querySelector("input");
   if (!checkbox) {
     throw new Error("Maintenance checkbox was not rendered");
   }
   return checkbox;
-};
+}
 
 function mockVisibleSelectLayout(): () => void {
   const getBoundingClientRectSpy = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
@@ -115,6 +134,14 @@ function mockVisibleSelectLayout(): () => void {
 }
 
 describe("CurtailmentStartModal", () => {
+  beforeEach(() => {
+    mockUseCurtailmentPlanPreview.mockReturnValue({
+      preview: undefined,
+      previewError: undefined,
+      isPreviewLoading: false,
+    });
+  });
+
   it("renders the empty state and target selectors", () => {
     renderModal();
 
@@ -125,12 +152,59 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByText("Curtail behavior")).toBeInTheDocument();
     expect(screen.getByText("Fixed kW reduction")).toBeInTheDocument();
     expect(screen.getByText("Least efficient first")).toBeInTheDocument();
+    expect(screen.getByLabelText("Min duration (sec)")).toBeInTheDocument();
+    expect(screen.getByLabelText("Max duration (sec)")).toBeInTheDocument();
     expect(screen.queryByText("Safety")).not.toBeInTheDocument();
     expect(screen.queryByText("Normal")).not.toBeInTheDocument();
     expect(screen.getByText("Restore behavior")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Racks\s+Select/ })).toBeEnabled();
     expect(screen.getByRole("button", { name: /Groups\s+Select/ })).toBeEnabled();
     expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeEnabled();
+  });
+
+  it("renders the API preview when preview props are not controlled", () => {
+    mockUseCurtailmentPlanPreview.mockReturnValue({
+      preview,
+      previewError: undefined,
+      isPreviewLoading: false,
+    });
+
+    renderModal({ initialValues: configuredValues });
+
+    expect(screen.getAllByText("Curtail 18 miners across the fleet immediately")).toHaveLength(2);
+    expect(screen.getAllByText("45.0 kW of 40.0 kW")).toHaveLength(2);
+    expect(screen.getAllByText("5 minutes - 30 minutes")).toHaveLength(2);
+  });
+
+  it("blocks submission while the API preview reports a blocking error", async () => {
+    const user = userEvent.setup();
+    mockUseCurtailmentPlanPreview.mockReturnValue({
+      preview: undefined,
+      previewError: "No miners match this curtailment.",
+      isPreviewLoading: false,
+    });
+    const { onSubmit } = renderModal({ initialValues: { ...configuredValues, includeMaintenance: false } });
+    const startButton = screen.getByRole("button", { name: "Start curtailment" });
+
+    expect(screen.getAllByText("No miners match this curtailment.")).toHaveLength(2);
+    expect(startButton).toBeDisabled();
+
+    await user.click(startButton);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("keeps the existing preview visible while a refreshed preview is loading", () => {
+    mockUseCurtailmentPlanPreview.mockReturnValue({
+      preview,
+      previewError: undefined,
+      isPreviewLoading: true,
+    });
+
+    renderModal({ initialValues: configuredValues });
+
+    expect(screen.getAllByText("Curtail 18 miners across the fleet immediately")).toHaveLength(2);
+    expect(screen.queryByLabelText("Loading curtailment preview")).not.toBeInTheDocument();
+    expect(screen.queryByText("Configure your curtailment to see a preview.")).not.toBeInTheDocument();
   });
 
   it("renders preview and preview error states", () => {
@@ -142,7 +216,8 @@ describe("CurtailmentStartModal", () => {
     expect(screen.queryByText("Estimated time to restore ~2 minutes")).not.toBeInTheDocument();
 
     const secondaryPane = within(screen.getByTestId("secondary-pane"));
-    expect(secondaryPane.queryByText("Time to curtail")).not.toBeInTheDocument();
+    expect(secondaryPane.getByText("Curtailment duration")).toBeInTheDocument();
+    expect(secondaryPane.getByText("5 minutes - 30 minutes")).toBeInTheDocument();
     expect(secondaryPane.getByText("Time to restore")).toBeInTheDocument();
     expect(secondaryPane.getAllByText("~2 minutes")).toHaveLength(1);
 
@@ -157,6 +232,27 @@ describe("CurtailmentStartModal", () => {
     );
 
     expect(screen.getAllByText("Preview is unavailable until a valid target reduction is entered.")).toHaveLength(2);
+  });
+
+  it("shows unsupported target-scope errors before controlled preview props", () => {
+    renderModal({
+      initialValues: {
+        ...configuredValues,
+        includeMaintenance: false,
+        scopeType: "deviceSet",
+        scopeId: "racks",
+        deviceSetIds: ["rack-1"],
+      },
+      preview,
+    });
+
+    expect(
+      screen.getAllByText(
+        "Rack and group curtailment previews are not supported yet. Select specific miners or the whole fleet to preview and start this curtailment.",
+      ),
+    ).toHaveLength(2);
+    expect(screen.queryByText("Curtail 18 miners across the fleet immediately")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start curtailment" })).toBeDisabled();
   });
 
   it("renders estimated reduction against the requested reduction", () => {
@@ -179,10 +275,14 @@ describe("CurtailmentStartModal", () => {
     const user = userEvent.setup();
     const { onDismiss, onSubmit } = renderModal();
     const targetInput = screen.getByLabelText("Target reduction");
+    const minDurationInput = screen.getByLabelText("Min duration (sec)");
+    const maxDurationInput = screen.getByLabelText("Max duration (sec)");
     const restoreBatchSizeInput = screen.getByLabelText("Batch size (miners)");
     const restoreIntervalInput = screen.getByLabelText("Batch interval (sec)");
 
     await user.type(targetInput, "75");
+    await user.type(minDurationInput, "300");
+    await user.type(maxDurationInput, "1800");
     await user.type(restoreBatchSizeInput, "10");
     await user.type(restoreIntervalInput, "120");
     await user.type(screen.getByLabelText("Reason"), "Grid response");
@@ -197,8 +297,8 @@ describe("CurtailmentStartModal", () => {
     expect(submittedValues).toMatchObject({
       targetKw: "75",
       toleranceKw: "",
-      minDurationSec: "",
-      maxDurationSec: "",
+      minDurationSec: "300",
+      maxDurationSec: "1800",
       reason: "Grid response",
       priority: "normal",
       responseProfileId: "customPlan",
@@ -284,41 +384,33 @@ describe("CurtailmentStartModal", () => {
   it("opens target selectors and submits the selected target scope", async () => {
     const user = userEvent.setup();
     const { onSubmit } = renderModal({ initialValues: { includeMaintenance: false } });
+    const startButton = screen.getByRole("button", { name: "Start curtailment" });
 
     await user.click(screen.getByRole("button", { name: /Racks\s+Select/ }));
     expect(screen.getByRole("dialog", { name: "Rack selection" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Save racks" }));
     expect(screen.getByRole("button", { name: /Racks\s+2 racks/ })).toBeInTheDocument();
+    expect(
+      screen.getAllByText(
+        "Rack and group curtailment previews are not supported yet. Select specific miners or the whole fleet to preview and start this curtailment.",
+      ),
+    ).toHaveLength(2);
+    expect(startButton).toBeDisabled();
 
-    await user.click(screen.getByRole("button", { name: "Start curtailment" }));
-    expect(onSubmit).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        scopeType: "deviceSet",
-        scopeId: "racks",
-        deviceSetIds: ["rack-1", "rack-2"],
-        deviceIdentifiers: [],
-      }),
-    );
+    await user.click(startButton);
+    expect(onSubmit).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: /Groups\s+Select/ }));
     await user.click(screen.getByRole("button", { name: "Save groups" }));
     expect(screen.getByRole("button", { name: /Groups\s+1 group/ })).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "Start curtailment" }));
-    expect(onSubmit).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        scopeType: "deviceSet",
-        scopeId: "groups",
-        deviceSetIds: ["group-1"],
-        deviceIdentifiers: [],
-      }),
-    );
+    expect(startButton).toBeDisabled();
 
     await user.click(screen.getByRole("button", { name: /Miners\s+Select/ }));
     await user.click(screen.getByRole("button", { name: "Save miners" }));
     expect(screen.getByRole("button", { name: /Miners\s+3 miners/ })).toBeInTheDocument();
+    expect(startButton).toBeEnabled();
 
-    await user.click(screen.getByRole("button", { name: "Start curtailment" }));
+    await user.click(startButton);
     expect(onSubmit).toHaveBeenLastCalledWith(
       expect.objectContaining({
         scopeType: "explicitMiners",
@@ -327,6 +419,29 @@ describe("CurtailmentStartModal", () => {
         deviceIdentifiers: ["miner-1", "miner-2", "miner-3"],
       }),
     );
+  });
+
+  it("blocks inverted duration submissions", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      initialValues: {
+        includeMaintenance: false,
+        minDurationSec: "3600",
+        maxDurationSec: "300",
+      },
+      errors: {
+        maxDurationSec: "Server-side max duration error",
+      },
+    });
+    const startButton = screen.getByRole("button", { name: "Start curtailment" });
+
+    expect(screen.getByText("Max duration must be greater than or equal to min duration.")).toBeInTheDocument();
+    expect(screen.queryByText("Server-side max duration error")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Max duration (sec)")).toHaveAttribute("aria-invalid", "true");
+    expect(startButton).toBeDisabled();
+
+    await user.click(startButton);
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 
   it("resets form values when reopened with new initial values", async () => {
@@ -367,6 +482,23 @@ describe("CurtailmentStartModal", () => {
     const updatedTargetInput = screen.getByLabelText("Target reduction");
     expect(updatedTargetInput).toHaveValue(25);
     expect(screen.getByLabelText("Reason")).toHaveValue("Updated reason");
+  });
+
+  it("blocks submissions when parent field errors are present", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      initialValues: { includeMaintenance: false },
+      errors: {
+        targetKw: "Required",
+      },
+    });
+    const startButton = screen.getByRole("button", { name: "Start curtailment" });
+
+    expect(screen.getByText("Required")).toBeInTheDocument();
+    expect(startButton).toBeDisabled();
+
+    await user.click(startButton);
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 
   it("renders field validation errors with accessible error state", () => {
