@@ -104,7 +104,7 @@ func TestRunCmd_HappyPathThreeTicks(t *testing.T) {
 	cmd := &RunCmd{
 		HeartbeatInterval: 5 * time.Millisecond,
 		parentCtx:         parent,
-		clientFactory:     func(_ string, _ func() string) gatewayClient { return stub },
+		clientFactory:     func(_ string, _ func() string) (gatewayClient, error) { return stub, nil },
 	}
 
 	done := make(chan error, 1)
@@ -335,7 +335,7 @@ func TestRunCmd_ValidatesServerURLBeforeBuildingClient(t *testing.T) {
 	stub := &stubGatewayClient{}
 	cmd := &RunCmd{
 		HeartbeatInterval: time.Second,
-		clientFactory:     func(_ string, _ func() string) gatewayClient { return stub },
+		clientFactory:     func(_ string, _ func() string) (gatewayClient, error) { return stub, nil },
 	}
 
 	// Act
@@ -361,7 +361,7 @@ func TestRunCmd_ExitsOnCodeNotFoundHeartbeat(t *testing.T) {
 	}
 	cmd := &RunCmd{
 		HeartbeatInterval: 5 * time.Millisecond,
-		clientFactory:     func(_ string, _ func() string) gatewayClient { return stub },
+		clientFactory:     func(_ string, _ func() string) (gatewayClient, error) { return stub, nil },
 	}
 
 	// Act

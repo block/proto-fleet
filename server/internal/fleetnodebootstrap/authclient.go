@@ -13,12 +13,16 @@ import (
 // tokenSource is invoked per-call so a daemon that mutates its own
 // state.SessionToken via Refresh picks up the new value on the next
 // request without rebuilding the client.
-func NewAuthenticatedGatewayClient(serverURL string, tokenSource func() string) fleetnodegatewayv1connect.FleetNodeGatewayServiceClient {
+func NewAuthenticatedGatewayClient(serverURL string, tokenSource func() string) (fleetnodegatewayv1connect.FleetNodeGatewayServiceClient, error) {
+	httpClient, err := newGatewayHTTPClient(serverURL)
+	if err != nil {
+		return nil, err
+	}
 	return fleetnodegatewayv1connect.NewFleetNodeGatewayServiceClient(
-		newGatewayHTTPClient(),
+		httpClient,
 		serverURL,
 		connect.WithInterceptors(bearerInterceptor(tokenSource)),
-	)
+	), nil
 }
 
 func bearerInterceptor(tokenSource func() string) connect.Interceptor {

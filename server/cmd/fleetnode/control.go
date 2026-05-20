@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -245,13 +244,7 @@ type pluginDiscoverer struct {
 	svc   *plugins.Service
 }
 
-// Requires an absolute path because plugins.Manager execs every file in the
-// dir; a relative path would resolve against the daemon's CWD and let a
-// writable launch directory plant code that runs with agent privileges.
 func newPluginDiscoverer(pluginsDir string) (*pluginDiscoverer, func(), error) {
-	if !filepath.IsAbs(pluginsDir) {
-		return nil, func() {}, fmt.Errorf("--plugins-dir must be an absolute path, got %q", pluginsDir)
-	}
 	// Manager.Shutdown waits the full grace period even when a plugin already
 	// exited, so keep it tight; a stuck plugin still gets killed.
 	manager := plugins.NewManager(&plugins.Config{

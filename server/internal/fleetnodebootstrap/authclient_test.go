@@ -50,11 +50,12 @@ func TestAuthenticatedClient_AttachesBearerHeaderPerCall(t *testing.T) {
 	srv := testutil.NewH2CServer(t, mux)
 
 	var token string
-	client := NewAuthenticatedGatewayClient(srv.URL, func() string { return token })
+	client, err := NewAuthenticatedGatewayClient(srv.URL, func() string { return token })
+	require.NoError(t, err)
 
 	// Act
 	token = "t1"
-	_, err := client.UploadHeartbeat(context.Background(), connect.NewRequest(&pb.UploadHeartbeatRequest{SentAt: timestamppb.Now()}))
+	_, err = client.UploadHeartbeat(context.Background(), connect.NewRequest(&pb.UploadHeartbeatRequest{SentAt: timestamppb.Now()}))
 	require.NoError(t, err)
 	token = "t2"
 	_, err = client.UploadHeartbeat(context.Background(), connect.NewRequest(&pb.UploadHeartbeatRequest{SentAt: timestamppb.Now()}))
@@ -72,12 +73,13 @@ func TestAuthenticatedClient_RejectsEmptyToken(t *testing.T) {
 
 	// Arrange
 	srv := testutil.NewH2CServer(t, http.NewServeMux())
-	client := NewAuthenticatedGatewayClient(srv.URL, func() string { return "" })
+	client, err := NewAuthenticatedGatewayClient(srv.URL, func() string { return "" })
+	require.NoError(t, err)
 
 	// Act
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	_, err := client.UploadHeartbeat(ctx, connect.NewRequest(&pb.UploadHeartbeatRequest{SentAt: timestamppb.Now()}))
+	_, err = client.UploadHeartbeat(ctx, connect.NewRequest(&pb.UploadHeartbeatRequest{SentAt: timestamppb.Now()}))
 
 	// Assert
 	require.Error(t, err)

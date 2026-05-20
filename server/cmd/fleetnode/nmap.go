@@ -5,8 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,7 +17,46 @@ import (
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/block/proto-fleet/server/internal/domain/netutil"
 )
+
+// Targets reach nmap as argv (no shell), so the risk is nmap interpreting a
+// leading dash as a flag (-iL, -oN -> arbitrary file read/write on the agent
+// host). The range regex discriminates "A.B.C.D-N" from hostnames-with-dashes
+// like "miner-01.lan" which the hostname grammar must still accept.
+var (
+	nmapHostnameRE  = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*$`)
+	nmapIPv4RangeRE = regexp.MustCompile(`^(\d{1,3}\.){3}\d{1,3}-\d{1,3}$`)
+	nmapAllowedRE   = regexp.MustCompile(`^[A-Za-z0-9.:/-]+$`)
+)
+
+func validateNmapTarget(s string) error {
+	if s == "" {
+		return errors.New("nmap target is required")
+	}
+	if strings.HasPrefix(s, "-") {
+		return fmt.Errorf("nmap target %q must not start with '-'", s)
+	}
+	if !nmapAllowedRE.MatchString(s) {
+		return fmt.Errorf("nmap target %q contains disallowed characters", s)
+	}
+	if _, err := netutil.ParseCIDROrIP(s); err == nil {
+		return nil
+	}
+	if nmapIPv4RangeRE.MatchString(s) {
+		head, tail, _ := strings.Cut(s, "-")
+		ip := net.ParseIP(head)
+		n, perr := strconv.Atoi(tail)
+		if ip != nil && ip.To4() != nil && perr == nil && n >= 0 && n <= 255 {
+			return nil
+		}
+		return fmt.Errorf("nmap target %q has invalid IPv4 range", s)
+	}
+	if nmapHostnameRE.MatchString(s) {
+		return nil
+	}
+	return fmt.Errorf("nmap target %q is not a valid IP, CIDR, range, or hostname", s)
+}
 
 const (
 	nmapScanTimeout       = 600 * time.Second
@@ -24,25 +66,16 @@ const (
 	nmapDefaultBinaryName = "nmap"
 )
 
-// Returns an absolute path when found; otherwise "nmap" -- the Ullaakut
-// scanner's exec.LookPath resolves a bare name from PATH at scan time.
-func resolveNmapPath(flag, exeDir string) (string, error) {
-	if flag != "" {
-		if !filepath.IsAbs(flag) {
-			return "", fmt.Errorf("--nmap-path must be an absolute path, got %q", flag)
-		}
-		if err := checkExecutableFile(flag); err != nil {
-			return "", fmt.Errorf("--nmap-path %s: %w", flag, err)
-		}
-		return flag, nil
-	}
+// PATH fallback keeps dev machines (brew install nmap) working without the
+// installer-staged layout.
+func resolveNmapPath(exeDir string) string {
 	if exeDir != "" {
 		candidate := filepath.Join(exeDir, nmapDefaultBinaryName)
 		if err := checkExecutableFile(candidate); err == nil {
-			return candidate, nil
+			return candidate
 		}
 	}
-	return nmapDefaultBinaryName, nil
+	return nmapDefaultBinaryName
 }
 
 func checkExecutableFile(path string) error {
@@ -61,8 +94,8 @@ func checkExecutableFile(path string) error {
 
 func (r *RunCmd) runNmapDiscovery(ctx context.Context, req *pairingpb.NmapModeRequest, logger *slog.Logger) ([]*pb.DiscoveredDeviceReport, error) {
 	target := strings.TrimSpace(req.GetTarget())
-	if target == "" {
-		return nil, errors.New("nmap target is required")
+	if err := validateNmapTarget(target); err != nil {
+		return nil, err
 	}
 	ports := req.GetPorts()
 	if len(ports) == 0 {

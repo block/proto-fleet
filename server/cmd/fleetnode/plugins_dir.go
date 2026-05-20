@@ -6,21 +6,9 @@ import (
 	"path/filepath"
 )
 
-// resolvePluginsDir returns "" when the binary-adjacent default is missing
-// (silent heartbeat-only mode); a present-but-unsafe default is a hard
-// error so a shipped plugins dir doesn't get silently downgraded. The
-// plugin manager execs everything in the returned path, so non-owner write
-// capability there is RCE-equivalent (checkPluginsDirPerms enforces).
-func resolvePluginsDir(flag, exeDir string) (string, error) {
-	if flag != "" {
-		if !filepath.IsAbs(flag) {
-			return "", fmt.Errorf("--plugins-dir must be an absolute path, got %q", flag)
-		}
-		if err := checkPluginsDirPerms(flag); err != nil {
-			return "", err
-		}
-		return flag, nil
-	}
+// The plugin manager execs every file in the returned path, so non-owner
+// write capability there is RCE-equivalent (checkPluginsDirPerms enforces).
+func resolvePluginsDir(exeDir string) (string, error) {
 	if exeDir == "" {
 		return "", nil
 	}

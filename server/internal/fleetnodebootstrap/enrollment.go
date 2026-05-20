@@ -55,7 +55,10 @@ func Register(ctx context.Context, p RegisterParams) (*RegisterResult, error) {
 		return nil, err
 	}
 
-	client := NewGatewayClient(p.ServerURL)
+	client, err := NewGatewayClient(p.ServerURL)
+	if err != nil {
+		return nil, err
+	}
 	resp, err := client.Register(ctx, connect.NewRequest(&pb.RegisterRequest{
 		EnrollmentToken:    p.Code,
 		Name:               p.Name,
@@ -107,7 +110,11 @@ func CompleteEnrollment(ctx context.Context, state *State, apiKey string) error 
 
 	attempt := *state
 	attempt.APIKey = apiKey
-	if err := RunHandshake(ctx, NewGatewayClient(state.ServerURL), &attempt); err != nil {
+	client, err := NewGatewayClient(state.ServerURL)
+	if err != nil {
+		return err
+	}
+	if err := RunHandshake(ctx, client, &attempt); err != nil {
 		return err
 	}
 	state.APIKey = attempt.APIKey

@@ -27,15 +27,13 @@ const (
 
 type RunCmd struct {
 	HeartbeatInterval time.Duration `name:"heartbeat-interval" default:"30s" help:"interval between UploadHeartbeat calls"`
-	PluginsDir        string        `name:"plugins-dir" help:"absolute path to the discovery plugins directory; defaults to <dir-of-binary>/plugins. If the resolved directory is missing the control loop stays off (heartbeat only)."`
-	NmapPath          string        `name:"nmap-path" help:"absolute path to the nmap binary; defaults to <dir-of-binary>/nmap when present, otherwise to 'nmap' on PATH at scan time"`
 
-	now           func() time.Time                                                `kong:"-"`
-	clientFactory func(serverURL string, tokenSource func() string) gatewayClient `kong:"-"`
-	signals       []os.Signal                                                     `kong:"-"`
-	parentCtx     context.Context                                                 `kong:"-"` //nolint:containedctx // test seam for daemon shutdown without OS signals
-	discoverer    discoverer                                                      `kong:"-"`
-	nmapPath      string                                                          `kong:"-"`
+	now           func() time.Time                                                         `kong:"-"`
+	clientFactory func(serverURL string, tokenSource func() string) (gatewayClient, error) `kong:"-"`
+	signals       []os.Signal                                                              `kong:"-"`
+	parentCtx     context.Context                                                          `kong:"-"` //nolint:containedctx // test seam for daemon shutdown without OS signals
+	discoverer    discoverer                                                               `kong:"-"`
+	nmapPath      string                                                                   `kong:"-"`
 
 	stateMu sync.Mutex `kong:"-"` // guards st.SessionToken across refreshAndSave + tokenSource.
 }
@@ -58,7 +56,7 @@ func (r *RunCmd) run(c *Context, stderr io.Writer) error {
 		r.now = func() time.Time { return time.Now().UTC() }
 	}
 	if r.clientFactory == nil {
-		r.clientFactory = func(url string, src func() string) gatewayClient {
+		r.clientFactory = func(url string, src func() string) (gatewayClient, error) {
 			return fleetnodebootstrap.NewAuthenticatedGatewayClient(url, src)
 		}
 	}
@@ -71,22 +69,18 @@ func (r *RunCmd) run(c *Context, stderr io.Writer) error {
 		r.parentCtx = context.Background()
 	}
 
-	// Resolve --plugins-dir / --nmap-path before touching disk state so
+	// Resolve binary-adjacent plugins/nmap before touching disk state so
 	// misconfiguration fails fast.
 	exeDir := executableDir()
 	var resolvedPluginsDir string
 	if r.discoverer == nil {
-		resolved, resolveErr := resolvePluginsDir(r.PluginsDir, exeDir)
+		resolved, resolveErr := resolvePluginsDir(exeDir)
 		if resolveErr != nil {
 			return resolveErr
 		}
 		resolvedPluginsDir = resolved
 	}
-	resolvedNmapPath, err := resolveNmapPath(r.NmapPath, exeDir)
-	if err != nil {
-		return err
-	}
-	r.nmapPath = resolvedNmapPath
+	r.nmapPath = resolveNmapPath(exeDir)
 
 	path := fleetnodebootstrap.StatePath(c.StateDir)
 	st, exists, err := fleetnodebootstrap.LoadState(path)
@@ -102,12 +96,8 @@ func (r *RunCmd) run(c *Context, stderr io.Writer) error {
 
 	logger := slog.New(slog.NewTextHandler(stderr, nil))
 	if resolvedPluginsDir != "" {
-		source := "binary-adjacent"
-		if r.PluginsDir != "" {
-			source = "flag"
-		}
-		logger.Info("plugins dir resolved", "plugins_dir", resolvedPluginsDir, "source", source)
-	} else if r.PluginsDir == "" {
+		logger.Info("plugins dir resolved", "plugins_dir", resolvedPluginsDir)
+	} else {
 		logger.Info("no plugins dir found adjacent to binary; control loop disabled (heartbeat only)")
 	}
 
@@ -161,7 +151,10 @@ func (r *RunCmd) runLocked(c *Context, logger *slog.Logger) error {
 		defer r.stateMu.Unlock()
 		return st.SessionToken
 	}
-	client := r.clientFactory(st.ServerURL, tokenSource)
+	client, err := r.clientFactory(st.ServerURL, tokenSource)
+	if err != nil {
+		return err
+	}
 
 	controlEnabled := r.discoverer != nil
 

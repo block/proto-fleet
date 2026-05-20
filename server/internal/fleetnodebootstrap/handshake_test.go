@@ -136,7 +136,8 @@ func TestRunHandshake_HappyPath(t *testing.T) {
 		IdentityPrivateKeyHex: hex.EncodeToString(priv),
 		IdentityPublicKeyHex:  hex.EncodeToString(pub),
 	}
-	client := NewGatewayClient(srv.URL)
+	client, err := NewGatewayClient(srv.URL)
+	require.NoError(t, err)
 
 	// Act
 	err = RunHandshake(t.Context(), client, state)
@@ -165,7 +166,8 @@ func TestRunHandshake_WrongAPIKey(t *testing.T) {
 		IdentityPrivateKeyHex: hex.EncodeToString(priv),
 		IdentityPublicKeyHex:  hex.EncodeToString(pub),
 	}
-	client := NewGatewayClient(srv.URL)
+	client, err := NewGatewayClient(srv.URL)
+	require.NoError(t, err)
 
 	// Act
 	err = RunHandshake(t.Context(), client, state)
@@ -249,7 +251,8 @@ func TestRunHandshake_BadSignature(t *testing.T) {
 		IdentityPrivateKeyHex: hex.EncodeToString(otherPriv),
 		IdentityPublicKeyHex:  hex.EncodeToString(pub),
 	}
-	client := NewGatewayClient(srv.URL)
+	client, err := NewGatewayClient(srv.URL)
+	require.NoError(t, err)
 
 	// Act
 	err = RunHandshake(t.Context(), client, state)

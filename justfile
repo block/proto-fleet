@@ -188,7 +188,7 @@ build-fleetnode: (_build-go-plugins-native "server/.fleetnode/plugins") (_asicrs
     echo "linked server/.fleetnode/nmap -> $NMAP"
   else
     rm -f ./.fleetnode/nmap
-    echo "note: nmap not on PATH; install it (brew install nmap / apt-get install nmap) or pass --nmap-path at runtime"
+    echo "note: nmap not on PATH; install it (brew install nmap / apt-get install nmap) so the agent finds it at scan time"
   fi
   echo "agent staged at server/.fleetnode/fleetnode"
 
