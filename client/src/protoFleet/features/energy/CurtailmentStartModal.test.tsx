@@ -147,6 +147,8 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByText("Curtail behavior")).toBeInTheDocument();
     expect(screen.getByText("Fixed kW reduction")).toBeInTheDocument();
     expect(screen.getByText("Least efficient first")).toBeInTheDocument();
+    expect(screen.getByLabelText("Min duration (sec)")).toBeInTheDocument();
+    expect(screen.getByLabelText("Max duration (sec)")).toBeInTheDocument();
     expect(screen.queryByText("Safety")).not.toBeInTheDocument();
     expect(screen.queryByText("Normal")).not.toBeInTheDocument();
     expect(screen.getByText("Restore behavior")).toBeInTheDocument();
@@ -214,10 +216,14 @@ describe("CurtailmentStartModal", () => {
     const user = userEvent.setup();
     const { onDismiss, onSubmit } = renderModal();
     const targetInput = screen.getByLabelText("Target reduction");
+    const minDurationInput = screen.getByLabelText("Min duration (sec)");
+    const maxDurationInput = screen.getByLabelText("Max duration (sec)");
     const restoreBatchSizeInput = screen.getByLabelText("Batch size (miners)");
     const restoreIntervalInput = screen.getByLabelText("Batch interval (sec)");
 
     await user.type(targetInput, "75");
+    await user.type(minDurationInput, "300");
+    await user.type(maxDurationInput, "1800");
     await user.type(restoreBatchSizeInput, "10");
     await user.type(restoreIntervalInput, "120");
     await user.type(screen.getByLabelText("Reason"), "Grid response");
@@ -232,8 +238,8 @@ describe("CurtailmentStartModal", () => {
     expect(submittedValues).toMatchObject({
       targetKw: "75",
       toleranceKw: "",
-      minDurationSec: "",
-      maxDurationSec: "",
+      minDurationSec: "300",
+      maxDurationSec: "1800",
       reason: "Grid response",
       priority: "normal",
       responseProfileId: "customPlan",

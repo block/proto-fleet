@@ -433,6 +433,22 @@ function CurtailmentStartModalContent({
                   error={errors?.minerSelectionStrategy}
                   onChange={(value) => updateValue("minerSelectionStrategy", value)}
                 />
+                <div className="grid gap-3 tablet:grid-cols-2">
+                  <Field
+                    id="curtailment-min-duration"
+                    label="Min duration (sec)"
+                    value={values.minDurationSec}
+                    error={errors?.minDurationSec}
+                    onChange={(value) => updateValue("minDurationSec", value)}
+                  />
+                  <Field
+                    id="curtailment-max-duration"
+                    label="Max duration (sec)"
+                    value={values.maxDurationSec}
+                    error={errors?.maxDurationSec}
+                    onChange={(value) => updateValue("maxDurationSec", value)}
+                  />
+                </div>
               </div>
             </Section>
 
