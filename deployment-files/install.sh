@@ -3,27 +3,44 @@ set -euo pipefail
 
 DEPLOYMENT_DIR="deployment"
 
-# Function to determine installation directory by detecting previous installations
-find_previous_install_dir() {
-  local container_id=$(docker ps -a --filter "name=${DEPLOYMENT_DIR}-fleet-api" --filter "name=${DEPLOYMENT_DIR}_fleet-api" --format "{{.ID}}" 2>/dev/null | head -n 1 || true)
-  
-  if [ -z "$container_id" ]; then
-    # No container found
-    return 1
-  fi
-  
-  # Get the mount point from the container - suppress failures with || true
-  local mount_path=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/var/lib/fleet/start"}}{{.Source}}{{end}}{{end}}' "$container_id" 2>/dev/null || true)
-  
-  if [ -z "$mount_path" ]; then
-    # No mount path found
-    return 1
-  else
-    # Extract install directory from mount path
-    local install_dir=$(echo "$mount_path" | sed "s|/${DEPLOYMENT_DIR}.*$||" || true)
-    echo "$install_dir"
+# Probe a specific docker invocation for an existing fleet-api container and
+# return the install directory inferred from its bind mount. Echoes the path
+# on success; returns 1 on miss.
+probe_install_dir_with() {
+  local docker_cmd="$1"
+  local container_id
+  container_id=$($docker_cmd ps -a --filter "name=${DEPLOYMENT_DIR}-fleet-api" --filter "name=${DEPLOYMENT_DIR}_fleet-api" --format "{{.ID}}" 2>/dev/null | head -n 1 || true)
+  [ -z "$container_id" ] && return 1
+
+  local mount_path
+  mount_path=$($docker_cmd inspect --format '{{range .Mounts}}{{if eq .Destination "/var/lib/fleet/start"}}{{.Source}}{{end}}{{end}}' "$container_id" 2>/dev/null || true)
+  [ -z "$mount_path" ] && return 1
+
+  echo "$mount_path" | sed "s|/${DEPLOYMENT_DIR}.*$||"
+}
+
+# Determines the installation directory by detecting previous installations.
+# Probes the unprivileged docker first; if that misses, falls back to a
+# non-interactive `sudo docker` probe so we can spot installs whose containers
+# live in the root daemon. Writes results to globals (rather than stdout) so
+# the sudo-mismatch signal isn't lost across a subshell:
+#   PREVIOUS_INSTALL_DIR        — install dir, or empty if none detected
+#   PREVIOUS_INSTALL_NEEDS_SUDO — 1 if the install was only visible via sudo
+detect_previous_install() {
+  PREVIOUS_INSTALL_DIR=""
+  PREVIOUS_INSTALL_NEEDS_SUDO=0
+
+  local install_dir
+  if install_dir=$(probe_install_dir_with "docker"); then
+    PREVIOUS_INSTALL_DIR="$install_dir"
     return 0
   fi
+  if install_dir=$(probe_install_dir_with "sudo -n docker"); then
+    PREVIOUS_INSTALL_DIR="$install_dir"
+    PREVIOUS_INSTALL_NEEDS_SUDO=1
+    return 0
+  fi
+  return 1
 }
 
 # Function to extract files to the installation directory and cd to it
@@ -178,6 +195,12 @@ esac
 TAR_NAME="proto-fleet-${VERSION}-${ARCH}.tar.gz"
 URL="${GITHUB_RELEASES_URL}/download/${VERSION}/${TAR_NAME}"
 
+# Clean up the downloaded tarball on any exit path. extract_and_cd also rm's
+# it on the happy path, but early-exit paths (download retry, sudo-mismatch
+# abort, future guards added below) would otherwise leak release-sized files
+# into /tmp on every aborted attempt.
+trap 'rm -f "/tmp/${TAR_NAME}"' EXIT
+
 echo "🛰  Fetching proto-fleet ${VERSION} from ${URL}"
 if ! curl -fsSL "${URL}" -o "/tmp/${TAR_NAME}"; then
   echo "❌ Failed to download ${TAR_NAME} from GitHub Releases — does that release asset exist?"
@@ -196,10 +219,43 @@ get_default_install_dir() {
 }
 
 echo "🔍 Checking for previous ProtoFleet installations via Docker..."
-PREVIOUS_INSTALL_DIR=$(find_previous_install_dir || echo "")
+detect_previous_install || true
 DEFAULT_INSTALL_DIR=$(get_default_install_dir)
 
-if [ -n "$PREVIOUS_INSTALL_DIR" ]; then
+# If the existing containers were only visible via `sudo docker`, this script
+# is running as a user who can't manage them. Bail out loudly rather than
+# silently extracting on top of an install we can't control — continuing
+# would orphan the root-owned containers and likely leave the user with two
+# competing stacks. (Process substitution + sudo is a footgun, so tell them
+# the pipe form that actually works.)
+if [ "${PREVIOUS_INSTALL_NEEDS_SUDO:-0}" = "1" ] && [ "$(id -u)" -ne 0 ]; then
+  echo "❌ Existing fleet containers were detected, but only via sudo."
+  echo "   They are managed by the root Docker daemon, and this script is running as $(id -un)."
+  echo "   Re-run the installer as root so the upgrade targets the same daemon:"
+  echo ""
+  echo "     curl -fsSL https://fleet.proto.xyz/install.sh | sudo bash -s -- ${VERSION}"
+  echo ""
+  echo "   Or, if your user account is already in the 'docker' group but the current"
+  echo "   shell hasn't picked it up yet, log out and back in (or run 'newgrp docker')"
+  echo "   and re-run the original install command without sudo."
+  echo ""
+  echo "   (The 'sudo bash <(curl ...)' form does not work — process substitution"
+  echo "   opens an FD that sudo cannot access.)"
+  exit 1
+fi
+
+# Marker check: docker-compose.yaml ships in every install tarball, so its
+# presence inside a 'deployment/' directory is a strong positive signal that
+# this really is a Proto Fleet install (and not some unrelated 'deployment/'
+# tree the user happened to create).
+if [ -z "${PREVIOUS_INSTALL_DIR:-}" ] \
+  && [ -d "${DEFAULT_INSTALL_DIR}/${DEPLOYMENT_DIR}" ] \
+  && [ -f "${DEFAULT_INSTALL_DIR}/${DEPLOYMENT_DIR}/docker-compose.yaml" ]; then
+  PREVIOUS_INSTALL_DIR="$DEFAULT_INSTALL_DIR"
+  echo "📁 No running fleet containers, but found existing install on disk at: ${PREVIOUS_INSTALL_DIR}"
+fi
+
+if [ -n "${PREVIOUS_INSTALL_DIR:-}" ]; then
   SUGGESTED_DIR="$PREVIOUS_INSTALL_DIR"
   echo "📌 Found previous installation at: ${SUGGESTED_DIR}"
 else
