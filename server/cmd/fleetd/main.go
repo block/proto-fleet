@@ -162,7 +162,12 @@ func start(config *Config) error {
 		}
 	}()
 
-	metricsProvider, err := metrics.Setup(context.Background(), version, config.Metrics)
+	conn, err := db.ConnectAndMigrate(&config.DB)
+	if err != nil {
+		return err
+	}
+
+	metricsProvider, err := metrics.Setup(context.Background(), version, config.Metrics, conn)
 	if err != nil {
 		return fmt.Errorf("setup metrics provider: %w", err)
 	}
@@ -173,11 +178,6 @@ func start(config *Config) error {
 			slog.Error("Failed to shutdown metrics provider", "error", err)
 		}
 	}()
-
-	conn, err := db.ConnectAndMigrate(&config.DB)
-	if err != nil {
-		return err
-	}
 
 	transactor := sqlstores.NewSQLTransactor(conn)
 

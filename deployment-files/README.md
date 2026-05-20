@@ -93,42 +93,57 @@ The script will auto-detect existing certificates and use HTTPS mode automatical
 
 ## Notifications
 
-The deployment runs four additional containers that together form the alerting pipeline:
+The notifications deployment runs an extra grafana service:
 
-| Service             | Image (pinned)                                       | Purpose                                                                        |
-| ------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `otel-collector`    | `otel/opentelemetry-collector-contrib:0.150.1`       | Receives OTLP from `fleet-api` and forwards metrics to VictoriaMetrics.        |
-| `victoria-metrics`  | `victoriametrics/victoria-metrics:v1.107.0`          | Stores metrics. 30-day retention by default. Persistent volume.                |
-| `vmalert`           | `victoriametrics/vmalert:v1.107.0`                   | Evaluates alert rules against VictoriaMetrics, fires to Alertmanager.          |
-| `alertmanager`      | `prom/alertmanager:v0.27.0`                          | Routes firing alerts to channels (email/webhook). Persistent volume.           |
+| Service   | Image (pinned)            | Purpose                                                                       |
+| --------- | ------------------------- | ----------------------------------------------------------------------------- |
+| `grafana` | `grafana/grafana:11.6.0`  | Evaluates alert rules over `notification_metric_sample` and routes alerts via its built-in Alertmanager. |
 
 ### Network topology
 
-All four sidecars run on a private docker bridge network called `monitoring`.
-Operators running tools on the box can hit `127.0.0.1:8880` (vmalert),
-`127.0.0.1:9093` (Alertmanager), and `127.0.0.1:4317`/`4318` (OTLP collector) —
-these endpoints are not exposed beyond loopback.
-VictoriaMetrics itself is reachable only from inside the `monitoring` network.
+Grafana runs on a private docker bridge network called `monitoring`.
+The UI is bound to `127.0.0.1:3000` so operators on the box can reach
+it without exposing the dashboard to the LAN. Grafana reaches
+`fleet-api` (host-networked) via the docker host gateway for outbound
+webhook deliveries, and TimescaleDB on the standard fleet network for
+queries.
 
 ### Enabling the notifications stack
 
-The notifications sidecars are a beta feature and are **off by default**. The
-four sidecars live in a separate compose file,
-`docker-compose.notifications.yaml`, that `run-fleet.sh` layers in via a
-second `-f` flag when the `--enable-beta-notifications` flag is passed. To
-run a fleet with the beta notifications stack:
+The notifications sidecar is a beta feature and is **off by default**.
+It lives in a separate compose file,
+`docker-compose.notifications.yaml`, that `run-fleet.sh` layers in via
+a second `-f` flag when the `--enable-beta-notifications` flag is
+passed. To run a fleet with the beta notifications stack:
 
 ```bash
 ./run-fleet.sh --enable-beta-notifications
 ```
 
+On the first run with notifications enabled, `run-fleet.sh` rotates the
+Grafana admin password and writes it into `.env` as
+`GRAFANA_ADMIN_PASSWORD`. It also creates a dedicated read-only
+PostgreSQL role for Grafana (`grafana_ro` by default) with `SELECT`
+only on `notification_metric_sample`, and persists those credentials
+to `.env` as `GRAFANA_DB_USERNAME` / `GRAFANA_DB_PASSWORD`. Grafana
+authenticates as this role rather than the broader fleet-api app role.
+
 ### Configuration files
 
-The configs live under `deployment-files/server/monitoring/`:
+The configs live under `deployment-files/server/monitoring/grafana/`:
 
-- `otel-collector.yaml` — read-only OTLP receiver + VictoriaMetrics exporter.
-- `vmalert/rules.yml` — user-rendered rule file (rewritten by Proto Fleet).
-- `vmalert/rules.d/*.yml` — built-in rule groups (e.g. `proto-fleet-self.yml`)
-  that ship with the deployment and are not mutated by the reload pipeline.
-- `alertmanager/alertmanager.yml` — receivers and routes (rewritten by
-  Proto Fleet).
+- `grafana.ini` — base Grafana config: unified alerting on, anonymous
+  sign-up off, no upstream phone-home.
+- `provisioning/datasources/timescaledb.yaml` — datasource pointed at
+  the shared TimescaleDB instance. Credentials come from
+  `GRAFANA_DB_USERNAME`/`GRAFANA_DB_PASSWORD` injected by
+  docker-compose (set up by `run-fleet.sh`).
+- `provisioning/alerting/proto-fleet-rules.yaml` — bundled alert rules
+  (offline / high temperature / telemetry-poll failures / metric ingest
+  stalled). These mirror the rules that previously lived in vmalert.
+- `provisioning/alerting/contact-points.yaml` — receivers consumed by
+  the built-in Alertmanager. The default deployment ships a single
+  webhook receiver that posts to fleet-api's
+  `/internal/alertmanager-webhook` endpoint.
+- `provisioning/alerting/notification-policies.yaml` — root routing
+  tree (grouping + repeat interval).

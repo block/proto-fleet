@@ -4,9 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/metric"
 )
 
 // DeviceLabels is the canonical label set for per-device gauges.
@@ -29,110 +26,110 @@ type TelemetryPollLabels struct {
 	Result         string
 }
 
-func (l DeviceLabels) toAttrs(extra ...attribute.KeyValue) []attribute.KeyValue {
-	attrs := make([]attribute.KeyValue, 0, 4+len(extra))
-	if l.OrganizationID != "" {
-		attrs = append(attrs, attribute.String(LabelOrganizationID, l.OrganizationID))
+func (l DeviceLabels) toLabels() Labels {
+	return Labels{
+		OrganizationID: l.OrganizationID,
+		DeviceID:       l.DeviceID,
+		DeviceGroup:    l.DeviceGroup,
+		Driver:         l.Driver,
 	}
-	if l.DeviceID != "" {
-		attrs = append(attrs, attribute.String(LabelDeviceID, l.DeviceID))
-	}
-	if l.DeviceGroup != "" {
-		attrs = append(attrs, attribute.String(LabelDeviceGroup, l.DeviceGroup))
-	}
-	if l.Driver != "" {
-		attrs = append(attrs, attribute.String(LabelDriver, l.Driver))
-	}
-	attrs = append(attrs, extra...)
-	return attrs
 }
 
-func (p *Provider) EmitDeviceOnline(ctx context.Context, labels DeviceLabels, online bool) {
-	if p == nil || p.insts == nil {
-		return
-	}
-	val := int64(0)
+func (p *Provider) EmitDeviceOnline(_ context.Context, labels DeviceLabels, online bool) {
+	value := 0.0
 	if online {
-		val = 1
+		value = 1.0
 	}
-	p.insts.deviceOnline.Record(ctx, val, metric.WithAttributes(labels.toAttrs()...))
+	p.record(Sample{
+		Metric: MetricDeviceOnline,
+		Labels: labels.toLabels(),
+		Value:  value,
+	})
 }
 
-func (p *Provider) EmitDeviceHashrate(ctx context.Context, labels DeviceLabels, observedTHs, expectedTHs float64) {
-	if p == nil || p.insts == nil {
-		return
-	}
-	attrs := metric.WithAttributes(labels.toAttrs()...)
-	p.insts.deviceHashrateTerahash.Record(ctx, observedTHs, attrs)
-	p.insts.deviceHashrateExpectedTerahz.Record(ctx, expectedTHs, attrs)
+func (p *Provider) EmitDeviceHashrate(_ context.Context, labels DeviceLabels, observedTHs, expectedTHs float64) {
+	base := labels.toLabels()
+	p.record(Sample{
+		Metric: MetricDeviceHashrateTerahash,
+		Labels: base,
+		Value:  observedTHs,
+	})
+	p.record(Sample{
+		Metric: MetricDeviceHashrateExpectedTerahash,
+		Labels: base,
+		Value:  expectedTHs,
+	})
 }
 
 // EmitDeviceTemperature records max+avg gauges for one sensor kind.
-func (p *Provider) EmitDeviceTemperature(ctx context.Context, labels DeviceLabels, sensorKind string, maxC, avgC float64) {
-	if p == nil || p.insts == nil {
-		return
-	}
+func (p *Provider) EmitDeviceTemperature(_ context.Context, labels DeviceLabels, sensorKind string, maxC, avgC float64) {
 	if !IsKnownSensorKind(sensorKind) {
 		slog.Error("metrics: unknown sensor_kind, dropping temperature emit", "sensor_kind", sensorKind)
 		return
 	}
-	attrs := metric.WithAttributes(labels.toAttrs(attribute.String(LabelSensorKind, sensorKind))...)
-	p.insts.deviceTemperatureMax.Record(ctx, maxC, attrs)
-	p.insts.deviceTemperatureAvg.Record(ctx, avgC, attrs)
+	base := labels.toLabels()
+	base.SensorKind = sensorKind
+	p.record(Sample{
+		Metric: MetricDeviceTemperatureMaxCelsius,
+		Labels: base,
+		Value:  maxC,
+	})
+	p.record(Sample{
+		Metric: MetricDeviceTemperatureAvgCelsius,
+		Labels: base,
+		Value:  avgC,
+	})
 }
 
 // EmitDevicePoolConnected records the fleet_device_pool_connected gauge.
-func (p *Provider) EmitDevicePoolConnected(ctx context.Context, labels DeviceLabels, connected bool) {
-	if p == nil || p.insts == nil {
-		return
-	}
-	val := int64(0)
+func (p *Provider) EmitDevicePoolConnected(_ context.Context, labels DeviceLabels, connected bool) {
+	value := 0.0
 	if connected {
-		val = 1
+		value = 1.0
 	}
-	p.insts.devicePoolConnected.Record(ctx, val, metric.WithAttributes(labels.toAttrs()...))
+	p.record(Sample{
+		Metric: MetricDevicePoolConnected,
+		Labels: labels.toLabels(),
+		Value:  value,
+	})
 }
 
-// EmitCommand increments fleet_command_total.
-func (p *Provider) EmitCommand(ctx context.Context, labels CommandLabels) {
-	if p == nil || p.insts == nil {
-		return
-	}
+// EmitCommand records a single increment on fleet_command_total. The
+// Grafana rules sum() these rows over a window to derive the per-org
+// failure rate.
+func (p *Provider) EmitCommand(_ context.Context, labels CommandLabels) {
 	if !IsKnownResult(labels.Result) {
 		slog.Error("metrics: unknown command result, dropping increment",
 			"result", labels.Result, "kind", labels.Kind)
 		return
 	}
-	attrs := []attribute.KeyValue{
-		attribute.String(LabelKind, labels.Kind),
-		attribute.String(LabelResult, labels.Result),
-	}
-	if labels.OrganizationID != "" {
-		attrs = append(attrs, attribute.String(LabelOrganizationID, labels.OrganizationID))
-	}
-	p.insts.commandTotal.Add(ctx, 1, metric.WithAttributes(attrs...))
+	p.record(Sample{
+		Metric: MetricCommandTotal,
+		Labels: Labels{
+			OrganizationID: labels.OrganizationID,
+			Kind:           labels.Kind,
+			Result:         labels.Result,
+		},
+		Value: 1,
+	})
 }
 
-// EmitTelemetryPoll increments fleet_telemetry_poll_total.
-func (p *Provider) EmitTelemetryPoll(ctx context.Context, labels TelemetryPollLabels) {
-	if p == nil || p.insts == nil {
-		return
-	}
+// EmitTelemetryPoll records a single increment on fleet_telemetry_poll_total.
+func (p *Provider) EmitTelemetryPoll(_ context.Context, labels TelemetryPollLabels) {
 	if !IsKnownResult(labels.Result) {
 		slog.Error("metrics: unknown telemetry poll result, dropping increment",
 			"result", labels.Result)
 		return
 	}
-	attrs := []attribute.KeyValue{
-		attribute.String(LabelResult, labels.Result),
-	}
-	if labels.OrganizationID != "" {
-		attrs = append(attrs, attribute.String(LabelOrganizationID, labels.OrganizationID))
-	}
-	if labels.DeviceID != "" {
-		attrs = append(attrs, attribute.String(LabelDeviceID, labels.DeviceID))
-	}
-	p.insts.telemetryPollTotal.Add(ctx, 1, metric.WithAttributes(attrs...))
+	p.record(Sample{
+		Metric: MetricTelemetryPollTotal,
+		Labels: Labels{
+			OrganizationID: labels.OrganizationID,
+			DeviceID:       labels.DeviceID,
+			Result:         labels.Result,
+		},
+		Value: 1,
+	})
 }
 
 func validateLabelKey(key string) error {

@@ -1,0 +1,33 @@
+# TimescaleDB datasource — Grafana queries notification_metric_sample
+# directly to evaluate the alert rules below. Connection credentials
+# come from environment variables Grafana picks up at startup. We use
+# GRAFANA_DB_* (not DB_*) so the credentials are deliberately distinct
+# from fleet-api's app role: Grafana logs in as grafana_ro, which has
+# SELECT only on notification_metric_sample.
+apiVersion: 1
+
+datasources:
+  - name: TimescaleDB
+    uid: protofleet-timescaledb
+    type: postgres
+    access: proxy
+    # Inside the docker network the DB always answers on its service
+    # name. The deployment-files compose maps this to 127.0.0.1 via
+    # extra_hosts for the host-networked fleet-api container, but
+    # Grafana itself runs on the monitoring bridge.
+    url: timescaledb:5432
+    user: ${GRAFANA_DB_USERNAME}
+    secureJsonData:
+      password: ${GRAFANA_DB_PASSWORD}
+    jsonData:
+      database: ${GRAFANA_DB_NAME}
+      sslmode: disable
+      postgresVersion: 1800
+      timescaledb: true
+      # Alert rules below set $__interval explicitly; this value is a
+      # safe default for ad-hoc exploration via Explore.
+      maxOpenConns: 10
+      maxIdleConns: 5
+      connMaxLifetime: 14400
+    isDefault: true
+    editable: false
