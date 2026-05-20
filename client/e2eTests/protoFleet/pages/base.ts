@@ -202,6 +202,14 @@ export class BasePage {
     await expect(this.page).toHaveURL(/.*\/settings\/schedules/);
   }
 
+  async navigateToServerLogsSettings() {
+    await this.clickNavigationMenuIfMobile();
+    await this.clickExpandSettingsIfMobile();
+    await this.navigateSettingsIfDesktop();
+    await this.page.getByTestId("secondary-nav").locator('a[href="/settings/server-logs"]').click();
+    await expect(this.page).toHaveURL(/.*\/settings\/server-logs/);
+  }
+
   async clickButton(text: string) {
     await this.page.getByRole("button", { name: text, disabled: false, exact: true }).click();
   }
