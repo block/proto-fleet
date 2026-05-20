@@ -147,12 +147,17 @@ WHERE event_uuid = sqlc.arg('event_uuid')
     AND org_id = sqlc.arg('org_id');
 
 -- name: GetActiveCurtailmentEvent :one
--- Org-scoped recovery path for pending/active/restoring events.
+-- Org-scoped recovery path for pending/active/restoring events. Prefer
+-- in-effect events over newly-scheduled pending events when both exist.
 SELECT *
 FROM curtailment_event
 WHERE org_id = sqlc.arg('org_id')
     AND state IN ('pending', 'active', 'restoring')
-ORDER BY id DESC
+ORDER BY CASE
+        WHEN state IN ('active', 'restoring') THEN 0
+        ELSE 1
+    END,
+    id DESC
 LIMIT 1;
 
 -- name: InsertCurtailmentTarget :exec
