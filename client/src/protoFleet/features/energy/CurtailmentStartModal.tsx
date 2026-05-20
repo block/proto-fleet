@@ -1,8 +1,11 @@
-import { type ReactElement, type ReactNode, useState } from "react";
+import { type ReactElement, type ReactNode, useMemo, useState } from "react";
 
 import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
 import TargetSelectButton, { getTargetButtonLabel } from "@/protoFleet/components/TargetSelectButton";
-import { useCurtailmentPlanPreview } from "@/protoFleet/features/energy/useCurtailmentPlanPreview";
+import {
+  getUnsupportedDeviceSetPreviewError,
+  useCurtailmentPlanPreview,
+} from "@/protoFleet/features/energy/useCurtailmentPlanPreview";
 import GroupSelectionModal from "@/protoFleet/features/settings/components/Schedules/GroupSelectionModal";
 import MinerSelectionModal from "@/protoFleet/features/settings/components/Schedules/MinerSelectionModal";
 import RackSelectionModal from "@/protoFleet/features/settings/components/Schedules/RackSelectionModal";
@@ -135,6 +138,8 @@ const minerSelectionStrategyOptions: Array<TypedSelectOption<MinerSelectionStrat
   { value: "leastEfficientFirst", label: "Least efficient first" },
 ];
 
+const maxCurtailmentDurationSec = 2147483647;
+
 function getInitialValues(initialValues?: Partial<CurtailmentFormValues>): CurtailmentFormValues {
   return {
     ...defaultValues,
@@ -146,6 +151,52 @@ function getInitialValuesKey(initialValues?: Partial<CurtailmentFormValues>): st
   return Object.entries(getInitialValues(initialValues))
     .map(([key, value]) => `${key}:${String(value)}`)
     .join("|");
+}
+
+function parseDurationField(value: string): { parsed?: number; error?: string } {
+  const trimmed = value.trim();
+  if (trimmed === "") {
+    return {};
+  }
+
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) {
+    return { error: "Enter a whole number of seconds." };
+  }
+
+  if (parsed < 0) {
+    return { error: "Enter 0 or more seconds." };
+  }
+
+  if (parsed > maxCurtailmentDurationSec) {
+    return { error: `Enter ${maxCurtailmentDurationSec.toLocaleString()} seconds or less.` };
+  }
+
+  return { parsed };
+}
+
+function validateCurtailmentFormValues(values: CurtailmentFormValues): CurtailmentFormErrors {
+  const localErrors: CurtailmentFormErrors = {};
+  const minDuration = parseDurationField(values.minDurationSec);
+  const maxDuration = parseDurationField(values.maxDurationSec);
+
+  if (minDuration.error) {
+    localErrors.minDurationSec = minDuration.error;
+  }
+  if (maxDuration.error) {
+    localErrors.maxDurationSec = maxDuration.error;
+  }
+  if (
+    minDuration.error === undefined &&
+    maxDuration.error === undefined &&
+    minDuration.parsed !== undefined &&
+    maxDuration.parsed !== undefined &&
+    minDuration.parsed > maxDuration.parsed
+  ) {
+    localErrors.maxDurationSec = "Max duration must be greater than or equal to min duration.";
+  }
+
+  return localErrors;
 }
 
 function isSelectOptionValue<Value extends string>(
@@ -320,6 +371,11 @@ function CurtailmentStartModalContent({
   const updateValue = <Key extends keyof CurtailmentFormValues>(key: Key, value: CurtailmentFormValues[Key]) =>
     setValues((current) => ({ ...current, [key]: value }));
   const updateValues = (updater: (current: CurtailmentFormValues) => CurtailmentFormValues) => setValues(updater);
+  const localErrors = useMemo(() => validateCurtailmentFormValues(values), [values]);
+  const effectiveErrors = { ...localErrors, ...errors };
+  const unsupportedDeviceSetPreviewError = getUnsupportedDeviceSetPreviewError(values);
+  const hasBlockingValidationError =
+    unsupportedDeviceSetPreviewError !== undefined || Object.keys(localErrors).length > 0;
   const hasControlledPreview = preview !== undefined || previewError !== undefined;
   const apiPreview = useCurtailmentPlanPreview({
     open,
@@ -328,7 +384,9 @@ function CurtailmentStartModalContent({
   });
   const previewState: PreviewPaneProps = hasControlledPreview
     ? { preview, previewError, isPreviewLoading: false }
-    : apiPreview;
+    : unsupportedDeviceSetPreviewError
+      ? { preview: undefined, previewError: unsupportedDeviceSetPreviewError, isPreviewLoading: false }
+      : apiPreview;
   const selectedTargets = {
     racks: getSelectedDeviceSetIds(values, "racks"),
     groups: getSelectedDeviceSetIds(values, "groups"),
@@ -366,6 +424,10 @@ function CurtailmentStartModalContent({
   };
 
   const handleSubmit = () => {
+    if (hasBlockingValidationError) {
+      return;
+    }
+
     if (values.includeMaintenance && !maintenanceInclusionConfirmed) {
       setSubmitAfterMaintenanceConfirmation(true);
       setShowMaintenanceConfirmation(true);
@@ -401,6 +463,7 @@ function CurtailmentStartModalContent({
             text: "Start curtailment",
             variant: variants.primary,
             onClick: handleSubmit,
+            disabled: hasBlockingValidationError,
             loading: isSubmitting,
           },
         ]}
@@ -414,7 +477,7 @@ function CurtailmentStartModalContent({
                   label="Profile"
                   value={values.responseProfileId}
                   options={responseProfileOptions}
-                  error={errors?.responseProfileId}
+                  error={effectiveErrors.responseProfileId}
                   onChange={(value) => updateValue("responseProfileId", value)}
                 />
                 <Field
@@ -422,7 +485,7 @@ function CurtailmentStartModalContent({
                   label="Reason"
                   value={values.reason}
                   type="text"
-                  error={errors?.reason}
+                  error={effectiveErrors.reason}
                   onChange={(value) => updateValue("reason", value)}
                 />
               </div>
@@ -436,7 +499,7 @@ function CurtailmentStartModalContent({
                     label="Curtailment mode"
                     value={values.curtailmentMode}
                     options={curtailmentModeOptions}
-                    error={errors?.curtailmentMode}
+                    error={effectiveErrors.curtailmentMode}
                     onChange={(value) => updateValue("curtailmentMode", value)}
                   />
                   <Field
@@ -444,7 +507,7 @@ function CurtailmentStartModalContent({
                     label="Target reduction"
                     value={values.targetKw}
                     units="kW"
-                    error={errors?.targetKw}
+                    error={effectiveErrors.targetKw}
                     onChange={(value) => updateValue("targetKw", value)}
                   />
                 </div>
@@ -453,7 +516,7 @@ function CurtailmentStartModalContent({
                   label="Miner selection strategy"
                   value={values.minerSelectionStrategy}
                   options={minerSelectionStrategyOptions}
-                  error={errors?.minerSelectionStrategy}
+                  error={effectiveErrors.minerSelectionStrategy}
                   onChange={(value) => updateValue("minerSelectionStrategy", value)}
                 />
                 <div className="grid gap-3 tablet:grid-cols-2">
@@ -461,14 +524,14 @@ function CurtailmentStartModalContent({
                     id="curtailment-min-duration"
                     label="Min duration (sec)"
                     value={values.minDurationSec}
-                    error={errors?.minDurationSec}
+                    error={effectiveErrors.minDurationSec}
                     onChange={(value) => updateValue("minDurationSec", value)}
                   />
                   <Field
                     id="curtailment-max-duration"
                     label="Max duration (sec)"
                     value={values.maxDurationSec}
-                    error={errors?.maxDurationSec}
+                    error={effectiveErrors.maxDurationSec}
                     onChange={(value) => updateValue("maxDurationSec", value)}
                   />
                 </div>
@@ -481,14 +544,14 @@ function CurtailmentStartModalContent({
                   id="curtailment-restore-batch-size"
                   label="Batch size (miners)"
                   value={values.restoreBatchSize}
-                  error={errors?.restoreBatchSize}
+                  error={effectiveErrors.restoreBatchSize}
                   onChange={(value) => updateValue("restoreBatchSize", value)}
                 />
                 <Field
                   id="curtailment-restore-batch-interval"
                   label="Batch interval (sec)"
                   value={values.restoreIntervalSec}
-                  error={errors?.restoreIntervalSec}
+                  error={effectiveErrors.restoreIntervalSec}
                   onChange={(value) => updateValue("restoreIntervalSec", value)}
                 />
               </div>

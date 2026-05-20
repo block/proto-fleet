@@ -138,6 +138,14 @@ export function buildPreviewCurtailmentPlanRequest(
   });
 }
 
+export function getUnsupportedDeviceSetPreviewError(values: CurtailmentFormValues): string | undefined {
+  if (values.scopeType !== "deviceSet" || values.deviceSetIds.length === 0) {
+    return undefined;
+  }
+
+  return "Rack and group curtailment previews are not supported yet. Select specific miners or the whole fleet to preview and start this curtailment.";
+}
+
 function pluralize(value: number, singular: string): string {
   return `${value} ${singular}${value === 1 ? "" : "s"}`;
 }
@@ -282,6 +290,7 @@ export function useCurtailmentPlanPreview({
           requestKey: toJsonString(PreviewCurtailmentPlanRequestSchema, request),
         };
   }, [requestValues]);
+  const unsupportedDeviceSetPreviewError = getUnsupportedDeviceSetPreviewError(values);
 
   useEffect(() => {
     if (!open || disabled) {
@@ -348,6 +357,14 @@ export function useCurtailmentPlanPreview({
 
   if (!open || disabled) {
     return emptyPreviewResult;
+  }
+
+  if (unsupportedDeviceSetPreviewError) {
+    return {
+      preview: undefined,
+      previewError: unsupportedDeviceSetPreviewError,
+      isPreviewLoading: false,
+    };
   }
 
   const hasCurrentPreviewState = requestState !== undefined && state.requestKey === requestState.requestKey;

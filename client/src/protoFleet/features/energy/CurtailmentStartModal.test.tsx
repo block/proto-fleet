@@ -25,6 +25,10 @@ const { mockUseCurtailmentPlanPreview } = vi.hoisted(() => ({
 }));
 
 vi.mock("@/protoFleet/features/energy/useCurtailmentPlanPreview", () => ({
+  getUnsupportedDeviceSetPreviewError: (values: CurtailmentFormValues) =>
+    values.scopeType === "deviceSet" && values.deviceSetIds.length > 0
+      ? "Rack and group curtailment previews are not supported yet. Select specific miners or the whole fleet to preview and start this curtailment."
+      : undefined,
   useCurtailmentPlanPreview: mockUseCurtailmentPlanPreview,
 }));
 
@@ -342,41 +346,33 @@ describe("CurtailmentStartModal", () => {
   it("opens target selectors and submits the selected target scope", async () => {
     const user = userEvent.setup();
     const { onSubmit } = renderModal({ initialValues: { includeMaintenance: false } });
+    const startButton = screen.getByRole("button", { name: "Start curtailment" });
 
     await user.click(screen.getByRole("button", { name: /Racks\s+Select/ }));
     expect(screen.getByRole("dialog", { name: "Rack selection" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Save racks" }));
     expect(screen.getByRole("button", { name: /Racks\s+2 racks/ })).toBeInTheDocument();
+    expect(
+      screen.getAllByText(
+        "Rack and group curtailment previews are not supported yet. Select specific miners or the whole fleet to preview and start this curtailment.",
+      ),
+    ).toHaveLength(2);
+    expect(startButton).toBeDisabled();
 
-    await user.click(screen.getByRole("button", { name: "Start curtailment" }));
-    expect(onSubmit).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        scopeType: "deviceSet",
-        scopeId: "racks",
-        deviceSetIds: ["rack-1", "rack-2"],
-        deviceIdentifiers: [],
-      }),
-    );
+    await user.click(startButton);
+    expect(onSubmit).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: /Groups\s+Select/ }));
     await user.click(screen.getByRole("button", { name: "Save groups" }));
     expect(screen.getByRole("button", { name: /Groups\s+1 group/ })).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "Start curtailment" }));
-    expect(onSubmit).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        scopeType: "deviceSet",
-        scopeId: "groups",
-        deviceSetIds: ["group-1"],
-        deviceIdentifiers: [],
-      }),
-    );
+    expect(startButton).toBeDisabled();
 
     await user.click(screen.getByRole("button", { name: /Miners\s+Select/ }));
     await user.click(screen.getByRole("button", { name: "Save miners" }));
     expect(screen.getByRole("button", { name: /Miners\s+3 miners/ })).toBeInTheDocument();
+    expect(startButton).toBeEnabled();
 
-    await user.click(screen.getByRole("button", { name: "Start curtailment" }));
+    await user.click(startButton);
     expect(onSubmit).toHaveBeenLastCalledWith(
       expect.objectContaining({
         scopeType: "explicitMiners",
@@ -385,6 +381,25 @@ describe("CurtailmentStartModal", () => {
         deviceIdentifiers: ["miner-1", "miner-2", "miner-3"],
       }),
     );
+  });
+
+  it("blocks inverted duration submissions", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      initialValues: {
+        includeMaintenance: false,
+        minDurationSec: "3600",
+        maxDurationSec: "300",
+      },
+    });
+    const startButton = screen.getByRole("button", { name: "Start curtailment" });
+
+    expect(screen.getByText("Max duration must be greater than or equal to min duration.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Max duration (sec)")).toHaveAttribute("aria-invalid", "true");
+    expect(startButton).toBeDisabled();
+
+    await user.click(startButton);
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 
   it("resets form values when reopened with new initial values", async () => {

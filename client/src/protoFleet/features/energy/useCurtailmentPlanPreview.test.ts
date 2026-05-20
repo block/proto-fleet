@@ -143,6 +143,23 @@ describe("useCurtailmentPlanPreview", () => {
     ).toBeUndefined();
   });
 
+  it("surfaces unsupported device-set previews without calling the API", () => {
+    const { result } = renderPreviewHook({
+      ...baseValues,
+      scopeType: "deviceSet",
+      scopeId: "racks",
+      deviceSetIds: ["rack-1"],
+    });
+
+    expect(result.current).toEqual({
+      preview: undefined,
+      previewError:
+        "Rack and group curtailment previews are not supported yet. Select specific miners or the whole fleet to preview and start this curtailment.",
+      isPreviewLoading: false,
+    });
+    expect(mockPreviewCurtailmentPlan).not.toHaveBeenCalled();
+  });
+
   it("fetches and maps a preview response", async () => {
     mockPreviewCurtailmentPlan.mockResolvedValueOnce(previewResponse());
 
