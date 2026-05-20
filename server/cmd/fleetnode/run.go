@@ -37,8 +37,7 @@ type RunCmd struct {
 	discoverer    discoverer                                                      `kong:"-"`
 	nmapPath      string                                                          `kong:"-"`
 
-	// Guards st.SessionToken: refreshAndSave writes; tokenSource reads.
-	stateMu sync.Mutex `kong:"-"`
+	stateMu sync.Mutex `kong:"-"` // guards st.SessionToken across refreshAndSave + tokenSource.
 }
 
 type gatewayClient interface {
@@ -64,19 +63,16 @@ func (r *RunCmd) run(c *Context, stderr io.Writer) error {
 		}
 	}
 	if len(r.signals) == 0 {
-		// SIGHUP catches the terminal-close case so plugin children get the
-		// same orderly shutdown as Ctrl+C; without it the parent dies
-		// uncaught and leaves orphaned plugin processes behind.
+		// SIGHUP catches terminal-close so plugin children get the same
+		// orderly shutdown as Ctrl+C instead of being orphaned.
 		r.signals = []os.Signal{syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP}
 	}
 	if r.parentCtx == nil {
 		r.parentCtx = context.Background()
 	}
 
-	// Resolve --plugins-dir and --nmap-path before touching disk state so
-	// misconfiguration fails fast. The plugin manager execs anything in the
-	// resolved plugins dir, so any non-owner write capability there is
-	// RCE-equivalent.
+	// Resolve --plugins-dir / --nmap-path before touching disk state so
+	// misconfiguration fails fast.
 	exeDir := executableDir()
 	var resolvedPluginsDir string
 	if r.discoverer == nil {
@@ -115,9 +111,8 @@ func (r *RunCmd) run(c *Context, stderr io.Writer) error {
 		logger.Info("no plugins dir found adjacent to binary; control loop disabled (heartbeat only)")
 	}
 
-	// Plugin reap + spawn happens INSIDE the state lock so a second
-	// concurrent agent (errored out on lock contention) can't kill our
-	// plugin children before we finish startup.
+	// Reap + spawn plugins inside the lock so a contending agent's reaper
+	// can't kill our children before we finish startup.
 	logger.Info("acquiring state lock", "state_dir", c.StateDir)
 	return fleetnodebootstrap.WithStateLock(c.StateDir, func() error {
 		if resolvedPluginsDir != "" {
@@ -142,9 +137,9 @@ func (r *RunCmd) runLocked(c *Context, logger *slog.Logger) error {
 	if !exists || st.FleetNodeID == 0 || st.APIKey == "" {
 		return fmt.Errorf("state at %s became invalid between checks; re-run after `fleetnode enroll`", path)
 	}
-	// Validate on every entry, not just on the refresh path, so a tampered
-	// state cannot redirect bearer heartbeats to a plaintext non-loopback
-	// URL when the existing session_token is still fresh.
+	// Re-validate on every entry so a tampered state.yaml can't redirect
+	// bearer heartbeats to a plaintext non-loopback URL while the cached
+	// session_token is still fresh.
 	if err := fleetnodebootstrap.ValidateServerURL(st.ServerURL, st.AllowInsecureTransport); err != nil {
 		return err
 	}
@@ -246,8 +241,8 @@ func (r *RunCmd) sessionNeedsRefresh(st *fleetnodebootstrap.State) bool {
 
 func (r *RunCmd) refreshAndSave(ctx context.Context, st *fleetnodebootstrap.State, path string, logger *slog.Logger) error {
 	logger.Info("refreshing session", "fleet_node_id", st.FleetNodeID, "session_expires_at", st.SessionExpiresAt.Format(time.RFC3339))
-	// Handshake against a shallow copy so the 2-RPC network call doesn't hold
-	// stateMu and stall the control loop's token reads.
+	// Handshake on a shallow copy so the 2-RPC call doesn't hold stateMu and
+	// stall the control loop's token reads.
 	next := *st
 	if err := fleetnodebootstrap.Refresh(ctx, &next); err != nil {
 		return err
@@ -263,11 +258,9 @@ func (r *RunCmd) refreshAndSave(ctx context.Context, st *fleetnodebootstrap.Stat
 	return nil
 }
 
-// tick runs one heartbeat cycle. A non-nil return signals a permanent
-// condition (server-side credential revoked or fleet_node deleted) that
-// the operator must resolve by re-enrolling; the daemon exits instead of
-// looping forever. Transient errors are logged and tick returns nil so
-// the next tick can retry.
+// tick runs one heartbeat cycle. A non-nil return is a permanent condition
+// (revoked credential / deleted fleet_node) that requires re-enrollment;
+// transient errors return nil so the next tick retries.
 func (r *RunCmd) tick(ctx context.Context, client gatewayClient, st *fleetnodebootstrap.State, path string, logger *slog.Logger) error {
 	if r.sessionNeedsRefresh(st) {
 		if err := r.refreshAndSave(ctx, st, path, logger); err != nil {

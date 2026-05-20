@@ -24,10 +24,8 @@ const (
 	nmapDefaultBinaryName = "nmap"
 )
 
-// resolveNmapPath returns either an absolute path (explicit flag or
-// binary-adjacent default) or the bare name "nmap" so Ullaakut's exec.LookPath
-// resolves from PATH at scan time. Bare name is a deliberate contract with the
-// library, not an oversight.
+// Returns an absolute path when found; otherwise "nmap" -- the Ullaakut
+// scanner's exec.LookPath resolves a bare name from PATH at scan time.
 func resolveNmapPath(flag, exeDir string) (string, error) {
 	if flag != "" {
 		if !filepath.IsAbs(flag) {

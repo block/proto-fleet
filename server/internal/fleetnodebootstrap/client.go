@@ -12,13 +12,12 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 )
 
-// Refusing every 30x stops a downgrade redirect from replaying the POST body
-// (enrollment token, api_key, signature) to a plaintext target; Connect-RPC
-// itself never expects redirects.
+// Refusing 3xx stops a downgrade redirect from replaying the signed POST
+// body (enrollment token, api_key, signature) to an attacker-chosen target.
 var errRedirectNotAllowed = errors.New("redirects are not allowed for connect-rpc calls")
 
-// http.Client.Timeout is omitted on purpose -- it would cap long-lived
-// streams. Callers wrap individual RPCs in per-call context deadlines.
+// Timeout is intentionally unset -- it would cap long-lived bidi streams.
+// Callers wrap individual RPCs in per-call context deadlines instead.
 func newGatewayHTTPClient() *http.Client {
 	return &http.Client{
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {

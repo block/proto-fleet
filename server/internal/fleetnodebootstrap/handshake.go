@@ -16,13 +16,13 @@ import (
 
 const handshakeStepTimeout = 30 * time.Second
 
-// Wraps Unauthenticated from BeginAuthHandshake. The server returns it for
-// api_key revocation, identity_pubkey mismatch, or any other auth failure
-// on that call; the library cannot distinguish the cause. Distinct from
-// CompleteAuthHandshake failures (expired challenge, bad signature).
+// ErrBeginAuthRejected wraps Unauthenticated from BeginAuthHandshake, which
+// the server returns for revoked api_key, identity_pubkey mismatch, or any
+// auth failure on that call. Kept distinct from CompleteAuthHandshake errors
+// (expired challenge, bad signature) so callers can branch on root cause.
 var ErrBeginAuthRejected = errors.New("BeginAuthHandshake rejected")
 
-// Mutates s.SessionToken and s.SessionExpiresAt only on success.
+// RunHandshake mutates s.SessionToken / s.SessionExpiresAt only on success.
 func RunHandshake(ctx context.Context, c fleetnodegatewayv1connect.FleetNodeGatewayServiceClient, s *State) error {
 	if s == nil {
 		return errors.New("state is required")

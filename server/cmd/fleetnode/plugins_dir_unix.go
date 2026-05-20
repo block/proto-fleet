@@ -8,9 +8,8 @@ import (
 	"syscall"
 )
 
-// checkPluginsDirPerms refuses any directory where someone other than the
-// owner can write. The owner must be root or the running process; otherwise
-// a different user could swap files in the dir between checks and exec.
+// checkPluginsDirPerms rejects dirs where someone other than root or the
+// running uid could plant an executable between our check and exec.
 func checkPluginsDirPerms(path string) error {
 	info, err := os.Stat(path)
 	if err != nil {

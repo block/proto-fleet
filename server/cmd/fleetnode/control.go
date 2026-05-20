@@ -24,15 +24,13 @@ import (
 const (
 	controlReconnectInitial = 1 * time.Second
 	controlReconnectMax     = 30 * time.Second
-	// stableSessionThreshold marks how long a control session must live before
-	// the next disconnect resets the reconnect backoff. Anything shorter is
-	// treated as a continued failure and keeps backoff growing.
+	// A session that survives this long resets the reconnect backoff; flapping
+	// connections keep backoff growing.
 	stableSessionThreshold = 30 * time.Second
 	perProbeTimeout        = 3 * time.Second
 	probeConcurrency       = 32
 	discoveryReportTimeout = 30 * time.Second
-	// Server enforces max_items = 1024 on the report batch.
-	maxDevicesPerReport = 1024
+	maxDevicesPerReport    = 1024 // server enforces max_items=1024
 )
 
 type discoverer interface {
@@ -59,8 +57,6 @@ func (r *RunCmd) runControlLoop(ctx context.Context, client gatewayClient, st *f
 		if errors.Is(err, fleetnodebootstrap.ErrBeginAuthRejected) || connect.CodeOf(err) == connect.CodeNotFound {
 			return err
 		}
-		// A session that stayed up past stableSessionThreshold reset to a
-		// healthy state; the next failure starts the backoff window over.
 		if time.Since(started) > stableSessionThreshold {
 			backoff = controlReconnectInitial
 		}
@@ -79,15 +75,10 @@ func (r *RunCmd) runControlLoop(ctx context.Context, client gatewayClient, st *f
 
 func (r *RunCmd) runControlSession(ctx context.Context, client gatewayClient, st *fleetnodebootstrap.State, logger *slog.Logger) error {
 	stream := client.ControlStream(ctx)
-	// http2.pipe.Read parks in sync.Cond.Wait, which isn't ctx-aware -- a
-	// stream.Receive() in the loop below blocks past parent ctx cancellation
-	// (Ctrl+C never returns the daemon). The watcher goroutine closes the
-	// stream when ctx fires, which broadcasts the cond and unblocks Receive.
-	//
-	// Defer order matters here: defers run LIFO, so the stream-close defer
-	// (registered first) runs last. That gives close(done) (registered
-	// second, runs first) a chance to retire the watcher on the quiet path
-	// before the close defer fires, avoiding a redundant close race.
+	// stream.Receive blocks in http2.pipe.Read on a sync.Cond that ctx can't
+	// unblock; without this watcher Ctrl+C never returns the daemon. Defers
+	// run LIFO so close(done) fires before the stream-close defer, letting
+	// the watcher exit via its quiet path on normal return.
 	defer func() { _ = stream.CloseRequest(); _ = stream.CloseResponse() }()
 	done := make(chan struct{})
 	defer close(done)
@@ -254,17 +245,15 @@ type pluginDiscoverer struct {
 	svc   *plugins.Service
 }
 
-// pluginsDir must be an absolute path: the manager execs every file in this
-// directory, so a relative path would resolve against the daemon's CWD and
-// let a writable launch directory plant code that runs with agent privileges.
+// Requires an absolute path because plugins.Manager execs every file in the
+// dir; a relative path would resolve against the daemon's CWD and let a
+// writable launch directory plant code that runs with agent privileges.
 func newPluginDiscoverer(pluginsDir string) (*pluginDiscoverer, func(), error) {
 	if !filepath.IsAbs(pluginsDir) {
 		return nil, func() {}, fmt.Errorf("--plugins-dir must be an absolute path, got %q", pluginsDir)
 	}
-	// The plugin manager's Shutdown waits the full grace period regardless
-	// of whether the plugin already exited, so we keep it tight for
-	// interactive dev. A real stuck plugin still gets killed; we just don't
-	// wait around for clean ones.
+	// Manager.Shutdown waits the full grace period even when a plugin already
+	// exited, so keep it tight; a stuck plugin still gets killed.
 	manager := plugins.NewManager(&plugins.Config{
 		Enabled:                    true,
 		PluginsDir:                 pluginsDir,
@@ -300,9 +289,8 @@ func (p *pluginDiscoverer) DefaultDiscoveryPorts(ctx context.Context) []string {
 	return p.svc.GetDefaultDiscoveryPorts(ctx)
 }
 
-// Production SDK drivers leave DeviceIdentifier empty; the agent has no DB
-// to reconcile against, so it synthesizes auto:* identifiers and the server
-// reconciles by (fleet_node, ip, port).
+// SDK drivers often leave DeviceIdentifier empty; the agent has no DB so it
+// synthesizes auto:* and lets the server reconcile by (fleet_node, ip, port).
 func reportFromDiscovered(dev *discoverymodels.DiscoveredDevice) *pb.DiscoveredDeviceReport {
 	deviceID := dev.GetDeviceIdentifier()
 	if deviceID == "" {
