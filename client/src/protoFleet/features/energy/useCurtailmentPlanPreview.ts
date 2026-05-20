@@ -65,6 +65,8 @@ const emptyPreviewState: CurtailmentPlanPreviewState = {
   requestKey: undefined,
 };
 
+const emptyCandidatesPreviewError = "No miners match this curtailment.";
+
 function parseNumber(value: string, isValid: (value: number) => boolean): number | undefined {
   const trimmed = value.trim();
   if (trimmed === "") {
@@ -327,6 +329,18 @@ export function useCurtailmentPlanPreview({
         .previewCurtailmentPlan(requestState.request, { signal: abortController.signal })
         .then((response) => {
           if (!isActive) {
+            return;
+          }
+
+          if (response.candidates.length === 0) {
+            setState({
+              response: undefined,
+              responseRequestKey: undefined,
+              responseRequestValues: undefined,
+              previewError: emptyCandidatesPreviewError,
+              isPreviewLoading: false,
+              requestKey: requestState.requestKey,
+            });
             return;
           }
 

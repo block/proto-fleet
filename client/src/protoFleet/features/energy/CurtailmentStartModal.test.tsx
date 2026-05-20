@@ -176,6 +176,23 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getAllByText("5 minutes - 30 minutes")).toHaveLength(2);
   });
 
+  it("blocks submission while the API preview reports a blocking error", async () => {
+    const user = userEvent.setup();
+    mockUseCurtailmentPlanPreview.mockReturnValue({
+      preview: undefined,
+      previewError: "No miners match this curtailment.",
+      isPreviewLoading: false,
+    });
+    const { onSubmit } = renderModal({ initialValues: { ...configuredValues, includeMaintenance: false } });
+    const startButton = screen.getByRole("button", { name: "Start curtailment" });
+
+    expect(screen.getAllByText("No miners match this curtailment.")).toHaveLength(2);
+    expect(startButton).toBeDisabled();
+
+    await user.click(startButton);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
   it("keeps the existing preview visible while a refreshed preview is loading", () => {
     mockUseCurtailmentPlanPreview.mockReturnValue({
       preview,
@@ -215,6 +232,27 @@ describe("CurtailmentStartModal", () => {
     );
 
     expect(screen.getAllByText("Preview is unavailable until a valid target reduction is entered.")).toHaveLength(2);
+  });
+
+  it("shows unsupported target-scope errors before controlled preview props", () => {
+    renderModal({
+      initialValues: {
+        ...configuredValues,
+        includeMaintenance: false,
+        scopeType: "deviceSet",
+        scopeId: "racks",
+        deviceSetIds: ["rack-1"],
+      },
+      preview,
+    });
+
+    expect(
+      screen.getAllByText(
+        "Rack and group curtailment previews are not supported yet. Select specific miners or the whole fleet to preview and start this curtailment.",
+      ),
+    ).toHaveLength(2);
+    expect(screen.queryByText("Curtail 18 miners across the fleet immediately")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start curtailment" })).toBeDisabled();
   });
 
   it("renders estimated reduction against the requested reduction", () => {
@@ -391,10 +429,14 @@ describe("CurtailmentStartModal", () => {
         minDurationSec: "3600",
         maxDurationSec: "300",
       },
+      errors: {
+        maxDurationSec: "Server-side max duration error",
+      },
     });
     const startButton = screen.getByRole("button", { name: "Start curtailment" });
 
     expect(screen.getByText("Max duration must be greater than or equal to min duration.")).toBeInTheDocument();
+    expect(screen.queryByText("Server-side max duration error")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Max duration (sec)")).toHaveAttribute("aria-invalid", "true");
     expect(startButton).toBeDisabled();
 
@@ -440,6 +482,23 @@ describe("CurtailmentStartModal", () => {
     const updatedTargetInput = screen.getByLabelText("Target reduction");
     expect(updatedTargetInput).toHaveValue(25);
     expect(screen.getByLabelText("Reason")).toHaveValue("Updated reason");
+  });
+
+  it("blocks submissions when parent field errors are present", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      initialValues: { includeMaintenance: false },
+      errors: {
+        targetKw: "Required",
+      },
+    });
+    const startButton = screen.getByRole("button", { name: "Start curtailment" });
+
+    expect(screen.getByText("Required")).toBeInTheDocument();
+    expect(startButton).toBeDisabled();
+
+    await user.click(startButton);
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 
   it("renders field validation errors with accessible error state", () => {

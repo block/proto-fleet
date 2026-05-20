@@ -189,6 +189,21 @@ describe("useCurtailmentPlanPreview", () => {
     );
   });
 
+  it("surfaces empty preview candidates as a preview error", async () => {
+    mockPreviewCurtailmentPlan.mockResolvedValueOnce(previewResponse(0));
+
+    const { result } = renderPreviewHook();
+
+    await waitFor(() => {
+      expect(result.current).toEqual({
+        preview: undefined,
+        previewError: "No miners match this curtailment.",
+        isPreviewLoading: false,
+      });
+    });
+    expect(mockHandleAuthErrors).not.toHaveBeenCalled();
+  });
+
   it("updates local preview labels without refetching for non-request edits", async () => {
     mockPreviewCurtailmentPlan.mockResolvedValueOnce(previewResponse());
 

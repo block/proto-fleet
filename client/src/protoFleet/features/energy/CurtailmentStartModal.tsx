@@ -372,21 +372,23 @@ function CurtailmentStartModalContent({
     setValues((current) => ({ ...current, [key]: value }));
   const updateValues = (updater: (current: CurtailmentFormValues) => CurtailmentFormValues) => setValues(updater);
   const localErrors = useMemo(() => validateCurtailmentFormValues(values), [values]);
-  const effectiveErrors = { ...localErrors, ...errors };
+  const effectiveErrors = { ...errors, ...localErrors };
   const unsupportedDeviceSetPreviewError = getUnsupportedDeviceSetPreviewError(values);
-  const hasBlockingValidationError =
-    unsupportedDeviceSetPreviewError !== undefined || Object.keys(localErrors).length > 0;
   const hasControlledPreview = preview !== undefined || previewError !== undefined;
   const apiPreview = useCurtailmentPlanPreview({
     open,
     values,
     disabled: hasControlledPreview,
   });
-  const previewState: PreviewPaneProps = hasControlledPreview
-    ? { preview, previewError, isPreviewLoading: false }
-    : unsupportedDeviceSetPreviewError
-      ? { preview: undefined, previewError: unsupportedDeviceSetPreviewError, isPreviewLoading: false }
+  const previewState: PreviewPaneProps = unsupportedDeviceSetPreviewError
+    ? { preview: undefined, previewError: unsupportedDeviceSetPreviewError, isPreviewLoading: false }
+    : hasControlledPreview
+      ? { preview, previewError, isPreviewLoading: false }
       : apiPreview;
+  const hasBlockingValidationError =
+    previewState.previewError !== undefined ||
+    Object.keys(localErrors).length > 0 ||
+    Object.keys(errors ?? {}).length > 0;
   const selectedTargets = {
     racks: getSelectedDeviceSetIds(values, "racks"),
     groups: getSelectedDeviceSetIds(values, "groups"),
