@@ -322,7 +322,7 @@ function PreviewPane({ preview, previewError, isPreviewLoading = false }: Previe
 
         <div className="grid gap-6">
           <div>
-            <div className="text-emphasis-200 text-text-primary-70">Time to curtail</div>
+            <div className="text-emphasis-200 text-text-primary-70">Curtailment duration</div>
             <div className="text-heading-300 text-text-primary">{preview.curtailEstimate}</div>
           </div>
           <div>

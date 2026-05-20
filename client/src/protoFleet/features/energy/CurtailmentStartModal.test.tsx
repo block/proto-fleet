@@ -199,7 +199,7 @@ describe("CurtailmentStartModal", () => {
     expect(screen.queryByText("Estimated time to restore ~2 minutes")).not.toBeInTheDocument();
 
     const secondaryPane = within(screen.getByTestId("secondary-pane"));
-    expect(secondaryPane.getByText("Time to curtail")).toBeInTheDocument();
+    expect(secondaryPane.getByText("Curtailment duration")).toBeInTheDocument();
     expect(secondaryPane.getByText("5 minutes - 30 minutes")).toBeInTheDocument();
     expect(secondaryPane.getByText("Time to restore")).toBeInTheDocument();
     expect(secondaryPane.getAllByText("~2 minutes")).toHaveLength(1);
