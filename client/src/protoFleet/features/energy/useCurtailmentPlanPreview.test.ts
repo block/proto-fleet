@@ -218,7 +218,7 @@ describe("useCurtailmentPlanPreview", () => {
     expect(mockPreviewCurtailmentPlan).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps the previous preview visible while a valid refresh is debounced", async () => {
+  it("keeps the previous preview visible with its request labels while a valid refresh is debounced", async () => {
     mockPreviewCurtailmentPlan.mockResolvedValueOnce(previewResponse());
 
     const { result, rerender } = renderHook(
@@ -237,9 +237,24 @@ describe("useCurtailmentPlanPreview", () => {
       expect(result.current.preview).toBeDefined();
     });
 
-    rerender({ values: { ...baseValues, targetKw: "50" }, debounceMs: 1000 });
+    rerender({
+      values: {
+        ...baseValues,
+        scopeType: "explicitMiners",
+        scopeId: undefined,
+        deviceIdentifiers: ["miner-99"],
+        targetKw: "50",
+      },
+      debounceMs: 1000,
+    });
 
-    expect(result.current.preview).toBeDefined();
+    expect(result.current.preview).toEqual(
+      expect.objectContaining({
+        selectedMinerCount: 3,
+        scopeLabel: "across the fleet",
+        targetKw: 40,
+      }),
+    );
     expect(result.current.isPreviewLoading).toBe(false);
     expect(mockPreviewCurtailmentPlan).toHaveBeenCalledTimes(1);
   });

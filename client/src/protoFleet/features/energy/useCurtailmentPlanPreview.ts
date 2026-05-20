@@ -43,6 +43,7 @@ interface CurtailmentPlanPreviewResult {
 
 interface CurtailmentPlanPreviewState {
   response?: PreviewCurtailmentPlanResponse;
+  responseRequestValues?: CurtailmentPlanPreviewRequestValues;
   previewError?: string;
   isPreviewLoading: boolean;
   requestKey?: string;
@@ -56,6 +57,7 @@ const emptyPreviewResult: CurtailmentPlanPreviewResult = {
 
 const emptyPreviewState: CurtailmentPlanPreviewState = {
   response: undefined,
+  responseRequestValues: undefined,
   previewError: undefined,
   isPreviewLoading: false,
   requestKey: undefined,
@@ -89,6 +91,14 @@ function parseNonNegativeInteger(value: string): number | undefined {
 
 function toApiPriority(priority: CurtailmentFormValues["priority"]): CurtailmentPriority {
   return priority === "emergency" ? CurtailmentPriority.EMERGENCY : CurtailmentPriority.NORMAL;
+}
+
+function cloneRequestValues(values: CurtailmentPlanPreviewRequestValues): CurtailmentPlanPreviewRequestValues {
+  return {
+    ...values,
+    deviceSetIds: [...values.deviceSetIds],
+    deviceIdentifiers: [...values.deviceIdentifiers],
+  };
 }
 
 function buildScope(values: CurtailmentPlanPreviewRequestValues): PreviewCurtailmentPlanRequest["scope"] | undefined {
@@ -320,6 +330,7 @@ export function useCurtailmentPlanPreview({
 
           setState({
             response,
+            responseRequestValues: cloneRequestValues(requestValues),
             previewError: undefined,
             isPreviewLoading: false,
             requestKey: requestState.requestKey,
@@ -339,6 +350,7 @@ export function useCurtailmentPlanPreview({
 
               setState({
                 response: undefined,
+                responseRequestValues: undefined,
                 previewError: getErrorMessage(err, "Preview is unavailable."),
                 isPreviewLoading: false,
                 requestKey: requestState.requestKey,
@@ -353,7 +365,7 @@ export function useCurtailmentPlanPreview({
       clearTimeout(timeoutId);
       abortController.abort();
     };
-  }, [debounceMs, disabled, handleAuthErrors, open, requestState]);
+  }, [debounceMs, disabled, handleAuthErrors, open, requestState, requestValues]);
 
   if (!open || disabled) {
     return emptyPreviewResult;
@@ -369,9 +381,13 @@ export function useCurtailmentPlanPreview({
 
   const hasCurrentPreviewState = requestState !== undefined && state.requestKey === requestState.requestKey;
   const renderableResponse = requestState !== undefined ? state.response : undefined;
+  const previewValues =
+    hasCurrentPreviewState || state.responseRequestValues === undefined
+      ? values
+      : { ...values, ...state.responseRequestValues };
 
   return {
-    preview: renderableResponse !== undefined ? toCurtailmentPlanPreview(renderableResponse, values) : undefined,
+    preview: renderableResponse !== undefined ? toCurtailmentPlanPreview(renderableResponse, previewValues) : undefined,
     previewError: hasCurrentPreviewState ? state.previewError : undefined,
     isPreviewLoading: hasCurrentPreviewState ? state.isPreviewLoading : false,
   };
