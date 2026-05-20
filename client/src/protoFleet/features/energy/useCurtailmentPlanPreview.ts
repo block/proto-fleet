@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { create } from "@bufbuild/protobuf";
+import { create, toJsonString } from "@bufbuild/protobuf";
 
 import { curtailmentClient } from "@/protoFleet/api/clients";
 import {
@@ -10,7 +10,6 @@ import {
   PreviewCurtailmentPlanRequestSchema,
   type PreviewCurtailmentPlanResponse,
   ScopeDeviceListSchema,
-  ScopeDeviceSetsSchema,
   ScopeWholeOrgSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
@@ -24,17 +23,42 @@ interface UseCurtailmentPlanPreviewOptions {
   debounceMs?: number;
 }
 
-interface CurtailmentPlanPreviewState {
+type CurtailmentPlanPreviewRequestValues = Pick<
+  CurtailmentFormValues,
+  | "scopeType"
+  | "scopeId"
+  | "deviceSetIds"
+  | "deviceIdentifiers"
+  | "targetKw"
+  | "toleranceKw"
+  | "priority"
+  | "includeMaintenance"
+>;
+
+interface CurtailmentPlanPreviewResult {
   preview?: CurtailmentPlanPreview;
+  previewError?: string;
+  isPreviewLoading: boolean;
+}
+
+interface CurtailmentPlanPreviewState {
+  response?: PreviewCurtailmentPlanResponse;
   previewError?: string;
   isPreviewLoading: boolean;
   requestKey?: string;
 }
 
-const emptyPreviewState: CurtailmentPlanPreviewState = {
+const emptyPreviewResult: CurtailmentPlanPreviewResult = {
   preview: undefined,
   previewError: undefined,
   isPreviewLoading: false,
+};
+
+const emptyPreviewState: CurtailmentPlanPreviewState = {
+  response: undefined,
+  previewError: undefined,
+  isPreviewLoading: false,
+  requestKey: undefined,
 };
 
 function parseNumber(value: string, isValid: (value: number) => boolean): number | undefined {
@@ -67,7 +91,7 @@ function toApiPriority(priority: CurtailmentFormValues["priority"]): Curtailment
   return priority === "emergency" ? CurtailmentPriority.EMERGENCY : CurtailmentPriority.NORMAL;
 }
 
-function buildScope(values: CurtailmentFormValues): PreviewCurtailmentPlanRequest["scope"] | undefined {
+function buildScope(values: CurtailmentPlanPreviewRequestValues): PreviewCurtailmentPlanRequest["scope"] | undefined {
   switch (values.scopeType) {
     case "wholeOrg":
       return {
@@ -75,14 +99,7 @@ function buildScope(values: CurtailmentFormValues): PreviewCurtailmentPlanReques
         value: create(ScopeWholeOrgSchema, {}),
       };
     case "deviceSet":
-      return values.deviceSetIds.length > 0
-        ? {
-            case: "deviceSetIds",
-            value: create(ScopeDeviceSetsSchema, {
-              deviceSetIds: values.deviceSetIds,
-            }),
-          }
-        : undefined;
+      return undefined;
     case "explicitMiners":
       return values.deviceIdentifiers.length > 0
         ? {
@@ -96,7 +113,7 @@ function buildScope(values: CurtailmentFormValues): PreviewCurtailmentPlanReques
 }
 
 export function buildPreviewCurtailmentPlanRequest(
-  values: CurtailmentFormValues,
+  values: CurtailmentPlanPreviewRequestValues,
 ): PreviewCurtailmentPlanRequest | undefined {
   const targetKw = parsePositiveNumber(values.targetKw);
   const scope = buildScope(values);
@@ -230,42 +247,73 @@ export function useCurtailmentPlanPreview({
   values,
   disabled = false,
   debounceMs = 300,
-}: UseCurtailmentPlanPreviewOptions): CurtailmentPlanPreviewState {
+}: UseCurtailmentPlanPreviewOptions): CurtailmentPlanPreviewResult {
   const { handleAuthErrors } = useAuthErrors();
   const [state, setState] = useState<CurtailmentPlanPreviewState>(emptyPreviewState);
-  const valuesKey = useMemo(() => JSON.stringify(values), [values]);
-  const request = useMemo(() => buildPreviewCurtailmentPlanRequest(values), [values]);
+  const requestValues = useMemo<CurtailmentPlanPreviewRequestValues>(
+    () => ({
+      scopeType: values.scopeType,
+      scopeId: values.scopeId,
+      deviceSetIds: values.deviceSetIds,
+      deviceIdentifiers: values.deviceIdentifiers,
+      targetKw: values.targetKw,
+      toleranceKw: values.toleranceKw,
+      priority: values.priority,
+      includeMaintenance: values.includeMaintenance,
+    }),
+    [
+      values.deviceSetIds,
+      values.deviceIdentifiers,
+      values.includeMaintenance,
+      values.priority,
+      values.scopeId,
+      values.scopeType,
+      values.targetKw,
+      values.toleranceKw,
+    ],
+  );
+  const requestState = useMemo(() => {
+    const request = buildPreviewCurtailmentPlanRequest(requestValues);
+
+    return request === undefined
+      ? undefined
+      : {
+          request,
+          requestKey: toJsonString(PreviewCurtailmentPlanRequestSchema, request),
+        };
+  }, [requestValues]);
 
   useEffect(() => {
     if (!open || disabled) {
       return;
     }
 
-    if (!request) {
+    if (requestState === undefined) {
       return;
     }
 
     let isActive = true;
+    const abortController = new AbortController();
     const timeoutId = setTimeout(() => {
       setState((current) => ({
         ...current,
         previewError: undefined,
         isPreviewLoading: true,
-        requestKey: valuesKey,
+        requestKey: requestState.requestKey,
       }));
 
       void curtailmentClient
-        .previewCurtailmentPlan(request)
+        .previewCurtailmentPlan(requestState.request, { signal: abortController.signal })
         .then((response) => {
           if (!isActive) {
             return;
           }
 
           setState({
-            preview: toCurtailmentPlanPreview(response, values),
+            response,
             previewError: undefined,
             isPreviewLoading: false,
-            requestKey: valuesKey,
+            requestKey: requestState.requestKey,
           });
         })
         .catch((error) => {
@@ -281,10 +329,10 @@ export function useCurtailmentPlanPreview({
               }
 
               setState({
-                preview: undefined,
+                response: undefined,
                 previewError: getErrorMessage(err, "Preview is unavailable."),
                 isPreviewLoading: false,
-                requestKey: valuesKey,
+                requestKey: requestState.requestKey,
               });
             },
           });
@@ -294,17 +342,21 @@ export function useCurtailmentPlanPreview({
     return () => {
       isActive = false;
       clearTimeout(timeoutId);
+      abortController.abort();
     };
-  }, [debounceMs, disabled, handleAuthErrors, open, request, values, valuesKey]);
+  }, [debounceMs, disabled, handleAuthErrors, open, requestState]);
 
   if (!open || disabled) {
-    return emptyPreviewState;
+    return emptyPreviewResult;
   }
 
-  const hasCurrentPreviewState = request !== undefined && state.requestKey === valuesKey;
+  const hasCurrentPreviewState = requestState !== undefined && state.requestKey === requestState.requestKey;
 
   return {
-    preview: hasCurrentPreviewState ? state.preview : undefined,
+    preview:
+      hasCurrentPreviewState && state.response !== undefined
+        ? toCurtailmentPlanPreview(state.response, values)
+        : undefined,
     previewError: hasCurrentPreviewState ? state.previewError : undefined,
     isPreviewLoading: hasCurrentPreviewState ? state.isPreviewLoading : false,
   };

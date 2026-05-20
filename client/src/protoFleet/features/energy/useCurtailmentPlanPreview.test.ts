@@ -99,21 +99,21 @@ describe("useCurtailmentPlanPreview", () => {
     expect(wholeFleetRequest?.includeMaintenance).toBe(true);
     expect(wholeFleetRequest?.forceIncludeMaintenance).toBe(true);
 
-    const deviceSetRequest = buildPreviewCurtailmentPlanRequest({
+    const minerRequest = buildPreviewCurtailmentPlanRequest({
       ...baseValues,
-      scopeType: "deviceSet",
-      scopeId: "groups",
-      deviceSetIds: ["group-1", "group-2"],
+      scopeType: "explicitMiners",
+      scopeId: undefined,
+      deviceIdentifiers: ["miner-1", "miner-2"],
       includeMaintenance: false,
     });
 
-    expect(deviceSetRequest?.scope.case).toBe("deviceSetIds");
-    if (deviceSetRequest?.scope.case !== "deviceSetIds") {
-      throw new Error("Expected deviceSetIds scope");
+    expect(minerRequest?.scope.case).toBe("deviceIdentifiers");
+    if (minerRequest?.scope.case !== "deviceIdentifiers") {
+      throw new Error("Expected deviceIdentifiers scope");
     }
-    expect(deviceSetRequest.scope.value.deviceSetIds).toEqual(["group-1", "group-2"]);
-    expect(deviceSetRequest.includeMaintenance).toBe(false);
-    expect(deviceSetRequest.forceIncludeMaintenance).toBe(false);
+    expect(minerRequest.scope.value.deviceIdentifiers).toEqual(["miner-1", "miner-2"]);
+    expect(minerRequest.includeMaintenance).toBe(false);
+    expect(minerRequest.forceIncludeMaintenance).toBe(false);
   });
 
   it("does not build a request until target and scope are valid", () => {
@@ -121,6 +121,25 @@ describe("useCurtailmentPlanPreview", () => {
     expect(buildPreviewCurtailmentPlanRequest({ ...baseValues, targetKw: "0" })).toBeUndefined();
     expect(
       buildPreviewCurtailmentPlanRequest({ ...baseValues, scopeType: "deviceSet", deviceSetIds: [] }),
+    ).toBeUndefined();
+  });
+
+  it("does not build unsupported device-set preview requests", () => {
+    expect(
+      buildPreviewCurtailmentPlanRequest({
+        ...baseValues,
+        scopeType: "deviceSet",
+        scopeId: "racks",
+        deviceSetIds: ["rack-1"],
+      }),
+    ).toBeUndefined();
+    expect(
+      buildPreviewCurtailmentPlanRequest({
+        ...baseValues,
+        scopeType: "deviceSet",
+        scopeId: "groups",
+        deviceSetIds: ["group-1"],
+      }),
     ).toBeUndefined();
   });
 
@@ -147,7 +166,62 @@ describe("useCurtailmentPlanPreview", () => {
         includeMaintenance: true,
         forceIncludeMaintenance: true,
       }),
+      expect.objectContaining({
+        signal: expect.any(AbortSignal),
+      }),
     );
+  });
+
+  it("updates local preview labels without refetching for non-request edits", async () => {
+    mockPreviewCurtailmentPlan.mockResolvedValueOnce(previewResponse());
+
+    const { result, rerender } = renderPreviewHook();
+
+    await waitFor(() => {
+      expect(result.current.preview?.curtailEstimate).toBe("5 minutes - 30 minutes");
+    });
+
+    rerender({
+      values: {
+        ...baseValues,
+        minDurationSec: "60",
+        maxDurationSec: "120",
+        restoreBatchSize: "1",
+        restoreIntervalSec: "30",
+        reason: "Updated reason",
+      },
+    });
+
+    expect(result.current.preview).toEqual(
+      expect.objectContaining({
+        curtailEstimate: "1 minute - 2 minutes",
+        restoreEstimate: "~1 minute",
+      }),
+    );
+    expect(mockPreviewCurtailmentPlan).toHaveBeenCalledTimes(1);
+  });
+
+  it("aborts in-flight previews when the request changes", async () => {
+    mockPreviewCurtailmentPlan.mockReturnValue(new Promise(() => {}));
+
+    const { rerender } = renderPreviewHook();
+
+    await waitFor(() => {
+      expect(mockPreviewCurtailmentPlan).toHaveBeenCalledTimes(1);
+    });
+
+    const firstOptions = mockPreviewCurtailmentPlan.mock.calls[0][1] as { signal: AbortSignal };
+    expect(firstOptions.signal.aborted).toBe(false);
+
+    rerender({ values: { ...baseValues, targetKw: "50" } });
+
+    await waitFor(() => {
+      expect(firstOptions.signal.aborted).toBe(true);
+      expect(mockPreviewCurtailmentPlan).toHaveBeenCalledTimes(2);
+    });
+
+    const secondOptions = mockPreviewCurtailmentPlan.mock.calls[1][1] as { signal: AbortSignal };
+    expect(secondOptions.signal.aborted).toBe(false);
   });
 
   it("hides stale previews when values no longer build a request", async () => {
