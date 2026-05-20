@@ -301,9 +301,11 @@ export function useCurtailmentPlanPreview({
     return emptyPreviewState;
   }
 
+  const hasCurrentPreviewState = request !== undefined && state.requestKey === valuesKey;
+
   return {
-    preview: state.preview,
-    previewError: state.requestKey === valuesKey ? state.previewError : undefined,
-    isPreviewLoading: state.requestKey === valuesKey ? state.isPreviewLoading : false,
+    preview: hasCurrentPreviewState ? state.preview : undefined,
+    previewError: hasCurrentPreviewState ? state.previewError : undefined,
+    isPreviewLoading: hasCurrentPreviewState ? state.isPreviewLoading : false,
   };
 }

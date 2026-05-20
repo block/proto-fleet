@@ -65,13 +65,17 @@ function previewResponse(candidateCount = 3) {
   });
 }
 
-function renderPreviewHook(values: CurtailmentFormValues = baseValues) {
-  return renderHook(() =>
-    useCurtailmentPlanPreview({
-      open: true,
-      values,
-      debounceMs: 0,
-    }),
+function renderPreviewHook(initialValues: CurtailmentFormValues = baseValues) {
+  return renderHook(
+    ({ values }) =>
+      useCurtailmentPlanPreview({
+        open: true,
+        values,
+        debounceMs: 0,
+      }),
+    {
+      initialProps: { values: initialValues },
+    },
   );
 }
 
@@ -144,6 +148,25 @@ describe("useCurtailmentPlanPreview", () => {
         forceIncludeMaintenance: true,
       }),
     );
+  });
+
+  it("hides stale previews when values no longer build a request", async () => {
+    mockPreviewCurtailmentPlan.mockResolvedValueOnce(previewResponse());
+
+    const { result, rerender } = renderPreviewHook();
+
+    await waitFor(() => {
+      expect(result.current.preview).toBeDefined();
+    });
+
+    rerender({ values: { ...baseValues, targetKw: "" } });
+
+    expect(result.current).toEqual({
+      preview: undefined,
+      previewError: undefined,
+      isPreviewLoading: false,
+    });
+    expect(mockPreviewCurtailmentPlan).toHaveBeenCalledTimes(1);
   });
 
   it("surfaces API errors through previewError", async () => {
