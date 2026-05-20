@@ -442,9 +442,13 @@ function CurtailmentHistory({
   const [selectedStatusFilters, setSelectedStatusFilters] = useState<CurtailmentEventState[]>([]);
   const [currentSort, setCurrentSort] = useState<HistorySort | undefined>();
   const [currentPage, setCurrentPage] = useState(0);
-  const [selectedDetailEvent, setSelectedDetailEvent] = useState<CurtailmentHistoryEvent>();
+  const [selectedDetailEventId, setSelectedDetailEventId] = useState<string>();
   const normalizedPageSize = Math.max(Math.floor(pageSize), 1);
   const hasActiveFilters = selectedStatusFilters.length > 0;
+  const selectedDetailEvent = useMemo(
+    () => events.find((event) => event.id === selectedDetailEventId),
+    [events, selectedDetailEventId],
+  );
 
   const filteredEvents = useMemo(() => {
     if (selectedStatusFilters.length === 0) {
@@ -486,11 +490,11 @@ function CurtailmentHistory({
   const handleNextPage = () => handlePageChange(1);
 
   const handleOpenSummary = (event: CurtailmentHistoryEvent) => {
-    setSelectedDetailEvent(event);
+    setSelectedDetailEventId(event.id);
     onViewEvent?.(event);
   };
 
-  const handleDismissSummary = () => setSelectedDetailEvent(undefined);
+  const handleDismissSummary = () => setSelectedDetailEventId(undefined);
   const handleStopSelectedDetailEvent =
     selectedDetailEvent && onStopActiveEvent && isActiveStoppableEvent(selectedDetailEvent, activeEventId)
       ? () => onStopActiveEvent(selectedDetailEvent)

@@ -123,6 +123,35 @@ describe("CurtailmentHistory", () => {
     expect(within(modal).getByText("Grid peak call")).toBeInTheDocument();
   });
 
+  it("keeps an open detail modal synced to event updates", async () => {
+    const user = userEvent.setup();
+    const activeEvent = mockCurtailmentHistoryEvents[0];
+    const completedEvent = {
+      ...activeEvent,
+      state: "completed" as const,
+      endedAt: "2026-04-30T14:25:00-04:00",
+    };
+    const { rerender } = render(
+      <CurtailmentHistory events={[activeEvent]} activeEventId={activeEvent.id} onStopActiveEvent={() => undefined} />,
+    );
+
+    await user.click(screen.getByTestId(`curtailment-history-row-${activeEvent.id}`));
+
+    expect(screen.getByRole("button", { name: "Stop curtailment" })).toBeInTheDocument();
+
+    rerender(
+      <CurtailmentHistory
+        events={[completedEvent]}
+        activeEventId={activeEvent.id}
+        onStopActiveEvent={() => undefined}
+      />,
+    );
+
+    const modal = screen.getByTestId("modal");
+    expect(within(modal).getByText("Completed")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Stop curtailment" })).not.toBeInTheDocument();
+  });
+
   it("opens the summary modal from row click and stops active events from the action button", async () => {
     const user = userEvent.setup();
     const onStopActiveEvent = vi.fn();
