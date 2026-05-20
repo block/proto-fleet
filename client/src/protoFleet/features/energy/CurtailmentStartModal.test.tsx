@@ -89,6 +89,7 @@ const preview: CurtailmentPlanPreview = {
   selectedMinerCount: 18,
   targetKw: 40,
   estimatedReductionKw: 45,
+  curtailEstimate: "5 minutes - 30 minutes",
   restoreEstimate: "~2 minutes",
   scopeLabel: "across the fleet",
 };
@@ -166,20 +167,36 @@ describe("CurtailmentStartModal", () => {
 
     renderModal({ initialValues: configuredValues });
 
-    expect(screen.getAllByText("Curtail 18 miners across the fleet immediately")).toHaveLength(2);
+    expect(screen.getAllByText("Curtail 18 miners across the fleet")).toHaveLength(2);
     expect(screen.getAllByText("45.0 kW of 40.0 kW")).toHaveLength(2);
+    expect(screen.getAllByText("5 minutes - 30 minutes")).toHaveLength(2);
+  });
+
+  it("keeps the existing preview visible while a refreshed preview is loading", () => {
+    mockUseCurtailmentPlanPreview.mockReturnValue({
+      preview,
+      previewError: undefined,
+      isPreviewLoading: true,
+    });
+
+    renderModal({ initialValues: configuredValues });
+
+    expect(screen.getAllByText("Curtail 18 miners across the fleet")).toHaveLength(2);
+    expect(screen.queryByLabelText("Loading curtailment preview")).not.toBeInTheDocument();
+    expect(screen.queryByText("Configure your curtailment to see a preview.")).not.toBeInTheDocument();
   });
 
   it("renders preview and preview error states", () => {
     const { rerender } = renderModal({ initialValues: configuredValues, preview });
 
-    expect(screen.getAllByText("Curtail 18 miners across the fleet immediately")).toHaveLength(2);
+    expect(screen.getAllByText("Curtail 18 miners across the fleet")).toHaveLength(2);
     expect(screen.getAllByText("Target reduction")).toHaveLength(3);
     expect(screen.getAllByText("45.0 kW of 40.0 kW")).toHaveLength(2);
     expect(screen.queryByText("Estimated time to restore ~2 minutes")).not.toBeInTheDocument();
 
     const secondaryPane = within(screen.getByTestId("secondary-pane"));
-    expect(secondaryPane.queryByText("Time to curtail")).not.toBeInTheDocument();
+    expect(secondaryPane.getByText("Time to curtail")).toBeInTheDocument();
+    expect(secondaryPane.getByText("5 minutes - 30 minutes")).toBeInTheDocument();
     expect(secondaryPane.getByText("Time to restore")).toBeInTheDocument();
     expect(secondaryPane.getAllByText("~2 minutes")).toHaveLength(1);
 

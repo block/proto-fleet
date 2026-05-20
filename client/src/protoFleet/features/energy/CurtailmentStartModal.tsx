@@ -204,6 +204,39 @@ function ReductionProgressBar({ value, max }: ReductionProgressBarProps): ReactE
 }
 
 function PreviewPane({ preview, previewError, isPreviewLoading = false }: PreviewPaneProps): ReactElement {
+  if (preview) {
+    return (
+      <div className="flex min-h-[360px] flex-1 items-center justify-center rounded-[24px] bg-surface-overlay px-8 py-12 laptop:min-h-0 laptop:px-16 laptop:py-6">
+        <div className="flex w-full max-w-[520px] flex-col gap-10">
+          <div className="text-heading-300 text-text-primary">
+            Curtail {preview.selectedMinerCount} miners {preview.scopeLabel}
+          </div>
+
+          <div className="grid gap-3">
+            <div>
+              <div className="text-emphasis-200 text-text-primary-70">Target reduction</div>
+              <div className="text-heading-300 text-text-primary">
+                {formatKw(preview.estimatedReductionKw)} of {formatKw(preview.targetKw)}
+              </div>
+            </div>
+            <ReductionProgressBar value={preview.estimatedReductionKw} max={preview.targetKw} />
+          </div>
+
+          <div className="grid gap-6">
+            <div>
+              <div className="text-emphasis-200 text-text-primary-70">Time to curtail</div>
+              <div className="text-heading-300 text-text-primary">{preview.curtailEstimate}</div>
+            </div>
+            <div>
+              <div className="text-emphasis-200 text-text-primary-70">Time to restore</div>
+              <div className="text-heading-300 text-text-primary">{preview.restoreEstimate}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (previewError) {
     return (
       <div className="flex min-h-40 flex-1 items-center justify-center rounded-[24px] bg-surface-overlay px-6 py-10 text-300 text-text-primary-70 laptop:px-16">
@@ -227,36 +260,9 @@ function PreviewPane({ preview, previewError, isPreviewLoading = false }: Previe
     );
   }
 
-  if (!preview) {
-    return (
-      <div className="flex min-h-40 flex-1 items-center justify-center rounded-[24px] bg-surface-overlay px-6 py-10 text-center text-300 text-text-primary-70 laptop:px-16">
-        Configure your curtailment to see a preview.
-      </div>
-    );
-  }
-
   return (
-    <div className="flex min-h-[360px] flex-1 items-center justify-center rounded-[24px] bg-surface-overlay px-8 py-12 laptop:min-h-0 laptop:px-16 laptop:py-6">
-      <div className="flex w-full max-w-[520px] flex-col gap-10">
-        <div className="text-heading-300 text-text-primary">
-          Curtail {preview.selectedMinerCount} miners {preview.scopeLabel} immediately
-        </div>
-
-        <div className="grid gap-3">
-          <div>
-            <div className="text-emphasis-200 text-text-primary-70">Target reduction</div>
-            <div className="text-heading-300 text-text-primary">
-              {formatKw(preview.estimatedReductionKw)} of {formatKw(preview.targetKw)}
-            </div>
-          </div>
-          <ReductionProgressBar value={preview.estimatedReductionKw} max={preview.targetKw} />
-        </div>
-
-        <div>
-          <div className="text-emphasis-200 text-text-primary-70">Time to restore</div>
-          <div className="text-heading-300 text-text-primary">{preview.restoreEstimate}</div>
-        </div>
-      </div>
+    <div className="flex min-h-40 flex-1 items-center justify-center rounded-[24px] bg-surface-overlay px-6 py-10 text-center text-300 text-text-primary-70 laptop:px-16">
+      Configure your curtailment to see a preview.
     </div>
   );
 }

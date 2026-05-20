@@ -38,6 +38,8 @@ const emptyPreviewState: CurtailmentPlanPreviewState = {
   isPreviewLoading: false,
 };
 
+const serverDefaultMaxDurationLabel = "server default";
+
 interface PreviewStateWithRequestKey extends CurtailmentPlanPreviewState {
   requestKey?: string;
 }
@@ -63,6 +65,15 @@ function parseNonNegativeNumber(value: string): number | undefined {
 
 function parsePositiveInteger(value: string): number | undefined {
   const parsed = parsePositiveNumber(value);
+  if (parsed === undefined || !Number.isInteger(parsed)) {
+    return undefined;
+  }
+
+  return parsed;
+}
+
+function parseNonNegativeInteger(value: string): number | undefined {
+  const parsed = parseNonNegativeNumber(value);
   if (parsed === undefined || !Number.isInteger(parsed)) {
     return undefined;
   }
@@ -184,6 +195,10 @@ function formatDurationEstimate(seconds: number): string {
   return `~${pluralize(hours, "hour")} ${pluralize(remainingMinutes, "minute")}`;
 }
 
+function formatConfiguredDuration(seconds: number): string {
+  return formatDurationEstimate(seconds).replace(/^~/, "");
+}
+
 export function estimateRestoreDuration(values: CurtailmentFormValues, selectedMinerCount: number): string {
   const restoreBatchSize = parsePositiveInteger(values.restoreBatchSize);
   const restoreIntervalSec = parsePositiveInteger(values.restoreIntervalSec);
@@ -194,6 +209,31 @@ export function estimateRestoreDuration(values: CurtailmentFormValues, selectedM
 
   const restoreBatchCount = Math.ceil(selectedMinerCount / restoreBatchSize);
   return formatDurationEstimate(Math.max(restoreBatchCount - 1, 0) * restoreIntervalSec);
+}
+
+export function estimateCurtailDuration(values: CurtailmentFormValues): string {
+  const minDurationSec = parseNonNegativeInteger(values.minDurationSec);
+  const maxDurationSec = parseNonNegativeInteger(values.maxDurationSec);
+  const hasMinDuration = minDurationSec !== undefined && minDurationSec > 0;
+  const hasMaxDuration = maxDurationSec !== undefined && maxDurationSec > 0;
+
+  if (hasMinDuration && hasMaxDuration) {
+    if (minDurationSec === maxDurationSec) {
+      return formatConfiguredDuration(minDurationSec);
+    }
+
+    return `${formatConfiguredDuration(minDurationSec)} - ${formatConfiguredDuration(maxDurationSec)}`;
+  }
+
+  if (hasMinDuration) {
+    return `${formatConfiguredDuration(minDurationSec)} - ${serverDefaultMaxDurationLabel}`;
+  }
+
+  if (hasMaxDuration) {
+    return `Up to ${formatConfiguredDuration(maxDurationSec)}`;
+  }
+
+  return "Server default";
 }
 
 export function toCurtailmentPlanPreview(
@@ -207,6 +247,7 @@ export function toCurtailmentPlanPreview(
     selectedMinerCount: response.candidates.length,
     targetKw,
     estimatedReductionKw: response.estimatedReductionKw,
+    curtailEstimate: estimateCurtailDuration(values),
     restoreEstimate: estimateRestoreDuration(values, response.candidates.length),
     scopeLabel: formatScopeLabel(values),
   };
@@ -223,6 +264,8 @@ function getValuesKey(values: CurtailmentFormValues): string {
     values.targetKw,
     values.toleranceKw,
     values.priority,
+    values.minDurationSec,
+    values.maxDurationSec,
     values.restoreBatchSize,
     values.restoreIntervalSec,
     String(values.includeMaintenance),
@@ -300,13 +343,13 @@ export function useCurtailmentPlanPreview({
     return () => clearTimeout(timeoutId);
   }, [canPreview, debounceMs, handleAuthErrors, request, values, valuesKey]);
 
-  if (!canPreview || state.requestKey !== valuesKey) {
+  if (!open || disabled) {
     return emptyPreviewState;
   }
 
   return {
     preview: state.preview,
-    previewError: state.previewError,
+    previewError: state.requestKey === valuesKey ? state.previewError : undefined,
     isPreviewLoading: state.isPreviewLoading,
   };
 }

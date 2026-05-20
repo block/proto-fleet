@@ -29,6 +29,7 @@ export interface CurtailmentPlanPreview {
   selectedMinerCount: number;
   targetKw: number;
   estimatedReductionKw: number;
+  curtailEstimate: string;
   restoreEstimate: string;
   scopeLabel: string;
 }

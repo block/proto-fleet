@@ -24,6 +24,8 @@ type ModalStoryProps = {
 
 const configuredValues: Partial<CurtailmentFormValues> = {
   targetKw: "40",
+  minDurationSec: "300",
+  maxDurationSec: "1800",
   restoreBatchSize: "10",
   restoreIntervalSec: "120",
   reason: "Grid peak - ERCOT 4CP signal",
@@ -33,6 +35,7 @@ const preview: CurtailmentPlanPreview = {
   selectedMinerCount: 18,
   targetKw: 40,
   estimatedReductionKw: 45,
+  curtailEstimate: "5 minutes - 30 minutes",
   restoreEstimate: "~2 minutes",
   scopeLabel: "across the fleet",
 };

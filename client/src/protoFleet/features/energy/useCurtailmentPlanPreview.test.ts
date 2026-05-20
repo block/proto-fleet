@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from "@testing-library/react";
+import { renderHook, type RenderHookResult, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
@@ -13,6 +13,7 @@ import {
 import type { CurtailmentFormValues } from "@/protoFleet/features/energy/curtailmentTypes";
 import {
   buildPreviewCurtailmentPlanRequest,
+  estimateCurtailDuration,
   estimateRestoreDuration,
   useCurtailmentPlanPreview,
 } from "@/protoFleet/features/energy/useCurtailmentPlanPreview";
@@ -53,6 +54,11 @@ const baseValues: CurtailmentFormValues = {
   includeMaintenance: true,
 };
 
+interface PreviewHookRenderProps {
+  values?: CurtailmentFormValues;
+  disabled?: boolean;
+}
+
 function previewResponse(): PreviewCurtailmentPlanResponse {
   return create(PreviewCurtailmentPlanResponseSchema, {
     candidates: [
@@ -67,6 +73,23 @@ function previewResponse(): PreviewCurtailmentPlanResponse {
       value: create(FixedKwParamsSchema, { targetKw: 40 }),
     },
   });
+}
+
+function renderPreviewHook(
+  initialProps: PreviewHookRenderProps = {},
+): RenderHookResult<ReturnType<typeof useCurtailmentPlanPreview>, PreviewHookRenderProps> {
+  return renderHook(
+    ({ values = baseValues, disabled }: PreviewHookRenderProps) =>
+      useCurtailmentPlanPreview({
+        open: true,
+        values,
+        disabled,
+        debounceMs: 0,
+      }),
+    {
+      initialProps,
+    },
+  );
 }
 
 describe("useCurtailmentPlanPreview", () => {
@@ -122,16 +145,19 @@ describe("useCurtailmentPlanPreview", () => {
     expect(estimateRestoreDuration({ ...baseValues, restoreBatchSize: "1.5" }, 18)).toBe("Server default");
   });
 
+  it("derives curtail estimate from min and max duration controls", () => {
+    expect(estimateCurtailDuration(baseValues)).toBe("Server default");
+    expect(estimateCurtailDuration({ ...baseValues, minDurationSec: "300", maxDurationSec: "1800" })).toBe(
+      "5 minutes - 30 minutes",
+    );
+    expect(estimateCurtailDuration({ ...baseValues, minDurationSec: "300" })).toBe("5 minutes - server default");
+    expect(estimateCurtailDuration({ ...baseValues, maxDurationSec: "1800" })).toBe("Up to 30 minutes");
+  });
+
   it("fetches and maps a preview response", async () => {
     mockPreviewCurtailmentPlan.mockResolvedValueOnce(previewResponse());
 
-    const { result } = renderHook(() =>
-      useCurtailmentPlanPreview({
-        open: true,
-        values: baseValues,
-        debounceMs: 0,
-      }),
-    );
+    const { result } = renderPreviewHook();
 
     await waitFor(() => {
       expect(result.current.preview).toEqual(
@@ -139,6 +165,7 @@ describe("useCurtailmentPlanPreview", () => {
           selectedMinerCount: 3,
           targetKw: 40,
           estimatedReductionKw: 45,
+          curtailEstimate: "Server default",
           restoreEstimate: "Immediately",
           scopeLabel: "across the fleet",
         }),
@@ -153,18 +180,58 @@ describe("useCurtailmentPlanPreview", () => {
     );
   });
 
+  it("keeps the current preview visible while new values are loading", async () => {
+    mockPreviewCurtailmentPlan.mockResolvedValueOnce(previewResponse());
+
+    const { result, rerender } = renderPreviewHook();
+
+    await waitFor(() => {
+      expect(result.current.preview).toEqual(
+        expect.objectContaining({
+          targetKw: 40,
+          estimatedReductionKw: 45,
+        }),
+      );
+    });
+
+    const currentPreview = result.current.preview;
+    mockPreviewCurtailmentPlan.mockReturnValueOnce(new Promise(() => {}));
+
+    rerender({ values: { ...baseValues, targetKw: "50" } });
+
+    expect(result.current.preview).toBe(currentPreview);
+
+    await waitFor(() => {
+      expect(mockPreviewCurtailmentPlan).toHaveBeenCalledTimes(2);
+    });
+
+    expect(result.current.preview).toBe(currentPreview);
+    expect(result.current.isPreviewLoading).toBe(true);
+  });
+
+  it("keeps the current preview visible while values are temporarily invalid", async () => {
+    mockPreviewCurtailmentPlan.mockResolvedValueOnce(previewResponse());
+
+    const { result, rerender } = renderPreviewHook();
+
+    await waitFor(() => {
+      expect(result.current.preview).toBeDefined();
+    });
+
+    const currentPreview = result.current.preview;
+
+    rerender({ values: { ...baseValues, targetKw: "" } });
+
+    expect(result.current.preview).toBe(currentPreview);
+    expect(mockPreviewCurtailmentPlan).toHaveBeenCalledTimes(1);
+  });
+
   it("surfaces API errors through previewError", async () => {
     mockPreviewCurtailmentPlan.mockRejectedValueOnce(
       new ConnectError("insufficient curtailable load", Code.InvalidArgument),
     );
 
-    const { result } = renderHook(() =>
-      useCurtailmentPlanPreview({
-        open: true,
-        values: baseValues,
-        debounceMs: 0,
-      }),
-    );
+    const { result } = renderPreviewHook();
 
     await waitFor(() => {
       expect(result.current.previewError).toBe("insufficient curtailable load");
@@ -175,18 +242,7 @@ describe("useCurtailmentPlanPreview", () => {
   it("clears stale preview state when previewing is disabled", async () => {
     mockPreviewCurtailmentPlan.mockResolvedValueOnce(previewResponse());
 
-    const { result, rerender } = renderHook(
-      ({ disabled }) =>
-        useCurtailmentPlanPreview({
-          open: true,
-          values: baseValues,
-          disabled,
-          debounceMs: 0,
-        }),
-      {
-        initialProps: { disabled: false },
-      },
-    );
+    const { result, rerender } = renderPreviewHook();
 
     await waitFor(() => {
       expect(result.current.preview).toBeDefined();
