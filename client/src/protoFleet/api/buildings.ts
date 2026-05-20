@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import { Code, ConnectError } from "@connectrpc/connect";
 
 import { buildingsClient } from "@/protoFleet/api/clients";
 import { type Building, type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
@@ -82,9 +83,11 @@ const useBuildings = () => {
     [handleAuthErrors],
   );
 
-  // Fetches a single building by id. The server returns NotFound for a missing
-  // id; we surface that as `undefined` via onSuccess so callers can render the
-  // not-found state without having to inspect the error message.
+  // Fetches a single building by id. NotFound responses map to onSuccess with
+  // `undefined` so callers can render their not-found state without inspecting
+  // error codes; every other failure (PermissionDenied, transport / network,
+  // server 5xx) flows through onError so the consumer can surface a real
+  // error UI instead of misclassifying it as "missing building".
   const getBuilding = useCallback(
     async ({ id, signal, onSuccess, onError, onFinally }: GetBuildingProps) => {
       try {
@@ -93,6 +96,10 @@ const useBuildings = () => {
         onSuccess?.(response.building);
       } catch (err) {
         if (signal?.aborted) return;
+        if (err instanceof ConnectError && err.code === Code.NotFound) {
+          onSuccess?.(undefined);
+          return;
+        }
         handleAuthErrors({
           error: err,
           onError: (error) => {

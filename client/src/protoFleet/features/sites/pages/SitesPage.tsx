@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import SiteOverviewSection from "../components/SiteOverviewSection";
 import SitesEmptyState from "../components/SitesEmptyState";
@@ -8,6 +8,8 @@ import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { buildKnownSiteIds, useSites } from "@/protoFleet/api/sites";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
+import Button, { sizes, variants } from "@/shared/components/Button";
+import Header from "@/shared/components/Header";
 import PlaceholderBlock from "@/shared/components/PlaceholderBlock";
 
 // `/sites` operational overview. Phase 1a renders the scaffolding — header,
@@ -18,17 +20,29 @@ const SitesPage = () => {
   const { listSites } = useSites();
   const { listAllBuildings } = useBuildings();
   const [sites, setSites] = useState<SiteWithCounts[] | undefined>(undefined);
+  const [sitesError, setSitesError] = useState<string | null>(null);
   const [buildings, setBuildings] = useState<BuildingWithCounts[] | undefined>(undefined);
 
-  useEffect(() => {
+  // Track sites + sitesError separately so transient failures (network,
+  // PermissionDenied for non-admins) don't collapse into "no sites yet"
+  // and mislead the operator into thinking the org has no sites.
+  const fetchSites = useCallback(() => {
     const controller = new AbortController();
     void listSites({
       signal: controller.signal,
-      onSuccess: setSites,
-      onError: () => setSites([]),
+      onSuccess: (rows) => {
+        setSites(rows);
+        setSitesError(null);
+      },
+      onError: (msg) => {
+        setSitesError(msg);
+        setSites([]);
+      },
     });
     return () => controller.abort();
   }, [listSites]);
+
+  useEffect(() => fetchSites(), [fetchSites]);
 
   // One ListBuildings call at the page level, then we bucket the rows by
   // siteId client-side so each SiteOverviewSection can render synchronously
@@ -78,6 +92,28 @@ const SitesPage = () => {
       <div className="flex flex-col gap-6 p-10 phone:p-6">
         <SitesPageHeader headline="Sites" subheadline="Manage your sites, buildings, and rack infrastructure." />
         <div className="text-300 text-text-primary-70">Loading…</div>
+      </div>
+    );
+  }
+
+  if (sitesError) {
+    return (
+      <div className="flex flex-col gap-6 p-10 phone:p-6" data-testid="sites-page-error">
+        <SitesPageHeader headline="Sites" subheadline="Manage your sites, buildings, and rack infrastructure." />
+        <div
+          className="flex flex-col items-start gap-3 rounded-xl border border-border-5 p-6"
+          data-testid="sites-page-error-card"
+        >
+          <Header title="Couldn't load sites" titleSize="text-heading-200" />
+          <p className="text-300 text-text-primary-70">{sitesError}</p>
+          <Button
+            variant={variants.secondary}
+            size={sizes.compact}
+            text="Retry"
+            onClick={fetchSites}
+            testId="sites-page-retry"
+          />
+        </div>
       </div>
     );
   }
