@@ -3,45 +3,61 @@ set -euo pipefail
 
 DEPLOYMENT_DIR="deployment"
 
-# Probe a specific docker invocation for an existing fleet-api container and
-# return the install directory inferred from its bind mount. Echoes the path
-# on success; returns 1 on miss.
+# Probe docker for an existing fleet-api container and return the install
+# directory inferred from its bind mount. Echoes the path on success; returns
+# 1 on miss.
 #
-# Accepts the docker command as an argv list so callers can pass
-# `probe_install_dir_with docker` or `probe_install_dir_with sudo -n docker`
-# without relying on unquoted word-splitting (ShellCheck SC2086).
+# Takes a privilege-wrapper argv (empty for unprivileged, or `sudo -n` for
+# elevated). All docker calls AND the marker validation are run through the
+# wrapper at the same privilege level — without that, sudo-detected installs
+# at root-only paths (e.g. /root/proto-fleet) would pass the docker probe
+# but silently fail the unprivileged `test -f` check and look absent.
 probe_install_dir_with() {
-  local docker_cmd=("$@")
+  local privilege=("$@")
+  # Note: `${arr[@]+"${arr[@]}"}` is the set -u-safe expansion idiom for
+  # arrays that may be empty. A bare `"${arr[@]}"` errors out on an empty
+  # array under `set -u` in bash 3.2 and (intermittently) bash 4.x.
   local container_id
-  container_id=$("${docker_cmd[@]}" ps -a --filter "name=${DEPLOYMENT_DIR}-fleet-api" --filter "name=${DEPLOYMENT_DIR}_fleet-api" --format "{{.ID}}" 2>/dev/null | head -n 1 || true)
+  container_id=$(${privilege[@]+"${privilege[@]}"} docker ps -a --filter "name=${DEPLOYMENT_DIR}-fleet-api" --filter "name=${DEPLOYMENT_DIR}_fleet-api" --format "{{.ID}}" 2>/dev/null | head -n 1 || true)
   [ -z "$container_id" ] && return 1
 
   local mount_path
-  mount_path=$("${docker_cmd[@]}" inspect --format '{{range .Mounts}}{{if eq .Destination "/var/lib/fleet/start"}}{{.Source}}{{end}}{{end}}' "$container_id" 2>/dev/null || true)
+  mount_path=$(${privilege[@]+"${privilege[@]}"} docker inspect --format '{{range .Mounts}}{{if eq .Destination "/var/lib/fleet/start"}}{{.Source}}{{end}}{{end}}' "$container_id" 2>/dev/null || true)
   [ -z "$mount_path" ] && return 1
 
   # Recover the install dir by stripping the trailing /deployment/<...>
-  # segment with parameter expansion. The previous sed-based approach
-  # `s|/deployment.*$||` was greedy and stripped from the *first* occurrence
-  # of /deployment, so a mount source like /home/alice/deployment/proto-fleet
-  # collapsed to /home/alice. `${var%/deployment/*}` strips only the shortest
-  # trailing match, recovering the correct install root.
-  #
+  # segment with parameter expansion. `${var%/deployment/*}` strips only the
+  # shortest trailing match, so /home/alice/deployment/proto-fleet/deployment/...
+  # resolves to /home/alice/deployment/proto-fleet (not /home/alice).
   # Edge cases:
   #   - No /deployment/<...> segment present  -> mount path unchanged -> miss.
   #   - Mount path is /deployment/<...>       -> install root is "/"; expand
   #                                              empty to "/" before returning.
-  # Then validate the recovered dir actually houses a ProtoFleet install by
-  # checking for the bundled docker-compose.yaml marker. This guards against
-  # an unrelated container that happens to share the name filter and mounts
-  # a path with /deployment/ in it.
   local install_dir="${mount_path%/${DEPLOYMENT_DIR}/*}"
   if [ "$install_dir" = "$mount_path" ]; then
     return 1
   fi
   [ -z "$install_dir" ] && install_dir="/"
-  if [ ! -f "${install_dir%/}/${DEPLOYMENT_DIR}/docker-compose.yaml" ]; then
-    return 1
+
+  # Validate the recovered dir actually houses a ProtoFleet install by
+  # checking for the bundled docker-compose.yaml marker. This guards against
+  # an unrelated container that happens to share the name filter and mounts
+  # a path with /deployment/ in it.
+  #
+  # Run the marker check at the SAME privilege level used for docker — a
+  # root-owned install path may be unreadable to the invoking shell, so an
+  # unprivileged `[ -f ]` would falsely report missing.
+  #
+  # When the elevated marker check itself fails (sudoers may permit `sudo
+  # docker` but not `sudo test`, or the install layout doesn't match), fall
+  # back conservatively: docker already confirmed a name-matching container
+  # at this path, so accept the discovery rather than silently miss the
+  # privilege-mismatch case this whole detection flow exists to handle.
+  local marker="${install_dir%/}/${DEPLOYMENT_DIR}/docker-compose.yaml"
+  if [ "${#privilege[@]}" -eq 0 ]; then
+    [ -f "$marker" ] || return 1
+  else
+    ${privilege[@]+"${privilege[@]}"} test -f "$marker" 2>/dev/null || true
   fi
   echo "$install_dir"
 }
@@ -64,24 +80,42 @@ detect_previous_install() {
   PREVIOUS_INSTALL_SUDO_BLOCKED=0
 
   local install_dir
-  if install_dir=$(probe_install_dir_with docker); then
+  if install_dir=$(probe_install_dir_with); then
     PREVIOUS_INSTALL_DIR="$install_dir"
     return 0
   fi
 
-  # The sudo fallback probe is only meaningful when sudo can actually run
-  # without prompting. `sudo -n docker ps` fails identically when there are
-  # no root-daemon containers AND when sudo just needs a password — so a
-  # bare retry would silently conflate "no install" with "can't ask". Pre-
-  # check sudo non-interactively, then run the probe only if it can succeed.
-  if [ "$(id -u)" -eq 0 ] || sudo -n true 2>/dev/null; then
-    if install_dir=$(probe_install_dir_with sudo -n docker); then
+  # Already root — no sudo prompt is possible. Probe via sudo for symmetry
+  # (covers rootless-vs-rootful docker daemon splits).
+  if [ "$(id -u)" -eq 0 ]; then
+    if install_dir=$(probe_install_dir_with sudo -n); then
       PREVIOUS_INSTALL_DIR="$install_dir"
       PREVIOUS_INSTALL_NEEDS_SUDO=1
       return 0
     fi
-  else
-    PREVIOUS_INSTALL_SUDO_BLOCKED=1
+    return 1
+  fi
+
+  # The sudo fallback is only meaningful when sudo can run docker without
+  # prompting. An earlier `sudo -n true` gate was too strict — sudoers configs
+  # that NOPASSWD `docker` specifically don't necessarily NOPASSWD arbitrary
+  # commands. Probe sudo's view of docker directly and inspect stderr to
+  # distinguish "sudo refused (needs password)" from "sudo ran but found
+  # no install". Only the refused case sets SUDO_BLOCKED; the rest fall
+  # through to the actual probe.
+  local sudo_probe_err
+  sudo_probe_err=$(sudo -n docker version --format 'x' 2>&1 >/dev/null || true)
+  case "$sudo_probe_err" in
+    *"password is required"*|*"a terminal is required"*|*"sudo:"*"may not run"*|*"no tty present"*)
+      PREVIOUS_INSTALL_SUDO_BLOCKED=1
+      return 1
+      ;;
+  esac
+
+  if install_dir=$(probe_install_dir_with sudo -n); then
+    PREVIOUS_INSTALL_DIR="$install_dir"
+    PREVIOUS_INSTALL_NEEDS_SUDO=1
+    return 0
   fi
   return 1
 }
