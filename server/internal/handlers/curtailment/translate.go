@@ -514,9 +514,9 @@ func toStopResponse(event *models.Event) *pb.StopCurtailmentResponse {
 	return &pb.StopCurtailmentResponse{Event: toEventProto(event)}
 }
 
-// toEventProto maps a persisted event row to the wire CurtailmentEvent. Scope,
-// mode_params, target rollup, and effective_batch_size echo land with the read
-// APIs where the trimmed-snapshot shape is settled.
+// toEventProto maps a persisted event row to the wire CurtailmentEvent.
+// Scope, mode_params, target rollup, and decision_snapshot echo land with
+// the read APIs where the trimmed-snapshot shape is settled.
 func toEventProto(event *models.Event) *pb.CurtailmentEvent {
 	out := &pb.CurtailmentEvent{
 		EventUuid: event.EventUUID.String(),
@@ -535,6 +535,10 @@ func toEventProto(event *models.Event) *pb.CurtailmentEvent {
 	}
 	if event.MaxDurationSeconds != nil {
 		out.MaxDurationSeconds = uint32Saturating(*event.MaxDurationSeconds)
+	}
+	if event.EffectiveBatchSize != nil {
+		// Server-resolved batch size; nil before the event enters restoring.
+		out.EffectiveBatchSize = uint32Saturating(*event.EffectiveBatchSize)
 	}
 	if event.ExternalSource != nil {
 		out.ExternalSource = *event.ExternalSource

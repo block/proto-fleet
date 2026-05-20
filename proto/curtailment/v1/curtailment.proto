@@ -20,7 +20,10 @@ service CurtailmentService {
     rpc UpdateCurtailmentEvent(UpdateCurtailmentEventRequest)
         returns (UpdateCurtailmentEventResponse);
 
-    // Stop an active event and begin staggered restore.
+    // Stop an active event and begin staggered restore. Idempotent on an
+    // already-restoring event (returns the persisted row). FailedPrecondition
+    // when the event is terminal or a concurrent transition raced past
+    // restoring; treat as non-retryable.
     rpc StopCurtailment(StopCurtailmentRequest)
         returns (StopCurtailmentResponse);
 
@@ -206,6 +209,12 @@ message CurtailmentEvent {
     uint32 min_curtailed_duration_sec = 17;
     bool   include_maintenance        = 18;
     bool   force_include_maintenance  = 19;
+
+    // Server-resolved batch size used by the restorer once Stop fires.
+    // Zero until the event enters 'restoring'. Differs from restore_batch_size
+    // (caller preference) when the adaptive [10, 100] envelope or an operator
+    // override applies; this is the value clients should display.
+    uint32 effective_batch_size = 24;
 
     // Operator-supplied reason.
     string reason = 20;
