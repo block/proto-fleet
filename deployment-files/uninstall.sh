@@ -119,45 +119,139 @@ validate_deployment_path() {
   grep -q "fleet-api" "$path/docker-compose.yaml" 2>/dev/null
 }
 
+# When invoked under sudo on Linux, prefer the invoking user's home over
+# /root — fleet is normally installed under the user account, and falling
+# back to /root/proto-fleet would miss the user's on-disk install.
 get_default_install_dir() {
   local os_type
   os_type=$(uname -s)
 
   if [[ "$os_type" == "Darwin" ]]; then
     echo "$HOME/Applications/ProtoFleet"
-  else
-    echo "$HOME/proto-fleet"
+    return
   fi
+
+  if [[ "$(id -u)" -eq 0 ]] && [[ -n "${SUDO_USER:-}" ]] && [[ "$SUDO_USER" != "root" ]]; then
+    # `|| true` neutralizes set -e / pipefail so a missing getent or failed
+    # NSS lookup falls through to $HOME instead of aborting.
+    local sudo_home
+    sudo_home=$(getent passwd "$SUDO_USER" 2>/dev/null | cut -d: -f6 || true)
+    if [[ -n "$sudo_home" ]]; then
+      echo "$sudo_home/proto-fleet"
+      return
+    fi
+  fi
+
+  echo "$HOME/proto-fleet"
 }
 
 # =====================================================================
 # Deployment Path Detection
+#
+# Keep the two helpers below in sync with install.sh — install.sh is a
+# piped bootstrap (`curl | bash`) and can't source a shared lib, so the
+# detection logic intentionally lives in both scripts.
 # =====================================================================
 
-find_previous_install_dir() {
+# Probe docker for an existing fleet-api container and return the install
+# directory inferred from its bind mount. Echoes the path on success;
+# returns 1 on miss.
+#
+# Takes a privilege-wrapper argv (empty for unprivileged, or `sudo -n` for
+# elevated). All docker calls AND the marker validation are run through the
+# wrapper at the same privilege level — without that, sudo-detected installs
+# at root-only paths (e.g. /root/proto-fleet) would pass the docker probe
+# but silently fail the unprivileged `test -f` check and look absent.
+probe_install_dir_with() {
+  local privilege=("$@")
+  # `${arr[@]+"${arr[@]}"}` is the set-u-safe expansion for arrays that
+  # may be empty; bare `"${arr[@]}"` errors on empty arrays in bash 3.2.
   local container_id
-  container_id=$(docker ps -a \
-    --filter "name=${DEPLOYMENT_DIR}-fleet-api" \
-    --filter "name=${DEPLOYMENT_DIR}_fleet-api" \
-    --format "{{.ID}}" 2>/dev/null | head -n 1 || true)
-
-  if [[ -z "$container_id" ]]; then
-    return 1
-  fi
+  container_id=$(${privilege[@]+"${privilege[@]}"} docker ps -a --filter "name=${DEPLOYMENT_DIR}-fleet-api" --filter "name=${DEPLOYMENT_DIR}_fleet-api" --format "{{.ID}}" 2>/dev/null | head -n 1 || true)
+  [[ -z "$container_id" ]] && return 1
 
   local mount_path
-  mount_path=$(docker inspect --format \
-    '{{range .Mounts}}{{if eq .Destination "/var/lib/fleet/start"}}{{.Source}}{{end}}{{end}}' \
-    "$container_id" 2>/dev/null || true)
+  mount_path=$(${privilege[@]+"${privilege[@]}"} docker inspect --format '{{range .Mounts}}{{if eq .Destination "/var/lib/fleet/start"}}{{.Source}}{{end}}{{end}}' "$container_id" 2>/dev/null || true)
+  [[ -z "$mount_path" ]] && return 1
 
-  if [[ -z "$mount_path" ]]; then
+  # Strip the trailing /deployment/<...> segment with parameter expansion.
+  # `${var%/deployment/*}` matches the shortest trailing match, so
+  # /home/alice/deployment/proto-fleet/deployment/... resolves to
+  # /home/alice/deployment/proto-fleet (not /home/alice). Fall back to
+  # the bare /deployment suffix when the mount source ends exactly there.
+  local install_dir="${mount_path%/${DEPLOYMENT_DIR}/*}"
+  if [[ "$install_dir" == "$mount_path" ]]; then
+    install_dir="${mount_path%/${DEPLOYMENT_DIR}}"
+  fi
+  if [[ "$install_dir" == "$mount_path" ]]; then
+    return 1
+  fi
+  [[ -z "$install_dir" ]] && install_dir="/"
+
+  # Marker check at the same privilege level. Empty stderr on non-zero
+  # exit means the marker is genuinely missing; non-empty stderr means
+  # sudo refused (e.g., sudoers permits docker but not test) — in that
+  # case accept conservatively since docker already confirmed the
+  # container.
+  local marker="${install_dir%/}/${DEPLOYMENT_DIR}/docker-compose.yaml"
+  if [[ "${#privilege[@]}" -eq 0 ]]; then
+    [[ -f "$marker" ]] || return 1
+  else
+    local test_err
+    if ! test_err=$(${privilege[@]+"${privilege[@]}"} test -f "$marker" 2>&1); then
+      [[ -z "$test_err" ]] && return 1
+    fi
+  fi
+  echo "$install_dir"
+}
+
+# Determines the installation directory by detecting previous installations.
+# Writes results to globals (rather than stdout) so the sudo signal isn't
+# lost across a subshell:
+#   PREVIOUS_INSTALL_DIR          — install dir, or empty if none detected
+#   PREVIOUS_INSTALL_NEEDS_SUDO   — 1 if the install was only visible via sudo
+#   PREVIOUS_INSTALL_SUDO_BLOCKED — 1 if sudo would prompt and we couldn't
+#                                   probe the root daemon at all
+detect_previous_install() {
+  PREVIOUS_INSTALL_DIR=""
+  PREVIOUS_INSTALL_NEEDS_SUDO=0
+  PREVIOUS_INSTALL_SUDO_BLOCKED=0
+
+  local install_dir
+  if install_dir=$(probe_install_dir_with); then
+    PREVIOUS_INSTALL_DIR="$install_dir"
+    return 0
+  fi
+
+  if [[ "$(id -u)" -eq 0 ]]; then
+    if install_dir=$(probe_install_dir_with sudo -n); then
+      PREVIOUS_INSTALL_DIR="$install_dir"
+      PREVIOUS_INSTALL_NEEDS_SUDO=1
+      return 0
+    fi
     return 1
   fi
 
-  local install_dir
-  install_dir=$(echo "$mount_path" | sed "s|/${DEPLOYMENT_DIR}.*$||" || true)
-  echo "$install_dir"
-  return 0
+  # Probe sudo's view of docker directly and inspect stderr to distinguish
+  # "sudo refused (needs password)" from "sudo ran but found no install".
+  # `2>&1 >/dev/null` captures stderr only (redirect order matters).
+  local sudo_probe_err
+  sudo_probe_err=$(sudo -n docker version --format 'x' 2>&1 >/dev/null || true)
+  # Anchor each pattern on `sudo:` so docker stderr that happens to mention
+  # "password" / "terminal" / "tty" can't false-positive into SUDO_BLOCKED.
+  case "$sudo_probe_err" in
+    *"sudo: a password is required"*|*"sudo: a terminal is required"*|*"sudo:"*"may not run"*|*"sudo: no tty present"*)
+      PREVIOUS_INSTALL_SUDO_BLOCKED=1
+      return 1
+      ;;
+  esac
+
+  if install_dir=$(probe_install_dir_with sudo -n); then
+    PREVIOUS_INSTALL_DIR="$install_dir"
+    PREVIOUS_INSTALL_NEEDS_SUDO=1
+    return 0
+  fi
+  return 1
 }
 
 resolve_deployment_path() {
@@ -183,10 +277,22 @@ resolve_deployment_path() {
 
   # 2) Auto-detect via Docker container mounts
   if [[ -z "$resolved" ]]; then
-    local detected
-    detected=$(find_previous_install_dir || echo "")
-    if [[ -n "$detected" ]]; then
-      local candidate="${detected}/${DEPLOYMENT_DIR}"
+    detect_previous_install || true
+    if [[ -n "${PREVIOUS_INSTALL_DIR:-}" ]]; then
+      # If the install was only visible via sudo and we aren't running as
+      # root, the uninstaller will fail downstream (it needs to bring the
+      # docker-compose stack down and delete root-owned files). Fail loud
+      # now with the same guidance install.sh uses.
+      if [[ "${PREVIOUS_INSTALL_NEEDS_SUDO:-0}" == "1" ]] && [[ "$(id -u)" -ne 0 ]]; then
+        print_error "Existing fleet containers were detected, but only via sudo."
+        print_error "They are managed by the root Docker daemon, and this script is running as $(id -un)."
+        print_error "Re-run the uninstaller as root (preserving any flags you passed):"
+        echo ""
+        echo "    sudo bash $0"
+        echo ""
+        exit 1
+      fi
+      local candidate="${PREVIOUS_INSTALL_DIR}/${DEPLOYMENT_DIR}"
       if validate_deployment_path "$candidate"; then
         resolved="$candidate"
       fi
@@ -210,6 +316,12 @@ resolve_deployment_path() {
   if [[ -z "$resolved" ]]; then
     print_error "Could not locate a valid Proto Fleet deployment."
     print_error "Provide --deployment-path or ensure Proto Fleet is installed."
+    # When sudo would have prompted for a password, we couldn't probe the
+    # root daemon — a root-managed install could exist that we never saw.
+    if [[ "${PREVIOUS_INSTALL_SUDO_BLOCKED:-0}" == "1" ]]; then
+      print_error "(sudo required a password, so the root Docker daemon was not probed."
+      print_error " If a root-managed install might exist, re-run with: sudo bash $0)"
+    fi
     exit 1
   fi
 
