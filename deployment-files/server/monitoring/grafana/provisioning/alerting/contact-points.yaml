@@ -1,0 +1,26 @@
+# Contact points consumed by Grafana's built-in Alertmanager.
+#
+# The default deployment ships one receiver: a webhook into fleet-api
+# that lands every fire/resolve event in the activity log. Operators
+# who want email or external webhook delivery add contact points
+# through the Grafana UI (or by extending this file) — the
+# notification policy below routes everything through the internal
+# webhook unless a more specific match overrides it.
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: protofleet-internal
+    receivers:
+      - uid: protofleet-internal-webhook
+        type: webhook
+        # fleet-api uses host networking, so Grafana reaches it via
+        # the docker host gateway. The path is the same /internal
+        # endpoint the Alertmanager → fleet-api shim used to consume.
+        settings:
+          url: http://fleet-api:4000/internal/alertmanager-webhook
+          httpMethod: POST
+          # Grafana's webhook receiver serialises alerts in a
+          # Prometheus Alertmanager-compatible shape. The fleet-api
+          # delivery shim already speaks that schema.
+        disableResolveMessage: false

@@ -2,162 +2,217 @@ package metrics
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
-
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
-	"go.opentelemetry.io/otel/metric"
-	"go.opentelemetry.io/otel/metric/noop"
-	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
-	"go.opentelemetry.io/otel/sdk/resource"
-	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 )
 
 const ServiceName = "proto-fleet-api"
 
 type Config struct {
-	Enabled    bool          `help:"Enable OpenTelemetry metrics export" default:"false" env:"ENABLED"`
-	Endpoint   string        `help:"OTLP gRPC endpoint for metrics" default:"http://otel-collector:4317" env:"EXPORTER_OTLP_ENDPOINT"`
-	Interval   time.Duration `help:"Periodic export interval for metrics" default:"15s" env:"EXPORTER_INTERVAL"`
-	InstanceID string        `help:"Override for the service.instance.id resource attribute" default:"" env:"INSTANCE_ID"`
+	Enabled       bool          `help:"Persist Proto Fleet metrics into TimescaleDB for Grafana alerting" default:"false" env:"ENABLED"`
+	FlushInterval time.Duration `help:"How often the in-process buffer is flushed to TimescaleDB" default:"5s" env:"FLUSH_INTERVAL"`
+	BufferSize    int           `help:"Bounded channel size between emit and flush; oldest samples are dropped when full" default:"4096" env:"BUFFER_SIZE"`
+	BatchSize     int           `help:"Maximum number of samples written per INSERT statement" default:"512" env:"BATCH_SIZE"`
 }
 
 type Provider struct {
-	cfg      Config
-	provider *sdkmetric.MeterProvider
-	meter    metric.Meter
-	resource *resource.Resource
-	exporter sdkmetric.Exporter
-	shutdown func(context.Context) error
-	enabled  bool
+	cfg     Config
+	enabled bool
 
-	instMu sync.Mutex
-	insts  *instruments
+	samples chan Sample
+	store   Store
+
+	wg       sync.WaitGroup
+	stopOnce sync.Once
+	stopCh   chan struct{}
+
+	// dropped counts samples we threw away because the buffer was
+	// full. Exposed for tests and the log line on shutdown.
+	dropped atomic.Uint64
 }
 
-func Setup(ctx context.Context, version string, cfg Config) (*Provider, error) {
+func Setup(ctx context.Context, version string, cfg Config, db *sql.DB) (*Provider, error) {
 	if !cfg.Enabled {
 		return newDisabledProvider(cfg), nil
 	}
-
-	res, err := buildResource(ctx, version, cfg.InstanceID)
-	if err != nil {
-		return nil, fmt.Errorf("build OTel resource: %w", err)
+	if db == nil {
+		return nil, errors.New("metrics: Setup called with nil *sql.DB; pass the fleet-api connection or disable the provider")
 	}
 
-	exporter, err := newOTLPExporter(ctx, cfg)
-	if err != nil {
-		return nil, fmt.Errorf("create OTLP metric exporter: %w", err)
-	}
-
-	interval := cfg.Interval
-	if interval <= 0 {
-		interval = 15 * time.Second
-	}
-
-	mp := sdkmetric.NewMeterProvider(
-		sdkmetric.WithResource(res),
-		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(
-			exporter,
-			sdkmetric.WithInterval(interval),
-		)),
-	)
-
-	otel.SetMeterProvider(mp)
-
-	p := &Provider{
-		cfg:      cfg,
-		provider: mp,
-		meter:    mp.Meter(ServiceName),
-		resource: res,
-		exporter: exporter,
-		shutdown: mp.Shutdown,
-		enabled:  true,
-	}
-
-	if err := p.initInstruments(); err != nil {
-		_ = mp.Shutdown(ctx)
-		return nil, fmt.Errorf("initialise contract instruments: %w", err)
-	}
-
-	return p, nil
+	store := NewSQLStore(db)
+	return startProvider(ctx, version, cfg, store), nil
 }
 
-func newDisabledProvider(cfg Config) *Provider {
-	mp := noop.NewMeterProvider()
+// SetupWithStore is the test-facing constructor.
+func SetupWithStore(ctx context.Context, version string, cfg Config, store Store) *Provider {
+	if !cfg.Enabled {
+		return newDisabledProvider(cfg)
+	}
+	if store == nil {
+		store = NewInMemoryStore()
+	}
+	return startProvider(ctx, version, cfg, store)
+}
+
+func startProvider(ctx context.Context, version string, cfg Config, store Store) *Provider {
+	cfg = applyDefaults(cfg)
+
 	p := &Provider{
-		cfg:      cfg,
-		meter:    mp.Meter(ServiceName),
-		shutdown: func(context.Context) error { return nil },
-		enabled:  false,
+		cfg:     cfg,
+		enabled: true,
+		samples: make(chan Sample, cfg.BufferSize),
+		store:   store,
+		stopCh:  make(chan struct{}),
 	}
-	// Errors here are impossible because the noop provider never fails.
-	if err := p.initInstruments(); err != nil {
-		slog.Error("metrics noop provider failed to init instruments", "error", err)
-	}
+
+	p.wg.Add(1)
+	go p.flushLoop(ctx)
+
+	slog.Info("metrics provider started",
+		"service", ServiceName,
+		"version", version,
+		"buffer_size", cfg.BufferSize,
+		"flush_interval", cfg.FlushInterval,
+		"batch_size", cfg.BatchSize,
+	)
 	return p
 }
 
+func applyDefaults(cfg Config) Config {
+	if cfg.FlushInterval <= 0 {
+		cfg.FlushInterval = 5 * time.Second
+	}
+	if cfg.BufferSize <= 0 {
+		cfg.BufferSize = 4096
+	}
+	if cfg.BatchSize <= 0 || cfg.BatchSize > cfg.BufferSize {
+		cfg.BatchSize = min(512, cfg.BufferSize)
+	}
+	return cfg
+}
+
+func newDisabledProvider(cfg Config) *Provider {
+	return &Provider{cfg: cfg, enabled: false}
+}
+
+// Enabled reports whether the provider will actually persist samples.
+func (p *Provider) Enabled() bool { return p != nil && p.enabled }
+
+// Shutdown stops the flusher and drains any buffered samples through
+// one final InsertSamples call. Safe to call multiple times.
 func (p *Provider) Shutdown(ctx context.Context) error {
-	if p == nil || p.shutdown == nil {
+	if p == nil || !p.enabled {
 		return nil
 	}
-	return p.shutdown(ctx)
+
+	p.stopOnce.Do(func() {
+		close(p.stopCh)
+	})
+
+	done := make(chan struct{})
+	go func() {
+		p.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-ctx.Done():
+		return fmt.Errorf("provider final error: %w", ctx.Err())
+	}
+
+	if dropped := p.dropped.Load(); dropped > 0 {
+		slog.Warn("metrics buffer dropped samples under pressure",
+			"dropped_total", dropped,
+		)
+	}
+	return p.store.Close()
 }
 
-func (p *Provider) Enabled() bool {
-	return p != nil && p.enabled
+// record is the single funnel for all Emit* methods. Returning quickly
+// when the channel is full keeps the hot path bounded: under steady
+// overload we drop a sample rather than block the caller.
+func (p *Provider) record(sample Sample) {
+	if p == nil || !p.enabled {
+		return
+	}
+	if sample.Time.IsZero() {
+		sample.Time = time.Now().UTC()
+	}
+	select {
+	case p.samples <- sample:
+	default:
+		p.dropped.Add(1)
+	}
 }
 
-func (p *Provider) Meter() metric.Meter {
+func (p *Provider) flushLoop(ctx context.Context) {
+	defer p.wg.Done()
+
+	ticker := time.NewTicker(p.cfg.FlushInterval)
+	defer ticker.Stop()
+
+	batch := make([]Sample, 0, p.cfg.BatchSize)
+
+	flush := func(parent context.Context) {
+		if len(batch) == 0 {
+			return
+		}
+		flushCtx, cancel := context.WithTimeout(parent, 10*time.Second)
+		defer cancel()
+		if err := p.store.InsertSamples(flushCtx, batch); err != nil {
+			// Don't log per sample — that would flood the logger if
+			// TimescaleDB is unreachable. One line per failed flush.
+			slog.Error("metrics: flush to TimescaleDB failed",
+				"error", err,
+				"samples", len(batch),
+			)
+		}
+		batch = batch[:0]
+	}
+
+	for {
+		select {
+		case <-p.stopCh:
+			// Drain anything queued before exiting. The select below
+			// is non-blocking so we don't wedge on a slow producer.
+		drain:
+			for {
+				select {
+				case sample := <-p.samples:
+					batch = append(batch, sample)
+					if len(batch) >= p.cfg.BatchSize {
+						flush(context.Background())
+					}
+				default:
+					break drain
+				}
+			}
+			flush(context.Background())
+			return
+
+		case <-ticker.C:
+			flush(ctx)
+
+		case sample := <-p.samples:
+			batch = append(batch, sample)
+			if len(batch) >= p.cfg.BatchSize {
+				flush(ctx)
+			}
+		}
+	}
+}
+
+// DroppedSamples is exposed for tests that want to verify the
+// backpressure path.
+func (p *Provider) DroppedSamples() uint64 {
 	if p == nil {
-		return noop.NewMeterProvider().Meter(ServiceName)
+		return 0
 	}
-	return p.meter
-}
-
-func newOTLPExporter(ctx context.Context, cfg Config) (sdkmetric.Exporter, error) {
-	opts := []otlpmetricgrpc.Option{
-		otlpmetricgrpc.WithEndpointURL(cfg.Endpoint),
-	}
-	res, err := otlpmetricgrpc.New(ctx, opts...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to init OTLP exporter: %w", err)
-	}
-	return res, nil
-}
-
-func buildResource(ctx context.Context, version, instanceID string) (*resource.Resource, error) {
-	attrs := []resource.Option{
-		resource.WithAttributes(
-			semconv.ServiceName(ServiceName),
-			semconv.ServiceVersion(version),
-		),
-		resource.WithProcessPID(),
-		resource.WithProcessExecutableName(),
-		resource.WithProcessRuntimeName(),
-		resource.WithProcessRuntimeVersion(),
-		resource.WithOS(),
-		resource.WithHost(),
-	}
-	if instanceID != "" {
-		attrs = append(attrs, resource.WithAttributes(
-			attribute.String("service.instance.id", instanceID),
-		))
-	}
-
-	res, err := resource.New(ctx, attrs...)
-	if errors.Is(err, resource.ErrPartialResource) {
-		slog.Warn("partial OTel resource for metrics", "error", err)
-		return res, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to build OTLP resource: %w", err)
-	}
-	return res, nil
+	return p.dropped.Load()
 }

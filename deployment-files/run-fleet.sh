@@ -16,9 +16,10 @@ usage() {
 Usage: run-fleet.sh [options]
 
 Options:
-  --enable-beta-notifications   Layer in the beta notifications sidecar stack
-                                (otel-collector, victoria-metrics, vmalert,
-                                alertmanager). Off by default.
+  --enable-beta-notifications   Layer in the beta notifications sidecar
+                                (Grafana, polling TimescaleDB and running
+                                the built-in Alertmanager). Off by
+                                default.
   -h, --help                    Show this help and exit.
 EOF
 }
@@ -537,7 +538,17 @@ if [ "$ENABLE_BETA_NOTIFICATIONS" = "true" ]; then
         echo "Error: --enable-beta-notifications was passed but $COMPOSE_NOTIFICATIONS_FILE is missing."
         exit 1
     fi
-    echo "Notifications stack: enabled (otel-collector, victoria-metrics, vmalert, alertmanager)"
+
+    # The Grafana sidecar runs the alerting engine + UI; give it a
+    # rotated admin password the first time we boot the stack so the
+    # default "admin / admin" never ships.
+    if ! grep -q "^GRAFANA_ADMIN_PASSWORD=" "$ENV_FILE" 2>/dev/null; then
+        GRAFANA_ADMIN_PASSWORD=$(openssl rand -base64 24)
+        echo "GRAFANA_ADMIN_PASSWORD=$GRAFANA_ADMIN_PASSWORD" >> "$ENV_FILE"
+        echo "Generated Grafana admin password (stored in $ENV_FILE)."
+    fi
+
+    echo "Notifications stack: enabled (Grafana sidecar over TimescaleDB)"
 else
     echo "Notifications stack: disabled (pass --enable-beta-notifications to turn on the beta notifications sidecars)"
 fi

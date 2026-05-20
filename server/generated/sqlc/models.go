@@ -743,6 +743,19 @@ type MinerStateSnapshot struct {
 	SiteID           sql.NullInt64
 }
 
+type NotificationMetricSample struct {
+	Time           time.Time
+	Metric         string
+	OrganizationID string
+	DeviceID       string
+	DeviceGroup    string
+	Driver         string
+	SensorKind     string
+	Kind           string
+	Result         string
+	Value          float64
+}
+
 type Organization struct {
 	ID                  int64
 	OrgID               string

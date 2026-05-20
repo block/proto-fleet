@@ -1,0 +1,13 @@
+# Notification policy tree.
+apiVersion: 1
+
+policies:
+  - orgId: 1
+    receiver: protofleet-internal
+    group_by:
+      - alertname
+      - organization_id
+      - device_id
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 1h
