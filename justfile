@@ -177,7 +177,7 @@ update-go-deps:
 # `fleetnode run` resolve without flags. Kept separate from server/plugins/
 # because `just dev` puts cross-compiled Linux/arm64 plugins there for the
 # Docker server, and the native agent can't exec ELF binaries.
-build-fleetnode: (_build-go-plugins-native "server/.fleetnode/plugins")
+build-fleetnode: (_build-go-plugins-native "server/.fleetnode/plugins") (_asicrs-build "server/.fleetnode/plugins")
   #!/usr/bin/env bash
   set -euo pipefail
   cd server
@@ -340,30 +340,47 @@ _build-go-plugins-multi-arch: _go-work-sync
   (cd plugin/antminer && GOOS=linux GOARCH=arm64 go build -o ../../deployment-files/server/antminer-plugin-arm64 .)
   chmod +x deployment-files/server/*-plugin-*
 
-_asicrs-build:
+_asicrs-build outdir="server/plugins":
   #!/usr/bin/env bash
   set -euo pipefail
-  BIN=server/plugins/asicrs-plugin
-  PLATFORM_MARKER=server/plugins/.asicrs-platform
-  WANT_PLATFORM="native"
+  BIN={{outdir}}/asicrs-plugin
+  PLATFORM_MARKER={{outdir}}/.asicrs-platform
+  HOST_OS="$(uname -s)"
+  # Docker on macOS produces a Linux ELF that the host can't exec. Use local
+  # cargo there; Linux hosts stay on the docker path so CI doesn't need Rust.
+  if [ "$HOST_OS" = "Darwin" ]; then
+    WANT_PLATFORM="darwin-native"
+  else
+    WANT_PLATFORM="native"
+  fi
   if [ -f "$BIN" ] \
      && [ -f "$PLATFORM_MARKER" ] && [ "$(cat "$PLATFORM_MARKER")" = "$WANT_PLATFORM" ] \
      && [ -z "$(find plugin/asicrs sdk/rust server/sdk/v1/pb -newer "$BIN" -type f 2>/dev/null | head -1)" ]; then
     echo "asicrs plugin up to date, skipping build."
     exit 0
   fi
-  echo "Building asicrs plugin..."
-  mkdir -p server/plugins
-  CACHE_ARGS=()
-  if [ -n "${GITHUB_ACTIONS:-}" ]; then
-    CACHE_ARGS+=(--cache-from 'type=gha,scope=asicrs-native')
-    CACHE_ARGS+=(--cache-to 'type=gha,mode=max,scope=asicrs-native')
+  echo "Building asicrs plugin ($WANT_PLATFORM)..."
+  mkdir -p {{outdir}}
+  if [ "$HOST_OS" = "Darwin" ]; then
+    if ! command -v cargo >/dev/null 2>&1; then
+      echo "cargo not on PATH; install Rust (https://rustup.rs/) to build asicrs natively on macOS" >&2
+      exit 1
+    fi
+    (cd plugin/asicrs && cargo build --release)
+    cp plugin/asicrs/target/release/asicrs-plugin "$BIN"
+    cp plugin/asicrs/config.yaml {{outdir}}/asicrs-config.yaml
+  else
+    CACHE_ARGS=()
+    if [ -n "${GITHUB_ACTIONS:-}" ]; then
+      CACHE_ARGS+=(--cache-from 'type=gha,scope=asicrs-native')
+      CACHE_ARGS+=(--cache-to 'type=gha,mode=max,scope=asicrs-native')
+    fi
+    docker buildx build \
+      ${CACHE_ARGS[@]+"${CACHE_ARGS[@]}"} \
+      --file plugin/asicrs/Dockerfile.build \
+      --output type=local,dest={{outdir}} \
+      .
   fi
-  docker buildx build \
-    ${CACHE_ARGS[@]+"${CACHE_ARGS[@]}"} \
-    --file plugin/asicrs/Dockerfile.build \
-    --output type=local,dest=server/plugins \
-    .
   chmod +x "$BIN"
   # buildx --output type=local preserves the in-image mtime; touch so freshness checks see "now".
   touch "$BIN"
