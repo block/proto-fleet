@@ -34,8 +34,10 @@ export interface CurtailmentHistoryEvent {
   estimatedReductionKw: number;
   targetKw?: number;
   sourceLabel: string;
-  startedAt: string;
+  startedAt?: string;
   endedAt?: string;
+  scheduledAt?: string;
+  createdAt?: string;
 }
 
 interface CurtailmentHistoryProps {
@@ -171,8 +173,18 @@ function formatKw(value: number, fractionDigits = 1): string {
   })} kW`;
 }
 
-function formatDateTime(value: string): string {
-  return dateTimeFormatter.format(new Date(value));
+function getDateTime(value?: string): Date | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
+function formatDateTime(value?: string): string | undefined {
+  const date = getDateTime(value);
+  return date ? dateTimeFormatter.format(date) : undefined;
 }
 
 function formatTargetVsActual(event: Pick<CurtailmentHistoryEvent, "targetKw" | "estimatedReductionKw">): string {
@@ -184,11 +196,27 @@ function formatMinerCount(minerCount: number): string {
 }
 
 function getHistoryStatusDetail(event: CurtailmentHistoryEvent): string {
-  if (event.endedAt) {
-    return `Ended ${formatDateTime(event.endedAt)}`;
+  const endedAt = formatDateTime(event.endedAt);
+  if (endedAt) {
+    return `Ended ${endedAt}`;
   }
 
-  return `Started ${formatDateTime(event.startedAt)}`;
+  const startedAt = formatDateTime(event.startedAt);
+  if (startedAt) {
+    return `Started ${startedAt}`;
+  }
+
+  const scheduledAt = formatDateTime(event.scheduledAt);
+  if (scheduledAt) {
+    return `Scheduled ${scheduledAt}`;
+  }
+
+  const createdAt = formatDateTime(event.createdAt);
+  if (createdAt) {
+    return `Created ${createdAt}`;
+  }
+
+  return event.state === "pending" ? "Waiting to start" : "Time unavailable";
 }
 
 function getHistoryColumnSortValue(event: CurtailmentHistoryEvent, field: HistoryColumn): HistorySortValue {
@@ -217,7 +245,12 @@ function compareSortValues(left: HistorySortValue, right: HistorySortValue): num
 }
 
 function compareStartedAtDesc(left: CurtailmentHistoryEvent, right: CurtailmentHistoryEvent): number {
-  const dateComparison = new Date(right.startedAt).getTime() - new Date(left.startedAt).getTime();
+  const getSortTime = (event: CurtailmentHistoryEvent) =>
+    getDateTime(event.startedAt)?.getTime() ??
+    getDateTime(event.scheduledAt)?.getTime() ??
+    getDateTime(event.createdAt)?.getTime() ??
+    0;
+  const dateComparison = getSortTime(right) - getSortTime(left);
   return dateComparison || collator.compare(left.id, right.id);
 }
 
@@ -269,6 +302,10 @@ function shouldIgnoreRowActivation(eventTarget: EventTarget | null, currentTarge
 }
 
 function CurtailmentSummaryModal({ event, open, onDismiss, onStop }: CurtailmentSummaryModalProps): ReactElement {
+  const startedAt = formatDateTime(event.startedAt);
+  const endedAt = formatDateTime(event.endedAt);
+  const scheduledAt = formatDateTime(event.scheduledAt);
+  const createdAt = formatDateTime(event.createdAt);
   const buttons: CurtailmentSummaryModalButton[] = onStop
     ? [
         {
@@ -297,8 +334,10 @@ function CurtailmentSummaryModal({ event, open, onDismiss, onStop }: Curtailment
           <DetailRow label="Applies to" value={event.scopeLabel} secondary={formatMinerCount(event.selectedMiners)} />
           <DetailRow label="Power target vs actual" value={formatTargetVsActual(event)} />
           <DetailRow label="Status" value={eventStateLabels[event.state]} secondary={getHistoryStatusDetail(event)} />
-          <DetailRow label="Started" value={formatDateTime(event.startedAt)} />
-          {event.endedAt ? <DetailRow label="Ended" value={formatDateTime(event.endedAt)} /> : null}
+          <DetailRow label="Started" value={startedAt ?? "Not started yet"} />
+          {scheduledAt ? <DetailRow label="Scheduled" value={scheduledAt} /> : null}
+          {createdAt ? <DetailRow label="Created" value={createdAt} /> : null}
+          {endedAt ? <DetailRow label="Ended" value={endedAt} /> : null}
           <DetailRow label="Type" value={priorityLabels[event.priority]} />
           <DetailRow label="Source" value={event.sourceLabel} />
         </div>

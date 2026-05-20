@@ -78,6 +78,36 @@ describe("CurtailmentHistory", () => {
     expect(within(modal).getByText("High")).toBeInTheDocument();
   });
 
+  it("renders pending events without a start time", async () => {
+    const user = userEvent.setup();
+    const onStopActiveEvent = vi.fn();
+    const pendingEvent = {
+      ...mockCurtailmentHistoryEvents[0],
+      id: "curt-pending",
+      reason: "Queued curtailment",
+      state: "pending" as const,
+      startedAt: "",
+    };
+
+    render(
+      <CurtailmentHistory events={[pendingEvent]} activeEventId="curt-pending" onStopActiveEvent={onStopActiveEvent} />,
+    );
+
+    expect(screen.getByText("Waiting to start")).toBeInTheDocument();
+
+    const pendingRow = screen.getByTestId("curtailment-history-row-curt-pending");
+    await user.click(within(pendingRow).getByRole("button", { name: "Stop Queued curtailment" }));
+
+    expect(onStopActiveEvent).toHaveBeenCalledWith(pendingEvent);
+    expect(screen.queryByTestId("modal")).not.toBeInTheDocument();
+
+    await user.click(pendingRow);
+
+    const modal = screen.getByTestId("modal");
+    expect(within(modal).getByText("Queued curtailment")).toBeInTheDocument();
+    expect(within(modal).getByText("Not started yet")).toBeInTheDocument();
+  });
+
   it("opens the summary modal from row click and stops active events from the action button", async () => {
     const user = userEvent.setup();
     const onStopActiveEvent = vi.fn();
