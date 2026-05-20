@@ -43,6 +43,15 @@ func (s EventState) IsTerminal() bool {
 	return false
 }
 
+// DesiredState values for `curtailment_target.desired_state`. The active
+// phase requests "curtailed"; Stop flips non-terminal targets to "active"
+// (restore phase). Plain strings rather than a typed alias to match the
+// existing column shape; constants give callers a single source of truth.
+const (
+	DesiredStateCurtailed = "curtailed"
+	DesiredStateActive    = "active"
+)
+
 // TargetState is a typed wrapper for `curtailment_target.state`.
 type TargetState string
 
@@ -227,6 +236,25 @@ type InsertTargetParams struct {
 	DesiredState          string
 	BaselinePowerW        *float64
 	SelectorRationaleJSON []byte
+}
+
+// CountNonTerminalTargets returns the count of targets that are not in a
+// terminal state. Terminal targets (resolved / restore_failed / released) are
+// not restored, so they shouldn't influence batch sizing.
+func CountNonTerminalTargets(targets []*Target) int {
+	n := 0
+	for _, t := range targets {
+		switch t.State {
+		case TargetStateResolved, TargetStateRestoreFailed, TargetStateReleased:
+			continue
+		case TargetStatePending, TargetStateDispatched,
+			TargetStateConfirmed, TargetStateDrifted:
+			n++
+		default:
+			n++
+		}
+	}
+	return n
 }
 
 // Heartbeat mirrors the singleton liveness row.

@@ -20,7 +20,10 @@ service CurtailmentService {
     rpc UpdateCurtailmentEvent(UpdateCurtailmentEventRequest)
         returns (UpdateCurtailmentEventResponse);
 
-    // Stop an active event and begin staggered restore.
+    // Stop an active event and begin staggered restore. Idempotent on an
+    // already-restoring event (returns the persisted row). FailedPrecondition
+    // when the event is terminal or a concurrent transition raced past
+    // restoring; treat as non-retryable.
     rpc StopCurtailment(StopCurtailmentRequest)
         returns (StopCurtailmentResponse);
 
@@ -206,6 +209,12 @@ message CurtailmentEvent {
     uint32 min_curtailed_duration_sec = 17;
     bool   include_maintenance        = 18;
     bool   force_include_maintenance  = 19;
+
+    // Server-resolved batch size used by the restorer once Stop fires.
+    // Zero until the event enters 'restoring'. Differs from restore_batch_size
+    // (caller preference) when the adaptive [10, 100] envelope or an operator
+    // override applies; this is the value clients should display.
+    uint32 effective_batch_size = 24;
 
     // Operator-supplied reason.
     string reason = 20;
@@ -422,10 +431,11 @@ message StartCurtailmentRequest {
     }
 
     // Operational controls.
-    uint32 max_duration_seconds       = 20;  // 0 = no cap
-    // 0 = server default; lte matches StopCurtailmentRequest.restore_batch_size_override.
+    uint32 max_duration_seconds       = 20 [(buf.validate.field).uint32 = {lte: 604800}];  // 0 = no cap
+    // 0 = server default. Persisted as the per-event preferred batch size;
+    // the adaptive [10, 100] envelope is applied by the server at restore time.
     uint32 restore_batch_size         = 21 [(buf.validate.field).uint32 = {lte: 10000}];
-    uint32 restore_batch_interval_sec = 22;  // 0 = server default
+    uint32 restore_batch_interval_sec = 22 [(buf.validate.field).uint32 = {lte: 3600}];  // 0 = server default
     uint32 min_curtailed_duration_sec = 23;
 
     // include_maintenance requires force_include_maintenance.
@@ -472,9 +482,12 @@ message StopCurtailmentRequest {
     string event_uuid = 1 [(buf.validate.field).string.min_len = 1];
 
     // Admin-only override of the adaptive batch size computed at restore
-    // start. Takes precedence over any prior UpdateCurtailmentEvent value.
-    // Upper bound is a sanity ceiling; zero means "use default" so it is excluded.
-    optional uint32 restore_batch_size_override = 2 [(buf.validate.field).uint32 = {gte: 1, lte: 10000}];
+    // start. Takes precedence over the adaptive [10, 100] formula. Upper
+    // bound 200 is a real fleet-class ceiling: 2x the inrush-safe upper
+    // band, enough to short-circuit staggering for a single-rack restore
+    // but narrow enough that a typo cannot dump 10K miners at once.
+    // Zero means "use default" so it is excluded by gte=1.
+    optional uint32 restore_batch_size_override = 2 [(buf.validate.field).uint32 = {gte: 1, lte: 200}];
 }
 
 message StopCurtailmentResponse {

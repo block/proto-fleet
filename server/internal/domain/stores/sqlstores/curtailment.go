@@ -178,6 +178,17 @@ func (s *SQLCurtailmentStore) GetEventByUUID(ctx context.Context, orgID int64, e
 	return convertEventRow(row), nil
 }
 
+func (s *SQLCurtailmentStore) GetActiveEvent(ctx context.Context, orgID int64) (*models.Event, error) {
+	row, err := s.GetQueries(ctx).GetActiveCurtailmentEvent(ctx, orgID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fleeterror.NewInternalErrorf("failed to get active curtailment event for org %d: %v", orgID, err)
+	}
+	return convertEventRow(row), nil
+}
+
 func (s *SQLCurtailmentStore) ListTargetsByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) ([]*models.Target, error) {
 	rows, err := s.GetQueries(ctx).ListCurtailmentTargetsByEvent(ctx, sqlc.ListCurtailmentTargetsByEventParams{
 		OrgID:     orgID,
@@ -270,6 +281,84 @@ func (s *SQLCurtailmentStore) UpsertHeartbeat(ctx context.Context, params interf
 		return fleeterror.NewInternalErrorf("failed to upsert curtailment heartbeat: %v", err)
 	}
 	return nil
+}
+
+// BeginRestoreTransition runs the event-state flip + target reset in one tx.
+// The state-guard inside BeginCurtailmentRestoration's WHERE clause makes the
+// UPDATE return zero rows for any state other than pending/active; this store
+// pre-reads the event to map that into a typed error (FailedPrecondition vs
+// idempotent no-op) rather than burying state semantics in a row-count check.
+func (s *SQLCurtailmentStore) BeginRestoreTransition(
+	ctx context.Context,
+	orgID int64,
+	eventUUID uuid.UUID,
+	effectiveBatchSize int32,
+) (*models.Event, error) {
+	return db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (*models.Event, error) {
+		current, err := q.GetCurtailmentEventByUUID(ctx, sqlc.GetCurtailmentEventByUUIDParams{
+			EventUuid: eventUUID,
+			OrgID:     orgID,
+		})
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fleeterror.NewNotFoundErrorf("curtailment event not found: %s", eventUUID)
+		}
+		if err != nil {
+			return nil, fleeterror.NewInternalErrorf("failed to get curtailment event: %v", err)
+		}
+
+		state := models.EventState(current.State)
+		if state == models.EventStateRestoring {
+			// Idempotent re-Stop: leave effective_batch_size and targets alone
+			// (the first Stop's sizing wins).
+			return convertEventRow(current), nil
+		}
+		if state.IsTerminal() {
+			return nil, fleeterror.NewFailedPreconditionErrorf(
+				"cannot stop curtailment event %s in terminal state %q",
+				eventUUID, current.State,
+			)
+		}
+
+		updated, err := q.BeginCurtailmentRestoration(ctx, sqlc.BeginCurtailmentRestorationParams{
+			ID:                 current.ID,
+			EffectiveBatchSize: sql.NullInt32{Int32: effectiveBatchSize, Valid: true},
+		})
+		if errors.Is(err, sql.ErrNoRows) {
+			// Concurrent transition between pre-read and update: re-read and
+			// route by the latest state so terminal races don't silently echo
+			// success.
+			latest, getErr := q.GetCurtailmentEventByUUID(ctx, sqlc.GetCurtailmentEventByUUIDParams{
+				EventUuid: eventUUID,
+				OrgID:     orgID,
+			})
+			if getErr != nil {
+				return nil, fleeterror.NewInternalErrorf("failed to re-read curtailment event after concurrent state change: %v", getErr)
+			}
+			latestState := models.EventState(latest.State)
+			if latestState.IsTerminal() {
+				return nil, fleeterror.NewFailedPreconditionErrorf(
+					"cannot stop curtailment event %s in terminal state %q",
+					eventUUID, latest.State,
+				)
+			}
+			if latestState == models.EventStateRestoring {
+				// Idempotent re-Stop: first call's sizing wins.
+				return convertEventRow(latest), nil
+			}
+			return nil, fleeterror.NewInternalErrorf(
+				"unexpected event state after concurrent transition: %q", latest.State,
+			)
+		}
+		if err != nil {
+			return nil, fleeterror.NewInternalErrorf("failed to begin curtailment restoration: %v", err)
+		}
+
+		if err := q.ResetCurtailmentTargetsForRestore(ctx, current.ID); err != nil {
+			return nil, fleeterror.NewInternalErrorf("failed to reset curtailment targets for restore: %v", err)
+		}
+
+		return convertEventRow(updated), nil
+	})
 }
 
 func (s *SQLCurtailmentStore) GetHeartbeat(ctx context.Context) (*models.Heartbeat, error) {

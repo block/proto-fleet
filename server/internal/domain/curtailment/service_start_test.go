@@ -74,6 +74,7 @@ func TestService_Start_AllowUnboundedRequiresNilMaxDuration(t *testing.T) {
 	req := validStartRequest(orgID)
 	req.AllowUnbounded = true
 	req.MaxDurationSeconds = nil
+	req.CanUseAdminControls = true
 	_, err := svc.Start(t.Context(), req)
 	require.NoError(t, err, "allow_unbounded + nil max_duration is the valid admin shape")
 }
@@ -95,6 +96,45 @@ func TestService_Start_NilMaxDurationUsesOrgDefault(t *testing.T) {
 	assert.Equal(t, store.orgConfigByOrg[orgID].MaxDurationDefaultSec, *store.lastInsertEvent.MaxDurationSeconds)
 }
 
+func TestService_Start_RejectsNonAdminDurationAboveOrgDefault(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("miner", 6000, 100, 40),
+	}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	tooLong := store.orgConfigByOrg[orgID].MaxDurationDefaultSec + 1
+	req.MaxDurationSeconds = &tooLong
+
+	_, err := svc.Start(t.Context(), req)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsForbiddenError(err))
+	assert.Contains(t, err.Error(), "max_duration_seconds")
+}
+
+func TestService_Start_AllowsAdminDurationAboveOrgDefaultWithinCap(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("miner", 6000, 100, 40),
+	}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	custom := store.orgConfigByOrg[orgID].MaxDurationDefaultSec + 1
+	req.MaxDurationSeconds = &custom
+	req.CanUseAdminControls = true
+
+	_, err := svc.Start(t.Context(), req)
+	require.NoError(t, err)
+	require.NotNil(t, store.lastInsertEvent.MaxDurationSeconds)
+	assert.Equal(t, custom, *store.lastInsertEvent.MaxDurationSeconds)
+}
+
 func TestService_Start_RejectsZeroMaxDuration(t *testing.T) {
 	t.Parallel()
 	svc := NewService(newFakeStore())
@@ -114,6 +154,60 @@ func TestService_Start_RejectsNegativeRestoreBatchSize(t *testing.T) {
 	_, err := svc.Start(t.Context(), req)
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+}
+
+func TestService_Start_NormalizesZeroRestoreBatchInterval(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("miner", 6000, 100, 40),
+	}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.RestoreBatchIntervalSec = 0
+
+	plan, err := svc.Start(t.Context(), req)
+	require.NoError(t, err)
+	assert.Equal(t, defaultRestoreBatchIntervalSec, store.lastInsertEvent.RestoreBatchIntervalSec)
+	assert.Equal(t, defaultRestoreBatchIntervalSec, plan.EffectiveRestoreBatchIntervalSec)
+}
+
+func TestService_Start_RejectsNonAdminLargeRestoreBatchInterval(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("miner", 6000, 100, 40),
+	}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.RestoreBatchIntervalSec = nonAdminRestoreBatchIntervalMax + 1
+
+	_, err := svc.Start(t.Context(), req)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsForbiddenError(err))
+	assert.Contains(t, err.Error(), "restore_batch_interval_sec")
+}
+
+func TestService_Start_AllowsAdminLargeRestoreBatchInterval(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("miner", 6000, 100, 40),
+	}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.RestoreBatchIntervalSec = nonAdminRestoreBatchIntervalMax + 1
+	req.CanUseAdminControls = true
+
+	_, err := svc.Start(t.Context(), req)
+	require.NoError(t, err)
+	assert.Equal(t, nonAdminRestoreBatchIntervalMax+1, store.lastInsertEvent.RestoreBatchIntervalSec)
 }
 
 func TestService_Start_RejectsMissingSourceActorType(t *testing.T) {
@@ -364,6 +458,7 @@ func TestService_Start_AllowUnboundedPersistsNullMaxDuration(t *testing.T) {
 	req := validStartRequest(orgID)
 	req.AllowUnbounded = true
 	req.MaxDurationSeconds = nil
+	req.CanUseAdminControls = true
 
 	plan, err := svc.Start(t.Context(), req)
 	require.NoError(t, err)

@@ -24,17 +24,14 @@ const (
 
 // Handler implements the curtailment RPC surface. service=nil keeps every
 // RPC at Unimplemented (test stubs); a populated *Service wires the impl.
-// startEnabled additionally gates StartCurtailment until Stop + restorer
-// land, so an operator can't Start an event that has no exit path.
 type Handler struct {
-	service      *curtailment.Service
-	startEnabled bool
+	service *curtailment.Service
 }
 
 var _ curtailmentv1connect.CurtailmentServiceHandler = &Handler{}
 
-func NewHandler(service *curtailment.Service, startEnabled bool) *Handler {
-	return &Handler{service: service, startEnabled: startEnabled}
+func NewHandler(service *curtailment.Service) *Handler {
+	return &Handler{service: service}
 }
 
 func (h *Handler) PreviewCurtailmentPlan(ctx context.Context, req *connect.Request[pb.PreviewCurtailmentPlanRequest]) (*connect.Response[pb.PreviewCurtailmentPlanResponse], error) {
@@ -77,11 +74,6 @@ func (h *Handler) StartCurtailment(ctx context.Context, req *connect.Request[pb.
 			return nil, err
 		}
 	}
-	if !h.startEnabled {
-		// Gated until Stop + restorer ship; an Active event has no
-		// operator-facing exit path otherwise.
-		return nil, errCurtailmentNotImplemented("StartCurtailment")
-	}
 	if h.service == nil {
 		return nil, errCurtailmentNotImplemented("StartCurtailment")
 	}
@@ -119,11 +111,49 @@ func (h *Handler) StopCurtailment(ctx context.Context, req *connect.Request[pb.S
 			return nil, err
 		}
 	}
-	return nil, errCurtailmentNotImplemented("StopCurtailment")
+	if h.service == nil {
+		return nil, errCurtailmentNotImplemented("StopCurtailment")
+	}
+
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, fleeterror.NewUnauthenticatedError("authentication required")
+	}
+
+	stopReq, err := toStopRequest(req.Msg, info.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+
+	event, err := h.service.Stop(ctx, stopReq)
+	if err != nil {
+		return nil, err
+	}
+	targets, err := h.service.ListTargetsByEvent(ctx, info.OrganizationID, event.EventUUID)
+	if err != nil {
+		return nil, err
+	}
+
+	return connect.NewResponse(toStopResponse(event, targets)), nil
 }
 
-func (h *Handler) GetActiveCurtailment(_ context.Context, _ *connect.Request[pb.GetActiveCurtailmentRequest]) (*connect.Response[pb.GetActiveCurtailmentResponse], error) {
-	return nil, errCurtailmentNotImplemented("GetActiveCurtailment")
+func (h *Handler) GetActiveCurtailment(ctx context.Context, _ *connect.Request[pb.GetActiveCurtailmentRequest]) (*connect.Response[pb.GetActiveCurtailmentResponse], error) {
+	if h.service == nil {
+		return nil, errCurtailmentNotImplemented("GetActiveCurtailment")
+	}
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, fleeterror.NewUnauthenticatedError("authentication required")
+	}
+	event, targets, err := h.service.GetActiveWithTargets(ctx, info.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	resp := &pb.GetActiveCurtailmentResponse{}
+	if event != nil {
+		resp.Event = toEventProtoWithTargets(event, targets)
+	}
+	return connect.NewResponse(resp), nil
 }
 
 func (h *Handler) ListCurtailmentEvents(_ context.Context, _ *connect.Request[pb.ListCurtailmentEventsRequest]) (*connect.Response[pb.ListCurtailmentEventsResponse], error) {
@@ -150,8 +180,13 @@ func requireAdminFromContext(ctx context.Context, action string) error {
 		// Remap missing session from Internal to Unauthenticated.
 		return fleeterror.NewUnauthenticatedError("authentication required")
 	}
-	if info.Role != domainAuth.SuperAdminRoleName && info.Role != domainAuth.AdminRoleName {
+	if !canUseAdminControls(info) {
 		return fleeterror.NewForbiddenErrorf("only admins can %s", action)
 	}
 	return nil
+}
+
+func canUseAdminControls(info *session.Info) bool {
+	return info != nil &&
+		(info.Role == domainAuth.SuperAdminRoleName || info.Role == domainAuth.AdminRoleName)
 }
