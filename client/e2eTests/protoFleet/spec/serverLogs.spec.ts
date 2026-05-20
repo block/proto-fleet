@@ -7,7 +7,6 @@ import {
   LogEntrySchema,
   LogLevel,
 } from "@/protoFleet/api/generated/serverlog/v1/serverlog_pb";
-import { testConfig } from "../config/test.config";
 import { expect, test } from "../fixtures/pageFixtures";
 
 const serverLogsRpcPattern = /ServerLogService\/ListServerLogs/;
