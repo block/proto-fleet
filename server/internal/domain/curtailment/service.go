@@ -389,9 +389,7 @@ func (s *Service) AdminTerminate(ctx context.Context, req AdminTerminateRequest)
 	if req.EventUUID == uuid.Nil {
 		return nil, fleeterror.NewInvalidArgumentError("event_uuid must be set")
 	}
-	switch req.TargetState {
-	case models.EventStateCancelled, models.EventStateFailed:
-	default:
+	if req.TargetState != models.EventStateCancelled && req.TargetState != models.EventStateFailed {
 		return nil, fleeterror.NewInvalidArgumentErrorf(
 			"target_state must be CANCELLED or FAILED, got %q", req.TargetState,
 		)

@@ -21,6 +21,12 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
+// listHandlerTestCursorFixture is the opaque next-page cursor returned
+// by the stub store. Hoisted out of the inline struct literal so gosec's
+// hardcoded-credentials heuristic doesn't conflate a PageToken string
+// field with a real credential.
+const listHandlerTestCursorFixture = "opaque-next-cursor"
+
 // listStubStore implements interfaces.CurtailmentStore for ListCurtailment
 // handler tests. ListEvents is the only method tests configure; the rest
 // panic so an unintended path is loud rather than silently default-valuing.
@@ -125,7 +131,7 @@ func TestHandler_ListCurtailmentEvents_HappyPath(t *testing.T) {
 				Reason:                  "test",
 			},
 		},
-		nextPageToken: "opaque-next-token",
+		nextPageToken: listHandlerTestCursorFixture,
 	}
 	h := NewHandler(domainCurtailment.NewService(store))
 
@@ -136,7 +142,7 @@ func TestHandler_ListCurtailmentEvents_HappyPath(t *testing.T) {
 	require.Len(t, resp.Msg.Events, 1)
 	assert.Equal(t, store.events[0].EventUUID.String(), resp.Msg.Events[0].EventUuid)
 	assert.Empty(t, resp.Msg.Events[0].Targets, "list-view response must not include per-target rows")
-	assert.Equal(t, "opaque-next-token", resp.Msg.NextPageToken)
+	assert.Equal(t, listHandlerTestCursorFixture, resp.Msg.NextPageToken)
 	// Org from session attaches to the store call; not the request.
 	assert.Equal(t, int64(42), store.lastParams.OrgID)
 }

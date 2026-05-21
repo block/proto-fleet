@@ -184,13 +184,6 @@ func TestService_Start_IdempotencyKeyLookupErrorPropagates(t *testing.T) {
 func TestService_Start_PartialExternalReferenceFieldsSkipLookup(t *testing.T) {
 	t.Parallel()
 	const orgID = int64(42)
-	store := newFakeStore()
-	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
-	store.candidatesByOrg[orgID] = []*models.Candidate{
-		minerWithEff("worst", 3000, 100, 50),
-	}
-	svc := NewService(store)
-
 	for _, tc := range []struct {
 		name string
 		src  *string
@@ -201,7 +194,16 @@ func TestService_Start_PartialExternalReferenceFieldsSkipLookup(t *testing.T) {
 		{"both empty strings", strPtr(""), strPtr("")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			store.getByExternalRefCalls = 0
+			t.Parallel()
+			// Fresh store per subtest so getByExternalRefCalls stays
+			// isolated under t.Parallel() without sharing a mutex.
+			store := newFakeStore()
+			store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+			store.candidatesByOrg[orgID] = []*models.Candidate{
+				minerWithEff("worst", 3000, 100, 50),
+			}
+			svc := NewService(store)
+
 			req := validStartRequest(orgID)
 			req.TargetKW = 2
 			req.ExternalSource = tc.src

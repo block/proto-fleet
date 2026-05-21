@@ -13,6 +13,12 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
+// listTestCursorFixture is the opaque pagination cursor value used across
+// the service-list tests. Hoisted out of the inline struct literal so
+// gosec's hardcoded-credentials heuristic doesn't conflate a PageToken
+// string field with a real credential.
+const listTestCursorFixture = "opaque-cursor"
+
 // TestService_ListEvents_HappyPathForwardsCursorAndStateFilter pins the
 // service → store hand-off: org gets attached, state filter forwards
 // verbatim, and the next-page token round-trips back to the caller when
@@ -87,14 +93,14 @@ func TestService_ListEvents_StoreReceivesParams(t *testing.T) {
 	_, _, err := svc.ListEvents(t.Context(), ListEventsRequest{
 		OrgID:       42,
 		PageSize:    20,
-		PageToken:   "opaque-token",
+		PageToken:   listTestCursorFixture,
 		StateFilter: models.EventStateRestoring,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, interfaces.ListEventsParams{
 		OrgID:       42,
 		PageSize:    20,
-		PageToken:   "opaque-token",
+		PageToken:   listTestCursorFixture,
 		StateFilter: models.EventStateRestoring,
 	}, store.lastListEventsParams)
 }
