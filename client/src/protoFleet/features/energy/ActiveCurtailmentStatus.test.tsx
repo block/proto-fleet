@@ -176,6 +176,34 @@ describe("ActiveCurtailmentStatus", () => {
     }
   });
 
+  it("excludes failed targets from the restoring completion estimate", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-01T10:00:00-04:00"));
+
+    try {
+      render(
+        <ActiveCurtailmentStatus
+          event={{
+            ...restoringCurtailmentEvent,
+            restoreBatchSize: 5,
+            rollups: [
+              { state: "resolved", count: 10 },
+              { state: "restoreFailed", count: 8 },
+            ],
+            selectedMiners: 18,
+          }}
+        />,
+      );
+
+      expect(screen.getByText("Estimated time to restore")).toBeVisible();
+      expect(screen.getByText("Immediate")).toBeVisible();
+      expect(screen.getByText(formatExpectedDateTime("2026-05-01T10:00:00-04:00"))).toBeVisible();
+      expect(screen.queryByText(formatExpectedDateTime("2026-05-01T10:02:00-04:00"))).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("renders an unavailable restore completion when the estimate is out of range", () => {
     render(
       <ActiveCurtailmentStatus

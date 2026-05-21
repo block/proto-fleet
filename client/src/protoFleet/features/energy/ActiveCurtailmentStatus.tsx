@@ -402,8 +402,13 @@ function getRestoreEstimateSeconds({
   return Math.max(batchCount - 1, 0) * restoreBatchIntervalSec;
 }
 
-function getRestoreRemainingSeconds(event: ActiveCurtailmentEvent, restoredCount: number, totalCount: number): number {
-  const remainingMiners = Math.max(totalCount - restoredCount, 0);
+function getRestoreRemainingSeconds(
+  event: ActiveCurtailmentEvent,
+  restoredCount: number,
+  restoreFailedCount: number,
+  totalCount: number,
+): number {
+  const remainingMiners = Math.max(totalCount - restoredCount - restoreFailedCount, 0);
 
   return getRestoreEstimateSeconds({
     selectedMinerCount: remainingMiners,
@@ -613,7 +618,12 @@ export default function ActiveCurtailmentStatus({
   const displayFlags = getDisplayFlags(displayState);
   const legend = getProgressLegend(displayFlags);
   const restoredKw = displayFlags.isRestored ? targetKw : (targetKw * restoredPercent) / 100;
-  const remainingRestoreSeconds = getRestoreRemainingSeconds(event, compliance.restoredCount, compliance.totalCount);
+  const remainingRestoreSeconds = getRestoreRemainingSeconds(
+    event,
+    compliance.restoredCount,
+    compliance.restoreFailedCount,
+    compliance.totalCount,
+  );
   const estimatedCompletion = formatEstimatedCompletion(remainingRestoreSeconds);
   const totalRestoreSeconds = getRestoreEstimateSeconds({
     selectedMinerCount: compliance.totalCount,
