@@ -180,7 +180,7 @@ func TestReconcile_ConcurrentRunsConverge(t *testing.T) {
 	errs := make(chan error, 2)
 	go func() { errs <- authz.Reconcile(ctx, db) }()
 	go func() { errs <- authz.Reconcile(ctx, db) }()
-	for i := 0; i < 2; i++ {
+	for range 2 {
 		require.NoError(t, <-errs)
 	}
 
