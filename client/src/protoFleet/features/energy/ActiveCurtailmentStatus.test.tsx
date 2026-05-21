@@ -6,6 +6,7 @@ import {
   curtailedCurtailmentEvent,
   curtailingCurtailmentEvent,
   restoredCurtailmentEvent,
+  restoreIncompleteCurtailmentEvent,
   restoringCurtailmentEvent,
 } from "@/protoFleet/features/energy/ActiveCurtailmentStatus.fixtures";
 
@@ -163,5 +164,21 @@ describe("ActiveCurtailmentStatus", () => {
     fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
 
     expect(onDismissRestored).toHaveBeenCalledOnce();
+  });
+
+  it("renders a completed-with-failures event as an incomplete restore", () => {
+    render(<ActiveCurtailmentStatus event={restoreIncompleteCurtailmentEvent} onDismissRestored={vi.fn()} />);
+
+    expect(screen.getByText("Power restore")).toBeVisible();
+    expect(screen.getByText("56.7 kW of 60.0 kW restored")).toBeVisible();
+    expect(screen.getByText("Restore incomplete")).toBeVisible();
+    expect(screen.getByText("Failed to restore")).toBeVisible();
+    expect(screen.getByText("1 miner")).toBeVisible();
+    expect(screen.getByText("Not restored")).toBeVisible();
+    expect(screen.queryByText("60.0 kW restored")).not.toBeInTheDocument();
+    expectProgressValue("94");
+    expectActionButtonHidden("Dismiss");
+    expectActionButtonHidden("Stop");
+    expectActionButtonHidden("Restore");
   });
 });

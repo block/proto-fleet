@@ -2,7 +2,7 @@ import { type ReactElement, type ReactNode } from "react";
 import clsx from "clsx";
 
 import type { CurtailmentEventState } from "@/protoFleet/features/energy/CurtailmentHistory";
-import { Success } from "@/shared/assets/icons";
+import { Alert, Success } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import ProgressCircular from "@/shared/components/ProgressCircular";
@@ -86,15 +86,16 @@ interface StatBlockProps {
 
 interface MinerCompliance {
   curtailedCount: number;
+  restoreFailedCount: number;
   restoredCount: number;
   totalCount: number;
 }
 
-type ActiveCurtailmentDisplayState = "curtailing" | "curtailed" | "restoring" | "restored";
+type ActiveCurtailmentDisplayState = "curtailing" | "curtailed" | "restoring" | "restored" | "restoreIncomplete";
 
 interface FormatActivePowerValueArgs {
   isRestored: boolean;
-  isRestoring: boolean;
+  isRestoreFlow: boolean;
   observedReductionKw: number;
   restoredKw: number;
   targetKw: number;
@@ -115,11 +116,13 @@ interface RestoreTimeValueArgs {
 interface StatusIconArgs {
   isCurtailmentComplete: boolean;
   isRestored: boolean;
+  isRestoreIncomplete: boolean;
 }
 
 interface ActiveCurtailmentDisplayFlags {
   isCurtailmentComplete: boolean;
   isRestored: boolean;
+  isRestoreIncomplete: boolean;
   isRestoring: boolean;
   isRestoreFlow: boolean;
 }
@@ -150,11 +153,13 @@ const countedTargetStates: CurtailmentTargetState[] = [
   "restoreFailed",
 ];
 const curtailedTargetStates: CurtailmentTargetState[] = ["confirmed", "resolved"];
+const restoreFailedTargetStates: CurtailmentTargetState[] = ["restoreFailed"];
 const restoredTargetStates: CurtailmentTargetState[] = ["resolved", "released"];
 
 const displayStateLabels: Record<ActiveCurtailmentDisplayState, string> = {
   curtailed: "Curtailed",
   curtailing: "Curtailing",
+  restoreIncomplete: "Restore incomplete",
   restored: "Restored",
   restoring: "Restoring",
 };
@@ -254,21 +259,25 @@ function getRollupCount(event: ActiveCurtailmentEvent, states: CurtailmentTarget
 
 function getMinerCompliance(event: ActiveCurtailmentEvent): MinerCompliance {
   const curtailedCount = getRollupCount(event, curtailedTargetStates);
+  const restoreFailedCount = getRollupCount(event, restoreFailedTargetStates);
   const restoredCount = getRollupCount(event, restoredTargetStates);
   const countedTargetCount = getRollupCount(event, countedTargetStates);
   const totalCount = Math.max(event.selectedMiners, countedTargetCount);
 
   return {
     curtailedCount,
+    restoreFailedCount,
     restoredCount,
     totalCount,
   };
 }
 
 function isRestoredEventState(state: CurtailmentEventState): boolean {
-  const isCompleted = state === "completed";
-  const isCompletedWithFailures = state === "completedWithFailures";
-  return isCompleted || isCompletedWithFailures;
+  return state === "completed";
+}
+
+function isRestoreIncompleteEventState(state: CurtailmentEventState): boolean {
+  return state === "completedWithFailures";
 }
 
 function getActiveCurtailmentDisplayState(
@@ -278,6 +287,10 @@ function getActiveCurtailmentDisplayState(
 ): ActiveCurtailmentDisplayState {
   if (event.state === "restoring") {
     return "restoring";
+  }
+
+  if (isRestoreIncompleteEventState(event.state)) {
+    return "restoreIncomplete";
   }
 
   if (isRestoredEventState(event.state)) {
@@ -297,7 +310,7 @@ function getRestoredPercent(event: ActiveCurtailmentEvent, restoredCount: number
 
 function formatActivePowerValue({
   isRestored,
-  isRestoring,
+  isRestoreFlow,
   observedReductionKw,
   restoredKw,
   targetKw,
@@ -306,7 +319,7 @@ function formatActivePowerValue({
     return `${formatKw(targetKw)} restored`;
   }
 
-  if (isRestoring) {
+  if (isRestoreFlow) {
     return `${formatKw(restoredKw)} of ${formatKw(targetKw)} restored`;
   }
 
@@ -378,13 +391,15 @@ function formatRestoreTimeValue({
 
 function getDisplayFlags(displayState: ActiveCurtailmentDisplayState): ActiveCurtailmentDisplayFlags {
   const isRestored = displayState === "restored";
+  const isRestoreIncomplete = displayState === "restoreIncomplete";
   const isRestoring = displayState === "restoring";
 
   return {
     isCurtailmentComplete: displayState === "curtailed",
     isRestored,
+    isRestoreIncomplete,
     isRestoring,
-    isRestoreFlow: isRestoring || isRestored,
+    isRestoreFlow: isRestoring || isRestored || isRestoreIncomplete,
   };
 }
 
@@ -393,8 +408,8 @@ function getProgressLegend(displayFlags: ActiveCurtailmentDisplayFlags): ActiveC
     return {
       primaryDotClassName: "bg-intent-success-fill",
       primaryLabel: "Restored",
-      secondaryDotClassName: "bg-core-primary-fill",
-      secondaryLabel: "Curtailed",
+      secondaryDotClassName: displayFlags.isRestoreIncomplete ? "bg-intent-critical-fill" : "bg-core-primary-fill",
+      secondaryLabel: displayFlags.isRestoreIncomplete ? "Not restored" : "Curtailed",
     };
   }
 
@@ -443,6 +458,8 @@ function getActiveCurtailmentActionButton({
       return onDismissRestored ? (
         <Button variant={variants.secondary} size={sizes.compact} text="Dismiss" onClick={onDismissRestored} />
       ) : null;
+    case "restoreIncomplete":
+      return null;
     case "curtailed":
       return onRequestRestore ? (
         <Button variant={variants.primary} size={sizes.compact} text="Restore" onClick={onRequestRestore} />
@@ -469,7 +486,15 @@ function ActiveCurtailmentActionButtons(props: ActiveCurtailmentActionButtonsPro
   );
 }
 
-function getActiveCurtailmentStatusIcon({ isRestored, isCurtailmentComplete }: StatusIconArgs): ReactNode {
+function getActiveCurtailmentStatusIcon({
+  isRestored,
+  isRestoreIncomplete,
+  isCurtailmentComplete,
+}: StatusIconArgs): ReactNode {
+  if (isRestoreIncomplete) {
+    return <Alert className="text-intent-critical-fill" />;
+  }
+
   if (isRestored) {
     return <Success className="text-intent-success-fill" />;
   }
@@ -551,7 +576,7 @@ export default function ActiveCurtailmentStatus({
   const powerLabel = displayFlags.isRestoreFlow ? "Power restore" : "Power shed";
   const powerValue = formatActivePowerValue({
     isRestored: displayFlags.isRestored,
-    isRestoring: displayFlags.isRestoring,
+    isRestoreFlow: displayFlags.isRestoreFlow,
     observedReductionKw,
     restoredKw,
     targetKw,
@@ -559,14 +584,16 @@ export default function ActiveCurtailmentStatus({
   const dispatchStatus = displayStateLabels[displayState];
   const minerStatus =
     compliance.totalCount > 0 ? `${Math.round(curtailedPercent).toLocaleString()}% curtailed` : "No miners selected";
-  const restoreTimeLabel = displayFlags.isRestored ? "Time to restore" : "Estimated time to restore";
+  const isTerminalRestoreFlow = displayFlags.isRestored || displayFlags.isRestoreIncomplete;
+  const restoreTimeLabel = isTerminalRestoreFlow ? "Time to restore" : "Estimated time to restore";
   const restoreTimeValue = formatRestoreTimeValue({
-    isRestored: displayFlags.isRestored,
+    isRestored: isTerminalRestoreFlow,
     remainingRestoreSeconds,
     totalRestoreSeconds,
   });
   const restoreCompletionLabel = displayFlags.isRestored ? "Completed" : "Estimated completion";
   const restoreCompletionValue = event.endedAt ? formatDateTime(event.endedAt) : estimatedCompletion;
+  const restoreFailureValue = formatMinerCount(compliance.restoreFailedCount);
   const restoreProgressPercent = displayFlags.isRestored ? 100 : restoredPercent;
   const curtailProgressPercent = displayFlags.isCurtailmentComplete ? 100 : curtailedPercent;
   const primaryProgressPercent = displayFlags.isRestoreFlow ? restoreProgressPercent : curtailProgressPercent;
@@ -575,6 +602,7 @@ export default function ActiveCurtailmentStatus({
   const showSecondaryProgress = shouldShowSecondaryProgress(displayFlags);
   const statusIcon = getActiveCurtailmentStatusIcon({
     isRestored: displayFlags.isRestored,
+    isRestoreIncomplete: displayFlags.isRestoreIncomplete,
     isCurtailmentComplete: displayFlags.isCurtailmentComplete,
   });
 
@@ -608,7 +636,11 @@ export default function ActiveCurtailmentStatus({
             <>
               <StatBlock label="Restore" value={formatRestoreProfile(event)} />
               <StatBlock label={restoreTimeLabel} value={restoreTimeValue} />
-              <StatBlock label={restoreCompletionLabel} value={restoreCompletionValue} />
+              {displayFlags.isRestoreIncomplete ? (
+                <StatBlock label="Failed to restore" value={restoreFailureValue} />
+              ) : (
+                <StatBlock label={restoreCompletionLabel} value={restoreCompletionValue} />
+              )}
             </>
           ) : (
             <>

@@ -8,6 +8,7 @@ import {
   curtailedCurtailmentEvent,
   curtailingCurtailmentEvent,
   restoredCurtailmentEvent,
+  restoreIncompleteCurtailmentEvent,
   restoringCurtailmentEvent,
 } from "@/protoFleet/features/energy/ActiveCurtailmentStatus.fixtures";
 
@@ -206,6 +207,12 @@ export const Restored: Story = {
   args: {
     event: restoredCurtailmentEvent,
     onDismissRestored: () => undefined,
+  },
+};
+
+export const RestoreIncomplete: Story = {
+  args: {
+    event: restoreIncompleteCurtailmentEvent,
   },
 };
 

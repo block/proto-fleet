@@ -45,3 +45,12 @@ export const restoredCurtailmentEvent: ActiveCurtailmentEvent = {
   endedAt: "2026-04-30T14:08:00-04:00",
   rollups: [{ state: "resolved", count: curtailingCurtailmentEvent.selectedMiners }],
 };
+
+export const restoreIncompleteCurtailmentEvent: ActiveCurtailmentEvent = {
+  ...restoredCurtailmentEvent,
+  state: "completedWithFailures",
+  rollups: [
+    { state: "resolved", count: 17 },
+    { state: "restoreFailed", count: 1 },
+  ],
+};
