@@ -91,7 +91,14 @@ interface MinerCompliance {
   totalCount: number;
 }
 
-type ActiveCurtailmentDisplayState = "curtailing" | "curtailed" | "restoring" | "restored" | "restoreIncomplete";
+type ActiveCurtailmentDisplayState =
+  | "cancelled"
+  | "curtailing"
+  | "curtailed"
+  | "failed"
+  | "restoring"
+  | "restored"
+  | "restoreIncomplete";
 
 interface FormatActivePowerValueArgs {
   isRestored: boolean;
@@ -115,6 +122,7 @@ interface RestoreTimeValueArgs {
 
 interface StatusIconArgs {
   isCurtailmentComplete: boolean;
+  isTerminalFailure: boolean;
   isRestored: boolean;
   isRestoreIncomplete: boolean;
 }
@@ -125,6 +133,7 @@ interface ActiveCurtailmentDisplayFlags {
   isRestoreIncomplete: boolean;
   isRestoring: boolean;
   isRestoreFlow: boolean;
+  isTerminalFailure: boolean;
 }
 
 interface ActiveCurtailmentLegend {
@@ -157,8 +166,10 @@ const restoreFailedTargetStates: CurtailmentTargetState[] = ["restoreFailed"];
 const restoredTargetStates: CurtailmentTargetState[] = ["resolved", "released"];
 
 const displayStateLabels: Record<ActiveCurtailmentDisplayState, string> = {
+  cancelled: "Cancelled",
   curtailed: "Curtailed",
   curtailing: "Curtailing",
+  failed: "Failed",
   restoreIncomplete: "Restore incomplete",
   restored: "Restored",
   restoring: "Restoring",
@@ -235,8 +246,17 @@ function formatEstimatedCompletion(remainingSeconds: number, currentTime = new D
     return unavailableTimeLabel;
   }
 
-  const estimatedCompletionMs = currentTime.getTime() + Math.max(remainingSeconds, 0) * millisecondsPerSecond;
-  return formatDateTimeValue(new Date(estimatedCompletionMs));
+  const currentTimeMs = currentTime.getTime();
+  const estimatedCompletionMs = currentTimeMs + Math.max(remainingSeconds, 0) * millisecondsPerSecond;
+
+  if (!Number.isFinite(currentTimeMs) || !Number.isFinite(estimatedCompletionMs)) {
+    return unavailableTimeLabel;
+  }
+
+  const estimatedCompletionDate = new Date(estimatedCompletionMs);
+  return Number.isNaN(estimatedCompletionDate.getTime())
+    ? unavailableTimeLabel
+    : formatDateTimeValue(estimatedCompletionDate);
 }
 
 function getProgressPercent(value: number, total: number): number {
@@ -295,6 +315,14 @@ function getActiveCurtailmentDisplayState(
 
   if (isRestoredEventState(event.state)) {
     return "restored";
+  }
+
+  if (event.state === "cancelled") {
+    return "cancelled";
+  }
+
+  if (event.state === "failed") {
+    return "failed";
   }
 
   return powerShedPercent >= 100 || curtailedPercent >= 100 ? "curtailed" : "curtailing";
@@ -393,6 +421,7 @@ function getDisplayFlags(displayState: ActiveCurtailmentDisplayState): ActiveCur
   const isRestored = displayState === "restored";
   const isRestoreIncomplete = displayState === "restoreIncomplete";
   const isRestoring = displayState === "restoring";
+  const isTerminalFailure = displayState === "cancelled" || displayState === "failed";
 
   return {
     isCurtailmentComplete: displayState === "curtailed",
@@ -400,6 +429,7 @@ function getDisplayFlags(displayState: ActiveCurtailmentDisplayState): ActiveCur
     isRestoreIncomplete,
     isRestoring,
     isRestoreFlow: isRestoring || isRestored || isRestoreIncomplete,
+    isTerminalFailure,
   };
 }
 
@@ -422,6 +452,10 @@ function getProgressLegend(displayFlags: ActiveCurtailmentDisplayFlags): ActiveC
 }
 
 function shouldShowSecondaryProgress(displayFlags: ActiveCurtailmentDisplayFlags): boolean {
+  if (displayFlags.isTerminalFailure) {
+    return false;
+  }
+
   if (displayFlags.isRestoreFlow) {
     return !displayFlags.isRestored;
   }
@@ -458,6 +492,8 @@ function getActiveCurtailmentActionButton({
       return onDismissRestored ? (
         <Button variant={variants.secondary} size={sizes.compact} text="Dismiss" onClick={onDismissRestored} />
       ) : null;
+    case "cancelled":
+    case "failed":
     case "restoreIncomplete":
       return null;
     case "curtailed":
@@ -487,11 +523,12 @@ function ActiveCurtailmentActionButtons(props: ActiveCurtailmentActionButtonsPro
 }
 
 function getActiveCurtailmentStatusIcon({
+  isTerminalFailure,
   isRestored,
   isRestoreIncomplete,
   isCurtailmentComplete,
 }: StatusIconArgs): ReactNode {
-  if (isRestoreIncomplete) {
+  if (isRestoreIncomplete || isTerminalFailure) {
     return <Alert className="text-intent-critical-fill" />;
   }
 
@@ -569,7 +606,7 @@ export default function ActiveCurtailmentStatus({
   const remainingRestoreSeconds = getRestoreRemainingSeconds(event, compliance.restoredCount, compliance.totalCount);
   const estimatedCompletion = formatEstimatedCompletion(remainingRestoreSeconds);
   const totalRestoreSeconds = getRestoreEstimateSeconds({
-    selectedMinerCount: event.selectedMiners,
+    selectedMinerCount: compliance.totalCount,
     restoreBatchSize: event.restoreBatchSize,
     restoreBatchIntervalSec: event.restoreBatchIntervalSec,
   });
@@ -601,6 +638,7 @@ export default function ActiveCurtailmentStatus({
   const secondaryProgressPercent = Math.max(100 - activePhaseProgressPercent, 0);
   const showSecondaryProgress = shouldShowSecondaryProgress(displayFlags);
   const statusIcon = getActiveCurtailmentStatusIcon({
+    isTerminalFailure: displayFlags.isTerminalFailure,
     isRestored: displayFlags.isRestored,
     isRestoreIncomplete: displayFlags.isRestoreIncomplete,
     isCurtailmentComplete: displayFlags.isCurtailmentComplete,

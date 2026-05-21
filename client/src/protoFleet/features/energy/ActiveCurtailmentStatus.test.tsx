@@ -1,5 +1,6 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
 
 import ActiveCurtailmentStatus from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
 import {
@@ -28,7 +29,8 @@ function formatExpectedDateTime(value: string): string {
 }
 
 describe("ActiveCurtailmentStatus", () => {
-  it("renders a curtailing event with stop available and no manage action", () => {
+  it("renders a curtailing event with stop available and no manage action", async () => {
+    const user = userEvent.setup();
     const onRequestStop = vi.fn();
 
     render(<ActiveCurtailmentStatus event={curtailingCurtailmentEvent} onRequestStop={onRequestStop} />);
@@ -43,12 +45,13 @@ describe("ActiveCurtailmentStatus", () => {
     expectActionButtonHidden("Manage");
     expectActionButtonHidden("Restore");
 
-    fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+    await user.click(screen.getByRole("button", { name: "Stop" }));
 
     expect(onRequestStop).toHaveBeenCalledOnce();
   });
 
-  it("renders a curtailed event with restore available", () => {
+  it("renders a curtailed event with restore available", async () => {
+    const user = userEvent.setup();
     const onRequestRestore = vi.fn();
 
     render(<ActiveCurtailmentStatus event={curtailedCurtailmentEvent} onRequestRestore={onRequestRestore} />);
@@ -59,7 +62,7 @@ describe("ActiveCurtailmentStatus", () => {
     expectActionButtonHidden("Manage");
     expectActionButtonHidden("Stop");
 
-    fireEvent.click(screen.getByRole("button", { name: "Restore" }));
+    await user.click(screen.getByRole("button", { name: "Restore" }));
 
     expect(onRequestRestore).toHaveBeenCalledOnce();
   });
@@ -146,7 +149,27 @@ describe("ActiveCurtailmentStatus", () => {
     }
   });
 
-  it("renders a restored event with dismiss available", () => {
+  it("renders an unavailable restore completion when the estimate is out of range", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...restoringCurtailmentEvent,
+          restoreBatchIntervalSec: Number.MAX_SAFE_INTEGER,
+          restoreBatchSize: 1,
+          rollups: [
+            { state: "resolved", count: 0 },
+            { state: "confirmed", count: 2 },
+          ],
+          selectedMiners: 2,
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Time unavailable")).toBeVisible();
+  });
+
+  it("renders a restored event with dismiss available", async () => {
+    const user = userEvent.setup();
     const onDismissRestored = vi.fn();
 
     render(<ActiveCurtailmentStatus event={restoredCurtailmentEvent} onDismissRestored={onDismissRestored} />);
@@ -161,9 +184,24 @@ describe("ActiveCurtailmentStatus", () => {
     expectActionButtonHidden("Stop");
     expectActionButtonHidden("Restore");
 
-    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    await user.click(screen.getByRole("button", { name: "Dismiss" }));
 
     expect(onDismissRestored).toHaveBeenCalledOnce();
+  });
+
+  it("uses rollup totals for terminal restore duration when selected miner count is stale", () => {
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...restoredCurtailmentEvent,
+          rollups: [{ state: "resolved", count: 25 }],
+          selectedMiners: 0,
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Time to restore")).toBeVisible();
+    expect(screen.getByText("4 minutes")).toBeVisible();
   });
 
   it("renders a completed-with-failures event as an incomplete restore", () => {
@@ -177,6 +215,40 @@ describe("ActiveCurtailmentStatus", () => {
     expect(screen.getByText("Not restored")).toBeVisible();
     expect(screen.queryByText("60.0 kW restored")).not.toBeInTheDocument();
     expectProgressValue("94");
+    expectActionButtonHidden("Dismiss");
+    expectActionButtonHidden("Stop");
+    expectActionButtonHidden("Restore");
+  });
+
+  it("renders failed and cancelled events without active controls", () => {
+    const onDismissRestored = vi.fn();
+    const onRequestRestore = vi.fn();
+    const onRequestStop = vi.fn();
+
+    const { rerender } = render(
+      <ActiveCurtailmentStatus
+        event={{ ...curtailingCurtailmentEvent, state: "failed" }}
+        onDismissRestored={onDismissRestored}
+        onRequestRestore={onRequestRestore}
+        onRequestStop={onRequestStop}
+      />,
+    );
+
+    expect(screen.getByText("Failed")).toBeVisible();
+    expectActionButtonHidden("Dismiss");
+    expectActionButtonHidden("Stop");
+    expectActionButtonHidden("Restore");
+
+    rerender(
+      <ActiveCurtailmentStatus
+        event={{ ...curtailedCurtailmentEvent, state: "cancelled" }}
+        onDismissRestored={onDismissRestored}
+        onRequestRestore={onRequestRestore}
+        onRequestStop={onRequestStop}
+      />,
+    );
+
+    expect(screen.getByText("Cancelled")).toBeVisible();
     expectActionButtonHidden("Dismiss");
     expectActionButtonHidden("Stop");
     expectActionButtonHidden("Restore");
