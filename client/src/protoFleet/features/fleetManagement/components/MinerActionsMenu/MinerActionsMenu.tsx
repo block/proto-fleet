@@ -13,9 +13,10 @@ import ManagePowerModal from "./ManagePowerModal";
 import { ManageSecurityModal, UpdateMinerPasswordModal } from "./ManageSecurity";
 import { useMinerActions } from "./useMinerActions";
 import type { SortConfig } from "@/protoFleet/api/generated/common/v1/sort_pb";
-import type {
-  MinerListFilter,
-  MinerStateSnapshot,
+import {
+  type MinerListFilter,
+  type MinerStateSnapshot,
+  PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
 import { useBatchActions } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
@@ -39,6 +40,8 @@ interface MinerActionsMenuProps {
   miners?: Record<string, MinerStateSnapshot>;
   /** Ordered list of miner device identifiers, forwarded to bulk rename modals. */
   minerIds?: string[];
+  /** True when the selection includes auth-needed miners not present in selectedMiners, e.g. all-mode selections. */
+  selectionIncludesUnauthenticatedMiner?: boolean;
   /** Callback to refetch miners after bulk rename or worker-name update. */
   onRefetchMiners?: () => void;
   onWorkerNameUpdated?: (deviceIdentifier: string, workerName: string) => void;
@@ -61,6 +64,7 @@ const MinerActionsMenu = ({
   currentSort,
   miners = {},
   minerIds = [],
+  selectionIncludesUnauthenticatedMiner: selectionIncludesUnauthenticatedMinerOverride,
   onRefetchMiners,
   onWorkerNameUpdated,
   onActionStart,
@@ -74,9 +78,19 @@ const MinerActionsMenu = ({
   const workerNameCredentialsRef = useRef<{ username: string; password: string } | undefined>(undefined);
   const { isPhone, isTablet } = useWindowDimensions();
   const selectedMinersWithStatus = useMemo(
-    () => selectedMiners.map((id) => ({ deviceIdentifier: id })),
-    [selectedMiners],
+    () =>
+      selectedMiners.map((id) => ({
+        deviceIdentifier: id,
+        deviceStatus: miners[id]?.deviceStatus,
+      })),
+    [miners, selectedMiners],
   );
+  const selectedIdsIncludeUnauthenticatedMiner = useMemo(
+    () => selectedMiners.some((id) => miners[id]?.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED),
+    [miners, selectedMiners],
+  );
+  const selectionIncludesUnauthenticatedMiner =
+    selectionIncludesUnauthenticatedMinerOverride ?? selectedIdsIncludeUnauthenticatedMiner;
 
   const {
     currentAction,
@@ -200,6 +214,14 @@ const MinerActionsMenu = ({
     return [...actions, renameAction];
   }, [handleBulkWorkerNamesOpen, onActionStart, popoverActions]);
 
+  const visibleActions = useMemo(
+    () =>
+      selectionIncludesUnauthenticatedMiner
+        ? actionsWithBulkRename.filter((action) => action.action === deviceActions.unpair)
+        : actionsWithBulkRename,
+    [actionsWithBulkRename, selectionIncludesUnauthenticatedMiner],
+  );
+
   const poolMiners = useMemo(() => {
     if (poolFilteredDeviceIds) {
       return poolFilteredDeviceIds.map((id) => ({ deviceIdentifier: id }));
@@ -214,13 +236,13 @@ const MinerActionsMenu = ({
       deviceActions.reboot,
       performanceActions.managePower,
     ];
-    const actionMap = new Map(actionsWithBulkRename.map((action) => [action.action, action]));
+    const actionMap = new Map(visibleActions.map((action) => [action.action, action]));
 
     return quickActionOrder.flatMap((actionKey) => {
       const action = actionMap.get(actionKey);
       return action ? [action] : [];
     });
-  }, [actionsWithBulkRename]);
+  }, [visibleActions]);
 
   return (
     <PopoverProvider>
@@ -228,7 +250,7 @@ const MinerActionsMenu = ({
         <BulkActionsWidget<SupportedAction>
           buttonIconSuffix={<ChevronDown width={iconSizes.xSmall} />}
           buttonTitle={showQuickActions ? "More" : "Actions"}
-          actions={actionsWithBulkRename}
+          actions={visibleActions}
           onConfirmation={handleConfirmation}
           onCancel={handleCancel}
           currentAction={currentAction}
@@ -250,7 +272,7 @@ const MinerActionsMenu = ({
           }
           renderPopover={(beforeEach) => (
             <BulkActionsPopover<SupportedAction>
-              actions={actionsWithBulkRename}
+              actions={visibleActions}
               beforeEach={beforeEach}
               testId="actions-menu-popover"
             />

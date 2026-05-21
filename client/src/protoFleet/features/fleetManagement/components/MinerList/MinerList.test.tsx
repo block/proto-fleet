@@ -1024,18 +1024,18 @@ describe("MinerList", () => {
       },
     );
 
-    it("recomputes selectable miners when a row becomes disabled between renders", async () => {
+    it("keeps authentication-needed miners selectable for unpair", async () => {
       const user = userEvent.setup();
 
-      const initialMiners = {
-        m1: createMinerSnapshot("m1"),
+      const miners = {
+        m1: createMinerSnapshot("m1", PairingStatus.AUTHENTICATION_NEEDED),
         m2: createMinerSnapshot("m2"),
       };
 
-      const { rerender } = renderMinerList({
+      renderMinerList({
         title: "Miners",
         minerIds: ["m1", "m2"],
-        miners: initialMiners,
+        miners,
         totalMiners: 2,
         totalDisabledMiners: 0,
         currentPage: 0,
@@ -1046,34 +1046,11 @@ describe("MinerList", () => {
       const rowCheckboxes = screen.getAllByTestId("checkbox");
       await user.click(rowCheckboxes[0].querySelector("input[type='checkbox']") as HTMLInputElement);
 
-      const updatedMiners = {
-        ...initialMiners,
-        m2: createMinerSnapshot("m2", PairingStatus.AUTHENTICATION_NEEDED),
-      };
-
-      await act(async () => {
-        rerender(
-          <BrowserRouter>
-            <MinerList
-              title="Miners"
-              minerIds={["m1", "m2"]}
-              miners={updatedMiners}
-              errorsByDevice={{}}
-              errorsLoaded={true}
-              getActiveBatches={mockGetActiveBatches}
-              totalMiners={2}
-              totalDisabledMiners={0}
-              currentPage={0}
-              onAddMiners={vi.fn()}
-              loading={false}
-            />
-          </BrowserRouter>,
-        );
-      });
+      expect(screen.getByTestId("mock-miner-list-selected-miners")).toHaveTextContent("m1");
 
       await user.click(screen.getByTestId("mock-action-bar-select-all"));
 
-      expect(screen.getByTestId("mock-miner-list-selected-miners")).toHaveTextContent("m1");
+      expect(screen.getByTestId("mock-miner-list-selected-miners")).toHaveTextContent("m1,m2");
     });
   });
 

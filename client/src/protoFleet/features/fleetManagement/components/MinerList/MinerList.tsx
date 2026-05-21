@@ -214,6 +214,7 @@ type ScopedMinerListBodyProps = {
   onOpenManageColumns: () => void;
   handleClearFilters: () => void;
   isRowDisabled: (item: DeviceListItem) => boolean;
+  isSelectionLimited: (item: DeviceListItem) => boolean;
   currentFilter?: MinerListFilter;
   currentSortConfig?: SortConfig;
   currentSort?: { field: MinerColumn; direction: SortDirection };
@@ -252,6 +253,7 @@ const ScopedMinerListBody = ({
   onOpenManageColumns,
   handleClearFilters,
   isRowDisabled,
+  isSelectionLimited,
   currentFilter,
   currentSortConfig,
   currentSort,
@@ -281,9 +283,7 @@ const ScopedMinerListBody = ({
   }
   const sortableColumnsSet = useMemo(() => new Set(SORTABLE_COLUMNS), []);
 
-  const currentPageSelectableMinerIds = deviceItems
-    .filter((item) => !isRowDisabled(item))
-    .map((item) => item.deviceIdentifier);
+  const currentPageSelectableMinerIds = deviceItems.map((item) => item.deviceIdentifier);
 
   const handleSelectAllMiners = useCallback(() => {
     setSelectedMinerIds(currentPageSelectableMinerIds);
@@ -294,6 +294,16 @@ const ScopedMinerListBody = ({
     setSelectedMinerIds([]);
     setSelectionMode("none");
   }, []);
+
+  const selectedIncludesUnauthenticatedMiner = useMemo(
+    () =>
+      selectionMode === "all"
+        ? totalDisabledMiners > 0
+        : selectedMinerIds.some((id) =>
+            deviceItems.some((item) => item.deviceIdentifier === id && isSelectionLimited(item)),
+          ),
+    [deviceItems, isSelectionLimited, selectedMinerIds, selectionMode, totalDisabledMiners],
+  );
 
   return (
     <>
@@ -346,6 +356,7 @@ const ScopedMinerListBody = ({
               currentSort={currentSortConfig}
               miners={minersProp}
               minerIds={minerIdsProp}
+              selectionIncludesUnauthenticatedMiner={selectedIncludesUnauthenticatedMiner}
               onRefetchMiners={onRefetchMiners}
               onWorkerNameUpdated={onWorkerNameUpdated}
             />
@@ -358,7 +369,7 @@ const ScopedMinerListBody = ({
         overflowContainer={false}
         applyColumnWidthsToCells
         total={totalMiners}
-        totalDisabled={totalDisabledMiners}
+        totalDisabled={0}
         hideTotal
         itemName={{ singular: "miner", plural: "miners" }}
         itemRef={itemRef}
@@ -495,14 +506,11 @@ const MinerList = ({
     [minerIds, miners, errorsByDevice, batchStateVersion],
   );
 
-  const disabledMinerIdSet = useMemo(
-    () => new Set(minerIds.filter((id) => miners[id]?.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED)),
-    [minerIds, miners],
-  );
   const isRowDisabled = useCallback(
-    (item: DeviceListItem) => disabledMinerIdSet.has(item.deviceIdentifier),
-    [disabledMinerIdSet],
+    (item: DeviceListItem) => item.miner.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED,
+    [],
   );
+  const isRowSelectionDisabled = useCallback((_item: DeviceListItem) => false, []);
 
   const initialActiveFilters = useMemo(() => parseUrlToActiveFilters(searchParams), [searchParams]);
 
@@ -1015,7 +1023,8 @@ const MinerList = ({
           exportCsvLoading={exportCsvLoading}
           onOpenManageColumns={handleOpenManageColumns}
           handleClearFilters={handleClearFilters}
-          isRowDisabled={isRowDisabled}
+          isRowDisabled={isRowSelectionDisabled}
+          isSelectionLimited={isRowDisabled}
           currentFilter={currentFilter}
           currentSortConfig={currentSortConfig}
           currentSort={currentSort}

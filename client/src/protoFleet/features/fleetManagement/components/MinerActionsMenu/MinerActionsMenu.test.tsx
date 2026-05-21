@@ -3,6 +3,10 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { describe, expect, test, vi } from "vitest";
 import { deviceActions, groupActions, performanceActions, settingsActions } from "./constants";
 import MinerActionsMenu from "./MinerActionsMenu";
+import {
+  type MinerStateSnapshot,
+  PairingStatus,
+} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
 // Use vi.hoisted to properly hoist mock variable declarations
 const {
@@ -483,6 +487,57 @@ describe("MinerActionsMenu", () => {
     expect(actions[2].showGroupDivider).toBe(true);
     expect(actions[3].showGroupDivider).toBeUndefined();
     expect(actions[4].showGroupDivider).toBe(true);
+  });
+
+  test("limits bulk actions to unpair when selection includes an authentication-needed miner", () => {
+    mockUseMinerActions.mockReturnValueOnce({
+      ...createMockMinerActionsReturn(null),
+      popoverActions: [
+        {
+          action: deviceActions.reboot,
+          title: "Reboot",
+          icon: null,
+          actionHandler: vi.fn(),
+          requiresConfirmation: true,
+        },
+        {
+          action: deviceActions.unpair,
+          title: "Unpair",
+          icon: null,
+          actionHandler: vi.fn(),
+          requiresConfirmation: true,
+        },
+        {
+          action: settingsActions.miningPool,
+          title: "Edit pool",
+          icon: null,
+          actionHandler: vi.fn(),
+          requiresConfirmation: false,
+        },
+      ],
+    });
+
+    render(
+      <MinerActionsMenu
+        selectedMiners={["miner-1", "miner-2"]}
+        selectionMode="subset"
+        totalCount={2}
+        miners={{
+          "miner-1": { pairingStatus: PairingStatus.AUTHENTICATION_NEEDED } as MinerStateSnapshot,
+          "miner-2": { pairingStatus: PairingStatus.PAIRED } as MinerStateSnapshot,
+        }}
+      />,
+    );
+
+    const widgetCalls = mockBulkActionsWidget.mock.calls as unknown as Array<[{ actions: Array<{ action: string }> }]>;
+    const widgetCall = widgetCalls[0];
+    expect(widgetCall).toBeDefined();
+
+    if (widgetCall === undefined) {
+      throw new Error("BulkActionsWidget was not called with props");
+    }
+
+    expect(widgetCall[0].actions.map((action) => action.action)).toEqual([deviceActions.unpair]);
   });
 
   test("requests credentials before opening update worker names modal", async () => {
