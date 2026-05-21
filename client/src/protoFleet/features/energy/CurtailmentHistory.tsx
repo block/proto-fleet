@@ -46,6 +46,10 @@ interface CurtailmentHistoryProps {
   pageSize?: number;
   className?: string;
   onViewEvent?: (event: CurtailmentHistoryEvent) => void;
+  /**
+   * Called from the detail modal after the operator reviews the active event.
+   * The parent owns persistence and any additional confirmation.
+   */
   onStopActiveEvent?: (event: CurtailmentHistoryEvent) => void;
 }
 
@@ -64,13 +68,15 @@ interface CurtailmentSummaryModalProps {
   open: boolean;
   onDismiss: () => void;
   onStop?: () => void;
+  stopDisabled?: boolean;
 }
 
 interface CurtailmentHistoryRowProps {
   event: CurtailmentHistoryEvent;
   activeEventId?: string;
   onOpenSummary: (event: CurtailmentHistoryEvent) => void;
-  onStopActiveEvent?: (event: CurtailmentHistoryEvent) => void;
+  onRequestStop?: (event: CurtailmentHistoryEvent) => void;
+  stopDisabled?: boolean;
 }
 
 interface CurtailmentSummaryModalButton {
@@ -78,6 +84,7 @@ interface CurtailmentSummaryModalButton {
   variant: ButtonVariant;
   onClick: () => void;
   dismissModalOnClick: false;
+  disabled?: boolean;
 }
 
 const defaultPageSize = 50;
@@ -127,10 +134,15 @@ const historyColumnLabels: Record<HistoryColumn, string> = {
   state: "Status",
 };
 
-const eventStateOrder = Object.fromEntries(curtailmentEventStates.map((state, index) => [state, index])) as Record<
-  CurtailmentEventState,
-  number
->;
+const eventStateOrder: Record<CurtailmentEventState, number> = {
+  pending: 0,
+  active: 1,
+  restoring: 2,
+  completed: 3,
+  completedWithFailures: 4,
+  cancelled: 5,
+  failed: 6,
+};
 
 const collator = new Intl.Collator(undefined, { sensitivity: "base", numeric: true });
 const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
@@ -274,6 +286,10 @@ function isActiveStoppableEvent(event: CurtailmentHistoryEvent, activeEventId?: 
   return event.id === activeEventId && stoppableEventStates.has(event.state);
 }
 
+function getNormalizedPageSize(pageSize: number): number {
+  return Number.isFinite(pageSize) && pageSize >= 1 ? Math.floor(pageSize) : defaultPageSize;
+}
+
 function isCurtailmentEventState(filter: string): filter is CurtailmentEventState {
   return statusFilterOptionIds.has(filter);
 }
@@ -301,7 +317,13 @@ function shouldIgnoreRowActivation(eventTarget: EventTarget | null, currentTarge
   );
 }
 
-function CurtailmentSummaryModal({ event, open, onDismiss, onStop }: CurtailmentSummaryModalProps): ReactElement {
+function CurtailmentSummaryModal({
+  event,
+  open,
+  onDismiss,
+  onStop,
+  stopDisabled,
+}: CurtailmentSummaryModalProps): ReactElement {
   const startedAt = formatDateTime(event.startedAt);
   const endedAt = formatDateTime(event.endedAt);
   const scheduledAt = formatDateTime(event.scheduledAt);
@@ -313,6 +335,7 @@ function CurtailmentSummaryModal({ event, open, onDismiss, onStop }: Curtailment
           variant: variants.secondaryDanger,
           onClick: onStop,
           dismissModalOnClick: false,
+          disabled: stopDisabled,
         },
       ]
     : [];
@@ -350,9 +373,10 @@ function CurtailmentHistoryRow({
   event,
   activeEventId,
   onOpenSummary,
-  onStopActiveEvent,
+  onRequestStop,
+  stopDisabled,
 }: CurtailmentHistoryRowProps): ReactElement {
-  const canStop = Boolean(onStopActiveEvent) && isActiveStoppableEvent(event, activeEventId);
+  const canStop = Boolean(onRequestStop) && isActiveStoppableEvent(event, activeEventId);
 
   const handleRowClick = (clickEvent: MouseEvent<HTMLTableRowElement>) => {
     if (shouldIgnoreRowActivation(clickEvent.target, clickEvent.currentTarget)) {
@@ -380,7 +404,7 @@ function CurtailmentHistoryRow({
 
   const handleStopClick = (clickEvent: MouseEvent<HTMLButtonElement>) => {
     clickEvent.stopPropagation();
-    onStopActiveEvent?.(event);
+    onRequestStop?.(event);
   };
 
   return (
@@ -423,6 +447,7 @@ function CurtailmentHistoryRow({
               text="Stop"
               ariaLabel={`Stop ${event.reason}`}
               onClick={handleStopClick}
+              disabled={stopDisabled}
             />
           ) : null}
         </div>
@@ -443,12 +468,21 @@ function CurtailmentHistory({
   const [currentSort, setCurrentSort] = useState<HistorySort | undefined>();
   const [currentPage, setCurrentPage] = useState(0);
   const [selectedDetailEventId, setSelectedDetailEventId] = useState<string>();
-  const normalizedPageSize = Math.max(Math.floor(pageSize), 1);
+  const [pendingStopEventId, setPendingStopEventId] = useState<string>();
+  const normalizedPageSize = getNormalizedPageSize(pageSize);
   const hasActiveFilters = selectedStatusFilters.length > 0;
   const selectedDetailEvent = useMemo(
     () => events.find((event) => event.id === selectedDetailEventId),
     [events, selectedDetailEventId],
   );
+  const pendingStopEvent = useMemo(
+    () => events.find((event) => event.id === pendingStopEventId),
+    [events, pendingStopEventId],
+  );
+  const pendingStopEventIsStoppable = Boolean(
+    pendingStopEvent && isActiveStoppableEvent(pendingStopEvent, activeEventId),
+  );
+  const pendingStoppableEventId = pendingStopEventIsStoppable ? pendingStopEventId : undefined;
 
   const filteredEvents = useMemo(() => {
     if (selectedStatusFilters.length === 0) {
@@ -494,10 +528,19 @@ function CurtailmentHistory({
     onViewEvent?.(event);
   };
 
+  const handleRequestStop = (event: CurtailmentHistoryEvent) => handleOpenSummary(event);
+
   const handleDismissSummary = () => setSelectedDetailEventId(undefined);
   const handleStopSelectedDetailEvent =
     selectedDetailEvent && onStopActiveEvent && isActiveStoppableEvent(selectedDetailEvent, activeEventId)
-      ? () => onStopActiveEvent(selectedDetailEvent)
+      ? () => {
+          if (pendingStoppableEventId === selectedDetailEvent.id) {
+            return;
+          }
+
+          setPendingStopEventId(selectedDetailEvent.id);
+          onStopActiveEvent(selectedDetailEvent);
+        }
       : undefined;
 
   return (
@@ -560,7 +603,8 @@ function CurtailmentHistory({
                 event={event}
                 activeEventId={activeEventId}
                 onOpenSummary={handleOpenSummary}
-                onStopActiveEvent={onStopActiveEvent}
+                onRequestStop={onStopActiveEvent ? handleRequestStop : undefined}
+                stopDisabled={event.id === pendingStoppableEventId}
               />
             ))}
             {visibleEvents.length === 0 ? (
@@ -610,6 +654,7 @@ function CurtailmentHistory({
           open
           onDismiss={handleDismissSummary}
           onStop={handleStopSelectedDetailEvent}
+          stopDisabled={selectedDetailEvent.id === pendingStoppableEventId}
         />
       ) : null}
     </section>
