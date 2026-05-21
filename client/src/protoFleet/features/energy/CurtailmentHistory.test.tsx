@@ -125,7 +125,7 @@ describe("CurtailmentHistory", () => {
     expect(screen.getByText("Stop curtailment?")).toBeInTheDocument();
     expect(screen.queryByTestId("modal")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Start restore" }));
+    await user.click(screen.getByRole("button", { name: "Confirm stop" }));
 
     expect(onStopActiveEvent).toHaveBeenCalledWith(pendingEvent);
 
@@ -135,14 +135,8 @@ describe("CurtailmentHistory", () => {
     expect(within(modal).getByText("Queued curtailment")).toBeInTheDocument();
     expect(within(modal).getByText("Not started yet")).toBeInTheDocument();
 
-    await user.click(within(modal).getByRole("button", { name: "Stop curtailment" }));
-
-    expect(screen.getByText("Stop curtailment?")).toBeInTheDocument();
+    expect(within(modal).getByRole("button", { name: "Stop curtailment" })).toBeDisabled();
     expect(onStopActiveEvent).toHaveBeenCalledTimes(1);
-
-    await user.click(screen.getByRole("button", { name: "Start restore" }));
-
-    expect(onStopActiveEvent).toHaveBeenCalledTimes(2);
   });
 
   it("opens row details from an empty actions cell", async () => {
@@ -188,7 +182,7 @@ describe("CurtailmentHistory", () => {
     expect(screen.getByText("Stop curtailment?")).toBeInTheDocument();
     expect(onStopActiveEvent).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole("button", { name: "Start restore" }));
+    await user.click(screen.getByRole("button", { name: "Confirm stop" }));
 
     expect(onStopActiveEvent).toHaveBeenCalledWith(activeEvent);
     expect(stopButton).toBeDisabled();
@@ -233,10 +227,58 @@ describe("CurtailmentHistory", () => {
     expect(screen.queryByTestId("modal")).not.toBeInTheDocument();
     expect(within(activeRow).getByRole("button", { name: "Stop ERCOT ERS obligation" })).not.toBeDisabled();
 
-    await user.click(screen.getByRole("button", { name: "Start restore" }));
+    await user.click(screen.getByRole("button", { name: "Confirm stop" }));
 
     expect(onStopActiveEvent).toHaveBeenCalledWith(mockCurtailmentHistoryEvents[0]);
     expect(within(activeRow).getByRole("button", { name: "Stop ERCOT ERS obligation" })).toBeDisabled();
+  });
+
+  it("keeps stop actions disabled when a confirmed stop handler returns synchronously", async () => {
+    const user = userEvent.setup();
+    const onStopActiveEvent = vi.fn();
+
+    render(
+      <CurtailmentHistory
+        events={mockCurtailmentHistoryEvents}
+        activeEventId="curt-1042"
+        onStopActiveEvent={onStopActiveEvent}
+      />,
+    );
+
+    const activeRow = screen.getByTestId("curtailment-history-row-curt-1042");
+    await user.click(within(activeRow).getByRole("button", { name: "Stop ERCOT ERS obligation" }));
+    await user.click(screen.getByRole("button", { name: "Confirm stop" }));
+
+    expect(onStopActiveEvent).toHaveBeenCalledWith(mockCurtailmentHistoryEvents[0]);
+    expect(within(activeRow).getByRole("button", { name: "Stop ERCOT ERS obligation" })).toBeDisabled();
+
+    await user.click(activeRow);
+
+    const modal = screen.getByTestId("modal");
+    expect(within(modal).getByRole("button", { name: "Stop curtailment" })).toBeDisabled();
+  });
+
+  it("re-enables stop actions when a confirmed stop handler throws synchronously", async () => {
+    const user = userEvent.setup();
+    const onStopActiveEvent = vi.fn(() => {
+      throw new Error("Stop request failed");
+    });
+
+    render(
+      <CurtailmentHistory
+        events={mockCurtailmentHistoryEvents}
+        activeEventId="curt-1042"
+        onStopActiveEvent={onStopActiveEvent}
+      />,
+    );
+
+    const activeRow = screen.getByTestId("curtailment-history-row-curt-1042");
+    await user.click(within(activeRow).getByRole("button", { name: "Stop ERCOT ERS obligation" }));
+    await user.click(screen.getByRole("button", { name: "Confirm stop" }));
+
+    expect(onStopActiveEvent).toHaveBeenCalledWith(mockCurtailmentHistoryEvents[0]);
+    expect(screen.queryByText("Stop curtailment?")).not.toBeInTheDocument();
+    expect(within(activeRow).getByRole("button", { name: "Stop ERCOT ERS obligation" })).not.toBeDisabled();
   });
 
   it("keeps stop actions enabled while confirmation is awaiting a decision", async () => {
@@ -334,7 +376,7 @@ describe("CurtailmentHistory", () => {
     expect(screen.getByText("Stop curtailment?")).toBeInTheDocument();
     expect(onStopActiveEvent).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole("button", { name: "Start restore" }));
+    await user.click(screen.getByRole("button", { name: "Confirm stop" }));
 
     expect(onStopActiveEvent).toHaveBeenCalledWith(mockCurtailmentHistoryEvents[0]);
     expect(modalStopButton).toBeDisabled();
@@ -349,7 +391,7 @@ describe("CurtailmentHistory", () => {
 
     expect(screen.getByText("Stop curtailment?")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Start restore" }));
+    await user.click(screen.getByRole("button", { name: "Confirm stop" }));
 
     expect(onStopActiveEvent).toHaveBeenCalledTimes(2);
   });
@@ -379,7 +421,7 @@ describe("CurtailmentHistory", () => {
     expect(screen.getByText("Stop curtailment?")).toBeInTheDocument();
     expect(screen.queryByTestId("modal")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Start restore" }));
+    await user.click(screen.getByRole("button", { name: "Confirm stop" }));
 
     expect(onStopActiveEvent).toHaveBeenCalledWith(mockCurtailmentHistoryEvents[0]);
   });

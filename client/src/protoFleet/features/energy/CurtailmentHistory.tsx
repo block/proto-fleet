@@ -587,14 +587,20 @@ function CurtailmentHistory({
 
     const event = selectedStopEvent;
     setSelectedStopEventId(undefined);
+    setPendingStopEventId(event.id);
 
-    const stopRequest = onStopActiveEvent(event);
+    let stopRequest: void | PromiseLike<unknown>;
+    try {
+      stopRequest = onStopActiveEvent(event);
+    } catch {
+      setPendingStopEventId((currentEventId) => (currentEventId === event.id ? undefined : currentEventId));
+      return;
+    }
 
     if (!isPromiseLike(stopRequest)) {
       return;
     }
 
-    setPendingStopEventId(event.id);
     void Promise.resolve(stopRequest).catch(() => {
       setPendingStopEventId((currentEventId) => (currentEventId === event.id ? undefined : currentEventId));
     });
