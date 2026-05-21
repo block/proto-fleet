@@ -17,6 +17,10 @@ import {
 } from "@/protoFleet/features/rackManagement/components/AssignMinersModal";
 import { RackCard } from "@/protoFleet/features/rackManagement/components/RackCard";
 import RackSettingsModal from "@/protoFleet/features/rackManagement/components/RackSettingsModal";
+import {
+  BUILDING_URL_PARAM,
+  parseBuildingIdsFromParams,
+} from "@/protoFleet/features/rackManagement/utils/buildingFilterUrl";
 import { mapRackToCardProps } from "@/protoFleet/features/rackManagement/utils/rackCardMapper";
 import { useDeviceSetListState } from "@/protoFleet/hooks/useDeviceSetListState";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
@@ -43,29 +47,6 @@ const RACK_COLUMNS: DeviceSetColumn[] = [
   "temperature",
   "health",
 ];
-
-const BUILDING_URL_PARAM = "building";
-
-// Reads the `building=…` URL params and returns only the valid bigint
-// values. Deep-linking from `/buildings/:id` seeds initial state and stays
-// the source of truth for the building filter so back/forward navigation
-// keeps the chip and list in sync. Accepts both repeated-key
-// (`?building=1&building=2`) and legacy comma-joined (`?building=1,2`)
-// forms to mirror filterUrlParams.ts on the miner list.
-function parseBuildingIdsFromParams(params: URLSearchParams): bigint[] {
-  return params
-    .getAll(BUILDING_URL_PARAM)
-    .flatMap((raw) => raw.split(","))
-    .flatMap((raw) => {
-      const trimmed = raw.trim();
-      if (!trimmed || !/^\d+$/.test(trimmed)) return [];
-      try {
-        return [BigInt(trimmed)];
-      } catch {
-        return [];
-      }
-    });
-}
 
 const RacksPage = () => {
   const navigate = useNavigate();
@@ -233,13 +214,22 @@ const RacksPage = () => {
     selectedBuildingIdStrings.length > 0 || selectedZones.length > 0 || selectedIssues.length > 0;
 
   const handleClearFilters = useCallback(() => {
+    // Snapshot before any state changes — drives whether the URL-change
+    // effect will refetch for us.
+    const hadBuildingFilter = selectedBuildingIdStrings.length > 0;
     setSelectedZones([]);
     selectedZonesRef.current = [];
     setSelectedIssues([]);
     selectedIssuesRef.current = [];
     setBuildingFilter([]);
-    resetAndFetch();
-  }, [resetAndFetch, selectedIssuesRef, selectedZonesRef, setBuildingFilter]);
+    // When the building filter was active, clearing the URL fires the
+    // `prevBuildingKey` effect which calls resetAndFetch with the cleared
+    // ref. Calling it here too would double-fetch (the first call would
+    // read stale building ids from the ref before the URL change settles).
+    if (!hadBuildingFilter) {
+      resetAndFetch();
+    }
+  }, [resetAndFetch, selectedBuildingIdStrings, selectedIssuesRef, selectedZonesRef, setBuildingFilter]);
 
   const emptyStateRow: ReactNode = useMemo(() => {
     if (isLoading || totalCount > 0) return undefined;
@@ -345,7 +335,12 @@ const RacksPage = () => {
     );
   }
 
-  const hasRacks = hasEverLoaded || totalCount > 0 || racks.length > 0;
+  // `hasActiveFilters` short-circuits the null state when the user is
+  // filtering. `hasEverLoaded` only flips when an unfiltered fetch returns
+  // a non-empty page (useDeviceSetListState), so deep-linking to a building
+  // that has no racks would otherwise render "You haven't set up any racks"
+  // instead of the filtered-empty state with the chip showing.
+  const hasRacks = hasEverLoaded || totalCount > 0 || racks.length > 0 || hasActiveFilters;
 
   if (!hasRacks) {
     return (
