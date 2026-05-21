@@ -329,9 +329,13 @@ resolve_deployment_path() {
       if [[ "${PREVIOUS_INSTALL_NEEDS_SUDO:-0}" == "1" ]] && [[ "$(id -u)" -ne 0 ]]; then
         print_error "Existing fleet containers were detected, but only via sudo."
         print_error "They are managed by the root Docker daemon, and this script is running as $(id -un)."
+        # Use the pipe form rather than `sudo bash $0` — when the user
+        # invoked us via `bash <(curl ...)` (per README.md), $0 is a
+        # transient /dev/fd/* descriptor that sudo cannot reopen, so the
+        # naive suggestion fails immediately.
         print_error "Re-run the uninstaller as root (flags preserved):"
         echo ""
-        echo "    sudo bash $0$(quoted_rerun_argv)"
+        echo "    curl -fsSL https://fleet.proto.xyz/uninstall.sh | sudo bash -s --$(quoted_rerun_argv)"
         echo ""
         exit 1
       fi
@@ -363,7 +367,8 @@ resolve_deployment_path() {
     # root daemon — a root-managed install could exist that we never saw.
     if [[ "${PREVIOUS_INSTALL_SUDO_BLOCKED:-0}" == "1" ]]; then
       print_error "(sudo required a password, so the root Docker daemon was not probed."
-      print_error " If a root-managed install might exist, re-run with: sudo bash $0$(quoted_rerun_argv))"
+      print_error " If a root-managed install might exist, re-run as root:"
+      print_error "   curl -fsSL https://fleet.proto.xyz/uninstall.sh | sudo bash -s --$(quoted_rerun_argv))"
     fi
     exit 1
   fi
@@ -500,7 +505,10 @@ echo "  - Deployment directory: $DEPLOYMENT_PATH"
 echo ""
 
 if ! $DRY_RUN; then
-  read -rp "Proceed with uninstall? (y/N): " confirm
+  # Read from /dev/tty so the prompt works under `curl ... | sudo bash -s --`
+  # (the sudo re-run form suggested above). Without this, stdin is the curl
+  # pipe and the confirm read silently hits EOF.
+  read -rp "Proceed with uninstall? (y/N): " confirm < /dev/tty
   if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
     echo "Uninstall canceled."
     exit 0

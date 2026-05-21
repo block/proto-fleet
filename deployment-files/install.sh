@@ -255,7 +255,7 @@ check_page_size() {
     echo "4. Reboot: sudo reboot"
     echo "5. Verify with: getconf PAGESIZE (should show 4096)"
     echo "6. Run this installation script again"
-    read -p "Do you want to continue anyway? (y/N): " continue_anyway
+    read -p "Do you want to continue anyway? (y/N): " continue_anyway < /dev/tty
       
     if [[ ! "$continue_anyway" =~ ^[Yy]$ ]]; then
       echo "Installation aborted."
@@ -406,9 +406,13 @@ if [ "${PREVIOUS_INSTALL_SUDO_BLOCKED:-0}" = "1" ]; then
   echo "      curl -fsSL https://fleet.proto.xyz/install.sh | sudo bash -s -- ${QUOTED_VERSION})"
 fi
 
-read -p "   Use this location? (Y/n): " use_suggested
+# Read from /dev/tty so the prompts work under `curl ... | sudo bash -s --`.
+# Without this, stdin is the curl pipe (already consumed) and the reads
+# silently hit EOF, leaving the responses empty — defaulting users into the
+# happy path with no chance to redirect.
+read -p "   Use this location? (Y/n): " use_suggested < /dev/tty
 if [[ "$use_suggested" =~ ^[Nn]$ ]]; then
-  read -p "   Enter installation directory [${DEFAULT_INSTALL_DIR}]: " custom_dir
+  read -p "   Enter installation directory [${DEFAULT_INSTALL_DIR}]: " custom_dir < /dev/tty
   INSTALL_DIR="${custom_dir:-$DEFAULT_INSTALL_DIR}"
 else
   INSTALL_DIR="$SUGGESTED_DIR"
