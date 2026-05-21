@@ -77,8 +77,8 @@ type Plan struct {
 	// after Service.Start resolves the server-default sentinel. Zero for Preview.
 	EffectiveRestoreBatchIntervalSec int32
 	// EffectiveBatchSize is the adaptive batch size stamped on the event row
-	// at Start time. Zero for Preview. Read back by the Start response,
-	// Stop, and the reconciler's restore claim.
+	// at Start time. Zero for Preview. Echoed in the Start response; Stop
+	// and the reconciler read it from the persisted event row, not from Plan.
 	EffectiveBatchSize int32
 }
 

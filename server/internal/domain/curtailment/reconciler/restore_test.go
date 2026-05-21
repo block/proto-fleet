@@ -683,6 +683,11 @@ func TestReconciler_Restoring_MissingCandidateDuringConfirmConsumesRetryBudget(t
 		"missing candidate burns one retry slot per tick")
 	require.NotNil(t, final.LastError)
 	assert.Contains(t, *final.LastError, "candidate row missing")
+	// disp.uncurtailCalls==0 is enforced by Gate 2 (interval gate) rather than
+	// by the missing-candidate path itself: after recordDispatchFailure the
+	// target is Pending with retry budget left, so the in-flight gate would
+	// permit a re-claim. The 600s interval against a 60s-old LastDispatchedAt
+	// holds the re-claim, isolating the missing-candidate assertions above.
 	assert.Equal(t, 0, disp.uncurtailCalls,
 		"interval gate must hold the re-claim until restore_batch_interval_sec elapses")
 }

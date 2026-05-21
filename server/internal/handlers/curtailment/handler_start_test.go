@@ -206,6 +206,11 @@ func TestHandler_StartCurtailment_HappyPath(t *testing.T) {
 	assert.InDelta(t, 3000.0, *ev.Targets[0].BaselinePowerW, 0.001)
 	assert.Equal(t, int32(2), ev.TargetRollup.Pending)
 	assert.Equal(t, int32(2), ev.TargetRollup.Total)
+
+	// effective_batch_size is stamped from the selected-target count and
+	// echoed in the Start response. Two selected candidates with no caller
+	// preference clamps to the minimum floor (10).
+	assert.Equal(t, uint32(10), ev.EffectiveBatchSize)
 }
 
 // TestHandler_StartCurtailment_APIKeyDerivesAPIKeyActor pins the audit
