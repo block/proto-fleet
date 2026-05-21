@@ -47,6 +47,18 @@ ALTER TABLE role
         (is_builtin = FALSE AND builtin_key IS NULL)
     );
 
+-- Built-in display names are reserved. Existing authorization gates
+-- still compare session.Info.Role by string; a custom row named
+-- 'ADMIN', 'SUPER_ADMIN', or 'FIELD_TECH' could be mistaken for the
+-- built-in by name-based code paths until those gates migrate to
+-- builtin_key or permissions. Block the collision at the DB so no
+-- application mistake or future migration can create one.
+ALTER TABLE role
+    ADD CONSTRAINT chk_role_custom_name_not_reserved CHECK (
+        is_builtin = TRUE
+        OR name NOT IN ('SUPER_ADMIN', 'ADMIN', 'FIELD_TECH')
+    );
+
 -- Composite-key target so child tables (user_organization_role) can FK on
 -- (role_id, organization_id) and reject a cross-tenant pointer at the DB
 -- layer. Without this, an assignment could bind a user in org A to a role

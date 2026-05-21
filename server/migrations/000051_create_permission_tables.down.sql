@@ -8,10 +8,24 @@ DROP TABLE IF EXISTS permission;
 
 ALTER TABLE role
     DROP CONSTRAINT IF EXISTS chk_role_builtin_key_matches_flag,
+    DROP CONSTRAINT IF EXISTS chk_role_custom_name_not_reserved,
     DROP CONSTRAINT IF EXISTS uq_role_id_org_id;
 
 DROP INDEX IF EXISTS uq_role_org_custom_name;
 DROP INDEX IF EXISTS uq_role_org_builtin_key;
+
+-- Custom roles are a per-org concept introduced in this migration; they
+-- have no representation in the pre-up schema. The new partial unique
+-- index uq_role_org_custom_name allowed multiple orgs to share a custom
+-- name, so restoring the global uq_role_name below would fail with a
+-- duplicate-key error on any environment where customs exist. Hard
+-- delete every custom row before the constraint is restored. (PR 1
+-- ships no RPC to create customs, so this is a no-op in production
+-- today; it makes the down safe once custom-role CRUD lands.)
+DELETE FROM role_permission
+WHERE role_id IN (SELECT id FROM role WHERE is_builtin = FALSE);
+
+DELETE FROM role WHERE is_builtin = FALSE;
 
 ALTER TABLE role
     DROP CONSTRAINT IF EXISTS fk_role_organization,

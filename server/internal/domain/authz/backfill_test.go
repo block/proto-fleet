@@ -86,10 +86,9 @@ func TestBackfill_ExistingAdminUserGetsOrgScopeAssignment(t *testing.T) {
 	db := testutil.GetTestDB(t)
 	ctx := t.Context()
 
-	require.NoError(t, authz.Reconcile(ctx, db))
-
 	orgID := insertTestOrganization(t, db)
 	userID := insertTestUser(t, db)
+	require.NoError(t, authz.Reconcile(ctx, db))
 	adminRoleID := getBuiltinRoleID(t, db, orgID, "ADMIN")
 
 	// Insert via the legacy table directly to simulate a row that
@@ -165,10 +164,9 @@ func TestSeed_SoftDeletedOrgStillGetsBuiltins(t *testing.T) {
 func TestBackfill_SoftDeletedUserOrganizationRowsAreNotCopied(t *testing.T) {
 	db := testutil.GetTestDB(t)
 	ctx := t.Context()
-	require.NoError(t, authz.Reconcile(ctx, db))
-
 	orgID := insertTestOrganization(t, db)
 	userID := insertTestUser(t, db)
+	require.NoError(t, authz.Reconcile(ctx, db))
 	adminRoleID := getBuiltinRoleID(t, db, orgID, "ADMIN")
 
 	_, err := db.ExecContext(ctx,
@@ -191,10 +189,9 @@ func TestBackfill_SoftDeletedUserOrganizationRowsAreNotCopied(t *testing.T) {
 func TestAssignment_SoftDeletedRowDoesNotBlockReassign(t *testing.T) {
 	db := testutil.GetTestDB(t)
 	ctx := t.Context()
-	require.NoError(t, authz.Reconcile(ctx, db))
-
 	orgID := insertTestOrganization(t, db)
 	userID := insertTestUser(t, db)
+	require.NoError(t, authz.Reconcile(ctx, db))
 	adminRoleID := getBuiltinRoleID(t, db, orgID, "ADMIN")
 
 	q := sqlc.New(db)
@@ -228,10 +225,9 @@ func TestAssignment_SoftDeletedRowDoesNotBlockReassign(t *testing.T) {
 func TestAssignment_DuplicateLiveOrgScopeRejected(t *testing.T) {
 	db := testutil.GetTestDB(t)
 	ctx := t.Context()
-	require.NoError(t, authz.Reconcile(ctx, db))
-
 	orgID := insertTestOrganization(t, db)
 	userID := insertTestUser(t, db)
+	require.NoError(t, authz.Reconcile(ctx, db))
 	adminRoleID := getBuiltinRoleID(t, db, orgID, "ADMIN")
 
 	q := sqlc.New(db)
@@ -261,10 +257,9 @@ func TestAssignment_DuplicateLiveOrgScopeRejected(t *testing.T) {
 func TestBackfill_Idempotent(t *testing.T) {
 	db := testutil.GetTestDB(t)
 	ctx := t.Context()
-	require.NoError(t, authz.Reconcile(ctx, db))
-
 	orgID := insertTestOrganization(t, db)
 	userID := insertTestUser(t, db)
+	require.NoError(t, authz.Reconcile(ctx, db))
 	adminRoleID := getBuiltinRoleID(t, db, orgID, "ADMIN")
 
 	_, err := db.ExecContext(ctx,
