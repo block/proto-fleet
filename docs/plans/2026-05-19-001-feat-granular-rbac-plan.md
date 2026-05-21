@@ -346,9 +346,19 @@ Startup reconciliation runs per-org:
 - **SUPER_ADMIN** (every org): fully reconciled. Catalog growth adds
   rows; catalog shrinkage prunes them; operator tampering is
   reverted.
-- **ADMIN / FIELD_TECH** (every org): additive-only. Missing seed
-  permissions are inserted; nothing is ever removed. Operator edits
-  via `UpdateCustomRole` survive restarts.
+- **ADMIN / FIELD_TECH** (every org): **seeded once on creation; left
+  alone after that.** When a per-org row is first inserted, every
+  permission in the seed formula is attached. Subsequent boots check
+  whether the row already exists; if so, reconciliation does nothing
+  to its `role_permission` set. The operator owns the role after
+  creation. Re-asserting the seed set on every boot would silently
+  restore permissions the operator deliberately revoked (e.g.,
+  `miner:update_pools` or `miner:firmware_update`) and would defeat
+  the whole point of making these roles editable. A consequence:
+  catalog growth (a permission added in a future release) does NOT
+  auto-propagate to existing orgs' ADMIN or FIELD_TECH rows —
+  operators add new permissions via the role editor when they want
+  them.
 
 The reconciler iterates the `organization` table at boot. New orgs
 also get their built-ins seeded inside the org-creation transaction
@@ -693,19 +703,21 @@ without manual intervention.
 - A **startup reconciliation step** runs after migrations on server
   boot. It loops over the active orgs (`ListActiveOrganizationIDs`)
   and for each org calls `SeedOrgBuiltins(ctx, q, orgID)`. For each
-  built-in role defined in `builtin.go`, it upserts the role row via
-  `UpsertBuiltinRoleForOrg` and converges `role_permission` per-role
-  policy:
-  - **SUPER_ADMIN** (every org): fully reconciled to
+  built-in role defined in `builtin.go`, the seeder first checks
+  whether a per-org row already exists (`GetBuiltinRoleForOrg`):
+  - **Row does not exist** → INSERT the role row and seed every
+    permission in the spec. This is the only path that touches
+    role_permission for non-SUPER_ADMIN built-ins.
+  - **Row exists, SUPER_ADMIN** → full reconcile to
     `AllPermissions()`. Catalog growth adds rows; catalog shrinkage
-    prunes them; tampering is repaired. Its contract is "everything
-    in the current catalog."
-  - **ADMIN / FIELD_TECH** (every org): **additive-only.** Catalog
-    keys present in the role's *seed formula* but absent from
-    `role_permission` are inserted; nothing is ever removed.
-    Operators who edited their org's ADMIN or FIELD_TECH keep their
-    edits across upgrades, and edits in one org never leak into
-    another.
+    prunes them; operator tampering is repaired. Its contract is
+    "everything in the current catalog."
+  - **Row exists, ADMIN or FIELD_TECH** → do nothing. The operator
+    owns the role after creation. Re-asserting the seed set would
+    silently restore permissions the operator deliberately revoked.
+    New catalog keys do not auto-propagate to existing orgs' ADMIN
+    or FIELD_TECH; operators add them via the role editor when they
+    want them.
 - `SeedOrgBuiltins` is also called from the onboarding flow inside
   the org-creation transaction (see U2's onboarding wiring), so a
   brand-new org has its built-ins immediately and the founding user
@@ -758,19 +770,31 @@ be served before built-in roles are reconciled.
   pass.
 - Catalog grows: add a new permission key to the catalog, restart
   server; the new `permission` row is inserted; every org's
-  SUPER_ADMIN row picks it up; every org's ADMIN picks it up if its
-  seed formula includes it; FIELD_TECH rows are unchanged unless the
-  explicit seed set was updated.
+  SUPER_ADMIN row picks it up; existing ADMIN and FIELD_TECH rows
+  are **unchanged** — catalog growth never auto-propagates to
+  already-created built-ins. Newly-created orgs (created after the
+  catalog grew) get the new key if it's in the relevant seed
+  formula.
 - Reconciliation is idempotent: running it twice produces the same
   row state, no duplicate inserts.
-- **Operator edits to ADMIN survive restart.** A SUPER_ADMIN in one
-  org removes `miner:firmware_update` from their ADMIN via
-  `UpdateCustomRole`; restart reconciliation leaves the row deleted
-  (additive-only). A later catalog addition of `miner:new_action` is
-  added to that org's ADMIN on the following restart without
-  restoring the removed firmware-update row.
+- **Operator-revoked permissions stay revoked across restarts.** A
+  SUPER_ADMIN in one org removes `miner:firmware_update` from their
+  ADMIN via `UpdateCustomRole`; restart reconciliation leaves the
+  row deleted because the per-org ADMIN row already exists. The
+  same holds for sensitive permissions like `miner:update_pools` and
+  `miner:reboot` — once revoked, they do not silently return on the
+  next boot. A later catalog addition of `miner:new_action` is NOT
+  added to that org's ADMIN either (no auto-propagation to existing
+  built-in rows).
 - **Operator edits to FIELD_TECH survive restart** under the same
-  additive-only contract, scoped to the editing org only.
+  seed-on-create contract, scoped to the editing org only.
+- **Onboarding founding user gets the assignment row.** A
+  freshly-onboarded SUPER_ADMIN has a row in `user_organization_role`
+  pointing at the per-org SUPER_ADMIN role (the dual-write covers
+  both legacy `user_organization` and the new assignment table). A
+  fresh-install test asserts the founding user holds an org-scope
+  SUPER_ADMIN assignment when the resolver begins consulting the
+  new table.
 - **SUPER_ADMIN tampering is repaired on restart.** A row deleted
   from an org's SUPER_ADMIN `role_permission` is restored on next
   startup (full reconciliation). A row inserted into SUPER_ADMIN for
@@ -1615,17 +1639,22 @@ added to the map).
   INITIALLY DEFERRED` so transactional re-assignments don't fail
   mid-transaction. Building-level FK is deferred along with
   building-scope itself.
-- **Built-in roles: SUPER_ADMIN locked and fully reconciled; ADMIN and
-  FIELD_TECH editable with additive-only reconciliation.** SUPER_ADMIN
-  is treated as immutable at the API layer and its `role_permission`
+- **Built-in roles: SUPER_ADMIN locked and fully reconciled; ADMIN
+  and FIELD_TECH seeded on creation and then owned by the operator.**
+  SUPER_ADMIN is immutable at the API layer and its `role_permission`
   rows are fully reconciled on every boot to `AllPermissions()`
   (additions *and* removals). ADMIN and FIELD_TECH share the same
   `UpdateCustomRole` API as custom roles so operators can tune them
-  per org; startup reconciliation only **adds** missing seed
-  permissions to these two and never removes a row, so operator edits
-  survive upgrades. Built-ins are identified by `builtin_key`, not by
-  primary key. Reconciliation runs under `pg_advisory_xact_lock` so
-  concurrent boots serialize cleanly, and uses idempotent upserts (no
+  per org. Startup reconciliation seeds the role_permission set only
+  when the per-org row is *first created* — once it exists,
+  reconciliation does not touch its `role_permission` rows. Earlier
+  drafts called this "additive-only" but that wording was misleading:
+  the original implementation re-asserted the seed set on every
+  boot, which silently restored operator-revoked permissions. The
+  correct contract is "seeded once, then owned by the operator."
+  Built-ins are identified by `(organization_id, builtin_key)`.
+  Reconciliation runs under `pg_advisory_xact_lock` so concurrent
+  boots serialize cleanly, and uses idempotent upserts (no
   delete-then-insert window).
 - **`UserInfo.permissions` is a flat union across all assignments.** The
   client gates on coarse "has the permission anywhere" presence; the
@@ -1737,13 +1766,19 @@ The user's stated requirements:
   (b) the read-pairing rule (U8) prevents saving an internally
   inconsistent set (action without its read); (c) recovery path —
   any SUPER_ADMIN can re-edit the role at any time, no DB
-  intervention required; (d) additive-only startup reconciliation
-  (U4) is **not** a safety net here because it never removes rows,
-  so a stripped permission stays stripped until a SUPER_ADMIN
-  restores it. The product surface should make this clear: the
-  RoleEditor renders an explicit "you are editing a built-in role"
-  banner on ADMIN and FIELD_TECH so the operator can't mistake it
-  for a custom role tweak.
+  intervention required; (d) startup reconciliation is **not** a
+  safety net here — seed-on-create semantics mean reconciliation
+  does not touch role_permission once the role exists, so a
+  stripped permission stays stripped until a SUPER_ADMIN restores
+  it. (Earlier drafts wrongly said "additive-only" reconciliation
+  would add missing seed permissions back on every boot; that was
+  the original bug — it would also silently restore operator-revoked
+  permissions like `miner:update_pools`. The fixed semantics are
+  seed-once on the first creation of a per-org built-in row.) The
+  product surface should make this clear: the RoleEditor renders an
+  explicit "you are editing a built-in role" banner on ADMIN and
+  FIELD_TECH so the operator can't mistake it for a custom role
+  tweak.
 - **Risk: cross-org IDOR via resource ID in request payloads.**
   Mitigation: defense in depth — DB-level composite FK on
   `(scope_id, organization_id)` (U2) plus per-handler pre-resolve
