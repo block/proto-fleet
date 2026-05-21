@@ -758,10 +758,12 @@ func marshalScopeJSON(s Scope) ([]byte, error) {
 }
 
 // StopRequest is the service-level shape of a Stop call. The handler maps
-// it from `StopCurtailmentRequest` after deriving OrgID from session.Info.
+// it from `StopCurtailmentRequest` after deriving OrgID from session.Info
+// and gating `Force` on Admin role.
 type StopRequest struct {
 	OrgID     int64
 	EventUUID uuid.UUID
+	Force     bool // admin-gated upstream; bypasses min_curtailed_duration_sec
 }
 
 // Adaptive batch-sizing constants. [10, 100] is the inrush envelope, computed
@@ -800,7 +802,7 @@ func (s *Service) Stop(ctx context.Context, req StopRequest) (*models.Event, err
 		return event, nil
 	}
 
-	if err := checkMinCurtailedDurationGate(event, time.Now()); err != nil {
+	if err := checkMinCurtailedDurationGate(event, req.Force, time.Now()); err != nil {
 		return nil, err
 	}
 
@@ -819,9 +821,10 @@ func validateStopRequest(req StopRequest) error {
 
 // checkMinCurtailedDurationGate enforces `min_curtailed_duration_sec` on
 // active events. Pending events haven't curtailed anything yet, so the
-// hysteresis gate doesn't apply. EMERGENCY priority on the event bypasses.
-func checkMinCurtailedDurationGate(event *models.Event, now time.Time) error {
-	if event.Priority == models.PriorityEmergency {
+// hysteresis gate doesn't apply. Admin callers can pass force=true on Stop
+// to bypass the gate explicitly.
+func checkMinCurtailedDurationGate(event *models.Event, force bool, now time.Time) error {
+	if force {
 		return nil
 	}
 	if event.State != models.EventStateActive {
@@ -836,7 +839,7 @@ func checkMinCurtailedDurationGate(event *models.Event, now time.Time) error {
 		return nil
 	}
 	return fleeterror.NewFailedPreconditionErrorf(
-		"min_curtailed_duration_sec not elapsed: %ds of %ds; an EMERGENCY-priority event would bypass this gate",
+		"min_curtailed_duration_sec not elapsed: %ds of %ds; an admin can supply force=true on Stop to bypass this gate",
 		int64(elapsed.Seconds()), event.MinCurtailedDurationSec,
 	)
 }

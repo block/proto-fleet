@@ -185,3 +185,51 @@ func TestHandler_StopCurtailment_RejectsMalformedUUID(t *testing.T) {
 	require.ErrorAs(t, err, &fleetErr)
 	assert.Equal(t, connect.CodeInvalidArgument, fleetErr.GRPCCode)
 }
+
+func TestHandler_StopCurtailment_ForceRequiresAdmin(t *testing.T) {
+	t.Parallel()
+	store := newStopStubStore()
+	h := NewHandler(curtailment.NewService(store))
+
+	ctx := authn.SetInfo(t.Context(), &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: 42,
+		UserID:         9,
+		Role:           "OPERATOR", // non-Admin
+	})
+
+	_, err := h.StopCurtailment(ctx, connect.NewRequest(&pb.StopCurtailmentRequest{
+		EventUuid: store.event.EventUUID.String(),
+		Force:     true,
+	}))
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+	assert.Equal(t, 0, store.beginRestoreCalls,
+		"role gate must fail before reaching the service")
+}
+
+func TestHandler_StopCurtailment_AdminForcePassesThrough(t *testing.T) {
+	t.Parallel()
+	startedAt := time.Now().Add(-30 * time.Second)
+	store := newStopStubStore()
+	store.event.MinCurtailedDurationSec = 600 // gate would block without force
+	store.event.StartedAt = &startedAt
+	h := NewHandler(curtailment.NewService(store))
+
+	ctx := authn.SetInfo(t.Context(), &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: 42,
+		UserID:         9,
+		Role:           "ADMIN",
+	})
+
+	_, err := h.StopCurtailment(ctx, connect.NewRequest(&pb.StopCurtailmentRequest{
+		EventUuid: store.event.EventUUID.String(),
+		Force:     true,
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, 1, store.beginRestoreCalls,
+		"admin force=true must bypass the min-duration gate")
+}

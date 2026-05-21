@@ -480,6 +480,11 @@ message UpdateCurtailmentEventResponse {
 // StopCurtailment starts restore; min duration may block normal priority.
 message StopCurtailmentRequest {
     string event_uuid = 1 [(buf.validate.field).string.min_len = 1];
+
+    // Admin-only bypass of `min_curtailed_duration_sec` on active events.
+    // Defaults to false; admin-gated handler-side. Zero/unset means the
+    // hysteresis gate applies normally.
+    bool force = 2;
 }
 
 message StopCurtailmentResponse {

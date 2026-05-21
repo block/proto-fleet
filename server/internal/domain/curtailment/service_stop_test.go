@@ -127,8 +127,24 @@ func TestService_Stop_MinDurationGateBlocksNormalPriority(t *testing.T) {
 	assert.Equal(t, 0, f.store.beginRestoreCalls)
 }
 
-func TestService_Stop_EmergencyBypassesMinDuration(t *testing.T) {
+func TestService_Stop_ForceBypassesMinDuration(t *testing.T) {
 	t.Parallel()
+	startedAt := time.Now().Add(-30 * time.Second)
+	f := newStopFixture(t, func(ev *models.Event) {
+		ev.MinCurtailedDurationSec = 600
+		ev.StartedAt = &startedAt
+	})
+
+	_, err := f.svc.Stop(t.Context(), StopRequest{OrgID: 1, EventUUID: f.event.EventUUID, Force: true})
+	require.NoError(t, err)
+	assert.Equal(t, 1, f.store.beginRestoreCalls)
+}
+
+func TestService_Stop_EmergencyPriorityNoLongerBypasses(t *testing.T) {
+	t.Parallel()
+	// Pre-existing EMERGENCY events still go through the min-duration gate;
+	// only the per-Stop `force` field bypasses now. Operators with active
+	// EMERGENCY events that have not yet elapsed must pass force=true.
 	startedAt := time.Now().Add(-30 * time.Second)
 	f := newStopFixture(t, func(ev *models.Event) {
 		ev.MinCurtailedDurationSec = 600
@@ -137,8 +153,11 @@ func TestService_Stop_EmergencyBypassesMinDuration(t *testing.T) {
 	})
 
 	_, err := f.svc.Stop(t.Context(), StopRequest{OrgID: 1, EventUUID: f.event.EventUUID})
-	require.NoError(t, err)
-	assert.Equal(t, 1, f.store.beginRestoreCalls)
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, "failed_precondition", fleetErr.GRPCCode.String())
+	assert.Contains(t, fleetErr.DebugMessage, "force=true")
 }
 
 func TestService_Stop_MinDurationDoesNotGatePendingEvents(t *testing.T) {

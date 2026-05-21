@@ -492,7 +492,7 @@ func formatExclusionCounters(d *modes.InsufficientLoadDetail) string {
 }
 
 // toStopRequest converts the proto request to a service StopRequest. OrgID
-// comes from session.Info.
+// comes from session.Info. Force is admin-gated at the handler entry.
 func toStopRequest(msg *pb.StopCurtailmentRequest, orgID int64) (curtailment.StopRequest, error) {
 	eventUUID, err := uuid.Parse(msg.GetEventUuid())
 	if err != nil {
@@ -503,6 +503,7 @@ func toStopRequest(msg *pb.StopCurtailmentRequest, orgID int64) (curtailment.Sto
 	return curtailment.StopRequest{
 		OrgID:     orgID,
 		EventUUID: eventUUID,
+		Force:     msg.GetForce(),
 	}, nil
 }
 

@@ -106,6 +106,11 @@ func (h *Handler) UpdateCurtailmentEvent(_ context.Context, _ *connect.Request[p
 }
 
 func (h *Handler) StopCurtailment(ctx context.Context, req *connect.Request[pb.StopCurtailmentRequest]) (*connect.Response[pb.StopCurtailmentResponse], error) {
+	if req.Msg.GetForce() {
+		if err := requireAdminFromContext(ctx, actionSupplyOverrideFields); err != nil {
+			return nil, err
+		}
+	}
 	if h.service == nil {
 		return nil, errCurtailmentNotImplemented("StopCurtailment")
 	}

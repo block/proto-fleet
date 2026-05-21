@@ -433,6 +433,14 @@ func TestHandler_OverrideFieldsRoleGate(t *testing.T) {
 		}))
 		return err
 	}
+	stopWithForce := func(ctx context.Context) error {
+		_, err := h.StopCurtailment(ctx, connect.NewRequest(&pb.StopCurtailmentRequest{
+			EventUuid: "00000000-0000-0000-0000-000000000001",
+			Force:     true,
+		}))
+		return err
+	}
+
 	cases := []call{
 		// Non-admin role with override field set is rejected regardless of auth method.
 		{"Preview override + viewer session", previewWithOverride, "VIEWER", session.AuthMethodSession, connect.CodePermissionDenied},
@@ -441,6 +449,8 @@ func TestHandler_OverrideFieldsRoleGate(t *testing.T) {
 		{"Start candidate override + viewer API key", startWithCandidateOverride, "VIEWER", session.AuthMethodAPIKey, connect.CodePermissionDenied},
 		{"Start allow_unbounded + viewer session", startWithAllowUnbounded, "VIEWER", session.AuthMethodSession, connect.CodePermissionDenied},
 		{"Start allow_unbounded + viewer API key", startWithAllowUnbounded, "VIEWER", session.AuthMethodAPIKey, connect.CodePermissionDenied},
+		{"Stop force + viewer session", stopWithForce, "VIEWER", session.AuthMethodSession, connect.CodePermissionDenied},
+		{"Stop force + viewer API key", stopWithForce, "VIEWER", session.AuthMethodAPIKey, connect.CodePermissionDenied},
 
 		// Admin role reaches Unimplemented regardless of auth method — admin
 		// API-key callers can drive override paths so external integrations
@@ -451,6 +461,8 @@ func TestHandler_OverrideFieldsRoleGate(t *testing.T) {
 		{"Start candidate override + admin API key", startWithCandidateOverride, domainAuth.AdminRoleName, session.AuthMethodAPIKey, connect.CodeUnimplemented},
 		{"Start allow_unbounded + super admin session", startWithAllowUnbounded, domainAuth.SuperAdminRoleName, session.AuthMethodSession, connect.CodeUnimplemented},
 		{"Start allow_unbounded + super admin API key", startWithAllowUnbounded, domainAuth.SuperAdminRoleName, session.AuthMethodAPIKey, connect.CodeUnimplemented},
+		{"Stop force + admin session", stopWithForce, domainAuth.AdminRoleName, session.AuthMethodSession, connect.CodeUnimplemented},
+		{"Stop force + admin API key", stopWithForce, domainAuth.AdminRoleName, session.AuthMethodAPIKey, connect.CodeUnimplemented},
 	}
 
 	for _, tc := range cases {
