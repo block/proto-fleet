@@ -19,13 +19,15 @@ This plan replaces the hardcoded role check with a permission-based model:
 - A **permission catalog** of ~25 resource:action verbs
   (`miner:read`, `miner:blink_led`, `miner:reboot`, `user:manage`,
   `site:manage`, …).
-- A **role** is a named bag of permissions. Three roles ship seeded:
-  SUPER_ADMIN (every permission, **immutable**), ADMIN (everything
-  except user/role management, **editable** by SUPER_ADMIN), FIELD_TECH
-  (fleet read + rack management + a small physical-action set,
-  **editable** by SUPER_ADMIN). Custom roles are rows created by users
-  holding `role:manage` (SUPER_ADMIN by default) that pick permissions
-  from the catalog.
+- A **role** is a named bag of permissions, **owned by an
+  organization**. Every org gets its own SUPER_ADMIN, ADMIN, and
+  FIELD_TECH built-in rows seeded on org creation. SUPER_ADMIN is
+  immutable (fully reconciled to every catalog permission on every
+  boot); ADMIN and FIELD_TECH are editable per-org by a SUPER_ADMIN
+  of that org. Editing one org's ADMIN cannot leak into another
+  org's ADMIN — that's why per-role editing is safe. Custom roles
+  are also per-org, created by users holding `role:manage`
+  (SUPER_ADMIN by default) that pick permissions from the catalog.
 - A **role assignment** binds a user to a role within a **scope** — org
   or site. Existing assignments are migrated as org-scope; site-scope
   is available immediately because multi-site Phase 1 already shipped.
@@ -127,13 +129,16 @@ permission_id
 ```
 
 `user_organization.role_id` is dropped after data is migrated into
-`user_organization_role`. Built-in roles are insert-once on migration
-and carry a stable `builtin_key` (`SUPER_ADMIN`, `ADMIN`, `FIELD_TECH`)
-so code can resolve them by key, not by primary key. SUPER_ADMIN cannot
-be edited or deleted at runtime; ADMIN and FIELD_TECH can be edited
-through the same RPC as custom roles (only the SUPER_ADMIN row is
-guarded with `BUILTIN_ROLE_IMMUTABLE`), but neither can be deleted —
-every org always has a named ADMIN and FIELD_TECH to assign.
+`user_organization_role`. **Roles are per-org**: each `role` row
+carries `organization_id`, and built-in rows are identified by
+`(organization_id, builtin_key)` rather than by globally-unique key.
+Code resolves built-ins via the helper
+`GetBuiltinRoleForOrg(orgID, builtin_key)` and never by primary key.
+SUPER_ADMIN cannot be edited or deleted at runtime; ADMIN and
+FIELD_TECH can be edited per-org through the same RPC as custom
+roles (only the SUPER_ADMIN row is guarded with
+`BUILTIN_ROLE_IMMUTABLE`), but neither can be deleted — every org
+always has a named ADMIN and FIELD_TECH to assign.
 
 ### Resolver flow
 
@@ -319,26 +324,47 @@ Final list lands in U1; the catalog is a code constant, not user-editable.
   **Open Question Q1**; until Q1 lands, an operator can add those
   permissions to their org's FIELD_TECH via the role editor.
 
-### Built-in editability
+### Built-in editability (per-org)
 
-SUPER_ADMIN is immutable. ADMIN and FIELD_TECH are **editable** through
-the same `UpdateCustomRole` RPC used for custom roles; the handler
-distinguishes only SUPER_ADMIN as the locked row. This lets operators
-tune the practical scope of their team's roles without minting a custom
-role-of-roles. To keep edits from being silently overwritten, startup
-reconciliation is **additive-only** for ADMIN and FIELD_TECH:
+**Built-in roles are per-org.** Every active organization gets its own
+SUPER_ADMIN, ADMIN, and FIELD_TECH row, identified by
+`(organization_id, builtin_key)`. Editing one org's ADMIN does NOT
+affect another org's ADMIN — that's why per-role editing is safe and
+why we don't run into the cross-tenant bleed risk a single global
+ADMIN row would have.
 
-- New catalog keys added in a future release are appended to ADMIN
-  (unless excluded from its seed formula) and to a `field_tech_seed`
-  marker — never removed.
-- Existing `role_permission` rows on ADMIN/FIELD_TECH are left alone.
-- SUPER_ADMIN remains fully reconciled (additions and removals) — its
-  contract is "everything in the current catalog."
+Each org's SUPER_ADMIN row is immutable (fully reconciled every boot
+to `AllPermissions()` — tampering on a SUPER_ADMIN row is repaired).
+Each org's ADMIN and FIELD_TECH rows are editable by a SUPER_ADMIN of
+that org through the same `UpdateCustomRole` RPC used for custom
+roles. The handler distinguishes built-in editability by builtin_key
+rather than scope; per-org isolation comes from the role row itself
+being org-owned.
+
+Startup reconciliation runs per-org:
+
+- **SUPER_ADMIN** (every org): fully reconciled. Catalog growth adds
+  rows; catalog shrinkage prunes them; operator tampering is
+  reverted.
+- **ADMIN / FIELD_TECH** (every org): additive-only. Missing seed
+  permissions are inserted; nothing is ever removed. Operator edits
+  via `UpdateCustomRole` survive restarts.
+
+The reconciler iterates the `organization` table at boot. New orgs
+also get their built-ins seeded inside the org-creation transaction
+via `authz.SeedOrgBuiltins` so the founding user can be assigned a
+real per-org SUPER_ADMIN immediately, without waiting for the next
+boot.
 
 Two distinct error codes are reserved for built-in mutation attempts:
 `BUILTIN_ROLE_IMMUTABLE` for any update or delete on SUPER_ADMIN, and
 `BUILTIN_ROLE_NON_DELETABLE` for a delete attempt on ADMIN or
 FIELD_TECH (which are editable but not deletable).
+
+**Custom roles** are also per-org. The `role` table carries
+`organization_id`, and uniqueness is enforced by a partial unique
+index on `(organization_id, name)` for custom rows. A custom role
+created in org A cannot be listed, modified, or assigned in org B.
 
 ---
 
@@ -452,10 +478,28 @@ builtin-aware.
 **Approach:**
 
 ```
+-- role becomes per-org. The legacy global uq_role_name from 000002
+-- is dropped and replaced with two partial unique indexes (live rows
+-- only): built-ins unique per (organization_id, builtin_key), customs
+-- unique per (organization_id, name).
 ALTER TABLE role
-  ADD COLUMN is_builtin BOOLEAN NOT NULL DEFAULT FALSE,
-  ADD COLUMN builtin_key VARCHAR(64) NULL,
-  ADD CONSTRAINT uq_role_builtin_key UNIQUE (builtin_key);
+  ADD COLUMN is_builtin      BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN builtin_key     VARCHAR(64) NULL,
+  ADD COLUMN organization_id BIGINT NULL;
+ALTER TABLE role
+  ADD CONSTRAINT fk_role_organization FOREIGN KEY (organization_id)
+    REFERENCES organization(id) ON DELETE CASCADE;
+ALTER TABLE role DROP CONSTRAINT uq_role_name;
+CREATE UNIQUE INDEX uq_role_org_builtin_key
+  ON role(organization_id, builtin_key)
+  WHERE is_builtin = TRUE  AND deleted_at IS NULL;
+CREATE UNIQUE INDEX uq_role_org_custom_name
+  ON role(organization_id, name)
+  WHERE is_builtin = FALSE AND deleted_at IS NULL;
+ALTER TABLE role ADD CONSTRAINT chk_role_builtin_key_matches_flag CHECK (
+  (is_builtin = TRUE  AND builtin_key IS NOT NULL) OR
+  (is_builtin = FALSE AND builtin_key IS NULL)
+);
 
 CREATE TABLE permission (
   id BIGSERIAL PRIMARY KEY,
@@ -471,34 +515,47 @@ CREATE TABLE role_permission (
   PRIMARY KEY (role_id, permission_id)
 );
 
+-- Assignment uniqueness uses TWO partial indexes rather than a single
+-- UNIQUE constraint. Postgres treats NULL as distinct in normal unique
+-- constraints, so a constraint that includes scope_id would not
+-- enforce uniqueness on org-scope rows (scope_id IS NULL). The
+-- predicates also gate on deleted_at IS NULL so re-assignment after
+-- UnassignRole is allowed.
 CREATE TABLE user_organization_role (
   id BIGSERIAL PRIMARY KEY,
   user_id BIGINT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
   organization_id BIGINT NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
   role_id BIGINT NOT NULL REFERENCES role(id) ON DELETE RESTRICT,
-  scope_type VARCHAR(16) NOT NULL CHECK (scope_type IN ('org','site')),
+  scope_type VARCHAR(16) NOT NULL,
   scope_id BIGINT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
   deleted_at TIMESTAMPTZ NULL,
-  CONSTRAINT uq_user_org_role_scope UNIQUE
-    (user_id, organization_id, role_id, scope_type, scope_id),
-  CONSTRAINT chk_scope_id_matches_type CHECK (
+  CONSTRAINT chk_user_org_role_scope_type CHECK (scope_type IN ('org', 'site')),
+  CONSTRAINT chk_user_org_role_scope_id_matches_type CHECK (
     (scope_type = 'org'  AND scope_id IS NULL) OR
     (scope_type = 'site' AND scope_id IS NOT NULL)
   ),
-  -- Composite FK uses the (id, organization_id) unique key on `site`
-  -- shipped by multi-site Phase 1 migration 000043. Ensures the scoped
-  -- site belongs to the same org as the assignment — DB-enforced
-  -- tenant isolation, not application-layer only.
+  -- Composite FK uses the (id, org_id) unique key on `site` shipped
+  -- by multi-site Phase 1 migration 000043. Ensures the scoped site
+  -- belongs to the same org as the assignment — DB-enforced tenant
+  -- isolation, not application-layer only.
   CONSTRAINT fk_user_org_role_site FOREIGN KEY (scope_id, organization_id)
-    REFERENCES site(id, organization_id) ON DELETE CASCADE
+    REFERENCES site(id, org_id) ON DELETE CASCADE
     DEFERRABLE INITIALLY DEFERRED
 );
 
 CREATE INDEX idx_user_organization_role_user_org
   ON user_organization_role(user_id, organization_id)
   WHERE deleted_at IS NULL;
+
+CREATE UNIQUE INDEX uq_user_org_role_org_scope
+  ON user_organization_role(user_id, organization_id, role_id)
+  WHERE scope_type = 'org'  AND deleted_at IS NULL;
+
+CREATE UNIQUE INDEX uq_user_org_role_site_scope
+  ON user_organization_role(user_id, organization_id, role_id, scope_id)
+  WHERE scope_type = 'site' AND deleted_at IS NULL;
 ```
 
 The FK is `DEFERRABLE INITIALLY DEFERRED` so a transactional re-assignment
@@ -522,9 +579,13 @@ trigger for the assignment table.
   indexes, and constraints (golang-migrate dry run + introspection).
 - Roll back the migration; tables drop cleanly; `role` retains its
   original columns.
-- The unique constraint `uq_user_org_role_scope` rejects duplicate
-  (user, org, role, scope) assignments.
-- `chk_scope_id_matches_type` rejects `('org', 42)` and `('site', NULL)`.
+- The partial unique indexes `uq_user_org_role_org_scope` and
+  `uq_user_org_role_site_scope` reject duplicate **live** (user, org,
+  role, scope) assignments. A soft-deleted row does not block
+  re-assigning the same tuple — the indexes filter on
+  `deleted_at IS NULL`.
+- `chk_user_org_role_scope_id_matches_type` rejects `('org', 42)` and
+  `('site', NULL)`.
 - The composite site FK rejects a row where `scope_id` is a site
   belonging to a different organization (cross-org isolation enforced
   at the DB layer).
@@ -548,23 +609,33 @@ role CRUD).
 
 **Files:**
 - `server/sqlc/queries/permission.sql` (new)
-- `server/sqlc/queries/role.sql` (extended — add `ListBuiltinRoles`,
-  `ListCustomRoles`, `CreateCustomRole`, `UpdateCustomRoleName`,
-  `SoftDeleteCustomRole`, `ListRolePermissions`, `ReplaceRolePermissions`)
+- `server/sqlc/queries/role.sql` (extended — add
+  `ListBuiltinRolesForOrg`, `GetBuiltinRoleForOrg`,
+  `UpsertBuiltinRoleForOrg`, `ListActiveOrganizationIDs`,
+  `ListCustomRolesForOrg`, `CreateCustomRole` (takes `organization_id`),
+  `UpdateCustomRoleName`, `SoftDeleteCustomRole`,
+  `ListRolePermissionKeys`)
 - `server/sqlc/queries/user_organization_role.sql` (new — `AssignRole`,
-  `UnassignRole`, `ListAssignmentsForUser`, `ListAssignmentsForRole`)
+  `UnassignRole`, `ListAssignmentsForUser`, `ListAssignmentsForRole`,
+  `ListEffectivePermissionsForUser`,
+  `CountOrgScopeSuperAdminsExcludingAssignment`)
 - `server/generated/sqlc/**` (regenerated; do not hand-edit per AGENTS.md)
 
 **Approach:**
-- Read queries return joined permission rows alongside role rows in a
-  single query where it avoids N+1.
-- Mutations on custom-role CRUD reject only the SUPER_ADMIN built-in at
-  the query level via `WHERE builtin_key IS DISTINCT FROM 'SUPER_ADMIN'`.
-  ADMIN and FIELD_TECH are editable through the same path as custom
-  roles; the domain layer (U8) enforces the SUPER_ADMIN-only lock and
-  surfaces `BUILTIN_ROLE_IMMUTABLE` on a SUPER_ADMIN edit attempt.
-- `ReplaceRolePermissions` is a transaction: delete current rows, insert
-  new set.
+- All role-touching queries are **org-aware**. `ListCustomRolesForOrg`
+  and `CreateCustomRole` take `organization_id`. Built-in lookups go
+  through `GetBuiltinRoleForOrg(orgID, builtin_key)` so code never
+  reaches across orgs.
+- `UpsertBuiltinRoleForOrg` targets the partial index
+  `uq_role_org_builtin_key` via `ON CONFLICT (organization_id,
+  builtin_key) WHERE is_builtin = TRUE AND deleted_at IS NULL`.
+- Mutation queries on custom roles (`UpdateCustomRoleName`,
+  `SoftDeleteCustomRole`) gate on `is_builtin = FALSE`. The domain
+  layer in U8 layers the per-builtin policy on top: SUPER_ADMIN
+  surfaces `BUILTIN_ROLE_IMMUTABLE`; ADMIN/FIELD_TECH delete attempts
+  surface `BUILTIN_ROLE_NON_DELETABLE`.
+- Read queries return joined permission rows alongside role rows in
+  a single query where it avoids N+1.
 
 **Patterns to follow:** Existing `server/sqlc/queries/role.sql` and
 `user_organization.sql` styles.
@@ -589,34 +660,57 @@ without manual intervention.
 **Dependencies:** U1, U2, U3.
 
 **Files:**
-- `server/migrations/000NNN_seed_builtin_roles.up.sql` (new — seeds initial
-  set on first run)
-- `server/migrations/000NNN_seed_builtin_roles.down.sql` (new — clears
-  seed)
-- `server/internal/domain/authz/builtin.go` (new — defines the
-  permission set for each built-in role in code)
-- `server/cmd/fleetd/main.go` (modify — on startup, after
-  `db.ConnectAndMigrate` and after the `authz` store is constructed,
-  reconcile built-in role permission sets against `builtin.go`)
+- `server/migrations/000NNN_seed_builtin_roles.up.sql` (new — seeds
+  catalog + per-org built-in rows for existing orgs; repoints
+  legacy `user_organization` rows from global to per-org;
+  soft-deletes the legacy global rows)
+- `server/migrations/000NNN_seed_builtin_roles.down.sql` (new —
+  reverse the seed)
+- `server/internal/domain/authz/builtin.go` (new — defines
+  `BuiltinRoleSpec` and the seed formula for each built-in role)
+- `server/internal/domain/authz/reconcile.go` (new — `Reconcile`
+  iterates orgs and calls per-org `SeedOrgBuiltins`; exported
+  `SeedOrgBuiltins(ctx, q, orgID)` callable from the onboarding
+  flow so a new org's built-ins exist atomically with org
+  creation)
+- `server/cmd/fleetd/main.go` (modify — invoke `authz.Reconcile`
+  after `db.ConnectAndMigrate` and before any service is
+  constructed)
+- `server/internal/domain/stores/sqlstores/user.go` (modify —
+  `CreateAdminUserWithOrganization` calls `authz.SeedOrgBuiltins`
+  inside its existing tx and assigns the founding user using the
+  returned per-org SUPER_ADMIN role id; legacy global `UpsertRole`
+  call removed)
 
 **Approach:**
-- The seed migration inserts the initial `permission` rows (catalog as of
-  this release) and creates the three built-in `role` rows with
-  `is_builtin=TRUE` and the appropriate `builtin_key`.
-- A **startup reconciliation step** runs after migrations on server boot:
-  for each built-in role defined in `builtin.go`, upsert any missing
-  `permission` rows from the in-code catalog, then converge
-  `role_permission` rows according to per-role policy:
-  - **SUPER_ADMIN**: fully reconciled to `AllPermissions()` — both adds
-    new catalog keys and removes any obsolete `role_permission` rows.
-    Its contract is "everything in the current catalog."
-  - **ADMIN / FIELD_TECH**: **additive-only.** Catalog keys present in
-    the role's *seed formula* but absent from `role_permission` are
-    inserted; nothing is ever removed. Operators who edited the role
-    keep their edits across upgrades.
-  This keeps the catalog and SUPER_ADMIN in sync as the catalog grows
-  without requiring a new migration per catalog change, and respects
-  per-org customizations on the editable built-ins.
+- The seed migration inserts the initial `permission` catalog rows
+  and creates **one set of three built-in role rows per active
+  organization** by cross-joining `organization` with the built-in
+  spec list. Existing user_organization rows that point at the
+  legacy global ADMIN/SUPER_ADMIN rows are repointed (match by name)
+  to each user's per-org replacement; the legacy global rows are then
+  soft-deleted.
+- A **startup reconciliation step** runs after migrations on server
+  boot. It loops over the active orgs (`ListActiveOrganizationIDs`)
+  and for each org calls `SeedOrgBuiltins(ctx, q, orgID)`. For each
+  built-in role defined in `builtin.go`, it upserts the role row via
+  `UpsertBuiltinRoleForOrg` and converges `role_permission` per-role
+  policy:
+  - **SUPER_ADMIN** (every org): fully reconciled to
+    `AllPermissions()`. Catalog growth adds rows; catalog shrinkage
+    prunes them; tampering is repaired. Its contract is "everything
+    in the current catalog."
+  - **ADMIN / FIELD_TECH** (every org): **additive-only.** Catalog
+    keys present in the role's *seed formula* but absent from
+    `role_permission` are inserted; nothing is ever removed.
+    Operators who edited their org's ADMIN or FIELD_TECH keep their
+    edits across upgrades, and edits in one org never leak into
+    another.
+- `SeedOrgBuiltins` is also called from the onboarding flow inside
+  the org-creation transaction (see U2's onboarding wiring), so a
+  brand-new org has its built-ins immediately and the founding user
+  can be assigned the per-org SUPER_ADMIN without waiting for a
+  boot.
 - **Race-free reconciliation.** The whole reconciliation runs inside a
   transaction that first acquires
   `pg_advisory_xact_lock(<stable-bigint-key>)`. Concurrent boots
@@ -651,33 +745,47 @@ runs as a free function called from `server/cmd/fleetd/main.go` after
 be served before built-in roles are reconciled.
 
 **Test scenarios:**
-- Fresh install: after migrations and startup reconciliation, all three
-  built-in roles exist with `is_builtin=TRUE` and their full permission
-  sets.
-- Catalog grows: add a new permission key to the catalog, restart server,
-  reconciliation inserts the new `permission` row and adds it to
-  SUPER_ADMIN (and ADMIN if its seed formula includes it). FIELD_TECH
-  is unchanged unless its explicit seed set was updated.
-- Reconciliation is idempotent: running it twice produces the same row
-  state, no duplicate inserts.
-- **Operator edits to ADMIN survive restart.** An operator removes
-  `miner:firmware_update` from ADMIN via `UpdateCustomRole`; restart
-  reconciliation leaves the row deleted (additive-only). A later
-  catalog addition of `miner:new_action` is added to ADMIN on the
-  following restart without restoring the removed firmware-update row.
+- Fresh install with one org: after migrations and startup
+  reconciliation, three built-in role rows exist for that org
+  (`is_builtin=TRUE`, `organization_id` set), each with its expected
+  permission set.
+- Multiple orgs: with N orgs in the system, reconciliation produces
+  3N built-in role rows; permission sets per org are identical
+  modulo operator edits.
+- **Per-org isolation: editing org A's ADMIN does not affect org B's
+  ADMIN.** Operator in org A removes `miner:firmware_update` from
+  their ADMIN; org B's ADMIN still holds it after another reconcile
+  pass.
+- Catalog grows: add a new permission key to the catalog, restart
+  server; the new `permission` row is inserted; every org's
+  SUPER_ADMIN row picks it up; every org's ADMIN picks it up if its
+  seed formula includes it; FIELD_TECH rows are unchanged unless the
+  explicit seed set was updated.
+- Reconciliation is idempotent: running it twice produces the same
+  row state, no duplicate inserts.
+- **Operator edits to ADMIN survive restart.** A SUPER_ADMIN in one
+  org removes `miner:firmware_update` from their ADMIN via
+  `UpdateCustomRole`; restart reconciliation leaves the row deleted
+  (additive-only). A later catalog addition of `miner:new_action` is
+  added to that org's ADMIN on the following restart without
+  restoring the removed firmware-update row.
 - **Operator edits to FIELD_TECH survive restart** under the same
-  additive-only contract.
-- **SUPER_ADMIN tampering is repaired on restart.** A row deleted from
-  SUPER_ADMIN's `role_permission` is restored on next startup (full
-  reconciliation). A row inserted into SUPER_ADMIN for a permission
-  not in the current catalog is removed.
-- Concurrent reconciliation: two goroutines invoking the reconciler in
-  parallel against the same DB observe a single committed converged
-  state; no row count goes negative (instrument with a snapshot read
-  inside the second goroutine after the first commits).
+  additive-only contract, scoped to the editing org only.
+- **SUPER_ADMIN tampering is repaired on restart.** A row deleted
+  from an org's SUPER_ADMIN `role_permission` is restored on next
+  startup (full reconciliation). A row inserted into SUPER_ADMIN for
+  a permission not in the current catalog is removed.
+- **Onboarding seeds per-org built-ins.** A new org created via
+  `CreateAdminUserWithOrganization` has its SUPER_ADMIN, ADMIN, and
+  FIELD_TECH rows immediately (created in the same tx); the
+  founding user's `user_organization.role_id` points at that org's
+  SUPER_ADMIN row.
+- Concurrent reconciliation: two goroutines invoking the reconciler
+  in parallel against the same DB observe a single committed
+  converged state; no row count goes negative.
 
-**Verification:** On `just dev`, three built-in role rows exist with their
-declared permission sets; SQL inspection confirms.
+**Verification:** On `just dev`, per-org built-in role rows exist
+with their declared permission sets; SQL inspection confirms.
 
 ---
 
