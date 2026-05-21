@@ -18,6 +18,7 @@ const URL_PARAMS = {
   MODEL: "model",
   GROUP: "group",
   RACK: "rack",
+  BUILDING: "building",
   FIRMWARE: "firmware",
   ZONE: "zone",
   SUBNET: "subnet",
@@ -152,6 +153,10 @@ export function encodeFilterToURL(filter: MinerListFilter): URLSearchParams {
     setMulti(params, URL_PARAMS.RACK, filter.rackIds.map(String).sort());
   }
 
+  if (filter.buildingIds.length > 0) {
+    setMulti(params, URL_PARAMS.BUILDING, filter.buildingIds.map(String).sort());
+  }
+
   if (filter.firmwareVersions.length > 0) {
     setMulti(params, URL_PARAMS.FIRMWARE, [...filter.firmwareVersions].sort());
   }
@@ -241,6 +246,13 @@ export function parseFilterFromURL(params: URLSearchParams): MinerListFilter | u
     const trimmed = id.trim();
     if (trimmed && /^\d+$/.test(trimmed)) {
       filter.rackIds.push(BigInt(trimmed));
+    }
+  });
+
+  getMultiLegacy(params, URL_PARAMS.BUILDING).forEach((id) => {
+    const trimmed = id.trim();
+    if (trimmed && /^\d+$/.test(trimmed)) {
+      filter.buildingIds.push(BigInt(trimmed));
     }
   });
 

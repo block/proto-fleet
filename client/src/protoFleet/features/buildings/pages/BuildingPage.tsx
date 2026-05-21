@@ -55,15 +55,25 @@ const BuildingPage = () => {
           }),
         onError: (message) => setResponse({ id: targetId, outcome: { status: "error", message } }),
       });
-      return () => controller.abort();
     },
     [getBuilding],
   );
 
   useEffect(() => {
     if (buildingId === null) return;
-    return fetchBuilding(buildingId);
+    fetchBuilding(buildingId);
   }, [fetchBuilding, buildingId]);
+
+  // Unmount cleanup aborts whatever's currently in flight — including
+  // retry-spawned controllers that didn't come from the effect above.
+  // Without this, clicking Retry then navigating away leaks a request
+  // whose onSuccess/onError still fires setResponse on the unmounted page.
+  useEffect(() => {
+    return () => {
+      inflightControllerRef.current?.abort();
+      inflightControllerRef.current = null;
+    };
+  }, []);
 
   const effectiveOutcome: FetchOutcome | "loading" | "invalid" =
     buildingId === null ? "invalid" : response && response.id === buildingId ? response.outcome : "loading";

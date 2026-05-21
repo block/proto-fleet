@@ -7,10 +7,11 @@ interface BuildingPageHeaderProps {
   buildingId: string;
 }
 
-// "View miners" links to /miners with the building_id URL filter (the param
-// name in #229's filter-url-params plan). "View racks" is disabled because
-// the racks page filter ships in #274; until then we render the affordance
-// with an explanatory title so reviewers see the planned destination.
+// "View miners" links to /miners with the building URL filter — matches the
+// URL key parsed by filterUrlParams.ts (mirroring the existing `group` and
+// `rack` singular keys). "View racks" is disabled because the racks page
+// filter ships in #274; until then we render the affordance with an
+// explanatory title so reviewers see the planned destination.
 const BuildingPageHeader = ({ label, buildingId }: BuildingPageHeaderProps) => (
   <div className="flex items-start justify-between gap-4">
     <h1 className="text-heading-500 text-text-primary">{label}</h1>
@@ -24,7 +25,7 @@ const BuildingPageHeader = ({ label, buildingId }: BuildingPageHeaderProps) => (
           testId="building-page-view-racks"
         />
       </span>
-      <Link to={`/miners?building_id=${buildingId}`} data-testid="building-page-view-miners">
+      <Link to={`/miners?building=${buildingId}`} data-testid="building-page-view-miners">
         <Button variant={variants.secondary} text="View miners" onClick={() => undefined} />
       </Link>
       <Button
