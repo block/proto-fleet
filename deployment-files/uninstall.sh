@@ -54,6 +54,14 @@ EOF
 # `set -u` -safe — empty `"$@"` produces an empty array.
 ORIGINAL_ARGV=("$@")
 
+# Shell-escape ORIGINAL_ARGV for embedding in a copy-pasteable sudo command.
+# `printf ' %q'` cycles the format spec over every arg, so a single call
+# shell-escapes the whole array. Emits nothing when the array is empty so
+# the caller can append the result directly to a base command string.
+quoted_rerun_argv() {
+  (( ${#ORIGINAL_ARGV[@]} )) && printf ' %q' "${ORIGINAL_ARGV[@]}"
+}
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --deployment-path)
@@ -321,17 +329,9 @@ resolve_deployment_path() {
       if [[ "${PREVIOUS_INSTALL_NEEDS_SUDO:-0}" == "1" ]] && [[ "$(id -u)" -ne 0 ]]; then
         print_error "Existing fleet containers were detected, but only via sudo."
         print_error "They are managed by the root Docker daemon, and this script is running as $(id -un)."
-        # Preserve original flags so following the suggestion doesn't drop
-        # --dry-run (real uninstall instead of preview) or --deployment-path
-        # (wrong target). Shell-escape each arg via printf '%q'.
-        local quoted_argv=""
-        local arg
-        for arg in ${ORIGINAL_ARGV[@]+"${ORIGINAL_ARGV[@]}"}; do
-          quoted_argv+=" $(printf '%q' "$arg")"
-        done
-        print_error "Re-run the uninstaller as root:"
+        print_error "Re-run the uninstaller as root (flags preserved):"
         echo ""
-        echo "    sudo bash $0${quoted_argv}"
+        echo "    sudo bash $0$(quoted_rerun_argv)"
         echo ""
         exit 1
       fi
@@ -362,13 +362,8 @@ resolve_deployment_path() {
     # When sudo would have prompted for a password, we couldn't probe the
     # root daemon — a root-managed install could exist that we never saw.
     if [[ "${PREVIOUS_INSTALL_SUDO_BLOCKED:-0}" == "1" ]]; then
-      local quoted_argv=""
-      local arg
-      for arg in ${ORIGINAL_ARGV[@]+"${ORIGINAL_ARGV[@]}"}; do
-        quoted_argv+=" $(printf '%q' "$arg")"
-      done
       print_error "(sudo required a password, so the root Docker daemon was not probed."
-      print_error " If a root-managed install might exist, re-run with: sudo bash $0${quoted_argv})"
+      print_error " If a root-managed install might exist, re-run with: sudo bash $0$(quoted_rerun_argv))"
     fi
     exit 1
   fi
