@@ -93,11 +93,17 @@ const useSiteModals = ({ refetchSites }: UseSiteModalsOptions): SiteModalsApi =>
     // clicked inside SiteDetailsModal (edit mode) or any future row-level
     // delete affordance.
     setState((prev) => {
-      const id =
-        prev.kind === "manageEdit" || prev.kind === "manageEditEditingDetails" ? prev.site.id.toString() : null;
-      if (!id) return prev;
+      if (prev.kind !== "manageEdit" && prev.kind !== "manageEditEditingDetails") return prev;
+      const id = prev.site.id.toString();
       const match = sites?.find((s) => (s.site?.id ?? 0n).toString() === id);
-      if (match) setDeleteTarget(match);
+      if (!match) return prev;
+      setDeleteTarget(match);
+      // Drop the stacked details modal when the cascade dialog opens so the
+      // dialog reads as the topmost surface above the persistent
+      // ManageSiteModal. Cancelling the dialog returns to manageEdit.
+      if (prev.kind === "manageEditEditingDetails") {
+        return { kind: "manageEdit", site: prev.site, draft: prev.draft };
+      }
       return prev;
     });
   }, []);

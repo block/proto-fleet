@@ -138,9 +138,10 @@ const useSites = () => {
         const response = await sitesClient.createSite(
           {
             name: values.name,
-            // `description` (notes) input is deferred per master plan §J3;
-            // send empty string so the column is unset until the BE
-            // follow-up + FE input ship together.
+            // TODO(#266): hardcoded to "" until #266 either surfaces a notes
+            // input in SiteDetailsModal (round-tripping the value through
+            // SiteFormValues) or drops the proto field. Until then any
+            // existing description set out-of-band is overwritten on save.
             description: "",
             locationCity: values.locationCity,
             locationState: values.locationState,
@@ -178,6 +179,8 @@ const useSites = () => {
           {
             id,
             name: values.name,
+            // TODO(#266): see createSite — hardcoded "" pending the notes
+            // surface or proto field removal.
             description: "",
             locationCity: values.locationCity,
             locationState: values.locationState,

@@ -208,7 +208,7 @@ describe("useSiteModals", () => {
     }
   });
 
-  it("requestDeleteCurrent resolves the SiteWithCounts row from the supplied sites list", () => {
+  it("requestDeleteCurrent from manageEditEditingDetails resolves the row and drops details (manage stays open)", () => {
     const site = create(SiteSchema, { id: 5n, name: "Target" });
     const sites = [
       create(SiteWithCountsSchema, {
@@ -223,11 +223,12 @@ describe("useSiteModals", () => {
     act(() => result.current.manageEditDetails());
     act(() => result.current.requestDeleteCurrent(sites));
     expect(result.current.deleteTarget?.deviceCount).toBe(2n);
-    // The underlying stacked state stays intact — cascade dialog overlays it.
-    expect(result.current.state.kind).toBe("manageEditEditingDetails");
+    // Details modal closes; ManageSiteModal remains open behind the cascade
+    // dialog. Cancelling the dialog returns to manageEdit.
+    expect(result.current.state.kind).toBe("manageEdit");
   });
 
-  it("dismissDeleteConfirm clears deleteTarget without touching state", () => {
+  it("dismissDeleteConfirm clears deleteTarget; underlying manage state stays (details was already closed)", () => {
     const site = create(SiteSchema, { id: 5n, name: "T" });
     const sites = [create(SiteWithCountsSchema, { site, deviceCount: 0n, rackCount: 0n, buildingCount: 0n })];
     const { result } = renderHook(() => useSiteModals({ refetchSites: vi.fn() }));
@@ -235,9 +236,11 @@ describe("useSiteModals", () => {
     act(() => result.current.manageEditDetails());
     act(() => result.current.requestDeleteCurrent(sites));
     expect(result.current.deleteTarget).not.toBeNull();
+    // requestDeleteCurrent dropped details → state is now manageEdit.
+    expect(result.current.state.kind).toBe("manageEdit");
     act(() => result.current.dismissDeleteConfirm());
     expect(result.current.deleteTarget).toBeNull();
-    expect(result.current.state.kind).toBe("manageEditEditingDetails");
+    expect(result.current.state.kind).toBe("manageEdit");
   });
 
   it("deleteConfirm resets active SitePicker selection when the deleted site is active", async () => {

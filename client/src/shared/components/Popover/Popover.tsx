@@ -22,6 +22,13 @@ type PopoverProps = PopoverContentProps & {
    * before the trigger button) don't drag the popover sideways while it's open.
    */
   freezePosition?: boolean;
+  /**
+   * Suppress the viewport-overflow-driven position flip. Use when the caller
+   * is responsible for choosing the popover's position (e.g. Select picking
+   * bottom/top based on forceBelow + available space) and a flip would
+   * override that decision.
+   */
+  disableAutoFlip?: boolean;
 };
 
 /**
@@ -68,6 +75,7 @@ const Popover = ({
   closePopover,
   closeIgnoreSelectors = [],
   freezePosition = false,
+  disableAutoFlip = false,
 }: PopoverProps) => {
   const { triggerRef, renderMode: contextRenderMode } = usePopover();
   // Frozen popovers must be portal'd to body so they're positioned relative to the
@@ -81,6 +89,7 @@ const Popover = ({
     renderMode,
     position,
     freezePosition,
+    disableAutoFlip,
   );
 
   const popoverElement = (
