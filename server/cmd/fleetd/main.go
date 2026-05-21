@@ -11,6 +11,7 @@ import (
 	"time"
 	_ "time/tzdata"
 
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/ipscanner"
 	"github.com/block/proto-fleet/server/internal/domain/miner"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
@@ -177,6 +178,10 @@ func start(config *Config) error {
 	conn, err := db.ConnectAndMigrate(&config.DB)
 	if err != nil {
 		return err
+	}
+
+	if err := authz.Reconcile(context.Background(), conn); err != nil {
+		return fmt.Errorf("reconcile built-in roles: %w", err)
 	}
 
 	transactor := sqlstores.NewSQLTransactor(conn)
