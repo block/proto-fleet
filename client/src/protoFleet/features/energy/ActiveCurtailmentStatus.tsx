@@ -629,7 +629,11 @@ export default function ActiveCurtailmentStatus({
     totalRestoreSeconds,
   });
   const restoreCompletionLabel = displayFlags.isRestored ? "Completed" : "Estimated completion";
-  const restoreCompletionValue = event.endedAt ? formatDateTime(event.endedAt) : estimatedCompletion;
+  const restoreCompletionValue = displayFlags.isRestored
+    ? formatDateTime(event.endedAt)
+    : event.endedAt
+      ? formatDateTime(event.endedAt)
+      : estimatedCompletion;
   const restoreFailureValue = formatMinerCount(compliance.restoreFailedCount);
   const restoreProgressPercent = displayFlags.isRestored ? 100 : restoredPercent;
   const curtailProgressPercent = displayFlags.isCurtailmentComplete ? 100 : curtailedPercent;

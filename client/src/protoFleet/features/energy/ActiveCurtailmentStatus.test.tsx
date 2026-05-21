@@ -189,6 +189,13 @@ describe("ActiveCurtailmentStatus", () => {
     expect(onDismissRestored).toHaveBeenCalledOnce();
   });
 
+  it("shows an unavailable completed time when a restored event has no end time", () => {
+    render(<ActiveCurtailmentStatus event={{ ...restoredCurtailmentEvent, endedAt: undefined }} />);
+
+    expect(screen.getByText("Completed")).toBeVisible();
+    expect(screen.getByText("Time unavailable")).toBeVisible();
+  });
+
   it("uses rollup totals for terminal restore duration when selected miner count is stale", () => {
     render(
       <ActiveCurtailmentStatus
