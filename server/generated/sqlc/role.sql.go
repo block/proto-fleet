@@ -10,8 +10,58 @@ import (
 	"database/sql"
 )
 
+const createCustomRole = `-- name: CreateCustomRole :one
+INSERT INTO role (name, description, is_builtin)
+VALUES ($1, $2, FALSE)
+RETURNING id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key
+`
+
+type CreateCustomRoleParams struct {
+	Name        string
+	Description sql.NullString
+}
+
+func (q *Queries) CreateCustomRole(ctx context.Context, arg CreateCustomRoleParams) (Role, error) {
+	row := q.queryRow(ctx, q.createCustomRoleStmt, createCustomRole, arg.Name, arg.Description)
+	var i Role
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Description,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.IsBuiltin,
+		&i.BuiltinKey,
+	)
+	return i, err
+}
+
+const getRoleByBuiltinKey = `-- name: GetRoleByBuiltinKey :one
+SELECT id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key
+FROM role
+WHERE builtin_key = $1
+  AND deleted_at IS NULL
+`
+
+func (q *Queries) GetRoleByBuiltinKey(ctx context.Context, builtinKey sql.NullString) (Role, error) {
+	row := q.queryRow(ctx, q.getRoleByBuiltinKeyStmt, getRoleByBuiltinKey, builtinKey)
+	var i Role
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Description,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.IsBuiltin,
+		&i.BuiltinKey,
+	)
+	return i, err
+}
+
 const getRoleByID = `-- name: GetRoleByID :one
-SELECT id, name, description, created_at, updated_at, deleted_at
+SELECT id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key
 FROM role
 WHERE id = $1
   AND deleted_at IS NULL
@@ -27,12 +77,14 @@ func (q *Queries) GetRoleByID(ctx context.Context, id int64) (Role, error) {
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.IsBuiltin,
+		&i.BuiltinKey,
 	)
 	return i, err
 }
 
 const getRoleByName = `-- name: GetRoleByName :one
-SELECT id, name, description, created_at, updated_at, deleted_at FROM role
+SELECT id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key FROM role
 WHERE name = $1
 `
 
@@ -46,12 +98,100 @@ func (q *Queries) GetRoleByName(ctx context.Context, name string) (Role, error) 
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.IsBuiltin,
+		&i.BuiltinKey,
 	)
 	return i, err
 }
 
+const listBuiltinRoles = `-- name: ListBuiltinRoles :many
+SELECT id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key
+FROM role
+WHERE is_builtin = TRUE
+  AND deleted_at IS NULL
+ORDER BY builtin_key
+`
+
+// Returns the three (eventually four) built-in roles keyed by
+// builtin_key. Used by U4 startup reconciliation.
+func (q *Queries) ListBuiltinRoles(ctx context.Context) ([]Role, error) {
+	rows, err := q.query(ctx, q.listBuiltinRolesStmt, listBuiltinRoles)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Role
+	for rows.Next() {
+		var i Role
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Description,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
+			&i.IsBuiltin,
+			&i.BuiltinKey,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCustomRoles = `-- name: ListCustomRoles :many
+SELECT id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key
+FROM role
+WHERE is_builtin = FALSE
+  AND deleted_at IS NULL
+ORDER BY name
+`
+
+// Custom roles are everything that isn't a built-in. Admin UI in U11
+// lists them per-org; this query is org-agnostic because custom roles
+// are global to the deployment in v1 (an org's admins can still pick
+// which to assign).
+func (q *Queries) ListCustomRoles(ctx context.Context) ([]Role, error) {
+	rows, err := q.query(ctx, q.listCustomRolesStmt, listCustomRoles)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Role
+	for rows.Next() {
+		var i Role
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Description,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
+			&i.IsBuiltin,
+			&i.BuiltinKey,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRoles = `-- name: ListRoles :many
-SELECT id, name, description, created_at, updated_at, deleted_at
+SELECT id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key
 FROM role
 ORDER BY name
 `
@@ -72,6 +212,8 @@ func (q *Queries) ListRoles(ctx context.Context) ([]Role, error) {
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.IsBuiltin,
+			&i.BuiltinKey,
 		); err != nil {
 			return nil, err
 		}
@@ -84,6 +226,24 @@ func (q *Queries) ListRoles(ctx context.Context) ([]Role, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const softDeleteCustomRole = `-- name: SoftDeleteCustomRole :exec
+UPDATE role
+SET deleted_at = CURRENT_TIMESTAMP
+WHERE id = $1
+  AND deleted_at IS NULL
+  AND is_builtin = FALSE
+`
+
+// Delete is locked for every built-in (SUPER_ADMIN, ADMIN,
+// FIELD_TECH); the domain layer in U8 surfaces
+// BUILTIN_ROLE_NON_DELETABLE for ADMIN/FIELD_TECH and
+// BUILTIN_ROLE_IMMUTABLE for SUPER_ADMIN. This query is the
+// structural backstop: it refuses to soft-delete any is_builtin row.
+func (q *Queries) SoftDeleteCustomRole(ctx context.Context, id int64) error {
+	_, err := q.exec(ctx, q.softDeleteCustomRoleStmt, softDeleteCustomRole, id)
+	return err
 }
 
 const softDeleteRole = `-- name: SoftDeleteRole :exec
@@ -108,6 +268,29 @@ func (q *Queries) UndeleteRole(ctx context.Context, id int64) error {
 	return err
 }
 
+const updateCustomRoleName = `-- name: UpdateCustomRoleName :exec
+UPDATE role
+SET name = $1,
+    description = $2
+WHERE id = $3
+  AND deleted_at IS NULL
+  AND builtin_key IS DISTINCT FROM 'SUPER_ADMIN'
+`
+
+type UpdateCustomRoleNameParams struct {
+	Name        string
+	Description sql.NullString
+	ID          int64
+}
+
+// Renames a role. Rejects SUPER_ADMIN at the query level via the
+// builtin_key guard; ADMIN and FIELD_TECH are editable through the
+// same path as custom roles, per the U8 design.
+func (q *Queries) UpdateCustomRoleName(ctx context.Context, arg UpdateCustomRoleNameParams) error {
+	_, err := q.exec(ctx, q.updateCustomRoleNameStmt, updateCustomRoleName, arg.Name, arg.Description, arg.ID)
+	return err
+}
+
 const updateRole = `-- name: UpdateRole :exec
 UPDATE role
 SET name        = $1,
@@ -124,6 +307,42 @@ type UpdateRoleParams struct {
 func (q *Queries) UpdateRole(ctx context.Context, arg UpdateRoleParams) error {
 	_, err := q.exec(ctx, q.updateRoleStmt, updateRole, arg.Name, arg.Description, arg.ID)
 	return err
+}
+
+const upsertBuiltinRole = `-- name: UpsertBuiltinRole :one
+INSERT INTO role (name, description, is_builtin, builtin_key)
+VALUES ($1, $2, TRUE, $3)
+ON CONFLICT (builtin_key) DO UPDATE SET
+    name = EXCLUDED.name,
+    description = EXCLUDED.description,
+    is_builtin = TRUE,
+    deleted_at = NULL
+RETURNING id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key
+`
+
+type UpsertBuiltinRoleParams struct {
+	Name        string
+	Description sql.NullString
+	BuiltinKey  sql.NullString
+}
+
+// Used only by U4 seed reconciliation. Created with is_builtin=TRUE
+// so subsequent custom-role mutation paths skip it via
+// builtin_key IS DISTINCT FROM 'SUPER_ADMIN'.
+func (q *Queries) UpsertBuiltinRole(ctx context.Context, arg UpsertBuiltinRoleParams) (Role, error) {
+	row := q.queryRow(ctx, q.upsertBuiltinRoleStmt, upsertBuiltinRole, arg.Name, arg.Description, arg.BuiltinKey)
+	var i Role
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Description,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.IsBuiltin,
+		&i.BuiltinKey,
+	)
+	return i, err
 }
 
 const upsertRole = `-- name: UpsertRole :one
