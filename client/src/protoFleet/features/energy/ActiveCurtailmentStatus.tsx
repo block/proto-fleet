@@ -96,6 +96,7 @@ type ActiveCurtailmentDisplayState =
   | "curtailing"
   | "curtailed"
   | "failed"
+  | "pending"
   | "restoring"
   | "restored"
   | "restoreIncomplete";
@@ -129,6 +130,7 @@ interface StatusIconArgs {
 
 interface ActiveCurtailmentDisplayFlags {
   isCurtailmentComplete: boolean;
+  isPending: boolean;
   isRestored: boolean;
   isRestoreIncomplete: boolean;
   isRestoring: boolean;
@@ -170,6 +172,7 @@ const displayStateLabels: Record<ActiveCurtailmentDisplayState, string> = {
   curtailed: "Curtailed",
   curtailing: "Curtailing",
   failed: "Failed",
+  pending: "Pending",
   restoreIncomplete: "Restore incomplete",
   restored: "Restored",
   restoring: "Restoring",
@@ -309,6 +312,10 @@ function getActiveCurtailmentDisplayState(
     return "restoring";
   }
 
+  if (event.state === "pending") {
+    return "pending";
+  }
+
   if (isRestoreIncompleteEventState(event.state)) {
     return "restoreIncomplete";
   }
@@ -418,6 +425,7 @@ function formatRestoreTimeValue({
 }
 
 function getDisplayFlags(displayState: ActiveCurtailmentDisplayState): ActiveCurtailmentDisplayFlags {
+  const isPending = displayState === "pending";
   const isRestored = displayState === "restored";
   const isRestoreIncomplete = displayState === "restoreIncomplete";
   const isRestoring = displayState === "restoring";
@@ -425,6 +433,7 @@ function getDisplayFlags(displayState: ActiveCurtailmentDisplayState): ActiveCur
 
   return {
     isCurtailmentComplete: displayState === "curtailed",
+    isPending,
     isRestored,
     isRestoreIncomplete,
     isRestoring,
@@ -447,7 +456,7 @@ function getProgressLegend(displayFlags: ActiveCurtailmentDisplayFlags): ActiveC
     primaryDotClassName: "bg-core-primary-fill",
     primaryLabel: "Curtailed",
     secondaryDotClassName: "bg-core-accent-fill",
-    secondaryLabel: "Curtailing",
+    secondaryLabel: displayFlags.isPending ? "Pending" : "Curtailing",
   };
 }
 
@@ -500,6 +509,7 @@ function getActiveCurtailmentActionButton({
       return onRequestRestore ? (
         <Button variant={variants.primary} size={sizes.compact} text="Restore" onClick={onRequestRestore} />
       ) : null;
+    case "pending":
     case "curtailing":
       return onRequestStop ? (
         <Button variant={variants.danger} size={sizes.compact} text="Stop" onClick={onRequestStop} />
@@ -629,11 +639,8 @@ export default function ActiveCurtailmentStatus({
     totalRestoreSeconds,
   });
   const restoreCompletionLabel = displayFlags.isRestored ? "Completed" : "Estimated completion";
-  const restoreCompletionValue = displayFlags.isRestored
-    ? formatDateTime(event.endedAt)
-    : event.endedAt
-      ? formatDateTime(event.endedAt)
-      : estimatedCompletion;
+  const restoreCompletionValue =
+    displayFlags.isRestored || event.endedAt ? formatDateTime(event.endedAt) : estimatedCompletion;
   const restoreFailureValue = formatMinerCount(compliance.restoreFailedCount);
   const restoreProgressPercent = displayFlags.isRestored ? 100 : restoredPercent;
   const curtailProgressPercent = displayFlags.isCurtailmentComplete ? 100 : curtailedPercent;

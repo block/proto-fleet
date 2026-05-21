@@ -50,6 +50,33 @@ describe("ActiveCurtailmentStatus", () => {
     expect(onRequestStop).toHaveBeenCalledOnce();
   });
 
+  it("renders a pending event with stop available", async () => {
+    const user = userEvent.setup();
+    const onRequestStop = vi.fn();
+
+    render(
+      <ActiveCurtailmentStatus
+        event={{
+          ...curtailingCurtailmentEvent,
+          observedReductionKw: 0,
+          rollups: [{ state: "pending", count: curtailingCurtailmentEvent.selectedMiners }],
+          state: "pending",
+        }}
+        onRequestStop={onRequestStop}
+      />,
+    );
+
+    expect(screen.getByText("0.0 kW of 60.0 kW")).toBeVisible();
+    expect(screen.getAllByText("Pending")[0]).toBeVisible();
+    expect(screen.queryByText("Curtailing")).not.toBeInTheDocument();
+    expectProgressValue("0");
+    expectActionButtonHidden("Restore");
+
+    await user.click(screen.getByRole("button", { name: "Stop" }));
+
+    expect(onRequestStop).toHaveBeenCalledOnce();
+  });
+
   it("renders a curtailed event with restore available", async () => {
     const user = userEvent.setup();
     const onRequestRestore = vi.fn();
