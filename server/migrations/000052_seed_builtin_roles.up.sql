@@ -53,8 +53,14 @@ INSERT INTO permission (key, description) VALUES
 ON CONFLICT (key) DO UPDATE SET description = EXCLUDED.description;
 
 -- ---------------------------------------------------------------
--- 2. Per-org built-in role rows. Cross-join active orgs with the
---    fixed list of built-in specs.
+-- 2. Per-org built-in role rows. Cross-join EVERY organization (not
+--    just deleted_at IS NULL) with the fixed list of built-in specs.
+--    Soft-deleted orgs can still have active user_organization rows
+--    (the soft delete doesn't cascade to membership), so they need
+--    per-org built-ins too — otherwise step 3 cannot repoint those
+--    user_organization rows to a per-org role and 000053 would
+--    backfill them with a role_id pointing at the legacy global row,
+--    failing the composite FK on user_organization_role.
 -- ---------------------------------------------------------------
 INSERT INTO role (name, description, is_builtin, builtin_key, organization_id)
 SELECT b.name, b.description, TRUE, b.builtin_key, org.id
@@ -64,7 +70,6 @@ CROSS JOIN (VALUES
     ('ADMIN',       'Org admin. Editable by a SUPER_ADMIN.', 'ADMIN'),
     ('FIELD_TECH',  'Field tech. Read fleet data, blink the locator LED, download logs, manage racks. Editable by a SUPER_ADMIN.', 'FIELD_TECH')
 ) AS b(name, description, builtin_key)
-WHERE org.deleted_at IS NULL
 ON CONFLICT DO NOTHING;
 
 -- ---------------------------------------------------------------

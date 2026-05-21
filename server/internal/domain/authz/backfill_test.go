@@ -120,6 +120,48 @@ func TestBackfill_ExistingAdminUserGetsOrgScopeAssignment(t *testing.T) {
 	require.Equal(t, adminRoleID, a.RoleID)
 }
 
+// A soft-deleted organization can still have active user_organization
+// rows (org soft-delete does not cascade to membership). 000052 must
+// seed per-org built-ins for that org so the repoint and the 000053
+// backfill produce rows that satisfy the composite role FK; otherwise
+// the deploy fails.
+func TestSeed_SoftDeletedOrgStillGetsBuiltins(t *testing.T) {
+	db := testutil.GetTestDB(t)
+	ctx := t.Context()
+
+	// Insert a soft-deleted organization directly.
+	var deletedOrgID int64
+	require.NoError(t,
+		db.QueryRowContext(ctx,
+			`INSERT INTO organization (org_id, name, miner_auth_private_key, deleted_at)
+             VALUES ($1, $2, $3, CURRENT_TIMESTAMP) RETURNING id`,
+			uniqueToken("deleted-org"), "Soft Deleted Org", "dummy-key",
+		).Scan(&deletedOrgID),
+	)
+
+	// Reconcile finds this org via SeedOrgBuiltins's invocation from
+	// the boot reconciler — but ListActiveOrganizationIDs excludes
+	// deleted orgs, so we exercise SeedOrgBuiltins directly. Migration
+	// 000052 covers existing soft-deleted orgs at upgrade time; this
+	// also exercises the same seed path.
+	tx, err := db.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer tx.Rollback() //nolint:errcheck
+
+	_, err = authz.SeedOrgBuiltins(ctx, sqlc.New(tx), deletedOrgID)
+	require.NoError(t, err)
+	require.NoError(t, tx.Commit())
+
+	q := sqlc.New(db)
+	for _, key := range []string{"SUPER_ADMIN", "ADMIN", "FIELD_TECH"} {
+		_, err := q.GetBuiltinRoleForOrg(ctx, sqlc.GetBuiltinRoleForOrgParams{
+			OrganizationID: sql.NullInt64{Int64: deletedOrgID, Valid: true},
+			BuiltinKey:     sql.NullString{String: key, Valid: true},
+		})
+		require.NoError(t, err, "soft-deleted org must still have a per-org %s row", key)
+	}
+}
+
 func TestBackfill_SoftDeletedUserOrganizationRowsAreNotCopied(t *testing.T) {
 	db := testutil.GetTestDB(t)
 	ctx := t.Context()
