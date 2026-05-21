@@ -45,8 +45,7 @@ func TestReconciler_EnforceMaxDuration_ElapsedTransitionsToRestoring(t *testing.
 	assert.Equal(t, 1, store.beginRestoreCalls,
 		"max_duration elapsed must call BeginRestoreTransition exactly once")
 	assert.Equal(t, ev.EventUUID, store.beginRestoreLastEventID)
-	assert.Equal(t, int32(10), store.beginRestoreLastBatch,
-		"effective_batch_size = max(restore_batch_size=10, ceil(0.01*2)=1) clamped → 10")
+	// effective_batch_size was stamped at Start; the transition does not touch it.
 	// Drift detection must not run on a force-restored event.
 	assert.Equal(t, 0, disp.curtailCalls)
 }
