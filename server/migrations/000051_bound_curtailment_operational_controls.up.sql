@@ -1,3 +1,9 @@
+-- Safe without CONCURRENTLY / NOT VALID because StartCurtailment was gated
+-- off until this PR; curtailment_event has zero rows at deploy, so the
+-- ALTER + CREATE INDEX scans and lock holds are instant. Re-applications
+-- against a populated table should use CREATE UNIQUE INDEX CONCURRENTLY
+-- and ADD CONSTRAINT ... NOT VALID + VALIDATE CONSTRAINT.
+
 ALTER TABLE curtailment_event
     ADD CONSTRAINT ck_curtailment_event_max_duration_bounds
         CHECK (max_duration_seconds IS NULL OR (max_duration_seconds > 0 AND max_duration_seconds <= 604800)),

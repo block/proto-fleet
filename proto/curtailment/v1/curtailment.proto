@@ -13,6 +13,10 @@ service CurtailmentService {
         returns (PreviewCurtailmentPlanResponse);
 
     // Start an event, persist targets, and dispatch initial Curtail commands.
+    // AlreadyExists when a concurrent Start races past the selector and hits
+    // the per-org one-non-terminal-event constraint; the error debug message
+    // carries the existing event's identity as the stable substring
+    // `(event_uuid=<uuid>, state="<state>")` for callers that need to recover.
     rpc StartCurtailment(StartCurtailmentRequest)
         returns (StartCurtailmentResponse);
 
@@ -210,10 +214,10 @@ message CurtailmentEvent {
     bool   include_maintenance        = 18;
     bool   force_include_maintenance  = 19;
 
-    // Server-resolved batch size used by the restorer once Stop fires.
-    // Zero until the event enters 'restoring'. Differs from restore_batch_size
-    // (caller preference) when the adaptive [10, 100] envelope or an operator
-    // override applies; this is the value clients should display.
+    // Server-resolved batch size for the restorer. Stamped at Start as
+    // max(restore_batch_size, ceil(0.01 × selected_target_count)) clamped
+    // to [10, 100], and persisted on the event row from creation. Read back
+    // by Stop and the reconciler; this is the value clients should display.
     uint32 effective_batch_size = 24;
 
     // Operator-supplied reason.
@@ -479,6 +483,11 @@ message UpdateCurtailmentEventResponse {
 
 // StopCurtailment starts restore; min duration may block normal priority.
 message StopCurtailmentRequest {
+    // Field 2 previously carried `optional uint32 restore_batch_size_override`
+    // (pre-release; per-Stop override removed in favor of Start-time stamping).
+    // Reserve the old name so a future re-add never collides.
+    reserved "restore_batch_size_override";
+
     string event_uuid = 1 [(buf.validate.field).string.min_len = 1];
 
     // Admin-only bypass of `min_curtailed_duration_sec` on active events.

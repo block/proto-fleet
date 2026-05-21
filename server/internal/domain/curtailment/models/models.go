@@ -166,7 +166,8 @@ type Event struct {
 }
 
 // InsertEventParams is the caller-supplied fields; id / created_at /
-// updated_at / effective_batch_size come from the DB.
+// updated_at come from the DB. EffectiveBatchSize is computed at Start
+// from the selected-target count and stamped here.
 type InsertEventParams struct {
 	EventUUID               uuid.UUID
 	OrgID                   int64
