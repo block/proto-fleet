@@ -130,7 +130,8 @@ func (s *SQLUserStore) CreateAdminUserWithOrganization(ctx context.Context, user
 
 	// Seed per-org SUPER_ADMIN / ADMIN / FIELD_TECH built-in role rows
 	// in the same transaction as org creation so the founding user can
-	// be assigned a real per-org SUPER_ADMIN immediately. The
+	// be assigned a real per-org SUPER_ADMIN immediately, without
+	// waiting for the next boot's startup reconciliation. The
 	// roleName/roleDescription params are kept on the interface for
 	// backward compatibility but are no longer used — built-in
 	// definitions come from server/internal/domain/authz/builtin.go.

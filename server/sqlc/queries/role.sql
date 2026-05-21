@@ -40,7 +40,8 @@ WHERE id = $1;
 
 -- name: ListBuiltinRolesForOrg :many
 -- Returns the per-org built-in rows for a single organization. Used
--- by U4 startup reconciliation and the onboarding hook.
+-- by the startup reconciler (which iterates orgs) and by the
+-- onboarding hook that seeds built-ins for a new org.
 SELECT *
 FROM role
 WHERE is_builtin = TRUE
@@ -83,8 +84,10 @@ WHERE deleted_at IS NULL
 ORDER BY id;
 
 -- name: ListCustomRolesForOrg :many
--- Per-org custom roles. Admin UI in U11 calls this with the caller's
--- organization_id; the query never returns rows from other orgs.
+-- Per-org custom roles. The role-list handler calls this with the
+-- caller's organization_id; the query never returns rows from other
+-- orgs, so an admin in org A cannot see or assign org B's custom
+-- roles even if they happen to know an internal id.
 SELECT *
 FROM role
 WHERE is_builtin = FALSE
@@ -98,9 +101,10 @@ VALUES ($1, $2, FALSE, $3)
 RETURNING *;
 
 -- name: UpdateCustomRoleName :exec
--- Renames a role. Locked to is_builtin = FALSE so no built-in row can
--- be modified through this path; ADMIN and FIELD_TECH edits go
--- through the per-org built-in editor in U8.
+-- Renames a custom role. Locked to is_builtin = FALSE so no built-in
+-- row can be modified through this path; ADMIN and FIELD_TECH have
+-- their own per-org editor that goes through a different code path
+-- because their seed identity (builtin_key) must be preserved.
 UPDATE role
 SET name = $1,
     description = $2
@@ -109,8 +113,10 @@ WHERE id = $3
   AND is_builtin = FALSE;
 
 -- name: SoftDeleteCustomRole :exec
--- Delete is locked for every built-in. The domain layer in U8
--- surfaces BUILTIN_ROLE_IMMUTABLE on a delete attempt.
+-- Delete is locked for every built-in: the is_builtin = FALSE guard
+-- here is the structural backstop, and the domain layer surfaces a
+-- BUILTIN_ROLE_IMMUTABLE error so callers see a clear reason rather
+-- than a silent no-op.
 UPDATE role
 SET deleted_at = CURRENT_TIMESTAMP
 WHERE id = $1

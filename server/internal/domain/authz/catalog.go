@@ -12,8 +12,8 @@ import "sort"
 
 const (
 	// fleet — collection-level reads. Required floor for any list/dashboard
-	// view; role save in U8 rejects an action permission without its
-	// matching read partner.
+	// view; the role-save validator rejects any role that includes an
+	// action permission without its matching read partner.
 	PermFleetRead = "fleet:read"
 
 	// miner — per-row reads and miner-scoped actions. Site-scoped resource.
@@ -67,8 +67,9 @@ const (
 	PermRoleManage = "role:manage"
 )
 
-// Resource identifiers used to group catalog entries for the admin UI and
-// the read-pairing rule in U8.
+// Resource identifiers used to group catalog entries for the admin UI
+// and as the lookup key for the read-pairing rule (every action
+// permission requires its same-resource read partner).
 const (
 	ResourceFleet       = "fleet"
 	ResourceMiner       = "miner"
@@ -83,7 +84,10 @@ const (
 )
 
 // CatalogEntry is the in-code shape of a single permission. The wire-level
-// Permission proto in authz/v1/authz.proto projects from this.
+// Permission proto in authz/v1/authz.proto projects from this. The Resource
+// field groups entries for the admin UI's catalog view and lets the
+// role-save validator find each action's matching read partner without
+// re-parsing the key prefix.
 type CatalogEntry struct {
 	Key         string
 	Description string
@@ -190,8 +194,9 @@ func ResourceOrder() []string {
 	return out
 }
 
-// Lookup returns the catalog entry for a key, or false if the key is not in
-// the catalog. Used by U8 role save and the read-pairing validator.
+// Lookup returns the catalog entry for a key, or false if the key is not
+// in the catalog. The role-save validator uses this to confirm every
+// requested permission is real before persisting role_permission rows.
 func Lookup(key string) (CatalogEntry, bool) {
 	for _, entry := range catalog {
 		if entry.Key == key {

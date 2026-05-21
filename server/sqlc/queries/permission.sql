@@ -1,5 +1,5 @@
 -- Permission catalog queries. The catalog is reconciled at startup
--- against domain/authz/catalog.go (see U4 reconciliation).
+-- against domain/authz/catalog.go via domain/authz/reconcile.go.
 
 -- name: ListPermissions :many
 SELECT *
@@ -28,7 +28,9 @@ RETURNING *;
 
 -- name: ListRolePermissionKeys :many
 -- Returns every permission key attached to the given role. Used by the
--- resolver (U6) and by UpdateCustomRole's privilege-parity check (U8).
+-- per-request resolver and by the role-edit privilege-parity check
+-- (a caller can only assign a role whose permissions are a subset of
+-- the caller's own — this query reads that subset).
 SELECT p.key
 FROM role_permission rp
 JOIN permission p ON p.id = rp.permission_id
@@ -36,7 +38,8 @@ WHERE rp.role_id = $1
 ORDER BY p.key;
 
 -- name: AssignPermissionToRole :exec
--- Idempotent insert used by reconciliation and by UpdateCustomRole.
+-- Idempotent insert used by startup reconciliation and by the
+-- role-edit handler when an admin adds a permission to a role.
 INSERT INTO role_permission (role_id, permission_id)
 VALUES ($1, $2)
 ON CONFLICT (role_id, permission_id) DO NOTHING;
@@ -47,9 +50,9 @@ WHERE role_id = $1
   AND permission_id = $2;
 
 -- name: ClearRolePermissions :exec
--- Wholesale removal for the SUPER_ADMIN reconcile path (it is followed
--- by a full re-insert in the same transaction) and for
--- ReplaceRolePermissions in U8.
+-- Wholesale removal. Used by the role-edit handler when replacing a
+-- role's full permission set in a single transaction (delete-then-
+-- insert inside one tx so there is no zero-permission window).
 DELETE FROM role_permission
 WHERE role_id = $1;
 

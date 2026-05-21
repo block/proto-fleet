@@ -2,9 +2,11 @@
 -- multi-assignment user→role rows with org/site scope.
 --
 -- The existing user_organization.role_id column is preserved unchanged
--- here; U5 (migration 000053) backfills assignments and neutralizes the
--- legacy column. U12 will drop it once the soak period confirms no
--- callers remain.
+-- here; migration 000053 backfills assignments into the new
+-- user_organization_role table. A later migration will neutralize the
+-- legacy column with a raising trigger on non-NULL writes (alongside
+-- the caller swap that retires it), and a final migration drops it
+-- once a soak window confirms no callers remain.
 
 -- Per-org role model. Every role (built-in or custom) is owned by an
 -- organization so editing it cannot leak across tenants. The legacy

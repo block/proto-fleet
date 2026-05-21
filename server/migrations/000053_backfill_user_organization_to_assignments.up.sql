@@ -3,15 +3,12 @@
 -- at the same role_id, preserving every user's current effective
 -- access. No flag day, no re-login required.
 --
--- Plan deviation note: the plan's U5 also renamed
--- user_organization.role_id to role_id_deprecated_do_not_use and
--- added a raising trigger on non-NULL writes. That part is moved to
--- PR 2 (the security-critical PR) so it lands together with the
--- caller swap in U6/U7; doing the rename here would explode the
--- existing onboarding flow the moment PR 1 deploys and before PR 2
--- can land. The plan's intent (loud failure during soak) is still
--- honored — the soak window just shifts from "between PR 1 and U12"
--- to "between PR 2 and U12".
+-- This migration intentionally leaves user_organization.role_id
+-- untouched. The follow-up migration that neutralizes that column
+-- (rename + raising trigger on non-NULL writes) ships alongside the
+-- code change that swaps callers to the new assignment table — doing
+-- them in the same release window means there is no deploy state in
+-- which onboarding writes to a column whose trigger explodes.
 
 INSERT INTO user_organization_role (
     user_id,

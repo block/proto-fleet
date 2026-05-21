@@ -28,7 +28,7 @@ import (
 //     boot.
 //   - ADMIN and FIELD_TECH are reconciled additive-only per org.
 //     Missing seed permissions get inserted; nothing is ever removed.
-//     Operator edits via UpdateCustomRole (U8) survive restarts.
+//     Operator edits to those roles survive restarts.
 //
 // Catalog row policy: permissions are always upserted (description
 // text refreshed). A permission key removed from catalog.go is NOT
