@@ -77,7 +77,7 @@ const SitesPage = () => {
   const modals = useSiteModals({ refetchSites: fetchSites });
 
   const handleDeleteFromDetailsEdit = useCallback(() => {
-    if (modals.state.kind !== "detailsEdit") return;
+    if (modals.state.kind !== "manageEditEditingDetails") return;
     const id = modals.state.site.id.toString();
     const match = sites?.find((s) => (s.site?.id ?? 0n).toString() === id);
     if (match) modals.openDeleteConfirm(match);
@@ -139,12 +139,18 @@ const SitesPage = () => {
     );
   }
 
+  // "Add a site" only makes sense from the All Sites view; once a specific
+  // site is selected the operator is in single-site context and the CTA
+  // would be misleading. SettingsSitesPage already swaps the header out in
+  // its single-site branch, so this gating is /sites-specific.
+  const showAddSite = activeSite.kind === "all";
+
   return (
     <div className="flex flex-col gap-6 p-10 phone:p-6" data-testid="sites-page">
       <SitesPageHeader
         headline="Sites"
         subheadline="Manage your sites, buildings, and rack infrastructure."
-        onAddSite={modals.openCreate}
+        onAddSite={showAddSite ? modals.openCreate : undefined}
       />
       {sites.length === 0 ? (
         <SitesEmptyState onAddSite={modals.openCreate} />

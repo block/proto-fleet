@@ -51,7 +51,7 @@ const SettingsSitesPage = () => {
   // a Site) to drive the cascade dialog copy. Look it up from the page's
   // current ListSites cache.
   const handleDeleteFromDetailsEdit = useCallback(() => {
-    if (modals.state.kind !== "detailsEdit") return;
+    if (modals.state.kind !== "manageEditEditingDetails") return;
     const id = modals.state.site.id.toString();
     const match = sites?.find((s) => (s.site?.id ?? 0n).toString() === id);
     if (match) modals.openDeleteConfirm(match);

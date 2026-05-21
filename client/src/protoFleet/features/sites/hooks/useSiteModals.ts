@@ -10,14 +10,15 @@ import { pushToast, STATUSES } from "@/shared/features/toaster";
 export type SiteModalState =
   | { kind: "none" }
   | { kind: "detailsCreate"; draft: SiteFormValues }
-  // Re-entry from ManageSiteModal during a create flow. Same form as
-  // detailsCreate but the CTAs read Delete (discard pending site) + Save
-  // (apply changes and return to manage) so the operator doesn't see
-  // Cancel/Continue once they've already committed to the create flow.
-  | { kind: "detailsCreateReturn"; draft: SiteFormValues }
   | { kind: "manageCreate"; draft: SiteFormValues }
-  | { kind: "detailsEdit"; site: Site; draft: SiteFormValues }
+  // Stacked: ManageSiteModal stays open while SiteDetailsModal renders
+  // on top. CTAs in details read Delete (discard pending create) + Save
+  // (apply changes and return to manage).
+  | { kind: "manageCreateEditingDetails"; draft: SiteFormValues }
   | { kind: "manageEdit"; site: Site; draft: SiteFormValues }
+  // Stacked edit-flow counterpart. Save calls UpdateSite directly; on
+  // success details closes and manage stays open with refreshed draft.
+  | { kind: "manageEditEditingDetails"; site: Site; draft: SiteFormValues }
   | { kind: "deleteConfirm"; site: SiteWithCounts };
 
 interface UseSiteModalsOptions {
@@ -34,7 +35,12 @@ export interface SiteModalsApi {
   openCreate: () => void;
   openManageEdit: (site: Site) => void;
   openDeleteConfirm: (site: SiteWithCounts) => void;
+  // Closes the topmost modal: drops details if details is stacked on
+  // manage, otherwise closes everything to none.
   dismiss: () => void;
+  // Closes every modal regardless of stack — used when the operator
+  // discards a pending create from the SiteDetailsModal Delete button.
+  cancelAll: () => void;
   // SiteDetailsModal handlers
   detailsContinueCreate: (values: SiteFormValues) => void;
   detailsSaveEdit: (values: SiteFormValues) => Promise<void>;
@@ -77,6 +83,18 @@ const useSiteModals = ({ refetchSites }: UseSiteModalsOptions): SiteModalsApi =>
   }, []);
 
   const dismiss = useCallback(() => {
+    // Stacked states drop just the top (details) and return to the
+    // underlying manage state. Everything else closes to none.
+    setState((prev) => {
+      if (prev.kind === "manageCreateEditingDetails") return { kind: "manageCreate", draft: prev.draft };
+      if (prev.kind === "manageEditEditingDetails") {
+        return { kind: "manageEdit", site: prev.site, draft: prev.draft };
+      }
+      return { kind: "none" };
+    });
+  }, []);
+
+  const cancelAll = useCallback(() => {
     setState({ kind: "none" });
   }, []);
 
@@ -85,7 +103,7 @@ const useSiteModals = ({ refetchSites }: UseSiteModalsOptions): SiteModalsApi =>
     // owns the descriptive fields, so the value typed in ManageSiteModal
     // survives bouncing between the two surfaces.
     setState((prev) => {
-      if (prev.kind === "detailsCreate" || prev.kind === "detailsCreateReturn") {
+      if (prev.kind === "detailsCreate" || prev.kind === "manageCreateEditingDetails") {
         return { kind: "manageCreate", draft: { ...values, networkConfig: prev.draft.networkConfig } };
       }
       return prev;
@@ -94,21 +112,24 @@ const useSiteModals = ({ refetchSites }: UseSiteModalsOptions): SiteModalsApi =>
 
   const detailsSaveEdit = useCallback(
     async (values: SiteFormValues) => {
-      if (state.kind !== "detailsEdit") return;
+      if (state.kind !== "manageEditEditingDetails") return;
       const id = state.site.id;
       setSaving(true);
       await new Promise<void>((resolve) => {
         void updateSite({
           id,
           values,
-          onSuccess: (_site, warnings) => {
+          onSuccess: (site, warnings) => {
             pushToast({
               message:
                 warnings.length > 0 ? `Site "${values.name}" saved with warnings` : `Site "${values.name}" saved`,
               status: STATUSES.success,
             });
             refetchSites();
-            setState({ kind: "none" });
+            // Drop details, keep ManageSiteModal open with the server's
+            // canonical site + draft so the operator sees the saved state
+            // reflected in the manage preview.
+            setState({ kind: "manageEdit", site, draft: siteFormValuesFromSite(site) });
             resolve();
           },
           onError: (msg) => {
@@ -124,19 +145,24 @@ const useSiteModals = ({ refetchSites }: UseSiteModalsOptions): SiteModalsApi =>
 
   const manageEditDetails = useCallback(() => {
     setState((prev) => {
-      // Create flow: route to detailsCreateReturn so the form renders
-      // Delete + Save instead of Cancel + Continue. Edit flow uses
-      // detailsEdit which already renders the edit CTAs.
-      if (prev.kind === "manageCreate") return { kind: "detailsCreateReturn", draft: prev.draft };
-      if (prev.kind === "manageEdit") return { kind: "detailsEdit", site: prev.site, draft: prev.draft };
+      // Stack details on top of manage. Manage stays in the underlying
+      // state so it remains visible behind SiteDetailsModal.
+      if (prev.kind === "manageCreate") return { kind: "manageCreateEditingDetails", draft: prev.draft };
+      if (prev.kind === "manageEdit") {
+        return { kind: "manageEditEditingDetails", site: prev.site, draft: prev.draft };
+      }
       return prev;
     });
   }, []);
 
   const manageNetworkConfigChange = useCallback((value: string) => {
     setState((prev) => {
-      if (prev.kind === "manageCreate") return { ...prev, draft: { ...prev.draft, networkConfig: value } };
-      if (prev.kind === "manageEdit") return { ...prev, draft: { ...prev.draft, networkConfig: value } };
+      if (prev.kind === "manageCreate" || prev.kind === "manageCreateEditingDetails") {
+        return { ...prev, draft: { ...prev.draft, networkConfig: value } };
+      }
+      if (prev.kind === "manageEdit" || prev.kind === "manageEditEditingDetails") {
+        return { ...prev, draft: { ...prev.draft, networkConfig: value } };
+      }
       return prev;
     });
   }, []);
@@ -293,6 +319,7 @@ const useSiteModals = ({ refetchSites }: UseSiteModalsOptions): SiteModalsApi =>
     openManageEdit,
     openDeleteConfirm,
     dismiss,
+    cancelAll,
     detailsContinueCreate,
     detailsSaveEdit,
     manageEditDetails,

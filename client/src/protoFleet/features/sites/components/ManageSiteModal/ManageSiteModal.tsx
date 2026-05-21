@@ -9,8 +9,8 @@ import { Alert } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Callout, { intents } from "@/shared/components/Callout";
 import Header from "@/shared/components/Header";
+import Input from "@/shared/components/Input";
 import PlaceholderBlock from "@/shared/components/PlaceholderBlock";
-import Textarea from "@/shared/components/Textarea";
 
 export type ManageSiteModalMode = "create" | "edit";
 
@@ -135,16 +135,14 @@ const ManageSiteModal = ({
         ) : null
       }
       primaryPane={
-        <div className="flex flex-col gap-6 pr-6">
+        <div className="flex flex-col gap-6 pr-6 pb-6 laptop:pr-10 laptop:pb-10">
           <section className="flex flex-col gap-2">
-            <Header title="Network config" titleSize="text-heading-100" />
-            <p className="text-300 text-text-primary-70">One CIDR or IP per line; max 16 KB.</p>
-            <Textarea
+            <Header title="Network" titleSize="text-heading-100" />
+            <Input
               id="manage-site-network-config"
-              label="Network config"
+              label="Network"
               initValue={draft.networkConfig}
               onChange={(v) => onNetworkConfigChange(v)}
-              rows={8}
               maxLength={16384}
               testId="manage-site-network-config-input"
             />
@@ -157,40 +155,41 @@ const ManageSiteModal = ({
         </div>
       }
       secondaryPane={
-        <div className="flex flex-col gap-4 p-6">
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex min-w-0 flex-col gap-0.5">
-              <span className="truncate text-emphasis-300">{previewTitle}</span>
-              <span className="truncate text-300 text-text-primary-70">{previewLocation}</span>
-            </div>
-            <div className="flex shrink-0 flex-col items-end gap-0.5">
-              <span className="text-emphasis-300">{previewCapacity}</span>
-              <span className="text-300 text-text-primary-70">
-                {buildingCount} {buildingCount === 1 ? "building" : "buildings"}
-              </span>
-            </div>
+        <div className="flex h-full min-h-0 flex-col">
+          {/* Negative ml escapes wrapper laptop:pl-6 → labels land 20px from pane edge. */}
+          <div className="flex shrink-0 items-start justify-between gap-4 pt-5 pr-5 pl-5 laptop:-ml-6 laptop:pl-5">
+            <span className="min-w-0 truncate text-300 text-text-primary-50">
+              {[previewTitle, previewLocation].filter((s) => s && s !== "—").join(", ") || previewTitle}
+            </span>
+            <span className="shrink-0 truncate text-300 text-text-primary-50">
+              {[previewCapacity, `${buildingCount} ${buildingCount === 1 ? "building" : "buildings"}`]
+                .filter((s) => s && s !== "—")
+                .join(", ")}
+            </span>
           </div>
 
-          {/* Real BuildingCard component lands in #263. Phase 1a renders FPO
-              grey boxes so the layout reads as intended without claiming
-              behavior it can't deliver. */}
-          <div className="grid grid-cols-2 gap-3 tablet:grid-cols-3" data-testid="manage-site-modal-building-grid">
-            {displayBuildings === undefined ? (
-              <PlaceholderBlock label="Loading buildings…" className="col-span-full h-24" />
-            ) : displayBuildings.length === 0 ? (
-              <PlaceholderBlock
-                label={mode === "create" ? "No buildings yet" : "No buildings in this site"}
-                className="col-span-full h-24"
-              />
-            ) : (
-              displayBuildings.map((b) => (
+          {/* Center the FPO building tiles both axes inside the remaining
+              space so the preview reads as a centered floor plan. Real
+              BuildingCard component lands in #263. */}
+          <div className="flex flex-1 items-center justify-center p-5">
+            <div className="flex flex-wrap justify-center gap-3" data-testid="manage-site-modal-building-grid">
+              {displayBuildings === undefined ? (
+                <PlaceholderBlock label="Loading buildings…" className="h-20 w-[120px]" />
+              ) : displayBuildings.length === 0 ? (
                 <PlaceholderBlock
-                  key={(b.building?.id ?? 0n).toString()}
-                  label={b.building?.name ?? "(unnamed)"}
-                  className="h-24"
+                  label={mode === "create" ? "No buildings yet" : "No buildings in this site"}
+                  className="h-20 w-[120px]"
                 />
-              ))
-            )}
+              ) : (
+                displayBuildings.map((b) => (
+                  <PlaceholderBlock
+                    key={(b.building?.id ?? 0n).toString()}
+                    label={b.building?.name ?? "(unnamed)"}
+                    className="h-20 w-[120px]"
+                  />
+                ))
+              )}
+            </div>
           </div>
         </div>
       }

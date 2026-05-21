@@ -69,9 +69,9 @@ const SiteSettingsSingleView = ({ site, knownSiteIds, onManage }: SiteSettingsSi
             variant={variants.secondary}
             size={sizes.compact}
             text="All sites"
-            // ChevronDown rotated -90° (counter-clockwise) points left,
-            // standing in for a ChevronLeft icon we don't ship separately.
-            prefixIcon={<ChevronDown className="-rotate-90" />}
+            // ChevronDown rotated 90° (clockwise) points left, standing in
+            // for a ChevronLeft icon we don't ship separately.
+            prefixIcon={<ChevronDown width="w-3" className="rotate-90" />}
             onClick={() => setActiveSite({ kind: "all" })}
             testId="site-settings-back-to-all"
           />

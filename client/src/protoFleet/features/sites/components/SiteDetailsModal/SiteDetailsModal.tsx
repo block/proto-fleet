@@ -167,6 +167,7 @@ const SiteDetailsModal = ({
             options={US_STATE_OPTIONS}
             value={state}
             onChange={setState}
+            forceBelow
             testId="site-details-state-select"
           />
         </div>
@@ -188,6 +189,7 @@ const SiteDetailsModal = ({
           options={US_TIMEZONE_OPTIONS}
           value={timezone}
           onChange={setTimezone}
+          forceBelow
           testId="site-details-timezone-select"
         />
       </div>

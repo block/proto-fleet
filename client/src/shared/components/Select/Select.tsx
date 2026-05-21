@@ -25,9 +25,24 @@ interface SelectProps {
   error?: boolean | string;
   testId?: string;
   className?: string;
+  // Default behavior flips the popover above the trigger when more space is
+  // available there. Set forceBelow when the caller knows the dropdown must
+  // open downward (e.g. inside a modal whose footer would otherwise hide it).
+  forceBelow?: boolean;
 }
 
-const SelectContent = ({ id, label, options, value, onChange, disabled, error, testId, className }: SelectProps) => {
+const SelectContent = ({
+  id,
+  label,
+  options,
+  value,
+  onChange,
+  disabled,
+  error,
+  testId,
+  className,
+  forceBelow,
+}: SelectProps) => {
   const [open, setOpen] = useState(false);
   const { triggerRef, setPopoverRenderMode } = usePopover();
   const [popoverPosition, setPopoverPosition] = useState<Position>(positions["bottom right"]);
@@ -59,7 +74,7 @@ const SelectContent = ({ id, label, options, value, onChange, disabled, error, t
       const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
       const spaceAbove = triggerRect.top - popoverViewportPadding;
       const spaceBelow = viewportHeight - triggerRect.bottom - popoverViewportPadding;
-      const shouldOpenAbove = spaceAbove > spaceBelow;
+      const shouldOpenAbove = !forceBelow && spaceAbove > spaceBelow;
 
       setTriggerWidth(triggerRect.width);
       setPopoverPosition(shouldOpenAbove ? positions["top right"] : positions["bottom right"]);
@@ -75,7 +90,7 @@ const SelectContent = ({ id, label, options, value, onChange, disabled, error, t
       window.removeEventListener("resize", updatePopoverLayout);
       window.visualViewport?.removeEventListener("resize", updatePopoverLayout);
     };
-  }, [open, triggerRef]);
+  }, [open, triggerRef, forceBelow]);
 
   useEffect(() => {
     if (!open || !listboxRef.current) {

@@ -98,7 +98,7 @@ describe("ManageSiteModal", () => {
     expect(onEditDetails).toHaveBeenCalled();
   });
 
-  it("shows the preview header derived from draft + site", () => {
+  it("shows comma-separated meta on each corner of the preview", () => {
     const site = create(SiteSchema, {
       id: 7n,
       name: "East DC",
@@ -123,8 +123,7 @@ describe("ManageSiteModal", () => {
         onDismiss={() => undefined}
       />,
     );
-    expect(screen.getByText("East DC")).toBeInTheDocument();
-    expect(screen.getByText("Boston, MA")).toBeInTheDocument();
-    expect(screen.getByText("5 MW")).toBeInTheDocument();
+    expect(screen.getByText("East DC, Boston, MA")).toBeInTheDocument();
+    expect(screen.getByText("5 MW, 0 buildings")).toBeInTheDocument();
   });
 });
