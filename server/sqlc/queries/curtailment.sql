@@ -107,7 +107,8 @@ INSERT INTO curtailment_event (
     idempotency_key,
     reason,
     scheduled_start_at,
-    created_by_user_id
+    created_by_user_id,
+    effective_batch_size
 ) VALUES (
     sqlc.arg('event_uuid'),
     sqlc.arg('org_id'),
@@ -135,7 +136,8 @@ INSERT INTO curtailment_event (
     sqlc.narg('idempotency_key'),
     sqlc.arg('reason'),
     sqlc.narg('scheduled_start_at'),
-    sqlc.arg('created_by_user_id')
+    sqlc.arg('created_by_user_id'),
+    sqlc.arg('effective_batch_size')
 )
 RETURNING id, event_uuid, created_at, updated_at;
 
@@ -145,6 +147,17 @@ SELECT *
 FROM curtailment_event
 WHERE event_uuid = sqlc.arg('event_uuid')
     AND org_id = sqlc.arg('org_id');
+
+-- name: GetActiveCurtailmentEvent :one
+-- Org-scoped recovery path for pending/active/restoring events. At most one
+-- row matches per org under uq_curtailment_event_one_non_terminal_per_org;
+-- LIMIT 1 with no ORDER BY lets the planner satisfy the lookup via the
+-- partial unique index without a sort step.
+SELECT *
+FROM curtailment_event
+WHERE org_id = sqlc.arg('org_id')
+    AND state IN ('pending', 'active', 'restoring')
+LIMIT 1;
 
 -- name: InsertCurtailmentTarget :exec
 -- Start dispatch inserts these in the event-row transaction.
@@ -197,10 +210,42 @@ SET state      = sqlc.arg('state'),
     ended_at   = COALESCE(sqlc.narg('ended_at'),   ended_at)
 WHERE id = sqlc.arg('id');
 
+-- name: BeginCurtailmentRestoration :one
+-- Stop's event-side write: flips state to 'restoring'. effective_batch_size
+-- was stamped at Start (computed from the selected target count), so this
+-- query only transitions state. The WHERE state-guard is the load-bearing
+-- concurrency control: concurrent Stop calls race on the same row's per-row
+-- write lock; the loser sees zero rows updated and the store's ErrNoRows
+-- re-read distinguishes "already restoring" from "already terminal".
+-- RETURNING shape mirrors GetCurtailmentEventByUUID.
+UPDATE curtailment_event
+SET state = 'restoring'
+WHERE id = sqlc.arg('id')
+  AND state IN ('pending', 'active')
+RETURNING *;
+
+-- name: ResetCurtailmentTargetsForRestore :exec
+-- Stop's target-side write inside the same tx as BeginCurtailmentRestoration.
+-- Non-terminal targets flip to desired_state='active' (restore phase) and
+-- their phase-local cursors reset so the restorer has an unambiguous queue
+-- after a fleetd restart. Terminal states are untouched (resolved /
+-- restore_failed / released keep their meaning across the phase change).
+UPDATE curtailment_target
+SET desired_state      = 'active',
+    state              = 'pending',
+    retry_count        = 0,
+    last_dispatched_at = NULL,
+    last_batch_uuid    = NULL,
+    confirmed_at       = NULL,
+    last_error         = NULL
+WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
+  AND state NOT IN ('resolved', 'restore_failed', 'released');
+
 -- name: UpdateCurtailmentTargetState :exec
 -- Reconciler patch: COALESCE preserves un-supplied columns so partial
 -- updates don't clobber values from earlier ticks. retry_count is
--- read-then-written inside the tick.
+-- read-then-written inside the tick. An empty last_error string is an
+-- explicit clear signal from successful redispatch paths and maps to SQL NULL.
 UPDATE curtailment_target
 SET state              = sqlc.arg('state'),
     last_dispatched_at = COALESCE(sqlc.narg('last_dispatched_at'), last_dispatched_at),
@@ -209,7 +254,10 @@ SET state              = sqlc.arg('state'),
     observed_at        = COALESCE(sqlc.narg('observed_at'),        observed_at),
     confirmed_at       = COALESCE(sqlc.narg('confirmed_at'),       confirmed_at),
     retry_count        = COALESCE(sqlc.narg('retry_count'),        retry_count),
-    last_error         = COALESCE(sqlc.narg('last_error'),         last_error)
+    last_error         = CASE
+        WHEN sqlc.narg('last_error')::text IS NULL THEN last_error
+        ELSE NULLIF(sqlc.narg('last_error')::text, '')
+    END
 WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
   AND device_identifier    = sqlc.arg('device_identifier');
 

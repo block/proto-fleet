@@ -16,6 +16,63 @@ import (
 	"github.com/sqlc-dev/pqtype"
 )
 
+const beginCurtailmentRestoration = `-- name: BeginCurtailmentRestoration :one
+UPDATE curtailment_event
+SET state = 'restoring'
+WHERE id = $1
+  AND state IN ('pending', 'active')
+RETURNING id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id
+`
+
+// Stop's event-side write: flips state to 'restoring'. effective_batch_size
+// was stamped at Start (computed from the selected target count), so this
+// query only transitions state. The WHERE state-guard is the load-bearing
+// concurrency control: concurrent Stop calls race on the same row's per-row
+// write lock; the loser sees zero rows updated and the store's ErrNoRows
+// re-read distinguishes "already restoring" from "already terminal".
+// RETURNING shape mirrors GetCurtailmentEventByUUID.
+func (q *Queries) BeginCurtailmentRestoration(ctx context.Context, id int64) (CurtailmentEvent, error) {
+	row := q.queryRow(ctx, q.beginCurtailmentRestorationStmt, beginCurtailmentRestoration, id)
+	var i CurtailmentEvent
+	err := row.Scan(
+		&i.ID,
+		&i.EventUuid,
+		&i.OrgID,
+		&i.State,
+		&i.Mode,
+		&i.Strategy,
+		&i.Level,
+		&i.Priority,
+		&i.LoopType,
+		&i.ScopeType,
+		&i.ScopeJsonb,
+		&i.ModeParamsJsonb,
+		&i.RestoreBatchSize,
+		&i.RestoreBatchIntervalSec,
+		&i.EffectiveBatchSize,
+		&i.MinCurtailedDurationSec,
+		&i.MaxDurationSeconds,
+		&i.AllowUnbounded,
+		&i.IncludeMaintenance,
+		&i.ForceIncludeMaintenance,
+		&i.DecisionSnapshotJsonb,
+		&i.SourceActorType,
+		&i.SourceActorID,
+		&i.ExternalSource,
+		&i.ExternalReference,
+		&i.IdempotencyKey,
+		&i.SupersedesEventID,
+		&i.Reason,
+		&i.ScheduledStartAt,
+		&i.StartedAt,
+		&i.EndedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CreatedByUserID,
+	)
+	return i, err
+}
+
 const ensureCurtailmentOrgConfig = `-- name: EnsureCurtailmentOrgConfig :one
 WITH active AS (
     SELECT id
@@ -80,6 +137,60 @@ func (q *Queries) EnsureCurtailmentOrgConfig(ctx context.Context, orgID int64) (
 		&i.PostEventCooldownSec,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getActiveCurtailmentEvent = `-- name: GetActiveCurtailmentEvent :one
+SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id
+FROM curtailment_event
+WHERE org_id = $1
+    AND state IN ('pending', 'active', 'restoring')
+LIMIT 1
+`
+
+// Org-scoped recovery path for pending/active/restoring events. At most one
+// row matches per org under uq_curtailment_event_one_non_terminal_per_org;
+// LIMIT 1 with no ORDER BY lets the planner satisfy the lookup via the
+// partial unique index without a sort step.
+func (q *Queries) GetActiveCurtailmentEvent(ctx context.Context, orgID int64) (CurtailmentEvent, error) {
+	row := q.queryRow(ctx, q.getActiveCurtailmentEventStmt, getActiveCurtailmentEvent, orgID)
+	var i CurtailmentEvent
+	err := row.Scan(
+		&i.ID,
+		&i.EventUuid,
+		&i.OrgID,
+		&i.State,
+		&i.Mode,
+		&i.Strategy,
+		&i.Level,
+		&i.Priority,
+		&i.LoopType,
+		&i.ScopeType,
+		&i.ScopeJsonb,
+		&i.ModeParamsJsonb,
+		&i.RestoreBatchSize,
+		&i.RestoreBatchIntervalSec,
+		&i.EffectiveBatchSize,
+		&i.MinCurtailedDurationSec,
+		&i.MaxDurationSeconds,
+		&i.AllowUnbounded,
+		&i.IncludeMaintenance,
+		&i.ForceIncludeMaintenance,
+		&i.DecisionSnapshotJsonb,
+		&i.SourceActorType,
+		&i.SourceActorID,
+		&i.ExternalSource,
+		&i.ExternalReference,
+		&i.IdempotencyKey,
+		&i.SupersedesEventID,
+		&i.Reason,
+		&i.ScheduledStartAt,
+		&i.StartedAt,
+		&i.EndedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CreatedByUserID,
 	)
 	return i, err
 }
@@ -215,7 +326,8 @@ INSERT INTO curtailment_event (
     idempotency_key,
     reason,
     scheduled_start_at,
-    created_by_user_id
+    created_by_user_id,
+    effective_batch_size
 ) VALUES (
     $1,
     $2,
@@ -243,7 +355,8 @@ INSERT INTO curtailment_event (
     $24,
     $25,
     $26,
-    $27
+    $27,
+    $28
 )
 RETURNING id, event_uuid, created_at, updated_at
 `
@@ -276,6 +389,7 @@ type InsertCurtailmentEventParams struct {
 	Reason                  string
 	ScheduledStartAt        sql.NullTime
 	CreatedByUserID         int64
+	EffectiveBatchSize      sql.NullInt32
 }
 
 type InsertCurtailmentEventRow struct {
@@ -316,6 +430,7 @@ func (q *Queries) InsertCurtailmentEvent(ctx context.Context, arg InsertCurtailm
 		arg.Reason,
 		arg.ScheduledStartAt,
 		arg.CreatedByUserID,
+		arg.EffectiveBatchSize,
 	)
 	var i InsertCurtailmentEventRow
 	err := row.Scan(
@@ -678,6 +793,29 @@ func (q *Queries) ListRecentlyResolvedCurtailedDevicesByOrg(ctx context.Context,
 	return items, nil
 }
 
+const resetCurtailmentTargetsForRestore = `-- name: ResetCurtailmentTargetsForRestore :exec
+UPDATE curtailment_target
+SET desired_state      = 'active',
+    state              = 'pending',
+    retry_count        = 0,
+    last_dispatched_at = NULL,
+    last_batch_uuid    = NULL,
+    confirmed_at       = NULL,
+    last_error         = NULL
+WHERE curtailment_event_id = $1
+  AND state NOT IN ('resolved', 'restore_failed', 'released')
+`
+
+// Stop's target-side write inside the same tx as BeginCurtailmentRestoration.
+// Non-terminal targets flip to desired_state='active' (restore phase) and
+// their phase-local cursors reset so the restorer has an unambiguous queue
+// after a fleetd restart. Terminal states are untouched (resolved /
+// restore_failed / released keep their meaning across the phase change).
+func (q *Queries) ResetCurtailmentTargetsForRestore(ctx context.Context, curtailmentEventID int64) error {
+	_, err := q.exec(ctx, q.resetCurtailmentTargetsForRestoreStmt, resetCurtailmentTargetsForRestore, curtailmentEventID)
+	return err
+}
+
 const updateCurtailmentEventState = `-- name: UpdateCurtailmentEventState :exec
 UPDATE curtailment_event
 SET state      = $1,
@@ -714,7 +852,10 @@ SET state              = $1,
     observed_at        = COALESCE($5,        observed_at),
     confirmed_at       = COALESCE($6,       confirmed_at),
     retry_count        = COALESCE($7,        retry_count),
-    last_error         = COALESCE($8,         last_error)
+    last_error         = CASE
+        WHEN $8::text IS NULL THEN last_error
+        ELSE NULLIF($8::text, '')
+    END
 WHERE curtailment_event_id = $9
   AND device_identifier    = $10
 `
@@ -734,7 +875,8 @@ type UpdateCurtailmentTargetStateParams struct {
 
 // Reconciler patch: COALESCE preserves un-supplied columns so partial
 // updates don't clobber values from earlier ticks. retry_count is
-// read-then-written inside the tick.
+// read-then-written inside the tick. An empty last_error string is an
+// explicit clear signal from successful redispatch paths and maps to SQL NULL.
 func (q *Queries) UpdateCurtailmentTargetState(ctx context.Context, arg UpdateCurtailmentTargetStateParams) error {
 	_, err := q.exec(ctx, q.updateCurtailmentTargetStateStmt, updateCurtailmentTargetState,
 		arg.State,

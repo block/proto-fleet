@@ -134,3 +134,24 @@ func TestUncurtail_HappyPath_QueueReceivesCommand(t *testing.T) {
 	// Uncurtail has no payload — should be nil.
 	assert.Nil(t, q.lastPayload)
 }
+
+func TestUncurtail_DispatchedIdentifiersOnlyIncludeResolvedDevices(t *testing.T) {
+	svc, q := newCurtailDispatchService(t)
+	svc.resolveDevicesOverride = func(_ context.Context, ids []string) ([]resolvedDevice, error) {
+		assert.Equal(t, []string{"miner-1", "miner-2"}, ids)
+		return []resolvedDevice{{id: 202, identifier: "miner-2"}}, nil
+	}
+
+	selector := &pb.DeviceSelector{
+		SelectionType: &pb.DeviceSelector_IncludeDevices{
+			IncludeDevices: &commonpb.DeviceIdentifierList{DeviceIdentifiers: []string{"miner-1", "miner-2"}},
+		},
+	}
+
+	result, err := svc.Uncurtail(manualSessionCtx(1), selector)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, 1, result.DispatchedCount)
+	assert.Equal(t, []string{"miner-2"}, result.DispatchedDeviceIdentifiers)
+	assert.Equal(t, []int64{202}, q.lastDeviceIDs)
+}

@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/modes"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
 // validStartRequest builds a valid StartRequest pointing at orgID. Callers
@@ -74,6 +76,7 @@ func TestService_Start_AllowUnboundedRequiresNilMaxDuration(t *testing.T) {
 	req := validStartRequest(orgID)
 	req.AllowUnbounded = true
 	req.MaxDurationSeconds = nil
+	req.CanUseAdminControls = true
 	_, err := svc.Start(t.Context(), req)
 	require.NoError(t, err, "allow_unbounded + nil max_duration is the valid admin shape")
 }
@@ -95,6 +98,74 @@ func TestService_Start_NilMaxDurationUsesOrgDefault(t *testing.T) {
 	assert.Equal(t, store.orgConfigByOrg[orgID].MaxDurationDefaultSec, *store.lastInsertEvent.MaxDurationSeconds)
 }
 
+// TestService_Start_RejectsOrgDefaultAboveAbsoluteCeiling pins the
+// post-normalization upper-bound guard: when the caller leaves
+// max_duration_seconds unset and !allow_unbounded, Service.Start fills it
+// from orgConfig.MaxDurationDefaultSec. validateStartRequest ran before the
+// fill and saw nil, so a misconfigured org default above maxFiniteDurationSeconds
+// would otherwise tunnel into the DB and trip ck_curtailment_event_max_duration_bounds
+// as an Internal error. Re-checking here keeps the failure a clean
+// InvalidArgument with a config-level message.
+func TestService_Start_RejectsOrgDefaultAboveAbsoluteCeiling(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	store := newFakeStore()
+	cfg := defaultOrgConfig(orgID)
+	cfg.MaxDurationDefaultSec = maxFiniteDurationSeconds + 1
+	store.orgConfigByOrg[orgID] = cfg
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("miner", 6000, 100, 40),
+	}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.MaxDurationSeconds = nil // sentinel: use org default
+
+	_, err := svc.Start(t.Context(), req)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "max_duration_default_sec")
+	assert.Contains(t, err.Error(), "must be <=")
+}
+
+func TestService_Start_RejectsNonAdminDurationAboveOrgDefault(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("miner", 6000, 100, 40),
+	}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	tooLong := store.orgConfigByOrg[orgID].MaxDurationDefaultSec + 1
+	req.MaxDurationSeconds = &tooLong
+
+	_, err := svc.Start(t.Context(), req)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsForbiddenError(err))
+	assert.Contains(t, err.Error(), "max_duration_seconds")
+}
+
+func TestService_Start_AllowsAdminDurationAboveOrgDefaultWithinCap(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("miner", 6000, 100, 40),
+	}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	custom := store.orgConfigByOrg[orgID].MaxDurationDefaultSec + 1
+	req.MaxDurationSeconds = &custom
+	req.CanUseAdminControls = true
+
+	_, err := svc.Start(t.Context(), req)
+	require.NoError(t, err)
+	require.NotNil(t, store.lastInsertEvent.MaxDurationSeconds)
+	assert.Equal(t, custom, *store.lastInsertEvent.MaxDurationSeconds)
+}
+
 func TestService_Start_RejectsZeroMaxDuration(t *testing.T) {
 	t.Parallel()
 	svc := NewService(newFakeStore())
@@ -114,6 +185,86 @@ func TestService_Start_RejectsNegativeRestoreBatchSize(t *testing.T) {
 	_, err := svc.Start(t.Context(), req)
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+}
+
+func TestService_Start_NormalizesZeroRestoreBatchInterval(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("miner", 6000, 100, 40),
+	}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.RestoreBatchIntervalSec = 0
+
+	plan, err := svc.Start(t.Context(), req)
+	require.NoError(t, err)
+	assert.Equal(t, defaultRestoreBatchIntervalSec, store.lastInsertEvent.RestoreBatchIntervalSec)
+	assert.Equal(t, defaultRestoreBatchIntervalSec, plan.EffectiveRestoreBatchIntervalSec)
+}
+
+func TestService_Start_RejectsNonAdminLargeRestoreBatchInterval(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("miner", 6000, 100, 40),
+	}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.RestoreBatchIntervalSec = nonAdminRestoreBatchIntervalMax + 1
+
+	_, err := svc.Start(t.Context(), req)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsForbiddenError(err))
+	assert.Contains(t, err.Error(), "restore_batch_interval_sec")
+}
+
+func TestService_Start_AllowsAdminLargeRestoreBatchInterval(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("miner", 6000, 100, 40),
+	}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.RestoreBatchIntervalSec = nonAdminRestoreBatchIntervalMax + 1
+	req.CanUseAdminControls = true
+
+	_, err := svc.Start(t.Context(), req)
+	require.NoError(t, err)
+	assert.Equal(t, nonAdminRestoreBatchIntervalMax+1, store.lastInsertEvent.RestoreBatchIntervalSec)
+}
+
+// TestService_Start_RejectsAdminRestoreBatchIntervalAboveAbsoluteCeiling pins
+// the absolute upper bound: the admin role bypasses the non-admin cap
+// (nonAdminRestoreBatchIntervalMax) but still cannot exceed the absolute
+// ceiling (restoreBatchIntervalUpperBoundSec). A refactor that drops the
+// validateStartRequest upper-bound check would otherwise hit the DB CHECK
+// constraint instead of the friendly service-layer error.
+func TestService_Start_RejectsAdminRestoreBatchIntervalAboveAbsoluteCeiling(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("miner", 6000, 100, 40),
+	}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.RestoreBatchIntervalSec = restoreBatchIntervalUpperBoundSec + 1
+	req.CanUseAdminControls = true
+
+	_, err := svc.Start(t.Context(), req)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err),
+		"absolute ceiling violation is InvalidArgument even for admin callers")
+	assert.Contains(t, err.Error(), "restore_batch_interval_sec must be <=")
 }
 
 func TestService_Start_RejectsMissingSourceActorType(t *testing.T) {
@@ -364,6 +515,7 @@ func TestService_Start_AllowUnboundedPersistsNullMaxDuration(t *testing.T) {
 	req := validStartRequest(orgID)
 	req.AllowUnbounded = true
 	req.MaxDurationSeconds = nil
+	req.CanUseAdminControls = true
 
 	plan, err := svc.Start(t.Context(), req)
 	require.NoError(t, err)
@@ -420,4 +572,104 @@ func TestService_Start_StorePersistenceErrorPropagates(t *testing.T) {
 	require.Error(t, err)
 	assert.Nil(t, plan)
 	assert.Contains(t, err.Error(), "synthetic db error")
+}
+
+// TestService_Start_StampsEffectiveBatchSize pins that effective_batch_size
+// is computed from the selected target count at Start time and persisted on
+// the event row. Stop reads it back; the reconciler's max-duration arm and
+// the restorer's batch claim both rely on it being non-null from creation.
+// Each candidate is sized so the FIXED_KW selector takes exactly `candidateCount`
+// miners: 1 kW each, target = candidateCount kW.
+func TestService_Start_StampsEffectiveBatchSize(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name             string
+		restoreBatchSize int32
+		candidateCount   int
+		want             int32
+	}{
+		{"small_fleet_floors_to_10", 0, 5, 10},
+		{"restore_batch_size_floors_formula", 60, 5, 60},
+		{"five_thousand_picks_50", 10, 5000, 50},
+		{"ten_thousand_ceilings_at_100", 10, 10_000, 100},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			const orgID = int64(1)
+			store := newFakeStore()
+			store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+			cands := make([]*models.Candidate, tc.candidateCount)
+			for i := range cands {
+				cands[i] = minerWithEff(fmt.Sprintf("m%d", i), 1500, 100, 40)
+			}
+			store.candidatesByOrg[orgID] = cands
+			svc := NewService(store)
+			req := validStartRequest(orgID)
+			req.RestoreBatchSize = tc.restoreBatchSize
+			// Set target above total available + a tolerance band large enough
+			// to cover the gap so FIXED_KW takes every candidate via the
+			// "tolerated undershoot" path: target_kw - tolerance_kw ≤ Σ < target_kw.
+			req.TargetKW = float64(tc.candidateCount) * 10
+			req.ToleranceKW = req.TargetKW - 1
+			_, err := svc.Start(t.Context(), req)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, store.lastInsertEvent.EffectiveBatchSize,
+				"effective_batch_size is stamped from the selected-target count at Start")
+		})
+	}
+}
+
+// TestService_Start_NonTerminalOverlapReturnsAlreadyExists pins the unique
+// partial-index race: another Start beat us between the selector check and
+// the insert, so the per-org constraint rejected our row. Service surfaces
+// AlreadyExists with the existing event's uuid + state.
+func TestService_Start_NonTerminalOverlapReturnsAlreadyExists(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("a", 6000, 100, 40),
+	}
+	store.insertEventErr = interfaces.ErrCurtailmentNonTerminalEventExists
+	existingUUID := uuid.New()
+	store.activeEvent = &models.Event{
+		ID:        99,
+		EventUUID: existingUUID,
+		OrgID:     orgID,
+		State:     models.EventStateActive,
+	}
+	svc := NewService(store)
+	plan, err := svc.Start(t.Context(), validStartRequest(orgID))
+	require.Error(t, err)
+	assert.Nil(t, plan)
+	assert.True(t, fleeterror.IsAlreadyExistsError(err))
+	assert.Contains(t, err.Error(), existingUUID.String())
+	assert.Contains(t, err.Error(), string(models.EventStateActive))
+}
+
+// TestService_Start_NonTerminalOverlapWithGetActiveErrorReturnsBareAlreadyExists
+// pins the sub-branch where the unique-violation handling falls back to a
+// stripped AlreadyExists when GetActiveEvent itself fails. The caller still
+// gets AlreadyExists (the constraint is the load-bearing signal); the absence
+// of the existing event identity is the documented best-effort behavior.
+func TestService_Start_NonTerminalOverlapWithGetActiveErrorReturnsBareAlreadyExists(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("a", 6000, 100, 40),
+	}
+	store.insertEventErr = interfaces.ErrCurtailmentNonTerminalEventExists
+	store.activeEventErr = errors.New("simulated GetActiveEvent failure")
+	svc := NewService(store)
+	plan, err := svc.Start(t.Context(), validStartRequest(orgID))
+	require.Error(t, err)
+	assert.Nil(t, plan)
+	assert.True(t, fleeterror.IsAlreadyExistsError(err),
+		"unique-violation must still surface as AlreadyExists even when the identity lookup fails")
+	assert.NotContains(t, err.Error(), "event_uuid=",
+		"identity substring is omitted when GetActiveEvent fails")
 }

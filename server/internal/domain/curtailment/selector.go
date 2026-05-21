@@ -73,6 +73,13 @@ type Plan struct {
 	// resolves the "use org default" sentinel. nil when AllowUnbounded=true
 	// or for Preview.
 	EffectiveMaxDurationSeconds *int32
+	// EffectiveRestoreBatchIntervalSec is the persisted inter-batch delay
+	// after Service.Start resolves the server-default sentinel. Zero for Preview.
+	EffectiveRestoreBatchIntervalSec int32
+	// EffectiveBatchSize is the adaptive batch size stamped on the event row
+	// at Start time. Zero for Preview. Echoed in the Start response; Stop
+	// and the reconciler read it from the persisted event row, not from Plan.
+	EffectiveBatchSize int32
 }
 
 // SelectedDevice is a candidate the mode picked, carrying the snapshot

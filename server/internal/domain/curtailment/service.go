@@ -3,8 +3,10 @@ package curtailment
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -52,8 +54,9 @@ type StartRequest struct {
 	MinCurtailedDurationSec int32
 
 	// MaxDurationSeconds: nil when AllowUnbounded=true, else a finite cap.
-	MaxDurationSeconds *int32
-	AllowUnbounded     bool
+	MaxDurationSeconds  *int32
+	AllowUnbounded      bool
+	CanUseAdminControls bool
 
 	// External attribution. Empty-string normalizes to NULL at the store
 	// boundary so partial-unique indexes only enforce uniqueness for set keys.
@@ -121,16 +124,56 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 	}
 
 	// max_duration_seconds=nil + !AllowUnbounded means "use org default".
-	// Reject a non-positive org default (data-quality issue).
+	// Mirror validateStartRequest's bounds against the normalized value so a
+	// misconfigured org default surfaces as InvalidArgument instead of
+	// tripping the ck_curtailment_event_max_duration_bounds CHECK.
 	if !req.AllowUnbounded && req.MaxDurationSeconds == nil {
 		if orgConfig.MaxDurationDefaultSec <= 0 {
 			return nil, fleeterror.NewInvalidArgumentErrorf(
 				"org's max_duration_default_sec must be > 0, got %d", orgConfig.MaxDurationDefaultSec,
 			)
 		}
+		if orgConfig.MaxDurationDefaultSec > maxFiniteDurationSeconds {
+			return nil, fleeterror.NewInvalidArgumentErrorf(
+				"org's max_duration_default_sec must be <= %d, got %d",
+				maxFiniteDurationSeconds, orgConfig.MaxDurationDefaultSec,
+			)
+		}
 		v := orgConfig.MaxDurationDefaultSec
 		req.MaxDurationSeconds = &v
 	}
+	// Admin-gate is intrinsically post-normalization: it compares the
+	// resolved value to the org default.
+	if req.MaxDurationSeconds != nil &&
+		orgConfig.MaxDurationDefaultSec > 0 &&
+		*req.MaxDurationSeconds > orgConfig.MaxDurationDefaultSec &&
+		!req.CanUseAdminControls {
+		return nil, fleeterror.NewForbiddenErrorf(
+			"only admins can set max_duration_seconds above org default %d",
+			orgConfig.MaxDurationDefaultSec,
+		)
+	}
+	if req.RestoreBatchIntervalSec == 0 {
+		req.RestoreBatchIntervalSec = defaultRestoreBatchIntervalSec
+	}
+	if req.RestoreBatchIntervalSec > restoreBatchIntervalUpperBoundSec {
+		return nil, fleeterror.NewInvalidArgumentErrorf(
+			"restore_batch_interval_sec must be <= %d, got %d",
+			restoreBatchIntervalUpperBoundSec, req.RestoreBatchIntervalSec,
+		)
+	}
+	if req.RestoreBatchIntervalSec > nonAdminRestoreBatchIntervalMax && !req.CanUseAdminControls {
+		return nil, fleeterror.NewForbiddenErrorf(
+			"only admins can set restore_batch_interval_sec above %d",
+			nonAdminRestoreBatchIntervalMax,
+		)
+	}
+
+	// Stamp the adaptive batch size on the plan so buildInsertParams and the
+	// Start response both read the same value (avoid recomputation drift).
+	// Selected-target count is bounded by per-org fleet size — well under
+	// MaxInt32 at any realistic scale.
+	plan.EffectiveBatchSize = ComputeEffectiveBatchSize(req.RestoreBatchSize, int32(len(plan.Selected))) //nolint:gosec // bounded by per-org fleet size
 
 	eventParams, targetParams, err := buildInsertParams(req, plan, minPowerW)
 	if err != nil {
@@ -139,19 +182,63 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 
 	result, err := s.store.InsertEventWithTargets(ctx, eventParams, targetParams)
 	if err != nil {
+		if errors.Is(err, interfaces.ErrCurtailmentNonTerminalEventExists) {
+			// Race: another Start beat us between the selector check and
+			// the insert. Surface the existing event's identity so the
+			// caller can act on it.
+			existing, getErr := s.store.GetActiveEvent(ctx, req.OrgID)
+			if getErr != nil || existing == nil {
+				return nil, fleeterror.NewAlreadyExistsError(
+					"a non-terminal curtailment event already exists for this organization",
+				)
+			}
+			return nil, fleeterror.NewAlreadyExistsErrorf(
+				"a non-terminal curtailment event already exists for this organization (event_uuid=%s, state=%q)",
+				existing.EventUUID, existing.State,
+			)
+		}
 		return nil, err
 	}
 
 	plan.EventUUID = &result.EventUUID
 	plan.EffectiveMaxDurationSeconds = req.MaxDurationSeconds
+	plan.EffectiveRestoreBatchIntervalSec = req.RestoreBatchIntervalSec
 	return plan, nil
 }
 
-// runSelector executes the org-config + scope + candidate + classify +
+func (s *Service) GetActive(ctx context.Context, orgID int64) (*models.Event, error) {
+	if orgID <= 0 {
+		return nil, fleeterror.NewInvalidArgumentError("org_id must be set")
+	}
+	return s.store.GetActiveEvent(ctx, orgID)
+}
+
+func (s *Service) GetActiveWithTargets(ctx context.Context, orgID int64) (*models.Event, []*models.Target, error) {
+	event, err := s.GetActive(ctx, orgID)
+	if err != nil || event == nil {
+		return event, nil, err
+	}
+	targets, err := s.store.ListTargetsByEvent(ctx, orgID, event.EventUUID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return event, targets, nil
+}
+
+func (s *Service) ListTargetsByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) ([]*models.Target, error) {
+	if orgID <= 0 {
+		return nil, fleeterror.NewInvalidArgumentError("org_id must be set")
+	}
+	if eventUUID == uuid.Nil {
+		return nil, fleeterror.NewInvalidArgumentError("event_uuid must be set")
+	}
+	return s.store.ListTargetsByEvent(ctx, orgID, eventUUID)
+}
+
+// runSelector runs the org-config → scope → candidate → classify →
 // build-plan pipeline shared by Preview and Start. Returns the resolved
-// candidate floor (so persisters can echo it into the decision snapshot)
-// and the OrgConfig (so Start can resolve max_duration_seconds=0 without a
-// second DB read).
+// candidate floor (for the decision snapshot) and the OrgConfig (so Start
+// can resolve max_duration_seconds=0 without a second DB read).
 func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, int32, *models.OrgConfig, error) {
 	deviceFilter, err := resolveScope(req.Scope)
 	if err != nil {
@@ -226,10 +313,17 @@ func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, i
 	return &plan, minPowerW, orgConfig, nil
 }
 
-// startTextFieldMaxLen mirrors the proto max_len for idempotency_key /
-// reason / external_source / external_reference. Service-level backstop
-// for non-Connect callers (CLIs, tests, future non-RPC entry points).
-const startTextFieldMaxLen = 256
+const (
+	// startTextFieldMaxLen mirrors the proto max_len for idempotency_key /
+	// reason / external_source / external_reference. Service-level backstop
+	// for non-Connect callers (CLIs, tests, future non-RPC entry points).
+	startTextFieldMaxLen = 256
+
+	maxFiniteDurationSeconds          int32 = 7 * 24 * 60 * 60
+	defaultRestoreBatchIntervalSec    int32 = 30
+	nonAdminRestoreBatchIntervalMax   int32 = 5 * 60
+	restoreBatchIntervalUpperBoundSec int32 = 60 * 60
+)
 
 func validateStartRequest(req StartRequest) error {
 	if err := validatePreviewRequest(req.PreviewRequest); err != nil {
@@ -281,6 +375,12 @@ func validateStartRequest(req StartRequest) error {
 			"max_duration_seconds must be unset when allow_unbounded is true",
 		)
 	}
+	if req.AllowUnbounded && !req.CanUseAdminControls {
+		return fleeterror.NewForbiddenError("only admins can set allow_unbounded")
+	}
+	if req.CandidateMinPowerWOverride != nil && !req.CanUseAdminControls {
+		return fleeterror.NewForbiddenError("only admins can set candidate_min_power_w_override")
+	}
 	if !req.AllowUnbounded && req.MaxDurationSeconds != nil && *req.MaxDurationSeconds <= 0 {
 		return fleeterror.NewInvalidArgumentErrorf(
 			"max_duration_seconds must be > 0, got %d", *req.MaxDurationSeconds,
@@ -288,6 +388,18 @@ func validateStartRequest(req StartRequest) error {
 	}
 	// MaxDurationSeconds=nil + !AllowUnbounded is the "use org default"
 	// sentinel; Service.Start resolves it before persistence.
+	if req.MaxDurationSeconds != nil && *req.MaxDurationSeconds > maxFiniteDurationSeconds {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"max_duration_seconds must be <= %d, got %d",
+			maxFiniteDurationSeconds, *req.MaxDurationSeconds,
+		)
+	}
+	if req.RestoreBatchIntervalSec > restoreBatchIntervalUpperBoundSec {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"restore_batch_interval_sec must be <= %d, got %d",
+			restoreBatchIntervalUpperBoundSec, req.RestoreBatchIntervalSec,
+		)
+	}
 	if req.SourceActorType == "" {
 		// NOT NULL at the DB; handler derives from session.Info.
 		return fleeterror.NewInvalidArgumentError("source_actor_type must be set")
@@ -545,7 +657,6 @@ func isFiniteFloat(p *float64) bool {
 
 // curtailment_target column values written at Start.
 const targetTypeMiner = "miner"
-const desiredStateCurtailed = "curtailed"
 
 // buildInsertParams assembles event + per-target params from a successful
 // plan. baseline_power_w comes from the telemetry snapshot the selector
@@ -570,6 +681,9 @@ func buildInsertParams(req StartRequest, plan *Plan, minPowerW int32) (models.In
 		return models.InsertEventParams{}, nil, err
 	}
 
+	// Stamp effective_batch_size at Start so the column is non-null from
+	// event creation and Stop/restorer/Start-response just read it. Service.Start
+	// pre-computes plan.EffectiveBatchSize from the selected target count.
 	event := models.InsertEventParams{
 		EventUUID:               uuid.New(),
 		OrgID:                   req.OrgID,
@@ -597,6 +711,7 @@ func buildInsertParams(req StartRequest, plan *Plan, minPowerW int32) (models.In
 		IdempotencyKey:          req.IdempotencyKey,
 		Reason:                  req.Reason,
 		CreatedByUserID:         req.CreatedByUserID,
+		EffectiveBatchSize:      plan.EffectiveBatchSize,
 	}
 	if event.Priority == "" {
 		// Validation admits PriorityUnspecified as Normal; persist the
@@ -618,7 +733,7 @@ func buildInsertParams(req StartRequest, plan *Plan, minPowerW int32) (models.In
 			DeviceIdentifier: sel.DeviceIdentifier,
 			TargetType:       targetTypeMiner,
 			State:            models.TargetStatePending,
-			DesiredState:     desiredStateCurtailed,
+			DesiredState:     models.DesiredStateCurtailed,
 			BaselinePowerW:   baseline,
 		}
 	}
@@ -650,6 +765,117 @@ func marshalScopeJSON(s Scope) ([]byte, error) {
 	default:
 		return nil, fleeterror.NewInternalErrorf("unrecognized scope type: %q", s.Type)
 	}
+}
+
+// StopRequest is the service-level shape of a Stop call. The handler maps
+// it from `StopCurtailmentRequest` after deriving OrgID from session.Info
+// and gating `Force` on Admin role.
+type StopRequest struct {
+	OrgID     int64
+	EventUUID uuid.UUID
+	Force     bool // admin-gated upstream; bypasses min_curtailed_duration_sec
+}
+
+// Adaptive batch-sizing constants. [10, 100] is the inrush envelope, computed
+// at Start time from the selected target count.
+const (
+	minBatchSizeFloor   int32 = 10
+	maxBatchSizeCeiling int32 = 100
+)
+
+// Stop transitions a non-terminal event to `restoring` and flips every
+// non-terminal target to (desired_state='active', state='pending').
+// Idempotent re-Stop returns the current row without writing; terminal
+// events return FailedPrecondition. effective_batch_size is untouched —
+// it was stamped at Start.
+func (s *Service) Stop(ctx context.Context, req StopRequest) (*models.Event, error) {
+	if err := validateStopRequest(req); err != nil {
+		return nil, err
+	}
+
+	event, err := s.store.GetEventByUUID(ctx, req.OrgID, req.EventUUID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Fast-path TOCTOU read for caller-facing latency. BeginRestoreTransition
+	// is the authoritative atomic enforcement under the WHERE state-guard.
+	if event.State.IsTerminal() {
+		return nil, fleeterror.NewFailedPreconditionErrorf(
+			"cannot stop curtailment event %s in terminal state %q",
+			event.EventUUID, event.State,
+		)
+	}
+	if event.State == models.EventStateRestoring {
+		// Idempotent re-Stop: a second call after the first transitioned the
+		// event returns the persisted row.
+		return event, nil
+	}
+
+	if err := checkMinCurtailedDurationGate(event, req.Force, time.Now()); err != nil {
+		return nil, err
+	}
+
+	return s.store.BeginRestoreTransition(ctx, req.OrgID, req.EventUUID)
+}
+
+func validateStopRequest(req StopRequest) error {
+	if req.OrgID <= 0 {
+		return fleeterror.NewInvalidArgumentError("org_id must be set")
+	}
+	if req.EventUUID == uuid.Nil {
+		return fleeterror.NewInvalidArgumentError("event_uuid must be set")
+	}
+	return nil
+}
+
+// checkMinCurtailedDurationGate enforces `min_curtailed_duration_sec` on
+// active events. Pending events haven't curtailed anything yet, so the
+// hysteresis gate doesn't apply. Admin callers can pass force=true on Stop
+// to bypass the gate explicitly.
+func checkMinCurtailedDurationGate(event *models.Event, force bool, now time.Time) error {
+	if force {
+		return nil
+	}
+	if event.State != models.EventStateActive {
+		return nil
+	}
+	if event.MinCurtailedDurationSec <= 0 || event.StartedAt == nil {
+		return nil
+	}
+	elapsed := now.Sub(*event.StartedAt)
+	required := time.Duration(event.MinCurtailedDurationSec) * time.Second
+	if elapsed >= required {
+		return nil
+	}
+	return fleeterror.NewFailedPreconditionErrorf(
+		"min_curtailed_duration_sec not elapsed: %ds of %ds; an admin can supply force=true on Stop to bypass this gate",
+		int64(elapsed.Seconds()), event.MinCurtailedDurationSec,
+	)
+}
+
+// ComputeEffectiveBatchSize returns max(restore_batch_size, ceil(0.01 × non_terminal_count))
+// clamped to [minBatchSizeFloor, maxBatchSizeCeiling]. Called at Start with
+// the selected target count; the value is stamped on the event row and read
+// back by the restorer.
+func ComputeEffectiveBatchSize(restoreBatchSize, nonTerminalCount int32) int32 {
+	base := restoreBatchSize
+	if base < 0 {
+		base = 0
+	}
+	if nonTerminalCount > 0 {
+		onePercent := int32(math.Ceil(float64(nonTerminalCount) * 0.01))
+		if onePercent > base {
+			base = onePercent
+		}
+	}
+	if base < minBatchSizeFloor {
+		base = minBatchSizeFloor
+	}
+	if base > maxBatchSizeCeiling {
+		base = maxBatchSizeCeiling
+	}
+	return base
 }
 
 // marshalDecisionSnapshot captures the selector outputs (rejection counters,
