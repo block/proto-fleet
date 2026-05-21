@@ -507,6 +507,28 @@ func toStopRequest(msg *pb.StopCurtailmentRequest, orgID int64) (curtailment.Sto
 	}, nil
 }
 
+// toAdminTerminateRequest maps the proto AdminTerminateEventRequest to
+// the service-layer shape, attaching the org from the session. The proto
+// validator already restricts target_state to CANCELLED or FAILED; the
+// service re-checks as defense in depth.
+func toAdminTerminateRequest(msg *pb.AdminTerminateEventRequest, info *session.Info) (curtailment.AdminTerminateRequest, error) {
+	if info == nil || info.OrganizationID <= 0 {
+		return curtailment.AdminTerminateRequest{}, fleeterror.NewUnauthenticatedError("authentication required")
+	}
+	eventUUID, err := uuid.Parse(msg.GetEventUuid())
+	if err != nil {
+		return curtailment.AdminTerminateRequest{}, fleeterror.NewInvalidArgumentErrorf(
+			"event_uuid must be a valid UUID: %v", err,
+		)
+	}
+	return curtailment.AdminTerminateRequest{
+		OrgID:       info.OrganizationID,
+		EventUUID:   eventUUID,
+		TargetState: eventStateFromProto(msg.GetTargetState()),
+		Reason:      msg.GetReason(),
+	}, nil
+}
+
 // toUpdateRequest maps the proto UpdateCurtailmentEventRequest to the
 // service-layer shape, attaching the org from the session. Optional
 // proto fields preserve the "set vs absent" distinction: HasReason()=true

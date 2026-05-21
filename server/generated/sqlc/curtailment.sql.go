@@ -16,6 +16,71 @@ import (
 	"github.com/sqlc-dev/pqtype"
 )
 
+const adminTerminateCurtailmentEvent = `-- name: AdminTerminateCurtailmentEvent :one
+UPDATE curtailment_event
+SET state      = $1::TEXT,
+    ended_at   = NOW(),
+    updated_at = NOW()
+WHERE id = $2
+    AND org_id = $3
+    AND state IN ('pending', 'active', 'restoring')
+RETURNING id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id
+`
+
+type AdminTerminateCurtailmentEventParams struct {
+	TargetState string
+	ID          int64
+	OrgID       int64
+}
+
+// Forces a non-terminal event to the operator-chosen terminal target_state
+// (validated CANCELLED or FAILED at the service boundary). Returns zero rows
+// when the event is already terminal so the caller can route by current
+// state: idempotent no-op when the target matches, FailedPrecondition when
+// the existing terminal state is different. Ended_at and updated_at advance
+// on a successful transition.
+func (q *Queries) AdminTerminateCurtailmentEvent(ctx context.Context, arg AdminTerminateCurtailmentEventParams) (CurtailmentEvent, error) {
+	row := q.queryRow(ctx, q.adminTerminateCurtailmentEventStmt, adminTerminateCurtailmentEvent, arg.TargetState, arg.ID, arg.OrgID)
+	var i CurtailmentEvent
+	err := row.Scan(
+		&i.ID,
+		&i.EventUuid,
+		&i.OrgID,
+		&i.State,
+		&i.Mode,
+		&i.Strategy,
+		&i.Level,
+		&i.Priority,
+		&i.LoopType,
+		&i.ScopeType,
+		&i.ScopeJsonb,
+		&i.ModeParamsJsonb,
+		&i.RestoreBatchSize,
+		&i.RestoreBatchIntervalSec,
+		&i.EffectiveBatchSize,
+		&i.MinCurtailedDurationSec,
+		&i.MaxDurationSeconds,
+		&i.AllowUnbounded,
+		&i.IncludeMaintenance,
+		&i.ForceIncludeMaintenance,
+		&i.DecisionSnapshotJsonb,
+		&i.SourceActorType,
+		&i.SourceActorID,
+		&i.ExternalSource,
+		&i.ExternalReference,
+		&i.IdempotencyKey,
+		&i.SupersedesEventID,
+		&i.Reason,
+		&i.ScheduledStartAt,
+		&i.StartedAt,
+		&i.EndedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CreatedByUserID,
+	)
+	return i, err
+}
+
 const beginCurtailmentRestoration = `-- name: BeginCurtailmentRestoration :one
 UPDATE curtailment_event
 SET state = 'restoring'
@@ -898,6 +963,29 @@ WHERE curtailment_event_id = $1
 // restore_failed / released keep their meaning across the phase change).
 func (q *Queries) ResetCurtailmentTargetsForRestore(ctx context.Context, curtailmentEventID int64) error {
 	_, err := q.exec(ctx, q.resetCurtailmentTargetsForRestoreStmt, resetCurtailmentTargetsForRestore, curtailmentEventID)
+	return err
+}
+
+const sweepCurtailmentTargetsToRestoreFailed = `-- name: SweepCurtailmentTargetsToRestoreFailed :exec
+UPDATE curtailment_target
+SET state      = 'restore_failed',
+    last_error = $1::TEXT,
+    updated_at = NOW()
+WHERE curtailment_event_id = $2
+    AND state NOT IN ('resolved', 'restore_failed', 'released')
+`
+
+type SweepCurtailmentTargetsToRestoreFailedParams struct {
+	LastError          string
+	CurtailmentEventID int64
+}
+
+// Forces every non-terminal target on the event to RESTORE_FAILED. Paired
+// with AdminTerminateCurtailmentEvent inside a single transaction so the
+// per-device suppression filter releases its hold the moment the event row
+// flips terminal. last_error carries the admin-terminate reason for audit.
+func (q *Queries) SweepCurtailmentTargetsToRestoreFailed(ctx context.Context, arg SweepCurtailmentTargetsToRestoreFailedParams) error {
+	_, err := q.exec(ctx, q.sweepCurtailmentTargetsToRestoreFailedStmt, sweepCurtailmentTargetsToRestoreFailed, arg.LastError, arg.CurtailmentEventID)
 	return err
 }
 

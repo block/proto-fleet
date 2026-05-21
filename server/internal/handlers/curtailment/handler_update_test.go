@@ -141,6 +141,9 @@ func (s *updateStubStore) UpdateTargetState(context.Context, int64, string, inte
 func (s *updateStubStore) UpsertHeartbeat(context.Context, interfaces.UpsertCurtailmentHeartbeatParams) error {
 	panic("UpsertHeartbeat not exercised by Update handler tests")
 }
+func (s *updateStubStore) AdminTerminateEvent(context.Context, int64, uuid.UUID, models.EventState, string) (*models.Event, error) {
+	panic("AdminTerminateEvent not exercised by Update handler tests")
+}
 
 func updateSessionCtx(orgID int64, role string) context.Context {
 	return authn.SetInfo(context.Background(), &session.Info{

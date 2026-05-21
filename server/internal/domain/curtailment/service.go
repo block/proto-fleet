@@ -323,6 +323,54 @@ func (s *Service) Update(ctx context.Context, req UpdateRequest) (*models.Event,
 	return updated, nil
 }
 
+// AdminTerminateRequest is the service-level shape of an
+// AdminTerminateEvent call. TargetState must be CANCELLED or FAILED
+// (the proto validator enforces this; the service re-checks as defense in
+// depth). Reason is recorded as per-target last_error on the swept rows
+// and surfaces on the audit row that the audit-sweep work will emit.
+type AdminTerminateRequest struct {
+	OrgID       int64
+	EventUUID   uuid.UUID
+	TargetState models.EventState
+	Reason      string
+}
+
+// AdminTerminate forces a non-terminal event to a terminal state and
+// sweeps all non-terminal targets to RESTORE_FAILED. Idempotent on a
+// re-issue with the same target_state; FailedPrecondition when the event
+// is already terminal in a different state. NotFound surfaces cross-org
+// access attempts and stale operator references uniformly.
+func (s *Service) AdminTerminate(ctx context.Context, req AdminTerminateRequest) (*models.Event, error) {
+	if req.OrgID <= 0 {
+		return nil, fleeterror.NewInvalidArgumentError("org_id must be set")
+	}
+	if req.EventUUID == uuid.Nil {
+		return nil, fleeterror.NewInvalidArgumentError("event_uuid must be set")
+	}
+	switch req.TargetState {
+	case models.EventStateCancelled, models.EventStateFailed:
+	default:
+		return nil, fleeterror.NewInvalidArgumentErrorf(
+			"target_state must be CANCELLED or FAILED, got %q", req.TargetState,
+		)
+	}
+	if strings.TrimSpace(req.Reason) == "" {
+		return nil, fleeterror.NewInvalidArgumentError("reason must be set")
+	}
+
+	updated, err := s.store.AdminTerminateEvent(ctx, req.OrgID, req.EventUUID, req.TargetState, req.Reason)
+	if err != nil {
+		if errors.Is(err, interfaces.ErrCurtailmentAdminTerminateStateConflict) {
+			return nil, fleeterror.NewFailedPreconditionErrorf(
+				"curtailment event is already terminal in a different state; admin terminate to %q is not applicable",
+				req.TargetState,
+			)
+		}
+		return nil, err
+	}
+	return updated, nil
+}
+
 // validateUpdateRequest mirrors the Start-time bounds so a misconfigured
 // Update can't tunnel past the proto validator and hit a DB CHECK.
 // Unset fields skip validation since they don't change the persisted value.

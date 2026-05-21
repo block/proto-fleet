@@ -148,6 +148,34 @@ FROM curtailment_event
 WHERE event_uuid = sqlc.arg('event_uuid')
     AND org_id = sqlc.arg('org_id');
 
+-- name: AdminTerminateCurtailmentEvent :one
+-- Forces a non-terminal event to the operator-chosen terminal target_state
+-- (validated CANCELLED or FAILED at the service boundary). Returns zero rows
+-- when the event is already terminal so the caller can route by current
+-- state: idempotent no-op when the target matches, FailedPrecondition when
+-- the existing terminal state is different. Ended_at and updated_at advance
+-- on a successful transition.
+UPDATE curtailment_event
+SET state      = sqlc.arg('target_state')::TEXT,
+    ended_at   = NOW(),
+    updated_at = NOW()
+WHERE id = sqlc.arg('id')
+    AND org_id = sqlc.arg('org_id')
+    AND state IN ('pending', 'active', 'restoring')
+RETURNING *;
+
+-- name: SweepCurtailmentTargetsToRestoreFailed :exec
+-- Forces every non-terminal target on the event to RESTORE_FAILED. Paired
+-- with AdminTerminateCurtailmentEvent inside a single transaction so the
+-- per-device suppression filter releases its hold the moment the event row
+-- flips terminal. last_error carries the admin-terminate reason for audit.
+UPDATE curtailment_target
+SET state      = 'restore_failed',
+    last_error = sqlc.arg('last_error')::TEXT,
+    updated_at = NOW()
+WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
+    AND state NOT IN ('resolved', 'restore_failed', 'released');
+
 -- name: UpdateCurtailmentEventOperatorFields :one
 -- Partial update of operator-safe fields. nil params COALESCE-preserve
 -- existing values. The state filter is defense-in-depth: the service

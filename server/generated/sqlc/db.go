@@ -30,6 +30,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.adminResetUserPasswordStmt, err = db.PrepareContext(ctx, adminResetUserPassword); err != nil {
 		return nil, fmt.Errorf("error preparing query AdminResetUserPassword: %w", err)
 	}
+	if q.adminTerminateCurtailmentEventStmt, err = db.PrepareContext(ctx, adminTerminateCurtailmentEvent); err != nil {
+		return nil, fmt.Errorf("error preparing query AdminTerminateCurtailmentEvent: %w", err)
+	}
 	if q.allDevicesBelongToOrgStmt, err = db.PrepareContext(ctx, allDevicesBelongToOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query AllDevicesBelongToOrg: %w", err)
 	}
@@ -753,6 +756,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.softDeleteUserFromOrganizationStmt, err = db.PrepareContext(ctx, softDeleteUserFromOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query SoftDeleteUserFromOrganization: %w", err)
 	}
+	if q.sweepCurtailmentTargetsToRestoreFailedStmt, err = db.PrepareContext(ctx, sweepCurtailmentTargetsToRestoreFailed); err != nil {
+		return nil, fmt.Errorf("error preparing query SweepCurtailmentTargetsToRestoreFailed: %w", err)
+	}
 	if q.sweepExpiredEnrollmentsStmt, err = db.PrepareContext(ctx, sweepExpiredEnrollments); err != nil {
 		return nil, fmt.Errorf("error preparing query SweepExpiredEnrollments: %w", err)
 	}
@@ -925,6 +931,11 @@ func (q *Queries) Close() error {
 	if q.adminResetUserPasswordStmt != nil {
 		if cerr := q.adminResetUserPasswordStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing adminResetUserPasswordStmt: %w", cerr)
+		}
+	}
+	if q.adminTerminateCurtailmentEventStmt != nil {
+		if cerr := q.adminTerminateCurtailmentEventStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing adminTerminateCurtailmentEventStmt: %w", cerr)
 		}
 	}
 	if q.allDevicesBelongToOrgStmt != nil {
@@ -2132,6 +2143,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing softDeleteUserFromOrganizationStmt: %w", cerr)
 		}
 	}
+	if q.sweepCurtailmentTargetsToRestoreFailedStmt != nil {
+		if cerr := q.sweepCurtailmentTargetsToRestoreFailedStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing sweepCurtailmentTargetsToRestoreFailedStmt: %w", cerr)
+		}
+	}
 	if q.sweepExpiredEnrollmentsStmt != nil {
 		if cerr := q.sweepExpiredEnrollmentsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing sweepExpiredEnrollmentsStmt: %w", cerr)
@@ -2438,6 +2454,7 @@ type Queries struct {
 	tx                                                  *sql.Tx
 	addDevicesToDeviceSetStmt                           *sql.Stmt
 	adminResetUserPasswordStmt                          *sql.Stmt
+	adminTerminateCurtailmentEventStmt                  *sql.Stmt
 	allDevicesBelongToOrgStmt                           *sql.Stmt
 	assignBuildingToSiteStmt                            *sql.Stmt
 	beginCurtailmentRestorationStmt                     *sql.Stmt
@@ -2679,6 +2696,7 @@ type Queries struct {
 	softDeleteSiteStmt                                  *sql.Stmt
 	softDeleteUserStmt                                  *sql.Stmt
 	softDeleteUserFromOrganizationStmt                  *sql.Stmt
+	sweepCurtailmentTargetsToRestoreFailedStmt          *sql.Stmt
 	sweepExpiredEnrollmentsStmt                         *sql.Stmt
 	sweepExpiredFleetNodeAuthChallengesStmt             *sql.Stmt
 	sweepExpiredFleetNodeSessionsStmt                   *sql.Stmt
@@ -2740,6 +2758,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		tx:                                                  tx,
 		addDevicesToDeviceSetStmt:                           q.addDevicesToDeviceSetStmt,
 		adminResetUserPasswordStmt:                          q.adminResetUserPasswordStmt,
+		adminTerminateCurtailmentEventStmt:                  q.adminTerminateCurtailmentEventStmt,
 		allDevicesBelongToOrgStmt:                           q.allDevicesBelongToOrgStmt,
 		assignBuildingToSiteStmt:                            q.assignBuildingToSiteStmt,
 		beginCurtailmentRestorationStmt:                     q.beginCurtailmentRestorationStmt,
@@ -2981,6 +3000,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		softDeleteSiteStmt:                                  q.softDeleteSiteStmt,
 		softDeleteUserStmt:                                  q.softDeleteUserStmt,
 		softDeleteUserFromOrganizationStmt:                  q.softDeleteUserFromOrganizationStmt,
+		sweepCurtailmentTargetsToRestoreFailedStmt:          q.sweepCurtailmentTargetsToRestoreFailedStmt,
 		sweepExpiredEnrollmentsStmt:                         q.sweepExpiredEnrollmentsStmt,
 		sweepExpiredFleetNodeAuthChallengesStmt:             q.sweepExpiredFleetNodeAuthChallengesStmt,
 		sweepExpiredFleetNodeSessionsStmt:                   q.sweepExpiredFleetNodeSessionsStmt,

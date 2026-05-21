@@ -76,6 +76,16 @@ type fakeStore struct {
 	lastUpdateOperatorFieldsArgs interfaces.UpdateOperatorFieldsParams
 	updateOperatorFieldsResult   *models.Event
 	updateOperatorFieldsErr      error
+
+	// AdminTerminate fakes. adminTerminateResult is the post-transition
+	// event the fake echoes; adminTerminateErr drives error paths
+	// (state conflict, transient db error).
+	adminTerminateCalls      int
+	lastAdminTerminateUUID   uuid.UUID
+	lastAdminTerminateState  models.EventState
+	lastAdminTerminateReason string
+	adminTerminateResult     *models.Event
+	adminTerminateErr        error
 }
 
 func newFakeStore() *fakeStore {
@@ -155,6 +165,17 @@ func (f *fakeStore) ListTargetsByEvent(_ context.Context, _ int64, eventUUID uui
 		return nil, f.listTargetsErr
 	}
 	return append([]*models.Target(nil), f.targetsByEventUUID[eventUUID]...), nil
+}
+
+func (f *fakeStore) AdminTerminateEvent(_ context.Context, _ int64, eventUUID uuid.UUID, targetState models.EventState, reason string) (*models.Event, error) {
+	f.adminTerminateCalls++
+	f.lastAdminTerminateUUID = eventUUID
+	f.lastAdminTerminateState = targetState
+	f.lastAdminTerminateReason = reason
+	if f.adminTerminateErr != nil {
+		return nil, f.adminTerminateErr
+	}
+	return f.adminTerminateResult, nil
 }
 
 func (f *fakeStore) UpdateOperatorFields(_ context.Context, eventID, _ int64, params interfaces.UpdateOperatorFieldsParams) (*models.Event, error) {

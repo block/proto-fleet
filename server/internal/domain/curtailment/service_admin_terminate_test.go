@@ -1,0 +1,151 @@
+package curtailment
+
+import (
+	"errors"
+	"testing"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+)
+
+// TestService_AdminTerminate_HappyPathForwardsToStore: the service hands
+// off to the store with the operator-chosen terminal state and reason,
+// and returns the store's result verbatim.
+func TestService_AdminTerminate_HappyPathForwardsToStore(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	eventUUID := uuid.New()
+	store := newFakeStore()
+	store.adminTerminateResult = &models.Event{
+		ID:        99,
+		EventUUID: eventUUID,
+		OrgID:     orgID,
+		State:     models.EventStateCancelled,
+	}
+	svc := NewService(store)
+
+	got, err := svc.AdminTerminate(t.Context(), AdminTerminateRequest{
+		OrgID:       orgID,
+		EventUUID:   eventUUID,
+		TargetState: models.EventStateCancelled,
+		Reason:      "operator escalation",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, models.EventStateCancelled, got.State)
+	assert.Equal(t, 1, store.adminTerminateCalls)
+	assert.Equal(t, eventUUID, store.lastAdminTerminateUUID)
+	assert.Equal(t, models.EventStateCancelled, store.lastAdminTerminateState)
+	assert.Equal(t, "operator escalation", store.lastAdminTerminateReason)
+}
+
+// TestService_AdminTerminate_RejectsNonAllowedTargetStates: only
+// CANCELLED and FAILED are valid; COMPLETED, RESTORING, etc. are
+// rejected. The proto validator already restricts; the service repeats
+// the check as defense in depth.
+func TestService_AdminTerminate_RejectsNonAllowedTargetStates(t *testing.T) {
+	t.Parallel()
+	for _, state := range []models.EventState{
+		models.EventStatePending,
+		models.EventStateActive,
+		models.EventStateRestoring,
+		models.EventStateCompleted,
+		models.EventStateCompletedWithFailures,
+		"",
+	} {
+		svc := NewService(newFakeStore())
+		_, err := svc.AdminTerminate(t.Context(), AdminTerminateRequest{
+			OrgID:       1,
+			EventUUID:   uuid.New(),
+			TargetState: state,
+			Reason:      "test",
+		})
+		require.Error(t, err, "state %s must be rejected", state)
+		assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	}
+}
+
+// TestService_AdminTerminate_RejectsMissingReason: per-target last_error
+// is operator-attributable; an empty reason corrupts the audit trail.
+func TestService_AdminTerminate_RejectsMissingReason(t *testing.T) {
+	t.Parallel()
+	svc := NewService(newFakeStore())
+
+	_, err := svc.AdminTerminate(t.Context(), AdminTerminateRequest{
+		OrgID:       1,
+		EventUUID:   uuid.New(),
+		TargetState: models.EventStateCancelled,
+		Reason:      "   ",
+	})
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "reason")
+}
+
+// TestService_AdminTerminate_StateConflictMapsFailedPrecondition: a
+// terminal event in a different state surfaces a clean FailedPrecondition
+// rather than the bare sentinel.
+func TestService_AdminTerminate_StateConflictMapsFailedPrecondition(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	store.adminTerminateErr = interfaces.ErrCurtailmentAdminTerminateStateConflict
+	svc := NewService(store)
+
+	_, err := svc.AdminTerminate(t.Context(), AdminTerminateRequest{
+		OrgID:       1,
+		EventUUID:   uuid.New(),
+		TargetState: models.EventStateFailed,
+		Reason:      "test",
+	})
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "different state")
+}
+
+// TestService_AdminTerminate_PropagatesStoreError: unrelated store errors
+// surface unchanged so wrapped fleeterror types stay intact.
+func TestService_AdminTerminate_PropagatesStoreError(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	store.adminTerminateErr = errors.New("db down")
+	svc := NewService(store)
+
+	_, err := svc.AdminTerminate(t.Context(), AdminTerminateRequest{
+		OrgID:       1,
+		EventUUID:   uuid.New(),
+		TargetState: models.EventStateCancelled,
+		Reason:      "test",
+	})
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "db down")
+}
+
+// TestService_AdminTerminate_RejectsMissingOrg / MissingUUID pin the
+// front-line guards.
+func TestService_AdminTerminate_RejectsMissingOrgAndUUID(t *testing.T) {
+	t.Parallel()
+	svc := NewService(newFakeStore())
+
+	_, err := svc.AdminTerminate(t.Context(), AdminTerminateRequest{
+		OrgID:       0,
+		EventUUID:   uuid.New(),
+		TargetState: models.EventStateCancelled,
+		Reason:      "test",
+	})
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+
+	_, err = svc.AdminTerminate(t.Context(), AdminTerminateRequest{
+		OrgID:       1,
+		EventUUID:   uuid.Nil,
+		TargetState: models.EventStateCancelled,
+		Reason:      "test",
+	})
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+}

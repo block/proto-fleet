@@ -92,6 +92,9 @@ func (s *startStubStore) ListEvents(context.Context, interfaces.ListEventsParams
 func (s *startStubStore) UpdateOperatorFields(context.Context, int64, int64, interfaces.UpdateOperatorFieldsParams) (*models.Event, error) {
 	panic("UpdateOperatorFields not exercised by Start handler tests")
 }
+func (s *startStubStore) AdminTerminateEvent(context.Context, int64, uuid.UUID, models.EventState, string) (*models.Event, error) {
+	panic("AdminTerminateEvent not exercised by Start handler tests")
+}
 func (s *startStubStore) ListTargetsByEvent(context.Context, int64, uuid.UUID) ([]*models.Target, error) {
 	panic("ListTargetsByEvent not exercised by handler Start tests")
 }

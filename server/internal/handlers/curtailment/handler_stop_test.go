@@ -74,6 +74,9 @@ func (s *stopStubStore) ListEvents(context.Context, interfaces.ListEventsParams)
 func (s *stopStubStore) UpdateOperatorFields(context.Context, int64, int64, interfaces.UpdateOperatorFieldsParams) (*models.Event, error) {
 	panic("UpdateOperatorFields not exercised by Stop handler tests")
 }
+func (s *stopStubStore) AdminTerminateEvent(context.Context, int64, uuid.UUID, models.EventState, string) (*models.Event, error) {
+	panic("AdminTerminateEvent not exercised by Stop handler tests")
+}
 func (s *stopStubStore) BeginRestoreTransition(_ context.Context, _ int64, eventUUID uuid.UUID) (*models.Event, error) {
 	s.beginRestoreCalls++
 	if s.beginRestoreErr != nil {

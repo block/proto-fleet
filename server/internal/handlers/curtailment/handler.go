@@ -197,11 +197,28 @@ func (h *Handler) ListCurtailmentEvents(ctx context.Context, req *connect.Reques
 
 // AdminTerminateEvent forces a non-terminal event to terminal. Paired with
 // SessionOnlyProcedures (interceptors/config.go); neither alone is enough.
-func (h *Handler) AdminTerminateEvent(ctx context.Context, _ *connect.Request[pb.AdminTerminateEventRequest]) (*connect.Response[pb.AdminTerminateEventResponse], error) {
+func (h *Handler) AdminTerminateEvent(ctx context.Context, req *connect.Request[pb.AdminTerminateEventRequest]) (*connect.Response[pb.AdminTerminateEventResponse], error) {
 	if err := requireAdminFromContext(ctx, actionTerminateEvents); err != nil {
 		return nil, err
 	}
-	return nil, errCurtailmentNotImplemented("AdminTerminateEvent")
+	if h.service == nil {
+		return nil, errCurtailmentNotImplemented("AdminTerminateEvent")
+	}
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, fleeterror.NewUnauthenticatedError("authentication required")
+	}
+	terminateReq, err := toAdminTerminateRequest(req.Msg, info)
+	if err != nil {
+		return nil, err
+	}
+	event, err := h.service.AdminTerminate(ctx, terminateReq)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.AdminTerminateEventResponse{
+		Event: toEventProto(event),
+	}), nil
 }
 
 func errCurtailmentNotImplemented(rpc string) error {

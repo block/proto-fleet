@@ -22,6 +22,12 @@ var ErrCurtailmentNonTerminalEventExists = errors.New("non-terminal curtailment 
 // FailedPrecondition.
 var ErrCurtailmentUpdateStateRaceLoss = errors.New("curtailment event state advanced between pre-read and update")
 
+// ErrCurtailmentAdminTerminateStateConflict is returned by AdminTerminateEvent
+// when the event already sits in a terminal state different from the one
+// the caller requested. The service maps this to FailedPrecondition with a
+// message that names the existing terminal state.
+var ErrCurtailmentAdminTerminateStateConflict = errors.New("curtailment event is already terminal in a different state")
+
 // UpdateCurtailmentTargetStateParams: optional patch fields. Nil pointers
 // leave the column unchanged via COALESCE in the SQL update.
 type UpdateCurtailmentTargetStateParams struct {
@@ -102,6 +108,14 @@ type CurtailmentStore interface {
 	// so a state advance between the pre-read and the UPDATE surfaces as
 	// ErrCurtailmentUpdateStateRaceLoss. Returns the updated row.
 	UpdateOperatorFields(ctx context.Context, eventID, orgID int64, params UpdateOperatorFieldsParams) (*models.Event, error)
+
+	// AdminTerminateEvent forces a non-terminal event to the operator-chosen
+	// terminal state (CANCELLED or FAILED) and sweeps every non-terminal
+	// target to RESTORE_FAILED in the same transaction. Returns the
+	// updated event row. Idempotent: a re-issue against an already-terminal
+	// event in the same target state echoes the row. A different terminal
+	// state on the existing row surfaces ErrCurtailmentAdminTerminateStateConflict.
+	AdminTerminateEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID, targetState models.EventState, reason string) (*models.Event, error)
 
 	ListTargetsByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) ([]*models.Target, error)
 
