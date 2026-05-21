@@ -283,7 +283,7 @@ detect_previous_install() {
   # Anchor each pattern on `sudo:` so docker stderr that happens to mention
   # "password" / "terminal" / "tty" can't false-positive into SUDO_BLOCKED.
   case "$sudo_probe_err" in
-    *"sudo: a password is required"*|*"sudo: a terminal is required"*|*"sudo:"*"may not run"*|*"sudo: no tty present"*|*"is not in the sudoers file"*)
+    *"sudo: a password is required"*|*"sudo: a terminal is required"*|*"sudo:"*"may not run"*|*"sudo: no tty present"*|*"is not in the sudoers file"*|*"sudo: sorry, you must have a tty to run sudo"*)
       PREVIOUS_INSTALL_SUDO_BLOCKED=1
       return 1
       ;;
