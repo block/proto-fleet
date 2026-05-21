@@ -126,3 +126,32 @@ func TestLookup_UnknownKeyReturnsFalse(t *testing.T) {
 		t.Fatal("Lookup returned ok for an unknown key")
 	}
 }
+
+func TestResourceOrder_MatchesCatalogDeclarationOrder(t *testing.T) {
+	got := ResourceOrder()
+	want := []string{
+		ResourceFleet,
+		ResourceMiner,
+		ResourceRack,
+		ResourceSite,
+		ResourceServerLog,
+		ResourceCurtailment,
+		ResourceFleetNode,
+		ResourceAPIKey,
+		ResourceUser,
+		ResourceRole,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ResourceOrder mismatch:\n  got:  %v\n  want: %v", got, want)
+	}
+}
+
+func TestResourceOrder_NoDuplicates(t *testing.T) {
+	seen := make(map[string]bool)
+	for _, r := range ResourceOrder() {
+		if seen[r] {
+			t.Errorf("duplicate resource in ResourceOrder: %q", r)
+		}
+		seen[r] = true
+	}
+}

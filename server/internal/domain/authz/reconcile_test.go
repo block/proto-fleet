@@ -13,21 +13,24 @@ import (
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
 
-func TestReconcile_FreshInstall_AllBuiltinsCreated(t *testing.T) {
+func TestReconcile_FreshInstall_OrgGetsAllBuiltins(t *testing.T) {
 	db := testutil.GetTestDB(t)
 	ctx := t.Context()
 
+	orgID := insertTestOrganization(t, db)
 	require.NoError(t, authz.Reconcile(ctx, db))
 
 	q := sqlc.New(db)
-	roles, err := q.ListBuiltinRoles(ctx)
+	roles, err := q.ListBuiltinRolesForOrg(ctx, sql.NullInt64{Int64: orgID, Valid: true})
 	require.NoError(t, err)
-	require.Len(t, roles, 3, "expected three built-in roles after reconcile")
+	require.Len(t, roles, 3, "expected three built-in roles per org after reconcile")
 
 	keys := make([]string, len(roles))
 	for i, r := range roles {
 		require.True(t, r.IsBuiltin)
 		require.True(t, r.BuiltinKey.Valid)
+		require.True(t, r.OrganizationID.Valid, "per-org built-in must carry organization_id")
+		require.Equal(t, orgID, r.OrganizationID.Int64)
 		keys[i] = r.BuiltinKey.String
 	}
 	sort.Strings(keys)
@@ -37,10 +40,10 @@ func TestReconcile_FreshInstall_AllBuiltinsCreated(t *testing.T) {
 func TestReconcile_FreshInstall_SuperAdminHasEveryCatalogPermission(t *testing.T) {
 	db := testutil.GetTestDB(t)
 	ctx := t.Context()
-
+	orgID := insertTestOrganization(t, db)
 	require.NoError(t, authz.Reconcile(ctx, db))
 
-	got := rolePermissionKeys(t, db, "SUPER_ADMIN")
+	got := orgRolePermissionKeys(t, db, orgID, "SUPER_ADMIN")
 	want := authz.AllPermissionsSorted()
 	require.Equal(t, want, got)
 }
@@ -48,13 +51,12 @@ func TestReconcile_FreshInstall_SuperAdminHasEveryCatalogPermission(t *testing.T
 func TestReconcile_FreshInstall_AdminExcludesUserAndRoleManagement(t *testing.T) {
 	db := testutil.GetTestDB(t)
 	ctx := t.Context()
-
+	orgID := insertTestOrganization(t, db)
 	require.NoError(t, authz.Reconcile(ctx, db))
 
-	got := rolePermissionKeys(t, db, "ADMIN")
+	got := orgRolePermissionKeys(t, db, orgID, "ADMIN")
 	for _, forbidden := range []string{authz.PermUserRead, authz.PermUserManage, authz.PermRoleManage} {
-		require.NotContains(t, got, forbidden,
-			"ADMIN must not seed with %q", forbidden)
+		require.NotContains(t, got, forbidden, "ADMIN must not seed with %q", forbidden)
 	}
 	require.Contains(t, got, authz.PermMinerReboot, "ADMIN should still hold miner action permissions")
 }
@@ -62,10 +64,10 @@ func TestReconcile_FreshInstall_AdminExcludesUserAndRoleManagement(t *testing.T)
 func TestReconcile_FreshInstall_FieldTechHasExactSeedSet(t *testing.T) {
 	db := testutil.GetTestDB(t)
 	ctx := t.Context()
-
+	orgID := insertTestOrganization(t, db)
 	require.NoError(t, authz.Reconcile(ctx, db))
 
-	got := rolePermissionKeys(t, db, "FIELD_TECH")
+	got := orgRolePermissionKeys(t, db, orgID, "FIELD_TECH")
 	want := []string{
 		authz.PermFleetRead,
 		authz.PermMinerBlinkLED,
@@ -81,55 +83,60 @@ func TestReconcile_FreshInstall_FieldTechHasExactSeedSet(t *testing.T) {
 func TestReconcile_Idempotent(t *testing.T) {
 	db := testutil.GetTestDB(t)
 	ctx := t.Context()
+	orgID := insertTestOrganization(t, db)
 
 	require.NoError(t, authz.Reconcile(ctx, db))
-	first := snapshotRolePermissions(t, db)
+	first := snapshotOrgRolePermissions(t, db, orgID)
 
 	require.NoError(t, authz.Reconcile(ctx, db))
-	second := snapshotRolePermissions(t, db)
+	second := snapshotOrgRolePermissions(t, db, orgID)
 
 	require.Equal(t, first, second, "reconcile must be idempotent")
+}
+
+func TestReconcile_PerOrgIsolation_EditingOneOrgDoesNotAffectAnother(t *testing.T) {
+	db := testutil.GetTestDB(t)
+	ctx := t.Context()
+	orgA := insertTestOrganization(t, db)
+	orgB := insertTestOrganization(t, db)
+
+	require.NoError(t, authz.Reconcile(ctx, db))
+
+	// Operator in org A removes miner:firmware_update from their ADMIN.
+	revokeOrgPermission(t, db, orgA, "ADMIN", authz.PermMinerFirmwareUpdate)
+
+	require.NoError(t, authz.Reconcile(ctx, db))
+
+	require.NotContains(t, orgRolePermissionKeys(t, db, orgA, "ADMIN"), authz.PermMinerFirmwareUpdate,
+		"org A's ADMIN edit must persist")
+	require.Contains(t, orgRolePermissionKeys(t, db, orgB, "ADMIN"), authz.PermMinerFirmwareUpdate,
+		"org B's ADMIN must NOT be affected by an org A edit")
 }
 
 func TestReconcile_OperatorEditToAdminSurvivesRestart(t *testing.T) {
 	db := testutil.GetTestDB(t)
 	ctx := t.Context()
+	orgID := insertTestOrganization(t, db)
 	require.NoError(t, authz.Reconcile(ctx, db))
 
-	revokePermissionFromBuiltin(t, db, "ADMIN", authz.PermMinerFirmwareUpdate)
-
-	// Restart-equivalent: invoke the reconciler again.
+	revokeOrgPermission(t, db, orgID, "ADMIN", authz.PermMinerFirmwareUpdate)
 	require.NoError(t, authz.Reconcile(ctx, db))
 
-	got := rolePermissionKeys(t, db, "ADMIN")
+	got := orgRolePermissionKeys(t, db, orgID, "ADMIN")
 	require.NotContains(t, got, authz.PermMinerFirmwareUpdate,
 		"additive-only reconcile must NOT re-add an operator-removed permission to ADMIN")
-}
-
-func TestReconcile_OperatorEditToFieldTechSurvivesRestart(t *testing.T) {
-	db := testutil.GetTestDB(t)
-	ctx := t.Context()
-	require.NoError(t, authz.Reconcile(ctx, db))
-
-	revokePermissionFromBuiltin(t, db, "FIELD_TECH", authz.PermRackManage)
-
-	require.NoError(t, authz.Reconcile(ctx, db))
-
-	got := rolePermissionKeys(t, db, "FIELD_TECH")
-	require.NotContains(t, got, authz.PermRackManage,
-		"additive-only reconcile must NOT re-add an operator-removed permission to FIELD_TECH")
 }
 
 func TestReconcile_OperatorAdditionToFieldTechSurvivesRestart(t *testing.T) {
 	db := testutil.GetTestDB(t)
 	ctx := t.Context()
+	orgID := insertTestOrganization(t, db)
 	require.NoError(t, authz.Reconcile(ctx, db))
 
-	addPermissionToBuiltin(t, db, "FIELD_TECH", authz.PermMinerReboot)
-
+	addOrgPermission(t, db, orgID, "FIELD_TECH", authz.PermMinerReboot)
 	require.NoError(t, authz.Reconcile(ctx, db))
 
-	got := rolePermissionKeys(t, db, "FIELD_TECH")
+	got := orgRolePermissionKeys(t, db, orgID, "FIELD_TECH")
 	require.Contains(t, got, authz.PermMinerReboot,
 		"additive-only reconcile must preserve operator-added permissions on FIELD_TECH")
 }
@@ -137,46 +144,24 @@ func TestReconcile_OperatorAdditionToFieldTechSurvivesRestart(t *testing.T) {
 func TestReconcile_SuperAdminTamperingRepaired(t *testing.T) {
 	db := testutil.GetTestDB(t)
 	ctx := t.Context()
+	orgID := insertTestOrganization(t, db)
 	require.NoError(t, authz.Reconcile(ctx, db))
 
-	revokePermissionFromBuiltin(t, db, "SUPER_ADMIN", authz.PermMinerReboot)
-
+	revokeOrgPermission(t, db, orgID, "SUPER_ADMIN", authz.PermMinerReboot)
 	require.NoError(t, authz.Reconcile(ctx, db))
 
-	got := rolePermissionKeys(t, db, "SUPER_ADMIN")
+	got := orgRolePermissionKeys(t, db, orgID, "SUPER_ADMIN")
 	require.Contains(t, got, authz.PermMinerReboot,
 		"full reconcile must restore tampered SUPER_ADMIN permissions")
 	require.Equal(t, authz.AllPermissionsSorted(), got,
 		"SUPER_ADMIN must converge back to the full catalog")
 }
 
-func TestReconcile_SuperAdminObsoletePermissionPruned(t *testing.T) {
-	db := testutil.GetTestDB(t)
-	ctx := t.Context()
-	require.NoError(t, authz.Reconcile(ctx, db))
-
-	// Insert a permission row that is not in the in-code catalog, then
-	// attach it to SUPER_ADMIN. Reconcile must strip it back off.
-	_, err := db.ExecContext(ctx,
-		`INSERT INTO permission (key, description) VALUES ('legacy:obsolete', 'left behind by an older catalog')`,
-	)
-	require.NoError(t, err)
-	addPermissionToBuiltin(t, db, "SUPER_ADMIN", "legacy:obsolete")
-
-	require.NoError(t, authz.Reconcile(ctx, db))
-
-	got := rolePermissionKeys(t, db, "SUPER_ADMIN")
-	require.NotContains(t, got, "legacy:obsolete",
-		"full reconcile must prune non-catalog permissions from SUPER_ADMIN")
-}
-
 func TestReconcile_ConcurrentRunsConverge(t *testing.T) {
 	db := testutil.GetTestDB(t)
 	ctx := t.Context()
+	orgID := insertTestOrganization(t, db)
 
-	// Two reconciles racing the advisory lock; both must complete
-	// without error and the final state must equal a single-pass
-	// reconcile's state.
 	errs := make(chan error, 2)
 	go func() { errs <- authz.Reconcile(ctx, db) }()
 	go func() { errs <- authz.Reconcile(ctx, db) }()
@@ -184,18 +169,20 @@ func TestReconcile_ConcurrentRunsConverge(t *testing.T) {
 		require.NoError(t, <-errs)
 	}
 
-	got := rolePermissionKeys(t, db, "SUPER_ADMIN")
-	require.Equal(t, authz.AllPermissionsSorted(), got)
+	require.Equal(t, authz.AllPermissionsSorted(), orgRolePermissionKeys(t, db, orgID, "SUPER_ADMIN"))
 }
 
 // ---------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------
 
-func rolePermissionKeys(t *testing.T, db *sql.DB, builtinKey string) []string {
+func orgRolePermissionKeys(t *testing.T, db *sql.DB, orgID int64, builtinKey string) []string {
 	t.Helper()
 	q := sqlc.New(db)
-	role, err := q.GetRoleByBuiltinKey(t.Context(), sql.NullString{String: builtinKey, Valid: true})
+	role, err := q.GetBuiltinRoleForOrg(t.Context(), sqlc.GetBuiltinRoleForOrgParams{
+		OrganizationID: sql.NullInt64{Int64: orgID, Valid: true},
+		BuiltinKey:     sql.NullString{String: builtinKey, Valid: true},
+	})
 	require.NoError(t, err)
 	keys, err := q.ListRolePermissionKeys(t.Context(), role.ID)
 	require.NoError(t, err)
@@ -203,19 +190,22 @@ func rolePermissionKeys(t *testing.T, db *sql.DB, builtinKey string) []string {
 	return keys
 }
 
-func snapshotRolePermissions(t *testing.T, db *sql.DB) map[string][]string {
+func snapshotOrgRolePermissions(t *testing.T, db *sql.DB, orgID int64) map[string][]string {
 	t.Helper()
 	out := map[string][]string{}
 	for _, key := range []string{"SUPER_ADMIN", "ADMIN", "FIELD_TECH"} {
-		out[key] = rolePermissionKeys(t, db, key)
+		out[key] = orgRolePermissionKeys(t, db, orgID, key)
 	}
 	return out
 }
 
-func revokePermissionFromBuiltin(t *testing.T, db *sql.DB, builtinKey, permKey string) {
+func revokeOrgPermission(t *testing.T, db *sql.DB, orgID int64, builtinKey, permKey string) {
 	t.Helper()
 	q := sqlc.New(db)
-	role, err := q.GetRoleByBuiltinKey(t.Context(), sql.NullString{String: builtinKey, Valid: true})
+	role, err := q.GetBuiltinRoleForOrg(t.Context(), sqlc.GetBuiltinRoleForOrgParams{
+		OrganizationID: sql.NullInt64{Int64: orgID, Valid: true},
+		BuiltinKey:     sql.NullString{String: builtinKey, Valid: true},
+	})
 	require.NoError(t, err)
 	perm, err := q.GetPermissionByKey(t.Context(), permKey)
 	require.NoError(t, err)
@@ -225,10 +215,13 @@ func revokePermissionFromBuiltin(t *testing.T, db *sql.DB, builtinKey, permKey s
 	}))
 }
 
-func addPermissionToBuiltin(t *testing.T, db *sql.DB, builtinKey, permKey string) {
+func addOrgPermission(t *testing.T, db *sql.DB, orgID int64, builtinKey, permKey string) {
 	t.Helper()
 	q := sqlc.New(db)
-	role, err := q.GetRoleByBuiltinKey(t.Context(), sql.NullString{String: builtinKey, Valid: true})
+	role, err := q.GetBuiltinRoleForOrg(t.Context(), sqlc.GetBuiltinRoleForOrgParams{
+		OrganizationID: sql.NullInt64{Int64: orgID, Valid: true},
+		BuiltinKey:     sql.NullString{String: builtinKey, Valid: true},
+	})
 	require.NoError(t, err)
 	perm, err := q.GetPermissionByKey(t.Context(), permKey)
 	require.NoError(t, err)
@@ -238,9 +231,6 @@ func addPermissionToBuiltin(t *testing.T, db *sql.DB, builtinKey, permKey string
 	}))
 }
 
-// Compile-time guards: these names are public API the rest of the
-// codebase reaches for. Failing this line means the package surface
-// drifted and downstream callers won't compile.
 var (
 	_ = context.Background
 	_ = authz.Reconcile

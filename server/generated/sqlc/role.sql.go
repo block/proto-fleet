@@ -11,18 +11,19 @@ import (
 )
 
 const createCustomRole = `-- name: CreateCustomRole :one
-INSERT INTO role (name, description, is_builtin)
-VALUES ($1, $2, FALSE)
-RETURNING id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key
+INSERT INTO role (name, description, is_builtin, organization_id)
+VALUES ($1, $2, FALSE, $3)
+RETURNING id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key, organization_id
 `
 
 type CreateCustomRoleParams struct {
-	Name        string
-	Description sql.NullString
+	Name           string
+	Description    sql.NullString
+	OrganizationID sql.NullInt64
 }
 
 func (q *Queries) CreateCustomRole(ctx context.Context, arg CreateCustomRoleParams) (Role, error) {
-	row := q.queryRow(ctx, q.createCustomRoleStmt, createCustomRole, arg.Name, arg.Description)
+	row := q.queryRow(ctx, q.createCustomRoleStmt, createCustomRole, arg.Name, arg.Description, arg.OrganizationID)
 	var i Role
 	err := row.Scan(
 		&i.ID,
@@ -33,19 +34,29 @@ func (q *Queries) CreateCustomRole(ctx context.Context, arg CreateCustomRolePara
 		&i.DeletedAt,
 		&i.IsBuiltin,
 		&i.BuiltinKey,
+		&i.OrganizationID,
 	)
 	return i, err
 }
 
-const getRoleByBuiltinKey = `-- name: GetRoleByBuiltinKey :one
-SELECT id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key
+const getBuiltinRoleForOrg = `-- name: GetBuiltinRoleForOrg :one
+SELECT id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key, organization_id
 FROM role
-WHERE builtin_key = $1
+WHERE is_builtin = TRUE
+  AND organization_id = $1
+  AND builtin_key = $2
   AND deleted_at IS NULL
 `
 
-func (q *Queries) GetRoleByBuiltinKey(ctx context.Context, builtinKey sql.NullString) (Role, error) {
-	row := q.queryRow(ctx, q.getRoleByBuiltinKeyStmt, getRoleByBuiltinKey, builtinKey)
+type GetBuiltinRoleForOrgParams struct {
+	OrganizationID sql.NullInt64
+	BuiltinKey     sql.NullString
+}
+
+// The (org, builtin_key) pair is unique among live rows via the
+// partial index uq_role_org_builtin_key.
+func (q *Queries) GetBuiltinRoleForOrg(ctx context.Context, arg GetBuiltinRoleForOrgParams) (Role, error) {
+	row := q.queryRow(ctx, q.getBuiltinRoleForOrgStmt, getBuiltinRoleForOrg, arg.OrganizationID, arg.BuiltinKey)
 	var i Role
 	err := row.Scan(
 		&i.ID,
@@ -56,12 +67,13 @@ func (q *Queries) GetRoleByBuiltinKey(ctx context.Context, builtinKey sql.NullSt
 		&i.DeletedAt,
 		&i.IsBuiltin,
 		&i.BuiltinKey,
+		&i.OrganizationID,
 	)
 	return i, err
 }
 
 const getRoleByID = `-- name: GetRoleByID :one
-SELECT id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key
+SELECT id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key, organization_id
 FROM role
 WHERE id = $1
   AND deleted_at IS NULL
@@ -79,12 +91,13 @@ func (q *Queries) GetRoleByID(ctx context.Context, id int64) (Role, error) {
 		&i.DeletedAt,
 		&i.IsBuiltin,
 		&i.BuiltinKey,
+		&i.OrganizationID,
 	)
 	return i, err
 }
 
 const getRoleByName = `-- name: GetRoleByName :one
-SELECT id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key FROM role
+SELECT id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key, organization_id FROM role
 WHERE name = $1
 `
 
@@ -100,22 +113,57 @@ func (q *Queries) GetRoleByName(ctx context.Context, name string) (Role, error) 
 		&i.DeletedAt,
 		&i.IsBuiltin,
 		&i.BuiltinKey,
+		&i.OrganizationID,
 	)
 	return i, err
 }
 
-const listBuiltinRoles = `-- name: ListBuiltinRoles :many
-SELECT id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key
+const listActiveOrganizationIDs = `-- name: ListActiveOrganizationIDs :many
+SELECT id
+FROM organization
+WHERE deleted_at IS NULL
+ORDER BY id
+`
+
+// The reconciler loops over this list at boot so every org has its
+// per-org built-ins. The onboarding flow also seeds built-ins for
+// new orgs inside its creation transaction.
+func (q *Queries) ListActiveOrganizationIDs(ctx context.Context) ([]int64, error) {
+	rows, err := q.query(ctx, q.listActiveOrganizationIDsStmt, listActiveOrganizationIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listBuiltinRolesForOrg = `-- name: ListBuiltinRolesForOrg :many
+SELECT id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key, organization_id
 FROM role
 WHERE is_builtin = TRUE
+  AND organization_id = $1
   AND deleted_at IS NULL
 ORDER BY builtin_key
 `
 
-// Returns the three (eventually four) built-in roles keyed by
-// builtin_key. Used by U4 startup reconciliation.
-func (q *Queries) ListBuiltinRoles(ctx context.Context) ([]Role, error) {
-	rows, err := q.query(ctx, q.listBuiltinRolesStmt, listBuiltinRoles)
+// Returns the per-org built-in rows for a single organization. Used
+// by U4 startup reconciliation and the onboarding hook.
+func (q *Queries) ListBuiltinRolesForOrg(ctx context.Context, organizationID sql.NullInt64) ([]Role, error) {
+	rows, err := q.query(ctx, q.listBuiltinRolesForOrgStmt, listBuiltinRolesForOrg, organizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -132,6 +180,7 @@ func (q *Queries) ListBuiltinRoles(ctx context.Context) ([]Role, error) {
 			&i.DeletedAt,
 			&i.IsBuiltin,
 			&i.BuiltinKey,
+			&i.OrganizationID,
 		); err != nil {
 			return nil, err
 		}
@@ -146,20 +195,19 @@ func (q *Queries) ListBuiltinRoles(ctx context.Context) ([]Role, error) {
 	return items, nil
 }
 
-const listCustomRoles = `-- name: ListCustomRoles :many
-SELECT id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key
+const listCustomRolesForOrg = `-- name: ListCustomRolesForOrg :many
+SELECT id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key, organization_id
 FROM role
 WHERE is_builtin = FALSE
+  AND organization_id = $1
   AND deleted_at IS NULL
 ORDER BY name
 `
 
-// Custom roles are everything that isn't a built-in. Admin UI in U11
-// lists them per-org; this query is org-agnostic because custom roles
-// are global to the deployment in v1 (an org's admins can still pick
-// which to assign).
-func (q *Queries) ListCustomRoles(ctx context.Context) ([]Role, error) {
-	rows, err := q.query(ctx, q.listCustomRolesStmt, listCustomRoles)
+// Per-org custom roles. Admin UI in U11 calls this with the caller's
+// organization_id; the query never returns rows from other orgs.
+func (q *Queries) ListCustomRolesForOrg(ctx context.Context, organizationID sql.NullInt64) ([]Role, error) {
+	rows, err := q.query(ctx, q.listCustomRolesForOrgStmt, listCustomRolesForOrg, organizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -176,6 +224,7 @@ func (q *Queries) ListCustomRoles(ctx context.Context) ([]Role, error) {
 			&i.DeletedAt,
 			&i.IsBuiltin,
 			&i.BuiltinKey,
+			&i.OrganizationID,
 		); err != nil {
 			return nil, err
 		}
@@ -191,7 +240,7 @@ func (q *Queries) ListCustomRoles(ctx context.Context) ([]Role, error) {
 }
 
 const listRoles = `-- name: ListRoles :many
-SELECT id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key
+SELECT id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key, organization_id
 FROM role
 ORDER BY name
 `
@@ -214,6 +263,7 @@ func (q *Queries) ListRoles(ctx context.Context) ([]Role, error) {
 			&i.DeletedAt,
 			&i.IsBuiltin,
 			&i.BuiltinKey,
+			&i.OrganizationID,
 		); err != nil {
 			return nil, err
 		}
@@ -236,11 +286,8 @@ WHERE id = $1
   AND is_builtin = FALSE
 `
 
-// Delete is locked for every built-in (SUPER_ADMIN, ADMIN,
-// FIELD_TECH); the domain layer in U8 surfaces
-// BUILTIN_ROLE_NON_DELETABLE for ADMIN/FIELD_TECH and
-// BUILTIN_ROLE_IMMUTABLE for SUPER_ADMIN. This query is the
-// structural backstop: it refuses to soft-delete any is_builtin row.
+// Delete is locked for every built-in. The domain layer in U8
+// surfaces BUILTIN_ROLE_IMMUTABLE on a delete attempt.
 func (q *Queries) SoftDeleteCustomRole(ctx context.Context, id int64) error {
 	_, err := q.exec(ctx, q.softDeleteCustomRoleStmt, softDeleteCustomRole, id)
 	return err
@@ -274,7 +321,7 @@ SET name = $1,
     description = $2
 WHERE id = $3
   AND deleted_at IS NULL
-  AND builtin_key IS DISTINCT FROM 'SUPER_ADMIN'
+  AND is_builtin = FALSE
 `
 
 type UpdateCustomRoleNameParams struct {
@@ -283,9 +330,9 @@ type UpdateCustomRoleNameParams struct {
 	ID          int64
 }
 
-// Renames a role. Rejects SUPER_ADMIN at the query level via the
-// builtin_key guard; ADMIN and FIELD_TECH are editable through the
-// same path as custom roles, per the U8 design.
+// Renames a role. Locked to is_builtin = FALSE so no built-in row can
+// be modified through this path; ADMIN and FIELD_TECH edits go
+// through the per-org built-in editor in U8.
 func (q *Queries) UpdateCustomRoleName(ctx context.Context, arg UpdateCustomRoleNameParams) error {
 	_, err := q.exec(ctx, q.updateCustomRoleNameStmt, updateCustomRoleName, arg.Name, arg.Description, arg.ID)
 	return err
@@ -309,28 +356,36 @@ func (q *Queries) UpdateRole(ctx context.Context, arg UpdateRoleParams) error {
 	return err
 }
 
-const upsertBuiltinRole = `-- name: UpsertBuiltinRole :one
-INSERT INTO role (name, description, is_builtin, builtin_key)
-VALUES ($1, $2, TRUE, $3)
-ON CONFLICT (builtin_key) DO UPDATE SET
-    name = EXCLUDED.name,
-    description = EXCLUDED.description,
-    is_builtin = TRUE,
-    deleted_at = NULL
-RETURNING id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key
+const upsertBuiltinRoleForOrg = `-- name: UpsertBuiltinRoleForOrg :one
+INSERT INTO role (name, description, is_builtin, builtin_key, organization_id)
+VALUES ($1, $2, TRUE, $3, $4)
+ON CONFLICT (organization_id, builtin_key)
+    WHERE is_builtin = TRUE AND deleted_at IS NULL
+    DO UPDATE SET
+        name = EXCLUDED.name,
+        description = EXCLUDED.description,
+        is_builtin = TRUE,
+        deleted_at = NULL
+RETURNING id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key, organization_id
 `
 
-type UpsertBuiltinRoleParams struct {
-	Name        string
-	Description sql.NullString
-	BuiltinKey  sql.NullString
+type UpsertBuiltinRoleForOrgParams struct {
+	Name           string
+	Description    sql.NullString
+	BuiltinKey     sql.NullString
+	OrganizationID sql.NullInt64
 }
 
-// Used only by U4 seed reconciliation. Created with is_builtin=TRUE
-// so subsequent custom-role mutation paths skip it via
-// builtin_key IS DISTINCT FROM 'SUPER_ADMIN'.
-func (q *Queries) UpsertBuiltinRole(ctx context.Context, arg UpsertBuiltinRoleParams) (Role, error) {
-	row := q.queryRow(ctx, q.upsertBuiltinRoleStmt, upsertBuiltinRole, arg.Name, arg.Description, arg.BuiltinKey)
+// Seed reconciliation entry point. The ON CONFLICT target matches
+// the partial unique index uq_role_org_builtin_key WHERE
+// is_builtin = TRUE AND deleted_at IS NULL.
+func (q *Queries) UpsertBuiltinRoleForOrg(ctx context.Context, arg UpsertBuiltinRoleForOrgParams) (Role, error) {
+	row := q.queryRow(ctx, q.upsertBuiltinRoleForOrgStmt, upsertBuiltinRoleForOrg,
+		arg.Name,
+		arg.Description,
+		arg.BuiltinKey,
+		arg.OrganizationID,
+	)
 	var i Role
 	err := row.Scan(
 		&i.ID,
@@ -341,6 +396,7 @@ func (q *Queries) UpsertBuiltinRole(ctx context.Context, arg UpsertBuiltinRolePa
 		&i.DeletedAt,
 		&i.IsBuiltin,
 		&i.BuiltinKey,
+		&i.OrganizationID,
 	)
 	return i, err
 }

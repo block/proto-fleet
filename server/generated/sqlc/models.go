@@ -806,14 +806,15 @@ type RackSlot struct {
 }
 
 type Role struct {
-	ID          int64
-	Name        string
-	Description sql.NullString
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	DeletedAt   sql.NullTime
-	IsBuiltin   bool
-	BuiltinKey  sql.NullString
+	ID             int64
+	Name           string
+	Description    sql.NullString
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	DeletedAt      sql.NullTime
+	IsBuiltin      bool
+	BuiltinKey     sql.NullString
+	OrganizationID sql.NullInt64
 }
 
 type RolePermission struct {

@@ -28,4 +28,6 @@ SELECT
     NULL
 FROM user_organization
 WHERE deleted_at IS NULL
-ON CONFLICT (user_id, organization_id, role_id, scope_type, scope_id) DO NOTHING;
+ON CONFLICT (user_id, organization_id, role_id)
+    WHERE scope_type = 'org' AND deleted_at IS NULL
+    DO NOTHING;

@@ -24,7 +24,7 @@ func TestBackfill_ExistingAdminUserGetsOrgScopeAssignment(t *testing.T) {
 
 	orgID := insertTestOrganization(t, db)
 	userID := insertTestUser(t, db)
-	adminRoleID := getBuiltinRoleID(t, db, "ADMIN")
+	adminRoleID := getBuiltinRoleID(t, db, orgID, "ADMIN")
 
 	// Insert via the legacy table directly to simulate a row that
 	// existed before 000053 ran.
@@ -61,7 +61,7 @@ func TestBackfill_SoftDeletedUserOrganizationRowsAreNotCopied(t *testing.T) {
 
 	orgID := insertTestOrganization(t, db)
 	userID := insertTestUser(t, db)
-	adminRoleID := getBuiltinRoleID(t, db, "ADMIN")
+	adminRoleID := getBuiltinRoleID(t, db, orgID, "ADMIN")
 
 	_, err := db.ExecContext(ctx,
 		`INSERT INTO user_organization (user_id, organization_id, role_id, deleted_at) VALUES ($1, $2, $3, CURRENT_TIMESTAMP)`,
@@ -80,6 +80,76 @@ func TestBackfill_SoftDeletedUserOrganizationRowsAreNotCopied(t *testing.T) {
 	require.Empty(t, assignments, "soft-deleted user_organization rows must not produce assignments")
 }
 
+func TestAssignment_SoftDeletedRowDoesNotBlockReassign(t *testing.T) {
+	db := testutil.GetTestDB(t)
+	ctx := t.Context()
+	require.NoError(t, authz.Reconcile(ctx, db))
+
+	orgID := insertTestOrganization(t, db)
+	userID := insertTestUser(t, db)
+	adminRoleID := getBuiltinRoleID(t, db, orgID, "ADMIN")
+
+	q := sqlc.New(db)
+
+	// Initial assignment.
+	first, err := q.AssignRole(ctx, sqlc.AssignRoleParams{
+		UserID:         userID,
+		OrganizationID: orgID,
+		RoleID:         adminRoleID,
+		ScopeType:      "org",
+		ScopeID:        sql.NullInt64{},
+	})
+	require.NoError(t, err)
+
+	// Soft-delete it.
+	require.NoError(t, q.UnassignRole(ctx, first.ID))
+
+	// Re-assigning the same (user, org, role, scope) tuple must
+	// succeed because the partial unique index only covers live rows.
+	// Under the old global UNIQUE constraint this would have failed.
+	_, err = q.AssignRole(ctx, sqlc.AssignRoleParams{
+		UserID:         userID,
+		OrganizationID: orgID,
+		RoleID:         adminRoleID,
+		ScopeType:      "org",
+		ScopeID:        sql.NullInt64{},
+	})
+	require.NoError(t, err, "re-assigning after soft-delete must be allowed")
+}
+
+func TestAssignment_DuplicateLiveOrgScopeRejected(t *testing.T) {
+	db := testutil.GetTestDB(t)
+	ctx := t.Context()
+	require.NoError(t, authz.Reconcile(ctx, db))
+
+	orgID := insertTestOrganization(t, db)
+	userID := insertTestUser(t, db)
+	adminRoleID := getBuiltinRoleID(t, db, orgID, "ADMIN")
+
+	q := sqlc.New(db)
+
+	_, err := q.AssignRole(ctx, sqlc.AssignRoleParams{
+		UserID:         userID,
+		OrganizationID: orgID,
+		RoleID:         adminRoleID,
+		ScopeType:      "org",
+		ScopeID:        sql.NullInt64{},
+	})
+	require.NoError(t, err)
+
+	// Second live insert with the same (user, org, role, 'org', NULL)
+	// must fail despite scope_id being NULL — the partial unique index
+	// closes the NULL-distinct loophole.
+	_, err = q.AssignRole(ctx, sqlc.AssignRoleParams{
+		UserID:         userID,
+		OrganizationID: orgID,
+		RoleID:         adminRoleID,
+		ScopeType:      "org",
+		ScopeID:        sql.NullInt64{},
+	})
+	require.Error(t, err, "duplicate live org-scope assignment must be rejected")
+}
+
 func TestBackfill_Idempotent(t *testing.T) {
 	db := testutil.GetTestDB(t)
 	ctx := t.Context()
@@ -87,7 +157,7 @@ func TestBackfill_Idempotent(t *testing.T) {
 
 	orgID := insertTestOrganization(t, db)
 	userID := insertTestUser(t, db)
-	adminRoleID := getBuiltinRoleID(t, db, "ADMIN")
+	adminRoleID := getBuiltinRoleID(t, db, orgID, "ADMIN")
 
 	_, err := db.ExecContext(ctx,
 		`INSERT INTO user_organization (user_id, organization_id, role_id) VALUES ($1, $2, $3)`,
@@ -118,7 +188,9 @@ func runBackfill(t *testing.T, db *sql.DB) {
 		SELECT user_id, organization_id, role_id, 'org', NULL
 		FROM user_organization
 		WHERE deleted_at IS NULL
-		ON CONFLICT (user_id, organization_id, role_id, scope_type, scope_id) DO NOTHING
+		ON CONFLICT (user_id, organization_id, role_id)
+		    WHERE scope_type = 'org' AND deleted_at IS NULL
+		    DO NOTHING
 	`)
 	require.NoError(t, err)
 }
@@ -147,10 +219,13 @@ func insertTestUser(t *testing.T, db *sql.DB) int64 {
 	return id
 }
 
-func getBuiltinRoleID(t *testing.T, db *sql.DB, builtinKey string) int64 {
+func getBuiltinRoleID(t *testing.T, db *sql.DB, orgID int64, builtinKey string) int64 {
 	t.Helper()
 	q := sqlc.New(db)
-	role, err := q.GetRoleByBuiltinKey(t.Context(), sql.NullString{String: builtinKey, Valid: true})
+	role, err := q.GetBuiltinRoleForOrg(t.Context(), sqlc.GetBuiltinRoleForOrgParams{
+		OrganizationID: sql.NullInt64{Int64: orgID, Valid: true},
+		BuiltinKey:     sql.NullString{String: builtinKey, Valid: true},
+	})
 	require.NoError(t, err)
 	return role.ID
 }

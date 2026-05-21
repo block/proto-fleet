@@ -1,20 +1,22 @@
--- One-shot seed for the RBAC v2 catalog. This file captures the v1
--- catalog as of the migration date so a fresh install has a usable
--- state before the server starts and runs its reconciliation step.
+-- Seed the permission catalog and per-org built-in roles, then repoint
+-- existing user_organization rows from the legacy global ADMIN/
+-- SUPER_ADMIN rows onto each user's per-org replacement.
 --
--- The Go startup reconciler in server/internal/domain/authz/reconcile.go
--- is the authority going forward; this migration only ensures the rows
--- exist on first run. UPSERTs and ON CONFLICT clauses make it safe to
--- re-run against an environment whose reconciler has already converged.
+-- Order matters:
+--   1. Insert catalog (permission rows).
+--   2. Insert one (org × builtin) role row per (active org, builtin
+--      key) combination.
+--   3. Repoint user_organization.role_id to the per-org row matching
+--      the user's organization.
+--   4. Soft-delete the legacy global ADMIN/SUPER_ADMIN role rows.
+--   5. Populate role_permission for each per-org built-in row.
 --
--- Note: the existing ADMIN role row from migration 000002 is preserved;
--- it gets marked is_builtin=TRUE here. SUPER_ADMIN is currently created
--- by onboarding on first user signup; if that has already run, the row
--- is marked here too. FIELD_TECH is new in this migration.
+-- The Go startup reconciler in
+-- server/internal/domain/authz/reconcile.go takes over after this
+-- migration and keeps per-org built-ins converged on every boot.
 
 -- ---------------------------------------------------------------
--- Permission catalog rows. Keep this list in sync with the catalog
--- declared in server/internal/domain/authz/catalog.go.
+-- 1. Permission catalog.
 -- ---------------------------------------------------------------
 INSERT INTO permission (key, description) VALUES
     ('fleet:read',                'View dashboard, miner list, and telemetry. Required floor for any role with miner actions.'),
@@ -51,33 +53,60 @@ INSERT INTO permission (key, description) VALUES
 ON CONFLICT (key) DO UPDATE SET description = EXCLUDED.description;
 
 -- ---------------------------------------------------------------
--- Built-in role rows. ON CONFLICT (name) catches the pre-existing
--- ADMIN row from migration 000002 and any SUPER_ADMIN row already
--- created by onboarding.
+-- 2. Per-org built-in role rows. Cross-join active orgs with the
+--    fixed list of built-in specs.
 -- ---------------------------------------------------------------
-INSERT INTO role (name, description, is_builtin, builtin_key)
-VALUES
-    ('SUPER_ADMIN', 'Full system access. Cannot be modified.', TRUE, 'SUPER_ADMIN'),
-    ('ADMIN',       'Org admin. Editable by a SUPER_ADMIN.',   TRUE, 'ADMIN'),
-    ('FIELD_TECH',  'Field tech. Read fleet data, blink the locator LED, download logs, manage racks. Editable by a SUPER_ADMIN.', TRUE, 'FIELD_TECH')
-ON CONFLICT (name) DO UPDATE SET
-    is_builtin = TRUE,
-    builtin_key = EXCLUDED.builtin_key,
-    description = EXCLUDED.description;
+INSERT INTO role (name, description, is_builtin, builtin_key, organization_id)
+SELECT b.name, b.description, TRUE, b.builtin_key, org.id
+FROM organization org
+CROSS JOIN (VALUES
+    ('SUPER_ADMIN', 'Full system access. Immutable.', 'SUPER_ADMIN'),
+    ('ADMIN',       'Org admin. Editable by a SUPER_ADMIN.', 'ADMIN'),
+    ('FIELD_TECH',  'Field tech. Read fleet data, blink the locator LED, download logs, manage racks. Editable by a SUPER_ADMIN.', 'FIELD_TECH')
+) AS b(name, description, builtin_key)
+WHERE org.deleted_at IS NULL
+ON CONFLICT DO NOTHING;
 
 -- ---------------------------------------------------------------
--- Seed role_permission rows. The Go reconciler enforces these going
--- forward; this migration only handles the first-boot case so an
--- environment that boots fast and serves a request before the
--- reconciler completes still gets the right answer.
---
--- SUPER_ADMIN: every catalog key.
+-- 3. Repoint user_organization rows from the legacy global ADMIN /
+--    SUPER_ADMIN rows to each user's per-org equivalent. The legacy
+--    rows have organization_id NULL; the new rows have it set. Match
+--    by name (the legacy uniqueness key from 000002).
+-- ---------------------------------------------------------------
+UPDATE user_organization uo
+SET role_id = new_role.id
+FROM role legacy
+JOIN role new_role
+    ON new_role.builtin_key = legacy.name
+    AND new_role.is_builtin = TRUE
+    AND new_role.deleted_at IS NULL
+WHERE uo.role_id = legacy.id
+  AND legacy.organization_id IS NULL
+  AND legacy.is_builtin = FALSE
+  AND new_role.organization_id = uo.organization_id;
+
+-- ---------------------------------------------------------------
+-- 4. Soft-delete the legacy global rows. Anything that still
+--    references them after step 3 was a soft-deleted user_organization
+--    row that the resolver will never load.
+-- ---------------------------------------------------------------
+UPDATE role
+SET deleted_at = CURRENT_TIMESTAMP
+WHERE organization_id IS NULL
+  AND is_builtin = FALSE
+  AND name IN ('SUPER_ADMIN', 'ADMIN');
+
+-- ---------------------------------------------------------------
+-- 5. Seed role_permission rows per (org × built-in × seed perms).
+--    SUPER_ADMIN gets every catalog key in each org.
 -- ---------------------------------------------------------------
 INSERT INTO role_permission (role_id, permission_id)
 SELECT r.id, p.id
 FROM role r
 CROSS JOIN permission p
 WHERE r.builtin_key = 'SUPER_ADMIN'
+  AND r.is_builtin = TRUE
+  AND r.deleted_at IS NULL
 ON CONFLICT DO NOTHING;
 
 -- ADMIN: every catalog key except user:read, user:manage, role:manage.
@@ -86,6 +115,8 @@ SELECT r.id, p.id
 FROM role r
 CROSS JOIN permission p
 WHERE r.builtin_key = 'ADMIN'
+  AND r.is_builtin = TRUE
+  AND r.deleted_at IS NULL
   AND p.key NOT IN ('user:read', 'user:manage', 'role:manage')
 ON CONFLICT DO NOTHING;
 
@@ -95,6 +126,8 @@ SELECT r.id, p.id
 FROM role r
 CROSS JOIN permission p
 WHERE r.builtin_key = 'FIELD_TECH'
+  AND r.is_builtin = TRUE
+  AND r.deleted_at IS NULL
   AND p.key IN (
       'fleet:read',
       'miner:read',

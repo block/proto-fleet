@@ -38,67 +38,79 @@ UPDATE role
 SET deleted_at = NULL
 WHERE id = $1;
 
--- name: ListBuiltinRoles :many
--- Returns the three (eventually four) built-in roles keyed by
--- builtin_key. Used by U4 startup reconciliation.
+-- name: ListBuiltinRolesForOrg :many
+-- Returns the per-org built-in rows for a single organization. Used
+-- by U4 startup reconciliation and the onboarding hook.
 SELECT *
 FROM role
 WHERE is_builtin = TRUE
+  AND organization_id = $1
   AND deleted_at IS NULL
 ORDER BY builtin_key;
 
--- name: GetRoleByBuiltinKey :one
+-- name: GetBuiltinRoleForOrg :one
+-- The (org, builtin_key) pair is unique among live rows via the
+-- partial index uq_role_org_builtin_key.
 SELECT *
 FROM role
-WHERE builtin_key = $1
+WHERE is_builtin = TRUE
+  AND organization_id = $1
+  AND builtin_key = $2
   AND deleted_at IS NULL;
 
--- name: UpsertBuiltinRole :one
--- Used only by U4 seed reconciliation. Created with is_builtin=TRUE
--- so subsequent custom-role mutation paths skip it via
--- builtin_key IS DISTINCT FROM 'SUPER_ADMIN'.
-INSERT INTO role (name, description, is_builtin, builtin_key)
-VALUES ($1, $2, TRUE, $3)
-ON CONFLICT (builtin_key) DO UPDATE SET
-    name = EXCLUDED.name,
-    description = EXCLUDED.description,
-    is_builtin = TRUE,
-    deleted_at = NULL
+-- name: UpsertBuiltinRoleForOrg :one
+-- Seed reconciliation entry point. The ON CONFLICT target matches
+-- the partial unique index uq_role_org_builtin_key WHERE
+-- is_builtin = TRUE AND deleted_at IS NULL.
+INSERT INTO role (name, description, is_builtin, builtin_key, organization_id)
+VALUES ($1, $2, TRUE, $3, $4)
+ON CONFLICT (organization_id, builtin_key)
+    WHERE is_builtin = TRUE AND deleted_at IS NULL
+    DO UPDATE SET
+        name = EXCLUDED.name,
+        description = EXCLUDED.description,
+        is_builtin = TRUE,
+        deleted_at = NULL
 RETURNING *;
 
--- name: ListCustomRoles :many
--- Custom roles are everything that isn't a built-in. Admin UI in U11
--- lists them per-org; this query is org-agnostic because custom roles
--- are global to the deployment in v1 (an org's admins can still pick
--- which to assign).
+-- name: ListActiveOrganizationIDs :many
+-- The reconciler loops over this list at boot so every org has its
+-- per-org built-ins. The onboarding flow also seeds built-ins for
+-- new orgs inside its creation transaction.
+SELECT id
+FROM organization
+WHERE deleted_at IS NULL
+ORDER BY id;
+
+-- name: ListCustomRolesForOrg :many
+-- Per-org custom roles. Admin UI in U11 calls this with the caller's
+-- organization_id; the query never returns rows from other orgs.
 SELECT *
 FROM role
 WHERE is_builtin = FALSE
+  AND organization_id = $1
   AND deleted_at IS NULL
 ORDER BY name;
 
 -- name: CreateCustomRole :one
-INSERT INTO role (name, description, is_builtin)
-VALUES ($1, $2, FALSE)
+INSERT INTO role (name, description, is_builtin, organization_id)
+VALUES ($1, $2, FALSE, $3)
 RETURNING *;
 
 -- name: UpdateCustomRoleName :exec
--- Renames a role. Rejects SUPER_ADMIN at the query level via the
--- builtin_key guard; ADMIN and FIELD_TECH are editable through the
--- same path as custom roles, per the U8 design.
+-- Renames a role. Locked to is_builtin = FALSE so no built-in row can
+-- be modified through this path; ADMIN and FIELD_TECH edits go
+-- through the per-org built-in editor in U8.
 UPDATE role
 SET name = $1,
     description = $2
 WHERE id = $3
   AND deleted_at IS NULL
-  AND builtin_key IS DISTINCT FROM 'SUPER_ADMIN';
+  AND is_builtin = FALSE;
 
 -- name: SoftDeleteCustomRole :exec
--- Delete is locked for every built-in (SUPER_ADMIN, ADMIN,
--- FIELD_TECH); the domain layer in U8 surfaces
--- BUILTIN_ROLE_NON_DELETABLE for ADMIN/FIELD_TECH and
--- BUILTIN_ROLE_IMMUTABLE for SUPER_ADMIN. This query is the
--- structural backstop: it refuses to soft-delete any is_builtin row.
+-- Delete is locked for every built-in. The domain layer in U8
+-- surfaces BUILTIN_ROLE_IMMUTABLE on a delete attempt.
 UPDATE role
 SET deleted_at = CURRENT_TIMESTAMP
 WHERE id = $1

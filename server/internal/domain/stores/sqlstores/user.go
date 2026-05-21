@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
@@ -127,20 +128,26 @@ func (s *SQLUserStore) CreateAdminUserWithOrganization(ctx context.Context, user
 		return fleeterror.NewInternalErrorf("error creating organization: %v", err)
 	}
 
-	roleID, err := q.UpsertRole(ctx, sqlc.UpsertRoleParams{
-		Name: roleName,
-		Description: sql.NullString{
-			String: roleDescription,
-			Valid:  len(roleDescription) > 0,
-		},
-	})
+	// Seed per-org SUPER_ADMIN / ADMIN / FIELD_TECH built-in role rows
+	// in the same transaction as org creation so the founding user can
+	// be assigned a real per-org SUPER_ADMIN immediately. The
+	// roleName/roleDescription params are kept on the interface for
+	// backward compatibility but are no longer used — built-in
+	// definitions come from server/internal/domain/authz/builtin.go.
+	_ = roleName
+	_ = roleDescription
+	builtinIDs, err := authz.SeedOrgBuiltins(ctx, q, orgInternalID)
 	if err != nil {
-		return fleeterror.NewInternalErrorf("error creating role: %v", err)
+		return fleeterror.NewInternalErrorf("error seeding per-org built-in roles: %v", err)
+	}
+	superAdminRoleID, ok := builtinIDs[authz.BuiltinKeySuperAdmin]
+	if !ok {
+		return fleeterror.NewInternalErrorf("seeding did not return SUPER_ADMIN role id")
 	}
 
 	return q.CreateUserOrganization(ctx, sqlc.CreateUserOrganizationParams{
 		UserID:         userInternalID,
-		RoleID:         roleID,
+		RoleID:         superAdminRoleID,
 		OrganizationID: orgInternalID,
 	})
 }

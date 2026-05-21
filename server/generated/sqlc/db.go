@@ -240,6 +240,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getBuildingSiteStmt, err = db.PrepareContext(ctx, getBuildingSite); err != nil {
 		return nil, fmt.Errorf("error preparing query GetBuildingSite: %w", err)
 	}
+	if q.getBuiltinRoleForOrgStmt, err = db.PrepareContext(ctx, getBuiltinRoleForOrg); err != nil {
+		return nil, fmt.Errorf("error preparing query GetBuiltinRoleForOrg: %w", err)
+	}
 	if q.getCurtailmentEventByUUIDStmt, err = db.PrepareContext(ctx, getCurtailmentEventByUUID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetCurtailmentEventByUUID: %w", err)
 	}
@@ -459,9 +462,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getRackSlotsStmt, err = db.PrepareContext(ctx, getRackSlots); err != nil {
 		return nil, fmt.Errorf("error preparing query GetRackSlots: %w", err)
 	}
-	if q.getRoleByBuiltinKeyStmt, err = db.PrepareContext(ctx, getRoleByBuiltinKey); err != nil {
-		return nil, fmt.Errorf("error preparing query GetRoleByBuiltinKey: %w", err)
-	}
 	if q.getRoleByIDStmt, err = db.PrepareContext(ctx, getRoleByID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetRoleByID: %w", err)
 	}
@@ -555,6 +555,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listActiveCurtailedDevicesByOrgStmt, err = db.PrepareContext(ctx, listActiveCurtailedDevicesByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListActiveCurtailedDevicesByOrg: %w", err)
 	}
+	if q.listActiveOrganizationIDsStmt, err = db.PrepareContext(ctx, listActiveOrganizationIDs); err != nil {
+		return nil, fmt.Errorf("error preparing query ListActiveOrganizationIDs: %w", err)
+	}
 	if q.listActivityLogsStmt, err = db.PrepareContext(ctx, listActivityLogs); err != nil {
 		return nil, fmt.Errorf("error preparing query ListActivityLogs: %w", err)
 	}
@@ -573,8 +576,8 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listBuildingsByOrgStmt, err = db.PrepareContext(ctx, listBuildingsByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListBuildingsByOrg: %w", err)
 	}
-	if q.listBuiltinRolesStmt, err = db.PrepareContext(ctx, listBuiltinRoles); err != nil {
-		return nil, fmt.Errorf("error preparing query ListBuiltinRoles: %w", err)
+	if q.listBuiltinRolesForOrgStmt, err = db.PrepareContext(ctx, listBuiltinRolesForOrg); err != nil {
+		return nil, fmt.Errorf("error preparing query ListBuiltinRolesForOrg: %w", err)
 	}
 	if q.listCurtailmentCandidatesByOrgStmt, err = db.PrepareContext(ctx, listCurtailmentCandidatesByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListCurtailmentCandidatesByOrg: %w", err)
@@ -582,8 +585,8 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listCurtailmentTargetsByEventStmt, err = db.PrepareContext(ctx, listCurtailmentTargetsByEvent); err != nil {
 		return nil, fmt.Errorf("error preparing query ListCurtailmentTargetsByEvent: %w", err)
 	}
-	if q.listCustomRolesStmt, err = db.PrepareContext(ctx, listCustomRoles); err != nil {
-		return nil, fmt.Errorf("error preparing query ListCustomRoles: %w", err)
+	if q.listCustomRolesForOrgStmt, err = db.PrepareContext(ctx, listCustomRolesForOrg); err != nil {
+		return nil, fmt.Errorf("error preparing query ListCustomRolesForOrg: %w", err)
 	}
 	if q.listDeviceSetMembersPaginatedStmt, err = db.PrepareContext(ctx, listDeviceSetMembersPaginated); err != nil {
 		return nil, fmt.Errorf("error preparing query ListDeviceSetMembersPaginated: %w", err)
@@ -939,8 +942,8 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.updateUserUsernameStmt, err = db.PrepareContext(ctx, updateUserUsername); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateUserUsername: %w", err)
 	}
-	if q.upsertBuiltinRoleStmt, err = db.PrepareContext(ctx, upsertBuiltinRole); err != nil {
-		return nil, fmt.Errorf("error preparing query UpsertBuiltinRole: %w", err)
+	if q.upsertBuiltinRoleForOrgStmt, err = db.PrepareContext(ctx, upsertBuiltinRoleForOrg); err != nil {
+		return nil, fmt.Errorf("error preparing query UpsertBuiltinRoleForOrg: %w", err)
 	}
 	if q.upsertCommandOnDeviceLogStmt, err = db.PrepareContext(ctx, upsertCommandOnDeviceLog); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertCommandOnDeviceLog: %w", err)
@@ -1337,6 +1340,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getBuildingSiteStmt: %w", cerr)
 		}
 	}
+	if q.getBuiltinRoleForOrgStmt != nil {
+		if cerr := q.getBuiltinRoleForOrgStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getBuiltinRoleForOrgStmt: %w", cerr)
+		}
+	}
 	if q.getCurtailmentEventByUUIDStmt != nil {
 		if cerr := q.getCurtailmentEventByUUIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getCurtailmentEventByUUIDStmt: %w", cerr)
@@ -1702,11 +1710,6 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getRackSlotsStmt: %w", cerr)
 		}
 	}
-	if q.getRoleByBuiltinKeyStmt != nil {
-		if cerr := q.getRoleByBuiltinKeyStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing getRoleByBuiltinKeyStmt: %w", cerr)
-		}
-	}
 	if q.getRoleByIDStmt != nil {
 		if cerr := q.getRoleByIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getRoleByIDStmt: %w", cerr)
@@ -1862,6 +1865,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listActiveCurtailedDevicesByOrgStmt: %w", cerr)
 		}
 	}
+	if q.listActiveOrganizationIDsStmt != nil {
+		if cerr := q.listActiveOrganizationIDsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listActiveOrganizationIDsStmt: %w", cerr)
+		}
+	}
 	if q.listActivityLogsStmt != nil {
 		if cerr := q.listActivityLogsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listActivityLogsStmt: %w", cerr)
@@ -1892,9 +1900,9 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listBuildingsByOrgStmt: %w", cerr)
 		}
 	}
-	if q.listBuiltinRolesStmt != nil {
-		if cerr := q.listBuiltinRolesStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing listBuiltinRolesStmt: %w", cerr)
+	if q.listBuiltinRolesForOrgStmt != nil {
+		if cerr := q.listBuiltinRolesForOrgStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listBuiltinRolesForOrgStmt: %w", cerr)
 		}
 	}
 	if q.listCurtailmentCandidatesByOrgStmt != nil {
@@ -1907,9 +1915,9 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listCurtailmentTargetsByEventStmt: %w", cerr)
 		}
 	}
-	if q.listCustomRolesStmt != nil {
-		if cerr := q.listCustomRolesStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing listCustomRolesStmt: %w", cerr)
+	if q.listCustomRolesForOrgStmt != nil {
+		if cerr := q.listCustomRolesForOrgStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listCustomRolesForOrgStmt: %w", cerr)
 		}
 	}
 	if q.listDeviceSetMembersPaginatedStmt != nil {
@@ -2502,9 +2510,9 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing updateUserUsernameStmt: %w", cerr)
 		}
 	}
-	if q.upsertBuiltinRoleStmt != nil {
-		if cerr := q.upsertBuiltinRoleStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing upsertBuiltinRoleStmt: %w", cerr)
+	if q.upsertBuiltinRoleForOrgStmt != nil {
+		if cerr := q.upsertBuiltinRoleForOrgStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing upsertBuiltinRoleForOrgStmt: %w", cerr)
 		}
 	}
 	if q.upsertCommandOnDeviceLogStmt != nil {
@@ -2668,6 +2676,7 @@ type Queries struct {
 	getBatchStatusAndDeviceCountsStmt                   *sql.Stmt
 	getBuildingStmt                                     *sql.Stmt
 	getBuildingSiteStmt                                 *sql.Stmt
+	getBuiltinRoleForOrgStmt                            *sql.Stmt
 	getCurtailmentEventByUUIDStmt                       *sql.Stmt
 	getCurtailmentOrgConfigStmt                         *sql.Stmt
 	getCurtailmentReconcilerHeartbeatStmt               *sql.Stmt
@@ -2741,7 +2750,6 @@ type Queries struct {
 	getRackInfoStmt                                     *sql.Stmt
 	getRackInfoBatchStmt                                *sql.Stmt
 	getRackSlotsStmt                                    *sql.Stmt
-	getRoleByBuiltinKeyStmt                             *sql.Stmt
 	getRoleByIDStmt                                     *sql.Stmt
 	getRoleByNameStmt                                   *sql.Stmt
 	getRunningPowerTargetScheduleOverlapsStmt           *sql.Stmt
@@ -2773,16 +2781,17 @@ type Queries struct {
 	isBatchFinishedStmt                                 *sql.Stmt
 	isBatchProcessingStmt                               *sql.Stmt
 	listActiveCurtailedDevicesByOrgStmt                 *sql.Stmt
+	listActiveOrganizationIDsStmt                       *sql.Stmt
 	listActivityLogsStmt                                *sql.Stmt
 	listApiKeysByOrganizationStmt                       *sql.Stmt
 	listAssignmentsForRoleStmt                          *sql.Stmt
 	listAssignmentsForUserStmt                          *sql.Stmt
 	listBatchDeviceResultsStmt                          *sql.Stmt
 	listBuildingsByOrgStmt                              *sql.Stmt
-	listBuiltinRolesStmt                                *sql.Stmt
+	listBuiltinRolesForOrgStmt                          *sql.Stmt
 	listCurtailmentCandidatesByOrgStmt                  *sql.Stmt
 	listCurtailmentTargetsByEventStmt                   *sql.Stmt
-	listCustomRolesStmt                                 *sql.Stmt
+	listCustomRolesForOrgStmt                           *sql.Stmt
 	listDeviceSetMembersPaginatedStmt                   *sql.Stmt
 	listDeviceSetMembersPaginatedAfterStmt              *sql.Stmt
 	listEffectivePermissionsForUserStmt                 *sql.Stmt
@@ -2901,7 +2910,7 @@ type Queries struct {
 	updateUserPasswordAndFlagStmt                       *sql.Stmt
 	updateUserRoleStmt                                  *sql.Stmt
 	updateUserUsernameStmt                              *sql.Stmt
-	upsertBuiltinRoleStmt                               *sql.Stmt
+	upsertBuiltinRoleForOrgStmt                         *sql.Stmt
 	upsertCommandOnDeviceLogStmt                        *sql.Stmt
 	upsertCurtailmentReconcilerHeartbeatStmt            *sql.Stmt
 	upsertDevicePairingStmt                             *sql.Stmt
@@ -2990,6 +2999,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getBatchStatusAndDeviceCountsStmt:                   q.getBatchStatusAndDeviceCountsStmt,
 		getBuildingStmt:                                     q.getBuildingStmt,
 		getBuildingSiteStmt:                                 q.getBuildingSiteStmt,
+		getBuiltinRoleForOrgStmt:                            q.getBuiltinRoleForOrgStmt,
 		getCurtailmentEventByUUIDStmt:                       q.getCurtailmentEventByUUIDStmt,
 		getCurtailmentOrgConfigStmt:                         q.getCurtailmentOrgConfigStmt,
 		getCurtailmentReconcilerHeartbeatStmt:               q.getCurtailmentReconcilerHeartbeatStmt,
@@ -3063,7 +3073,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getRackInfoStmt:                                     q.getRackInfoStmt,
 		getRackInfoBatchStmt:                                q.getRackInfoBatchStmt,
 		getRackSlotsStmt:                                    q.getRackSlotsStmt,
-		getRoleByBuiltinKeyStmt:                             q.getRoleByBuiltinKeyStmt,
 		getRoleByIDStmt:                                     q.getRoleByIDStmt,
 		getRoleByNameStmt:                                   q.getRoleByNameStmt,
 		getRunningPowerTargetScheduleOverlapsStmt:           q.getRunningPowerTargetScheduleOverlapsStmt,
@@ -3095,16 +3104,17 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		isBatchFinishedStmt:                                 q.isBatchFinishedStmt,
 		isBatchProcessingStmt:                               q.isBatchProcessingStmt,
 		listActiveCurtailedDevicesByOrgStmt:                 q.listActiveCurtailedDevicesByOrgStmt,
+		listActiveOrganizationIDsStmt:                       q.listActiveOrganizationIDsStmt,
 		listActivityLogsStmt:                                q.listActivityLogsStmt,
 		listApiKeysByOrganizationStmt:                       q.listApiKeysByOrganizationStmt,
 		listAssignmentsForRoleStmt:                          q.listAssignmentsForRoleStmt,
 		listAssignmentsForUserStmt:                          q.listAssignmentsForUserStmt,
 		listBatchDeviceResultsStmt:                          q.listBatchDeviceResultsStmt,
 		listBuildingsByOrgStmt:                              q.listBuildingsByOrgStmt,
-		listBuiltinRolesStmt:                                q.listBuiltinRolesStmt,
+		listBuiltinRolesForOrgStmt:                          q.listBuiltinRolesForOrgStmt,
 		listCurtailmentCandidatesByOrgStmt:                  q.listCurtailmentCandidatesByOrgStmt,
 		listCurtailmentTargetsByEventStmt:                   q.listCurtailmentTargetsByEventStmt,
-		listCustomRolesStmt:                                 q.listCustomRolesStmt,
+		listCustomRolesForOrgStmt:                           q.listCustomRolesForOrgStmt,
 		listDeviceSetMembersPaginatedStmt:                   q.listDeviceSetMembersPaginatedStmt,
 		listDeviceSetMembersPaginatedAfterStmt:              q.listDeviceSetMembersPaginatedAfterStmt,
 		listEffectivePermissionsForUserStmt:                 q.listEffectivePermissionsForUserStmt,
@@ -3223,7 +3233,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		updateUserPasswordAndFlagStmt:                       q.updateUserPasswordAndFlagStmt,
 		updateUserRoleStmt:                                  q.updateUserRoleStmt,
 		updateUserUsernameStmt:                              q.updateUserUsernameStmt,
-		upsertBuiltinRoleStmt:                               q.upsertBuiltinRoleStmt,
+		upsertBuiltinRoleForOrgStmt:                         q.upsertBuiltinRoleForOrgStmt,
 		upsertCommandOnDeviceLogStmt:                        q.upsertCommandOnDeviceLogStmt,
 		upsertCurtailmentReconcilerHeartbeatStmt:            q.upsertCurtailmentReconcilerHeartbeatStmt,
 		upsertDevicePairingStmt:                             q.upsertDevicePairingStmt,

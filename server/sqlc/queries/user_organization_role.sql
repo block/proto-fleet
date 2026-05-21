@@ -4,9 +4,11 @@
 
 -- name: AssignRole :one
 -- Insert a single assignment. Caller is responsible for the
--- privilege-parity check (U8) before this fires. The unique constraint
--- uq_user_org_role_scope catches re-assignment of the same
--- (user, role, scope_type, scope_id) and surfaces as AlreadyExists.
+-- privilege-parity check (U8) before this fires. The partial unique
+-- indexes uq_user_org_role_org_scope / uq_user_org_role_site_scope
+-- catch re-assignment of the same live (user, role, scope) tuple and
+-- surface as AlreadyExists. Soft-deleted rows are excluded from the
+-- indexes, so re-assigning after UnassignRole is allowed.
 INSERT INTO user_organization_role (
     user_id,
     organization_id,

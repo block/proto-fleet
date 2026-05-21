@@ -161,14 +161,33 @@ func Catalog() []CatalogEntry {
 	return out
 }
 
-// CatalogByResource groups the catalog by resource for UI display. Resource
-// order matches the catalog declaration order.
+// CatalogByResource groups the catalog by resource for UI display.
+// Within each resource bucket, entries are in declaration order. Map
+// iteration order in Go is not stable, so callers that need a fixed
+// resource order should drive iteration from a separate ordered list
+// (e.g., the slice returned by ResourceOrder).
 func CatalogByResource() map[string][]CatalogEntry {
 	groups := make(map[string][]CatalogEntry)
 	for _, entry := range catalog {
 		groups[entry.Resource] = append(groups[entry.Resource], entry)
 	}
 	return groups
+}
+
+// ResourceOrder returns resource identifiers in the order they were
+// declared in the catalog. Pair with CatalogByResource to render
+// grouped permissions in a deterministic, declaration-driven order.
+func ResourceOrder() []string {
+	seen := make(map[string]bool, 16)
+	out := make([]string, 0, 16)
+	for _, entry := range catalog {
+		if seen[entry.Resource] {
+			continue
+		}
+		seen[entry.Resource] = true
+		out = append(out, entry.Resource)
+	}
+	return out
 }
 
 // Lookup returns the catalog entry for a key, or false if the key is not in

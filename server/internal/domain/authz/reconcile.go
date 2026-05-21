@@ -8,9 +8,9 @@ import (
 	"github.com/block/proto-fleet/server/generated/sqlc"
 )
 
-// Reconcile converges database state for the permission catalog and the
-// built-in roles to match the in-code definition in catalog.go and
-// builtin.go. It runs on every server boot from cmd/fleetd/main.go
+// Reconcile converges database state for the permission catalog and
+// per-org built-in roles to match the in-code definition in catalog.go
+// and builtin.go. It runs once at server boot from cmd/fleetd/main.go
 // after migrations complete and before the HTTP listener starts.
 //
 // Concurrency: the work runs inside a single transaction that first
@@ -18,14 +18,17 @@ import (
 // deploys and autoscaler events serialize on the lock; non-winners
 // observe the converged state once the winner commits.
 //
-// Per-role policy:
+// Per-org policy:
 //
-//   - SUPER_ADMIN: full reconcile to AllPermissions(). Catalog growth
-//     adds rows; catalog shrinkage prunes them. Operator tampering on
-//     SUPER_ADMIN is repaired on every boot.
-//   - ADMIN, FIELD_TECH: additive only. Missing seed permissions are
-//     inserted; nothing is ever removed. Operator edits via
-//     UpdateCustomRole (U8) survive restarts.
+//   - Every active organization gets its own SUPER_ADMIN, ADMIN, and
+//     FIELD_TECH role row. Editing one org's ADMIN cannot leak into
+//     another org's ADMIN.
+//   - SUPER_ADMIN is fully reconciled to AllPermissions() per org.
+//     Tampering on the org's SUPER_ADMIN row is repaired on every
+//     boot.
+//   - ADMIN and FIELD_TECH are reconciled additive-only per org.
+//     Missing seed permissions get inserted; nothing is ever removed.
+//     Operator edits via UpdateCustomRole (U8) survive restarts.
 //
 // Catalog row policy: permissions are always upserted (description
 // text refreshed). A permission key removed from catalog.go is NOT
@@ -40,7 +43,6 @@ func Reconcile(ctx context.Context, db *sql.DB) error {
 	//goland:noinspection GoUnhandledErrorResult
 	defer tx.Rollback()
 
-	// Serialize concurrent reconciliations. Released on commit/rollback.
 	if _, err := tx.ExecContext(ctx,
 		`SELECT pg_advisory_xact_lock(hashtextextended('authz:builtin_reconcile', 0))`,
 	); err != nil {
@@ -53,9 +55,13 @@ func Reconcile(ctx context.Context, db *sql.DB) error {
 		return fmt.Errorf("authz reconcile: upsert catalog: %w", err)
 	}
 
-	for _, spec := range BuiltinRoles() {
-		if err := reconcileBuiltinRole(ctx, q, spec); err != nil {
-			return fmt.Errorf("authz reconcile: role %s: %w", spec.Key, err)
+	orgIDs, err := q.ListActiveOrganizationIDs(ctx)
+	if err != nil {
+		return fmt.Errorf("authz reconcile: list orgs: %w", err)
+	}
+	for _, orgID := range orgIDs {
+		if _, err := seedOrgBuiltins(ctx, q, orgID); err != nil {
+			return fmt.Errorf("authz reconcile: org %d: %w", orgID, err)
 		}
 	}
 
@@ -65,9 +71,25 @@ func Reconcile(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
-// upsertCatalog ensures every catalog entry has a permission row whose
-// description matches the in-code text. Keys removed from catalog.go
-// are not deleted here — see the Reconcile godoc.
+// SeedOrgBuiltins ensures the three built-in role rows exist for an
+// organization with their seed permission sets reconciled per
+// builtin.go policy. Callers must hold a sqlc.Queries bound to a live
+// transaction so seeding participates in the surrounding work
+// atomically.
+//
+// Returns a map of BuiltinKey → role id so callers (e.g. the
+// onboarding flow that needs the new org's SUPER_ADMIN role id to
+// create the founding user's assignment) can wire up dependent
+// writes in the same transaction.
+//
+// SeedOrgBuiltins does NOT upsert catalog permission rows; the boot
+// reconciler handles that once per process via upsertCatalog. Callers
+// outside the boot reconciler are expected to run after the seed
+// migration (000052) has populated the catalog.
+func SeedOrgBuiltins(ctx context.Context, q *sqlc.Queries, orgID int64) (map[BuiltinKey]int64, error) {
+	return seedOrgBuiltins(ctx, q, orgID)
+}
+
 func upsertCatalog(ctx context.Context, q *sqlc.Queries) error {
 	for _, entry := range Catalog() {
 		if _, err := q.UpsertPermission(ctx, sqlc.UpsertPermissionParams{
@@ -80,26 +102,33 @@ func upsertCatalog(ctx context.Context, q *sqlc.Queries) error {
 	return nil
 }
 
-func reconcileBuiltinRole(ctx context.Context, q *sqlc.Queries, spec BuiltinRoleSpec) error {
-	role, err := q.UpsertBuiltinRole(ctx, sqlc.UpsertBuiltinRoleParams{
-		Name:        spec.Name,
-		Description: sql.NullString{String: spec.Description, Valid: true},
-		BuiltinKey:  sql.NullString{String: string(spec.Key), Valid: true},
-	})
-	if err != nil {
-		return fmt.Errorf("upsert role row: %w", err)
-	}
+func seedOrgBuiltins(ctx context.Context, q *sqlc.Queries, orgID int64) (map[BuiltinKey]int64, error) {
+	ids := make(map[BuiltinKey]int64, 3)
+	for _, spec := range BuiltinRoles() {
+		role, err := q.UpsertBuiltinRoleForOrg(ctx, sqlc.UpsertBuiltinRoleForOrgParams{
+			Name:           spec.Name,
+			Description:    sql.NullString{String: spec.Description, Valid: true},
+			BuiltinKey:     sql.NullString{String: string(spec.Key), Valid: true},
+			OrganizationID: sql.NullInt64{Int64: orgID, Valid: true},
+		})
+		if err != nil {
+			return nil, fmt.Errorf("upsert builtin %s: %w", spec.Key, err)
+		}
+		ids[spec.Key] = role.ID
 
+		if err := reconcileBuiltinPermissions(ctx, q, role.ID, spec); err != nil {
+			return nil, fmt.Errorf("reconcile permissions for %s: %w", spec.Key, err)
+		}
+	}
+	return ids, nil
+}
+
+func reconcileBuiltinPermissions(ctx context.Context, q *sqlc.Queries, roleID int64, spec BuiltinRoleSpec) error {
 	perms, err := q.GetPermissionsByKeys(ctx, spec.SeedPermissions)
 	if err != nil {
 		return fmt.Errorf("lookup seed permissions: %w", err)
 	}
 	if len(perms) != len(spec.SeedPermissions) {
-		// upsertCatalog ran in the same transaction, so every seed key
-		// should have a permission row. A mismatch means the in-code
-		// seed references a key that catalog.go does not declare —
-		// fail loud so the discrepancy surfaces on boot, not in
-		// production.
 		got := make(map[string]bool, len(perms))
 		for _, p := range perms {
 			got[p.Key] = true
@@ -115,7 +144,7 @@ func reconcileBuiltinRole(ctx context.Context, q *sqlc.Queries, spec BuiltinRole
 
 	for _, perm := range perms {
 		if err := q.AssignPermissionToRole(ctx, sqlc.AssignPermissionToRoleParams{
-			RoleID:       role.ID,
+			RoleID:       roleID,
 			PermissionID: perm.ID,
 		}); err != nil {
 			return fmt.Errorf("assign permission %q: %w", perm.Key, err)
@@ -124,7 +153,7 @@ func reconcileBuiltinRole(ctx context.Context, q *sqlc.Queries, spec BuiltinRole
 
 	if spec.Mode == ReconcileFull {
 		if err := q.PrunePermissionsOutsideKeys(ctx, sqlc.PrunePermissionsOutsideKeysParams{
-			RoleID: role.ID,
+			RoleID: roleID,
 			Keys:   spec.SeedPermissions,
 		}); err != nil {
 			return fmt.Errorf("prune obsolete permissions: %w", err)
