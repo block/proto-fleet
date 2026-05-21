@@ -34,8 +34,14 @@ CREATE UNIQUE INDEX uq_role_org_builtin_key
     ON role(organization_id, builtin_key)
     WHERE is_builtin = TRUE AND deleted_at IS NULL;
 
+-- Custom-role names are unique per-org under case-insensitive,
+-- whitespace-trimmed comparison. Storing the original-cased name
+-- preserves display intent; using LOWER(BTRIM(name)) as the index key
+-- collapses "Admin" / "admin" / " ADMIN " into one identity within an
+-- org so an operator cannot accidentally create near-duplicates that
+-- read identically in the role list.
 CREATE UNIQUE INDEX uq_role_org_custom_name
-    ON role(organization_id, name)
+    ON role(organization_id, LOWER(BTRIM(name)))
     WHERE is_builtin = FALSE AND deleted_at IS NULL;
 
 -- An is_builtin row must always carry a builtin_key; an is_builtin=FALSE
@@ -53,10 +59,17 @@ ALTER TABLE role
 -- built-in by name-based code paths until those gates migrate to
 -- builtin_key or permissions. Block the collision at the DB so no
 -- application mistake or future migration can create one.
+--
+-- The check is case-insensitive and trim-tolerant (LOWER(BTRIM(name)))
+-- so case variants like "admin" or "Admin" and whitespace-padded
+-- variants like " ADMIN " are also rejected. Homoglyph attacks
+-- (e.g., Cyrillic 'А' for Latin 'A') are out of scope for a SQL
+-- CHECK; a unicode-normalization pass at the API boundary is the
+-- right place for that if it becomes a concern.
 ALTER TABLE role
     ADD CONSTRAINT chk_role_custom_name_not_reserved CHECK (
         is_builtin = TRUE
-        OR name NOT IN ('SUPER_ADMIN', 'ADMIN', 'FIELD_TECH')
+        OR LOWER(BTRIM(name)) NOT IN ('super_admin', 'admin', 'field_tech')
     );
 
 -- Composite-key target so child tables (user_organization_role) can FK on

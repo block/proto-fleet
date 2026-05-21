@@ -254,6 +254,92 @@ func TestAssignment_DuplicateLiveOrgScopeRejected(t *testing.T) {
 	require.Error(t, err, "duplicate live org-scope assignment must be rejected")
 }
 
+// chk_role_custom_name_not_reserved blocks case-variant and
+// whitespace-padded forms of built-in names so an operator cannot
+// create "admin", "Admin", or " SUPER_ADMIN " as a custom role and
+// have it sit next to the built-in in the role list.
+func TestCustomRole_ReservedBuiltinNamesRejectedCaseInsensitively(t *testing.T) {
+	db := testutil.GetTestDB(t)
+	ctx := t.Context()
+	orgID := insertTestOrganization(t, db)
+	require.NoError(t, authz.Reconcile(ctx, db))
+
+	q := sqlc.New(db)
+	for _, name := range []string{
+		"SUPER_ADMIN", "super_admin", "Super_Admin",
+		"ADMIN", "admin", "Admin",
+		"FIELD_TECH", "field_tech", "  ADMIN  ",
+	} {
+		_, err := q.UpsertCustomRoleForOrg(ctx, sqlc.UpsertCustomRoleForOrgParams{
+			Name:           name,
+			Description:    sql.NullString{String: "should be rejected", Valid: true},
+			OrganizationID: sql.NullInt64{Int64: orgID, Valid: true},
+		})
+		require.Error(t, err, "custom role with reserved name %q must be rejected", name)
+	}
+}
+
+// uq_role_org_custom_name uses LOWER(BTRIM(name)) so case-variant
+// custom names collapse to one row per org. Display capitalization is
+// preserved from the original INSERT; only the unique key is
+// case-folded.
+func TestCustomRole_CaseInsensitiveUniquenessPerOrg(t *testing.T) {
+	db := testutil.GetTestDB(t)
+	ctx := t.Context()
+	orgID := insertTestOrganization(t, db)
+	require.NoError(t, authz.Reconcile(ctx, db))
+
+	q := sqlc.New(db)
+	first, err := q.UpsertCustomRoleForOrg(ctx, sqlc.UpsertCustomRoleForOrgParams{
+		Name:           "Floor Manager",
+		Description:    sql.NullString{String: "original casing", Valid: true},
+		OrganizationID: sql.NullInt64{Int64: orgID, Valid: true},
+	})
+	require.NoError(t, err)
+
+	// Upserting a case variant must hit the existing row (ON CONFLICT),
+	// not create a second one.
+	second, err := q.UpsertCustomRoleForOrg(ctx, sqlc.UpsertCustomRoleForOrgParams{
+		Name:           "FLOOR MANAGER",
+		Description:    sql.NullString{String: "second insert refreshes description", Valid: true},
+		OrganizationID: sql.NullInt64{Int64: orgID, Valid: true},
+	})
+	require.NoError(t, err)
+	require.Equal(t, first, second, "case variant must upsert into the same custom-role row")
+
+	// The original casing must still be the persisted name.
+	role, err := q.GetRoleByID(ctx, first)
+	require.NoError(t, err)
+	require.Equal(t, "Floor Manager", role.Name,
+		"original casing preserved on conflict; only the unique key is case-folded")
+}
+
+// Different orgs can each have a custom role with the same name —
+// the partial unique index is per-org.
+func TestCustomRole_SameNameAcrossOrgsAllowed(t *testing.T) {
+	db := testutil.GetTestDB(t)
+	ctx := t.Context()
+	orgA := insertTestOrganization(t, db)
+	orgB := insertTestOrganization(t, db)
+	require.NoError(t, authz.Reconcile(ctx, db))
+
+	q := sqlc.New(db)
+	roleA, err := q.UpsertCustomRoleForOrg(ctx, sqlc.UpsertCustomRoleForOrgParams{
+		Name:           "Floor Manager",
+		Description:    sql.NullString{String: "org A's", Valid: true},
+		OrganizationID: sql.NullInt64{Int64: orgA, Valid: true},
+	})
+	require.NoError(t, err)
+
+	roleB, err := q.UpsertCustomRoleForOrg(ctx, sqlc.UpsertCustomRoleForOrgParams{
+		Name:           "Floor Manager",
+		Description:    sql.NullString{String: "org B's", Valid: true},
+		OrganizationID: sql.NullInt64{Int64: orgB, Valid: true},
+	})
+	require.NoError(t, err)
+	require.NotEqual(t, roleA, roleB, "same name in different orgs must produce distinct rows")
+}
+
 func TestBackfill_Idempotent(t *testing.T) {
 	db := testutil.GetTestDB(t)
 	ctx := t.Context()
