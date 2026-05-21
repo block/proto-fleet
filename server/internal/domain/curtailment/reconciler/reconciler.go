@@ -136,14 +136,12 @@ func (r *Reconciler) Start(_ context.Context) error {
 }
 
 // Stop signals the tick loop to exit and waits up to ShutdownDeadline for
-// the in-flight tick to drain. running flips to false under the mutex
-// before wg.Wait so a concurrent second Stop is a no-op.
+// the in-flight tick to drain. A concurrent second Stop is a no-op.
 //
-// Known edge: a Start arriving between mu.Unlock and the old goroutine's
-// wg.Done can install fresh cancel funcs and add a second goroutine to the
-// same WaitGroup, leaving it live after Stop returns. Unreachable in
-// fleetd today (Start/Stop each fire once); add a `stopping` state guard
-// if the lifecycle ever grows a restart path.
+// Restart-path edge: a Start between mu.Unlock and the old goroutine's
+// wg.Done can stack a second goroutine on the same WaitGroup. Unreachable
+// in fleetd today (Start/Stop each fire once); add a `stopping` guard if
+// the lifecycle grows a restart path.
 func (r *Reconciler) Stop() error {
 	r.mu.Lock()
 	if !r.running {
@@ -318,10 +316,7 @@ func (r *Reconciler) confirmDispatched(ctx context.Context, ev *models.Event, ta
 			"event_id", ev.ID, "error", err)
 		return
 	}
-	candByID := make(map[string]*models.Candidate, len(cands))
-	for _, c := range cands {
-		candByID[c.DeviceIdentifier] = c
-	}
+	candByID := candidatesByDeviceID(cands)
 	for _, t := range targets {
 		if t.State != models.TargetStateDispatched {
 			continue
@@ -332,14 +327,13 @@ func (r *Reconciler) confirmDispatched(ctx context.Context, ev *models.Event, ta
 
 // dispatchOneCurtail issues one Curtail and records the outcome.
 // nonTerminalFailureState is where the target lands on a non-terminal
-// failure (pending → Pending; drifted → Drifted). Filter-skips and
-// empty-batch results are treated as failed dispatches so the work isn't
-// silently dropped. Success clears LastError.
+// failure (Pending or Drifted, per caller). Filter-skips and empty-batch
+// results route through recordDispatchFailure so work isn't silently
+// dropped.
 //
-// Restart-safety gap: command is enqueued before the Dispatched-state
-// write; a crash between the two leaves the target Pending with an
-// in-flight batch. Next tick redispatches (Curtail is idempotent at the
-// device, but audit logs show two batches).
+// Restart-safety gap: command is enqueued before the Dispatched write; a
+// crash in between leaves the target Pending and the next tick
+// redispatches. Curtail is device-idempotent, but audit shows two batches.
 func (r *Reconciler) dispatchOneCurtail(ctx context.Context, ev *models.Event, t *models.Target, nonTerminalFailureState models.TargetState) {
 	selector := &pb.DeviceSelector{
 		SelectionType: &pb.DeviceSelector_IncludeDevices{
@@ -418,21 +412,40 @@ func (r *Reconciler) recordDispatchFailure(ctx context.Context, ev *models.Event
 	t.LastError = &errMsg
 }
 
-// skipReasonForDevice extracts the filter-skip reason for deviceID.
-// Returns ("", false) when the device was not skipped.
+// candidatesByDeviceID indexes a candidate slice by device identifier for
+// the per-tick observe loops that join targets against telemetry.
+func candidatesByDeviceID(cands []*models.Candidate) map[string]*models.Candidate {
+	out := make(map[string]*models.Candidate, len(cands))
+	for _, c := range cands {
+		out[c.DeviceIdentifier] = c
+	}
+	return out
+}
+
+// skippedDeviceReason renders the priority-ordered reason string for a
+// filter-skipped device: explicit reason first, filter name next, generic
+// fallback last. Shared by the single-device and batch dispatch paths so
+// both produce the same audit string.
+func skippedDeviceReason(s command.SkippedDevice) string {
+	switch {
+	case s.Reason != "":
+		return s.Reason
+	case s.FilterName != "":
+		return "filtered by " + s.FilterName
+	default:
+		return "filtered by command preflight"
+	}
+}
+
+// skipReasonForDevice returns the rendered skip reason for deviceID, or
+// ("", false) when the device was not in result.Skipped.
 func skipReasonForDevice(result *command.CommandResult, deviceID string) (string, bool) {
 	if result == nil {
 		return "", false
 	}
 	for _, s := range result.Skipped {
 		if s.DeviceIdentifier == deviceID {
-			if s.Reason != "" {
-				return s.Reason, true
-			}
-			if s.FilterName != "" {
-				return "filtered by " + s.FilterName, true
-			}
-			return "filtered by command preflight", true
+			return skippedDeviceReason(s), true
 		}
 	}
 	return "", false
@@ -466,10 +479,7 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 			"event_id", ev.ID, "error", err)
 		return
 	}
-	candByID := make(map[string]*models.Candidate, len(cands))
-	for _, c := range cands {
-		candByID[c.DeviceIdentifier] = c
-	}
+	candByID := candidatesByDeviceID(cands)
 
 	cmdCtx := reconcilerContext(ctx, ev.OrgID, ev.CreatedByUserID)
 	for _, t := range targets {
@@ -720,20 +730,19 @@ func (r *Reconciler) enforceMaxDuration(ctx context.Context, ev *models.Event, t
 }
 
 // observeRestoring drives a restoring event toward terminal. Per tick:
-// (1) confirm any dispatched restore targets via telemetry; (2) if every
-// target is terminal, transition the event to completed /
-// completed_with_failures; (3) if both restore gates pass, claim and
-// dispatch the next batch. Gate semantics:
+// (1) confirm Dispatched restore targets via telemetry, (2) flip the event
+// terminal once every target is terminal, (3) claim the next batch when
+// both gates pass.
 //
-//   - no_prior_batch_in_flight: zero restore-phase targets in Dispatched or
-//     Drifted state. Protects the per-device FIFO from queue-stacking.
-//   - inter_batch_interval_elapsed: newest restore-phase last_dispatched_at
-//     is null or older than RestoreBatchIntervalSec. Protects against
-//     inrush/thermal shock by enforcing wall-clock spacing.
+// Gates:
+//   - no prior batch in flight: zero restore-phase targets in Dispatched or
+//     Drifted (protects the per-device FIFO from queue-stacking).
+//   - inter-batch interval elapsed: newest restore-phase last_dispatched_at
+//     is null or older than RestoreBatchIntervalSec (wall-clock spacing
+//     against inrush/thermal shock).
 //
-// observeRestoring writes only restore-phase rows (desired_state='active').
-// curtail-phase desired_state='curtailed' targets only exist before Stop;
-// once Stop runs, BeginRestoreTransition flips all non-terminal targets.
+// Writes only restore-phase rows; BeginRestoreTransition already flipped
+// every non-terminal target to desired_state='active' before this runs.
 func (r *Reconciler) observeRestoring(ctx context.Context, ev *models.Event) {
 	targets, err := r.store.ListTargetsByEvent(ctx, ev.OrgID, ev.EventUUID)
 	if err != nil {
@@ -782,10 +791,7 @@ func (r *Reconciler) confirmDispatchedRestores(ctx context.Context, ev *models.E
 			"event_id", ev.ID, "error", err)
 		return
 	}
-	candByID := make(map[string]*models.Candidate, len(cands))
-	for _, c := range cands {
-		candByID[c.DeviceIdentifier] = c
-	}
+	candByID := candidatesByDeviceID(cands)
 	for _, t := range targets {
 		if t.DesiredState != models.DesiredStateActive || t.State != models.TargetStateDispatched {
 			continue
@@ -954,14 +960,11 @@ func (r *Reconciler) maybeClaimRestoreBatch(ctx context.Context, ev *models.Even
 	r.dispatchRestoreBatch(ctx, ev, claim)
 }
 
-// dispatchRestoreBatch fires one Uncurtail call covering all devices in the
-// batch, then per-device commits state transitions based on the
-// dispatched/skipped split. A bulk dispatch error rolls every claim target
-// through retry; a device-level filter-skip records a failure for that device.
-// Restart safety mirrors Curtail: command goes out before the Dispatched-state write,
-// so a crash or per-target UpdateTargetState failure leaves the target
-// Pending and next tick redispatches. Uncurtail is device-idempotent
-// (per-device FIFO absorbs Curtail-then-Uncurtail), but audit lineage may
+// dispatchRestoreBatch fires one Uncurtail for every device in the batch,
+// then per-device commits transitions from the dispatched/skipped split.
+// Bulk dispatch errors retry every claim target; per-device filter-skips
+// fail just that device. Restart-safety mirrors dispatchOneCurtail —
+// command before state write, Uncurtail is device-idempotent, audit may
 // show duplicate batches.
 func (r *Reconciler) dispatchRestoreBatch(ctx context.Context, ev *models.Event, claim []*models.Target) {
 	deviceIDs := make([]string, 0, len(claim))
@@ -1002,14 +1005,7 @@ func (r *Reconciler) dispatchRestoreBatch(ctx context.Context, ev *models.Event,
 
 	skippedSet := make(map[string]string, len(result.Skipped))
 	for _, s := range result.Skipped {
-		reason := s.Reason
-		if reason == "" && s.FilterName != "" {
-			reason = "filtered by " + s.FilterName
-		}
-		if reason == "" {
-			reason = "filtered by command preflight"
-		}
-		skippedSet[s.DeviceIdentifier] = reason
+		skippedSet[s.DeviceIdentifier] = skippedDeviceReason(s)
 	}
 	dispatchedSet := make(map[string]struct{}, len(result.DispatchedDeviceIdentifiers))
 	for _, deviceID := range result.DispatchedDeviceIdentifiers {
