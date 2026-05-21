@@ -48,9 +48,10 @@ interface CurtailmentHistoryProps {
   onViewEvent?: (event: CurtailmentHistoryEvent) => void;
   /**
    * Called from the detail modal after the operator reviews the active event.
-   * The parent owns persistence and any additional confirmation.
+   * The parent owns persistence and any additional confirmation. Return a
+   * rejected promise to let this component re-enable retry controls.
    */
-  onStopActiveEvent?: (event: CurtailmentHistoryEvent) => void;
+  onStopActiveEvent?: (event: CurtailmentHistoryEvent) => void | Promise<unknown>;
 }
 
 interface DotProps {
@@ -539,7 +540,18 @@ function CurtailmentHistory({
           }
 
           setPendingStopEventId(selectedDetailEvent.id);
-          onStopActiveEvent(selectedDetailEvent);
+          try {
+            void Promise.resolve(onStopActiveEvent(selectedDetailEvent)).catch(() => {
+              setPendingStopEventId((currentEventId) =>
+                currentEventId === selectedDetailEvent.id ? undefined : currentEventId,
+              );
+            });
+          } catch (error) {
+            setPendingStopEventId((currentEventId) =>
+              currentEventId === selectedDetailEvent.id ? undefined : currentEventId,
+            );
+            throw error;
+          }
         }
       : undefined;
 

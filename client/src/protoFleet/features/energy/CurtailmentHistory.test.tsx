@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 
@@ -202,6 +202,44 @@ describe("CurtailmentHistory", () => {
     expect(onStopActiveEvent).toHaveBeenCalledWith(mockCurtailmentHistoryEvents[0]);
     expect(within(modal).getByRole("button", { name: "Stop curtailment" })).toBeDisabled();
     expect(within(activeRow).getByRole("button", { name: "Stop ERCOT ERS obligation" })).toBeDisabled();
+  });
+
+  it("re-enables stop actions when the stop request fails", async () => {
+    const user = userEvent.setup();
+    let rejectStopRequest: (error: Error) => void = () => undefined;
+    const stopRequest = new Promise<void>((_, reject) => {
+      rejectStopRequest = reject;
+    });
+    const onStopActiveEvent = vi.fn(() => stopRequest);
+
+    render(
+      <CurtailmentHistory
+        events={mockCurtailmentHistoryEvents}
+        activeEventId="curt-1042"
+        onStopActiveEvent={onStopActiveEvent}
+      />,
+    );
+
+    const activeRow = screen.getByTestId("curtailment-history-row-curt-1042");
+    await user.click(within(activeRow).getByRole("button", { name: "Stop ERCOT ERS obligation" }));
+
+    const modal = screen.getByTestId("modal");
+    const modalStopButton = within(modal).getByRole("button", { name: "Stop curtailment" });
+
+    await user.click(modalStopButton);
+
+    expect(onStopActiveEvent).toHaveBeenCalledWith(mockCurtailmentHistoryEvents[0]);
+    expect(modalStopButton).toBeDisabled();
+    expect(within(activeRow).getByRole("button", { name: "Stop ERCOT ERS obligation" })).toBeDisabled();
+
+    rejectStopRequest(new Error("Stop request failed"));
+
+    await waitFor(() => expect(modalStopButton).not.toBeDisabled());
+    expect(within(activeRow).getByRole("button", { name: "Stop ERCOT ERS obligation" })).not.toBeDisabled();
+
+    await user.click(modalStopButton);
+
+    expect(onStopActiveEvent).toHaveBeenCalledTimes(2);
   });
 
   it("keeps row activation isolated from keyboard use on the stop action", async () => {
