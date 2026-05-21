@@ -351,6 +351,13 @@ export function parseUrlToActiveFilters(params: URLSearchParams): ActiveFilters 
     activeFilters.dropdownFilters.rack = Array.from(new Set(rackValues));
   }
 
+  const buildingValues = getMultiLegacy(params, URL_PARAMS.BUILDING)
+    .map((value) => value.trim())
+    .filter((value) => value !== "" && /^\d+$/.test(value));
+  if (buildingValues.length > 0) {
+    activeFilters.dropdownFilters.building = Array.from(new Set(buildingValues));
+  }
+
   const firmwareValues = getMulti(params, URL_PARAMS.FIRMWARE).filter((v) => v !== "");
   if (firmwareValues.length > 0) {
     activeFilters.dropdownFilters.firmware = Array.from(new Set(firmwareValues));
@@ -394,6 +401,11 @@ export function encodeActiveFiltersToURL(filters: ActiveFilters): URLSearchParam
   const rackFilters = filters.dropdownFilters.rack;
   if (rackFilters && rackFilters.length > 0) {
     setMulti(params, URL_PARAMS.RACK, [...rackFilters].sort());
+  }
+
+  const buildingFilters = filters.dropdownFilters.building;
+  if (buildingFilters && buildingFilters.length > 0) {
+    setMulti(params, URL_PARAMS.BUILDING, [...buildingFilters].sort());
   }
 
   const firmwareFilters = filters.dropdownFilters.firmware;
