@@ -229,6 +229,7 @@ func toStartResponse(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) *p
 		ExternalSource:          req.GetExternalSource(),
 		ExternalReference:       req.GetExternalReference(),
 		IdempotencyKey:          req.GetIdempotencyKey(),
+		EffectiveBatchSize:      uint32Saturating(plan.EffectiveBatchSize),
 	}
 	if plan.EventUUID != nil {
 		event.EventUuid = plan.EventUUID.String()
@@ -536,7 +537,7 @@ func toEventProto(event *models.Event) *pb.CurtailmentEvent {
 		out.MaxDurationSeconds = uint32Saturating(*event.MaxDurationSeconds)
 	}
 	if event.EffectiveBatchSize != nil {
-		// Server-resolved batch size; nil before the event enters restoring.
+		// Server-resolved batch size stamped at Start.
 		out.EffectiveBatchSize = uint32Saturating(*event.EffectiveBatchSize)
 	}
 	if event.ExternalSource != nil {

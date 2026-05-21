@@ -162,6 +162,12 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 		)
 	}
 
+	// Stamp the adaptive batch size on the plan so buildInsertParams and the
+	// Start response both read the same value (avoid recomputation drift).
+	// Selected-target count is bounded by per-org fleet size — well under
+	// MaxInt32 at any realistic scale.
+	plan.EffectiveBatchSize = ComputeEffectiveBatchSize(req.RestoreBatchSize, int32(len(plan.Selected))) //nolint:gosec // bounded by per-org fleet size
+
 	eventParams, targetParams, err := buildInsertParams(req, plan, minPowerW)
 	if err != nil {
 		return nil, err
@@ -670,10 +676,8 @@ func buildInsertParams(req StartRequest, plan *Plan, minPowerW int32) (models.In
 	}
 
 	// Stamp effective_batch_size at Start so the column is non-null from
-	// event creation and Stop/restorer just read it. Selected-target count
-	// is bounded by per-org fleet size — well under MaxInt32 at any
-	// realistic scale.
-	selectedCount := int32(len(plan.Selected)) //nolint:gosec // bounded by per-org fleet size
+	// event creation and Stop/restorer/Start-response just read it. Service.Start
+	// pre-computes plan.EffectiveBatchSize from the selected target count.
 	event := models.InsertEventParams{
 		EventUUID:               uuid.New(),
 		OrgID:                   req.OrgID,
@@ -701,7 +705,7 @@ func buildInsertParams(req StartRequest, plan *Plan, minPowerW int32) (models.In
 		IdempotencyKey:          req.IdempotencyKey,
 		Reason:                  req.Reason,
 		CreatedByUserID:         req.CreatedByUserID,
-		EffectiveBatchSize:      ComputeEffectiveBatchSize(req.RestoreBatchSize, selectedCount),
+		EffectiveBatchSize:      plan.EffectiveBatchSize,
 	}
 	if event.Priority == "" {
 		// Validation admits PriorityUnspecified as Normal; persist the
