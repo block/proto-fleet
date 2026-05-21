@@ -253,6 +253,125 @@ type ListEventsRequest struct {
 	StateFilter models.EventState
 }
 
+// UpdateRequest is the service-level shape of an UpdateCurtailmentEvent
+// call. Pointer fields carry "set vs absent" semantics: nil preserves
+// the existing column, non-nil writes through. CanUseAdminControls
+// gates restore_batch_interval_sec above the non-admin cap, mirroring
+// Start. effective_batch_size is intentionally not on this surface:
+// Update of restore_batch_size persists the new value but does not
+// recompute effective_batch_size — that ships in a follow-up once the
+// recompute-vs-freeze policy lands (Open #13). Operators who need a
+// different batch size for the next restore cancel and restart.
+type UpdateRequest struct {
+	OrgID                   int64
+	EventUUID               uuid.UUID
+	Reason                  *string
+	RestoreBatchSize        *int32
+	RestoreBatchIntervalSec *int32
+	MaxDurationSeconds      *int32
+	CanUseAdminControls     bool
+}
+
+// Update applies operator-safe field changes to a non-terminal event.
+// State must be pending or active; restoring and terminal states reject
+// with FailedPrecondition. The store re-asserts the state predicate as
+// defense in depth — a race where the row advanced between the pre-read
+// and the UPDATE surfaces as FailedPrecondition with a distinct message
+// from the pre-read rejection.
+func (s *Service) Update(ctx context.Context, req UpdateRequest) (*models.Event, error) {
+	if req.OrgID <= 0 {
+		return nil, fleeterror.NewInvalidArgumentError("org_id must be set")
+	}
+	if req.EventUUID == uuid.Nil {
+		return nil, fleeterror.NewInvalidArgumentError("event_uuid must be set")
+	}
+	if err := validateUpdateRequest(req); err != nil {
+		return nil, err
+	}
+
+	event, err := s.store.GetEventByUUID(ctx, req.OrgID, req.EventUUID)
+	if err != nil {
+		return nil, err
+	}
+	if event == nil {
+		return nil, fleeterror.NewNotFoundErrorf("curtailment event not found: %s", req.EventUUID)
+	}
+
+	switch event.State { //nolint:exhaustive // pending/active is the operator-safe surface; everything else maps to the default rejection.
+	case models.EventStatePending, models.EventStateActive:
+	default:
+		return nil, fleeterror.NewFailedPreconditionErrorf(
+			"curtailment event in state %q cannot be updated; restoring/terminal events reject operator-safe updates",
+			event.State,
+		)
+	}
+
+	updated, err := s.store.UpdateOperatorFields(ctx, event.ID, req.OrgID, interfaces.UpdateOperatorFieldsParams{
+		Reason:                  req.Reason,
+		RestoreBatchSize:        req.RestoreBatchSize,
+		RestoreBatchIntervalSec: req.RestoreBatchIntervalSec,
+		MaxDurationSeconds:      req.MaxDurationSeconds,
+	})
+	if err != nil {
+		if errors.Is(err, interfaces.ErrCurtailmentUpdateStateRaceLoss) {
+			return nil, fleeterror.NewFailedPreconditionError(
+				"curtailment event state advanced during update; retry against the current event state",
+			)
+		}
+		return nil, err
+	}
+	return updated, nil
+}
+
+// validateUpdateRequest mirrors the Start-time bounds so a misconfigured
+// Update can't tunnel past the proto validator and hit a DB CHECK.
+// Unset fields skip validation since they don't change the persisted value.
+func validateUpdateRequest(req UpdateRequest) error {
+	if req.RestoreBatchSize != nil {
+		v := *req.RestoreBatchSize
+		if v < 0 {
+			return fleeterror.NewInvalidArgumentErrorf(
+				"restore_batch_size must be >= 0, got %d", v,
+			)
+		}
+	}
+	if req.RestoreBatchIntervalSec != nil {
+		v := *req.RestoreBatchIntervalSec
+		if v < 0 {
+			return fleeterror.NewInvalidArgumentErrorf(
+				"restore_batch_interval_sec must be >= 0, got %d", v,
+			)
+		}
+		if v > restoreBatchIntervalUpperBoundSec {
+			return fleeterror.NewInvalidArgumentErrorf(
+				"restore_batch_interval_sec must be <= %d, got %d",
+				restoreBatchIntervalUpperBoundSec, v,
+			)
+		}
+		if v > nonAdminRestoreBatchIntervalMax && !req.CanUseAdminControls {
+			return fleeterror.NewForbiddenErrorf(
+				"only admins can set restore_batch_interval_sec above %d",
+				nonAdminRestoreBatchIntervalMax,
+			)
+		}
+	}
+	if req.MaxDurationSeconds != nil {
+		v := *req.MaxDurationSeconds
+		if v <= 0 {
+			return fleeterror.NewInvalidArgumentErrorf(
+				"max_duration_seconds must be > 0, got %d", v,
+			)
+		}
+		if v > maxFiniteDurationSeconds {
+			return fleeterror.NewInvalidArgumentErrorf(
+				"max_duration_seconds must be <= %d, got %d",
+				maxFiniteDurationSeconds, v,
+			)
+		}
+	}
+	return nil
+}
+
 // ListEvents returns cursor-paginated event history for an org. The
 // returned events carry decision_snapshot_jsonb intact; the handler trims
 // the snapshot to the published v1 read-API shape before serialization.

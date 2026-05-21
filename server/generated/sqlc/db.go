@@ -789,6 +789,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.updateBuildingStmt, err = db.PrepareContext(ctx, updateBuilding); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateBuilding: %w", err)
 	}
+	if q.updateCurtailmentEventOperatorFieldsStmt, err = db.PrepareContext(ctx, updateCurtailmentEventOperatorFields); err != nil {
+		return nil, fmt.Errorf("error preparing query UpdateCurtailmentEventOperatorFields: %w", err)
+	}
 	if q.updateCurtailmentEventStateStmt, err = db.PrepareContext(ctx, updateCurtailmentEventState); err != nil {
 		return nil, fmt.Errorf("error preparing query UpdateCurtailmentEventState: %w", err)
 	}
@@ -2189,6 +2192,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing updateBuildingStmt: %w", cerr)
 		}
 	}
+	if q.updateCurtailmentEventOperatorFieldsStmt != nil {
+		if cerr := q.updateCurtailmentEventOperatorFieldsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing updateCurtailmentEventOperatorFieldsStmt: %w", cerr)
+		}
+	}
 	if q.updateCurtailmentEventStateStmt != nil {
 		if cerr := q.updateCurtailmentEventStateStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing updateCurtailmentEventStateStmt: %w", cerr)
@@ -2683,6 +2691,7 @@ type Queries struct {
 	undeleteRoleStmt                                    *sql.Stmt
 	updateApiKeyLastUsedStmt                            *sql.Stmt
 	updateBuildingStmt                                  *sql.Stmt
+	updateCurtailmentEventOperatorFieldsStmt            *sql.Stmt
 	updateCurtailmentEventStateStmt                     *sql.Stmt
 	updateCurtailmentTargetStateStmt                    *sql.Stmt
 	updateDeviceIPAssignmentStmt                        *sql.Stmt
@@ -2984,6 +2993,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		undeleteRoleStmt:                                    q.undeleteRoleStmt,
 		updateApiKeyLastUsedStmt:                            q.updateApiKeyLastUsedStmt,
 		updateBuildingStmt:                                  q.updateBuildingStmt,
+		updateCurtailmentEventOperatorFieldsStmt:            q.updateCurtailmentEventOperatorFieldsStmt,
 		updateCurtailmentEventStateStmt:                     q.updateCurtailmentEventStateStmt,
 		updateCurtailmentTargetStateStmt:                    q.updateCurtailmentTargetStateStmt,
 		updateDeviceIPAssignmentStmt:                        q.updateDeviceIPAssignmentStmt,

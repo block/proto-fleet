@@ -101,8 +101,26 @@ func (h *Handler) StartCurtailment(ctx context.Context, req *connect.Request[pb.
 	return connect.NewResponse(toStartResponse(plan, req.Msg)), nil
 }
 
-func (h *Handler) UpdateCurtailmentEvent(_ context.Context, _ *connect.Request[pb.UpdateCurtailmentEventRequest]) (*connect.Response[pb.UpdateCurtailmentEventResponse], error) {
-	return nil, errCurtailmentNotImplemented("UpdateCurtailmentEvent")
+func (h *Handler) UpdateCurtailmentEvent(ctx context.Context, req *connect.Request[pb.UpdateCurtailmentEventRequest]) (*connect.Response[pb.UpdateCurtailmentEventResponse], error) {
+	if h.service == nil {
+		return nil, errCurtailmentNotImplemented("UpdateCurtailmentEvent")
+	}
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, fleeterror.NewUnauthenticatedError("authentication required")
+	}
+	updateReq, err := toUpdateRequest(req.Msg, info)
+	if err != nil {
+		return nil, err
+	}
+	updateReq.CanUseAdminControls = canUseAdminControls(info)
+	event, err := h.service.Update(ctx, updateReq)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.UpdateCurtailmentEventResponse{
+		Event: toEventProto(event),
+	}), nil
 }
 
 func (h *Handler) StopCurtailment(ctx context.Context, req *connect.Request[pb.StopCurtailmentRequest]) (*connect.Response[pb.StopCurtailmentResponse], error) {

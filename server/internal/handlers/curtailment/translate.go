@@ -507,6 +507,55 @@ func toStopRequest(msg *pb.StopCurtailmentRequest, orgID int64) (curtailment.Sto
 	}, nil
 }
 
+// toUpdateRequest maps the proto UpdateCurtailmentEventRequest to the
+// service-layer shape, attaching the org from the session. Optional
+// proto fields preserve the "set vs absent" distinction: HasReason()=true
+// with an empty string is a meaningful "clear the field" intent (though
+// the schema's NOT NULL constraint means an explicit empty reason still
+// stores ""), while unset means "preserve the existing value." The
+// service handles validation; the handler only translates shapes.
+func toUpdateRequest(msg *pb.UpdateCurtailmentEventRequest, info *session.Info) (curtailment.UpdateRequest, error) {
+	if info == nil || info.OrganizationID <= 0 {
+		return curtailment.UpdateRequest{}, fleeterror.NewUnauthenticatedError("authentication required")
+	}
+	eventUUID, err := uuid.Parse(msg.GetEventUuid())
+	if err != nil {
+		return curtailment.UpdateRequest{}, fleeterror.NewInvalidArgumentErrorf(
+			"event_uuid must be a valid UUID: %v", err,
+		)
+	}
+	out := curtailment.UpdateRequest{
+		OrgID:     info.OrganizationID,
+		EventUUID: eventUUID,
+	}
+	if msg.Reason != nil {
+		v := msg.GetReason()
+		out.Reason = &v
+	}
+	if msg.RestoreBatchSize != nil {
+		v, err := uint32ToInt32Strict("restore_batch_size", msg.GetRestoreBatchSize())
+		if err != nil {
+			return curtailment.UpdateRequest{}, err
+		}
+		out.RestoreBatchSize = &v
+	}
+	if msg.RestoreBatchIntervalSec != nil {
+		v, err := uint32ToInt32Strict("restore_batch_interval_sec", msg.GetRestoreBatchIntervalSec())
+		if err != nil {
+			return curtailment.UpdateRequest{}, err
+		}
+		out.RestoreBatchIntervalSec = &v
+	}
+	if msg.MaxDurationSeconds != nil {
+		v, err := uint32ToInt32Strict("max_duration_seconds", msg.GetMaxDurationSeconds())
+		if err != nil {
+			return curtailment.UpdateRequest{}, err
+		}
+		out.MaxDurationSeconds = &v
+	}
+	return out, nil
+}
+
 // toListEventsRequest maps the proto ListCurtailmentEventsRequest to the
 // service-layer shape, attaching the org from the session. The proto
 // validator already caps page_size at [0, 200].

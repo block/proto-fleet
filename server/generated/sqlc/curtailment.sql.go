@@ -901,6 +901,82 @@ func (q *Queries) ResetCurtailmentTargetsForRestore(ctx context.Context, curtail
 	return err
 }
 
+const updateCurtailmentEventOperatorFields = `-- name: UpdateCurtailmentEventOperatorFields :one
+UPDATE curtailment_event
+SET reason                     = COALESCE($1::TEXT, reason),
+    restore_batch_size         = COALESCE($2::INT, restore_batch_size),
+    restore_batch_interval_sec = COALESCE($3::INT, restore_batch_interval_sec),
+    max_duration_seconds       = COALESCE($4::INT, max_duration_seconds),
+    updated_at                 = NOW()
+WHERE id = $5
+    AND org_id = $6
+    AND state IN ('pending', 'active')
+RETURNING id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id
+`
+
+type UpdateCurtailmentEventOperatorFieldsParams struct {
+	Reason                  sql.NullString
+	RestoreBatchSize        sql.NullInt32
+	RestoreBatchIntervalSec sql.NullInt32
+	MaxDurationSeconds      sql.NullInt32
+	ID                      int64
+	OrgID                   int64
+}
+
+// Partial update of operator-safe fields. nil params COALESCE-preserve
+// existing values. The state filter is defense-in-depth: the service
+// pre-reads the row to surface a clean FailedPrecondition message, so a
+// zero-row return here is the race-loss path (state advanced between the
+// pre-read and this UPDATE) and the caller maps it to FailedPrecondition.
+func (q *Queries) UpdateCurtailmentEventOperatorFields(ctx context.Context, arg UpdateCurtailmentEventOperatorFieldsParams) (CurtailmentEvent, error) {
+	row := q.queryRow(ctx, q.updateCurtailmentEventOperatorFieldsStmt, updateCurtailmentEventOperatorFields,
+		arg.Reason,
+		arg.RestoreBatchSize,
+		arg.RestoreBatchIntervalSec,
+		arg.MaxDurationSeconds,
+		arg.ID,
+		arg.OrgID,
+	)
+	var i CurtailmentEvent
+	err := row.Scan(
+		&i.ID,
+		&i.EventUuid,
+		&i.OrgID,
+		&i.State,
+		&i.Mode,
+		&i.Strategy,
+		&i.Level,
+		&i.Priority,
+		&i.LoopType,
+		&i.ScopeType,
+		&i.ScopeJsonb,
+		&i.ModeParamsJsonb,
+		&i.RestoreBatchSize,
+		&i.RestoreBatchIntervalSec,
+		&i.EffectiveBatchSize,
+		&i.MinCurtailedDurationSec,
+		&i.MaxDurationSeconds,
+		&i.AllowUnbounded,
+		&i.IncludeMaintenance,
+		&i.ForceIncludeMaintenance,
+		&i.DecisionSnapshotJsonb,
+		&i.SourceActorType,
+		&i.SourceActorID,
+		&i.ExternalSource,
+		&i.ExternalReference,
+		&i.IdempotencyKey,
+		&i.SupersedesEventID,
+		&i.Reason,
+		&i.ScheduledStartAt,
+		&i.StartedAt,
+		&i.EndedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CreatedByUserID,
+	)
+	return i, err
+}
+
 const updateCurtailmentEventState = `-- name: UpdateCurtailmentEventState :exec
 UPDATE curtailment_event
 SET state      = $1,

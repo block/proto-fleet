@@ -81,6 +81,9 @@ func (s *listStubStore) UpdateTargetState(context.Context, int64, string, interf
 func (s *listStubStore) UpsertHeartbeat(context.Context, interfaces.UpsertCurtailmentHeartbeatParams) error {
 	panic("UpsertHeartbeat not exercised by List handler tests")
 }
+func (s *listStubStore) UpdateOperatorFields(context.Context, int64, int64, interfaces.UpdateOperatorFieldsParams) (*models.Event, error) {
+	panic("UpdateOperatorFields not exercised by List handler tests")
+}
 
 func sessionCtx(orgID int64) context.Context {
 	return authn.SetInfo(context.Background(), &session.Info{

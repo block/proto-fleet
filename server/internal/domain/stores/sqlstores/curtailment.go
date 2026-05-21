@@ -253,6 +253,31 @@ func (s *SQLCurtailmentStore) ListEvents(ctx context.Context, params interfaces.
 	return out, nextToken, nil
 }
 
+func (s *SQLCurtailmentStore) UpdateOperatorFields(ctx context.Context, eventID, orgID int64, params interfaces.UpdateOperatorFieldsParams) (*models.Event, error) {
+	row, err := s.GetQueries(ctx).UpdateCurtailmentEventOperatorFields(ctx, sqlc.UpdateCurtailmentEventOperatorFieldsParams{
+		ID:                      eventID,
+		OrgID:                   orgID,
+		Reason:                  nullStringFromPtr(params.Reason),
+		RestoreBatchSize:        nullInt32FromPtr(params.RestoreBatchSize),
+		RestoreBatchIntervalSec: nullInt32FromPtr(params.RestoreBatchIntervalSec),
+		MaxDurationSeconds:      nullInt32FromPtr(params.MaxDurationSeconds),
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, interfaces.ErrCurtailmentUpdateStateRaceLoss
+		}
+		return nil, fleeterror.NewInternalErrorf("failed to update curtailment event: %v", err)
+	}
+	return convertEventRow(row), nil
+}
+
+func nullInt32FromPtr(p *int32) sql.NullInt32 {
+	if p == nil {
+		return sql.NullInt32{}
+	}
+	return sql.NullInt32{Int32: *p, Valid: true}
+}
+
 func (s *SQLCurtailmentStore) ListTargetsByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) ([]*models.Target, error) {
 	rows, err := s.GetQueries(ctx).ListCurtailmentTargetsByEvent(ctx, sqlc.ListCurtailmentTargetsByEventParams{
 		OrgID:     orgID,

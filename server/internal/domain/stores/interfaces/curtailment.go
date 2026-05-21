@@ -16,6 +16,12 @@ import (
 // AlreadyExists and surface the existing event_uuid via GetActiveEvent.
 var ErrCurtailmentNonTerminalEventExists = errors.New("non-terminal curtailment event already exists for this organization")
 
+// ErrCurtailmentUpdateStateRaceLoss is returned by UpdateOperatorFields
+// when the row's state advanced out of {pending, active} between the
+// caller's pre-read and the UPDATE. Service maps this to a typed
+// FailedPrecondition.
+var ErrCurtailmentUpdateStateRaceLoss = errors.New("curtailment event state advanced between pre-read and update")
+
 // UpdateCurtailmentTargetStateParams: optional patch fields. Nil pointers
 // leave the column unchanged via COALESCE in the SQL update.
 type UpdateCurtailmentTargetStateParams struct {
@@ -51,6 +57,20 @@ type ListEventsParams struct {
 	StateFilter models.EventState
 }
 
+// UpdateOperatorFieldsParams carries the optional patch fields for a
+// partial event update. nil values preserve the existing column via
+// COALESCE on the persistence side. effective_batch_size is deliberately
+// not on this surface — recomputing it mid-event would race against an
+// in-flight restore claim and v1 ships the simpler "stamped at Start"
+// semantics. Operators who need a different batch size cancel and
+// restart.
+type UpdateOperatorFieldsParams struct {
+	Reason                  *string
+	RestoreBatchSize        *int32
+	RestoreBatchIntervalSec *int32
+	MaxDurationSeconds      *int32
+}
+
 // CurtailmentStore is the persistence boundary for the curtailment domain.
 // All methods are org-scoped except where noted.
 //
@@ -75,6 +95,13 @@ type CurtailmentStore interface {
 	// states" or one of the canonical EventState values. Results are ordered
 	// newest-first by internal id.
 	ListEvents(ctx context.Context, params ListEventsParams) ([]*models.Event, string, error)
+
+	// UpdateOperatorFields patches the operator-safe fields of a curtailment
+	// event. Caller has already validated org ownership + state ∈ {pending,
+	// active}; the SQL re-asserts the state predicate as defense in depth,
+	// so a state advance between the pre-read and the UPDATE surfaces as
+	// ErrCurtailmentUpdateStateRaceLoss. Returns the updated row.
+	UpdateOperatorFields(ctx context.Context, eventID, orgID int64, params UpdateOperatorFieldsParams) (*models.Event, error)
 
 	ListTargetsByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) ([]*models.Target, error)
 

@@ -119,6 +119,10 @@ func (f *fakeStore) ListEvents(context.Context, interfaces.ListEventsParams) ([]
 	panic("ListEvents not exercised by reconciler tests")
 }
 
+func (f *fakeStore) UpdateOperatorFields(context.Context, int64, int64, interfaces.UpdateOperatorFieldsParams) (*models.Event, error) {
+	panic("UpdateOperatorFields not exercised by reconciler tests")
+}
+
 func (f *fakeStore) ListNonTerminalEvents(context.Context) ([]*models.Event, error) {
 	f.listEventsCalls++
 	if f.listEventsPanicErr != "" {

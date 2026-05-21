@@ -148,6 +148,23 @@ FROM curtailment_event
 WHERE event_uuid = sqlc.arg('event_uuid')
     AND org_id = sqlc.arg('org_id');
 
+-- name: UpdateCurtailmentEventOperatorFields :one
+-- Partial update of operator-safe fields. nil params COALESCE-preserve
+-- existing values. The state filter is defense-in-depth: the service
+-- pre-reads the row to surface a clean FailedPrecondition message, so a
+-- zero-row return here is the race-loss path (state advanced between the
+-- pre-read and this UPDATE) and the caller maps it to FailedPrecondition.
+UPDATE curtailment_event
+SET reason                     = COALESCE(sqlc.narg('reason')::TEXT, reason),
+    restore_batch_size         = COALESCE(sqlc.narg('restore_batch_size')::INT, restore_batch_size),
+    restore_batch_interval_sec = COALESCE(sqlc.narg('restore_batch_interval_sec')::INT, restore_batch_interval_sec),
+    max_duration_seconds       = COALESCE(sqlc.narg('max_duration_seconds')::INT, max_duration_seconds),
+    updated_at                 = NOW()
+WHERE id = sqlc.arg('id')
+    AND org_id = sqlc.arg('org_id')
+    AND state IN ('pending', 'active')
+RETURNING *;
+
 -- name: ListCurtailmentEventsForOrg :many
 -- Cursor-paginated history, ordered newest-first by id. cursor_id=0 reads
 -- the first page; subsequent pages pass the last id from the previous page.

@@ -67,6 +67,15 @@ type fakeStore struct {
 	listEventsErr        error
 	listEventsCalls      int
 	lastListEventsParams interfaces.ListEventsParams
+
+	// Update fakes. updateOperatorFieldsResult is what the fake returns on
+	// success; callers preconfigure it to match the post-update event row.
+	// updateOperatorFieldsErr drives error paths (e.g. race-loss).
+	updateOperatorFieldsCalls    int
+	lastUpdateOperatorFieldsID   int64
+	lastUpdateOperatorFieldsArgs interfaces.UpdateOperatorFieldsParams
+	updateOperatorFieldsResult   *models.Event
+	updateOperatorFieldsErr      error
 }
 
 func newFakeStore() *fakeStore {
@@ -146,6 +155,16 @@ func (f *fakeStore) ListTargetsByEvent(_ context.Context, _ int64, eventUUID uui
 		return nil, f.listTargetsErr
 	}
 	return append([]*models.Target(nil), f.targetsByEventUUID[eventUUID]...), nil
+}
+
+func (f *fakeStore) UpdateOperatorFields(_ context.Context, eventID, _ int64, params interfaces.UpdateOperatorFieldsParams) (*models.Event, error) {
+	f.updateOperatorFieldsCalls++
+	f.lastUpdateOperatorFieldsID = eventID
+	f.lastUpdateOperatorFieldsArgs = params
+	if f.updateOperatorFieldsErr != nil {
+		return nil, f.updateOperatorFieldsErr
+	}
+	return f.updateOperatorFieldsResult, nil
 }
 
 func (f *fakeStore) ListEvents(_ context.Context, params interfaces.ListEventsParams) ([]*models.Event, string, error) {
