@@ -483,9 +483,11 @@ message UpdateCurtailmentEventResponse {
 
 // StopCurtailment starts restore; min duration may block normal priority.
 message StopCurtailmentRequest {
-    // Field 2 previously carried `optional uint32 restore_batch_size_override`
-    // (pre-release; per-Stop override removed in favor of Start-time stamping).
-    // Reserve the old name so a future re-add never collides.
+    // Tag 2 previously carried `optional uint32 restore_batch_size_override`
+    // (pre-release; removed in favor of Start-time stamping). Reserve both
+    // the number and the name so an old client's varint payload cannot
+    // silently alias to `force=true` on the new shape.
+    reserved 2;
     reserved "restore_batch_size_override";
 
     string event_uuid = 1 [(buf.validate.field).string.min_len = 1];
@@ -493,7 +495,7 @@ message StopCurtailmentRequest {
     // Admin-only bypass of `min_curtailed_duration_sec` on active events.
     // Defaults to false; admin-gated handler-side. Zero/unset means the
     // hysteresis gate applies normally.
-    bool force = 2;
+    bool force = 3;
 }
 
 message StopCurtailmentResponse {
