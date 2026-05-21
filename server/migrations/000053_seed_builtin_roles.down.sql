@@ -1,12 +1,12 @@
 -- Reverse the seed. role_permission.permission_id is ON DELETE
--- RESTRICT (000051), so every role_permission row must be cleared
+-- RESTRICT (000052), so every role_permission row must be cleared
 -- before any permission rows are deleted. Truncating the join is
 -- safe — the next-down migration drops the table outright.
 
 DELETE FROM role_permission;
 
 -- Re-point user_organization rows back to the legacy global rows so
--- the down migration leaves the auth path in the pre-000052 state.
+-- the down migration leaves the auth path in the pre-000053 state.
 -- The legacy rows are still present (we soft-deleted them, didn't
 -- DELETE), and a partial unique index keyed on is_builtin=FALSE means
 -- they share name uniqueness only with other customs, not built-ins.

@@ -5,9 +5,9 @@
 --
 -- Restricted to org-scoped customs (organization_id IS NOT NULL). The
 -- legacy global rows (org_id IS NULL) are the ADMIN/SUPER_ADMIN rows
--- 000052 just restored on its own down pass; we must NOT delete them
+-- 000053 just restored on its own down pass; we must NOT delete them
 -- here or user_organization.role_id would dangle. After this delete,
--- only legacy globals (and the built-in rows 000052 already removed)
+-- only legacy globals (and the built-in rows 000053 already removed)
 -- remain — their names are unique, so restoring uq_role_name at the
 -- bottom of this file succeeds.
 --
@@ -25,7 +25,7 @@ DELETE FROM role
 WHERE is_builtin = FALSE
   AND organization_id IS NOT NULL;
 
--- Step 2: drop the tables and indexes added by 000051.
+-- Step 2: drop the tables and indexes added by 000052.
 DROP TRIGGER IF EXISTS update_user_organization_role_updated_at ON user_organization_role;
 DROP INDEX IF EXISTS uq_user_org_role_site_scope;
 DROP INDEX IF EXISTS uq_user_org_role_org_scope;

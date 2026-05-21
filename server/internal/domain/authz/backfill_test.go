@@ -80,7 +80,7 @@ func anyUsernameMatching(t *testing.T, db *sql.DB) string {
 }
 
 // TestBackfill_ExistingAdminUserGetsOrgScopeAssignment verifies that
-// migration 000053 mirrors every active user_organization row into
+// migration 000054 mirrors every active user_organization row into
 // user_organization_role as an org-scope assignment.
 func TestBackfill_ExistingAdminUserGetsOrgScopeAssignment(t *testing.T) {
 	db := testutil.GetTestDB(t)
@@ -92,14 +92,14 @@ func TestBackfill_ExistingAdminUserGetsOrgScopeAssignment(t *testing.T) {
 	adminRoleID := getBuiltinRoleID(t, db, orgID, "ADMIN")
 
 	// Insert via the legacy table directly to simulate a row that
-	// existed before 000053 ran.
+	// existed before 000054 ran.
 	_, err := db.ExecContext(ctx,
 		`INSERT INTO user_organization (user_id, organization_id, role_id) VALUES ($1, $2, $3)`,
 		userID, orgID, adminRoleID,
 	)
 	require.NoError(t, err)
 
-	// Re-run the backfill statement. Migration 000053 already executed
+	// Re-run the backfill statement. Migration 000054 already executed
 	// during ConnectAndMigrate, but the user_organization row we just
 	// inserted post-dates that pass — re-running the same idempotent
 	// statement covers it and exercises the ON CONFLICT path.
@@ -120,8 +120,8 @@ func TestBackfill_ExistingAdminUserGetsOrgScopeAssignment(t *testing.T) {
 }
 
 // A soft-deleted organization can still have active user_organization
-// rows (org soft-delete does not cascade to membership). 000052 must
-// seed per-org built-ins for that org so the repoint and the 000053
+// rows (org soft-delete does not cascade to membership). 000053 must
+// seed per-org built-ins for that org so the repoint and the 000054
 // backfill produce rows that satisfy the composite role FK; otherwise
 // the deploy fails.
 func TestSeed_SoftDeletedOrgStillGetsBuiltins(t *testing.T) {
@@ -141,7 +141,7 @@ func TestSeed_SoftDeletedOrgStillGetsBuiltins(t *testing.T) {
 	// Reconcile finds this org via SeedOrgBuiltins's invocation from
 	// the boot reconciler — but ListActiveOrganizationIDs excludes
 	// deleted orgs, so we exercise SeedOrgBuiltins directly. Migration
-	// 000052 covers existing soft-deleted orgs at upgrade time; this
+	// 000053 covers existing soft-deleted orgs at upgrade time; this
 	// also exercises the same seed path.
 	tx, err := db.BeginTx(ctx, nil)
 	require.NoError(t, err)

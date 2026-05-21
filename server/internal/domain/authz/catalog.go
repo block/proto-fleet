@@ -1,7 +1,7 @@
 // Package authz owns the permission catalog and the role/permission resolver
 // that the request middleware uses to enforce access. The catalog defined in
 // this file is the single source of truth; the seed migration in
-// 000052_seed_builtin_roles.up.sql and the startup reconciliation in
+// 000053_seed_builtin_roles.up.sql and the startup reconciliation in
 // builtin.go both project from it.
 package authz
 

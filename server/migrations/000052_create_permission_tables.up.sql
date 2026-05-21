@@ -2,7 +2,7 @@
 -- multi-assignment user→role rows with org/site scope.
 --
 -- The existing user_organization.role_id column is preserved unchanged
--- here; migration 000053 backfills assignments into the new
+-- here; migration 000054 backfills assignments into the new
 -- user_organization_role table. A later migration will neutralize the
 -- legacy column with a raising trigger on non-NULL writes (alongside
 -- the caller swap that retires it), and a final migration drops it
@@ -12,7 +12,7 @@
 -- organization so editing it cannot leak across tenants. The legacy
 -- global ADMIN row from migration 000002 (and any SUPER_ADMIN row
 -- created by onboarding before this migration) is left with
--- organization_id NULL temporarily — migration 000052 repoints
+-- organization_id NULL temporarily — migration 000053 repoints
 -- existing user_organization references to per-org replacements and
 -- then soft-deletes the legacy rows.
 ALTER TABLE role
@@ -72,9 +72,9 @@ ALTER TABLE role
 -- SUPER_ADMIN row — both with is_builtin=FALSE (default from the
 -- ALTER above) and matching reserved names. Without the exemption,
 -- Postgres would validate the new CHECK against those existing rows
--- and abort 000051 before 000052 can repoint and soft-delete them.
+-- and abort 000052 before 000053 can repoint and soft-delete them.
 -- The exemption is safe because legacy rows are about to be marked
--- soft-deleted by 000052; CreateCustomRole always sets organization_id
+-- soft-deleted by 000053; CreateCustomRole always sets organization_id
 -- so it cannot exploit the exemption.
 ALTER TABLE role
     ADD CONSTRAINT chk_role_custom_name_not_reserved CHECK (
@@ -88,7 +88,7 @@ ALTER TABLE role
 -- layer. Without this, an assignment could bind a user in org A to a role
 -- owned by org B — a cross-tenant authorization escalation path. The
 -- legacy global rows from migration 000002 (still organization_id NULL
--- here) are excluded; they're soft-deleted by migration 000052 and the
+-- here) are excluded; they're soft-deleted by migration 000053 and the
 -- backfill never produces an assignment that points at them.
 ALTER TABLE role
     ADD CONSTRAINT uq_role_id_org_id UNIQUE (id, organization_id);

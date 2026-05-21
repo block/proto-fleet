@@ -4,7 +4,7 @@
 --
 -- Hard delete (not soft) is required because user_organization_role's
 -- composite FK to role(id, organization_id) is ON DELETE RESTRICT.
--- Soft-deleted rows would still hold the FK, and 000052's down
+-- Soft-deleted rows would still hold the FK, and 000053's down
 -- migration could not then delete the per-org built-in role rows the
 -- assignments reference — the rollback would get stuck partway.
 -- Operators who need an audit trail of the rolled-back state should
@@ -13,7 +13,7 @@
 -- Drop the legacy-paired rows regardless of user_organization's
 -- deleted_at state. Any assignment row created by the up migration or
 -- by post-deploy dual-writes from the onboarding/user-create paths
--- needs to be cleared; otherwise 000052's down DELETE on per-org
+-- needs to be cleared; otherwise 000053's down DELETE on per-org
 -- built-in roles fails the composite FK. Live customer-created
 -- assignments (from PR 3+'s management RPCs) would survive this
 -- filter — there are none in this PR's scope.

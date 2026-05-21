@@ -92,7 +92,7 @@ func Reconcile(ctx context.Context, db *sql.DB) error {
 // SeedOrgBuiltins does NOT upsert catalog permission rows; the boot
 // reconciler handles that once per process via upsertCatalog. Callers
 // outside the boot reconciler are expected to run after the seed
-// migration (000052) has populated the catalog.
+// migration (000053) has populated the catalog.
 func SeedOrgBuiltins(ctx context.Context, q *sqlc.Queries, orgID int64) (map[BuiltinKey]int64, error) {
 	return seedOrgBuiltins(ctx, q, orgID)
 }

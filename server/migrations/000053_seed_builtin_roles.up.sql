@@ -58,7 +58,7 @@ ON CONFLICT (key) DO UPDATE SET description = EXCLUDED.description;
 --    Soft-deleted orgs can still have active user_organization rows
 --    (the soft delete doesn't cascade to membership), so they need
 --    per-org built-ins too — otherwise step 3 cannot repoint those
---    user_organization rows to a per-org role and 000053 would
+--    user_organization rows to a per-org role and 000054 would
 --    backfill them with a role_id pointing at the legacy global row,
 --    failing the composite FK on user_organization_role.
 -- ---------------------------------------------------------------
