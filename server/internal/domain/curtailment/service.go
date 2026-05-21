@@ -78,11 +78,33 @@ type StartRequest struct {
 // Service orchestrates Preview / Start through the shared config / scope /
 // candidate / selector pipeline.
 type Service struct {
-	store interfaces.CurtailmentStore
+	store   interfaces.CurtailmentStore
+	metrics Metrics
 }
 
-func NewService(store interfaces.CurtailmentStore) *Service {
-	return &Service{store: store}
+// ServiceOption configures a Service at construction time. Callers that
+// don't supply WithMetrics get the NoOpMetrics default.
+type ServiceOption func(*Service)
+
+// WithServiceMetrics injects the operational metrics recorder. nil is
+// silently ignored so a half-wired caller falls back to NoOpMetrics.
+func WithServiceMetrics(m Metrics) ServiceOption {
+	return func(s *Service) {
+		if m != nil {
+			s.metrics = m
+		}
+	}
+}
+
+func NewService(store interfaces.CurtailmentStore, opts ...ServiceOption) *Service {
+	s := &Service{
+		store:   store,
+		metrics: NoOpMetrics{},
+	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 // Preview computes a curtailment plan without persisting any rows. Returns

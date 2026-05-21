@@ -17,6 +17,7 @@ import (
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/block/proto-fleet/server/internal/domain/command"
+	"github.com/block/proto-fleet/server/internal/domain/curtailment"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
@@ -83,10 +84,11 @@ func (c Config) withDefaults() Config {
 // Each tick reads non-terminal events, dispatches/observes per event with
 // per-event panic isolation, then upserts the heartbeat.
 type Reconciler struct {
-	cfg   Config
-	store interfaces.CurtailmentStore
-	cmd   CommandDispatcher
-	now   func() time.Time
+	cfg     Config
+	store   interfaces.CurtailmentStore
+	cmd     CommandDispatcher
+	metrics curtailment.Metrics
+	now     func() time.Time
 
 	stopCancel context.CancelFunc
 	workCancel context.CancelFunc
@@ -96,15 +98,34 @@ type Reconciler struct {
 	running bool
 }
 
+// Option configures a Reconciler at construction time. Callers that don't
+// supply WithMetrics get the curtailment.NoOpMetrics default.
+type Option func(*Reconciler)
+
+// WithMetrics injects the operational metrics recorder. nil is silently
+// ignored so a half-wired caller falls back to NoOpMetrics.
+func WithMetrics(m curtailment.Metrics) Option {
+	return func(r *Reconciler) {
+		if m != nil {
+			r.metrics = m
+		}
+	}
+}
+
 // New builds a Reconciler. nil store/dispatcher is rejected at Start, not
 // here, so a misconfigured fleetd surfaces during lifecycle bring-up.
-func New(cfg Config, store interfaces.CurtailmentStore, cmd CommandDispatcher) *Reconciler {
-	return &Reconciler{
-		cfg:   cfg.withDefaults(),
-		store: store,
-		cmd:   cmd,
-		now:   time.Now,
+func New(cfg Config, store interfaces.CurtailmentStore, cmd CommandDispatcher, opts ...Option) *Reconciler {
+	r := &Reconciler{
+		cfg:     cfg.withDefaults(),
+		store:   store,
+		cmd:     cmd,
+		metrics: curtailment.NoOpMetrics{},
+		now:     time.Now,
 	}
+	for _, opt := range opts {
+		opt(r)
+	}
+	return r
 }
 
 // Start spins up the tick loop. Repeat Starts without an intervening Stop

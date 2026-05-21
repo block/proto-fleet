@@ -411,7 +411,11 @@ func start(config *Config) error {
 	scheduleSvc := scheduleDomain.NewService(scheduleStore, scheduleStore, scheduleStore, transactor, activitySvc)
 
 	curtailmentStore := sqlstores.NewSQLCurtailmentStore(conn)
-	curtailmentSvc := curtailmentDomain.NewService(curtailmentStore)
+	// Curtailment operational metrics route through this single recorder.
+	// Swap NoOpMetrics for the platform observability implementation once
+	// the pipeline shape lands (OTel Meter, Prometheus, or DogStatsD).
+	var curtailmentMetrics curtailmentDomain.Metrics = curtailmentDomain.NoOpMetrics{}
+	curtailmentSvc := curtailmentDomain.NewService(curtailmentStore, curtailmentDomain.WithServiceMetrics(curtailmentMetrics))
 
 	sitesSvc := sitesDomain.NewService(siteStore, transactor, activitySvc)
 	buildingsSvc := buildingsDomain.NewService(buildingStore, siteStore, transactor, activitySvc)
@@ -436,7 +440,7 @@ func start(config *Config) error {
 		}
 	}()
 
-	curtailmentRec := curtailmentReconciler.New(curtailmentReconciler.Config{}, curtailmentStore, commandSvc)
+	curtailmentRec := curtailmentReconciler.New(curtailmentReconciler.Config{}, curtailmentStore, commandSvc, curtailmentReconciler.WithMetrics(curtailmentMetrics))
 	if err := curtailmentRec.Start(context.Background()); err != nil {
 		return fmt.Errorf("failed to start curtailment reconciler: %w", err)
 	}
