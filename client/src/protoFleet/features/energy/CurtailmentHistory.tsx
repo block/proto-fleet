@@ -2,6 +2,7 @@ import { type KeyboardEvent, type MouseEvent, type ReactElement, useMemo, useSta
 import clsx from "clsx";
 
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
+import CurtailmentStopConfirmationDialog from "@/protoFleet/features/energy/CurtailmentStopConfirmationDialog";
 import { ChevronDown } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { type ButtonVariant, sizes, variants } from "@/shared/components/Button";
@@ -52,10 +53,9 @@ interface CurtailmentHistoryProps {
    */
   onManageActiveEvent?: (event: CurtailmentHistoryEvent) => void;
   /**
-   * Called when the operator requests a stop for the active event. The parent
-   * owns persistence and any additional confirmation. Return a promise only
-   * after an actual stop request starts; a rejected promise re-enables retry
-   * controls.
+   * Called after the operator confirms stopping the active event. The parent
+   * owns persistence. Return a promise only after an actual stop request
+   * starts; a rejected promise re-enables retry controls.
    */
   onStopActiveEvent?: (event: CurtailmentHistoryEvent) => void | Promise<unknown>;
 }
@@ -500,12 +500,20 @@ function CurtailmentHistory({
   const [currentSort, setCurrentSort] = useState<HistorySort | undefined>();
   const [currentPage, setCurrentPage] = useState(0);
   const [selectedDetailEventId, setSelectedDetailEventId] = useState<string>();
+  const [selectedStopEventId, setSelectedStopEventId] = useState<string>();
   const [pendingStopEventId, setPendingStopEventId] = useState<string>();
   const normalizedPageSize = getNormalizedPageSize(pageSize);
   const hasActiveFilters = selectedStatusFilters.length > 0;
   const selectedDetailEvent = useMemo(
     () => events.find((event) => event.id === selectedDetailEventId),
     [events, selectedDetailEventId],
+  );
+  const selectedStopEvent = useMemo(
+    () => events.find((event) => event.id === selectedStopEventId),
+    [events, selectedStopEventId],
+  );
+  const selectedStopEventIsStoppable = Boolean(
+    selectedStopEvent && isActiveStoppableEvent(selectedStopEvent, activeEventId),
   );
   const pendingStopEvent = useMemo(
     () => events.find((event) => event.id === pendingStopEventId),
@@ -562,10 +570,23 @@ function CurtailmentHistory({
 
   const handleDismissSummary = () => setSelectedDetailEventId(undefined);
 
-  const handleRequestStop = (event: CurtailmentHistoryEvent) => {
+  const handleOpenStopConfirmation = (event: CurtailmentHistoryEvent) => {
     if (!onStopActiveEvent || !isActiveStoppableEvent(event, activeEventId) || pendingStoppableEventId === event.id) {
       return;
     }
+
+    setSelectedStopEventId(event.id);
+  };
+
+  const handleDismissStopConfirmation = () => setSelectedStopEventId(undefined);
+
+  const handleConfirmStop = () => {
+    if (!selectedStopEvent || !onStopActiveEvent || !isActiveStoppableEvent(selectedStopEvent, activeEventId)) {
+      return;
+    }
+
+    const event = selectedStopEvent;
+    setSelectedStopEventId(undefined);
 
     const stopRequest = onStopActiveEvent(event);
 
@@ -589,7 +610,7 @@ function CurtailmentHistory({
 
   const handleStopSelectedDetailEvent =
     selectedDetailEvent && onStopActiveEvent && isActiveStoppableEvent(selectedDetailEvent, activeEventId)
-      ? () => handleRequestStop(selectedDetailEvent)
+      ? () => handleOpenStopConfirmation(selectedDetailEvent)
       : undefined;
 
   return (
@@ -652,7 +673,7 @@ function CurtailmentHistory({
                 event={event}
                 activeEventId={activeEventId}
                 onOpenSummary={handleOpenSummary}
-                onRequestStop={onStopActiveEvent ? handleRequestStop : undefined}
+                onRequestStop={onStopActiveEvent ? handleOpenStopConfirmation : undefined}
                 stopDisabled={event.id === pendingStoppableEventId}
               />
             ))}
@@ -705,6 +726,15 @@ function CurtailmentHistory({
           onManage={handleManageSelectedDetailEvent}
           onStop={handleStopSelectedDetailEvent}
           stopDisabled={selectedDetailEvent.id === pendingStoppableEventId}
+        />
+      ) : null}
+
+      {selectedStopEvent && selectedStopEventIsStoppable ? (
+        <CurtailmentStopConfirmationDialog
+          open
+          action="stopCurtailment"
+          onCancel={handleDismissStopConfirmation}
+          onConfirm={handleConfirmStop}
         />
       ) : null}
     </section>
