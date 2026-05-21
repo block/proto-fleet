@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import SiteModals from "../components/SiteModals";
 import SiteOverviewSection from "../components/SiteOverviewSection";
 import SitesEmptyState from "../components/SitesEmptyState";
 import SitesPageHeader from "../components/SitesPageHeader";
+import { useSiteModals } from "../hooks/useSiteModals";
 import { useBuildings } from "@/protoFleet/api/buildings";
 import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
@@ -72,6 +74,15 @@ const SitesPage = () => {
 
   const { activeSite } = useActiveSite({ knownSiteIds });
 
+  const modals = useSiteModals({ refetchSites: fetchSites });
+
+  const handleDeleteFromDetailsEdit = useCallback(() => {
+    if (modals.state.kind !== "detailsEdit") return;
+    const id = modals.state.site.id.toString();
+    const match = sites?.find((s) => (s.site?.id ?? 0n).toString() === id);
+    if (match) modals.openDeleteConfirm(match);
+  }, [modals, sites]);
+
   const buildingsBySite = useMemo(() => {
     const grouped = new Map<string, BuildingWithCounts[]>();
     if (!buildings) return grouped;
@@ -130,9 +141,13 @@ const SitesPage = () => {
 
   return (
     <div className="flex flex-col gap-6 p-10 phone:p-6" data-testid="sites-page">
-      <SitesPageHeader headline="Sites" subheadline="Manage your sites, buildings, and rack infrastructure." />
+      <SitesPageHeader
+        headline="Sites"
+        subheadline="Manage your sites, buildings, and rack infrastructure."
+        onAddSite={modals.openCreate}
+      />
       {sites.length === 0 ? (
-        <SitesEmptyState />
+        <SitesEmptyState onAddSite={modals.openCreate} />
       ) : activeSite.kind === "unassigned" ? (
         // "Unassigned" filters miners, not sites — there is no site-scoped
         // surface to render here. Stand a placeholder in for now so reviewers
@@ -171,6 +186,7 @@ const SitesPage = () => {
           })}
         </div>
       )}
+      <SiteModals modals={modals} onDeleteFromDetailsEdit={handleDeleteFromDetailsEdit} />
     </div>
   );
 };

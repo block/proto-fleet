@@ -14,6 +14,9 @@ interface SiteSettingsSingleViewProps {
   // all action can use the existing useActiveSite hook without double-wiring
   // its validation.
   knownSiteIds: Set<string>;
+  // Opens ManageSiteModal in edit mode. Wired by the page so the modal
+  // stack lives at the page level instead of nested per-section.
+  onManage?: () => void;
 }
 
 // Visual mirrors the blockcell.sqprod.co prototype's single-site view:
@@ -22,7 +25,7 @@ interface SiteSettingsSingleViewProps {
 // follow-ups (#266 + power-contract migration); each row is rendered only
 // when its backing field is present so the table never shows a half-filled
 // shell.
-const SiteSettingsSingleView = ({ site, knownSiteIds }: SiteSettingsSingleViewProps) => {
+const SiteSettingsSingleView = ({ site, knownSiteIds, onManage }: SiteSettingsSingleViewProps) => {
   const { setActiveSite } = useActiveSite({ knownSiteIds });
   const siteId = site.site?.id ?? 0n;
   const { listBuildingsBySite } = useBuildings();
@@ -76,10 +79,8 @@ const SiteSettingsSingleView = ({ site, knownSiteIds }: SiteSettingsSingleViewPr
             variant={variants.secondary}
             size={sizes.compact}
             text="Manage site"
-            // Manage flow lands in #261; stub for now so the scaffold doesn't
-            // promise behavior it can't deliver.
-            onClick={() => undefined}
-            disabled
+            onClick={onManage ?? (() => undefined)}
+            disabled={!onManage}
             testId="site-settings-manage"
           />
         </div>
