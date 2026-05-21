@@ -10,6 +10,8 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/block/proto-fleet/server/internal/domain/activity"
+	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/modes"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -80,6 +82,7 @@ type StartRequest struct {
 type Service struct {
 	store   interfaces.CurtailmentStore
 	metrics Metrics
+	audit   AuditLogger
 }
 
 // ServiceOption configures a Service at construction time. Callers that
@@ -96,10 +99,22 @@ func WithServiceMetrics(m Metrics) ServiceOption {
 	}
 }
 
+// WithAuditLogger injects the audit-log recorder. nil is silently ignored
+// so a half-wired caller falls back to NoOpAuditLogger and audit emission
+// becomes a no-op.
+func WithAuditLogger(a AuditLogger) ServiceOption {
+	return func(s *Service) {
+		if a != nil {
+			s.audit = a
+		}
+	}
+}
+
 func NewService(store interfaces.CurtailmentStore, opts ...ServiceOption) *Service {
 	s := &Service{
 		store:   store,
 		metrics: NoOpMetrics{},
+		audit:   NoOpAuditLogger{},
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -247,6 +262,18 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 	plan.EventUUID = &result.EventUUID
 	plan.EffectiveMaxDurationSeconds = req.MaxDurationSeconds
 	plan.EffectiveRestoreBatchIntervalSec = req.RestoreBatchIntervalSec
+
+	// Audit + override-attribution. The base curtailment_started row
+	// always fires on a successful Start; allow_unbounded and
+	// force_include_maintenance overrides each fire an additional typed
+	// row so a feed of those override classes is a simple event-type
+	// filter rather than a metadata scan. IncMaintenanceOverride fires
+	// in parallel so the platform metrics dashboard tracks the override
+	// rate without joining against activity_log.
+	s.emitStartAuditTrail(ctx, req, plan)
+	if req.ForceIncludeMaintenance {
+		s.metrics.IncMaintenanceOverride()
+	}
 	return plan, nil
 }
 
@@ -384,6 +411,63 @@ func (s *Service) AdminTerminate(ctx context.Context, req AdminTerminateRequest)
 		return nil, err
 	}
 	return updated, nil
+}
+
+// emitStartAuditTrail records the activity rows for a successful Start.
+// Always emits curtailment_started; emits curtailment_unbounded_start /
+// curtailment_force_include_maintenance in addition when those overrides
+// apply. Audit writes are best-effort: activity.Service.Log swallows
+// errors so a transient activity-store failure doesn't fail the Start.
+func (s *Service) emitStartAuditTrail(ctx context.Context, req StartRequest, plan *Plan) {
+	if s.audit == nil {
+		return
+	}
+	metadata := map[string]any{
+		"strategy":        string(req.Strategy),
+		"level":           string(req.Level),
+		"priority":        string(req.Priority),
+		"scope_type":      string(req.Scope.Type),
+		"selected_count":  len(plan.Selected),
+		"skipped_count":   len(plan.Skipped),
+		"allow_unbounded": req.AllowUnbounded,
+		"force_include":   req.ForceIncludeMaintenance,
+		"source_actor":    string(req.SourceActorType),
+	}
+	if plan.EventUUID != nil {
+		metadata["event_uuid"] = plan.EventUUID.String()
+	}
+	if req.MaxDurationSeconds != nil {
+		metadata["max_duration_seconds"] = *req.MaxDurationSeconds
+	}
+	if req.IdempotencyKey != nil {
+		metadata["idempotency_key"] = *req.IdempotencyKey
+	}
+	if req.ExternalSource != nil {
+		metadata["external_source"] = *req.ExternalSource
+	}
+	if req.ExternalReference != nil {
+		metadata["external_reference"] = *req.ExternalReference
+	}
+
+	emit := func(eventType, description string) {
+		event := activitymodels.Event{
+			Category:    activitymodels.CategoryCurtailment,
+			Type:        eventType,
+			Description: description,
+			Result:      activitymodels.ResultSuccess,
+			Metadata:    metadata,
+		}
+		activity.StampActor(ctx, &event)
+		s.audit.Log(ctx, event)
+	}
+
+	emit(ActivityTypeStarted, "Curtailment event started")
+	if req.AllowUnbounded {
+		emit(ActivityTypeStartedUnbounded, "Curtailment event started with allow_unbounded override")
+	}
+	if req.ForceIncludeMaintenance {
+		emit(ActivityTypeStartedForceMaintenance, "Curtailment event started with force_include_maintenance override")
+	}
 }
 
 // lookupIdempotentReplay returns the prior event a webhook-style replay

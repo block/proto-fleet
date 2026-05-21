@@ -415,7 +415,10 @@ func start(config *Config) error {
 	// Swap NoOpMetrics for the platform observability implementation once
 	// the pipeline shape lands (OTel Meter, Prometheus, or DogStatsD).
 	var curtailmentMetrics curtailmentDomain.Metrics = curtailmentDomain.NoOpMetrics{}
-	curtailmentSvc := curtailmentDomain.NewService(curtailmentStore, curtailmentDomain.WithServiceMetrics(curtailmentMetrics))
+	curtailmentSvc := curtailmentDomain.NewService(curtailmentStore,
+		curtailmentDomain.WithServiceMetrics(curtailmentMetrics),
+		curtailmentDomain.WithAuditLogger(activitySvc),
+	)
 
 	sitesSvc := sitesDomain.NewService(siteStore, transactor, activitySvc)
 	buildingsSvc := buildingsDomain.NewService(buildingStore, siteStore, transactor, activitySvc)
