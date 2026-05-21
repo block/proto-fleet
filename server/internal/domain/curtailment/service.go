@@ -133,21 +133,17 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 		v := orgConfig.MaxDurationDefaultSec
 		req.MaxDurationSeconds = &v
 	}
-	if req.MaxDurationSeconds != nil {
-		if *req.MaxDurationSeconds > maxFiniteDurationSeconds {
-			return nil, fleeterror.NewInvalidArgumentErrorf(
-				"max_duration_seconds must be <= %d, got %d",
-				maxFiniteDurationSeconds, *req.MaxDurationSeconds,
-			)
-		}
-		if orgConfig.MaxDurationDefaultSec > 0 &&
-			*req.MaxDurationSeconds > orgConfig.MaxDurationDefaultSec &&
-			!req.CanUseAdminControls {
-			return nil, fleeterror.NewForbiddenErrorf(
-				"only admins can set max_duration_seconds above org default %d",
-				orgConfig.MaxDurationDefaultSec,
-			)
-		}
+	// Upper-bound (`<= maxFiniteDurationSeconds`) is enforced by
+	// validateStartRequest. The admin-gate below is intrinsically
+	// post-normalization: it compares the resolved value to the org default.
+	if req.MaxDurationSeconds != nil &&
+		orgConfig.MaxDurationDefaultSec > 0 &&
+		*req.MaxDurationSeconds > orgConfig.MaxDurationDefaultSec &&
+		!req.CanUseAdminControls {
+		return nil, fleeterror.NewForbiddenErrorf(
+			"only admins can set max_duration_seconds above org default %d",
+			orgConfig.MaxDurationDefaultSec,
+		)
 	}
 	if req.RestoreBatchIntervalSec == 0 {
 		req.RestoreBatchIntervalSec = defaultRestoreBatchIntervalSec
