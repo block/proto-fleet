@@ -40,7 +40,7 @@ interface MinerActionsMenuProps {
   miners?: Record<string, MinerStateSnapshot>;
   /** Ordered list of miner device identifiers, forwarded to bulk rename modals. */
   minerIds?: string[];
-  /** True when the selection includes auth-needed miners not present in selectedMiners, e.g. all-mode selections. */
+  /** True when the current selection includes auth-needed miners, including cases not explicitly listed in selectedMiners (for example, all-mode selections). */
   selectionIncludesUnauthenticatedMiner?: boolean;
   /** Callback to refetch miners after bulk rename or worker-name update. */
   onRefetchMiners?: () => void;
@@ -81,9 +81,9 @@ const MinerActionsMenu = ({
     () =>
       selectedMiners.map((id) => ({
         deviceIdentifier: id,
-        deviceStatus: miners[id]?.deviceStatus,
+        deviceStatus: selectionMode === "all" ? undefined : miners[id]?.deviceStatus,
       })),
-    [miners, selectedMiners],
+    [miners, selectedMiners, selectionMode],
   );
   const selectedIdsIncludeUnauthenticatedMiner = useMemo(
     () => selectedMiners.some((id) => miners[id]?.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED),
