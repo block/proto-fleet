@@ -168,12 +168,11 @@ func toStartRequest(msg *pb.StartCurtailmentRequest, info *session.Info) (curtai
 		CanUseAdminControls:     canUseAdminControls(info),
 	}
 
-	// max_duration_seconds=0 is the "use org default" sentinel when
-	// allow_unbounded=false, and "no cap" when allow_unbounded=true. Both
-	// leave MaxDurationSeconds nil. Non-zero values are parsed regardless
-	// of allow_unbounded so the service-level mutual-exclusion check can
-	// fire (a non-zero cap with allow_unbounded=true is a behavioral
-	// mismatch the operator must see, not a silent drop).
+	// max_duration_seconds=0 is the sentinel: "use org default" when
+	// !allow_unbounded, "no cap" when allow_unbounded. Both leave the
+	// pointer nil. Non-zero values pass through regardless so the
+	// service-level mutual-exclusion check surfaces a (non-zero cap,
+	// allow_unbounded=true) mismatch instead of silently dropping it.
 	if raw := msg.GetMaxDurationSeconds(); raw > 0 {
 		v, err := uint32ToInt32Strict("max_duration_seconds", raw)
 		if err != nil {
@@ -506,12 +505,6 @@ func toStopRequest(msg *pb.StopCurtailmentRequest, orgID int64) (curtailment.Sto
 		EventUUID: eventUUID,
 		Force:     msg.GetForce(),
 	}, nil
-}
-
-// toStopResponse builds the Stop response from the persisted event row and
-// current target rows after the restoration transition.
-func toStopResponse(event *models.Event, targets []*models.Target) *pb.StopCurtailmentResponse {
-	return &pb.StopCurtailmentResponse{Event: toEventProtoWithTargets(event, targets)}
 }
 
 // toEventProto maps persisted event metadata to the wire CurtailmentEvent.

@@ -134,7 +134,9 @@ func (h *Handler) StopCurtailment(ctx context.Context, req *connect.Request[pb.S
 		return nil, err
 	}
 
-	return connect.NewResponse(toStopResponse(event, targets)), nil
+	return connect.NewResponse(&pb.StopCurtailmentResponse{
+		Event: toEventProtoWithTargets(event, targets),
+	}), nil
 }
 
 func (h *Handler) GetActiveCurtailment(ctx context.Context, _ *connect.Request[pb.GetActiveCurtailmentRequest]) (*connect.Response[pb.GetActiveCurtailmentResponse], error) {
