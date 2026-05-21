@@ -23,6 +23,13 @@ import (
 // pgErrCodeForeignKeyViolation is PostgreSQL's SQLSTATE for foreign_key_violation.
 const pgErrCodeForeignKeyViolation = "23503"
 
+// nonTerminalEventPerOrgUniqueIndex is the partial unique index on
+// curtailment_event (org_id) WHERE state IN ('pending','active','restoring')
+// added in migration 000051. We surface its unique-violation as a typed
+// sentinel so Service.Start can return AlreadyExists with the existing
+// event_uuid rather than leaking an Internal error.
+const nonTerminalEventPerOrgUniqueIndex = "uq_curtailment_event_one_non_terminal_per_org"
+
 func mapOrgConfigError(err error, orgID int64) error {
 	if err == nil {
 		return nil
@@ -137,6 +144,12 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 			CreatedByUserID:         event.CreatedByUserID,
 		})
 		if err != nil {
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) &&
+				pgErr.Code == pgErrCodeUniqueViolation &&
+				pgErr.ConstraintName == nonTerminalEventPerOrgUniqueIndex {
+				return nil, interfaces.ErrCurtailmentNonTerminalEventExists
+			}
 			return nil, fleeterror.NewInternalErrorf("failed to insert curtailment event: %v", err)
 		}
 		for _, t := range targets {

@@ -3,6 +3,7 @@ package curtailment
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math"
 	"strings"
 	"time"
@@ -168,6 +169,21 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 
 	result, err := s.store.InsertEventWithTargets(ctx, eventParams, targetParams)
 	if err != nil {
+		if errors.Is(err, interfaces.ErrCurtailmentNonTerminalEventExists) {
+			// Race: another Start beat us between the selector check and
+			// the insert. Surface the existing event's identity so the
+			// caller can act on it.
+			existing, getErr := s.store.GetActiveEvent(ctx, req.OrgID)
+			if getErr != nil || existing == nil {
+				return nil, fleeterror.NewAlreadyExistsError(
+					"a non-terminal curtailment event already exists for this organization",
+				)
+			}
+			return nil, fleeterror.NewAlreadyExistsErrorf(
+				"a non-terminal curtailment event already exists for this organization (event_uuid=%s, state=%q)",
+				existing.EventUUID, existing.State,
+			)
+		}
 		return nil, err
 	}
 

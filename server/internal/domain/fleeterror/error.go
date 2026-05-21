@@ -249,6 +249,16 @@ func NewFailedPreconditionErrorf(format string, a ...any) FleetError {
 	).WithCallerStackTrace()
 }
 
+func NewAlreadyExistsError(debugMessage string) FleetError {
+	return NewPlainError(debugMessage, connect.CodeAlreadyExists).WithCallerStackTrace()
+}
+
+func NewAlreadyExistsErrorf(format string, a ...any) FleetError {
+	return NewAlreadyExistsError(
+		fmt.Sprintf(format, a...),
+	).WithCallerStackTrace()
+}
+
 func NewUnimplementedError(debugMessage string) FleetError {
 	return NewPlainError(debugMessage, connect.CodeUnimplemented).WithCallerStackTrace()
 }
@@ -434,6 +444,24 @@ func IsFailedPreconditionError(err error) bool {
 	var connectErr *connect.Error
 	if errors.As(err, &connectErr) {
 		return connectErr.Code() == connect.CodeFailedPrecondition
+	}
+
+	return false
+}
+
+func IsAlreadyExistsError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var fleetErr FleetError
+	if errors.As(err, &fleetErr) {
+		return fleetErr.GRPCCode == connect.CodeAlreadyExists
+	}
+
+	var connectErr *connect.Error
+	if errors.As(err, &connectErr) {
+		return connectErr.Code() == connect.CodeAlreadyExists
 	}
 
 	return false

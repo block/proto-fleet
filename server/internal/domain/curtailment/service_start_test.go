@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/modes"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
 // validStartRequest builds a valid StartRequest pointing at orgID. Callers
@@ -515,4 +517,33 @@ func TestService_Start_StorePersistenceErrorPropagates(t *testing.T) {
 	require.Error(t, err)
 	assert.Nil(t, plan)
 	assert.Contains(t, err.Error(), "synthetic db error")
+}
+
+// TestService_Start_NonTerminalOverlapReturnsAlreadyExists pins the unique
+// partial-index race: another Start beat us between the selector check and
+// the insert, so the per-org constraint rejected our row. Service surfaces
+// AlreadyExists with the existing event's uuid + state.
+func TestService_Start_NonTerminalOverlapReturnsAlreadyExists(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("a", 6000, 100, 40),
+	}
+	store.insertEventErr = interfaces.ErrCurtailmentNonTerminalEventExists
+	existingUUID := uuid.New()
+	store.activeEvent = &models.Event{
+		ID:        99,
+		EventUUID: existingUUID,
+		OrgID:     orgID,
+		State:     models.EventStateActive,
+	}
+	svc := NewService(store)
+	plan, err := svc.Start(t.Context(), validStartRequest(orgID))
+	require.Error(t, err)
+	assert.Nil(t, plan)
+	assert.True(t, fleeterror.IsAlreadyExistsError(err))
+	assert.Contains(t, err.Error(), existingUUID.String())
+	assert.Contains(t, err.Error(), string(models.EventStateActive))
 }
