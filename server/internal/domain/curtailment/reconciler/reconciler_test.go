@@ -29,6 +29,8 @@ type fakeStore struct {
 	listEventsErr      error
 	listEventsCalls    int
 	listEventsPanicErr string
+	listTargetsHook    func(context.Context, uuid.UUID)
+	listTargetsCtxErr  map[uuid.UUID]error
 
 	updateEventCalls   int
 	updateEventLast    map[int64]models.EventState
@@ -40,6 +42,11 @@ type fakeStore struct {
 	heartbeatCalls        int
 	lastHeartbeatActive   int32
 	lastHeartbeatTickUUID uuid.UUID
+
+	// BeginRestoreTransition captures, exercised by max_duration tests.
+	beginRestoreCalls       int
+	beginRestoreLastEventID uuid.UUID
+	beginRestoreErr         error
 }
 
 func newFakeStore() *fakeStore {
@@ -47,6 +54,7 @@ func newFakeStore() *fakeStore {
 		targetsByEventID:   map[int64][]*models.Target{},
 		updateEventLast:    map[int64]models.EventState{},
 		updateTargetParams: map[string]interfaces.UpdateCurtailmentTargetStateParams{},
+		listTargetsCtxErr:  map[uuid.UUID]error{},
 	}
 }
 
@@ -62,6 +70,9 @@ func (f *fakeStore) ListRecentlyResolvedCurtailedDevices(context.Context, int64,
 func (f *fakeStore) GetEventByUUID(context.Context, int64, uuid.UUID) (*models.Event, error) {
 	panic("GetEventByUUID not exercised")
 }
+func (f *fakeStore) GetActiveEvent(context.Context, int64) (*models.Event, error) {
+	panic("GetActiveEvent not exercised")
+}
 func (f *fakeStore) InsertEventWithTargets(context.Context, models.InsertEventParams, []models.InsertTargetParams) (*models.InsertEventResult, error) {
 	panic("InsertEventWithTargets not exercised")
 }
@@ -69,8 +80,12 @@ func (f *fakeStore) GetHeartbeat(context.Context) (*models.Heartbeat, error) {
 	panic("GetHeartbeat not exercised")
 }
 
-func (f *fakeStore) ListTargetsByEvent(_ context.Context, _ int64, eventUUID uuid.UUID) ([]*models.Target, error) {
+func (f *fakeStore) ListTargetsByEvent(ctx context.Context, _ int64, eventUUID uuid.UUID) ([]*models.Target, error) {
 	f.listTargetsByEventCalls++
+	if f.listTargetsHook != nil {
+		f.listTargetsHook(ctx, eventUUID)
+	}
+	f.listTargetsCtxErr[eventUUID] = ctx.Err()
 	for _, ev := range f.events {
 		if ev.EventUUID == eventUUID {
 			// Return shared pointers so the reconciler's per-tick mutations
@@ -171,17 +186,37 @@ func (f *fakeStore) UpsertHeartbeat(_ context.Context, params interfaces.UpsertC
 	return nil
 }
 
+// BeginRestoreTransition: real-fake behavior so enforceMaxDuration tests can
+// assert the call happened and the event row flips to restoring in-place
+// (mirroring SQL store semantics — the reconciler reads ev again on the next
+// tick). effective_batch_size was stamped at Start; this fake does not touch it.
+func (f *fakeStore) BeginRestoreTransition(_ context.Context, _ int64, eventUUID uuid.UUID) (*models.Event, error) {
+	f.beginRestoreCalls++
+	f.beginRestoreLastEventID = eventUUID
+	if f.beginRestoreErr != nil {
+		return nil, f.beginRestoreErr
+	}
+	for _, ev := range f.events {
+		if ev.EventUUID == eventUUID {
+			ev.State = models.EventStateRestoring
+			return ev, nil
+		}
+	}
+	return nil, nil
+}
+
 // fakeDispatcher records Curtail / Uncurtail calls and returns the
 // configured outcome.
 type fakeDispatcher struct {
-	curtailErr            error
-	curtailResultOverride *command.CommandResult
-	uncurtailErr          error
-	curtailCalls          int
-	curtailLastIDs        []string
-	curtailLastActor      session.Actor
-	uncurtailCalls        int
-	uncurtailLastIDs      []string
+	curtailErr              error
+	curtailResultOverride   *command.CommandResult
+	uncurtailErr            error
+	uncurtailResultOverride *command.CommandResult
+	curtailCalls            int
+	curtailLastIDs          []string
+	curtailLastActor        session.Actor
+	uncurtailCalls          int
+	uncurtailLastIDs        []string
 }
 
 func (f *fakeDispatcher) Curtail(ctx context.Context, selector *pb.DeviceSelector, _ sdk.CurtailLevel) (*command.CommandResult, error) {
@@ -205,7 +240,10 @@ func (f *fakeDispatcher) Uncurtail(_ context.Context, selector *pb.DeviceSelecto
 	if f.uncurtailErr != nil {
 		return nil, f.uncurtailErr
 	}
-	return &command.CommandResult{BatchIdentifier: "batch-uncurtail", DispatchedCount: len(f.uncurtailLastIDs)}, nil
+	if f.uncurtailResultOverride != nil {
+		return f.uncurtailResultOverride, nil
+	}
+	return &command.CommandResult{BatchIdentifier: "batch-uncurtail", DispatchedCount: len(f.uncurtailLastIDs), DispatchedDeviceIdentifiers: f.uncurtailLastIDs}, nil
 }
 
 func identifiersFromSelector(selector *pb.DeviceSelector) []string {
@@ -406,6 +444,31 @@ func TestReconciler_HeartbeatStillFiresOnListEventsError(t *testing.T) {
 	assert.Equal(t, int32(0), store.lastHeartbeatActive)
 }
 
+func TestReconciler_RunTickStopsWhenTickBudgetExpires(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+	firstUUID := uuid.New()
+	secondUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: 1, EventUUID: firstUUID, OrgID: 1, State: models.EventStateActive},
+		{ID: 2, EventUUID: secondUUID, OrgID: 1, State: models.EventStateActive},
+	}
+	store.listTargetsHook = func(ctx context.Context, eventUUID uuid.UUID) {
+		if eventUUID == firstUUID {
+			<-ctx.Done()
+		}
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.cfg.TickInterval = 5 * time.Millisecond
+	r.runTick(context.Background())
+
+	assert.ErrorIs(t, store.listTargetsCtxErr[firstUUID], context.DeadlineExceeded)
+	_, processedSecond := store.listTargetsCtxErr[secondUUID]
+	assert.False(t, processedSecond,
+		"later events must wait for the next tick after the tick-scoped budget expires")
+}
+
 func TestReconciler_DispatchErrorMarksLastError(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{curtailErr: errors.New("queue down")}
@@ -464,6 +527,29 @@ func TestReconciler_DispatchSkippedKeepsTargetPending(t *testing.T) {
 	require.NotNil(t, final.LastError)
 	assert.Contains(t, *final.LastError, "schedule 99")
 	assert.Equal(t, int32(1), final.RetryCount, "skip counts toward retry budget")
+}
+
+// TestSkippedDeviceReason pins the priority-order contract for the shared
+// skip-reason rendering helper. Both the single-device dispatch path and the
+// batch restore path route audit strings through this switch, so each branch
+// must land on the right string.
+func TestSkippedDeviceReason(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		s    command.SkippedDevice
+		want string
+	}{
+		{"reason_present_wins", command.SkippedDevice{Reason: "schedule conflict", FilterName: "schedule"}, "schedule conflict"},
+		{"filter_name_only", command.SkippedDevice{FilterName: "maintenance_window"}, "filtered by maintenance_window"},
+		{"both_empty_fallback", command.SkippedDevice{}, "filtered by command preflight"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tc.want, skippedDeviceReason(tc.s))
+		})
+	}
 }
 
 // TestReconciler_MissingCandidateDuringConfirmConsumesRetryBudget pins the

@@ -37,6 +37,9 @@ export const importSettingsFirmware = () => import("@/protoFleet/features/settin
 export const importSettingsSchedules = () =>
   import("@/protoFleet/features/settings/components/Schedules/SchedulesPage");
 export const importSettingsApiKeys = () => import("@/protoFleet/features/settings/components/ApiKeys");
+export const importSitesPage = () => import("@/protoFleet/features/sites/pages/SitesPage");
+export const importSettingsSitesPage = () => import("@/protoFleet/features/sites/pages/SettingsSitesPage");
+export const importBuildingPage = () => import("@/protoFleet/features/buildings/pages/BuildingPage");
 export const importFleetDown = () => import("@/protoFleet/components/FleetDown/FleetDown");
 
 // Sidebar destinations + the default settings sub-route. App.tsx
@@ -49,6 +52,7 @@ export const globalRoutePrefetch: readonly RouteImporter[] = [
   importActivityPage,
   importSettingsLayout,
   importSettingsGeneral,
+  importSitesPage,
 ];
 
 // Settings sub-routes; SettingsLayout triggers this on mount so the rest of
@@ -61,4 +65,5 @@ export const settingsRoutePrefetch: readonly RouteImporter[] = [
   importSettingsSchedules,
   importSettingsApiKeys,
   importServerLogsPage,
+  importSettingsSitesPage,
 ];

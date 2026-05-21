@@ -2,12 +2,19 @@ package interfaces
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 )
+
+// ErrCurtailmentNonTerminalEventExists is returned by InsertEventWithTargets
+// when the per-org partial unique index rejects an insert because another
+// non-terminal event already exists for the same org. Callers map this to
+// AlreadyExists and surface the existing event_uuid via GetActiveEvent.
+var ErrCurtailmentNonTerminalEventExists = errors.New("non-terminal curtailment event already exists for this organization")
 
 // UpdateCurtailmentTargetStateParams: optional patch fields. Nil pointers
 // leave the column unchanged via COALESCE in the SQL update.
@@ -46,6 +53,7 @@ type CurtailmentStore interface {
 	ListRecentlyResolvedCurtailedDevices(ctx context.Context, orgID int64, cooldownSec int32) ([]string, error)
 
 	GetEventByUUID(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error)
+	GetActiveEvent(ctx context.Context, orgID int64) (*models.Event, error)
 
 	ListTargetsByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) ([]*models.Target, error)
 
@@ -84,4 +92,17 @@ type CurtailmentStore interface {
 	// UpsertHeartbeat overwrites the singleton row at id=1. Migration seeds
 	// the row; upsert is robust against accidental deletion.
 	UpsertHeartbeat(ctx context.Context, params UpsertCurtailmentHeartbeatParams) error
+
+	// BeginRestoreTransition flips a non-terminal event from pending/active to
+	// restoring and resets every non-terminal target (desired_state='active',
+	// state='pending', cleared phase-local cursors) in one transaction.
+	// effective_batch_size was stamped at Start; this call does not touch it.
+	// Idempotent: an already-restoring event returns the current row without
+	// writing. Terminal events return FailedPrecondition; cross-org lookups
+	// return NotFound.
+	BeginRestoreTransition(
+		ctx context.Context,
+		orgID int64,
+		eventUUID uuid.UUID,
+	) (*models.Event, error)
 }

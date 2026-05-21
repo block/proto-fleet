@@ -1,7 +1,12 @@
+import { useCallback, useEffect, useState } from "react";
 import clsx from "clsx";
 import LocationSelector from "./LocationSelector";
 import SchedulePill from "./SchedulePill";
+import SitePicker from "./SitePicker";
 import type { UseSchedulePillDataResult } from "./useSchedulePillData";
+import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import { useSites } from "@/protoFleet/api/sites";
+import { MULTI_SITE_ENABLED } from "@/protoFleet/constants/featureFlags";
 import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
 import { Pause } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -51,6 +56,37 @@ const PageHeader = ({ isMenuOpen, openMenu, schedulePillData }: PageHeaderProps)
   const [dismissedSetup, setDismissedSetup] = useReactiveLocalStorage<boolean>("completeSetupDismissed");
   const hasDismissedSetup = Boolean(dismissedSetup);
 
+  // Multi-site: the SitePicker replaces today's LocationSelector when the
+  // feature flag is on. Sites are fetched once on mount and held here so the
+  // picker doesn't re-fire ListSites on every route change. `undefined`
+  // means "still loading" (the picker renders a skeleton); `[]` means "no
+  // sites" (the picker hides itself unless `sitesError` is non-null, in
+  // which case it shows the retry affordance).
+  const { listSites } = useSites();
+  const [sites, setSites] = useState<SiteWithCounts[] | undefined>(MULTI_SITE_ENABLED ? undefined : []);
+  const [sitesError, setSitesError] = useState<string | null>(null);
+
+  const fetchSites = useCallback(() => {
+    const controller = new AbortController();
+    void listSites({
+      signal: controller.signal,
+      onSuccess: (rows) => {
+        setSites(rows);
+        setSitesError(null);
+      },
+      onError: (msg) => {
+        setSitesError(msg);
+        setSites([]);
+      },
+    });
+    return () => controller.abort();
+  }, [listSites]);
+
+  useEffect(() => {
+    if (!MULTI_SITE_ENABLED) return;
+    return fetchSites();
+  }, [fetchSites]);
+
   const handleCompleteSetup = () => {
     setDismissedSetup(false);
   };
@@ -76,7 +112,11 @@ const PageHeader = ({ isMenuOpen, openMenu, schedulePillData }: PageHeaderProps)
                 testId="navigation-menu-button"
               />
             ) : null}
-            <LocationSelector />
+            {MULTI_SITE_ENABLED ? (
+              <SitePicker sites={sites} error={sitesError} onRetry={fetchSites} />
+            ) : (
+              <LocationSelector />
+            )}
           </div>
           {!isPhone && headerWidgetEnabled ? <HeaderWidgets {...headerWidgetsProps} /> : null}
         </div>

@@ -20,6 +20,30 @@ site-segmented discovery in Phase 2. An "All Sites" mode aggregates
 reads across sites; writes always target a single site explicitly when
 sites exist.
 
+Sites surface in **two locations** in the product:
+
+- **`/sites`** is the operational overview — health and performance of
+  every site and its buildings. Read-only; no config controls.
+  Navigated from the primary sidenav.
+- **`/settings/sites`** is the configuration surface — site and
+  building CRUD, network config, address details. Navigated from the
+  settings subnav.
+
+Both surfaces share the topbar SitePicker: "All Sites" renders an
+aggregated layout (one section per site on `/sites`, a flat table
+ordered by site name on `/settings/sites`), and selecting a specific
+site narrows to that site's view.
+
+**Phasing is scaffold-first.** Phase 1a ships routing + the SitePicker +
+all four page shells + site/building CRUD modals with placeholder
+blocks where the rich metric, card, and diagnostic content will land.
+Phase 1b enriches those placeholders with real metric components,
+BuildingCards, diagnostics, and the building-detail page sections.
+This prioritizes navigation correctness and full-stack CRUD wiring
+over visual richness so the team can dogfood the data model early,
+and lets purely visual work proceed in parallel without blocking
+nav-correctness review.
+
 ## Goals
 
 - Block mining-ops can manage 3+ sites from one install: name the sites,
@@ -60,6 +84,18 @@ sites exist.
 - A first-class `zone` entity, zone CRUD UI, or a `building.zones[]`
   persisted array in this phase. Zones stay lightweight and rack-owned
   until there is evidence we need stronger lifecycle management.
+- UI exposure of "unassigned buildings". The backend keeps
+  `building.site_id` nullable so delete-cascade and migration-time
+  edge cases stay safe, but every UI-driven building creation
+  requires a parent site context. There is no unassigned-buildings
+  section, no inline "Assign to site" action surfaced on such rows,
+  and no site-create modal "claim existing buildings" picker. A
+  building landing in the unassigned bucket (because its site was
+  deleted, or because a script inserted one) shows up only via
+  direct DB inspection until the operator reattaches it through a
+  future tool. Keeping this off the UI matches the operator mental
+  model "buildings live inside a site" and avoids the modal-state
+  complexity of a parent-less create flow.
 
 ## Hierarchy and portability model
 
@@ -188,6 +224,11 @@ miner list.
 
 ### J2. Page-header app switcher (site picker)
 
+The topbar SitePicker is **Phase 1a** scope (was previously Phase 2).
+It drives both `/sites` and `/settings/sites` rendering modes from
+day one, so the scaffold ships with the picker working end-to-end
+rather than relying on URL params or a temporary single-site mode.
+
 When the org has at least one site, every page sits behind a topbar
 control that selects a specific site, "All Sites" (aggregate across all
 the user's sites), or "Unassigned" (miners with no site). This replaces
@@ -199,6 +240,33 @@ app renders in site-less form. The miner list shows no site column.
 moment the operator creates their first site, the SitePicker appears,
 defaulting to that newly-created site (per the default-after-login
 rule below).
+
+**Feature-flag gating.** Both the primary sidenav entry for `/sites`
+and the settings subnav entry for `/settings/sites` are wrapped in a
+Vite-time feature flag (env-driven) so the buttons stay hidden in
+production builds until the Phase 1b enrichment ships. The routes
+themselves are **not** flag-protected — an operator who knows the
+URL can navigate directly, which keeps dogfood + QA paths open
+without adding route-guard logic. Removing the flag is a one-line
+config change once we're ready to expose the feature to operators.
+
+**Global picker mount in Phase 1a, transitional consumption.**
+The SitePicker replaces today's `LocationSelector` in `PageHeader`
+globally from Phase 1a — it is visible on every protoFleet route
+including `/miners`, `/racks`, and the dashboards. The three new
+routes (`/sites`, `/settings/sites`, `/buildings/:id`) consume the
+selection immediately. Existing routes do **not** yet read the
+active site in 1a; their data queries continue to render org-wide
+results regardless of the picker's state. This is a documented
+transitional UX captured in the issue and PR description: the
+picker looks the same everywhere, but only the new pages react to
+it. Phase 1b (#202) closes the gap for miner-list and rack-list;
+history-bearing pages join in Phase 2. We chose the global mount
+over route-scoping because the route-scoped variant adds matching
+logic to `PageHeader`, splits state behavior across the app, and
+breaks selection continuity when an operator navigates from
+`/buildings/:id` to `/racks?building_id=...` — exactly the moment
+they'd want context to follow them.
 
 - **Specific site selected** → all reads scoped to that site. All writes
   target that site without further prompting.
@@ -227,83 +295,134 @@ SitePicker hidden if none.
 
 ### J3. Site config (Settings → Sites)
 
-`/settings/sites` is the admin surface for sites and buildings.
+`/settings/sites` is the configuration surface for sites and
+buildings. Health and performance metrics belong on `/sites` (see J8);
+this page is intentionally config-only.
 
 **Empty state (org has zero sites).** Page renders a CTA: "Create your
-first site to organize miners by location." If the org has any
-unassigned buildings (created explicitly by the operator), they
-appear in a separate section below the CTA so the operator can
-rename / edit them before assigning to a site.
+first site to organize miners by location." There is no unassigned-
+buildings section — see the non-goal above; building creation always
+happens inside a site context.
 
-**Specific site selected in topbar.** Page shows the config for that
-one site, in the section layout below.
+**Specific site selected in topbar.** Page shows the single-site
+layout described below.
 
-**"All Sites" selected in topbar.** Page shows every site, each
-rendered as its own section (same layout), with a "Create site" CTA
-at the top and an "Unassigned buildings" section at the bottom
-listing buildings with no site. (Bulk reassignment of miners lives
-on the miner list — see J6 — not here.)
+**"All Sites" selected in topbar.** Page shows a flat table of every
+site, with one row per site, plus a header and "Add a site" CTA.
+Rows are ordered by `site.name` ascending; the table is not
+user-sortable in Phase 1. There is no per-site stacked section
+layout here — for the operational overview see `/sites` (J8).
 
-In Phase 1 (no topbar yet), `/settings/sites` always renders in the
-"All Sites" layout when ≥1 site exists. The empty-state layout is
-unchanged.
+**All Sites layout.**
 
-**Per-site section layout.**
+- Page header
+  - Headline: "Sites"
+  - Subheadline: "Manage your sites, buildings, and rack
+    infrastructure."
+  - Right-aligned "Add a site" button → `SiteDetailsModal` in create
+    mode.
+- Table
+  - Each column renders a two-line stack: top line `text-300-emphasis`,
+    bottom line `text-300`.
+  - **Site** column — `site.label` over `"${site.city}, ${site.state}"`.
+  - **Infrastructure** column — `"${n} buildings"` over
+    `"${n} miners"`.
+  - **Power / Efficiency** column —
+    `"${site.power} / ${site.power_capacity} MW"` over
+    `"${site.efficiency}"`. Derived values; see Phase 1b enrichment.
+  - Row click → navigates to single-site view of `/settings/sites`
+    (i.e. selects the site in the topbar SitePicker).
 
-- Heading: site name (with edit affordance)
-- **Site details card** (half width): location, capacity. Edit button
-  → modal that updates site name, location, capacity, timezone.
-- **Power contract card** (half width): ISO, utility, rate, contract
-  end date. Edit button → modal that updates ISO, utility, rate type,
-  rate, demand charge, transmission structure, power factor, contract
-  start, contract end.
-- **Buildings card** (full width): table of buildings with columns
-  for name, power, racks, kebab menu (view racks, view miners, assign
-  to another site, delete building). "Add building" CTA opens a
-  modal.
+**Single-site layout.**
 
-**Unassigned buildings section** (rendered in "All Sites" mode and in
-the empty-state page): a table of buildings with no `site_id`,
-showing the same columns plus an "Assign to site" inline action.
+- Button row
+  - Left-aligned "< All sites" button — same effect as picking
+    "All Sites" in the topbar SitePicker.
+  - Right-aligned "Manage site" button → `ManageSiteModal`
+    (FullScreenTwoPane).
+- Header
+  - Headline: `site.label`.
+  - Subheadline: `site.address` (full address — depends on the
+    site address BE follow-up; until then renders city/state).
+- **Details table** (config metadata, not metrics)
+  - Heading "Details" above the table.
+  - Two columns, no row headers, justified between so each column
+    aligns to the table edges.
+  - Rows: Power (used / capacity MW + %), PUE, Timezone, Gateway,
+    Notes. PUE / Gateway / Notes depend on BE follow-ups; FE omits
+    rows whose underlying field is not yet present.
+- **Buildings table**
+  - Heading "Buildings" with right-aligned "Add building" CTA →
+    `BuildingDetailsModal` in create mode (scoped to the current
+    site).
+  - Three columns with row headers: name (`building.label`), type
+    (`building.type` — depends on BE follow-up; row hides until
+    present), power (`"${used} / ${capacity} MW (${pct}%)"`).
+  - Row click → `/buildings/${building.id}` (J9).
 
-**Site create modal.** Mirrors today's rack-creation flow that lets
-the operator pick miners during create. The modal has two sections:
+**Modals.** Site and building CRUD mirror today's rack-creation flow.
+Three distinct modals:
 
-1. Site details — name, location, timezone, capacity, optional
-   power contract.
-2. Optional "Assign miners" picker — multi-select over the org's
-   currently-unassigned miners, with the same selection ergonomics
-   as the bulk-assign modal in J6. Operator can skip and assign
-   later from the miner list.
+- **`SiteDetailsModal`** — site detail entry form. Fields: name,
+  address, city, state, zip, country, power capacity (MW), timezone,
+  notes. Component states differ between create and edit:
+  - *Create mode*: primary action is "Continue" → opens
+    `ManageSiteModal` with the entered details in memory; the site
+    row is not persisted until "Save" inside `ManageSiteModal`.
+  - *Edit mode*: primary actions are "Delete" + "Save" (Save calls
+    `UpdateSite` directly).
+  - Address / zip / country / notes inputs depend on BE follow-ups
+    and stay hidden until those fields land.
+- **`ManageSiteModal`** — FullScreenTwoPane membership manager.
+  Header: left-aligned "Manage Site" with X close, right-aligned
+  "Edit details" (→ `SiteDetailsModal` edit mode, or back-to-details
+  in create flow) + "Save" (commits via `CreateSite` or
+  `UpdateSite`).
+  - Left pane: network text input for IP range / CIDR, plus the
+    buildings table (3 cols: name / type / power) with "Add
+    building" CTA → `BuildingDetailsModal`.
+  - Right pane: building-grid preview. Top-left `site.label` /
+    `city, state`. Top-right `power_capacity / n buildings`. Grid
+    of building boxes (label only) arranged horizontally, wrapping
+    when out of space.
+- **`BuildingDetailsModal`** — create or edit a single building.
+  Heading: `building.label`. Inputs: name, type, cooling type,
+  power capacity (MW), overhead (kW), IP range. Buttons: Save in
+  both modes, Delete only in edit. Type / cooling / IP range
+  depend on BE follow-ups and stay hidden until those fields
+  land.
 
-On save, the create + miner-assign happen in one transaction:
-the site row is inserted and `device.site_id` is updated for the
-picked miners. Cross-collection rule still applies — if any picked
-miner is in a rack already assigned to a *different* site, the
-entire create is rejected with the same per-device error detail.
-(In practice this is rare during create since the site itself is
-brand new.)
+**Site create + miner assignment.** The plan previously claimed the
+site row insert and `device.site_id` updates happen in one
+transaction. The generated `CreateSiteRequest` does not carry
+`device_ids`; the realistic Phase 1 implementation is two RPCs from
+the client (`CreateSite` then `ReassignDevicesToSite`). Treat that as
+the canonical flow; the modal surfaces a single "Save" and orchestrates
+the two calls, rolling back the create on a reassign failure is not
+worth the complexity here — instead the UI surfaces a clear
+"site created; miner assignment failed: ..." error so the operator
+retries the assignment from the miner list. Folding device_ids into
+`CreateSite` is tracked as a follow-up, not a blocker.
 
-Optionally extend with a "claim existing buildings" picker too;
-flagged as an open question.
-
-**Cross-site building moves** are allowed via the "Assign to another
-site" inline action in the buildings card kebab menu. The confirmation
-dialog explicitly warns that every rack stays under the building and
-that every descendant rack and device will have its `site_id` moved to
-the new site in the same transaction.
+**Cross-site building moves** are not surfaced as a UI action in
+Phase 1. `SiteService.AssignBuildingToSite` exists at the API layer
+but `/settings/sites` does not expose a "move to another site"
+control in this phase. Operators who need to move a building edit
+the building directly, change its parent site, and accept the
+cascade dialog. Open question whether a dedicated "Move building"
+flow is worth its own UI in Phase 1b.
 
 **Site and building deletion — cascade-unassign with warn-first
-dialog.** Deletion is never blocked by attached entities. Instead,
-the UI reads attachment counts from the list response and presents a
+dialog.** Deletion is never blocked by attached entities. The UI
+reads attachment counts from the list response and presents a
 confirmation dialog before the destructive call:
 
 - *Site delete dialog:* "Deleting site 'X' will unassign **N
-  miners**, **M racks**, and **P buildings**. They will move to the
-  Unassigned bucket. Continue?" Buttons: [Cancel] [Delete site].
+  miners**, **M racks**, and **P buildings**. They will be removed
+  from this site. Continue?" Buttons: [Cancel] [Delete site].
 - *Building delete dialog:* "Deleting building 'Y' will unassign
   **N racks** from this building and clear their zone labels. They
-  will remain directly assigned to their current site. Continue?"
+  will remain directly assigned to '${site.name}'. Continue?"
   Buttons: [Cancel] [Delete building].
 
 If counts are zero, the dialog still confirms but skips the
@@ -323,10 +442,13 @@ On confirm, the server runs in one transaction:
 
 Open questions:
 
-- Whether the empty-state page should also show unassigned **miners**
-  (since the SitePicker provides "Unassigned" as a filter, the miner
-  list is the better home for that). Working answer: no, miner
-  triage stays on the miner list.
+- Whether `ManageSiteModal`'s right-pane building grid should be
+  interactive (drag-to-reorder, click-to-edit) in Phase 1b or stay
+  display-only.
+- Whether building delete should call out indirect device impact
+  (devices remain site-assigned but lose rack/building linkage) in
+  the dialog body. Working answer: yes, when `device_count > 0`
+  derived from the building's racks.
 
 ### J4. Add miners (Miner List → Add Miners)
 
@@ -409,12 +531,12 @@ Once at least one site exists, three assignment flows surface:
 4. The bulk action is also the unassign action — the modal includes
    "(Unassigned)" as a pickable target.
 
-**Buildings.** From `/settings/sites` (Unassigned buildings section
-or kebab menu on a per-site building row): "Assign to site" inline
-action. Single-building modal picks a target site and shows the
-descendant rack/device counts that will move with it. On confirm, the
-server updates `building.site_id` and cascades the new `site_id` to
-every rack and device under that building in one transaction.
+**Buildings.** Cross-site building moves are not exposed in the UI
+in Phase 1 — see the corresponding J3 note. `AssignBuildingToSite`
+remains a first-class RPC and is callable from scripts or future
+admin tooling; when a UI surface for the move ships, the
+confirmation dialog displays the descendant rack/device counts that
+will move with the building before the server runs the cascade.
 
 **Racks.** Racks may belong directly to a site or to a building within
 a site. Reassigning a rack from one building to another, from direct
@@ -473,6 +595,91 @@ instead.
 the site/building schema, not deferred — the importer is a
 production write path and would otherwise create stale flat groups
 that operators then have to clean up by hand.
+
+### J8. Sites overview (`/sites`)
+
+`/sites` is the operational dashboard for site health and performance.
+Read-only — no config controls live here. The page is reached from the
+primary sidenav (button feature-flagged in Phase 1a).
+
+The "All Sites" vs "Single site" mode is driven by the topbar
+SitePicker, just like `/settings/sites`. The two modes share their
+per-site rendering; the only difference is whether one section or many
+are stacked.
+
+**Per-site section layout.**
+
+- **Header**: metric row of five components rendered horizontally.
+  - Location — `"${city}, ${state}"`.
+  - Hashrate — `"${value} EH/s"` (derived telemetry rollup).
+  - Power — `"${used} / ${capacity} MW"`.
+  - Efficiency — `"${value} J/TH"`.
+  - Buildings — `"${n}"`.
+- **Building cards** — one card per building in the site, arranged in
+  a responsive grid.
+  - Phase 1a ships an FPO card: grey box, building label, "n racks
+    / m miners". Whole card is a link to `/buildings/${building.id}`.
+  - Phase 1b replaces the FPO with the real `BuildingCard`
+    component (visual + per-building metrics).
+
+**All Sites mode.** Sections stack vertically, one per site, with a
+divider between. No table — the rich metric + card layout per site
+is the point of this page.
+
+**Empty state.** When the org has zero sites, the page renders the
+same CTA used by `/settings/sites` empty state ("Create your first
+site...") so the operator has a starting point from either surface.
+The CTA opens `SiteDetailsModal` in create mode.
+
+**Open questions.**
+
+- Whether `/sites` should accept a deep-link `/sites/${site.id}` for
+  bookmarking a specific site, separate from the SitePicker state.
+  Working answer: yes, but the URL drives the SitePicker on mount
+  rather than diverging from it.
+- Whether metric components are shared with `/buildings/:id` and the
+  rack overview page or duplicated. Working answer: shared — they
+  are the same shape.
+
+### J9. Building overview (`/buildings/:id`)
+
+`/buildings/:id` is the per-building operational page. Mirrors the
+existing rack overview page in structure, scoped one level up.
+
+- **Header**
+  - Headline: `building.label`.
+  - Right-aligned buttons:
+    - "View racks" → racks list page filtered to this building.
+    - "View miners" → miners list page filtered to this building.
+    - "Edit building" → `ManageBuildingModal` (sibling of
+      `ManageSiteModal`; FullScreenTwoPane; not yet detailed —
+      Phase 1b deliverable).
+- **Metrics row**
+  - Hashrate, Power (used / capacity MW + %), Efficiency,
+    Miners online (`"${online} / ${total}"`).
+- **Diagnostics section** — same shape as the rack overview's
+  diagnostics, with the grid one level up: a rack grid (one cell per
+  rack in the building) instead of a miner grid. The healthy /
+  sleeping / needs-attention / offline stats represent **racks**,
+  not miners. The derivation rule for rack-level health is an open
+  question (working answer: a rack is "needs attention" if any
+  member miner is needs-attention; "offline" if every member miner
+  is offline; "sleeping" if every member is sleeping; "healthy"
+  otherwise). The "component health" subsection is identical to the
+  rack overview's.
+- **Performance section** — same shape as the rack overview's,
+  scoped to this building.
+
+Phase 1a ships header + placeholder blocks for metrics, diagnostics,
+and performance. Phase 1b lands the metric components, the rack grid
++ rack-state derivation, and the performance charts.
+
+**Open questions.**
+
+- Rack-state derivation rule (above) needs validation against real
+  miner-state data before lock-in.
+- Whether a building with zero racks renders the diagnostics section
+  at all, or replaces it with an empty-state message.
 
 ## Backend updates
 
@@ -663,12 +870,68 @@ write:
   textarea contents with the returned canonical text so the
   operator sees what's actually stored.
 
+### Deferred fields — backend follow-ups
+
+Phase 1a frontend work does not block on these. The FE omits the
+corresponding inputs and display rows until each lands; once a
+column ships, the FE adds the field in a small follow-up PR. Each
+bullet here gets its own GitHub issue so the cross-stack work is
+tracked, not lost.
+
+**`site` table follow-ups.**
+
+- `address_line1 text`, `address_line2 text`, `postal_code text`,
+  `country text` — augment today's `location_city` /
+  `location_state`. Surface on `SiteDetailsModal` form and on the
+  single-site header subline. Country defaults to "US" on
+  pre-existing rows during migration.
+- `notes text` — free-form operator notes. Surface on the
+  single-site Details table and on `SiteDetailsModal`.
+- Gateway display on the single-site Details table — almost
+  certainly derived from the fleet-node workstream rather than a
+  column on `site`. Confirm shape when the fleet-node workstream
+  picks up a stable runtime identity for the gateway. Until then,
+  the Details row is omitted.
+
+**`building` table follow-ups.**
+
+- `building_type` enum: `WAREHOUSE`, `CONTAINER`, `DATA_CENTER`,
+  `MODULAR`, `OUTDOOR`, `RESIDENTIAL`. Surface on the buildings
+  table column "type", on `BuildingDetailsModal`, and in saved
+  filters once the miner list gains building-type filtering.
+  Default for pre-existing rows: `WAREHOUSE` (most common operator
+  case) — confirm at migration time, otherwise leave nullable and
+  let the UI render "—".
+- `network_config text` — per-building CIDR/IP range mirroring the
+  site-level shape (same canonicalization + validation rules).
+  Required for the eventual building-scoped discovery refinement,
+  but BE work can ship after `BuildingDetailsModal` lands its
+  placeholder input.
+- `cooling_type` — likely derivable from member miners'
+  cooling-mode settings. Hold the schema column until the FE
+  surface actually needs it; until then the modal hides the
+  cooling input.
+
+**Derived / computed metrics** (no schema changes).
+
+- PUE, hashrate, efficiency, used-MW, miners-online — read from
+  existing telemetry rollups + the new `MinerStateSnapshot`
+  `site_id` field (Phase 1, issue #197). FE work to surface these
+  on `/sites`, `/buildings/:id`, and the `/settings/sites` All
+  Sites table is tracked separately as the Phase 1b enrichment
+  ticket; nothing on the BE blocks it once #197 lands.
+
+Power-contract columns remain deferred per the existing schema
+note above. They are listed in the design appendix but not
+scheduled for Phase 1 or Phase 1b.
+
 ### Domain logic and APIs
 
 New domain packages:
 
 - `server/internal/domain/sites/` — site CRUD, list, reassign-devices-
-  to-site, network-config get/set, power-contract get/set. No
+  to-site, network-config get/set. (Power-contract get/set is
+  deferred along with the columns themselves.) No
   set-active-site RPC (active site is client-side). `ListSites`
   returns `device_count`, `rack_count`, and `building_count` per site
   so the delete-confirm dialog has its impact numbers without a
@@ -757,148 +1020,264 @@ User management remains SUPER_ADMIN-only, unchanged from today.
 Core views to add or update. Component naming is illustrative; final
 names land in the technical plan.
 
-**New views:**
+**Feature-flag gating.** Both the primary sidenav button for `/sites`
+and the settings subnav entry for `/settings/sites` sit behind a
+Vite-time env flag (e.g. `VITE_MULTI_SITE_ENABLED`). The buttons are
+hidden when the flag is off; the routes themselves are not
+flag-guarded, so QA + dogfood can still navigate directly. When the
+flag flips on, no other code paths change — every page already
+renders without a SitePicker when the org has zero sites, so the
+flag-off state is a strict subset of the flag-on state.
 
-- **Sites admin page** at `/settings/sites`. Renders an empty-state
-  CTA when the org has zero sites, with an "Unassigned buildings"
-  section below if any exist. Renders per-site sections (site
-  details + power contract + buildings) when ≥1 site exists, plus
-  support for racks that live directly under a site without a
-  building, and an "Unassigned buildings" section at the bottom in
-  "All Sites" mode.
-- **Site create modal** — site details + power contract + optional
-  "Assign miners" picker (see J3).
-- **Site edit modal** (site details + power contract).
-- **Building edit modal** (name + capacity + layout + default rack
-  settings + assign-to-site dropdown). Cross-site building moves
-  surface the descendant device count in the confirmation dialog.
-- **Topbar SitePicker** — replaces today's placeholder
-  `LocationSelector`. Hidden when org has zero sites. Otherwise:
-  "All Sites" + each accessible site + "Unassigned" entry.
-  Selection persists to localStorage keyed by username.
-- **"Assign to site" bulk modal** — used from miner list bulk action.
-  Includes "(Unassigned)" as a target option.
+**New views (Phase 1a scaffolding).**
+
+- **Sites overview page** at `/sites`. Reached from the
+  feature-flagged primary sidenav. Renders the per-site sections
+  described in J8, stacked in All Sites mode and singular in
+  single-site mode. Phase 1a ships header + placeholder blocks for
+  metric components and BuildingCards (FPO grey boxes linking to
+  `/buildings/:id`); Phase 1b replaces those with real components.
+- **Sites admin page** at `/settings/sites`. Reached from the
+  feature-flagged settings subnav. Renders the empty-state CTA, the
+  All Sites flat table, or the single-site config view per J3.
+- **Building overview page** at `/buildings/:id`. Renders per J9.
+  Phase 1a ships header + placeholder blocks; Phase 1b lands metric
+  components, the rack grid + rack-state derivation, and the
+  performance charts.
+- **Topbar SitePicker** — Phase 1a replaces today's
+  `LocationSelector` placeholder in `PageHeader` globally on every
+  protoFleet route. The three new routes consume the selection
+  immediately; existing routes (`/miners`, `/racks`, dashboards)
+  leave the picker informational until Phase 1b wires their
+  queries. Hidden when org has zero sites. Otherwise: "All Sites"
+  + each accessible site + "Unassigned" entry. Selection persists
+  to localStorage keyed by username so it survives navigation and
+  reload.
+
+**Modals (Phase 1a, shared across `/sites` and `/settings/sites`).**
+
+- **`SiteDetailsModal`** — site detail form. Create-mode primary
+  button is "Continue" (defers create); edit-mode buttons are
+  "Delete" + "Save". Fields per J3.
+- **`ManageSiteModal`** — FullScreenTwoPane membership manager per
+  J3. Drives both site create (via deferred-commit "Save" from
+  `SiteDetailsModal` Continue) and site edit (via "Manage site"
+  button on single-site page).
+- **`BuildingDetailsModal`** — create or edit a single building,
+  always scoped to a parent site.
+- **`ManageBuildingModal`** — Phase 1b. FullScreenTwoPane sibling
+  of `ManageSiteModal` for managing rack membership inside a
+  building. Phase 1a places "Edit building" as a button stub on
+  `/buildings/:id` that wires to `BuildingDetailsModal` only.
+- **"Assign to site" bulk modal** — used from miner list bulk
+  action (Phase 1b ticket; tracks #199). Includes "(Unassigned)"
+  as a target option.
 
 **Updated views:**
 
-- **Miner List** — new site column (rendered when org has ≥1 site;
-  hidden when site-less), new site filter chip with "Unassigned"
-  as a value alongside the actual sites, site-aware saved views.
-  Active-site selection from the topbar applies on top of any
-  saved view's filters (intersection). The miner list gains a
-  **building** filter while the existing **zone** filter remains as
-  the sub-building organizer within a building, and racks may appear
+- **Miner List** (Phase 1b, tracks #199) — new site column
+  (rendered when org has ≥1 site; hidden when site-less), new site
+  filter chip with "Unassigned" as a value alongside the actual
+  sites, site-aware saved views. Active-site selection from the
+  topbar applies on top of any saved view's filters (intersection).
+  Gains a **building** filter; existing **zone** filter remains as
+  the sub-building organizer within a building. Racks may appear
   with a site but no building.
-- **Needs Attention status** — the existing built-in "Needs
-  Attention" saved view gains a new condition: when the org has
-  ≥1 site and a miner has `site_id IS NULL`, that miner is in
-  Needs Attention, parallel to today's "needs authentication"
-  condition. Org without sites: condition is inert (no false
-  positives in site-less mode).
-- **CompleteSetup module** — the existing TaskCards screen
-  (`client/src/protoFleet/features/onboarding/components/CompleteSetup.tsx`)
-  gains a new TaskCard "Assign miners to sites" alongside today's
-  "Authenticate miners" and "Configure pools" cards. The card
-  surfaces only when the org has ≥1 site and ≥1 unassigned miner;
-  click-through opens the miner list pre-filtered to "Unassigned"
-  with the bulk-assign action ready.
-- **Page header / app shell** — SitePicker mounted; pages read
-  active site from localStorage and scope reads accordingly.
-- **Settings layout** — adds "Sites" entry to the settings nav.
+- **Needs Attention status** (Phase 1b, tracks #200) — gains the
+  `site_id IS NULL` condition, gated on org having ≥1 site.
+- **CompleteSetup module** (Phase 1b, tracks #200) — "Assign miners
+  to sites" TaskCard, gated identically.
+- **Page header / app shell** — Phase 1a replaces the
+  `LocationSelector` placeholder with the SitePicker on every
+  route. The new pages read active site from localStorage and
+  scope reads accordingly; existing pages render the picker but
+  don't yet consume the selection. Phase 1b wires the existing
+  miner list + rack list to consume the active site (rack list
+  BE filter is a Phase 1b deliverable).
+- **Primary sidenav** (Phase 1a) — adds "Sites" entry pointing at
+  `/sites`, wrapped in the Vite feature flag.
+- **Settings layout** (Phase 1a) — adds "Sites" entry to the
+  settings subnav, wrapped in the same Vite feature flag.
 
 **Components / patterns reused:**
 
 - Existing modal pattern for create/edit forms.
+- Existing FullScreenTwoPane modal shell (used today by rack
+  creation) — `ManageSiteModal` and `ManageBuildingModal` adopt it
+  directly so the visual rhythm matches.
 - Existing saved-views machinery and filter-chip components.
-- Existing `SettingsLayout` shell for the new Sites pages.
+- Existing `SettingsLayout` shell for the new `/settings/sites`
+  page.
 - Existing `useLocalStorage` hook for active-site persistence.
+- Existing metric-component primitives from the rack overview page
+  (shared with `/sites` and `/buildings/:id`).
 
 ## Phasing
 
-Phasing is driven by what unblocks the Block dogfood acceptance gate
-fastest, then by what de-risks the bigger refactors. Each phase ships
-behind whatever flagging the team uses today; the doc doesn't pick a
-flag mechanism.
+Phasing is scaffold-first. The Block dogfood acceptance gate is the
+target outcome (ops creates sites, organizes buildings, assigns miners,
+filters miner list), but the order of work is rearranged so that
+navigation correctness + full-stack CRUD wiring land first and the
+purely visual content lands second. This protects the architectural
+review surface — which moves slowly — from getting blocked by metric
+component fidelity, which can iterate in parallel.
 
-### Phase 1 — data layer + minimal admin (dogfood unblock)
+The backend foundation (PRs A/B/C, issues #195/#196/#197) is already
+underway and follows its own merge order; phase boundaries below
+describe **frontend + downstream** work. PR A (#195) and PR B (#196)
+have shipped; PR C (#197) is still open and unblocks the miner-list
+work in Phase 1b.
 
-Goal: Block ops can create 3+ sites, organize them with buildings,
-assign existing miners to sites via bulk action, see the site column
-and filter on the miner list. No topbar yet, no discovery
-segmentation yet. App fully functional in site-less form for orgs
-that don't opt in.
+Both sidenav entries for the new feature ship behind a Vite-time
+env flag (e.g. `VITE_MULTI_SITE_ENABLED`) so the buttons remain
+hidden until Phase 1b is complete. The routes themselves are not
+flag-protected, which keeps dogfood + QA paths open.
 
-- Migrations: `site` (location, timezone, network config; power-
-  contract columns deferred to a follow-up); `building` (nullable
-  `site_id` + layout columns); `device.site_id` nullable;
-  `device_set_rack.site_id` nullable; `device_set_rack.building_id`
-  nullable, no auto-backfill from zones (operators opt into
-  buildings explicitly); `zone` stays on the rack as the Phase 1
-  building-scoped sub-organization field.
-- `SiteService` proto + handlers: list (returns device + building
-  + rack counts), create, update, delete (soft, cascade-unassigns
-  devices, racks, and buildings; activity log captures impact);
-  reassign-devices; assign-building-to-site with descendant rack and
-  device cascade.
-- `BuildingService` proto + handlers: list (filterable by site or
-  "unassigned"; returns rack count), create, update, delete (soft,
-  cascade-unassigns racks and clears their zones).
-- `site_ids` (repeated int64) + `include_unassigned` (bool) filter
-  fields on miner-list query — split rather than overloaded.
-  `site_id` + `site_label` on `MinerStateSnapshot` with writer
-  audit.
-- Cross-collection enforcement on direct device assignment, plus
-  transactional descendant cascades on building assign-to-site,
-  **the existing rack edit/move flow**, and the
-  `AddDevicesToDeviceSet` rack-add flow. Rack edit must land in
-  Phase 1 so miners cannot drift to the wrong site via a rack move,
-  and cross-building moves must clear the rack's zone as part of
-  the same transaction. `AddDevicesToDeviceSet` cascades the rack's
-  `site_id` onto added devices (when the target is a rack with
-  `site_id IS NOT NULL`) and records the prior device site in the
-  activity log; group-target adds are exempt.
-- Server-side validation of site `network_config` (CIDR parse,
-  `/20` cap, within-site overlap rejection, cross-site overlap
-  warning, canonical-form round-trip).
-- Add nullable `site_id` to history-bearing tables
-  (`activity_log`, `miner_state_snapshots`,
-  `command_on_device_log`, errors, telemetry); writers populate
-  from `device.site_id` at write time. Existing rows stay NULL.
-- `/settings/sites` page rendering empty state (zero sites) or the
-  "All Sites" layout (per-site sections + unassigned buildings
-  section). Inline edit modals. Site create modal with optional
-  "Assign miners" picker. The topbar-driven single-site rendering
-  mode lands in Phase 2 with the SitePicker.
-- Site column + site filter chip in Miner List (rendered only when
-  org has ≥1 site). Bulk "Assign to site" action.
-- "Needs Attention" saved view gains the unassigned-miner condition
-  (gated on org having ≥1 site so site-less orgs see no change).
-- CompleteSetup TaskCard "Assign miners to sites" (gated on org
-  having ≥1 site and ≥1 unassigned miner).
-- Foreman importer (`server/internal/domain/foremanimport/`)
-  rewritten to map the sitemap tree onto `site → building → rack`
-  per J7.
+### Phase 1a — scaffolding and CRUD (single PR, ships first)
+
+Goal: every route exists, every modal works end-to-end, every CRUD
+operation persists through to the DB. Visual content is placeholder
+blocks. Block ops can manually seed sites/buildings via the modals or
+direct DB inserts to demo the navigation flow.
+
+Work in this phase consolidates into three sequential PRs:
+
+**PR 1 — scaffold + SitePicker** (this is what previously was issue
+#198 plus a slice of Phase 2):
+
+- Routes wired: `/sites`, `/settings/sites`, `/buildings/:id`. Each
+  page is a shell — header / button row only, with FPO placeholder
+  blocks where Phase 1b will land metric components, BuildingCards,
+  diagnostics, and the performance section.
+- Topbar SitePicker — replaces today's `LocationSelector`
+  placeholder in `PageHeader` globally; visible on every
+  protoFleet route from Phase 1a. The three new routes consume
+  the selection immediately; existing routes (`/miners`,
+  `/racks`, dashboards) leave the picker informational until
+  Phase 1b (#202) wires their queries. Hidden when org has zero
+  sites; renders "All Sites" + each accessible site +
+  "Unassigned" otherwise. localStorage-keyed by username so the
+  selection persists across navigation and reload.
+- Primary sidenav "Sites" button → `/sites`, feature-flagged.
+- Settings subnav "Sites" entry → `/settings/sites`,
+  feature-flagged with the same flag.
+- `/settings/sites` empty-state CTA (zero sites). All Sites flat
+  table render. Single-site config view render. All three modes
+  driven by the topbar SitePicker.
+- `/sites` empty-state CTA. All Sites stacked-section render with
+  FPO building cards. Single-site render.
+- `/buildings/:id` header + button row (View racks / View miners /
+  Edit building) wired; body sections are placeholder blocks.
+- `useSites` + `useBuildings` API hooks (ListSites / ListBuildings).
+- Acceptance: with a hand-seeded DB containing 3 sites, several
+  buildings, and a few miners, an operator can navigate through
+  every route via the SitePicker and the sidenav, see correct
+  attachment counts in the table cells that already render, and
+  reach a placeholder building page from a building card. No
+  modals are required to pass this acceptance.
+
+**PR 2 — site creation + edit flows:**
+
+- `SiteDetailsModal` (create + edit modes) wired to `CreateSite` /
+  `UpdateSite`.
+- `ManageSiteModal` (FullScreenTwoPane) with network input,
+  buildings table, building-grid preview, and "Save" /
+  "Edit details" buttons. Drives both site create (deferred-commit
+  via "Continue" from `SiteDetailsModal`) and site edit.
+- Site delete with cascade-unassign confirm dialog reading
+  `device_count` / `building_count` / `rack_count` from
+  `ListSites`.
+- Two-call orchestration documented in J3: `CreateSite` then
+  optional `ReassignDevicesToSite`. UI surfaces a clear error if
+  the second call fails.
+- Acceptance: operator creates 3+ sites entirely through the UI,
+  edits one, deletes one with the cascade dialog. Sites render in
+  both `/sites` and `/settings/sites`.
+
+**PR 3 — building creation + edit flows:**
+
+- `BuildingDetailsModal` (create + edit modes) wired to
+  `CreateBuilding` / `UpdateBuilding`. Always scoped to a parent
+  site context — no orphan-building create paths in the UI.
+- Building delete with cascade-unassign confirm dialog reading
+  `rack_count` from `ListBuildings`.
+- Acceptance: operator adds buildings to a site through both
+  `ManageSiteModal`'s left-pane "Add building" button and the
+  single-site Buildings table's "Add building" CTA. Edits and
+  deletes a building.
+
+### Phase 1b — data enrichment (parallel-safe with 1a tail)
+
+Goal: replace every placeholder block with real content. Light
+backend follow-ups land here where they unblock visible product.
+
+- Real metric components everywhere: `/sites` per-site metric row,
+  single-site Details table, `/buildings/:id` metrics row.
+  Underlying data joins `MinerStateSnapshot` (with #197's
+  `site_id`) and the existing telemetry rollups.
+- Real `BuildingCard` component replacing the FPO grey box on
+  `/sites`.
+- `/buildings/:id` diagnostics section (rack grid + rack-state
+  derivation) and performance section.
+- `ManageBuildingModal` (FullScreenTwoPane sibling of
+  `ManageSiteModal`) for rack membership inside a building.
+- BE follow-ups for deferred fields, each in its own PR:
+  - `site` address columns (`address_line1`, `address_line2`,
+    `postal_code`, `country`) and `notes`.
+  - `building.building_type` enum.
+  - `building.network_config`.
+  - `building.cooling_type` (only if FE surface needs it; can
+    slip to Phase 2).
+- FE inputs and display rows for each newly-shipped column.
+- Miner list site column + site filter chip + bulk "Assign to
+  site" action (was #199). Depends on PR C (#197) landing for the
+  filter fields. Miner list also begins honoring the active-site
+  selection from the topbar (intersection with any saved-view
+  filters).
+- **Rack list site scoping (new BE work).** Add `repeated int64
+  site_ids` + `bool include_unassigned` to
+  `ListDeviceSetsRequest` (proto + handler + sqlc), mirroring the
+  miner-list filter shape. `RacksPage` reads the active-site
+  selection from localStorage and passes it into the query.
+  Optional rack-list site filter chip + site column on the rack
+  table track as part of the same enrichment work.
+- **SitePicker consumption rollout.** With miner-list and
+  rack-list scoping in place, both pages start reading the active
+  site from localStorage and pass it through to their list
+  queries. The SitePicker was already mounted globally in Phase
+  1a; this work removes the transitional gap noted in the picker
+  tooltip / release notes. History-bearing pages (errors,
+  activity, telemetry, dashboards) still ignore the selection
+  until Phase 2 — tooltip / release-note guidance updates to
+  reflect the new scope.
+- "Needs Attention" gains the `site_id IS NULL` condition (was
+  #200).
+- CompleteSetup "Assign miners to sites" TaskCard (was #200).
+- Foreman importer rewritten to map the sitemap tree onto
+  `site → building → rack` per J7 (was #201).
 - Activity-log rows on every site CRUD, building CRUD, and
-  reassignment.
+  reassignment (BE side ships with #196/#197; FE side ensures
+  reads honor them).
+- Flip the Vite feature flag to expose the sidenav + settings
+  subnav entries once everything above is stable.
 
 Acceptance: Block ops walks through the full create-3+-sites,
-assign-buildings, assign-miners workflow in <30 minutes from
-`/settings/sites` and the miner list, no engineer help. An org that
-ignores the feature continues operating site-less with no regressions.
+organize-buildings, assign-miners workflow in <30 minutes from
+`/settings/sites`, `/sites`, and the miner list, no engineer help.
+An org that ignores the feature continues operating site-less with
+no regressions.
 
-### Phase 2 — topbar and site-segmented discovery
+### Phase 2 — site-segmented discovery + history filters
 
-Goal: every page is site-aware, pairing flow gains site segmentation.
+Goal: pairing flow becomes site-aware and history surfaces honor
+site filters.
 
-- Topbar SitePicker replaces the `LocationSelector` placeholder.
-  localStorage-backed active-site selection. Hidden when org has
-  zero sites; otherwise renders "All Sites" + sites + "Unassigned".
-- "All Sites" / "Unassigned" modes wired through every list/read
-  page (miner list, errors, activity, dashboards, etc.). Site
-  filter on errors / activity / telemetry / dashboards reads the
-  row-stamped `site_id` (added in Phase 1), not the device's
-  *current* `site_id`. Pre-multi-site rows surface in a "(no
-  site)" bucket and are excluded from specific-site filters.
+- "All Sites" / "Unassigned" modes wired through history-bearing
+  pages (errors, activity, telemetry, dashboards). Site filter on
+  those pages reads the row-stamped `site_id` (added in Phase 1),
+  not the device's *current* `site_id`. Pre-multi-site rows
+  surface in a "(no site)" bucket and are excluded from
+  specific-site filters.
 - Discovery results segmented by site network config: each
   discovered miner is grouped under the site whose IP range caught
   it; operator can drag-and-drop between site buckets before
@@ -906,10 +1285,9 @@ Goal: every page is site-aware, pairing flow gains site segmentation.
   confirmed site.
 - Saved views: site filter included in the existing serialization;
   pre-existing saved views remain valid.
-- Evaluate whether zones need promotion beyond the Phase 1 rack-owned
-  string model (for example: dedicated zone picker UX, caching of
-  distinct zones per building, or a first-class entity). No zone
-  schema change is planned by default in Phase 2.
+- Evaluate whether zones need promotion beyond the Phase 1
+  rack-owned string model. No zone schema change is planned by
+  default in Phase 2.
 - Polish: multi-select on bulk reassign, undo, batch progress.
 
 Acceptance: pairing into a specific site works without a separate
@@ -948,27 +1326,44 @@ before they're locked.
    target building already has the same zone label" shortcut. Working
    answer for MVP: always clear.
 4. Building deletion confirmation dialog wording when racks are
-   present but those racks contain devices — call out the indirect
-   impact (devices stay site-assigned but lose their rack/building
-   linkage), or keep the dialog focused on rack count only.
+   present but those racks contain devices — working answer:
+   call out the indirect device-impact count when
+   `device_count > 0` (derived from the building's racks), keep
+   it concise otherwise.
 5. Power-contract enum coverage gaps as customers onboard — utility
-   list completeness for unfamiliar regions.
-6. Whether the "Unassigned buildings" section should also offer a
-   single-click "Create site from this building" shortcut.
-7. Whether the site-create modal should also include a "Claim
-   existing buildings" picker (alongside the "Assign miners"
-   picker), useful for operators who built up unassigned buildings
-   before creating their first site.
-8. Whether `zone` should eventually graduate from the Phase 1
-   rack-owned string into a first-class entity. Working answer:
-   stay rack-owned until one of the documented triggers fires —
-   zone-level attributes (color, coordinates, capacity, cooling
-   defaults, setpoints, ACLs), non-rack equipment in a zone,
-   pre-provisioning empty zones, or rename-as-hot-path. See the
-   "Forward look" callout in the Storage model section for the
-   migration shape.
+   list completeness for unfamiliar regions. (Deferred along with
+   the columns themselves.)
+6. Whether `ManageSiteModal`'s right-pane building grid becomes
+   interactive (drag-to-reorder, click-to-edit) in Phase 1b or
+   stays display-only.
+7. Whether `/sites` should accept a deep-link `/sites/${site.id}`
+   for bookmarking a specific site, separate from the SitePicker
+   state. Working answer: yes, but the URL drives the SitePicker
+   on mount rather than diverging from it.
+8. Rack-state derivation rule for the `/buildings/:id` diagnostics
+   grid (healthy / sleeping / needs-attn / offline). Working
+   answer: "needs attention" if any member miner is needs-attn;
+   "offline" if every member is offline; "sleeping" if every
+   member is sleeping; "healthy" otherwise. Validate against real
+   miner-state data before lock-in.
+9. Whether a building with zero racks renders the `/buildings/:id`
+   diagnostics section at all, or replaces it with an empty-state
+   message.
+10. Whether `zone` should eventually graduate from the Phase 1
+    rack-owned string into a first-class entity. Working answer:
+    stay rack-owned until one of the documented triggers fires —
+    zone-level attributes (color, coordinates, capacity, cooling
+    defaults, setpoints, ACLs), non-rack equipment in a zone,
+    pre-provisioning empty zones, or rename-as-hot-path. See the
+    "Forward look" callout in the Storage model section for the
+    migration shape.
 
 ## Appendix — power contract enum suggestions
+
+> **Status: deferred.** Power-contract columns are not in Phase 1 or
+> Phase 1b. This appendix is retained for the eventual follow-up
+> migration so the enum coverage and utility-list reasoning is not
+> lost.
 
 ISOs / RTOs (FERC-recognized):
 

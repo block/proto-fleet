@@ -43,6 +43,15 @@ func (s EventState) IsTerminal() bool {
 	return false
 }
 
+// DesiredState values for `curtailment_target.desired_state`. The active
+// phase requests "curtailed"; Stop flips non-terminal targets to "active"
+// (restore phase). Plain strings rather than a typed alias to match the
+// existing column shape; constants give callers a single source of truth.
+const (
+	DesiredStateCurtailed = "curtailed"
+	DesiredStateActive    = "active"
+)
+
 // TargetState is a typed wrapper for `curtailment_target.state`.
 type TargetState string
 
@@ -157,7 +166,8 @@ type Event struct {
 }
 
 // InsertEventParams is the caller-supplied fields; id / created_at /
-// updated_at / effective_batch_size come from the DB.
+// updated_at come from the DB. EffectiveBatchSize is computed at Start
+// from the selected-target count and stamped here.
 type InsertEventParams struct {
 	EventUUID               uuid.UUID
 	OrgID                   int64
@@ -186,6 +196,7 @@ type InsertEventParams struct {
 	Reason                  string
 	ScheduledStartAt        *time.Time
 	CreatedByUserID         int64
+	EffectiveBatchSize      int32
 }
 
 // InsertEventResult is what InsertEventWithTargets returns to the caller.

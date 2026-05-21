@@ -72,6 +72,7 @@ type Service struct {
 	activitySvc         *activity.Service
 
 	resolveDeviceIDsOverride func(context.Context, []string) ([]int64, error)
+	resolveDevicesOverride   func(context.Context, []string) ([]resolvedDevice, error)
 	// Test-only hooks; production never sets these. When set, processCommand
 	// uses them instead of the real DB batch insert / status-update goroutine.
 	saveCommandBatchLogOverride      func(ctx context.Context, userID, organizationID int64, command *Command, payloadBytes []byte, devicesCount int) (string, error)
@@ -80,6 +81,11 @@ type Service struct {
 	// filters run in registration order. Registered at startup only;
 	// the slice is not mutex-protected.
 	filters []CommandFilter
+}
+
+type resolvedDevice struct {
+	id         int64
+	identifier string
 }
 
 // SetPluginCapabilitiesProvider — nil disables the SV2 gate (test default).
@@ -642,6 +648,53 @@ func (s *Service) resolveIdentifiersToDeviceIDs(ctx context.Context, identifiers
 	})
 }
 
+func (s *Service) resolveIdentifiersToDevices(ctx context.Context, identifiers []string) ([]resolvedDevice, error) {
+	if len(identifiers) == 0 {
+		return []resolvedDevice{}, nil
+	}
+	if s.resolveDevicesOverride != nil {
+		return s.resolveDevicesOverride(ctx, identifiers)
+	}
+	if s.resolveDeviceIDsOverride != nil {
+		ids, err := s.resolveDeviceIDsOverride(ctx, identifiers)
+		if err != nil {
+			return nil, err
+		}
+		devices := make([]resolvedDevice, 0, len(ids))
+		for i, id := range ids {
+			if i >= len(identifiers) {
+				break
+			}
+			devices = append(devices, resolvedDevice{id: id, identifier: identifiers[i]})
+		}
+		return devices, nil
+	}
+	return db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) ([]resolvedDevice, error) {
+		rows, err := q.GetDeviceIDsWithIdentifiers(ctx, identifiers)
+		if err != nil {
+			return nil, err
+		}
+		idByIdentifier := make(map[string]int64, len(rows))
+		for _, row := range rows {
+			idByIdentifier[row.DeviceIdentifier] = row.ID
+		}
+		devices := make([]resolvedDevice, 0, len(rows))
+		seen := make(map[string]struct{}, len(rows))
+		for _, identifier := range identifiers {
+			if _, ok := seen[identifier]; ok {
+				continue
+			}
+			id, ok := idByIdentifier[identifier]
+			if !ok {
+				continue
+			}
+			seen[identifier] = struct{}{}
+			devices = append(devices, resolvedDevice{id: id, identifier: identifier})
+		}
+		return devices, nil
+	})
+}
+
 // processCommand resolves selectors, filters, writes the batch row, and
 // enqueues work. External callers fail on skips; internal callers may inspect
 // CommandResult.Skipped.
@@ -711,9 +764,15 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (*Comman
 		return nil, fleeterror.NewInternalErrorf("error marshalling payload: %v", err)
 	}
 
-	deviceIDs, err := s.resolveIdentifiersToDeviceIDs(ctx, kept)
+	resolvedDevices, err := s.resolveIdentifiersToDevices(ctx, kept)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("error resolving identifiers to device IDs: %v", err)
+	}
+	deviceIDs := make([]int64, 0, len(resolvedDevices))
+	dispatchedIdentifiers := make([]string, 0, len(resolvedDevices))
+	for _, device := range resolvedDevices {
+		deviceIDs = append(deviceIDs, device.id)
+		dispatchedIdentifiers = append(dispatchedIdentifiers, device.identifier)
 	}
 	if len(deviceIDs) == 0 {
 		if !isExternalCommand(info) {
@@ -736,7 +795,7 @@ func (s *Service) processCommand(ctx context.Context, command *Command) (*Comman
 		BatchIdentifier:             batchLogIdentifier,
 		DispatchedCount:             len(deviceIDs),
 		Skipped:                     skipped,
-		DispatchedDeviceIdentifiers: kept,
+		DispatchedDeviceIdentifiers: dispatchedIdentifiers,
 	}, nil
 }
 

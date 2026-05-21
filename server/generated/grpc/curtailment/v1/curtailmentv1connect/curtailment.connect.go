@@ -62,10 +62,17 @@ type CurtailmentServiceClient interface {
 	// Preview a candidate plan without persisting it.
 	PreviewCurtailmentPlan(context.Context, *connect.Request[v1.PreviewCurtailmentPlanRequest]) (*connect.Response[v1.PreviewCurtailmentPlanResponse], error)
 	// Start an event, persist targets, and dispatch initial Curtail commands.
+	// AlreadyExists when a concurrent Start races past the selector and hits
+	// the per-org one-non-terminal-event constraint; the error debug message
+	// carries the existing event's identity as the stable substring
+	// `(event_uuid=<uuid>, state="<state>")` for callers that need to recover.
 	StartCurtailment(context.Context, *connect.Request[v1.StartCurtailmentRequest]) (*connect.Response[v1.StartCurtailmentResponse], error)
 	// Update operator-safe fields; target mutation is reserved.
 	UpdateCurtailmentEvent(context.Context, *connect.Request[v1.UpdateCurtailmentEventRequest]) (*connect.Response[v1.UpdateCurtailmentEventResponse], error)
-	// Stop an active event and begin staggered restore.
+	// Stop an active event and begin staggered restore. Idempotent on an
+	// already-restoring event (returns the persisted row). FailedPrecondition
+	// when the event is terminal or a concurrent transition raced past
+	// restoring; treat as non-retryable.
 	StopCurtailment(context.Context, *connect.Request[v1.StopCurtailmentRequest]) (*connect.Response[v1.StopCurtailmentResponse], error)
 	// Get the current pending, active, or restoring event.
 	GetActiveCurtailment(context.Context, *connect.Request[v1.GetActiveCurtailmentRequest]) (*connect.Response[v1.GetActiveCurtailmentResponse], error)
@@ -175,10 +182,17 @@ type CurtailmentServiceHandler interface {
 	// Preview a candidate plan without persisting it.
 	PreviewCurtailmentPlan(context.Context, *connect.Request[v1.PreviewCurtailmentPlanRequest]) (*connect.Response[v1.PreviewCurtailmentPlanResponse], error)
 	// Start an event, persist targets, and dispatch initial Curtail commands.
+	// AlreadyExists when a concurrent Start races past the selector and hits
+	// the per-org one-non-terminal-event constraint; the error debug message
+	// carries the existing event's identity as the stable substring
+	// `(event_uuid=<uuid>, state="<state>")` for callers that need to recover.
 	StartCurtailment(context.Context, *connect.Request[v1.StartCurtailmentRequest]) (*connect.Response[v1.StartCurtailmentResponse], error)
 	// Update operator-safe fields; target mutation is reserved.
 	UpdateCurtailmentEvent(context.Context, *connect.Request[v1.UpdateCurtailmentEventRequest]) (*connect.Response[v1.UpdateCurtailmentEventResponse], error)
-	// Stop an active event and begin staggered restore.
+	// Stop an active event and begin staggered restore. Idempotent on an
+	// already-restoring event (returns the persisted row). FailedPrecondition
+	// when the event is terminal or a concurrent transition raced past
+	// restoring; treat as non-retryable.
 	StopCurtailment(context.Context, *connect.Request[v1.StopCurtailmentRequest]) (*connect.Response[v1.StopCurtailmentResponse], error)
 	// Get the current pending, active, or restoring event.
 	GetActiveCurtailment(context.Context, *connect.Request[v1.GetActiveCurtailmentRequest]) (*connect.Response[v1.GetActiveCurtailmentResponse], error)

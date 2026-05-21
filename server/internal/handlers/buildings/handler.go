@@ -37,6 +37,20 @@ func (h *Handler) ListBuildings(ctx context.Context, req *connect.Request[pb.Lis
 	return connect.NewResponse(toListBuildingsResponse(rows)), nil
 }
 
+func (h *Handler) GetBuilding(ctx context.Context, req *connect.Request[pb.GetBuildingRequest]) (*connect.Response[pb.GetBuildingResponse], error) {
+	info, err := middleware.RequireAdmin(ctx, "get building")
+	if err != nil {
+		return nil, err
+	}
+	building, err := h.service.GetBuilding(ctx, info.OrganizationID, req.Msg.GetId())
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.GetBuildingResponse{
+		Building: toProtoBuilding(building),
+	}), nil
+}
+
 func (h *Handler) CreateBuilding(ctx context.Context, req *connect.Request[pb.CreateBuildingRequest]) (*connect.Response[pb.CreateBuildingResponse], error) {
 	info, err := middleware.RequireAdmin(ctx, "create buildings")
 	if err != nil {

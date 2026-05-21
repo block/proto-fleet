@@ -68,6 +68,7 @@ import Rectangle from "./Rectangle";
 import Repair from "./Repair";
 import Settings from "./Settings";
 import SettingsSolid from "./SettingsSolid";
+import Site from "./Site";
 import Slider from "./Slider";
 import Speedometer from "./Speedometer";
 import Stop from "./Stop";
@@ -153,6 +154,7 @@ export {
   Repair,
   Settings,
   SettingsSolid,
+  Site,
   Slider,
   Speedometer,
   Stop,

@@ -1,4 +1,5 @@
 import type { StateCreator } from "zustand";
+import { DEFAULT_ACTIVE_SITE } from "../types/activeSite";
 import type { FleetStore } from "../useFleetStore";
 
 // =============================================================================
@@ -75,5 +76,10 @@ export const createAuthSlice: StateCreator<FleetStore, [["zustand/immer", never]
       state.auth.role = "";
       state.auth.authLoading = false;
       state.auth.temporaryPassword = null;
+      // Reset multi-site active selection on logout so user B doesn't
+      // inherit user A's choice on shared browsers. Server-side org
+      // scoping already prevents data exposure; this is a UX-level
+      // hygiene reset.
+      state.ui.activeSite = DEFAULT_ACTIVE_SITE;
     }),
 });

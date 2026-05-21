@@ -3,6 +3,7 @@ import { transport } from "./transport";
 import { ActivityService } from "@/protoFleet/api/generated/activity/v1/activity_pb";
 import { ApiKeyService } from "@/protoFleet/api/generated/apikey/v1/apikey_pb";
 import { AuthService } from "@/protoFleet/api/generated/auth/v1/auth_pb";
+import { BuildingService } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { CurtailmentService } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { DeviceSetService } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { ErrorQueryService } from "@/protoFleet/api/generated/errors/v1/errors_pb";
@@ -15,6 +16,7 @@ import { PairingService } from "@/protoFleet/api/generated/pairing/v1/pairing_pb
 import { PoolsService } from "@/protoFleet/api/generated/pools/v1/pools_pb";
 import { ScheduleService } from "@/protoFleet/api/generated/schedule/v1/schedule_pb";
 import { ServerLogService } from "@/protoFleet/api/generated/serverlog/v1/serverlog_pb";
+import { SiteService } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { TelemetryService } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 
 const activityClient = createClient(ActivityService, transport);
@@ -33,11 +35,14 @@ const serverLogClient = createClient(ServerLogService, transport);
 const deviceSetClient = createClient(DeviceSetService, transport);
 const telemetryClient = createClient(TelemetryService, transport);
 const foremanImportClient = createClient(ForemanImportService, transport);
+const sitesClient = createClient(SiteService, transport);
+const buildingsClient = createClient(BuildingService, transport);
 
 export {
   activityClient,
   apiKeyClient,
   authClient,
+  buildingsClient,
   curtailmentClient,
   deviceSetClient,
   errorQueryClient,
@@ -49,6 +54,7 @@ export {
   poolsClient,
   scheduleClient,
   serverLogClient,
+  sitesClient,
   telemetryClient,
   foremanImportClient,
 };

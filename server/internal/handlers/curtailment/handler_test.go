@@ -29,7 +29,7 @@ func TestHandler_NonAdminRPCsReturnUnimplemented(t *testing.T) {
 
 	mux := http.NewServeMux()
 	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(
-		NewHandler(nil, false),
+		NewHandler(nil),
 		connect.WithInterceptors(interceptors.NewErrorMappingInterceptor()),
 	))
 	server := httptest.NewServer(mux)
@@ -240,7 +240,7 @@ func TestHandler_RequestValidation(t *testing.T) {
 func TestHandler_AdminTerminateEventRoleGate(t *testing.T) {
 	t.Parallel()
 
-	h := NewHandler(nil, false)
+	h := NewHandler(nil)
 	req := connect.NewRequest(&pb.AdminTerminateEventRequest{
 		EventUuid:   "event-uuid",
 		TargetState: pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_CANCELLED,
@@ -388,7 +388,7 @@ func TestHandler_AdminTerminateEventValidation(t *testing.T) {
 func TestHandler_OverrideFieldsRoleGate(t *testing.T) {
 	t.Parallel()
 
-	h := NewHandler(nil, false)
+	h := NewHandler(nil)
 
 	type call struct {
 		name       string
@@ -433,10 +433,10 @@ func TestHandler_OverrideFieldsRoleGate(t *testing.T) {
 		}))
 		return err
 	}
-	stopWithBatchOverride := func(ctx context.Context) error {
+	stopWithForce := func(ctx context.Context) error {
 		_, err := h.StopCurtailment(ctx, connect.NewRequest(&pb.StopCurtailmentRequest{
-			EventUuid:                "00000000-0000-0000-0000-000000000001",
-			RestoreBatchSizeOverride: ptr(uint32(50)),
+			EventUuid: "00000000-0000-0000-0000-000000000001",
+			Force:     true,
 		}))
 		return err
 	}
@@ -449,8 +449,8 @@ func TestHandler_OverrideFieldsRoleGate(t *testing.T) {
 		{"Start candidate override + viewer API key", startWithCandidateOverride, "VIEWER", session.AuthMethodAPIKey, connect.CodePermissionDenied},
 		{"Start allow_unbounded + viewer session", startWithAllowUnbounded, "VIEWER", session.AuthMethodSession, connect.CodePermissionDenied},
 		{"Start allow_unbounded + viewer API key", startWithAllowUnbounded, "VIEWER", session.AuthMethodAPIKey, connect.CodePermissionDenied},
-		{"Stop batch override + viewer session", stopWithBatchOverride, "VIEWER", session.AuthMethodSession, connect.CodePermissionDenied},
-		{"Stop batch override + viewer API key", stopWithBatchOverride, "VIEWER", session.AuthMethodAPIKey, connect.CodePermissionDenied},
+		{"Stop force + viewer session", stopWithForce, "VIEWER", session.AuthMethodSession, connect.CodePermissionDenied},
+		{"Stop force + viewer API key", stopWithForce, "VIEWER", session.AuthMethodAPIKey, connect.CodePermissionDenied},
 
 		// Admin role reaches Unimplemented regardless of auth method — admin
 		// API-key callers can drive override paths so external integrations
@@ -461,8 +461,8 @@ func TestHandler_OverrideFieldsRoleGate(t *testing.T) {
 		{"Start candidate override + admin API key", startWithCandidateOverride, domainAuth.AdminRoleName, session.AuthMethodAPIKey, connect.CodeUnimplemented},
 		{"Start allow_unbounded + super admin session", startWithAllowUnbounded, domainAuth.SuperAdminRoleName, session.AuthMethodSession, connect.CodeUnimplemented},
 		{"Start allow_unbounded + super admin API key", startWithAllowUnbounded, domainAuth.SuperAdminRoleName, session.AuthMethodAPIKey, connect.CodeUnimplemented},
-		{"Stop batch override + admin session", stopWithBatchOverride, domainAuth.AdminRoleName, session.AuthMethodSession, connect.CodeUnimplemented},
-		{"Stop batch override + admin API key", stopWithBatchOverride, domainAuth.AdminRoleName, session.AuthMethodAPIKey, connect.CodeUnimplemented},
+		{"Stop force + admin session", stopWithForce, domainAuth.AdminRoleName, session.AuthMethodSession, connect.CodeUnimplemented},
+		{"Stop force + admin API key", stopWithForce, domainAuth.AdminRoleName, session.AuthMethodAPIKey, connect.CodeUnimplemented},
 	}
 
 	for _, tc := range cases {
@@ -489,7 +489,7 @@ func TestHandler_OverrideFieldsRoleGate(t *testing.T) {
 func TestHandler_NoOverrideSkipsRoleGate(t *testing.T) {
 	t.Parallel()
 
-	h := NewHandler(nil, false)
+	h := NewHandler(nil)
 
 	previewNoOverride := connect.NewRequest(&pb.PreviewCurtailmentPlanRequest{
 		Scope: &pb.PreviewCurtailmentPlanRequest_WholeOrg{WholeOrg: &pb.ScopeWholeOrg{}},
@@ -521,7 +521,7 @@ func TestHandler_NoOverrideSkipsRoleGate(t *testing.T) {
 func TestHandler_AdminTerminateEventRejectsMissingSession(t *testing.T) {
 	t.Parallel()
 
-	h := NewHandler(nil, false)
+	h := NewHandler(nil)
 	req := connect.NewRequest(&pb.AdminTerminateEventRequest{
 		EventUuid:   "event-uuid",
 		TargetState: pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_CANCELLED,
@@ -542,7 +542,7 @@ func newValidationTestClient(t *testing.T) curtailmentv1connect.CurtailmentServi
 
 	mux := http.NewServeMux()
 	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(
-		NewHandler(nil, false),
+		NewHandler(nil),
 		connect.WithInterceptors(
 			interceptors.NewErrorMappingInterceptor(),
 			validate.NewInterceptor(),
