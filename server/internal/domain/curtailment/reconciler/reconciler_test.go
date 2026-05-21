@@ -529,6 +529,29 @@ func TestReconciler_DispatchSkippedKeepsTargetPending(t *testing.T) {
 	assert.Equal(t, int32(1), final.RetryCount, "skip counts toward retry budget")
 }
 
+// TestSkippedDeviceReason pins the priority-order contract for the shared
+// skip-reason rendering helper. Both the single-device dispatch path and the
+// batch restore path route audit strings through this switch, so each branch
+// must land on the right string.
+func TestSkippedDeviceReason(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		s    command.SkippedDevice
+		want string
+	}{
+		{"reason_present_wins", command.SkippedDevice{Reason: "schedule conflict", FilterName: "schedule"}, "schedule conflict"},
+		{"filter_name_only", command.SkippedDevice{FilterName: "maintenance_window"}, "filtered by maintenance_window"},
+		{"both_empty_fallback", command.SkippedDevice{}, "filtered by command preflight"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tc.want, skippedDeviceReason(tc.s))
+		})
+	}
+}
+
 // TestReconciler_MissingCandidateDuringConfirmConsumesRetryBudget pins the
 // fix for the device-deleted-after-dispatch race: when ListCandidates
 // returns no row for a Dispatched target, confirmOneDispatched routes the
