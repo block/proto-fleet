@@ -195,6 +195,7 @@ type InsertEventParams struct {
 	Reason                  string
 	ScheduledStartAt        *time.Time
 	CreatedByUserID         int64
+	EffectiveBatchSize      int32
 }
 
 // InsertEventResult is what InsertEventWithTargets returns to the caller.
@@ -245,7 +246,7 @@ type InsertTargetParams struct {
 func CountNonTerminalTargets(targets []*Target) int {
 	n := 0
 	for _, t := range targets {
-		switch t.State {
+		switch t.State { //nolint:exhaustive // default counts every non-terminal state including future additions
 		case TargetStateResolved, TargetStateRestoreFailed, TargetStateReleased:
 			continue
 		default:

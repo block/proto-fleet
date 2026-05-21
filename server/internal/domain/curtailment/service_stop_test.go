@@ -72,8 +72,6 @@ func TestService_Stop_HappyPath(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, models.EventStateRestoring, got.State)
 	assert.Equal(t, 1, f.store.beginRestoreCalls)
-	// 2 non-terminal targets → ceil(0.01*2)=1, max(restore_batch_size=10, 1)=10.
-	assert.Equal(t, int32(10), f.store.beginRestoreLastBatch)
 }
 
 func TestService_Stop_IdempotentWhenAlreadyRestoring(t *testing.T) {
@@ -159,49 +157,6 @@ func TestService_Stop_MinDurationDoesNotGatePendingEvents(t *testing.T) {
 	assert.Equal(t, 1, f.store.beginRestoreCalls)
 }
 
-func TestService_Stop_OverrideTakesPrecedenceOverFormula(t *testing.T) {
-	t.Parallel()
-	f := newStopFixture(t, nil)
-	override := int32(75)
-
-	_, err := f.svc.Stop(t.Context(), StopRequest{
-		OrgID:                    1,
-		EventUUID:                f.event.EventUUID,
-		RestoreBatchSizeOverride: &override,
-	})
-	require.NoError(t, err)
-	assert.Equal(t, int32(75), f.store.beginRestoreLastBatch,
-		"override must defeat the adaptive formula entirely")
-}
-
-func TestService_Stop_RejectsOverrideOutOfRange(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		name    string
-		value   int32
-		errFrag string
-	}{
-		{"below_floor", 0, "must be in [1, 200]"},
-		{"above_ceiling", 201, "must be in [1, 200]"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			f := newStopFixture(t, nil)
-			override := tc.value
-			_, err := f.svc.Stop(t.Context(), StopRequest{
-				OrgID:                    1,
-				EventUUID:                f.event.EventUUID,
-				RestoreBatchSizeOverride: &override,
-			})
-			require.Error(t, err)
-			var fleetErr fleeterror.FleetError
-			require.ErrorAs(t, err, &fleetErr)
-			assert.Contains(t, fleetErr.DebugMessage, tc.errFrag)
-			assert.Equal(t, 0, f.store.beginRestoreCalls)
-		})
-	}
-}
-
 func TestService_Stop_RejectsInvalidRequestShape(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -234,42 +189,26 @@ func TestService_Stop_PropagatesStoreError(t *testing.T) {
 	assert.ErrorContains(t, err, "db boom")
 }
 
-func TestService_Stop_PropagatesListTargetsError(t *testing.T) {
-	t.Parallel()
-	f := newStopFixture(t, nil)
-	f.store.listTargetsErr = errors.New("targets read failed")
-
-	_, err := f.svc.Stop(t.Context(), StopRequest{OrgID: 1, EventUUID: f.event.EventUUID})
-	require.Error(t, err)
-	assert.ErrorContains(t, err, "targets read failed")
-	assert.Equal(t, 0, f.store.beginRestoreCalls,
-		"a list-targets failure must short-circuit before BeginRestoreTransition")
-}
-
 func TestComputeEffectiveBatchSize(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		name             string
 		restoreBatchSize int32
 		nonTerminalCount int32
-		override         *int32
 		want             int32
 	}{
-		{"override_short_circuits_formula", 10, 5000, int32Ptr(42), 42},
-		{"small_fleet_floors_to_10", 0, 50, nil, 10},
-		{"five_thousand_picks_50", 10, 5000, nil, 50},
-		{"ten_thousand_ceilings_at_100", 10, 10_000, nil, 100},
-		{"twenty_thousand_still_at_100", 10, 20_000, nil, 100},
-		{"restore_batch_size_floors_formula", 60, 1000, nil, 60},
-		{"negative_restore_batch_size_floors_to_10", -5, 50, nil, 10},
+		{"small_fleet_floors_to_10", 0, 50, 10},
+		{"five_thousand_picks_50", 10, 5000, 50},
+		{"ten_thousand_ceilings_at_100", 10, 10_000, 100},
+		{"twenty_thousand_still_at_100", 10, 20_000, 100},
+		{"restore_batch_size_floors_formula", 60, 1000, 60},
+		{"negative_restore_batch_size_floors_to_10", -5, 50, 10},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := ComputeEffectiveBatchSize(tc.restoreBatchSize, tc.nonTerminalCount, tc.override)
+			got := ComputeEffectiveBatchSize(tc.restoreBatchSize, tc.nonTerminalCount)
 			assert.Equal(t, tc.want, got)
 		})
 	}
 }
-
-func int32Ptr(v int32) *int32 { return &v }

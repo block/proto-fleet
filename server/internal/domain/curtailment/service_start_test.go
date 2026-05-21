@@ -519,6 +519,52 @@ func TestService_Start_StorePersistenceErrorPropagates(t *testing.T) {
 	assert.Contains(t, err.Error(), "synthetic db error")
 }
 
+// TestService_Start_StampsEffectiveBatchSize pins that effective_batch_size
+// is computed from the selected target count at Start time and persisted on
+// the event row. Stop reads it back; the reconciler's max-duration arm and
+// the restorer's batch claim both rely on it being non-null from creation.
+// Each candidate is sized so the FIXED_KW selector takes exactly `candidateCount`
+// miners: 1 kW each, target = candidateCount kW.
+func TestService_Start_StampsEffectiveBatchSize(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name             string
+		restoreBatchSize int32
+		candidateCount   int
+		want             int32
+	}{
+		{"small_fleet_floors_to_10", 0, 5, 10},
+		{"restore_batch_size_floors_formula", 60, 5, 60},
+		{"five_thousand_picks_50", 10, 5000, 50},
+		{"ten_thousand_ceilings_at_100", 10, 10_000, 100},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			const orgID = int64(1)
+			store := newFakeStore()
+			store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+			cands := make([]*models.Candidate, tc.candidateCount)
+			for i := range cands {
+				cands[i] = minerWithEff(fmt.Sprintf("m%d", i), 1500, 100, 40)
+			}
+			store.candidatesByOrg[orgID] = cands
+			svc := NewService(store)
+			req := validStartRequest(orgID)
+			req.RestoreBatchSize = tc.restoreBatchSize
+			// Set target above total available + a tolerance band large enough
+			// to cover the gap so FIXED_KW takes every candidate via the
+			// "tolerated undershoot" path: target_kw - tolerance_kw ≤ Σ < target_kw.
+			req.TargetKW = float64(tc.candidateCount) * 10
+			req.ToleranceKW = req.TargetKW - 1
+			_, err := svc.Start(t.Context(), req)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, store.lastInsertEvent.EffectiveBatchSize,
+				"effective_batch_size is stamped from the selected-target count at Start")
+		})
+	}
+}
+
 // TestService_Start_NonTerminalOverlapReturnsAlreadyExists pins the unique
 // partial-index race: another Start beat us between the selector check and
 // the insert, so the per-org constraint rejected our row. Service surfaces

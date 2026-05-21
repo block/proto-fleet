@@ -492,9 +492,7 @@ func formatExclusionCounters(d *modes.InsufficientLoadDetail) string {
 }
 
 // toStopRequest converts the proto request to a service StopRequest. OrgID
-// comes from session.Info; restore_batch_size_override is admin-gated at the
-// handler entry. The MaxInt32 check is a Connect-layer backstop; the proto's
-// lte:200 bound is the primary enforcement.
+// comes from session.Info.
 func toStopRequest(msg *pb.StopCurtailmentRequest, orgID int64) (curtailment.StopRequest, error) {
 	eventUUID, err := uuid.Parse(msg.GetEventUuid())
 	if err != nil {
@@ -502,20 +500,10 @@ func toStopRequest(msg *pb.StopCurtailmentRequest, orgID int64) (curtailment.Sto
 			"event_uuid must be a valid UUID: %v", err,
 		)
 	}
-	out := curtailment.StopRequest{
+	return curtailment.StopRequest{
 		OrgID:     orgID,
 		EventUUID: eventUUID,
-	}
-	if override := msg.RestoreBatchSizeOverride; override != nil {
-		if *override > math.MaxInt32 {
-			return curtailment.StopRequest{}, fleeterror.NewInvalidArgumentErrorf(
-				"restore_batch_size_override exceeds int32 max: %d", *override,
-			)
-		}
-		v := int32(*override) // #nosec G115 -- bounds-checked above
-		out.RestoreBatchSizeOverride = &v
-	}
-	return out, nil
+	}, nil
 }
 
 // toStopResponse builds the Stop response from the persisted event row and

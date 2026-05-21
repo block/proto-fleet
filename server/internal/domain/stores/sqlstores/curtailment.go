@@ -142,6 +142,7 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 			Reason:                  event.Reason,
 			ScheduledStartAt:        ptrToNullTime(event.ScheduledStartAt),
 			CreatedByUserID:         event.CreatedByUserID,
+			EffectiveBatchSize:      sql.NullInt32{Int32: event.EffectiveBatchSize, Valid: true},
 		})
 		if err != nil {
 			var pgErr *pgconn.PgError
@@ -297,6 +298,7 @@ func (s *SQLCurtailmentStore) UpsertHeartbeat(ctx context.Context, params interf
 }
 
 // BeginRestoreTransition runs the event-state flip + target reset in one tx.
+// effective_batch_size was stamped at Start; this transition only flips state.
 // The state-guard inside BeginCurtailmentRestoration's WHERE clause makes the
 // UPDATE return zero rows for any state other than pending/active; this store
 // pre-reads the event to map that into a typed error (FailedPrecondition vs
@@ -305,7 +307,6 @@ func (s *SQLCurtailmentStore) BeginRestoreTransition(
 	ctx context.Context,
 	orgID int64,
 	eventUUID uuid.UUID,
-	effectiveBatchSize int32,
 ) (*models.Event, error) {
 	return db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (*models.Event, error) {
 		current, err := q.GetCurtailmentEventByUUID(ctx, sqlc.GetCurtailmentEventByUUIDParams{
@@ -321,8 +322,7 @@ func (s *SQLCurtailmentStore) BeginRestoreTransition(
 
 		state := models.EventState(current.State)
 		if state == models.EventStateRestoring {
-			// Idempotent re-Stop: leave effective_batch_size and targets alone
-			// (the first Stop's sizing wins).
+			// Idempotent re-Stop: leave targets alone.
 			return convertEventRow(current), nil
 		}
 		if state.IsTerminal() {
@@ -332,10 +332,7 @@ func (s *SQLCurtailmentStore) BeginRestoreTransition(
 			)
 		}
 
-		updated, err := q.BeginCurtailmentRestoration(ctx, sqlc.BeginCurtailmentRestorationParams{
-			ID:                 current.ID,
-			EffectiveBatchSize: sql.NullInt32{Int32: effectiveBatchSize, Valid: true},
-		})
+		updated, err := q.BeginCurtailmentRestoration(ctx, current.ID)
 		if errors.Is(err, sql.ErrNoRows) {
 			// Concurrent transition between pre-read and update: re-read and
 			// route by the latest state so terminal races don't silently echo

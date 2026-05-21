@@ -18,26 +18,21 @@ import (
 
 const beginCurtailmentRestoration = `-- name: BeginCurtailmentRestoration :one
 UPDATE curtailment_event
-SET state                = 'restoring',
-    effective_batch_size = $1
-WHERE id = $2
+SET state = 'restoring'
+WHERE id = $1
   AND state IN ('pending', 'active')
 RETURNING id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id
 `
 
-type BeginCurtailmentRestorationParams struct {
-	EffectiveBatchSize sql.NullInt32
-	ID                 int64
-}
-
-// Stop's event-side write: flips state to 'restoring' and stamps
-// effective_batch_size. The WHERE state-guard is the load-bearing
-// concurrency control: concurrent Stop calls race on the same row's
-// per-row write lock; the loser sees zero rows updated and the store's
-// ErrNoRows re-read distinguishes "already restoring" from "already
-// terminal". RETURNING shape mirrors GetCurtailmentEventByUUID.
-func (q *Queries) BeginCurtailmentRestoration(ctx context.Context, arg BeginCurtailmentRestorationParams) (CurtailmentEvent, error) {
-	row := q.queryRow(ctx, q.beginCurtailmentRestorationStmt, beginCurtailmentRestoration, arg.EffectiveBatchSize, arg.ID)
+// Stop's event-side write: flips state to 'restoring'. effective_batch_size
+// was stamped at Start (computed from the selected target count), so this
+// query only transitions state. The WHERE state-guard is the load-bearing
+// concurrency control: concurrent Stop calls race on the same row's per-row
+// write lock; the loser sees zero rows updated and the store's ErrNoRows
+// re-read distinguishes "already restoring" from "already terminal".
+// RETURNING shape mirrors GetCurtailmentEventByUUID.
+func (q *Queries) BeginCurtailmentRestoration(ctx context.Context, id int64) (CurtailmentEvent, error) {
+	row := q.queryRow(ctx, q.beginCurtailmentRestorationStmt, beginCurtailmentRestoration, id)
 	var i CurtailmentEvent
 	err := row.Scan(
 		&i.ID,
@@ -334,7 +329,8 @@ INSERT INTO curtailment_event (
     idempotency_key,
     reason,
     scheduled_start_at,
-    created_by_user_id
+    created_by_user_id,
+    effective_batch_size
 ) VALUES (
     $1,
     $2,
@@ -362,7 +358,8 @@ INSERT INTO curtailment_event (
     $24,
     $25,
     $26,
-    $27
+    $27,
+    $28
 )
 RETURNING id, event_uuid, created_at, updated_at
 `
@@ -395,6 +392,7 @@ type InsertCurtailmentEventParams struct {
 	Reason                  string
 	ScheduledStartAt        sql.NullTime
 	CreatedByUserID         int64
+	EffectiveBatchSize      sql.NullInt32
 }
 
 type InsertCurtailmentEventRow struct {
@@ -435,6 +433,7 @@ func (q *Queries) InsertCurtailmentEvent(ctx context.Context, arg InsertCurtailm
 		arg.Reason,
 		arg.ScheduledStartAt,
 		arg.CreatedByUserID,
+		arg.EffectiveBatchSize,
 	)
 	var i InsertCurtailmentEventRow
 	err := row.Scan(

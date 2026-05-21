@@ -17,7 +17,6 @@ import (
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/block/proto-fleet/server/internal/domain/command"
-	"github.com/block/proto-fleet/server/internal/domain/curtailment"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
@@ -703,11 +702,9 @@ func (r *Reconciler) enforceMaxDuration(ctx context.Context, ev *models.Event, t
 		return false
 	}
 
-	nonTerminalCount := models.CountNonTerminalTargets(targets)
-	nonTerminal := int32(nonTerminalCount) //nolint:gosec // bounded by per-event target count
-	effectiveBatchSize := curtailment.ComputeEffectiveBatchSize(ev.RestoreBatchSize, nonTerminal, nil)
-
-	if _, err := r.store.BeginRestoreTransition(ctx, ev.OrgID, ev.EventUUID, effectiveBatchSize); err != nil {
+	// effective_batch_size was stamped at Start; the transition only flips
+	// state. The restorer reads ev.EffectiveBatchSize for batch claims.
+	if _, err := r.store.BeginRestoreTransition(ctx, ev.OrgID, ev.EventUUID); err != nil {
 		slog.Error("curtailment reconciler: max_duration→restoring transition failed",
 			"event_id", ev.ID, "max_duration_seconds", *ev.MaxDurationSeconds,
 			"elapsed_seconds", int64(elapsed.Seconds()), "error", err)
@@ -718,8 +715,7 @@ func (r *Reconciler) enforceMaxDuration(ctx context.Context, ev *models.Event, t
 	slog.Info("curtailment reconciler: max_duration elapsed → forced restore",
 		"event_id", ev.ID, "event_uuid", ev.EventUUID,
 		"max_duration_seconds", *ev.MaxDurationSeconds,
-		"elapsed_seconds", int64(elapsed.Seconds()),
-		"effective_batch_size", effectiveBatchSize)
+		"elapsed_seconds", int64(elapsed.Seconds()))
 	return true
 }
 

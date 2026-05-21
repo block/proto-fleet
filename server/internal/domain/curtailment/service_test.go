@@ -48,8 +48,8 @@ type fakeStore struct {
 
 	// Stop-path fakes. eventsByUUID feeds GetEventByUUID;
 	// targetsByEventUUID feeds ListTargetsByEvent;
-	// beginRestoreErr / beginRestoreLastBatch give Service.Stop tests control
-	// over BeginRestoreTransition outcomes.
+	// beginRestoreErr gives Service.Stop tests control over
+	// BeginRestoreTransition outcomes.
 	eventsByUUID            map[uuid.UUID]*models.Event
 	targetsByEventUUID      map[uuid.UUID][]*models.Target
 	activeEvent             *models.Event
@@ -57,7 +57,6 @@ type fakeStore struct {
 	listTargetsErr          error
 	beginRestoreErr         error
 	beginRestoreCalls       int
-	beginRestoreLastBatch   int32
 	beginRestoreLastEventID uuid.UUID
 }
 
@@ -160,9 +159,8 @@ func (f *fakeStore) UpsertHeartbeat(context.Context, interfaces.UpsertCurtailmen
 	panic("UpsertHeartbeat not exercised by Preview/Start/Stop tests")
 }
 
-func (f *fakeStore) BeginRestoreTransition(_ context.Context, _ int64, eventUUID uuid.UUID, effectiveBatchSize int32) (*models.Event, error) {
+func (f *fakeStore) BeginRestoreTransition(_ context.Context, _ int64, eventUUID uuid.UUID) (*models.Event, error) {
 	f.beginRestoreCalls++
-	f.beginRestoreLastBatch = effectiveBatchSize
 	f.beginRestoreLastEventID = eventUUID
 	if f.beginRestoreErr != nil {
 		return nil, f.beginRestoreErr
@@ -174,7 +172,6 @@ func (f *fakeStore) BeginRestoreTransition(_ context.Context, _ int64, eventUUID
 	}
 	updated := *ev
 	updated.State = models.EventStateRestoring
-	updated.EffectiveBatchSize = &effectiveBatchSize
 	return &updated, nil
 }
 

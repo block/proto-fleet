@@ -45,7 +45,6 @@ type fakeStore struct {
 
 	// BeginRestoreTransition captures, exercised by max_duration tests.
 	beginRestoreCalls       int
-	beginRestoreLastBatch   int32
 	beginRestoreLastEventID uuid.UUID
 	beginRestoreErr         error
 }
@@ -188,12 +187,11 @@ func (f *fakeStore) UpsertHeartbeat(_ context.Context, params interfaces.UpsertC
 }
 
 // BeginRestoreTransition: real-fake behavior so enforceMaxDuration tests can
-// assert the call happened with the right effective_batch_size and the event
-// row flips to restoring in-place (mirroring SQL store semantics — the
-// reconciler reads ev again on the next tick).
-func (f *fakeStore) BeginRestoreTransition(_ context.Context, _ int64, eventUUID uuid.UUID, effectiveBatchSize int32) (*models.Event, error) {
+// assert the call happened and the event row flips to restoring in-place
+// (mirroring SQL store semantics — the reconciler reads ev again on the next
+// tick). effective_batch_size was stamped at Start; this fake does not touch it.
+func (f *fakeStore) BeginRestoreTransition(_ context.Context, _ int64, eventUUID uuid.UUID) (*models.Event, error) {
 	f.beginRestoreCalls++
-	f.beginRestoreLastBatch = effectiveBatchSize
 	f.beginRestoreLastEventID = eventUUID
 	if f.beginRestoreErr != nil {
 		return nil, f.beginRestoreErr
@@ -201,7 +199,6 @@ func (f *fakeStore) BeginRestoreTransition(_ context.Context, _ int64, eventUUID
 	for _, ev := range f.events {
 		if ev.EventUUID == eventUUID {
 			ev.State = models.EventStateRestoring
-			ev.EffectiveBatchSize = &effectiveBatchSize
 			return ev, nil
 		}
 	}

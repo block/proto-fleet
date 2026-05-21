@@ -107,7 +107,8 @@ INSERT INTO curtailment_event (
     idempotency_key,
     reason,
     scheduled_start_at,
-    created_by_user_id
+    created_by_user_id,
+    effective_batch_size
 ) VALUES (
     sqlc.arg('event_uuid'),
     sqlc.arg('org_id'),
@@ -135,7 +136,8 @@ INSERT INTO curtailment_event (
     sqlc.narg('idempotency_key'),
     sqlc.arg('reason'),
     sqlc.narg('scheduled_start_at'),
-    sqlc.arg('created_by_user_id')
+    sqlc.arg('created_by_user_id'),
+    sqlc.arg('effective_batch_size')
 )
 RETURNING id, event_uuid, created_at, updated_at;
 
@@ -212,15 +214,15 @@ SET state      = sqlc.arg('state'),
 WHERE id = sqlc.arg('id');
 
 -- name: BeginCurtailmentRestoration :one
--- Stop's event-side write: flips state to 'restoring' and stamps
--- effective_batch_size. The WHERE state-guard is the load-bearing
--- concurrency control: concurrent Stop calls race on the same row's
--- per-row write lock; the loser sees zero rows updated and the store's
--- ErrNoRows re-read distinguishes "already restoring" from "already
--- terminal". RETURNING shape mirrors GetCurtailmentEventByUUID.
+-- Stop's event-side write: flips state to 'restoring'. effective_batch_size
+-- was stamped at Start (computed from the selected target count), so this
+-- query only transitions state. The WHERE state-guard is the load-bearing
+-- concurrency control: concurrent Stop calls race on the same row's per-row
+-- write lock; the loser sees zero rows updated and the store's ErrNoRows
+-- re-read distinguishes "already restoring" from "already terminal".
+-- RETURNING shape mirrors GetCurtailmentEventByUUID.
 UPDATE curtailment_event
-SET state                = 'restoring',
-    effective_batch_size = sqlc.arg('effective_batch_size')
+SET state = 'restoring'
 WHERE id = sqlc.arg('id')
   AND state IN ('pending', 'active')
 RETURNING *;

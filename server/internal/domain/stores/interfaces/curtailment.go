@@ -94,15 +94,15 @@ type CurtailmentStore interface {
 	UpsertHeartbeat(ctx context.Context, params UpsertCurtailmentHeartbeatParams) error
 
 	// BeginRestoreTransition flips a non-terminal event from pending/active to
-	// restoring, stamps effective_batch_size, and resets every non-terminal
-	// target (desired_state='active', state='pending', cleared phase-local
-	// cursors) in one transaction. Idempotent: an already-restoring event
-	// returns the current row without writing. Terminal events return
-	// FailedPrecondition; cross-org lookups return NotFound.
+	// restoring and resets every non-terminal target (desired_state='active',
+	// state='pending', cleared phase-local cursors) in one transaction.
+	// effective_batch_size was stamped at Start; this call does not touch it.
+	// Idempotent: an already-restoring event returns the current row without
+	// writing. Terminal events return FailedPrecondition; cross-org lookups
+	// return NotFound.
 	BeginRestoreTransition(
 		ctx context.Context,
 		orgID int64,
 		eventUUID uuid.UUID,
-		effectiveBatchSize int32,
 	) (*models.Event, error)
 }

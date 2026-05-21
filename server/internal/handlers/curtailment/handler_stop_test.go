@@ -26,13 +26,12 @@ type stopStubStore struct {
 	event   *models.Event
 	targets []*models.Target
 
-	activeEvent        *models.Event
-	getActiveErr       error
-	getEventErr        error
-	listTargetsErr     error
-	beginRestoreErr    error
-	beginRestoreLastBS int32
-	beginRestoreCalls  int
+	activeEvent       *models.Event
+	getActiveErr      error
+	getEventErr       error
+	listTargetsErr    error
+	beginRestoreErr   error
+	beginRestoreCalls int
 }
 
 func (s *stopStubStore) GetOrgConfig(context.Context, int64) (*models.OrgConfig, error) {
@@ -68,15 +67,13 @@ func (s *stopStubStore) ListTargetsByEvent(context.Context, int64, uuid.UUID) ([
 	}
 	return s.targets, nil
 }
-func (s *stopStubStore) BeginRestoreTransition(_ context.Context, _ int64, eventUUID uuid.UUID, batchSize int32) (*models.Event, error) {
+func (s *stopStubStore) BeginRestoreTransition(_ context.Context, _ int64, eventUUID uuid.UUID) (*models.Event, error) {
 	s.beginRestoreCalls++
-	s.beginRestoreLastBS = batchSize
 	if s.beginRestoreErr != nil {
 		return nil, s.beginRestoreErr
 	}
 	updated := *s.event
 	updated.State = models.EventStateRestoring
-	updated.EffectiveBatchSize = &batchSize
 	updated.EventUUID = eventUUID
 	for _, target := range s.targets {
 		target.State = models.TargetStatePending
@@ -151,7 +148,6 @@ func TestHandler_StopCurtailment_HappyPath(t *testing.T) {
 	assert.Equal(t, int32(2), resp.Msg.Event.TargetRollup.Pending)
 	assert.Equal(t, int32(2), resp.Msg.Event.TargetRollup.Total)
 	assert.Equal(t, 1, store.beginRestoreCalls)
-	assert.Equal(t, int32(10), store.beginRestoreLastBS)
 }
 
 func TestHandler_StopCurtailment_RejectsMissingSession(t *testing.T) {
@@ -188,51 +184,4 @@ func TestHandler_StopCurtailment_RejectsMalformedUUID(t *testing.T) {
 	var fleetErr fleeterror.FleetError
 	require.ErrorAs(t, err, &fleetErr)
 	assert.Equal(t, connect.CodeInvalidArgument, fleetErr.GRPCCode)
-}
-
-func TestHandler_StopCurtailment_OverrideRequiresAdmin(t *testing.T) {
-	t.Parallel()
-	store := newStopStubStore()
-	h := NewHandler(curtailment.NewService(store))
-
-	override := uint32(50)
-	ctx := authn.SetInfo(t.Context(), &session.Info{
-		AuthMethod:     session.AuthMethodSession,
-		OrganizationID: 42,
-		UserID:         9,
-		Role:           "OPERATOR", // non-Admin
-	})
-
-	_, err := h.StopCurtailment(ctx, connect.NewRequest(&pb.StopCurtailmentRequest{
-		EventUuid:                store.event.EventUUID.String(),
-		RestoreBatchSizeOverride: &override,
-	}))
-	require.Error(t, err)
-	var fleetErr fleeterror.FleetError
-	require.ErrorAs(t, err, &fleetErr)
-	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
-	assert.Equal(t, 0, store.beginRestoreCalls,
-		"role gate must fail before reaching the service")
-}
-
-func TestHandler_StopCurtailment_PassesAdminOverride(t *testing.T) {
-	t.Parallel()
-	store := newStopStubStore()
-	h := NewHandler(curtailment.NewService(store))
-
-	override := uint32(50)
-	ctx := authn.SetInfo(t.Context(), &session.Info{
-		AuthMethod:     session.AuthMethodSession,
-		OrganizationID: 42,
-		UserID:         9,
-		Role:           "ADMIN",
-	})
-
-	_, err := h.StopCurtailment(ctx, connect.NewRequest(&pb.StopCurtailmentRequest{
-		EventUuid:                store.event.EventUUID.String(),
-		RestoreBatchSizeOverride: &override,
-	}))
-	require.NoError(t, err)
-	assert.Equal(t, int32(50), store.beginRestoreLastBS,
-		"override must flow through to the persistence boundary")
 }

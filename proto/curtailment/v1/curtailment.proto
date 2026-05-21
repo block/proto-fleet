@@ -480,14 +480,6 @@ message UpdateCurtailmentEventResponse {
 // StopCurtailment starts restore; min duration may block normal priority.
 message StopCurtailmentRequest {
     string event_uuid = 1 [(buf.validate.field).string.min_len = 1];
-
-    // Admin-only override of the adaptive batch size computed at restore
-    // start. Takes precedence over the adaptive [10, 100] formula. Upper
-    // bound 200 is a real fleet-class ceiling: 2x the inrush-safe upper
-    // band, enough to short-circuit staggering for a single-rack restore
-    // but narrow enough that a typo cannot dump 10K miners at once.
-    // Zero means "use default" so it is excluded by gte=1.
-    optional uint32 restore_batch_size_override = 2 [(buf.validate.field).uint32 = {gte: 1, lte: 200}];
 }
 
 message StopCurtailmentResponse {

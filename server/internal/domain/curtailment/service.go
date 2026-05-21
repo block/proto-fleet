@@ -669,6 +669,11 @@ func buildInsertParams(req StartRequest, plan *Plan, minPowerW int32) (models.In
 		return models.InsertEventParams{}, nil, err
 	}
 
+	// Stamp effective_batch_size at Start so the column is non-null from
+	// event creation and Stop/restorer just read it. Selected-target count
+	// is bounded by per-org fleet size — well under MaxInt32 at any
+	// realistic scale.
+	selectedCount := int32(len(plan.Selected)) //nolint:gosec // bounded by per-org fleet size
 	event := models.InsertEventParams{
 		EventUUID:               uuid.New(),
 		OrgID:                   req.OrgID,
@@ -696,6 +701,7 @@ func buildInsertParams(req StartRequest, plan *Plan, minPowerW int32) (models.In
 		IdempotencyKey:          req.IdempotencyKey,
 		Reason:                  req.Reason,
 		CreatedByUserID:         req.CreatedByUserID,
+		EffectiveBatchSize:      ComputeEffectiveBatchSize(req.RestoreBatchSize, selectedCount),
 	}
 	if event.Priority == "" {
 		// Validation admits PriorityUnspecified as Normal; persist the
@@ -752,27 +758,24 @@ func marshalScopeJSON(s Scope) ([]byte, error) {
 }
 
 // StopRequest is the service-level shape of a Stop call. The handler maps
-// it from `StopCurtailmentRequest` after deriving OrgID from session.Info
-// and gating `RestoreBatchSizeOverride` on Admin role.
+// it from `StopCurtailmentRequest` after deriving OrgID from session.Info.
 type StopRequest struct {
-	OrgID                    int64
-	EventUUID                uuid.UUID
-	RestoreBatchSizeOverride *int32 // nil = use adaptive sizing; admin-gated upstream
+	OrgID     int64
+	EventUUID uuid.UUID
 }
 
-// Adaptive batch-sizing constants. [10, 100] is the inrush envelope; the
-// admin override accepts [1, 200] (proto enforces the ceiling).
+// Adaptive batch-sizing constants. [10, 100] is the inrush envelope, computed
+// at Start time from the selected target count.
 const (
-	minBatchSizeFloor                  int32 = 10
-	maxBatchSizeCeiling                int32 = 100
-	restoreBatchSizeOverrideUpperBound int32 = 200
+	minBatchSizeFloor   int32 = 10
+	maxBatchSizeCeiling int32 = 100
 )
 
-// Stop transitions a non-terminal event to `restoring`, stamps
-// effective_batch_size from the adaptive formula (or the operator override),
-// and flips every non-terminal target to (desired_state='active',
-// state='pending'). Idempotent re-Stop returns the current event without
-// writing. Terminal events return FailedPrecondition.
+// Stop transitions a non-terminal event to `restoring` and flips every
+// non-terminal target to (desired_state='active', state='pending'). The
+// effective_batch_size was stamped at Start; this call does not touch it.
+// Idempotent re-Stop returns the current event without writing. Terminal
+// events return FailedPrecondition.
 func (s *Service) Stop(ctx context.Context, req StopRequest) (*models.Event, error) {
 	if err := validateStopRequest(req); err != nil {
 		return nil, err
@@ -793,7 +796,7 @@ func (s *Service) Stop(ctx context.Context, req StopRequest) (*models.Event, err
 	}
 	if event.State == models.EventStateRestoring {
 		// Idempotent re-Stop: a second call after the first transitioned the
-		// event returns the persisted row without changing effective_batch_size.
+		// event returns the persisted row.
 		return event, nil
 	}
 
@@ -801,16 +804,7 @@ func (s *Service) Stop(ctx context.Context, req StopRequest) (*models.Event, err
 		return nil, err
 	}
 
-	targets, err := s.store.ListTargetsByEvent(ctx, req.OrgID, req.EventUUID)
-	if err != nil {
-		return nil, err
-	}
-	nonTerminal := int32(models.CountNonTerminalTargets(targets)) //nolint:gosec // bounded by per-event target count
-	effectiveBatchSize := ComputeEffectiveBatchSize(
-		event.RestoreBatchSize, nonTerminal, req.RestoreBatchSizeOverride,
-	)
-
-	return s.store.BeginRestoreTransition(ctx, req.OrgID, req.EventUUID, effectiveBatchSize)
+	return s.store.BeginRestoreTransition(ctx, req.OrgID, req.EventUUID)
 }
 
 func validateStopRequest(req StopRequest) error {
@@ -819,15 +813,6 @@ func validateStopRequest(req StopRequest) error {
 	}
 	if req.EventUUID == uuid.Nil {
 		return fleeterror.NewInvalidArgumentError("event_uuid must be set")
-	}
-	if req.RestoreBatchSizeOverride != nil {
-		v := *req.RestoreBatchSizeOverride
-		if v < 1 || v > restoreBatchSizeOverrideUpperBound {
-			return fleeterror.NewInvalidArgumentErrorf(
-				"restore_batch_size_override must be in [1, %d], got %d",
-				restoreBatchSizeOverrideUpperBound, v,
-			)
-		}
 	}
 	return nil
 }
@@ -857,11 +842,10 @@ func checkMinCurtailedDurationGate(event *models.Event, now time.Time) error {
 }
 
 // ComputeEffectiveBatchSize returns max(restore_batch_size, ceil(0.01 × non_terminal_count))
-// clamped to [minBatchSizeFloor, maxBatchSizeCeiling]; override short-circuits the formula.
-func ComputeEffectiveBatchSize(restoreBatchSize, nonTerminalCount int32, override *int32) int32 {
-	if override != nil {
-		return *override
-	}
+// clamped to [minBatchSizeFloor, maxBatchSizeCeiling]. Called at Start with
+// the selected target count; the value is stamped on the event row and read
+// back by the restorer.
+func ComputeEffectiveBatchSize(restoreBatchSize, nonTerminalCount int32) int32 {
 	base := restoreBatchSize
 	if base < 0 {
 		base = 0
