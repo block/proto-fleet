@@ -814,7 +814,17 @@ func (q *Queries) ListCurtailmentCandidatesByOrg(ctx context.Context, arg ListCu
 }
 
 const listCurtailmentEventsForOrg = `-- name: ListCurtailmentEventsForOrg :many
-SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id
+SELECT
+    id, event_uuid, org_id, state, mode, strategy, level, priority,
+    loop_type, scope_type, scope_jsonb, mode_params_jsonb,
+    restore_batch_size, restore_batch_interval_sec, effective_batch_size,
+    min_curtailed_duration_sec, max_duration_seconds, allow_unbounded,
+    include_maintenance, force_include_maintenance,
+    (decision_snapshot_jsonb - 'skipped')::JSONB AS decision_snapshot_jsonb,
+    source_actor_type, source_actor_id,
+    external_source, external_reference, idempotency_key,
+    supersedes_event_id, reason, scheduled_start_at, started_at, ended_at,
+    created_at, updated_at, created_by_user_id
 FROM curtailment_event
 WHERE org_id = $1
     AND ($2::BIGINT = 0 OR id < $2::BIGINT)
@@ -830,12 +840,55 @@ type ListCurtailmentEventsForOrgParams struct {
 	RowLimit    int64
 }
 
+type ListCurtailmentEventsForOrgRow struct {
+	ID                      int64
+	EventUuid               uuid.UUID
+	OrgID                   int64
+	State                   string
+	Mode                    string
+	Strategy                string
+	Level                   string
+	Priority                string
+	LoopType                string
+	ScopeType               string
+	ScopeJsonb              json.RawMessage
+	ModeParamsJsonb         json.RawMessage
+	RestoreBatchSize        int32
+	RestoreBatchIntervalSec int32
+	EffectiveBatchSize      sql.NullInt32
+	MinCurtailedDurationSec int32
+	MaxDurationSeconds      sql.NullInt32
+	AllowUnbounded          bool
+	IncludeMaintenance      bool
+	ForceIncludeMaintenance bool
+	DecisionSnapshotJsonb   json.RawMessage
+	SourceActorType         string
+	SourceActorID           sql.NullString
+	ExternalSource          sql.NullString
+	ExternalReference       sql.NullString
+	IdempotencyKey          sql.NullString
+	SupersedesEventID       sql.NullInt64
+	Reason                  string
+	ScheduledStartAt        sql.NullTime
+	StartedAt               sql.NullTime
+	EndedAt                 sql.NullTime
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
+	CreatedByUserID         int64
+}
+
 // Cursor-paginated history, ordered newest-first by id. cursor_id=0 reads
 // the first page; subsequent pages pass the last id from the previous page.
 // state_filter is empty for "all states" or one of the event-state values
 // to filter on. Caller passes limit+1 so the result indicates a next page
 // when the slice exceeds the requested page size.
-func (q *Queries) ListCurtailmentEventsForOrg(ctx context.Context, arg ListCurtailmentEventsForOrgParams) ([]CurtailmentEvent, error) {
+//
+// decision_snapshot_jsonb is projected with the per-device `skipped` array
+// stripped at the SQL boundary so a 10K-miner event's multi-MB skip list
+// doesn't ride the wire for every list row. The handler-side aggregator
+// still computes `skipped_aggregate` when the field is present (test
+// fixtures), but in production this query returns the slim shape.
+func (q *Queries) ListCurtailmentEventsForOrg(ctx context.Context, arg ListCurtailmentEventsForOrgParams) ([]ListCurtailmentEventsForOrgRow, error) {
 	rows, err := q.query(ctx, q.listCurtailmentEventsForOrgStmt, listCurtailmentEventsForOrg,
 		arg.OrgID,
 		arg.CursorID,
@@ -846,9 +899,9 @@ func (q *Queries) ListCurtailmentEventsForOrg(ctx context.Context, arg ListCurta
 		return nil, err
 	}
 	defer rows.Close()
-	var items []CurtailmentEvent
+	var items []ListCurtailmentEventsForOrgRow
 	for rows.Next() {
-		var i CurtailmentEvent
+		var i ListCurtailmentEventsForOrgRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.EventUuid,

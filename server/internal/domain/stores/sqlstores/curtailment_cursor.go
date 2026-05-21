@@ -41,5 +41,12 @@ func decodeCurtailmentEventCursor(encoded string) (*curtailmentEventCursor, erro
 	if err := json.Unmarshal(data, &cursor); err != nil {
 		return nil, fleeterror.NewInvalidArgumentErrorf("invalid page_token format: %v", err)
 	}
+	if cursor.ID <= 0 {
+		// Defense against user-supplied tokens that decode to zero/negative.
+		// The store never emits a non-positive id; a non-positive cursor
+		// would either rewind to the first page (id=0) or return zero rows
+		// (id<0), both of which look like a silent client bug.
+		return nil, fleeterror.NewInvalidArgumentErrorf("invalid page_token: id must be > 0, got %d", cursor.ID)
+	}
 	return &cursor, nil
 }

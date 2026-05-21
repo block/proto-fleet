@@ -219,7 +219,23 @@ RETURNING *;
 -- state_filter is empty for "all states" or one of the event-state values
 -- to filter on. Caller passes limit+1 so the result indicates a next page
 -- when the slice exceeds the requested page size.
-SELECT *
+--
+-- decision_snapshot_jsonb is projected with the per-device `skipped` array
+-- stripped at the SQL boundary so a 10K-miner event's multi-MB skip list
+-- doesn't ride the wire for every list row. The handler-side aggregator
+-- still computes `skipped_aggregate` when the field is present (test
+-- fixtures), but in production this query returns the slim shape.
+SELECT
+    id, event_uuid, org_id, state, mode, strategy, level, priority,
+    loop_type, scope_type, scope_jsonb, mode_params_jsonb,
+    restore_batch_size, restore_batch_interval_sec, effective_batch_size,
+    min_curtailed_duration_sec, max_duration_seconds, allow_unbounded,
+    include_maintenance, force_include_maintenance,
+    (decision_snapshot_jsonb - 'skipped')::JSONB AS decision_snapshot_jsonb,
+    source_actor_type, source_actor_id,
+    external_source, external_reference, idempotency_key,
+    supersedes_event_id, reason, scheduled_start_at, started_at, ended_at,
+    created_at, updated_at, created_by_user_id
 FROM curtailment_event
 WHERE org_id = sqlc.arg('org_id')
     AND (sqlc.arg('cursor_id')::BIGINT = 0 OR id < sqlc.arg('cursor_id')::BIGINT)

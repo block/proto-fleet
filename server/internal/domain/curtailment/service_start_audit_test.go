@@ -63,7 +63,7 @@ func TestService_Start_EmitsBaseAuditRowOnSuccess(t *testing.T) {
 	require.NotNil(t, events[0].Metadata)
 	assert.Equal(t, plan.EventUUID.String(), events[0].Metadata["event_uuid"])
 	assert.Equal(t, false, events[0].Metadata["allow_unbounded"])
-	assert.Equal(t, false, events[0].Metadata["force_include"])
+	assert.Equal(t, false, events[0].Metadata["force_include_maintenance"])
 }
 
 // TestService_Start_EmitsUnboundedAuditRowWhenAllowUnbounded: a Start
@@ -125,7 +125,7 @@ func TestService_Start_EmitsForceMaintenanceAuditRowAndMetric(t *testing.T) {
 	require.Len(t, events, 2)
 	assert.Equal(t, ActivityTypeStarted, events[0].Type)
 	assert.Equal(t, ActivityTypeStartedForceMaintenance, events[1].Type)
-	assert.Equal(t, true, events[1].Metadata["force_include"])
+	assert.Equal(t, true, events[1].Metadata["force_include_maintenance"])
 
 	metrics.mu.Lock()
 	defer metrics.mu.Unlock()

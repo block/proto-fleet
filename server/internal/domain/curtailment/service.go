@@ -363,6 +363,24 @@ func (s *Service) Update(ctx context.Context, req UpdateRequest) (*models.Event,
 		)
 	}
 
+	// Admin gate on max_duration_seconds mirrors Start. Without this,
+	// a non-admin who Started at the org default can Update the same
+	// event above the default, bypassing the privilege boundary Start
+	// enforces. Fetch org config lazily — only on a max_duration write.
+	if req.MaxDurationSeconds != nil && !req.CanUseAdminControls {
+		orgConfig, err := s.store.GetOrgConfig(ctx, req.OrgID)
+		if err != nil {
+			return nil, err
+		}
+		if orgConfig.MaxDurationDefaultSec > 0 &&
+			*req.MaxDurationSeconds > orgConfig.MaxDurationDefaultSec {
+			return nil, fleeterror.NewForbiddenErrorf(
+				"only admins can set max_duration_seconds above org default %d",
+				orgConfig.MaxDurationDefaultSec,
+			)
+		}
+	}
+
 	updated, err := s.store.UpdateOperatorFields(ctx, event.ID, req.OrgID, interfaces.UpdateOperatorFieldsParams{
 		Reason:                  req.Reason,
 		RestoreBatchSize:        req.RestoreBatchSize,
@@ -412,6 +430,15 @@ func (s *Service) AdminTerminate(ctx context.Context, req AdminTerminateRequest)
 	if strings.TrimSpace(req.Reason) == "" {
 		return nil, fleeterror.NewInvalidArgumentError("reason must be set")
 	}
+	// Service-level backstop on reason length. The proto validator caps
+	// the same field at 256; the reason is fanned out into every swept
+	// target's last_error column, so an unbounded value amplifies into
+	// thousands of rows during the sweep.
+	if len(req.Reason) > startTextFieldMaxLen {
+		return nil, fleeterror.NewInvalidArgumentErrorf(
+			"reason must be at most %d chars, got %d", startTextFieldMaxLen, len(req.Reason),
+		)
+	}
 
 	updated, err := s.store.AdminTerminateEvent(ctx, req.OrgID, req.EventUUID, req.TargetState, req.Reason)
 	if err != nil {
@@ -437,15 +464,15 @@ func (s *Service) emitStartAuditTrail(ctx context.Context, req StartRequest, pla
 		return
 	}
 	metadata := map[string]any{
-		"strategy":        string(req.Strategy),
-		"level":           string(req.Level),
-		"priority":        string(req.Priority),
-		"scope_type":      string(req.Scope.Type),
-		"selected_count":  len(plan.Selected),
-		"skipped_count":   len(plan.Skipped),
-		"allow_unbounded": req.AllowUnbounded,
-		"force_include":   req.ForceIncludeMaintenance,
-		"source_actor":    string(req.SourceActorType),
+		"strategy":                  string(req.Strategy),
+		"level":                     string(req.Level),
+		"priority":                  string(req.Priority),
+		"scope_type":                string(req.Scope.Type),
+		"selected_count":            len(plan.Selected),
+		"skipped_count":             len(plan.Skipped),
+		"allow_unbounded":           req.AllowUnbounded,
+		"force_include_maintenance": req.ForceIncludeMaintenance,
+		"source_actor":              string(req.SourceActorType),
 	}
 	if plan.EventUUID != nil {
 		metadata["event_uuid"] = plan.EventUUID.String()

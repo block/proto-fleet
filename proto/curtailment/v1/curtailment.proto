@@ -553,7 +553,10 @@ message AdminTerminateEventRequest {
         in: [6, 7]
     }];
 
-    string reason = 3 [(buf.validate.field).string.min_len = 1];
+    // Operator-attributed reason; recorded on the activity row and stamped
+    // into last_error on every swept target. Capped at 256 chars so a bulky
+    // reason can't amplify across thousands of rows during the sweep.
+    string reason = 3 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
 
     // Idempotency key, unique per (org, key) when non-empty. A re-issued call
     // with the same key returns the original event without re-applying.

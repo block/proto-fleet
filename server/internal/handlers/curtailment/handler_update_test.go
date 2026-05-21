@@ -99,8 +99,15 @@ func (s *updateStubStore) UpdateOperatorFields(_ context.Context, eventID, orgID
 
 // --- panic stubs for methods Update path does not exercise ---
 
-func (s *updateStubStore) GetOrgConfig(context.Context, int64) (*models.OrgConfig, error) {
-	panic("GetOrgConfig not exercised by Update handler tests")
+// GetOrgConfig is real-faked (rather than panicking) because the admin
+// gate on max_duration_seconds inside Service.Update fetches the org
+// config lazily for non-admin callers. Returns a high default so the
+// existing happy-path tests stay under the gate without being admin.
+func (s *updateStubStore) GetOrgConfig(_ context.Context, orgID int64) (*models.OrgConfig, error) {
+	return &models.OrgConfig{
+		OrgID:                 orgID,
+		MaxDurationDefaultSec: 7200,
+	}, nil
 }
 func (s *updateStubStore) ListActiveCurtailedDevices(context.Context, int64) ([]string, error) {
 	panic("ListActiveCurtailedDevices not exercised by Update handler tests")

@@ -30,6 +30,7 @@ func TestService_Update_HappyPath(t *testing.T) {
 	updated.Reason = "operator changed mind"
 
 	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
 	store.eventsByUUID[eventUUID] = persisted
 	store.updateOperatorFieldsResult = &updated
 	svc := NewService(store)
@@ -195,6 +196,60 @@ func TestService_Update_RejectsNonAdminLargeInterval(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsForbiddenError(err))
 	assert.Contains(t, err.Error(), "restore_batch_interval_sec")
+}
+
+// TestService_Update_RejectsNonAdminMaxDurationAboveOrgDefault mirrors
+// Start's admin gate on max_duration_seconds. Without this check a
+// non-admin could Start at the org default then Update the same event
+// far above it, bypassing the privilege boundary Start enforces.
+func TestService_Update_RejectsNonAdminMaxDurationAboveOrgDefault(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	eventUUID := uuid.New()
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID) // MaxDurationDefaultSec = 14400
+	store.eventsByUUID[eventUUID] = &models.Event{
+		ID: 1, EventUUID: eventUUID, OrgID: orgID, State: models.EventStateActive,
+	}
+	svc := NewService(store)
+
+	// Non-admin requesting 1 day (86400s) > org default 14400s → Forbidden.
+	_, err := svc.Update(t.Context(), UpdateRequest{
+		OrgID:               orgID,
+		EventUUID:           eventUUID,
+		MaxDurationSeconds:  int32Ptr(86400),
+		CanUseAdminControls: false,
+	})
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsForbiddenError(err))
+	assert.Contains(t, err.Error(), "max_duration_seconds")
+}
+
+// TestService_Update_AllowsAdminMaxDurationAboveOrgDefault: admins can
+// bypass the org-default gate as long as the value stays under the
+// absolute ceiling.
+func TestService_Update_AllowsAdminMaxDurationAboveOrgDefault(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	eventUUID := uuid.New()
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.eventsByUUID[eventUUID] = &models.Event{
+		ID: 1, EventUUID: eventUUID, OrgID: orgID, State: models.EventStateActive,
+	}
+	store.updateOperatorFieldsResult = &models.Event{
+		ID: 1, EventUUID: eventUUID, OrgID: orgID, State: models.EventStateActive,
+	}
+	svc := NewService(store)
+
+	_, err := svc.Update(t.Context(), UpdateRequest{
+		OrgID:               orgID,
+		EventUUID:           eventUUID,
+		MaxDurationSeconds:  int32Ptr(86400),
+		CanUseAdminControls: true,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, store.updateOperatorFieldsCalls)
 }
 
 // TestService_Update_RaceLossSurfacesFailedPrecondition: the SQL-layer

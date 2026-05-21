@@ -87,6 +87,29 @@ func TestService_AdminTerminate_RejectsMissingReason(t *testing.T) {
 	assert.Contains(t, err.Error(), "reason")
 }
 
+// TestService_AdminTerminate_RejectsOversizedReason: reason is fanned out
+// into every swept target's last_error column, so an unbounded value
+// amplifies into thousands of rows. Service backstop mirrors the proto
+// validator's max_len=256.
+func TestService_AdminTerminate_RejectsOversizedReason(t *testing.T) {
+	t.Parallel()
+	svc := NewService(newFakeStore())
+
+	huge := make([]byte, startTextFieldMaxLen+1)
+	for i := range huge {
+		huge[i] = 'x'
+	}
+	_, err := svc.AdminTerminate(t.Context(), AdminTerminateRequest{
+		OrgID:       1,
+		EventUUID:   uuid.New(),
+		TargetState: models.EventStateCancelled,
+		Reason:      string(huge),
+	})
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "reason must be at most")
+}
+
 // TestService_AdminTerminate_StateConflictMapsFailedPrecondition: a
 // terminal event in a different state surfaces a clean FailedPrecondition
 // rather than the bare sentinel.

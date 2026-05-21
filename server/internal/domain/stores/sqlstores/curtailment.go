@@ -293,7 +293,13 @@ func (s *SQLCurtailmentStore) ListEvents(ctx context.Context, params interfaces.
 
 	out := make([]*models.Event, len(rows))
 	for i, row := range rows {
-		out[i] = convertEventRow(row)
+		// ListCurtailmentEventsForOrgRow shares its field layout with
+		// sqlc.CurtailmentEvent (only the type name differs because the
+		// query projects a derived `decision_snapshot_jsonb - 'skipped'`
+		// expression). The struct-conversion is safe because field
+		// order, names, and types are identical; sqlc regen will fail
+		// the build if they ever drift.
+		out[i] = convertEventRow(sqlc.CurtailmentEvent(row))
 	}
 	return out, nextToken, nil
 }
