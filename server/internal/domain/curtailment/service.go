@@ -124,11 +124,9 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 	}
 
 	// max_duration_seconds=nil + !AllowUnbounded means "use org default".
-	// Reject an out-of-range org default (data-quality issue) — the same
-	// upper bound validateStartRequest enforces against caller-supplied
-	// values, applied here to the normalized-from-org-default path so a
-	// misconfigured org default doesn't tunnel past validation into the DB
-	// CHECK constraint ck_curtailment_event_max_duration_bounds.
+	// Mirror validateStartRequest's bounds against the normalized value so a
+	// misconfigured org default surfaces as InvalidArgument instead of
+	// tripping the ck_curtailment_event_max_duration_bounds CHECK.
 	if !req.AllowUnbounded && req.MaxDurationSeconds == nil {
 		if orgConfig.MaxDurationDefaultSec <= 0 {
 			return nil, fleeterror.NewInvalidArgumentErrorf(
@@ -237,11 +235,10 @@ func (s *Service) ListTargetsByEvent(ctx context.Context, orgID int64, eventUUID
 	return s.store.ListTargetsByEvent(ctx, orgID, eventUUID)
 }
 
-// runSelector executes the org-config + scope + candidate + classify +
+// runSelector runs the org-config → scope → candidate → classify →
 // build-plan pipeline shared by Preview and Start. Returns the resolved
-// candidate floor (so persisters can echo it into the decision snapshot)
-// and the OrgConfig (so Start can resolve max_duration_seconds=0 without a
-// second DB read).
+// candidate floor (for the decision snapshot) and the OrgConfig (so Start
+// can resolve max_duration_seconds=0 without a second DB read).
 func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, int32, *models.OrgConfig, error) {
 	deviceFilter, err := resolveScope(req.Scope)
 	if err != nil {
@@ -787,10 +784,10 @@ const (
 )
 
 // Stop transitions a non-terminal event to `restoring` and flips every
-// non-terminal target to (desired_state='active', state='pending'). The
-// effective_batch_size was stamped at Start; this call does not touch it.
-// Idempotent re-Stop returns the current event without writing. Terminal
-// events return FailedPrecondition.
+// non-terminal target to (desired_state='active', state='pending').
+// Idempotent re-Stop returns the current row without writing; terminal
+// events return FailedPrecondition. effective_batch_size is untouched —
+// it was stamped at Start.
 func (s *Service) Stop(ctx context.Context, req StopRequest) (*models.Event, error) {
 	if err := validateStopRequest(req); err != nil {
 		return nil, err
