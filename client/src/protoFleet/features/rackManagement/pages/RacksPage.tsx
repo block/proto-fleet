@@ -1,5 +1,8 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
+import { useBuildings } from "@/protoFleet/api/buildings";
+import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import type { DeviceSetListItem } from "@/protoFleet/components/DeviceSetList";
 import type { DeviceSetColumn } from "@/protoFleet/components/DeviceSetList";
@@ -41,13 +44,47 @@ const RACK_COLUMNS: DeviceSetColumn[] = [
   "health",
 ];
 
+const BUILDING_URL_PARAM = "building";
+
+// Reads the `building=…` URL params and returns only the valid bigint
+// values. Deep-linking from `/buildings/:id` seeds initial state and stays
+// the source of truth for the building filter so back/forward navigation
+// keeps the chip and list in sync. Accepts both repeated-key
+// (`?building=1&building=2`) and legacy comma-joined (`?building=1,2`)
+// forms to mirror filterUrlParams.ts on the miner list.
+function parseBuildingIdsFromParams(params: URLSearchParams): bigint[] {
+  return params
+    .getAll(BUILDING_URL_PARAM)
+    .flatMap((raw) => raw.split(","))
+    .flatMap((raw) => {
+      const trimmed = raw.trim();
+      if (!trimmed || !/^\d+$/.test(trimmed)) return [];
+      try {
+        return [BigInt(trimmed)];
+      } catch {
+        return [];
+      }
+    });
+}
+
 const RacksPage = () => {
   const navigate = useNavigate();
   const { listRacks, listRackZones, deleteGroup } = useDeviceSets();
+  const { listAllBuildings } = useBuildings();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [showRackSettingsModal, setShowRackSettingsModal] = useState(false);
   const [selectedZones, setSelectedZones] = useState<string[]>([]);
   const [selectedIssues, setSelectedIssues] = useState<string[]>([]);
   const [allZones, setAllZones] = useState<{ id: string; label: string }[]>([]);
+  const [allBuildings, setAllBuildings] = useState<{ id: string; label: string }[]>([]);
+
+  const selectedBuildingIds = useMemo(() => parseBuildingIdsFromParams(searchParams), [searchParams]);
+  const selectedBuildingIdStrings = useMemo(() => selectedBuildingIds.map(String), [selectedBuildingIds]);
+  const selectedBuildingIdsRef = useRef<bigint[]>(selectedBuildingIds);
+  useEffect(() => {
+    selectedBuildingIdsRef.current = selectedBuildingIds;
+  }, [selectedBuildingIds]);
+  const getBuildingIds = useCallback(() => selectedBuildingIdsRef.current, []);
 
   // AssignMinersModal state
   const [assignMinersFormData, setAssignMinersFormData] = useState<RackFormData | null>(null);
@@ -74,7 +111,7 @@ const RacksPage = () => {
     handlePrevPage,
     resetAndFetch,
     refreshCurrentPage,
-  } = useDeviceSetListState(listRacks, DEFAULT_PAGE_SIZE, getErrorComponentTypes, getZones);
+  } = useDeviceSetListState(listRacks, DEFAULT_PAGE_SIZE, getErrorComponentTypes, getZones, getBuildingIds);
 
   const racksViewMode = useFleetStore((s) => s.ui.racksViewMode);
   const setRacksViewMode = useFleetStore((s) => s.ui.setRacksViewMode);
@@ -96,6 +133,54 @@ const RacksPage = () => {
     fetchZones();
   }, [fetchZones]);
 
+  // Fetch all buildings once for the building filter dropdown. The list
+  // is small (org-scoped) and stable enough that a single load on mount
+  // is fine; the rack list re-renders independently when filters change.
+  useEffect(() => {
+    const controller = new AbortController();
+    void listAllBuildings({
+      signal: controller.signal,
+      onSuccess: (buildings: BuildingWithCounts[]) => {
+        setAllBuildings(
+          buildings
+            .filter((b) => b.building !== undefined)
+            .map((b) => ({ id: b.building!.id.toString(), label: b.building!.name })),
+        );
+      },
+    });
+    return () => controller.abort();
+  }, [listAllBuildings]);
+
+  const setBuildingFilter = useCallback(
+    (ids: string[]) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete(BUILDING_URL_PARAM);
+          ids.forEach((id) => {
+            const trimmed = id.trim();
+            if (trimmed && /^\d+$/.test(trimmed)) next.append(BUILDING_URL_PARAM, trimmed);
+          });
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+
+  // Refetch when the URL-driven building filter changes. The ref is read
+  // by useDeviceSetListState's fetchPage so this effect just kicks the
+  // pagination reset; the filter value itself flows through the ref.
+  const prevBuildingKey = useRef<string | null>(null);
+  useEffect(() => {
+    const key = selectedBuildingIdStrings.join(",");
+    if (prevBuildingKey.current !== null && prevBuildingKey.current !== key) {
+      resetAndFetch();
+    }
+    prevBuildingKey.current = key;
+  }, [selectedBuildingIdStrings, resetAndFetch]);
+
   const handleFilterChange = useCallback(
     (key: string, values: string[]) => {
       if (key === "zone") {
@@ -108,13 +193,24 @@ const RacksPage = () => {
         setSelectedIssues(values);
         selectedIssuesRef.current = values;
         resetAndFetch();
+        return;
+      }
+      if (key === "building") {
+        setBuildingFilter(values);
       }
     },
-    [resetAndFetch, selectedIssuesRef, selectedZonesRef],
+    [resetAndFetch, selectedIssuesRef, selectedZonesRef, setBuildingFilter],
   );
 
   const filterChipsBarFilters = useMemo(
     () => [
+      {
+        key: "building",
+        title: "Building",
+        pluralTitle: "buildings",
+        options: allBuildings,
+        selectedValues: selectedBuildingIdStrings,
+      },
       {
         key: "zone",
         title: "Zone",
@@ -130,18 +226,20 @@ const RacksPage = () => {
         selectedValues: selectedIssues,
       },
     ],
-    [allZones, selectedZones, selectedIssues],
+    [allBuildings, selectedBuildingIdStrings, allZones, selectedZones, selectedIssues],
   );
 
-  const hasActiveFilters = selectedZones.length > 0 || selectedIssues.length > 0;
+  const hasActiveFilters =
+    selectedBuildingIdStrings.length > 0 || selectedZones.length > 0 || selectedIssues.length > 0;
 
   const handleClearFilters = useCallback(() => {
     setSelectedZones([]);
     selectedZonesRef.current = [];
     setSelectedIssues([]);
     selectedIssuesRef.current = [];
+    setBuildingFilter([]);
     resetAndFetch();
-  }, [resetAndFetch, selectedIssuesRef, selectedZonesRef]);
+  }, [resetAndFetch, selectedIssuesRef, selectedZonesRef, setBuildingFilter]);
 
   const emptyStateRow: ReactNode = useMemo(() => {
     if (isLoading || totalCount > 0) return undefined;

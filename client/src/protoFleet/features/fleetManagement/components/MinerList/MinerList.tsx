@@ -870,6 +870,13 @@ const MinerList = ({
         });
       }
 
+      const buildingFilters = filters.dropdownFilters.building;
+      if (buildingFilters && buildingFilters.length > 0) {
+        buildingFilters.forEach((id) => {
+          minerFilter.buildingIds.push(BigInt(id));
+        });
+      }
+
       const firmwareFilters = filters.dropdownFilters.firmware;
       if (firmwareFilters && firmwareFilters.length > 0) {
         minerFilter.firmwareVersions.push(...firmwareFilters);

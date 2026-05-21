@@ -43,6 +43,7 @@ export function useDeviceSetListState(
   pageSize: number,
   getErrorComponentTypes?: () => number[],
   getZones?: () => string[],
+  getBuildingIds?: () => bigint[],
 ) {
   const { getDeviceSetStats } = useDeviceSets();
   const [deviceSets, setDeviceSets] = useState<DeviceSet[]>([]);
@@ -99,6 +100,7 @@ export function useDeviceSetListState(
         sort: sortRef.current,
         errorComponentTypes: getErrorComponentTypes?.() ?? [],
         zones: getZones?.() ?? [],
+        buildingIds: getBuildingIds?.() ?? [],
         onSuccess: (items, nextPageToken, total) => {
           if (requestId !== listRequestId.current) return;
           if (total > 0) setHasEverLoaded(true);
@@ -126,7 +128,7 @@ export function useDeviceSetListState(
         },
       });
     },
-    [listFn, pageSize, fetchStats, getErrorComponentTypes, getZones],
+    [listFn, pageSize, fetchStats, getErrorComponentTypes, getZones, getBuildingIds],
   );
 
   const resetAndFetch = useCallback(() => {

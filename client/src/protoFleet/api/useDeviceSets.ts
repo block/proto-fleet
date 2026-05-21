@@ -56,6 +56,7 @@ interface ListDeviceSetsProps {
   sort?: SortConfig;
   errorComponentTypes?: number[];
   zones?: string[];
+  buildingIds?: bigint[];
   onSuccess?: (deviceSets: DeviceSet[], nextPageToken: string, totalCount: number) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
@@ -348,6 +349,7 @@ const useDeviceSets = () => {
       sort,
       errorComponentTypes,
       zones,
+      buildingIds,
       onSuccess,
       onError,
       onFinally,
@@ -361,6 +363,7 @@ const useDeviceSets = () => {
             sort,
             errorComponentTypes: errorComponentTypes ?? [],
             zones: zones ?? [],
+            buildingIds: buildingIds ?? [],
           });
           onSuccess?.(response.deviceSets, response.nextPageToken, response.totalCount);
         } else {
@@ -375,6 +378,7 @@ const useDeviceSets = () => {
               pageToken: nextToken,
               sort,
               zones: zones ?? [],
+              buildingIds: buildingIds ?? [],
             });
             all.push(...response.deviceSets);
             nextToken = response.nextPageToken;
