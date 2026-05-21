@@ -407,23 +407,31 @@ func (q *Queries) UpsertBuiltinRoleForOrg(ctx context.Context, arg UpsertBuiltin
 	return i, err
 }
 
-const upsertRole = `-- name: UpsertRole :one
-INSERT INTO role (name, description)
-VALUES ($1, $2)
-ON CONFLICT (name) DO UPDATE SET
-    description = EXCLUDED.description,
-    deleted_at = NULL
+const upsertCustomRoleForOrg = `-- name: UpsertCustomRoleForOrg :one
+INSERT INTO role (name, description, is_builtin, organization_id)
+VALUES ($1, $2, FALSE, $3)
+ON CONFLICT (organization_id, name)
+    WHERE is_builtin = FALSE AND deleted_at IS NULL
+    DO UPDATE SET
+        description = EXCLUDED.description,
+        deleted_at = NULL
 RETURNING id
 `
 
-type UpsertRoleParams struct {
-	Name        string
-	Description sql.NullString
+type UpsertCustomRoleForOrgParams struct {
+	Name           string
+	Description    sql.NullString
+	OrganizationID sql.NullInt64
 }
 
-// PostgreSQL version returns the id using RETURNING
-func (q *Queries) UpsertRole(ctx context.Context, arg UpsertRoleParams) (int64, error) {
-	row := q.queryRow(ctx, q.upsertRoleStmt, upsertRole, arg.Name, arg.Description)
+// Idempotent insert for per-org custom roles. ON CONFLICT targets the
+// partial unique index uq_role_org_custom_name WHERE is_builtin = FALSE
+// AND deleted_at IS NULL. Built-ins go through UpsertBuiltinRoleForOrg
+// below — using this path for SUPER_ADMIN/ADMIN/FIELD_TECH would create
+// a custom row sharing the built-in's name and defeat per-org built-in
+// identity.
+func (q *Queries) UpsertCustomRoleForOrg(ctx context.Context, arg UpsertCustomRoleForOrgParams) (int64, error) {
+	row := q.queryRow(ctx, q.upsertCustomRoleForOrgStmt, upsertCustomRoleForOrg, arg.Name, arg.Description, arg.OrganizationID)
 	var id int64
 	err := row.Scan(&id)
 	return id, err

@@ -1,10 +1,17 @@
--- name: UpsertRole :one
--- PostgreSQL version returns the id using RETURNING
-INSERT INTO role (name, description)
-VALUES ($1, $2)
-ON CONFLICT (name) DO UPDATE SET
-    description = EXCLUDED.description,
-    deleted_at = NULL
+-- name: UpsertCustomRoleForOrg :one
+-- Idempotent insert for per-org custom roles. ON CONFLICT targets the
+-- partial unique index uq_role_org_custom_name WHERE is_builtin = FALSE
+-- AND deleted_at IS NULL. Built-ins go through UpsertBuiltinRoleForOrg
+-- below — using this path for SUPER_ADMIN/ADMIN/FIELD_TECH would create
+-- a custom row sharing the built-in's name and defeat per-org built-in
+-- identity.
+INSERT INTO role (name, description, is_builtin, organization_id)
+VALUES ($1, $2, FALSE, $3)
+ON CONFLICT (organization_id, name)
+    WHERE is_builtin = FALSE AND deleted_at IS NULL
+    DO UPDATE SET
+        description = EXCLUDED.description,
+        deleted_at = NULL
 RETURNING id;
 
 -- name: GetRoleByID :one

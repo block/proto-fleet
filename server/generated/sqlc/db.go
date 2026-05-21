@@ -951,6 +951,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.upsertCurtailmentReconcilerHeartbeatStmt, err = db.PrepareContext(ctx, upsertCurtailmentReconcilerHeartbeat); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertCurtailmentReconcilerHeartbeat: %w", err)
 	}
+	if q.upsertCustomRoleForOrgStmt, err = db.PrepareContext(ctx, upsertCustomRoleForOrg); err != nil {
+		return nil, fmt.Errorf("error preparing query UpsertCustomRoleForOrg: %w", err)
+	}
 	if q.upsertDevicePairingStmt, err = db.PrepareContext(ctx, upsertDevicePairing); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertDevicePairing: %w", err)
 	}
@@ -971,9 +974,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.upsertPermissionStmt, err = db.PrepareContext(ctx, upsertPermission); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertPermission: %w", err)
-	}
-	if q.upsertRoleStmt, err = db.PrepareContext(ctx, upsertRole); err != nil {
-		return nil, fmt.Errorf("error preparing query UpsertRole: %w", err)
 	}
 	return &q, nil
 }
@@ -2525,6 +2525,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing upsertCurtailmentReconcilerHeartbeatStmt: %w", cerr)
 		}
 	}
+	if q.upsertCustomRoleForOrgStmt != nil {
+		if cerr := q.upsertCustomRoleForOrgStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing upsertCustomRoleForOrgStmt: %w", cerr)
+		}
+	}
 	if q.upsertDevicePairingStmt != nil {
 		if cerr := q.upsertDevicePairingStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing upsertDevicePairingStmt: %w", cerr)
@@ -2558,11 +2563,6 @@ func (q *Queries) Close() error {
 	if q.upsertPermissionStmt != nil {
 		if cerr := q.upsertPermissionStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing upsertPermissionStmt: %w", cerr)
-		}
-	}
-	if q.upsertRoleStmt != nil {
-		if cerr := q.upsertRoleStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing upsertRoleStmt: %w", cerr)
 		}
 	}
 	return err
@@ -2913,6 +2913,7 @@ type Queries struct {
 	upsertBuiltinRoleForOrgStmt                         *sql.Stmt
 	upsertCommandOnDeviceLogStmt                        *sql.Stmt
 	upsertCurtailmentReconcilerHeartbeatStmt            *sql.Stmt
+	upsertCustomRoleForOrgStmt                          *sql.Stmt
 	upsertDevicePairingStmt                             *sql.Stmt
 	upsertDeviceStatusStmt                              *sql.Stmt
 	upsertDiscoveredDeviceStmt                          *sql.Stmt
@@ -2920,7 +2921,6 @@ type Queries struct {
 	upsertFleetNodeSessionStmt                          *sql.Stmt
 	upsertMinerCredentialsStmt                          *sql.Stmt
 	upsertPermissionStmt                                *sql.Stmt
-	upsertRoleStmt                                      *sql.Stmt
 }
 
 func (q *Queries) WithTx(tx *sql.Tx) *Queries {
@@ -3236,6 +3236,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		upsertBuiltinRoleForOrgStmt:                         q.upsertBuiltinRoleForOrgStmt,
 		upsertCommandOnDeviceLogStmt:                        q.upsertCommandOnDeviceLogStmt,
 		upsertCurtailmentReconcilerHeartbeatStmt:            q.upsertCurtailmentReconcilerHeartbeatStmt,
+		upsertCustomRoleForOrgStmt:                          q.upsertCustomRoleForOrgStmt,
 		upsertDevicePairingStmt:                             q.upsertDevicePairingStmt,
 		upsertDeviceStatusStmt:                              q.upsertDeviceStatusStmt,
 		upsertDiscoveredDeviceStmt:                          q.upsertDiscoveredDeviceStmt,
@@ -3243,6 +3244,5 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		upsertFleetNodeSessionStmt:                          q.upsertFleetNodeSessionStmt,
 		upsertMinerCredentialsStmt:                          q.upsertMinerCredentialsStmt,
 		upsertPermissionStmt:                                q.upsertPermissionStmt,
-		upsertRoleStmt:                                      q.upsertRoleStmt,
 	}
 }
