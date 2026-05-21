@@ -148,6 +148,20 @@ FROM curtailment_event
 WHERE event_uuid = sqlc.arg('event_uuid')
     AND org_id = sqlc.arg('org_id');
 
+-- name: ListCurtailmentEventsForOrg :many
+-- Cursor-paginated history, ordered newest-first by id. cursor_id=0 reads
+-- the first page; subsequent pages pass the last id from the previous page.
+-- state_filter is empty for "all states" or one of the event-state values
+-- to filter on. Caller passes limit+1 so the result indicates a next page
+-- when the slice exceeds the requested page size.
+SELECT *
+FROM curtailment_event
+WHERE org_id = sqlc.arg('org_id')
+    AND (sqlc.arg('cursor_id')::BIGINT = 0 OR id < sqlc.arg('cursor_id')::BIGINT)
+    AND (sqlc.arg('state_filter')::TEXT = '' OR state = sqlc.arg('state_filter')::TEXT)
+ORDER BY id DESC
+LIMIT sqlc.arg('row_limit')::BIGINT;
+
 -- name: GetActiveCurtailmentEvent :one
 -- Org-scoped recovery path for pending/active/restoring events. At most one
 -- row matches per org under uq_curtailment_event_one_non_terminal_per_org;

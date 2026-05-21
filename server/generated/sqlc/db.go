@@ -543,6 +543,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listCurtailmentCandidatesByOrgStmt, err = db.PrepareContext(ctx, listCurtailmentCandidatesByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListCurtailmentCandidatesByOrg: %w", err)
 	}
+	if q.listCurtailmentEventsForOrgStmt, err = db.PrepareContext(ctx, listCurtailmentEventsForOrg); err != nil {
+		return nil, fmt.Errorf("error preparing query ListCurtailmentEventsForOrg: %w", err)
+	}
 	if q.listCurtailmentTargetsByEventStmt, err = db.PrepareContext(ctx, listCurtailmentTargetsByEvent); err != nil {
 		return nil, fmt.Errorf("error preparing query ListCurtailmentTargetsByEvent: %w", err)
 	}
@@ -1776,6 +1779,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listCurtailmentCandidatesByOrgStmt: %w", cerr)
 		}
 	}
+	if q.listCurtailmentEventsForOrgStmt != nil {
+		if cerr := q.listCurtailmentEventsForOrgStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listCurtailmentEventsForOrgStmt: %w", cerr)
+		}
+	}
 	if q.listCurtailmentTargetsByEventStmt != nil {
 		if cerr := q.listCurtailmentTargetsByEventStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listCurtailmentTargetsByEventStmt: %w", cerr)
@@ -2593,6 +2601,7 @@ type Queries struct {
 	listBatchDeviceResultsStmt                          *sql.Stmt
 	listBuildingsByOrgStmt                              *sql.Stmt
 	listCurtailmentCandidatesByOrgStmt                  *sql.Stmt
+	listCurtailmentEventsForOrgStmt                     *sql.Stmt
 	listCurtailmentTargetsByEventStmt                   *sql.Stmt
 	listDeviceSetMembersPaginatedStmt                   *sql.Stmt
 	listDeviceSetMembersPaginatedAfterStmt              *sql.Stmt
@@ -2893,6 +2902,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listBatchDeviceResultsStmt:                          q.listBatchDeviceResultsStmt,
 		listBuildingsByOrgStmt:                              q.listBuildingsByOrgStmt,
 		listCurtailmentCandidatesByOrgStmt:                  q.listCurtailmentCandidatesByOrgStmt,
+		listCurtailmentEventsForOrgStmt:                     q.listCurtailmentEventsForOrgStmt,
 		listCurtailmentTargetsByEventStmt:                   q.listCurtailmentTargetsByEventStmt,
 		listDeviceSetMembersPaginatedStmt:                   q.listDeviceSetMembersPaginatedStmt,
 		listDeviceSetMembersPaginatedAfterStmt:              q.listDeviceSetMembersPaginatedAfterStmt,

@@ -631,6 +631,91 @@ func (q *Queries) ListCurtailmentCandidatesByOrg(ctx context.Context, arg ListCu
 	return items, nil
 }
 
+const listCurtailmentEventsForOrg = `-- name: ListCurtailmentEventsForOrg :many
+SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id
+FROM curtailment_event
+WHERE org_id = $1
+    AND ($2::BIGINT = 0 OR id < $2::BIGINT)
+    AND ($3::TEXT = '' OR state = $3::TEXT)
+ORDER BY id DESC
+LIMIT $4::BIGINT
+`
+
+type ListCurtailmentEventsForOrgParams struct {
+	OrgID       int64
+	CursorID    int64
+	StateFilter string
+	RowLimit    int64
+}
+
+// Cursor-paginated history, ordered newest-first by id. cursor_id=0 reads
+// the first page; subsequent pages pass the last id from the previous page.
+// state_filter is empty for "all states" or one of the event-state values
+// to filter on. Caller passes limit+1 so the result indicates a next page
+// when the slice exceeds the requested page size.
+func (q *Queries) ListCurtailmentEventsForOrg(ctx context.Context, arg ListCurtailmentEventsForOrgParams) ([]CurtailmentEvent, error) {
+	rows, err := q.query(ctx, q.listCurtailmentEventsForOrgStmt, listCurtailmentEventsForOrg,
+		arg.OrgID,
+		arg.CursorID,
+		arg.StateFilter,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CurtailmentEvent
+	for rows.Next() {
+		var i CurtailmentEvent
+		if err := rows.Scan(
+			&i.ID,
+			&i.EventUuid,
+			&i.OrgID,
+			&i.State,
+			&i.Mode,
+			&i.Strategy,
+			&i.Level,
+			&i.Priority,
+			&i.LoopType,
+			&i.ScopeType,
+			&i.ScopeJsonb,
+			&i.ModeParamsJsonb,
+			&i.RestoreBatchSize,
+			&i.RestoreBatchIntervalSec,
+			&i.EffectiveBatchSize,
+			&i.MinCurtailedDurationSec,
+			&i.MaxDurationSeconds,
+			&i.AllowUnbounded,
+			&i.IncludeMaintenance,
+			&i.ForceIncludeMaintenance,
+			&i.DecisionSnapshotJsonb,
+			&i.SourceActorType,
+			&i.SourceActorID,
+			&i.ExternalSource,
+			&i.ExternalReference,
+			&i.IdempotencyKey,
+			&i.SupersedesEventID,
+			&i.Reason,
+			&i.ScheduledStartAt,
+			&i.StartedAt,
+			&i.EndedAt,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CreatedByUserID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listCurtailmentTargetsByEvent = `-- name: ListCurtailmentTargetsByEvent :many
 SELECT ct.curtailment_event_id, ct.device_identifier, ct.target_type, ct.state, ct.desired_state, ct.baseline_power_w, ct.added_at, ct.released_at, ct.last_dispatched_at, ct.last_batch_uuid, ct.observed_power_w, ct.observed_at, ct.confirmed_at, ct.retry_count, ct.last_error, ct.selector_rationale_jsonb
 FROM curtailment_target ct

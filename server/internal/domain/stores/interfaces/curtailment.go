@@ -38,6 +38,19 @@ type UpsertCurtailmentHeartbeatParams struct {
 	ActiveEventCount   int32
 }
 
+// ListEventsParams configures the org-scoped cursor-paginated history
+// query. PageToken is empty for the first page; subsequent pages reuse
+// the next-page token from the previous response. StateFilter is empty
+// for "all states" or one of the canonical EventState values. PageSize
+// is clamped at the service layer; the store treats <=0 as the default
+// page size and applies its own upper cap as defense in depth.
+type ListEventsParams struct {
+	OrgID       int64
+	PageSize    int32
+	PageToken   string
+	StateFilter models.EventState
+}
+
 // CurtailmentStore is the persistence boundary for the curtailment domain.
 // All methods are org-scoped except where noted.
 //
@@ -54,6 +67,14 @@ type CurtailmentStore interface {
 
 	GetEventByUUID(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error)
 	GetActiveEvent(ctx context.Context, orgID int64) (*models.Event, error)
+
+	// ListEvents returns the cursor-paginated history for an org. The cursor
+	// is an opaque token issued by an earlier call (empty for the first
+	// page); the next-page cursor is returned alongside the slice and is
+	// empty when no further pages remain. stateFilter is empty for "all
+	// states" or one of the canonical EventState values. Results are ordered
+	// newest-first by internal id.
+	ListEvents(ctx context.Context, params ListEventsParams) ([]*models.Event, string, error)
 
 	ListTargetsByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) ([]*models.Target, error)
 

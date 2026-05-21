@@ -507,6 +507,47 @@ func toStopRequest(msg *pb.StopCurtailmentRequest, orgID int64) (curtailment.Sto
 	}, nil
 }
 
+// toListEventsRequest maps the proto ListCurtailmentEventsRequest to the
+// service-layer shape, attaching the org from the session. The proto
+// validator already caps page_size at [0, 200].
+func toListEventsRequest(msg *pb.ListCurtailmentEventsRequest, orgID int64) (curtailment.ListEventsRequest, error) {
+	if orgID <= 0 {
+		return curtailment.ListEventsRequest{}, fleeterror.NewUnauthenticatedError("authentication required")
+	}
+	return curtailment.ListEventsRequest{
+		OrgID:       orgID,
+		PageSize:    msg.GetPageSize(),
+		PageToken:   msg.GetPageToken(),
+		StateFilter: eventStateFromProto(msg.GetStateFilter()),
+	}, nil
+}
+
+// toListEventsResponse builds the wire response from the persisted event
+// rows. Per-target rows are intentionally omitted (heavy on a 10K-miner
+// event × N pages); the decision snapshot is trimmed in place.
+func toListEventsResponse(events []*models.Event, nextPageToken string) *pb.ListCurtailmentEventsResponse {
+	out := &pb.ListCurtailmentEventsResponse{
+		Events:        make([]*pb.CurtailmentEvent, len(events)),
+		NextPageToken: nextPageToken,
+	}
+	for i, ev := range events {
+		out.Events[i] = toEventProtoListItem(ev)
+	}
+	return out
+}
+
+// toEventProtoListItem populates the list-view shape: identity + lifecycle
+// + scope + mode params + trimmed decision snapshot. Targets are not
+// included; consumers paginate over events here and fetch per-event target
+// detail separately when needed.
+func toEventProtoListItem(event *models.Event) *pb.CurtailmentEvent {
+	out := toEventProto(event)
+	populateEventScope(out, event)
+	populateEventModeParams(out, event)
+	populateEventDecisionSnapshotTrimmed(out, event)
+	return out
+}
+
 // toEventProto maps persisted event metadata to the wire CurtailmentEvent.
 // Call toEventProtoWithTargets for read APIs that also need scope, mode
 // params, decision snapshot, and target progress.
@@ -626,6 +667,49 @@ func populateEventDecisionSnapshot(out *pb.CurtailmentEvent, event *models.Event
 	out.DecisionSnapshot = s
 }
 
+// populateEventDecisionSnapshotTrimmed surfaces the small summary fields
+// (candidate_min_power_w, estimated_reduction_kw, selected_count) and
+// collapses the per-device `skipped` slice into aggregate counts keyed by
+// reason. For a 10K-miner event the raw `skipped` array is megabytes of
+// JSON; the aggregate keeps the response bounded for list views.
+func populateEventDecisionSnapshotTrimmed(out *pb.CurtailmentEvent, event *models.Event) {
+	if len(event.DecisionSnapshotJSON) == 0 {
+		return
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(event.DecisionSnapshotJSON, &payload); err != nil {
+		return
+	}
+	if raw, ok := payload["skipped"]; ok {
+		entries, ok := raw.([]any)
+		if ok {
+			aggregate := map[string]any{}
+			for _, entry := range entries {
+				row, ok := entry.(map[string]any)
+				if !ok {
+					continue
+				}
+				reason, _ := row["reason"].(string)
+				if reason == "" {
+					continue
+				}
+				if existing, ok := aggregate[reason].(float64); ok {
+					aggregate[reason] = existing + 1
+				} else {
+					aggregate[reason] = float64(1)
+				}
+			}
+			payload["skipped_aggregate"] = aggregate
+		}
+		delete(payload, "skipped")
+	}
+	s, err := structpb.NewStruct(payload)
+	if err != nil {
+		return
+	}
+	out.DecisionSnapshot = s
+}
+
 func populateEventTargets(out *pb.CurtailmentEvent, targets []*models.Target) {
 	out.Targets = make([]*pb.CurtailmentTarget, 0, len(targets))
 	rollup := &pb.CurtailmentTargetRollup{}
@@ -700,6 +784,31 @@ func uint32Saturating(v int32) uint32 {
 		return 0
 	}
 	return uint32(v) // #nosec G115 -- bounds-checked above
+}
+
+// eventStateFromProto is the inverse of eventStateProto. UNSPECIFIED maps
+// to the canonical empty-string sentinel, signalling "no state filter" to
+// the persistence layer.
+func eventStateFromProto(s pb.CurtailmentEventState) models.EventState {
+	switch s {
+	case pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_UNSPECIFIED:
+		return ""
+	case pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_PENDING:
+		return models.EventStatePending
+	case pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_ACTIVE:
+		return models.EventStateActive
+	case pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_RESTORING:
+		return models.EventStateRestoring
+	case pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_COMPLETED:
+		return models.EventStateCompleted
+	case pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_COMPLETED_WITH_FAILURES:
+		return models.EventStateCompletedWithFailures
+	case pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_CANCELLED:
+		return models.EventStateCancelled
+	case pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_FAILED:
+		return models.EventStateFailed
+	}
+	return ""
 }
 
 func eventStateProto(s models.EventState) pb.CurtailmentEventState {

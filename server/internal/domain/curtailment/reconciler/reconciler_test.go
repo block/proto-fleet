@@ -115,6 +115,10 @@ func (f *fakeStore) ListCandidates(_ context.Context, _ int64, deviceIdentifiers
 	return out, nil
 }
 
+func (f *fakeStore) ListEvents(context.Context, interfaces.ListEventsParams) ([]*models.Event, string, error) {
+	panic("ListEvents not exercised by reconciler tests")
+}
+
 func (f *fakeStore) ListNonTerminalEvents(context.Context) ([]*models.Event, error) {
 	f.listEventsCalls++
 	if f.listEventsPanicErr != "" {

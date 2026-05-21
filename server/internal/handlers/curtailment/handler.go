@@ -158,8 +158,23 @@ func (h *Handler) GetActiveCurtailment(ctx context.Context, _ *connect.Request[p
 	return connect.NewResponse(resp), nil
 }
 
-func (h *Handler) ListCurtailmentEvents(_ context.Context, _ *connect.Request[pb.ListCurtailmentEventsRequest]) (*connect.Response[pb.ListCurtailmentEventsResponse], error) {
-	return nil, errCurtailmentNotImplemented("ListCurtailmentEvents")
+func (h *Handler) ListCurtailmentEvents(ctx context.Context, req *connect.Request[pb.ListCurtailmentEventsRequest]) (*connect.Response[pb.ListCurtailmentEventsResponse], error) {
+	if h.service == nil {
+		return nil, errCurtailmentNotImplemented("ListCurtailmentEvents")
+	}
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, fleeterror.NewUnauthenticatedError("authentication required")
+	}
+	listReq, err := toListEventsRequest(req.Msg, info.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	events, nextToken, err := h.service.ListEvents(ctx, listReq)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(toListEventsResponse(events, nextToken)), nil
 }
 
 // AdminTerminateEvent forces a non-terminal event to terminal. Paired with

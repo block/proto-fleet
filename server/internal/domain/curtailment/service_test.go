@@ -3,6 +3,7 @@ package curtailment
 import (
 	"cmp"
 	"context"
+	"fmt"
 	"math"
 	"slices"
 	"sync"
@@ -59,6 +60,13 @@ type fakeStore struct {
 	beginRestoreErr         error
 	beginRestoreCalls       int
 	beginRestoreLastEventID uuid.UUID
+
+	// List-history fakes. eventsHistory is the slice the fake's ListEvents
+	// paginates over (callers seed it newest-first to match the SQL impl).
+	eventsHistory        []*models.Event
+	listEventsErr        error
+	listEventsCalls      int
+	lastListEventsParams interfaces.ListEventsParams
 }
 
 func newFakeStore() *fakeStore {
@@ -138,6 +146,51 @@ func (f *fakeStore) ListTargetsByEvent(_ context.Context, _ int64, eventUUID uui
 		return nil, f.listTargetsErr
 	}
 	return append([]*models.Target(nil), f.targetsByEventUUID[eventUUID]...), nil
+}
+
+func (f *fakeStore) ListEvents(_ context.Context, params interfaces.ListEventsParams) ([]*models.Event, string, error) {
+	f.listEventsCalls++
+	f.lastListEventsParams = params
+	if f.listEventsErr != nil {
+		return nil, "", f.listEventsErr
+	}
+	// Filter on org_id + optional state; cursor + page-size handling is
+	// faithful to the SQL impl: cursor is the last id from the previous
+	// page, page_size <= 0 falls back to the default. The fake's "history"
+	// slice is ordered newest-first by the test author.
+	filtered := make([]*models.Event, 0, len(f.eventsHistory))
+	for _, ev := range f.eventsHistory {
+		if ev.OrgID != params.OrgID {
+			continue
+		}
+		if params.StateFilter != "" && ev.State != params.StateFilter {
+			continue
+		}
+		filtered = append(filtered, ev)
+	}
+	cursorID := int64(0)
+	if params.PageToken != "" {
+		// Tests pass a plain decimal id as the token for clarity.
+		_, _ = fmt.Sscanf(params.PageToken, "%d", &cursorID)
+	}
+	if cursorID > 0 {
+		after := make([]*models.Event, 0, len(filtered))
+		for _, ev := range filtered {
+			if ev.ID < cursorID {
+				after = append(after, ev)
+			}
+		}
+		filtered = after
+	}
+	pageSize := params.PageSize
+	if pageSize <= 0 {
+		pageSize = 50
+	}
+	if int64(len(filtered)) <= int64(pageSize) {
+		return filtered, "", nil
+	}
+	page := filtered[:pageSize]
+	return page, fmt.Sprintf("%d", page[len(page)-1].ID), nil
 }
 
 func (f *fakeStore) GetHeartbeat(context.Context) (*models.Heartbeat, error) {

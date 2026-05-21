@@ -242,6 +242,37 @@ func (s *Service) GetActive(ctx context.Context, orgID int64) (*models.Event, er
 	return s.store.GetActiveEvent(ctx, orgID)
 }
 
+// ListEventsRequest is the service-level shape of a ListCurtailmentEvents
+// call. PageToken is empty for the first page; subsequent pages reuse the
+// next-page token returned by the previous call. StateFilter is the
+// canonical empty-string-or-EventState; the handler maps the proto enum.
+type ListEventsRequest struct {
+	OrgID       int64
+	PageSize    int32
+	PageToken   string
+	StateFilter models.EventState
+}
+
+// ListEvents returns cursor-paginated event history for an org. The
+// returned events carry decision_snapshot_jsonb intact; the handler trims
+// the snapshot to the published v1 read-API shape before serialization.
+func (s *Service) ListEvents(ctx context.Context, req ListEventsRequest) ([]*models.Event, string, error) {
+	if req.OrgID <= 0 {
+		return nil, "", fleeterror.NewInvalidArgumentError("org_id must be set")
+	}
+	if req.PageSize < 0 {
+		return nil, "", fleeterror.NewInvalidArgumentErrorf(
+			"page_size must be >= 0, got %d", req.PageSize,
+		)
+	}
+	return s.store.ListEvents(ctx, interfaces.ListEventsParams{
+		OrgID:       req.OrgID,
+		PageSize:    req.PageSize,
+		PageToken:   req.PageToken,
+		StateFilter: req.StateFilter,
+	})
+}
+
 func (s *Service) GetActiveWithTargets(ctx context.Context, orgID int64) (*models.Event, []*models.Target, error) {
 	event, err := s.GetActive(ctx, orgID)
 	if err != nil || event == nil {

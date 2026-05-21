@@ -203,6 +203,56 @@ func (s *SQLCurtailmentStore) GetActiveEvent(ctx context.Context, orgID int64) (
 	return convertEventRow(row), nil
 }
 
+const (
+	curtailmentEventsDefaultPageSize int32 = 50
+	curtailmentEventsMaxPageSize     int32 = 200
+)
+
+func (s *SQLCurtailmentStore) ListEvents(ctx context.Context, params interfaces.ListEventsParams) ([]*models.Event, string, error) {
+	cursor, err := decodeCurtailmentEventCursor(params.PageToken)
+	if err != nil {
+		return nil, "", err
+	}
+
+	pageSize := params.PageSize
+	if pageSize <= 0 {
+		pageSize = curtailmentEventsDefaultPageSize
+	}
+	if pageSize > curtailmentEventsMaxPageSize {
+		pageSize = curtailmentEventsMaxPageSize
+	}
+
+	var cursorID int64
+	if cursor != nil {
+		cursorID = cursor.ID
+	}
+
+	rows, err := s.GetQueries(ctx).ListCurtailmentEventsForOrg(ctx, sqlc.ListCurtailmentEventsForOrgParams{
+		OrgID:       params.OrgID,
+		CursorID:    cursorID,
+		StateFilter: string(params.StateFilter),
+		// Over-fetch by one so the caller knows whether another page remains.
+		RowLimit: int64(pageSize) + 1,
+	})
+	if err != nil {
+		return nil, "", fleeterror.NewInternalErrorf("failed to list curtailment events: %v", err)
+	}
+
+	var nextToken string
+	if int64(len(rows)) > int64(pageSize) {
+		// Trim the over-fetched row and emit a cursor pointing at the last
+		// returned row's id so the next page starts there.
+		rows = rows[:pageSize]
+		nextToken = encodeCurtailmentEventCursor(&curtailmentEventCursor{ID: rows[len(rows)-1].ID})
+	}
+
+	out := make([]*models.Event, len(rows))
+	for i, row := range rows {
+		out[i] = convertEventRow(row)
+	}
+	return out, nextToken, nil
+}
+
 func (s *SQLCurtailmentStore) ListTargetsByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) ([]*models.Target, error) {
 	rows, err := s.GetQueries(ctx).ListCurtailmentTargetsByEvent(ctx, sqlc.ListCurtailmentTargetsByEventParams{
 		OrgID:     orgID,
