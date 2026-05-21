@@ -124,19 +124,28 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 	}
 
 	// max_duration_seconds=nil + !AllowUnbounded means "use org default".
-	// Reject a non-positive org default (data-quality issue).
+	// Reject an out-of-range org default (data-quality issue) — the same
+	// upper bound validateStartRequest enforces against caller-supplied
+	// values, applied here to the normalized-from-org-default path so a
+	// misconfigured org default doesn't tunnel past validation into the DB
+	// CHECK constraint ck_curtailment_event_max_duration_bounds.
 	if !req.AllowUnbounded && req.MaxDurationSeconds == nil {
 		if orgConfig.MaxDurationDefaultSec <= 0 {
 			return nil, fleeterror.NewInvalidArgumentErrorf(
 				"org's max_duration_default_sec must be > 0, got %d", orgConfig.MaxDurationDefaultSec,
 			)
 		}
+		if orgConfig.MaxDurationDefaultSec > maxFiniteDurationSeconds {
+			return nil, fleeterror.NewInvalidArgumentErrorf(
+				"org's max_duration_default_sec must be <= %d, got %d",
+				maxFiniteDurationSeconds, orgConfig.MaxDurationDefaultSec,
+			)
+		}
 		v := orgConfig.MaxDurationDefaultSec
 		req.MaxDurationSeconds = &v
 	}
-	// Upper-bound (`<= maxFiniteDurationSeconds`) is enforced by
-	// validateStartRequest. The admin-gate below is intrinsically
-	// post-normalization: it compares the resolved value to the org default.
+	// Admin-gate is intrinsically post-normalization: it compares the
+	// resolved value to the org default.
 	if req.MaxDurationSeconds != nil &&
 		orgConfig.MaxDurationDefaultSec > 0 &&
 		*req.MaxDurationSeconds > orgConfig.MaxDurationDefaultSec &&

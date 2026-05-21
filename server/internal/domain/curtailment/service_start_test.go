@@ -98,6 +98,35 @@ func TestService_Start_NilMaxDurationUsesOrgDefault(t *testing.T) {
 	assert.Equal(t, store.orgConfigByOrg[orgID].MaxDurationDefaultSec, *store.lastInsertEvent.MaxDurationSeconds)
 }
 
+// TestService_Start_RejectsOrgDefaultAboveAbsoluteCeiling pins the
+// post-normalization upper-bound guard: when the caller leaves
+// max_duration_seconds unset and !allow_unbounded, Service.Start fills it
+// from orgConfig.MaxDurationDefaultSec. validateStartRequest ran before the
+// fill and saw nil, so a misconfigured org default above maxFiniteDurationSeconds
+// would otherwise tunnel into the DB and trip ck_curtailment_event_max_duration_bounds
+// as an Internal error. Re-checking here keeps the failure a clean
+// InvalidArgument with a config-level message.
+func TestService_Start_RejectsOrgDefaultAboveAbsoluteCeiling(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	store := newFakeStore()
+	cfg := defaultOrgConfig(orgID)
+	cfg.MaxDurationDefaultSec = maxFiniteDurationSeconds + 1
+	store.orgConfigByOrg[orgID] = cfg
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("miner", 6000, 100, 40),
+	}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.MaxDurationSeconds = nil // sentinel: use org default
+
+	_, err := svc.Start(t.Context(), req)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "max_duration_default_sec")
+	assert.Contains(t, err.Error(), "must be <=")
+}
+
 func TestService_Start_RejectsNonAdminDurationAboveOrgDefault(t *testing.T) {
 	t.Parallel()
 	const orgID = int64(1)
