@@ -636,6 +636,57 @@ func TestReconciler_Restoring_DispatchedWithinTimeoutDoesNotFail(t *testing.T) {
 	assert.Nil(t, final.LastError)
 }
 
+// TestReconciler_Restoring_MissingCandidateDuringConfirmConsumesRetryBudget
+// pins the restore-phase analog of the curtail-phase nil-candidate guard: a
+// Dispatched+Active target whose candidate row has vanished (device unpaired
+// or deleted) burns retry budget via recordDispatchFailure so the event can
+// still reach terminal instead of pinning on a ghost row. The interval gate
+// is held closed so the re-claim arm of observeRestoring does not redispatch
+// the freshly-Pending target within the same tick.
+func TestReconciler_Restoring_MissingCandidateDuringConfirmConsumesRetryBudget(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	r := newReconcilerForTest(store, disp)
+	lastDispatch := r.now().Add(-1 * time.Minute)
+	effBatch := int32(2)
+	eventID := int64(62)
+	store.events = []*models.Event{{
+		ID:                      eventID,
+		EventUUID:               uuid.New(),
+		OrgID:                   1,
+		State:                   models.EventStateRestoring,
+		EffectiveBatchSize:      &effBatch,
+		RestoreBatchIntervalSec: 600, // 10m > 1m gap → interval gate stays closed
+	}}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "m1",
+			State:              models.TargetStateDispatched,
+			DesiredState:       models.DesiredStateActive,
+			BaselinePowerW:     ptrFloat64(3000),
+			LastDispatchedAt:   &lastDispatch,
+			RetryCount:         0,
+		},
+	}
+	// Candidate row deliberately absent: device was unpaired or deleted
+	// after dispatch.
+	store.candidates = nil
+
+	r.runTick(context.Background())
+
+	final := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStatePending, final.State,
+		"missing candidate routes restore-phase target back to Pending while retry budget remains")
+	assert.Equal(t, int32(1), final.RetryCount,
+		"missing candidate burns one retry slot per tick")
+	require.NotNil(t, final.LastError)
+	assert.Contains(t, *final.LastError, "candidate row missing")
+	assert.Equal(t, 0, disp.uncurtailCalls,
+		"interval gate must hold the re-claim until restore_batch_interval_sec elapses")
+}
+
 // --- isRestored predicate ---
 
 func TestIsRestored(t *testing.T) {

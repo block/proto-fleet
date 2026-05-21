@@ -212,6 +212,32 @@ func TestService_Start_AllowsAdminLargeRestoreBatchInterval(t *testing.T) {
 	assert.Equal(t, nonAdminRestoreBatchIntervalMax+1, store.lastInsertEvent.RestoreBatchIntervalSec)
 }
 
+// TestService_Start_RejectsAdminRestoreBatchIntervalAboveAbsoluteCeiling pins
+// the absolute upper bound: the admin role bypasses the non-admin cap
+// (nonAdminRestoreBatchIntervalMax) but still cannot exceed the absolute
+// ceiling (restoreBatchIntervalUpperBoundSec). A refactor that drops the
+// validateStartRequest upper-bound check would otherwise hit the DB CHECK
+// constraint instead of the friendly service-layer error.
+func TestService_Start_RejectsAdminRestoreBatchIntervalAboveAbsoluteCeiling(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("miner", 6000, 100, 40),
+	}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.RestoreBatchIntervalSec = restoreBatchIntervalUpperBoundSec + 1
+	req.CanUseAdminControls = true
+
+	_, err := svc.Start(t.Context(), req)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err),
+		"absolute ceiling violation is InvalidArgument even for admin callers")
+	assert.Contains(t, err.Error(), "restore_batch_interval_sec must be <=")
+}
+
 func TestService_Start_RejectsMissingSourceActorType(t *testing.T) {
 	t.Parallel()
 	svc := NewService(newFakeStore())
@@ -592,4 +618,29 @@ func TestService_Start_NonTerminalOverlapReturnsAlreadyExists(t *testing.T) {
 	assert.True(t, fleeterror.IsAlreadyExistsError(err))
 	assert.Contains(t, err.Error(), existingUUID.String())
 	assert.Contains(t, err.Error(), string(models.EventStateActive))
+}
+
+// TestService_Start_NonTerminalOverlapWithGetActiveErrorReturnsBareAlreadyExists
+// pins the sub-branch where the unique-violation handling falls back to a
+// stripped AlreadyExists when GetActiveEvent itself fails. The caller still
+// gets AlreadyExists (the constraint is the load-bearing signal); the absence
+// of the existing event identity is the documented best-effort behavior.
+func TestService_Start_NonTerminalOverlapWithGetActiveErrorReturnsBareAlreadyExists(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("a", 6000, 100, 40),
+	}
+	store.insertEventErr = interfaces.ErrCurtailmentNonTerminalEventExists
+	store.activeEventErr = errors.New("simulated GetActiveEvent failure")
+	svc := NewService(store)
+	plan, err := svc.Start(t.Context(), validStartRequest(orgID))
+	require.Error(t, err)
+	assert.Nil(t, plan)
+	assert.True(t, fleeterror.IsAlreadyExistsError(err),
+		"unique-violation must still surface as AlreadyExists even when the identity lookup fails")
+	assert.NotContains(t, err.Error(), "event_uuid=",
+		"identity substring is omitted when GetActiveEvent fails")
 }

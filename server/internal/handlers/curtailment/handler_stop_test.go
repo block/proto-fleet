@@ -2,6 +2,7 @@ package curtailment
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -232,4 +233,31 @@ func TestHandler_StopCurtailment_AdminForcePassesThrough(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, store.beginRestoreCalls,
 		"admin force=true must bypass the min-duration gate")
+}
+
+// TestHandler_StopCurtailment_ListTargetsErrorPropagates pins the post-Stop
+// read path: Stop completes the transition (beginRestoreCalls advances), then
+// the handler's ListTargetsByEvent call propagates the store error to the
+// caller instead of silently returning an event with no targets.
+func TestHandler_StopCurtailment_ListTargetsErrorPropagates(t *testing.T) {
+	t.Parallel()
+	store := newStopStubStore()
+	store.listTargetsErr = errors.New("simulated targets read failure")
+	h := NewHandler(curtailment.NewService(store))
+
+	ctx := authn.SetInfo(t.Context(), &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: 42,
+		UserID:         9,
+		Role:           "OPERATOR",
+	})
+
+	resp, err := h.StopCurtailment(ctx, connect.NewRequest(&pb.StopCurtailmentRequest{
+		EventUuid: store.event.EventUUID.String(),
+	}))
+	require.Error(t, err)
+	assert.Nil(t, resp,
+		"a failed post-Stop targets read must not leak a partial response")
+	assert.Equal(t, 1, store.beginRestoreCalls,
+		"the transition already committed before the targets read failed")
 }
