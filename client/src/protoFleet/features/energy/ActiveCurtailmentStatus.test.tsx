@@ -77,6 +77,39 @@ describe("ActiveCurtailmentStatus", () => {
     expect(onRequestStop).toHaveBeenCalledOnce();
   });
 
+  it("calls the manage handler when edit is available", async () => {
+    const user = userEvent.setup();
+    const onRequestEdit = vi.fn();
+    const onRequestStop = vi.fn();
+
+    render(
+      <ActiveCurtailmentStatus
+        event={curtailingCurtailmentEvent}
+        onRequestEdit={onRequestEdit}
+        onRequestStop={onRequestStop}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Manage" }));
+
+    expect(onRequestEdit).toHaveBeenCalledOnce();
+    expect(onRequestStop).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Stop" })).toBeVisible();
+  });
+
+  it("shows manage without stop or restore while restoring", async () => {
+    const user = userEvent.setup();
+    const onRequestEdit = vi.fn();
+
+    render(<ActiveCurtailmentStatus event={restoringCurtailmentEvent} onRequestEdit={onRequestEdit} />);
+
+    await user.click(screen.getByRole("button", { name: "Manage" }));
+
+    expect(onRequestEdit).toHaveBeenCalledOnce();
+    expectActionButtonHidden("Stop");
+    expectActionButtonHidden("Restore");
+  });
+
   it("renders a curtailed event with restore available", async () => {
     const user = userEvent.setup();
     const onRequestRestore = vi.fn();

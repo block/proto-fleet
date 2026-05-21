@@ -1,4 +1,4 @@
-import { type ReactElement, useEffect, useMemo, useState } from "react";
+import { type ComponentProps, type ReactElement, useEffect, useMemo, useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import ActiveCurtailmentStatus, {
@@ -11,6 +11,9 @@ import {
   restoreIncompleteCurtailmentEvent,
   restoringCurtailmentEvent,
 } from "@/protoFleet/features/energy/ActiveCurtailmentStatus.fixtures";
+import CurtailmentStopConfirmationDialog, {
+  type CurtailmentStopConfirmationAction,
+} from "@/protoFleet/features/energy/CurtailmentStopConfirmationDialog";
 
 const meta = {
   title: "Proto Fleet/Energy/Active Curtailment Status",
@@ -52,6 +55,32 @@ interface StartProgressIntervalArgs {
 const animationStepPercent = 10;
 const animationStepMs = 450;
 const restoreStartDelayMs = 900;
+
+function ActiveCurtailmentStatusStory(props: ComponentProps<typeof ActiveCurtailmentStatus>): ReactElement {
+  const [dialogAction, setDialogAction] = useState<CurtailmentStopConfirmationAction>();
+
+  function closeDialog(): void {
+    setDialogAction(undefined);
+  }
+
+  return (
+    <>
+      <ActiveCurtailmentStatus
+        {...props}
+        onDismissRestored={() => undefined}
+        onRequestEdit={() => undefined}
+        onRequestRestore={() => setDialogAction("restore")}
+        onRequestStop={() => setDialogAction("stopCurtailment")}
+      />
+      <CurtailmentStopConfirmationDialog
+        open={dialogAction !== undefined}
+        action={dialogAction ?? "stopCurtailment"}
+        onCancel={closeDialog}
+        onConfirm={closeDialog}
+      />
+    </>
+  );
+}
 
 function startProgressInterval({ onComplete, setProgressPercent }: StartProgressIntervalArgs): number {
   const intervalId = window.setInterval(() => {
@@ -122,6 +151,7 @@ function AnimatedCurtailmentLifecycleStory(): ReactElement {
   const [phase, setPhase] = useState<AnimationPhase>("shed");
   const [shedProgressPercent, setShedProgressPercent] = useState(0);
   const [restoreProgressPercent, setRestoreProgressPercent] = useState(0);
+  const [dialogAction, setDialogAction] = useState<CurtailmentStopConfirmationAction>();
 
   useEffect(() => {
     if (phase !== "shed") {
@@ -173,47 +203,68 @@ function AnimatedCurtailmentLifecycleStory(): ReactElement {
     setPhase("shed");
   }
 
+  function closeDialog(): void {
+    setDialogAction(undefined);
+  }
+
+  function confirmRestore(): void {
+    closeDialog();
+    setRestoreProgressPercent(0);
+    setPhase("restore");
+  }
+
   return (
-    <ActiveCurtailmentStatus
-      event={activeEvent}
-      onDismissRestored={resetAnimation}
-      onRequestRestore={() => setPhase("restore")}
-      onRequestStop={() => setPhase("restore")}
-    />
+    <>
+      <ActiveCurtailmentStatus
+        event={activeEvent}
+        onDismissRestored={resetAnimation}
+        onRequestEdit={() => undefined}
+        onRequestRestore={() => setDialogAction("restore")}
+        onRequestStop={() => setDialogAction("stopCurtailment")}
+      />
+      <CurtailmentStopConfirmationDialog
+        open={dialogAction !== undefined}
+        action={dialogAction ?? "stopCurtailment"}
+        onCancel={closeDialog}
+        onConfirm={confirmRestore}
+      />
+    </>
   );
 }
 
 export const Curtailing: Story = {
   args: {
     event: curtailingCurtailmentEvent,
-    onRequestStop: () => undefined,
   },
+  render: (args) => <ActiveCurtailmentStatusStory {...args} />,
 };
 
 export const Curtailed: Story = {
   args: {
     event: curtailedCurtailmentEvent,
-    onRequestRestore: () => undefined,
   },
+  render: (args) => <ActiveCurtailmentStatusStory {...args} />,
 };
 
 export const Restoring: Story = {
   args: {
     event: restoringCurtailmentEvent,
   },
+  render: (args) => <ActiveCurtailmentStatusStory {...args} />,
 };
 
 export const Restored: Story = {
   args: {
     event: restoredCurtailmentEvent,
-    onDismissRestored: () => undefined,
   },
+  render: (args) => <ActiveCurtailmentStatusStory {...args} />,
 };
 
 export const RestoreIncomplete: Story = {
   args: {
     event: restoreIncompleteCurtailmentEvent,
   },
+  render: (args) => <ActiveCurtailmentStatusStory {...args} />,
 };
 
 export const AnimatedCurtailmentLifecycle: Story = {

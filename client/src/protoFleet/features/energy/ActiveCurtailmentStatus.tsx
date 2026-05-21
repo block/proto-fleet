@@ -40,6 +40,7 @@ interface ActiveCurtailmentStatusProps {
   event: ActiveCurtailmentEvent;
   className?: string;
   onDismissRestored?: () => void;
+  onRequestEdit?: () => void;
   onRequestRestore?: () => void;
   onRequestStop?: () => void;
 }
@@ -47,6 +48,7 @@ interface ActiveCurtailmentStatusProps {
 interface ActiveCurtailmentActionButtonsProps {
   displayState: ActiveCurtailmentDisplayState;
   onDismissRestored?: () => void;
+  onRequestEdit?: () => void;
   onRequestRestore?: () => void;
   onRequestStop?: () => void;
 }
@@ -177,6 +179,13 @@ const displayStateLabels: Record<ActiveCurtailmentDisplayState, string> = {
   restored: "Restored",
   restoring: "Restoring",
 };
+
+const manageableDisplayStates = new Set<ActiveCurtailmentDisplayState>([
+  "curtailed",
+  "curtailing",
+  "pending",
+  "restoring",
+]);
 
 function Dot({ className }: DotProps): ReactElement {
   return <span className={clsx("inline-block h-2 w-2 shrink-0 rounded-full", className)} />;
@@ -524,14 +533,30 @@ function getActiveCurtailmentActionButton({
   }
 }
 
-function ActiveCurtailmentActionButtons(props: ActiveCurtailmentActionButtonsProps): ReactElement | null {
-  const actionButton = getActiveCurtailmentActionButton(props);
-  if (!actionButton) {
+function ActiveCurtailmentActionButtons({
+  displayState,
+  onDismissRestored,
+  onRequestEdit,
+  onRequestRestore,
+  onRequestStop,
+}: ActiveCurtailmentActionButtonsProps): ReactElement | null {
+  const actionButton = getActiveCurtailmentActionButton({
+    displayState,
+    onDismissRestored,
+    onRequestRestore,
+    onRequestStop,
+  });
+  const showManageButton = Boolean(onRequestEdit && manageableDisplayStates.has(displayState));
+
+  if (!actionButton && !showManageButton) {
     return null;
   }
 
   return (
     <div className="mb-8 flex shrink-0 justify-end gap-3 tablet:absolute tablet:top-10 tablet:right-10 tablet:mb-0">
+      {showManageButton ? (
+        <Button variant={variants.secondary} size={sizes.compact} text="Manage" onClick={onRequestEdit} />
+      ) : null}
       {actionButton}
     </div>
   );
@@ -605,6 +630,7 @@ export default function ActiveCurtailmentStatus({
   event,
   className,
   onDismissRestored,
+  onRequestEdit,
   onRequestRestore,
   onRequestStop,
 }: ActiveCurtailmentStatusProps): ReactElement {
@@ -677,6 +703,7 @@ export default function ActiveCurtailmentStatus({
         <ActiveCurtailmentActionButtons
           displayState={displayState}
           onDismissRestored={onDismissRestored}
+          onRequestEdit={onRequestEdit}
           onRequestRestore={onRequestRestore}
           onRequestStop={onRequestStop}
         />

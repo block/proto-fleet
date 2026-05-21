@@ -35,13 +35,16 @@ vi.mock("@/protoFleet/features/energy/useCurtailmentPlanPreview", () => ({
 vi.mock("@/protoFleet/components/FullScreenTwoPaneModal", () => ({
   default: ({ title, isBusy, buttons, abovePanes, primaryPane, secondaryPane }: MockFullScreenTwoPaneModalProps) => (
     <div role="dialog" aria-label={title} data-busy={isBusy ? "true" : "false"}>
-      <button
-        type="button"
-        disabled={Boolean(buttons?.[0]?.loading || buttons?.[0]?.disabled)}
-        onClick={buttons?.[0]?.onClick}
-      >
-        {buttons?.[0]?.text}
-      </button>
+      {buttons?.map((button) => (
+        <button
+          key={button.text}
+          type="button"
+          disabled={Boolean(button.loading || button.disabled)}
+          onClick={button.onClick}
+        >
+          {button.text}
+        </button>
+      ))}
       <div data-testid="above-panes">{abovePanes}</div>
       <div data-testid="primary-pane">{primaryPane}</div>
       <div data-testid="secondary-pane">{secondaryPane}</div>
@@ -160,6 +163,65 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByRole("button", { name: /Racks\s+Select/ })).toBeEnabled();
     expect(screen.getByRole("button", { name: /Groups\s+Select/ })).toBeEnabled();
     expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeEnabled();
+  });
+
+  it("renders edit mode with prefilled values and save copy", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      mode: "edit",
+      initialValues: {
+        ...configuredValues,
+        includeMaintenance: false,
+      },
+      preview,
+    });
+
+    expect(screen.getByRole("dialog", { name: "Manage curtailment" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Plan a curtailment" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Start curtailment" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Target reduction")).toHaveValue(40);
+    expect(screen.getByLabelText("Reason")).toHaveValue("Grid peak - ERCOT 4CP signal");
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetKw: "40",
+        restoreBatchSize: "10",
+        restoreIntervalSec: "120",
+        reason: "Grid peak - ERCOT 4CP signal",
+      }),
+    );
+  });
+
+  it("renders a stop curtailment action in edit mode", async () => {
+    const user = userEvent.setup();
+    const onStopCurtailment = vi.fn();
+    const { onSubmit } = renderModal({
+      mode: "edit",
+      initialValues: {
+        ...configuredValues,
+        includeMaintenance: false,
+      },
+      onStopCurtailment,
+      preview,
+    });
+
+    expect(screen.getByRole("dialog", { name: "Manage curtailment" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Stop curtailment" }));
+
+    expect(onStopCurtailment).toHaveBeenCalledOnce();
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("does not render the stop curtailment action while planning", () => {
+    renderModal({
+      onStopCurtailment: vi.fn(),
+    });
+
+    expect(screen.getByRole("dialog", { name: "Plan a curtailment" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Stop curtailment" })).not.toBeInTheDocument();
   });
 
   it("renders the API preview when preview props are not controlled", () => {

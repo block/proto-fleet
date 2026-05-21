@@ -4,7 +4,9 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import CurtailmentStartModal, {
   type CurtailmentFormValues,
   type CurtailmentPlanPreview,
+  type CurtailmentStartModalMode,
 } from "@/protoFleet/features/energy/CurtailmentStartModal";
+import CurtailmentStopConfirmationDialog from "@/protoFleet/features/energy/CurtailmentStopConfirmationDialog";
 
 const meta = {
   title: "Proto Fleet/Energy/Plan Curtailment Modal",
@@ -17,10 +19,12 @@ const meta = {
 export default meta;
 
 type Story = StoryObj<typeof CurtailmentStartModal>;
-type ModalStoryProps = {
+
+interface ModalStoryProps {
   initialValues?: Partial<CurtailmentFormValues>;
+  mode?: CurtailmentStartModalMode;
   preview?: CurtailmentPlanPreview;
-};
+}
 
 const configuredValues: Partial<CurtailmentFormValues> = {
   targetKw: "40",
@@ -42,10 +46,32 @@ const preview: CurtailmentPlanPreview = {
 
 function ModalStory(props: ModalStoryProps): ReactElement {
   const [open, setOpen] = useState(true);
+  const [showStopDialog, setShowStopDialog] = useState(false);
+
+  function closeStopDialog(): void {
+    setShowStopDialog(false);
+  }
+
+  function handleConfirmStop(): void {
+    closeStopDialog();
+    setOpen(false);
+  }
 
   return (
     <div className="min-h-screen bg-surface-base">
-      <CurtailmentStartModal open={open} onDismiss={() => setOpen(false)} onSubmit={() => setOpen(false)} {...props} />
+      <CurtailmentStartModal
+        open={open}
+        onDismiss={() => setOpen(false)}
+        onSubmit={() => setOpen(false)}
+        {...props}
+        onStopCurtailment={props.mode === "edit" ? () => setShowStopDialog(true) : undefined}
+      />
+      <CurtailmentStopConfirmationDialog
+        open={showStopDialog}
+        action="stopCurtailment"
+        onCancel={closeStopDialog}
+        onConfirm={handleConfirmStop}
+      />
     </div>
   );
 }
@@ -57,4 +83,9 @@ export const Empty: Story = {
 export const WithPreview: Story = {
   name: "Fixed kW reduction preview",
   render: () => <ModalStory initialValues={configuredValues} preview={preview} />,
+};
+
+export const EditMode: Story = {
+  name: "Edit mode",
+  render: () => <ModalStory initialValues={configuredValues} preview={preview} mode="edit" />,
 };

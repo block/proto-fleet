@@ -47,9 +47,15 @@ interface CurtailmentHistoryProps {
   className?: string;
   onViewEvent?: (event: CurtailmentHistoryEvent) => void;
   /**
-   * Called from the detail modal after the operator reviews the active event.
-   * The parent owns persistence and any additional confirmation. Return a
-   * rejected promise to let this component re-enable retry controls.
+   * Called from the detail modal for the active non-terminal event. The parent
+   * owns opening the edit flow with the selected event's values.
+   */
+  onManageActiveEvent?: (event: CurtailmentHistoryEvent) => void;
+  /**
+   * Called when the operator requests a stop for the active event. The parent
+   * owns persistence and any additional confirmation. Return a promise only
+   * after an actual stop request starts; a rejected promise re-enables retry
+   * controls.
    */
   onStopActiveEvent?: (event: CurtailmentHistoryEvent) => void | Promise<unknown>;
 }
@@ -68,6 +74,7 @@ interface CurtailmentSummaryModalProps {
   event: CurtailmentHistoryEvent;
   open: boolean;
   onDismiss: () => void;
+  onManage?: () => void;
   onStop?: () => void;
   stopDisabled?: boolean;
 }
@@ -90,6 +97,7 @@ interface CurtailmentSummaryModalButton {
 
 const defaultPageSize = 50;
 const stoppableEventStates = new Set<CurtailmentEventState>(["pending", "active"]);
+const manageableEventStates = new Set<CurtailmentEventState>(["pending", "active", "restoring"]);
 const rowInteractiveElementSelector =
   'button, a, input, select, textarea, [role="button"], [role="link"], [data-interactive]';
 
@@ -287,6 +295,18 @@ function isActiveStoppableEvent(event: CurtailmentHistoryEvent, activeEventId?: 
   return event.id === activeEventId && stoppableEventStates.has(event.state);
 }
 
+function isActiveManageableEvent(event: CurtailmentHistoryEvent, activeEventId?: string): boolean {
+  return event.id === activeEventId && manageableEventStates.has(event.state);
+}
+
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  if (value === null || (typeof value !== "object" && typeof value !== "function")) {
+    return false;
+  }
+
+  return typeof (value as { then?: unknown }).then === "function";
+}
+
 function getNormalizedPageSize(pageSize: number): number {
   return Number.isFinite(pageSize) && pageSize >= 1 ? Math.floor(pageSize) : defaultPageSize;
 }
@@ -322,6 +342,7 @@ function CurtailmentSummaryModal({
   event,
   open,
   onDismiss,
+  onManage,
   onStop,
   stopDisabled,
 }: CurtailmentSummaryModalProps): ReactElement {
@@ -329,17 +350,26 @@ function CurtailmentSummaryModal({
   const endedAt = formatDateTime(event.endedAt);
   const scheduledAt = formatDateTime(event.scheduledAt);
   const createdAt = formatDateTime(event.createdAt);
-  const buttons: CurtailmentSummaryModalButton[] = onStop
-    ? [
-        {
-          text: "Stop curtailment",
-          variant: variants.secondaryDanger,
-          onClick: onStop,
-          dismissModalOnClick: false,
-          disabled: stopDisabled,
-        },
-      ]
-    : [];
+  const buttons: CurtailmentSummaryModalButton[] = [];
+
+  if (onStop) {
+    buttons.push({
+      text: "Stop curtailment",
+      variant: variants.secondaryDanger,
+      onClick: onStop,
+      dismissModalOnClick: false,
+      disabled: stopDisabled,
+    });
+  }
+
+  if (onManage) {
+    buttons.push({
+      text: "Manage",
+      variant: variants.primary,
+      onClick: onManage,
+      dismissModalOnClick: false,
+    });
+  }
 
   return (
     <Modal
@@ -463,6 +493,7 @@ function CurtailmentHistory({
   pageSize = defaultPageSize,
   className,
   onViewEvent,
+  onManageActiveEvent,
   onStopActiveEvent,
 }: CurtailmentHistoryProps): ReactElement {
   const [selectedStatusFilters, setSelectedStatusFilters] = useState<CurtailmentEventState[]>([]);
@@ -529,30 +560,36 @@ function CurtailmentHistory({
     onViewEvent?.(event);
   };
 
-  const handleRequestStop = (event: CurtailmentHistoryEvent) => handleOpenSummary(event);
-
   const handleDismissSummary = () => setSelectedDetailEventId(undefined);
+
+  const handleRequestStop = (event: CurtailmentHistoryEvent) => {
+    if (!onStopActiveEvent || !isActiveStoppableEvent(event, activeEventId) || pendingStoppableEventId === event.id) {
+      return;
+    }
+
+    const stopRequest = onStopActiveEvent(event);
+
+    if (!isPromiseLike(stopRequest)) {
+      return;
+    }
+
+    setPendingStopEventId(event.id);
+    void Promise.resolve(stopRequest).catch(() => {
+      setPendingStopEventId((currentEventId) => (currentEventId === event.id ? undefined : currentEventId));
+    });
+  };
+
+  const handleManageSelectedDetailEvent =
+    selectedDetailEvent && onManageActiveEvent && isActiveManageableEvent(selectedDetailEvent, activeEventId)
+      ? () => {
+          setSelectedDetailEventId(undefined);
+          onManageActiveEvent(selectedDetailEvent);
+        }
+      : undefined;
+
   const handleStopSelectedDetailEvent =
     selectedDetailEvent && onStopActiveEvent && isActiveStoppableEvent(selectedDetailEvent, activeEventId)
-      ? () => {
-          if (pendingStoppableEventId === selectedDetailEvent.id) {
-            return;
-          }
-
-          setPendingStopEventId(selectedDetailEvent.id);
-          try {
-            void Promise.resolve(onStopActiveEvent(selectedDetailEvent)).catch(() => {
-              setPendingStopEventId((currentEventId) =>
-                currentEventId === selectedDetailEvent.id ? undefined : currentEventId,
-              );
-            });
-          } catch (error) {
-            setPendingStopEventId((currentEventId) =>
-              currentEventId === selectedDetailEvent.id ? undefined : currentEventId,
-            );
-            throw error;
-          }
-        }
+      ? () => handleRequestStop(selectedDetailEvent)
       : undefined;
 
   return (
@@ -665,6 +702,7 @@ function CurtailmentHistory({
           event={selectedDetailEvent}
           open
           onDismiss={handleDismissSummary}
+          onManage={handleManageSelectedDetailEvent}
           onStop={handleStopSelectedDetailEvent}
           stopDisabled={selectedDetailEvent.id === pendingStoppableEventId}
         />
