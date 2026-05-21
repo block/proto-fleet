@@ -511,6 +511,13 @@ message GetActiveCurtailmentResponse {
 }
 
 // ListCurtailmentEvents returns historical events.
+//
+// Response shape note: each CurtailmentEvent in the list omits
+// `target_rollup` and `targets` (heavy on 10K-miner events times N pages)
+// and ships a trimmed `decision_snapshot` where the per-device `skipped`
+// array is collapsed into `skipped_aggregate` (reason -> count). Fetch
+// GetActiveCurtailment or a dedicated event-detail RPC for the full
+// per-target rows and the untrimmed snapshot.
 message ListCurtailmentEventsRequest {
     // Page size; validator caps at 200.
     int32 page_size = 1 [(buf.validate.field).int32 = {
@@ -518,14 +525,18 @@ message ListCurtailmentEventsRequest {
         lte: 200
     }];
 
-    // Opaque cursor; empty for first page.
-    string page_token = 2;
+    // Opaque cursor; empty for first page. Capped to keep the base64+JSON
+    // decode path bounded against malformed or accidentally concatenated
+    // tokens — the legitimate payload encodes a single int64 (~24 bytes).
+    string page_token = 2 [(buf.validate.field).string.max_len = 1024];
 
     // Optional state filter; unspecified returns all states.
     CurtailmentEventState state_filter = 3 [(buf.validate.field).enum.defined_only = true];
 }
 
 message ListCurtailmentEventsResponse {
+    // Each event omits `target_rollup` and `targets` and carries a
+    // trimmed `decision_snapshot` (see ListCurtailmentEvents godoc).
     repeated CurtailmentEvent events = 1;
 
     // Empty when no further pages remain.

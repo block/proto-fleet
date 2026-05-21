@@ -34,4 +34,8 @@ const (
 	// ActivityTypeStartedForceMaintenance is emitted in addition to
 	// ActivityTypeStarted when force_include_maintenance=true.
 	ActivityTypeStartedForceMaintenance = "curtailment_force_include_maintenance"
+	// ActivityTypeAdminTerminated is emitted on every successful
+	// Service.AdminTerminate so the privileged force-terminate path
+	// captures actor + reason in the audit feed.
+	ActivityTypeAdminTerminated = "curtailment_admin_terminated"
 )

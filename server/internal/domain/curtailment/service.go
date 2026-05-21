@@ -256,6 +256,21 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 				existing.EventUUID, existing.State,
 			)
 		}
+		// Webhook-replay races: a concurrent first-time Start with the
+		// same idempotency_key or (external_source, external_reference)
+		// committed first. Re-issue the corresponding lookup so the
+		// race-loser falls into the same replay path as a deliberate
+		// retry — webhook clients see the winner's event rather than a
+		// generic Internal.
+		if errors.Is(err, interfaces.ErrCurtailmentIdempotencyKeyRaceLoss) ||
+			errors.Is(err, interfaces.ErrCurtailmentExternalReferenceRaceLoss) {
+			if existing, replayErr := s.lookupIdempotentReplay(ctx, req); replayErr == nil && existing != nil {
+				return planFromPersistedEvent(existing), nil
+			}
+			return nil, fleeterror.NewAlreadyExistsError(
+				"a curtailment event with the same idempotency_key or (external_source, external_reference) already exists",
+			)
+		}
 		return nil, err
 	}
 
@@ -408,6 +423,7 @@ func (s *Service) AdminTerminate(ctx context.Context, req AdminTerminateRequest)
 		}
 		return nil, err
 	}
+	s.emitAdminTerminateAuditTrail(ctx, req, updated)
 	return updated, nil
 }
 
@@ -447,6 +463,7 @@ func (s *Service) emitStartAuditTrail(ctx context.Context, req StartRequest, pla
 		metadata["external_reference"] = *req.ExternalReference
 	}
 
+	actorType := mapSourceActorTypeToActivity(req.SourceActorType)
 	emit := func(eventType, description string) {
 		event := activitymodels.Event{
 			Category:    activitymodels.CategoryCurtailment,
@@ -454,6 +471,7 @@ func (s *Service) emitStartAuditTrail(ctx context.Context, req StartRequest, pla
 			Description: description,
 			Result:      activitymodels.ResultSuccess,
 			Metadata:    metadata,
+			ActorType:   actorType,
 		}
 		activity.StampActor(ctx, &event)
 		s.audit.Log(ctx, event)
@@ -466,6 +484,43 @@ func (s *Service) emitStartAuditTrail(ctx context.Context, req StartRequest, pla
 	if req.ForceIncludeMaintenance {
 		emit(ActivityTypeStartedForceMaintenance, "Curtailment event started with force_include_maintenance override")
 	}
+}
+
+// emitAdminTerminateAuditTrail records the activity row for a successful
+// AdminTerminate. Best-effort, mirroring emitStartAuditTrail: a transient
+// activity-store failure logs but does not roll back the terminal
+// transition (which is already committed by the store transaction).
+func (s *Service) emitAdminTerminateAuditTrail(ctx context.Context, req AdminTerminateRequest, event *models.Event) {
+	if s.audit == nil || event == nil {
+		return
+	}
+	metadata := map[string]any{
+		"event_uuid":   event.EventUUID.String(),
+		"target_state": string(req.TargetState),
+		"reason":       req.Reason,
+	}
+	row := activitymodels.Event{
+		Category:    activitymodels.CategoryCurtailment,
+		Type:        ActivityTypeAdminTerminated,
+		Description: "Curtailment event force-terminated by admin",
+		Result:      activitymodels.ResultSuccess,
+		Metadata:    metadata,
+		ActorType:   activitymodels.ActorUser,
+	}
+	activity.StampActor(ctx, &row)
+	s.audit.Log(ctx, row)
+}
+
+// mapSourceActorTypeToActivity translates the curtailment SourceActorType
+// vocabulary (which has a finer api_key vs user distinction) into the
+// activity-log ActorType vocabulary. Scheduler maps cleanly; api_key and
+// user both surface as ActorUser since the activity model has no
+// dedicated api_key actor yet.
+func mapSourceActorTypeToActivity(t models.SourceActorType) activitymodels.ActorType {
+	if t == models.SourceActorScheduler {
+		return activitymodels.ActorScheduler
+	}
+	return activitymodels.ActorUser
 }
 
 // lookupIdempotentReplay returns the prior event a webhook-style replay
@@ -505,8 +560,10 @@ func planFromPersistedEvent(event *models.Event) *Plan {
 	eventUUID := event.EventUUID
 	plan := &Plan{
 		EventUUID:                        &eventUUID,
-		EffectiveBatchSize:               valueOrZero(event.EffectiveBatchSize),
 		EffectiveRestoreBatchIntervalSec: event.RestoreBatchIntervalSec,
+	}
+	if event.EffectiveBatchSize != nil {
+		plan.EffectiveBatchSize = *event.EffectiveBatchSize
 	}
 	if event.MaxDurationSeconds != nil {
 		v := *event.MaxDurationSeconds
@@ -515,18 +572,25 @@ func planFromPersistedEvent(event *models.Event) *Plan {
 	return plan
 }
 
-func valueOrZero[T any](p *T) T {
-	if p == nil {
-		var zero T
-		return zero
-	}
-	return *p
-}
-
 // validateUpdateRequest mirrors the Start-time bounds so a misconfigured
 // Update can't tunnel past the proto validator and hit a DB CHECK.
 // Unset fields skip validation since they don't change the persisted value.
 func validateUpdateRequest(req UpdateRequest) error {
+	if req.Reason != nil {
+		v := *req.Reason
+		if strings.TrimSpace(v) == "" {
+			// Empty Reason collapses to SQL NULL via nullStringFromPtr and
+			// the UPDATE's COALESCE preserves the existing column — i.e.,
+			// a silent no-op. Reject loudly so callers don't believe they
+			// cleared the field.
+			return fleeterror.NewInvalidArgumentError("reason must be non-empty when set")
+		}
+		if len(v) > startTextFieldMaxLen {
+			return fleeterror.NewInvalidArgumentErrorf(
+				"reason must be at most %d chars, got %d", startTextFieldMaxLen, len(v),
+			)
+		}
+	}
 	if req.RestoreBatchSize != nil {
 		v := *req.RestoreBatchSize
 		if v < 0 {

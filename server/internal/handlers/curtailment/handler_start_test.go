@@ -135,9 +135,6 @@ func (s *startStubStore) BeginRestoreTransition(context.Context, int64, uuid.UUI
 	panic("BeginRestoreTransition not exercised by handler Start tests")
 }
 
-// finitePtr returns &v as a typed pointer; used for proto3 optional fields.
-func finitePtr[T any](v T) *T { return &v }
-
 func miner(id, status, pairing string, powerW float64, hashRateHS float64, effJH float64) *models.Candidate {
 	driver := "antminer"
 	pw := powerW
@@ -336,7 +333,7 @@ func TestHandler_StartCurtailment_OverrideRoleGateBlocksNonAdmin(t *testing.T) {
 	})
 
 	req := validStartRequestBuilder()
-	req.CandidateMinPowerWOverride = finitePtr(uint32(800))
+	req.CandidateMinPowerWOverride = ptr(uint32(800))
 
 	_, err := h.StartCurtailment(ctx, connect.NewRequest(req))
 	require.Error(t, err)

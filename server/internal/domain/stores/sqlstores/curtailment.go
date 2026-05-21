@@ -30,6 +30,17 @@ const pgErrCodeForeignKeyViolation = "23503"
 // event_uuid rather than leaking an Internal error.
 const nonTerminalEventPerOrgUniqueIndex = "uq_curtailment_event_one_non_terminal_per_org"
 
+// idempotencyKeyUniqueIndex / externalReferenceUniqueIndex are the partial
+// unique indexes that back the webhook-replay channels. A unique violation
+// on either name means a concurrent first-time Start with the same key
+// committed first; surface a typed sentinel so Service.Start can re-issue
+// the corresponding lookup and return the winner's row (matching the
+// non-racing replay path) rather than leaking Internal.
+const (
+	idempotencyKeyUniqueIndex    = "uq_curtailment_event_idempotency"
+	externalReferenceUniqueIndex = "uq_curtailment_event_external_ref"
+)
+
 func mapOrgConfigError(err error, orgID int64) error {
 	if err == nil {
 		return nil
@@ -146,10 +157,15 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 		})
 		if err != nil {
 			var pgErr *pgconn.PgError
-			if errors.As(err, &pgErr) &&
-				pgErr.Code == pgErrCodeUniqueViolation &&
-				pgErr.ConstraintName == nonTerminalEventPerOrgUniqueIndex {
-				return nil, interfaces.ErrCurtailmentNonTerminalEventExists
+			if errors.As(err, &pgErr) && pgErr.Code == pgErrCodeUniqueViolation {
+				switch pgErr.ConstraintName {
+				case nonTerminalEventPerOrgUniqueIndex:
+					return nil, interfaces.ErrCurtailmentNonTerminalEventExists
+				case idempotencyKeyUniqueIndex:
+					return nil, interfaces.ErrCurtailmentIdempotencyKeyRaceLoss
+				case externalReferenceUniqueIndex:
+					return nil, interfaces.ErrCurtailmentExternalReferenceRaceLoss
+				}
 			}
 			return nil, fleeterror.NewInternalErrorf("failed to insert curtailment event: %v", err)
 		}
@@ -346,9 +362,22 @@ func (s *SQLCurtailmentStore) AdminTerminateEvent(
 			TargetState: string(targetState),
 		})
 		if errors.Is(err, sql.ErrNoRows) {
-			// Race: row advanced terminal between pre-read and update.
-			// Treat as conflict so the caller surfaces a clean
-			// FailedPrecondition rather than a generic Internal.
+			// Race: row advanced terminal between pre-read and UPDATE
+			// (the UPDATE matched 0 rows under WHERE state IN
+			// pending/active/restoring). Re-read inside the tx and route
+			// by the latest state so a concurrent terminate to the same
+			// target_state echoes idempotently.
+			latest, getErr := q.GetCurtailmentEventByUUID(ctx, sqlc.GetCurtailmentEventByUUIDParams{
+				EventUuid: eventUUID,
+				OrgID:     orgID,
+			})
+			if getErr != nil {
+				return nil, fleeterror.NewInternalErrorf("failed to re-read curtailment event after concurrent state change: %v", getErr)
+			}
+			latestState := models.EventState(latest.State)
+			if latestState == targetState {
+				return convertEventRow(latest), nil
+			}
 			return nil, interfaces.ErrCurtailmentAdminTerminateStateConflict
 		}
 		if err != nil {

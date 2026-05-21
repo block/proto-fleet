@@ -522,8 +522,12 @@ func toAdminTerminateRequest(msg *pb.AdminTerminateEventRequest, info *session.I
 		)
 	}
 	return curtailment.AdminTerminateRequest{
-		OrgID:       info.OrganizationID,
-		EventUUID:   eventUUID,
+		OrgID:     info.OrganizationID,
+		EventUUID: eventUUID,
+		// eventStateFromProto's UNSPECIFIED → "" pass-through is fine
+		// here: the proto validator restricts target_state to in:[6,7]
+		// before this runs, and the service re-checks the value is
+		// CANCELLED or FAILED as defense in depth.
 		TargetState: eventStateFromProto(msg.GetTargetState()),
 		Reason:      msg.GetReason(),
 	}, nil
@@ -531,11 +535,14 @@ func toAdminTerminateRequest(msg *pb.AdminTerminateEventRequest, info *session.I
 
 // toUpdateRequest maps the proto UpdateCurtailmentEventRequest to the
 // service-layer shape, attaching the org from the session. Optional
-// proto fields preserve the "set vs absent" distinction: HasReason()=true
-// with an empty string is a meaningful "clear the field" intent (though
-// the schema's NOT NULL constraint means an explicit empty reason still
-// stores ""), while unset means "preserve the existing value." The
-// service handles validation; the handler only translates shapes.
+// proto fields preserve the "set vs absent" distinction: an unset Reason
+// preserves the existing value, a non-empty Reason overwrites. An
+// explicit empty Reason is a no-op at the store layer
+// (`nullStringFromPtr` collapses "" → SQL NULL and the UPDATE's COALESCE
+// preserves the existing column) — the service rejects it as
+// InvalidArgument so callers see a clean validation error instead of a
+// silent skip. The service handles all bounds validation; the handler
+// only translates shapes.
 func toUpdateRequest(msg *pb.UpdateCurtailmentEventRequest, info *session.Info) (curtailment.UpdateRequest, error) {
 	if info == nil || info.OrganizationID <= 0 {
 		return curtailment.UpdateRequest{}, fleeterror.NewUnauthenticatedError("authentication required")
@@ -586,9 +593,12 @@ func toListEventsRequest(msg *pb.ListCurtailmentEventsRequest, orgID int64) (cur
 		return curtailment.ListEventsRequest{}, fleeterror.NewUnauthenticatedError("authentication required")
 	}
 	return curtailment.ListEventsRequest{
-		OrgID:       orgID,
-		PageSize:    msg.GetPageSize(),
-		PageToken:   msg.GetPageToken(),
+		OrgID:     orgID,
+		PageSize:  msg.GetPageSize(),
+		PageToken: msg.GetPageToken(),
+		// eventStateFromProto's UNSPECIFIED → "" pass-through is the
+		// canonical "no state filter" sentinel here; the persistence layer
+		// treats empty StateFilter as "all states".
 		StateFilter: eventStateFromProto(msg.GetStateFilter()),
 	}, nil
 }

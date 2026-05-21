@@ -28,6 +28,17 @@ var ErrCurtailmentUpdateStateRaceLoss = errors.New("curtailment event state adva
 // message that names the existing terminal state.
 var ErrCurtailmentAdminTerminateStateConflict = errors.New("curtailment event is already terminal in a different state")
 
+// ErrCurtailmentIdempotencyKeyRaceLoss is returned by InsertEventWithTargets
+// when the partial unique index on (org_id, idempotency_key) rejects the
+// insert because a concurrent first-time Start with the same key won the
+// race. Callers re-issue GetEventByIdempotencyKey to fetch the winner's
+// row and surface the same replay response as a non-racing duplicate.
+var ErrCurtailmentIdempotencyKeyRaceLoss = errors.New("curtailment event with the same idempotency_key was inserted concurrently")
+
+// ErrCurtailmentExternalReferenceRaceLoss is the (external_source,
+// external_reference) analog of ErrCurtailmentIdempotencyKeyRaceLoss.
+var ErrCurtailmentExternalReferenceRaceLoss = errors.New("curtailment event with the same (external_source, external_reference) was inserted concurrently")
+
 // UpdateCurtailmentTargetStateParams: optional patch fields. Nil pointers
 // leave the column unchanged via COALESCE in the SQL update.
 type UpdateCurtailmentTargetStateParams struct {
