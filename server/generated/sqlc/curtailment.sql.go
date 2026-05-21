@@ -146,16 +146,13 @@ SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type
 FROM curtailment_event
 WHERE org_id = $1
     AND state IN ('pending', 'active', 'restoring')
-ORDER BY CASE
-        WHEN state IN ('active', 'restoring') THEN 0
-        ELSE 1
-    END,
-    id DESC
 LIMIT 1
 `
 
-// Org-scoped recovery path for pending/active/restoring events. Prefer
-// in-effect events over newly-scheduled pending events when both exist.
+// Org-scoped recovery path for pending/active/restoring events. At most one
+// row matches per org under uq_curtailment_event_one_non_terminal_per_org;
+// LIMIT 1 with no ORDER BY lets the planner satisfy the lookup via the
+// partial unique index without a sort step.
 func (q *Queries) GetActiveCurtailmentEvent(ctx context.Context, orgID int64) (CurtailmentEvent, error) {
 	row := q.queryRow(ctx, q.getActiveCurtailmentEventStmt, getActiveCurtailmentEvent, orgID)
 	var i CurtailmentEvent
