@@ -219,10 +219,7 @@ func (r *Reconciler) runTick(ctx context.Context) {
 		if tickCtx.Err() != nil {
 			break
 		}
-		// Derive each event's deadline from the parent ctx, not tickCtx, so a
-		// slow first event doesn't shrink the budget for the rest. tickCtx
-		// still gates new-event entry above, bounding total tick duration.
-		eventCtx, eventCancel := context.WithTimeout(ctx, 2*r.cfg.TickInterval)
+		eventCtx, eventCancel := context.WithTimeout(tickCtx, 2*r.cfg.TickInterval)
 		r.processEvent(eventCtx, ev)
 		eventCancel()
 	}
