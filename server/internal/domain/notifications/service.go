@@ -1,0 +1,986 @@
+package notifications
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"math"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// Service is the org-scoped domain layer. All public methods require
+// a non-zero organization id and refuse if zero.
+//
+// The Grafana client is the only outbound transport. Org isolation is
+// enforced here by:
+//
+//   - Channels: every contact-point name is prefixed with `org-<id>-`
+//     so a list scoped to a prefix returns only the caller's rows.
+//   - Rules: every rule gets `labels.organization_id="<id>"` injected
+//     on read filtering. The provisioned defaults ship as org=0 (or
+//     no label) and are visible to every org; ops-authored rules
+//     carry the label and are visible only to their owner.
+//   - Silences: every silence carries an `organization_id="<id>"`
+//     matcher; list filters by the same matcher and pause/resume of
+//     a silence implicitly recheck ownership.
+//
+// IMPORTANT: there is no CreateRule / UpdateRule / DeleteRule — by
+// product decision. Operators can pause / resume / silence the
+// closed set of provisioned rules; new rules require a deploy.
+//
+// Secrets: webhook bearer headers and SMTP passwords are passed
+// straight through to Grafana, which stores them encrypted at rest
+// in its own datastore. We do not keep a parallel copy in fleet-api
+// — there's nothing for fleet-api to do with them (Grafana is the
+// one calling out to the destination), and storing them twice would
+// double the rotation surface area.
+type Service struct {
+	grafana *Grafana
+	now     func() time.Time
+}
+
+// NewService returns a notifications service bound to the supplied
+// Grafana client. The clock is `time.Now` outside tests; tests
+// inject a deterministic clock.
+func NewService(g *Grafana) *Service {
+	return &Service{grafana: g, now: time.Now}
+}
+
+// ErrZeroOrgID rejects callers that forgot to populate the org id on
+// the request. The handler layer is the first line of defence
+// (it pulls the org id from the auth interceptor's context); this is
+// the second.
+var ErrZeroOrgID = errors.New("notifications: organization id is required")
+
+// ErrNotFound is returned when a Grafana row exists but doesn't
+// belong to the caller's org — surfaced as permission_denied so a
+// scan for ids isn't a list oracle.
+var ErrNotFound = errors.New("notifications: not found")
+
+func requireOrg(orgID int64) error {
+	if orgID == 0 {
+		return ErrZeroOrgID
+	}
+	return nil
+}
+
+// === Channels ==========================================================
+
+// ListChannels returns every channel owned by the caller's
+// organization. Secrets are zeroed; HasSecret indicates whether a
+// secret is stored.
+func (s *Service) ListChannels(ctx context.Context, orgID int64) ([]Channel, error) {
+	if err := requireOrg(orgID); err != nil {
+		return nil, err
+	}
+	cps, err := s.grafana.ListContactPoints(ctx)
+	if err != nil {
+		return nil, err
+	}
+	prefix := channelNamePrefix(orgID)
+	out := make([]Channel, 0, len(cps))
+	for _, cp := range cps {
+		if !strings.HasPrefix(cp.Name, prefix) {
+			continue
+		}
+		c, err := contactPointToChannel(orgID, cp)
+		if err != nil {
+			// Skip rows we can't decode rather than failing the whole
+			// list. The UI surfaces a callout if this ever happens
+			// repeatedly.
+			continue
+		}
+		out = append(out, c)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
+	return out, nil
+}
+
+// CreateChannel inserts a new channel for orgID. Secrets are stored
+// in the encrypt service and the secret_ref is embedded in the
+// Grafana contact-point settings JSON.
+func (s *Service) CreateChannel(ctx context.Context, orgID int64, c Channel) (*Channel, error) {
+	if err := requireOrg(orgID); err != nil {
+		return nil, err
+	}
+	c.OrganizationID = orgID
+	c.CreatedAt = s.now()
+	c.UpdatedAt = c.CreatedAt
+	c.ValidationState = ValidationPending
+
+	settings, err := encodeChannelSettings(&c)
+	if err != nil {
+		return nil, err
+	}
+	cp := GrafanaContactPoint{
+		Name:     channelGrafanaName(orgID, c.Name),
+		Type:     grafanaTypeFor(c.Kind),
+		Settings: settings,
+	}
+	created, err := s.grafana.CreateContactPoint(ctx, cp)
+	if err != nil {
+		return nil, err
+	}
+	out, err := contactPointToChannel(orgID, *created)
+	if err != nil {
+		return nil, err
+	}
+	// Preserve the HasSecret flag that encodeChannelSettings set on the
+	// local copy — Grafana's response strips the secret value, so the
+	// decoder sees an empty string and reports HasSecret=false.
+	out.HasSecret = c.HasSecret
+	return &out, nil
+}
+
+// UpdateChannel replaces a channel's name + destination. Editing the
+// destination clears the validation state — the caller is expected
+// to re-test the channel before relying on it.
+func (s *Service) UpdateChannel(ctx context.Context, orgID int64, c Channel) (*Channel, error) {
+	if err := requireOrg(orgID); err != nil {
+		return nil, err
+	}
+	if c.ID == "" {
+		return nil, errors.New("channel id is required for update")
+	}
+	// Verify ownership before issuing the PUT — Grafana doesn't
+	// enforce our prefix scheme.
+	owned, err := s.findOwnedChannel(ctx, orgID, c.ID)
+	if err != nil {
+		return nil, err
+	}
+	c.OrganizationID = orgID
+	c.UpdatedAt = s.now()
+	c.ValidationState = ValidationPending
+	c.ValidatedAt = nil
+	c.ValidationError = ""
+	// If the caller didn't include a fresh secret, carry the previous
+	// HasSecret signal through so the UI doesn't flip the "•••• Set"
+	// affordance on every rename.
+	if !s.requestHasNewSecret(&c) {
+		c.HasSecret = owned.HasSecret
+	}
+
+	settings, err := encodeChannelSettings(&c)
+	if err != nil {
+		return nil, err
+	}
+	cp := GrafanaContactPoint{
+		UID:      c.ID,
+		Name:     channelGrafanaName(orgID, c.Name),
+		Type:     grafanaTypeFor(c.Kind),
+		Settings: settings,
+	}
+	updated, err := s.grafana.UpdateContactPoint(ctx, c.ID, cp)
+	if err != nil {
+		return nil, err
+	}
+	out, err := contactPointToChannel(orgID, *updated)
+	if err != nil {
+		return nil, err
+	}
+	out.HasSecret = c.HasSecret
+	return &out, nil
+}
+
+// DeleteChannel removes the channel from Grafana. Missing rows are
+// treated as deletes that already happened — repeated DELETEs are
+// idempotent.
+func (s *Service) DeleteChannel(ctx context.Context, orgID int64, id string) error {
+	if err := requireOrg(orgID); err != nil {
+		return err
+	}
+	if _, err := s.findOwnedChannel(ctx, orgID, id); err != nil {
+		return err
+	}
+	if err := s.grafana.DeleteContactPoint(ctx, id); err != nil && !IsNotFound(err) {
+		return err
+	}
+	return nil
+}
+
+// TestChannel sends a synthetic alert through the supplied channel
+// definition. The id field is optional; an unsaved definition can be
+// tested directly so the UI's "Test before save" flow doesn't need a
+// prior write.
+func (s *Service) TestChannel(ctx context.Context, orgID int64, c Channel) (bool, int, string, error) {
+	if err := requireOrg(orgID); err != nil {
+		return false, 0, "", err
+	}
+	c.OrganizationID = orgID
+	settings, err := encodeChannelSettings(&c)
+	if err != nil {
+		return false, 0, "", err
+	}
+	body := map[string]any{
+		"name":     channelGrafanaName(orgID, c.Name),
+		"type":     grafanaTypeFor(c.Kind),
+		"settings": settings,
+	}
+	code, err := s.grafana.TestContactPoint(ctx, body)
+	if err != nil {
+		return false, code, err.Error(), err
+	}
+	ok := code >= 200 && code < 300
+	return ok, code, "", nil
+}
+
+func (s *Service) findOwnedChannel(ctx context.Context, orgID int64, id string) (*Channel, error) {
+	channels, err := s.ListChannels(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	for i, c := range channels {
+		if c.ID == id {
+			return &channels[i], nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
+// requestHasNewSecret tells whether the caller's update payload
+// includes a fresh secret value (as opposed to the empty placeholder
+// returned by reads).
+func (s *Service) requestHasNewSecret(c *Channel) bool {
+	switch c.Kind {
+	case ChannelKindWebhook:
+		return c.Webhook != nil && c.Webhook.BearerHeader != ""
+	case ChannelKindSMTP:
+		return c.SMTP != nil && c.SMTP.Password != ""
+	}
+	return false
+}
+
+// === Rules =============================================================
+
+// ListRules returns the full set of provisioned alert rules visible
+// to the caller. Rules without an `organization_id` label are
+// treated as global defaults (visible to every org); rules that
+// carry the label are visible only to that org.
+//
+// A rule's `Enabled` flag reflects two signals OR'd together:
+//
+//   - The rule's own isPaused state (managed by ops via YAML).
+//   - The presence of an active pause-silence on the rule. We can't
+//     flip isPaused via the provisioning API on YAML-provisioned
+//     rules (Grafana 11.6+ "cannot change provenance from 'file' to
+//     ”" guard), so PauseRule below records pauses as a system
+//     silence with a marker matcher. ListRules resolves those and
+//     reports `Enabled = false` when one is active.
+func (s *Service) ListRules(ctx context.Context, orgID int64) ([]Rule, error) {
+	if err := requireOrg(orgID); err != nil {
+		return nil, err
+	}
+	rules, err := s.grafana.ListAlertRules(ctx)
+	if err != nil {
+		return nil, err
+	}
+	want := strconv.FormatInt(orgID, 10)
+	out := make([]Rule, 0, len(rules))
+	for _, gr := range rules {
+		if !ruleVisibleToOrg(gr, want) {
+			continue
+		}
+		out = append(out, grafanaRuleToDomain(orgID, gr))
+	}
+	// Apply pause-silence overlay: rules with an active pause silence
+	// surface as `Enabled = false` even if the underlying rule's
+	// isPaused is false.
+	paused := s.pauseSilencedRules(ctx, orgID)
+	if len(paused) > 0 {
+		for i := range out {
+			if paused[out[i].ID] {
+				out[i].Enabled = false
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Group != out[j].Group {
+			return out[i].Group < out[j].Group
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out, nil
+}
+
+// PauseRule mutes a rule by writing a "pause silence" into Grafana's
+// Alertmanager — a silence with a far-future end time and a marker
+// matcher that identifies it as a system pause (not an operator-
+// authored silence). We use this rather than flipping isPaused on
+// the rule because Grafana 11.6+ refuses to let the provisioning
+// API edit a YAML-provisioned rule ("cannot change provenance from
+// 'file' to ”"); a silence is the only side-channel that achieves
+// the same observable behaviour (no alerts fire) without touching
+// the rule's provenance. Idempotent.
+func (s *Service) PauseRule(ctx context.Context, orgID int64, id string) (*Rule, error) {
+	if err := requireOrg(orgID); err != nil {
+		return nil, err
+	}
+	rule, err := s.requireRule(ctx, orgID, id)
+	if err != nil {
+		return nil, err
+	}
+	if !rule.Enabled {
+		// Already paused — either via the YAML or a prior pause-silence.
+		return rule, nil
+	}
+	silence := buildPauseSilence(orgID, id, s.now())
+	if _, err := s.grafana.PutSilence(ctx, silence); err != nil {
+		return nil, err
+	}
+	out := *rule
+	out.Enabled = false
+	return &out, nil
+}
+
+// ResumeRule clears any active pause silence on the rule. If the
+// underlying rule's YAML-provisioned isPaused is true, the rule
+// remains paused even after the silence is lifted — that's a
+// product decision, since YAML-paused means "ops wants this off",
+// which the UI shouldn't override. Idempotent.
+func (s *Service) ResumeRule(ctx context.Context, orgID int64, id string) (*Rule, error) {
+	if err := requireOrg(orgID); err != nil {
+		return nil, err
+	}
+	_, err := s.requireRule(ctx, orgID, id)
+	if err != nil {
+		return nil, err
+	}
+	want := strconv.FormatInt(orgID, 10)
+	sils, err := s.grafana.ListSilences(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, sil := range sils {
+		if !isPauseSilenceFor(sil, want, id) {
+			continue
+		}
+		// Skip already-expired pause silences — Grafana garbage-collects
+		// them eventually, no need to issue a redundant DELETE.
+		if sil.Status != nil && sil.Status.State == "expired" {
+			continue
+		}
+		if err := s.grafana.DeleteSilence(ctx, sil.ID); err != nil && !IsNotFound(err) {
+			return nil, err
+		}
+	}
+	// Re-fetch through ListRules so the Enabled flag reflects both
+	// the rule's own isPaused and the (now-cleared) pause silences.
+	updated, err := s.requireRule(ctx, orgID, id)
+	if err != nil {
+		return nil, err
+	}
+	return updated, nil
+}
+
+// requireRule looks up a rule visible to orgID via ListRules and
+// returns ErrNotFound if it's missing. Used by Pause / Resume to
+// share the visibility check.
+func (s *Service) requireRule(ctx context.Context, orgID int64, id string) (*Rule, error) {
+	if id == "" {
+		return nil, errors.New("rule id is required")
+	}
+	rules, err := s.ListRules(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range rules {
+		if rules[i].ID == id {
+			return &rules[i], nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
+// pauseSilencedRules returns the set of rule UIDs that have an
+// active pause silence on them. Best-effort: a Grafana fetch error
+// returns an empty map so the rules list still renders (the user
+// just sees stale Enabled flags rather than no rules at all).
+func (s *Service) pauseSilencedRules(ctx context.Context, orgID int64) map[string]bool {
+	sils, err := s.grafana.ListSilences(ctx)
+	if err != nil {
+		return nil
+	}
+	want := strconv.FormatInt(orgID, 10)
+	now := s.now()
+	out := map[string]bool{}
+	for _, sil := range sils {
+		if !isPauseSilence(sil) {
+			continue
+		}
+		if !silenceMatchesOrg(sil, want) {
+			continue
+		}
+		if !silenceActive(grafanaSilenceToDomain(orgID, sil, now), now) {
+			continue
+		}
+		for _, m := range sil.Matchers {
+			if m.Name == alertRuleUIDMatcher && m.IsEqual && !m.IsRegex {
+				out[m.Value] = true
+			}
+		}
+	}
+	return out
+}
+
+// === Silences ==========================================================
+
+// ListSilences returns every silence carrying the caller's org
+// matcher, with the Active flag derived from Now().
+func (s *Service) ListSilences(ctx context.Context, orgID int64) ([]Silence, error) {
+	if err := requireOrg(orgID); err != nil {
+		return nil, err
+	}
+	sils, err := s.grafana.ListSilences(ctx)
+	if err != nil {
+		return nil, err
+	}
+	want := strconv.FormatInt(orgID, 10)
+	now := s.now()
+	out := make([]Silence, 0, len(sils))
+	for _, gs := range sils {
+		if !silenceMatchesOrg(gs, want) {
+			continue
+		}
+		// Pause silences are an implementation detail of PauseRule —
+		// the operator sees the rule's "Paused" badge, not a stray
+		// silence entry. Hide them here.
+		if isPauseSilence(gs) {
+			continue
+		}
+		dom := grafanaSilenceToDomain(orgID, gs, now)
+		out = append(out, dom)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].StartsAt.After(out[j].StartsAt) })
+	return out, nil
+}
+
+// CreateSilence inserts a new silence. The scope is compiled to the
+// Alertmanager matcher set Grafana stores; the caller's org id is
+// always one of the matchers.
+func (s *Service) CreateSilence(ctx context.Context, orgID int64, sil Silence) (*Silence, error) {
+	if err := requireOrg(orgID); err != nil {
+		return nil, err
+	}
+	sil.OrganizationID = orgID
+	sil.CreatedAt = s.now()
+	gs := domainSilenceToGrafana(orgID, sil)
+	id, err := s.grafana.PutSilence(ctx, gs)
+	if err != nil {
+		return nil, err
+	}
+	sil.ID = id
+	sil.Active = silenceActive(sil, s.now())
+	return &sil, nil
+}
+
+// UpdateSilence replaces an existing silence. Grafana doesn't have a
+// dedicated update endpoint — POST with the existing id replaces.
+func (s *Service) UpdateSilence(ctx context.Context, orgID int64, sil Silence) (*Silence, error) {
+	if err := requireOrg(orgID); err != nil {
+		return nil, err
+	}
+	if sil.ID == "" {
+		return nil, errors.New("silence id is required for update")
+	}
+	// Verify ownership.
+	existing, err := s.ListSilences(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	owned := false
+	for _, e := range existing {
+		if e.ID == sil.ID {
+			owned = true
+			break
+		}
+	}
+	if !owned {
+		return nil, ErrNotFound
+	}
+	sil.OrganizationID = orgID
+	gs := domainSilenceToGrafana(orgID, sil)
+	gs.ID = sil.ID
+	id, err := s.grafana.PutSilence(ctx, gs)
+	if err != nil {
+		return nil, err
+	}
+	sil.ID = id
+	sil.Active = silenceActive(sil, s.now())
+	return &sil, nil
+}
+
+// DeleteSilence (a "lift") removes the silence from Grafana.
+func (s *Service) DeleteSilence(ctx context.Context, orgID int64, id string) error {
+	if err := requireOrg(orgID); err != nil {
+		return err
+	}
+	existing, err := s.ListSilences(ctx, orgID)
+	if err != nil {
+		return err
+	}
+	owned := false
+	for _, e := range existing {
+		if e.ID == id {
+			owned = true
+			break
+		}
+	}
+	if !owned {
+		return ErrNotFound
+	}
+	if err := s.grafana.DeleteSilence(ctx, id); err != nil && !IsNotFound(err) {
+		return err
+	}
+	return nil
+}
+
+// === helpers ===========================================================
+
+// pauseSilenceMatcher is the marker matcher PauseRule stamps onto
+// the silences it creates. Reading this matcher back tells the
+// service "this silence is a system pause, not a user-authored
+// silence" — so it should drive the rule's Enabled flag (instead of
+// appearing in the silences list).
+const pauseSilenceMatcher = "proto_fleet_pause"
+
+// alertRuleUIDMatcher is Grafana's reserved matcher label used to
+// scope a silence to a single alert rule.
+const alertRuleUIDMatcher = "__alert_rule_uid__"
+
+// pauseSilenceEndsAt is the silence end time PauseRule writes.
+// Grafana requires a finite EndsAt on every silence; we pick a date
+// well outside any realistic operational horizon so the pause
+// behaves like "indefinite" in practice. Resume removes the silence
+// before it expires.
+var pauseSilenceEndsAt = time.Date(2099, 1, 1, 0, 0, 0, 0, time.UTC)
+
+// buildPauseSilence assembles the Alertmanager silence that
+// PauseRule writes for the given rule. The matcher set carries:
+//
+//   - organization_id == orgID: same per-org isolation every other
+//     silence carries.
+//   - __alert_rule_uid__ == ruleID: scopes the silence to a single
+//     rule (Grafana's reserved label for rule-level scoping).
+//   - proto_fleet_pause == true: marker matcher that lets the
+//     service distinguish system pauses from operator-authored
+//     silences.
+func buildPauseSilence(orgID int64, ruleID string, now time.Time) GrafanaSilence {
+	return GrafanaSilence{
+		StartsAt:  now,
+		EndsAt:    pauseSilenceEndsAt,
+		CreatedBy: "Proto Fleet",
+		Comment:   "Paused via Proto Fleet UI",
+		Matchers: []GrafanaSilenceMatcher{
+			{
+				Name:    silenceLabelOrganizationID,
+				Value:   strconv.FormatInt(orgID, 10),
+				IsEqual: true,
+			},
+			{
+				Name:    alertRuleUIDMatcher,
+				Value:   ruleID,
+				IsEqual: true,
+			},
+			{
+				Name:    pauseSilenceMatcher,
+				Value:   "true",
+				IsEqual: true,
+			},
+		},
+	}
+}
+
+// isPauseSilence is true when the silence carries the proto-fleet
+// pause marker matcher.
+func isPauseSilence(sil GrafanaSilence) bool {
+	for _, m := range sil.Matchers {
+		if m.Name == pauseSilenceMatcher && m.Value == "true" && m.IsEqual && !m.IsRegex {
+			return true
+		}
+	}
+	return false
+}
+
+// isPauseSilenceFor is isPauseSilence narrowed to a specific org +
+// rule. Used by ResumeRule to find the silence(s) to clear.
+func isPauseSilenceFor(sil GrafanaSilence, wantOrgID, ruleID string) bool {
+	if !isPauseSilence(sil) {
+		return false
+	}
+	if !silenceMatchesOrg(sil, wantOrgID) {
+		return false
+	}
+	for _, m := range sil.Matchers {
+		if m.Name == alertRuleUIDMatcher && m.Value == ruleID && m.IsEqual && !m.IsRegex {
+			return true
+		}
+	}
+	return false
+}
+
+// ruleLabelOrganizationID is the label name we read on alert rules
+// to decide which org owns them. Set on rules ops author per-org;
+// absent on the defaults shipped in the YAML, which are visible
+// (and pauseable) by every org's admin.
+const ruleLabelOrganizationID = "organization_id"
+
+// silenceLabelOrganizationID is the matcher name we inject onto
+// every silence so the list filter can scope per-org.
+const silenceLabelOrganizationID = "organization_id"
+
+// channelNamePrefix is the per-org prefix every contact point name
+// carries. Grafana doesn't sandbox by org at the provisioning API
+// level, so we sandbox by name.
+func channelNamePrefix(orgID int64) string {
+	return fmt.Sprintf("org-%d-", orgID)
+}
+
+func channelGrafanaName(orgID int64, name string) string {
+	return channelNamePrefix(orgID) + name
+}
+
+func channelDisplayName(orgID int64, grafanaName string) string {
+	return strings.TrimPrefix(grafanaName, channelNamePrefix(orgID))
+}
+
+func grafanaTypeFor(kind ChannelKind) string {
+	switch kind {
+	case ChannelKindWebhook:
+		return "webhook"
+	case ChannelKindSMTP:
+		return "email"
+	}
+	return ""
+}
+
+// encodeChannelSettings serialises the destination fields into the
+// JSON shape Grafana expects. Secrets ride along in the settings
+// payload; Grafana stores them encrypted at rest in its own datastore.
+func encodeChannelSettings(c *Channel) (json.RawMessage, error) {
+	switch c.Kind {
+	case ChannelKindWebhook:
+		if c.Webhook == nil {
+			return nil, errors.New("webhook config is required")
+		}
+		settings := map[string]any{
+			"url":                       c.Webhook.URL,
+			"authorization_scheme":      "Bearer",
+			"authorization_credentials": c.Webhook.BearerHeader,
+		}
+		c.HasSecret = c.Webhook.BearerHeader != ""
+		b, err := json.Marshal(settings)
+		if err != nil {
+			return nil, fmt.Errorf("marshal webhook settings: %w", err)
+		}
+		return b, nil
+	case ChannelKindSMTP:
+		if c.SMTP == nil {
+			return nil, errors.New("smtp config is required")
+		}
+		settings := map[string]any{
+			"addresses":    strings.Join(c.SMTP.To, ";"),
+			"singleEmail":  false,
+			"smtpHost":     c.SMTP.Host,
+			"smtpPort":     c.SMTP.Port,
+			"smtpUsername": c.SMTP.Username,
+			"fromAddress":  c.SMTP.From,
+			"fromName":     "Proto Fleet Alerts",
+		}
+		if c.SMTP.Password != "" {
+			settings["smtpPassword"] = c.SMTP.Password
+		}
+		c.HasSecret = c.SMTP.Password != ""
+		b, err := json.Marshal(settings)
+		if err != nil {
+			return nil, fmt.Errorf("marshal smtp settings: %w", err)
+		}
+		return b, nil
+	}
+	return nil, fmt.Errorf("unsupported channel kind %q", c.Kind)
+}
+
+// contactPointToChannel reverses encodeChannelSettings on reads. The
+// secret value is never returned — only the boolean indicating one
+// exists.
+func contactPointToChannel(orgID int64, cp GrafanaContactPoint) (Channel, error) {
+	out := Channel{
+		ID:             cp.UID,
+		OrganizationID: orgID,
+		Name:           channelDisplayName(orgID, cp.Name),
+	}
+	var settings map[string]json.RawMessage
+	if err := json.Unmarshal(cp.Settings, &settings); err != nil {
+		return Channel{}, fmt.Errorf("unmarshal contact point settings: %w", err)
+	}
+	switch cp.Type {
+	case "webhook":
+		out.Kind = ChannelKindWebhook
+		var url string
+		if raw, ok := settings["url"]; ok {
+			_ = json.Unmarshal(raw, &url)
+		}
+		out.Webhook = &WebhookConfig{URL: url}
+		if raw, ok := settings["authorization_credentials"]; ok && len(raw) > 0 && string(raw) != `""` {
+			out.HasSecret = true
+		}
+	case "email":
+		out.Kind = ChannelKindSMTP
+		smtp := &SMTPConfig{}
+		if raw, ok := settings["addresses"]; ok {
+			var addrs string
+			_ = json.Unmarshal(raw, &addrs)
+			if addrs != "" {
+				smtp.To = strings.Split(addrs, ";")
+			}
+		}
+		if raw, ok := settings["smtpHost"]; ok {
+			_ = json.Unmarshal(raw, &smtp.Host)
+		}
+		if raw, ok := settings["smtpPort"]; ok {
+			_ = json.Unmarshal(raw, &smtp.Port)
+		}
+		if raw, ok := settings["smtpUsername"]; ok {
+			_ = json.Unmarshal(raw, &smtp.Username)
+		}
+		if raw, ok := settings["fromAddress"]; ok {
+			_ = json.Unmarshal(raw, &smtp.From)
+		}
+		if raw, ok := settings["smtpPassword"]; ok && len(raw) > 0 && string(raw) != `""` {
+			out.HasSecret = true
+		}
+		out.SMTP = smtp
+	}
+	// Default unknown channels to pending; the encrypt-service metadata
+	// bag carries the real last-validated state but loading it on every
+	// list is too expensive, so the UI sees pending and the operator
+	// presses Test to refresh.
+	out.ValidationState = ValidationPending
+	return out, nil
+}
+
+// ruleVisibleToOrg decides whether the caller can see / pause / resume
+// a rule. The rule is visible if it carries no organization_id label
+// (provisioned default) or carries one matching the caller's id.
+func ruleVisibleToOrg(r GrafanaAlertRule, wantOrgID string) bool {
+	if r.Labels == nil {
+		return true
+	}
+	got, ok := r.Labels[ruleLabelOrganizationID]
+	if !ok {
+		return true
+	}
+	return got == wantOrgID
+}
+
+// grafanaRuleToDomain pulls the user-facing metadata off a Grafana
+// alert rule. Opaque Data / Settings / Condition fields are ignored —
+// the UI doesn't render them and we don't expose an authoring surface
+// that would write them.
+func grafanaRuleToDomain(orgID int64, r GrafanaAlertRule) Rule {
+	out := Rule{
+		ID:              r.UID,
+		OrganizationID:  orgID,
+		Name:            r.Title,
+		Group:           r.RuleGroup,
+		Enabled:         !r.IsPaused,
+		DurationSeconds: parseDurationSeconds(r.For),
+	}
+	if r.Labels != nil {
+		out.Template = templateFromLabel(r.Labels["template"])
+		out.Severity = r.Labels["severity"]
+	}
+	if r.Annotations != nil {
+		out.Summary = r.Annotations["summary"]
+		out.Description = r.Annotations["description"]
+	}
+	return out
+}
+
+// templateFromLabel is the closed mapping between the `template`
+// label the YAML stamps on each rule and the closed enum the UI
+// uses. Unknown labels (including the self-monitoring rules that
+// don't carry a template label) map to the empty string, which the
+// UI treats as "fall back to rule name".
+func templateFromLabel(label string) RuleTemplate {
+	switch label {
+	case "offline":
+		return RuleTemplateOffline
+	case "hashrate":
+		return RuleTemplateHashrate
+	case "temperature":
+		return RuleTemplateTemperature
+	case "pool":
+		return RuleTemplatePool
+	case "command_failure":
+		return RuleTemplateCommandFailure
+	case "telemetry-poll":
+		return RuleTemplateTelemetryPoll
+	}
+	return ""
+}
+
+// parseDurationSeconds parses Grafana's go-duration string ("5m",
+// "10m", "30s") into seconds. Best-effort: anything we can't parse
+// returns zero, which the UI renders as "fires immediately".
+func parseDurationSeconds(s string) int32 {
+	if s == "" {
+		return 0
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 0
+	}
+	secs := int64(d / time.Second)
+	if secs > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	if secs < math.MinInt32 {
+		return math.MinInt32
+	}
+	return int32(secs)
+}
+
+// silenceMatchesOrg returns true if the silence has a matcher
+// `organization_id=<wantOrgID>` (isEqual + non-regex). Anything else
+// belongs to a different org or is a malformed-by-our-rules silence
+// and is filtered out.
+func silenceMatchesOrg(s GrafanaSilence, wantOrgID string) bool {
+	for _, m := range s.Matchers {
+		if m.Name == silenceLabelOrganizationID && m.IsEqual && !m.IsRegex && m.Value == wantOrgID {
+			return true
+		}
+	}
+	return false
+}
+
+// grafanaSilenceToDomain reverses domainSilenceToGrafana on reads
+// and stamps the Active flag from the supplied clock.
+func grafanaSilenceToDomain(orgID int64, gs GrafanaSilence, now time.Time) Silence {
+	out := Silence{
+		ID:             gs.ID,
+		OrganizationID: orgID,
+		StartsAt:       gs.StartsAt,
+		EndsAt:         gs.EndsAt,
+		Comment:        gs.Comment,
+		CreatedBy:      gs.CreatedBy,
+	}
+	// CreatedBy is the only timestamp Grafana stamps; map to CreatedAt
+	// when StartsAt looks like a creation marker so the UI's "Created"
+	// column isn't always empty. Best-effort: the Alertmanager API
+	// doesn't expose a created_at field.
+	out.CreatedAt = gs.StartsAt
+
+	out.Scope = matchersToScope(gs.Matchers)
+	out.Active = silenceActive(out, now)
+	return out
+}
+
+// matchersToScope reconstructs the structured scope payload from the
+// Alertmanager-style matcher list. It mirrors domainSilenceToGrafana
+// exactly; the order doesn't matter because Grafana stores them as a
+// set.
+func matchersToScope(ms []GrafanaSilenceMatcher) SilenceScope {
+	scope := SilenceScope{Kind: SilenceScopeRule}
+	for _, m := range ms {
+		switch m.Name {
+		case "alertname_uid", alertRuleUIDMatcher:
+			scope.Kind = SilenceScopeRule
+			scope.RuleID = m.Value
+		case "group_id":
+			scope.Kind = SilenceScopeGroup
+			scope.GroupID = m.Value
+		case "site_id":
+			scope.Kind = SilenceScopeSite
+			scope.SiteID = m.Value
+		case "device_id":
+			scope.Kind = SilenceScopeDevice
+			// device_id silences may carry many ids via a regex matcher,
+			// or a single id via an equality matcher. We split on `|`
+			// because that's how Alertmanager combines an OR'd list.
+			if m.IsRegex {
+				scope.DeviceIDs = append(scope.DeviceIDs, strings.Split(m.Value, "|")...)
+			} else {
+				scope.DeviceIDs = append(scope.DeviceIDs, m.Value)
+			}
+		}
+	}
+	return scope
+}
+
+// domainSilenceToGrafana compiles the structured scope payload to
+// Alertmanager matchers, always including the org-id matcher.
+func domainSilenceToGrafana(orgID int64, sil Silence) GrafanaSilence {
+	matchers := []GrafanaSilenceMatcher{
+		{
+			Name:    silenceLabelOrganizationID,
+			Value:   strconv.FormatInt(orgID, 10),
+			IsRegex: false,
+			IsEqual: true,
+		},
+	}
+	switch sil.Scope.Kind {
+	case SilenceScopeRule:
+		if sil.Scope.RuleID != "" {
+			matchers = append(matchers, GrafanaSilenceMatcher{
+				Name:    alertRuleUIDMatcher,
+				Value:   sil.Scope.RuleID,
+				IsEqual: true,
+			})
+		}
+	case SilenceScopeGroup:
+		if sil.Scope.GroupID != "" {
+			matchers = append(matchers, GrafanaSilenceMatcher{
+				Name:    "group_id",
+				Value:   sil.Scope.GroupID,
+				IsEqual: true,
+			})
+		}
+	case SilenceScopeSite:
+		if sil.Scope.SiteID != "" {
+			matchers = append(matchers, GrafanaSilenceMatcher{
+				Name:    "site_id",
+				Value:   sil.Scope.SiteID,
+				IsEqual: true,
+			})
+		}
+	case SilenceScopeDevice:
+		if len(sil.Scope.DeviceIDs) == 1 {
+			matchers = append(matchers, GrafanaSilenceMatcher{
+				Name:    "device_id",
+				Value:   sil.Scope.DeviceIDs[0],
+				IsEqual: true,
+			})
+		} else if len(sil.Scope.DeviceIDs) > 1 {
+			matchers = append(matchers, GrafanaSilenceMatcher{
+				Name:    "device_id",
+				Value:   strings.Join(sil.Scope.DeviceIDs, "|"),
+				IsRegex: true,
+				IsEqual: true,
+			})
+		}
+	}
+	return GrafanaSilence{
+		StartsAt:  sil.StartsAt,
+		EndsAt:    sil.EndsAt,
+		CreatedBy: sil.CreatedBy,
+		Comment:   sil.Comment,
+		Matchers:  matchers,
+	}
+}
+
+// silenceActive reports whether now is inside [StartsAt, EndsAt).
+// EndsAt zero means "no end" (Alertmanager's "indefinite" silence);
+// in that case any time after StartsAt is active.
+func silenceActive(s Silence, now time.Time) bool {
+	if now.Before(s.StartsAt) {
+		return false
+	}
+	if s.EndsAt.IsZero() {
+		return true
+	}
+	return now.Before(s.EndsAt)
+}

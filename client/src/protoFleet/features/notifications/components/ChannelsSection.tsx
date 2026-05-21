@@ -1,0 +1,234 @@
+import { useCallback, useMemo, useState } from "react";
+import AddChannelModal from "./AddChannelModal";
+import ChannelEditableCell from "./ChannelEditableCell";
+import ChannelStatusBadge from "./ChannelStatusBadge";
+import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
+import { testChannel as testChannelApi } from "@/protoFleet/features/notifications/api/notificationsApi";
+import { useNotificationsStore } from "@/protoFleet/features/notifications/store/notificationsStore";
+import type { Channel } from "@/protoFleet/features/notifications/types";
+import { Checkmark, Trash } from "@/shared/assets/icons";
+import Button, { sizes, variants } from "@/shared/components/Button";
+import Header from "@/shared/components/Header";
+import List from "@/shared/components/List";
+import type { ColConfig, ColTitles, ListAction } from "@/shared/components/List/types";
+import { pushToast, STATUSES } from "@/shared/features/toaster";
+
+type ChannelColumns = "name" | "destination" | "status";
+
+const colTitles: ColTitles<ChannelColumns> = {
+  name: "Name",
+  destination: "Destination",
+  status: "Status",
+};
+
+const activeCols: ChannelColumns[] = ["name", "destination", "status"];
+
+const formatDestination = (c: Channel) =>
+  c.kind === "webhook" ? (c.webhook?.url ?? "") : (c.smtp?.to ?? []).join(", ");
+
+const ChannelsSection = () => {
+  const channels = useNotificationsStore((s) => s.channels);
+  const updateChannel = useNotificationsStore((s) => s.updateChannel);
+  const removeChannel = useNotificationsStore((s) => s.removeChannel);
+
+  const [showAddModal, setShowAddModal] = useState(false);
+
+  // Renaming a channel posts a full PUT — the server only edits the
+  // name field on the contact point and leaves the destination
+  // settings untouched.
+  const handleSaveName = useCallback(
+    async (channel: Channel, next: string) => {
+      try {
+        await updateChannel({
+          id: channel.id,
+          name: next,
+          kind: channel.kind,
+          webhook: channel.webhook,
+          smtp: channel.smtp,
+        });
+        pushToast({ message: `Renamed: ${next}`, status: STATUSES.success });
+      } catch (error) {
+        pushToast({
+          message: getErrorMessage(error, "Failed to rename channel"),
+          status: STATUSES.error,
+        });
+      }
+    },
+    [updateChannel],
+  );
+
+  // Editing the destination invalidates the previous test on the
+  // server side (the service flips validation_state to pending). The
+  // cell's onSave hands us the raw entered text — for webhook
+  // channels that's a URL, for SMTP it's a comma-separated To list.
+  const handleSaveDestination = useCallback(
+    async (channel: Channel, next: string) => {
+      try {
+        const input =
+          channel.kind === "webhook"
+            ? {
+                id: channel.id,
+                name: channel.name,
+                kind: channel.kind,
+                webhook: { url: next, bearer_header: null },
+                smtp: null,
+              }
+            : {
+                id: channel.id,
+                name: channel.name,
+                kind: channel.kind,
+                webhook: null,
+                smtp: {
+                  host: channel.smtp?.host ?? "",
+                  port: channel.smtp?.port ?? 587,
+                  username: channel.smtp?.username ?? "",
+                  from: channel.smtp?.from ?? "",
+                  to: next
+                    .split(",")
+                    .map((s) => s.trim())
+                    .filter(Boolean),
+                },
+              };
+        await updateChannel(input);
+        pushToast({ message: "Destination updated", status: STATUSES.success });
+      } catch (error) {
+        pushToast({
+          message: getErrorMessage(error, "Failed to update destination"),
+          status: STATUSES.error,
+        });
+      }
+    },
+    [updateChannel],
+  );
+
+  const handleTest = useCallback(async (channel: Channel) => {
+    try {
+      const result = await testChannelApi({
+        id: channel.id,
+        name: channel.name,
+        kind: channel.kind,
+        webhook: channel.webhook,
+        smtp: channel.smtp,
+      });
+      if (result.ok) {
+        pushToast({ message: "Test delivery sent", status: STATUSES.success });
+      } else {
+        pushToast({
+          message: `Test failed (HTTP ${result.response_code}): ${result.error || "no detail"}`,
+          status: STATUSES.error,
+        });
+      }
+    } catch (error) {
+      pushToast({
+        message: getErrorMessage(error, "Test delivery failed"),
+        status: STATUSES.error,
+      });
+    }
+  }, []);
+
+  const handleDelete = useCallback(
+    async (channel: Channel) => {
+      try {
+        await removeChannel(channel.id);
+        pushToast({ message: `Deleted channel "${channel.name}"`, status: STATUSES.success });
+      } catch (error) {
+        pushToast({
+          message: getErrorMessage(error, "Failed to delete channel"),
+          status: STATUSES.error,
+        });
+      }
+    },
+    [removeChannel],
+  );
+
+  const actions: ListAction<Channel>[] = useMemo(
+    () => [
+      {
+        title: "Test",
+        icon: <Checkmark />,
+        actionHandler: handleTest,
+      },
+      {
+        title: "Delete",
+        icon: <Trash />,
+        variant: "destructive",
+        actionHandler: handleDelete,
+      },
+    ],
+    [handleTest, handleDelete],
+  );
+
+  const colConfig: ColConfig<Channel, string, ChannelColumns> = useMemo(
+    () => ({
+      name: {
+        component: (channel) => (
+          <ChannelEditableCell
+            value={channel.name}
+            placeholder="Name"
+            ariaLabel="name"
+            onSave={(next) => {
+              void handleSaveName(channel, next);
+            }}
+          />
+        ),
+        width: "w-64",
+      },
+      destination: {
+        component: (channel) => (
+          <ChannelEditableCell
+            value={formatDestination(channel)}
+            placeholder={channel.kind === "webhook" ? "https://hooks…" : "oncall@example.com"}
+            ariaLabel="destination"
+            onSave={(next) => {
+              void handleSaveDestination(channel, next);
+            }}
+          />
+        ),
+        width: "w-96",
+        allowWrap: true,
+      },
+      status: {
+        component: (channel) => <ChannelStatusBadge state={channel.validation_state} />,
+        width: "w-40",
+      },
+    }),
+    [handleSaveName, handleSaveDestination],
+  );
+
+  return (
+    <section className="flex flex-col gap-4 rounded-xl border border-border-5 p-6">
+      <div className="flex items-center justify-between">
+        <Header title="Channels" titleSize="text-heading-200" />
+        <Button
+          variant={variants.secondary}
+          size={sizes.compact}
+          text="Add channel"
+          onClick={() => setShowAddModal(true)}
+        />
+      </div>
+      <p className="text-300 text-text-primary-50">
+        Webhook and email destinations the rule engine delivers notifications to.
+      </p>
+
+      <List<Channel, string, ChannelColumns>
+        items={channels}
+        itemKey="id"
+        activeCols={activeCols}
+        colTitles={colTitles}
+        colConfig={colConfig}
+        total={channels.length}
+        itemName={{ singular: "channel", plural: "channels" }}
+        noDataElement={
+          <div className="py-10 text-center text-text-primary-50">
+            No channels yet — add an SMTP relay or webhook URL to start getting alerts.
+          </div>
+        }
+        actions={actions}
+      />
+
+      <AddChannelModal open={showAddModal} onDismiss={() => setShowAddModal(false)} />
+    </section>
+  );
+};
+
+export default ChannelsSection;

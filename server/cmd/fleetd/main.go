@@ -79,6 +79,7 @@ import (
 	fleetnodepairing "github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
 	"github.com/block/proto-fleet/server/internal/domain/fleetoptions"
 	foremanImportDomain "github.com/block/proto-fleet/server/internal/domain/foremanimport"
+	notificationsDomain "github.com/block/proto-fleet/server/internal/domain/notifications"
 	onboardingDomain "github.com/block/proto-fleet/server/internal/domain/onboarding"
 	pairingDomain "github.com/block/proto-fleet/server/internal/domain/pairing"
 	poolsDomain "github.com/block/proto-fleet/server/internal/domain/pools"
@@ -107,6 +108,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 	"github.com/block/proto-fleet/server/internal/handlers/networkinfo"
+	notificationsHandler "github.com/block/proto-fleet/server/internal/handlers/notifications"
 	"github.com/block/proto-fleet/server/internal/handlers/onboarding"
 	"github.com/block/proto-fleet/server/internal/handlers/pairing"
 	"github.com/block/proto-fleet/server/internal/handlers/pools"
@@ -541,6 +543,12 @@ func start(config *Config) error {
 	collectionSvc := collectionDomain.NewService(collectionStore, deviceStore, siteStore, buildingStore, transactor, deviceResolver.Resolve, telemetryService, activitySvc)
 	foremanImportSvc := foremanImportDomain.NewService(poolsSvc, collectionSvc, deviceStore)
 
+	// notifications: pure proxy onto the Grafana sidecar. The service
+	// does not persist anything itself; org isolation is enforced at
+	// the read/write boundary inside the package.
+	grafanaClient := notificationsDomain.NewGrafana(config.Metrics.Grafana)
+	notificationsSvc := notificationsDomain.NewService(grafanaClient)
+
 	middlewares := []server.Middleware{
 		middleware.NewCORSMiddleware(config.HTTP.SuppressCors),
 		middleware.TelemetryMiddleware{},
@@ -612,6 +620,16 @@ func start(config *Config) error {
 	mux.Handle(apikeyv1connect.NewApiKeyServiceHandler(apikeyHandler.NewHandler(apiKeySvc), li))
 	mux.Handle(authzv1connect.NewAuthzServiceHandler(authzHandler.NewHandler(authz.NewService(conn)), li))
 	mux.Handle(serverlogv1connect.NewServerLogServiceHandler(serverlogHandler.NewHandler(logging.DefaultBuffer()), li))
+
+	// Notifications uses plain HTTP routes (matching the Connect wire
+	// shape but without the typed bindings) until buf generate produces
+	// the notificationsv1connect package; the handler enforces
+	// session-cookie auth on each route internally so it doesn't
+	// depend on the Connect interceptor chain.
+	notifHandler := notificationsHandler.NewHandler(notificationsSvc, sessionSvc, userStore)
+	for pattern, h := range notifHandler.Routes() {
+		mux.Handle(pattern, h)
+	}
 
 	if config.HTTP.PprofAddr != "" {
 		ln, err := net.Listen("tcp", config.HTTP.PprofAddr)

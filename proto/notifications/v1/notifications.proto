@@ -1,0 +1,305 @@
+syntax = "proto3";
+
+// The notifications service is the thin Connect-RPC surface that the
+// settings UI uses to manage channels and silences in the Grafana
+// sidecar, plus pause/resume the small set of provisioned alert rules.
+//
+// Persistence and evaluation live in Grafana. fleet-api translates
+// each RPC into a call against Grafana's HTTP API (provisioning for
+// rules and contact points, the Alertmanager API for silences) and
+// scopes every read/write to the caller's organization by tagging
+// Grafana objects with an `org=<id>` label on rules, a name prefix
+// on contact points, and a `organization_id=<id>` matcher on
+// silences. The fleet-api handler is the security boundary — every
+// list path filters server-side, every write injects the caller's
+// org id, and a user from org A targeting an id owned by org B gets
+// permission_denied.
+//
+// IMPORTANT: this service intentionally does NOT expose any
+// rule-authoring surface. The set of alert rules is a closed list
+// provisioned by ops via the Grafana YAML — operators can only
+// list / pause / resume / silence them, never create / edit /
+// delete. If you find yourself adding a CreateRule or UpdateRule
+// RPC here, that's a product change, not a transport change.
+package notifications.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+
+// ChannelService manages destinations the rule engine delivers to.
+// Backed by Grafana contact points.
+service ChannelService {
+    // ListChannels returns every channel owned by the caller's org.
+    // Secrets (webhook bearer headers, SMTP passwords) are zeroed in
+    // the response; the boolean has_secret tells the UI whether a
+    // secret is set so it can render the "•••• Set" affordance.
+    rpc ListChannels(ListChannelsRequest) returns (ListChannelsResponse);
+
+    // CreateChannel inserts a new channel. The Grafana contact-point
+    // name is prefixed with org-<id>- server-side; the caller cannot
+    // collide with another org's name space.
+    rpc CreateChannel(CreateChannelRequest) returns (CreateChannelResponse);
+
+    // UpdateChannel replaces a channel's destination + name. Editing
+    // the destination clears the validation state.
+    rpc UpdateChannel(UpdateChannelRequest) returns (UpdateChannelResponse);
+
+    // DeleteChannel removes the channel from Grafana and its secret
+    // from the encrypt service.
+    rpc DeleteChannel(DeleteChannelRequest) returns (DeleteChannelResponse);
+
+    // TestChannel sends a synthetic alert through the channel without
+    // requiring it to be saved. Mirrors Grafana's test endpoint with
+    // an Alertmanager-shaped payload constructed server-side.
+    rpc TestChannel(TestChannelRequest) returns (TestChannelResponse);
+}
+
+// RuleService is read-only plus pause/resume. The set of rules is
+// fixed by the provisioned YAML; this service does NOT expose a
+// create / update / delete surface.
+service RuleService {
+    // ListRules returns every provisioned alert rule. Each rule's
+    // `enabled` flag is the inverse of Grafana's `isPaused`.
+    rpc ListRules(ListRulesRequest) returns (ListRulesResponse);
+
+    // PauseRule sets isPaused=true on the rule, stopping it from
+    // firing without removing it from the provisioning. Idempotent.
+    rpc PauseRule(PauseRuleRequest) returns (PauseRuleResponse);
+
+    // ResumeRule clears isPaused on the rule. Idempotent.
+    rpc ResumeRule(ResumeRuleRequest) returns (ResumeRuleResponse);
+}
+
+// SilenceService manages temporary mutes. Backed by Grafana's
+// built-in Alertmanager silences API.
+service SilenceService {
+    rpc ListSilences(ListSilencesRequest) returns (ListSilencesResponse);
+    rpc CreateSilence(CreateSilenceRequest) returns (CreateSilenceResponse);
+    rpc UpdateSilence(UpdateSilenceRequest) returns (UpdateSilenceResponse);
+    rpc DeleteSilence(DeleteSilenceRequest) returns (DeleteSilenceResponse);
+}
+
+// === Channel ============================================================
+
+enum ChannelKind {
+    CHANNEL_KIND_UNSPECIFIED = 0;
+    CHANNEL_KIND_WEBHOOK = 1;
+    CHANNEL_KIND_SMTP = 2;
+}
+
+enum ValidationState {
+    VALIDATION_STATE_UNSPECIFIED = 0;
+    VALIDATION_STATE_PENDING = 1;
+    VALIDATION_STATE_OK = 2;
+    VALIDATION_STATE_FAILED = 3;
+}
+
+message WebhookConfig {
+    string url = 1;
+    // bearer_header is the value Grafana sets on the Authorization
+    // header. Returned as the empty string on reads; presence is
+    // signalled by Channel.has_secret. The server stores it in the
+    // encrypt service, not in Grafana provisioning JSON.
+    string bearer_header = 2;
+}
+
+message SmtpConfig {
+    string host = 1;
+    int32 port = 2;
+    string username = 3;
+    string from = 4;
+    repeated string to = 5;
+    // password is write-only; readbacks are always empty.
+    string password = 6;
+}
+
+message Channel {
+    string id = 1;
+    int64 organization_id = 2;
+    string name = 3;
+    ChannelKind kind = 4;
+    WebhookConfig webhook = 5;
+    SmtpConfig smtp = 6;
+    google.protobuf.Timestamp created_at = 7;
+    google.protobuf.Timestamp updated_at = 8;
+    google.protobuf.Timestamp validated_at = 9;
+    ValidationState validation_state = 10;
+    string validation_error = 11;
+    // has_secret is true when a webhook bearer header or SMTP password
+    // is stored. Lets the UI render "•••• Set" without leaking the
+    // secret on the wire.
+    bool has_secret = 12;
+}
+
+message ListChannelsRequest {}
+message ListChannelsResponse {
+    repeated Channel channels = 1;
+}
+
+message CreateChannelRequest {
+    string name = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    ChannelKind kind = 2;
+    WebhookConfig webhook = 3;
+    SmtpConfig smtp = 4;
+}
+message CreateChannelResponse {
+    Channel channel = 1;
+}
+
+message UpdateChannelRequest {
+    string id = 1 [(buf.validate.field).string.min_len = 1];
+    string name = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+    ChannelKind kind = 3;
+    WebhookConfig webhook = 4;
+    SmtpConfig smtp = 5;
+}
+message UpdateChannelResponse {
+    Channel channel = 1;
+}
+
+message DeleteChannelRequest {
+    string id = 1 [(buf.validate.field).string.min_len = 1];
+}
+message DeleteChannelResponse {}
+
+message TestChannelRequest {
+    // Either an existing id, or an unsaved definition. The handler
+    // prefers the unsaved definition when both are set so the UI's
+    // "Test before save" flow does not require a prior write.
+    string id = 1;
+    ChannelKind kind = 2;
+    WebhookConfig webhook = 3;
+    SmtpConfig smtp = 4;
+}
+message TestChannelResponse {
+    bool ok = 1;
+    string error = 2;
+    int32 response_code = 3;
+}
+
+// === Rule ===============================================================
+//
+// Rules are read-only descriptors of the provisioned alert rules in
+// Grafana. The UI uses these to render the rules list and decide
+// which rule a silence targets. There is no Create / Update / Delete
+// because the rule set is owned by the ops yaml, not by users.
+
+// RuleTemplate is the closed set of rule "kinds" the provisioned
+// YAML exposes. Surfaced on the rule via the `template` label
+// (e.g. labels.template="offline"). Anything unrecognised maps to
+// RULE_TEMPLATE_UNSPECIFIED so the UI can fall back to the rule
+// title alone.
+enum RuleTemplate {
+    RULE_TEMPLATE_UNSPECIFIED = 0;
+    RULE_TEMPLATE_OFFLINE = 1;
+    RULE_TEMPLATE_HASHRATE = 2;
+    RULE_TEMPLATE_TEMPERATURE = 3;
+    RULE_TEMPLATE_POOL = 4;
+    RULE_TEMPLATE_COMMAND_FAILURE = 5;
+    RULE_TEMPLATE_TELEMETRY_POLL = 6;
+}
+
+message Rule {
+    // id is the Grafana alert-rule UID. Stable across deploys
+    // because the YAML pins it.
+    string id = 1;
+    int64 organization_id = 2;
+    // name is the human-readable rule title from Grafana.
+    string name = 3;
+    // template is decoded from labels.template. RULE_TEMPLATE_UNSPECIFIED
+    // for self-monitoring rules that don't carry the label.
+    RuleTemplate template = 4;
+    // group is the Grafana rule-group name (e.g. "proto-fleet-defaults").
+    string group = 5;
+    // severity comes from labels.severity ("warning", "critical").
+    string severity = 6;
+    // summary comes from annotations.summary — the short one-liner
+    // the UI shows under the rule name.
+    string summary = 7;
+    // description comes from annotations.description, multi-line.
+    string description = 8;
+    // duration_seconds is parsed from Grafana's `for:` window.
+    int32 duration_seconds = 9;
+    // enabled is the inverse of Grafana's isPaused.
+    bool enabled = 10;
+}
+
+message ListRulesRequest {}
+message ListRulesResponse {
+    repeated Rule rules = 1;
+}
+
+message PauseRuleRequest {
+    string id = 1 [(buf.validate.field).string.min_len = 1];
+}
+message PauseRuleResponse {
+    Rule rule = 1;
+}
+
+message ResumeRuleRequest {
+    string id = 1 [(buf.validate.field).string.min_len = 1];
+}
+message ResumeRuleResponse {
+    Rule rule = 1;
+}
+
+// === Silence ============================================================
+
+enum SilenceScopeKind {
+    SILENCE_SCOPE_KIND_UNSPECIFIED = 0;
+    SILENCE_SCOPE_KIND_RULE = 1;
+    SILENCE_SCOPE_KIND_GROUP = 2;
+    SILENCE_SCOPE_KIND_SITE = 3;
+    SILENCE_SCOPE_KIND_DEVICE = 4;
+}
+
+message SilenceScope {
+    SilenceScopeKind kind = 1;
+    string rule_id = 2;
+    string group_id = 3;
+    string site_id = 4;
+    repeated string device_ids = 5;
+}
+
+message Silence {
+    string id = 1;
+    int64 organization_id = 2;
+    SilenceScope scope = 3;
+    google.protobuf.Timestamp starts_at = 4;
+    google.protobuf.Timestamp ends_at = 5;
+    string comment = 6;
+    string created_by = 7;
+    google.protobuf.Timestamp created_at = 8;
+    bool active = 9;
+}
+
+message ListSilencesRequest {}
+message ListSilencesResponse {
+    repeated Silence silences = 1;
+}
+
+message CreateSilenceRequest {
+    SilenceScope scope = 1;
+    google.protobuf.Timestamp starts_at = 2;
+    google.protobuf.Timestamp ends_at = 3;
+    string comment = 4 [(buf.validate.field).string.max_len = 1024];
+}
+message CreateSilenceResponse {
+    Silence silence = 1;
+}
+
+message UpdateSilenceRequest {
+    string id = 1 [(buf.validate.field).string.min_len = 1];
+    SilenceScope scope = 2;
+    google.protobuf.Timestamp starts_at = 3;
+    google.protobuf.Timestamp ends_at = 4;
+    string comment = 5 [(buf.validate.field).string.max_len = 1024];
+}
+message UpdateSilenceResponse {
+    Silence silence = 1;
+}
+
+message DeleteSilenceRequest {
+    string id = 1 [(buf.validate.field).string.min_len = 1];
+}
+message DeleteSilenceResponse {}
