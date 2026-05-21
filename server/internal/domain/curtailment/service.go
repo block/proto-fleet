@@ -128,6 +128,21 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 		return nil, err
 	}
 
+	// Webhook-style idempotent replay: when the caller supplies an
+	// idempotency_key or an (external_source, external_reference) pair,
+	// check for a prior persisted match before running the selector. A
+	// hit returns the original event so duplicate webhook deliveries
+	// don't re-run selection (expensive) or trip the partial unique
+	// indexes (would otherwise surface as AlreadyExists). Order matters:
+	// idempotency_key is the operator-supplied retry handle, external_ref
+	// is the upstream-system handle; checking idempotency_key first lets
+	// an operator override an upstream re-delivery.
+	if existing, replayErr := s.lookupIdempotentReplay(ctx, req); replayErr != nil {
+		return nil, replayErr
+	} else if existing != nil {
+		return planFromPersistedEvent(existing), nil
+	}
+
 	plan, minPowerW, orgConfig, err := s.runSelector(ctx, req.PreviewRequest)
 	if err != nil {
 		return nil, err
@@ -369,6 +384,61 @@ func (s *Service) AdminTerminate(ctx context.Context, req AdminTerminateRequest)
 		return nil, err
 	}
 	return updated, nil
+}
+
+// lookupIdempotentReplay returns the prior event a webhook-style replay
+// should reuse, or nil when no replay applies. idempotency_key wins over
+// (external_source, external_reference) so an operator-supplied retry
+// handle overrides upstream re-delivery.
+func (s *Service) lookupIdempotentReplay(ctx context.Context, req StartRequest) (*models.Event, error) {
+	if req.IdempotencyKey != nil && *req.IdempotencyKey != "" {
+		existing, err := s.store.GetEventByIdempotencyKey(ctx, req.OrgID, *req.IdempotencyKey)
+		if err != nil {
+			return nil, err
+		}
+		if existing != nil {
+			return existing, nil
+		}
+	}
+	if req.ExternalSource != nil && *req.ExternalSource != "" &&
+		req.ExternalReference != nil && *req.ExternalReference != "" {
+		existing, err := s.store.GetEventByExternalReference(ctx, req.OrgID, *req.ExternalSource, *req.ExternalReference)
+		if err != nil {
+			return nil, err
+		}
+		if existing != nil {
+			return existing, nil
+		}
+	}
+	return nil, nil
+}
+
+// planFromPersistedEvent reconstructs the minimal Plan a webhook replay
+// needs so the handler can render the same response shape as the original
+// Start. Selected/Skipped/EstimatedReductionKW intentionally stay empty:
+// the persisted decision_snapshot carries the original counts when the UI
+// needs them, and re-deriving the device list would mean re-running the
+// selector against a now-stale candidate set.
+func planFromPersistedEvent(event *models.Event) *Plan {
+	eventUUID := event.EventUUID
+	plan := &Plan{
+		EventUUID:                        &eventUUID,
+		EffectiveBatchSize:               valueOrZero(event.EffectiveBatchSize),
+		EffectiveRestoreBatchIntervalSec: event.RestoreBatchIntervalSec,
+	}
+	if event.MaxDurationSeconds != nil {
+		v := *event.MaxDurationSeconds
+		plan.EffectiveMaxDurationSeconds = &v
+	}
+	return plan
+}
+
+func valueOrZero[T any](p *T) T {
+	if p == nil {
+		var zero T
+		return zero
+	}
+	return *p
 }
 
 // validateUpdateRequest mirrors the Start-time bounds so a misconfigured

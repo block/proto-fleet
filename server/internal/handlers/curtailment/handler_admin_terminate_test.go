@@ -92,6 +92,12 @@ func (s *adminTerminateStubStore) UpsertHeartbeat(context.Context, interfaces.Up
 func (s *adminTerminateStubStore) UpdateOperatorFields(context.Context, int64, int64, interfaces.UpdateOperatorFieldsParams) (*models.Event, error) {
 	panic("UpdateOperatorFields not exercised by AdminTerminate handler tests")
 }
+func (s *adminTerminateStubStore) GetEventByIdempotencyKey(context.Context, int64, string) (*models.Event, error) {
+	panic("GetEventByIdempotencyKey not exercised by AdminTerminate handler tests")
+}
+func (s *adminTerminateStubStore) GetEventByExternalReference(context.Context, int64, string, string) (*models.Event, error) {
+	panic("GetEventByExternalReference not exercised by AdminTerminate handler tests")
+}
 
 func adminTerminateSessionCtx(orgID int64, role string) context.Context {
 	return authn.SetInfo(context.Background(), &session.Info{

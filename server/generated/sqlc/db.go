@@ -225,6 +225,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getBuildingSiteStmt, err = db.PrepareContext(ctx, getBuildingSite); err != nil {
 		return nil, fmt.Errorf("error preparing query GetBuildingSite: %w", err)
 	}
+	if q.getCurtailmentEventByExternalReferenceStmt, err = db.PrepareContext(ctx, getCurtailmentEventByExternalReference); err != nil {
+		return nil, fmt.Errorf("error preparing query GetCurtailmentEventByExternalReference: %w", err)
+	}
+	if q.getCurtailmentEventByIdempotencyKeyStmt, err = db.PrepareContext(ctx, getCurtailmentEventByIdempotencyKey); err != nil {
+		return nil, fmt.Errorf("error preparing query GetCurtailmentEventByIdempotencyKey: %w", err)
+	}
 	if q.getCurtailmentEventByUUIDStmt, err = db.PrepareContext(ctx, getCurtailmentEventByUUID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetCurtailmentEventByUUID: %w", err)
 	}
@@ -1256,6 +1262,16 @@ func (q *Queries) Close() error {
 	if q.getBuildingSiteStmt != nil {
 		if cerr := q.getBuildingSiteStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getBuildingSiteStmt: %w", cerr)
+		}
+	}
+	if q.getCurtailmentEventByExternalReferenceStmt != nil {
+		if cerr := q.getCurtailmentEventByExternalReferenceStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getCurtailmentEventByExternalReferenceStmt: %w", cerr)
+		}
+	}
+	if q.getCurtailmentEventByIdempotencyKeyStmt != nil {
+		if cerr := q.getCurtailmentEventByIdempotencyKeyStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getCurtailmentEventByIdempotencyKeyStmt: %w", cerr)
 		}
 	}
 	if q.getCurtailmentEventByUUIDStmt != nil {
@@ -2519,6 +2535,8 @@ type Queries struct {
 	getBatchStatusAndDeviceCountsStmt                   *sql.Stmt
 	getBuildingStmt                                     *sql.Stmt
 	getBuildingSiteStmt                                 *sql.Stmt
+	getCurtailmentEventByExternalReferenceStmt          *sql.Stmt
+	getCurtailmentEventByIdempotencyKeyStmt             *sql.Stmt
 	getCurtailmentEventByUUIDStmt                       *sql.Stmt
 	getCurtailmentOrgConfigStmt                         *sql.Stmt
 	getCurtailmentReconcilerHeartbeatStmt               *sql.Stmt
@@ -2823,6 +2841,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getBatchStatusAndDeviceCountsStmt:                   q.getBatchStatusAndDeviceCountsStmt,
 		getBuildingStmt:                                     q.getBuildingStmt,
 		getBuildingSiteStmt:                                 q.getBuildingSiteStmt,
+		getCurtailmentEventByExternalReferenceStmt:          q.getCurtailmentEventByExternalReferenceStmt,
+		getCurtailmentEventByIdempotencyKeyStmt:             q.getCurtailmentEventByIdempotencyKeyStmt,
 		getCurtailmentEventByUUIDStmt:                       q.getCurtailmentEventByUUIDStmt,
 		getCurtailmentOrgConfigStmt:                         q.getCurtailmentOrgConfigStmt,
 		getCurtailmentReconcilerHeartbeatStmt:               q.getCurtailmentReconcilerHeartbeatStmt,

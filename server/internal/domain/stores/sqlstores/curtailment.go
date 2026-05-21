@@ -203,6 +203,35 @@ func (s *SQLCurtailmentStore) GetActiveEvent(ctx context.Context, orgID int64) (
 	return convertEventRow(row), nil
 }
 
+func (s *SQLCurtailmentStore) GetEventByIdempotencyKey(ctx context.Context, orgID int64, idempotencyKey string) (*models.Event, error) {
+	row, err := s.GetQueries(ctx).GetCurtailmentEventByIdempotencyKey(ctx, sqlc.GetCurtailmentEventByIdempotencyKeyParams{
+		OrgID:          orgID,
+		IdempotencyKey: sql.NullString{String: idempotencyKey, Valid: true},
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fleeterror.NewInternalErrorf("failed to look up curtailment event by idempotency_key: %v", err)
+	}
+	return convertEventRow(row), nil
+}
+
+func (s *SQLCurtailmentStore) GetEventByExternalReference(ctx context.Context, orgID int64, externalSource, externalReference string) (*models.Event, error) {
+	row, err := s.GetQueries(ctx).GetCurtailmentEventByExternalReference(ctx, sqlc.GetCurtailmentEventByExternalReferenceParams{
+		OrgID:             orgID,
+		ExternalSource:    sql.NullString{String: externalSource, Valid: true},
+		ExternalReference: sql.NullString{String: externalReference, Valid: true},
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fleeterror.NewInternalErrorf("failed to look up curtailment event by (external_source, external_reference): %v", err)
+	}
+	return convertEventRow(row), nil
+}
+
 const (
 	curtailmentEventsDefaultPageSize int32 = 50
 	curtailmentEventsMaxPageSize     int32 = 200

@@ -127,6 +127,14 @@ func (f *fakeStore) AdminTerminateEvent(context.Context, int64, uuid.UUID, model
 	panic("AdminTerminateEvent not exercised by reconciler tests")
 }
 
+func (f *fakeStore) GetEventByIdempotencyKey(context.Context, int64, string) (*models.Event, error) {
+	panic("GetEventByIdempotencyKey not exercised by reconciler tests")
+}
+
+func (f *fakeStore) GetEventByExternalReference(context.Context, int64, string, string) (*models.Event, error) {
+	panic("GetEventByExternalReference not exercised by reconciler tests")
+}
+
 func (f *fakeStore) ListNonTerminalEvents(context.Context) ([]*models.Event, error) {
 	f.listEventsCalls++
 	if f.listEventsPanicErr != "" {

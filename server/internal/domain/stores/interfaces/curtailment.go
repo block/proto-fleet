@@ -94,6 +94,18 @@ type CurtailmentStore interface {
 	GetEventByUUID(ctx context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error)
 	GetActiveEvent(ctx context.Context, orgID int64) (*models.Event, error)
 
+	// GetEventByIdempotencyKey returns the event a prior Start persisted
+	// against (org_id, idempotency_key) — or nil when no row matches. The
+	// service uses this for webhook-style replay: a re-issued call with
+	// the same key returns the original event instead of double-inserting.
+	GetEventByIdempotencyKey(ctx context.Context, orgID int64, idempotencyKey string) (*models.Event, error)
+
+	// GetEventByExternalReference returns the event a prior Start persisted
+	// against (org_id, external_source, external_reference) — or nil when
+	// no row matches. Paired with GetEventByIdempotencyKey for the two
+	// webhook-replay channels.
+	GetEventByExternalReference(ctx context.Context, orgID int64, externalSource, externalReference string) (*models.Event, error)
+
 	// ListEvents returns the cursor-paginated history for an org. The cursor
 	// is an opaque token issued by an earlier call (empty for the first
 	// page); the next-page cursor is returned alongside the slice and is

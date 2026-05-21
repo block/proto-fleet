@@ -87,6 +87,12 @@ func (s *listStubStore) UpdateOperatorFields(context.Context, int64, int64, inte
 func (s *listStubStore) AdminTerminateEvent(context.Context, int64, uuid.UUID, models.EventState, string) (*models.Event, error) {
 	panic("AdminTerminateEvent not exercised by List handler tests")
 }
+func (s *listStubStore) GetEventByIdempotencyKey(context.Context, int64, string) (*models.Event, error) {
+	panic("GetEventByIdempotencyKey not exercised by List handler tests")
+}
+func (s *listStubStore) GetEventByExternalReference(context.Context, int64, string, string) (*models.Event, error) {
+	panic("GetEventByExternalReference not exercised by List handler tests")
+}
 
 func sessionCtx(orgID int64) context.Context {
 	return authn.SetInfo(context.Background(), &session.Info{

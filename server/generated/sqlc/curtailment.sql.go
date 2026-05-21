@@ -260,6 +260,123 @@ func (q *Queries) GetActiveCurtailmentEvent(ctx context.Context, orgID int64) (C
 	return i, err
 }
 
+const getCurtailmentEventByExternalReference = `-- name: GetCurtailmentEventByExternalReference :one
+SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id
+FROM curtailment_event
+WHERE org_id = $1
+    AND external_source = $2
+    AND external_reference = $3
+LIMIT 1
+`
+
+type GetCurtailmentEventByExternalReferenceParams struct {
+	OrgID             int64
+	ExternalSource    sql.NullString
+	ExternalReference sql.NullString
+}
+
+// Webhook-style idempotent replay lookup. Returns zero rows when no prior
+// call carried the same (source, reference). Backed by partial unique
+// index uq_curtailment_event_external_ref.
+func (q *Queries) GetCurtailmentEventByExternalReference(ctx context.Context, arg GetCurtailmentEventByExternalReferenceParams) (CurtailmentEvent, error) {
+	row := q.queryRow(ctx, q.getCurtailmentEventByExternalReferenceStmt, getCurtailmentEventByExternalReference, arg.OrgID, arg.ExternalSource, arg.ExternalReference)
+	var i CurtailmentEvent
+	err := row.Scan(
+		&i.ID,
+		&i.EventUuid,
+		&i.OrgID,
+		&i.State,
+		&i.Mode,
+		&i.Strategy,
+		&i.Level,
+		&i.Priority,
+		&i.LoopType,
+		&i.ScopeType,
+		&i.ScopeJsonb,
+		&i.ModeParamsJsonb,
+		&i.RestoreBatchSize,
+		&i.RestoreBatchIntervalSec,
+		&i.EffectiveBatchSize,
+		&i.MinCurtailedDurationSec,
+		&i.MaxDurationSeconds,
+		&i.AllowUnbounded,
+		&i.IncludeMaintenance,
+		&i.ForceIncludeMaintenance,
+		&i.DecisionSnapshotJsonb,
+		&i.SourceActorType,
+		&i.SourceActorID,
+		&i.ExternalSource,
+		&i.ExternalReference,
+		&i.IdempotencyKey,
+		&i.SupersedesEventID,
+		&i.Reason,
+		&i.ScheduledStartAt,
+		&i.StartedAt,
+		&i.EndedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CreatedByUserID,
+	)
+	return i, err
+}
+
+const getCurtailmentEventByIdempotencyKey = `-- name: GetCurtailmentEventByIdempotencyKey :one
+SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id
+FROM curtailment_event
+WHERE org_id = $1
+    AND idempotency_key = $2
+LIMIT 1
+`
+
+type GetCurtailmentEventByIdempotencyKeyParams struct {
+	OrgID          int64
+	IdempotencyKey sql.NullString
+}
+
+// Idempotent replay lookup. Returns zero rows when no prior call used the
+// key. Backed by partial unique index uq_curtailment_event_idempotency.
+func (q *Queries) GetCurtailmentEventByIdempotencyKey(ctx context.Context, arg GetCurtailmentEventByIdempotencyKeyParams) (CurtailmentEvent, error) {
+	row := q.queryRow(ctx, q.getCurtailmentEventByIdempotencyKeyStmt, getCurtailmentEventByIdempotencyKey, arg.OrgID, arg.IdempotencyKey)
+	var i CurtailmentEvent
+	err := row.Scan(
+		&i.ID,
+		&i.EventUuid,
+		&i.OrgID,
+		&i.State,
+		&i.Mode,
+		&i.Strategy,
+		&i.Level,
+		&i.Priority,
+		&i.LoopType,
+		&i.ScopeType,
+		&i.ScopeJsonb,
+		&i.ModeParamsJsonb,
+		&i.RestoreBatchSize,
+		&i.RestoreBatchIntervalSec,
+		&i.EffectiveBatchSize,
+		&i.MinCurtailedDurationSec,
+		&i.MaxDurationSeconds,
+		&i.AllowUnbounded,
+		&i.IncludeMaintenance,
+		&i.ForceIncludeMaintenance,
+		&i.DecisionSnapshotJsonb,
+		&i.SourceActorType,
+		&i.SourceActorID,
+		&i.ExternalSource,
+		&i.ExternalReference,
+		&i.IdempotencyKey,
+		&i.SupersedesEventID,
+		&i.Reason,
+		&i.ScheduledStartAt,
+		&i.StartedAt,
+		&i.EndedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CreatedByUserID,
+	)
+	return i, err
+}
+
 const getCurtailmentEventByUUID = `-- name: GetCurtailmentEventByUUID :one
 SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id
 FROM curtailment_event

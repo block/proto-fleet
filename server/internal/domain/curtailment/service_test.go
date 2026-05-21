@@ -86,6 +86,19 @@ type fakeStore struct {
 	lastAdminTerminateReason string
 	adminTerminateResult     *models.Event
 	adminTerminateErr        error
+
+	// Idempotent replay fakes. eventsByIdempotencyKey / eventsByExternalRef
+	// drive Service.Start's pre-insert webhook-replay lookup; nil results
+	// signal "no prior match". get*Calls / last* let tests pin the args.
+	eventsByIdempotencyKey     map[string]*models.Event
+	eventsByExternalRef        map[string]*models.Event
+	getByIdempotencyKeyCalls   int
+	lastGetByIdempotencyKey    string
+	getByExternalRefCalls      int
+	lastGetByExternalRefSource string
+	lastGetByExternalRefRef    string
+	getByIdempotencyKeyErr     error
+	getByExternalRefErr        error
 }
 
 func newFakeStore() *fakeStore {
@@ -176,6 +189,31 @@ func (f *fakeStore) AdminTerminateEvent(_ context.Context, _ int64, eventUUID uu
 		return nil, f.adminTerminateErr
 	}
 	return f.adminTerminateResult, nil
+}
+
+func (f *fakeStore) GetEventByIdempotencyKey(_ context.Context, _ int64, idempotencyKey string) (*models.Event, error) {
+	f.getByIdempotencyKeyCalls++
+	f.lastGetByIdempotencyKey = idempotencyKey
+	if f.getByIdempotencyKeyErr != nil {
+		return nil, f.getByIdempotencyKeyErr
+	}
+	if f.eventsByIdempotencyKey == nil {
+		return nil, nil
+	}
+	return f.eventsByIdempotencyKey[idempotencyKey], nil
+}
+
+func (f *fakeStore) GetEventByExternalReference(_ context.Context, _ int64, externalSource, externalReference string) (*models.Event, error) {
+	f.getByExternalRefCalls++
+	f.lastGetByExternalRefSource = externalSource
+	f.lastGetByExternalRefRef = externalReference
+	if f.getByExternalRefErr != nil {
+		return nil, f.getByExternalRefErr
+	}
+	if f.eventsByExternalRef == nil {
+		return nil, nil
+	}
+	return f.eventsByExternalRef[externalSource+"|"+externalReference], nil
 }
 
 func (f *fakeStore) UpdateOperatorFields(_ context.Context, eventID, _ int64, params interfaces.UpdateOperatorFieldsParams) (*models.Event, error) {

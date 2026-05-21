@@ -144,6 +144,12 @@ func (s *updateStubStore) UpsertHeartbeat(context.Context, interfaces.UpsertCurt
 func (s *updateStubStore) AdminTerminateEvent(context.Context, int64, uuid.UUID, models.EventState, string) (*models.Event, error) {
 	panic("AdminTerminateEvent not exercised by Update handler tests")
 }
+func (s *updateStubStore) GetEventByIdempotencyKey(context.Context, int64, string) (*models.Event, error) {
+	panic("GetEventByIdempotencyKey not exercised by Update handler tests")
+}
+func (s *updateStubStore) GetEventByExternalReference(context.Context, int64, string, string) (*models.Event, error) {
+	panic("GetEventByExternalReference not exercised by Update handler tests")
+}
 
 func updateSessionCtx(orgID int64, role string) context.Context {
 	return authn.SetInfo(context.Background(), &session.Info{

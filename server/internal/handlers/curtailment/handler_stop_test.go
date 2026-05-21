@@ -77,6 +77,12 @@ func (s *stopStubStore) UpdateOperatorFields(context.Context, int64, int64, inte
 func (s *stopStubStore) AdminTerminateEvent(context.Context, int64, uuid.UUID, models.EventState, string) (*models.Event, error) {
 	panic("AdminTerminateEvent not exercised by Stop handler tests")
 }
+func (s *stopStubStore) GetEventByIdempotencyKey(context.Context, int64, string) (*models.Event, error) {
+	panic("GetEventByIdempotencyKey not exercised by Stop handler tests")
+}
+func (s *stopStubStore) GetEventByExternalReference(context.Context, int64, string, string) (*models.Event, error) {
+	panic("GetEventByExternalReference not exercised by Stop handler tests")
+}
 func (s *stopStubStore) BeginRestoreTransition(_ context.Context, _ int64, eventUUID uuid.UUID) (*models.Event, error) {
 	s.beginRestoreCalls++
 	if s.beginRestoreErr != nil {

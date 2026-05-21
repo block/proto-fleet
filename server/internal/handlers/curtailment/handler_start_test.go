@@ -95,6 +95,18 @@ func (s *startStubStore) UpdateOperatorFields(context.Context, int64, int64, int
 func (s *startStubStore) AdminTerminateEvent(context.Context, int64, uuid.UUID, models.EventState, string) (*models.Event, error) {
 	panic("AdminTerminateEvent not exercised by Start handler tests")
 }
+func (s *startStubStore) GetEventByIdempotencyKey(context.Context, int64, string) (*models.Event, error) {
+	// Default to "no prior match" so Start tests that pass an idempotency
+	// key fall through to the normal insert path. Replay-specific tests
+	// override with a field on the stub.
+	return nil, nil
+}
+func (s *startStubStore) GetEventByExternalReference(context.Context, int64, string, string) (*models.Event, error) {
+	// Default to "no prior match" so Start tests that pass an external
+	// reference fall through to the normal insert path. Replay-specific
+	// tests override with a field on the stub.
+	return nil, nil
+}
 func (s *startStubStore) ListTargetsByEvent(context.Context, int64, uuid.UUID) ([]*models.Target, error) {
 	panic("ListTargetsByEvent not exercised by handler Start tests")
 }

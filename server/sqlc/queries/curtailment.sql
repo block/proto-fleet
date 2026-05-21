@@ -148,6 +148,26 @@ FROM curtailment_event
 WHERE event_uuid = sqlc.arg('event_uuid')
     AND org_id = sqlc.arg('org_id');
 
+-- name: GetCurtailmentEventByIdempotencyKey :one
+-- Idempotent replay lookup. Returns zero rows when no prior call used the
+-- key. Backed by partial unique index uq_curtailment_event_idempotency.
+SELECT *
+FROM curtailment_event
+WHERE org_id = sqlc.arg('org_id')
+    AND idempotency_key = sqlc.arg('idempotency_key')
+LIMIT 1;
+
+-- name: GetCurtailmentEventByExternalReference :one
+-- Webhook-style idempotent replay lookup. Returns zero rows when no prior
+-- call carried the same (source, reference). Backed by partial unique
+-- index uq_curtailment_event_external_ref.
+SELECT *
+FROM curtailment_event
+WHERE org_id = sqlc.arg('org_id')
+    AND external_source = sqlc.arg('external_source')
+    AND external_reference = sqlc.arg('external_reference')
+LIMIT 1;
+
 -- name: AdminTerminateCurtailmentEvent :one
 -- Forces a non-terminal event to the operator-chosen terminal target_state
 -- (validated CANCELLED or FAILED at the service boundary). Returns zero rows
