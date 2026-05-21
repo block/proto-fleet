@@ -7,7 +7,8 @@ DROP TABLE IF EXISTS role_permission;
 DROP TABLE IF EXISTS permission;
 
 ALTER TABLE role
-    DROP CONSTRAINT IF EXISTS chk_role_builtin_key_matches_flag;
+    DROP CONSTRAINT IF EXISTS chk_role_builtin_key_matches_flag,
+    DROP CONSTRAINT IF EXISTS uq_role_id_org_id;
 
 DROP INDEX IF EXISTS uq_role_org_custom_name;
 DROP INDEX IF EXISTS uq_role_org_builtin_key;

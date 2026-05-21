@@ -22,7 +22,8 @@ type AssignPermissionToRoleParams struct {
 	PermissionID int64
 }
 
-// Idempotent insert used by reconciliation and by UpdateCustomRole.
+// Idempotent insert used by startup reconciliation and by the
+// role-edit handler when an admin adds a permission to a role.
 func (q *Queries) AssignPermissionToRole(ctx context.Context, arg AssignPermissionToRoleParams) error {
 	_, err := q.exec(ctx, q.assignPermissionToRoleStmt, assignPermissionToRole, arg.RoleID, arg.PermissionID)
 	return err
@@ -33,9 +34,9 @@ DELETE FROM role_permission
 WHERE role_id = $1
 `
 
-// Wholesale removal for the SUPER_ADMIN reconcile path (it is followed
-// by a full re-insert in the same transaction) and for
-// ReplaceRolePermissions in U8.
+// Wholesale removal. Used by the role-edit handler when replacing a
+// role's full permission set in a single transaction (delete-then-
+// insert inside one tx so there is no zero-permission window).
 func (q *Queries) ClearRolePermissions(ctx context.Context, roleID int64) error {
 	_, err := q.exec(ctx, q.clearRolePermissionsStmt, clearRolePermissions, roleID)
 	return err
@@ -101,7 +102,7 @@ ORDER BY key
 `
 
 // Permission catalog queries. The catalog is reconciled at startup
-// against domain/authz/catalog.go (see U4 reconciliation).
+// against domain/authz/catalog.go via domain/authz/reconcile.go.
 func (q *Queries) ListPermissions(ctx context.Context) ([]Permission, error) {
 	rows, err := q.query(ctx, q.listPermissionsStmt, listPermissions)
 	if err != nil {
@@ -139,7 +140,9 @@ ORDER BY p.key
 `
 
 // Returns every permission key attached to the given role. Used by the
-// resolver (U6) and by UpdateCustomRole's privilege-parity check (U8).
+// per-request resolver and by the role-edit privilege-parity check
+// (a caller can only assign a role whose permissions are a subset of
+// the caller's own — this query reads that subset).
 func (q *Queries) ListRolePermissionKeys(ctx context.Context, roleID int64) ([]string, error) {
 	rows, err := q.query(ctx, q.listRolePermissionKeysStmt, listRolePermissionKeys, roleID)
 	if err != nil {

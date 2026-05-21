@@ -47,6 +47,16 @@ ALTER TABLE role
         (is_builtin = FALSE AND builtin_key IS NULL)
     );
 
+-- Composite-key target so child tables (user_organization_role) can FK on
+-- (role_id, organization_id) and reject a cross-tenant pointer at the DB
+-- layer. Without this, an assignment could bind a user in org A to a role
+-- owned by org B — a cross-tenant authorization escalation path. The
+-- legacy global rows from migration 000002 (still organization_id NULL
+-- here) are excluded; they're soft-deleted by migration 000052 and the
+-- backfill never produces an assignment that points at them.
+ALTER TABLE role
+    ADD CONSTRAINT uq_role_id_org_id UNIQUE (id, organization_id);
+
 -- Catalog of permission keys. Source of truth is
 -- server/internal/domain/authz/catalog.go; this table is reconciled at
 -- startup so a fresh install and an upgrade converge to the same state.
@@ -78,7 +88,7 @@ CREATE TABLE user_organization_role (
     id              BIGSERIAL   PRIMARY KEY,
     user_id         BIGINT      NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
     organization_id BIGINT      NOT NULL REFERENCES organization(id) ON DELETE CASCADE,
-    role_id         BIGINT      NOT NULL REFERENCES role(id) ON DELETE RESTRICT,
+    role_id         BIGINT      NOT NULL,
     scope_type      VARCHAR(16) NOT NULL,
     scope_id        BIGINT      NULL,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -96,12 +106,22 @@ CREATE TABLE user_organization_role (
         (scope_type = 'site' AND scope_id IS NOT NULL)
     ),
 
+    -- Composite FK on role so an assignment row can only point at a role
+    -- owned by the same organization. Without this, a buggy or
+    -- malicious INSERT could bind a user in org A to a role owned by
+    -- org B and the resolver would grant org A's user that role's
+    -- permissions. DB-enforced tenant isolation closes the path
+    -- structurally; the application-layer filter in
+    -- ListEffectivePermissionsForUser is belt-and-suspenders.
+    CONSTRAINT fk_user_org_role_role FOREIGN KEY (role_id, organization_id)
+        REFERENCES role(id, organization_id) ON DELETE RESTRICT,
+
     -- Composite FK uses the (id, org_id) unique key on `site` shipped by
-    -- multi-site Phase 1 (migration 000043). This pins a site-scoped
-    -- assignment to a site that belongs to the same organization —
-    -- DB-enforced tenant isolation, not application-layer only. The FK is
-    -- DEFERRABLE INITIALLY DEFERRED so a transactional re-assignment that
-    -- deletes and re-inserts within one tx is evaluated at commit.
+    -- multi-site Phase 1 (migration 000043). Pins a site-scoped
+    -- assignment to a site that belongs to the same organization. The
+    -- FK is DEFERRABLE INITIALLY DEFERRED so a transactional
+    -- re-assignment that deletes and re-inserts within one tx is
+    -- evaluated at commit.
     CONSTRAINT fk_user_org_role_site FOREIGN KEY (scope_id, organization_id)
         REFERENCES site(id, org_id) ON DELETE CASCADE
         DEFERRABLE INITIALLY DEFERRED

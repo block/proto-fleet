@@ -10,8 +10,74 @@ import (
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
+
+// On a fresh install (no existing data, no backfill migration to lean
+// on), the founding-user creation path must dual-write into both
+// user_organization (legacy, still consumed by some callers) AND
+// user_organization_role (the new resolver's source of truth).
+// Without the dual-write, the founding SUPER_ADMIN would never appear
+// in the assignment table and the resolver would deny everything once
+// it goes live.
+func TestOnboarding_FoundingUserGetsOrgScopeSuperAdminAssignment(t *testing.T) {
+	db := testutil.GetTestDB(t)
+	ctx := t.Context()
+
+	store := sqlstores.NewSQLUserStore(db)
+	require.NoError(t, store.CreateAdminUserWithOrganization(
+		ctx,
+		uniqueToken("ext-user"),
+		uniqueToken("admin"),
+		"dummy-hash",
+		"Onboarding Test Org",
+		uniqueToken("ext-org"),
+		"dummy-private-key",
+		"SUPER_ADMIN",
+		"Super admin role",
+	))
+
+	q := sqlc.New(db)
+	user, err := q.GetUserByUsername(ctx, anyUsernameMatching(t, db))
+	require.NoError(t, err)
+
+	orgs, err := q.GetOrganizationsForUser(ctx, user.ID)
+	require.NoError(t, err)
+	require.Len(t, orgs, 1)
+	orgID := orgs[0].ID
+
+	assignments, err := q.ListAssignmentsForUser(ctx, sqlc.ListAssignmentsForUserParams{
+		UserID:         user.ID,
+		OrganizationID: orgID,
+	})
+	require.NoError(t, err)
+	require.Len(t, assignments, 1, "founding user must have exactly one assignment row")
+
+	a := assignments[0]
+	require.Equal(t, "org", a.ScopeType)
+	require.False(t, a.ScopeID.Valid, "org-scope assignment must have NULL scope_id")
+
+	superAdmin, err := q.GetBuiltinRoleForOrg(ctx, sqlc.GetBuiltinRoleForOrgParams{
+		OrganizationID: sql.NullInt64{Int64: orgID, Valid: true},
+		BuiltinKey:     sql.NullString{String: "SUPER_ADMIN", Valid: true},
+	})
+	require.NoError(t, err)
+	require.Equal(t, superAdmin.ID, a.RoleID,
+		"founding user's assignment must point at their org's SUPER_ADMIN row, not a legacy global one")
+}
+
+// anyUsernameMatching returns the single username from the "user"
+// table. Used by the onboarding test which doesn't know the username
+// it generated in advance.
+func anyUsernameMatching(t *testing.T, db *sql.DB) string {
+	t.Helper()
+	var name string
+	require.NoError(t, db.QueryRowContext(t.Context(),
+		`SELECT username FROM "user" ORDER BY id DESC LIMIT 1`,
+	).Scan(&name))
+	return name
+}
 
 // TestBackfill_ExistingAdminUserGetsOrgScopeAssignment verifies that
 // migration 000053 mirrors every active user_organization row into

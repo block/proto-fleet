@@ -161,7 +161,8 @@ ORDER BY builtin_key
 `
 
 // Returns the per-org built-in rows for a single organization. Used
-// by U4 startup reconciliation and the onboarding hook.
+// by the startup reconciler (which iterates orgs) and by the
+// onboarding hook that seeds built-ins for a new org.
 func (q *Queries) ListBuiltinRolesForOrg(ctx context.Context, organizationID sql.NullInt64) ([]Role, error) {
 	rows, err := q.query(ctx, q.listBuiltinRolesForOrgStmt, listBuiltinRolesForOrg, organizationID)
 	if err != nil {
@@ -204,8 +205,10 @@ WHERE is_builtin = FALSE
 ORDER BY name
 `
 
-// Per-org custom roles. Admin UI in U11 calls this with the caller's
-// organization_id; the query never returns rows from other orgs.
+// Per-org custom roles. The role-list handler calls this with the
+// caller's organization_id; the query never returns rows from other
+// orgs, so an admin in org A cannot see or assign org B's custom
+// roles even if they happen to know an internal id.
 func (q *Queries) ListCustomRolesForOrg(ctx context.Context, organizationID sql.NullInt64) ([]Role, error) {
 	rows, err := q.query(ctx, q.listCustomRolesForOrgStmt, listCustomRolesForOrg, organizationID)
 	if err != nil {
@@ -286,8 +289,10 @@ WHERE id = $1
   AND is_builtin = FALSE
 `
 
-// Delete is locked for every built-in. The domain layer in U8
-// surfaces BUILTIN_ROLE_IMMUTABLE on a delete attempt.
+// Delete is locked for every built-in: the is_builtin = FALSE guard
+// here is the structural backstop, and the domain layer surfaces a
+// BUILTIN_ROLE_IMMUTABLE error so callers see a clear reason rather
+// than a silent no-op.
 func (q *Queries) SoftDeleteCustomRole(ctx context.Context, id int64) error {
 	_, err := q.exec(ctx, q.softDeleteCustomRoleStmt, softDeleteCustomRole, id)
 	return err
@@ -330,9 +335,10 @@ type UpdateCustomRoleNameParams struct {
 	ID          int64
 }
 
-// Renames a role. Locked to is_builtin = FALSE so no built-in row can
-// be modified through this path; ADMIN and FIELD_TECH edits go
-// through the per-org built-in editor in U8.
+// Renames a custom role. Locked to is_builtin = FALSE so no built-in
+// row can be modified through this path; ADMIN and FIELD_TECH have
+// their own per-org editor that goes through a different code path
+// because their seed identity (builtin_key) must be preserved.
 func (q *Queries) UpdateCustomRoleName(ctx context.Context, arg UpdateCustomRoleNameParams) error {
 	_, err := q.exec(ctx, q.updateCustomRoleNameStmt, updateCustomRoleName, arg.Name, arg.Description, arg.ID)
 	return err

@@ -3,6 +3,7 @@ package authz
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
@@ -26,9 +27,15 @@ import (
 //   - SUPER_ADMIN is fully reconciled to AllPermissions() per org.
 //     Tampering on the org's SUPER_ADMIN row is repaired on every
 //     boot.
-//   - ADMIN and FIELD_TECH are reconciled additive-only per org.
-//     Missing seed permissions get inserted; nothing is ever removed.
-//     Operator edits to those roles survive restarts.
+//   - ADMIN and FIELD_TECH are seeded ONCE, when the role row is
+//     first created. After that the role belongs to the operator —
+//     reconciliation does not touch its role_permission rows. This is
+//     intentional: re-asserting the seed set on every boot would
+//     silently restore permissions the operator had revoked (e.g.,
+//     miner:update_pools or miner:firmware_update). New catalog keys
+//     introduced in future releases do NOT auto-propagate to existing
+//     orgs' ADMIN/FIELD_TECH; operators add them via the role editor
+//     if they want them.
 //
 // Catalog row policy: permissions are always upserted (description
 // text refreshed). A permission key removed from catalog.go is NOT
@@ -104,29 +111,93 @@ func upsertCatalog(ctx context.Context, q *sqlc.Queries) error {
 
 func seedOrgBuiltins(ctx context.Context, q *sqlc.Queries, orgID int64) (map[BuiltinKey]int64, error) {
 	ids := make(map[BuiltinKey]int64, 3)
-	for _, spec := range BuiltinRoles() {
-		role, err := q.UpsertBuiltinRoleForOrg(ctx, sqlc.UpsertBuiltinRoleForOrgParams{
-			Name:           spec.Name,
-			Description:    sql.NullString{String: spec.Description, Valid: true},
-			BuiltinKey:     sql.NullString{String: string(spec.Key), Valid: true},
-			OrganizationID: sql.NullInt64{Int64: orgID, Valid: true},
-		})
-		if err != nil {
-			return nil, fmt.Errorf("upsert builtin %s: %w", spec.Key, err)
-		}
-		ids[spec.Key] = role.ID
+	orgIDValue := sql.NullInt64{Int64: orgID, Valid: true}
 
-		if err := reconcileBuiltinPermissions(ctx, q, role.ID, spec); err != nil {
-			return nil, fmt.Errorf("reconcile permissions for %s: %w", spec.Key, err)
+	for _, spec := range BuiltinRoles() {
+		existing, err := q.GetBuiltinRoleForOrg(ctx, sqlc.GetBuiltinRoleForOrgParams{
+			OrganizationID: orgIDValue,
+			BuiltinKey:     sql.NullString{String: string(spec.Key), Valid: true},
+		})
+		switch {
+		case err == nil:
+			ids[spec.Key] = existing.ID
+			if spec.Mode == ReconcileFull {
+				if err := fullyReconcilePermissions(ctx, q, existing.ID, spec); err != nil {
+					return nil, fmt.Errorf("reconcile %s permissions: %w", spec.Key, err)
+				}
+			}
+			// Additive-only built-ins: leave role_permission untouched.
+			// The operator owns this role once it exists; re-asserting
+			// seed permissions would silently restore anything they
+			// deliberately revoked.
+
+		case errors.Is(err, sql.ErrNoRows):
+			role, err := q.UpsertBuiltinRoleForOrg(ctx, sqlc.UpsertBuiltinRoleForOrgParams{
+				Name:           spec.Name,
+				Description:    sql.NullString{String: spec.Description, Valid: true},
+				BuiltinKey:     sql.NullString{String: string(spec.Key), Valid: true},
+				OrganizationID: orgIDValue,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("create builtin %s: %w", spec.Key, err)
+			}
+			ids[spec.Key] = role.ID
+			if err := assignSeedPermissions(ctx, q, role.ID, spec); err != nil {
+				return nil, fmt.Errorf("seed %s permissions: %w", spec.Key, err)
+			}
+
+		default:
+			return nil, fmt.Errorf("lookup builtin %s: %w", spec.Key, err)
 		}
 	}
 	return ids, nil
 }
 
-func reconcileBuiltinPermissions(ctx context.Context, q *sqlc.Queries, roleID int64, spec BuiltinRoleSpec) error {
+// assignSeedPermissions inserts role_permission rows for every key in the
+// spec's SeedPermissions list. Used on first creation of a per-org built-in
+// row — for additive-only built-ins this is the only path that touches
+// permissions; subsequent boots leave the row alone.
+func assignSeedPermissions(ctx context.Context, q *sqlc.Queries, roleID int64, spec BuiltinRoleSpec) error {
+	perms, err := lookupSeedPermissions(ctx, q, spec)
+	if err != nil {
+		return err
+	}
+	for _, perm := range perms {
+		if err := q.AssignPermissionToRole(ctx, sqlc.AssignPermissionToRoleParams{
+			RoleID:       roleID,
+			PermissionID: perm.ID,
+		}); err != nil {
+			return fmt.Errorf("assign permission %q: %w", perm.Key, err)
+		}
+	}
+	return nil
+}
+
+// fullyReconcilePermissions converges role_permission to exactly the spec's
+// SeedPermissions set: inserts missing keys, removes any extras. Used only
+// for SUPER_ADMIN, whose contract is "always everything in the current
+// catalog" — operator tampering is repaired and obsolete keys are pruned.
+func fullyReconcilePermissions(ctx context.Context, q *sqlc.Queries, roleID int64, spec BuiltinRoleSpec) error {
+	if err := assignSeedPermissions(ctx, q, roleID, spec); err != nil {
+		return err
+	}
+	if err := q.PrunePermissionsOutsideKeys(ctx, sqlc.PrunePermissionsOutsideKeysParams{
+		RoleID: roleID,
+		Keys:   spec.SeedPermissions,
+	}); err != nil {
+		return fmt.Errorf("prune obsolete permissions: %w", err)
+	}
+	return nil
+}
+
+// lookupSeedPermissions returns the permission rows for every key in the
+// spec's SeedPermissions list, failing loudly if any seed key is missing
+// from the catalog table (which would indicate the in-code seed formula
+// references a permission that catalog.go does not declare).
+func lookupSeedPermissions(ctx context.Context, q *sqlc.Queries, spec BuiltinRoleSpec) ([]sqlc.Permission, error) {
 	perms, err := q.GetPermissionsByKeys(ctx, spec.SeedPermissions)
 	if err != nil {
-		return fmt.Errorf("lookup seed permissions: %w", err)
+		return nil, fmt.Errorf("lookup seed permissions: %w", err)
 	}
 	if len(perms) != len(spec.SeedPermissions) {
 		got := make(map[string]bool, len(perms))
@@ -139,26 +210,7 @@ func reconcileBuiltinPermissions(ctx context.Context, q *sqlc.Queries, roleID in
 				missing = append(missing, key)
 			}
 		}
-		return fmt.Errorf("seed permissions %v not in catalog (likely missing from catalog.go)", missing)
+		return nil, fmt.Errorf("seed permissions %v not in catalog (likely missing from catalog.go)", missing)
 	}
-
-	for _, perm := range perms {
-		if err := q.AssignPermissionToRole(ctx, sqlc.AssignPermissionToRoleParams{
-			RoleID:       roleID,
-			PermissionID: perm.ID,
-		}); err != nil {
-			return fmt.Errorf("assign permission %q: %w", perm.Key, err)
-		}
-	}
-
-	if spec.Mode == ReconcileFull {
-		if err := q.PrunePermissionsOutsideKeys(ctx, sqlc.PrunePermissionsOutsideKeysParams{
-			RoleID: roleID,
-			Keys:   spec.SeedPermissions,
-		}); err != nil {
-			return fmt.Errorf("prune obsolete permissions: %w", err)
-		}
-	}
-
-	return nil
+	return perms, nil
 }

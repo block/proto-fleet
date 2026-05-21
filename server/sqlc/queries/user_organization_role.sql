@@ -80,9 +80,10 @@ SELECT
     uor.scope_id    AS scope_id,
     p.key           AS permission_key
 FROM user_organization_role uor
-JOIN role_permission rp ON rp.role_id = uor.role_id
-JOIN permission p       ON p.id = rp.permission_id
 JOIN role r             ON r.id = uor.role_id
+                       AND r.organization_id = uor.organization_id
+JOIN role_permission rp ON rp.role_id = r.id
+JOIN permission p       ON p.id = rp.permission_id
 WHERE uor.user_id = $1
   AND uor.organization_id = $2
   AND uor.deleted_at IS NULL
@@ -97,6 +98,7 @@ ORDER BY uor.id, p.key;
 SELECT COUNT(*)::BIGINT AS super_admin_count
 FROM user_organization_role uor
 JOIN role r ON r.id = uor.role_id
+           AND r.organization_id = uor.organization_id
 WHERE uor.organization_id = $1
   AND uor.scope_type = 'org'
   AND uor.deleted_at IS NULL
@@ -109,6 +111,7 @@ WHERE uor.organization_id = $1
 SELECT COUNT(*)::BIGINT AS super_admin_count
 FROM user_organization_role uor
 JOIN role r ON r.id = uor.role_id
+           AND r.organization_id = uor.organization_id
 WHERE uor.organization_id = $1
   AND uor.scope_type = 'org'
   AND uor.deleted_at IS NULL

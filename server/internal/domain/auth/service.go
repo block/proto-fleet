@@ -606,10 +606,13 @@ func (s *Service) CreateUser(ctx context.Context, req *authv1.CreateUserRequest)
 		return nil, fleeterror.NewInternalErrorf("error generating password hash: %v", err)
 	}
 
-	// Get Admin role
-	role, err := s.userManagementStore.GetRoleByName(ctx, AdminRoleName)
+	// Look up the ADMIN role belonging to this user's organization. Each
+	// org owns its own ADMIN row, so a name-only lookup would return an
+	// arbitrary org's row (or the soft-deleted legacy global one) and
+	// could bind the new user to a role record from a different tenant.
+	role, err := s.userManagementStore.GetBuiltinRoleForOrg(ctx, orgID, AdminRoleName)
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error getting role: %v", err)
+		return nil, fleeterror.NewInternalErrorf("error getting admin role for org: %v", err)
 	}
 
 	var createdUserID string

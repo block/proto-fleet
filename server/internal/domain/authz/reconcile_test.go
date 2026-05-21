@@ -124,7 +124,61 @@ func TestReconcile_OperatorEditToAdminSurvivesRestart(t *testing.T) {
 
 	got := orgRolePermissionKeys(t, db, orgID, "ADMIN")
 	require.NotContains(t, got, authz.PermMinerFirmwareUpdate,
-		"additive-only reconcile must NOT re-add an operator-removed permission to ADMIN")
+		"reconcile must NOT re-add an operator-removed permission to ADMIN")
+}
+
+// Reconcile must not silently restore a sensitive permission that an
+// operator explicitly revoked from ADMIN. Anything that re-asserts the
+// seed set on every boot would re-enable pool changes or firmware
+// flashes for users who were deliberately restricted.
+func TestReconcile_OperatorRevokedSensitivePermStaysRevokedOnRestart(t *testing.T) {
+	db := testutil.GetTestDB(t)
+	ctx := t.Context()
+	orgID := insertTestOrganization(t, db)
+	require.NoError(t, authz.Reconcile(ctx, db))
+
+	for _, perm := range []string{authz.PermMinerUpdatePools, authz.PermMinerFirmwareUpdate, authz.PermMinerReboot} {
+		revokeOrgPermission(t, db, orgID, "ADMIN", perm)
+	}
+
+	// Two extra reconciles for good measure — none of them should
+	// touch the revoked entries.
+	require.NoError(t, authz.Reconcile(ctx, db))
+	require.NoError(t, authz.Reconcile(ctx, db))
+
+	got := orgRolePermissionKeys(t, db, orgID, "ADMIN")
+	for _, perm := range []string{authz.PermMinerUpdatePools, authz.PermMinerFirmwareUpdate, authz.PermMinerReboot} {
+		require.NotContains(t, got, perm,
+			"sensitive permission %q must stay revoked across restarts", perm)
+	}
+}
+
+// Catalog growth (a new permission added in a future release) must NOT
+// silently propagate to an existing org's ADMIN or FIELD_TECH. Once
+// the role exists the operator owns it; new permissions only show up
+// when the operator adds them via the role editor.
+func TestReconcile_NewCatalogPermissionDoesNotPropagateToExistingBuiltins(t *testing.T) {
+	db := testutil.GetTestDB(t)
+	ctx := t.Context()
+	orgID := insertTestOrganization(t, db)
+	require.NoError(t, authz.Reconcile(ctx, db))
+
+	beforeAdmin := orgRolePermissionKeys(t, db, orgID, "ADMIN")
+	beforeFieldTech := orgRolePermissionKeys(t, db, orgID, "FIELD_TECH")
+
+	// Simulate catalog growth by inserting a brand-new permission row
+	// directly. (In production this would happen via a code change in
+	// catalog.go plus a redeploy.)
+	_, err := db.ExecContext(ctx,
+		`INSERT INTO permission (key, description) VALUES ('synthetic:new_key', 'simulated future catalog addition')`,
+	)
+	require.NoError(t, err)
+	require.NoError(t, authz.Reconcile(ctx, db))
+
+	require.Equal(t, beforeAdmin, orgRolePermissionKeys(t, db, orgID, "ADMIN"),
+		"new catalog permissions must not auto-add to an existing org's ADMIN")
+	require.Equal(t, beforeFieldTech, orgRolePermissionKeys(t, db, orgID, "FIELD_TECH"),
+		"new catalog permissions must not auto-add to an existing org's FIELD_TECH")
 }
 
 func TestReconcile_OperatorAdditionToFieldTechSurvivesRestart(t *testing.T) {
