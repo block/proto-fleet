@@ -5,6 +5,7 @@ import (
 	"context"
 	"math"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -240,6 +241,51 @@ func defaultOrgConfig(orgID int64) *models.OrgConfig {
 		CandidateMinPowerW:    1500,
 		PostEventCooldownSec:  600,
 	}
+}
+
+// recordingMetrics is a goroutine-safe Metrics fake for asserting recorder
+// calls. The reconciler emits from its tick goroutine and the Service emits
+// from the request goroutine; the mutex is defensive across both.
+type recordingMetrics struct {
+	mu                sync.Mutex
+	tickDurations     []time.Duration
+	tickFailures      int
+	candidateExcluded map[string]int
+	maintenance       int
+}
+
+func newRecordingMetrics() *recordingMetrics {
+	return &recordingMetrics{candidateExcluded: map[string]int{}}
+}
+
+func (m *recordingMetrics) ObserveTickDuration(d time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.tickDurations = append(m.tickDurations, d)
+}
+
+func (m *recordingMetrics) IncTickFailure() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.tickFailures++
+}
+
+func (m *recordingMetrics) IncCandidateExcluded(reason string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.candidateExcluded[reason]++
+}
+
+func (m *recordingMetrics) IncMaintenanceOverride() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.maintenance++
+}
+
+func (m *recordingMetrics) CandidateExcludedCount(reason string) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.candidateExcluded[reason]
 }
 
 func validRequest(orgID int64) PreviewRequest {

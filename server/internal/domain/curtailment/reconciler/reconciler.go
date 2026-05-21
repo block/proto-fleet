@@ -207,10 +207,16 @@ func (r *Reconciler) tickLoop(stopCtx, workCtx context.Context) {
 
 // safeTick recovers panics in tick-level infra (ListNonTerminalEvents,
 // heartbeat upsert) so the goroutine survives. Per-event isolation is
-// handled separately in processEvent.
+// handled separately in processEvent. Records tick wall-clock on every
+// path and a tick-failure counter on a recovered panic.
 func (r *Reconciler) safeTick(ctx context.Context) {
+	tickStart := r.now()
+	defer func() {
+		r.metrics.ObserveTickDuration(r.now().Sub(tickStart))
+	}()
 	defer func() {
 		if rec := recover(); rec != nil {
+			r.metrics.IncTickFailure()
 			slog.Error("curtailment reconciler: recovered panic in tick", "panic", rec)
 		}
 	}()
@@ -268,6 +274,7 @@ func (r *Reconciler) upsertHeartbeat(_ context.Context, tickStart time.Time, tic
 func (r *Reconciler) processEvent(ctx context.Context, ev *models.Event) {
 	defer func() {
 		if rec := recover(); rec != nil {
+			r.metrics.IncTickFailure()
 			slog.Error("curtailment reconciler: recovered panic processing event",
 				"event_id", ev.ID, "event_uuid", ev.EventUUID, "panic", rec)
 		}

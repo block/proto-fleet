@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"sync"
 	"testing"
 	"time"
 
@@ -955,6 +956,94 @@ func TestReconciler_ListTargetsByEventOnce(t *testing.T) {
 	assert.Equal(t, 1, store.listTargetsByEventCalls, "pending phases must share one ListTargetsByEvent per tick")
 }
 
+// TestReconciler_ObserveTickDurationFiresOnHappyPath: every successful
+// safeTick records a duration sample.
+func TestReconciler_ObserveTickDurationFiresOnHappyPath(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+	metrics := newRecordingMetrics()
+
+	r := New(Config{
+		TickInterval:         time.Hour,
+		ShutdownDeadline:     time.Second,
+		MaxRetries:           3,
+		DriftThresholdFactor: 0.5,
+	}, store, disp, WithMetrics(metrics))
+	r.now = func() time.Time { return time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC) }
+
+	r.safeTick(context.Background())
+	r.safeTick(context.Background())
+
+	assert.Equal(t, 2, metrics.TickCount(), "ObserveTickDuration fires once per safeTick invocation")
+	assert.Equal(t, 0, metrics.TickFailureCount(), "no panic, no failure increment")
+}
+
+// TestReconciler_TickFailureFiresOnTickInfraPanic: ListNonTerminalEvents
+// panicking is a tick-infra failure (heartbeat-skipping). IncTickFailure
+// fires; ObserveTickDuration still fires because the deferred recorder runs
+// regardless.
+func TestReconciler_TickFailureFiresOnTickInfraPanic(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+	metrics := newRecordingMetrics()
+
+	store.listEventsPanicErr = "synthetic db panic"
+	r := New(Config{
+		TickInterval:         time.Hour,
+		ShutdownDeadline:     time.Second,
+		MaxRetries:           3,
+		DriftThresholdFactor: 0.5,
+	}, store, disp, WithMetrics(metrics))
+	r.now = func() time.Time { return time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC) }
+
+	r.safeTick(context.Background())
+
+	assert.Equal(t, 1, metrics.TickFailureCount(), "tick-infra panic increments TickFailures")
+	assert.Equal(t, 1, metrics.TickCount(), "ObserveTickDuration still fires on a panicked tick")
+}
+
+// TestReconciler_TickFailureFiresOnPerEventPanic: a panic inside processEvent
+// is recovered per-event; the tick keeps running but the failure counter
+// advances so operators can spot per-event panics.
+func TestReconciler_TickFailureFiresOnPerEventPanic(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+	metrics := newRecordingMetrics()
+
+	store.events = []*models.Event{
+		{ID: 10, EventUUID: uuid.New(), OrgID: 1, State: models.EventStatePending},
+		{ID: 20, EventUUID: uuid.New(), OrgID: 1, State: models.EventStatePending},
+	}
+	store.targetsByEventID[10] = []*models.Target{
+		{CurtailmentEventID: 10, DeviceIdentifier: "miner-1", State: models.TargetStatePending},
+	}
+	store.targetsByEventID[20] = []*models.Target{
+		{CurtailmentEventID: 20, DeviceIdentifier: "miner-2", State: models.TargetStatePending},
+	}
+
+	first := true
+	r := New(Config{
+		TickInterval:         time.Hour,
+		ShutdownDeadline:     time.Second,
+		MaxRetries:           3,
+		DriftThresholdFactor: 0.5,
+	}, store, disp, WithMetrics(metrics))
+	r.now = func() time.Time { return time.Date(2026, 5, 7, 12, 0, 0, 0, time.UTC) }
+	originalCmd := r.cmd
+	r.cmd = &panickyDispatcher{wrapped: originalCmd, panicOn: func() bool {
+		if first {
+			first = false
+			return true
+		}
+		return false
+	}}
+
+	r.safeTick(context.Background())
+
+	assert.Equal(t, 1, metrics.TickFailureCount(), "per-event panic increments TickFailures even though tick continued")
+	assert.Equal(t, 1, store.heartbeatCalls, "per-event panic does not skip the heartbeat")
+}
+
 // TestReconciler_PanicInListEventsRecovers: ListNonTerminalEvents panicking
 // must not tear down the goroutine; the next tick still runs.
 func TestReconciler_PanicInListEventsRecovers(t *testing.T) {
@@ -1068,4 +1157,55 @@ func (p *panickyDispatcher) Curtail(ctx context.Context, selector *pb.DeviceSele
 
 func (p *panickyDispatcher) Uncurtail(ctx context.Context, selector *pb.DeviceSelector) (*command.CommandResult, error) {
 	return p.wrapped.Uncurtail(ctx, selector)
+}
+
+// recordingMetrics captures Metrics calls for assertion. Counters are
+// goroutine-safe via a single mutex; the reconciler emits from the tick
+// goroutine but tests poke from the test goroutine.
+type recordingMetrics struct {
+	mu                sync.Mutex
+	tickDurations     []time.Duration
+	tickFailures      int
+	candidateExcluded map[string]int
+	maintenance       int
+}
+
+func newRecordingMetrics() *recordingMetrics {
+	return &recordingMetrics{candidateExcluded: map[string]int{}}
+}
+
+func (m *recordingMetrics) ObserveTickDuration(d time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.tickDurations = append(m.tickDurations, d)
+}
+
+func (m *recordingMetrics) IncTickFailure() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.tickFailures++
+}
+
+func (m *recordingMetrics) IncCandidateExcluded(reason string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.candidateExcluded[reason]++
+}
+
+func (m *recordingMetrics) IncMaintenanceOverride() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.maintenance++
+}
+
+func (m *recordingMetrics) TickCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.tickDurations)
+}
+
+func (m *recordingMetrics) TickFailureCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.tickFailures
 }

@@ -133,6 +133,13 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 		return nil, err
 	}
 
+	// Fleet-health signal: emit one counter increment per selector exclusion
+	// reason. Start-only (not Preview) so debounced preview calls don't flood
+	// the counter against a static fleet snapshot.
+	for _, skip := range plan.Skipped {
+		s.metrics.IncCandidateExcluded(string(skip.Reason))
+	}
+
 	// Insufficient-load: don't persist; caller surfaces InvalidArgument
 	// from plan.InsufficientLoadDetail (matches Preview).
 	if plan.InsufficientLoadDetail != nil {
