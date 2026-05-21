@@ -66,9 +66,20 @@ ALTER TABLE role
 -- (e.g., Cyrillic 'А' for Latin 'A') are out of scope for a SQL
 -- CHECK; a unicode-normalization pass at the API boundary is the
 -- right place for that if it becomes a concern.
+--
+-- Legacy global rows (organization_id IS NULL) are exempt. Migration
+-- 000002 seeded an ADMIN row, and onboarding may have created a
+-- SUPER_ADMIN row — both with is_builtin=FALSE (default from the
+-- ALTER above) and matching reserved names. Without the exemption,
+-- Postgres would validate the new CHECK against those existing rows
+-- and abort 000051 before 000052 can repoint and soft-delete them.
+-- The exemption is safe because legacy rows are about to be marked
+-- soft-deleted by 000052; CreateCustomRole always sets organization_id
+-- so it cannot exploit the exemption.
 ALTER TABLE role
     ADD CONSTRAINT chk_role_custom_name_not_reserved CHECK (
         is_builtin = TRUE
+        OR organization_id IS NULL
         OR LOWER(BTRIM(name)) NOT IN ('super_admin', 'admin', 'field_tech')
     );
 
