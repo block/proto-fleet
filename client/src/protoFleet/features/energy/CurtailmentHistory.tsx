@@ -607,7 +607,10 @@ function CurtailmentHistory({
   };
 
   const handleManageSelectedDetailEvent =
-    selectedDetailEvent && onManageActiveEvent && isActiveManageableEvent(selectedDetailEvent, activeEventId)
+    selectedDetailEvent &&
+    onManageActiveEvent &&
+    isActiveManageableEvent(selectedDetailEvent, activeEventId) &&
+    selectedDetailEvent.id !== pendingStoppableEventId
       ? () => {
           setSelectedDetailEventId(undefined);
           onManageActiveEvent(selectedDetailEvent);

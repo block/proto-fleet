@@ -334,6 +334,35 @@ describe("CurtailmentHistory", () => {
     expect(screen.queryByTestId("modal")).not.toBeInTheDocument();
   });
 
+  it("hides manage actions while a stop request is pending", async () => {
+    const user = userEvent.setup();
+    const stopRequest = createPendingStopRequest();
+    const onManageActiveEvent = vi.fn();
+    const onStopActiveEvent = vi.fn(() => stopRequest);
+
+    render(
+      <CurtailmentHistory
+        events={mockCurtailmentHistoryEvents}
+        activeEventId="curt-1042"
+        onManageActiveEvent={onManageActiveEvent}
+        onStopActiveEvent={onStopActiveEvent}
+      />,
+    );
+
+    const activeRow = screen.getByTestId("curtailment-history-row-curt-1042");
+    await user.click(activeRow);
+
+    const modal = screen.getByTestId("modal");
+    expect(within(modal).getByRole("button", { name: "Manage" })).toBeInTheDocument();
+
+    await user.click(within(modal).getByRole("button", { name: "Stop curtailment" }));
+    await user.click(screen.getByRole("button", { name: "Confirm stop" }));
+
+    expect(onStopActiveEvent).toHaveBeenCalledWith(mockCurtailmentHistoryEvents[0]);
+    expect(within(modal).queryByRole("button", { name: "Manage" })).not.toBeInTheDocument();
+    expect(onManageActiveEvent).not.toHaveBeenCalled();
+  });
+
   it("does not show manage actions for inactive row summaries", async () => {
     const user = userEvent.setup();
 
