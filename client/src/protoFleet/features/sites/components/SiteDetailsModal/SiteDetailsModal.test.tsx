@@ -94,6 +94,7 @@ describe("SiteDetailsModal — edit mode", () => {
         mode="edit"
         initialValues={baseValues({ name: "East DC", locationCity: "Boston", powerCapacityMw: 8 })}
         onSave={() => undefined}
+        onDeleteRequested={() => undefined}
         onDismiss={() => undefined}
       />,
     );
@@ -111,6 +112,7 @@ describe("SiteDetailsModal — edit mode", () => {
         mode="edit"
         initialValues={baseValues({ name: "East DC" })}
         onSave={onSave}
+        onDeleteRequested={() => undefined}
         onDismiss={() => undefined}
       />,
     );

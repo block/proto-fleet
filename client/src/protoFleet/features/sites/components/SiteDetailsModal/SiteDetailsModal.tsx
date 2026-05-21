@@ -13,23 +13,32 @@ import Select from "@/shared/components/Select";
 // the manage view) instead of Cancel + Continue.
 export type SiteDetailsModalMode = "create" | "createReturn" | "edit";
 
-interface SiteDetailsModalProps {
+interface SiteDetailsModalCommonProps {
   open: boolean;
-  mode: SiteDetailsModalMode;
   initialValues: SiteFormValues;
-  // create / createReturn — parent advances to ManageSiteModal with the
-  // entered values held in memory; no persistence happens here.
-  onContinue?: (values: SiteFormValues) => void;
-  // edit — parent commits via UpdateSite directly. Returns a promise so the
-  // modal can disable Save while in flight.
-  onSave?: (values: SiteFormValues) => Promise<void> | void;
-  // edit — parent opens the cascade delete dialog.
-  // createReturn — parent discards the in-progress create (dismisses the
-  // whole modal stack).
-  onDeleteRequested?: () => void;
   onDismiss: () => void;
   saving?: boolean;
 }
+
+// Discriminated by `mode` so the per-mode handler contract is type-enforced:
+// create needs onContinue; createReturn needs onContinue + onDeleteRequested
+// (Delete discards the pending create); edit needs onSave + onDeleteRequested
+// (Delete opens the cascade dialog). A misconfigured caller fails to compile
+// instead of silently no-opping the primary action.
+export type SiteDetailsModalProps = SiteDetailsModalCommonProps &
+  (
+    | { mode: "create"; onContinue: (values: SiteFormValues) => void }
+    | {
+        mode: "createReturn";
+        onContinue: (values: SiteFormValues) => void;
+        onDeleteRequested: () => void;
+      }
+    | {
+        mode: "edit";
+        onSave: (values: SiteFormValues) => Promise<void> | void;
+        onDeleteRequested: () => void;
+      }
+  );
 
 // Parse the capacity input. Accepts integers and decimals; treats blank as
 // 0 (the "unset" sentinel matched by the proto). Rejects negatives and
@@ -43,16 +52,8 @@ const parseCapacity = (input: string): number | null => {
   return parsed;
 };
 
-const SiteDetailsModal = ({
-  open,
-  mode,
-  initialValues,
-  onContinue,
-  onSave,
-  onDeleteRequested,
-  onDismiss,
-  saving = false,
-}: SiteDetailsModalProps) => {
+const SiteDetailsModal = (props: SiteDetailsModalProps) => {
+  const { open, initialValues, onDismiss, saving = false } = props;
   const [name, setName] = useState(initialValues.name);
   const [city, setCity] = useState(initialValues.locationCity);
   const [state, setState] = useState(initialValues.locationState);
@@ -82,21 +83,25 @@ const SiteDetailsModal = ({
   const handlePrimary = useCallback(async () => {
     const values = buildValues();
     if (!values) return;
-    if (mode === "edit") {
-      await onSave?.(values);
+    // Narrow on the props union so TS guarantees the right handler exists
+    // for the current mode.
+    if (props.mode === "edit") {
+      await props.onSave(values);
     } else {
-      onContinue?.(values);
+      props.onContinue(values);
     }
-  }, [buildValues, mode, onContinue, onSave]);
+  }, [buildValues, props]);
 
   const nameValid = name.trim().length > 0;
   const primaryDisabled = !nameValid || saving;
 
-  // "create" gets a plain Cancel/Continue pair; the other two modes (edit
-  // and createReturn) share a Delete + Save shape because both are already
-  // editing a known-in-memory site row from the operator's perspective.
+  // "create" gets a plain Cancel/Continue pair; the other two modes (edit and
+  // createReturn) share a Delete + Save shape because both are already editing
+  // a known-in-memory site row from the operator's perspective. Switching on
+  // props.mode (not the destructured `mode`) so TS narrows the discriminated
+  // union and onDeleteRequested is type-checked.
   const buttons =
-    mode === "create"
+    props.mode === "create"
       ? [
           {
             text: "Cancel",
@@ -117,7 +122,7 @@ const SiteDetailsModal = ({
           {
             text: "Delete",
             variant: variants.secondaryDanger,
-            onClick: onDeleteRequested,
+            onClick: props.onDeleteRequested,
             disabled: saving,
             testId: "site-details-modal-delete",
           },
@@ -131,7 +136,7 @@ const SiteDetailsModal = ({
           },
         ];
 
-  const title = mode === "create" ? "Add site" : "Edit site";
+  const title = props.mode === "create" ? "Add site" : "Edit site";
 
   return (
     <Modal

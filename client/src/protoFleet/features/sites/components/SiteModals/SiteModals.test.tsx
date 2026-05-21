@@ -8,17 +8,20 @@ import { emptySiteFormValues } from "@/protoFleet/api/sites";
 import { type SiteModalsApi } from "@/protoFleet/features/sites/hooks/useSiteModals";
 
 // Builds a SiteModalsApi stub with vi.fn() handlers so each test can assert
-// which callback fired. The `state` field is the only thing the component
-// reads beyond the handlers, so it's all that needs realistic values.
+// which callback fired. The `state` and `deleteTarget` fields are the only
+// things the component reads beyond the handlers, so they're all that need
+// realistic values per case.
 const makeModals = (overrides: Partial<SiteModalsApi> = {}): SiteModalsApi => ({
   state: { kind: "none" },
+  deleteTarget: null,
   saving: false,
   deleting: false,
   openCreate: vi.fn(),
   openManageEdit: vi.fn(),
-  openDeleteConfirm: vi.fn(),
+  requestDeleteCurrent: vi.fn(),
   dismiss: vi.fn(),
   cancelAll: vi.fn(),
+  dismissDeleteConfirm: vi.fn(),
   detailsContinueCreate: vi.fn(),
   detailsSaveEdit: vi.fn(),
   manageEditDetails: vi.fn(),
@@ -37,50 +40,81 @@ vi.mock("@/protoFleet/api/buildings", () => ({
 }));
 
 describe("SiteModals", () => {
-  it("clicking Delete in manageEditEditingDetails dispatches to onDeleteFromDetailsEdit", () => {
-    const onDeleteFromDetailsEdit = vi.fn();
+  it("Delete in manageEditEditingDetails resolves the cascade target via requestDeleteCurrent(sites)", () => {
     const site = create(SiteSchema, { id: 42n, name: "North DC" });
+    const requestDeleteCurrent = vi.fn();
     const modals = makeModals({
       state: { kind: "manageEditEditingDetails", site, draft: emptySiteFormValues() },
+      requestDeleteCurrent,
     });
+    const sites = [
+      create(SiteWithCountsSchema, {
+        site: create(SiteSchema, { id: 42n, name: "North DC" }),
+        deviceCount: 0n,
+        rackCount: 0n,
+        buildingCount: 0n,
+      }),
+    ];
 
-    render(<SiteModals modals={modals} onDeleteFromDetailsEdit={onDeleteFromDetailsEdit} />);
+    render(<SiteModals modals={modals} sites={sites} />);
 
     fireEvent.click(screen.getByTestId("site-details-modal-delete"));
 
-    expect(onDeleteFromDetailsEdit).toHaveBeenCalled();
-    // Delete must NOT call deleteConfirm directly — that's the dialog's job.
+    expect(requestDeleteCurrent).toHaveBeenCalledWith(sites);
     expect(modals.deleteConfirm).not.toHaveBeenCalled();
   });
 
-  it("renders the cascade dialog when state is deleteConfirm", () => {
+  it("renders the cascade dialog over the underlying modals when deleteTarget is set", () => {
+    const site = create(SiteSchema, { id: 42n, name: "North DC" });
     const siteWithCounts = create(SiteWithCountsSchema, {
-      site: create(SiteSchema, { id: 42n, name: "North DC" }),
+      site,
       deviceCount: 3n,
       rackCount: 1n,
       buildingCount: 0n,
     });
     const modals = makeModals({
-      state: { kind: "deleteConfirm", site: siteWithCounts },
+      state: { kind: "manageEditEditingDetails", site, draft: emptySiteFormValues() },
+      deleteTarget: siteWithCounts,
     });
 
-    render(<SiteModals modals={modals} onDeleteFromDetailsEdit={() => undefined} />);
+    render(<SiteModals modals={modals} sites={undefined} />);
 
+    // Both the underlying details modal and the cascade dialog render.
     expect(screen.getByTestId("site-delete-dialog")).toBeInTheDocument();
     expect(screen.getByText(/Delete site "North DC"\?/)).toBeInTheDocument();
   });
 
-  it("Delete in manageCreateEditingDetails cancels all (no cascade dialog)", () => {
-    const onDeleteFromDetailsEdit = vi.fn();
+  it("Delete in manageCreateEditingDetails calls cancelAll (no cascade dialog)", () => {
     const modals = makeModals({
       state: { kind: "manageCreateEditingDetails", draft: { ...emptySiteFormValues(), name: "Pending" } },
     });
 
-    render(<SiteModals modals={modals} onDeleteFromDetailsEdit={onDeleteFromDetailsEdit} />);
+    render(<SiteModals modals={modals} sites={undefined} />);
 
     fireEvent.click(screen.getByTestId("site-details-modal-delete"));
 
     expect(modals.cancelAll).toHaveBeenCalled();
-    expect(onDeleteFromDetailsEdit).not.toHaveBeenCalled();
+    expect(modals.requestDeleteCurrent).not.toHaveBeenCalled();
+  });
+
+  it("Cancelling the cascade dialog dismisses only the dialog, leaving the underlying modals", () => {
+    const site = create(SiteSchema, { id: 42n, name: "North DC" });
+    const siteWithCounts = create(SiteWithCountsSchema, {
+      site,
+      deviceCount: 0n,
+      rackCount: 0n,
+      buildingCount: 0n,
+    });
+    const modals = makeModals({
+      state: { kind: "manageEditEditingDetails", site, draft: emptySiteFormValues() },
+      deleteTarget: siteWithCounts,
+    });
+
+    render(<SiteModals modals={modals} sites={undefined} />);
+
+    fireEvent.click(screen.getByTestId("site-delete-dialog-cancel"));
+
+    expect(modals.dismissDeleteConfirm).toHaveBeenCalled();
+    expect(modals.dismiss).not.toHaveBeenCalled();
   });
 });

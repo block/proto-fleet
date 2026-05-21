@@ -76,13 +76,6 @@ const SitesPage = () => {
 
   const modals = useSiteModals({ refetchSites: fetchSites });
 
-  const handleDeleteFromDetailsEdit = useCallback(() => {
-    if (modals.state.kind !== "manageEditEditingDetails") return;
-    const id = modals.state.site.id.toString();
-    const match = sites?.find((s) => (s.site?.id ?? 0n).toString() === id);
-    if (match) modals.openDeleteConfirm(match);
-  }, [modals, sites]);
-
   const buildingsBySite = useMemo(() => {
     const grouped = new Map<string, BuildingWithCounts[]>();
     if (!buildings) return grouped;
@@ -192,7 +185,7 @@ const SitesPage = () => {
           })}
         </div>
       )}
-      <SiteModals modals={modals} onDeleteFromDetailsEdit={handleDeleteFromDetailsEdit} />
+      <SiteModals modals={modals} sites={sites} />
     </div>
   );
 };

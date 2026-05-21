@@ -47,16 +47,6 @@ const SettingsSitesPage = () => {
 
   const modals = useSiteModals({ refetchSites: fetchSites });
 
-  // SiteDetailsModal.onDeleteRequested needs a SiteWithCounts row (not just
-  // a Site) to drive the cascade dialog copy. Look it up from the page's
-  // current ListSites cache.
-  const handleDeleteFromDetailsEdit = useCallback(() => {
-    if (modals.state.kind !== "manageEditEditingDetails") return;
-    const id = modals.state.site.id.toString();
-    const match = sites?.find((s) => (s.site?.id ?? 0n).toString() === id);
-    if (match) modals.openDeleteConfirm(match);
-  }, [modals, sites]);
-
   if (sites === undefined) {
     return (
       <div className="flex flex-col gap-6">
@@ -122,7 +112,7 @@ const SettingsSitesPage = () => {
   return (
     <>
       {body}
-      <SiteModals modals={modals} onDeleteFromDetailsEdit={handleDeleteFromDetailsEdit} />
+      <SiteModals modals={modals} sites={sites} />
     </>
   );
 };

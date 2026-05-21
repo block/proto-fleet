@@ -9,8 +9,8 @@ import { Alert } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Callout, { intents } from "@/shared/components/Callout";
 import Header from "@/shared/components/Header";
-import Input from "@/shared/components/Input";
 import PlaceholderBlock from "@/shared/components/PlaceholderBlock";
+import Textarea from "@/shared/components/Textarea";
 
 export type ManageSiteModalMode = "create" | "edit";
 
@@ -85,11 +85,9 @@ const ManageSiteModal = ({
   const buildingCount = displayBuildings?.length ?? 0;
 
   const handleSave = async () => {
-    // Clear any prior warning callout before the next save attempt resolves
-    // so a stale message can't flash alongside a clean response. Doing this
-    // in the click handler (not an effect) avoids cascading-render warnings.
-    setWarnings([]);
     const result = await onSave();
+    // Refresh warnings only after a resolved save — clearing them before the
+    // await would wipe a still-relevant warning if the next request errors.
     if (!result) return;
     setWarnings(result.warnings);
     if (result.canonicalNetworkConfig !== draft.networkConfig) {
@@ -138,12 +136,17 @@ const ManageSiteModal = ({
         <div className="flex flex-col gap-6 pr-6 pb-6 laptop:pr-10 laptop:pb-10">
           <section className="flex flex-col gap-2">
             <Header title="Network" titleSize="text-heading-100" />
-            <Input
+            {/* Textarea (not Input) because the server contract is a
+                newline-separated CIDR/IP list — a single-line input would
+                silently strip newlines on type and paste. */}
+            <Textarea
               id="manage-site-network-config"
               label="Network"
               initValue={draft.networkConfig}
               onChange={(v) => onNetworkConfigChange(v)}
+              rows={6}
               maxLength={16384}
+              disabled={saving}
               testId="manage-site-network-config-input"
             />
           </section>

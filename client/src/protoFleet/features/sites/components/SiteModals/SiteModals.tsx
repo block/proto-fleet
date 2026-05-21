@@ -1,49 +1,35 @@
 import ManageSiteModal from "../ManageSiteModal";
 import SiteDeleteDialog from "../SiteDeleteDialog";
-import SiteDetailsModal, { type SiteDetailsModalMode } from "../SiteDetailsModal";
+import SiteDetailsModal from "../SiteDetailsModal";
+import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { type useSiteModals } from "@/protoFleet/features/sites/hooks/useSiteModals";
 
 interface SiteModalsProps {
   modals: ReturnType<typeof useSiteModals>;
-  // Pages own the SiteWithCounts cache, so they're responsible for
-  // resolving the Site → SiteWithCounts row needed to drive the cascade
-  // dialog. The create-flow stacked state never reaches this handler —
-  // Delete there means "discard pending create" and dismisses directly.
-  onDeleteFromDetailsEdit: () => void;
+  // SiteWithCounts cache from the host page. Used to resolve the cascade
+  // dialog target when Delete is clicked inside SiteDetailsModal (edit mode).
+  sites: SiteWithCounts[] | undefined;
 }
 
-const detailsModeFor = (kind: string): SiteDetailsModalMode => {
-  if (kind === "manageEditEditingDetails") return "edit";
-  if (kind === "manageCreateEditingDetails") return "createReturn";
-  return "create";
-};
-
-const SiteModals = ({ modals, onDeleteFromDetailsEdit }: SiteModalsProps) => {
-  const { state } = modals;
-  const showDetails =
-    state.kind === "detailsCreate" ||
-    state.kind === "manageCreateEditingDetails" ||
-    state.kind === "manageEditEditingDetails";
+const SiteModals = ({ modals, sites }: SiteModalsProps) => {
+  const { state, deleteTarget } = modals;
   const showManage =
     state.kind === "manageCreate" ||
     state.kind === "manageEdit" ||
     state.kind === "manageCreateEditingDetails" ||
     state.kind === "manageEditEditingDetails";
 
-  // Delete in create-flow stacked state discards the pending create entirely;
-  // edit-flow stacked state opens the cascade dialog via the page-level cache.
+  // Delete in create-flow stacked state discards the pending create; edit-flow
+  // routes through requestDeleteCurrent which opens the cascade dialog from
+  // the page-level cache.
   const handleDelete = () => {
     if (state.kind === "manageCreateEditingDetails") {
       modals.cancelAll();
       return;
     }
-    onDeleteFromDetailsEdit();
+    modals.requestDeleteCurrent(sites);
   };
 
-  // ManageSiteModal data: the underlying manage state owns site + draft. In
-  // the stacked variants the underlying manage state is implied (manageCreate
-  // sits under manageCreateEditingDetails, manageEdit under
-  // manageEditEditingDetails) so we read from state.draft / state.site.
   const manageDraft = showManage ? state.draft : undefined;
   const manageSite = state.kind === "manageEdit" || state.kind === "manageEditEditingDetails" ? state.site : undefined;
   const manageMode = state.kind === "manageEdit" || state.kind === "manageEditEditingDetails" ? "edit" : "create";
@@ -65,24 +51,47 @@ const SiteModals = ({ modals, onDeleteFromDetailsEdit }: SiteModalsProps) => {
           saving={modals.saving}
         />
       ) : null}
-      {showDetails ? (
+      {state.kind === "detailsCreate" ? (
         <SiteDetailsModal
           open
-          mode={detailsModeFor(state.kind)}
+          mode="create"
           initialValues={state.draft}
           onContinue={modals.detailsContinueCreate}
+          onDismiss={modals.dismiss}
+          saving={modals.saving}
+        />
+      ) : null}
+      {state.kind === "manageCreateEditingDetails" ? (
+        <SiteDetailsModal
+          open
+          mode="createReturn"
+          initialValues={state.draft}
+          onContinue={modals.detailsContinueCreate}
+          onDeleteRequested={handleDelete}
+          onDismiss={modals.dismiss}
+          saving={modals.saving}
+        />
+      ) : null}
+      {state.kind === "manageEditEditingDetails" ? (
+        <SiteDetailsModal
+          open
+          mode="edit"
+          initialValues={state.draft}
           onSave={modals.detailsSaveEdit}
           onDeleteRequested={handleDelete}
           onDismiss={modals.dismiss}
           saving={modals.saving}
         />
       ) : null}
-      {state.kind === "deleteConfirm" ? (
+      {/* SiteDeleteDialog renders as a sibling — overlays whichever modal is
+          underneath without unmounting it. Cancel returns to the prior
+          context (manage / details / page) instead of collapsing the stack. */}
+      {deleteTarget ? (
         <SiteDeleteDialog
           open
-          site={state.site}
+          site={deleteTarget}
           onConfirm={modals.deleteConfirm}
-          onDismiss={modals.dismiss}
+          onDismiss={modals.dismissDeleteConfirm}
           deleting={modals.deleting}
         />
       ) : null}
