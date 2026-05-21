@@ -287,8 +287,13 @@ if [ "$(uname)" == "Linux" ]; then
         sudo systemctl enable docker
     fi
 
-    # Check if current user is in the docker group
-    if ! groups $USER | grep -q '\bdocker\b'; then
+    # Check if current user is in the docker group.
+    # Skip when running as root: root accesses /var/run/docker.sock directly
+    # via socket-file permissions and does not need docker-group membership.
+    # Without this skip, `sudo bash install.sh ...` (the recommended remediation
+    # for the sudo-mismatch detection in install.sh) would exit here telling
+    # the user to log out and back in, leaving the upgrade half-applied.
+    if [ "$(id -u)" -ne 0 ] && ! groups $USER | grep -q '\bdocker\b'; then
         echo "Adding current user to the docker group for passwordless Docker usage..."
         sudo usermod -aG docker $USER
         echo "Please log out and log back in to apply group changes, then re-run this script."
