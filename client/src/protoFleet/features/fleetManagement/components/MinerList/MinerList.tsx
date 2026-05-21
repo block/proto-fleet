@@ -44,6 +44,7 @@ import {
   FILTER_URL_PARAM_KEYS,
   parseUrlToActiveFilters,
 } from "@/protoFleet/features/fleetManagement/utils/filterUrlParams";
+import { getMinerWebUiUrl } from "@/protoFleet/features/fleetManagement/utils/minerWebUiUrl";
 import { encodeSortToURL, parseSortFromURL } from "@/protoFleet/features/fleetManagement/utils/sortUrlParams";
 import {
   protoFieldForTelemetryKey,
@@ -570,8 +571,9 @@ const MinerList = ({
   }, []);
 
   const handleRowClick = useCallback((item: DeviceListItem) => {
-    if (item.miner.url) {
-      window.open(item.miner.url, "_blank", "noopener,noreferrer");
+    const webUiUrl = getMinerWebUiUrl({ ipAddress: item.miner.ipAddress, url: item.miner.url });
+    if (webUiUrl) {
+      window.open(webUiUrl, "_blank", "noopener,noreferrer");
     }
   }, []);
   const sortColumnFromUrl = useMemo(() => {

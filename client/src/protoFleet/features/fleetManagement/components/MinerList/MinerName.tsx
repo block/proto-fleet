@@ -4,6 +4,7 @@ import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagem
 import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import SingleMinerActionsMenu from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/SingleMinerActionsMenu";
+import { getMinerWebUiUrl } from "@/protoFleet/features/fleetManagement/utils/minerWebUiUrl";
 import { Alert } from "@/shared/assets/icons";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { useNeedsAttention } from "@/shared/hooks/useNeedsAttention";
@@ -35,6 +36,7 @@ const MinerName = ({
   const needsMiningPool = deviceStatus === DeviceStatus.NEEDS_MINING_POOL;
   const hasFirmwareStatus = deviceStatus === DeviceStatus.UPDATING || deviceStatus === DeviceStatus.REBOOT_REQUIRED;
   const needsAttention = useNeedsAttention(needsAuthentication, needsMiningPool, errors, false, hasFirmwareStatus);
+  const minerWebUiUrl = getMinerWebUiUrl({ ipAddress: miner.ipAddress, url: miner.url });
 
   return (
     <div className="grid w-full grid-cols-[1fr_auto] items-center gap-3">
@@ -55,7 +57,7 @@ const MinerName = ({
         ) : null}
         <SingleMinerActionsMenu
           deviceIdentifier={deviceIdentifier}
-          minerUrl={miner.url || undefined}
+          minerUrl={minerWebUiUrl}
           deviceStatus={deviceStatus}
           minerName={name}
           workerName={miner.workerName}
