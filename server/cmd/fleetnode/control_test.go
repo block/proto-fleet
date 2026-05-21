@@ -97,6 +97,84 @@ func TestControlLoop_RejectsMDNSMode(t *testing.T) {
 	assert.Empty(t, fake.reportsCopy())
 }
 
+func TestResolveAndValidatePorts(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name      string
+		supplied  []string
+		defaults  []string
+		want      []string
+		wantErr   bool
+		errSubstr string
+	}{
+		{name: "valid single port", supplied: []string{"4028"}, want: []string{"4028"}},
+		{name: "uses defaults when empty", supplied: nil, defaults: []string{"80", "4028"}, want: []string{"80", "4028"}},
+		{name: "rejects range bypass", supplied: []string{"1-65535"}, wantErr: true, errSubstr: "invalid port"},
+		{name: "rejects comma bypass", supplied: []string{"80,443,8080"}, wantErr: true, errSubstr: "invalid port"},
+		{name: "rejects protocol prefix", supplied: []string{"T:80"}, wantErr: true, errSubstr: "invalid port"},
+		{name: "rejects whitespace", supplied: []string{" 4028 "}, wantErr: true, errSubstr: "invalid port"},
+		{name: "rejects service name", supplied: []string{"http"}, wantErr: true, errSubstr: "invalid port"},
+		{name: "rejects zero", supplied: []string{"0"}, wantErr: true, errSubstr: "invalid port"},
+		{name: "rejects 65536", supplied: []string{"65536"}, wantErr: true, errSubstr: "invalid port"},
+		{name: "rejects negative", supplied: []string{"-1"}, wantErr: true, errSubstr: "invalid port"},
+		{name: "rejects over-cap count", supplied: []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"}, wantErr: true, errSubstr: "too many ports"},
+		{name: "dedupes", supplied: []string{"80", "80", "4028"}, want: []string{"80", "4028"}},
+		{name: "rejects all-empty when no defaults", supplied: nil, defaults: []string{}, wantErr: true, errSubstr: "non-empty"},
+		{name: "validates plugin defaults", supplied: nil, defaults: []string{"1-65535"}, wantErr: true, errSubstr: "invalid port"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Arrange
+			r := &RunCmd{discoverer: &stubDiscoverer{ports: tc.defaults}}
+
+			// Act
+			got, err := r.resolveAndValidatePorts(context.Background(), tc.supplied)
+
+			// Assert
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.errSubstr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestControlLoop_RejectsNmapPortRangeBypass(t *testing.T) {
+	// Arrange: one entry, but it expands to 65k ports inside nmap.
+	cmd := &RunCmd{discoverer: &stubDiscoverer{}}
+	state := &fleetnodebootstrap.State{FleetNodeID: 7}
+
+	fake := &controlFakeGateway{}
+	fake.queue(mustMarshal(t, &pairingpb.DiscoverRequest{
+		Mode: &pairingpb.DiscoverRequest_Nmap{
+			Nmap: &pairingpb.NmapModeRequest{Target: "10.0.0.1", Ports: []string{"1-65535"}},
+		},
+	}))
+	client := newControlClient(t, fake)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Act
+	done := make(chan error, 1)
+	go func() { done <- cmd.runControlLoop(ctx, client, state, discardLogger(t)) }()
+	require.Eventually(t, func() bool { return fake.ackCount() > 0 }, 3*time.Second, 20*time.Millisecond)
+	cancel()
+	<-done
+
+	// Assert
+	acks := fake.acksCopy()
+	require.Len(t, acks, 1)
+	assert.False(t, acks[0].GetSucceeded())
+	assert.Contains(t, acks[0].GetErrorMessage(), "invalid port")
+}
+
 func TestControlLoop_NormalizesIPListEntries(t *testing.T) {
 	// Arrange: scoped IPv6 + link-local IPv6 should be skipped; canonical
 	// IPv6 spelling should be preserved and probed.
@@ -271,6 +349,7 @@ func TestControlLoop_ReconnectsAfterStreamEOF(t *testing.T) {
 
 type stubDiscoverer struct {
 	probes map[string]*pb.DiscoveredDeviceReport
+	ports  []string
 }
 
 func (s *stubDiscoverer) Probe(_ context.Context, ip, port string) (*pb.DiscoveredDeviceReport, error) {
@@ -281,6 +360,9 @@ func (s *stubDiscoverer) Probe(_ context.Context, ip, port string) (*pb.Discover
 }
 
 func (s *stubDiscoverer) DefaultDiscoveryPorts(_ context.Context) []string {
+	if s.ports != nil {
+		return s.ports
+	}
 	return []string{"4028"}
 }
 

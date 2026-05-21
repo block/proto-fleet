@@ -118,7 +118,7 @@ func detectIPv6Target(ctx context.Context, target string) (useIPv6 bool, err err
 	return true, nil
 }
 
-func (r *RunCmd) buildNmapOptions(ctx context.Context, req *pairingpb.NmapModeRequest) ([]nmap.Option, error) {
+func (r *RunCmd) buildNmapOptions(ctx context.Context, req *pairingpb.NmapModeRequest, ports []string) ([]nmap.Option, error) {
 	target := strings.TrimSpace(req.GetTarget())
 	if err := validateNmapTarget(target); err != nil {
 		return nil, err
@@ -126,10 +126,6 @@ func (r *RunCmd) buildNmapOptions(ctx context.Context, req *pairingpb.NmapModeRe
 	useIPv6, err := detectIPv6Target(ctx, target)
 	if err != nil {
 		return nil, err
-	}
-	ports := req.GetPorts()
-	if len(ports) == 0 {
-		ports = r.discoverer.DefaultDiscoveryPorts(ctx)
 	}
 	if len(ports) == 0 {
 		return nil, errors.New("no ports to scan; pass ports or load discovery plugins")
@@ -151,8 +147,8 @@ func (r *RunCmd) buildNmapOptions(ctx context.Context, req *pairingpb.NmapModeRe
 	return opts, nil
 }
 
-func (r *RunCmd) runNmapDiscovery(ctx context.Context, req *pairingpb.NmapModeRequest, logger *slog.Logger) ([]*pb.DiscoveredDeviceReport, error) {
-	opts, err := r.buildNmapOptions(ctx, req)
+func (r *RunCmd) runNmapDiscovery(ctx context.Context, req *pairingpb.NmapModeRequest, ports []string, logger *slog.Logger) ([]*pb.DiscoveredDeviceReport, error) {
+	opts, err := r.buildNmapOptions(ctx, req, ports)
 	if err != nil {
 		return nil, err
 	}

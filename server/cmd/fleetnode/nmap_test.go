@@ -146,9 +146,9 @@ func TestBuildNmapOptions_AddsIPv6Scanning(t *testing.T) {
 	v6 := &pairingpb.NmapModeRequest{Target: "2001:db8::1", Ports: []string{"4028"}}
 
 	// Act
-	v4Opts, err := r.buildNmapOptions(context.Background(), v4)
+	v4Opts, err := r.buildNmapOptions(context.Background(), v4, v4.Ports)
 	require.NoError(t, err)
-	v6Opts, err := r.buildNmapOptions(context.Background(), v6)
+	v6Opts, err := r.buildNmapOptions(context.Background(), v6, v6.Ports)
 	require.NoError(t, err)
 
 	// Assert
@@ -161,7 +161,7 @@ func TestBuildNmapOptions_RejectsIPv6CIDR(t *testing.T) {
 	req := &pairingpb.NmapModeRequest{Target: "2001:db8::/32", Ports: []string{"4028"}}
 
 	// Act
-	_, err := r.buildNmapOptions(context.Background(), req)
+	_, err := r.buildNmapOptions(context.Background(), req, req.Ports)
 
 	// Assert
 	require.Error(t, err)

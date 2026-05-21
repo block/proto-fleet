@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"strconv"
 	"sync"
 	"time"
 
@@ -152,18 +153,15 @@ func (r *RunCmd) discoverForCommand(ctx context.Context, req *pairingpb.Discover
 	switch m := req.GetMode().(type) {
 	case *pairingpb.DiscoverRequest_IpList:
 		ips := m.IpList.GetIpAddresses()
-		ports := m.IpList.GetPorts()
-		if len(ports) == 0 {
-			ports = r.discoverer.DefaultDiscoveryPorts(ctx)
-		}
-		if len(ips) == 0 || len(ports) == 0 {
-			return nil, fmt.Errorf("ip_addresses and ports must both be non-empty")
+		if len(ips) == 0 {
+			return nil, fmt.Errorf("ip_addresses must be non-empty")
 		}
 		if len(ips) > maxIPsPerCommand {
 			return nil, fmt.Errorf("too many ip_addresses: %d exceeds the limit of %d", len(ips), maxIPsPerCommand)
 		}
-		if len(ports) > maxPortsPerIP {
-			return nil, fmt.Errorf("too many ports: %d exceeds the limit of %d", len(ports), maxPortsPerIP)
+		ports, err := r.resolveAndValidatePorts(ctx, m.IpList.GetPorts())
+		if err != nil {
+			return nil, err
 		}
 		normalized := make([]string, 0, len(ips))
 		for _, raw := range ips {
@@ -185,15 +183,48 @@ func (r *RunCmd) discoverForCommand(ctx context.Context, req *pairingpb.Discover
 		}
 		return fanOutProbes(ctx, endpoints, probeConcurrency, r.discoverer.Probe, logger), nil
 	case *pairingpb.DiscoverRequest_Nmap:
-		if ports := m.Nmap.GetPorts(); len(ports) > maxPortsPerIP {
-			return nil, fmt.Errorf("too many ports: %d exceeds the limit of %d", len(ports), maxPortsPerIP)
+		ports, err := r.resolveAndValidatePorts(ctx, m.Nmap.GetPorts())
+		if err != nil {
+			return nil, err
 		}
-		return r.runNmapDiscovery(ctx, m.Nmap, logger)
+		return r.runNmapDiscovery(ctx, m.Nmap, ports, logger)
 	case *pairingpb.DiscoverRequest_Mdns:
 		return nil, fmt.Errorf("mdns mode is not supported on the fleet node agent")
 	default:
 		return nil, fmt.Errorf("discover request mode is required")
 	}
+}
+
+// resolveAndValidatePorts falls back to plugin defaults when empty, then
+// requires each entry to be a single decimal TCP port in 1..65535. Range
+// syntax ("1-65535") and comma syntax ("80,443") would otherwise let a
+// single list entry bypass maxPortsPerIP. Default ports are validated too:
+// a buggy or hostile plugin should not be able to slip in odd specs.
+func (r *RunCmd) resolveAndValidatePorts(ctx context.Context, supplied []string) ([]string, error) {
+	ports := supplied
+	if len(ports) == 0 {
+		ports = r.discoverer.DefaultDiscoveryPorts(ctx)
+	}
+	if len(ports) == 0 {
+		return nil, fmt.Errorf("ports must be non-empty (no defaults available)")
+	}
+	if len(ports) > maxPortsPerIP {
+		return nil, fmt.Errorf("too many ports: %d exceeds the limit of %d", len(ports), maxPortsPerIP)
+	}
+	seen := make(map[string]struct{}, len(ports))
+	out := make([]string, 0, len(ports))
+	for _, p := range ports {
+		n, err := strconv.Atoi(p)
+		if err != nil || n < 1 || n > 65535 {
+			return nil, fmt.Errorf("invalid port %q: must be decimal 1-65535 (ranges, commas, and protocol prefixes are not allowed)", p)
+		}
+		if _, dup := seen[p]; dup {
+			continue
+		}
+		seen[p] = struct{}{}
+		out = append(out, p)
+	}
+	return out, nil
 }
 
 func fanOutProbes(ctx context.Context, endpoints []endpoint, concurrency int, probe func(context.Context, string, string) (*pb.DiscoveredDeviceReport, error), logger *slog.Logger) []*pb.DiscoveredDeviceReport {
