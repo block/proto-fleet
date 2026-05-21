@@ -219,7 +219,10 @@ func (r *Reconciler) runTick(ctx context.Context) {
 		if tickCtx.Err() != nil {
 			break
 		}
-		eventCtx, eventCancel := context.WithTimeout(tickCtx, 2*r.cfg.TickInterval)
+		// Derive each event's deadline from the parent ctx, not tickCtx, so a
+		// slow first event doesn't shrink the budget for the rest. tickCtx
+		// still gates new-event entry above, bounding total tick duration.
+		eventCtx, eventCancel := context.WithTimeout(ctx, 2*r.cfg.TickInterval)
 		r.processEvent(eventCtx, ev)
 		eventCancel()
 	}
@@ -811,6 +814,11 @@ func (r *Reconciler) confirmOneRestore(ctx context.Context, ev *models.Event, t 
 		if t.LastDispatchedAt != nil && r.cfg.RestoreDispatchTimeoutSec > 0 {
 			timeout := time.Duration(r.cfg.RestoreDispatchTimeoutSec) * time.Second
 			if r.now().Sub(*t.LastDispatchedAt) > timeout {
+				// Tag the aging-timeout path so triage can distinguish it from
+				// other dispatch-failure log lines emitted by recordDispatchFailure.
+				slog.Info("curtailment reconciler: restore telemetry timeout aging initiated",
+					"event_id", ev.ID, "device", t.DeviceIdentifier,
+					"timeout_sec", r.cfg.RestoreDispatchTimeoutSec)
 				r.recordDispatchFailure(ctx, ev, t,
 					"restore telemetry timeout",
 					models.TargetStatePending)
