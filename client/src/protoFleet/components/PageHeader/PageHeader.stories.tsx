@@ -2,7 +2,8 @@ import { type ReactNode, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import { action } from "storybook/actions";
 
-import CurtailmentPillComponent, { curtailmentPillStates, type CurtailmentPillEvent } from "./CurtailmentPill";
+import CurtailmentPillComponent from "./CurtailmentPill";
+import { type CurtailmentPillEvent, type CurtailmentPillState, curtailmentPillStates } from "./curtailmentPillTypes";
 import SchedulePillComponent from "./SchedulePill";
 import { buildSchedulePopoverSections, selectPillSchedule } from "./schedulePillUtils";
 import type { UseSchedulePillDataResult } from "./useSchedulePillData";
@@ -187,17 +188,12 @@ const InteractiveSchedulePillStory = () => {
 };
 
 const storyCurtailmentEvent: CurtailmentPillEvent = {
-  id: "curtailment-1",
   reason: "ERCOT demand response",
   state: "active",
   scopeLabel: "Racks A1-A4",
   selectedMiners: 48,
   estimatedReductionKw: 126.4,
 };
-
-const CurtailmentPillStory = ({ state = "active" }: { state?: CurtailmentPillEvent["state"] }) => (
-  <CurtailmentPillComponent event={{ ...storyCurtailmentEvent, state }} />
-);
 
 const StoryFrame = ({ children }: { children: ReactNode }) => (
   <div className="flex min-h-[32rem] items-start justify-end bg-surface-base px-16 py-10">{children}</div>
@@ -223,10 +219,10 @@ export const SchedulePill = () => {
   );
 };
 
-export const CurtailmentPill = ({ state }: { state?: CurtailmentPillEvent["state"] }) => {
+export const CurtailmentPill = ({ state = "active" }: { state?: CurtailmentPillState }) => {
   return (
     <StoryFrame>
-      <CurtailmentPillStory state={state} />
+      <CurtailmentPillComponent event={{ ...storyCurtailmentEvent, state }} />
     </StoryFrame>
   );
 };

@@ -7,7 +7,6 @@ import CurtailmentPill, { type CurtailmentPillEvent } from "./CurtailmentPill";
 const triggerName = "View curtailment details for Grid peak call";
 
 const activeCurtailmentEvent: CurtailmentPillEvent = {
-  id: "curt-1",
   reason: "Grid peak call",
   state: "active",
   scopeLabel: "Whole org",
@@ -29,7 +28,7 @@ function renderCurtailmentPill({
   );
 }
 
-function openCurtailmentPopover() {
+function openCurtailmentPopover(): void {
   fireEvent.click(screen.getByRole("button", { name: triggerName }));
 }
 
@@ -71,22 +70,19 @@ describe("CurtailmentPill", () => {
     expect(screen.getByText("1 selected miner - 4.0 kW planned")).toBeInTheDocument();
   });
 
-  it("renders the details link only when a details path is provided", () => {
-    const { unmount } = renderCurtailmentPill();
+  it("does not render the details link without a details path", () => {
+    renderCurtailmentPill();
 
     openCurtailmentPopover();
 
     expect(screen.queryByText("View curtailment")).not.toBeInTheDocument();
+  });
 
-    unmount();
-    render(
-      <MemoryRouter>
-        <CurtailmentPill event={activeCurtailmentEvent} detailsPath="/energy" />
-      </MemoryRouter>,
-    );
+  it("links to the provided details path", () => {
+    renderCurtailmentPill({ detailsPath: "/energy" });
 
     openCurtailmentPopover();
 
-    expect(screen.getByText("View curtailment").closest("a")).toHaveAttribute("href", "/energy");
+    expect(screen.getByText("View curtailment")).toHaveAttribute("href", "/energy");
   });
 });

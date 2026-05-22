@@ -1,39 +1,32 @@
-import { useState } from "react";
+import { type MouseEvent, useState } from "react";
 import { Link } from "react-router-dom";
 import clsx from "clsx";
 
+import { type CurtailmentPillProps, type CurtailmentPillState } from "./curtailmentPillTypes";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Popover, { PopoverProvider, popoverSizes, useResponsivePopover } from "@/shared/components/Popover";
 import { positions } from "@/shared/constants";
 
-export const curtailmentPillStates = ["pending", "active", "restoring"] as const;
+export type { CurtailmentPillEvent, CurtailmentPillProps, CurtailmentPillState } from "./curtailmentPillTypes";
 
-export type CurtailmentPillState = (typeof curtailmentPillStates)[number];
-
-export interface CurtailmentPillEvent {
-  id: string;
-  reason: string;
-  state: CurtailmentPillState;
-  scopeLabel: string;
-  selectedMiners: number;
-  estimatedReductionKw: number;
-}
-
-export interface CurtailmentPillProps {
-  event: CurtailmentPillEvent;
-  detailsPath?: string;
-}
-
-const eventStateLabels: Record<CurtailmentPillState, string> = {
-  pending: "Pending",
-  active: "Active",
-  restoring: "Restoring",
+type CurtailmentStateViewConfig = {
+  label: string;
+  dotClassName: string;
 };
 
-const eventStateDotClassNames: Record<CurtailmentPillState, string> = {
-  pending: "bg-core-accent-fill",
-  active: "bg-intent-warning-fill",
-  restoring: "bg-core-accent-fill",
+const curtailmentStateViewConfig: Record<CurtailmentPillState, CurtailmentStateViewConfig> = {
+  pending: {
+    label: "Pending",
+    dotClassName: "bg-core-accent-fill",
+  },
+  active: {
+    label: "Active",
+    dotClassName: "bg-intent-warning-fill",
+  },
+  restoring: {
+    label: "Restoring",
+    dotClassName: "bg-core-accent-fill",
+  },
 };
 
 function formatKw(value: number): string {
@@ -50,7 +43,19 @@ function formatMinerCount(minerCount: number): string {
 function CurtailmentPillContent({ event, detailsPath }: CurtailmentPillProps) {
   const [isPopoverOpen, setIsPopoverOpen] = useState(false);
   const { triggerRef } = useResponsivePopover();
-  const stateLabel = eventStateLabels[event.state];
+  const stateConfig = curtailmentStateViewConfig[event.state];
+
+  function closePopover(): void {
+    setIsPopoverOpen(false);
+  }
+
+  function handleTriggerClick(clickEvent: MouseEvent<HTMLButtonElement>): void {
+    setIsPopoverOpen((current) => !current);
+
+    if (clickEvent.detail > 0) {
+      clickEvent.currentTarget.blur();
+    }
+  }
 
   return (
     <div className="curtailment-pill-trigger relative" ref={triggerRef}>
@@ -60,16 +65,10 @@ function CurtailmentPillContent({ event, detailsPath }: CurtailmentPillProps) {
         ariaHasPopup={true}
         ariaExpanded={isPopoverOpen}
         ariaLabel={`View curtailment details for ${event.reason}`}
-        onClick={(clickEvent) => {
-          setIsPopoverOpen((current) => !current);
-
-          if (clickEvent.detail > 0) {
-            clickEvent.currentTarget.blur();
-          }
-        }}
-        prefixIcon={<span className={clsx("h-2.5 w-2.5 rounded-full", eventStateDotClassNames[event.state])} />}
+        onClick={handleTriggerClick}
+        prefixIcon={<span className={clsx("h-2.5 w-2.5 rounded-full", stateConfig.dotClassName)} />}
       >
-        <span className="block max-w-56 truncate">Curtailment {stateLabel.toLowerCase()}</span>
+        <span className="block max-w-56 truncate">Curtailment {stateConfig.label.toLowerCase()}</span>
       </Button>
 
       {isPopoverOpen ? (
@@ -77,13 +76,13 @@ function CurtailmentPillContent({ event, detailsPath }: CurtailmentPillProps) {
           position={positions["bottom left"]}
           size={popoverSizes.small}
           className="!space-y-0 px-4 pt-4 pb-3"
-          closePopover={() => setIsPopoverOpen(false)}
+          closePopover={closePopover}
           closeIgnoreSelectors={[".curtailment-pill-trigger"]}
         >
           <div className="flex flex-col gap-3">
             <div className="min-w-0 space-y-1">
               <div className="truncate text-heading-100 text-text-primary">{event.reason}</div>
-              <div className="text-200 leading-snug text-text-primary-70">{stateLabel}</div>
+              <div className="text-200 leading-snug text-text-primary-70">{stateConfig.label}</div>
               <div className="text-200 leading-snug text-text-primary-70">{event.scopeLabel}</div>
               <div className="text-200 leading-snug text-text-primary-70">
                 {formatMinerCount(event.selectedMiners)} - {formatKw(event.estimatedReductionKw)} planned
@@ -94,7 +93,7 @@ function CurtailmentPillContent({ event, detailsPath }: CurtailmentPillProps) {
               <div className="border-t border-border-5 pt-3">
                 <Link
                   to={detailsPath}
-                  onClick={() => setIsPopoverOpen(false)}
+                  onClick={closePopover}
                   className="block rounded-xl px-3 py-2.5 text-emphasis-300 text-text-primary transition-[background-color] duration-200 ease-in-out hover:bg-core-primary-5"
                 >
                   View curtailment
