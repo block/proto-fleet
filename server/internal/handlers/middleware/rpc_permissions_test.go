@@ -166,49 +166,61 @@ func TestRPCContract_ProcedurePermissionsKeysAreInCatalog(t *testing.T) {
 	}
 }
 
-// mainConnectMountRe captures the connect-package shortname (e.g.
-// "authv1connect", "fooserverv2connect") from every Connect handler
-// mount in main.go like `mux.Handle(authv1connect.NewAuthServiceHandler(...)`.
-// The capture is the package selector, which uniquely identifies the
-// service. Matching any `\w+v\d+connect` keeps the guard honest as
-// future services land on v2+.
-var mainConnectMountRe = regexp.MustCompile(`\b(\w+v\d+connect)\.New\w+ServiceHandler\(`)
+// mainConnectMountRe captures both the connect-package shortname and
+// the service-handler short name (e.g. "authv1connect" + "Auth") from
+// every Connect handler mount in main.go like
+// `mux.Handle(authv1connect.NewAuthServiceHandler(...)`. Capturing both
+// keeps the guard honest at constructor granularity: a second service
+// added to an already-mounted v1connect package will not pass the check
+// just because its package is present.
+var mainConnectMountRe = regexp.MustCompile(`\b(\w+v\d+connect)\.New(\w+)ServiceHandler\(`)
+
+// mountIdentifier formats a (pkg, ServiceShortName) tuple into the
+// canonical "<pkg>.<ServiceShortName>" used to compare main.go mounts
+// against registeredServices.
+func mountIdentifier(pkg, serviceShortName string) string {
+	return pkg + "." + serviceShortName
+}
 
 // TestRPCContract_RegisteredServicesMatchMainMux asserts that every
 // connect handler mounted in cmd/fleetd/main.go is enumerated in
-// registeredServices, and vice versa. Without this, adding a new
-// service to main.go but forgetting to list it here is a silent
-// false-negative: the contract test still passes because reflection
-// never sees the new service's procedures.
+// registeredServices, and vice versa. The comparison runs at
+// constructor granularity (`<pkg>.<ServiceShortName>`), so adding a
+// second service to an existing v1connect package without listing it
+// here fails the test — package-level granularity would silently miss
+// that case.
 func TestRPCContract_RegisteredServicesMatchMainMux(t *testing.T) {
 	mainPath := locateMainGo(t)
 	src, err := os.ReadFile(mainPath)
 	require.NoError(t, err, "reading %s", mainPath)
 
-	mountedPkgs := make(map[string]struct{})
+	mounted := make(map[string]struct{})
 	for _, m := range mainConnectMountRe.FindAllSubmatch(src, -1) {
-		mountedPkgs[string(m[1])] = struct{}{}
+		mounted[mountIdentifier(string(m[1]), string(m[2]))] = struct{}{}
 	}
-	require.NotEmpty(t, mountedPkgs,
+	require.NotEmpty(t, mounted,
 		"regex found no connect handler mounts in %s — pattern may have drifted", mainPath)
 
-	registeredPkgs := make(map[string]struct{}, len(registeredServices))
+	registered := make(map[string]struct{}, len(registeredServices))
 	for _, svc := range registeredServices {
 		// reflect.Type.PkgPath returns the import path; the last segment
-		// is the connect-package shortname that appears in main.go.
+		// is the v1connect package shortname that appears in main.go.
+		// reflect.Type.Name returns "<ServiceShortName>ServiceHandler".
 		pkg := svc.ifaceType.PkgPath()
-		registeredPkgs[pkg[strings.LastIndex(pkg, "/")+1:]] = struct{}{}
+		pkg = pkg[strings.LastIndex(pkg, "/")+1:]
+		shortName := strings.TrimSuffix(svc.ifaceType.Name(), "ServiceHandler")
+		registered[mountIdentifier(pkg, shortName)] = struct{}{}
 	}
 
 	var missingFromTest, missingFromMux []string
-	for pkg := range mountedPkgs {
-		if _, ok := registeredPkgs[pkg]; !ok {
-			missingFromTest = append(missingFromTest, pkg)
+	for id := range mounted {
+		if _, ok := registered[id]; !ok {
+			missingFromTest = append(missingFromTest, id)
 		}
 	}
-	for pkg := range registeredPkgs {
-		if _, ok := mountedPkgs[pkg]; !ok {
-			missingFromMux = append(missingFromMux, pkg)
+	for id := range registered {
+		if _, ok := mounted[id]; !ok {
+			missingFromMux = append(missingFromMux, id)
 		}
 	}
 	sort.Strings(missingFromTest)
