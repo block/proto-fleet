@@ -2,6 +2,7 @@ import { type ReactNode, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import { action } from "storybook/actions";
 
+import CurtailmentPillComponent, { curtailmentPillStates, type CurtailmentPillEvent } from "./CurtailmentPill";
 import SchedulePillComponent from "./SchedulePill";
 import { buildSchedulePopoverSections, selectPillSchedule } from "./schedulePillUtils";
 import type { UseSchedulePillDataResult } from "./useSchedulePillData";
@@ -185,6 +186,19 @@ const InteractiveSchedulePillStory = () => {
   );
 };
 
+const storyCurtailmentEvent: CurtailmentPillEvent = {
+  id: "curtailment-1",
+  reason: "ERCOT demand response",
+  state: "active",
+  scopeLabel: "Racks A1-A4",
+  selectedMiners: 48,
+  estimatedReductionKw: 126.4,
+};
+
+const CurtailmentPillStory = ({ state = "active" }: { state?: CurtailmentPillEvent["state"] }) => (
+  <CurtailmentPillComponent event={{ ...storyCurtailmentEvent, state }} />
+);
+
 const StoryFrame = ({ children }: { children: ReactNode }) => (
   <div className="flex min-h-[32rem] items-start justify-end bg-surface-base px-16 py-10">{children}</div>
 );
@@ -207,6 +221,29 @@ export const SchedulePill = () => {
       <InteractiveSchedulePillStory />
     </StoryFrame>
   );
+};
+
+export const CurtailmentPill = ({ state }: { state?: CurtailmentPillEvent["state"] }) => {
+  return (
+    <StoryFrame>
+      <CurtailmentPillStory state={state} />
+    </StoryFrame>
+  );
+};
+
+CurtailmentPill.args = {
+  state: "active",
+};
+
+CurtailmentPill.argTypes = {
+  state: {
+    control: "select",
+    options: curtailmentPillStates,
+  },
+};
+
+CurtailmentPill.parameters = {
+  withRouter: false,
 };
 
 export default {
