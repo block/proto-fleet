@@ -558,9 +558,6 @@ message AdminTerminateEventRequest {
     // reason can't amplify across thousands of rows during the sweep.
     string reason = 3 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
 
-    // Idempotency key, unique per (org, key) when non-empty. A re-issued call
-    // with the same key returns the original event without re-applying.
-    string idempotency_key = 4;
 }
 
 message AdminTerminateEventResponse {

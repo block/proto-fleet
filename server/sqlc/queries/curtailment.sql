@@ -222,16 +222,35 @@ RETURNING *;
 --
 -- decision_snapshot_jsonb is projected with the per-device `skipped` array
 -- stripped at the SQL boundary so a 10K-miner event's multi-MB skip list
--- doesn't ride the wire for every list row. The handler-side aggregator
--- still computes `skipped_aggregate` when the field is present (test
--- fixtures), but in production this query returns the slim shape.
+-- doesn't ride the wire for every list row. The aggregate is computed before
+-- stripping so production list rows match the documented read-API shape.
 SELECT
     id, event_uuid, org_id, state, mode, strategy, level, priority,
     loop_type, scope_type, scope_jsonb, mode_params_jsonb,
     restore_batch_size, restore_batch_interval_sec, effective_batch_size,
     min_curtailed_duration_sec, max_duration_seconds, allow_unbounded,
     include_maintenance, force_include_maintenance,
-    (decision_snapshot_jsonb - 'skipped')::JSONB AS decision_snapshot_jsonb,
+    CASE
+        WHEN jsonb_typeof(decision_snapshot_jsonb->'skipped') = 'array' THEN
+            jsonb_set(
+                decision_snapshot_jsonb - 'skipped',
+                '{skipped_aggregate}',
+                COALESCE(
+                    (
+                        SELECT jsonb_object_agg(reason, skipped_count)
+                        FROM (
+                            SELECT skipped_entry->>'reason' AS reason, count(*) AS skipped_count
+                            FROM jsonb_array_elements(decision_snapshot_jsonb->'skipped') AS skipped_entry
+                            WHERE skipped_entry->>'reason' <> ''
+                            GROUP BY skipped_entry->>'reason'
+                        ) skipped_counts
+                    ),
+                    '{}'::JSONB
+                ),
+                true
+            )
+        ELSE decision_snapshot_jsonb
+    END::JSONB AS decision_snapshot_jsonb,
     source_actor_type, source_actor_id,
     external_source, external_reference, idempotency_key,
     supersedes_event_id, reason, scheduled_start_at, started_at, ended_at,
@@ -303,7 +322,8 @@ UPDATE curtailment_event
 SET state      = sqlc.arg('state'),
     started_at = COALESCE(sqlc.narg('started_at'), started_at),
     ended_at   = COALESCE(sqlc.narg('ended_at'),   ended_at)
-WHERE id = sqlc.arg('id');
+WHERE id = sqlc.arg('id')
+  AND state IN ('pending', 'active', 'restoring');
 
 -- name: BeginCurtailmentRestoration :one
 -- Stop's event-side write: flips state to 'restoring'. effective_batch_size
@@ -354,7 +374,13 @@ SET state              = sqlc.arg('state'),
         ELSE NULLIF(sqlc.narg('last_error')::text, '')
     END
 WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
-  AND device_identifier    = sqlc.arg('device_identifier');
+  AND device_identifier    = sqlc.arg('device_identifier')
+  AND EXISTS (
+      SELECT 1
+      FROM curtailment_event
+      WHERE curtailment_event.id = sqlc.arg('curtailment_event_id')
+        AND curtailment_event.state IN ('pending', 'active', 'restoring')
+  );
 
 -- name: UpsertCurtailmentReconcilerHeartbeat :exec
 -- Singleton row at id=1 (CHECK + PK enforce it). INSERT path only fires if

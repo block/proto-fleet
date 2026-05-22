@@ -147,6 +147,7 @@ var reflectEnabledServices = []string{
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceName,
 	sitesv1connect.SiteServiceName,
 	buildingsv1connect.BuildingServiceName,
+	curtailmentv1connect.CurtailmentServiceName,
 }
 
 func start(config *Config) error {

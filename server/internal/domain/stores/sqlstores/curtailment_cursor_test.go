@@ -7,20 +7,27 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
 // TestCurtailmentEventCursor_RoundTrip: encode then decode returns the
-// same id; the codec carries no other state.
+// same query-bound cursor state.
 func TestCurtailmentEventCursor_RoundTrip(t *testing.T) {
 	t.Parallel()
-	encoded := encodeCurtailmentEventCursor(&curtailmentEventCursor{ID: 12345})
+	encoded := encodeCurtailmentEventCursor(&curtailmentEventCursor{
+		ID:          12345,
+		OrgID:       42,
+		StateFilter: models.EventStateActive,
+	})
 	require.NotEmpty(t, encoded)
 
 	decoded, err := decodeCurtailmentEventCursor(encoded)
 	require.NoError(t, err)
 	require.NotNil(t, decoded)
 	assert.Equal(t, int64(12345), decoded.ID)
+	assert.Equal(t, int64(42), decoded.OrgID)
+	assert.Equal(t, models.EventStateActive, decoded.StateFilter)
 }
 
 // TestCurtailmentEventCursor_RejectsNonPositiveID: a user-supplied token
@@ -33,8 +40,8 @@ func TestCurtailmentEventCursor_RejectsNonPositiveID(t *testing.T) {
 		name string
 		body string
 	}{
-		{"zero id", `{"id":0}`},
-		{"negative id", `{"id":-1}`},
+		{"zero id", `{"id":0,"org_id":42}`},
+		{"negative id", `{"id":-1,"org_id":42}`},
 		{"missing id (json default zero)", `{}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -46,6 +53,17 @@ func TestCurtailmentEventCursor_RejectsNonPositiveID(t *testing.T) {
 			assert.Contains(t, err.Error(), "id must be > 0")
 		})
 	}
+}
+
+// TestCurtailmentEventCursor_RejectsMissingOrgID: cursors are bound to the
+// issuing org so tokens cannot be silently reused across tenants.
+func TestCurtailmentEventCursor_RejectsMissingOrgID(t *testing.T) {
+	t.Parallel()
+	token := base64.StdEncoding.EncodeToString([]byte(`{"id":123}`))
+	_, err := decodeCurtailmentEventCursor(token)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "org_id must be > 0")
 }
 
 // TestCurtailmentEventCursor_RejectsBadEncoding: the proto-side max_len

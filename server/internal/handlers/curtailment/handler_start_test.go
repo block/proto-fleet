@@ -26,8 +26,10 @@ import (
 // handler exercise the full translate -> service -> store -> translate path
 // without DB I/O.
 type startStubStore struct {
-	orgConfig  *models.OrgConfig
-	candidates []*models.Candidate
+	orgConfig          *models.OrgConfig
+	candidates         []*models.Candidate
+	replayByKey        map[string]*models.Event
+	targetsByEventUUID map[uuid.UUID][]*models.Target
 
 	// Captures.
 	lastEvent   models.InsertEventParams
@@ -95,11 +97,11 @@ func (s *startStubStore) UpdateOperatorFields(context.Context, int64, int64, int
 func (s *startStubStore) AdminTerminateEvent(context.Context, int64, uuid.UUID, models.EventState, string) (*models.Event, error) {
 	panic("AdminTerminateEvent not exercised by Start handler tests")
 }
-func (s *startStubStore) GetEventByIdempotencyKey(context.Context, int64, string) (*models.Event, error) {
+func (s *startStubStore) GetEventByIdempotencyKey(_ context.Context, _ int64, key string) (*models.Event, error) {
 	// Default to "no prior match" so Start tests that pass an idempotency
 	// key fall through to the normal insert path. Replay-specific tests
 	// override with a field on the stub.
-	return nil, nil
+	return s.replayByKey[key], nil
 }
 func (s *startStubStore) GetEventByExternalReference(context.Context, int64, string, string) (*models.Event, error) {
 	// Default to "no prior match" so Start tests that pass an external
@@ -107,8 +109,11 @@ func (s *startStubStore) GetEventByExternalReference(context.Context, int64, str
 	// tests override with a field on the stub.
 	return nil, nil
 }
-func (s *startStubStore) ListTargetsByEvent(context.Context, int64, uuid.UUID) ([]*models.Target, error) {
-	panic("ListTargetsByEvent not exercised by handler Start tests")
+func (s *startStubStore) ListTargetsByEvent(_ context.Context, _ int64, eventUUID uuid.UUID) ([]*models.Target, error) {
+	if s.targetsByEventUUID == nil {
+		return nil, nil
+	}
+	return s.targetsByEventUUID[eventUUID], nil
 }
 
 func (s *startStubStore) GetHeartbeat(context.Context) (*models.Heartbeat, error) {
@@ -229,6 +234,65 @@ func TestHandler_StartCurtailment_HappyPath(t *testing.T) {
 	// echoed in the Start response. Two selected candidates with no caller
 	// preference clamps to the minimum floor (10).
 	assert.Equal(t, uint32(10), ev.EffectiveBatchSize)
+}
+
+func TestHandler_StartCurtailment_IdempotentReplayRendersPersistedEvent(t *testing.T) {
+	t.Parallel()
+
+	eventUUID := uuid.New()
+	store := newStartStubStore()
+	store.replayByKey = map[string]*models.Event{
+		"retry-key": {
+			ID:                      7,
+			EventUUID:               eventUUID,
+			OrgID:                   42,
+			State:                   models.EventStateActive,
+			Mode:                    models.ModeFixedKw,
+			Strategy:                models.StrategyLeastEfficientFirst,
+			Level:                   models.LevelFull,
+			Priority:                models.PriorityNormal,
+			RestoreBatchSize:        10,
+			RestoreBatchIntervalSec: 60,
+			Reason:                  "original persisted reason",
+			CreatedAt:               time.Date(2026, 5, 22, 1, 0, 0, 0, time.UTC),
+			UpdatedAt:               time.Date(2026, 5, 22, 1, 0, 0, 0, time.UTC),
+			CreatedByUserID:         9,
+		},
+	}
+	store.targetsByEventUUID = map[uuid.UUID][]*models.Target{
+		eventUUID: {
+			{
+				DeviceIdentifier: "miner-1",
+				TargetType:       "miner",
+				State:            models.TargetStateConfirmed,
+				DesiredState:     models.DesiredStateCurtailed,
+			},
+		},
+	}
+	h := NewHandler(curtailment.NewService(store))
+
+	ctx := authn.SetInfo(t.Context(), &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		OrganizationID: 42,
+		UserID:         9,
+		Role:           "OPERATOR",
+		SessionID:      "sess-abc",
+	})
+	req := validStartRequestBuilder()
+	req.Reason = "changed retry reason"
+	req.IdempotencyKey = "retry-key"
+
+	resp, err := h.StartCurtailment(ctx, connect.NewRequest(req))
+	require.NoError(t, err)
+	require.NotNil(t, resp.Msg.Event)
+
+	ev := resp.Msg.Event
+	assert.Equal(t, eventUUID.String(), ev.EventUuid)
+	assert.Equal(t, pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_ACTIVE, ev.State)
+	assert.Equal(t, "original persisted reason", ev.Reason)
+	require.Len(t, ev.Targets, 1)
+	assert.Equal(t, pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_CONFIRMED, ev.Targets[0].State)
+	assert.Empty(t, store.lastTargets, "replay must not persist a second event")
 }
 
 // TestHandler_StartCurtailment_APIKeyDerivesAPIKeyActor pins the audit

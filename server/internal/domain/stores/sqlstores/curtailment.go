@@ -269,6 +269,9 @@ func (s *SQLCurtailmentStore) ListEvents(ctx context.Context, params interfaces.
 
 	var cursorID int64
 	if cursor != nil {
+		if cursor.OrgID != params.OrgID || cursor.StateFilter != params.StateFilter {
+			return nil, "", fleeterror.NewInvalidArgumentError("page_token does not match org_id or state_filter")
+		}
 		cursorID = cursor.ID
 	}
 
@@ -288,7 +291,11 @@ func (s *SQLCurtailmentStore) ListEvents(ctx context.Context, params interfaces.
 		// Trim the over-fetched row and emit a cursor pointing at the last
 		// returned row's id so the next page starts there.
 		rows = rows[:pageSize]
-		nextToken = encodeCurtailmentEventCursor(&curtailmentEventCursor{ID: rows[len(rows)-1].ID})
+		nextToken = encodeCurtailmentEventCursor(&curtailmentEventCursor{
+			ID:          rows[len(rows)-1].ID,
+			OrgID:       params.OrgID,
+			StateFilter: params.StateFilter,
+		})
 	}
 
 	out := make([]*models.Event, len(rows))

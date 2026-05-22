@@ -820,7 +820,27 @@ SELECT
     restore_batch_size, restore_batch_interval_sec, effective_batch_size,
     min_curtailed_duration_sec, max_duration_seconds, allow_unbounded,
     include_maintenance, force_include_maintenance,
-    (decision_snapshot_jsonb - 'skipped')::JSONB AS decision_snapshot_jsonb,
+    CASE
+        WHEN jsonb_typeof(decision_snapshot_jsonb->'skipped') = 'array' THEN
+            jsonb_set(
+                decision_snapshot_jsonb - 'skipped',
+                '{skipped_aggregate}',
+                COALESCE(
+                    (
+                        SELECT jsonb_object_agg(reason, skipped_count)
+                        FROM (
+                            SELECT skipped_entry->>'reason' AS reason, count(*) AS skipped_count
+                            FROM jsonb_array_elements(decision_snapshot_jsonb->'skipped') AS skipped_entry
+                            WHERE skipped_entry->>'reason' <> ''
+                            GROUP BY skipped_entry->>'reason'
+                        ) skipped_counts
+                    ),
+                    '{}'::JSONB
+                ),
+                true
+            )
+        ELSE decision_snapshot_jsonb
+    END::JSONB AS decision_snapshot_jsonb,
     source_actor_type, source_actor_id,
     external_source, external_reference, idempotency_key,
     supersedes_event_id, reason, scheduled_start_at, started_at, ended_at,
@@ -885,9 +905,8 @@ type ListCurtailmentEventsForOrgRow struct {
 //
 // decision_snapshot_jsonb is projected with the per-device `skipped` array
 // stripped at the SQL boundary so a 10K-miner event's multi-MB skip list
-// doesn't ride the wire for every list row. The handler-side aggregator
-// still computes `skipped_aggregate` when the field is present (test
-// fixtures), but in production this query returns the slim shape.
+// doesn't ride the wire for every list row. The aggregate is computed before
+// stripping so production list rows match the documented read-API shape.
 func (q *Queries) ListCurtailmentEventsForOrg(ctx context.Context, arg ListCurtailmentEventsForOrgParams) ([]ListCurtailmentEventsForOrgRow, error) {
 	rows, err := q.query(ctx, q.listCurtailmentEventsForOrgStmt, listCurtailmentEventsForOrg,
 		arg.OrgID,
@@ -1241,6 +1260,7 @@ SET state      = $1,
     started_at = COALESCE($2, started_at),
     ended_at   = COALESCE($3,   ended_at)
 WHERE id = $4
+  AND state IN ('pending', 'active', 'restoring')
 `
 
 type UpdateCurtailmentEventStateParams struct {
@@ -1277,6 +1297,12 @@ SET state              = $1,
     END
 WHERE curtailment_event_id = $9
   AND device_identifier    = $10
+  AND EXISTS (
+      SELECT 1
+      FROM curtailment_event
+      WHERE curtailment_event.id = $9
+        AND curtailment_event.state IN ('pending', 'active', 'restoring')
+  )
 `
 
 type UpdateCurtailmentTargetStateParams struct {

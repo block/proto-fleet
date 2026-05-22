@@ -5,6 +5,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/modes"
 )
 
@@ -80,6 +81,10 @@ type Plan struct {
 	// at Start time. Zero for Preview. Echoed in the Start response; Stop
 	// and the reconciler read it from the persisted event row, not from Plan.
 	EffectiveBatchSize int32
+	// ReplayEvent is set only for idempotent Start replays. The handler uses
+	// the persisted row instead of rebuilding a response from the retry body.
+	ReplayEvent   *models.Event
+	ReplayTargets []*models.Target
 }
 
 // SelectedDevice is a candidate the mode picked, carrying the snapshot

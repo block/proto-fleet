@@ -97,6 +97,11 @@ func (h *Handler) StartCurtailment(ctx context.Context, req *connect.Request[pb.
 		// Mirror Preview: surface as InvalidArgument with structured detail.
 		return nil, toInsufficientLoadError(plan.InsufficientLoadDetail)
 	}
+	if plan.ReplayEvent != nil {
+		return connect.NewResponse(&pb.StartCurtailmentResponse{
+			Event: toEventProtoWithTargets(plan.ReplayEvent, plan.ReplayTargets),
+		}), nil
+	}
 
 	return connect.NewResponse(toStartResponse(plan, req.Msg)), nil
 }

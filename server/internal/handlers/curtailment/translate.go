@@ -207,10 +207,9 @@ func toStartScope(msg *pb.StartCurtailmentRequest) (curtailment.Scope, error) {
 	}
 }
 
-// toStartResponse maps the service Plan + request into the
-// StartCurtailmentResponse. Describes the request that was just persisted;
-// idempotent-retry lookup is a follow-up. Duplicate keys surface as Internal
-// until then.
+// toStartResponse maps a newly persisted service Plan + request into the
+// StartCurtailmentResponse. Idempotent replays are rendered from the
+// persisted event row instead of this retry request path.
 func toStartResponse(plan *curtailment.Plan, req *pb.StartCurtailmentRequest) *pb.StartCurtailmentResponse {
 	event := &pb.CurtailmentEvent{
 		State:                   pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_PENDING,
@@ -623,6 +622,9 @@ func toListEventsResponse(events []*models.Event, nextPageToken string) *pb.List
 // detail separately when needed.
 func toEventProtoListItem(event *models.Event) *pb.CurtailmentEvent {
 	out := toEventProto(event)
+	out.ExternalSource = ""
+	out.ExternalReference = ""
+	out.IdempotencyKey = ""
 	populateEventScope(out, event)
 	populateEventModeParams(out, event)
 	populateEventDecisionSnapshotTrimmed(out, event)

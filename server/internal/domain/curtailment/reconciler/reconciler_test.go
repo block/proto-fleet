@@ -453,16 +453,22 @@ func TestReconciler_HeartbeatAdvancesOnEveryTick(t *testing.T) {
 	assert.Equal(t, 3, store.heartbeatCalls)
 }
 
-func TestReconciler_HeartbeatStillFiresOnListEventsError(t *testing.T) {
+func TestReconciler_ListEventsErrorSkipsHeartbeatAndIncrementsFailure(t *testing.T) {
 	store := newFakeStore()
 	store.listEventsErr = errors.New("db down")
 	disp := &fakeDispatcher{}
+	metrics := newRecordingMetrics()
 
-	r := newReconcilerForTest(store, disp)
+	r := New(Config{
+		TickInterval:         time.Hour,
+		ShutdownDeadline:     time.Second,
+		MaxRetries:           3,
+		DriftThresholdFactor: 0.5,
+	}, store, disp, WithMetrics(metrics))
 	r.runTick(context.Background())
 
-	assert.Equal(t, 1, store.heartbeatCalls)
-	assert.Equal(t, int32(0), store.lastHeartbeatActive)
+	assert.Equal(t, 0, store.heartbeatCalls)
+	assert.Equal(t, 1, metrics.TickFailureCount())
 }
 
 func TestReconciler_RunTickStopsWhenTickBudgetExpires(t *testing.T) {

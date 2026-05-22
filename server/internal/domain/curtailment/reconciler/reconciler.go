@@ -235,8 +235,7 @@ func (r *Reconciler) runTick(ctx context.Context) {
 	events, err := r.store.ListNonTerminalEvents(tickCtx)
 	if err != nil {
 		slog.Error("curtailment reconciler: failed to list non-terminal events", "error", err)
-		// Heartbeat advances on tick freshness, not query health.
-		r.upsertHeartbeat(ctx, tickStart, tickUUID, 0)
+		r.metrics.IncTickFailure()
 		return
 	}
 

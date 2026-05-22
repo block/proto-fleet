@@ -155,7 +155,7 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 	if existing, replayErr := s.lookupIdempotentReplay(ctx, req); replayErr != nil {
 		return nil, replayErr
 	} else if existing != nil {
-		return planFromPersistedEvent(existing), nil
+		return s.replayPlanFromPersistedEvent(ctx, req.OrgID, existing)
 	}
 
 	plan, minPowerW, orgConfig, err := s.runSelector(ctx, req.PreviewRequest)
@@ -265,7 +265,7 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 		if errors.Is(err, interfaces.ErrCurtailmentIdempotencyKeyRaceLoss) ||
 			errors.Is(err, interfaces.ErrCurtailmentExternalReferenceRaceLoss) {
 			if existing, replayErr := s.lookupIdempotentReplay(ctx, req); replayErr == nil && existing != nil {
-				return planFromPersistedEvent(existing), nil
+				return s.replayPlanFromPersistedEvent(ctx, req.OrgID, existing)
 			}
 			return nil, fleeterror.NewAlreadyExistsError(
 				"a curtailment event with the same idempotency_key or (external_source, external_reference) already exists",
@@ -577,17 +577,21 @@ func (s *Service) lookupIdempotentReplay(ctx context.Context, req StartRequest) 
 	return nil, nil
 }
 
-// planFromPersistedEvent reconstructs the minimal Plan a webhook replay
-// needs so the handler can render the same response shape as the original
-// Start. Selected/Skipped/EstimatedReductionKW intentionally stay empty:
-// the persisted decision_snapshot carries the original counts when the UI
-// needs them, and re-deriving the device list would mean re-running the
-// selector against a now-stale candidate set.
-func planFromPersistedEvent(event *models.Event) *Plan {
+// replayPlanFromPersistedEvent returns the persisted event shape for a Start
+// idempotency replay. The retry body is intentionally ignored after lookup:
+// it may differ from the original request, while the event row is the source
+// of truth for the response.
+func (s *Service) replayPlanFromPersistedEvent(ctx context.Context, orgID int64, event *models.Event) (*Plan, error) {
+	targets, err := s.store.ListTargetsByEvent(ctx, orgID, event.EventUUID)
+	if err != nil {
+		return nil, err
+	}
 	eventUUID := event.EventUUID
 	plan := &Plan{
 		EventUUID:                        &eventUUID,
 		EffectiveRestoreBatchIntervalSec: event.RestoreBatchIntervalSec,
+		ReplayEvent:                      event,
+		ReplayTargets:                    targets,
 	}
 	if event.EffectiveBatchSize != nil {
 		plan.EffectiveBatchSize = *event.EffectiveBatchSize
@@ -596,7 +600,7 @@ func planFromPersistedEvent(event *models.Event) *Plan {
 		v := *event.MaxDurationSeconds
 		plan.EffectiveMaxDurationSeconds = &v
 	}
-	return plan
+	return plan, nil
 }
 
 // validateUpdateRequest mirrors the Start-time bounds so a misconfigured

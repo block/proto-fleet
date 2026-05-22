@@ -147,6 +147,40 @@ func TestHandler_ListCurtailmentEvents_HappyPath(t *testing.T) {
 	assert.Equal(t, int64(42), store.lastParams.OrgID)
 }
 
+func TestHandler_ListCurtailmentEvents_HidesReplayHandles(t *testing.T) {
+	t.Parallel()
+	key := "start-retry-key"
+	source := "opensearch"
+	reference := "alert-123"
+	store := &listStubStore{
+		events: []*models.Event{{
+			ID:                      1,
+			EventUUID:               uuid.New(),
+			OrgID:                   42,
+			State:                   models.EventStateActive,
+			Mode:                    models.ModeFixedKw,
+			Strategy:                models.StrategyLeastEfficientFirst,
+			Level:                   models.LevelFull,
+			Priority:                models.PriorityNormal,
+			RestoreBatchIntervalSec: 120,
+			Reason:                  "test",
+			ExternalSource:          &source,
+			ExternalReference:       &reference,
+			IdempotencyKey:          &key,
+		}},
+	}
+	h := NewHandler(domainCurtailment.NewService(store))
+
+	resp, err := h.ListCurtailmentEvents(sessionCtx(42), connect.NewRequest(&pb.ListCurtailmentEventsRequest{}))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.Events, 1)
+
+	ev := resp.Msg.Events[0]
+	assert.Empty(t, ev.ExternalSource)
+	assert.Empty(t, ev.ExternalReference)
+	assert.Empty(t, ev.IdempotencyKey)
+}
+
 // TestHandler_ListCurtailmentEvents_StateFilterForwards: the proto enum
 // filter maps to the canonical string sentinel the store expects.
 func TestHandler_ListCurtailmentEvents_StateFilterForwards(t *testing.T) {
