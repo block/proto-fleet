@@ -544,31 +544,6 @@ func generateDefaultOrgName(orgID string) string {
 	return fmt.Sprintf("Organization %s", orgID[:8])
 }
 
-// checkCanManageUser checks if the current user can manage (deactivate/reset password) other users
-// Only SUPER_ADMIN users can manage other users
-func (s *Service) checkCanManageUser(ctx context.Context, organizationID int64) error {
-	info, err := session.GetInfo(ctx)
-	if err != nil {
-		return err
-	}
-
-	currentUserRoleName, err := s.userManagementStore.GetUserRoleName(ctx, info.UserID, organizationID)
-	if err != nil {
-		return fleeterror.NewInternalErrorf("error getting current user role: %v", err)
-	}
-
-	// Only SUPER_ADMIN users can manage other users
-	if currentUserRoleName != SuperAdminRoleName {
-		return fleeterror.NewErrorWithEndpointCode(
-			"only super admin users can manage other user accounts",
-			connect.CodePermissionDenied,
-			int32(authv1.UserManagementErrorCode_USER_MANAGEMENT_ERROR_CODE_UNAUTHORIZED),
-		)
-	}
-
-	return nil
-}
-
 // CreateUser creates a new user with a temporary password (Super Admin only)
 func (s *Service) CreateUser(ctx context.Context, req *authv1.CreateUserRequest) (*authv1.CreateUserResponse, error) {
 	// Validate username
@@ -593,18 +568,6 @@ func (s *Service) CreateUser(ctx context.Context, req *authv1.CreateUserRequest)
 	}
 
 	orgID := orgs[0].ID
-
-	// Authorization gate: only a SUPER_ADMIN in this org can create new
-	// users. Without this, any authenticated session can mint a fresh
-	// ADMIN account, receive the returned temporary password, and log
-	// in as it — a direct privilege escalation. Companion methods
-	// (ResetUserPassword, DeactivateUser) already enforce this via
-	// checkCanManageUser; CreateUser must too. Runs before the
-	// temp-password generation and role lookup so an unauthorized
-	// caller does not even consume entropy or touch the role table.
-	if err := s.checkCanManageUser(ctx, orgID); err != nil {
-		return nil, err
-	}
 
 	// Generate temporary password
 	tempPassword, err := generateTemporaryPassword()
@@ -738,11 +701,6 @@ func (s *Service) ResetUserPassword(ctx context.Context, req *authv1.ResetUserPa
 
 	orgID := orgs[0].ID
 
-	// Check if current user can manage other users (only SUPER_ADMIN can)
-	if err := s.checkCanManageUser(ctx, orgID); err != nil {
-		return nil, err
-	}
-
 	// Get target user
 	user, err := s.userStore.GetUserByExternalID(ctx, req.UserId)
 	if err != nil {
@@ -815,11 +773,6 @@ func (s *Service) DeactivateUser(ctx context.Context, req *authv1.DeactivateUser
 	currentUser, err := s.userStore.GetUserByID(ctx, info.UserID)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("error getting current user: %v", err)
-	}
-
-	// Check if current user can manage other users (only SUPER_ADMIN can)
-	if err := s.checkCanManageUser(ctx, orgID); err != nil {
-		return nil, err
 	}
 
 	// Prevent self-deactivation

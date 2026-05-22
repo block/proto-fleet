@@ -8,10 +8,9 @@ import (
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1/fleetnodeadminv1connect"
-	domainAuth "github.com/block/proto-fleet/server/internal/domain/auth"
-	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnodeenrollment"
-	"github.com/block/proto-fleet/server/internal/domain/session"
+	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
 type Handler struct {
@@ -27,7 +26,7 @@ func NewHandler(enrollment *fleetnodeenrollment.Service) *Handler {
 }
 
 func (h *Handler) CreateEnrollmentCode(ctx context.Context, _ *connect.Request[pb.CreateEnrollmentCodeRequest]) (*connect.Response[pb.CreateEnrollmentCodeResponse], error) {
-	info, err := h.requireAdminSession(ctx)
+	info, err := middleware.RequirePermission(ctx, authz.PermFleetnodeManage, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
@@ -42,7 +41,7 @@ func (h *Handler) CreateEnrollmentCode(ctx context.Context, _ *connect.Request[p
 }
 
 func (h *Handler) ListFleetNodes(ctx context.Context, _ *connect.Request[pb.ListFleetNodesRequest]) (*connect.Response[pb.ListFleetNodesResponse], error) {
-	info, err := h.requireAdminSession(ctx)
+	info, err := middleware.RequirePermission(ctx, authz.PermFleetnodeRead, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
@@ -68,7 +67,7 @@ func (h *Handler) ListFleetNodes(ctx context.Context, _ *connect.Request[pb.List
 }
 
 func (h *Handler) ConfirmFleetNode(ctx context.Context, req *connect.Request[pb.ConfirmFleetNodeRequest]) (*connect.Response[pb.ConfirmFleetNodeResponse], error) {
-	info, err := h.requireAdminSession(ctx)
+	info, err := middleware.RequirePermission(ctx, authz.PermFleetnodeManage, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
@@ -84,7 +83,7 @@ func (h *Handler) ConfirmFleetNode(ctx context.Context, req *connect.Request[pb.
 }
 
 func (h *Handler) RevokeFleetNode(ctx context.Context, req *connect.Request[pb.RevokeFleetNodeRequest]) (*connect.Response[pb.RevokeFleetNodeResponse], error) {
-	info, err := h.requireAdminSession(ctx)
+	info, err := middleware.RequirePermission(ctx, authz.PermFleetnodeManage, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
@@ -92,17 +91,6 @@ func (h *Handler) RevokeFleetNode(ctx context.Context, req *connect.Request[pb.R
 		return nil, err
 	}
 	return connect.NewResponse(&pb.RevokeFleetNodeResponse{}), nil
-}
-
-func (h *Handler) requireAdminSession(ctx context.Context) (*session.Info, error) {
-	info, err := session.GetInfo(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if info.Role != domainAuth.SuperAdminRoleName && info.Role != domainAuth.AdminRoleName {
-		return nil, fleeterror.NewForbiddenError("only admins can manage fleet nodes")
-	}
-	return info, nil
 }
 
 // AWAITING_CONFIRMATION lives only on pending_enrollment, so a PENDING fleet

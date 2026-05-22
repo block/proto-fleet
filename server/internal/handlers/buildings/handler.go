@@ -8,6 +8,7 @@ import (
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/buildings/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/buildings/v1/buildingsv1connect"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/buildings"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
@@ -26,7 +27,7 @@ func NewHandler(service *buildings.Service) *Handler {
 }
 
 func (h *Handler) ListBuildings(ctx context.Context, req *connect.Request[pb.ListBuildingsRequest]) (*connect.Response[pb.ListBuildingsResponse], error) {
-	info, err := middleware.RequireAdmin(ctx, "list buildings")
+	info, err := middleware.RequirePermission(ctx, authz.PermSiteRead, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
@@ -38,7 +39,7 @@ func (h *Handler) ListBuildings(ctx context.Context, req *connect.Request[pb.Lis
 }
 
 func (h *Handler) GetBuilding(ctx context.Context, req *connect.Request[pb.GetBuildingRequest]) (*connect.Response[pb.GetBuildingResponse], error) {
-	info, err := middleware.RequireAdmin(ctx, "get building")
+	info, err := middleware.RequirePermission(ctx, authz.PermSiteRead, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
@@ -52,7 +53,7 @@ func (h *Handler) GetBuilding(ctx context.Context, req *connect.Request[pb.GetBu
 }
 
 func (h *Handler) CreateBuilding(ctx context.Context, req *connect.Request[pb.CreateBuildingRequest]) (*connect.Response[pb.CreateBuildingResponse], error) {
-	info, err := middleware.RequireAdmin(ctx, "create buildings")
+	info, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +67,7 @@ func (h *Handler) CreateBuilding(ctx context.Context, req *connect.Request[pb.Cr
 }
 
 func (h *Handler) UpdateBuilding(ctx context.Context, req *connect.Request[pb.UpdateBuildingRequest]) (*connect.Response[pb.UpdateBuildingResponse], error) {
-	info, err := middleware.RequireAdmin(ctx, "update buildings")
+	info, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +81,7 @@ func (h *Handler) UpdateBuilding(ctx context.Context, req *connect.Request[pb.Up
 }
 
 func (h *Handler) DeleteBuilding(ctx context.Context, req *connect.Request[pb.DeleteBuildingRequest]) (*connect.Response[pb.DeleteBuildingResponse], error) {
-	info, err := middleware.RequireAdmin(ctx, "delete buildings")
+	info, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}

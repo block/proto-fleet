@@ -11,12 +11,13 @@ import (
 	"go.uber.org/mock/gomock"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/buildings/v1"
-	domainAuth "github.com/block/proto-fleet/server/internal/domain/auth"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/buildings"
 	"github.com/block/proto-fleet/server/internal/domain/buildings/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
+	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
 // testHarness wires a real *buildings.Service against mock stores.
@@ -50,12 +51,22 @@ func newTestHandler(t *testing.T) *testHarness {
 	}
 }
 
+// ctxWithPermissions builds a context wired with session.Info and an
+// org-scope EffectivePermissions assignment carrying the supplied keys.
+func ctxWithPermissions(t *testing.T, orgID int64, permissions ...string) context.Context {
+	t.Helper()
+	ctx := authn.SetInfo(t.Context(), &session.Info{OrganizationID: orgID})
+	eff := authz.NewEffectivePermissions([]authz.Assignment{{
+		AssignmentID: 1,
+		ScopeType:    authz.ScopeOrg,
+		Permissions:  permissions,
+	}})
+	return middleware.WithEffectivePermissions(ctx, eff)
+}
+
 func adminCtx(t *testing.T, orgID int64) context.Context {
 	t.Helper()
-	return authn.SetInfo(t.Context(), &session.Info{
-		Role:           domainAuth.AdminRoleName,
-		OrganizationID: orgID,
-	})
+	return ctxWithPermissions(t, orgID, authz.PermSiteRead, authz.PermSiteManage)
 }
 
 func TestHandler_authGate(t *testing.T) {
@@ -64,19 +75,19 @@ func TestHandler_authGate(t *testing.T) {
 	h := NewHandler(nil)
 
 	cases := []struct {
-		name     string
-		role     string
-		wantCode connect.Code
+		name        string
+		permissions []string
+		wantCode    connect.Code
 	}{
-		{"viewer role is rejected", "VIEWER", connect.CodePermissionDenied},
-		{"empty role is rejected", "", connect.CodePermissionDenied},
+		{"caller without site permissions is rejected", []string{authz.PermFleetRead}, connect.CodePermissionDenied},
+		{"caller with no permissions is rejected", nil, connect.CodePermissionDenied},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx := authn.SetInfo(t.Context(), &session.Info{Role: tc.role})
+			ctx := ctxWithPermissions(t, 1, tc.permissions...)
 
 			_, err := h.ListBuildings(ctx, connect.NewRequest(&pb.ListBuildingsRequest{}))
 			require.Error(t, err)
@@ -103,16 +114,25 @@ func TestHandler_unauthenticatedWithoutSession(t *testing.T) {
 	assert.Equal(t, connect.CodeUnauthenticated, fleetErr.GRPCCode)
 }
 
-func TestHandler_adminRolesPassGate(t *testing.T) {
+// TestHandler_sitePermissionsPassGate confirms that callers holding
+// the right site permission clear the gate and the body runs cleanly
+// against a real service + mock stores.
+func TestHandler_sitePermissionsPassGate(t *testing.T) {
 	t.Parallel()
 
-	for _, role := range []string{domainAuth.AdminRoleName, domainAuth.SuperAdminRoleName} {
-		t.Run(role, func(t *testing.T) {
+	cases := []struct {
+		name string
+		perm string
+	}{
+		{"PermSiteRead clears ListBuildings", authz.PermSiteRead},
+		{"PermSiteManage clears ListBuildings (caller also holds read for the call site)", authz.PermSiteManage},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)
-			// Unfiltered ListBuildings: SiteID nil, UnassignedOnly false.
 			h.buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.AssignableToTypeOf(models.ListFilter{})).Return(nil, nil)
-			ctx := authn.SetInfo(t.Context(), &session.Info{Role: role, OrganizationID: 1})
+			ctx := ctxWithPermissions(t, 1, tc.perm, authz.PermSiteRead)
 			_, err := h.handler.ListBuildings(ctx, connect.NewRequest(&pb.ListBuildingsRequest{}))
 			assert.NoError(t, err)
 		})

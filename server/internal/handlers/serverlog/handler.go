@@ -9,9 +9,9 @@ import (
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/serverlog/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/serverlog/v1/serverlogv1connect"
-	domainAuth "github.com/block/proto-fleet/server/internal/domain/auth"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/block/proto-fleet/server/internal/domain/session"
+	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 	"github.com/block/proto-fleet/server/internal/infrastructure/logging"
 )
 
@@ -31,12 +31,7 @@ func (h *Handler) ListServerLogs(
 	ctx context.Context,
 	req *connect.Request[pb.ListServerLogsRequest],
 ) (*connect.Response[pb.ListServerLogsResponse], error) {
-	info, err := session.GetInfo(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := requireAdmin(info); err != nil {
+	if _, err := middleware.RequirePermission(ctx, authz.PermServerlogRead, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
 
@@ -68,13 +63,6 @@ func (h *Handler) ListServerLogs(
 		BufferSize: int32(snap.Size),
 		Truncated:  snap.Truncated,
 	}), nil
-}
-
-func requireAdmin(info *session.Info) error {
-	if info.Role != domainAuth.AdminRoleName && info.Role != domainAuth.SuperAdminRoleName {
-		return fleeterror.NewForbiddenError("only super admins can view server logs")
-	}
-	return nil
 }
 
 func recordToProto(r logging.BufferedRecord) *pb.LogEntry {

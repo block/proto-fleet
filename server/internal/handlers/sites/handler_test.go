@@ -11,12 +11,13 @@ import (
 	"go.uber.org/mock/gomock"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/sites/v1"
-	domainAuth "github.com/block/proto-fleet/server/internal/domain/auth"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/sites"
 	"github.com/block/proto-fleet/server/internal/domain/sites/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
+	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
 // testHarness wires a real *sites.Service against mock stores so handler
@@ -51,37 +52,52 @@ func newTestHandler(t *testing.T) *testHarness {
 	}
 }
 
+// ctxWithPermissions builds a context wired with session.Info and the
+// supplied permission set so RequirePermission resolves against an
+// org-scope assignment.
+func ctxWithPermissions(t *testing.T, orgID int64, permissions ...string) context.Context {
+	t.Helper()
+	ctx := authn.SetInfo(t.Context(), &session.Info{OrganizationID: orgID})
+	eff := authz.NewEffectivePermissions([]authz.Assignment{{
+		AssignmentID: 1,
+		ScopeType:    authz.ScopeOrg,
+		Permissions:  permissions,
+	}})
+	return middleware.WithEffectivePermissions(ctx, eff)
+}
+
+// adminCtx is the workhorse for body-level tests: a caller with both
+// site:read and site:manage at org scope clears every gate this
+// package defines.
 func adminCtx(t *testing.T, orgID int64) context.Context {
 	t.Helper()
-	return authn.SetInfo(t.Context(), &session.Info{
-		Role:           domainAuth.AdminRoleName,
-		OrganizationID: orgID,
-	})
+	return ctxWithPermissions(t, orgID, authz.PermSiteRead, authz.PermSiteManage)
 }
 
 func ptrInt64(v int64) *int64 { return &v }
 
-// TestHandler_authGate covers the requireAdmin gate at the handler
-// boundary. We use a non-admin role to assert PermissionDenied.
+// TestHandler_authGate exercises the permission gate at the handler
+// boundary. Callers without the required key get PermissionDenied
+// before the body runs.
 func TestHandler_authGate(t *testing.T) {
 	t.Parallel()
 
 	h := NewHandler(nil)
 
 	cases := []struct {
-		name     string
-		role     string
-		wantCode connect.Code
+		name        string
+		permissions []string
+		wantCode    connect.Code
 	}{
-		{"viewer role is rejected", "VIEWER", connect.CodePermissionDenied},
-		{"empty role is rejected", "", connect.CodePermissionDenied},
+		{"caller without site permissions is rejected", []string{authz.PermFleetRead}, connect.CodePermissionDenied},
+		{"caller with no permissions is rejected", nil, connect.CodePermissionDenied},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx := authn.SetInfo(t.Context(), &session.Info{Role: tc.role})
+			ctx := ctxWithPermissions(t, 1, tc.permissions...)
 
 			_, err := h.ListSites(ctx, connect.NewRequest(&pb.ListSitesRequest{}))
 			require.Error(t, err)
@@ -113,17 +129,25 @@ func TestHandler_unauthenticatedWithoutSession(t *testing.T) {
 	assert.Equal(t, connect.CodeUnauthenticated, fleetErr.GRPCCode)
 }
 
-// TestHandler_adminRolesPassGate confirms ADMIN/SUPER_ADMIN clear the
-// gate and the body runs cleanly against a real service + mock stores.
-func TestHandler_adminRolesPassGate(t *testing.T) {
+// TestHandler_sitePermissionsPassGate confirms callers holding the
+// appropriate site permission clear the gate and the body runs
+// cleanly against a real service + mock stores.
+func TestHandler_sitePermissionsPassGate(t *testing.T) {
 	t.Parallel()
 
-	for _, role := range []string{domainAuth.AdminRoleName, domainAuth.SuperAdminRoleName} {
-		t.Run(role, func(t *testing.T) {
+	cases := []struct {
+		name string
+		perm string
+	}{
+		{"PermSiteRead clears ListSites", authz.PermSiteRead},
+		{"PermSiteManage clears ListSites (read is implied by holding manage at the catalog level — test wires both)", authz.PermSiteManage},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)
 			h.siteStore.EXPECT().ListSites(gomock.Any(), int64(1)).Return(nil, nil)
-			ctx := authn.SetInfo(t.Context(), &session.Info{Role: role, OrganizationID: 1})
+			ctx := ctxWithPermissions(t, 1, tc.perm, authz.PermSiteRead)
 			_, err := h.handler.ListSites(ctx, connect.NewRequest(&pb.ListSitesRequest{}))
 			assert.NoError(t, err)
 		})
