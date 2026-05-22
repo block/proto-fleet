@@ -55,15 +55,16 @@ func TestCurtailmentEventCursor_RejectsNonPositiveID(t *testing.T) {
 	}
 }
 
-// TestCurtailmentEventCursor_RejectsMissingOrgID: cursors are bound to the
-// issuing org so tokens cannot be silently reused across tenants.
-func TestCurtailmentEventCursor_RejectsMissingOrgID(t *testing.T) {
+// TestCurtailmentEventCursor_LegacyMissingOrgIDRestartsFromFirstPage: a
+// pre-OrgID-binding token (still in flight from before the cross-list-binding
+// guard landed) must restart from the first page rather than reject, so a
+// long-lived pagination loop that decoded a stale token recovers transparently.
+func TestCurtailmentEventCursor_LegacyMissingOrgIDRestartsFromFirstPage(t *testing.T) {
 	t.Parallel()
 	token := base64.StdEncoding.EncodeToString([]byte(`{"id":123}`))
-	_, err := decodeCurtailmentEventCursor(token)
-	require.Error(t, err)
-	assert.True(t, fleeterror.IsInvalidArgumentError(err))
-	assert.Contains(t, err.Error(), "org_id must be > 0")
+	decoded, err := decodeCurtailmentEventCursor(token)
+	require.NoError(t, err)
+	assert.Nil(t, decoded, "legacy token without org_id should restart from first page")
 }
 
 // TestCurtailmentEventCursor_RejectsBadEncoding: the proto-side max_len
