@@ -24,6 +24,9 @@ func New(db DBTX) *Queries {
 func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	q := Queries{db: db}
 	var err error
+	if q.acquireReconcileLockStmt, err = db.PrepareContext(ctx, acquireReconcileLock); err != nil {
+		return nil, fmt.Errorf("error preparing query AcquireReconcileLock: %w", err)
+	}
 	if q.addDevicesToDeviceSetStmt, err = db.PrepareContext(ctx, addDevicesToDeviceSet); err != nil {
 		return nil, fmt.Errorf("error preparing query AddDevicesToDeviceSet: %w", err)
 	}
@@ -470,9 +473,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getRoleByIDStmt, err = db.PrepareContext(ctx, getRoleByID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetRoleByID: %w", err)
-	}
-	if q.getRoleByNameStmt, err = db.PrepareContext(ctx, getRoleByName); err != nil {
-		return nil, fmt.Errorf("error preparing query GetRoleByName: %w", err)
 	}
 	if q.getRunningPowerTargetScheduleOverlapsStmt, err = db.PrepareContext(ctx, getRunningPowerTargetScheduleOverlaps); err != nil {
 		return nil, fmt.Errorf("error preparing query GetRunningPowerTargetScheduleOverlaps: %w", err)
@@ -989,6 +989,11 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 
 func (q *Queries) Close() error {
 	var err error
+	if q.acquireReconcileLockStmt != nil {
+		if cerr := q.acquireReconcileLockStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing acquireReconcileLockStmt: %w", cerr)
+		}
+	}
 	if q.addDevicesToDeviceSetStmt != nil {
 		if cerr := q.addDevicesToDeviceSetStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing addDevicesToDeviceSetStmt: %w", cerr)
@@ -1732,11 +1737,6 @@ func (q *Queries) Close() error {
 	if q.getRoleByIDStmt != nil {
 		if cerr := q.getRoleByIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getRoleByIDStmt: %w", cerr)
-		}
-	}
-	if q.getRoleByNameStmt != nil {
-		if cerr := q.getRoleByNameStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing getRoleByNameStmt: %w", cerr)
 		}
 	}
 	if q.getRunningPowerTargetScheduleOverlapsStmt != nil {
@@ -2628,6 +2628,7 @@ func (q *Queries) queryRow(ctx context.Context, stmt *sql.Stmt, query string, ar
 type Queries struct {
 	db                                                  DBTX
 	tx                                                  *sql.Tx
+	acquireReconcileLockStmt                            *sql.Stmt
 	addDevicesToDeviceSetStmt                           *sql.Stmt
 	adminResetUserPasswordStmt                          *sql.Stmt
 	allDevicesBelongToOrgStmt                           *sql.Stmt
@@ -2777,7 +2778,6 @@ type Queries struct {
 	getRackInfoBatchStmt                                *sql.Stmt
 	getRackSlotsStmt                                    *sql.Stmt
 	getRoleByIDStmt                                     *sql.Stmt
-	getRoleByNameStmt                                   *sql.Stmt
 	getRunningPowerTargetScheduleOverlapsStmt           *sql.Stmt
 	getScheduleStmt                                     *sql.Stmt
 	getScheduleByIDForProcessorStmt                     *sql.Stmt
@@ -2954,6 +2954,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 	return &Queries{
 		db:                                                  tx,
 		tx:                                                  tx,
+		acquireReconcileLockStmt:                            q.acquireReconcileLockStmt,
 		addDevicesToDeviceSetStmt:                           q.addDevicesToDeviceSetStmt,
 		adminResetUserPasswordStmt:                          q.adminResetUserPasswordStmt,
 		allDevicesBelongToOrgStmt:                           q.allDevicesBelongToOrgStmt,
@@ -3103,7 +3104,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getRackInfoBatchStmt:                                q.getRackInfoBatchStmt,
 		getRackSlotsStmt:                                    q.getRackSlotsStmt,
 		getRoleByIDStmt:                                     q.getRoleByIDStmt,
-		getRoleByNameStmt:                                   q.getRoleByNameStmt,
 		getRunningPowerTargetScheduleOverlapsStmt:           q.getRunningPowerTargetScheduleOverlapsStmt,
 		getScheduleStmt:                                     q.getScheduleStmt,
 		getScheduleByIDForProcessorStmt:                     q.getScheduleByIDForProcessorStmt,

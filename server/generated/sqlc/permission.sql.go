@@ -11,6 +11,23 @@ import (
 	"github.com/lib/pq"
 )
 
+const acquireReconcileLock = `-- name: AcquireReconcileLock :exec
+
+SELECT pg_advisory_xact_lock(hashtextextended('authz:builtin_reconcile', 0))
+`
+
+// Permission catalog queries. The catalog is reconciled at startup
+// against domain/authz/catalog.go via domain/authz/reconcile.go.
+// Transaction-scoped advisory lock that serializes concurrent boot
+// reconciliations. Released automatically on commit/rollback. The key
+// is a stable hash of the lock's identifier so it does not collide
+// with locks taken by other parts of the system (see schedule.sql for
+// the same pattern).
+func (q *Queries) AcquireReconcileLock(ctx context.Context) error {
+	_, err := q.exec(ctx, q.acquireReconcileLockStmt, acquireReconcileLock)
+	return err
+}
+
 const assignPermissionToRole = `-- name: AssignPermissionToRole :exec
 INSERT INTO role_permission (role_id, permission_id)
 VALUES ($1, $2)
@@ -95,14 +112,11 @@ func (q *Queries) GetPermissionsByKeys(ctx context.Context, keys []string) ([]Pe
 }
 
 const listPermissions = `-- name: ListPermissions :many
-
 SELECT id, key, description, created_at
 FROM permission
 ORDER BY key
 `
 
-// Permission catalog queries. The catalog is reconciled at startup
-// against domain/authz/catalog.go via domain/authz/reconcile.go.
 func (q *Queries) ListPermissions(ctx context.Context) ([]Permission, error) {
 	rows, err := q.query(ctx, q.listPermissionsStmt, listPermissions)
 	if err != nil {

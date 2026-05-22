@@ -96,28 +96,6 @@ func (q *Queries) GetRoleByID(ctx context.Context, id int64) (Role, error) {
 	return i, err
 }
 
-const getRoleByName = `-- name: GetRoleByName :one
-SELECT id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key, organization_id FROM role
-WHERE name = $1
-`
-
-func (q *Queries) GetRoleByName(ctx context.Context, name string) (Role, error) {
-	row := q.queryRow(ctx, q.getRoleByNameStmt, getRoleByName, name)
-	var i Role
-	err := row.Scan(
-		&i.ID,
-		&i.Name,
-		&i.Description,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.DeletedAt,
-		&i.IsBuiltin,
-		&i.BuiltinKey,
-		&i.OrganizationID,
-	)
-	return i, err
-}
-
 const listActiveOrganizationIDs = `-- name: ListActiveOrganizationIDs :many
 SELECT id
 FROM organization

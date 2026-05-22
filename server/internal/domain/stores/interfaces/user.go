@@ -26,7 +26,6 @@ type UserStore interface { //nolint:interfacebloat // GetUserByIDForUpdate is a 
 type UserManagementStore interface { //nolint:interfacebloat // user mgmt store covers create + lookup + role lookup; splitting would fragment the call sites that need them together
 	CreateUser(ctx context.Context, externalUserID string, username string, passwordHash string, requiresPasswordChange bool) (int64, error)
 	CreateUserOrganizationRole(ctx context.Context, userID int64, organizationID int64, roleID int64) error
-	GetRoleByName(ctx context.Context, roleName string) (Role, error)
 	GetBuiltinRoleForOrg(ctx context.Context, organizationID int64, builtinKey string) (Role, error)
 	UpdateUserPasswordAndClearPasswordChangeFlag(ctx context.Context, userID int64, passwordHash string) error
 	AdminResetUserPassword(ctx context.Context, userID int64, passwordHash string) error

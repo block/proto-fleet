@@ -1,6 +1,14 @@
 -- Permission catalog queries. The catalog is reconciled at startup
 -- against domain/authz/catalog.go via domain/authz/reconcile.go.
 
+-- name: AcquireReconcileLock :exec
+-- Transaction-scoped advisory lock that serializes concurrent boot
+-- reconciliations. Released automatically on commit/rollback. The key
+-- is a stable hash of the lock's identifier so it does not collide
+-- with locks taken by other parts of the system (see schedule.sql for
+-- the same pattern).
+SELECT pg_advisory_xact_lock(hashtextextended('authz:builtin_reconcile', 0));
+
 -- name: ListPermissions :many
 SELECT *
 FROM permission

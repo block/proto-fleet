@@ -246,21 +246,6 @@ func (s *SQLUserStore) GetBuiltinRoleForOrg(ctx context.Context, organizationID 
 	}, nil
 }
 
-func (s *SQLUserStore) GetRoleByName(ctx context.Context, roleName string) (interfaces.Role, error) {
-	role, err := s.getQueries(ctx).GetRoleByName(ctx, roleName)
-	if err != nil {
-		return interfaces.Role{}, err
-	}
-
-	return interfaces.Role{
-		ID:          role.ID,
-		Name:        role.Name,
-		Description: role.Description.String,
-		CreatedAt:   role.CreatedAt,
-		UpdatedAt:   role.UpdatedAt,
-	}, nil
-}
-
 func (s *SQLUserStore) UpdateUserPasswordAndClearPasswordChangeFlag(ctx context.Context, userID int64, passwordHash string) error {
 	return s.getQueries(ctx).UpdateUserPasswordAndFlag(ctx, sqlc.UpdateUserPasswordAndFlagParams{
 		PasswordHash: passwordHash,

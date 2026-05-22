@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	dbinfra "github.com/block/proto-fleet/server/internal/infrastructure/db"
 )
 
 // Reconcile converges database state for the permission catalog and
@@ -42,40 +43,35 @@ import (
 // dropped from the permission table — that is a deliberate manual
 // migration because deleting a catalog row would also drop every
 // role_permission referencing it.
-func Reconcile(ctx context.Context, db *sql.DB) error {
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("authz reconcile: begin tx: %w", err)
-	}
-	//goland:noinspection GoUnhandledErrorResult
-	defer tx.Rollback()
-
-	if _, err := tx.ExecContext(ctx,
-		`SELECT pg_advisory_xact_lock(hashtextextended('authz:builtin_reconcile', 0))`,
-	); err != nil {
-		return fmt.Errorf("authz reconcile: acquire advisory lock: %w", err)
-	}
-
-	q := sqlc.New(tx)
-
-	if err := upsertCatalog(ctx, q); err != nil {
-		return fmt.Errorf("authz reconcile: upsert catalog: %w", err)
-	}
-
-	orgIDs, err := q.ListActiveOrganizationIDs(ctx)
-	if err != nil {
-		return fmt.Errorf("authz reconcile: list orgs: %w", err)
-	}
-	for _, orgID := range orgIDs {
-		if _, err := seedOrgBuiltins(ctx, q, orgID); err != nil {
-			return fmt.Errorf("authz reconcile: org %d: %w", orgID, err)
+//
+// Retry semantics: the work runs through db.WithTransactionNoResult,
+// which retries on transient Postgres errors (serialization failures,
+// connection-reset on commit) using the project's standard backoff.
+// The advisory lock is acquired inside the same transaction via the
+// AcquireReconcileLock sqlc query, so a retry re-acquires it cleanly.
+// Callers must wrap their context with a deadline; without one a
+// stuck reconcile would block boot indefinitely.
+func Reconcile(ctx context.Context, conn *sql.DB) error {
+	return dbinfra.WithTransactionNoResult(ctx, conn, func(q *sqlc.Queries) error {
+		if err := q.AcquireReconcileLock(ctx); err != nil {
+			return fmt.Errorf("authz reconcile: acquire advisory lock: %w", err)
 		}
-	}
 
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("authz reconcile: commit: %w", err)
-	}
-	return nil
+		if err := upsertCatalog(ctx, q); err != nil {
+			return fmt.Errorf("authz reconcile: upsert catalog: %w", err)
+		}
+
+		orgIDs, err := q.ListActiveOrganizationIDs(ctx)
+		if err != nil {
+			return fmt.Errorf("authz reconcile: list orgs: %w", err)
+		}
+		for _, orgID := range orgIDs {
+			if _, err := seedOrgBuiltins(ctx, q, orgID); err != nil {
+				return fmt.Errorf("authz reconcile: org %d: %w", orgID, err)
+			}
+		}
+		return nil
+	})
 }
 
 // SeedOrgBuiltins ensures the three built-in role rows exist for an

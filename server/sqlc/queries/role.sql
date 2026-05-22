@@ -21,10 +21,6 @@ FROM role
 WHERE id = $1
   AND deleted_at IS NULL;
 
--- name: GetRoleByName :one
-SELECT * FROM role
-WHERE name = $1;
-
 -- name: ListRoles :many
 SELECT *
 FROM role

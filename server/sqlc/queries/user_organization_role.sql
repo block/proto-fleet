@@ -91,29 +91,44 @@ WHERE uor.user_id = $1
 ORDER BY uor.id, p.key;
 
 -- name: CountOrgScopeSuperAdminsExcludingAssignment :one
--- Last-SUPER_ADMIN guard. Returns the number of active org-scope
+-- Last-SUPER_ADMIN guard. Returns the number of LIVE org-scope
 -- SUPER_ADMIN assignments in the org, excluding the given assignment
 -- id. UnassignRole and DeactivateUser refuse to proceed when this
--- would drop to zero so an org can never lose its last SUPER_ADMIN.
+-- would drop to zero so an org can never lose its last usable
+-- SUPER_ADMIN.
+--
+-- "Live" means: the assignment row, its role row, AND the underlying
+-- user are all non-deleted. Without the user join, a deactivated
+-- SUPER_ADMIN user would still preserve the count (their assignment
+-- row survives soft-delete-of-user), and the guard would let a
+-- caller remove the last actually-usable SUPER_ADMIN.
 SELECT COUNT(*)::BIGINT AS super_admin_count
 FROM user_organization_role uor
-JOIN role r ON r.id = uor.role_id
-           AND r.organization_id = uor.organization_id
+JOIN role r   ON r.id = uor.role_id
+             AND r.organization_id = uor.organization_id
+JOIN "user" u ON u.id = uor.user_id
 WHERE uor.organization_id = $1
   AND uor.scope_type = 'org'
   AND uor.deleted_at IS NULL
+  AND r.deleted_at IS NULL
+  AND u.deleted_at IS NULL
   AND r.builtin_key = 'SUPER_ADMIN'
   AND uor.id != $2;
 
 -- name: CountOrgScopeSuperAdminsExcludingUser :one
--- Same guard, but for DeactivateUser: counts SUPER_ADMINs in the org
--- excluding any assignment held by the user being deactivated.
+-- Same guard, but for DeactivateUser: counts live SUPER_ADMINs in
+-- the org excluding any assignment held by the user being
+-- deactivated. Same liveness filters as above so a deactivated user
+-- never inflates the count.
 SELECT COUNT(*)::BIGINT AS super_admin_count
 FROM user_organization_role uor
-JOIN role r ON r.id = uor.role_id
-           AND r.organization_id = uor.organization_id
+JOIN role r   ON r.id = uor.role_id
+             AND r.organization_id = uor.organization_id
+JOIN "user" u ON u.id = uor.user_id
 WHERE uor.organization_id = $1
   AND uor.scope_type = 'org'
   AND uor.deleted_at IS NULL
+  AND r.deleted_at IS NULL
+  AND u.deleted_at IS NULL
   AND r.builtin_key = 'SUPER_ADMIN'
   AND uor.user_id != $2;
