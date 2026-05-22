@@ -23,8 +23,7 @@ type PermissionResolver struct {
 // NewPermissionResolver wires the resolver to the application's
 // connection pool. The connection is used directly (not via the
 // transaction wrapper) because LoadEffective is a read-only single
-// query — the request middleware calls it before any handler work,
-// so there's no surrounding transaction to participate in.
+// query called per request, before any handler transaction begins.
 func NewPermissionResolver(conn *sql.DB) *PermissionResolver {
 	return &PermissionResolver{conn: conn}
 }
@@ -66,34 +65,33 @@ func assignmentsFromRows(rows []sqlc.ListEffectivePermissionsForUserRow) *Effect
 		return NewEffectivePermissions(nil)
 	}
 
-	var (
-		assignments []Assignment
-		current     Assignment
-		started     bool
-	)
-	flush := func() {
-		if started {
-			assignments = append(assignments, current)
-		}
-	}
+	assignments := []Assignment{newAssignmentFromRow(rows[0])}
 	for _, row := range rows {
-		if !started || row.AssignmentID != current.AssignmentID {
-			flush()
-			current = Assignment{
-				AssignmentID: row.AssignmentID,
-				ScopeType:    ScopeType(row.ScopeType),
-			}
-			if row.ScopeID.Valid {
-				site := row.ScopeID.Int64
-				current.SiteID = &site
-			}
-			started = true
+		current := &assignments[len(assignments)-1]
+		if row.AssignmentID != current.AssignmentID {
+			assignments = append(assignments, newAssignmentFromRow(row))
+			current = &assignments[len(assignments)-1]
 		}
 		if row.PermissionKey.Valid {
 			current.Permissions = append(current.Permissions, row.PermissionKey.String)
 		}
 	}
-	flush()
 
 	return NewEffectivePermissions(assignments)
+}
+
+// newAssignmentFromRow seeds an Assignment from a row's scope columns
+// only. The permission column is appended by the caller inside the
+// loop so the same code path handles both first-row and same-assignment
+// rows uniformly.
+func newAssignmentFromRow(row sqlc.ListEffectivePermissionsForUserRow) Assignment {
+	a := Assignment{
+		AssignmentID: row.AssignmentID,
+		ScopeType:    ScopeType(row.ScopeType),
+	}
+	if row.ScopeID.Valid {
+		site := row.ScopeID.Int64
+		a.SiteID = &site
+	}
+	return a
 }

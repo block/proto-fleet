@@ -39,8 +39,8 @@ func effectivePermissionsFromContext(ctx context.Context) *authz.EffectivePermis
 
 // RequirePermission gates a handler on the named permission key
 // against the caller-supplied resource context. It is the runtime
-// counterpart of RequireAdmin (which it replaces handler-by-handler in
-// U7).
+// counterpart of the existing RequireAdmin gate, which it replaces
+// handler-by-handler as call sites migrate to the permission model.
 //
 // Returns the session.Info for handlers that need the caller's
 // identity, or one of:

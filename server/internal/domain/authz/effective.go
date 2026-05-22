@@ -98,28 +98,14 @@ func NewEffectivePermissions(assignments []Assignment) *EffectivePermissions {
 
 // Has reports whether the user is allowed to perform the named action
 // against the given resource context. See the type doc for narrowing
-// semantics.
-//
-// Empty EffectivePermissions deny everything; this is the fail-closed
-// default the middleware relies on when the resolver returns no rows
-// (deactivated user, soft-deleted assignments, no rows in the join).
+// semantics. An empty / nil EffectivePermissions denies everything.
 func (e *EffectivePermissions) Has(key string, rc ResourceContext) bool {
 	if e == nil {
 		return false
 	}
-
 	if rc.SiteID == nil {
-		// Org-scoped action: only org-scope grants can satisfy it.
-		// Site-scope assignments have no site to "narrow on" for this
-		// request, so they cannot grant the action.
 		return e.orgScope[key]
 	}
-
-	// Site-scoped action. If the user has ANY site-scope assignment
-	// at this site, narrowing kicks in: only the union of site-scope
-	// permissions at this site is consulted; the org-scope grant is
-	// shadowed at this site. Otherwise (no site-scope assignment at
-	// this site), fall back to the org-scope grant.
 	if siteKeys, ok := e.bySite[*rc.SiteID]; ok {
 		return siteKeys[key]
 	}

@@ -22,7 +22,7 @@ func TestResolver_OrgScopeSuperAdminGetsFullCatalog(t *testing.T) {
 	userID := insertTestUser(t, db)
 	require.NoError(t, authz.Reconcile(ctx, db))
 	superAdminID := getBuiltinRoleID(t, db, orgID, "SUPER_ADMIN")
-	assignAssignment(t, db, userID, orgID, superAdminID, "org", sql.NullInt64{})
+	assignAssignment(t, db, userID, orgID, superAdminID, authz.ScopeOrg, sql.NullInt64{})
 
 	resolver := authz.NewPermissionResolver(db)
 	eff, err := resolver.LoadEffective(ctx, userID, orgID)
@@ -54,7 +54,7 @@ func TestResolver_SiteScopeFieldTechBoundsAtAssignedSite(t *testing.T) {
 	userID := insertTestUser(t, db)
 	require.NoError(t, authz.Reconcile(ctx, db))
 	fieldTechID := getBuiltinRoleID(t, db, orgID, "FIELD_TECH")
-	assignAssignment(t, db, userID, orgID, fieldTechID, "site",
+	assignAssignment(t, db, userID, orgID, fieldTechID, authz.ScopeSite,
 		sql.NullInt64{Int64: siteA, Valid: true})
 
 	resolver := authz.NewPermissionResolver(db)
@@ -84,8 +84,8 @@ func TestResolver_NarrowingFromTwoAssignments(t *testing.T) {
 
 	adminID := getBuiltinRoleID(t, db, orgID, "ADMIN")
 	fieldTechID := getBuiltinRoleID(t, db, orgID, "FIELD_TECH")
-	assignAssignment(t, db, userID, orgID, adminID, "org", sql.NullInt64{})
-	assignAssignment(t, db, userID, orgID, fieldTechID, "site",
+	assignAssignment(t, db, userID, orgID, adminID, authz.ScopeOrg, sql.NullInt64{})
+	assignAssignment(t, db, userID, orgID, fieldTechID, authz.ScopeSite,
 		sql.NullInt64{Int64: siteA, Valid: true})
 
 	resolver := authz.NewPermissionResolver(db)
@@ -118,7 +118,7 @@ func TestResolver_ZeroPermissionSiteAssignmentStillNarrows(t *testing.T) {
 
 	// Org-scope ADMIN grants miner:reboot everywhere by default.
 	adminID := getBuiltinRoleID(t, db, orgID, "ADMIN")
-	assignAssignment(t, db, userID, orgID, adminID, "org", sql.NullInt64{})
+	assignAssignment(t, db, userID, orgID, adminID, authz.ScopeOrg, sql.NullInt64{})
 
 	// Create a custom role with zero permissions ("Site Lockdown")
 	// and assign it at site A. The LEFT JOIN in the resolver SQL must
@@ -126,7 +126,7 @@ func TestResolver_ZeroPermissionSiteAssignmentStillNarrows(t *testing.T) {
 	// it, narrowing at site A would silently fall back to ADMIN's
 	// miner:reboot.
 	lockdownID := createEmptyCustomRole(t, db, orgID, "Site Lockdown")
-	assignAssignment(t, db, userID, orgID, lockdownID, "site",
+	assignAssignment(t, db, userID, orgID, lockdownID, authz.ScopeSite,
 		sql.NullInt64{Int64: siteA, Valid: true})
 
 	resolver := authz.NewPermissionResolver(db)
@@ -154,7 +154,7 @@ func TestResolver_SoftDeletedAssignmentIgnored(t *testing.T) {
 	userID := insertTestUser(t, db)
 	require.NoError(t, authz.Reconcile(ctx, db))
 	adminID := getBuiltinRoleID(t, db, orgID, "ADMIN")
-	assignmentID := assignAssignment(t, db, userID, orgID, adminID, "org", sql.NullInt64{})
+	assignmentID := assignAssignment(t, db, userID, orgID, adminID, authz.ScopeOrg, sql.NullInt64{})
 
 	resolver := authz.NewPermissionResolver(db)
 	eff, err := resolver.LoadEffective(ctx, userID, orgID)
@@ -197,25 +197,13 @@ func siteCtx(id int64) authz.ResourceContext {
 	return authz.ResourceContext{SiteID: &id}
 }
 
-func insertTestSite(t *testing.T, db *sql.DB, orgID int64) int64 {
-	t.Helper()
-	var id int64
-	require.NoError(t,
-		db.QueryRowContext(t.Context(),
-			`INSERT INTO site (org_id, name) VALUES ($1, $2) RETURNING id`,
-			orgID, uniqueToken("site"),
-		).Scan(&id),
-	)
-	return id
-}
-
-func assignAssignment(t *testing.T, db *sql.DB, userID, orgID, roleID int64, scopeType string, scopeID sql.NullInt64) int64 {
+func assignAssignment(t *testing.T, db *sql.DB, userID, orgID, roleID int64, scopeType authz.ScopeType, scopeID sql.NullInt64) int64 {
 	t.Helper()
 	row, err := sqlc.New(db).AssignRole(t.Context(), sqlc.AssignRoleParams{
 		UserID:         userID,
 		OrganizationID: orgID,
 		RoleID:         roleID,
-		ScopeType:      scopeType,
+		ScopeType:      string(scopeType),
 		ScopeID:        scopeID,
 	})
 	require.NoError(t, err)
