@@ -386,8 +386,11 @@ export class MinersPage extends BasePage {
 
   async continueBulkRenameOverwriteWarningIfVisible() {
     const overwriteDialog = this.page.getByTestId("bulk-rename-overwrite-dialog");
-    if (await overwriteDialog.isVisible().catch(() => false)) {
+    try {
+      await overwriteDialog.waitFor({ state: "visible", timeout: DEFAULT_INTERVAL });
       await overwriteDialog.getByRole("button", { name: "Yes, continue", exact: true }).click();
+    } catch {
+      // Dialog not present, continue
     }
   }
 

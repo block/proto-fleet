@@ -141,6 +141,7 @@ test.describe("Miner Settings Actions", () => {
       test.expect(requestBody.deviceSelector.includeDevices.deviceIdentifiers).toHaveLength(2);
       test.expect(JSON.stringify(requestBody)).toContain(updatedWorkerNamePrefix);
       test.expect(response.status()).toBe(200);
+      await minersPage.validateTitleNotVisible("Update worker names");
     });
   });
 
