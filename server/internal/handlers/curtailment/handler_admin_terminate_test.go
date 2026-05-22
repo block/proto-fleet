@@ -235,6 +235,32 @@ func TestHandler_AdminTerminateEvent_StateConflictMapsFailedPrecondition(t *test
 	assert.Equal(t, connect.CodeFailedPrecondition, fleetErr.GRPCCode)
 }
 
+// TestHandler_AdminTerminateEvent_ActiveEventMapsFailedPrecondition: an
+// active event (still curtailing live miners) cannot be admin-terminated
+// directly. The service surfaces ErrCurtailmentAdminTerminateActiveEvent and
+// the handler must map that to FailedPrecondition so the operator gets a
+// retry-able signal to call StopCurtailment first.
+func TestHandler_AdminTerminateEvent_ActiveEventMapsFailedPrecondition(t *testing.T) {
+	t.Parallel()
+	store := &adminTerminateStubStore{
+		err: interfaces.ErrCurtailmentAdminTerminateActiveEvent,
+	}
+	h := NewHandler(domainCurtailment.NewService(store))
+
+	_, err := h.AdminTerminateEvent(
+		adminTerminateSessionCtx(42, "ADMIN"),
+		connect.NewRequest(&pb.AdminTerminateEventRequest{
+			EventUuid:   uuid.New().String(),
+			TargetState: pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_CANCELLED,
+			Reason:      "test",
+		}),
+	)
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeFailedPrecondition, fleetErr.GRPCCode)
+}
+
 // TestHandler_AdminTerminateEvent_SuperAdminAllowed: SUPER_ADMIN clears
 // the role gate. Pairs with the OPERATOR rejection.
 func TestHandler_AdminTerminateEvent_SuperAdminAllowed(t *testing.T) {
