@@ -139,7 +139,10 @@ func TestResolver_ZeroPermissionSiteAssignmentStillNarrows(t *testing.T) {
 		"narrowing applies to every action key when the narrower role grants nothing")
 	require.True(t, eff.Has(authz.PermMinerReboot, siteCtx(siteB)),
 		"org grant still applies at site B (no narrower assignment)")
-	require.True(t, eff.Has(authz.PermUserManage, authz.ResourceContext{}),
+	// site:manage is in ADMIN's seed formula (AllPermissions() minus
+	// user:* and role:manage); the org-scope grant must satisfy this
+	// org-scoped action regardless of the empty site-scope assignment.
+	require.True(t, eff.Has(authz.PermSiteManage, authz.ResourceContext{}),
 		"org-scoped action satisfied by the org-scope ADMIN")
 }
 
