@@ -1,0 +1,198 @@
+package middleware_test
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"testing"
+
+	"connectrpc.com/authn"
+	"connectrpc.com/connect"
+	"github.com/stretchr/testify/require"
+
+	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/session"
+	"github.com/block/proto-fleet/server/internal/handlers/middleware"
+)
+
+// ctxWithInfo and ctxWithEffective build the request context the auth
+// interceptor would produce, so the middleware unit tests can exercise
+// the gate without spinning up Connect or the resolver.
+
+func ctxWithInfo(info *session.Info) context.Context {
+	return authn.SetInfo(context.Background(), info)
+}
+
+func ctxWithEffective(t *testing.T, info *session.Info, assignments ...authz.Assignment) context.Context {
+	t.Helper()
+	ctx := ctxWithInfo(info)
+	return middleware.WithEffectivePermissions(ctx, authz.NewEffectivePermissions(assignments))
+}
+
+func userInfo() *session.Info {
+	return &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		SessionID:      "sess-1",
+		UserID:         1,
+		OrganizationID: 1,
+		ExternalUserID: "user-1",
+		Username:       "alice",
+	}
+}
+
+func orgAssignment(perms ...string) authz.Assignment {
+	return authz.Assignment{
+		AssignmentID: 1,
+		ScopeType:    authz.ScopeOrg,
+		Permissions:  perms,
+	}
+}
+
+func siteAssignment(siteID int64, perms ...string) authz.Assignment {
+	return authz.Assignment{
+		AssignmentID: 2,
+		ScopeType:    authz.ScopeSite,
+		SiteID:       &siteID,
+		Permissions:  perms,
+	}
+}
+
+func siteRC(id int64) authz.ResourceContext {
+	return authz.ResourceContext{SiteID: &id}
+}
+
+func TestRequirePermission_AllowsWhenEffectiveHasKey(t *testing.T) {
+	ctx := ctxWithEffective(t, userInfo(), orgAssignment(authz.PermMinerReboot))
+
+	info, err := middleware.RequirePermission(ctx, authz.PermMinerReboot, authz.ResourceContext{})
+	require.NoError(t, err)
+	require.Equal(t, "alice", info.Username)
+}
+
+func TestRequirePermission_DeniesWithStructuredPayload(t *testing.T) {
+	ctx := ctxWithEffective(t, userInfo(), orgAssignment(authz.PermFleetRead))
+
+	info, err := middleware.RequirePermission(ctx, authz.PermMinerReboot, siteRC(42))
+	require.Error(t, err)
+	require.Nil(t, info)
+	require.Equal(t, connect.CodePermissionDenied, connectCode(t, err))
+
+	// Payload shape: exactly {"required": "...", "scope": {"site_id": N}}.
+	// No assignment ids, role names, or effective-permission lists.
+	var payload struct {
+		Required string         `json:"required"`
+		Scope    map[string]any `json:"scope"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(connectMessage(t, err)), &payload))
+	require.Equal(t, authz.PermMinerReboot, payload.Required)
+	require.Equal(t, map[string]any{"site_id": float64(42)}, payload.Scope,
+		"scope echoes the caller's ResourceContext; site_id stored as JSON number")
+}
+
+func TestRequirePermission_DenialPayloadForOrgScopedAction(t *testing.T) {
+	ctx := ctxWithEffective(t, userInfo() /* no perms */)
+
+	_, err := middleware.RequirePermission(ctx, authz.PermUserManage, authz.ResourceContext{})
+	require.Error(t, err)
+
+	var payload struct {
+		Required string         `json:"required"`
+		Scope    map[string]any `json:"scope"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(connectMessage(t, err)), &payload))
+	require.Equal(t, authz.PermUserManage, payload.Required)
+	require.Equal(t, map[string]any{}, payload.Scope,
+		"org-scoped request produces an empty scope object; no nil, no null, no site_id key")
+}
+
+func TestRequirePermission_UnauthenticatedWhenNoSessionInfo(t *testing.T) {
+	// Bare context — no session.Info attached. Mimics an unauthenticated
+	// request reaching the gate by mistake.
+	_, err := middleware.RequirePermission(context.Background(), authz.PermFleetRead, authz.ResourceContext{})
+	require.Error(t, err)
+	require.Equal(t, connect.CodeUnauthenticated, connectCode(t, err))
+}
+
+func TestRequirePermission_FailClosedOnMissingEffective(t *testing.T) {
+	// session.Info present, but no EffectivePermissions stashed. This is
+	// a wiring bug — the interceptor failed to populate the value. The
+	// gate must NOT default to ALLOW.
+	ctx := ctxWithInfo(userInfo())
+	_, err := middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{})
+	require.Error(t, err)
+	require.Equal(t, connect.CodeInternal, connectCode(t, err),
+		"missing EffectivePermissions must surface as Internal, not ALLOW and not PermissionDenied")
+}
+
+func TestRequirePermission_SchedulerShortCircuitsToAllow(t *testing.T) {
+	// Synthesized internal actor — no UserID, no EffectivePermissions
+	// on context — must short-circuit to ALLOW without touching the
+	// resolver state.
+	info := &session.Info{
+		AuthMethod:     session.AuthMethodSession,
+		Actor:          session.ActorScheduler,
+		OrganizationID: 1,
+	}
+	ctx := ctxWithInfo(info) // deliberately no WithEffectivePermissions
+
+	got, err := middleware.RequirePermission(ctx, authz.PermMinerReboot, siteRC(99))
+	require.NoError(t, err, "ActorScheduler must short-circuit before the EffectivePermissions check")
+	require.Equal(t, session.ActorScheduler, got.Actor)
+}
+
+func TestRequirePermission_CurtailmentReconcilerActorAlsoAllowed(t *testing.T) {
+	// Any non-empty Actor short-circuits — the gate trusts internal
+	// orchestrators in general, not just the scheduler.
+	info := &session.Info{
+		AuthMethod: session.AuthMethodSession,
+		Actor:      session.ActorCurtailment,
+	}
+	ctx := ctxWithInfo(info)
+
+	_, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, authz.ResourceContext{})
+	require.NoError(t, err)
+}
+
+func TestRequirePermission_NarrowingAtSiteScope(t *testing.T) {
+	// User has org-scope ADMIN (holds miner:reboot) plus a site-scope
+	// FIELD_TECH at site 1 (no miner:reboot). At site 1, narrowing
+	// applies and miner:reboot is denied. At site 2, the org grant
+	// uncovered applies and miner:reboot is allowed.
+	ctx := ctxWithEffective(t, userInfo(),
+		orgAssignment(authz.PermFleetRead, authz.PermMinerReboot),
+		siteAssignment(1, authz.PermFleetRead, authz.PermMinerBlinkLED),
+	)
+
+	_, err := middleware.RequirePermission(ctx, authz.PermMinerReboot, siteRC(1))
+	require.Error(t, err, "narrowing: site 1 FIELD_TECH overrides org ADMIN at that site")
+	require.Equal(t, connect.CodePermissionDenied, connectCode(t, err))
+
+	_, err = middleware.RequirePermission(ctx, authz.PermMinerReboot, siteRC(2))
+	require.NoError(t, err, "site 2 falls back to the org grant")
+}
+
+// ---------------------------------------------------------------
+// helpers
+// ---------------------------------------------------------------
+
+// connectCode extracts the Connect status code from a FleetError. The
+// fleeterror.FleetError type is the one all middleware errors wrap, so
+// the code is reachable without unwrapping into Connect's error type.
+func connectCode(t *testing.T, err error) connect.Code {
+	t.Helper()
+	var fe fleeterror.FleetError
+	require.True(t, errors.As(err, &fe), "expected FleetError, got %T", err)
+	return fe.GRPCCode
+}
+
+// connectMessage returns the FleetError's debug message, which is what
+// the middleware stuffs the JSON payload into. The plan specifies the
+// payload shape directly in the message body so the client can pick
+// it up via Connect's standard error.Message().
+func connectMessage(t *testing.T, err error) string {
+	t.Helper()
+	var fe fleeterror.FleetError
+	require.True(t, errors.As(err, &fe), "expected FleetError, got %T", err)
+	return fe.DebugMessage
+}
