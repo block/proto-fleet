@@ -67,7 +67,8 @@ func TestService_Update_RejectsRestoringState(t *testing.T) {
 	}
 	svc := NewService(store)
 
-	_, err := svc.Update(t.Context(), UpdateRequest{OrgID: orgID, EventUUID: eventUUID})
+	newReason := "updated"
+	_, err := svc.Update(t.Context(), UpdateRequest{OrgID: orgID, EventUUID: eventUUID, Reason: &newReason})
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
 	assert.Contains(t, err.Error(), "restoring")
@@ -96,7 +97,8 @@ func TestService_Update_RejectsTerminalState(t *testing.T) {
 		}
 		svc := NewService(store)
 
-		_, err := svc.Update(t.Context(), UpdateRequest{OrgID: orgID, EventUUID: eventUUID})
+		newReason := "updated"
+		_, err := svc.Update(t.Context(), UpdateRequest{OrgID: orgID, EventUUID: eventUUID, Reason: &newReason})
 		require.Error(t, err, "state %s must reject Update", state)
 		assert.True(t, fleeterror.IsFailedPreconditionError(err), "state %s must surface FailedPrecondition", state)
 	}
@@ -110,7 +112,8 @@ func TestService_Update_NotFoundOnUnknownUUID(t *testing.T) {
 	store := newFakeStore()
 	svc := NewService(store)
 
-	_, err := svc.Update(t.Context(), UpdateRequest{OrgID: 1, EventUUID: uuid.New()})
+	newReason := "updated"
+	_, err := svc.Update(t.Context(), UpdateRequest{OrgID: 1, EventUUID: uuid.New(), Reason: &newReason})
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsNotFoundError(err))
 }
@@ -252,6 +255,28 @@ func TestService_Update_AllowsAdminMaxDurationAboveOrgDefault(t *testing.T) {
 	assert.Equal(t, 1, store.updateOperatorFieldsCalls)
 }
 
+// TestService_Update_RejectsEmptyPatch: an Update that sets no patchable
+// field would still bump updated_at via COALESCE on the SQL side,
+// producing a misleading freshness signal for clients tracking the
+// column. Reject loudly at the service boundary instead.
+func TestService_Update_RejectsEmptyPatch(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	eventUUID := uuid.New()
+	store := newFakeStore()
+	store.eventsByUUID[eventUUID] = &models.Event{
+		ID: 1, EventUUID: eventUUID, OrgID: orgID, State: models.EventStateActive,
+	}
+	svc := NewService(store)
+
+	_, err := svc.Update(t.Context(), UpdateRequest{OrgID: orgID, EventUUID: eventUUID})
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "at least one")
+	assert.Equal(t, 0, store.updateOperatorFieldsCalls,
+		"empty patches must reject before any store call")
+}
+
 // TestService_Update_RaceLossSurfacesFailedPrecondition: the SQL-layer
 // race-loss sentinel maps to FailedPrecondition so a client retry hits
 // the same RPC instead of degrading to Internal.
@@ -266,7 +291,8 @@ func TestService_Update_RaceLossSurfacesFailedPrecondition(t *testing.T) {
 	store.updateOperatorFieldsErr = interfaces.ErrCurtailmentUpdateStateRaceLoss
 	svc := NewService(store)
 
-	_, err := svc.Update(t.Context(), UpdateRequest{OrgID: orgID, EventUUID: eventUUID})
+	newReason := "updated"
+	_, err := svc.Update(t.Context(), UpdateRequest{OrgID: orgID, EventUUID: eventUUID, Reason: &newReason})
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
 	assert.Contains(t, err.Error(), "state advanced")
@@ -285,7 +311,8 @@ func TestService_Update_PropagatesStoreError(t *testing.T) {
 	store.updateOperatorFieldsErr = errors.New("db down")
 	svc := NewService(store)
 
-	_, err := svc.Update(t.Context(), UpdateRequest{OrgID: orgID, EventUUID: eventUUID})
+	newReason := "updated"
+	_, err := svc.Update(t.Context(), UpdateRequest{OrgID: orgID, EventUUID: eventUUID, Reason: &newReason})
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "db down")
 }

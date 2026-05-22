@@ -206,10 +206,12 @@ func TestHandler_UpdateCurtailmentEvent_RejectsRestoringState(t *testing.T) {
 	store := newUpdateStubStore(models.EventStateRestoring)
 	h := NewHandler(domainCurtailment.NewService(store))
 
+	newReason := "updated"
 	_, err := h.UpdateCurtailmentEvent(
 		updateSessionCtx(42, "OPERATOR"),
 		connect.NewRequest(&pb.UpdateCurtailmentEventRequest{
 			EventUuid: store.event.EventUUID.String(),
+			Reason:    &newReason,
 		}),
 	)
 	require.Error(t, err)

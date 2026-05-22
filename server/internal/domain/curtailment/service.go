@@ -613,6 +613,18 @@ func (s *Service) replayPlanFromPersistedEvent(ctx context.Context, orgID int64,
 // Update can't tunnel past the proto validator and hit a DB CHECK.
 // Unset fields skip validation since they don't change the persisted value.
 func validateUpdateRequest(req UpdateRequest) error {
+	// Reject empty patches before any per-field validation. With every
+	// patchable field unset the SQL UPDATE still runs and bumps
+	// updated_at via COALESCE, producing a misleading freshness signal
+	// for clients tracking the column.
+	if req.Reason == nil &&
+		req.RestoreBatchSize == nil &&
+		req.RestoreBatchIntervalSec == nil &&
+		req.MaxDurationSeconds == nil {
+		return fleeterror.NewInvalidArgumentError(
+			"at least one of reason, restore_batch_size, restore_batch_interval_sec, or max_duration_seconds must be set",
+		)
+	}
 	if req.Reason != nil {
 		v := *req.Reason
 		if strings.TrimSpace(v) == "" {
