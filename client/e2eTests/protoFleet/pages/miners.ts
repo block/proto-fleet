@@ -341,8 +341,82 @@ export class MinersPage extends BasePage {
     await this.page.getByRole("button", { name: "Update cooling mode" }).click();
   }
 
+  async clickDownloadLogsButton() {
+    await this.page.getByTestId("download-logs-popover-button").click();
+  }
+
   async clickRenameButton() {
     await this.page.getByTestId("rename-popover-button").click();
+  }
+
+  async clickUpdateWorkerNameButton() {
+    await this.page.getByTestId("update-worker-names-popover-button").click();
+  }
+
+  async validateUpdateWorkerNameModalOpened() {
+    await this.validateTitleInModal("Update worker name");
+  }
+
+  async fillUpdateWorkerNameInput(name: string) {
+    await this.page.getByTestId("update-worker-name-input").fill(name);
+  }
+
+  async continueUpdateWorkerNameNoChangesIfVisible() {
+    const dialog = this.page.getByTestId("update-worker-name-no-changes-dialog");
+    if (await dialog.isVisible().catch(() => false)) {
+      await dialog.getByRole("button", { name: "Yes, continue", exact: true }).click();
+    }
+  }
+
+  async clickBulkWorkerNameSave() {
+    await this.page.locator('[data-testid="bulk-worker-name-save-button"]:visible').click();
+  }
+
+  async validateBulkWorkerNameModalOpened() {
+    await this.validateTitle("Update worker names");
+  }
+
+  async validateBulkWorkerNameSaveLabel(expectedLabel: string) {
+    await expect(this.page.locator('[data-testid="bulk-worker-name-save-button"]:visible')).toHaveText(expectedLabel);
+  }
+
+  async closeBulkWorkerNameModal() {
+    await this.page.getByLabel("Close update worker names").click();
+  }
+
+  async continueBulkRenameOverwriteWarningIfVisible() {
+    const overwriteDialog = this.page.getByTestId("bulk-rename-overwrite-dialog");
+    if (await overwriteDialog.isVisible().catch(() => false)) {
+      await overwriteDialog.getByRole("button", { name: "Yes, continue", exact: true }).click();
+    }
+  }
+
+  async clickManageSecurityButton() {
+    await this.page.getByTestId("security-popover-button").click();
+  }
+
+  async validateManageSecurityModalOpened() {
+    await this.validateTitle("Manage security");
+  }
+
+  async clickManageSecurityUpdateButton() {
+    await this.page.getByRole("button", { name: "Update", exact: true }).click();
+  }
+
+  async closeManageSecurityModal() {
+    await this.page.getByLabel("Close manage security").click();
+  }
+
+  async inputCurrentMinerPassword(password: string) {
+    await this.page.locator("#currentPassword").fill(password);
+  }
+
+  async inputNewMinerPassword(password: string) {
+    await this.page.locator("#newPassword").fill(password);
+  }
+
+  async inputConfirmMinerPassword(password: string) {
+    await this.page.locator("#confirmPassword").fill(password);
   }
 
   async clickAddToGroupButton() {
@@ -672,6 +746,36 @@ export class MinersPage extends BasePage {
   async validateMinerName(ipAddress: string, expectedName: string) {
     const minerRow = await this.getMinerRowByIp(ipAddress);
     await expect(minerRow.getByTestId("name")).toContainText(expectedName);
+  }
+
+  async getMinerWorkerName(ipAddress: string): Promise<string> {
+    const minerRow = await this.getMinerRowByIp(ipAddress);
+    return (await minerRow.getByTestId("workerName").innerText()).trim();
+  }
+
+  async validateMinerWorkerName(ipAddress: string, expectedWorkerName: string) {
+    const minerRow = await this.getMinerRowByIp(ipAddress);
+    await expect(minerRow.getByTestId("workerName")).toContainText(expectedWorkerName);
+  }
+
+  async getMinerWithNonEmptyWorkerName(): Promise<{ ipAddress: string; workerName: string }> {
+    const rows = this.page.getByTestId("list-body").locator("tr");
+    const rowCount = await rows.count();
+
+    for (let i = 0; i < rowCount; i++) {
+      const row = rows.nth(i);
+      await row.scrollIntoViewIfNeeded();
+      const workerName = (await row.getByTestId("workerName").innerText()).trim();
+
+      if (workerName && workerName !== "—") {
+        return {
+          ipAddress: (await row.getByTestId("ipAddress").innerText()).trim(),
+          workerName,
+        };
+      }
+    }
+
+    throw new Error("Expected at least one visible miner with a non-empty worker name");
   }
 
   async getMinerNameByIndex(index: number): Promise<string> {
