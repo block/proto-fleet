@@ -9,6 +9,8 @@ import { useSiteModals } from "../hooks/useSiteModals";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { buildKnownSiteIds, useSites } from "@/protoFleet/api/sites";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
+import BuildingModals from "@/protoFleet/features/buildings/components/BuildingModals";
+import { useBuildingModals } from "@/protoFleet/features/buildings/hooks/useBuildingModals";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 
@@ -46,6 +48,15 @@ const SettingsSitesPage = () => {
   const { activeSite } = useActiveSite({ knownSiteIds });
 
   const modals = useSiteModals({ refetchSites: fetchSites });
+
+  // Page-level buildings refresh signal. Bumped by useBuildingModals on any
+  // mutation so SiteSettingsSingleView re-runs its building fetch — keeps
+  // the inner state local while still reacting to outside-the-view
+  // creates / edits / deletes.
+  const [buildingsRefreshKey, setBuildingsRefreshKey] = useState(0);
+  const buildingModals = useBuildingModals({
+    refetchBuildings: () => setBuildingsRefreshKey((n) => n + 1),
+  });
 
   if (sites === undefined) {
     return (
@@ -96,6 +107,12 @@ const SettingsSitesPage = () => {
           onManage={() => {
             if (activeMatch.site) modals.openManageEdit(activeMatch.site);
           }}
+          onAddBuilding={() => {
+            const siteId = activeMatch.site?.id;
+            if (siteId) buildingModals.openDetailsCreate(siteId, activeMatch.site?.name);
+          }}
+          onEditBuilding={(row) => buildingModals.openDetailsEdit(row, activeMatch.site?.name)}
+          buildingsRefreshKey={buildingsRefreshKey}
         />
       </div>
     ) : (
@@ -112,7 +129,14 @@ const SettingsSitesPage = () => {
   return (
     <>
       {body}
-      <SiteModals modals={modals} sites={sites} />
+      <SiteModals
+        modals={modals}
+        sites={sites}
+        onAddBuilding={(siteId, siteName) => buildingModals.openDetailsCreate(siteId, siteName)}
+        onEditBuilding={(row, siteName) => buildingModals.openDetailsEdit(row, siteName)}
+        buildingsRefreshKey={buildingsRefreshKey}
+      />
+      <BuildingModals modals={buildingModals} />
     </>
   );
 };

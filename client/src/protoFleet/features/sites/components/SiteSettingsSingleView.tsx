@@ -17,6 +17,15 @@ interface SiteSettingsSingleViewProps {
   // Opens ManageSiteModal in edit mode. Wired by the page so the modal
   // stack lives at the page level instead of nested per-section.
   onManage?: () => void;
+  // Opens BuildingDetailsModal in create mode under this site. Hosted by
+  // the page so building modals share a single useBuildingModals instance
+  // across the surfaces that can launch them.
+  onAddBuilding?: () => void;
+  // Opens BuildingDetailsModal in edit mode for a specific row.
+  onEditBuilding?: (row: BuildingWithCounts) => void;
+  // Refresh signal — bumped by the page whenever the building cache might
+  // have shifted (post-create / post-delete) so this view re-fetches.
+  buildingsRefreshKey?: number;
 }
 
 // Visual mirrors the blockcell.sqprod.co prototype's single-site view:
@@ -25,7 +34,14 @@ interface SiteSettingsSingleViewProps {
 // follow-ups (#266 + power-contract migration); each row is rendered only
 // when its backing field is present so the table never shows a half-filled
 // shell.
-const SiteSettingsSingleView = ({ site, knownSiteIds, onManage }: SiteSettingsSingleViewProps) => {
+const SiteSettingsSingleView = ({
+  site,
+  knownSiteIds,
+  onManage,
+  onAddBuilding,
+  onEditBuilding,
+  buildingsRefreshKey = 0,
+}: SiteSettingsSingleViewProps) => {
   const { setActiveSite } = useActiveSite({ knownSiteIds });
   const siteId = site.site?.id ?? 0n;
   const { listBuildingsBySite } = useBuildings();
@@ -53,7 +69,7 @@ const SiteSettingsSingleView = ({ site, knownSiteIds, onManage }: SiteSettingsSi
     return () => controller.abort();
   }, [listBuildingsBySite, siteId]);
 
-  useEffect(() => fetchBuildings(), [fetchBuildings]);
+  useEffect(() => fetchBuildings(), [fetchBuildings, buildingsRefreshKey]);
 
   const displayBuildings = siteId === 0n ? [] : buildings;
 
@@ -108,9 +124,8 @@ const SiteSettingsSingleView = ({ site, knownSiteIds, onManage }: SiteSettingsSi
             variant={variants.secondary}
             size={sizes.compact}
             text="Add building"
-            // Building create lands in #262.
-            onClick={() => undefined}
-            disabled
+            onClick={onAddBuilding ?? (() => undefined)}
+            disabled={!onAddBuilding}
             testId="site-settings-add-building"
           />
         </div>
@@ -133,7 +148,7 @@ const SiteSettingsSingleView = ({ site, knownSiteIds, onManage }: SiteSettingsSi
         ) : displayBuildings.length === 0 ? (
           <div className="text-300 text-text-primary-50">No buildings in this site yet.</div>
         ) : (
-          <BuildingsTable buildings={displayBuildings} />
+          <BuildingsTable buildings={displayBuildings} onEditBuilding={onEditBuilding} />
         )}
       </section>
     </div>
@@ -157,12 +172,13 @@ const DetailRow = ({ label, value }: DetailRowProps) => (
 
 interface BuildingsTableProps {
   buildings: BuildingWithCounts[];
+  onEditBuilding?: (row: BuildingWithCounts) => void;
 }
 
 // Mirrors the prototype's .site-cfg-table with the cols-4 grid template
 // (1.2fr 1fr 0.6fr 32px). Type column hides until #267 lands building_type;
 // until then the cell renders an em-dash so the grid stays balanced.
-const BuildingsTable = ({ buildings }: BuildingsTableProps) => (
+const BuildingsTable = ({ buildings, onEditBuilding }: BuildingsTableProps) => (
   <div className="flex flex-col">
     <div
       className="grid h-11 items-center gap-2 border-b border-border-5 text-emphasis-300 text-text-primary-50"
@@ -177,11 +193,27 @@ const BuildingsTable = ({ buildings }: BuildingsTableProps) => (
       const id = (b.building?.id ?? 0n).toString();
       const name = b.building?.name ?? "(unnamed)";
       const powerMw = b.building?.powerKw ? `${(b.building.powerKw / 1000).toFixed(1)} MW` : "—";
+      const clickable = !!onEditBuilding;
       return (
         <div
           key={id}
-          className="hover:bg-surface-base-hover grid h-12 cursor-pointer items-center gap-2 border-b border-border-5"
+          role={clickable ? "button" : undefined}
+          tabIndex={clickable ? 0 : undefined}
+          className={`grid h-12 items-center gap-2 border-b border-border-5 ${
+            clickable ? "hover:bg-surface-base-hover cursor-pointer" : ""
+          }`}
           style={{ gridTemplateColumns: "1.2fr 1fr 0.6fr 32px" }}
+          onClick={clickable ? () => onEditBuilding?.(b) : undefined}
+          onKeyDown={
+            clickable
+              ? (e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onEditBuilding?.(b);
+                  }
+                }
+              : undefined
+          }
           data-testid={`site-settings-building-row-${id}`}
         >
           <span className="truncate text-emphasis-300">{name}</span>
@@ -191,7 +223,8 @@ const BuildingsTable = ({ buildings }: BuildingsTableProps) => (
           <button
             type="button"
             aria-label={`Actions for ${name}`}
-            // Building actions land alongside the CRUD modal in #262.
+            // Per-row overflow menu lands alongside richer building actions; for
+            // PR 3 the row-click handles edit so the kebab stays disabled.
             onClick={(e) => e.stopPropagation()}
             disabled
             className="hover:bg-surface-base-hover flex h-7 w-7 items-center justify-center rounded-lg text-text-primary-50 disabled:opacity-40"

@@ -1,6 +1,7 @@
 import ManageSiteModal from "../ManageSiteModal";
 import SiteDeleteDialog from "../SiteDeleteDialog";
 import SiteDetailsModal from "../SiteDetailsModal";
+import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { type useSiteModals } from "@/protoFleet/features/sites/hooks/useSiteModals";
 
@@ -9,9 +10,15 @@ interface SiteModalsProps {
   // SiteWithCounts cache from the host page. Used to resolve the cascade
   // dialog target when Delete is clicked inside SiteDetailsModal (edit mode).
   sites: SiteWithCounts[] | undefined;
+  // Pass-through for the ManageSiteModal buildings table. Provided by the
+  // host page so the building modal stack shares its useBuildingModals
+  // instance with the page-level buildings table.
+  onAddBuilding?: (siteId: bigint, siteName?: string) => void;
+  onEditBuilding?: (row: BuildingWithCounts, siteName?: string) => void;
+  buildingsRefreshKey?: number;
 }
 
-const SiteModals = ({ modals, sites }: SiteModalsProps) => {
+const SiteModals = ({ modals, sites, onAddBuilding, onEditBuilding, buildingsRefreshKey }: SiteModalsProps) => {
   const { state, deleteTarget } = modals;
   const showManage =
     state.kind === "manageCreate" ||
@@ -49,6 +56,9 @@ const SiteModals = ({ modals, sites }: SiteModalsProps) => {
           onNetworkConfigChange={modals.manageNetworkConfigChange}
           onDismiss={modals.dismiss}
           saving={modals.saving}
+          onAddBuilding={onAddBuilding && manageSite ? () => onAddBuilding(manageSite.id, manageSite.name) : undefined}
+          onEditBuilding={onEditBuilding && manageSite ? (row) => onEditBuilding(row, manageSite.name) : undefined}
+          buildingsRefreshKey={buildingsRefreshKey}
         />
       ) : null}
       {state.kind === "detailsCreate" ? (

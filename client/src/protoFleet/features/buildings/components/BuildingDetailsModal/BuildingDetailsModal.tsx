@@ -60,7 +60,9 @@ const BuildingDetailsModal = (props: BuildingDetailsModalProps) => {
   const [powerText, setPowerText] = useState(
     initialValues.powerCapacityMw > 0 ? String(initialValues.powerCapacityMw) : "",
   );
-  const [overheadText, setOverheadText] = useState(initialValues.overheadKw > 0 ? String(initialValues.overheadKw) : "");
+  const [overheadText, setOverheadText] = useState(
+    initialValues.overheadKw > 0 ? String(initialValues.overheadKw) : "",
+  );
   const [powerError, setPowerError] = useState<string | null>(null);
   const [overheadError, setOverheadError] = useState<string | null>(null);
 
@@ -91,14 +93,7 @@ const BuildingDetailsModal = (props: BuildingDetailsModalProps) => {
       aisles: initialValues.aisles,
       racksPerAisle: initialValues.racksPerAisle,
     };
-  }, [
-    name,
-    powerText,
-    overheadText,
-    initialValues.description,
-    initialValues.aisles,
-    initialValues.racksPerAisle,
-  ]);
+  }, [name, powerText, overheadText, initialValues.description, initialValues.aisles, initialValues.racksPerAisle]);
 
   const handlePrimary = useCallback(async () => {
     const values = buildValues();

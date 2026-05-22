@@ -6,7 +6,7 @@ import { type Site } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { type SiteFormValues } from "@/protoFleet/api/sites";
 import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
 import { Alert } from "@/shared/assets/icons";
-import { variants } from "@/shared/components/Button";
+import Button, { sizes, variants } from "@/shared/components/Button";
 import Callout, { intents } from "@/shared/components/Callout";
 import Header from "@/shared/components/Header";
 import PlaceholderBlock from "@/shared/components/PlaceholderBlock";
@@ -36,6 +36,15 @@ interface ManageSiteModalProps {
   onNetworkConfigChange: (value: string) => void;
   onDismiss: () => void;
   saving?: boolean;
+  // Building-table CTAs. Wired by the host page so the building modal stack
+  // shares a single useBuildingModals instance across ManageSiteModal and
+  // the settings page table.
+  onAddBuilding?: () => void;
+  onEditBuilding?: (row: BuildingWithCounts) => void;
+  // Refresh signal — bumped by the host whenever the building cache changes
+  // (post-create / post-delete) so the modal's local list re-fetches without
+  // bouncing through unmount/remount.
+  buildingsRefreshKey?: number;
 }
 
 const ManageSiteModal = ({
@@ -48,6 +57,9 @@ const ManageSiteModal = ({
   onNetworkConfigChange,
   onDismiss,
   saving = false,
+  onAddBuilding,
+  onEditBuilding,
+  buildingsRefreshKey = 0,
 }: ManageSiteModalProps) => {
   const { listBuildingsBySite } = useBuildings();
   const [buildings, setBuildings] = useState<BuildingWithCounts[] | undefined>(undefined);
@@ -69,7 +81,7 @@ const ManageSiteModal = ({
       onError: () => setBuildings([]),
     });
     return () => controller.abort();
-  }, [shouldFetchBuildings, fetchSiteId, listBuildingsBySite]);
+  }, [shouldFetchBuildings, fetchSiteId, listBuildingsBySite, buildingsRefreshKey]);
 
   // Buildings render as "no buildings" in the non-fetch branches so the
   // operator never sees a stale list from a previous open. The preview
@@ -151,9 +163,61 @@ const ManageSiteModal = ({
             />
           </section>
 
-          <section className="flex flex-col gap-2">
-            <Header title="Buildings" titleSize="text-heading-100" />
-            <PlaceholderBlock label="Buildings table lands in #262" className="h-32" />
+          <section className="flex flex-col gap-2" data-testid="manage-site-modal-buildings-section">
+            <div className="flex items-center justify-between">
+              <Header title="Buildings" titleSize="text-heading-100" />
+              <Button
+                variant={variants.secondary}
+                size={sizes.compact}
+                text="Add building"
+                onClick={onAddBuilding ?? (() => undefined)}
+                disabled={!onAddBuilding || saving || mode === "create"}
+                testId="manage-site-modal-add-building"
+              />
+            </div>
+            {mode === "create" ? (
+              <div className="rounded-xl border border-dashed border-border-5 p-4 text-300 text-text-primary-50">
+                Save the site first to add buildings.
+              </div>
+            ) : displayBuildings === undefined ? (
+              <div className="text-300 text-text-primary-50">Loading…</div>
+            ) : displayBuildings.length === 0 ? (
+              <div className="text-300 text-text-primary-50">No buildings in this site yet.</div>
+            ) : (
+              <ul className="flex flex-col" data-testid="manage-site-modal-buildings-list">
+                {displayBuildings.map((b) => {
+                  const id = (b.building?.id ?? 0n).toString();
+                  const name = b.building?.name ?? "(unnamed)";
+                  const rackCount = b.rackCount.toString();
+                  const clickable = !!onEditBuilding;
+                  return (
+                    <li
+                      key={id}
+                      role={clickable ? "button" : undefined}
+                      tabIndex={clickable ? 0 : undefined}
+                      className={`flex h-12 items-center justify-between gap-3 border-b border-border-5 ${
+                        clickable ? "hover:bg-surface-base-hover cursor-pointer" : ""
+                      }`}
+                      onClick={clickable ? () => onEditBuilding?.(b) : undefined}
+                      onKeyDown={
+                        clickable
+                          ? (e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                onEditBuilding?.(b);
+                              }
+                            }
+                          : undefined
+                      }
+                      data-testid={`manage-site-modal-building-row-${id}`}
+                    >
+                      <span className="truncate text-emphasis-300">{name}</span>
+                      <span className="shrink-0 text-300 text-text-primary-50">{rackCount} racks</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
           </section>
         </div>
       }

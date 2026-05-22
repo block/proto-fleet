@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { create } from "@bufbuild/protobuf";
 
+import BuildingModals from "../components/BuildingModals";
 import BuildingPageHeader from "../components/BuildingPageHeader";
+import { useBuildingModals } from "../hooks/useBuildingModals";
 import { useBuildings } from "@/protoFleet/api/buildings";
-import { type Building } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import { type Building, BuildingWithCountsSchema } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { parseBigIntId } from "@/protoFleet/api/sites";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
@@ -25,6 +28,7 @@ type FetchOutcome =
 
 const BuildingPage = () => {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const { getBuilding } = useBuildings();
 
   const buildingId = useMemo(() => parseBigIntId(id), [id]);
@@ -63,6 +67,17 @@ const BuildingPage = () => {
     if (buildingId === null) return;
     fetchBuilding(buildingId);
   }, [fetchBuilding, buildingId]);
+
+  // Mount BuildingModals at the page level so the manage flow can stack
+  // BuildingDetailsModal on top without re-rendering the page shell. The
+  // delete-from-manage rule (per plan PR 3) redirects to /sites — the
+  // manage modal's anchor is the now-deleted building so we can't stay.
+  const buildingModals = useBuildingModals({
+    refetchBuildings: () => {
+      if (buildingId !== null) fetchBuilding(buildingId);
+    },
+    onDeleteFromManage: () => navigate("/sites"),
+  });
 
   // Unmount cleanup aborts whatever's currently in flight — including
   // retry-spawned controllers that didn't come from the effect above.
@@ -125,10 +140,20 @@ const BuildingPage = () => {
 
   return (
     <div className="flex flex-col gap-6 p-10 phone:p-6" data-testid="building-page">
-      <BuildingPageHeader label={label} buildingId={idForHeader} />
+      <BuildingPageHeader
+        label={label}
+        buildingId={idForHeader}
+        // Synthesize a BuildingWithCounts row for the modal hook. Real
+        // rack_count surfaces with Phase 1b enrichment (#264); zero here
+        // drives the cascade dialog into the simpler "Are you sure?" copy.
+        onEditBuilding={() =>
+          buildingModals.openManage(create(BuildingWithCountsSchema, { building: effectiveBuilding, rackCount: 0n }))
+        }
+      />
       <PlaceholderBlock label="Metrics row (Hashrate, Power, Efficiency, Miners online) — #264" className="h-20" />
       <PlaceholderBlock label="Diagnostics (rack grid + health) — #264" className="h-64" />
       <PlaceholderBlock label="Performance — #264" className="h-64" />
+      <BuildingModals modals={buildingModals} />
     </div>
   );
 };
