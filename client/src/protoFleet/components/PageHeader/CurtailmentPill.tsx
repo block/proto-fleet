@@ -1,117 +1,55 @@
-import { type MouseEvent, useState } from "react";
 import { Link } from "react-router-dom";
 import clsx from "clsx";
 
-import { type CurtailmentPillProps, type CurtailmentPillState } from "./curtailmentPillTypes";
-import Button, { sizes, variants } from "@/shared/components/Button";
-import Popover, { PopoverProvider, popoverSizes, useResponsivePopover } from "@/shared/components/Popover";
-import { positions } from "@/shared/constants";
+import type { CurtailmentPillProps } from "./curtailmentPillTypes";
+import PageHeaderPopoverPill from "./PageHeaderPopoverPill";
+import {
+  curtailmentEventStateDotClassNames,
+  curtailmentEventStateLabels,
+  formatCurtailmentKw,
+  formatCurtailmentSelectedMinerCount,
+} from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 
 export type { CurtailmentPillEvent, CurtailmentPillProps, CurtailmentPillState } from "./curtailmentPillTypes";
 
-type CurtailmentStateViewConfig = {
-  label: string;
-  dotClassName: string;
-};
-
-const curtailmentStateViewConfig: Record<CurtailmentPillState, CurtailmentStateViewConfig> = {
-  pending: {
-    label: "Pending",
-    dotClassName: "bg-core-accent-fill",
-  },
-  active: {
-    label: "Active",
-    dotClassName: "bg-intent-warning-fill",
-  },
-  restoring: {
-    label: "Restoring",
-    dotClassName: "bg-core-accent-fill",
-  },
-};
-
-function formatKw(value: number): string {
-  return `${value.toLocaleString(undefined, {
-    maximumFractionDigits: 1,
-    minimumFractionDigits: 1,
-  })} kW`;
-}
-
-function formatMinerCount(minerCount: number): string {
-  return `${minerCount.toLocaleString()} selected ${minerCount === 1 ? "miner" : "miners"}`;
-}
-
-function CurtailmentPillContent({ event, detailsPath }: CurtailmentPillProps) {
-  const [isPopoverOpen, setIsPopoverOpen] = useState(false);
-  const { triggerRef } = useResponsivePopover();
-  const stateConfig = curtailmentStateViewConfig[event.state];
-
-  function closePopover(): void {
-    setIsPopoverOpen(false);
-  }
-
-  function handleTriggerClick(clickEvent: MouseEvent<HTMLButtonElement>): void {
-    setIsPopoverOpen((current) => !current);
-
-    if (clickEvent.detail > 0) {
-      clickEvent.currentTarget.blur();
-    }
-  }
+function CurtailmentPill({ event, detailsPath }: CurtailmentPillProps) {
+  const stateLabel = curtailmentEventStateLabels[event.state];
 
   return (
-    <div className="curtailment-pill-trigger relative" ref={triggerRef}>
-      <Button
-        variant={variants.secondary}
-        size={sizes.compact}
-        ariaHasPopup={true}
-        ariaExpanded={isPopoverOpen}
-        ariaLabel={`View curtailment details for ${event.reason}`}
-        onClick={handleTriggerClick}
-        prefixIcon={<span className={clsx("h-2.5 w-2.5 rounded-full", stateConfig.dotClassName)} />}
-      >
-        <span className="block max-w-56 truncate">Curtailment {stateConfig.label.toLowerCase()}</span>
-      </Button>
-
-      {isPopoverOpen ? (
-        <Popover
-          position={positions["bottom left"]}
-          size={popoverSizes.small}
-          className="!space-y-0 px-4 pt-4 pb-3"
-          closePopover={closePopover}
-          closeIgnoreSelectors={[".curtailment-pill-trigger"]}
-        >
-          <div className="flex flex-col gap-3">
-            <div className="min-w-0 space-y-1">
-              <div className="truncate text-heading-100 text-text-primary">{event.reason}</div>
-              <div className="text-200 leading-snug text-text-primary-70">{stateConfig.label}</div>
-              <div className="text-200 leading-snug text-text-primary-70">{event.scopeLabel}</div>
-              <div className="text-200 leading-snug text-text-primary-70">
-                {formatMinerCount(event.selectedMiners)} - {formatKw(event.estimatedReductionKw)} planned
-              </div>
+    <PageHeaderPopoverPill
+      ariaLabel={`View curtailment details for ${event.reason}`}
+      prefixIcon={
+        <span className={clsx("h-2.5 w-2.5 rounded-full", curtailmentEventStateDotClassNames[event.state])} />
+      }
+      triggerClassName="curtailment-pill-trigger"
+      triggerContent={<span className="block max-w-56 truncate">Curtailment {stateLabel.toLowerCase()}</span>}
+    >
+      {({ closePopover }) => (
+        <div className="flex flex-col gap-3">
+          <div className="min-w-0 space-y-1">
+            <div className="truncate text-heading-100 text-text-primary">{event.reason}</div>
+            <div className="text-200 leading-snug text-text-primary-70">{stateLabel}</div>
+            <div className="text-200 leading-snug text-text-primary-70">{event.scopeLabel}</div>
+            <div className="text-200 leading-snug text-text-primary-70">
+              {formatCurtailmentSelectedMinerCount(event.selectedMiners)} -{" "}
+              {formatCurtailmentKw(event.estimatedReductionKw)} planned
             </div>
-
-            {detailsPath ? (
-              <div className="border-t border-border-5 pt-3">
-                <Link
-                  to={detailsPath}
-                  onClick={closePopover}
-                  className="block rounded-xl px-3 py-2.5 text-emphasis-300 text-text-primary transition-[background-color] duration-200 ease-in-out hover:bg-core-primary-5"
-                >
-                  View curtailment
-                </Link>
-              </div>
-            ) : null}
           </div>
-        </Popover>
-      ) : null}
-    </div>
-  );
-}
 
-function CurtailmentPill(props: CurtailmentPillProps) {
-  return (
-    <PopoverProvider>
-      <CurtailmentPillContent {...props} />
-    </PopoverProvider>
+          {detailsPath ? (
+            <div className="border-t border-border-5 pt-3">
+              <Link
+                to={detailsPath}
+                onClick={closePopover}
+                className="block rounded-xl px-3 py-2.5 text-emphasis-300 text-text-primary transition-[background-color] duration-200 ease-in-out hover:bg-core-primary-5"
+              >
+                View curtailment
+              </Link>
+            </div>
+          ) : null}
+        </div>
+      )}
+    </PageHeaderPopoverPill>
   );
 }
 

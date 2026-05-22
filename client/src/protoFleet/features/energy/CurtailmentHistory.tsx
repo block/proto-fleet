@@ -2,6 +2,16 @@ import { type KeyboardEvent, type MouseEvent, type ReactElement, useMemo, useSta
 import clsx from "clsx";
 
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
+import {
+  type CurtailmentEventState,
+  curtailmentEventStates,
+  curtailmentEventStateDotClassNames as eventStateDotClassNames,
+  curtailmentEventStateLabels as eventStateLabels,
+  curtailmentEventStateOrder as eventStateOrder,
+  formatCurtailmentMinerCount as formatMinerCount,
+  formatCurtailmentTargetVsActual as formatTargetVsActual,
+  getCurtailmentTargetKw as getTargetKw,
+} from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import CurtailmentStopConfirmationDialog from "@/protoFleet/features/energy/CurtailmentStopConfirmationDialog";
 import { ChevronDown } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
@@ -12,18 +22,6 @@ import FilterChip from "@/shared/components/List/Filters/FilterChip";
 import Modal, { sizes as modalSizes } from "@/shared/components/Modal";
 
 export type CurtailmentPriority = "normal" | "high" | "emergency";
-
-const curtailmentEventStates = [
-  "pending",
-  "active",
-  "restoring",
-  "completed",
-  "completedWithFailures",
-  "cancelled",
-  "failed",
-] as const;
-
-export type CurtailmentEventState = (typeof curtailmentEventStates)[number];
 
 export interface CurtailmentHistoryEvent {
   id: string;
@@ -101,30 +99,10 @@ const manageableEventStates = new Set<CurtailmentEventState>(["pending", "active
 const rowInteractiveElementSelector =
   'button, a, input, select, textarea, [role="button"], [role="link"], [data-interactive]';
 
-const eventStateLabels: Record<CurtailmentEventState, string> = {
-  pending: "Pending",
-  active: "Active",
-  restoring: "Restoring",
-  completed: "Completed",
-  completedWithFailures: "Completed with failures",
-  cancelled: "Cancelled",
-  failed: "Failed",
-};
-
 const priorityLabels: Record<CurtailmentPriority, string> = {
   normal: "Normal",
   high: "High",
   emergency: "Emergency",
-};
-
-const eventStateDotClassNames: Record<CurtailmentEventState, string> = {
-  pending: "bg-core-accent-fill",
-  active: "bg-intent-warning-fill",
-  restoring: "bg-core-accent-fill",
-  completed: "bg-text-primary-30",
-  completedWithFailures: "bg-text-primary-30",
-  cancelled: "bg-intent-critical-fill",
-  failed: "bg-intent-critical-fill",
 };
 
 const statusFilterOptions = curtailmentEventStates.map((state) => ({ id: state, label: eventStateLabels[state] }));
@@ -141,16 +119,6 @@ const historyColumnLabels: Record<HistoryColumn, string> = {
   scope: "Applies to",
   target: "Target vs actual",
   state: "Status",
-};
-
-const eventStateOrder: Record<CurtailmentEventState, number> = {
-  pending: 0,
-  active: 1,
-  restoring: 2,
-  completed: 3,
-  completedWithFailures: 4,
-  cancelled: 5,
-  failed: 6,
 };
 
 const collator = new Intl.Collator(undefined, { sensitivity: "base", numeric: true });
@@ -183,17 +151,6 @@ function DetailRow({ label, value, secondary }: DetailRowProps): ReactElement {
   );
 }
 
-function getTargetKw(event: Pick<CurtailmentHistoryEvent, "targetKw" | "estimatedReductionKw">): number {
-  return event.targetKw ?? event.estimatedReductionKw;
-}
-
-function formatKw(value: number, fractionDigits = 1): string {
-  return `${value.toLocaleString(undefined, {
-    maximumFractionDigits: fractionDigits,
-    minimumFractionDigits: fractionDigits,
-  })} kW`;
-}
-
 function getDateTime(value?: string): Date | undefined {
   if (!value) {
     return undefined;
@@ -206,14 +163,6 @@ function getDateTime(value?: string): Date | undefined {
 function formatDateTime(value?: string): string | undefined {
   const date = getDateTime(value);
   return date ? dateTimeFormatter.format(date) : undefined;
-}
-
-function formatTargetVsActual(event: Pick<CurtailmentHistoryEvent, "targetKw" | "estimatedReductionKw">): string {
-  return `${formatKw(getTargetKw(event))} / ${formatKw(event.estimatedReductionKw)}`;
-}
-
-function formatMinerCount(minerCount: number): string {
-  return `${minerCount.toLocaleString()} ${minerCount === 1 ? "miner" : "miners"}`;
 }
 
 function getHistoryStatusDetail(event: CurtailmentHistoryEvent): string {
