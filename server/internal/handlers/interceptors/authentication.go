@@ -184,8 +184,6 @@ func (i *AuthInterceptor) authenticateWithApiKey(ctx context.Context, authHeader
 		return ctx, classifyLookupError(err, "api key auth: role lookup failed", userID)
 	}
 
-	i.apiKeyService.RecordSuccessfulUse(ctx, apiKeyRecord)
-
 	info := &session.Info{
 		AuthMethod:     session.AuthMethodAPIKey,
 		APIKeyID:       apiKeyRecord.KeyID,
@@ -196,7 +194,18 @@ func (i *AuthInterceptor) authenticateWithApiKey(ctx context.Context, authHeader
 		Role:           roleName,
 	}
 
-	return i.loadEffectivePermissions(ctx, info)
+	authedCtx, err := i.loadEffectivePermissions(ctx, info)
+	if err != nil {
+		return ctx, err
+	}
+
+	// Only credit the key with a successful use once authentication is
+	// fully resolved. Resolver failures (DB error, nil wiring) reject
+	// the request, and recording success in that case would let the
+	// last_used_at telemetry report rejected requests as successful.
+	i.apiKeyService.RecordSuccessfulUse(ctx, apiKeyRecord)
+
+	return authedCtx, nil
 }
 
 func parseBearerToken(authHeader string) (string, bool) {
