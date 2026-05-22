@@ -1665,7 +1665,15 @@ export const CurtailmentService: GenService<{
   };
   /**
    * Admin recovery RPC: force a non-terminal event to a terminal state.
-   * Session-only, Admin role.
+   * Session-only, Admin role. Reason is required (min_len=1, max_len=256).
+   *
+   * FailedPrecondition variants the caller should distinguish:
+   *   - "active curtailment event must be stopped before admin termination"
+   *     — the event is currently in ACTIVE; call StopCurtailment first so
+   *     restore is queued instead of abandoning already-curtailed miners.
+   *   - "curtailment event is already terminal in a different state" — the
+   *     event has already settled in a different terminal state than the
+   *     one the operator requested; not retryable.
    *
    * @generated from rpc curtailment.v1.CurtailmentService.AdminTerminateEvent
    */
