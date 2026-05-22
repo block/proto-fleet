@@ -617,6 +617,18 @@ export class MinersPage extends BasePage {
     await this.page.getByTestId("custom-property-string-input").fill(value);
   }
 
+  async saveCustomPropertyOptions() {
+    const desktopSave = this.page.getByTestId("custom-property-options-save-button");
+    const mobileSave = this.page.getByTestId("custom-property-options-save-button-mobile");
+
+    if (await desktopSave.isVisible().catch(() => false)) {
+      await desktopSave.click();
+      return;
+    }
+
+    await mobileSave.click();
+  }
+
   async validateCustomPropertyPreviewText(expectedText: string) {
     await expect(
       this.page.getByTestId("custom-property-preview"),
@@ -776,6 +788,37 @@ export class MinersPage extends BasePage {
     }
 
     throw new Error("Expected at least one visible miner with a non-empty worker name");
+  }
+
+  async getAuthenticatedMinersWithNonEmptyWorkerNames(
+    count: number,
+  ): Promise<Array<{ ipAddress: string; workerName: string }>> {
+    const allRows = this.page.getByTestId("list-body").locator("tr");
+    const authenticatedRows = allRows.filter({
+      has: this.page.locator('input[type="checkbox"]:not([disabled])'),
+    });
+
+    const authenticatedCount = await authenticatedRows.count();
+    const matchingMiners: Array<{ ipAddress: string; workerName: string }> = [];
+
+    for (let i = 0; i < authenticatedCount; i++) {
+      const row = authenticatedRows.nth(i);
+      await row.scrollIntoViewIfNeeded();
+      const workerName = (await row.getByTestId("workerName").innerText()).trim();
+
+      if (workerName && workerName !== "—") {
+        matchingMiners.push({
+          ipAddress: (await row.getByTestId("ipAddress").innerText()).trim(),
+          workerName,
+        });
+      }
+
+      if (matchingMiners.length === count) {
+        return matchingMiners;
+      }
+    }
+
+    throw new Error(`Expected at least ${count} authenticated miners with non-empty worker names`);
   }
 
   async getMinerNameByIndex(index: number): Promise<string> {

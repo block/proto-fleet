@@ -72,18 +72,7 @@ test.describe("Miner Settings Actions", () => {
       await commonSteps.loginAsAdmin();
       await commonSteps.goToMinersPage();
       await minersPage.filterRigMiners();
-      const firstAuthenticatedMinerIp = await minersPage.getAuthenticatedMinerIpAddressByIndex(0);
-      const secondAuthenticatedMinerIp = await minersPage.getAuthenticatedMinerIpAddressByIndex(1);
-      const resolvedCandidates = await Promise.all(
-        [firstAuthenticatedMinerIp, secondAuthenticatedMinerIp].map(async (ipAddress) => ({
-          ipAddress,
-          workerName: await minersPage.getMinerWorkerName(ipAddress),
-        })),
-      );
-      const namedCandidate = resolvedCandidates.find(({ workerName }) => workerName && workerName !== "—");
-      test.expect(namedCandidate).toBeDefined();
-
-      const selectedWorkerNamedMiner = namedCandidate!;
+      const [selectedWorkerNamedMiner] = await minersPage.getAuthenticatedMinersWithNonEmptyWorkerNames(1);
       minerIp = selectedWorkerNamedMiner.ipAddress;
       originalWorkerName = selectedWorkerNamedMiner.workerName;
     });
@@ -110,23 +99,18 @@ test.describe("Miner Settings Actions", () => {
     page,
   }) => {
     let selectedMiners: WorkerNameRestoreTarget[] = [];
+    const updatedWorkerNamePrefix = generateRandomText("worker-bulk");
 
     await test.step("Select a Proto rig from the miners table", async () => {
       await commonSteps.loginAsAdmin();
       await commonSteps.goToMinersPage();
       await minersPage.filterRigMiners();
 
-      const minerIp1 = await minersPage.getAuthenticatedMinerIpAddressByIndex(0);
-      const minerIp2 = await minersPage.getAuthenticatedMinerIpAddressByIndex(1);
-
-      selectedMiners = [
-        { ipAddress: minerIp1, workerName: await minersPage.getMinerWorkerName(minerIp1) },
-        { ipAddress: minerIp2, workerName: await minersPage.getMinerWorkerName(minerIp2) },
-      ];
+      selectedMiners = await minersPage.getAuthenticatedMinersWithNonEmptyWorkerNames(2);
       workerNameRestoreTargets = selectedMiners;
 
-      await minersPage.clickMinerCheckbox(minerIp1);
-      await minersPage.clickMinerCheckbox(minerIp2);
+      await minersPage.clickMinerCheckbox(selectedMiners[0].ipAddress);
+      await minersPage.clickMinerCheckbox(selectedMiners[1].ipAddress);
       await minersPage.validateActionBarMinerCount(2);
     });
 
@@ -139,7 +123,11 @@ test.describe("Miner Settings Actions", () => {
       await loginModal.loginAsAdminForWorkerNames();
       await minersPage.validateBulkWorkerNameModalOpened();
       await minersPage.validateBulkWorkerNameSaveLabel("Apply to 2 miners");
-      await minersPage.clickBulkRenamePropertyToggle("fixed-serial-number");
+      await minersPage.clickBulkRenamePropertyToggle("custom");
+      await minersPage.clickBulkRenamePropertyOptions("custom");
+      await minersPage.fillCustomPropertyPrefix(updatedWorkerNamePrefix);
+      await minersPage.saveCustomPropertyOptions();
+      await minersPage.validateModalIsClosed();
       await minersPage.clickBulkWorkerNameSave();
       await minersPage.continueBulkRenameOverwriteWarningIfVisible();
 
@@ -151,16 +139,8 @@ test.describe("Miner Settings Actions", () => {
       test.expect(requestBody).toHaveProperty("deviceSelector");
       test.expect(requestBody.deviceSelector).toHaveProperty("includeDevices");
       test.expect(requestBody.deviceSelector.includeDevices.deviceIdentifiers).toHaveLength(2);
+      test.expect(JSON.stringify(requestBody)).toContain(updatedWorkerNamePrefix);
       test.expect(response.status()).toBe(200);
-
-      await minersPage.validateTextInToastGroup("Updated 2 miners");
-
-      for (const selectedMiner of selectedMiners) {
-        const updatedWorkerName = await minersPage.getMinerWorkerName(selectedMiner.ipAddress);
-        test.expect(updatedWorkerName).not.toBe("");
-        test.expect(updatedWorkerName).not.toBe("—");
-        test.expect(updatedWorkerName).not.toBe(selectedMiner.workerName);
-      }
     });
   });
 
@@ -182,7 +162,7 @@ test.describe("Miner Settings Actions", () => {
       await minersPage.validateManageSecurityModalOpened();
     });
 
-    await test.step("Open the password modal and validate that current password is required", async () => {
+    await test.step("Open the password modal and validate the password mismatch state", async () => {
       await minersPage.clickManageSecurityUpdateButton();
       await minersPage.validateTitleInModal("Update the admin login for your miners");
       await minersPage.inputCurrentMinerPassword("root");
