@@ -12,21 +12,14 @@ const (
 	ScopeSite ScopeType = "site"
 )
 
-// AssignmentRole carries the role identity needed at decision time.
-// BuiltinKey is set for SUPER_ADMIN/ADMIN/FIELD_TECH; it's empty for
-// custom roles. The role's id and name are not used by the resolver and
-// are deliberately omitted.
-type AssignmentRole struct {
-	BuiltinKey string
-}
-
 // Assignment is one row from user_organization_role joined against
 // role and role_permission, materialized as a flat in-memory value.
-// One Assignment carries the assignment's identity, scope, and the
-// set of permission keys its role grants.
+// Carries the assignment's identity, scope, and the set of permission
+// keys its role grants. Role identity (id, name, builtin_key) is not
+// needed at decision time and is deliberately omitted — the resolver
+// only consults permission_key + scope.
 type Assignment struct {
 	AssignmentID int64
-	Role         AssignmentRole
 	ScopeType    ScopeType
 	// SiteID is non-nil only when ScopeType is ScopeSite.
 	SiteID      *int64

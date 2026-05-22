@@ -10,19 +10,17 @@ import (
 
 // scope helpers — concise builders to keep test tables readable.
 
-func orgScope(role authz.AssignmentRole, keys ...string) authz.Assignment {
+func orgScope(keys ...string) authz.Assignment {
 	return authz.Assignment{
 		AssignmentID: 1,
-		Role:         role,
 		ScopeType:    authz.ScopeOrg,
 		Permissions:  keys,
 	}
 }
 
-func siteScope(role authz.AssignmentRole, siteID int64, keys ...string) authz.Assignment {
+func siteScope(siteID int64, keys ...string) authz.Assignment {
 	return authz.Assignment{
 		AssignmentID: 2,
-		Role:         role,
 		ScopeType:    authz.ScopeSite,
 		SiteID:       &siteID,
 		Permissions:  keys,
@@ -37,7 +35,7 @@ func site(id int64) authz.ResourceContext { return authz.ResourceContext{SiteID:
 
 func TestEffective_OrgScopeAllowsEverywhere(t *testing.T) {
 	eff := authz.NewEffectivePermissions([]authz.Assignment{
-		orgScope(authz.AssignmentRole{BuiltinKey: "SUPER_ADMIN"}, authz.PermMinerReboot, authz.PermUserManage),
+		orgScope(authz.PermMinerReboot, authz.PermUserManage),
 	})
 
 	require.True(t, eff.Has(authz.PermMinerReboot, orgResource()), "org-scope grant satisfies org-scoped action")
@@ -47,7 +45,7 @@ func TestEffective_OrgScopeAllowsEverywhere(t *testing.T) {
 
 func TestEffective_SiteScopeOnlyAllowsAtThatSite(t *testing.T) {
 	eff := authz.NewEffectivePermissions([]authz.Assignment{
-		siteScope(authz.AssignmentRole{BuiltinKey: "FIELD_TECH"}, 1,
+		siteScope(1,
 			authz.PermFleetRead, authz.PermMinerBlinkLED),
 	})
 
@@ -63,7 +61,7 @@ func TestEffective_OrgScopedActionRequiresOrgScopeGrant(t *testing.T) {
 	// an org-scoped action — a site-scope grant cannot satisfy it because
 	// there's no site context to match against.
 	eff := authz.NewEffectivePermissions([]authz.Assignment{
-		siteScope(authz.AssignmentRole{BuiltinKey: "FIELD_TECH"}, 1, authz.PermUserManage),
+		siteScope(1, authz.PermUserManage),
 	})
 	require.False(t, eff.Has(authz.PermUserManage, orgResource()),
 		"org-scoped action is only satisfied by an org-scope assignment")
@@ -76,8 +74,8 @@ func TestEffective_NarrowingSiteScopeOverridesOrgScope(t *testing.T) {
 	// miner:reboot is denied at Site-A. At Site-B (no narrower
 	// assignment), the org grant applies and miner:reboot is allowed.
 	eff := authz.NewEffectivePermissions([]authz.Assignment{
-		orgScope(authz.AssignmentRole{BuiltinKey: "ADMIN"}, authz.PermFleetRead, authz.PermMinerRead, authz.PermMinerReboot),
-		siteScope(authz.AssignmentRole{BuiltinKey: "FIELD_TECH"}, 1,
+		orgScope(authz.PermFleetRead, authz.PermMinerRead, authz.PermMinerReboot),
+		siteScope(1,
 			authz.PermFleetRead, authz.PermMinerRead, authz.PermMinerBlinkLED),
 	})
 
@@ -93,8 +91,8 @@ func TestEffective_NarrowingOrgScopeActionNotShadowed(t *testing.T) {
 	// Org-scoped actions (user:manage, role:manage) are never shadowed by
 	// site-scope assignments — there's no site context to "narrow" to.
 	eff := authz.NewEffectivePermissions([]authz.Assignment{
-		orgScope(authz.AssignmentRole{BuiltinKey: "ADMIN"}, authz.PermUserManage),
-		siteScope(authz.AssignmentRole{BuiltinKey: "FIELD_TECH"}, 1, authz.PermFleetRead),
+		orgScope(authz.PermUserManage),
+		siteScope(1, authz.PermFleetRead),
 	})
 	require.True(t, eff.Has(authz.PermUserManage, orgResource()),
 		"org-scope action is satisfied by the org-scope assignment regardless of site-scope rows")
@@ -104,9 +102,9 @@ func TestEffective_MultipleSiteAssignmentsUnionAtTheirOwnSites(t *testing.T) {
 	// User has ADMIN @ Site-A and FIELD_TECH @ Site-B (no org-scope row).
 	// miner:reboot is in ADMIN's seed but not FIELD_TECH's.
 	eff := authz.NewEffectivePermissions([]authz.Assignment{
-		siteScope(authz.AssignmentRole{BuiltinKey: "ADMIN"}, 1,
+		siteScope(1,
 			authz.PermFleetRead, authz.PermMinerRead, authz.PermMinerReboot),
-		siteScope(authz.AssignmentRole{BuiltinKey: "FIELD_TECH"}, 2,
+		siteScope(2,
 			authz.PermFleetRead, authz.PermMinerRead, authz.PermMinerBlinkLED),
 	})
 
@@ -125,7 +123,7 @@ func TestEffective_EmptyAssignmentsDenyEverything(t *testing.T) {
 
 func TestEffective_UnknownPermissionDenied(t *testing.T) {
 	eff := authz.NewEffectivePermissions([]authz.Assignment{
-		orgScope(authz.AssignmentRole{BuiltinKey: "SUPER_ADMIN"}, authz.PermFleetRead),
+		orgScope(authz.PermFleetRead),
 	})
 	require.False(t, eff.Has("synthetic:not_in_catalog", orgResource()))
 }
@@ -135,8 +133,8 @@ func TestEffective_FlatPermissionsForUserInfo(t *testing.T) {
 	// permission keys across all assignments." Test that the projection is
 	// deterministic and dedupes.
 	eff := authz.NewEffectivePermissions([]authz.Assignment{
-		orgScope(authz.AssignmentRole{BuiltinKey: "ADMIN"}, authz.PermFleetRead, authz.PermMinerRead),
-		siteScope(authz.AssignmentRole{BuiltinKey: "FIELD_TECH"}, 1,
+		orgScope(authz.PermFleetRead, authz.PermMinerRead),
+		siteScope(1,
 			authz.PermFleetRead, authz.PermMinerBlinkLED),
 	})
 	got := eff.FlatKeys()
@@ -146,7 +144,7 @@ func TestEffective_FlatPermissionsForUserInfo(t *testing.T) {
 // FIELD_TECH on the AE (a tech can call BlinkLED but not Reboot).
 func TestEffective_FieldTechCanBlinkButNotReboot(t *testing.T) {
 	eff := authz.NewEffectivePermissions([]authz.Assignment{
-		orgScope(authz.AssignmentRole{BuiltinKey: "FIELD_TECH"},
+		orgScope(
 			authz.PermFleetRead, authz.PermMinerRead, authz.PermMinerBlinkLED,
 			authz.PermMinerDownloadLogs, authz.PermRackRead, authz.PermRackManage),
 	})
