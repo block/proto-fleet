@@ -12,19 +12,22 @@ import (
 	"connectrpc.com/connect"
 
 	"github.com/block/proto-fleet/server/internal/domain/apikey"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
 type AuthInterceptor struct {
-	sessionService  *session.Service
-	userStore       interfaces.UserStore
-	userMgmtStore   interfaces.UserManagementStore
-	apiKeyService   *apikey.Service
-	allowList       map[string]struct{}
-	sessionOnlyList map[string]struct{}
-	agentAuthList   map[string]struct{}
+	sessionService     *session.Service
+	userStore          interfaces.UserStore
+	userMgmtStore      interfaces.UserManagementStore
+	apiKeyService      *apikey.Service
+	permissionResolver *authz.PermissionResolver
+	allowList          map[string]struct{}
+	sessionOnlyList    map[string]struct{}
+	agentAuthList      map[string]struct{}
 }
 
 var _ connect.Interceptor = &AuthInterceptor{}
@@ -34,6 +37,7 @@ func NewAuthInterceptor(
 	userStore interfaces.UserStore,
 	userMgmtStore interfaces.UserManagementStore,
 	apiKeyService *apikey.Service,
+	permissionResolver *authz.PermissionResolver,
 	allowedProcedures []string,
 	sessionOnlyProcedures []string,
 	agentAuthProcedures []string,
@@ -54,14 +58,36 @@ func NewAuthInterceptor(
 	}
 
 	return &AuthInterceptor{
-		sessionService:  sessionService,
-		userStore:       userStore,
-		userMgmtStore:   userMgmtStore,
-		apiKeyService:   apiKeyService,
-		allowList:       allowList,
-		sessionOnlyList: sessionOnlyList,
-		agentAuthList:   agentAuthList,
+		sessionService:     sessionService,
+		userStore:          userStore,
+		userMgmtStore:      userMgmtStore,
+		apiKeyService:      apiKeyService,
+		permissionResolver: permissionResolver,
+		allowList:          allowList,
+		sessionOnlyList:    sessionOnlyList,
+		agentAuthList:      agentAuthList,
 	}
+}
+
+// loadEffectivePermissions consults the resolver for the authenticated
+// user's effective permission set within their org, then stashes the
+// result on the context so RequirePermission (and downstream handler
+// code) can read it. Both auth branches call this after populating
+// session.Info; the result is the same regardless of how the request
+// authenticated, which is the point — API keys inherit the user's
+// current set on every request rather than carrying a stale snapshot.
+//
+// Errors from the resolver are fatal for this request: returning the
+// error rather than swallowing it preserves the fail-closed default.
+// A deactivated user or a user with no live assignments gets a
+// non-nil empty EffectivePermissions (the resolver does not error
+// on no rows), so this path only errors on DB or wiring failures.
+func (i *AuthInterceptor) loadEffectivePermissions(ctx context.Context, info *session.Info) (context.Context, error) {
+	eff, err := i.permissionResolver.LoadEffective(ctx, info.UserID, info.OrganizationID)
+	if err != nil {
+		return ctx, classifyLookupError(err, "auth: effective permissions lookup failed", info.UserID)
+	}
+	return middleware.WithEffectivePermissions(authn.SetInfo(ctx, info), eff), nil
 }
 
 func (i *AuthInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
@@ -159,7 +185,7 @@ func (i *AuthInterceptor) authenticateWithApiKey(ctx context.Context, authHeader
 		Role:           roleName,
 	}
 
-	return authn.SetInfo(ctx, info), nil
+	return i.loadEffectivePermissions(ctx, info)
 }
 
 func parseBearerToken(authHeader string) (string, bool) {
@@ -201,7 +227,7 @@ func (i *AuthInterceptor) authenticateWithSession(ctx context.Context, requestHe
 		Role:           roleName,
 	}
 
-	return authn.SetInfo(ctx, info), nil
+	return i.loadEffectivePermissions(ctx, info)
 }
 
 func (i *AuthInterceptor) hasSessionCookie(requestHeader http.Header) bool {

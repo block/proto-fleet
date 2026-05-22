@@ -192,6 +192,8 @@ func start(config *Config) error {
 		return fmt.Errorf("reconcile built-in roles: %w", err)
 	}
 
+	permissionResolver := authz.NewPermissionResolver(conn)
+
 	transactor := sqlstores.NewSQLTransactor(conn)
 
 	encryptSvc, err := encrypt.NewService(&config.Encrypt)
@@ -475,7 +477,7 @@ func start(config *Config) error {
 		interceptors.NewErrorStackTraceLoggingInterceptor(config.Log.Level),
 		interceptors.NewRequestLoggingInterceptor(config.Log.Level, interceptors.RedactedRequestProcedures, interceptors.RedactedResponseProcedures),
 		interceptors.NewFleetNodeAuthInterceptor(fleetNodeAuthSvc, interceptors.FleetNodeAuthenticatedProcedures),
-		interceptors.NewAuthInterceptor(sessionSvc, userStore, userStore, apiKeySvc, interceptors.UnauthenticatedProcedures, interceptors.SessionOnlyProcedures, interceptors.FleetNodeAuthenticatedProcedures),
+		interceptors.NewAuthInterceptor(sessionSvc, userStore, userStore, apiKeySvc, permissionResolver, interceptors.UnauthenticatedProcedures, interceptors.SessionOnlyProcedures, interceptors.FleetNodeAuthenticatedProcedures),
 		validateInterceptor,
 	)
 
