@@ -2,8 +2,13 @@ package middleware_test
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
+	"regexp"
+	"runtime"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -94,7 +99,7 @@ func allRegisteredProcedures() []string {
 // TestRPCContract_EveryRegisteredProcedureIsClassified asserts every
 // Connect procedure registered on the production mux appears in
 // exactly one of: UnauthenticatedProcedures, FleetNodeAuthenticatedProcedures,
-// ProcedurePermissions, or ProceduresPendingGate. Adding a new RPC
+// ProcedurePermissions, or ProceduresPendingMigration. Adding a new RPC
 // without classifying it fails this test loudly; a procedure that
 // shows up in two lists is also flagged.
 func TestRPCContract_EveryRegisteredProcedureIsClassified(t *testing.T) {
@@ -123,10 +128,18 @@ func TestRPCContract_EveryRegisteredProcedureIsClassified(t *testing.T) {
 	add("UnauthenticatedProcedures", interceptors.UnauthenticatedProcedures)
 	add("FleetNodeAuthenticatedProcedures", interceptors.FleetNodeAuthenticatedProcedures)
 	addMap("ProcedurePermissions", middleware.ProcedurePermissions)
-	addMap("ProceduresPendingGate", middleware.ProceduresPendingGate)
+	addMap("ProceduresPendingMigration", middleware.ProceduresPendingMigration)
+
+	procedures := allRegisteredProcedures()
+	// Guard against silent pass when reflection finds nothing — e.g.
+	// connect-go renames the *Handler interfaces or every service is
+	// accidentally dropped from registeredServices.
+	require.NotEmpty(t, procedures,
+		"reflection discovered zero procedures across registeredServices; "+
+			"the contract test would pass vacuously")
 
 	var missing []string
-	for _, p := range allRegisteredProcedures() {
+	for _, p := range procedures {
 		if _, ok := classified[p]; !ok {
 			missing = append(missing, p)
 		}
@@ -134,7 +147,7 @@ func TestRPCContract_EveryRegisteredProcedureIsClassified(t *testing.T) {
 	require.Empty(t, missing,
 		"every procedure registered on the production Connect mux must be classified by RBAC; "+
 			"add each of the procedures below to UnauthenticatedProcedures, FleetNodeAuthenticatedProcedures, "+
-			"ProcedurePermissions, or ProceduresPendingGate:\n  %s",
+			"ProcedurePermissions, or ProceduresPendingMigration:\n  %s",
 		fmt.Sprintf("%q", missing))
 }
 
@@ -143,9 +156,6 @@ func TestRPCContract_EveryRegisteredProcedureIsClassified(t *testing.T) {
 // catalog. Stale keys (typos, removed permissions) get caught at test
 // time rather than slipping into production and quietly failing
 // every gate.
-//
-// In PR 2b (infrastructure-only) ProcedurePermissions is empty so
-// this test is a no-op; it becomes load-bearing in PR 2c onwards.
 func TestRPCContract_ProcedurePermissionsKeysAreInCatalog(t *testing.T) {
 	// Imported via the test so the package compiles when
 	// ProcedurePermissions is empty.
@@ -154,4 +164,74 @@ func TestRPCContract_ProcedurePermissionsKeysAreInCatalog(t *testing.T) {
 			t.Errorf("procedure %q gated by %q, which is not in the permission catalog", procedure, key)
 		}
 	}
+}
+
+// mainConnectMountRe captures the v1connect package shortname (e.g.
+// "authv1connect") from every Connect handler mount in main.go like
+// `mux.Handle(authv1connect.NewAuthServiceHandler(...)`. The capture
+// is the package selector, which uniquely identifies the service.
+var mainConnectMountRe = regexp.MustCompile(`\b(\w+v1connect)\.New\w+ServiceHandler\(`)
+
+// TestRPCContract_RegisteredServicesMatchMainMux asserts that every
+// v1connect handler mounted in cmd/fleetd/main.go is enumerated in
+// registeredServices, and vice versa. Without this, adding a new
+// service to main.go but forgetting to list it here is a silent
+// false-negative: the contract test still passes because reflection
+// never sees the new service's procedures.
+func TestRPCContract_RegisteredServicesMatchMainMux(t *testing.T) {
+	mainPath := locateMainGo(t)
+	src, err := os.ReadFile(mainPath)
+	require.NoError(t, err, "reading %s", mainPath)
+
+	mountedPkgs := make(map[string]struct{})
+	for _, m := range mainConnectMountRe.FindAllSubmatch(src, -1) {
+		mountedPkgs[string(m[1])] = struct{}{}
+	}
+	require.NotEmpty(t, mountedPkgs,
+		"regex found no v1connect handler mounts in %s — pattern may have drifted", mainPath)
+
+	registeredPkgs := make(map[string]struct{}, len(registeredServices))
+	for _, svc := range registeredServices {
+		// reflect.Type.PkgPath returns the import path; the last segment
+		// is the v1connect package shortname that appears in main.go.
+		pkg := svc.ifaceType.PkgPath()
+		registeredPkgs[pkg[strings.LastIndex(pkg, "/")+1:]] = struct{}{}
+	}
+
+	var missingFromTest, missingFromMux []string
+	for pkg := range mountedPkgs {
+		if _, ok := registeredPkgs[pkg]; !ok {
+			missingFromTest = append(missingFromTest, pkg)
+		}
+	}
+	for pkg := range registeredPkgs {
+		if _, ok := mountedPkgs[pkg]; !ok {
+			missingFromMux = append(missingFromMux, pkg)
+		}
+	}
+	sort.Strings(missingFromTest)
+	sort.Strings(missingFromMux)
+
+	require.Empty(t, missingFromTest,
+		"services mounted in main.go but missing from registeredServices "+
+			"(their procedures escape the classification check): %v", missingFromTest)
+	require.Empty(t, missingFromMux,
+		"services in registeredServices but not mounted in main.go "+
+			"(stale entries — drop them): %v", missingFromMux)
+}
+
+// locateMainGo resolves cmd/fleetd/main.go relative to this test
+// file's location via runtime.Caller, which is stable regardless of
+// the test runner's working directory.
+func locateMainGo(t *testing.T) string {
+	t.Helper()
+	_, thisFile, _, ok := runtime.Caller(0)
+	require.True(t, ok, "runtime.Caller failed")
+	// thisFile = .../server/internal/handlers/middleware/rpc_permissions_test.go
+	// main.go  = .../server/cmd/fleetd/main.go
+	serverRoot := filepath.Clean(filepath.Join(filepath.Dir(thisFile), "..", "..", ".."))
+	mainPath := filepath.Join(serverRoot, "cmd", "fleetd", "main.go")
+	_, err := os.Stat(mainPath)
+	require.NoError(t, err, "expected main.go at %s", mainPath)
+	return mainPath
 }

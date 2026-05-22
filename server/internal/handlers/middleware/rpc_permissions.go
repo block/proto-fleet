@@ -32,24 +32,25 @@ import (
 //
 //   - interceptors.UnauthenticatedProcedures
 //   - interceptors.FleetNodeAuthenticatedProcedures
-//   - ProcedurePermissions               (gated by catalog key)
-//   - ProceduresPendingGate              (allowlisted, not yet gated)
+//   - ProcedurePermissions          (gated by catalog key)
+//   - ProceduresPendingMigration    (declared but not yet enforced via RequirePermission)
 //
 // Adding a new RPC without registering it fails the contract test
-// loudly. Handlers move from ProceduresPendingGate to
+// loudly. Handlers move from ProceduresPendingMigration to
 // ProcedurePermissions as they swap from RequireAdmin to
 // RequirePermission.
 //
 // The two maps are split so the migration's progress is visible at a
-// glance: shrinking ProceduresPendingGate to zero is the exit
+// glance: shrinking ProceduresPendingMigration to zero is the exit
 // criterion for retiring the legacy RequireAdmin middleware.
 var ProcedurePermissions = map[string]string{
-	// Empty in this PR (infrastructure-only). Handlers populate this
-	// map in follow-up PRs as their callsites migrate to
-	// RequirePermission.
+	// Populated as handler callsites swap from legacy gates to
+	// RequirePermission. Empty entries are expected while the
+	// migration is in flight; the contract test catches missing
+	// classifications either way.
 }
 
-// ProceduresPendingGate lists authenticated Connect procedures that
+// ProceduresPendingMigration lists authenticated Connect procedures that
 // have not yet migrated to RequirePermission. The map value is a
 // brief note about the procedure's current gate — the legacy
 // RequireAdmin middleware, an inline role-string check, or (for
@@ -61,7 +62,7 @@ var ProcedurePermissions = map[string]string{
 // without classification, but it cannot tell the difference between
 // "intentional pending entry" and "shipped without thinking about
 // authz." Reviewers should treat any growth here as a red flag.
-var ProceduresPendingGate = map[string]string{
+var ProceduresPendingMigration = map[string]string{
 	// Activity log reads — currently authenticated but ungated.
 	activityv1connect.ActivityServiceListActivitiesProcedure:            "ungated; read-only activity log",
 	activityv1connect.ActivityServiceExportActivitiesProcedure:          "ungated; activity log CSV export",
@@ -76,7 +77,7 @@ var ProceduresPendingGate = map[string]string{
 	authv1connect.AuthServiceCreateUserProcedure:        "domain-layer checkCanManageUser",
 	authv1connect.AuthServiceDeactivateUserProcedure:    "domain-layer checkCanManageUser",
 	authv1connect.AuthServiceResetUserPasswordProcedure: "domain-layer checkCanManageUser",
-	authv1connect.AuthServiceListUsersProcedure:         "SUPER_ADMIN role check in auth/service.go",
+	authv1connect.AuthServiceListUsersProcedure:         "UNGATED: auth/service.go ListUsers has no role check; any authenticated org member can enumerate users — migration must add a real gate",
 	authv1connect.AuthServiceGetUserAuditInfoProcedure:  "authenticated self-read, no role check",
 	authv1connect.AuthServiceUpdatePasswordProcedure:    "authenticated self-write, no role check",
 	authv1connect.AuthServiceUpdateUsernameProcedure:    "authenticated self-write, no role check",
@@ -108,14 +109,14 @@ var ProceduresPendingGate = map[string]string{
 	collectionv1connect.DeviceCollectionServiceSetRackSlotPositionProcedure:         "ungated",
 	collectionv1connect.DeviceCollectionServiceClearRackSlotPositionProcedure:       "ungated",
 
-	// CurtailmentService — local requireAdminFromContext for writes; reads ungated.
-	curtailmentv1connect.CurtailmentServiceStartCurtailmentProcedure:       "inline requireAdminFromContext",
-	curtailmentv1connect.CurtailmentServiceStopCurtailmentProcedure:        "inline requireAdminFromContext",
-	curtailmentv1connect.CurtailmentServiceUpdateCurtailmentEventProcedure: "inline requireAdminFromContext",
+	// CurtailmentService — gates are conditional or absent; migration must close the gaps.
+	curtailmentv1connect.CurtailmentServiceStartCurtailmentProcedure:       "CONDITIONAL: requireAdminFromContext only when CandidateMinPowerWOverride set or AllowUnbounded; otherwise any authenticated user can start",
+	curtailmentv1connect.CurtailmentServiceStopCurtailmentProcedure:        "CONDITIONAL: requireAdminFromContext only when force=true; non-force stop is ungated",
+	curtailmentv1connect.CurtailmentServiceUpdateCurtailmentEventProcedure: "UNIMPLEMENTED STUB: returns Unimplemented with no gate; needs a real gate when implemented",
 	curtailmentv1connect.CurtailmentServiceAdminTerminateEventProcedure:    "session-only + inline requireAdminFromContext",
 	curtailmentv1connect.CurtailmentServiceListCurtailmentEventsProcedure:  "ungated read",
 	curtailmentv1connect.CurtailmentServiceGetActiveCurtailmentProcedure:   "ungated read",
-	curtailmentv1connect.CurtailmentServicePreviewCurtailmentPlanProcedure: "ungated preview",
+	curtailmentv1connect.CurtailmentServicePreviewCurtailmentPlanProcedure: "CONDITIONAL: requireAdminFromContext only when CandidateMinPowerWOverride set; otherwise ungated",
 
 	// DeviceSetService (racks) — ungated.
 	device_setv1connect.DeviceSetServiceCreateDeviceSetProcedure:            "ungated",
@@ -153,15 +154,16 @@ var ProceduresPendingGate = map[string]string{
 	fleetmanagementv1connect.FleetManagementServiceDeleteMinersProcedure:            "ungated",
 	fleetmanagementv1connect.FleetManagementServiceExportMinerListCsvProcedure:      "ungated",
 
-	// FleetNodeAdminService — inline info.Role check.
-	fleetnodeadminv1connect.FleetNodeAdminServiceCreateEnrollmentCodeProcedure:  "inline info.Role check",
-	fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodesProcedure:        "inline info.Role check",
-	fleetnodeadminv1connect.FleetNodeAdminServiceConfirmFleetNodeProcedure:      "inline info.Role check",
-	fleetnodeadminv1connect.FleetNodeAdminServiceRevokeFleetNodeProcedure:       "inline info.Role check",
-	fleetnodeadminv1connect.FleetNodeAdminServicePairDeviceToFleetNodeProcedure: "inline info.Role check",
-	fleetnodeadminv1connect.FleetNodeAdminServiceUnpairDeviceProcedure:          "inline info.Role check",
-	fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodeDevicesProcedure:  "inline info.Role check",
-	fleetnodeadminv1connect.FleetNodeAdminServiceDiscoverOnFleetNodeProcedure:   "inline info.Role check",
+	// FleetNodeAdminService — only the first four overrides exist; the rest fall through
+	// the embedded UnimplementedFleetNodeAdminServiceHandler and never reach a role check.
+	fleetnodeadminv1connect.FleetNodeAdminServiceCreateEnrollmentCodeProcedure:  "inline requireAdminSession (info.Role check)",
+	fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodesProcedure:        "inline requireAdminSession (info.Role check)",
+	fleetnodeadminv1connect.FleetNodeAdminServiceConfirmFleetNodeProcedure:      "inline requireAdminSession (info.Role check)",
+	fleetnodeadminv1connect.FleetNodeAdminServiceRevokeFleetNodeProcedure:       "inline requireAdminSession (info.Role check)",
+	fleetnodeadminv1connect.FleetNodeAdminServicePairDeviceToFleetNodeProcedure: "UNIMPLEMENTED STUB: handler does not override, returns Unimplemented with no gate",
+	fleetnodeadminv1connect.FleetNodeAdminServiceUnpairDeviceProcedure:          "UNIMPLEMENTED STUB: handler does not override, returns Unimplemented with no gate",
+	fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodeDevicesProcedure:  "UNIMPLEMENTED STUB: handler does not override, returns Unimplemented with no gate",
+	fleetnodeadminv1connect.FleetNodeAdminServiceDiscoverOnFleetNodeProcedure:   "UNIMPLEMENTED STUB: handler does not override, returns Unimplemented with no gate",
 
 	// ForemanImportService — ungated.
 	foremanimportv1connect.ForemanImportServiceImportFromForemanProcedure: "ungated",
