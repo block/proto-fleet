@@ -27,6 +27,7 @@ const FILTER_AND_SORT_KEYS: ReadonlySet<string> = new Set([
   "model",
   "group",
   "rack",
+  "building",
   "firmware",
   "zone",
   "subnet",

@@ -45,10 +45,6 @@ const (
 	// maxPageSize is the maximum number of items that can be returned per page
 	maxPageSize = 1000
 
-	// Standard HTTP ports
-	defaultHTTPPort  = "80"
-	defaultHTTPSPort = "443"
-
 	// concurrentClearAuthKeyLimit bounds the number of parallel ClearAuthKey RPCs
 	// fired in the background after a delete operation
 	concurrentClearAuthKeyLimit = 20
@@ -468,25 +464,18 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 
 		snapshot.Name = ComposeDeviceName(row.CustomName.String, snapshot.Manufacturer, snapshot.Model)
 
+		snapshot.IpAddress = row.IpAddress
+		snapshot.Url = constructWebViewURL(row.UrlScheme, row.IpAddress)
+
 		if isPaired {
 			snapshot.MacAddress = row.MacAddress
 			if row.SerialNumber.Valid {
 				snapshot.SerialNumber = row.SerialNumber.String
 			}
-			snapshot.IpAddress = row.IpAddress
-			snapshot.Url = constructWebViewURL(row.UrlScheme, row.IpAddress)
-
 			if row.DeviceStatus.Valid {
 				snapshot.DeviceStatus = convertDeviceStatusStringToProto(string(row.DeviceStatus.DeviceStatusEnum))
 			}
 		} else {
-			snapshot.IpAddress = row.IpAddress
-
-			url := row.UrlScheme + "://" + bracketIPv6Host(row.IpAddress)
-			if row.Port != "" && row.Port != defaultHTTPPort && row.Port != defaultHTTPSPort {
-				url += ":" + row.Port
-			}
-			snapshot.Url = url
 			snapshot.DeviceStatus = pb.DeviceStatus_DEVICE_STATUS_INACTIVE
 		}
 

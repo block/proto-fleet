@@ -131,7 +131,9 @@ export type MinerStateSnapshot = Message<"fleetmanagement.v1.MinerStateSnapshot"
   ipAddress: string;
 
   /**
-   * The full url of the miner including protocol and port (if running on a port other than 80/443)
+   * Web view URL for the miner's UI, in the form "<scheme>://<host>". The port is
+   * intentionally omitted so browsers fall back to the default for the scheme (80
+   * for http, 443 for https). Applies to both paired and unpaired devices.
    *
    * @generated from field: string url = 11;
    */

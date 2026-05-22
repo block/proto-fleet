@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import clsx from "clsx";
 
 import { ChevronDown } from "@/shared/assets/icons";
@@ -25,9 +25,24 @@ interface SelectProps {
   error?: boolean | string;
   testId?: string;
   className?: string;
+  // Default behavior flips the popover above the trigger when more space is
+  // available there. Set forceBelow when the caller knows the dropdown must
+  // open downward (e.g. inside a modal whose footer would otherwise hide it).
+  forceBelow?: boolean;
 }
 
-const SelectContent = ({ id, label, options, value, onChange, disabled, error, testId, className }: SelectProps) => {
+const SelectContent = ({
+  id,
+  label,
+  options,
+  value,
+  onChange,
+  disabled,
+  error,
+  testId,
+  className,
+  forceBelow,
+}: SelectProps) => {
   const [open, setOpen] = useState(false);
   const { triggerRef, setPopoverRenderMode } = usePopover();
   const [popoverPosition, setPopoverPosition] = useState<Position>(positions["bottom right"]);
@@ -45,8 +60,15 @@ const SelectContent = ({ id, label, options, value, onChange, disabled, error, t
   const [triggerWidth, setTriggerWidth] = useState<number | undefined>();
   const [popoverMaxHeight, setPopoverMaxHeight] = useState<number | undefined>();
 
-  useEffect(() => {
+  // useLayoutEffect (not useEffect) so the popover's max-height is applied
+  // before the first paint. Otherwise the popover renders at its natural
+  // height for one frame, Popover's overflow detector measures that height,
+  // and a forceBelow request can still flip to the top.
+  useLayoutEffect(() => {
     if (!open || !triggerRef.current) {
+      // Reset on close so the next open recomputes against fresh trigger
+      // coordinates instead of reusing stale state from the prior open.
+      setPopoverMaxHeight(undefined);
       return;
     }
 
@@ -59,7 +81,7 @@ const SelectContent = ({ id, label, options, value, onChange, disabled, error, t
       const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
       const spaceAbove = triggerRect.top - popoverViewportPadding;
       const spaceBelow = viewportHeight - triggerRect.bottom - popoverViewportPadding;
-      const shouldOpenAbove = spaceAbove > spaceBelow;
+      const shouldOpenAbove = !forceBelow && spaceAbove > spaceBelow;
 
       setTriggerWidth(triggerRect.width);
       setPopoverPosition(shouldOpenAbove ? positions["top right"] : positions["bottom right"]);
@@ -75,7 +97,7 @@ const SelectContent = ({ id, label, options, value, onChange, disabled, error, t
       window.removeEventListener("resize", updatePopoverLayout);
       window.visualViewport?.removeEventListener("resize", updatePopoverLayout);
     };
-  }, [open, triggerRef]);
+  }, [open, triggerRef, forceBelow]);
 
   useEffect(() => {
     if (!open || !listboxRef.current) {
@@ -145,6 +167,10 @@ const SelectContent = ({ id, label, options, value, onChange, disabled, error, t
           className="!w-auto !space-y-0 !rounded-xl border border-border-5 !bg-surface-elevated-base !p-0 !shadow-300 !backdrop-blur-none"
           closePopover={() => setOpen(false)}
           closeIgnoreSelectors={[`[data-testid='${testId}']`, `#${id}`]}
+          // Select picks bottom vs top itself based on forceBelow + available
+          // space; Popover's overflow-driven flip would override that decision
+          // and could send a forceBelow dropdown back above the trigger.
+          disableAutoFlip={forceBelow}
         >
           <div
             ref={listboxRef}

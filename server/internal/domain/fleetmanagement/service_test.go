@@ -818,6 +818,9 @@ func TestService_ListMinerStateSnapshots_ShouldPopulateCapabilitiesForUnpairedDe
 
 	miner := resp.Miners[0]
 	assert.Equal(t, pb.PairingStatus_PAIRING_STATUS_UNPAIRED, miner.PairingStatus)
+	assert.Equal(t, "192.168.1.100", miner.IpAddress)
+	// Fixture Port="4028" is the discovery API port; snapshot.Url omits it so the link targets the web UI.
+	assert.Equal(t, "http://192.168.1.100", miner.Url)
 	assert.NotNil(t, miner.Capabilities, "Capabilities should be populated for unpaired device")
 
 	// Verify capabilities structure

@@ -93,6 +93,11 @@ const usePopoverPosition = (
   renderMode: PopoverRenderMode,
   position?: Position,
   freezePosition?: boolean,
+  // When set, suppresses the overflow-driven flip logic. Use it when the
+  // caller manages position itself (e.g. Select picks bottom/top based on
+  // forceBelow + available space) and a viewport-overflow-driven flip would
+  // override the caller's intent.
+  disableAutoFlip?: boolean,
 ) => {
   const { width: viewportWidth, height: viewportHeight } = useWindowDimensions();
 
@@ -231,20 +236,22 @@ const usePopoverPosition = (
       let { top, left } = computeBasePosition(triggerRect, popoverRect, offset, xOffset, yOffset, finalPosition);
       const getPopoverTopInViewport = () => triggerRect.top + top;
 
-      // handle overflow on top
-      // top position on page is less than some margin
-      if (getPopoverTopInViewport() < minimalMargin) {
-        // flip position from top to bottom
-        finalPosition = flipPosition(finalPosition);
-        ({ top, left } = computeBasePosition(triggerRect, popoverRect, offset, xOffset, yOffset, finalPosition));
-      }
+      if (!disableAutoFlip) {
+        // handle overflow on top
+        // top position on page is less than some margin
+        if (getPopoverTopInViewport() < minimalMargin) {
+          // flip position from top to bottom
+          finalPosition = flipPosition(finalPosition);
+          ({ top, left } = computeBasePosition(triggerRect, popoverRect, offset, xOffset, yOffset, finalPosition));
+        }
 
-      // handle overflow on bottom
-      // top position on page + height of popover is greater than viewport height minus some margin
-      if (getPopoverTopInViewport() + popoverRect.height > visibleViewport.height - minimalMargin) {
-        // flip position from bottom to top
-        finalPosition = flipPosition(finalPosition);
-        ({ top, left } = computeBasePosition(triggerRect, popoverRect, offset, xOffset, yOffset, finalPosition));
+        // handle overflow on bottom
+        // top position on page + height of popover is greater than viewport height minus some margin
+        if (getPopoverTopInViewport() + popoverRect.height > visibleViewport.height - minimalMargin) {
+          // flip position from bottom to top
+          finalPosition = flipPosition(finalPosition);
+          ({ top, left } = computeBasePosition(triggerRect, popoverRect, offset, xOffset, yOffset, finalPosition));
+        }
       }
 
       const alignedLeft = left;
@@ -336,6 +343,7 @@ const usePopoverPosition = (
     yOffset,
     initialPageOffset,
     visibleViewport,
+    disableAutoFlip,
   ]);
 
   return { popoverAnimation, popoverStyle, popoverRef };

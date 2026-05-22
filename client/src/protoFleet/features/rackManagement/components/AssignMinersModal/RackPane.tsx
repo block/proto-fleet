@@ -203,7 +203,8 @@ export default function RackPane({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col p-4">
-      <div className="flex shrink-0 items-center justify-between pb-4">
+      {/* Negative margins escape outer p-4 + wrapper laptop:pl-6 → labels land 20px from pane edge. */}
+      <div className="-mx-4 flex shrink-0 items-center justify-between pt-1 pr-5 pb-4 pl-5 laptop:-ml-10">
         <span className="text-300 text-text-primary-50">
           {cols}x{rows}, {originLabel}
         </span>

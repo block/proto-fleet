@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import SiteModals from "../components/SiteModals";
 import SitesAllTable from "../components/SitesAllTable";
 import SitesEmptyState from "../components/SitesEmptyState";
 import SiteSettingsSingleView from "../components/SiteSettingsSingleView";
 import SitesPageHeader from "../components/SitesPageHeader";
+import { useSiteModals } from "../hooks/useSiteModals";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { buildKnownSiteIds, useSites } from "@/protoFleet/api/sites";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
@@ -12,8 +14,8 @@ import Header from "@/shared/components/Header";
 
 // `/settings/sites` config surface. Same data fetch shape as SitesPage; the
 // difference is the layout — all-sites mode renders a flat table, single
-// mode renders the configuration form. Site create/edit/delete modals land
-// in #261 and #262.
+// mode renders the configuration form. Site CRUD modals are mounted at the
+// page level so they survive the All Sites ↔ single-site re-render.
 const SettingsSitesPage = () => {
   const { listSites } = useSites();
   const [sites, setSites] = useState<SiteWithCounts[] | undefined>(undefined);
@@ -43,6 +45,8 @@ const SettingsSitesPage = () => {
 
   const { activeSite } = useActiveSite({ knownSiteIds });
 
+  const modals = useSiteModals({ refetchSites: fetchSites });
+
   if (sites === undefined) {
     return (
       <div className="flex flex-col gap-6">
@@ -71,34 +75,45 @@ const SettingsSitesPage = () => {
     );
   }
 
-  if (sites.length === 0) {
-    return (
+  const activeMatch =
+    activeSite.kind === "site" ? sites.find((s) => (s.site?.id ?? 0n).toString() === activeSite.id) : undefined;
+
+  const body =
+    sites.length === 0 ? (
       <div className="flex flex-col gap-6" data-testid="settings-sites-page">
-        <SitesPageHeader headline="Sites" subheadline="Manage your sites, buildings, and rack infrastructure." />
-        <SitesEmptyState />
+        <SitesPageHeader
+          headline="Sites"
+          subheadline="Manage your sites, buildings, and rack infrastructure."
+          onAddSite={modals.openCreate}
+        />
+        <SitesEmptyState onAddSite={modals.openCreate} />
+      </div>
+    ) : activeMatch ? (
+      <div data-testid="settings-sites-page">
+        <SiteSettingsSingleView
+          site={activeMatch}
+          knownSiteIds={knownSiteIds}
+          onManage={() => {
+            if (activeMatch.site) modals.openManageEdit(activeMatch.site);
+          }}
+        />
+      </div>
+    ) : (
+      <div className="flex flex-col gap-6" data-testid="settings-sites-page">
+        <SitesPageHeader
+          headline="Sites"
+          subheadline="Manage your sites, buildings, and rack infrastructure."
+          onAddSite={modals.openCreate}
+        />
+        <SitesAllTable sites={sites} />
       </div>
     );
-  }
-
-  if (activeSite.kind === "site") {
-    const match = sites.find((s) => (s.site?.id ?? 0n).toString() === activeSite.id);
-    if (match) {
-      return (
-        <div data-testid="settings-sites-page">
-          <SiteSettingsSingleView site={match} knownSiteIds={knownSiteIds} />
-        </div>
-      );
-    }
-    // Fall through to the All Sites layout if the stored selection no
-    // longer exists; useActiveSite will reset the storage on the next
-    // render.
-  }
 
   return (
-    <div className="flex flex-col gap-6" data-testid="settings-sites-page">
-      <SitesPageHeader headline="Sites" subheadline="Manage your sites, buildings, and rack infrastructure." />
-      <SitesAllTable sites={sites} />
-    </div>
+    <>
+      {body}
+      <SiteModals modals={modals} sites={sites} />
+    </>
   );
 };
 

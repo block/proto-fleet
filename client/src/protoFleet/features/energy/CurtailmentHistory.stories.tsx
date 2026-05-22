@@ -1,3 +1,4 @@
+import type { ReactElement } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import CurtailmentHistory from "@/protoFleet/features/energy/CurtailmentHistory";
@@ -22,13 +23,20 @@ export default meta;
 
 type Story = StoryObj<typeof CurtailmentHistory>;
 
+function CurtailmentHistoryStory(): ReactElement {
+  return (
+    <CurtailmentHistory
+      events={mockCurtailmentHistoryEvents}
+      activeEventId="curt-1042"
+      pageSize={2}
+      onManageActiveEvent={() => undefined}
+      onStopActiveEvent={() => undefined}
+    />
+  );
+}
+
 export const Default: Story = {
-  args: {
-    events: mockCurtailmentHistoryEvents,
-    activeEventId: "curt-1042",
-    pageSize: 2,
-    onStopActiveEvent: () => undefined,
-  },
+  render: () => <CurtailmentHistoryStory />,
 };
 
 export const Empty: Story = {

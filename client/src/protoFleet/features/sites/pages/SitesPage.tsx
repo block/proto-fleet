@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import SiteModals from "../components/SiteModals";
 import SiteOverviewSection from "../components/SiteOverviewSection";
 import SitesEmptyState from "../components/SitesEmptyState";
 import SitesPageHeader from "../components/SitesPageHeader";
+import { useSiteModals } from "../hooks/useSiteModals";
 import { useBuildings } from "@/protoFleet/api/buildings";
 import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
@@ -72,6 +74,8 @@ const SitesPage = () => {
 
   const { activeSite } = useActiveSite({ knownSiteIds });
 
+  const modals = useSiteModals({ refetchSites: fetchSites });
+
   const buildingsBySite = useMemo(() => {
     const grouped = new Map<string, BuildingWithCounts[]>();
     if (!buildings) return grouped;
@@ -128,11 +132,21 @@ const SitesPage = () => {
     );
   }
 
+  // "Add a site" only makes sense from the All Sites view; once a specific
+  // site is selected the operator is in single-site context and the CTA
+  // would be misleading. SettingsSitesPage already swaps the header out in
+  // its single-site branch, so this gating is /sites-specific.
+  const showAddSite = activeSite.kind === "all";
+
   return (
     <div className="flex flex-col gap-6 p-10 phone:p-6" data-testid="sites-page">
-      <SitesPageHeader headline="Sites" subheadline="Manage your sites, buildings, and rack infrastructure." />
+      <SitesPageHeader
+        headline="Sites"
+        subheadline="Manage your sites, buildings, and rack infrastructure."
+        onAddSite={showAddSite ? modals.openCreate : undefined}
+      />
       {sites.length === 0 ? (
-        <SitesEmptyState />
+        <SitesEmptyState onAddSite={modals.openCreate} />
       ) : activeSite.kind === "unassigned" ? (
         // "Unassigned" filters miners, not sites — there is no site-scoped
         // surface to render here. Stand a placeholder in for now so reviewers
@@ -171,6 +185,7 @@ const SitesPage = () => {
           })}
         </div>
       )}
+      <SiteModals modals={modals} sites={sites} />
     </div>
   );
 };

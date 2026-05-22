@@ -1,6 +1,8 @@
 import { type ReactElement, type ReactNode, useMemo, useState } from "react";
 
-import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
+import FullScreenTwoPaneModal, {
+  type FullScreenTwoPaneModalProps,
+} from "@/protoFleet/components/FullScreenTwoPaneModal";
 import TargetSelectButton, { getTargetButtonLabel } from "@/protoFleet/components/TargetSelectButton";
 import {
   getUnsupportedDeviceSetPreviewError,
@@ -22,6 +24,7 @@ export type CurtailmentScopeType = "wholeOrg" | "deviceSet" | "explicitMiners";
 export type ResponseProfileId = "customPlan";
 export type CurtailmentMode = "fixedKwReduction";
 export type MinerSelectionStrategy = "leastEfficientFirst";
+export type CurtailmentStartModalMode = "create" | "edit";
 
 export interface CurtailmentFormValues {
   scopeType: CurtailmentScopeType;
@@ -59,6 +62,12 @@ interface CurtailmentStartModalProps {
   open: boolean;
   onDismiss: () => void;
   onSubmit: (values: CurtailmentSubmitValues) => void;
+  /**
+   * Called from edit mode when the operator requests a curtailment stop. The
+   * parent owns confirmation and the stop-curtailment RPC.
+   */
+  onStopCurtailment?: () => void;
+  mode?: CurtailmentStartModalMode;
   initialValues?: Partial<CurtailmentFormValues>;
   errors?: CurtailmentFormErrors;
   preview?: CurtailmentPlanPreview;
@@ -355,6 +364,8 @@ function CurtailmentStartModalContent({
   open,
   onDismiss,
   onSubmit,
+  onStopCurtailment,
+  mode = "create",
   initialValues,
   errors,
   preview,
@@ -380,15 +391,21 @@ function CurtailmentStartModalContent({
     values,
     disabled: hasControlledPreview,
   });
-  const previewState: PreviewPaneProps = unsupportedDeviceSetPreviewError
-    ? { preview: undefined, previewError: unsupportedDeviceSetPreviewError, isPreviewLoading: false }
-    : hasControlledPreview
-      ? { preview, previewError, isPreviewLoading: false }
-      : apiPreview;
+  let previewState: PreviewPaneProps = apiPreview;
+
+  if (hasControlledPreview) {
+    previewState = { preview, previewError, isPreviewLoading: false };
+  }
+
+  if (unsupportedDeviceSetPreviewError) {
+    previewState = { preview: undefined, previewError: unsupportedDeviceSetPreviewError, isPreviewLoading: false };
+  }
+
   const hasBlockingValidationError =
     previewState.previewError !== undefined ||
     Object.keys(localErrors).length > 0 ||
     Object.keys(errors ?? {}).length > 0;
+  const isEditMode = mode === "edit";
   const selectedTargets = {
     racks: getSelectedDeviceSetIds(values, "racks"),
     groups: getSelectedDeviceSetIds(values, "groups"),
@@ -439,6 +456,25 @@ function CurtailmentStartModalContent({
     onSubmit(values);
   };
 
+  const buttons: NonNullable<FullScreenTwoPaneModalProps["buttons"]> = [];
+
+  if (isEditMode && onStopCurtailment) {
+    buttons.push({
+      text: "Stop curtailment",
+      variant: variants.secondaryDanger,
+      onClick: onStopCurtailment,
+      disabled: isSubmitting,
+    });
+  }
+
+  buttons.push({
+    text: isEditMode ? "Save" : "Start curtailment",
+    variant: variants.primary,
+    onClick: handleSubmit,
+    disabled: hasBlockingValidationError,
+    loading: isSubmitting,
+  });
+
   const confirmMaintenanceInclusion = () => {
     const nextValues = { ...values, includeMaintenance: true };
 
@@ -456,19 +492,11 @@ function CurtailmentStartModalContent({
     <>
       <FullScreenTwoPaneModal
         open={open}
-        title="Plan a curtailment"
-        closeAriaLabel="Close curtailment planner"
+        title={isEditMode ? "Manage curtailment" : "Plan a curtailment"}
+        closeAriaLabel={isEditMode ? "Close curtailment editor" : "Close curtailment planner"}
         onDismiss={onDismiss}
         isBusy={isSubmitting}
-        buttons={[
-          {
-            text: "Start curtailment",
-            variant: variants.primary,
-            onClick: handleSubmit,
-            disabled: hasBlockingValidationError,
-            loading: isSubmitting,
-          },
-        ]}
+        buttons={buttons}
         abovePanes={<div className="px-6 pb-6 laptop:hidden">{previewPane}</div>}
         primaryPane={
           <section className="flex flex-col gap-12 pr-6 pb-6 laptop:pr-10 laptop:pb-10">

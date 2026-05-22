@@ -538,7 +538,9 @@ type MinerStateSnapshot struct {
 	// For time series data, this represents when the most recent data was collected
 	Timestamp *timestamppb.Timestamp `protobuf:"bytes,9,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
 	IpAddress string                 `protobuf:"bytes,10,opt,name=ip_address,json=ipAddress,proto3" json:"ip_address,omitempty"`
-	// The full url of the miner including protocol and port (if running on a port other than 80/443)
+	// Web view URL for the miner's UI, in the form "<scheme>://<host>". The port is
+	// intentionally omitted so browsers fall back to the default for the scheme (80
+	// for http, 443 for https). Applies to both paired and unpaired devices.
 	Url string `protobuf:"bytes,11,opt,name=url,proto3" json:"url,omitempty"`
 	// Current operational status of the device
 	DeviceStatus DeviceStatus `protobuf:"varint,12,opt,name=device_status,json=deviceStatus,proto3,enum=fleetmanagement.v1.DeviceStatus" json:"device_status,omitempty"`
