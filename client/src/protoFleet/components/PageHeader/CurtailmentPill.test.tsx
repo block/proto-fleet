@@ -32,6 +32,17 @@ function openCurtailmentPopover(): void {
   fireEvent.click(screen.getByRole("button", { name: triggerName }));
 }
 
+function getPlannedReductionText(selectedMiners: number, estimatedReductionKw: number): string {
+  const minerLabel = selectedMiners === 1 ? "miner" : "miners";
+  const selectedMinersText = `${selectedMiners.toLocaleString()} selected ${minerLabel}`;
+  const estimatedReductionText = `${estimatedReductionKw.toLocaleString(undefined, {
+    maximumFractionDigits: 1,
+    minimumFractionDigits: 1,
+  })} kW`;
+
+  return `${selectedMinersText} - ${estimatedReductionText} planned`;
+}
+
 describe("CurtailmentPill", () => {
   it("renders the current curtailment state in the trigger", () => {
     renderCurtailmentPill({
@@ -53,7 +64,7 @@ describe("CurtailmentPill", () => {
     expect(screen.getByText("Grid peak call")).toBeInTheDocument();
     expect(screen.getByText("Active")).toBeInTheDocument();
     expect(screen.getByText("Whole org")).toBeInTheDocument();
-    expect(screen.getByText("48 selected miners - 126.4 kW planned")).toBeInTheDocument();
+    expect(screen.getByText(getPlannedReductionText(48, 126.4))).toBeInTheDocument();
   });
 
   it("formats singular miner counts", () => {
@@ -67,7 +78,7 @@ describe("CurtailmentPill", () => {
 
     openCurtailmentPopover();
 
-    expect(screen.getByText("1 selected miner - 4.0 kW planned")).toBeInTheDocument();
+    expect(screen.getByText(getPlannedReductionText(1, 4))).toBeInTheDocument();
   });
 
   it("does not render the details link without a details path", () => {
