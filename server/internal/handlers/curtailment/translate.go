@@ -622,13 +622,22 @@ func toListEventsResponse(events []*models.Event, nextPageToken string) *pb.List
 // detail separately when needed.
 func toEventProtoListItem(event *models.Event) *pb.CurtailmentEvent {
 	out := toEventProto(event)
-	out.ExternalSource = ""
-	out.ExternalReference = ""
-	out.IdempotencyKey = ""
+	scrubListSensitiveFields(out)
 	populateEventScope(out, event)
 	populateEventModeParams(out, event)
 	populateEventDecisionSnapshotTrimmed(out, event)
 	return out
+}
+
+// scrubListSensitiveFields strips fields that should not ride on the list-view
+// response (external trigger metadata used for replay routing, idempotency key).
+// toEventProto sets these when the persisted row has them; the list shape
+// re-zeros so the read API doesn't expose webhook trigger details across
+// every history row.
+func scrubListSensitiveFields(out *pb.CurtailmentEvent) {
+	out.ExternalSource = ""
+	out.ExternalReference = ""
+	out.IdempotencyKey = ""
 }
 
 // toEventProto maps persisted event metadata to the wire CurtailmentEvent.
