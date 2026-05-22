@@ -115,6 +115,35 @@ func TestEffective_MultipleSiteAssignmentsUnionAtTheirOwnSites(t *testing.T) {
 		"ADMIN's seed does NOT include miner:blink_led")
 }
 
+// Codex security regression: an empty site-scope assignment (a role
+// with zero permissions) MUST narrow against the user's broader
+// org-scope grant at that site. Without recording bySite[siteID],
+// narrowing would collapse and the org grant would silently apply at
+// the site the empty role was meant to lock down.
+func TestEffective_ZeroPermissionSiteAssignmentStillNarrows(t *testing.T) {
+	siteOne := int64(1)
+	emptySite1 := authz.Assignment{
+		AssignmentID: 99,
+		ScopeType:    authz.ScopeSite,
+		SiteID:       &siteOne,
+		Permissions:  nil,
+	}
+
+	eff := authz.NewEffectivePermissions([]authz.Assignment{
+		orgScope(authz.PermFleetRead, authz.PermMinerRead, authz.PermMinerReboot),
+		emptySite1,
+	})
+
+	require.False(t, eff.Has(authz.PermMinerReboot, site(1)),
+		"empty site-scope assignment at site 1 must narrow the user's org-scope grant there")
+	require.False(t, eff.Has(authz.PermFleetRead, site(1)),
+		"narrowing applies to every action key when the narrower assignment grants nothing")
+	require.True(t, eff.Has(authz.PermMinerReboot, site(2)),
+		"org grant still applies at site 2 — no narrower assignment there")
+	require.True(t, eff.Has(authz.PermMinerReboot, orgResource()),
+		"org-scope action satisfied by the org-scope ADMIN; site narrowing only applies to site-targeted requests")
+}
+
 func TestEffective_EmptyAssignmentsDenyEverything(t *testing.T) {
 	eff := authz.NewEffectivePermissions(nil)
 	require.False(t, eff.Has(authz.PermFleetRead, orgResource()))

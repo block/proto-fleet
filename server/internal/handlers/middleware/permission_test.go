@@ -141,6 +141,22 @@ func TestRequirePermission_SchedulerShortCircuitsToAllow(t *testing.T) {
 	require.Equal(t, session.ActorScheduler, got.Actor)
 }
 
+// Codex security regression (PR 2a MEDIUM): an unknown non-empty
+// Actor must NOT bypass the gate. Allowlist only known constants
+// (ActorScheduler, ActorCurtailment); fail closed for anything else.
+func TestRequirePermission_UnknownActorDoesNotBypass(t *testing.T) {
+	info := &session.Info{
+		AuthMethod: session.AuthMethodSession,
+		Actor:      session.Actor("future-orchestrator-typo"),
+	}
+	ctx := ctxWithInfo(info) // no EffectivePermissions stashed — bypass would mask this
+
+	_, err := middleware.RequirePermission(ctx, authz.PermMinerReboot, siteRC(1))
+	require.Error(t, err, "unknown Actor must not short-circuit to ALLOW")
+	require.Equal(t, connect.CodeInternal, connectCode(t, err),
+		"unknown Actor surfaces as Internal, not ALLOW and not PermissionDenied")
+}
+
 func TestRequirePermission_CurtailmentReconcilerActorAlsoAllowed(t *testing.T) {
 	// Any non-empty Actor short-circuits — the gate trusts internal
 	// orchestrators in general, not just the scheduler.

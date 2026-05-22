@@ -49,11 +49,18 @@ func (r *PermissionResolver) LoadEffective(ctx context.Context, userID, organiza
 	return assignmentsFromRows(rows), nil
 }
 
-// assignmentsFromRows groups the flat (assignment_id, scope, permission_key)
-// rows the SQL returns into one Assignment per assignment_id, then
-// materializes the resulting slice into an EffectivePermissions. The
-// SQL ORDER BY uor.id makes the grouping streaming-friendly without
-// needing a map indirection here.
+// assignmentsFromRows groups the flat (assignment_id, scope,
+// permission_key) rows the SQL returns into one Assignment per
+// assignment_id, then materializes the resulting slice into an
+// EffectivePermissions. The SQL ORDER BY uor.id makes the grouping
+// streaming-friendly without needing a map indirection here.
+//
+// PermissionKey is nullable because the underlying query LEFT JOINs
+// role_permission and permission — a site-scope role with zero
+// permissions still produces one row so the resolver can record the
+// assignment's existence (and trigger narrowing) even though it
+// grants no actions. Rows with a NULL permission key contribute no
+// keys to the Assignment's Permissions slice.
 func assignmentsFromRows(rows []sqlc.ListEffectivePermissionsForUserRow) *EffectivePermissions {
 	if len(rows) == 0 {
 		return NewEffectivePermissions(nil)
@@ -82,7 +89,9 @@ func assignmentsFromRows(rows []sqlc.ListEffectivePermissionsForUserRow) *Effect
 			}
 			started = true
 		}
-		current.Permissions = append(current.Permissions, row.PermissionKey)
+		if row.PermissionKey.Valid {
+			current.Permissions = append(current.Permissions, row.PermissionKey.String)
+		}
 	}
 	flush()
 

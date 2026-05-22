@@ -81,8 +81,22 @@ func RequirePermission(ctx context.Context, key string, rc authz.ResourceContext
 	// themselves by virtue of running in-process; LoadEffective is
 	// never called for them and EffectivePermissions is absent from
 	// their context.
+	//
+	// Allowlist explicitly rather than "any non-empty Actor" — a
+	// future mistyped or user-influenced value must NOT be a bypass.
+	// An unknown non-empty Actor fails closed with Internal so the
+	// problem surfaces immediately rather than silently granting
+	// access.
 	if info.Actor != "" {
-		return info, nil
+		switch info.Actor {
+		case session.ActorScheduler, session.ActorCurtailment:
+			return info, nil
+		default:
+			return nil, fleeterror.NewInternalErrorf(
+				"authz: unknown internal actor %q; refusing to short-circuit RBAC",
+				info.Actor,
+			)
+		}
 	}
 
 	eff := effectivePermissionsFromContext(ctx)

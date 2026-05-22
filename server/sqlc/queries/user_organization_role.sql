@@ -65,14 +65,21 @@ WHERE role_id = $1
   AND deleted_at IS NULL;
 
 -- name: ListEffectivePermissionsForUser :many
--- Single-query resolver source: every (assignment_id, scope_type,
--- scope_id, permission_key) triple the user holds within an
--- organization. The resolver walks this slice to evaluate
--- Has(key, ResourceContext). Narrowing semantics: when the caller
--- has both org-scope and site-scope assignments, the site-scope
--- assignment overrides the org grant at that site; this slice
--- carries the scope on every row so the resolver can pick the
--- narrowest match without extra queries.
+-- Single-query resolver source: one row per (assignment, permission)
+-- pair the user holds within an organization, with a NULL permission
+-- column when the assignment's role has no permissions attached.
+--
+-- The LEFT JOIN on role_permission and permission is load-bearing for
+-- the narrowing semantics: a site-scope assignment whose role grants
+-- zero permissions must still surface in the resolver as a "site has
+-- an assignment" marker. Without it, the resolver would not record
+-- bySite[siteID] for that site, narrowing would collapse, and the
+-- caller's org-scope grant would silently apply at the site the
+-- empty role was meant to lock down.
+--
+-- The resolver walks this slice to evaluate Has(key, ResourceContext)
+-- with the plan's narrowing rule: site-scope assignment overrides the
+-- org grant at that site; site-scope absence falls back to org-scope.
 SELECT
     uor.id          AS assignment_id,
     uor.role_id     AS role_id,
@@ -80,15 +87,15 @@ SELECT
     uor.scope_id    AS scope_id,
     p.key           AS permission_key
 FROM user_organization_role uor
-JOIN role r             ON r.id = uor.role_id
-                       AND r.organization_id = uor.organization_id
-JOIN role_permission rp ON rp.role_id = r.id
-JOIN permission p       ON p.id = rp.permission_id
+JOIN role r              ON r.id = uor.role_id
+                        AND r.organization_id = uor.organization_id
+LEFT JOIN role_permission rp ON rp.role_id = r.id
+LEFT JOIN permission p       ON p.id = rp.permission_id
 WHERE uor.user_id = $1
   AND uor.organization_id = $2
   AND uor.deleted_at IS NULL
   AND r.deleted_at IS NULL
-ORDER BY uor.id, p.key;
+ORDER BY uor.id, p.key NULLS FIRST;
 
 -- name: CountOrgScopeSuperAdminsExcludingAssignment :one
 -- Last-SUPER_ADMIN guard. Returns the number of LIVE org-scope

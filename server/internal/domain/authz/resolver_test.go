@@ -101,6 +101,48 @@ func TestResolver_NarrowingFromTwoAssignments(t *testing.T) {
 }
 
 // Soft-deleted assignment is excluded by the SQL.
+// Codex security regression (PR 2a HIGH): a site-scope role with
+// zero permissions must still narrow the user's broader org-scope
+// grant at that site. The earlier resolver used an INNER JOIN to
+// role_permission and dropped rows for empty roles, which silently
+// collapsed narrowing back to the org grant.
+func TestResolver_ZeroPermissionSiteAssignmentStillNarrows(t *testing.T) {
+	db := testutil.GetTestDB(t)
+	ctx := t.Context()
+
+	orgID := insertTestOrganization(t, db)
+	siteA := insertTestSite(t, db, orgID)
+	siteB := insertTestSite(t, db, orgID)
+	userID := insertTestUser(t, db)
+	require.NoError(t, authz.Reconcile(ctx, db))
+
+	// Org-scope ADMIN grants miner:reboot everywhere by default.
+	adminID := getBuiltinRoleID(t, db, orgID, "ADMIN")
+	assignAssignment(t, db, userID, orgID, adminID, "org", sql.NullInt64{})
+
+	// Create a custom role with zero permissions ("Site Lockdown")
+	// and assign it at site A. The LEFT JOIN in the resolver SQL must
+	// surface this assignment even though it grants nothing — without
+	// it, narrowing at site A would silently fall back to ADMIN's
+	// miner:reboot.
+	lockdownID := createEmptyCustomRole(t, db, orgID, "Site Lockdown")
+	assignAssignment(t, db, userID, orgID, lockdownID, "site",
+		sql.NullInt64{Int64: siteA, Valid: true})
+
+	resolver := authz.NewPermissionResolver(db)
+	eff, err := resolver.LoadEffective(ctx, userID, orgID)
+	require.NoError(t, err)
+
+	require.False(t, eff.Has(authz.PermMinerReboot, siteCtx(siteA)),
+		"empty site-scope role at site A must narrow org-scope ADMIN there")
+	require.False(t, eff.Has(authz.PermFleetRead, siteCtx(siteA)),
+		"narrowing applies to every action key when the narrower role grants nothing")
+	require.True(t, eff.Has(authz.PermMinerReboot, siteCtx(siteB)),
+		"org grant still applies at site B (no narrower assignment)")
+	require.True(t, eff.Has(authz.PermUserManage, authz.ResourceContext{}),
+		"org-scoped action satisfied by the org-scope ADMIN")
+}
+
 func TestResolver_SoftDeletedAssignmentIgnored(t *testing.T) {
 	db := testutil.GetTestDB(t)
 	ctx := t.Context()
@@ -175,4 +217,18 @@ func assignAssignment(t *testing.T, db *sql.DB, userID, orgID, roleID int64, sco
 	})
 	require.NoError(t, err)
 	return row.ID
+}
+
+// createEmptyCustomRole creates a custom role with zero permissions
+// attached. Used by the narrowing regression test to exercise the
+// LEFT JOIN path that surfaces empty-role assignments.
+func createEmptyCustomRole(t *testing.T, db *sql.DB, orgID int64, name string) int64 {
+	t.Helper()
+	id, err := sqlc.New(db).UpsertCustomRoleForOrg(t.Context(), sqlc.UpsertCustomRoleForOrgParams{
+		Name:           name,
+		Description:    sql.NullString{String: "no perms — narrowing lockdown", Valid: true},
+		OrganizationID: sql.NullInt64{Int64: orgID, Valid: true},
+	})
+	require.NoError(t, err)
+	return id
 }

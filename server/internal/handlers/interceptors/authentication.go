@@ -82,7 +82,18 @@ func NewAuthInterceptor(
 // A deactivated user or a user with no live assignments gets a
 // non-nil empty EffectivePermissions (the resolver does not error
 // on no rows), so this path only errors on DB or wiring failures.
+//
+// A nil resolver is a constructor-wiring bug (the interceptor was
+// built without one). Surface it as Internal rather than panicking
+// with a nil dereference — easier to diagnose, and downstream
+// RequirePermission's fail-closed default still applies when the
+// EffectivePermissions value never makes it onto the context.
 func (i *AuthInterceptor) loadEffectivePermissions(ctx context.Context, info *session.Info) (context.Context, error) {
+	if i.permissionResolver == nil {
+		return ctx, fleeterror.NewInternalError(
+			"auth: permission resolver not wired into AuthInterceptor",
+		)
+	}
 	eff, err := i.permissionResolver.LoadEffective(ctx, info.UserID, info.OrganizationID)
 	if err != nil {
 		return ctx, classifyLookupError(err, "auth: effective permissions lookup failed", info.UserID)
