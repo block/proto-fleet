@@ -363,8 +363,11 @@ export class MinersPage extends BasePage {
 
   async continueUpdateWorkerNameNoChangesIfVisible() {
     const dialog = this.page.getByTestId("update-worker-name-no-changes-dialog");
-    if (await dialog.isVisible().catch(() => false)) {
+    try {
+      await dialog.waitFor({ state: "visible", timeout: DEFAULT_INTERVAL });
       await dialog.getByRole("button", { name: "Yes, continue", exact: true }).click();
+    } catch {
+      // Dialog not present, continue
     }
   }
 
