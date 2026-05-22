@@ -44,6 +44,13 @@ var ErrCurtailmentIdempotencyKeyRaceLoss = errors.New("curtailment event with th
 // external_reference) analog of ErrCurtailmentIdempotencyKeyRaceLoss.
 var ErrCurtailmentExternalReferenceRaceLoss = errors.New("curtailment event with the same (external_source, external_reference) was inserted concurrently")
 
+// ErrCurtailmentEventStateRaceLoss is returned by UpdateEventState when the
+// row advanced out of {pending, active, restoring} between the caller's
+// in-memory snapshot and this UPDATE. The SQL guard matches zero rows; the
+// store maps that to this sentinel so the reconciler (which doesn't pre-read
+// in the tick body) can log + metric the skip without treating it as Internal.
+var ErrCurtailmentEventStateRaceLoss = errors.New("curtailment event state advanced before transition")
+
 // UpdateCurtailmentTargetStateParams: optional patch fields. Nil pointers
 // leave the column unchanged via COALESCE in the SQL update.
 type UpdateCurtailmentTargetStateParams struct {
@@ -172,7 +179,10 @@ type CurtailmentStore interface {
 	ListNonTerminalEvents(ctx context.Context) ([]*models.Event, error)
 
 	// UpdateEventState transitions an event row. nil startedAt/endedAt
-	// leaves the column unchanged; non-nil overwrites.
+	// leaves the column unchanged; non-nil overwrites. Returns
+	// ErrCurtailmentEventStateRaceLoss when the row advanced out of
+	// {pending, active, restoring} between the caller's snapshot and the
+	// UPDATE; callers (the reconciler) treat that as a non-fatal race signal.
 	UpdateEventState(ctx context.Context, eventID int64, state models.EventState, startedAt *time.Time, endedAt *time.Time) error
 
 	// UpdateTargetState patches the (eventID, deviceIdentifier) row.

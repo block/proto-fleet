@@ -467,13 +467,21 @@ func (s *SQLCurtailmentStore) ListNonTerminalEvents(ctx context.Context) ([]*mod
 }
 
 func (s *SQLCurtailmentStore) UpdateEventState(ctx context.Context, eventID int64, state models.EventState, startedAt *time.Time, endedAt *time.Time) error {
-	if err := s.GetQueries(ctx).UpdateCurtailmentEventState(ctx, sqlc.UpdateCurtailmentEventStateParams{
+	rows, err := s.GetQueries(ctx).UpdateCurtailmentEventState(ctx, sqlc.UpdateCurtailmentEventStateParams{
 		ID:        eventID,
 		State:     string(state),
 		StartedAt: ptrToNullTime(startedAt),
 		EndedAt:   ptrToNullTime(endedAt),
-	}); err != nil {
+	})
+	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to update curtailment event %d state: %v", eventID, err)
+	}
+	if rows == 0 {
+		// Row state guard matched zero rows: the event advanced out of
+		// {pending, active, restoring} between snapshot and this UPDATE.
+		// Surface the typed sentinel so the reconciler can log + metric the
+		// skip without treating it as an Internal error.
+		return interfaces.ErrCurtailmentEventStateRaceLoss
 	}
 	return nil
 }

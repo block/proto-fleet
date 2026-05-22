@@ -224,6 +224,9 @@ RETURNING *;
 -- stripped at the SQL boundary so a 10K-miner event's multi-MB skip list
 -- doesn't ride the wire for every list row. The aggregate is computed before
 -- stripping so production list rows match the documented read-API shape.
+-- The win is on the application tier (network + JSON decode); Postgres still
+-- TOAST-detoasts the full column once per row to evaluate jsonb_typeof and
+-- the aggregate subquery, so the database-side I/O cost is unchanged.
 SELECT
     id, event_uuid, org_id, state, mode, strategy, level, priority,
     loop_type, scope_type, scope_jsonb, mode_params_jsonb,
@@ -315,9 +318,14 @@ FROM curtailment_event
 WHERE state IN ('pending', 'active', 'restoring')
 ORDER BY id;
 
--- name: UpdateCurtailmentEventState :exec
+-- name: UpdateCurtailmentEventState :execrows
 -- COALESCE: nil narg leaves started_at/ended_at unchanged. Timestamps are
--- write-once, so the OR-NULL pattern is fine.
+-- write-once, so the OR-NULL pattern is fine. The row-count return is
+-- load-bearing: 0 rows affected means the event advanced out of the
+-- non-terminal set between the reconciler's snapshot and this write (a
+-- concurrent Stop/AdminTerminate), and the store maps that to the typed
+-- ErrCurtailmentEventStateRaceLoss so the caller can log/metric without
+-- treating it as an internal error.
 UPDATE curtailment_event
 SET state      = sqlc.arg('state'),
     started_at = COALESCE(sqlc.narg('started_at'), started_at),

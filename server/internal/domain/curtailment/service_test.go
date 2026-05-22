@@ -383,6 +383,7 @@ type recordingMetrics struct {
 	tickFailures      int
 	candidateExcluded map[string]int
 	maintenance       int
+	eventStateRaces   int
 }
 
 func newRecordingMetrics() *recordingMetrics {
@@ -411,6 +412,12 @@ func (m *recordingMetrics) IncMaintenanceOverride() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.maintenance++
+}
+
+func (m *recordingMetrics) IncEventStateRaceLoss() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.eventStateRaces++
 }
 
 func (m *recordingMetrics) CandidateExcludedCount(reason string) int {

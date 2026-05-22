@@ -5,6 +5,7 @@ package reconciler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
@@ -310,6 +311,13 @@ func (r *Reconciler) dispatchPending(ctx context.Context, ev *models.Event) {
 		return
 	}
 
+	// One liveness read per event-tick. dispatchOneCurtail trusts this gate
+	// and skips its own re-read so a per-target loop costs O(targets) DB
+	// hits instead of O(targets * 2).
+	if !r.eventStillDispatchable(ctx, ev) {
+		return
+	}
+
 	cmdCtx := reconcilerContext(ctx, ev.OrgID, ev.CreatedByUserID)
 	for _, t := range targets {
 		if t.State != models.TargetStatePending {
@@ -358,13 +366,14 @@ func (r *Reconciler) confirmDispatched(ctx context.Context, ev *models.Event, ta
 // results route through recordDispatchFailure so work isn't silently
 // dropped.
 //
+// Callers are expected to have already verified event liveness via
+// eventStillDispatchable for this tick — hoisting that read out of the
+// per-target loop trades one DB read per target for one per event-tick.
+//
 // Restart-safety gap: command is enqueued before the Dispatched write; a
 // crash in between leaves the target Pending and the next tick
 // redispatches. Curtail is device-idempotent, but audit shows two batches.
 func (r *Reconciler) dispatchOneCurtail(ctx context.Context, ev *models.Event, t *models.Target, nonTerminalFailureState models.TargetState) {
-	if !r.eventStillDispatchable(ctx, ev) {
-		return
-	}
 	selector := &pb.DeviceSelector{
 		SelectionType: &pb.DeviceSelector_IncludeDevices{
 			IncludeDevices: &commonpb.DeviceIdentifierList{
@@ -496,6 +505,13 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 	}
 
 	if r.enforceMaxDuration(ctx, ev, targets) {
+		return
+	}
+
+	// One liveness read per event-tick: dispatchOneCurtail trusts this gate
+	// and skips its own re-read. Placed after enforceMaxDuration so a
+	// post-cap transition we just initiated doesn't trigger a redundant skip.
+	if !r.eventStillDispatchable(ctx, ev) {
 		return
 	}
 
@@ -659,8 +675,7 @@ func (r *Reconciler) maybeMarkActive(ctx context.Context, ev *models.Event, targ
 		slog.Warn("curtailment reconciler: pending event has all-terminal targets; marking completed_with_failures",
 			"event_id", ev.ID, "failed_target_count", terminalFailures)
 		if err := r.store.UpdateEventState(ctx, ev.ID, models.EventStateCompletedWithFailures, nil, &now); err != nil {
-			slog.Error("curtailment reconciler: pending→completed_with_failures transition failed",
-				"event_id", ev.ID, "error", err)
+			r.logEventStateUpdateError(ev, "pending→completed_with_failures", err)
 		}
 		return
 	}
@@ -670,9 +685,27 @@ func (r *Reconciler) maybeMarkActive(ctx context.Context, ev *models.Event, targ
 			"event_id", ev.ID, "failed_target_count", terminalFailures, "confirmed_count", confirmed)
 	}
 	if err := r.store.UpdateEventState(ctx, ev.ID, models.EventStateActive, &now, nil); err != nil {
-		slog.Error("curtailment reconciler: pending→active transition failed",
-			"event_id", ev.ID, "error", err)
+		r.logEventStateUpdateError(ev, "pending→active", err)
 	}
+}
+
+// logEventStateUpdateError routes a store.UpdateEventState error into the
+// right observability bucket. ErrCurtailmentEventStateRaceLoss means a
+// concurrent Stop/AdminTerminate advanced the row first; log at Warn and
+// bump the race-loss counter rather than IncTickFailure so trend dashboards
+// don't conflate it with a real tick failure. Other errors stay Error-level
+// and the tick continues — reconciler behavior on race-loss is intentionally
+// unchanged here; the typed signal is just observability.
+func (r *Reconciler) logEventStateUpdateError(ev *models.Event, transition string, err error) {
+	if errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
+		r.metrics.IncEventStateRaceLoss()
+		slog.Warn("curtailment reconciler: event state advanced concurrently; skipping transition",
+			"event_id", ev.ID, "event_uuid", ev.EventUUID,
+			"loaded_state", ev.State, "transition", transition)
+		return
+	}
+	slog.Error("curtailment reconciler: "+transition+" transition failed",
+		"event_id", ev.ID, "error", err)
 }
 
 // reconcilerContext stamps synthetic session.Info on the dispatch ctx.
@@ -909,8 +942,7 @@ func (r *Reconciler) maybeCompleteRestoring(ctx context.Context, ev *models.Even
 	}
 	now := r.now()
 	if err := r.store.UpdateEventState(ctx, ev.ID, finalState, nil, &now); err != nil {
-		slog.Error("curtailment reconciler: restoring→terminal transition failed",
-			"event_id", ev.ID, "final_state", finalState, "error", err)
+		r.logEventStateUpdateError(ev, "restoring→"+string(finalState), err)
 		return true
 	}
 	slog.Info("curtailment reconciler: event terminal",

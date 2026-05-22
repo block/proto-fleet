@@ -907,6 +907,9 @@ type ListCurtailmentEventsForOrgRow struct {
 // stripped at the SQL boundary so a 10K-miner event's multi-MB skip list
 // doesn't ride the wire for every list row. The aggregate is computed before
 // stripping so production list rows match the documented read-API shape.
+// The win is on the application tier (network + JSON decode); Postgres still
+// TOAST-detoasts the full column once per row to evaluate jsonb_typeof and
+// the aggregate subquery, so the database-side I/O cost is unchanged.
 func (q *Queries) ListCurtailmentEventsForOrg(ctx context.Context, arg ListCurtailmentEventsForOrgParams) ([]ListCurtailmentEventsForOrgRow, error) {
 	rows, err := q.query(ctx, q.listCurtailmentEventsForOrgStmt, listCurtailmentEventsForOrg,
 		arg.OrgID,
@@ -1254,7 +1257,7 @@ func (q *Queries) UpdateCurtailmentEventOperatorFields(ctx context.Context, arg 
 	return i, err
 }
 
-const updateCurtailmentEventState = `-- name: UpdateCurtailmentEventState :exec
+const updateCurtailmentEventState = `-- name: UpdateCurtailmentEventState :execrows
 UPDATE curtailment_event
 SET state      = $1,
     started_at = COALESCE($2, started_at),
@@ -1271,15 +1274,23 @@ type UpdateCurtailmentEventStateParams struct {
 }
 
 // COALESCE: nil narg leaves started_at/ended_at unchanged. Timestamps are
-// write-once, so the OR-NULL pattern is fine.
-func (q *Queries) UpdateCurtailmentEventState(ctx context.Context, arg UpdateCurtailmentEventStateParams) error {
-	_, err := q.exec(ctx, q.updateCurtailmentEventStateStmt, updateCurtailmentEventState,
+// write-once, so the OR-NULL pattern is fine. The row-count return is
+// load-bearing: 0 rows affected means the event advanced out of the
+// non-terminal set between the reconciler's snapshot and this write (a
+// concurrent Stop/AdminTerminate), and the store maps that to the typed
+// ErrCurtailmentEventStateRaceLoss so the caller can log/metric without
+// treating it as an internal error.
+func (q *Queries) UpdateCurtailmentEventState(ctx context.Context, arg UpdateCurtailmentEventStateParams) (int64, error) {
+	result, err := q.exec(ctx, q.updateCurtailmentEventStateStmt, updateCurtailmentEventState,
 		arg.State,
 		arg.StartedAt,
 		arg.EndedAt,
 		arg.ID,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const updateCurtailmentTargetState = `-- name: UpdateCurtailmentTargetState :exec

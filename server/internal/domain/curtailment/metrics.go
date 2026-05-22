@@ -22,6 +22,11 @@ type Metrics interface {
 	// IncMaintenanceOverride records one per-miner maintenance override
 	// application at Start.
 	IncMaintenanceOverride()
+	// IncEventStateRaceLoss records a reconciler UpdateEventState call that
+	// matched zero rows because a concurrent Stop/AdminTerminate advanced the
+	// row first. The tick continues — this signal is informational and lets
+	// operators trend race frequency.
+	IncEventStateRaceLoss()
 }
 
 // NoOpMetrics is the default Metrics used until the platform observability
@@ -32,3 +37,4 @@ func (NoOpMetrics) ObserveTickDuration(time.Duration) {}
 func (NoOpMetrics) IncTickFailure()                   {}
 func (NoOpMetrics) IncCandidateExcluded(string)       {}
 func (NoOpMetrics) IncMaintenanceOverride()           {}
+func (NoOpMetrics) IncEventStateRaceLoss()            {}
