@@ -386,11 +386,35 @@ Three distinct modals:
     of building boxes (label only) arranged horizontally, wrapping
     when out of space.
 - **`BuildingDetailsModal`** — create or edit a single building.
-  Heading: `building.label`. Inputs: name, type, cooling type,
-  power capacity (MW), overhead (kW), IP range. Buttons: Save in
-  both modes, Delete only in edit. Type / cooling / IP range
-  depend on BE follow-ups and stay hidden until those fields
-  land.
+  Heading: `building.label`. Inputs (PR 3 scope): name, type
+  (greyed-out stub until the `building_type` enum follow-up
+  lands), power capacity (MW; converted to `power_kw` on
+  submit), overhead (kW). Buttons: Save in both modes, Delete
+  only in edit. Cooling type / IP range remain hidden until
+  their BE follow-ups land. Default rack layout inputs
+  (`default_rack_rows` / `default_rack_columns` /
+  `default_rack_order_index`) are intentionally absent — the
+  proto fields stay optional + zero-defaulted server-side until
+  a downstream feature needs them. Aisles + racks_per_aisle live
+  on `ManageBuildingModal` because they only matter for the grid
+  view.
+- **`ManageBuildingModal`** — manage rack membership inside a
+  building. Header has an "Edit building" button that stacks
+  `BuildingDetailsModal` on top (mirror of `ManageSiteModal` →
+  `SiteDetailsModal`). Delete is owned by the details modal,
+  not the manage modal.
+  - Left pane: aisles + racks_per_aisle inputs (drive grid
+    dimensions; persist via `UpdateBuilding`); "Assign racks"
+    button → `SearchRacksModal`; byName / manual mode toggle;
+    list of currently-assigned racks.
+  - Right pane: `aisles × racks_per_aisle` grid. Empty cells
+    render a `+` block, assigned cells render the rack label.
+    byName mode auto-fills cells alphabetically; manual mode
+    lets the operator click a cell + rack to position.
+  - Save persists touched racks via repeated
+    `BuildingService.AssignRackToBuilding` calls — one per rack
+    whose membership or grid cell changed. SaveRack stays out of
+    this path; grid placement is its own write contract.
 
 **Site create + miner assignment.** The plan previously claimed the
 site row insert and `device.site_id` updates happen in one
@@ -784,6 +808,23 @@ New entities and relationships introduced:
   Crossing a building boundary clears it so the rack can be assigned
   a new zone explicitly in its new building.
 
+- **`device_set_rack.aisle_index`** + **`device_set_rack.position_in_aisle`**
+  — both nullable `INT`s, added in PR 3 to back the
+  `ManageBuildingModal` grid. When `building_id` is set, the pair
+  positions the rack at `(aisle_index, position_in_aisle)` inside
+  the building's layout. SQL-level CHECK constraints: paired
+  (both NULL or both set), non-negative when set, and
+  position-requires-building (cannot be set when `building_id IS
+  NULL`). A partial unique index on
+  `(building_id, aisle_index, position_in_aisle)` ensures a cell
+  holds at most one rack. Upper bounds (`< building.aisles`,
+  `< building.racks_per_aisle`) are validated application-side
+  because they depend on the parent building row. Cleared on any
+  `building_id` transition through `UpdateRackPlacement` so
+  positions never outlive their building. Writes flow through a
+  dedicated `BuildingService.AssignRackToBuilding` RPC; reads for
+  the grid flow through `BuildingService.ListBuildingRacks`.
+
 - **History-bearing tables get a nullable `site_id` column** so
   per-site filtering on Phase 2 dashboards uses the row-stamped
   site, not the device's *current* site (which would rewrite
@@ -1064,11 +1105,19 @@ flag-off state is a strict subset of the flag-on state.
   `SiteDetailsModal` Continue) and site edit (via "Manage site"
   button on single-site page).
 - **`BuildingDetailsModal`** — create or edit a single building,
-  always scoped to a parent site.
-- **`ManageBuildingModal`** — Phase 1b. FullScreenTwoPane sibling
-  of `ManageSiteModal` for managing rack membership inside a
-  building. Phase 1a places "Edit building" as a button stub on
-  `/buildings/:id` that wires to `BuildingDetailsModal` only.
+  always scoped to a parent site. Fields land per the PR 3 spec
+  in J3 (name, type stub, power MW, overhead kW). Default rack
+  layout inputs are deliberately *not* surfaced in Phase 1a.
+- **`ManageBuildingModal`** — Phase 1a (PR 3). FullScreenTwoPane
+  sibling of `ManageSiteModal` for managing rack membership
+  inside a building. MVP shape is `AssignMinersModal`-inspired
+  (aisles × racks_per_aisle grid; byName / manual modes;
+  `SearchRacksModal` for the rack picker). Production design
+  refinement lands in Phase 1b.
+- **`SearchRacksModal`** — Phase 1a (PR 3). Sibling of
+  `SearchMinersModal`; lists racks under the parent site with
+  ineligible-but-visible greying for racks already assigned to a
+  different building.
 - **"Assign to site" bulk modal** — used from miner list bulk
   action (Phase 1b ticket; tracks #199). Includes "(Unassigned)"
   as a target option.
@@ -1194,17 +1243,99 @@ Work in this phase consolidates into three sequential PRs:
   edits one, deletes one with the cascade dialog. Sites render in
   both `/sites` and `/settings/sites`.
 
-**PR 3 — building creation + edit flows:**
+**PR 3 — building CRUD + rack assignment flows:**
 
 - `BuildingDetailsModal` (create + edit modes) wired to
   `CreateBuilding` / `UpdateBuilding`. Always scoped to a parent
   site context — no orphan-building create paths in the UI.
-- Building delete with cascade-unassign confirm dialog reading
-  `rack_count` from `ListBuildings`.
+  Fields: name, type (disabled stub pending `building_type` enum
+  follow-up — see Phase 1b deferred fields), power capacity (MW;
+  converted to `power_kw` on submit), overhead (kW). Default rack
+  layout inputs (`default_rack_rows` / `default_rack_columns` /
+  `default_rack_order_index`) are intentionally not surfaced in
+  Phase 1a — the proto fields stay optional and BE-side default
+  to UNSPECIFIED/0 until a future FE need surfaces them. Aisles
+  and racks_per_aisle move onto `ManageBuildingModal` (see below)
+  because they only matter for the grid view.
+- `BuildingDeleteDialog` — cascade-confirm reading `rack_count`
+  from `BuildingWithCounts`. Rack-only language (no
+  device-count callout in this PR — `BuildingWithCounts` does not
+  carry `device_count`; the indirect-impact wording in J3 is
+  deferred to a follow-up that extends the response shape).
+- `ManageBuildingModal` (FullScreenTwoPane) — pulled into PR 3
+  from Phase 1b. MVP shape inspired by `AssignMinersModal`:
+  - Header "Edit building" button stacks `BuildingDetailsModal`
+    on top (mirror of `ManageSiteModal` → `SiteDetailsModal`
+    stacking). Delete is owned by the details modal.
+  - Left pane: aisles + racks_per_aisle inputs (drive grid
+    dimensions; persist via `UpdateBuilding`), "Assign racks"
+    button → `SearchRacksModal`, byName / manual assignment mode
+    toggle, list of currently-assigned racks. byName auto-fills
+    grid cells alphabetically; manual lets the operator click a
+    cell + rack to position.
+  - Right pane: `aisles × racks_per_aisle` grid. Empty cells
+    render a `+` block, assigned cells render the rack label.
+  - Save persists touched racks via repeated `SaveRack` calls
+    (sets `building_id`, `aisle_index`, `position_in_aisle` per
+    rack) — see schema additions in the next bullet.
+- `SearchRacksModal` — sibling of `SearchMinersModal`. Lists
+  racks under the parent site; racks already in a different
+  building render greyed-out (ineligible-but-visible, same
+  pattern as `SearchMinersModal`).
+- **Schema additions in this PR**: add nullable
+  `device_set_rack.aisle_index INT` and
+  `device_set_rack.position_in_aisle INT`. Constraints: paired
+  (both NULL or both set), non-negative when set, require
+  `building_id IS NOT NULL`, and a partial unique index on
+  `(building_id, aisle_index, position_in_aisle)` so a cell holds
+  at most one rack. The existing `UpdateRackPlacement` query
+  (used by `SaveRack`) clears both fields on any `building_id`
+  transition (mirrors the zone-clear cascade) — positions never
+  outlive their parent building.
+- **New dedicated RPC**: `BuildingService.AssignRackToBuilding`.
+  Inputs: `rack_id` (int64, required), `building_id` (optional —
+  unset = unassign from building), `aisle_index` /
+  `position_in_aisle` (optional pair — unset = building member
+  without specific grid placement). Validates upper bounds
+  against the parent building's `aisles` / `racks_per_aisle`,
+  enforces cell uniqueness via the partial index, and runs the
+  same site-cascade rules that `SaveRack` already runs when
+  building changes. SaveRack stays focused on rack-level
+  full-state writes; this RPC is the position-write path used by
+  `ManageBuildingModal`. Read path for the grid is a new
+  `BuildingService.ListBuildingRacks(building_id)` returning
+  `repeated BuildingRack { int64 rack_id; string rack_label;
+  optional int32 aisle_index; optional int32 position_in_aisle; }`.
+  Keeping these on `BuildingService` (not `CollectionService`)
+  scopes the new contract to the building UI without bloating
+  the rack RPC surface.
+- Entry points wired:
+  - `/settings/sites` single-site Buildings table — "Add
+    building" CTA → `BuildingDetailsModal` create; row click →
+    `BuildingDetailsModal` edit.
+  - `ManageSiteModal` left-pane buildings table — replaces the
+    Phase 1a placeholder. Same Add CTA + row-click semantics.
+  - `/buildings/:id` header "Edit building" → opens
+    `ManageBuildingModal`. The page's `Edit building` stub from
+    Phase 1a goes away.
+  - `/sites` per-site overview building tiles — Phase 1a left
+    them as inert FPO blocks; PR 3 makes them clickable links to
+    `/buildings/:id` (the real `BuildingCard` component still
+    lands in Phase 1b).
+- Post-delete navigation rules: delete from
+  `BuildingDetailsModal` opened *inside* `ManageSiteModal`
+  collapses the details modal back to the manage view (the
+  building goes away in the left-pane table). Delete from
+  `BuildingDetailsModal` opened *inside* `ManageBuildingModal`
+  redirects to `/sites` — the manage modal's anchor is the now-
+  deleted building.
 - Acceptance: operator adds buildings to a site through both
   `ManageSiteModal`'s left-pane "Add building" button and the
   single-site Buildings table's "Add building" CTA. Edits and
-  deletes a building.
+  deletes a building. Opens `ManageBuildingModal` from
+  `/buildings/:id`, assigns racks via the grid, switches between
+  byName / manual modes, persists positions, and reloads to see
+  the same layout.
 
 ### Phase 1b — data enrichment (parallel-safe with 1a tail)
 
@@ -1219,8 +1350,9 @@ backend follow-ups land here where they unblock visible product.
   `/sites`.
 - `/buildings/:id` diagnostics section (rack grid + rack-state
   derivation) and performance section.
-- `ManageBuildingModal` (FullScreenTwoPane sibling of
-  `ManageSiteModal`) for rack membership inside a building.
+- `ManageBuildingModal` polish — full design lands here (the PR 3
+  MVP is `AssignMinersModal`-inspired; the production design is
+  still in flux).
 - BE follow-ups for deferred fields, each in its own PR:
   - `site` address columns (`address_line1`, `address_line2`,
     `postal_code`, `country`) and `notes`.

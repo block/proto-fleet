@@ -99,3 +99,33 @@ type ListFilter struct {
 type DeleteResult struct {
 	UnassignedRackCount int64
 }
+
+// BuildingRack is the rack-in-building read shape used by
+// ManageBuildingModal. Position fields are nil when the rack is a
+// building member without a chosen grid cell.
+type BuildingRack struct {
+	RackID          int64
+	RackLabel       string
+	AisleIndex      *int32
+	PositionInAisle *int32
+}
+
+// AssignRackToBuildingParams is the input shape for assigning (or
+// unassigning) a rack to a building, optionally with a grid cell.
+type AssignRackToBuildingParams struct {
+	OrgID  int64
+	RackID int64
+	// BuildingID is nil when unassigning the rack from any building.
+	BuildingID *int64
+	// AisleIndex / PositionInAisle are nil when the caller is not
+	// positioning the rack at a specific cell. Must be paired (both
+	// nil or both set); enforced at the service edge.
+	AisleIndex      *int32
+	PositionInAisle *int32
+}
+
+// AssignRackToBuildingResult is the response shape carrying the
+// cascade impact count for the activity log + UI confirmation.
+type AssignRackToBuildingResult struct {
+	SiteReassignedDeviceCount int64
+}

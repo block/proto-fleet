@@ -106,15 +106,20 @@ WHERE id = sqlc.arg('id')
 
 -- name: UnassignRacksFromBuilding :execrows
 -- Sets device_set_rack.building_id = NULL (and clears the free-form
--- zone label) for every live rack pointing at the given building. Org
--- guard reads `device_set_rack.org_id` directly (denormalized from
--- device_set in migration 000046, kept in lockstep via the composite
--- FK on `(device_set_id, org_id) → device_set(id, org_id)`). The
--- EXISTS subquery on device_set skips soft-deleted rack collections so
--- the cascade count matches ListBuildings.rack_count's filter.
+-- zone label + grid position) for every live rack pointing at the
+-- given building. Org guard reads `device_set_rack.org_id` directly
+-- (denormalized from device_set in migration 000046, kept in lockstep
+-- via the composite FK on `(device_set_id, org_id) →
+-- device_set(id, org_id)`). The EXISTS subquery on device_set skips
+-- soft-deleted rack collections so the cascade count matches
+-- ListBuildings.rack_count's filter. aisle_index / position_in_aisle
+-- are cleared because they're meaningless without a parent building
+-- (the CHECK constraint on device_set_rack enforces this).
 UPDATE device_set_rack dsr
 SET building_id = NULL,
-    zone = NULL
+    zone = NULL,
+    aisle_index = NULL,
+    position_in_aisle = NULL
 WHERE dsr.org_id = sqlc.arg('org_id')
   AND dsr.building_id = sqlc.arg('building_id')
   AND EXISTS (
@@ -122,6 +127,49 @@ WHERE dsr.org_id = sqlc.arg('org_id')
       WHERE ds.id = dsr.device_set_id
         AND ds.deleted_at IS NULL
   );
+
+-- name: ListBuildingRacks :many
+-- Returns racks currently assigned to a building with their grid
+-- position. Used by ManageBuildingModal to seed the layout grid.
+-- Excludes soft-deleted rack collections; org guard is checked
+-- against the denormalized org_id on device_set_rack.
+SELECT
+    dsr.device_set_id AS rack_id,
+    ds.label          AS rack_label,
+    dsr.aisle_index,
+    dsr.position_in_aisle
+FROM device_set_rack dsr
+JOIN device_set ds ON ds.id = dsr.device_set_id
+WHERE dsr.org_id = sqlc.arg('org_id')
+  AND dsr.building_id = sqlc.arg('building_id')
+  AND ds.deleted_at IS NULL
+ORDER BY ds.label;
+
+-- name: LockRackForBuildingAssign :one
+-- Locks the rack row FOR UPDATE and returns its current placement +
+-- the denormalized site/building keys needed by the cascade. Run
+-- after locking the target building so the canonical lock order
+-- (building -> rack) is preserved.
+SELECT dsr.site_id, dsr.building_id, dsr.zone, dsr.aisle_index, dsr.position_in_aisle
+FROM device_set_rack dsr
+JOIN device_set ds ON ds.id = dsr.device_set_id
+WHERE dsr.device_set_id = sqlc.arg('rack_id')
+  AND dsr.org_id = sqlc.arg('org_id')
+  AND ds.deleted_at IS NULL
+FOR UPDATE;
+
+-- name: SetRackBuildingPosition :exec
+-- Writes the rack's grid placement (aisle_index, position_in_aisle).
+-- Caller must have already set building_id via UpdateRackPlacement —
+-- this query intentionally does not touch building_id so the two
+-- writes stay separable. Both fields are paired by application logic
+-- and the device_set_rack CHECK constraint: passing one without the
+-- other is rejected at the SQL layer.
+UPDATE device_set_rack
+SET aisle_index = sqlc.narg('aisle_index')::int,
+    position_in_aisle = sqlc.narg('position_in_aisle')::int
+WHERE device_set_id = sqlc.arg('rack_id')
+  AND org_id = sqlc.arg('org_id');
 
 -- name: BuildingBelongsToOrg :one
 SELECT EXISTS(

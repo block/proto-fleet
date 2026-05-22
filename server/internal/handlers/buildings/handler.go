@@ -92,3 +92,29 @@ func (h *Handler) DeleteBuilding(ctx context.Context, req *connect.Request[pb.De
 		UnassignedRackCount: out.UnassignedRackCount,
 	}), nil
 }
+
+func (h *Handler) ListBuildingRacks(ctx context.Context, req *connect.Request[pb.ListBuildingRacksRequest]) (*connect.Response[pb.ListBuildingRacksResponse], error) {
+	info, err := middleware.RequireAdmin(ctx, "list building racks")
+	if err != nil {
+		return nil, err
+	}
+	racks, err := h.service.ListBuildingRacks(ctx, info.OrganizationID, req.Msg.GetBuildingId())
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(toListBuildingRacksResponse(racks)), nil
+}
+
+func (h *Handler) AssignRackToBuilding(ctx context.Context, req *connect.Request[pb.AssignRackToBuildingRequest]) (*connect.Response[pb.AssignRackToBuildingResponse], error) {
+	info, err := middleware.RequireAdmin(ctx, "assign rack to building")
+	if err != nil {
+		return nil, err
+	}
+	out, err := h.service.AssignRackToBuilding(ctx, toAssignRackToBuildingParams(req.Msg, info.OrganizationID))
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.AssignRackToBuildingResponse{
+		SiteReassignedDeviceCount: out.SiteReassignedDeviceCount,
+	}), nil
+}

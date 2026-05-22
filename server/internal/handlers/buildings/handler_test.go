@@ -40,7 +40,7 @@ func newTestHandler(t *testing.T) *testHarness {
 			return fn(ctx)
 		},
 	)
-	svc := buildings.NewService(buildingStore, siteStore, tx, nil)
+	svc := buildings.NewService(buildingStore, siteStore, nil, tx, nil)
 	return &testHarness{
 		handler:       NewHandler(svc),
 		buildingStore: buildingStore,

@@ -49,6 +49,12 @@ const (
 	// BuildingServiceDeleteBuildingProcedure is the fully-qualified name of the BuildingService's
 	// DeleteBuilding RPC.
 	BuildingServiceDeleteBuildingProcedure = "/buildings.v1.BuildingService/DeleteBuilding"
+	// BuildingServiceListBuildingRacksProcedure is the fully-qualified name of the BuildingService's
+	// ListBuildingRacks RPC.
+	BuildingServiceListBuildingRacksProcedure = "/buildings.v1.BuildingService/ListBuildingRacks"
+	// BuildingServiceAssignRackToBuildingProcedure is the fully-qualified name of the BuildingService's
+	// AssignRackToBuilding RPC.
+	BuildingServiceAssignRackToBuildingProcedure = "/buildings.v1.BuildingService/AssignRackToBuilding"
 )
 
 // BuildingServiceClient is a client for the buildings.v1.BuildingService service.
@@ -76,6 +82,21 @@ type BuildingServiceClient interface {
 	// transaction, sets device_set_rack.building_id = NULL on every
 	// rack pointing at it. Devices keep their existing site_id.
 	DeleteBuilding(context.Context, *connect.Request[v1.DeleteBuildingRequest]) (*connect.Response[v1.DeleteBuildingResponse], error)
+	// ListBuildingRacks returns every rack currently assigned to the
+	// building along with its grid placement (aisle_index,
+	// position_in_aisle). Used by ManageBuildingModal to seed its
+	// grid view; the broader ListDeviceSets RPC stays unaware of
+	// grid placement.
+	ListBuildingRacks(context.Context, *connect.Request[v1.ListBuildingRacksRequest]) (*connect.Response[v1.ListBuildingRacksResponse], error)
+	// AssignRackToBuilding sets the rack's building_id and optionally
+	// positions it at (aisle_index, position_in_aisle) inside the
+	// building's grid. Leaving building_id unset unassigns the rack
+	// from any building. Position fields must be set together or
+	// both unset; the server clears them automatically on any
+	// building_id transition. Runs the same site-cascade for
+	// descendant device.site_id that SaveRack runs when the rack's
+	// site changes.
+	AssignRackToBuilding(context.Context, *connect.Request[v1.AssignRackToBuildingRequest]) (*connect.Response[v1.AssignRackToBuildingResponse], error)
 }
 
 // NewBuildingServiceClient constructs a client for the buildings.v1.BuildingService service. By
@@ -113,16 +134,28 @@ func NewBuildingServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			baseURL+BuildingServiceDeleteBuildingProcedure,
 			opts...,
 		),
+		listBuildingRacks: connect.NewClient[v1.ListBuildingRacksRequest, v1.ListBuildingRacksResponse](
+			httpClient,
+			baseURL+BuildingServiceListBuildingRacksProcedure,
+			opts...,
+		),
+		assignRackToBuilding: connect.NewClient[v1.AssignRackToBuildingRequest, v1.AssignRackToBuildingResponse](
+			httpClient,
+			baseURL+BuildingServiceAssignRackToBuildingProcedure,
+			opts...,
+		),
 	}
 }
 
 // buildingServiceClient implements BuildingServiceClient.
 type buildingServiceClient struct {
-	listBuildings  *connect.Client[v1.ListBuildingsRequest, v1.ListBuildingsResponse]
-	getBuilding    *connect.Client[v1.GetBuildingRequest, v1.GetBuildingResponse]
-	createBuilding *connect.Client[v1.CreateBuildingRequest, v1.CreateBuildingResponse]
-	updateBuilding *connect.Client[v1.UpdateBuildingRequest, v1.UpdateBuildingResponse]
-	deleteBuilding *connect.Client[v1.DeleteBuildingRequest, v1.DeleteBuildingResponse]
+	listBuildings        *connect.Client[v1.ListBuildingsRequest, v1.ListBuildingsResponse]
+	getBuilding          *connect.Client[v1.GetBuildingRequest, v1.GetBuildingResponse]
+	createBuilding       *connect.Client[v1.CreateBuildingRequest, v1.CreateBuildingResponse]
+	updateBuilding       *connect.Client[v1.UpdateBuildingRequest, v1.UpdateBuildingResponse]
+	deleteBuilding       *connect.Client[v1.DeleteBuildingRequest, v1.DeleteBuildingResponse]
+	listBuildingRacks    *connect.Client[v1.ListBuildingRacksRequest, v1.ListBuildingRacksResponse]
+	assignRackToBuilding *connect.Client[v1.AssignRackToBuildingRequest, v1.AssignRackToBuildingResponse]
 }
 
 // ListBuildings calls buildings.v1.BuildingService.ListBuildings.
@@ -150,6 +183,16 @@ func (c *buildingServiceClient) DeleteBuilding(ctx context.Context, req *connect
 	return c.deleteBuilding.CallUnary(ctx, req)
 }
 
+// ListBuildingRacks calls buildings.v1.BuildingService.ListBuildingRacks.
+func (c *buildingServiceClient) ListBuildingRacks(ctx context.Context, req *connect.Request[v1.ListBuildingRacksRequest]) (*connect.Response[v1.ListBuildingRacksResponse], error) {
+	return c.listBuildingRacks.CallUnary(ctx, req)
+}
+
+// AssignRackToBuilding calls buildings.v1.BuildingService.AssignRackToBuilding.
+func (c *buildingServiceClient) AssignRackToBuilding(ctx context.Context, req *connect.Request[v1.AssignRackToBuildingRequest]) (*connect.Response[v1.AssignRackToBuildingResponse], error) {
+	return c.assignRackToBuilding.CallUnary(ctx, req)
+}
+
 // BuildingServiceHandler is an implementation of the buildings.v1.BuildingService service.
 type BuildingServiceHandler interface {
 	// ListBuildings returns every live building in the org with its
@@ -175,6 +218,21 @@ type BuildingServiceHandler interface {
 	// transaction, sets device_set_rack.building_id = NULL on every
 	// rack pointing at it. Devices keep their existing site_id.
 	DeleteBuilding(context.Context, *connect.Request[v1.DeleteBuildingRequest]) (*connect.Response[v1.DeleteBuildingResponse], error)
+	// ListBuildingRacks returns every rack currently assigned to the
+	// building along with its grid placement (aisle_index,
+	// position_in_aisle). Used by ManageBuildingModal to seed its
+	// grid view; the broader ListDeviceSets RPC stays unaware of
+	// grid placement.
+	ListBuildingRacks(context.Context, *connect.Request[v1.ListBuildingRacksRequest]) (*connect.Response[v1.ListBuildingRacksResponse], error)
+	// AssignRackToBuilding sets the rack's building_id and optionally
+	// positions it at (aisle_index, position_in_aisle) inside the
+	// building's grid. Leaving building_id unset unassigns the rack
+	// from any building. Position fields must be set together or
+	// both unset; the server clears them automatically on any
+	// building_id transition. Runs the same site-cascade for
+	// descendant device.site_id that SaveRack runs when the rack's
+	// site changes.
+	AssignRackToBuilding(context.Context, *connect.Request[v1.AssignRackToBuildingRequest]) (*connect.Response[v1.AssignRackToBuildingResponse], error)
 }
 
 // NewBuildingServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -208,6 +266,16 @@ func NewBuildingServiceHandler(svc BuildingServiceHandler, opts ...connect.Handl
 		svc.DeleteBuilding,
 		opts...,
 	)
+	buildingServiceListBuildingRacksHandler := connect.NewUnaryHandler(
+		BuildingServiceListBuildingRacksProcedure,
+		svc.ListBuildingRacks,
+		opts...,
+	)
+	buildingServiceAssignRackToBuildingHandler := connect.NewUnaryHandler(
+		BuildingServiceAssignRackToBuildingProcedure,
+		svc.AssignRackToBuilding,
+		opts...,
+	)
 	return "/buildings.v1.BuildingService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case BuildingServiceListBuildingsProcedure:
@@ -220,6 +288,10 @@ func NewBuildingServiceHandler(svc BuildingServiceHandler, opts ...connect.Handl
 			buildingServiceUpdateBuildingHandler.ServeHTTP(w, r)
 		case BuildingServiceDeleteBuildingProcedure:
 			buildingServiceDeleteBuildingHandler.ServeHTTP(w, r)
+		case BuildingServiceListBuildingRacksProcedure:
+			buildingServiceListBuildingRacksHandler.ServeHTTP(w, r)
+		case BuildingServiceAssignRackToBuildingProcedure:
+			buildingServiceAssignRackToBuildingHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -247,4 +319,12 @@ func (UnimplementedBuildingServiceHandler) UpdateBuilding(context.Context, *conn
 
 func (UnimplementedBuildingServiceHandler) DeleteBuilding(context.Context, *connect.Request[v1.DeleteBuildingRequest]) (*connect.Response[v1.DeleteBuildingResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("buildings.v1.BuildingService.DeleteBuilding is not implemented"))
+}
+
+func (UnimplementedBuildingServiceHandler) ListBuildingRacks(context.Context, *connect.Request[v1.ListBuildingRacksRequest]) (*connect.Response[v1.ListBuildingRacksResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("buildings.v1.BuildingService.ListBuildingRacks is not implemented"))
+}
+
+func (UnimplementedBuildingServiceHandler) AssignRackToBuilding(context.Context, *connect.Request[v1.AssignRackToBuildingRequest]) (*connect.Response[v1.AssignRackToBuildingResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("buildings.v1.BuildingService.AssignRackToBuilding is not implemented"))
 }

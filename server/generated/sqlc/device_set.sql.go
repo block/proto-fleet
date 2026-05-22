@@ -1333,7 +1333,15 @@ const updateRackPlacement = `-- name: UpdateRackPlacement :exec
 UPDATE device_set_rack
 SET site_id = $1::bigint,
     building_id = $2::bigint,
-    zone = $3
+    zone = $3,
+    aisle_index = CASE
+        WHEN $2::bigint IS DISTINCT FROM building_id THEN NULL
+        ELSE aisle_index
+    END,
+    position_in_aisle = CASE
+        WHEN $2::bigint IS DISTINCT FROM building_id THEN NULL
+        ELSE position_in_aisle
+    END
 WHERE device_set_id = $4
   AND EXISTS (
     SELECT 1 FROM device_set ds
@@ -1353,6 +1361,12 @@ type UpdateRackPlacementParams struct {
 
 // Sets the rack's site_id, building_id, and zone atomically. NULL
 // values unassign placement; caller clears zone via empty string.
+// Clears aisle_index / position_in_aisle only when building_id
+// changes (transitions to a different non-null value, or to NULL).
+// A no-op building_id update preserves the existing grid position so
+// SaveRack callers that don't touch building placement (rack rename,
+// cooling change, etc.) don't accidentally nuke the operator's
+// ManageBuildingModal layout work.
 func (q *Queries) UpdateRackPlacement(ctx context.Context, arg UpdateRackPlacementParams) error {
 	_, err := q.exec(ctx, q.updateRackPlacementStmt, updateRackPlacement,
 		arg.SiteID,

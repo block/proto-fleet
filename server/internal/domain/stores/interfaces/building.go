@@ -50,4 +50,15 @@ type BuildingStore interface {
 	// parseFilter to bulk-validate building_ids and zone_keys
 	// references in one round trip.
 	BuildingsByIDs(ctx context.Context, orgID int64, ids []int64) ([]int64, error)
+
+	// ListBuildingRacks returns racks currently assigned to the
+	// building with their grid placement. Used by
+	// ManageBuildingModal to seed the layout grid.
+	ListBuildingRacks(ctx context.Context, orgID, buildingID int64) ([]models.BuildingRack, error)
+
+	// SetRackBuildingPosition writes only the grid-position fields on
+	// device_set_rack. Caller is expected to have already set
+	// building_id via the collection store's UpdateRackPlacement in
+	// the same transaction.
+	SetRackBuildingPosition(ctx context.Context, orgID, rackID int64, aisleIndex, positionInAisle *int32) error
 }

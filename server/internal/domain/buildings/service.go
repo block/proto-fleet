@@ -17,34 +17,40 @@ import (
 
 // Event type constants for buildings activity logs.
 const (
-	eventBuildingCreated = "building.created"
-	eventBuildingUpdated = "building.updated"
-	eventBuildingDeleted = "building.deleted"
+	eventBuildingCreated     = "building.created"
+	eventBuildingUpdated     = "building.updated"
+	eventBuildingDeleted     = "building.deleted"
+	eventRackAssignedBuilding = "building.rack_assigned"
 )
 
 // Service is the domain entry point for building CRUD.
 type Service struct {
-	store       interfaces.BuildingStore
-	siteStore   interfaces.SiteStore
-	transactor  interfaces.Transactor
-	activitySvc *activity.Service
+	store           interfaces.BuildingStore
+	siteStore       interfaces.SiteStore
+	collectionStore interfaces.CollectionStore
+	transactor      interfaces.Transactor
+	activitySvc     *activity.Service
 }
 
 // NewService wires a BuildingStore, SiteStore (for site existence
-// validation), Transactor (for the delete cascade), and the activity
-// Service used for fire-and-forget audit logs. activitySvc may be nil
-// in tests or environments where activity logging is disabled.
+// validation), CollectionStore (for the rack placement write path
+// shared with SaveRack), Transactor (for the delete cascade), and the
+// activity Service used for fire-and-forget audit logs. activitySvc
+// may be nil in tests or environments where activity logging is
+// disabled.
 func NewService(
 	store interfaces.BuildingStore,
 	siteStore interfaces.SiteStore,
+	collectionStore interfaces.CollectionStore,
 	transactor interfaces.Transactor,
 	activitySvc *activity.Service,
 ) *Service {
 	return &Service{
-		store:       store,
-		siteStore:   siteStore,
-		transactor:  transactor,
-		activitySvc: activitySvc,
+		store:           store,
+		siteStore:       siteStore,
+		collectionStore: collectionStore,
+		transactor:      transactor,
+		activitySvc:     activitySvc,
 	}
 }
 
@@ -141,6 +147,188 @@ func (s *Service) UpdateBuilding(ctx context.Context, params models.UpdateParams
 	s.activitySvc.Log(ctx, event)
 
 	return b, nil
+}
+
+// ListBuildingRacks returns racks currently assigned to a building
+// with their grid placement. Verifies the building exists in the org
+// before returning so a stale building_id surfaces as NotFound rather
+// than an empty list (which would look identical to "no racks yet").
+func (s *Service) ListBuildingRacks(ctx context.Context, orgID, buildingID int64) ([]models.BuildingRack, error) {
+	if _, err := s.store.GetBuilding(ctx, orgID, buildingID); err != nil {
+		return nil, err
+	}
+	return s.store.ListBuildingRacks(ctx, orgID, buildingID)
+}
+
+// AssignRackToBuilding sets a rack's building_id and, optionally, its
+// grid placement (aisle_index, position_in_aisle). Runs in a single
+// transaction:
+//
+//  1. Lock the target building (when assigning) so a concurrent
+//     DeleteBuilding can't race the placement write.
+//  2. Lock the rack row and read current placement.
+//  3. Resolve the new site_id from the target building (or NULL when
+//     unassigning).
+//  4. Validate the optional grid cell against the target building's
+//     aisles / racks_per_aisle.
+//  5. Call collectionStore.UpdateRackPlacement to write site_id +
+//     building_id + zone atomically (zone is cleared on cross/leave
+//     building, mirroring the existing SaveRack cascade rule).
+//  6. Cascade descendant device.site_id when the rack's site changes.
+//  7. When the request includes a grid cell, write it via
+//     SetRackBuildingPosition.
+func (s *Service) AssignRackToBuilding(ctx context.Context, params models.AssignRackToBuildingParams) (*models.AssignRackToBuildingResult, error) {
+	// Position fields must be paired. The proto CEL rule enforces
+	// this at the wire boundary; this is the defense-in-depth check
+	// for non-proto callers.
+	if (params.AisleIndex == nil) != (params.PositionInAisle == nil) {
+		return nil, fleeterror.NewInvalidArgumentError("aisle_index and position_in_aisle must both be set or both unset")
+	}
+	if params.AisleIndex != nil && params.BuildingID == nil {
+		return nil, fleeterror.NewInvalidArgumentError("a grid cell (aisle_index, position_in_aisle) requires a building_id")
+	}
+	if params.AisleIndex != nil && *params.AisleIndex < 0 {
+		return nil, fleeterror.NewInvalidArgumentError("aisle_index must be >= 0")
+	}
+	if params.PositionInAisle != nil && *params.PositionInAisle < 0 {
+		return nil, fleeterror.NewInvalidArgumentError("position_in_aisle must be >= 0")
+	}
+
+	var (
+		out         models.AssignRackToBuildingResult
+		newSiteID   *int64
+		cascadeRan  bool
+		cascadeSite *int64
+	)
+	err := s.transactor.RunInTx(ctx, func(txCtx context.Context) error {
+		// Lock the target building first (canonical lock order:
+		// building -> rack). Skip when unassigning — there is no
+		// building row to lock — but we still lock the rack below.
+		var targetBuilding *models.Building
+		if params.BuildingID != nil {
+			if err := s.siteStore.LockBuildingForWrite(txCtx, params.OrgID, *params.BuildingID); err != nil {
+				return err
+			}
+			b, err := s.store.GetBuilding(txCtx, params.OrgID, *params.BuildingID)
+			if err != nil {
+				return err
+			}
+			targetBuilding = b
+			newSiteID = b.SiteID
+		}
+
+		// Grid-cell upper-bound validation has to run after we know
+		// the target building's layout dimensions.
+		if params.AisleIndex != nil && targetBuilding != nil {
+			if targetBuilding.Aisles <= 0 || *params.AisleIndex >= targetBuilding.Aisles {
+				return fleeterror.NewInvalidArgumentErrorf("aisle_index %d is out of bounds (building has %d aisles)", *params.AisleIndex, targetBuilding.Aisles)
+			}
+			if targetBuilding.RacksPerAisle <= 0 || *params.PositionInAisle >= targetBuilding.RacksPerAisle {
+				return fleeterror.NewInvalidArgumentErrorf("position_in_aisle %d is out of bounds (building allows %d racks per aisle)", *params.PositionInAisle, targetBuilding.RacksPerAisle)
+			}
+		}
+
+		// Lock the rack row and read its current placement so we can
+		// decide whether the cascade needs to run + what zone value
+		// to persist.
+		current, err := s.collectionStore.LockRackPlacementForWrite(txCtx, params.RackID, params.OrgID)
+		if err != nil {
+			return err
+		}
+
+		// Mirror SaveRack's zone-clear cascade: clear zone when the
+		// rack leaves a building or crosses to a different one.
+		// Preserve the current zone on a no-op building transition
+		// so legacy callers don't strip zone unintentionally.
+		finalZone := current.Zone
+		leavingBuilding := current.BuildingID != nil && params.BuildingID == nil
+		crossingBuildings := current.BuildingID != nil && params.BuildingID != nil && *current.BuildingID != *params.BuildingID
+		if leavingBuilding || crossingBuildings {
+			finalZone = ""
+		}
+
+		// Persist site_id + building_id + zone in one write. The
+		// query also clears the grid position on building transition
+		// via a CASE expression, so a stale (aisle_index,
+		// position_in_aisle) never outlives its parent building.
+		if err := s.collectionStore.UpdateRackPlacement(txCtx, params.RackID, params.OrgID, newSiteID, params.BuildingID, finalZone); err != nil {
+			return err
+		}
+
+		// Cascade descendant device.site_id when the rack's site
+		// changed. CascadeRackDeviceSites returns the row count.
+		siteChanged := !int64PtrEqual(current.SiteID, newSiteID)
+		if siteChanged {
+			count, err := s.collectionStore.CascadeRackDeviceSites(txCtx, params.RackID, params.OrgID, newSiteID)
+			if err != nil {
+				return err
+			}
+			out.SiteReassignedDeviceCount = count
+			cascadeRan = true
+			cascadeSite = newSiteID
+		}
+
+		// Write the grid cell on top of the placement update. We
+		// skip the call entirely when no cell is supplied; the
+		// UpdateRackPlacement clear path already handles
+		// transitions, and a missing cell shouldn't overwrite a
+		// preserved one.
+		if params.AisleIndex != nil {
+			if err := s.store.SetRackBuildingPosition(txCtx, params.OrgID, params.RackID, params.AisleIndex, params.PositionInAisle); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// Activity log fires AFTER tx commits.
+	orgIDVal := params.OrgID
+	event := activitymodels.Event{
+		Category:       activitymodels.CategoryFleetManagement,
+		Type:           eventRackAssignedBuilding,
+		OrganizationID: &orgIDVal,
+		SiteID:         cascadeSite,
+		Description: fmt.Sprintf(
+			"Assigned rack %d to building %v",
+			params.RackID, derefInt64(params.BuildingID),
+		),
+		Metadata: map[string]any{
+			"rack_id":     params.RackID,
+			"building_id": params.BuildingID,
+		},
+	}
+	if cascadeRan {
+		event.Metadata["site_cascade"] = true
+		event.Metadata["site_reassigned_device_count"] = out.SiteReassignedDeviceCount
+	}
+	if params.AisleIndex != nil {
+		event.Metadata["aisle_index"] = *params.AisleIndex
+		event.Metadata["position_in_aisle"] = *params.PositionInAisle
+	}
+	activity.StampActor(ctx, &event)
+	s.activitySvc.Log(ctx, event)
+
+	return &out, nil
+}
+
+func int64PtrEqual(a, b *int64) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}
+
+func derefInt64(v *int64) any {
+	if v == nil {
+		return "(unassigned)"
+	}
+	return *v
 }
 
 // DeleteBuilding soft-deletes the building and cascade-unassigns its

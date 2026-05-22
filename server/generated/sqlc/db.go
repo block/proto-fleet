@@ -537,6 +537,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listBatchDeviceResultsStmt, err = db.PrepareContext(ctx, listBatchDeviceResults); err != nil {
 		return nil, fmt.Errorf("error preparing query ListBatchDeviceResults: %w", err)
 	}
+	if q.listBuildingRacksStmt, err = db.PrepareContext(ctx, listBuildingRacks); err != nil {
+		return nil, fmt.Errorf("error preparing query ListBuildingRacks: %w", err)
+	}
 	if q.listBuildingsByOrgStmt, err = db.PrepareContext(ctx, listBuildingsByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListBuildingsByOrg: %w", err)
 	}
@@ -611,6 +614,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.lockFleetNodeByIDStmt, err = db.PrepareContext(ctx, lockFleetNodeByID); err != nil {
 		return nil, fmt.Errorf("error preparing query LockFleetNodeByID: %w", err)
+	}
+	if q.lockRackForBuildingAssignStmt, err = db.PrepareContext(ctx, lockRackForBuildingAssign); err != nil {
+		return nil, fmt.Errorf("error preparing query LockRackForBuildingAssign: %w", err)
 	}
 	if q.lockRackPlacementForWriteStmt, err = db.PrepareContext(ctx, lockRackPlacementForWrite); err != nil {
 		return nil, fmt.Errorf("error preparing query LockRackPlacementForWrite: %w", err)
@@ -692,6 +698,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.setFleetNodeEnrollmentStatusStmt, err = db.PrepareContext(ctx, setFleetNodeEnrollmentStatus); err != nil {
 		return nil, fmt.Errorf("error preparing query SetFleetNodeEnrollmentStatus: %w", err)
+	}
+	if q.setRackBuildingPositionStmt, err = db.PrepareContext(ctx, setRackBuildingPosition); err != nil {
+		return nil, fmt.Errorf("error preparing query SetRackBuildingPosition: %w", err)
 	}
 	if q.setRackSlotPositionStmt, err = db.PrepareContext(ctx, setRackSlotPosition); err != nil {
 		return nil, fmt.Errorf("error preparing query SetRackSlotPosition: %w", err)
@@ -1766,6 +1775,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listBatchDeviceResultsStmt: %w", cerr)
 		}
 	}
+	if q.listBuildingRacksStmt != nil {
+		if cerr := q.listBuildingRacksStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listBuildingRacksStmt: %w", cerr)
+		}
+	}
 	if q.listBuildingsByOrgStmt != nil {
 		if cerr := q.listBuildingsByOrgStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listBuildingsByOrgStmt: %w", cerr)
@@ -1889,6 +1903,11 @@ func (q *Queries) Close() error {
 	if q.lockFleetNodeByIDStmt != nil {
 		if cerr := q.lockFleetNodeByIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockFleetNodeByIDStmt: %w", cerr)
+		}
+	}
+	if q.lockRackForBuildingAssignStmt != nil {
+		if cerr := q.lockRackForBuildingAssignStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockRackForBuildingAssignStmt: %w", cerr)
 		}
 	}
 	if q.lockRackPlacementForWriteStmt != nil {
@@ -2024,6 +2043,11 @@ func (q *Queries) Close() error {
 	if q.setFleetNodeEnrollmentStatusStmt != nil {
 		if cerr := q.setFleetNodeEnrollmentStatusStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing setFleetNodeEnrollmentStatusStmt: %w", cerr)
+		}
+	}
+	if q.setRackBuildingPositionStmt != nil {
+		if cerr := q.setRackBuildingPositionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing setRackBuildingPositionStmt: %w", cerr)
 		}
 	}
 	if q.setRackSlotPositionStmt != nil {
@@ -2591,6 +2615,7 @@ type Queries struct {
 	listActivityLogsStmt                                *sql.Stmt
 	listApiKeysByOrganizationStmt                       *sql.Stmt
 	listBatchDeviceResultsStmt                          *sql.Stmt
+	listBuildingRacksStmt                               *sql.Stmt
 	listBuildingsByOrgStmt                              *sql.Stmt
 	listCurtailmentCandidatesByOrgStmt                  *sql.Stmt
 	listCurtailmentTargetsByEventStmt                   *sql.Stmt
@@ -2616,6 +2641,7 @@ type Queries struct {
 	lockBuildingsBySiteForWriteStmt                     *sql.Stmt
 	lockDevicesForReassignStmt                          *sql.Stmt
 	lockFleetNodeByIDStmt                               *sql.Stmt
+	lockRackForBuildingAssignStmt                       *sql.Stmt
 	lockRackPlacementForWriteStmt                       *sql.Stmt
 	lockSchedulePriorityStmt                            *sql.Stmt
 	lockSiteForWriteStmt                                *sql.Stmt
@@ -2643,6 +2669,7 @@ type Queries struct {
 	revokeApiKeysByFleetNodeIDStmt                      *sql.Stmt
 	revokeSessionStmt                                   *sql.Stmt
 	setFleetNodeEnrollmentStatusStmt                    *sql.Stmt
+	setRackBuildingPositionStmt                         *sql.Stmt
 	setRackSlotPositionStmt                             *sql.Stmt
 	setSchedulePrioritiesStmt                           *sql.Stmt
 	setScheduleRunningStmt                              *sql.Stmt
@@ -2891,6 +2918,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listActivityLogsStmt:                                q.listActivityLogsStmt,
 		listApiKeysByOrganizationStmt:                       q.listApiKeysByOrganizationStmt,
 		listBatchDeviceResultsStmt:                          q.listBatchDeviceResultsStmt,
+		listBuildingRacksStmt:                               q.listBuildingRacksStmt,
 		listBuildingsByOrgStmt:                              q.listBuildingsByOrgStmt,
 		listCurtailmentCandidatesByOrgStmt:                  q.listCurtailmentCandidatesByOrgStmt,
 		listCurtailmentTargetsByEventStmt:                   q.listCurtailmentTargetsByEventStmt,
@@ -2916,6 +2944,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockBuildingsBySiteForWriteStmt:                     q.lockBuildingsBySiteForWriteStmt,
 		lockDevicesForReassignStmt:                          q.lockDevicesForReassignStmt,
 		lockFleetNodeByIDStmt:                               q.lockFleetNodeByIDStmt,
+		lockRackForBuildingAssignStmt:                       q.lockRackForBuildingAssignStmt,
 		lockRackPlacementForWriteStmt:                       q.lockRackPlacementForWriteStmt,
 		lockSchedulePriorityStmt:                            q.lockSchedulePriorityStmt,
 		lockSiteForWriteStmt:                                q.lockSiteForWriteStmt,
@@ -2943,6 +2972,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		revokeApiKeysByFleetNodeIDStmt:                      q.revokeApiKeysByFleetNodeIDStmt,
 		revokeSessionStmt:                                   q.revokeSessionStmt,
 		setFleetNodeEnrollmentStatusStmt:                    q.setFleetNodeEnrollmentStatusStmt,
+		setRackBuildingPositionStmt:                         q.setRackBuildingPositionStmt,
 		setRackSlotPositionStmt:                             q.setRackSlotPositionStmt,
 		setSchedulePrioritiesStmt:                           q.setSchedulePrioritiesStmt,
 		setScheduleRunningStmt:                              q.setScheduleRunningStmt,

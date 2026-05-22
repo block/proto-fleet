@@ -159,6 +159,39 @@ func (s *SQLBuildingStore) BuildingsByIDs(ctx context.Context, orgID int64, ids 
 	return rows, nil
 }
 
+func (s *SQLBuildingStore) ListBuildingRacks(ctx context.Context, orgID, buildingID int64) ([]models.BuildingRack, error) {
+	rows, err := s.GetQueries(ctx).ListBuildingRacks(ctx, sqlc.ListBuildingRacksParams{
+		OrgID:      orgID,
+		BuildingID: zeroToNullInt64(buildingID),
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to list building racks: %v", err)
+	}
+	out := make([]models.BuildingRack, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, models.BuildingRack{
+			RackID:          row.RackID,
+			RackLabel:       row.RackLabel,
+			AisleIndex:      nullInt32ToPtr(row.AisleIndex),
+			PositionInAisle: nullInt32ToPtr(row.PositionInAisle),
+		})
+	}
+	return out, nil
+}
+
+func (s *SQLBuildingStore) SetRackBuildingPosition(ctx context.Context, orgID, rackID int64, aisleIndex, positionInAisle *int32) error {
+	err := s.GetQueries(ctx).SetRackBuildingPosition(ctx, sqlc.SetRackBuildingPositionParams{
+		RackID:          rackID,
+		OrgID:           orgID,
+		AisleIndex:      ptrToNullInt32(aisleIndex),
+		PositionInAisle: ptrToNullInt32(positionInAisle),
+	})
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to set rack building position: %v", err)
+	}
+	return nil
+}
+
 func buildingFromRow(row sqlc.Building) models.Building {
 	return models.Building{
 		ID:                    row.ID,
