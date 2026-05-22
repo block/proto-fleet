@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"connectrpc.com/authn"
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -13,11 +12,10 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/sites/v1"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/sites"
 	"github.com/block/proto-fleet/server/internal/domain/sites/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
-	"github.com/block/proto-fleet/server/internal/handlers/middleware"
+	"github.com/block/proto-fleet/server/internal/handlers/handlerstest"
 )
 
 // testHarness wires a real *sites.Service against mock stores so handler
@@ -52,26 +50,12 @@ func newTestHandler(t *testing.T) *testHarness {
 	}
 }
 
-// ctxWithPermissions builds a context wired with session.Info and the
-// supplied permission set so RequirePermission resolves against an
-// org-scope assignment.
-func ctxWithPermissions(t *testing.T, orgID int64, permissions ...string) context.Context {
-	t.Helper()
-	ctx := authn.SetInfo(t.Context(), &session.Info{OrganizationID: orgID})
-	eff := authz.NewEffectivePermissions([]authz.Assignment{{
-		AssignmentID: 1,
-		ScopeType:    authz.ScopeOrg,
-		Permissions:  permissions,
-	}})
-	return middleware.WithEffectivePermissions(ctx, eff)
-}
-
-// adminCtx is the workhorse for body-level tests: a caller with both
-// site:read and site:manage at org scope clears every gate this
+// sitePermsCtx is the workhorse for body-level tests: a caller with
+// both site:read and site:manage at org scope clears every gate this
 // package defines.
-func adminCtx(t *testing.T, orgID int64) context.Context {
+func sitePermsCtx(t *testing.T, orgID int64) context.Context {
 	t.Helper()
-	return ctxWithPermissions(t, orgID, authz.PermSiteRead, authz.PermSiteManage)
+	return handlerstest.CtxWithPermissions(t, orgID, authz.PermSiteRead, authz.PermSiteManage)
 }
 
 func ptrInt64(v int64) *int64 { return &v }
@@ -97,7 +81,7 @@ func TestHandler_authGate(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx := ctxWithPermissions(t, 1, tc.permissions...)
+			ctx := handlerstest.CtxWithPermissions(t, 1, tc.permissions...)
 
 			_, err := h.ListSites(ctx, connect.NewRequest(&pb.ListSitesRequest{}))
 			require.Error(t, err)
@@ -147,7 +131,7 @@ func TestHandler_sitePermissionsPassGate(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)
 			h.siteStore.EXPECT().ListSites(gomock.Any(), int64(1)).Return(nil, nil)
-			ctx := ctxWithPermissions(t, 1, tc.perm, authz.PermSiteRead)
+			ctx := handlerstest.CtxWithPermissions(t, 1, tc.perm, authz.PermSiteRead)
 			_, err := h.handler.ListSites(ctx, connect.NewRequest(&pb.ListSitesRequest{}))
 			assert.NoError(t, err)
 		})
@@ -166,7 +150,7 @@ func TestHandler_ListSites_returnsRowsWithAllCounts(t *testing.T) {
 		},
 	}, nil)
 
-	resp, err := h.handler.ListSites(adminCtx(t, 7), connect.NewRequest(&pb.ListSitesRequest{}))
+	resp, err := h.handler.ListSites(sitePermsCtx(t, 7), connect.NewRequest(&pb.ListSitesRequest{}))
 	require.NoError(t, err)
 	require.Len(t, resp.Msg.GetSites(), 1)
 	row := resp.Msg.GetSites()[0]
@@ -188,7 +172,7 @@ func TestHandler_CreateSite_canonicalizesNetworkConfig(t *testing.T) {
 			return &models.Site{ID: 1, Name: p.Name, NetworkConfig: p.NetworkConfig}, nil
 		})
 
-	resp, err := h.handler.CreateSite(adminCtx(t, 7), connect.NewRequest(&pb.CreateSiteRequest{
+	resp, err := h.handler.CreateSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.CreateSiteRequest{
 		Name:          "alpha",
 		NetworkConfig: "  10.0.0.0/24  ",
 	}))
@@ -205,7 +189,7 @@ func TestHandler_UpdateSite_happy(t *testing.T) {
 	h.siteStore.EXPECT().UpdateSite(gomock.Any(), gomock.AssignableToTypeOf(models.UpdateSiteParams{})).
 		Return(&models.Site{ID: 42, Name: "renamed"}, nil)
 
-	resp, err := h.handler.UpdateSite(adminCtx(t, 7), connect.NewRequest(&pb.UpdateSiteRequest{
+	resp, err := h.handler.UpdateSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.UpdateSiteRequest{
 		Id:   42,
 		Name: "renamed",
 	}))
@@ -229,7 +213,7 @@ func TestHandler_DeleteSite_surfacesCascadeCounts(t *testing.T) {
 	h.siteStore.EXPECT().UnassignDevicesFromSite(gomock.Any(), int64(7), int64(11)).Return(int64(9), nil)
 	h.siteStore.EXPECT().SoftDeleteSite(gomock.Any(), int64(7), int64(11)).Return(int64(1), nil)
 
-	resp, err := h.handler.DeleteSite(adminCtx(t, 7), connect.NewRequest(&pb.DeleteSiteRequest{Id: 11}))
+	resp, err := h.handler.DeleteSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.DeleteSiteRequest{Id: 11}))
 	require.NoError(t, err)
 	assert.Equal(t, int64(9), resp.Msg.GetUnassignedDeviceCount())
 	assert.Equal(t, int64(2), resp.Msg.GetDeletedBuildingCount())
@@ -249,7 +233,7 @@ func TestHandler_ReassignDevicesToSite_success(t *testing.T) {
 	h.siteStore.EXPECT().FindDeviceSiteConflicts(gomock.Any(), int64(7), idents).Return(map[string]int64{}, nil)
 	h.siteStore.EXPECT().ReassignDevicesToSite(gomock.Any(), int64(7), gomock.AssignableToTypeOf(ptrInt64(0)), idents).Return(int64(2), nil)
 
-	resp, err := h.handler.ReassignDevicesToSite(adminCtx(t, 7), connect.NewRequest(&pb.ReassignDevicesToSiteRequest{
+	resp, err := h.handler.ReassignDevicesToSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.ReassignDevicesToSiteRequest{
 		TargetSiteId:      &target,
 		DeviceIdentifiers: idents,
 	}))
@@ -274,7 +258,7 @@ func TestHandler_ReassignDevicesToSite_conflictsReturnTypedReason(t *testing.T) 
 	}, nil)
 	// No ReassignDevicesToSite store call — conflict path rejects entire batch.
 
-	resp, err := h.handler.ReassignDevicesToSite(adminCtx(t, 7), connect.NewRequest(&pb.ReassignDevicesToSiteRequest{
+	resp, err := h.handler.ReassignDevicesToSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.ReassignDevicesToSiteRequest{
 		TargetSiteId:      &target,
 		DeviceIdentifiers: idents,
 	}))
@@ -299,7 +283,7 @@ func TestHandler_AssignBuildingToSite_surfacesCascadeCounts(t *testing.T) {
 	h.siteStore.EXPECT().ReassignRacksUnderBuilding(gomock.Any(), int64(7), int64(50), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(3), nil)
 	h.siteStore.EXPECT().ReassignDevicesUnderBuilding(gomock.Any(), int64(7), int64(50), gomock.AssignableToTypeOf(ptrInt64(0))).Return(int64(15), nil)
 
-	resp, err := h.handler.AssignBuildingToSite(adminCtx(t, 7), connect.NewRequest(&pb.AssignBuildingToSiteRequest{
+	resp, err := h.handler.AssignBuildingToSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.AssignBuildingToSiteRequest{
 		BuildingId:   50,
 		TargetSiteId: &target,
 	}))
@@ -320,7 +304,7 @@ func TestHandler_AssignBuildingToSite_targetUnsetCascadesToUnassigned(t *testing
 	h.siteStore.EXPECT().ReassignRacksUnderBuilding(gomock.Any(), int64(7), int64(50), gomock.Nil()).Return(int64(0), nil)
 	h.siteStore.EXPECT().ReassignDevicesUnderBuilding(gomock.Any(), int64(7), int64(50), gomock.Nil()).Return(int64(0), nil)
 
-	resp, err := h.handler.AssignBuildingToSite(adminCtx(t, 7), connect.NewRequest(&pb.AssignBuildingToSiteRequest{
+	resp, err := h.handler.AssignBuildingToSite(sitePermsCtx(t, 7), connect.NewRequest(&pb.AssignBuildingToSiteRequest{
 		BuildingId: 50,
 	}))
 	require.NoError(t, err)

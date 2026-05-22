@@ -75,13 +75,14 @@ func BuiltinRoles() []BuiltinRoleSpec {
 	}
 }
 
-// adminSeedPermissions is the formula AllPermissions() − {user:*,
-// role:manage}. Computed from the catalog so adding a new permission
-// in catalog.go automatically grows ADMIN (subject to the
-// additive-only contract — existing operator edits are preserved).
+// adminSeedPermissions is the formula AllPermissions() − {user:manage,
+// role:manage}. ADMIN holds user:read so an org admin can view the team
+// roster, but cannot create/reset/deactivate users — those gates require
+// SUPER_ADMIN. Computed from the catalog so adding a new permission in
+// catalog.go automatically grows ADMIN (subject to the additive-only
+// contract — existing operator edits are preserved).
 func adminSeedPermissions() []string {
 	excluded := map[string]bool{
-		PermUserRead:   true,
 		PermUserManage: true,
 		PermRoleManage: true,
 	}

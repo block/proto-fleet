@@ -16,7 +16,6 @@ import (
 	apikeyv1 "github.com/block/proto-fleet/server/generated/grpc/apikey/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/apikey/v1/apikeyv1connect"
 	domainApiKey "github.com/block/proto-fleet/server/internal/domain/apikey"
-	domainAuth "github.com/block/proto-fleet/server/internal/domain/auth"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
@@ -90,7 +89,6 @@ func (adminAuthInjector) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
 			OrganizationID: 1,
 			ExternalUserID: "user-1",
 			Username:       "admin",
-			Role:           domainAuth.AdminRoleName,
 		}
 		eff := authz.NewEffectivePermissions([]authz.Assignment{{
 			AssignmentID: 1,

@@ -48,16 +48,17 @@ func TestReconcile_FreshInstall_SuperAdminHasEveryCatalogPermission(t *testing.T
 	require.Equal(t, want, got)
 }
 
-func TestReconcile_FreshInstall_AdminExcludesUserAndRoleManagement(t *testing.T) {
+func TestReconcile_FreshInstall_AdminExcludesUserManageAndRoleManagement(t *testing.T) {
 	db := testutil.GetTestDB(t)
 	ctx := t.Context()
 	orgID := insertTestOrganization(t, db)
 	require.NoError(t, authz.Reconcile(ctx, db))
 
 	got := orgRolePermissionKeys(t, db, orgID, "ADMIN")
-	for _, forbidden := range []string{authz.PermUserRead, authz.PermUserManage, authz.PermRoleManage} {
+	for _, forbidden := range []string{authz.PermUserManage, authz.PermRoleManage} {
 		require.NotContains(t, got, forbidden, "ADMIN must not seed with %q", forbidden)
 	}
+	require.Contains(t, got, authz.PermUserRead, "ADMIN holds user:read so org admins can view the team roster")
 	require.Contains(t, got, authz.PermMinerReboot, "ADMIN should still hold miner action permissions")
 }
 

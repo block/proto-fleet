@@ -544,7 +544,9 @@ func generateDefaultOrgName(orgID string) string {
 	return fmt.Sprintf("Organization %s", orgID[:8])
 }
 
-// CreateUser creates a new user with a temporary password (Super Admin only)
+// CreateUser creates a new user with a temporary password. Authorization is
+// enforced by the Connect handler via RequirePermission(PermUserManage);
+// callers outside the handler layer must add their own permission gate.
 func (s *Service) CreateUser(ctx context.Context, req *authv1.CreateUserRequest) (*authv1.CreateUserResponse, error) {
 	// Validate username
 	trimmedUsername := strings.TrimSpace(req.Username)
@@ -678,7 +680,10 @@ func (s *Service) ListUsers(ctx context.Context) (*authv1.ListUsersResponse, err
 	}, nil
 }
 
-// ResetUserPassword generates a new temporary password for a user (Super Admin only)
+// ResetUserPassword generates a new temporary password for a user.
+// Authorization is enforced by the Connect handler via RequirePermission
+// (PermUserManage); callers outside the handler layer must add their own
+// permission gate.
 func (s *Service) ResetUserPassword(ctx context.Context, req *authv1.ResetUserPasswordRequest) (*authv1.ResetUserPasswordResponse, error) {
 	if req.UserId == "" {
 		return nil, fleeterror.NewInvalidArgumentError("user_id is required")
@@ -704,6 +709,14 @@ func (s *Service) ResetUserPassword(ctx context.Context, req *authv1.ResetUserPa
 	// Get target user
 	user, err := s.userStore.GetUserByExternalID(ctx, req.UserId)
 	if err != nil {
+		return nil, fleeterror.NewInvalidArgumentError("invalid user_id")
+	}
+
+	// Cross-org guard: GetUserByExternalID is a global lookup. Require the
+	// target to be a member of the caller's org so a SUPER_ADMIN cannot
+	// reset a password for a user in a different tenant. NotFound (mapped
+	// from invalid user_id) avoids leaking whether the user exists elsewhere.
+	if _, err := s.userManagementStore.GetUserRoleName(ctx, user.ID, orgID); err != nil {
 		return nil, fleeterror.NewInvalidArgumentError("invalid user_id")
 	}
 
@@ -747,7 +760,9 @@ func (s *Service) ResetUserPassword(ctx context.Context, req *authv1.ResetUserPa
 	}, nil
 }
 
-// DeactivateUser soft-deletes a user (Super Admin only)
+// DeactivateUser soft-deletes a user. Authorization is enforced by the
+// Connect handler via RequirePermission(PermUserManage); callers outside
+// the handler layer must add their own permission gate.
 func (s *Service) DeactivateUser(ctx context.Context, req *authv1.DeactivateUserRequest) (*authv1.DeactivateUserResponse, error) {
 	if req.UserId == "" {
 		return nil, fleeterror.NewInvalidArgumentError("user_id is required")
@@ -787,6 +802,13 @@ func (s *Service) DeactivateUser(ctx context.Context, req *authv1.DeactivateUser
 	// Get target user
 	user, err := s.userStore.GetUserByExternalID(ctx, req.UserId)
 	if err != nil {
+		return nil, fleeterror.NewInvalidArgumentError("invalid user_id")
+	}
+
+	// Cross-org guard: GetUserByExternalID is a global lookup. Require the
+	// target to belong to the caller's org so a SUPER_ADMIN cannot
+	// deactivate a user in a different tenant.
+	if _, err := s.userManagementStore.GetUserRoleName(ctx, user.ID, orgID); err != nil {
 		return nil, fleeterror.NewInvalidArgumentError("invalid user_id")
 	}
 

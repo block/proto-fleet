@@ -292,8 +292,8 @@ func TestHandler_AdminTerminateEventPermissionGate(t *testing.T) {
 // buf.validate constraints on AdminTerminateEventRequest: event_uuid
 // min_len, target_state restricted to CANCELLED/FAILED, reason min_len.
 // Validator-passed requests reach the handler and surface CodeUnauthenticated
-// from requireAdminFromContext (no session in context); we accept that as
-// "validator passed". Role-gate behavior is covered by
+// from middleware.RequirePermission (no session in context); we accept that
+// as "validator passed". Permission-gate behavior is covered by
 // TestHandler_AdminTerminateEventPermissionGate.
 func TestHandler_AdminTerminateEventValidation(t *testing.T) {
 	t.Parallel()

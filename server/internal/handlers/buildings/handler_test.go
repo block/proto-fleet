@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"connectrpc.com/authn"
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -15,9 +14,8 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/buildings"
 	"github.com/block/proto-fleet/server/internal/domain/buildings/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
-	"github.com/block/proto-fleet/server/internal/handlers/middleware"
+	"github.com/block/proto-fleet/server/internal/handlers/handlerstest"
 )
 
 // testHarness wires a real *buildings.Service against mock stores.
@@ -51,22 +49,9 @@ func newTestHandler(t *testing.T) *testHarness {
 	}
 }
 
-// ctxWithPermissions builds a context wired with session.Info and an
-// org-scope EffectivePermissions assignment carrying the supplied keys.
-func ctxWithPermissions(t *testing.T, orgID int64, permissions ...string) context.Context {
+func sitePermsCtx(t *testing.T, orgID int64) context.Context {
 	t.Helper()
-	ctx := authn.SetInfo(t.Context(), &session.Info{OrganizationID: orgID})
-	eff := authz.NewEffectivePermissions([]authz.Assignment{{
-		AssignmentID: 1,
-		ScopeType:    authz.ScopeOrg,
-		Permissions:  permissions,
-	}})
-	return middleware.WithEffectivePermissions(ctx, eff)
-}
-
-func adminCtx(t *testing.T, orgID int64) context.Context {
-	t.Helper()
-	return ctxWithPermissions(t, orgID, authz.PermSiteRead, authz.PermSiteManage)
+	return handlerstest.CtxWithPermissions(t, orgID, authz.PermSiteRead, authz.PermSiteManage)
 }
 
 func TestHandler_authGate(t *testing.T) {
@@ -87,7 +72,7 @@ func TestHandler_authGate(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx := ctxWithPermissions(t, 1, tc.permissions...)
+			ctx := handlerstest.CtxWithPermissions(t, 1, tc.permissions...)
 
 			_, err := h.ListBuildings(ctx, connect.NewRequest(&pb.ListBuildingsRequest{}))
 			require.Error(t, err)
@@ -132,7 +117,7 @@ func TestHandler_sitePermissionsPassGate(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)
 			h.buildingStore.EXPECT().ListBuildings(gomock.Any(), gomock.AssignableToTypeOf(models.ListFilter{})).Return(nil, nil)
-			ctx := ctxWithPermissions(t, 1, tc.perm, authz.PermSiteRead)
+			ctx := handlerstest.CtxWithPermissions(t, 1, tc.perm, authz.PermSiteRead)
 			_, err := h.handler.ListBuildings(ctx, connect.NewRequest(&pb.ListBuildingsRequest{}))
 			assert.NoError(t, err)
 		})
@@ -150,7 +135,7 @@ func TestHandler_ListBuildings_unfiltered(t *testing.T) {
 			return nil, nil
 		})
 
-	_, err := h.handler.ListBuildings(adminCtx(t, 7), connect.NewRequest(&pb.ListBuildingsRequest{}))
+	_, err := h.handler.ListBuildings(sitePermsCtx(t, 7), connect.NewRequest(&pb.ListBuildingsRequest{}))
 	require.NoError(t, err)
 }
 
@@ -166,7 +151,7 @@ func TestHandler_ListBuildings_filterBySiteID(t *testing.T) {
 			return nil, nil
 		})
 
-	_, err := h.handler.ListBuildings(adminCtx(t, 7), connect.NewRequest(&pb.ListBuildingsRequest{
+	_, err := h.handler.ListBuildings(sitePermsCtx(t, 7), connect.NewRequest(&pb.ListBuildingsRequest{
 		SiteFilter: &pb.ListBuildingsRequest_SiteId{SiteId: 42},
 	}))
 	require.NoError(t, err)
@@ -183,7 +168,7 @@ func TestHandler_ListBuildings_filterByUnassignedOnly(t *testing.T) {
 			return nil, nil
 		})
 
-	_, err := h.handler.ListBuildings(adminCtx(t, 7), connect.NewRequest(&pb.ListBuildingsRequest{
+	_, err := h.handler.ListBuildings(sitePermsCtx(t, 7), connect.NewRequest(&pb.ListBuildingsRequest{
 		SiteFilter: &pb.ListBuildingsRequest_UnassignedOnly{UnassignedOnly: true},
 	}))
 	require.NoError(t, err)
@@ -196,7 +181,7 @@ func TestHandler_CreateBuilding_happy(t *testing.T) {
 	h.buildingStore.EXPECT().CreateBuilding(gomock.Any(), gomock.AssignableToTypeOf(models.CreateParams{})).
 		Return(&models.Building{ID: 1, Name: "Aisle-1"}, nil)
 
-	resp, err := h.handler.CreateBuilding(adminCtx(t, 7), connect.NewRequest(&pb.CreateBuildingRequest{
+	resp, err := h.handler.CreateBuilding(sitePermsCtx(t, 7), connect.NewRequest(&pb.CreateBuildingRequest{
 		Name:                  "Aisle-1",
 		DefaultRackOrderIndex: pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT,
 	}))
@@ -216,7 +201,7 @@ func TestHandler_CreateBuilding_rejectsUnknownSite(t *testing.T) {
 		Return(fleeterror.NewNotFoundErrorf("site %d not found", 123))
 
 	siteID := int64(123)
-	_, err := h.handler.CreateBuilding(adminCtx(t, 7), connect.NewRequest(&pb.CreateBuildingRequest{
+	_, err := h.handler.CreateBuilding(sitePermsCtx(t, 7), connect.NewRequest(&pb.CreateBuildingRequest{
 		SiteId:                &siteID,
 		Name:                  "Aisle-1",
 		DefaultRackOrderIndex: pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT,
@@ -234,7 +219,7 @@ func TestHandler_GetBuilding_happy(t *testing.T) {
 	h.buildingStore.EXPECT().GetBuilding(gomock.Any(), int64(7), int64(42)).
 		Return(&models.Building{ID: 42, Name: "Hangar"}, nil)
 
-	resp, err := h.handler.GetBuilding(adminCtx(t, 7), connect.NewRequest(&pb.GetBuildingRequest{Id: 42}))
+	resp, err := h.handler.GetBuilding(sitePermsCtx(t, 7), connect.NewRequest(&pb.GetBuildingRequest{Id: 42}))
 	require.NoError(t, err)
 	assert.Equal(t, int64(42), resp.Msg.GetBuilding().GetId())
 	assert.Equal(t, "Hangar", resp.Msg.GetBuilding().GetName())
@@ -247,7 +232,7 @@ func TestHandler_GetBuilding_notFound(t *testing.T) {
 	h.buildingStore.EXPECT().GetBuilding(gomock.Any(), int64(7), int64(999)).
 		Return(nil, fleeterror.NewNotFoundErrorf("building %d not found", 999))
 
-	_, err := h.handler.GetBuilding(adminCtx(t, 7), connect.NewRequest(&pb.GetBuildingRequest{Id: 999}))
+	_, err := h.handler.GetBuilding(sitePermsCtx(t, 7), connect.NewRequest(&pb.GetBuildingRequest{Id: 999}))
 	require.Error(t, err)
 	var fleetErr fleeterror.FleetError
 	require.ErrorAs(t, err, &fleetErr)
@@ -267,7 +252,7 @@ func TestHandler_GetBuilding_crossOrgIsNotFound(t *testing.T) {
 	h.buildingStore.EXPECT().GetBuilding(gomock.Any(), int64(7), int64(42)).
 		Return(nil, fleeterror.NewNotFoundErrorf("building %d not found", 42))
 
-	_, err := h.handler.GetBuilding(adminCtx(t, 7), connect.NewRequest(&pb.GetBuildingRequest{Id: 42}))
+	_, err := h.handler.GetBuilding(sitePermsCtx(t, 7), connect.NewRequest(&pb.GetBuildingRequest{Id: 42}))
 	require.Error(t, err)
 	var fleetErr fleeterror.FleetError
 	require.ErrorAs(t, err, &fleetErr)
@@ -281,7 +266,7 @@ func TestHandler_UpdateBuilding_happy(t *testing.T) {
 	h.buildingStore.EXPECT().UpdateBuilding(gomock.Any(), gomock.AssignableToTypeOf(models.UpdateParams{})).
 		Return(&models.Building{ID: 1, Name: "renamed"}, nil)
 
-	resp, err := h.handler.UpdateBuilding(adminCtx(t, 7), connect.NewRequest(&pb.UpdateBuildingRequest{
+	resp, err := h.handler.UpdateBuilding(sitePermsCtx(t, 7), connect.NewRequest(&pb.UpdateBuildingRequest{
 		Id:                    1,
 		Name:                  "renamed",
 		DefaultRackOrderIndex: pb.RackOrderIndex_RACK_ORDER_INDEX_BOTTOM_LEFT,
@@ -297,7 +282,7 @@ func TestHandler_DeleteBuilding_surfacesRackCount(t *testing.T) {
 	h.buildingStore.EXPECT().SoftDeleteBuilding(gomock.Any(), int64(7), int64(33)).Return(int64(1), nil)
 	h.buildingStore.EXPECT().UnassignRacksFromBuilding(gomock.Any(), int64(7), int64(33)).Return(int64(5), nil)
 
-	resp, err := h.handler.DeleteBuilding(adminCtx(t, 7), connect.NewRequest(&pb.DeleteBuildingRequest{Id: 33}))
+	resp, err := h.handler.DeleteBuilding(sitePermsCtx(t, 7), connect.NewRequest(&pb.DeleteBuildingRequest{Id: 33}))
 	require.NoError(t, err)
 	assert.Equal(t, int64(5), resp.Msg.GetUnassignedRackCount())
 }
