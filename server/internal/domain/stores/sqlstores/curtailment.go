@@ -341,7 +341,8 @@ func nullInt32FromPtr(p *int32) sql.NullInt32 {
 // the operator's reason as the per-target last_error. Routing:
 //   - already in target_state → idempotent, return the row as-is.
 //   - already in a different terminal state → ErrCurtailmentAdminTerminateStateConflict.
-//   - non-terminal → run the transition + target sweep, return the updated row.
+//   - active → ErrCurtailmentAdminTerminateActiveEvent; Stop must queue restore first.
+//   - pending/restoring → run the transition + target sweep, return the updated row.
 func (s *SQLCurtailmentStore) AdminTerminateEvent(
 	ctx context.Context,
 	orgID int64,
@@ -365,6 +366,9 @@ func (s *SQLCurtailmentStore) AdminTerminateEvent(
 		if currentState == targetState {
 			return convertEventRow(current), nil
 		}
+		if currentState == models.EventStateActive {
+			return nil, interfaces.ErrCurtailmentAdminTerminateActiveEvent
+		}
 		if currentState.IsTerminal() {
 			return nil, interfaces.ErrCurtailmentAdminTerminateStateConflict
 		}
@@ -375,11 +379,10 @@ func (s *SQLCurtailmentStore) AdminTerminateEvent(
 			TargetState: string(targetState),
 		})
 		if errors.Is(err, sql.ErrNoRows) {
-			// Race: row advanced terminal between pre-read and UPDATE
-			// (the UPDATE matched 0 rows under WHERE state IN
-			// pending/active/restoring). Re-read inside the tx and route
-			// by the latest state so a concurrent terminate to the same
-			// target_state echoes idempotently.
+			// Race: row changed between pre-read and UPDATE (the UPDATE
+			// matched 0 rows under WHERE state IN pending/restoring).
+			// Re-read inside the tx and route by latest state so a concurrent
+			// terminate to the same target_state echoes idempotently.
 			latest, getErr := q.GetCurtailmentEventByUUID(ctx, sqlc.GetCurtailmentEventByUUIDParams{
 				EventUuid: eventUUID,
 				OrgID:     orgID,
@@ -390,6 +393,9 @@ func (s *SQLCurtailmentStore) AdminTerminateEvent(
 			latestState := models.EventState(latest.State)
 			if latestState == targetState {
 				return convertEventRow(latest), nil
+			}
+			if latestState == models.EventStateActive {
+				return nil, interfaces.ErrCurtailmentAdminTerminateActiveEvent
 			}
 			return nil, interfaces.ErrCurtailmentAdminTerminateStateConflict
 		}

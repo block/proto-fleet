@@ -23,7 +23,7 @@ SET state      = $1::TEXT,
     updated_at = NOW()
 WHERE id = $2
     AND org_id = $3
-    AND state IN ('pending', 'active', 'restoring')
+    AND state IN ('pending', 'restoring')
 RETURNING id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id
 `
 
@@ -33,12 +33,12 @@ type AdminTerminateCurtailmentEventParams struct {
 	OrgID       int64
 }
 
-// Forces a non-terminal event to the operator-chosen terminal target_state
+// Forces a pending/restoring event to the operator-chosen terminal target_state
 // (validated CANCELLED or FAILED at the service boundary). Returns zero rows
-// when the event is already terminal so the caller can route by current
-// state: idempotent no-op when the target matches, FailedPrecondition when
-// the existing terminal state is different. Ended_at and updated_at advance
-// on a successful transition.
+// when the event is active/already terminal so the caller can route by current
+// state: active requires StopCurtailment first, terminal is idempotent no-op
+// when the target matches or FailedPrecondition when different. Ended_at and
+// updated_at advance on a successful transition.
 func (q *Queries) AdminTerminateCurtailmentEvent(ctx context.Context, arg AdminTerminateCurtailmentEventParams) (CurtailmentEvent, error) {
 	row := q.queryRow(ctx, q.adminTerminateCurtailmentEventStmt, adminTerminateCurtailmentEvent, arg.TargetState, arg.ID, arg.OrgID)
 	var i CurtailmentEvent

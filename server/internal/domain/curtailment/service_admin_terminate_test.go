@@ -130,6 +130,23 @@ func TestService_AdminTerminate_StateConflictMapsFailedPrecondition(t *testing.T
 	assert.Contains(t, err.Error(), "different state")
 }
 
+func TestService_AdminTerminate_ActiveEventRequiresStopFirst(t *testing.T) {
+	t.Parallel()
+	store := newFakeStore()
+	store.adminTerminateErr = interfaces.ErrCurtailmentAdminTerminateActiveEvent
+	svc := NewService(store)
+
+	_, err := svc.AdminTerminate(t.Context(), AdminTerminateRequest{
+		OrgID:       1,
+		EventUUID:   uuid.New(),
+		TargetState: models.EventStateFailed,
+		Reason:      "test",
+	})
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.Contains(t, err.Error(), "must be stopped before admin termination")
+}
+
 // TestService_AdminTerminate_PropagatesStoreError: unrelated store errors
 // surface unchanged so wrapped fleeterror types stay intact.
 func TestService_AdminTerminate_PropagatesStoreError(t *testing.T) {

@@ -68,8 +68,13 @@ func (f *fakeStore) ListActiveCurtailedDevices(context.Context, int64) ([]string
 func (f *fakeStore) ListRecentlyResolvedCurtailedDevices(context.Context, int64, int32) ([]string, error) {
 	panic("ListRecentlyResolvedCurtailedDevices not exercised")
 }
-func (f *fakeStore) GetEventByUUID(context.Context, int64, uuid.UUID) (*models.Event, error) {
-	panic("GetEventByUUID not exercised")
+func (f *fakeStore) GetEventByUUID(_ context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error) {
+	for _, ev := range f.events {
+		if ev.OrgID == orgID && ev.EventUUID == eventUUID {
+			return ev, nil
+		}
+	}
+	return nil, nil
 }
 func (f *fakeStore) GetActiveEvent(context.Context, int64) (*models.Event, error) {
 	panic("GetActiveEvent not exercised")
@@ -323,6 +328,60 @@ func TestReconciler_PendingDispatchesCurtail(t *testing.T) {
 	// Heartbeat upserted once.
 	assert.Equal(t, 1, store.heartbeatCalls)
 	assert.Equal(t, int32(1), store.lastHeartbeatActive)
+}
+
+func TestReconciler_SkipsCurtailDispatchWhenEventTerminatesBeforeCommand(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-1", State: models.TargetStatePending, BaselinePowerW: ptrFloat64(3000)},
+	}
+	store.listTargetsHook = func(context.Context, uuid.UUID) {
+		store.events[0].State = models.EventStateCancelled
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, 0, disp.curtailCalls)
+	assert.Equal(t, 0, store.updateTargetCalls)
+	assert.Equal(t, models.TargetStatePending, store.targetsByEventID[eventID][0].State)
+}
+
+func TestReconciler_SkipsRestoreDispatchWhenEventTerminatesBeforeCommand(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStateRestoring},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "miner-1",
+			DesiredState:       models.DesiredStateActive,
+			State:              models.TargetStatePending,
+			BaselinePowerW:     ptrFloat64(3000),
+		},
+	}
+	store.listTargetsHook = func(context.Context, uuid.UUID) {
+		store.events[0].State = models.EventStateFailed
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, 0, disp.uncurtailCalls)
+	assert.Equal(t, 0, store.updateTargetCalls)
+	assert.Equal(t, models.TargetStatePending, store.targetsByEventID[eventID][0].State)
 }
 
 func TestReconciler_DispatchedConfirmedViaTelemetry_TransitionsEventActive(t *testing.T) {

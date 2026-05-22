@@ -410,8 +410,9 @@ type AdminTerminateRequest struct {
 	Reason      string
 }
 
-// AdminTerminate forces a non-terminal event to a terminal state and
-// sweeps all non-terminal targets to RESTORE_FAILED. Idempotent on a
+// AdminTerminate forces a pending/restoring event to a terminal state and
+// sweeps all non-terminal targets to RESTORE_FAILED. Active events must be
+// stopped first so already-curtailed devices enter restore. Idempotent on a
 // re-issue with the same target_state; FailedPrecondition when the event
 // is already terminal in a different state. NotFound surfaces cross-org
 // access attempts and stale operator references uniformly.
@@ -446,6 +447,11 @@ func (s *Service) AdminTerminate(ctx context.Context, req AdminTerminateRequest)
 			return nil, fleeterror.NewFailedPreconditionErrorf(
 				"curtailment event is already terminal in a different state; admin terminate to %q is not applicable",
 				req.TargetState,
+			)
+		}
+		if errors.Is(err, interfaces.ErrCurtailmentAdminTerminateActiveEvent) {
+			return nil, fleeterror.NewFailedPreconditionError(
+				"active curtailment event must be stopped before admin termination",
 			)
 		}
 		return nil, err

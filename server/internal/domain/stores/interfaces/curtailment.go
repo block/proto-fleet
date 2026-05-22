@@ -28,6 +28,11 @@ var ErrCurtailmentUpdateStateRaceLoss = errors.New("curtailment event state adva
 // message that names the existing terminal state.
 var ErrCurtailmentAdminTerminateStateConflict = errors.New("curtailment event is already terminal in a different state")
 
+// ErrCurtailmentAdminTerminateActiveEvent is returned by AdminTerminateEvent
+// when an event is active. Active events may already have curtailed devices,
+// so callers must stop them first and let restore work enter the queue.
+var ErrCurtailmentAdminTerminateActiveEvent = errors.New("active curtailment event must be stopped before admin termination")
+
 // ErrCurtailmentIdempotencyKeyRaceLoss is returned by InsertEventWithTargets
 // when the partial unique index on (org_id, idempotency_key) rejects the
 // insert because a concurrent first-time Start with the same key won the

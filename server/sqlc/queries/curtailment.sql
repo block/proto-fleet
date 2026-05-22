@@ -169,19 +169,19 @@ WHERE org_id = sqlc.arg('org_id')
 LIMIT 1;
 
 -- name: AdminTerminateCurtailmentEvent :one
--- Forces a non-terminal event to the operator-chosen terminal target_state
+-- Forces a pending/restoring event to the operator-chosen terminal target_state
 -- (validated CANCELLED or FAILED at the service boundary). Returns zero rows
--- when the event is already terminal so the caller can route by current
--- state: idempotent no-op when the target matches, FailedPrecondition when
--- the existing terminal state is different. Ended_at and updated_at advance
--- on a successful transition.
+-- when the event is active/already terminal so the caller can route by current
+-- state: active requires StopCurtailment first, terminal is idempotent no-op
+-- when the target matches or FailedPrecondition when different. Ended_at and
+-- updated_at advance on a successful transition.
 UPDATE curtailment_event
 SET state      = sqlc.arg('target_state')::TEXT,
     ended_at   = NOW(),
     updated_at = NOW()
 WHERE id = sqlc.arg('id')
     AND org_id = sqlc.arg('org_id')
-    AND state IN ('pending', 'active', 'restoring')
+    AND state IN ('pending', 'restoring')
 RETURNING *;
 
 -- name: SweepCurtailmentTargetsToRestoreFailed :exec

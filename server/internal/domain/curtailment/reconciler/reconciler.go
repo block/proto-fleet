@@ -362,6 +362,9 @@ func (r *Reconciler) confirmDispatched(ctx context.Context, ev *models.Event, ta
 // crash in between leaves the target Pending and the next tick
 // redispatches. Curtail is device-idempotent, but audit shows two batches.
 func (r *Reconciler) dispatchOneCurtail(ctx context.Context, ev *models.Event, t *models.Target, nonTerminalFailureState models.TargetState) {
+	if !r.eventStillDispatchable(ctx, ev) {
+		return
+	}
 	selector := &pb.DeviceSelector{
 		SelectionType: &pb.DeviceSelector_IncludeDevices{
 			IncludeDevices: &commonpb.DeviceIdentifierList{
@@ -994,6 +997,9 @@ func (r *Reconciler) maybeClaimRestoreBatch(ctx context.Context, ev *models.Even
 // command before state write, Uncurtail is device-idempotent, audit may
 // show duplicate batches.
 func (r *Reconciler) dispatchRestoreBatch(ctx context.Context, ev *models.Event, claim []*models.Target) {
+	if !r.eventStillDispatchable(ctx, ev) {
+		return
+	}
 	deviceIDs := make([]string, 0, len(claim))
 	for _, t := range claim {
 		deviceIDs = append(deviceIDs, t.DeviceIdentifier)
@@ -1072,6 +1078,27 @@ func (r *Reconciler) dispatchRestoreBatch(ctx context.Context, ev *models.Event,
 		t.LastBatchUUID = &batchID
 		t.LastError = nil
 	}
+}
+
+func (r *Reconciler) eventStillDispatchable(ctx context.Context, ev *models.Event) bool {
+	latest, err := r.store.GetEventByUUID(ctx, ev.OrgID, ev.EventUUID)
+	if err != nil {
+		slog.Error("curtailment reconciler: event liveness check failed",
+			"event_id", ev.ID, "event_uuid", ev.EventUUID, "error", err)
+		return false
+	}
+	if latest == nil {
+		slog.Warn("curtailment reconciler: event missing before dispatch",
+			"event_id", ev.ID, "event_uuid", ev.EventUUID)
+		return false
+	}
+	if latest.State.IsTerminal() || latest.State != ev.State {
+		slog.Info("curtailment reconciler: skipping dispatch after event state changed",
+			"event_id", ev.ID, "event_uuid", ev.EventUUID,
+			"loaded_state", ev.State, "current_state", latest.State)
+		return false
+	}
+	return true
 }
 
 // isRestored decides whether telemetry shows the target has resumed mining.

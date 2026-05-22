@@ -544,10 +544,15 @@ message ListCurtailmentEventsResponse {
 }
 
 message AdminTerminateEventRequest {
+    reserved 4;
+    reserved "idempotency_key";
+
     string event_uuid = 1 [(buf.validate.field).string.min_len = 1];
 
     // Restricted to CANCELLED (=6) or FAILED (=7); COMPLETED states are not
     // permitted because this RPC fires when restore did not actually run.
+    // Active events must go through StopCurtailment first so restore is queued
+    // instead of abandoning already-curtailed miners.
     CurtailmentEventState target_state = 2 [(buf.validate.field).enum = {
         defined_only: true
         in: [6, 7]
