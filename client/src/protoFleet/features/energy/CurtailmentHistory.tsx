@@ -4,10 +4,8 @@ import clsx from "clsx";
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 import {
   type CurtailmentEventState,
+  curtailmentEventStateConfigs,
   curtailmentEventStates,
-  curtailmentEventStateDotClassNames as eventStateDotClassNames,
-  curtailmentEventStateLabels as eventStateLabels,
-  curtailmentEventStateOrder as eventStateOrder,
   formatCurtailmentMinerCount as formatMinerCount,
   formatCurtailmentTargetVsActual as formatTargetVsActual,
   getCurtailmentTargetKw as getTargetKw,
@@ -105,7 +103,10 @@ const priorityLabels: Record<CurtailmentPriority, string> = {
   emergency: "Emergency",
 };
 
-const statusFilterOptions = curtailmentEventStates.map((state) => ({ id: state, label: eventStateLabels[state] }));
+const statusFilterOptions = curtailmentEventStates.map((state) => ({
+  id: state,
+  label: curtailmentEventStateConfigs[state].label,
+}));
 const statusFilterOptionIds = new Set<string>(curtailmentEventStates);
 
 const historyColumns = ["event", "scope", "target", "state"] as const;
@@ -198,7 +199,7 @@ function getHistoryColumnSortValue(event: CurtailmentHistoryEvent, field: Histor
     case "target":
       return getTargetKw(event);
     case "state":
-      return eventStateOrder[event.state];
+      return curtailmentEventStateConfigs[event.state].order;
   }
 }
 
@@ -299,6 +300,7 @@ function CurtailmentSummaryModal({
   const endedAt = formatDateTime(event.endedAt);
   const scheduledAt = formatDateTime(event.scheduledAt);
   const createdAt = formatDateTime(event.createdAt);
+  const eventStateConfig = curtailmentEventStateConfigs[event.state];
   const buttons: CurtailmentSummaryModalButton[] = [];
 
   if (onStop) {
@@ -336,7 +338,7 @@ function CurtailmentSummaryModal({
           <DetailRow label="ID" value={event.id} />
           <DetailRow label="Applies to" value={event.scopeLabel} secondary={formatMinerCount(event.selectedMiners)} />
           <DetailRow label="Power target vs actual" value={formatTargetVsActual(event)} />
-          <DetailRow label="Status" value={eventStateLabels[event.state]} secondary={getHistoryStatusDetail(event)} />
+          <DetailRow label="Status" value={eventStateConfig.label} secondary={getHistoryStatusDetail(event)} />
           <DetailRow label="Started" value={startedAt ?? "Not started yet"} />
           {scheduledAt ? <DetailRow label="Scheduled" value={scheduledAt} /> : null}
           {createdAt ? <DetailRow label="Created" value={createdAt} /> : null}
@@ -357,6 +359,7 @@ function CurtailmentHistoryRow({
   stopDisabled,
 }: CurtailmentHistoryRowProps): ReactElement {
   const canStop = Boolean(onRequestStop) && isActiveStoppableEvent(event, activeEventId);
+  const eventStateConfig = curtailmentEventStateConfigs[event.state];
 
   const handleRowClick = (clickEvent: MouseEvent<HTMLTableRowElement>) => {
     if (shouldIgnoreRowActivation(clickEvent.target, clickEvent.currentTarget)) {
@@ -413,8 +416,8 @@ function CurtailmentHistoryRow({
       <td className="py-4 pr-6 align-top text-text-primary">{formatTargetVsActual(event)}</td>
       <td className="py-4 pr-6 align-top">
         <div className="flex items-center gap-2 text-emphasis-300 text-text-primary">
-          <Dot className={eventStateDotClassNames[event.state]} />
-          {eventStateLabels[event.state]}
+          <Dot className={eventStateConfig.dotClassName} />
+          {eventStateConfig.label}
         </div>
         <div className="text-200 text-text-primary-50">{getHistoryStatusDetail(event)}</div>
       </td>

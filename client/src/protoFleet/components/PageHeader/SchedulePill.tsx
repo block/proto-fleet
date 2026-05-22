@@ -1,5 +1,3 @@
-import clsx from "clsx";
-
 import PageHeaderPopoverPill from "./PageHeaderPopoverPill";
 import type { ScheduleListItem } from "@/protoFleet/api/useScheduleApi";
 import type { SchedulePopoverSection } from "@/protoFleet/components/PageHeader/schedulePillUtils";
@@ -17,11 +15,9 @@ const SchedulePill = ({ pillSchedule, sections, pendingScheduleId, onToggleSched
   return (
     <PageHeaderPopoverPill
       ariaLabel={`View schedule details for ${pillSchedule.name}`}
-      prefixIcon={
-        <span className={clsx("h-2.5 w-2.5 rounded-full", scheduleStatusDotClassName[pillSchedule.status])} />
-      }
+      dotClassName={scheduleStatusDotClassName[pillSchedule.status]}
       triggerClassName="schedule-pill-trigger"
-      triggerContent={<span className="block max-w-56 truncate">{pillSchedule.name}</span>}
+      triggerLabel={pillSchedule.name}
     >
       {({ closePopover }) => (
         <SchedulePopover

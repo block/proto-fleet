@@ -1,11 +1,9 @@
 import { Link } from "react-router-dom";
-import clsx from "clsx";
 
 import type { CurtailmentPillProps } from "./curtailmentPillTypes";
 import PageHeaderPopoverPill from "./PageHeaderPopoverPill";
 import {
-  curtailmentEventStateDotClassNames,
-  curtailmentEventStateLabels,
+  curtailmentEventStateConfigs,
   formatCurtailmentKw,
   formatCurtailmentSelectedMinerCount,
 } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
@@ -13,27 +11,32 @@ import {
 export type { CurtailmentPillEvent, CurtailmentPillProps, CurtailmentPillState } from "./curtailmentPillTypes";
 
 function CurtailmentPill({ event, detailsPath }: CurtailmentPillProps) {
-  const stateLabel = curtailmentEventStateLabels[event.state];
+  const stateConfig = curtailmentEventStateConfigs[event.state];
+  const plannedReductionDetail = `${formatCurtailmentSelectedMinerCount(event.selectedMiners)} - ${formatCurtailmentKw(
+    event.estimatedReductionKw,
+  )} planned`;
+  const detailRows = [
+    { id: "state", value: stateConfig.label },
+    { id: "scope", value: event.scopeLabel },
+    { id: "planned-reduction", value: plannedReductionDetail },
+  ];
 
   return (
     <PageHeaderPopoverPill
       ariaLabel={`View curtailment details for ${event.reason}`}
-      prefixIcon={
-        <span className={clsx("h-2.5 w-2.5 rounded-full", curtailmentEventStateDotClassNames[event.state])} />
-      }
+      dotClassName={stateConfig.dotClassName}
       triggerClassName="curtailment-pill-trigger"
-      triggerContent={<span className="block max-w-56 truncate">Curtailment {stateLabel.toLowerCase()}</span>}
+      triggerLabel={`Curtailment ${stateConfig.label.toLowerCase()}`}
     >
       {({ closePopover }) => (
         <div className="flex flex-col gap-3">
           <div className="min-w-0 space-y-1">
             <div className="truncate text-heading-100 text-text-primary">{event.reason}</div>
-            <div className="text-200 leading-snug text-text-primary-70">{stateLabel}</div>
-            <div className="text-200 leading-snug text-text-primary-70">{event.scopeLabel}</div>
-            <div className="text-200 leading-snug text-text-primary-70">
-              {formatCurtailmentSelectedMinerCount(event.selectedMiners)} -{" "}
-              {formatCurtailmentKw(event.estimatedReductionKw)} planned
-            </div>
+            {detailRows.map(({ id, value }) => (
+              <div key={id} className="text-200 leading-snug text-text-primary-70">
+                {value}
+              </div>
+            ))}
           </div>
 
           {detailsPath ? (

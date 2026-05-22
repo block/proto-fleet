@@ -1,44 +1,44 @@
-export const curtailmentEventStates = [
-  "pending",
-  "active",
-  "restoring",
-  "completed",
-  "completedWithFailures",
-  "cancelled",
-  "failed",
-] as const;
+export const curtailmentEventStateConfigs = {
+  pending: {
+    label: "Pending",
+    dotClassName: "bg-core-accent-fill",
+    order: 0,
+  },
+  active: {
+    label: "Active",
+    dotClassName: "bg-intent-warning-fill",
+    order: 1,
+  },
+  restoring: {
+    label: "Restoring",
+    dotClassName: "bg-core-accent-fill",
+    order: 2,
+  },
+  completed: {
+    label: "Completed",
+    dotClassName: "bg-text-primary-30",
+    order: 3,
+  },
+  completedWithFailures: {
+    label: "Completed with failures",
+    dotClassName: "bg-text-primary-30",
+    order: 4,
+  },
+  cancelled: {
+    label: "Cancelled",
+    dotClassName: "bg-intent-critical-fill",
+    order: 5,
+  },
+  failed: {
+    label: "Failed",
+    dotClassName: "bg-intent-critical-fill",
+    order: 6,
+  },
+} as const;
 
-export type CurtailmentEventState = (typeof curtailmentEventStates)[number];
+export type CurtailmentEventState = keyof typeof curtailmentEventStateConfigs;
 
-export const curtailmentEventStateLabels: Record<CurtailmentEventState, string> = {
-  pending: "Pending",
-  active: "Active",
-  restoring: "Restoring",
-  completed: "Completed",
-  completedWithFailures: "Completed with failures",
-  cancelled: "Cancelled",
-  failed: "Failed",
-};
-
-export const curtailmentEventStateDotClassNames: Record<CurtailmentEventState, string> = {
-  pending: "bg-core-accent-fill",
-  active: "bg-intent-warning-fill",
-  restoring: "bg-core-accent-fill",
-  completed: "bg-text-primary-30",
-  completedWithFailures: "bg-text-primary-30",
-  cancelled: "bg-intent-critical-fill",
-  failed: "bg-intent-critical-fill",
-};
-
-export const curtailmentEventStateOrder: Record<CurtailmentEventState, number> = {
-  pending: 0,
-  active: 1,
-  restoring: 2,
-  completed: 3,
-  completedWithFailures: 4,
-  cancelled: 5,
-  failed: 6,
-};
+export const curtailmentEventStates = Object.keys(curtailmentEventStateConfigs) as CurtailmentEventState[];
 
 interface CurtailmentTargetKwEvent {
   estimatedReductionKw: number;

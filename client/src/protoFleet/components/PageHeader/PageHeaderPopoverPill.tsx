@@ -1,4 +1,5 @@
 import { type MouseEvent, type ReactNode, useState } from "react";
+import clsx from "clsx";
 
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Popover, { PopoverProvider, popoverSizes, useResponsivePopover } from "@/shared/components/Popover";
@@ -7,17 +8,17 @@ import { positions } from "@/shared/constants";
 interface PageHeaderPopoverPillProps {
   ariaLabel: string;
   children: (props: { closePopover: () => void }) => ReactNode;
-  prefixIcon: ReactNode;
+  dotClassName: string;
   triggerClassName: string;
-  triggerContent: ReactNode;
+  triggerLabel: ReactNode;
 }
 
 function PageHeaderPopoverPillContent({
   ariaLabel,
   children,
-  prefixIcon,
+  dotClassName,
   triggerClassName,
-  triggerContent,
+  triggerLabel,
 }: PageHeaderPopoverPillProps) {
   const [isPopoverOpen, setIsPopoverOpen] = useState(false);
   const { triggerRef } = useResponsivePopover();
@@ -43,9 +44,9 @@ function PageHeaderPopoverPillContent({
         ariaExpanded={isPopoverOpen}
         ariaLabel={ariaLabel}
         onClick={handleTriggerClick}
-        prefixIcon={prefixIcon}
+        prefixIcon={<span className={clsx("h-2.5 w-2.5 rounded-full", dotClassName)} />}
       >
-        {triggerContent}
+        <span className="block max-w-56 truncate">{triggerLabel}</span>
       </Button>
 
       {isPopoverOpen ? (
