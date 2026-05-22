@@ -594,6 +594,18 @@ func (s *Service) CreateUser(ctx context.Context, req *authv1.CreateUserRequest)
 
 	orgID := orgs[0].ID
 
+	// Authorization gate: only a SUPER_ADMIN in this org can create new
+	// users. Without this, any authenticated session can mint a fresh
+	// ADMIN account, receive the returned temporary password, and log
+	// in as it — a direct privilege escalation. Companion methods
+	// (ResetUserPassword, DeactivateUser) already enforce this via
+	// checkCanManageUser; CreateUser must too. Runs before the
+	// temp-password generation and role lookup so an unauthorized
+	// caller does not even consume entropy or touch the role table.
+	if err := s.checkCanManageUser(ctx, orgID); err != nil {
+		return nil, err
+	}
+
 	// Generate temporary password
 	tempPassword, err := generateTemporaryPassword()
 	if err != nil {
@@ -606,10 +618,13 @@ func (s *Service) CreateUser(ctx context.Context, req *authv1.CreateUserRequest)
 		return nil, fleeterror.NewInternalErrorf("error generating password hash: %v", err)
 	}
 
-	// Get Admin role
-	role, err := s.userManagementStore.GetRoleByName(ctx, AdminRoleName)
+	// Look up the ADMIN role belonging to this user's organization. Each
+	// org owns its own ADMIN row, so a name-only lookup would return an
+	// arbitrary org's row (or the soft-deleted legacy global one) and
+	// could bind the new user to a role record from a different tenant.
+	role, err := s.userManagementStore.GetBuiltinRoleForOrg(ctx, orgID, AdminRoleName)
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error getting role: %v", err)
+		return nil, fleeterror.NewInternalErrorf("error getting admin role for org: %v", err)
 	}
 
 	var createdUserID string

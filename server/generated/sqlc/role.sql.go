@@ -10,8 +10,70 @@ import (
 	"database/sql"
 )
 
+const createCustomRole = `-- name: CreateCustomRole :one
+INSERT INTO role (name, description, is_builtin, organization_id)
+VALUES ($1, $2, FALSE, $3)
+RETURNING id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key, organization_id
+`
+
+type CreateCustomRoleParams struct {
+	Name           string
+	Description    sql.NullString
+	OrganizationID sql.NullInt64
+}
+
+func (q *Queries) CreateCustomRole(ctx context.Context, arg CreateCustomRoleParams) (Role, error) {
+	row := q.queryRow(ctx, q.createCustomRoleStmt, createCustomRole, arg.Name, arg.Description, arg.OrganizationID)
+	var i Role
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Description,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.IsBuiltin,
+		&i.BuiltinKey,
+		&i.OrganizationID,
+	)
+	return i, err
+}
+
+const getBuiltinRoleForOrg = `-- name: GetBuiltinRoleForOrg :one
+SELECT id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key, organization_id
+FROM role
+WHERE is_builtin = TRUE
+  AND organization_id = $1
+  AND builtin_key = $2
+  AND deleted_at IS NULL
+`
+
+type GetBuiltinRoleForOrgParams struct {
+	OrganizationID sql.NullInt64
+	BuiltinKey     sql.NullString
+}
+
+// The (org, builtin_key) pair is unique among live rows via the
+// partial index uq_role_org_builtin_key.
+func (q *Queries) GetBuiltinRoleForOrg(ctx context.Context, arg GetBuiltinRoleForOrgParams) (Role, error) {
+	row := q.queryRow(ctx, q.getBuiltinRoleForOrgStmt, getBuiltinRoleForOrg, arg.OrganizationID, arg.BuiltinKey)
+	var i Role
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Description,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.IsBuiltin,
+		&i.BuiltinKey,
+		&i.OrganizationID,
+	)
+	return i, err
+}
+
 const getRoleByID = `-- name: GetRoleByID :one
-SELECT id, name, description, created_at, updated_at, deleted_at
+SELECT id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key, organization_id
 FROM role
 WHERE id = $1
   AND deleted_at IS NULL
@@ -27,31 +89,139 @@ func (q *Queries) GetRoleByID(ctx context.Context, id int64) (Role, error) {
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.DeletedAt,
+		&i.IsBuiltin,
+		&i.BuiltinKey,
+		&i.OrganizationID,
 	)
 	return i, err
 }
 
-const getRoleByName = `-- name: GetRoleByName :one
-SELECT id, name, description, created_at, updated_at, deleted_at FROM role
-WHERE name = $1
+const listActiveOrganizationIDs = `-- name: ListActiveOrganizationIDs :many
+SELECT id
+FROM organization
+WHERE deleted_at IS NULL
+ORDER BY id
 `
 
-func (q *Queries) GetRoleByName(ctx context.Context, name string) (Role, error) {
-	row := q.queryRow(ctx, q.getRoleByNameStmt, getRoleByName, name)
-	var i Role
-	err := row.Scan(
-		&i.ID,
-		&i.Name,
-		&i.Description,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.DeletedAt,
-	)
-	return i, err
+// The reconciler loops over this list at boot so every org has its
+// per-org built-ins. The onboarding flow also seeds built-ins for
+// new orgs inside its creation transaction.
+func (q *Queries) ListActiveOrganizationIDs(ctx context.Context) ([]int64, error) {
+	rows, err := q.query(ctx, q.listActiveOrganizationIDsStmt, listActiveOrganizationIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listBuiltinRolesForOrg = `-- name: ListBuiltinRolesForOrg :many
+SELECT id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key, organization_id
+FROM role
+WHERE is_builtin = TRUE
+  AND organization_id = $1
+  AND deleted_at IS NULL
+ORDER BY builtin_key
+`
+
+// Returns the per-org built-in rows for a single organization. Used
+// by the startup reconciler (which iterates orgs) and by the
+// onboarding hook that seeds built-ins for a new org.
+func (q *Queries) ListBuiltinRolesForOrg(ctx context.Context, organizationID sql.NullInt64) ([]Role, error) {
+	rows, err := q.query(ctx, q.listBuiltinRolesForOrgStmt, listBuiltinRolesForOrg, organizationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Role
+	for rows.Next() {
+		var i Role
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Description,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
+			&i.IsBuiltin,
+			&i.BuiltinKey,
+			&i.OrganizationID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listCustomRolesForOrg = `-- name: ListCustomRolesForOrg :many
+SELECT id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key, organization_id
+FROM role
+WHERE is_builtin = FALSE
+  AND organization_id = $1
+  AND deleted_at IS NULL
+ORDER BY name
+`
+
+// Per-org custom roles. The role-list handler calls this with the
+// caller's organization_id; the query never returns rows from other
+// orgs, so an admin in org A cannot see or assign org B's custom
+// roles even if they happen to know an internal id.
+func (q *Queries) ListCustomRolesForOrg(ctx context.Context, organizationID sql.NullInt64) ([]Role, error) {
+	rows, err := q.query(ctx, q.listCustomRolesForOrgStmt, listCustomRolesForOrg, organizationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Role
+	for rows.Next() {
+		var i Role
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Description,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
+			&i.IsBuiltin,
+			&i.BuiltinKey,
+			&i.OrganizationID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listRoles = `-- name: ListRoles :many
-SELECT id, name, description, created_at, updated_at, deleted_at
+SELECT id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key, organization_id
 FROM role
 ORDER BY name
 `
@@ -72,6 +242,9 @@ func (q *Queries) ListRoles(ctx context.Context) ([]Role, error) {
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
+			&i.IsBuiltin,
+			&i.BuiltinKey,
+			&i.OrganizationID,
 		); err != nil {
 			return nil, err
 		}
@@ -84,6 +257,23 @@ func (q *Queries) ListRoles(ctx context.Context) ([]Role, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const softDeleteCustomRole = `-- name: SoftDeleteCustomRole :exec
+UPDATE role
+SET deleted_at = CURRENT_TIMESTAMP
+WHERE id = $1
+  AND deleted_at IS NULL
+  AND is_builtin = FALSE
+`
+
+// Delete is locked for every built-in: the is_builtin = FALSE guard
+// here is the structural backstop, and the domain layer surfaces a
+// BUILTIN_ROLE_IMMUTABLE error so callers see a clear reason rather
+// than a silent no-op.
+func (q *Queries) SoftDeleteCustomRole(ctx context.Context, id int64) error {
+	_, err := q.exec(ctx, q.softDeleteCustomRoleStmt, softDeleteCustomRole, id)
+	return err
 }
 
 const softDeleteRole = `-- name: SoftDeleteRole :exec
@@ -108,6 +298,30 @@ func (q *Queries) UndeleteRole(ctx context.Context, id int64) error {
 	return err
 }
 
+const updateCustomRoleName = `-- name: UpdateCustomRoleName :exec
+UPDATE role
+SET name = $1,
+    description = $2
+WHERE id = $3
+  AND deleted_at IS NULL
+  AND is_builtin = FALSE
+`
+
+type UpdateCustomRoleNameParams struct {
+	Name        string
+	Description sql.NullString
+	ID          int64
+}
+
+// Renames a custom role. Locked to is_builtin = FALSE so no built-in
+// row can be modified through this path; ADMIN and FIELD_TECH have
+// their own per-org editor that goes through a different code path
+// because their seed identity (builtin_key) must be preserved.
+func (q *Queries) UpdateCustomRoleName(ctx context.Context, arg UpdateCustomRoleNameParams) error {
+	_, err := q.exec(ctx, q.updateCustomRoleNameStmt, updateCustomRoleName, arg.Name, arg.Description, arg.ID)
+	return err
+}
+
 const updateRole = `-- name: UpdateRole :exec
 UPDATE role
 SET name        = $1,
@@ -126,23 +340,77 @@ func (q *Queries) UpdateRole(ctx context.Context, arg UpdateRoleParams) error {
 	return err
 }
 
-const upsertRole = `-- name: UpsertRole :one
-INSERT INTO role (name, description)
-VALUES ($1, $2)
-ON CONFLICT (name) DO UPDATE SET
-    description = EXCLUDED.description,
-    deleted_at = NULL
+const upsertBuiltinRoleForOrg = `-- name: UpsertBuiltinRoleForOrg :one
+INSERT INTO role (name, description, is_builtin, builtin_key, organization_id)
+VALUES ($1, $2, TRUE, $3, $4)
+ON CONFLICT (organization_id, builtin_key)
+    WHERE is_builtin = TRUE AND deleted_at IS NULL
+    DO UPDATE SET
+        name = EXCLUDED.name,
+        description = EXCLUDED.description,
+        is_builtin = TRUE,
+        deleted_at = NULL
+RETURNING id, name, description, created_at, updated_at, deleted_at, is_builtin, builtin_key, organization_id
+`
+
+type UpsertBuiltinRoleForOrgParams struct {
+	Name           string
+	Description    sql.NullString
+	BuiltinKey     sql.NullString
+	OrganizationID sql.NullInt64
+}
+
+// Seed reconciliation entry point. The ON CONFLICT target matches
+// the partial unique index uq_role_org_builtin_key WHERE
+// is_builtin = TRUE AND deleted_at IS NULL.
+func (q *Queries) UpsertBuiltinRoleForOrg(ctx context.Context, arg UpsertBuiltinRoleForOrgParams) (Role, error) {
+	row := q.queryRow(ctx, q.upsertBuiltinRoleForOrgStmt, upsertBuiltinRoleForOrg,
+		arg.Name,
+		arg.Description,
+		arg.BuiltinKey,
+		arg.OrganizationID,
+	)
+	var i Role
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Description,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.IsBuiltin,
+		&i.BuiltinKey,
+		&i.OrganizationID,
+	)
+	return i, err
+}
+
+const upsertCustomRoleForOrg = `-- name: UpsertCustomRoleForOrg :one
+INSERT INTO role (name, description, is_builtin, organization_id)
+VALUES ($1, $2, FALSE, $3)
+ON CONFLICT (organization_id, (LOWER(BTRIM(name))))
+    WHERE is_builtin = FALSE AND deleted_at IS NULL
+    DO UPDATE SET
+        description = EXCLUDED.description,
+        deleted_at = NULL
 RETURNING id
 `
 
-type UpsertRoleParams struct {
-	Name        string
-	Description sql.NullString
+type UpsertCustomRoleForOrgParams struct {
+	Name           string
+	Description    sql.NullString
+	OrganizationID sql.NullInt64
 }
 
-// PostgreSQL version returns the id using RETURNING
-func (q *Queries) UpsertRole(ctx context.Context, arg UpsertRoleParams) (int64, error) {
-	row := q.queryRow(ctx, q.upsertRoleStmt, upsertRole, arg.Name, arg.Description)
+// Idempotent insert for per-org custom roles. ON CONFLICT targets the
+// partial unique index uq_role_org_custom_name keyed on
+// (organization_id, LOWER(BTRIM(name))) WHERE is_builtin = FALSE AND
+// deleted_at IS NULL — case-insensitive and trim-tolerant. Built-ins
+// go through UpsertBuiltinRoleForOrg below; using this path for
+// SUPER_ADMIN/ADMIN/FIELD_TECH would also be rejected by
+// chk_role_custom_name_not_reserved.
+func (q *Queries) UpsertCustomRoleForOrg(ctx context.Context, arg UpsertCustomRoleForOrgParams) (int64, error) {
+	row := q.queryRow(ctx, q.upsertCustomRoleForOrgStmt, upsertCustomRoleForOrg, arg.Name, arg.Description, arg.OrganizationID)
 	var id int64
 	err := row.Scan(&id)
 	return id, err

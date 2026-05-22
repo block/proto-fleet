@@ -13,6 +13,7 @@ import (
 
 	"github.com/alecthomas/assert/v2"
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	db2 "github.com/block/proto-fleet/server/internal/infrastructure/db"
 	id "github.com/block/proto-fleet/server/internal/infrastructure/id"
@@ -81,21 +82,29 @@ func (s *DatabaseService) CreateSuperAdminUser() *TestUser {
 			return fleeterror.NewInternalErrorf("error creating organization: %v", err)
 		}
 
-		roleID, err := q.UpsertRole(context.Background(), sqlc.UpsertRoleParams{
-			Name: "SUPER_ADMIN",
-			Description: sql.NullString{
-				String: "Super admin role for testing",
-				Valid:  true,
-			},
-		})
+		builtinIDs, err := authz.SeedOrgBuiltins(context.Background(), q, orgID)
 		if err != nil {
-			return fleeterror.NewInternalErrorf("error creating role: %v", err)
+			return fleeterror.NewInternalErrorf("error seeding per-org built-in roles: %v", err)
+		}
+		roleID, ok := builtinIDs[authz.BuiltinKeySuperAdmin]
+		if !ok {
+			return fleeterror.NewInternalErrorf("seeding did not return SUPER_ADMIN role id")
 		}
 
 		err = q.CreateUserOrganization(context.Background(), sqlc.CreateUserOrganizationParams{
 			UserID:         userID,
 			RoleID:         roleID,
 			OrganizationID: orgID,
+		})
+		if err != nil {
+			return err
+		}
+		_, err = q.AssignRole(context.Background(), sqlc.AssignRoleParams{
+			UserID:         userID,
+			OrganizationID: orgID,
+			RoleID:         roleID,
+			ScopeType:      "org",
+			ScopeID:        sql.NullInt64{},
 		})
 		if err != nil {
 			return fleeterror.NewInternalErrorf("error associating user with org: %v", err)
@@ -145,21 +154,29 @@ func (s *DatabaseService) CreateSuperAdminUser2() *TestUser {
 			return fleeterror.NewInternalErrorf("error creating organization: %v", err)
 		}
 
-		roleID, err := q.UpsertRole(context.Background(), sqlc.UpsertRoleParams{
-			Name: "SUPER_ADMIN",
-			Description: sql.NullString{
-				String: "Super admin role for testing",
-				Valid:  true,
-			},
-		})
+		builtinIDs, err := authz.SeedOrgBuiltins(context.Background(), q, orgID)
 		if err != nil {
-			return fleeterror.NewInternalErrorf("error creating role: %v", err)
+			return fleeterror.NewInternalErrorf("error seeding per-org built-in roles: %v", err)
+		}
+		roleID, ok := builtinIDs[authz.BuiltinKeySuperAdmin]
+		if !ok {
+			return fleeterror.NewInternalErrorf("seeding did not return SUPER_ADMIN role id")
 		}
 
 		err = q.CreateUserOrganization(context.Background(), sqlc.CreateUserOrganizationParams{
 			UserID:         userID,
 			RoleID:         roleID,
 			OrganizationID: orgID,
+		})
+		if err != nil {
+			return err
+		}
+		_, err = q.AssignRole(context.Background(), sqlc.AssignRoleParams{
+			UserID:         userID,
+			OrganizationID: orgID,
+			RoleID:         roleID,
+			ScopeType:      "org",
+			ScopeID:        sql.NullInt64{},
 		})
 		if err != nil {
 			return fleeterror.NewInternalErrorf("error associating user with org: %v", err)
