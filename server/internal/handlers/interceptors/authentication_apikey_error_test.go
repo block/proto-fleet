@@ -66,7 +66,7 @@ func TestAuthInterceptor_SanitizesAPIKeyValidationErrors(t *testing.T) {
 
 	opts := connect.WithInterceptors(
 		interceptors.NewErrorMappingInterceptor(),
-		interceptors.NewAuthInterceptor(nil, nil, nil, apiKeyService, nil, nil, nil),
+		interceptors.NewAuthInterceptor(nil, nil, nil, apiKeyService, nil, nil, nil, nil),
 	)
 
 	mux := http.NewServeMux()

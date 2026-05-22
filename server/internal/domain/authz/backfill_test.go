@@ -396,6 +396,18 @@ func insertTestOrganization(t *testing.T, db *sql.DB) int64 {
 	return id
 }
 
+func insertTestSite(t *testing.T, db *sql.DB, orgID int64) int64 {
+	t.Helper()
+	var id int64
+	require.NoError(t,
+		db.QueryRowContext(t.Context(),
+			`INSERT INTO site (org_id, name) VALUES ($1, $2) RETURNING id`,
+			orgID, uniqueToken("site"),
+		).Scan(&id),
+	)
+	return id
+}
+
 func insertTestUser(t *testing.T, db *sql.DB) int64 {
 	t.Helper()
 	var id int64

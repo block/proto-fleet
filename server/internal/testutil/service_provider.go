@@ -10,6 +10,7 @@ import (
 
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	"github.com/block/proto-fleet/server/internal/domain/apikey"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/command"
 	"github.com/block/proto-fleet/server/internal/domain/fleetmanagement"
 	"github.com/block/proto-fleet/server/internal/domain/miner"
@@ -61,6 +62,7 @@ type ServiceProvider struct {
 	FilesService           *files.Service
 	MinerService           *miner.Service
 	PluginService          *plugins.Service
+	PermissionResolver     *authz.PermissionResolver
 }
 
 func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvider {
@@ -179,5 +181,6 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 		FilesService:           filesService,
 		MinerService:           minerService,
 		PluginService:          pluginService,
+		PermissionResolver:     authz.NewPermissionResolver(db),
 	}
 }
