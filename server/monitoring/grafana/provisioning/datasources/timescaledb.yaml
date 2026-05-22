@@ -1,0 +1,23 @@
+apiVersion: 1
+
+datasources:
+  - name: TimescaleDB
+    uid: protofleet-timescaledb
+    type: postgres
+    access: proxy
+    url: timescaledb:5432
+    user: ${GRAFANA_DB_USERNAME}
+    secureJsonData:
+      password: ${GRAFANA_DB_PASSWORD}
+    jsonData:
+      database: ${GRAFANA_DB_NAME}
+      sslmode: disable
+      postgresVersion: 1800
+      timescaledb: true
+      # Alert rules below set $__interval explicitly; this value is a
+      # safe default for ad-hoc exploration via Explore.
+      maxOpenConns: 10
+      maxIdleConns: 5
+      connMaxLifetime: 14400
+    isDefault: true
+    editable: false

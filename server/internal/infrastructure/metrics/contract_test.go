@@ -78,11 +78,15 @@ func TestValidateLabelKey(t *testing.T) {
 	require.Error(t, validateLabelKey(""))
 }
 
-// guards against unknown Results
+// guards against unknown Results: an unknown result must log + drop
+// the sample, never panic and never reach the store.
 func TestUnknownResultIsRejected(t *testing.T) {
-	p := newDisabledProvider(Config{})
-	require.NotNil(t, p.insts)
-	// These must not panic — the slog.Error is the user-visible.
+	store := NewInMemoryStore()
+	p := SetupWithStore(context.Background(), "test", Config{
+		Enabled: true, BufferSize: 4, BatchSize: 2,
+	}, store)
 	p.EmitCommand(context.Background(), CommandLabels{Kind: "reboot", Result: "weird"})
 	p.EmitTelemetryPoll(context.Background(), TelemetryPollLabels{Result: "weird"})
+	require.NoError(t, p.Shutdown(context.Background()))
+	require.Empty(t, store.Snapshot(), "unknown-result emits must not reach the store")
 }

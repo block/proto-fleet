@@ -16,9 +16,10 @@ usage() {
 Usage: run-fleet.sh [options]
 
 Options:
-  --enable-beta-notifications   Layer in the beta notifications sidecar stack
-                                (otel-collector, victoria-metrics, vmalert,
-                                alertmanager). Off by default.
+  --enable-beta-notifications   Layer in the beta notifications sidecar
+                                (Grafana, polling TimescaleDB and running
+                                the built-in Alertmanager). Off by
+                                default.
   -h, --help                    Show this help and exit.
 EOF
 }
@@ -389,6 +390,22 @@ for flag in --wait --wait-timeout; do
     fi
 done
 
+env_has_nonempty_value() {
+    grep -Eq "^${1}=.+" "$ENV_FILE" 2>/dev/null
+}
+
+scrub_env_key() {
+    local key="$1"
+    local tmp
+    if grep -q "^${key}=" "$ENV_FILE" 2>/dev/null; then
+        tmp=$(mktemp)
+        grep -v "^${key}=" "$ENV_FILE" > "$tmp" || true
+        # Overwrite in place to preserve the 0600 perms set elsewhere.
+        cat "$tmp" > "$ENV_FILE"
+        rm -f "$tmp"
+    fi
+}
+
 # ----------------------------------------------------------------------------
 # Database Volume Management Function
 # ----------------------------------------------------------------------------
@@ -542,7 +559,50 @@ if [ "$ENABLE_BETA_NOTIFICATIONS" = "true" ]; then
         echo "Error: --enable-beta-notifications was passed but $COMPOSE_NOTIFICATIONS_FILE is missing."
         exit 1
     fi
-    echo "Notifications stack: enabled (otel-collector, victoria-metrics, vmalert, alertmanager)"
+
+    # The Grafana sidecar runs the alerting engine + UI; give it a
+    # rotated admin password the first time we boot the stack so the
+    # default "admin / admin" never ships.
+    if ! grep -q "^GRAFANA_ADMIN_PASSWORD=" "$ENV_FILE" 2>/dev/null; then
+        GRAFANA_ADMIN_PASSWORD=$(openssl rand -base64 24)
+        echo "GRAFANA_ADMIN_PASSWORD=$GRAFANA_ADMIN_PASSWORD" >> "$ENV_FILE"
+        echo "Generated Grafana admin password (stored in $ENV_FILE)."
+    fi
+
+    if ! env_has_nonempty_value GRAFANA_DB_USERNAME; then
+        scrub_env_key GRAFANA_DB_USERNAME
+        echo "GRAFANA_DB_USERNAME=grafana_ro" >> "$ENV_FILE"
+    fi
+    if ! env_has_nonempty_value GRAFANA_DB_PASSWORD; then
+        scrub_env_key GRAFANA_DB_PASSWORD
+        GRAFANA_DB_PASSWORD=$(openssl rand -base64 24)
+        echo "GRAFANA_DB_PASSWORD=$GRAFANA_DB_PASSWORD" >> "$ENV_FILE"
+        echo "Generated Grafana DB password (stored in $ENV_FILE)."
+    fi
+
+    # Shared secret the alertmanager webhook receiver requires on every
+    # delivery. Mounted on the same listener as the public Connect-RPC
+    # services, so without this token an unauthenticated caller on the
+    # api-proxy network could forge system alert activity rows.
+    if ! env_has_nonempty_value FLEET_METRICS_WEBHOOK_TOKEN; then
+        FLEET_METRICS_WEBHOOK_TOKEN=$(openssl rand -base64 32)
+        echo "FLEET_METRICS_WEBHOOK_TOKEN=$FLEET_METRICS_WEBHOOK_TOKEN" >> "$ENV_FILE"
+        echo "Generated alertmanager webhook token (stored in $ENV_FILE)."
+    fi
+
+    # Grafana's secret_key encrypts secure settings persisted to the
+    # grafana-data volume (datasource credentials, encrypted secrets).
+    if ! env_has_nonempty_value GRAFANA_SECRET_KEY; then
+        GRAFANA_SECRET_KEY=$(openssl rand -base64 32)
+        echo "GRAFANA_SECRET_KEY=$GRAFANA_SECRET_KEY" >> "$ENV_FILE"
+        echo "Generated Grafana secret key (stored in $ENV_FILE)."
+    fi
+
+    # Re-tighten in case the env file was carried over from an older
+    # deployment with permissive (e.g. 0644) permissions.
+    chmod 600 "$ENV_FILE"
+
+    echo "Notifications stack: enabled (Grafana sidecar over TimescaleDB)"
 else
     echo "Notifications stack: disabled (pass --enable-beta-notifications to turn on the beta notifications sidecars)"
 fi
@@ -629,6 +689,8 @@ else
     fi
 fi
 
+chmod 600 "$ENV_FILE"
+
 # ----------------------------------------------------------------------------
 # Docker Image Preparation
 # ----------------------------------------------------------------------------
@@ -669,6 +731,182 @@ if ! docker compose "${COMPOSE_FILES[@]}" up --remove-orphans -d --wait --wait-t
     echo "Error: services failed to reach running state."
     echo "Check logs with: docker compose ${COMPOSE_FILES[*]} logs"
     exit 1
+fi
+
+# ----------------------------------------------------------------------------
+# Grafana Read-Only DB Role Provisioning
+# ----------------------------------------------------------------------------
+
+# Create or rotate the dedicated `grafana_ro` DB role Grafana uses to
+# query notification_metric_sample. We do this here (not in a SQL
+# migration) so the password never has to be committed to source and
+# can be rotated just by editing $ENV_FILE and re-running this script.
+provision_grafana_db_role() {
+    local grafana_user grafana_pass db_name app_user pw_escaped attempt objects_check
+
+    grafana_user=$(grep -E '^GRAFANA_DB_USERNAME=' "$ENV_FILE" | head -1 | cut -d= -f2-)
+    grafana_pass=$(grep -E '^GRAFANA_DB_PASSWORD=' "$ENV_FILE" | head -1 | cut -d= -f2-)
+    db_name=$(grep -E '^DB_NAME=' "$ENV_FILE" | head -1 | cut -d= -f2-)
+    db_name="${db_name:-fleet}"
+    app_user=$(grep -E '^DB_USERNAME=' "$ENV_FILE" | head -1 | cut -d= -f2-)
+    app_user="${app_user:-fleet}"
+
+    if [ -z "$grafana_user" ] || [ -z "$grafana_pass" ]; then
+        echo "Error: GRAFANA_DB_USERNAME / GRAFANA_DB_PASSWORD are missing or empty in $ENV_FILE." >&2
+        echo "       Delete those entries from $ENV_FILE and re-run this script to regenerate them." >&2
+        return 1
+    fi
+
+    # We splice these as SQL identifiers, so require them to match the
+    # safe identifier shape rather than try to quote arbitrary input.
+    if ! [[ "$grafana_user" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+        echo "Error: GRAFANA_DB_USERNAME must be a valid SQL identifier (got: $grafana_user)" >&2
+        return 1
+    fi
+    if ! [[ "$db_name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+        echo "Error: DB_NAME must be a valid SQL identifier (got: $db_name)" >&2
+        return 1
+    fi
+
+    if [ "$grafana_user" = "$app_user" ] || [ "$grafana_user" = "postgres" ]; then
+        echo "Error: GRAFANA_DB_USERNAME ('$grafana_user') must not match the application DB role ('$app_user') or the postgres superuser." >&2
+        echo "       Pick a dedicated read-only role name (e.g. grafana_ro) and re-run." >&2
+        return 1
+    fi
+
+    # SQL-escape single quotes in the password so the inlined literal
+    # parses regardless of what openssl rand produced.
+    pw_escaped="${grafana_pass//\'/\'\'}"
+
+    # `up --wait` only confirms containers are running, not that
+    # fleet-api has finished its migration pass. Poll for every object
+    # the Grafana alert rules read — the raw hypertable AND the
+    # fleet_telemetry_poll_heartbeat continuous aggregate the
+    # protofleet-ingest-stalled rule queries.
+    echo "Waiting for notification_metric_sample and fleet_telemetry_poll_heartbeat to be available…"
+    for attempt in $(seq 1 60); do
+        objects_check=$(docker compose "${COMPOSE_FILES[@]}" exec -T timescaledb \
+            bash -c "psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -tAc \"SELECT to_regclass('public.notification_metric_sample') IS NOT NULL AND to_regclass('public.fleet_telemetry_poll_heartbeat') IS NOT NULL\"" \
+            2>/dev/null | tr -d '[:space:]')
+        if [ "$objects_check" = "t" ]; then
+            break
+        fi
+        if [ "$attempt" -eq 60 ]; then
+            echo "Warning: notification_metric_sample / fleet_telemetry_poll_heartbeat did not appear; Grafana role not provisioned (datasource will fail until fleet-api migrations finish)." >&2
+            return 1
+        fi
+        sleep 2
+    done
+
+    echo "Provisioning Grafana read-only DB role (${grafana_user})…"
+    docker compose "${COMPOSE_FILES[@]}" exec -T timescaledb \
+        bash -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<SQL
+-- Create or rotate the Grafana DB role.
+DO \$do\$
+DECLARE
+    target_role         text := '${grafana_user}';
+    target_pass         text := '${pw_escaped}';
+    target_db           text := '${db_name}';
+    marker_comment      text := 'managed by proto-fleet run-fleet.sh (Grafana read-only role)';
+    target_oid          oid;
+    is_super            boolean;
+    is_createdb         boolean;
+    is_createrole       boolean;
+    is_replication      boolean;
+    is_bypassrls        boolean;
+    existing_comment    text;
+    member_count        integer;
+    has_members_count   integer;
+    owned_objects_count integer;
+BEGIN
+    SELECT oid, rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls
+      INTO target_oid, is_super, is_createdb, is_createrole, is_replication, is_bypassrls
+      FROM pg_roles
+     WHERE rolname = target_role;
+
+    IF NOT FOUND THEN
+        -- New role: create locked down so it has no path to escalate
+        EXECUTE format(
+            'CREATE ROLE %I LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT',
+            target_role, target_pass);
+        EXECUTE format('COMMENT ON ROLE %I IS %L', target_role, marker_comment);
+    ELSE
+        -- Existing role: only repurpose when our own marker is present.
+        existing_comment := shobj_description(target_oid, 'pg_authid');
+        IF existing_comment IS DISTINCT FROM marker_comment THEN
+            RAISE EXCEPTION
+                'Refusing to reuse role % for Grafana: role exists but was not provisioned by this script (no managed-by marker on pg_authid). Pick a different GRAFANA_DB_USERNAME or drop the existing role first.',
+                target_role;
+        END IF;
+
+        IF is_super OR is_createdb OR is_createrole OR is_replication OR is_bypassrls THEN
+            RAISE EXCEPTION
+                'Refusing to reuse role % for Grafana: existing role has elevated attributes (super/createdb/createrole/replication/bypassrls). Pick a different GRAFANA_DB_USERNAME or drop the existing role first.',
+                target_role;
+        END IF;
+
+        SELECT count(*) INTO member_count
+          FROM pg_auth_members
+         WHERE member = target_oid;
+        IF member_count > 0 THEN
+            RAISE EXCEPTION
+                'Refusing to reuse role % for Grafana: existing role is a member of other roles, which could grant inherited privileges. Pick a different GRAFANA_DB_USERNAME or drop the existing role first.',
+                target_role;
+        END IF;
+
+        SELECT count(*) INTO has_members_count
+          FROM pg_auth_members
+         WHERE roleid = target_oid;
+        IF has_members_count > 0 THEN
+            RAISE EXCEPTION
+                'Refusing to reuse role % for Grafana: other roles/users have been granted membership in this role and would inherit Grafana''s read-only access. Investigate and drop the role before re-running.',
+                target_role;
+        END IF;
+
+        SELECT count(*) INTO owned_objects_count
+          FROM pg_class
+         WHERE relowner = target_oid;
+        IF owned_objects_count > 0 THEN
+            RAISE EXCEPTION
+                'Refusing to reuse role % for Grafana: role owns % database objects, which suggests it is in use for something other than Grafana. Investigate and drop the role before re-running.',
+                target_role, owned_objects_count;
+        END IF;
+
+        -- Wipe any direct grants accumulated outside of this script.
+        EXECUTE format('REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM %I', target_role);
+        EXECUTE format('REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM %I', target_role);
+        EXECUTE format('REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public FROM %I', target_role);
+        EXECUTE format('REVOKE ALL PRIVILEGES ON SCHEMA public FROM %I', target_role);
+        EXECUTE format('REVOKE ALL PRIVILEGES ON DATABASE %I FROM %I', target_db, target_role);
+
+        -- Known-safe: rotate the password.
+        EXECUTE format(
+            'ALTER ROLE %I WITH LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT',
+            target_role, target_pass);
+        EXECUTE format('COMMENT ON ROLE %I IS %L', target_role, marker_comment);
+    END IF;
+END
+\$do\$;
+
+GRANT CONNECT ON DATABASE "${db_name}" TO "${grafana_user}";
+GRANT USAGE ON SCHEMA public TO "${grafana_user}";
+GRANT SELECT ON notification_metric_sample TO "${grafana_user}";
+GRANT SELECT ON fleet_telemetry_poll_heartbeat TO "${grafana_user}";
+
+-- smoke check
+SET ROLE "${grafana_user}";
+SELECT 1 FROM notification_metric_sample LIMIT 0;
+SELECT 1 FROM fleet_telemetry_poll_heartbeat LIMIT 0;
+RESET ROLE;
+SQL
+}
+
+if [ "$ENABLE_BETA_NOTIFICATIONS" = "true" ]; then
+    if ! provision_grafana_db_role; then
+        echo "Error: Grafana DB role provisioning failed; Grafana alerting cannot query notification_metric_sample." >&2
+        echo "       Fix the underlying cause (DB reachable, migrations complete) and re-run this script." >&2
+        exit 1
+    fi
 fi
 
 # ----------------------------------------------------------------------------

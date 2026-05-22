@@ -783,6 +783,12 @@ type FleetNodeSession struct {
 	CreatedAt   time.Time
 }
 
+type FleetTelemetryPollHeartbeat struct {
+	Bucket         interface{}
+	OrganizationID string
+	SampleCount    int64
+}
+
 type MinerCredential struct {
 	ID          int64
 	DeviceID    int64
@@ -798,6 +804,20 @@ type MinerStateSnapshot struct {
 	DeviceIdentifier string
 	State            int16
 	SiteID           sql.NullInt64
+}
+
+type NotificationMetricSample struct {
+	Time           time.Time
+	Metric         string
+	OrganizationID string
+	SiteID         string
+	DeviceID       string
+	DeviceGroup    string
+	Driver         string
+	SensorKind     string
+	Kind           string
+	Result         string
+	Value          float64
 }
 
 type Organization struct {
