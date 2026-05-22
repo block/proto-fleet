@@ -166,14 +166,16 @@ func TestRPCContract_ProcedurePermissionsKeysAreInCatalog(t *testing.T) {
 	}
 }
 
-// mainConnectMountRe captures the v1connect package shortname (e.g.
-// "authv1connect") from every Connect handler mount in main.go like
-// `mux.Handle(authv1connect.NewAuthServiceHandler(...)`. The capture
-// is the package selector, which uniquely identifies the service.
-var mainConnectMountRe = regexp.MustCompile(`\b(\w+v1connect)\.New\w+ServiceHandler\(`)
+// mainConnectMountRe captures the connect-package shortname (e.g.
+// "authv1connect", "fooserverv2connect") from every Connect handler
+// mount in main.go like `mux.Handle(authv1connect.NewAuthServiceHandler(...)`.
+// The capture is the package selector, which uniquely identifies the
+// service. Matching any `\w+v\d+connect` keeps the guard honest as
+// future services land on v2+.
+var mainConnectMountRe = regexp.MustCompile(`\b(\w+v\d+connect)\.New\w+ServiceHandler\(`)
 
 // TestRPCContract_RegisteredServicesMatchMainMux asserts that every
-// v1connect handler mounted in cmd/fleetd/main.go is enumerated in
+// connect handler mounted in cmd/fleetd/main.go is enumerated in
 // registeredServices, and vice versa. Without this, adding a new
 // service to main.go but forgetting to list it here is a silent
 // false-negative: the contract test still passes because reflection
@@ -188,12 +190,12 @@ func TestRPCContract_RegisteredServicesMatchMainMux(t *testing.T) {
 		mountedPkgs[string(m[1])] = struct{}{}
 	}
 	require.NotEmpty(t, mountedPkgs,
-		"regex found no v1connect handler mounts in %s — pattern may have drifted", mainPath)
+		"regex found no connect handler mounts in %s — pattern may have drifted", mainPath)
 
 	registeredPkgs := make(map[string]struct{}, len(registeredServices))
 	for _, svc := range registeredServices {
 		// reflect.Type.PkgPath returns the import path; the last segment
-		// is the v1connect package shortname that appears in main.go.
+		// is the connect-package shortname that appears in main.go.
 		pkg := svc.ifaceType.PkgPath()
 		registeredPkgs[pkg[strings.LastIndex(pkg, "/")+1:]] = struct{}{}
 	}
