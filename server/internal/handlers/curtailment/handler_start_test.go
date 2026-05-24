@@ -94,7 +94,7 @@ func (s *startStubStore) ListEvents(context.Context, interfaces.ListEventsParams
 func (s *startStubStore) UpdateOperatorFields(context.Context, int64, int64, interfaces.UpdateOperatorFieldsParams) (*models.Event, error) {
 	panic("UpdateOperatorFields not exercised by Start handler tests")
 }
-func (s *startStubStore) AdminTerminateEvent(context.Context, int64, uuid.UUID, models.EventState, string) (*models.Event, error) {
+func (s *startStubStore) AdminTerminateEvent(context.Context, int64, uuid.UUID, models.EventState, string) (*models.Event, bool, error) {
 	panic("AdminTerminateEvent not exercised by Start handler tests")
 }
 func (s *startStubStore) GetEventByIdempotencyKey(_ context.Context, _ int64, key string) (*models.Event, error) {

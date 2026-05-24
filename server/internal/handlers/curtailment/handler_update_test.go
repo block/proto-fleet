@@ -148,7 +148,7 @@ func (s *updateStubStore) UpdateTargetState(context.Context, int64, string, inte
 func (s *updateStubStore) UpsertHeartbeat(context.Context, interfaces.UpsertCurtailmentHeartbeatParams) error {
 	panic("UpsertHeartbeat not exercised by Update handler tests")
 }
-func (s *updateStubStore) AdminTerminateEvent(context.Context, int64, uuid.UUID, models.EventState, string) (*models.Event, error) {
+func (s *updateStubStore) AdminTerminateEvent(context.Context, int64, uuid.UUID, models.EventState, string) (*models.Event, bool, error) {
 	panic("AdminTerminateEvent not exercised by Update handler tests")
 }
 func (s *updateStubStore) GetEventByIdempotencyKey(context.Context, int64, string) (*models.Event, error) {

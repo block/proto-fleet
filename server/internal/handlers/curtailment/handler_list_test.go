@@ -90,7 +90,7 @@ func (s *listStubStore) UpsertHeartbeat(context.Context, interfaces.UpsertCurtai
 func (s *listStubStore) UpdateOperatorFields(context.Context, int64, int64, interfaces.UpdateOperatorFieldsParams) (*models.Event, error) {
 	panic("UpdateOperatorFields not exercised by List handler tests")
 }
-func (s *listStubStore) AdminTerminateEvent(context.Context, int64, uuid.UUID, models.EventState, string) (*models.Event, error) {
+func (s *listStubStore) AdminTerminateEvent(context.Context, int64, uuid.UUID, models.EventState, string) (*models.Event, bool, error) {
 	panic("AdminTerminateEvent not exercised by List handler tests")
 }
 func (s *listStubStore) GetEventByIdempotencyKey(context.Context, int64, string) (*models.Event, error) {

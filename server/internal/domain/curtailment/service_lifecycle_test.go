@@ -151,6 +151,76 @@ func TestService_Lifecycle_StartReplayShortCircuitsSecondCall(t *testing.T) {
 		"replay must not double-emit the audit trail")
 }
 
+// TestService_AdminTerminate_IdempotentReplay_SuppressesAudit pins the
+// audit-emission contract: when the store reports an idempotent replay
+// (event already in the requested terminal state on first read, or a
+// concurrent terminate landed first), AdminTerminate must NOT emit a
+// duplicate curtailment_admin_terminated activity row. Audit consumers
+// tracking operator action history would otherwise see a phantom action.
+func TestService_AdminTerminate_IdempotentReplay_SuppressesAudit(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(42)
+
+	store := newFakeStore()
+	eventUUID := uuid.New()
+	store.adminTerminateResult = &models.Event{
+		ID:        1,
+		EventUUID: eventUUID,
+		OrgID:     orgID,
+		State:     models.EventStateCancelled,
+	}
+	store.adminTerminateIdempotentReplay = true
+
+	audit := &recordingAuditLogger{}
+	svc := NewService(store, WithAuditLogger(audit))
+
+	final, err := svc.AdminTerminate(t.Context(), AdminTerminateRequest{
+		OrgID:       orgID,
+		EventUUID:   eventUUID,
+		TargetState: models.EventStateCancelled,
+		Reason:      "duplicate terminate request",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, models.EventStateCancelled, final.State)
+	assert.Equal(t, 1, store.adminTerminateCalls)
+	assert.Empty(t, audit.snapshot(),
+		"idempotent replay must not emit a duplicate audit row")
+}
+
+// TestService_AdminTerminate_Transition_EmitsAudit is the positive
+// counterpart of the idempotent-replay test: when the store reports a
+// real transition, audit emission still fires. Together they pin both
+// arms of the new transitioned-flag gate.
+func TestService_AdminTerminate_Transition_EmitsAudit(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(42)
+
+	store := newFakeStore()
+	eventUUID := uuid.New()
+	store.adminTerminateResult = &models.Event{
+		ID:        1,
+		EventUUID: eventUUID,
+		OrgID:     orgID,
+		State:     models.EventStateFailed,
+	}
+	// adminTerminateIdempotentReplay defaults to false → transitioned=true.
+
+	audit := &recordingAuditLogger{}
+	svc := NewService(store, WithAuditLogger(audit))
+
+	_, err := svc.AdminTerminate(t.Context(), AdminTerminateRequest{
+		OrgID:       orgID,
+		EventUUID:   eventUUID,
+		TargetState: models.EventStateFailed,
+		Reason:      "operator force terminate",
+	})
+	require.NoError(t, err)
+
+	events := audit.snapshot()
+	require.Len(t, events, 1, "real transition must emit one audit row")
+	assert.Equal(t, ActivityTypeAdminTerminated, events[0].Type)
+}
+
 // TestService_Lifecycle_ListEventsReturnsTerminalRow demonstrates the
 // read path: after a Start + AdminTerminate cycle, the operator's
 // history-view query returns the terminal event with the expected

@@ -347,31 +347,42 @@ func nullInt32FromPtr(p *int32) sql.NullInt32 {
 //     events whose tick already dispatched some Curtail commands.
 //   - otherwise (pending with no dispatched targets, or restoring) → run the
 //     transition + target sweep, return the updated row.
+//
+// adminTerminateResult carries the store-level outcome through db.WithTransaction.
+// transitioned=false marks the two idempotent-echo paths (caller already in
+// the requested terminal state, either on first read or on the race-loss
+// re-read) so the caller can suppress side effects like audit emission.
+type adminTerminateResult struct {
+	event        *models.Event
+	transitioned bool
+}
+
 func (s *SQLCurtailmentStore) AdminTerminateEvent(
 	ctx context.Context,
 	orgID int64,
 	eventUUID uuid.UUID,
 	targetState models.EventState,
 	reason string,
-) (*models.Event, error) {
-	return db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (*models.Event, error) {
+) (*models.Event, bool, error) {
+	result, err := db.WithTransaction(ctx, s.conn.DB, func(q *sqlc.Queries) (adminTerminateResult, error) {
 		current, err := q.GetCurtailmentEventByUUID(ctx, sqlc.GetCurtailmentEventByUUIDParams{
 			EventUuid: eventUUID,
 			OrgID:     orgID,
 		})
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fleeterror.NewNotFoundErrorf("curtailment event not found: %s", eventUUID)
+			return adminTerminateResult{}, fleeterror.NewNotFoundErrorf("curtailment event not found: %s", eventUUID)
 		}
 		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("failed to get curtailment event: %v", err)
+			return adminTerminateResult{}, fleeterror.NewInternalErrorf("failed to get curtailment event: %v", err)
 		}
 
 		currentState := models.EventState(current.State)
 		if currentState == targetState {
-			return convertEventRow(current), nil
+			// Idempotent echo: event already in the requested terminal state.
+			return adminTerminateResult{event: convertEventRow(current), transitioned: false}, nil
 		}
 		if currentState.IsTerminal() {
-			return nil, interfaces.ErrCurtailmentAdminTerminateStateConflict
+			return adminTerminateResult{}, interfaces.ErrCurtailmentAdminTerminateStateConflict
 		}
 
 		// In-flight gate: reject when any target has received a Curtail
@@ -382,10 +393,10 @@ func (s *SQLCurtailmentStore) AdminTerminateEvent(
 		// no compensating Uncurtail.
 		hasInFlight, err := q.CurtailmentEventHasInFlightTargets(ctx, current.ID)
 		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("failed to check in-flight targets: %v", err)
+			return adminTerminateResult{}, fleeterror.NewInternalErrorf("failed to check in-flight targets: %v", err)
 		}
 		if hasInFlight {
-			return nil, interfaces.ErrCurtailmentAdminTerminateActiveEvent
+			return adminTerminateResult{}, interfaces.ErrCurtailmentAdminTerminateActiveEvent
 		}
 
 		updated, err := q.AdminTerminateCurtailmentEvent(ctx, sqlc.AdminTerminateCurtailmentEventParams{
@@ -403,30 +414,35 @@ func (s *SQLCurtailmentStore) AdminTerminateEvent(
 				OrgID:     orgID,
 			})
 			if getErr != nil {
-				return nil, fleeterror.NewInternalErrorf("failed to re-read curtailment event after concurrent state change: %v", getErr)
+				return adminTerminateResult{}, fleeterror.NewInternalErrorf("failed to re-read curtailment event after concurrent state change: %v", getErr)
 			}
 			latestState := models.EventState(latest.State)
 			if latestState == targetState {
-				return convertEventRow(latest), nil
+				// Idempotent echo: concurrent terminate landed first.
+				return adminTerminateResult{event: convertEventRow(latest), transitioned: false}, nil
 			}
 			if latestState == models.EventStateActive {
-				return nil, interfaces.ErrCurtailmentAdminTerminateActiveEvent
+				return adminTerminateResult{}, interfaces.ErrCurtailmentAdminTerminateActiveEvent
 			}
-			return nil, interfaces.ErrCurtailmentAdminTerminateStateConflict
+			return adminTerminateResult{}, interfaces.ErrCurtailmentAdminTerminateStateConflict
 		}
 		if err != nil {
-			return nil, fleeterror.NewInternalErrorf("failed to terminate curtailment event: %v", err)
+			return adminTerminateResult{}, fleeterror.NewInternalErrorf("failed to terminate curtailment event: %v", err)
 		}
 
 		if err := q.SweepCurtailmentTargetsToRestoreFailed(ctx, sqlc.SweepCurtailmentTargetsToRestoreFailedParams{
 			CurtailmentEventID: current.ID,
 			LastError:          reason,
 		}); err != nil {
-			return nil, fleeterror.NewInternalErrorf("failed to sweep curtailment targets: %v", err)
+			return adminTerminateResult{}, fleeterror.NewInternalErrorf("failed to sweep curtailment targets: %v", err)
 		}
 
-		return convertEventRow(updated), nil
+		return adminTerminateResult{event: convertEventRow(updated), transitioned: true}, nil
 	})
+	if err != nil {
+		return nil, false, err
+	}
+	return result.event, result.transitioned, nil
 }
 
 func (s *SQLCurtailmentStore) ListTargetsByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) ([]*models.Target, error) {

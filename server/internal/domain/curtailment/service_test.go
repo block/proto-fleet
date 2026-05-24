@@ -80,12 +80,13 @@ type fakeStore struct {
 	// AdminTerminate fakes. adminTerminateResult is the post-transition
 	// event the fake echoes; adminTerminateErr drives error paths
 	// (state conflict, transient db error).
-	adminTerminateCalls      int
-	lastAdminTerminateUUID   uuid.UUID
-	lastAdminTerminateState  models.EventState
-	lastAdminTerminateReason string
-	adminTerminateResult     *models.Event
-	adminTerminateErr        error
+	adminTerminateCalls            int
+	lastAdminTerminateUUID         uuid.UUID
+	lastAdminTerminateState        models.EventState
+	lastAdminTerminateReason       string
+	adminTerminateResult           *models.Event
+	adminTerminateErr              error
+	adminTerminateIdempotentReplay bool
 
 	// Idempotent replay fakes. eventsByIdempotencyKey / eventsByExternalRef
 	// drive Service.Start's pre-insert webhook-replay lookup; nil results
@@ -180,15 +181,18 @@ func (f *fakeStore) ListTargetsByEvent(_ context.Context, _ int64, eventUUID uui
 	return append([]*models.Target(nil), f.targetsByEventUUID[eventUUID]...), nil
 }
 
-func (f *fakeStore) AdminTerminateEvent(_ context.Context, _ int64, eventUUID uuid.UUID, targetState models.EventState, reason string) (*models.Event, error) {
+func (f *fakeStore) AdminTerminateEvent(_ context.Context, _ int64, eventUUID uuid.UUID, targetState models.EventState, reason string) (*models.Event, bool, error) {
 	f.adminTerminateCalls++
 	f.lastAdminTerminateUUID = eventUUID
 	f.lastAdminTerminateState = targetState
 	f.lastAdminTerminateReason = reason
 	if f.adminTerminateErr != nil {
-		return nil, f.adminTerminateErr
+		return nil, false, f.adminTerminateErr
 	}
-	return f.adminTerminateResult, nil
+	// transitioned defaults to true; tests that exercise the
+	// idempotent-replay path set adminTerminateTransitioned=false.
+	transitioned := !f.adminTerminateIdempotentReplay
+	return f.adminTerminateResult, transitioned, nil
 }
 
 func (f *fakeStore) GetEventByIdempotencyKey(_ context.Context, _ int64, idempotencyKey string) (*models.Event, error) {

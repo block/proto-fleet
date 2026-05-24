@@ -23,25 +23,29 @@ import (
 // tests. Only AdminTerminateEvent is wired; the rest panic so an
 // unintended path is loud rather than silently zero-valuing.
 type adminTerminateStubStore struct {
-	result          *models.Event
-	err             error
-	calls           int
-	lastOrgID       int64
-	lastEventUUID   uuid.UUID
-	lastTargetState models.EventState
-	lastReason      string
+	result           *models.Event
+	transitioned     bool
+	idempotentReplay bool
+	err              error
+	calls            int
+	lastOrgID        int64
+	lastEventUUID    uuid.UUID
+	lastTargetState  models.EventState
+	lastReason       string
 }
 
-func (s *adminTerminateStubStore) AdminTerminateEvent(_ context.Context, orgID int64, eventUUID uuid.UUID, targetState models.EventState, reason string) (*models.Event, error) {
+func (s *adminTerminateStubStore) AdminTerminateEvent(_ context.Context, orgID int64, eventUUID uuid.UUID, targetState models.EventState, reason string) (*models.Event, bool, error) {
 	s.calls++
 	s.lastOrgID = orgID
 	s.lastEventUUID = eventUUID
 	s.lastTargetState = targetState
 	s.lastReason = reason
 	if s.err != nil {
-		return nil, s.err
+		return nil, false, s.err
 	}
-	return s.result, nil
+	transitioned := !s.idempotentReplay
+	s.transitioned = transitioned
+	return s.result, transitioned, nil
 }
 
 func (s *adminTerminateStubStore) GetOrgConfig(context.Context, int64) (*models.OrgConfig, error) {

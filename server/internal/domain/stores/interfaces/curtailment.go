@@ -153,7 +153,13 @@ type CurtailmentStore interface {
 	// updated event row. Idempotent: a re-issue against an already-terminal
 	// event in the same target state echoes the row. A different terminal
 	// state on the existing row surfaces ErrCurtailmentAdminTerminateStateConflict.
-	AdminTerminateEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID, targetState models.EventState, reason string) (*models.Event, error)
+	// AdminTerminateEvent returns (event, transitioned, error). transitioned
+	// is false when the call was an idempotent echo of an event already in
+	// the requested terminal state — in that case no UPDATE ran, no targets
+	// were swept, and the caller should suppress side effects like audit
+	// emission. transitioned is true when the call performed a real
+	// state transition + target sweep.
+	AdminTerminateEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID, targetState models.EventState, reason string) (event *models.Event, transitioned bool, err error)
 
 	ListTargetsByEvent(ctx context.Context, orgID int64, eventUUID uuid.UUID) ([]*models.Target, error)
 

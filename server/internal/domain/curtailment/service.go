@@ -441,7 +441,7 @@ func (s *Service) AdminTerminate(ctx context.Context, req AdminTerminateRequest)
 		)
 	}
 
-	updated, err := s.store.AdminTerminateEvent(ctx, req.OrgID, req.EventUUID, req.TargetState, req.Reason)
+	updated, transitioned, err := s.store.AdminTerminateEvent(ctx, req.OrgID, req.EventUUID, req.TargetState, req.Reason)
 	if err != nil {
 		if errors.Is(err, interfaces.ErrCurtailmentAdminTerminateStateConflict) {
 			return nil, fleeterror.NewFailedPreconditionErrorf(
@@ -456,7 +456,14 @@ func (s *Service) AdminTerminate(ctx context.Context, req AdminTerminateRequest)
 		}
 		return nil, err
 	}
-	s.emitAdminTerminateAuditTrail(ctx, req, updated)
+	// Suppress audit emission on idempotent replays (event was already in
+	// the requested terminal state on first read, or a concurrent
+	// terminate landed first). A duplicate `curtailment_admin_terminated`
+	// row for a no-op call would mislead audit consumers tracking
+	// operator action history.
+	if transitioned {
+		s.emitAdminTerminateAuditTrail(ctx, req, updated)
+	}
 	return updated, nil
 }
 
