@@ -45,6 +45,3 @@ packages/proto-python-gen/tests/output*/
 server/sdk/v1/python/.venv
 server/plugins-active/
 server/docker-compose.plugins.yaml
-
-# Internal design notes — keep out of public artifacts per project convention
-docs/curtailment_implementation_plan/
