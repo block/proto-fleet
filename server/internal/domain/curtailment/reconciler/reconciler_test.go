@@ -27,11 +27,13 @@ type fakeStore struct {
 	targetsByEventID map[int64][]*models.Target
 	candidates       []*models.Candidate
 
-	listEventsErr      error
-	listEventsCalls    int
-	listEventsPanicErr string
-	listTargetsHook    func(context.Context, uuid.UUID)
-	listTargetsCtxErr  map[uuid.UUID]error
+	listEventsErr       error
+	listEventsCalls     int
+	listEventsPanicErr  string
+	listTargetsHook     func(context.Context, uuid.UUID)
+	listTargetsCtxErr   map[uuid.UUID]error
+	getEventByUUIDHook  func(uuid.UUID, int)
+	getEventByUUIDCalls int
 
 	updateEventCalls   int
 	updateEventLast    map[int64]models.EventState
@@ -69,6 +71,10 @@ func (f *fakeStore) ListRecentlyResolvedCurtailedDevices(context.Context, int64,
 	panic("ListRecentlyResolvedCurtailedDevices not exercised")
 }
 func (f *fakeStore) GetEventByUUID(_ context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error) {
+	f.getEventByUUIDCalls++
+	if f.getEventByUUIDHook != nil {
+		f.getEventByUUIDHook(eventUUID, f.getEventByUUIDCalls)
+	}
 	for _, ev := range f.events {
 		if ev.OrgID == orgID && ev.EventUUID == eventUUID {
 			return ev, nil
@@ -352,6 +358,40 @@ func TestReconciler_SkipsCurtailDispatchWhenEventTerminatesBeforeCommand(t *test
 	assert.Equal(t, 0, disp.curtailCalls)
 	assert.Equal(t, 0, store.updateTargetCalls)
 	assert.Equal(t, models.TargetStatePending, store.targetsByEventID[eventID][0].State)
+}
+
+// TestReconciler_SkipsRemainingCurtailDispatchesWhenEventTerminatesMidLoop
+// pins the per-target liveness gate: even after a tick has begun
+// dispatching, a concurrent AdminTerminate that lands between target N and
+// target N+1 must stop the loop from issuing further Curtail commands.
+func TestReconciler_SkipsRemainingCurtailDispatchesWhenEventTerminatesMidLoop(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-1", State: models.TargetStatePending, BaselinePowerW: ptrFloat64(3000)},
+		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-2", State: models.TargetStatePending, BaselinePowerW: ptrFloat64(3000)},
+		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-3", State: models.TargetStatePending, BaselinePowerW: ptrFloat64(3000)},
+	}
+	// First per-target liveness call sees PENDING; the hook flips to
+	// CANCELLED before the second call's lookup runs so target 1 dispatches
+	// and targets 2 + 3 skip. Pins the per-dispatch gate's race-window fix.
+	store.getEventByUUIDHook = func(_ uuid.UUID, call int) {
+		if call == 2 {
+			store.events[0].State = models.EventStateCancelled
+		}
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, 1, disp.curtailCalls,
+		"only the first target should dispatch; the rest skip after the event flipped")
 }
 
 func TestReconciler_SkipsRestoreDispatchWhenEventTerminatesBeforeCommand(t *testing.T) {

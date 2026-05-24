@@ -311,13 +311,8 @@ func (r *Reconciler) dispatchPending(ctx context.Context, ev *models.Event) {
 		return
 	}
 
-	// One liveness read per event-tick. dispatchOneCurtail trusts this gate
-	// and skips its own re-read so a per-target loop costs O(targets) DB
-	// hits instead of O(targets * 2).
-	if !r.eventStillDispatchable(ctx, ev) {
-		return
-	}
-
+	// Per-target liveness gating happens inside dispatchOneCurtail so a
+	// concurrent AdminTerminate cannot leak commands across the loop.
 	cmdCtx := reconcilerContext(ctx, ev.OrgID, ev.CreatedByUserID)
 	for _, t := range targets {
 		if t.State != models.TargetStatePending {
@@ -366,14 +361,18 @@ func (r *Reconciler) confirmDispatched(ctx context.Context, ev *models.Event, ta
 // results route through recordDispatchFailure so work isn't silently
 // dropped.
 //
-// Callers are expected to have already verified event liveness via
-// eventStillDispatchable for this tick — hoisting that read out of the
-// per-target loop trades one DB read per target for one per event-tick.
+// Re-reads event liveness before issuing the command so a concurrent
+// AdminTerminate that committed after the caller's per-tick check
+// cannot leak Curtail commands for the remaining targets in the loop.
+// One DB read per target is acceptable; AdminTerminate is rare.
 //
 // Restart-safety gap: command is enqueued before the Dispatched write; a
 // crash in between leaves the target Pending and the next tick
 // redispatches. Curtail is device-idempotent, but audit shows two batches.
 func (r *Reconciler) dispatchOneCurtail(ctx context.Context, ev *models.Event, t *models.Target, nonTerminalFailureState models.TargetState) {
+	if !r.eventStillDispatchable(ctx, ev) {
+		return
+	}
 	selector := &pb.DeviceSelector{
 		SelectionType: &pb.DeviceSelector_IncludeDevices{
 			IncludeDevices: &commonpb.DeviceIdentifierList{
@@ -508,13 +507,9 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 		return
 	}
 
-	// One liveness read per event-tick: dispatchOneCurtail trusts this gate
-	// and skips its own re-read. Placed after enforceMaxDuration so a
-	// post-cap transition we just initiated doesn't trigger a redundant skip.
-	if !r.eventStillDispatchable(ctx, ev) {
-		return
-	}
-
+	// Per-target liveness gating happens inside dispatchOneCurtail so a
+	// concurrent AdminTerminate cannot leak redispatch commands across
+	// the drift-fix loop.
 	deviceIDs := make([]string, 0, len(targets))
 	for _, t := range targets {
 		deviceIDs = append(deviceIDs, t.DeviceIdentifier)
