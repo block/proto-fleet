@@ -810,7 +810,11 @@ func populateEventTargets(out *pb.CurtailmentEvent, targets []*models.Target) {
 		switch target.State {
 		case models.TargetStatePending:
 			rollup.Pending++
-		case models.TargetStateDispatched:
+		case models.TargetStateDispatching, models.TargetStateDispatched:
+			// DISPATCHING is the brief pre-command window the reconciler
+			// passes through before the command service call; operator
+			// rollups conflate it with DISPATCHED since both mean "command
+			// is in flight from the reconciler's perspective."
 			rollup.Dispatched++
 		case models.TargetStateConfirmed:
 			rollup.Confirmed++
@@ -927,6 +931,8 @@ func targetStateProto(s models.TargetState) pb.CurtailmentTargetState {
 	switch s {
 	case models.TargetStatePending:
 		return pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_PENDING
+	case models.TargetStateDispatching:
+		return pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_DISPATCHING
 	case models.TargetStateDispatched:
 		return pb.CurtailmentTargetState_CURTAILMENT_TARGET_STATE_DISPATCHED
 	case models.TargetStateConfirmed:

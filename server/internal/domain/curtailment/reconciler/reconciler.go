@@ -574,8 +574,11 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 				continue
 			}
 			r.dispatchOneCurtail(cmdCtx, ev, t, models.TargetStateDrifted)
-		case models.TargetStatePending, models.TargetStateResolved,
-			models.TargetStateReleased, models.TargetStateRestoreFailed:
+		case models.TargetStateDispatching, models.TargetStatePending,
+			models.TargetStateResolved, models.TargetStateReleased,
+			models.TargetStateRestoreFailed:
+			// Dispatching: brief mid-call window; let the in-flight tick
+			// complete its own DISPATCHED transition rather than re-entering.
 			// Pending: shouldn't appear on active. Resolved/Released/RestoreFailed: terminal, restorer owns.
 		}
 	}
@@ -693,9 +696,10 @@ func (r *Reconciler) maybeMarkActive(ctx context.Context, ev *models.Event, targ
 			confirmed++
 		case models.TargetStateRestoreFailed:
 			terminalFailures++
-		case models.TargetStatePending, models.TargetStateDispatched,
-			models.TargetStateDrifted:
-			// In flight; hold Pending for the next tick.
+		case models.TargetStatePending, models.TargetStateDispatching,
+			models.TargetStateDispatched, models.TargetStateDrifted:
+			// In flight; hold Pending for the next tick. DISPATCHING is the
+			// brief mid-call window — same disposition as DISPATCHED.
 			return
 		case models.TargetStateResolved, models.TargetStateReleased:
 			// Unreachable on a pending event (restorer hasn't run yet); a row
@@ -977,14 +981,16 @@ func (r *Reconciler) confirmOneRestore(ctx context.Context, ev *models.Event, t 
 func (r *Reconciler) maybeCompleteRestoring(ctx context.Context, ev *models.Event, targets []*models.Target) bool {
 	successful, failed := 0, 0
 	for _, t := range targets {
-		switch t.State {
+		switch t.State { //nolint:exhaustive // default arm is load-bearing: a future schema-added state must stay non-terminal until it ships its handling, not be silently swept into "complete." TestReconciler_Restoring_UnknownTargetStateKeepsEventNonTerminal pins the contract.
 		case models.TargetStateResolved, models.TargetStateReleased:
 			successful++
 		case models.TargetStateRestoreFailed:
 			failed++
-		case models.TargetStatePending, models.TargetStateDispatched,
-			models.TargetStateDrifted, models.TargetStateConfirmed:
-			// Not yet terminal.
+		case models.TargetStatePending, models.TargetStateDispatching,
+			models.TargetStateDispatched, models.TargetStateDrifted,
+			models.TargetStateConfirmed:
+			// Not yet terminal. DISPATCHING is the brief mid-call
+			// window — same disposition as DISPATCHED.
 			return false
 		default:
 			// Unknown state from a future schema addition: stay non-terminal
