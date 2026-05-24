@@ -56,7 +56,15 @@ const (
 type TargetState string
 
 const (
-	TargetStatePending       TargetState = "pending"
+	TargetStatePending TargetState = "pending"
+	// TargetStateDispatching is the brief transient written immediately
+	// before reconciler.dispatchOneCurtail / dispatchRestoreBatch call
+	// cmd.Curtail / cmd.Uncurtail; the DISPATCHED transition lands after
+	// the command returns. AdminTerminate's in-flight gate counts
+	// DISPATCHING rows so a concurrent terminate rejects as Stop-first
+	// and commands cannot fire against a just-terminated event with no
+	// compensating Uncurtail.
+	TargetStateDispatching   TargetState = "dispatching"
 	TargetStateDispatched    TargetState = "dispatched"
 	TargetStateConfirmed     TargetState = "confirmed"
 	TargetStateDrifted       TargetState = "drifted"

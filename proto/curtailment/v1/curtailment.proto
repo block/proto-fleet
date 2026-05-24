@@ -132,6 +132,14 @@ enum CurtailmentTargetState {
 
     // In-flight states; CONFIRMED can drift and be re-dispatched.
     CURTAILMENT_TARGET_STATE_PENDING        = 1;
+    // DISPATCHING is the brief transient state the reconciler writes to the
+    // target row *before* calling cmd.Curtail()/cmd.Uncurtail(); the
+    // DISPATCHED transition lands *after* the command returns. This makes
+    // the AdminTerminate in-flight gate reliable — a concurrent terminate
+    // observes DISPATCHING rows and rejects as Stop-first, so commands
+    // cannot fire against a just-terminated event with no compensating
+    // Uncurtail.
+    CURTAILMENT_TARGET_STATE_DISPATCHING    = 8;
     CURTAILMENT_TARGET_STATE_DISPATCHED     = 2;
     CURTAILMENT_TARGET_STATE_CONFIRMED      = 3;
     CURTAILMENT_TARGET_STATE_DRIFTED        = 4;  // re-dispatching

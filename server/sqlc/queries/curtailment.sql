@@ -169,17 +169,21 @@ WHERE org_id = sqlc.arg('org_id')
 LIMIT 1;
 
 -- name: CurtailmentEventHasInFlightTargets :one
--- True if any target on the event is currently dispatched, confirmed, or
--- drifted — i.e., the miner has been told to curtail and admin termination
--- without a Stop+restore cycle would leave it physically curtailed with
--- no compensating Uncurtail. Used as the admin-terminate precondition so
--- PENDING events whose tick already issued some commands route to the
--- "Stop first" branch alongside ACTIVE.
+-- True if any target on the event is in flight — i.e., the reconciler
+-- has written DISPATCHING (about to issue a command), DISPATCHED (command
+-- enqueued, awaiting telemetry), CONFIRMED (telemetry verified), or
+-- DRIFTED (re-dispatching). Used as the admin-terminate precondition so
+-- a concurrent terminate cannot fire while a tick is mid-dispatch.
+-- DISPATCHING is the load-bearing inclusion: the reconciler writes
+-- DISPATCHING *before* calling cmd.Curtail, so a terminate that races the
+-- command observes it and rejects as Stop-first instead of letting the
+-- command land against a sweep-already-committed event with no
+-- compensating Uncurtail.
 SELECT EXISTS (
     SELECT 1
     FROM curtailment_target
     WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
-        AND state IN ('dispatched', 'confirmed', 'drifted')
+        AND state IN ('dispatching', 'dispatched', 'confirmed', 'drifted')
 ) AS has_in_flight;
 
 -- name: AdminTerminateCurtailmentEvent :one

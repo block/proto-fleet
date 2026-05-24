@@ -366,13 +366,41 @@ func (r *Reconciler) confirmDispatched(ctx context.Context, ev *models.Event, ta
 // cannot leak Curtail commands for the remaining targets in the loop.
 // One DB read per target is acceptable; AdminTerminate is rare.
 //
-// Restart-safety gap: command is enqueued before the Dispatched write; a
-// crash in between leaves the target Pending and the next tick
-// redispatches. Curtail is device-idempotent, but audit shows two batches.
+// Race-closure: DISPATCHING is written *before* cmd.Curtail so a
+// concurrent AdminTerminate observes the row via its
+// CurtailmentEventHasInFlightTargets gate and rejects as Stop-first.
+// This eliminates the residual race where Curtail commands fired
+// between the in-flight-gate read and the sweep commit would leave
+// miners curtailed with no compensating Uncurtail.
+//
+// Restart-safety: a crash between the DISPATCHING write and cmd.Curtail
+// leaves the target stranded in DISPATCHING; the next tick observes it
+// is still dispatchable (event is non-terminal, in-memory state would
+// be re-read fresh) and treats it as a redispatch candidate via the
+// nonTerminalFailureState path. Same shape as the previous restart-safety
+// note — command-idempotent on the device side.
 func (r *Reconciler) dispatchOneCurtail(ctx context.Context, ev *models.Event, t *models.Target, nonTerminalFailureState models.TargetState) {
 	if !r.eventStillDispatchable(ctx, ev) {
 		return
 	}
+	// Stamp DISPATCHING before issuing the command. AdminTerminate's
+	// in-flight gate counts DISPATCHING rows; once this UPDATE commits,
+	// a concurrent terminate must Stop-first instead of sweeping.
+	// last_dispatched_at is intentionally NOT stamped here — that column
+	// records the last *successful* enqueue, used by the restore-batch
+	// interval gate. A filter-skip / empty-batch / dispatch-error attempt
+	// then rolls back via recordDispatchFailure without leaving a
+	// misleading timestamp.
+	dispatchingParams := interfaces.UpdateCurtailmentTargetStateParams{
+		State: models.TargetStateDispatching,
+	}
+	if err := r.store.UpdateTargetState(ctx, ev.ID, t.DeviceIdentifier, dispatchingParams); err != nil {
+		slog.Error("curtailment reconciler: dispatching pre-write failed",
+			"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
+		return
+	}
+	t.State = models.TargetStateDispatching
+
 	selector := &pb.DeviceSelector{
 		SelectionType: &pb.DeviceSelector_IncludeDevices{
 			IncludeDevices: &commonpb.DeviceIdentifierList{
@@ -1023,10 +1051,33 @@ func (r *Reconciler) maybeClaimRestoreBatch(ctx context.Context, ev *models.Even
 // fail just that device. Restart-safety mirrors dispatchOneCurtail —
 // command before state write, Uncurtail is device-idempotent, audit may
 // show duplicate batches.
+//
+// Race-closure: each batch target is flipped to DISPATCHING *before*
+// cmd.Uncurtail so a concurrent AdminTerminate observes them via its
+// in-flight gate and rejects as Stop-first. Same shape as dispatchOneCurtail.
 func (r *Reconciler) dispatchRestoreBatch(ctx context.Context, ev *models.Event, claim []*models.Target) {
 	if !r.eventStillDispatchable(ctx, ev) {
 		return
 	}
+	// Stamp DISPATCHING on every batch target before issuing the bulk
+	// Uncurtail. Any failure here aborts the batch — the next tick will
+	// re-claim and re-dispatch the still-PENDING leftovers, and the
+	// DISPATCHING rows already written are picked up by the same path.
+	// last_dispatched_at is intentionally NOT stamped here (see
+	// dispatchOneCurtail) — it lands only on successful enqueue so
+	// filter-skipped / empty-batch failures don't leave a stale timestamp.
+	for _, t := range claim {
+		dispatchingParams := interfaces.UpdateCurtailmentTargetStateParams{
+			State: models.TargetStateDispatching,
+		}
+		if err := r.store.UpdateTargetState(ctx, ev.ID, t.DeviceIdentifier, dispatchingParams); err != nil {
+			slog.Error("curtailment reconciler: restore dispatching pre-write failed",
+				"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
+			return
+		}
+		t.State = models.TargetStateDispatching
+	}
+
 	deviceIDs := make([]string, 0, len(claim))
 	for _, t := range claim {
 		deviceIDs = append(deviceIDs, t.DeviceIdentifier)

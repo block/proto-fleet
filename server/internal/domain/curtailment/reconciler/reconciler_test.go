@@ -249,6 +249,11 @@ type fakeDispatcher struct {
 	curtailLastActor        session.Actor
 	uncurtailCalls          int
 	uncurtailLastIDs        []string
+	// curtailHook fires synchronously inside Curtail before the result is
+	// returned. Tests use it to inspect store state at the moment the
+	// command-service call happens (e.g., to verify the DISPATCHING
+	// pre-write committed before the command issued).
+	curtailHook func(ids []string)
 }
 
 func (f *fakeDispatcher) Curtail(ctx context.Context, selector *pb.DeviceSelector, _ sdk.CurtailLevel) (*command.CommandResult, error) {
@@ -256,6 +261,9 @@ func (f *fakeDispatcher) Curtail(ctx context.Context, selector *pb.DeviceSelecto
 	f.curtailLastIDs = identifiersFromSelector(selector)
 	if info, err := session.GetInfo(ctx); err == nil {
 		f.curtailLastActor = info.Actor
+	}
+	if f.curtailHook != nil {
+		f.curtailHook(f.curtailLastIDs)
 	}
 	if f.curtailErr != nil {
 		return nil, f.curtailErr
@@ -392,6 +400,46 @@ func TestReconciler_SkipsRemainingCurtailDispatchesWhenEventTerminatesMidLoop(t 
 
 	assert.Equal(t, 1, disp.curtailCalls,
 		"only the first target should dispatch; the rest skip after the event flipped")
+}
+
+// TestReconciler_DispatchingPreWrite_CommitsBeforeCommand pins the
+// race-closure contract for AdminTerminate: dispatchOneCurtail must write
+// the DISPATCHING state to the target row before calling cmd.Curtail, so a
+// concurrent terminate's in-flight-targets gate observes it and rejects
+// as Stop-first.
+func TestReconciler_DispatchingPreWrite_CommitsBeforeCommand(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-1", State: models.TargetStatePending, BaselinePowerW: ptrFloat64(3000)},
+	}
+
+	// Capture the in-store target state at the moment cmd.Curtail is invoked.
+	var stateAtCommandTime models.TargetState
+	disp.curtailHook = func(_ []string) {
+		for _, target := range store.targetsByEventID[eventID] {
+			if target.DeviceIdentifier == "miner-1" {
+				stateAtCommandTime = target.State
+				return
+			}
+		}
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, models.TargetStateDispatching, stateAtCommandTime,
+		"target must be DISPATCHING at the moment cmd.Curtail is called so a concurrent AdminTerminate's in-flight gate observes it")
+	// After the command returns successfully, the target advances to
+	// DISPATCHED — the DISPATCHING window only exists during the command call.
+	require.Len(t, store.targetsByEventID[eventID], 1)
+	assert.Equal(t, models.TargetStateDispatched, store.targetsByEventID[eventID][0].State)
 }
 
 func TestReconciler_SkipsRestoreDispatchWhenEventTerminatesBeforeCommand(t *testing.T) {
