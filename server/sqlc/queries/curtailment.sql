@@ -168,6 +168,20 @@ WHERE org_id = sqlc.arg('org_id')
     AND external_reference = sqlc.arg('external_reference')
 LIMIT 1;
 
+-- name: CurtailmentEventHasInFlightTargets :one
+-- True if any target on the event is currently dispatched, confirmed, or
+-- drifted — i.e., the miner has been told to curtail and admin termination
+-- without a Stop+restore cycle would leave it physically curtailed with
+-- no compensating Uncurtail. Used as the admin-terminate precondition so
+-- PENDING events whose tick already issued some commands route to the
+-- "Stop first" branch alongside ACTIVE.
+SELECT EXISTS (
+    SELECT 1
+    FROM curtailment_target
+    WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
+        AND state IN ('dispatched', 'confirmed', 'drifted')
+) AS has_in_flight;
+
 -- name: AdminTerminateCurtailmentEvent :one
 -- Forces a pending/restoring event to the operator-chosen terminal target_state
 -- (validated CANCELLED or FAILED at the service boundary). Returns zero rows

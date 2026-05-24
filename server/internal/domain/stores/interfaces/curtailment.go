@@ -29,9 +29,12 @@ var ErrCurtailmentUpdateStateRaceLoss = errors.New("curtailment event state adva
 var ErrCurtailmentAdminTerminateStateConflict = errors.New("curtailment event is already terminal in a different state")
 
 // ErrCurtailmentAdminTerminateActiveEvent is returned by AdminTerminateEvent
-// when an event is active. Active events may already have curtailed devices,
-// so callers must stop them first and let restore work enter the queue.
-var ErrCurtailmentAdminTerminateActiveEvent = errors.New("active curtailment event must be stopped before admin termination")
+// when any target on the event has received a Curtail command but not yet
+// been restored — i.e., state ∈ {dispatched, confirmed, drifted}. Covers
+// ACTIVE events (which always have CONFIRMED targets) and PENDING events
+// whose tick already dispatched some commands. Callers must Stop first so
+// compensating Uncurtail commands fire instead of leaving miners curtailed.
+var ErrCurtailmentAdminTerminateActiveEvent = errors.New("curtailment event has in-flight curtail commands; must be stopped before admin termination")
 
 // ErrCurtailmentIdempotencyKeyRaceLoss is returned by InsertEventWithTargets
 // when the partial unique index on (org_id, idempotency_key) rejects the

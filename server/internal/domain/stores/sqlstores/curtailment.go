@@ -341,8 +341,12 @@ func nullInt32FromPtr(p *int32) sql.NullInt32 {
 // the operator's reason as the per-target last_error. Routing:
 //   - already in target_state → idempotent, return the row as-is.
 //   - already in a different terminal state → ErrCurtailmentAdminTerminateStateConflict.
-//   - active → ErrCurtailmentAdminTerminateActiveEvent; Stop must queue restore first.
-//   - pending/restoring → run the transition + target sweep, return the updated row.
+//   - any target dispatched/confirmed/drifted → ErrCurtailmentAdminTerminateActiveEvent;
+//     Stop must queue restore first so compensating Uncurtail commands fire.
+//     Covers ACTIVE events (which always have CONFIRMED targets) AND PENDING
+//     events whose tick already dispatched some Curtail commands.
+//   - otherwise (pending with no dispatched targets, or restoring) → run the
+//     transition + target sweep, return the updated row.
 func (s *SQLCurtailmentStore) AdminTerminateEvent(
 	ctx context.Context,
 	orgID int64,
@@ -366,11 +370,22 @@ func (s *SQLCurtailmentStore) AdminTerminateEvent(
 		if currentState == targetState {
 			return convertEventRow(current), nil
 		}
-		if currentState == models.EventStateActive {
-			return nil, interfaces.ErrCurtailmentAdminTerminateActiveEvent
-		}
 		if currentState.IsTerminal() {
 			return nil, interfaces.ErrCurtailmentAdminTerminateStateConflict
+		}
+
+		// In-flight gate: reject when any target has received a Curtail
+		// command but has not yet been restored. Subsumes the ACTIVE state
+		// check (ACTIVE always has CONFIRMED targets) and additionally
+		// catches PENDING events whose reconciler tick already issued some
+		// commands — terminating those would leave miners curtailed with
+		// no compensating Uncurtail.
+		hasInFlight, err := q.CurtailmentEventHasInFlightTargets(ctx, current.ID)
+		if err != nil {
+			return nil, fleeterror.NewInternalErrorf("failed to check in-flight targets: %v", err)
+		}
+		if hasInFlight {
+			return nil, interfaces.ErrCurtailmentAdminTerminateActiveEvent
 		}
 
 		updated, err := q.AdminTerminateCurtailmentEvent(ctx, sqlc.AdminTerminateCurtailmentEventParams{

@@ -171,6 +171,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.createUserOrganizationStmt, err = db.PrepareContext(ctx, createUserOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateUserOrganization: %w", err)
 	}
+	if q.curtailmentEventHasInFlightTargetsStmt, err = db.PrepareContext(ctx, curtailmentEventHasInFlightTargets); err != nil {
+		return nil, fmt.Errorf("error preparing query CurtailmentEventHasInFlightTargets: %w", err)
+	}
 	if q.deleteExpiredSessionsStmt, err = db.PrepareContext(ctx, deleteExpiredSessions); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteExpiredSessions: %w", err)
 	}
@@ -1250,6 +1253,11 @@ func (q *Queries) Close() error {
 	if q.createUserOrganizationStmt != nil {
 		if cerr := q.createUserOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createUserOrganizationStmt: %w", cerr)
+		}
+	}
+	if q.curtailmentEventHasInFlightTargetsStmt != nil {
+		if cerr := q.curtailmentEventHasInFlightTargetsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing curtailmentEventHasInFlightTargetsStmt: %w", cerr)
 		}
 	}
 	if q.deleteExpiredSessionsStmt != nil {
@@ -2725,6 +2733,7 @@ type Queries struct {
 	createSiteStmt                                      *sql.Stmt
 	createUserStmt                                      *sql.Stmt
 	createUserOrganizationStmt                          *sql.Stmt
+	curtailmentEventHasInFlightTargetsStmt              *sql.Stmt
 	deleteExpiredSessionsStmt                           *sql.Stmt
 	deleteOrganizationStmt                              *sql.Stmt
 	deletePoolStmt                                      *sql.Stmt
@@ -3057,6 +3066,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		createSiteStmt:                                      q.createSiteStmt,
 		createUserStmt:                                      q.createUserStmt,
 		createUserOrganizationStmt:                          q.createUserOrganizationStmt,
+		curtailmentEventHasInFlightTargetsStmt:              q.curtailmentEventHasInFlightTargetsStmt,
 		deleteExpiredSessionsStmt:                           q.deleteExpiredSessionsStmt,
 		deleteOrganizationStmt:                              q.deleteOrganizationStmt,
 		deletePoolStmt:                                      q.deletePoolStmt,

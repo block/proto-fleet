@@ -144,7 +144,7 @@ func TestService_AdminTerminate_ActiveEventRequiresStopFirst(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
-	assert.Contains(t, err.Error(), "must be stopped before admin termination")
+	assert.Contains(t, err.Error(), "in-flight curtail commands")
 }
 
 // TestService_AdminTerminate_PropagatesStoreError: unrelated store errors

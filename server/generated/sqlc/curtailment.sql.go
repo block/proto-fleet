@@ -138,6 +138,28 @@ func (q *Queries) BeginCurtailmentRestoration(ctx context.Context, id int64) (Cu
 	return i, err
 }
 
+const curtailmentEventHasInFlightTargets = `-- name: CurtailmentEventHasInFlightTargets :one
+SELECT EXISTS (
+    SELECT 1
+    FROM curtailment_target
+    WHERE curtailment_event_id = $1
+        AND state IN ('dispatched', 'confirmed', 'drifted')
+) AS has_in_flight
+`
+
+// True if any target on the event is currently dispatched, confirmed, or
+// drifted — i.e., the miner has been told to curtail and admin termination
+// without a Stop+restore cycle would leave it physically curtailed with
+// no compensating Uncurtail. Used as the admin-terminate precondition so
+// PENDING events whose tick already issued some commands route to the
+// "Stop first" branch alongside ACTIVE.
+func (q *Queries) CurtailmentEventHasInFlightTargets(ctx context.Context, curtailmentEventID int64) (bool, error) {
+	row := q.queryRow(ctx, q.curtailmentEventHasInFlightTargetsStmt, curtailmentEventHasInFlightTargets, curtailmentEventID)
+	var has_in_flight bool
+	err := row.Scan(&has_in_flight)
+	return has_in_flight, err
+}
+
 const ensureCurtailmentOrgConfig = `-- name: EnsureCurtailmentOrgConfig :one
 WITH active AS (
     SELECT id

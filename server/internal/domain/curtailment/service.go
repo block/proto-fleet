@@ -451,7 +451,7 @@ func (s *Service) AdminTerminate(ctx context.Context, req AdminTerminateRequest)
 		}
 		if errors.Is(err, interfaces.ErrCurtailmentAdminTerminateActiveEvent) {
 			return nil, fleeterror.NewFailedPreconditionError(
-				"active curtailment event must be stopped before admin termination",
+				"curtailment event has miners with in-flight curtail commands; call StopCurtailment first to issue compensating uncurtail commands before admin termination",
 			)
 		}
 		return nil, err

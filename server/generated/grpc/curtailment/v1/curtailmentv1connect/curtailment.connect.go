@@ -79,7 +79,17 @@ type CurtailmentServiceClient interface {
 	// List historical events with cursor pagination.
 	ListCurtailmentEvents(context.Context, *connect.Request[v1.ListCurtailmentEventsRequest]) (*connect.Response[v1.ListCurtailmentEventsResponse], error)
 	// Admin recovery RPC: force a non-terminal event to a terminal state.
-	// Session-only, Admin role.
+	// Session-only, Admin role. Reason is required (min_len=1, max_len=256).
+	//
+	// FailedPrecondition variants the caller should distinguish:
+	//   - "curtailment event has in-flight curtail commands; ..." — at least
+	//     one target is in DISPATCHED/CONFIRMED/DRIFTED. Covers ACTIVE events
+	//     and PENDING events whose tick already dispatched some commands.
+	//     Call StopCurtailment first so compensating Uncurtail commands
+	//     fire instead of abandoning already-curtailed miners.
+	//   - "curtailment event is already terminal in a different state" — the
+	//     event has already settled in a different terminal state than the
+	//     one the operator requested; not retryable.
 	AdminTerminateEvent(context.Context, *connect.Request[v1.AdminTerminateEventRequest]) (*connect.Response[v1.AdminTerminateEventResponse], error)
 }
 
@@ -199,7 +209,17 @@ type CurtailmentServiceHandler interface {
 	// List historical events with cursor pagination.
 	ListCurtailmentEvents(context.Context, *connect.Request[v1.ListCurtailmentEventsRequest]) (*connect.Response[v1.ListCurtailmentEventsResponse], error)
 	// Admin recovery RPC: force a non-terminal event to a terminal state.
-	// Session-only, Admin role.
+	// Session-only, Admin role. Reason is required (min_len=1, max_len=256).
+	//
+	// FailedPrecondition variants the caller should distinguish:
+	//   - "curtailment event has in-flight curtail commands; ..." — at least
+	//     one target is in DISPATCHED/CONFIRMED/DRIFTED. Covers ACTIVE events
+	//     and PENDING events whose tick already dispatched some commands.
+	//     Call StopCurtailment first so compensating Uncurtail commands
+	//     fire instead of abandoning already-curtailed miners.
+	//   - "curtailment event is already terminal in a different state" — the
+	//     event has already settled in a different terminal state than the
+	//     one the operator requested; not retryable.
 	AdminTerminateEvent(context.Context, *connect.Request[v1.AdminTerminateEventRequest]) (*connect.Response[v1.AdminTerminateEventResponse], error)
 }
 
