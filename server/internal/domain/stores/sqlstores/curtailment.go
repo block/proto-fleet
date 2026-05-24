@@ -166,6 +166,14 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 				case externalReferenceUniqueIndex:
 					return nil, interfaces.ErrCurtailmentExternalReferenceRaceLoss
 				}
+				// Unknown unique constraint on curtailment_event: a future
+				// partial index added without updating this switch would
+				// otherwise exfiltrate its name through %v. Log server-side
+				// so operators see the actual constraint, return a sanitized
+				// AlreadyExists to the caller.
+				slog.Error("curtailment_event insert hit unknown unique constraint",
+					"constraint", pgErr.ConstraintName, "org_id", event.OrgID, "event_uuid", event.EventUUID)
+				return nil, fleeterror.NewAlreadyExistsError("curtailment event already exists")
 			}
 			return nil, fleeterror.NewInternalErrorf("failed to insert curtailment event: %v", err)
 		}
