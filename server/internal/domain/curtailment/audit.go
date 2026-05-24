@@ -38,4 +38,8 @@ const (
 	// Service.AdminTerminate so the privileged force-terminate path
 	// captures actor + reason in the audit feed.
 	ActivityTypeAdminTerminated = "curtailment_admin_terminated"
+	// ActivityTypeUpdated is emitted on a Service.Update call that
+	// actually changes one or more operator-safe fields. Same-value
+	// patches collapse to no-op upstream and do not emit.
+	ActivityTypeUpdated = "curtailment_updated"
 )

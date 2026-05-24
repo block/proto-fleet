@@ -7,6 +7,7 @@ import (
 	"math"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
@@ -357,17 +358,29 @@ func (s *Service) Update(ctx context.Context, req UpdateRequest) (*models.Event,
 		)
 	}
 
-	// Admin gate on max_duration_seconds mirrors Start. Without this,
-	// a non-admin who Started at the org default can Update the same
-	// event above the default, bypassing the privilege boundary Start
-	// enforces. Fetch org config lazily — only on a max_duration write.
-	if req.MaxDurationSeconds != nil && !req.CanUseAdminControls {
+	// Collapse same-value patches to no-op before any gate or DB write.
+	// A patch echoing the persisted value (common when a UI re-submits a
+	// pre-populated form) would otherwise bump updated_at and could trip
+	// the admin gate if the persisted value was admin-elevated. Operators
+	// can already observe the existing value via Get/List — re-submitting
+	// it carries no intent to mutate.
+	patch := effectiveUpdatePatch(event, req)
+	if patch.Reason == nil && patch.RestoreBatchSize == nil &&
+		patch.RestoreBatchIntervalSec == nil && patch.MaxDurationSeconds == nil {
+		return event, nil
+	}
+
+	// Admin gate on max_duration_seconds mirrors Start. Compare against the
+	// effective patch so a no-change echo of an admin-elevated value (from
+	// a non-admin UI re-submission) doesn't trip the gate. Fetch org config
+	// lazily — only on a real max_duration write.
+	if patch.MaxDurationSeconds != nil && !req.CanUseAdminControls {
 		orgConfig, err := s.store.GetOrgConfig(ctx, req.OrgID)
 		if err != nil {
 			return nil, err
 		}
 		if orgConfig.MaxDurationDefaultSec > 0 &&
-			*req.MaxDurationSeconds > orgConfig.MaxDurationDefaultSec {
+			*patch.MaxDurationSeconds > orgConfig.MaxDurationDefaultSec {
 			return nil, fleeterror.NewForbiddenErrorf(
 				"only admins can set max_duration_seconds above org default %d",
 				orgConfig.MaxDurationDefaultSec,
@@ -375,12 +388,7 @@ func (s *Service) Update(ctx context.Context, req UpdateRequest) (*models.Event,
 		}
 	}
 
-	updated, err := s.store.UpdateOperatorFields(ctx, event.ID, req.OrgID, interfaces.UpdateOperatorFieldsParams{
-		Reason:                  req.Reason,
-		RestoreBatchSize:        req.RestoreBatchSize,
-		RestoreBatchIntervalSec: req.RestoreBatchIntervalSec,
-		MaxDurationSeconds:      req.MaxDurationSeconds,
-	})
+	updated, err := s.store.UpdateOperatorFields(ctx, event.ID, req.OrgID, patch)
 	if err != nil {
 		if errors.Is(err, interfaces.ErrCurtailmentUpdateStateRaceLoss) {
 			return nil, fleeterror.NewFailedPreconditionError(
@@ -389,7 +397,39 @@ func (s *Service) Update(ctx context.Context, req UpdateRequest) (*models.Event,
 		}
 		return nil, err
 	}
+	s.emitUpdateAuditTrail(ctx, updated, patch)
 	return updated, nil
+}
+
+// effectiveUpdatePatch drops fields whose patched value matches the persisted
+// value. A SQL UPDATE on identical values still bumps updated_at (the COALESCE
+// preserves the column but the timestamp advances) and a non-admin echo of an
+// admin-elevated max_duration_seconds would trip the admin gate on what is
+// semantically a no-op. Reduce the patch so the SQL UPDATE only writes
+// fields the operator actually changed.
+func effectiveUpdatePatch(event *models.Event, req UpdateRequest) interfaces.UpdateOperatorFieldsParams {
+	patch := interfaces.UpdateOperatorFieldsParams{}
+	if req.Reason != nil && *req.Reason != event.Reason {
+		patch.Reason = req.Reason
+	}
+	if req.RestoreBatchSize != nil && *req.RestoreBatchSize != event.RestoreBatchSize {
+		patch.RestoreBatchSize = req.RestoreBatchSize
+	}
+	if req.RestoreBatchIntervalSec != nil && *req.RestoreBatchIntervalSec != event.RestoreBatchIntervalSec {
+		patch.RestoreBatchIntervalSec = req.RestoreBatchIntervalSec
+	}
+	if req.MaxDurationSeconds != nil {
+		// MaxDurationSeconds is *int32; compare by deref. nil-on-persisted
+		// matches no incoming value (filtered above); we only enter this
+		// branch with req.MaxDurationSeconds non-nil.
+		switch {
+		case event.MaxDurationSeconds == nil:
+			patch.MaxDurationSeconds = req.MaxDurationSeconds
+		case *event.MaxDurationSeconds != *req.MaxDurationSeconds:
+			patch.MaxDurationSeconds = req.MaxDurationSeconds
+		}
+	}
+	return patch
 }
 
 // AdminTerminateRequest is the service-level shape of an
@@ -425,13 +465,15 @@ func (s *Service) AdminTerminate(ctx context.Context, req AdminTerminateRequest)
 	if strings.TrimSpace(req.Reason) == "" {
 		return nil, fleeterror.NewInvalidArgumentError("reason must be set")
 	}
-	// Service-level backstop on reason length. The proto validator caps
-	// the same field at 256; the reason is fanned out into every swept
+	// Service-level backstop on reason length. The proto validator caps the
+	// same field at 256 characters; the reason is fanned out into every swept
 	// target's last_error column, so an unbounded value amplifies into
-	// thousands of rows during the sweep.
-	if len(req.Reason) > startTextFieldMaxLen {
+	// thousands of rows during the sweep. Count runes to match the proto's
+	// rune-based max_len so a 256-character multi-byte string survives the
+	// proto pass and the service backstop consistently.
+	if n := utf8.RuneCountInString(req.Reason); n > startTextFieldMaxLen {
 		return nil, fleeterror.NewInvalidArgumentErrorf(
-			"reason must be at most %d chars, got %d", startTextFieldMaxLen, len(req.Reason),
+			"reason must be at most %d characters, got %d", startTextFieldMaxLen, n,
 		)
 	}
 
@@ -542,6 +584,51 @@ func (s *Service) emitAdminTerminateAuditTrail(ctx context.Context, req AdminTer
 	s.audit.Log(ctx, row)
 }
 
+// emitUpdateAuditTrail records the activity row for a Service.Update call
+// that actually changed one or more operator-safe fields. Same-value patches
+// collapse to no-op upstream and never reach this path. Metadata lists only
+// the fields that changed so a feed reader can see operator intent without
+// diffing against a snapshot.
+func (s *Service) emitUpdateAuditTrail(ctx context.Context, event *models.Event, patch interfaces.UpdateOperatorFieldsParams) {
+	if event == nil {
+		return
+	}
+	changed := make([]string, 0, 4)
+	metadata := map[string]any{
+		"event_uuid": event.EventUUID.String(),
+	}
+	if patch.Reason != nil {
+		changed = append(changed, "reason")
+		metadata["reason"] = *patch.Reason
+	}
+	if patch.RestoreBatchSize != nil {
+		changed = append(changed, "restore_batch_size")
+		metadata["restore_batch_size"] = *patch.RestoreBatchSize
+	}
+	if patch.RestoreBatchIntervalSec != nil {
+		changed = append(changed, "restore_batch_interval_sec")
+		metadata["restore_batch_interval_sec"] = *patch.RestoreBatchIntervalSec
+	}
+	if patch.MaxDurationSeconds != nil {
+		changed = append(changed, "max_duration_seconds")
+		metadata["max_duration_seconds"] = *patch.MaxDurationSeconds
+	}
+	if len(changed) == 0 {
+		return
+	}
+	metadata["fields"] = changed
+	row := activitymodels.Event{
+		Category:    activitymodels.CategoryCurtailment,
+		Type:        ActivityTypeUpdated,
+		Description: "Curtailment event operator fields updated",
+		Result:      activitymodels.ResultSuccess,
+		Metadata:    metadata,
+		ActorType:   activitymodels.ActorUser,
+	}
+	activity.StampActor(ctx, &row)
+	s.audit.Log(ctx, row)
+}
+
 // mapSourceActorTypeToActivity translates the curtailment SourceActorType
 // vocabulary (which has a finer api_key vs user distinction) into the
 // activity-log ActorType vocabulary. Scheduler maps cleanly; api_key and
@@ -632,9 +719,9 @@ func validateUpdateRequest(req UpdateRequest) error {
 			// cleared the field.
 			return fleeterror.NewInvalidArgumentError("reason must be non-empty when set")
 		}
-		if len(v) > startTextFieldMaxLen {
+		if n := utf8.RuneCountInString(v); n > startTextFieldMaxLen {
 			return fleeterror.NewInvalidArgumentErrorf(
-				"reason must be at most %d chars, got %d", startTextFieldMaxLen, len(v),
+				"reason must be at most %d characters, got %d", startTextFieldMaxLen, n,
 			)
 		}
 	}
@@ -824,25 +911,31 @@ func validateStartRequest(req StartRequest) error {
 		// InvalidArgument instead of Internal from the constraint.
 		return fleeterror.NewInvalidArgumentError("reason must be non-empty")
 	}
-	if len(req.Reason) > startTextFieldMaxLen {
+	if n := utf8.RuneCountInString(req.Reason); n > startTextFieldMaxLen {
 		return fleeterror.NewInvalidArgumentErrorf(
-			"reason must be at most %d chars, got %d", startTextFieldMaxLen, len(req.Reason),
+			"reason must be at most %d characters, got %d", startTextFieldMaxLen, n,
 		)
 	}
-	if req.IdempotencyKey != nil && len(*req.IdempotencyKey) > startTextFieldMaxLen {
-		return fleeterror.NewInvalidArgumentErrorf(
-			"idempotency_key must be at most %d chars, got %d", startTextFieldMaxLen, len(*req.IdempotencyKey),
-		)
+	if req.IdempotencyKey != nil {
+		if n := utf8.RuneCountInString(*req.IdempotencyKey); n > startTextFieldMaxLen {
+			return fleeterror.NewInvalidArgumentErrorf(
+				"idempotency_key must be at most %d characters, got %d", startTextFieldMaxLen, n,
+			)
+		}
 	}
-	if req.ExternalSource != nil && len(*req.ExternalSource) > startTextFieldMaxLen {
-		return fleeterror.NewInvalidArgumentErrorf(
-			"external_source must be at most %d chars, got %d", startTextFieldMaxLen, len(*req.ExternalSource),
-		)
+	if req.ExternalSource != nil {
+		if n := utf8.RuneCountInString(*req.ExternalSource); n > startTextFieldMaxLen {
+			return fleeterror.NewInvalidArgumentErrorf(
+				"external_source must be at most %d characters, got %d", startTextFieldMaxLen, n,
+			)
+		}
 	}
-	if req.ExternalReference != nil && len(*req.ExternalReference) > startTextFieldMaxLen {
-		return fleeterror.NewInvalidArgumentErrorf(
-			"external_reference must be at most %d chars, got %d", startTextFieldMaxLen, len(*req.ExternalReference),
-		)
+	if req.ExternalReference != nil {
+		if n := utf8.RuneCountInString(*req.ExternalReference); n > startTextFieldMaxLen {
+			return fleeterror.NewInvalidArgumentErrorf(
+				"external_reference must be at most %d characters, got %d", startTextFieldMaxLen, n,
+			)
+		}
 	}
 	if req.RestoreBatchSize < 0 {
 		return fleeterror.NewInvalidArgumentErrorf(
