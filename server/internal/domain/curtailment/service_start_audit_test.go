@@ -60,10 +60,69 @@ func TestService_Start_EmitsBaseAuditRowOnSuccess(t *testing.T) {
 	assert.Equal(t, ActivityTypeStarted, events[0].Type)
 	assert.Equal(t, activitymodels.CategoryCurtailment, events[0].Category)
 	assert.Equal(t, activitymodels.ResultSuccess, events[0].Result)
+	assert.Equal(t, activitymodels.ActorUser, events[0].ActorType,
+		"default SourceActorUser must map to ActorUser")
 	require.NotNil(t, events[0].Metadata)
 	assert.Equal(t, plan.EventUUID.String(), events[0].Metadata["event_uuid"])
 	assert.Equal(t, false, events[0].Metadata["allow_unbounded"])
 	assert.Equal(t, false, events[0].Metadata["force_include_maintenance"])
+}
+
+// TestService_Start_MapsSchedulerActorType: a Start initiated by the
+// internal scheduler (SourceActorType=scheduler) records ActorScheduler on
+// the audit row, distinguishing automated runs from operator actions in the
+// audit feed.
+func TestService_Start_MapsSchedulerActorType(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(42)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("worst", 3000, 100, 50),
+	}
+	audit := &recordingAuditLogger{}
+	svc := NewService(store, WithAuditLogger(audit))
+
+	req := validStartRequest(orgID)
+	req.TargetKW = 2
+	req.SourceActorType = models.SourceActorScheduler
+
+	_, err := svc.Start(t.Context(), req)
+	require.NoError(t, err)
+
+	events := audit.snapshot()
+	require.Len(t, events, 1)
+	assert.Equal(t, activitymodels.ActorScheduler, events[0].ActorType,
+		"SourceActorScheduler must map to ActorScheduler")
+}
+
+// TestService_Start_CoercesAPIKeyActorTypeToUser: SourceActorAPIKey is the
+// curtailment-vocabulary distinction between session-token and API-key
+// callers; the activity_log doesn't yet model an api_key actor, so the
+// audit row uses ActorUser. Pinning this so a future ActorAPIKey addition
+// can't silently keep the legacy mapping.
+func TestService_Start_CoercesAPIKeyActorTypeToUser(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(42)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("worst", 3000, 100, 50),
+	}
+	audit := &recordingAuditLogger{}
+	svc := NewService(store, WithAuditLogger(audit))
+
+	req := validStartRequest(orgID)
+	req.TargetKW = 2
+	req.SourceActorType = models.SourceActorAPIKey
+
+	_, err := svc.Start(t.Context(), req)
+	require.NoError(t, err)
+
+	events := audit.snapshot()
+	require.Len(t, events, 1)
+	assert.Equal(t, activitymodels.ActorUser, events[0].ActorType,
+		"SourceActorAPIKey currently coerces to ActorUser pending an ActorAPIKey activity type")
 }
 
 // TestService_Start_EmitsUnboundedAuditRowWhenAllowUnbounded: a Start

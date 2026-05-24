@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
 // TestService_Start_IdempotencyKeyReplayReturnsExistingEvent: a re-issued
@@ -221,3 +223,133 @@ func TestService_Start_PartialExternalReferenceFieldsSkipLookup(t *testing.T) {
 }
 
 func strPtr(s string) *string { return &s }
+
+// TestService_Start_IdempotencyKeyRaceLoserReplays: two concurrent first-time
+// Starts share an idempotency_key, both miss the pre-insert lookup, both
+// attempt InsertEventWithTargets. The loser's INSERT trips the partial
+// unique index → store maps to ErrCurtailmentIdempotencyKeyRaceLoss → service
+// retries lookupIdempotentReplay and returns the winner's persisted event.
+// Pins the race-loser contract; without this test, a regression returning
+// AlreadyExists to webhook retries would go undetected.
+func TestService_Start_IdempotencyKeyRaceLoserReplays(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(42)
+	winnerUUID := uuid.New()
+	winnerMaxDur := int32(3600)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("worst", 3000, 100, 50),
+	}
+	// First lookup miss → insert attempted → race-loss sentinel → second
+	// lookup (post-race) sees the winner's row and replays.
+	store.insertEventErr = interfaces.ErrCurtailmentIdempotencyKeyRaceLoss
+	store.eventsByIdempotencyKeyOnRetry = map[string]*models.Event{
+		"shared-key": {
+			ID:                      99,
+			EventUUID:               winnerUUID,
+			OrgID:                   orgID,
+			State:                   models.EventStatePending,
+			Mode:                    models.ModeFixedKw,
+			Strategy:                models.StrategyLeastEfficientFirst,
+			Level:                   models.LevelFull,
+			Priority:                models.PriorityNormal,
+			RestoreBatchSize:        10,
+			RestoreBatchIntervalSec: 120,
+			MaxDurationSeconds:      &winnerMaxDur,
+		},
+	}
+	svc := NewService(store)
+
+	req := validStartRequest(orgID)
+	req.TargetKW = 2
+	key := "shared-key"
+	req.IdempotencyKey = &key
+
+	plan, err := svc.Start(t.Context(), req)
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+	require.NotNil(t, plan.EventUUID)
+	assert.Equal(t, winnerUUID, *plan.EventUUID, "race-loser must replay the winner's event")
+	require.NotNil(t, plan.ReplayEvent)
+	assert.Equal(t, models.EventStatePending, plan.ReplayEvent.State)
+	assert.Equal(t, 1, store.insertEventCalls, "loser issues exactly one Insert attempt")
+	assert.Equal(t, 2, store.getByIdempotencyKeyCalls, "lookup runs twice: pre-insert miss + post-race retry")
+}
+
+// TestService_Start_ExternalReferenceRaceLoserReplays: same race-loser
+// contract as the idempotency_key path, but the constraint that fires is the
+// (org_id, external_source, external_reference) partial unique index. Verify
+// the loser falls into the same replay branch rather than surfacing
+// AlreadyExists.
+func TestService_Start_ExternalReferenceRaceLoserReplays(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(42)
+	winnerUUID := uuid.New()
+	winnerMaxDur := int32(3600)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("worst", 3000, 100, 50),
+	}
+	store.insertEventErr = interfaces.ErrCurtailmentExternalReferenceRaceLoss
+	store.eventsByExternalRefOnRetry = map[string]*models.Event{
+		"opensearch|alert-7": {
+			ID:                      77,
+			EventUUID:               winnerUUID,
+			OrgID:                   orgID,
+			State:                   models.EventStatePending,
+			Mode:                    models.ModeFixedKw,
+			Strategy:                models.StrategyLeastEfficientFirst,
+			Level:                   models.LevelFull,
+			Priority:                models.PriorityNormal,
+			RestoreBatchSize:        10,
+			RestoreBatchIntervalSec: 120,
+			MaxDurationSeconds:      &winnerMaxDur,
+		},
+	}
+	svc := NewService(store)
+
+	req := validStartRequest(orgID)
+	req.TargetKW = 2
+	src := "opensearch"
+	ref := "alert-7"
+	req.ExternalSource = &src
+	req.ExternalReference = &ref
+
+	plan, err := svc.Start(t.Context(), req)
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+	require.NotNil(t, plan.EventUUID)
+	assert.Equal(t, winnerUUID, *plan.EventUUID, "race-loser must replay the winner's event")
+	assert.Equal(t, 1, store.insertEventCalls)
+	assert.Equal(t, 2, store.getByExternalRefCalls, "lookup runs twice: pre-insert miss + post-race retry")
+}
+
+// TestService_Start_RaceLoserPostRetryMissSurfacesAlreadyExists: the
+// race-loser's retry lookup *can* legitimately return nil if the winning
+// transaction rolled back between the unique-violation observation and the
+// retry. The loser must then surface AlreadyExists rather than treat the
+// 23505 as a generic error.
+func TestService_Start_RaceLoserPostRetryMissSurfacesAlreadyExists(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(42)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("worst", 3000, 100, 50),
+	}
+	store.insertEventErr = interfaces.ErrCurtailmentIdempotencyKeyRaceLoss
+	// No entry under eventsByIdempotencyKeyOnRetry → retry lookup misses.
+	svc := NewService(store)
+
+	req := validStartRequest(orgID)
+	req.TargetKW = 2
+	key := "shared-key"
+	req.IdempotencyKey = &key
+
+	_, err := svc.Start(t.Context(), req)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsAlreadyExistsError(err),
+		"race-loser with no retry-visible winner surfaces AlreadyExists")
+}

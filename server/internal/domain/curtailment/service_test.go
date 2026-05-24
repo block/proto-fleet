@@ -91,15 +91,21 @@ type fakeStore struct {
 	// Idempotent replay fakes. eventsByIdempotencyKey / eventsByExternalRef
 	// drive Service.Start's pre-insert webhook-replay lookup; nil results
 	// signal "no prior match". get*Calls / last* let tests pin the args.
-	eventsByIdempotencyKey     map[string]*models.Event
-	eventsByExternalRef        map[string]*models.Event
-	getByIdempotencyKeyCalls   int
-	lastGetByIdempotencyKey    string
-	getByExternalRefCalls      int
-	lastGetByExternalRefSource string
-	lastGetByExternalRefRef    string
-	getByIdempotencyKeyErr     error
-	getByExternalRefErr        error
+	eventsByIdempotencyKey map[string]*models.Event
+	eventsByExternalRef    map[string]*models.Event
+	// *OnRetry: the value returned by the second (post-race-loss) lookup;
+	// the primary map covers the initial pre-insert lookup. Race-loser tests
+	// use these to verify the replay branch sees the winner's row even when
+	// the first lookup missed.
+	eventsByIdempotencyKeyOnRetry map[string]*models.Event
+	eventsByExternalRefOnRetry    map[string]*models.Event
+	getByIdempotencyKeyCalls      int
+	lastGetByIdempotencyKey       string
+	getByExternalRefCalls         int
+	lastGetByExternalRefSource    string
+	lastGetByExternalRefRef       string
+	getByIdempotencyKeyErr        error
+	getByExternalRefErr           error
 }
 
 func newFakeStore() *fakeStore {
@@ -201,6 +207,11 @@ func (f *fakeStore) GetEventByIdempotencyKey(_ context.Context, _ int64, idempot
 	if f.getByIdempotencyKeyErr != nil {
 		return nil, f.getByIdempotencyKeyErr
 	}
+	// Race-loser retry: after an InsertEventWithTargets attempt has fired,
+	// the second lookup may see a row the first one missed.
+	if f.insertEventCalls > 0 && f.eventsByIdempotencyKeyOnRetry != nil {
+		return f.eventsByIdempotencyKeyOnRetry[idempotencyKey], nil
+	}
 	if f.eventsByIdempotencyKey == nil {
 		return nil, nil
 	}
@@ -213,6 +224,9 @@ func (f *fakeStore) GetEventByExternalReference(_ context.Context, _ int64, exte
 	f.lastGetByExternalRefRef = externalReference
 	if f.getByExternalRefErr != nil {
 		return nil, f.getByExternalRefErr
+	}
+	if f.insertEventCalls > 0 && f.eventsByExternalRefOnRetry != nil {
+		return f.eventsByExternalRefOnRetry[externalSource+"|"+externalReference], nil
 	}
 	if f.eventsByExternalRef == nil {
 		return nil, nil

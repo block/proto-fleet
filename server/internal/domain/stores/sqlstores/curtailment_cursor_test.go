@@ -97,3 +97,42 @@ func TestCurtailmentEventCursor_EmptyDecodesToNil(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, decoded)
 }
+
+// TestCurtailmentEventCursor_BindingFieldsRoundTrip: ListEvents compares
+// (cursor.OrgID, cursor.StateFilter) against the current request's params
+// and rejects mismatches as InvalidArgument. The guard relies on the codec
+// preserving both fields verbatim — exercise the round-trip across the
+// query-shapes ListEvents actually sees so a serialization regression on
+// either side trips this test loudly.
+func TestCurtailmentEventCursor_BindingFieldsRoundTrip(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name        string
+		orgID       int64
+		stateFilter models.EventState
+	}{
+		{"orgA-no-filter", 42, ""},
+		{"orgA-active", 42, models.EventStateActive},
+		{"orgA-pending", 42, models.EventStatePending},
+		{"orgA-completed", 42, models.EventStateCompleted},
+		{"orgB-active", 99, models.EventStateActive},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			encoded := encodeCurtailmentEventCursor(&curtailmentEventCursor{
+				ID:          1234,
+				OrgID:       tc.orgID,
+				StateFilter: tc.stateFilter,
+			})
+			require.NotEmpty(t, encoded)
+
+			decoded, err := decodeCurtailmentEventCursor(encoded)
+			require.NoError(t, err)
+			require.NotNil(t, decoded)
+			assert.Equal(t, tc.orgID, decoded.OrgID,
+				"OrgID must round-trip — ListEvents rejects cross-org tokens by comparing this field")
+			assert.Equal(t, tc.stateFilter, decoded.StateFilter,
+				"StateFilter must round-trip — ListEvents rejects cross-filter tokens by comparing this field")
+		})
+	}
+}
