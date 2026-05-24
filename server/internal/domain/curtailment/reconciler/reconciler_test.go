@@ -41,11 +41,12 @@ type fakeStore struct {
 	getEventByUUIDHook  func(uuid.UUID, int)
 	getEventByUUIDCalls int
 
-	updateEventCalls     int
-	updateEventLast      map[int64]models.EventState
-	updateTargetCalls    int
-	updateTargetParams   map[string]interfaces.UpdateCurtailmentTargetStateParams
-	updateTargetStateErr error
+	updateEventCalls      int
+	updateEventLast       map[int64]models.EventState
+	updateTargetCalls     int
+	updateTargetParams    map[string]interfaces.UpdateCurtailmentTargetStateParams
+	updateTargetStateErr  error
+	updateTargetStateHook func(device string, params interfaces.UpdateCurtailmentTargetStateParams, call int) error
 
 	listTargetsByEventCalls int
 
@@ -182,6 +183,14 @@ func (f *fakeStore) UpdateEventState(_ context.Context, eventID int64, state mod
 func (f *fakeStore) UpdateTargetState(_ context.Context, eventID int64, deviceIdentifier string, params interfaces.UpdateCurtailmentTargetStateParams) error {
 	f.updateTargetCalls++
 	f.updateTargetParams[deviceIdentifier] = params
+	// updateTargetStateHook lets a test reject specific writes (e.g.
+	// simulate the EXISTS guard's race-loss sentinel firing on the Nth
+	// call) without globally poisoning the fake.
+	if f.updateTargetStateHook != nil {
+		if err := f.updateTargetStateHook(deviceIdentifier, params, f.updateTargetCalls); err != nil {
+			return err
+		}
+	}
 	// updateTargetStateErr lets tests inject the race-loss sentinel or other
 	// errors without going through the in-memory state machine. When set,
 	// the mirror is not advanced — matches the sqlstore contract.
@@ -267,6 +276,8 @@ type fakeDispatcher struct {
 	// command-service call happens (e.g., to verify the DISPATCHING
 	// pre-write committed before the command issued).
 	curtailHook func(ids []string)
+	// uncurtailHook mirrors curtailHook for the restore path.
+	uncurtailHook func(ids []string)
 }
 
 func (f *fakeDispatcher) Curtail(ctx context.Context, selector *pb.DeviceSelector, _ sdk.CurtailLevel) (*command.CommandResult, error) {
@@ -290,6 +301,9 @@ func (f *fakeDispatcher) Curtail(ctx context.Context, selector *pb.DeviceSelecto
 func (f *fakeDispatcher) Uncurtail(_ context.Context, selector *pb.DeviceSelector) (*command.CommandResult, error) {
 	f.uncurtailCalls++
 	f.uncurtailLastIDs = identifiersFromSelector(selector)
+	if f.uncurtailHook != nil {
+		f.uncurtailHook(f.uncurtailLastIDs)
+	}
 	if f.uncurtailErr != nil {
 		return nil, f.uncurtailErr
 	}
@@ -382,9 +396,12 @@ func TestReconciler_SkipsCurtailDispatchWhenEventTerminatesBeforeCommand(t *test
 }
 
 // TestReconciler_SkipsRemainingCurtailDispatchesWhenEventTerminatesMidLoop
-// pins the per-target liveness gate: even after a tick has begun
-// dispatching, a concurrent AdminTerminate that lands between target N and
-// target N+1 must stop the loop from issuing further Curtail commands.
+// pins the race-closure on the DISPATCHING pre-command write: even after a
+// tick has begun dispatching, a concurrent AdminTerminate that lands between
+// target N and target N+1 must stop the loop from issuing further Curtail
+// commands. The EXISTS guard on UpdateCurtailmentTargetState is the
+// load-bearing safety mechanism — the per-event liveness check at the top
+// of the tick narrows the window but the guard is what catches the race.
 func TestReconciler_SkipsRemainingCurtailDispatchesWhenEventTerminatesMidLoop(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
@@ -399,13 +416,16 @@ func TestReconciler_SkipsRemainingCurtailDispatchesWhenEventTerminatesMidLoop(t 
 		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-2", State: models.TargetStatePending, BaselinePowerW: ptrFloat64(3000)},
 		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-3", State: models.TargetStatePending, BaselinePowerW: ptrFloat64(3000)},
 	}
-	// First per-target liveness call sees PENDING; the hook flips to
-	// CANCELLED before the second call's lookup runs so target 1 dispatches
-	// and targets 2 + 3 skip. Pins the per-dispatch gate's race-window fix.
-	store.getEventByUUIDHook = func(_ uuid.UUID, call int) {
-		if call == 2 {
-			store.events[0].State = models.EventStateCancelled
+	// Target 1's DISPATCHING pre-write (call 1) succeeds; the hook returns
+	// the race-loss sentinel on the post-command DISPATCHED write (call 2)
+	// and every subsequent DISPATCHING pre-write thereafter, simulating an
+	// AdminTerminate that committed mid-loop. Only target 1's Curtail can
+	// fire — its DISPATCHING write landed before the race.
+	store.updateTargetStateHook = func(_ string, _ interfaces.UpdateCurtailmentTargetStateParams, call int) error {
+		if call >= 2 {
+			return interfaces.ErrCurtailmentEventStateRaceLoss
 		}
+		return nil
 	}
 
 	r := newReconcilerForTest(store, disp)
@@ -522,6 +542,12 @@ func TestReconciler_RecoversOrphanedDispatchingTarget(t *testing.T) {
 // curtail-path orphan recovery for the restore path: a target left in
 // DISPATCHING with DesiredState=Active is from an interrupted restore
 // tick and must be redispatched via Uncurtail.
+//
+// uncurtailHook captures target state at the moment Uncurtail is called so
+// we can verify the DISPATCHING pre-write has committed before the command
+// issues — the load-bearing race-closure for AdminTerminate's in-flight
+// gate. Without this assertion, a regression that calls Uncurtail before
+// stamping DISPATCHING would still pass the call-count check.
 func TestReconciler_RecoversOrphanedDispatchingRestoreTarget(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
@@ -540,12 +566,18 @@ func TestReconciler_RecoversOrphanedDispatchingRestoreTarget(t *testing.T) {
 			BaselinePowerW:     ptrFloat64(3000),
 		},
 	}
+	var stateAtUncurtail models.TargetState
+	disp.uncurtailHook = func(_ []string) {
+		stateAtUncurtail = store.targetsByEventID[eventID][0].State
+	}
 
 	r := newReconcilerForTest(store, disp)
 	r.runTick(context.Background())
 
 	assert.Equal(t, 1, disp.uncurtailCalls,
 		"orphaned DISPATCHING restore target must be redispatched via Uncurtail")
+	assert.Equal(t, models.TargetStateDispatching, stateAtUncurtail,
+		"target must be re-stamped DISPATCHING before Uncurtail fires so AdminTerminate's in-flight gate sees the row")
 	require.Len(t, store.targetsByEventID[eventID], 1)
 	assert.Equal(t, models.TargetStateDispatched, store.targetsByEventID[eventID][0].State)
 }

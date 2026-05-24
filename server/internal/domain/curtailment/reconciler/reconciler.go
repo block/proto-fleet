@@ -311,14 +311,18 @@ func (r *Reconciler) dispatchPending(ctx context.Context, ev *models.Event) {
 		return
 	}
 
-	// Per-target liveness gating happens inside dispatchOneCurtail so a
-	// concurrent AdminTerminate cannot leak commands across the loop.
-	// DISPATCHING targets are picked up alongside PENDING: a target left
-	// in DISPATCHING is by definition from a prior interrupted tick
-	// (crash / panic / context cancel between the DISPATCHING pre-write
-	// and the post-command DISPATCHED write). Ticks are serial, so any
-	// DISPATCHING seen at the top of dispatchPending is orphaned and
-	// redispatch is the recovery — Curtail is device-idempotent.
+	// One liveness read per tick: a concurrent AdminTerminate that lands
+	// after this check is closed by the DISPATCHING pre-command write's
+	// EXISTS guard, which fails the per-target UPDATE before any command
+	// fires. DISPATCHING targets are picked up alongside PENDING: a
+	// target left in DISPATCHING is by definition from a prior interrupted
+	// tick (crash / panic / context cancel between the DISPATCHING
+	// pre-write and the post-command DISPATCHED write). Ticks are serial,
+	// so any DISPATCHING seen at the top of dispatchPending is orphaned
+	// and redispatch is the recovery — Curtail is device-idempotent.
+	if !r.eventStillDispatchable(ctx, ev) {
+		return
+	}
 	cmdCtx := reconcilerContext(ctx, ev.OrgID, ev.CreatedByUserID)
 	for _, t := range targets {
 		if t.State != models.TargetStatePending && t.State != models.TargetStateDispatching {
@@ -367,17 +371,16 @@ func (r *Reconciler) confirmDispatched(ctx context.Context, ev *models.Event, ta
 // results route through recordDispatchFailure so work isn't silently
 // dropped.
 //
-// Re-reads event liveness before issuing the command so a concurrent
-// AdminTerminate that committed after the caller's per-tick check
-// cannot leak Curtail commands for the remaining targets in the loop.
-// One DB read per target is acceptable; AdminTerminate is rare.
-//
 // Race-closure: DISPATCHING is written *before* cmd.Curtail so a
 // concurrent AdminTerminate observes the row via its
 // CurtailmentEventHasInFlightTargets gate and rejects as Stop-first.
-// This eliminates the residual race where Curtail commands fired
-// between the in-flight-gate read and the sweep commit would leave
-// miners curtailed with no compensating Uncurtail.
+// The DISPATCHING UPDATE itself carries an EXISTS guard on the parent
+// event's non-terminal state, so a terminate committed between the
+// per-tick liveness check and this write is caught here (the write
+// fails with ErrCurtailmentEventStateRaceLoss and no command fires).
+// Together these eliminate the residual race where Curtail commands
+// fired between the in-flight-gate read and the sweep commit would
+// leave miners curtailed with no compensating Uncurtail.
 //
 // Restart-safety: a crash between the DISPATCHING write and cmd.Curtail
 // leaves the target stranded in DISPATCHING; the next tick observes it
@@ -386,9 +389,6 @@ func (r *Reconciler) confirmDispatched(ctx context.Context, ev *models.Event, ta
 // nonTerminalFailureState path. Same shape as the previous restart-safety
 // note — command-idempotent on the device side.
 func (r *Reconciler) dispatchOneCurtail(ctx context.Context, ev *models.Event, t *models.Target, nonTerminalFailureState models.TargetState) {
-	if !r.eventStillDispatchable(ctx, ev) {
-		return
-	}
 	// Stamp DISPATCHING before issuing the command. AdminTerminate's
 	// in-flight gate counts DISPATCHING rows; once this UPDATE commits,
 	// a concurrent terminate must Stop-first instead of sweeping.
@@ -562,6 +562,9 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 	}
 	candByID := candidatesByDeviceID(cands)
 
+	if !r.eventStillDispatchable(ctx, ev) {
+		return
+	}
 	cmdCtx := reconcilerContext(ctx, ev.OrgID, ev.CreatedByUserID)
 	for _, t := range targets {
 		switch t.State {
@@ -570,6 +573,17 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 		case models.TargetStateDispatched:
 			// Re-entry: drifted-then-redispatched, waiting on confirmation.
 			r.confirmOneDispatched(cmdCtx, ev, t, candByID[t.DeviceIdentifier], models.TargetStateDispatched)
+		case models.TargetStateDispatching:
+			// Orphaned from a prior interrupted tick (crash / panic /
+			// context cancel between the DISPATCHING pre-write and the
+			// post-command DISPATCHED write). Ticks are serial so there
+			// is no in-flight peer to defer to. Redispatch — Curtail is
+			// device-idempotent. The DISPATCHING pre-write's EXISTS
+			// guard re-asserts event liveness during the write.
+			if t.RetryCount >= r.cfg.MaxRetries {
+				continue
+			}
+			r.dispatchOneCurtail(cmdCtx, ev, t, models.TargetStateDispatching)
 		case models.TargetStateDrifted:
 			// Re-dispatch unless the budget is exhausted. The `>= MaxRetries`
 			// check is a backstop: recordDispatchFailure routes
@@ -580,11 +594,9 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 				continue
 			}
 			r.dispatchOneCurtail(cmdCtx, ev, t, models.TargetStateDrifted)
-		case models.TargetStateDispatching, models.TargetStatePending,
+		case models.TargetStatePending,
 			models.TargetStateResolved, models.TargetStateReleased,
 			models.TargetStateRestoreFailed:
-			// Dispatching: brief mid-call window; let the in-flight tick
-			// complete its own DISPATCHED transition rather than re-entering.
 			// Pending: shouldn't appear on active. Resolved/Released/RestoreFailed: terminal, restorer owns.
 		}
 	}
@@ -1113,28 +1125,35 @@ func (r *Reconciler) dispatchRestoreBatch(ctx context.Context, ev *models.Event,
 		return
 	}
 	// Stamp DISPATCHING on every batch target before issuing the bulk
-	// Uncurtail. Any failure here aborts the batch — the next tick will
-	// re-claim and re-dispatch the still-PENDING leftovers, and the
-	// DISPATCHING rows already written are picked up by the same path.
+	// Uncurtail. A race-loss aborts the whole batch — the event is no
+	// longer dispatchable, so no Uncurtail should fire. Other write
+	// failures drop just that target from this tick's dispatch set; the
+	// next tick re-claims it via the DISPATCHING/PENDING orphan path.
 	// last_dispatched_at is intentionally NOT stamped here (see
 	// dispatchOneCurtail) — it lands only on successful enqueue so
 	// filter-skipped / empty-batch failures don't leave a stale timestamp.
+	dispatchSet := make([]*models.Target, 0, len(claim))
 	for _, t := range claim {
 		dispatchingParams := interfaces.UpdateCurtailmentTargetStateParams{
 			State: models.TargetStateDispatching,
 		}
 		if err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, dispatchingParams); err != nil {
-			if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
-				slog.Error("curtailment reconciler: restore dispatching pre-write failed",
-					"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
+			if errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
+				return
 			}
-			return
+			slog.Error("curtailment reconciler: restore dispatching pre-write failed",
+				"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
+			continue
 		}
 		t.State = models.TargetStateDispatching
+		dispatchSet = append(dispatchSet, t)
+	}
+	if len(dispatchSet) == 0 {
+		return
 	}
 
-	deviceIDs := make([]string, 0, len(claim))
-	for _, t := range claim {
+	deviceIDs := make([]string, 0, len(dispatchSet))
+	for _, t := range dispatchSet {
 		deviceIDs = append(deviceIDs, t.DeviceIdentifier)
 	}
 	cmdCtx := reconcilerContext(ctx, ev.OrgID, ev.CreatedByUserID)
@@ -1149,8 +1168,8 @@ func (r *Reconciler) dispatchRestoreBatch(ctx context.Context, ev *models.Event,
 	if dispatchErr != nil {
 		errMsg := dispatchErr.Error()
 		slog.Error("curtailment reconciler: restore batch dispatch failed",
-			"event_id", ev.ID, "batch_size", len(claim), "error", dispatchErr)
-		for _, t := range claim {
+			"event_id", ev.ID, "batch_size", len(dispatchSet), "error", dispatchErr)
+		for _, t := range dispatchSet {
 			r.recordDispatchFailure(ctx, ev, t, errMsg, models.TargetStatePending)
 		}
 		return
@@ -1162,8 +1181,8 @@ func (r *Reconciler) dispatchRestoreBatch(ctx context.Context, ev *models.Event,
 	if result == nil || result.BatchIdentifier == "" {
 		const reason = "uncurtail command produced no batch (no live devices to dispatch)"
 		slog.Warn("curtailment reconciler: restore batch produced empty result",
-			"event_id", ev.ID, "batch_size", len(claim))
-		for _, t := range claim {
+			"event_id", ev.ID, "batch_size", len(dispatchSet))
+		for _, t := range dispatchSet {
 			r.recordDispatchFailure(ctx, ev, t, reason, models.TargetStatePending)
 		}
 		return
@@ -1180,7 +1199,7 @@ func (r *Reconciler) dispatchRestoreBatch(ctx context.Context, ev *models.Event,
 
 	now := r.now()
 	batchID := result.BatchIdentifier
-	for _, t := range claim {
+	for _, t := range dispatchSet {
 		if reason, skipped := skippedSet[t.DeviceIdentifier]; skipped {
 			slog.Warn("curtailment reconciler: restore device filter-skipped",
 				"event_id", ev.ID, "device", t.DeviceIdentifier, "reason", reason)
