@@ -394,9 +394,11 @@ func (r *Reconciler) dispatchOneCurtail(ctx context.Context, ev *models.Event, t
 	dispatchingParams := interfaces.UpdateCurtailmentTargetStateParams{
 		State: models.TargetStateDispatching,
 	}
-	if err := r.store.UpdateTargetState(ctx, ev.ID, t.DeviceIdentifier, dispatchingParams); err != nil {
-		slog.Error("curtailment reconciler: dispatching pre-write failed",
-			"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
+	if err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, dispatchingParams); err != nil {
+		if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
+			slog.Error("curtailment reconciler: dispatching pre-write failed",
+				"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
+		}
 		return
 	}
 	t.State = models.TargetStateDispatching
@@ -441,9 +443,11 @@ func (r *Reconciler) dispatchOneCurtail(ctx context.Context, ev *models.Event, t
 		LastError:        &emptyErr,
 		LastBatchUUID:    &batchID,
 	}
-	if err := r.store.UpdateTargetState(ctx, ev.ID, t.DeviceIdentifier, params); err != nil {
-		slog.Error("curtailment reconciler: target dispatch update failed",
-			"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
+	if err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, params); err != nil {
+		if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
+			slog.Error("curtailment reconciler: target dispatch update failed",
+				"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
+		}
 		return
 	}
 	// Mirror to the in-memory row so this tick's downstream phases see it.
@@ -467,9 +471,11 @@ func (r *Reconciler) recordDispatchFailure(ctx context.Context, ev *models.Event
 		LastError:  &errMsg,
 		RetryCount: &newRetry,
 	}
-	if err := r.store.UpdateTargetState(ctx, ev.ID, t.DeviceIdentifier, params); err != nil {
-		slog.Error("curtailment reconciler: target update after dispatch failure failed",
-			"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
+	if err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, params); err != nil {
+		if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
+			slog.Error("curtailment reconciler: target update after dispatch failure failed",
+				"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
+		}
 		return
 	}
 	// Mirror to in-memory row for the rest of this tick.
@@ -600,9 +606,11 @@ func (r *Reconciler) confirmOneDispatched(ctx context.Context, ev *models.Event,
 		power := *c.LatestPowerW
 		params.ObservedPowerW = &power
 	}
-	if err := r.store.UpdateTargetState(ctx, ev.ID, t.DeviceIdentifier, params); err != nil {
-		slog.Error("curtailment reconciler: target confirm update failed",
-			"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
+	if err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, params); err != nil {
+		if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
+			slog.Error("curtailment reconciler: target confirm update failed",
+				"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
+		}
 		return
 	}
 	t.State = models.TargetStateConfirmed
@@ -632,9 +640,11 @@ func (r *Reconciler) checkDrift(ctx context.Context, ev *models.Event, t *models
 			power := *c.LatestPowerW
 			params.ObservedPowerW = &power
 		}
-		if err := r.store.UpdateTargetState(ctx, ev.ID, t.DeviceIdentifier, params); err != nil {
-			slog.Error("curtailment reconciler: target drift update failed",
-				"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
+		if err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, params); err != nil {
+			if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
+				slog.Error("curtailment reconciler: target drift update failed",
+					"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
+			}
 			return
 		}
 		t.State = models.TargetStateDrifted
@@ -659,9 +669,11 @@ func (r *Reconciler) checkDrift(ctx context.Context, ev *models.Event, t *models
 		power := *c.LatestPowerW
 		params.ObservedPowerW = &power
 	}
-	if err := r.store.UpdateTargetState(ctx, ev.ID, t.DeviceIdentifier, params); err != nil {
-		slog.Error("curtailment reconciler: target observe update failed",
-			"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
+	if err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, params); err != nil {
+		if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
+			slog.Error("curtailment reconciler: target observe update failed",
+				"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
+		}
 		return
 	}
 	t.ObservedAt = &now
@@ -729,6 +741,25 @@ func (r *Reconciler) logEventStateUpdateError(ev *models.Event, transition strin
 	}
 	slog.Error("curtailment reconciler: "+transition+" transition failed",
 		"event_id", ev.ID, "error", err)
+}
+
+// writeTargetState wraps store.UpdateTargetState so every reconciler write
+// site routes the race-loss sentinel through the same observability bucket
+// as event-state writes (logEventStateUpdateError). The store's EXISTS
+// guard silently no-ops when the parent event went terminal mid-tick; the
+// sentinel surfaces that signal so callers know not to advance the
+// in-memory mirror. Other errors are returned for caller-specific logging.
+func (r *Reconciler) writeTargetState(ctx context.Context, ev *models.Event, deviceID string, params interfaces.UpdateCurtailmentTargetStateParams) error {
+	err := r.store.UpdateTargetState(ctx, ev.ID, deviceID, params)
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
+		r.metrics.IncEventStateRaceLoss()
+		slog.Warn("curtailment reconciler: target state advanced concurrently; skipping update",
+			"event_id", ev.ID, "event_uuid", ev.EventUUID, "device", deviceID)
+	}
+	return err
 }
 
 // reconcilerContext stamps synthetic session.Info on the dispatch ctx.
@@ -925,9 +956,11 @@ func (r *Reconciler) confirmOneRestore(ctx context.Context, ev *models.Event, t 
 		power := *c.LatestPowerW
 		params.ObservedPowerW = &power
 	}
-	if err := r.store.UpdateTargetState(ctx, ev.ID, t.DeviceIdentifier, params); err != nil {
-		slog.Error("curtailment reconciler: restore confirm update failed",
-			"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
+	if err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, params); err != nil {
+		if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
+			slog.Error("curtailment reconciler: restore confirm update failed",
+				"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
+		}
 		return
 	}
 	t.State = models.TargetStateResolved
@@ -1070,9 +1103,11 @@ func (r *Reconciler) dispatchRestoreBatch(ctx context.Context, ev *models.Event,
 		dispatchingParams := interfaces.UpdateCurtailmentTargetStateParams{
 			State: models.TargetStateDispatching,
 		}
-		if err := r.store.UpdateTargetState(ctx, ev.ID, t.DeviceIdentifier, dispatchingParams); err != nil {
-			slog.Error("curtailment reconciler: restore dispatching pre-write failed",
-				"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
+		if err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, dispatchingParams); err != nil {
+			if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
+				slog.Error("curtailment reconciler: restore dispatching pre-write failed",
+					"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
+			}
 			return
 		}
 		t.State = models.TargetStateDispatching
@@ -1146,9 +1181,11 @@ func (r *Reconciler) dispatchRestoreBatch(ctx context.Context, ev *models.Event,
 			LastBatchUUID:    &batchID,
 			LastError:        &emptyErr,
 		}
-		if err := r.store.UpdateTargetState(ctx, ev.ID, t.DeviceIdentifier, params); err != nil {
-			slog.Error("curtailment reconciler: restore dispatch state update failed",
-				"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
+		if err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, params); err != nil {
+			if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
+				slog.Error("curtailment reconciler: restore dispatch state update failed",
+					"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
+			}
 			continue
 		}
 		t.State = models.TargetStateDispatched

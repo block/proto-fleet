@@ -382,11 +382,18 @@ SET desired_state      = 'active',
 WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
   AND state NOT IN ('resolved', 'restore_failed', 'released');
 
--- name: UpdateCurtailmentTargetState :exec
+-- name: UpdateCurtailmentTargetState :execrows
 -- Reconciler patch: COALESCE preserves un-supplied columns so partial
 -- updates don't clobber values from earlier ticks. retry_count is
 -- read-then-written inside the tick. An empty last_error string is an
 -- explicit clear signal from successful redispatch paths and maps to SQL NULL.
+--
+-- The EXISTS guard silently no-ops the UPDATE when the parent event has
+-- gone terminal (concurrent Stop/AdminTerminate landed). :execrows lets
+-- the store map zero rows to ErrCurtailmentEventStateRaceLoss so the
+-- reconciler can log + meter the signal rather than treating the silent
+-- skip as success. The in-memory mirror update is gated on a clean
+-- return; the sentinel keeps the mirror in sync with the persisted state.
 UPDATE curtailment_target
 SET state              = sqlc.arg('state'),
     last_dispatched_at = COALESCE(sqlc.narg('last_dispatched_at'), last_dispatched_at),

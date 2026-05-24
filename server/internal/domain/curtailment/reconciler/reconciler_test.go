@@ -35,10 +35,11 @@ type fakeStore struct {
 	getEventByUUIDHook  func(uuid.UUID, int)
 	getEventByUUIDCalls int
 
-	updateEventCalls   int
-	updateEventLast    map[int64]models.EventState
-	updateTargetCalls  int
-	updateTargetParams map[string]interfaces.UpdateCurtailmentTargetStateParams
+	updateEventCalls     int
+	updateEventLast      map[int64]models.EventState
+	updateTargetCalls    int
+	updateTargetParams   map[string]interfaces.UpdateCurtailmentTargetStateParams
+	updateTargetStateErr error
 
 	listTargetsByEventCalls int
 
@@ -175,6 +176,12 @@ func (f *fakeStore) UpdateEventState(_ context.Context, eventID int64, state mod
 func (f *fakeStore) UpdateTargetState(_ context.Context, eventID int64, deviceIdentifier string, params interfaces.UpdateCurtailmentTargetStateParams) error {
 	f.updateTargetCalls++
 	f.updateTargetParams[deviceIdentifier] = params
+	// updateTargetStateErr lets tests inject the race-loss sentinel or other
+	// errors without going through the in-memory state machine. When set,
+	// the mirror is not advanced — matches the sqlstore contract.
+	if f.updateTargetStateErr != nil {
+		return f.updateTargetStateErr
+	}
 	for _, t := range f.targetsByEventID[eventID] {
 		if t.DeviceIdentifier == deviceIdentifier {
 			t.State = params.State
@@ -400,6 +407,41 @@ func TestReconciler_SkipsRemainingCurtailDispatchesWhenEventTerminatesMidLoop(t 
 
 	assert.Equal(t, 1, disp.curtailCalls,
 		"only the first target should dispatch; the rest skip after the event flipped")
+}
+
+// TestReconciler_TargetStateRaceLoss_LogsAndMetersWithoutMirrorAdvance:
+// when the store's UpdateTargetState returns the typed race-loss sentinel
+// (parent event went terminal between the tick's load and the write), the
+// reconciler increments IncEventStateRaceLoss, logs at Warn (not Error),
+// and does NOT advance the in-memory mirror. Pins the "in-memory mirror
+// stays consistent with persisted state on silent SQL no-op" contract.
+func TestReconciler_TargetStateRaceLoss_LogsAndMetersWithoutMirrorAdvance(t *testing.T) {
+	store := newFakeStore()
+	store.updateTargetStateErr = interfaces.ErrCurtailmentEventStateRaceLoss
+	disp := &fakeDispatcher{}
+	metrics := &recordingMetrics{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-1", State: models.TargetStatePending, BaselinePowerW: ptrFloat64(3000)},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.metrics = metrics
+	r.runTick(context.Background())
+
+	// The store's UpdateTargetState returned the sentinel — mirror update
+	// must be skipped, so the in-memory state stays at PENDING.
+	require.Len(t, store.targetsByEventID[eventID], 1)
+	assert.Equal(t, models.TargetStatePending, store.targetsByEventID[eventID][0].State,
+		"in-memory mirror must NOT advance when the store reports race-loss")
+	// Race-loss surfaces as IncEventStateRaceLoss, not IncTickFailure.
+	assert.GreaterOrEqual(t, metrics.EventStateRaceLossCount(), 1,
+		"race-loss sentinel must increment IncEventStateRaceLoss")
 }
 
 // TestReconciler_DispatchingPreWrite_CommitsBeforeCommand pins the

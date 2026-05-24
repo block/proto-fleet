@@ -502,7 +502,7 @@ func (s *SQLCurtailmentStore) UpdateEventState(ctx context.Context, eventID int6
 }
 
 func (s *SQLCurtailmentStore) UpdateTargetState(ctx context.Context, eventID int64, deviceIdentifier string, params interfaces.UpdateCurtailmentTargetStateParams) error {
-	if err := s.GetQueries(ctx).UpdateCurtailmentTargetState(ctx, sqlc.UpdateCurtailmentTargetStateParams{
+	rows, err := s.GetQueries(ctx).UpdateCurtailmentTargetState(ctx, sqlc.UpdateCurtailmentTargetStateParams{
 		CurtailmentEventID: eventID,
 		DeviceIdentifier:   deviceIdentifier,
 		State:              string(params.State),
@@ -513,8 +513,16 @@ func (s *SQLCurtailmentStore) UpdateTargetState(ctx context.Context, eventID int
 		ConfirmedAt:        ptrToNullTime(params.ConfirmedAt),
 		RetryCount:         ptrToNullInt32(params.RetryCount),
 		LastError:          ptrToNullString(params.LastError),
-	}); err != nil {
+	})
+	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to update curtailment target (%d, %s) state: %v", eventID, deviceIdentifier, err)
+	}
+	if rows == 0 {
+		// EXISTS guard fired — the parent event went terminal between the
+		// caller's load and this UPDATE. Surface the typed sentinel so the
+		// reconciler can log + meter rather than silently treating the
+		// no-op as success and advancing its in-memory mirror.
+		return interfaces.ErrCurtailmentEventStateRaceLoss
 	}
 	return nil
 }

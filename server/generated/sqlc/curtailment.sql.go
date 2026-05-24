@@ -1319,7 +1319,7 @@ func (q *Queries) UpdateCurtailmentEventState(ctx context.Context, arg UpdateCur
 	return result.RowsAffected()
 }
 
-const updateCurtailmentTargetState = `-- name: UpdateCurtailmentTargetState :exec
+const updateCurtailmentTargetState = `-- name: UpdateCurtailmentTargetState :execrows
 UPDATE curtailment_target
 SET state              = $1,
     last_dispatched_at = COALESCE($2, last_dispatched_at),
@@ -1359,8 +1359,15 @@ type UpdateCurtailmentTargetStateParams struct {
 // updates don't clobber values from earlier ticks. retry_count is
 // read-then-written inside the tick. An empty last_error string is an
 // explicit clear signal from successful redispatch paths and maps to SQL NULL.
-func (q *Queries) UpdateCurtailmentTargetState(ctx context.Context, arg UpdateCurtailmentTargetStateParams) error {
-	_, err := q.exec(ctx, q.updateCurtailmentTargetStateStmt, updateCurtailmentTargetState,
+//
+// The EXISTS guard silently no-ops the UPDATE when the parent event has
+// gone terminal (concurrent Stop/AdminTerminate landed). :execrows lets
+// the store map zero rows to ErrCurtailmentEventStateRaceLoss so the
+// reconciler can log + meter the signal rather than treating the silent
+// skip as success. The in-memory mirror update is gated on a clean
+// return; the sentinel keeps the mirror in sync with the persisted state.
+func (q *Queries) UpdateCurtailmentTargetState(ctx context.Context, arg UpdateCurtailmentTargetStateParams) (int64, error) {
+	result, err := q.exec(ctx, q.updateCurtailmentTargetStateStmt, updateCurtailmentTargetState,
 		arg.State,
 		arg.LastDispatchedAt,
 		arg.LastBatchUuid,
@@ -1372,7 +1379,10 @@ func (q *Queries) UpdateCurtailmentTargetState(ctx context.Context, arg UpdateCu
 		arg.CurtailmentEventID,
 		arg.DeviceIdentifier,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const upsertCurtailmentReconcilerHeartbeat = `-- name: UpsertCurtailmentReconcilerHeartbeat :exec
