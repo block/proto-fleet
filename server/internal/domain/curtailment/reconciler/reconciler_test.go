@@ -536,9 +536,7 @@ func TestReconciler_RecoversOrphanedDispatchingTarget(t *testing.T) {
 // observeActive arm of orphan recovery: a target left in DISPATCHING on an
 // ACTIVE event (from an interrupted drift-fix redispatch) must be picked up
 // and re-issued via Curtail. The pending-event analog is covered by
-// TestReconciler_RecoversOrphanedDispatchingTarget; this is the same
-// mechanism on the active phase introduced when the prior review flagged
-// observeActive's silent-skip arm.
+// TestReconciler_RecoversOrphanedDispatchingTarget.
 func TestReconciler_RecoversOrphanedDispatchingTargetOnActiveEvent(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
@@ -601,6 +599,53 @@ func TestReconciler_ObserveActive_DispatchingOrphanRespectsRetryBudget(t *testin
 
 	assert.Equal(t, 0, disp.curtailCalls,
 		"budget-exhausted DISPATCHING orphan must not be redispatched")
+	final := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStateDispatching, final.State,
+		"budget-exhausted DISPATCHING orphan must stay DISPATCHING (not silently flip)")
+	assert.Equal(t, int32(3), final.RetryCount,
+		"budget-exhausted DISPATCHING orphan must not bump RetryCount further")
+}
+
+// TestReconciler_ObserveActive_DispatchingOrphanRaceLossDoesNotIssueCommand:
+// when an active-phase DISPATCHING orphan's pre-command write races a
+// concurrent AdminTerminate and returns ErrCurtailmentEventStateRaceLoss,
+// no Curtail command must fire. Pins the EXISTS-guard race-closure on the
+// observeActive redispatch path (the pending-phase analog is pinned by
+// TestReconciler_SkipsRemainingCurtailDispatchesWhenEventTerminatesMidLoop).
+func TestReconciler_ObserveActive_DispatchingOrphanRaceLossDoesNotIssueCommand(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	store.updateTargetStateHook = func(string, interfaces.UpdateCurtailmentTargetStateParams, int) error {
+		return interfaces.ErrCurtailmentEventStateRaceLoss
+	}
+
+	eventID := int64(11)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStateActive},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "miner-1",
+			State:              models.TargetStateDispatching,
+			DesiredState:       models.DesiredStateCurtailed,
+			BaselinePowerW:     ptrFloat64(3000),
+		},
+	}
+	store.candidates = []*models.Candidate{
+		{DeviceIdentifier: "miner-1", LatestPowerW: ptrFloat64(3000), LatestHashRateHS: ptrFloat64(100)},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, 0, disp.curtailCalls,
+		"race-loss on the DISPATCHING pre-write must prevent cmd.Curtail from firing")
+	final := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStateDispatching, final.State,
+		"in-memory mirror must not advance on race-loss")
 }
 
 // TestReconciler_RecoversOrphanedDispatchingRestoreTarget mirrors the

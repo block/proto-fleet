@@ -471,10 +471,56 @@ func TestReconciler_Restoring_PreWriteFailureSkipsTargetButDispatchesRest(t *tes
 	m1 := store.targetsByEventID[eventID][0]
 	assert.Equal(t, models.TargetStatePending, m1.State,
 		"failed pre-write target must remain in its prior state for next-tick reclaim")
+	assert.Equal(t, int32(0), m1.RetryCount,
+		"non-race-loss pre-write failure must not burn retry budget (the dispatch attempt never reached cmd.Uncurtail)")
 	// m2 successfully advanced to Dispatched.
 	m2 := store.targetsByEventID[eventID][1]
 	assert.Equal(t, models.TargetStateDispatched, m2.State,
 		"surviving target must complete the dispatch cycle")
+}
+
+// TestReconciler_Restoring_AllPreWriteFailuresSkipUncurtail pins the
+// degenerate path of dispatchRestoreBatch's continue-past-failure logic:
+// if every target's DISPATCHING pre-write fails with a non-race-loss
+// error, dispatchSet is empty and the function returns without issuing
+// Uncurtail. A regression dropping the `len(dispatchSet) == 0` guard
+// would attempt to dispatch an empty selector, which the command layer
+// would route to the empty-batch path with operationally confusing
+// retry-burn behavior.
+func TestReconciler_Restoring_AllPreWriteFailuresSkipUncurtail(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	store.updateTargetStateHook = func(string, interfaces.UpdateCurtailmentTargetStateParams, int) error {
+		return errors.New("transient db blip")
+	}
+
+	r := newReconcilerForTest(store, disp)
+	effBatch := int32(2)
+	eventID := int64(85)
+	store.events = []*models.Event{{
+		ID:                      eventID,
+		EventUUID:               uuid.New(),
+		OrgID:                   1,
+		State:                   models.EventStateRestoring,
+		EffectiveBatchSize:      &effBatch,
+		RestoreBatchIntervalSec: 0,
+	}}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "m1", State: models.TargetStatePending, DesiredState: models.DesiredStateActive},
+		{CurtailmentEventID: eventID, DeviceIdentifier: "m2", State: models.TargetStatePending, DesiredState: models.DesiredStateActive},
+	}
+
+	r.runTick(context.Background())
+
+	assert.Equal(t, 0, disp.uncurtailCalls,
+		"Uncurtail must not fire when every batch target's pre-write failed")
+	for _, t0 := range store.targetsByEventID[eventID] {
+		assert.Equal(t, models.TargetStatePending, t0.State,
+			"%s stays Pending so next tick can re-claim it", t0.DeviceIdentifier)
+		assert.Equal(t, int32(0), t0.RetryCount,
+			"%s must not burn retry budget on a pre-write failure that never reached cmd.Uncurtail", t0.DeviceIdentifier)
+	}
 }
 
 // TestReconciler_Restoring_EmptyBatchIdentifierKeepsBatchPending pins
