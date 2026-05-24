@@ -1,1 +1,1 @@
-DROP INDEX IF EXISTS idx_curtailment_event_org_id_desc;
+DROP INDEX CONCURRENTLY IF EXISTS idx_curtailment_event_org_id_desc;

@@ -69,7 +69,12 @@ func (h *Handler) PreviewCurtailmentPlan(ctx context.Context, req *connect.Reque
 }
 
 func (h *Handler) StartCurtailment(ctx context.Context, req *connect.Request[pb.StartCurtailmentRequest]) (*connect.Response[pb.StartCurtailmentResponse], error) {
-	if req.Msg.CandidateMinPowerWOverride != nil || req.Msg.AllowUnbounded {
+	if req.Msg.CandidateMinPowerWOverride != nil || req.Msg.AllowUnbounded || req.Msg.ForceIncludeMaintenance {
+		// force_include_maintenance is safety-critical: it commands
+		// curtailment on miners in active physical maintenance. Wire the
+		// same admin gate as allow_unbounded so a non-admin API-key
+		// caller cannot trigger a forced power-cycle of a miner a
+		// technician is servicing.
 		if err := requireAdminFromContext(ctx, actionSupplyOverrideFields); err != nil {
 			return nil, err
 		}
