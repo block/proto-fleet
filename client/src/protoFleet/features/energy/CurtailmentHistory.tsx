@@ -265,12 +265,16 @@ function compareSortValues(left: HistorySortValue, right: HistorySortValue): num
   return collator.compare(String(left), String(right));
 }
 
-function compareStartedAtDesc(left: CurtailmentHistoryEvent, right: CurtailmentHistoryEvent): number {
-  const getSortTime = (event: CurtailmentHistoryEvent) =>
+function getSortTime(event: CurtailmentHistoryEvent): number {
+  return (
     getDateTime(event.startedAt)?.getTime() ??
     getDateTime(event.scheduledAt)?.getTime() ??
     getDateTime(event.createdAt)?.getTime() ??
-    0;
+    0
+  );
+}
+
+function compareStartedAtDesc(left: CurtailmentHistoryEvent, right: CurtailmentHistoryEvent): number {
   const dateComparison = getSortTime(right) - getSortTime(left);
   return dateComparison || collator.compare(left.id, right.id);
 }
@@ -529,7 +533,8 @@ function CurtailmentHistory({
       return events;
     }
 
-    return events.filter((event) => selectedStatusFilters.includes(event.state));
+    const filterSet = new Set(selectedStatusFilters);
+    return events.filter((event) => filterSet.has(event.state));
   }, [events, selectedStatusFilters]);
 
   const sortedEvents = useMemo(() => sortHistoryEvents(filteredEvents, currentSort), [filteredEvents, currentSort]);
