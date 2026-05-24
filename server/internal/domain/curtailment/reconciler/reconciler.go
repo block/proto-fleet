@@ -547,9 +547,10 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 		return
 	}
 
-	// Per-target liveness gating happens inside dispatchOneCurtail so a
-	// concurrent AdminTerminate cannot leak redispatch commands across
-	// the drift-fix loop.
+	// One liveness read per drift-scan; a concurrent AdminTerminate that
+	// lands after this check is caught by the DISPATCHING pre-write's
+	// EXISTS guard inside dispatchOneCurtail. See dispatchPending for the
+	// same race-closure model.
 	deviceIDs := make([]string, 0, len(targets))
 	for _, t := range targets {
 		deviceIDs = append(deviceIDs, t.DeviceIdentifier)

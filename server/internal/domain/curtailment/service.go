@@ -387,6 +387,18 @@ func (s *Service) Update(ctx context.Context, req UpdateRequest) (*models.Event,
 			)
 		}
 	}
+	// Symmetric gate for restore_batch_interval_sec: only raises above the
+	// non-admin cap need admin role. Compare against the effective patch so
+	// a non-admin echoing an admin-elevated value through a no-op slot
+	// (other field is the real change) passes the gate.
+	if patch.RestoreBatchIntervalSec != nil &&
+		*patch.RestoreBatchIntervalSec > nonAdminRestoreBatchIntervalMax &&
+		!req.CanUseAdminControls {
+		return nil, fleeterror.NewForbiddenErrorf(
+			"only admins can set restore_batch_interval_sec above %d",
+			nonAdminRestoreBatchIntervalMax,
+		)
+	}
 
 	updated, err := s.store.UpdateOperatorFields(ctx, event.ID, req.OrgID, patch)
 	if err != nil {
@@ -746,12 +758,10 @@ func validateUpdateRequest(req UpdateRequest) error {
 				restoreBatchIntervalUpperBoundSec, v,
 			)
 		}
-		if v > nonAdminRestoreBatchIntervalMax && !req.CanUseAdminControls {
-			return fleeterror.NewForbiddenErrorf(
-				"only admins can set restore_batch_interval_sec above %d",
-				nonAdminRestoreBatchIntervalMax,
-			)
-		}
+		// The non-admin cap (nonAdminRestoreBatchIntervalMax) is enforced in
+		// Service.Update against the *effective* patch (post-no-op-collapse),
+		// not here. Echoing an admin-elevated value as part of a no-op patch
+		// must not trip the gate.
 	}
 	if req.MaxDurationSeconds != nil {
 		v := *req.MaxDurationSeconds
