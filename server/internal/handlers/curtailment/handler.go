@@ -126,8 +126,12 @@ func (h *Handler) UpdateCurtailmentEvent(ctx context.Context, req *connect.Reque
 	if err != nil {
 		return nil, err
 	}
+	targets, err := h.service.ListTargetsByEvent(ctx, info.OrganizationID, event.EventUUID)
+	if err != nil {
+		return nil, err
+	}
 	return connect.NewResponse(&pb.UpdateCurtailmentEventResponse{
-		Event: toEventProto(event),
+		Event: toEventProtoWithTargets(event, targets),
 	}), nil
 }
 
@@ -224,8 +228,12 @@ func (h *Handler) AdminTerminateEvent(ctx context.Context, req *connect.Request[
 	if err != nil {
 		return nil, err
 	}
+	targets, err := h.service.ListTargetsByEvent(ctx, info.OrganizationID, event.EventUUID)
+	if err != nil {
+		return nil, err
+	}
 	return connect.NewResponse(&pb.AdminTerminateEventResponse{
-		Event: toEventProto(event),
+		Event: toEventProtoWithTargets(event, targets),
 	}), nil
 }
 

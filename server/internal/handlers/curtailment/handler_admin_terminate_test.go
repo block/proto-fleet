@@ -32,6 +32,10 @@ type adminTerminateStubStore struct {
 	lastEventUUID    uuid.UUID
 	lastTargetState  models.EventState
 	lastReason       string
+	// Targets returned by ListTargetsByEvent; the handler fetches them
+	// post-terminate so the response shape mirrors the read endpoints.
+	targets    []*models.Target
+	targetsErr error
 }
 
 func (s *adminTerminateStubStore) AdminTerminateEvent(_ context.Context, orgID int64, eventUUID uuid.UUID, targetState models.EventState, reason string) (*models.Event, bool, error) {
@@ -70,7 +74,7 @@ func (s *adminTerminateStubStore) GetActiveEvent(context.Context, int64) (*model
 	panic("GetActiveEvent not exercised by AdminTerminate handler tests")
 }
 func (s *adminTerminateStubStore) ListTargetsByEvent(context.Context, int64, uuid.UUID) ([]*models.Target, error) {
-	panic("ListTargetsByEvent not exercised by AdminTerminate handler tests")
+	return s.targets, s.targetsErr
 }
 func (s *adminTerminateStubStore) BeginRestoreTransition(context.Context, int64, uuid.UUID) (*models.Event, error) {
 	panic("BeginRestoreTransition not exercised by AdminTerminate handler tests")
@@ -290,4 +294,46 @@ func TestHandler_AdminTerminateEvent_SuperAdminAllowed(t *testing.T) {
 	)
 	require.NoError(t, err)
 	assert.Equal(t, 1, store.calls)
+}
+
+// TestHandler_AdminTerminateEvent_ResponseCarriesScopeAndTargets: the
+// post-terminate response must use the same fully-populated shape as the
+// read endpoints — scope, mode params, decision snapshot, and the swept
+// targets — so a client merging the response into a cached event does not
+// silently drop structured fields. Mirrors StopCurtailment's response.
+func TestHandler_AdminTerminateEvent_ResponseCarriesScopeAndTargets(t *testing.T) {
+	t.Parallel()
+	eventUUID := uuid.New()
+	store := &adminTerminateStubStore{
+		result: &models.Event{
+			ID:        99,
+			EventUUID: eventUUID,
+			OrgID:     42,
+			State:     models.EventStateCancelled,
+			ScopeType: models.ScopeTypeWholeOrg,
+		},
+		targets: []*models.Target{
+			{
+				CurtailmentEventID: 99,
+				DeviceIdentifier:   "miner-1",
+				State:              models.TargetStateRestoreFailed,
+				DesiredState:       models.DesiredStateCurtailed,
+			},
+		},
+	}
+	h := NewHandler(domainCurtailment.NewService(store))
+
+	resp, err := h.AdminTerminateEvent(
+		adminTerminateSessionCtx(42, "ADMIN"),
+		connect.NewRequest(&pb.AdminTerminateEventRequest{
+			EventUuid:   eventUUID.String(),
+			TargetState: pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_CANCELLED,
+			Reason:      "test",
+		}),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, resp.Msg.Event)
+	assert.NotNil(t, resp.Msg.Event.Scope, "response must carry the persisted scope so cached clients keep it")
+	require.Len(t, resp.Msg.Event.Targets, 1, "response must carry the post-sweep targets")
+	assert.Equal(t, "miner-1", resp.Msg.Event.Targets[0].DeviceIdentifier)
 }

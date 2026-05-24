@@ -33,6 +33,10 @@ type updateStubStore struct {
 	updateCalls       int
 	expectedEventUUID uuid.UUID
 	getEventErr       error
+	// Targets returned by ListTargetsByEvent; the handler fetches them
+	// post-update so the response shape mirrors the read endpoints.
+	targets    []*models.Target
+	targetsErr error
 }
 
 func newUpdateStubStore(state models.EventState) *updateStubStore {
@@ -125,7 +129,7 @@ func (s *updateStubStore) GetActiveEvent(context.Context, int64) (*models.Event,
 	panic("GetActiveEvent not exercised by Update handler tests")
 }
 func (s *updateStubStore) ListTargetsByEvent(context.Context, int64, uuid.UUID) ([]*models.Target, error) {
-	panic("ListTargetsByEvent not exercised by Update handler tests")
+	return s.targets, s.targetsErr
 }
 func (s *updateStubStore) BeginRestoreTransition(context.Context, int64, uuid.UUID) (*models.Event, error) {
 	panic("BeginRestoreTransition not exercised by Update handler tests")
@@ -302,4 +306,38 @@ func TestHandler_UpdateCurtailmentEvent_NonAdminLargeIntervalForbidden(t *testin
 	require.ErrorAs(t, err, &fleetErr)
 	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
 	assert.Equal(t, 0, store.updateCalls, "Forbidden must fire before the store update")
+}
+
+// TestHandler_UpdateCurtailmentEvent_ResponseCarriesScopeAndTargets: the
+// post-update response must use the same fully-populated shape as the read
+// endpoints — scope, mode params, decision snapshot, and targets — so a
+// client merging the response into a cached event does not silently drop
+// structured fields. Mirrors StopCurtailment's response wiring.
+func TestHandler_UpdateCurtailmentEvent_ResponseCarriesScopeAndTargets(t *testing.T) {
+	t.Parallel()
+	store := newUpdateStubStore(models.EventStateActive)
+	store.event.ScopeType = models.ScopeTypeWholeOrg
+	store.targets = []*models.Target{
+		{
+			CurtailmentEventID: store.event.ID,
+			DeviceIdentifier:   "miner-1",
+			State:              models.TargetStateConfirmed,
+			DesiredState:       models.DesiredStateCurtailed,
+		},
+	}
+	h := NewHandler(domainCurtailment.NewService(store))
+
+	newReason := "operator update"
+	resp, err := h.UpdateCurtailmentEvent(
+		updateSessionCtx(42, "OPERATOR"),
+		connect.NewRequest(&pb.UpdateCurtailmentEventRequest{
+			EventUuid: store.event.EventUUID.String(),
+			Reason:    &newReason,
+		}),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, resp.Msg.Event)
+	assert.NotNil(t, resp.Msg.Event.Scope, "response must carry the persisted scope so cached clients keep it")
+	require.Len(t, resp.Msg.Event.Targets, 1, "response must carry persisted targets")
+	assert.Equal(t, "miner-1", resp.Msg.Event.Targets[0].DeviceIdentifier)
 }
