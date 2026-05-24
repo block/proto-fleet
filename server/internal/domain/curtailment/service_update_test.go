@@ -2,12 +2,14 @@ package curtailment
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
@@ -318,3 +320,210 @@ func TestService_Update_PropagatesStoreError(t *testing.T) {
 }
 
 func int32Ptr(v int32) *int32 { return &v }
+
+// TestService_Update_EmitsAuditRowOnRealChange: a successful Update with
+// at least one field changing emits exactly one curtailment_updated row;
+// metadata's `fields` lists only the fields that actually changed, not
+// the no-op slots. Pins both the audit-event type registration and the
+// effective-patch metadata shape.
+func TestService_Update_EmitsAuditRowOnRealChange(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	eventUUID := uuid.New()
+	currentReason := "initial"
+	currentInterval := int32(60)
+	currentBatch := int32(20)
+	currentMax := int32(3600)
+	persisted := &models.Event{
+		ID:                      99,
+		EventUUID:               eventUUID,
+		OrgID:                   orgID,
+		State:                   models.EventStateActive,
+		Reason:                  currentReason,
+		RestoreBatchIntervalSec: currentInterval,
+		RestoreBatchSize:        currentBatch,
+		MaxDurationSeconds:      &currentMax,
+	}
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.eventsByUUID[eventUUID] = persisted
+	store.updateOperatorFieldsResult = persisted // store returns the persisted row post-update for assertion simplicity
+	audit := &recordingAuditLogger{}
+	svc := NewService(store, WithAuditLogger(audit))
+
+	// Patch changes Reason only; echo the persisted values for the other
+	// fields so the effective patch contains only the real change.
+	newReason := "operator update"
+	_, err := svc.Update(t.Context(), UpdateRequest{
+		OrgID:                   orgID,
+		EventUUID:               eventUUID,
+		Reason:                  &newReason,
+		RestoreBatchIntervalSec: &currentInterval, // no-op echo
+		RestoreBatchSize:        &currentBatch,    // no-op echo
+		MaxDurationSeconds:      &currentMax,      // no-op echo
+	})
+	require.NoError(t, err)
+
+	events := audit.snapshot()
+	require.Len(t, events, 1, "exactly one curtailment_updated row on a real change")
+	assert.Equal(t, ActivityTypeUpdated, events[0].Type)
+	assert.Equal(t, activitymodels.CategoryCurtailment, events[0].Category)
+	assert.Equal(t, activitymodels.ResultSuccess, events[0].Result)
+	assert.Equal(t, activitymodels.ActorUser, events[0].ActorType)
+	require.NotNil(t, events[0].Metadata)
+	assert.Equal(t, eventUUID.String(), events[0].Metadata["event_uuid"])
+	fields, ok := events[0].Metadata["fields"].([]string)
+	require.True(t, ok, "fields metadata key must be a []string")
+	assert.Equal(t, []string{"reason"}, fields,
+		"only the actually-changed field appears in `fields` metadata; echoed values are excluded")
+	assert.Equal(t, "operator update", events[0].Metadata["reason"])
+}
+
+// TestService_Update_NoAuditRowOnSameValueEcho: a patch where every field
+// matches the persisted value collapses to a no-op — no store call, no
+// audit row, no updated_at bump. Pins effectiveUpdatePatch's empty-patch
+// early return.
+func TestService_Update_NoAuditRowOnSameValueEcho(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	eventUUID := uuid.New()
+	currentReason := "initial"
+	currentInterval := int32(60)
+	currentMax := int32(3600)
+	persisted := &models.Event{
+		ID:                      99,
+		EventUUID:               eventUUID,
+		OrgID:                   orgID,
+		State:                   models.EventStateActive,
+		Reason:                  currentReason,
+		RestoreBatchIntervalSec: currentInterval,
+		MaxDurationSeconds:      &currentMax,
+	}
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.eventsByUUID[eventUUID] = persisted
+	audit := &recordingAuditLogger{}
+	svc := NewService(store, WithAuditLogger(audit))
+
+	got, err := svc.Update(t.Context(), UpdateRequest{
+		OrgID:                   orgID,
+		EventUUID:               eventUUID,
+		Reason:                  &currentReason,
+		RestoreBatchIntervalSec: &currentInterval,
+		MaxDurationSeconds:      &currentMax,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	assert.Equal(t, persisted, got, "no-op echo returns the pre-update event verbatim")
+	assert.Equal(t, 0, store.updateOperatorFieldsCalls,
+		"no-op patch must not call UpdateOperatorFields (would bump updated_at)")
+	assert.Empty(t, audit.snapshot(), "no-op patch must not emit an audit row")
+}
+
+// TestService_Update_AllowsNonAdminEchoOfAdminElevatedMaxDuration: a
+// non-admin patch that echoes the persisted admin-elevated value as part
+// of an unrelated change (e.g. updating reason on a form re-submission)
+// must succeed — the no-op collapse drops the elevated value from the
+// effective patch before the admin gate runs.
+func TestService_Update_AllowsNonAdminEchoOfAdminElevatedMaxDuration(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	eventUUID := uuid.New()
+	// Admin previously elevated max_duration above the org default.
+	elevatedMax := int32(14400)
+	orgDefaultMax := int32(7200)
+	persisted := &models.Event{
+		ID:                 99,
+		EventUUID:          eventUUID,
+		OrgID:              orgID,
+		State:              models.EventStateActive,
+		Reason:             "initial",
+		MaxDurationSeconds: &elevatedMax,
+	}
+	store := newFakeStore()
+	cfg := defaultOrgConfig(orgID)
+	cfg.MaxDurationDefaultSec = orgDefaultMax
+	store.orgConfigByOrg[orgID] = cfg
+	store.eventsByUUID[eventUUID] = persisted
+	store.updateOperatorFieldsResult = persisted
+	svc := NewService(store)
+
+	newReason := "non-admin updates reason only"
+	_, err := svc.Update(t.Context(), UpdateRequest{
+		OrgID:               orgID,
+		EventUUID:           eventUUID,
+		Reason:              &newReason,
+		MaxDurationSeconds:  &elevatedMax, // echo of the admin-elevated value
+		CanUseAdminControls: false,
+	})
+	require.NoError(t, err, "non-admin echo of admin-elevated max_duration must not trip the gate")
+}
+
+// TestService_Update_AllowsNonAdminEchoOfAdminElevatedRestoreInterval:
+// symmetric to the max_duration_seconds test above for restore_batch_interval_sec.
+// Without the gate-placement mirror in service.go, this case previously
+// rejected with Forbidden.
+func TestService_Update_AllowsNonAdminEchoOfAdminElevatedRestoreInterval(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	eventUUID := uuid.New()
+	elevatedInterval := int32(600) // above nonAdminRestoreBatchIntervalMax (300)
+	persisted := &models.Event{
+		ID:                      99,
+		EventUUID:               eventUUID,
+		OrgID:                   orgID,
+		State:                   models.EventStateActive,
+		Reason:                  "initial",
+		RestoreBatchIntervalSec: elevatedInterval,
+	}
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.eventsByUUID[eventUUID] = persisted
+	store.updateOperatorFieldsResult = persisted
+	svc := NewService(store)
+
+	newReason := "non-admin updates reason only"
+	_, err := svc.Update(t.Context(), UpdateRequest{
+		OrgID:                   orgID,
+		EventUUID:               eventUUID,
+		Reason:                  &newReason,
+		RestoreBatchIntervalSec: &elevatedInterval,
+		CanUseAdminControls:     false,
+	})
+	require.NoError(t, err, "non-admin echo of admin-elevated restore_batch_interval_sec must not trip the gate")
+}
+
+// TestService_Update_RejectsMultiByteReasonAbove256Runes: the rune-count
+// fix means a 256-rune multi-byte string passes (was previously rejected
+// as exceeding the byte-count cap). A 257-rune string still rejects.
+// Pins the boundary so a regression back to len() would trip.
+func TestService_Update_RejectsMultiByteReasonAbove256Runes(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(1)
+	eventUUID := uuid.New()
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.eventsByUUID[eventUUID] = &models.Event{
+		ID: 1, EventUUID: eventUUID, OrgID: orgID, State: models.EventStateActive,
+		Reason: "initial",
+	}
+	store.updateOperatorFieldsResult = store.eventsByUUID[eventUUID]
+	svc := NewService(store)
+
+	// 256 Korean Hangul syllables: each is 3 bytes in UTF-8 (768 bytes total)
+	// but 256 runes. Must pass.
+	atCap := strings.Repeat("한", 256)
+	_, err := svc.Update(t.Context(), UpdateRequest{
+		OrgID: orgID, EventUUID: eventUUID, Reason: &atCap,
+	})
+	require.NoError(t, err, "256 multi-byte runes must pass rune-count validation")
+
+	// 257 runes — one over the cap.
+	overCap := strings.Repeat("한", 257)
+	_, err = svc.Update(t.Context(), UpdateRequest{
+		OrgID: orgID, EventUUID: eventUUID, Reason: &overCap,
+	})
+	require.Error(t, err, "257 runes must reject")
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "characters", "error message uses character vocabulary, not byte vocabulary")
+}

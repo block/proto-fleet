@@ -12,6 +12,7 @@ import (
 
 	"github.com/block/proto-fleet/server/internal/domain/command"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
 // --- enforceMaxDuration ---
@@ -420,6 +421,60 @@ func TestReconciler_Restoring_UncurtailErrorKeepsBatchPending(t *testing.T) {
 		require.NotNil(t, final.LastError, "%s LastError must be set", deviceID)
 		assert.Contains(t, *final.LastError, "queue down")
 	}
+}
+
+// TestReconciler_Restoring_PreWriteFailureSkipsTargetButDispatchesRest pins
+// dispatchRestoreBatch's continue-past-non-race-loss behavior: a single
+// target's DISPATCHING pre-write failing with a non-race-loss error must
+// drop that target from this tick's dispatch set without aborting the
+// whole batch. The remaining devices proceed to Uncurtail, and the failed
+// device stays in its prior state for the next tick to re-claim. (Before
+// this fix the entire batch would abort on the first failure, delaying
+// restore for every device in the batch by one full tick interval.)
+func TestReconciler_Restoring_PreWriteFailureSkipsTargetButDispatchesRest(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	// Fail the very first DISPATCHING pre-write (target m1) with a
+	// non-race-loss error; subsequent calls succeed.
+	store.updateTargetStateHook = func(device string, _ interfaces.UpdateCurtailmentTargetStateParams, _ int) error {
+		if device == "m1" {
+			return errors.New("transient db blip")
+		}
+		return nil
+	}
+
+	r := newReconcilerForTest(store, disp)
+	effBatch := int32(2)
+	eventID := int64(84)
+	store.events = []*models.Event{{
+		ID:                      eventID,
+		EventUUID:               uuid.New(),
+		OrgID:                   1,
+		State:                   models.EventStateRestoring,
+		EffectiveBatchSize:      &effBatch,
+		RestoreBatchIntervalSec: 0,
+	}}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "m1", State: models.TargetStatePending, DesiredState: models.DesiredStateActive},
+		{CurtailmentEventID: eventID, DeviceIdentifier: "m2", State: models.TargetStatePending, DesiredState: models.DesiredStateActive},
+	}
+
+	r.runTick(context.Background())
+
+	// Uncurtail fired exactly once with just m2 in the batch.
+	assert.Equal(t, 1, disp.uncurtailCalls, "Uncurtail must still fire for the surviving target(s)")
+	assert.Equal(t, []string{"m2"}, disp.uncurtailLastIDs,
+		"failed pre-write target must be excluded from the Uncurtail selector")
+
+	// m1 stays Pending (its prior state) — next tick re-claims it.
+	m1 := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStatePending, m1.State,
+		"failed pre-write target must remain in its prior state for next-tick reclaim")
+	// m2 successfully advanced to Dispatched.
+	m2 := store.targetsByEventID[eventID][1]
+	assert.Equal(t, models.TargetStateDispatched, m2.State,
+		"surviving target must complete the dispatch cycle")
 }
 
 // TestReconciler_Restoring_EmptyBatchIdentifierKeepsBatchPending pins

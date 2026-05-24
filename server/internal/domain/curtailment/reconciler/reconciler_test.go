@@ -33,13 +33,11 @@ type fakeStore struct {
 	targetsByEventID map[int64][]*models.Target
 	candidates       []*models.Candidate
 
-	listEventsErr       error
-	listEventsCalls     int
-	listEventsPanicErr  string
-	listTargetsHook     func(context.Context, uuid.UUID)
-	listTargetsCtxErr   map[uuid.UUID]error
-	getEventByUUIDHook  func(uuid.UUID, int)
-	getEventByUUIDCalls int
+	listEventsErr      error
+	listEventsCalls    int
+	listEventsPanicErr string
+	listTargetsHook    func(context.Context, uuid.UUID)
+	listTargetsCtxErr  map[uuid.UUID]error
 
 	updateEventCalls      int
 	updateEventLast       map[int64]models.EventState
@@ -79,10 +77,6 @@ func (f *fakeStore) ListRecentlyResolvedCurtailedDevices(context.Context, int64,
 	panic("ListRecentlyResolvedCurtailedDevices not exercised")
 }
 func (f *fakeStore) GetEventByUUID(_ context.Context, orgID int64, eventUUID uuid.UUID) (*models.Event, error) {
-	f.getEventByUUIDCalls++
-	if f.getEventByUUIDHook != nil {
-		f.getEventByUUIDHook(eventUUID, f.getEventByUUIDCalls)
-	}
 	for _, ev := range f.events {
 		if ev.OrgID == orgID && ev.EventUUID == eventUUID {
 			return ev, nil
@@ -536,6 +530,77 @@ func TestReconciler_RecoversOrphanedDispatchingTarget(t *testing.T) {
 		"orphaned DISPATCHING target must be redispatched on the next tick")
 	require.Len(t, store.targetsByEventID[eventID], 1)
 	assert.Equal(t, models.TargetStateDispatched, store.targetsByEventID[eventID][0].State)
+}
+
+// TestReconciler_RecoversOrphanedDispatchingTargetOnActiveEvent covers the
+// observeActive arm of orphan recovery: a target left in DISPATCHING on an
+// ACTIVE event (from an interrupted drift-fix redispatch) must be picked up
+// and re-issued via Curtail. The pending-event analog is covered by
+// TestReconciler_RecoversOrphanedDispatchingTarget; this is the same
+// mechanism on the active phase introduced when the prior review flagged
+// observeActive's silent-skip arm.
+func TestReconciler_RecoversOrphanedDispatchingTargetOnActiveEvent(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStateActive},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "miner-1",
+			State:              models.TargetStateDispatching,
+			DesiredState:       models.DesiredStateCurtailed,
+			BaselinePowerW:     ptrFloat64(3000),
+		},
+	}
+	store.candidates = []*models.Candidate{
+		{DeviceIdentifier: "miner-1", LatestPowerW: ptrFloat64(3000), LatestHashRateHS: ptrFloat64(100)},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, 1, disp.curtailCalls,
+		"orphaned DISPATCHING target on an ACTIVE event must be redispatched")
+	assert.Equal(t, models.TargetStateDispatched, store.targetsByEventID[eventID][0].State)
+}
+
+// TestReconciler_ObserveActive_DispatchingOrphanRespectsRetryBudget: a
+// DISPATCHING orphan whose RetryCount has already hit MaxRetries must NOT
+// be redispatched. Matches the symmetric Drifted-arm backstop and prevents
+// budget-exhausted orphans from cycling indefinitely.
+func TestReconciler_ObserveActive_DispatchingOrphanRespectsRetryBudget(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStateActive},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "miner-1",
+			State:              models.TargetStateDispatching,
+			DesiredState:       models.DesiredStateCurtailed,
+			RetryCount:         3, // already at MaxRetries default
+			BaselinePowerW:     ptrFloat64(3000),
+		},
+	}
+	store.candidates = []*models.Candidate{
+		{DeviceIdentifier: "miner-1", LatestPowerW: ptrFloat64(3000), LatestHashRateHS: ptrFloat64(100)},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, 0, disp.curtailCalls,
+		"budget-exhausted DISPATCHING orphan must not be redispatched")
 }
 
 // TestReconciler_RecoversOrphanedDispatchingRestoreTarget mirrors the
