@@ -135,7 +135,7 @@ func (f *fakeStore) UpdateOperatorFields(context.Context, int64, int64, interfac
 	panic("UpdateOperatorFields not exercised by reconciler tests")
 }
 
-func (f *fakeStore) AdminTerminateEvent(context.Context, int64, uuid.UUID, models.EventState, string) (*models.Event, error) {
+func (f *fakeStore) AdminTerminateEvent(context.Context, int64, uuid.UUID, models.EventState, string) (*models.Event, bool, error) {
 	panic("AdminTerminateEvent not exercised by reconciler tests")
 }
 
@@ -480,6 +480,66 @@ func TestReconciler_DispatchingPreWrite_CommitsBeforeCommand(t *testing.T) {
 		"target must be DISPATCHING at the moment cmd.Curtail is called so a concurrent AdminTerminate's in-flight gate observes it")
 	// After the command returns successfully, the target advances to
 	// DISPATCHED — the DISPATCHING window only exists during the command call.
+	require.Len(t, store.targetsByEventID[eventID], 1)
+	assert.Equal(t, models.TargetStateDispatched, store.targetsByEventID[eventID][0].State)
+}
+
+// TestReconciler_RecoversOrphanedDispatchingTarget covers the restart
+// path: a target left in DISPATCHING by a prior interrupted tick (process
+// crash, panic, or context cancellation between the pre-command stamp and
+// the post-command DISPATCHED write) must be redispatched on the next
+// tick, not left stranded. Curtail is device-idempotent so resending is
+// safe.
+func TestReconciler_RecoversOrphanedDispatchingTarget(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-1", State: models.TargetStateDispatching, BaselinePowerW: ptrFloat64(3000)},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, 1, disp.curtailCalls,
+		"orphaned DISPATCHING target must be redispatched on the next tick")
+	require.Len(t, store.targetsByEventID[eventID], 1)
+	assert.Equal(t, models.TargetStateDispatched, store.targetsByEventID[eventID][0].State)
+}
+
+// TestReconciler_RecoversOrphanedDispatchingRestoreTarget mirrors the
+// curtail-path orphan recovery for the restore path: a target left in
+// DISPATCHING with DesiredState=Active is from an interrupted restore
+// tick and must be redispatched via Uncurtail.
+func TestReconciler_RecoversOrphanedDispatchingRestoreTarget(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStateRestoring},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "miner-1",
+			DesiredState:       models.DesiredStateActive,
+			State:              models.TargetStateDispatching,
+			BaselinePowerW:     ptrFloat64(3000),
+		},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, 1, disp.uncurtailCalls,
+		"orphaned DISPATCHING restore target must be redispatched via Uncurtail")
 	require.Len(t, store.targetsByEventID[eventID], 1)
 	assert.Equal(t, models.TargetStateDispatched, store.targetsByEventID[eventID][0].State)
 }

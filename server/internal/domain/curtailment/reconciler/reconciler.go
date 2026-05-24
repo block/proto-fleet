@@ -313,9 +313,15 @@ func (r *Reconciler) dispatchPending(ctx context.Context, ev *models.Event) {
 
 	// Per-target liveness gating happens inside dispatchOneCurtail so a
 	// concurrent AdminTerminate cannot leak commands across the loop.
+	// DISPATCHING targets are picked up alongside PENDING: a target left
+	// in DISPATCHING is by definition from a prior interrupted tick
+	// (crash / panic / context cancel between the DISPATCHING pre-write
+	// and the post-command DISPATCHED write). Ticks are serial, so any
+	// DISPATCHING seen at the top of dispatchPending is orphaned and
+	// redispatch is the recovery — Curtail is device-idempotent.
 	cmdCtx := reconcilerContext(ctx, ev.OrgID, ev.CreatedByUserID)
 	for _, t := range targets {
-		if t.State != models.TargetStatePending {
+		if t.State != models.TargetStatePending && t.State != models.TargetStateDispatching {
 			continue
 		}
 		r.dispatchOneCurtail(cmdCtx, ev, t, models.TargetStatePending)
@@ -1069,7 +1075,15 @@ func (r *Reconciler) maybeClaimRestoreBatch(ctx context.Context, ev *models.Even
 
 	claim := make([]*models.Target, 0, batchSize)
 	for _, t := range targets {
-		if t.DesiredState != models.DesiredStateActive || t.State != models.TargetStatePending {
+		if t.DesiredState != models.DesiredStateActive {
+			continue
+		}
+		// PENDING is the normal restore claim. DISPATCHING is an orphan
+		// from a prior interrupted tick (crash / panic / context cancel
+		// between the DISPATCHING pre-write and the post-command write);
+		// re-claiming it lets the next tick re-issue Uncurtail — which
+		// is device-idempotent — instead of stalling the event forever.
+		if t.State != models.TargetStatePending && t.State != models.TargetStateDispatching {
 			continue
 		}
 		claim = append(claim, t)
