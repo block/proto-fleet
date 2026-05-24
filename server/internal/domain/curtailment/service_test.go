@@ -381,6 +381,11 @@ func defaultOrgConfig(orgID int64) *models.OrgConfig {
 // recordingMetrics is a goroutine-safe Metrics fake for asserting recorder
 // calls. The reconciler emits from its tick goroutine and the Service emits
 // from the request goroutine; the mutex is defensive across both.
+//
+// Compile-time assertion surfaces a missing method at build time rather than
+// letting the duplicate definition in reconciler/reconciler_test.go drift.
+var _ Metrics = (*recordingMetrics)(nil)
+
 type recordingMetrics struct {
 	mu                sync.Mutex
 	tickDurations     []time.Duration

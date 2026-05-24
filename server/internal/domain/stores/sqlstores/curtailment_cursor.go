@@ -50,11 +50,7 @@ func decodeCurtailmentEventCursor(encoded string) (*curtailmentEventCursor, erro
 		return nil, fleeterror.NewInvalidArgumentErrorf("invalid page_token: id must be > 0, got %d", cursor.ID)
 	}
 	if cursor.OrgID <= 0 {
-		// Legacy cursor: pre-OrgID-binding tokens still in flight from
-		// before the cross-list-binding guard landed. Restart from the
-		// first page rather than rejecting — the client paid the cost of
-		// a fresh scan but loses zero data and avoids an opaque error.
-		return nil, nil
+		return nil, fleeterror.NewInvalidArgumentErrorf("invalid page_token: org_id must be > 0, got %d", cursor.OrgID)
 	}
 	return &cursor, nil
 }

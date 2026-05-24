@@ -55,16 +55,29 @@ func TestCurtailmentEventCursor_RejectsNonPositiveID(t *testing.T) {
 	}
 }
 
-// TestCurtailmentEventCursor_LegacyMissingOrgIDRestartsFromFirstPage: a
-// pre-OrgID-binding token (still in flight from before the cross-list-binding
-// guard landed) must restart from the first page rather than reject, so a
-// long-lived pagination loop that decoded a stale token recovers transparently.
-func TestCurtailmentEventCursor_LegacyMissingOrgIDRestartsFromFirstPage(t *testing.T) {
+// TestCurtailmentEventCursor_RejectsNonPositiveOrgID: a token missing org_id
+// or carrying a non-positive value must reject — the store always emits
+// (org_id, id, state_filter) so a non-positive org_id signals tampering or
+// a forged token rather than a legitimate restart.
+func TestCurtailmentEventCursor_RejectsNonPositiveOrgID(t *testing.T) {
 	t.Parallel()
-	token := base64.StdEncoding.EncodeToString([]byte(`{"id":123}`))
-	decoded, err := decodeCurtailmentEventCursor(token)
-	require.NoError(t, err)
-	assert.Nil(t, decoded, "legacy token without org_id should restart from first page")
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{"missing org_id (json default zero)", `{"id":123}`},
+		{"zero org_id", `{"id":123,"org_id":0}`},
+		{"negative org_id", `{"id":123,"org_id":-1}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			token := base64.StdEncoding.EncodeToString([]byte(tc.body))
+			_, err := decodeCurtailmentEventCursor(token)
+			require.Error(t, err)
+			assert.True(t, fleeterror.IsInvalidArgumentError(err))
+			assert.Contains(t, err.Error(), "org_id must be > 0")
+		})
+	}
 }
 
 // TestCurtailmentEventCursor_RejectsBadEncoding: the proto-side max_len

@@ -14,11 +14,17 @@ import (
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/block/proto-fleet/server/internal/domain/command"
+	"github.com/block/proto-fleet/server/internal/domain/curtailment"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
+
+// Compile-time assertion that recordingMetrics satisfies curtailment.Metrics —
+// surfaces a missing method at build time rather than letting the duplicate
+// definition in service_test.go drift independently.
+var _ curtailment.Metrics = (*recordingMetrics)(nil)
 
 // fakeStore is an in-memory CurtailmentStore for reconciler tests. Methods
 // the reconciler does not exercise panic so an unintended call is loud.

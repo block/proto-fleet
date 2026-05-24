@@ -215,12 +215,6 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 	if req.RestoreBatchIntervalSec == 0 {
 		req.RestoreBatchIntervalSec = defaultRestoreBatchIntervalSec
 	}
-	if req.RestoreBatchIntervalSec > restoreBatchIntervalUpperBoundSec {
-		return nil, fleeterror.NewInvalidArgumentErrorf(
-			"restore_batch_interval_sec must be <= %d, got %d",
-			restoreBatchIntervalUpperBoundSec, req.RestoreBatchIntervalSec,
-		)
-	}
 	if req.RestoreBatchIntervalSec > nonAdminRestoreBatchIntervalMax && !req.CanUseAdminControls {
 		return nil, fleeterror.NewForbiddenErrorf(
 			"only admins can set restore_batch_interval_sec above %d",
@@ -473,9 +467,6 @@ func (s *Service) AdminTerminate(ctx context.Context, req AdminTerminateRequest)
 // apply. Audit writes are best-effort: activity.Service.Log swallows
 // errors so a transient activity-store failure doesn't fail the Start.
 func (s *Service) emitStartAuditTrail(ctx context.Context, req StartRequest, plan *Plan) {
-	if s.audit == nil {
-		return
-	}
 	metadata := map[string]any{
 		"strategy":                  string(req.Strategy),
 		"level":                     string(req.Level),
@@ -531,7 +522,7 @@ func (s *Service) emitStartAuditTrail(ctx context.Context, req StartRequest, pla
 // activity-store failure logs but does not roll back the terminal
 // transition (which is already committed by the store transaction).
 func (s *Service) emitAdminTerminateAuditTrail(ctx context.Context, req AdminTerminateRequest, event *models.Event) {
-	if s.audit == nil || event == nil {
+	if event == nil {
 		return
 	}
 	metadata := map[string]any{
@@ -694,7 +685,7 @@ func validateUpdateRequest(req UpdateRequest) error {
 
 // ListEvents returns cursor-paginated event history for an org. The
 // returned events carry decision_snapshot_jsonb intact; the handler trims
-// the snapshot to the published v1 read-API shape before serialization.
+// the snapshot to the published read-API shape before serialization.
 func (s *Service) ListEvents(ctx context.Context, req ListEventsRequest) ([]*models.Event, string, error) {
 	if req.OrgID <= 0 {
 		return nil, "", fleeterror.NewInvalidArgumentError("org_id must be set")

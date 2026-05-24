@@ -1,6 +1,4 @@
-// Package curtailment wires the RPC surface. PreviewCurtailmentPlan is
-// implemented; the remaining RPCs return Unimplemented and land in follow-up
-// work (Start + reconciler, Stop + restore, read APIs + audit).
+// Package curtailment wires the curtailment RPC surface.
 package curtailment
 
 import (
