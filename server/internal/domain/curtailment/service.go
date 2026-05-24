@@ -758,10 +758,6 @@ func validateUpdateRequest(req UpdateRequest) error {
 				restoreBatchIntervalUpperBoundSec, v,
 			)
 		}
-		// The non-admin cap (nonAdminRestoreBatchIntervalMax) is enforced in
-		// Service.Update against the *effective* patch (post-no-op-collapse),
-		// not here. Echoing an admin-elevated value as part of a no-op patch
-		// must not trip the gate.
 	}
 	if req.MaxDurationSeconds != nil {
 		v := *req.MaxDurationSeconds

@@ -547,10 +547,6 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 		return
 	}
 
-	// One liveness read per drift-scan; a concurrent AdminTerminate that
-	// lands after this check is caught by the DISPATCHING pre-write's
-	// EXISTS guard inside dispatchOneCurtail. See dispatchPending for the
-	// same race-closure model.
 	deviceIDs := make([]string, 0, len(targets))
 	for _, t := range targets {
 		deviceIDs = append(deviceIDs, t.DeviceIdentifier)
@@ -563,6 +559,7 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 	}
 	candByID := candidatesByDeviceID(cands)
 
+	// Per-tick liveness check; per-target race closure is in dispatchOneCurtail.
 	if !r.eventStillDispatchable(ctx, ev) {
 		return
 	}
