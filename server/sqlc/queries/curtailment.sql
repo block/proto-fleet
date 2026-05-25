@@ -212,11 +212,11 @@ RETURNING curtailment_event.*;
 -- name: SweepCurtailmentTargetsToRestoreFailed :exec
 -- Force every non-terminal target → RESTORE_FAILED with the
 -- admin-terminate reason. Paired with AdminTerminateCurtailmentEvent
--- in one tx.
+-- in one tx. (curtailment_target has no updated_at column — row
+-- mutability rides on state + per-write timestamps.)
 UPDATE curtailment_target
 SET state      = 'restore_failed',
-    last_error = sqlc.arg('last_error')::TEXT,
-    updated_at = NOW()
+    last_error = sqlc.arg('last_error')::TEXT
 WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
     AND state NOT IN ('resolved', 'restore_failed', 'released');
 
@@ -417,6 +417,22 @@ WHERE curtailment_event_id = locked_event.id
   AND device_identifier    = sqlc.arg('device_identifier')
   AND (sqlc.narg('expected_desired_state')::text IS NULL
        OR desired_state = sqlc.narg('expected_desired_state')::text);
+
+-- name: BumpCurtailmentTargetRetry :execrows
+-- Fallback when UpdateCurtailmentTargetState fails non-race-loss:
+-- advance retry_count alone so MaxRetries → RESTORE_FAILED escalation
+-- still lands on the next successful state-change write. EXISTS guard
+-- → zero rows → ErrCurtailmentEventStateRaceLoss on terminal parent.
+UPDATE curtailment_target
+SET retry_count = retry_count + 1
+WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
+  AND device_identifier    = sqlc.arg('device_identifier')
+  AND EXISTS (
+      SELECT 1
+      FROM curtailment_event
+      WHERE id = sqlc.arg('curtailment_event_id')
+        AND state IN ('pending', 'active', 'restoring')
+  );
 
 -- name: UpsertCurtailmentReconcilerHeartbeat :exec
 -- Singleton row at id=1; INSERT path only fires on accidental deletion.

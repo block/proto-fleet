@@ -227,6 +227,11 @@ func (r *Reconciler) runTick(ctx context.Context) {
 	if err != nil {
 		slog.Error("curtailment reconciler: failed to list non-terminal events", "error", err)
 		r.metrics.IncTickFailure()
+		// Heartbeat advances on tick freshness, not query health. The SQL
+		// staleness alert thus distinguishes "reconciler dead" (no upsert)
+		// from "DB read path degraded" (upsert advances, IncTickFailure
+		// rises).
+		r.upsertHeartbeat(ctx, tickStart, tickUUID, 0)
 		return
 	}
 
@@ -406,9 +411,8 @@ func (r *Reconciler) dispatchOneCurtail(ctx context.Context, ev *models.Event, t
 	now := r.now()
 	emptyErr := ""
 	batchID := result.BatchIdentifier
-	// Scope the post-cmd write to desired_state='curtailed' so a
-	// concurrent Stop (which flipped desired_state='active') doesn't get
-	// clobbered. observeRestoring picks up the reset target afterwards.
+	// Explicit dispatch direction at the call site; writeTargetState's
+	// auto-fill would derive the same value from ev.State.
 	desiredCurtailed := models.DesiredStateCurtailed
 	params := interfaces.UpdateCurtailmentTargetStateParams{
 		State:                models.TargetStateDispatched,
@@ -432,7 +436,9 @@ func (r *Reconciler) dispatchOneCurtail(ctx context.Context, ev *models.Event, t
 }
 
 // recordDispatchFailure bumps retry_count; transitions to RestoreFailed
-// at MaxRetries so the event can still proceed.
+// at MaxRetries so the event can still proceed. On non-race-loss write
+// failure, falls back to BumpTargetRetry so the budget still advances
+// across ticks even when the rich state-change UPDATE can't land.
 func (r *Reconciler) recordDispatchFailure(ctx context.Context, ev *models.Event, t *models.Target, errMsg string, nonTerminalFailureState models.TargetState) {
 	newRetry := t.RetryCount + 1
 	state := nonTerminalFailureState
@@ -444,16 +450,30 @@ func (r *Reconciler) recordDispatchFailure(ctx context.Context, ev *models.Event
 		LastError:  &errMsg,
 		RetryCount: &newRetry,
 	}
-	if err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, params); err != nil {
-		if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
-			slog.Error("curtailment reconciler: target update after dispatch failure failed",
-				"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
+	err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, params)
+	if err == nil {
+		t.State = state
+		t.RetryCount = newRetry
+		t.LastError = &errMsg
+		return
+	}
+	if errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
+		return
+	}
+	slog.Error("curtailment reconciler: target update after dispatch failure failed",
+		"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
+	// Fallback: advance retry budget only. State stays at the prior value
+	// (next tick re-issues the dispatch); MaxRetries → RESTORE_FAILED
+	// escalation lands on the next successful UpdateTargetState.
+	if bumpErr := r.store.BumpTargetRetry(ctx, ev.ID, t.DeviceIdentifier); bumpErr != nil {
+		if !errors.Is(bumpErr, interfaces.ErrCurtailmentEventStateRaceLoss) {
+			r.metrics.IncTargetWriteFailure()
+			slog.Error("curtailment reconciler: retry-budget bump fallback failed",
+				"event_id", ev.ID, "device", t.DeviceIdentifier, "error", bumpErr)
 		}
 		return
 	}
-	t.State = state
 	t.RetryCount = newRetry
-	t.LastError = &errMsg
 }
 
 // candidatesByDeviceID indexes a candidate slice by device identifier for
@@ -1125,7 +1145,7 @@ func (r *Reconciler) dispatchRestoreBatch(ctx context.Context, ev *models.Event,
 			continue
 		}
 		emptyErr := ""
-		// Symmetric to the Curtail-phase write: scope to desired_state='active'.
+		// Symmetric to the Curtail-phase post-cmd write above.
 		desiredActive := models.DesiredStateActive
 		params := interfaces.UpdateCurtailmentTargetStateParams{
 			State:                models.TargetStateDispatched,

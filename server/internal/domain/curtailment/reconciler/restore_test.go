@@ -488,6 +488,9 @@ func TestReconciler_Restoring_AllPreWriteFailuresSkipUncurtail(t *testing.T) {
 	store.updateTargetStateHook = func(string, interfaces.UpdateCurtailmentTargetStateParams, int) error {
 		return errors.New("transient db blip")
 	}
+	// Fully-degraded DB: the fallback retry-budget bump also fails, so
+	// retry_count stays at 0 in both the DB and the in-memory mirror.
+	store.bumpTargetRetryErr = errors.New("transient db blip")
 
 	r := newReconcilerForTest(store, disp)
 	effBatch := int32(2)
@@ -571,6 +574,52 @@ func TestReconciler_Restoring_PreWriteFailurePersistsExhaustsRetryBudget(t *test
 	assert.Equal(t, int32(3), m1.RetryCount)
 	assert.Equal(t, 0, disp.uncurtailCalls,
 		"cmd.Uncurtail never fires because the pre-write never lands")
+}
+
+// When the rich UpdateTargetState write inside recordDispatchFailure fails
+// non-race-loss, the fallback BumpTargetRetry persists a retry_count
+// advance even though state stays at the prior value. This lets a
+// persistently-failing state-change write still escalate to RESTORE_FAILED
+// on the next successful UpdateTargetState rather than looping forever
+// without budget progress.
+func TestReconciler_Restoring_RecoveryWriteFailureFallsBackToBumpRetry(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	// Every UpdateTargetState write fails non-race-loss, but BumpTargetRetry
+	// succeeds — models the case where the rich UPDATE is blocked (lock
+	// timeout, deadline, etc.) but the simple counter UPDATE still lands.
+	store.updateTargetStateHook = func(string, interfaces.UpdateCurtailmentTargetStateParams, int) error {
+		return errors.New("transient db blip")
+	}
+
+	r := newReconcilerForTest(store, disp)
+	effBatch := int32(1)
+	eventID := int64(91)
+	store.events = []*models.Event{{
+		ID:                      eventID,
+		EventUUID:               uuid.New(),
+		OrgID:                   1,
+		State:                   models.EventStateRestoring,
+		EffectiveBatchSize:      &effBatch,
+		RestoreBatchIntervalSec: 0,
+	}}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "m1", State: models.TargetStatePending, DesiredState: models.DesiredStateActive},
+	}
+
+	r.runTick(context.Background())
+
+	m1 := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStatePending, m1.State,
+		"state stays at the prior value when the rich UPDATE fails")
+	assert.Equal(t, int32(1), m1.RetryCount,
+		"retry budget advances via BumpTargetRetry fallback even though the rich UPDATE didn't land")
+	assert.Equal(t, 1, store.bumpTargetRetryCalls,
+		"fallback fires exactly once per recordDispatchFailure invocation")
+	assert.Equal(t, "m1", store.lastBumpTargetRetry.DeviceIdentifier)
+	assert.Equal(t, 0, disp.uncurtailCalls,
+		"cmd.Uncurtail does not fire because the DISPATCHING pre-write failed")
 }
 
 // Uncurtail returning empty BatchIdentifier (no live devices) burns

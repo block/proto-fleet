@@ -94,6 +94,9 @@ func (s *adminTerminateStubStore) UpdateEventState(context.Context, int64, model
 func (s *adminTerminateStubStore) UpdateTargetState(context.Context, int64, string, interfaces.UpdateCurtailmentTargetStateParams) error {
 	panic("UpdateTargetState not exercised by AdminTerminate handler tests")
 }
+func (s *adminTerminateStubStore) BumpTargetRetry(context.Context, int64, string) error {
+	panic("BumpTargetRetry not exercised by AdminTerminate handler tests")
+}
 func (s *adminTerminateStubStore) UpsertHeartbeat(context.Context, interfaces.UpsertCurtailmentHeartbeatParams) error {
 	panic("UpsertHeartbeat not exercised by AdminTerminate handler tests")
 }

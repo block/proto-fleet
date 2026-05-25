@@ -84,6 +84,9 @@ func (s *listStubStore) UpdateEventState(context.Context, int64, models.EventSta
 func (s *listStubStore) UpdateTargetState(context.Context, int64, string, interfaces.UpdateCurtailmentTargetStateParams) error {
 	panic("UpdateTargetState not exercised by List handler tests")
 }
+func (s *listStubStore) BumpTargetRetry(context.Context, int64, string) error {
+	panic("BumpTargetRetry not exercised by List handler tests")
+}
 func (s *listStubStore) UpsertHeartbeat(context.Context, interfaces.UpsertCurtailmentHeartbeatParams) error {
 	panic("UpsertHeartbeat not exercised by List handler tests")
 }

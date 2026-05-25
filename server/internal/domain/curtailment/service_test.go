@@ -205,7 +205,7 @@ func (f *fakeStore) AdminTerminateEvent(_ context.Context, _ int64, eventUUID uu
 // state IN ('pending','active','restoring') predicate on the replay
 // lookups. Tests that seed terminal events into the lookup maps must
 // see nil here so they exercise the fresh-Start path rather than a
-// stale replay — the AD2 stale-terminal-replay fix.
+// stale replay.
 func filterNonTerminalReplayEvent(ev *models.Event) *models.Event {
 	if ev == nil {
 		return nil
@@ -318,6 +318,10 @@ func (f *fakeStore) UpdateEventState(context.Context, int64, models.EventState, 
 
 func (f *fakeStore) UpdateTargetState(context.Context, int64, string, interfaces.UpdateCurtailmentTargetStateParams) error {
 	panic("UpdateTargetState not exercised by Preview/Start/Stop tests")
+}
+
+func (f *fakeStore) BumpTargetRetry(context.Context, int64, string) error {
+	panic("BumpTargetRetry not exercised by Preview/Start/Stop tests")
 }
 
 func (f *fakeStore) UpsertHeartbeat(context.Context, interfaces.UpsertCurtailmentHeartbeatParams) error {

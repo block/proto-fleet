@@ -46,6 +46,11 @@ service CurtailmentService {
     //     StopCurtailment first.
     //   - 2 (AdminTerminateStateConflict): event already settled in a
     //     different terminal state. Not retryable.
+    //
+    // RESTORING-event semantics: the in-flight gate matches only
+    // desired_state=CURTAILED, so a terminate during restore proceeds
+    // even when Uncurtails are in flight. Race-window targets persist as
+    // RESTORE_FAILED while the device may actually be restored.
     rpc AdminTerminateEvent(AdminTerminateEventRequest)
         returns (AdminTerminateEventResponse);
 
@@ -473,15 +478,16 @@ message StartCurtailmentResponse {
     CurtailmentEvent event = 1;
 }
 
-// UpdateCurtailmentEvent supports operator-safe field updates.
+// UpdateCurtailmentEvent supports operator-safe field updates. Optional
+// fields allow partial updates; bounds mirror StartCurtailmentRequest so
+// the same value rejected at Start cannot tunnel in via Update.
 message UpdateCurtailmentEventRequest {
     string event_uuid = 1 [(buf.validate.field).string.min_len = 1];
 
-    // Optional fields allow partial updates.
-    optional string reason                     = 10;
-    optional uint32 restore_batch_size         = 11;
-    optional uint32 restore_batch_interval_sec = 12;
-    optional uint32 max_duration_seconds       = 13;
+    optional string reason                     = 10 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
+    optional uint32 restore_batch_size         = 11 [(buf.validate.field).uint32 = {lte: 10000}];
+    optional uint32 restore_batch_interval_sec = 12 [(buf.validate.field).uint32 = {lte: 3600}];
+    optional uint32 max_duration_seconds       = 13 [(buf.validate.field).uint32 = {lte: 604800}];
 }
 
 message UpdateCurtailmentEventResponse {
@@ -514,9 +520,12 @@ message GetActiveCurtailmentResponse {
 }
 
 // ListCurtailmentEvents returns historical events. Each event omits
-// `target_rollup`/`targets` and ships a trimmed `decision_snapshot` where
-// the per-device `skipped` array is collapsed into `skipped_aggregate`
-// (reason → count). Use GetActiveCurtailment for the full per-target shape.
+// `target_rollup`/`targets`, scrubs webhook trigger metadata
+// (`external_source`, `external_reference`, `idempotency_key`), and
+// ships a trimmed `decision_snapshot` where the per-device `skipped`
+// array is collapsed into `skipped_aggregate` (reason → count). Use
+// GetActiveCurtailment for the full per-target shape and untrimmed
+// trigger attribution.
 message ListCurtailmentEventsRequest {
     int32 page_size = 1 [(buf.validate.field).int32 = {
         gte: 0

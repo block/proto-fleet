@@ -46,6 +46,10 @@ type fakeStore struct {
 	updateTargetStateErr  error
 	updateTargetStateHook func(device string, params interfaces.UpdateCurtailmentTargetStateParams, call int) error
 
+	bumpTargetRetryCalls int
+	lastBumpTargetRetry  bumpRetryCall
+	bumpTargetRetryErr   error
+
 	listTargetsByEventCalls int
 
 	heartbeatCalls        int
@@ -56,6 +60,11 @@ type fakeStore struct {
 	beginRestoreCalls       int
 	beginRestoreLastEventID uuid.UUID
 	beginRestoreErr         error
+}
+
+type bumpRetryCall struct {
+	EventID          int64
+	DeviceIdentifier string
 }
 
 func newFakeStore() *fakeStore {
@@ -203,9 +212,10 @@ func (f *fakeStore) UpdateTargetState(_ context.Context, eventID int64, deviceId
 			//
 			// Test-double simplification: an empty t.DesiredState means the
 			// test author didn't set it (production targets are NOT NULL).
-			// We treat empty as "any" here so existing tests that don't
-			// care about phase don't have to backfill the field. Tests that
-			// pin the AD7 race set t.DesiredState explicitly.
+			// Treat empty as "any" so existing tests that don't care about
+			// phase don't have to backfill the field. Tests that pin the
+			// Curtail-vs-Stop dispatch-direction race set t.DesiredState
+			// explicitly.
 			if params.ExpectedEventState != nil {
 				for _, ev := range f.events {
 					if ev.ID == eventID && ev.State != *params.ExpectedEventState {
@@ -248,6 +258,21 @@ func (f *fakeStore) UpdateTargetState(_ context.Context, eventID int64, deviceId
 		}
 	}
 	return nil
+}
+
+func (f *fakeStore) BumpTargetRetry(_ context.Context, eventID int64, deviceIdentifier string) error {
+	f.bumpTargetRetryCalls++
+	f.lastBumpTargetRetry = bumpRetryCall{EventID: eventID, DeviceIdentifier: deviceIdentifier}
+	if f.bumpTargetRetryErr != nil {
+		return f.bumpTargetRetryErr
+	}
+	for _, t := range f.targetsByEventID[eventID] {
+		if t.DeviceIdentifier == deviceIdentifier {
+			t.RetryCount++
+			return nil
+		}
+	}
+	return interfaces.ErrCurtailmentEventStateRaceLoss
 }
 
 func (f *fakeStore) UpsertHeartbeat(_ context.Context, params interfaces.UpsertCurtailmentHeartbeatParams) error {
@@ -974,7 +999,12 @@ func TestReconciler_HeartbeatAdvancesOnEveryTick(t *testing.T) {
 	assert.Equal(t, 3, store.heartbeatCalls)
 }
 
-func TestReconciler_ListEventsErrorSkipsHeartbeatAndIncrementsFailure(t *testing.T) {
+// Heartbeat advances on tick freshness, not query health: a List failure
+// still upserts the heartbeat (with active_count=0) and increments
+// IncTickFailure, so the SQL staleness alert distinguishes "reconciler
+// dead" (no upsert) from "DB read path degraded" (upsert advances,
+// IncTickFailure rises).
+func TestReconciler_ListEventsErrorAdvancesHeartbeatAndIncrementsFailure(t *testing.T) {
 	store := newFakeStore()
 	store.listEventsErr = errors.New("db down")
 	disp := &fakeDispatcher{}
@@ -988,7 +1018,10 @@ func TestReconciler_ListEventsErrorSkipsHeartbeatAndIncrementsFailure(t *testing
 	}, store, disp, WithMetrics(metrics))
 	r.runTick(context.Background())
 
-	assert.Equal(t, 0, store.heartbeatCalls)
+	assert.Equal(t, 1, store.heartbeatCalls,
+		"heartbeat must advance on tick freshness so the SQL staleness alert distinguishes reconciler-dead from DB-read-degraded")
+	assert.Equal(t, int32(0), store.lastHeartbeatActive,
+		"List failure carries activeCount=0 — no events observed this tick")
 	assert.Equal(t, 1, metrics.TickFailureCount())
 }
 

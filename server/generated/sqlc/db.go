@@ -63,6 +63,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.bulkInsertCurtailmentTargetsStmt, err = db.PrepareContext(ctx, bulkInsertCurtailmentTargets); err != nil {
 		return nil, fmt.Errorf("error preparing query BulkInsertCurtailmentTargets: %w", err)
 	}
+	if q.bumpCurtailmentTargetRetryStmt, err = db.PrepareContext(ctx, bumpCurtailmentTargetRetry); err != nil {
+		return nil, fmt.Errorf("error preparing query BumpCurtailmentTargetRetry: %w", err)
+	}
 	if q.cancelEnrollmentForFleetNodeStmt, err = db.PrepareContext(ctx, cancelEnrollmentForFleetNode); err != nil {
 		return nil, fmt.Errorf("error preparing query CancelEnrollmentForFleetNode: %w", err)
 	}
@@ -1073,6 +1076,11 @@ func (q *Queries) Close() error {
 	if q.bulkInsertCurtailmentTargetsStmt != nil {
 		if cerr := q.bulkInsertCurtailmentTargetsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing bulkInsertCurtailmentTargetsStmt: %w", cerr)
+		}
+	}
+	if q.bumpCurtailmentTargetRetryStmt != nil {
+		if cerr := q.bumpCurtailmentTargetRetryStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing bumpCurtailmentTargetRetryStmt: %w", cerr)
 		}
 	}
 	if q.cancelEnrollmentForFleetNodeStmt != nil {
@@ -2697,6 +2705,7 @@ type Queries struct {
 	buildingBelongsToOrgStmt                            *sql.Stmt
 	buildingsByIDsStmt                                  *sql.Stmt
 	bulkInsertCurtailmentTargetsStmt                    *sql.Stmt
+	bumpCurtailmentTargetRetryStmt                      *sql.Stmt
 	cancelEnrollmentForFleetNodeStmt                    *sql.Stmt
 	cancelPendingEnrollmentStmt                         *sql.Stmt
 	cascadeAddedDeviceSitesStmt                         *sql.Stmt
@@ -3030,6 +3039,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		buildingBelongsToOrgStmt:                            q.buildingBelongsToOrgStmt,
 		buildingsByIDsStmt:                                  q.buildingsByIDsStmt,
 		bulkInsertCurtailmentTargetsStmt:                    q.bulkInsertCurtailmentTargetsStmt,
+		bumpCurtailmentTargetRetryStmt:                      q.bumpCurtailmentTargetRetryStmt,
 		cancelEnrollmentForFleetNodeStmt:                    q.cancelEnrollmentForFleetNodeStmt,
 		cancelPendingEnrollmentStmt:                         q.cancelPendingEnrollmentStmt,
 		cascadeAddedDeviceSitesStmt:                         q.cascadeAddedDeviceSitesStmt,

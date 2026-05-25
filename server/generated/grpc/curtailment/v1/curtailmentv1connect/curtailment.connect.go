@@ -85,6 +85,11 @@ type CurtailmentServiceClient interface {
 	//     StopCurtailment first.
 	//   - 2 (AdminTerminateStateConflict): event already settled in a
 	//     different terminal state. Not retryable.
+	//
+	// RESTORING-event semantics: the in-flight gate matches only
+	// desired_state=CURTAILED, so a terminate during restore proceeds
+	// even when Uncurtails are in flight. Race-window targets persist as
+	// RESTORE_FAILED while the device may actually be restored.
 	AdminTerminateEvent(context.Context, *connect.Request[v1.AdminTerminateEventRequest]) (*connect.Response[v1.AdminTerminateEventResponse], error)
 }
 
@@ -210,6 +215,11 @@ type CurtailmentServiceHandler interface {
 	//     StopCurtailment first.
 	//   - 2 (AdminTerminateStateConflict): event already settled in a
 	//     different terminal state. Not retryable.
+	//
+	// RESTORING-event semantics: the in-flight gate matches only
+	// desired_state=CURTAILED, so a terminate during restore proceeds
+	// even when Uncurtails are in flight. Race-window targets persist as
+	// RESTORE_FAILED while the device may actually be restored.
 	AdminTerminateEvent(context.Context, *connect.Request[v1.AdminTerminateEventRequest]) (*connect.Response[v1.AdminTerminateEventResponse], error)
 }
 

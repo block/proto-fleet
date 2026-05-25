@@ -109,6 +109,9 @@ func (s *stopStubStore) UpdateEventState(context.Context, int64, models.EventSta
 func (s *stopStubStore) UpdateTargetState(context.Context, int64, string, interfaces.UpdateCurtailmentTargetStateParams) error {
 	panic("UpdateTargetState not exercised")
 }
+func (s *stopStubStore) BumpTargetRetry(context.Context, int64, string) error {
+	panic("BumpTargetRetry not exercised")
+}
 func (s *stopStubStore) UpsertHeartbeat(context.Context, interfaces.UpsertCurtailmentHeartbeatParams) error {
 	panic("UpsertHeartbeat not exercised")
 }

@@ -523,6 +523,20 @@ func (s *SQLCurtailmentStore) UpdateTargetState(ctx context.Context, eventID int
 	return nil
 }
 
+func (s *SQLCurtailmentStore) BumpTargetRetry(ctx context.Context, eventID int64, deviceIdentifier string) error {
+	rows, err := s.GetQueries(ctx).BumpCurtailmentTargetRetry(ctx, sqlc.BumpCurtailmentTargetRetryParams{
+		CurtailmentEventID: eventID,
+		DeviceIdentifier:   deviceIdentifier,
+	})
+	if err != nil {
+		return fleeterror.NewInternalErrorf("failed to bump curtailment target retry (%d, %s): %v", eventID, deviceIdentifier, err)
+	}
+	if rows == 0 {
+		return interfaces.ErrCurtailmentEventStateRaceLoss
+	}
+	return nil
+}
+
 func (s *SQLCurtailmentStore) UpsertHeartbeat(ctx context.Context, params interfaces.UpsertCurtailmentHeartbeatParams) error {
 	if err := s.GetQueries(ctx).UpsertCurtailmentReconcilerHeartbeat(ctx, sqlc.UpsertCurtailmentReconcilerHeartbeatParams{
 		LastTickAt:         params.LastTickAt,

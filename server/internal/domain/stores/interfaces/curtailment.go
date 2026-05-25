@@ -80,7 +80,7 @@ type ListEventsParams struct {
 // UpdateOperatorFieldsParams carries the optional patch fields for a
 // partial event update. nil values preserve the column via COALESCE.
 // effective_batch_size is not on this surface — recomputing mid-event
-// would race an in-flight restore claim (Open #13).
+// would race an in-flight restore claim.
 type UpdateOperatorFieldsParams struct {
 	Reason                  *string
 	RestoreBatchSize        *int32
@@ -164,6 +164,12 @@ type CurtailmentStore interface {
 	// UpdateTargetState patches the (eventID, deviceIdentifier) row.
 	// Non-state fields use COALESCE: nil preserves the existing column.
 	UpdateTargetState(ctx context.Context, eventID int64, deviceIdentifier string, params UpdateCurtailmentTargetStateParams) error
+
+	// BumpTargetRetry increments retry_count without touching state or
+	// last_error. Fallback for recordDispatchFailure when the rich
+	// UpdateTargetState fails non-race-loss. Returns
+	// ErrCurtailmentEventStateRaceLoss on terminal parent.
+	BumpTargetRetry(ctx context.Context, eventID int64, deviceIdentifier string) error
 
 	// UpsertHeartbeat overwrites the singleton row at id=1.
 	UpsertHeartbeat(ctx context.Context, params UpsertCurtailmentHeartbeatParams) error

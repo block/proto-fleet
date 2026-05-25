@@ -190,6 +190,36 @@ func (q *Queries) BulkInsertCurtailmentTargets(ctx context.Context, arg BulkInse
 	return result.RowsAffected()
 }
 
+const bumpCurtailmentTargetRetry = `-- name: BumpCurtailmentTargetRetry :execrows
+UPDATE curtailment_target
+SET retry_count = retry_count + 1
+WHERE curtailment_event_id = $1
+  AND device_identifier    = $2
+  AND EXISTS (
+      SELECT 1
+      FROM curtailment_event
+      WHERE id = $1
+        AND state IN ('pending', 'active', 'restoring')
+  )
+`
+
+type BumpCurtailmentTargetRetryParams struct {
+	CurtailmentEventID int64
+	DeviceIdentifier   string
+}
+
+// Fallback when UpdateCurtailmentTargetState fails non-race-loss:
+// advance retry_count alone so MaxRetries → RESTORE_FAILED escalation
+// still lands on the next successful state-change write. EXISTS guard
+// → zero rows → ErrCurtailmentEventStateRaceLoss on terminal parent.
+func (q *Queries) BumpCurtailmentTargetRetry(ctx context.Context, arg BumpCurtailmentTargetRetryParams) (int64, error) {
+	result, err := q.exec(ctx, q.bumpCurtailmentTargetRetryStmt, bumpCurtailmentTargetRetry, arg.CurtailmentEventID, arg.DeviceIdentifier)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const curtailmentEventHasInFlightTargets = `-- name: CurtailmentEventHasInFlightTargets :one
 SELECT EXISTS (
     SELECT 1
@@ -1177,8 +1207,7 @@ func (q *Queries) ResetCurtailmentTargetsForRestore(ctx context.Context, curtail
 const sweepCurtailmentTargetsToRestoreFailed = `-- name: SweepCurtailmentTargetsToRestoreFailed :exec
 UPDATE curtailment_target
 SET state      = 'restore_failed',
-    last_error = $1::TEXT,
-    updated_at = NOW()
+    last_error = $1::TEXT
 WHERE curtailment_event_id = $2
     AND state NOT IN ('resolved', 'restore_failed', 'released')
 `
@@ -1190,7 +1219,8 @@ type SweepCurtailmentTargetsToRestoreFailedParams struct {
 
 // Force every non-terminal target → RESTORE_FAILED with the
 // admin-terminate reason. Paired with AdminTerminateCurtailmentEvent
-// in one tx.
+// in one tx. (curtailment_target has no updated_at column — row
+// mutability rides on state + per-write timestamps.)
 func (q *Queries) SweepCurtailmentTargetsToRestoreFailed(ctx context.Context, arg SweepCurtailmentTargetsToRestoreFailedParams) error {
 	_, err := q.exec(ctx, q.sweepCurtailmentTargetsToRestoreFailedStmt, sweepCurtailmentTargetsToRestoreFailed, arg.LastError, arg.CurtailmentEventID)
 	return err

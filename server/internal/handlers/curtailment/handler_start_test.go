@@ -132,6 +132,10 @@ func (s *startStubStore) UpdateTargetState(context.Context, int64, string, inter
 	panic("UpdateTargetState not exercised by handler Start tests")
 }
 
+func (s *startStubStore) BumpTargetRetry(context.Context, int64, string) error {
+	panic("BumpTargetRetry not exercised by handler Start tests")
+}
+
 func (s *startStubStore) UpsertHeartbeat(context.Context, interfaces.UpsertCurtailmentHeartbeatParams) error {
 	panic("UpsertHeartbeat not exercised by handler Start tests")
 }
