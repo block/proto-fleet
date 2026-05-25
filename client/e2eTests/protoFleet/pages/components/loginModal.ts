@@ -2,8 +2,7 @@ import { testConfig } from "../../config/test.config";
 import { BasePage } from "../base";
 
 export class LoginModalComponent extends BasePage {
-  async loginAsAdmin() {
-    const headingText = "Log in to update your pool settings";
+  private async loginAsAdminForTitle(headingText: string) {
     await this.validateTitleInModal(headingText);
     const modal = this.page.getByTestId("modal");
 
@@ -12,5 +11,17 @@ export class LoginModalComponent extends BasePage {
     await modal.getByRole("button", { name: "Continue" }).click();
 
     await this.validateTitleInModalNotVisible(headingText);
+  }
+
+  async loginAsAdmin() {
+    await this.loginAsAdminForTitle("Log in to update your pool settings");
+  }
+
+  async loginAsAdminForWorkerNames() {
+    await this.loginAsAdminForTitle("Log in to update worker names");
+  }
+
+  async loginAsAdminForSecurity() {
+    await this.loginAsAdminForTitle("Log in to update your security settings");
   }
 }
