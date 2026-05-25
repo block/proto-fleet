@@ -4,6 +4,7 @@ import FullScreenTwoPaneModal, {
   type FullScreenTwoPaneModalProps,
 } from "@/protoFleet/components/FullScreenTwoPaneModal";
 import TargetSelectButton, { getTargetButtonLabel } from "@/protoFleet/components/TargetSelectButton";
+import { formatCurtailmentKw as formatKw } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import {
   getUnsupportedDeviceSetPreviewError,
   useCurtailmentPlanPreview,
@@ -256,13 +257,6 @@ function Section({ title, children }: SectionProps): ReactElement {
       {children}
     </section>
   );
-}
-
-function formatKw(value: number): string {
-  return `${value.toLocaleString(undefined, {
-    maximumFractionDigits: 1,
-    minimumFractionDigits: 1,
-  })} kW`;
 }
 
 function clampPercentage(value: number): number {

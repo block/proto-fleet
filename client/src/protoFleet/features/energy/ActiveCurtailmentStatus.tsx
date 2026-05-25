@@ -1,7 +1,12 @@
 import { type ReactElement, type ReactNode } from "react";
 import clsx from "clsx";
 
-import type { CurtailmentEventState } from "@/protoFleet/features/energy/CurtailmentHistory";
+import {
+  type CurtailmentEventState,
+  formatCurtailmentKw as formatKw,
+  formatCurtailmentMinerCount as formatMinerCount,
+  getCurtailmentTargetKw as getTargetKw,
+} from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import { Alert, Success } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
@@ -216,23 +221,6 @@ function StatBlock({ label, value, detail }: StatBlockProps): ReactElement {
       ) : null}
     </div>
   );
-}
-
-function getTargetKw(event: Pick<ActiveCurtailmentEvent, "targetKw" | "estimatedReductionKw">): number {
-  return event.targetKw ?? event.estimatedReductionKw;
-}
-
-function formatKw(value: number, fractionDigits = 1): string {
-  const finiteValue = Number.isFinite(value) ? value : 0;
-
-  return `${finiteValue.toLocaleString(undefined, {
-    maximumFractionDigits: fractionDigits,
-    minimumFractionDigits: fractionDigits,
-  })} kW`;
-}
-
-function formatMinerCount(minerCount: number): string {
-  return `${minerCount.toLocaleString()} ${minerCount === 1 ? "miner" : "miners"}`;
 }
 
 function getDateTime(value?: string): Date | undefined {
