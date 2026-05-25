@@ -443,11 +443,19 @@ func (r *Reconciler) dispatchOneCurtail(ctx context.Context, ev *models.Event, t
 	now := r.now()
 	emptyErr := ""
 	batchID := result.BatchIdentifier
+	// Scope the post-cmd write to desired_state='curtailed'. If a concurrent
+	// Stop flipped the target to desired_state='active' (i.e., reset for
+	// restore) between our pre-cmd write and now, this UPDATE must
+	// race-lose — clobbering Stop's reset would leave the device curtailed
+	// with no compensating Uncurtail queued. observeRestoring will pick up
+	// the post-reset target and issue Uncurtail via the normal restore path.
+	desiredCurtailed := models.DesiredStateCurtailed
 	params := interfaces.UpdateCurtailmentTargetStateParams{
-		State:            models.TargetStateDispatched,
-		LastDispatchedAt: &now,
-		LastError:        &emptyErr,
-		LastBatchUUID:    &batchID,
+		State:                models.TargetStateDispatched,
+		LastDispatchedAt:     &now,
+		LastError:            &emptyErr,
+		LastBatchUUID:        &batchID,
+		ExpectedDesiredState: &desiredCurtailed,
 	}
 	if err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, params); err != nil {
 		if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
@@ -1212,11 +1220,18 @@ func (r *Reconciler) dispatchRestoreBatch(ctx context.Context, ev *models.Event,
 			continue
 		}
 		emptyErr := ""
+		// Symmetric to the Curtail-phase post-cmd write: scope to
+		// desired_state='active' so a target whose desired_state has been
+		// changed out from under the restore tick (no current flow does this,
+		// but the predicate keeps the guarantee load-bearing) cannot have a
+		// stale Uncurtail batch stamped on it.
+		desiredActive := models.DesiredStateActive
 		params := interfaces.UpdateCurtailmentTargetStateParams{
-			State:            models.TargetStateDispatched,
-			LastDispatchedAt: &now,
-			LastBatchUUID:    &batchID,
-			LastError:        &emptyErr,
+			State:                models.TargetStateDispatched,
+			LastDispatchedAt:     &now,
+			LastBatchUUID:        &batchID,
+			LastError:            &emptyErr,
+			ExpectedDesiredState: &desiredActive,
 		}
 		if err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, params); err != nil {
 			if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {

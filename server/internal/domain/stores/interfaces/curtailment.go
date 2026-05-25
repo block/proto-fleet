@@ -54,15 +54,24 @@ var ErrCurtailmentEventStateRaceLoss = errors.New("curtailment event state advan
 
 // UpdateCurtailmentTargetStateParams: optional patch fields. Nil pointers
 // leave the column unchanged via COALESCE in the SQL update.
+//
+// ExpectedDesiredState narrows the write to a target whose current
+// desired_state still matches the caller's dispatch direction. Set this on
+// post-cmd writes ('curtailed' for Curtail-phase, 'active' for
+// Restore-phase) so a concurrent Stop that flipped desired_state to
+// 'active' makes the Curtail-phase write race-lose instead of clobbering
+// Stop's reset and stranding the miner curtailed. Leave nil on writes
+// that legitimately apply across phases (confirmation, error bookkeeping).
 type UpdateCurtailmentTargetStateParams struct {
-	State            models.TargetState
-	LastDispatchedAt *time.Time
-	LastBatchUUID    *string
-	ObservedPowerW   *float64
-	ObservedAt       *time.Time
-	ConfirmedAt      *time.Time
-	RetryCount       *int32
-	LastError        *string
+	State                models.TargetState
+	LastDispatchedAt     *time.Time
+	LastBatchUUID        *string
+	ObservedPowerW       *float64
+	ObservedAt           *time.Time
+	ConfirmedAt          *time.Time
+	RetryCount           *int32
+	LastError            *string
+	ExpectedDesiredState *string
 }
 
 // UpsertCurtailmentHeartbeatParams describes the singleton liveness row

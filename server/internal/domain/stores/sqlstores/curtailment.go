@@ -527,16 +527,17 @@ func (s *SQLCurtailmentStore) UpdateEventState(ctx context.Context, eventID int6
 
 func (s *SQLCurtailmentStore) UpdateTargetState(ctx context.Context, eventID int64, deviceIdentifier string, params interfaces.UpdateCurtailmentTargetStateParams) error {
 	rows, err := s.GetQueries(ctx).UpdateCurtailmentTargetState(ctx, sqlc.UpdateCurtailmentTargetStateParams{
-		CurtailmentEventID: eventID,
-		DeviceIdentifier:   deviceIdentifier,
-		State:              string(params.State),
-		LastDispatchedAt:   ptrToNullTime(params.LastDispatchedAt),
-		LastBatchUuid:      ptrToNullString(params.LastBatchUUID),
-		ObservedPowerW:     ptrFloat64ToNullString(params.ObservedPowerW),
-		ObservedAt:         ptrToNullTime(params.ObservedAt),
-		ConfirmedAt:        ptrToNullTime(params.ConfirmedAt),
-		RetryCount:         ptrToNullInt32(params.RetryCount),
-		LastError:          ptrToNullString(params.LastError),
+		CurtailmentEventID:   eventID,
+		DeviceIdentifier:     deviceIdentifier,
+		State:                string(params.State),
+		LastDispatchedAt:     ptrToNullTime(params.LastDispatchedAt),
+		LastBatchUuid:        ptrToNullString(params.LastBatchUUID),
+		ObservedPowerW:       ptrFloat64ToNullString(params.ObservedPowerW),
+		ObservedAt:           ptrToNullTime(params.ObservedAt),
+		ConfirmedAt:          ptrToNullTime(params.ConfirmedAt),
+		RetryCount:           ptrToNullInt32(params.RetryCount),
+		LastError:            ptrToNullString(params.LastError),
+		ExpectedDesiredState: ptrToNullString(params.ExpectedDesiredState),
 	})
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to update curtailment target (%d, %s) state: %v", eventID, deviceIdentifier, err)

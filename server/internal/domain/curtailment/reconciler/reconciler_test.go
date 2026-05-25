@@ -193,6 +193,19 @@ func (f *fakeStore) UpdateTargetState(_ context.Context, eventID int64, deviceId
 	}
 	for _, t := range f.targetsByEventID[eventID] {
 		if t.DeviceIdentifier == deviceIdentifier {
+			// Honor the ExpectedDesiredState predicate: the real SQL's
+			// `desired_state = $11` clause makes the UPDATE no-op when the
+			// caller's expected direction doesn't match the row, surfacing
+			// as the race-loss sentinel. The fake mirrors that contract.
+			//
+			// Test-double simplification: an empty t.DesiredState means the
+			// test author didn't set it (production targets are NOT NULL).
+			// We treat empty as "any" here so existing tests that don't
+			// care about phase don't have to backfill the field. Tests that
+			// pin the AD7 race set t.DesiredState explicitly.
+			if params.ExpectedDesiredState != nil && t.DesiredState != "" && t.DesiredState != *params.ExpectedDesiredState {
+				return interfaces.ErrCurtailmentEventStateRaceLoss
+			}
 			t.State = params.State
 			if params.LastDispatchedAt != nil {
 				t.LastDispatchedAt = params.LastDispatchedAt
@@ -502,6 +515,66 @@ func TestReconciler_DispatchingPreWrite_CommitsBeforeCommand(t *testing.T) {
 	// DISPATCHED — the DISPATCHING window only exists during the command call.
 	require.Len(t, store.targetsByEventID[eventID], 1)
 	assert.Equal(t, models.TargetStateDispatched, store.targetsByEventID[eventID][0].State)
+}
+
+// TestReconciler_CurtailPostWriteRaceLosesWhenStopFlipsDesiredState pins
+// the AD7 cascade fix: if Stop runs between the dispatchOneCurtail
+// pre-cmd DISPATCHING write and the post-cmd DISPATCHED write,
+// ResetCurtailmentTargetsForRestore will have flipped the target's
+// desired_state to 'active'. The post-cmd write's ExpectedDesiredState
+// predicate must race-lose so it doesn't clobber Stop's reset and leave
+// the device curtailed with no compensating Uncurtail queued.
+//
+// Simulate the race by using curtailHook to flip the target's
+// DesiredState to 'active' during the cmd.Curtail call (modeling Stop's
+// concurrent reset). After cmd.Curtail returns, the post-cmd write
+// should detect the desired_state mismatch and return race-loss.
+func TestReconciler_CurtailPostWriteRaceLosesWhenStopFlipsDesiredState(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "miner-1",
+			State:              models.TargetStatePending,
+			DesiredState:       models.DesiredStateCurtailed,
+			BaselinePowerW:     ptrFloat64(3000),
+		},
+	}
+
+	// Mid-command, simulate a concurrent Stop: event → RESTORING, target's
+	// DesiredState flipped to 'active', state reset to 'pending'. (Per
+	// ResetCurtailmentTargetsForRestore semantics.)
+	disp.curtailHook = func(_ []string) {
+		store.events[0].State = models.EventStateRestoring
+		store.targetsByEventID[eventID][0].DesiredState = models.DesiredStateActive
+		store.targetsByEventID[eventID][0].State = models.TargetStatePending
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	// cmd.Curtail fired exactly once — the device received the Curtail.
+	assert.Equal(t, 1, disp.curtailCalls,
+		"cmd.Curtail fires before the race-lose detection (device-level effect is unavoidable mid-command)")
+
+	// The post-cmd DISPATCHED write must NOT have landed. The target
+	// must retain Stop's reset state (PENDING + DesiredStateActive) so
+	// observeRestoring picks it up next tick and issues the compensating
+	// Uncurtail via maybeClaimRestoreBatch.
+	final := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStatePending, final.State,
+		"post-cmd write must race-lose; target stays in Stop's reset state for restore to pick up")
+	assert.Equal(t, models.DesiredStateActive, final.DesiredState,
+		"Stop's desired_state flip must be preserved (not clobbered by the racing post-cmd write)")
+	assert.Nil(t, final.LastBatchUUID,
+		"no Curtail batch identifier should be stamped on a target that Stop has reset for restore")
 }
 
 // TestReconciler_RecoversOrphanedDispatchingTarget covers the restart

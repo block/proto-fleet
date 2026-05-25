@@ -1342,6 +1342,8 @@ SET state              = $1,
     END
 WHERE curtailment_event_id = $9
   AND device_identifier    = $10
+  AND ($11::text IS NULL
+       OR desired_state = $11::text)
   AND EXISTS (
       SELECT 1
       FROM curtailment_event
@@ -1351,16 +1353,17 @@ WHERE curtailment_event_id = $9
 `
 
 type UpdateCurtailmentTargetStateParams struct {
-	State              string
-	LastDispatchedAt   sql.NullTime
-	LastBatchUuid      sql.NullString
-	ObservedPowerW     sql.NullString
-	ObservedAt         sql.NullTime
-	ConfirmedAt        sql.NullTime
-	RetryCount         sql.NullInt32
-	LastError          sql.NullString
-	CurtailmentEventID int64
-	DeviceIdentifier   string
+	State                string
+	LastDispatchedAt     sql.NullTime
+	LastBatchUuid        sql.NullString
+	ObservedPowerW       sql.NullString
+	ObservedAt           sql.NullTime
+	ConfirmedAt          sql.NullTime
+	RetryCount           sql.NullInt32
+	LastError            sql.NullString
+	CurtailmentEventID   int64
+	DeviceIdentifier     string
+	ExpectedDesiredState sql.NullString
 }
 
 // Reconciler patch: COALESCE preserves un-supplied columns so partial
@@ -1374,6 +1377,17 @@ type UpdateCurtailmentTargetStateParams struct {
 // reconciler can log + meter the signal rather than treating the silent
 // skip as success. The in-memory mirror update is gated on a clean
 // return; the sentinel keeps the mirror in sync with the persisted state.
+//
+// The optional expected_desired_state predicate scopes the write to a
+// single dispatch direction: post-cmd writes set it to the direction the
+// caller intended (Curtail-phase = 'curtailed', Restore-phase = 'active').
+// If Stop ran concurrently between the pre-read and the post-cmd write,
+// ResetCurtailmentTargetsForRestore has flipped desired_state to 'active',
+// and the Curtail-phase post-cmd write race-loses — the target stays in
+// the post-reset state and observeRestoring picks it up via the normal
+// restore-batch path to issue the compensating Uncurtail. Without this
+// predicate the Curtail-phase write would clobber Stop's reset and leave
+// the device curtailed with no compensating Uncurtail queued.
 func (q *Queries) UpdateCurtailmentTargetState(ctx context.Context, arg UpdateCurtailmentTargetStateParams) (int64, error) {
 	result, err := q.exec(ctx, q.updateCurtailmentTargetStateStmt, updateCurtailmentTargetState,
 		arg.State,
@@ -1386,6 +1400,7 @@ func (q *Queries) UpdateCurtailmentTargetState(ctx context.Context, arg UpdateCu
 		arg.LastError,
 		arg.CurtailmentEventID,
 		arg.DeviceIdentifier,
+		arg.ExpectedDesiredState,
 	)
 	if err != nil {
 		return 0, err

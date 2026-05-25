@@ -402,6 +402,17 @@ WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
 -- reconciler can log + meter the signal rather than treating the silent
 -- skip as success. The in-memory mirror update is gated on a clean
 -- return; the sentinel keeps the mirror in sync with the persisted state.
+--
+-- The optional expected_desired_state predicate scopes the write to a
+-- single dispatch direction: post-cmd writes set it to the direction the
+-- caller intended (Curtail-phase = 'curtailed', Restore-phase = 'active').
+-- If Stop ran concurrently between the pre-read and the post-cmd write,
+-- ResetCurtailmentTargetsForRestore has flipped desired_state to 'active',
+-- and the Curtail-phase post-cmd write race-loses — the target stays in
+-- the post-reset state and observeRestoring picks it up via the normal
+-- restore-batch path to issue the compensating Uncurtail. Without this
+-- predicate the Curtail-phase write would clobber Stop's reset and leave
+-- the device curtailed with no compensating Uncurtail queued.
 UPDATE curtailment_target
 SET state              = sqlc.arg('state'),
     last_dispatched_at = COALESCE(sqlc.narg('last_dispatched_at'), last_dispatched_at),
@@ -416,6 +427,8 @@ SET state              = sqlc.arg('state'),
     END
 WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
   AND device_identifier    = sqlc.arg('device_identifier')
+  AND (sqlc.narg('expected_desired_state')::text IS NULL
+       OR desired_state = sqlc.narg('expected_desired_state')::text)
   AND EXISTS (
       SELECT 1
       FROM curtailment_event
