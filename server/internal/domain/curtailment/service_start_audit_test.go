@@ -2,6 +2,7 @@ package curtailment
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 
@@ -12,18 +13,35 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 )
 
-// recordingAuditLogger captures every Log call so tests can pin the
-// emitted activity rows. The mutex defends against the (currently
-// serial, but enforced anyway) emission loop.
+// recordingAuditLogger captures every Log/LogStrict call so tests can
+// pin the emitted activity rows. The mutex defends against the
+// (currently serial, but enforced anyway) emission loop.
+//
+// logStrictErr lets tests inject a persistence failure on the strict
+// path so the IncAuditWriteFailure observability hook can be pinned.
 type recordingAuditLogger struct {
-	mu     sync.Mutex
-	events []activitymodels.Event
+	mu           sync.Mutex
+	events       []activitymodels.Event
+	logStrictErr error
 }
 
 func (r *recordingAuditLogger) Log(_ context.Context, event activitymodels.Event) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.events = append(r.events, event)
+}
+
+// LogStrict mirrors Log but returns logStrictErr (nil by default). When
+// non-nil the test signals "the activity store failed to persist this
+// row" and service code routes through Metrics.IncAuditWriteFailure.
+func (r *recordingAuditLogger) LogStrict(_ context.Context, event activitymodels.Event) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.logStrictErr != nil {
+		return r.logStrictErr
+	}
+	r.events = append(r.events, event)
+	return nil
 }
 
 func (r *recordingAuditLogger) snapshot() []activitymodels.Event {
@@ -239,4 +257,34 @@ func TestService_Start_NoAuditOnIdempotencyReplay(t *testing.T) {
 
 	assert.Empty(t, audit.snapshot(),
 		"idempotent replay must not re-emit the audit trail")
+}
+
+// TestService_Start_AuditPersistenceFailureIncrementsMetric pins the R4
+// observability hook: when the activity store's persistence fails on an
+// audit emit, the Start RPC still succeeds (audit is best-effort), but
+// the failure must increment Metrics.IncAuditWriteFailure so dashboards
+// can detect silently-dropped audit rows. Before the fix the failure
+// was logged at slog.Error only — no metric, no counter, no signal an
+// operator could trend.
+func TestService_Start_AuditPersistenceFailureIncrementsMetric(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(42)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("worst", 3000, 100, 50),
+	}
+	audit := &recordingAuditLogger{
+		logStrictErr: errors.New("activity store offline"),
+	}
+	metrics := newRecordingMetrics()
+	svc := NewService(store, WithAuditLogger(audit), WithServiceMetrics(metrics))
+
+	req := validStartRequest(orgID)
+	req.TargetKW = 2
+
+	_, err := svc.Start(t.Context(), req)
+	require.NoError(t, err, "audit failure is best-effort; Start must still succeed")
+	assert.Equal(t, 1, metrics.AuditWriteFailureCount(ActivityTypeStarted),
+		"audit persistence failure on curtailment_started must increment IncAuditWriteFailure(curtailment_started)")
 }

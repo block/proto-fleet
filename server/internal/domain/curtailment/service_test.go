@@ -416,16 +416,21 @@ func defaultOrgConfig(orgID int64) *models.OrgConfig {
 var _ Metrics = (*recordingMetrics)(nil)
 
 type recordingMetrics struct {
-	mu                sync.Mutex
-	tickDurations     []time.Duration
-	tickFailures      int
-	candidateExcluded map[string]int
-	maintenance       int
-	eventStateRaces   int
+	mu                  sync.Mutex
+	tickDurations       []time.Duration
+	tickFailures        int
+	candidateExcluded   map[string]int
+	maintenance         int
+	eventStateRaces     int
+	targetWriteFailures int
+	auditWriteFailures  map[string]int
 }
 
 func newRecordingMetrics() *recordingMetrics {
-	return &recordingMetrics{candidateExcluded: map[string]int{}}
+	return &recordingMetrics{
+		candidateExcluded:  map[string]int{},
+		auditWriteFailures: map[string]int{},
+	}
 }
 
 func (m *recordingMetrics) ObserveTickDuration(d time.Duration) {
@@ -458,10 +463,37 @@ func (m *recordingMetrics) IncEventStateRaceLoss() {
 	m.eventStateRaces++
 }
 
+func (m *recordingMetrics) IncTargetWriteFailure() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.targetWriteFailures++
+}
+
+func (m *recordingMetrics) IncAuditWriteFailure(activityType string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.auditWriteFailures == nil {
+		m.auditWriteFailures = map[string]int{}
+	}
+	m.auditWriteFailures[activityType]++
+}
+
 func (m *recordingMetrics) CandidateExcludedCount(reason string) int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.candidateExcluded[reason]
+}
+
+func (m *recordingMetrics) TargetWriteFailureCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.targetWriteFailures
+}
+
+func (m *recordingMetrics) AuditWriteFailureCount(activityType string) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.auditWriteFailures[activityType]
 }
 
 func validRequest(orgID int64) PreviewRequest {

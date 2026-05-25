@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"math"
 	"strings"
 	"time"
@@ -559,7 +560,11 @@ func (s *Service) emitStartAuditTrail(ctx context.Context, req StartRequest, pla
 			ActorType:   actorType,
 		}
 		activity.StampActor(ctx, &event)
-		s.audit.Log(ctx, event)
+		if err := s.audit.LogStrict(ctx, event); err != nil {
+			slog.Error("curtailment audit log failed",
+				"activity_type", eventType, "event_uuid", plan.EventUUID, "error", err)
+			s.metrics.IncAuditWriteFailure(eventType)
+		}
 	}
 
 	emit(ActivityTypeStarted, "Curtailment event started")
@@ -603,7 +608,11 @@ func (s *Service) emitAdminTerminateAuditTrail(ctx context.Context, req AdminTer
 		ActorType:   activitymodels.ActorUser,
 	}
 	activity.StampActor(ctx, &row)
-	s.audit.Log(ctx, row)
+	if err := s.audit.LogStrict(ctx, row); err != nil {
+		slog.Error("curtailment audit log failed",
+			"activity_type", eventType, "event_uuid", event.EventUUID, "error", err)
+		s.metrics.IncAuditWriteFailure(eventType)
+	}
 }
 
 // emitUpdateAuditTrail records the activity row for a Service.Update call
@@ -648,7 +657,11 @@ func (s *Service) emitUpdateAuditTrail(ctx context.Context, event *models.Event,
 		ActorType:   activitymodels.ActorUser,
 	}
 	activity.StampActor(ctx, &row)
-	s.audit.Log(ctx, row)
+	if err := s.audit.LogStrict(ctx, row); err != nil {
+		slog.Error("curtailment audit log failed",
+			"activity_type", ActivityTypeUpdated, "event_uuid", event.EventUUID, "error", err)
+		s.metrics.IncAuditWriteFailure(ActivityTypeUpdated)
+	}
 }
 
 // mapSourceActorTypeToActivity translates the curtailment SourceActorType

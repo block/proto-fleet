@@ -772,11 +772,14 @@ func (r *Reconciler) logEventStateUpdateError(ev *models.Event, transition strin
 }
 
 // writeTargetState wraps store.UpdateTargetState so every reconciler write
-// site routes the race-loss sentinel through the same observability bucket
-// as event-state writes (logEventStateUpdateError). The store's EXISTS
-// guard silently no-ops when the parent event went terminal mid-tick; the
-// sentinel surfaces that signal so callers know not to advance the
-// in-memory mirror. Other errors are returned for caller-specific logging.
+// site routes errors through the same observability bucket. Race-loss is
+// expected concurrency (Stop/AdminTerminate landed); IncEventStateRaceLoss
+// counts that benign signal. All other errors are non-benign target-write
+// failures — transient DB error, deadline exceeded, etc. — and feed
+// IncTargetWriteFailure so a "heartbeat fresh but events stuck" outage
+// (the cheap heartbeat upsert succeeds while per-target writes time out)
+// is visible to dashboards. The caller still gets the error returned for
+// caller-specific logging.
 func (r *Reconciler) writeTargetState(ctx context.Context, ev *models.Event, deviceID string, params interfaces.UpdateCurtailmentTargetStateParams) error {
 	err := r.store.UpdateTargetState(ctx, ev.ID, deviceID, params)
 	if err == nil {
@@ -786,7 +789,9 @@ func (r *Reconciler) writeTargetState(ctx context.Context, ev *models.Event, dev
 		r.metrics.IncEventStateRaceLoss()
 		slog.Warn("curtailment reconciler: target state advanced concurrently; skipping update",
 			"event_id", ev.ID, "event_uuid", ev.EventUUID, "device", deviceID)
+		return err
 	}
+	r.metrics.IncTargetWriteFailure()
 	return err
 }
 

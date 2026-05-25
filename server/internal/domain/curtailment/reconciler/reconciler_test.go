@@ -475,6 +475,43 @@ func TestReconciler_TargetStateRaceLoss_LogsAndMetersWithoutMirrorAdvance(t *tes
 	// Race-loss surfaces as IncEventStateRaceLoss, not IncTickFailure.
 	assert.GreaterOrEqual(t, metrics.EventStateRaceLossCount(), 1,
 		"race-loss sentinel must increment IncEventStateRaceLoss")
+	// Race-loss is benign concurrency — IncTargetWriteFailure stays at 0
+	// so the "degraded write path" alert doesn't trip on routine Stop /
+	// AdminTerminate landings.
+	assert.Equal(t, 0, metrics.TargetWriteFailureCount(),
+		"race-loss must NOT count as a target-write failure; the two counters are operationally distinct signals")
+}
+
+// TestReconciler_TargetWriteFailure_IncrementsCounter pins the AD12
+// observability hook: a non-race-loss target-state write failure (DB
+// connection refused, deadline exceeded, etc.) increments
+// IncTargetWriteFailure so dashboards can detect "heartbeat fresh but
+// per-target writes failing" outages — the failure mode that the
+// heartbeat staleness SQL check alone misses, because the cheap
+// upsert succeeds while every other write times out.
+func TestReconciler_TargetWriteFailure_IncrementsCounter(t *testing.T) {
+	store := newFakeStore()
+	store.updateTargetStateErr = errors.New("connection refused")
+	disp := &fakeDispatcher{}
+	metrics := newRecordingMetrics()
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-1", State: models.TargetStatePending, BaselinePowerW: ptrFloat64(3000)},
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.metrics = metrics
+	r.runTick(context.Background())
+
+	assert.GreaterOrEqual(t, metrics.TargetWriteFailureCount(), 1,
+		"non-race-loss target-write failure must increment IncTargetWriteFailure")
+	assert.Equal(t, 0, metrics.EventStateRaceLossCount(),
+		"non-race-loss failure must NOT increment IncEventStateRaceLoss (different signal class)")
 }
 
 // TestReconciler_DispatchingPreWrite_CommitsBeforeCommand pins the
@@ -1659,16 +1696,21 @@ func (p *panickyDispatcher) Uncurtail(ctx context.Context, selector *pb.DeviceSe
 // goroutine-safe via a single mutex; the reconciler emits from the tick
 // goroutine but tests poke from the test goroutine.
 type recordingMetrics struct {
-	mu                sync.Mutex
-	tickDurations     []time.Duration
-	tickFailures      int
-	candidateExcluded map[string]int
-	maintenance       int
-	eventStateRaces   int
+	mu                  sync.Mutex
+	tickDurations       []time.Duration
+	tickFailures        int
+	candidateExcluded   map[string]int
+	maintenance         int
+	eventStateRaces     int
+	targetWriteFailures int
+	auditWriteFailures  map[string]int
 }
 
 func newRecordingMetrics() *recordingMetrics {
-	return &recordingMetrics{candidateExcluded: map[string]int{}}
+	return &recordingMetrics{
+		candidateExcluded:  map[string]int{},
+		auditWriteFailures: map[string]int{},
+	}
 }
 
 func (m *recordingMetrics) ObserveTickDuration(d time.Duration) {
@@ -1701,10 +1743,31 @@ func (m *recordingMetrics) IncEventStateRaceLoss() {
 	m.eventStateRaces++
 }
 
+func (m *recordingMetrics) IncTargetWriteFailure() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.targetWriteFailures++
+}
+
+func (m *recordingMetrics) IncAuditWriteFailure(activityType string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.auditWriteFailures == nil {
+		m.auditWriteFailures = map[string]int{}
+	}
+	m.auditWriteFailures[activityType]++
+}
+
 func (m *recordingMetrics) EventStateRaceLossCount() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.eventStateRaces
+}
+
+func (m *recordingMetrics) TargetWriteFailureCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.targetWriteFailures
 }
 
 func (m *recordingMetrics) TickCount() int {

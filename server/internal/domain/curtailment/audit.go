@@ -10,17 +10,23 @@ import (
 // rows. activity.Service satisfies it; tests inject a fake or leave the
 // default NoOpAuditLogger when audit isn't under test.
 //
-// The interface deliberately matches activity.Service.Log's signature so
-// callers can pass *activity.Service directly without an adapter.
+// The interface deliberately mirrors activity.Service's Log/LogStrict
+// pair so callers can pass *activity.Service directly without an adapter.
+// Curtailment emits use LogStrict (error-returning) so audit persistence
+// failures can be counted via Metrics.IncAuditWriteFailure instead of
+// being silently dropped by activity.Service.Log's swallow-and-slog
+// behavior.
 type AuditLogger interface {
 	Log(ctx context.Context, event activitymodels.Event)
+	LogStrict(ctx context.Context, event activitymodels.Event) error
 }
 
 // NoOpAuditLogger is the default AuditLogger until cmd/fleetd wires the
 // real activity.Service. Calls return without persisting.
 type NoOpAuditLogger struct{}
 
-func (NoOpAuditLogger) Log(context.Context, activitymodels.Event) {}
+func (NoOpAuditLogger) Log(context.Context, activitymodels.Event)             {}
+func (NoOpAuditLogger) LogStrict(context.Context, activitymodels.Event) error { return nil }
 
 // Curtailment activity event types. The constants live here so the
 // audit recorder and any analytics consumers share one vocabulary.
