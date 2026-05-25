@@ -124,7 +124,7 @@ func (s *startStubStore) ListNonTerminalEvents(context.Context) ([]*models.Event
 	panic("ListNonTerminalEvents not exercised by handler Start tests")
 }
 
-func (s *startStubStore) UpdateEventState(context.Context, int64, models.EventState, *time.Time, *time.Time) error {
+func (s *startStubStore) UpdateEventState(context.Context, int64, models.EventState, models.EventState, *time.Time, *time.Time) error {
 	panic("UpdateEventState not exercised by handler Start tests")
 }
 

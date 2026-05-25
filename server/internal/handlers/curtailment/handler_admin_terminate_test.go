@@ -88,7 +88,7 @@ func (s *adminTerminateStubStore) ListNonTerminalEvents(context.Context) ([]*mod
 func (s *adminTerminateStubStore) ListEvents(context.Context, interfaces.ListEventsParams) ([]*models.Event, string, error) {
 	panic("ListEvents not exercised by AdminTerminate handler tests")
 }
-func (s *adminTerminateStubStore) UpdateEventState(context.Context, int64, models.EventState, *time.Time, *time.Time) error {
+func (s *adminTerminateStubStore) UpdateEventState(context.Context, int64, models.EventState, models.EventState, *time.Time, *time.Time) error {
 	panic("UpdateEventState not exercised by AdminTerminate handler tests")
 }
 func (s *adminTerminateStubStore) UpdateTargetState(context.Context, int64, string, interfaces.UpdateCurtailmentTargetStateParams) error {

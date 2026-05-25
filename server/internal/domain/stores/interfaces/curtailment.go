@@ -40,10 +40,11 @@ var ErrCurtailmentEventStateRaceLoss = errors.New("curtailment event state advan
 // UpdateCurtailmentTargetStateParams: optional patch fields. Nil pointers
 // leave the column unchanged via COALESCE.
 //
-// ExpectedDesiredState scopes the write to the dispatch direction
-// ('curtailed' on Curtail-phase writes, 'active' on Restore-phase) so a
-// concurrent Stop that flipped desired_state race-loses instead of being
-// clobbered. Leave nil on cross-phase writes (confirmations, errors).
+// ExpectedEventState scopes the write to the reconciler phase and locks the
+// parent event row before updating the target. ExpectedDesiredState scopes the
+// write to the dispatch direction ('curtailed' on Curtail-phase writes,
+// 'active' on Restore-phase) so a concurrent Stop that flipped desired_state
+// race-loses instead of being clobbered.
 type UpdateCurtailmentTargetStateParams struct {
 	State                models.TargetState
 	LastDispatchedAt     *time.Time
@@ -53,6 +54,7 @@ type UpdateCurtailmentTargetStateParams struct {
 	ConfirmedAt          *time.Time
 	RetryCount           *int32
 	LastError            *string
+	ExpectedEventState   *models.EventState
 	ExpectedDesiredState *string
 }
 
@@ -153,10 +155,11 @@ type CurtailmentStore interface {
 	// all orgs. Reconciler-only — MUST NOT be exposed through any RPC handler.
 	ListNonTerminalEvents(ctx context.Context) ([]*models.Event, error)
 
-	// UpdateEventState transitions an event row. Nil startedAt/endedAt
-	// preserves the column. Returns ErrCurtailmentEventStateRaceLoss if
-	// the row advanced out of the non-terminal window.
-	UpdateEventState(ctx context.Context, eventID int64, state models.EventState, startedAt *time.Time, endedAt *time.Time) error
+	// UpdateEventState transitions an event row from expectedState. Nil
+	// startedAt/endedAt preserves the column. Returns
+	// ErrCurtailmentEventStateRaceLoss if the row advanced out of the expected
+	// non-terminal phase.
+	UpdateEventState(ctx context.Context, eventID int64, expectedState models.EventState, state models.EventState, startedAt *time.Time, endedAt *time.Time) error
 
 	// UpdateTargetState patches the (eventID, deviceIdentifier) row.
 	// Non-state fields use COALESCE: nil preserves the existing column.

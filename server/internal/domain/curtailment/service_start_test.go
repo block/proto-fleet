@@ -82,6 +82,19 @@ func TestService_Start_AllowUnboundedRequiresNilMaxDuration(t *testing.T) {
 	require.NoError(t, err, "allow_unbounded + nil max_duration is the valid admin shape")
 }
 
+func TestService_Start_RejectsNonAdminForceIncludeMaintenance(t *testing.T) {
+	t.Parallel()
+	svc := NewService(newFakeStore())
+	req := validStartRequest(1)
+	req.IncludeMaintenance = true
+	req.ForceIncludeMaintenance = true
+
+	_, err := svc.Start(t.Context(), req)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsForbiddenError(err))
+	assert.Contains(t, err.Error(), "force_include_maintenance")
+}
+
 func TestService_Start_NilMaxDurationUsesOrgDefault(t *testing.T) {
 	t.Parallel()
 	const orgID = int64(1)

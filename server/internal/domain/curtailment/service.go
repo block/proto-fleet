@@ -226,6 +226,15 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 	result, err := s.store.InsertEventWithTargets(ctx, eventParams, targetParams)
 	if err != nil {
 		if errors.Is(err, interfaces.ErrCurtailmentNonTerminalEventExists) {
+			// Duplicate Start requests can lose on the org-level partial
+			// unique index before Postgres reports the idempotency/external
+			// reference index. Retry replay lookup first so valid duplicate
+			// requests still get the persisted winner.
+			if existing, replayErr := s.lookupIdempotentReplay(ctx, req); replayErr == nil && existing != nil {
+				return s.replayPlanFromPersistedEvent(ctx, req.OrgID, existing)
+			} else if replayErr != nil {
+				return nil, replayErr
+			}
 			// Race: another Start beat us between the selector check and
 			// the insert. Surface the existing event's identity so the
 			// caller can act on it.
@@ -933,6 +942,9 @@ func validateStartRequest(req StartRequest) error {
 	}
 	if req.CandidateMinPowerWOverride != nil && !req.CanUseAdminControls {
 		return fleeterror.NewForbiddenError("only admins can set candidate_min_power_w_override")
+	}
+	if req.ForceIncludeMaintenance && !req.CanUseAdminControls {
+		return fleeterror.NewForbiddenError("only admins can set force_include_maintenance")
 	}
 	if !req.AllowUnbounded && req.MaxDurationSeconds != nil && *req.MaxDurationSeconds <= 0 {
 		return fleeterror.NewInvalidArgumentErrorf(

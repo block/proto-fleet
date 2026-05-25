@@ -103,7 +103,7 @@ func (s *stopStubStore) GetHeartbeat(context.Context) (*models.Heartbeat, error)
 func (s *stopStubStore) ListNonTerminalEvents(context.Context) ([]*models.Event, error) {
 	panic("ListNonTerminalEvents not exercised")
 }
-func (s *stopStubStore) UpdateEventState(context.Context, int64, models.EventState, *time.Time, *time.Time) error {
+func (s *stopStubStore) UpdateEventState(context.Context, int64, models.EventState, models.EventState, *time.Time, *time.Time) error {
 	panic("UpdateEventState not exercised")
 }
 func (s *stopStubStore) UpdateTargetState(context.Context, int64, string, interfaces.UpdateCurtailmentTargetStateParams) error {

@@ -679,7 +679,7 @@ func (r *Reconciler) maybeMarkActive(ctx context.Context, ev *models.Event, targ
 		now := r.now()
 		slog.Warn("curtailment reconciler: pending event has all-terminal targets; marking completed_with_failures",
 			"event_id", ev.ID, "failed_target_count", terminalFailures)
-		if err := r.store.UpdateEventState(ctx, ev.ID, models.EventStateCompletedWithFailures, nil, &now); err != nil {
+		if err := r.store.UpdateEventState(ctx, ev.ID, ev.State, models.EventStateCompletedWithFailures, nil, &now); err != nil {
 			r.logEventStateUpdateError(ev, "pending→completed_with_failures", err)
 		}
 		return
@@ -689,7 +689,7 @@ func (r *Reconciler) maybeMarkActive(ctx context.Context, ev *models.Event, targ
 		slog.Warn("curtailment reconciler: pending→active with terminal-failed targets",
 			"event_id", ev.ID, "failed_target_count", terminalFailures, "confirmed_count", confirmed)
 	}
-	if err := r.store.UpdateEventState(ctx, ev.ID, models.EventStateActive, &now, nil); err != nil {
+	if err := r.store.UpdateEventState(ctx, ev.ID, ev.State, models.EventStateActive, &now, nil); err != nil {
 		r.logEventStateUpdateError(ev, "pending→active", err)
 	}
 }
@@ -713,6 +713,16 @@ func (r *Reconciler) logEventStateUpdateError(ev *models.Event, transition strin
 // IncTargetWriteFailure (operator-actionable). Returns the error for
 // site-specific logging.
 func (r *Reconciler) writeTargetState(ctx context.Context, ev *models.Event, deviceID string, params interfaces.UpdateCurtailmentTargetStateParams) error {
+	if params.ExpectedEventState == nil {
+		expectedState := ev.State
+		params.ExpectedEventState = &expectedState
+	}
+	if params.ExpectedDesiredState == nil {
+		if desired := expectedDesiredStateForEventState(ev.State); desired != "" {
+			expectedDesired := desired
+			params.ExpectedDesiredState = &expectedDesired
+		}
+	}
 	err := r.store.UpdateTargetState(ctx, ev.ID, deviceID, params)
 	if err == nil {
 		return nil
@@ -725,6 +735,19 @@ func (r *Reconciler) writeTargetState(ctx context.Context, ev *models.Event, dev
 	}
 	r.metrics.IncTargetWriteFailure()
 	return err
+}
+
+func expectedDesiredStateForEventState(state models.EventState) string {
+	switch state {
+	case models.EventStatePending, models.EventStateActive:
+		return models.DesiredStateCurtailed
+	case models.EventStateRestoring:
+		return models.DesiredStateActive
+	case models.EventStateCompleted, models.EventStateCompletedWithFailures,
+		models.EventStateCancelled, models.EventStateFailed:
+		return ""
+	}
+	return ""
 }
 
 // reconcilerContext stamps synthetic session.Info on the dispatch ctx.
@@ -933,7 +956,7 @@ func (r *Reconciler) maybeCompleteRestoring(ctx context.Context, ev *models.Even
 		finalState = models.EventStateCompletedWithFailures
 	}
 	now := r.now()
-	if err := r.store.UpdateEventState(ctx, ev.ID, finalState, nil, &now); err != nil {
+	if err := r.store.UpdateEventState(ctx, ev.ID, ev.State, finalState, nil, &now); err != nil {
 		r.logEventStateUpdateError(ev, "restoring→"+string(finalState), err)
 		return true
 	}

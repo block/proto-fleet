@@ -16,14 +16,28 @@ import (
 )
 
 const adminTerminateCurtailmentEvent = `-- name: AdminTerminateCurtailmentEvent :one
+WITH locked_event AS MATERIALIZED (
+    SELECT id
+    FROM curtailment_event
+    WHERE curtailment_event.id = $2
+        AND curtailment_event.org_id = $3
+        AND curtailment_event.state IN ('pending', 'restoring')
+    FOR UPDATE
+)
 UPDATE curtailment_event
 SET state      = $1::TEXT,
     ended_at   = NOW(),
     updated_at = NOW()
-WHERE id = $2
-    AND org_id = $3
-    AND state IN ('pending', 'restoring')
-RETURNING id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type, scope_type, scope_jsonb, mode_params_jsonb, restore_batch_size, restore_batch_interval_sec, effective_batch_size, min_curtailed_duration_sec, max_duration_seconds, allow_unbounded, include_maintenance, force_include_maintenance, decision_snapshot_jsonb, source_actor_type, source_actor_id, external_source, external_reference, idempotency_key, supersedes_event_id, reason, scheduled_start_at, started_at, ended_at, created_at, updated_at, created_by_user_id
+FROM locked_event
+WHERE curtailment_event.id = locked_event.id
+    AND NOT EXISTS (
+        SELECT 1
+        FROM curtailment_target
+        WHERE curtailment_event_id = locked_event.id
+            AND desired_state = 'curtailed'
+            AND state IN ('dispatching', 'dispatched', 'confirmed', 'drifted')
+    )
+RETURNING curtailment_event.id, curtailment_event.event_uuid, curtailment_event.org_id, curtailment_event.state, curtailment_event.mode, curtailment_event.strategy, curtailment_event.level, curtailment_event.priority, curtailment_event.loop_type, curtailment_event.scope_type, curtailment_event.scope_jsonb, curtailment_event.mode_params_jsonb, curtailment_event.restore_batch_size, curtailment_event.restore_batch_interval_sec, curtailment_event.effective_batch_size, curtailment_event.min_curtailed_duration_sec, curtailment_event.max_duration_seconds, curtailment_event.allow_unbounded, curtailment_event.include_maintenance, curtailment_event.force_include_maintenance, curtailment_event.decision_snapshot_jsonb, curtailment_event.source_actor_type, curtailment_event.source_actor_id, curtailment_event.external_source, curtailment_event.external_reference, curtailment_event.idempotency_key, curtailment_event.supersedes_event_id, curtailment_event.reason, curtailment_event.scheduled_start_at, curtailment_event.started_at, curtailment_event.ended_at, curtailment_event.created_at, curtailment_event.updated_at, curtailment_event.created_by_user_id
 `
 
 type AdminTerminateCurtailmentEventParams struct {
@@ -33,7 +47,10 @@ type AdminTerminateCurtailmentEventParams struct {
 }
 
 // Flips pending/restoring → target_state (CANCELLED or FAILED).
-// Zero-row return lets the caller route active vs already-terminal cases.
+// Locks the event row before evaluating the in-flight target predicate so
+// reconciler target claims (which lock the same parent row) serialize with
+// forced termination. Zero-row return lets the caller route active,
+// in-flight, and already-terminal cases.
 func (q *Queries) AdminTerminateCurtailmentEvent(ctx context.Context, arg AdminTerminateCurtailmentEventParams) (CurtailmentEvent, error) {
 	row := q.queryRow(ctx, q.adminTerminateCurtailmentEventStmt, adminTerminateCurtailmentEvent, arg.TargetState, arg.ID, arg.OrgID)
 	var i CurtailmentEvent
@@ -1259,24 +1276,28 @@ SET state      = $1,
     started_at = COALESCE($2, started_at),
     ended_at   = COALESCE($3,   ended_at)
 WHERE id = $4
+  AND state = $5
   AND state IN ('pending', 'active', 'restoring')
 `
 
 type UpdateCurtailmentEventStateParams struct {
-	State     string
-	StartedAt sql.NullTime
-	EndedAt   sql.NullTime
-	ID        int64
+	State         string
+	StartedAt     sql.NullTime
+	EndedAt       sql.NullTime
+	ID            int64
+	ExpectedState string
 }
 
-// Row-count return is the race-loss guard; nil narg preserves timestamps
-// via COALESCE.
+// Row-count return is the race-loss guard; expected_state prevents stale
+// phase writes (e.g. pending→active after Stop moved the event to restoring).
+// nil narg preserves timestamps via COALESCE.
 func (q *Queries) UpdateCurtailmentEventState(ctx context.Context, arg UpdateCurtailmentEventStateParams) (int64, error) {
 	result, err := q.exec(ctx, q.updateCurtailmentEventStateStmt, updateCurtailmentEventState,
 		arg.State,
 		arg.StartedAt,
 		arg.EndedAt,
 		arg.ID,
+		arg.ExpectedState,
 	)
 	if err != nil {
 		return 0, err
@@ -1285,6 +1306,15 @@ func (q *Queries) UpdateCurtailmentEventState(ctx context.Context, arg UpdateCur
 }
 
 const updateCurtailmentTargetState = `-- name: UpdateCurtailmentTargetState :execrows
+WITH locked_event AS MATERIALIZED (
+    SELECT id
+    FROM curtailment_event
+    WHERE id = $11
+        AND state IN ('pending', 'active', 'restoring')
+        AND ($12::TEXT IS NULL
+             OR state = $12::TEXT)
+    FOR UPDATE
+)
 UPDATE curtailment_target
 SET state              = $1,
     last_dispatched_at = COALESCE($2, last_dispatched_at),
@@ -1297,16 +1327,11 @@ SET state              = $1,
         WHEN $8::text IS NULL THEN last_error
         ELSE NULLIF($8::text, '')
     END
-WHERE curtailment_event_id = $9
-  AND device_identifier    = $10
-  AND ($11::text IS NULL
-       OR desired_state = $11::text)
-  AND EXISTS (
-      SELECT 1
-      FROM curtailment_event
-      WHERE curtailment_event.id = $9
-        AND curtailment_event.state IN ('pending', 'active', 'restoring')
-  )
+FROM locked_event
+WHERE curtailment_event_id = locked_event.id
+  AND device_identifier    = $9
+  AND ($10::text IS NULL
+       OR desired_state = $10::text)
 `
 
 type UpdateCurtailmentTargetStateParams struct {
@@ -1318,16 +1343,18 @@ type UpdateCurtailmentTargetStateParams struct {
 	ConfirmedAt          sql.NullTime
 	RetryCount           sql.NullInt32
 	LastError            sql.NullString
-	CurtailmentEventID   int64
 	DeviceIdentifier     string
 	ExpectedDesiredState sql.NullString
+	CurtailmentEventID   int64
+	ExpectedEventState   sql.NullString
 }
 
 // Reconciler patch. COALESCE preserves un-supplied columns; empty
 // last_error is the explicit clear sentinel that maps to SQL NULL.
 //
-// EXISTS state guard + :execrows lets the store map a zero-row return to
-// ErrCurtailmentEventStateRaceLoss when the parent event went terminal.
+// Parent event row is locked before the target update so Stop/AdminTerminate
+// and target claims serialize on the event lifecycle. expected_event_state
+// maps stale phase writes to ErrCurtailmentEventStateRaceLoss.
 //
 // expected_desired_state scopes the write to one dispatch direction so
 // a concurrent Stop's reset isn't clobbered by a Curtail-phase post-cmd
@@ -1342,9 +1369,10 @@ func (q *Queries) UpdateCurtailmentTargetState(ctx context.Context, arg UpdateCu
 		arg.ConfirmedAt,
 		arg.RetryCount,
 		arg.LastError,
-		arg.CurtailmentEventID,
 		arg.DeviceIdentifier,
 		arg.ExpectedDesiredState,
+		arg.CurtailmentEventID,
+		arg.ExpectedEventState,
 	)
 	if err != nil {
 		return 0, err

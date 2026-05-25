@@ -194,6 +194,7 @@ func TestService_Start_EmitsForceMaintenanceAuditRowAndMetric(t *testing.T) {
 	// validator's mutual-exclusion gate is satisfied.
 	req.IncludeMaintenance = true
 	req.ForceIncludeMaintenance = true
+	req.CanUseAdminControls = true
 
 	_, err := svc.Start(t.Context(), req)
 	require.NoError(t, err)

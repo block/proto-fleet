@@ -182,15 +182,32 @@ SELECT EXISTS (
 
 -- name: AdminTerminateCurtailmentEvent :one
 -- Flips pending/restoring → target_state (CANCELLED or FAILED).
--- Zero-row return lets the caller route active vs already-terminal cases.
+-- Locks the event row before evaluating the in-flight target predicate so
+-- reconciler target claims (which lock the same parent row) serialize with
+-- forced termination. Zero-row return lets the caller route active,
+-- in-flight, and already-terminal cases.
+WITH locked_event AS MATERIALIZED (
+    SELECT id
+    FROM curtailment_event
+    WHERE curtailment_event.id = sqlc.arg('id')
+        AND curtailment_event.org_id = sqlc.arg('org_id')
+        AND curtailment_event.state IN ('pending', 'restoring')
+    FOR UPDATE
+)
 UPDATE curtailment_event
 SET state      = sqlc.arg('target_state')::TEXT,
     ended_at   = NOW(),
     updated_at = NOW()
-WHERE id = sqlc.arg('id')
-    AND org_id = sqlc.arg('org_id')
-    AND state IN ('pending', 'restoring')
-RETURNING *;
+FROM locked_event
+WHERE curtailment_event.id = locked_event.id
+    AND NOT EXISTS (
+        SELECT 1
+        FROM curtailment_target
+        WHERE curtailment_event_id = locked_event.id
+            AND desired_state = 'curtailed'
+            AND state IN ('dispatching', 'dispatched', 'confirmed', 'drifted')
+    )
+RETURNING curtailment_event.*;
 
 -- name: SweepCurtailmentTargetsToRestoreFailed :exec
 -- Force every non-terminal target → RESTORE_FAILED with the
@@ -327,13 +344,15 @@ WHERE state IN ('pending', 'active', 'restoring')
 ORDER BY id;
 
 -- name: UpdateCurtailmentEventState :execrows
--- Row-count return is the race-loss guard; nil narg preserves timestamps
--- via COALESCE.
+-- Row-count return is the race-loss guard; expected_state prevents stale
+-- phase writes (e.g. pending→active after Stop moved the event to restoring).
+-- nil narg preserves timestamps via COALESCE.
 UPDATE curtailment_event
 SET state      = sqlc.arg('state'),
     started_at = COALESCE(sqlc.narg('started_at'), started_at),
     ended_at   = COALESCE(sqlc.narg('ended_at'),   ended_at)
 WHERE id = sqlc.arg('id')
+  AND state = sqlc.arg('expected_state')
   AND state IN ('pending', 'active', 'restoring');
 
 -- name: BeginCurtailmentRestoration :one
@@ -365,12 +384,22 @@ WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
 -- Reconciler patch. COALESCE preserves un-supplied columns; empty
 -- last_error is the explicit clear sentinel that maps to SQL NULL.
 --
--- EXISTS state guard + :execrows lets the store map a zero-row return to
--- ErrCurtailmentEventStateRaceLoss when the parent event went terminal.
+-- Parent event row is locked before the target update so Stop/AdminTerminate
+-- and target claims serialize on the event lifecycle. expected_event_state
+-- maps stale phase writes to ErrCurtailmentEventStateRaceLoss.
 --
 -- expected_desired_state scopes the write to one dispatch direction so
 -- a concurrent Stop's reset isn't clobbered by a Curtail-phase post-cmd
 -- write (observeRestoring picks up the reset target afterwards).
+WITH locked_event AS MATERIALIZED (
+    SELECT id
+    FROM curtailment_event
+    WHERE id = sqlc.arg('curtailment_event_id')
+        AND state IN ('pending', 'active', 'restoring')
+        AND (sqlc.narg('expected_event_state')::TEXT IS NULL
+             OR state = sqlc.narg('expected_event_state')::TEXT)
+    FOR UPDATE
+)
 UPDATE curtailment_target
 SET state              = sqlc.arg('state'),
     last_dispatched_at = COALESCE(sqlc.narg('last_dispatched_at'), last_dispatched_at),
@@ -383,16 +412,11 @@ SET state              = sqlc.arg('state'),
         WHEN sqlc.narg('last_error')::text IS NULL THEN last_error
         ELSE NULLIF(sqlc.narg('last_error')::text, '')
     END
-WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
+FROM locked_event
+WHERE curtailment_event_id = locked_event.id
   AND device_identifier    = sqlc.arg('device_identifier')
   AND (sqlc.narg('expected_desired_state')::text IS NULL
-       OR desired_state = sqlc.narg('expected_desired_state')::text)
-  AND EXISTS (
-      SELECT 1
-      FROM curtailment_event
-      WHERE curtailment_event.id = sqlc.arg('curtailment_event_id')
-        AND curtailment_event.state IN ('pending', 'active', 'restoring')
-  );
+       OR desired_state = sqlc.narg('expected_desired_state')::text);
 
 -- name: UpsertCurtailmentReconcilerHeartbeat :exec
 -- Singleton row at id=1; INSERT path only fires on accidental deletion.

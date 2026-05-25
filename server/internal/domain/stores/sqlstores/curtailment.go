@@ -397,6 +397,13 @@ func (s *SQLCurtailmentStore) AdminTerminateEvent(
 				// Idempotent echo: concurrent terminate landed first.
 				return adminTerminateResult{event: convertEventRow(latest), transitioned: false}, nil
 			}
+			hasInFlight, gateErr := q.CurtailmentEventHasInFlightTargets(ctx, current.ID)
+			if gateErr != nil {
+				return adminTerminateResult{}, fleeterror.NewInternalErrorf("failed to check in-flight targets after terminate race: %v", gateErr)
+			}
+			if hasInFlight {
+				return adminTerminateResult{}, interfaces.ErrCurtailmentAdminTerminateActiveEvent
+			}
 			if latestState == models.EventStateActive {
 				return adminTerminateResult{}, interfaces.ErrCurtailmentAdminTerminateActiveEvent
 			}
@@ -473,12 +480,13 @@ func (s *SQLCurtailmentStore) ListNonTerminalEvents(ctx context.Context) ([]*mod
 	return out, nil
 }
 
-func (s *SQLCurtailmentStore) UpdateEventState(ctx context.Context, eventID int64, state models.EventState, startedAt *time.Time, endedAt *time.Time) error {
+func (s *SQLCurtailmentStore) UpdateEventState(ctx context.Context, eventID int64, expectedState models.EventState, state models.EventState, startedAt *time.Time, endedAt *time.Time) error {
 	rows, err := s.GetQueries(ctx).UpdateCurtailmentEventState(ctx, sqlc.UpdateCurtailmentEventStateParams{
-		ID:        eventID,
-		State:     string(state),
-		StartedAt: ptrToNullTime(startedAt),
-		EndedAt:   ptrToNullTime(endedAt),
+		ID:            eventID,
+		ExpectedState: string(expectedState),
+		State:         string(state),
+		StartedAt:     ptrToNullTime(startedAt),
+		EndedAt:       ptrToNullTime(endedAt),
 	})
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to update curtailment event %d state: %v", eventID, err)
@@ -501,6 +509,7 @@ func (s *SQLCurtailmentStore) UpdateTargetState(ctx context.Context, eventID int
 		ConfirmedAt:          ptrToNullTime(params.ConfirmedAt),
 		RetryCount:           ptrToNullInt32(params.RetryCount),
 		LastError:            ptrToNullString(params.LastError),
+		ExpectedEventState:   ptrEventStateToNullString(params.ExpectedEventState),
 		ExpectedDesiredState: ptrToNullString(params.ExpectedDesiredState),
 	})
 	if err != nil {
@@ -688,6 +697,13 @@ func nullInt32ToPtr(n sql.NullInt32) *int32 {
 	}
 	v := n.Int32
 	return &v
+}
+
+func ptrEventStateToNullString(p *models.EventState) sql.NullString {
+	if p == nil {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: string(*p), Valid: true}
 }
 
 func nullFloat64ToPtr(n sql.NullFloat64) *float64 {

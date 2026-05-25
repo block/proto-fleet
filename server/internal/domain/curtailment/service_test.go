@@ -312,7 +312,7 @@ func (f *fakeStore) ListNonTerminalEvents(context.Context) ([]*models.Event, err
 	panic("ListNonTerminalEvents not exercised by Preview/Start/Stop tests")
 }
 
-func (f *fakeStore) UpdateEventState(context.Context, int64, models.EventState, *time.Time, *time.Time) error {
+func (f *fakeStore) UpdateEventState(context.Context, int64, models.EventState, models.EventState, *time.Time, *time.Time) error {
 	panic("UpdateEventState not exercised by Preview/Start/Stop tests")
 }
 

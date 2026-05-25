@@ -322,6 +322,100 @@ func TestService_Start_ExternalReferenceRaceLoserReplays(t *testing.T) {
 	assert.Equal(t, 2, store.getByExternalRefCalls, "lookup runs twice: pre-insert miss + post-race retry")
 }
 
+// TestService_Start_IdempotencyKeyOrgConflictRaceLoserReplays pins the case
+// where PostgreSQL reports the org-level one-non-terminal-event constraint
+// before the idempotency partial unique index. The duplicate request is still
+// a valid replay and must not surface a generic active-event conflict.
+func TestService_Start_IdempotencyKeyOrgConflictRaceLoserReplays(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(42)
+	winnerUUID := uuid.New()
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("worst", 3000, 100, 50),
+	}
+	store.insertEventErr = interfaces.ErrCurtailmentNonTerminalEventExists
+	store.eventsByIdempotencyKeyOnRetry = map[string]*models.Event{
+		"shared-key": {
+			ID:                      99,
+			EventUUID:               winnerUUID,
+			OrgID:                   orgID,
+			State:                   models.EventStateActive,
+			Mode:                    models.ModeFixedKw,
+			Strategy:                models.StrategyLeastEfficientFirst,
+			Level:                   models.LevelFull,
+			Priority:                models.PriorityNormal,
+			RestoreBatchSize:        10,
+			RestoreBatchIntervalSec: 120,
+		},
+	}
+	svc := NewService(store)
+
+	req := validStartRequest(orgID)
+	req.TargetKW = 2
+	key := "shared-key"
+	req.IdempotencyKey = &key
+
+	plan, err := svc.Start(t.Context(), req)
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+	require.NotNil(t, plan.EventUUID)
+	assert.Equal(t, winnerUUID, *plan.EventUUID)
+	require.NotNil(t, plan.ReplayEvent)
+	assert.Equal(t, models.EventStateActive, plan.ReplayEvent.State)
+	assert.Equal(t, 1, store.insertEventCalls)
+	assert.Equal(t, 2, store.getByIdempotencyKeyCalls,
+		"org-conflict loser must retry replay lookup before falling back to active-event conflict")
+}
+
+// TestService_Start_ExternalReferenceOrgConflictRaceLoserReplays mirrors the
+// org-level unique-conflict path for upstream webhook references.
+func TestService_Start_ExternalReferenceOrgConflictRaceLoserReplays(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(42)
+	winnerUUID := uuid.New()
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("worst", 3000, 100, 50),
+	}
+	store.insertEventErr = interfaces.ErrCurtailmentNonTerminalEventExists
+	store.eventsByExternalRefOnRetry = map[string]*models.Event{
+		"opensearch|alert-7": {
+			ID:                      77,
+			EventUUID:               winnerUUID,
+			OrgID:                   orgID,
+			State:                   models.EventStatePending,
+			Mode:                    models.ModeFixedKw,
+			Strategy:                models.StrategyLeastEfficientFirst,
+			Level:                   models.LevelFull,
+			Priority:                models.PriorityNormal,
+			RestoreBatchSize:        10,
+			RestoreBatchIntervalSec: 120,
+		},
+	}
+	svc := NewService(store)
+
+	req := validStartRequest(orgID)
+	req.TargetKW = 2
+	src := "opensearch"
+	ref := "alert-7"
+	req.ExternalSource = &src
+	req.ExternalReference = &ref
+
+	plan, err := svc.Start(t.Context(), req)
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+	require.NotNil(t, plan.EventUUID)
+	assert.Equal(t, winnerUUID, *plan.EventUUID)
+	require.NotNil(t, plan.ReplayEvent)
+	assert.Equal(t, models.EventStatePending, plan.ReplayEvent.State)
+	assert.Equal(t, 1, store.insertEventCalls)
+	assert.Equal(t, 2, store.getByExternalRefCalls,
+		"org-conflict loser must retry external-reference replay before falling back to active-event conflict")
+}
+
 // TestService_Start_RaceLoserPostRetryMissSurfacesAlreadyExists: the
 // race-loser's retry lookup *can* legitimately return nil if the winning
 // transaction rolled back between the unique-violation observation and the

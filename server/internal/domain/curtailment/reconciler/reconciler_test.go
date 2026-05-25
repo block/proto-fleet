@@ -163,11 +163,14 @@ func (f *fakeStore) ListNonTerminalEvents(context.Context) ([]*models.Event, err
 	return out, nil
 }
 
-func (f *fakeStore) UpdateEventState(_ context.Context, eventID int64, state models.EventState, _ *time.Time, _ *time.Time) error {
+func (f *fakeStore) UpdateEventState(_ context.Context, eventID int64, expectedState models.EventState, state models.EventState, _ *time.Time, _ *time.Time) error {
 	f.updateEventCalls++
 	f.updateEventLast[eventID] = state
 	for _, ev := range f.events {
 		if ev.ID == eventID {
+			if ev.State != expectedState {
+				return interfaces.ErrCurtailmentEventStateRaceLoss
+			}
 			ev.State = state
 		}
 	}
@@ -203,6 +206,13 @@ func (f *fakeStore) UpdateTargetState(_ context.Context, eventID int64, deviceId
 			// We treat empty as "any" here so existing tests that don't
 			// care about phase don't have to backfill the field. Tests that
 			// pin the AD7 race set t.DesiredState explicitly.
+			if params.ExpectedEventState != nil {
+				for _, ev := range f.events {
+					if ev.ID == eventID && ev.State != *params.ExpectedEventState {
+						return interfaces.ErrCurtailmentEventStateRaceLoss
+					}
+				}
+			}
 			if params.ExpectedDesiredState != nil && t.DesiredState != "" && t.DesiredState != *params.ExpectedDesiredState {
 				return interfaces.ErrCurtailmentEventStateRaceLoss
 			}
@@ -538,6 +548,48 @@ func TestReconciler_DispatchingPreWrite_CommitsBeforeCommand(t *testing.T) {
 	// DISPATCHED — the DISPATCHING window only exists during the command call.
 	require.Len(t, store.targetsByEventID[eventID], 1)
 	assert.Equal(t, models.TargetStateDispatched, store.targetsByEventID[eventID][0].State)
+}
+
+// If Stop moves the parent event out of the active phase after the liveness
+// read but before the DISPATCHING pre-write, the write must race-lose and the
+// reconciler must not issue another Curtail.
+func TestReconciler_CurtailPreWriteRaceLosesWhenStopFlipsEventState(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "miner-1",
+			State:              models.TargetStatePending,
+			DesiredState:       models.DesiredStateCurtailed,
+			BaselinePowerW:     ptrFloat64(3000),
+		},
+	}
+	store.updateTargetStateHook = func(_ string, _ interfaces.UpdateCurtailmentTargetStateParams, call int) error {
+		if call == 1 {
+			store.events[0] = &models.Event{
+				ID:        eventID,
+				EventUUID: eventUUID,
+				OrgID:     1,
+				State:     models.EventStateRestoring,
+			}
+		}
+		return nil
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, 0, disp.curtailCalls,
+		"stale active-phase pre-write must fail before cmd.Curtail is issued")
+	require.Len(t, store.targetsByEventID[eventID], 1)
+	assert.Equal(t, models.TargetStatePending, store.targetsByEventID[eventID][0].State)
 }
 
 // If Stop runs between the pre-cmd DISPATCHING write and the post-cmd
