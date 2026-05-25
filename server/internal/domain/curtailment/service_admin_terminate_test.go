@@ -112,7 +112,8 @@ func TestService_AdminTerminate_RejectsOversizedReason(t *testing.T) {
 
 // TestService_AdminTerminate_StateConflictMapsFailedPrecondition: a
 // terminal event in a different state surfaces a clean FailedPrecondition
-// rather than the bare sentinel.
+// carrying the typed service code so machine callers can branch without
+// string-matching the debug message.
 func TestService_AdminTerminate_StateConflictMapsFailedPrecondition(t *testing.T) {
 	t.Parallel()
 	store := newFakeStore()
@@ -128,6 +129,13 @@ func TestService_AdminTerminate_StateConflictMapsFailedPrecondition(t *testing.T
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
 	assert.Contains(t, err.Error(), "different state")
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr,
+		"FailedPrecondition must carry a FleetError envelope so the service-specific code reaches the wire")
+	assert.Equal(t, fleeterror.ErrorCodeTypeService, fleetErr.FleetErrorCodeType,
+		"state-conflict precondition must use the Service code variant, not Common/Unspecified")
+	assert.Equal(t, FleetErrorCodeAdminTerminateStateConflict, fleetErr.FleetErrorCode,
+		"state-conflict precondition must carry FleetErrorCodeAdminTerminateStateConflict so machine callers branch on it")
 }
 
 func TestService_AdminTerminate_ActiveEventRequiresStopFirst(t *testing.T) {
@@ -145,6 +153,13 @@ func TestService_AdminTerminate_ActiveEventRequiresStopFirst(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
 	assert.Contains(t, err.Error(), "in-flight curtail commands")
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr,
+		"FailedPrecondition must carry a FleetError envelope so the service-specific code reaches the wire")
+	assert.Equal(t, fleeterror.ErrorCodeTypeService, fleetErr.FleetErrorCodeType,
+		"in-flight precondition must use the Service code variant, not Common/Unspecified")
+	assert.Equal(t, FleetErrorCodeAdminTerminateInFlightCommands, fleetErr.FleetErrorCode,
+		"in-flight precondition must carry FleetErrorCodeAdminTerminateInFlightCommands so machine callers can route 'call Stop first' recovery without parsing the debug message")
 }
 
 // TestService_AdminTerminate_PropagatesStoreError: unrelated store errors

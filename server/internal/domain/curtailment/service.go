@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"math"
 	"strings"
 	"time"
 	"unicode/utf8"
 
+	"connectrpc.com/connect"
 	"github.com/google/uuid"
 
 	"github.com/block/proto-fleet/server/internal/domain/activity"
@@ -444,6 +446,26 @@ func effectiveUpdatePatch(event *models.Event, req UpdateRequest) interfaces.Upd
 	return patch
 }
 
+// Service-specific FleetErrorCode values for the AdminTerminate
+// FailedPrecondition variants. Machine callers branch on these to
+// distinguish the two recoverable preconditions without string-matching
+// the debug message. Values land on the wire inside
+// commonv1.FleetErrorDetails.Service so TS/Go clients can read them
+// directly. Numeric values are stable — never renumber.
+const (
+	// FleetErrorCodeAdminTerminateInFlightCommands is set when the
+	// AdminTerminate precondition rejects because any target on the
+	// event still has an in-flight Curtail command (desired_state =
+	// 'curtailed' AND state IN dispatching/dispatched/confirmed/drifted).
+	// Recoverable by calling StopCurtailment first so compensating
+	// Uncurtail commands fire before admin termination lands.
+	FleetErrorCodeAdminTerminateInFlightCommands int32 = 1
+	// FleetErrorCodeAdminTerminateStateConflict is set when the event
+	// has already settled in a terminal state different from the one
+	// the caller requested. Not retryable.
+	FleetErrorCodeAdminTerminateStateConflict int32 = 2
+)
+
 // AdminTerminateRequest is the service-level shape of an
 // AdminTerminateEvent call. TargetState must be CANCELLED or FAILED
 // (the proto validator enforces this; the service re-checks as defense in
@@ -492,14 +514,17 @@ func (s *Service) AdminTerminate(ctx context.Context, req AdminTerminateRequest)
 	updated, transitioned, err := s.store.AdminTerminateEvent(ctx, req.OrgID, req.EventUUID, req.TargetState, req.Reason)
 	if err != nil {
 		if errors.Is(err, interfaces.ErrCurtailmentAdminTerminateStateConflict) {
-			return nil, fleeterror.NewFailedPreconditionErrorf(
-				"curtailment event is already terminal in a different state; admin terminate to %q is not applicable",
-				req.TargetState,
+			return nil, fleeterror.NewErrorWithServiceCode(
+				fmt.Sprintf("curtailment event is already terminal in a different state; admin terminate to %q is not applicable", req.TargetState),
+				connect.CodeFailedPrecondition,
+				FleetErrorCodeAdminTerminateStateConflict,
 			)
 		}
 		if errors.Is(err, interfaces.ErrCurtailmentAdminTerminateActiveEvent) {
-			return nil, fleeterror.NewFailedPreconditionError(
+			return nil, fleeterror.NewErrorWithServiceCode(
 				"curtailment event has miners with in-flight curtail commands; call StopCurtailment first to issue compensating uncurtail commands before admin termination",
+				connect.CodeFailedPrecondition,
+				FleetErrorCodeAdminTerminateInFlightCommands,
 			)
 		}
 		return nil, err

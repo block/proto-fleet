@@ -1680,18 +1680,21 @@ export const CurtailmentService: GenService<{
    * Admin recovery RPC: force a non-terminal event to a terminal state.
    * Session-only, Admin role. Reason is required (min_len=1, max_len=256).
    *
-   * FailedPrecondition variants the caller should distinguish:
-   *   - "curtailment event has in-flight curtail commands; ..." — at least
-   *     one target has desired_state=CURTAILED and is in DISPATCHING /
+   * FailedPrecondition variants the caller should distinguish via the
+   * service-specific code carried in FleetErrorDetails.service (see
+   * common/v1/common.proto for FleetErrorDetails). Machine callers branch
+   * on the int32 code rather than string-matching the debug message.
+   *   - service code 1 (AdminTerminateInFlightCommands) — at least one
+   *     target has desired_state=CURTAILED and is in DISPATCHING /
    *     DISPATCHED / CONFIRMED / DRIFTED. Covers ACTIVE events and PENDING
    *     events whose tick is mid-dispatch. Does NOT fire on RESTORING
    *     events where the in-flight commands are Uncurtails (those
-   *     targets carry desired_state=ACTIVE). Call StopCurtailment first
-   *     so compensating Uncurtail commands fire instead of abandoning
-   *     already-curtailed miners.
-   *   - "curtailment event is already terminal in a different state" — the
-   *     event has already settled in a different terminal state than the
-   *     one the operator requested; not retryable.
+   *     targets carry desired_state=ACTIVE). Recoverable: call
+   *     StopCurtailment first so compensating Uncurtail commands fire
+   *     instead of abandoning already-curtailed miners.
+   *   - service code 2 (AdminTerminateStateConflict) — the event has
+   *     already settled in a different terminal state than the one the
+   *     operator requested; not retryable.
    *
    * @generated from rpc curtailment.v1.CurtailmentService.AdminTerminateEvent
    */
