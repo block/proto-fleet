@@ -300,6 +300,7 @@ FROM curtailment_event
 WHERE org_id = $1
     AND external_source = $2
     AND external_reference = $3
+    AND state IN ('pending', 'active', 'restoring')
 LIMIT 1
 `
 
@@ -309,9 +310,10 @@ type GetCurtailmentEventByExternalReferenceParams struct {
 	ExternalReference sql.NullString
 }
 
-// Webhook-style idempotent replay lookup. Returns zero rows when no prior
-// call carried the same (source, reference). Backed by partial unique
-// index uq_curtailment_event_external_ref.
+// Webhook-style idempotent replay lookup. Returns zero rows when no
+// non-terminal event matches. The state filter mirrors the partial
+// unique index uq_curtailment_event_external_ref so a retry of a
+// long-completed event is treated as a fresh Start.
 func (q *Queries) GetCurtailmentEventByExternalReference(ctx context.Context, arg GetCurtailmentEventByExternalReferenceParams) (CurtailmentEvent, error) {
 	row := q.queryRow(ctx, q.getCurtailmentEventByExternalReferenceStmt, getCurtailmentEventByExternalReference, arg.OrgID, arg.ExternalSource, arg.ExternalReference)
 	var i CurtailmentEvent
@@ -359,6 +361,7 @@ SELECT id, event_uuid, org_id, state, mode, strategy, level, priority, loop_type
 FROM curtailment_event
 WHERE org_id = $1
     AND idempotency_key = $2
+    AND state IN ('pending', 'active', 'restoring')
 LIMIT 1
 `
 
@@ -367,8 +370,12 @@ type GetCurtailmentEventByIdempotencyKeyParams struct {
 	IdempotencyKey sql.NullString
 }
 
-// Idempotent replay lookup. Returns zero rows when no prior call used the
-// key. Backed by partial unique index uq_curtailment_event_idempotency.
+// Idempotent replay lookup. Returns zero rows when no non-terminal event
+// uses the key. The state filter mirrors the partial unique index
+// uq_curtailment_event_idempotency (which also restricts to non-terminal
+// rows) so a webhook retry of a long-completed event's key is treated as
+// a fresh Start, not a stale replay. Webhook retries during an event's
+// in-flight lifetime still hit this lookup.
 func (q *Queries) GetCurtailmentEventByIdempotencyKey(ctx context.Context, arg GetCurtailmentEventByIdempotencyKeyParams) (CurtailmentEvent, error) {
 	row := q.queryRow(ctx, q.getCurtailmentEventByIdempotencyKeyStmt, getCurtailmentEventByIdempotencyKey, arg.OrgID, arg.IdempotencyKey)
 	var i CurtailmentEvent

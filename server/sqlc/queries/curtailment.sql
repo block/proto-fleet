@@ -149,23 +149,30 @@ WHERE event_uuid = sqlc.arg('event_uuid')
     AND org_id = sqlc.arg('org_id');
 
 -- name: GetCurtailmentEventByIdempotencyKey :one
--- Idempotent replay lookup. Returns zero rows when no prior call used the
--- key. Backed by partial unique index uq_curtailment_event_idempotency.
+-- Idempotent replay lookup. Returns zero rows when no non-terminal event
+-- uses the key. The state filter mirrors the partial unique index
+-- uq_curtailment_event_idempotency (which also restricts to non-terminal
+-- rows) so a webhook retry of a long-completed event's key is treated as
+-- a fresh Start, not a stale replay. Webhook retries during an event's
+-- in-flight lifetime still hit this lookup.
 SELECT *
 FROM curtailment_event
 WHERE org_id = sqlc.arg('org_id')
     AND idempotency_key = sqlc.arg('idempotency_key')
+    AND state IN ('pending', 'active', 'restoring')
 LIMIT 1;
 
 -- name: GetCurtailmentEventByExternalReference :one
--- Webhook-style idempotent replay lookup. Returns zero rows when no prior
--- call carried the same (source, reference). Backed by partial unique
--- index uq_curtailment_event_external_ref.
+-- Webhook-style idempotent replay lookup. Returns zero rows when no
+-- non-terminal event matches. The state filter mirrors the partial
+-- unique index uq_curtailment_event_external_ref so a retry of a
+-- long-completed event is treated as a fresh Start.
 SELECT *
 FROM curtailment_event
 WHERE org_id = sqlc.arg('org_id')
     AND external_source = sqlc.arg('external_source')
     AND external_reference = sqlc.arg('external_reference')
+    AND state IN ('pending', 'active', 'restoring')
 LIMIT 1;
 
 -- name: CurtailmentEventHasInFlightTargets :one

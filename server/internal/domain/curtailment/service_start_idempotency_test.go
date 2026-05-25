@@ -353,3 +353,82 @@ func TestService_Start_RaceLoserPostRetryMissSurfacesAlreadyExists(t *testing.T)
 	assert.True(t, fleeterror.IsAlreadyExistsError(err),
 		"race-loser with no retry-visible winner surfaces AlreadyExists")
 }
+
+// TestService_Start_IdempotencyKeyTerminalEventTreatedAsFreshStart pins
+// the AD2 fix: a webhook retry whose key matches a long-completed
+// (terminal) event must NOT return that historical row as a "replay" —
+// returning a stale terminal event would lead operators to believe
+// curtailment is in flight when the original ended at some prior time.
+// Once an event reaches a terminal state, the partial unique index
+// releases the key and the lookup filters terminal rows, so a fresh
+// Start fires.
+func TestService_Start_IdempotencyKeyTerminalEventTreatedAsFreshStart(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(42)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("worst", 3000, 100, 50),
+	}
+	// Seed a year-old terminal event under the same key. The lookup
+	// MUST treat this as not-found so a fresh Start fires.
+	store.eventsByIdempotencyKey = map[string]*models.Event{
+		"reused-key": {
+			ID:        99,
+			EventUUID: uuid.New(),
+			OrgID:     orgID,
+			State:     models.EventStateCompleted,
+		},
+	}
+	svc := NewService(store)
+
+	req := validStartRequest(orgID)
+	req.TargetKW = 2
+	key := "reused-key"
+	req.IdempotencyKey = &key
+
+	plan, err := svc.Start(t.Context(), req)
+	require.NoError(t, err)
+	require.NotNil(t, plan.EventUUID, "terminal event must not block a fresh Start; new event_uuid expected")
+	assert.Nil(t, plan.ReplayEvent,
+		"replay path must not fire when the matching row is terminal")
+	assert.Equal(t, 1, store.insertEventCalls,
+		"fresh Start must reach InsertEventWithTargets; a terminal-only match must not short-circuit to replay")
+}
+
+// TestService_Start_ExternalReferenceTerminalEventTreatedAsFreshStart
+// mirrors the AD2 fix for the (external_source, external_reference)
+// webhook-dedupe channel. Symmetric to the idempotency_key case.
+func TestService_Start_ExternalReferenceTerminalEventTreatedAsFreshStart(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(42)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.candidatesByOrg[orgID] = []*models.Candidate{
+		minerWithEff("worst", 3000, 100, 50),
+	}
+	store.eventsByExternalRef = map[string]*models.Event{
+		"opensearch|reused-alert": {
+			ID:        77,
+			EventUUID: uuid.New(),
+			OrgID:     orgID,
+			State:     models.EventStateCancelled,
+		},
+	}
+	svc := NewService(store)
+
+	req := validStartRequest(orgID)
+	req.TargetKW = 2
+	src := "opensearch"
+	ref := "reused-alert"
+	req.ExternalSource = &src
+	req.ExternalReference = &ref
+
+	plan, err := svc.Start(t.Context(), req)
+	require.NoError(t, err)
+	require.NotNil(t, plan.EventUUID, "terminal event must not block a fresh Start; new event_uuid expected")
+	assert.Nil(t, plan.ReplayEvent,
+		"replay path must not fire when the matching row is terminal")
+	assert.Equal(t, 1, store.insertEventCalls,
+		"fresh Start must reach InsertEventWithTargets")
+}

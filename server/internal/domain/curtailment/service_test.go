@@ -201,6 +201,21 @@ func (f *fakeStore) AdminTerminateEvent(_ context.Context, _ int64, eventUUID uu
 	return f.adminTerminateResult, transitioned, nil
 }
 
+// filterNonTerminalReplayEvent mirrors the production SQL's
+// state IN ('pending','active','restoring') predicate on the replay
+// lookups. Tests that seed terminal events into the lookup maps must
+// see nil here so they exercise the fresh-Start path rather than a
+// stale replay — the AD2 stale-terminal-replay fix.
+func filterNonTerminalReplayEvent(ev *models.Event) *models.Event {
+	if ev == nil {
+		return nil
+	}
+	if ev.State.IsTerminal() {
+		return nil
+	}
+	return ev
+}
+
 func (f *fakeStore) GetEventByIdempotencyKey(_ context.Context, _ int64, idempotencyKey string) (*models.Event, error) {
 	f.getByIdempotencyKeyCalls++
 	f.lastGetByIdempotencyKey = idempotencyKey
@@ -210,12 +225,12 @@ func (f *fakeStore) GetEventByIdempotencyKey(_ context.Context, _ int64, idempot
 	// Race-loser retry: after an InsertEventWithTargets attempt has fired,
 	// the second lookup may see a row the first one missed.
 	if f.insertEventCalls > 0 && f.eventsByIdempotencyKeyOnRetry != nil {
-		return f.eventsByIdempotencyKeyOnRetry[idempotencyKey], nil
+		return filterNonTerminalReplayEvent(f.eventsByIdempotencyKeyOnRetry[idempotencyKey]), nil
 	}
 	if f.eventsByIdempotencyKey == nil {
 		return nil, nil
 	}
-	return f.eventsByIdempotencyKey[idempotencyKey], nil
+	return filterNonTerminalReplayEvent(f.eventsByIdempotencyKey[idempotencyKey]), nil
 }
 
 func (f *fakeStore) GetEventByExternalReference(_ context.Context, _ int64, externalSource, externalReference string) (*models.Event, error) {
@@ -226,12 +241,12 @@ func (f *fakeStore) GetEventByExternalReference(_ context.Context, _ int64, exte
 		return nil, f.getByExternalRefErr
 	}
 	if f.insertEventCalls > 0 && f.eventsByExternalRefOnRetry != nil {
-		return f.eventsByExternalRefOnRetry[externalSource+"|"+externalReference], nil
+		return filterNonTerminalReplayEvent(f.eventsByExternalRefOnRetry[externalSource+"|"+externalReference]), nil
 	}
 	if f.eventsByExternalRef == nil {
 		return nil, nil
 	}
-	return f.eventsByExternalRef[externalSource+"|"+externalReference], nil
+	return filterNonTerminalReplayEvent(f.eventsByExternalRef[externalSource+"|"+externalReference]), nil
 }
 
 func (f *fakeStore) UpdateOperatorFields(_ context.Context, eventID, _ int64, params interfaces.UpdateOperatorFieldsParams) (*models.Event, error) {
