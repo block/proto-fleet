@@ -227,7 +227,7 @@ func strPtr(s string) *string { return &s }
 // TestService_Start_IdempotencyKeyRaceLoserReplays: two concurrent first-time
 // Starts share an idempotency_key, both miss the pre-insert lookup, both
 // attempt InsertEventWithTargets. The loser's INSERT trips the partial
-// unique index → store maps to ErrCurtailmentIdempotencyKeyRaceLoss → service
+// unique index → store maps to ErrCurtailmentReplayRaceLoss → service
 // retries lookupIdempotentReplay and returns the winner's persisted event.
 // Pins the race-loser contract; without this test, a regression returning
 // AlreadyExists to webhook retries would go undetected.
@@ -243,7 +243,7 @@ func TestService_Start_IdempotencyKeyRaceLoserReplays(t *testing.T) {
 	}
 	// First lookup miss → insert attempted → race-loss sentinel → second
 	// lookup (post-race) sees the winner's row and replays.
-	store.insertEventErr = interfaces.ErrCurtailmentIdempotencyKeyRaceLoss
+	store.insertEventErr = interfaces.ErrCurtailmentReplayRaceLoss
 	store.eventsByIdempotencyKeyOnRetry = map[string]*models.Event{
 		"shared-key": {
 			ID:                      99,
@@ -292,7 +292,7 @@ func TestService_Start_ExternalReferenceRaceLoserReplays(t *testing.T) {
 	store.candidatesByOrg[orgID] = []*models.Candidate{
 		minerWithEff("worst", 3000, 100, 50),
 	}
-	store.insertEventErr = interfaces.ErrCurtailmentExternalReferenceRaceLoss
+	store.insertEventErr = interfaces.ErrCurtailmentReplayRaceLoss
 	store.eventsByExternalRefOnRetry = map[string]*models.Event{
 		"opensearch|alert-7": {
 			ID:                      77,
@@ -339,7 +339,7 @@ func TestService_Start_RaceLoserPostRetryMissSurfacesAlreadyExists(t *testing.T)
 	store.candidatesByOrg[orgID] = []*models.Candidate{
 		minerWithEff("worst", 3000, 100, 50),
 	}
-	store.insertEventErr = interfaces.ErrCurtailmentIdempotencyKeyRaceLoss
+	store.insertEventErr = interfaces.ErrCurtailmentReplayRaceLoss
 	// No entry under eventsByIdempotencyKeyOnRetry → retry lookup misses.
 	svc := NewService(store)
 

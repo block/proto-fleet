@@ -161,10 +161,10 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 				switch pgErr.ConstraintName {
 				case nonTerminalEventPerOrgUniqueIndex:
 					return nil, interfaces.ErrCurtailmentNonTerminalEventExists
-				case idempotencyKeyUniqueIndex:
-					return nil, interfaces.ErrCurtailmentIdempotencyKeyRaceLoss
-				case externalReferenceUniqueIndex:
-					return nil, interfaces.ErrCurtailmentExternalReferenceRaceLoss
+				case idempotencyKeyUniqueIndex, externalReferenceUniqueIndex:
+					// Both partial unique indexes drive the same replay path:
+					// re-issue the matching lookup and return the winner's row.
+					return nil, interfaces.ErrCurtailmentReplayRaceLoss
 				}
 				// Unknown unique constraint on curtailment_event: a future
 				// partial index added without updating this switch would
@@ -330,7 +330,7 @@ func (s *SQLCurtailmentStore) UpdateOperatorFields(ctx context.Context, eventID,
 	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, interfaces.ErrCurtailmentUpdateStateRaceLoss
+			return nil, interfaces.ErrCurtailmentEventStateRaceLoss
 		}
 		return nil, fleeterror.NewInternalErrorf("failed to update curtailment event: %v", err)
 	}

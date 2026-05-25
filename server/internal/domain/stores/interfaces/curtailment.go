@@ -16,11 +16,15 @@ import (
 // AlreadyExists and surface the existing event_uuid via GetActiveEvent.
 var ErrCurtailmentNonTerminalEventExists = errors.New("non-terminal curtailment event already exists for this organization")
 
-// ErrCurtailmentUpdateStateRaceLoss is returned by UpdateOperatorFields
-// when the row's state advanced out of {pending, active} between the
-// caller's pre-read and the UPDATE. Service maps this to a typed
-// FailedPrecondition.
-var ErrCurtailmentUpdateStateRaceLoss = errors.New("curtailment event state advanced between pre-read and update")
+// ErrCurtailmentReplayRaceLoss is returned by InsertEventWithTargets when a
+// concurrent first-time Start sharing the same idempotency key or
+// (external_source, external_reference) tuple won the partial-unique-index
+// race. Callers re-issue the matching lookup (GetEventByIdempotencyKey or
+// GetEventByExternalReference) to fetch the winner's row and surface the
+// same replay response a non-racing duplicate would have produced. The
+// sentinel does not distinguish which channel raced — the Service.Start
+// replay path tries both lookups in their canonical precedence order.
+var ErrCurtailmentReplayRaceLoss = errors.New("curtailment event was inserted concurrently by a duplicate-protected channel; replay the persisted winner")
 
 // ErrCurtailmentAdminTerminateStateConflict is returned by AdminTerminateEvent
 // when the event already sits in a terminal state different from the one
@@ -29,30 +33,24 @@ var ErrCurtailmentUpdateStateRaceLoss = errors.New("curtailment event state adva
 var ErrCurtailmentAdminTerminateStateConflict = errors.New("curtailment event is already terminal in a different state")
 
 // ErrCurtailmentAdminTerminateActiveEvent is returned by AdminTerminateEvent
-// when any target on the event has received a Curtail command but not yet
-// been restored — i.e., state ∈ {dispatched, confirmed, drifted}. Covers
-// ACTIVE events (which always have CONFIRMED targets) and PENDING events
-// whose tick already dispatched some commands. Callers must Stop first so
-// compensating Uncurtail commands fire instead of leaving miners curtailed.
+// when any target on the event has an in-flight Curtail command —
+// state ∈ {dispatching, dispatched, confirmed, drifted} AND
+// desired_state = 'curtailed'. Covers ACTIVE events (which always have
+// CONFIRMED targets) and PENDING events whose tick already dispatched some
+// commands. The desired_state scope means RESTORING events with in-flight
+// Uncurtails do *not* trip this sentinel (those carry desired_state='active').
+// Callers must Stop first so compensating Uncurtail commands fire instead
+// of leaving miners curtailed.
 var ErrCurtailmentAdminTerminateActiveEvent = errors.New("curtailment event has in-flight curtail commands; must be stopped before admin termination")
 
-// ErrCurtailmentIdempotencyKeyRaceLoss is returned by InsertEventWithTargets
-// when the partial unique index on (org_id, idempotency_key) rejects the
-// insert because a concurrent first-time Start with the same key won the
-// race. Callers re-issue GetEventByIdempotencyKey to fetch the winner's
-// row and surface the same replay response as a non-racing duplicate.
-var ErrCurtailmentIdempotencyKeyRaceLoss = errors.New("curtailment event with the same idempotency_key was inserted concurrently")
-
-// ErrCurtailmentExternalReferenceRaceLoss is the (external_source,
-// external_reference) analog of ErrCurtailmentIdempotencyKeyRaceLoss.
-var ErrCurtailmentExternalReferenceRaceLoss = errors.New("curtailment event with the same (external_source, external_reference) was inserted concurrently")
-
-// ErrCurtailmentEventStateRaceLoss is returned by UpdateEventState when the
-// row advanced out of {pending, active, restoring} between the caller's
-// in-memory snapshot and this UPDATE. The SQL guard matches zero rows; the
-// store maps that to this sentinel so the reconciler (which doesn't pre-read
-// in the tick body) can log + metric the skip without treating it as Internal.
-var ErrCurtailmentEventStateRaceLoss = errors.New("curtailment event state advanced before transition")
+// ErrCurtailmentEventStateRaceLoss is returned by UpdateOperatorFields,
+// UpdateEventState, and UpdateTargetState when the row's parent event state
+// advanced out of the caller-visible non-terminal window between the
+// caller's snapshot and the UPDATE. The SQL guard matches zero rows; the
+// store maps that to this sentinel so callers can route by context: the
+// reconciler logs + metrics the skip without treating it as Internal, the
+// Update service path returns FailedPrecondition.
+var ErrCurtailmentEventStateRaceLoss = errors.New("curtailment event state advanced before write")
 
 // UpdateCurtailmentTargetStateParams: optional patch fields. Nil pointers
 // leave the column unchanged via COALESCE in the SQL update.
@@ -144,7 +142,7 @@ type CurtailmentStore interface {
 	// event. Caller has already validated org ownership + state ∈ {pending,
 	// active}; the SQL re-asserts the state predicate as defense in depth,
 	// so a state advance between the pre-read and the UPDATE surfaces as
-	// ErrCurtailmentUpdateStateRaceLoss. Returns the updated row.
+	// ErrCurtailmentEventStateRaceLoss. Returns the updated row.
 	UpdateOperatorFields(ctx context.Context, eventID, orgID int64, params UpdateOperatorFieldsParams) (*models.Event, error)
 
 	// AdminTerminateEvent forces a non-terminal event to the operator-chosen

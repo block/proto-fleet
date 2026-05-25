@@ -290,7 +290,7 @@ func TestService_Update_RaceLossSurfacesFailedPrecondition(t *testing.T) {
 	store.eventsByUUID[eventUUID] = &models.Event{
 		ID: 1, EventUUID: eventUUID, OrgID: orgID, State: models.EventStateActive,
 	}
-	store.updateOperatorFieldsErr = interfaces.ErrCurtailmentUpdateStateRaceLoss
+	store.updateOperatorFieldsErr = interfaces.ErrCurtailmentEventStateRaceLoss
 	svc := NewService(store)
 
 	newReason := "updated"

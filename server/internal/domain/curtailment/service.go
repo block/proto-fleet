@@ -257,8 +257,7 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 		// race-loser falls into the same replay path as a deliberate
 		// retry — webhook clients see the winner's event rather than a
 		// generic Internal.
-		if errors.Is(err, interfaces.ErrCurtailmentIdempotencyKeyRaceLoss) ||
-			errors.Is(err, interfaces.ErrCurtailmentExternalReferenceRaceLoss) {
+		if errors.Is(err, interfaces.ErrCurtailmentReplayRaceLoss) {
 			if existing, replayErr := s.lookupIdempotentReplay(ctx, req); replayErr == nil && existing != nil {
 				return s.replayPlanFromPersistedEvent(ctx, req.OrgID, existing)
 			}
@@ -402,7 +401,7 @@ func (s *Service) Update(ctx context.Context, req UpdateRequest) (*models.Event,
 
 	updated, err := s.store.UpdateOperatorFields(ctx, event.ID, req.OrgID, patch)
 	if err != nil {
-		if errors.Is(err, interfaces.ErrCurtailmentUpdateStateRaceLoss) {
+		if errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
 			return nil, fleeterror.NewFailedPreconditionError(
 				"curtailment event state advanced during update; retry against the current event state",
 			)
