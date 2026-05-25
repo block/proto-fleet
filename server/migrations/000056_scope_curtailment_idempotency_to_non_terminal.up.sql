@@ -15,4 +15,10 @@
 -- golang-migrate postgres driver executes a migration file as one command
 -- unless statement splitting is enabled, and PostgreSQL rejects concurrent
 -- index operations in a multi-command transaction block.
+--
+-- Operator recovery if 000057 fails after this DROP: schema_migrations
+-- stays dirty at v56 with no idempotency index. Drop any INVALID
+-- `uq_curtailment_event_idempotency` residue, resolve duplicate
+-- `(org_id, idempotency_key)` rows that block the scoped CREATE, then
+-- `migrate force 56` and retry `migrate up`.
 DROP INDEX CONCURRENTLY IF EXISTS uq_curtailment_event_idempotency;

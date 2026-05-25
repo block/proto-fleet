@@ -295,8 +295,9 @@ type ListEventsRequest struct {
 // call. Pointer fields use "nil = preserve, non-nil = write" semantics.
 // CanUseAdminControls gates restore_batch_interval_sec above the
 // non-admin cap, mirroring Start. effective_batch_size is not on this
-// surface — recompute-vs-freeze policy is unresolved (Open #13), so
-// operators who need a different batch size cancel and restart.
+// surface — recompute-vs-freeze of the batch size mid-event would race
+// an in-flight restore claim, so operators who need a different batch
+// size cancel and restart.
 type UpdateRequest struct {
 	OrgID                   int64
 	EventUUID               uuid.UUID
