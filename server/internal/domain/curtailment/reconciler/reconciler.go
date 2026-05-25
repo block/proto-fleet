@@ -1133,11 +1133,15 @@ func (r *Reconciler) dispatchRestoreBatch(ctx context.Context, ev *models.Event,
 	// Stamp DISPATCHING on every batch target before issuing the bulk
 	// Uncurtail. A race-loss aborts the whole batch — the event is no
 	// longer dispatchable, so no Uncurtail should fire. Other write
-	// failures drop just that target from this tick's dispatch set; the
-	// next tick re-claims it via the DISPATCHING/PENDING orphan path.
-	// last_dispatched_at is intentionally NOT stamped here (see
-	// dispatchOneCurtail) — it lands only on successful enqueue so
-	// filter-skipped / empty-batch failures don't leave a stale timestamp.
+	// failures drop just that target from this tick's dispatch set and
+	// burn one retry slot via recordDispatchFailure so a persistently
+	// failing pre-write eventually escalates to RESTORE_FAILED instead
+	// of cycling forever. The dropped target stays in PENDING for the
+	// next tick to re-claim via the normal restore-batch path; the
+	// retry-count bump is what bounds the loop. last_dispatched_at is
+	// intentionally NOT stamped here (see dispatchOneCurtail) — it
+	// lands only on successful enqueue so filter-skipped / empty-batch
+	// failures don't leave a stale timestamp.
 	dispatchSet := make([]*models.Target, 0, len(claim))
 	for _, t := range claim {
 		dispatchingParams := interfaces.UpdateCurtailmentTargetStateParams{
@@ -1149,6 +1153,7 @@ func (r *Reconciler) dispatchRestoreBatch(ctx context.Context, ev *models.Event,
 			}
 			slog.Error("curtailment reconciler: restore dispatching pre-write failed",
 				"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
+			r.recordDispatchFailure(ctx, ev, t, err.Error(), models.TargetStatePending)
 			continue
 		}
 		t.State = models.TargetStateDispatching

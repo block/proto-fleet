@@ -427,18 +427,22 @@ func TestReconciler_Restoring_UncurtailErrorKeepsBatchPending(t *testing.T) {
 // dispatchRestoreBatch's continue-past-non-race-loss behavior: a single
 // target's DISPATCHING pre-write failing with a non-race-loss error must
 // drop that target from this tick's dispatch set without aborting the
-// whole batch. The remaining devices proceed to Uncurtail, and the failed
-// device stays in its prior state for the next tick to re-claim. (Before
-// this fix the entire batch would abort on the first failure, delaying
-// restore for every device in the batch by one full tick interval.)
+// whole batch. The remaining devices proceed to Uncurtail; the failed
+// device stays in PENDING for the next tick to re-claim but burns one
+// retry slot via recordDispatchFailure so a persistently failing
+// pre-write eventually escalates to RESTORE_FAILED instead of cycling
+// forever.
 func TestReconciler_Restoring_PreWriteFailureSkipsTargetButDispatchesRest(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
 
-	// Fail the very first DISPATCHING pre-write (target m1) with a
-	// non-race-loss error; subsequent calls succeed.
+	// Fail the first DISPATCHING pre-write (m1) with a non-race-loss
+	// error; subsequent calls (m2's pre-write + m1's recordDispatchFailure
+	// recovery write + m2's post-cmd DISPATCHED) succeed.
+	failedOnce := false
 	store.updateTargetStateHook = func(device string, _ interfaces.UpdateCurtailmentTargetStateParams, _ int) error {
-		if device == "m1" {
+		if device == "m1" && !failedOnce {
+			failedOnce = true
 			return errors.New("transient db blip")
 		}
 		return nil
@@ -467,12 +471,14 @@ func TestReconciler_Restoring_PreWriteFailureSkipsTargetButDispatchesRest(t *tes
 	assert.Equal(t, []string{"m2"}, disp.uncurtailLastIDs,
 		"failed pre-write target must be excluded from the Uncurtail selector")
 
-	// m1 stays Pending (its prior state) — next tick re-claims it.
+	// m1 stays Pending for next-tick reclaim but burns one retry slot.
 	m1 := store.targetsByEventID[eventID][0]
 	assert.Equal(t, models.TargetStatePending, m1.State,
-		"failed pre-write target must remain in its prior state for next-tick reclaim")
-	assert.Equal(t, int32(0), m1.RetryCount,
-		"non-race-loss pre-write failure must not burn retry budget (the dispatch attempt never reached cmd.Uncurtail)")
+		"failed pre-write target must remain in PENDING for next-tick reclaim")
+	assert.Equal(t, int32(1), m1.RetryCount,
+		"non-race-loss pre-write failure must burn one retry slot so persistent failure escalates to RESTORE_FAILED")
+	require.NotNil(t, m1.LastError, "pre-write failure must stamp last_error for operator visibility")
+	assert.Contains(t, *m1.LastError, "transient db blip")
 	// m2 successfully advanced to Dispatched.
 	m2 := store.targetsByEventID[eventID][1]
 	assert.Equal(t, models.TargetStateDispatched, m2.State,
@@ -491,6 +497,12 @@ func TestReconciler_Restoring_AllPreWriteFailuresSkipUncurtail(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
 
+	// Every write fails (DB fully degraded). The dispatch loop's pre-write
+	// fails, the recordDispatchFailure recovery write also fails — neither
+	// the target's state nor retry_count advances. Pin the dispatchSet-empty
+	// → no-Uncurtail contract; retry budget cycles to the next tick (when
+	// the DB is presumably back up). For the intermittent-failure path
+	// where recovery succeeds, see TestReconciler_Restoring_PreWriteFailurePersistsExhaustsRetryBudget.
 	store.updateTargetStateHook = func(string, interfaces.UpdateCurtailmentTargetStateParams, int) error {
 		return errors.New("transient db blip")
 	}
@@ -519,8 +531,68 @@ func TestReconciler_Restoring_AllPreWriteFailuresSkipUncurtail(t *testing.T) {
 		assert.Equal(t, models.TargetStatePending, t0.State,
 			"%s stays Pending so next tick can re-claim it", t0.DeviceIdentifier)
 		assert.Equal(t, int32(0), t0.RetryCount,
-			"%s must not burn retry budget on a pre-write failure that never reached cmd.Uncurtail", t0.DeviceIdentifier)
+			"%s retry budget unchanged when the recovery write also fails (fully degraded DB)", t0.DeviceIdentifier)
 	}
+}
+
+// TestReconciler_Restoring_PreWriteFailurePersistsExhaustsRetryBudget pins
+// the bug-#5 fix: a target whose DISPATCHING pre-write keeps failing with
+// a non-race-loss error burns one retry slot per tick (assuming the
+// recovery write succeeds — i.e., the failure is intermittent or affects
+// only the dispatch write). After MaxRetries=3 cycles, the target lands
+// in RESTORE_FAILED so the event can still complete. Before the fix the
+// target cycled forever with no path to terminal.
+func TestReconciler_Restoring_PreWriteFailurePersistsExhaustsRetryBudget(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	// Fail every DISPATCHING pre-write but let the subsequent
+	// recordDispatchFailure recovery write succeed. The hook differentiates
+	// by inspecting params.State: pre-write is models.TargetStateDispatching;
+	// recordDispatchFailure writes the retry-bumped state which is either
+	// TargetStatePending (budget remaining) or TargetStateRestoreFailed.
+	store.updateTargetStateHook = func(_ string, params interfaces.UpdateCurtailmentTargetStateParams, _ int) error {
+		if params.State == models.TargetStateDispatching {
+			return errors.New("transient db blip")
+		}
+		return nil
+	}
+
+	r := newReconcilerForTest(store, disp)
+	effBatch := int32(1)
+	eventID := int64(86)
+	store.events = []*models.Event{{
+		ID:                      eventID,
+		EventUUID:               uuid.New(),
+		OrgID:                   1,
+		State:                   models.EventStateRestoring,
+		EffectiveBatchSize:      &effBatch,
+		RestoreBatchIntervalSec: 0,
+	}}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "m1", State: models.TargetStatePending, DesiredState: models.DesiredStateActive},
+	}
+
+	// Tick 1: pre-write fails → retry 1, still PENDING.
+	r.runTick(context.Background())
+	m1 := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStatePending, m1.State)
+	assert.Equal(t, int32(1), m1.RetryCount)
+
+	// Tick 2: pre-write fails → retry 2, still PENDING.
+	r.runTick(context.Background())
+	m1 = store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStatePending, m1.State)
+	assert.Equal(t, int32(2), m1.RetryCount)
+
+	// Tick 3: pre-write fails → retry 3 (hits MaxRetries) → RESTORE_FAILED.
+	r.runTick(context.Background())
+	m1 = store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStateRestoreFailed, m1.State,
+		"persistently-failing pre-write must escalate to RESTORE_FAILED at MaxRetries — without the fix the target cycles forever")
+	assert.Equal(t, int32(3), m1.RetryCount)
+	assert.Equal(t, 0, disp.uncurtailCalls,
+		"cmd.Uncurtail never fires because the pre-write never lands")
 }
 
 // TestReconciler_Restoring_EmptyBatchIdentifierKeepsBatchPending pins
