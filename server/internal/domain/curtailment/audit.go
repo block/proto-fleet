@@ -35,9 +35,20 @@ const (
 	// ActivityTypeStarted when force_include_maintenance=true.
 	ActivityTypeStartedForceMaintenance = "curtailment_force_include_maintenance"
 	// ActivityTypeAdminTerminated is emitted on every successful
-	// Service.AdminTerminate so the privileged force-terminate path
-	// captures actor + reason in the audit feed.
+	// Service.AdminTerminate that actually transitioned the event to a
+	// terminal state, so the privileged force-terminate path captures
+	// actor + reason in the audit feed.
 	ActivityTypeAdminTerminated = "curtailment_admin_terminated"
+	// ActivityTypeAdminTerminatedReplay is emitted when AdminTerminate
+	// echoes an already-terminal event in the same target state — either
+	// an idempotent retry by the same operator or a concurrent race where
+	// another operator's call landed first. Recording the call (with this
+	// caller's actor + reason) keeps the audit feed complete: without it,
+	// a race-loser's distinct reason and attribution are silently dropped.
+	// Audit consumers tracking primary terminate actions filter by
+	// ActivityTypeAdminTerminated; consumers reconstructing complete
+	// operator-attempt history union both event types.
+	ActivityTypeAdminTerminatedReplay = "curtailment_admin_terminated_replay"
 	// ActivityTypeUpdated is emitted on a Service.Update call that
 	// actually changes one or more operator-safe fields. Same-value
 	// patches collapse to no-op upstream and do not emit.

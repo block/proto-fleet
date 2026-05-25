@@ -503,14 +503,15 @@ func (s *Service) AdminTerminate(ctx context.Context, req AdminTerminateRequest)
 		}
 		return nil, err
 	}
-	// Suppress audit emission on idempotent replays (event was already in
-	// the requested terminal state on first read, or a concurrent
-	// terminate landed first). A duplicate `curtailment_admin_terminated`
-	// row for a no-op call would mislead audit consumers tracking
-	// operator action history.
-	if transitioned {
-		s.emitAdminTerminateAuditTrail(ctx, req, updated)
-	}
+	// Emit an audit row on every successful return. On the real-transition
+	// path, the row carries ActivityTypeAdminTerminated and the primary
+	// "terminated by admin" description. On idempotent replays — a same-
+	// actor retry or a race-loser whose call landed after another's
+	// transition — emit ActivityTypeAdminTerminatedReplay so the caller's
+	// actor + reason are still recorded. Without the replay row, a
+	// concurrent operator's distinct reason and attribution would be
+	// silently dropped from the audit feed.
+	s.emitAdminTerminateAuditTrail(ctx, req, updated, transitioned)
 	return updated, nil
 }
 
@@ -570,13 +571,23 @@ func (s *Service) emitStartAuditTrail(ctx context.Context, req StartRequest, pla
 	}
 }
 
-// emitAdminTerminateAuditTrail records the activity row for a successful
-// AdminTerminate. Best-effort, mirroring emitStartAuditTrail: a transient
-// activity-store failure logs but does not roll back the terminal
-// transition (which is already committed by the store transaction).
-func (s *Service) emitAdminTerminateAuditTrail(ctx context.Context, req AdminTerminateRequest, event *models.Event) {
+// emitAdminTerminateAuditTrail records the activity row for an
+// AdminTerminate return. transitioned=true → ActivityTypeAdminTerminated
+// (the primary force-terminate row); transitioned=false →
+// ActivityTypeAdminTerminatedReplay (the idempotent-echo row that
+// captures a race-loser's actor + reason or a same-actor retry).
+// Best-effort, mirroring emitStartAuditTrail: a transient activity-store
+// failure logs but does not roll back the terminal transition (which is
+// already committed by the store transaction).
+func (s *Service) emitAdminTerminateAuditTrail(ctx context.Context, req AdminTerminateRequest, event *models.Event, transitioned bool) {
 	if event == nil {
 		return
+	}
+	eventType := ActivityTypeAdminTerminated
+	description := "Curtailment event force-terminated by admin"
+	if !transitioned {
+		eventType = ActivityTypeAdminTerminatedReplay
+		description = "Curtailment admin-terminate idempotent replay (event already terminal in this target state)"
 	}
 	metadata := map[string]any{
 		"event_uuid":   event.EventUUID.String(),
@@ -585,8 +596,8 @@ func (s *Service) emitAdminTerminateAuditTrail(ctx context.Context, req AdminTer
 	}
 	row := activitymodels.Event{
 		Category:    activitymodels.CategoryCurtailment,
-		Type:        ActivityTypeAdminTerminated,
-		Description: "Curtailment event force-terminated by admin",
+		Type:        eventType,
+		Description: description,
 		Result:      activitymodels.ResultSuccess,
 		Metadata:    metadata,
 		ActorType:   activitymodels.ActorUser,

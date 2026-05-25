@@ -151,13 +151,19 @@ func TestService_Lifecycle_StartReplayShortCircuitsSecondCall(t *testing.T) {
 		"replay must not double-emit the audit trail")
 }
 
-// TestService_AdminTerminate_IdempotentReplay_SuppressesAudit pins the
-// audit-emission contract: when the store reports an idempotent replay
-// (event already in the requested terminal state on first read, or a
-// concurrent terminate landed first), AdminTerminate must NOT emit a
-// duplicate curtailment_admin_terminated activity row. Audit consumers
-// tracking operator action history would otherwise see a phantom action.
-func TestService_AdminTerminate_IdempotentReplay_SuppressesAudit(t *testing.T) {
+// TestService_AdminTerminate_IdempotentReplay_EmitsReplayAuditRow pins
+// the audit-emission contract on the idempotent-replay path: when the
+// store reports the event was already in the requested terminal state
+// (same-operator retry, or a concurrent race where another operator's
+// call landed first), AdminTerminate must emit a
+// curtailment_admin_terminated_replay row capturing this caller's
+// actor + reason. Without it, a race-loser's distinct reason and
+// attribution would be silently dropped — the audit feed would only
+// show the winner. Audit consumers tracking primary terminate actions
+// filter by ActivityTypeAdminTerminated and ignore the replay rows;
+// consumers reconstructing complete operator-attempt history union
+// both event types.
+func TestService_AdminTerminate_IdempotentReplay_EmitsReplayAuditRow(t *testing.T) {
 	t.Parallel()
 	const orgID = int64(42)
 
@@ -178,13 +184,19 @@ func TestService_AdminTerminate_IdempotentReplay_SuppressesAudit(t *testing.T) {
 		OrgID:       orgID,
 		EventUUID:   eventUUID,
 		TargetState: models.EventStateCancelled,
-		Reason:      "duplicate terminate request",
+		Reason:      "race-loser reason",
 	})
 	require.NoError(t, err)
 	assert.Equal(t, models.EventStateCancelled, final.State)
 	assert.Equal(t, 1, store.adminTerminateCalls)
-	assert.Empty(t, audit.snapshot(),
-		"idempotent replay must not emit a duplicate audit row")
+
+	events := audit.snapshot()
+	require.Len(t, events, 1, "idempotent replay must emit exactly one replay-type audit row")
+	assert.Equal(t, ActivityTypeAdminTerminatedReplay, events[0].Type,
+		"replay path must use the replay-type, not the primary terminated type")
+	require.NotNil(t, events[0].Metadata)
+	assert.Equal(t, "race-loser reason", events[0].Metadata["reason"],
+		"replay row must capture THIS caller's reason, not the winner's, so audit reconstruction surfaces every operator's attempt")
 }
 
 // TestService_AdminTerminate_Transition_EmitsAudit is the positive
@@ -219,6 +231,63 @@ func TestService_AdminTerminate_Transition_EmitsAudit(t *testing.T) {
 	events := audit.snapshot()
 	require.Len(t, events, 1, "real transition must emit one audit row")
 	assert.Equal(t, ActivityTypeAdminTerminated, events[0].Type)
+}
+
+// TestService_AdminTerminate_RaceLoserAttributionPreserved walks the
+// concurrent-AdminTerminate scenario end to end: operator A wins the
+// transition and emits ActivityTypeAdminTerminated; operator B's call
+// lands after the event is already terminal in the same target state
+// and emits ActivityTypeAdminTerminatedReplay. Both rows carry their
+// caller's distinct reason. A historian reconstructing "who tried to
+// terminate this event" reads both rows; a dashboard tracking primary
+// terminate actions filters to the first event type only.
+func TestService_AdminTerminate_RaceLoserAttributionPreserved(t *testing.T) {
+	t.Parallel()
+	const orgID = int64(42)
+	eventUUID := uuid.New()
+	terminated := &models.Event{
+		ID:        1,
+		EventUUID: eventUUID,
+		OrgID:     orgID,
+		State:     models.EventStateCancelled,
+	}
+
+	store := newFakeStore()
+	store.adminTerminateResult = terminated
+	audit := &recordingAuditLogger{}
+	svc := NewService(store, WithAuditLogger(audit))
+
+	// Call 1: operator A wins the transition. transitioned=true.
+	_, err := svc.AdminTerminate(t.Context(), AdminTerminateRequest{
+		OrgID:       orgID,
+		EventUUID:   eventUUID,
+		TargetState: models.EventStateCancelled,
+		Reason:      "power emergency",
+	})
+	require.NoError(t, err)
+
+	// Call 2: operator B's call lands after A's transition. The store
+	// returns the same row with transitioned=false (idempotent echo).
+	store.adminTerminateIdempotentReplay = true
+	_, err = svc.AdminTerminate(t.Context(), AdminTerminateRequest{
+		OrgID:       orgID,
+		EventUUID:   eventUUID,
+		TargetState: models.EventStateCancelled,
+		Reason:      "operational fatfinger",
+	})
+	require.NoError(t, err)
+
+	events := audit.snapshot()
+	require.Len(t, events, 2, "both calls must emit one row each (primary + replay)")
+
+	assert.Equal(t, ActivityTypeAdminTerminated, events[0].Type,
+		"first call wins the transition → primary terminate row")
+	assert.Equal(t, "power emergency", events[0].Metadata["reason"])
+
+	assert.Equal(t, ActivityTypeAdminTerminatedReplay, events[1].Type,
+		"second call races → replay row preserves the loser's attribution")
+	assert.Equal(t, "operational fatfinger", events[1].Metadata["reason"],
+		"replay row must capture the loser's distinct reason; without this the audit feed would only show the winner")
 }
 
 // TestService_Lifecycle_ListEventsReturnsTerminalRow demonstrates the
