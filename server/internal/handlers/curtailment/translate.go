@@ -617,15 +617,19 @@ func toListEventsResponse(events []*models.Event, nextPageToken string) *pb.List
 }
 
 // toEventProtoListItem populates the list-view shape: identity + lifecycle
-// + scope + mode params + trimmed decision snapshot. Targets are not
-// included; consumers paginate over events here and fetch per-event target
-// detail separately when needed.
+// + scope + mode params + decision snapshot. Targets are not included;
+// consumers paginate over events here and fetch per-event target detail
+// separately when needed. The decision snapshot arrives pre-trimmed from
+// the SQL boundary — ListCurtailmentEventsForOrg projects the column with
+// the per-device `skipped` array stripped into a `skipped_aggregate`
+// reason→count map (see queries/curtailment.sql) — so list rows hydrate
+// the same way single-event rows do.
 func toEventProtoListItem(event *models.Event) *pb.CurtailmentEvent {
 	out := toEventProto(event)
 	scrubListSensitiveFields(out)
 	populateEventScope(out, event)
 	populateEventModeParams(out, event)
-	populateEventDecisionSnapshotTrimmed(out, event)
+	populateEventDecisionSnapshot(out, event)
 	return out
 }
 
@@ -751,49 +755,6 @@ func populateEventDecisionSnapshot(out *pb.CurtailmentEvent, event *models.Event
 	var payload map[string]any
 	if err := json.Unmarshal(event.DecisionSnapshotJSON, &payload); err != nil {
 		return
-	}
-	s, err := structpb.NewStruct(payload)
-	if err != nil {
-		return
-	}
-	out.DecisionSnapshot = s
-}
-
-// populateEventDecisionSnapshotTrimmed surfaces the small summary fields
-// (candidate_min_power_w, estimated_reduction_kw, selected_count) and
-// collapses the per-device `skipped` slice into aggregate counts keyed by
-// reason. For a 10K-miner event the raw `skipped` array is megabytes of
-// JSON; the aggregate keeps the response bounded for list views.
-func populateEventDecisionSnapshotTrimmed(out *pb.CurtailmentEvent, event *models.Event) {
-	if len(event.DecisionSnapshotJSON) == 0 {
-		return
-	}
-	var payload map[string]any
-	if err := json.Unmarshal(event.DecisionSnapshotJSON, &payload); err != nil {
-		return
-	}
-	if raw, ok := payload["skipped"]; ok {
-		entries, ok := raw.([]any)
-		if ok {
-			aggregate := map[string]any{}
-			for _, entry := range entries {
-				row, ok := entry.(map[string]any)
-				if !ok {
-					continue
-				}
-				reason, _ := row["reason"].(string)
-				if reason == "" {
-					continue
-				}
-				if existing, ok := aggregate[reason].(float64); ok {
-					aggregate[reason] = existing + 1
-				} else {
-					aggregate[reason] = float64(1)
-				}
-			}
-			payload["skipped_aggregate"] = aggregate
-		}
-		delete(payload, "skipped")
 	}
 	s, err := structpb.NewStruct(payload)
 	if err != nil {

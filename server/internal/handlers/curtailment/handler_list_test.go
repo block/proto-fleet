@@ -238,20 +238,28 @@ func TestHandler_ListCurtailmentEvents_PropagatesStoreError(t *testing.T) {
 
 // TestHandler_ListCurtailmentEvents_TrimsDecisionSnapshot: the per-device
 // skipped array is replaced by aggregate reason counts so list responses
-// stay bounded on 10K-miner events.
-func TestHandler_ListCurtailmentEvents_TrimsDecisionSnapshot(t *testing.T) {
+// stay bounded on 10K-miner events. The trim happens at the SQL boundary
+// (ListCurtailmentEventsForOrg projects decision_snapshot_jsonb with
+// `skipped` replaced by `skipped_aggregate`); the handler hydrates the
+// trimmed JSON into the structpb wire field without further work. This
+// test pins the contract that the trimmed shape rides through the handler
+// untouched — both that `skipped` stays absent and that the aggregate
+// reason counts surface as a nested struct.
+func TestHandler_ListCurtailmentEvents_HydratesTrimmedDecisionSnapshot(t *testing.T) {
 	t.Parallel()
-	rawSnapshot := map[string]any{
+	// Pre-trimmed snapshot matching what ListCurtailmentEventsForOrg
+	// returns in production after the SQL CASE expression has stripped
+	// `skipped` and computed `skipped_aggregate`.
+	trimmedSnapshot := map[string]any{
 		"candidate_min_power_w":  1500,
 		"estimated_reduction_kw": 12.5,
 		"selected_count":         42,
-		"skipped": []map[string]string{
-			{"device_identifier": "m1", "reason": "phantom_load_no_hash"},
-			{"device_identifier": "m2", "reason": "phantom_load_no_hash"},
-			{"device_identifier": "m3", "reason": "stale_telemetry"},
+		"skipped_aggregate": map[string]any{
+			"phantom_load_no_hash": float64(2),
+			"stale_telemetry":      float64(1),
 		},
 	}
-	snapshotJSON, err := json.Marshal(rawSnapshot)
+	snapshotJSON, err := json.Marshal(trimmedSnapshot)
 	require.NoError(t, err)
 
 	store := &listStubStore{
@@ -276,7 +284,7 @@ func TestHandler_ListCurtailmentEvents_TrimsDecisionSnapshot(t *testing.T) {
 	snap := resp.Msg.Events[0].DecisionSnapshot
 	require.NotNil(t, snap)
 	fields := snap.GetFields()
-	assert.NotContains(t, fields, "skipped", "per-device skipped array must be removed from the list view")
+	assert.NotContains(t, fields, "skipped", "per-device skipped array must not appear in the list view (SQL strips it before the handler runs)")
 	require.Contains(t, fields, "skipped_aggregate")
 	agg := fields["skipped_aggregate"].GetStructValue().GetFields()
 	assert.Equal(t, float64(2), agg["phantom_load_no_hash"].GetNumberValue())
