@@ -57,13 +57,9 @@ type TargetState string
 
 const (
 	TargetStatePending TargetState = "pending"
-	// TargetStateDispatching is the brief transient written immediately
-	// before reconciler.dispatchOneCurtail / dispatchRestoreBatch call
-	// cmd.Curtail / cmd.Uncurtail; the DISPATCHED transition lands after
-	// the command returns. AdminTerminate's in-flight gate counts
-	// DISPATCHING rows so a concurrent terminate rejects as Stop-first
-	// and commands cannot fire against a just-terminated event with no
-	// compensating Uncurtail.
+	// TargetStateDispatching is the pre-command transient. AdminTerminate's
+	// in-flight gate counts DISPATCHING+desired_state='curtailed' rows so a
+	// terminate cannot race past an outstanding Curtail.
 	TargetStateDispatching   TargetState = "dispatching"
 	TargetStateDispatched    TargetState = "dispatched"
 	TargetStateConfirmed     TargetState = "confirmed"
@@ -257,13 +253,10 @@ type Heartbeat struct {
 	ActiveEventCount   int32
 }
 
-// Candidate is per-device state assembled by the curtailment store from a
-// cross-table join (device + latest device_metrics + latest
-// device_metrics_hourly + device_pairing + device_status). The service layer
-// inspects each Candidate to attribute skip reasons (stale telemetry,
-// unpaired, wrong device_status, etc.) before handing the survivors to the
-// selector. nil-pointer fields mean "no row joined" — the service interprets
-// those as their natural skip-reason variant (e.g., absent telemetry → stale).
+// Candidate is per-device state assembled by the curtailment store from
+// a cross-table join (device + telemetry + pairing + status). nil-pointer
+// fields mean "no row joined" and map to the natural skip reason (e.g.,
+// absent telemetry → stale).
 type Candidate struct {
 	DeviceIdentifier string
 	DriverName       *string

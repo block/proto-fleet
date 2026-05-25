@@ -89,12 +89,11 @@ type Service struct {
 	audit   AuditLogger
 }
 
-// ServiceOption configures a Service at construction time. Callers that
-// don't supply WithMetrics get the NoOpMetrics default.
+// ServiceOption configures a Service at construction time.
 type ServiceOption func(*Service)
 
-// WithServiceMetrics injects the operational metrics recorder. nil is
-// silently ignored so a half-wired caller falls back to NoOpMetrics.
+// WithServiceMetrics injects the operational metrics recorder; nil keeps
+// the NoOpMetrics default.
 func WithServiceMetrics(m Metrics) ServiceOption {
 	return func(s *Service) {
 		if m != nil {
@@ -103,9 +102,8 @@ func WithServiceMetrics(m Metrics) ServiceOption {
 	}
 }
 
-// WithAuditLogger injects the audit-log recorder. nil is silently ignored
-// so a half-wired caller falls back to NoOpAuditLogger and audit emission
-// becomes a no-op.
+// WithAuditLogger injects the audit-log recorder; nil keeps the
+// NoOpAuditLogger default.
 func WithAuditLogger(a AuditLogger) ServiceOption {
 	return func(s *Service) {
 		if a != nil {
@@ -147,15 +145,11 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 		return nil, err
 	}
 
-	// Webhook-style idempotent replay: when the caller supplies an
-	// idempotency_key or an (external_source, external_reference) pair,
-	// check for a prior persisted match before running the selector. A
-	// hit returns the original event so duplicate webhook deliveries
-	// don't re-run selection (expensive) or trip the partial unique
-	// indexes (would otherwise surface as AlreadyExists). Order matters:
-	// idempotency_key is the operator-supplied retry handle, external_ref
-	// is the upstream-system handle; checking idempotency_key first lets
-	// an operator override an upstream re-delivery.
+	// Idempotent-replay lookup: a prior persisted match short-circuits
+	// before selection so duplicate webhook deliveries don't re-run the
+	// selector or trip the partial unique indexes. idempotency_key is
+	// checked before external_reference so an operator handle can
+	// override an upstream re-delivery.
 	if existing, replayErr := s.lookupIdempotentReplay(ctx, req); replayErr != nil {
 		return nil, replayErr
 	} else if existing != nil {
@@ -167,29 +161,24 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 		return nil, err
 	}
 
-	// Fleet-health signal: emit one counter increment per selector exclusion
-	// reason. Start-only (not Preview) so debounced preview calls don't flood
-	// the counter against a static fleet snapshot.
+	// Start-only (not Preview) so debounced previews don't flood the
+	// counter against a static fleet snapshot.
 	for _, skip := range plan.Skipped {
 		s.metrics.IncCandidateExcluded(string(skip.Reason))
 	}
 
-	// Insufficient-load: don't persist; caller surfaces InvalidArgument
-	// from plan.InsufficientLoadDetail (matches Preview).
 	if plan.InsufficientLoadDetail != nil {
 		return plan, nil
 	}
 
 	if len(plan.Selected) == 0 {
-		// Defense-in-depth against a future mode regression. FIXED_KW's
-		// validator + selector already prevent this.
+		// Defense-in-depth; FIXED_KW's validator + selector prevent this.
 		return nil, fleeterror.NewInvalidArgumentError("no targets selected")
 	}
 
 	// max_duration_seconds=nil + !AllowUnbounded means "use org default".
-	// Mirror validateStartRequest's bounds against the normalized value so a
-	// misconfigured org default surfaces as InvalidArgument instead of
-	// tripping the ck_curtailment_event_max_duration_bounds CHECK.
+	// Bounds-check the normalized value so a misconfigured default surfaces
+	// as InvalidArgument instead of tripping the DB CHECK.
 	if !req.AllowUnbounded && req.MaxDurationSeconds == nil {
 		if orgConfig.MaxDurationDefaultSec <= 0 {
 			return nil, fleeterror.NewInvalidArgumentErrorf(
@@ -226,10 +215,7 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 		)
 	}
 
-	// Stamp the adaptive batch size on the plan so buildInsertParams and the
-	// Start response both read the same value (avoid recomputation drift).
-	// Selected-target count is bounded by per-org fleet size — well under
-	// MaxInt32 at any realistic scale.
+	// Stamp once so buildInsertParams and the Start response agree.
 	plan.EffectiveBatchSize = ComputeEffectiveBatchSize(req.RestoreBatchSize, int32(len(plan.Selected))) //nolint:gosec // bounded by per-org fleet size
 
 	eventParams, targetParams, err := buildInsertParams(req, plan, minPowerW)
@@ -254,12 +240,8 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 				existing.EventUUID, existing.State,
 			)
 		}
-		// Webhook-replay races: a concurrent first-time Start with the
-		// same idempotency_key or (external_source, external_reference)
-		// committed first. Re-issue the corresponding lookup so the
-		// race-loser falls into the same replay path as a deliberate
-		// retry — webhook clients see the winner's event rather than a
-		// generic Internal.
+		// Webhook-replay race: re-issue the lookup so the loser falls
+		// into the same replay path as a deliberate retry.
 		if errors.Is(err, interfaces.ErrCurtailmentReplayRaceLoss) {
 			if existing, replayErr := s.lookupIdempotentReplay(ctx, req); replayErr == nil && existing != nil {
 				return s.replayPlanFromPersistedEvent(ctx, req.OrgID, existing)
@@ -275,13 +257,6 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (*Plan, error) {
 	plan.EffectiveMaxDurationSeconds = req.MaxDurationSeconds
 	plan.EffectiveRestoreBatchIntervalSec = req.RestoreBatchIntervalSec
 
-	// Audit + override-attribution. The base curtailment_started row
-	// always fires on a successful Start; allow_unbounded and
-	// force_include_maintenance overrides each fire an additional typed
-	// row so a feed of those override classes is a simple event-type
-	// filter rather than a metadata scan. IncMaintenanceOverride fires
-	// in parallel so the platform metrics dashboard tracks the override
-	// rate without joining against activity_log.
 	s.emitStartAuditTrail(ctx, req, plan)
 	if req.ForceIncludeMaintenance {
 		s.metrics.IncMaintenanceOverride()
@@ -308,14 +283,11 @@ type ListEventsRequest struct {
 }
 
 // UpdateRequest is the service-level shape of an UpdateCurtailmentEvent
-// call. Pointer fields carry "set vs absent" semantics: nil preserves
-// the existing column, non-nil writes through. CanUseAdminControls
-// gates restore_batch_interval_sec above the non-admin cap, mirroring
-// Start. effective_batch_size is intentionally not on this surface:
-// Update of restore_batch_size persists the new value but does not
-// recompute effective_batch_size — that ships in a follow-up once the
-// recompute-vs-freeze policy lands (Open #13). Operators who need a
-// different batch size for the next restore cancel and restart.
+// call. Pointer fields use "nil = preserve, non-nil = write" semantics.
+// CanUseAdminControls gates restore_batch_interval_sec above the
+// non-admin cap, mirroring Start. effective_batch_size is not on this
+// surface — recompute-vs-freeze policy is unresolved (Open #13), so
+// operators who need a different batch size cancel and restart.
 type UpdateRequest struct {
 	OrgID                   int64
 	EventUUID               uuid.UUID
@@ -360,22 +332,17 @@ func (s *Service) Update(ctx context.Context, req UpdateRequest) (*models.Event,
 		)
 	}
 
-	// Collapse same-value patches to no-op before any gate or DB write.
-	// A patch echoing the persisted value (common when a UI re-submits a
-	// pre-populated form) would otherwise bump updated_at and could trip
-	// the admin gate if the persisted value was admin-elevated. Operators
-	// can already observe the existing value via Get/List — re-submitting
-	// it carries no intent to mutate.
+	// Collapse no-op patches before any gate or DB write so a UI re-submit
+	// of an admin-elevated value doesn't trip the admin gate or bump
+	// updated_at.
 	patch := effectiveUpdatePatch(event, req)
 	if patch.Reason == nil && patch.RestoreBatchSize == nil &&
 		patch.RestoreBatchIntervalSec == nil && patch.MaxDurationSeconds == nil {
 		return event, nil
 	}
 
-	// Admin gate on max_duration_seconds mirrors Start. Compare against the
-	// effective patch so a no-change echo of an admin-elevated value (from
-	// a non-admin UI re-submission) doesn't trip the gate. Fetch org config
-	// lazily — only on a real max_duration write.
+	// Admin gate mirrors Start. Compares against the effective patch so a
+	// no-op echo passes; fetch org config lazily on a real write.
 	if patch.MaxDurationSeconds != nil && !req.CanUseAdminControls {
 		orgConfig, err := s.store.GetOrgConfig(ctx, req.OrgID)
 		if err != nil {
@@ -389,10 +356,7 @@ func (s *Service) Update(ctx context.Context, req UpdateRequest) (*models.Event,
 			)
 		}
 	}
-	// Symmetric gate for restore_batch_interval_sec: only raises above the
-	// non-admin cap need admin role. Compare against the effective patch so
-	// a non-admin echoing an admin-elevated value through a no-op slot
-	// (other field is the real change) passes the gate.
+	// Symmetric gate for restore_batch_interval_sec above the non-admin cap.
 	if patch.RestoreBatchIntervalSec != nil &&
 		*patch.RestoreBatchIntervalSec > nonAdminRestoreBatchIntervalMax &&
 		!req.CanUseAdminControls {
@@ -415,12 +379,9 @@ func (s *Service) Update(ctx context.Context, req UpdateRequest) (*models.Event,
 	return updated, nil
 }
 
-// effectiveUpdatePatch drops fields whose patched value matches the persisted
-// value. A SQL UPDATE on identical values still bumps updated_at (the COALESCE
-// preserves the column but the timestamp advances) and a non-admin echo of an
-// admin-elevated max_duration_seconds would trip the admin gate on what is
-// semantically a no-op. Reduce the patch so the SQL UPDATE only writes
-// fields the operator actually changed.
+// effectiveUpdatePatch drops fields whose patched value matches the
+// persisted value, so a same-value SQL UPDATE doesn't bump updated_at
+// and a no-op echo of an admin-elevated value doesn't trip the admin gate.
 func effectiveUpdatePatch(event *models.Event, req UpdateRequest) interfaces.UpdateOperatorFieldsParams {
 	patch := interfaces.UpdateOperatorFieldsParams{}
 	if req.Reason != nil && *req.Reason != event.Reason {
@@ -433,9 +394,6 @@ func effectiveUpdatePatch(event *models.Event, req UpdateRequest) interfaces.Upd
 		patch.RestoreBatchIntervalSec = req.RestoreBatchIntervalSec
 	}
 	if req.MaxDurationSeconds != nil {
-		// MaxDurationSeconds is *int32; compare by deref. nil-on-persisted
-		// matches no incoming value (filtered above); we only enter this
-		// branch with req.MaxDurationSeconds non-nil.
 		switch {
 		case event.MaxDurationSeconds == nil:
 			patch.MaxDurationSeconds = req.MaxDurationSeconds
@@ -446,31 +404,21 @@ func effectiveUpdatePatch(event *models.Event, req UpdateRequest) interfaces.Upd
 	return patch
 }
 
-// Service-specific FleetErrorCode values for the AdminTerminate
-// FailedPrecondition variants. Machine callers branch on these to
-// distinguish the two recoverable preconditions without string-matching
-// the debug message. Values land on the wire inside
-// commonv1.FleetErrorDetails.Service so TS/Go clients can read them
-// directly. Numeric values are stable — never renumber.
+// Service-specific FleetErrorCode values ride on
+// commonv1.FleetErrorDetails.Service so callers branch without
+// string-matching the debug message. Stable — never renumber.
 const (
-	// FleetErrorCodeAdminTerminateInFlightCommands is set when the
-	// AdminTerminate precondition rejects because any target on the
-	// event still has an in-flight Curtail command (desired_state =
-	// 'curtailed' AND state IN dispatching/dispatched/confirmed/drifted).
-	// Recoverable by calling StopCurtailment first so compensating
-	// Uncurtail commands fire before admin termination lands.
+	// FleetErrorCodeAdminTerminateInFlightCommands: a target still has an
+	// in-flight Curtail. Recoverable via StopCurtailment first.
 	FleetErrorCodeAdminTerminateInFlightCommands int32 = 1
-	// FleetErrorCodeAdminTerminateStateConflict is set when the event
-	// has already settled in a terminal state different from the one
-	// the caller requested. Not retryable.
+	// FleetErrorCodeAdminTerminateStateConflict: event already terminal
+	// in a different state. Not retryable.
 	FleetErrorCodeAdminTerminateStateConflict int32 = 2
 )
 
 // AdminTerminateRequest is the service-level shape of an
-// AdminTerminateEvent call. TargetState must be CANCELLED or FAILED
-// (the proto validator enforces this; the service re-checks as defense in
-// depth). Reason is recorded as per-target last_error on the swept rows
-// and surfaces on the audit row that the audit-sweep work will emit.
+// AdminTerminateEvent call. TargetState must be CANCELLED or FAILED;
+// Reason is recorded as per-target last_error and on the audit row.
 type AdminTerminateRequest struct {
 	OrgID       int64
 	EventUUID   uuid.UUID
@@ -499,12 +447,8 @@ func (s *Service) AdminTerminate(ctx context.Context, req AdminTerminateRequest)
 	if strings.TrimSpace(req.Reason) == "" {
 		return nil, fleeterror.NewInvalidArgumentError("reason must be set")
 	}
-	// Service-level backstop on reason length. The proto validator caps the
-	// same field at 256 characters; the reason is fanned out into every swept
-	// target's last_error column, so an unbounded value amplifies into
-	// thousands of rows during the sweep. Count runes to match the proto's
-	// rune-based max_len so a 256-character multi-byte string survives the
-	// proto pass and the service backstop consistently.
+	// Reason is fanned out into every swept target's last_error column;
+	// cap at proto's rune-based max_len so multi-byte input matches.
 	if n := utf8.RuneCountInString(req.Reason); n > startTextFieldMaxLen {
 		return nil, fleeterror.NewInvalidArgumentErrorf(
 			"reason must be at most %d characters, got %d", startTextFieldMaxLen, n,
@@ -529,23 +473,16 @@ func (s *Service) AdminTerminate(ctx context.Context, req AdminTerminateRequest)
 		}
 		return nil, err
 	}
-	// Emit an audit row on every successful return. On the real-transition
-	// path, the row carries ActivityTypeAdminTerminated and the primary
-	// "terminated by admin" description. On idempotent replays — a same-
-	// actor retry or a race-loser whose call landed after another's
-	// transition — emit ActivityTypeAdminTerminatedReplay so the caller's
-	// actor + reason are still recorded. Without the replay row, a
-	// concurrent operator's distinct reason and attribution would be
-	// silently dropped from the audit feed.
+	// Replay rows on transitioned=false preserve a race-loser's actor +
+	// reason that would otherwise be dropped from the audit feed.
 	s.emitAdminTerminateAuditTrail(ctx, req, updated, transitioned)
 	return updated, nil
 }
 
-// emitStartAuditTrail records the activity rows for a successful Start.
-// Always emits curtailment_started; emits curtailment_unbounded_start /
-// curtailment_force_include_maintenance in addition when those overrides
-// apply. Audit writes are best-effort: activity.Service.Log swallows
-// errors so a transient activity-store failure doesn't fail the Start.
+// emitStartAuditTrail emits curtailment_started plus one row per
+// override (allow_unbounded, force_include_maintenance). Best-effort:
+// a transient audit failure increments IncAuditWriteFailure but doesn't
+// roll back the committed Start.
 func (s *Service) emitStartAuditTrail(ctx context.Context, req StartRequest, plan *Plan) {
 	metadata := map[string]any{
 		"strategy":                  string(req.Strategy),
@@ -601,14 +538,9 @@ func (s *Service) emitStartAuditTrail(ctx context.Context, req StartRequest, pla
 	}
 }
 
-// emitAdminTerminateAuditTrail records the activity row for an
-// AdminTerminate return. transitioned=true → ActivityTypeAdminTerminated
-// (the primary force-terminate row); transitioned=false →
-// ActivityTypeAdminTerminatedReplay (the idempotent-echo row that
-// captures a race-loser's actor + reason or a same-actor retry).
-// Best-effort, mirroring emitStartAuditTrail: a transient activity-store
-// failure logs but does not roll back the terminal transition (which is
-// already committed by the store transaction).
+// emitAdminTerminateAuditTrail emits AdminTerminated when transitioned=true
+// (primary row) or AdminTerminatedReplay when false (idempotent echo that
+// preserves a race-loser's actor + reason). Best-effort.
 func (s *Service) emitAdminTerminateAuditTrail(ctx context.Context, req AdminTerminateRequest, event *models.Event, transitioned bool) {
 	if event == nil {
 		return
@@ -640,11 +572,8 @@ func (s *Service) emitAdminTerminateAuditTrail(ctx context.Context, req AdminTer
 	}
 }
 
-// emitUpdateAuditTrail records the activity row for a Service.Update call
-// that actually changed one or more operator-safe fields. Same-value patches
-// collapse to no-op upstream and never reach this path. Metadata lists only
-// the fields that changed so a feed reader can see operator intent without
-// diffing against a snapshot.
+// emitUpdateAuditTrail emits the Updated row with a "fields" metadata
+// list so a feed reader sees operator intent without diffing.
 func (s *Service) emitUpdateAuditTrail(ctx context.Context, event *models.Event, patch interfaces.UpdateOperatorFieldsParams) {
 	if event == nil {
 		return
@@ -689,11 +618,9 @@ func (s *Service) emitUpdateAuditTrail(ctx context.Context, event *models.Event,
 	}
 }
 
-// mapSourceActorTypeToActivity translates the curtailment SourceActorType
-// vocabulary (which has a finer api_key vs user distinction) into the
-// activity-log ActorType vocabulary. Scheduler maps cleanly; api_key and
-// user both surface as ActorUser since the activity model has no
-// dedicated api_key actor yet.
+// mapSourceActorTypeToActivity collapses curtailment's finer
+// api_key/user split into the activity model's ActorUser; Scheduler
+// maps directly.
 func mapSourceActorTypeToActivity(t models.SourceActorType) activitymodels.ActorType {
 	if t == models.SourceActorScheduler {
 		return activitymodels.ActorScheduler
@@ -702,9 +629,8 @@ func mapSourceActorTypeToActivity(t models.SourceActorType) activitymodels.Actor
 }
 
 // lookupIdempotentReplay returns the prior event a webhook-style replay
-// should reuse, or nil when no replay applies. idempotency_key wins over
-// (external_source, external_reference) so an operator-supplied retry
-// handle overrides upstream re-delivery.
+// reuses, or nil when no replay applies. idempotency_key wins over
+// (external_source, external_reference).
 func (s *Service) lookupIdempotentReplay(ctx context.Context, req StartRequest) (*models.Event, error) {
 	if req.IdempotencyKey != nil && *req.IdempotencyKey != "" {
 		existing, err := s.store.GetEventByIdempotencyKey(ctx, req.OrgID, *req.IdempotencyKey)
@@ -728,10 +654,9 @@ func (s *Service) lookupIdempotentReplay(ctx context.Context, req StartRequest) 
 	return nil, nil
 }
 
-// replayPlanFromPersistedEvent returns the persisted event shape for a Start
-// idempotency replay. The retry body is intentionally ignored after lookup:
-// it may differ from the original request, while the event row is the source
-// of truth for the response.
+// replayPlanFromPersistedEvent returns the persisted shape for an
+// idempotency replay; the retry body is ignored — the row is the source
+// of truth.
 func (s *Service) replayPlanFromPersistedEvent(ctx context.Context, orgID int64, event *models.Event) (*Plan, error) {
 	targets, err := s.store.ListTargetsByEvent(ctx, orgID, event.EventUUID)
 	if err != nil {
@@ -756,12 +681,9 @@ func (s *Service) replayPlanFromPersistedEvent(ctx context.Context, orgID int64,
 
 // validateUpdateRequest mirrors the Start-time bounds so a misconfigured
 // Update can't tunnel past the proto validator and hit a DB CHECK.
-// Unset fields skip validation since they don't change the persisted value.
 func validateUpdateRequest(req UpdateRequest) error {
-	// Reject empty patches before any per-field validation. With every
-	// patchable field unset the SQL UPDATE still runs and bumps
-	// updated_at via COALESCE, producing a misleading freshness signal
-	// for clients tracking the column.
+	// Empty patches still bump updated_at via the COALESCE write — reject
+	// them so the column doesn't drift on a no-op call.
 	if req.Reason == nil &&
 		req.RestoreBatchSize == nil &&
 		req.RestoreBatchIntervalSec == nil &&
@@ -773,10 +695,7 @@ func validateUpdateRequest(req UpdateRequest) error {
 	if req.Reason != nil {
 		v := *req.Reason
 		if strings.TrimSpace(v) == "" {
-			// Empty Reason collapses to SQL NULL via nullStringFromPtr and
-			// the UPDATE's COALESCE preserves the existing column — i.e.,
-			// a silent no-op. Reject loudly so callers don't believe they
-			// cleared the field.
+			// Empty Reason silently no-ops via the UPDATE's COALESCE.
 			return fleeterror.NewInvalidArgumentError("reason must be non-empty when set")
 		}
 		if n := utf8.RuneCountInString(v); n > startTextFieldMaxLen {
@@ -825,8 +744,8 @@ func validateUpdateRequest(req UpdateRequest) error {
 }
 
 // ListEvents returns cursor-paginated event history for an org. The
-// returned events carry decision_snapshot_jsonb intact; the handler trims
-// the snapshot to the published read-API shape before serialization.
+// store trims the decision_snapshot at the SQL boundary; the handler
+// hydrates the JSONB into the wire field unchanged.
 func (s *Service) ListEvents(ctx context.Context, req ListEventsRequest) ([]*models.Event, string, error) {
 	if req.OrgID <= 0 {
 		return nil, "", fleeterror.NewInvalidArgumentError("org_id must be set")
@@ -945,9 +864,8 @@ func (s *Service) runSelector(ctx context.Context, req PreviewRequest) (*Plan, i
 }
 
 const (
-	// startTextFieldMaxLen mirrors the proto max_len for idempotency_key /
-	// reason / external_source / external_reference. Service-level backstop
-	// for non-Connect callers (CLIs, tests, future non-RPC entry points).
+	// startTextFieldMaxLen mirrors proto max_len for the operator-supplied
+	// text fields; backstop for non-Connect callers.
 	startTextFieldMaxLen = 256
 
 	maxFiniteDurationSeconds          int32 = 7 * 24 * 60 * 60
@@ -961,8 +879,6 @@ func validateStartRequest(req StartRequest) error {
 		return err
 	}
 	if strings.TrimSpace(req.Reason) == "" {
-		// DB CHECK enforces length(trim) > 0; reject here so callers see
-		// InvalidArgument instead of Internal from the constraint.
 		return fleeterror.NewInvalidArgumentError("reason must be non-empty")
 	}
 	if n := utf8.RuneCountInString(req.Reason); n > startTextFieldMaxLen {
@@ -1023,8 +939,6 @@ func validateStartRequest(req StartRequest) error {
 			"max_duration_seconds must be > 0, got %d", *req.MaxDurationSeconds,
 		)
 	}
-	// MaxDurationSeconds=nil + !AllowUnbounded is the "use org default"
-	// sentinel; Service.Start resolves it before persistence.
 	if req.MaxDurationSeconds != nil && *req.MaxDurationSeconds > maxFiniteDurationSeconds {
 		return fleeterror.NewInvalidArgumentErrorf(
 			"max_duration_seconds must be <= %d, got %d",
@@ -1038,11 +952,9 @@ func validateStartRequest(req StartRequest) error {
 		)
 	}
 	if req.SourceActorType == "" {
-		// NOT NULL at the DB; handler derives from session.Info.
 		return fleeterror.NewInvalidArgumentError("source_actor_type must be set")
 	}
 	if req.CreatedByUserID <= 0 {
-		// NOT NULL FK to user.id; handler derives from session.Info.UserID.
 		return fleeterror.NewInvalidArgumentError("created_by_user_id must be set")
 	}
 	return nil
@@ -1088,9 +1000,7 @@ func validatePreviewRequest(req PreviewRequest) error {
 			req.ToleranceKW, req.TargetKW,
 		)
 	}
-	// candidate_min_power_w_override [1, 10_000_000] bounds documented at
-	// proto. Below 1 disables the dual-signal floor; above 10M is a unit
-	// error. Service-level backstop for non-Connect callers.
+	// Bounds match proto-side validator; backstop for non-Connect callers.
 	if req.CandidateMinPowerWOverride != nil &&
 		(*req.CandidateMinPowerWOverride < 1 || *req.CandidateMinPowerWOverride > 10_000_000) {
 		return fleeterror.NewInvalidArgumentErrorf(
@@ -1122,8 +1032,7 @@ func resolveScope(s Scope) ([]string, error) {
 		if len(s.DeviceIdentifiers) == 0 {
 			return nil, fleeterror.NewInvalidArgumentError("device_identifiers must be non-empty for device-list scope")
 		}
-		// Mutual exclusion: enforce the oneof-style scope contract for
-		// non-Connect callers; otherwise DeviceSetIDs would be silently dropped.
+		// Oneof-style mutual exclusion for non-Connect callers.
 		if len(s.DeviceSetIDs) > 0 {
 			return nil, fleeterror.NewInvalidArgumentError(
 				"device_set_ids must be empty when scope type is device_list",
@@ -1174,8 +1083,7 @@ func classifyCandidates(cands []*models.Candidate, opts classifyOpts) ([]Candida
 			summary.ExcludedPairing++
 			continue
 		}
-		// Partial capability gate: a device with no driver can't be
-		// dispatched. Registry-driven curtail_full check is follow-up work.
+		// Capability gate: no driver → can't dispatch.
 		if c.DriverName == nil || *c.DriverName == "" {
 			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipCurtailFullUnsupported})
 			summary.ExcludedCapabilityMiss++
@@ -1183,7 +1091,7 @@ func classifyCandidates(cands []*models.Candidate, opts classifyOpts) ([]Candida
 		}
 		switch c.DeviceStatus {
 		case "":
-			// Missing device_status (COALESCE sentinel): not provably curtail-safe.
+			// Missing device_status: not provably curtail-safe.
 			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipStaleTelemetry})
 			summary.ExcludedStale++
 			continue
@@ -1196,12 +1104,11 @@ func classifyCandidates(cands []*models.Candidate, opts classifyOpts) ([]Candida
 			summary.ExcludedRebootRequired++
 			continue
 		case "OFFLINE":
-			// Fleet load the system can't address; counted as residual.
+			// Unaddressable; counted as residual load.
 			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipUnreachableResidualLoad})
 			summary.ExcludedOffline++
 			continue
 		case "INACTIVE", "NEEDS_MINING_POOL":
-			// Non-actionable per nonActionableStatuses (sqlstores/device_query_fragments.go).
 			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipNonActionableStatus})
 			summary.ExcludedNonActionable++
 			continue
@@ -1214,14 +1121,11 @@ func classifyCandidates(cands []*models.Candidate, opts classifyOpts) ([]Candida
 			// Admitted via override pair; fall through to freshness check.
 		}
 		if c.LatestMetricsAt == nil {
-			// No usable telemetry sample (same bucket as empty device_status).
 			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipStaleTelemetry})
 			summary.ExcludedStale++
 			continue
 		}
-		// Non-finite telemetry would slip past the dual-signal filter:
-		// NaN comparisons always false, +Inf satisfies any target_kw on
-		// the first iteration. Treat as stale.
+		// NaN/Inf would slip past the dual-signal filter; treat as stale.
 		if !isFiniteFloat(c.LatestPowerW) || !isFiniteFloat(c.LatestHashRateHS) {
 			skipped = append(skipped, SkippedDevice{c.DeviceIdentifier, SkipStaleTelemetry})
 			summary.ExcludedStale++
@@ -1232,8 +1136,7 @@ func classifyCandidates(cands []*models.Candidate, opts classifyOpts) ([]Candida
 			summary.ExcludedCooldown++
 			continue
 		}
-		// Non-finite avg_efficiency violates sort.SliceStable's transitivity
-		// contract; treat as unknown so the nil-handling ranks it last.
+		// Non-finite avg_efficiency breaks sort transitivity; rank last.
 		avgEff := c.AvgEfficiencyJH
 		if !isFiniteFloat(avgEff) {
 			avgEff = nil
@@ -1282,9 +1185,8 @@ func derefFloat(p *float64) float64 {
 	return *p
 }
 
-// isFiniteFloat: nil → true; otherwise checks the pointee. Non-finite
-// samples are treated as missing so they route to the stale-telemetry
-// skip path instead of poisoning downstream arithmetic.
+// isFiniteFloat returns true for nil pointers; otherwise checks the
+// pointee is neither NaN nor Inf.
 func isFiniteFloat(p *float64) bool {
 	if p == nil {
 		return true
@@ -1318,9 +1220,8 @@ func buildInsertParams(req StartRequest, plan *Plan, minPowerW int32) (models.In
 		return models.InsertEventParams{}, nil, err
 	}
 
-	// Stamp effective_batch_size at Start so the column is non-null from
-	// event creation and Stop/restorer/Start-response just read it. Service.Start
-	// pre-computes plan.EffectiveBatchSize from the selected target count.
+	// effective_batch_size is non-null from Start so Stop / restorer /
+	// response paths just read the column.
 	event := models.InsertEventParams{
 		EventUUID:               uuid.New(),
 		OrgID:                   req.OrgID,
@@ -1351,8 +1252,6 @@ func buildInsertParams(req StartRequest, plan *Plan, minPowerW int32) (models.In
 		EffectiveBatchSize:      plan.EffectiveBatchSize,
 	}
 	if event.Priority == "" {
-		// Validation admits PriorityUnspecified as Normal; persist the
-		// resolved value so audit reflects intent.
 		event.Priority = models.PriorityNormal
 	}
 	if event.ScopeType == "" {
@@ -1423,8 +1322,7 @@ const (
 // Stop transitions a non-terminal event to `restoring` and flips every
 // non-terminal target to (desired_state='active', state='pending').
 // Idempotent re-Stop returns the current row without writing; terminal
-// events return FailedPrecondition. effective_batch_size is untouched —
-// it was stamped at Start.
+// events return FailedPrecondition.
 func (s *Service) Stop(ctx context.Context, req StopRequest) (*models.Event, error) {
 	if err := validateStopRequest(req); err != nil {
 		return nil, err
@@ -1435,8 +1333,7 @@ func (s *Service) Stop(ctx context.Context, req StopRequest) (*models.Event, err
 		return nil, err
 	}
 
-	// Fast-path TOCTOU read for caller-facing latency. BeginRestoreTransition
-	// is the authoritative atomic enforcement under the WHERE state-guard.
+	// Fast-path check; BeginRestoreTransition's WHERE guard is authoritative.
 	if event.State.IsTerminal() {
 		return nil, fleeterror.NewFailedPreconditionErrorf(
 			"cannot stop curtailment event %s in terminal state %q",
@@ -1444,8 +1341,7 @@ func (s *Service) Stop(ctx context.Context, req StopRequest) (*models.Event, err
 		)
 	}
 	if event.State == models.EventStateRestoring {
-		// Idempotent re-Stop: a second call after the first transitioned the
-		// event returns the persisted row.
+		// Idempotent re-Stop.
 		return event, nil
 	}
 
@@ -1466,10 +1362,8 @@ func validateStopRequest(req StopRequest) error {
 	return nil
 }
 
-// checkMinCurtailedDurationGate enforces `min_curtailed_duration_sec` on
-// active events. Pending events haven't curtailed anything yet, so the
-// hysteresis gate doesn't apply. Admin callers can pass force=true on Stop
-// to bypass the gate explicitly.
+// checkMinCurtailedDurationGate enforces `min_curtailed_duration_sec`
+// only on active events; admin force=true bypasses.
 func checkMinCurtailedDurationGate(event *models.Event, force bool, now time.Time) error {
 	if force {
 		return nil
@@ -1492,9 +1386,8 @@ func checkMinCurtailedDurationGate(event *models.Event, force bool, now time.Tim
 }
 
 // ComputeEffectiveBatchSize returns max(restore_batch_size, ceil(0.01 × non_terminal_count))
-// clamped to [minBatchSizeFloor, maxBatchSizeCeiling]. Called at Start with
-// the selected target count; the value is stamped on the event row and read
-// back by the restorer.
+// clamped to [minBatchSizeFloor, maxBatchSizeCeiling]. Stamped at Start;
+// the restorer reads the column.
 func ComputeEffectiveBatchSize(restoreBatchSize, nonTerminalCount int32) int32 {
 	base := restoreBatchSize
 	if base < 0 {
@@ -1515,9 +1408,9 @@ func ComputeEffectiveBatchSize(restoreBatchSize, nonTerminalCount int32) int32 {
 	return base
 }
 
-// marshalDecisionSnapshot captures the selector outputs (rejection counters,
-// realized vs. requested kW, resolved candidate floor) audit/UI need to
-// reconstruct the decision.
+// marshalDecisionSnapshot captures the selector outputs for the
+// decision_snapshot column (rejection counters, realized vs. requested
+// kW, resolved candidate floor).
 func marshalDecisionSnapshot(plan *Plan, minPowerW int32) ([]byte, error) {
 	skipped := make([]map[string]string, len(plan.Skipped))
 	for i, s := range plan.Skipped {

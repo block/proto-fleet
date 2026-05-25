@@ -259,13 +259,8 @@ func TestService_Start_NoAuditOnIdempotencyReplay(t *testing.T) {
 		"idempotent replay must not re-emit the audit trail")
 }
 
-// TestService_Start_AuditPersistenceFailureIncrementsMetric pins the R4
-// observability hook: when the activity store's persistence fails on an
-// audit emit, the Start RPC still succeeds (audit is best-effort), but
-// the failure must increment Metrics.IncAuditWriteFailure so dashboards
-// can detect silently-dropped audit rows. Before the fix the failure
-// was logged at slog.Error only — no metric, no counter, no signal an
-// operator could trend.
+// An audit persistence failure must increment IncAuditWriteFailure
+// while Start still succeeds (audit is best-effort).
 func TestService_Start_AuditPersistenceFailureIncrementsMetric(t *testing.T) {
 	t.Parallel()
 	const orgID = int64(42)

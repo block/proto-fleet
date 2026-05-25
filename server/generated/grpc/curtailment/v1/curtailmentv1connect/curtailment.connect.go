@@ -61,41 +61,30 @@ const (
 type CurtailmentServiceClient interface {
 	// Preview a candidate plan without persisting it.
 	PreviewCurtailmentPlan(context.Context, *connect.Request[v1.PreviewCurtailmentPlanRequest]) (*connect.Response[v1.PreviewCurtailmentPlanResponse], error)
-	// Start an event, persist targets, and dispatch initial Curtail commands.
-	// AlreadyExists when a concurrent Start races past the selector and hits
-	// the per-org one-non-terminal-event constraint; the error debug message
-	// carries the existing event's identity as the stable substring
-	// `(event_uuid=<uuid>, state="<state>")` for callers that need to recover.
+	// Start an event, persist targets, and dispatch initial Curtail
+	// commands. AlreadyExists on the one-non-terminal-event-per-org
+	// constraint carries the existing identity as
+	// `(event_uuid=<uuid>, state="<state>")` for recovery.
 	StartCurtailment(context.Context, *connect.Request[v1.StartCurtailmentRequest]) (*connect.Response[v1.StartCurtailmentResponse], error)
 	// Update operator-safe fields; target mutation is reserved.
 	UpdateCurtailmentEvent(context.Context, *connect.Request[v1.UpdateCurtailmentEventRequest]) (*connect.Response[v1.UpdateCurtailmentEventResponse], error)
-	// Stop an active event and begin staggered restore. Idempotent on an
-	// already-restoring event (returns the persisted row). FailedPrecondition
-	// when the event is terminal or a concurrent transition raced past
-	// restoring; treat as non-retryable.
+	// Stop an active event and begin staggered restore. Idempotent on
+	// already-restoring; FailedPrecondition on terminal events (non-retryable).
 	StopCurtailment(context.Context, *connect.Request[v1.StopCurtailmentRequest]) (*connect.Response[v1.StopCurtailmentResponse], error)
 	// Get the current pending, active, or restoring event.
 	GetActiveCurtailment(context.Context, *connect.Request[v1.GetActiveCurtailmentRequest]) (*connect.Response[v1.GetActiveCurtailmentResponse], error)
 	// List historical events with cursor pagination.
 	ListCurtailmentEvents(context.Context, *connect.Request[v1.ListCurtailmentEventsRequest]) (*connect.Response[v1.ListCurtailmentEventsResponse], error)
 	// Admin recovery RPC: force a non-terminal event to a terminal state.
-	// Session-only, Admin role. Reason is required (min_len=1, max_len=256).
+	// Session-only, Admin role; reason required (min_len=1, max_len=256).
 	//
-	// FailedPrecondition variants the caller should distinguish via the
-	// service-specific code carried in FleetErrorDetails.service (see
-	// common/v1/common.proto for FleetErrorDetails). Machine callers branch
-	// on the int32 code rather than string-matching the debug message.
-	//   - service code 1 (AdminTerminateInFlightCommands) — at least one
-	//     target has desired_state=CURTAILED and is in DISPATCHING /
-	//     DISPATCHED / CONFIRMED / DRIFTED. Covers ACTIVE events and PENDING
-	//     events whose tick is mid-dispatch. Does NOT fire on RESTORING
-	//     events where the in-flight commands are Uncurtails (those
-	//     targets carry desired_state=ACTIVE). Recoverable: call
-	//     StopCurtailment first so compensating Uncurtail commands fire
-	//     instead of abandoning already-curtailed miners.
-	//   - service code 2 (AdminTerminateStateConflict) — the event has
-	//     already settled in a different terminal state than the one the
-	//     operator requested; not retryable.
+	// FailedPrecondition variants ride on FleetErrorDetails.service (see
+	// common/v1/common.proto) so machine callers branch on the int32 code:
+	//   - 1 (AdminTerminateInFlightCommands): a target still has an
+	//     in-flight Curtail (desired_state=CURTAILED). Recoverable via
+	//     StopCurtailment first.
+	//   - 2 (AdminTerminateStateConflict): event already settled in a
+	//     different terminal state. Not retryable.
 	AdminTerminateEvent(context.Context, *connect.Request[v1.AdminTerminateEventRequest]) (*connect.Response[v1.AdminTerminateEventResponse], error)
 }
 
@@ -197,41 +186,30 @@ func (c *curtailmentServiceClient) AdminTerminateEvent(ctx context.Context, req 
 type CurtailmentServiceHandler interface {
 	// Preview a candidate plan without persisting it.
 	PreviewCurtailmentPlan(context.Context, *connect.Request[v1.PreviewCurtailmentPlanRequest]) (*connect.Response[v1.PreviewCurtailmentPlanResponse], error)
-	// Start an event, persist targets, and dispatch initial Curtail commands.
-	// AlreadyExists when a concurrent Start races past the selector and hits
-	// the per-org one-non-terminal-event constraint; the error debug message
-	// carries the existing event's identity as the stable substring
-	// `(event_uuid=<uuid>, state="<state>")` for callers that need to recover.
+	// Start an event, persist targets, and dispatch initial Curtail
+	// commands. AlreadyExists on the one-non-terminal-event-per-org
+	// constraint carries the existing identity as
+	// `(event_uuid=<uuid>, state="<state>")` for recovery.
 	StartCurtailment(context.Context, *connect.Request[v1.StartCurtailmentRequest]) (*connect.Response[v1.StartCurtailmentResponse], error)
 	// Update operator-safe fields; target mutation is reserved.
 	UpdateCurtailmentEvent(context.Context, *connect.Request[v1.UpdateCurtailmentEventRequest]) (*connect.Response[v1.UpdateCurtailmentEventResponse], error)
-	// Stop an active event and begin staggered restore. Idempotent on an
-	// already-restoring event (returns the persisted row). FailedPrecondition
-	// when the event is terminal or a concurrent transition raced past
-	// restoring; treat as non-retryable.
+	// Stop an active event and begin staggered restore. Idempotent on
+	// already-restoring; FailedPrecondition on terminal events (non-retryable).
 	StopCurtailment(context.Context, *connect.Request[v1.StopCurtailmentRequest]) (*connect.Response[v1.StopCurtailmentResponse], error)
 	// Get the current pending, active, or restoring event.
 	GetActiveCurtailment(context.Context, *connect.Request[v1.GetActiveCurtailmentRequest]) (*connect.Response[v1.GetActiveCurtailmentResponse], error)
 	// List historical events with cursor pagination.
 	ListCurtailmentEvents(context.Context, *connect.Request[v1.ListCurtailmentEventsRequest]) (*connect.Response[v1.ListCurtailmentEventsResponse], error)
 	// Admin recovery RPC: force a non-terminal event to a terminal state.
-	// Session-only, Admin role. Reason is required (min_len=1, max_len=256).
+	// Session-only, Admin role; reason required (min_len=1, max_len=256).
 	//
-	// FailedPrecondition variants the caller should distinguish via the
-	// service-specific code carried in FleetErrorDetails.service (see
-	// common/v1/common.proto for FleetErrorDetails). Machine callers branch
-	// on the int32 code rather than string-matching the debug message.
-	//   - service code 1 (AdminTerminateInFlightCommands) — at least one
-	//     target has desired_state=CURTAILED and is in DISPATCHING /
-	//     DISPATCHED / CONFIRMED / DRIFTED. Covers ACTIVE events and PENDING
-	//     events whose tick is mid-dispatch. Does NOT fire on RESTORING
-	//     events where the in-flight commands are Uncurtails (those
-	//     targets carry desired_state=ACTIVE). Recoverable: call
-	//     StopCurtailment first so compensating Uncurtail commands fire
-	//     instead of abandoning already-curtailed miners.
-	//   - service code 2 (AdminTerminateStateConflict) — the event has
-	//     already settled in a different terminal state than the one the
-	//     operator requested; not retryable.
+	// FailedPrecondition variants ride on FleetErrorDetails.service (see
+	// common/v1/common.proto) so machine callers branch on the int32 code:
+	//   - 1 (AdminTerminateInFlightCommands): a target still has an
+	//     in-flight Curtail (desired_state=CURTAILED). Recoverable via
+	//     StopCurtailment first.
+	//   - 2 (AdminTerminateStateConflict): event already settled in a
+	//     different terminal state. Not retryable.
 	AdminTerminateEvent(context.Context, *connect.Request[v1.AdminTerminateEventRequest]) (*connect.Response[v1.AdminTerminateEventResponse], error)
 }
 

@@ -333,13 +333,8 @@ const (
 	CurtailmentTargetState_CURTAILMENT_TARGET_STATE_UNSPECIFIED CurtailmentTargetState = 0
 	// In-flight states; CONFIRMED can drift and be re-dispatched.
 	CurtailmentTargetState_CURTAILMENT_TARGET_STATE_PENDING CurtailmentTargetState = 1
-	// DISPATCHING is the brief transient state the reconciler writes to the
-	// target row *before* calling cmd.Curtail()/cmd.Uncurtail(); the
-	// DISPATCHED transition lands *after* the command returns. This makes
-	// the AdminTerminate in-flight gate reliable — a concurrent terminate
-	// observes DISPATCHING rows and rejects as Stop-first, so commands
-	// cannot fire against a just-terminated event with no compensating
-	// Uncurtail.
+	// Pre-command transient. AdminTerminate's in-flight gate observes
+	// DISPATCHING rows and rejects as Stop-first.
 	CurtailmentTargetState_CURTAILMENT_TARGET_STATE_DISPATCHING CurtailmentTargetState = 8
 	CurtailmentTargetState_CURTAILMENT_TARGET_STATE_DISPATCHED  CurtailmentTargetState = 2
 	CurtailmentTargetState_CURTAILMENT_TARGET_STATE_CONFIRMED   CurtailmentTargetState = 3
@@ -756,10 +751,9 @@ type CurtailmentEvent struct {
 	MinCurtailedDurationSec uint32 `protobuf:"varint,17,opt,name=min_curtailed_duration_sec,json=minCurtailedDurationSec,proto3" json:"min_curtailed_duration_sec,omitempty"`
 	IncludeMaintenance      bool   `protobuf:"varint,18,opt,name=include_maintenance,json=includeMaintenance,proto3" json:"include_maintenance,omitempty"`
 	ForceIncludeMaintenance bool   `protobuf:"varint,19,opt,name=force_include_maintenance,json=forceIncludeMaintenance,proto3" json:"force_include_maintenance,omitempty"`
-	// Server-resolved batch size for the restorer. Stamped at Start as
-	// max(restore_batch_size, ceil(0.01 × selected_target_count)) clamped
-	// to [10, 100], and persisted on the event row from creation. Read back
-	// by Stop and the reconciler; this is the value clients should display.
+	// Server-resolved batch size stamped at Start as
+	// max(restore_batch_size, ceil(0.01 × selected_target_count))
+	// clamped to [10, 100]. Clients display this; restorer reads it.
 	EffectiveBatchSize uint32 `protobuf:"varint,24,opt,name=effective_batch_size,json=effectiveBatchSize,proto3" json:"effective_batch_size,omitempty"`
 	// Operator-supplied reason.
 	Reason string `protobuf:"bytes,20,opt,name=reason,proto3" json:"reason,omitempty"`
@@ -2314,9 +2308,7 @@ func (x *UpdateCurtailmentEventResponse) GetEvent() *CurtailmentEvent {
 type StopCurtailmentRequest struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
 	EventUuid string                 `protobuf:"bytes,1,opt,name=event_uuid,json=eventUuid,proto3" json:"event_uuid,omitempty"`
-	// Admin-only bypass of `min_curtailed_duration_sec` on active events.
-	// Defaults to false; admin-gated handler-side. Zero/unset means the
-	// hysteresis gate applies normally.
+	// Admin-gated bypass of `min_curtailed_duration_sec`.
 	Force         bool `protobuf:"varint,3,opt,name=force,proto3" json:"force,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2492,21 +2484,14 @@ func (x *GetActiveCurtailmentResponse) GetEvent() *CurtailmentEvent {
 	return nil
 }
 
-// ListCurtailmentEvents returns historical events.
-//
-// Response shape note: each CurtailmentEvent in the list omits
-// `target_rollup` and `targets` (heavy on 10K-miner events times N pages)
-// and ships a trimmed `decision_snapshot` where the per-device `skipped`
-// array is collapsed into `skipped_aggregate` (reason -> count). Fetch
-// GetActiveCurtailment or a dedicated event-detail RPC for the full
-// per-target rows and the untrimmed snapshot.
+// ListCurtailmentEvents returns historical events. Each event omits
+// `target_rollup`/`targets` and ships a trimmed `decision_snapshot` where
+// the per-device `skipped` array is collapsed into `skipped_aggregate`
+// (reason → count). Use GetActiveCurtailment for the full per-target shape.
 type ListCurtailmentEventsRequest struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Page size; validator caps at 200.
-	PageSize int32 `protobuf:"varint,1,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
-	// Opaque cursor; empty for first page. Capped to keep the base64+JSON
-	// decode path bounded against malformed or accidentally concatenated
-	// tokens — the legitimate payload encodes a single int64 (~24 bytes).
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	PageSize int32                  `protobuf:"varint,1,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	// Opaque cursor; empty for first page. Capped to bound the decode path.
 	PageToken string `protobuf:"bytes,2,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
 	// Optional state filter; unspecified returns all states.
 	StateFilter   CurtailmentEventState `protobuf:"varint,3,opt,name=state_filter,json=stateFilter,proto3,enum=curtailment.v1.CurtailmentEventState" json:"state_filter,omitempty"`
@@ -2566,10 +2551,8 @@ func (x *ListCurtailmentEventsRequest) GetStateFilter() CurtailmentEventState {
 }
 
 type ListCurtailmentEventsResponse struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Each event omits `target_rollup` and `targets` and carries a
-	// trimmed `decision_snapshot` (see ListCurtailmentEvents godoc).
-	Events []*CurtailmentEvent `protobuf:"bytes,1,rep,name=events,proto3" json:"events,omitempty"`
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Events []*CurtailmentEvent    `protobuf:"bytes,1,rep,name=events,proto3" json:"events,omitempty"`
 	// Empty when no further pages remain.
 	NextPageToken string `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -2623,14 +2606,11 @@ func (x *ListCurtailmentEventsResponse) GetNextPageToken() string {
 type AdminTerminateEventRequest struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
 	EventUuid string                 `protobuf:"bytes,1,opt,name=event_uuid,json=eventUuid,proto3" json:"event_uuid,omitempty"`
-	// Restricted to CANCELLED (=6) or FAILED (=7); COMPLETED states are not
-	// permitted because this RPC fires when restore did not actually run.
-	// Active events must go through StopCurtailment first so restore is queued
-	// instead of abandoning already-curtailed miners.
+	// Restricted to CANCELLED (=6) or FAILED (=7); active events must call
+	// StopCurtailment first so compensating Uncurtails fire.
 	TargetState CurtailmentEventState `protobuf:"varint,2,opt,name=target_state,json=targetState,proto3,enum=curtailment.v1.CurtailmentEventState" json:"target_state,omitempty"`
-	// Operator-attributed reason; recorded on the activity row and stamped
-	// into last_error on every swept target. Capped at 256 chars so a bulky
-	// reason can't amplify across thousands of rows during the sweep.
+	// Reason is recorded on the audit row and on every swept target's
+	// last_error; capped to bound the fanout.
 	Reason        string `protobuf:"bytes,3,opt,name=reason,proto3" json:"reason,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

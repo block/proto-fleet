@@ -236,15 +236,8 @@ func TestHandler_ListCurtailmentEvents_PropagatesStoreError(t *testing.T) {
 	assert.Contains(t, err.Error(), "db down")
 }
 
-// TestHandler_ListCurtailmentEvents_TrimsDecisionSnapshot: the per-device
-// skipped array is replaced by aggregate reason counts so list responses
-// stay bounded on 10K-miner events. The trim happens at the SQL boundary
-// (ListCurtailmentEventsForOrg projects decision_snapshot_jsonb with
-// `skipped` replaced by `skipped_aggregate`); the handler hydrates the
-// trimmed JSON into the structpb wire field without further work. This
-// test pins the contract that the trimmed shape rides through the handler
-// untouched — both that `skipped` stays absent and that the aggregate
-// reason counts surface as a nested struct.
+// The SQL trim (decision_snapshot_jsonb's `skipped` → `skipped_aggregate`)
+// rides through the handler untouched onto the wire.
 func TestHandler_ListCurtailmentEvents_HydratesTrimmedDecisionSnapshot(t *testing.T) {
 	t.Parallel()
 	// Pre-trimmed snapshot matching what ListCurtailmentEventsForOrg

@@ -402,13 +402,9 @@ func TestReconciler_SkipsCurtailDispatchWhenEventTerminatesBeforeCommand(t *test
 	assert.Equal(t, models.TargetStatePending, store.targetsByEventID[eventID][0].State)
 }
 
-// TestReconciler_SkipsRemainingCurtailDispatchesWhenEventTerminatesMidLoop
-// pins the race-closure on the DISPATCHING pre-command write: even after a
-// tick has begun dispatching, a concurrent AdminTerminate that lands between
-// target N and target N+1 must stop the loop from issuing further Curtail
-// commands. The EXISTS guard on UpdateCurtailmentTargetState is the
-// load-bearing safety mechanism — the per-event liveness check at the top
-// of the tick narrows the window but the guard is what catches the race.
+// A concurrent AdminTerminate that lands between target N and N+1 must
+// stop further Curtail commands — the EXISTS guard on the DISPATCHING
+// pre-write catches the race.
 func TestReconciler_SkipsRemainingCurtailDispatchesWhenEventTerminatesMidLoop(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
@@ -442,12 +438,9 @@ func TestReconciler_SkipsRemainingCurtailDispatchesWhenEventTerminatesMidLoop(t 
 		"only the first target should dispatch; the rest skip after the event flipped")
 }
 
-// TestReconciler_TargetStateRaceLoss_LogsAndMetersWithoutMirrorAdvance:
-// when the store's UpdateTargetState returns the typed race-loss sentinel
-// (parent event went terminal between the tick's load and the write), the
-// reconciler increments IncEventStateRaceLoss, logs at Warn (not Error),
-// and does NOT advance the in-memory mirror. Pins the "in-memory mirror
-// stays consistent with persisted state on silent SQL no-op" contract.
+// On a typed race-loss return, the reconciler increments
+// IncEventStateRaceLoss and does NOT advance the in-memory mirror — that
+// keeps the mirror consistent with persisted state on a silent SQL no-op.
 func TestReconciler_TargetStateRaceLoss_LogsAndMetersWithoutMirrorAdvance(t *testing.T) {
 	store := newFakeStore()
 	store.updateTargetStateErr = interfaces.ErrCurtailmentEventStateRaceLoss
@@ -482,13 +475,9 @@ func TestReconciler_TargetStateRaceLoss_LogsAndMetersWithoutMirrorAdvance(t *tes
 		"race-loss must NOT count as a target-write failure; the two counters are operationally distinct signals")
 }
 
-// TestReconciler_TargetWriteFailure_IncrementsCounter pins the AD12
-// observability hook: a non-race-loss target-state write failure (DB
-// connection refused, deadline exceeded, etc.) increments
+// A non-race-loss target-state write failure increments
 // IncTargetWriteFailure so dashboards can detect "heartbeat fresh but
-// per-target writes failing" outages — the failure mode that the
-// heartbeat staleness SQL check alone misses, because the cheap
-// upsert succeeds while every other write times out.
+// writes failing" outages.
 func TestReconciler_TargetWriteFailure_IncrementsCounter(t *testing.T) {
 	store := newFakeStore()
 	store.updateTargetStateErr = errors.New("connection refused")
@@ -514,11 +503,8 @@ func TestReconciler_TargetWriteFailure_IncrementsCounter(t *testing.T) {
 		"non-race-loss failure must NOT increment IncEventStateRaceLoss (different signal class)")
 }
 
-// TestReconciler_DispatchingPreWrite_CommitsBeforeCommand pins the
-// race-closure contract for AdminTerminate: dispatchOneCurtail must write
-// the DISPATCHING state to the target row before calling cmd.Curtail, so a
-// concurrent terminate's in-flight-targets gate observes it and rejects
-// as Stop-first.
+// dispatchOneCurtail must commit DISPATCHING before calling cmd.Curtail
+// so AdminTerminate's in-flight gate observes it and rejects.
 func TestReconciler_DispatchingPreWrite_CommitsBeforeCommand(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
@@ -554,18 +540,11 @@ func TestReconciler_DispatchingPreWrite_CommitsBeforeCommand(t *testing.T) {
 	assert.Equal(t, models.TargetStateDispatched, store.targetsByEventID[eventID][0].State)
 }
 
-// TestReconciler_CurtailPostWriteRaceLosesWhenStopFlipsDesiredState pins
-// the AD7 cascade fix: if Stop runs between the dispatchOneCurtail
-// pre-cmd DISPATCHING write and the post-cmd DISPATCHED write,
-// ResetCurtailmentTargetsForRestore will have flipped the target's
-// desired_state to 'active'. The post-cmd write's ExpectedDesiredState
-// predicate must race-lose so it doesn't clobber Stop's reset and leave
-// the device curtailed with no compensating Uncurtail queued.
-//
-// Simulate the race by using curtailHook to flip the target's
-// DesiredState to 'active' during the cmd.Curtail call (modeling Stop's
-// concurrent reset). After cmd.Curtail returns, the post-cmd write
-// should detect the desired_state mismatch and return race-loss.
+// If Stop runs between the pre-cmd DISPATCHING write and the post-cmd
+// DISPATCHED write, the post-cmd write's ExpectedDesiredState predicate
+// must race-lose so it doesn't clobber Stop's reset. curtailHook
+// simulates the race by flipping desired_state to 'active' during the
+// command call.
 func TestReconciler_CurtailPostWriteRaceLosesWhenStopFlipsDesiredState(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
@@ -614,12 +593,8 @@ func TestReconciler_CurtailPostWriteRaceLosesWhenStopFlipsDesiredState(t *testin
 		"no Curtail batch identifier should be stamped on a target that Stop has reset for restore")
 }
 
-// TestReconciler_RecoversOrphanedDispatchingTarget covers the restart
-// path: a target left in DISPATCHING by a prior interrupted tick (process
-// crash, panic, or context cancellation between the pre-command stamp and
-// the post-command DISPATCHED write) must be redispatched on the next
-// tick, not left stranded. Curtail is device-idempotent so resending is
-// safe.
+// A target left in DISPATCHING by an interrupted prior tick must be
+// redispatched on the next tick (Curtail is device-idempotent).
 func TestReconciler_RecoversOrphanedDispatchingTarget(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
@@ -642,11 +617,8 @@ func TestReconciler_RecoversOrphanedDispatchingTarget(t *testing.T) {
 	assert.Equal(t, models.TargetStateDispatched, store.targetsByEventID[eventID][0].State)
 }
 
-// TestReconciler_RecoversOrphanedDispatchingTargetOnActiveEvent covers the
-// observeActive arm of orphan recovery: a target left in DISPATCHING on an
-// ACTIVE event (from an interrupted drift-fix redispatch) must be picked up
-// and re-issued via Curtail. The pending-event analog is covered by
-// TestReconciler_RecoversOrphanedDispatchingTarget.
+// observeActive's orphan recovery: a DISPATCHING target on an ACTIVE
+// event (interrupted drift-fix) must be re-issued via Curtail.
 func TestReconciler_RecoversOrphanedDispatchingTargetOnActiveEvent(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
@@ -716,12 +688,8 @@ func TestReconciler_ObserveActive_DispatchingOrphanRespectsRetryBudget(t *testin
 		"budget-exhausted DISPATCHING orphan must not bump RetryCount further")
 }
 
-// TestReconciler_ObserveActive_DispatchingOrphanRaceLossDoesNotIssueCommand:
-// when an active-phase DISPATCHING orphan's pre-command write races a
-// concurrent AdminTerminate and returns ErrCurtailmentEventStateRaceLoss,
-// no Curtail command must fire. Pins the EXISTS-guard race-closure on the
-// observeActive redispatch path (the pending-phase analog is pinned by
-// TestReconciler_SkipsRemainingCurtailDispatchesWhenEventTerminatesMidLoop).
+// A race-loss on the orphan-redispatch pre-write must not fire Curtail
+// — pins the EXISTS-guard race-closure on the observeActive path.
 func TestReconciler_ObserveActive_DispatchingOrphanRaceLossDoesNotIssueCommand(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
@@ -758,16 +726,10 @@ func TestReconciler_ObserveActive_DispatchingOrphanRaceLossDoesNotIssueCommand(t
 		"in-memory mirror must not advance on race-loss")
 }
 
-// TestReconciler_RecoversOrphanedDispatchingRestoreTarget mirrors the
-// curtail-path orphan recovery for the restore path: a target left in
-// DISPATCHING with DesiredState=Active is from an interrupted restore
-// tick and must be redispatched via Uncurtail.
-//
-// uncurtailHook captures target state at the moment Uncurtail is called so
-// we can verify the DISPATCHING pre-write has committed before the command
-// issues — the load-bearing race-closure for AdminTerminate's in-flight
-// gate. Without this assertion, a regression that calls Uncurtail before
-// stamping DISPATCHING would still pass the call-count check.
+// Restore-path orphan recovery: a DISPATCHING target with
+// DesiredState=Active is redispatched via Uncurtail. uncurtailHook
+// asserts the DISPATCHING pre-write commits before the command issues —
+// guards against a regression that calls Uncurtail before stamping.
 func TestReconciler_RecoversOrphanedDispatchingRestoreTarget(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
@@ -1086,11 +1048,8 @@ func TestSkippedDeviceReason(t *testing.T) {
 	}
 }
 
-// TestReconciler_MissingCandidateDuringConfirmConsumesRetryBudget pins the
-// fix for the device-deleted-after-dispatch race: when ListCandidates
-// returns no row for a Dispatched target, confirmOneDispatched routes the
-// target through recordDispatchFailure (target stays Dispatched while the
-// retry budget consumes) instead of stalling the event indefinitely.
+// A vanished candidate during confirm routes through
+// recordDispatchFailure so the event can't stall on a deleted device.
 func TestReconciler_MissingCandidateDuringConfirmConsumesRetryBudget(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
@@ -1116,11 +1075,8 @@ func TestReconciler_MissingCandidateDuringConfirmConsumesRetryBudget(t *testing.
 	assert.Contains(t, *final.LastError, "candidate row missing")
 }
 
-// TestReconciler_MissingCandidateDuringDriftConsumesRetryBudget mirrors
-// the confirm-side fix for the active-event drift path: if a Confirmed
-// target's candidate row vanishes, checkDrift records a dispatch failure
-// (target stays Drifted) so the budget consumes and the target eventually
-// hits RestoreFailed rather than the event stalling forever.
+// Mirror of MissingCandidateDuringConfirm for the drift path: a
+// vanished candidate burns retry budget toward RestoreFailed.
 func TestReconciler_MissingCandidateDuringDriftConsumesRetryBudget(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
@@ -1613,12 +1569,8 @@ func TestReconciler_StartIdempotency(t *testing.T) {
 }
 
 // --- isCurtailed unit tests ---
-//
-// isCurtailed has a single shape with a requirePositiveEvidence bool:
-//   - false (drift detection): missing/non-finite samples preserve "curtailed"
-//     so a transient bad sensor reading does not trigger a redispatch storm.
-//   - true (confirmation): missing/non-finite samples return false so a target
-//     is not promoted to `confirmed` without positive evidence.
+// requirePositiveEvidence=false (drift): missing samples preserve
+// curtailed; =true (confirm): missing samples return false.
 
 func TestIsCurtailed_DriftPath_BaselineRelativeThreshold(t *testing.T) {
 	baseline := 3000.0

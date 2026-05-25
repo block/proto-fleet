@@ -20,8 +20,8 @@ const (
 	actionTerminateEvents      = "terminate curtailment events"
 )
 
-// Handler implements the curtailment RPC surface. service=nil keeps every
-// RPC at Unimplemented (test stubs); a populated *Service wires the impl.
+// Handler implements the curtailment RPC surface; service=nil keeps
+// every RPC at Unimplemented (test stubs).
 type Handler struct {
 	service *curtailment.Service
 }
@@ -57,8 +57,6 @@ func (h *Handler) PreviewCurtailmentPlan(ctx context.Context, req *connect.Reque
 		return nil, err
 	}
 
-	// Insufficient load is a request-shape failure, not a successful
-	// empty plan; surface as InvalidArgument with structured detail.
 	if plan.InsufficientLoadDetail != nil {
 		return nil, toInsufficientLoadError(plan.InsufficientLoadDetail)
 	}
@@ -68,11 +66,8 @@ func (h *Handler) PreviewCurtailmentPlan(ctx context.Context, req *connect.Reque
 
 func (h *Handler) StartCurtailment(ctx context.Context, req *connect.Request[pb.StartCurtailmentRequest]) (*connect.Response[pb.StartCurtailmentResponse], error) {
 	if req.Msg.CandidateMinPowerWOverride != nil || req.Msg.AllowUnbounded || req.Msg.ForceIncludeMaintenance {
-		// force_include_maintenance is safety-critical: it commands
-		// curtailment on miners in active physical maintenance. Wire the
-		// same admin gate as allow_unbounded so a non-admin API-key
-		// caller cannot trigger a forced power-cycle of a miner a
-		// technician is servicing.
+		// force_include_maintenance is safety-critical (curtails miners
+		// under physical maintenance), so the same admin gate applies.
 		if err := requireAdminFromContext(ctx, actionSupplyOverrideFields); err != nil {
 			return nil, err
 		}
@@ -97,7 +92,6 @@ func (h *Handler) StartCurtailment(ctx context.Context, req *connect.Request[pb.
 	}
 
 	if plan.InsufficientLoadDetail != nil {
-		// Mirror Preview: surface as InvalidArgument with structured detail.
 		return nil, toInsufficientLoadError(plan.InsufficientLoadDetail)
 	}
 	if plan.ReplayEvent != nil {
@@ -207,8 +201,8 @@ func (h *Handler) ListCurtailmentEvents(ctx context.Context, req *connect.Reques
 	return connect.NewResponse(toListEventsResponse(events, nextToken)), nil
 }
 
-// AdminTerminateEvent forces a non-terminal event to terminal. Paired with
-// SessionOnlyProcedures (interceptors/config.go); neither alone is enough.
+// AdminTerminateEvent forces a non-terminal event to terminal. Paired
+// with SessionOnlyProcedures (see interceptors/config.go).
 func (h *Handler) AdminTerminateEvent(ctx context.Context, req *connect.Request[pb.AdminTerminateEventRequest]) (*connect.Response[pb.AdminTerminateEventResponse], error) {
 	if err := requireAdminFromContext(ctx, actionTerminateEvents); err != nil {
 		return nil, err
@@ -241,11 +235,11 @@ func errCurtailmentNotImplemented(rpc string) error {
 	return fleeterror.NewUnimplementedErrorf("curtailment.%s is not implemented yet", rpc)
 }
 
-// requireAdminFromContext returns Forbidden unless the caller has Admin or SuperAdmin role.
+// requireAdminFromContext returns Forbidden unless the caller has Admin
+// or SuperAdmin role.
 func requireAdminFromContext(ctx context.Context, action string) error {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
-		// Remap missing session from Internal to Unauthenticated.
 		return fleeterror.NewUnauthenticatedError("authentication required")
 	}
 	if !canUseAdminControls(info) {

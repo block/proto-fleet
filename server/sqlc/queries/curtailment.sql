@@ -1,6 +1,5 @@
 -- name: GetCurtailmentOrgConfig :one
--- Per-org tunables: max-duration default, candidate-power floor, cooldown
--- window. Existence guaranteed: migration seeds existing orgs;
+-- Per-org tunables. Migration seeds existing orgs;
 -- EnsureCurtailmentOrgConfig backfills post-migration tenants.
 SELECT
     org_id,
@@ -13,10 +12,8 @@ FROM curtailment_org_config
 WHERE org_id = sqlc.arg('org_id');
 
 -- name: EnsureCurtailmentOrgConfig :one
--- Idempotent backfill: INSERT ... DO NOTHING preserves updated_at as a
--- config-change signal; fallback SELECT returns the existing row. Both
--- branches join `active` (organization.deleted_at IS NULL) so soft-deleted
--- orgs return zero rows; caller maps to NotFound.
+-- Idempotent backfill (INSERT ... DO NOTHING + fallback SELECT). Both
+-- branches require organization.deleted_at IS NULL.
 WITH active AS (
     SELECT id
     FROM organization
@@ -149,12 +146,8 @@ WHERE event_uuid = sqlc.arg('event_uuid')
     AND org_id = sqlc.arg('org_id');
 
 -- name: GetCurtailmentEventByIdempotencyKey :one
--- Idempotent replay lookup. Returns zero rows when no non-terminal event
--- uses the key. The state filter mirrors the partial unique index
--- uq_curtailment_event_idempotency (which also restricts to non-terminal
--- rows) so a webhook retry of a long-completed event's key is treated as
--- a fresh Start, not a stale replay. Webhook retries during an event's
--- in-flight lifetime still hit this lookup.
+-- Idempotent replay lookup; state filter mirrors the partial unique
+-- index so a retry of a long-completed event is treated as a fresh Start.
 SELECT *
 FROM curtailment_event
 WHERE org_id = sqlc.arg('org_id')
@@ -163,10 +156,8 @@ WHERE org_id = sqlc.arg('org_id')
 LIMIT 1;
 
 -- name: GetCurtailmentEventByExternalReference :one
--- Webhook-style idempotent replay lookup. Returns zero rows when no
--- non-terminal event matches. The state filter mirrors the partial
--- unique index uq_curtailment_event_external_ref so a retry of a
--- long-completed event is treated as a fresh Start.
+-- Webhook idempotent replay lookup; mirrors the
+-- uq_curtailment_event_external_ref partial index.
 SELECT *
 FROM curtailment_event
 WHERE org_id = sqlc.arg('org_id')
@@ -176,23 +167,11 @@ WHERE org_id = sqlc.arg('org_id')
 LIMIT 1;
 
 -- name: CurtailmentEventHasInFlightTargets :one
--- True if any target on the event has an in-flight *Curtail* command —
--- DISPATCHING (about to issue), DISPATCHED (awaiting telemetry),
--- CONFIRMED (verified curtailed), or DRIFTED (re-dispatching) WHILE the
--- per-target desired_state is still 'curtailed'. Used as the
--- admin-terminate Stop-first precondition: a concurrent terminate against
--- a still-curtailing event would leave miners curtailed with no
--- compensating Uncurtail. DISPATCHING is the load-bearing inclusion — the
--- reconciler writes it *before* calling cmd.Curtail, so a terminate that
--- races the command observes the row and rejects as Stop-first.
---
--- The desired_state='curtailed' scope is critical: once StopCurtailment
--- runs, ResetCurtailmentTargetsForRestore flips every non-terminal target
--- to desired_state='active' and the reconciler issues compensating
--- Uncurtails through the same dispatching/dispatched lifecycle. Without
--- the desired_state predicate, this gate would treat in-flight Uncurtails
--- as Curtails and block AdminTerminate on RESTORING events — exactly the
--- recovery path the operator needs when restore is failing or stuck.
+-- AdminTerminate's Stop-first gate: true when any target still has an
+-- in-flight Curtail (desired_state='curtailed' + non-terminal state).
+-- DISPATCHING inclusion closes the race against a tick mid-dispatch; the
+-- desired_state scope avoids blocking AdminTerminate on RESTORING events
+-- whose in-flight commands are Uncurtails.
 SELECT EXISTS (
     SELECT 1
     FROM curtailment_target
@@ -202,12 +181,8 @@ SELECT EXISTS (
 ) AS has_in_flight;
 
 -- name: AdminTerminateCurtailmentEvent :one
--- Forces a pending/restoring event to the operator-chosen terminal target_state
--- (validated CANCELLED or FAILED at the service boundary). Returns zero rows
--- when the event is active/already terminal so the caller can route by current
--- state: active requires StopCurtailment first, terminal is idempotent no-op
--- when the target matches or FailedPrecondition when different. Ended_at and
--- updated_at advance on a successful transition.
+-- Flips pending/restoring → target_state (CANCELLED or FAILED).
+-- Zero-row return lets the caller route active vs already-terminal cases.
 UPDATE curtailment_event
 SET state      = sqlc.arg('target_state')::TEXT,
     ended_at   = NOW(),
@@ -218,10 +193,9 @@ WHERE id = sqlc.arg('id')
 RETURNING *;
 
 -- name: SweepCurtailmentTargetsToRestoreFailed :exec
--- Forces every non-terminal target on the event to RESTORE_FAILED. Paired
--- with AdminTerminateCurtailmentEvent inside a single transaction so the
--- per-device suppression filter releases its hold the moment the event row
--- flips terminal. last_error carries the admin-terminate reason for audit.
+-- Force every non-terminal target → RESTORE_FAILED with the
+-- admin-terminate reason. Paired with AdminTerminateCurtailmentEvent
+-- in one tx.
 UPDATE curtailment_target
 SET state      = 'restore_failed',
     last_error = sqlc.arg('last_error')::TEXT,
@@ -230,11 +204,9 @@ WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
     AND state NOT IN ('resolved', 'restore_failed', 'released');
 
 -- name: UpdateCurtailmentEventOperatorFields :one
--- Partial update of operator-safe fields. nil params COALESCE-preserve
--- existing values. The state filter is defense-in-depth: the service
--- pre-reads the row to surface a clean FailedPrecondition message, so a
--- zero-row return here is the race-loss path (state advanced between the
--- pre-read and this UPDATE) and the caller maps it to FailedPrecondition.
+-- Partial update; nil params COALESCE-preserve. State filter is the
+-- race-loss guard — zero rows means the event advanced between the
+-- service's pre-read and this UPDATE.
 UPDATE curtailment_event
 SET reason                     = COALESCE(sqlc.narg('reason')::TEXT, reason),
     restore_batch_size         = COALESCE(sqlc.narg('restore_batch_size')::INT, restore_batch_size),
@@ -247,19 +219,12 @@ WHERE id = sqlc.arg('id')
 RETURNING *;
 
 -- name: ListCurtailmentEventsForOrg :many
--- Cursor-paginated history, ordered newest-first by id. cursor_id=0 reads
--- the first page; subsequent pages pass the last id from the previous page.
--- state_filter is empty for "all states" or one of the event-state values
--- to filter on. Caller passes limit+1 so the result indicates a next page
--- when the slice exceeds the requested page size.
+-- Cursor-paginated history (newest-first). cursor_id=0 is the first page;
+-- state_filter empty = all states; caller passes limit+1 to detect a next page.
 --
 -- decision_snapshot_jsonb is projected with the per-device `skipped` array
--- stripped at the SQL boundary so a 10K-miner event's multi-MB skip list
--- doesn't ride the wire for every list row. The aggregate is computed before
--- stripping so production list rows match the documented read-API shape.
--- The win is on the application tier (network + JSON decode); Postgres still
--- TOAST-detoasts the full column once per row to evaluate jsonb_typeof and
--- the aggregate subquery, so the database-side I/O cost is unchanged.
+-- stripped into a `skipped_aggregate` reason→count map so 10K-miner
+-- snapshots don't ride the wire on every list row.
 SELECT
     id, event_uuid, org_id, state, mode, strategy, level, priority,
     loop_type, scope_type, scope_jsonb, mode_params_jsonb,
@@ -310,12 +275,9 @@ WHERE org_id = sqlc.arg('org_id')
 LIMIT 1;
 
 -- name: BulkInsertCurtailmentTargets :execrows
--- Start dispatch writes every selected target in one round-trip via
--- jsonb_to_recordset. All rows share curtailment_event_id; per-row fields
--- ride in a JSONB array payload built on the Go side. baseline_power_w
--- and selector_rationale_jsonb are nullable — missing or JSON-null keys
--- map to SQL NULL. Returns rows affected so the caller can pin
--- (rows == len(input)) to surface partial writes loudly.
+-- Bulk fan-out via jsonb_to_recordset: per-row fields ride in a JSONB
+-- payload, missing/null keys map to SQL NULL. :execrows lets the caller
+-- pin (rows == len(input)) to detect partial writes.
 INSERT INTO curtailment_target (
     curtailment_event_id,
     device_identifier,
@@ -365,13 +327,8 @@ WHERE state IN ('pending', 'active', 'restoring')
 ORDER BY id;
 
 -- name: UpdateCurtailmentEventState :execrows
--- COALESCE: nil narg leaves started_at/ended_at unchanged. Timestamps are
--- write-once, so the OR-NULL pattern is fine. The row-count return is
--- load-bearing: 0 rows affected means the event advanced out of the
--- non-terminal set between the reconciler's snapshot and this write (a
--- concurrent Stop/AdminTerminate), and the store maps that to the typed
--- ErrCurtailmentEventStateRaceLoss so the caller can log/metric without
--- treating it as an internal error.
+-- Row-count return is the race-loss guard; nil narg preserves timestamps
+-- via COALESCE.
 UPDATE curtailment_event
 SET state      = sqlc.arg('state'),
     started_at = COALESCE(sqlc.narg('started_at'), started_at),
@@ -380,13 +337,9 @@ WHERE id = sqlc.arg('id')
   AND state IN ('pending', 'active', 'restoring');
 
 -- name: BeginCurtailmentRestoration :one
--- Stop's event-side write: flips state to 'restoring'. effective_batch_size
--- was stamped at Start (computed from the selected target count), so this
--- query only transitions state. The WHERE state-guard is the load-bearing
--- concurrency control: concurrent Stop calls race on the same row's per-row
--- write lock; the loser sees zero rows updated and the store's ErrNoRows
--- re-read distinguishes "already restoring" from "already terminal".
--- RETURNING shape mirrors GetCurtailmentEventByUUID.
+-- Stop's event-side flip to 'restoring'. The WHERE state-guard is the
+-- concurrency control; the loser sees zero rows and the store re-reads
+-- to distinguish "already restoring" from "already terminal."
 UPDATE curtailment_event
 SET state = 'restoring'
 WHERE id = sqlc.arg('id')
@@ -394,11 +347,9 @@ WHERE id = sqlc.arg('id')
 RETURNING *;
 
 -- name: ResetCurtailmentTargetsForRestore :exec
--- Stop's target-side write inside the same tx as BeginCurtailmentRestoration.
--- Non-terminal targets flip to desired_state='active' (restore phase) and
--- their phase-local cursors reset so the restorer has an unambiguous queue
--- after a fleetd restart. Terminal states are untouched (resolved /
--- restore_failed / released keep their meaning across the phase change).
+-- Stop's target-side write; flips non-terminal targets to
+-- desired_state='active' and clears phase-local cursors so the restorer
+-- has an unambiguous queue. Terminal states are untouched.
 UPDATE curtailment_target
 SET desired_state      = 'active',
     state              = 'pending',
@@ -411,28 +362,15 @@ WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
   AND state NOT IN ('resolved', 'restore_failed', 'released');
 
 -- name: UpdateCurtailmentTargetState :execrows
--- Reconciler patch: COALESCE preserves un-supplied columns so partial
--- updates don't clobber values from earlier ticks. retry_count is
--- read-then-written inside the tick. An empty last_error string is an
--- explicit clear signal from successful redispatch paths and maps to SQL NULL.
+-- Reconciler patch. COALESCE preserves un-supplied columns; empty
+-- last_error is the explicit clear sentinel that maps to SQL NULL.
 --
--- The EXISTS guard silently no-ops the UPDATE when the parent event has
--- gone terminal (concurrent Stop/AdminTerminate landed). :execrows lets
--- the store map zero rows to ErrCurtailmentEventStateRaceLoss so the
--- reconciler can log + meter the signal rather than treating the silent
--- skip as success. The in-memory mirror update is gated on a clean
--- return; the sentinel keeps the mirror in sync with the persisted state.
+-- EXISTS state guard + :execrows lets the store map a zero-row return to
+-- ErrCurtailmentEventStateRaceLoss when the parent event went terminal.
 --
--- The optional expected_desired_state predicate scopes the write to a
--- single dispatch direction: post-cmd writes set it to the direction the
--- caller intended (Curtail-phase = 'curtailed', Restore-phase = 'active').
--- If Stop ran concurrently between the pre-read and the post-cmd write,
--- ResetCurtailmentTargetsForRestore has flipped desired_state to 'active',
--- and the Curtail-phase post-cmd write race-loses — the target stays in
--- the post-reset state and observeRestoring picks it up via the normal
--- restore-batch path to issue the compensating Uncurtail. Without this
--- predicate the Curtail-phase write would clobber Stop's reset and leave
--- the device curtailed with no compensating Uncurtail queued.
+-- expected_desired_state scopes the write to one dispatch direction so
+-- a concurrent Stop's reset isn't clobbered by a Curtail-phase post-cmd
+-- write (observeRestoring picks up the reset target afterwards).
 UPDATE curtailment_target
 SET state              = sqlc.arg('state'),
     last_dispatched_at = COALESCE(sqlc.narg('last_dispatched_at'), last_dispatched_at),
@@ -457,8 +395,7 @@ WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
   );
 
 -- name: UpsertCurtailmentReconcilerHeartbeat :exec
--- Singleton row at id=1 (CHECK + PK enforce it). INSERT path only fires if
--- the seeded row is manually deleted.
+-- Singleton row at id=1; INSERT path only fires on accidental deletion.
 INSERT INTO curtailment_reconciler_heartbeat (id, last_tick_at, last_tick_uuid, last_tick_duration_ms, active_event_count)
 VALUES (1, sqlc.arg('last_tick_at'), sqlc.arg('last_tick_uuid'), sqlc.narg('last_tick_duration_ms'), sqlc.arg('active_event_count'))
 ON CONFLICT (id) DO UPDATE
@@ -468,11 +405,9 @@ SET last_tick_at          = EXCLUDED.last_tick_at,
     active_event_count    = EXCLUDED.active_event_count;
 
 -- name: ListCurtailmentCandidatesByOrg :many
--- Per-device state for the selector. Returns every in-scope device
--- (unpaired/stale/unstatused included); service applies skip-reason
--- attribution. LEFT JOIN telemetry: nil power/hash means stale (15-min
--- window). device_identifiers: nil = whole-org; non-empty for device-list
--- scope (post org-ownership check).
+-- Per-device state for the selector. Returns every in-scope device;
+-- service applies skip-reason attribution. nil power/hash = stale
+-- (15-min window). device_identifiers nil = whole-org.
 WITH latest_metrics AS (
     SELECT DISTINCT ON (device_metrics.device_identifier)
         device_metrics.device_identifier,
@@ -523,6 +458,5 @@ WHERE d.org_id = sqlc.arg('org_id')
         sqlc.narg('device_identifiers')::text[] IS NULL
         OR d.device_identifier = ANY(sqlc.narg('device_identifiers')::text[])
     )
--- Stable order: makes the selector's stable sort deterministic when
--- avg_efficiency ties or is NULL.
+-- Stable order so the selector's stable sort is deterministic on ties.
 ORDER BY d.device_identifier;

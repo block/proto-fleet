@@ -11,11 +11,9 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 )
 
-// TestService_Lifecycle_PreviewStartStopAdminTerminate walks the operator
-// service surface end-to-end against the in-memory fake. The reconciler's
-// tick-by-tick state machine is covered piecewise in
-// reconciler_test.go / restore_test.go; this test pins the boundary
-// between the service-level API and the persistence layer:
+// End-to-end operator-surface walk against the in-memory fake.
+// Reconciler ticks are covered piecewise in reconciler_test.go /
+// restore_test.go.
 //
 //	Preview → Start (+audit+metrics) → Stop → AdminTerminate
 //
@@ -151,18 +149,9 @@ func TestService_Lifecycle_StartReplayShortCircuitsSecondCall(t *testing.T) {
 		"replay must not double-emit the audit trail")
 }
 
-// TestService_AdminTerminate_IdempotentReplay_EmitsReplayAuditRow pins
-// the audit-emission contract on the idempotent-replay path: when the
-// store reports the event was already in the requested terminal state
-// (same-operator retry, or a concurrent race where another operator's
-// call landed first), AdminTerminate must emit a
-// curtailment_admin_terminated_replay row capturing this caller's
-// actor + reason. Without it, a race-loser's distinct reason and
-// attribution would be silently dropped — the audit feed would only
-// show the winner. Audit consumers tracking primary terminate actions
-// filter by ActivityTypeAdminTerminated and ignore the replay rows;
-// consumers reconstructing complete operator-attempt history union
-// both event types.
+// Idempotent replay path emits a *_replay audit row carrying this
+// caller's actor + reason — without it a race-loser's attribution
+// would be silently dropped.
 func TestService_AdminTerminate_IdempotentReplay_EmitsReplayAuditRow(t *testing.T) {
 	t.Parallel()
 	const orgID = int64(42)
@@ -233,14 +222,9 @@ func TestService_AdminTerminate_Transition_EmitsAudit(t *testing.T) {
 	assert.Equal(t, ActivityTypeAdminTerminated, events[0].Type)
 }
 
-// TestService_AdminTerminate_RaceLoserAttributionPreserved walks the
-// concurrent-AdminTerminate scenario end to end: operator A wins the
-// transition and emits ActivityTypeAdminTerminated; operator B's call
-// lands after the event is already terminal in the same target state
-// and emits ActivityTypeAdminTerminatedReplay. Both rows carry their
-// caller's distinct reason. A historian reconstructing "who tried to
-// terminate this event" reads both rows; a dashboard tracking primary
-// terminate actions filters to the first event type only.
+// Two concurrent AdminTerminates: A wins (emits AdminTerminated),
+// B lands after and emits AdminTerminatedReplay. Both rows carry the
+// caller's distinct reason.
 func TestService_AdminTerminate_RaceLoserAttributionPreserved(t *testing.T) {
 	t.Parallel()
 	const orgID = int64(42)

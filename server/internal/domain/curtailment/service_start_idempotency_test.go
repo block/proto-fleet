@@ -224,13 +224,9 @@ func TestService_Start_PartialExternalReferenceFieldsSkipLookup(t *testing.T) {
 
 func strPtr(s string) *string { return &s }
 
-// TestService_Start_IdempotencyKeyRaceLoserReplays: two concurrent first-time
-// Starts share an idempotency_key, both miss the pre-insert lookup, both
-// attempt InsertEventWithTargets. The loser's INSERT trips the partial
-// unique index → store maps to ErrCurtailmentReplayRaceLoss → service
-// retries lookupIdempotentReplay and returns the winner's persisted event.
-// Pins the race-loser contract; without this test, a regression returning
-// AlreadyExists to webhook retries would go undetected.
+// Two concurrent Starts sharing an idempotency_key: the loser's
+// InsertEventWithTargets surfaces ErrCurtailmentReplayRaceLoss; the
+// service retries the lookup and returns the winner's persisted event.
 func TestService_Start_IdempotencyKeyRaceLoserReplays(t *testing.T) {
 	t.Parallel()
 	const orgID = int64(42)
@@ -354,14 +350,9 @@ func TestService_Start_RaceLoserPostRetryMissSurfacesAlreadyExists(t *testing.T)
 		"race-loser with no retry-visible winner surfaces AlreadyExists")
 }
 
-// TestService_Start_IdempotencyKeyTerminalEventTreatedAsFreshStart pins
-// the AD2 fix: a webhook retry whose key matches a long-completed
-// (terminal) event must NOT return that historical row as a "replay" —
-// returning a stale terminal event would lead operators to believe
-// curtailment is in flight when the original ended at some prior time.
-// Once an event reaches a terminal state, the partial unique index
-// releases the key and the lookup filters terminal rows, so a fresh
-// Start fires.
+// A webhook retry whose key matches a terminal event must NOT return
+// the historical row as a replay — once terminal, the partial unique
+// index releases the key and a fresh Start fires.
 func TestService_Start_IdempotencyKeyTerminalEventTreatedAsFreshStart(t *testing.T) {
 	t.Parallel()
 	const orgID = int64(42)

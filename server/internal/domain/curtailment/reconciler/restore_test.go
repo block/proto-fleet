@@ -114,12 +114,9 @@ func TestReconciler_EnforceMaxDuration_AllowUnboundedSkipsCap(t *testing.T) {
 		"AllowUnbounded events must never trigger forced restore")
 }
 
-// TestReconciler_EnforceMaxDuration_BeginRestoreErrorSkipsDriftDispatch pins
-// the BeginRestoreTransition failure path: the event state stays Active (no
-// in-memory mutation), the transition call counter records the attempt, and
-// drift detection is skipped this tick — re-curtailing past max_duration
-// would extend curtailment past the contracted ceiling. The next tick
-// retries the transition.
+// On BeginRestoreTransition error: event stays Active, drift dispatch
+// skipped this tick (re-curtailing would extend past max_duration); next
+// tick retries.
 func TestReconciler_EnforceMaxDuration_BeginRestoreErrorSkipsDriftDispatch(t *testing.T) {
 	store := newFakeStore()
 	store.beginRestoreErr = errors.New("db boom")
@@ -332,11 +329,8 @@ func TestReconciler_Restoring_MixedResolvedAndFailedCompletesWithFailures(t *tes
 		"a single failure must route the terminal transition to COMPLETED_WITH_FAILURES")
 }
 
-// TestReconciler_Restoring_UnknownTargetStateKeepsEventNonTerminal pins
-// maybeCompleteRestoring's default arm: a target with a TargetState value
-// not covered by the explicit cases must NOT complete the event. A future
-// schema-added state then has to ship its handling alongside its first use,
-// rather than silently being treated as terminal.
+// An unknown TargetState must NOT complete the event — forces future
+// schema additions to ship their handling alongside.
 func TestReconciler_Restoring_UnknownTargetStateKeepsEventNonTerminal(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
@@ -423,15 +417,9 @@ func TestReconciler_Restoring_UncurtailErrorKeepsBatchPending(t *testing.T) {
 	}
 }
 
-// TestReconciler_Restoring_PreWriteFailureSkipsTargetButDispatchesRest pins
-// dispatchRestoreBatch's continue-past-non-race-loss behavior: a single
-// target's DISPATCHING pre-write failing with a non-race-loss error must
-// drop that target from this tick's dispatch set without aborting the
-// whole batch. The remaining devices proceed to Uncurtail; the failed
-// device stays in PENDING for the next tick to re-claim but burns one
-// retry slot via recordDispatchFailure so a persistently failing
-// pre-write eventually escalates to RESTORE_FAILED instead of cycling
-// forever.
+// A non-race-loss pre-write failure drops one target from the batch
+// (remaining devices proceed) and burns one retry slot so persistent
+// failures escalate to RESTORE_FAILED instead of cycling.
 func TestReconciler_Restoring_PreWriteFailureSkipsTargetButDispatchesRest(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
@@ -485,14 +473,8 @@ func TestReconciler_Restoring_PreWriteFailureSkipsTargetButDispatchesRest(t *tes
 		"surviving target must complete the dispatch cycle")
 }
 
-// TestReconciler_Restoring_AllPreWriteFailuresSkipUncurtail pins the
-// degenerate path of dispatchRestoreBatch's continue-past-failure logic:
-// if every target's DISPATCHING pre-write fails with a non-race-loss
-// error, dispatchSet is empty and the function returns without issuing
-// Uncurtail. A regression dropping the `len(dispatchSet) == 0` guard
-// would attempt to dispatch an empty selector, which the command layer
-// would route to the empty-batch path with operationally confusing
-// retry-burn behavior.
+// If every pre-write fails, dispatchSet is empty and Uncurtail does NOT
+// fire — guards against a regression dropping the len==0 check.
 func TestReconciler_Restoring_AllPreWriteFailuresSkipUncurtail(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
@@ -535,13 +517,9 @@ func TestReconciler_Restoring_AllPreWriteFailuresSkipUncurtail(t *testing.T) {
 	}
 }
 
-// TestReconciler_Restoring_PreWriteFailurePersistsExhaustsRetryBudget pins
-// the bug-#5 fix: a target whose DISPATCHING pre-write keeps failing with
-// a non-race-loss error burns one retry slot per tick (assuming the
-// recovery write succeeds — i.e., the failure is intermittent or affects
-// only the dispatch write). After MaxRetries=3 cycles, the target lands
-// in RESTORE_FAILED so the event can still complete. Before the fix the
-// target cycled forever with no path to terminal.
+// A target whose DISPATCHING pre-write keeps failing burns one retry
+// slot per tick (when the recovery write succeeds) and lands in
+// RESTORE_FAILED after MaxRetries so the event can complete.
 func TestReconciler_Restoring_PreWriteFailurePersistsExhaustsRetryBudget(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
@@ -595,11 +573,8 @@ func TestReconciler_Restoring_PreWriteFailurePersistsExhaustsRetryBudget(t *test
 		"cmd.Uncurtail never fires because the pre-write never lands")
 }
 
-// TestReconciler_Restoring_EmptyBatchIdentifierKeepsBatchPending pins
-// dispatchRestoreBatch's empty-result path: an Uncurtail returning nil error
-// but an empty BatchIdentifier means the command produced no batch (all
-// devices unpaired/deleted post-Stop). Every batch target should burn retry
-// budget and surface the no-batch reason.
+// Uncurtail returning empty BatchIdentifier (no live devices) burns
+// retry budget on every batch target.
 func TestReconciler_Restoring_EmptyBatchIdentifierKeepsBatchPending(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{
@@ -633,11 +608,8 @@ func TestReconciler_Restoring_EmptyBatchIdentifierKeepsBatchPending(t *testing.T
 	}
 }
 
-// TestReconciler_Restoring_PerDeviceFilterSkipsTargetStaysPending pins
-// dispatchRestoreBatch's per-device filter-skip path: an Uncurtail returning
-// one Skipped entry must move the kept device to Dispatched and leave the
-// skipped device Pending with retry consumed (mirrors
-// TestReconciler_DispatchSkippedKeepsTargetPending for the restore phase).
+// A per-device Skipped entry on Uncurtail leaves the kept device
+// Dispatched and the skipped device Pending with retry consumed.
 func TestReconciler_Restoring_PerDeviceFilterSkipsTargetStaysPending(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{
@@ -809,13 +781,8 @@ func TestReconciler_Restoring_DispatchedWithinTimeoutDoesNotFail(t *testing.T) {
 	assert.Nil(t, final.LastError)
 }
 
-// TestReconciler_Restoring_MissingCandidateDuringConfirmConsumesRetryBudget
-// pins the restore-phase analog of the curtail-phase nil-candidate guard: a
-// Dispatched+Active target whose candidate row has vanished (device unpaired
-// or deleted) burns retry budget via recordDispatchFailure so the event can
-// still reach terminal instead of pinning on a ghost row. The interval gate
-// is held closed so the re-claim arm of observeRestoring does not redispatch
-// the freshly-Pending target within the same tick.
+// Restore-phase: a vanished candidate burns retry budget. Interval gate
+// held closed so the freshly-Pending target isn't re-claimed this tick.
 func TestReconciler_Restoring_MissingCandidateDuringConfirmConsumesRetryBudget(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}

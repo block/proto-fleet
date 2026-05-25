@@ -6,57 +6,30 @@ import (
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 )
 
-// AuditLogger is the narrow surface curtailment uses to emit activity
-// rows. activity.Service satisfies it; tests inject a fake or leave the
-// default NoOpAuditLogger when audit isn't under test.
-//
-// The interface deliberately mirrors activity.Service's Log/LogStrict
-// pair so callers can pass *activity.Service directly without an adapter.
-// Curtailment emits use LogStrict (error-returning) so audit persistence
-// failures can be counted via Metrics.IncAuditWriteFailure instead of
-// being silently dropped by activity.Service.Log's swallow-and-slog
-// behavior.
+// AuditLogger emits activity rows. activity.Service satisfies it via the
+// Log/LogStrict pair; curtailment uses LogStrict so persistence failures
+// surface to Metrics.IncAuditWriteFailure instead of being swallowed.
 type AuditLogger interface {
 	Log(ctx context.Context, event activitymodels.Event)
 	LogStrict(ctx context.Context, event activitymodels.Event) error
 }
 
-// NoOpAuditLogger is the default AuditLogger until cmd/fleetd wires the
-// real activity.Service. Calls return without persisting.
+// NoOpAuditLogger is the default until cmd/fleetd wires activity.Service.
 type NoOpAuditLogger struct{}
 
 func (NoOpAuditLogger) Log(context.Context, activitymodels.Event)             {}
 func (NoOpAuditLogger) LogStrict(context.Context, activitymodels.Event) error { return nil }
 
-// Curtailment activity event types. The constants live here so the
-// audit recorder and any analytics consumers share one vocabulary.
+// Curtailment activity event types. Distinct rows for unbounded /
+// force-maintenance flags so an audit feed filter by type is sufficient.
 const (
-	// ActivityTypeStarted is emitted on every successful Service.Start.
-	ActivityTypeStarted = "curtailment_started"
-	// ActivityTypeStartedUnbounded is emitted in addition to
-	// ActivityTypeStarted when allow_unbounded=true. Two rows, not a flag,
-	// so a feed of unbounded starts is a simple type filter.
-	ActivityTypeStartedUnbounded = "curtailment_unbounded_start"
-	// ActivityTypeStartedForceMaintenance is emitted in addition to
-	// ActivityTypeStarted when force_include_maintenance=true.
+	ActivityTypeStarted                 = "curtailment_started"
+	ActivityTypeStartedUnbounded        = "curtailment_unbounded_start"
 	ActivityTypeStartedForceMaintenance = "curtailment_force_include_maintenance"
-	// ActivityTypeAdminTerminated is emitted on every successful
-	// Service.AdminTerminate that actually transitioned the event to a
-	// terminal state, so the privileged force-terminate path captures
-	// actor + reason in the audit feed.
-	ActivityTypeAdminTerminated = "curtailment_admin_terminated"
-	// ActivityTypeAdminTerminatedReplay is emitted when AdminTerminate
-	// echoes an already-terminal event in the same target state — either
-	// an idempotent retry by the same operator or a concurrent race where
-	// another operator's call landed first. Recording the call (with this
-	// caller's actor + reason) keeps the audit feed complete: without it,
-	// a race-loser's distinct reason and attribution are silently dropped.
-	// Audit consumers tracking primary terminate actions filter by
-	// ActivityTypeAdminTerminated; consumers reconstructing complete
-	// operator-attempt history union both event types.
+	ActivityTypeAdminTerminated         = "curtailment_admin_terminated"
+	// ActivityTypeAdminTerminatedReplay fires when AdminTerminate echoes
+	// an already-terminal event in the requested state — preserves the
+	// race-loser's reason + actor in the audit feed.
 	ActivityTypeAdminTerminatedReplay = "curtailment_admin_terminated_replay"
-	// ActivityTypeUpdated is emitted on a Service.Update call that
-	// actually changes one or more operator-safe fields. Same-value
-	// patches collapse to no-op upstream and do not emit.
-	ActivityTypeUpdated = "curtailment_updated"
+	ActivityTypeUpdated               = "curtailment_updated"
 )

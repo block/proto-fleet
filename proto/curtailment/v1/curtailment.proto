@@ -12,11 +12,10 @@ service CurtailmentService {
     rpc PreviewCurtailmentPlan(PreviewCurtailmentPlanRequest)
         returns (PreviewCurtailmentPlanResponse);
 
-    // Start an event, persist targets, and dispatch initial Curtail commands.
-    // AlreadyExists when a concurrent Start races past the selector and hits
-    // the per-org one-non-terminal-event constraint; the error debug message
-    // carries the existing event's identity as the stable substring
-    // `(event_uuid=<uuid>, state="<state>")` for callers that need to recover.
+    // Start an event, persist targets, and dispatch initial Curtail
+    // commands. AlreadyExists on the one-non-terminal-event-per-org
+    // constraint carries the existing identity as
+    // `(event_uuid=<uuid>, state="<state>")` for recovery.
     rpc StartCurtailment(StartCurtailmentRequest)
         returns (StartCurtailmentResponse);
 
@@ -24,10 +23,8 @@ service CurtailmentService {
     rpc UpdateCurtailmentEvent(UpdateCurtailmentEventRequest)
         returns (UpdateCurtailmentEventResponse);
 
-    // Stop an active event and begin staggered restore. Idempotent on an
-    // already-restoring event (returns the persisted row). FailedPrecondition
-    // when the event is terminal or a concurrent transition raced past
-    // restoring; treat as non-retryable.
+    // Stop an active event and begin staggered restore. Idempotent on
+    // already-restoring; FailedPrecondition on terminal events (non-retryable).
     rpc StopCurtailment(StopCurtailmentRequest)
         returns (StopCurtailmentResponse);
 
@@ -40,23 +37,15 @@ service CurtailmentService {
         returns (ListCurtailmentEventsResponse);
 
     // Admin recovery RPC: force a non-terminal event to a terminal state.
-    // Session-only, Admin role. Reason is required (min_len=1, max_len=256).
+    // Session-only, Admin role; reason required (min_len=1, max_len=256).
     //
-    // FailedPrecondition variants the caller should distinguish via the
-    // service-specific code carried in FleetErrorDetails.service (see
-    // common/v1/common.proto for FleetErrorDetails). Machine callers branch
-    // on the int32 code rather than string-matching the debug message.
-    //   - service code 1 (AdminTerminateInFlightCommands) — at least one
-    //     target has desired_state=CURTAILED and is in DISPATCHING /
-    //     DISPATCHED / CONFIRMED / DRIFTED. Covers ACTIVE events and PENDING
-    //     events whose tick is mid-dispatch. Does NOT fire on RESTORING
-    //     events where the in-flight commands are Uncurtails (those
-    //     targets carry desired_state=ACTIVE). Recoverable: call
-    //     StopCurtailment first so compensating Uncurtail commands fire
-    //     instead of abandoning already-curtailed miners.
-    //   - service code 2 (AdminTerminateStateConflict) — the event has
-    //     already settled in a different terminal state than the one the
-    //     operator requested; not retryable.
+    // FailedPrecondition variants ride on FleetErrorDetails.service (see
+    // common/v1/common.proto) so machine callers branch on the int32 code:
+    //   - 1 (AdminTerminateInFlightCommands): a target still has an
+    //     in-flight Curtail (desired_state=CURTAILED). Recoverable via
+    //     StopCurtailment first.
+    //   - 2 (AdminTerminateStateConflict): event already settled in a
+    //     different terminal state. Not retryable.
     rpc AdminTerminateEvent(AdminTerminateEventRequest)
         returns (AdminTerminateEventResponse);
 
@@ -138,13 +127,8 @@ enum CurtailmentTargetState {
 
     // In-flight states; CONFIRMED can drift and be re-dispatched.
     CURTAILMENT_TARGET_STATE_PENDING        = 1;
-    // DISPATCHING is the brief transient state the reconciler writes to the
-    // target row *before* calling cmd.Curtail()/cmd.Uncurtail(); the
-    // DISPATCHED transition lands *after* the command returns. This makes
-    // the AdminTerminate in-flight gate reliable — a concurrent terminate
-    // observes DISPATCHING rows and rejects as Stop-first, so commands
-    // cannot fire against a just-terminated event with no compensating
-    // Uncurtail.
+    // Pre-command transient. AdminTerminate's in-flight gate observes
+    // DISPATCHING rows and rejects as Stop-first.
     CURTAILMENT_TARGET_STATE_DISPATCHING    = 8;
     CURTAILMENT_TARGET_STATE_DISPATCHED     = 2;
     CURTAILMENT_TARGET_STATE_CONFIRMED      = 3;
@@ -238,10 +222,9 @@ message CurtailmentEvent {
     bool   include_maintenance        = 18;
     bool   force_include_maintenance  = 19;
 
-    // Server-resolved batch size for the restorer. Stamped at Start as
-    // max(restore_batch_size, ceil(0.01 × selected_target_count)) clamped
-    // to [10, 100], and persisted on the event row from creation. Read back
-    // by Stop and the reconciler; this is the value clients should display.
+    // Server-resolved batch size stamped at Start as
+    // max(restore_batch_size, ceil(0.01 × selected_target_count))
+    // clamped to [10, 100]. Clients display this; restorer reads it.
     uint32 effective_batch_size = 24;
 
     // Operator-supplied reason.
@@ -507,18 +490,14 @@ message UpdateCurtailmentEventResponse {
 
 // StopCurtailment starts restore; min duration may block normal priority.
 message StopCurtailmentRequest {
-    // Tag 2 previously carried `optional uint32 restore_batch_size_override`
-    // (pre-release; removed in favor of Start-time stamping). Reserve both
-    // the number and the name so an old client's varint payload cannot
-    // silently alias to `force=true` on the new shape.
+    // Tag 2 / name was an early `restore_batch_size_override`; reserve
+    // both so an old client's payload can't alias to `force=true`.
     reserved 2;
     reserved "restore_batch_size_override";
 
     string event_uuid = 1 [(buf.validate.field).string.min_len = 1];
 
-    // Admin-only bypass of `min_curtailed_duration_sec` on active events.
-    // Defaults to false; admin-gated handler-side. Zero/unset means the
-    // hysteresis gate applies normally.
+    // Admin-gated bypass of `min_curtailed_duration_sec`.
     bool force = 3;
 }
 
@@ -534,24 +513,17 @@ message GetActiveCurtailmentResponse {
     optional CurtailmentEvent event = 1;
 }
 
-// ListCurtailmentEvents returns historical events.
-//
-// Response shape note: each CurtailmentEvent in the list omits
-// `target_rollup` and `targets` (heavy on 10K-miner events times N pages)
-// and ships a trimmed `decision_snapshot` where the per-device `skipped`
-// array is collapsed into `skipped_aggregate` (reason -> count). Fetch
-// GetActiveCurtailment or a dedicated event-detail RPC for the full
-// per-target rows and the untrimmed snapshot.
+// ListCurtailmentEvents returns historical events. Each event omits
+// `target_rollup`/`targets` and ships a trimmed `decision_snapshot` where
+// the per-device `skipped` array is collapsed into `skipped_aggregate`
+// (reason → count). Use GetActiveCurtailment for the full per-target shape.
 message ListCurtailmentEventsRequest {
-    // Page size; validator caps at 200.
     int32 page_size = 1 [(buf.validate.field).int32 = {
         gte: 0
         lte: 200
     }];
 
-    // Opaque cursor; empty for first page. Capped to keep the base64+JSON
-    // decode path bounded against malformed or accidentally concatenated
-    // tokens — the legitimate payload encodes a single int64 (~24 bytes).
+    // Opaque cursor; empty for first page. Capped to bound the decode path.
     string page_token = 2 [(buf.validate.field).string.max_len = 1024];
 
     // Optional state filter; unspecified returns all states.
@@ -559,8 +531,6 @@ message ListCurtailmentEventsRequest {
 }
 
 message ListCurtailmentEventsResponse {
-    // Each event omits `target_rollup` and `targets` and carries a
-    // trimmed `decision_snapshot` (see ListCurtailmentEvents godoc).
     repeated CurtailmentEvent events = 1;
 
     // Empty when no further pages remain.
@@ -573,18 +543,15 @@ message AdminTerminateEventRequest {
 
     string event_uuid = 1 [(buf.validate.field).string.min_len = 1];
 
-    // Restricted to CANCELLED (=6) or FAILED (=7); COMPLETED states are not
-    // permitted because this RPC fires when restore did not actually run.
-    // Active events must go through StopCurtailment first so restore is queued
-    // instead of abandoning already-curtailed miners.
+    // Restricted to CANCELLED (=6) or FAILED (=7); active events must call
+    // StopCurtailment first so compensating Uncurtails fire.
     CurtailmentEventState target_state = 2 [(buf.validate.field).enum = {
         defined_only: true
         in: [6, 7]
     }];
 
-    // Operator-attributed reason; recorded on the activity row and stamped
-    // into last_error on every swept target. Capped at 256 chars so a bulky
-    // reason can't amplify across thousands of rows during the sweep.
+    // Reason is recorded on the audit row and on every swept target's
+    // last_error; capped to bound the fanout.
     string reason = 3 [(buf.validate.field).string = {min_len: 1, max_len: 256}];
 
 }
