@@ -83,10 +83,13 @@ type CurtailmentServiceClient interface {
 	//
 	// FailedPrecondition variants the caller should distinguish:
 	//   - "curtailment event has in-flight curtail commands; ..." — at least
-	//     one target is in DISPATCHED/CONFIRMED/DRIFTED. Covers ACTIVE events
-	//     and PENDING events whose tick already dispatched some commands.
-	//     Call StopCurtailment first so compensating Uncurtail commands
-	//     fire instead of abandoning already-curtailed miners.
+	//     one target has desired_state=CURTAILED and is in DISPATCHING /
+	//     DISPATCHED / CONFIRMED / DRIFTED. Covers ACTIVE events and PENDING
+	//     events whose tick is mid-dispatch. Does NOT fire on RESTORING
+	//     events where the in-flight commands are Uncurtails (those
+	//     targets carry desired_state=ACTIVE). Call StopCurtailment first
+	//     so compensating Uncurtail commands fire instead of abandoning
+	//     already-curtailed miners.
 	//   - "curtailment event is already terminal in a different state" — the
 	//     event has already settled in a different terminal state than the
 	//     one the operator requested; not retryable.
@@ -213,10 +216,13 @@ type CurtailmentServiceHandler interface {
 	//
 	// FailedPrecondition variants the caller should distinguish:
 	//   - "curtailment event has in-flight curtail commands; ..." — at least
-	//     one target is in DISPATCHED/CONFIRMED/DRIFTED. Covers ACTIVE events
-	//     and PENDING events whose tick already dispatched some commands.
-	//     Call StopCurtailment first so compensating Uncurtail commands
-	//     fire instead of abandoning already-curtailed miners.
+	//     one target has desired_state=CURTAILED and is in DISPATCHING /
+	//     DISPATCHED / CONFIRMED / DRIFTED. Covers ACTIVE events and PENDING
+	//     events whose tick is mid-dispatch. Does NOT fire on RESTORING
+	//     events where the in-flight commands are Uncurtails (those
+	//     targets carry desired_state=ACTIVE). Call StopCurtailment first
+	//     so compensating Uncurtail commands fire instead of abandoning
+	//     already-curtailed miners.
 	//   - "curtailment event is already terminal in a different state" — the
 	//     event has already settled in a different terminal state than the
 	//     one the operator requested; not retryable.

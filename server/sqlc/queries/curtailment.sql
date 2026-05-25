@@ -169,20 +169,28 @@ WHERE org_id = sqlc.arg('org_id')
 LIMIT 1;
 
 -- name: CurtailmentEventHasInFlightTargets :one
--- True if any target on the event is in flight — i.e., the reconciler
--- has written DISPATCHING (about to issue a command), DISPATCHED (command
--- enqueued, awaiting telemetry), CONFIRMED (telemetry verified), or
--- DRIFTED (re-dispatching). Used as the admin-terminate precondition so
--- a concurrent terminate cannot fire while a tick is mid-dispatch.
--- DISPATCHING is the load-bearing inclusion: the reconciler writes
--- DISPATCHING *before* calling cmd.Curtail, so a terminate that races the
--- command observes it and rejects as Stop-first instead of letting the
--- command land against a sweep-already-committed event with no
--- compensating Uncurtail.
+-- True if any target on the event has an in-flight *Curtail* command —
+-- DISPATCHING (about to issue), DISPATCHED (awaiting telemetry),
+-- CONFIRMED (verified curtailed), or DRIFTED (re-dispatching) WHILE the
+-- per-target desired_state is still 'curtailed'. Used as the
+-- admin-terminate Stop-first precondition: a concurrent terminate against
+-- a still-curtailing event would leave miners curtailed with no
+-- compensating Uncurtail. DISPATCHING is the load-bearing inclusion — the
+-- reconciler writes it *before* calling cmd.Curtail, so a terminate that
+-- races the command observes the row and rejects as Stop-first.
+--
+-- The desired_state='curtailed' scope is critical: once StopCurtailment
+-- runs, ResetCurtailmentTargetsForRestore flips every non-terminal target
+-- to desired_state='active' and the reconciler issues compensating
+-- Uncurtails through the same dispatching/dispatched lifecycle. Without
+-- the desired_state predicate, this gate would treat in-flight Uncurtails
+-- as Curtails and block AdminTerminate on RESTORING events — exactly the
+-- recovery path the operator needs when restore is failing or stuck.
 SELECT EXISTS (
     SELECT 1
     FROM curtailment_target
     WHERE curtailment_event_id = sqlc.arg('curtailment_event_id')
+        AND desired_state = 'curtailed'
         AND state IN ('dispatching', 'dispatched', 'confirmed', 'drifted')
 ) AS has_in_flight;
 
