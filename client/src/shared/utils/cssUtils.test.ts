@@ -32,24 +32,21 @@ describe("cubicBezierValues", () => {
 });
 
 describe("classNameToSelectors", () => {
-  test("should return a selector for each class token", () => {
+  test("should return a compound selector for all class tokens", () => {
     expect(classNameToSelectors("schedule-pill-trigger relative")).toEqual([
-      '[class~="schedule-pill-trigger"]',
-      '[class~="relative"]',
+      '[class~="schedule-pill-trigger"][class~="relative"]',
     ]);
   });
 
   test("should ignore extra whitespace between class tokens", () => {
     expect(classNameToSelectors("  schedule-pill-trigger   relative  ")).toEqual([
-      '[class~="schedule-pill-trigger"]',
-      '[class~="relative"]',
+      '[class~="schedule-pill-trigger"][class~="relative"]',
     ]);
   });
 
   test("should escape class tokens for css attribute selectors", () => {
     expect(classNameToSelectors('before:content-["open"] path\\to\\trigger')).toEqual([
-      '[class~="before:content-[\\"open\\"]"]',
-      '[class~="path\\\\to\\\\trigger"]',
+      '[class~="before:content-[\\"open\\"]"][class~="path\\\\to\\\\trigger"]',
     ]);
   });
 });

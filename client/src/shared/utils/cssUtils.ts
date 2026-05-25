@@ -16,9 +16,12 @@ export const cubicBezierValues = (string: string) => {
 const escapeCssAttributeValue = (value: string): string => value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 
 export const classNameToSelectors = (className: string): string[] => {
-  return className
+  const selector = className
     .trim()
     .split(/\s+/)
     .filter(Boolean)
-    .map((classNameToken) => `[class~="${escapeCssAttributeValue(classNameToken)}"]`);
+    .map((classNameToken) => `[class~="${escapeCssAttributeValue(classNameToken)}"]`)
+    .join("");
+
+  return selector ? [selector] : [];
 };
