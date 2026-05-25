@@ -177,21 +177,27 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 			}
 			return nil, fleeterror.NewInternalErrorf("failed to insert curtailment event: %v", err)
 		}
-		for _, t := range targets {
-			err := q.InsertCurtailmentTarget(ctx, sqlc.InsertCurtailmentTargetParams{
-				CurtailmentEventID:     row.ID,
-				DeviceIdentifier:       t.DeviceIdentifier,
-				TargetType:             t.TargetType,
-				State:                  string(t.State),
-				DesiredState:           t.DesiredState,
-				BaselinePowerW:         ptrFloat64ToNullString(t.BaselinePowerW),
-				SelectorRationaleJsonb: rawMessageOrNullable(t.SelectorRationaleJSON),
-			})
-			if err != nil {
-				return nil, fleeterror.NewInternalErrorf(
-					"failed to insert curtailment target %s: %v", t.DeviceIdentifier, err,
-				)
-			}
+		payload, err := buildBulkTargetPayload(targets)
+		if err != nil {
+			return nil, fleeterror.NewInternalErrorf(
+				"failed to encode curtailment target payload: %v", err,
+			)
+		}
+		inserted, err := q.BulkInsertCurtailmentTargets(ctx, sqlc.BulkInsertCurtailmentTargetsParams{
+			CurtailmentEventID: row.ID,
+			TargetsJsonb:       payload,
+		})
+		if err != nil {
+			return nil, fleeterror.NewInternalErrorf("failed to bulk insert curtailment targets: %v", err)
+		}
+		if inserted != int64(len(targets)) {
+			// jsonb_to_recordset silently skips JSON elements that fail to
+			// match the column type (e.g. baseline_power_w outside NUMERIC(12,3)
+			// range). The row count mismatch is the loudest signal — bail so
+			// the transaction rolls back instead of leaving a partial fanout.
+			return nil, fleeterror.NewInternalErrorf(
+				"bulk insert wrote %d targets, expected %d", inserted, len(targets),
+			)
 		}
 		return &models.InsertEventResult{
 			ID:        row.ID,
@@ -770,14 +776,44 @@ func nullStringToFloat64Ptr(n sql.NullString) *float64 {
 	return &v
 }
 
-// rawMessageOrNullable wraps a raw JSON byte slice into pqtype.NullRawMessage,
-// treating nil/empty as NULL so the JSONB column receives SQL NULL rather than
-// the literal "null" or empty string.
-func rawMessageOrNullable(b []byte) pqtype.NullRawMessage {
-	if len(b) == 0 {
-		return pqtype.NullRawMessage{}
+// bulkInsertTargetRow is the per-target JSON shape consumed by
+// BulkInsertCurtailmentTargets via jsonb_to_recordset. Field names map
+// directly to the recordset column definitions; nil baseline / empty
+// rationale marshal to JSON null so the column receives SQL NULL.
+type bulkInsertTargetRow struct {
+	DeviceIdentifier       string          `json:"device_identifier"`
+	TargetType             string          `json:"target_type"`
+	State                  string          `json:"state"`
+	DesiredState           string          `json:"desired_state"`
+	BaselinePowerW         *float64        `json:"baseline_power_w"`
+	SelectorRationaleJsonb json.RawMessage `json:"selector_rationale_jsonb,omitempty"`
+}
+
+// buildBulkTargetPayload serializes the per-target inputs into the JSONB
+// array consumed by BulkInsertCurtailmentTargets. baseline_power_w rides
+// as a JSON number; NUMERIC(12,3) comfortably holds float64's precision
+// for fleet-scale power readings so the round-trip is lossless.
+func buildBulkTargetPayload(targets []models.InsertTargetParams) ([]byte, error) {
+	rows := make([]bulkInsertTargetRow, len(targets))
+	for i, t := range targets {
+		var rationale json.RawMessage
+		if len(t.SelectorRationaleJSON) > 0 {
+			rationale = json.RawMessage(t.SelectorRationaleJSON)
+		}
+		rows[i] = bulkInsertTargetRow{
+			DeviceIdentifier:       t.DeviceIdentifier,
+			TargetType:             t.TargetType,
+			State:                  string(t.State),
+			DesiredState:           t.DesiredState,
+			BaselinePowerW:         t.BaselinePowerW,
+			SelectorRationaleJsonb: rationale,
+		}
 	}
-	return pqtype.NullRawMessage{RawMessage: json.RawMessage(b), Valid: true}
+	payload, err := json.Marshal(rows)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("encode bulk target payload: %v", err)
+	}
+	return payload, nil
 }
 
 func nullRawMessageToBytes(n pqtype.NullRawMessage) []byte {

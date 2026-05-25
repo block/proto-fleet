@@ -13,7 +13,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/lib/pq"
-	"github.com/sqlc-dev/pqtype"
 )
 
 const adminTerminateCurtailmentEvent = `-- name: AdminTerminateCurtailmentEvent :one
@@ -136,6 +135,53 @@ func (q *Queries) BeginCurtailmentRestoration(ctx context.Context, id int64) (Cu
 		&i.CreatedByUserID,
 	)
 	return i, err
+}
+
+const bulkInsertCurtailmentTargets = `-- name: BulkInsertCurtailmentTargets :execrows
+INSERT INTO curtailment_target (
+    curtailment_event_id,
+    device_identifier,
+    target_type,
+    state,
+    desired_state,
+    baseline_power_w,
+    selector_rationale_jsonb
+)
+SELECT
+    $1,
+    t.device_identifier,
+    t.target_type,
+    t.state,
+    t.desired_state,
+    t.baseline_power_w,
+    t.selector_rationale_jsonb
+FROM jsonb_to_recordset($2::JSONB) AS t(
+    device_identifier         TEXT,
+    target_type               TEXT,
+    state                     TEXT,
+    desired_state             TEXT,
+    baseline_power_w          NUMERIC(12,3),
+    selector_rationale_jsonb  JSONB
+)
+`
+
+type BulkInsertCurtailmentTargetsParams struct {
+	CurtailmentEventID int64
+	TargetsJsonb       json.RawMessage
+}
+
+// Start dispatch writes every selected target in one round-trip via
+// jsonb_to_recordset. All rows share curtailment_event_id; per-row fields
+// ride in a JSONB array payload built on the Go side. baseline_power_w
+// and selector_rationale_jsonb are nullable — missing or JSON-null keys
+// map to SQL NULL. Returns rows affected so the caller can pin
+// (rows == len(input)) to surface partial writes loudly.
+func (q *Queries) BulkInsertCurtailmentTargets(ctx context.Context, arg BulkInsertCurtailmentTargetsParams) (int64, error) {
+	result, err := q.exec(ctx, q.bulkInsertCurtailmentTargetsStmt, bulkInsertCurtailmentTargets, arg.CurtailmentEventID, arg.TargetsJsonb)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const curtailmentEventHasInFlightTargets = `-- name: CurtailmentEventHasInFlightTargets :one
@@ -663,50 +709,6 @@ func (q *Queries) InsertCurtailmentEvent(ctx context.Context, arg InsertCurtailm
 		&i.UpdatedAt,
 	)
 	return i, err
-}
-
-const insertCurtailmentTarget = `-- name: InsertCurtailmentTarget :exec
-INSERT INTO curtailment_target (
-    curtailment_event_id,
-    device_identifier,
-    target_type,
-    state,
-    desired_state,
-    baseline_power_w,
-    selector_rationale_jsonb
-) VALUES (
-    $1,
-    $2,
-    $3,
-    $4,
-    $5,
-    $6,
-    $7
-)
-`
-
-type InsertCurtailmentTargetParams struct {
-	CurtailmentEventID     int64
-	DeviceIdentifier       string
-	TargetType             string
-	State                  string
-	DesiredState           string
-	BaselinePowerW         sql.NullString
-	SelectorRationaleJsonb pqtype.NullRawMessage
-}
-
-// Start dispatch inserts these in the event-row transaction.
-func (q *Queries) InsertCurtailmentTarget(ctx context.Context, arg InsertCurtailmentTargetParams) error {
-	_, err := q.exec(ctx, q.insertCurtailmentTargetStmt, insertCurtailmentTarget,
-		arg.CurtailmentEventID,
-		arg.DeviceIdentifier,
-		arg.TargetType,
-		arg.State,
-		arg.DesiredState,
-		arg.BaselinePowerW,
-		arg.SelectorRationaleJsonb,
-	)
-	return err
 }
 
 const listActiveCurtailedDevicesByOrg = `-- name: ListActiveCurtailedDevicesByOrg :many

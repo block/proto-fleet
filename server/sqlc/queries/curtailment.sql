@@ -309,8 +309,13 @@ WHERE org_id = sqlc.arg('org_id')
     AND state IN ('pending', 'active', 'restoring')
 LIMIT 1;
 
--- name: InsertCurtailmentTarget :exec
--- Start dispatch inserts these in the event-row transaction.
+-- name: BulkInsertCurtailmentTargets :execrows
+-- Start dispatch writes every selected target in one round-trip via
+-- jsonb_to_recordset. All rows share curtailment_event_id; per-row fields
+-- ride in a JSONB array payload built on the Go side. baseline_power_w
+-- and selector_rationale_jsonb are nullable — missing or JSON-null keys
+-- map to SQL NULL. Returns rows affected so the caller can pin
+-- (rows == len(input)) to surface partial writes loudly.
 INSERT INTO curtailment_target (
     curtailment_event_id,
     device_identifier,
@@ -319,14 +324,22 @@ INSERT INTO curtailment_target (
     desired_state,
     baseline_power_w,
     selector_rationale_jsonb
-) VALUES (
+)
+SELECT
     sqlc.arg('curtailment_event_id'),
-    sqlc.arg('device_identifier'),
-    sqlc.arg('target_type'),
-    sqlc.arg('state'),
-    sqlc.arg('desired_state'),
-    sqlc.narg('baseline_power_w'),
-    sqlc.narg('selector_rationale_jsonb')
+    t.device_identifier,
+    t.target_type,
+    t.state,
+    t.desired_state,
+    t.baseline_power_w,
+    t.selector_rationale_jsonb
+FROM jsonb_to_recordset(sqlc.arg('targets_jsonb')::JSONB) AS t(
+    device_identifier         TEXT,
+    target_type               TEXT,
+    state                     TEXT,
+    desired_state             TEXT,
+    baseline_power_w          NUMERIC(12,3),
+    selector_rationale_jsonb  JSONB
 );
 
 -- name: ListCurtailmentTargetsByEvent :many

@@ -60,6 +60,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.buildingsByIDsStmt, err = db.PrepareContext(ctx, buildingsByIDs); err != nil {
 		return nil, fmt.Errorf("error preparing query BuildingsByIDs: %w", err)
 	}
+	if q.bulkInsertCurtailmentTargetsStmt, err = db.PrepareContext(ctx, bulkInsertCurtailmentTargets); err != nil {
+		return nil, fmt.Errorf("error preparing query BulkInsertCurtailmentTargets: %w", err)
+	}
 	if q.cancelEnrollmentForFleetNodeStmt, err = db.PrepareContext(ctx, cancelEnrollmentForFleetNode); err != nil {
 		return nil, fmt.Errorf("error preparing query CancelEnrollmentForFleetNode: %w", err)
 	}
@@ -548,9 +551,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.insertCurtailmentEventStmt, err = db.PrepareContext(ctx, insertCurtailmentEvent); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertCurtailmentEvent: %w", err)
-	}
-	if q.insertCurtailmentTargetStmt, err = db.PrepareContext(ctx, insertCurtailmentTarget); err != nil {
-		return nil, fmt.Errorf("error preparing query InsertCurtailmentTarget: %w", err)
 	}
 	if q.insertDeviceStmt, err = db.PrepareContext(ctx, insertDevice); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertDevice: %w", err)
@@ -1068,6 +1068,11 @@ func (q *Queries) Close() error {
 	if q.buildingsByIDsStmt != nil {
 		if cerr := q.buildingsByIDsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing buildingsByIDsStmt: %w", cerr)
+		}
+	}
+	if q.bulkInsertCurtailmentTargetsStmt != nil {
+		if cerr := q.bulkInsertCurtailmentTargetsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing bulkInsertCurtailmentTargetsStmt: %w", cerr)
 		}
 	}
 	if q.cancelEnrollmentForFleetNodeStmt != nil {
@@ -1885,11 +1890,6 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing insertCurtailmentEventStmt: %w", cerr)
 		}
 	}
-	if q.insertCurtailmentTargetStmt != nil {
-		if cerr := q.insertCurtailmentTargetStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing insertCurtailmentTargetStmt: %w", cerr)
-		}
-	}
 	if q.insertDeviceStmt != nil {
 		if cerr := q.insertDeviceStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing insertDeviceStmt: %w", cerr)
@@ -2696,6 +2696,7 @@ type Queries struct {
 	bindEnrollmentToFleetNodeStmt                       *sql.Stmt
 	buildingBelongsToOrgStmt                            *sql.Stmt
 	buildingsByIDsStmt                                  *sql.Stmt
+	bulkInsertCurtailmentTargetsStmt                    *sql.Stmt
 	cancelEnrollmentForFleetNodeStmt                    *sql.Stmt
 	cancelPendingEnrollmentStmt                         *sql.Stmt
 	cascadeAddedDeviceSitesStmt                         *sql.Stmt
@@ -2859,7 +2860,6 @@ type Queries struct {
 	hasUserStmt                                         *sql.Stmt
 	insertActivityLogStmt                               *sql.Stmt
 	insertCurtailmentEventStmt                          *sql.Stmt
-	insertCurtailmentTargetStmt                         *sql.Stmt
 	insertDeviceStmt                                    *sql.Stmt
 	insertDeviceMetricsStmt                             *sql.Stmt
 	insertErrorStmt                                     *sql.Stmt
@@ -3029,6 +3029,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		bindEnrollmentToFleetNodeStmt:                       q.bindEnrollmentToFleetNodeStmt,
 		buildingBelongsToOrgStmt:                            q.buildingBelongsToOrgStmt,
 		buildingsByIDsStmt:                                  q.buildingsByIDsStmt,
+		bulkInsertCurtailmentTargetsStmt:                    q.bulkInsertCurtailmentTargetsStmt,
 		cancelEnrollmentForFleetNodeStmt:                    q.cancelEnrollmentForFleetNodeStmt,
 		cancelPendingEnrollmentStmt:                         q.cancelPendingEnrollmentStmt,
 		cascadeAddedDeviceSitesStmt:                         q.cascadeAddedDeviceSitesStmt,
@@ -3192,7 +3193,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		hasUserStmt:                                         q.hasUserStmt,
 		insertActivityLogStmt:                               q.insertActivityLogStmt,
 		insertCurtailmentEventStmt:                          q.insertCurtailmentEventStmt,
-		insertCurtailmentTargetStmt:                         q.insertCurtailmentTargetStmt,
 		insertDeviceStmt:                                    q.insertDeviceStmt,
 		insertDeviceMetricsStmt:                             q.insertDeviceMetricsStmt,
 		insertErrorStmt:                                     q.insertErrorStmt,
