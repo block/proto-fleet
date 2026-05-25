@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { cubicBezierValues } from "./cssUtils";
+import { classNameToSelectors, cubicBezierValues } from "./cssUtils";
 
 describe("cubicBezierValues", () => {
   test("should extract cubic bezier values from a css string", () => {
@@ -28,5 +28,28 @@ describe("cubicBezierValues", () => {
     const string2 = "cubic-bezier(0.47, 0, 0.23, 1.38, 0.5)";
     const result2 = cubicBezierValues(string2);
     expect(result2).toEqual(undefined);
+  });
+});
+
+describe("classNameToSelectors", () => {
+  test("should return a selector for each class token", () => {
+    expect(classNameToSelectors("schedule-pill-trigger relative")).toEqual([
+      '[class~="schedule-pill-trigger"]',
+      '[class~="relative"]',
+    ]);
+  });
+
+  test("should ignore extra whitespace between class tokens", () => {
+    expect(classNameToSelectors("  schedule-pill-trigger   relative  ")).toEqual([
+      '[class~="schedule-pill-trigger"]',
+      '[class~="relative"]',
+    ]);
+  });
+
+  test("should escape class tokens for css attribute selectors", () => {
+    expect(classNameToSelectors('before:content-["open"] path\\to\\trigger')).toEqual([
+      '[class~="before:content-[\\"open\\"]"]',
+      '[class~="path\\\\to\\\\trigger"]',
+    ]);
   });
 });

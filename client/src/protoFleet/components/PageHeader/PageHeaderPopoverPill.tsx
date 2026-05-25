@@ -4,6 +4,7 @@ import clsx from "clsx";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Popover, { PopoverProvider, popoverSizes, useResponsivePopover } from "@/shared/components/Popover";
 import { positions } from "@/shared/constants";
+import { classNameToSelectors } from "@/shared/utils/cssUtils";
 
 interface PageHeaderPopoverPillProps {
   ariaLabel: string;
@@ -11,14 +12,6 @@ interface PageHeaderPopoverPillProps {
   dotClassName: string;
   triggerClassName: string;
   triggerLabel: ReactNode;
-}
-
-function getClassNameSelectors(className: string): string[] {
-  return className
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((classNameToken) => `.${classNameToken}`);
 }
 
 function PageHeaderPopoverPillContent({
@@ -30,7 +23,7 @@ function PageHeaderPopoverPillContent({
 }: PageHeaderPopoverPillProps) {
   const [isPopoverOpen, setIsPopoverOpen] = useState(false);
   const { triggerRef } = useResponsivePopover();
-  const closeIgnoreSelectors = getClassNameSelectors(triggerClassName);
+  const closeIgnoreSelectors = classNameToSelectors(triggerClassName);
 
   function closePopover(): void {
     setIsPopoverOpen(false);
