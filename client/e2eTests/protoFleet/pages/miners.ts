@@ -1204,12 +1204,15 @@ export class MinersPage extends BasePage {
     await expect(this.page.getByTestId("view-modal")).toBeHidden();
   }
 
-  private getViewTab(viewName: string) {
+  private getViewTabs(viewName: string) {
     return this.page
       .getByTestId("views-bar")
       .locator('[data-testid^="views-bar-tab-"]')
-      .filter({ has: this.page.getByRole("button", { name: viewName, exact: true }) })
-      .first();
+      .filter({ has: this.page.getByRole("button", { name: viewName, exact: true }) });
+  }
+
+  private getViewTab(viewName: string) {
+    return this.getViewTabs(viewName).first();
   }
 
   async validateViewTabVisible(viewName: string) {
@@ -1236,6 +1239,32 @@ export class MinersPage extends BasePage {
   async clickUpdateViewAction(viewName: string) {
     await this.openViewTabKebab(viewName);
     await this.page.getByText("Update view", { exact: true }).click();
+  }
+
+  async clickRenameViewAction(viewName: string) {
+    await this.openViewTabKebab(viewName);
+    await this.page.getByText("Rename", { exact: true }).click();
+  }
+
+  async clickDeleteViewAction(viewName: string) {
+    await this.openViewTabKebab(viewName);
+    await this.page.getByText("Delete", { exact: true }).click();
+  }
+
+  async validateViewTabNotVisible(viewName: string) {
+    await expect(this.getViewTabs(viewName)).toHaveCount(0);
+  }
+
+  async validateDeleteViewDialogOpened(viewName: string) {
+    const dialog = this.page.getByTestId("views-bar-delete-dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText(`Delete the view "${viewName}"? This can't be undone.`);
+  }
+
+  async confirmDeleteView() {
+    const dialog = this.page.getByTestId("views-bar-delete-dialog");
+    await dialog.getByRole("button", { name: "Delete", exact: true }).click();
+    await expect(dialog).toBeHidden();
   }
 
   async clickMinerElementByTestId(ipAddress: string, testId: string) {
