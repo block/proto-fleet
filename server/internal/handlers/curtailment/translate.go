@@ -395,8 +395,7 @@ func toPreviewResponse(plan *curtailment.Plan, req *pb.PreviewCurtailmentPlanReq
 }
 
 func strategyName(s pb.CurtailmentStrategy) models.Strategy {
-	if s == pb.CurtailmentStrategy_CURTAILMENT_STRATEGY_UNSPECIFIED ||
-		s == pb.CurtailmentStrategy_CURTAILMENT_STRATEGY_LEAST_EFFICIENT_FIRST {
+	if s == pb.CurtailmentStrategy_CURTAILMENT_STRATEGY_UNSPECIFIED {
 		return models.StrategyLeastEfficientFirst
 	}
 	// Pass other values through; service validator rejects them by name.

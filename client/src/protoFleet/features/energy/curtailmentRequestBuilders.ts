@@ -12,8 +12,6 @@ import {
   ScopeWholeOrgSchema,
   type StartCurtailmentRequest,
   StartCurtailmentRequestSchema,
-  type UpdateCurtailmentEventRequest,
-  UpdateCurtailmentEventRequestSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import type { CurtailmentSubmitValues } from "@/protoFleet/features/energy/CurtailmentStartModal";
 
@@ -73,7 +71,8 @@ function buildCurtailmentRequestFields(values: CurtailmentSubmitValues): Curtail
   return {
     scope: buildScope(values),
     mode: ProtoCurtailmentMode.FIXED_KW,
-    strategy: ProtoCurtailmentStrategy.LEAST_EFFICIENT_FIRST,
+    // Server defaults unspecified strategy to least-efficient-first.
+    strategy: ProtoCurtailmentStrategy.UNSPECIFIED,
     level: ProtoCurtailmentLevel.FULL,
     priority: getPriority(values.priority),
     modeParams: {
@@ -93,18 +92,5 @@ export function buildStartCurtailmentRequest(values: CurtailmentSubmitValues): S
     restoreBatchIntervalSec: getOptionalNumericSetting(values.restoreIntervalSec),
     minCurtailedDurationSec: getOptionalNumericSetting(values.minDurationSec),
     reason: values.reason.trim(),
-  });
-}
-
-export function buildUpdateCurtailmentRequest(
-  eventId: string,
-  values: CurtailmentSubmitValues,
-): UpdateCurtailmentEventRequest {
-  return create(UpdateCurtailmentEventRequestSchema, {
-    eventUuid: eventId,
-    reason: values.reason.trim(),
-    maxDurationSeconds: getOptionalNumericSetting(values.maxDurationSec),
-    restoreBatchSize: getOptionalNumericSetting(values.restoreBatchSize),
-    restoreBatchIntervalSec: getOptionalNumericSetting(values.restoreIntervalSec),
   });
 }

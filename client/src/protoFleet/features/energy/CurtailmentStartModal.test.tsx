@@ -175,9 +175,7 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByRole("dialog", { name: "Manage curtailment" })).toBeInTheDocument();
     expect(screen.queryByRole("dialog", { name: "Plan a curtailment" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Start curtailment" })).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Target reduction")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Min duration (sec)")).not.toBeInTheDocument();
-    expect(screen.queryByText("Apply to")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Target reduction")).toHaveValue(40);
     expect(screen.getByLabelText("Reason")).toHaveValue("Grid peak - ERCOT 4CP signal");
 
     await user.click(screen.getByRole("button", { name: "Save" }));

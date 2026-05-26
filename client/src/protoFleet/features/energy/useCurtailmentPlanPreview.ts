@@ -51,11 +51,6 @@ interface CurtailmentPlanPreviewState {
   requestKey?: string;
 }
 
-interface PreviewRequestState {
-  request: PreviewCurtailmentPlanRequest;
-  requestKey: string;
-}
-
 const emptyPreviewResult: CurtailmentPlanPreviewResult = {
   preview: undefined,
   previewError: undefined,
@@ -80,11 +75,7 @@ function parseNumber(value: string, isValid: (value: number) => boolean): number
   }
 
   const parsed = Number(trimmed);
-  if (!Number.isFinite(parsed) || !isValid(parsed)) {
-    return undefined;
-  }
-
-  return parsed;
+  return Number.isFinite(parsed) && isValid(parsed) ? parsed : undefined;
 }
 
 function parsePositiveNumber(value: string): number | undefined {
@@ -233,11 +224,9 @@ function estimateCurtailDuration(values: CurtailmentFormValues): string {
   const hasMaxDuration = maxDurationSec !== undefined && maxDurationSec > 0;
 
   if (hasMinDuration && hasMaxDuration) {
-    if (minDurationSec === maxDurationSec) {
-      return formatDurationEstimate(minDurationSec, false);
-    }
-
-    return `${formatDurationEstimate(minDurationSec, false)} - ${formatDurationEstimate(maxDurationSec, false)}`;
+    return minDurationSec === maxDurationSec
+      ? formatDurationEstimate(minDurationSec, false)
+      : `${formatDurationEstimate(minDurationSec, false)} - ${formatDurationEstimate(maxDurationSec, false)}`;
   }
 
   if (hasMinDuration) {
@@ -279,64 +268,6 @@ function toCurtailmentPlanPreview(
   };
 }
 
-function createPreviewErrorState(requestKey: string, previewError: string): CurtailmentPlanPreviewState {
-  return {
-    response: undefined,
-    responseRequestKey: undefined,
-    responseRequestValues: undefined,
-    previewError,
-    isPreviewLoading: false,
-    requestKey,
-  };
-}
-
-function createPreviewResponseState(
-  response: PreviewCurtailmentPlanResponse,
-  requestKey: string,
-  requestValues: CurtailmentPlanPreviewRequestValues,
-): CurtailmentPlanPreviewState {
-  return {
-    response,
-    responseRequestKey: requestKey,
-    responseRequestValues: cloneRequestValues(requestValues),
-    previewError: undefined,
-    isPreviewLoading: false,
-    requestKey,
-  };
-}
-
-function getPreviewValues(
-  values: CurtailmentFormValues,
-  state: CurtailmentPlanPreviewState,
-  hasCurrentResponse: boolean,
-): CurtailmentFormValues {
-  if (hasCurrentResponse || state.responseRequestValues === undefined) {
-    return values;
-  }
-
-  return { ...values, ...state.responseRequestValues };
-}
-
-function getPreviewResult(
-  requestState: PreviewRequestState | undefined,
-  state: CurtailmentPlanPreviewState,
-  values: CurtailmentFormValues,
-): CurtailmentPlanPreviewResult {
-  if (requestState === undefined) {
-    return emptyPreviewResult;
-  }
-
-  const hasCurrentPreviewState = state.requestKey === requestState.requestKey;
-  const hasCurrentResponse = state.responseRequestKey === requestState.requestKey;
-  const previewValues = getPreviewValues(values, state, hasCurrentResponse);
-
-  return {
-    preview: state.response ? toCurtailmentPlanPreview(state.response, previewValues) : undefined,
-    previewError: hasCurrentPreviewState ? state.previewError : undefined,
-    isPreviewLoading: hasCurrentPreviewState ? state.isPreviewLoading : false,
-  };
-}
-
 export function useCurtailmentPlanPreview({
   open,
   values,
@@ -367,17 +298,15 @@ export function useCurtailmentPlanPreview({
       values.toleranceKw,
     ],
   );
-  const requestState = useMemo<PreviewRequestState | undefined>(() => {
+  const requestState = useMemo(() => {
     const request = buildPreviewCurtailmentPlanRequest(requestValues);
 
-    if (request === undefined) {
-      return undefined;
-    }
-
-    return {
-      request,
-      requestKey: toJsonString(PreviewCurtailmentPlanRequestSchema, request),
-    };
+    return request === undefined
+      ? undefined
+      : {
+          request,
+          requestKey: toJsonString(PreviewCurtailmentPlanRequestSchema, request),
+        };
   }, [requestValues]);
   useEffect(() => {
     if (!open || disabled) {
@@ -390,39 +319,6 @@ export function useCurtailmentPlanPreview({
 
     let isActive = true;
     const abortController = new AbortController();
-    const loadPreview = async (): Promise<void> => {
-      try {
-        const response = await curtailmentClient.previewCurtailmentPlan(requestState.request, {
-          signal: abortController.signal,
-        });
-
-        if (!isActive) {
-          return;
-        }
-
-        if (response.candidates.length === 0) {
-          setState(createPreviewErrorState(requestState.requestKey, emptyCandidatesPreviewError));
-          return;
-        }
-
-        setState(createPreviewResponseState(response, requestState.requestKey, requestValues));
-      } catch (error) {
-        if (!isActive) {
-          return;
-        }
-
-        handleAuthErrors({
-          error,
-          onError: (err) => {
-            if (!isActive) {
-              return;
-            }
-
-            setState(createPreviewErrorState(requestState.requestKey, getErrorMessage(err, "Preview is unavailable.")));
-          },
-        });
-      }
-    };
     const timeoutId = setTimeout(() => {
       setState((current) => ({
         ...current,
@@ -431,7 +327,57 @@ export function useCurtailmentPlanPreview({
         requestKey: requestState.requestKey,
       }));
 
-      void loadPreview();
+      void curtailmentClient
+        .previewCurtailmentPlan(requestState.request, { signal: abortController.signal })
+        .then((response) => {
+          if (!isActive) {
+            return;
+          }
+
+          if (response.candidates.length === 0) {
+            setState({
+              response: undefined,
+              responseRequestKey: undefined,
+              responseRequestValues: undefined,
+              previewError: emptyCandidatesPreviewError,
+              isPreviewLoading: false,
+              requestKey: requestState.requestKey,
+            });
+            return;
+          }
+
+          setState({
+            response,
+            responseRequestKey: requestState.requestKey,
+            responseRequestValues: cloneRequestValues(requestValues),
+            previewError: undefined,
+            isPreviewLoading: false,
+            requestKey: requestState.requestKey,
+          });
+        })
+        .catch((error) => {
+          if (!isActive) {
+            return;
+          }
+
+          handleAuthErrors({
+            error,
+            onError: (err) => {
+              if (!isActive) {
+                return;
+              }
+
+              setState({
+                response: undefined,
+                responseRequestKey: undefined,
+                responseRequestValues: undefined,
+                previewError: getErrorMessage(err, "Preview is unavailable."),
+                isPreviewLoading: false,
+                requestKey: requestState.requestKey,
+              });
+            },
+          });
+        });
     }, debounceMs);
 
     return () => {
@@ -445,5 +391,17 @@ export function useCurtailmentPlanPreview({
     return emptyPreviewResult;
   }
 
-  return getPreviewResult(requestState, state, values);
+  const hasCurrentPreviewState = requestState !== undefined && state.requestKey === requestState.requestKey;
+  const renderableResponse = requestState !== undefined ? state.response : undefined;
+  const hasCurrentResponse = requestState !== undefined && state.responseRequestKey === requestState.requestKey;
+  const previewValues =
+    hasCurrentResponse || state.responseRequestValues === undefined
+      ? values
+      : { ...values, ...state.responseRequestValues };
+
+  return {
+    preview: renderableResponse !== undefined ? toCurtailmentPlanPreview(renderableResponse, previewValues) : undefined,
+    previewError: hasCurrentPreviewState ? state.previewError : undefined,
+    isPreviewLoading: hasCurrentPreviewState ? state.isPreviewLoading : false,
+  };
 }

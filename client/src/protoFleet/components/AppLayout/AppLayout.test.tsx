@@ -4,12 +4,10 @@ import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import AppLayout from "./AppLayout";
-import type { UseCurtailmentPillDataResult } from "@/protoFleet/components/PageHeader/useCurtailmentPillData";
 import type { UseSchedulePillDataResult } from "@/protoFleet/components/PageHeader/useSchedulePillData";
 
 const mockUseWindowDimensions = vi.fn();
 const mockUseReactiveLocalStorage = vi.fn();
-const mockUseCurtailmentPillData = vi.fn();
 const mockUseSchedulePillData = vi.fn();
 
 vi.mock("@/protoFleet/api/ScheduleApiProvider", () => ({
@@ -24,10 +22,6 @@ vi.mock("@/protoFleet/components/NavigationMenu", () => ({
 vi.mock("@/protoFleet/components/PageHeader", () => ({
   __esModule: true,
   default: () => <div>Page header</div>,
-}));
-
-vi.mock("@/protoFleet/components/PageHeader/useCurtailmentPillData", () => ({
-  useCurtailmentPillData: () => mockUseCurtailmentPillData(),
 }));
 
 vi.mock("@/protoFleet/components/PageHeader/useSchedulePillData", () => ({
@@ -51,33 +45,12 @@ const createSchedulePillData = (overrides: Partial<UseSchedulePillDataResult> = 
   ...overrides,
 });
 
-const createCurtailmentPillData = (
-  overrides: Partial<UseCurtailmentPillDataResult> = {},
-): UseCurtailmentPillDataResult => ({
-  activeEvent: null,
-  refreshActiveCurtailment: vi.fn(),
-  ...overrides,
-});
-
-const phoneWidgetOffsetClass = "phone:top-[calc(theme(spacing.1)*12+57px)]";
-
-function renderAppLayout(): void {
-  render(
-    <MemoryRouter>
-      <AppLayout>
-        <div>Body content</div>
-      </AppLayout>
-    </MemoryRouter>,
-  );
-}
-
 describe("AppLayout", () => {
   beforeEach(() => {
     mockUseWindowDimensions.mockReturnValue({
       isPhone: true,
     });
     mockUseReactiveLocalStorage.mockReturnValue([false, vi.fn()]);
-    mockUseCurtailmentPillData.mockReturnValue(createCurtailmentPillData());
     mockUseSchedulePillData.mockReturnValue(createSchedulePillData());
   });
 
@@ -88,26 +61,14 @@ describe("AppLayout", () => {
       }),
     );
 
-    renderAppLayout();
-
-    expect(screen.getByText("Body content").parentElement).toHaveClass(phoneWidgetOffsetClass);
-  });
-
-  it("offsets the phone content when energy makes the header widgets visible", () => {
-    mockUseCurtailmentPillData.mockReturnValue(
-      createCurtailmentPillData({
-        activeEvent: {
-          reason: "Grid peak call",
-          state: "active",
-          scopeLabel: "Whole org",
-          selectedMiners: 12,
-          estimatedReductionKw: 40,
-        },
-      }),
+    render(
+      <MemoryRouter>
+        <AppLayout>
+          <div>Body content</div>
+        </AppLayout>
+      </MemoryRouter>,
     );
 
-    renderAppLayout();
-
-    expect(screen.getByText("Body content").parentElement).toHaveClass(phoneWidgetOffsetClass);
+    expect(screen.getByText("Body content").parentElement).toHaveClass("phone:top-[calc(theme(spacing.1)*12+57px)]");
   });
 });

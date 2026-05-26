@@ -14,8 +14,6 @@ const (
 	DefaultDifficulty     = 1024.0
 	DefaultLastShareDelay = 600  // seconds ago
 	DefaultTemperature    = 72.0 // Celsius - realistic ASIC chip temperature
-	DefaultPowerW         = 25000.0
-	DefaultSleepPowerW    = 200.0
 	WorkModeNormal        = "0"
 	WorkModeSleep         = "1"
 )
@@ -93,7 +91,6 @@ type MinerState struct {
 	DNSServers      string
 	HashRate        float64
 	Temperature     float64
-	PowerW          float64
 	Pools           []Pool
 	MinerMode       string
 	BitmainWorkMode string
@@ -204,13 +201,6 @@ type DevsResponse struct {
 	ID      int          `json:"id"`
 }
 
-// StatsResponse for 'stats' command.
-type StatsResponse struct {
-	Status []StatusInfo             `json:"STATUS"`
-	Stats  []map[string]interface{} `json:"STATS"`
-	ID     int                      `json:"id"`
-}
-
 func (s *MinerState) currentWorkModeLocked() string {
 	switch {
 	case s.MinerMode != "":
@@ -239,16 +229,6 @@ func (s *MinerState) effectiveHashRateLocked() float64 {
 	}
 
 	return s.HashRate
-}
-
-func (s *MinerState) effectivePowerWLocked() float64 {
-	if s.currentWorkModeLocked() == WorkModeSleep {
-		return DefaultSleepPowerW
-	}
-	if s.PowerW > 0 {
-		return s.PowerW
-	}
-	return DefaultPowerW
 }
 
 func (s *MinerState) summaryStatusLocked() string {

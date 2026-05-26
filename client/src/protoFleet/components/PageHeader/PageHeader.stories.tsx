@@ -1,4 +1,4 @@
-import { type ReactElement, type ReactNode, useState } from "react";
+import { type ReactNode, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import { action } from "storybook/actions";
 
@@ -6,7 +6,6 @@ import CurtailmentPillComponent from "./CurtailmentPill";
 import { type CurtailmentPillEvent, type CurtailmentPillState, curtailmentPillStates } from "./curtailmentPillTypes";
 import SchedulePillComponent from "./SchedulePill";
 import { buildSchedulePopoverSections, selectPillSchedule } from "./schedulePillUtils";
-import type { UseCurtailmentPillDataResult } from "./useCurtailmentPillData";
 import type { UseSchedulePillDataResult } from "./useSchedulePillData";
 import PageHeaderComponent from ".";
 import {
@@ -41,17 +40,6 @@ const createTargets = (count: number) =>
     targetId: `miner-${index + 1}`,
   }));
 
-function getProtoScheduleAction(action: ScheduleAction): ProtoScheduleAction {
-  switch (action) {
-    case "setPowerTarget":
-      return ProtoScheduleAction.SET_POWER_TARGET;
-    case "sleep":
-      return ProtoScheduleAction.SLEEP;
-    case "reboot":
-      return ProtoScheduleAction.REBOOT;
-  }
-}
-
 const createScheduleListItem = ({
   id,
   name,
@@ -75,6 +63,13 @@ const createScheduleListItem = ({
   targetSummary: string;
   powerTargetMode?: PowerTargetMode;
 }): ScheduleListItem => {
+  const protoAction =
+    action === "setPowerTarget"
+      ? ProtoScheduleAction.SET_POWER_TARGET
+      : action === "sleep"
+        ? ProtoScheduleAction.SLEEP
+        : ProtoScheduleAction.REBOOT;
+
   return {
     id,
     priority,
@@ -88,7 +83,7 @@ const createScheduleListItem = ({
     rawSchedule: create(ScheduleSchema, {
       id: BigInt(id),
       name,
-      action: getProtoScheduleAction(action),
+      action: protoAction,
       actionConfig: powerTargetMode
         ? {
             mode: powerTargetMode,
@@ -212,16 +207,9 @@ const emptySchedulePillData: UseSchedulePillDataResult = {
   onToggleScheduleStatus: async () => {},
 };
 
-const emptyCurtailmentPillData: UseCurtailmentPillDataResult = {
-  activeEvent: null,
-  refreshActiveCurtailment: async () => {},
+export const PageHeader = () => {
+  return <PageHeaderComponent schedulePillData={emptySchedulePillData} />;
 };
-
-export function PageHeader(): ReactElement {
-  return (
-    <PageHeaderComponent curtailmentPillData={emptyCurtailmentPillData} schedulePillData={emptySchedulePillData} />
-  );
-}
 
 export const SchedulePill = () => {
   return (

@@ -1,11 +1,8 @@
-import { type ReactElement, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import clsx from "clsx";
-import CurtailmentPill from "./CurtailmentPill";
-import { hasVisibleHeaderWidgets } from "./headerWidgetVisibility";
 import LocationSelector from "./LocationSelector";
 import SchedulePill from "./SchedulePill";
 import SitePicker from "./SitePicker";
-import type { UseCurtailmentPillDataResult } from "./useCurtailmentPillData";
 import type { UseSchedulePillDataResult } from "./useSchedulePillData";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { useSites } from "@/protoFleet/api/sites";
@@ -15,34 +12,29 @@ import { Pause } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
-
 interface PageHeaderProps {
   isMenuOpen?: boolean;
   openMenu?: () => void;
-  curtailmentPillData: UseCurtailmentPillDataResult;
   schedulePillData: UseSchedulePillDataResult;
 }
 
-interface HeaderWidgetsProps {
-  className?: string;
-  dismissedSetup: boolean;
-  onContinueSetup: () => void;
-  activeCurtailmentEvent: UseCurtailmentPillDataResult["activeEvent"];
-  schedulePillData: UseSchedulePillDataResult;
-}
+const headerWidgetEnabled = true;
 
-function HeaderWidgets({
+const HeaderWidgets = ({
   className,
   dismissedSetup,
   onContinueSetup,
-  activeCurtailmentEvent,
   schedulePillData,
-}: HeaderWidgetsProps): ReactElement {
+}: {
+  className?: string;
+  dismissedSetup: boolean;
+  onContinueSetup: () => void;
+  schedulePillData: UseSchedulePillDataResult;
+}) => {
   const { pillSchedule, sections, pendingScheduleId, onToggleScheduleStatus } = schedulePillData;
 
   return (
     <div className={clsx("flex space-x-3", className)}>
-      {activeCurtailmentEvent ? <CurtailmentPill event={activeCurtailmentEvent} /> : null}
       {pillSchedule ? (
         <SchedulePill
           pillSchedule={pillSchedule}
@@ -56,18 +48,13 @@ function HeaderWidgets({
       ) : null}
     </div>
   );
-}
+};
 
-function PageHeader({ isMenuOpen, openMenu, curtailmentPillData, schedulePillData }: PageHeaderProps): ReactElement {
+const PageHeader = ({ isMenuOpen, openMenu, schedulePillData }: PageHeaderProps) => {
   const { isPhone, isTablet } = useWindowDimensions();
   const { bgClass } = usePageBackground();
   const [dismissedSetup, setDismissedSetup] = useReactiveLocalStorage<boolean>("completeSetupDismissed");
   const hasDismissedSetup = Boolean(dismissedSetup);
-  const hasHeaderWidgets = hasVisibleHeaderWidgets({
-    hasDismissedSetup,
-    hasActiveCurtailment: curtailmentPillData.activeEvent !== null,
-    hasVisibleSchedules: schedulePillData.hasVisibleSchedules,
-  });
 
   // Multi-site: the SitePicker replaces today's LocationSelector when the
   // feature flag is on. Sites are fetched once on mount and held here so the
@@ -96,10 +83,7 @@ function PageHeader({ isMenuOpen, openMenu, curtailmentPillData, schedulePillDat
   }, [listSites]);
 
   useEffect(() => {
-    if (!MULTI_SITE_ENABLED) {
-      return;
-    }
-
+    if (!MULTI_SITE_ENABLED) return;
     return fetchSites();
   }, [fetchSites]);
 
@@ -110,11 +94,9 @@ function PageHeader({ isMenuOpen, openMenu, curtailmentPillData, schedulePillDat
   const headerWidgetsProps = {
     dismissedSetup: hasDismissedSetup,
     onContinueSetup: handleCompleteSetup,
-    activeCurtailmentEvent: curtailmentPillData.activeEvent,
     schedulePillData,
   };
-  const showPhoneWidgets = isPhone && hasHeaderWidgets;
-  const showDesktopWidgets = !isPhone && hasHeaderWidgets;
+  const showPhoneWidgets = isPhone && (hasDismissedSetup || schedulePillData.hasVisibleSchedules);
 
   return (
     <>
@@ -136,16 +118,16 @@ function PageHeader({ isMenuOpen, openMenu, curtailmentPillData, schedulePillDat
               <LocationSelector />
             )}
           </div>
-          {showDesktopWidgets ? <HeaderWidgets {...headerWidgetsProps} /> : null}
+          {!isPhone && headerWidgetEnabled ? <HeaderWidgets {...headerWidgetsProps} /> : null}
         </div>
       </div>
       {showPhoneWidgets ? (
-        <div className={clsx("flex h-[57px] items-center overflow-x-auto", bgClass)}>
-          <HeaderWidgets className="min-w-max px-5" {...headerWidgetsProps} />
+        <div className={clsx("flex h-[57px] items-center", bgClass)}>
+          <HeaderWidgets className="ml-5" {...headerWidgetsProps} />
         </div>
       ) : null}
     </>
   );
-}
+};
 
 export default PageHeader;
