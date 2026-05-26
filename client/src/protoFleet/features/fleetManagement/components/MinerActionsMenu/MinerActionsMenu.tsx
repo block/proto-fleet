@@ -41,11 +41,9 @@ interface MinerActionsMenuProps {
   /** Ordered list of miner device identifiers, forwarded to bulk rename modals. */
   minerIds?: string[];
   /**
-   * Set when the selection includes one or more miners in `AUTHENTICATION_NEEDED`
-   * — including all-mode selections whose individual ids the parent does not pass
-   * down. When true, every action other than Unpair renders disabled with a
-   * tooltip explaining why. Falls back to a subset-only check derived from
-   * `selectedMiners` + `miners` when the parent omits the prop.
+   * When true, every action other than Unpair renders disabled. The parent
+   * sets this for all-mode (the local miners map only carries the current page);
+   * falls back to a subset check from `selectedMiners` + `miners`.
    */
   selectionIncludesUnauthenticatedMiner?: boolean;
   /** Callback to refetch miners after bulk rename or worker-name update. */
@@ -87,9 +85,7 @@ const MinerActionsMenu = ({
     () => selectedMiners.map((id) => ({ deviceIdentifier: id })),
     [selectedMiners],
   );
-  // Fallback when the parent omits the prop. Accurate for subset selections;
-  // for `selectionMode === "all"` the parent is the canonical source because the
-  // miners map only carries the currently-loaded page.
+  // Subset-mode fallback when the parent omits the prop.
   const selectedIdsIncludeUnauthenticatedMiner = useMemo(
     () => selectedMiners.some((id) => miners[id]?.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED),
     [miners, selectedMiners],

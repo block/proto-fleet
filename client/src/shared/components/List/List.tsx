@@ -218,20 +218,13 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
    */
   isLoadingMore?: boolean;
   /**
-   * Optional callback to determine if a specific row should be visually disabled
-   * (greyed out). By default this also blocks selection; pass `isRowSelectable`
-   * to decouple visual de-emphasis from selectability.
-   * @param item - The list item
-   * @returns true if the row should be visually disabled
+   * Greys out the row. Also blocks selection unless `isRowSelectable` is
+   * passed to opt into the split.
    */
   isRowDisabled?: (item: ListItem) => boolean;
   /**
-   * Optional callback to determine if a specific row may be selected.
-   * Defaults to `!isRowDisabled?.(item)` so existing callers keep the historical
-   * behavior. Provide this when a row should be visually disabled but still
-   * selectable (e.g. miners that need authentication but can still be unpaired).
-   * @param item - The list item
-   * @returns true if the row may be selected
+   * Whether the row may be selected. Defaults to `!isRowDisabled?.(item)`;
+   * provide explicitly to keep a greyed row checkable.
    */
   isRowSelectable?: (item: ListItem) => boolean;
   /**
@@ -750,9 +743,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
     }),
   );
 
-  // Helper to get selectable items. Prefers `isRowSelectable` when provided so
-  // a row can be visually disabled (greyed) but still selectable. Falls back to
-  // `!isRowDisabled(item)` for callers that have not opted into the split.
+  // Prefers `isRowSelectable`; falls back to `!isRowDisabled(item)` for back-compat.
   const getSelectableItems = useCallback(
     (itemList: ListItem[]) => {
       if (isRowSelectable) return itemList.filter(isRowSelectable);

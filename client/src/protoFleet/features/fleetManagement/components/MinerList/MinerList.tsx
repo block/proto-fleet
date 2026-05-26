@@ -189,9 +189,7 @@ type MinerListProps = {
   onPairingCompleted?: () => void;
 };
 
-// Stable reference so the `List`'s memoized selectable-items helper doesn't
-// recompute every render. Every visible row participates in selection; visual
-// de-emphasis is governed separately by `isRowDisabled`.
+// Module-level so the `List`'s memoized helpers keep a stable identity.
 const ALL_ROWS_SELECTABLE = () => true;
 
 type ScopedMinerListBodyProps = {
@@ -286,8 +284,6 @@ const ScopedMinerListBody = ({
   }
   const sortableColumnsSet = useMemo(() => new Set(SORTABLE_COLUMNS), []);
 
-  // Every visible row is selectable so unauthenticated miners can be unpaired
-  // in bulk. Visual de-emphasis stays driven by `isRowDisabled` on the List.
   const currentPageSelectableMinerIds = deviceItems.map((item) => item.deviceIdentifier);
 
   const handleSelectAllMiners = useCallback(() => {
@@ -300,11 +296,8 @@ const ScopedMinerListBody = ({
     setSelectionMode("none");
   }, []);
 
-  // For the bulk-action menu's per-action disabled state. In subset mode we
-  // compute from the loaded miners; in all mode the page is incomplete so we
-  // fall back to the fleet-wide auth-needed count. The all-mode signal is
-  // stale-zero until `useAuthNeededMiners` resolves on first mount — see
-  // issue #286 follow-up.
+  // All-mode falls back to `totalDisabledMiners`, which is stale-zero until
+  // `useAuthNeededMiners` resolves on first mount — see #286 follow-up.
   const selectedIncludesUnauthenticatedMiner = useMemo(
     () =>
       selectionMode === "all"
