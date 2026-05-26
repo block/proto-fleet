@@ -20,7 +20,6 @@ import Checkbox from "@/shared/components/Checkbox";
 import Dialog, { DialogIcon } from "@/shared/components/Dialog";
 import Input from "@/shared/components/Input";
 import ProgressCircular from "@/shared/components/ProgressCircular";
-import Select, { type SelectOption, type SelectProps } from "@/shared/components/Select";
 
 export type CurtailmentPriority = "normal" | "emergency";
 export type CurtailmentScopeType = "wholeOrg" | "deviceSet" | "explicitMiners";
@@ -90,6 +89,7 @@ interface FieldProps {
 
 interface SectionProps {
   title: string;
+  subtext?: string;
   children: ReactNode;
 }
 
@@ -102,19 +102,6 @@ interface PreviewPaneProps {
   preview?: CurtailmentPlanPreview;
   previewError?: string;
   isPreviewLoading?: boolean;
-}
-
-interface TypedSelectOption<Value extends string> extends SelectOption {
-  value: Value;
-}
-
-interface TypedSelectProps<Value extends string> extends Pick<SelectProps, "className" | "disabled" | "testId"> {
-  id: string;
-  label: string;
-  value: Value;
-  options: Array<TypedSelectOption<Value>>;
-  error?: string;
-  onChange: (value: Value) => void;
 }
 
 type ParsedNumberField = { parsed?: number; error?: string };
@@ -137,18 +124,6 @@ const defaultValues: CurtailmentFormValues = {
   reason: "",
   includeMaintenance: true,
 };
-
-const responseProfileOptions: Array<TypedSelectOption<ResponseProfileId>> = [
-  { value: "customPlan", label: "Custom plan" },
-];
-
-const curtailmentModeOptions: Array<TypedSelectOption<CurtailmentMode>> = [
-  { value: "fixedKwReduction", label: "Fixed kW reduction" },
-];
-
-const minerSelectionStrategyOptions: Array<TypedSelectOption<MinerSelectionStrategy>> = [
-  { value: "leastEfficientFirst", label: "Least efficient first" },
-];
 
 function getInitialValues(initialValues?: Partial<CurtailmentFormValues>): CurtailmentFormValues {
   return {
@@ -246,51 +221,17 @@ function validateCurtailmentFormValues(values: CurtailmentFormValues): Curtailme
   return localErrors;
 }
 
-function isSelectOptionValue<Value extends string>(
-  options: Array<TypedSelectOption<Value>>,
-  value: string,
-): value is Value {
-  return options.some((option) => option.value === value);
-}
-
 function Field({ id, label, value, units, type = "number", error, onChange }: FieldProps): ReactElement {
   return <Input id={id} label={label} initValue={value} units={units} type={type} error={error} onChange={onChange} />;
 }
 
-function TypedSelect<Value extends string>({
-  id,
-  label,
-  value,
-  options,
-  error,
-  className,
-  disabled,
-  testId,
-  onChange,
-}: TypedSelectProps<Value>): ReactElement {
-  return (
-    <Select
-      id={id}
-      label={label}
-      value={value}
-      options={options}
-      error={error}
-      className={className}
-      disabled={disabled}
-      testId={testId}
-      onChange={(nextValue) => {
-        if (isSelectOptionValue(options, nextValue)) {
-          onChange(nextValue);
-        }
-      }}
-    />
-  );
-}
-
-function Section({ title, children }: SectionProps): ReactElement {
+function Section({ title, subtext, children }: SectionProps): ReactElement {
   return (
     <section className="grid gap-3">
-      <div className="text-emphasis-300 text-text-primary">{title}</div>
+      <div className="grid gap-1">
+        <div className="text-emphasis-300 text-text-primary">{title}</div>
+        {subtext ? <div className="text-300 text-text-primary-70">{subtext}</div> : null}
+      </div>
       {children}
     </section>
   );
@@ -507,14 +448,6 @@ function CurtailmentStartModalContent({
           <section className="flex flex-col gap-12 pr-6 pb-6 laptop:pr-10 laptop:pb-10">
             <Section title="Response profile">
               <div className="grid gap-3">
-                <TypedSelect
-                  id="curtailment-response-profile"
-                  label="Profile"
-                  value={values.responseProfileId}
-                  options={responseProfileOptions}
-                  error={effectiveErrors.responseProfileId}
-                  onChange={(value) => updateValue("responseProfileId", value)}
-                />
                 <Field
                   id="curtailment-reason"
                   label="Reason"
@@ -526,33 +459,17 @@ function CurtailmentStartModalContent({
               </div>
             </Section>
 
-            <Section title="Curtail behavior">
+            <Section
+              title="Curtail behavior"
+              subtext="Fleet will automatically curtail the least efficient miners first."
+            >
               <div className="grid gap-3">
-                <div className="grid gap-3 tablet:grid-cols-2">
-                  <TypedSelect
-                    id="curtailment-mode"
-                    label="Curtailment mode"
-                    value={values.curtailmentMode}
-                    options={curtailmentModeOptions}
-                    error={effectiveErrors.curtailmentMode}
-                    onChange={(value) => updateValue("curtailmentMode", value)}
-                  />
-                  <Field
-                    id="curtailment-target-kw"
-                    label="Target reduction"
-                    value={values.targetKw}
-                    units="kW"
-                    error={effectiveErrors.targetKw}
-                    onChange={(value) => updateValue("targetKw", value)}
-                  />
-                </div>
-                <TypedSelect
-                  id="curtailment-miner-selection-strategy"
-                  label="Miner selection strategy"
-                  value={values.minerSelectionStrategy}
-                  options={minerSelectionStrategyOptions}
-                  error={effectiveErrors.minerSelectionStrategy}
-                  onChange={(value) => updateValue("minerSelectionStrategy", value)}
+                <Field
+                  id="curtailment-target-kw"
+                  label="Fixed target reduction (kW)"
+                  value={values.targetKw}
+                  error={effectiveErrors.targetKw}
+                  onChange={(value) => updateValue("targetKw", value)}
                 />
                 <div className="grid gap-3 tablet:grid-cols-2">
                   <Field
