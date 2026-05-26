@@ -865,3 +865,42 @@ func TestActivityLogging_UpdateUsernameLogsOldAndNew(t *testing.T) {
 	err := service.UpdateUsername(ctx, "newname")
 	require.NoError(t, err)
 }
+
+func TestRequireCanManageTargetRole(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name       string
+		caller     string
+		target     string
+		wantDenied bool
+	}{
+		{"super admin manages super admin", SuperAdminRoleName, SuperAdminRoleName, false},
+		{"super admin manages admin", SuperAdminRoleName, AdminRoleName, false},
+		{"super admin manages field tech", SuperAdminRoleName, "FIELD_TECH", false},
+		{"admin manages field tech", AdminRoleName, "FIELD_TECH", false},
+		{"admin manages custom role", AdminRoleName, "TECH_LEAD", false},
+		{"admin cannot manage admin", AdminRoleName, AdminRoleName, true},
+		{"admin cannot manage super admin", AdminRoleName, SuperAdminRoleName, true},
+		{"custom role cannot manage admin", "TECH_LEAD", AdminRoleName, true},
+		{"custom role cannot manage super admin", "TECH_LEAD", SuperAdminRoleName, true},
+		{"custom role manages custom role", "TECH_LEAD", "FIELD_TECH", false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := requireCanManageTargetRole(tc.caller, tc.target)
+			if tc.wantDenied {
+				require.Error(t, err)
+				var fleetErr fleeterror.FleetError
+				require.ErrorAs(t, err, &fleetErr)
+				assert.Equal(t, fleeterror.NewForbiddenError("").GRPCCode, fleetErr.GRPCCode,
+					"hierarchy denial should return PermissionDenied")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}

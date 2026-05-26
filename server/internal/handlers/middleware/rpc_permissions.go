@@ -58,7 +58,9 @@ var ProcedurePermissions = map[string]string{
 	// Auth user management — gated at the handler layer via
 	// RequirePermission. ListUsers previously had no role check at all;
 	// it is now gated by PermUserRead (ADMIN + SUPER_ADMIN). Mutations
-	// require PermUserManage (SUPER_ADMIN only).
+	// require PermUserManage; the auth domain layer additionally enforces
+	// a role-hierarchy check so an ADMIN cannot create, reset, or
+	// deactivate an elevated (ADMIN/SUPER_ADMIN) target.
 	authv1connect.AuthServiceCreateUserProcedure:        authz.PermUserManage,
 	authv1connect.AuthServiceDeactivateUserProcedure:    authz.PermUserManage,
 	authv1connect.AuthServiceResetUserPasswordProcedure: authz.PermUserManage,

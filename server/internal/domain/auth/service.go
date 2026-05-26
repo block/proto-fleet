@@ -544,6 +544,31 @@ func generateDefaultOrgName(orgID string) string {
 	return fmt.Sprintf("Organization %s", orgID[:8])
 }
 
+// isElevatedRole reports whether a role name is in the elevated tier
+// (ADMIN or SUPER_ADMIN). The handler's PermUserManage gate authorizes
+// the action; this hierarchy check restricts which targets a non-
+// SUPER_ADMIN caller may act on. Operator-created custom roles are
+// non-elevated regardless of their permission set — granting
+// user:manage to a custom role would let its members manage other
+// non-elevated users, which is the intent.
+func isElevatedRole(roleName string) bool {
+	return roleName == SuperAdminRoleName || roleName == AdminRoleName
+}
+
+// requireCanManageTargetRole enforces the role hierarchy for user
+// mutations: a non-SUPER_ADMIN caller may not act on an elevated
+// target. Returns PermissionDenied when the gate blocks the action,
+// nil when the caller may proceed.
+func requireCanManageTargetRole(callerRoleName, targetRoleName string) error {
+	if callerRoleName == SuperAdminRoleName {
+		return nil
+	}
+	if isElevatedRole(targetRoleName) {
+		return fleeterror.NewForbiddenError("insufficient role to manage this user")
+	}
+	return nil
+}
+
 // CreateUser creates a new user with a temporary password. Authorization is
 // enforced by the Connect handler via RequirePermission(PermUserManage);
 // callers outside the handler layer must add their own permission gate.
@@ -570,6 +595,18 @@ func (s *Service) CreateUser(ctx context.Context, req *authv1.CreateUserRequest)
 	}
 
 	orgID := orgs[0].ID
+
+	// CreateUser always assigns the ADMIN role today (the proto has no
+	// role field). That makes ADMIN itself the effective target role,
+	// so a non-SUPER_ADMIN caller cannot create users until the proto
+	// grows a role parameter that lets them pick a non-elevated tier.
+	callerRoleName, err := s.userManagementStore.GetUserRoleName(ctx, info.UserID, orgID)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error getting caller role: %v", err)
+	}
+	if err := requireCanManageTargetRole(callerRoleName, AdminRoleName); err != nil {
+		return nil, err
+	}
 
 	// Generate temporary password
 	tempPassword, err := generateTemporaryPassword()
@@ -716,8 +753,18 @@ func (s *Service) ResetUserPassword(ctx context.Context, req *authv1.ResetUserPa
 	// target to be a member of the caller's org so a SUPER_ADMIN cannot
 	// reset a password for a user in a different tenant. NotFound (mapped
 	// from invalid user_id) avoids leaking whether the user exists elsewhere.
-	if _, err := s.userManagementStore.GetUserRoleName(ctx, user.ID, orgID); err != nil {
+	// The returned role doubles as the input to the hierarchy check below.
+	targetRoleName, err := s.userManagementStore.GetUserRoleName(ctx, user.ID, orgID)
+	if err != nil {
 		return nil, fleeterror.NewInvalidArgumentError("invalid user_id")
+	}
+
+	callerRoleName, err := s.userManagementStore.GetUserRoleName(ctx, info.UserID, orgID)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error getting caller role: %v", err)
+	}
+	if err := requireCanManageTargetRole(callerRoleName, targetRoleName); err != nil {
+		return nil, err
 	}
 
 	// Generate new temporary password
@@ -807,9 +854,19 @@ func (s *Service) DeactivateUser(ctx context.Context, req *authv1.DeactivateUser
 
 	// Cross-org guard: GetUserByExternalID is a global lookup. Require the
 	// target to belong to the caller's org so a SUPER_ADMIN cannot
-	// deactivate a user in a different tenant.
-	if _, err := s.userManagementStore.GetUserRoleName(ctx, user.ID, orgID); err != nil {
+	// deactivate a user in a different tenant. The returned role doubles
+	// as the input to the hierarchy check below.
+	targetRoleName, err := s.userManagementStore.GetUserRoleName(ctx, user.ID, orgID)
+	if err != nil {
 		return nil, fleeterror.NewInvalidArgumentError("invalid user_id")
+	}
+
+	callerRoleName, err := s.userManagementStore.GetUserRoleName(ctx, info.UserID, orgID)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error getting caller role: %v", err)
+	}
+	if err := requireCanManageTargetRole(callerRoleName, targetRoleName); err != nil {
+		return nil, err
 	}
 
 	// Soft delete user
