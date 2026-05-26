@@ -281,6 +281,54 @@ func TestReconciler_Restoring_IntervalGateBlocksClaim(t *testing.T) {
 		"interval gate must hold the next batch until restore_batch_interval_sec elapses")
 }
 
+// TestReconciler_Restoring_OrphanDispatchingPriorityOverFreshPending:
+// after a reconciler restart leaves DISPATCHING orphans alongside
+// untouched PENDING targets, the next tick must redispatch ONLY the
+// orphans. Mixing them with fresh PENDING would double the inrush and
+// bypass the one-batch-per-interval throttle.
+func TestReconciler_Restoring_OrphanDispatchingPriorityOverFreshPending(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	r := newReconcilerForTest(store, disp)
+	effBatch := int32(3)
+	eventID := int64(30)
+	store.events = []*models.Event{{
+		ID:                      eventID,
+		EventUUID:               uuid.New(),
+		OrgID:                   1,
+		State:                   models.EventStateRestoring,
+		EffectiveBatchSize:      &effBatch,
+		RestoreBatchIntervalSec: 0,
+	}}
+	// orphan-A and orphan-B carry State=DISPATCHING from an interrupted
+	// prior tick; fresh-C and fresh-D are untouched PENDING claims.
+	store.targetsByEventID[eventID] = []*models.Target{
+		{CurtailmentEventID: eventID, DeviceIdentifier: "orphan-A", State: models.TargetStateDispatching, DesiredState: models.DesiredStateActive, BaselinePowerW: ptrFloat64(3000)},
+		{CurtailmentEventID: eventID, DeviceIdentifier: "orphan-B", State: models.TargetStateDispatching, DesiredState: models.DesiredStateActive, BaselinePowerW: ptrFloat64(3000)},
+		{CurtailmentEventID: eventID, DeviceIdentifier: "fresh-C", State: models.TargetStatePending, DesiredState: models.DesiredStateActive, BaselinePowerW: ptrFloat64(3000)},
+		{CurtailmentEventID: eventID, DeviceIdentifier: "fresh-D", State: models.TargetStatePending, DesiredState: models.DesiredStateActive, BaselinePowerW: ptrFloat64(3000)},
+	}
+
+	r.runTick(context.Background())
+
+	require.Equal(t, 1, disp.uncurtailCalls,
+		"orphan-recovery wave must fire exactly one Uncurtail call")
+	assert.ElementsMatch(t, []string{"orphan-A", "orphan-B"}, disp.uncurtailLastIDs,
+		"the wave must include only orphans; fresh PENDING is held for the next tick")
+
+	// fresh-C and fresh-D must still be PENDING — orphan-priority means
+	// they don't share the batch and the interval/throttle works as
+	// designed on the next tick.
+	for _, tgt := range store.targetsByEventID[eventID] {
+		switch tgt.DeviceIdentifier {
+		case "fresh-C", "fresh-D":
+			assert.Equalf(t, models.TargetStatePending, tgt.State,
+				"fresh PENDING target %q must not be claimed alongside orphans", tgt.DeviceIdentifier)
+		}
+	}
+}
+
 func TestReconciler_Restoring_AllTerminalCompletesEvent(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}

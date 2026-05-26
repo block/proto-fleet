@@ -1033,14 +1033,36 @@ func (r *Reconciler) maybeClaimRestoreBatch(ctx context.Context, ev *models.Even
 		batchSize = *ev.EffectiveBatchSize
 	}
 
+	// First pass: redispatch any DISPATCHING orphans from an interrupted
+	// prior tick. Uncurtail is device-idempotent, so re-sending the
+	// command is safe. Orphan recovery consumes this tick's batch slot
+	// on its own — mixing orphans with fresh PENDING would double the
+	// inrush and bypass the one-batch-per-interval throttle.
+	orphans := make([]*models.Target, 0, batchSize)
+	for _, t := range targets {
+		if t.DesiredState != models.DesiredStateActive {
+			continue
+		}
+		if t.State != models.TargetStateDispatching {
+			continue
+		}
+		orphans = append(orphans, t)
+		if int32(len(orphans)) >= batchSize { //nolint:gosec // batchSize already bounded
+			break
+		}
+	}
+	if len(orphans) > 0 {
+		r.dispatchRestoreBatch(ctx, ev, orphans)
+		return
+	}
+
+	// Second pass: claim fresh PENDING up to batchSize.
 	claim := make([]*models.Target, 0, batchSize)
 	for _, t := range targets {
 		if t.DesiredState != models.DesiredStateActive {
 			continue
 		}
-		// PENDING is the normal claim; DISPATCHING is an orphan from an
-		// interrupted prior tick (Uncurtail is device-idempotent).
-		if t.State != models.TargetStatePending && t.State != models.TargetStateDispatching {
+		if t.State != models.TargetStatePending {
 			continue
 		}
 		claim = append(claim, t)
