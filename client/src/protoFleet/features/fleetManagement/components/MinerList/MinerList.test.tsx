@@ -1082,7 +1082,7 @@ describe("MinerList", () => {
       expect(screen.getByTestId("mock-miner-list-selection-includes-unauth")).toHaveTextContent("false");
     });
 
-    it("flags all-mode selections as auth-needed while the fleet-wide count is still loading", async () => {
+    it("flags all-mode selections as auth-needed while the fleet-wide count is unsettled (loading or refetching)", async () => {
       const user = userEvent.setup();
 
       renderMinerList({
@@ -1094,7 +1094,7 @@ describe("MinerList", () => {
         },
         totalMiners: 2,
         totalDisabledMiners: 0,
-        totalDisabledMinersLoaded: false,
+        totalDisabledMinersFresh: false,
         currentPage: 0,
         onAddMiners: vi.fn(),
         loading: false,

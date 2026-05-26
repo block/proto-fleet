@@ -75,15 +75,19 @@ const Fleet = () => {
   // Count of miners requiring authentication. Refetched in the polling loop
   // below so the bulk-action gate releases promptly after a fleet-wide auth
   // resolves (otherwise the count is stale-positive until the next manual
-  // refresh).
+  // refresh). `hasInitialLoadCompleted` is sticky across refetches, so it
+  // alone can't tell us the count matches the current filter — combine with
+  // `isLoading` to gate while any refetch is in flight.
   const {
     totalMiners: totalAuthNeededMiners,
     refetch: refetchAuthNeededMiners,
-    hasInitialLoadCompleted: totalAuthNeededMinersLoaded,
+    hasInitialLoadCompleted: totalAuthNeededMinersInitialLoadCompleted,
+    isLoading: totalAuthNeededMinersLoading,
   } = useAuthNeededMiners({
     pageSize: 1,
     filter: currentFilter,
   });
+  const totalAuthNeededMinersFresh = totalAuthNeededMinersInitialLoadCompleted && !totalAuthNeededMinersLoading;
   const { exportCsv, isExportingCsv } = useExportMinerListCsv({
     filter: currentFilter,
   });
@@ -233,7 +237,7 @@ const Fleet = () => {
           totalMiners={totalMiners}
           totalUnfilteredMiners={totalUnfilteredMiners}
           totalDisabledMiners={totalAuthNeededMiners}
-          totalDisabledMinersLoaded={totalAuthNeededMinersLoaded}
+          totalDisabledMinersFresh={totalAuthNeededMinersFresh}
           paddingLeft={{
             phone: "24px",
             tablet: "24px",

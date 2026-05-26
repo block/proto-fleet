@@ -109,12 +109,14 @@ type MinerListProps = {
   totalDisabledMiners?: number;
   /**
    * Whether `totalDisabledMiners` reflects a settled response from the
-   * underlying auth-needed query. The all-mode bulk-action gate treats the
-   * count as unreliable until this is true and falls back to blocking the
-   * non-Unpair actions in the meantime (defaults to true so callers that
-   * never load the count keep the historical behavior).
+   * underlying auth-needed query for the *current* filter and sort — i.e.,
+   * the first request has completed AND there is no refetch in flight. The
+   * all-mode bulk-action gate treats the count as unreliable until this is
+   * true and falls back to blocking non-Unpair actions in the meantime.
+   * Defaults to true so callers that never load the count keep the historical
+   * behavior.
    */
-  totalDisabledMinersLoaded?: boolean;
+  totalDisabledMinersFresh?: boolean;
   /**
    * Optional callback to attach refs to list row elements.
    * Used for viewport visibility tracking.
@@ -217,7 +219,7 @@ type ScopedMinerListBodyProps = {
   paddingLeft?: Partial<Record<Breakpoint, string>>;
   totalMiners?: number;
   totalDisabledMiners: number;
-  totalDisabledMinersLoaded: boolean;
+  totalDisabledMinersFresh: boolean;
   itemRef?: (itemKey: string, element: HTMLTableRowElement | null) => void;
   hasActiveFilters: boolean;
   onAddMiners: () => void;
@@ -256,7 +258,7 @@ const ScopedMinerListBody = ({
   paddingLeft,
   totalMiners,
   totalDisabledMiners,
-  totalDisabledMinersLoaded,
+  totalDisabledMinersFresh,
   itemRef,
   hasActiveFilters,
   onAddMiners,
@@ -314,11 +316,11 @@ const ScopedMinerListBody = ({
   const selectedIncludesUnauthenticatedMiner = useMemo(
     () =>
       selectionMode === "all"
-        ? !totalDisabledMinersLoaded || totalDisabledMiners > 0 || deviceItems.some(isRowDisabled)
+        ? !totalDisabledMinersFresh || totalDisabledMiners > 0 || deviceItems.some(isRowDisabled)
         : selectedMinerIds.some((id) =>
             deviceItems.some((item) => item.deviceIdentifier === id && isRowDisabled(item)),
           ),
-    [deviceItems, isRowDisabled, selectedMinerIds, selectionMode, totalDisabledMiners, totalDisabledMinersLoaded],
+    [deviceItems, isRowDisabled, selectedMinerIds, selectionMode, totalDisabledMiners, totalDisabledMinersFresh],
   );
 
   return (
@@ -461,7 +463,7 @@ const MinerList = ({
   totalMiners,
   totalUnfilteredMiners,
   totalDisabledMiners = 0,
-  totalDisabledMinersLoaded = true,
+  totalDisabledMinersFresh = true,
   itemRef,
   loading = false,
   pageSize = MINERS_PAGE_SIZE,
@@ -1046,7 +1048,7 @@ const MinerList = ({
           paddingLeft={paddingLeft}
           totalMiners={totalMiners}
           totalDisabledMiners={totalDisabledMiners}
-          totalDisabledMinersLoaded={totalDisabledMinersLoaded}
+          totalDisabledMinersFresh={totalDisabledMinersFresh}
           itemRef={itemRef}
           hasActiveFilters={hasActiveFilters}
           onAddMiners={onAddMiners}
