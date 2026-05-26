@@ -751,12 +751,17 @@ func (s *Service) ResetUserPassword(ctx context.Context, req *authv1.ResetUserPa
 
 	// Cross-org guard: GetUserByExternalID is a global lookup. Require the
 	// target to be a member of the caller's org so a SUPER_ADMIN cannot
-	// reset a password for a user in a different tenant. NotFound (mapped
-	// from invalid user_id) avoids leaking whether the user exists elsewhere.
-	// The returned role doubles as the input to the hierarchy check below.
+	// reset a password for a user in a different tenant. Only ErrNoRows
+	// means "not in caller's org" — other errors are transient store
+	// failures and must surface as Internal so callers retry instead of
+	// treating a backend hiccup as bad input. The returned role doubles
+	// as the input to the hierarchy check below.
 	targetRoleName, err := s.userManagementStore.GetUserRoleName(ctx, user.ID, orgID)
 	if err != nil {
-		return nil, fleeterror.NewInvalidArgumentError("invalid user_id")
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fleeterror.NewInvalidArgumentError("invalid user_id")
+		}
+		return nil, fleeterror.NewInternalErrorf("error getting target user role: %v", err)
 	}
 
 	callerRoleName, err := s.userManagementStore.GetUserRoleName(ctx, info.UserID, orgID)
@@ -854,11 +859,17 @@ func (s *Service) DeactivateUser(ctx context.Context, req *authv1.DeactivateUser
 
 	// Cross-org guard: GetUserByExternalID is a global lookup. Require the
 	// target to belong to the caller's org so a SUPER_ADMIN cannot
-	// deactivate a user in a different tenant. The returned role doubles
-	// as the input to the hierarchy check below.
+	// deactivate a user in a different tenant. Only ErrNoRows means
+	// "not in caller's org" — other errors are transient store failures
+	// and must surface as Internal so callers retry instead of treating
+	// a backend hiccup as bad input. The returned role doubles as the
+	// input to the hierarchy check below.
 	targetRoleName, err := s.userManagementStore.GetUserRoleName(ctx, user.ID, orgID)
 	if err != nil {
-		return nil, fleeterror.NewInvalidArgumentError("invalid user_id")
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fleeterror.NewInvalidArgumentError("invalid user_id")
+		}
+		return nil, fleeterror.NewInternalErrorf("error getting target user role: %v", err)
 	}
 
 	callerRoleName, err := s.userManagementStore.GetUserRoleName(ctx, info.UserID, orgID)
