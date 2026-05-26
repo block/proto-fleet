@@ -38,7 +38,7 @@ describe("curtailmentRequestBuilders", () => {
     expect(request.restoreBatchIntervalSec).toBe(120);
   });
 
-  it("keeps invalid selected scopes from falling back to the whole fleet", () => {
+  it("keeps unsupported scope state from falling back to the whole fleet", () => {
     expect(() =>
       buildStartCurtailmentRequest({
         ...baseValues,
@@ -46,9 +46,7 @@ describe("curtailmentRequestBuilders", () => {
         scopeId: "racks",
         deviceSetIds: ["rack-1"],
       }),
-    ).toThrow(
-      "Rack and group targets are not supported yet. Select specific miners or the whole fleet for this curtailment.",
-    );
+    ).toThrow("Unsupported curtailment target scope.");
 
     expect(() =>
       buildStartCurtailmentRequest({
@@ -57,7 +55,7 @@ describe("curtailmentRequestBuilders", () => {
         scopeId: undefined,
         deviceIdentifiers: [],
       }),
-    ).toThrow("Select at least one miner or use the whole fleet for this curtailment.");
+    ).toThrow("Unsupported curtailment target scope.");
   });
 
   it("rejects invalid uint32-backed settings", () => {

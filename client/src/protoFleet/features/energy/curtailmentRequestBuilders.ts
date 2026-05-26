@@ -57,12 +57,10 @@ function buildScope(values: CurtailmentSubmitValues): StartCurtailmentRequest["s
       }
       break;
     case "deviceSet":
-      throw new Error(
-        "Rack and group targets are not supported yet. Select specific miners or the whole fleet for this curtailment.",
-      );
+      break;
   }
 
-  throw new Error("Select at least one miner or use the whole fleet for this curtailment.");
+  throw new Error("Unsupported curtailment target scope.");
 }
 
 function buildCurtailmentRequestFields(values: CurtailmentSubmitValues): CurtailmentRequestFields {
