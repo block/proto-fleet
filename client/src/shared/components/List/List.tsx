@@ -172,8 +172,12 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
   stickyBgColor?: string;
   total?: number;
   /**
-   * Total number of disabled items across all pages.
-   * Used with total to calculate selectable count: total - totalDisabled
+   * Total number of *non-selectable* items across all pages (drives
+   * `totalSelectable = total - totalDisabled`, used for action-bar copy and
+   * confirmation counts). When `isRowSelectable` is provided, this must
+   * count rows for which `isRowSelectable` returns false — not rows that
+   * are merely greyed via `isRowDisabled`. Pass 0 when every row is
+   * selectable regardless of disabled styling.
    */
   totalDisabled?: number;
   itemName?: {

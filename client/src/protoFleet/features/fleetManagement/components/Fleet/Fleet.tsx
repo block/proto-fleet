@@ -72,8 +72,14 @@ const Fleet = () => {
     } as const;
   }, [currentSortConfig]);
 
-  // Get count of miners requiring authentication (disabled rows)
-  const { totalMiners: totalAuthNeededMiners } = useAuthNeededMiners({ pageSize: 1, filter: currentFilter });
+  // Count of miners requiring authentication. Refetched in the polling loop
+  // below so the bulk-action gate releases promptly after a fleet-wide auth
+  // resolves (otherwise the count is stale-positive until the next manual
+  // refresh).
+  const { totalMiners: totalAuthNeededMiners, refetch: refetchAuthNeededMiners } = useAuthNeededMiners({
+    pageSize: 1,
+    filter: currentFilter,
+  });
   const { exportCsv, isExportingCsv } = useExportMinerListCsv({
     filter: currentFilter,
   });
@@ -133,9 +139,10 @@ const Fleet = () => {
     const intervalId = setInterval(() => {
       refreshCurrentPage();
       refetchErrors();
+      refetchAuthNeededMiners();
     }, POLL_INTERVAL_MS);
     return () => clearInterval(intervalId);
-  }, [hasInitialLoadCompleted, refreshCurrentPage, refetchErrors]);
+  }, [hasInitialLoadCompleted, refreshCurrentPage, refetchErrors, refetchAuthNeededMiners]);
 
   // Cleanup stale batch operations at the same interval as polling
   useEffect(() => {
@@ -173,7 +180,8 @@ const Fleet = () => {
   const refetchAll = useCallback(() => {
     refetch();
     refreshUnfilteredCount();
-  }, [refetch, refreshUnfilteredCount]);
+    refetchAuthNeededMiners();
+  }, [refetch, refreshUnfilteredCount, refetchAuthNeededMiners]);
 
   const [showAddMinersModal, setShowAddMinersModal] = useState(false);
 

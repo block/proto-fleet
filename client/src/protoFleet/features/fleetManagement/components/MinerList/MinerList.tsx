@@ -296,12 +296,13 @@ const ScopedMinerListBody = ({
     setSelectionMode("none");
   }, []);
 
-  // All-mode falls back to `totalDisabledMiners`, which is stale-zero until
-  // `useAuthNeededMiners` resolves on first mount — see #286 follow-up.
+  // All-mode ORs the fleet-wide auth-needed count with a page-local check so
+  // the gate trips as soon as the user can see an auth-needed row, even when
+  // `useAuthNeededMiners` hasn't yet populated `totalDisabledMiners`.
   const selectedIncludesUnauthenticatedMiner = useMemo(
     () =>
       selectionMode === "all"
-        ? totalDisabledMiners > 0
+        ? totalDisabledMiners > 0 || deviceItems.some(isRowDisabled)
         : selectedMinerIds.some((id) =>
             deviceItems.some((item) => item.deviceIdentifier === id && isRowDisabled(item)),
           ),
@@ -372,7 +373,9 @@ const ScopedMinerListBody = ({
         overflowContainer={false}
         applyColumnWidthsToCells
         total={totalMiners}
-        totalDisabled={totalDisabledMiners}
+        // Every row is selectable; `totalSelectable = totalMiners` so action-bar
+        // copy and confirmation counts cover both paired and auth-needed miners.
+        totalDisabled={0}
         hideTotal
         itemName={{ singular: "miner", plural: "miners" }}
         itemRef={itemRef}

@@ -27,7 +27,8 @@ const ActionItem = <ActionType,>({ action, onAction }: ActionItemProps<ActionTyp
           className={isDisabled ? "cursor-not-allowed text-emphasis-300 opacity-50" : "text-emphasis-300"}
           prefixIcon={action.icon}
           testId={action.action + "-popover-button"}
-          onClick={isDisabled ? undefined : () => onAction(action)}
+          onClick={() => onAction(action)}
+          disabled={isDisabled}
           compact
           divider={false}
         >
