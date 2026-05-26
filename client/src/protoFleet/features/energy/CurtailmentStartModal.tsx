@@ -228,7 +228,7 @@ function Field({ id, label, value, units, type = "number", error, onChange }: Fi
 function Section({ title, subtext, children }: SectionProps): ReactElement {
   return (
     <section className="grid gap-3">
-      <div className="grid gap-1">
+      <div className="grid">
         <div className="text-emphasis-300 text-text-primary">{title}</div>
         {subtext ? <div className="text-300 text-text-primary-70">{subtext}</div> : null}
       </div>
@@ -446,18 +446,14 @@ function CurtailmentStartModalContent({
         abovePanes={<div className="px-6 pb-6 laptop:hidden">{previewPane}</div>}
         primaryPane={
           <section className="flex flex-col gap-12 pr-6 pb-6 laptop:pr-10 laptop:pb-10">
-            <Section title="Response profile">
-              <div className="grid gap-3">
-                <Field
-                  id="curtailment-reason"
-                  label="Reason"
-                  value={values.reason}
-                  type="text"
-                  error={effectiveErrors.reason}
-                  onChange={(value) => updateValue("reason", value)}
-                />
-              </div>
-            </Section>
+            <Field
+              id="curtailment-reason"
+              label="Reason"
+              value={values.reason}
+              type="text"
+              error={effectiveErrors.reason}
+              onChange={(value) => updateValue("reason", value)}
+            />
 
             <Section
               title="Curtail behavior"

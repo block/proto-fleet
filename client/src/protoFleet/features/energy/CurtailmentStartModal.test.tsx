@@ -134,7 +134,8 @@ describe("CurtailmentStartModal", () => {
 
     expect(screen.getByRole("dialog", { name: "Plan a curtailment" })).toBeInTheDocument();
     expect(screen.getAllByText("Configure your curtailment to see a preview.")).toHaveLength(2);
-    expect(screen.getByText("Response profile")).toBeInTheDocument();
+    expect(screen.queryByText("Response profile")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Reason")).toBeInTheDocument();
     expect(screen.getByText("Curtail behavior")).toBeInTheDocument();
     expect(screen.getByText("Fleet will automatically curtail the least efficient miners first.")).toBeInTheDocument();
     expect(screen.getByLabelText("Fixed target reduction (kW)")).toBeInTheDocument();
