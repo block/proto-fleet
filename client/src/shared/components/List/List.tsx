@@ -218,12 +218,22 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
    */
   isLoadingMore?: boolean;
   /**
-   * Optional callback to determine if a specific row should be disabled.
-   * Disabled rows are greyed out and cannot be selected.
+   * Optional callback to determine if a specific row should be visually disabled
+   * (greyed out). By default this also blocks selection; pass `isRowSelectable`
+   * to decouple visual de-emphasis from selectability.
    * @param item - The list item
-   * @returns true if the row should be disabled
+   * @returns true if the row should be visually disabled
    */
   isRowDisabled?: (item: ListItem) => boolean;
+  /**
+   * Optional callback to determine if a specific row may be selected.
+   * Defaults to `!isRowDisabled?.(item)` so existing callers keep the historical
+   * behavior. Provide this when a row should be visually disabled but still
+   * selectable (e.g. miners that need authentication but can still be unpaired).
+   * @param item - The list item
+   * @returns true if the row may be selected
+   */
+  isRowSelectable?: (item: ListItem) => boolean;
   /**
    * Optional set of column keys that should NOT be affected by disabled row styling.
    * These columns will maintain full opacity even when the row is disabled.
@@ -313,6 +323,7 @@ type ListRowRenderProps<ListItem, ItemKeyValueType, ColKey extends string = keyo
   activeCols: ColKey[];
   actions: ListAction<ListItem>[];
   rowDisabled: boolean;
+  rowSelectable: boolean;
   columnsExemptFromDisabledStyling?: Set<ColKey>;
   colConfig: ColConfig<ListItem, ItemKeyValueType, ColKey>;
   tdClassList: string;
@@ -356,6 +367,7 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
   activeCols,
   actions,
   rowDisabled,
+  rowSelectable,
   columnsExemptFromDisabledStyling,
   colConfig,
   tdClassList,
@@ -452,17 +464,17 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
                 value={String(rowKey)}
                 selected={currentSelectedItems.includes(rowKey)}
                 onChange={(e) => handleSelectItem(rowKey, e.target.checked, index, e)}
-                disabled={rowDisabled}
+                disabled={!rowSelectable}
               />
             ) : (
               <Checkbox
                 checked={
                   pageScopedSelection && currentSelectionMode === "all"
-                    ? !rowDisabled
+                    ? rowSelectable
                     : currentSelectedItems.includes(rowKey)
                 }
                 onChange={(e) => handleSelectItem(rowKey, e.target.checked, index, e)}
-                disabled={rowDisabled}
+                disabled={!rowSelectable}
               />
             )}
           </div>
@@ -694,6 +706,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   hasMore = false,
   isLoadingMore = false,
   isRowDisabled,
+  isRowSelectable,
   columnsExemptFromDisabledStyling,
   sortableColumns,
   currentSort,
@@ -737,13 +750,16 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
     }),
   );
 
-  // Helper to get selectable items (excludes disabled rows)
+  // Helper to get selectable items. Prefers `isRowSelectable` when provided so
+  // a row can be visually disabled (greyed) but still selectable. Falls back to
+  // `!isRowDisabled(item)` for callers that have not opted into the split.
   const getSelectableItems = useCallback(
     (itemList: ListItem[]) => {
+      if (isRowSelectable) return itemList.filter(isRowSelectable);
       if (!isRowDisabled) return itemList;
       return itemList.filter((item) => !isRowDisabled(item));
     },
-    [isRowDisabled],
+    [isRowDisabled, isRowSelectable],
   );
 
   // Calculate total selectable count (total - disabled)
@@ -1173,6 +1189,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
       activeCols,
       actions,
       rowDisabled: isRowDisabled?.(item) ?? false,
+      rowSelectable: isRowSelectable ? isRowSelectable(item) : !(isRowDisabled?.(item) ?? false),
       columnsExemptFromDisabledStyling,
       colConfig,
       tdClassList,

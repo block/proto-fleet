@@ -11,6 +11,10 @@ export type BulkAction<ActionType> = {
   confirmation?: ActionWarnDialogOptions;
   /** Shows a thicker divider after this action to separate groups */
   showGroupDivider?: boolean;
+  /** When true the action renders as non-interactive in the popover and quick-action slots. */
+  disabled?: boolean;
+  /** Hover hint shown when `disabled` is true; surfaced via the native title attribute. */
+  disabledReason?: string;
 };
 
 export type ActionWarnDialogOptions = {

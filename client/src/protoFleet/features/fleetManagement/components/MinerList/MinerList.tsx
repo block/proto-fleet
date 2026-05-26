@@ -189,6 +189,11 @@ type MinerListProps = {
   onPairingCompleted?: () => void;
 };
 
+// Stable reference so the `List`'s memoized selectable-items helper doesn't
+// recompute every render. Every visible row participates in selection; visual
+// de-emphasis is governed separately by `isRowDisabled`.
+const ALL_ROWS_SELECTABLE = () => true;
+
 type ScopedMinerListBodyProps = {
   /**
    * Selection-scope identifier — when this changes, internal selection state resets.
@@ -281,9 +286,9 @@ const ScopedMinerListBody = ({
   }
   const sortableColumnsSet = useMemo(() => new Set(SORTABLE_COLUMNS), []);
 
-  const currentPageSelectableMinerIds = deviceItems
-    .filter((item) => !isRowDisabled(item))
-    .map((item) => item.deviceIdentifier);
+  // Every visible row is selectable so unauthenticated miners can be unpaired
+  // in bulk. Visual de-emphasis stays driven by `isRowDisabled` on the List.
+  const currentPageSelectableMinerIds = deviceItems.map((item) => item.deviceIdentifier);
 
   const handleSelectAllMiners = useCallback(() => {
     setSelectedMinerIds(currentPageSelectableMinerIds);
@@ -294,6 +299,21 @@ const ScopedMinerListBody = ({
     setSelectedMinerIds([]);
     setSelectionMode("none");
   }, []);
+
+  // For the bulk-action menu's per-action disabled state. In subset mode we
+  // compute from the loaded miners; in all mode the page is incomplete so we
+  // fall back to the fleet-wide auth-needed count. The all-mode signal is
+  // stale-zero until `useAuthNeededMiners` resolves on first mount — see
+  // issue #286 follow-up.
+  const selectedIncludesUnauthenticatedMiner = useMemo(
+    () =>
+      selectionMode === "all"
+        ? totalDisabledMiners > 0
+        : selectedMinerIds.some((id) =>
+            deviceItems.some((item) => item.deviceIdentifier === id && isRowDisabled(item)),
+          ),
+    [deviceItems, isRowDisabled, selectedMinerIds, selectionMode, totalDisabledMiners],
+  );
 
   return (
     <>
@@ -346,6 +366,7 @@ const ScopedMinerListBody = ({
               currentSort={currentSortConfig}
               miners={minersProp}
               minerIds={minerIdsProp}
+              selectionIncludesUnauthenticatedMiner={selectedIncludesUnauthenticatedMiner}
               onRefetchMiners={onRefetchMiners}
               onWorkerNameUpdated={onWorkerNameUpdated}
             />
@@ -365,6 +386,7 @@ const ScopedMinerListBody = ({
         initialActiveFilters={initialActiveFilters}
         onSelectionModeChange={setSelectionMode}
         isRowDisabled={isRowDisabled}
+        isRowSelectable={ALL_ROWS_SELECTABLE}
         columnsExemptFromDisabledStyling={new Set([minerCols.name, minerCols.status, minerCols.issues])}
         sortableColumns={sortableColumnsSet}
         currentSort={currentSort}
