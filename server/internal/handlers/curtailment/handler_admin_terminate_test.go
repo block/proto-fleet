@@ -12,11 +12,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
+	domainAuth "github.com/block/proto-fleet/server/internal/domain/auth"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	domainCurtailment "github.com/block/proto-fleet/server/internal/domain/curtailment"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
 // adminTerminateStubStore is a focused fake for AdminTerminate handler
@@ -111,12 +114,24 @@ func (s *adminTerminateStubStore) GetEventByExternalReference(context.Context, i
 }
 
 func adminTerminateSessionCtx(orgID int64, role string) context.Context {
-	return authn.SetInfo(context.Background(), &session.Info{
+	return adminTerminateSessionCtxWithPerms(orgID, role, authz.PermCurtailmentManage)
+}
+
+// adminTerminateSessionCtxWithPerms lets the permission-denied test
+// supply an explicit (possibly empty) permission set while keeping the
+// happy-path callers compact.
+func adminTerminateSessionCtxWithPerms(orgID int64, role string, perms ...string) context.Context {
+	ctx := authn.SetInfo(context.Background(), &session.Info{
 		AuthMethod:     session.AuthMethodSession,
 		OrganizationID: orgID,
 		UserID:         9,
 		Role:           role,
 	})
+	return middleware.WithEffectivePermissions(ctx, authz.NewEffectivePermissions([]authz.Assignment{{
+		AssignmentID: 1,
+		ScopeType:    authz.ScopeOrg,
+		Permissions:  perms,
+	}}))
 }
 
 // TestHandler_AdminTerminateEvent_HappyPath: ADMIN caller, the terminal
@@ -176,6 +191,32 @@ func TestHandler_AdminTerminateEvent_RejectsNonAdmin(t *testing.T) {
 	require.ErrorAs(t, err, &fleetErr)
 	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
 	assert.Equal(t, 0, store.calls, "role gate must fail before reaching the service")
+}
+
+// TestHandler_AdminTerminateEvent_RejectsAdminWithoutCurtailmentManage:
+// even with the admin role, the caller is denied when curtailment:manage
+// is absent from their effective permissions. This proves the new RBAC
+// gate is the authoritative check; the legacy admin-role gate is only
+// defense-in-depth for sessions that have not yet had their permission
+// set audited.
+func TestHandler_AdminTerminateEvent_RejectsAdminWithoutCurtailmentManage(t *testing.T) {
+	t.Parallel()
+	store := &adminTerminateStubStore{}
+	h := NewHandler(domainCurtailment.NewService(store))
+
+	_, err := h.AdminTerminateEvent(
+		adminTerminateSessionCtxWithPerms(42, domainAuth.AdminRoleName /* no curtailment:manage */),
+		connect.NewRequest(&pb.AdminTerminateEventRequest{
+			EventUuid:   uuid.New().String(),
+			TargetState: pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_CANCELLED,
+			Reason:      "perm-gate test",
+		}),
+	)
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+	assert.Equal(t, 0, store.calls, "permission gate must fail before reaching the service")
 }
 
 // TestHandler_AdminTerminateEvent_RejectsMissingSession: missing

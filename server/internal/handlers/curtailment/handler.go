@@ -9,9 +9,11 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/curtailment/v1/curtailmentv1connect"
 	domainAuth "github.com/block/proto-fleet/server/internal/domain/auth"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
+	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
 // Action verbs for requireAdminFromContext error messages.
@@ -107,9 +109,9 @@ func (h *Handler) UpdateCurtailmentEvent(ctx context.Context, req *connect.Reque
 	if h.service == nil {
 		return nil, errCurtailmentNotImplemented("UpdateCurtailmentEvent")
 	}
-	info, err := session.GetInfo(ctx)
+	info, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, authz.ResourceContext{})
 	if err != nil {
-		return nil, fleeterror.NewUnauthenticatedError("authentication required")
+		return nil, err
 	}
 	updateReq, err := toUpdateRequest(req.Msg, info)
 	if err != nil {
@@ -186,9 +188,9 @@ func (h *Handler) ListCurtailmentEvents(ctx context.Context, req *connect.Reques
 	if h.service == nil {
 		return nil, errCurtailmentNotImplemented("ListCurtailmentEvents")
 	}
-	info, err := session.GetInfo(ctx)
+	info, err := middleware.RequirePermission(ctx, authz.PermCurtailmentRead, authz.ResourceContext{})
 	if err != nil {
-		return nil, fleeterror.NewUnauthenticatedError("authentication required")
+		return nil, err
 	}
 	listReq, err := toListEventsRequest(req.Msg, info.OrganizationID)
 	if err != nil {
@@ -202,7 +204,10 @@ func (h *Handler) ListCurtailmentEvents(ctx context.Context, req *connect.Reques
 }
 
 // AdminTerminateEvent forces a non-terminal event to terminal. Paired
-// with SessionOnlyProcedures (see interceptors/config.go).
+// with SessionOnlyProcedures (see interceptors/config.go). Defense in
+// depth: the session-only admin-role gate fires first for legacy
+// configurations; the curtailment:manage permission gate is the
+// authoritative RBAC check.
 func (h *Handler) AdminTerminateEvent(ctx context.Context, req *connect.Request[pb.AdminTerminateEventRequest]) (*connect.Response[pb.AdminTerminateEventResponse], error) {
 	if err := requireAdminFromContext(ctx, actionTerminateEvents); err != nil {
 		return nil, err
@@ -210,9 +215,9 @@ func (h *Handler) AdminTerminateEvent(ctx context.Context, req *connect.Request[
 	if h.service == nil {
 		return nil, errCurtailmentNotImplemented("AdminTerminateEvent")
 	}
-	info, err := session.GetInfo(ctx)
+	info, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, authz.ResourceContext{})
 	if err != nil {
-		return nil, fleeterror.NewUnauthenticatedError("authentication required")
+		return nil, err
 	}
 	terminateReq, err := toAdminTerminateRequest(req.Msg, info)
 	if err != nil {

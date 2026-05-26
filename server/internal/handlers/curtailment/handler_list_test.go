@@ -14,11 +14,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	domainCurtailment "github.com/block/proto-fleet/server/internal/domain/curtailment"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
 // listHandlerTestCursorFixture is the opaque next-page cursor returned
@@ -104,12 +106,24 @@ func (s *listStubStore) GetEventByExternalReference(context.Context, int64, stri
 }
 
 func sessionCtx(orgID int64) context.Context {
-	return authn.SetInfo(context.Background(), &session.Info{
+	return sessionCtxWithPerms(orgID, authz.PermCurtailmentRead)
+}
+
+// sessionCtxWithPerms returns a session context carrying the supplied
+// effective permissions; tests that need a permission-denied path pass
+// no permissions (or only unrelated ones) here.
+func sessionCtxWithPerms(orgID int64, perms ...string) context.Context {
+	ctx := authn.SetInfo(context.Background(), &session.Info{
 		AuthMethod:     session.AuthMethodSession,
 		OrganizationID: orgID,
 		UserID:         9,
 		Role:           "OPERATOR",
 	})
+	return middleware.WithEffectivePermissions(ctx, authz.NewEffectivePermissions([]authz.Assignment{{
+		AssignmentID: 1,
+		ScopeType:    authz.ScopeOrg,
+		Permissions:  perms,
+	}}))
 }
 
 // TestHandler_ListCurtailmentEvents_HappyPath: a single event with a
@@ -225,6 +239,26 @@ func TestHandler_ListCurtailmentEvents_RejectsMissingSession(t *testing.T) {
 	var fleetErr fleeterror.FleetError
 	require.ErrorAs(t, err, &fleetErr)
 	assert.Equal(t, connect.CodeUnauthenticated, fleetErr.GRPCCode)
+}
+
+// TestHandler_ListCurtailmentEvents_RejectsWithoutCurtailmentRead: an
+// authenticated caller without curtailment:read in their effective
+// permissions is denied before any store work.
+func TestHandler_ListCurtailmentEvents_RejectsWithoutCurtailmentRead(t *testing.T) {
+	t.Parallel()
+	store := &listStubStore{}
+	h := NewHandler(domainCurtailment.NewService(store))
+
+	// Effective permissions present but lack curtailment:read; the gate
+	// must deny rather than fall through to the store.
+	_, err := h.ListCurtailmentEvents(
+		sessionCtxWithPerms(42 /* no curtailment:read */),
+		connect.NewRequest(&pb.ListCurtailmentEventsRequest{}),
+	)
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
 }
 
 // TestHandler_ListCurtailmentEvents_PropagatesStoreError: a store-level

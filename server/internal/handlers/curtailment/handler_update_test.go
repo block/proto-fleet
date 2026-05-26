@@ -12,11 +12,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	domainCurtailment "github.com/block/proto-fleet/server/internal/domain/curtailment"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
 // updateStubStore is a focused fake for Update handler tests. It supports
@@ -166,12 +168,24 @@ func (s *updateStubStore) GetEventByExternalReference(context.Context, int64, st
 }
 
 func updateSessionCtx(orgID int64, role string) context.Context {
-	return authn.SetInfo(context.Background(), &session.Info{
+	return updateSessionCtxWithPerms(orgID, role, authz.PermCurtailmentManage)
+}
+
+// updateSessionCtxWithPerms returns a session context with explicit
+// effective permissions; the permission-denied tests pass an empty
+// permission set (or unrelated perms) to exercise the gate.
+func updateSessionCtxWithPerms(orgID int64, role string, perms ...string) context.Context {
+	ctx := authn.SetInfo(context.Background(), &session.Info{
 		AuthMethod:     session.AuthMethodSession,
 		OrganizationID: orgID,
 		UserID:         9,
 		Role:           role,
 	})
+	return middleware.WithEffectivePermissions(ctx, authz.NewEffectivePermissions([]authz.Assignment{{
+		AssignmentID: 1,
+		ScopeType:    authz.ScopeOrg,
+		Permissions:  perms,
+	}}))
 }
 
 // TestHandler_UpdateCurtailmentEvent_HappyPath: optional proto fields
@@ -246,6 +260,25 @@ func TestHandler_UpdateCurtailmentEvent_RejectsMissingSession(t *testing.T) {
 	var fleetErr fleeterror.FleetError
 	require.ErrorAs(t, err, &fleetErr)
 	assert.Equal(t, connect.CodeUnauthenticated, fleetErr.GRPCCode)
+}
+
+// TestHandler_UpdateCurtailmentEvent_RejectsWithoutCurtailmentManage:
+// callers lacking curtailment:manage cannot mutate operator-safe fields.
+func TestHandler_UpdateCurtailmentEvent_RejectsWithoutCurtailmentManage(t *testing.T) {
+	t.Parallel()
+	store := newUpdateStubStore(models.EventStateActive)
+	h := NewHandler(domainCurtailment.NewService(store))
+
+	_, err := h.UpdateCurtailmentEvent(
+		updateSessionCtxWithPerms(42, "OPERATOR" /* no curtailment:manage */),
+		connect.NewRequest(&pb.UpdateCurtailmentEventRequest{
+			EventUuid: store.event.EventUUID.String(),
+		}),
+	)
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
 }
 
 // TestHandler_UpdateCurtailmentEvent_RejectsMalformedUUID: invalid UUIDs
