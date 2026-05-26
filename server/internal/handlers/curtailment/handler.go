@@ -206,12 +206,12 @@ func (h *Handler) ListCurtailmentEvents(ctx context.Context, req *connect.Reques
 // with SessionOnlyProcedures (see interceptors/config.go); the
 // curtailment:manage permission gate is the authoritative RBAC check.
 func (h *Handler) AdminTerminateEvent(ctx context.Context, req *connect.Request[pb.AdminTerminateEventRequest]) (*connect.Response[pb.AdminTerminateEventResponse], error) {
-	if h.service == nil {
-		return nil, errCurtailmentNotImplemented("AdminTerminateEvent")
-	}
 	info, err := middleware.RequirePermission(ctx, authz.PermCurtailmentManage, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
+	}
+	if h.service == nil {
+		return nil, errCurtailmentNotImplemented("AdminTerminateEvent")
 	}
 	terminateReq, err := toAdminTerminateRequest(req.Msg, info)
 	if err != nil {

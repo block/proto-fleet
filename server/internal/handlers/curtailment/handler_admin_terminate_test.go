@@ -170,36 +170,11 @@ func TestHandler_AdminTerminateEvent_HappyPath(t *testing.T) {
 	assert.Equal(t, "operator escalation", store.lastReason)
 }
 
-// TestHandler_AdminTerminateEvent_RejectsNonAdmin: OPERATOR is rejected
-// at the role gate before any service call. Mirrors the StopCurtailment
-// admin-force gate.
-func TestHandler_AdminTerminateEvent_RejectsNonAdmin(t *testing.T) {
-	t.Parallel()
-	store := &adminTerminateStubStore{}
-	h := NewHandler(domainCurtailment.NewService(store))
-
-	_, err := h.AdminTerminateEvent(
-		adminTerminateSessionCtx(42, "OPERATOR"),
-		connect.NewRequest(&pb.AdminTerminateEventRequest{
-			EventUuid:   uuid.New().String(),
-			TargetState: pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_CANCELLED,
-			Reason:      "test",
-		}),
-	)
-	require.Error(t, err)
-	var fleetErr fleeterror.FleetError
-	require.ErrorAs(t, err, &fleetErr)
-	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
-	assert.Equal(t, 0, store.calls, "role gate must fail before reaching the service")
-}
-
-// TestHandler_AdminTerminateEvent_RejectsAdminWithoutCurtailmentManage:
-// even with the admin role, the caller is denied when curtailment:manage
-// is absent from their effective permissions. This proves the new RBAC
-// gate is the authoritative check; the legacy admin-role gate is only
-// defense-in-depth for sessions that have not yet had their permission
-// set audited.
-func TestHandler_AdminTerminateEvent_RejectsAdminWithoutCurtailmentManage(t *testing.T) {
+// TestHandler_AdminTerminateEvent_RejectsCallerWithoutCurtailmentManage:
+// the caller is denied when curtailment:manage is absent from their
+// effective permissions, regardless of role. RBAC is the authoritative
+// gate on this handler.
+func TestHandler_AdminTerminateEvent_RejectsCallerWithoutCurtailmentManage(t *testing.T) {
 	t.Parallel()
 	store := &adminTerminateStubStore{}
 	h := NewHandler(domainCurtailment.NewService(store))
