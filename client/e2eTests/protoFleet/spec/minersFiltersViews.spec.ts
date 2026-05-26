@@ -254,11 +254,12 @@ test.describe("Proto Fleet - Miners filters and saved views", () => {
     });
   });
 
-  test("Saved view can be renamed and persists after reload", async ({ minersPage, commonSteps }) => {
+  test("Saved view can be renamed and persists after reload", async ({ minersPage, commonSteps, page }) => {
     const originalViewName = generateRandomText("miners_view");
     const renamedViewName = generateRandomText("renamed_view");
     let firstMinerIp = "";
     let firstMinerSubnet = "";
+    let activeViewId = "";
 
     await commonSteps.loginAsAdmin();
     await commonSteps.goToMinersPage();
@@ -289,6 +290,11 @@ test.describe("Proto Fleet - Miners filters and saved views", () => {
       await minersPage.validateViewTabNotVisible(originalViewName);
       await minersPage.validateActiveFilterSummary("subnet", firstMinerSubnet);
       await minersPage.validateMinerInList(firstMinerIp);
+
+      const searchParams = new URL(page.url()).searchParams;
+      activeViewId = searchParams.get("view") ?? "";
+      test.expect(activeViewId).not.toBe("");
+      test.expect(searchParams.getAll("subnet")).toEqual([firstMinerSubnet]);
     });
 
     await test.step("Reload and validate the renamed view persists", async () => {
@@ -301,6 +307,10 @@ test.describe("Proto Fleet - Miners filters and saved views", () => {
       await minersPage.validateViewTabNotVisible(originalViewName);
       await minersPage.validateActiveFilterSummary("subnet", firstMinerSubnet);
       await minersPage.validateMinerInList(firstMinerIp);
+
+      const searchParams = new URL(page.url()).searchParams;
+      test.expect(searchParams.get("view")).toBe(activeViewId);
+      test.expect(searchParams.getAll("subnet")).toEqual([firstMinerSubnet]);
     });
   });
 
@@ -351,6 +361,53 @@ test.describe("Proto Fleet - Miners filters and saved views", () => {
       await minersPage.validateViewTabNotVisible(viewName);
       await minersPage.validateViewTabActive("All miners");
       await minersPage.validateActiveFilterNotVisible("Subnet");
+    });
+  });
+
+  test("Active saved view can be deleted and clears the URL state", async ({ minersPage, commonSteps, page }) => {
+    const viewName = generateRandomText("miners_view");
+    let firstMinerSubnet = "";
+
+    await commonSteps.loginAsAdmin();
+    await commonSteps.goToMinersPage();
+
+    await test.step("Create a saved view from the first miner subnet", async () => {
+      const firstMinerIp = await getFirstVisibleIpv4MinerIp(minersPage);
+      firstMinerSubnet = toSubnet24(firstMinerIp);
+
+      await minersPage.applySubnetFilter([firstMinerSubnet]);
+      await minersPage.waitForMinersListToLoad();
+      await minersPage.clickNewSavedViewButton();
+      await minersPage.validateViewModalOpened("New view");
+      await minersPage.inputViewName(viewName);
+      await minersPage.saveNewView();
+
+      const searchParams = new URL(page.url()).searchParams;
+      test.expect(searchParams.get("view")).not.toBeNull();
+      test.expect(searchParams.getAll("subnet")).toEqual([firstMinerSubnet]);
+    });
+
+    await test.step("Delete the active saved view", async () => {
+      await minersPage.clickDeleteViewAction(viewName);
+      await minersPage.validateDeleteViewDialogOpened(viewName);
+      await minersPage.confirmDeleteView();
+    });
+
+    await test.step("Validate the deleted active view clears only the view param and keeps the live filters", async () => {
+      await minersPage.validateViewTabNotVisible(viewName);
+
+      const searchParams = new URL(page.url()).searchParams;
+      test.expect(searchParams.get("view")).toBeNull();
+      test.expect(searchParams.getAll("subnet")).toEqual([firstMinerSubnet]);
+    });
+
+    await test.step("Reload and validate the deleted active view stays gone", async () => {
+      await minersPage.reloadPage();
+      await minersPage.waitForMinersTitle();
+      await minersPage.waitForMinersListToLoad();
+
+      await minersPage.validateViewTabNotVisible(viewName);
+      await minersPage.validateActiveFilterSummary("subnet", firstMinerSubnet);
     });
   });
 });
