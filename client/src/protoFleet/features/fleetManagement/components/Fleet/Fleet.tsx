@@ -76,7 +76,11 @@ const Fleet = () => {
   // below so the bulk-action gate releases promptly after a fleet-wide auth
   // resolves (otherwise the count is stale-positive until the next manual
   // refresh).
-  const { totalMiners: totalAuthNeededMiners, refetch: refetchAuthNeededMiners } = useAuthNeededMiners({
+  const {
+    totalMiners: totalAuthNeededMiners,
+    refetch: refetchAuthNeededMiners,
+    hasInitialLoadCompleted: totalAuthNeededMinersLoaded,
+  } = useAuthNeededMiners({
     pageSize: 1,
     filter: currentFilter,
   });
@@ -229,6 +233,7 @@ const Fleet = () => {
           totalMiners={totalMiners}
           totalUnfilteredMiners={totalUnfilteredMiners}
           totalDisabledMiners={totalAuthNeededMiners}
+          totalDisabledMinersLoaded={totalAuthNeededMinersLoaded}
           paddingLeft={{
             phone: "24px",
             tablet: "24px",

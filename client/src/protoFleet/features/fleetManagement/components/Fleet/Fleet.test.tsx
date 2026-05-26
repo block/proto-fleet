@@ -50,7 +50,7 @@ vi.mock("@/protoFleet/api/useDeviceSets", () => ({
 }));
 
 vi.mock("@/protoFleet/api/useAuthNeededMiners", () => ({
-  default: vi.fn(() => ({ totalMiners: 0, refetch: vi.fn() })),
+  default: vi.fn(() => ({ totalMiners: 0, refetch: vi.fn(), hasInitialLoadCompleted: true })),
 }));
 
 vi.mock("@/protoFleet/api/useDeviceErrors", () => ({

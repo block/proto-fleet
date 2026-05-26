@@ -1081,6 +1081,32 @@ describe("MinerList", () => {
       expect(screen.getByTestId("mock-miner-list-selected-miners")).toHaveTextContent("m1");
       expect(screen.getByTestId("mock-miner-list-selection-includes-unauth")).toHaveTextContent("false");
     });
+
+    it("flags all-mode selections as auth-needed while the fleet-wide count is still loading", async () => {
+      const user = userEvent.setup();
+
+      renderMinerList({
+        title: "Miners",
+        minerIds: ["m1", "m2"],
+        miners: {
+          m1: createMinerSnapshot("m1"),
+          m2: createMinerSnapshot("m2"),
+        },
+        totalMiners: 2,
+        totalDisabledMiners: 0,
+        totalDisabledMinersLoaded: false,
+        currentPage: 0,
+        onAddMiners: vi.fn(),
+        loading: false,
+      });
+
+      const rowCheckboxes = screen.getAllByTestId("checkbox");
+      await user.click(rowCheckboxes[0].querySelector("input[type='checkbox']") as HTMLInputElement);
+      await user.click(screen.getByTestId("mock-action-bar-select-all"));
+
+      expect(screen.getByTestId("mock-miner-list-selection-mode")).toHaveTextContent("all");
+      expect(screen.getByTestId("mock-miner-list-selection-includes-unauth")).toHaveTextContent("true");
+    });
   });
 
   describe("row click navigation", () => {
