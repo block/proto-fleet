@@ -23,6 +23,21 @@ const baseValues: CurtailmentSubmitValues = {
 };
 
 describe("curtailmentRequestBuilders", () => {
+  it("builds optional uint32-backed settings from valid whole-number inputs", () => {
+    const request = buildStartCurtailmentRequest({
+      ...baseValues,
+      minDurationSec: "300",
+      maxDurationSec: "1800",
+      restoreBatchSize: "10",
+      restoreIntervalSec: "120",
+    });
+
+    expect(request.minCurtailedDurationSec).toBe(300);
+    expect(request.maxDurationSeconds).toBe(1800);
+    expect(request.restoreBatchSize).toBe(10);
+    expect(request.restoreBatchIntervalSec).toBe(120);
+  });
+
   it("keeps invalid selected scopes from falling back to the whole fleet", () => {
     expect(() =>
       buildStartCurtailmentRequest({
@@ -31,7 +46,9 @@ describe("curtailmentRequestBuilders", () => {
         scopeId: "racks",
         deviceSetIds: ["rack-1"],
       }),
-    ).toThrow("Select at least one rack, group, or miner for this curtailment.");
+    ).toThrow(
+      "Rack and group targets are not supported yet. Select specific miners or the whole fleet for this curtailment.",
+    );
 
     expect(() =>
       buildStartCurtailmentRequest({
@@ -40,6 +57,29 @@ describe("curtailmentRequestBuilders", () => {
         scopeId: undefined,
         deviceIdentifiers: [],
       }),
-    ).toThrow("Select at least one rack, group, or miner for this curtailment.");
+    ).toThrow("Select at least one miner or use the whole fleet for this curtailment.");
+  });
+
+  it("rejects invalid uint32-backed settings", () => {
+    expect(() =>
+      buildStartCurtailmentRequest({
+        ...baseValues,
+        restoreBatchSize: "-1",
+      }),
+    ).toThrow("Enter restore batch size of 0 or more.");
+
+    expect(() =>
+      buildStartCurtailmentRequest({
+        ...baseValues,
+        restoreIntervalSec: "1.5",
+      }),
+    ).toThrow("Enter restore batch interval as a whole number.");
+
+    expect(() =>
+      buildStartCurtailmentRequest({
+        ...baseValues,
+        maxDurationSec: "604801",
+      }),
+    ).toThrow("Enter max duration of 604,800 or less.");
   });
 });

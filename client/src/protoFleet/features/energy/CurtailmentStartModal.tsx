@@ -6,6 +6,10 @@ import FullScreenTwoPaneModal, {
 import TargetSelectButton, { getTargetButtonLabel } from "@/protoFleet/components/TargetSelectButton";
 import { formatCurtailmentKw as formatKw } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
 import {
+  curtailmentNumericFieldLimits,
+  parseOptionalUint32Field,
+} from "@/protoFleet/features/energy/curtailmentNumericFields";
+import {
   getUnsupportedDeviceSetPreviewError,
   useCurtailmentPlanPreview,
 } from "@/protoFleet/features/energy/useCurtailmentPlanPreview";
@@ -146,8 +150,6 @@ const minerSelectionStrategyOptions: Array<TypedSelectOption<MinerSelectionStrat
   { value: "leastEfficientFirst", label: "Least efficient first" },
 ];
 
-const maxCurtailmentDurationSec = 2147483647;
-
 function getInitialValues(initialValues?: Partial<CurtailmentFormValues>): CurtailmentFormValues {
   return {
     ...defaultValues,
@@ -159,28 +161,6 @@ function getInitialValuesKey(initialValues?: Partial<CurtailmentFormValues>): st
   return Object.entries(getInitialValues(initialValues))
     .map(([key, value]) => `${key}:${String(value)}`)
     .join("|");
-}
-
-function parseDurationField(value: string): ParsedNumberField {
-  const trimmed = value.trim();
-  if (trimmed === "") {
-    return {};
-  }
-
-  const parsed = Number(trimmed);
-  if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) {
-    return { error: "Enter a whole number of seconds." };
-  }
-
-  if (parsed < 0) {
-    return { error: "Enter 0 or more seconds." };
-  }
-
-  if (parsed > maxCurtailmentDurationSec) {
-    return { error: `Enter ${maxCurtailmentDurationSec.toLocaleString()} seconds or less.` };
-  }
-
-  return { parsed };
 }
 
 function parseRequiredPositiveNumberField(value: string, fieldLabel: string): ParsedNumberField {
@@ -215,8 +195,22 @@ function validateCurtailmentFormValues(values: CurtailmentFormValues): Curtailme
   const localErrors: CurtailmentFormErrors = {};
   const targetKw = parseRequiredPositiveNumberField(values.targetKw, "a target reduction");
   const toleranceKw = parseOptionalNonNegativeNumberField(values.toleranceKw, "a tolerance");
-  const minDuration = parseDurationField(values.minDurationSec);
-  const maxDuration = parseDurationField(values.maxDurationSec);
+  const minDuration = parseOptionalUint32Field(values.minDurationSec, {
+    label: "min duration",
+    max: curtailmentNumericFieldLimits.minDurationSec,
+  });
+  const maxDuration = parseOptionalUint32Field(values.maxDurationSec, {
+    label: "max duration",
+    max: curtailmentNumericFieldLimits.maxDurationSec,
+  });
+  const restoreBatchSize = parseOptionalUint32Field(values.restoreBatchSize, {
+    label: "batch size",
+    max: curtailmentNumericFieldLimits.restoreBatchSize,
+  });
+  const restoreInterval = parseOptionalUint32Field(values.restoreIntervalSec, {
+    label: "batch interval",
+    max: curtailmentNumericFieldLimits.restoreIntervalSec,
+  });
 
   if (targetKw.error) {
     localErrors.targetKw = targetKw.error;
@@ -232,6 +226,12 @@ function validateCurtailmentFormValues(values: CurtailmentFormValues): Curtailme
   }
   if (maxDuration.error) {
     localErrors.maxDurationSec = maxDuration.error;
+  }
+  if (restoreBatchSize.error) {
+    localErrors.restoreBatchSize = restoreBatchSize.error;
+  }
+  if (restoreInterval.error) {
+    localErrors.restoreIntervalSec = restoreInterval.error;
   }
   if (
     minDuration.error === undefined &&

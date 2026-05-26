@@ -490,6 +490,31 @@ describe("CurtailmentStartModal", () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
+  it("blocks invalid uint32-backed numeric settings", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      initialValues: {
+        ...configuredValues,
+        includeMaintenance: false,
+        maxDurationSec: "604801",
+        restoreBatchSize: "-1",
+        restoreIntervalSec: "1.5",
+      },
+    });
+    const startButton = screen.getByRole("button", { name: "Start curtailment" });
+
+    expect(screen.getByText("Enter max duration of 604,800 or less.")).toBeInTheDocument();
+    expect(screen.getByText("Enter batch size of 0 or more.")).toBeInTheDocument();
+    expect(screen.getByText("Enter batch interval as a whole number.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Max duration (sec)")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByLabelText("Batch size (miners)")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByLabelText("Batch interval (sec)")).toHaveAttribute("aria-invalid", "true");
+    expect(startButton).toBeDisabled();
+
+    await user.click(startButton);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
   it("resets form values when reopened with new initial values", async () => {
     const user = userEvent.setup();
     const onDismiss = vi.fn();

@@ -12,6 +12,10 @@ import {
   type StartCurtailmentRequest,
   StartCurtailmentRequestSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
+import {
+  curtailmentNumericFieldLimits,
+  getOptionalUint32Setting,
+} from "@/protoFleet/features/energy/curtailmentNumericFields";
 import type { CurtailmentSubmitValues } from "@/protoFleet/features/energy/CurtailmentStartModal";
 
 type CurtailmentRequestFields = Pick<
@@ -27,10 +31,6 @@ function parseOptionalNumber(value: string): number | undefined {
 
   const parsed = Number(trimmed);
   return Number.isFinite(parsed) ? parsed : undefined;
-}
-
-function getOptionalNumericSetting(value: string): number {
-  return parseOptionalNumber(value) ?? 0;
 }
 
 function getPriority(priority: CurtailmentSubmitValues["priority"]): ProtoCurtailmentPriority {
@@ -57,10 +57,12 @@ function buildScope(values: CurtailmentSubmitValues): StartCurtailmentRequest["s
       }
       break;
     case "deviceSet":
-      break;
+      throw new Error(
+        "Rack and group targets are not supported yet. Select specific miners or the whole fleet for this curtailment.",
+      );
   }
 
-  throw new Error("Select at least one rack, group, or miner for this curtailment.");
+  throw new Error("Select at least one miner or use the whole fleet for this curtailment.");
 }
 
 function buildCurtailmentRequestFields(values: CurtailmentSubmitValues): CurtailmentRequestFields {
@@ -83,10 +85,22 @@ function buildCurtailmentRequestFields(values: CurtailmentSubmitValues): Curtail
 export function buildStartCurtailmentRequest(values: CurtailmentSubmitValues): StartCurtailmentRequest {
   return create(StartCurtailmentRequestSchema, {
     ...buildCurtailmentRequestFields(values),
-    maxDurationSeconds: getOptionalNumericSetting(values.maxDurationSec),
-    restoreBatchSize: getOptionalNumericSetting(values.restoreBatchSize),
-    restoreBatchIntervalSec: getOptionalNumericSetting(values.restoreIntervalSec),
-    minCurtailedDurationSec: getOptionalNumericSetting(values.minDurationSec),
+    maxDurationSeconds: getOptionalUint32Setting(values.maxDurationSec, {
+      label: "max duration",
+      max: curtailmentNumericFieldLimits.maxDurationSec,
+    }),
+    restoreBatchSize: getOptionalUint32Setting(values.restoreBatchSize, {
+      label: "restore batch size",
+      max: curtailmentNumericFieldLimits.restoreBatchSize,
+    }),
+    restoreBatchIntervalSec: getOptionalUint32Setting(values.restoreIntervalSec, {
+      label: "restore batch interval",
+      max: curtailmentNumericFieldLimits.restoreIntervalSec,
+    }),
+    minCurtailedDurationSec: getOptionalUint32Setting(values.minDurationSec, {
+      label: "min curtailed duration",
+      max: curtailmentNumericFieldLimits.minDurationSec,
+    }),
     reason: values.reason.trim(),
   });
 }
