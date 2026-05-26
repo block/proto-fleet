@@ -49,8 +49,16 @@ func decodeCurtailmentEventCursor(encoded string) (*curtailmentEventCursor, erro
 		// (id<0), both of which look like a silent client bug.
 		return nil, fleeterror.NewInvalidArgumentErrorf("invalid page_token: id must be > 0, got %d", cursor.ID)
 	}
-	if cursor.OrgID <= 0 {
-		return nil, fleeterror.NewInvalidArgumentErrorf("invalid page_token: org_id must be > 0, got %d", cursor.OrgID)
+	if cursor.OrgID < 0 {
+		// Explicit negative org_id is tampering; reject loudly.
+		return nil, fleeterror.NewInvalidArgumentErrorf("invalid page_token: org_id must be >= 0, got %d", cursor.OrgID)
+	}
+	if cursor.OrgID == 0 {
+		// Legacy token: pre-org-binding cursors omitted org_id and decode
+		// to the JSON zero value. Restart from the first page so an old
+		// client's in-flight pagination loop continues from the top
+		// instead of surfacing InvalidArgument on the next page request.
+		return nil, nil
 	}
 	return &cursor, nil
 }

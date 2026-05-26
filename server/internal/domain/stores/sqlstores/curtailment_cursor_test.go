@@ -55,27 +55,36 @@ func TestCurtailmentEventCursor_RejectsNonPositiveID(t *testing.T) {
 	}
 }
 
-// TestCurtailmentEventCursor_RejectsNonPositiveOrgID: a token missing org_id
-// or carrying a non-positive value must reject — the store always emits
-// (org_id, id, state_filter) so a non-positive org_id signals tampering or
-// a forged token rather than a legitimate restart.
-func TestCurtailmentEventCursor_RejectsNonPositiveOrgID(t *testing.T) {
+// TestCurtailmentEventCursor_RejectsNegativeOrgID: an explicit negative
+// org_id is tampering — the store always emits non-negative values.
+func TestCurtailmentEventCursor_RejectsNegativeOrgID(t *testing.T) {
+	t.Parallel()
+	token := base64.StdEncoding.EncodeToString([]byte(`{"id":123,"org_id":-1}`))
+	_, err := decodeCurtailmentEventCursor(token)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsInvalidArgumentError(err))
+	assert.Contains(t, err.Error(), "org_id must be >= 0")
+}
+
+// TestCurtailmentEventCursor_LegacyMissingOrgIDRestarts: pre-org-binding
+// tokens omitted org_id and decode to the JSON zero value. The decoder
+// returns a nil cursor so an in-flight pagination loop restarts from
+// page 1 across the deployment boundary instead of failing.
+func TestCurtailmentEventCursor_LegacyMissingOrgIDRestarts(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
 		name string
 		body string
 	}{
 		{"missing org_id (json default zero)", `{"id":123}`},
-		{"zero org_id", `{"id":123,"org_id":0}`},
-		{"negative org_id", `{"id":123,"org_id":-1}`},
+		{"explicit zero org_id", `{"id":123,"org_id":0}`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			token := base64.StdEncoding.EncodeToString([]byte(tc.body))
-			_, err := decodeCurtailmentEventCursor(token)
-			require.Error(t, err)
-			assert.True(t, fleeterror.IsInvalidArgumentError(err))
-			assert.Contains(t, err.Error(), "org_id must be > 0")
+			decoded, err := decodeCurtailmentEventCursor(token)
+			require.NoError(t, err)
+			assert.Nil(t, decoded, "legacy token must decode to nil so ListEvents starts at page 1")
 		})
 	}
 }
