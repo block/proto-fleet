@@ -176,7 +176,7 @@ func TestReconcile_NewCatalogPermissionDoesNotPropagateToExistingBuiltins(t *tes
 	require.NoError(t, authz.Reconcile(ctx, db))
 
 	require.Equal(t, beforeAdmin, orgRolePermissionKeys(t, db, orgID, "ADMIN"),
-		"new catalog permissions must not auto-add to an existing org's ADMIN")
+		"new catalog permissions must not auto-add to an existing org's ADMIN; seed-formula changes that need to reach existing rows ship as explicit one-off migrations")
 	require.Equal(t, beforeFieldTech, orgRolePermissionKeys(t, db, orgID, "FIELD_TECH"),
 		"new catalog permissions must not auto-add to an existing org's FIELD_TECH")
 }

@@ -77,13 +77,16 @@ func BuiltinRoles() []BuiltinRoleSpec {
 
 // adminSeedPermissions is the formula AllPermissions() − {role:manage}.
 // ADMIN holds user:read for the team roster and user:manage to mutate
-// non-elevated users; the role-hierarchy check in the auth domain layer
-// blocks an ADMIN from creating, resetting, or deactivating an ADMIN or
-// SUPER_ADMIN target. role:manage stays SUPER_ADMIN-only because role
-// edits can grant arbitrary permissions and have no comparable
-// per-target hierarchy gate. Computed from the catalog so adding a new
-// permission in catalog.go automatically grows ADMIN (subject to the
-// additive-only contract — existing operator edits are preserved).
+// non-elevated users; the privilege-parity check in the auth domain
+// layer (see requireCallerCanManageTarget) blocks an ADMIN from
+// mutating a target whose effective permissions are not a subset of
+// the caller's. role:manage stays SUPER_ADMIN-only because role edits
+// can grant arbitrary permissions and have no comparable per-target
+// gate. Computed from the catalog so adding a new permission in
+// catalog.go automatically grows the seed for *new* orgs; seed-formula
+// changes that need to reach existing orgs ship as explicit one-off
+// migrations (see migrations/000060_backfill_admin_user_manage.up.sql
+// for the user:read/user:manage backfill).
 func adminSeedPermissions() []string {
 	excluded := map[string]bool{
 		PermRoleManage: true,

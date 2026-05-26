@@ -19,6 +19,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	id "github.com/block/proto-fleet/server/internal/infrastructure/id"
@@ -51,6 +52,7 @@ type Service struct {
 	sessionSvc          *session.Service
 	encryptSvc          *encrypt.Service
 	activitySvc         *activity.Service
+	permResolver        *authz.PermissionResolver
 }
 
 func NewService(
@@ -61,6 +63,7 @@ func NewService(
 	sessionSvc *session.Service,
 	encryptSvc *encrypt.Service,
 	activitySvc *activity.Service,
+	permResolver *authz.PermissionResolver,
 ) *Service {
 	return &Service{
 		userStore:           userStore,
@@ -70,6 +73,7 @@ func NewService(
 		sessionSvc:          sessionSvc,
 		encryptSvc:          encryptSvc,
 		activitySvc:         activitySvc,
+		permResolver:        permResolver,
 	}
 }
 
@@ -544,27 +548,38 @@ func generateDefaultOrgName(orgID string) string {
 	return fmt.Sprintf("Organization %s", orgID[:8])
 }
 
-// isElevatedRole reports whether a role name is in the elevated tier
-// (ADMIN or SUPER_ADMIN). The handler's PermUserManage gate authorizes
-// the action; this hierarchy check restricts which targets a non-
-// SUPER_ADMIN caller may act on. Operator-created custom roles are
-// non-elevated regardless of their permission set — granting
-// user:manage to a custom role would let its members manage other
-// non-elevated users, which is the intent.
-func isElevatedRole(roleName string) bool {
-	return roleName == SuperAdminRoleName || roleName == AdminRoleName
+// callerPermissionKeys resolves the caller's full set of permission
+// keys across every scope they hold in the org. The privilege-parity
+// check in CreateUser / ResetUserPassword / DeactivateUser uses this
+// against the target's keys. The resolver is consulted directly so the
+// service doesn't depend on the middleware's request-context plumbing.
+func (s *Service) callerPermissionKeys(ctx context.Context, userID, orgID int64) ([]string, error) {
+	eff, err := s.permResolver.LoadEffective(ctx, userID, orgID)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error loading caller permissions: %v", err)
+	}
+	return eff.FlatKeys(), nil
 }
 
-// requireCanManageTargetRole enforces the role hierarchy for user
-// mutations: a non-SUPER_ADMIN caller may not act on an elevated
-// target. Returns PermissionDenied when the gate blocks the action,
-// nil when the caller may proceed.
-func requireCanManageTargetRole(callerRoleName, targetRoleName string) error {
-	if callerRoleName == SuperAdminRoleName {
-		return nil
+// requireCallerCanManageTarget enforces the rule that a caller may
+// only mutate a target user whose effective permissions are a subset
+// of the caller's. This prevents privilege escalation via password
+// reset / deactivation against an account that holds permissions the
+// caller does not (e.g., a custom role with role:manage).
+//
+// Role names are not consulted — the check operates on the underlying
+// permission keys, so operator-created custom roles get the right
+// treatment automatically. SUPER_ADMIN holds every permission in the
+// catalog and therefore always passes the subset check.
+func requireCallerCanManageTarget(callerKeys, targetKeys []string) error {
+	caller := make(map[string]struct{}, len(callerKeys))
+	for _, k := range callerKeys {
+		caller[k] = struct{}{}
 	}
-	if isElevatedRole(targetRoleName) {
-		return fleeterror.NewForbiddenError("insufficient role to manage this user")
+	for _, k := range targetKeys {
+		if _, ok := caller[k]; !ok {
+			return fleeterror.NewForbiddenError("insufficient permissions to manage this user")
+		}
 	}
 	return nil
 }
@@ -596,15 +611,31 @@ func (s *Service) CreateUser(ctx context.Context, req *authv1.CreateUserRequest)
 
 	orgID := orgs[0].ID
 
-	// CreateUser always assigns the ADMIN role today (the proto has no
-	// role field). That makes ADMIN itself the effective target role,
-	// so a non-SUPER_ADMIN caller cannot create users until the proto
-	// grows a role parameter that lets them pick a non-elevated tier.
-	callerRoleName, err := s.userManagementStore.GetUserRoleName(ctx, info.UserID, orgID)
+	// Look up the ADMIN role belonging to this user's organization. Each
+	// org owns its own ADMIN row, so a name-only lookup would return an
+	// arbitrary org's row (or the soft-deleted legacy global one) and
+	// could bind the new user to a role record from a different tenant.
+	// The role's actual permission set (which may include operator-added
+	// keys beyond the seed) is the input to the privilege-parity check
+	// below.
+	role, err := s.userManagementStore.GetBuiltinRoleForOrg(ctx, orgID, AdminRoleName)
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error getting caller role: %v", err)
+		return nil, fleeterror.NewInternalErrorf("error getting admin role for org: %v", err)
 	}
-	if err := requireCanManageTargetRole(callerRoleName, AdminRoleName); err != nil {
+
+	// Privilege parity: the new user will hold every permission of the
+	// ADMIN role they're being assigned. The caller must already hold
+	// each of those permissions, otherwise CreateUser becomes an
+	// escalation primitive.
+	targetKeys, err := s.userManagementStore.ListPermissionKeysByRoleID(ctx, role.ID)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("error listing target role permissions: %v", err)
+	}
+	callerKeys, err := s.callerPermissionKeys(ctx, info.UserID, orgID)
+	if err != nil {
+		return nil, err
+	}
+	if err := requireCallerCanManageTarget(callerKeys, targetKeys); err != nil {
 		return nil, err
 	}
 
@@ -618,15 +649,6 @@ func (s *Service) CreateUser(ctx context.Context, req *authv1.CreateUserRequest)
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(tempPassword), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("error generating password hash: %v", err)
-	}
-
-	// Look up the ADMIN role belonging to this user's organization. Each
-	// org owns its own ADMIN row, so a name-only lookup would return an
-	// arbitrary org's row (or the soft-deleted legacy global one) and
-	// could bind the new user to a role record from a different tenant.
-	role, err := s.userManagementStore.GetBuiltinRoleForOrg(ctx, orgID, AdminRoleName)
-	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error getting admin role for org: %v", err)
 	}
 
 	var createdUserID string
@@ -754,21 +776,27 @@ func (s *Service) ResetUserPassword(ctx context.Context, req *authv1.ResetUserPa
 	// reset a password for a user in a different tenant. Only ErrNoRows
 	// means "not in caller's org" — other errors are transient store
 	// failures and must surface as Internal so callers retry instead of
-	// treating a backend hiccup as bad input. The returned role doubles
-	// as the input to the hierarchy check below.
-	targetRoleName, err := s.userManagementStore.GetUserRoleName(ctx, user.ID, orgID)
-	if err != nil {
+	// treating a backend hiccup as bad input.
+	if _, err := s.userManagementStore.GetUserRoleName(ctx, user.ID, orgID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fleeterror.NewInvalidArgumentError("invalid user_id")
 		}
 		return nil, fleeterror.NewInternalErrorf("error getting target user role: %v", err)
 	}
 
-	callerRoleName, err := s.userManagementStore.GetUserRoleName(ctx, info.UserID, orgID)
+	// Privilege parity: the caller must hold every permission the
+	// target holds. Otherwise password reset becomes an escalation
+	// primitive — the caller could log in as a target whose role grants
+	// permissions the caller doesn't have.
+	targetEff, err := s.permResolver.LoadEffective(ctx, user.ID, orgID)
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error getting caller role: %v", err)
+		return nil, fleeterror.NewInternalErrorf("error loading target permissions: %v", err)
 	}
-	if err := requireCanManageTargetRole(callerRoleName, targetRoleName); err != nil {
+	callerKeys, err := s.callerPermissionKeys(ctx, info.UserID, orgID)
+	if err != nil {
+		return nil, err
+	}
+	if err := requireCallerCanManageTarget(callerKeys, targetEff.FlatKeys()); err != nil {
 		return nil, err
 	}
 
@@ -862,21 +890,28 @@ func (s *Service) DeactivateUser(ctx context.Context, req *authv1.DeactivateUser
 	// deactivate a user in a different tenant. Only ErrNoRows means
 	// "not in caller's org" — other errors are transient store failures
 	// and must surface as Internal so callers retry instead of treating
-	// a backend hiccup as bad input. The returned role doubles as the
-	// input to the hierarchy check below.
-	targetRoleName, err := s.userManagementStore.GetUserRoleName(ctx, user.ID, orgID)
-	if err != nil {
+	// a backend hiccup as bad input.
+	if _, err := s.userManagementStore.GetUserRoleName(ctx, user.ID, orgID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fleeterror.NewInvalidArgumentError("invalid user_id")
 		}
 		return nil, fleeterror.NewInternalErrorf("error getting target user role: %v", err)
 	}
 
-	callerRoleName, err := s.userManagementStore.GetUserRoleName(ctx, info.UserID, orgID)
+	// Privilege parity: the caller must hold every permission the
+	// target holds. Otherwise deactivation becomes a denial-of-service
+	// primitive against accounts that hold permissions the caller can't
+	// reproduce (and a step toward escalation if the deactivation is
+	// followed by a fresh account claim).
+	targetEff, err := s.permResolver.LoadEffective(ctx, user.ID, orgID)
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error getting caller role: %v", err)
+		return nil, fleeterror.NewInternalErrorf("error loading target permissions: %v", err)
 	}
-	if err := requireCanManageTargetRole(callerRoleName, targetRoleName); err != nil {
+	callerKeys, err := s.callerPermissionKeys(ctx, info.UserID, orgID)
+	if err != nil {
+		return nil, err
+	}
+	if err := requireCallerCanManageTarget(callerKeys, targetEff.FlatKeys()); err != nil {
 		return nil, err
 	}
 

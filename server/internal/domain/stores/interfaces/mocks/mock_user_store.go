@@ -301,6 +301,21 @@ func (mr *MockUserManagementStoreMockRecorder) GetUserRoleName(ctx, userID, orga
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUserRoleName", reflect.TypeOf((*MockUserManagementStore)(nil).GetUserRoleName), ctx, userID, organizationID)
 }
 
+// ListPermissionKeysByRoleID mocks base method.
+func (m *MockUserManagementStore) ListPermissionKeysByRoleID(ctx context.Context, roleID int64) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListPermissionKeysByRoleID", ctx, roleID)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListPermissionKeysByRoleID indicates an expected call of ListPermissionKeysByRoleID.
+func (mr *MockUserManagementStoreMockRecorder) ListPermissionKeysByRoleID(ctx, roleID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPermissionKeysByRoleID", reflect.TypeOf((*MockUserManagementStore)(nil).ListPermissionKeysByRoleID), ctx, roleID)
+}
+
 // ListUsersForOrganization mocks base method.
 func (m *MockUserManagementStore) ListUsersForOrganization(ctx context.Context, organizationID int64) ([]interfaces.User, error) {
 	m.ctrl.T.Helper()
