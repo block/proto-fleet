@@ -10,6 +10,7 @@ import {
   PreviewCurtailmentPlanRequestSchema,
   type PreviewCurtailmentPlanResponse,
   ScopeDeviceListSchema,
+  ScopeDeviceSetsSchema,
   ScopeWholeOrgSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
@@ -50,6 +51,11 @@ interface CurtailmentPlanPreviewState {
   requestKey?: string;
 }
 
+interface PreviewRequestState {
+  request: PreviewCurtailmentPlanRequest;
+  requestKey: string;
+}
+
 const emptyPreviewResult: CurtailmentPlanPreviewResult = {
   preview: undefined,
   previewError: undefined,
@@ -74,7 +80,11 @@ function parseNumber(value: string, isValid: (value: number) => boolean): number
   }
 
   const parsed = Number(trimmed);
-  return Number.isFinite(parsed) && isValid(parsed) ? parsed : undefined;
+  if (!Number.isFinite(parsed) || !isValid(parsed)) {
+    return undefined;
+  }
+
+  return parsed;
 }
 
 function parsePositiveNumber(value: string): number | undefined {
@@ -113,16 +123,27 @@ function buildScope(values: CurtailmentPlanPreviewRequestValues): PreviewCurtail
         value: create(ScopeWholeOrgSchema, {}),
       };
     case "deviceSet":
-      return undefined;
+      if (values.deviceSetIds.length === 0) {
+        return undefined;
+      }
+
+      return {
+        case: "deviceSetIds",
+        value: create(ScopeDeviceSetsSchema, {
+          deviceSetIds: values.deviceSetIds,
+        }),
+      };
     case "explicitMiners":
-      return values.deviceIdentifiers.length > 0
-        ? {
-            case: "deviceIdentifiers",
-            value: create(ScopeDeviceListSchema, {
-              deviceIdentifiers: values.deviceIdentifiers,
-            }),
-          }
-        : undefined;
+      if (values.deviceIdentifiers.length === 0) {
+        return undefined;
+      }
+
+      return {
+        case: "deviceIdentifiers",
+        value: create(ScopeDeviceListSchema, {
+          deviceIdentifiers: values.deviceIdentifiers,
+        }),
+      };
   }
 }
 
@@ -150,14 +171,6 @@ export function buildPreviewCurtailmentPlanRequest(
     includeMaintenance: values.includeMaintenance,
     forceIncludeMaintenance: values.includeMaintenance,
   });
-}
-
-export function getUnsupportedDeviceSetPreviewError(values: CurtailmentFormValues): string | undefined {
-  if (values.scopeType !== "deviceSet" || values.deviceSetIds.length === 0) {
-    return undefined;
-  }
-
-  return "Rack and group curtailment previews are not supported yet. Select specific miners or the whole fleet to preview and start this curtailment.";
 }
 
 function pluralize(value: number, singular: string): string {
@@ -220,9 +233,11 @@ function estimateCurtailDuration(values: CurtailmentFormValues): string {
   const hasMaxDuration = maxDurationSec !== undefined && maxDurationSec > 0;
 
   if (hasMinDuration && hasMaxDuration) {
-    return minDurationSec === maxDurationSec
-      ? formatDurationEstimate(minDurationSec, false)
-      : `${formatDurationEstimate(minDurationSec, false)} - ${formatDurationEstimate(maxDurationSec, false)}`;
+    if (minDurationSec === maxDurationSec) {
+      return formatDurationEstimate(minDurationSec, false);
+    }
+
+    return `${formatDurationEstimate(minDurationSec, false)} - ${formatDurationEstimate(maxDurationSec, false)}`;
   }
 
   if (hasMinDuration) {
@@ -264,6 +279,64 @@ function toCurtailmentPlanPreview(
   };
 }
 
+function createPreviewErrorState(requestKey: string, previewError: string): CurtailmentPlanPreviewState {
+  return {
+    response: undefined,
+    responseRequestKey: undefined,
+    responseRequestValues: undefined,
+    previewError,
+    isPreviewLoading: false,
+    requestKey,
+  };
+}
+
+function createPreviewResponseState(
+  response: PreviewCurtailmentPlanResponse,
+  requestKey: string,
+  requestValues: CurtailmentPlanPreviewRequestValues,
+): CurtailmentPlanPreviewState {
+  return {
+    response,
+    responseRequestKey: requestKey,
+    responseRequestValues: cloneRequestValues(requestValues),
+    previewError: undefined,
+    isPreviewLoading: false,
+    requestKey,
+  };
+}
+
+function getPreviewValues(
+  values: CurtailmentFormValues,
+  state: CurtailmentPlanPreviewState,
+  hasCurrentResponse: boolean,
+): CurtailmentFormValues {
+  if (hasCurrentResponse || state.responseRequestValues === undefined) {
+    return values;
+  }
+
+  return { ...values, ...state.responseRequestValues };
+}
+
+function getPreviewResult(
+  requestState: PreviewRequestState | undefined,
+  state: CurtailmentPlanPreviewState,
+  values: CurtailmentFormValues,
+): CurtailmentPlanPreviewResult {
+  if (requestState === undefined) {
+    return emptyPreviewResult;
+  }
+
+  const hasCurrentPreviewState = state.requestKey === requestState.requestKey;
+  const hasCurrentResponse = state.responseRequestKey === requestState.requestKey;
+  const previewValues = getPreviewValues(values, state, hasCurrentResponse);
+
+  return {
+    preview: state.response ? toCurtailmentPlanPreview(state.response, previewValues) : undefined,
+    previewError: hasCurrentPreviewState ? state.previewError : undefined,
+    isPreviewLoading: hasCurrentPreviewState ? state.isPreviewLoading : false,
+  };
+}
+
 export function useCurtailmentPlanPreview({
   open,
   values,
@@ -294,18 +367,18 @@ export function useCurtailmentPlanPreview({
       values.toleranceKw,
     ],
   );
-  const requestState = useMemo(() => {
+  const requestState = useMemo<PreviewRequestState | undefined>(() => {
     const request = buildPreviewCurtailmentPlanRequest(requestValues);
 
-    return request === undefined
-      ? undefined
-      : {
-          request,
-          requestKey: toJsonString(PreviewCurtailmentPlanRequestSchema, request),
-        };
-  }, [requestValues]);
-  const unsupportedDeviceSetPreviewError = getUnsupportedDeviceSetPreviewError(values);
+    if (request === undefined) {
+      return undefined;
+    }
 
+    return {
+      request,
+      requestKey: toJsonString(PreviewCurtailmentPlanRequestSchema, request),
+    };
+  }, [requestValues]);
   useEffect(() => {
     if (!open || disabled) {
       return;
@@ -317,6 +390,39 @@ export function useCurtailmentPlanPreview({
 
     let isActive = true;
     const abortController = new AbortController();
+    const loadPreview = async (): Promise<void> => {
+      try {
+        const response = await curtailmentClient.previewCurtailmentPlan(requestState.request, {
+          signal: abortController.signal,
+        });
+
+        if (!isActive) {
+          return;
+        }
+
+        if (response.candidates.length === 0) {
+          setState(createPreviewErrorState(requestState.requestKey, emptyCandidatesPreviewError));
+          return;
+        }
+
+        setState(createPreviewResponseState(response, requestState.requestKey, requestValues));
+      } catch (error) {
+        if (!isActive) {
+          return;
+        }
+
+        handleAuthErrors({
+          error,
+          onError: (err) => {
+            if (!isActive) {
+              return;
+            }
+
+            setState(createPreviewErrorState(requestState.requestKey, getErrorMessage(err, "Preview is unavailable.")));
+          },
+        });
+      }
+    };
     const timeoutId = setTimeout(() => {
       setState((current) => ({
         ...current,
@@ -325,57 +431,7 @@ export function useCurtailmentPlanPreview({
         requestKey: requestState.requestKey,
       }));
 
-      void curtailmentClient
-        .previewCurtailmentPlan(requestState.request, { signal: abortController.signal })
-        .then((response) => {
-          if (!isActive) {
-            return;
-          }
-
-          if (response.candidates.length === 0) {
-            setState({
-              response: undefined,
-              responseRequestKey: undefined,
-              responseRequestValues: undefined,
-              previewError: emptyCandidatesPreviewError,
-              isPreviewLoading: false,
-              requestKey: requestState.requestKey,
-            });
-            return;
-          }
-
-          setState({
-            response,
-            responseRequestKey: requestState.requestKey,
-            responseRequestValues: cloneRequestValues(requestValues),
-            previewError: undefined,
-            isPreviewLoading: false,
-            requestKey: requestState.requestKey,
-          });
-        })
-        .catch((error) => {
-          if (!isActive) {
-            return;
-          }
-
-          handleAuthErrors({
-            error,
-            onError: (err) => {
-              if (!isActive) {
-                return;
-              }
-
-              setState({
-                response: undefined,
-                responseRequestKey: undefined,
-                responseRequestValues: undefined,
-                previewError: getErrorMessage(err, "Preview is unavailable."),
-                isPreviewLoading: false,
-                requestKey: requestState.requestKey,
-              });
-            },
-          });
-        });
+      void loadPreview();
     }, debounceMs);
 
     return () => {
@@ -389,25 +445,5 @@ export function useCurtailmentPlanPreview({
     return emptyPreviewResult;
   }
 
-  if (unsupportedDeviceSetPreviewError) {
-    return {
-      preview: undefined,
-      previewError: unsupportedDeviceSetPreviewError,
-      isPreviewLoading: false,
-    };
-  }
-
-  const hasCurrentPreviewState = requestState !== undefined && state.requestKey === requestState.requestKey;
-  const renderableResponse = requestState !== undefined ? state.response : undefined;
-  const hasCurrentResponse = requestState !== undefined && state.responseRequestKey === requestState.requestKey;
-  const previewValues =
-    hasCurrentResponse || state.responseRequestValues === undefined
-      ? values
-      : { ...values, ...state.responseRequestValues };
-
-  return {
-    preview: renderableResponse !== undefined ? toCurtailmentPlanPreview(renderableResponse, previewValues) : undefined,
-    previewError: hasCurrentPreviewState ? state.previewError : undefined,
-    isPreviewLoading: hasCurrentPreviewState ? state.isPreviewLoading : false,
-  };
+  return getPreviewResult(requestState, state, values);
 }

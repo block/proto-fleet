@@ -44,6 +44,7 @@ func main() {
 		DNSServers:      "8.8.8.8",
 		HashRate:        110.0,
 		Temperature:     45.0,
+		PowerW:          parseFloat("POWER_W", DefaultPowerW),
 		Pools: []Pool{
 			{
 				URL:  "stratum+tcp://btc.example.com:3333",

@@ -17,6 +17,7 @@ const (
 	statusCodeSummary = 11
 	statusCodePools   = 7
 	statusCodeDevices = 9
+	statusCodeStats   = 70
 
 	// Hashrate variation values (GH/s)
 	hashrate5sVariation  = 2000
@@ -78,6 +79,8 @@ func handleRPCConnection(conn net.Conn, state *MinerState) {
 		response = generateVersionResponse(state)
 	case "summary":
 		response = generateSummaryResponse(state)
+	case "stats":
+		response = generateStatsResponse(state)
 	case "pools":
 		response = generatePoolsResponse(state)
 	case "devs":
@@ -209,6 +212,53 @@ func generateSummaryResponse(state *MinerState) SummaryResponse {
 				PoolRejectedPerc:   rejectedPercent,
 				PoolStalePerc:      mockDevicePercentage,
 				LastGetwork:        now,
+			},
+		},
+		ID: mockMessageID,
+	}
+}
+
+func generateStatsResponse(state *MinerState) StatsResponse {
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+
+	now := time.Now().Unix()
+	hashRateGHS := state.effectiveHashRateLocked() * thsToGhsConversionFactor
+	ghs5s := hashRateGHS - hashrate5sVariation
+	if ghs5s < 0 {
+		ghs5s = 0
+	}
+	powerW := state.effectivePowerWLocked()
+
+	return StatsResponse{
+		Status: []StatusInfo{
+			{
+				Status:      "S",
+				When:        now,
+				Code:        statusCodeStats,
+				Msg:         "CGMiner stats",
+				Description: "cgminer 1.0.0",
+			},
+		},
+		Stats: []map[string]interface{}{
+			{
+				"STATS":   0,
+				"ID":      "BTM_SOC0",
+				"Elapsed": DefaultElapsedTime,
+			},
+			{
+				"STATS":       1,
+				"ID":          "BTM_SOC0",
+				"Elapsed":     DefaultElapsedTime,
+				"GHS 5s":      ghs5s,
+				"GHS av":      hashRateGHS,
+				"chain_power": fmt.Sprintf("%.0f W", powerW),
+				"power":       powerW,
+				"fan_num":     4,
+				"fan1":        7000,
+				"fan2":        7050,
+				"fan3":        6980,
+				"fan4":        7020,
 			},
 		},
 		ID: mockMessageID,

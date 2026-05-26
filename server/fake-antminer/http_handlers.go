@@ -455,9 +455,11 @@ func isValidDigestAuth(authHeader, username, password, method string) bool {
 
 	extractedUsername := matches[1]
 
-	// For a fake implementation, we validate the username matches
-	// In a real implementation, you would also validate the response hash
-	return extractedUsername == username
+	// For local dev, accept the configured username and the default root
+	// account. Some compose fixtures intentionally use model-specific
+	// usernames, while existing paired rows may still hold root credentials.
+	// In a real implementation, you would also validate the response hash.
+	return extractedUsername == username || extractedUsername == "root"
 }
 
 // generateNonce creates a random nonce for digest auth

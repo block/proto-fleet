@@ -134,6 +134,17 @@ func TestSetConfigSleepModePersistsAndZeroesHashrate(t *testing.T) {
 	if got := rpcDevs.Devices[0].MHSav; got != 0 {
 		t.Fatalf("expected RPC MHS av 0, got %v", got)
 	}
+
+	rpcStats := generateStatsResponse(state)
+	if len(rpcStats.Stats) != 2 {
+		t.Fatalf("expected 2 RPC stats entries, got %d", len(rpcStats.Stats))
+	}
+	if got := rpcStats.Stats[1]["GHS 5s"]; got != float64(0) {
+		t.Fatalf("expected RPC stats GHS 5s 0, got %#v", got)
+	}
+	if got := rpcStats.Stats[1]["chain_power"]; got != "200 W" {
+		t.Fatalf("expected RPC stats sleep chain_power %q, got %#v", "200 W", got)
+	}
 }
 
 func TestSetConfigLegacySleepModePersists(t *testing.T) {
@@ -173,5 +184,37 @@ func TestSetConfigLegacySleepModePersists(t *testing.T) {
 	}
 	if got := rpcSummary.Summary[0].GHS5s; got != 0 {
 		t.Fatalf("expected RPC GHS 5s 0, got %v", got)
+	}
+}
+
+func TestRPCStatsIncludesPowerForTelemetry(t *testing.T) {
+	state := &MinerState{
+		HashRate:        110,
+		PowerW:          12500,
+		BitmainWorkMode: WorkModeNormal,
+	}
+
+	rpcStats := generateStatsResponse(state)
+	if len(rpcStats.Stats) != 2 {
+		t.Fatalf("expected 2 RPC stats entries, got %d", len(rpcStats.Stats))
+	}
+
+	stats := rpcStats.Stats[1]
+	if got := stats["chain_power"]; got != "12500 W" {
+		t.Fatalf("expected chain_power %q, got %#v", "12500 W", got)
+	}
+	if got := stats["power"]; got != float64(12500) {
+		t.Fatalf("expected numeric power %v, got %#v", float64(12500), got)
+	}
+	if got := stats["GHS av"]; got != float64(110000) {
+		t.Fatalf("expected GHS av %v, got %#v", float64(110000), got)
+	}
+}
+
+func TestDigestAuthAcceptsRootAsDevAlias(t *testing.T) {
+	authHeader := `Digest username="root", realm="Antminer", nonce="test", uri="/cgi-bin/stats.cgi", response="ignored"`
+
+	if !isValidDigestAuth(authHeader, "root19", "root19", http.MethodGet) {
+		t.Fatal("expected root alias to authenticate for fake Antminer dev containers")
 	}
 }

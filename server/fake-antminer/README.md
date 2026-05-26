@@ -32,6 +32,7 @@ The miner can be configured using environment variables:
 - `SERIAL_NUMBER`: Serial number (default: "fake-antminer-1")
 - `MAC_ADDRESS`: MAC address (default: "00:11:22:33:44:55")
 - `FIRMWARE_VERSION`: Firmware version (default: "Antminer S19j Pro 110Th 28/11/2022 16:51:53")
+- `POWER_W`: Reported mining power in watts (default: `25000`)
 
 ### Authentication
 

@@ -2,6 +2,7 @@ import { MemoryRouter } from "react-router-dom";
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import PageHeader from "./PageHeader";
+import type { UseCurtailmentPillDataResult } from "./useCurtailmentPillData";
 import type { UseSchedulePillDataResult } from "./useSchedulePillData";
 import type { ScheduleListItem } from "@/protoFleet/api/useScheduleApi";
 
@@ -15,6 +16,11 @@ vi.mock("./LocationSelector", () => ({
 vi.mock("./SchedulePill", () => ({
   __esModule: true,
   default: ({ pillSchedule }: { pillSchedule: { name: string } }) => <div>{pillSchedule.name}</div>,
+}));
+
+vi.mock("./CurtailmentPill", () => ({
+  __esModule: true,
+  default: ({ event }: { event: { reason: string } }) => <div>{event.reason}</div>,
 }));
 
 vi.mock("@/shared/hooks/useWindowDimensions", () => ({
@@ -51,6 +57,30 @@ const createSchedulePillData = (overrides: Partial<UseSchedulePillDataResult> = 
   ...overrides,
 });
 
+const createCurtailmentPillData = (
+  overrides: Partial<UseCurtailmentPillDataResult> = {},
+): UseCurtailmentPillDataResult => ({
+  activeEvent: null,
+  refreshActiveCurtailment: vi.fn(),
+  ...overrides,
+});
+
+interface RenderPageHeaderOptions {
+  curtailmentPillData?: UseCurtailmentPillDataResult;
+  schedulePillData?: UseSchedulePillDataResult;
+}
+
+function renderPageHeader({
+  curtailmentPillData = createCurtailmentPillData(),
+  schedulePillData = createSchedulePillData(),
+}: RenderPageHeaderOptions = {}): void {
+  render(
+    <MemoryRouter>
+      <PageHeader curtailmentPillData={curtailmentPillData} schedulePillData={schedulePillData} />
+    </MemoryRouter>,
+  );
+}
+
 describe("PageHeader", () => {
   beforeEach(() => {
     mockUseWindowDimensions.mockReturnValue({
@@ -66,23 +96,32 @@ describe("PageHeader", () => {
       pillSchedule: createPillSchedule("Night reboot"),
     });
 
-    render(
-      <MemoryRouter>
-        <PageHeader schedulePillData={schedulePillData} />
-      </MemoryRouter>,
-    );
+    renderPageHeader({ schedulePillData });
 
     expect(screen.getByText("Night reboot")).toBeVisible();
   });
 
+  it("shows the phone widget row when an energy event is active even if setup is not dismissed", () => {
+    const curtailmentPillData = createCurtailmentPillData({
+      activeEvent: {
+        reason: "Grid peak call",
+        state: "active",
+        scopeLabel: "Whole org",
+        selectedMiners: 12,
+        estimatedReductionKw: 40,
+      },
+    });
+
+    renderPageHeader({ curtailmentPillData });
+
+    expect(screen.getByText("Grid peak call")).toBeVisible();
+  });
+
   it("keeps the phone widget row hidden when neither setup nor schedules need space", () => {
-    render(
-      <MemoryRouter>
-        <PageHeader schedulePillData={createSchedulePillData()} />
-      </MemoryRouter>,
-    );
+    renderPageHeader();
 
     expect(screen.queryByText("Continue setup")).not.toBeInTheDocument();
     expect(screen.queryByText("Night reboot")).not.toBeInTheDocument();
+    expect(screen.queryByText("Grid peak call")).not.toBeInTheDocument();
   });
 });

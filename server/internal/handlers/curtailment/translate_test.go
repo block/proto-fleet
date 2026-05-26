@@ -7,8 +7,21 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	pb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
+	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/modes"
 )
+
+func TestStrategyNameMapsSupportedProtoValues(t *testing.T) {
+	t.Parallel()
+
+	for _, strategy := range []pb.CurtailmentStrategy{
+		pb.CurtailmentStrategy_CURTAILMENT_STRATEGY_UNSPECIFIED,
+		pb.CurtailmentStrategy_CURTAILMENT_STRATEGY_LEAST_EFFICIENT_FIRST,
+	} {
+		assert.Equal(t, models.StrategyLeastEfficientFirst, strategyName(strategy))
+	}
+}
 
 // TestToInsufficientLoadError_IncludesAllNonZeroCounters pins the
 // contract that every non-zero exclusion counter on InsufficientLoadDetail
