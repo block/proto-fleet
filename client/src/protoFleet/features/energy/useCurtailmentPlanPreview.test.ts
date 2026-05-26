@@ -122,23 +122,12 @@ describe("useCurtailmentPlanPreview", () => {
     expect(
       buildPreviewCurtailmentPlanRequest({ ...baseValues, scopeType: "deviceSet", deviceSetIds: [] }),
     ).toBeUndefined();
-  });
-
-  it("does not build unsupported device-set preview requests", () => {
     expect(
       buildPreviewCurtailmentPlanRequest({
         ...baseValues,
         scopeType: "deviceSet",
         scopeId: "racks",
         deviceSetIds: ["rack-1"],
-      }),
-    ).toBeUndefined();
-    expect(
-      buildPreviewCurtailmentPlanRequest({
-        ...baseValues,
-        scopeType: "deviceSet",
-        scopeId: "groups",
-        deviceSetIds: ["group-1"],
       }),
     ).toBeUndefined();
   });

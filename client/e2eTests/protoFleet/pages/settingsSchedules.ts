@@ -83,11 +83,7 @@ export class SettingsSchedulesPage extends BasePage {
   }
 
   async openMinersTargetSelector() {
-    await this.page
-      .locator("button")
-      .filter({ has: this.page.getByText("Miners", { exact: true }) })
-      .first()
-      .click();
+    await this.page.getByRole("button", { name: "Miners Select", exact: true }).click();
     await this.validateTitleInModal("Select miners");
   }
 

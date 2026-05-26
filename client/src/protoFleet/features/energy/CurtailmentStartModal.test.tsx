@@ -160,8 +160,8 @@ describe("CurtailmentStartModal", () => {
     expect(screen.queryByText("Safety")).not.toBeInTheDocument();
     expect(screen.queryByText("Normal")).not.toBeInTheDocument();
     expect(screen.getByText("Restore behavior")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Racks\s+Select/ })).toBeEnabled();
-    expect(screen.getByRole("button", { name: /Groups\s+Select/ })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: /Racks\s+Select/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Groups\s+Select/ })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeEnabled();
   });
 
@@ -375,7 +375,7 @@ describe("CurtailmentStartModal", () => {
 
   it("only exposes curtailment options supported by the current API", async () => {
     const user = userEvent.setup();
-    const { onSubmit } = renderModal({ initialValues: { includeMaintenance: false } });
+    const { onSubmit } = renderModal({ initialValues: { ...configuredValues, includeMaintenance: false } });
     const startButton = screen.getByRole("button", { name: "Start curtailment" });
     const restoreSelectLayoutMock = mockVisibleSelectLayout();
 
@@ -412,7 +412,7 @@ describe("CurtailmentStartModal", () => {
 
   it("includes maintenance miners by default and confirms re-inclusion", async () => {
     const user = userEvent.setup();
-    const { onSubmit } = renderModal();
+    const { onSubmit } = renderModal({ initialValues: configuredValues });
 
     expect(getMaintenanceCheckbox()).toBeChecked();
     expect(screen.queryByText("Requires explicit force acknowledgement")).not.toBeInTheDocument();
@@ -445,27 +445,11 @@ describe("CurtailmentStartModal", () => {
 
   it("opens target selectors and submits the selected target scope", async () => {
     const user = userEvent.setup();
-    const { onSubmit } = renderModal({ initialValues: { includeMaintenance: false } });
+    const { onSubmit } = renderModal({ initialValues: { ...configuredValues, includeMaintenance: false } });
     const startButton = screen.getByRole("button", { name: "Start curtailment" });
 
-    await user.click(screen.getByRole("button", { name: /Racks\s+Select/ }));
-    expect(screen.getByRole("dialog", { name: "Rack selection" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Save racks" }));
-    expect(screen.getByRole("button", { name: /Racks\s+2 racks/ })).toBeInTheDocument();
-    expect(
-      screen.getAllByText(
-        "Rack and group curtailment previews are not supported yet. Select specific miners or the whole fleet to preview and start this curtailment.",
-      ),
-    ).toHaveLength(2);
-    expect(startButton).toBeDisabled();
-
-    await user.click(startButton);
-    expect(onSubmit).not.toHaveBeenCalled();
-
-    await user.click(screen.getByRole("button", { name: /Groups\s+Select/ }));
-    await user.click(screen.getByRole("button", { name: "Save groups" }));
-    expect(screen.getByRole("button", { name: /Groups\s+1 group/ })).toBeInTheDocument();
-    expect(startButton).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /Racks\s+Select/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Groups\s+Select/ })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /Miners\s+Select/ }));
     await user.click(screen.getByRole("button", { name: "Save miners" }));
@@ -500,6 +484,31 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getByText("Max duration must be greater than or equal to min duration.")).toBeInTheDocument();
     expect(screen.queryByText("Server-side max duration error")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Max duration (sec)")).toHaveAttribute("aria-invalid", "true");
+    expect(startButton).toBeDisabled();
+
+    await user.click(startButton);
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("blocks invalid uint32-backed numeric settings", async () => {
+    const user = userEvent.setup();
+    const { onSubmit } = renderModal({
+      initialValues: {
+        ...configuredValues,
+        includeMaintenance: false,
+        maxDurationSec: "604801",
+        restoreBatchSize: "-1",
+        restoreIntervalSec: "1.5",
+      },
+    });
+    const startButton = screen.getByRole("button", { name: "Start curtailment" });
+
+    expect(screen.getByText("Enter max duration of 604,800 or less.")).toBeInTheDocument();
+    expect(screen.getByText("Enter batch size of 0 or more.")).toBeInTheDocument();
+    expect(screen.getByText("Enter batch interval as a whole number.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Max duration (sec)")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByLabelText("Batch size (miners)")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByLabelText("Batch interval (sec)")).toHaveAttribute("aria-invalid", "true");
     expect(startButton).toBeDisabled();
 
     await user.click(startButton);
@@ -549,7 +558,7 @@ describe("CurtailmentStartModal", () => {
   it("blocks submissions when parent field errors are present", async () => {
     const user = userEvent.setup();
     const { onSubmit } = renderModal({
-      initialValues: { includeMaintenance: false },
+      initialValues: { ...configuredValues, includeMaintenance: false },
       errors: {
         targetKw: "Required",
       },
@@ -563,19 +572,14 @@ describe("CurtailmentStartModal", () => {
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
-  it("renders field validation errors with accessible error state", () => {
-    renderModal({
-      errors: {
-        targetKw: "Required",
-        reason: "Reason is required",
-      },
-    });
+  it("renders required start-field validation errors with accessible error state", () => {
+    renderModal();
 
     const targetInput = screen.getByLabelText("Target reduction");
     expect(targetInput).toHaveAttribute("aria-invalid", "true");
     expect(targetInput).toHaveAttribute("aria-describedby", "curtailment-target-kw-error");
-    expect(screen.getByText("Required")).toBeInTheDocument();
+    expect(screen.getByText("Enter a target reduction.")).toBeInTheDocument();
     expect(screen.getByLabelText("Reason")).toHaveAttribute("aria-invalid", "true");
-    expect(screen.getByText("Reason is required")).toBeInTheDocument();
+    expect(screen.getByText("Enter a reason.")).toBeInTheDocument();
   });
 });

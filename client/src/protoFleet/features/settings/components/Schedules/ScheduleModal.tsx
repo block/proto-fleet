@@ -11,6 +11,7 @@ import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import useFleet from "@/protoFleet/api/useFleet";
 import type { ScheduleListItem } from "@/protoFleet/api/useScheduleApi";
 import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
+import TargetSelectButton, { getTargetButtonLabel } from "@/protoFleet/components/TargetSelectButton";
 import {
   formatClientTimezoneLabel,
   formatTimezoneLabel,
@@ -75,37 +76,6 @@ interface ScheduleModalProps {
 const sectionTitleClassName = "text-emphasis-300 text-text-primary";
 const sectionBodyClassName = "grid gap-4";
 const popoverViewportPadding = minimalMargin * 2;
-
-const getTargetButtonLabel = (count: number, singular: string) =>
-  count > 0 ? `${count} ${count === 1 ? singular : `${singular}s`}` : "Select";
-
-interface TargetSelectButtonProps {
-  label: string;
-  value: string;
-  onClick: () => void;
-}
-
-const TargetSelectButton = ({ label, value, onClick }: TargetSelectButtonProps) => {
-  const isPlaceholder = value === "Select";
-
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="relative flex h-14 w-full items-center justify-between rounded-lg border border-border-5 bg-surface-base pr-4 pl-4 text-left outline-hidden"
-    >
-      <div className="flex min-w-0 flex-col pt-[18px]">
-        <span className="absolute top-[7px] text-200 text-text-primary-50">{label}</span>
-        <div
-          className={isPlaceholder ? "truncate text-300 text-text-primary-50" : "truncate text-300 text-text-primary"}
-        >
-          {value}
-        </div>
-      </div>
-      <ChevronDown width="w-3" className="shrink-0 text-text-primary-70" />
-    </button>
-  );
-};
 
 const weekdayMenuOptions: Array<{ value: DayOfWeek; label: string; shortLabel: string }> = [
   { value: DayOfWeek.SUNDAY, label: "Sunday", shortLabel: "Sun" },
@@ -861,7 +831,7 @@ const ScheduleModal = ({
 
             <div className={sectionBodyClassName}>
               <div className={sectionTitleClassName}>Apply to</div>
-              <div className="grid gap-4 tablet:grid-cols-3">
+              <div className="grid">
                 <TargetSelectButton
                   label="Racks"
                   value={getTargetButtonLabel(validRackTargetCount, "rack")}
