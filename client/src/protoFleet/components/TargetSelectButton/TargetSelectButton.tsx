@@ -9,7 +9,7 @@ interface TargetSelectButtonProps {
 
 function TargetSelectButton({ label, value, onClick }: TargetSelectButtonProps) {
   return (
-    <Row className="flex min-h-[72px] items-center justify-between gap-4 py-5">
+    <Row compact className="flex items-center justify-between gap-4">
       <span className="min-w-0 truncate text-emphasis-300 text-text-primary">{label}</span>
       <Button ariaLabel={`${label} ${value}`} text={value} variant={variants.secondary} onClick={onClick} />
     </Row>
