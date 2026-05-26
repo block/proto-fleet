@@ -121,22 +121,27 @@ function getObservedReductionKw(event: CurtailmentEvent, estimatedReductionKw: n
   return Math.max(estimatedReductionKw - observedWatts / 1000, 0);
 }
 
+const curtailmentHistoryPageSize = 100;
+const maxCurtailmentHistoryPages = 10;
+
 async function listCurtailmentEventsPageSet(stateFilter?: CurtailmentEventState): Promise<CurtailmentEvent[]> {
   const events: CurtailmentEvent[] = [];
   let pageToken = "";
+  let pageCount = 0;
 
   do {
     const response = await curtailmentClient.listCurtailmentEvents(
       create(ListCurtailmentEventsRequestSchema, {
-        pageSize: 100,
+        pageSize: curtailmentHistoryPageSize,
         pageToken,
         stateFilter: stateFilter ? mapCurtailmentEventStateToProto(stateFilter) : undefined,
       }),
     );
 
     events.push(...response.events);
+    pageCount += 1;
     pageToken = response.nextPageToken;
-  } while (pageToken);
+  } while (pageToken && pageCount < maxCurtailmentHistoryPages);
 
   return events;
 }
@@ -148,6 +153,18 @@ async function listAllCurtailmentEvents(stateFilters?: CurtailmentEventState[]):
 
   const eventsByState = await Promise.all(stateFilters.map((stateFilter) => listCurtailmentEventsPageSet(stateFilter)));
   return eventsByState.flat();
+}
+
+async function listAvailableCurtailmentEvents(stateFilters?: CurtailmentEventState[]): Promise<CurtailmentEvent[]> {
+  try {
+    return await listAllCurtailmentEvents(stateFilters);
+  } catch (error) {
+    if (isUnimplementedConnectError(error)) {
+      return [];
+    }
+
+    throw error;
+  }
 }
 
 function mapActiveEvent(event: CurtailmentEvent): CurtailmentActiveEvent {
@@ -324,7 +341,7 @@ export function useCurtailmentApi(): CurtailmentApi {
       try {
         const [activeResponse, eventsResponse] = await Promise.all([
           curtailmentClient.getActiveCurtailment(create(GetActiveCurtailmentRequestSchema, {})),
-          listAllCurtailmentEvents(stateFilters),
+          listAvailableCurtailmentEvents(stateFilters),
         ]);
         const historyEvents = await refreshHistoryEventsAfterActiveClears(
           activeResponse.event,

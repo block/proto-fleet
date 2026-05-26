@@ -104,6 +104,30 @@ describe("useCurtailmentApi", () => {
     expect(result.current.events).toHaveLength(0);
   });
 
+  it("keeps active curtailment visible while event history is unimplemented", async () => {
+    const event = createCurtailmentEvent({
+      eventUuid: "curt-active-only",
+      reason: "Active without history",
+    });
+    vi.mocked(curtailmentClient.getActiveCurtailment).mockResolvedValue(
+      create(GetActiveCurtailmentResponseSchema, { event }),
+    );
+    vi.mocked(curtailmentClient.listCurtailmentEvents).mockRejectedValue(
+      new ConnectError("not implemented", Code.Unimplemented),
+    );
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(result.current.activeEvent?.id).toBe("curt-active-only");
+    expect(result.current.activeEvent?.reason).toBe("Active without history");
+    expect(result.current.events).toHaveLength(0);
+    expect(mockHandleAuthErrors).not.toHaveBeenCalled();
+  });
+
   it("does not mix fixture kW values into live backend events", async () => {
     const event = createCurtailmentEvent();
     vi.mocked(curtailmentClient.getActiveCurtailment).mockResolvedValue(
@@ -170,6 +194,32 @@ describe("useCurtailmentApi", () => {
 
     expect(curtailmentClient.listCurtailmentEvents).toHaveBeenCalledTimes(2);
     expect(result.current.events.map((event) => event.id)).toEqual(["curt-page-1", "curt-page-2"]);
+  });
+
+  it("caps client-side history pagination", async () => {
+    const pagedEvents = Array.from({ length: 10 }, (_, index) =>
+      createCurtailmentEvent({
+        eventUuid: `curt-page-${index + 1}`,
+        state: CurtailmentEventState.COMPLETED,
+        reason: `Page ${index + 1}`,
+      }),
+    );
+
+    vi.mocked(curtailmentClient.getActiveCurtailment).mockResolvedValue(create(GetActiveCurtailmentResponseSchema, {}));
+    for (const event of pagedEvents) {
+      vi.mocked(curtailmentClient.listCurtailmentEvents).mockResolvedValueOnce(
+        create(ListCurtailmentEventsResponseSchema, { events: [event], nextPageToken: "next" }),
+      );
+    }
+
+    const { result } = renderHook(() => useCurtailmentApi());
+
+    await act(async () => {
+      await result.current.refreshCurtailment();
+    });
+
+    expect(curtailmentClient.listCurtailmentEvents).toHaveBeenCalledTimes(10);
+    expect(result.current.events.map((event) => event.id)).toEqual(pagedEvents.map((event) => event.eventUuid));
   });
 
   it("refetches history when active history rows remain after active curtailment clears", async () => {
