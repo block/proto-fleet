@@ -575,6 +575,50 @@ func TestReconciler_DispatchingPreWrite_CommitsBeforeCommand(t *testing.T) {
 	assert.Equal(t, models.TargetStateDispatched, store.targetsByEventID[eventID][0].State)
 }
 
+// A row-specific persistent write failure on the DISPATCHING pre-write
+// (non-race-loss) must burn a retry slot via recordDispatchFailure so a
+// stuck target eventually escalates to terminal — otherwise the event
+// stalls indefinitely. Mirrors the analogous restore-path coverage.
+func TestReconciler_CurtailPreWriteFailureBurnsRetryBudget(t *testing.T) {
+	store := newFakeStore()
+	disp := &fakeDispatcher{}
+
+	eventID := int64(10)
+	eventUUID := uuid.New()
+	store.events = []*models.Event{
+		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStatePending},
+	}
+	store.targetsByEventID[eventID] = []*models.Target{
+		{
+			CurtailmentEventID: eventID,
+			DeviceIdentifier:   "miner-1",
+			State:              models.TargetStatePending,
+			DesiredState:       models.DesiredStateCurtailed,
+			BaselinePowerW:     ptrFloat64(3000),
+		},
+	}
+	// Fail only the DISPATCHING pre-write (call 1); recordDispatchFailure's
+	// follow-up write at call 2 must succeed so retry_count actually lands.
+	store.updateTargetStateHook = func(_ string, _ interfaces.UpdateCurtailmentTargetStateParams, call int) error {
+		if call == 1 {
+			return errors.New("transient row write failure")
+		}
+		return nil
+	}
+
+	r := newReconcilerForTest(store, disp)
+	r.runTick(context.Background())
+
+	assert.Equal(t, 0, disp.curtailCalls,
+		"pre-write failure must short-circuit before cmd.Curtail")
+	final := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStatePending, final.State,
+		"target stays in the prior state after a pre-write failure under MaxRetries")
+	assert.Equal(t, int32(1), final.RetryCount,
+		"pre-write failure must bump retry_count so the event can't stall indefinitely")
+	require.NotNil(t, final.LastError, "pre-write failure must record last_error")
+}
+
 // If Stop moves the parent event out of the active phase after the liveness
 // read but before the DISPATCHING pre-write, the write must race-lose and the
 // reconciler must not issue another Curtail.

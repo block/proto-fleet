@@ -370,10 +370,15 @@ func (r *Reconciler) dispatchOneCurtail(ctx context.Context, ev *models.Event, t
 		State: models.TargetStateDispatching,
 	}
 	if err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, dispatchingParams); err != nil {
-		if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
-			slog.Error("curtailment reconciler: dispatching pre-write failed",
-				"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
+		if errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
+			return
 		}
+		slog.Error("curtailment reconciler: dispatching pre-write failed",
+			"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
+		// Symmetric to dispatchRestoreBatch: burn one retry slot so a
+		// row-specific persistent write failure escalates to terminal
+		// after MaxRetries instead of stalling the event indefinitely.
+		r.recordDispatchFailure(ctx, ev, t, err.Error(), nonTerminalFailureState)
 		return
 	}
 	t.State = models.TargetStateDispatching
