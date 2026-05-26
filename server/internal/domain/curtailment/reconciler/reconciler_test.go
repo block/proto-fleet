@@ -730,7 +730,13 @@ func TestReconciler_RecoversOrphanedDispatchingTargetOnActiveEvent(t *testing.T)
 // DISPATCHING orphan whose RetryCount has already hit MaxRetries must NOT
 // be redispatched. Matches the symmetric Drifted-arm backstop and prevents
 // budget-exhausted orphans from cycling indefinitely.
-func TestReconciler_ObserveActive_DispatchingOrphanRespectsRetryBudget(t *testing.T) {
+// A DISPATCHING orphan whose retry_count is already at MaxRetries must
+// terminalize on the next tick rather than loop forever in DISPATCHING.
+// The recordDispatchFailure fallback (BumpTargetRetry on writeTargetState
+// failure) can leave a target in DISPATCHING with a bumped retry count,
+// so observeActive must escalate exhausted orphans through the same
+// helper to reach RESTORE_FAILED.
+func TestReconciler_ObserveActive_ExhaustedDispatchingOrphanEscalates(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
 
@@ -757,12 +763,13 @@ func TestReconciler_ObserveActive_DispatchingOrphanRespectsRetryBudget(t *testin
 	r.runTick(context.Background())
 
 	assert.Equal(t, 0, disp.curtailCalls,
-		"budget-exhausted DISPATCHING orphan must not be redispatched")
+		"exhausted DISPATCHING orphan must not be redispatched")
 	final := store.targetsByEventID[eventID][0]
-	assert.Equal(t, models.TargetStateDispatching, final.State,
-		"budget-exhausted DISPATCHING orphan must stay DISPATCHING (not silently flip)")
-	assert.Equal(t, int32(3), final.RetryCount,
-		"budget-exhausted DISPATCHING orphan must not bump RetryCount further")
+	assert.Equal(t, models.TargetStateRestoreFailed, final.State,
+		"exhausted DISPATCHING orphan must escalate to RESTORE_FAILED via recordDispatchFailure")
+	assert.Equal(t, int32(4), final.RetryCount,
+		"recordDispatchFailure bumps retry_count once more on escalation")
+	require.NotNil(t, final.LastError, "escalation records a last_error")
 }
 
 // A race-loss on the orphan-redispatch pre-write must not fire Curtail
@@ -929,7 +936,12 @@ func TestReconciler_DriftDetectionRetriesDispatch(t *testing.T) {
 	assert.Equal(t, int32(0), final.RetryCount)
 }
 
-func TestReconciler_RetryExhaustionLeavesDrifted(t *testing.T) {
+// A Drifted target whose retry_count already sits at MaxRetries must
+// escalate to the terminal state rather than loop in Drifted. Mirrors
+// the DISPATCHING arm: BumpTargetRetry's fallback can bump retry_count
+// past the budget without a state transition, so observeActive routes
+// exhausted Drifted through recordDispatchFailure to reach RESTORE_FAILED.
+func TestReconciler_RetryExhaustedDriftedEscalatesToRestoreFailed(t *testing.T) {
 	store := newFakeStore()
 	disp := &fakeDispatcher{}
 
@@ -938,7 +950,6 @@ func TestReconciler_RetryExhaustionLeavesDrifted(t *testing.T) {
 	store.events = []*models.Event{
 		{ID: eventID, EventUUID: eventUUID, OrgID: 1, State: models.EventStateActive},
 	}
-	// Already drifted at the cap; reconciler should leave it alone.
 	store.targetsByEventID[eventID] = []*models.Target{
 		{CurtailmentEventID: eventID, DeviceIdentifier: "miner-1", State: models.TargetStateDrifted, BaselinePowerW: ptrFloat64(3000), RetryCount: 3},
 	}
@@ -946,8 +957,14 @@ func TestReconciler_RetryExhaustionLeavesDrifted(t *testing.T) {
 	r := newReconcilerForTest(store, disp)
 	r.runTick(context.Background())
 
-	assert.Equal(t, 0, disp.curtailCalls)
-	assert.Equal(t, models.TargetStateDrifted, store.targetsByEventID[eventID][0].State)
+	assert.Equal(t, 0, disp.curtailCalls,
+		"exhausted Drifted target must not be re-dispatched")
+	final := store.targetsByEventID[eventID][0]
+	assert.Equal(t, models.TargetStateRestoreFailed, final.State,
+		"exhausted Drifted target must escalate to RESTORE_FAILED via recordDispatchFailure")
+	assert.Equal(t, int32(4), final.RetryCount,
+		"recordDispatchFailure bumps retry_count once more on escalation")
+	require.NotNil(t, final.LastError, "escalation records a last_error")
 }
 
 func TestReconciler_PerEventErrorIsolation(t *testing.T) {

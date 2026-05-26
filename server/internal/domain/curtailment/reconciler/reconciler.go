@@ -560,11 +560,25 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 		case models.TargetStateDispatching:
 			// Orphan from an interrupted prior tick; redispatch.
 			if t.RetryCount >= r.cfg.MaxRetries {
+				// Escalate via recordDispatchFailure so the target reaches
+				// the terminal state. Skipping with `continue` would leave
+				// the row pinned in DISPATCHING after BumpTargetRetry's
+				// fallback path bumped retry_count past MaxRetries without
+				// a state transition.
+				r.recordDispatchFailure(cmdCtx, ev, t,
+					"retry budget exhausted from interrupted dispatch",
+					models.TargetStateDispatching)
 				continue
 			}
 			r.dispatchOneCurtail(cmdCtx, ev, t, models.TargetStateDispatching)
 		case models.TargetStateDrifted:
 			if t.RetryCount >= r.cfg.MaxRetries {
+				// Symmetric to the DISPATCHING arm: a Drifted target whose
+				// retry budget was bumped past MaxRetries by the
+				// BumpTargetRetry fallback must terminalize, not loop.
+				r.recordDispatchFailure(cmdCtx, ev, t,
+					"retry budget exhausted on drifted target",
+					models.TargetStateDrifted)
 				continue
 			}
 			r.dispatchOneCurtail(cmdCtx, ev, t, models.TargetStateDrifted)
