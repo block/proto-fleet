@@ -25,6 +25,10 @@ const { mockUseCurtailmentPlanPreview } = vi.hoisted(() => ({
 }));
 
 vi.mock("@/protoFleet/features/energy/useCurtailmentPlanPreview", () => ({
+  getUnsupportedDeviceSetPreviewError: (values: CurtailmentFormValues) =>
+    values.scopeType === "deviceSet" && values.deviceSetIds.length > 0
+      ? "Rack and group curtailment previews are not supported yet. Select specific miners or the whole fleet to preview and start this curtailment."
+      : undefined,
   useCurtailmentPlanPreview: mockUseCurtailmentPlanPreview,
 }));
 
@@ -156,8 +160,8 @@ describe("CurtailmentStartModal", () => {
     expect(screen.queryByText("Safety")).not.toBeInTheDocument();
     expect(screen.queryByText("Normal")).not.toBeInTheDocument();
     expect(screen.getByText("Restore behavior")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Racks\s+Select/ })).toBeEnabled();
-    expect(screen.getByRole("button", { name: /Groups\s+Select/ })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: /Racks\s+Select/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Groups\s+Select/ })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Miners\s+Select/ })).toBeEnabled();
   });
 
@@ -292,7 +296,7 @@ describe("CurtailmentStartModal", () => {
     expect(screen.getAllByText("Preview is unavailable until a valid target reduction is entered.")).toHaveLength(2);
   });
 
-  it("renders controlled preview props for device-set scopes", () => {
+  it("shows unsupported target-scope errors before controlled preview props", () => {
     renderModal({
       initialValues: {
         ...configuredValues,
@@ -304,8 +308,13 @@ describe("CurtailmentStartModal", () => {
       preview,
     });
 
-    expect(screen.getAllByText("Curtail 18 miners across the fleet immediately")).toHaveLength(2);
-    expect(screen.getByRole("button", { name: "Start curtailment" })).toBeEnabled();
+    expect(
+      screen.getAllByText(
+        "Rack and group curtailment previews are not supported yet. Select specific miners or the whole fleet to preview and start this curtailment.",
+      ),
+    ).toHaveLength(2);
+    expect(screen.queryByText("Curtail 18 miners across the fleet immediately")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start curtailment" })).toBeDisabled();
   });
 
   it("renders estimated reduction against the requested reduction", () => {
@@ -439,26 +448,8 @@ describe("CurtailmentStartModal", () => {
     const { onSubmit } = renderModal({ initialValues: { ...configuredValues, includeMaintenance: false } });
     const startButton = screen.getByRole("button", { name: "Start curtailment" });
 
-    await user.click(screen.getByRole("button", { name: /Racks\s+Select/ }));
-    expect(screen.getByRole("dialog", { name: "Rack selection" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Save racks" }));
-    expect(screen.getByRole("button", { name: /Racks\s+2 racks/ })).toBeInTheDocument();
-    expect(startButton).toBeEnabled();
-
-    await user.click(startButton);
-    expect(onSubmit).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        scopeType: "deviceSet",
-        scopeId: "racks",
-        deviceSetIds: ["rack-1", "rack-2"],
-        deviceIdentifiers: [],
-      }),
-    );
-
-    await user.click(screen.getByRole("button", { name: /Groups\s+Select/ }));
-    await user.click(screen.getByRole("button", { name: "Save groups" }));
-    expect(screen.getByRole("button", { name: /Groups\s+1 group/ })).toBeInTheDocument();
-    expect(startButton).toBeEnabled();
+    expect(screen.queryByRole("button", { name: /Racks\s+Select/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Groups\s+Select/ })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /Miners\s+Select/ }));
     await user.click(screen.getByRole("button", { name: "Save miners" }));

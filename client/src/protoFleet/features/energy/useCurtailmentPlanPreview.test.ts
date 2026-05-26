@@ -114,19 +114,6 @@ describe("useCurtailmentPlanPreview", () => {
     expect(minerRequest.scope.value.deviceIdentifiers).toEqual(["miner-1", "miner-2"]);
     expect(minerRequest.includeMaintenance).toBe(false);
     expect(minerRequest.forceIncludeMaintenance).toBe(false);
-
-    const deviceSetRequest = buildPreviewCurtailmentPlanRequest({
-      ...baseValues,
-      scopeType: "deviceSet",
-      scopeId: "racks",
-      deviceSetIds: ["rack-1", "rack-2"],
-    });
-
-    expect(deviceSetRequest?.scope.case).toBe("deviceSetIds");
-    if (deviceSetRequest?.scope.case !== "deviceSetIds") {
-      throw new Error("Expected deviceSetIds scope");
-    }
-    expect(deviceSetRequest.scope.value.deviceSetIds).toEqual(["rack-1", "rack-2"]);
   });
 
   it("does not build a request until target and scope are valid", () => {
@@ -135,10 +122,17 @@ describe("useCurtailmentPlanPreview", () => {
     expect(
       buildPreviewCurtailmentPlanRequest({ ...baseValues, scopeType: "deviceSet", deviceSetIds: [] }),
     ).toBeUndefined();
+    expect(
+      buildPreviewCurtailmentPlanRequest({
+        ...baseValues,
+        scopeType: "deviceSet",
+        scopeId: "racks",
+        deviceSetIds: ["rack-1"],
+      }),
+    ).toBeUndefined();
   });
 
-  it("fetches previews for selected device sets", async () => {
-    mockPreviewCurtailmentPlan.mockResolvedValueOnce(previewResponse());
+  it("surfaces unsupported device-set previews without calling the API", () => {
     const { result } = renderPreviewHook({
       ...baseValues,
       scopeType: "deviceSet",
@@ -146,18 +140,13 @@ describe("useCurtailmentPlanPreview", () => {
       deviceSetIds: ["rack-1"],
     });
 
-    await waitFor(() => {
-      expect(result.current.preview?.selectedMinerCount).toBe(3);
+    expect(result.current).toEqual({
+      preview: undefined,
+      previewError:
+        "Rack and group curtailment previews are not supported yet. Select specific miners or the whole fleet to preview and start this curtailment.",
+      isPreviewLoading: false,
     });
-    expect(mockPreviewCurtailmentPlan).toHaveBeenCalledWith(
-      expect.objectContaining({
-        scope: expect.objectContaining({
-          case: "deviceSetIds",
-          value: expect.objectContaining({ deviceSetIds: ["rack-1"] }),
-        }),
-      }),
-      expect.anything(),
-    );
+    expect(mockPreviewCurtailmentPlan).not.toHaveBeenCalled();
   });
 
   it("fetches and maps a preview response", async () => {

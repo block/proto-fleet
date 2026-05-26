@@ -8,7 +8,6 @@ import {
   CurtailmentPriority as ProtoCurtailmentPriority,
   CurtailmentStrategy as ProtoCurtailmentStrategy,
   ScopeDeviceListSchema,
-  ScopeDeviceSetsSchema,
   ScopeWholeOrgSchema,
   type StartCurtailmentRequest,
   StartCurtailmentRequestSchema,
@@ -58,9 +57,6 @@ function buildScope(values: CurtailmentSubmitValues): StartCurtailmentRequest["s
       }
       break;
     case "deviceSet":
-      if (values.deviceSetIds.length > 0) {
-        return { case: "deviceSetIds", value: create(ScopeDeviceSetsSchema, { deviceSetIds: values.deviceSetIds }) };
-      }
       break;
   }
 

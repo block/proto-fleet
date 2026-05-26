@@ -5,10 +5,11 @@ import FullScreenTwoPaneModal, {
 } from "@/protoFleet/components/FullScreenTwoPaneModal";
 import TargetSelectButton, { getTargetButtonLabel } from "@/protoFleet/components/TargetSelectButton";
 import { formatCurtailmentKw as formatKw } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
-import { useCurtailmentPlanPreview } from "@/protoFleet/features/energy/useCurtailmentPlanPreview";
-import GroupSelectionModal from "@/protoFleet/features/settings/components/Schedules/GroupSelectionModal";
+import {
+  getUnsupportedDeviceSetPreviewError,
+  useCurtailmentPlanPreview,
+} from "@/protoFleet/features/energy/useCurtailmentPlanPreview";
 import MinerSelectionModal from "@/protoFleet/features/settings/components/Schedules/MinerSelectionModal";
-import RackSelectionModal from "@/protoFleet/features/settings/components/Schedules/RackSelectionModal";
 import { Alert } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Checkbox from "@/shared/components/Checkbox";
@@ -112,7 +113,6 @@ interface TypedSelectProps<Value extends string> extends Pick<SelectProps, "clas
   onChange: (value: Value) => void;
 }
 
-type DeviceSetScopeId = "racks" | "groups";
 type ParsedNumberField = { parsed?: number; error?: string };
 
 const defaultValues: CurtailmentFormValues = {
@@ -375,14 +375,6 @@ function PreviewPane({ preview, previewError, isPreviewLoading = false }: Previe
   );
 }
 
-function getSelectedDeviceSetIds(values: CurtailmentFormValues, scopeId: DeviceSetScopeId): string[] {
-  if (values.scopeType !== "deviceSet" || values.scopeId !== scopeId) {
-    return [];
-  }
-
-  return values.deviceSetIds;
-}
-
 function getSelectedMinerIds(values: CurtailmentFormValues): string[] {
   if (values.scopeType !== "explicitMiners") {
     return [];
@@ -407,8 +399,6 @@ function CurtailmentStartModalContent({
   const [showMaintenanceConfirmation, setShowMaintenanceConfirmation] = useState(false);
   const [maintenanceInclusionConfirmed, setMaintenanceInclusionConfirmed] = useState(false);
   const [submitAfterMaintenanceConfirmation, setSubmitAfterMaintenanceConfirmation] = useState(false);
-  const [showRackSelectionModal, setShowRackSelectionModal] = useState(false);
-  const [showGroupSelectionModal, setShowGroupSelectionModal] = useState(false);
   const [showMinerSelectionModal, setShowMinerSelectionModal] = useState(false);
   const updateValue = <Key extends keyof CurtailmentFormValues>(key: Key, value: CurtailmentFormValues[Key]) =>
     setValues((current) => ({ ...current, [key]: value }));
@@ -416,38 +406,29 @@ function CurtailmentStartModalContent({
   const localErrors = useMemo(() => validateCurtailmentFormValues(values), [values]);
   const effectiveErrors = { ...errors, ...localErrors };
   const isEditMode = mode === "edit";
+  const unsupportedDeviceSetPreviewError = getUnsupportedDeviceSetPreviewError(values);
   const hasControlledPreview = preview !== undefined || previewError !== undefined;
   const apiPreview = useCurtailmentPlanPreview({
     open,
     values,
     disabled: hasControlledPreview,
   });
-  const previewState: PreviewPaneProps = hasControlledPreview
+  let previewState: PreviewPaneProps = hasControlledPreview
     ? { preview, previewError, isPreviewLoading: false }
     : apiPreview;
+
+  if (unsupportedDeviceSetPreviewError) {
+    previewState = { preview: undefined, previewError: unsupportedDeviceSetPreviewError, isPreviewLoading: false };
+  }
 
   const hasBlockingValidationError =
     previewState.previewError !== undefined ||
     Object.keys(localErrors).length > 0 ||
     Object.keys(errors ?? {}).length > 0;
   const selectedTargets = {
-    racks: getSelectedDeviceSetIds(values, "racks"),
-    groups: getSelectedDeviceSetIds(values, "groups"),
     miners: getSelectedMinerIds(values),
   };
   const previewPane = <PreviewPane {...previewState} />;
-
-  const handleDeviceSetSelection = (deviceSetIds: string[], scopeId: DeviceSetScopeId) => {
-    const hasSelectedDeviceSets = deviceSetIds.length > 0;
-
-    updateValues((current) => ({
-      ...current,
-      scopeType: hasSelectedDeviceSets ? "deviceSet" : "wholeOrg",
-      scopeId: hasSelectedDeviceSets ? scopeId : "whole-org",
-      deviceSetIds,
-      deviceIdentifiers: [],
-    }));
-  };
 
   const handleMinerSelection = (deviceIdentifiers: string[]) => {
     const hasSelectedMiners = deviceIdentifiers.length > 0;
@@ -612,17 +593,7 @@ function CurtailmentStartModalContent({
             </Section>
 
             <Section title="Apply to">
-              <div className="grid gap-4 tablet:grid-cols-3">
-                <TargetSelectButton
-                  label="Racks"
-                  value={getTargetButtonLabel(selectedTargets.racks.length, "rack")}
-                  onClick={() => setShowRackSelectionModal(true)}
-                />
-                <TargetSelectButton
-                  label="Groups"
-                  value={getTargetButtonLabel(selectedTargets.groups.length, "group")}
-                  onClick={() => setShowGroupSelectionModal(true)}
-                />
+              <div className="grid">
                 <TargetSelectButton
                   label="Miners"
                   value={getTargetButtonLabel(selectedTargets.miners.length, "miner")}
@@ -682,28 +653,6 @@ function CurtailmentStartModalContent({
         </div>
       </Dialog>
 
-      {showRackSelectionModal ? (
-        <RackSelectionModal
-          open={showRackSelectionModal}
-          selectedRackIds={selectedTargets.racks}
-          onDismiss={() => setShowRackSelectionModal(false)}
-          onSave={(rackIds) => {
-            handleDeviceSetSelection(rackIds, "racks");
-            setShowRackSelectionModal(false);
-          }}
-        />
-      ) : null}
-      {showGroupSelectionModal ? (
-        <GroupSelectionModal
-          open={showGroupSelectionModal}
-          selectedGroupIds={selectedTargets.groups}
-          onDismiss={() => setShowGroupSelectionModal(false)}
-          onSave={(groupIds) => {
-            handleDeviceSetSelection(groupIds, "groups");
-            setShowGroupSelectionModal(false);
-          }}
-        />
-      ) : null}
       {showMinerSelectionModal ? (
         <MinerSelectionModal
           open={showMinerSelectionModal}

@@ -10,7 +10,6 @@ import {
   PreviewCurtailmentPlanRequestSchema,
   type PreviewCurtailmentPlanResponse,
   ScopeDeviceListSchema,
-  ScopeDeviceSetsSchema,
   ScopeWholeOrgSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
@@ -114,16 +113,7 @@ function buildScope(values: CurtailmentPlanPreviewRequestValues): PreviewCurtail
         value: create(ScopeWholeOrgSchema, {}),
       };
     case "deviceSet":
-      if (values.deviceSetIds.length === 0) {
-        return undefined;
-      }
-
-      return {
-        case: "deviceSetIds",
-        value: create(ScopeDeviceSetsSchema, {
-          deviceSetIds: values.deviceSetIds,
-        }),
-      };
+      return undefined;
     case "explicitMiners":
       if (values.deviceIdentifiers.length === 0) {
         return undefined;
@@ -162,6 +152,14 @@ export function buildPreviewCurtailmentPlanRequest(
     includeMaintenance: values.includeMaintenance,
     forceIncludeMaintenance: values.includeMaintenance,
   });
+}
+
+export function getUnsupportedDeviceSetPreviewError(values: CurtailmentFormValues): string | undefined {
+  if (values.scopeType !== "deviceSet" || values.deviceSetIds.length === 0) {
+    return undefined;
+  }
+
+  return "Rack and group curtailment previews are not supported yet. Select specific miners or the whole fleet to preview and start this curtailment.";
 }
 
 function pluralize(value: number, singular: string): string {
@@ -308,6 +306,8 @@ export function useCurtailmentPlanPreview({
           requestKey: toJsonString(PreviewCurtailmentPlanRequestSchema, request),
         };
   }, [requestValues]);
+  const unsupportedDeviceSetPreviewError = getUnsupportedDeviceSetPreviewError(values);
+
   useEffect(() => {
     if (!open || disabled) {
       return;
@@ -389,6 +389,14 @@ export function useCurtailmentPlanPreview({
 
   if (!open || disabled) {
     return emptyPreviewResult;
+  }
+
+  if (unsupportedDeviceSetPreviewError) {
+    return {
+      preview: undefined,
+      previewError: unsupportedDeviceSetPreviewError,
+      isPreviewLoading: false,
+    };
   }
 
   const hasCurrentPreviewState = requestState !== undefined && state.requestKey === requestState.requestKey;

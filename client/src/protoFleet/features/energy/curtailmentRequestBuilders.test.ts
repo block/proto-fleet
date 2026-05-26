@@ -29,7 +29,7 @@ describe("curtailmentRequestBuilders", () => {
         ...baseValues,
         scopeType: "deviceSet",
         scopeId: "racks",
-        deviceSetIds: [],
+        deviceSetIds: ["rack-1"],
       }),
     ).toThrow("Select at least one rack, group, or miner for this curtailment.");
 
