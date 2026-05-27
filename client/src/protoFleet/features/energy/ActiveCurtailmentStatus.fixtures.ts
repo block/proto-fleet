@@ -1,4 +1,4 @@
-import type { ActiveCurtailmentEvent } from "@/protoFleet/features/energy/curtailmentTypes";
+import type { ActiveCurtailmentEvent } from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
 
 export const curtailingCurtailmentEvent: ActiveCurtailmentEvent = {
   reason: "ERCOT ERS obligation",

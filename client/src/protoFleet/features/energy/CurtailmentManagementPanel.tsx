@@ -3,14 +3,13 @@ import clsx from "clsx";
 
 import { useCurtailmentApi } from "@/protoFleet/api/useCurtailmentApi";
 import ActiveCurtailmentStatus from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
-import CurtailmentHistory from "@/protoFleet/features/energy/CurtailmentHistory";
+import CurtailmentHistory, { type CurtailmentHistoryEvent } from "@/protoFleet/features/energy/CurtailmentHistory";
 import CurtailmentStartModal, {
   type CurtailmentSubmitValues,
 } from "@/protoFleet/features/energy/CurtailmentStartModal";
 import CurtailmentStopConfirmationDialog, {
   type CurtailmentStopConfirmationAction,
 } from "@/protoFleet/features/energy/CurtailmentStopConfirmationDialog";
-import type { CurtailmentHistoryEvent } from "@/protoFleet/features/energy/curtailmentTypes";
 import { Alert } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";

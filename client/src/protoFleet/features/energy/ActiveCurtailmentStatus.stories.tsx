@@ -1,7 +1,9 @@
 import { type ComponentProps, type ReactElement, useEffect, useMemo, useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
-import ActiveCurtailmentStatus from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
+import ActiveCurtailmentStatus, {
+  type ActiveCurtailmentEvent,
+} from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
 import {
   curtailedCurtailmentEvent,
   curtailingCurtailmentEvent,
@@ -12,7 +14,6 @@ import {
 import CurtailmentStopConfirmationDialog, {
   type CurtailmentStopConfirmationAction,
 } from "@/protoFleet/features/energy/CurtailmentStopConfirmationDialog";
-import type { ActiveCurtailmentEvent } from "@/protoFleet/features/energy/curtailmentTypes";
 
 const meta = {
   title: "Proto Fleet/Energy/Active Curtailment Status",

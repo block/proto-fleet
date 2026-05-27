@@ -13,6 +13,10 @@ import {
   StopCurtailmentRequestSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { assertNotAborted, isAbortError, toError } from "@/protoFleet/api/requestErrors";
+import type {
+  ActiveCurtailmentEvent,
+  CurtailmentTargetRollup,
+} from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
 import {
   getCurtailmentEventEstimatedReductionKw,
   getCurtailmentEventScopeLabel,
@@ -20,15 +24,9 @@ import {
   isActiveCurtailmentEventState,
   mapCurtailmentEventState,
 } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
+import type { CurtailmentHistoryEvent, CurtailmentPriority } from "@/protoFleet/features/energy/CurtailmentHistory";
 import { buildStartCurtailmentRequest } from "@/protoFleet/features/energy/curtailmentRequestBuilders";
 import type { CurtailmentSubmitValues } from "@/protoFleet/features/energy/CurtailmentStartModal";
-import {
-  type ActiveCurtailmentEvent,
-  type CurtailmentHistoryEvent,
-  curtailmentHistoryPageSize,
-  type CurtailmentPriority,
-  type CurtailmentTargetRollup,
-} from "@/protoFleet/features/energy/curtailmentTypes";
 import { useAuthErrors } from "@/protoFleet/store";
 
 export interface RefreshCurtailmentOptions {
@@ -80,6 +78,7 @@ export interface UseCurtailmentApiResult extends CurtailmentSnapshot {
 }
 
 const wattsPerKilowatt = 1000;
+const curtailmentHistoryPageSize = 50;
 const initialHistoryPagination: CurtailmentHistoryPaginationState = {
   currentPage: 0,
   nextPageToken: "",

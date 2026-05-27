@@ -7,16 +7,39 @@ import {
   formatCurtailmentMinerCount as formatMinerCount,
   getCurtailmentTargetKw as getTargetKw,
 } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
-import CurtailmentStatusDot from "@/protoFleet/features/energy/CurtailmentStatusDot";
-import {
-  formatCurtailmentDateTimeOrFallback as formatDateTime,
-  formatCurtailmentEstimatedCompletion as formatEstimatedCompletion,
-} from "@/protoFleet/features/energy/curtailmentTimeUtils";
-import type { ActiveCurtailmentEvent, CurtailmentTargetState } from "@/protoFleet/features/energy/curtailmentTypes";
 import { Alert, Success } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import ProgressCircular from "@/shared/components/ProgressCircular";
+
+export type CurtailmentTargetState =
+  | "pending"
+  | "dispatched"
+  | "confirmed"
+  | "drifted"
+  | "resolved"
+  | "released"
+  | "restoreFailed";
+
+export interface CurtailmentTargetRollup {
+  state: CurtailmentTargetState;
+  count: number;
+}
+
+export interface ActiveCurtailmentEvent {
+  reason: string;
+  state: CurtailmentEventState;
+  scopeLabel: string;
+  endedAt?: string;
+  selectedMiners: number;
+  estimatedReductionKw: number;
+  targetKw?: number;
+  observedReductionKw: number;
+  remainingPowerKw?: number;
+  restoreBatchSize: number;
+  restoreBatchIntervalSec: number;
+  rollups: CurtailmentTargetRollup[];
+}
 
 interface ActiveCurtailmentStatusProps {
   event: ActiveCurtailmentEvent;
@@ -41,6 +64,10 @@ interface ActiveCurtailmentProgressBarProps {
   secondaryClassName: string;
   secondaryProgressPercent: number;
   showSecondaryProgress: boolean;
+}
+
+interface DotProps {
+  className: string;
 }
 
 interface ProgressLegendItemProps {
@@ -125,6 +152,15 @@ interface ActiveCurtailmentLegend {
   secondaryLabel: string;
 }
 
+const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+});
+const millisecondsPerSecond = 1000;
+const unavailableTimeLabel = "Time unavailable";
+
 const countedTargetStates: CurtailmentTargetState[] = [
   "pending",
   "dispatched",
@@ -156,6 +192,10 @@ const manageableDisplayStates = new Set<ActiveCurtailmentDisplayState>([
   "restoring",
 ]);
 
+function Dot({ className }: DotProps): ReactElement {
+  return <span className={clsx("inline-block h-2 w-2 shrink-0 rounded-full", className)} />;
+}
+
 function SectionHeader({ title, children }: SectionHeaderProps): ReactElement {
   return (
     <div className="flex items-start justify-between gap-4 phone:flex-col phone:items-stretch">
@@ -181,6 +221,42 @@ function StatBlock({ label, value, detail }: StatBlockProps): ReactElement {
       ) : null}
     </div>
   );
+}
+
+function getDateTime(value?: string): Date | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
+function formatDateTimeValue(date: Date): string {
+  return dateTimeFormatter.format(date);
+}
+
+function formatDateTime(value?: string): string {
+  const date = getDateTime(value);
+  return date ? formatDateTimeValue(date) : unavailableTimeLabel;
+}
+
+function formatEstimatedCompletion(remainingSeconds: number, currentTime = new Date()): string {
+  if (!Number.isFinite(remainingSeconds)) {
+    return unavailableTimeLabel;
+  }
+
+  const currentTimeMs = currentTime.getTime();
+  const estimatedCompletionMs = currentTimeMs + Math.max(remainingSeconds, 0) * millisecondsPerSecond;
+
+  if (!Number.isFinite(currentTimeMs) || !Number.isFinite(estimatedCompletionMs)) {
+    return unavailableTimeLabel;
+  }
+
+  const estimatedCompletionDate = new Date(estimatedCompletionMs);
+  return Number.isNaN(estimatedCompletionDate.getTime())
+    ? unavailableTimeLabel
+    : formatDateTimeValue(estimatedCompletionDate);
 }
 
 function getProgressPercent(value: number, total: number): number {
@@ -532,7 +608,7 @@ function ActiveCurtailmentProgressBar({
 function ProgressLegendItem({ dotClassName, label }: ProgressLegendItemProps): ReactElement {
   return (
     <span className="flex items-center gap-2">
-      <CurtailmentStatusDot className={clsx("h-3 w-3", dotClassName)} />
+      <Dot className={clsx("h-3 w-3", dotClassName)} />
       {label}
     </span>
   );

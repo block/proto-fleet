@@ -33,16 +33,16 @@ describe("CurtailmentHistory", () => {
     expect(screen.getByText("Curtailment history")).toBeInTheDocument();
     expect(screen.getByText("ERCOT ERS obligation")).toBeInTheDocument();
     expect(screen.getByText("Grid peak call")).toBeInTheDocument();
-    expect(screen.getByText("Showing 1-2 of 4 curtailment events")).toBeInTheDocument();
+    expect(screen.getByText("Showing 1–2 of 4 curtailment events")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Next page" }));
 
     expect(screen.getByText("High price zone")).toBeInTheDocument();
     expect(screen.getByText("Manual test")).toBeInTheDocument();
-    expect(screen.getByText("Showing 3-4 of 4 curtailment events")).toBeInTheDocument();
+    expect(screen.getByText("Showing 3–4 of 4 curtailment events")).toBeInTheDocument();
   });
 
-  it("uses controlled pagination without requiring a total count", async () => {
+  it("uses controlled cursor pagination without requiring a total count", async () => {
     const user = userEvent.setup();
     const onPageChange = vi.fn();
     render(
@@ -56,7 +56,7 @@ describe("CurtailmentHistory", () => {
       />,
     );
 
-    expect(screen.getByText("Showing 3-4 curtailment events")).toBeInTheDocument();
+    expect(screen.getByText("Showing 3–4 curtailment events")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Next page" }));
     expect(onPageChange).toHaveBeenLastCalledWith(2);
@@ -68,7 +68,7 @@ describe("CurtailmentHistory", () => {
   it("falls back to the default page size when pageSize is not finite", () => {
     render(<CurtailmentHistory events={mockCurtailmentHistoryEvents} pageSize={Number.NaN} />);
 
-    expect(screen.getByText("Showing 1-4 of 4 curtailment events")).toBeInTheDocument();
+    expect(screen.getByText("Showing 1–4 of 4 curtailment events")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Next page" })).toBeDisabled();
   });
 
