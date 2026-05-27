@@ -6,7 +6,9 @@ import (
 	"math"
 	"sort"
 
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 
 	"connectrpc.com/connect"
 	pb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
@@ -27,10 +29,21 @@ func NewHandler(commandSvc *command.Service) *Handler {
 	}
 }
 
+// requirePerm gates a handler on the supplied catalog key at org scope.
+// Per-miner site narrowing is deferred until DeviceSelector resolution
+// can surface the target miners' SiteIDs before the gate runs.
+func requirePerm(ctx context.Context, key string) error {
+	_, err := middleware.RequirePermission(ctx, key, authz.ResourceContext{})
+	return err
+}
+
 func (h *Handler) Reboot(
 	ctx context.Context,
 	req *connect.Request[pb.RebootRequest],
 ) (*connect.Response[pb.RebootResponse], error) {
+	if err := requirePerm(ctx, authz.PermMinerReboot); err != nil {
+		return nil, err
+	}
 	result, err := h.commandSvc.Reboot(ctx, req.Msg.DeviceSelector)
 	if err != nil {
 		return nil, err
@@ -42,6 +55,9 @@ func (h *Handler) StopMining(
 	ctx context.Context,
 	req *connect.Request[pb.StopMiningRequest],
 ) (*connect.Response[pb.StopMiningResponse], error) {
+	if err := requirePerm(ctx, authz.PermMinerStopMining); err != nil {
+		return nil, err
+	}
 	result, err := h.commandSvc.StopMining(ctx, req.Msg.DeviceSelector)
 	if err != nil {
 		return nil, err
@@ -53,6 +69,9 @@ func (h *Handler) StartMining(
 	ctx context.Context,
 	req *connect.Request[pb.StartMiningRequest],
 ) (*connect.Response[pb.StartMiningResponse], error) {
+	if err := requirePerm(ctx, authz.PermMinerStartMining); err != nil {
+		return nil, err
+	}
 	result, err := h.commandSvc.StartMining(ctx, req.Msg.DeviceSelector)
 	if err != nil {
 		return nil, err
@@ -64,6 +83,9 @@ func (h *Handler) SetCoolingMode(
 	ctx context.Context,
 	req *connect.Request[pb.SetCoolingModeRequest],
 ) (*connect.Response[pb.SetCoolingModeResponse], error) {
+	if err := requirePerm(ctx, authz.PermMinerSetCoolingMode); err != nil {
+		return nil, err
+	}
 	result, err := h.commandSvc.SetCoolingMode(ctx, req.Msg.DeviceSelector, req.Msg.Mode)
 	if err != nil {
 		return nil, err
@@ -75,6 +97,9 @@ func (h *Handler) SetPowerTarget(
 	ctx context.Context,
 	req *connect.Request[pb.SetPowerTargetRequest],
 ) (*connect.Response[pb.SetPowerTargetResponse], error) {
+	if err := requirePerm(ctx, authz.PermMinerSetPowerTarget); err != nil {
+		return nil, err
+	}
 	result, err := h.commandSvc.SetPowerTarget(ctx, req.Msg.DeviceSelector, req.Msg.PerformanceMode)
 	if err != nil {
 		return nil, err
@@ -86,6 +111,9 @@ func (h *Handler) UpdateMiningPools(
 	ctx context.Context,
 	req *connect.Request[pb.UpdateMiningPoolsRequest],
 ) (*connect.Response[pb.UpdateMiningPoolsResponse], error) {
+	if err := requirePerm(ctx, authz.PermMinerUpdatePools); err != nil {
+		return nil, err
+	}
 	result, err := h.commandSvc.UpdateMiningPools(
 		ctx,
 		req.Msg.DeviceSelector,
@@ -153,6 +181,9 @@ func (h *Handler) DownloadLogs(
 	ctx context.Context,
 	req *connect.Request[pb.DownloadLogsRequest],
 ) (*connect.Response[pb.DownloadLogsResponse], error) {
+	if err := requirePerm(ctx, authz.PermMinerDownloadLogs); err != nil {
+		return nil, err
+	}
 	result, err := h.commandSvc.DownloadLogs(ctx, req.Msg.DeviceSelector)
 	if err != nil {
 		return nil, err
@@ -161,6 +192,9 @@ func (h *Handler) DownloadLogs(
 }
 
 func (h *Handler) BlinkLED(ctx context.Context, req *connect.Request[pb.BlinkLEDRequest]) (*connect.Response[pb.BlinkLEDResponse], error) {
+	if err := requirePerm(ctx, authz.PermMinerBlinkLED); err != nil {
+		return nil, err
+	}
 	result, err := h.commandSvc.BlinkLED(ctx, req.Msg.DeviceSelector)
 	if err != nil {
 		return nil, err
@@ -169,6 +203,9 @@ func (h *Handler) BlinkLED(ctx context.Context, req *connect.Request[pb.BlinkLED
 }
 
 func (h *Handler) FirmwareUpdate(ctx context.Context, req *connect.Request[pb.FirmwareUpdateRequest]) (*connect.Response[pb.FirmwareUpdateResponse], error) {
+	if err := requirePerm(ctx, authz.PermMinerFirmwareUpdate); err != nil {
+		return nil, err
+	}
 	result, err := h.commandSvc.FirmwareUpdate(ctx, req.Msg.DeviceSelector, req.Msg.GetFirmwareFileId())
 	if err != nil {
 		return nil, err
@@ -177,6 +214,9 @@ func (h *Handler) FirmwareUpdate(ctx context.Context, req *connect.Request[pb.Fi
 }
 
 func (h *Handler) Unpair(ctx context.Context, req *connect.Request[pb.UnpairRequest]) (*connect.Response[pb.UnpairResponse], error) {
+	if err := requirePerm(ctx, authz.PermMinerUnpair); err != nil {
+		return nil, err
+	}
 	result, err := h.commandSvc.Unpair(ctx, req.Msg.DeviceSelector)
 	if err != nil {
 		return nil, err
@@ -188,6 +228,9 @@ func (h *Handler) UpdateMinerPassword(
 	ctx context.Context,
 	req *connect.Request[pb.UpdateMinerPasswordRequest],
 ) (*connect.Response[pb.UpdateMinerPasswordResponse], error) {
+	if err := requirePerm(ctx, authz.PermMinerUpdatePassword); err != nil {
+		return nil, err
+	}
 	result, err := h.commandSvc.UpdateMinerPassword(
 		ctx,
 		req.Msg.DeviceSelector,
@@ -203,6 +246,9 @@ func (h *Handler) UpdateMinerPassword(
 }
 
 func (h *Handler) StreamCommandBatchUpdates(ctx context.Context, r *connect.Request[pb.StreamCommandBatchUpdatesRequest], stream *connect.ServerStream[pb.StreamCommandBatchUpdatesResponse]) error {
+	if err := requirePerm(ctx, authz.PermFleetRead); err != nil {
+		return err
+	}
 	slog.Debug("handling request to stream command batch updates", "request", r)
 	responseChan, err := h.commandSvc.StreamCommandBatchUpdates(ctx, r.Msg)
 	if err != nil {
@@ -228,9 +274,12 @@ func (h *Handler) StreamCommandBatchUpdates(ctx context.Context, r *connect.Requ
 }
 
 func (h *Handler) GetCommandBatchLogBundle(
-	_ context.Context,
+	ctx context.Context,
 	req *connect.Request[pb.GetCommandBatchLogBundleRequest],
 ) (*connect.Response[pb.GetCommandBatchLogBundleResponse], error) {
+	if err := requirePerm(ctx, authz.PermMinerDownloadLogs); err != nil {
+		return nil, err
+	}
 	resp, err := h.commandSvc.GetCommandBatchLogBundle(req.Msg.BatchIdentifier)
 	if err != nil {
 		return nil, err
@@ -243,6 +292,9 @@ func (h *Handler) CheckCommandCapabilities(
 	ctx context.Context,
 	req *connect.Request[pb.CheckCommandCapabilitiesRequest],
 ) (*connect.Response[pb.CheckCommandCapabilitiesResponse], error) {
+	if err := requirePerm(ctx, authz.PermMinerRead); err != nil {
+		return nil, err
+	}
 	resp, err := h.commandSvc.CheckCommandCapabilities(ctx, req.Msg)
 	if err != nil {
 		return nil, err
@@ -259,6 +311,9 @@ func (h *Handler) GetCommandBatchDeviceResults(
 	ctx context.Context,
 	req *connect.Request[pb.GetCommandBatchDeviceResultsRequest],
 ) (*connect.Response[pb.GetCommandBatchDeviceResultsResponse], error) {
+	if err := requirePerm(ctx, authz.PermFleetRead); err != nil {
+		return nil, err
+	}
 	resp, err := h.commandSvc.GetCommandBatchDeviceResults(ctx, req.Msg)
 	if err != nil {
 		return nil, err

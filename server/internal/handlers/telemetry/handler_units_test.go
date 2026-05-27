@@ -14,6 +14,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/telemetry"
 	mock "github.com/block/proto-fleet/server/internal/domain/telemetry/mocks"
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
+	"github.com/block/proto-fleet/server/internal/testutil"
 )
 
 // Unit conversion test constants - raw storage values
@@ -108,7 +109,7 @@ func TestHandler_GetCombinedMetrics_UnitsConversion(t *testing.T) {
 				Aggregations:     []telemetryv1.AggregationType{telemetryv1.AggregationType_AGGREGATION_TYPE_SUM},
 			}
 
-			resp, err := handler.GetCombinedMetrics(t.Context(), connect.NewRequest(req))
+			resp, err := handler.GetCombinedMetrics(testutil.MockAuthContextForTesting(t.Context(), 1, 1), connect.NewRequest(req))
 
 			require.NoError(t, err)
 			require.NotNil(t, resp)
@@ -217,6 +218,12 @@ func createTestHandler(ctrl *gomock.Controller, mockStore *mock.MockTelemetryDat
 	mockMinerGetter := mock.NewMockCachedMinerGetter(ctrl)
 	mockScheduler := mock.NewMockUpdateScheduler(ctrl)
 	mockDeviceStore := storesMocks.NewMockDeviceStore(ctrl)
+	// The live-uptime-bar pass calls GetMinerStateCounts whenever
+	// orgID != 0. These tests now run with a real orgID (gated
+	// handlers require session+permissions), so allow the call
+	// to fall through without asserting on its arguments.
+	mockDeviceStore.EXPECT().GetMinerStateCounts(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(&telemetryv1.MinerStateCounts{}, nil).AnyTimes()
 	mockErrorPoller := mock.NewMockErrorPoller(ctrl)
 
 	service := telemetry.NewTelemetryService(config, mockStore, mockMinerGetter, mockScheduler, mockDeviceStore, mockErrorPoller)

@@ -2,10 +2,10 @@ package errorquery
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
-	"connectrpc.com/authn"
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -14,8 +14,8 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics"
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/block/proto-fleet/server/internal/domain/session"
 	storesMocks "github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
+	"github.com/block/proto-fleet/server/internal/testutil"
 )
 
 const (
@@ -29,13 +29,7 @@ const (
 var testTime = time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC)
 
 func setupTestContext() context.Context {
-	ctx := context.Background()
-	info := &session.Info{
-		SessionID:      testSessionID,
-		UserID:         testUserID,
-		OrganizationID: testOrgID,
-	}
-	return authn.SetInfo(ctx, info)
+	return testutil.MockAuthContextForTesting(context.Background(), testUserID, testOrgID)
 }
 
 func createTestErrorMessage() *models.ErrorMessage {
@@ -121,7 +115,7 @@ func TestHandler_GetError(t *testing.T) {
 			setupContext:  context.Background, // No session info
 			expectedError: true,
 			expectedCode:  connect.CodeUnauthenticated,
-			errorContains: "Context does not have session info",
+			errorContains: "authentication required",
 		},
 		{
 			name: "error not found",
@@ -218,11 +212,18 @@ func TestHandler_GetError(t *testing.T) {
 				require.Error(t, err)
 				require.Nil(t, resp)
 
-				var connectErr *connect.Error
-				require.ErrorAs(t, err, &connectErr)
-				require.Equal(t, tt.expectedCode, connectErr.Code())
-				if tt.errorContains != "" {
-					require.Contains(t, connectErr.Message(), tt.errorContains)
+				var fleetErr fleeterror.FleetError
+				if connectErr := new(connect.Error); errors.As(err, &connectErr) {
+					require.Equal(t, tt.expectedCode, connectErr.Code())
+					if tt.errorContains != "" {
+						require.Contains(t, connectErr.Message(), tt.errorContains)
+					}
+				} else {
+					require.ErrorAs(t, err, &fleetErr)
+					require.Equal(t, tt.expectedCode, fleetErr.GRPCCode)
+					if tt.errorContains != "" {
+						require.Contains(t, err.Error(), tt.errorContains)
+					}
 				}
 			} else {
 				require.NoError(t, err)

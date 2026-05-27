@@ -9,10 +9,12 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	telemetryv1 "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/telemetry"
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
+	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
 type Handler struct {
@@ -29,6 +31,9 @@ func (h *Handler) GetCombinedMetrics(
 	ctx context.Context,
 	req *connect.Request[telemetryv1.GetCombinedMetricsRequest],
 ) (*connect.Response[telemetryv1.GetCombinedMetricsResponse], error) {
+	if _, err := middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{}); err != nil {
+		return nil, err
+	}
 	query, err := toCombinedMetricsQuery(req.Msg)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
@@ -57,9 +62,9 @@ func (h *Handler) StreamCombinedMetricUpdates(
 	req *connect.Request[telemetryv1.StreamCombinedMetricUpdatesRequest],
 	stream *connect.ServerStream[telemetryv1.StreamCombinedMetricUpdatesResponse],
 ) error {
-	info, err := session.GetInfo(ctx)
+	info, err := middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{})
 	if err != nil {
-		return connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("failed to get session info: %w", err))
+		return err
 	}
 
 	query, err := toStreamCombinedMetricsQuery(req.Msg)

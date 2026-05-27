@@ -1,6 +1,7 @@
 package curtailment
 
 import (
+	"context"
 	"testing"
 
 	"connectrpc.com/authn"
@@ -9,11 +10,25 @@ import (
 	"github.com/stretchr/testify/require"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	domainCurtailment "github.com/block/proto-fleet/server/internal/domain/curtailment"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
+	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
+
+// withCurtailmentRead returns ctx wrapped with an org-scope
+// EffectivePermissions carrying PermCurtailmentRead so RequirePermission
+// in the handler clears without further setup.
+func withCurtailmentRead(ctx context.Context) context.Context {
+	eff := authz.NewEffectivePermissions([]authz.Assignment{{
+		AssignmentID: 1,
+		ScopeType:    authz.ScopeOrg,
+		Permissions:  []string{authz.PermCurtailmentRead},
+	}})
+	return middleware.WithEffectivePermissions(ctx, eff)
+}
 
 func TestHandler_GetActiveCurtailment_ReturnsActiveEvent(t *testing.T) {
 	t.Parallel()
@@ -27,7 +42,7 @@ func TestHandler_GetActiveCurtailment_ReturnsActiveEvent(t *testing.T) {
 		Role:           "OPERATOR",
 	})
 
-	resp, err := h.GetActiveCurtailment(ctx, connect.NewRequest(&pb.GetActiveCurtailmentRequest{}))
+	resp, err := h.GetActiveCurtailment(withCurtailmentRead(ctx), connect.NewRequest(&pb.GetActiveCurtailmentRequest{}))
 	require.NoError(t, err)
 	require.NotNil(t, resp.Msg.Event)
 	assert.Equal(t, store.event.EventUUID.String(), resp.Msg.Event.EventUuid)
@@ -50,7 +65,7 @@ func TestHandler_GetActiveCurtailment_ReturnsEmptyWhenNoActiveEvent(t *testing.T
 		Role:           "OPERATOR",
 	})
 
-	resp, err := h.GetActiveCurtailment(ctx, connect.NewRequest(&pb.GetActiveCurtailmentRequest{}))
+	resp, err := h.GetActiveCurtailment(withCurtailmentRead(ctx), connect.NewRequest(&pb.GetActiveCurtailmentRequest{}))
 	require.NoError(t, err)
 	assert.Nil(t, resp.Msg.Event)
 }
@@ -79,7 +94,7 @@ func TestHandler_GetActiveCurtailment_PropagatesStoreError(t *testing.T) {
 		Role:           "OPERATOR",
 	})
 
-	_, err := h.GetActiveCurtailment(ctx, connect.NewRequest(&pb.GetActiveCurtailmentRequest{}))
+	_, err := h.GetActiveCurtailment(withCurtailmentRead(ctx), connect.NewRequest(&pb.GetActiveCurtailmentRequest{}))
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "db down")
 }
@@ -98,7 +113,7 @@ func TestHandler_GetActiveCurtailment_MapsRestoringEvent(t *testing.T) {
 		Role:           "OPERATOR",
 	})
 
-	resp, err := h.GetActiveCurtailment(ctx, connect.NewRequest(&pb.GetActiveCurtailmentRequest{}))
+	resp, err := h.GetActiveCurtailment(withCurtailmentRead(ctx), connect.NewRequest(&pb.GetActiveCurtailmentRequest{}))
 	require.NoError(t, err)
 	require.NotNil(t, resp.Msg.Event)
 	assert.Equal(t, pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_RESTORING, resp.Msg.Event.State)

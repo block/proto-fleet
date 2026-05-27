@@ -4,7 +4,9 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 
 	"connectrpc.com/connect"
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
@@ -28,6 +30,9 @@ func NewHandler(pairingSvc *pairing.Service) *Handler {
 
 // Discover implements pairingv1connect.DeviceDiscoveryServiceHandler.
 func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRequest], s *connect.ServerStream[pb.DiscoverResponse]) error {
+	if _, err := middleware.RequirePermission(ctx, authz.PermMinerPair, authz.ResourceContext{}); err != nil {
+		return err
+	}
 	slog.Debug("Discover: handling discover request", "payload", r.Msg)
 	var resultChan <-chan *pb.DiscoverResponse
 	var err error
@@ -69,6 +74,9 @@ func (h *Handler) Discover(ctx context.Context, r *connect.Request[pb.DiscoverRe
 
 // Pair implements pairingv1connect.PairingServiceHandler.
 func (h *Handler) Pair(ctx context.Context, r *connect.Request[pb.PairRequest]) (*connect.Response[pb.PairResponse], error) {
+	if _, err := middleware.RequirePermission(ctx, authz.PermMinerPair, authz.ResourceContext{}); err != nil {
+		return nil, err
+	}
 	resp, err := h.pairingSvc.PairDevices(ctx, r.Msg)
 	if err != nil {
 		return nil, err

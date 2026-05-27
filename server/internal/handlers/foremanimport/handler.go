@@ -6,8 +6,10 @@ import (
 	"connectrpc.com/connect"
 	pb "github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	domain "github.com/block/proto-fleet/server/internal/domain/foremanimport"
+	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
 type Handler struct {
@@ -28,6 +30,9 @@ func validateCredentials(creds *pb.ForemanCredentials) error {
 }
 
 func (h *Handler) ImportFromForeman(ctx context.Context, r *connect.Request[pb.ImportFromForemanRequest]) (*connect.Response[pb.ImportFromForemanResponse], error) {
+	if _, err := middleware.RequirePermission(ctx, authz.PermMinerPair, authz.ResourceContext{}); err != nil {
+		return nil, err
+	}
 	if err := validateCredentials(r.Msg.Credentials); err != nil {
 		return nil, err
 	}
@@ -41,6 +46,9 @@ func (h *Handler) ImportFromForeman(ctx context.Context, r *connect.Request[pb.I
 }
 
 func (h *Handler) CompleteImport(ctx context.Context, r *connect.Request[pb.CompleteImportRequest]) (*connect.Response[pb.CompleteImportResponse], error) {
+	if _, err := middleware.RequirePermission(ctx, authz.PermMinerPair, authz.ResourceContext{}); err != nil {
+		return nil, err
+	}
 	if err := validateCredentials(r.Msg.Credentials); err != nil {
 		return nil, err
 	}
