@@ -1,137 +1,160 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import clsx from "clsx";
 
 import { type DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import Input from "@/shared/components/Input";
+import List from "@/shared/components/List";
+import type { ColConfig, ColTitles } from "@/shared/components/List/types";
 import Modal from "@/shared/components/Modal";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 
+type SearchRackColumn = "name" | "building" | "status";
+
 interface SearchRacksModalProps {
   open: boolean;
-  // Parent building context drives the eligibility split: racks under the
-  // same site whose building_id equals this building are eligible to
-  // reposition (or leave unchanged); racks in a different building of the
-  // same site render greyed out (ineligible-but-visible — matches the
-  // SearchMinersModal pattern).
+  // Parent building context — same eligibility rules as ManageRacksModal:
+  // racks in this building or unassigned (with matching site, or no site)
+  // are eligible; racks in another building or another site are visible
+  // but disabled.
   siteId: bigint;
   currentBuildingId: bigint;
-  // Racks already in the modal's working set — rendered as "Already added"
-  // and not selectable so the operator can't double-add the same rack.
-  alreadyAddedRackIds?: bigint[];
+  // Building id → display label lookup so the "Building" column reads
+  // human-friendly names instead of numeric ids.
+  buildingLabels?: Record<string, string>;
   onDismiss: () => void;
+  // Returns a single chosen rack so the caller can add it to the working
+  // set and assign it to the cell that was selected when the popover
+  // opened.
   onConfirm: (rackId: bigint, label: string) => void;
 }
 
-// Rack row shape used by the picker. We extract just what the list needs so
-// the component doesn't drag the full DeviceSet/RackInfo discriminator into
-// its render path.
-interface RackRow {
-  id: bigint;
+interface SearchRackItem {
+  id: string;
   label: string;
-  buildingId?: bigint;
-  // Disabled when the rack lives in a different building of the same site
-  // (ineligible-but-visible) OR is already in the modal's working set.
+  buildingLabel: string;
+  statusLabel: string;
   disabled: boolean;
-  reason: "inOtherBuilding" | "alreadyAdded" | "inThisBuilding" | "unassigned";
 }
 
-const buildRow = (rack: DeviceSet, currentBuildingId: bigint, alreadyAdded: Set<string>): RackRow | null => {
+const colTitles: ColTitles<SearchRackColumn> = {
+  name: "Name",
+  building: "Building",
+  status: "Status",
+};
+
+const colConfig: ColConfig<SearchRackItem, string, SearchRackColumn> = {
+  name: {
+    component: (item) => <span>{item.label || "(unnamed rack)"}</span>,
+    width: "min-w-32",
+  },
+  building: {
+    component: (item) => <span>{item.buildingLabel}</span>,
+    width: "min-w-32",
+  },
+  status: {
+    component: (item) => <span>{item.statusLabel}</span>,
+    width: "min-w-32",
+  },
+};
+
+const activeCols: SearchRackColumn[] = ["name", "building", "status"];
+
+const buildItem = (
+  rack: DeviceSet,
+  currentSiteId: bigint,
+  currentBuildingId: bigint,
+  buildingLabels: Record<string, string>,
+): SearchRackItem | null => {
   if (rack.typeDetails.case !== "rackInfo") return null;
   const info = rack.typeDetails.value;
   const buildingId = info.buildingId;
+  const siteId = info.siteId;
   const inOtherBuilding = buildingId !== undefined && buildingId !== 0n && buildingId !== currentBuildingId;
   const inThisBuilding = buildingId === currentBuildingId;
-  const isAlreadyAdded = alreadyAdded.has(rack.id.toString());
-  const disabled = inOtherBuilding || isAlreadyAdded;
-  const reason: RackRow["reason"] = inOtherBuilding
-    ? "inOtherBuilding"
-    : isAlreadyAdded
-      ? "alreadyAdded"
+  const inOtherSite = !inThisBuilding && siteId !== undefined && siteId !== 0n && siteId !== currentSiteId;
+  const disabled = inOtherBuilding || inOtherSite;
+  const statusLabel = inOtherBuilding
+    ? "In another building"
+    : inOtherSite
+      ? "In another site"
       : inThisBuilding
-        ? "inThisBuilding"
-        : "unassigned";
-  return { id: rack.id, label: rack.label, buildingId, disabled, reason };
+        ? "In this building"
+        : "Unassigned";
+  const buildingLabel =
+    buildingId === undefined || buildingId === 0n ? "—" : (buildingLabels[buildingId.toString()] ?? "—");
+  return { id: rack.id.toString(), label: rack.label, buildingLabel, statusLabel, disabled };
 };
 
+// Single-rack picker with a name filter — mirrors SearchMinersModal in the
+// rack-management feature. Picked rack is added to the building's working
+// set and assigned to whatever cell was selected when the popover opened.
 const SearchRacksModal = ({
   open,
   siteId,
   currentBuildingId,
-  alreadyAddedRackIds,
+  buildingLabels,
   onDismiss,
   onConfirm,
 }: SearchRacksModalProps) => {
   const { listRacks } = useDeviceSets();
-
-  const [rows, setRows] = useState<RackRow[] | undefined>(undefined);
+  const [items, setItems] = useState<SearchRackItem[] | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
+  const [selectedItems, setSelectedItems] = useState<string[]>([]);
   const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState<bigint | null>(null);
 
-  // Set is rebuilt on every change so the effect deps stay primitive. Using
-  // .toString() because bigint isn't a valid Set key for stable membership.
-  const alreadyAddedSet = useMemo(() => {
-    const s = new Set<string>();
-    for (const id of alreadyAddedRackIds ?? []) s.add(id.toString());
-    return s;
-  }, [alreadyAddedRackIds]);
+  const buildingMap = useMemo(() => buildingLabels ?? {}, [buildingLabels]);
 
-  // Server doesn't yet support a site_ids filter on ListDeviceSets (Phase 1b
-  // backend follow-up). For PR 3 we fetch the full rack list unpaginated and
-  // narrow client-side to the parent site. Acceptable while fleets are small;
-  // the moment ListDeviceSets gains site filtering this collapses into a
-  // server-side filter call.
-  // Conditional render in the host means each open creates a fresh mount, so
-  // the initial useState values cover the "reset on open" case. The effect
-  // only fires the network call — no synchronous setState — which keeps the
-  // react-hooks/set-state-in-effect rule happy.
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     void listRacks({
       onSuccess: (racks) => {
         if (cancelled) return;
-        const filtered: RackRow[] = [];
+        const out: SearchRackItem[] = [];
         for (const rack of racks) {
-          if (rack.typeDetails.case !== "rackInfo") continue;
-          if (rack.typeDetails.value.siteId !== siteId) continue;
-          const row = buildRow(rack, currentBuildingId, alreadyAddedSet);
-          if (row) filtered.push(row);
+          const item = buildItem(rack, siteId, currentBuildingId, buildingMap);
+          if (item) out.push(item);
         }
-        filtered.sort((a, b) => a.label.localeCompare(b.label));
-        setRows(filtered);
+        out.sort((a, b) => a.label.localeCompare(b.label));
+        setItems(out);
       },
       onError: (msg) => {
         if (cancelled) return;
         setError(msg);
-        setRows([]);
+        setItems([]);
       },
     });
     return () => {
       cancelled = true;
     };
-  }, [open, siteId, currentBuildingId, alreadyAddedSet, listRacks]);
+  }, [open, siteId, currentBuildingId, buildingMap, listRacks]);
 
-  const filtered = useMemo(() => {
-    if (!rows) return undefined;
+  const isRowDisabled = useCallback((item: SearchRackItem) => item.disabled, []);
+
+  // Client-side filter on the rack label. Case-insensitive substring match —
+  // matches the SearchMinersModal feel without bringing in a fuzzy lib.
+  const filteredItems = useMemo(() => {
+    if (!items) return [];
     const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) => r.label.toLowerCase().includes(q));
-  }, [rows, query]);
+    if (!q) return items;
+    return items.filter((i) => i.label.toLowerCase().includes(q));
+  }, [items, query]);
 
   const handleConfirm = useCallback(() => {
-    if (selected === null) return;
-    const row = rows?.find((r) => r.id === selected);
-    if (!row) return;
-    onConfirm(selected, row.label);
-  }, [selected, rows, onConfirm]);
+    if (!items || selectedItems.length === 0) return;
+    const id = selectedItems[0];
+    const item = items.find((r) => r.id === id);
+    if (!item || item.disabled) return;
+    onConfirm(BigInt(id), item.label);
+  }, [items, selectedItems, onConfirm]);
 
   return (
     <Modal
       open={open}
       title="Search racks"
       size="large"
+      className="flex !h-[calc(100vh-(--spacing(32)))] max-h-[calc(100vh-(--spacing(32)))] flex-col !overflow-hidden"
+      bodyClassName="flex flex-1 min-h-0 flex-col overflow-hidden"
       onDismiss={onDismiss}
       divider={false}
       testId="search-racks-modal"
@@ -139,66 +162,60 @@ const SearchRacksModal = ({
         {
           text: "Assign",
           variant: "primary",
-          disabled: selected === null,
+          disabled: selectedItems.length === 0,
           onClick: handleConfirm,
           dismissModalOnClick: false,
           testId: "search-racks-modal-confirm",
         },
       ]}
     >
-      <div className="flex flex-col gap-4 py-2">
+      <div className="flex h-full min-h-0 flex-col gap-4">
         <Input
           id="search-racks-query"
-          label="Search by rack label"
+          label="Search by name"
           initValue={query}
-          onChange={setQuery}
-          testId="search-racks-query-input"
+          onChange={(value) => setQuery(value)}
+          testId="search-racks-modal-query"
         />
         {error ? (
-          <div className="text-300 text-intent-critical-fill" data-testid="search-racks-modal-error">
+          <div className="py-6 text-300 text-intent-critical-fill" data-testid="search-racks-modal-error">
             {error}
           </div>
-        ) : filtered === undefined ? (
-          <div className="flex items-center justify-center py-8">
+        ) : items === undefined ? (
+          <div className="flex flex-1 items-center justify-center py-12">
             <ProgressCircular indeterminate />
           </div>
-        ) : filtered.length === 0 ? (
-          <div className="py-6 text-center text-300 text-text-primary-50" data-testid="search-racks-modal-empty">
-            {rows && rows.length === 0 ? "No racks in this site yet." : "No racks match your search."}
-          </div>
         ) : (
-          <ul className="flex max-h-[50vh] flex-col overflow-y-auto" data-testid="search-racks-modal-list">
-            {filtered.map((row) => {
-              const isSelected = selected === row.id;
-              const reasonLabel = {
-                inOtherBuilding: "In another building",
-                alreadyAdded: "Already added",
-                inThisBuilding: "In this building",
-                unassigned: "Unassigned",
-              }[row.reason];
-              return (
-                <li key={row.id.toString()}>
-                  <button
-                    type="button"
-                    disabled={row.disabled}
-                    onClick={() => setSelected(row.id)}
-                    className={clsx(
-                      "flex w-full items-center justify-between gap-3 border-b border-border-5 px-3 py-3 text-left",
-                      row.disabled
-                        ? "cursor-not-allowed opacity-40"
-                        : "hover:bg-surface-base-hover focus:bg-surface-base-hover",
-                      isSelected && "bg-surface-base-hover",
-                    )}
-                    data-testid={`search-racks-modal-row-${row.id.toString()}`}
-                    aria-disabled={row.disabled || undefined}
-                  >
-                    <span className="truncate text-emphasis-300">{row.label || "(unnamed rack)"}</span>
-                    <span className="shrink-0 text-300 text-text-primary-50">{reasonLabel}</span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <List<SearchRackItem, string, SearchRackColumn>
+              activeCols={activeCols}
+              colTitles={colTitles}
+              colConfig={colConfig}
+              items={filteredItems}
+              itemKey="id"
+              itemSelectable
+              selectionType="checkbox"
+              customSelectedItems={selectedItems}
+              customSetSelectedItems={(ids) => {
+                // Single-select: only retain the last id the user toggled
+                // on. List doesn't ship a singleSelect prop, so we enforce
+                // it here.
+                const next = Array.isArray(ids) ? ids : [];
+                if (next.length <= 1) {
+                  setSelectedItems(next);
+                  return;
+                }
+                const newId = next.find((id) => !selectedItems.includes(id));
+                setSelectedItems(newId ? [newId] : [next[next.length - 1]]);
+              }}
+              isRowDisabled={isRowDisabled}
+              itemName={{ singular: "rack", plural: "racks" }}
+              hideTotal
+              containerClassName="min-h-0"
+              overflowContainer
+              stickyBgColor="bg-surface-elevated-base"
+            />
+          </div>
         )}
       </div>
     </Modal>

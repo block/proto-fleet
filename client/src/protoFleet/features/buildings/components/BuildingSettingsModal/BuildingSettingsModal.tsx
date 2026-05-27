@@ -6,15 +6,12 @@ import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
 import Select from "@/shared/components/Select";
 
-// "createReturn" mirrors SiteDetailsModal — when BuildingDetailsModal is
-// stacked on ManageBuildingModal in create flow, the CTAs read Delete
-// (discard pending create) + Save (apply and return to manage). For
-// PR 3 the create flow lands directly via "Save" from ManageSiteModal
-// (no deferred-commit "Continue" gate like sites have), so create mode
-// uses the same Save CTA — there's no separate "createReturn" mode here.
-export type BuildingDetailsModalMode = "create" | "edit";
+// Create vs. edit drives the CTA shape: create gets Cancel + Save, edit gets
+// Delete + Save (mirroring RackSettingsModal's Continue-vs-Save split and
+// SiteSettingsModal's create/edit footprint).
+export type BuildingSettingsModalMode = "create" | "edit";
 
-interface BuildingDetailsModalCommonProps {
+interface BuildingSettingsModalCommonProps {
   open: boolean;
   initialValues: BuildingFormValues;
   // The parent site context is required for create — buildings always
@@ -25,10 +22,10 @@ interface BuildingDetailsModalCommonProps {
   saving?: boolean;
 }
 
-// Discriminated union mirrors SiteDetailsModal. Edit gets onSave +
+// Discriminated union mirrors SiteSettingsModal. Edit gets onSave +
 // onDeleteRequested; create gets onSave only (Delete is meaningless
 // before the row exists).
-export type BuildingDetailsModalProps = BuildingDetailsModalCommonProps &
+export type BuildingSettingsModalProps = BuildingSettingsModalCommonProps &
   (
     | { mode: "create"; onSave: (values: BuildingFormValues) => Promise<void> | void }
     | {
@@ -54,7 +51,15 @@ const parseNonNegative = (input: string): number | null => {
   return parsed;
 };
 
-const BuildingDetailsModal = (props: BuildingDetailsModalProps) => {
+const parseNonNegativeInt = (input: string): number | null => {
+  const trimmed = input.trim();
+  if (trimmed === "") return 0;
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed) || parsed < 0 || !Number.isInteger(parsed)) return null;
+  return parsed;
+};
+
+const BuildingSettingsModal = (props: BuildingSettingsModalProps) => {
   const { open, initialValues, parentSiteLabel, onDismiss, saving = false } = props;
   const [name, setName] = useState(initialValues.name);
   const [powerText, setPowerText] = useState(
@@ -63,8 +68,14 @@ const BuildingDetailsModal = (props: BuildingDetailsModalProps) => {
   const [overheadText, setOverheadText] = useState(
     initialValues.overheadKw > 0 ? String(initialValues.overheadKw) : "",
   );
+  const [aislesText, setAislesText] = useState(initialValues.aisles > 0 ? String(initialValues.aisles) : "");
+  const [racksPerAisleText, setRacksPerAisleText] = useState(
+    initialValues.racksPerAisle > 0 ? String(initialValues.racksPerAisle) : "",
+  );
   const [powerError, setPowerError] = useState<string | null>(null);
   const [overheadError, setOverheadError] = useState<string | null>(null);
+  const [aislesError, setAislesError] = useState<string | null>(null);
+  const [racksPerAisleError, setRacksPerAisleError] = useState<string | null>(null);
 
   const buildValues = useCallback((): BuildingFormValues | null => {
     const power = parseNonNegative(powerText);
@@ -81,19 +92,31 @@ const BuildingDetailsModal = (props: BuildingDetailsModalProps) => {
     }
     setOverheadError(null);
 
+    const aisles = parseNonNegativeInt(aislesText);
+    if (aisles === null) {
+      setAislesError("Whole number ≥ 0");
+      return null;
+    }
+    setAislesError(null);
+
+    const racksPerAisle = parseNonNegativeInt(racksPerAisleText);
+    if (racksPerAisle === null) {
+      setRacksPerAisleError("Whole number ≥ 0");
+      return null;
+    }
+    setRacksPerAisleError(null);
+
     return {
       name: name.trim(),
-      // description / aisles / racksPerAisle are not surfaced in the
-      // details form — they're either deferred (description) or owned
-      // by ManageBuildingModal (aisles, racksPerAisle). Preserve the
-      // initial values so edit-mode round trips don't clobber them.
+      // description is deferred; preserve initial value to avoid clobbering
+      // on edit-mode round trips.
       description: initialValues.description,
       powerCapacityMw: power,
       overheadKw: overhead,
-      aisles: initialValues.aisles,
-      racksPerAisle: initialValues.racksPerAisle,
+      aisles,
+      racksPerAisle,
     };
-  }, [name, powerText, overheadText, initialValues.description, initialValues.aisles, initialValues.racksPerAisle]);
+  }, [name, powerText, overheadText, aislesText, racksPerAisleText, initialValues.description]);
 
   const handlePrimary = useCallback(async () => {
     const values = buildValues();
@@ -112,7 +135,7 @@ const BuildingDetailsModal = (props: BuildingDetailsModalProps) => {
             variant: variants.secondary,
             onClick: onDismiss,
             disabled: saving,
-            testId: "building-details-modal-cancel",
+            testId: "building-settings-modal-cancel",
           },
           {
             text: saving ? "Saving…" : "Save",
@@ -120,7 +143,7 @@ const BuildingDetailsModal = (props: BuildingDetailsModalProps) => {
             onClick: handlePrimary,
             disabled: primaryDisabled,
             dismissModalOnClick: false,
-            testId: "building-details-modal-save",
+            testId: "building-settings-modal-save",
           },
         ]
       : [
@@ -129,7 +152,7 @@ const BuildingDetailsModal = (props: BuildingDetailsModalProps) => {
             variant: variants.secondaryDanger,
             onClick: props.onDeleteRequested,
             disabled: saving,
-            testId: "building-details-modal-delete",
+            testId: "building-settings-modal-delete",
           },
           {
             text: saving ? "Saving…" : "Save",
@@ -137,11 +160,11 @@ const BuildingDetailsModal = (props: BuildingDetailsModalProps) => {
             onClick: handlePrimary,
             disabled: primaryDisabled,
             dismissModalOnClick: false,
-            testId: "building-details-modal-save",
+            testId: "building-settings-modal-save",
           },
         ];
 
-  const title = props.mode === "create" ? "Add building" : "Edit building";
+  const title = "Building settings";
   const description = parentSiteLabel ? `in ${parentSiteLabel}` : undefined;
 
   return (
@@ -151,31 +174,31 @@ const BuildingDetailsModal = (props: BuildingDetailsModalProps) => {
       title={title}
       description={description}
       buttons={buttons}
-      testId="building-details-modal"
+      testId="building-settings-modal"
     >
       <div className="flex flex-col gap-4 py-2">
         <Input
-          id="building-details-name"
+          id="building-settings-name"
           label="Name"
           initValue={name}
           onChange={(v) => setName(v)}
           maxLength={255}
           required
           autoFocus
-          testId="building-details-name-input"
+          testId="building-settings-name-input"
         />
         <Select
-          id="building-details-type"
+          id="building-settings-type"
           label="Type"
           options={BUILDING_TYPE_OPTIONS}
           value=""
           onChange={() => undefined}
           disabled
           forceBelow
-          testId="building-details-type-select"
+          testId="building-settings-type-select"
         />
         <Input
-          id="building-details-power"
+          id="building-settings-power"
           label="Power capacity"
           initValue={powerText}
           onChange={(v) => {
@@ -184,10 +207,10 @@ const BuildingDetailsModal = (props: BuildingDetailsModalProps) => {
           }}
           units="MW"
           error={powerError ?? false}
-          testId="building-details-power-input"
+          testId="building-settings-power-input"
         />
         <Input
-          id="building-details-overhead"
+          id="building-settings-overhead"
           label="Overhead"
           initValue={overheadText}
           onChange={(v) => {
@@ -196,11 +219,41 @@ const BuildingDetailsModal = (props: BuildingDetailsModalProps) => {
           }}
           units="kW"
           error={overheadError ?? false}
-          testId="building-details-overhead-input"
+          testId="building-settings-overhead-input"
         />
+        {/* Aisles / racks per aisle define the building's floor plan grid in
+            ManageBuildingModal. Living in the settings modal lets the operator
+            shape the layout up-front before assigning racks, mirroring how
+            RackSettingsModal owns rows/columns for the rack grid. */}
+        <div className="grid grid-cols-2 gap-4">
+          <Input
+            id="building-settings-aisles"
+            label="Aisles"
+            type="number"
+            initValue={aislesText}
+            onChange={(v) => {
+              setAislesText(v);
+              if (aislesError) setAislesError(null);
+            }}
+            error={aislesError ?? false}
+            testId="building-settings-aisles-input"
+          />
+          <Input
+            id="building-settings-racks-per-aisle"
+            label="Racks per aisle"
+            type="number"
+            initValue={racksPerAisleText}
+            onChange={(v) => {
+              setRacksPerAisleText(v);
+              if (racksPerAisleError) setRacksPerAisleError(null);
+            }}
+            error={racksPerAisleError ?? false}
+            testId="building-settings-racks-per-aisle-input"
+          />
+        </div>
       </div>
     </Modal>
   );
 };
 
-export default BuildingDetailsModal;
+export default BuildingSettingsModal;

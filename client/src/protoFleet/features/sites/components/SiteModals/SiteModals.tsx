@@ -1,6 +1,6 @@
 import ManageSiteModal from "../ManageSiteModal";
 import SiteDeleteDialog from "../SiteDeleteDialog";
-import SiteDetailsModal from "../SiteDetailsModal";
+import SiteSettingsModal from "../SiteSettingsModal";
 import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { type useSiteModals } from "@/protoFleet/features/sites/hooks/useSiteModals";
@@ -8,7 +8,7 @@ import { type useSiteModals } from "@/protoFleet/features/sites/hooks/useSiteMod
 interface SiteModalsProps {
   modals: ReturnType<typeof useSiteModals>;
   // SiteWithCounts cache from the host page. Used to resolve the cascade
-  // dialog target when Delete is clicked inside SiteDetailsModal (edit mode).
+  // dialog target when Delete is clicked inside SiteSettingsModal (edit mode).
   sites: SiteWithCounts[] | undefined;
   // Pass-through for the ManageSiteModal buildings table. Provided by the
   // host page so the building modal stack shares its useBuildingModals
@@ -43,7 +43,7 @@ const SiteModals = ({ modals, sites, onAddBuilding, onEditBuilding, buildingsRef
 
   return (
     <>
-      {/* Render ManageSiteModal first so SiteDetailsModal's portal lands
+      {/* Render ManageSiteModal first so SiteSettingsModal's portal lands
           later in the DOM and naturally stacks on top at the same z-50. */}
       {showManage && manageDraft ? (
         <ManageSiteModal
@@ -62,7 +62,7 @@ const SiteModals = ({ modals, sites, onAddBuilding, onEditBuilding, buildingsRef
         />
       ) : null}
       {state.kind === "detailsCreate" ? (
-        <SiteDetailsModal
+        <SiteSettingsModal
           open
           mode="create"
           initialValues={state.draft}
@@ -72,7 +72,7 @@ const SiteModals = ({ modals, sites, onAddBuilding, onEditBuilding, buildingsRef
         />
       ) : null}
       {state.kind === "manageCreateEditingDetails" ? (
-        <SiteDetailsModal
+        <SiteSettingsModal
           open
           mode="createReturn"
           initialValues={state.draft}
@@ -83,7 +83,7 @@ const SiteModals = ({ modals, sites, onAddBuilding, onEditBuilding, buildingsRef
         />
       ) : null}
       {state.kind === "manageEditEditingDetails" ? (
-        <SiteDetailsModal
+        <SiteSettingsModal
           open
           mode="edit"
           initialValues={state.draft}

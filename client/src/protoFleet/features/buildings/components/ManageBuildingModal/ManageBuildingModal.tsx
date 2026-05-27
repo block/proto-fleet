@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import ManageRacksModal from "../ManageRacksModal";
 import SearchRacksModal from "../SearchRacksModal";
 import BuildingGridPane from "./BuildingGridPane";
 import BuildingRacksPane, { type AssignedRackRow } from "./BuildingRacksPane";
 import { type BuildingAssignmentMode, cellKey, type GridCellKey, parseCellKey } from "./types";
-import { type BuildingFormValues, useBuildings } from "@/protoFleet/api/buildings";
-import { type Building, type BuildingRack } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import { useBuildings } from "@/protoFleet/api/buildings";
+import {
+  type Building,
+  type BuildingRack,
+  type BuildingWithCounts,
+} from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import FullScreenTwoPaneModal from "@/protoFleet/components/FullScreenTwoPaneModal";
 import { DismissCircle } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
@@ -17,9 +22,17 @@ interface ManageBuildingModalProps {
   open: boolean;
   building: Building;
   siteName?: string;
+  // Sibling buildings under the same site so the rack picker can resolve
+  // building_id → label and the operator can see where racks currently
+  // sit. Optional — without it, the picker renders an em-dash for the
+  // Building column.
+  siblingBuildings?: BuildingWithCounts[];
   onDismiss: () => void;
-  // Opens BuildingDetailsModal stacked on top of this manage modal.
+  // Opens BuildingSettingsModal stacked on top of this manage modal.
   onEditDetails: () => void;
+  // Opens BuildingDeleteDialog via the page-level useBuildingModals.
+  // Mirrors AssignMinersModal's header Delete CTA.
+  onDeleteRequested: () => void;
   // Fires after a successful save so the host page can refresh its
   // building cache (rack counts, layout fields change).
   onSaved?: (updated: Building) => void;
@@ -31,14 +44,6 @@ interface AssignmentEntry {
   aisleIndex?: number;
   positionInAisle?: number;
 }
-
-const parseNonNegativeInt = (text: string): number | null => {
-  const t = text.trim();
-  if (t === "") return 0;
-  const n = Number(t);
-  if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n)) return null;
-  return n;
-};
 
 // Compute the auto (byName) assignment map. Sort assigned racks by label and
 // fill grid cells row-major (aisle 0 first, then aisle 1, ...) up to capacity.
@@ -85,26 +90,38 @@ const ManageBuildingModal = ({
   open,
   building,
   siteName,
+  siblingBuildings,
   onDismiss,
   onEditDetails,
+  onDeleteRequested,
   onSaved,
 }: ManageBuildingModalProps) => {
-  const { listBuildingRacks, updateBuilding, assignRackToBuilding } = useBuildings();
+  const { listBuildingRacks, assignRackToBuilding } = useBuildings();
 
-  // Layout state — drives both the grid dimensions and the UpdateBuilding
-  // write on Save. We carry the numeric text in state (not the parsed
-  // number) so trailing-empty inputs read naturally.
-  const [aislesText, setAislesText] = useState(building.aisles > 0 ? String(building.aisles) : "");
-  const [racksPerAisleText, setRacksPerAisleText] = useState(
-    building.racksPerAisle > 0 ? String(building.racksPerAisle) : "",
-  );
-  const [aislesError, setAislesError] = useState<string | null>(null);
-  const [racksPerAisleError, setRacksPerAisleError] = useState<string | null>(null);
+  // Aisles / racks_per_aisle are read straight from the building prop —
+  // BuildingSettingsModal owns those fields now and threads any edits back
+  // through onSaved → host refetch → new building prop. This modal only
+  // owns rack placement.
+  const aislesNum = building.aisles ?? 0;
+  const racksPerAisleNum = building.racksPerAisle ?? 0;
 
   const [entries, setEntries] = useState<AssignmentEntry[]>([]);
-  const [assignmentMode, setAssignmentMode] = useState<BuildingAssignmentMode>("byName");
+  // Manual is the operator's default mental model (and matches
+  // AssignMinersModal's default) — surface that mode immediately so the
+  // assigned-racks list is clickable on first render.
+  const [assignmentMode, setAssignmentMode] = useState<BuildingAssignmentMode>("manual");
   const [selectedRackId, setSelectedRackId] = useState<bigint | null>(null);
   const [selectedCellKey, setSelectedCellKey] = useState<GridCellKey | null>(null);
+  // Popover only renders while a cell-first click is still awaiting a choice;
+  // dismissed by "Select from list" (cell stays selected, popover closes so
+  // the operator can click a left-pane row), "Search racks" (opens picker),
+  // or click-outside / Escape. Mirrors RackPane.showPopover.
+  const [showCellPopover, setShowCellPopover] = useState(false);
+  // Hover bridge: grid → list. When the operator hovers an assigned cell,
+  // BuildingGridPane sets this to that cell's rackId and the matching row
+  // picks up a hover highlight (mirrors AssignMinersModal.hoveredMinerId).
+  const [hoveredRackId, setHoveredRackId] = useState<bigint | null>(null);
+  const [showManageRacks, setShowManageRacks] = useState(false);
   const [showSearchRacks, setShowSearchRacks] = useState(false);
 
   const [isLoading, setIsLoading] = useState(true);
@@ -117,10 +134,7 @@ const ManageBuildingModal = ({
   // by rackId → "aisle:position" (or "unplaced") so we can string-compare.
   const initialPlacementRef = useRef<Map<string, string>>(new Map());
 
-  // (Re)load assignments when the modal opens. Conditional render in the
-  // host ensures each open creates a fresh mount, so initial isLoading=true
-  // / loadError=null carry the "reset on open" intent without a synchronous
-  // setState here (which the react-hooks/set-state-in-effect rule rejects).
+  // (Re)load assignments when the modal opens.
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
@@ -162,15 +176,6 @@ const ManageBuildingModal = ({
     };
   }, [open, building.id, listBuildingRacks]);
 
-  const aislesNum = useMemo(() => {
-    const n = parseNonNegativeInt(aislesText);
-    return n ?? 0;
-  }, [aislesText]);
-  const racksPerAisleNum = useMemo(() => {
-    const n = parseNonNegativeInt(racksPerAisleText);
-    return n ?? 0;
-  }, [racksPerAisleText]);
-
   const activeAssignments: Record<GridCellKey, bigint> = useMemo(() => {
     if (assignmentMode === "byName") {
       return buildByNameAssignments(entries, aislesNum, racksPerAisleNum);
@@ -178,9 +183,6 @@ const ManageBuildingModal = ({
     return buildManualAssignments(entries, aislesNum, racksPerAisleNum);
   }, [assignmentMode, entries, aislesNum, racksPerAisleNum]);
 
-  // Lookup tables keyed by rack id → AssignmentEntry; lets us turn an
-  // activeAssignments cellKey → rack label without scanning the entries
-  // array every render.
   const entriesById = useMemo(() => {
     const m = new Map<string, AssignmentEntry>();
     for (const e of entries) m.set(e.rackId.toString(), e);
@@ -196,61 +198,65 @@ const ManageBuildingModal = ({
     return out;
   }, [activeAssignments, entriesById]);
 
+  // Same shape, returning rackIds — surfaced so the grid's hover handler
+  // can resolve a cell back to a rackId without a parseCellKey roundtrip.
+  const cellRackIds: Record<GridCellKey, bigint> = useMemo(() => {
+    const out: Record<GridCellKey, bigint> = {};
+    for (const [key, rackId] of Object.entries(activeAssignments)) {
+      out[key] = rackId;
+    }
+    return out;
+  }, [activeAssignments]);
+
+  // Reverse-lookup rackId → cellKey shared by the left-pane position
+  // labels and the assigned-count summary. Recomputed when assignments
+  // change so byName mode reflects auto-placement.
+  const rackToCell = useMemo(() => {
+    const m = new Map<string, GridCellKey>();
+    for (const [key, rackId] of Object.entries(activeAssignments)) {
+      m.set(rackId.toString(), key);
+    }
+    return m;
+  }, [activeAssignments]);
+
   // Assigned-racks list shown in the left pane. positionLabel is derived
   // from the activeAssignments so byName mode shows the auto-placement.
-  const assignedRacks: AssignedRackRow[] = useMemo(() => {
-    // Reverse-lookup rackId → cellKey for the position label.
-    const rackToCell = new Map<string, GridCellKey>();
-    for (const [key, rackId] of Object.entries(activeAssignments)) {
-      rackToCell.set(rackId.toString(), key);
-    }
-    return [...entries]
-      .sort((a, b) => a.label.localeCompare(b.label))
-      .map((e) => {
-        const placedKey = rackToCell.get(e.rackId.toString());
-        const positionLabel = placedKey
-          ? (() => {
-              const { aisle, position } = parseCellKey(placedKey);
-              return `Aisle ${aisle + 1}, position ${position + 1}`;
-            })()
-          : undefined;
-        return { rackId: e.rackId, label: e.label, positionLabel };
-      });
-  }, [entries, activeAssignments]);
-
-  const handleAislesChange = useCallback((v: string) => {
-    setAislesText(v);
-    if (parseNonNegativeInt(v) === null) {
-      setAislesError("Enter a whole number ≥ 0");
-    } else {
-      setAislesError(null);
-    }
-  }, []);
-
-  const handleRacksPerAisleChange = useCallback((v: string) => {
-    setRacksPerAisleText(v);
-    if (parseNonNegativeInt(v) === null) {
-      setRacksPerAisleError("Enter a whole number ≥ 0");
-    } else {
-      setRacksPerAisleError(null);
-    }
-  }, []);
+  const assignedRacks: AssignedRackRow[] = useMemo(
+    () =>
+      [...entries]
+        .sort((a, b) => a.label.localeCompare(b.label))
+        .map((e) => {
+          const placedKey = rackToCell.get(e.rackId.toString());
+          const positionLabel = placedKey
+            ? (() => {
+                const { aisle, position } = parseCellKey(placedKey);
+                return `Aisle ${aisle + 1}, position ${position + 1}`;
+              })()
+            : undefined;
+          return { rackId: e.rackId, label: e.label, positionLabel };
+        }),
+    [entries, rackToCell],
+  );
 
   const handleModeChange = useCallback((mode: BuildingAssignmentMode) => {
     setAssignmentMode(mode);
     setSelectedRackId(null);
     setSelectedCellKey(null);
+    setShowCellPopover(false);
   }, []);
 
+  // Rack-row select handler. Two-step manual flow: if a cell is already
+  // selected, drop the rack into it and clear both selections; otherwise
+  // toggle the rack's selected state (so the operator can then click a
+  // cell to place it).
   const handleSelectRack = useCallback(
     (rackId: bigint | null) => {
-      // Rack-first flow: if a cell was selected, place this rack there.
       if (rackId !== null && selectedCellKey !== null) {
         const { aisle, position } = parseCellKey(selectedCellKey);
         setEntries((prev) =>
           prev.map((e) => {
             if (e.rackId === rackId) return { ...e, aisleIndex: aisle, positionInAisle: position };
-            // Clear another rack that might have been at the same cell.
+            // Cell holds at most one rack; clear any prior occupant.
             if (e.aisleIndex === aisle && e.positionInAisle === position) {
               return { ...e, aisleIndex: undefined, positionInAisle: undefined };
             }
@@ -259,6 +265,7 @@ const ManageBuildingModal = ({
         );
         setSelectedRackId(null);
         setSelectedCellKey(null);
+        setShowCellPopover(false);
         return;
       }
       setSelectedRackId(rackId);
@@ -266,10 +273,16 @@ const ManageBuildingModal = ({
     [selectedCellKey],
   );
 
+  // Cell click handler. Two flows:
+  //  1) rack-first — a rack row is selected → drop it into this cell and
+  //     clear both selections (no popover);
+  //  2) cell-first — no rack selected → mark this cell selected and open
+  //     the popover so the operator can pick "Select from list" or
+  //     "Search racks". Mirrors AssignMinersModal.handleCellClick.
+  // Only fires in manual mode (BuildingGridPane gates on this).
   const handleCellClick = useCallback(
     (aisle: number, position: number, key: GridCellKey) => {
       if (assignmentMode !== "manual") return;
-      // Cell-first flow with a selected rack: place it here immediately.
       if (selectedRackId !== null) {
         setEntries((prev) =>
           prev.map((e) => {
@@ -282,13 +295,66 @@ const ManageBuildingModal = ({
         );
         setSelectedRackId(null);
         setSelectedCellKey(null);
+        setShowCellPopover(false);
         return;
       }
-      // Otherwise just toggle the cell selection so a follow-up rack click
-      // places into it.
-      setSelectedCellKey((prev) => (prev === key ? null : key));
+      setSelectedCellKey(key);
+      setShowCellPopover(true);
     },
     [assignmentMode, selectedRackId],
+  );
+
+  // Popover dismissal — clicking the overlay or pressing Escape collapses
+  // the cell-first flow entirely (deselect cell + hide popover).
+  const handlePopoverDismiss = useCallback(() => {
+    setSelectedCellKey(null);
+    setShowCellPopover(false);
+  }, []);
+
+  // Popover "Select from list" — keep cell selected, hide popover, wait
+  // for a rack-row click. The list pane's selectedCellHint stays visible
+  // so the operator knows what they're filling.
+  const handleSelectFromList = useCallback(() => {
+    setShowCellPopover(false);
+  }, []);
+
+  // Popover "Search racks" — hand off to SearchRacksModal; the picked rack
+  // gets added (if new) and assigned to the still-selected cell.
+  const handleSearchRacks = useCallback(() => {
+    setShowCellPopover(false);
+    setShowSearchRacks(true);
+  }, []);
+
+  // SearchRacksModal confirm — add the rack to the working set if missing
+  // and assign to the cell that was selected when the popover opened.
+  const handleSearchRackConfirm = useCallback(
+    (rackId: bigint, label: string) => {
+      const targetKey = selectedCellKey;
+      if (targetKey === null) {
+        setShowSearchRacks(false);
+        return;
+      }
+      const { aisle, position } = parseCellKey(targetKey);
+      setEntries((prev) => {
+        const idStr = rackId.toString();
+        const exists = prev.some((e) => e.rackId.toString() === idStr);
+        const next = prev.map((e) => {
+          if (e.rackId === rackId) return { ...e, aisleIndex: aisle, positionInAisle: position };
+          if (e.aisleIndex === aisle && e.positionInAisle === position) {
+            return { ...e, aisleIndex: undefined, positionInAisle: undefined };
+          }
+          return e;
+        });
+        if (!exists) {
+          next.push({ rackId, label, aisleIndex: aisle, positionInAisle: position });
+        }
+        return next;
+      });
+      setSelectedCellKey(null);
+      setSelectedRackId(null);
+      setShowSearchRacks(false);
+    },
+    [selectedCellKey],
   );
 
   const handleRemoveRack = useCallback((rackId: bigint) => {
@@ -296,82 +362,47 @@ const ManageBuildingModal = ({
     setSelectedRackId((prev) => (prev === rackId ? null : prev));
   }, []);
 
-  const handleAddRack = useCallback((rackId: bigint, label: string) => {
+  // Building id → label map for the rack picker.
+  const buildingLabels = useMemo(() => {
+    const out: Record<string, string> = {};
+    for (const row of siblingBuildings ?? []) {
+      const b = row.building;
+      if (b) out[b.id.toString()] = b.name;
+    }
+    out[building.id.toString()] = building.name;
+    return out;
+  }, [siblingBuildings, building.id, building.name]);
+
+  const currentRackIds = useMemo(() => entries.map((e) => e.rackId), [entries]);
+
+  // ManageRacksModal confirm — replace the working-set membership with the
+  // operator's selection. Existing entries keep their position (so a
+  // re-open of Manage racks doesn't disturb the layout); newly-added
+  // entries enter unplaced.
+  const handleManageRacksConfirm = useCallback((selections: { rackId: bigint; label: string }[]) => {
+    const keepIds = new Set(selections.map((s) => s.rackId.toString()));
     setEntries((prev) => {
-      if (prev.some((e) => e.rackId === rackId)) return prev;
-      // New racks start unplaced — byName mode will auto-place on next
-      // render; manual mode lets the operator drop them into a cell.
-      return [...prev, { rackId, label }];
+      const kept = prev.filter((e) => keepIds.has(e.rackId.toString()));
+      const knownIds = new Set(kept.map((e) => e.rackId.toString()));
+      const added: AssignmentEntry[] = [];
+      for (const sel of selections) {
+        if (knownIds.has(sel.rackId.toString())) continue;
+        added.push({ rackId: sel.rackId, label: sel.label });
+      }
+      return [...kept, ...added];
     });
+    setSelectedRackId(null);
+    setSelectedCellKey(null);
+    setShowManageRacks(false);
   }, []);
 
-  const handleSearchConfirm = useCallback(
-    (rackId: bigint, label: string) => {
-      handleAddRack(rackId, label);
-      setShowSearchRacks(false);
-    },
-    [handleAddRack],
-  );
-
-  const alreadyAddedRackIds = useMemo(() => entries.map((e) => e.rackId), [entries]);
-
-  // Save:
-  //   1. UpdateBuilding if aisles / racks_per_aisle changed.
-  //   2. For each rack whose placement changed vs the load-time snapshot,
-  //      call AssignRackToBuilding. Newly added racks (not in the snapshot)
-  //      also go through this call so the server learns about them.
-  //   3. Single refetch implicit via parent (onSaved).
+  // Save: walk activeAssignments, diff against the load-time snapshot, and
+  // fire one AssignRackToBuilding per changed rack (plus unassigns for racks
+  // removed from this building). Layout writes live in BuildingSettingsModal.
   const handleSave = useCallback(async () => {
     setErrorMsg("");
-    if (aislesError || racksPerAisleError) {
-      setErrorMsg("Fix the highlighted layout fields before saving.");
-      return;
-    }
-    if (parseNonNegativeInt(aislesText) === null || parseNonNegativeInt(racksPerAisleText) === null) {
-      setErrorMsg("Layout fields must be whole numbers.");
-      return;
-    }
     setIsSaving(true);
     try {
-      // Step 1: persist layout if changed.
-      const layoutChanged = aislesNum !== building.aisles || racksPerAisleNum !== building.racksPerAisle;
-      let updated = building;
-      if (layoutChanged) {
-        const values: BuildingFormValues = {
-          name: building.name,
-          description: building.description,
-          powerCapacityMw: building.powerKw > 0 ? building.powerKw / 1000 : 0,
-          overheadKw: building.overheadKw,
-          aisles: aislesNum,
-          racksPerAisle: racksPerAisleNum,
-        };
-        const next = await new Promise<Building | null>((resolve) => {
-          void updateBuilding({
-            id: building.id,
-            values,
-            onSuccess: (b) => resolve(b),
-            onError: (msg) => {
-              setErrorMsg(`Failed to save layout: ${msg}`);
-              resolve(null);
-            },
-          });
-        });
-        if (!next) {
-          setIsSaving(false);
-          return;
-        }
-        updated = next;
-      }
-
-      // Step 2: walk activeAssignments and diff against the initial
-      // placement snapshot. The active map already reflects byName's
-      // implicit positions, so byName saves persist auto-placement just
-      // like manual does — the operator's final view becomes the stored
-      // state regardless of which mode they were in.
-      const rackToCell = new Map<string, GridCellKey>();
-      for (const [key, rackId] of Object.entries(activeAssignments)) {
-        rackToCell.set(rackId.toString(), key);
-      }
       const initial = initialPlacementRef.current;
       const writes: Promise<void>[] = [];
       for (const entry of entries) {
@@ -400,9 +431,8 @@ const ManageBuildingModal = ({
           }),
         );
       }
-      // Step 2b: racks removed from this building (in the snapshot but not
-      // in the current entries list) need an explicit unassign so the BE
-      // drops the building_id.
+      // Racks removed from this building (in snapshot, not in entries) need
+      // an explicit unassign so the BE clears building_id.
       const currentIds = new Set(entries.map((e) => e.rackId.toString()));
       for (const idStr of initial.keys()) {
         if (currentIds.has(idStr)) continue;
@@ -426,44 +456,19 @@ const ManageBuildingModal = ({
         return;
       }
 
-      pushToast({ message: `Building "${updated.name}" saved`, status: STATUSES.success });
-      // Refresh the snapshot so a follow-up Save inside the same modal
-      // session doesn't re-fire the same writes.
-      const refreshed = new Map<string, string>();
-      for (const [key, rackId] of Object.entries(activeAssignments)) {
-        refreshed.set(rackId.toString(), key.replace("-", ":"));
-      }
-      // Entries with no cell are unplaced in the refreshed snapshot.
-      for (const e of entries) {
-        if (!refreshed.has(e.rackId.toString())) refreshed.set(e.rackId.toString(), "unplaced");
-      }
-      initialPlacementRef.current = refreshed;
-      onSaved?.(updated);
+      pushToast({ message: `Building "${building.name}" saved`, status: STATUSES.success });
+      onSaved?.(building);
+      onDismiss();
     } finally {
       setIsSaving(false);
     }
-  }, [
-    aislesError,
-    racksPerAisleError,
-    aislesText,
-    racksPerAisleText,
-    aislesNum,
-    racksPerAisleNum,
-    building,
-    activeAssignments,
-    entries,
-    updateBuilding,
-    assignRackToBuilding,
-    onSaved,
-  ]);
+  }, [building, rackToCell, entries, assignRackToBuilding, onSaved, onDismiss]);
 
   if (!open) return null;
 
-  // siteId fallback to 0n is safe — the SearchRacksModal effect bails on
-  // unset, and the modal only mounts when open.
   const siteId = building.siteId ?? 0n;
   const totalCells = aislesNum * racksPerAisleNum;
-  const assignedCount = Object.keys(activeAssignments).length;
+  const assignedCount = rackToCell.size;
   const title = building.name || "Manage building";
   const subtitle = siteName ? `in ${siteName}` : undefined;
 
@@ -476,11 +481,27 @@ const ManageBuildingModal = ({
         isBusy={isSaving}
         buttons={[
           {
-            text: "Edit building",
+            text: "Delete building",
+            variant: variants.secondaryDanger,
+            onClick: onDeleteRequested,
+            disabled: isSaving,
+            testId: "manage-building-delete",
+          },
+          {
+            text: "Building settings",
             variant: variants.secondary,
             onClick: onEditDetails,
             disabled: isSaving,
             testId: "manage-building-edit-details",
+          },
+          {
+            // Mirror of AssignMinersModal's "Manage Miners" header CTA —
+            // the entry point for bulk rack add/remove.
+            text: "Manage racks",
+            variant: variants.secondary,
+            onClick: () => setShowManageRacks(true),
+            disabled: isSaving || isLoading || !!loadError,
+            testId: "manage-building-manage-racks",
           },
           {
             text: isSaving ? "Saving…" : "Save",
@@ -517,19 +538,16 @@ const ManageBuildingModal = ({
         }
         primaryPane={
           <BuildingRacksPane
-            aislesText={aislesText}
-            racksPerAisleText={racksPerAisleText}
-            aislesError={aislesError}
-            racksPerAisleError={racksPerAisleError}
-            onAislesChange={handleAislesChange}
-            onRacksPerAisleChange={handleRacksPerAisleChange}
             assignmentMode={assignmentMode}
             onModeChange={handleModeChange}
             assignedRacks={assignedRacks}
             selectedRackId={selectedRackId}
+            selectedCellKey={selectedCellKey}
+            hoveredRackId={hoveredRackId}
+            onHoverRack={setHoveredRackId}
             onSelectRack={handleSelectRack}
             onRemoveRack={handleRemoveRack}
-            onOpenSearchRacks={() => setShowSearchRacks(true)}
+            onOpenManageRacks={() => setShowManageRacks(true)}
             saving={isSaving}
           />
         }
@@ -538,22 +556,46 @@ const ManageBuildingModal = ({
             aisles={aislesNum}
             racksPerAisle={racksPerAisleNum}
             cellLabels={cellLabels}
+            cellRackIds={cellRackIds}
             onCellClick={assignmentMode === "manual" ? handleCellClick : undefined}
             selectedCellKey={selectedCellKey}
+            showPopover={showCellPopover}
+            onSelectFromList={handleSelectFromList}
+            onSearchRacks={handleSearchRacks}
+            onPopoverDismiss={handlePopoverDismiss}
+            hasRacks={entries.length > 0}
+            hoveredRackId={hoveredRackId}
+            onHoverRack={setHoveredRackId}
+            onOpenSettings={onEditDetails}
             assignedCount={assignedCount}
             totalCells={totalCells}
           />
         }
       />
 
+      {showManageRacks ? (
+        <ManageRacksModal
+          open={showManageRacks}
+          siteId={siteId}
+          currentBuildingId={building.id}
+          buildingLabels={buildingLabels}
+          initialSelectedRackIds={currentRackIds}
+          onDismiss={() => setShowManageRacks(false)}
+          onConfirm={handleManageRacksConfirm}
+        />
+      ) : null}
+
       {showSearchRacks ? (
         <SearchRacksModal
           open={showSearchRacks}
           siteId={siteId}
           currentBuildingId={building.id}
-          alreadyAddedRackIds={alreadyAddedRackIds}
-          onDismiss={() => setShowSearchRacks(false)}
-          onConfirm={handleSearchConfirm}
+          buildingLabels={buildingLabels}
+          onDismiss={() => {
+            setShowSearchRacks(false);
+            setSelectedCellKey(null);
+          }}
+          onConfirm={handleSearchRackConfirm}
         />
       ) : null}
     </>

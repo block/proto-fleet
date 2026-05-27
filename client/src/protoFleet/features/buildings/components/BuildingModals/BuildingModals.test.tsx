@@ -48,13 +48,13 @@ const makeApi = (overrides: Partial<BuildingModalsApi> = {}): BuildingModalsApi 
 });
 
 describe("BuildingModals", () => {
-  it("renders BuildingDetailsModal in create mode when state.kind = detailsCreate", () => {
+  it("renders BuildingSettingsModal in create mode when state.kind = detailsCreate", () => {
     const modals = makeApi({
       state: { kind: "detailsCreate", siteId: 7n, siteName: "North DC", draft: emptyBuildingFormValues() },
     });
     render(<BuildingModals modals={modals} />);
-    expect(screen.getByTestId("building-details-modal")).toBeInTheDocument();
-    expect(screen.getByTestId("building-details-modal-save")).toBeInTheDocument();
+    expect(screen.getByTestId("building-settings-modal")).toBeInTheDocument();
+    expect(screen.getByTestId("building-settings-modal-save")).toBeInTheDocument();
   });
 
   it("Delete in detailsEdit calls requestDeleteCurrent without arguments", () => {
@@ -66,7 +66,7 @@ describe("BuildingModals", () => {
     });
 
     render(<BuildingModals modals={modals} />);
-    fireEvent.click(screen.getByTestId("building-details-modal-delete"));
+    fireEvent.click(screen.getByTestId("building-settings-modal-delete"));
 
     expect(requestDeleteCurrent).toHaveBeenCalled();
     expect(modals.deleteConfirm).not.toHaveBeenCalled();

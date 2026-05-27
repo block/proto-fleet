@@ -69,7 +69,7 @@ const BuildingPage = () => {
   }, [fetchBuilding, buildingId]);
 
   // Mount BuildingModals at the page level so the manage flow can stack
-  // BuildingDetailsModal on top without re-rendering the page shell. The
+  // BuildingSettingsModal on top without re-rendering the page shell. The
   // delete-from-manage rule (per plan PR 3) redirects to /sites — the
   // manage modal's anchor is the now-deleted building so we can't stay.
   const buildingModals = useBuildingModals({

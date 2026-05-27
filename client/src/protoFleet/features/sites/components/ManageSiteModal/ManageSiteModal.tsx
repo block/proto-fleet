@@ -32,7 +32,7 @@ interface ManageSiteModalProps {
   } | null>;
   onEditDetails: () => void;
   // Bubbles draft.networkConfig edits back to the parent state so a round-
-  // trip through SiteDetailsModal preserves the textarea contents.
+  // trip through SiteSettingsModal preserves the textarea contents.
   onNetworkConfigChange: (value: string) => void;
   onDismiss: () => void;
   saving?: boolean;

@@ -9,7 +9,7 @@ import {
 import { type Building, type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 
-// Building modal stack. BuildingDetailsModal can render alone (entry from
+// Building modal stack. BuildingSettingsModal can render alone (entry from
 // the /settings/sites or ManageSiteModal buildings tables) or stacked on
 // top of ManageBuildingModal (entry from /buildings/:id "Edit building"
 // header).
@@ -61,7 +61,7 @@ export interface BuildingModalsApi {
   // otherwise collapses to none. Mirrors useSiteModals.dismiss.
   dismiss: () => void;
   dismissDeleteConfirm: () => void;
-  // BuildingDetailsModal handlers. Create returns the created Building so
+  // BuildingSettingsModal handlers. Create returns the created Building so
   // hosts that want to chain (e.g. open ManageBuildingModal on the new
   // building) can do so; today every caller just closes the modal.
   detailsCreate: (values: BuildingFormValues) => Promise<Building | null>;
@@ -217,7 +217,10 @@ const useBuildingModals = ({
       let row: BuildingWithCounts | null = null;
       let fromManage = false;
       if (prev.kind === "detailsEdit") row = prev.row;
-      else if (prev.kind === "manageEditingDetails") {
+      else if (prev.kind === "manage") {
+        row = prev.row;
+        fromManage = true;
+      } else if (prev.kind === "manageEditingDetails") {
         row = prev.row;
         fromManage = true;
       }

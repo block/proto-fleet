@@ -17,11 +17,11 @@ interface SiteSettingsSingleViewProps {
   // Opens ManageSiteModal in edit mode. Wired by the page so the modal
   // stack lives at the page level instead of nested per-section.
   onManage?: () => void;
-  // Opens BuildingDetailsModal in create mode under this site. Hosted by
+  // Opens BuildingSettingsModal in create mode under this site. Hosted by
   // the page so building modals share a single useBuildingModals instance
   // across the surfaces that can launch them.
   onAddBuilding?: () => void;
-  // Opens BuildingDetailsModal in edit mode for a specific row.
+  // Opens BuildingSettingsModal in edit mode for a specific row.
   onEditBuilding?: (row: BuildingWithCounts) => void;
   // Refresh signal — bumped by the page whenever the building cache might
   // have shifted (post-create / post-delete) so this view re-fetches.

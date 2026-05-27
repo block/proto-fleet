@@ -1,5 +1,5 @@
 import BuildingDeleteDialog from "../BuildingDeleteDialog";
-import BuildingDetailsModal from "../BuildingDetailsModal";
+import BuildingSettingsModal from "../BuildingSettingsModal";
 import ManageBuildingModal from "../ManageBuildingModal";
 import { type useBuildingModals } from "@/protoFleet/features/buildings/hooks/useBuildingModals";
 
@@ -16,7 +16,7 @@ const BuildingModals = ({ modals }: BuildingModalsProps) => {
 
   return (
     <>
-      {/* ManageBuildingModal renders first so BuildingDetailsModal's portal
+      {/* ManageBuildingModal renders first so BuildingSettingsModal's portal
           lands later in the DOM and naturally stacks on top. */}
       {showManage && state.row.building ? (
         <ManageBuildingModal
@@ -25,10 +25,11 @@ const BuildingModals = ({ modals }: BuildingModalsProps) => {
           siteName={state.siteName}
           onDismiss={modals.dismiss}
           onEditDetails={modals.manageEditDetails}
+          onDeleteRequested={modals.requestDeleteCurrent}
         />
       ) : null}
       {state.kind === "detailsCreate" ? (
-        <BuildingDetailsModal
+        <BuildingSettingsModal
           open
           mode="create"
           initialValues={state.draft}
@@ -41,7 +42,7 @@ const BuildingModals = ({ modals }: BuildingModalsProps) => {
         />
       ) : null}
       {state.kind === "detailsEdit" ? (
-        <BuildingDetailsModal
+        <BuildingSettingsModal
           open
           mode="edit"
           initialValues={state.draft}
@@ -55,7 +56,7 @@ const BuildingModals = ({ modals }: BuildingModalsProps) => {
         />
       ) : null}
       {state.kind === "manageEditingDetails" ? (
-        <BuildingDetailsModal
+        <BuildingSettingsModal
           open
           mode="edit"
           initialValues={state.draft}
