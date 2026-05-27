@@ -939,18 +939,16 @@ func (x *DeleteBuildingResponse) GetUnassignedRackCount() int64 {
 type ListBuildingRacksRequest struct {
 	state      protoimpl.MessageState `protogen:"open.v1"`
 	BuildingId int64                  `protobuf:"varint,1,opt,name=building_id,json=buildingId,proto3" json:"building_id,omitempty"`
-	// page_size and page_token are additive paging fields. The
-	// server caps page_size at SERVER_PAGE_SIZE_CAP (500) and defaults
-	// an unset value to the same cap. page_token is an opaque cursor
-	// returned by a prior response; today the server returns all rows
-	// up to the cap in one shot and leaves next_page_token empty, so
-	// clients that ignore these fields still see correct results.
-	// Surfaced now so future cursor paging is non-breaking.
-	// Cap is 10000 — matches the maximum possible placed-rack count
-	// given the (aisles ≤ 100) × (racks_per_aisle ≤ 100) layout cap.
-	// ManageBuildingModal seeds its working set from this RPC and
-	// treats the response as a complete snapshot; a smaller cap
-	// would silently truncate for large buildings.
+	// page_size and page_token are reserved for a future cursor-
+	// paging implementation. The server currently IGNORES page_size
+	// and always returns the complete working set in one response
+	// (next_page_token stays empty). The cap (10000) matches the
+	// maximum possible placed-rack count given the (aisles ≤ 100) ×
+	// (racks_per_aisle ≤ 100) layout cap, so a single response
+	// always fits the working set. Surfaced now so future cursor
+	// paging is non-breaking; honoring smaller page_size values
+	// without a real cursor would silently truncate for any
+	// paginating caller.
 	PageSize      int32  `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
 	PageToken     string `protobuf:"bytes,3,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
 	unknownFields protoimpl.UnknownFields

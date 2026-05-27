@@ -211,16 +211,21 @@ const ListBuildingRacksPageSizeCap = int32(10000)
 // with their grid placement. Verifies the building exists in the org
 // before returning so a stale building_id surfaces as NotFound rather
 // than an empty list (which would look identical to "no racks yet").
-// `pageSize` is clamped to [1, ListBuildingRacksPageSizeCap]; a value
-// of 0 defaults to the cap, mirroring the proto contract.
+//
+// `pageSize` is part of the proto contract surface but is currently
+// IGNORED — the handler always issues the cap so the response is the
+// complete working set (matches the layout-cap ceiling of 10000
+// placed racks). Honoring smaller values without a cursor would
+// silently truncate for paginating callers because next_page_token
+// stays empty. Real cursor paging is a deferred follow-up; until
+// then we treat the field as advisory and always serve the full
+// list in one shot.
 func (s *Service) ListBuildingRacks(ctx context.Context, orgID, buildingID int64, pageSize int32) ([]models.BuildingRack, error) {
-	if pageSize <= 0 || pageSize > ListBuildingRacksPageSizeCap {
-		pageSize = ListBuildingRacksPageSizeCap
-	}
+	_ = pageSize // see func doc — value is intentionally ignored until cursor paging lands
 	if _, err := s.store.GetBuilding(ctx, orgID, buildingID); err != nil {
 		return nil, err
 	}
-	return s.store.ListBuildingRacks(ctx, orgID, buildingID, pageSize)
+	return s.store.ListBuildingRacks(ctx, orgID, buildingID, ListBuildingRacksPageSizeCap)
 }
 
 // AssignRackToBuilding sets a rack's building_id and, optionally, its
